@@ -3,7 +3,7 @@ name: Deploy prod
 # Инкрементальный авто-деплой (по умолчанию): после зелёного «CI gate» на main.
 # Сборка arm64 идёт в GitHub-раннере с кэшем слоёв (быстрая пересборка) и пушится в GHCR;
 # сервер делает `docker compose pull` — тянет ТОЛЬКО изменённые слои (легко), у себя НЕ собирает.
-# VPN-нода не затрагивается. Требует секретов DEPLOY_HOST + DEPLOY_SSH_KEY (без них — пропуск).
+# VPN-нода не затрагивается. Нужен только секрет DEPLOY_SSH_KEY (без него — пропуск). Хост — публичный IP.
 on:
   workflow_run:
     workflows: ["CI gate"]
@@ -14,6 +14,10 @@ concurrency:
   group: deploy-prod
   cancel-in-progress: false
 
+env:
+  DEPLOY_HOST: "89.167.127.0"
+  IMAGE: ghcr.io/${{ github.repository_owner }}/remlab-app
+
 jobs:
   deploy:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
@@ -21,19 +25,17 @@ jobs:
     permissions:
       contents: read
       packages: write
-    env:
-      IMAGE: ghcr.io/${{ github.repository_owner }}/remlab-app
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
 
-      - name: Проверка секретов
+      - name: Проверка секрета
         id: gate
         run: |
-          if [ -z "${{ secrets.DEPLOY_HOST }}" ] || [ -z "${{ secrets.DEPLOY_SSH_KEY }}" ]; then
+          if [ -z "${{ secrets.DEPLOY_SSH_KEY }}" ]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::DEPLOY_HOST/DEPLOY_SSH_KEY не заданы — деплой пропущен."
+            echo "::warning::DEPLOY_SSH_KEY не задан — деплой пропущен."
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
@@ -69,12 +71,12 @@ jobs:
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -H "${{ env.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
 
       - name: Деплой на сервер (pull только изменённых слоёв)
         if: steps.gate.outputs.ready == 'true'
         env:
-          SRV: root@${{ secrets.DEPLOY_HOST }}
+          SRV: root@${{ env.DEPLOY_HOST }}
           SHA: ${{ github.sha }}
           ACTOR: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -94,8 +96,7 @@ jobs:
       - name: Smoke-тест + откат при провале
         if: steps.gate.outputs.ready == 'true'
         env:
-          SRV: root@${{ secrets.DEPLOY_HOST }}
-          SHA: ${{ github.sha }}
+          SRV: root@${{ env.DEPLOY_HOST }}
         run: |
           for i in $(seq 1 20); do
             code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 https://remont-lab.online/api/health || true)
