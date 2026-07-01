@@ -8,6 +8,11 @@ test("лендинг рендерится", async ({ page }) => {
   );
 });
 
+test("/rooms открывается у нового посетителя (без cookie) — пустой стейт", async ({ page }) => {
+  await page.goto("/rooms");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Мои комнаты");
+});
+
 test("/api/health отдаёт ok:true", async ({ request }) => {
   const res = await request.get("/api/health");
   expect(res.ok()).toBeTruthy();

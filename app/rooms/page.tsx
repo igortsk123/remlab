@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { repo } from "@/modules/store/repository";
-import { getSessionId } from "@/lib/session";
+import { readSessionId } from "@/lib/session";
 
 const STATUS_LABEL: Record<string, string> = {
   started: "начато", brief_done: "бриф заполнен", style_done: "стиль выбран",
@@ -8,8 +8,8 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default async function RoomsPage() {
-  const sessionId = await getSessionId();
-  const projects = await repo().listBySession(sessionId);
+  const sessionId = await readSessionId();
+  const projects = sessionId ? await repo().listBySession(sessionId) : [];
 
   return (
     <main className="container">
