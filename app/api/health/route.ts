@@ -1,12 +1,8 @@
 import { NextResponse } from "next/server";
+import { buildHealth } from "@/lib/health";
 
 export const dynamic = "force-dynamic";
 
 export function GET() {
-  return NextResponse.json({
-    ok: true,
-    service: "remlab",
-    version: process.env.APP_VERSION ?? "dev",
-    ts: new Date().toISOString(),
-  });
+  return NextResponse.json(buildHealth());
 }
