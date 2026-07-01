@@ -1,0 +1,9 @@
+{
+  "terminal.integrated.profiles.linux": {
+    "tmux-igor": {
+      "path": "bash",
+      "args": ["-lc", "tmux new -A -s igor"]
+    }
+  },
+  "terminal.integrated.defaultProfile.linux": "tmux-igor"
+}
