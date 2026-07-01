@@ -1,0 +1,41 @@
+name: Deploy prod
+
+# Авто-деплой по умолчанию: запускается ПОСЛЕ зелёного «CI gate» на ветке main.
+# Сборка arm64-образа идёт в GitHub-раннере (не на боевом сервере — там живёт VPN-нода);
+# сервер только получает готовый образ и запускает (deploy.sh: save|ssh load|compose up|migrate|smoke|rollback).
+on:
+  workflow_run:
+    workflows: ["CI gate"]
+    types: [completed]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Guard — секреты заданы?
+        if: ${{ secrets.DEPLOY_HOST == '' || secrets.DEPLOY_SSH_KEY == '' }}
+        run: |
+          echo "::warning::DEPLOY_HOST/DEPLOY_SSH_KEY не заданы — деплой пропущен (нужны секреты репозитория)."
+      - name: SSH setup
+        if: ${{ secrets.DEPLOY_HOST != '' && secrets.DEPLOY_SSH_KEY != '' }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+      - name: Deploy
+        if: ${{ secrets.DEPLOY_HOST != '' && secrets.DEPLOY_SSH_KEY != '' }}
+        env:
+          REMLAB_SERVER: root@${{ secrets.DEPLOY_HOST }}
+        run: bash ./deploy.sh "${GITHUB_SHA::12}"

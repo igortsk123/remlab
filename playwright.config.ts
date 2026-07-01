@@ -16,7 +16,7 @@ export default defineConfig({
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
-    command: "pnpm start",
+    command: "REMLAB_FAKE_AI=1 pnpm start",
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

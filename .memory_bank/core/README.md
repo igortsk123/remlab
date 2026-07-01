@@ -8,6 +8,7 @@
 
 | Файл | Тема (topic) | Tier 2 |
 |------|--------------|--------|
+| `access-and-integrations.md` | интеграции/доступы: ключи, модели ИИ, эндпоинты, цены | — |
 | `architecture.md` | стек, структура, границы модулей, деплой | `docs/tech-spec-ts-stack.md` |
 | `data-model.md` | сущности, таблицы, pgvector, RLS | `docs/tech-spec-ts-stack.md` §4 |
 | `user-flow.md` | Stage 1 flow, экраны, free/paid, аналитика | `docs/cjm-ux-v0.2.md` |

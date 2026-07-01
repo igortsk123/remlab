@@ -21,6 +21,7 @@ remlab (remont-lab) — B2C AI-помощник по обновлению ква
 
 | Задача (scope) | Tier 1 | Tier 2 |
 |----------------|--------|--------|
+| Внешние интеграции/доступы — где ключи, модели/эндпоинты ИИ, клиенты, цены | `core/access-and-integrations.md` | — |
 | Стек, структура репозитория, границы модулей, архитектура деплоя | `core/architecture.md` | `../../docs/tech-spec-ts-stack.md` |
 | Модель данных, ключевые таблицы, pgvector, RLS | `core/data-model.md` | `../../docs/tech-spec-ts-stack.md` |
 | Рынок и позиционирование — спрос, конкуренты, монетизация, оценки RU/UK | `core/market.md` | `../../docs/market-research-ru-uk.md` |

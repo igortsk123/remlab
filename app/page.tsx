@@ -1,29 +1,37 @@
+import Link from "next/link";
+
 export default function Home() {
   return (
-    <main
-      style={{
-        minHeight: "100dvh",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "24px",
-        textAlign: "center",
-      }}
-    >
-      <div style={{ maxWidth: 640 }}>
-        <p style={{ letterSpacing: 2, opacity: 0.6, fontSize: 13 }}>REMONT-LAB</p>
-        <h1 style={{ fontSize: 34, lineHeight: 1.2, margin: "12px 0" }}>
-          Обновите комнату с помощью AI
-        </h1>
-        <p style={{ opacity: 0.75, fontSize: 17 }}>
-          Визуальная идея, товары, бюджет и план по фото. Каркас развёрнут —
-          продуктовый flow (Stage&nbsp;1) в разработке.
-        </p>
-        <p style={{ marginTop: 28, fontSize: 13, opacity: 0.5 }}>
-          bootstrap skeleton · {process.env.APP_VERSION ?? "dev"}
+    <main className="container">
+      <p className="eyebrow">remont-lab</p>
+      <h1>Обновите комнату с помощью AI</h1>
+      <p className="muted" style={{ fontSize: 18 }}>
+        Загрузите фото — получите визуальную идею обновления вашей комнаты, идеи, товары и
+        материалы с примерным бюджетом и планом.
+      </p>
+
+      <div className="row" style={{ margin: "24px 0 8px" }}>
+        <Link className="btn" href="/start">Обновить комнату</Link>
+        <Link className="btn btn-secondary" href="/soon?f=cost">Рассчитать стоимость</Link>
+      </div>
+
+      <div className="card stack" style={{ marginTop: 28 }}>
+        <p className="eyebrow">Как это работает</p>
+        <ol className="muted" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.9 }}>
+          <li>Фото комнаты → короткий бриф</li>
+          <li>Выбор стиля по карточкам</li>
+          <li>AI-превью вашей комнаты + идеи и бюджет</li>
+          <li>Полный план комнаты (товары, материалы, цены, PDF)</li>
+        </ol>
+        <p className="note">
+          AI-превью — визуальная концепция вашей комнаты, а не рабочий проект. Перед покупкой
+          проверяйте размеры.
         </p>
       </div>
+
+      <p style={{ marginTop: 24 }}>
+        <Link className="muted" href="/rooms">Мои комнаты →</Link>
+      </p>
     </main>
   );
 }

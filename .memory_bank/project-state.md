@@ -27,7 +27,19 @@ review_after: ""
 - **S2 ✅:** exit-fi подготовлен — бэкапы (`/root/backup-remlab/`), swap 4G (swappiness=10), сеть `remlab-net`, `/opt/remlab`, таймеры `remlab-cleanup` (weekly) / `remlab-watchdog` (daily) / `remlab-db-backup` (nightly). VPN-нода не задета.
 - **S3 ✅:** каркас Next.js (TS strict, standalone) + Dockerfile + `docker-compose` (Caddy :443 LE / remlab-app / postgres17+pgvector). Стек живой: app Up, db healthy, pgvector 0.8.4 + pg_trgm. HTTPS 200, `/api/health` version=bootstrap-s3. VPN цел, диск 36%, swap ~0.
 - **S4 ✅:** регресс-сетка — Vitest (unit) + Playwright (smoke) + GitHub Actions CI-гейт (typecheck+lint+test+build+e2e). Репо на GitHub `igortsk123/remlab` (deploy key, ветка main). CI-run `success`.
-- **Bootstrap (S1–S4) завершён** → `completed_plans/remlab-bootstrap.md`. Следующее: `plans/stage1-skeleton.md` (draft).
+- **Bootstrap (S1–S4) завершён** → `completed_plans/remlab-bootstrap.md`.
+- **Stage 1 — master roadmap** (`plans/stage1-master-roadmap.md`): M0…M8 подряд. Дизайн-направление: тёплый минимализм japandi/скандинавский (кремовый/беж/greige, дерево, шалфей/терракота).
+- **M0 ✅ (2026-07-01):** провайдеры ИИ. Gemini одним ключом: картинки `gemini-3.1-flash-image` (Nano Banana 2), анализ/текст `gemini-flash-latest`. Код `lib/providers/`. Ключ в `.env.local`. Смоук `pnpm smoke:providers` OK. ADR-0007.
+- **M1–M7 ✅ (2026-07-01):** продуктовый Stage 1 собран (каркас, но с НАСТОЯЩИМ ИИ):
+  - Контракты `contracts/*` (Zod), хранилище `modules/store/` (in-memory, ADR-0008), сессия `lib/session.ts`.
+  - Модули: `room-analysis` (vision), `visual-generation` (restyle фото по эталону), `ideas` (идеи+seed-каталог товаров/материалов+бюджет), `generation-job` (оркестратор).
+  - Экраны `app/`: landing → `/start` → `/p/[id]/brief`(фото+бриф) → `/style` → `/preview`(AI-превью+идеи+товары/материалы+бюджет+paywall CTA) → `/paywall`(оплата-демо→полный план) → `/rooms`(workspace) + `/soon`(fake-door стоимости). Тема japandi `app/globals.css`.
+  - Проверено: typecheck/lint/build зелёные; 8 unit (вкл. интеграцию конвейера на фейк-ИИ); реальный Gemini restyle «до/после» подтверждён визуально.
+- **M8 почти готов:** e2e happy-path (Playwright, весь путь) — в CI (локально Ubuntu 26.04 не ставит браузер). Фейк-ИИ по флагу (ADR-0010).
+  - **Postgres активирован (ADR-0011):** `db/schema.ts` (Drizzle, `projects`=jsonb), `modules/store/pg-repository.ts`; `repo()` выбирает PG при `DATABASE_URL`, иначе in-memory. Проверено на реальной PG (тест `pg-repository.test.ts`, в CI против сервиса postgres). Миграция `pnpm db:migrate` + `db/init/002-projects.sql`.
+  - **Авто-деплой через GitHub (ADR-0011):** `.github/workflows/deploy.yml` после зелёного CI на main → сборка arm64 в раннере → `deploy.sh` (VPN не грузим). **Ждёт разово от владельца:** секреты `DEPLOY_SSH_KEY`, `DEPLOY_HOST` в GitHub + `GEMINI_API_KEY` в `/opt/remlab/.env` на сервере. Без секретов деплой безопасно пропускается.
+  - **Осталось:** observability (Sentry/PostHog — опционально, нужны DSN); первый реальный прогон деплоя после установки секретов.
+- Продуктовые решения владельца: ADR-0009 (japandi / restyle фото / «Скоро» для стоимости).
 
 ## ⚠️ Ключевой факт железа
 Сервер **aarch64 (ARM)** → образы собирать под `linux/arm64` (buildx + `tonistiigi/binfmt`). `deploy.sh` уже делает это. Обычный `docker build` на amd64-машине даст неработающий образ (app будет рестартить).

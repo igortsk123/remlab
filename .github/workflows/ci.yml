@@ -33,6 +33,8 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+        env:
+          TEST_DATABASE_URL: postgres://remlab:test@localhost:5432/remlab
       - run: pnpm build
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm e2e
