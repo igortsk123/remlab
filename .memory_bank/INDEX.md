@@ -23,6 +23,7 @@ remlab (remont-lab) — B2C AI-помощник по обновлению ква
 |----------------|--------|--------|
 | Стек, структура репозитория, границы модулей, архитектура деплоя | `core/architecture.md` | `../../docs/tech-spec-ts-stack.md` |
 | Модель данных, ключевые таблицы, pgvector, RLS | `core/data-model.md` | `../../docs/tech-spec-ts-stack.md` |
+| Рынок и позиционирование — спрос, конкуренты, монетизация, оценки RU/UK | `core/market.md` | `../../docs/market-research-ru-uk.md` |
 | Регресс-защита — тесты, CI-гейт, observability, eval, гардрейлы, DoD | `core/regression-net.md` | `../../docs/tech-spec-ts-stack.md` |
 | Stage 1 UX-flow, экраны, free/paid граница, аналитика | `core/user-flow.md` | `../../docs/cjm-ux-v0.2.md` |
 | Бизнес-контекст — зачем продукт, для кого, что в scope | `product_brief.md` | `../docs/cjm-ux-v0.2.md` |
