@@ -21,7 +21,9 @@ services:
       options: { max-size: "10m", max-file: "3" }
 
   app:
-    image: remlab-app:latest
+    # По умолчанию — локальный образ (manual deploy.sh). GitHub-путь передаёт REMLAB_IMAGE=ghcr.io/...:sha
+    # → сервер тянет ТОЛЬКО изменённые слои (инкрементально, легко), не собирает у себя.
+    image: ${REMLAB_IMAGE:-remlab-app:latest}
     container_name: remlab-app
     restart: unless-stopped
     depends_on: [db]

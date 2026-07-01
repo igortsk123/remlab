@@ -97,3 +97,8 @@ completed:
   e2e happy-path написан (CI). Фейк-ИИ по флагу (ADR-0010).
   **Осталось в M8:** observability (Sentry/PostHog, нужны DSN) + Postgres/Drizzle + деплой на exit-fi
   (деплой ждёт явного «ок» — VPN-нода). PgRepository заменит MemoryRepository без правок вызывающих.
+- 2026-07-01 — **M8 ✅ ДЕПЛОЙ ЖИВОЙ**: Postgres активирован (проверен), PostHog-аналитика (no-op без ключа).
+  Выложено на прод вручную (`deploy.sh`, сборка локально, версия `ba4535000279`), бэкап+rollback, VPN цел.
+  Пофикшен прод-баг `/rooms` 500 (cookie в рендере → `readSessionId`). Всё в GitHub.
+  Инкрементальный авто-деплой настроен: `.github/workflows/deploy.yml` → GHCR (кэш слоёв) → сервер
+  `docker compose pull` (только изменённые слои). Активация: секреты `DEPLOY_HOST`+`DEPLOY_SSH_KEY`.

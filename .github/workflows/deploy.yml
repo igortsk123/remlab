@@ -1,8 +1,9 @@
 name: Deploy prod
 
-# Авто-деплой по умолчанию: запускается ПОСЛЕ зелёного «CI gate» на ветке main.
-# Сборка arm64-образа идёт в GitHub-раннере (не на боевом сервере — там живёт VPN-нода);
-# сервер только получает готовый образ и запускает (deploy.sh: save|ssh load|compose up|migrate|smoke|rollback).
+# Инкрементальный авто-деплой (по умолчанию): после зелёного «CI gate» на main.
+# Сборка arm64 идёт в GitHub-раннере с кэшем слоёв (быстрая пересборка) и пушится в GHCR;
+# сервер делает `docker compose pull` — тянет ТОЛЬКО изменённые слои (легко), у себя НЕ собирает.
+# VPN-нода не затрагивается. Требует секретов DEPLOY_HOST + DEPLOY_SSH_KEY (без них — пропуск).
 on:
   workflow_run:
     workflows: ["CI gate"]
@@ -17,25 +18,90 @@ jobs:
   deploy:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/remlab-app
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - name: Guard — секреты заданы?
-        if: ${{ secrets.DEPLOY_HOST == '' || secrets.DEPLOY_SSH_KEY == '' }}
+
+      - name: Проверка секретов
+        id: gate
         run: |
-          echo "::warning::DEPLOY_HOST/DEPLOY_SSH_KEY не заданы — деплой пропущен (нужны секреты репозитория)."
+          if [ -z "${{ secrets.DEPLOY_HOST }}" ] || [ -z "${{ secrets.DEPLOY_SSH_KEY }}" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::DEPLOY_HOST/DEPLOY_SSH_KEY не заданы — деплой пропущен."
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.gate.outputs.ready == 'true'
+        uses: docker/setup-qemu-action@v3
+      - if: steps.gate.outputs.ready == 'true'
+        uses: docker/setup-buildx-action@v3
+      - if: steps.gate.outputs.ready == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Сборка+push (arm64, кэш слоёв)
+        if: steps.gate.outputs.ready == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          provenance: false
+          sbom: false
+          build-args: APP_VERSION=${{ github.sha }}
+          tags: ${{ env.IMAGE }}:latest,${{ env.IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       - name: SSH setup
-        if: ${{ secrets.DEPLOY_HOST != '' && secrets.DEPLOY_SSH_KEY != '' }}
+        if: steps.gate.outputs.ready == 'true'
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
-      - name: Deploy
-        if: ${{ secrets.DEPLOY_HOST != '' && secrets.DEPLOY_SSH_KEY != '' }}
+
+      - name: Деплой на сервер (pull только изменённых слоёв)
+        if: steps.gate.outputs.ready == 'true'
         env:
-          REMLAB_SERVER: root@${{ secrets.DEPLOY_HOST }}
-        run: bash ./deploy.sh "${GITHUB_SHA::12}"
+          SRV: root@${{ secrets.DEPLOY_HOST }}
+          SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          scp docker-compose.yml "$SRV:/opt/remlab/docker-compose.yml"
+          scp db/init/001-extensions.sql db/init/002-projects.sql "$SRV:/opt/remlab/db/init/"
+          ssh "$SRV" "cd /opt/remlab && \
+            grep -q '^GEMINI_API_KEY=' .env || { echo 'FATAL: нет GEMINI_API_KEY в .env'; exit 1; }; \
+            echo '$GHCR_TOKEN' | docker login ghcr.io -u '$ACTOR' --password-stdin && \
+            docker tag ${IMAGE}:latest remlab-app:prev 2>/dev/null || true; \
+            REMLAB_IMAGE=${IMAGE}:$SHA APP_VERSION=$SHA docker compose pull app && \
+            REMLAB_IMAGE=${IMAGE}:$SHA APP_VERSION=$SHA docker compose up -d && \
+            for i in \$(seq 1 20); do docker compose exec -T db pg_isready -U remlab -d remlab >/dev/null 2>&1 && break; sleep 3; done && \
+            docker compose exec -T db psql -U remlab -d remlab -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/002-projects.sql && \
+            docker logout ghcr.io"
+
+      - name: Smoke-тест + откат при провале
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          SRV: root@${{ secrets.DEPLOY_HOST }}
+          SHA: ${{ github.sha }}
+        run: |
+          for i in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 https://remont-lab.online/api/health || true)
+            if [ "$code" = "200" ]; then echo "OK: health 200"; exit 0; fi
+            echo "ждём... ($i) code=$code"; sleep 6
+          done
+          echo "SMOKE FAILED -> откат на remlab-app:prev"
+          ssh "$SRV" "cd /opt/remlab && REMLAB_IMAGE=remlab-app:prev docker compose up -d && echo 'откат выполнен' || echo 'prev нет — ручной разбор'"
+          exit 1

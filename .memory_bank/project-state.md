@@ -17,7 +17,7 @@ review_after: ""
 > Обновлять после каждого крупного изменения. Первое, что читает агент при resume/`/clear`.
 
 ## Где
-- **Прод:** https://remont-lab.online — ✅ LIVE (каркас), валидный Let's Encrypt cert (до 2026-09-29, авто-продление).
+- **Прод:** https://remont-lab.online — ✅ LIVE **продуктовый Stage 1** (версия `ba4535000279`, 2026-07-01). Раньше был каркас. Valid LE cert (до 2026-09-29, авто-продление). Postgres в проде, GEMINI_API_KEY в `/opt/remlab/.env`. Бэкап БД перед деплоем: `/opt/remlab/backups/pre-stage1-*.sql.gz`. Откат: образ `remlab-app:prev`. VPN (`remnanode`) не задет.
 - **Репозиторий:** github.com/igortsk123/remlab (публичный, ветка `main`, deploy key `~/.ssh/remlab_deploy_ed25519`). CI: GitHub Actions гейт.
 - **Окружение / сервер:** exit-fi `89.167.127.0` (Hetzner EU, Ubuntu 24.04, **aarch64/ARM**, 2 vCPU / 3.7 GB / 38 GB). ⚠️ на сервере живёт боевая внутренняя VPN-нода — изоляция обязательна.
 - **Деплой:** кросс-сборка arm64 локально (buildx+эмуляция) → `docker save|ssh|docker load` → `docker compose up` в `/opt/remlab`. Скрипт: `deploy.sh`. Playbook: `deployment.md`.
