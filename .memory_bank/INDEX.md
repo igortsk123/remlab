@@ -40,6 +40,7 @@ remlab (remont-lab) — B2C AI-помощник по обновлению ква
 ## Ключевые исходники (docs/)
 - `docs/tech-spec-ts-stack.md` — инженерная спека (стек, контракты, схема, регресс-защита).
 - `docs/cjm-ux-v0.2.md` — продуктовый слой (CJM, экраны, free/paid, аналитика).
+- `docs/market-research-ru-uk.md` — рыночное исследование RU/UK (спрос, конкуренты, монетизация).
 - `docs/DECISIONS.md` — полные ADR.
 
 ## Path-scoped rules (auto-loaded)
@@ -49,7 +50,7 @@ remlab (remont-lab) — B2C AI-помощник по обновлению ква
 1. `plans/<slug>.md` (status `draft`) → ждать «деплой».
 2. Deploy → выполнить → `completed` → переместить в `completed_plans/`.
 3. `partial` / `cancelled` остаются в `plans/`.
-Активный план: `plans/remlab-bootstrap.md` (S1..S4). Шаблон: `plans/_template.md`.
+Активный план: `plans/stage1-skeleton.md` (draft). Bootstrap S1–S4 завершён → `completed_plans/`. Шаблон: `plans/_template.md`.
 
 ## Index map
 - `core/` — Tier 1 сводки. `docs/` — полные исходники/спеки. `guides/` — процесс-доки.
