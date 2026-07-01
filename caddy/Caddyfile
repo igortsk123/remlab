@@ -1,0 +1,10 @@
+{
+	email admin@remont-lab.online
+	# Let's Encrypt (prod). Челлендж пройдёт по TLS-ALPN-01 на :443 (порт :80 закрыт снаружи).
+	acme_ca https://acme-v02.api.letsencrypt.org/directory
+}
+
+remont-lab.online {
+	encode zstd gzip
+	reverse_proxy remlab-app:3000
+}

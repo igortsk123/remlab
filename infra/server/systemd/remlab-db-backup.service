@@ -1,0 +1,8 @@
+[Unit]
+Description=remlab nightly postgres dump
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/remlab/scripts/db-backup.sh

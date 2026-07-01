@@ -1,0 +1,8 @@
+[Unit]
+Description=remlab scoped docker cleanup (dangling images, build cache, stopped remlab containers, db backup rotation)
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/remlab/scripts/cleanup.sh

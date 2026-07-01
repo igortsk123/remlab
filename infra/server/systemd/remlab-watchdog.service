@@ -1,0 +1,6 @@
+[Unit]
+Description=remlab disk usage watchdog
+
+[Service]
+Type=oneshot
+ExecStart=/opt/remlab/scripts/disk-watchdog.sh 80

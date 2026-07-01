@@ -1,0 +1,34 @@
+# deps / build
+node_modules/
+.next/
+out/
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+
+# env / secrets (никогда в git)
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# test / coverage
+coverage/
+playwright-report/
+test-results/
+.vitest/
+
+# os / editor
+.DS_Store
+*.log
+
+# memory bank kit (не часть проекта)
+_optional/
+tools/
+_intake/_processed/
+
+# docker artifacts
+*.tar
+*.tar.gz
