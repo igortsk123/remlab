@@ -21,6 +21,8 @@ draft → in_progress → completed → перенос в completed_plans/
 
 | slug | Название | status | created |
 |------|----------|--------|---------|
-| _(пусто — добавляется при создании плана)_ | | | |
+| `stage1-skeleton` | Stage 1 каркас: схема БД + 7 экранов flow + e2e | draft | 2026-07-01 |
+
+> `remlab-bootstrap` завершён → `completed_plans/`.
 
 > Шаблон нового плана — `_template.md`.
