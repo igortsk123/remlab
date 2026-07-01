@@ -54,3 +54,4 @@ review_after: ""
 - Секреты только в `.env` на сервере, не в git/памяти.
 - Гипотезы, не аксиомы: отклонения → `docs/DECISIONS.md`.
 - Migration-ready: всё приложение = compose + env + volume-dump + образ.
+- **Память: всё durable — только в `.memory_bank/`** (не в локальной памяти Клода). В конце сессии — `/memory-consolidate` → `/memory-check`. Скиллы: init/consolidate/check/cleanup. Концепция: `guides/memory-automation.md`.

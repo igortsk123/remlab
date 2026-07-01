@@ -55,6 +55,9 @@ remlab (remont-lab) — B2C AI-помощник по обновлению ква
 - `archive/` — устаревшая, но ценная память. `changelog/memory-log.md` — лог очисток.
 
 ## Обслуживание памяти
+- **Свод сессии (в конце — обязательно):** `/memory-consolidate` — проектное из сессии/локальной памяти harness → `.memory_bank/`. Как устроено: `guides/memory-automation.md`.
 - **Быстро:** `/memory-check` (без Node) или `node tools/memory-audit.mjs`.
 - **Глубоко:** `/memory-cleanup` (dry-run → подтверждение). Правила: `CLEANUP_POLICY.md`.
+- **С нуля (bootstrap):** `/memory-init` из `_intake/`.
+- Единственное хранилище истории — `.memory_bank/` (не локальная память Клода). Правило: `.claude/rules/memory-discipline.md`.
 - Поля frontmatter: `METADATA_SCHEMA.md`.
