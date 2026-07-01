@@ -7,6 +7,7 @@ import { getSessionId } from "@/lib/session";
 import { project as projectSchema, briefSchema, type Photo } from "@/contracts/project";
 import { styleProfile as styleProfileSchema, styleId, type StyleId } from "@/contracts/style";
 import { roomType, goal, interventionLevel, budgetBand, keepItem, constraint } from "@/contracts/enums";
+import { track } from "@/lib/analytics";
 
 function str(fd: FormData, k: string): string | undefined {
   const v = fd.get(k);
@@ -38,6 +39,7 @@ export async function startProject(fd: FormData): Promise<void> {
     },
   });
   await repo().create(record);
+  await track("project_started", sessionId, { roomType: rt });
   redirect(`/p/${id}/brief`);
 }
 
@@ -73,6 +75,7 @@ export async function saveStyle(id: string, fd: FormData): Promise<void> {
 }
 
 export async function unlockPack(id: string): Promise<void> {
-  await repo().update(id, { paid: true, status: "paid" });
+  const p = await repo().update(id, { paid: true, status: "paid" });
+  if (p) await track("pack_unlocked", p.sessionId, { projectId: id });
   redirect(`/p/${id}/paywall`);
 }
