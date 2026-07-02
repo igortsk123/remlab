@@ -34,9 +34,8 @@ review_after: ""
 
 **Живые факты (деплой/сервер) → прод wins**, затем обновить `project-state.md`/`deployment.md`.
 
-> ⚠️ Бриф v0.3 называет стек «Supabase» — у нас **self-host Postgres+pgvector** (ADR-0001/0002) остаётся в
-> силе (pgvector/embeddings этим и закрыты); «Supabase» трактуем как «Postgres+pgvector», не как обязанность
-> уйти в облако. Смена — только явным решением владельца + новой ADR.
+> ✅ Стек БД: **self-host Postgres+pgvector подтверждён владельцем (2026-07-02).** «Supabase» из брифа НЕ
+> берём — трактуем как «Postgres+pgvector» (ADR-0001/0002). Конфликт закрыт.
 
 ## Домен процесса — как работать
 Приоритет по убыванию:
