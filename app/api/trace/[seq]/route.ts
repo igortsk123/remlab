@@ -2,7 +2,7 @@
 // За admin-гардом. Используется скиллом /trace и для ручной диагностики.
 
 import { traceStore } from "@/lib/trace/store";
-import { traceAdminOk, tokenQuery } from "@/lib/trace/admin";
+import { traceAdminOk, signedAssetUrl } from "@/lib/trace/admin";
 
 export const runtime = "nodejs";
 
@@ -18,10 +18,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ seq: str
 
   const steps = await store.getStepsByRun(run.id);
   const assets = await store.getAssetsByRun(run.id);
-  const q = tokenQuery();
+  const now = Date.now();
   const withUrls = assets.map((a) => ({
     id: a.id, stepId: a.stepId, role: a.role, mimeType: a.mimeType,
-    sizeBytes: a.sizeBytes, url: `/api/trace/asset/${a.id}${q}`,
+    sizeBytes: a.sizeBytes, url: signedAssetUrl(a.id, req, now),
   }));
 
   return Response.json({ run, steps, assets: withUrls });

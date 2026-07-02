@@ -20,13 +20,31 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
+  # Одноразовая инициализация тома трейсов: app работает под nextjs (uid 1001), а свежий named-том
+  # принадлежит root → запись картинок-ассетов падала молча. Здесь под root выставляем владельца, затем
+  # app стартует. Идемпотентно, переживает пересоздание тома. Изолировано (свой alpine, VPN не трогаем).
+  traces-init:
+    image: alpine:3.20
+    container_name: remlab-traces-init
+    command: ["sh", "-c", "mkdir -p /data && chown -R 1001:65533 /data && chmod -R u+rwX /data"]
+    volumes:
+      - remlab-traces:/data
+    restart: "no"
+    logging:
+      driver: json-file
+      options: { max-size: "1m", max-file: "1" }
+
   app:
     # По умолчанию — локальный образ (manual deploy.sh). GitHub-путь передаёт REMLAB_IMAGE=ghcr.io/...:sha
     # → сервер тянет ТОЛЬКО изменённые слои (инкрементально, легко), не собирает у себя.
     image: ${REMLAB_IMAGE:-remlab-app:latest}
     container_name: remlab-app
     restart: unless-stopped
-    depends_on: [db]
+    depends_on:
+      db:
+        condition: service_started
+      traces-init:
+        condition: service_completed_successfully
     environment:
       - NODE_ENV=production
       - PORT=3000
@@ -38,6 +56,8 @@ services:
       - IMAGOR_BASE_URL=http://remlab-imagor:8000
       - TRACE_ADMIN_TOKEN=${TRACE_ADMIN_TOKEN:-}
       - TRACE_RETENTION_DAYS=${TRACE_RETENTION_DAYS:-90}
+      # Базовый URL для абсолютных (подписанных) ссылок на ассеты в разборе /trace.
+      - TRACE_PUBLIC_BASE_URL=${TRACE_PUBLIC_BASE_URL:-https://remont-lab.online}
     volumes:
       - remlab-traces:/app/data/traces
     networks: [remlab-net]

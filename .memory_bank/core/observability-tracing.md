@@ -49,10 +49,20 @@ review_after: ""
 - CLI: `pnpm trace <N>` (`tools/trace-show.mjs`) — из БД, печатает путь + пути к файлам-ассетам.
 - Admin-роут `GET /api/trace/<N>` (JSON+asset URLs) и `GET /api/trace/asset/<id>` (байты) —
   за `TRACE_ADMIN_TOKEN` (dev — открыто). Кнопка «Сообщить о проблеме» → `POST /api/trace/report`.
+- **Ссылки на картинки — подписанные (signed), не токен-в-URL** (`lib/trace/sign.ts`): `[seq]`-роут
+  отдаёт абсолютные `url` вида `<TRACE_PUBLIC_BASE_URL>/api/trace/asset/<id>?exp=..&sig=..` (HMAC-SHA256
+  от id+exp на ключе `TRACE_ADMIN_TOKEN`, TTL 7д — `TRACE_ASSET_TTL_MS`). Владелец открывает в браузере,
+  админ-токен НЕ раскрывается. Asset-роут пускает по валидной подписи ИЛИ по admin-гарду. Формат вывода
+  `/trace`: по каждому шагу — дословный промпт + дословный ответ модели + ссылки input/intermediate/output.
 
 ## Хранение/приватность
 - Том `remlab-traces` → `/opt/remlab/data/traces` (app rw как `/app/data/traces`, imagor ro как `/mnt/data`).
   `TRACE_DIR` в env. Локально — `./.data/traces` (в .gitignore).
+- ⚠️ **Гоча (была причиной «0 ассетов» на проде):** app работает под `nextjs` (uid 1001), а свежий
+  named-том принадлежит root → запись картинок падала молча (best-effort глушил EACCES). Фикс: сервис
+  `traces-init` в compose (под root `chown -R 1001:65533 /app/data/traces` перед стартом app, идемпотентно).
+  `saveAsset` теперь при сбое пишет `console.warn` (без секретов), чтобы такой класс багов не прятался.
+  Картинки для прогонов ДО фикса невосстановимы (байты не захватывались).
 - Ретеншн: `TRACE_RETENTION_DAYS` (дефолт 90) — `pnpm trace:prune` (`tools/trace-prune.mjs`),
   вешается на серверный таймер `remlab-cleanup` (ops-шаг деплоя). Фото — ПДн (TODO legal, не блокируемся).
 - Логирование best-effort: ошибка записи/диска НЕ валит пайплайн. Секреты (API-ключи) в лог не пишем.

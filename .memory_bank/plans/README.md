@@ -25,5 +25,6 @@ draft → in_progress → completed → перенос в completed_plans/
 
 > `remlab-bootstrap` завершён → `completed_plans/`.
 > `pipeline-tracing` (трейсинг AI-пайплайна, ADR-0013) завершён 2026-07-02 → `completed_plans/`.
+> `trace-image-assets-fix` (картинки-ассеты не сохранялись: права тома + signed-ссылки) завершён 2026-07-02 → `completed_plans/`.
 
 > Шаблон нового плана — `_template.md`.

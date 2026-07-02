@@ -39,7 +39,10 @@ export async function saveAsset(
     };
     await traceStore().insertAsset(row);
     return { id, url: `/api/trace/asset/${id}`, storageKey, mimeType: opts.mimeType, sizeBytes: opts.bytes.length };
-  } catch {
+  } catch (err) {
+    // Best-effort: НЕ валим пайплайн, но и НЕ прячем сбой (иначе баг вроде «том закрыт на запись» тихо
+    // копит 0 ассетов). Логируем без секретов — только роль/шаг/причина.
+    console.warn(`[trace] saveAsset failed (role=${opts.role}, step=${opts.stepId ?? "-"}):`, err instanceof Error ? err.message : err);
     return null;
   }
 }

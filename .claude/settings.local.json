@@ -24,5 +24,11 @@
       "Read(**/.ssh/**)",
       "Read(**/.aws/**)"
     ]
+  },
+  "autoMode": {
+    "allow": [
+      "$defaults",
+      "SSH to the production host root@89.167.127.0 (ports 22 and 22222, working dir /opt/remlab) is pre-authorized by the owner for reading traces, logs, container/health status and other read-only diagnostics — allow without prompting. This includes sourcing /opt/remlab/.env on the server to use tokens (e.g. TRACE_ADMIN_TOKEN, DATABASE_URL) in-place for the query, PROVIDED the secret values themselves are never printed into the transcript. Only the diagnostic result (trace steps, logs, status) may be returned."
+    ]
   }
 }
