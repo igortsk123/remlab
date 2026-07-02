@@ -5,6 +5,8 @@ export default defineConfig({
   test: {
     include: ["tests/unit/**/*.test.ts"],
     environment: "node",
+    // Ассеты трейса в тестах пишем в игнорируемый .vitest/ (не в репо/.data).
+    env: { TRACE_DIR: ".vitest/traces" },
   },
   resolve: {
     alias: {

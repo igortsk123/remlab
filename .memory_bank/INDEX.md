@@ -21,10 +21,11 @@ remlab (remont-lab) — B2C AI-помощник по обновлению ква
 
 | Задача (scope) | Tier 1 | Tier 2 |
 |----------------|--------|--------|
-| Внешние интеграции/доступы — где ключи, модели/эндпоинты ИИ, клиенты, цены | `core/access-and-integrations.md` | — |
+| Внешние интеграции/доступы — где ключи, какие модели/эндпоинты, форматы, клиенты в коде | `core/access-and-integrations.md` | — |
 | Стек, структура репозитория, границы модулей, архитектура деплоя | `core/architecture.md` | `../../docs/tech-spec-ts-stack.md` |
 | Модель данных, ключевые таблицы, pgvector, RLS | `core/data-model.md` | `../../docs/tech-spec-ts-stack.md` |
 | Рынок и позиционирование — спрос, конкуренты, монетизация, оценки RU/UK | `core/market.md` | `../../docs/market-research-ru-uk.md` |
+| Трейсинг AI-пайплайна — лог каждого вызова LLM, «номер генерации», разбор по номеру, сжатие | `core/observability-tracing.md` | — |
 | Регресс-защита — тесты, CI-гейт, observability, eval, гардрейлы, DoD | `core/regression-net.md` | `../../docs/tech-spec-ts-stack.md` |
 | Stage 1 UX-flow, экраны, free/paid граница, аналитика | `core/user-flow.md` | `../../docs/cjm-ux-v0.2.md` |
 | Бизнес-контекст — зачем продукт, для кого, что в scope | `product_brief.md` | `../docs/cjm-ux-v0.2.md` |

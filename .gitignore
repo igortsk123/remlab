@@ -32,3 +32,6 @@ _intake/_processed/
 # docker artifacts
 *.tar
 *.tar.gz
+
+# trace assets (картинки прогонов пишутся на диск/том, не в git)
+.data/

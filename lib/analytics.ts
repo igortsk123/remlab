@@ -10,6 +10,7 @@ export type EventName =
   | "paywall_viewed"
   | "pack_unlocked"
   | "cost_fake_door_viewed"
+  | "problem_reported"
   | "app_error";
 
 type Props = Record<string, string | number | boolean | null>;

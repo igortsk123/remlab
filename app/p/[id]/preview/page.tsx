@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { repo } from "@/modules/store/repository";
 import { Progress } from "@/components/Progress";
 import { GenerateOnMount } from "@/components/GenerateOnMount";
+import { ReportProblem } from "@/components/ReportProblem";
 
 const rub = (n: number) => `${n.toLocaleString("ru-RU")} ₽`;
 
@@ -27,6 +28,9 @@ export default async function PreviewPage({ params }: { params: Promise<{ id: st
     <main className="container">
       <Progress step={4} />
       <h1>Ваша комната обновлённая</h1>
+      {project.generationSeq !== undefined && (
+        <p className="eyebrow" style={{ marginTop: -4 }}>Генерация #{project.generationSeq}</p>
+      )}
 
       {project.previewImage ? (
         <img className="preview" src={project.previewImage.dataUrl} alt="AI-превью комнаты" />
@@ -36,6 +40,7 @@ export default async function PreviewPage({ params }: { params: Promise<{ id: st
       <p className="note" style={{ marginTop: 12 }}>
         Это визуальная концепция вашей комнаты, а не рабочий проект. Перед покупкой проверьте размеры.
       </p>
+      {project.generationSeq !== undefined && <ReportProblem seq={project.generationSeq} />}
 
       {project.analysis && (
         <div className="card stack" style={{ marginTop: 20 }}>

@@ -33,8 +33,33 @@ services:
       - APP_VERSION=${APP_VERSION:-dev}
       - DATABASE_URL=postgres://remlab:${POSTGRES_PASSWORD}@db:5432/remlab
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      # Трейсинг пайплайна (ADR-0013): картинки-ассеты на томе, сжатие через imagor.
+      - TRACE_DIR=/app/data/traces
+      - IMAGOR_BASE_URL=http://remlab-imagor:8000
+      - TRACE_ADMIN_TOKEN=${TRACE_ADMIN_TOKEN:-}
+      - TRACE_RETENTION_DAYS=${TRACE_RETENTION_DAYS:-90}
+    volumes:
+      - remlab-traces:/app/data/traces
     networks: [remlab-net]
     mem_limit: 1g
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # Сжатие/уменьшение картинок (Go+libvips), internal-only на remlab-net (в браузер не светится).
+  # Читает временные оригиналы из тома трейсов (ro), отдаёт webp. Тот же паттерн, что в SUP2 (ADR D18).
+  imagor:
+    image: shumc/imagor:latest
+    container_name: remlab-imagor
+    restart: unless-stopped
+    environment:
+      - PORT=8000
+      - IMAGOR_UNSAFE=1
+      - FILE_LOADER_BASE_DIR=/mnt/data
+    volumes:
+      - remlab-traces:/mnt/data:ro
+    networks: [remlab-net]
+    mem_limit: 256m
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
@@ -68,5 +93,6 @@ networks:
 
 volumes:
   remlab-db:
+  remlab-traces:
   caddy-data:
   caddy-config:

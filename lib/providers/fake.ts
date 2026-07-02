@@ -30,6 +30,8 @@ const FAKE_IDEAS = JSON.stringify({
 export function createFakeProvider(): ImageProvider & VisionProvider {
   return {
     id: "fake",
+    imageModel: "fake-image",
+    textModel: "fake-text",
     async generateText() {
       return ok(FAKE_IDEAS);
     },

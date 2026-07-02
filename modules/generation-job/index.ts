@@ -1,12 +1,16 @@
 // Оркестратор превью: анализ фото → генерация картинки → идеи → каталог → бюджет, запись в repo.
-// Долгий шаг (генерация ~10–30с). Пока синхронно; вынос в фоновую очередь (Inngest) — позже.
+// Весь путь обёрнут в прогон трейса (runWithTrace, ADR-0013): каждый вызов LLM логируется, у прогона
+// есть «номер генерации» (seq). Долгий шаг (генерация ~10–30с). Пока синхронно; вынос в фон — позже.
 
 import { repo } from "@/modules/store/repository";
 import { analyzeRoom } from "@/modules/room-analysis";
 import { generatePreview } from "@/modules/visual-generation";
 import { generateIdeas, buildCatalog, estimateBudget } from "@/modules/ideas";
+import { runWithTrace } from "@/lib/trace/recorder";
+import { getPipeline } from "@/lib/pipelines/registry";
+import { compressForLLM } from "@/lib/images/compress";
 import { styleProfile as styleProfileSchema, type StyleProfile } from "@/contracts/style";
-import type { Project, Photo } from "@/contracts/project";
+import type { Project, Photo, Analysis } from "@/contracts/project";
 
 function dataUrlToBase64(dataUrl: string): { mimeType: string; base64: string } | null {
   const m = /^data:([^;]+);base64,(.+)$/s.exec(dataUrl);
@@ -21,31 +25,49 @@ export async function runPreview(projectId: string): Promise<Project | null> {
   const firstPhoto: Photo | undefined = project.photos[0];
   const style: StyleProfile = project.styleProfile ?? styleProfileSchema.parse({});
   const decoded = firstPhoto ? dataUrlToBase64(firstPhoto.dataUrl) : null;
+  const pipeline = getPipeline();
 
-  const analysis = decoded
-    ? await analyzeRoom(decoded.base64, decoded.mimeType, project.brief)
-    : { summary: "Фото не приложено — общий план обновления.", objects: [] };
+  const { result, ctx } = await runWithTrace(
+    {
+      pipelineId: pipeline.id,
+      pipelineVersion: pipeline.version,
+      projectId,
+      sessionId: project.sessionId,
+      meta: { title: project.title, roomType: project.brief.roomType ?? null },
+    },
+    async () => {
+      // Сжать+уменьшить фото ПЕРЕД LLM (экономия токенов); то, что реально ушло, и станет input-ассетом.
+      const llmPhoto = decoded ? await compressForLLM({ mimeType: decoded.mimeType, base64: decoded.base64 }) : null;
 
-  let previewImage: Photo | undefined;
-  if (decoded) {
-    const gen = await generatePreview({ mimeType: decoded.mimeType, base64: decoded.base64 }, style, project.brief);
-    if (gen.ok) {
-      previewImage = {
-        id: `${projectId}-preview`,
-        mimeType: gen.value.mimeType,
-        dataUrl: `data:${gen.value.mimeType};base64,${gen.value.base64}`,
-      };
-    }
-  }
+      const analysis: Analysis = llmPhoto
+        ? await analyzeRoom(llmPhoto.base64, llmPhoto.mimeType, project.brief)
+        : { summary: "Фото не приложено — общий план обновления.", objects: [] };
 
-  const ideas = await generateIdeas(analysis, project.brief);
+      let previewImage: Photo | undefined;
+      if (llmPhoto) {
+        const gen = await generatePreview(llmPhoto, style, project.brief);
+        if (gen.ok) {
+          previewImage = {
+            id: `${projectId}-preview`,
+            mimeType: gen.value.mimeType,
+            dataUrl: `data:${gen.value.mimeType};base64,${gen.value.base64}`,
+          };
+        }
+      }
+
+      const ideas = await generateIdeas(analysis, project.brief);
+      return { analysis, previewImage, ideas };
+    },
+  );
 
   return repo().update(projectId, {
     status: "preview_ready",
-    analysis,
-    previewImage,
-    ideas,
+    analysis: result.analysis,
+    previewImage: result.previewImage,
+    ideas: result.ideas,
     items: buildCatalog(),
     budget: estimateBudget(project.brief),
+    generationSeq: ctx.seq,
+    traceRunId: ctx.runId,
   });
 }

@@ -2,6 +2,7 @@
 // Каталог здесь — заглушка (реальные источники/цены — отдельный план, решение владельца).
 
 import { getVisionProvider } from "@/lib/providers";
+import { ideasPrompt } from "@/lib/prompts/registry";
 import { z } from "zod";
 import type { Analysis, Brief, Idea, CatalogItem, BudgetRange } from "@/contracts/project";
 
@@ -15,12 +16,10 @@ const FALLBACK_IDEAS: Idea[] = [
 ];
 
 export async function generateIdeas(analysis: Analysis, brief: Partial<Brief>): Promise<Idea[]> {
-  const prompt = [
-    "Дай 4–5 конкретных идей, как обновить комнату, недорого и с максимальным визуальным эффектом.",
-    `Комната: ${brief.roomType ?? "жилая"}. Что заметил ИИ: ${analysis.summary}`,
-    'Верни СТРОГО JSON: {"ideas":[{"title":"...","detail":"одно предложение"}]}',
-  ].join("\n");
-  const r = await getVisionProvider().generateText(prompt);
+  const prompt = ideasPrompt.build({ analysis, brief });
+  const r = await getVisionProvider().generateText(prompt, {
+    stepName: "ideas", promptId: ideasPrompt.id, promptVersion: ideasPrompt.version,
+  });
   if (!r.ok) return FALLBACK_IDEAS;
   const start = r.value.indexOf("{");
   const end = r.value.lastIndexOf("}");

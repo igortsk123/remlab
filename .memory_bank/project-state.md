@@ -17,7 +17,7 @@ review_after: ""
 > Обновлять после каждого крупного изменения. Первое, что читает агент при resume/`/clear`.
 
 ## Где
-- **Прод:** https://remont-lab.online — ✅ LIVE **продуктовый Stage 1** (версия `ba4535000279`, 2026-07-01). Раньше был каркас. Valid LE cert (до 2026-09-29, авто-продление). Postgres в проде, GEMINI_API_KEY в `/opt/remlab/.env`. Бэкап БД перед деплоем: `/opt/remlab/backups/pre-stage1-*.sql.gz`. Откат: образ `remlab-app:prev`. VPN (`remnanode`) не задет.
+- **Прод:** https://remont-lab.online — ✅ LIVE **продуктовый Stage 1** (версия `814761feca1b`, 2026-07-01). Раньше был каркас. Valid LE cert (до 2026-09-29, авто-продление). Postgres в проде, GEMINI_API_KEY в `/opt/remlab/.env`. Бэкап БД перед деплоем: `/opt/remlab/backups/pre-stage1-*.sql.gz`. Откат: образ `remlab-app:prev`. VPN (`remnanode`) не задет. Выкладки пока делаются **вручную** (`deploy.sh`), т.к. авто-деплой ещё не активен (см. ниже).
 - **Репозиторий:** github.com/igortsk123/remlab (публичный, ветка `main`, deploy key `~/.ssh/remlab_deploy_ed25519`). CI: GitHub Actions гейт.
 - **Окружение / сервер:** exit-fi `89.167.127.0` (Hetzner EU, Ubuntu 24.04, **aarch64/ARM**, 2 vCPU / 3.7 GB / 38 GB). ⚠️ на сервере живёт боевая внутренняя VPN-нода — изоляция обязательна.
 - **Деплой:** кросс-сборка arm64 локально (buildx+эмуляция) → `docker save|ssh|docker load` → `docker compose up` в `/opt/remlab`. Скрипт: `deploy.sh`. Playbook: `deployment.md`.
@@ -35,11 +35,25 @@ review_after: ""
   - Модули: `room-analysis` (vision), `visual-generation` (restyle фото по эталону), `ideas` (идеи+seed-каталог товаров/материалов+бюджет), `generation-job` (оркестратор).
   - Экраны `app/`: landing → `/start` → `/p/[id]/brief`(фото+бриф) → `/style` → `/preview`(AI-превью+идеи+товары/материалы+бюджет+paywall CTA) → `/paywall`(оплата-демо→полный план) → `/rooms`(workspace) + `/soon`(fake-door стоимости). Тема japandi `app/globals.css`.
   - Проверено: typecheck/lint/build зелёные; 8 unit (вкл. интеграцию конвейера на фейк-ИИ); реальный Gemini restyle «до/после» подтверждён визуально.
-- **M8 почти готов:** e2e happy-path (Playwright, весь путь) — в CI (локально Ubuntu 26.04 не ставит браузер). Фейк-ИИ по флагу (ADR-0010).
+- **M8 (2026-07-01):** e2e happy-path (Playwright, весь путь) — в CI (локально Ubuntu 26.04 не ставит браузер). Фейк-ИИ по флагу (ADR-0010).
   - **Postgres активирован (ADR-0011):** `db/schema.ts` (Drizzle, `projects`=jsonb), `modules/store/pg-repository.ts`; `repo()` выбирает PG при `DATABASE_URL`, иначе in-memory. Проверено на реальной PG (тест `pg-repository.test.ts`, в CI против сервиса postgres). Миграция `pnpm db:migrate` + `db/init/002-projects.sql`.
-  - **Авто-деплой через GitHub (ADR-0011):** `.github/workflows/deploy.yml` после зелёного CI на main → сборка arm64 в раннере → `deploy.sh` (VPN не грузим). **Ждёт разово от владельца:** секреты `DEPLOY_SSH_KEY`, `DEPLOY_HOST` в GitHub + `GEMINI_API_KEY` в `/opt/remlab/.env` на сервере. Без секретов деплой безопасно пропускается.
-  - **Осталось:** observability (Sentry/PostHog — опционально, нужны DSN); первый реальный прогон деплоя после установки секретов.
+  - **Прод развёрнут вручную** (`deploy.sh`, сборка локально → образ на сервер), бэкап+rollback, VPN цел. GEMINI_API_KEY добавлен в `/opt/remlab/.env`.
+  - **Observability:** лёгкий слой `lib/analytics.ts` — **PostHog** (ADR-0012), no-op без `POSTHOG_KEY`. События воронки: project_started/preview_ready/pack_unlocked + captureError. Sentry не заводим (PostHog free покрывает ошибки).
+  - **Прод-фиксы (грабли, устранены):** (1) `Body exceeded 1 MB limit` — фото с телефона >1МБ падало в Server Action → `next.config.mjs experimental.serverActions.bodySizeLimit=12mb`; (2) `/rooms` 500 — `cookies().set()` в рендере страницы запрещён в проде → разделил `getSessionId()` (пишет, для actions) и `readSessionId()` (только чтение, для страниц).
+- **⚠️ Авто-деплой настроен, но ЕЩЁ НЕ АКТИВЕН (2026-07-01):** `.github/workflows/deploy.yml` — инкрементальный через **GHCR** (сборка arm64 в раннере с кэшем слоёв → push в `ghcr.io/igortsk123/remlab-app` → сервер `docker compose pull` только изменённых слоёв; `docker-compose.yml` образ = `${REMLAB_IMAGE:-remlab-app:latest}`). Хост — публичный IP в env, нужен **только секрет `DEPLOY_SSH_KEY`**. Прогоны `Deploy prod` зелёные, но **шаги SKIPPED** — гейт не видит `DEPLOY_SSH_KEY` (секрет в GitHub не задан/не сохранён). CI-деплой-ключ `~/.ssh/remlab_ci_deploy` уже добавлен в `authorized_keys` сервера и проверен. **Чтобы активировать:** задать секрет `DEPLOY_SSH_KEY` = приватный `remlab_ci_deploy`. Владелец дал read-only GitHub PAT (у Клода локально, не в репо) — прав на запись секрета/запуск нет; ждём токен с Secrets+Actions write ЛИБО ручную установку секрета.
 - Продуктовые решения владельца: ADR-0009 (japandi / restyle фото / «Скоро» для стоимости).
+
+## Трейсинг AI-пайплайна (2026-07-02, ADR-0013) — ветка `feature/pipeline-tracing`
+- **Что:** сквозной лог каждого прогона: `generation_runs`(seq=номер генерации)/`generation_steps`/`generation_assets`.
+  Захват — в слое провайдеров (`lib/providers/traced.ts` + `runWithTrace` + AsyncLocalStorage): любой вызов LLM
+  логирует себя → лог не отстаёт при смене модели/промпта/шага. Реестры: `lib/prompts/registry.ts`,
+  `lib/pipelines/registry.ts` (`preview-v1`). Сжатие фото перед LLM — **imagor** (`lib/images/compress.ts`).
+- **Разбор:** скилл `/trace`, `pnpm trace <N>`, `GET /api/trace/<N>` + `/asset/<id>` (гард `TRACE_ADMIN_TOKEN`);
+  «Генерация #N» на `/preview`; кнопка «Сообщить о проблеме» (`/api/trace/report`). Ретеншн 90 дн (`pnpm trace:prune`).
+- **Проверено локально:** typecheck/lint/build зелёные, 8 unit passed (fake-ИИ пишет трейс в in-memory+диск).
+  **НЕ задеплоено в прод.** Ops-шаги при деплое: `pnpm db:migrate` на прод-БД (создаёт trace-таблицы+sequence),
+  добавить сервис `imagor` + том `remlab-traces` (compose обновлён), задать env, повесить `trace:prune` на
+  `remlab-cleanup`. Осторожно с VPN-нодой: бэкап+rollback. imagor-образ проверить под arm64 (`shumc/imagor`).
 
 ## ⚠️ Ключевой факт железа
 Сервер **aarch64 (ARM)** → образы собирать под `linux/arm64` (buildx + `tonistiigi/binfmt`). `deploy.sh` уже делает это. Обычный `docker build` на amd64-машине даст неработающий образ (app будет рестартить).

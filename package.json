@@ -12,6 +12,8 @@
     "test": "vitest run",
     "e2e": "playwright test",
     "db:migrate": "node tools/migrate.mjs",
+    "trace": "node tools/trace-show.mjs",
+    "trace:prune": "node tools/trace-prune.mjs",
     "smoke:providers": "node --env-file=.env.local tools/smoke-providers.mjs"
   },
   "dependencies": {

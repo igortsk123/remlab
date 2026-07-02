@@ -72,6 +72,8 @@ function firstImage(data: GeminiResponse): ImageData | null {
 export function createGeminiProvider(apiKey: string): ImageProvider & VisionProvider {
   return {
     id: "gemini",
+    imageModel: IMAGE_MODEL,
+    textModel: TEXT_MODEL,
     async generateText(prompt: string) {
       const r = await call(apiKey, TEXT_MODEL, [{ text: prompt }], false);
       if (!r.ok) return r;

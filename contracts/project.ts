@@ -73,6 +73,8 @@ export const project = z.object({
   items: z.array(catalogItem).default([]),
   budget: budgetRange.optional(),
   paid: z.boolean().default(false),
+  generationSeq: z.number().int().optional(), // «номер генерации» для показа/разбора (ADR-0013)
+  traceRunId: z.string().optional(), // id прогона в трейсе (для разбора по номеру)
   createdAt: z.string(),
   updatedAt: z.string(),
 });

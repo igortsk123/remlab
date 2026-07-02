@@ -13,6 +13,7 @@
 | `data-model.md` | сущности, таблицы, pgvector, RLS | `docs/tech-spec-ts-stack.md` §4 |
 | `user-flow.md` | Stage 1 flow, экраны, free/paid, аналитика | `docs/cjm-ux-v0.2.md` |
 | `regression-net.md` | тесты, CI, observability, гардрейлы, DoD | `docs/tech-spec-ts-stack.md` §12 |
+| `observability-tracing.md` | трейсинг пайплайна: лог LLM, номер генерации, разбор, сжатие | — |
 
 > Бизнес-контекст — в `../product_brief.md`. Деплой-playbook — в `../deployment.md`.
 > Реестр и decision tree в INDEX держатся в согласии через `tools/memory-audit.mjs` / `/memory-check`.

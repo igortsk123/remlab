@@ -2,6 +2,7 @@
 // Возвращает Result; при сбое ИИ — безопасный дефолт, чтобы flow не падал (guardrail).
 
 import { getVisionProvider } from "@/lib/providers";
+import { roomAnalysisPrompt } from "@/lib/prompts/registry";
 import { analysis as analysisSchema, type Analysis, type Brief } from "@/contracts/project";
 import { z } from "zod";
 
@@ -34,17 +35,12 @@ const FALLBACK: Analysis = {
 };
 
 export async function analyzeRoom(photoDataBase64: string, mimeType: string, brief: Partial<Brief>): Promise<Analysis> {
-  const prompt = [
-    "Ты — ассистент по обновлению интерьера. Проанализируй фото комнаты.",
-    `Тип комнаты: ${brief.roomType ?? "жилая"}. Уровень вмешательства: ${brief.interventionLevel ?? "refresh"}.`,
-    "Верни СТРОГО JSON без пояснений в формате:",
-    '{"summary":"1-2 предложения о комнате на русском","objects":[{"label":"Диван","action":"keep"},{"label":"Шторы","action":"suggest_change"}]}',
-    "action = keep (оставить) или suggest_change (предложить изменить). 4–7 объектов.",
-  ].join("\n");
+  const prompt = roomAnalysisPrompt.build({ roomType: brief.roomType, interventionLevel: brief.interventionLevel });
 
   const r = await getVisionProvider().analyze({
     prompt,
     images: [{ mimeType, base64: photoDataBase64 }],
+    meta: { stepName: "analyze", promptId: roomAnalysisPrompt.id, promptVersion: roomAnalysisPrompt.version },
   });
   if (!r.ok) return FALLBACK;
 

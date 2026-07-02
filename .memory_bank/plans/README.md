@@ -24,5 +24,6 @@ draft → in_progress → completed → перенос в completed_plans/
 | `stage1-skeleton` | Stage 1 каркас: схема БД + 7 экранов flow + e2e | draft | 2026-07-01 |
 
 > `remlab-bootstrap` завершён → `completed_plans/`.
+> `pipeline-tracing` (трейсинг AI-пайплайна, ADR-0013) завершён 2026-07-02 → `completed_plans/`.
 
 > Шаблон нового плана — `_template.md`.
