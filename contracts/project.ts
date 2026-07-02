@@ -12,9 +12,14 @@ export const photo = z.object({
 });
 export type Photo = z.infer<typeof photo>;
 
+// Действие над объектом: оставить / поменять / убрать. Легаси-значение "suggest_change" (старые прогоны)
+// приводим к "change", чтобы уже сохранённые проекты продолжали читаться.
+export const objectAction = z.enum(["keep", "change", "remove"]);
+export type ObjectAction = z.infer<typeof objectAction>;
+
 export const detectedObject = z.object({
   label: z.string(),
-  action: z.enum(["keep", "suggest_change"]),
+  action: z.preprocess((v) => (v === "suggest_change" ? "change" : v), objectAction),
 });
 export type DetectedObject = z.infer<typeof detectedObject>;
 
@@ -55,7 +60,7 @@ export const briefSchema = z.object({
 export type Brief = z.infer<typeof briefSchema>;
 
 export const projectStatus = z.enum([
-  "started", "brief_done", "style_done", "preview_ready", "paid",
+  "started", "brief_done", "analyzed", "selection_done", "style_done", "preview_ready", "paid",
 ]);
 export type ProjectStatus = z.infer<typeof projectStatus>;
 
@@ -67,7 +72,9 @@ export const project = z.object({
   brief: briefSchema.partial().default({}),
   photos: z.array(photo).default([]),
   styleProfile: styleProfile.optional(),
-  analysis: analysis.optional(),
+  analysis: analysis.optional(), // предложение модели (что она увидела)
+  objectChoices: z.array(detectedObject).default([]), // финальный выбор ПОЛЬЗОВАТЕЛЯ по объектам
+  wish: z.string().default(""), // одно общее поле-пожелание пользователя (свободный текст)
   previewImage: photo.optional(),
   ideas: z.array(idea).default([]),
   items: z.array(catalogItem).default([]),

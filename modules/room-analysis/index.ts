@@ -10,7 +10,8 @@ const rawSchema = z.object({
   summary: z.string(),
   objects: z.array(z.object({
     label: z.string(),
-    action: z.enum(["keep", "suggest_change"]),
+    // модель иногда возвращает легаси "suggest_change" — приводим к "change".
+    action: z.preprocess((v) => (v === "suggest_change" ? "change" : v), z.enum(["keep", "change", "remove"])),
   })).max(12),
 });
 
@@ -28,9 +29,10 @@ function extractJson(text: string): unknown {
 const FALLBACK: Analysis = {
   summary: "Не удалось детально распознать фото — показываем общий план обновления.",
   objects: [
-    { label: "Стены", action: "suggest_change" },
-    { label: "Освещение", action: "suggest_change" },
-    { label: "Текстиль и декор", action: "suggest_change" },
+    { label: "Стены", action: "change" },
+    { label: "Пол", action: "keep" },
+    { label: "Освещение", action: "change" },
+    { label: "Текстиль и декор", action: "change" },
   ],
 };
 

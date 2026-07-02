@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { repo } from "@/modules/store/repository";
-import { runPreview } from "@/modules/generation-job";
+import { runAnalyze, runGenerate } from "@/modules/generation-job";
 import { project as projectSchema } from "@/contracts/project";
 import { styleProfile as styleProfileSchema } from "@/contracts/style";
 
@@ -13,7 +13,7 @@ beforeAll(() => {
 });
 
 describe("flow pipeline (fake AI)", () => {
-  it("runPreview заполняет превью, идеи, каталог и бюджет", async () => {
+  it("runAnalyze+runGenerate заполняют разбор, превью, идеи, каталог и бюджет", async () => {
     const now = new Date().toISOString();
     const p = projectSchema.parse({
       id: "test-project-1",
@@ -28,11 +28,17 @@ describe("flow pipeline (fake AI)", () => {
     });
     await repo().create(p);
 
-    const result = await runPreview("test-project-1");
+    // Этап 1 — разбор фото на объекты (до выбора пользователя).
+    const analysis = await runAnalyze("test-project-1");
+    expect(analysis).not.toBeNull();
+    expect(analysis!.summary.length).toBeGreaterThan(0);
+    expect(analysis!.objects.length).toBeGreaterThan(0);
+
+    // Этап 2 — генерация по выбору (в тесте берём дефолт = предложение модели).
+    const result = await runGenerate("test-project-1");
     expect(result).not.toBeNull();
     expect(result!.status).toBe("preview_ready");
     expect(result!.previewImage).toBeTruthy();
-    expect(result!.analysis!.summary.length).toBeGreaterThan(0);
     expect(result!.ideas.length).toBeGreaterThanOrEqual(3);
 
     // каталог: есть и товары, и материалы; часть заблокирована.

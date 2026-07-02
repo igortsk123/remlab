@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { repo } from "@/modules/store/repository";
-import { runPreview } from "@/modules/generation-job";
+import { runAnalyze, runGenerate } from "@/modules/generation-job";
 import { traceStore } from "@/lib/trace/store";
 import { project as projectSchema } from "@/contracts/project";
 import { styleProfile as styleProfileSchema } from "@/contracts/style";
@@ -14,7 +14,7 @@ beforeAll(() => {
 });
 
 describe("pipeline tracing (fake AI)", () => {
-  it("runPreview создаёт прогон с шагами и номером генерации", async () => {
+  it("runGenerate создаёт прогон с шагами и номером генерации", async () => {
     const now = new Date().toISOString();
     const p = projectSchema.parse({
       id: "trace-project-1",
@@ -29,19 +29,21 @@ describe("pipeline tracing (fake AI)", () => {
     });
     await repo().create(p);
 
-    const result = await runPreview("trace-project-1");
+    // Этап 1 (разбор) — вне «генерации», без trace-номера.
+    await runAnalyze("trace-project-1");
+    // Этап 2 (генерация) — это и есть прогон с номером.
+    const result = await runGenerate("trace-project-1");
     expect(result).not.toBeNull();
     expect(result!.generationSeq).toBeGreaterThan(0);
     expect(result!.traceRunId).toBeTruthy();
 
-    // Разбор по номеру: прогон найден, есть все три шага (analyze, restyle, ideas), выход у restyle.
+    // Разбор по номеру: прогон найден, шаги генерации (restyle, ideas), выход у restyle.
     const run = await traceStore().getRunBySeq(result!.generationSeq!);
     expect(run).not.toBeNull();
     expect(run!.status).toBe("ok");
 
     const steps = await traceStore().getStepsByRun(run!.id);
     const names = steps.map((s) => s.stepName);
-    expect(names).toContain("analyze");
     expect(names).toContain("restyle");
     expect(names).toContain("ideas");
     // Каждый шаг знает свою модель и промпт (для сравнения тестов).

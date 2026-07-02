@@ -50,22 +50,6 @@ export default async function BriefPage({ params }: { params: Promise<{ id: stri
         </div>
 
         <div className="stack">
-          <label className="eyebrow">Что оставить</label>
-          <SelectChips
-            name="keep"
-            options={[
-              { value: "floor", label: "Пол" },
-              { value: "walls", label: "Стены" },
-              { value: "sofa_bed", label: "Диван/кровать" },
-              { value: "wardrobe", label: "Шкаф" },
-              { value: "curtains", label: "Шторы" },
-              { value: "light", label: "Свет" },
-              { value: "all_changeable", label: "Всё можно менять" },
-            ]}
-          />
-        </div>
-
-        <div className="stack">
           <label className="eyebrow">Ограничения</label>
           <SelectChips
             name="constraints"
@@ -81,7 +65,7 @@ export default async function BriefPage({ params }: { params: Promise<{ id: stri
           />
         </div>
 
-        <button className="btn btn-block" type="submit">К выбору стиля</button>
+        <button className="btn btn-block" type="submit">Разобрать фото</button>
       </form>
     </main>
   );

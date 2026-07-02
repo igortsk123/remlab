@@ -42,19 +42,25 @@ export default async function PreviewPage({ params }: { params: Promise<{ id: st
       </p>
       {project.generationSeq !== undefined && <ReportProblem seq={project.generationSeq} />}
 
-      {project.analysis && (
-        <div className="card stack" style={{ marginTop: 20 }}>
-          <p className="eyebrow">AI понял комнату</p>
-          <p style={{ margin: 0 }}>{project.analysis.summary}</p>
-          <div className="row">
-            {project.analysis.objects.map((o, i) => (
-              <span key={i} className="chip" data-selected={o.action === "keep"}>
-                {o.label} · {o.action === "keep" ? "оставляем" : "меняем"}
-              </span>
-            ))}
+      {(() => {
+        const choices = project.objectChoices.length ? project.objectChoices : (project.analysis?.objects ?? []);
+        const label: Record<string, string> = { keep: "оставили", change: "поменяли", remove: "убрали" };
+        if (!choices.length && !project.analysis) return null;
+        return (
+          <div className="card stack" style={{ marginTop: 20 }}>
+            <p className="eyebrow">Ваш выбор</p>
+            {project.analysis && <p style={{ margin: 0 }}>{project.analysis.summary}</p>}
+            {project.wish && <p className="muted" style={{ margin: 0 }}>Пожелание: {project.wish}</p>}
+            <div className="row">
+              {choices.map((o, i) => (
+                <span key={i} className="chip" data-selected={o.action === "keep"}>
+                  {o.label} · {label[o.action] ?? o.action}
+                </span>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       <h2 style={{ marginTop: 28 }}>Идеи изменений</h2>
       <div className="stack">

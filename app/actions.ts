@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { randomUUID } from "node:crypto";
 import { repo } from "@/modules/store/repository";
 import { getSessionId } from "@/lib/session";
-import { project as projectSchema, briefSchema, type Photo } from "@/contracts/project";
+import { z } from "zod";
+import { project as projectSchema, briefSchema, detectedObject, type Photo, type DetectedObject } from "@/contracts/project";
 import { styleProfile as styleProfileSchema, styleId, type StyleId } from "@/contracts/style";
 import { roomType, goal, interventionLevel, budgetBand, keepItem, constraint } from "@/contracts/enums";
 import { track } from "@/lib/analytics";
@@ -60,18 +61,34 @@ export async function saveBrief(id: string, fd: FormData): Promise<void> {
   }) ?? {};
   const cur = await repo().get(id);
   const photo = await fileToPhoto(fd);
+  // Новое фото → сбросить прежний разбор, чтобы экран выбора разобрал заново.
+  const reset = photo ? { analysis: undefined, objectChoices: [] } : {};
   await repo().update(id, {
     brief: { ...(cur?.brief ?? {}), ...brief },
     photos: photo ? [photo] : (cur?.photos ?? []),
+    status: "brief_done",
+    ...reset,
   });
-  redirect(`/p/${id}/style`);
+  redirect(`/p/${id}/select`);
 }
 
-export async function saveStyle(id: string, fd: FormData): Promise<void> {
+// Экран «Что меняем на фото?»: сохранить выбор пользователя по объектам + стиль + пожелание → генерация.
+export async function saveSelection(id: string, fd: FormData): Promise<void> {
   const liked = many<StyleId>(fd, "liked", (v) => safe(styleId, v));
   const profile = styleProfileSchema.parse({ selectedStyleIds: liked, likedStyleCards: liked });
-  await repo().update(id, { styleProfile: profile, status: "style_done" });
+  const wish = str(fd, "wish") ?? "";
+  let choices: DetectedObject[] = [];
+  const raw = str(fd, "choices");
+  if (raw) {
+    const parsed = z.array(detectedObject).safeParse(safeJson(raw));
+    if (parsed.success) choices = parsed.data;
+  }
+  await repo().update(id, { styleProfile: profile, objectChoices: choices, wish, status: "selection_done" });
   redirect(`/p/${id}/preview`);
+}
+
+function safeJson(s: string): unknown {
+  try { return JSON.parse(s); } catch { return null; }
 }
 
 export async function unlockPack(id: string): Promise<void> {

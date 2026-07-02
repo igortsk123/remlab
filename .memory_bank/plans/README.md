@@ -22,11 +22,10 @@ draft → in_progress → completed → перенос в completed_plans/
 | slug | Название | status | created |
 |------|----------|--------|---------|
 | `stage1-skeleton` | Stage 1 каркас: схема БД + 7 экранов flow + e2e | draft | 2026-07-01 |
-| `interactive-object-selection` | Двухэтапный флоу: выбор объектов пользователем управляет генерацией | draft | 2026-07-02 |
-| `generation-screens-copy` | Подплан: порядок 6 экранов + тексты (к interactive-object-selection) | draft | 2026-07-02 |
 
 > `remlab-bootstrap` завершён → `completed_plans/`.
 > `pipeline-tracing` (трейсинг AI-пайплайна, ADR-0013) завершён 2026-07-02 → `completed_plans/`.
 > `trace-image-assets-fix` (картинки-ассеты не сохранялись: права тома + signed-ссылки) завершён 2026-07-02 → `completed_plans/`.
+> `interactive-object-selection` + подплан `generation-screens-copy` (выбор пользователя управляет генерацией: экран /select, restyle v2) завершены 2026-07-02 → `completed_plans/`.
 
 > Шаблон нового плана — `_template.md`.

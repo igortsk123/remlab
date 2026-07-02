@@ -4,7 +4,7 @@
 
 import { STYLE_CARDS, type StyleId, type StyleProfile } from "@/contracts/style";
 import type { Brief } from "@/contracts/project";
-import type { Analysis } from "@/contracts/project";
+import type { Analysis, DetectedObject } from "@/contracts/project";
 
 export type PromptRef = { id: string; version: string };
 export function promptRef(p: { id: string; version: string }): PromptRef {
@@ -16,37 +16,54 @@ function styleNames(ids: StyleId[]): string {
   return names.length ? names.join(", ") : "тёплый скандинавский минимализм";
 }
 
-// Анализ фото комнаты (vision).
+// Анализ фото комнаты (vision). v2: три действия keep/change/remove (было keep/suggest_change).
 export const roomAnalysisPrompt = {
   id: "room-analysis",
-  version: "v1",
+  version: "v2",
   build(v: { roomType?: string; interventionLevel?: string }): string {
     return [
       "Ты — ассистент по обновлению интерьера. Проанализируй фото комнаты.",
       `Тип комнаты: ${v.roomType ?? "жилая"}. Уровень вмешательства: ${v.interventionLevel ?? "refresh"}.`,
       "Верни СТРОГО JSON без пояснений в формате:",
-      '{"summary":"1-2 предложения о комнате на русском","objects":[{"label":"Диван","action":"keep"},{"label":"Шторы","action":"suggest_change"}]}',
-      "action = keep (оставить) или suggest_change (предложить изменить). 4–7 объектов.",
+      '{"summary":"1-2 предложения о комнате на русском","objects":[{"label":"Диван","action":"keep"},{"label":"Шторы","action":"change"}]}',
+      "action = keep (оставить) / change (поменять) / remove (убрать) — предложи разумный дефолт. 4–7 объектов.",
     ].join("\n");
   },
 };
 
-// Перерисовка (restyle) комнаты в стиле — генерация картинки.
+// Собрать человекочитаемые инструкции из выбора пользователя по объектам.
+function objectInstructions(choices: DetectedObject[]): string[] {
+  const by = (a: string) => choices.filter((c) => c.action === a).map((c) => c.label);
+  const lines: string[] = [];
+  const change = by("change"), keep = by("keep"), remove = by("remove");
+  if (change.length) lines.push(`Поменять: ${change.join(", ")}.`);
+  if (keep.length) lines.push(`Оставить без изменений: ${keep.join(", ")}.`);
+  if (remove.length) lines.push(`Убрать из кадра: ${remove.join(", ")}.`);
+  return lines;
+}
+
+// Перерисовка (restyle) комнаты в стиле — генерация картинки. v2: учитывает ВЫБОР пользователя по
+// объектам (поменять/оставить/убрать) и общее поле-пожелание.
 export const restylePrompt = {
   id: "restyle",
-  version: "v1",
-  build(v: { style: StyleProfile; brief: Partial<Brief> }): string {
+  version: "v2",
+  build(v: { style: StyleProfile; brief: Partial<Brief>; choices?: DetectedObject[]; wish?: string }): string {
     const level = v.brief.interventionLevel === "light_cosmetic"
       ? "лёгкий косметический ремонт (стены, пол, свет, мебель)"
       : v.brief.interventionLevel === "budget_update"
         ? "недорогое обновление (акцентная стена, часть мебели, свет, текстиль)"
         : "освежение без ремонта (текстиль, свет, декор, растения)";
     const styles = v.style.selectedStyleIds.length ? v.style.selectedStyleIds : v.style.likedStyleCards;
+    const instructions = objectInstructions(v.choices ?? []);
+    const wish = (v.wish ?? "").trim();
     return [
       "Перерисуй ЭТУ комнату с эталонного фото, СОХРАНИВ её геометрию: расположение стен, окон, дверей,",
       "планировку и перспективу. Не выдумывай новую комнату — обнови существующую.",
       `Стиль: ${styleNames(styles)}.`,
       `Палитра: ${v.style.palette}, контраст ${v.style.contrastLevel}. Уровень изменений: ${level}.`,
+      ...(instructions.length ? ["Правки по объектам (решение пользователя): " + instructions.join(" ")] : []),
+      ...(wish ? [`Пожелания пользователя: ${wish}`] : []),
+      "Меняй только то, что просят; остальное сохрани максимально близко к оригиналу.",
       "Фотореалистично, естественный дневной свет, аккуратная композиция интерьерного фото.",
     ].join(" ");
   },
