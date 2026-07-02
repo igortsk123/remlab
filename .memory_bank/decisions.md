@@ -3,7 +3,7 @@ tier: 1
 topic: decisions
 scope: ADR-лог — архитектурные решения с обоснованием и влиянием
 tier2: "../docs/DECISIONS.md"
-updated: 2026-07-01
+updated: 2026-07-02
 importance: high
 source: manual
 status: stable
@@ -115,3 +115,30 @@ sequence), `generation_steps` (модель/промпт/настройки/вх
 `lib/images/compress.ts`, `db/schema.ts`, `tools/migrate.mjs`, `db/init/003-traces.sql`, `app/api/trace/*`,
 `app/p/[id]/preview`, `docker-compose.yml` (imagor+том), `.claude/rules/pipeline-tracing.md`,
 `core/observability-tracing.md`. **Решение владельца:** диск для фото, все фазы сразу, ретеншн 90 дн.
+
+## [2026-07-02] Пивот бизнес-модели v0.2 → v0.3 (affiliate-first freemium) — ADR-0014
+**Решение:** принят **Master Project Brief v0.3** (`docs/master-brief-v0.3.md`) как мастер-документ с
+приоритетом выше v0.2. Ключевые сдвиги: (1) **freemium-граница** — бесплатно полноценный подбор **до N
+(3–5) реальных товаров из фидов с открытыми реф-ссылками** (двигатель affiliate, доход ~3%, сеть Гдеслон);
+платно — «комната целиком» (все элементы) + сервисный слой (Cost Engine, чек-лист, план, PDF, workspace).
+Товары/ссылки БОЛЬШЕ НЕ за paywall. (2) **Три ступени монетизации складываются:** affiliate → paid room pack
+(розница ~2 990 ₽; дизайнеры-B2B ~990 ₽/комната от 10) → застройщики «квартира+ремонт в ипотеку» (~5% с чека,
+vision/Stage 4). (3) **Product matching** = «генерация → поиск похожего в большой базе фидов по embeddings»
+(pgvector), метрика similarity с 1-го дня. (4) **Рынок РФ→UK, locale-agnostic** (валюта/фиды/сети/rates через
+абстракции). (5) **Канал** — дешёвый инфо-трафик DIY-кластера (~10 ₽ CPC) + SEO (SSR/SSG); **главная
+falsifiable-гипотеза** юнит-экономики (1 покупка/~45 визитов, чек ~30 000 ₽, доход ≈ 2× CAC), kill-критерий
+в Stage 0. (6) **Второй вход** «найти похожую мебель по фото» (без генерации). (7) **Сегмент F** — дизайнеры
+(B2B-опт, batch/выгрузки, Stage 1.5).
+**Конфликты с реализованным (разрешены явно, не молча):**
+- **Код-долг paywall:** задеплоенный Stage 1 держит товары ЗА paywall — перевести на v0.3-границу
+  (открыть товары + реф-ссылки; paywall на «комнату целиком+сервис»). Отдельным планом (не в этой сессии).
+- **«Supabase» из брифа** vs наш **self-host Postgres+pgvector** (ADR-0001/0002): self-host остаётся,
+  «Supabase» трактуем как «Postgres+pgvector»; смена — только явным решением владельца + новой ADR.
+**Почему:** товарная инфраструктура (фиды Гдеслон) + измеримый DIY-спрос делают affiliate реалистичным
+первичным потоком; открытые товары максимизируют клики; paid продаёт объём+сервис, а не доступ к ссылкам.
+**Альтернативы (отклонены):** v0.2-граница «товары за paywall» — душит affiliate-двигатель; inpainting
+реальных товаров в Stage 1 — сложно/дорого, выбран matching по embeddings. **Влияет на:**
+`docs/master-brief-v0.3.md` (новый), `source-of-truth.md`, `CLAUDE.md`, `product_brief.md`, `core/market.md`,
+`core/user-flow.md`, `core/data-model.md`, `core/access-and-integrations.md`, `project-state.md`, `INDEX.md`;
+код (позже): `modules/ideas` (открыть товары+реф-ссылки), `app/p/[id]/preview`+`/paywall`, новый пайплайн фидов
+и affiliate-трекинг. **Открытые параметры (тесты):** N (3/5), цена room pack, порог similarity, лимит генераций.

@@ -3,7 +3,7 @@ tier: 1
 topic: project-state
 scope: Снимок «где проект сейчас» — точка ресинхронизации при /clear и resume
 tier2: ""
-updated: 2026-07-01
+updated: 2026-07-02
 importance: high
 source: manual
 status: working
@@ -15,6 +15,22 @@ review_after: ""
 # Project State — снимок состояния
 
 > Обновлять после каждого крупного изменения. Первое, что читает агент при resume/`/clear`.
+
+## ⚠️ Пивот бизнес-модели v0.2 → v0.3 (2026-07-02, ADR-0014)
+Принята модель **v0.3 — `docs/master-brief-v0.3.md` (мастер-документ, приоритет выше v0.2).**
+**Affiliate-first freemium, три ступени:** (1) бесплатно — подбор до N (3–5) реальных товаров из фидов
+**с открытыми реф-ссылками** (доход ~3%, сеть Гдеслон); (2) платно — «комната целиком» + Cost Engine +
+план + PDF (розница ~2 990 ₽, дизайнеры-B2B ~990 ₽/комн.); (3) vision — застройщики «квартира+ремонт в
+ипотеку». Рынок РФ→UK (locale-agnostic). Product matching = генерация→поиск похожего в фидах (pgvector).
+**Два конфликта с реализованным (не молча — разрешение зафиксировано):**
+- **Код-долг paywall:** задеплоенный Stage 1 держит товары ЗА paywall (v0.2). По v0.3 их надо ОТКРЫТЬ с
+  реф-ссылками, paywall перенести на «комнату целиком + сервис». Отдельным планом (не сделано).
+- **Стек «Supabase» в брифе:** у нас self-host Postgres+pgvector (ADR-0001/0002) остаётся; «Supabase»
+  трактуем как Postgres+pgvector. Смена — только явным решением владельца.
+**Новые воркстримы Stage 1:** пайплайн фидов Гдеслон (загрузка→нормализация→embeddings→ресинк),
+affiliate-трекинг (click_id→постбэк), метрика similarity, лимиты/anti-abuse генераций, вход «похожая мебель
+по фото», SEO SSR/SSG. Обновлены: `product_brief`, `core/market`, `core/user-flow`, `core/data-model`,
+`core/access-and-integrations`, `source-of-truth`, `CLAUDE.md`, `INDEX`.
 
 ## Где
 - **Прод:** https://remont-lab.online — ✅ LIVE **продуктовый Stage 1** (версия `814761feca1b`, 2026-07-01). Раньше был каркас. Valid LE cert (до 2026-09-29, авто-продление). Postgres в проде, GEMINI_API_KEY в `/opt/remlab/.env`. Бэкап БД перед деплоем: `/opt/remlab/backups/pre-stage1-*.sql.gz`. Откат: образ `remlab-app:prev`. VPN (`remnanode`) не задет. Выкладки пока делаются **вручную** (`deploy.sh`), т.к. авто-деплой ещё не активен (см. ниже).

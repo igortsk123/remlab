@@ -3,16 +3,16 @@ tier: 1
 topic: market
 scope: Рынок и позиционирование — спрос, конкуренты, монетизация, оценки RU/UK
 tier2: "../../docs/market-research-ru-uk.md"
-updated: 2026-07-01
+updated: 2026-07-02
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-07-01
+last_verified: 2026-07-02
 review_after: ""
 ---
 
-# Market — Tier 1 сводка (исследование RU/UK, май 2026)
+# Market — Tier 1 сводка (исследование RU/UK, май 2026; монетизация — v0.3)
 
 ## Позиционирование (главное)
 Побеждает **consumer renovation copilot**, а не «генератор картинок». Дефицитная связка на рынке: **вкус → реальная комната → локальные товары → реализуемый проект**. «10 картинок в стиле лофт» и swipe-вход — уже commodity; moat — надёжное доведение **от неуверенности до покупки и ремонта**. Единого mainstream B2C-лидера полного цикла нет.
@@ -29,8 +29,20 @@ review_after: ""
 - **UK 7/10** — перехват существующего спроса; гибрид design+retail. Ограничение: building regulations (bathroom/electrics/heating).
 - **Две страны:** 6/10 при одинаковом full-stack; **~8/10** при «общий AI-core + локальные каталоги/compliance/execution».
 
-## Монетизация (hybrid — сильнейшее)
-freemium discovery → paid room pack (аналоги: £395 / от 21 900 ₽) → retail/affiliate margin → premium за validated technical pack. (Подписка Decor8 $14.99/мес.)
+## Монетизация — принятая модель v0.3 (истина: `../../docs/master-brief-v0.3.md`)
+**Affiliate-first freemium, три ступени складываются:**
+1. **Affiliate (бесплатно, главный поток старта):** подбор до N (3–5) реальных товаров из фидов с
+   реф-ссылками, открыто. Доход ~3% с выкупа (сеть **Гдеслон**: AliExpress, «Симфония мебели», ~200+ магазинов).
+2. **Paid room pack (разовый):** комната целиком + Cost Engine + план + PDF. Розница ~2 990 ₽ (тест
+   1 990/2 990/4 990; якорь 1/4–1/3 цены дизайнера ~10–25 тыс. ₽); дизайнеры-B2B ~990 ₽/комната от 10.
+3. **Застройщики (vision):** «квартира+ремонт в ипотеку», ~5% с чека ремонта (~150 тыс. ₽/клиент).
+
+**Юнит-экономика ступени 1 (главная falsifiable-гипотеза):** CPC ~10 ₽ → CAC покупателя ~450 ₽ → 1 покупка
+на ~45 визитов → чек ~30 000 ₽ → доход 3% ≈ 900 ₽ ≈ 2× CAC. Проверка Stage 0/1 на 50–100 тыс. ₽,
+kill-критерий CAC > 2× дохода. Риски: атрибуция web→app МП, «оформлен» vs «выкуплен», реальные ставки.
+Канал: дешёвый инфо-трафик DIY-кластера (~100–150 тыс/мес) + SEO (SSR/SSG, программатик).
+> Ранее (v0.2): «freemium discovery → paid room pack → retail/affiliate margin». v0.3 сделал **affiliate
+> первичным**, товары открытыми, paywall перенёс на «комнату целиком + сервис».
 
 ## Конкуренты (relative to remlab)
 RU: **Flatplan** (ближайший «идея→ремонт», human-led), **Remplanner** (техчертежи, зависит от замеров), **MyNewRoom** (фото→4 варианта, style transfer; результат — референс), **Planoplan** (тяжёлый: электрика/сантехника, каталог 8000+). UK/глоб.: **My Bespoke Room** (£395 human-led), **IKEA Kreativ** (scan+3D try-on, только IKEA), **John Lewis** (design→retail conversion), **Decor8 AI** (quiz+redesign+API; слабый last mile), **Planner 5D / Homestyler** (мощные платформы, слабее guided onboarding).
@@ -38,7 +50,8 @@ RU: **Flatplan** (ближайший «идея→ремонт», human-led), **
 ## Выводы для remlab
 - Держать позицию renovation copilot; наш Stage 1 + Cost Engine ложатся в дефицитную связку.
 - Moat = **last mile**: локальный каталог/цены/наличие + честные объяснения (ответ на upsell-боль) + execution.
-- Модель монетизации проекта (free preview → paid room pack) совпадает с рыночной.
+- Модель монетизации v0.3 (affiliate-first free → paid room pack → застройщики) совпадает с рыночной
+  hybrid-логикой; last mile (локальные фиды/цены + честность подбора) — тот же moat.
 - Compliance по странам с первого дня: RU ПДн; UK building regs. Архитектура «AI-core + локальный execution» подтверждена.
 
 **Tier 2:** `../../docs/market-research-ru-uk.md` — полное исследование (цифры, источники, детальные плюсы/минусы конкурентов).

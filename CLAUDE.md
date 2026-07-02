@@ -1,8 +1,12 @@
 # remlab (remont-lab)
 
-B2C AI-помощник по ремонту/обновлению квартиры: фото комнаты → стиль через карточки → AI-preview → ограниченный бесплатный результат → платный room pack → workspace «Мои комнаты».
-Стек: TypeScript (strict) + Next.js (App Router, full-stack) + Drizzle + Zod + Inngest + postgres/pgvector + внешний инференс (Vertex/fal/Replicate) + YooKassa + Sentry + PostHog + Vitest/Playwright + GitHub Actions.
-Стадия: **bootstrap** (каркас + сервер + контейнер). Фичи Stage 1/1B — после каркаса, отдельными планами. Владелец не пишет код → приоритет: самопроверяемость (тесты/CI/observability/гардрейлы).
+B2C AI-помощник по ремонту/обновлению комнаты. Бизнес-модель **v0.3 (affiliate-first freemium, ступени складываются)** — источник истины `docs/master-brief-v0.3.md`:
+- **Бесплатно (ступень 1, доход affiliate ~3%):** фото → style cards → AI-preview → подбор **до N (3–5) РЕАЛЬНЫХ товаров из фидов с ценами и реф-ссылками, открыто** (не за paywall) + товарный бюджет.
+- **Платно (ступень 2, разовый платёж):** «комната целиком» — все элементы + 3 альтернативы + Renovation Cost Engine (не LLM) + чек-лист + план + PDF + workspace. Розница ~2 990 ₽, дизайнеры-B2B ~990 ₽/комната оптом.
+- **Vision (ступень 3, Stage 4):** конфигуратор «квартира + ремонт в одной ипотеке» для застройщиков.
+Рынок запуска — **РФ** (фиды Гдеслон), затем **UK** — архитектура **locale-agnostic** (валюта/фиды/сети/rates через абстракции). Product matching = «генерация → поиск похожего в фидах по embeddings» (pgvector), метрика similarity с 1-го дня.
+Стек: TypeScript (strict) + Next.js (App Router, full-stack, SSR/SSG под SEO) + Drizzle + Zod + Inngest + **self-host postgres/pgvector** (ADR-0002; бриф пишет «Supabase» — трактуем как Postgres+pgvector) + внешний инференс (Gemini сейчас; Vertex/fal/Replicate запас) + YooKassa + PostHog + Vitest/Playwright + GitHub Actions.
+Стадия: продуктовый **Stage 1 задеплоен** (`remont-lab.online`) + трейсинг пайплайна (ADR-0013). ⚠️ Пивот v0.2→v0.3 (ADR-0014): текущий код держит товары ЗА paywall — по v0.3 их надо **открыть с реф-ссылками**, paywall перенести на «комнату целиком+сервис» (код-долг, отдельным планом). Фиды Гдеслон + affiliate-трекинг — новый воркстрим Stage 1. Владелец не пишет код → приоритет: самопроверяемость (тесты/CI/observability/гардрейлы).
 
 ## Иерархия памяти
 - **Tier 0 (auto-loaded):** этот файл + `.claude/rules/*.md` (path-scoped, грузятся по `paths:`).

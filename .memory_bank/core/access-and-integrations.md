@@ -3,7 +3,7 @@ tier: 1
 topic: access-and-integrations
 scope: Внешние интеграции/доступы — где ключи, какие модели/эндпоинты, форматы, клиенты в коде
 tier2: ""
-updated: 2026-07-01
+updated: 2026-07-02
 importance: high
 source: manual
 status: working
@@ -39,6 +39,16 @@ review_after: ""
 - **Ключ:** `POSTHOG_KEY` (+ `POSTHOG_HOST`, дефолт `https://eu.i.posthog.com`) в env. Без ключа — no-op.
 - **События:** project_started, brief_completed, style_selected, preview_ready, paywall_viewed, pack_unlocked, app_error.
 - Бесплатный тариф PostHog: 1M событий/мес. Sentry не заводим (покрыто PostHog).
+
+## Affiliate-сеть и фиды товаров (v0.3 — планируется, ещё НЕ интегрировано)
+- **Сеть РФ:** **Гдеслон** (и аналоги) — фиды AliExpress, «Симфония мебели» и др. (~200+ магазинов),
+  комиссия ~3% с выкупа. Реф-ссылки в подборе (free и paid). UK-аналоги позже: Awin/CJ.
+- **Пайплайн фидов (Stage 1):** загрузка → нормализация (категории/размеры/цвета/материалы/style_tags) →
+  embeddings (image+text) → векторный индекс (pgvector) → ресинк цен/наличия/статуса; фильтр мусора.
+- **Атрибуция:** click_id при переходе → постбэк сети «оформлен»/«выкуплен» → атрибутированная покупка
+  (события `affiliate_*`). Блокер к проверке: атрибуция web→app МП, cookie duration, реальные ставки.
+- **locale-agnostic:** источник фидов/сеть/валюта/rates — через абстракции (РФ→UK без хардкода рубля).
+- Значения ключей API сети — только в `.env` (когда появятся), не в память. Детали: `../docs/master-brief-v0.3.md` §4.4.
 
 ## Трейсинг пайплайна + imagor (ADR-0013)
 - **imagor** (сжатие картинок, Go+libvips) — сервис `remlab-imagor` на `remlab-net`, **internal-only**

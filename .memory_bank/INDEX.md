@@ -2,7 +2,9 @@
 
 > Always-loaded тонкий указатель. Drill-down только когда нужно.
 
-remlab (remont-lab) — B2C AI-помощник по обновлению квартиры (фото → стиль → AI-preview → free preview → paid room pack → workspace).
+remlab (remont-lab) — B2C AI-помощник по ремонту комнаты. Модель **v0.3 (affiliate-first freemium)**:
+бесплатно — фото → AI-preview → до N реальных товаров из фидов с **открытыми реф-ссылками** (доход ~3%);
+платно — «комната целиком» + Cost Engine + план + PDF; vision — застройщики. Истина: `docs/master-brief-v0.3.md`.
 
 ## Минимум правил (всегда)
 - **План first** — задача → план-файл → ждать «деплой» (`.claude/rules/agent-workflow.md`).
@@ -28,7 +30,7 @@ remlab (remont-lab) — B2C AI-помощник по обновлению ква
 | Трейсинг AI-пайплайна — лог каждого вызова LLM, «номер генерации», разбор по номеру, сжатие | `core/observability-tracing.md` | — |
 | Регресс-защита — тесты, CI-гейт, observability, eval, гардрейлы, DoD | `core/regression-net.md` | `../../docs/tech-spec-ts-stack.md` |
 | Stage 1 UX-flow, экраны, free/paid граница, аналитика | `core/user-flow.md` | `../../docs/cjm-ux-v0.2.md` |
-| Бизнес-контекст — зачем продукт, для кого, что в scope | `product_brief.md` | `../docs/cjm-ux-v0.2.md` |
+| Бизнес-контекст — зачем продукт, для кого, монетизация (v0.3) | `product_brief.md` | `../docs/master-brief-v0.3.md` |
 <!-- GENERATED:decision-tree END -->
 
 **Правило:** сначала `core/<тема>.md`. Не хватает данных — drill в Tier 2 (указан в конце сводки).
@@ -40,6 +42,7 @@ remlab (remont-lab) — B2C AI-помощник по обновлению ква
 - `deployment.md` — playbook деплоя/отката/автоочистки на exit-fi.
 
 ## Ключевые исходники (docs/)
+- **`docs/master-brief-v0.3.md` — МАСТЕР-документ (бизнес/монетизация, приоритет выше v0.2).**
 - `docs/tech-spec-ts-stack.md` — инженерная спека (стек, контракты, схема, регресс-защита).
 - `docs/cjm-ux-v0.2.md` — продуктовый слой (CJM, экраны, free/paid, аналитика).
 - `docs/market-research-ru-uk.md` — рыночное исследование RU/UK (спрос, конкуренты, монетизация).
