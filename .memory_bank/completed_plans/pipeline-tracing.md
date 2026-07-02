@@ -142,11 +142,13 @@ completed: 2026-07-02
 executor — для 3 фиксированных шагов это избыточно). Мультипровайдерность (GPT/ControlNet) — это seam: добавить
 провайдер за интерфейсами + привязать в сценарии (фиктивных провайдеров не заводил).
 
-## Follow-up work (прод-деплой — отдельно, owner-gated, беречь VPN-ноду)
-- [ ] `pnpm db:migrate` на прод-БД (создаёт trace-таблицы+sequence). Бэкап перед этим.
-- [ ] Развернуть сервис `imagor` + том `remlab-traces` (проверить образ `shumc/imagor` под **arm64**).
-- [ ] Env на сервере: `TRACE_DIR`, `IMAGOR_BASE_URL`, `TRACE_ADMIN_TOKEN`, `TRACE_RETENTION_DAYS`.
+## Follow-up work
+**✅ Прод-деплой выполнен 2026-07-02 (версия `tracing-142829`, см. `project-state.md`):**
+- [x] `pnpm db:migrate` на прод-БД — trace-таблицы+sequence созданы (через `deploy.sh` 5b, 002+003). Бэкап `pre-tracing-*`.
+- [x] Сервис `imagor` + том `remlab-traces` развёрнуты (`shumc/imagor:latest` — нативный arm64).
+- [x] Env на сервере заданы (compose + `TRACE_ADMIN_TOKEN` в `/opt/remlab/.env`).
+**Осталось:**
 - [ ] Повесить `pnpm trace:prune` на таймер `remlab-cleanup` (ops-скрипт с доступом к тому).
-- [ ] Мердж ветки в `main` (владелец).
+- [ ] Мердж ветки `feature/pipeline-tracing` в `main` (прод ВПЕРЕДИ main; на ветке же доки пивота v0.3).
 - [ ] Дашборд трейсов (UI) и экспорт «набор тестов → сравнение оптимума» — при росте объёма тестов.
 - [ ] TODO(legal): фото — ПДн (ретеншн/согласие) — не блокируемся.

@@ -37,7 +37,7 @@ affiliate-трекинг (click_id→постбэк), метрика similarity,
 `core/access-and-integrations`, `source-of-truth`, `CLAUDE.md`, `INDEX`.
 
 ## Где
-- **Прод:** https://remont-lab.online — ✅ LIVE **продуктовый Stage 1** (версия `814761feca1b`, 2026-07-01). Раньше был каркас. Valid LE cert (до 2026-09-29, авто-продление). Postgres в проде, GEMINI_API_KEY в `/opt/remlab/.env`. Бэкап БД перед деплоем: `/opt/remlab/backups/pre-stage1-*.sql.gz`. Откат: образ `remlab-app:prev`. VPN (`remnanode`) не задет. Выкладки пока делаются **вручную** (`deploy.sh`), т.к. авто-деплой ещё не активен (см. ниже).
+- **Прод:** https://remont-lab.online — ✅ LIVE **Stage 1 + трейсинг пайплайна** (версия `tracing-142829`, 2026-07-02; собрана из ветки `feature/pipeline-tracing`, поэтому прод ВПЕРЕДИ `main`). Контейнеры: `remlab-app`, `remlab-caddy`, `remlab-db`, **`remlab-imagor`** (+ боевая `remnanode` VPN, не задета). Valid LE cert (до 2026-09-29). GEMINI_API_KEY + TRACE_ADMIN_TOKEN в `/opt/remlab/.env`. Бэкапы БД: `/opt/remlab/backups/pre-*.sql.gz` (последний `pre-tracing-20260702-142741`). Откат: образ `remlab-app:prev`. Выкладки **вручную** (`deploy.sh`), авто-деплой ещё не активен.
 - **Репозиторий:** github.com/igortsk123/remlab (публичный, ветка `main`, deploy key `~/.ssh/remlab_deploy_ed25519`). CI: GitHub Actions гейт.
 - **Окружение / сервер:** exit-fi `89.167.127.0` (Hetzner EU, Ubuntu 24.04, **aarch64/ARM**, 2 vCPU / 3.7 GB / 38 GB). ⚠️ на сервере живёт боевая внутренняя VPN-нода — изоляция обязательна.
 - **Деплой:** кросс-сборка arm64 локально (buildx+эмуляция) → `docker save|ssh|docker load` → `docker compose up` в `/opt/remlab`. Скрипт: `deploy.sh`. Playbook: `deployment.md`.
@@ -70,10 +70,16 @@ affiliate-трекинг (click_id→постбэк), метрика similarity,
   `lib/pipelines/registry.ts` (`preview-v1`). Сжатие фото перед LLM — **imagor** (`lib/images/compress.ts`).
 - **Разбор:** скилл `/trace`, `pnpm trace <N>`, `GET /api/trace/<N>` + `/asset/<id>` (гард `TRACE_ADMIN_TOKEN`);
   «Генерация #N» на `/preview`; кнопка «Сообщить о проблеме» (`/api/trace/report`). Ретеншн 90 дн (`pnpm trace:prune`).
-- **Проверено локально:** typecheck/lint/build зелёные, 8 unit passed (fake-ИИ пишет трейс в in-memory+диск).
-  **НЕ задеплоено в прод.** Ops-шаги при деплое: `pnpm db:migrate` на прод-БД (создаёт trace-таблицы+sequence),
-  добавить сервис `imagor` + том `remlab-traces` (compose обновлён), задать env, повесить `trace:prune` на
-  `remlab-cleanup`. Осторожно с VPN-нодой: бэкап+rollback. imagor-образ проверить под arm64 (`shumc/imagor`).
+- **Проверено локально:** typecheck/lint/build зелёные, 9 unit passed (+ `trace.test.ts`; fake-ИИ пишет трейс).
+- **✅ ЗАДЕПЛОЕНО В ПРОД (2026-07-02):** версия `tracing-142829` на `remont-lab.online` (health 200). Контейнер
+  `remlab-imagor` (`shumc/imagor:latest`, нативный **arm64**) поднят на `remlab-net` internal-only; том
+  `remlab-traces` → `/opt/remlab/data/traces`. Trace-таблицы+sequence созданы (миграция 002+003 в `deploy.sh`
+  шаг 5b). Sequence сброшен → **первая генерация будет #1**. `TRACE_ADMIN_TOKEN` сгенерирован и лежит в
+  `/opt/remlab/.env` (значение НЕ в git/памяти). Бэкап БД перед деплоем: `/opt/remlab/backups/pre-tracing-20260702-142741.sql.gz`.
+  Образ `:prev` для отката. VPN-нода `remnanode` цела. Память сервера после: ~822/3806 МБ.
+- **⚠️ Ещё НЕ сделано:** `trace:prune` на таймер `remlab-cleanup` (ретеншн — ручной пока); **мердж ветки
+  `feature/pipeline-tracing` в `main`** (прод собран из working tree ветки — прод ВПЕРЕДИ main; на ветке же
+  лежат доки пивота v0.3). SSH к проду гейтится harness — нужно явное разрешение владельца на деплой.
 
 ## ⚠️ Ключевой факт железа
 Сервер **aarch64 (ARM)** → образы собирать под `linux/arm64` (buildx + `tonistiigi/binfmt`). `deploy.sh` уже делает это. Обычный `docker build` на amd64-машине даст неработающий образ (app будет рестартить).
