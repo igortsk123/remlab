@@ -1,6 +1,7 @@
 ---
 workstream: [область/воркстрим]
 slug: [kebab-case-slug]
+title: [Человекочитаемое название — идёт в реестр plans/README]
 status: draft
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
@@ -30,7 +31,11 @@ completed:
 - [ ] Нет ошибок типов
 - [ ] Нет отладочного вывода
 - [ ] Не задеты файлы вне scope
-- [ ] Memory Bank обновлён, если менялась архитектура/контракты
+
+## Definition of Done — память (без этого `completed` запрещён)
+- [ ] Memory Bank обновлён: затронутые `core/*`, `decisions.md`, `project-state.md` (снимок, не журнал)
+- [ ] Фича вводит НОВУЮ функциональную область → заведена `core/<домен>.md`, видна в decision tree (INDEX)
+- [ ] `/memory-check` выполнен, audit «чисто»
 
 ## Лог выполнения
 - YYYY-MM-DD — план создан (draft)

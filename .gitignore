@@ -35,3 +35,11 @@ _intake/_processed/
 
 # trace assets (картинки прогонов пишутся на диск/том, не в git)
 .data/
+
+# memory-bank start
+.memory_bank/_secrets/*
+!.memory_bank/_secrets/README.md
+.claude/settings.local.json
+.claude/settings.local.json.bak-*
+.claude/settings.local.json.proposed
+# memory-bank end

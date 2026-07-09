@@ -29,7 +29,7 @@ description: >
    - если нет фронтенда — удалить `.claude/rules/ui-rules.md`;
    - заполнить `{{STACK}}` и список правил `{{RULES_LIST}}`.
 
-2b. **Определить тип проекта.** Прочитать `_intake/brief/_project-type.txt` (его пишет apply.ps1):
+2b. **Определить тип проекта.** Прочитать `_intake/brief/_project-type.txt` (его пишут apply-скрипты):
    - `dev` (или файла нет) — кодовый проект: оставить строгий plan-first (`agent-workflow.md`),
      в `CLAUDE.md` подчеркнуть «код только после апрува плана».
    - `notes` — база знаний без кода: plan-first не навязывать. Удалить `.claude/rules/code-standards.md`
@@ -38,13 +38,19 @@ description: >
 
 3. **Сгенерировать `product_brief.md`** из `brief/` — заполнить все `{{...}}`.
 
-4. **Выделить темы проекта** (architecture, data-models, flows, и домен-специфичные) → создать
-   стартовые `core/<тема>.md` по `core/_template.md`. У каждой: frontmatter (`tier:1`, `topic`,
-   `scope`, `tier2`, `updated`, `importance`, `source`) и финальная строка `Tier 2:`.
-   Обновить `core/README.md` реестр.
+4. **Выделить домены проекта — ЯВНЫМ списком.** По intake и структуре кода (если код уже есть —
+   пройдись по каталогам/подсистемам) перечисли ВСЕ крупные функциональные области, а не только
+   типовые. Под КАЖДУЮ создать `core/<тема>.md` по `core/_template.md` (типовые: architecture,
+   data-models, flows, access-and-integrations + домен-специфичные). У каждой: frontmatter
+   (`tier:1`, `topic`, `scope`, `tier2`, `updated`, `importance`, `source`) и финальная строка
+   `Tier 2:`. Стартовое decision tree обязано покрывать реальную структуру проекта, не только
+   «product». Реестр `core/README.md` пересоберёт аудит (шаг 9) — руками не заполнять.
 
-5. **Заполнить `source-of-truth.md` и `project-state.md`** из brief+history. Принятые решения из
-   истории внести в `decisions.md` в ADR-формате (Дата/Решение/Почему/Альтернативы/Влияет на).
+5. **Заполнить `source-of-truth.md` и `project-state.md`** из brief+history. ВАЖНО: project-state —
+   только текущий срез (снимок ≤ ~10 KB); хронологию из history — в `changelog/project-history.md`
+   (append), чтобы снимок не родился уже раздутым. Принятые решения из истории внести в
+   `decisions.md` в ADR-формате (Дата/Решение/Почему/Альтернативы/Влияет на).
+   У canonical-доков проставить `last_verified` (= дата init) и `review_after` (например +90 дней).
 
 6. **Активировать OPTIONAL по детекту** (копировать из `_optional/`, проставить frontmatter,
    зарегистрировать):
@@ -60,9 +66,11 @@ description: >
      (backend/sql/frontend/android — по стеку проекта).
    Неактуальные модули НЕ копировать.
 
-7. **Заполнить плейсхолдеры `{{...}}` в `CLAUDE.md`** (`{{PROJECT_NAME}}`, `{{ONE_LINER}}`,
-   `{{STACK}}`, `{{STAGE_NOTE}}`, `{{RULES_LIST}}`) и в INDEX (`{{PROJECT_NAME}}`, `{{ONE_LINER_SHORT}}`).
-   Проставить реальную дату вместо `{{DATE}}` во всех созданных доках.
+7. **Заполнить ВСЕ плейсхолдеры `{{...}}`**: в `CLAUDE.md` (`{{PROJECT_NAME}}`, `{{ONE_LINER}}`,
+   `{{STACK}}`, `{{STAGE_NOTE}}`, `{{RULES_LIST}}`), в INDEX (`{{PROJECT_NAME}}`, `{{ONE_LINER_SHORT}}`)
+   и дату вместо `{{DATE}}` во всех доках банка — ВКЛЮЧАЯ скопированные из шаблона (`guides/*`,
+   `changelog/project-history.md`), а не только созданные. Остаточный `{{...}}` audit флагает
+   как PLACEHOLDER — после init их быть не должно.
 
 8. **Архивировать intake** → переместить обработанные файлы в `_intake/_processed/`. В `source:`
    сгенерированных доков указать ссылку на исходник.

@@ -4,11 +4,19 @@
 
 ## Правила
 - Файл переносится как есть; статус `completed`, добавлена дата `completed:` и `Completion summary`.
-- После переноса — убрать из реестра `plans/README.md`.
 - Файлы здесь **не редактируются** (readonly history).
+- Перед переносом — гейт: `/memory-check` выполнен, audit «чисто» (`.claude/rules/agent-workflow.md`).
 
 ## Архив
 
+<!-- GENERATED:completed-plans-registry START -->
+<!-- Таблицу регенерирует tools/memory-audit.mjs из frontmatter. Не редактируй вручную. -->
+
 | slug | Название | Завершён |
 |------|----------|----------|
-| `remlab-bootstrap` | Bootstrap: Memory Bank + сервер exit-fi + arm64 контейнер + CI (S1–S4) | 2026-07-01 |
+| trace-image-assets-fix | — | 2026-07-02 |
+| pipeline-tracing | — | 2026-07-02 |
+| interactive-object-selection | — | 2026-07-02 |
+| generation-screens-copy | — | 2026-07-02 |
+| remlab-bootstrap | — | 2026-07-01 |
+<!-- GENERATED:completed-plans-registry END -->

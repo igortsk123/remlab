@@ -1,0 +1,13 @@
+52e0d141142e46d1c3d7d211a25f8bf7 tools/memory-audit.mjs
+7c993ef693ae1b35c709a79a2f8306cc tools/merge-settings.py
+610345b4eef0426bf3b25aa7163fee47 tools/merge-settings.ps1
+a3c3e809365e161d0ce54acb7c1dd12f tools/session-reminder.mjs
+c397b4d720f6e859185a64df37e6e843 tools/session-freshness.mjs
+489432c4a96fca6428a618657da62030 tools/stop-hook.example.json
+1010db36143f6a94048fc2276a5b17df .claude/skills/memory-init/SKILL.md
+6bcb0bdcadf6714015fbda3ea74eec23 .claude/skills/memory-check/SKILL.md
+bf5fc38b42fe361b2e91b06fc7a1246b .claude/skills/memory-cleanup/SKILL.md
+be769d579193748fe3073a7275bb83c7 .memory_bank/METADATA_SCHEMA.md
+7e62a2a9218a1578209f7a370765776d .memory_bank/CLEANUP_POLICY.md
+6825a90f012385bf9381c8b288f536b8 .memory_bank/archive/README.md
+e20732998dbc6816872ce0bc2ad2f301 .memory_bank/_secrets/README.md

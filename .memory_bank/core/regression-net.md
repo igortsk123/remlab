@@ -3,38 +3,43 @@ tier: 1
 topic: regression-net
 scope: Регресс-защита — тесты, CI-гейт, observability, eval, гардрейлы, DoD
 tier2: "../../docs/tech-spec-ts-stack.md"
-updated: 2026-07-01
+updated: 2026-07-09
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-07-01
+last_verified: 2026-07-09
 review_after: ""
 ---
 
-# Regression Net — Tier 1 сводка
+# Regression Net — Tier 1 (сверено 2026-07-09)
 
-> Главная сетка для соло-не-кодера: ошибки ловит автоматика, не чтение кода. Обязательно с Stage 1.
+> Сетка для соло-не-кодера: ошибки ловит автоматика. «Цель» = НЕ реализовано.
 
-## Тесты
-- **Unit (Vitest)** — чистая логика без сети: математика Cost Engine, ранжирование matching, мапперы scope→work_types, style_profile→prompt, гардрейлы. Самые ценные.
-- **Integration (Vitest + тестовая БД)** — API/RLS/миграции/Zod; внешние модели/платежи — мок.
-- **e2e (Playwright)** — критические потоки + пути ошибок: happy path; generation lifecycle (Realtime/polling → done/failed/needs_better_photo); paywall; failure (плохое фото, упавший инференс, таймаут, недоступный товар).
-- **Правило:** нет e2e на затронутый поток → срез не готов.
+## Есть в коде
+- **Unit (Vitest, `tests/unit/`):** flow-pipeline, health, providers, restyle-prompt, trace-sign,
+  trace. Интеграция с БД — только `pg-repository.test.ts` (skipIf без `TEST_DATABASE_URL`).
+  Мок моделей — fake-провайдер (`REMLAB_FAKE_AI=1`).
+- **e2e (Playwright):** happy path `flow.spec.ts` + 3 smoke (`smoke.spec.ts`); error-путей НЕТ.
+- **CI-гейт (`ci.yml`, S4):** postgres (pgvector/pgvector:pg17) → install → typecheck → lint →
+  test → build → e2e. Шага db:migrate НЕТ (таблицу тест создаёт сам). Красный = merge запрещён.
+- **Observability:** трейс каждого LLM-вызова (`traced.ts`/`lib/trace/`; costUsd/шаг,
+  total_cost_usd/прогон); PostHog (`lib/analytics.ts`) — эмитятся 5 из 9 событий
+  (project_started, preview_ready, pack_unlocked, problem_reported, app_error). Sentry НЕ заводим.
 
-## Definition of Done
-typecheck ✓, lint ✓, unit+integration ✓, e2e (+≥1 путь ошибки) ✓, все состояния ошибки имеют UX, PostHog/Sentry эмитятся, секретов нет / env задокументированы, миграция обратима, отклонения → DECISIONS.
+## Цель (спека §12) — НЕ реализовано
+- Тесты: Cost Engine/matching/work_types/гардрейлы (модулей нет); интеграционные API/миграции;
+  RLS (в БД нет); e2e error-пути (плохое фото, инференс, таймаут). Статусов
+  done/failed/needs_better_photo НЕТ (enum: started…preview_ready|paid); генерация — синхронный
+  POST `/api/p/[id]/generate` БЕЗ Realtime/polling и Inngest. Платежи — демо-кнопка.
+- Гардрейлы стоимости: maxCostUsd; квота free-генераций юзер/IP; потолок + kill-switch;
+  nCandidates=1 на free. Сейчас generate без лимитов.
+- Eval-харнесс (§12.5): `/eval` (Python) нет; план — 30–50 золотых фото, LPIPS/SSIM + CLIP;
+  интерим — ручная рубрика самопроверки (§8; «§8.3» — условная нумерация).
+- Дашборд стоимости инференса.
+- Правило «нет e2e на поток → срез не готов» для error-путей нарушено.
 
-## CI-гейт (GitHub Actions) — S4
-postgres(pgvector) service → install → typecheck → lint → db:migrate → test → build → e2e. Красный = merge запрещён.
+**DoD (цель-чеклист):** typecheck/lint/тесты ✓; e2e +≥1 путь ошибки; UX всех ошибок; события
+эмитятся; env задокументированы; отклонения → DECISIONS.
 
-## Observability
-Sentry (ошибки фронт/бэк/Inngest с job_id/user_id/mode); структурные логи внешних вызовов (провайдер/модель/latency/cost); трейс generation_job; PostHog события всего flow; дашборд стоимости инференса.
-
-## Гардрейлы стоимости (Stage 1)
-maxCostUsd на вызов; квота free-генераций на юзера/IP; Inngest concurrency.limit; дневной потолок + kill-switch (PostHog флаг); nCandidates=1 на free.
-
-## Eval-харнесс качества (Python /eval, не в рантайме)
-Золотой набор 30–50 фото + брифы; LPIPS/SSIM по «оставленным» зонам + CLIP к стилю; перед сменой модели/промпта. MVP-интерим: ручная рубрика §8.3.
-
-**Tier 2:** `../../docs/tech-spec-ts-stack.md` §12 (полная регресс-защита) + §8.3 (протокол самопроверки моделей).
+**Tier 2:** `../../docs/tech-spec-ts-stack.md` §12 (регресс-защита), §8 (самопроверка моделей).

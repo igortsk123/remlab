@@ -1,65 +1,54 @@
 ---
-tier: 2
+tier: 1
 topic: deployment
-scope: Playbook прод-деплоя, smoke-тест и откат
-tier1: "core/architecture.md"
-updated: 2026-07-01
+scope: Деплой/откат/сервер exit-fi — playbook
+tier2: ""
+updated: 2026-07-09
 importance: high
 source: manual
+last_verified: 2026-07-09
 ---
 
 # Deployment — playbook
 
-> ⚠️ Хост делит боевую внутреннюю VPN-ноду (remnanode/rw-core/warp). НЕ ломать её. Всё — изолированно.
-> Статус на 2026-07-01: ✅ LIVE — каркас развёрнут (S2+S3). https://remont-lab.online отдаёт 200, LE-cert валиден.
-> ⚠️ **Сервер aarch64 (ARM)** — образы ТОЛЬКО под `linux/arm64` (buildx + binfmt); `deploy.sh` это делает. Обычный `docker build` на amd64 → app рестартит.
+> ⚠️ Хост делит боевую VPN-ноду (remnanode/rw-core/warp) — НЕ ломать, всё изолированно.
+> ⚠️ Сервер aarch64 (ARM): образы ТОЛЬКО `linux/arm64` (buildx+binfmt; `deploy.sh` делает сам).
 
-## Production
-- 🌐 URL: https://remont-lab.online (домен GoDaddy, A → 89.167.127.0, без CF-прокси)
-- 🔒 Сертификат: Let's Encrypt, TLS-ALPN-01 на :443, авто-продление Caddy (ADR-0003)
-- 📦 Контейнеры: `remlab-app` (Next.js `next start`, :3000 internal), `remlab-caddy` (:443), `remlab-db` (postgres:17+pgvector, volume `remlab-db`). `restart: unless-stopped`, mem_limit app 1G / pg 1G / caddy 128M (ADR-0004)
-- 🌉 Прокси: Caddy (не системный nginx — он у VPN на :80)
+## Production (LIVE)
+- https://remont-lab.online (GoDaddy, A → 89.167.127.0, без CF); LE TLS-ALPN-01 :443,
+  авто-продление Caddy (ADR-0003).
+- Контейнеры (compose, сеть `remlab-net`): `remlab-app` (Next **standalone**, `node server.js`,
+  :3000 internal — НЕ `next start`), `remlab-caddy` (:443), `remlab-db` (pgvector/pgvector:pg17),
+  `remlab-imagor` (сжатие картинок), `traces-init` (one-shot chown тома `remlab-traces`).
+  mem app 1G / pg 1G / caddy 128M (ADR-0004).
+- Статик /lab/*: файл в `/opt/remlab/temp` → `https://remont-lab.online/lab/<файл>`
+  (Caddyfile `handle_path`; артефакты без пересборки app).
 
-## Сервер / окружение
-- Хост: exit-fi `89.167.127.0` (Hetzner, Ubuntu 24.04). 2 vCPU / 3.7 GB / 38 GB. Docker + compose v2.
-- Рабочая директория: `/opt/remlab`. Docker-сеть: `remlab-net` (изоляция от VPN).
-- Особенности: swap 4 GB (swappiness=10); iptables INPUT=DROP, :443 открыт, :80 закрыт; SSH `root@` (также :22222).
-- Соседи (НЕ трогать): `remnanode` + `rw-core` (:8444/:9443/:2222), системный nginx :80.
+## Сервер
+exit-fi 89.167.127.0 (Hetzner, Ubuntu 24.04, 2 vCPU/3.7G/38G), Docker+compose v2, рабдир
+`/opt/remlab`. Swap 4G; iptables INPUT=DROP (:443 открыт, :80 закрыт); SSH root@ (и :22222).
+Соседи НЕ трогать: remnanode, rw-core (:8444/:9443/:2222), системный nginx :80.
 
-## Пайплайн (сборка локально → образ на сервер)
-1. Локально: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
-2. Кросс-сборка arm64: `docker buildx build --platform linux/arm64 --load -t remlab-app:<tag>` (нужен `tonistiigi/binfmt --install arm64` + buildx builder `remlabx`). Всё это делает `./deploy.sh <tag>`.
-3. Сохранить предыдущий образ на сервере как `remlab-app:prev` (для отката).
-4. `docker save remlab-app:<tag> | gzip | ssh root@89.167.127.0 'gunzip | docker load'`.
-5. `ssh ... 'cd /opt/remlab && docker compose up -d'`.
-6. Smoke-test (ниже). Провал → откат на `:prev`.
-7. Очистка: оставить последние 2 тега `remlab-app`, `docker image prune -f` (dangling, scoped — образ VPN не трогать).
-(Автоматизировано в `deploy.sh` — S3.)
+## Деплой — `./deploy.sh <tag>` (всё автоматом)
+typecheck/lint/test/build локально → buildx arm64 → прежний образ → `:prev` →
+`docker save | ssh | docker load` → `compose up -d` (+ шаг 5b: SQL-миграции `db/init/*.sql`
+psql-ом) → smoke → провал = откат на `:prev`. Чистка: последние 2 тега + `docker image prune -f`
+(образ VPN не трогать).
 
-## Ручной откат
-```
-ssh root@89.167.127.0 'cd /opt/remlab && docker tag remlab-app:prev remlab-app:latest && docker compose up -d'
-```
+## Откат / smoke
+- Откат: `ssh root@89.167.127.0 'cd /opt/remlab && docker tag remlab-app:prev remlab-app:latest && docker compose up -d'`
+- Smoke: `/` = 200; `/api/health` = `{"ok":true}`; VPN цел: remnanode Up, :8444/:9443/:2222 живы.
 
-## Smoke-test (после деплоя — обязательно)
-```
-curl -s -o /dev/null -w "%{http_code}\n" https://remont-lab.online/        # 200
-curl -s https://remont-lab.online/api/health                                # {"ok":true,...}
-# VPN цел:
-ssh root@89.167.127.0 'docker ps --format "{{.Names}} {{.Status}}" | grep remnanode'   # Up
-ssh root@89.167.127.0 'ss -tlnp | grep -E ":8444|:9443|:2222"'                          # на месте
-```
-
-## Автоочистка / защита от переполнения (ADR-0005)
-- Логи Docker: json-file `max-size=10m max-file=3` (daemon.json).
-- weekly systemd-timer `remlab-cleanup`: dangling-образы, build-cache, stopped remlab-контейнеры (без глобального `system prune -a`).
-- Бэкап БД: ночной `pg_dump` в `/opt/remlab/backups`, хранить последние 7.
-- df-watchdog: алерт при >80%.
+## Автоочистка (ADR-0005)
+Логи json-file 10m×3; weekly-таймер `remlab-cleanup` (`infra/server/cleanup.sh`: dangling-образы,
+build-cache; `trace:prune` НЕ вызывает — ретеншн трейсов пока вручную); ночной `pg_dump` →
+`/opt/remlab/backups` (7 шт); df-watchdog >80%.
 
 ## Секреты
-`.env` в `/opt/remlab` (вне git, вне Memory Bank): `DATABASE_URL`, ключи инференса/платёжки, `SENTRY_DSN`, `POSTHOG_KEY`. В репо — `.env.example`.
+`.env` в `/opt/remlab` (вне git): `POSTGRES_PASSWORD`, `GEMINI_API_KEY`, `TRACE_ADMIN_TOKEN` и пр.
+Compose передаёт в app ЯВНЫЙ `environment:`-список — новый ключ = правка compose. В репо —
+`.env.example`.
 
 ## Принципы
-- Верифицируй деплой, не предполагай: health-эндпоинт с версией/commit, поллить до совпадения.
-- Перед правкой сервера — бэкап (iptables-save, cp конфигов), rollback записан в плане.
-- Не трогать общие конфиги VPN (системный nginx, iptables-правила ноды) без нужды.
+Верифицируй деплой (health с версией, поллить); перед правкой сервера — бэкап + rollback в
+плане; общие конфиги VPN не трогать.
