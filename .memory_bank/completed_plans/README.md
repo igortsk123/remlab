@@ -14,6 +14,7 @@
 
 | slug | Название | Завершён |
 |------|----------|----------|
+| kit-align | Приведение remlab к киту v1.1.0 (по HEAL.md, эталон sup2) | 2026-07-09 |
 | trace-image-assets-fix | — | 2026-07-02 |
 | pipeline-tracing | — | 2026-07-02 |
 | interactive-object-selection | — | 2026-07-02 |

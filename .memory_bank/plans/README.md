@@ -26,7 +26,6 @@ draft → in_progress → completed → перенос в completed_plans/
 
 | slug | Название | status | created | updated |
 |------|----------|--------|---------|---------|
-| kit-align | Приведение remlab к киту v1.1.0 (по HEAL.md, эталон sup2) | completed | 2026-07-09 | 2026-07-09 |
 | round-oval-footprint | — | draft | 2026-07-07 | — |
 | unified-measurement-pipeline | — | draft | 2026-07-06 | 2026-07-06 |
 | object-size-reference | — | draft | 2026-07-06 | 2026-07-06 |
