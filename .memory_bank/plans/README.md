@@ -29,8 +29,8 @@ draft → in_progress → completed → перенос в completed_plans/
 | sub-ml-sizes | ML: стабилизация замера (контур, площади пола, footprint) | draft | 2026-07-11 | 2026-07-11 |
 | sub-e8-scale | Э8 Второй мотор и масштаб — B2B, надёжность, UK (скелет) | draft | 2026-07-11 | 2026-07-11 |
 | sub-e7-growth | Э7 Рост — SEO, шаринг, e-mail, anti-abuse (скелет) | draft | 2026-07-11 | 2026-07-11 |
-| sub-e6-eval | Э6 Eval-контур качества: golden-набор, тесты, /admin/eval, промоушен-gate | draft | 2026-07-11 | 2026-07-11 |
-| sub-e5-fit-integration | Э5 (=Ф8): ml-service в проде — fit-вердикты, вставка в масштабе, правка человеком | draft | 2026-07-11 | 2026-07-11 |
+| sub-e6-eval | Э6 Eval-контур качества — golden-набор, тесты, /admin/eval, промоушен-gate | draft | 2026-07-11 | 2026-07-11 |
+| sub-e5-fit-integration | Э5 (=Ф8): ml-service в проде — fit, вставка в масштабе, правка человеком | draft | 2026-07-11 | 2026-07-11 |
 | sub-e4-payments | Э4 Монетизация: YooKassa, тарифы 1490/9900, entitlements | draft | 2026-07-11 | 2026-07-11 |
 | sub-e3-foundation | Э3 Фундамент продаж — async-джобы, файлы вместо base64, аккаунты, квоты | draft | 2026-07-11 | 2026-07-11 |
 | sub-e2-feeds | Э2 — фиды Гдеслон, автоподбор, постбэки | draft | 2026-07-11 | 2026-07-11 |

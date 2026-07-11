@@ -33,7 +33,8 @@ last_verified: 2026-07-09
 ## Где
 - **Стадия:** Stage 1 LIVE в проде; принят пивот модели **v0.3** (ADR-0014), идёт доводка кода.
 - **Прод:** https://remont-lab.online — версия `tracing-142829` (2026-07-02), собрана из ветки
-  `feature/pipeline-tracing` → **прод ВПЕРЕДИ `main`**. Контейнеры: `remlab-app`,
+  `feature/pipeline-tracing`; ветка **уже влита в `main`** (проверено 2026-07-11: по коду
+  прод == main, main впереди только док-коммитами). Контейнеры: `remlab-app`,
   `remlab-caddy`, `remlab-db` (pg17+pgvector), `remlab-imagor`. LE-cert до 2026-09-29. Секреты —
   только `/opt/remlab/.env`. Бэкапы БД: `/opt/remlab/backups/`. Откат: образ `remlab-app:prev`.
 - **Репозиторий:** github.com/igortsk123/remlab (`main`, deploy key `~/.ssh/remlab_deploy_ed25519`).
@@ -82,8 +83,7 @@ store → 0011 Postgres при `DATABASE_URL` · 0009 japandi / restyle фото
 Repeat-reference / кухня / ванная / точная смета / подрядчики — не в Stage 1.
 
 ## Open questions / TODO
-- Мердж `feature/pipeline-tracing` → `main` (на ветке и доки v0.3). SSH к проду гейтится harness —
-  деплой только с явного разрешения владельца.
+- ~~Мердж `feature/pipeline-tracing` → `main`~~ — уже влита (сверено git, 2026-07-11).
 - Активировать авто-деплой: секрет `DEPLOY_SSH_KEY` (= приватный `~/.ssh/remlab_ci_deploy`, уже в
   `authorized_keys`); у Клода read-only PAT — нужен Secrets+Actions write или ручная установка.
 - `trace:prune` повесить на таймер `remlab-cleanup`.
