@@ -58,7 +58,7 @@ class AdsRules(unittest.TestCase):
         self.assertTrue(d.group_needs_new_ad(300, 5, 2, 8))     # CTR 1.7%
         self.assertFalse(d.group_needs_new_ad(299, 2, 2, 8))    # мало показов
         self.assertFalse(d.group_needs_new_ad(1000, 30, 2, 8))  # CTR 3%
-        self.assertFalse(d.group_needs_new_ad(300, 5, 4, 8))    # уже 4 объявления
+        self.assertFalse(d.group_needs_new_ad(300, 5, 3, 8))    # уже 3 (лимит Директа)
         self.assertFalse(d.group_needs_new_ad(300, 5, 2, 3))    # добавляли недавно
 
     def test_valid_ad_texts(self):
