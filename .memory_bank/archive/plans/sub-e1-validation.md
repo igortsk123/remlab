@@ -2,7 +2,9 @@
 workstream: commercial
 slug: sub-e1-validation
 title: Э1 Stage 0 — concierge-валидация экономики на живом трафике
-status: draft
+status: cancelled
+archived: 2026-07-11
+archive_reason: "cancelled: concierge-валидация мебельного подбора заменена сметой "
 created: 2026-07-11
 updated: 2026-07-11
 completed:

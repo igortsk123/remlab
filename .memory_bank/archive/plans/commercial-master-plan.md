@@ -2,7 +2,9 @@
 workstream: master
 slug: commercial-master-plan
 title: Коммерческий мастер-план — от демо к зарабатывающему продукту (v0.3)
-status: active
+status: cancelled
+archived: 2026-07-11
+archive_reason: "superseded: поглощён MASTER-cost-first (ADR-0016) "
 created: 2026-07-11
 updated: 2026-07-11
 completed:

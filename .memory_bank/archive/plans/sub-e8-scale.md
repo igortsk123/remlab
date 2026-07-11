@@ -2,7 +2,9 @@
 workstream: scale
 slug: sub-e8-scale
 title: Э8 Второй мотор и масштаб — B2B, надёжность, UK (скелет)
-status: draft
+status: cancelled
+archived: 2026-07-11
+archive_reason: "deferred: второй мотор (B2B/UK) — после юнит-экономики v0.4"
 created: 2026-07-11
 updated: 2026-07-11
 completed:

@@ -12,8 +12,8 @@ last_verified: 2026-07-11
 
 # Execution Playbook — правила движения по подпланам
 
-> Для исполнителя (Opus 4.8) и владельца. Мастер-план — [[commercial-master-plan]];
-> техядро — [[MASTER-roadmap]]. Базовый workflow — `.claude/rules/agent-workflow.md`
+> Для исполнителя (Opus 4.8) и владельца. Мастер-план — commercial-master-plan (архив);
+> техядро — MASTER-roadmap (архив). Базовый workflow — `.claude/rules/agent-workflow.md`
 > (этот playbook его конкретизирует, не заменяет).
 
 ## Старт любой сессии
@@ -63,7 +63,7 @@ pnpm test && pnpm build` (+ e2e где указано) зелёные + спец
 ## Конец сессии / завершение подплана
 - Статусы: подплан `in_progress` → `completed` ТОЛЬКО после `/memory-check` + audit чисто
   (гейт из `agent-workflow.md`); частично — `partial`.
-- Обновить реестр в [[commercial-master-plan]] и статус фазы в [[MASTER-roadmap]] (если ML-трек).
+- Обновить реестр в commercial-master-plan (архив) и статус фазы в MASTER-roadmap (архив) (если ML-трек).
 - Завершённый подплан → `completed_plans/`. `/clear` перед следующим подпланом.
 
 ## Эскалация к владельцу (немедленно)

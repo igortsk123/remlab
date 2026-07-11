@@ -2,7 +2,9 @@
 workstream: product / monetization
 slug: cost-first-funnel
 title: Ценовая воронка — «посчитай ремонт/материалы» как вход, реф-смета как монетизация
-status: draft
+status: cancelled
+archived: 2026-07-11
+archive_reason: "superseded: зародыш MASTER-cost-first "
 created: 2026-07-11
 updated: 2026-07-11
 completed:

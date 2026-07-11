@@ -1,7 +1,9 @@
 ---
 workstream: master
 slug: MASTER-roadmap
-status: active
+status: cancelled
+archived: 2026-07-11
+archive_reason: "deferred: fit-движок не ядро v0.4 "
 created: 2026-07-06
 updated: 2026-07-06
 ---

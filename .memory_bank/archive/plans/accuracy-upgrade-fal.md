@@ -1,7 +1,9 @@
 ---
 workstream: room-measurement
 slug: accuracy-upgrade-fal
-status: draft
+status: cancelled
+archived: 2026-07-11
+archive_reason: "deferred: точность fit после М5 "
 created: 2026-07-06
 updated: 2026-07-06
 completed:

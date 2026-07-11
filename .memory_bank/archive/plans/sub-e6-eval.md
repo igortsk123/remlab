@@ -2,7 +2,9 @@
 workstream: quality
 slug: sub-e6-eval
 title: Э6 Eval-контур качества — golden-набор, тесты, /admin/eval, промоушен-gate
-status: draft
+status: cancelled
+archived: 2026-07-11
+archive_reason: "deferred: eval визуализации после М5 "
 created: 2026-07-11
 updated: 2026-07-11
 completed:

@@ -2,7 +2,9 @@
 workstream: ml
 slug: sub-e5-fit-integration
 title: "Э5 (=Ф8): ml-service в проде — fit, вставка в масштабе, правка человеком"
-status: draft
+status: cancelled
+archived: 2026-07-11
+archive_reason: "deferred: fit после М5 по данным "
 created: 2026-07-11
 updated: 2026-07-11
 completed:

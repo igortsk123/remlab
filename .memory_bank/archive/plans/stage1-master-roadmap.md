@@ -1,7 +1,9 @@
 ---
 workstream: stage1
 slug: stage1-master-roadmap
-status: draft
+status: cancelled
+archived: 2026-07-11
+archive_reason: "historical: Stage 1 построен "
 created: 2026-07-01
 updated: 2026-07-01
 completed:

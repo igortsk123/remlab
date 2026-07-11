@@ -1,7 +1,9 @@
 ---
 workstream: room-measurement
 slug: round-oval-footprint
-status: draft
+status: cancelled
+archived: 2026-07-11
+archive_reason: "deferred: fit-геометрия "
 created: 2026-07-07
 ---
 

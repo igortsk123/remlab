@@ -1,7 +1,9 @@
 ---
 workstream: room-measurement
 slug: object-size-reference
-status: draft
+status: cancelled
+archived: 2026-07-11
+archive_reason: "deferred: справочник размеров для fit "
 created: 2026-07-06
 updated: 2026-07-06
 completed:

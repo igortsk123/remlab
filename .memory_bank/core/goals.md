@@ -12,6 +12,8 @@ last_verified: 2026-07-09
 review_after: ""
 ---
 
+> ⚠️ ADR-0016: **v0.4 «Смета-first»** — `plans/MASTER-cost-first.md`; ниже — v0.3.
+
 # Goals — Tier 1: одно фото → подбор мебели
 
 ## Суть
@@ -39,7 +41,6 @@ Anything V2 + A4-якорь, SegFormer, SAM 2 + LaMa (fal.ai). SD-inpaint — п
 ## Статус (2026-07-09; код ВНЕ репо `/home/pakar/mltest/`)
 v1 готово: замер `run_f3.py` (стулья 104–109 vs 108), план пола `run_plan.py`, fit-check
 `fit_check.py`+`run_fit.py` (Shapely), подбор `product_match.py`/`run_match.py` (демо-каталог),
-вставка в масштабе `run_viz.py` (SAM2+LaMa). Дальше: confidence-таксономия → датасет 20–30
-комнат → фотореализм-вставка → видео-тир.
+вставка в масштабе `run_viz.py` (SAM2+LaMa); дальше — confidence, датасет, фотореализм.
 
-**Tier 2:** `../goals-one-photo-furnish-fit.md` — полный концепт. План: `../plans/MASTER-roadmap.md`.
+**Tier 2:** `../goals-one-photo-furnish-fit.md`. План fit — `../archive/plans/MASTER-roadmap.md`.

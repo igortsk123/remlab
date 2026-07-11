@@ -11,6 +11,8 @@ source_of_truth: supporting
 last_verified: 2026-07-09
 ---
 
+> ⚠️ ADR-0016: **v0.4 «Смета-first»** — `plans/MASTER-cost-first.md`; ниже — v0.3-контекст.
+
 # User Flow — Tier 1 (freemium v0.3)
 
 ## Stage 1 flow (7 экранов, план)
@@ -39,9 +41,8 @@ Landing → Комната+цель+уровень → Фото+бриф → Sty
 Cost-сценарий (Stage 1B): сумму считает движок, НЕ LLM.
 
 ## Аналитика
-`lib/analytics.ts`: серверный PostHog; без `POSTHOG_KEY` — no-op. Объявлено 9 событий, реально
+`lib/analytics.ts`: PostHog; без ключа — no-op. Объявлено 9 событий, реально
 эмитятся 5 (project_started, preview_ready, pack_unlocked, problem_reported, app_error);
-остальные 4 НЕ вызываются. План CJM (landing_*, affiliate_*, лимиты генерации)
-НЕ реализован — Tier 2.
+план CJM не реализован — Tier 2.
 
 **Tier 2:** `../domain/user-flow-details.md`; полный CJM — `../../docs/cjm-ux-v0.2.md`.
