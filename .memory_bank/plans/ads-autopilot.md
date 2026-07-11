@@ -145,3 +145,11 @@ Anthropic блокирует egress к `api.direct.yandex.com` и `api.telegram.
 - Gemini недоступен → J-MINUS/J-ADS скипают ран (деньги защищает детерминированный J-CHECK).
 - Двойная правка минусов (робот+человек одновременно) → робот всегда читает свежий список
   перед записью и пишет полным массивом с merge.
+
+## Ход исполнения (пауза 2026-07-11, продолжить отсюда)
+Сделано: чекпоинты владельца получены (порог дня 700 ₽; бот @remontlab1_bot работает,
+chat_id 95903801 подтверждён доставкой); код написан: common/decisions/check/minus/ads_ab/
+report + юнит-тесты. ОСТАЛОСЬ: (1) systemd-юниты+таймеры (check 30м; minus 2ч 08-23 МСК;
+ab 10:05; report 21:00 МСК — сверить TZ сервера), (2) deploy-watchdog.sh, (3) .env на сервер
+(Direct-токен, TG_BOT_TOKEN/TG_CHAT_ID, GEMINI из /opt/remlab/.env, DRY_RUN=1),
+(4) живой dry-run check.py+report.py на сервере, (5) advertising/autopilot.md + memory-check.
