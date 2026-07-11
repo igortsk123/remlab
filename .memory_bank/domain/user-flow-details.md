@@ -11,6 +11,8 @@ source_of_truth: supporting
 last_verified: 2026-07-09
 ---
 
+> ⚠️ ADR-0016: **v0.4 «Смета-first»** — `plans/MASTER-cost-first.md`; ниже — v0.3-контекст.
+
 # User Flow — детали (Tier 2 к [[user-flow]])
 
 > Tier 1: `../core/user-flow.md`. Полный CJM (все состояния, события, acceptance criteria) —

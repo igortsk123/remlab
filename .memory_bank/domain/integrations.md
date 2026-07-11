@@ -45,7 +45,8 @@ last_verified: 2026-07-11
 - **События:** project_started, brief_completed, style_selected, preview_ready, paywall_viewed, pack_unlocked, app_error.
 - Бесплатный тариф PostHog: 1M событий/мес. Sentry не заводим (покрыто PostHog).
 
-## Affiliate-сеть и фиды товаров (v0.3 — планируется, ещё НЕ интегрировано)
+## Affiliate-сеть и фиды (М0/v0.4 — КЛЮЧЕВАЯ, ещё НЕ интегрировано)
+- **М0-вопрос №1: deeplink** — превращение произвольной ссылки юзера в партнёрскую; покрытие DIY-магазинов; комиссии категорий стройматериалов (реф-смета, ADR-0016).
 - **Сеть РФ:** **Гдеслон** (и аналоги) — фиды AliExpress, «Симфония мебели» и др. (~200+ магазинов),
   комиссия ~3% с выкупа. Реф-ссылки в подборе (free и paid). UK-аналоги позже: Awin/CJ.
 - **Пайплайн фидов (Stage 1):** загрузка → нормализация (категории/размеры/цвета/материалы/style_tags) →
@@ -93,9 +94,10 @@ last_verified: 2026-07-11
 - **Директ (реклама):** `POST https://api.direct.yandex.com/json/v5/<resource>`, заголовки
   `Authorization: Bearer <YANDEX_DIRECT_TOKEN>`, `Accept-Language: ru`, `Content-Type: application/json; charset=utf-8`;
   body `{"method":"get","params":{...}}`. Токен до ≈2027-04-05, refresh-flow — в ACCESS.md.
-  ⚠️ В аккаунте кампании v0-health-card: `708745261` (SUSPENDED) + 26 архивных — НЕ трогать.
-  Кампаний remlab пока НЕТ. Грабли соседей: autotargeting не удаляется — держать ставку 0.30 ₽
-  (слил им 5 000 ₽/час); минус-слова скрупулёзно; РСЯ выключать до валидации Поиска.
+  ⚠️ В аккаунте чужие кампании v0-health-card: `708745261` (SUSPENDED) + 26 архивных — НЕ трогать.
+  Кампании remlab: Этапы 1–4 (`712721026`, `712722343…345`) — снимок `../advertising/campaign_state.md`.
+  Грабли: autotargeting не удаляется (ставка-минимум при ручной стратегии); минусовка скрупулёзно;
+  РСЯ выключена до валидации Поиска.
 - **Метрика (аналитика):** наш счётчик **`110599064`** (remont-lab.online; создан 2026-07-11 через
   `POST api-metrika.yandex.net/management/v1/counters`, OAuth тот же; гоча: `code_options`-флаги —
   ЧИСЛА 0/1, не bool). 6 целей воронки (id 581463533…540, cutoff 2026-07-11). Код: `lib/metrika.ts`

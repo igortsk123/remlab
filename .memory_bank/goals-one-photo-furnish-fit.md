@@ -11,6 +11,8 @@ source_of_truth: supporting
 last_verified: 2026-07-09
 ---
 
+> ⚠️ ADR-0016: **v0.4 «Смета-first»** — `plans/MASTER-cost-first.md`; ниже — v0.3-контекст.
+
 # Цели: замер + меблировка/замена по ОДНОМУ фото (fit-aware)
 
 > Сформулировано владельцем 2026-07-06. Это цели/направление, не план исполнения (план — `plans/room-measurement-a4.md`).

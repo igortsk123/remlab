@@ -12,6 +12,8 @@ last_verified: 2026-07-09
 review_after: ""
 ---
 
+> ⚠️ ADR-0016: **v0.4 «Смета-first»** — `plans/MASTER-cost-first.md`; ниже — v0.3-контекст.
+
 # Brief details — вытесненные детали product_brief (v0.3)
 
 > Дубли не храним: монетизация целиком + юнит-экономика (CPC ~10 ₽ → CAC ~450 ₽ → чек ~30 000 ₽ →

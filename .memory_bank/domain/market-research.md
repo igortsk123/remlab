@@ -11,6 +11,8 @@ source_of_truth: supporting
 last_verified: 2026-07-09
 ---
 
+> ⚠️ ADR-0016: **v0.4 «Смета-first»** — `plans/MASTER-cost-first.md`; ниже — v0.3-контекст.
+
 # Рынок RU/UK — исследование, цифры, источники (Tier 2)
 
 > Сводка — `../core/market.md` (tier1). Полное исследование с первоисточниками —

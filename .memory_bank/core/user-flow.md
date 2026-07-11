@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: user-flow
-scope: Stage 1 UX-flow, экраны, free/paid граница, аналитика
+scope: Stage 1 UX-flow (построенный AI-флоу), экраны, аналитика
 tier2: ../domain/user-flow-details.md
 updated: 2026-07-09
 importance: high
@@ -11,7 +11,7 @@ source_of_truth: supporting
 last_verified: 2026-07-09
 ---
 
-> ⚠️ ADR-0016: **v0.4 «Смета-first»** — `plans/MASTER-cost-first.md`; ниже — v0.3-контекст.
+> ⚠️ ADR-0016: **v0.4 «Смета-first»** — `plans/MASTER-cost-first.md`; ниже — v0.3.
 
 # User Flow — Tier 1 (freemium v0.3)
 

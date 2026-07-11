@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: product
-scope: Бизнес-контекст — зачем продукт, для кого, монетизация (v0.3)
+scope: Бизнес-контекст — зачем/для кого; v0.4 «Смета-first» (v0.3 — истор.)
 tier2: domain/brief-details.md
 updated: 2026-07-09
 importance: high
@@ -12,7 +12,7 @@ last_verified: 2026-07-09
 review_after: ""
 ---
 
-> ⚠️ ADR-0016: **v0.4 «Смета-first»** — `plans/MASTER-cost-first.md`; ниже — v0.3-контекст.
+> ⚠️ ADR-0016: **v0.4 «Смета-first»** — `plans/MASTER-cost-first.md`; ниже — v0.3.
 
 # Product Brief — remlab · модель v0.3
 

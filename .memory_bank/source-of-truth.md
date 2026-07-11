@@ -3,12 +3,12 @@ tier: 1
 topic: source-of-truth
 scope: Что считать истиной при конфликте кода, доков и legacy
 tier2: ""
-updated: 2026-07-01
+updated: 2026-07-11
 importance: high
 source: manual
 status: stable
 source_of_truth: canonical
-last_verified: 2026-07-01
+last_verified: 2026-07-11
 review_after: ""
 ---
 
@@ -18,11 +18,12 @@ review_after: ""
 домена; если домены спорят между собой — фиксируем расхождение явно, не «забалтываем».
 
 ## Домен продукта/бизнеса — что строим и зачем
-1. **`docs/master-brief-v0.3.md` — МАСТЕР-документ (высший приоритет).** Бизнес-модель, монетизация,
-   freemium-граница, roadmap, юнит-экономика. При конфликте с v0.2 (`cjm-ux-v0.2`) — **wins v0.3**.
-2. `product_brief.md`, `core/market.md`, `core/user-flow.md` — Tier 1 сводки (согласованы с v0.3).
-3. `docs/cjm-ux-v0.2.md` и прочие v0.2 — целевой дизайн уровня экранов/CJM, но **перекрыт v0.3** там, где §9
-   брифа предписывает правки (paywall-триггер, freemium-граница, affiliate, B2B-дизайнер).
+1. **ADR-0016 + `plans/MASTER-cost-first.md` — концепция v0.4 «Смета-first» (высший приоритет).**
+   Ядро — реф-смета (2 входа: калькуляторы, «сколько стоит»); визуализация/мебель — ступень М5.
+2. `docs/master-brief-v0.3.md` — историческая бизнес-база (мебельный affiliate): жива для ступени
+   М5 и юнит-экономики; при конфликте с v0.4 — **wins v0.4**; при конфликте с v0.2 — wins v0.3.
+3. `product_brief.md`, `core/market.md`, `core/user-flow.md` — Tier 1 сводки (плашки ADR-0016).
+4. `docs/cjm-ux-v0.2.md` и прочие v0.2 — экраны/CJM, перекрыты v0.3/v0.4.
 
 ## Домен кода — что реализовано
 Приоритет по убыванию:
