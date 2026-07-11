@@ -3,12 +3,12 @@ tier: 2
 topic: integrations-details
 scope: Детали внешних интеграций — эндпоинты, форматы запросов/ответов, env-переменные, конфиги, цены
 tier1: ../core/access-and-integrations.md
-updated: 2026-07-09
+updated: 2026-07-11
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-07-09
+last_verified: 2026-07-11
 ---
 
 # Интеграции — детали (Tier 2)
@@ -35,6 +35,8 @@ last_verified: 2026-07-09
 ## Observability — PostHog (ADR-0012)
 - **Что:** аналитика + ошибки. Клиент `lib/analytics.ts` (`track`/`captureError`), REST `POST {host}/capture/`.
 - **Ключ:** `POSTHOG_KEY` (+ `POSTHOG_HOST`, дефолт `https://eu.i.posthog.com`) в env. Без ключа — no-op.
+- ⚠️ Одним ключом на проде НЕ включить: compose передаёт в app явный `environment:`-список без
+  `POSTHOG_*` — нужна правка compose.
 - **События:** project_started, brief_completed, style_selected, preview_ready, paywall_viewed, pack_unlocked, app_error.
 - Бесплатный тариф PostHog: 1M событий/мес. Sentry не заводим (покрыто PostHog).
 
@@ -69,6 +71,29 @@ last_verified: 2026-07-09
   Значения секретов в память НЕ пишем.
 - **GitHub PAT (наблюдение CI):** владелец выдал fine-grained токен (у Клода локально, вне репо;
   read-only Actions на 2026-07-01) — хватает читать логи/прогоны, не хватает писать секреты/запускать workflow.
+
+## Яндекс: Wordstat / Директ / Метрика — доступ есть ✅ (проверен 2026-07-11)
+- **Откуда:** общий Яндекс-аккаунт владельца с проектом `v0-health-card`; значения токенов —
+  `.memory_bank/_secrets/ACCESS.md` (вне git), первоисточник — `v0-health-card/backend/.env`.
+  Подробный мануал соседей — `v0-health-card/.memory_bank/yandex_credentials.md`.
+- **Wordstat (семантика):** Yandex Cloud search-api, `POST https://searchapi.api.cloud.yandex.net/v2/wordstat/<ep>`,
+  заголовки `Authorization: Api-Key <YANDEX_CLOUD_API_KEY>` + `Content-Type: application/json`.
+  Эндпоинты (имена проверены живыми вызовами 2026-07-11; в доке health-card два названы неверно):
+  `topRequests` (топ фраз+ассоциации, посл. 30 дней), `dynamics` (требует `period:"PERIOD_MONTHLY"`
+  и даты RFC3339: `fromDate:"2024-07-01T00:00:00Z"`), `regions` (НЕ `getRegionsDistribution` — тот 404;
+  отдаёт count+share+affinityIndex), `getRegionsTree` (справочник id→label).
+  Body topRequests: `{"phrase","numPhrases"(1-2000),"regions":["225"=РФ,"213"=Мск,"2"=СПб],"devices":["DEVICE_ALL"]}`.
+  `folderId` НЕ обязателен ни для одного из 4 (проверено; в доке соседей помечен блокером — неактуально).
+  Счётчики = показы/мес. Скрипт сбора-образец: scratchpad сессии 2026-07-11 `wordstat_collect.sh`.
+- **Директ (реклама):** `POST https://api.direct.yandex.com/json/v5/<resource>`, заголовки
+  `Authorization: Bearer <YANDEX_DIRECT_TOKEN>`, `Accept-Language: ru`, `Content-Type: application/json; charset=utf-8`;
+  body `{"method":"get","params":{...}}`. Токен до ≈2027-04-05, refresh-flow — в ACCESS.md.
+  ⚠️ В аккаунте кампании v0-health-card: `708745261` (SUSPENDED) + 26 архивных — НЕ трогать.
+  Кампаний remlab пока НЕТ. Грабли соседей: autotargeting не удаляется — держать ставку 0.30 ₽
+  (слил им 5 000 ₽/час); минус-слова скрупулёзно; РСЯ выключать до валидации Поиска.
+- **Метрика (аналитика):** счётчик `108400985` — чужой (v0-health-card). Для remont-lab.online
+  счётчик ещё НЕ создан — завести перед запуском рекламы (Management API тем же OAuth-токеном).
+- **Семантика ниши remlab** (Wordstat-исследование 2026-07-11): `wordstat-semantics.md` (Tier 2).
 
 ## Цены (ориентир, 2026)
 - Картинка Gemini 3.1 Flash Image: ~$0.045 (512px) / ~$0.067 (1K) / batch −50% (~$0.034 за 1K).
