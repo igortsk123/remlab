@@ -30,7 +30,7 @@ review_after: ""
 ## Ключевые факты
 - **Gemini:** один ключ на обе задачи; модели `gemini-3.1-flash-image` и `gemini-flash-latest`.
 - **PostHog:** free 1M событий/мес; Sentry не заводим. Одним ключом на проде не включить (compose не пробрасывает `POSTHOG_*` — детали в Tier 2).
-- **М0 (Гдеслон):** deeplink чужой ссылки?; DIY-магазины; комиссии; cookie/атрибуция.
+- **М0:** deeplink чужой ссылки?; DIY-магазины; комиссии; атрибуция.
 - **Трейсинг:** ассеты на томе `remlab-traces`, трейс в Postgres — см. `core/observability-tracing.md`.
 - **CI:** **секрет `DEPLOY_SSH_KEY` НЕ задан → авто-деплой пропускает шаги**; GitHub PAT (read-only Actions) у Клода локально.
 - **Яндекс:** общий аккаунт с v0-health-card; Direct-токен до ≈2027-04; Метрика `110599064`; кампании Этапов 1–4 (чужую `708745261` не трогать). Сводка — [[marketing-acquisition]].
