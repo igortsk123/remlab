@@ -1,0 +1,10 @@
+[Unit]
+Description=remlab ads-watchdog timer: авто-минусовка (2ч, 08-22 МСК)
+
+[Timer]
+OnCalendar=*-*-* 08,10,12,14,16,18,20,22:10:00 Europe/Moscow
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

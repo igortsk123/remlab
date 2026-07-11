@@ -1,0 +1,10 @@
+[Unit]
+Description=remlab ads-watchdog timer: A/B-тексты (ежедневно 10:05 МСК)
+
+[Timer]
+OnCalendar=*-*-* 10:05:00 Europe/Moscow
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,8 @@
+[Unit]
+Description=remlab ads-watchdog: стоп-кран и аномалии (каждые 30 мин)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/remlab/ads-watchdog
+ExecStart=/usr/bin/python3 /opt/remlab/ads-watchdog/check.py

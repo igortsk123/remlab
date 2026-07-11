@@ -1,0 +1,8 @@
+[Unit]
+Description=remlab ads-watchdog: A/B-тексты (ежедневно 10:05 МСК)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/remlab/ads-watchdog
+ExecStart=/usr/bin/python3 /opt/remlab/ads-watchdog/ads_ab.py

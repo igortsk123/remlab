@@ -64,9 +64,7 @@ def direct(resource: str, method: str, params: dict) -> dict:
 def direct_report(name: str, report_type: str, fields: list[str], date_range: str = "TODAY",
                   filters: list | None = None) -> list[list[str]]:
     """TSV-отчёт без заголовков; офлайн-очередь с polling (до ~4 мин)."""
-    sel = {"DateRangeType": date_range}
-    if filters:
-        sel["Filter"] = filters
+    sel = {"Filter": filters} if filters else {}
     body = json.dumps({"params": {
         "SelectionCriteria": sel, "FieldNames": fields, "ReportName": name,
         "ReportType": report_type, "DateRangeType": date_range, "Format": "TSV",
@@ -94,7 +92,9 @@ def metrika_today() -> dict:
     if code != 200:
         raise RuntimeError(f"metrika HTTP {code}: {text[:200]}")
     data = json.loads(text)
-    totals = (data.get("totals") or [[0] * len(metrics)])[0]
+    totals = data.get("totals") or [0] * len(metrics)
+    if totals and isinstance(totals[0], list):  # с dimensions Метрика вкладывает список
+        totals = totals[0]
     out = {"visits": int(totals[0])}
     for (name, _), val in zip(GOALS.items(), totals[1:]):
         out[name] = int(val)

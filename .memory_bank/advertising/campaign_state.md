@@ -20,7 +20,7 @@ review_after: "2026-08-01"
 ## Кампания `712721026` «remlab — Поиск — AI-дизайн»
 | Параметр | Значение |
 |---|---|
-| Status / State | `MODERATION` / `OFF` (10 объявлений отправлены 2026-07-11) |
+| Status / State | `ACCEPTED` / `OFF` — **модерация пройдена 2026-07-11**, ждёт баланса |
 | Тип | TEXT_CAMPAIGN (API v5 создаёт, ЕПК не понадобилась) |
 | Стратегия Поиск | `WB_MAXIMUM_CLICKS`: WeeklySpendLimit **3 500 ₽**, BidCeiling **20 ₽** |
 | РСЯ | `SERVING_OFF` |

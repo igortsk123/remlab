@@ -1,0 +1,8 @@
+[Unit]
+Description=remlab ads-watchdog: авто-минусовка (2ч, 08-22 МСК)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/remlab/ads-watchdog
+ExecStart=/usr/bin/python3 /opt/remlab/ads-watchdog/minus.py

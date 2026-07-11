@@ -1,0 +1,10 @@
+[Unit]
+Description=remlab ads-watchdog timer: вечерний отчёт (21:00 МСК)
+
+[Timer]
+OnCalendar=*-*-* 21:00:00 Europe/Moscow
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target
