@@ -105,3 +105,13 @@ japandi/скандинавский (кремовый/беж/greige, дерево
   VPN цел, диск 36%, swap ~0.
 - **S4:** регресс-сетка — Vitest (unit) + Playwright (smoke) + GitHub Actions CI-гейт
   (typecheck+lint+test+build+e2e). Репо GitHub `igortsk123/remlab` (deploy key, ветка main). CI-run `success`.
+
+## 2026-07-11 — Яндекс-доступы, семантика Вордстат, починка CI gate
+- Доступы Wordstat/Директ/Метрика перенесены из v0-health-card (значения — `_secrets/ACCESS.md`),
+  проверены живыми вызовами; исправлены имена эндпоинтов из доки соседей (`regions`, PERIOD_MONTHLY).
+- Собрана семантика ниши (~70 масок, 6+3 кластера, динамика 24 мес, регионы) →
+  `domain/wordstat-semantics.md` + новая Tier 1 `core/marketing-acquisition.md`. Неявный спрос
+  проверен: «под ключ»/мебель «недорого» в лоб не брать, mid-funnel цены (~95k) — в эшелон 3.
+- **CI gate был красный с 2026-07-02** (7 прогонов): 7f970ad сменил флоу на /select, e2e не обновили.
+  Спека переписана (16181c8), проверена в докере playwright v1.51.1 (4/4), запушена. Урок →
+  `core/regression-net.md` (грабля).

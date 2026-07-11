@@ -19,7 +19,7 @@
 | `market.md` | market | Рынок RU/UK — спрос, конкуренты, монетизация, оценки, контекст основателя | `../domain/market-research.md` | 2026-07-09 |
 | `marketing-acquisition.md` | marketing-acquisition | Привлечение/реклама — Яндекс (Директ/Метрика/Вордстат), семантика ниши, сезонность, стратегия | `../domain/wordstat-semantics.md` | 2026-07-11 |
 | `observability-tracing.md` | observability-tracing | Трейсинг AI-пайплайна — лог каждого вызова LLM, «номер генерации», разбор, сжатие | `../domain/observability.md` | 2026-07-09 |
-| `regression-net.md` | regression-net | Регресс-защита — тесты, CI-гейт, observability, eval, гардрейлы, DoD | `../../docs/tech-spec-ts-stack.md` | 2026-07-09 |
+| `regression-net.md` | regression-net | Регресс-защита — тесты, CI-гейт, observability, eval, гардрейлы, DoD | `../../docs/tech-spec-ts-stack.md` | 2026-07-11 |
 | `user-flow.md` | user-flow | Stage 1 UX-flow, экраны, free/paid граница, аналитика | `../domain/user-flow-details.md` | 2026-07-09 |
 <!-- GENERATED:core-registry END -->
 
