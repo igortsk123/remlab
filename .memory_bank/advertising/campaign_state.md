@@ -93,8 +93,10 @@ review_after: "2026-08-01"
 Счётчик **110599064** (remont-lab.online), вебвизор+клики вкл. Цели (cutoff 2026-07-11 —
 раньше данных НЕТ): 581463533 `01_project_started` (URL /brief) · …534 `02_photo_uploaded`
 (/select) · …535 `03_preview_opened` (/preview) · …538 `04_preview_ready` (JS) ·
-…539 `05_paywall_viewed` (/paywall) · …540 `06_pack_unlocked` (JS). Код: `lib/metrika.ts`,
-`components/MetrikaPageviews.tsx` (SPA-hit — без него URL-цели не считаются),
-цели НЕ удалять — архивировать переименованием (урок соседей).
+…539 `05_paywall_viewed` (/paywall) · …540 `06_pack_unlocked` (JS) — воронка legacy AI-флоу.
+**Воронка сметы v0.4 (2026-07-11):** 581529922 `10_calc_started` (JS) · 581529923
+`11_estimate_opened` (URL /e/) · 581529924 `12_estimate_saved` (JS) · 581530035 `13_ref_click`
+(JS — /go/ это redirect, не pageview). Код: `lib/metrika.ts`, `components/MetrikaPageviews.tsx`
+(SPA-hit) + client-компоненты CalcForm/SaveButton/GoLink. Цели НЕ удалять — архивировать (урок соседей).
 
 **Tier 1:** `../core/marketing-acquisition.md` · План: `../plans/yandex-direct-launch.md`.
