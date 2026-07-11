@@ -11,6 +11,8 @@ export type EventName =
   | "pack_unlocked"
   | "cost_fake_door_viewed"
   | "problem_reported"
+  | "estimate_created"
+  | "estimate_saved"
   | "app_error";
 
 type Props = Record<string, string | number | boolean | null>;

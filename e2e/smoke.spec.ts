@@ -4,8 +4,13 @@ import { test, expect } from "@playwright/test";
 test("лендинг рендерится", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toContainText(
-    "Обновите комнату",
+    "Посчитайте ремонт",
   );
+});
+
+test("хаб калькуляторов открывается", async ({ page }) => {
+  await page.goto("/calc");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Сколько нужно материалов");
 });
 
 test("/rooms открывается у нового посетителя (без cookie) — пустой стейт", async ({ page }) => {

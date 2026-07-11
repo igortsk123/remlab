@@ -2,8 +2,9 @@
 // session_id вынесен колонкой для выборок workspace. Расширение на нормальные таблицы — позже.
 // Трейсинг пайплайна (ADR-0013): runs/steps/assets — подробный лог каждого вызова LLM.
 
-import { pgTable, text, jsonb, timestamp, integer, doublePrecision, index } from "drizzle-orm/pg-core";
+import { pgTable, text, jsonb, timestamp, integer, doublePrecision, boolean, index } from "drizzle-orm/pg-core";
 import type { Project } from "@/contracts/project";
+import type { Estimate } from "@/contracts/estimate";
 
 export const projects = pgTable(
   "projects",
@@ -16,6 +17,45 @@ export const projects = pgTable(
   },
   (t) => [index("projects_session_idx").on(t.sessionId)],
 );
+
+// Смета-лист (v0.4, ADR-0016) — jsonb-агрегат, как projects.
+export const estimates = pgTable(
+  "estimates",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id").notNull(),
+    data: jsonb("data").$type<Estimate>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("estimates_session_idx").on(t.sessionId)],
+);
+
+// Лог кликов через /go/ — приоритет реф-регистраций (какие магазины популярны).
+export const linkClicks = pgTable(
+  "link_clicks",
+  {
+    id: text("id").primaryKey(),
+    estimateId: text("estimate_id").notNull(),
+    itemId: text("item_id").notNull(),
+    domain: text("domain"),
+    targetUrl: text("target_url").notNull(),
+    sessionId: text("session_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("link_clicks_domain_idx").on(t.domain)],
+);
+
+// Маршруты реф-программ: домен магазина → шаблон реф-URL (late-binding). Наполняется по мере
+// регистраций владельца; пока пусто → /go/ отдаёт прямую ссылку.
+export const linkRoutes = pgTable("link_routes", {
+  domain: text("domain").primaryKey(),
+  network: text("network").notNull(), // gdeslon | admitad | epn | direct | ...
+  urlTemplate: text("url_template").notNull(), // содержит {url} — исходная ссылка (encoded)
+  priority: integer("priority").default(0),
+  active: boolean("active").notNull().default(true),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 // Прогон пайплайна = один запуск (фото → превью). seq — человекочитаемый «номер генерации».
 export const generationRuns = pgTable(

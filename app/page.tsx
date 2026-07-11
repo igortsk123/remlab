@@ -4,33 +4,44 @@ export default function Home() {
   return (
     <main className="container">
       <p className="eyebrow">remont-lab</p>
-      <h1>Обновите комнату с помощью AI</h1>
+      <h1>Посчитайте ремонт и соберите смету — за минуту</h1>
       <p className="muted" style={{ fontSize: 18 }}>
-        Загрузите фото — получите визуальную идею обновления вашей комнаты, идеи, товары и
-        материалы с примерным бюджетом и планом.
+        Сколько нужно материалов, сколько всё стоит и что купить. Собираем список-смету,
+        которая сохраняется по ссылке — чтобы в магазине ничего не забыть.
       </p>
 
-      <div className="row" style={{ margin: "24px 0 8px" }}>
-        <Link className="btn" href="/start">Обновить комнату</Link>
-        <Link className="btn btn-secondary" href="/soon?f=cost">Рассчитать стоимость</Link>
+      <div className="stack" style={{ margin: "24px 0 8px", gap: 12 }}>
+        <Link className="card row" href="/calc" style={{ textDecoration: "none", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <strong style={{ fontSize: 17 }}>🧮 Посчитать материалы</strong>
+            <p className="muted" style={{ margin: "2px 0 0", fontSize: 15 }}>Обои, плитка, краска, ламинат — сколько нужно с запасом</p>
+          </div>
+          <span className="muted">→</span>
+        </Link>
+        <Link className="card row" href="/calc/remont" style={{ textDecoration: "none", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <strong style={{ fontSize: 17 }}>💰 Сколько стоит ремонт</strong>
+            <p className="muted" style={{ margin: "2px 0 0", fontSize: 15 }}>Бюджет комнаты по площади: работы и материалы отдельно</p>
+          </div>
+          <span className="muted">→</span>
+        </Link>
       </div>
 
-      <div className="card stack" style={{ marginTop: 28 }}>
+      <div className="card stack" style={{ marginTop: 20 }}>
         <p className="eyebrow">Как это работает</p>
         <ol className="muted" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.9 }}>
-          <li>Фото комнаты → короткий бриф</li>
-          <li>Выбор стиля по карточкам</li>
-          <li>AI-превью вашей комнаты + идеи и бюджет</li>
-          <li>Полный план комнаты (товары, материалы, цены, PDF)</li>
+          <li>Посчитали количество или прикинули бюджет</li>
+          <li>Собрали смету-список — с сопутствующими, чтобы не забыть</li>
+          <li>Добавили свои ссылки на товары, сохранили по ссылке</li>
+          <li>Купили по списку — ничего не потерялось</li>
         </ol>
-        <p className="note">
-          AI-превью — визуальная концепция вашей комнаты, а не рабочий проект. Перед покупкой
-          проверяйте размеры.
-        </p>
       </div>
 
-      <p style={{ marginTop: 24 }}>
-        <Link className="muted" href="/rooms">Мои комнаты →</Link>
+      <p className="muted" style={{ marginTop: 20, fontSize: 15 }}>
+        Хотите увидеть, как комната будет выглядеть? <Link href="/start">Дизайн по фото с ИИ →</Link>
+      </p>
+      <p style={{ marginTop: 8 }}>
+        <Link className="muted" href="/estimates">Мои сметы →</Link>
       </p>
     </main>
   );
