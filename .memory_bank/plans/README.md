@@ -26,7 +26,6 @@ draft → in_progress → completed → перенос в completed_plans/
 
 | slug | Название | status | created | updated |
 |------|----------|--------|---------|---------|
-| yandex-direct-launch | Запуск Яндекс Директа — Поиск, Фаза 1 (AI-кластер) | draft | 2026-07-11 | 2026-07-11 |
 | sub-ml-sizes | ML: стабилизация замера (контур, площади пола, footprint) | draft | 2026-07-11 | 2026-07-11 |
 | sub-e8-scale | Э8 Второй мотор и масштаб — B2B, надёжность, UK (скелет) | draft | 2026-07-11 | 2026-07-11 |
 | sub-e7-growth | Э7 Рост — SEO, шаринг, e-mail, anti-abuse (скелет) | draft | 2026-07-11 | 2026-07-11 |

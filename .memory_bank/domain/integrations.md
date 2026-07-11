@@ -91,8 +91,10 @@ last_verified: 2026-07-11
   ⚠️ В аккаунте кампании v0-health-card: `708745261` (SUSPENDED) + 26 архивных — НЕ трогать.
   Кампаний remlab пока НЕТ. Грабли соседей: autotargeting не удаляется — держать ставку 0.30 ₽
   (слил им 5 000 ₽/час); минус-слова скрупулёзно; РСЯ выключать до валидации Поиска.
-- **Метрика (аналитика):** счётчик `108400985` — чужой (v0-health-card). Для remont-lab.online
-  счётчик ещё НЕ создан — завести перед запуском рекламы (Management API тем же OAuth-токеном).
+- **Метрика (аналитика):** наш счётчик **`110599064`** (remont-lab.online; создан 2026-07-11 через
+  `POST api-metrika.yandex.net/management/v1/counters`, OAuth тот же; гоча: `code_options`-флаги —
+  ЧИСЛА 0/1, не bool). 6 целей воронки (id 581463533…540, cutoff 2026-07-11). Код: `lib/metrika.ts`
+  (`trackGoal`) + `components/MetrikaPageviews.tsx` (SPA-hit). Чужой счётчик health-card — 108400985.
 - **Семантика ниши remlab** (Wordstat-исследование 2026-07-11): `wordstat-semantics.md` (Tier 2).
 
 ## Цены (ориентир, 2026)
