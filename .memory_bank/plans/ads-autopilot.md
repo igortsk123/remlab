@@ -153,5 +153,9 @@ Anthropic блокирует egress к `api.direct.yandex.com` и `api.telegram.
   явным Europe/Moscow). `.env` на сервере (600). Живой dry-run: check/report/minus отработали,
   отчёт в TG доставлен; починены 2 бага API (DateRangeType вне SelectionCriteria; totals
   Метрики — плоский). **Попутно: модерация кампании ПРОЙДЕНА (ACCEPTED).**
+- 2026-07-11 (позже): по вопросу владельца проведён бенч моделей (Gemini 2.5 Flash vs GPT-5.1
+  vs GPT-4.1-mini, обе задачи): минусовка у всех 8/8 → Gemini остаётся (дешевле); тексты лучше
+  у GPT-5.1 → J-ADS переведён на `gpt-5.1-chat-latest` (ключ OpenAI соседей жив) с фолбэком на
+  Gemini. Проверено с сервера. Детали — `advertising/autopilot.md` §Модели.
 - **Статус: Э1 done, Э2 (dry-run) ИДЁТ.** Дальше: 3–5 дней репетиции → `DRY_RUN=0` поэтапно
   (Э3: minus → check → bid → ab) → Э4 наблюдение. План закроется после боевого включения.

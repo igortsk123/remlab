@@ -49,7 +49,7 @@ def main():
         current = "\n".join(f"- {a['TextAd']['Title']} / {a['TextAd']['Title2']} / {a['TextAd']['Text']}"
                             for a in by_group.get(gid, []))
         try:
-            raw = c.gemini(PROMPT.format(group=gname, current=current))
+            raw = c.llm_for_ads(PROMPT.format(group=gname, current=current))
             ad = json.loads(raw[raw.find("{"):raw.rfind("}") + 1])
             t1, t2, text = ad["title1"].strip(), ad["title2"].strip(), ad["text"].strip()
         except Exception as e:

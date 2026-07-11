@@ -20,7 +20,7 @@ review_after: ""
 | Интеграция | Статус | Задача | Ключи (где) | Код |
 |---|---|---|---|---|
 | Google Gemini | активен ✅ | картинки + анализ фото | `GEMINI_API_KEY`: `.env.local` / прод `/opt/remlab/.env` | `lib/providers/gemini.ts` |
-| OpenAI | розетка | сменный vision | `OPENAI_API_KEY` (нет) | `lib/providers/index.ts` |
+| OpenAI | ключ есть ✅ | GPT-5.1 тексты объявлений (watchdog) | ключ соседей, `_secrets/ACCESS.md` | `ads-watchdog/common.py` |
 | PostHog | код есть, прод no-op (ADR-0012) | аналитика+ошибки | `POSTHOG_KEY` не задан | `lib/analytics.ts` |
 | Гдеслон | план v0.3 | affiliate-фиды ~3% | будут в `.env` | — |
 | imagor | активен (ADR-0013) | сжатие картинок, internal-only | ключей НЕТ (unsafe); URL в compose | `lib/images/compress.ts` |

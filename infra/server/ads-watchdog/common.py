@@ -113,6 +113,29 @@ def gemini(prompt: str) -> str:
     return data["candidates"][0]["content"]["parts"][0]["text"]
 
 
+def openai_chat(prompt: str) -> str:
+    """GPT для генерации текстов объявлений (бенч 2026-07-11: русский естественнее Gemini)."""
+    body = json.dumps({"model": ENV.get("OPENAI_AD_MODEL", "gpt-5.1-chat-latest"),
+                       "messages": [{"role": "user", "content": prompt}],
+                       "max_completion_tokens": 2000}).encode()
+    code, _, text = _http("https://api.openai.com/v1/chat/completions", body, {
+        "Authorization": f"Bearer {ENV['OPENAI_API_KEY']}",
+        "Content-Type": "application/json"}, 120)
+    if code != 200:
+        raise RuntimeError(f"openai HTTP {code}: {text[:200]}")
+    return json.loads(text)["choices"][0]["message"]["content"]
+
+
+def llm_for_ads(prompt: str) -> str:
+    """Тексты объявлений: GPT-5.1, при недоступности — фолбэк на Gemini."""
+    if ENV.get("OPENAI_API_KEY"):
+        try:
+            return openai_chat(prompt)
+        except Exception as e:
+            log(f"openai fail → gemini fallback: {e}")
+    return gemini(prompt)
+
+
 def tg(text: str):
     prefix = "🧪 [РЕПЕТИЦИЯ] " if DRY else ""
     data = urllib.parse.urlencode({"chat_id": ENV["TG_CHAT_ID"], "text": prefix + text}).encode()

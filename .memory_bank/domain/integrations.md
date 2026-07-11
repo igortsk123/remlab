@@ -28,9 +28,14 @@ last_verified: 2026-07-11
   Фабрики — `lib/providers/index.ts` (`getImageProvider` / `getVisionProvider`). Ошибки — `Result<T,E>`.
 - **Смоук:** `pnpm smoke:providers` (реальный вызов, не в CI). Юнит на моках — `tests/unit/providers.test.ts`.
 
-## OpenAI — «розетка» на будущее (не активен)
-- Провайдер сменный: `OPENAI_API_KEY` в env → отдельный клиент можно поставить на vision в `index.ts`
-  без правок вызывающего кода. В соседнем `v0-health-card` ключа OpenAI НЕТ (проверено 2026-07-01).
+## OpenAI — ключ есть ✅ (используется автопилотом рекламы, НЕ приложением)
+- Ключ соседей (`v0-health-card/backend/.env`) жив (проверено 2026-07-11: биллинг ок, доступ
+  gpt-4.1/gpt-5/5.1) — прежняя запись «ключа НЕТ» от 2026-07-01 неверна. Значение —
+  `_secrets/ACCESS.md`; на сервере — `/opt/remlab/ads-watchdog/.env`.
+- Используется: ads-watchdog `common.llm_for_ads` — тексты объявлений на `gpt-5.1-chat-latest`
+  (бенч 2026-07-11: RU лучше Gemini), фолбэк Gemini. Приложение (vision-розетка `lib/providers/`)
+  ключ НЕ использует — при желании можно включить без правок вызывающего кода.
+- Гоча GPT-5.x: reasoning-токены съедают `max_completion_tokens` — ставить с запасом (≥2000).
 
 ## Observability — PostHog (ADR-0012)
 - **Что:** аналитика + ошибки. Клиент `lib/analytics.ts` (`track`/`captureError`), REST `POST {host}/capture/`.
