@@ -37,6 +37,7 @@ draft → in_progress → completed → перенос в completed_plans/
 | sub-e1-validation | Э1 Stage 0 — concierge-валидация экономики на живом трафике | draft | 2026-07-11 | 2026-07-11 |
 | sub-e0-stopkran | Э0 Стоп-кран: безопасность, лимиты, рельсы измерения | draft | 2026-07-11 | 2026-07-11 |
 | commercial-master-plan | Коммерческий мастер-план — от демо к зарабатывающему продукту (v0.3) | active | 2026-07-11 | 2026-07-11 |
+| ads-autopilot | Автопилот рекламы — стоп-кран, авто-минусовка, A/B-тексты, отчёты (сервер + Gemini) | draft | 2026-07-11 | 2026-07-11 |
 | round-oval-footprint | — | draft | 2026-07-07 | — |
 | unified-measurement-pipeline | — | draft | 2026-07-06 | 2026-07-06 |
 | object-size-reference | — | draft | 2026-07-06 | 2026-07-06 |
