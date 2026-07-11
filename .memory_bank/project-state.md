@@ -3,7 +3,7 @@ tier: 1
 topic: project-state
 scope: Снимок «где проект сейчас» — точка ресинхронизации при /clear и resume
 tier2: "changelog/project-history.md"
-updated: 2026-07-09
+updated: 2026-07-11
 importance: high
 source: manual
 status: working
@@ -20,6 +20,15 @@ last_verified: 2026-07-09
 
 > ⚠️ TODO: снимок сверен на 2026-07-02; работы 2026-07-05…09 не подняты —
 > см. `plans/MASTER-roadmap.md`, `plans/` (драфты), `completed_plans/`.
+
+## Планирование (2026-07-11) — коммерческий трек
+Проведён полный аудит проекта (3 explore-агента + 2 план-агента + веб-ресёрч рынка); оценки:
+идея 8/10, текущее состояние 6/10. Создан **`plans/commercial-master-plan.md`** (конвейер
+«Деньги»: Э0–Э8, гейты, kill-критерии; ∥ конвейер «Ядро» = [[MASTER-roadmap]]) + **10 подпланов
+`plans/sub-*.md`** для исполнителя Opus 4.8 + правила исполнения `guides/execution-playbook.md`
+(чекпоинты ⏸ владельца, эскалация). Первый к исполнению — `sub-e0-stopkran`; параллельно
+`sub-ml-sizes` (приоритет владельца: размеры плавают). sub-e5/sub-e6 записаны черновиками
+без verify-прохода (пометка в их логе). Tier 0 ужат (TIER0-BLOAT закрыт), audit чисто.
 
 ## Где
 - **Стадия:** Stage 1 LIVE в проде; принят пивот модели **v0.3** (ADR-0014), идёт доводка кода.

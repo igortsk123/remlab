@@ -10,16 +10,11 @@ Gemini (Vertex/fal запас) + YooKassa + PostHog (детали — `core/arch
 (ADR-0014): товары открыть с реф-ссылками, paywall на «комнату целиком+сервис» — код-долг.
 Владелец не пишет код → приоритет самопроверяемости (тесты/CI/observability/гардрейлы).
 
-## Иерархия памяти
-- **Tier 0 (auto-loaded):** этот файл + `.claude/rules/*.md` (path-scoped, грузятся по `paths:`).
-- **Tier 1 (navigation):** `.memory_bank/INDEX.md` — приоритезированный decision tree.
-- **Tier 2 (details):** `.memory_bank/**/*.md` + `docs/*` — полные документы по мере нужды (см. INDEX).
-
-## Сначала прочитай
-1. `.memory_bank/INDEX.md` — навигация: «задача → что читать».
-2. `.memory_bank/source-of-truth.md` — что считать истиной при конфликте.
-3. `.memory_bank/project-state.md` — где проект сейчас.
-4. `docs/tech-spec-ts-stack.md` (инженерная спека) + `docs/cjm-ux-v0.2.md` (продукт) + `docs/DECISIONS.md`.
+## Память и старт
+Tier 0 = этот файл + `.claude/rules/*.md` (auto) → Tier 1 = `.memory_bank/INDEX.md`
+(decision tree) → Tier 2 = `.memory_bank/**` + `docs/*` по мере нужды.
+Сначала прочитай: `INDEX.md` → `source-of-truth.md` (истина при конфликте) →
+`project-state.md` (где проект) → далее по decision tree.
 
 ## Критично
 - **Конец задачи = `/memory-check`.** План не `completed`, пока durable сессии не в `.memory_bank/` и audit не «чисто».
@@ -38,8 +33,5 @@ Gemini (Vertex/fal запас) + YooKassa + PostHog (детали — `core/arch
 Граница/цена free-paid; сколько hero в paid; финальный выбор модели после бенча; источники каталога/расценок; дизайн экранов; юридические вопросы. (Спека §16.)
 
 ## Path-scoped правила (.claude/rules/)
-- `agent-workflow.md` — workflow план→деплой (всегда).
-- `memory-discipline.md` — когда сохранять/извлекать/синхронизировать память (всегда).
-- `code-standards.md` — TS/TSX стандарты (`**/*.{ts,tsx}`).
-- `ui-rules.md` — UI-конвенции (`app/**/*.tsx`, `components/**/*.tsx`).
-- `pipeline-tracing.md` — трейсинг AI-пайплайна не отстаёт от смены модели/промпта/шага (ADR-0013).
+`agent-workflow` (план→деплой, всегда) · `memory-discipline` (память, всегда) ·
+`code-standards` (ts/tsx) · `ui-rules` (app/components tsx) · `pipeline-tracing` (ADR-0013).

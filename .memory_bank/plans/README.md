@@ -26,6 +26,17 @@ draft → in_progress → completed → перенос в completed_plans/
 
 | slug | Название | status | created | updated |
 |------|----------|--------|---------|---------|
+| sub-ml-sizes | ML: стабилизация замера (контур, площади пола, footprint) | draft | 2026-07-11 | 2026-07-11 |
+| sub-e8-scale | Э8 Второй мотор и масштаб — B2B, надёжность, UK (скелет) | draft | 2026-07-11 | 2026-07-11 |
+| sub-e7-growth | Э7 Рост — SEO, шаринг, e-mail, anti-abuse (скелет) | draft | 2026-07-11 | 2026-07-11 |
+| sub-e6-eval | Э6 Eval-контур качества: golden-набор, тесты, /admin/eval, промоушен-gate | draft | 2026-07-11 | 2026-07-11 |
+| sub-e5-fit-integration | Э5 (=Ф8): ml-service в проде — fit-вердикты, вставка в масштабе, правка человеком | draft | 2026-07-11 | 2026-07-11 |
+| sub-e4-payments | Э4 Монетизация: YooKassa, тарифы 1490/9900, entitlements | draft | 2026-07-11 | 2026-07-11 |
+| sub-e3-foundation | Э3 Фундамент продаж — async-джобы, файлы вместо base64, аккаунты, квоты | draft | 2026-07-11 | 2026-07-11 |
+| sub-e2-feeds | Э2 — фиды Гдеслон, автоподбор, постбэки | draft | 2026-07-11 | 2026-07-11 |
+| sub-e1-validation | Э1 Stage 0 — concierge-валидация экономики на живом трафике | draft | 2026-07-11 | 2026-07-11 |
+| sub-e0-stopkran | Э0 Стоп-кран: безопасность, лимиты, рельсы измерения | draft | 2026-07-11 | 2026-07-11 |
+| commercial-master-plan | Коммерческий мастер-план — от демо к зарабатывающему продукту (v0.3) | active | 2026-07-11 | 2026-07-11 |
 | round-oval-footprint | — | draft | 2026-07-07 | — |
 | unified-measurement-pipeline | — | draft | 2026-07-06 | 2026-07-06 |
 | object-size-reference | — | draft | 2026-07-06 | 2026-07-06 |
