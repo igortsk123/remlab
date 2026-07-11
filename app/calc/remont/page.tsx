@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createFromRemont } from "@/app/estimate-actions";
-import { estimateRemont, DEPTH_LABEL, type Depth, type BudgetVariant } from "@/lib/pricing/works";
+import { estimateRemont, DEPTH_LABEL, REGION_LABEL, type Depth, type Region, type BudgetVariant } from "@/lib/pricing/works";
 
 export const metadata = {
   title: "Сколько стоит ремонт комнаты — расчёт бюджета по площади",
@@ -13,13 +13,15 @@ const inputStyle = {
   background: "var(--surface)", color: "var(--text)", fontSize: 16, fontFamily: "inherit", width: "100%",
 } as const;
 const DEPTHS: Depth[] = ["refresh", "update", "capital"];
+const REGIONS: Region[] = ["msk", "spb", "million", "mid", "small", "far"];
 
-export default async function RemontPage({ searchParams }: { searchParams: Promise<{ area?: string; depth?: string }> }) {
+export default async function RemontPage({ searchParams }: { searchParams: Promise<{ area?: string; depth?: string; region?: string }> }) {
   const sp = await searchParams;
   const area = Number(String(sp.area ?? "").replace(",", ".")) || 0;
   const depth = (DEPTHS.includes(sp.depth as Depth) ? sp.depth : "update") as Depth;
+  const region = (REGIONS.includes(sp.region as Region) ? sp.region : "msk") as Region;
   const show = area > 0;
-  const variants = show ? estimateRemont(area, depth) : null;
+  const variants = show ? estimateRemont(area, depth, region) : null;
 
   return (
     <main className="container">
@@ -46,12 +48,20 @@ export default async function RemontPage({ searchParams }: { searchParams: Promi
           </div>
           <p className="muted" style={{ fontSize: 13, margin: 0 }}>Выберите вариант и нажмите «Показать бюджет».</p>
         </div>
+        <div className="stack">
+          <label className="eyebrow">Регион (влияет на стоимость работ)</label>
+          <select name="region" defaultValue={region} style={inputStyle}>
+            {REGIONS.map((r) => (
+              <option key={r} value={r}>{REGION_LABEL[r]}</option>
+            ))}
+          </select>
+        </div>
         <button type="submit" className="btn btn-block">Показать бюджет</button>
       </form>
 
       {variants ? (
         <div className="stack" style={{ marginTop: 24 }}>
-          <p className="eyebrow">Ориентир для {area} м² · {DEPTH_LABEL[depth]}</p>
+          <p className="eyebrow">Ориентир для {area} м² · {DEPTH_LABEL[depth]} · {REGION_LABEL[region]}</p>
           {(["eco", "mid", "high"] as const).map((key) => {
             const v: BudgetVariant = variants[key];
             return (
@@ -66,6 +76,7 @@ export default async function RemontPage({ searchParams }: { searchParams: Promi
                 <form action={createFromRemont}>
                   <input type="hidden" name="area" value={area} />
                   <input type="hidden" name="depth" value={depth} />
+                  <input type="hidden" name="region" value={region} />
                   <input type="hidden" name="variant" value={key} />
                   <button type="submit" className="btn btn-secondary btn-block">Собрать смету по этому варианту</button>
                 </form>

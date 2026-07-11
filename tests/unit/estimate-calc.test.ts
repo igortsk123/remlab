@@ -41,3 +41,36 @@ describe("estimate calc (golden)", () => {
     expect(tile({ areaM2: 0 }).qty).toBe(0);
   });
 });
+
+// Нормативы работ + региональный коэффициент (pricing-db-ru).
+import { estimateRemont, rateFor, REGION_K } from "@/lib/pricing/works";
+
+describe("pricing works (регионы)", () => {
+  it("регион дешевле Москвы (коэф 0.6–0.95)", () => {
+    for (const k of Object.values(REGION_K)) {
+      expect(k).toBeGreaterThanOrEqual(0.5);
+      expect(k).toBeLessThanOrEqual(1.0);
+    }
+    expect(REGION_K.msk).toBe(1.0);
+    expect(REGION_K.million).toBeLessThan(REGION_K.msk);
+  });
+
+  it("работы масштабируются коэффициентом, материалы — нет", () => {
+    const msk = estimateRemont(20, "capital", "msk");
+    const mil = estimateRemont(20, "capital", "million");
+    // работы в миллионнике дешевле, материалы те же (федеральные)
+    expect(mil.mid.worksRub).toBeLessThan(msk.mid.worksRub);
+    expect(mil.mid.materialsRub).toBe(msk.mid.materialsRub);
+  });
+
+  it("вилка растёт eco < mid < high", () => {
+    const v = estimateRemont(18, "capital", "msk");
+    expect(v.eco.totalRub).toBeLessThan(v.mid.totalRub);
+    expect(v.mid.totalRub).toBeLessThan(v.high.totalRub);
+  });
+
+  it("rateFor применяет региональный коэффициент к ставке Москвы", () => {
+    expect(rateFor("plitka_rabota", "msk")).toBe(1200);
+    expect(rateFor("plitka_rabota", "million")).toBe(840); // 1200 × 0.70
+  });
+});

@@ -10,7 +10,7 @@ import { estimate as estimateSchema, estimateItem, type EstimateItem } from "@/c
 import { wallpaper, tile, paint, laminate, perimeter, wallArea } from "@/lib/estimate/calc";
 import { CALC_META, COMPANIONS, type CalcKind } from "@/lib/estimate/companions";
 import { domainFromUrl } from "@/lib/estimate/links";
-import { estimateRemont, DEPTH_LABEL, type Depth } from "@/lib/pricing/works";
+import { estimateRemont, DEPTH_LABEL, REGION_LABEL, type Depth, type Region } from "@/lib/pricing/works";
 
 function num(fd: FormData, k: string): number {
   const v = Number(String(fd.get(k) ?? "").replace(",", "."));
@@ -56,9 +56,10 @@ export async function createFromCalc(kind: CalcKind, fd: FormData): Promise<void
 export async function createFromRemont(fd: FormData): Promise<void> {
   const area = num(fd, "area");
   const depth = (str(fd, "depth") || "update") as Depth;
+  const region = (str(fd, "region") || "msk") as Region;
   const variantKey = str(fd, "variant") || "mid";
   const sessionId = await getSessionId();
-  const variants = estimateRemont(area || 20, depth);
+  const variants = estimateRemont(area || 20, depth, region);
   const v = variants[variantKey as keyof typeof variants] ?? variants.mid;
 
   const items: EstimateItem[] = v.lines.map((l) => ({
@@ -68,7 +69,7 @@ export async function createFromRemont(fd: FormData): Promise<void> {
   const now = new Date().toISOString();
   const est = estimateSchema.parse({
     id: randomUUID(), sessionId, title: `Ремонт ${area || 20} м² — ${v.label}`, source: "remont",
-    items, meta: { area, depth, depthLabel: DEPTH_LABEL[depth], variant: v.key }, createdAt: now, updatedAt: now,
+    items, meta: { area, depth, region, depthLabel: `${DEPTH_LABEL[depth]} · ${REGION_LABEL[region]}`, variant: v.key }, createdAt: now, updatedAt: now,
   });
   await estimateRepo().create(est);
   await track("estimate_created", sessionId, { source: "remont", variant: v.key });

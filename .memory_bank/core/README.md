@@ -15,6 +15,7 @@
 | `access-and-integrations.md` | access-and-integrations | Внешние интеграции/доступы — где ключи, какие модели/эндпоинты, форматы, клиенты в коде | `../domain/integrations.md` | 2026-07-11 |
 | `architecture.md` | architecture | Стек, структура, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-07-11 |
 | `data-model.md` | data-model | Реальная схема БД (4 таблицы), изоляция сессий, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-07-09 |
+| `estimate.md` | estimate | Смета-лист (ядро v0.4) — калькуляторы (вход А), стоимость ремонта (вход Б), чек-лист, /go/ реф | `../domain/pricing-works-ru.md` | 2026-07-11 |
 | `goals.md` | goals-furnish-fit | Цели продукта — v0.4 «Смета-first»; fit-ветка — отложена (архив) | `../goals-one-photo-furnish-fit.md` | 2026-07-09 |
 | `market.md` | market | Рынок RU/UK — спрос, конкуренты, монетизация, оценки, контекст основателя | `../domain/market-research.md` | 2026-07-11 |
 | `marketing-acquisition.md` | marketing-acquisition | Привлечение/реклама — Яндекс (Директ/Метрика/Вордстат), семантика ниши, сезонность, стратегия | `../domain/wordstat-semantics.md` | 2026-07-11 |
