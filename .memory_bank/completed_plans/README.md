@@ -21,4 +21,5 @@
 | interactive-object-selection | — | 2026-07-02 |
 | generation-screens-copy | — | 2026-07-02 |
 | remlab-bootstrap | — | 2026-07-01 |
+| ads-keywords-minus | Ключи и минус-фразы всех 4 кампаний — доводка по хвостам Вордстата | — |
 <!-- GENERATED:completed-plans-registry END -->
