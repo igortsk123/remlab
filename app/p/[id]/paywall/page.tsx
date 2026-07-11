@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { repo } from "@/modules/store/repository";
 import { unlockPack } from "@/app/actions";
 import { Progress } from "@/components/Progress";
+import { PayButton } from "@/components/PayButton";
 
 const rub = (n: number) => `${n.toLocaleString("ru-RU")} ₽`;
 const PRICE = 490;
@@ -54,7 +55,7 @@ export default async function PaywallPage({ params }: { params: Promise<{ id: st
       </div>
 
       <form action={unlockPack.bind(null, id)} style={{ marginTop: 20 }}>
-        <button className="btn btn-block" type="submit">Оплатить {rub(PRICE)} (демо)</button>
+        <PayButton label={`Оплатить ${rub(PRICE)} (демо)`} />
       </form>
       <p className="muted center" style={{ fontSize: 13, marginTop: 8 }}>
         Оплата — заглушка. Настоящая оплата (YooKassa) подключается отдельным шагом.

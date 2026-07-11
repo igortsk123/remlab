@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { trackGoal } from "@/lib/metrika";
 
 const STAGES = ["Проверяем фото…", "ИИ изучает комнату…", "Рисуем обновлённый интерьер…", "Собираем идеи…"];
 
@@ -17,6 +18,7 @@ export function GenerateOnMount({ projectId }: { projectId: string }) {
       try {
         const res = await fetch(`/api/p/${projectId}/generate`, { method: "POST" });
         if (!res.ok) throw new Error("gen failed");
+        trackGoal("preview_ready");
         if (alive) router.refresh();
       } catch {
         if (alive) setError(true);
