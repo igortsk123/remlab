@@ -26,7 +26,10 @@ test-results/
 
 # memory bank kit (не часть проекта)
 _optional/
-tools/
+tools/*
+# исключение: CI-воркфлоу memory-audit.yml гоняет этот скрипт → он ДОЛЖЕН быть в репо
+# (zero-dep, без секретов). Остальной tools/ остаётся локальным.
+!tools/memory-audit.mjs
 _intake/_processed/
 
 # docker artifacts

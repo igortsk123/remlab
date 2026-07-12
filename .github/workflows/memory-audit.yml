@@ -1,0 +1,44 @@
+# Merge-gate памяти: детерминированная проверка Memory Bank на PR и push в main.
+# Замок не зависит от дисциплины агента — код не вливается, пока память формально не чиста.
+# Режим — .memory_bank/_kit/gate-mode.txt: warn (по умолчанию: видно в CI, НЕ блокирует)
+# или block (падение при любой находке). Флип warn→block — правка одной строки в этом файле
+# + включение required-check в branch protection (см. DEPLOY.md).
+name: memory-audit
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  memory-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # полная история нужна проверке FROZEN-MEMORY
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: memory-audit --check
+        shell: bash
+        run: |
+          mode="$(cat .memory_bank/_kit/gate-mode.txt 2>/dev/null || echo warn)"
+          echo "gate mode: $mode"
+          set +e
+          node tools/memory-audit.mjs --check .
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ] && [ "$mode" = "block" ]; then
+            echo "::error::memory-audit нашёл проблемы, gate=block — слияние заблокировано"
+            exit "$code"
+          fi
+          if [ "$code" -ne 0 ]; then
+            echo "::warning::memory-audit нашёл проблемы (gate=warn — не блокирует; переключи _kit/gate-mode.txt в block, когда пороги обкатаны)"
+          fi
+          exit 0
+      - name: metrics (footprint + частота находок)
+        shell: bash
+        run: |
+          # Пассивный сбор эмпирики в фазе warn: строка метрик в summary прогона.
+          m="$(node tools/memory-audit.mjs --check --metrics . 2>/dev/null | grep '^METRICS ' || true)"
+          [ -n "$m" ] && { echo "### memory metrics"; echo '```'; echo "$m"; echo '```'; } >> "$GITHUB_STEP_SUMMARY" || true
+          echo "$m"

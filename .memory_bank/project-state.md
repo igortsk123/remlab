@@ -3,12 +3,12 @@ tier: 1
 topic: project-state
 scope: Снимок «где проект сейчас» — точка ресинхронизации при /clear и resume
 tier2: "changelog/project-history.md"
-updated: 2026-07-11
+updated: 2026-07-12
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-07-09
+last_verified: 2026-07-12
 ---
 
 # Project State — снимок состояния
@@ -41,6 +41,10 @@ CI-фикс. Доступы Яндекса (общий аккаунт с v0-heal
   только `/opt/remlab/.env`. Бэкапы БД: `/opt/remlab/backups/`. Откат: образ `remlab-app:prev`.
 - **Репозиторий:** github.com/igortsk123/remlab (`main`, deploy key `~/.ssh/remlab_deploy_ed25519`).
   CI: GitHub Actions гейт.
+- **Память (инфра):** кит Memory Bank **v1.3.0** (2026-07-12, план `completed_plans/kit-align-v13`).
+  Аудит ловит CODE-REF (память↔код) и FROZEN-MEMORY; CI `.github/workflows/memory-audit.yml` в режиме
+  **`warn`** (`_kit/gate-mode.txt`; флип в `block` — позже); захват на ходу `_intake/session-scratch.md`;
+  метрики footprint+находки → `changelog/metrics.log` (`tools/metrics-append.sh`). Footprint Tier 0 ≈ 2.1%.
 - **Сервер:** exit-fi `89.167.127.0` (Hetzner EU, Ubuntu 24.04, **aarch64/ARM**, 2 vCPU / 3.7 GB / 38 GB).
   НЕ выделенный remlab-сервер: на хосте боевая VPN-нода `remnanode` (+`rw-core`, nginx :80) — не
   трогать; remlab изолирован (`remlab-net`, mem-лимиты).
