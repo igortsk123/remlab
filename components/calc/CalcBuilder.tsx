@@ -6,6 +6,7 @@ import { roomAreas } from "@/lib/calc/geometry";
 import { useCalcProject } from "./useCalcProject";
 import { RoomPanel } from "./RoomPanel";
 import { ResultView } from "./ResultView";
+import { VizCta } from "./VizCta";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -56,6 +57,8 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
       )}
 
       <ResultView project={project} />
+
+      <VizCta />
 
       <div className="card stack">
         <p className="eyebrow">Заодно не забудьте</p>

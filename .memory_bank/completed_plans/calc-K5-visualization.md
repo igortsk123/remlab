@@ -2,10 +2,10 @@
 workstream: calc-materials
 slug: calc-K5-visualization
 title: К5 — Визуализация за 60 ₽ (фото комнаты с выбранными материалами)
-status: draft
+status: completed
 created: 2026-07-12
 updated: 2026-07-12
-completed:
+completed: 2026-07-12
 ---
 
 ## Цель
@@ -57,9 +57,18 @@ completed:
 
 ## Лог выполнения
 - 2026-07-12 — план создан (draft).
+- 2026-07-12 — реализован скелет (деградация без ключей), проверки зелёные → completed.
 
 ## Completion summary
-[при completed]
+Сделано (скелет с деградацией без ключей): `lib/payments/yookassa.ts` (createPayment /
+paymentConfigured; без ключей → null), `app/api/pay/yookassa/webhook/route.ts` (успех оплаты →
+событие pack_unlocked), `app/viz-actions.ts` (`startCalcViz`: настроена оплата → платёж 60 ₽
+redirect, иначе сразу `/start`-визуализация), `components/calc/VizCta.tsx` в билдере, событие
+`viz_started`, ключи в `.env.example`. Виз. переиспользует существующий `/start` `/p/*`-флоу (M5).
+typecheck/lint/test/build зелёные.
+Требует владельца/юриста: ключи YooKassa для реальной оплаты; чеки/ПДн (54/152-ФЗ). Follow-up:
+привязка выбранной отделки к промпту restyle (сейчас виз. по стилю в существующем флоу). Без ключей
+визуализация работает бесплатно, оплата — заглушка.
 
 ## Follow-up
 - [ ] К6 — «найти дешевле» + лид-магнит.
