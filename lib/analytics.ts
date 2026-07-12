@@ -15,6 +15,7 @@ export type EventName =
   | "estimate_saved"
   | "quiz_completed"
   | "viz_started"
+  | "lead_captured"
   | "app_error";
 
 type Props = Record<string, string | number | boolean | null>;

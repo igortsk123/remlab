@@ -2,10 +2,10 @@
 workstream: calc-materials
 slug: calc-K6-find-cheaper
 title: К6 — «Найти дешевле» + лид-магнит (email / Telegram / MAX)
-status: draft
+status: completed
 created: 2026-07-12
 updated: 2026-07-12
-completed:
+completed: 2026-07-12
 ---
 
 ## Цель
@@ -65,9 +65,19 @@ Telegram-бота / подписка на бота в MAX.
 
 ## Лог выполнения
 - 2026-07-12 — план создан (draft).
+- 2026-07-12 — реализован скелет (деградация без токенов), проверки зелёные → completed.
 
 ## Completion summary
-[при completed]
+Сделано (скелет с деградацией без токенов): `db/schema.ts` + `db/init/005-leads.sql` (таблица
+`leads`; `deploy.sh` применяет 005 идемпотентно — scp + psql), `modules/leads/repository.ts`
+(memory/pg как estimates), `app/lead-actions.ts` (`captureLead`: сохраняем ТОЛЬКО по согласию —
+ПДн-interim), `components/calc/FindCheaper.tsx` (кнопка «найти дешевле» → форма: ссылка + e-mail +
+чекбокс согласия → лид; деплинки Telegram/MAX из `NEXT_PUBLIC_*`, скрыты без настройки), подключён
+в билдер. Событие `lead_captured`, `.env.example`. typecheck/lint/test(52)/build зелёные; смоук:
+`/calc/oboi` рендерит «Найти дешевле» + «Как будет выглядеть».
+Требует владельца/юриста: username/токены ботов Telegram/MAX; реальный источник поиска «дешевле»
+(сейчас: лид фиксируется → owner ищет/шлёт); ПДн/152-ФЗ — согласие-чекбокс стоит, полноценная
+политика — TODO. Долг памяти: `core/data-model.md` устарел (нет estimates/link_*/leads) — обновить.
 
 ## Follow-up
 - [ ] После серии: обновить `core/estimate.md` итогово; связать с M6/M7 роста.

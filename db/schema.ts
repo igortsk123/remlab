@@ -121,3 +121,18 @@ export const generationAssets = pgTable(
   },
   (t) => [index("gen_assets_run_idx").on(t.runId)],
 );
+
+// Лиды «найти дешевле» (К6). email — ПДн: собираем ТОЛЬКО по согласию (чекбокс, interim); юр. часть — TODO.
+export const leads = pgTable(
+  "leads",
+  {
+    id: text("id").primaryKey(),
+    email: text("email"),
+    channel: text("channel").notNull(), // email | telegram | max
+    url: text("url"),
+    kind: text("kind"),
+    sessionId: text("session_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("leads_session_idx").on(t.sessionId)],
+);

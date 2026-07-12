@@ -32,6 +32,7 @@ scp db/init/001-extensions.sql "$SERVER:$REMOTE_DIR/db/init/001-extensions.sql"
 scp db/init/002-projects.sql "$SERVER:$REMOTE_DIR/db/init/002-projects.sql"
 scp db/init/003-traces.sql "$SERVER:$REMOTE_DIR/db/init/003-traces.sql"
 scp db/init/004-estimates.sql "$SERVER:$REMOTE_DIR/db/init/004-estimates.sql"
+scp db/init/005-leads.sql "$SERVER:$REMOTE_DIR/db/init/005-leads.sql"
 ssh "$SERVER" "test -f $REMOTE_DIR/.env || { echo 'FATAL: нет $REMOTE_DIR/.env (скопируй из .env.example и задай POSTGRES_PASSWORD)'; exit 1; }"
 ssh "$SERVER" "grep -q '^GEMINI_API_KEY=' $REMOTE_DIR/.env || { echo 'FATAL: в $REMOTE_DIR/.env нет GEMINI_API_KEY'; exit 1; }"
 
@@ -39,7 +40,7 @@ echo "==> [5/6] Запуск на сервере (APP_VERSION=$TAG)"
 ssh "$SERVER" "cd $REMOTE_DIR && APP_VERSION=$TAG docker compose up -d"
 
 echo "==> [5b] Миграция схемы БД (идемпотентно, дожидаемся healthy)"
-ssh "$SERVER" "cd $REMOTE_DIR && for i in \$(seq 1 20); do docker compose exec -T db pg_isready -U remlab -d remlab >/dev/null 2>&1 && break; sleep 3; done && docker compose exec -T db psql -U remlab -d remlab -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/002-projects.sql && docker compose exec -T db psql -U remlab -d remlab -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/003-traces.sql && docker compose exec -T db psql -U remlab -d remlab -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/004-estimates.sql"
+ssh "$SERVER" "cd $REMOTE_DIR && for i in \$(seq 1 20); do docker compose exec -T db pg_isready -U remlab -d remlab >/dev/null 2>&1 && break; sleep 3; done && docker compose exec -T db psql -U remlab -d remlab -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/002-projects.sql && docker compose exec -T db psql -U remlab -d remlab -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/003-traces.sql && docker compose exec -T db psql -U remlab -d remlab -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/004-estimates.sql && docker compose exec -T db psql -U remlab -d remlab -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/005-leads.sql"
 
 echo "==> [6/6] Smoke-test https://$DOMAIN"
 ok=0
