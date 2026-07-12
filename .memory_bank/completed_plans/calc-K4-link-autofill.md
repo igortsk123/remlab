@@ -2,10 +2,10 @@
 workstream: calc-materials
 slug: calc-K4-link-autofill
 title: К4 — Автозаполнение параметров по ссылке на товар
-status: draft
+status: completed
 created: 2026-07-12
 updated: 2026-07-12
-completed:
+completed: 2026-07-12
 ---
 
 ## Цель
@@ -53,9 +53,16 @@ completed:
 
 ## Лог выполнения
 - 2026-07-12 — план создан (draft).
+- 2026-07-12 — реализовано, проверки зелёные → completed.
 
 ## Completion summary
-[при completed]
+Сделано: `lib/calc/link-parse.ts` (чистый парс HTML: OG-мета title/price + эвристики размеров по
+виду; golden `tests/unit/calc-link-parse.test.ts` на фикстурах), `app/api/calc/parse-link/route.ts`
+(серверный fetch с user-agent/таймаутом 8с/лимитом 500KB; при неудаче ok:false+200 → ручной ввод),
+`components/calc/LinkAutofill.tsx` (поле «вставить ссылку» → префилл параметров; ссылка сохраняется
+в `productUrl` даже при неудаче → позиция сметы с /go/), подключён в `RoomPanel` над параметрами.
+52 теста; typecheck/lint/build зелёные. Ограничение (ожидаемо): маркетплейсы с анти-ботом парс не
+отдадут — тогда чистая деградация к ручному вводу.
 
 ## Follow-up
 - [ ] К5 — визуализация 60 ₽. Позже: данные из фидов сетей (sub-e2) вместо парсинга.

@@ -3,6 +3,7 @@
 import type { CalcKind, Floor, Room } from "@/contracts/calc";
 import { computeRoom } from "@/lib/calc/formulas";
 import { FloorEditor } from "./FloorEditor";
+import { LinkAutofill } from "./LinkAutofill";
 import { MaterialParams } from "./MaterialParams";
 import { SurfaceEditor } from "./SurfaceEditor";
 
@@ -46,6 +47,13 @@ export function RoomPanel({
       ) : (
         <SurfaceEditor surfaces={room.surfaces} onChange={(s) => onUpdate((r) => ({ ...r, surfaces: s }))} />
       )}
+
+      <LinkAutofill
+        kind={kind}
+        url={room.productUrl}
+        onSpec={(patch) => onUpdate((r) => ({ ...r, material: { ...r.material, ...patch } }))}
+        onUrl={(url) => onUpdate((r) => ({ ...r, productUrl: url }))}
+      />
 
       <MaterialParams
         kind={kind}
