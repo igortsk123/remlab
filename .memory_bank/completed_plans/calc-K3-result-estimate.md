@@ -2,10 +2,10 @@
 workstream: calc-materials
 slug: calc-K3-result-estimate
 title: К3 — Результат + агрегация по комнатам + мост в смету (промоут v2)
-status: draft
+status: completed
 created: 2026-07-12
 updated: 2026-07-12
-completed:
+completed: 2026-07-12
 ---
 
 ## Цель
@@ -63,9 +63,19 @@ completed:
 
 ## Лог выполнения
 - 2026-07-12 — план создан (draft).
+- 2026-07-12 — реализовано + промоут v2, проверки+SSR-смоук зелёные → completed.
 
 ## Completion summary
-[при completed]
+Сделано: `lib/calc/to-estimate.ts` (проект → позиции сметы + сопутствующие, /go/-домены; тест
+`calc-to-estimate`), `app/calc-actions.ts` (server action `saveCalcEstimate` → `Estimate` через
+repo, событие `estimate_created`), `components/calc/ResultView.tsx` (итог по комнатам + стоимость +
+«Сохранить смету»). **Промоут v2:** `useCalcProject` стал SSR-дружелюбным (стабильный стартовый
+проект — нет «мигания загрузки», страница снова статическая ●), `app/calc/[kind]/page.tsx` рендерит
+билдер ПО УМОЛЧАНИЮ (флаг `lib/calc/flag.ts` удалён; старый `CalcForm`/`createFromCalc` не удалял —
+не импортируются). Проверки typecheck/lint/test(48)/build зелёные; SSR-смоук: `/calc/oboi` и
+`/calc/laminat` рендерят билдер (комнаты/параметры/итог), старой формы нет. Мост в смету —
+как в проверенном `createFromCalc` (тот же repo/схема). Память: `core/estimate.md`, `project-state.md`.
+После К3 на проде — полноценный детальный калькулятор со сметой.
 
 ## Follow-up
 - [ ] К4 — автозаполнение по ссылке.

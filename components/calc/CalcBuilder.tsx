@@ -5,15 +5,14 @@ import { COMPANIONS, type CalcKind } from "@/lib/estimate/companions";
 import { roomAreas } from "@/lib/calc/geometry";
 import { useCalcProject } from "./useCalcProject";
 import { RoomPanel } from "./RoomPanel";
+import { ResultView } from "./ResultView";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-// Билдер калькулятора v2: мультикомната (К0) + геометрия по видам (К1). Параметры/результат — К2–К3.
+// Билдер калькулятора v2: мультикомната (К0) + геометрия (К1) + параметры/формулы (К2) + итог/смета (К3).
 export function CalcBuilder({ kind }: { kind: CalcKind }) {
   const { project, add, remove, update } = useCalcProject(kind);
   const [activeId, setActiveId] = useState<string | null>(null);
-
-  if (!project) return <p className="muted">Загрузка…</p>;
 
   const activeIdSafe =
     activeId && project.rooms.some((r) => r.id === activeId) ? activeId : project.rooms[0]?.id ?? null;
@@ -55,6 +54,8 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
           Итого по {project.rooms.length} комнатам: {totalNet} м²
         </p>
       )}
+
+      <ResultView project={project} />
 
       <div className="card stack">
         <p className="eyebrow">Заодно не забудьте</p>

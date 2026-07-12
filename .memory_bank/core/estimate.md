@@ -35,10 +35,11 @@ review_after: ""
 ## Реклама ведёт сюда
 Директ Этап 1 (калькуляторы → /calc/[kind]), Этап 2 (ремонт → /calc/remont) — `marketing-acquisition.md`.
 
-## Калькулятор v2 (детальный, серия К0–К6; ADR-0018)
-Мультикомната + проёмы/зоны + полные параметры + автозаполнение по ссылке + платные хвосты.
-Состояние клиентское (`contracts/calc.ts`+`lib/calc/*`+`components/calc/*`, localStorage), флаг
-`CALC_V2` до К3 (там → материализация в смету). Роадмап `../plans/calc-materials-roadmap.md`.
+## Калькулятор v2 (серия К0–К6; ADR-0018)
+Мультикомната + проёмы/зоны + параметры + формулы (golden) → смета. Состояние клиентское
+(`contracts/calc.ts`+`lib/calc/*`+`components/calc/*`, localStorage); v2 — ОСНОВНОЙ на `/calc/[kind]`
+(К0–К3 в проде, `app/calc-actions.ts`). Дальше К4–К6 (ссылки/виз.60₽/дешевле).
+Роадмап `../plans/calc-materials-roadmap.md`.
 
 ## Следующее
 pricing Фаза 2 (GeoIP); ИИ-обогащение (М1 v1.1); реф-маршруты по логу (М0); М5 виз.
