@@ -43,3 +43,8 @@ export function duplicateRoom(p: CalcProject, roomId: string, mkId: MkId, now: s
   const rooms = [...p.rooms.slice(0, idx + 1), copy, ...p.rooms.slice(idx + 1)];
   return { ...p, rooms, updatedAt: now };
 }
+
+// Обновить одну комнату функцией-апдейтером (геометрия/параметры — К1–К2).
+export function updateRoom(p: CalcProject, roomId: string, fn: (r: Room) => Room, now: string): CalcProject {
+  return { ...p, rooms: p.rooms.map((r) => (r.id === roomId ? fn(r) : r)), updatedAt: now };
+}

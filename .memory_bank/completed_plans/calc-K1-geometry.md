@@ -2,10 +2,10 @@
 workstream: calc-materials
 slug: calc-K1-geometry
 title: К1 — Геометрия и площади (стены с проёмами, пол с зонами)
-status: draft
+status: completed
 created: 2026-07-12
 updated: 2026-07-12
-completed:
+completed: 2026-07-12
 ---
 
 ## Цель
@@ -56,9 +56,15 @@ completed:
 
 ## Лог выполнения
 - 2026-07-12 — план создан (draft).
+- 2026-07-12 — реализовано, проверки зелёные → completed.
 
 ## Completion summary
-[при completed]
+Сделано: `lib/calc/geometry.ts` (чистые площади net/gross с вычетом проёмов и исключаемых зон;
+golden `tests/unit/calc-geometry.test.ts`), `lib/calc/num.ts` (парс числовых полей); редакторы
+`components/calc/{SurfaceEditor,FloorEditor,RoomPanel}` (стены+окна/двери/проёмы для обои/плитка/
+краска; пол+доп/исключаемые зоны для ламината); `lib/calc/state.ts`+`useCalcProject` (`updateRoom`);
+`CalcBuilder` показывает чистую площадь комнаты и итог по проекту. Проверки typecheck/lint/test(41)/
+build зелёные. Всё под флагом `CALC_V2` (прод-дефолт не изменён).
 
 ## Follow-up
 - [ ] К2 — параметры материалов + формулы.

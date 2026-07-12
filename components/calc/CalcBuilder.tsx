@@ -2,17 +2,15 @@
 
 import { useState } from "react";
 import { COMPANIONS, type CalcKind } from "@/lib/estimate/companions";
+import { roomAreas } from "@/lib/calc/geometry";
 import { useCalcProject } from "./useCalcProject";
+import { RoomPanel } from "./RoomPanel";
 
-const nameInputStyle = {
-  font: "inherit", fontWeight: 600, fontSize: 16,
-  border: "1px solid var(--base)", borderRadius: 8,
-  background: "var(--surface)", color: "var(--text)", padding: "6px 10px", maxWidth: 240,
-} as const;
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
-// Каркас билдера калькулятора v2 (К0): мультикомната. Геометрия/параметры/результат — К1–К3.
+// Билдер калькулятора v2: мультикомната (К0) + геометрия по видам (К1). Параметры/результат — К2–К3.
 export function CalcBuilder({ kind }: { kind: CalcKind }) {
-  const { project, add, remove, rename } = useCalcProject(kind);
+  const { project, add, remove, update } = useCalcProject(kind);
   const [activeId, setActiveId] = useState<string | null>(null);
 
   if (!project) return <p className="muted">Загрузка…</p>;
@@ -20,6 +18,7 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
   const activeIdSafe =
     activeId && project.rooms.some((r) => r.id === activeId) ? activeId : project.rooms[0]?.id ?? null;
   const active = project.rooms.find((r) => r.id === activeIdSafe) ?? null;
+  const totalNet = round2(project.rooms.reduce((s, r) => s + roomAreas(r, kind).netM2, 0));
 
   return (
     <div className="stack">
@@ -39,32 +38,22 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
       </div>
 
       {active && (
-        <div className="card stack">
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <input
-              value={active.name}
-              onChange={(e) => rename(active.id, e.target.value)}
-              aria-label="Название комнаты"
-              style={nameInputStyle}
-            />
-            {project.rooms.length > 1 && (
-              <button
-                type="button"
-                className="quiz-link"
-                onClick={() => {
-                  remove(active.id);
-                  setActiveId(null);
-                }}
-              >
-                Удалить
-              </button>
-            )}
-          </div>
-          <p className="note">
-            Размеры и параметры материала появятся здесь на следующих шагах. Сейчас можно завести
-            комнаты — данные сохраняются локально в этом браузере.
-          </p>
-        </div>
+        <RoomPanel
+          room={active}
+          kind={kind}
+          canDelete={project.rooms.length > 1}
+          onUpdate={(fn) => update(active.id, fn)}
+          onDelete={() => {
+            remove(active.id);
+            setActiveId(null);
+          }}
+        />
+      )}
+
+      {project.rooms.length > 1 && (
+        <p className="muted" style={{ fontSize: 14 }}>
+          Итого по {project.rooms.length} комнатам: {totalNet} м²
+        </p>
       )}
 
       <div className="card stack">
