@@ -1,8 +1,9 @@
 "use client";
 
 import type { CalcKind, Floor, Room } from "@/contracts/calc";
-import { roomAreas } from "@/lib/calc/geometry";
+import { computeRoom } from "@/lib/calc/formulas";
 import { FloorEditor } from "./FloorEditor";
+import { MaterialParams } from "./MaterialParams";
 import { SurfaceEditor } from "./SurfaceEditor";
 
 const EMPTY_FLOOR: Floor = { lengthM: 0, widthM: 0, extraZones: [], excludedZones: [] };
@@ -13,7 +14,7 @@ const nameInputStyle = {
   background: "var(--surface)", color: "var(--text)", padding: "6px 10px", maxWidth: 240,
 } as const;
 
-// Панель активной комнаты: имя, редактор геометрии по виду, вычисленная площадь.
+// Панель активной комнаты: имя, геометрия по виду, параметры материала, вычисленный результат.
 export function RoomPanel({
   room,
   kind,
@@ -27,7 +28,7 @@ export function RoomPanel({
   onUpdate: (fn: (r: Room) => Room) => void;
   onDelete: () => void;
 }) {
-  const areas = roomAreas(room, kind);
+  const out = computeRoom(room, kind);
   return (
     <div className="card stack">
       <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
@@ -46,9 +47,23 @@ export function RoomPanel({
         <SurfaceEditor surfaces={room.surfaces} onChange={(s) => onUpdate((r) => ({ ...r, surfaces: s }))} />
       )}
 
+      <MaterialParams
+        kind={kind}
+        spec={room.material}
+        onChange={(patch) => onUpdate((r) => ({ ...r, material: { ...r.material, ...patch } }))}
+      />
+
       <div className="note">
-        Площадь: <strong>{areas.netM2} м²</strong>
-        {areas.grossM2 !== areas.netM2 ? ` (без проёмов; всего ${areas.grossM2} м²)` : ""}
+        <div>
+          Площадь: <strong>{out.areaNetM2} м²</strong>
+          {out.areaGrossM2 !== out.areaNetM2 ? ` (без проёмов; всего ${out.areaGrossM2} м²)` : ""}
+        </div>
+        <div style={{ marginTop: 4 }}>
+          Нужно: <strong>{out.qty} {out.unit}</strong>
+          {out.packs != null && out.unit !== "упаковка" ? ` · ${out.packs} упак.` : ""}
+          {out.costRub != null ? ` · ~${out.costRub.toLocaleString("ru-RU")} ₽` : ""}
+        </div>
+        <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>{out.note}</div>
       </div>
     </div>
   );
