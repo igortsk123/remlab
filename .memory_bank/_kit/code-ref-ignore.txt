@@ -3,3 +3,7 @@
 # ИЛИ префикс (строка с хвостовым / гасит всё под ней).
 # Внешняя research-папка ML-экспериментов (вне репо remlab, /home/pakar/mltest) — не репо-код:
 mltest/
+# tools/ намеренно в .gitignore («не часть проекта», кроме memory-audit.mjs для CI) — ссылки на
+# локальные скрипты (migrate/trace/session/metrics) не репо-claim; в CI-checkout их нет. Продуктовый
+# код (app/, lib/, infra/, db/) остаётся под проверкой CODE-REF.
+tools/
