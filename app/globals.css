@@ -7,6 +7,7 @@
   --accent: #8a9a7b;      /* шалфей — мягкий акцент */
   --accent-strong: #b06a4a; /* терракота — основные CTA */
   --accent-strong-hover: #9a5a3d;
+  --accent-hover: #7c8b6d;  /* тёмный шалфей — hover вторичной кнопки */
   --text: #3a342e;        /* тёплый графит */
   --muted: #7d746a;       /* приглушённый текст */
   --border: #e4dccf;
@@ -92,3 +93,51 @@ a { color: inherit; }
 .progress span[data-on="true"] { background: var(--accent-strong); }
 
 img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(--border); display: block; }
+
+/* Сквозная шапка (SiteHeader): все разделы на виду, две кнопки-калькулятора выделены. */
+.site-header {
+  position: sticky; top: 0; z-index: 50;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.site-header-inner {
+  width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 10px 20px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.site-header-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.site-brand { font-size: 18px; font-weight: 700; letter-spacing: 0.02em; text-decoration: none; color: var(--text); }
+
+/* Полоса разделов: на узком экране прокручивается вбок (без «гамбургера»), страница не едет. */
+.site-nav {
+  display: flex; align-items: center; gap: 8px;
+  overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 2px;
+}
+.site-nav::-webkit-scrollbar { display: none; }
+
+.nav-cta {
+  flex: 0 0 auto; display: inline-flex; align-items: center; white-space: nowrap;
+  border: 1px solid transparent; border-radius: 999px; padding: 8px 16px;
+  font-size: 15px; font-weight: 600; text-decoration: none;
+  background: var(--accent-strong); color: var(--surface);
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+.nav-cta:hover { background: var(--accent-strong-hover); }
+.nav-cta--alt { background: var(--accent); }
+.nav-cta--alt:hover { background: var(--accent-hover); }
+.nav-cta--active { box-shadow: 0 0 0 3px rgba(138, 154, 123, 0.28); }
+
+.nav-link {
+  flex: 0 0 auto; display: inline-flex; align-items: center; white-space: nowrap;
+  padding: 8px 10px; border-radius: 999px;
+  font-size: 15px; color: var(--muted); text-decoration: none; transition: color 0.12s ease;
+}
+.nav-link:hover { color: var(--text); }
+.nav-link--active { color: var(--text); font-weight: 600; }
+
+/* Игра «Узнай свой вкус» (StyleQuiz). Плитка-swatch — плейсхолдер до реальных фото. */
+.quiz-swatch { width: 100%; height: 180px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+.quiz-swatch--result { height: 120px; }
+.quiz-link {
+  align-self: flex-start; background: none; border: none; padding: 0;
+  color: var(--muted); font-size: 14px; cursor: pointer; text-decoration: underline;
+}
+.quiz-link:hover { color: var(--text); }

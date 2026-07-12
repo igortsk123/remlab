@@ -71,6 +71,11 @@ CI-фикс. Доступы Яндекса (общий аккаунт с v0-heal
   room-analysis / visual-generation / ideas / generation-job; экраны landing→brief→style→preview→
   paywall→rooms (+`/soon`); тема japandi; e2e в CI, фейк-ИИ по флагу (ADR-0010).
 - **Observability** — `lib/analytics.ts` → PostHog (ADR-0012), no-op без ключа; воронка + captureError.
+- **Сквозная навигация + разделы-каркасы (2026-07-12, ADR-0017)** — единая шапка `SiteHeader` на
+  всех страницах (2 выделенные кнопки-калькулятора + Дизайн/Стили/Советы + «Моя лаборатория» `/lab`);
+  главная пересобрана «о проекте целиком»; новые `/styles` (игра «узнай свой вкус» + статьи-плейсхолдеры),
+  `/sovety` (плейсхолдеры). Контент/фото интерьеров/аккаунт — позже —
+  `completed_plans/site-nav-and-scenarios.md`, `core/user-flow.md`.
 - **Трейсинг AI-пайплайна в проде** (ADR-0013) — `generation_runs/steps/assets`, захват в слое
   провайдеров, реестры промптов/пайплайнов, imagor-сжатие; разбор: `/trace` (гард
   `TRACE_ADMIN_TOKEN`); ретеншн 90 дн `pnpm trace:prune` (пока вручную) —

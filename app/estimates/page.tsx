@@ -11,7 +11,6 @@ export default async function EstimatesPage() {
 
   return (
     <main className="container">
-      <p className="eyebrow">remont-lab</p>
       <h1>Мои сметы</h1>
 
       {list.length === 0 ? (

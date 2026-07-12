@@ -2,14 +2,15 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import Script from "next/script";
 import "./globals.css";
+import { SiteHeader } from "@/components/SiteHeader";
 import { VersionWatcher } from "@/components/VersionWatcher";
 import { MetrikaPageviews } from "@/components/MetrikaPageviews";
 import { METRIKA_COUNTER_ID } from "@/lib/metrika";
 
 export const metadata: Metadata = {
-  title: "remont-lab — AI-помощник по ремонту",
+  title: "remont-lab — ремонт своими руками: смета, материалы, дизайн",
   description:
-    "Обновите комнату с помощью AI: визуальная идея, товары, материалы, бюджет и план по фото.",
+    "Помогаем сделать ремонт своими руками — хорошо и недорого: калькуляторы материалов, бюджет ремонта, дизайн по фото и советы. Смета сохраняется по ссылке.",
 };
 
 // Версия сборки, которой отдана страница (runtime env контейнера). Клиент сравнит её с /api/health
@@ -20,6 +21,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="ru">
       <body>
+        <SiteHeader />
         {children}
         <footer className="container" style={{ paddingTop: 32, paddingBottom: 24 }}>
           <p className="muted" style={{ fontSize: 12, margin: 0 }}>

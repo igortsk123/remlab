@@ -12,7 +12,6 @@ const ICON: Record<CalcKind, string> = { oboi: "🧻", plitka: "🧱", kraska: "
 export default function CalcHub() {
   return (
     <main className="container">
-      <p className="eyebrow">remont-lab</p>
       <h1>Сколько нужно материалов?</h1>
       <p className="muted" style={{ fontSize: 18 }}>
         Введите размеры комнаты — посчитаем количество с запасом и соберём смету-список,
