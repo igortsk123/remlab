@@ -51,6 +51,9 @@ services:
       - APP_VERSION=${APP_VERSION:-dev}
       - DATABASE_URL=postgres://remlab:${POSTGRES_PASSWORD}@db:5432/remlab
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      # ИИ-фолбэк парсинга ссылок (ADR-0026): дочитываем недостающие поля товара через OpenAI.
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_EXTRACT_MODEL=${OPENAI_EXTRACT_MODEL:-gpt-4o-mini}
       # Трейсинг пайплайна (ADR-0013): картинки-ассеты на томе, сжатие через imagor.
       - TRACE_DIR=/app/data/traces
       - IMAGOR_BASE_URL=http://remlab-imagor:8000

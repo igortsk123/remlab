@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { calcKind } from "@/contracts/calc";
+import { calcKind, type MaterialSpec } from "@/contracts/calc";
 import { parseProductHtml } from "@/lib/calc/link-parse";
+import { aiExtractSpec, KEY_FIELDS } from "@/lib/calc/link-parse-ai";
 
 export const runtime = "nodejs";
 
@@ -20,7 +21,20 @@ export async function POST(req: Request): Promise<Response> {
     });
     if (!res.ok) return NextResponse.json({ ok: false, error: `http_${res.status}` });
     const html = (await res.text()).slice(0, 2_000_000); // крупные карточки магазинов: цена/характеристики бывают за 500 КБ
-    return NextResponse.json({ ok: true, ...parseProductHtml(html, kind) });
+    const result = parseProductHtml(html, kind);
+
+    // ИИ-фолбэк: детерминированный парсер пропустил ключевые поля → дочитать через OpenAI (только пустое).
+    const missing = KEY_FIELDS[kind].filter((k) => result.spec[k] == null);
+    if (missing.length > 0 && process.env.OPENAI_API_KEY) {
+      const bodyText = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+      const aiSpec = await aiExtractSpec(bodyText, kind, missing);
+      const target = result.spec as Record<string, number>;
+      for (const [k, v] of Object.entries(aiSpec)) {
+        if (result.spec[k as keyof MaterialSpec] == null && typeof v === "number") target[k] = v;
+      }
+    }
+
+    return NextResponse.json({ ok: true, ...result });
   } catch {
     return NextResponse.json({ ok: false, error: "unreachable" });
   }

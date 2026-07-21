@@ -12,7 +12,7 @@
 
 | Файл | topic | Когда читать (scope) | Tier 2 | updated |
 |------|-------|----------------------|--------|---------|
-| `access-and-integrations.md` | access-and-integrations | Внешние интеграции/доступы — где ключи, какие модели/эндпоинты, форматы, клиенты в коде | `../domain/integrations.md` | 2026-07-12 |
+| `access-and-integrations.md` | access-and-integrations | Внешние интеграции/доступы — где ключи, какие модели/эндпоинты, форматы, клиенты в коде | `../domain/integrations.md` | 2026-07-21 |
 | `architecture.md` | architecture | Стек, структура, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-07-12 |
 | `data-model.md` | data-model | Реальная схема БД (таблицы), изоляция сессий, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-07-12 |
 | `estimate.md` | estimate | Смета-лист (ядро v0.4) — калькуляторы (вход А), стоимость ремонта (вход Б), чек-лист, /go/ реф | `../domain/pricing-works-ru.md` | 2026-07-21 |

@@ -3,12 +3,12 @@ tier: 1
 topic: access-and-integrations
 scope: Внешние интеграции/доступы — где ключи, какие модели/эндпоинты, форматы, клиенты в коде
 tier2: "../domain/integrations.md"
-updated: 2026-07-12
+updated: 2026-07-21
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-07-12
+last_verified: 2026-07-21
 review_after: ""
 ---
 
@@ -30,8 +30,10 @@ review_after: ""
 
 ## Ключевые факты
 - **Gemini:** один ключ на обе задачи; модели `gemini-3.1-flash-image` и `gemini-flash-latest`.
-- **PostHog:** free 1M событий/мес; Sentry не заводим. На проде не включить (compose не пробрасывает `POSTHOG_*`).
-- **CI:** **секрет `DEPLOY_SSH_KEY` НЕ задан → авто-деплой пропускает шаги**; GitHub PAT (read-only Actions) у Клода локально.
-- **Яндекс:** общий аккаунт с v0-health-card; Direct-токен до ≈2027-04; Метрика `110599064`; кампании Этапов 1–4 (чужую `708745261` не трогать). Сводка — [[marketing-acquisition]].
+- **OpenAI (ADR-0026):** ИИ-фолбэк парсинга ссылок — `chat/completions`, `OPENAI_EXTRACT_MODEL`
+  (дефолт `gpt-4o-mini`); `OPENAI_API_KEY` в `/opt/remlab/.env` (тот же, что у ads-watchdog).
+- **PostHog:** free 1M событий/мес; Sentry не заводим. На проде не включён (нет `POSTHOG_*` в compose).
+- **CI:** **секрет `DEPLOY_SSH_KEY` НЕ задан → авто-деплой пропускает шаги** (катим вручную `./deploy.sh`).
+- **Яндекс:** общий аккаунт; Direct-токен до ≈2027-04; Метрика `110599064`; кампании Этапов 1–4 (чужую `708745261` не трогать). [[marketing-acquisition]].
 
 **Tier 2:** `../domain/integrations.md` (эндпоинты, форматы, env, цены). Решения — `decisions.md` (ADR-0007/0011/0012/0013).
