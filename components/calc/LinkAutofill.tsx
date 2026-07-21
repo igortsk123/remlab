@@ -4,10 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import type { CalcKind, MaterialSpec } from "@/contracts/calc";
 import { CALC_META } from "@/lib/estimate/companions";
 import { MaterialParams } from "./MaterialParams";
-import { LeadModal } from "./LeadModal";
-
-const TG_BOT = process.env.NEXT_PUBLIC_TELEGRAM_BOT;
-const MAX_BOT = process.env.NEXT_PUBLIC_MAX_BOT;
 
 const inp = {
   padding: "8px 10px", borderRadius: 8, border: "1px solid var(--base)",
@@ -32,7 +28,6 @@ export function LinkAutofill({
   const [value, setValue] = useState(url ?? "");
   const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [expanded, setExpanded] = useState(false);
-  const [modal, setModal] = useState(false);
   const lastParsed = useRef<string>(url ?? ""); // чтобы сохранённая ссылка не перепарсивалась при монтировании
 
   // Автоподгрузка: как только введена/вставлена ссылка (с небольшой задержкой) — читаем страницу.
@@ -67,9 +62,6 @@ export function LinkAutofill({
     }
   }
 
-  const tgHref = TG_BOT ? `https://t.me/${TG_BOT}` : null;
-  const maxHref = MAX_BOT ? `https://max.ru/${MAX_BOT}` : null;
-
   return (
     <div className="card stack">
       {/* Шаг 1 — ссылка: выгода вперёд, чтобы охотнее вставляли (→ реф-ссылка). */}
@@ -93,27 +85,6 @@ export function LinkAutofill({
         {expanded ? "скрыть параметры" : "ввести параметры вручную"}
       </button>
       {expanded && <MaterialParams kind={kind} spec={spec} onChange={onSpec} />}
-
-      <div className="divider" />
-
-      {/* Шаг 2 — контакт: вежливо просим e-mail/бота, чтобы потом сообщить «где дешевле». Компактно. */}
-      <div className="stack" style={{ gap: 4 }}>
-        <strong style={{ fontSize: 14 }}>Найдём этот товар дешевле</strong>
-        <span className="muted" style={{ fontSize: 13 }}>
-          Оставьте e-mail или подпишитесь на бота — сообщим, когда найдём выгоднее, и подскажем, чем дополнить.
-        </span>
-      </div>
-      <div className="row" style={{ gap: 8 }}>
-        {tgHref
-          ? <a className="chip" href={tgHref} target="_blank" rel="noopener noreferrer">Телеграм</a>
-          : <button type="button" className="chip">Телеграм</button>}
-        {maxHref
-          ? <a className="chip" href={maxHref} target="_blank" rel="noopener noreferrer">MAX</a>
-          : <button type="button" className="chip">MAX</button>}
-        <button type="button" className="chip" onClick={() => setModal(true)}>✉ Сообщить по почте</button>
-      </div>
-
-      {modal && <LeadModal kind={kind} url={value || url} onClose={() => setModal(false)} />}
     </div>
   );
 }

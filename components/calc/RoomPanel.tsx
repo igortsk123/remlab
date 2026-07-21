@@ -5,6 +5,7 @@ import { computeRoomParts } from "@/lib/calc/formulas";
 import { pluralUnit } from "@/lib/format/plural";
 import { FloorEditor } from "./FloorEditor";
 import { LinkAutofill } from "./LinkAutofill";
+import { LeadCard } from "./LeadCard";
 import { SurfaceEditor } from "./SurfaceEditor";
 
 const EMPTY_FLOOR: Floor = { lengthM: 0, widthM: 0, extraZones: [], excludedZones: [] };
@@ -39,7 +40,10 @@ export function RoomPanel({
   const setFloorMaterial = (patch: Partial<MaterialSpec>) => onUpdate((r) => ({ ...r, floorMaterial: { ...(r.floorMaterial ?? {}), ...patch } }));
 
   const wallLink = (
-    <LinkAutofill kind={kind} url={room.productUrl} onUrl={(u) => onUpdate((r) => ({ ...r, productUrl: u }))} spec={room.material} onSpec={setMaterial} />
+    <>
+      <LinkAutofill kind={kind} url={room.productUrl} onUrl={(u) => onUpdate((r) => ({ ...r, productUrl: u }))} spec={room.material} onSpec={setMaterial} />
+      <LeadCard kind={kind} url={room.productUrl} />
+    </>
   );
   const wallSizes = (
     <div className="card stack">
@@ -86,6 +90,7 @@ export function RoomPanel({
                 <button type="button" className="quiz-link" style={{ fontSize: 12 }} onClick={() => onUpdate((r) => ({ ...r, floor: undefined, floorMaterial: undefined, floorProductUrl: undefined }))}>удалить пол</button>
               </div>
               <LinkAutofill kind={kind} url={room.floorProductUrl} onUrl={(u) => onUpdate((r) => ({ ...r, floorProductUrl: u }))} spec={room.floorMaterial ?? {}} onSpec={setFloorMaterial} />
+              <LeadCard kind={kind} url={room.floorProductUrl} />
               <div className="card stack">
                 <FloorEditor floor={room.floor} onChange={(f) => onUpdate((r) => ({ ...r, floor: f }))} />
               </div>
