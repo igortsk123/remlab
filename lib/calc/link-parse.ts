@@ -26,7 +26,7 @@ function priceFrom(html: string): number | undefined {
   return (
     toNum(ogContent(html, "product:price:amount")) ??
     toNum(ogContent(html, "og:price:amount")) ??
-    toNum(/itemprop=["']price["'][^>]*content=["']([\d.,]+)["']/i.exec(html)?.[1]) ??
+    toNum(/itemprop=["']price["'][^>]*content=["']([\d.,\s]+)["']/i.exec(html)?.[1]) ?? // допускаем пробел-разделитель тысяч: «2 220.00»
     toNum(/(\d[\d\s]{1,})\s*(?:₽|руб)/i.exec(html)?.[1])
   );
 }
@@ -39,10 +39,14 @@ export function parseProductHtml(html: string, kind: CalcKind): ParsedProduct {
   const bodyText = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
   const spec: Partial<MaterialSpec> = {};
 
-  const dim = /(\d{2,4})\s*[x×х]\s*(\d{2,4})/i.exec(text);
+  // Размеры «AxB» с опц. единицей: «см» → ×10 в мм («20х20см» = 200×200 мм), иначе считаем мм.
+  const dim = /(\d{2,4})\s*[x×х]\s*(\d{2,4})\s*(см|cm|мм|mm)?/i.exec(text);
   if (dim) {
-    const a = toNum(dim[1]);
-    const b = toNum(dim[2]);
+    const mul = /^(см|cm)$/i.test(dim[3] ?? "") ? 10 : 1;
+    const a0 = toNum(dim[1]);
+    const b0 = toNum(dim[2]);
+    const a = a0 != null ? a0 * mul : undefined;
+    const b = b0 != null ? b0 * mul : undefined;
     if (kind === "plitka") { if (a) spec.tileLengthMm = a; if (b) spec.tileWidthMm = b; }
     if (kind === "laminat") { if (a) spec.panelLengthMm = a; if (b) spec.panelWidthMm = b; }
   }

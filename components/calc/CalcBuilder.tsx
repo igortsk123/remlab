@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { COMPANIONS, type CalcKind } from "@/lib/estimate/companions";
-import { roomAreas } from "@/lib/calc/geometry";
+import { computeRoomParts } from "@/lib/calc/formulas";
 import { useCalcProject } from "./useCalcProject";
 import { RoomPanel } from "./RoomPanel";
 import { ResultView } from "./ResultView";
@@ -19,7 +19,7 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
   const activeIdSafe =
     activeId && project.rooms.some((r) => r.id === activeId) ? activeId : project.rooms[0]?.id ?? null;
   const active = project.rooms.find((r) => r.id === activeIdSafe) ?? null;
-  const totalNet = round2(project.rooms.reduce((s, r) => s + roomAreas(r, kind).netM2, 0));
+  const totalNet = round2(project.rooms.flatMap((r) => computeRoomParts(r, kind)).reduce((s, p) => s + p.out.areaNetM2, 0));
 
   return (
     <div className="stack">

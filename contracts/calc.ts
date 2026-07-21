@@ -86,6 +86,9 @@ export const room = z.object({
   floor: floor.optional(),
   material: materialSpec,
   productUrl: z.string().optional(),
+  // Плитка: отдельная плитка для пола (стены — material/productUrl, пол — floorMaterial/floorProductUrl).
+  floorMaterial: materialSpec.optional(),
+  floorProductUrl: z.string().optional(),
 });
 export type Room = z.infer<typeof room>;
 

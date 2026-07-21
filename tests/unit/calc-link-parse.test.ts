@@ -50,6 +50,20 @@ describe("link parse — извлечение из HTML", () => {
     expect(r.spec.rapportM).toBeUndefined();
   });
 
+  it("плитка: цена с пробелом-разделителем «2 220.00» → 2220 (pricePerPackRub)", () => {
+    const html = `<strong class="carrot-product-price" itemprop="price" content="2 220.00">2 220.00 ₽</strong>`;
+    const r = parseProductHtml(html, "plitka");
+    expect(r.priceRub).toBe(2220);
+    expect(r.spec.pricePerPackRub).toBe(2220);
+  });
+
+  it("плитка: размер в см «20х20см» → 200×200 мм", () => {
+    const html = `<meta property="og:title" content="Плитка настенная VENETO Epica Beige 20х20см" />`;
+    const r = parseProductHtml(html, "plitka");
+    expect(r.spec.tileLengthMm).toBe(200);
+    expect(r.spec.tileWidthMm).toBe(200);
+  });
+
   it("нечитаемый HTML → пустой spec, без падения", () => {
     const r = parseProductHtml("<html>no meta here</html>", "oboi");
     expect(r.spec).toEqual({});

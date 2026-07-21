@@ -256,3 +256,18 @@ calc-экшен сохранения (К3), YooKassa/боты (К5–К6), `core
 подбора. **Влияет на:** `lib/calc/link-parse.ts`, `tests/unit/calc-link-parse.test.ts`,
 `components/calc/{SurfaceEditor,FindCheaper,VizCta}.tsx`, `app/lead-actions.ts`, `modules/leads/repository.ts`,
 `db/schema.ts`, `db/init/005-leads.sql`, `lib/estimate/companions.ts`.
+
+## [2026-07-21] Плитка: пол своей плиткой (стены+пол раздельно) + парсинг крупных страниц — ADR-0021
+**Решение:** (1) **Плитка для пола** отдельной плиткой: комната получила ВТОРУЮ спеку `floorMaterial`
++ `floorProductUrl` (`contracts/calc.ts`). Абстракция `computeRoomParts(room,kind)` (`lib/calc/formulas.ts`)
+для плитки возвращает части «Стены» (по `material`) и «Пол» (по `floorMaterial`) — каждая своей
+ссылкой/параметрами и ОТДЕЛЬНОЙ строкой Итога/позицией сметы; прочие виды — одна часть = `computeRoom`.
+`RoomPanel` для плитки: секции «Стены»/«Пол» («+ добавить размеры пола» / «удалить пол»), у каждой свой
+`LinkAutofill`+`MaterialParams`. Части подписаны нейтрально — НЕ привязано к «ванной» (любое помещение).
+(2) **Парсинг крупных карточек:** лимит HTML в `parse-link` 500 КБ → **2 МБ** (цена stroypark лежала за
+500 КБ); цена — допускаем пробел-разделитель тысяч («2 220.00»→2220); размеры «AxBсм» → в мм (×10:
+«20х20см»→200×200). **Почему:** пол — частый кейс плитки (санузел/коридор) с ДРУГОЙ плиткой, чем стены;
+страницы магазинов >1 МБ резались и не отдавали цену/размер. **Альтернатива (отклонена):** суммировать
+стены+пол одной плиткой (неверно при разных плитках). **Влияет на:** `contracts/calc.ts`,
+`lib/calc/formulas.ts`, `components/calc/{RoomPanel,ResultView,CalcBuilder,LinkAutofill}.tsx`,
+`lib/calc/to-estimate.ts`, `app/api/calc/parse-link/route.ts`, `lib/calc/link-parse.ts`.

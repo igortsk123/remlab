@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeRoom } from "@/lib/calc/formulas";
+import { computeRoom, computeRoomParts } from "@/lib/calc/formulas";
 import type { Room } from "@/contracts/calc";
 
 const wall = (id: string, lengthM: number, heightM: number): Room["surfaces"][number] => ({ id, label: "", lengthM, heightM, openings: [] });
@@ -51,5 +51,32 @@ describe("calc formulas — количество материала", () => {
       material: { direction: "diag45" },
     };
     expect(computeRoom(room, "laminat").qty).toBe(11);
+  });
+
+  it("плитка: стены и пол — РАЗНЫЕ плитки, две части", () => {
+    const room: Room = {
+      id: "r", name: "Коридор",
+      surfaces: [wall("a", 4, 2.5)], // стены 10 м²
+      material: { tileLengthMm: 300, tileWidthMm: 300, seamMm: 3, tilesPerPack: 10 }, // плитка стен
+      floor: { lengthM: 2, widthM: 2, extraZones: [], excludedZones: [] }, // пол 4 м²
+      floorMaterial: { tileLengthMm: 600, tileWidthMm: 600, seamMm: 2, tilesPerPack: 4 }, // ДРУГАЯ плитка пола
+    };
+    const parts = computeRoomParts(room, "plitka");
+    expect(parts.map((p) => p.key)).toEqual(["walls", "floor"]);
+    expect(parts[0]!.label).toBe("Стены");
+    expect(parts[1]!.label).toBe("Пол");
+    expect(parts[0]!.out.areaNetM2).toBeCloseTo(10, 2);
+    expect(parts[1]!.out.areaNetM2).toBeCloseTo(4, 2);
+    // разные размеры плитки → разные счётчики, не спутаны
+    expect(parts[0]!.out.qty).toBe(120); // 10 м² плиткой 300×300
+    expect(parts[1]!.out.qty).toBeGreaterThan(0);
+    expect(parts[1]!.material.tileLengthMm).toBe(600);
+  });
+
+  it("плитка без пола → одна часть без метки", () => {
+    const room: Room = { id: "r", name: "", surfaces: [wall("a", 4, 2.5)], material: {} };
+    const parts = computeRoomParts(room, "plitka");
+    expect(parts).toHaveLength(1);
+    expect(parts[0]!.label).toBe("");
   });
 });

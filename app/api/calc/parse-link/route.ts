@@ -19,7 +19,7 @@ export async function POST(req: Request): Promise<Response> {
       redirect: "follow",
     });
     if (!res.ok) return NextResponse.json({ ok: false, error: `http_${res.status}` });
-    const html = (await res.text()).slice(0, 500_000);
+    const html = (await res.text()).slice(0, 2_000_000); // крупные карточки магазинов: цена/характеристики бывают за 500 КБ
     return NextResponse.json({ ok: true, ...parseProductHtml(html, kind) });
   } catch {
     return NextResponse.json({ ok: false, error: "unreachable" });

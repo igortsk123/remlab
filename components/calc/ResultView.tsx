@@ -2,7 +2,7 @@
 
 import { useTransition } from "react";
 import type { CalcProject } from "@/contracts/calc";
-import { computeRoom } from "@/lib/calc/formulas";
+import { computeRoomParts } from "@/lib/calc/formulas";
 import { pluralUnit } from "@/lib/format/plural";
 import { saveCalcEstimate } from "@/app/calc-actions";
 
@@ -10,7 +10,13 @@ import { saveCalcEstimate } from "@/app/calc-actions";
 export function ResultView({ project }: { project: CalcProject }) {
   const [pending, startTransition] = useTransition();
   const rows = project.rooms
-    .map((r) => ({ id: r.id, name: r.name, out: computeRoom(r, project.kind) }))
+    .flatMap((r) =>
+      computeRoomParts(r, project.kind).map((p) => ({
+        id: `${r.id}:${p.key}`,
+        name: p.label ? `${r.name} — ${p.label.toLowerCase()}` : r.name,
+        out: p.out,
+      })),
+    )
     .filter((x) => x.out.qty > 0);
 
   if (rows.length === 0) return null;

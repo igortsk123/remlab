@@ -2,10 +2,11 @@
 // Вход: комната (геометрия из К1) + параметры материала; дефолты — lib/estimate/defaults.
 
 import type { CalcKind, MaterialSpec, Room } from "@/contracts/calc";
-import { roomAreas } from "./geometry";
+import { floorGross, floorNet, roomAreas, surfaceGross, surfaceNet } from "./geometry";
 import { DEF, PAINT_CONSUMPTION } from "@/lib/estimate/defaults";
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export type CalcOutput = {
   areaGrossM2: number;
@@ -81,4 +82,30 @@ export function computeRoom(room: Room, kind: CalcKind): CalcOutput {
           ? paint(netM2, m)
           : laminate(netM2, m);
   return { areaGrossM2: grossM2, areaNetM2: netM2, qty: r.qty, unit: r.unit, packs: r.packs, note: r.note, costRub: r.cost };
+}
+
+// Часть комнаты со своим материалом и результатом. Плитка может дать две части — стены и пол
+// (каждая своей плиткой); прочие виды — одну часть на всю комнату.
+export type RoomPart = { key: "main" | "walls" | "floor"; label: string; out: CalcOutput; material: MaterialSpec; productUrl?: string };
+
+function tileOut(grossM2: number, netM2: number, m: MaterialSpec): CalcOutput {
+  const r = tile(round2(netM2), m);
+  return { areaGrossM2: round2(grossM2), areaNetM2: round2(netM2), qty: r.qty, unit: r.unit, packs: r.packs, note: r.note, costRub: r.cost };
+}
+
+export function computeRoomParts(room: Room, kind: CalcKind): RoomPart[] {
+  if (kind !== "plitka") {
+    return [{ key: "main", label: "", out: computeRoom(room, kind), material: room.material, productUrl: room.productUrl }];
+  }
+  const hasFloor = !!room.floor;
+  const wallGross = room.surfaces.reduce((s, x) => s + surfaceGross(x), 0);
+  const wallNet = room.surfaces.reduce((s, x) => s + surfaceNet(x), 0);
+  const parts: RoomPart[] = [
+    { key: "walls", label: hasFloor ? "Стены" : "", out: tileOut(wallGross, wallNet, room.material), material: room.material, productUrl: room.productUrl },
+  ];
+  if (room.floor) {
+    const fm = room.floorMaterial ?? {};
+    parts.push({ key: "floor", label: "Пол", out: tileOut(floorGross(room.floor), floorNet(room.floor), fm), material: fm, productUrl: room.floorProductUrl });
+  }
+  return parts;
 }
