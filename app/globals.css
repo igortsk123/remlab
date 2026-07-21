@@ -145,6 +145,20 @@ img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(-
 /* Разрыв-разделитель внутри карточки (визуально разводит блоки). */
 .divider { height: 1px; background: var(--border); border: 0; margin: 0; }
 
+/* Липкая шапка итогов калькулятора — липнет под сквозной шапкой (--site-header-h). */
+.calc-sticky {
+  position: sticky; top: var(--site-header-h, 56px); z-index: 40;
+  display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow); padding: 10px 14px; font-size: 15px;
+}
+
+/* Группа «Учесть окна и двери» — тонированная рамка, визуально связывает чекбокс и проёмы у стен. */
+.openings-group {
+  background: rgba(138, 154, 123, 0.10); border: 1px solid rgba(138, 154, 123, 0.30);
+  border-radius: var(--radius-sm); padding: 10px 12px;
+}
+
 /* Кратковременная подсветка блока (напр. «Найдём выгоднее» при переходе сверху). */
 @keyframes pulseHighlight {
   0% { box-shadow: 0 0 0 0 rgba(176, 106, 74, 0); }

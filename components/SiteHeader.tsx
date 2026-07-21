@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
 
 // Сквозная шапка на всех страницах. Все разделы на виду; две кнопки-калькулятора выделены
 // (залитые пилюли), остальные — лёгкие ссылки. Активный раздел подсвечивается. На узком экране
@@ -21,13 +22,25 @@ function matches(pathname: string, prefixes: string[]): boolean {
 
 export function SiteHeader() {
   const pathname = usePathname();
+  const ref = useRef<HTMLElement>(null);
+
+  // Публикуем высоту шапки в CSS-переменную — под ней липнут вторичные шапки (напр. итоги калькулятора).
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const setVar = () => document.documentElement.style.setProperty("--site-header-h", `${el.offsetHeight}px`);
+    setVar();
+    const ro = new ResizeObserver(setVar);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const materialsActive = pathname === "/calc" || (pathname.startsWith("/calc/") && pathname !== "/calc/remont");
   const costActive = pathname === "/calc/remont";
   const labActive = matches(pathname, ["/lab", "/estimates", "/rooms"]);
 
   return (
-    <header className="site-header">
+    <header ref={ref} className="site-header">
       <div className="site-header-inner">
         <div className="site-header-top">
           <Link href="/" className="site-brand">remont-lab</Link>

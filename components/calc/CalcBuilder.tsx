@@ -20,10 +20,18 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
   const activeIdSafe =
     activeId && project.rooms.some((r) => r.id === activeId) ? activeId : project.rooms[0]?.id ?? null;
   const active = project.rooms.find((r) => r.id === activeIdSafe) ?? null;
-  const totalNet = round2(project.rooms.flatMap((r) => computeRoomParts(r, kind)).reduce((s, p) => s + p.out.areaNetM2, 0));
+  const allParts = project.rooms.flatMap((r) => computeRoomParts(r, kind));
+  const totalNet = round2(allParts.reduce((s, p) => s + p.out.areaNetM2, 0));
+  const totalCost = allParts.reduce((s, p) => s + (p.out.costRub ?? 0), 0);
 
   return (
     <div className="stack">
+      <div className="calc-sticky">
+        <span className="eyebrow" style={{ margin: 0 }}>Итог</span>
+        <span>Площадь: <strong>{totalNet} м²</strong></span>
+        {totalCost > 0 && <span>≈ <strong>{totalCost.toLocaleString("ru-RU")} ₽</strong></span>}
+      </div>
+
       <button
         type="button"
         className="btn btn-block"

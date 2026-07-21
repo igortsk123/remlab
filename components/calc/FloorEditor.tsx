@@ -2,7 +2,7 @@
 
 import type { Floor } from "@/contracts/calc";
 import { floorNet } from "@/lib/calc/geometry";
-import { numToStr, strToNum } from "@/lib/calc/num";
+import { NumInput } from "./NumInput";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -21,8 +21,8 @@ export function FloorEditor({ floor, onChange }: { floor: Floor; onChange: (f: F
     <div className="stack" style={{ gap: 6 }}>
       {floor[key].map((z) => (
         <div key={z.id} className="row" style={{ gap: 6, alignItems: "center" }}>
-          <input style={inp} inputMode="decimal" placeholder="Длина, м" value={numToStr(z.lengthM)} onChange={(e) => patch({ [key]: floor[key].map((x) => (x.id === z.id ? { ...x, lengthM: strToNum(e.target.value) } : x)) } as Partial<Floor>)} />
-          <input style={inp} inputMode="decimal" placeholder="Ширина, м" value={numToStr(z.widthM)} onChange={(e) => patch({ [key]: floor[key].map((x) => (x.id === z.id ? { ...x, widthM: strToNum(e.target.value) } : x)) } as Partial<Floor>)} />
+          <NumInput style={inp} placeholder="Длина, м" value={z.lengthM} onChange={(n) => patch({ [key]: floor[key].map((x) => (x.id === z.id ? { ...x, lengthM: n ?? 0 } : x)) } as Partial<Floor>)} />
+          <NumInput style={inp} placeholder="Ширина, м" value={z.widthM} onChange={(n) => patch({ [key]: floor[key].map((x) => (x.id === z.id ? { ...x, widthM: n ?? 0 } : x)) } as Partial<Floor>)} />
           <button type="button" className="quiz-link" onClick={() => patch({ [key]: floor[key].filter((x) => x.id !== z.id) } as Partial<Floor>)}>×</button>
         </div>
       ))}
@@ -35,11 +35,11 @@ export function FloorEditor({ floor, onChange }: { floor: Floor; onChange: (f: F
       <div className="row" style={{ gap: 8 }}>
         <label className="stack" style={{ flex: 1, minWidth: 110, gap: 4 }}>
           <span className="eyebrow">Длина пола, м</span>
-          <input style={inp} inputMode="decimal" value={numToStr(floor.lengthM)} onChange={(e) => patch({ lengthM: strToNum(e.target.value) })} />
+          <NumInput style={inp} value={floor.lengthM} onChange={(n) => patch({ lengthM: n ?? 0 })} />
         </label>
         <label className="stack" style={{ flex: 1, minWidth: 110, gap: 4 }}>
           <span className="eyebrow">Ширина пола, м</span>
-          <input style={inp} inputMode="decimal" value={numToStr(floor.widthM)} onChange={(e) => patch({ widthM: strToNum(e.target.value) })} />
+          <NumInput style={inp} value={floor.widthM} onChange={(n) => patch({ widthM: n ?? 0 })} />
         </label>
       </div>
       <div className="stack" style={{ gap: 4 }}>

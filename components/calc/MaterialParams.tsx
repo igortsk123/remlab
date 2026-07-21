@@ -2,7 +2,7 @@
 
 import type { CalcKind, MaterialSpec } from "@/contracts/calc";
 import { DIRECTION_LABEL, PAINT_TYPES, ROW_OFFSET_LABEL, SURFACE_TYPES } from "@/lib/estimate/defaults";
-import { strToNum } from "@/lib/calc/num";
+import { NumInput } from "./NumInput";
 
 const inp = {
   padding: "8px 10px", borderRadius: 8, border: "1px solid var(--base)",
@@ -13,7 +13,7 @@ function NumField({ label, value, onChange, ph }: { label: string; value: number
   return (
     <label className="stack" style={{ flex: 1, minWidth: 120, gap: 4 }}>
       <span className="eyebrow">{label}</span>
-      <input style={inp} inputMode="decimal" placeholder={ph} value={value == null ? "" : String(value)} onChange={(e) => onChange(e.target.value === "" ? undefined : strToNum(e.target.value))} />
+      <NumInput style={inp} placeholder={ph} value={value} onChange={onChange} />
     </label>
   );
 }
