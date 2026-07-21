@@ -79,4 +79,22 @@ describe("calc formulas — количество материала", () => {
     expect(parts).toHaveLength(1);
     expect(parts[0]!.label).toBe("");
   });
+
+  it("плитка: проём вычитается только при countOpenings", () => {
+    const base: Room = {
+      id: "r", name: "", material: {},
+      surfaces: [{ id: "s", label: "", lengthM: 4, heightM: 2.5, openings: [{ id: "o", kind: "window", widthM: 1.5, heightM: 1.4, count: 1 }] }],
+    };
+    expect(computeRoomParts({ ...base, countOpenings: false }, "plitka")[0]!.out.areaNetM2).toBeCloseTo(10, 2); // полная
+    expect(computeRoomParts({ ...base, countOpenings: true }, "plitka")[0]!.out.areaNetM2).toBeCloseTo(7.9, 2); // 10 − 2.1
+  });
+
+  it("краска: проём вычитается только при countOpenings", () => {
+    const base: Room = {
+      id: "r", name: "", material: { consumptionM2PerL: 10, coats: 1 },
+      surfaces: [{ id: "s", label: "", lengthM: 4, heightM: 2.5, openings: [{ id: "o", kind: "door", widthM: 1, heightM: 2, count: 1 }] }],
+    };
+    expect(computeRoom({ ...base, countOpenings: false }, "kraska").areaNetM2).toBeCloseTo(10, 2); // полная
+    expect(computeRoom({ ...base, countOpenings: true }, "kraska").areaNetM2).toBeCloseTo(8, 2); // 10 − 2
+  });
 });

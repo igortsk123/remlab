@@ -23,6 +23,15 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
 
   return (
     <div className="stack">
+      <button
+        type="button"
+        className="btn btn-block"
+        style={{ background: "var(--accent)", color: "var(--surface)", borderColor: "var(--accent)" }}
+        onClick={() => document.getElementById("find-cheaper")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+      >
+        Найдём выгоднее — подберём материалы дешевле
+      </button>
+
       <div className="row" style={{ gap: 8 }}>
         {project.rooms.map((r) => (
           <button
@@ -68,7 +77,9 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
         </ul>
       </div>
 
-      <FindCheaper kind={kind} url={project.rooms.find((r) => r.productUrl)?.productUrl} />
+      <div id="find-cheaper">
+        <FindCheaper kind={kind} url={project.rooms.find((r) => r.productUrl)?.productUrl} />
+      </div>
 
       <VizCta />
     </div>

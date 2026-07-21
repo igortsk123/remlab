@@ -271,3 +271,14 @@ calc-экшен сохранения (К3), YooKassa/боты (К5–К6), `core
 стены+пол одной плиткой (неверно при разных плитках). **Влияет на:** `contracts/calc.ts`,
 `lib/calc/formulas.ts`, `components/calc/{RoomPanel,ResultView,CalcBuilder,LinkAutofill}.tsx`,
 `lib/calc/to-estimate.ts`, `app/api/calc/parse-link/route.ts`, `lib/calc/link-parse.ts`.
+
+## [2026-07-21] Плитка/краска: проёмы по галочке (дефолт — полная площадь) + UX — ADR-0022
+**Решение:** для плитки И краски проёмы (окна/двери) теперь вычитаются ТОЛЬКО по галочке «Учесть окна
+и двери» (`room.countOpenings`, дефолт ВЫКЛ → площадь полная/gross). Тип проёма (окно/дверь/проём) и
+поле «кол-во» убраны — проём = Ширина×Высота (тип на площадь не влияет; count=1, нужно больше — добавить
+ещё). Выбор net/gross — в `computeRoom` (краска) и `computeRoomParts` (плитка-стены). Обои — без изменений
+(проёмы скрыты, DoorHint). Плюс UX: кнопка «Заполнить» зелёная (`--accent`, как `nav-cta--alt`); зоны пола
+«+ площадь»/«- площадь»; вверху калькулятора кнопка-ссылка «Найдём выгоднее» → smooth-scroll к нижнему
+блоку (`#find-cheaper`), не дубль формы. **Почему:** раньше плитка/краска молча вычитали проёмы (занижение
+без запаса на подрезку/бой); владелец хочет полную площадь по умолчанию и опциональный учёт. **Влияет на:**
+`contracts/calc.ts`, `lib/calc/formulas.ts`, `components/calc/{SurfaceEditor,RoomPanel,FloorEditor,LinkAutofill,CalcBuilder}.tsx`.

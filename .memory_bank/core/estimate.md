@@ -32,7 +32,7 @@ review_after: ""
   `modules/estimate/`. Метрика: цели 10–13 (`campaign_state.md`).
 - Реклама сюда: Директ Этап 1 (`/calc/[kind]`), Этап 2 (`/calc/remont`) — `marketing-acquisition.md`.
 
-## Калькулятор v2 (К0–К6; ADR-0018–0021)
+## Калькулятор v2 (К0–К6; ADR-0018–0022)
 Мультикомната + параметры + формулы (golden) → смета; состояние клиентское (`contracts/calc.ts`,
 `lib/calc/*`, `components/calc/*`, localStorage). ОСНОВНОЙ на `/calc/[kind]` (`app/calc-actions.ts`).
 UX/копирайт обоев (ADR-0019): проёмы скрыты из UI (формула их игнорирует; у плитки/краски остаются),

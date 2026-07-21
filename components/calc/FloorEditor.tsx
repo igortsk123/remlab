@@ -26,7 +26,7 @@ export function FloorEditor({ floor, onChange }: { floor: Floor; onChange: (f: F
           <button type="button" className="quiz-link" onClick={() => patch({ [key]: floor[key].filter((x) => x.id !== z.id) } as Partial<Floor>)}>×</button>
         </div>
       ))}
-      <button type="button" className="chip" onClick={() => patch({ [key]: [...floor[key], { id: uid(), label: "", lengthM: 0, widthM: 0 }] } as Partial<Floor>)}>+ зона</button>
+      <button type="button" className="chip" onClick={() => patch({ [key]: [...floor[key], { id: uid(), label: "", lengthM: 0, widthM: 0 }] } as Partial<Floor>)}>{key === "extraZones" ? "+ площадь" : "- площадь"}</button>
     </div>
   );
 

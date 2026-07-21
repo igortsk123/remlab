@@ -73,15 +73,18 @@ function laminate(areaNet: number, m: MaterialSpec) {
 export function computeRoom(room: Room, kind: CalcKind): CalcOutput {
   const { grossM2, netM2 } = roomAreas(room, kind);
   const m = room.material;
+  // Стеновые виды (плитка/краска): проёмы вычитаются только по галочке «Учесть окна и двери».
+  const wallArea = room.countOpenings ? netM2 : grossM2;
   const r =
     kind === "oboi"
       ? wallpaper(room.surfaces.reduce((s, x) => s + x.lengthM, 0), room.surfaces.reduce((h, x) => Math.max(h, x.heightM), 0), m)
       : kind === "plitka"
-        ? tile(netM2, m)
+        ? tile(wallArea, m)
         : kind === "kraska"
-          ? paint(netM2, m)
+          ? paint(wallArea, m)
           : laminate(netM2, m);
-  return { areaGrossM2: grossM2, areaNetM2: netM2, qty: r.qty, unit: r.unit, packs: r.packs, note: r.note, costRub: r.cost };
+  const areaNet = kind === "plitka" || kind === "kraska" ? wallArea : netM2;
+  return { areaGrossM2: grossM2, areaNetM2: areaNet, qty: r.qty, unit: r.unit, packs: r.packs, note: r.note, costRub: r.cost };
 }
 
 // Часть комнаты со своим материалом и результатом. Плитка может дать две части — стены и пол
@@ -100,8 +103,9 @@ export function computeRoomParts(room: Room, kind: CalcKind): RoomPart[] {
   const hasFloor = !!room.floor;
   const wallGross = room.surfaces.reduce((s, x) => s + surfaceGross(x), 0);
   const wallNet = room.surfaces.reduce((s, x) => s + surfaceNet(x), 0);
+  const wallArea = room.countOpenings ? wallNet : wallGross; // проёмы — только по галочке
   const parts: RoomPart[] = [
-    { key: "walls", label: hasFloor ? "Стены" : "", out: tileOut(wallGross, wallNet, room.material), material: room.material, productUrl: room.productUrl },
+    { key: "walls", label: hasFloor ? "Стены" : "", out: tileOut(wallGross, wallArea, room.material), material: room.material, productUrl: room.productUrl },
   ];
   if (room.floor) {
     const fm = room.floorMaterial ?? {};

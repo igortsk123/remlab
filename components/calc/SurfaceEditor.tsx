@@ -28,18 +28,23 @@ function DoorHint() {
   );
 }
 
-// Редактор стен/поверхностей. Обои (kind==="oboi"): проёмы не вводятся (формула считает по периметру —
-// проёмы идут в запас), вместо них — иконка-подсказка. Плитка/краска: проёмы вычитаются из площади.
+// Редактор стен/поверхностей. Обои: проёмы не вводятся (формула по периметру), вместо них — подсказка.
+// Плитка/краска: проёмы по галочке «Учесть окна и двери» (Ширина×Высота, без типа) и вычитаются из площади.
 export function SurfaceEditor({
   surfaces,
   onChange,
   kind,
+  countOpenings,
+  onCountOpenings,
 }: {
   surfaces: Surface[];
   onChange: (surfaces: Surface[]) => void;
   kind: CalcKind;
+  countOpenings?: boolean;
+  onCountOpenings?: (v: boolean) => void;
 }) {
-  const hideOpenings = kind === "oboi";
+  const isOboi = kind === "oboi";
+  const showOpenings = !isOboi && !!countOpenings;
   const patch = (id: string, p: Partial<Surface>) =>
     onChange(surfaces.map((s) => (s.id === id ? { ...s, ...p } : s)));
   const patchOpenings = (sid: string, fn: (o: Opening[]) => Opening[]) =>
@@ -47,10 +52,16 @@ export function SurfaceEditor({
 
   return (
     <div className="stack" style={{ gap: 12 }}>
-      {hideOpenings && (
+      {isOboi && (
         <div className="row" style={{ justifyContent: "flex-end", margin: 0 }}>
           <DoorHint />
         </div>
+      )}
+      {!isOboi && (
+        <label className="row" style={{ gap: 8, alignItems: "center", margin: 0 }}>
+          <input type="checkbox" checked={!!countOpenings} onChange={(e) => onCountOpenings?.(e.target.checked)} />
+          <span>Учесть окна и двери</span>
+        </label>
       )}
 
       {surfaces.map((s) => (
@@ -70,27 +81,23 @@ export function SurfaceEditor({
             </label>
           </div>
 
-          {!hideOpenings && s.openings.map((o) => (
+          {showOpenings && s.openings.map((o) => (
             <div key={o.id} className="row" style={{ gap: 6, alignItems: "center" }}>
-              <select
-                style={{ ...inp, width: "auto" }}
-                value={o.kind}
-                onChange={(e) => patchOpenings(s.id, (os) => os.map((x) => (x.id === o.id ? { ...x, kind: e.target.value as Opening["kind"] } : x)))}
-              >
-                <option value="window">Окно</option>
-                <option value="door">Дверь</option>
-                <option value="other">Проём</option>
-              </select>
-              <input style={inp} inputMode="decimal" placeholder="Ш, м" value={numToStr(o.widthM)} onChange={(e) => patchOpenings(s.id, (os) => os.map((x) => (x.id === o.id ? { ...x, widthM: strToNum(e.target.value) } : x)))} />
-              <input style={inp} inputMode="decimal" placeholder="В, м" value={numToStr(o.heightM)} onChange={(e) => patchOpenings(s.id, (os) => os.map((x) => (x.id === o.id ? { ...x, heightM: strToNum(e.target.value) } : x)))} />
-              <input style={{ ...inp, width: 56 }} inputMode="numeric" value={String(o.count)} onChange={(e) => patchOpenings(s.id, (os) => os.map((x) => (x.id === o.id ? { ...x, count: Math.max(1, Math.round(strToNum(e.target.value))) } : x)))} />
-              <button type="button" className="quiz-link" onClick={() => patchOpenings(s.id, (os) => os.filter((x) => x.id !== o.id))}>×</button>
+              <label className="stack" style={{ flex: 1, minWidth: 90, gap: 4 }}>
+                <span className="eyebrow">Ширина, м</span>
+                <input style={inp} inputMode="decimal" value={numToStr(o.widthM)} onChange={(e) => patchOpenings(s.id, (os) => os.map((x) => (x.id === o.id ? { ...x, widthM: strToNum(e.target.value) } : x)))} />
+              </label>
+              <label className="stack" style={{ flex: 1, minWidth: 90, gap: 4 }}>
+                <span className="eyebrow">Высота, м</span>
+                <input style={inp} inputMode="decimal" value={numToStr(o.heightM)} onChange={(e) => patchOpenings(s.id, (os) => os.map((x) => (x.id === o.id ? { ...x, heightM: strToNum(e.target.value) } : x)))} />
+              </label>
+              <button type="button" className="quiz-link" style={{ alignSelf: "flex-end", padding: "8px 0" }} onClick={() => patchOpenings(s.id, (os) => os.filter((x) => x.id !== o.id))}>×</button>
             </div>
           ))}
 
-          {!hideOpenings && (
+          {showOpenings && (
             <div className="row" style={{ gap: 8, alignItems: "center" }}>
-              <button type="button" className="chip" onClick={() => patchOpenings(s.id, (os) => [...os, { id: uid(), kind: "window", widthM: 0, heightM: 0, count: 1 }])}>+ проём</button>
+              <button type="button" className="chip" onClick={() => patchOpenings(s.id, (os) => [...os, { id: uid(), kind: "window", widthM: 0, heightM: 0, count: 1 }])}>+ добавить проём</button>
               <span className="muted" style={{ fontSize: 13 }}>чистая площадь: {surfaceNet(s)} м²</span>
             </div>
           )}

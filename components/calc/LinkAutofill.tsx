@@ -53,7 +53,7 @@ export function LinkAutofill({
       </span>
       <div className="row" style={{ gap: 6 }}>
         <input style={inp} placeholder="Вставьте ссылку из магазина" value={value} onChange={(e) => setValue(e.target.value)} />
-        <button type="button" className="btn btn-secondary" style={{ padding: "8px 14px", fontSize: 14, flex: "0 0 auto" }} onClick={go} disabled={state === "loading"}>
+        <button type="button" className="btn" style={{ padding: "8px 14px", fontSize: 14, flex: "0 0 auto", background: "var(--accent)", color: "var(--surface)", borderColor: "var(--accent)" }} onClick={go} disabled={state === "loading"}>
           {state === "loading" ? "…" : "Заполнить"}
         </button>
       </div>

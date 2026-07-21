@@ -47,7 +47,15 @@ export function RoomPanel({
     </>
   );
 
-  const wallEditor = <SurfaceEditor surfaces={room.surfaces} onChange={(s) => onUpdate((r) => ({ ...r, surfaces: s }))} kind={kind} />;
+  const wallEditor = (
+    <SurfaceEditor
+      surfaces={room.surfaces}
+      onChange={(s) => onUpdate((r) => ({ ...r, surfaces: s }))}
+      kind={kind}
+      countOpenings={room.countOpenings}
+      onCountOpenings={(v) => onUpdate((r) => ({ ...r, countOpenings: v }))}
+    />
+  );
   const wallMaterial = materialBlock(room.material, room.productUrl, setMaterial, (url) => onUpdate((r) => ({ ...r, productUrl: url })));
 
   return (
