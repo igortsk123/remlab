@@ -17,7 +17,7 @@ export default async function CalcPage({ params }: { params: Promise<{ kind: str
   return (
     <main className="container">
       <p className="eyebrow">Калькулятор материалов</p>
-      <h1>Сколько нужно: {CALC_META[k].title.toLowerCase()}</h1>
+      <h1>Сколько нужно {CALC_META[k].titleGen}</h1>
 
       <CalcBuilder kind={k} />
 

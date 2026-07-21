@@ -1,24 +1,46 @@
 "use client";
 
-import type { Opening, Surface } from "@/contracts/calc";
+import type { CalcKind, Opening, Surface } from "@/contracts/calc";
 import { surfaceNet } from "@/lib/calc/geometry";
 import { numToStr, strToNum } from "@/lib/calc/num";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
+
+const OPENINGS_NOTE =
+  "При расчёте окна и двери не учитываются. Это сделано намеренно, так как расход обоев " +
+  "определяется количеством целых полос. Проёмы в большинстве случаев не уменьшают " +
+  "необходимое количество рулонов.";
 
 const inp = {
   padding: "8px 10px", borderRadius: 8, border: "1px solid var(--base)",
   background: "var(--surface)", color: "var(--text)", fontSize: 15, width: "100%",
 } as const;
 
-// Редактор стен/поверхностей (обои/плитка/краска): длина, высота + проёмы (окна/двери/прочее).
+// Иконка-«окно» (рамка с крестовиной) — приглушённый подсказчик, почему проёмы не вводим (обои).
+function WindowHint() {
+  return (
+    <span className="help" tabIndex={0} role="note" aria-label={OPENINGS_NOTE} data-tip={OPENINGS_NOTE}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+        <rect x="3" y="3" width="18" height="18" rx="1.5" />
+        <line x1="12" y1="3" x2="12" y2="21" />
+        <line x1="3" y1="12" x2="21" y2="12" />
+      </svg>
+    </span>
+  );
+}
+
+// Редактор стен/поверхностей. Обои (kind==="oboi"): проёмы не вводятся (формула считает по периметру —
+// проёмы идут в запас), вместо них — иконка-подсказка. Плитка/краска: проёмы вычитаются из площади.
 export function SurfaceEditor({
   surfaces,
   onChange,
+  kind,
 }: {
   surfaces: Surface[];
   onChange: (surfaces: Surface[]) => void;
+  kind: CalcKind;
 }) {
+  const hideOpenings = kind === "oboi";
   const patch = (id: string, p: Partial<Surface>) =>
     onChange(surfaces.map((s) => (s.id === id ? { ...s, ...p } : s)));
   const patchOpenings = (sid: string, fn: (o: Opening[]) => Opening[]) =>
@@ -26,6 +48,12 @@ export function SurfaceEditor({
 
   return (
     <div className="stack" style={{ gap: 12 }}>
+      {hideOpenings && (
+        <div className="row" style={{ justifyContent: "flex-end", margin: 0 }}>
+          <WindowHint />
+        </div>
+      )}
+
       {surfaces.map((s) => (
         <div key={s.id} className="stack" style={{ gap: 8, borderLeft: "2px solid var(--border)", paddingLeft: 12 }}>
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
@@ -43,7 +71,7 @@ export function SurfaceEditor({
             </label>
           </div>
 
-          {s.openings.map((o) => (
+          {!hideOpenings && s.openings.map((o) => (
             <div key={o.id} className="row" style={{ gap: 6, alignItems: "center" }}>
               <select
                 style={{ ...inp, width: "auto" }}
@@ -61,13 +89,15 @@ export function SurfaceEditor({
             </div>
           ))}
 
-          <div className="row" style={{ gap: 8, alignItems: "center" }}>
-            <button type="button" className="chip" onClick={() => patchOpenings(s.id, (os) => [...os, { id: uid(), kind: "window", widthM: 0, heightM: 0, count: 1 }])}>+ проём</button>
-            <span className="muted" style={{ fontSize: 13 }}>чистая площадь: {surfaceNet(s)} м²</span>
-          </div>
+          {!hideOpenings && (
+            <div className="row" style={{ gap: 8, alignItems: "center" }}>
+              <button type="button" className="chip" onClick={() => patchOpenings(s.id, (os) => [...os, { id: uid(), kind: "window", widthM: 0, heightM: 0, count: 1 }])}>+ проём</button>
+              <span className="muted" style={{ fontSize: 13 }}>чистая площадь: {surfaceNet(s)} м²</span>
+            </div>
+          )}
         </div>
       ))}
-      <button type="button" className="chip" onClick={() => onChange([...surfaces, { id: uid(), label: `Стена ${surfaces.length + 1}`, lengthM: 0, heightM: 0, openings: [] }])}>+ стена</button>
+      <button type="button" className="chip" onClick={() => onChange([...surfaces, { id: uid(), label: `Стена ${surfaces.length + 1}`, lengthM: 0, heightM: 0, openings: [] }])}>добавить размеры стены</button>
     </div>
   );
 }

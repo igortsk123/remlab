@@ -59,18 +59,18 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
 
       <ResultView project={project} />
 
-      <VizCta />
+      <div className="card stack">
+        <p className="eyebrow">Также не забудьте</p>
+        <ul className="checklist">
+          {COMPANIONS[kind].map((c) => (
+            <li key={c}>{c}</li>
+          ))}
+        </ul>
+      </div>
 
       <FindCheaper kind={kind} url={project.rooms.find((r) => r.productUrl)?.productUrl} />
 
-      <div className="card stack">
-        <p className="eyebrow">Заодно не забудьте</p>
-        <div className="row">
-          {COMPANIONS[kind].map((c) => (
-            <span key={c} className="chip" data-selected="false">{c}</span>
-          ))}
-        </div>
-      </div>
+      <VizCta />
     </div>
   );
 }

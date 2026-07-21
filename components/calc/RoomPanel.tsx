@@ -2,6 +2,7 @@
 
 import type { CalcKind, Floor, Room } from "@/contracts/calc";
 import { computeRoom } from "@/lib/calc/formulas";
+import { pluralUnit } from "@/lib/format/plural";
 import { FloorEditor } from "./FloorEditor";
 import { LinkAutofill } from "./LinkAutofill";
 import { MaterialParams } from "./MaterialParams";
@@ -45,8 +46,10 @@ export function RoomPanel({
       {kind === "laminat" ? (
         <FloorEditor floor={room.floor ?? EMPTY_FLOOR} onChange={(f) => onUpdate((r) => ({ ...r, floor: f }))} />
       ) : (
-        <SurfaceEditor surfaces={room.surfaces} onChange={(s) => onUpdate((r) => ({ ...r, surfaces: s }))} />
+        <SurfaceEditor surfaces={room.surfaces} onChange={(s) => onUpdate((r) => ({ ...r, surfaces: s }))} kind={kind} />
       )}
+
+      <div className="divider" />
 
       <LinkAutofill
         kind={kind}
@@ -67,7 +70,7 @@ export function RoomPanel({
           {out.areaGrossM2 !== out.areaNetM2 ? ` (без проёмов; всего ${out.areaGrossM2} м²)` : ""}
         </div>
         <div style={{ marginTop: 4 }}>
-          Нужно: <strong>{out.qty} {out.unit}</strong>
+          Нужно: <strong>{out.qty} {pluralUnit(out.unit, out.qty)}</strong>
           {out.packs != null && out.unit !== "упаковка" ? ` · ${out.packs} упак.` : ""}
           {out.costRub != null ? ` · ~${out.costRub.toLocaleString("ru-RU")} ₽` : ""}
         </div>

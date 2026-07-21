@@ -3,6 +3,7 @@
 import { useTransition } from "react";
 import type { CalcProject } from "@/contracts/calc";
 import { computeRoom } from "@/lib/calc/formulas";
+import { pluralUnit } from "@/lib/format/plural";
 import { saveCalcEstimate } from "@/app/calc-actions";
 
 // Итог по проекту: разбивка по комнатам, суммарная стоимость, сохранение в смету (М1).
@@ -22,7 +23,7 @@ export function ResultView({ project }: { project: CalcProject }) {
         <div key={x.id} className="row" style={{ justifyContent: "space-between", gap: 8 }}>
           <span>{x.name}</span>
           <span className="muted">
-            {x.out.qty} {x.out.unit}
+            {x.out.qty} {pluralUnit(x.out.unit, x.out.qty)}
             {x.out.costRub != null ? ` · ~${x.out.costRub.toLocaleString("ru-RU")} ₽` : ""}
           </span>
         </div>

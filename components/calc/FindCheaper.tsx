@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import type { CalcKind } from "@/contracts/calc";
+import { CALC_META } from "@/lib/estimate/companions";
 import { captureLead } from "@/app/lead-actions";
 
 const TG_BOT = process.env.NEXT_PUBLIC_TELEGRAM_BOT;
@@ -34,7 +35,7 @@ export function FindCheaper({ kind, url }: { kind: CalcKind; url: string | undef
   if (done) {
     return (
       <div className="card stack">
-        <p className="eyebrow">Найти дешевле</p>
+        <p className="eyebrow">Найдём выгоднее</p>
         <p style={{ margin: 0 }}>Спасибо! Поищем те же материалы выгоднее и пришлём варианты на почту.</p>
       </div>
     );
@@ -42,11 +43,11 @@ export function FindCheaper({ kind, url }: { kind: CalcKind; url: string | undef
 
   return (
     <div className="card stack">
-      <p className="eyebrow">Найти дешевле</p>
+      <p className="eyebrow">Найдём выгоднее</p>
       {!open ? (
         <>
-          <p className="muted" style={{ margin: 0, fontSize: 15 }}>Поищем те же материалы выгоднее — со скидками и в других магазинах.</p>
-          <button type="button" className="btn btn-secondary" onClick={() => setOpen(true)}>Найти дешевле</button>
+          <p className="muted" style={{ margin: 0, fontSize: 15 }}>Мы подберём {CALC_META[kind].accPick} и все необходимые материалы для {CALC_META[kind].work} по более выгодной цене — со скидками, в магазинах вашего города или онлайн.</p>
+          <button type="button" className="btn btn-secondary" onClick={() => setOpen(true)}>Найти выгоднее</button>
         </>
       ) : (
         <>

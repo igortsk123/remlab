@@ -8,8 +8,8 @@ importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-07-11
-review_after: "2026-07-18"
+last_verified: 2026-07-21
+review_after: "2026-08-21"
 ---
 
 # Автопилот рекламы (задеплоен 2026-07-11, режим DRY-RUN)

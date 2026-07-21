@@ -141,3 +141,27 @@ img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(-
   color: var(--muted); font-size: 14px; cursor: pointer; text-decoration: underline;
 }
 .quiz-link:hover { color: var(--text); }
+
+/* Разрыв-разделитель внутри карточки (визуально разводит блоки). */
+.divider { height: 1px; background: var(--border); border: 0; margin: 0; }
+
+/* Чек-лист «Также не забудьте» — пункты с галочкой. */
+.checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.checklist li { display: flex; align-items: flex-start; gap: 10px; font-size: 15px; }
+.checklist li::before { content: "✓"; color: var(--ok); font-weight: 700; line-height: 1.5; flex: 0 0 auto; }
+
+/* Подсказка при наведении/фокусе (иконка-«окно» у обоев). Раскрывается по hover и по фокусу (тап/клавиатура). */
+.help { position: relative; display: inline-flex; align-items: center; color: var(--muted); cursor: help; }
+.help:hover, .help:focus { color: var(--text); outline: none; }
+.help::after {
+  content: attr(data-tip);
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 30;
+  width: max-content; max-width: 260px;
+  background: var(--text); color: var(--surface);
+  font-size: 13px; line-height: 1.45; text-align: left;
+  padding: 10px 12px; border-radius: var(--radius-sm); box-shadow: var(--shadow);
+  opacity: 0; visibility: hidden; transform: translateY(-4px);
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
+  pointer-events: none;
+}
+.help:hover::after, .help:focus::after { opacity: 1; visibility: visible; transform: translateY(0); }

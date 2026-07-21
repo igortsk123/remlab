@@ -2,20 +2,12 @@ import Link from "next/link";
 import { estimateRepo } from "@/modules/estimate/repository";
 import { repo } from "@/modules/store/repository";
 import { readSessionId } from "@/lib/session";
+import { plural } from "@/lib/format/plural";
 
 export const metadata = {
   title: "Моя лаборатория — сохранённые сметы и дизайны",
   description: "Ваши сохранённые сметы и дизайны комнат в одном месте.",
 };
-
-// Русская множественная форма: 1 смета / 2 сметы / 5 смет.
-function plural(n: number, one: string, few: string, many: string): string {
-  const m10 = n % 10;
-  const m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return one;
-  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
-  return many;
-}
 
 export default async function LabPage() {
   const sid = await readSessionId();

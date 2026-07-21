@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { CalcKind, MaterialSpec } from "@/contracts/calc";
+import { CALC_META } from "@/lib/estimate/companions";
 
 const inp = {
   padding: "8px 10px", borderRadius: 8, border: "1px solid var(--base)",
@@ -47,7 +48,9 @@ export function LinkAutofill({
 
   return (
     <div className="stack" style={{ gap: 6 }}>
-      <span className="eyebrow">Ссылка на товар — заполним параметры сами</span>
+      <span style={{ fontSize: 14, fontWeight: 500 }}>
+        Добавьте ссылку на {CALC_META[kind].accYour}. Мы заполним параметры сами.
+      </span>
       <div className="row" style={{ gap: 6 }}>
         <input style={inp} placeholder="Вставьте ссылку из магазина" value={value} onChange={(e) => setValue(e.target.value)} />
         <button type="button" className="btn btn-secondary" onClick={go} disabled={state === "loading"}>

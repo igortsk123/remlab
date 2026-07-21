@@ -10,7 +10,7 @@ export function VizCta() {
     <div className="card stack">
       <p className="eyebrow">Как это будет выглядеть</p>
       <p className="muted" style={{ margin: 0, fontSize: 15 }}>
-        Загрузите фото комнаты — ИИ покажет её в новом виде с отделкой.
+        Загрузите фото комнаты и посмотрите, как будет выглядеть ваша комната после обновления отделки.
       </p>
       <button
         className="btn btn-secondary"
