@@ -72,25 +72,37 @@ export function LinkAutofill({
 
   return (
     <div className="card stack">
-      <strong style={{ fontSize: 17 }}>Добавьте ссылку на {CALC_META[kind].accYour}</strong>
-      <ul className="checklist">
-        <li>Заполним параметры расчёта сами</li>
-        <li>Найдём, где дешевле, и пришлём вам</li>
-        <li>Подскажем, что ещё нужно купить</li>
-      </ul>
-      <span className="muted" style={{ fontSize: 13 }}>
-        Оставьте e-mail или подпишитесь на бот — сообщим, когда найдём выгоднее.
-      </span>
+      {/* Шаг 1 — ссылка: выгода вперёд, чтобы охотнее вставляли (→ реф-ссылка). */}
+      <div className="stack" style={{ gap: 4 }}>
+        <strong style={{ fontSize: 17 }}>Вставьте ссылку — заполним параметры за вас</strong>
+        <span className="muted" style={{ fontSize: 13 }}>
+          Ссылку на {CALC_META[kind].accYour} — не придётся вводить размеры и цену вручную.
+        </span>
+      </div>
 
-      <input style={inp} placeholder="Вставьте ссылку из магазина" value={value} onChange={(e) => setValue(e.target.value)} />
+      <input style={inp} placeholder="Ссылка на товар из магазина" value={value} onChange={(e) => setValue(e.target.value)} />
       {state === "loading" && (
         <span className="muted" style={{ fontSize: 13, display: "inline-flex", alignItems: "center", gap: 8 }}>
           <span className="spinner" aria-hidden="true" /> Читаем страницу…
         </span>
       )}
-      {state === "done" && <span className="muted" style={{ fontSize: 13 }}>Заполнили из ссылки — проверьте и поправьте ниже.</span>}
-      {state === "error" && <span className="muted" style={{ fontSize: 13 }}>Не смогли прочитать страницу — впишите параметры вручную (ссылка сохранена).</span>}
+      {state === "done" && <span className="muted" style={{ fontSize: 13 }}>Готово — параметры заполнены, проверьте ниже.</span>}
+      {state === "error" && <span className="muted" style={{ fontSize: 13 }}>Не удалось прочитать страницу — заполните параметры ниже (ссылка сохранена).</span>}
 
+      <button type="button" className="quiz-link" style={{ fontSize: 13 }} onClick={() => setExpanded((v) => !v)}>
+        {expanded ? "скрыть параметры" : "ввести параметры вручную"}
+      </button>
+      {expanded && <MaterialParams kind={kind} spec={spec} onChange={onSpec} />}
+
+      <div className="divider" />
+
+      {/* Шаг 2 — контакт: вежливо просим e-mail/бота, чтобы потом сообщить «где дешевле». Компактно. */}
+      <div className="stack" style={{ gap: 4 }}>
+        <strong style={{ fontSize: 14 }}>Найдём этот товар дешевле</strong>
+        <span className="muted" style={{ fontSize: 13 }}>
+          Оставьте e-mail или подпишитесь на бота — сообщим, когда найдём выгоднее, и подскажем, чем дополнить.
+        </span>
+      </div>
       <div className="row" style={{ gap: 8 }}>
         {tgHref
           ? <a className="chip" href={tgHref} target="_blank" rel="noopener noreferrer">Телеграм</a>
@@ -100,11 +112,6 @@ export function LinkAutofill({
           : <button type="button" className="chip">MAX</button>}
         <button type="button" className="chip" onClick={() => setModal(true)}>✉ Сообщить по почте</button>
       </div>
-
-      <button type="button" className="quiz-link" style={{ fontSize: 13 }} onClick={() => setExpanded((v) => !v)}>
-        {expanded ? "скрыть параметры" : "ввести вручную"}
-      </button>
-      {expanded && <MaterialParams kind={kind} spec={spec} onChange={onSpec} />}
 
       {modal && <LeadModal kind={kind} url={value || url} onClose={() => setModal(false)} />}
     </div>
