@@ -4,8 +4,11 @@ CREATE TABLE IF NOT EXISTS leads (
   email text,
   channel text NOT NULL,
   url text,
+  city text,
   kind text,
   session_id text,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS leads_session_idx ON leads (session_id);
+-- Город лида (раунд 2): добавляем идемпотентно для уже существующих БД.
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS city text;

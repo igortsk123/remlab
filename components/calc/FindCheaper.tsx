@@ -17,7 +17,8 @@ const inp = {
 export function FindCheaper({ kind, url }: { kind: CalcKind; url: string | undefined }) {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
-  const [link, setLink] = useState(url ?? "");
+  const [links, setLinks] = useState<string[]>([url ?? ""]);
+  const [city, setCity] = useState("");
   const [consent, setConsent] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState(false);
@@ -26,7 +27,8 @@ export function FindCheaper({ kind, url }: { kind: CalcKind; url: string | undef
   function submit() {
     setError(false);
     startTransition(async () => {
-      const res = await captureLead({ email, url: link || undefined, kind, consent });
+      const urls = links.map((l) => l.trim()).filter(Boolean);
+      const res = await captureLead({ email, urls, city: city.trim() || undefined, kind, consent });
       if (res.ok) setDone(true);
       else setError(true);
     });
@@ -46,12 +48,22 @@ export function FindCheaper({ kind, url }: { kind: CalcKind; url: string | undef
       <p className="eyebrow">Найдём выгоднее</p>
       {!open ? (
         <>
-          <p className="muted" style={{ margin: 0, fontSize: 15 }}>Мы подберём {CALC_META[kind].accPick} и все необходимые материалы для {CALC_META[kind].work} по более выгодной цене — со скидками, в магазинах вашего города или онлайн.</p>
+          <p className="muted" style={{ margin: 0, fontSize: 15 }}>Мы найдём {CALC_META[kind].accYours} и все необходимые материалы для {CALC_META[kind].work} по более выгодной цене в магазинах вашего города или онлайн.</p>
           <button type="button" className="btn btn-secondary" onClick={() => setOpen(true)}>Найти выгоднее</button>
         </>
       ) : (
         <>
-          <input style={inp} placeholder="Ссылка на товар (если есть)" value={link} onChange={(e) => setLink(e.target.value)} />
+          {links.map((l, i) => (
+            <input
+              key={i}
+              style={inp}
+              placeholder="Ссылка на товар (если есть)"
+              value={l}
+              onChange={(e) => setLinks((ls) => ls.map((x, j) => (j === i ? e.target.value : x)))}
+            />
+          ))}
+          <button type="button" className="quiz-link" onClick={() => setLinks((ls) => [...ls, ""])}>+ добавить товар</button>
+          <input style={inp} placeholder="Ваш город" value={city} onChange={(e) => setCity(e.target.value)} />
           <input style={inp} type="email" placeholder="E-mail для результата" value={email} onChange={(e) => setEmail(e.target.value)} />
           <label className="row" style={{ gap: 8, alignItems: "flex-start" }}>
             <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />

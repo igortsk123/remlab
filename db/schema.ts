@@ -130,6 +130,7 @@ export const leads = pgTable(
     email: text("email"),
     channel: text("channel").notNull(), // email | telegram | max
     url: text("url"),
+    city: text("city"),
     kind: text("kind"),
     sessionId: text("session_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

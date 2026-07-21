@@ -241,3 +241,18 @@ calc-экшен сохранения (К3), YooKassa/боты (К5–К6), `core
 тронуты (только отображение). **Влияет на:** `lib/estimate/companions.ts`, `lib/format/plural.ts`
 (нов.), `app/calc/[kind]/page.tsx`, `components/calc/{SurfaceEditor,RoomPanel,LinkAutofill,ResultView,FindCheaper,VizCta,CalcBuilder}.tsx`,
 `app/lab/page.tsx`, `app/globals.css`, `core/estimate.md`.
+
+## [2026-07-21] Калькулятор обоев раунд 2: парсинг рулона + лид город/мультитовар — ADR-0020
+**Решение:** (1) **Парсинг ссылки обоев** (`lib/calc/link-parse.ts`): ловим размеры рулона в формате
+«ширина × длина м» (напр. «1,06*10м»; разделитель `*`/`x`/`х`/`×`, десятичная `,`/`.`) из og-меты и
+раппорт «рап+орт … N см/мм/м» из body со снятыми тегами (значение в СОСЕДНЕМ `<td>`; «Рапорт» часто с
+одной «п»). **Грабля:** `\b` после кириллической «м» НЕ срабатывает (кириллица вне `\w` в JS-regex) →
+вместо `\b` негативный lookahead `(?![а-яёa-z])`. Пустой лейбл-поле «раппорт (см)» без числа не матчим.
+(2) **Лид «Найдём выгоднее»** расширен: несколько ссылок на товар (склеиваем в `url` по строке) + город
+(новая колонка `leads.city`, аддитивный идемпотентный `ALTER … ADD COLUMN IF NOT EXISTS` в `db/init/005-leads.sql`).
+Текст блока по kind через `CALC_META.accYours` («ваши обои»/«вашу плитку»…; бывш. `accPick`).
+**Иконка проёмов** → дверь (прямоугольник + точка-ручка), новый текст подсказки. **Почему:** реальная
+ссылка магазина (miroboev) отдаёт размеры и раппорт, но парсер их не брал; лиду нужны товары+город для
+подбора. **Влияет на:** `lib/calc/link-parse.ts`, `tests/unit/calc-link-parse.test.ts`,
+`components/calc/{SurfaceEditor,FindCheaper,VizCta}.tsx`, `app/lead-actions.ts`, `modules/leads/repository.ts`,
+`db/schema.ts`, `db/init/005-leads.sql`, `lib/estimate/companions.ts`.

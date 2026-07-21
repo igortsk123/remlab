@@ -8,7 +8,7 @@ test("калькулятор → смета → своя ссылка → /go/",
   // v2-билдер: стартовая комната без стен → добавить размеры стены → задать длину/высоту.
   // Локатор через обёртывающий label (у полей нет name/id); has-text «Длина, м» не задевает
   // «Длина рулона, м» из параметров материала.
-  await page.getByRole("button", { name: "добавить размеры стены" }).click();
+  await page.getByRole("button", { name: "+ добавить размеры стены" }).click();
   await page.locator('label:has-text("Длина, м") input').fill("4");
   await page.locator('label:has-text("Высота, м") input').fill("2.7");
 

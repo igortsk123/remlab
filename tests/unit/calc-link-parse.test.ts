@@ -24,6 +24,32 @@ describe("link parse — извлечение из HTML", () => {
     expect(r.spec.pricePerPackRub).toBe(990);
   });
 
+  it("обои: размеры рулона «1,06*10м» из og-title + раппорт «64 см» из таблицы", () => {
+    const html = `
+      <meta property="og:title" content="Обои R210139 Эдем/ Grandeco (1,06*10м обои винил, флизелин)" />
+      <meta property="product:price:amount" content="1890" />
+      <table><tr><td>Рапорт смещения рисунка:</td><td><span>64 см</span></td></tr>
+      <tr><td>Тип:</td><td><span>Обои</span></td></tr></table>`;
+    const r = parseProductHtml(html, "oboi");
+    expect(r.spec.rollWidthM).toBe(1.06);
+    expect(r.spec.rollLengthM).toBe(10);
+    expect(r.spec.rapportM).toBeCloseTo(0.64);
+    expect(r.spec.pricePerRollRub).toBe(1890);
+  });
+
+  it("обои: «0,53х10,05 м» (кириллическая х) → ширина/длина рулона", () => {
+    const html = `<meta property="og:title" content="Обои флизелиновые 0,53х10,05 м" />`;
+    const r = parseProductHtml(html, "oboi");
+    expect(r.spec.rollWidthM).toBe(0.53);
+    expect(r.spec.rollLengthM).toBe(10.05);
+  });
+
+  it("обои: пустой лейбл «раппорт (см)» без числа не даёт раппорт", () => {
+    const html = `<label>раппорт (см)</label><input name="bias" />`;
+    const r = parseProductHtml(html, "oboi");
+    expect(r.spec.rapportM).toBeUndefined();
+  });
+
   it("нечитаемый HTML → пустой spec, без падения", () => {
     const r = parseProductHtml("<html>no meta here</html>", "oboi");
     expect(r.spec).toEqual({});

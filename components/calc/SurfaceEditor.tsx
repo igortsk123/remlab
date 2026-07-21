@@ -7,23 +7,22 @@ import { numToStr, strToNum } from "@/lib/calc/num";
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 const OPENINGS_NOTE =
-  "При расчёте окна и двери не учитываются. Это сделано намеренно, так как расход обоев " +
-  "определяется количеством целых полос. Проёмы в большинстве случаев не уменьшают " +
-  "необходимое количество рулонов.";
+  "Окна и двери не вычитаются из расчёта, т.к. обои клеятся целыми полосами, поэтому кусок, " +
+  "оставшийся из-за проёма, обычно нельзя использовать в другом месте. За счёт этого получается " +
+  "небольшой запас: на подгонку рисунка, обрезки и непредвиденные ошибки.";
 
 const inp = {
   padding: "8px 10px", borderRadius: 8, border: "1px solid var(--base)",
   background: "var(--surface)", color: "var(--text)", fontSize: 15, width: "100%",
 } as const;
 
-// Иконка-«окно» (рамка с крестовиной) — приглушённый подсказчик, почему проёмы не вводим (обои).
-function WindowHint() {
+// Иконка-«дверь» (прямоугольник + точка-ручка) — приглушённый подсказчик, почему проёмы не вводим (обои).
+function DoorHint() {
   return (
     <span className="help" tabIndex={0} role="note" aria-label={OPENINGS_NOTE} data-tip={OPENINGS_NOTE}>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
-        <rect x="3" y="3" width="18" height="18" rx="1.5" />
-        <line x1="12" y1="3" x2="12" y2="21" />
-        <line x1="3" y1="12" x2="21" y2="12" />
+        <rect x="6" y="3" width="12" height="18" rx="1" />
+        <circle cx="14.5" cy="12" r="1.1" fill="currentColor" stroke="none" />
       </svg>
     </span>
   );
@@ -50,7 +49,7 @@ export function SurfaceEditor({
     <div className="stack" style={{ gap: 12 }}>
       {hideOpenings && (
         <div className="row" style={{ justifyContent: "flex-end", margin: 0 }}>
-          <WindowHint />
+          <DoorHint />
         </div>
       )}
 
@@ -58,7 +57,7 @@ export function SurfaceEditor({
         <div key={s.id} className="stack" style={{ gap: 8, borderLeft: "2px solid var(--border)", paddingLeft: 12 }}>
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
             <strong style={{ fontSize: 15 }}>{s.label || "Стена"}</strong>
-            <button type="button" className="quiz-link" onClick={() => onChange(surfaces.filter((x) => x.id !== s.id))}>убрать</button>
+            <button type="button" className="quiz-link" style={{ fontSize: 12 }} onClick={() => onChange(surfaces.filter((x) => x.id !== s.id))}>удалить</button>
           </div>
           <div className="row" style={{ gap: 8 }}>
             <label className="stack" style={{ flex: 1, minWidth: 100, gap: 4 }}>
@@ -97,7 +96,7 @@ export function SurfaceEditor({
           )}
         </div>
       ))}
-      <button type="button" className="chip" onClick={() => onChange([...surfaces, { id: uid(), label: `Стена ${surfaces.length + 1}`, lengthM: 0, heightM: 0, openings: [] }])}>добавить размеры стены</button>
+      <button type="button" className="chip" onClick={() => onChange([...surfaces, { id: uid(), label: `Стена ${surfaces.length + 1}`, lengthM: 0, heightM: 0, openings: [] }])}>+ добавить размеры стены</button>
     </div>
   );
 }

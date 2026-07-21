@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { leads } from "@/db/schema";
 
 export type LeadChannel = "email" | "telegram" | "max";
-export type Lead = { email?: string; channel: LeadChannel; url?: string; kind?: string; sessionId?: string };
+export type Lead = { email?: string; channel: LeadChannel; url?: string; city?: string; kind?: string; sessionId?: string };
 
 export interface LeadRepository {
   create(l: Lead): Promise<void>;
@@ -25,6 +25,7 @@ class PgLeadRepository implements LeadRepository {
       email: l.email ?? null,
       channel: l.channel,
       url: l.url ?? null,
+      city: l.city ?? null,
       kind: l.kind ?? null,
       sessionId: l.sessionId ?? null,
     });

@@ -17,7 +17,7 @@ export function VizCta() {
         disabled={pending}
         onClick={() => startTransition(() => { void startCalcViz(); })}
       >
-        {pending ? "…" : "Посмотреть комнату в дизайне по фото"}
+        {pending ? "…" : "Посмотреть комнату в новом дизайне"}
       </button>
     </div>
   );
