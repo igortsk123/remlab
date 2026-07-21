@@ -159,6 +159,23 @@ img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(-
   border-radius: var(--radius-sm); padding: 10px 12px;
 }
 
+/* Модалка (напр. «Сообщить по почте»): затемнение + карточка по центру. */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(58, 52, 46, 0.45);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.modal {
+  position: relative; width: 100%; max-width: 420px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow); padding: 22px;
+}
+.modal-close {
+  position: absolute; top: 6px; right: 10px; background: none; border: none;
+  font-size: 24px; line-height: 1; color: var(--muted); cursor: pointer; padding: 4px;
+}
+.modal-close:hover { color: var(--text); }
+
 /* Кратковременная подсветка блока (напр. «Найдём выгоднее» при переходе сверху). */
 @keyframes pulseHighlight {
   0% { box-shadow: 0 0 0 0 rgba(176, 106, 74, 0); }

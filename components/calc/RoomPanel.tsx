@@ -5,10 +5,10 @@ import { computeRoomParts } from "@/lib/calc/formulas";
 import { pluralUnit } from "@/lib/format/plural";
 import { FloorEditor } from "./FloorEditor";
 import { LinkAutofill } from "./LinkAutofill";
-import { MaterialParams } from "./MaterialParams";
 import { SurfaceEditor } from "./SurfaceEditor";
 
 const EMPTY_FLOOR: Floor = { lengthM: 0, widthM: 0, extraZones: [], excludedZones: [] };
+const greenChip = { background: "var(--accent)", color: "var(--surface)", borderColor: "var(--accent)" } as const;
 
 const nameInputStyle = {
   font: "inherit", fontWeight: 600, fontSize: 16,
@@ -16,8 +16,8 @@ const nameInputStyle = {
   background: "var(--surface)", color: "var(--text)", padding: "6px 10px", maxWidth: 240,
 } as const;
 
-// Панель активной комнаты: имя, геометрия по виду, параметры материала, вычисленный результат.
-// Плитка может иметь две части — стены и пол (каждая со своей плиткой: ссылка + параметры).
+// Панель активной комнаты: стек карточек. Материал (ссылка+параметры) — ОТДЕЛЬНОЙ карточкой ПЕРЕД
+// размерами. Плитка может иметь две плитки (стены/пол), каждая — своя карточка ссылки + карточка размеров.
 export function RoomPanel({
   room,
   kind,
@@ -38,29 +38,24 @@ export function RoomPanel({
   const setMaterial = (patch: Partial<MaterialSpec>) => onUpdate((r) => ({ ...r, material: { ...r.material, ...patch } }));
   const setFloorMaterial = (patch: Partial<MaterialSpec>) => onUpdate((r) => ({ ...r, floorMaterial: { ...(r.floorMaterial ?? {}), ...patch } }));
 
-  // Блок материала: автозаполнение по ссылке + параметры (переиспользуется для стен, пола, прочих видов).
-  const materialBlock = (spec: MaterialSpec, url: string | undefined, onSpec: (p: Partial<MaterialSpec>) => void, onUrl: (u: string) => void) => (
-    <>
-      <div className="divider" />
-      <LinkAutofill kind={kind} url={url} onSpec={onSpec} onUrl={onUrl} />
-      <MaterialParams kind={kind} spec={spec} onChange={onSpec} />
-    </>
+  const wallLink = (
+    <LinkAutofill kind={kind} url={room.productUrl} onUrl={(u) => onUpdate((r) => ({ ...r, productUrl: u }))} spec={room.material} onSpec={setMaterial} />
   );
-
-  const wallEditor = (
-    <SurfaceEditor
-      surfaces={room.surfaces}
-      onChange={(s) => onUpdate((r) => ({ ...r, surfaces: s }))}
-      kind={kind}
-      countOpenings={room.countOpenings}
-      onCountOpenings={(v) => onUpdate((r) => ({ ...r, countOpenings: v }))}
-    />
+  const wallSizes = (
+    <div className="card stack">
+      <SurfaceEditor
+        surfaces={room.surfaces}
+        onChange={(s) => onUpdate((r) => ({ ...r, surfaces: s }))}
+        kind={kind}
+        countOpenings={room.countOpenings}
+        onCountOpenings={(v) => onUpdate((r) => ({ ...r, countOpenings: v }))}
+      />
+    </div>
   );
-  const wallMaterial = materialBlock(room.material, room.productUrl, setMaterial, (url) => onUpdate((r) => ({ ...r, productUrl: url })));
 
   return (
-    <div className="card stack">
-      <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+    <div className="stack">
+      <div className="card row" style={{ justifyContent: "space-between", alignItems: "center" }}>
         <input
           value={room.name}
           onChange={(e) => onUpdate((r) => ({ ...r, name: e.target.value }))}
@@ -72,35 +67,35 @@ export function RoomPanel({
 
       {kind === "laminat" ? (
         <>
-          <FloorEditor floor={room.floor ?? EMPTY_FLOOR} onChange={(f) => onUpdate((r) => ({ ...r, floor: f }))} />
-          {wallMaterial}
+          {wallLink}
+          <div className="card stack">
+            <FloorEditor floor={room.floor ?? EMPTY_FLOOR} onChange={(f) => onUpdate((r) => ({ ...r, floor: f }))} />
+          </div>
         </>
       ) : kind === "plitka" ? (
         <>
-          {room.floor && <p className="eyebrow" style={{ margin: 0 }}>Стены</p>}
-          {wallEditor}
-          {wallMaterial}
+          {room.floor && <p className="eyebrow" style={{ margin: "4px 0 -6px" }}>Стены</p>}
+          {wallLink}
+          {wallSizes}
           {!room.floor ? (
-            <>
-              <div className="divider" />
-              <button type="button" className="chip" style={{ background: "var(--accent)", color: "var(--surface)", borderColor: "var(--accent)" }} onClick={() => onUpdate((r) => ({ ...r, floor: EMPTY_FLOOR }))}>+ добавить размеры пола</button>
-            </>
+            <button type="button" className="chip" style={greenChip} onClick={() => onUpdate((r) => ({ ...r, floor: EMPTY_FLOOR }))}>+ добавить размеры пола</button>
           ) : (
             <>
-              <div className="divider" />
-              <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
                 <p className="eyebrow" style={{ margin: 0 }}>Пол</p>
                 <button type="button" className="quiz-link" style={{ fontSize: 12 }} onClick={() => onUpdate((r) => ({ ...r, floor: undefined, floorMaterial: undefined, floorProductUrl: undefined }))}>удалить пол</button>
               </div>
-              <FloorEditor floor={room.floor} onChange={(f) => onUpdate((r) => ({ ...r, floor: f }))} />
-              {materialBlock(room.floorMaterial ?? {}, room.floorProductUrl, setFloorMaterial, (url) => onUpdate((r) => ({ ...r, floorProductUrl: url })))}
+              <LinkAutofill kind={kind} url={room.floorProductUrl} onUrl={(u) => onUpdate((r) => ({ ...r, floorProductUrl: u }))} spec={room.floorMaterial ?? {}} onSpec={setFloorMaterial} />
+              <div className="card stack">
+                <FloorEditor floor={room.floor} onChange={(f) => onUpdate((r) => ({ ...r, floor: f }))} />
+              </div>
             </>
           )}
         </>
       ) : (
         <>
-          {wallEditor}
-          {wallMaterial}
+          {wallLink}
+          {wallSizes}
         </>
       )}
 

@@ -7,7 +7,6 @@ import { useCalcProject } from "./useCalcProject";
 import { RoomPanel } from "./RoomPanel";
 import { ResultView } from "./ResultView";
 import { VizCta } from "./VizCta";
-import { FindCheaper } from "./FindCheaper";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -15,7 +14,6 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export function CalcBuilder({ kind }: { kind: CalcKind }) {
   const { project, add, remove, update } = useCalcProject(kind);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [cheaperSignal, setCheaperSignal] = useState(0);
 
   const activeIdSafe =
     activeId && project.rooms.some((r) => r.id === activeId) ? activeId : project.rooms[0]?.id ?? null;
@@ -31,14 +29,6 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
         <span>Площадь: <strong>{totalNet} м²</strong></span>
         {totalCost > 0 && <span>≈ <strong>{totalCost.toLocaleString("ru-RU")} ₽</strong></span>}
       </div>
-
-      <button
-        type="button"
-        className="btn btn-block"
-        onClick={() => setCheaperSignal((s) => s + 1)}
-      >
-        Если есть ссылка на товар — найдём выгоднее
-      </button>
 
       <div className="row" style={{ gap: 8 }}>
         {project.rooms.map((r) => (
@@ -84,8 +74,6 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
           ))}
         </ul>
       </div>
-
-      <FindCheaper kind={kind} url={project.rooms.find((r) => r.productUrl)?.productUrl} openSignal={cheaperSignal} />
 
       <VizCta />
     </div>
