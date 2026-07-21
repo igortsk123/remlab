@@ -66,10 +66,8 @@ export function LinkAutofill({
     <div className="card stack">
       {/* Шаг 1 — ссылка: выгода вперёд, чтобы охотнее вставляли (→ реф-ссылка). */}
       <div className="stack" style={{ gap: 4 }}>
-        <strong style={{ fontSize: 17 }}>Вставьте ссылку — заполним параметры за вас</strong>
-        <span className="muted" style={{ fontSize: 13 }}>
-          Ссылку на {CALC_META[kind].accYour} — не придётся вводить размеры и цену вручную.
-        </span>
+        <strong style={{ fontSize: 17 }}>Вставьте ссылку на {CALC_META[kind].acc}, заполним параметры за вас</strong>
+        <span className="muted" style={{ fontSize: 13 }}>Не придётся вводить размеры и цену вручную.</span>
       </div>
 
       <input style={inp} placeholder="Ссылка на товар из магазина" value={value} onChange={(e) => setValue(e.target.value)} />
