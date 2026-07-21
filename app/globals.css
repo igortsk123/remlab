@@ -145,8 +145,8 @@ img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(-
 /* Разрыв-разделитель внутри карточки (визуально разводит блоки). */
 .divider { height: 1px; background: var(--border); border: 0; margin: 0; }
 
-/* Выделенная карточка «Найдём этот товар дешевле» — акцентная рамка + лёгкая заливка. */
-.lead-card { border-color: var(--accent); background: rgba(138, 154, 123, 0.10); }
+/* Выделенная карточка «Найдём этот товар дешевле» — тёплый терракотовый акцент (цвет привлечения/CTA). */
+.lead-card { border-color: var(--accent-strong); background: rgba(176, 106, 74, 0.07); }
 
 /* Липкая шапка итогов калькулятора — липнет под сквозной шапкой (--site-header-h). */
 .calc-sticky {
