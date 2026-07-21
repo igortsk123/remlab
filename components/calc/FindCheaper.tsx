@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import type { CalcKind } from "@/contracts/calc";
 import { CALC_META } from "@/lib/estimate/companions";
 import { captureLead } from "@/app/lead-actions";
@@ -14,7 +14,8 @@ const inp = {
 } as const;
 
 // «Найти дешевле» (К6): ссылка (если есть) + e-mail за результат (лид). Поиск — асинхронно (owner/позже).
-export function FindCheaper({ kind, url }: { kind: CalcKind; url: string | undefined }) {
+// openSignal — счётчик от верхней CTA: при изменении открываем форму, скроллим к блоку и подсвечиваем.
+export function FindCheaper({ kind, url, openSignal }: { kind: CalcKind; url: string | undefined; openSignal?: number }) {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [links, setLinks] = useState<string[]>([url ?? ""]);
@@ -22,7 +23,18 @@ export function FindCheaper({ kind, url }: { kind: CalcKind; url: string | undef
   const [consent, setConsent] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState(false);
+  const [highlight, setHighlight] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const [pending, startTransition] = useTransition();
+
+  useEffect(() => {
+    if (!openSignal) return; // 0/undefined — стартовое значение, не триггерим
+    setOpen(true);
+    setHighlight(true);
+    rootRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const t = setTimeout(() => setHighlight(false), 1400);
+    return () => clearTimeout(t);
+  }, [openSignal]);
 
   function submit() {
     setError(false);
@@ -36,7 +48,7 @@ export function FindCheaper({ kind, url }: { kind: CalcKind; url: string | undef
 
   if (done) {
     return (
-      <div className="card stack">
+      <div ref={rootRef} className="card stack">
         <p className="eyebrow">Найдём выгоднее</p>
         <p style={{ margin: 0 }}>Спасибо! Поищем те же материалы выгоднее и пришлём варианты на почту.</p>
       </div>
@@ -44,7 +56,7 @@ export function FindCheaper({ kind, url }: { kind: CalcKind; url: string | undef
   }
 
   return (
-    <div className="card stack">
+    <div ref={rootRef} className={`card stack${highlight ? " pulse-highlight" : ""}`}>
       <p className="eyebrow">Найдём выгоднее</p>
       {!open ? (
         <>

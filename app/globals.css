@@ -145,6 +145,14 @@ img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(-
 /* Разрыв-разделитель внутри карточки (визуально разводит блоки). */
 .divider { height: 1px; background: var(--border); border: 0; margin: 0; }
 
+/* Кратковременная подсветка блока (напр. «Найдём выгоднее» при переходе сверху). */
+@keyframes pulseHighlight {
+  0% { box-shadow: 0 0 0 0 rgba(176, 106, 74, 0); }
+  25% { box-shadow: 0 0 0 4px rgba(176, 106, 74, 0.45); }
+  100% { box-shadow: 0 0 0 0 rgba(176, 106, 74, 0); }
+}
+.pulse-highlight { animation: pulseHighlight 1.4s ease-out; }
+
 /* Чек-лист «Также не забудьте» — пункты с галочкой. */
 .checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .checklist li { display: flex; align-items: flex-start; gap: 10px; font-size: 15px; }

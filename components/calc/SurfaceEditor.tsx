@@ -82,16 +82,21 @@ export function SurfaceEditor({
           </div>
 
           {showOpenings && s.openings.map((o) => (
-            <div key={o.id} className="row" style={{ gap: 6, alignItems: "center" }}>
-              <label className="stack" style={{ flex: 1, minWidth: 90, gap: 4 }}>
-                <span className="eyebrow">Ширина, м</span>
-                <input style={inp} inputMode="decimal" value={numToStr(o.widthM)} onChange={(e) => patchOpenings(s.id, (os) => os.map((x) => (x.id === o.id ? { ...x, widthM: strToNum(e.target.value) } : x)))} />
-              </label>
-              <label className="stack" style={{ flex: 1, minWidth: 90, gap: 4 }}>
-                <span className="eyebrow">Высота, м</span>
-                <input style={inp} inputMode="decimal" value={numToStr(o.heightM)} onChange={(e) => patchOpenings(s.id, (os) => os.map((x) => (x.id === o.id ? { ...x, heightM: strToNum(e.target.value) } : x)))} />
-              </label>
-              <button type="button" className="quiz-link" style={{ alignSelf: "flex-end", padding: "8px 0" }} onClick={() => patchOpenings(s.id, (os) => os.filter((x) => x.id !== o.id))}>×</button>
+            <div key={o.id} className="stack" style={{ gap: 8 }}>
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                <strong style={{ fontSize: 14 }}>Проём</strong>
+                <button type="button" className="quiz-link" style={{ fontSize: 12 }} onClick={() => patchOpenings(s.id, (os) => os.filter((x) => x.id !== o.id))}>удалить</button>
+              </div>
+              <div className="row" style={{ gap: 8 }}>
+                <label className="stack" style={{ flex: 1, minWidth: 100, gap: 4 }}>
+                  <span className="eyebrow">Ширина, м</span>
+                  <input style={inp} inputMode="decimal" value={numToStr(o.widthM)} onChange={(e) => patchOpenings(s.id, (os) => os.map((x) => (x.id === o.id ? { ...x, widthM: strToNum(e.target.value) } : x)))} />
+                </label>
+                <label className="stack" style={{ flex: 1, minWidth: 100, gap: 4 }}>
+                  <span className="eyebrow">Высота, м</span>
+                  <input style={inp} inputMode="decimal" value={numToStr(o.heightM)} onChange={(e) => patchOpenings(s.id, (os) => os.map((x) => (x.id === o.id ? { ...x, heightM: strToNum(e.target.value) } : x)))} />
+                </label>
+              </div>
             </div>
           ))}
 
@@ -103,7 +108,7 @@ export function SurfaceEditor({
           )}
         </div>
       ))}
-      <button type="button" className="chip" onClick={() => onChange([...surfaces, { id: uid(), label: `Стена ${surfaces.length + 1}`, lengthM: 0, heightM: 0, openings: [] }])}>+ добавить размеры стены</button>
+      <button type="button" className="chip" style={{ background: "var(--accent)", color: "var(--surface)", borderColor: "var(--accent)" }} onClick={() => onChange([...surfaces, { id: uid(), label: `Стена ${surfaces.length + 1}`, lengthM: 0, heightM: 0, openings: [] }])}>+ добавить размеры стены</button>
     </div>
   );
 }

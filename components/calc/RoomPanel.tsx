@@ -81,7 +81,10 @@ export function RoomPanel({
           {wallEditor}
           {wallMaterial}
           {!room.floor ? (
-            <button type="button" className="chip" onClick={() => onUpdate((r) => ({ ...r, floor: EMPTY_FLOOR }))}>+ добавить размеры пола</button>
+            <>
+              <div className="divider" />
+              <button type="button" className="chip" style={{ background: "var(--accent)", color: "var(--surface)", borderColor: "var(--accent)" }} onClick={() => onUpdate((r) => ({ ...r, floor: EMPTY_FLOOR }))}>+ добавить размеры пола</button>
+            </>
           ) : (
             <>
               <div className="divider" />

@@ -15,6 +15,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export function CalcBuilder({ kind }: { kind: CalcKind }) {
   const { project, add, remove, update } = useCalcProject(kind);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [cheaperSignal, setCheaperSignal] = useState(0);
 
   const activeIdSafe =
     activeId && project.rooms.some((r) => r.id === activeId) ? activeId : project.rooms[0]?.id ?? null;
@@ -26,10 +27,9 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
       <button
         type="button"
         className="btn btn-block"
-        style={{ background: "var(--accent)", color: "var(--surface)", borderColor: "var(--accent)" }}
-        onClick={() => document.getElementById("find-cheaper")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+        onClick={() => setCheaperSignal((s) => s + 1)}
       >
-        Найдём выгоднее — подберём материалы дешевле
+        Если есть ссылка на товар — найдём выгоднее
       </button>
 
       <div className="row" style={{ gap: 8 }}>
@@ -77,9 +77,7 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
         </ul>
       </div>
 
-      <div id="find-cheaper">
-        <FindCheaper kind={kind} url={project.rooms.find((r) => r.productUrl)?.productUrl} />
-      </div>
+      <FindCheaper kind={kind} url={project.rooms.find((r) => r.productUrl)?.productUrl} openSignal={cheaperSignal} />
 
       <VizCta />
     </div>
