@@ -4,7 +4,7 @@ import { test, expect } from "@playwright/test";
 test("лендинг рендерится", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toContainText(
-    "Посчитайте ремонт",
+    "Сделайте ремонт",
   );
 });
 

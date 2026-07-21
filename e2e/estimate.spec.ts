@@ -1,14 +1,20 @@
 import { test, expect } from "@playwright/test";
 
-// Сквозной путь v0.4: калькулятор обоев → смета-чек-лист → добавить свою ссылку → переход через /go/.
+// Сквозной путь v0.4: калькулятор обоев v2 → смета-чек-лист → добавить свою ссылку → переход через /go/.
 test("калькулятор → смета → своя ссылка → /go/", async ({ page }) => {
   await page.goto("/calc/oboi");
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("обои");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Сколько нужно обоев");
 
-  await page.locator('input[name="width"]').fill("3.5");
-  await page.locator('input[name="length"]').fill("4");
-  await page.locator('input[name="height"]').fill("2.7");
-  await page.getByRole("button", { name: /Посчитать и собрать смету/ }).click();
+  // v2-билдер: стартовая комната без стен → добавить размеры стены → задать длину/высоту.
+  // Локатор через обёртывающий label (у полей нет name/id); has-text «Длина, м» не задевает
+  // «Длина рулона, м» из параметров материала.
+  await page.getByRole("button", { name: "добавить размеры стены" }).click();
+  await page.locator('label:has-text("Длина, м") input').fill("4");
+  await page.locator('label:has-text("Высота, м") input').fill("2.7");
+
+  // Итог со склонённым количеством рулонов → сохранить в смету (редирект на /e/[id]).
+  await expect(page.getByText(/\d+ рулон/).first()).toBeVisible();
+  await page.getByRole("button", { name: "Сохранить смету" }).click();
 
   // Страница сметы
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Смета", { timeout: 15_000 });
