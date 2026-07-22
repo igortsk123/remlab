@@ -3,8 +3,6 @@
 import type { CalcKind, Surface } from "@/contracts/calc";
 import { NumInput } from "./NumInput";
 
-const uid = () => Math.random().toString(36).slice(2, 10);
-
 const OPENINGS_NOTE =
   "Окна и двери не вычитаются из расчёта, т.к. обои клеятся целыми полосами, поэтому кусок, " +
   "оставшийся из-за проёма, обычно нельзя использовать в другом месте. За счёт этого получается " +
@@ -50,8 +48,6 @@ export function SurfaceEditor({
       return s;
     }));
   };
-  const addWall = () =>
-    onChange([...surfaces, { id: uid(), label: `Стена ${surfaces.length + 1}`, lengthM: 0, heightM: surfaces[0]?.heightM ?? 0, openings: [] }]);
 
   return (
     <div className="stack" style={{ gap: 12 }}>
@@ -79,7 +75,6 @@ export function SurfaceEditor({
           </div>
         </div>
       ))}
-      <button type="button" className="chip chip--accent" onClick={addWall}>+ добавить размеры стены</button>
     </div>
   );
 }

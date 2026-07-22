@@ -9,6 +9,7 @@ import { LeadCard } from "./LeadCard";
 import { SurfaceEditor } from "./SurfaceEditor";
 
 const EMPTY_FLOOR: Floor = { lengthM: 0, widthM: 0, extraZones: [], excludedZones: [] };
+const uid = () => Math.random().toString(36).slice(2, 10);
 
 const nameInputStyle = {
   font: "inherit", fontWeight: 600, fontSize: 16,
@@ -76,6 +77,9 @@ export function RoomPanel({
 
   const setMaterial = (patch: Partial<MaterialSpec>) => onUpdate((r) => ({ ...r, material: { ...r.material, ...patch } }));
   const setFloorMaterial = (patch: Partial<MaterialSpec>) => onUpdate((r) => ({ ...r, floorMaterial: { ...(r.floorMaterial ?? {}), ...patch } }));
+  // Кнопка «+ добавить размеры стены» вынесена ИЗ карточки (стоит на фоне страницы, как «+ размеры пола»).
+  const addWall = () => onUpdate((r) => ({ ...r, surfaces: [...r.surfaces, { id: uid(), label: `Стена ${r.surfaces.length + 1}`, lengthM: 0, heightM: r.surfaces[0]?.heightM ?? 0, openings: [] }] }));
+  const addWallBtn = <button type="button" className="chip chip--accent" onClick={addWall}>+ добавить размеры стены</button>;
 
   const wallLink = (
     <>
@@ -118,6 +122,7 @@ export function RoomPanel({
           {room.floor && <p className="eyebrow" style={{ margin: "4px 0 -6px" }}>Стены</p>}
           {wallLink}
           {wallSizes}
+          {addWallBtn}
           {wallsPart && <PartNote part={wallsPart} label="Стены" />}
           {!room.floor ? (
             <button type="button" className="chip chip--accent" onClick={() => onUpdate((r) => ({ ...r, floor: EMPTY_FLOOR }))}>+ добавить размеры пола</button>
@@ -125,7 +130,7 @@ export function RoomPanel({
             <>
               <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
                 <p className="eyebrow" style={{ margin: 0 }}>Пол</p>
-                <button type="button" className="quiz-link" style={{ fontSize: 12 }} onClick={() => onUpdate((r) => ({ ...r, floor: undefined, floorMaterial: undefined, floorProductUrl: undefined }))}>удалить</button>
+                <button type="button" className="quiz-link" onClick={() => onUpdate((r) => ({ ...r, floor: undefined, floorMaterial: undefined, floorProductUrl: undefined }))}>удалить пол</button>
               </div>
               <LinkAutofill kind={kind} url={room.floorProductUrl} onUrl={(u) => onUpdate((r) => ({ ...r, floorProductUrl: u }))} spec={room.floorMaterial ?? {}} onSpec={setFloorMaterial} />
               <LeadCard kind={kind} url={room.floorProductUrl} />
@@ -140,6 +145,7 @@ export function RoomPanel({
         <>
           {wallLink}
           {wallSizes}
+          {addWallBtn}
           {mainPart && <PartNote part={mainPart} />}
         </>
       )}
