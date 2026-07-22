@@ -47,6 +47,7 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
 
       {active && (
         <RoomPanel
+          key={active.id}
           room={active}
           kind={kind}
           canDelete={project.rooms.length > 1}

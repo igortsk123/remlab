@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type { CalcKind, Floor, MaterialSpec, Room } from "@/contracts/calc";
 import { computeRoomParts, type RoomPart } from "@/lib/calc/formulas";
 import { pluralUnit } from "@/lib/format/plural";
@@ -20,11 +20,12 @@ const nameInputStyle = {
 
 const EMPTY_HINT = "Введите размеры, чтобы посчитать площадь и количество.";
 
-// Пустая подсказка блока (когда размеров ещё нет) — заголовок + приглашение. Ставится НАД кнопкой добавления.
-function EmptyNote({ label }: { label: string }) {
+// Пустая подсказка блока (когда размеров ещё нет) — приглашение (+ опц. заголовок). Заголовок секции
+// обычно даёт SectionHeader выше, поэтому label чаще пустой.
+function EmptyNote({ label }: { label?: string }) {
   return (
     <div className="note">
-      <div className="eyebrow" style={{ margin: 0 }}>{label}</div>
+      {label ? <div className="eyebrow" style={{ margin: 0 }}>{label}</div> : null}
       <div className="muted">{EMPTY_HINT}</div>
     </div>
   );
@@ -36,7 +37,7 @@ function PartNote({ part, label }: { part: RoomPart; label?: string }) {
   const o = part.out;
   const heading = label ?? part.label;
   const isFloor = part.key === "floor";
-  if (o.areaNetM2 <= 0) return <EmptyNote label={heading || (isFloor ? "Пол" : "Стены")} />;
+  if (o.areaNetM2 <= 0) return <EmptyNote label={heading} />;
   return (
     <div className="note">
       {heading ? <div className="eyebrow" style={{ margin: 0 }}>{heading}</div> : null}
@@ -48,7 +49,7 @@ function PartNote({ part, label }: { part: RoomPart; label?: string }) {
         Нужно:{" "}
         {o.qtyUnknown ? (
           <span style={{ color: "var(--accent)" }}>
-            <strong>? шт</strong> <em style={{ fontWeight: 400 }}>(задайте размер плитки или вставьте ссылку)</em>
+            <strong>? шт</strong> <em style={{ fontWeight: 400 }}>(вставьте ссылку или задайте размер плитки)</em>
           </span>
         ) : (
           <>
@@ -60,6 +61,17 @@ function PartNote({ part, label }: { part: RoomPart; label?: string }) {
       </div>
       {/* Не дублируем призыв «задайте размер» — при неизвестном кол-ве note скрываем. */}
       {!o.qtyUnknown && <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>{o.note}</div>}
+    </div>
+  );
+}
+
+// Подзаголовок открытой секции (стены/пол): неброский eyebrow + «убрать» (сворачивает и чистит секцию).
+// Не перебивает «Вставьте ссылку» — сам блок ссылки остаётся главным CTA.
+function SectionHeader({ title, onRemove }: { title: string; onRemove: () => void }) {
+  return (
+    <div className="row" style={{ justifyContent: "space-between", alignItems: "center", margin: "4px 0 -6px" }}>
+      <p className="eyebrow" style={{ margin: 0 }}>{title}</p>
+      <button type="button" className="quiz-link" onClick={onRemove}>убрать</button>
     </div>
   );
 }
@@ -86,6 +98,11 @@ export function RoomPanel({
   const mainPart = parts.find((p) => p.key === "main");
 
   const nameRef = useRef<HTMLInputElement>(null);
+  // Плитка: две секции (стены/пол) закрыты по умолчанию; открыты, если в секции уже есть данные.
+  const [wallsOpen, setWallsOpen] = useState(room.surfaces.length > 0 || !!room.productUrl || Object.keys(room.material).length > 0);
+  const removeWalls = () => { setWallsOpen(false); onUpdate((r) => ({ ...r, surfaces: [], material: {}, productUrl: undefined })); };
+  const addFloor = () => onUpdate((r) => ({ ...r, floor: EMPTY_FLOOR }));
+  const removeFloor = () => onUpdate((r) => ({ ...r, floor: undefined, floorMaterial: undefined, floorProductUrl: undefined }));
 
   const setMaterial = (patch: Partial<MaterialSpec>) => onUpdate((r) => ({ ...r, material: { ...r.material, ...patch } }));
   const setFloorMaterial = (patch: Partial<MaterialSpec>) => onUpdate((r) => ({ ...r, floorMaterial: { ...(r.floorMaterial ?? {}), ...patch } }));
@@ -146,29 +163,32 @@ export function RoomPanel({
         </>
       ) : kind === "plitka" ? (
         <>
-          {room.floor && <p className="eyebrow" style={{ margin: "4px 0 -6px" }}>Стены</p>}
-          {wallLink}
-          {room.surfaces.length > 0 && wallSizes}
-          {wallsPart && <PartNote part={wallsPart} label="Стены" />}
-          {addWallBtn}
-          {!room.floor ? (
+          {/* Секция «Плитка для стен» — закрыта по умолчанию (кнопка), открывается в ссылку + размеры. */}
+          {wallsOpen ? (
             <>
-              <EmptyNote label="Пол" />
-              <button type="button" className="chip chip--accent" onClick={() => onUpdate((r) => ({ ...r, floor: EMPTY_FLOOR }))}>+ добавить размеры пола</button>
+              <SectionHeader title="Плитка для стен" onRemove={removeWalls} />
+              {wallLink}
+              {room.surfaces.length > 0 && wallSizes}
+              {wallsPart && <PartNote part={wallsPart} label="" />}
+              {addWallBtn}
             </>
           ) : (
+            <button type="button" className="chip chip--accent" onClick={() => setWallsOpen(true)}>+ Плитка для стен</button>
+          )}
+
+          {/* Секция «Плитка для пола» — маркер открытости = наличие room.floor. */}
+          {room.floor ? (
             <>
-              <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
-                <p className="eyebrow" style={{ margin: 0 }}>Пол</p>
-                <button type="button" className="quiz-link" onClick={() => onUpdate((r) => ({ ...r, floor: undefined, floorMaterial: undefined, floorProductUrl: undefined }))}>удалить пол</button>
-              </div>
+              <SectionHeader title="Плитка для пола" onRemove={removeFloor} />
               <LinkAutofill kind={kind} url={room.floorProductUrl} onUrl={(u) => onUpdate((r) => ({ ...r, floorProductUrl: u }))} spec={room.floorMaterial ?? {}} onSpec={setFloorMaterial} />
               <LeadCard kind={kind} url={room.floorProductUrl} />
               <div className="card stack">
                 <FloorEditor floor={room.floor} onChange={(f) => onUpdate((r) => ({ ...r, floor: f }))} />
               </div>
-              {floorPart && <PartNote part={floorPart} label="Пол" />}
+              {floorPart && <PartNote part={floorPart} label="" />}
             </>
+          ) : (
+            <button type="button" className="chip chip--accent" onClick={addFloor}>+ Плитка для пола</button>
           )}
         </>
       ) : (
