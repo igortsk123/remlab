@@ -29,7 +29,8 @@ export function ResultView({ project }: { project: CalcProject }) {
         <div key={x.id} className="row" style={{ justifyContent: "space-between", gap: 8 }}>
           <span>{x.name}</span>
           <span className="muted">
-            {x.out.qty} {pluralUnit(x.out.unit, x.out.qty)}
+            {x.out.areaNetM2} м²
+            {x.out.qtyUnknown ? " · ? шт" : ` · ${x.out.qty} ${pluralUnit(x.out.unit, x.out.qty)}`}
             {x.out.costRub != null ? ` · ~${x.out.costRub.toLocaleString("ru-RU")} ₽` : ""}
           </span>
         </div>
