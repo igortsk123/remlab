@@ -89,6 +89,23 @@ describe("calc formulas — количество материала", () => {
     expect(computeRoomParts({ ...base, countOpenings: true }, "plitka")[0]!.out.areaNetM2).toBeCloseTo(7.9, 2); // 10 − 2.1
   });
 
+  it("плитка: крупная 600×1200 (мм) на ~20 м² → ~31 шт (не тысячи — контроль единиц)", () => {
+    const room: Room = {
+      id: "r", name: "", surfaces: [wall("a", 8, 2.5)], // 20 м²
+      material: { tileLengthMm: 600, tileWidthMm: 1200, seamMm: 3 },
+    };
+    const out = computeRoom(room, "plitka");
+    expect(out.qty).toBe(31);
+  });
+
+  it("плитка: цена за м² → стоимость по площади+запасу; за шт → по числу плиток", () => {
+    const room: Room = { id: "r", name: "", surfaces: [wall("a", 8, 2.5)], material: { tileLengthMm: 600, tileWidthMm: 1200, seamMm: 3 } };
+    const perM2 = computeRoom({ ...room, material: { ...room.material, pricePerM2Rub: 1000 } }, "plitka");
+    expect(perM2.costRub).toBe(Math.round(20 * 1.1 * 1000)); // 22000
+    const perPiece = computeRoom({ ...room, material: { ...room.material, pricePerPieceRub: 500 } }, "plitka");
+    expect(perPiece.costRub).toBe(31 * 500); // 15500
+  });
+
   it("краска: проём вычитается только при countOpenings", () => {
     const base: Room = {
       id: "r", name: "", material: { consumptionM2PerL: 10, coats: 1 },

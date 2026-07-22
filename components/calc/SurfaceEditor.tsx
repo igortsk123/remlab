@@ -79,7 +79,7 @@ export function SurfaceEditor({
           </div>
         </div>
       ))}
-      <button type="button" className="chip" style={{ background: "var(--accent)", color: "var(--surface)", borderColor: "var(--accent)" }} onClick={addWall}>+ добавить размеры стены</button>
+      <button type="button" className="chip chip--accent" onClick={addWall}>+ добавить размеры стены</button>
     </div>
   );
 }

@@ -76,6 +76,7 @@ export const materialSpec = z.object({
   reservePct: z.number().nonnegative().optional(),
   pricePerM2Rub: z.number().nonnegative().optional(),
   pricePerPackRub: z.number().nonnegative().optional(),
+  pricePerPieceRub: z.number().nonnegative().optional(),
 });
 export type MaterialSpec = z.infer<typeof materialSpec>;
 

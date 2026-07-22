@@ -48,8 +48,10 @@ function tile(areaNet: number, m: MaterialSpec): TileResult {
   const moduleArea = (m.tileLengthMm / 1000 + seam) * (m.tileWidthMm / 1000 + seam);
   const tiles = Math.ceil((areaNet * (1 + reserve)) / moduleArea);
   const packs = m.tilesPerPack ? Math.ceil(tiles / m.tilesPerPack) : null;
-  const cost = packs != null && m.pricePerPackRub != null ? Math.round(packs * m.pricePerPackRub)
-    : m.pricePerM2Rub != null ? Math.round(areaNet * (1 + reserve) * m.pricePerM2Rub) : null;
+  // Цена по выбранной единице: за м² / за шт / за упаковку (в форме одновременно задана одна).
+  const cost = m.pricePerM2Rub != null ? Math.round(areaNet * (1 + reserve) * m.pricePerM2Rub)
+    : m.pricePerPieceRub != null ? Math.round(tiles * m.pricePerPieceRub)
+    : packs != null && m.pricePerPackRub != null ? Math.round(packs * m.pricePerPackRub) : null;
   return { qty: tiles, unit: "шт", packs, cost, note: `${areaNet} м² + ${Math.round(reserve * 100)}% подрезки, шов ${m.seamMm ?? DEF.seamMm} мм.` };
 }
 

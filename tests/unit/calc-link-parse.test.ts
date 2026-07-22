@@ -64,6 +64,48 @@ describe("link parse — извлечение из HTML", () => {
     expect(r.spec.tileWidthMm).toBe(200);
   });
 
+  it("плитка (Kerama): «Размер: 7,4*15 см» + «руб./кв.м» → 74×150 мм, цена за м²", () => {
+    const html = `
+      <meta property="og:title" content="16032 Граньяно белый грань 7.4*15 керамическая плитка" />
+      <div class="key">Размер</div><div class="val">7,4*15 см</div>
+      <div class="price"><div class="current">2 246.02 руб./кв.м</div></div>
+      <div class="price"><div class="current">186.66 руб./шт</div></div>`;
+    const r = parseProductHtml(html, "plitka");
+    expect(r.spec.tileLengthMm).toBe(74);
+    expect(r.spec.tileWidthMm).toBe(150);
+    expect(r.spec.pricePerM2Rub).toBe(2246.02);
+    expect(r.spec.pricePerPackRub).toBeUndefined();
+    expect(r.spec.pricePerPieceRub).toBeUndefined();
+  });
+
+  it("плитка (Керамогранит): фильтр-список размеров игнорируется, берётся «Размер (см) 60x120» + «руб./м2»", () => {
+    const html = `
+      <meta name="og:title" content="Плитка CLOUD (Villa Ceramica)" />
+      <meta name="og:description" content="Коллекция CLOUD, ценами от 4790 руб./м2." />
+      <div class="filter">Размер 10х10 10х20 10х30 15х15 20х20</div>
+      <div class="spec">Размер (см) 60x120 Цвет серый</div>`;
+    const r = parseProductHtml(html, "plitka");
+    expect(r.spec.tileLengthMm).toBe(600);
+    expect(r.spec.tileWidthMm).toBe(1200);
+    expect(r.spec.pricePerM2Rub).toBe(4790);
+  });
+
+  it("плитка: цена только «руб./шт» → pricePerPieceRub", () => {
+    const html = `<meta property="og:title" content="Плитка настенная Rako" /><div class="price">Цена: 186.66 руб./шт</div>`;
+    const r = parseProductHtml(html, "plitka");
+    expect(r.spec.pricePerPieceRub).toBe(186.66);
+    expect(r.spec.pricePerM2Rub).toBeUndefined();
+  });
+
+  it("плитка: «60x120» без единицы → 600×1200 мм (эвристика см), «300x300» → 300×300 мм", () => {
+    const a = parseProductHtml(`<meta property="og:title" content="Плитка 60x120" />`, "plitka");
+    expect(a.spec.tileLengthMm).toBe(600);
+    expect(a.spec.tileWidthMm).toBe(1200);
+    const b = parseProductHtml(`<meta property="og:title" content="Плитка 300x300" />`, "plitka");
+    expect(b.spec.tileLengthMm).toBe(300);
+    expect(b.spec.tileWidthMm).toBe(300);
+  });
+
   it("нечитаемый HTML → пустой spec, без падения", () => {
     const r = parseProductHtml("<html>no meta here</html>", "oboi");
     expect(r.spec).toEqual({});

@@ -14,10 +14,12 @@ const FIELDS: Record<CalcKind, Field[]> = {
     { key: "pricePerRollRub", desc: "цена за рулон в рублях" },
   ],
   plitka: [
-    { key: "tileLengthMm", desc: "длина плитки в мм (20 см = 200)" },
-    { key: "tileWidthMm", desc: "ширина плитки в мм" },
+    { key: "tileLengthMm", desc: "длина плитки в мм (20 см = 200, 60 см = 600)" },
+    { key: "tileWidthMm", desc: "ширина плитки в мм (120 см = 1200)" },
     { key: "tilesPerPack", desc: "штук в упаковке" },
-    { key: "pricePerPackRub", desc: "цена за упаковку в рублях" },
+    { key: "pricePerM2Rub", desc: "цена за 1 м² в рублях — ТОЛЬКО если на странице «руб./м²», «руб./кв.м», «/м2»" },
+    { key: "pricePerPieceRub", desc: "цена за 1 штуку в рублях — ТОЛЬКО если указана «руб./шт»" },
+    { key: "pricePerPackRub", desc: "цена за упаковку в рублях — ТОЛЬКО если указана «за упаковку»" },
   ],
   kraska: [
     { key: "packVolumeL", desc: "объём упаковки в литрах" },
@@ -88,9 +90,14 @@ export async function aiExtractSpec(pageText: string, kind: CalcKind, needed: (k
 }
 
 // Ключевые поля вида: если они пусты после детерминированного парса — есть смысл звать ИИ.
+// Ключевые поля-триггеры ИИ (размеры). Цена у плитки может быть за м²/шт/упак — её «пустоту»
+// проверяет роут отдельно (любая из трёх единиц = цена есть), чтобы не звать ИИ зря.
 export const KEY_FIELDS: Record<CalcKind, (keyof MaterialSpec)[]> = {
   oboi: ["rollWidthM", "rollLengthM", "pricePerRollRub"],
-  plitka: ["tileLengthMm", "tileWidthMm", "pricePerPackRub"],
+  plitka: ["tileLengthMm", "tileWidthMm"],
   kraska: ["packVolumeL", "pricePerPackRub"],
   laminat: ["panelLengthMm", "panelWidthMm", "pricePerPackRub"],
 };
+
+// Все ценовые поля плитки (для доп-триггера ИИ, если цена не найдена ни в одной единице).
+export const PLITKA_PRICE_FIELDS: (keyof MaterialSpec)[] = ["pricePerM2Rub", "pricePerPieceRub", "pricePerPackRub"];

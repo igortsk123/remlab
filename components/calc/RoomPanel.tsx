@@ -9,7 +9,6 @@ import { LeadCard } from "./LeadCard";
 import { SurfaceEditor } from "./SurfaceEditor";
 
 const EMPTY_FLOOR: Floor = { lengthM: 0, widthM: 0, extraZones: [], excludedZones: [] };
-const greenChip = { background: "var(--accent)", color: "var(--surface)", borderColor: "var(--accent)" } as const;
 
 const nameInputStyle = {
   font: "inherit", fontWeight: 600, fontSize: 16,
@@ -22,26 +21,34 @@ const nameInputStyle = {
 function PartNote({ part, label }: { part: RoomPart; label?: string }) {
   const o = part.out;
   const heading = label ?? part.label;
+  const isFloor = part.key === "floor";
   return (
     <div className="note">
       {heading ? <div className="eyebrow" style={{ margin: 0 }}>{heading}</div> : null}
-      <div>
-        Площадь: <strong>{o.areaNetM2} м²</strong>
-        {o.areaGrossM2 !== o.areaNetM2 ? ` (без проёмов; всего ${o.areaGrossM2} м²)` : ""}
-      </div>
-      <div style={{ marginTop: 4 }}>
-        Нужно:{" "}
-        {o.qtyUnknown ? (
-          <strong style={{ color: "var(--accent)" }}>? шт — задайте размер плитки или вставьте ссылку</strong>
-        ) : (
-          <>
-            <strong>{o.qty} {pluralUnit(o.unit, o.qty)}</strong>
-            {o.packs != null && o.unit !== "упаковка" ? ` · ${o.packs} упак.` : ""}
-            {o.costRub != null ? ` · ~${o.costRub.toLocaleString("ru-RU")} ₽` : ""}
-          </>
-        )}
-      </div>
-      <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>{o.note}</div>
+      {o.areaNetM2 <= 0 ? (
+        <div className="muted">Введите размеры, чтобы посчитать площадь и количество.</div>
+      ) : (
+        <>
+          <div>
+            Площадь: <strong>{o.areaNetM2} м²</strong>
+            {o.areaGrossM2 !== o.areaNetM2 ? ` (${isFloor ? "без учёта исключённых зон" : "без проёмов"}; всего ${o.areaGrossM2} м²)` : ""}
+          </div>
+          <div style={{ marginTop: 4 }}>
+            Нужно:{" "}
+            {o.qtyUnknown ? (
+              <strong style={{ color: "var(--accent)" }}>? шт — задайте размер плитки или вставьте ссылку</strong>
+            ) : (
+              <>
+                <strong>{o.qty} {pluralUnit(o.unit, o.qty)}</strong>
+                {o.packs != null && o.unit !== "упаковка" ? ` · ${o.packs} упак.` : ""}
+                {o.costRub != null ? ` · ~${o.costRub.toLocaleString("ru-RU")} ₽` : ""}
+              </>
+            )}
+          </div>
+          {/* Не дублируем призыв «задайте размер» — при неизвестном кол-ве note скрываем. */}
+          {!o.qtyUnknown && <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>{o.note}</div>}
+        </>
+      )}
     </div>
   );
 }
@@ -113,7 +120,7 @@ export function RoomPanel({
           {wallSizes}
           {wallsPart && <PartNote part={wallsPart} label="Стены" />}
           {!room.floor ? (
-            <button type="button" className="chip" style={greenChip} onClick={() => onUpdate((r) => ({ ...r, floor: EMPTY_FLOOR }))}>+ добавить размеры пола</button>
+            <button type="button" className="chip chip--accent" onClick={() => onUpdate((r) => ({ ...r, floor: EMPTY_FLOOR }))}>+ добавить размеры пола</button>
           ) : (
             <>
               <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>

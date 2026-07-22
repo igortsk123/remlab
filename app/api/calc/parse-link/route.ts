@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { calcKind, type MaterialSpec } from "@/contracts/calc";
 import { parseProductHtml } from "@/lib/calc/link-parse";
-import { aiExtractSpec, KEY_FIELDS } from "@/lib/calc/link-parse-ai";
+import { aiExtractSpec, KEY_FIELDS, PLITKA_PRICE_FIELDS } from "@/lib/calc/link-parse-ai";
 
 export const runtime = "nodejs";
 
@@ -25,6 +25,10 @@ export async function POST(req: Request): Promise<Response> {
 
     // ИИ-фолбэк: детерминированный парсер пропустил ключевые поля → дочитать через OpenAI (только пустое).
     const missing = KEY_FIELDS[kind].filter((k) => result.spec[k] == null);
+    // Плитка: цена может быть за м²/шт/упак — зовём ИИ за ценой, только если НИ ОДНОЙ единицы нет.
+    if (kind === "plitka" && PLITKA_PRICE_FIELDS.every((k) => result.spec[k] == null)) {
+      missing.push(...PLITKA_PRICE_FIELDS);
+    }
     if (missing.length > 0 && process.env.OPENAI_API_KEY) {
       const bodyText = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
       const aiSpec = await aiExtractSpec(bodyText, kind, missing);
