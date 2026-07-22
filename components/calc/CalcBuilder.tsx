@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { COMPANIONS, type CalcKind } from "@/lib/estimate/companions";
 import { computeRoomParts } from "@/lib/calc/formulas";
+import { pluralUnit } from "@/lib/format/plural";
 import { useCalcProject } from "./useCalcProject";
 import { RoomPanel } from "./RoomPanel";
 import { ResultView } from "./ResultView";
@@ -21,12 +22,17 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
   const allParts = project.rooms.flatMap((r) => computeRoomParts(r, kind));
   const totalNet = round2(allParts.reduce((s, p) => s + p.out.areaNetM2, 0));
   const totalCost = allParts.reduce((s, p) => s + (p.out.costRub ?? 0), 0);
+  // Суммарное количество материала (плитка → шт): части с известным размером (без qtyUnknown), по общей единице.
+  const counted = allParts.filter((p) => !p.out.qtyUnknown && p.out.qty > 0);
+  const qtyUnit = counted[0]?.out.unit;
+  const totalQty = round2(counted.filter((p) => p.out.unit === qtyUnit).reduce((s, p) => s + p.out.qty, 0));
 
   return (
     <div className="stack">
       <div className="calc-sticky">
         <span className="eyebrow" style={{ margin: 0 }}>Итог</span>
         <span>Площадь: <strong>{totalNet} м²</strong></span>
+        {qtyUnit && totalQty > 0 && <span>Нужно: <strong>{totalQty} {pluralUnit(qtyUnit, totalQty)}</strong></span>}
         {totalCost > 0 && <span>≈ <strong>{totalCost.toLocaleString("ru-RU")} ₽</strong></span>}
       </div>
 
