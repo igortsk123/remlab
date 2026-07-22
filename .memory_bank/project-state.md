@@ -3,12 +3,12 @@ tier: 1
 topic: project-state
 scope: Снимок «где проект сейчас» — точка ресинхронизации при /clear и resume
 tier2: "changelog/project-history.md"
-updated: 2026-07-12
+updated: 2026-07-22
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-07-12
+last_verified: 2026-07-22
 ---
 
 # Project State — снимок состояния
@@ -34,9 +34,12 @@ CI-фикс. Доступы Яндекса (общий аккаунт с v0-heal
   (DRY-RUN) расширен на ВСЕ кампании** (стоп-кран per-campaign+суммарный, минусовка с контекстом,
   отчёт+воронка сметы) — `advertising/autopilot.md`. Дальше: боевой режим автопилота (по команде
   владельца, поэтапно), М5 (виз./мебель — legacy AI-флоу `/p/*` жив). Прежние пивоты: v0.3 ADR-0014.
-- **Прод:** https://remont-lab.online — версия `tracing-142829` (2026-07-02), собрана из ветки
-  `feature/pipeline-tracing`; ветка **уже влита в `main`** (проверено 2026-07-11: по коду
-  прод == main, main впереди только док-коммитами). Контейнеры: `remlab-app`,
+- **Калькулятор материалов v2 (К0–К6) сильно доработан по UX (2026-07-21, ADR-0018–0026):** дробный
+  ввод (`NumInput`), липкая шапка итогов, проёмы по галочке (плитка/краска), плитка стены+пол разными
+  плитками, блок ссылки с АВТОЗАПОЛНЕНИЕМ параметров по ссылке (regex-парсер + **ИИ-фолбэк OpenAI**
+  ADR-0026), выделенная лид-карточка «найдём этот товар дешевле» (e-mail-модалка + боты). `core/estimate.md`.
+- **Прод:** https://remont-lab.online — версия `20260721-192940` (2026-07-21), катится вручную
+  `./deploy.sh` из `main` (прод == main). Контейнеры: `remlab-app`,
   `remlab-caddy`, `remlab-db` (pg17+pgvector), `remlab-imagor`. LE-cert до 2026-09-29. Секреты —
   только `/opt/remlab/.env`. Бэкапы БД: `/opt/remlab/backups/`. Откат: образ `remlab-app:prev`.
 - **Репозиторий:** github.com/igortsk123/remlab (`main`, deploy key `~/.ssh/remlab_deploy_ed25519`).

@@ -3,7 +3,7 @@ tier: 1
 topic: estimate
 scope: Смета-лист (ядро v0.4) — калькуляторы (вход А), стоимость ремонта (вход Б), чек-лист, /go/ реф
 tier2: "../domain/pricing-works-ru.md"
-updated: 2026-07-21
+updated: 2026-07-22
 importance: high
 source: manual
 status: working
@@ -32,12 +32,12 @@ review_after: ""
   `modules/estimate/`. Метрика: цели 10–13 (`campaign_state.md`).
 - Реклама сюда: Директ Этап 1 (`/calc/[kind]`), Этап 2 (`/calc/remont`) — `marketing-acquisition.md`.
 
-## Калькулятор v2 (К0–К6; ADR-0018–0026)
+## Калькулятор v2 (К0–К6; ADR-0018–0027)
 Мультикомната + параметры + формулы (golden) → смета; состояние клиентское (`contracts/calc.ts`,
-`lib/calc/*`, `components/calc/*`, localStorage). ОСНОВНОЙ на `/calc/[kind]` (`app/calc-actions.ts`).
-UX/копирайт обоев (ADR-0019): проёмы скрыты из UI (формула их игнорирует; у плитки/краски остаются),
-копирайт по kind через `CALC_META`, склонения `lib/format/plural.ts`, хвосты Итог → «Также не
-забудьте» → «Найдём выгоднее» → виз. Детали — `decisions.md`; роадмап `../plans/calc-materials-roadmap.md`.
+`lib/calc/*`, `components/calc/*`, localStorage). ОСНОВНОЙ на `/calc/[kind]`. UX: проёмы скрыты из UI
+у всех видов (запас на подрезку); плитка — инлайн-результаты стен/пол и «? шт» без размера. Копирайт
+по kind (`CALC_META`), склонения `lib/format/plural.ts`, хвосты Итог → «Также не забудьте» → «Найдём
+выгоднее» → виз. Детали — `decisions.md` (ADR-0019/0027); роадмап `../plans/calc-materials-roadmap.md`.
 
 ## Следующее
 pricing Фаза 2 (GeoIP); ИИ-обогащение (М1 v1.1); реф-маршруты по логу (М0); М5 виз.
