@@ -1,7 +1,7 @@
 "use client";
 
 import type { CalcKind, Floor, MaterialSpec, Room } from "@/contracts/calc";
-import { computeRoomParts } from "@/lib/calc/formulas";
+import { computeRoomParts, type RoomPart } from "@/lib/calc/formulas";
 import { pluralUnit } from "@/lib/format/plural";
 import { FloorEditor } from "./FloorEditor";
 import { LinkAutofill } from "./LinkAutofill";
@@ -17,8 +17,38 @@ const nameInputStyle = {
   background: "var(--surface)", color: "var(--text)", padding: "6px 10px", maxWidth: 240,
 } as const;
 
+// Результат одной части (стены/пол/комната) — инлайн под своим блоком: Площадь + Нужно.
+// Если у плитки не задан размер — в «Нужно» не площадь комнаты, а призыв задать размер/ссылку.
+function PartNote({ part, label }: { part: RoomPart; label?: string }) {
+  const o = part.out;
+  const heading = label ?? part.label;
+  return (
+    <div className="note">
+      {heading ? <div className="eyebrow" style={{ margin: 0 }}>{heading}</div> : null}
+      <div>
+        Площадь: <strong>{o.areaNetM2} м²</strong>
+        {o.areaGrossM2 !== o.areaNetM2 ? ` (без проёмов; всего ${o.areaGrossM2} м²)` : ""}
+      </div>
+      <div style={{ marginTop: 4 }}>
+        Нужно:{" "}
+        {o.qtyUnknown ? (
+          <strong style={{ color: "var(--accent)" }}>? шт — задайте размер плитки или вставьте ссылку</strong>
+        ) : (
+          <>
+            <strong>{o.qty} {pluralUnit(o.unit, o.qty)}</strong>
+            {o.packs != null && o.unit !== "упаковка" ? ` · ${o.packs} упак.` : ""}
+            {o.costRub != null ? ` · ~${o.costRub.toLocaleString("ru-RU")} ₽` : ""}
+          </>
+        )}
+      </div>
+      <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>{o.note}</div>
+    </div>
+  );
+}
+
 // Панель активной комнаты: стек карточек. Материал (ссылка+параметры) — ОТДЕЛЬНОЙ карточкой ПЕРЕД
-// размерами. Плитка может иметь две плитки (стены/пол), каждая — своя карточка ссылки + карточка размеров.
+// размерами. Плитка может иметь две плитки (стены/пол), каждая — своя карточка ссылки + карточка
+// размеров, и свой результат инлайн под блоком.
 export function RoomPanel({
   room,
   kind,
@@ -33,8 +63,9 @@ export function RoomPanel({
   onDelete: () => void;
 }) {
   const parts = computeRoomParts(room, kind);
-  const shown = parts.filter((p) => p.out.areaNetM2 > 0);
-  const noteParts = shown.length ? shown : parts.slice(0, 1);
+  const wallsPart = parts.find((p) => p.key === "walls");
+  const floorPart = parts.find((p) => p.key === "floor");
+  const mainPart = parts.find((p) => p.key === "main");
 
   const setMaterial = (patch: Partial<MaterialSpec>) => onUpdate((r) => ({ ...r, material: { ...r.material, ...patch } }));
   const setFloorMaterial = (patch: Partial<MaterialSpec>) => onUpdate((r) => ({ ...r, floorMaterial: { ...(r.floorMaterial ?? {}), ...patch } }));
@@ -51,8 +82,6 @@ export function RoomPanel({
         surfaces={room.surfaces}
         onChange={(s) => onUpdate((r) => ({ ...r, surfaces: s }))}
         kind={kind}
-        countOpenings={room.countOpenings}
-        onCountOpenings={(v) => onUpdate((r) => ({ ...r, countOpenings: v }))}
       />
     </div>
   );
@@ -75,25 +104,28 @@ export function RoomPanel({
           <div className="card stack">
             <FloorEditor floor={room.floor ?? EMPTY_FLOOR} onChange={(f) => onUpdate((r) => ({ ...r, floor: f }))} />
           </div>
+          {mainPart && <PartNote part={mainPart} />}
         </>
       ) : kind === "plitka" ? (
         <>
           {room.floor && <p className="eyebrow" style={{ margin: "4px 0 -6px" }}>Стены</p>}
           {wallLink}
           {wallSizes}
+          {wallsPart && <PartNote part={wallsPart} label="Стены" />}
           {!room.floor ? (
             <button type="button" className="chip" style={greenChip} onClick={() => onUpdate((r) => ({ ...r, floor: EMPTY_FLOOR }))}>+ добавить размеры пола</button>
           ) : (
             <>
               <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
                 <p className="eyebrow" style={{ margin: 0 }}>Пол</p>
-                <button type="button" className="quiz-link" style={{ fontSize: 12 }} onClick={() => onUpdate((r) => ({ ...r, floor: undefined, floorMaterial: undefined, floorProductUrl: undefined }))}>удалить пол</button>
+                <button type="button" className="quiz-link" style={{ fontSize: 12 }} onClick={() => onUpdate((r) => ({ ...r, floor: undefined, floorMaterial: undefined, floorProductUrl: undefined }))}>удалить</button>
               </div>
               <LinkAutofill kind={kind} url={room.floorProductUrl} onUrl={(u) => onUpdate((r) => ({ ...r, floorProductUrl: u }))} spec={room.floorMaterial ?? {}} onSpec={setFloorMaterial} />
               <LeadCard kind={kind} url={room.floorProductUrl} />
               <div className="card stack">
                 <FloorEditor floor={room.floor} onChange={(f) => onUpdate((r) => ({ ...r, floor: f }))} />
               </div>
+              {floorPart && <PartNote part={floorPart} label="Пол" />}
             </>
           )}
         </>
@@ -101,26 +133,9 @@ export function RoomPanel({
         <>
           {wallLink}
           {wallSizes}
+          {mainPart && <PartNote part={mainPart} />}
         </>
       )}
-
-      <div className="note">
-        {noteParts.map((p, i) => (
-          <div key={p.key} style={{ marginTop: i > 0 ? 10 : 0 }}>
-            {p.label ? <div className="eyebrow" style={{ margin: 0 }}>{p.label}</div> : null}
-            <div>
-              Площадь: <strong>{p.out.areaNetM2} м²</strong>
-              {p.out.areaGrossM2 !== p.out.areaNetM2 ? ` (без проёмов; всего ${p.out.areaGrossM2} м²)` : ""}
-            </div>
-            <div style={{ marginTop: 4 }}>
-              Нужно: <strong>{p.out.qty} {pluralUnit(p.out.unit, p.out.qty)}</strong>
-              {p.out.packs != null && p.out.unit !== "упаковка" ? ` · ${p.out.packs} упак.` : ""}
-              {p.out.costRub != null ? ` · ~${p.out.costRub.toLocaleString("ru-RU")} ₽` : ""}
-            </div>
-            <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>{p.out.note}</div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }

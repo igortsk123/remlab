@@ -16,6 +16,9 @@ export type CalcOutput = {
   packs: number | null;
   note: string;
   costRub: number | null;
+  // Плитка без заданного размера: штуки не посчитать. qty остаётся площадью (fallback для сметы),
+  // но UI по этому флагу показывает «неизвестно», а не площадь комнаты в «Нужно».
+  qtyUnknown?: boolean;
 };
 
 function wallpaper(perimeterM: number, heightM: number, m: MaterialSpec) {
@@ -32,13 +35,15 @@ function wallpaper(perimeterM: number, heightM: number, m: MaterialSpec) {
   return { qty: rolls, unit: "рулон", packs: null as number | null, cost, note: `${stripsNeeded} полос, ${stripsPerRoll} из рулона${m.offset ? ", со смещением" : ""}. Проёмы — запас.` };
 }
 
-function tile(areaNet: number, m: MaterialSpec) {
+type TileResult = { qty: number; unit: string; packs: number | null; cost: number | null; note: string; qtyUnknown?: boolean };
+
+function tile(areaNet: number, m: MaterialSpec): TileResult {
   const reserve = m.reservePct ?? DEF.tileCutReserve;
   const seam = (m.seamMm ?? DEF.seamMm) / 1000;
   if (!m.tileLengthMm || !m.tileWidthMm) {
     const area = round1(areaNet * (1 + reserve));
     const cost = m.pricePerM2Rub != null ? Math.round(area * m.pricePerM2Rub) : null;
-    return { qty: area, unit: "м²", packs: null as number | null, cost, note: `${areaNet} м² + ${Math.round(reserve * 100)}% (задайте размер плитки для штук).` };
+    return { qty: area, unit: "м²", packs: null as number | null, cost, qtyUnknown: true, note: `${areaNet} м² + ${Math.round(reserve * 100)}% (задайте размер плитки для штук).` };
   }
   const moduleArea = (m.tileLengthMm / 1000 + seam) * (m.tileWidthMm / 1000 + seam);
   const tiles = Math.ceil((areaNet * (1 + reserve)) / moduleArea);
@@ -84,7 +89,8 @@ export function computeRoom(room: Room, kind: CalcKind): CalcOutput {
           ? paint(wallArea, m)
           : laminate(netM2, m);
   const areaNet = kind === "plitka" || kind === "kraska" ? wallArea : netM2;
-  return { areaGrossM2: grossM2, areaNetM2: areaNet, qty: r.qty, unit: r.unit, packs: r.packs, note: r.note, costRub: r.cost };
+  const qtyUnknown = (r as { qtyUnknown?: boolean }).qtyUnknown;
+  return { areaGrossM2: grossM2, areaNetM2: areaNet, qty: r.qty, unit: r.unit, packs: r.packs, note: r.note, costRub: r.cost, qtyUnknown };
 }
 
 // Часть комнаты со своим материалом и результатом. Плитка может дать две части — стены и пол
@@ -93,7 +99,7 @@ export type RoomPart = { key: "main" | "walls" | "floor"; label: string; out: Ca
 
 function tileOut(grossM2: number, netM2: number, m: MaterialSpec): CalcOutput {
   const r = tile(round2(netM2), m);
-  return { areaGrossM2: round2(grossM2), areaNetM2: round2(netM2), qty: r.qty, unit: r.unit, packs: r.packs, note: r.note, costRub: r.cost };
+  return { areaGrossM2: round2(grossM2), areaNetM2: round2(netM2), qty: r.qty, unit: r.unit, packs: r.packs, note: r.note, costRub: r.cost, qtyUnknown: r.qtyUnknown };
 }
 
 export function computeRoomParts(room: Room, kind: CalcKind): RoomPart[] {

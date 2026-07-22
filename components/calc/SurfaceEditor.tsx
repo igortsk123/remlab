@@ -1,7 +1,6 @@
 "use client";
 
-import type { CalcKind, Opening, Surface } from "@/contracts/calc";
-import { surfaceNet } from "@/lib/calc/geometry";
+import type { CalcKind, Surface } from "@/contracts/calc";
 import { NumInput } from "./NumInput";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -28,27 +27,20 @@ function DoorHint() {
   );
 }
 
-// Редактор стен/поверхностей. Обои: проёмы не вводятся (формула по периметру), вместо них — подсказка.
-// Плитка/краска: проёмы по галочке «Учесть окна и двери» (Ширина×Высота, без типа) и вычитаются из площади.
+// Редактор стен/поверхностей. Проёмы не вводятся ни для одного вида: обои клеятся полосами,
+// у плитки/краски окна и двери идут в запас на подрезку — вычет только запутывал бы.
 export function SurfaceEditor({
   surfaces,
   onChange,
   kind,
-  countOpenings,
-  onCountOpenings,
 }: {
   surfaces: Surface[];
   onChange: (surfaces: Surface[]) => void;
   kind: CalcKind;
-  countOpenings?: boolean;
-  onCountOpenings?: (v: boolean) => void;
 }) {
   const isOboi = kind === "oboi";
-  const showOpenings = !isOboi && !!countOpenings;
   const patch = (id: string, p: Partial<Surface>) =>
     onChange(surfaces.map((s) => (s.id === id ? { ...s, ...p } : s)));
-  const patchOpenings = (sid: string, fn: (o: Opening[]) => Opening[]) =>
-    onChange(surfaces.map((s) => (s.id === sid ? { ...s, openings: fn(s.openings) } : s)));
   // Высота первой стены подставляется остальным стенам, где высота ещё пустая (0). Каждую можно менять.
   const setHeight = (id: string, h: number) => {
     const isFirst = surfaces[0]?.id === id;
@@ -68,19 +60,6 @@ export function SurfaceEditor({
           <DoorHint />
         </div>
       )}
-      {!isOboi && (
-        <div className="openings-group">
-          <label className="row" style={{ gap: 8, alignItems: "center", margin: 0 }}>
-            <input type="checkbox" checked={!!countOpenings} onChange={(e) => onCountOpenings?.(e.target.checked)} />
-            <span>Учесть окна и двери</span>
-          </label>
-          {showOpenings && (
-            <p className="muted" style={{ fontSize: 13, margin: "6px 0 0" }}>
-              Проёмы задаёте у каждой стены ниже — кнопкой «+ добавить проём».
-            </p>
-          )}
-        </div>
-      )}
 
       {surfaces.map((s) => (
         <div key={s.id} className="stack" style={{ gap: 8, borderLeft: "2px solid var(--border)", paddingLeft: 12 }}>
@@ -98,32 +77,6 @@ export function SurfaceEditor({
               <NumInput style={inp} value={s.heightM} onChange={(n) => setHeight(s.id, n ?? 0)} />
             </label>
           </div>
-
-          {showOpenings && s.openings.map((o) => (
-            <div key={o.id} className="stack" style={{ gap: 8, borderLeft: "2px solid var(--accent)", paddingLeft: 10 }}>
-              <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <strong style={{ fontSize: 14 }}>Проём</strong>
-                <button type="button" className="quiz-link" style={{ fontSize: 12 }} onClick={() => patchOpenings(s.id, (os) => os.filter((x) => x.id !== o.id))}>удалить</button>
-              </div>
-              <div className="row" style={{ gap: 8 }}>
-                <label className="stack" style={{ flex: 1, minWidth: 100, gap: 4 }}>
-                  <span className="eyebrow">Ширина, м</span>
-                  <NumInput style={inp} value={o.widthM} onChange={(n) => patchOpenings(s.id, (os) => os.map((x) => (x.id === o.id ? { ...x, widthM: n ?? 0 } : x)))} />
-                </label>
-                <label className="stack" style={{ flex: 1, minWidth: 100, gap: 4 }}>
-                  <span className="eyebrow">Высота, м</span>
-                  <NumInput style={inp} value={o.heightM} onChange={(n) => patchOpenings(s.id, (os) => os.map((x) => (x.id === o.id ? { ...x, heightM: n ?? 0 } : x)))} />
-                </label>
-              </div>
-            </div>
-          ))}
-
-          {showOpenings && (
-            <div className="row" style={{ gap: 8, alignItems: "center" }}>
-              <button type="button" className="chip" onClick={() => patchOpenings(s.id, (os) => [...os, { id: uid(), kind: "window", widthM: 0, heightM: 0, count: 1 }])}>+ добавить проём</button>
-              <span className="muted" style={{ fontSize: 13 }}>чистая площадь: {surfaceNet(s)} м²</span>
-            </div>
-          )}
         </div>
       ))}
       <button type="button" className="chip" style={{ background: "var(--accent)", color: "var(--surface)", borderColor: "var(--accent)" }} onClick={addWall}>+ добавить размеры стены</button>

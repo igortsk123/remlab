@@ -156,12 +156,6 @@ img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(-
   border-radius: var(--radius-sm); box-shadow: var(--shadow); padding: 10px 14px; font-size: 15px;
 }
 
-/* Группа «Учесть окна и двери» — тонированная рамка, визуально связывает чекбокс и проёмы у стен. */
-.openings-group {
-  background: rgba(138, 154, 123, 0.10); border: 1px solid rgba(138, 154, 123, 0.30);
-  border-radius: var(--radius-sm); padding: 10px 12px;
-}
-
 /* Модалка (напр. «Сообщить по почте»): затемнение + карточка по центру. */
 .modal-overlay {
   position: fixed; inset: 0; z-index: 100;
