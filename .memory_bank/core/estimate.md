@@ -8,14 +8,14 @@ importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 review_after: ""
 ---
 
 # Смета-лист — Tier 1 (ядро v0.4 «Смета-first», ADR-0016)
 
 ## Что это
-Ядро продукта: расчёт материалов/стоимости → сохранённая смета-список с реф-ссылками. Мастер —
+Расчёт материалов/стоимости → сохранённая смета с реф-ссылками. Мастер —
 `../plans/MASTER-cost-first.md`; построено М1 (`../completed_plans/m1-estimate-core.md`).
 
 ## Два входа
@@ -32,12 +32,12 @@ review_after: ""
   `modules/estimate/`. Метрика: цели 10–13 (`campaign_state.md`).
 - Реклама сюда: Директ Этап 1 (`/calc/[kind]`), Этап 2 (`/calc/remont`) — `marketing-acquisition.md`.
 
-## Калькулятор v2 (К0–К6; ADR-0018–0027)
+## Калькулятор v2 (К0–К6; ADR-0018–0028)
 Мультикомната + параметры + формулы (golden) → смета; состояние клиентское (`contracts/calc.ts`,
-`lib/calc/*`, `components/calc/*`, localStorage). ОСНОВНОЙ на `/calc/[kind]`. UX: проёмы скрыты из UI
-у всех видов (запас на подрезку); плитка — инлайн-результаты стен/пол и «? шт» без размера. Копирайт
-по kind (`CALC_META`), склонения `lib/format/plural.ts`, хвосты Итог → «Также не забудьте» → «Найдём
-выгоднее» → виз. Детали — `decisions.md` (ADR-0019/0027); роадмап `../plans/calc-materials-roadmap.md`.
+`lib/calc/*`, `components/calc/*`, localStorage). ОСНОВНОЙ на `/calc/[kind]`. UX: проёмы скрыты
+из UI; плитка — инлайн-результаты стен/пол, «? шт» без размера, размер в СМ (хранение мм), цена за
+м²/шт/упак (парсер определяет единицу). Копирайт по kind (`CALC_META`); хвосты Итог → «не забудьте» →
+«найдём выгоднее» → виз. Детали — `decisions.md` (ADR-0019/0027/0028); роадмап `calc-materials-roadmap.md`.
 
 ## Следующее
 pricing Фаза 2 (GeoIP); ИИ-обогащение (М1 v1.1); реф-маршруты по логу (М0); М5 виз.
