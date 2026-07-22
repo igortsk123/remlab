@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import type { CalcKind, Floor, MaterialSpec, Room } from "@/contracts/calc";
 import { computeRoomParts, type RoomPart } from "@/lib/calc/formulas";
 import { pluralUnit } from "@/lib/format/plural";
@@ -17,39 +18,48 @@ const nameInputStyle = {
   background: "var(--surface)", color: "var(--text)", padding: "6px 10px", maxWidth: 240,
 } as const;
 
+const EMPTY_HINT = "Введите размеры, чтобы посчитать площадь и количество.";
+
+// Пустая подсказка блока (когда размеров ещё нет) — заголовок + приглашение. Ставится НАД кнопкой добавления.
+function EmptyNote({ label }: { label: string }) {
+  return (
+    <div className="note">
+      <div className="eyebrow" style={{ margin: 0 }}>{label}</div>
+      <div className="muted">{EMPTY_HINT}</div>
+    </div>
+  );
+}
+
 // Результат одной части (стены/пол/комната) — инлайн под своим блоком: Площадь + Нужно.
 // Если у плитки не задан размер — в «Нужно» не площадь комнаты, а призыв задать размер/ссылку.
 function PartNote({ part, label }: { part: RoomPart; label?: string }) {
   const o = part.out;
   const heading = label ?? part.label;
   const isFloor = part.key === "floor";
+  if (o.areaNetM2 <= 0) return <EmptyNote label={heading || (isFloor ? "Пол" : "Стены")} />;
   return (
     <div className="note">
       {heading ? <div className="eyebrow" style={{ margin: 0 }}>{heading}</div> : null}
-      {o.areaNetM2 <= 0 ? (
-        <div className="muted">Введите размеры, чтобы посчитать площадь и количество.</div>
-      ) : (
-        <>
-          <div>
-            Площадь: <strong>{o.areaNetM2} м²</strong>
-            {o.areaGrossM2 !== o.areaNetM2 ? ` (${isFloor ? "без учёта исключённых зон" : "без проёмов"}; всего ${o.areaGrossM2} м²)` : ""}
-          </div>
-          <div style={{ marginTop: 4 }}>
-            Нужно:{" "}
-            {o.qtyUnknown ? (
-              <strong style={{ color: "var(--accent)" }}>? шт — задайте размер плитки или вставьте ссылку</strong>
-            ) : (
-              <>
-                <strong>{o.qty} {pluralUnit(o.unit, o.qty)}</strong>
-                {o.packs != null && o.unit !== "упаковка" ? ` · ${o.packs} упак.` : ""}
-                {o.costRub != null ? ` · ~${o.costRub.toLocaleString("ru-RU")} ₽` : ""}
-              </>
-            )}
-          </div>
-          {/* Не дублируем призыв «задайте размер» — при неизвестном кол-ве note скрываем. */}
-          {!o.qtyUnknown && <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>{o.note}</div>}
-        </>
-      )}
+      <div>
+        Площадь: <strong>{o.areaNetM2} м²</strong>
+        {o.areaGrossM2 !== o.areaNetM2 ? ` (${isFloor ? "без учёта исключённых зон" : "без проёмов"}; всего ${o.areaGrossM2} м²)` : ""}
+      </div>
+      <div style={{ marginTop: 4 }}>
+        Нужно:{" "}
+        {o.qtyUnknown ? (
+          <span style={{ color: "var(--accent)" }}>
+            <strong>? шт</strong> <em style={{ fontWeight: 400 }}>(задайте размер плитки или вставьте ссылку)</em>
+          </span>
+        ) : (
+          <>
+            <strong>{o.qty} {pluralUnit(o.unit, o.qty)}</strong>
+            {o.packs != null && o.unit !== "упаковка" ? ` · ${o.packs} упак.` : ""}
+            {o.costRub != null ? ` · ~${o.costRub.toLocaleString("ru-RU")} ₽` : ""}
+          </>
+        )}
+      </div>
+      {/* Не дублируем призыв «задайте размер» — при неизвестном кол-ве note скрываем. */}
+      {!o.qtyUnknown && <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>{o.note}</div>}
     </div>
   );
 }
@@ -74,6 +84,8 @@ export function RoomPanel({
   const wallsPart = parts.find((p) => p.key === "walls");
   const floorPart = parts.find((p) => p.key === "floor");
   const mainPart = parts.find((p) => p.key === "main");
+
+  const nameRef = useRef<HTMLInputElement>(null);
 
   const setMaterial = (patch: Partial<MaterialSpec>) => onUpdate((r) => ({ ...r, material: { ...r.material, ...patch } }));
   const setFloorMaterial = (patch: Partial<MaterialSpec>) => onUpdate((r) => ({ ...r, floorMaterial: { ...(r.floorMaterial ?? {}), ...patch } }));
@@ -100,12 +112,27 @@ export function RoomPanel({
   return (
     <div className="stack">
       <div className="card row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-        <input
-          value={room.name}
-          onChange={(e) => onUpdate((r) => ({ ...r, name: e.target.value }))}
-          aria-label="Название комнаты"
-          style={nameInputStyle}
-        />
+        <span className="row" style={{ gap: 6, alignItems: "center", margin: 0 }}>
+          <input
+            ref={nameRef}
+            value={room.name}
+            onChange={(e) => onUpdate((r) => ({ ...r, name: e.target.value }))}
+            aria-label="Название комнаты"
+            style={nameInputStyle}
+          />
+          {/* Неброский карандаш — сигнал, что название можно редактировать. Клик → фокус в поле. */}
+          <button
+            type="button"
+            onClick={() => nameRef.current?.focus()}
+            aria-label="Редактировать название"
+            style={{ border: "none", background: "none", color: "var(--muted)", cursor: "pointer", display: "inline-flex", padding: 2 }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+            </svg>
+          </button>
+        </span>
         {canDelete && <button type="button" className="quiz-link" onClick={onDelete}>Удалить</button>}
       </div>
 
@@ -122,10 +149,13 @@ export function RoomPanel({
           {room.floor && <p className="eyebrow" style={{ margin: "4px 0 -6px" }}>Стены</p>}
           {wallLink}
           {room.surfaces.length > 0 && wallSizes}
-          {addWallBtn}
           {wallsPart && <PartNote part={wallsPart} label="Стены" />}
+          {addWallBtn}
           {!room.floor ? (
-            <button type="button" className="chip chip--accent" onClick={() => onUpdate((r) => ({ ...r, floor: EMPTY_FLOOR }))}>+ добавить размеры пола</button>
+            <>
+              <EmptyNote label="Пол" />
+              <button type="button" className="chip chip--accent" onClick={() => onUpdate((r) => ({ ...r, floor: EMPTY_FLOOR }))}>+ добавить размеры пола</button>
+            </>
           ) : (
             <>
               <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
@@ -145,8 +175,8 @@ export function RoomPanel({
         <>
           {wallLink}
           {room.surfaces.length > 0 && wallSizes}
-          {addWallBtn}
           {mainPart && <PartNote part={mainPart} />}
+          {addWallBtn}
         </>
       )}
     </div>
