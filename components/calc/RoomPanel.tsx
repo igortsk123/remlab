@@ -121,7 +121,7 @@ export function RoomPanel({
         <>
           {room.floor && <p className="eyebrow" style={{ margin: "4px 0 -6px" }}>Стены</p>}
           {wallLink}
-          {wallSizes}
+          {room.surfaces.length > 0 && wallSizes}
           {addWallBtn}
           {wallsPart && <PartNote part={wallsPart} label="Стены" />}
           {!room.floor ? (
@@ -144,7 +144,7 @@ export function RoomPanel({
       ) : (
         <>
           {wallLink}
-          {wallSizes}
+          {room.surfaces.length > 0 && wallSizes}
           {addWallBtn}
           {mainPart && <PartNote part={mainPart} />}
         </>
