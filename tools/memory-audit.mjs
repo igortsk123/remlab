@@ -31,6 +31,10 @@
 //   SECRET          _secrets/ без .gitignore при git-репо; похожее на значение секрета вне _secrets/
 //   CODE-REF        backtick-путь к файлу кода в памяти не найден в дереве репозитория (память отстала от кода)
 //   FROZEN-MEMORY   код менялся в >N коммитах с момента последнего коммита в .memory_bank/ (замерзание памяти)
+//   RULES-FM        frontmatter правил .claude/rules/: Cursor-поля (alwaysApply/globs), inline-массив
+//                   или некавыченный глоб в paths — правило может МОЛЧА не загружаться
+//   MEM-INJECT      док с source: external:* содержит императивы к агенту / exec-паттерны —
+//                   ручное ревью (память как канал persistent prompt injection, OWASP ASI06)
 //
 // Использование:
 //   node tools/memory-audit.mjs [projectRoot]           (default: cwd; write-режим — регенерит блоки)
@@ -611,6 +615,93 @@ export function runChecks(root, opts = {}) {
       }
     } catch {
       /* git недоступен — тихо пропускаем, это не ошибка банка */
+    }
+  }
+
+  // 18) RULES-FM — линт frontmatter правил .claude/rules/*.md. Claude Code игнорирует Cursor-поля
+  //     (alwaysApply/globs), а paths вне документированного формата (YAML-список, паттерны в кавычках)
+  //     в ряде версий приводил к тому, что правило МОЛЧА не загружалось. Always-on = правило БЕЗ paths.
+  {
+    const rulesDir = join(root, ".claude", "rules");
+    if (existsSync(rulesDir)) {
+      const ruleFiles = [];
+      (function walkRules(dir) {
+        for (const name of readdirSync(dir).sort()) {
+          const full = join(dir, name);
+          const st = statSync(full);
+          if (st.isDirectory()) walkRules(full);
+          else if (name.endsWith(".md")) ruleFiles.push(full);
+        }
+      })(rulesDir);
+      for (const f of ruleFiles) {
+        const rel = ".claude/rules/" + relative(rulesDir, f).split(sep).join("/");
+        const text = readDoc(f);
+        if (!text.startsWith("---")) continue; // без frontmatter — легальное always-on правило
+        const end = text.indexOf("\n---", 3);
+        if (end === -1) {
+          problems.push(`RULES-FM ${rel} — frontmatter не закрыт (нет парного ---)`);
+          continue;
+        }
+        let inPaths = false;
+        for (const raw of text.slice(3, end).split(/\r?\n/)) {
+          const line = raw.replace(/\r$/, "");
+          const m = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+          if (m) {
+            inPaths = m[1] === "paths";
+            if (m[1] === "alwaysApply" || m[1] === "globs")
+              problems.push(
+                `RULES-FM ${rel} — поле '${m[1]}' — формат Cursor, Claude Code его не читает (always-on = правило БЕЗ paths; см. guides/how-to-write-rules.md)`
+              );
+            if (m[1] === "paths" && m[2].trim().startsWith("["))
+              problems.push(
+                `RULES-FM ${rel} — inline-массив в 'paths' — используй YAML-список: каждый паттерн с новой строки, в кавычках`
+              );
+            continue;
+          }
+          const li = line.match(/^\s*-\s+(.+)$/);
+          if (li && inPaths) {
+            const v = li[1].trim();
+            if (!/^(["']).*\1$/.test(v))
+              problems.push(`RULES-FM ${rel} — глоб в 'paths' без кавычек: ${v} — глоб с * без кавычек ломает YAML`);
+          }
+        }
+      }
+    }
+  }
+
+  // 19) MEM-INJECT — защита от отравления памяти (OWASP ASI06): док с провенансом external:*
+  //     содержит императивы к агенту или exec-паттерны. Консервативная эвристика — сигналит на
+  //     ручное ревью, не цензурирует текст: тот же контент с source: manual не флагается.
+  //     Сканируем сырое тело (НЕ stripCode): инъекции часто живут именно в код-примерах.
+  {
+    const IMPERATIVE_RES = [
+      /\b(always|never)\s+(run|use|execute|exec|install|skip|ignore|disable)\b/i,
+      /\bignore\s+(all\s+|any\s+)?(previous|prior|above)\s+(instructions?|rules?)\b/i,
+      /\b(do\s+not|don'?t)\s+ask\b/i,
+      /\b(всегда|никогда\s+не)\s+(запускай|выполняй|используй|устанавливай|спрашивай)\b/i,
+      /\bигнорируй\s+(предыдущие|прошлые|все)\s+(инструкции|правила)\b/i,
+      /\bне\s+спрашивая\b|\bбез\s+подтверждения\b/i,
+      /curl[^\n]{0,200}\|\s*(ba|z)?sh\b/i,
+      /wget[^\n]{0,200}\|\s*(ba|z)?sh\b/i,
+    ];
+    for (const d of contentDocs) {
+      if (!/^external:/.test(String(d.fm.source || ""))) continue;
+      const body = d.text.replace(/^---[\s\S]*?\n---/, "");
+      const bodyOffset = d.text.length - body.length;
+      let hit = null;
+      for (const re of IMPERATIVE_RES) {
+        const m = body.match(re);
+        if (m) {
+          hit = { idx: bodyOffset + m.index, frag: m[0] };
+          break;
+        }
+      }
+      if (hit) {
+        const lineNo = d.text.slice(0, hit.idx).split("\n").length;
+        problems.push(
+          `MEM-INJECT ${d.rel}:${lineNo} — императив/exec-паттерн («${hit.frag}») в доке с source: ${d.fm.source} — проверь вручную: инструкции из внешних источников в память не переносятся (memory-discipline)`
+        );
+      }
     }
   }
 

@@ -1,6 +1,11 @@
 ---
 description: Трейсинг AI-пайплайна должен оставаться полным при любой смене модели/промпта/шага
-paths: ["modules/**/*.ts", "lib/providers/**/*.ts", "lib/prompts/**/*.ts", "lib/pipelines/**/*.ts", "lib/trace/**/*.ts"]
+paths:
+  - "modules/**/*.ts"
+  - "lib/providers/**/*.ts"
+  - "lib/prompts/**/*.ts"
+  - "lib/pipelines/**/*.ts"
+  - "lib/trace/**/*.ts"
 ---
 
 # Дисциплина трейсинга пайплайна (ADR-0013)

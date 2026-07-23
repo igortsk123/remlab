@@ -42,3 +42,12 @@ jobs:
           m="$(node tools/memory-audit.mjs --check --metrics . 2>/dev/null | grep '^METRICS ' || true)"
           [ -n "$m" ] && { echo "### memory metrics"; echo '```'; echo "$m"; echo '```'; } >> "$GITHUB_STEP_SUMMARY" || true
           echo "$m"
+      - name: memory diff (обзор изменений памяти в PR одним взглядом)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          # Соло-ревью памяти: что PR меняет в .memory_bank/ — прямо в summary. Файловая память
+          # даёт diff бесплатно (git) — используем это как последнюю пару глаз на memory-записи
+          # (в т.ч. против отравления памяти: неожиданные правки канона видны сразу).
+          d="$(git diff --stat "origin/${GITHUB_BASE_REF}...HEAD" -- .memory_bank 2>/dev/null || true)"
+          { echo "### memory diff (.memory_bank/)"; echo '```'; echo "${d:-нет изменений}"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

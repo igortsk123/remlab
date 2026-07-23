@@ -1,6 +1,11 @@
 ---
 description: UI-правила (заготовка — активна только если в проекте есть фронтенд)
-paths: ["app/**/*.{tsx,jsx}", "components/**/*.{tsx,jsx}", "**/globals.css"]
+paths:
+  - "app/**/*.tsx"
+  - "app/**/*.jsx"
+  - "components/**/*.tsx"
+  - "components/**/*.jsx"
+  - "**/globals.css"
 ---
 
 # UI-правила (заготовка)

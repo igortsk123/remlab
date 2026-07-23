@@ -42,6 +42,7 @@ _intake/_processed/
 # memory-bank start
 .memory_bank/_secrets/*
 !.memory_bank/_secrets/README.md
+.memory_bank/changelog/reads.log
 .claude/settings.local.json
 .claude/settings.local.json.bak-*
 .claude/settings.local.json.proposed

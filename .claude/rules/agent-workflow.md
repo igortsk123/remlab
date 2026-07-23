@@ -1,6 +1,5 @@
 ---
 description: Двухэтапный workflow агента — план перед кодом, деплой по команде
-alwaysApply: true
 ---
 
 # Workflow агента
@@ -9,21 +8,28 @@ alwaysApply: true
 
 ## Двухэтапный процесс
 
-**Этап 1 — план:**
-1. Прочитать `CLAUDE.md` + `.memory_bank/INDEX.md`.
-2. Прочитать файлы по теме (decision tree в INDEX → Tier 1 → Tier 2 при нужде).
-3. Составить план по `.memory_bank/plans/_template.md`.
-4. Сохранить как `.memory_bank/plans/<slug>.md` со статусом `draft`.
-5. Показать план в чате. Написать: «План готов. Жду команду "деплой".»
+**Этап 1 — план** (исследование — в Plan Mode, Shift+Tab; план Plan Mode эфемерен —
+файл в `plans/` обязателен):
+1. Прочитать `CLAUDE.md` + `.memory_bank/INDEX.md` (INDEX импортирован — уже в контексте).
+2. Свериться с `core/lessons.md` и `anti-patterns.md` — НЕ предлагать уже отброшенные подходы.
+3. Прочитать файлы по теме (decision tree в INDEX → Tier 1 → Tier 2 при нужде).
+4. Составить план по `.memory_bank/plans/_template.md`.
+5. Сохранить как `.memory_bank/plans/<slug>.md` со статусом `draft`.
+6. Показать план в чате. Написать: «План готов. Жду команду "деплой".»
 
 **Этап 2 — «деплой»:**
 1. Прочитать план из `plans/<slug>.md`, сменить статус на `in_progress`.
 2. Перечислить файлы к изменению — не трогать остальные.
 3. Выполнить. Запустить lint/build/тесты — исправить ошибки.
+3b. Крупный план (>5 файлов или новая подсистема) → запустить read-only субагента `verify`
+   (`.claude/agents/verify.md`): критерии приёмки vs фактический diff + выборочная сверка
+   `core/*` с кодом. Расхождения исправить (код или память) ДО `/memory-check`.
 4. Обновить Memory Bank (**ОБЯЗАТЕЛЬНО перед `completed`**, `memory-discipline.md`):
    - затронутые `core/*` сводки обновлены (`updated:`); новая крупная область → создана `core/<домен>.md`;
    - решения → `decisions.md` (ADR); смена этапа → `project-state.md` (снимок ПЕРЕПИСАТЬ,
      историю — в `changelog/project-history.md`);
+   - отброшенные подходы / грабли сессии → `core/lessons.md` (инкрементальные bullets) и
+     поле «Уроки» в Completion summary плана;
    - запущен `/memory-check` (захват → уровни → связи+INDEX → чистота); audit «чисто».
 5. Только после этого: `completed` + дата + completion summary → перенести в `completed_plans/`
    (реестры пересоберёт аудит). Частично → `partial`, остаётся в `plans/`.
