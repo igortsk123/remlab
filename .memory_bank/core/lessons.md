@@ -35,4 +35,9 @@ N. [YYYY-MM-DD] <ситуация> → пробовали <подход> → н�
    инстансов, кэш расходится → правило: кэш только в общем сторе (Redis) или на уровне БД.
 -->
 
+1. [2026-07-28] `./deploy.sh` (arm64 под QEMU, ~14 ГБ) роняет DEV-VM `pakardev` (2.7 ГБ) по OOM →
+   терялся SSH; BuildKit-кэш забивал диск. Правило: arm64-билд — в GitHub Actions (секрет `DEPLOY_SSH_KEY`,
+   владелец), не локально; `./deploy.sh` — только при ≥12 ГБ RAM. DEV-VM защищена: swap 4 ГБ, swappiness=10,
+   `earlyoom` (sshd в `--avoid`). После билда чистить: `docker buildx rm remlabx`.
+
 **Tier 2:** ../anti-patterns.md — каталог код-граблей с детектами для ревью.
