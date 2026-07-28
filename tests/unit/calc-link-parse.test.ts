@@ -50,6 +50,18 @@ describe("link parse — извлечение из HTML", () => {
     expect(r.spec.rapportM).toBeUndefined();
   });
 
+  it("обои: артикул перед ценой НЕ склеивается («R210139 … 2650 ₽» ≠ 2101392650)", () => {
+    const html = `<meta property="og:title" content="Обои R210139 Эдем (1,06*10м)" /><div>Артикул: R210139</div><div>2650 ₽</div>`;
+    const r = parseProductHtml(html, "oboi");
+    expect(r.priceRub).toBe(2650);
+    expect(r.spec.pricePerRollRub).toBe(2650);
+  });
+
+  it("цена с пробелом-разделителем тысяч «2 650 ₽» → 2650", () => {
+    const html = `<meta property="og:title" content="Обои тест 1,06*10м" /><span>2 650 ₽</span>`;
+    expect(parseProductHtml(html, "oboi").priceRub).toBe(2650);
+  });
+
   it("плитка: цена с пробелом-разделителем «2 220.00» → 2220 (pricePerPackRub)", () => {
     const html = `<strong class="carrot-product-price" itemprop="price" content="2 220.00">2 220.00 ₽</strong>`;
     const r = parseProductHtml(html, "plitka");

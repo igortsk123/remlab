@@ -11,11 +11,12 @@ const inp = {
 
 // Плейсхолдер по умолчанию — «0» (светло-серый через CSS input::placeholder): видно, где заполнено.
 // tip — необязательная «?»-подсказка рядом с лейблом (hover/фокус-тап, как у иконки-двери обоев).
-function NumField({ label, value, onChange, ph = "0", tip }: { label: string; value: number | undefined; onChange: (v: number | undefined) => void; ph?: string; tip?: string }) {
+function NumField({ label, value, onChange, ph = "0", tip, auto }: { label: string; value: number | undefined; onChange: (v: number | undefined) => void; ph?: string; tip?: string; auto?: boolean }) {
   return (
     <label className="stack" style={{ flex: 1, minWidth: 120, gap: 4 }}>
       <span className="eyebrow">
         {label}
+        {auto && value != null && <span className="auto-badge" title="Заполнено из ссылки; правьте — станет вашим значением">авто</span>}
         {tip && (
           <span className="help" tabIndex={0} role="note" aria-label={tip} data-tip={tip} style={{ marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>?</span>
         )}
@@ -31,14 +32,14 @@ const cmToMm = (cm: number | undefined) => (cm == null ? undefined : Math.round(
 
 // Цена плитки может быть за м² / за шт / за упаковку — одно поле + селектор единицы (одновременно
 // задана ровно одна из трёх; смена единицы переносит значение и чистит остальные).
-function TilePrice({ spec, onChange }: { spec: MaterialSpec; onChange: (patch: Partial<MaterialSpec>) => void }) {
+function TilePrice({ spec, onChange, auto }: { spec: MaterialSpec; onChange: (patch: Partial<MaterialSpec>) => void; auto?: boolean }) {
   const unit: "m2" | "piece" | "pack" = spec.pricePerM2Rub != null ? "m2" : spec.pricePerPieceRub != null ? "piece" : "pack";
   const value = spec.pricePerM2Rub ?? spec.pricePerPieceRub ?? spec.pricePerPackRub;
   const write = (u: "m2" | "piece" | "pack", v: number | undefined) =>
     onChange({ pricePerM2Rub: u === "m2" ? v : undefined, pricePerPieceRub: u === "piece" ? v : undefined, pricePerPackRub: u === "pack" ? v : undefined });
   return (
     <div className="row" style={{ gap: 8 }}>
-      <NumField label="Цена, ₽" value={value} onChange={(v) => write(unit, v)} />
+      <NumField label="Цена, ₽" value={value} onChange={(v) => write(unit, v)} auto={auto} />
       <label className="stack" style={{ flex: 1, minWidth: 120, gap: 4 }}>
         <span className="eyebrow">За единицу</span>
         <select style={inp} value={unit} onChange={(e) => write(e.target.value as "m2" | "piece" | "pack", value)}>
@@ -52,7 +53,8 @@ function TilePrice({ spec, onChange }: { spec: MaterialSpec; onChange: (patch: P
 }
 
 // Параметры материала по виду (К2). Пустые поля → формула берёт умные дефолты.
-export function MaterialParams({ kind, spec, onChange }: { kind: CalcKind; spec: MaterialSpec; onChange: (patch: Partial<MaterialSpec>) => void }) {
+export function MaterialParams({ kind, spec, onChange, autoKeys }: { kind: CalcKind; spec: MaterialSpec; onChange: (patch: Partial<MaterialSpec>) => void; autoKeys?: string[] }) {
+  const isAuto = (k: keyof MaterialSpec) => !!autoKeys?.includes(k as string);
   return (
     <div className="stack" style={{ gap: 8 }}>
       <p className="eyebrow" style={{ margin: 0 }}>Параметры материала</p>
@@ -60,12 +62,12 @@ export function MaterialParams({ kind, spec, onChange }: { kind: CalcKind; spec:
       {kind === "oboi" && (
         <>
           <div className="row" style={{ gap: 8 }}>
-            <NumField label="Ширина рулона, м" value={spec.rollWidthM} onChange={(v) => onChange({ rollWidthM: v })} />
-            <NumField label="Длина рулона, м" value={spec.rollLengthM} onChange={(v) => onChange({ rollLengthM: v })} />
+            <NumField label="Ширина рулона, м" value={spec.rollWidthM} onChange={(v) => onChange({ rollWidthM: v })} auto={isAuto("rollWidthM")} />
+            <NumField label="Длина рулона, м" value={spec.rollLengthM} onChange={(v) => onChange({ rollLengthM: v })} auto={isAuto("rollLengthM")} />
           </div>
           <div className="row" style={{ gap: 8 }}>
-            <NumField label="Раппорт, м" value={spec.rapportM} onChange={(v) => onChange({ rapportM: v })} tip="Раппорт — шаг повторения рисунка на обоях (указан на этикетке, в метрах). Чем больше раппорт, тем больше уходит на подгонку рисунка. Если рисунок подгонять не нужно — оставьте 0." />
-            <NumField label="Цена/рулон, ₽" value={spec.pricePerRollRub} onChange={(v) => onChange({ pricePerRollRub: v })} />
+            <NumField label="Раппорт, м" value={spec.rapportM} onChange={(v) => onChange({ rapportM: v })} auto={isAuto("rapportM")} tip="Раппорт — шаг повторения рисунка на обоях (указан на этикетке, в метрах). Чем больше раппорт, тем больше уходит на подгонку рисунка. Если рисунок подгонять не нужно — оставьте 0." />
+            <NumField label="Цена/рулон, ₽" value={spec.pricePerRollRub} onChange={(v) => onChange({ pricePerRollRub: v })} auto={isAuto("pricePerRollRub")} />
           </div>
           <label className="row" style={{ gap: 8, alignItems: "center" }}>
             <input type="checkbox" checked={!!spec.offset} onChange={(e) => onChange({ offset: e.target.checked })} />
@@ -77,14 +79,14 @@ export function MaterialParams({ kind, spec, onChange }: { kind: CalcKind; spec:
       {kind === "plitka" && (
         <>
           <div className="row" style={{ gap: 8 }}>
-            <NumField label="Длина плитки, см" value={mmToCm(spec.tileLengthMm)} onChange={(v) => onChange({ tileLengthMm: cmToMm(v) })} />
-            <NumField label="Ширина плитки, см" value={mmToCm(spec.tileWidthMm)} onChange={(v) => onChange({ tileWidthMm: cmToMm(v) })} />
+            <NumField label="Длина плитки, см" value={mmToCm(spec.tileLengthMm)} onChange={(v) => onChange({ tileLengthMm: cmToMm(v) })} auto={isAuto("tileLengthMm")} />
+            <NumField label="Ширина плитки, см" value={mmToCm(spec.tileWidthMm)} onChange={(v) => onChange({ tileWidthMm: cmToMm(v) })} auto={isAuto("tileWidthMm")} />
           </div>
           <div className="row" style={{ gap: 8 }}>
             <NumField label="Шов, мм" value={spec.seamMm} onChange={(v) => onChange({ seamMm: v })} tip="Шов — зазор между плитками, который заполняют затиркой. Стандарт 2–3 мм (крупная плитка — до 5 мм). Слегка уменьшает количество плиток." />
-            <NumField label="Шт/упаковка" value={spec.tilesPerPack} onChange={(v) => onChange({ tilesPerPack: v })} />
+            <NumField label="Шт/упаковка" value={spec.tilesPerPack} onChange={(v) => onChange({ tilesPerPack: v })} auto={isAuto("tilesPerPack")} />
           </div>
-          <TilePrice spec={spec} onChange={onChange} />
+          <TilePrice spec={spec} onChange={onChange} auto={isAuto("pricePerM2Rub") || isAuto("pricePerPieceRub") || isAuto("pricePerPackRub")} />
         </>
       )}
 
@@ -108,9 +110,9 @@ export function MaterialParams({ kind, spec, onChange }: { kind: CalcKind; spec:
           </div>
           <div className="row" style={{ gap: 8 }}>
             <NumField label="Слоёв" value={spec.coats} onChange={(v) => onChange({ coats: v })} />
-            <NumField label="Расход, м²/л" value={spec.consumptionM2PerL} onChange={(v) => onChange({ consumptionM2PerL: v })} />
-            <NumField label="Объём упак, л" value={spec.packVolumeL} onChange={(v) => onChange({ packVolumeL: v })} />
-            <NumField label="Цена упак, ₽" value={spec.pricePerPackRub} onChange={(v) => onChange({ pricePerPackRub: v })} />
+            <NumField label="Расход, м²/л" value={spec.consumptionM2PerL} onChange={(v) => onChange({ consumptionM2PerL: v })} auto={isAuto("consumptionM2PerL")} />
+            <NumField label="Объём упак, л" value={spec.packVolumeL} onChange={(v) => onChange({ packVolumeL: v })} auto={isAuto("packVolumeL")} />
+            <NumField label="Цена упак, ₽" value={spec.pricePerPackRub} onChange={(v) => onChange({ pricePerPackRub: v })} auto={isAuto("pricePerPackRub")} />
           </div>
         </>
       )}
@@ -118,9 +120,9 @@ export function MaterialParams({ kind, spec, onChange }: { kind: CalcKind; spec:
       {kind === "laminat" && (
         <>
           <div className="row" style={{ gap: 8 }}>
-            <NumField label="Длина панели, мм" value={spec.panelLengthMm} onChange={(v) => onChange({ panelLengthMm: v })} />
-            <NumField label="Ширина панели, мм" value={spec.panelWidthMm} onChange={(v) => onChange({ panelWidthMm: v })} />
-            <NumField label="Шт/упаковка" value={spec.panelsPerPack} onChange={(v) => onChange({ panelsPerPack: v })} />
+            <NumField label="Длина панели, мм" value={spec.panelLengthMm} onChange={(v) => onChange({ panelLengthMm: v })} auto={isAuto("panelLengthMm")} />
+            <NumField label="Ширина панели, мм" value={spec.panelWidthMm} onChange={(v) => onChange({ panelWidthMm: v })} auto={isAuto("panelWidthMm")} />
+            <NumField label="Шт/упаковка" value={spec.panelsPerPack} onChange={(v) => onChange({ panelsPerPack: v })} auto={isAuto("panelsPerPack")} />
           </div>
           <div className="row" style={{ gap: 8 }}>
             <label className="stack" style={{ flex: 1, minWidth: 140, gap: 4 }}>
@@ -135,7 +137,7 @@ export function MaterialParams({ kind, spec, onChange }: { kind: CalcKind; spec:
                 {(Object.keys(ROW_OFFSET_LABEL) as Array<keyof typeof ROW_OFFSET_LABEL>).map((k) => <option key={k} value={k}>{ROW_OFFSET_LABEL[k]}</option>)}
               </select>
             </label>
-            <NumField label="Цена/упак, ₽" value={spec.pricePerPackRub} onChange={(v) => onChange({ pricePerPackRub: v })} />
+            <NumField label="Цена/упак, ₽" value={spec.pricePerPackRub} onChange={(v) => onChange({ pricePerPackRub: v })} auto={isAuto("pricePerPackRub")} />
           </div>
         </>
       )}

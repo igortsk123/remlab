@@ -23,6 +23,17 @@ function titleTag(html: string): string | undefined {
   return /<title[^>]*>([^<]*)<\/title>/i.exec(html)?.[1]?.trim();
 }
 
+// HTML → чистый текст контента: скрипты/стили/noscript ВЫРЕЗАЕМ ЦЕЛИКОМ (иначе JS-код попадает
+// в текст и зашумляет и regex-эвристики, и вход LLM), затем снимаем теги и схлопываем пробелы.
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript\b[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ");
+}
+
 // Размеры «AxB» → мм. Единица: явная «см/мм» или подсказка «(см)» из метки; без единицы —
 // эвристика: оба ≥100 → уже мм (напр. «300x300»), иначе см (напр. «60x120» = 600×1200 мм,
 // «7,4*15» = 74×150 мм). Разделитель x|×|х|*, десятичная , или . . Guard 10..3000 мм.
@@ -68,11 +79,13 @@ function extractSize(text: string, bodyText: string): { a: number; b: number } |
 // Цена + единица. Ищем «<число> ₽|руб [/|за] <ед.>»; предпочитаем за м² (заголовочная цена плитки),
 // затем за упаковку, затем за штуку. Фолбэк — цена из OG/itemprop-меты без единицы (считаем за упак.).
 function extractPrice(text: string, html: string): { rub: number; unit: PriceUnit } | undefined {
-  const re = /(\d[\d\s.,]*\d|\d)\s*(?:₽|руб)\.?\s*(?:\/|за\s*)?\s*(кв\.?\s*м|м²|м2|шт|упак\w*)?/gi;
+  // Число цены: пробелы допустимы ТОЛЬКО как разделители тысячных троек («2 650», «12 349.50») —
+  // иначе жадный матч склеивает артикул с ценой («R210139 … 2650 ₽» → 2101392650). Санити ≤ 10 млн.
+  const re = /((?:\d{1,3}(?:\s\d{3})+|\d+)(?:[.,]\d{1,2})?)\s*(?:₽|руб)\.?\s*(?:\/|за\s*)?\s*(кв\.?\s*м|м²|м2|шт|упак\w*)?/gi;
   const hits: { rub: number; unit: PriceUnit; ranked: boolean }[] = [];
   for (const m of text.matchAll(re)) {
     const rub = toNum(m[1]);
-    if (rub == null || rub <= 0) continue;
+    if (rub == null || rub <= 0 || rub > 10_000_000) continue;
     const u = (m[2] ?? "").toLowerCase();
     const unit: PriceUnit = /кв|м²|м2/.test(u) ? "m2" : /шт/.test(u) ? "piece" : "pack";
     hits.push({ rub, unit, ranked: !!m[2] });
@@ -94,7 +107,7 @@ export function parseProductHtml(html: string, kind: CalcKind): ParsedProduct {
   const title = ogContent(html, "og:title") ?? titleTag(html);
   const text = `${title ?? ""} ${ogContent(html, "og:description") ?? ""}`;
   // Текст со снятыми тегами — характеристики часто в таблице (значение в соседнем <td>).
-  const bodyText = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  const bodyText = htmlToText(html);
   const spec: Partial<MaterialSpec> = {};
 
   if (kind === "plitka" || kind === "laminat") {

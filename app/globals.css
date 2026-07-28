@@ -197,6 +197,13 @@ img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(-
 /* Выделенная карточка «Найдём этот товар дешевле» — заметный терракотовый баннер (цвет привлечения/CTA). */
 .lead-card { border: 2px solid var(--accent-strong); background: rgba(176, 106, 74, 0.10); }
 
+/* Пометка «авто» у поля, заполненного из ссылки (П5). Ручная правка снимает пометку. */
+.auto-badge {
+  display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px;
+  background: rgba(138, 154, 123, 0.18); color: var(--accent-hover);
+  font-size: 10px; letter-spacing: 0.4px; font-weight: 600; vertical-align: middle;
+}
+
 /* Крестик удаления строки: тап-зона ≥44px, контрастнее (danger на hover). */
 .icon-del {
   display: inline-flex; align-items: center; justify-content: center;

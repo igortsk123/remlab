@@ -18,16 +18,21 @@ export function LinkAutofill({
   onUrl,
   spec,
   onSpec,
+  onAutoSpec,
+  autoKeys,
 }: {
   kind: CalcKind;
   url: string | undefined;
   onUrl: (url: string) => void;
   spec: MaterialSpec;
-  onSpec: (patch: Partial<MaterialSpec>) => void;
+  onSpec: (patch: Partial<MaterialSpec>) => void; // ручной путь (MaterialParams) — снимает пометку «авто»
+  onAutoSpec?: (spec: Partial<MaterialSpec>) => void; // авто из ссылки — стирает только прежние авто-поля
+  autoKeys?: string[];
 }) {
   const [value, setValue] = useState(url ?? "");
   const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [expanded, setExpanded] = useState(false);
+  const [parsedTitle, setParsedTitle] = useState<string | null>(null);
   const lastParsed = useRef<string>(url ?? ""); // чтобы сохранённая ссылка не перепарсивалась при монтировании
 
   // Автоподгрузка: как только введена/вставлена ссылка (с небольшой задержкой) — читаем страницу.
@@ -52,7 +57,8 @@ export function LinkAutofill({
       });
       const data = await res.json();
       if (data?.ok && data.spec && Object.keys(data.spec).length > 0) {
-        onSpec(data.spec);
+        (onAutoSpec ?? onSpec)(data.spec);
+        setParsedTitle(typeof data.title === "string" && data.title.trim() ? data.title.trim() : null);
         setState("done");
       } else {
         setState("error");
@@ -76,7 +82,12 @@ export function LinkAutofill({
           <span className="spinner" aria-hidden="true" /> Читаем страницу…
         </span>
       )}
-      {state === "done" && <span className="muted" style={{ fontSize: 14 }}>Готово: параметры заполнены, проверьте ниже.</span>}
+      {state === "done" && (
+        <span className="muted" style={{ fontSize: 14 }}>
+          Готово: параметры заполнены, проверьте ниже.
+          {parsedTitle && <><br />Нашли: <strong style={{ fontWeight: 600 }}>{parsedTitle.slice(0, 90)}</strong></>}
+        </span>
+      )}
       {state === "error" && (
         <span style={{ fontSize: 14, fontWeight: 600, color: "var(--danger)" }}>
           Не удалось прочитать страницу — заполните параметры ниже вручную (ссылка сохранена).
@@ -86,7 +97,7 @@ export function LinkAutofill({
       <button type="button" className="quiz-link" style={{ fontSize: 14 }} onClick={() => setExpanded((v) => !v)}>
         {expanded ? "скрыть параметры" : "ввести параметры вручную"}
       </button>
-      {expanded && <MaterialParams kind={kind} spec={spec} onChange={onSpec} />}
+      {expanded && <MaterialParams kind={kind} spec={spec} onChange={onSpec} autoKeys={autoKeys} />}
     </div>
   );
 }

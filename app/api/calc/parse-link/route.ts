@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { calcKind, type MaterialSpec } from "@/contracts/calc";
-import { parseProductHtml } from "@/lib/calc/link-parse";
+import { htmlToText, parseProductHtml } from "@/lib/calc/link-parse";
 import { aiExtractSpec, KEY_FIELDS, PLITKA_PRICE_FIELDS } from "@/lib/calc/link-parse-ai";
 
 export const runtime = "nodejs";
@@ -30,7 +30,7 @@ export async function POST(req: Request): Promise<Response> {
       missing.push(...PLITKA_PRICE_FIELDS);
     }
     if (missing.length > 0 && process.env.OPENAI_API_KEY) {
-      const bodyText = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+      const bodyText = htmlToText(html); // чистый контент: script/style вырезаны — LLM видит текст, не JS
       const aiSpec = await aiExtractSpec(bodyText, kind, missing);
       const target = result.spec as Record<string, number>;
       for (const [k, v] of Object.entries(aiSpec)) {

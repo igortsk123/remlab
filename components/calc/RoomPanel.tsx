@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import type { CalcKind, Floor, MaterialSpec, Room } from "@/contracts/calc";
 import { computeRoomParts, type RoomPart } from "@/lib/calc/formulas";
+import { applyAutoSpec, manualKeys } from "@/lib/calc/auto-fields";
 import { pluralUnit } from "@/lib/format/plural";
 import { FloorEditor } from "./FloorEditor";
 import { LinkAutofill } from "./LinkAutofill";
@@ -104,14 +105,18 @@ export function RoomPanel({
   const addFloor = () => onUpdate((r) => ({ ...r, floor: EMPTY_FLOOR }));
   const removeFloor = () => onUpdate((r) => ({ ...r, floor: undefined, floorMaterial: undefined, floorProductUrl: undefined }));
 
-  const setMaterial = (patch: Partial<MaterialSpec>) => onUpdate((r) => ({ ...r, material: { ...r.material, ...patch } }));
-  const setFloorMaterial = (patch: Partial<MaterialSpec>) => onUpdate((r) => ({ ...r, floorMaterial: { ...(r.floorMaterial ?? {}), ...patch } }));
+  // Ручная правка (MaterialParams): значение пишем, пометку «авто» с поля снимаем.
+  const setMaterial = (patch: Partial<MaterialSpec>) => onUpdate((r) => ({ ...r, material: { ...r.material, ...patch }, autoKeys: manualKeys(r.autoKeys, patch) }));
+  const setFloorMaterial = (patch: Partial<MaterialSpec>) => onUpdate((r) => ({ ...r, floorMaterial: { ...(r.floorMaterial ?? {}), ...patch }, floorAutoKeys: manualKeys(r.floorAutoKeys, patch) }));
+  // Авто из ссылки: стираем только прежние авто-поля, ручные значения живут.
+  const autoMaterial = (specIn: Partial<MaterialSpec>) => onUpdate((r) => { const res = applyAutoSpec(r.material, r.autoKeys, specIn); return { ...r, material: res.spec, autoKeys: res.autoKeys }; });
+  const autoFloorMaterial = (specIn: Partial<MaterialSpec>) => onUpdate((r) => { const res = applyAutoSpec(r.floorMaterial ?? {}, r.floorAutoKeys, specIn); return { ...r, floorMaterial: res.spec, floorAutoKeys: res.autoKeys }; });
   // Кнопка «+ добавить размеры стены» вынесена ИЗ карточки (стоит на фоне страницы, как «+ размеры пола»).
   const addWall = () => onUpdate((r) => ({ ...r, surfaces: [...r.surfaces, { id: uid(), label: `Стена ${r.surfaces.length + 1}`, lengthM: 0, heightM: r.surfaces[0]?.heightM ?? 0, openings: [] }] }));
   const addWallBtn = <button type="button" className="chip chip--accent" onClick={addWall}>+ добавить размеры стены</button>;
 
   const wallLink = (
-    <LinkAutofill kind={kind} url={room.productUrl} onUrl={(u) => onUpdate((r) => ({ ...r, productUrl: u }))} spec={room.material} onSpec={setMaterial} />
+    <LinkAutofill kind={kind} url={room.productUrl} onUrl={(u) => onUpdate((r) => ({ ...r, productUrl: u }))} spec={room.material} onSpec={setMaterial} onAutoSpec={autoMaterial} autoKeys={room.autoKeys} />
   );
   const wallSizes = (
     <div className="card stack">
@@ -177,7 +182,7 @@ export function RoomPanel({
           {room.floor ? (
             <>
               <SectionHeader title="Плитка для пола" onRemove={removeFloor} />
-              <LinkAutofill kind={kind} url={room.floorProductUrl} onUrl={(u) => onUpdate((r) => ({ ...r, floorProductUrl: u }))} spec={room.floorMaterial ?? {}} onSpec={setFloorMaterial} />
+              <LinkAutofill kind={kind} url={room.floorProductUrl} onUrl={(u) => onUpdate((r) => ({ ...r, floorProductUrl: u }))} spec={room.floorMaterial ?? {}} onSpec={setFloorMaterial} onAutoSpec={autoFloorMaterial} autoKeys={room.floorAutoKeys} />
               <div className="card stack">
                 <FloorEditor floor={room.floor} onChange={(f) => onUpdate((r) => ({ ...r, floor: f }))} />
               </div>

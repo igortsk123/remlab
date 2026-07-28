@@ -89,6 +89,9 @@ export const room = z.object({
   productUrl: z.string().optional(),
   // Плитка/краска: учитывать окна и двери (вычитать проёмы). Выкл (undefined) → площадь полная.
   countOpenings: z.boolean().optional(),
+  // Какие ключи material/floorMaterial заполнены АВТО из ссылки (П5): новая ссылка стирает только их.
+  autoKeys: z.array(z.string()).optional(),
+  floorAutoKeys: z.array(z.string()).optional(),
   // Плитка: отдельная плитка для пола (стены — material/productUrl, пол — floorMaterial/floorProductUrl).
   floorMaterial: materialSpec.optional(),
   floorProductUrl: z.string().optional(),
