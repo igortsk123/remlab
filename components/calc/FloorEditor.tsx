@@ -11,11 +11,6 @@ const inp = {
   background: "var(--surface)", color: "var(--text)", fontSize: 15, width: "100%",
 } as const;
 
-// Крестик удаления зоны: без подчёркивания, приглушённый, у правого края.
-const xBtn = {
-  flex: "0 0 auto", border: "none", background: "none", color: "var(--muted)",
-  cursor: "pointer", fontSize: 20, lineHeight: 1, padding: "0 4px",
-} as const;
 
 type ZoneKey = "extraZones" | "excludedZones";
 
@@ -34,7 +29,7 @@ export function FloorEditor({ floor, onChange }: { floor: Floor; onChange: (f: F
           <div style={{ flex: 1, minWidth: 0 }}>
             <NumInput style={inp} placeholder="Ширина, м" value={z.widthM} onChange={(n) => patch({ [key]: floor[key].map((x) => (x.id === z.id ? { ...x, widthM: n ?? 0 } : x)) } as Partial<Floor>)} />
           </div>
-          <button type="button" style={xBtn} aria-label="удалить зону" onClick={() => patch({ [key]: floor[key].filter((x) => x.id !== z.id) } as Partial<Floor>)}>×</button>
+          <button type="button" className="icon-del" style={{ flex: "0 0 auto" }} aria-label="удалить зону" onClick={() => patch({ [key]: floor[key].filter((x) => x.id !== z.id) } as Partial<Floor>)}>×</button>
         </div>
       ))}
       <button type="button" className="chip" onClick={() => patch({ [key]: [...floor[key], { id: uid(), label: "", lengthM: 0, widthM: 0 }] } as Partial<Floor>)}>{key === "extraZones" ? "+ площадь" : "- площадь"}</button>

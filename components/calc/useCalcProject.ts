@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { CalcKind, CalcProject, Room } from "@/contracts/calc";
-import { loadProject, saveProject } from "@/lib/calc/storage";
+import { clearProject, loadProject, saveProject } from "@/lib/calc/storage";
 import { addRoom, duplicateRoom, removeRoom, renameRoom, updateRoom } from "@/lib/calc/state";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -33,6 +33,8 @@ export function useCalcProject(kind: CalcKind) {
   const duplicate = useCallback((id: string) => setProject((p) => duplicateRoom(p, id, uid, nowIso())), []);
   const update = useCallback((id: string, fn: (r: Room) => Room) => setProject((p) => updateRoom(p, id, fn, nowIso())), []);
   const reset = useCallback(() => setProject(initialProject(kind)), [kind]);
+  // «Новый расчёт»: очистить черновик localStorage и вернуть стартовый проект.
+  const clear = useCallback(() => { clearProject(kind); setProject(initialProject(kind)); }, [kind]);
 
-  return { project, add, remove, rename, duplicate, update, reset };
+  return { project, add, remove, rename, duplicate, update, reset, clear };
 }

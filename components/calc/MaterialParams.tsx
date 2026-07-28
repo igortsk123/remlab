@@ -10,10 +10,16 @@ const inp = {
 } as const;
 
 // Плейсхолдер по умолчанию — «0» (светло-серый через CSS input::placeholder): видно, где заполнено.
-function NumField({ label, value, onChange, ph = "0" }: { label: string; value: number | undefined; onChange: (v: number | undefined) => void; ph?: string }) {
+// tip — необязательная «?»-подсказка рядом с лейблом (hover/фокус-тап, как у иконки-двери обоев).
+function NumField({ label, value, onChange, ph = "0", tip }: { label: string; value: number | undefined; onChange: (v: number | undefined) => void; ph?: string; tip?: string }) {
   return (
     <label className="stack" style={{ flex: 1, minWidth: 120, gap: 4 }}>
-      <span className="eyebrow">{label}</span>
+      <span className="eyebrow">
+        {label}
+        {tip && (
+          <span className="help" tabIndex={0} role="note" aria-label={tip} data-tip={tip} style={{ marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>?</span>
+        )}
+      </span>
       <NumInput style={inp} placeholder={ph} value={value} onChange={onChange} />
     </label>
   );
@@ -58,7 +64,7 @@ export function MaterialParams({ kind, spec, onChange }: { kind: CalcKind; spec:
             <NumField label="Длина рулона, м" value={spec.rollLengthM} onChange={(v) => onChange({ rollLengthM: v })} />
           </div>
           <div className="row" style={{ gap: 8 }}>
-            <NumField label="Раппорт, м" value={spec.rapportM} onChange={(v) => onChange({ rapportM: v })} />
+            <NumField label="Раппорт, м" value={spec.rapportM} onChange={(v) => onChange({ rapportM: v })} tip="Раппорт — шаг повторения рисунка на обоях (указан на этикетке, в метрах). Чем больше раппорт, тем больше уходит на подгонку рисунка. Если рисунок подгонять не нужно — оставьте 0." />
             <NumField label="Цена/рулон, ₽" value={spec.pricePerRollRub} onChange={(v) => onChange({ pricePerRollRub: v })} />
           </div>
           <label className="row" style={{ gap: 8, alignItems: "center" }}>
@@ -75,7 +81,7 @@ export function MaterialParams({ kind, spec, onChange }: { kind: CalcKind; spec:
             <NumField label="Ширина плитки, см" value={mmToCm(spec.tileWidthMm)} onChange={(v) => onChange({ tileWidthMm: cmToMm(v) })} />
           </div>
           <div className="row" style={{ gap: 8 }}>
-            <NumField label="Шов, мм" value={spec.seamMm} onChange={(v) => onChange({ seamMm: v })} />
+            <NumField label="Шов, мм" value={spec.seamMm} onChange={(v) => onChange({ seamMm: v })} tip="Шов — зазор между плитками, который заполняют затиркой. Стандарт 2–3 мм (крупная плитка — до 5 мм). Слегка уменьшает количество плиток." />
             <NumField label="Шт/упаковка" value={spec.tilesPerPack} onChange={(v) => onChange({ tilesPerPack: v })} />
           </div>
           <TilePrice spec={spec} onChange={onChange} />

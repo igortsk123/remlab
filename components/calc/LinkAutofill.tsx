@@ -77,7 +77,11 @@ export function LinkAutofill({
         </span>
       )}
       {state === "done" && <span className="muted" style={{ fontSize: 13 }}>Готово: параметры заполнены, проверьте ниже.</span>}
-      {state === "error" && <span className="muted" style={{ fontSize: 13 }}>Не удалось прочитать страницу. Заполните параметры ниже (ссылка сохранена).</span>}
+      {state === "error" && (
+        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--danger)" }}>
+          Не удалось прочитать страницу — заполните параметры ниже вручную (ссылка сохранена).
+        </span>
+      )}
 
       <button type="button" className="quiz-link" style={{ fontSize: 13 }} onClick={() => setExpanded((v) => !v)}>
         {expanded ? "скрыть параметры" : "ввести параметры вручную"}

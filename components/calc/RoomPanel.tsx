@@ -111,10 +111,7 @@ export function RoomPanel({
   const addWallBtn = <button type="button" className="chip chip--accent" onClick={addWall}>+ добавить размеры стены</button>;
 
   const wallLink = (
-    <>
-      <LinkAutofill kind={kind} url={room.productUrl} onUrl={(u) => onUpdate((r) => ({ ...r, productUrl: u }))} spec={room.material} onSpec={setMaterial} />
-      <LeadCard kind={kind} url={room.productUrl} />
-    </>
+    <LinkAutofill kind={kind} url={room.productUrl} onUrl={(u) => onUpdate((r) => ({ ...r, productUrl: u }))} spec={room.material} onSpec={setMaterial} />
   );
   const wallSizes = (
     <div className="card stack">
@@ -181,7 +178,6 @@ export function RoomPanel({
             <>
               <SectionHeader title="Плитка для пола" onRemove={removeFloor} />
               <LinkAutofill kind={kind} url={room.floorProductUrl} onUrl={(u) => onUpdate((r) => ({ ...r, floorProductUrl: u }))} spec={room.floorMaterial ?? {}} onSpec={setFloorMaterial} />
-              <LeadCard kind={kind} url={room.floorProductUrl} />
               <div className="card stack">
                 <FloorEditor floor={room.floor} onChange={(f) => onUpdate((r) => ({ ...r, floor: f }))} />
               </div>
@@ -199,6 +195,9 @@ export function RoomPanel({
           {addWallBtn}
         </>
       )}
+
+      {/* Одна лид-карточка на комнату (у плитки не дублируем под стенами и полом). */}
+      <LeadCard kind={kind} url={room.productUrl ?? room.floorProductUrl} />
     </div>
   );
 }

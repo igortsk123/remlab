@@ -10,10 +10,12 @@ import { ResultView } from "./ResultView";
 import { VizCta } from "./VizCta";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+// Визуализация по фото — раздел за заглушкой до запуска (launch-p1); баннер скрыт тем же флагом.
+const SHOW_WIP = process.env.NEXT_PUBLIC_SHOW_WIP === "1";
 
 // Билдер калькулятора v2: мультикомната (К0) + геометрия (К1) + параметры/формулы (К2) + итог/смета (К3).
 export function CalcBuilder({ kind }: { kind: CalcKind }) {
-  const { project, add, remove, update } = useCalcProject(kind);
+  const { project, add, remove, update, clear } = useCalcProject(kind);
   const [activeId, setActiveId] = useState<string | null>(null);
 
   const activeIdSafe =
@@ -34,6 +36,12 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
         <span>Площадь: <strong>{totalNet} м²</strong></span>
         {qtyUnit && totalQty > 0 && <span>Нужно: <strong>{totalQty} {pluralUnit(qtyUnit, totalQty)}</strong></span>}
         {totalCost > 0 && <span>≈ <strong>{totalCost.toLocaleString("ru-RU")} ₽</strong></span>}
+        {/* Единая подсказка «что дальше» — одинаково во всех 4 видах. */}
+        {totalNet <= 0 ? (
+          <span className="muted" style={{ fontSize: 13 }}>→ заполните размеры, чтобы посчитать</span>
+        ) : totalCost <= 0 ? (
+          <span className="muted" style={{ fontSize: 13 }}>→ укажите цену товара, чтобы увидеть стоимость</span>
+        ) : null}
       </div>
 
       <div className="row" style={{ gap: 8 }}>
@@ -49,6 +57,15 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
           </button>
         ))}
         <button type="button" className="chip" onClick={add}>+ Комната</button>
+        <span className="spacer" />
+        <button
+          type="button"
+          className="quiz-link"
+          style={{ alignSelf: "center" }}
+          onClick={() => { if (window.confirm("Начать новый расчёт? Текущий черновик будет очищен.")) clear(); }}
+        >
+          новый расчёт
+        </button>
       </div>
 
       {active && (
@@ -82,7 +99,7 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
         </ul>
       </div>
 
-      <VizCta />
+      {SHOW_WIP && <VizCta />}
     </div>
   );
 }
