@@ -34,7 +34,9 @@ test("калькулятор → смета → своя ссылка → /go/",
   await expect(goLink).toHaveAttribute("href", /^\/go\//);
 });
 
-test("сколько стоит ремонт — вилка трёх бюджетов + регион", async ({ page }) => {
+// SKIP: /calc/remont закрыт заглушкой ComingSoon до запуска (launch-p1-vitrina, флаг NEXT_PUBLIC_SHOW_WIP).
+// Вилка бюджетов спрятана — тест бьёт по заглушке. Снять skip, когда раздел включат (SHOW_WIP=1).
+test.skip("сколько стоит ремонт — вилка трёх бюджетов + регион", async ({ page }) => {
   await page.goto("/calc/remont?area=18&depth=update&region=million");
   // карточки вариантов (strong), exact чтобы «Средний» не совпал с опцией «Средний город»
   await expect(page.getByText("Эконом", { exact: true })).toBeVisible();

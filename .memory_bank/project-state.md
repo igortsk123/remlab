@@ -36,7 +36,8 @@ last_verified: 2026-07-22
   `./deploy.sh` из `main` (прод == main). Контейнеры: `remlab-app`,
   `remlab-caddy`, `remlab-db` (pg17+pgvector), `remlab-imagor`. LE-cert до 2026-09-29. Секреты —
   только `/opt/remlab/.env`. Бэкапы БД: `/opt/remlab/backups/`. Откат: образ `remlab-app:prev`.
-- **Репозиторий:** github.com/igortsk123/remlab (`main`, deploy key `~/.ssh/remlab_deploy_ed25519`).
+- **Репозиторий:** github.com/igortsk123/remlab (`main`, CI-deploy-ключ `~/.ssh/remlab_ci_deploy` —
+  авторизован на сервере как `remlab-ci-deploy`; для секрета `DEPLOY_SSH_KEY`. `remlab_deploy_ed25519` НЕ авторизован).
   CI: GitHub Actions гейт.
 - **Память (инфра):** кит Memory Bank **v1.3.0** (2026-07-12, план `completed_plans/kit-align-v13`).
   Аудит ловит CODE-REF (память↔код) и FROZEN-MEMORY; CI `.github/workflows/memory-audit.yml` в режиме

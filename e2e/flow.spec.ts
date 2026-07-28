@@ -10,7 +10,9 @@ const PNG = Buffer.from(
   "base64",
 );
 
-test("полный путь: фото → разбор → превью → оплата → мои комнаты", async ({ page }) => {
+// SKIP: /start закрыт заглушкой ComingSoon до запуска (launch-p1-vitrina, флаг NEXT_PUBLIC_SHOW_WIP).
+// Весь AI-флоу спрятан — тест бьёт по заглушке. Снять skip, когда раздел включат (SHOW_WIP=1).
+test.skip("полный путь: фото → разбор → превью → оплата → мои комнаты", async ({ page }) => {
   await page.goto("/start");
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Что хотите сделать");
   await page.getByRole("button", { name: "Продолжить" }).click();
