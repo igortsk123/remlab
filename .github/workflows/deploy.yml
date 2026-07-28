@@ -21,7 +21,9 @@ env:
 jobs:
   deploy:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
-    runs-on: ubuntu-latest
+    # Нативный arm64-раннер (repo PUBLIC → бесплатно): собираем БЕЗ QEMU-эмуляции.
+    # Эмуляция arm64 крашила Next-SWC-воркер (qemu SIGILL). Нативная сборка стабильна и быстра.
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       packages: write
@@ -40,8 +42,6 @@ jobs:
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - if: steps.gate.outputs.ready == 'true'
-        uses: docker/setup-qemu-action@v3
       - if: steps.gate.outputs.ready == 'true'
         uses: docker/setup-buildx-action@v3
       - if: steps.gate.outputs.ready == 'true'
