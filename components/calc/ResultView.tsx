@@ -46,7 +46,7 @@ export function ResultView({ project }: { project: CalcProject }) {
         disabled={pending}
         onClick={() => startTransition(() => { void saveCalcEstimate(project); })}
       >
-        {pending ? "Сохраняем…" : "Сохранить смету"}
+        {pending ? "Сохраняем…" : "Сохранить в Мою лабораторию"}
       </button>
       <p className="note">Считаем с запасом на подрезку. Проверьте перед покупкой.</p>
     </div>

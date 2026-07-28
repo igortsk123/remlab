@@ -65,6 +65,13 @@ a { color: inherit; }
 }
 .soon-badge--onfill { background: rgba(251, 248, 243, 0.28); color: var(--surface); }
 
+/* Счётчик сохранённых расчётов у «Моей лаборатории» (шапка/плитка) — тёплый акцент. */
+.lab-badge {
+  display: inline-block; margin-left: 8px; min-width: 20px; padding: 2px 7px; border-radius: 999px;
+  background: var(--accent-strong); color: var(--surface);
+  font-size: 12px; font-weight: 700; text-align: center; vertical-align: middle; line-height: 1.4;
+}
+
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   border: 1px solid transparent; border-radius: 999px;

@@ -6,13 +6,14 @@ import { cookies } from "next/headers";
 import { randomUUID } from "node:crypto";
 
 const COOKIE = "remlab_sid";
+const MAX_AGE = 60 * 60 * 24 * 30; // 30 дней (решение владельца, launch-p2); продлевается при активности
 
 export async function getSessionId(): Promise<string> {
   const jar = await cookies();
   const existing = jar.get(COOKIE)?.value;
-  if (existing) return existing;
-  const sid = randomUUID();
-  jar.set(COOKIE, sid, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365 });
+  const sid = existing ?? randomUUID();
+  // Продление при активности: каждый server action сдвигает срок ещё на 30 дней.
+  jar.set(COOKIE, sid, { httpOnly: true, sameSite: "lax", path: "/", maxAge: MAX_AGE });
   return sid;
 }
 

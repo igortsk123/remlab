@@ -96,7 +96,7 @@ export default async function EstimatePage({
       </div>
 
       <p style={{ marginTop: 24 }}>
-        <Link className="muted" href="/estimates">Мои сметы</Link> · <Link className="muted" href="/calc">Ещё калькулятор</Link>
+        <Link className="muted" href="/lab">🧪 Моя лаборатория</Link> · <Link className="muted" href="/calc">Ещё калькулятор</Link>
       </p>
     </main>
   );

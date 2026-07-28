@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
+import { LabBadge } from "@/components/LabBadge";
 
 // Сквозная шапка на всех страницах. Все разделы на виду; две кнопки-калькулятора выделены
 // (залитые пилюли), остальные — лёгкие ссылки. Активный раздел подсвечивается. На узком экране
@@ -46,7 +47,7 @@ export function SiteHeader() {
         <div className="site-header-top">
           <Link href="/" className="site-brand">remont-lab</Link>
           <Link href="/lab" className={`nav-link${labActive ? " nav-link--active" : ""}`}>
-            Моя лаборатория
+            Моя лаборатория<LabBadge />
           </Link>
         </div>
         <nav className="site-nav" aria-label="Разделы сайта">

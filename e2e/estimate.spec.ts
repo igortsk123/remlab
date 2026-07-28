@@ -14,7 +14,7 @@ test("калькулятор → смета → своя ссылка → /go/",
 
   // Итог со склонённым количеством рулонов → сохранить в смету (редирект на /e/[id]).
   await expect(page.getByText(/\d+ рулон/).first()).toBeVisible();
-  await page.getByRole("button", { name: "Сохранить смету" }).click();
+  await page.getByRole("button", { name: "Сохранить в Мою лабораторию" }).click();
 
   // Страница сметы
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Смета", { timeout: 15_000 });

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LabBadge } from "@/components/LabBadge";
 
 export const metadata = {
   title: "remont-lab: посчитать материалы для ремонта и собрать смету",
@@ -38,7 +39,11 @@ export default function Home() {
         {SCENARIOS.map((s) => (
           <Link key={s.href} href={s.href} className="card stack" style={{ textDecoration: "none", gap: 6 }}>
             <span style={{ fontSize: 28 }}>{s.icon}</span>
-            <strong>{s.title}{s.soon && <span className="soon-badge">Скоро</span>}</strong>
+            <strong>
+              {s.title}
+              {s.soon && <span className="soon-badge">Скоро</span>}
+              {s.href === "/lab" && <LabBadge />}
+            </strong>
             <span className="muted" style={{ fontSize: 14 }}>{s.desc}</span>
           </Link>
         ))}
