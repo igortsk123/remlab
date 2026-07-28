@@ -35,10 +35,9 @@ N. [YYYY-MM-DD] <ситуация> → пробовали <подход> → н�
    инстансов, кэш расходится → правило: кэш только в общем сторе (Redis) или на уровне БД.
 -->
 
-1. [2026-07-28] `./deploy.sh` (arm64 под QEMU, ~14 ГБ) роняет DEV-VM `pakardev` (2.7 ГБ) по OOM →
-   терялся SSH. **Решение:** авто-деплой `deploy.yml` на **нативном `ubuntu-24.04-arm`** (repo public;
-   QEMU-эмуляция крашила Next-SWC `SIGILL` и в раннере — убрал `setup-qemu`) — секрет `DEPLOY_SSH_KEY`
-   задан (ключ `remlab_ci_deploy`, НЕ `remlab_deploy_ed25519`). `./deploy.sh` НЕ использовать (OOM'ит VM).
-   DEV-VM защищена: swap 4 ГБ, swappiness=10, `earlyoom` (sshd в `--avoid`).
+1. [2026-07-28] `./deploy.sh` (arm64 под QEMU) OOM'ит DEV-VM `pakardev` (2.7 ГБ) → терялся SSH; QEMU
+   и в GitHub-раннере крашил Next-SWC `SIGILL`. **Решение:** авто-деплой `deploy.yml` на нативном
+   `ubuntu-24.04-arm` (без QEMU), секрет `DEPLOY_SSH_KEY`=ключ `remlab_ci_deploy`. `./deploy.sh` не
+   использовать. DEV-VM: swap 4 ГБ, swappiness=10, `earlyoom` (sshd в `--avoid`).
 
 **Tier 2:** ../anti-patterns.md — каталог код-граблей с детектами для ревью.
