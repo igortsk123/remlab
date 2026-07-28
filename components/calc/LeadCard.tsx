@@ -16,7 +16,7 @@ export function LeadCard({ kind, url }: { kind: CalcKind; url: string | undefine
   return (
     <div className="card stack lead-card">
       <strong style={{ fontSize: 15 }}>Найдём этот товар дешевле</strong>
-      <span className="muted" style={{ fontSize: 13 }}>
+      <span className="muted" style={{ fontSize: 14 }}>
         Оставьте e-mail или подпишитесь на бота: сообщим, когда найдём выгоднее, и подскажем, чем дополнить.
       </span>
       <div className="row" style={{ gap: 8 }}>

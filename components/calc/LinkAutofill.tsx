@@ -67,23 +67,23 @@ export function LinkAutofill({
       {/* Шаг 1 — ссылка: выгода вперёд, чтобы охотнее вставляли (→ реф-ссылка). */}
       <div className="stack" style={{ gap: 4 }}>
         <strong style={{ fontSize: 17 }}>Вставьте ссылку на {CALC_META[kind].acc}, заполним параметры за вас</strong>
-        <span className="muted" style={{ fontSize: 13 }}>Не придётся вводить размеры и цену вручную.</span>
+        <span className="muted" style={{ fontSize: 14 }}>Не придётся вводить размеры и цену вручную.</span>
       </div>
 
       <input style={inp} placeholder="Ссылка на товар из магазина" value={value} onChange={(e) => setValue(e.target.value)} />
       {state === "loading" && (
-        <span className="muted" style={{ fontSize: 13, display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <span className="muted" style={{ fontSize: 14, display: "inline-flex", alignItems: "center", gap: 8 }}>
           <span className="spinner" aria-hidden="true" /> Читаем страницу…
         </span>
       )}
-      {state === "done" && <span className="muted" style={{ fontSize: 13 }}>Готово: параметры заполнены, проверьте ниже.</span>}
+      {state === "done" && <span className="muted" style={{ fontSize: 14 }}>Готово: параметры заполнены, проверьте ниже.</span>}
       {state === "error" && (
         <span style={{ fontSize: 14, fontWeight: 600, color: "var(--danger)" }}>
           Не удалось прочитать страницу — заполните параметры ниже вручную (ссылка сохранена).
         </span>
       )}
 
-      <button type="button" className="quiz-link" style={{ fontSize: 13 }} onClick={() => setExpanded((v) => !v)}>
+      <button type="button" className="quiz-link" style={{ fontSize: 14 }} onClick={() => setExpanded((v) => !v)}>
         {expanded ? "скрыть параметры" : "ввести параметры вручную"}
       </button>
       {expanded && <MaterialParams kind={kind} spec={spec} onChange={onSpec} />}

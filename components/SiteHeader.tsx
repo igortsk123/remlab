@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
 import { LabBadge } from "@/components/LabBadge";
+import { ZoomControl } from "@/components/ZoomControl";
 
 // Сквозная шапка на всех страницах. Все разделы на виду; две кнопки-калькулятора выделены
 // (залитые пилюли), остальные — лёгкие ссылки. Активный раздел подсвечивается. На узком экране
@@ -46,9 +47,12 @@ export function SiteHeader() {
       <div className="site-header-inner">
         <div className="site-header-top">
           <Link href="/" className="site-brand">remont-lab</Link>
-          <Link href="/lab" className={`nav-link${labActive ? " nav-link--active" : ""}`}>
-            Моя лаборатория<LabBadge />
-          </Link>
+          <span className="row" style={{ gap: 10, alignItems: "center", flexWrap: "nowrap" }}>
+            <ZoomControl />
+            <Link href="/lab" className={`nav-link${labActive ? " nav-link--active" : ""}`} style={{ padding: "8px 0" }}>
+              Моя лаборатория<LabBadge />
+            </Link>
+          </span>
         </div>
         <nav className="site-nav" aria-label="Разделы сайта">
           <Link href="/calc" className={`nav-cta${materialsActive ? " nav-cta--active" : ""}`}>

@@ -20,6 +20,14 @@ const APP_VERSION = process.env.APP_VERSION ?? "dev";
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="ru">
+      <head>
+        {/* Анти-FOUC масштаба (П4): применяем сохранённый data-font-scale ДО первой отрисовки. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var s=localStorage.getItem('remlab-font-scale');if(s==='L'||s==='XL'||s==='XXL'){document.documentElement.setAttribute('data-font-scale',s);}}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body>
         <SiteHeader />
         {children}

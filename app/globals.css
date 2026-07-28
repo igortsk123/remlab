@@ -21,6 +21,16 @@
 
 * { box-sizing: border-box; }
 
+/* ═══ Масштаб (П4): screen-zoom — большие экраны; user-zoom — контрол 100–130% (data-font-scale).
+   Через CSS zoom, т.к. вёрстка в px: масштабируется всё. Нет поддержки → остаётся 100%. ═══ */
+:root { --screen-zoom: 1; --user-zoom: 1; }
+@media (min-width: 1920px) { :root { --screen-zoom: 1.08; } }
+@media (min-width: 2560px) { :root { --screen-zoom: 1.15; } }
+html[data-font-scale="L"] { --user-zoom: 1.1; }
+html[data-font-scale="XL"] { --user-zoom: 1.2; }
+html[data-font-scale="XXL"] { --user-zoom: 1.3; }
+body { zoom: calc(var(--screen-zoom) * var(--user-zoom)); }
+
 html, body {
   margin: 0;
   background: var(--bg);
@@ -130,6 +140,19 @@ img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(-
   display: flex; flex-direction: column; gap: 10px;
 }
 .site-header-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+/* Контрол масштаба в шапке: − 100% + (компактный, доступный). */
+.zoom-control {
+  display: inline-flex; align-items: center; gap: 2px;
+  border: 1px solid var(--border); border-radius: 999px; padding: 2px 4px;
+}
+.zoom-control button {
+  border: none; background: none; cursor: pointer; color: var(--text);
+  font-size: 16px; line-height: 1; min-width: 28px; min-height: 28px; border-radius: 999px;
+}
+.zoom-control button:hover:not(:disabled) { background: rgba(196, 181, 165, 0.2); }
+.zoom-control button:disabled { color: var(--border); cursor: default; }
+.zoom-control-value { font-size: 12px; font-weight: 600; min-width: 36px; text-align: center; font-variant-numeric: tabular-nums; }
 .site-brand { font-size: 18px; font-weight: 700; letter-spacing: 0.02em; text-decoration: none; color: var(--text); }
 
 /* Полоса разделов: на узком экране прокручивается вбок (без «гамбургера»), страница не едет. */
