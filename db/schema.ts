@@ -2,7 +2,7 @@
 // session_id вынесен колонкой для выборок workspace. Расширение на нормальные таблицы — позже.
 // Трейсинг пайплайна (ADR-0013): runs/steps/assets — подробный лог каждого вызова LLM.
 
-import { pgTable, text, jsonb, timestamp, integer, doublePrecision, boolean, index } from "drizzle-orm/pg-core";
+import { pgTable, text, jsonb, timestamp, integer, bigint, doublePrecision, boolean, index } from "drizzle-orm/pg-core";
 import type { Project } from "@/contracts/project";
 import type { Estimate } from "@/contracts/estimate";
 
@@ -133,7 +133,26 @@ export const leads = pgTable(
     city: text("city"),
     kind: text("kind"),
     sessionId: text("session_id"),
+    // П7 лид-канал: номер заявки (sequence в SQL), регион по IP, чат мессенджера, статус.
+    leadNo: integer("lead_no"),
+    ipRegion: text("ip_region"),
+    messengerChatId: text("messenger_chat_id"),
+    status: text("status"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("leads_session_idx").on(t.sessionId)],
+);
+
+// Сообщения по заявке (П7): маппинг «сообщение в служебном TG-боте ↔ заявка» для ответов реплаем.
+export const leadMessages = pgTable(
+  "lead_messages",
+  {
+    id: text("id").primaryKey(),
+    leadId: text("lead_id").notNull(),
+    direction: text("direction").notNull(), // in | out
+    text: text("text").notNull(),
+    adminTgMessageId: bigint("admin_tg_message_id", { mode: "number" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("lead_messages_lead_idx").on(t.leadId), index("lead_messages_admin_msg_idx").on(t.adminTgMessageId)],
 );

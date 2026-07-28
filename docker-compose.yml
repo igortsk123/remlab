@@ -54,6 +54,14 @@ services:
       # ИИ-фолбэк парсинга ссылок (ADR-0026): дочитываем недостающие поля товара через OpenAI.
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_EXTRACT_MODEL=${OPENAI_EXTRACT_MODEL:-gpt-4o-mini}
+      # П7 лид-канал (боты/почта; пусто → деградация)
+      - LEADS_ADMIN_TG_TOKEN=${LEADS_ADMIN_TG_TOKEN:-}
+      - LEADS_ADMIN_TG_CHAT_ID=${LEADS_ADMIN_TG_CHAT_ID:-}
+      - LEADS_CLIENT_TG_TOKEN=${LEADS_CLIENT_TG_TOKEN:-}
+      - LEADS_TG_WEBHOOK_SECRET=${LEADS_TG_WEBHOOK_SECRET:-}
+      - LEADS_MAX_TOKEN=${LEADS_MAX_TOKEN:-}
+      - LEADS_SMTP_USER=${LEADS_SMTP_USER:-}
+      - LEADS_SMTP_PASS=${LEADS_SMTP_PASS:-}
       # Трейсинг пайплайна (ADR-0013): картинки-ассеты на томе, сжатие через imagor.
       - TRACE_DIR=/app/data/traces
       - IMAGOR_BASE_URL=http://remlab-imagor:8000

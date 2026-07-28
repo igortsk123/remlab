@@ -379,3 +379,17 @@ Kerama 74×150мм/2246 за м², Керамогранит 600×1200мм/4790 �
 (стены всегда открыты, пол за кнопкой) путал; закрытые секции дают чистый выбор «что облицовываем».
 Только `kind==="plitka"`; прочие виды — одна секция. **Влияет на:** `components/calc/RoomPanel.tsx`,
 `components/calc/CalcBuilder.tsx`.
+
+## [2026-07-28] Лид-канал «найдём дешевле» через служебный TG-бот — ADR-0028
+**Решение (П7):** три чипа (TG/MAX/почта) → одна модалка с ГОРОДОМ (справочник ~1106 городов РФ,
+hflabs CC BY-SA, автокомплит через `/api/leads/cities`); заявка (`leads`: leadNo-sequence, канал,
+город, ip_region, `lead_messages` для reply-маппинга) → карточка владельцу в СЛУЖЕБНЫЙ TG-бот;
+ответ владельца РЕПЛАЕМ → клиенту в его канал: SMTP-письмо (Яндекс) / клиентский TG-бот / MAX
+(деградация до токена). Deep-link `?start=<lead.id>` привязывает чат (боты не пишут первыми —
+ограничение платформ). Все токены — только `/opt/remlab/.env`; БЕЗ токенов каналы деградируют
+(заявка сохраняется). Вебхуки защищены X-Telegram-Bot-Api-Secret-Token. ПДн — TODO.
+**Влияет на:** `lib/leads/*`, `app/api/leads/*`, `modules/leads/repository.ts`, `db/schema.ts`,
+`db/init/005-leads.sql`, `components/calc/{LeadModal,LeadCard}.tsx`, `app/lead-actions.ts`,
+`data/ru-cities.json`+`tools/update-cities.mjs`, `docker-compose.yml`, `.github/workflows/deploy.yml`
+(миграции — ВСЕ db/init/*.sql), `core/leads.md`.
+

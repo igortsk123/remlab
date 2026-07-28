@@ -2,16 +2,12 @@
 
 import { useState } from "react";
 import type { CalcKind } from "@/contracts/calc";
-import { LeadModal } from "./LeadModal";
+import { LeadModal, type LeadChannel } from "./LeadModal";
 
-const TG_BOT = process.env.NEXT_PUBLIC_TELEGRAM_BOT;
-const MAX_BOT = process.env.NEXT_PUBLIC_MAX_BOT;
-
-// Выделенная карточка «Найдём этот товар дешевле»: контакт (боты/почта) под конкретный товар (url).
+// Выделенная карточка «Найдём этот товар дешевле» (П7): любой из трёх чипов открывает ОДНУ модалку
+// с городом; канал определяет хвост (e-mail поле / кнопки подписки на бота после заявки).
 export function LeadCard({ kind, url }: { kind: CalcKind; url: string | undefined }) {
-  const [modal, setModal] = useState(false);
-  const tgHref = TG_BOT ? `https://t.me/${TG_BOT}` : null;
-  const maxHref = MAX_BOT ? `https://max.ru/${MAX_BOT}` : null;
+  const [channel, setChannel] = useState<LeadChannel | null>(null);
 
   return (
     <div className="card stack lead-card">
@@ -20,15 +16,11 @@ export function LeadCard({ kind, url }: { kind: CalcKind; url: string | undefine
         Оставьте e-mail или подпишитесь на бота: сообщим, когда найдём выгоднее, и подскажем, чем дополнить.
       </span>
       <div className="row" style={{ gap: 8 }}>
-        {tgHref
-          ? <a className="chip" href={tgHref} target="_blank" rel="noopener noreferrer">Телеграм</a>
-          : <button type="button" className="chip">Телеграм</button>}
-        {maxHref
-          ? <a className="chip" href={maxHref} target="_blank" rel="noopener noreferrer">MAX</a>
-          : <button type="button" className="chip">MAX</button>}
-        <button type="button" className="chip" onClick={() => setModal(true)}>✉ Сообщить по почте</button>
+        <button type="button" className="chip" onClick={() => setChannel("tg")}>Телеграм</button>
+        <button type="button" className="chip" onClick={() => setChannel("max")}>MAX</button>
+        <button type="button" className="chip" onClick={() => setChannel("email")}>✉ Сообщить по почте</button>
       </div>
-      {modal && <LeadModal kind={kind} url={url} onClose={() => setModal(false)} />}
+      {channel && <LeadModal kind={kind} url={url} channel={channel} onClose={() => setChannel(null)} />}
     </div>
   );
 }

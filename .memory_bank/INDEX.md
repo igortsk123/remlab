@@ -18,6 +18,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт ремонта/м�
 | Деплой/откат/сервер exit-fi — playbook | `deployment.md` | — |
 | Смета-лист (ядро v0.4) — калькуляторы (вход А), стоимость ремонта (вход Б), чек-лист, /go/ реф | `core/estimate.md` | `../domain/pricing-works-ru.md` |
 | Цели продукта — v0.4 «Смета-first»; fit-ветка — отложена (архив) | `core/goals.md` | `../goals-one-photo-furnish-fit.md` |
+| Лид-канал «найдём дешевле» — заявка, служебный TG-бот, ответ реплаем | `core/leads.md` | — |
 | Перед планированием — уроки; что пробовали и что НЕ сработало, отброшенные подходы | `core/lessons.md` | `../anti-patterns.md` |
 | Рынок RU/UK — спрос, конкуренты, монетизация, оценки, контекст основателя | `core/market.md` | `../domain/market-research.md` |
 | Привлечение/реклама — Яндекс (Директ/Метрика/Вордстат), семантика ниши, сезонность, стратегия | `core/marketing-acquisition.md` | `../domain/wordstat-semantics.md` |
@@ -32,8 +33,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт ремонта/м�
 `deployment.md` (деплой/откат exit-fi).
 
 ## Ключевые исходники
-`docs/master-brief-v0.3.md` — бизнес v0.3 (истор.) · `docs/tech-spec-ts-stack.md` — инж. спека ·
-`docs/cjm-ux-v0.2.md` — CJM/экраны · `docs/market-research-ru-uk.md` — рынок · `docs/DECISIONS.md` — ADR.
+`docs/`: tech-spec-ts-stack (инж. спека) · DECISIONS (ADR) · master-brief-v0.3, cjm-ux-v0.2, market-research (истор.).
 
 ## Планы
 **Мастер: `plans/MASTER-cost-first.md`** (v0.4 «Смета-first», ADR-0016; М0–М7, сценарий,

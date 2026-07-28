@@ -26,14 +26,15 @@ review_after: ""
 | imagor | активен (ADR-0013) | сжатие картинок, internal-only | ключей НЕТ (unsafe); URL в compose | `lib/images/compress.ts` |
 | GHCR/CI | частично (ADR-0011) | образы + авто-деплой | `GITHUB_TOKEN`; SSH `~/.ssh/remlab_ci_deploy` | GitHub Actions |
 | Яндекс (WS/Директ/Метрика) | доступ ✅ | семантика/реклама/аналитика | `_secrets/ACCESS.md` (вне git) | кода нет, curl |
-| YooKassa | код-скелет, БЕЗ ключей (К5) | оплата 60₽ визуализации | `YOOKASSA_SHOP_ID/SECRET_KEY` не заданы | `lib/payments/yookassa.ts`, webhook `app/api/pay/yookassa/webhook` |
+| Лид-канал П7 | скелет до токенов | заявки+диалог | `LEADS_*` в `/opt/remlab/.env` — `[[leads]]` | `lib/leads/*` |
+| YooKassa | код-скелет, БЕЗ ключей (К5) | оплата 60₽ визуализации | `YOOKASSA_SHOP_ID/SECRET_KEY` не заданы | `lib/payments/yookassa.ts` |
 
 ## Ключевые факты
 - **Gemini:** один ключ на обе задачи; модели `gemini-3.1-flash-image` и `gemini-flash-latest`.
 - **OpenAI (ADR-0026):** ИИ-фолбэк парсинга ссылок — `chat/completions`, `OPENAI_EXTRACT_MODEL`
   (дефолт `gpt-4o-mini`); `OPENAI_API_KEY` в `/opt/remlab/.env` (тот же, что у ads-watchdog).
-- **PostHog:** free 1M событий/мес; Sentry не заводим. На проде не включён (нет `POSTHOG_*` в compose).
-- **CI:** **секрет `DEPLOY_SSH_KEY` НЕ задан → авто-деплой пропускает шаги** (катим вручную `./deploy.sh`).
-- **Яндекс:** общий аккаунт; Direct-токен до ≈2027-04; Метрика `110599064`; кампании Этапов 1–4 (чужую `708745261` не трогать). [[marketing-acquisition]].
+- **PostHog:** free 1M/мес; Sentry нет. На проде не включён (нет `POSTHOG_*`).
+- **CI:** авто-деплой РАБОТАЕТ (2026-07-28): `DEPLOY_SSH_KEY` задан, нативный arm64-раннер.
+- **Яндекс:** общий аккаунт; Метрика `110599064`; чужую кампанию `708745261` не трогать. [[marketing-acquisition]].
 
 **Tier 2:** `../domain/integrations.md` (эндпоинты, форматы, env, цены). Решения — `decisions.md` (ADR-0007/0011/0012/0013).

@@ -1,9 +1,16 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+// Единая модалка «Найдём дешевле» (П7): для всех трёх каналов — город (автокомплит по справочнику РФ);
+// для почты — плюс e-mail. После отправки: почта — «спасибо»; TG/MAX — кнопки «Подписаться…» с
+// deep-link `/start <код заявки>` (боты не могут писать первым — нужен Start; решение владельца:
+// показываем ОБЕ кнопки). Закрытие: backdrop, «×», Esc.
+
+import { useEffect, useRef, useState, useTransition } from "react";
 import type { CalcKind } from "@/contracts/calc";
 import { captureLead } from "@/app/lead-actions";
 
+const TG_BOT = process.env.NEXT_PUBLIC_TELEGRAM_BOT;
+const MAX_BOT = process.env.NEXT_PUBLIC_MAX_BOT;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const inp = {
@@ -11,14 +18,24 @@ const inp = {
   background: "var(--surface)", color: "var(--text)", fontSize: 15, width: "100%",
 } as const;
 
-// Модалка «Сообщить по почте»: e-mail (проверка маски) + согласие → лид. Закрытие: backdrop, «×», Esc.
-export function LeadModal({ kind, url, onClose }: { kind: CalcKind; url?: string; onClose: () => void }) {
+export type LeadChannel = "email" | "tg" | "max";
+
+type CityHit = { name: string; region: string };
+
+export function LeadModal({ kind, url, channel, onClose }: { kind: CalcKind; url?: string; channel: LeadChannel; onClose: () => void }) {
+  const [city, setCity] = useState("");
+  const [hits, setHits] = useState<CityHit[]>([]);
+  const [showHits, setShowHits] = useState(false);
   const [email, setEmail] = useState("");
   const [consent, setConsent] = useState(false);
-  const [done, setDone] = useState(false);
+  const [done, setDone] = useState<{ leadNo: number | null; startCode: string } | null>(null);
   const [error, setError] = useState(false);
   const [pending, startTransition] = useTransition();
-  const valid = EMAIL_RE.test(email.trim());
+  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const needEmail = channel === "email";
+  const emailOk = !needEmail || EMAIL_RE.test(email.trim());
+  const cityOk = city.trim().length >= 2;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -26,37 +43,101 @@ export function LeadModal({ kind, url, onClose }: { kind: CalcKind; url?: string
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Автокомплит города: подсказки с сервера (справочник ~1100 городов РФ).
+  function onCity(v: string) {
+    setCity(v);
+    if (debounce.current) clearTimeout(debounce.current);
+    debounce.current = setTimeout(async () => {
+      if (v.trim().length < 2) { setHits([]); return; }
+      try {
+        const res = await fetch(`/api/leads/cities?q=${encodeURIComponent(v.trim())}`);
+        const data = await res.json();
+        setHits(Array.isArray(data?.cities) ? data.cities : []);
+        setShowHits(true);
+      } catch { setHits([]); }
+    }, 250);
+  }
+
   function submit() {
-    if (!valid || !consent) return;
+    if (!cityOk || !emailOk || !consent) return;
     setError(false);
     startTransition(async () => {
-      const res = await captureLead({ email: email.trim(), urls: url ? [url] : undefined, kind, consent });
-      if (res.ok) { setDone(true); setTimeout(onClose, 1300); }
+      const res = await captureLead({ channel, email: needEmail ? email.trim() : undefined, city: city.trim(), urls: url ? [url] : undefined, kind, consent });
+      if (res.ok) setDone({ leadNo: res.leadNo, startCode: res.startCode });
       else setError(true);
     });
   }
 
+  const tgHref = TG_BOT && done ? `https://t.me/${TG_BOT}?start=${done.startCode}` : null;
+  const maxHref = MAX_BOT && done ? `https://max.ru/${MAX_BOT}?start=${done.startCode}` : null;
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Сообщить по почте">
+      <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Найдём дешевле">
         <button type="button" className="modal-close" aria-label="Закрыть" onClick={onClose}>×</button>
         {done ? (
-          <p style={{ margin: 0 }}>Спасибо! Поищем выгоднее и пришлём варианты на почту.</p>
+          <div className="stack" style={{ gap: 10 }}>
+            <p style={{ margin: 0 }}>
+              Заявка{done.leadNo ? ` #${done.leadNo}` : ""} принята! Ищем, где дешевле в вашем городе.
+            </p>
+            {channel === "email" ? (
+              <p className="muted" style={{ margin: 0, fontSize: 14 }}>Пришлём варианты на почту.</p>
+            ) : (
+              <>
+                <p className="muted" style={{ margin: 0, fontSize: 14 }}>
+                  Чтобы мы могли вам написать, подпишитесь на бота и нажмите в нём <strong>Start</strong> — без этого мессенджер не даёт боту отправить сообщение.
+                </p>
+                <div className="row" style={{ gap: 8 }}>
+                  {tgHref
+                    ? <a className="btn btn-secondary" href={tgHref} target="_blank" rel="noopener noreferrer">Подписаться в Телеграм</a>
+                    : <button type="button" className="btn btn-secondary" disabled>Телеграм скоро</button>}
+                  {maxHref
+                    ? <a className="btn btn-secondary" href={maxHref} target="_blank" rel="noopener noreferrer">Подписаться в MAX</a>
+                    : <button type="button" className="btn btn-secondary" disabled>MAX скоро</button>}
+                </div>
+              </>
+            )}
+          </div>
         ) : (
           <div className="stack" style={{ gap: 10 }}>
-            <p className="eyebrow" style={{ margin: 0 }}>Сообщить по почте</p>
-            <p className="muted" style={{ margin: 0, fontSize: 14 }}>Оставьте e-mail, найдём, где дешевле, и пришлём варианты.</p>
-            <input style={inp} type="email" inputMode="email" placeholder="E-mail" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <p className="eyebrow" style={{ margin: 0 }}>Найдём дешевле</p>
+            <p className="muted" style={{ margin: 0, fontSize: 14 }}>Где искать? Укажите город — сравним магазины рядом с вами и онлайн.</p>
+
+            <div style={{ position: "relative" }}>
+              <input
+                style={inp}
+                placeholder="Ваш город"
+                value={city}
+                onChange={(e) => onCity(e.target.value)}
+                onFocus={() => hits.length && setShowHits(true)}
+                aria-label="Ваш город"
+              />
+              {showHits && hits.length > 0 && (
+                <div className="city-hits">
+                  {hits.map((h) => (
+                    <button key={`${h.name}|${h.region}`} type="button" onClick={() => { setCity(h.name); setShowHits(false); }}>
+                      {h.name} <span className="muted">· {h.region}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {needEmail && (
+              <input style={inp} type="email" inputMode="email" placeholder="E-mail для ответа" value={email} onChange={(e) => setEmail(e.target.value)} />
+            )}
+
             <label className="row" style={{ gap: 8, alignItems: "flex-start" }}>
               <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
               <span className="muted" style={{ fontSize: 13 }}>
                 Я согласен с <a href="#" onClick={(e) => e.preventDefault()}>политикой обработки персональных данных</a>.
               </span>
             </label>
-            <button type="button" className="btn" disabled={pending || !valid || !consent} onClick={submit}>
-              {pending ? "Отправляем…" : "Отправить"}
+
+            <button type="button" className="btn" disabled={pending || !cityOk || !emailOk || !consent} onClick={submit}>
+              {pending ? "Отправляем…" : "Отправить заявку"}
             </button>
-            {email.length > 0 && !valid && <span className="muted" style={{ fontSize: 13 }}>Проверьте формат e-mail.</span>}
+            {needEmail && email.length > 0 && !emailOk && <span className="muted" style={{ fontSize: 13 }}>Проверьте формат e-mail.</span>}
             {error && <span className="muted" style={{ fontSize: 13 }}>Не удалось отправить, попробуйте ещё раз.</span>}
           </div>
         )}

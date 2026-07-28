@@ -197,6 +197,18 @@ img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(-
 /* Выделенная карточка «Найдём этот товар дешевле» — заметный терракотовый баннер (цвет привлечения/CTA). */
 .lead-card { border: 2px solid var(--accent-strong); background: rgba(176, 106, 74, 0.10); }
 
+/* Подсказки автокомплита города (модалка «найдём дешевле», П7). */
+.city-hits {
+  position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 20;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow); overflow: hidden;
+}
+.city-hits button {
+  display: block; width: 100%; text-align: left; border: none; background: none; cursor: pointer;
+  padding: 9px 12px; font-size: 14px; color: var(--text);
+}
+.city-hits button:hover { background: rgba(196, 181, 165, 0.15); }
+
 /* Пометка «авто» у поля, заполненного из ссылки (П5). Ручная правка снимает пометку. */
 .auto-badge {
   display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px;
