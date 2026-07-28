@@ -32,6 +32,21 @@ test("калькулятор → смета → своя ссылка → /go/",
   const goLink = page.getByRole("link", { name: /Открыть на ozon\.ru/ });
   await expect(goLink).toBeVisible();
   await expect(goLink).toHaveAttribute("href", /^\/go\//);
+
+  // П6: «Моя лаборатория» — центр сохранений: расчёт виден в списке с подписью по виду.
+  await page.goto("/lab");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Мои расчёты");
+  await expect(page.getByText("Расчёт обоев").first()).toBeVisible();
+});
+
+// П6: витрина запуска — закрытые разделы отдают заглушку «В разработке», калькуляторы живые.
+test("витрина: заглушки закрытых разделов + живой хаб калькуляторов", async ({ page }) => {
+  for (const path of ["/calc/remont", "/start", "/styles", "/sovety"]) {
+    await page.goto(path);
+    await expect(page.getByText("В разработке").first()).toBeVisible();
+  }
+  await page.goto("/calc");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Сколько нужно материалов");
 });
 
 // SKIP: /calc/remont закрыт заглушкой ComingSoon до запуска (launch-p1-vitrina, флаг NEXT_PUBLIC_SHOW_WIP).
