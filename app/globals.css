@@ -51,6 +51,20 @@ a { color: inherit; }
   box-shadow: var(--shadow);
 }
 
+/* Пометки «скоро» (запуск, П1): пилюля на заглушках разделов и мини-бейдж на плитках/в навигации */
+.soon-pill {
+  display: inline-block; padding: 6px 12px; border-radius: 999px;
+  background: var(--accent); color: var(--surface);
+  font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 600;
+}
+.soon-badge {
+  display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px;
+  background: rgba(138, 154, 123, 0.16); color: var(--accent-hover);
+  font-size: 11px; letter-spacing: 0.6px; text-transform: uppercase; font-weight: 600;
+  vertical-align: middle; white-space: nowrap;
+}
+.soon-badge--onfill { background: rgba(251, 248, 243, 0.28); color: var(--surface); }
+
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   border: 1px solid transparent; border-radius: 999px;

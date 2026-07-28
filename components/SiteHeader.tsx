@@ -7,13 +7,14 @@ import { useEffect, useRef } from "react";
 // Сквозная шапка на всех страницах. Все разделы на виду; две кнопки-калькулятора выделены
 // (залитые пилюли), остальные — лёгкие ссылки. Активный раздел подсвечивается. На узком экране
 // полоса навигации прокручивается вбок (без «гамбургера»), страница по горизонтали не едет.
+// Разделы с soon закрыты заглушками до запуска (launch-p1-vitrina) — ссылки ведут на «в разработке».
 
-type NavItem = { href: string; label: string; match: string[] };
+type NavItem = { href: string; label: string; match: string[]; soon?: boolean };
 
 const NAV: NavItem[] = [
-  { href: "/start", label: "Дизайн", match: ["/start", "/p/"] },
-  { href: "/styles", label: "Стили", match: ["/styles"] },
-  { href: "/sovety", label: "Советы", match: ["/sovety"] },
+  { href: "/start", label: "Дизайн", match: ["/start", "/p/"], soon: true },
+  { href: "/styles", label: "Стили", match: ["/styles"], soon: true },
+  { href: "/sovety", label: "Советы", match: ["/sovety"], soon: true },
 ];
 
 function matches(pathname: string, prefixes: string[]): boolean {
@@ -53,7 +54,7 @@ export function SiteHeader() {
             Посчитать материалы
           </Link>
           <Link href="/calc/remont" className={`nav-cta nav-cta--alt${costActive ? " nav-cta--active" : ""}`}>
-            Сколько стоит ремонт
+            Сколько стоит ремонт<span className="soon-badge soon-badge--onfill">скоро</span>
           </Link>
           {NAV.map((n) => (
             <Link
@@ -62,6 +63,7 @@ export function SiteHeader() {
               className={`nav-link${matches(pathname, n.match) ? " nav-link--active" : ""}`}
             >
               {n.label}
+              {n.soon && <span className="soon-badge">скоро</span>}
             </Link>
           ))}
         </nav>

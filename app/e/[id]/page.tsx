@@ -34,7 +34,7 @@ export default async function EstimatePage({
       <h1>{est.title}</h1>
       {est.meta?.depthLabel ? <p className="muted" style={{ marginTop: -4 }}>{String(est.meta.depthLabel)}</p> : null}
 
-      {saved ? <p className="note">Сохранено. Откройте эту ссылку в любой момент — список ждёт вас.</p> : null}
+      {saved ? <p className="note">Сохранено. Откройте эту ссылку в любой момент: список ждёт вас.</p> : null}
 
       <div className="stack" style={{ marginTop: 16 }}>
         {est.items.map((it) => {
@@ -66,7 +66,7 @@ export default async function EstimatePage({
           <p className="eyebrow" style={{ margin: 0 }}>Ориентировочно по позициям с ценой</p>
           <h2 style={{ margin: "6px 0 0" }}>{rub(total)}</h2>
           <p className="muted" style={{ fontSize: 13, margin: "4px 0 0" }}>
-            Цены — на дату добавления, у товаров по вашим ссылкам. Проверьте в магазине.
+            Цены на дату добавления, у товаров по вашим ссылкам. Проверьте в магазине.
           </p>
         </div>
       ) : null}
@@ -84,7 +84,7 @@ export default async function EstimatePage({
           <button type="submit" className="btn btn-secondary">Добавить в список</button>
         </form>
         <p className="muted" style={{ fontSize: 13, margin: 0 }}>
-          Название и цену пока вписываете сами — так список полный и ничего не потеряется.
+          Название и цену пока вписываете сами, так список полный и ничего не потеряется.
         </p>
       </div>
 

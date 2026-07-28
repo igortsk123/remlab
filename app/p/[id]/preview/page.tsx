@@ -35,7 +35,7 @@ export default async function PreviewPage({ params }: { params: Promise<{ id: st
       {project.previewImage ? (
         <img className="preview" src={project.previewImage.dataUrl} alt="AI-превью комнаты" />
       ) : (
-        <p className="note">Фото не приложено — показываем идеи и бюджет ниже.</p>
+        <p className="note">Фото не приложено, показываем идеи и бюджет ниже.</p>
       )}
       <p className="note" style={{ marginTop: 12 }}>
         Это визуальная концепция вашей комнаты, а не рабочий проект. Перед покупкой проверьте размеры.
@@ -96,7 +96,7 @@ export default async function PreviewPage({ params }: { params: Promise<{ id: st
         <p className="eyebrow">В полном плане комнаты</p>
         <p style={{ margin: 0 }}>
           Ещё {lockedCount} позиций с ценами и ссылками, 3 альтернативы по ключевым, подробный бюджет,
-          чек-лист замеров, пошаговый план и PDF — с сохранением в «Мои комнаты».
+          чек-лист замеров, пошаговый план и PDF с сохранением в «Мои комнаты».
         </p>
         <Link className="btn btn-block" href={`/p/${id}/paywall`}>Открыть полный план</Link>
       </div>

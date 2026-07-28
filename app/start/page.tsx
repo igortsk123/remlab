@@ -1,8 +1,26 @@
 import { startProject } from "@/app/actions";
 import { SelectChips } from "@/components/SelectChips";
 import { Progress } from "@/components/Progress";
+import { ComingSoon } from "@/components/ComingSoon";
+
+// Раздел закрыт заглушкой до запуска (launch-p1-vitrina); включение старого содержимого: NEXT_PUBLIC_SHOW_WIP=1.
+const SHOW_WIP = process.env.NEXT_PUBLIC_SHOW_WIP === "1";
+
+export const metadata = SHOW_WIP ? {} : {
+  title: "Дизайн по фото: скоро",
+  robots: { index: false, follow: true },
+};
 
 export default function StartPage() {
+  if (!SHOW_WIP) {
+    return (
+      <ComingSoon
+        icon="🖼️"
+        title="Дизайн по фото"
+        lead="Загрузите фото комнаты и посмотрите, как она заиграет в новом стиле. Доводим качество результата до уровня, за который не стыдно."
+      />
+    );
+  }
   return (
     <main className="container">
       <Progress step={1} />

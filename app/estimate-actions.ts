@@ -39,7 +39,7 @@ export async function createFromCalc(kind: CalcKind, fd: FormData): Promise<void
     id: randomUUID(), title, qty: calc.qty, unit: calc.unit, source: "calc", note: calc.note,
   };
   const companions: EstimateItem[] = COMPANIONS[kind].map((t) => ({
-    id: randomUUID(), title: t, qty: 1, unit: "шт", source: "our_pick", note: "сопутствующее — не забудьте",
+    id: randomUUID(), title: t, qty: 1, unit: "шт", source: "our_pick", note: "сопутствующее, не забудьте",
   }));
 
   const now = new Date().toISOString();
@@ -68,7 +68,7 @@ export async function createFromRemont(fd: FormData): Promise<void> {
   }));
   const now = new Date().toISOString();
   const est = estimateSchema.parse({
-    id: randomUUID(), sessionId, title: `Ремонт ${area || 20} м² — ${v.label}`, source: "remont",
+    id: randomUUID(), sessionId, title: `Ремонт ${area || 20} м² · ${v.label}`, source: "remont",
     items, meta: { area, depth, region, depthLabel: `${DEPTH_LABEL[depth]} · ${REGION_LABEL[region]}`, variant: v.key }, createdAt: now, updatedAt: now,
   });
   await estimateRepo().create(est);

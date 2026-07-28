@@ -1,13 +1,27 @@
 import { StyleQuiz } from "@/components/StyleQuiz";
 import { STYLE_LIST } from "@/lib/styles/quiz";
+import { ComingSoon } from "@/components/ComingSoon";
+
+// Раздел закрыт заглушкой до запуска (launch-p1-vitrina); включение старого содержимого: NEXT_PUBLIC_SHOW_WIP=1.
+const SHOW_WIP = process.env.NEXT_PUBLIC_SHOW_WIP === "1";
 
 export const metadata = {
-  title: "Стили интерьера — узнай свой вкус и читай про стили ремонта",
+  title: "Стили интерьера: узнай свой вкус",
   description:
-    "Пройдите игру-карточки и узнайте свой стиль интерьера: скандинавский, лофт, джапанди, минимализм, классика, прованс. Дальше — дизайн по фото и смета.",
+    "Пройдите игру-карточки и узнайте свой стиль интерьера: скандинавский, лофт, джапанди, минимализм, классика, прованс.",
+  ...(SHOW_WIP ? {} : { robots: { index: false, follow: true } }),
 };
 
 export default function StylesPage() {
+  if (!SHOW_WIP) {
+    return (
+      <ComingSoon
+        icon="🎨"
+        title="Узнай свой стиль"
+        lead="Короткая игра: отвечаете на пару вопросов о вкусах, получаете свой стиль интерьера и подборку идей для комнаты."
+      />
+    );
+  }
   return (
     <main className="container">
       <p className="eyebrow">Стили</p>

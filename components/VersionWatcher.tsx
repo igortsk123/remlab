@@ -48,7 +48,7 @@ export function VersionWatcher({ current }: { current: string }) {
         boxShadow: "0 6px 24px rgba(0,0,0,.18)", fontSize: 15,
       }}
     >
-      <span>Вышло обновление сайта — обновите страницу, чтобы всё работало корректно.</span>
+      <span>Вышло обновление сайта. Обновите страницу, чтобы всё работало корректно.</span>
       <button
         onClick={() => location.reload()}
         style={{

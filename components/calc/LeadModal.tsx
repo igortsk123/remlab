@@ -45,7 +45,7 @@ export function LeadModal({ kind, url, onClose }: { kind: CalcKind; url?: string
         ) : (
           <div className="stack" style={{ gap: 10 }}>
             <p className="eyebrow" style={{ margin: 0 }}>Сообщить по почте</p>
-            <p className="muted" style={{ margin: 0, fontSize: 14 }}>Оставьте e-mail — найдём, где дешевле, и пришлём варианты.</p>
+            <p className="muted" style={{ margin: 0, fontSize: 14 }}>Оставьте e-mail, найдём, где дешевле, и пришлём варианты.</p>
             <input style={inp} type="email" inputMode="email" placeholder="E-mail" value={email} onChange={(e) => setEmail(e.target.value)} />
             <label className="row" style={{ gap: 8, alignItems: "flex-start" }}>
               <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />

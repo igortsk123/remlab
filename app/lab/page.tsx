@@ -5,7 +5,7 @@ import { readSessionId } from "@/lib/session";
 import { plural } from "@/lib/format/plural";
 
 export const metadata = {
-  title: "Моя лаборатория — сохранённые сметы и дизайны",
+  title: "Моя лаборатория: сохранённые сметы и расчёты",
   description: "Ваши сохранённые сметы и дизайны комнат в одном месте.",
 };
 
@@ -19,7 +19,7 @@ export default async function LabPage() {
       <p className="eyebrow">Моя лаборатория</p>
       <h1>Мои проекты ремонта</h1>
       <p className="muted" style={{ fontSize: 18 }}>
-        Здесь собирается всё, что вы посчитали и придумали — сметы и дизайны комнат.
+        Здесь собирается всё, что вы посчитали и придумали: сметы и дизайны комнат.
       </p>
 
       <div className="stack" style={{ marginTop: 20, gap: 12 }}>
@@ -29,7 +29,7 @@ export default async function LabPage() {
             <p className="muted" style={{ margin: "2px 0 0", fontSize: 15 }}>
               {estimates.length > 0
                 ? `${estimates.length} ${plural(estimates.length, "смета", "сметы", "смет")}`
-                : "Пока пусто — соберите первую смету"}
+                : "Пока пусто. Соберите первую смету"}
             </p>
           </div>
           <span className="muted">→</span>
@@ -41,7 +41,7 @@ export default async function LabPage() {
             <p className="muted" style={{ margin: "2px 0 0", fontSize: 15 }}>
               {rooms.length > 0
                 ? `${rooms.length} ${plural(rooms.length, "комната", "комнаты", "комнат")}`
-                : "Пока пусто — покажем комнату в новом стиле"}
+                : "Пока пусто. Покажем комнату в новом стиле"}
             </p>
           </div>
           <span className="muted">→</span>

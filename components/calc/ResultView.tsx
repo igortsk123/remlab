@@ -13,7 +13,7 @@ export function ResultView({ project }: { project: CalcProject }) {
     .flatMap((r) =>
       computeRoomParts(r, project.kind).map((p) => ({
         id: `${r.id}:${p.key}`,
-        name: p.label ? `${r.name} — ${p.label.toLowerCase()}` : r.name,
+        name: p.label ? `${r.name} · ${p.label.toLowerCase()}` : r.name,
         out: p.out,
       })),
     )

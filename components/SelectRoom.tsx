@@ -72,7 +72,7 @@ export function SelectRoom({
         <img className="preview" src={thumb} alt="Ваше фото" style={{ maxHeight: 240, objectFit: "cover" }} />
       )}
       {error && (
-        <p className="note">Не удалось точно распознать предметы — отметьте по общим зонам или опишите пожелание ниже.</p>
+        <p className="note">Не удалось точно распознать предметы: отметьте по общим зонам или опишите пожелание ниже.</p>
       )}
 
       <div className="stack">
@@ -101,7 +101,7 @@ export function SelectRoom({
         <textarea
           name="wish"
           rows={3}
-          placeholder="Опишите словами, что хотите: цвет стен, какую мебель поставить, общее настроение… Чем конкретнее — тем точнее результат."
+          placeholder="Опишите словами, что хотите: цвет стен, какую мебель поставить, общее настроение… Чем конкретнее, тем точнее результат."
           style={inputStyle}
         />
       </div>

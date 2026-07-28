@@ -48,7 +48,7 @@ export function CalcForm({ kind, action }: { kind: CalcKind; action: (fd: FormDa
       </div>
 
       <button className="btn btn-block" type="submit">Посчитать и собрать смету</button>
-      <p className="note">Считаем с запасом на подрезку. Точность — как у обычного калькулятора; проверьте перед покупкой.</p>
+      <p className="note">Считаем с запасом на подрезку. Точность как у обычного калькулятора; проверьте перед покупкой.</p>
     </form>
   );
 }

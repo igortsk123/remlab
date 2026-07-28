@@ -15,7 +15,7 @@ export default async function EstimatesPage() {
 
       {list.length === 0 ? (
         <div className="card stack">
-          <p style={{ margin: 0 }}>Пока пусто. Посчитайте материалы или бюджет ремонта — смета сохранится здесь и по постоянной ссылке.</p>
+          <p style={{ margin: 0 }}>Пока пусто. Посчитайте материалы, и смета сохранится здесь и по постоянной ссылке.</p>
           <div className="row">
             <Link className="btn" href="/calc">Посчитать материалы</Link>
             <Link className="btn btn-secondary" href="/calc/remont">Стоимость ремонта</Link>

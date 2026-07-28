@@ -1,10 +1,15 @@
 import Link from "next/link";
 import { createFromRemont } from "@/app/estimate-actions";
 import { estimateRemont, DEPTH_LABEL, REGION_LABEL, type Depth, type Region, type BudgetVariant } from "@/lib/pricing/works";
+import { ComingSoon } from "@/components/ComingSoon";
+
+// Раздел закрыт заглушкой до запуска (launch-p1-vitrina); включение старого содержимого: NEXT_PUBLIC_SHOW_WIP=1.
+const SHOW_WIP = process.env.NEXT_PUBLIC_SHOW_WIP === "1";
 
 export const metadata = {
-  title: "Сколько стоит ремонт комнаты — расчёт бюджета по площади",
+  title: "Сколько стоит ремонт комнаты: расчёт бюджета по площади",
   description: "Прикиньте стоимость ремонта комнаты: эконом, средний и улучшенный вариант с разбивкой на работы и материалы.",
+  ...(SHOW_WIP ? {} : { robots: { index: false, follow: true } }),
 };
 
 const rub = (n: number) => `${n.toLocaleString("ru-RU")} ₽`;
@@ -16,6 +21,15 @@ const DEPTHS: Depth[] = ["refresh", "update", "capital"];
 const REGIONS: Region[] = ["msk", "spb", "million", "mid", "small", "far"];
 
 export default async function RemontPage({ searchParams }: { searchParams: Promise<{ area?: string; depth?: string; region?: string }> }) {
+  if (!SHOW_WIP) {
+    return (
+      <ComingSoon
+        icon="💰"
+        title="Сколько стоит ремонт"
+        lead="Готовим быструю прикидку бюджета: укажете площадь и уровень ремонта, получите вилку цен на материалы и работы. Проверяем цифры, чтобы не вводить вас в заблуждение."
+      />
+    );
+  }
   const sp = await searchParams;
   const area = Number(String(sp.area ?? "").replace(",", ".")) || 0;
   const depth = (DEPTHS.includes(sp.depth as Depth) ? sp.depth : "update") as Depth;

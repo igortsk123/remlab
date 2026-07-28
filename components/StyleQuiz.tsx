@@ -44,7 +44,7 @@ export function StyleQuiz() {
           <p className="eyebrow">Готово</p>
           <h2 style={{ margin: 0 }}>Пока ничего не приглянулось</h2>
           <p className="muted" style={{ margin: 0 }}>
-            Ничего страшного — вкус штука тонкая. Полистайте примеры ещё раз или сразу переходите к расчёту.
+            Ничего страшного, вкус штука тонкая. Полистайте примеры ещё раз или сразу переходите к расчёту.
           </p>
           <div className="row">
             <button className="btn btn-secondary" onClick={restart}>Пройти заново</button>

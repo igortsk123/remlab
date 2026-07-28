@@ -41,7 +41,7 @@ export default async function PaywallPage({ params }: { params: Promise<{ id: st
     <main className="container">
       <Progress step={5} />
       <h1>Откройте полный план комнаты</h1>
-      <p className="muted">Вы увидели превью и часть идей. Полный план — платно.</p>
+      <p className="muted">Вы увидели превью и часть идей. Полный план платный.</p>
 
       <div className="card stack">
         <strong>Что внутри</strong>
@@ -58,7 +58,7 @@ export default async function PaywallPage({ params }: { params: Promise<{ id: st
         <PayButton label={`Оплатить ${rub(PRICE)} (демо)`} />
       </form>
       <p className="muted center" style={{ fontSize: 13, marginTop: 8 }}>
-        Оплата — заглушка. Настоящая оплата (YooKassa) подключается отдельным шагом.
+        Оплата: заглушка. Настоящая оплата (YooKassa) подключается отдельным шагом.
       </p>
     </main>
   );
