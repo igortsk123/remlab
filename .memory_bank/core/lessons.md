@@ -36,8 +36,9 @@ N. [YYYY-MM-DD] <ситуация> → пробовали <подход> → н�
 -->
 
 1. [2026-07-28] `./deploy.sh` (arm64 под QEMU, ~14 ГБ) роняет DEV-VM `pakardev` (2.7 ГБ) по OOM →
-   терялся SSH; BuildKit-кэш забивал диск. Правило: arm64-билд — в GitHub Actions (секрет `DEPLOY_SSH_KEY`,
-   владелец), не локально; `./deploy.sh` — только при ≥12 ГБ RAM. DEV-VM защищена: swap 4 ГБ, swappiness=10,
-   `earlyoom` (sshd в `--avoid`). После билда чистить: `docker buildx rm remlabx`.
+   терялся SSH. **Решение:** авто-деплой `deploy.yml` на **нативном `ubuntu-24.04-arm`** (repo public;
+   QEMU-эмуляция крашила Next-SWC `SIGILL` и в раннере — убрал `setup-qemu`) — секрет `DEPLOY_SSH_KEY`
+   задан (ключ `remlab_ci_deploy`, НЕ `remlab_deploy_ed25519`). `./deploy.sh` НЕ использовать (OOM'ит VM).
+   DEV-VM защищена: swap 4 ГБ, swappiness=10, `earlyoom` (sshd в `--avoid`).
 
 **Tier 2:** ../anti-patterns.md — каталог код-граблей с детектами для ревью.

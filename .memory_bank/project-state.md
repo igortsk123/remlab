@@ -46,9 +46,11 @@ last_verified: 2026-07-22
 - **Сервер:** exit-fi `89.167.127.0` (Hetzner EU, Ubuntu 24.04, **aarch64/ARM**, 2 vCPU / 3.7 GB / 38 GB).
   НЕ выделенный remlab-сервер: на хосте боевая VPN-нода `remnanode` (+`rw-core`, nginx :80) — не
   трогать; remlab изолирован (`remlab-net`, mem-лимиты).
-- **Деплой:** вручную `./deploy.sh` — кросс-сборка **linux/arm64** (buildx+binfmt) → образ по ssh →
-  `compose up` → smoke. ⚠️ `docker build` на amd64 даст нерабочий образ. Авто-деплой через GHCR
-  настроен, но **НЕ активен** (нет секрета `DEPLOY_SSH_KEY`). Playbook: `deployment.md`.
+- **Деплой (АВТО, работает с 2026-07-28):** push в `main` → CI gate → **`deploy.yml` собирает arm64
+  на НАТИВНОМ раннере `ubuntu-24.04-arm`** (repo public; БЕЗ QEMU — эмуляция крашила Next-SWC SIGILL) →
+  push в GHCR → сервер `docker compose pull` (не собирает) → smoke+откат. Секрет `DEPLOY_SSH_KEY` задан
+  (ключ `remlab_ci_deploy`). Версия в `/api/health` = git SHA. Локальный `./deploy.sh` — НЕ использовать:
+  arm64-сборка под QEMU OOM'ит DEV-VM `pakardev` (2.7 ГБ). Playbook: `deployment.md`, грабля: `core/lessons.md`.
 
 ## Концепция v0.4 «Смета-first» (ADR-0016, 2026-07-11; мастер: `plans/MASTER-cost-first.md`)
 Ядро — «Смета-лист»: расчёт количеств/стоимости → сохранённый список с реф-ссылками (комиссия,
