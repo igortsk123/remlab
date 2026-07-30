@@ -10,7 +10,7 @@ export const metadata = {
 const SHOW_WIP = process.env.NEXT_PUBLIC_SHOW_WIP === "1";
 
 const ORDER: CalcKind[] = ["oboi", "plitka", "kraska", "laminat"];
-const ICON: Record<CalcKind, string> = { oboi: "📜", plitka: "🧱", kraska: "🎨", laminat: "🪵" };
+// Иконки владельца (единый стиль, PNG 512×512 с прозрачным фоном) — public/icons/calc/<kind>.png.
 
 export default function CalcHub() {
   return (
@@ -24,7 +24,10 @@ export default function CalcHub() {
       <div className="grid-cards" style={{ marginTop: 20 }}>
         {ORDER.map((k) => (
           <Link key={k} href={`/calc/${k}`} className="card stack" style={{ textDecoration: "none", gap: 6 }}>
-            <span style={{ fontSize: 30 }}>{ICON[k]}</span>
+            {/* Обычный <img>, НЕ next/image: standalone-прод без sharp, а 8–20 КБ PNG оптимизировать нечего. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={`/icons/calc/${k}.png`} alt="" width={44} height={44} style={{ display: "block" }} />
+
             <strong>{CALC_META[k].title}</strong>
             <span className="muted" style={{ fontSize: 14 }}>Расчёт для {CALC_META[k].verb}</span>
           </Link>
