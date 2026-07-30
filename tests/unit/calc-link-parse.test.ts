@@ -66,6 +66,13 @@ describe("link parse — извлечение из HTML", () => {
     expect(r.spec.rollLengthM).toBe(10.05);
   });
 
+  it("обои: обратный порядок «10,05х1,06м» (длина×ширина, Максидом) → назначение по величине", () => {
+    const html = `<meta property="og:title" content="обои ERISMANN виниловые на флизелине 10,05х1,06м, арт.61095-06" />`;
+    const r = parseProductHtml(html, "oboi");
+    expect(r.spec.rollWidthM).toBe(1.06);
+    expect(r.spec.rollLengthM).toBe(10.05);
+  });
+
   it("обои: пустой лейбл «раппорт (см)» без числа не даёт раппорт", () => {
     const html = `<label>раппорт (см)</label><input name="bias" />`;
     const r = parseProductHtml(html, "oboi");

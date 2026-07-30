@@ -141,14 +141,19 @@ export function parseProductHtml(html: string, kind: CalcKind): ParsedProduct {
   }
 
   if (kind === "oboi") {
-    // Размеры рулона в формате «ширина × длина м»: «1,06*10м», «0,53х10,05 м», «1.06 x 10 м».
-    // Разделитель *|x|х|×, десятичная , или . , единица «м» после длины. Guard: ширина<2.5, длина 3..50.
-    const roll = /(\d[.,]?\d*)\s*[*xх×]\s*(\d{1,2}[.,]?\d*)\s*м/i.exec(text);
+    // Размеры рулона «A × B м»: и «ширина×длина» («1,06х10,05 м»), и обратный «длина×ширина»
+    // («10,05х1,06м» — Максидом). Оба числа берём полным NUM (иначе «10,05» рвётся на «0,05»),
+    // назначаем по величине: ширина рулона всегда меньше длины (0.53/1.06 м vs 10 м). Guard: ш<2.5, д 3..50.
+    const roll = new RegExp(`${NUM}\\s*[*xх×]\\s*${NUM}\\s*м`, "i").exec(text);
     if (roll) {
-      const w = toNum(roll[1]);
-      const l = toNum(roll[2]);
-      if (w != null && w > 0 && w < 2.5) spec.rollWidthM = w;
-      if (l != null && l >= 3 && l <= 50) spec.rollLengthM = l;
+      const a = toNum(roll[1]);
+      const b = toNum(roll[2]);
+      if (a != null && b != null) {
+        const w = Math.min(a, b);
+        const l = Math.max(a, b);
+        if (w > 0 && w < 2.5) spec.rollWidthM = w;
+        if (l >= 3 && l <= 50) spec.rollLengthM = l;
+      }
     }
     // Фолбэк по словам, если формат «W×L» не сработал. (?![а-яёa-z]) вместо \b — \b не срабатывает
     // после кириллической «м» (кириллица не входит в \w в JS-regex).
