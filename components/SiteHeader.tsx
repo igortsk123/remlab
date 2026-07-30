@@ -68,33 +68,38 @@ export function SiteHeader() {
   return (
     <header ref={ref} className="site-header">
       <div className="site-header-inner">
-        <div className="site-header-top">
-          <Link href="/" className="site-brand">remont-lab</Link>
-          <span className="row" style={{ gap: 10, alignItems: "center", flexWrap: "nowrap" }}>
-            <ZoomControl />
-            <Link href="/lab" className={`nav-link${labActive ? " nav-link--active" : ""}`} style={{ padding: "8px 0" }}>
-              Моя лаборатория<LabBadge />
+        {/* Бренд + полоса кнопок — ОДИН блок (site-header-group): на десктопе он шириной по
+            содержимому и центрируется целиком, поэтому бренд стоит ровно на левом крае первой
+            кнопки. Зум и «Моя лаборатория» на десктопе уводятся к правому краю (absolute). */}
+        <div className="site-header-group">
+          <div className="site-header-top">
+            <Link href="/" className="site-brand">remont-lab</Link>
+            <span className="row header-controls" style={{ gap: 10, alignItems: "center", flexWrap: "nowrap" }}>
+              <ZoomControl />
+              <Link href="/lab" className={`nav-link${labActive ? " nav-link--active" : ""}`} style={{ padding: "8px 0" }}>
+                Моя лаборатория<LabBadge />
+              </Link>
+            </span>
+          </div>
+          <nav className="site-nav" aria-label="Разделы сайта">
+            <Link href="/calc" className={`nav-cta${materialsActive ? " nav-cta--active" : ""}`}>
+              Посчитать материалы
             </Link>
-          </span>
+            <Link href="/calc/remont" className={`nav-cta nav-cta--alt${costActive ? " nav-cta--active" : ""}`}>
+              Сколько стоит ремонт<span className="soon-badge soon-badge--onfill">скоро</span>
+            </Link>
+            {NAV.map((n) => (
+              <Link
+                key={n.href}
+                href={n.href}
+                className={`nav-link${matches(pathname, n.match) ? " nav-link--active" : ""}`}
+              >
+                {n.label}
+                {n.soon && <span className="soon-badge">скоро</span>}
+              </Link>
+            ))}
+          </nav>
         </div>
-        <nav className="site-nav" aria-label="Разделы сайта">
-          <Link href="/calc" className={`nav-cta${materialsActive ? " nav-cta--active" : ""}`}>
-            Посчитать материалы
-          </Link>
-          <Link href="/calc/remont" className={`nav-cta nav-cta--alt${costActive ? " nav-cta--active" : ""}`}>
-            Сколько стоит ремонт<span className="soon-badge soon-badge--onfill">скоро</span>
-          </Link>
-          {NAV.map((n) => (
-            <Link
-              key={n.href}
-              href={n.href}
-              className={`nav-link${matches(pathname, n.match) ? " nav-link--active" : ""}`}
-            >
-              {n.label}
-              {n.soon && <span className="soon-badge">скоро</span>}
-            </Link>
-          ))}
-        </nav>
       </div>
     </header>
   );

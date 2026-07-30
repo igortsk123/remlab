@@ -138,15 +138,20 @@ img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(-
 .site-header-inner {
   /* Шапка ШИРЕ контента (контент остаётся var(--maxw)): все 5 пунктов меню в одну линию
      на десктопе даже при увеличенном шрифте/зуме. */
+  position: relative;
   width: 100%; max-width: 1100px; margin: 0 auto; padding: 10px 20px;
   display: flex; flex-direction: column; gap: 10px;
 }
+.site-header-group { display: flex; flex-direction: column; gap: 10px; width: 100%; }
 .site-header-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
-/* Десктоп: полоса кнопок по центру; верхняя строка как была — бренд слева, зум и
-   «Моя лаборатория» справа. Мобильный не трогаем. */
+/* Десктоп: бренд + полоса кнопок = один блок по ширине содержимого, центрирован целиком
+   (бренд ровно на левом крае первой кнопки). Зум и «Моя лаборатория» — к правому краю шапки.
+   Мобильный не трогаем: блок на всю ширину, бренд слева, контролы справа в той же строке. */
 @media (min-width: 701px) {
-  .site-nav { justify-content: center; }
+  .site-header-group { width: max-content; max-width: 100%; margin: 0 auto; }
+  .site-header-top { min-height: 36px; }
+  .header-controls { position: absolute; right: 20px; top: 10px; height: 36px; }
 }
 
 /* Контрол масштаба в шапке: − 100% + (компактный, доступный). */
