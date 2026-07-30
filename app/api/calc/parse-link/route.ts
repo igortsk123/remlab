@@ -8,9 +8,9 @@ export const runtime = "nodejs";
 
 const bodySchema = z.object({ url: z.string().url(), kind: calcKind });
 
-// Серверный парс ссылки (без CORS): добыча HTML (прямой fetch → резидентский прокси) →
-// полный парс (regex + JSON-LD + ИИ-дочитка). При неудаче — ok:false + 200 с кодом причины:
-// needs_file → клиент предлагает загрузить сохранённую страницу (Ozon/WB — JS-антибот).
+// Серверный парс ссылки (без CORS): добыча HTML (прямой fetch → резидентский прокси для магазинов,
+// режущих ДЦ-IP) → полный парс (regex + JSON-LD + ИИ-дочитка). При неудаче — ok:false + 200 с
+// кодом причины (клиент показывает ошибку + ручной ввод).
 export async function POST(req: Request): Promise<Response> {
   const parsed = bodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ ok: false, error: "bad_request" }, { status: 400 });

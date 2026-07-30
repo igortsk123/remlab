@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isJsChallengeHost, isPrivateHost, looksLikeStub, proxyUrlsFromEnv } from "@/lib/calc/fetch-page";
+import { isPrivateHost, looksLikeStub, proxyUrlsFromEnv } from "@/lib/calc/fetch-page";
 
 describe("isPrivateHost — SSRF-guard", () => {
   it("режет localhost и приватные диапазоны", () => {
@@ -12,19 +12,6 @@ describe("isPrivateHost — SSRF-guard", () => {
     for (const h of ["www.ozon.ru", "leroymerlin.ru", "8.8.8.8", "172.32.0.1"]) {
       expect(isPrivateHost(h), h).toBe(false);
     }
-  });
-});
-
-describe("isJsChallengeHost — домены с JS-антиботом", () => {
-  it("ozon/wb с поддоменами", () => {
-    expect(isJsChallengeHost("www.ozon.ru")).toBe(true);
-    expect(isJsChallengeHost("ozon.ru")).toBe(true);
-    expect(isJsChallengeHost("www.wildberries.ru")).toBe(true);
-  });
-
-  it("прочие магазины — нет (и не ловит суффикс-омонимы)", () => {
-    expect(isJsChallengeHost("petrovich.ru")).toBe(false);
-    expect(isJsChallengeHost("notozon.ru")).toBe(false);
   });
 });
 

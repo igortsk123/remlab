@@ -1,14 +1,13 @@
 // Слой добычи HTML страницы товара (link-fetch-max): прямой fetch с браузерными заголовками →
-// фолбэк через резидентский прокси из env PARSE_PROXY_URLS (список через запятую, перебор).
-// Прокси-пул общий с другим проектом и с квотой по трафику → страница режется по байтам,
-// домены с JS-челленджем (Ozon/WB) через прокси не гоняем — сразу needs_file (загрузка
-// сохранённой страницы пользователем). Причины фейлов логируем — иначе прод неотлаживаем.
+// фолбэк через резидентский прокси из env PARSE_PROXY_URLS (список через запятую, перебор) для
+// магазинов, режущих ДЦ-IP. Прокси-пул общий с другим проектом и с квотой по трафику → страница
+// режется по байтам. Причины фейлов логируем — иначе прод неотлаживаем.
 
 import { fetch as undiciFetch, ProxyAgent } from "undici";
 
 export type FetchPageResult =
   | { ok: true; html: string; via: "direct" | "proxy" }
-  | { ok: false; error: "needs_file" | "unreachable" | `http_${number}` | "bad_url" };
+  | { ok: false; error: "unreachable" | `http_${number}` | "bad_url" };
 
 const MAX_BYTES = 2_000_000; // цена/характеристики бывают за 500 КБ, но квоту прокси бережём
 const DIRECT_TIMEOUT_MS = 8000;
@@ -21,16 +20,6 @@ const BROWSER_HEADERS = {
   accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
   "accept-language": "ru-RU,ru;q=0.9",
 } as const;
-
-// JS-челлендж (антибот исполняет JavaScript): проверено живьём 2026-07-30 — Ozon отдаёт
-// редирект-цикл ?__rr= и 403-челлендж ДАЖЕ с резидентского/мобильного РФ-IP. Серверным fetch
-// непробиваемо → не жжём квоту прокси, честно просим у юзера сохранённую страницу.
-const JS_CHALLENGE_HOSTS = ["ozon.ru", "wildberries.ru", "market.yandex.ru"];
-
-export function isJsChallengeHost(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  return JS_CHALLENGE_HOSTS.some((d) => h === d || h.endsWith(`.${d}`));
-}
 
 // SSRF-guard: серверный fetch по юзерскому URL не должен ходить во внутреннюю сеть.
 export function isPrivateHost(hostname: string): boolean {
@@ -127,8 +116,10 @@ export async function fetchProductPage(url: string): Promise<FetchPageResult> {
   if (direct.html && !looksLikeStub(direct.html)) return { ok: true, html: direct.html, via: "direct" };
   console.error(`[fetch-page] direct fail ${host}: status=${direct.status ?? "-"} err=${direct.err ?? "-"} stub=${!!direct.html}`);
 
-  if (isJsChallengeHost(host)) return { ok: false, error: "needs_file" };
-
+  // Прокси пробуем для ЛЮБОГО магазина (включая Ozon/WB — режут ДЦ-IP). ⚠️ Известное ограничение:
+  // Ozon блокирует и IP этого прокси-пула (капча/«выключите VPN») — серверно непробиваем ни curl,
+  // ни браузером, ни резид./моб. IP (проверено 2026-07-30). Для Ozon нужен прокси-анблокер
+  // (Bright Data/Zyte) — тогда сработает без правок кода. Пока Ozon-ссылки → ошибка чтения.
   let lastStatus: number | undefined = direct.status;
   for (const proxyUrl of proxyUrlsFromEnv(process.env.PARSE_PROXY_URLS)) {
     const viaProxy = await attemptProxy(url, proxyUrl);

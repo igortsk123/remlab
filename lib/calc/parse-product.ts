@@ -1,7 +1,6 @@
 // Полный парс карточки товара (link-fetch-max): детерминированный слой (regex + OG + JSON-LD) →
 // ИИ-дочитка ВСЕХ оставшихся пустых полей вида одним вызовом (аккуратный JSON-экстракт).
-// Общая точка для обоих источников HTML: скачанного сервером (parse-link) и загруженного
-// пользователем файла сохранённой страницы (parse-html).
+// Вызывается из роута parse-link после серверной добычи HTML (fetch-page).
 
 import type { CalcKind, MaterialSpec } from "@/contracts/calc";
 import { deriveLaminateM2Price, parseProductHtml, type ParsedProduct } from "@/lib/calc/link-parse";

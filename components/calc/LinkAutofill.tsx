@@ -10,9 +10,9 @@ const inp = {
   background: "var(--surface)", color: "var(--text)", fontSize: 15, width: "100%",
 } as const;
 
-// Материал-блок (отдельная карточка, рекламный вид): вставил ссылку → авто-подгрузка параметров
-// (крутилка → поля); магазин не отдаёт страницу (антибот) → загрузка сохранённой из браузера
-// страницы (Ctrl+S). Параметры — свёрнуты, раскрываются по ссылке или «ввести вручную».
+// Материал-блок (отдельная карточка, рекламный вид): вставил ссылку → сервер сам читает страницу
+// (прямой запрос → резидентский прокси для магазинов, режущих ДЦ-IP) → авто-подгрузка параметров.
+// Параметры — свёрнуты, раскрываются по ссылке или «ввести вручную».
 export function LinkAutofill({
   kind,
   url,
@@ -32,10 +32,9 @@ export function LinkAutofill({
 }) {
   const [value, setValue] = useState(url ?? "");
   const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
-  const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [slow, setSlow] = useState(false); // >2.5 с — идём через прокси, дольше: успокаиваем «подождите»
   const [expanded, setExpanded] = useState(false);
   const [parsedTitle, setParsedTitle] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
   const lastParsed = useRef<string>(url ?? ""); // чтобы сохранённая ссылка не перепарсивалась при монтировании
 
   // Автоподгрузка: как только введена/вставлена ссылка (с небольшой задержкой) — читаем страницу.
@@ -47,23 +46,13 @@ export function LinkAutofill({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
-  // Общий приём результата обоих путей (ссылка / загруженный файл сохранённой страницы).
-  function applyResult(data: { ok?: boolean; title?: unknown; spec?: Partial<MaterialSpec> } | null, failCode: string) {
-    if (data?.ok && data.spec && Object.keys(data.spec).length > 0) {
-      (onAutoSpec ?? onSpec)(data.spec);
-      setParsedTitle(typeof data.title === "string" && data.title.trim() ? data.title.trim() : null);
-      setState("done");
-    } else {
-      setErrorCode(failCode);
-      setState("error");
-    }
-  }
-
   async function parse(v: string) {
     lastParsed.current = v;
     setState("loading");
+    setSlow(false);
     setExpanded(true); // сразу раскрываем — крутилка, ниже подгрузятся поля
     onUrl(v); // ссылка сохраняется в позицию сметы даже при неудаче парса
+    const slowTimer = setTimeout(() => setSlow(true), 2500); // магазин отвечает через прокси — дольше
     try {
       const res = await fetch("/api/calc/parse-link", {
         method: "POST",
@@ -71,27 +60,17 @@ export function LinkAutofill({
         body: JSON.stringify({ url: v, kind }),
       });
       const data = await res.json();
-      applyResult(data, typeof data?.error === "string" ? data.error : "unreachable");
+      if (data?.ok && data.spec && Object.keys(data.spec).length > 0) {
+        (onAutoSpec ?? onSpec)(data.spec);
+        setParsedTitle(typeof data.title === "string" && data.title.trim() ? data.title.trim() : null);
+        setState("done");
+      } else {
+        setState("error");
+      }
     } catch {
-      setErrorCode("unreachable");
       setState("error");
-    }
-  }
-
-  async function parseFile(file: File) {
-    setState("loading");
-    setExpanded(true);
-    try {
-      const html = (await file.text()).slice(0, 4_000_000);
-      const res = await fetch("/api/calc/parse-html", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ html, kind }),
-      });
-      applyResult(await res.json(), "file_failed");
-    } catch {
-      setErrorCode("file_failed");
-      setState("error");
+    } finally {
+      clearTimeout(slowTimer);
     }
   }
 
@@ -106,7 +85,8 @@ export function LinkAutofill({
       <input style={inp} placeholder="Ссылка на товар из магазина" value={value} onChange={(e) => setValue(e.target.value)} />
       {state === "loading" && (
         <span className="muted" style={{ fontSize: 14, display: "inline-flex", alignItems: "center", gap: 8 }}>
-          <span className="spinner" aria-hidden="true" /> Читаем страницу…
+          <span className="spinner" aria-hidden="true" />
+          {slow ? "Читаем страницу магазина — это займёт несколько секунд, подождите…" : "Читаем страницу…"}
         </span>
       )}
       {state === "done" && (
@@ -116,36 +96,10 @@ export function LinkAutofill({
         </span>
       )}
       {state === "error" && (
-        <div className="stack" style={{ gap: 6 }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: "var(--danger)" }}>
-            {errorCode === "needs_file"
-              ? "Этот магазин не показывает страницу роботам."
-              : errorCode === "file_failed"
-                ? "Не получилось прочитать файл — введите параметры вручную."
-                : "Не удалось прочитать страницу (ссылка сохранена)."}
-          </span>
-          {errorCode !== "file_failed" && (
-            <span className="muted" style={{ fontSize: 14 }}>
-              Можно так: откройте товар в браузере, сохраните страницу (Ctrl+S → «Веб-страница,
-              только HTML») и загрузите файл сюда — заполним из него. Или введите параметры вручную.
-            </span>
-          )}
-          <button type="button" className="quiz-link" style={{ fontSize: 14, alignSelf: "flex-start" }} onClick={() => fileRef.current?.click()}>
-            Загрузить сохранённую страницу (.html)
-          </button>
-        </div>
+        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--danger)" }}>
+          Не удалось прочитать страницу — заполните параметры ниже вручную (ссылка сохранена).
+        </span>
       )}
-      <input
-        ref={fileRef}
-        type="file"
-        accept=".html,.htm,text/html"
-        style={{ display: "none" }}
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          e.target.value = ""; // тот же файл можно выбрать повторно
-          if (f) void parseFile(f);
-        }}
-      />
 
       <button type="button" className="quiz-link" style={{ fontSize: 14 }} onClick={() => setExpanded((v) => !v)}>
         {expanded ? "скрыть параметры" : "ввести параметры вручную"}
