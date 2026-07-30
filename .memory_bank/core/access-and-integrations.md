@@ -35,7 +35,7 @@ review_after: ""
   ключ в `/opt/remlab/.env` (общий с ads-watchdog).
 - **PostHog:** free 1M/мес; Sentry нет.
 - **Яндекс:** общий аккаунт; Метрика `110599064`; чужую кампанию `708745261` не трогать. [[marketing-acquisition]].
-- **UI-иконки:** владелец шлёт PNG 512, прозрачный фон, через Drive-папку `1l2j65g8WpLvr…` →
+- **UI-иконки:** владелец шлёт PNG 512, прозрачный фон, через Drive-папку `1l2j65g8…` →
   `public/icons/`; только `<img>`, НЕ next/image (нет sharp); имена бывают без расширения.
 
 **Tier 2:** `../domain/integrations.md` (эндпоинты, форматы, env, цены). Решения — `decisions.md` (ADR-0007/0011/0012/0013).
