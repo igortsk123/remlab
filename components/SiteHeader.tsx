@@ -70,7 +70,7 @@ export function SiteHeader() {
       <div className="site-header-inner">
         <div className="site-header-top">
           <Link href="/" className="site-brand">remont-lab</Link>
-          <span className="row" style={{ gap: 10, alignItems: "center", flexWrap: "nowrap" }}>
+          <span className="row header-controls" style={{ gap: 10, alignItems: "center", flexWrap: "nowrap" }}>
             <ZoomControl />
             <Link href="/lab" className={`nav-link${labActive ? " nav-link--active" : ""}`} style={{ padding: "8px 0" }}>
               Моя лаборатория<LabBadge />

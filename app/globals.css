@@ -143,6 +143,14 @@ img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(-
 }
 .site-header-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
+/* Десктоп: основная шапка (бренд + полоса кнопок) центрируется; зум и «Моя лаборатория» —
+   служебный блок у правого края той же строки. Мобильный не трогаем (бренд слева, без наездов). */
+@media (min-width: 701px) {
+  .site-header-top { position: relative; justify-content: center; }
+  .site-header-top .header-controls { position: absolute; right: 0; top: 50%; transform: translateY(-50%); }
+  .site-nav { justify-content: center; }
+}
+
 /* Контрол масштаба в шапке: − 100% + (компактный, доступный). */
 .zoom-control {
   display: inline-flex; align-items: center; gap: 2px;
