@@ -3,7 +3,7 @@ tier: 1
 topic: access-and-integrations
 scope: Внешние интеграции/доступы — где ключи, какие модели/эндпоинты, форматы, клиенты в коде
 tier2: "../domain/integrations.md"
-updated: 2026-07-21
+updated: 2026-07-30
 importance: high
 source: manual
 status: working
@@ -36,5 +36,9 @@ review_after: ""
 - **PostHog:** free 1M/мес; Sentry нет. На проде не включён (нет `POSTHOG_*`).
 - **CI:** авто-деплой РАБОТАЕТ (2026-07-28): `DEPLOY_SSH_KEY` задан, нативный arm64-раннер.
 - **Яндекс:** общий аккаунт; Метрика `110599064`; чужую кампанию `708745261` не трогать. [[marketing-acquisition]].
+- **UI-иконки от владельца** (2026-07-30): передаёт PNG 512×512 (прозрачный фон, единый стиль)
+  через Google Drive-папку `1l2j65g8WpLvr9a_DBscpF4Cd5vneY8ZI` → класть в `public/icons/`
+  (материалы — `icons/calc/<kind>.png`) и подключать обычным `<img>` — НЕ next/image
+  (standalone-прод без sharp упадёт). Файлы в папке бывают БЕЗ расширения.
 
 **Tier 2:** `../domain/integrations.md` (эндпоинты, форматы, env, цены). Решения — `decisions.md` (ADR-0007/0011/0012/0013).
