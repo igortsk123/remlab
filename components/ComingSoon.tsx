@@ -26,7 +26,7 @@ export function ComingSoon({ icon, iconSrc, title, lead }: { icon: string; iconS
           соберёт список покупок и сохранит его в Мою лабораторию.
         </p>
         <div className="row">
-          <Link className="btn" href="/calc">🧮 Посчитать материалы</Link>
+          <Link className="btn" href="/calc">Посчитать материалы</Link>
           <Link className="btn btn-secondary" href="/">На главную</Link>
         </div>
       </div>
