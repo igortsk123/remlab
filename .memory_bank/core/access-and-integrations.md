@@ -14,12 +14,12 @@ review_after: ""
 
 # Access & Integrations — Tier 1 сводка
 
-> Секретов тут НЕТ — только где они и как устроен доступ. Детали — Tier 2.
+> Секретов тут НЕТ — только где они. Детали — Tier 2.
 
 ## Реестр
 | Интеграция | Статус | Задача | Ключи (где) | Код |
 |---|---|---|---|---|
-| Google Gemini | активен ✅ | картинки + анализ фото | `GEMINI_API_KEY`: `.env.local` / прод `/opt/remlab/.env` | `lib/providers/gemini.ts` |
+| Google Gemini | активен ✅ | картинки + анализ фото | `GEMINI_API_KEY` (.env) | `lib/providers/gemini.ts` |
 | OpenAI | ключ есть ✅ | GPT-5.1 тексты объявлений | `_secrets/ACCESS.md` | `infra/server/ads-watchdog/common.py` |
 | PostHog | код есть, прод no-op (ADR-0012) | аналитика+ошибки | `POSTHOG_KEY` не задан | `lib/analytics.ts` |
 | Гдеслон | late-binding, не блокер | партнёрки постепенно (канд. №1) | будут в `.env` | — |
@@ -28,15 +28,14 @@ review_after: ""
 | Яндекс (WS/Директ/Метрика) | доступ ✅ | семантика/реклама/аналитика | `_secrets/ACCESS.md` (вне git) | кода нет, curl |
 | Лид-канал П7 | скелет до токенов | заявки+диалог | `LEADS_*` в `/opt/remlab/.env` — `[[leads]]` | `lib/leads/*` |
 | YooKassa | код-скелет, БЕЗ ключей (К5) | оплата 60₽ визуализации | ключи не заданы | `lib/payments/yookassa.ts` |
-| РФ-прокси чтения ссылок | активен ✅ (ADR-0031) | фолбэк parse-link; квота 1 ГБ, общий с VPN-проектом | `PARSE_PROXY_URLS` в `/opt/remlab/.env`; креды — VPN `_secrets/ACCESS.md` | `lib/calc/fetch-page.ts` |
+| РФ-прокси | ✅ ADR-0031 | фолбэк parse-link; квота 1 ГБ | `PARSE_PROXY_URLS`; креды — VPN `_secrets/` | `lib/calc/fetch-page.ts` |
 
 ## Ключевые факты
 - **Gemini:** один ключ на обе задачи; модели `gemini-3.1-flash-image` и `gemini-flash-latest`.
-- **OpenAI (ADR-0026):** ИИ-фолбэк парсинга ссылок; `OPENAI_EXTRACT_MODEL` (деф. `gpt-4o-mini`),
-  ключ в `/opt/remlab/.env` (общий с ads-watchdog).
+- **OpenAI (ADR-0026):** ИИ-фолбэк парсинга ссылок; `OPENAI_EXTRACT_MODEL` (деф. `gpt-4o-mini`).
 - **PostHog:** free 1M/мес; Sentry нет.
 - **Яндекс:** общий аккаунт; Метрика `110599064`; чужую кампанию `708745261` не трогать. [[marketing-acquisition]].
-- **UI-иконки:** владелец шлёт PNG 512, прозрачный фон, через Drive-папку `1l2j65g8…` →
-  `public/icons/`; только `<img>`, НЕ next/image (нет sharp); имена бывают без расширения.
+- **UI-иконки:** PNG 512 от владельца (Drive `1l2j65g8…`) → `public/icons/`; только `<img>`,
+  НЕ next/image (нет sharp); имена бывают без расширения.
 
 **Tier 2:** `../domain/integrations.md` (эндпоинты, форматы, env, цены). Решения — `decisions.md` (ADR-0007/0011/0012/0013).
