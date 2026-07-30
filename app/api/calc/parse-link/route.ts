@@ -1,50 +1,24 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { calcKind, type MaterialSpec } from "@/contracts/calc";
-import { deriveLaminateM2Price, htmlToText, parseProductHtml } from "@/lib/calc/link-parse";
-import { aiExtractSpec, KEY_FIELDS, PLITKA_PRICE_FIELDS } from "@/lib/calc/link-parse-ai";
+import { calcKind } from "@/contracts/calc";
+import { fetchProductPage } from "@/lib/calc/fetch-page";
+import { parseProductFull } from "@/lib/calc/parse-product";
 
 export const runtime = "nodejs";
 
 const bodySchema = z.object({ url: z.string().url(), kind: calcKind });
 
-// Серверный парс ссылки (без CORS, с таймаутом). При неудаче — ok:false + 200: клиент переходит к ручному вводу.
+// Серверный парс ссылки (без CORS): добыча HTML (прямой fetch → резидентский прокси) →
+// полный парс (regex + JSON-LD + ИИ-дочитка). При неудаче — ok:false + 200 с кодом причины:
+// needs_file → клиент предлагает загрузить сохранённую страницу (Ozon/WB — JS-антибот).
 export async function POST(req: Request): Promise<Response> {
   const parsed = bodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ ok: false, error: "bad_request" }, { status: 400 });
   const { url, kind } = parsed.data;
-  try {
-    const res = await fetch(url, {
-      headers: { "user-agent": "Mozilla/5.0 (compatible; remlab/1.0; +https://remont-lab.online)", "accept-language": "ru" },
-      signal: AbortSignal.timeout(8000),
-      redirect: "follow",
-    });
-    if (!res.ok) return NextResponse.json({ ok: false, error: `http_${res.status}` });
-    const html = (await res.text()).slice(0, 2_000_000); // крупные карточки магазинов: цена/характеристики бывают за 500 КБ
-    const result = parseProductHtml(html, kind);
 
-    // ИИ-фолбэк: детерминированный парсер пропустил ключевые поля → дочитать через OpenAI (только пустое).
-    const missing = KEY_FIELDS[kind].filter((k) => result.spec[k] == null);
-    // Плитка: цена может быть за м²/шт/упак — зовём ИИ за ценой, только если НИ ОДНОЙ единицы нет.
-    if (kind === "plitka" && PLITKA_PRICE_FIELDS.every((k) => result.spec[k] == null)) {
-      missing.push(...PLITKA_PRICE_FIELDS);
-    }
-    if (missing.length > 0 && !process.env.OPENAI_API_KEY) {
-      console.error("[parse-link] OPENAI_API_KEY не задан — ИИ-фолбэк пропущен, поля:", missing.join(","));
-    }
-    if (missing.length > 0 && process.env.OPENAI_API_KEY) {
-      const bodyText = htmlToText(html); // чистый контент: script/style вырезаны — LLM видит текст, не JS
-      const aiSpec = await aiExtractSpec(bodyText, kind, missing);
-      const target = result.spec as Record<string, number>;
-      for (const [k, v] of Object.entries(aiSpec)) {
-        if (result.spec[k as keyof MaterialSpec] == null && typeof v === "number") target[k] = v;
-      }
-      // ИИ мог дочитать размеры/шт-упак или цену упаковки → вывести цену за м², если её всё ещё нет.
-      if (kind === "laminat") deriveLaminateM2Price(result.spec);
-    }
+  const page = await fetchProductPage(url);
+  if (!page.ok) return NextResponse.json({ ok: false, error: page.error });
 
-    return NextResponse.json({ ok: true, ...result });
-  } catch {
-    return NextResponse.json({ ok: false, error: "unreachable" });
-  }
+  const result = await parseProductFull(page.html, kind);
+  return NextResponse.json({ ok: true, via: page.via, ...result });
 }

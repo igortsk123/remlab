@@ -54,6 +54,8 @@ services:
       # ИИ-фолбэк парсинга ссылок (ADR-0026): дочитываем недостающие поля товара через OpenAI.
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_EXTRACT_MODEL=${OPENAI_EXTRACT_MODEL:-gpt-4o-mini}
+      # Прокси-фолбэк чтения ссылок (link-fetch-max); пусто → только прямой fetch.
+      - PARSE_PROXY_URLS=${PARSE_PROXY_URLS:-}
       # П7 лид-канал (боты/почта; пусто → деградация)
       - LEADS_ADMIN_TG_TOKEN=${LEADS_ADMIN_TG_TOKEN:-}
       - LEADS_ADMIN_TG_CHAT_ID=${LEADS_ADMIN_TG_CHAT_ID:-}

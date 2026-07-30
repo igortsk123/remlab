@@ -60,7 +60,7 @@ export async function aiExtractSpec(pageText: string, kind: CalcKind, needed: (k
   if (fields.length === 0) return {};
 
   const model = process.env.OPENAI_EXTRACT_MODEL || "gpt-4o-mini";
-  const text = pageText.slice(0, 12000);
+  const text = pageText.slice(0, 16000); // вход уже подготовлен (link-content: JSON-LD + релевантный текст)
   const fieldList = fields.map((f) => `- ${String(f.key)}: ${f.desc}`).join("\n");
   const prompt =
     "Ты извлекаешь характеристики товара со страницы интернет-магазина. Верни СТРОГО JSON-объект с " +
@@ -106,3 +106,10 @@ export const KEY_FIELDS: Record<CalcKind, (keyof MaterialSpec)[]> = {
 
 // Все ценовые поля плитки (для доп-триггера ИИ, если цена не найдена ни в одной единице).
 export const PLITKA_PRICE_FIELDS: (keyof MaterialSpec)[] = ["pricePerM2Rub", "pricePerPieceRub", "pricePerPackRub"];
+
+// ВСЕ ИИ-заполняемые поля вида (link-fetch-max): дочитываем не только ключевые, а всё пустое —
+// цель «аккуратно заполнить все атрибуты». Какие пропуски реально спрашивать, решает
+// parse-product.missingAiFields (ценовая группа схлопывается, если цена уже найдена).
+export const AI_FIELD_KEYS: Record<CalcKind, (keyof MaterialSpec)[]> = Object.fromEntries(
+  (Object.keys(FIELDS) as CalcKind[]).map((k) => [k, FIELDS[k].map((f) => f.key)]),
+) as Record<CalcKind, (keyof MaterialSpec)[]>;

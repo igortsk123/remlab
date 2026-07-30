@@ -36,6 +36,6 @@ review_after: ""
 - **PostHog:** free 1M/мес; Sentry нет.
 - **Яндекс:** общий аккаунт; Метрика `110599064`; чужую кампанию `708745261` не трогать. [[marketing-acquisition]].
 - **UI-иконки:** владелец шлёт PNG 512 (прозрачный фон) через Drive-папку `1l2j65g8WpLvr…` →
-  `public/icons/`; только `<img>`, НЕ next/image (нет sharp). Файлы бывают без расширения.
+  `public/icons/`; только `<img>`, НЕ next/image (нет sharp); имена бывают без расширения.
 
 **Tier 2:** `../domain/integrations.md` (эндпоинты, форматы, env, цены). Решения — `decisions.md` (ADR-0007/0011/0012/0013).
