@@ -31,14 +31,12 @@ review_after: ""
 
 ## Ключевые факты
 - **Gemini:** один ключ на обе задачи; модели `gemini-3.1-flash-image` и `gemini-flash-latest`.
-- **OpenAI (ADR-0026):** ИИ-фолбэк парсинга ссылок — `chat/completions`, `OPENAI_EXTRACT_MODEL`
-  (дефолт `gpt-4o-mini`); `OPENAI_API_KEY` в `/opt/remlab/.env` (тот же, что у ads-watchdog).
-- **PostHog:** free 1M/мес; Sentry нет. На проде не включён (нет `POSTHOG_*`).
-- **CI:** авто-деплой РАБОТАЕТ (2026-07-28): `DEPLOY_SSH_KEY` задан, нативный arm64-раннер.
+- **OpenAI (ADR-0026):** ИИ-фолбэк парсинга ссылок; `OPENAI_EXTRACT_MODEL` (деф. `gpt-4o-mini`),
+  ключ в `/opt/remlab/.env` (общий с ads-watchdog).
+- **PostHog:** free 1M/мес; Sentry нет; на проде не включён (нет `POSTHOG_*`).
+- **CI:** авто-деплой работает (2026-07-28, нативный arm64-раннер, `DEPLOY_SSH_KEY`).
 - **Яндекс:** общий аккаунт; Метрика `110599064`; чужую кампанию `708745261` не трогать. [[marketing-acquisition]].
-- **UI-иконки от владельца** (2026-07-30): передаёт PNG 512×512 (прозрачный фон, единый стиль)
-  через Google Drive-папку `1l2j65g8WpLvr9a_DBscpF4Cd5vneY8ZI` → класть в `public/icons/`
-  (материалы — `icons/calc/<kind>.png`) и подключать обычным `<img>` — НЕ next/image
-  (standalone-прод без sharp упадёт). Файлы в папке бывают БЕЗ расширения.
+- **UI-иконки:** владелец шлёт PNG 512 (прозрачный фон) через Drive-папку `1l2j65g8WpLvr…` →
+  `public/icons/`; только `<img>`, НЕ next/image (нет sharp). Файлы бывают без расширения.
 
 **Tier 2:** `../domain/integrations.md` (эндпоинты, форматы, env, цены). Решения — `decisions.md` (ADR-0007/0011/0012/0013).
