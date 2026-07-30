@@ -50,15 +50,16 @@ export default async function LabPage() {
             const total = estimateTotal(e);
             return (
               <div key={e.id} className="card row" style={{ justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                <Link href={`/e/${e.id}`} className="row" style={{ textDecoration: "none", color: "inherit", flex: 1, justifyContent: "space-between", alignItems: "center" }}>
-                  <div>
-                    <strong style={{ fontSize: 16 }}>{estimateLabel(e)}</strong>
-                    <p className="muted" style={{ margin: "2px 0 0", fontSize: 14 }}>
-                      {fmtDate(e.createdAt)}
-                      {total > 0 ? ` · ~${rub(total)}` : ""}
-                    </p>
-                  </div>
-                  <span className="muted">→</span>
+                {/* Стрелка — сразу после названия (открыть), крестик — отдельно у правого края (удалить). */}
+                <Link href={`/e/${e.id}`} style={{ textDecoration: "none", color: "inherit", flex: 1 }}>
+                  <strong style={{ fontSize: 16 }}>
+                    {estimateLabel(e)}
+                    <span aria-hidden style={{ color: "var(--accent-strong)", fontSize: 19, marginLeft: 8, verticalAlign: "-1px" }}>→</span>
+                  </strong>
+                  <p className="muted" style={{ margin: "2px 0 0", fontSize: 14 }}>
+                    {fmtDate(e.createdAt)}
+                    {total > 0 ? ` · ~${rub(total)}` : ""}
+                  </p>
                 </Link>
                 <DeleteEstimateButton estimateId={e.id} label={estimateLabel(e)} />
               </div>

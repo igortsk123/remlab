@@ -6,17 +6,18 @@ import { useEffect, useRef } from "react";
 import { LabBadge } from "@/components/LabBadge";
 import { ZoomControl } from "@/components/ZoomControl";
 
-// Сквозная шапка на всех страницах. Все разделы на виду; две кнопки-калькулятора выделены
-// (залитые пилюли), остальные — лёгкие ссылки. Активный раздел подсвечивается. На узком экране
-// полоса навигации прокручивается вбок (без «гамбургера»), страница по горизонтали не едет.
-// Разделы с soon закрыты заглушками до запуска (launch-p1-vitrina) — ссылки ведут на «в разработке».
+// Сквозная шапка на всех страницах: один ряд кнопок (материалы · ремонт · Дизайн), активный
+// раздел подсвечивается. На мобильном при прокрутке вниз ряд сворачивается (класс
+// site-header--collapsed + media query в globals.css) — остаются бренд/зум/лаборатория и липкий
+// итог. Разделы с soon закрыты заглушками до запуска (launch-p1-vitrina); Стили/Советы скрыты
+// из шапки целиком (решение владельца 2026-07-30, hidden) — вернуть при запуске разделов.
 
-type NavItem = { href: string; label: string; match: string[]; soon?: boolean };
+type NavItem = { href: string; label: string; match: string[]; soon?: boolean; hidden?: boolean };
 
 const NAV: NavItem[] = [
   { href: "/start", label: "Дизайн", match: ["/start", "/p/"], soon: true },
-  { href: "/styles", label: "Стили", match: ["/styles"], soon: true },
-  { href: "/sovety", label: "Советы", match: ["/sovety"], soon: true },
+  { href: "/styles", label: "Стили", match: ["/styles"], soon: true, hidden: true },
+  { href: "/sovety", label: "Советы", match: ["/sovety"], soon: true, hidden: true },
 ];
 
 function matches(pathname: string, prefixes: string[]): boolean {
@@ -36,6 +37,29 @@ export function SiteHeader() {
     const ro = new ResizeObserver(setVar);
     ro.observe(el);
     return () => ro.disconnect();
+  }, []);
+
+  // Прокрутка вниз → класс collapsed (ряд кнопок скрывает media query — только мобильный).
+  // Пороги 80/40 с зазором, чтобы у границы не мигало; высота пересчитается ResizeObserver'ом выше.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const y = window.scrollY;
+        if (y > 80) el.classList.add("site-header--collapsed");
+        else if (y < 40) el.classList.remove("site-header--collapsed");
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, []);
 
   const materialsActive = pathname === "/calc" || (pathname.startsWith("/calc/") && pathname !== "/calc/remont");
@@ -61,7 +85,7 @@ export function SiteHeader() {
           <Link href="/calc/remont" className={`nav-cta nav-cta--alt${costActive ? " nav-cta--active" : ""}`}>
             Сколько стоит ремонт<span className="soon-badge soon-badge--onfill">скоро</span>
           </Link>
-          {NAV.map((n) => (
+          {NAV.filter((n) => !n.hidden).map((n) => (
             <Link
               key={n.href}
               href={n.href}

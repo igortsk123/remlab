@@ -155,10 +155,24 @@ img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(-
 .zoom-control-value { font-size: 12px; font-weight: 600; min-width: 36px; text-align: center; font-variant-numeric: tabular-nums; }
 .site-brand { font-size: 18px; font-weight: 700; letter-spacing: 0.02em; text-decoration: none; color: var(--text); }
 
-/* Полоса разделов: не влезло — переносится на следующую строку (скрытый гориз. скролл выглядел
-   как обрезанное меню, особенно при увеличенном шрифте). Все пункты всегда видны. */
+/* Полоса разделов: один ряд (материалы · ремонт · Дизайн). flex-wrap — страховка: при крайнем
+   зуме/ширине лучше перенос, чем скрытая обрезка. */
 .site-nav {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-bottom: 2px;
+}
+
+/* Мобильный: прокрутка вниз сворачивает ряд кнопок (класс вешает SiteHeader), остаются
+   бренд/зум/лаборатория + липкий итог; наверху ряд возвращается. Десктоп — виден всегда. */
+@media (max-width: 700px) {
+  .site-header--collapsed .site-nav { display: none; }
+}
+
+/* Узкий экран: компактные кнопки и бейджи «скоро» прячем, чтобы три пункта жили в ОДНОМ ряду. */
+@media (max-width: 480px) {
+  .site-nav { gap: 6px; }
+  .site-nav .nav-cta { font-size: 13px; padding: 7px 10px; }
+  .site-nav .nav-link { font-size: 13px; padding: 7px 6px; }
+  .site-nav .soon-badge { display: none; }
 }
 
 .nav-cta {

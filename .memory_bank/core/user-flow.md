@@ -3,12 +3,12 @@ tier: 1
 topic: user-flow
 scope: Stage 1 UX-flow (построенный AI-флоу), экраны, аналитика
 tier2: ../domain/user-flow-details.md
-updated: 2026-07-12
+updated: 2026-07-30
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-07-12
+last_verified: 2026-07-30
 ---
 
 > ⚠️ ADR-0016: **v0.4 «Смета-first»** — `plans/MASTER-cost-first.md`; v0.3-детали ниже — историч.
@@ -16,10 +16,10 @@ last_verified: 2026-07-12
 # User Flow — Tier 1
 
 ## Навигация (v0.4, сквозная шапка — ADR-0017)
-Одна шапка `components/SiteHeader.tsx` (в `app/layout.tsx`) на ВСЕХ страницах: логотип +
-«Моя лаборатория» (`/lab`); ниже две ВЫДЕЛЕННЫЕ кнопки-калькулятора «Посчитать материалы» (`/calc`)
-и «Сколько стоит ремонт» (`/calc/remont`) + ссылки Дизайн (`/start`) · Стили (`/styles`) ·
-Советы (`/sovety`). Узкий экран — полоса скроллится вбок (без «гамбургера»), активный подсвечен.
+Одна шапка `SiteHeader.tsx` на всех страницах: логотип + «Моя лаборатория»; ниже ОДИН ряд:
+«Посчитать материалы» · «Сколько стоит ремонт» · «Дизайн» (Стили/Советы скрыты до запуска — NAV
+hidden). Мобильный: скролл вниз сворачивает ряд кнопок (`site-header--collapsed`, ≤700px) —
+остаются бренд/зум/лаборатория + липкий итог; ≤480px кнопки компактные, бейджи «скоро» скрыты.
 Главная (`app/page.tsx`) = «о проекте целиком», не только калькулятор.
 - **`/styles`** — игра-карточки «узнай свой вкус» (`components/StyleQuiz.tsx`, сид `lib/styles/quiz.ts`):
   лайк/скип → стиль → CTA дизайн/смета; событие `quiz_completed` (`app/styles-actions.ts`). Фото карточек
