@@ -28,6 +28,7 @@ review_after: ""
 | Яндекс (WS/Директ/Метрика) | доступ ✅ | семантика/реклама/аналитика | `_secrets/ACCESS.md` (вне git) | кода нет, curl |
 | Лид-канал П7 | скелет до токенов | заявки+диалог | `LEADS_*` в `/opt/remlab/.env` — `[[leads]]` | `lib/leads/*` |
 | YooKassa | код-скелет, БЕЗ ключей (К5) | оплата 60₽ визуализации | ключи не заданы | `lib/payments/yookassa.ts` |
+| РФ-прокси чтения ссылок | активен ✅ (ADR-0031) | фолбэк parse-link; квота 1 ГБ, общий с VPN-проектом | `PARSE_PROXY_URLS` в `/opt/remlab/.env`; креды — VPN `_secrets/ACCESS.md` | `lib/calc/fetch-page.ts` |
 
 ## Ключевые факты
 - **Gemini:** один ключ на обе задачи; модели `gemini-3.1-flash-image` и `gemini-flash-latest`.

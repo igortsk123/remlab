@@ -40,6 +40,13 @@ review_after: ""
 через целые упаковки; ADR-0030); «?»-подсказки. Копирайт по kind (`CALC_META`); хвосты: итог →
 сопутка → «найдём дешевле» → виз. Детали — ADR-0019/0027/0028/0030; роадмап `calc-materials-roadmap.md`.
 
+## Чтение ссылок (ADR-0031, link-fetch-max)
+Добыча HTML: прямой fetch (Chrome-заголовки, SSRF-guard) → резидентский прокси `PARSE_PROXY_URLS`
+(квота! cap 2 МБ, только фолбэк) → Ozon/WB/market.yandex (JS-антибот, серверно непробиваемы) →
+`needs_file`: юзер грузит сохранённую страницу (Ctrl+S) → `/api/calc/parse-html`. Парс общий
+(`lib/calc/parse-product.ts`): regex+OG → JSON-LD Product → ИИ дочитывает ВСЕ пустые поля вида
+(вход = JSON-LD + окно «Характеристик», ≤16k; `lib/calc/link-content.ts`).
+
 ## Следующее
 pricing Фаза 2 (GeoIP); ИИ-обогащение (М1 v1.1); реф-маршруты по логу (М0); М5 виз.
 

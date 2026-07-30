@@ -415,3 +415,24 @@ session_id — чужое не удалить), action `deleteEstimate`, кно�
 `modules/estimate/repository.ts`, `app/estimate-actions.ts`, `app/lab/page.tsx`,
 `components/lab/DeleteEstimateButton.tsx`, `lib/analytics.ts`, `app/globals.css`, тесты
 (unit: link-parse/formulas/repo-delete; e2e: удаление в /lab). План: `completed_plans/calc-ux-batch.md`.
+
+## [2026-07-30] Чтение ссылок: трёхслойная добыча HTML + сохранённая страница — ADR-0031
+**Решение (link-fetch-max):** (1) **Добыча HTML** (`lib/calc/fetch-page.ts`): прямой fetch с
+браузерными заголовками (Chrome UA; «честный бот» UA резался WAF'ами) → фолбэк через
+**резидентский прокси** `PARSE_PROXY_URLS` (пул proxy.market из VPN-проекта, **квота 1 ГБ** →
+только фолбэк, чтение потоком cap 2 МБ, перебор ≤3 портов, лог байтов/причин) → домены с
+JS-челленджем (ozon.ru, wildberries.ru, market.yandex.ru) через прокси НЕ гоняем — сразу
+`needs_file`. SSRF-guard (приватные IP — отказ). (2) **`needs_file` → загрузка сохранённой
+страницы**: UI (`LinkAutofill`) предлагает Ctrl+S «только HTML» → `POST /api/calc/parse-html`
+(тот же пайплайн; сохранённый браузером DOM уже содержит исполненный JS — единственный рабочий
+путь для Ozon: живьём проверено 2026-07-30, Ozon отдаёт `?__rr=`-цикл и 403-челлендж даже с
+резидентского И мобильного РФ-IP). (3) **Чистый вход LLM** (`lib/calc/link-content.ts`): JSON-LD
+Product (детерминированно title/цена — раньше терялся с вырезанными `<script>`) + начало страницы
++ окно вокруг «Характеристики», ≤16k. (4) **ИИ дочитывает ВСЕ пустые поля вида** одним вызовом
+(`parse-product.missingAiFields`; ценовая группа схлопывается при найденной цене) — уточнение
+ADR-0026 «только ключевые». **Почему:** цель «максимум ссылок читаются»; Ozon — топ-источник
+ссылок юзеров. **Альтернативы:** headless-браузер на сервере (2 vCPU/3.7 ГБ ARM — дорого,
+отложено), обход капчи (не делаем). **Влияет на:** `lib/calc/{fetch-page,link-content,parse-product,link-parse-ai}.ts`,
+`app/api/calc/{parse-link,parse-html}/route.ts`, `components/calc/LinkAutofill.tsx`,
+`docker-compose.yml`, `.env.example`, dep `undici`; секрет — только `/opt/remlab/.env`.
+План: `plans/link-fetch-max.md`.
