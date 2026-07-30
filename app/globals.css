@@ -136,7 +136,9 @@ img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(-
   background: var(--surface); border-bottom: 1px solid var(--border);
 }
 .site-header-inner {
-  width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 10px 20px;
+  /* Шапка ШИРЕ контента (контент остаётся var(--maxw)): все 5 пунктов меню в одну линию
+     на десктопе даже при увеличенном шрифте/зуме. */
+  width: 100%; max-width: 1100px; margin: 0 auto; padding: 10px 20px;
   display: flex; flex-direction: column; gap: 10px;
 }
 .site-header-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

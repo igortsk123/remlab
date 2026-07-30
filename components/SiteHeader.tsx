@@ -6,18 +6,17 @@ import { useEffect, useRef } from "react";
 import { LabBadge } from "@/components/LabBadge";
 import { ZoomControl } from "@/components/ZoomControl";
 
-// Сквозная шапка на всех страницах: один ряд кнопок (материалы · ремонт · Дизайн), активный
-// раздел подсвечивается. На мобильном при прокрутке вниз ряд сворачивается (класс
-// site-header--collapsed + media query в globals.css) — остаются бренд/зум/лаборатория и липкий
-// итог. Разделы с soon закрыты заглушками до запуска (launch-p1-vitrina); Стили/Советы скрыты
-// из шапки целиком (решение владельца 2026-07-30, hidden) — вернуть при запуске разделов.
+// Сквозная шапка на всех страницах: ОДИН ряд кнопок (шапка шире контента — globals.css,
+// .site-header-inner), активный раздел подсвечивается. На мобильном при прокрутке вниз ряд
+// сворачивается (класс site-header--collapsed + media query) — остаются бренд/зум/лаборатория
+// и липкий итог. Разделы с soon закрыты заглушками до запуска (launch-p1-vitrina).
 
-type NavItem = { href: string; label: string; match: string[]; soon?: boolean; hidden?: boolean };
+type NavItem = { href: string; label: string; match: string[]; soon?: boolean };
 
 const NAV: NavItem[] = [
   { href: "/start", label: "Дизайн", match: ["/start", "/p/"], soon: true },
-  { href: "/styles", label: "Стили", match: ["/styles"], soon: true, hidden: true },
-  { href: "/sovety", label: "Советы", match: ["/sovety"], soon: true, hidden: true },
+  { href: "/styles", label: "Стили", match: ["/styles"], soon: true },
+  { href: "/sovety", label: "Советы", match: ["/sovety"], soon: true },
 ];
 
 function matches(pathname: string, prefixes: string[]): boolean {
@@ -85,7 +84,7 @@ export function SiteHeader() {
           <Link href="/calc/remont" className={`nav-cta nav-cta--alt${costActive ? " nav-cta--active" : ""}`}>
             Сколько стоит ремонт<span className="soon-badge soon-badge--onfill">скоро</span>
           </Link>
-          {NAV.filter((n) => !n.hidden).map((n) => (
+          {NAV.map((n) => (
             <Link
               key={n.href}
               href={n.href}
