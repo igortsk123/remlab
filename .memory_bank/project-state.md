@@ -3,12 +3,12 @@ tier: 1
 topic: project-state
 scope: Снимок «где проект сейчас» — точка ресинхронизации при /clear и resume
 tier2: "changelog/project-history.md"
-updated: 2026-07-28
+updated: 2026-07-30
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-07-28
+last_verified: 2026-07-30
 ---
 
 # Project State — снимок состояния
@@ -21,21 +21,19 @@ last_verified: 2026-07-28
 ## Где
 - **Стадия:** v0.4 «Смета-first» (ADR-0016); ядро сметы М1 в проде (входы А/Б, чек-лист, /go/ реф) —
   `core/estimate.md`. Автопилот рекламы DRY-RUN на все кампании — `advertising/autopilot.md`.
-- **Запуск (launch-prep, 2026-07-28): ЗОНТ ЗАКРЫТ — платформа ГОТОВА К ЗАПУСКУ.** П1–П7 выкачены — П1 витрина-заглушки; П2 «Моя лаборатория»
-  = центр сохранений (список расчётов, счётчик-бейдж, cookie 30 дн); П3 UX калькуляторов (VizCta
-  скрыт, LeadCard-баннер без дублей, подсказки «что дальше», «?» раппорт/шов, «новый расчёт» +
-  автоочистка черновика после сохранения); П4 масштаб 100–130% (CSS zoom, ZoomControl в шапке) +
-  мобильные правки; П5-ядро чтения ссылок (фикс цены-артикула, htmlToText для LLM, пометки
-  авто/вручную autoKeys, «Нашли: <товар>»); **П5b ЗАКРЫТ (2026-07-30, ADR-0031):** direct →
-  резидентский прокси (PARSE_PROXY_URLS в /opt/remlab/.env) → загрузка сохранённой страницы
-  (Ozon/WB — JS-антибот, серверно непробиваемы); вход LLM = JSON-LD + окно «Характеристик»; П7 лид-канал «найдём дешевле» (модалка с городом-
-  автокомплитом ~1106 городов, служебный TG-бот, ответ реплаем; АКТИВАЦИЯ по токенам владельца —
-  `core/leads.md`); П6 финал (e2e лаборатория+заглушки, сверка рекламы: все кампании SUSPENDED,
-  Этап 2/AI-дизайн НЕ включать — ведут на заглушки). Ждут владельца: токены 3 ботов + SMTP,
-  включение Этапа 1 рекламы.
-- **Калькулятор v2 UX-полировка (2026-07-21…22, ADR-0018–0027):** NumInput, липкая шапка, плитка
-  стены+пол разными плитками, автозаполнение по ссылке (regex + ИИ-фолбэк OpenAI), лид-карточка,
-  проёмы убраны из UI (ADR-0027). Детали — `core/estimate.md`, `decisions.md`.
+- **Запуск: ЗОНТ launch-prep ЗАКРЫТ (2026-07-28) — платформа ГОТОВА.** П1–П7 в проде (витрина-
+  заглушки, лаборатория-центр, UX калькуляторов, зум 100–130%, чтение ссылок, лид-канал; хронология
+  — `changelog/project-history.md`). **Ждут владельца:** токены 3 ботов + SMTP (`core/leads.md`),
+  включение Этапа 1 рекламы. Кампании SUSPENDED; Этап 2/AI-дизайн НЕ включать (ведут на заглушки).
+- **Чтение ссылок П5b ЗАКРЫТ (2026-07-30, ADR-0031/0032):** только сервер — direct → резидентский
+  прокси (`PARSE_PROXY_URLS` в `/opt/remlab/.env`) для всех магазинов; вход LLM = JSON-LD + окно
+  «Характеристик»; загрузки файла НЕТ. ⚠️ Ozon/WB блокируют IP пула (капча) — нужен прокси-анблокер
+  (Bright Data/Zyte), решение владельца.
+- **UX-полировка по фидбеку (2026-07-30, ADR-0030):** ламинат — цена за м²; удаление расчётов в
+  `/lab`; «?»-подсказки; шапка — один центрированный ряд (на мобильном сворачивается при скролле);
+  иконки владельца вместо emoji + фавиконка-колба. — `core/estimate.md`, `core/user-flow.md`.
+- **Калькулятор v2 (2026-07-21…22, ADR-0018–0027):** NumInput, плитка стены+пол, автозаполнение по
+  ссылке, лид-карточка, проёмы убраны. Детали — `core/estimate.md`, `decisions.md`.
 - **Прод:** https://remont-lab.online — версия = git SHA (АВТО-деплой на каждый push в main,
   нативный arm64-раннер, с 2026-07-28). Контейнеры: `remlab-app`,
   `remlab-caddy`, `remlab-db` (pg17+pgvector), `remlab-imagor`. LE-cert до 2026-09-29. Секреты —
@@ -70,16 +68,13 @@ last_verified: 2026-07-28
 
 ## Что готово (со ссылками)
 - **Bootstrap S1–S4** (Memory Bank, сервер, каркас, регресс-сетка) — `completed_plans/remlab-bootstrap.md`.
-- **Stage 1 M0–M8** — `archive/plans/stage1-master-roadmap.md`: Gemini-провайдеры `lib/providers/` (ADR-0007);
-  контракты `contracts/*` (Zod); store in-memory → Postgres/Drizzle (ADR-0008/0011); модули
-  room-analysis / visual-generation / ideas / generation-job; экраны landing→brief→style→preview→
-  paywall→rooms (+`/soon`); тема japandi; e2e в CI, фейк-ИИ по флагу (ADR-0010).
+- **Stage 1 M0–M8** — `archive/plans/stage1-master-roadmap.md`: Gemini-провайдеры (ADR-0007),
+  контракты Zod, Postgres/Drizzle (ADR-0008/0011), модули room-analysis/visual-generation/ideas,
+  экраны landing→…→rooms, japandi, e2e в CI, фейк-ИИ (ADR-0010).
 - **Observability** — `lib/analytics.ts` → PostHog (ADR-0012), no-op без ключа; воронка + captureError.
-- **Сквозная навигация + разделы-каркасы (2026-07-12, ADR-0017)** — единая шапка `SiteHeader` на
-  всех страницах (2 выделенные кнопки-калькулятора + Дизайн/Стили/Советы + «Моя лаборатория» `/lab`);
-  главная пересобрана «о проекте целиком»; новые `/styles` (игра «узнай свой вкус» + статьи-плейсхолдеры),
-  `/sovety` (плейсхолдеры). Контент/фото интерьеров/аккаунт — позже —
-  `completed_plans/site-nav-and-scenarios.md`, `core/user-flow.md`.
+- **Сквозная навигация + разделы-каркасы (2026-07-12, ADR-0017)** — единая шапка `SiteHeader`;
+  главная «о проекте целиком»; `/styles` (игра «узнай свой вкус»), `/sovety` (плейсхолдеры).
+  Детали — `completed_plans/site-nav-and-scenarios.md`, `core/user-flow.md`.
 - **Калькулятор v2 (ADR-0018, К0–К6) — в проде**, основной на `/calc/[kind]` (localStorage);
   скелеты К5/К6 ждут ключей владельца (YooKassa, токены ботов); ПДн — TODO. `core/estimate.md`.
 - **Трейсинг AI-пайплайна в проде** (ADR-0013) — `generation_runs/steps/assets`, захват в слое
@@ -102,14 +97,10 @@ v0.3 · 0015 авто-коммит+пуш · **0016 пивот v0.4 «Смета
 UK · кухня как вход (пока).
 
 ## Open questions / TODO
-- ~~Мердж `feature/pipeline-tracing` → `main`~~ — уже влита (сверено git, 2026-07-11).
-- Активировать авто-деплой: секрет `DEPLOY_SSH_KEY` (= приватный `~/.ssh/remlab_ci_deploy`, уже в
-  `authorized_keys`); у Клода read-only PAT — нужен Secrets+Actions write или ручная установка.
 - `trace:prune` повесить на таймер `remlab-cleanup`.
 - Код под v0.4 — см. «Код-долг» в разделе Концепции.
-- Auth: anonymous session id (интерим) vs GoTrue vs Supabase Cloud — Stage 1.
-- Realtime статуса job: polling (интерим) vs self-host — Stage 2.
-- Поднять в снимок работы 2026-07-05…09 (плашка вверху).
+- Прокси-анблокер (Bright Data/Zyte) для чтения Ozon/WB — решение/оплата владельца (ADR-0032).
+- Auth: anonymous session id (интерим) vs GoTrue — Stage 1. Realtime job: polling vs self-host — Stage 2.
 
 ## Policies (как ведём разработку)
 - План-first (`.claude/rules/agent-workflow.md`): код только после «деплой».
