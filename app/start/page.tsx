@@ -16,6 +16,7 @@ export default function StartPage() {
     return (
       <ComingSoon
         icon="🖼️"
+        iconSrc="/icons/dizayn.png"
         title="Дизайн по фото"
         lead="Загрузите фото комнаты и посмотрите, как она заиграет в новом стиле. Доводим качество результата до уровня, за который не стыдно."
       />
