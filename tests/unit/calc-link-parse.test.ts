@@ -24,6 +24,28 @@ describe("link parse — извлечение из HTML", () => {
     expect(r.spec.pricePerPackRub).toBe(990);
   });
 
+  it("ламинат: «Размер доски 1380х193 мм», шт/упак и цена за м² из таблицы (стройпарк)", () => {
+    const html = `
+      <meta property="og:title" content="Ламинат KASTAMONU Yellow Дуб Кантри классический" />
+      <table><tr><td>Класс применения</td><td>32</td></tr>
+      <tr><td>Размер доски</td><td>1380х193 мм</td></tr>
+      <tr><td>Количество в упаковке</td><td>8 шт</td></tr>
+      <tr><td>Площадь в упаковке</td><td>2,131 м²</td></tr></table>
+      <div>832.48 ₽ за м<sup>2</sup></div><div>1 775.00 ₽ за упак</div>`;
+    const r = parseProductHtml(html, "laminat");
+    expect(r.spec.panelLengthMm).toBe(1380);
+    expect(r.spec.panelWidthMm).toBe(193);
+    expect(r.spec.panelsPerPack).toBe(8);
+    expect(r.spec.pricePerM2Rub).toBe(832.48); // «за м²» приоритетнее «за упак»
+  });
+
+  it("ламинат: только цена упаковки + размеры и шт/упак → цена за м² выводится", () => {
+    const html = `<div>Размер доски: 1380х193 мм</div><div>Количество в упаковке: 8</div><div>1 775 ₽ за упаковку</div>`;
+    const r = parseProductHtml(html, "laminat");
+    expect(r.spec.pricePerPackRub).toBe(1775);
+    expect(r.spec.pricePerM2Rub).toBeCloseTo(833.05, 1); // 1775 ÷ (1.38 × 0.193 × 8)
+  });
+
   it("обои: размеры рулона «1,06*10м» из og-title + раппорт «64 см» из таблицы", () => {
     const html = `
       <meta property="og:title" content="Обои R210139 Эдем/ Grandeco (1,06*10м обои винил, флизелин)" />

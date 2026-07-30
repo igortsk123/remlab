@@ -53,6 +53,20 @@ describe("calc formulas — количество материала", () => {
     expect(computeRoom(room, "laminat").qty).toBe(11);
   });
 
+  it("ламинат: цена за м² приоритетна, стоимость — через целые упаковки", () => {
+    const room: Room = {
+      id: "r", name: "", surfaces: [],
+      floor: { lengthM: 5, widthM: 4, extraZones: [], excludedZones: [] }, // 20 м²
+      material: {
+        direction: "length", panelLengthMm: 1380, panelWidthMm: 193, panelsPerPack: 8,
+        pricePerM2Rub: 832.48, pricePerPackRub: 999_999, // м² должна победить упаковку
+      },
+    };
+    const out = computeRoom(room, "laminat");
+    expect(out.qty).toBe(10); // 20 × 1.05 ÷ 2.13072 → 10 упаковок
+    expect(out.costRub).toBe(Math.round(10 * 1.38 * 0.193 * 8 * 832.48)); // 17738
+  });
+
   it("плитка: стены и пол — РАЗНЫЕ плитки, две части", () => {
     const room: Room = {
       id: "r", name: "Коридор",

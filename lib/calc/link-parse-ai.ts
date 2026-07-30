@@ -27,10 +27,11 @@ const FIELDS: Record<CalcKind, Field[]> = {
     { key: "pricePerPackRub", desc: "цена за упаковку в рублях" },
   ],
   laminat: [
-    { key: "panelLengthMm", desc: "длина панели в мм" },
-    { key: "panelWidthMm", desc: "ширина панели в мм" },
-    { key: "panelsPerPack", desc: "штук в упаковке" },
-    { key: "pricePerPackRub", desc: "цена за упаковку в рублях" },
+    { key: "panelLengthMm", desc: "длина панели/доски в мм" },
+    { key: "panelWidthMm", desc: "ширина панели/доски в мм" },
+    { key: "panelsPerPack", desc: "штук (панелей) в упаковке" },
+    { key: "pricePerM2Rub", desc: "цена за 1 м² в рублях — ТОЛЬКО если на странице «руб./м²», «за м²»" },
+    { key: "pricePerPackRub", desc: "цена за упаковку в рублях — ТОЛЬКО если указана «за упаковку»" },
   ],
 };
 
@@ -79,12 +80,16 @@ export async function aiExtractSpec(pageText: string, kind: CalcKind, needed: (k
       }),
       signal: AbortSignal.timeout(12000),
     });
-    if (!res.ok) return {};
+    if (!res.ok) {
+      console.error(`[link-parse-ai] openai http_${res.status} (model=${model})`);
+      return {};
+    }
     const data = await res.json();
     const raw = data?.choices?.[0]?.message?.content;
     if (typeof raw !== "string") return {};
     return pick(JSON.parse(raw), fields);
-  } catch {
+  } catch (e) {
+    console.error("[link-parse-ai] failed:", e instanceof Error ? e.message : e);
     return {};
   }
 }
@@ -96,7 +101,7 @@ export const KEY_FIELDS: Record<CalcKind, (keyof MaterialSpec)[]> = {
   oboi: ["rollWidthM", "rollLengthM", "pricePerRollRub"],
   plitka: ["tileLengthMm", "tileWidthMm"],
   kraska: ["packVolumeL", "pricePerPackRub"],
-  laminat: ["panelLengthMm", "panelWidthMm", "pricePerPackRub"],
+  laminat: ["panelLengthMm", "panelWidthMm", "panelsPerPack", "pricePerM2Rub"],
 };
 
 // Все ценовые поля плитки (для доп-триггера ИИ, если цена не найдена ни в одной единице).

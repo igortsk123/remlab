@@ -393,3 +393,25 @@ hflabs CC BY-SA, автокомплит через `/api/leads/cities`); зая�
 `data/ru-cities.json`+`tools/update-cities.mjs`, `docker-compose.yml`, `.github/workflows/deploy.yml`
 (миграции — ВСЕ db/init/*.sql), `core/leads.md`.
 
+## [2026-07-30] Ламинат: цена за м²; удаление расчётов в /lab; UX-подсказки — ADR-0030
+**Решение (фидбек владельца):** (1) **Ламинат — цена за м²** (как плитка, но без селектора единиц):
+поле формы «Цена за м², ₽» → `pricePerM2Rub`; парсер предпочитает «₽ за м²», нашёл только «за
+упаковку» при известных размерах+шт/упак → **конвертация упаковка→м²** (`deriveLaminateM2Price`,
+зовётся после детерминированного парса И после ИИ-фолбэка); формула: м² приоритетнее упаковки,
+стоимость честно через ЦЕЛЫЕ упаковки (`packs × packArea × ₽/м²`); fallback `pricePerPackRub`
+сохранён (старые расчёты). (2) **Парсер:** метка размера понимает слово после «Размер»
+(«Размер доски 1380х193 мм» — стройпарк); «Количество в упаковке N [шт]» → `panelsPerPack`
+(guard 1..60); юнит цены «м 2» (разорванный `<sup>2</sup>`) классифицируется как м².
+`KEY_FIELDS.laminat` = dims + `panelsPerPack` + `pricePerM2Rub`. **ИИ-фолбэк перестал молчать:**
+console.error на http-ошибку/исключение/отсутствие ключа (ключ на проде ЕСТЬ — фолбэк падал
+незаметно). (3) **Удаление расчёта:** `EstimateRepository.delete(id, sessionId)` (Pg: WHERE id AND
+session_id — чужое не удалить), action `deleteEstimate`, кнопка «×»+confirm в `/lab`, событие
+`estimate_deleted`. (4) **Шапка:** `.site-nav` flex-wrap (перенос строк) вместо скрытого гориз.
+скролла, который выглядел «обрезанным» при крупном шрифте. (5) **Обои:** чекбокс переименован в
+«Стыковка рисунка со смещением» + «?»-тултип (галочка = +раппорт/2 к полосе — реальная смещённая
+стыковка, НЕ дубль раппорта; решение владельца — оставить); «?» переписан у «Раппорт», добавлен у
+«Смещение рядов» (ламинат, информационное поле). **Влияет на:** `lib/calc/{link-parse,link-parse-ai,formulas}.ts`,
+`app/api/calc/parse-link/route.ts`, `components/calc/MaterialParams.tsx`,
+`modules/estimate/repository.ts`, `app/estimate-actions.ts`, `app/lab/page.tsx`,
+`components/lab/DeleteEstimateButton.tsx`, `lib/analytics.ts`, `app/globals.css`, тесты
+(unit: link-parse/formulas/repo-delete; e2e: удаление в /lab). План: `completed_plans/calc-ux-batch.md`.

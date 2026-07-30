@@ -72,8 +72,9 @@ function laminate(areaNet: number, m: MaterialSpec) {
     : DEF.packAreaLaminate;
   const withReserve = areaNet * (1 + reserve);
   const packs = withReserve > 0 ? Math.ceil(withReserve / Math.max(0.01, packArea)) : 0;
-  const cost = m.pricePerPackRub != null ? Math.round(packs * m.pricePerPackRub)
-    : m.pricePerM2Rub != null ? Math.round(withReserve * m.pricePerM2Rub) : null;
+  // Цена: юзер вводит за м² (приоритет); платим за целые упаковки → packs × площадь упаковки × ₽/м².
+  const cost = m.pricePerM2Rub != null ? Math.round(packs * packArea * m.pricePerM2Rub)
+    : m.pricePerPackRub != null ? Math.round(packs * m.pricePerPackRub) : null;
   return { qty: packs, unit: "упаковка", packs, cost, note: `${areaNet} м² + ${Math.round(reserve * 100)}%${diag ? " (диагональ)" : ""} ÷ ${round1(packArea)} м²/упак.` };
 }
 

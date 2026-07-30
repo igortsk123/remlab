@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { calcKind, type MaterialSpec } from "@/contracts/calc";
-import { htmlToText, parseProductHtml } from "@/lib/calc/link-parse";
+import { deriveLaminateM2Price, htmlToText, parseProductHtml } from "@/lib/calc/link-parse";
 import { aiExtractSpec, KEY_FIELDS, PLITKA_PRICE_FIELDS } from "@/lib/calc/link-parse-ai";
 
 export const runtime = "nodejs";
@@ -29,6 +29,9 @@ export async function POST(req: Request): Promise<Response> {
     if (kind === "plitka" && PLITKA_PRICE_FIELDS.every((k) => result.spec[k] == null)) {
       missing.push(...PLITKA_PRICE_FIELDS);
     }
+    if (missing.length > 0 && !process.env.OPENAI_API_KEY) {
+      console.error("[parse-link] OPENAI_API_KEY не задан — ИИ-фолбэк пропущен, поля:", missing.join(","));
+    }
     if (missing.length > 0 && process.env.OPENAI_API_KEY) {
       const bodyText = htmlToText(html); // чистый контент: script/style вырезаны — LLM видит текст, не JS
       const aiSpec = await aiExtractSpec(bodyText, kind, missing);
@@ -36,6 +39,8 @@ export async function POST(req: Request): Promise<Response> {
       for (const [k, v] of Object.entries(aiSpec)) {
         if (result.spec[k as keyof MaterialSpec] == null && typeof v === "number") target[k] = v;
       }
+      // ИИ мог дочитать размеры/шт-упак или цену упаковки → вывести цену за м², если её всё ещё нет.
+      if (kind === "laminat") deriveLaminateM2Price(result.spec);
     }
 
     return NextResponse.json({ ok: true, ...result });

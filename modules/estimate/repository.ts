@@ -1,7 +1,7 @@
 // Repository смет (v0.4) — тем же паттерном, что projects (ADR-0008): jsonb-агрегат за
 // интерфейсом. DATABASE_URL → Postgres, иначе in-memory. + лог кликов /go/ (приоритет реф-регистраций).
 
-import { eq, desc } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
 import { estimates, linkClicks, linkRoutes } from "@/db/schema";
@@ -12,6 +12,8 @@ export interface EstimateRepository {
   create(e: Estimate): Promise<Estimate>;
   get(id: string): Promise<Estimate | null>;
   update(id: string, patch: Partial<Estimate>): Promise<Estimate | null>;
+  /** Удаление ТОЛЬКО своей сметы: sessionId участвует в условии (чужой id → false, ничего не удалено). */
+  delete(id: string, sessionId: string): Promise<boolean>;
   listBySession(sessionId: string): Promise<Estimate[]>;
   logClick(c: { estimateId: string; itemId: string; domain: string | null; targetUrl: string; sessionId: string | null }): Promise<void>;
   activeRoutes(): Promise<LinkRoute[]>;
@@ -27,6 +29,12 @@ class MemoryEstimateRepository implements EstimateRepository {
     const next = { ...cur, ...patch, updatedAt: new Date().toISOString() };
     this.byId.set(id, next);
     return next;
+  }
+  async delete(id: string, sessionId: string) {
+    const cur = this.byId.get(id);
+    if (!cur || cur.sessionId !== sessionId) return false;
+    this.byId.delete(id);
+    return true;
   }
   async listBySession(sessionId: string) {
     return [...this.byId.values()].filter((e) => e.sessionId === sessionId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -50,6 +58,12 @@ class PgEstimateRepository implements EstimateRepository {
     const next = { ...cur, ...patch, updatedAt: new Date().toISOString() };
     await db().update(estimates).set({ data: next, updatedAt: new Date() }).where(eq(estimates.id, id));
     return next;
+  }
+  async delete(id: string, sessionId: string) {
+    const rows = await db().delete(estimates)
+      .where(and(eq(estimates.id, id), eq(estimates.sessionId, sessionId)))
+      .returning({ id: estimates.id });
+    return rows.length > 0;
   }
   async listBySession(sessionId: string) {
     const rows = await db().select().from(estimates).where(eq(estimates.sessionId, sessionId)).orderBy(desc(estimates.createdAt));

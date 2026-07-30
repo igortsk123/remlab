@@ -155,12 +155,11 @@ img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(-
 .zoom-control-value { font-size: 12px; font-weight: 600; min-width: 36px; text-align: center; font-variant-numeric: tabular-nums; }
 .site-brand { font-size: 18px; font-weight: 700; letter-spacing: 0.02em; text-decoration: none; color: var(--text); }
 
-/* Полоса разделов: на узком экране прокручивается вбок (без «гамбургера»), страница не едет. */
+/* Полоса разделов: не влезло — переносится на следующую строку (скрытый гориз. скролл выглядел
+   как обрезанное меню, особенно при увеличенном шрифте). Все пункты всегда видны. */
 .site-nav {
-  display: flex; align-items: center; gap: 8px;
-  overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 2px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-bottom: 2px;
 }
-.site-nav::-webkit-scrollbar { display: none; }
 
 .nav-cta {
   flex: 0 0 auto; display: inline-flex; align-items: center; white-space: nowrap;

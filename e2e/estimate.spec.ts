@@ -37,6 +37,11 @@ test("калькулятор → смета → своя ссылка → /go/",
   await page.goto("/lab");
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Мои расчёты");
   await expect(page.getByText("Расчёт обоев").first()).toBeVisible();
+
+  // Удаление расчёта: подтверждаем confirm — карточка исчезает, лаборатория пустеет.
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: /Удалить/ }).first().click();
+  await expect(page.getByText("Пока пусто")).toBeVisible();
 });
 
 // П6: витрина запуска — закрытые разделы отдают заглушку «В разработке», калькуляторы живые.

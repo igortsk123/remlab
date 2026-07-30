@@ -13,6 +13,7 @@ export type EventName =
   | "problem_reported"
   | "estimate_created"
   | "estimate_saved"
+  | "estimate_deleted"
   | "quiz_completed"
   | "viz_started"
   | "lead_captured"

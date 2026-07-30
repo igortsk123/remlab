@@ -4,6 +4,7 @@ import { repo } from "@/modules/store/repository";
 import { readSessionId } from "@/lib/session";
 import { estimateTotal, type Estimate } from "@/contracts/estimate";
 import { CALC_META, type CalcKind } from "@/lib/estimate/companions";
+import { DeleteEstimateButton } from "@/components/lab/DeleteEstimateButton";
 import { plural } from "@/lib/format/plural";
 
 export const metadata = {
@@ -48,16 +49,19 @@ export default async function LabPage() {
           {estimates.map((e) => {
             const total = estimateTotal(e);
             return (
-              <Link key={e.id} className="card row" href={`/e/${e.id}`} style={{ textDecoration: "none", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <strong style={{ fontSize: 16 }}>{estimateLabel(e)}</strong>
-                  <p className="muted" style={{ margin: "2px 0 0", fontSize: 14 }}>
-                    {fmtDate(e.createdAt)}
-                    {total > 0 ? ` · ~${rub(total)}` : ""}
-                  </p>
-                </div>
-                <span className="muted">→</span>
-              </Link>
+              <div key={e.id} className="card row" style={{ justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <Link href={`/e/${e.id}`} className="row" style={{ textDecoration: "none", color: "inherit", flex: 1, justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <strong style={{ fontSize: 16 }}>{estimateLabel(e)}</strong>
+                    <p className="muted" style={{ margin: "2px 0 0", fontSize: 14 }}>
+                      {fmtDate(e.createdAt)}
+                      {total > 0 ? ` · ~${rub(total)}` : ""}
+                    </p>
+                  </div>
+                  <span className="muted">→</span>
+                </Link>
+                <DeleteEstimateButton estimateId={e.id} label={estimateLabel(e)} />
+              </div>
             );
           })}
           <Link className="btn btn-secondary" href="/calc" style={{ alignSelf: "flex-start" }}>+ Новый расчёт</Link>

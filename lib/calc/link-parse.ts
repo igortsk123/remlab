@@ -51,11 +51,12 @@ function dimsToMm(aStr: string | undefined, bStr: string | undefined, unit: stri
 const NUM = "([0-9][0-9.,]*[0-9]|[0-9])";
 const SEP = "[x×х*]";
 
-// Размер: сначала по метке «Размер [(см)]: A×B [ед.]» из тела (надёжно для плиточных магазинов РФ),
-// иначе первый «A×B [ед.]» из заголовка/описания. Пропускаем фильтр-СПИСКИ («Размер 10х10 10х20 …» —
-// за размером сразу идёт ещё размер) и предпочитаем матч с явной единицей/пометкой «(см)».
+// Размер: сначала по метке «Размер [доски/панели] [(см)]: A×B [ед.]» из тела (надёжно для
+// магазинов РФ; «Размер доски 1380х193 мм» — стройпарк и др.), иначе первый «A×B [ед.]» из
+// заголовка/описания. Пропускаем фильтр-СПИСКИ («Размер 10х10 10х20 …» — за размером сразу идёт
+// ещё размер) и предпочитаем матч с явной единицей/пометкой «(см)».
 function extractSize(text: string, bodyText: string): { a: number; b: number } | undefined {
-  const labeledRe = new RegExp(`Размер[а-я]{0,2}\\s*(\\(\\s*см\\s*\\))?\\s*[:\\-]?\\s*${NUM}\\s*${SEP}\\s*${NUM}\\s*(см|cm|мм|mm)?`, "gi");
+  const labeledRe = new RegExp(`Размер[а-я]{0,2}(?:\\s+(?:доски|панели|ламели|планки|плитки|листа))?\\s*(\\(\\s*см\\s*\\))?\\s*[:\\-]?\\s*${NUM}\\s*${SEP}\\s*${NUM}\\s*(см|cm|мм|mm)?`, "gi");
   const isListRe = new RegExp(`^\\s*${NUM}\\s*${SEP}\\s*${NUM}`);
   const hinted: { a: number; b: number }[] = [];
   const plain: { a: number; b: number }[] = [];
@@ -81,13 +82,15 @@ function extractSize(text: string, bodyText: string): { a: number; b: number } |
 function extractPrice(text: string, html: string): { rub: number; unit: PriceUnit } | undefined {
   // Число цены: пробелы допустимы ТОЛЬКО как разделители тысячных троек («2 650», «12 349.50») —
   // иначе жадный матч склеивает артикул с ценой («R210139 … 2650 ₽» → 2101392650). Санити ≤ 10 млн.
-  const re = /((?:\d{1,3}(?:\s\d{3})+|\d+)(?:[.,]\d{1,2})?)\s*(?:₽|руб)\.?\s*(?:\/|за\s*)?\s*(кв\.?\s*м|м²|м2|шт|упак\w*)?/gi;
+  // «м²» в HTML часто набран как «м<sup>2</sup>» → после снятия тегов остаётся «м 2» — допускаем
+  // пробел между «м» и ²/2, но не даём «2» склеиться со следующим числом ((?!\d)).
+  const re = /((?:\d{1,3}(?:\s\d{3})+|\d+)(?:[.,]\d{1,2})?)\s*(?:₽|руб)\.?\s*(?:\/|за\s*)?\s*(кв\.?\s*м|м\s*[²2](?!\d)|шт|упак\w*)?/gi;
   const hits: { rub: number; unit: PriceUnit; ranked: boolean }[] = [];
   for (const m of text.matchAll(re)) {
     const rub = toNum(m[1]);
     if (rub == null || rub <= 0 || rub > 10_000_000) continue;
     const u = (m[2] ?? "").toLowerCase();
-    const unit: PriceUnit = /кв|м²|м2/.test(u) ? "m2" : /шт/.test(u) ? "piece" : "pack";
+    const unit: PriceUnit = /кв|м\s*[²2]/.test(u) ? "m2" : /шт/.test(u) ? "piece" : "pack";
     hits.push({ rub, unit, ranked: !!m[2] });
   }
   const byM2 = hits.find((h) => h.unit === "m2");
@@ -103,6 +106,16 @@ function extractPrice(text: string, html: string): { rub: number; unit: PriceUni
   return meta != null ? { rub: meta, unit: "pack" } : undefined;
 }
 
+// Ламинат: юзер вводит/видит цену за м². Известна только цена упаковки, но по размерам панели и
+// шт/упак считается её площадь → выводим цену за м² (цена упаковки остаётся в spec — формула
+// считает точнее через упаковки). Зовётся после детерминированного парса И после ИИ-фолбэка.
+export function deriveLaminateM2Price(spec: Partial<MaterialSpec>): void {
+  if (spec.pricePerM2Rub != null || spec.pricePerPackRub == null) return;
+  if (!spec.panelLengthMm || !spec.panelWidthMm || !spec.panelsPerPack) return;
+  const packAreaM2 = (spec.panelLengthMm / 1000) * (spec.panelWidthMm / 1000) * spec.panelsPerPack;
+  if (packAreaM2 >= 0.5) spec.pricePerM2Rub = Math.round((spec.pricePerPackRub / packAreaM2) * 100) / 100;
+}
+
 export function parseProductHtml(html: string, kind: CalcKind): ParsedProduct {
   const title = ogContent(html, "og:title") ?? titleTag(html);
   const text = `${title ?? ""} ${ogContent(html, "og:description") ?? ""}`;
@@ -116,6 +129,15 @@ export function parseProductHtml(html: string, kind: CalcKind): ParsedProduct {
       if (kind === "plitka") { spec.tileLengthMm = size.a; spec.tileWidthMm = size.b; }
       else { spec.panelLengthMm = size.a; spec.panelWidthMm = size.b; }
     }
+  }
+
+  if (kind === "laminat") {
+    // «Количество в упаковке 8 шт» / «Кол-во в упаковке: 8» / «8 шт в упаковке». Guard 1..60.
+    const per = toNum(
+      (/(?:кол-во|количество)[^0-9]{0,20}упаковке[^0-9]{0,6}(\d{1,3})/i.exec(bodyText) ??
+        /(\d{1,3})\s*шт\.?[^0-9а-я]{0,6}в\s*упаковке/i.exec(bodyText))?.[1],
+    );
+    if (per != null && Number.isInteger(per) && per >= 1 && per <= 60) spec.panelsPerPack = per;
   }
 
   if (kind === "oboi") {
@@ -152,11 +174,13 @@ export function parseProductHtml(html: string, kind: CalcKind): ParsedProduct {
   const price = extractPrice(`${text} ${bodyText}`, html);
   if (price != null) {
     if (kind === "oboi") spec.pricePerRollRub = price.rub;
-    else if (kind === "plitka") {
+    else if (kind === "plitka" || kind === "laminat") {
       if (price.unit === "m2") spec.pricePerM2Rub = price.rub;
-      else if (price.unit === "piece") spec.pricePerPieceRub = price.rub;
+      else if (price.unit === "piece" && kind === "plitka") spec.pricePerPieceRub = price.rub;
       else spec.pricePerPackRub = price.rub;
     } else spec.pricePerPackRub = price.rub;
   }
+
+  if (kind === "laminat") deriveLaminateM2Price(spec);
   return { title, priceRub: price?.rub, spec };
 }

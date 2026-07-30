@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { estimateRepo } from "@/modules/estimate/repository";
-import { getSessionId } from "@/lib/session";
+import { getSessionId, readSessionId } from "@/lib/session";
 import { track } from "@/lib/analytics";
 import { estimate as estimateSchema, estimateItem, type EstimateItem } from "@/contracts/estimate";
 import { wallpaper, tile, paint, laminate, perimeter, wallArea } from "@/lib/estimate/calc";
@@ -100,6 +100,17 @@ export async function removeItem(estimateId: string, itemId: string): Promise<vo
   if (!cur) redirect("/");
   await estimateRepo().update(estimateId, { items: cur!.items.filter((i) => i.id !== itemId) });
   redirect(`/e/${estimateId}`);
+}
+
+// Удаление расчёта из лаборатории. Только своей сессии: sessionId уходит в WHERE репозитория.
+export async function deleteEstimate(fd: FormData): Promise<void> {
+  const id = str(fd, "id");
+  const sessionId = await readSessionId();
+  if (id && sessionId) {
+    const ok = await estimateRepo().delete(id, sessionId);
+    if (ok) await track("estimate_deleted", sessionId, { estimateId: id });
+  }
+  redirect("/lab");
 }
 
 // «Сохранить» = отметить намерение (смета уже в сессии); шлём цель и остаёмся на странице.

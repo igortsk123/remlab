@@ -26,6 +26,17 @@ function NumField({ label, value, onChange, ph = "0", tip, auto }: { label: stri
   );
 }
 
+// Тексты «?»-подсказок (простым языком; показываются по hover/тапу через CSS-паттерн .help).
+const OFFSET_TIP =
+  "Способ стыковки полос — смотрите значок на этикетке рулона. «Прямая» стыковка: рисунок соседних " +
+  "полос на одной высоте, галочка не нужна. «Со смещением» (значок со стрелками и цифрами, например " +
+  "64/32): каждую следующую полосу сдвигают на полраппорта — обоев уйдёт немного больше.";
+const ROW_OFFSET_TIP =
+  "Насколько стык панелей в новом ряду сдвинут относительно предыдущего. «Произвольно» — ряд " +
+  "начинают обрезком от прошлого: быстрее и почти без отходов. «1/2» — стык ровно посередине панели: " +
+  "самый строгий рисунок, но отходов больше. «1/3» — «лесенка», золотая середина. На количество " +
+  "упаковок почти не влияет — запас уже заложен в расчёт.";
+
 // Размеры плитки в СМ (люди указывают плитку в см: 60×120, 20×20). Хранение — в мм (контракт/формулы).
 const mmToCm = (mm: number | undefined) => (mm == null ? undefined : Math.round(mm) / 10);
 const cmToMm = (cm: number | undefined) => (cm == null ? undefined : Math.round(cm * 10));
@@ -66,13 +77,16 @@ export function MaterialParams({ kind, spec, onChange, autoKeys }: { kind: CalcK
             <NumField label="Длина рулона, м" value={spec.rollLengthM} onChange={(v) => onChange({ rollLengthM: v })} auto={isAuto("rollLengthM")} />
           </div>
           <div className="row" style={{ gap: 8 }}>
-            <NumField label="Раппорт, м" value={spec.rapportM} onChange={(v) => onChange({ rapportM: v })} auto={isAuto("rapportM")} tip="Раппорт — шаг повторения рисунка на обоях (указан на этикетке, в метрах). Чем больше раппорт, тем больше уходит на подгонку рисунка. Если рисунок подгонять не нужно — оставьте 0." />
+            <NumField label="Раппорт, м" value={spec.rapportM} onChange={(v) => onChange({ rapportM: v })} auto={isAuto("rapportM")} tip="Раппорт — через сколько повторяется рисунок на обоях. Число указано на этикетке рулона, здесь вводится в метрах: 64 см = 0,64. Чем больше раппорт, тем больше обоев уходит на подгонку рисунка между полосами. Обои без подгонки рисунка — оставьте 0." />
             <NumField label="Цена/рулон, ₽" value={spec.pricePerRollRub} onChange={(v) => onChange({ pricePerRollRub: v })} auto={isAuto("pricePerRollRub")} />
           </div>
-          <label className="row" style={{ gap: 8, alignItems: "center" }}>
-            <input type="checkbox" checked={!!spec.offset} onChange={(e) => onChange({ offset: e.target.checked })} />
-            <span>Укладка со смещением рисунка</span>
-          </label>
+          <div className="row" style={{ gap: 6, alignItems: "center" }}>
+            <label className="row" style={{ gap: 8, alignItems: "center" }}>
+              <input type="checkbox" checked={!!spec.offset} onChange={(e) => onChange({ offset: e.target.checked })} />
+              <span>Стыковка рисунка со смещением</span>
+            </label>
+            <span className="help" tabIndex={0} role="note" aria-label={OFFSET_TIP} data-tip={OFFSET_TIP}>?</span>
+          </div>
         </>
       )}
 
@@ -132,12 +146,15 @@ export function MaterialParams({ kind, spec, onChange, autoKeys }: { kind: CalcK
               </select>
             </label>
             <label className="stack" style={{ flex: 1, minWidth: 120, gap: 4 }}>
-              <span className="eyebrow">Смещение рядов</span>
+              <span className="eyebrow">
+                Смещение рядов
+                <span className="help" tabIndex={0} role="note" aria-label={ROW_OFFSET_TIP} data-tip={ROW_OFFSET_TIP} style={{ marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>?</span>
+              </span>
               <select style={inp} value={spec.rowOffset ?? "third"} onChange={(e) => onChange({ rowOffset: e.target.value as MaterialSpec["rowOffset"] })}>
                 {(Object.keys(ROW_OFFSET_LABEL) as Array<keyof typeof ROW_OFFSET_LABEL>).map((k) => <option key={k} value={k}>{ROW_OFFSET_LABEL[k]}</option>)}
               </select>
             </label>
-            <NumField label="Цена/упак, ₽" value={spec.pricePerPackRub} onChange={(v) => onChange({ pricePerPackRub: v })} auto={isAuto("pricePerPackRub")} />
+            <NumField label="Цена за м², ₽" value={spec.pricePerM2Rub} onChange={(v) => onChange({ pricePerM2Rub: v })} auto={isAuto("pricePerM2Rub")} />
           </div>
         </>
       )}
