@@ -2,10 +2,10 @@
 workstream: estimate-ux
 slug: e-save-button-clarity
 title: Убрать фиктивную кнопку «Сохранить в „Мои сметы“» на /e/[id] — подтверждение сохранения + переход в лабораторию
-status: in_progress
+status: completed
 created: 2026-07-31
 updated: 2026-07-31
-completed:
+completed: 2026-07-31
 ---
 
 ## Цель
@@ -58,12 +58,13 @@ completed:
 - [ ] `components/SiteHeader.tsx` — `labActive` без `/estimates`
 
 ## Задачи
-- [ ] Реализовать по списку файлов выше
-- [ ] `pnpm typecheck && pnpm lint && pnpm test && pnpm build`
-- [ ] Deploy `./deploy.sh` (стандарт выкатки; с DEV-VM не запускать — только с прод-сервера по playbook)
-- [ ] Обновить память: `core/estimate.md` (убрать «Мои сметы»/`/estimates` из описания ядра),
-  `core/user-flow.md` при упоминании; ADR в `decisions.md` (снятие фиктивной кнопки, перенос цели 12);
-  `advertising/campaign_state.md` — сноска, что цель 12 теперь шлётся из ResultView/remont-CTA
+- [x] Реализовать по списку файлов выше (+ `e2e/estimate.spec.ts`: assert баннера)
+- [x] `pnpm typecheck && pnpm lint && pnpm test && pnpm build` — зелёные
+- [x] Deploy: push в main → CI gate → авто-джоба `Deploy prod` (работает, проверено 31.07;
+  deployment.md обновлён — прежняя заметка «сломан» устарела). Прод = 2db5e7a, smoke чистый
+- [x] Обновить память: `core/estimate.md`, `core/user-flow.md`, `core/architecture.md`,
+  ADR-0036 в `decisions.md`, `advertising/campaign_state.md` (перенос цели 12 + разрыв ряда CR),
+  `deployment.md` (авто-деплой работает)
 
 ## Критерии приёмки
 - [ ] На `/e/[id]` нет кнопки «Сохранить в „Мои сметы“»; есть Share + «🧪 Моя лаборатория»
@@ -74,20 +75,32 @@ completed:
 - [ ] Lint / build / тесты проходят; нет ошибок типов; нет отладочного вывода; файлы вне scope не задеты
 
 ## Definition of Done — память (без этого `completed` запрещён)
-- [ ] Memory Bank обновлён: `core/estimate.md`, `decisions.md` (ADR), `advertising/campaign_state.md`
-- [ ] «Уроки» заполнены; отброшенные подходы → `core/lessons.md`
-- [ ] `/memory-check` выполнен, audit «чисто»
+- [x] Memory Bank обновлён: `core/estimate.md`, `decisions.md` (ADR-0036), `advertising/campaign_state.md`,
+  `core/user-flow.md`, `core/architecture.md`, `deployment.md`, `project-state.md`
+- [x] «Уроки» заполнены; → `core/lessons.md` §9–10
+- [x] `/memory-check` выполнен, audit «чисто»
 
 ## Лог выполнения
 - 2026-07-31 — план создан (draft) по фидбеку владельца о путанице двух «сохранялок»
 - 2026-07-31 — уточнение владельца: цель Метрики — на клике в итогах (ок), баннер сверху (ок);
   добавлено: eyebrow «сохраняется по этой ссылке» непонятен → сократить, объяснение в баннер
+- 2026-07-31 — «деплой»: код готов, проверки зелёные, commit 2db5e7a → push main, ждём CI+авто-деплой
+- 2026-07-31 — CI gate + Deploy prod success; прод `/api/health.version` = 2db5e7a; smoke:
+  `/` 200 · `/calc/oboi` 200 · `/estimates` 307→`/lab` · remnanode Up (не тронута)
 
 ## Completion summary
-[при завершении]
+Реализовано полностью: фиктивная «Сохранить в „Мои сметы“» (`markSaved` + SaveButton) удалена;
+цель Метрики `12_estimate_saved` перенесена в момент реального сохранения (ResultView и
+`TrackedSubmit` на /calc/remont); `/e/[id]` — eyebrow «Смета-список», баннер `?saved=1` с
+объяснением постоянного адреса, внизу Share + кнопка «🧪 Моя лаборатория»; `/estimates` →
+redirect `/lab`; e2e дополнен assert'ом баннера. Память: ADR-0036 + 5 доков.
+Выкачено: 2db5e7a через CI (авто-деплой), smoke чистый. Упрощений/отложенного нет.
 
 ### Уроки (ОБЯЗАТЕЛЬНО)
-[при завершении]
+- Кнопка-пустышка ради цели аналитики (markSaved) — анти-паттерн: цель вешать на реальное
+  действие, иначе UI врёт пользователю («сохранить» то, что уже сохранено). → `core/lessons.md`.
+- deployment.md утверждал «авто-деплой сломан» (21.07), а он уже починен — живой факт (CI-джоба
+  + версия прода) победил память; сводку обновили. Подтверждение правила «прод wins».
 
 ## Follow-up work
 - [ ] Удалить легаси `createFromCalc` (v1-вход, не используется) — отдельной уборкой

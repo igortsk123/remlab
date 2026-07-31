@@ -114,7 +114,11 @@ review_after: "2026-08-01"
 **Воронка сметы v0.4 (2026-07-11):** 581529922 `10_calc_started` (JS) · 581529923
 `11_estimate_opened` (URL /e/) · 581529924 `12_estimate_saved` (JS) · 581530035 `13_ref_click`
 (JS — /go/ это redirect, не pageview). Код: `lib/metrika.ts`, `components/MetrikaPageviews.tsx`
-(SPA-hit) + client-компоненты CalcForm/SaveButton/GoLink. Цели НЕ удалять — архивировать (урок соседей).
+(SPA-hit) + client-компоненты CalcForm/GoLink. Цели НЕ удалять — архивировать (урок соседей).
+⚠️ С 2026-07-31 (ADR-0036) цель 12 шлётся в момент РЕАЛЬНОГО сохранения: ResultView
+(«Сохранить в Мою лабораторию») и `TrackedSubmit` на /calc/remont; кнопки SaveButton на /e/ больше
+нет. Семантика цели сузилась (раньше — клик по фиктивной кнопке) — при сравнении CR до/после
+2026-07-31 учитывать разрыв ряда.
 
 **Tier 1:** `../core/marketing-acquisition.md` · План: `../plans/yandex-direct-launch.md`.
 
