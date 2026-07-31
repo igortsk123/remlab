@@ -52,7 +52,8 @@ function PartNote({ part, label }: { part: RoomPart; label?: string }) {
         Нужно:{" "}
         {o.qtyUnknown ? (
           <span style={{ color: "var(--accent)" }}>
-            <strong>? шт</strong> <em style={{ fontWeight: 400 }}>(вставьте ссылку или задайте размер плитки)</em>
+            <strong>? {pluralUnit(o.unit, 0)}</strong>{" "}
+            <em style={{ fontWeight: 400 }}>→ {o.ask}</em>
           </span>
         ) : (
           <>

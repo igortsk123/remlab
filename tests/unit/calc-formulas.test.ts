@@ -5,14 +5,43 @@ import type { Room } from "@/contracts/calc";
 const wall = (id: string, lengthM: number, heightM: number): Room["surfaces"][number] => ({ id, label: "", lengthM, heightM, openings: [] });
 
 describe("calc formulas — количество материала", () => {
-  it("обои: периметр 12, высота 2.5 → 8 рулонов (0.53×10.05)", () => {
+  const box = (h: number) => [wall("a", 4, h), wall("b", 2, h), wall("c", 4, h), wall("d", 2, h)];
+
+  it("обои: периметр 12, высота 2.5, рулон 0.53×10.05 → 8 рулонов", () => {
     const room: Room = {
-      id: "r", name: "", material: {},
-      surfaces: [wall("a", 4, 2.5), wall("b", 2, 2.5), wall("c", 4, 2.5), wall("d", 2, 2.5)],
+      id: "r", name: "", material: { rollWidthM: 0.53, rollLengthM: 10.05 },
+      surfaces: box(2.5),
     };
     const out = computeRoom(room, "oboi");
     expect(out.qty).toBe(8);
     expect(out.unit).toBe("рулон");
+    expect(out.qtyUnknown).toBeFalsy();
+  });
+
+  // Правило «без выдумок» (ADR-0034): без параметров материала количество не считаем ни в одном виде.
+  it("обои: размер рулона не задан → количество неизвестно, а не 8 рулонов по дефолту", () => {
+    const out = computeRoom({ id: "r", name: "", material: {}, surfaces: box(2.5) }, "oboi");
+    expect(out.qtyUnknown).toBe(true);
+    expect(out.qty).toBe(0);
+    expect(out.unit).toBe("рулон");
+    expect(out.ask).toContain("размер рулона");
+    expect(out.areaNetM2).toBeGreaterThan(0); // площадь считается всегда
+  });
+
+  it("краска: тип и расход не заданы → количество неизвестно", () => {
+    const out = computeRoom({ id: "r", name: "", material: {}, surfaces: [wall("a", 4, 2.5)] }, "kraska");
+    expect(out.qtyUnknown).toBe(true);
+    expect(out.ask).toContain("тип краски");
+  });
+
+  it("ламинат: размеры панели не заданы → упаковки неизвестны", () => {
+    const room: Room = {
+      id: "r", name: "", surfaces: [], material: { direction: "length" },
+      floor: { lengthM: 5, widthM: 4, extraZones: [], excludedZones: [] },
+    };
+    const out = computeRoom(room, "laminat");
+    expect(out.qtyUnknown).toBe(true);
+    expect(out.ask).toContain("размер панели");
   });
 
   it("плитка: 10 м², 300×300, шов 3мм, +10%, 10 шт/упак → 120 шт / 12 упак", () => {
@@ -35,11 +64,14 @@ describe("calc formulas — количество материала", () => {
     expect(out.packs).toBe(3);
   });
 
+  // Панель 1380×193, 8 шт/упак = 2.13 м²/упак — тот же размер упаковки, что был дефолтом.
+  const PANEL = { panelLengthMm: 1380, panelWidthMm: 193, panelsPerPack: 8 } as const;
+
   it("ламинат: пол 20 м², прямая укладка +5%, 2.13 м²/упак → 10 упак", () => {
     const room: Room = {
       id: "r", name: "", surfaces: [],
       floor: { lengthM: 5, widthM: 4, extraZones: [], excludedZones: [] },
-      material: { direction: "length" },
+      material: { direction: "length", ...PANEL },
     };
     expect(computeRoom(room, "laminat").qty).toBe(10);
   });
@@ -48,7 +80,7 @@ describe("calc formulas — количество материала", () => {
     const room: Room = {
       id: "r", name: "", surfaces: [],
       floor: { lengthM: 5, widthM: 4, extraZones: [], excludedZones: [] },
-      material: { direction: "diag45" },
+      material: { direction: "diag45", ...PANEL },
     };
     expect(computeRoom(room, "laminat").qty).toBe(11);
   });

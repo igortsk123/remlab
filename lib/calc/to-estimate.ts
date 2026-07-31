@@ -12,7 +12,11 @@ export function calcToItems(project: CalcProject, mkId: () => string): EstimateI
   for (const room of project.rooms) {
     for (const part of computeRoomParts(room, project.kind)) {
       const out = part.out;
-      if (out.qty <= 0) continue;
+      // Параметры материала не заданы → количество неизвестно: в смету пишем площадь, а не число,
+      // полученное из молчаливых дефолтов (ADR-0034).
+      const qty = out.qtyUnknown ? out.areaNetM2 : out.qty;
+      const unit = out.qtyUnknown ? "м²" : out.unit;
+      if (qty <= 0) continue;
       const domain = part.productUrl ? domainFromUrl(part.productUrl) ?? undefined : undefined;
       const url = domain ? part.productUrl : undefined; // валидный url только если распарсился домен
       const title = part.label
@@ -21,9 +25,9 @@ export function calcToItems(project: CalcProject, mkId: () => string): EstimateI
       items.push({
         id: mkId(),
         title,
-        qty: out.qty,
-        unit: out.unit,
-        unitPriceRub: out.costRub != null && out.qty > 0 ? Math.round(out.costRub / out.qty) : undefined,
+        qty,
+        unit,
+        unitPriceRub: out.costRub != null && qty > 0 ? Math.round(out.costRub / qty) : undefined,
         url,
         domain,
         source: "calc",

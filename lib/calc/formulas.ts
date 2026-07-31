@@ -16,12 +16,29 @@ export type CalcOutput = {
   packs: number | null;
   note: string;
   costRub: number | null;
-  // Плитка без заданного размера: штуки не посчитать. qty остаётся площадью (fallback для сметы),
-  // но UI по этому флагу показывает «неизвестно», а не площадь комнаты в «Нужно».
+  // Параметры материала не заданы (ни ссылкой, ни вручную) → количество НЕ считаем: число,
+  // полученное из молчаливых дефолтов, выглядит фактом, хотя зависит от невидимого допущения
+  // (рулон 0,53 vs 1,06 м → разница вдвое). ADR-0034. qty=0, UI показывает «? <ед> → <ask>»,
+  // в смету уходит площадь.
   qtyUnknown?: boolean;
+  ask?: string;
 };
 
+// Чего не хватает, чтобы посчитать количество (показывается после «? <единица> →»).
+const ASK: Record<CalcKind, string> = {
+  oboi: "вставьте ссылку или задайте размер рулона",
+  plitka: "вставьте ссылку или задайте размер плитки",
+  kraska: "вставьте ссылку или выберите тип краски",
+  laminat: "вставьте ссылку или задайте размер панели",
+};
+
+const unknownQty = (unit: string, kind: CalcKind, cost: number | null = null) => ({
+  qty: 0, unit, packs: null as number | null, cost, note: "", qtyUnknown: true, ask: ASK[kind],
+});
+
 function wallpaper(perimeterM: number, heightM: number, m: MaterialSpec) {
+  // Размер рулона знаем только от пользователя (ссылка/ручной ввод) — иначе не считаем.
+  if (!((m.rollWidthM ?? 0) > 0 && (m.rollLengthM ?? 0) > 0)) return unknownQty("рулон", "oboi");
   const rollW = m.rollWidthM ?? DEF.rollWidthM;
   const rollL = m.rollLengthM ?? DEF.rollLengthM;
   const rapport = m.rapportM ?? 0;
@@ -35,15 +52,15 @@ function wallpaper(perimeterM: number, heightM: number, m: MaterialSpec) {
   return { qty: rolls, unit: "рулон", packs: null as number | null, cost, note: `${stripsNeeded} полос, ${stripsPerRoll} из рулона${m.offset ? ", со смещением" : ""}. Проёмы — запас.` };
 }
 
-type TileResult = { qty: number; unit: string; packs: number | null; cost: number | null; note: string; qtyUnknown?: boolean };
+type TileResult = { qty: number; unit: string; packs: number | null; cost: number | null; note: string; qtyUnknown?: boolean; ask?: string };
 
 function tile(areaNet: number, m: MaterialSpec): TileResult {
   const reserve = m.reservePct ?? DEF.tileCutReserve;
   const seam = (m.seamMm ?? DEF.seamMm) / 1000;
   if (!m.tileLengthMm || !m.tileWidthMm) {
-    const area = round1(areaNet * (1 + reserve));
-    const cost = m.pricePerM2Rub != null ? Math.round(area * m.pricePerM2Rub) : null;
-    return { qty: area, unit: "м²", packs: null as number | null, cost, qtyUnknown: true, note: `${areaNet} м² + ${Math.round(reserve * 100)}% (задайте размер плитки для штук).` };
+    // Цена за м² от площади считается честно (размер плитки не нужен) — стоимость сохраняем.
+    const cost = m.pricePerM2Rub != null ? Math.round(round1(areaNet * (1 + reserve)) * m.pricePerM2Rub) : null;
+    return unknownQty("шт", "plitka", cost);
   }
   const moduleArea = (m.tileLengthMm / 1000 + seam) * (m.tileWidthMm / 1000 + seam);
   const tiles = Math.ceil((areaNet * (1 + reserve)) / moduleArea);
@@ -56,6 +73,8 @@ function tile(areaNet: number, m: MaterialSpec): TileResult {
 }
 
 function paint(areaNet: number, m: MaterialSpec) {
+  // Расход берём из типа краски или из явного поля; вслепую (10 м²/л) не считаем.
+  if (m.consumptionM2PerL == null && !m.paintType) return unknownQty("л", "kraska");
   const coats = m.coats ?? DEF.coats;
   const consumption = m.consumptionM2PerL ?? (m.paintType ? PAINT_CONSUMPTION[m.paintType] : undefined) ?? DEF.paintConsumption;
   const liters = round1((areaNet * coats) / consumption);
@@ -67,10 +86,14 @@ function paint(areaNet: number, m: MaterialSpec) {
 function laminate(areaNet: number, m: MaterialSpec) {
   const diag = m.direction === "diag45" || m.direction === "diag135";
   const reserve = (m.reservePct ?? DEF.laminateReserve) + (diag ? DEF.laminateDiagExtra : 0);
-  const packArea = m.panelLengthMm && m.panelWidthMm && m.panelsPerPack
-    ? (m.panelLengthMm / 1000) * (m.panelWidthMm / 1000) * m.panelsPerPack
-    : DEF.packAreaLaminate;
   const withReserve = areaNet * (1 + reserve);
+  // Площадь упаковки — только из размеров панели; иначе упаковки не считаем (стоимость за м²
+  // от площади посчитать можно и без них).
+  if (!(m.panelLengthMm && m.panelWidthMm && m.panelsPerPack)) {
+    const costPerM2 = m.pricePerM2Rub != null ? Math.round(withReserve * m.pricePerM2Rub) : null;
+    return unknownQty("упаковка", "laminat", costPerM2);
+  }
+  const packArea = (m.panelLengthMm / 1000) * (m.panelWidthMm / 1000) * m.panelsPerPack;
   const packs = withReserve > 0 ? Math.ceil(withReserve / Math.max(0.01, packArea)) : 0;
   // Цена: юзер вводит за м² (приоритет); платим за целые упаковки → packs × площадь упаковки × ₽/м².
   const cost = m.pricePerM2Rub != null ? Math.round(packs * packArea * m.pricePerM2Rub)
@@ -92,8 +115,8 @@ export function computeRoom(room: Room, kind: CalcKind): CalcOutput {
           ? paint(wallArea, m)
           : laminate(netM2, m);
   const areaNet = kind === "plitka" || kind === "kraska" ? wallArea : netM2;
-  const qtyUnknown = (r as { qtyUnknown?: boolean }).qtyUnknown;
-  return { areaGrossM2: grossM2, areaNetM2: areaNet, qty: r.qty, unit: r.unit, packs: r.packs, note: r.note, costRub: r.cost, qtyUnknown };
+  const { qtyUnknown, ask } = r as { qtyUnknown?: boolean; ask?: string };
+  return { areaGrossM2: grossM2, areaNetM2: areaNet, qty: r.qty, unit: r.unit, packs: r.packs, note: r.note, costRub: r.cost, qtyUnknown, ask };
 }
 
 // Часть комнаты со своим материалом и результатом. Плитка может дать две части — стены и пол
@@ -102,7 +125,7 @@ export type RoomPart = { key: "main" | "walls" | "floor"; label: string; out: Ca
 
 function tileOut(grossM2: number, netM2: number, m: MaterialSpec): CalcOutput {
   const r = tile(round2(netM2), m);
-  return { areaGrossM2: round2(grossM2), areaNetM2: round2(netM2), qty: r.qty, unit: r.unit, packs: r.packs, note: r.note, costRub: r.cost, qtyUnknown: r.qtyUnknown };
+  return { areaGrossM2: round2(grossM2), areaNetM2: round2(netM2), qty: r.qty, unit: r.unit, packs: r.packs, note: r.note, costRub: r.cost, qtyUnknown: r.qtyUnknown, ask: r.ask };
 }
 
 export function computeRoomParts(room: Room, kind: CalcKind): RoomPart[] {

@@ -18,7 +18,8 @@ export function ResultView({ project }: { project: CalcProject }) {
         out: p.out,
       })),
     )
-    .filter((x) => x.out.qty > 0);
+    // Строка нужна и когда количество ещё неизвестно (параметры материала не заданы) — площадь уже есть.
+    .filter((x) => x.out.qty > 0 || x.out.areaNetM2 > 0);
 
   if (rows.length === 0) return null;
   const totalCost = rows.reduce((s, x) => s + (x.out.costRub ?? 0), 0);
@@ -31,7 +32,7 @@ export function ResultView({ project }: { project: CalcProject }) {
           <span>{x.name}</span>
           <span className="muted">
             {x.out.areaNetM2} м²
-            {x.out.qtyUnknown ? " · ? шт" : ` · ${x.out.qty} ${pluralUnit(x.out.unit, x.out.qty)}`}
+            {x.out.qtyUnknown ? ` · ? ${pluralUnit(x.out.unit, 0)}` : ` · ${x.out.qty} ${pluralUnit(x.out.unit, x.out.qty)}`}
             {x.out.costRub != null ? ` · ~${x.out.costRub.toLocaleString("ru-RU")} ₽` : ""}
           </span>
         </div>

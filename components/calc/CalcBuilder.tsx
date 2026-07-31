@@ -28,6 +28,8 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
   const counted = allParts.filter((p) => !p.out.qtyUnknown && p.out.qty > 0);
   const qtyUnit = counted[0]?.out.unit;
   const totalQty = round2(counted.filter((p) => p.out.unit === qtyUnit).reduce((s, p) => s + p.out.qty, 0));
+  // Размеры есть, но материал не задан → зовём указать материал, а не цену (количество ещё не считаем).
+  const needMaterial = allParts.some((p) => p.out.qtyUnknown && p.out.areaNetM2 > 0);
 
   return (
     <div className="stack">
@@ -39,6 +41,8 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
         {/* Единая подсказка «что дальше» — одинаково во всех 4 видах. */}
         {totalNet <= 0 ? (
           <span className="muted" style={{ fontSize: 13 }}>→ заполните размеры, чтобы посчитать</span>
+        ) : needMaterial ? (
+          <span className="muted" style={{ fontSize: 13 }}>→ вставьте ссылку или задайте параметры материала</span>
         ) : totalCost <= 0 ? (
           <span className="muted" style={{ fontSize: 13 }}>→ укажите цену товара, чтобы увидеть стоимость</span>
         ) : null}

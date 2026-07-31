@@ -12,6 +12,14 @@ test("калькулятор → смета → своя ссылка → /go/",
   await page.locator('label:has-text("Длина, м") input').fill("4");
   await page.locator('label:has-text("Высота, м") input').fill("2.7");
 
+  // ADR-0034: без параметров материала количество не считаем — вместо числа призыв «? рулонов → …».
+  await expect(page.getByText(/\? рулонов/).first()).toBeVisible();
+
+  // Задаём размер рулона вручную → количество появляется.
+  await page.getByRole("button", { name: "ввести параметры вручную" }).click();
+  await page.locator('label:has-text("Ширина рулона, м") input').fill("0.53");
+  await page.locator('label:has-text("Длина рулона, м") input').fill("10.05");
+
   // Итог со склонённым количеством рулонов → сохранить в смету (редирект на /e/[id]).
   await expect(page.getByText(/\d+ рулон/).first()).toBeVisible();
   await page.getByRole("button", { name: "Сохранить в Мою лабораторию" }).click();
