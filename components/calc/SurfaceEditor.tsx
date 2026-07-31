@@ -2,7 +2,7 @@
 
 import type { CalcKind, Opening, Surface } from "@/contracts/calc";
 import { Button } from "@/components/base/buttons/button";
-import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
+import { HintPopover } from "@/components/base/hint/hint-popover";
 import { NumInput } from "./NumInput";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -13,17 +13,15 @@ const OPENINGS_NOTE =
   "небольшой запас: на подгонку рисунка, обрезки и непредвиденные ошибки.";
 
 // Иконка-«дверь» (прямоугольник + точка-ручка) — приглушённый подсказчик, почему проёмы не вводим
-// (обои). Тултип раскрывается вправо (placement start): иконка у левого края блока.
+// (обои). Поповер по тапу — hover-тултип не работал на телефонах.
 function DoorHint() {
   return (
-    <Tooltip title={OPENINGS_NOTE} placement="bottom start">
-      <TooltipTrigger aria-label={OPENINGS_NOTE} className="inline-flex cursor-help items-center text-fg-quaternary hover:text-fg-tertiary">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
-          <rect x="6" y="3" width="12" height="18" rx="1" />
-          <circle cx="14.5" cy="12" r="1.1" fill="currentColor" stroke="none" />
-        </svg>
-      </TooltipTrigger>
-    </Tooltip>
+    <HintPopover hint={OPENINGS_NOTE}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+        <rect x="6" y="3" width="12" height="18" rx="1" />
+        <circle cx="14.5" cy="12" r="1.1" fill="currentColor" stroke="none" />
+      </svg>
+    </HintPopover>
   );
 }
 

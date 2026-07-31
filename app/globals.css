@@ -118,9 +118,11 @@ img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(-
   .site-header--collapsed .site-nav { display: none; }
 }
 
-/* Узкий экран: компактные кнопки и без бейджей «скоро», чтобы пункты жили в ОДНОМ ряду. */
+/* Узкий экран (iPhone SE…14 Pro): полоса разделов — ОДНА строка с горизонтальным скроллом
+   (паттерн мобильных табов; перенос в 2–3 ряда раздувал шапку). Бейджи «скоро» прячем. */
 @media (max-width: 480px) {
-  .site-nav { gap: 6px; }
+  .site-nav { gap: 6px; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .site-nav::-webkit-scrollbar { display: none; }
   .site-nav .nav-cta { font-size: 13px; padding: 7px 10px; }
   .site-nav .nav-link { font-size: 13px; padding: 7px 6px; }
   .site-nav .nav-cta span, .site-nav .nav-link span { display: none; } /* бейджи «скоро» прячем */
@@ -135,7 +137,7 @@ img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(-
 }
 .nav-cta:hover { background: var(--color-bg-brand-solid_hover); }
 /* Второй CTA — тинт (не конкурирует с главным терракотовым; дизайн-полировка P1). */
-.nav-cta--alt { background: var(--color-brand-100); color: var(--color-brand-800); }
+.nav-cta--alt { background: var(--color-brand-100); color: var(--color-brand-700); }
 .nav-cta--alt:hover { background: var(--color-brand-200); }
 /* Текущий раздел: «нажатая» кнопка — тёмная заливка + лёгкая внутренняя тень (кольцо
    выглядело как сбой фокуса). */

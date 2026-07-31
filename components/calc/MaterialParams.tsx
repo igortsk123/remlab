@@ -5,20 +5,15 @@ import { DIRECTION_LABEL, PAINT_TYPES, ROW_OFFSET_LABEL, SURFACE_TYPES } from "@
 import { Badge } from "@/components/base/badges/badges";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { NativeSelect } from "@/components/base/select/select-native";
-import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
+import { HintPopover } from "@/components/base/hint/hint-popover";
 import { NumInput } from "./NumInput";
 
-// «?»-подсказка рядом с лейблом: UUI Tooltip (hover + фокус/тап — доступность из коробки).
+// «?»-подсказка рядом с лейблом: поповер по тапу (hover-тултип не работал на телефонах).
 function HelpTip({ tip }: { tip: string }) {
   return (
-    <Tooltip title={tip} placement="bottom">
-      <TooltipTrigger
-        aria-label={tip}
-        className="ml-1.5 inline-flex size-4 cursor-help items-center justify-center rounded-full text-xs font-semibold text-fg-quaternary ring-1 ring-secondary ring-inset hover:text-fg-tertiary"
-      >
-        ?
-      </TooltipTrigger>
-    </Tooltip>
+    <HintPopover hint={tip} className="ml-1 -my-1 align-middle normal-case tracking-normal">
+      <span className="flex size-4 items-center justify-center rounded-full text-[11px] font-semibold ring-1 ring-secondary ring-inset">?</span>
+    </HintPopover>
   );
 }
 
