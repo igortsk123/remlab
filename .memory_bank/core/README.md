@@ -14,7 +14,7 @@
 |------|-------|----------------------|--------|---------|
 | `access-and-integrations.md` | access-and-integrations | Внешние интеграции/доступы — где ключи, какие модели/эндпоинты, форматы, клиенты в коде | `../domain/integrations.md` | 2026-07-30 |
 | `architecture.md` | architecture | Стек, структура, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-07-31 |
-| `data-model.md` | data-model | Реальная схема БД (таблицы), изоляция сессий, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-07-12 |
+| `data-model.md` | data-model | Реальная схема БД (таблицы), изоляция сессий, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-07-31 |
 | `estimate.md` | estimate | Смета-лист (ядро v0.4) — калькуляторы (вход А), стоимость ремонта (вход Б), чек-лист, /go/ реф | `../domain/pricing-works-ru.md` | 2026-07-31 |
 | `goals.md` | goals-furnish-fit | Цели продукта — v0.4 «Смета-first»; fit-ветка — отложена (архив) | `../goals-one-photo-furnish-fit.md` | 2026-07-09 |
 | `leads.md` | leads | Лид-канал «найдём дешевле» — заявка, служебный TG-бот, ответ реплаем | — | 2026-07-28 |
