@@ -306,6 +306,8 @@ img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(-
 /* Подсказка при наведении/фокусе (иконка-«окно» у обоев). Раскрывается по hover и по фокусу (тап/клавиатура). */
 .help { position: relative; display: inline-flex; align-items: center; color: var(--muted); cursor: help; }
 .help:hover, .help:focus { color: var(--text); outline: none; }
+/* Иконка у ЛЕВОГО края блока — тултип раскрываем вправо, иначе он уезжает за край экрана. */
+.help--start::after { left: 0; right: auto; }
 .help::after {
   content: attr(data-tip);
   position: absolute; right: 0; top: calc(100% + 8px); z-index: 30;

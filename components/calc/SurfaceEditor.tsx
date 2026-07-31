@@ -13,10 +13,12 @@ const inp = {
   background: "var(--surface)", color: "var(--text)", fontSize: 15, width: "100%",
 } as const;
 
-// Иконка-«дверь» (прямоугольник + точка-ручка) — приглушённый подсказчик, почему проёмы не вводим (обои).
+// Иконка-«дверь» (прямоугольник + точка-ручка) — приглушённый подсказчик, почему проёмы не вводим
+// (обои). Стоит сразу после заголовка стены: правый край строки — зона действий («удалить»), рядом
+// с ней справочная иконка читается как кнопка. help--start разворачивает тултип вправо.
 function DoorHint() {
   return (
-    <span className="help" tabIndex={0} role="note" aria-label={OPENINGS_NOTE} data-tip={OPENINGS_NOTE}>
+    <span className="help help--start" tabIndex={0} role="note" aria-label={OPENINGS_NOTE} data-tip={OPENINGS_NOTE}>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
         <rect x="6" y="3" width="12" height="18" rx="1" />
         <circle cx="14.5" cy="12" r="1.1" fill="currentColor" stroke="none" />
@@ -53,16 +55,14 @@ export function SurfaceEditor({
 
   return (
     <div className="stack" style={{ gap: 12 }}>
-      {isOboi && (
-        <div className="row" style={{ justifyContent: "flex-end", margin: 0 }}>
-          <DoorHint />
-        </div>
-      )}
-
-      {surfaces.map((s) => (
+      {surfaces.map((s, i) => (
         <div key={s.id} className="stack" style={{ gap: 8, borderLeft: "2px solid var(--border)", paddingLeft: 12 }}>
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <strong style={{ fontSize: 15 }}>{s.label || "Стена"}</strong>
+            <span className="row" style={{ gap: 6, alignItems: "center", margin: 0 }}>
+              <strong style={{ fontSize: 15 }}>{s.label || "Стена"}</strong>
+              {/* Подсказка про проёмы общая — показываем один раз, у первой стены. */}
+              {isOboi && i === 0 && <DoorHint />}
+            </span>
             <button type="button" className="quiz-link" style={{ fontSize: 12 }} onClick={() => onChange(surfaces.filter((x) => x.id !== s.id))}>удалить</button>
           </div>
           <div className="row" style={{ gap: 8 }}>
