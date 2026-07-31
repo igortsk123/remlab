@@ -33,6 +33,9 @@ body { zoom: calc(var(--screen-zoom) * var(--user-zoom)); }
 
 html, body {
   margin: 0;
+  /* Scroll-anchoring отключён: сворачивание шапки меняет её высоту, и авто-компенсация
+     скролла браузером гоняла y через пороги коллапса → шапка мерцала при скролле вверх. */
+  overflow-anchor: none;
   background: var(--bg);
   color: var(--text);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -198,7 +201,10 @@ img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(-
 .nav-cta:hover { background: var(--accent-strong-hover); }
 .nav-cta--alt { background: var(--accent); }
 .nav-cta--alt:hover { background: var(--accent-hover); }
-.nav-cta--active { box-shadow: 0 0 0 3px rgba(138, 154, 123, 0.28); }
+/* Текущий раздел: «нажатая» кнопка — тёмная заливка + лёгкая внутренняя тень (кольцо
+   выглядело как сбой фокуса). */
+.nav-cta--active { background: var(--accent-strong-hover); box-shadow: inset 0 2px 4px rgba(58, 52, 46, 0.18); }
+.nav-cta--alt.nav-cta--active { background: var(--accent-hover); }
 
 .nav-link {
   flex: 0 0 auto; display: inline-flex; align-items: center; white-space: nowrap;

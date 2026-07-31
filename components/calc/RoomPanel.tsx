@@ -111,9 +111,13 @@ export function RoomPanel({
   // Авто из ссылки: стираем только прежние авто-поля, ручные значения живут.
   const autoMaterial = (specIn: Partial<MaterialSpec>) => onUpdate((r) => { const res = applyAutoSpec(r.material, r.autoKeys, specIn); return { ...r, material: res.spec, autoKeys: res.autoKeys }; });
   const autoFloorMaterial = (specIn: Partial<MaterialSpec>) => onUpdate((r) => { const res = applyAutoSpec(r.floorMaterial ?? {}, r.floorAutoKeys, specIn); return { ...r, floorMaterial: res.spec, floorAutoKeys: res.autoKeys }; });
-  // Кнопка «+ добавить размеры стены» вынесена ИЗ карточки (стоит на фоне страницы, как «+ размеры пола»).
+  // Пока стен нет — отдельная кнопка «+ добавить размеры стены» на фоне страницы; после первой
+  // стены она исчезает, дальше стены добавляются кнопкой «+ добавить стену» ВНУТРИ карточки
+  // размеров (SurfaceEditor, onAdd). Удалили все стены → отдельная кнопка возвращается.
   const addWall = () => onUpdate((r) => ({ ...r, surfaces: [...r.surfaces, { id: uid(), label: `Стена ${r.surfaces.length + 1}`, lengthM: 0, heightM: r.surfaces[0]?.heightM ?? 0, openings: [] }] }));
-  const addWallBtn = <button type="button" className="chip chip--accent" onClick={addWall}>+ добавить размеры стены</button>;
+  const addWallBtn = room.surfaces.length === 0 && (
+    <button type="button" className="chip chip--accent" onClick={addWall}>+ добавить размеры стены</button>
+  );
 
   const wallLink = (
     <LinkAutofill kind={kind} url={room.productUrl} onUrl={(u) => onUpdate((r) => ({ ...r, productUrl: u }))} spec={room.material} onSpec={setMaterial} onAutoSpec={autoMaterial} autoKeys={room.autoKeys} />
@@ -124,6 +128,7 @@ export function RoomPanel({
         surfaces={room.surfaces}
         onChange={(s) => onUpdate((r) => ({ ...r, surfaces: s }))}
         kind={kind}
+        onAdd={addWall}
       />
     </div>
   );

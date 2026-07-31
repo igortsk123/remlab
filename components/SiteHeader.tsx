@@ -38,8 +38,9 @@ export function SiteHeader() {
     return () => ro.disconnect();
   }, []);
 
-  // Прокрутка вниз → класс collapsed (ряд кнопок скрывает media query — только мобильный).
-  // Пороги 80/40 с зазором, чтобы у границы не мигало; высота пересчитается ResizeObserver'ом выше.
+  // Прокрутка вниз → класс collapsed (ряд кнопок скрывает media query — только узкие окна).
+  // Пороги 160/40: зазор БОЛЬШЕ высоты сворачиваемого ряда (~46px), иначе изменение высоты
+  // шапки перебрасывает y через оба порога и шапка мерцает (+ overflow-anchor: none в CSS).
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -49,7 +50,7 @@ export function SiteHeader() {
       raf = requestAnimationFrame(() => {
         raf = 0;
         const y = window.scrollY;
-        if (y > 80) el.classList.add("site-header--collapsed");
+        if (y > 160) el.classList.add("site-header--collapsed");
         else if (y < 40) el.classList.remove("site-header--collapsed");
       });
     };

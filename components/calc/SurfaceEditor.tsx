@@ -31,10 +31,12 @@ export function SurfaceEditor({
   surfaces,
   onChange,
   kind,
+  onAdd,
 }: {
   surfaces: Surface[];
   onChange: (surfaces: Surface[]) => void;
   kind: CalcKind;
+  onAdd?: () => void;
 }) {
   const isOboi = kind === "oboi";
   const patch = (id: string, p: Partial<Surface>) =>
@@ -75,6 +77,14 @@ export function SurfaceEditor({
           </div>
         </div>
       ))}
+
+      {/* Следующая стена добавляется прямо из карточки размеров (RoomPanel показывает
+          отдельную кнопку «+ добавить размеры стены» только пока стен нет). */}
+      {onAdd && (
+        <button type="button" className="chip chip--accent" style={{ alignSelf: "flex-start" }} onClick={onAdd}>
+          + добавить стену
+        </button>
+      )}
     </div>
   );
 }
