@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import type { CalcKind, Floor, MaterialSpec, Room } from "@/contracts/calc";
 import { computeRoomParts, type RoomPart } from "@/lib/calc/formulas";
 import { applyAutoSpec, manualKeys } from "@/lib/calc/auto-fields";
@@ -32,7 +32,9 @@ function EmptyNote({ label }: { label?: string }) {
   );
 }
 
-// Результат одной части (стены/пол/комната) — инлайн под своим блоком: Площадь + Нужно.
+// Результат одной части (стены/пол/комната): Площадь + Нужно — под карточкой размеров.
+// Пока размеры пустые, PartNote вырождается в подсказку EmptyNote — её RoomPanel ставит НАД
+// карточкой (совет «введите размеры» под полями выглядел запоздалым).
 // Если у плитки не задан размер — в «Нужно» не площадь комнаты, а призыв задать размер/ссылку.
 function PartNote({ part, label }: { part: RoomPart; label?: string }) {
   const o = part.out;
@@ -63,6 +65,20 @@ function PartNote({ part, label }: { part: RoomPart; label?: string }) {
       {/* Не дублируем призыв «задайте размер» — при неизвестном кол-ве note скрываем. */}
       {!o.qtyUnknown && <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>{o.note}</div>}
     </div>
+  );
+}
+
+// Карточка размеров вместе со своей заметкой. Размеры не введены → заметка = подсказка, идёт НАД
+// карточкой (приглашение перед полями); введены → под карточкой результат Площадь/Нужно.
+function SizedBlock({ part, label, card }: { part?: RoomPart; label?: string; card: ReactNode }) {
+  const empty = !part || part.out.areaNetM2 <= 0;
+  const note = part ? <PartNote part={part} label={label} /> : null;
+  return (
+    <>
+      {empty && note}
+      {card}
+      {!empty && note}
+    </>
   );
 }
 
@@ -163,10 +179,14 @@ export function RoomPanel({
       {kind === "laminat" ? (
         <>
           {wallLink}
-          <div className="card stack">
-            <FloorEditor floor={room.floor ?? EMPTY_FLOOR} onChange={(f) => onUpdate((r) => ({ ...r, floor: f }))} />
-          </div>
-          {mainPart && <PartNote part={mainPart} />}
+          <SizedBlock
+            part={mainPart}
+            card={
+              <div className="card stack">
+                <FloorEditor floor={room.floor ?? EMPTY_FLOOR} onChange={(f) => onUpdate((r) => ({ ...r, floor: f }))} />
+              </div>
+            }
+          />
         </>
       ) : kind === "plitka" ? (
         <>
@@ -175,8 +195,7 @@ export function RoomPanel({
             <>
               <SectionHeader title="Плитка для стен" onRemove={removeWalls} />
               {wallLink}
-              {room.surfaces.length > 0 && wallSizes}
-              {wallsPart && <PartNote part={wallsPart} label="" />}
+              <SizedBlock part={wallsPart} label="" card={room.surfaces.length > 0 && wallSizes} />
               {addWallBtn}
             </>
           ) : (
@@ -188,10 +207,15 @@ export function RoomPanel({
             <>
               <SectionHeader title="Плитка для пола" onRemove={removeFloor} />
               <LinkAutofill kind={kind} url={room.floorProductUrl} onUrl={(u) => onUpdate((r) => ({ ...r, floorProductUrl: u }))} spec={room.floorMaterial ?? {}} onSpec={setFloorMaterial} onAutoSpec={autoFloorMaterial} autoKeys={room.floorAutoKeys} />
-              <div className="card stack">
-                <FloorEditor floor={room.floor} onChange={(f) => onUpdate((r) => ({ ...r, floor: f }))} />
-              </div>
-              {floorPart && <PartNote part={floorPart} label="" />}
+              <SizedBlock
+                part={floorPart}
+                label=""
+                card={
+                  <div className="card stack">
+                    <FloorEditor floor={room.floor} onChange={(f) => onUpdate((r) => ({ ...r, floor: f }))} />
+                  </div>
+                }
+              />
             </>
           ) : (
             <button type="button" className="chip chip--accent" onClick={addFloor}>+ Плитка для пола</button>
@@ -200,8 +224,7 @@ export function RoomPanel({
       ) : (
         <>
           {wallLink}
-          {room.surfaces.length > 0 && wallSizes}
-          {mainPart && <PartNote part={mainPart} />}
+          <SizedBlock part={mainPart} card={room.surfaces.length > 0 && wallSizes} />
           {addWallBtn}
         </>
       )}
