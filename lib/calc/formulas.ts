@@ -104,17 +104,17 @@ function laminate(areaNet: number, m: MaterialSpec) {
 export function computeRoom(room: Room, kind: CalcKind): CalcOutput {
   const { grossM2, netM2 } = roomAreas(room, kind);
   const m = room.material;
-  // Стеновые виды (плитка/краска): проёмы вычитаются только по галочке «Учесть окна и двери».
-  const wallArea = room.countOpenings ? netM2 : grossM2;
+  // Плитка/краска: введённые проёмы вычитаются самим фактом ввода (ADR-0035, галочки нет);
+  // без проёмов net == gross. Обои — по периметру, проёмы в запас полос.
   const r =
     kind === "oboi"
       ? wallpaper(room.surfaces.reduce((s, x) => s + x.lengthM, 0), room.surfaces.reduce((h, x) => Math.max(h, x.heightM), 0), m)
       : kind === "plitka"
-        ? tile(wallArea, m)
+        ? tile(netM2, m)
         : kind === "kraska"
-          ? paint(wallArea, m)
+          ? paint(netM2, m)
           : laminate(netM2, m);
-  const areaNet = kind === "plitka" || kind === "kraska" ? wallArea : netM2;
+  const areaNet = netM2;
   const { qtyUnknown, ask } = r as { qtyUnknown?: boolean; ask?: string };
   return { areaGrossM2: grossM2, areaNetM2: areaNet, qty: r.qty, unit: r.unit, packs: r.packs, note: r.note, costRub: r.cost, qtyUnknown, ask };
 }
@@ -134,10 +134,9 @@ export function computeRoomParts(room: Room, kind: CalcKind): RoomPart[] {
   }
   const hasFloor = !!room.floor;
   const wallGross = room.surfaces.reduce((s, x) => s + surfaceGross(x), 0);
-  const wallNet = room.surfaces.reduce((s, x) => s + surfaceNet(x), 0);
-  const wallArea = room.countOpenings ? wallNet : wallGross; // проёмы — только по галочке
+  const wallNet = room.surfaces.reduce((s, x) => s + surfaceNet(x), 0); // проёмы вычтены фактом ввода (ADR-0035)
   const parts: RoomPart[] = [
-    { key: "walls", label: hasFloor ? "Стены" : "", out: tileOut(wallGross, wallArea, room.material), material: room.material, productUrl: room.productUrl },
+    { key: "walls", label: hasFloor ? "Стены" : "", out: tileOut(wallGross, wallNet, room.material), material: room.material, productUrl: room.productUrl },
   ];
   if (room.floor) {
     const fm = room.floorMaterial ?? {};
