@@ -78,3 +78,8 @@ UI-грабли сведены в Tier 2: `anti-patterns.md` §6 (скрытый
 ADR-0034 (не считать по молчаливым дефолтам) в `decisions.md`; правило в `core/estimate.md`,
 урок 7 в `core/lessons.md`. План → `completed_plans/`. Tier 1 (estimate, lessons) ужаты под
 лимит 3 KB. Audit чист (56 доков, Tier 0 7.9 KB / 1.7%).
+
+## 2026-07-31 — /memory-check после calc-openings-restore
+ADR-0035 (возврат проёмов, откат ADR-0027) уже был в decisions.md; `core/estimate.md` — UX-строка
+обновлена («проёмы скрыты» устарело), урок 8 в `core/lessons.md` (удаление функциональности —
+только с явного «да» владельца). План → `completed_plans/`. Tier 1 ужаты. Audit чист.
