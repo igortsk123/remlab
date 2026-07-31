@@ -25,7 +25,7 @@ test("калькулятор → смета → своя ссылка → /go/",
   await page.getByRole("button", { name: "Сохранить в Мою лабораторию" }).click();
 
   // Страница сметы: явное подтверждение сохранения (e-save-button-clarity)
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("Смета", { timeout: 15_000 });
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Расчёт обоев", { timeout: 15_000 });
   await expect(page.getByText(/Сохранено в «Мою лабораторию»/)).toBeVisible();
   await expect(page.getByText(/\d+ рулон/).first()).toBeVisible();
   await expect(page.getByText("Клей обойный")).toBeVisible(); // сопутствующее «предвосхищение»
@@ -71,7 +71,7 @@ test.skip("сколько стоит ремонт — вилка трёх бюд
   await expect(page.getByText("Эконом", { exact: true })).toBeVisible();
   await expect(page.getByText("Средний", { exact: true })).toBeVisible();
   await expect(page.getByText("Получше", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: /Собрать смету по этому варианту/ }).first().click();
+  await page.getByRole("button", { name: /Сохранить этот вариант в Мою лабораторию/ }).first().click();
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Ремонт", { timeout: 15_000 });
   await expect(page.getByText(/Город-миллионник/)).toBeVisible(); // регион доехал в смету
 });

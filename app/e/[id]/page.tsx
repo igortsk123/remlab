@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { estimateRepo } from "@/modules/estimate/repository";
 import { itemTotal, estimateTotal } from "@/contracts/estimate";
+import { estimateLabel } from "@/lib/estimate/label";
 import { addLink, removeItem } from "@/app/estimate-actions";
 import { ShareButton } from "@/components/ShareButton";
 import { GoLink } from "@/components/GoLink";
@@ -29,8 +30,11 @@ export default async function EstimatePage({
 
   return (
     <main className="container">
-      <p className="eyebrow">Смета-список</p>
-      <h1>{est.title}</h1>
+      {/* Крошка: документ лежит в лаборатории — имя полки кликается, «расчёт» = что это (ADR-0039). */}
+      <p className="eyebrow">
+        <Link href="/lab" style={{ color: "inherit" }}>🧪 Моя лаборатория</Link> → расчёт
+      </p>
+      <h1>{estimateLabel(est)}</h1>
       {est.meta?.depthLabel ? <p className="muted" style={{ marginTop: -4 }}>{String(est.meta.depthLabel)}</p> : null}
 
       {saved ? (
@@ -94,7 +98,7 @@ export default async function EstimatePage({
 
       <div className="row" style={{ marginTop: 20 }}>
         <ShareButton />
-        <Link className="btn btn-secondary" href="/lab">🧪 Моя лаборатория</Link>
+        <Link className="btn btn-secondary" href="/lab">← Все мои расчёты</Link>
       </div>
 
       <p style={{ marginTop: 24 }}>

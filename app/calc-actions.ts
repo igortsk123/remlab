@@ -23,7 +23,7 @@ export async function saveCalcEstimate(raw: unknown): Promise<{ ok: true; id: st
   const est = estimateSchema.parse({
     id: randomUUID(),
     sessionId,
-    title: `Смета: ${CALC_META[project.kind].title.toLowerCase()}`,
+    title: `Расчёт ${CALC_META[project.kind].titleGen}`,
     source: "calc",
     items,
     meta: { kind: project.kind, rooms: project.rooms.length },

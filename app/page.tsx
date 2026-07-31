@@ -15,7 +15,7 @@ const SCENARIOS = [
   { href: "/start", icon: "🖼️", iconSrc: "/icons/dizayn.png", title: "Дизайн по фото", desc: "Загрузите фото, и ИИ покажет комнату в новом стиле", soon: true },
   { href: "/styles", icon: "🎨", title: "Узнай свой стиль", desc: "Полистайте интерьеры, подскажем, что вам ближе", soon: true },
   { href: "/sovety", icon: "🛠️", title: "Советы по ремонту", desc: "Как клеить, грунтовать и штукатурить своими руками", soon: true },
-  { href: "/lab", icon: "🧪", title: "Моя лаборатория", desc: "Сохранённые расчёты и сметы всегда под рукой", soon: false },
+  { href: "/lab", icon: "🧪", title: "Моя лаборатория", desc: "Сохранённые расчёты и дизайны всегда под рукой", soon: false },
 ];
 
 export default function Home() {

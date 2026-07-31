@@ -66,7 +66,7 @@ export function StyleQuiz() {
         <p className="muted" style={{ margin: 0 }}>{info.blurb}</p>
         <div className="row">
           <Link className="btn" href="/start">Показать мою комнату в этом стиле</Link>
-          <Link className="btn btn-secondary" href="/calc">Собрать смету</Link>
+          <Link className="btn btn-secondary" href="/calc">Посчитать материалы</Link>
         </div>
         <button className="quiz-link" onClick={restart}>Пройти заново</button>
       </div>

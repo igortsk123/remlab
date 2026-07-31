@@ -93,13 +93,13 @@ export default async function RemontPage({ searchParams }: { searchParams: Promi
                   <input type="hidden" name="depth" value={depth} />
                   <input type="hidden" name="region" value={region} />
                   <input type="hidden" name="variant" value={key} />
-                  <TrackedSubmit goal="estimate_saved" label="Собрать смету по этому варианту" className="btn btn-secondary btn-block" />
+                  <TrackedSubmit goal="estimate_saved" label="Сохранить этот вариант в Мою лабораторию" className="btn btn-secondary btn-block" />
                 </form>
               </div>
             );
           })}
           <p className="note">
-            Оценка ориентировочная (нормативы уточняются). Точные цены материалов — в смете по вашим ссылкам.
+            Оценка ориентировочная (нормативы уточняются). Точные цены материалов — в расчёте по вашим ссылкам.
           </p>
         </div>
       ) : null}

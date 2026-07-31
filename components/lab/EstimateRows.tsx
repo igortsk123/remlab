@@ -1,16 +1,9 @@
 import Link from "next/link";
 import { estimateTotal, type Estimate } from "@/contracts/estimate";
-import { CALC_META, type CalcKind } from "@/lib/estimate/companions";
+import { estimateLabel } from "@/lib/estimate/label";
 import { DeleteEstimateButton } from "@/components/lab/DeleteEstimateButton";
 
 const rub = (n: number) => `${n.toLocaleString("ru-RU")} ₽`;
-
-// Подпись расчёта: по виду материала из meta.kind («Расчёт обоев»), фолбэк — title сметы
-// (сметы «стоимость ремонта» и ручные приходят со своим title).
-function estimateLabel(e: Estimate): string {
-  const kind = (e.meta as { kind?: string } | undefined)?.kind as CalcKind | undefined;
-  return kind && CALC_META[kind] ? `Расчёт ${CALC_META[kind].titleGen}` : e.title;
-}
 
 function fmtDate(iso: string): string {
   const d = new Date(iso);

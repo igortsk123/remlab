@@ -49,7 +49,7 @@ export default async function LabPage({ searchParams }: { searchParams: Promise<
       <p className="eyebrow">Моя лаборатория</p>
       <h1>Мои расчёты и проекты</h1>
       <p className="muted" style={{ fontSize: 18 }}>
-        Здесь собирается всё, что вы посчитали и придумали: расчёты материалов, сметы ремонта и дизайны комнат.
+        Здесь собирается всё, что вы посчитали и придумали: расчёты материалов и ремонта, дизайны комнат.
       </p>
 
       <MyStyleCard style={styleRes ? STYLES[styleRes.style] : null} quizWip={!SHOW_WIP} />

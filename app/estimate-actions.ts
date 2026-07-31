@@ -44,7 +44,7 @@ export async function createFromCalc(kind: CalcKind, fd: FormData): Promise<void
 
   const now = new Date().toISOString();
   const est = estimateSchema.parse({
-    id: randomUUID(), sessionId, title: `Смета: ${title}`, source: "calc",
+    id: randomUUID(), sessionId, title: `Расчёт ${CALC_META[kind].titleGen}`, source: "calc",
     items: [main, ...companions], meta: { kind, width, length, height }, createdAt: now, updatedAt: now,
   });
   await estimateRepo().create(est);
