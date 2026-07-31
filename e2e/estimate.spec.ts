@@ -24,8 +24,9 @@ test("калькулятор → смета → своя ссылка → /go/",
   await expect(page.getByText(/\d+ рулон/).first()).toBeVisible();
   await page.getByRole("button", { name: "Сохранить в Мою лабораторию" }).click();
 
-  // Страница сметы
+  // Страница сметы: явное подтверждение сохранения (e-save-button-clarity)
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Смета", { timeout: 15_000 });
+  await expect(page.getByText(/Сохранено в «Мою лабораторию»/)).toBeVisible();
   await expect(page.getByText(/\d+ рулон/).first()).toBeVisible();
   await expect(page.getByText("Клей обойный")).toBeVisible(); // сопутствующее «предвосхищение»
 

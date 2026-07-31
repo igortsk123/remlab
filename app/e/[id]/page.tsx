@@ -2,9 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { estimateRepo } from "@/modules/estimate/repository";
 import { itemTotal, estimateTotal } from "@/contracts/estimate";
-import { addLink, removeItem, markSaved } from "@/app/estimate-actions";
+import { addLink, removeItem } from "@/app/estimate-actions";
 import { ShareButton } from "@/components/ShareButton";
-import { SaveButton } from "@/components/SaveButton";
 import { GoLink } from "@/components/GoLink";
 
 const rub = (n: number) => `${n.toLocaleString("ru-RU")} ₽`;
@@ -30,11 +29,16 @@ export default async function EstimatePage({
 
   return (
     <main className="container">
-      <p className="eyebrow">Смета-список · сохраняется по этой ссылке</p>
+      <p className="eyebrow">Смета-список</p>
       <h1>{est.title}</h1>
       {est.meta?.depthLabel ? <p className="muted" style={{ marginTop: -4 }}>{String(est.meta.depthLabel)}</p> : null}
 
-      {saved ? <p className="note">Сохранено. Откройте эту ссылку в любой момент: список ждёт вас.</p> : null}
+      {saved ? (
+        <p className="note">
+          ✓ Сохранено в «Мою лабораторию». Эта страница — постоянная: можно вернуться к ней
+          в любой момент или отправить кому-то.
+        </p>
+      ) : null}
 
       <div className="stack" style={{ marginTop: 16 }}>
         {est.items.map((it) => {
@@ -90,13 +94,11 @@ export default async function EstimatePage({
 
       <div className="row" style={{ marginTop: 20 }}>
         <ShareButton />
-        <form action={markSaved.bind(null, est.id)}>
-          <SaveButton />
-        </form>
+        <Link className="btn btn-secondary" href="/lab">🧪 Моя лаборатория</Link>
       </div>
 
       <p style={{ marginTop: 24 }}>
-        <Link className="muted" href="/lab">🧪 Моя лаборатория</Link> · <Link className="muted" href="/calc">Ещё калькулятор</Link>
+        <Link className="muted" href="/calc">Ещё калькулятор</Link>
       </p>
     </main>
   );

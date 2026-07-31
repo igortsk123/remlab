@@ -73,7 +73,7 @@ export async function createFromRemont(fd: FormData): Promise<void> {
   });
   await estimateRepo().create(est);
   await track("estimate_created", sessionId, { source: "remont", variant: v.key });
-  redirect(`/e/${est.id}`);
+  redirect(`/e/${est.id}?saved=1`);
 }
 
 // Добавить свою ссылку (деградация из барьеров: название/цену вводит юзер, парс OG — позже).
@@ -111,11 +111,4 @@ export async function deleteEstimate(fd: FormData): Promise<void> {
     if (ok) await track("estimate_deleted", sessionId, { estimateId: id });
   }
   redirect("/lab");
-}
-
-// «Сохранить» = отметить намерение (смета уже в сессии); шлём цель и остаёмся на странице.
-export async function markSaved(estimateId: string): Promise<void> {
-  const sessionId = await getSessionId();
-  await track("estimate_saved", sessionId, { estimateId });
-  redirect(`/e/${estimateId}?saved=1`);
 }

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createFromRemont } from "@/app/estimate-actions";
 import { estimateRemont, DEPTH_LABEL, REGION_LABEL, type Depth, type Region, type BudgetVariant } from "@/lib/pricing/works";
 import { ComingSoon } from "@/components/ComingSoon";
+import { TrackedSubmit } from "@/components/TrackedSubmit";
 
 // Раздел закрыт заглушкой до запуска (launch-p1-vitrina); включение старого содержимого: NEXT_PUBLIC_SHOW_WIP=1.
 const SHOW_WIP = process.env.NEXT_PUBLIC_SHOW_WIP === "1";
@@ -92,7 +93,7 @@ export default async function RemontPage({ searchParams }: { searchParams: Promi
                   <input type="hidden" name="depth" value={depth} />
                   <input type="hidden" name="region" value={region} />
                   <input type="hidden" name="variant" value={key} />
-                  <button type="submit" className="btn btn-secondary btn-block">Собрать смету по этому варианту</button>
+                  <TrackedSubmit goal="estimate_saved" label="Собрать смету по этому варианту" className="btn btn-secondary btn-block" />
                 </form>
               </div>
             );

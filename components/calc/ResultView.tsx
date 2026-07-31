@@ -6,6 +6,7 @@ import { computeRoomParts } from "@/lib/calc/formulas";
 import { pluralUnit } from "@/lib/format/plural";
 import { clearProject } from "@/lib/calc/storage";
 import { saveCalcEstimate } from "@/app/calc-actions";
+import { trackGoal } from "@/lib/metrika";
 
 // Итог по проекту: разбивка по комнатам, суммарная стоимость, сохранение в смету (М1).
 export function ResultView({ project }: { project: CalcProject }) {
@@ -46,15 +47,16 @@ export function ResultView({ project }: { project: CalcProject }) {
       <button
         className="btn btn-block"
         disabled={pending}
-        onClick={() =>
+        onClick={() => {
+          trackGoal("estimate_saved"); // цель — в момент реального сохранения (воронка 10–13)
           startTransition(async () => {
             const res = await saveCalcEstimate(project);
             if (res.ok) {
               clearProject(project.kind); // черновик сохранён в смету — новый расчёт начнётся с «Комнаты 1»
-              window.location.assign(`/e/${res.id}`);
+              window.location.assign(`/e/${res.id}?saved=1`);
             }
-          })
-        }
+          });
+        }}
       >
         {pending ? "Сохраняем…" : "Сохранить в Мою лабораторию"}
       </button>

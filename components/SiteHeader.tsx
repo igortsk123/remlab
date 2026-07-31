@@ -64,7 +64,7 @@ export function SiteHeader() {
 
   const materialsActive = pathname === "/calc" || (pathname.startsWith("/calc/") && pathname !== "/calc/remont");
   const costActive = pathname === "/calc/remont";
-  const labActive = matches(pathname, ["/lab", "/estimates", "/rooms"]);
+  const labActive = matches(pathname, ["/lab", "/rooms"]);
 
   return (
     <header ref={ref} className="site-header">
