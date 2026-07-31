@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import { STYLE_CARDS } from "@/contracts/style";
 import { SelectChips } from "@/components/SelectChips";
+import { Button } from "@/components/base/buttons/button";
+import { Chip } from "@/components/base/chip/chip";
+import { TextArea } from "@/components/base/textarea/textarea";
 
 type Action = "keep" | "change" | "remove";
 type Obj = { label: string; action: Action };
@@ -14,11 +17,6 @@ const FALLBACK: Obj[] = [
   { label: "Освещение", action: "change" },
   { label: "Текстиль и декор", action: "change" },
 ];
-
-const inputStyle = {
-  padding: "12px 14px", borderRadius: 10, border: "1px solid var(--base)",
-  background: "var(--surface)", color: "var(--text)", fontSize: 16, fontFamily: "inherit",
-} as const;
 
 export function SelectRoom({
   id, thumb, initialObjects, initialStyles, action,
@@ -82,9 +80,9 @@ export function SelectRoom({
             <strong style={{ fontSize: 15 }}>{o.label}</strong>
             <div className="row">
               {ACTIONS.map(([val, lbl]) => (
-                <button key={val} type="button" className="chip" data-selected={o.action === val} onClick={() => setAction(i, val)}>
+                <Chip key={val} size="sm" isSelected={o.action === val} onChange={() => setAction(i, val)}>
                   {lbl}
-                </button>
+                </Chip>
               ))}
             </div>
           </div>
@@ -98,16 +96,16 @@ export function SelectRoom({
 
       <div className="stack">
         <label className="eyebrow">Ваши пожелания</label>
-        <textarea
+        <TextArea
           name="wish"
           rows={3}
+          aria-label="Ваши пожелания"
           placeholder="Опишите словами, что хотите: цвет стен, какую мебель поставить, общее настроение… Чем конкретнее, тем точнее результат."
-          style={inputStyle}
         />
       </div>
 
       <input type="hidden" name="choices" value={JSON.stringify(objects ?? [])} />
-      <button className="btn btn-block" type="submit">Сгенерировать комнату</button>
+      <Button type="submit" size="lg" className="w-full">Сгенерировать комнату</Button>
       <p className="note">Это визуальная концепция комнаты, а не рабочий проект. Размеры проверяйте перед покупкой.</p>
     </form>
   );

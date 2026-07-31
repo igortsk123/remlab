@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Chip } from "@/components/base/chip/chip";
 
 type Opt = { value: string; label: string; disabled?: boolean };
 
@@ -26,16 +27,14 @@ export function SelectChips({
   return (
     <div className="row">
       {options.map((o) => (
-        <button
+        <Chip
           key={o.value}
-          type="button"
-          className="chip"
-          data-selected={sel.includes(o.value)}
-          data-disabled={o.disabled}
-          onClick={() => !o.disabled && toggle(o.value)}
+          isSelected={sel.includes(o.value)}
+          isDisabled={o.disabled}
+          onChange={() => toggle(o.value)}
         >
           {o.label}
-        </button>
+        </Chip>
       ))}
       {sel.map((v) => (
         <input key={v} type="hidden" name={name} value={v} />

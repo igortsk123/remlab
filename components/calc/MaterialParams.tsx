@@ -2,31 +2,45 @@
 
 import type { CalcKind, MaterialSpec } from "@/contracts/calc";
 import { DIRECTION_LABEL, PAINT_TYPES, ROW_OFFSET_LABEL, SURFACE_TYPES } from "@/lib/estimate/defaults";
+import { Badge } from "@/components/base/badges/badges";
+import { Checkbox } from "@/components/base/checkbox/checkbox";
+import { NativeSelect } from "@/components/base/select/select-native";
+import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 import { NumInput } from "./NumInput";
 
-const inp = {
-  padding: "8px 10px", borderRadius: 8, border: "1px solid var(--base)",
-  background: "var(--surface)", color: "var(--text)", fontSize: 15, width: "100%",
-} as const;
+// «?»-подсказка рядом с лейблом: UUI Tooltip (hover + фокус/тап — доступность из коробки).
+function HelpTip({ tip }: { tip: string }) {
+  return (
+    <Tooltip title={tip} placement="bottom">
+      <TooltipTrigger
+        aria-label={tip}
+        className="ml-1.5 inline-flex size-4 cursor-help items-center justify-center rounded-full text-xs font-semibold text-fg-quaternary ring-1 ring-secondary ring-inset hover:text-fg-tertiary"
+      >
+        ?
+      </TooltipTrigger>
+    </Tooltip>
+  );
+}
 
-// Плейсхолдер по умолчанию — «0» (светло-серый через CSS input::placeholder): видно, где заполнено.
-// tip — необязательная «?»-подсказка рядом с лейблом (hover/фокус-тап, как у иконки-двери обоев).
+// Плейсхолдер по умолчанию — «0» (светло-серый плейсхолдер UUI): видно, где заполнено.
 function NumField({ label, value, onChange, ph = "0", tip, auto }: { label: string; value: number | undefined; onChange: (v: number | undefined) => void; ph?: string; tip?: string; auto?: boolean }) {
   return (
     <label className="stack" style={{ flex: 1, minWidth: 120, gap: 4 }}>
       <span className="eyebrow">
         {label}
-        {auto && value != null && <span className="auto-badge" title="Заполнено из ссылки; правьте — станет вашим значением">авто</span>}
-        {tip && (
-          <span className="help" tabIndex={0} role="note" aria-label={tip} data-tip={tip} style={{ marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>?</span>
+        {auto && value != null && (
+          <span title="Заполнено из ссылки; правьте — станет вашим значением" className="ml-1.5 inline-block align-middle normal-case tracking-normal">
+            <Badge type="pill-color" color="success" size="sm">авто</Badge>
+          </span>
         )}
+        {tip && <HelpTip tip={tip} />}
       </span>
-      <NumInput style={inp} placeholder={ph} value={value} onChange={onChange} />
+      <NumInput placeholder={ph} value={value} onChange={onChange} ariaLabel={label} />
     </label>
   );
 }
 
-// Тексты «?»-подсказок (простым языком; показываются по hover/тапу через CSS-паттерн .help).
+// Тексты «?»-подсказок (простым языком).
 const OFFSET_TIP =
   "Способ стыковки полос — смотрите значок на этикетке рулона. «Прямая» стыковка: рисунок соседних " +
   "полос на одной высоте, галочка не нужна. «Со смещением» (значок со стрелками и цифрами, например " +
@@ -53,11 +67,17 @@ function TilePrice({ spec, onChange, auto }: { spec: MaterialSpec; onChange: (pa
       <NumField label="Цена, ₽" value={value} onChange={(v) => write(unit, v)} auto={auto} />
       <label className="stack" style={{ flex: 1, minWidth: 120, gap: 4 }}>
         <span className="eyebrow">За единицу</span>
-        <select style={inp} value={unit} onChange={(e) => write(e.target.value as "m2" | "piece" | "pack", value)}>
-          <option value="m2">за м²</option>
-          <option value="pack">за упаковку</option>
-          <option value="piece">за шт</option>
-        </select>
+        <NativeSelect
+          size="sm"
+          aria-label="За единицу"
+          value={unit}
+          onChange={(e) => write(e.target.value as "m2" | "piece" | "pack", value)}
+          options={[
+            { value: "m2", label: "за м²" },
+            { value: "pack", label: "за упаковку" },
+            { value: "piece", label: "за шт" },
+          ]}
+        />
       </label>
     </div>
   );
@@ -81,11 +101,12 @@ export function MaterialParams({ kind, spec, onChange, autoKeys }: { kind: CalcK
             <NumField label="Цена/рулон, ₽" value={spec.pricePerRollRub} onChange={(v) => onChange({ pricePerRollRub: v })} auto={isAuto("pricePerRollRub")} />
           </div>
           <div className="row" style={{ gap: 6, alignItems: "center" }}>
-            <label className="row" style={{ gap: 8, alignItems: "center" }}>
-              <input type="checkbox" checked={!!spec.offset} onChange={(e) => onChange({ offset: e.target.checked })} />
-              <span>Стыковка рисунка со смещением</span>
-            </label>
-            <span className="help" tabIndex={0} role="note" aria-label={OFFSET_TIP} data-tip={OFFSET_TIP}>?</span>
+            <Checkbox
+              isSelected={!!spec.offset}
+              onChange={(checked) => onChange({ offset: checked })}
+              label="Стыковка рисунка со смещением"
+            />
+            <HelpTip tip={OFFSET_TIP} />
           </div>
         </>
       )}
@@ -109,17 +130,23 @@ export function MaterialParams({ kind, spec, onChange, autoKeys }: { kind: CalcK
           <div className="row" style={{ gap: 8 }}>
             <label className="stack" style={{ flex: 1, minWidth: 140, gap: 4 }}>
               <span className="eyebrow">Тип поверхности</span>
-              <select style={inp} value={spec.surfaceType ?? ""} onChange={(e) => onChange({ surfaceType: e.target.value || undefined })}>
-                <option value="">—</option>
-                {SURFACE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
+              <NativeSelect
+                size="sm"
+                aria-label="Тип поверхности"
+                value={spec.surfaceType ?? ""}
+                onChange={(e) => onChange({ surfaceType: e.target.value || undefined })}
+                options={[{ value: "", label: "—" }, ...SURFACE_TYPES.map((t) => ({ value: t, label: t }))]}
+              />
             </label>
             <label className="stack" style={{ flex: 1, minWidth: 140, gap: 4 }}>
               <span className="eyebrow">Тип краски</span>
-              <select style={inp} value={spec.paintType ?? ""} onChange={(e) => onChange({ paintType: e.target.value || undefined })}>
-                <option value="">—</option>
-                {PAINT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
+              <NativeSelect
+                size="sm"
+                aria-label="Тип краски"
+                value={spec.paintType ?? ""}
+                onChange={(e) => onChange({ paintType: e.target.value || undefined })}
+                options={[{ value: "", label: "—" }, ...PAINT_TYPES.map((t) => ({ value: t, label: t }))]}
+              />
             </label>
           </div>
           <div className="row" style={{ gap: 8 }}>
@@ -141,18 +168,26 @@ export function MaterialParams({ kind, spec, onChange, autoKeys }: { kind: CalcK
           <div className="row" style={{ gap: 8 }}>
             <label className="stack" style={{ flex: 1, minWidth: 140, gap: 4 }}>
               <span className="eyebrow">Направление укладки</span>
-              <select style={inp} value={spec.direction ?? "length"} onChange={(e) => onChange({ direction: e.target.value as MaterialSpec["direction"] })}>
-                {(Object.keys(DIRECTION_LABEL) as Array<keyof typeof DIRECTION_LABEL>).map((k) => <option key={k} value={k}>{DIRECTION_LABEL[k]}</option>)}
-              </select>
+              <NativeSelect
+                size="sm"
+                aria-label="Направление укладки"
+                value={spec.direction ?? "length"}
+                onChange={(e) => onChange({ direction: e.target.value as MaterialSpec["direction"] })}
+                options={(Object.keys(DIRECTION_LABEL) as Array<keyof typeof DIRECTION_LABEL>).map((k) => ({ value: k, label: DIRECTION_LABEL[k] }))}
+              />
             </label>
             <label className="stack" style={{ flex: 1, minWidth: 120, gap: 4 }}>
               <span className="eyebrow">
                 Смещение рядов
-                <span className="help" tabIndex={0} role="note" aria-label={ROW_OFFSET_TIP} data-tip={ROW_OFFSET_TIP} style={{ marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>?</span>
+                <HelpTip tip={ROW_OFFSET_TIP} />
               </span>
-              <select style={inp} value={spec.rowOffset ?? "third"} onChange={(e) => onChange({ rowOffset: e.target.value as MaterialSpec["rowOffset"] })}>
-                {(Object.keys(ROW_OFFSET_LABEL) as Array<keyof typeof ROW_OFFSET_LABEL>).map((k) => <option key={k} value={k}>{ROW_OFFSET_LABEL[k]}</option>)}
-              </select>
+              <NativeSelect
+                size="sm"
+                aria-label="Смещение рядов"
+                value={spec.rowOffset ?? "third"}
+                onChange={(e) => onChange({ rowOffset: e.target.value as MaterialSpec["rowOffset"] })}
+                options={(Object.keys(ROW_OFFSET_LABEL) as Array<keyof typeof ROW_OFFSET_LABEL>).map((k) => ({ value: k, label: ROW_OFFSET_LABEL[k] }))}
+              />
             </label>
             <NumField label="Цена за м², ₽" value={spec.pricePerM2Rub} onChange={(v) => onChange({ pricePerM2Rub: v })} auto={isAuto("pricePerM2Rub")} />
           </div>

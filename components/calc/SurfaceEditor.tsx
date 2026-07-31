@@ -1,6 +1,8 @@
 "use client";
 
 import type { CalcKind, Opening, Surface } from "@/contracts/calc";
+import { Button } from "@/components/base/buttons/button";
+import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 import { NumInput } from "./NumInput";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -10,22 +12,18 @@ const OPENINGS_NOTE =
   "оставшийся из-за проёма, обычно нельзя использовать в другом месте. За счёт этого получается " +
   "небольшой запас: на подгонку рисунка, обрезки и непредвиденные ошибки.";
 
-const inp = {
-  padding: "8px 10px", borderRadius: 8, border: "1px solid var(--base)",
-  background: "var(--surface)", color: "var(--text)", fontSize: 15, width: "100%",
-} as const;
-
 // Иконка-«дверь» (прямоугольник + точка-ручка) — приглушённый подсказчик, почему проёмы не вводим
-// (обои). Стоит сразу после заголовка стены: правый край строки — зона действий («удалить»), рядом
-// с ней справочная иконка читается как кнопка. help--start разворачивает тултип вправо.
+// (обои). Тултип раскрывается вправо (placement start): иконка у левого края блока.
 function DoorHint() {
   return (
-    <span className="help help--start" tabIndex={0} role="note" aria-label={OPENINGS_NOTE} data-tip={OPENINGS_NOTE}>
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
-        <rect x="6" y="3" width="12" height="18" rx="1" />
-        <circle cx="14.5" cy="12" r="1.1" fill="currentColor" stroke="none" />
-      </svg>
-    </span>
+    <Tooltip title={OPENINGS_NOTE} placement="bottom start">
+      <TooltipTrigger aria-label={OPENINGS_NOTE} className="inline-flex cursor-help items-center text-fg-quaternary hover:text-fg-tertiary">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+          <rect x="6" y="3" width="12" height="18" rx="1" />
+          <circle cx="14.5" cy="12" r="1.1" fill="currentColor" stroke="none" />
+        </svg>
+      </TooltipTrigger>
+    </Tooltip>
   );
 }
 
@@ -68,16 +66,16 @@ export function SurfaceEditor({
               {/* Подсказка про проёмы общая — показываем один раз, у первой стены. */}
               {isOboi && i === 0 && <DoorHint />}
             </span>
-            <button type="button" className="quiz-link" style={{ fontSize: 12 }} onClick={() => onChange(surfaces.filter((x) => x.id !== s.id))}>удалить</button>
+            <Button type="button" color="link-gray" size="sm" className="text-xs underline" onClick={() => onChange(surfaces.filter((x) => x.id !== s.id))}>удалить</Button>
           </div>
           <div className="row" style={{ gap: 8 }}>
             <label className="stack" style={{ flex: 1, minWidth: 100, gap: 4 }}>
               <span className="eyebrow">Длина, м</span>
-              <NumInput style={inp} value={s.lengthM} onChange={(n) => patch(s.id, { lengthM: n ?? 0 })} />
+              <NumInput value={s.lengthM} onChange={(n) => patch(s.id, { lengthM: n ?? 0 })} />
             </label>
             <label className="stack" style={{ flex: 1, minWidth: 100, gap: 4 }}>
               <span className="eyebrow">Высота, м</span>
-              <NumInput style={inp} value={s.heightM} onChange={(n) => setHeight(s.id, n ?? 0)} />
+              <NumInput value={s.heightM} onChange={(n) => setHeight(s.id, n ?? 0)} />
             </label>
           </div>
 
@@ -86,29 +84,30 @@ export function SurfaceEditor({
             <div key={o.id} className="stack" style={{ gap: 8, borderLeft: "2px solid var(--accent)", paddingLeft: 10 }}>
               <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
                 <strong style={{ fontSize: 14 }}>Проём {oi + 1}</strong>
-                <button type="button" className="quiz-link" style={{ fontSize: 12 }} onClick={() => patchOpenings(s.id, (os) => os.filter((x) => x.id !== o.id))}>удалить</button>
+                <Button type="button" color="link-gray" size="sm" className="text-xs underline" onClick={() => patchOpenings(s.id, (os) => os.filter((x) => x.id !== o.id))}>удалить</Button>
               </div>
               <div className="row" style={{ gap: 8 }}>
                 <label className="stack" style={{ flex: 1, minWidth: 100, gap: 4 }}>
                   <span className="eyebrow">Ширина, м</span>
-                  <NumInput style={inp} value={o.widthM} onChange={(n) => patchOpenings(s.id, (os) => os.map((x) => (x.id === o.id ? { ...x, widthM: n ?? 0 } : x)))} />
+                  <NumInput value={o.widthM} onChange={(n) => patchOpenings(s.id, (os) => os.map((x) => (x.id === o.id ? { ...x, widthM: n ?? 0 } : x)))} />
                 </label>
                 <label className="stack" style={{ flex: 1, minWidth: 100, gap: 4 }}>
                   <span className="eyebrow">Высота, м</span>
-                  <NumInput style={inp} value={o.heightM} onChange={(n) => patchOpenings(s.id, (os) => os.map((x) => (x.id === o.id ? { ...x, heightM: n ?? 0 } : x)))} />
+                  <NumInput value={o.heightM} onChange={(n) => patchOpenings(s.id, (os) => os.map((x) => (x.id === o.id ? { ...x, heightM: n ?? 0 } : x)))} />
                 </label>
               </div>
             </div>
           ))}
           {!isOboi && (
-            <button
+            <Button
               type="button"
-              className="chip"
-              style={{ alignSelf: "flex-start", fontSize: 13 }}
+              color="secondary"
+              size="sm"
+              className="self-start rounded-full"
               onClick={() => patchOpenings(s.id, (os) => [...os, { id: uid(), kind: "window", widthM: 0, heightM: 0, count: 1 }])}
             >
               + добавить проём
-            </button>
+            </Button>
           )}
         </div>
       ))}
@@ -116,9 +115,9 @@ export function SurfaceEditor({
       {/* Следующая стена добавляется прямо из карточки размеров (RoomPanel показывает
           отдельную кнопку «+ добавить размеры стены» только пока стен нет). */}
       {onAdd && (
-        <button type="button" className="chip chip--accent" style={{ alignSelf: "flex-start" }} onClick={onAdd}>
+        <Button type="button" size="sm" className="self-start rounded-full" onClick={onAdd}>
           + добавить стену
-        </button>
+        </Button>
       )}
     </div>
   );

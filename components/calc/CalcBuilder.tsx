@@ -4,6 +4,8 @@ import { useState } from "react";
 import { COMPANIONS, type CalcKind } from "@/lib/estimate/companions";
 import { computeRoomParts } from "@/lib/calc/formulas";
 import { pluralUnit } from "@/lib/format/plural";
+import { Button } from "@/components/base/buttons/button";
+import { Chip } from "@/components/base/chip/chip";
 import { useCalcProject } from "./useCalcProject";
 import { RoomPanel } from "./RoomPanel";
 import { ResultView } from "./ResultView";
@@ -58,26 +60,21 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
 
       <div className="row" style={{ gap: 8 }}>
         {project.rooms.map((r) => (
-          <button
-            key={r.id}
-            type="button"
-            className="chip"
-            data-selected={r.id === activeIdSafe}
-            onClick={() => setActiveId(r.id)}
-          >
+          <Chip key={r.id} isSelected={r.id === activeIdSafe} onChange={() => setActiveId(r.id)}>
             {r.name}
-          </button>
+          </Chip>
         ))}
-        <button type="button" className="chip" onClick={add}>+ Комната</button>
+        <Button type="button" color="secondary" size="sm" className="rounded-full" onClick={add}>+ Комната</Button>
         <span className="spacer" />
-        <button
+        <Button
           type="button"
-          className="quiz-link"
-          style={{ alignSelf: "center" }}
+          color="link-gray"
+          size="sm"
+          className="self-center underline"
           onClick={() => { if (window.confirm("Начать новый расчёт? Текущий черновик будет очищен.")) clear(); }}
         >
           новый расчёт
-        </button>
+        </Button>
       </div>
 
       {active && (

@@ -1,4 +1,5 @@
-import Link from "next/link";
+import { Badge } from "@/components/base/badges/badges";
+import { Button } from "@/components/base/buttons/button";
 
 // Заглушка «в разработке» для разделов, закрытых до запуска (план launch-p1-vitrina).
 // Старое содержимое страниц не удалено: включается флагом NEXT_PUBLIC_SHOW_WIP=1.
@@ -6,7 +7,7 @@ import Link from "next/link";
 export function ComingSoon({ icon, iconSrc, title, lead }: { icon: string; iconSrc?: string; title: string; lead: string }) {
   return (
     <main className="container">
-      <span className="soon-pill">В разработке</span>
+      <Badge type="pill-color" color="brand" size="lg">В РАЗРАБОТКЕ</Badge>
       <h1 style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 10 }}>
         {iconSrc ? (
           // Обычный <img>, НЕ next/image: standalone-прод без sharp (см. app/calc/page.tsx).
@@ -26,8 +27,8 @@ export function ComingSoon({ icon, iconSrc, title, lead }: { icon: string; iconS
           соберёт список покупок и сохранит его в Мою лабораторию.
         </p>
         <div className="row">
-          <Link className="btn" href="/calc">Посчитать материалы</Link>
-          <Link className="btn btn-secondary" href="/">На главную</Link>
+          <Button size="lg" href="/calc">Посчитать материалы</Button>
+          <Button color="secondary" size="lg" href="/">На главную</Button>
         </div>
       </div>
     </main>

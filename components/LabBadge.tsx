@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Badge } from "@/components/base/badges/badges";
 
 // Бейдж-счётчик сохранённых расчётов у «Моей лаборатории» (шапка, плитка главной).
 // Грузится с клиента (/api/lab/count) — страницы остаются статическими; 0 → ничего не рендерим.
@@ -17,5 +18,9 @@ export function LabBadge() {
   }, []);
 
   if (count <= 0) return null;
-  return <span className="lab-badge" aria-label={`Сохранённых расчётов: ${count}`}>{count}</span>;
+  return (
+    <span aria-label={`Сохранённых расчётов: ${count}`} className="ml-2 inline-block align-middle">
+      <Badge type="pill-color" color="brand" size="sm">{count}</Badge>
+    </span>
+  );
 }

@@ -4,6 +4,8 @@
 // По этому номеру потом делаем разбор трейса. Состояния: idle / форма / отправка / успех / ошибка.
 
 import { useState } from "react";
+import { Button } from "@/components/base/buttons/button";
+import { TextArea } from "@/components/base/textarea/textarea";
 
 type State = "idle" | "form" | "sending" | "done" | "error";
 
@@ -31,27 +33,27 @@ export function ReportProblem({ seq }: { seq: number }) {
 
   if (state === "idle") {
     return (
-      <button className="btn btn-ghost" style={{ marginTop: 12 }} onClick={() => setState("form")}>
+      <Button color="tertiary" size="md" className="mt-3" onClick={() => setState("form")}>
         Сообщить о проблеме
-      </button>
+      </Button>
     );
   }
 
   return (
     <div className="stack" style={{ marginTop: 12 }}>
-      <textarea
-        className="input"
+      <TextArea
         rows={3}
         placeholder="Что не так с результатом? (необязательно)"
         value={comment}
-        onChange={(e) => setComment(e.target.value)}
+        onChange={setComment}
+        aria-label="Что не так с результатом?"
       />
       {state === "error" && <p className="note">Не отправилось. Попробуйте ещё раз.</p>}
       <div className="row">
-        <button className="btn" onClick={send} disabled={state === "sending"}>
+        <Button size="md" onClick={send} isLoading={state === "sending"} isDisabled={state === "sending"}>
           {state === "sending" ? "Отправляем…" : "Отправить"}
-        </button>
-        <button className="btn btn-ghost" onClick={() => setState("idle")}>Отмена</button>
+        </Button>
+        <Button color="tertiary" size="md" onClick={() => setState("idle")}>Отмена</Button>
       </div>
     </div>
   );

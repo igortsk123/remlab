@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { trackGoal } from "@/lib/metrika";
+import { Button } from "@/components/base/buttons/button";
 
 const STAGES = ["Проверяем фото…", "ИИ изучает комнату…", "Рисуем обновлённый интерьер…", "Собираем идеи…"];
 
@@ -36,7 +37,7 @@ export function GenerateOnMount({ projectId }: { projectId: string }) {
     return (
       <div className="stack center">
         <p className="note">Не получилось создать превью. Попробуйте ещё раз.</p>
-        <button className="btn" onClick={() => location.reload()}>Повторить</button>
+        <Button size="lg" onClick={() => location.reload()}>Повторить</Button>
       </div>
     );
   }

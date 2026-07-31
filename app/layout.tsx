@@ -7,6 +7,7 @@ import "./globals.css";
 // Шрифт UUI; self-host на билде (без runtime-запросов к Google — важно для РФ).
 // Токен --font-inter читает styles/uui/theme.css (--font-body).
 const inter = Inter({ subsets: ["latin", "cyrillic"], variable: "--font-inter" });
+import { Providers } from "@/components/Providers";
 import { SiteHeader } from "@/components/SiteHeader";
 import { VersionWatcher } from "@/components/VersionWatcher";
 import { MetrikaPageviews } from "@/components/MetrikaPageviews";
@@ -34,6 +35,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         />
       </head>
       <body>
+        <Providers>
         <SiteHeader />
         {children}
         <footer className="container" style={{ paddingTop: 32, paddingBottom: 24 }}>
@@ -41,6 +43,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             ИП Шубина Юлия Александровна · ОГРНИП 325420500121439 · ИНН 420221376189
           </p>
         </footer>
+        </Providers>
         <VersionWatcher current={APP_VERSION} />
         <MetrikaPageviews />
         <Script id="yandex-metrika" strategy="afterInteractive">

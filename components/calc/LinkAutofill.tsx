@@ -3,12 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { CalcKind, MaterialSpec } from "@/contracts/calc";
 import { CALC_META } from "@/lib/estimate/companions";
+import { Button } from "@/components/base/buttons/button";
+import { Input } from "@/components/base/input/input";
 import { MaterialParams } from "./MaterialParams";
-
-const inp = {
-  padding: "8px 10px", borderRadius: 8, border: "1px solid var(--base)",
-  background: "var(--surface)", color: "var(--text)", fontSize: 15, width: "100%",
-} as const;
 
 // Материал-блок (отдельная карточка, рекламный вид): вставил ссылку → сервер сам читает страницу
 // (прямой запрос → резидентский прокси для магазинов, режущих ДЦ-IP) → авто-подгрузка параметров.
@@ -82,7 +79,7 @@ export function LinkAutofill({
         <span className="muted" style={{ fontSize: 14 }}>Не придётся вводить размеры и цену вручную.</span>
       </div>
 
-      <input style={inp} placeholder="Ссылка на товар из магазина" value={value} onChange={(e) => setValue(e.target.value)} />
+      <Input size="sm" placeholder="Ссылка на товар из магазина" value={value} onChange={setValue} />
       {state === "loading" && (
         <span className="muted" style={{ fontSize: 14, display: "inline-flex", alignItems: "center", gap: 8 }}>
           <span className="spinner" aria-hidden="true" />
@@ -96,14 +93,14 @@ export function LinkAutofill({
         </span>
       )}
       {state === "error" && (
-        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--danger)" }}>
+        <span className="text-sm font-semibold text-error-primary">
           Не удалось прочитать страницу — заполните параметры ниже вручную (ссылка сохранена).
         </span>
       )}
 
-      <button type="button" className="quiz-link" style={{ fontSize: 14 }} onClick={() => setExpanded((v) => !v)}>
+      <Button type="button" color="link-gray" size="sm" className="self-start underline" onClick={() => setExpanded((v) => !v)}>
         {expanded ? "скрыть параметры" : "ввести параметры вручную"}
-      </button>
+      </Button>
       {expanded && <MaterialParams kind={kind} spec={spec} onChange={onSpec} autoKeys={autoKeys} />}
     </div>
   );

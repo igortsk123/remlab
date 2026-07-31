@@ -8,15 +8,13 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { CalcKind } from "@/contracts/calc";
 import { captureLead } from "@/app/lead-actions";
+import { Button } from "@/components/base/buttons/button";
+import { Checkbox } from "@/components/base/checkbox/checkbox";
+import { Input } from "@/components/base/input/input";
 
 const TG_BOT = process.env.NEXT_PUBLIC_TELEGRAM_BOT;
 const MAX_BOT = process.env.NEXT_PUBLIC_MAX_BOT;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-const inp = {
-  padding: "10px 12px", borderRadius: 8, border: "1px solid var(--base)",
-  background: "var(--surface)", color: "var(--text)", fontSize: 15, width: "100%",
-} as const;
 
 export type LeadChannel = "email" | "tg" | "max";
 
@@ -89,11 +87,11 @@ export function LeadModal({ kind, url, channel, onClose }: { kind: CalcKind; url
                 </p>
                 <div className="row" style={{ gap: 8 }}>
                   {tgHref
-                    ? <a className="btn btn-secondary" href={tgHref} target="_blank" rel="noopener noreferrer">Подписаться в Телеграм</a>
-                    : <button type="button" className="btn btn-secondary" disabled>Телеграм скоро</button>}
+                    ? <Button color="secondary" size="md" href={tgHref} target="_blank" rel="noopener noreferrer">Подписаться в Телеграм</Button>
+                    : <Button type="button" color="secondary" size="md" isDisabled>Телеграм скоро</Button>}
                   {maxHref
-                    ? <a className="btn btn-secondary" href={maxHref} target="_blank" rel="noopener noreferrer">Подписаться в MAX</a>
-                    : <button type="button" className="btn btn-secondary" disabled>MAX скоро</button>}
+                    ? <Button color="secondary" size="md" href={maxHref} target="_blank" rel="noopener noreferrer">Подписаться в MAX</Button>
+                    : <Button type="button" color="secondary" size="md" isDisabled>MAX скоро</Button>}
                 </div>
               </>
             )}
@@ -104,11 +102,11 @@ export function LeadModal({ kind, url, channel, onClose }: { kind: CalcKind; url
             <p className="muted" style={{ margin: 0, fontSize: 14 }}>Где искать? Укажите город — сравним магазины рядом с вами и онлайн.</p>
 
             <div style={{ position: "relative" }}>
-              <input
-                style={inp}
+              <Input
+                size="sm"
                 placeholder="Ваш город"
                 value={city}
-                onChange={(e) => onCity(e.target.value)}
+                onChange={onCity}
                 onFocus={() => hits.length && setShowHits(true)}
                 aria-label="Ваш город"
               />
@@ -124,19 +122,22 @@ export function LeadModal({ kind, url, channel, onClose }: { kind: CalcKind; url
             </div>
 
             {needEmail && (
-              <input style={inp} type="email" inputMode="email" placeholder="E-mail для ответа" value={email} onChange={(e) => setEmail(e.target.value)} />
+              <Input size="sm" type="email" inputMode="email" placeholder="E-mail для ответа" value={email} onChange={setEmail} aria-label="E-mail для ответа" />
             )}
 
-            <label className="row" style={{ gap: 8, alignItems: "flex-start" }}>
-              <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-              <span className="muted" style={{ fontSize: 13 }}>
-                Я согласен с <a href="#" onClick={(e) => e.preventDefault()}>политикой обработки персональных данных</a>.
-              </span>
-            </label>
+            <Checkbox
+              isSelected={consent}
+              onChange={setConsent}
+              label={
+                <span className="muted" style={{ fontSize: 13 }}>
+                  Я согласен с <a href="#" onClick={(e) => e.preventDefault()}>политикой обработки персональных данных</a>.
+                </span>
+              }
+            />
 
-            <button type="button" className="btn" disabled={pending || !cityOk || !emailOk || !consent} onClick={submit}>
+            <Button type="button" size="md" isDisabled={pending || !cityOk || !emailOk || !consent} isLoading={pending} showTextWhileLoading onClick={submit}>
               {pending ? "Отправляем…" : "Отправить заявку"}
-            </button>
+            </Button>
             {needEmail && email.length > 0 && !emailOk && <span className="muted" style={{ fontSize: 13 }}>Проверьте формат e-mail.</span>}
             {error && <span className="muted" style={{ fontSize: 13 }}>Не удалось отправить, попробуйте ещё раз.</span>}
           </div>

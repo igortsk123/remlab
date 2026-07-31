@@ -5,6 +5,7 @@ import type { CalcKind, Floor, MaterialSpec, Room } from "@/contracts/calc";
 import { computeRoomParts, type RoomPart } from "@/lib/calc/formulas";
 import { applyAutoSpec, manualKeys } from "@/lib/calc/auto-fields";
 import { pluralUnit } from "@/lib/format/plural";
+import { Button } from "@/components/base/buttons/button";
 import { FloorEditor } from "./FloorEditor";
 import { LinkAutofill } from "./LinkAutofill";
 import { LeadCard } from "./LeadCard";
@@ -12,12 +13,6 @@ import { SurfaceEditor } from "./SurfaceEditor";
 
 const EMPTY_FLOOR: Floor = { lengthM: 0, widthM: 0, extraZones: [], excludedZones: [] };
 const uid = () => Math.random().toString(36).slice(2, 10);
-
-const nameInputStyle = {
-  font: "inherit", fontWeight: 600, fontSize: 16,
-  border: "1px solid var(--base)", borderRadius: 8,
-  background: "var(--surface)", color: "var(--text)", padding: "6px 10px", maxWidth: 240,
-} as const;
 
 const EMPTY_HINT = "Введите размеры, чтобы посчитать площадь и количество.";
 
@@ -88,7 +83,7 @@ function SectionHeader({ title, onRemove }: { title: string; onRemove: () => voi
   return (
     <div className="row" style={{ justifyContent: "space-between", alignItems: "center", margin: "4px 0 -6px" }}>
       <p className="eyebrow" style={{ margin: 0 }}>{title}</p>
-      <button type="button" className="quiz-link" onClick={onRemove}>убрать</button>
+      <Button type="button" color="link-gray" size="sm" className="underline" onClick={onRemove}>убрать</Button>
     </div>
   );
 }
@@ -132,7 +127,7 @@ export function RoomPanel({
   // размеров (SurfaceEditor, onAdd). Удалили все стены → отдельная кнопка возвращается.
   const addWall = () => onUpdate((r) => ({ ...r, surfaces: [...r.surfaces, { id: uid(), label: `Стена ${r.surfaces.length + 1}`, lengthM: 0, heightM: r.surfaces[0]?.heightM ?? 0, openings: [] }] }));
   const addWallBtn = room.surfaces.length === 0 && (
-    <button type="button" className="chip chip--accent" onClick={addWall}>+ добавить размеры стены</button>
+    <Button type="button" size="sm" className="self-start rounded-full" onClick={addWall}>+ добавить размеры стены</Button>
   );
 
   const wallLink = (
@@ -158,14 +153,14 @@ export function RoomPanel({
             value={room.name}
             onChange={(e) => onUpdate((r) => ({ ...r, name: e.target.value }))}
             aria-label="Название комнаты"
-            style={nameInputStyle}
+            className="max-w-60 rounded-lg bg-primary px-2.5 py-1.5 text-md font-semibold text-primary shadow-xs ring-1 ring-primary outline-hidden transition duration-100 ease-linear ring-inset focus-visible:ring-2 focus-visible:ring-brand"
           />
           {/* Неброский карандаш — сигнал, что название можно редактировать. Клик → фокус в поле. */}
           <button
             type="button"
             onClick={() => nameRef.current?.focus()}
             aria-label="Редактировать название"
-            style={{ border: "none", background: "none", color: "var(--muted)", cursor: "pointer", display: "inline-flex", padding: 2 }}
+            className="inline-flex cursor-pointer border-none bg-transparent p-0.5 text-fg-quaternary hover:text-fg-tertiary"
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M12 20h9" />
@@ -173,7 +168,7 @@ export function RoomPanel({
             </svg>
           </button>
         </span>
-        {canDelete && <button type="button" className="quiz-link" onClick={onDelete}>Удалить</button>}
+        {canDelete && <Button type="button" color="link-gray" size="sm" className="underline" onClick={onDelete}>Удалить</Button>}
       </div>
 
       {kind === "laminat" ? (
@@ -199,7 +194,7 @@ export function RoomPanel({
               {wallLink}
             </>
           ) : (
-            <button type="button" className="chip chip--accent" onClick={() => setWallsOpen(true)}>+ Плитка для стен</button>
+            <Button type="button" size="sm" className="self-start rounded-full" onClick={() => setWallsOpen(true)}>+ Плитка для стен</Button>
           )}
 
           {/* Секция «Плитка для пола» — маркер открытости = наличие room.floor. */}
@@ -218,7 +213,7 @@ export function RoomPanel({
               <LinkAutofill kind={kind} url={room.floorProductUrl} onUrl={(u) => onUpdate((r) => ({ ...r, floorProductUrl: u }))} spec={room.floorMaterial ?? {}} onSpec={setFloorMaterial} onAutoSpec={autoFloorMaterial} autoKeys={room.floorAutoKeys} />
             </>
           ) : (
-            <button type="button" className="chip chip--accent" onClick={addFloor}>+ Плитка для пола</button>
+            <Button type="button" size="sm" className="self-start rounded-full" onClick={addFloor}>+ Плитка для пола</Button>
           )}
         </>
       ) : (

@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { QUIZ_CARDS, STYLES, tallyStyle, type StyleId } from "@/lib/styles/quiz";
 import { completeQuiz } from "@/app/styles-actions";
+import { Button } from "@/components/base/buttons/button";
+import { ProgressBarBase } from "@/components/base/progress-indicators/progress-indicators";
 
 // Игра-карточки «Узнай свой вкус»: листаем интерьеры «Нравится / Не моё» → в конце показываем стиль.
 // Картинки пока плейсхолдеры (палитра-градиент из swatch). Состояния экрана: игра / результат /
@@ -47,8 +48,8 @@ export function StyleQuiz() {
             Ничего страшного, вкус штука тонкая. Полистайте примеры ещё раз или сразу переходите к расчёту.
           </p>
           <div className="row">
-            <button className="btn btn-secondary" onClick={restart}>Пройти заново</button>
-            <Link className="btn" href="/calc">Посчитать материалы</Link>
+            <Button color="secondary" size="lg" onClick={restart}>Пройти заново</Button>
+            <Button size="lg" href="/calc">Посчитать материалы</Button>
           </div>
         </div>
       );
@@ -65,10 +66,10 @@ export function StyleQuiz() {
         <h2 style={{ margin: 0 }}>{info.name}</h2>
         <p className="muted" style={{ margin: 0 }}>{info.blurb}</p>
         <div className="row">
-          <Link className="btn" href="/start">Показать мою комнату в этом стиле</Link>
-          <Link className="btn btn-secondary" href="/calc">Посчитать материалы</Link>
+          <Button size="lg" href="/start">Показать мою комнату в этом стиле</Button>
+          <Button color="secondary" size="lg" href="/calc">Посчитать материалы</Button>
         </div>
-        <button className="quiz-link" onClick={restart}>Пройти заново</button>
+        <Button color="link-gray" size="sm" className="self-start underline" onClick={restart}>Пройти заново</Button>
       </div>
     );
   }
@@ -78,10 +79,8 @@ export function StyleQuiz() {
   const info = STYLES[card.style];
   return (
     <div className="card stack quiz">
-      <div className="progress" aria-hidden>
-        {QUIZ_CARDS.map((c, i) => (
-          <span key={c.id} data-on={i <= index} />
-        ))}
+      <div aria-hidden className="mb-1">
+        <ProgressBarBase value={index + 1} min={0} max={TOTAL} />
       </div>
       <p className="muted" style={{ margin: 0, fontSize: 14 }}>Карточка {index + 1} из {TOTAL}</p>
       <div
@@ -91,8 +90,8 @@ export function StyleQuiz() {
       />
       <p style={{ margin: 0, minHeight: 44 }}>{card.caption}</p>
       <div className="row" style={{ flexWrap: "nowrap" }}>
-        <button className="btn btn-secondary btn-block" onClick={() => answer(false)}>Не моё</button>
-        <button className="btn btn-block" onClick={() => answer(true)}>Нравится</button>
+        <Button color="secondary" size="lg" className="w-full" onClick={() => answer(false)}>Не моё</Button>
+        <Button size="lg" className="w-full" onClick={() => answer(true)}>Нравится</Button>
       </div>
     </div>
   );

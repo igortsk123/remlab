@@ -7,6 +7,7 @@ import { pluralUnit } from "@/lib/format/plural";
 import { clearProject } from "@/lib/calc/storage";
 import { saveCalcEstimate } from "@/app/calc-actions";
 import { trackGoal } from "@/lib/metrika";
+import { Button } from "@/components/base/buttons/button";
 
 // Примечание под итогом — по виду материала: «подрезка» есть не везде (у краски — расход и слои).
 const RESULT_NOTE: Record<CalcProject["kind"], string> = {
@@ -52,9 +53,12 @@ export function ResultView({ project }: { project: CalcProject }) {
           <strong>~{totalCost.toLocaleString("ru-RU")} ₽</strong>
         </div>
       )}
-      <button
-        className="btn btn-block"
-        disabled={pending}
+      <Button
+        size="lg"
+        className="w-full"
+        isDisabled={pending}
+        isLoading={pending}
+        showTextWhileLoading
         onClick={() => {
           trackGoal("estimate_saved"); // цель — в момент реального сохранения (воронка 10–13)
           startTransition(async () => {
@@ -67,7 +71,7 @@ export function ResultView({ project }: { project: CalcProject }) {
         }}
       >
         {pending ? "Сохраняем…" : "Сохранить в Мою лабораторию"}
-      </button>
+      </Button>
       <p className="note">{RESULT_NOTE[project.kind]}</p>
     </div>
   );

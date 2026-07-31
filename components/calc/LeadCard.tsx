@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { CalcKind } from "@/contracts/calc";
+import { Button } from "@/components/base/buttons/button";
 import { LeadModal, type LeadChannel } from "./LeadModal";
 
 // Выделенная карточка «Найдём этот товар дешевле» (П7): любой из трёх чипов открывает ОДНУ модалку
@@ -16,9 +17,9 @@ export function LeadCard({ kind, url }: { kind: CalcKind; url: string | undefine
         Оставьте e-mail или подпишитесь на бота: сообщим, когда найдём выгоднее, и подскажем, чем дополнить.
       </span>
       <div className="row" style={{ gap: 8 }}>
-        <button type="button" className="chip" onClick={() => setChannel("tg")}>Телеграм</button>
-        <button type="button" className="chip" onClick={() => setChannel("max")}>MAX</button>
-        <button type="button" className="chip" onClick={() => setChannel("email")}>✉ Сообщить по почте</button>
+        <Button type="button" color="secondary" size="sm" className="rounded-full" onClick={() => setChannel("tg")}>Телеграм</Button>
+        <Button type="button" color="secondary" size="sm" className="rounded-full" onClick={() => setChannel("max")}>MAX</Button>
+        <Button type="button" color="secondary" size="sm" className="rounded-full" onClick={() => setChannel("email")}>✉ Сообщить по почте</Button>
       </div>
       {channel && <LeadModal kind={kind} url={url} channel={channel} onClose={() => setChannel(null)} />}
     </div>

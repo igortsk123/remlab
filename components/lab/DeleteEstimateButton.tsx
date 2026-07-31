@@ -1,6 +1,7 @@
 "use client";
 
 import { deleteEstimate } from "@/app/estimate-actions";
+import { Button } from "@/components/base/buttons/button";
 
 // Кнопка «удалить расчёт» в лаборатории: нативный confirm перед server action (без модалки).
 export function DeleteEstimateButton({ estimateId, label }: { estimateId: string; label: string }) {
@@ -12,7 +13,8 @@ export function DeleteEstimateButton({ estimateId, label }: { estimateId: string
       }}
     >
       <input type="hidden" name="id" value={estimateId} />
-      <button type="submit" className="icon-del" aria-label={`Удалить ${label}`} title="Удалить расчёт">×</button>
+      {/* Тап-зона ≥44px (min-w/h-11). */}
+      <Button type="submit" color="tertiary" size="sm" className="-my-2.5 min-h-11 min-w-11 text-xl text-fg-quaternary hover:text-error-primary" aria-label={`Удалить ${label}`}>×</Button>
     </form>
   );
 }

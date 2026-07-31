@@ -1,5 +1,5 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
+import { Button } from "@/components/base/buttons/button";
 
 // Тизер раздела лаборатории, который ещё в разработке: что здесь появится и куда пойти посмотреть.
 // children — необязательная строка под кнопкой (например, ссылка на уже созданные дизайны).
@@ -16,7 +16,7 @@ export function LabTeaser({ icon, title, lead, href, cta, children }: {
       <div style={{ fontSize: 34, lineHeight: 1 }} aria-hidden>{icon}</div>
       <h2 style={{ margin: 0, fontSize: 20 }}>{title}</h2>
       <p className="muted" style={{ margin: "0 auto", maxWidth: "44ch" }}>{lead}</p>
-      <Link className="btn btn-secondary" href={href} style={{ alignSelf: "center" }}>{cta}</Link>
+      <Button color="secondary" size="lg" href={href} className="self-center">{cta}</Button>
       {children}
     </div>
   );

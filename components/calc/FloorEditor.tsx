@@ -2,14 +2,10 @@
 
 import type { Floor } from "@/contracts/calc";
 import { floorNet } from "@/lib/calc/geometry";
+import { Button } from "@/components/base/buttons/button";
 import { NumInput } from "./NumInput";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
-
-const inp = {
-  padding: "8px 10px", borderRadius: 8, border: "1px solid var(--base)",
-  background: "var(--surface)", color: "var(--text)", fontSize: 15, width: "100%",
-} as const;
 
 
 type ZoneKey = "extraZones" | "excludedZones";
@@ -24,15 +20,16 @@ export function FloorEditor({ floor, onChange }: { floor: Floor; onChange: (f: F
       {floor[key].map((z) => (
         <div key={z.id} className="row" style={{ gap: 8, alignItems: "center", flexWrap: "nowrap" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <NumInput style={inp} placeholder="Длина, м" value={z.lengthM} onChange={(n) => patch({ [key]: floor[key].map((x) => (x.id === z.id ? { ...x, lengthM: n ?? 0 } : x)) } as Partial<Floor>)} />
+            <NumInput placeholder="Длина, м" value={z.lengthM} onChange={(n) => patch({ [key]: floor[key].map((x) => (x.id === z.id ? { ...x, lengthM: n ?? 0 } : x)) } as Partial<Floor>)} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <NumInput style={inp} placeholder="Ширина, м" value={z.widthM} onChange={(n) => patch({ [key]: floor[key].map((x) => (x.id === z.id ? { ...x, widthM: n ?? 0 } : x)) } as Partial<Floor>)} />
+            <NumInput placeholder="Ширина, м" value={z.widthM} onChange={(n) => patch({ [key]: floor[key].map((x) => (x.id === z.id ? { ...x, widthM: n ?? 0 } : x)) } as Partial<Floor>)} />
           </div>
-          <button type="button" className="icon-del" style={{ flex: "0 0 auto" }} aria-label="удалить зону" onClick={() => patch({ [key]: floor[key].filter((x) => x.id !== z.id) } as Partial<Floor>)}>×</button>
+          {/* Тап-зона ≥44px сохранена (min-w/h-11 = 44px). */}
+          <Button type="button" color="tertiary" size="sm" className="-my-2.5 min-h-11 min-w-11 flex-none text-xl text-fg-quaternary hover:text-error-primary" aria-label="удалить зону" onClick={() => patch({ [key]: floor[key].filter((x) => x.id !== z.id) } as Partial<Floor>)}>×</Button>
         </div>
       ))}
-      <button type="button" className="chip" onClick={() => patch({ [key]: [...floor[key], { id: uid(), label: "", lengthM: 0, widthM: 0 }] } as Partial<Floor>)}>{key === "extraZones" ? "+ площадь" : "- площадь"}</button>
+      <Button type="button" color="secondary" size="sm" className="self-start rounded-full" onClick={() => patch({ [key]: [...floor[key], { id: uid(), label: "", lengthM: 0, widthM: 0 }] } as Partial<Floor>)}>{key === "extraZones" ? "+ площадь" : "- площадь"}</Button>
     </div>
   );
 
@@ -41,11 +38,11 @@ export function FloorEditor({ floor, onChange }: { floor: Floor; onChange: (f: F
       <div className="row" style={{ gap: 8 }}>
         <label className="stack" style={{ flex: 1, minWidth: 110, gap: 4 }}>
           <span className="eyebrow">Длина пола, м</span>
-          <NumInput style={inp} value={floor.lengthM} onChange={(n) => patch({ lengthM: n ?? 0 })} />
+          <NumInput value={floor.lengthM} onChange={(n) => patch({ lengthM: n ?? 0 })} />
         </label>
         <label className="stack" style={{ flex: 1, minWidth: 110, gap: 4 }}>
           <span className="eyebrow">Ширина пола, м</span>
-          <NumInput style={inp} value={floor.widthM} onChange={(n) => patch({ widthM: n ?? 0 })} />
+          <NumInput value={floor.widthM} onChange={(n) => patch({ widthM: n ?? 0 })} />
         </label>
       </div>
       <div className="stack" style={{ gap: 4 }}>

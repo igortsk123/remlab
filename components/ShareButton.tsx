@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@/components/base/buttons/button";
 
 // Копирование постоянной ссылки на смету (шаринг + возврат к чек-листу).
 export function ShareButton() {
@@ -15,8 +16,8 @@ export function ShareButton() {
     }
   }
   return (
-    <button type="button" className="btn btn-secondary" onClick={copy}>
+    <Button type="button" color="secondary" size="lg" onClick={copy}>
       {done ? "Ссылка скопирована ✓" : "Поделиться / сохранить ссылку"}
-    </button>
+    </Button>
   );
 }
