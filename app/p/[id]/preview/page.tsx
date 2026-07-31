@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { Badge } from "@/components/base/badges/badges";
+import { Button } from "@/components/base/buttons/button";
 import { notFound } from "next/navigation";
 import { repo } from "@/modules/store/repository";
 import { Progress } from "@/components/Progress";
@@ -53,9 +55,9 @@ export default async function PreviewPage({ params }: { params: Promise<{ id: st
             {project.wish && <p className="muted" style={{ margin: 0 }}>Пожелание: {project.wish}</p>}
             <div className="row">
               {choices.map((o, i) => (
-                <span key={i} className="chip" data-selected={o.action === "keep"}>
+                <Badge key={i} type="pill-color" size="md" color={o.action === "keep" ? "brand" : "gray"}>
                   {o.label} · {label[o.action] ?? o.action}
-                </span>
+                </Badge>
               ))}
             </div>
           </div>
@@ -98,7 +100,7 @@ export default async function PreviewPage({ params }: { params: Promise<{ id: st
           Ещё {lockedCount} позиций с ценами и ссылками, 3 альтернативы по ключевым, подробный бюджет,
           чек-лист замеров, пошаговый план и PDF с сохранением в «Мои комнаты».
         </p>
-        <Link className="btn btn-block" href={`/p/${id}/paywall`}>Открыть полный план</Link>
+        <Button size="lg" className="w-full" href={`/p/${id}/paywall`}>Открыть полный план</Button>
       </div>
     </main>
   );

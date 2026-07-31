@@ -7,12 +7,12 @@ import { CompanionChecklist } from "@/components/estimate/CompanionChecklist";
 import { addLink, removeItem } from "@/app/estimate-actions";
 import { ShareButton } from "@/components/ShareButton";
 import { GoLink } from "@/components/GoLink";
+import { Button } from "@/components/base/buttons/button";
 
 const rub = (n: number) => `${n.toLocaleString("ru-RU")} ₽`;
-const inputStyle = {
-  padding: "10px 12px", borderRadius: 10, border: "1px solid var(--base)",
-  background: "var(--surface)", color: "var(--text)", fontSize: 15, fontFamily: "inherit", width: "100%",
-} as const;
+// Нативные поля в server-action форме (без клиентского JS), вид — токены UUI как у InputBase.
+const inputCls =
+  "w-full appearance-none rounded-lg bg-primary px-3 py-2 text-md text-primary shadow-xs ring-1 ring-primary outline-hidden transition duration-100 ease-linear ring-inset placeholder:text-fg-quaternary focus-visible:ring-2 focus-visible:ring-brand";
 
 // Смета-чек-лист: постоянная ссылка (шаринг by design), живой документ.
 export default async function EstimatePage({
@@ -39,7 +39,7 @@ export default async function EstimatePage({
     <main className="container">
       {/* Крошка заметной строкой, заголовок скромнее: сперва «где я», потом «что это» (ADR-0039/0040). */}
       <nav aria-label="Вы здесь" style={{ fontSize: 15 }}>
-        <Link href="/lab" style={{ color: "var(--accent-hover)", fontWeight: 600 }}>🧪 Моя лаборатория</Link>
+        <Link href="/lab" className="font-semibold text-brand-secondary">🧪 Моя лаборатория</Link>
         <span className="muted"> / расчёт</span>
       </nav>
       <h1 style={{ fontSize: 24, margin: "6px 0 0" }}>{estimateLabel(est)}</h1>
@@ -70,7 +70,7 @@ export default async function EstimatePage({
                 ) : null}
               </div>
               <form action={removeItem.bind(null, est.id, it.id)}>
-                <button type="submit" className="chip" title="Убрать из списка">✕</button>
+                <Button type="submit" color="secondary" size="sm" className="rounded-full" aria-label="Убрать из списка">✕</Button>
               </form>
             </div>
           );
@@ -93,13 +93,13 @@ export default async function EstimatePage({
         <p className="eyebrow">Добавить свой товар по ссылке</p>
         {err === "url" ? <p className="note">Не похоже на ссылку — вставьте полный адрес (https://…).</p> : null}
         <form action={addLink.bind(null, est.id)} className="stack">
-          <input name="url" placeholder="Ссылка на товар (Ozon, Леруа, ваш магазин…)" style={inputStyle} />
+          <input name="url" placeholder="Ссылка на товар (Ozon, Леруа, ваш магазин…)" className={inputCls} aria-label="Ссылка на товар" />
           <div className="row" style={{ gap: 10 }}>
-            <input name="title" placeholder="Название" style={{ ...inputStyle, flex: 2, minWidth: 140 }} />
-            <input name="qty" type="number" step="0.1" min="0" placeholder="Кол-во" style={{ ...inputStyle, flex: 1, minWidth: 80 }} inputMode="decimal" />
-            <input name="price" type="number" step="1" min="0" placeholder="Цена, ₽" style={{ ...inputStyle, flex: 1, minWidth: 90 }} inputMode="decimal" />
+            <input name="title" placeholder="Название" className={inputCls} style={{ flex: 2, minWidth: 140 }} aria-label="Название" />
+            <input name="qty" type="number" step="0.1" min="0" placeholder="Кол-во" className={inputCls} style={{ flex: 1, minWidth: 80 }} inputMode="decimal" aria-label="Количество" />
+            <input name="price" type="number" step="1" min="0" placeholder="Цена, ₽" className={inputCls} style={{ flex: 1, minWidth: 90 }} inputMode="decimal" aria-label="Цена, ₽" />
           </div>
-          <button type="submit" className="btn btn-secondary">Добавить в список</button>
+          <Button type="submit" color="secondary" size="md" className="self-start">Добавить в список</Button>
         </form>
         <p className="muted" style={{ fontSize: 13, margin: 0 }}>
           Название и цену пока вписываете сами, так список полный и ничего не потеряется.
@@ -108,7 +108,7 @@ export default async function EstimatePage({
 
       <div className="row" style={{ marginTop: 20 }}>
         <ShareButton />
-        <Link className="btn btn-secondary" href="/lab">← Все мои расчёты</Link>
+        <Button color="secondary" size="lg" href="/lab">← Все мои расчёты</Button>
       </div>
 
       <p style={{ marginTop: 24 }}>

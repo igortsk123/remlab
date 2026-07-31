@@ -3,6 +3,7 @@ import { createFromRemont } from "@/app/estimate-actions";
 import { estimateRemont, DEPTH_LABEL, REGION_LABEL, type Depth, type Region, type BudgetVariant } from "@/lib/pricing/works";
 import { ComingSoon } from "@/components/ComingSoon";
 import { TrackedSubmit } from "@/components/TrackedSubmit";
+import { Button } from "@/components/base/buttons/button";
 
 // Раздел закрыт заглушкой до запуска (launch-p1-vitrina); включение старого содержимого: NEXT_PUBLIC_SHOW_WIP=1.
 const SHOW_WIP = process.env.NEXT_PUBLIC_SHOW_WIP === "1";
@@ -14,10 +15,12 @@ export const metadata = {
 };
 
 const rub = (n: number) => `${n.toLocaleString("ru-RU")} ₽`;
-const inputStyle = {
-  padding: "12px 14px", borderRadius: 10, border: "1px solid var(--base)",
-  background: "var(--surface)", color: "var(--text)", fontSize: 16, fontFamily: "inherit", width: "100%",
-} as const;
+// Нативные поля GET-формы (страница серверная, без JS), вид — токены UUI.
+const inputCls =
+  "w-full appearance-none rounded-lg bg-primary px-3.5 py-2.5 text-md text-primary shadow-xs ring-1 ring-primary outline-hidden transition duration-100 ease-linear ring-inset placeholder:text-fg-quaternary focus-visible:ring-2 focus-visible:ring-brand";
+// Чип-радио: скрытая радиокнопка внутри label; has-checked подсвечивает выбор сразу, без JS.
+const chipCls =
+  "inline-flex cursor-pointer items-center rounded-full bg-primary px-3.5 py-2 text-md text-secondary ring-1 ring-border-primary ring-inset transition duration-100 has-checked:bg-brand-solid has-checked:text-white has-checked:ring-transparent hover:bg-secondary has-checked:hover:bg-brand-solid_hover";
 const DEPTHS: Depth[] = ["refresh", "update", "capital"];
 const REGIONS: Region[] = ["msk", "spb", "million", "mid", "small", "far"];
 
@@ -48,15 +51,15 @@ export default async function RemontPage({ searchParams }: { searchParams: Promi
         <div className="row" style={{ gap: 12 }}>
           <div className="stack" style={{ flex: 1, minWidth: 140 }}>
             <label className="eyebrow">Площадь комнаты, м²</label>
-            <input name="area" type="number" step="0.5" min="0" defaultValue={area || ""} placeholder="напр. 18" style={inputStyle} inputMode="decimal" />
+            <input name="area" type="number" step="0.5" min="0" defaultValue={area || ""} placeholder="напр. 18" className={inputCls} inputMode="decimal" />
           </div>
         </div>
         <div className="stack">
           <label className="eyebrow">Глубина ремонта</label>
           <div className="row">
             {DEPTHS.map((d) => (
-              <label key={d} className="chip" data-selected={d === depth}>
-                <input type="radio" name="depth" value={d} defaultChecked={d === depth} style={{ display: "none" }} />
+              <label key={d} className={chipCls}>
+                <input type="radio" name="depth" value={d} defaultChecked={d === depth} className="sr-only" />
                 {DEPTH_LABEL[d]}
               </label>
             ))}
@@ -65,13 +68,13 @@ export default async function RemontPage({ searchParams }: { searchParams: Promi
         </div>
         <div className="stack">
           <label className="eyebrow">Регион (влияет на стоимость работ)</label>
-          <select name="region" defaultValue={region} style={inputStyle}>
+          <select name="region" defaultValue={region} className={inputCls}>
             {REGIONS.map((r) => (
               <option key={r} value={r}>{REGION_LABEL[r]}</option>
             ))}
           </select>
         </div>
-        <button type="submit" className="btn btn-block">Показать бюджет</button>
+        <Button type="submit" size="lg" className="w-full">Показать бюджет</Button>
       </form>
 
       {variants ? (
@@ -93,7 +96,7 @@ export default async function RemontPage({ searchParams }: { searchParams: Promi
                   <input type="hidden" name="depth" value={depth} />
                   <input type="hidden" name="region" value={region} />
                   <input type="hidden" name="variant" value={key} />
-                  <TrackedSubmit goal="estimate_saved" label="Сохранить этот вариант в Мою лабораторию" className="btn btn-secondary btn-block" />
+                  <TrackedSubmit goal="estimate_saved" label="Сохранить этот вариант в Мою лабораторию" color="secondary" className="w-full" />
                 </form>
               </div>
             );

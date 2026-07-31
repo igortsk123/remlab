@@ -2,6 +2,7 @@ import { startProject } from "@/app/actions";
 import { SelectChips } from "@/components/SelectChips";
 import { Progress } from "@/components/Progress";
 import { ComingSoon } from "@/components/ComingSoon";
+import { Button } from "@/components/base/buttons/button";
 
 // Раздел закрыт заглушкой до запуска (launch-p1-vitrina); включение старого содержимого: NEXT_PUBLIC_SHOW_WIP=1.
 const SHOW_WIP = process.env.NEXT_PUBLIC_SHOW_WIP === "1";
@@ -63,7 +64,7 @@ export default function StartPage() {
           </p>
         </div>
 
-        <button className="btn btn-block" type="submit">Продолжить</button>
+        <Button size="lg" className="w-full" type="submit">Продолжить</Button>
       </form>
     </main>
   );

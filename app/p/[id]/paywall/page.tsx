@@ -4,6 +4,7 @@ import { repo } from "@/modules/store/repository";
 import { unlockPack } from "@/app/actions";
 import { Progress } from "@/components/Progress";
 import { PayButton } from "@/components/PayButton";
+import { Button } from "@/components/base/buttons/button";
 
 const rub = (n: number) => `${n.toLocaleString("ru-RU")} ₽`;
 const PRICE = 490;
@@ -32,7 +33,7 @@ export default async function PaywallPage({ params }: { params: Promise<{ id: st
           <strong>Также в пакете</strong>
           <p className="muted" style={{ margin: 0 }}>Чек-лист замеров · пошаговый план · PDF (демо) · обновление цен.</p>
         </div>
-        <Link className="btn btn-block" href="/rooms" style={{ marginTop: 20 }}>Сохранить в «Мои комнаты»</Link>
+        <Button size="lg" href="/rooms" className="mt-5 w-full">Сохранить в «Мои комнаты»</Button>
       </main>
     );
   }

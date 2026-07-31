@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Button } from "@/components/base/buttons/button";
 import { ComingSoon } from "@/components/ComingSoon";
 
 // Раздел закрыт заглушкой до запуска (launch-p1-vitrina); включение старого содержимого: NEXT_PUBLIC_SHOW_WIP=1.
@@ -54,8 +54,8 @@ export default function SovetyPage() {
         <p className="eyebrow">Пока раздел готовится</p>
         <p style={{ margin: 0 }}>А смету на материалы можно собрать уже сейчас — посчитаем количество и стоимость.</p>
         <div className="row">
-          <Link className="btn" href="/calc">Посчитать материалы</Link>
-          <Link className="btn btn-secondary" href="/calc/remont">Стоимость ремонта</Link>
+          <Button size="lg" href="/calc">Посчитать материалы</Button>
+          <Button color="secondary" size="lg" href="/calc/remont">Стоимость ремонта</Button>
         </div>
       </div>
     </main>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Button } from "@/components/base/buttons/button";
 import { repo } from "@/modules/store/repository";
 import { readSessionId } from "@/lib/session";
 
@@ -15,14 +16,14 @@ export default async function RoomsPage() {
     <main className="container">
       <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
         <h1 style={{ margin: 0 }}>Мои комнаты</h1>
-        <Link className="btn" href="/start">Добавить комнату</Link>
+        <Button size="md" href="/start">Добавить комнату</Button>
       </div>
 
       {projects.length === 0 ? (
         <div className="card center stack" style={{ marginTop: 24 }}>
           <div style={{ fontSize: 36 }}>🛋️</div>
           <p className="muted" style={{ margin: 0 }}>Пока пусто. Обновите первую комнату.</p>
-          <Link className="btn" href="/start">Начать</Link>
+          <Button size="lg" href="/start" className="self-center">Начать</Button>
         </div>
       ) : (
         <div className="stack" style={{ marginTop: 20 }}>

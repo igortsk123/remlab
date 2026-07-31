@@ -10,6 +10,8 @@ import { EstimateRows } from "@/components/lab/EstimateRows";
 import { LabTeaser } from "@/components/lab/LabTeaser";
 import { MyStyleCard } from "@/components/lab/MyStyleCard";
 import { plural } from "@/lib/format/plural";
+import { Badge } from "@/components/base/badges/badges";
+import { Button } from "@/components/base/buttons/button";
 
 export const metadata = {
   title: "Моя лаборатория: расчёты, сметы и дизайны",
@@ -54,30 +56,43 @@ export default async function LabPage({ searchParams }: { searchParams: Promise<
 
       <MyStyleCard style={styleRes ? STYLES[styleRes.style] : null} quizWip={!SHOW_WIP} />
 
-      <nav className="lab-tabs" aria-label="Разделы лаборатории">
-        {TABS.map((t) => (
-          <Link key={t.key} href={t.href} className="lab-tab" data-active={tab === t.key} aria-current={tab === t.key ? "page" : undefined}>
-            {t.label}
-            {t.key === "materials" && materials.length > 0 && <span className="lab-badge">{materials.length}</span>}
-            {t.key === "remont" && (remont.length > 0
-              ? <span className="lab-badge">{remont.length}</span>
-              : !SHOW_WIP && <span className="soon-badge">скоро</span>)}
-            {t.key === "design" && (rooms.length > 0
-              ? <span className="lab-badge">{rooms.length}</span>
-              : !SHOW_WIP && <span className="soon-badge">скоро</span>)}
-          </Link>
-        ))}
+      {/* Вкладки — обычные ссылки (?tab=...); вид — «button-border» из Untitled UI Tabs. */}
+      <nav className="mt-6 -mb-px flex gap-1 border-b border-secondary" aria-label="Разделы лаборатории">
+        {TABS.map((t) => {
+          const active = tab === t.key;
+          return (
+            <Link
+              key={t.key}
+              href={t.href}
+              aria-current={active ? "page" : undefined}
+              className={`inline-flex items-center gap-1.5 border-b-2 px-3.5 pt-2.5 pb-3 text-md ${
+                active
+                  ? "border-brand font-semibold text-brand-secondary"
+                  : "border-transparent text-quaternary hover:bg-primary_hover hover:text-secondary"
+              }`}
+            >
+              {t.label}
+              {t.key === "materials" && materials.length > 0 && <Badge type="pill-color" color="brand" size="sm">{materials.length}</Badge>}
+              {t.key === "remont" && (remont.length > 0
+                ? <Badge type="pill-color" color="brand" size="sm">{remont.length}</Badge>
+                : !SHOW_WIP && <Badge type="pill-color" color="slate" size="sm">скоро</Badge>)}
+              {t.key === "design" && (rooms.length > 0
+                ? <Badge type="pill-color" color="brand" size="sm">{rooms.length}</Badge>
+                : !SHOW_WIP && <Badge type="pill-color" color="slate" size="sm">скоро</Badge>)}
+            </Link>
+          );
+        })}
       </nav>
 
       {tab === "materials" && (materials.length === 0 ? (
         <div className="card stack" style={{ marginTop: 20 }}>
           <p style={{ margin: 0 }}>Пока пусто. Посчитайте материалы — расчёт сохранится сюда.</p>
-          <Link className="btn" href="/calc">Посчитать материалы</Link>
+          <Button size="lg" href="/calc" className="self-start">Посчитать материалы</Button>
         </div>
       ) : (
         <div className="stack" style={{ marginTop: 20, gap: 12 }}>
           <EstimateRows estimates={materials} />
-          <Link className="btn btn-secondary" href="/calc" style={{ alignSelf: "flex-start" }}>+ Новый расчёт</Link>
+          <Button color="secondary" size="md" href="/calc" className="self-start">+ Новый расчёт</Button>
         </div>
       ))}
 
@@ -92,7 +107,7 @@ export default async function LabPage({ searchParams }: { searchParams: Promise<
       ) : (
         <div className="stack" style={{ marginTop: 20, gap: 12 }}>
           <EstimateRows estimates={remont} />
-          <Link className="btn btn-secondary" href="/calc/remont" style={{ alignSelf: "flex-start" }}>+ Новый расчёт</Link>
+          <Button color="secondary" size="md" href="/calc/remont" className="self-start">+ Новый расчёт</Button>
         </div>
       ))}
 

@@ -3,6 +3,7 @@ import { repo } from "@/modules/store/repository";
 import { saveBrief } from "@/app/actions";
 import { SelectChips } from "@/components/SelectChips";
 import { Progress } from "@/components/Progress";
+import { Button } from "@/components/base/buttons/button";
 
 export default async function BriefPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -25,11 +26,7 @@ export default async function BriefPage({ params }: { params: Promise<{ id: stri
 
         <div className="stack">
           <label className="eyebrow">Город (для доставки и расчёта)</label>
-          <input
-            name="city"
-            placeholder="Москва"
-            style={{ padding: "12px 14px", borderRadius: 10, border: "1px solid var(--base)", background: "var(--surface)", color: "var(--text)", fontSize: 16 }}
-          />
+          <input name="city" placeholder="Москва" className={"w-full appearance-none rounded-lg bg-primary px-3.5 py-2.5 text-md text-primary shadow-xs ring-1 ring-primary outline-hidden transition duration-100 ease-linear ring-inset placeholder:text-fg-quaternary focus-visible:ring-2 focus-visible:ring-brand"} aria-label="Город" />
         </div>
 
         <div className="stack">
@@ -65,7 +62,7 @@ export default async function BriefPage({ params }: { params: Promise<{ id: stri
           />
         </div>
 
-        <button className="btn btn-block" type="submit">Разобрать фото</button>
+        <Button size="lg" className="w-full" type="submit">Разобрать фото</Button>
       </form>
     </main>
   );

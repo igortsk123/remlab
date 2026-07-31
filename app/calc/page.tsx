@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CALC_META, type CalcKind } from "@/lib/estimate/companions";
+import { Button } from "@/components/base/buttons/button";
 
 export const metadata = {
   title: "Калькуляторы материалов: сколько нужно обоев, плитки, краски, ламината",
@@ -38,7 +39,7 @@ export default function CalcHub() {
         <div className="card stack" style={{ marginTop: 24 }}>
           <p className="eyebrow">Не знаете, сколько всего стоит?</p>
           <p style={{ margin: 0 }}>Прикиньте бюджет ремонта комнаты по площади: работы и материалы отдельно.</p>
-          <Link className="btn btn-secondary" href="/calc/remont">Рассчитать стоимость ремонта</Link>
+          <Button color="secondary" size="lg" href="/calc/remont" className="self-start">Рассчитать стоимость ремонта</Button>
         </div>
       )}
 

@@ -1,5 +1,12 @@
 import Link from "next/link";
 import { LabBadge } from "@/components/LabBadge";
+import { Badge } from "@/components/base/badges/badges";
+import { Button } from "@/components/base/buttons/button";
+
+// Пилюля «Скоро» на плитках/кнопках главной.
+const Soon = () => (
+  <span className="ml-2 inline-block align-middle"><Badge type="pill-color" color="slate" size="sm">Скоро</Badge></span>
+);
 
 export const metadata = {
   title: "remont-lab: посчитать материалы для ремонта и собрать смету",
@@ -30,10 +37,10 @@ export default function Home() {
       </p>
 
       <div className="row" style={{ margin: "24px 0 8px", gap: 12 }}>
-        <Link className="btn" href="/calc" style={{ flex: "1 1 220px" }}>Посчитать материалы</Link>
-        <Link className="btn btn-secondary" href="/calc/remont" style={{ flex: "1 1 220px" }}>
-          Сколько стоит ремонт<span className="soon-badge">Скоро</span>
-        </Link>
+        <Button size="lg" href="/calc" className="flex-[1_1_220px]">Посчитать материалы</Button>
+        <Button color="secondary" size="lg" href="/calc/remont" className="flex-[1_1_220px]">
+          Сколько стоит ремонт<Soon />
+        </Button>
       </div>
 
       <p className="eyebrow" style={{ marginTop: 28 }}>Что внутри</p>
@@ -49,7 +56,7 @@ export default function Home() {
             )}
             <strong>
               {s.title}
-              {s.soon && <span className="soon-badge">Скоро</span>}
+              {s.soon && <Soon />}
               {s.href === "/lab" && <LabBadge />}
             </strong>
             <span className="muted" style={{ fontSize: 14 }}>{s.desc}</span>
