@@ -5,6 +5,7 @@ import type { CalcKind, MaterialSpec } from "@/contracts/calc";
 import { CALC_META } from "@/lib/estimate/companions";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
+import { LoadingIndicator } from "@/components/application/loading-indicator/loading-indicator";
 import { MaterialParams } from "./MaterialParams";
 
 // Материал-блок (отдельная карточка, рекламный вид): вставил ссылку → сервер сам читает страницу
@@ -82,7 +83,7 @@ export function LinkAutofill({
       <Input size="sm" placeholder="Ссылка на товар из магазина" value={value} onChange={setValue} />
       {state === "loading" && (
         <span className="muted" style={{ fontSize: 14, display: "inline-flex", alignItems: "center", gap: 8 }}>
-          <span className="spinner" aria-hidden="true" />
+          <LoadingIndicator type="line-simple" size="sm" />
           {slow ? "Читаем страницу магазина — это займёт несколько секунд, подождите…" : "Читаем страницу…"}
         </span>
       )}

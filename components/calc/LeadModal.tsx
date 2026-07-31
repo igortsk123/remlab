@@ -5,12 +5,14 @@
 // deep-link `/start <код заявки>` (боты не могут писать первым — нужен Start; решение владельца:
 // показываем ОБЕ кнопки). Закрытие: backdrop, «×», Esc.
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import type { CalcKind } from "@/contracts/calc";
 import { captureLead } from "@/app/lead-actions";
 import { Button } from "@/components/base/buttons/button";
+import { CloseButton } from "@/components/base/buttons/close-button";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { Input } from "@/components/base/input/input";
+import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 
 const TG_BOT = process.env.NEXT_PUBLIC_TELEGRAM_BOT;
 const MAX_BOT = process.env.NEXT_PUBLIC_MAX_BOT;
@@ -34,12 +36,6 @@ export function LeadModal({ kind, url, channel, onClose }: { kind: CalcKind; url
   const needEmail = channel === "email";
   const emailOk = !needEmail || EMAIL_RE.test(email.trim());
   const cityOk = city.trim().length >= 2;
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   // Автокомплит города: подсказки с сервера (справочник ~1100 городов РФ).
   function onCity(v: string) {
@@ -70,9 +66,10 @@ export function LeadModal({ kind, url, channel, onClose }: { kind: CalcKind; url
   const maxHref = MAX_BOT && done ? `https://max.ru/${MAX_BOT}?start=${done.startCode}` : null;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Найдём дешевле">
-        <button type="button" className="modal-close" aria-label="Закрыть" onClick={onClose}>×</button>
+    <ModalOverlay isOpen isDismissable onOpenChange={(open) => { if (!open) onClose(); }}>
+      <Modal className="max-w-[420px]">
+        <Dialog aria-label="Найдём дешевле" className="relative p-6">
+        <CloseButton label="Закрыть" className="absolute top-2 right-2" onClick={onClose} />
         {done ? (
           <div className="stack" style={{ gap: 10 }}>
             <p style={{ margin: 0 }}>
@@ -142,7 +139,8 @@ export function LeadModal({ kind, url, channel, onClose }: { kind: CalcKind; url
             {error && <span className="muted" style={{ fontSize: 13 }}>Не удалось отправить, попробуйте ещё раз.</span>}
           </div>
         )}
-      </div>
-    </div>
+        </Dialog>
+      </Modal>
+    </ModalOverlay>
   );
 }

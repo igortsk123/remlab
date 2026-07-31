@@ -43,11 +43,15 @@ export function ZoomControl() {
   const canMinus = idx > 0;
   const canPlus = idx < ORDER.length - 1;
 
+  // Кнопка ступени зума: круглая, компакт (стили UUI-токенами; ≠ Button — своя плотность).
+  const btnCls =
+    "min-h-7 min-w-7 cursor-pointer rounded-full border-none bg-transparent text-md leading-none text-primary outline-brand hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-default disabled:text-fg-disabled_subtle";
+
   return (
-    <span className="zoom-control" role="group" aria-label="Масштаб экрана" title="Масштаб экрана">
-      <button type="button" aria-label="Уменьшить масштаб" disabled={!canMinus} onClick={() => canMinus && set(ORDER[idx - 1]!)}>−</button>
-      <span aria-live="polite" className="zoom-control-value">{hydrated ? PERCENT[scale] : 100}%</span>
-      <button type="button" aria-label="Увеличить масштаб" disabled={!canPlus} onClick={() => canPlus && set(ORDER[idx + 1]!)}>+</button>
+    <span className="inline-flex items-center gap-0.5 rounded-full px-1 py-0.5 ring-1 ring-secondary ring-inset" role="group" aria-label="Масштаб экрана" title="Масштаб экрана">
+      <button type="button" className={btnCls} aria-label="Уменьшить масштаб" disabled={!canMinus} onClick={() => canMinus && set(ORDER[idx - 1]!)}>−</button>
+      <span aria-live="polite" className="min-w-9 text-center text-xs font-semibold tabular-nums">{hydrated ? PERCENT[scale] : 100}%</span>
+      <button type="button" className={btnCls} aria-label="Увеличить масштаб" disabled={!canPlus} onClick={() => canPlus && set(ORDER[idx + 1]!)}>+</button>
     </span>
   );
 }
