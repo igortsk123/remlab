@@ -42,7 +42,11 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
         {totalNet <= 0 ? (
           <span className="muted" style={{ fontSize: 13 }}>→ заполните размеры, чтобы посчитать</span>
         ) : needMaterial ? (
-          <span className="muted" style={{ fontSize: 13 }}>→ вставьте ссылку или задайте параметры материала</span>
+          <>
+            {/* «Нужно: ?» — только если нет НИКАКОГО посчитанного количества (иначе рядом уже стоит «Нужно: N»). */}
+            {!(qtyUnit && totalQty > 0) && <span>Нужно: <strong>?</strong></span>}
+            <span className="muted" style={{ fontSize: 13 }}>→ вставьте ссылку или задайте параметры материала</span>
+          </>
         ) : totalCost <= 0 ? (
           <span className="muted" style={{ fontSize: 13 }}>→ укажите цену товара, чтобы увидеть стоимость</span>
         ) : null}
