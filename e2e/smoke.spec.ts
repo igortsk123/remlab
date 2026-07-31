@@ -23,11 +23,12 @@ test("/lab: вкладки лаборатории у нового посетит
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Мои расчёты и проекты");
   // Материалы (по умолчанию): пустое состояние.
   await expect(page.getByText("Пока пусто")).toBeVisible();
+  const tabs = page.getByRole("navigation", { name: "Разделы лаборатории" });
   // Вкладка «Ремонт» — тизер раздела.
-  await page.getByRole("link", { name: /Ремонт/ }).click();
-  await expect(page.getByRole("heading", { name: /Сколько стоит ремонт/ })).toBeVisible();
+  await tabs.getByRole("link", { name: /Ремонт/ }).click();
+  await expect(page.getByRole("heading", { name: /сколько стоит ремонт/i })).toBeVisible();
   // Вкладка «Дизайны» — тизер дизайна по фото.
-  await page.getByRole("link", { name: /Дизайны/ }).click();
+  await tabs.getByRole("link", { name: /Дизайны/ }).click();
   await expect(page.getByRole("heading", { name: /дизайн вашей комнаты/i })).toBeVisible();
 });
 
