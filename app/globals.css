@@ -1,12 +1,17 @@
-/* Тема remlab — тёплый japandi. Только семантические токены (ui-rules): сырые цвета не использовать. */
+/* Тема remlab — тёплый japandi. Только семантические токены (ui-rules): сырые цвета не использовать.
+   U0 (план uui-migration): подключён Untitled UI (Tailwind v4 + токены) + палитра brand.css.
+   Легаси-классы ниже вне @layer — по каскаду сильнее слоёв Tailwind; демонтаж — U4. */
+@import "../styles/uui/globals.css";
+@import "../styles/brand.css";
 
 :root {
-  --bg: #f3eee7;          /* крем — фон */
-  --surface: #fbf8f3;     /* карточки/поверхности */
+  /* Мост U0: старые токены = алиасы токенов UUI там, где значения совпадают по brand.css. */
+  --bg: var(--color-bg-secondary);      /* крем — фон */
+  --surface: var(--color-bg-primary);   /* карточки/поверхности */
   --base: #c4b5a5;        /* greige — рамки/вторичное */
-  --accent: #8a9a7b;      /* шалфей — мягкий акцент */
-  --accent-strong: #b06a4a; /* терракота — основные CTA */
-  --accent-strong-hover: #9a5a3d;
+  --accent: #8a9a7b;      /* шалфей — мягкий акцент (упраздняется к U4) */
+  --accent-strong: var(--color-brand-500); /* терракота — основные CTA */
+  --accent-strong-hover: var(--color-brand-600);
   --accent-hover: #7c8b6d;  /* тёмный шалфей — hover вторичной кнопки */
   --text: #3a342e;        /* тёплый графит */
   --muted: #7d746a;       /* приглушённый текст */
@@ -38,9 +43,14 @@ html, body {
   overflow-anchor: none;
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-body, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif);
   line-height: 1.5;
 }
+
+/* Мост U0: препролёт Tailwind гасит маркеры списков — контентным спискам возвращаем дефолт.
+   (.checklist сам выключает маркеры — не задет.) */
+ol { list-style: decimal; }
+ul:not(.checklist) { list-style: disc; }
 
 h1, h2, h3 { line-height: 1.2; font-weight: 650; margin: 0 0 12px; letter-spacing: -0.01em; }
 h1 { font-size: clamp(28px, 5vw, 40px); }

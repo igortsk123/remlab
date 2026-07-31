@@ -1,0 +1,35 @@
+/* Палитра remlab поверх Untitled UI — гибрид из плана uui-migration (ADR будет в U4).
+   Бренд — кастом-терракота от прод-CTA #b06a4a (у UUI нет тёплого терракотового пресета);
+   нейтраль — тёплый серый (значения Tailwind stone, захардкожены: дефолтные theme-переменные
+   Tailwind v4 не эмитятся, если не используются утилитами); фоны — крем прода. */
+:root {
+    /* Бренд: терракота. 500/600 = живые CTA/hover прода — преемственность кнопок. */
+    --color-brand-50: rgb(250 243 239);
+    --color-brand-100: rgb(244 228 219);
+    --color-brand-200: rgb(232 200 183);
+    --color-brand-300: rgb(217 167 142);
+    --color-brand-400: rgb(199 135 103);
+    --color-brand-500: rgb(176 106 74);
+    --color-brand-600: rgb(154 90 61);
+    --color-brand-700: rgb(127 74 51);
+    --color-brand-800: rgb(104 61 44);
+    --color-brand-900: rgb(86 51 39);
+    --color-brand-950: rgb(47 26 19);
+
+    /* Нейтраль: stone (тёплый серый) вместо холодного neutral. */
+    --color-neutral-50: rgb(250 250 249);
+    --color-neutral-100: rgb(245 245 244);
+    --color-neutral-200: rgb(231 229 228);
+    --color-neutral-300: rgb(214 211 209);
+    --color-neutral-400: rgb(168 162 158);
+    --color-neutral-500: rgb(120 113 108);
+    --color-neutral-600: rgb(87 83 78);
+    --color-neutral-700: rgb(68 64 60);
+    --color-neutral-800: rgb(41 37 36);
+    --color-neutral-900: rgb(28 25 23);
+    --color-neutral-950: rgb(12 10 9);
+
+    /* Фоны: тёплый крем прода (страница) и почти-белая тёплая поверхность (карточки/поля). */
+    --color-bg-primary: rgb(251 248 243);
+    --color-bg-secondary: rgb(243 238 231);
+}

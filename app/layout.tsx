@@ -1,7 +1,12 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import Script from "next/script";
+import { Inter } from "next/font/google";
 import "./globals.css";
+
+// Шрифт UUI; self-host на билде (без runtime-запросов к Google — важно для РФ).
+// Токен --font-inter читает styles/uui/theme.css (--font-body).
+const inter = Inter({ subsets: ["latin", "cyrillic"], variable: "--font-inter" });
 import { SiteHeader } from "@/components/SiteHeader";
 import { VersionWatcher } from "@/components/VersionWatcher";
 import { MetrikaPageviews } from "@/components/MetrikaPageviews";
@@ -19,7 +24,7 @@ const APP_VERSION = process.env.APP_VERSION ?? "dev";
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="ru">
+    <html lang="ru" className={inter.variable}>
       <head>
         {/* Анти-FOUC масштаба (П4): применяем сохранённый data-font-scale ДО первой отрисовки. */}
         <script
