@@ -3,12 +3,12 @@ tier: 1
 topic: user-flow
 scope: Stage 1 UX-flow (построенный AI-флоу), экраны, аналитика
 tier2: ../domain/user-flow-details.md
-updated: 2026-07-30
+updated: 2026-07-31
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 ---
 
 > ⚠️ ADR-0016: **v0.4 «Смета-first»** — `plans/MASTER-cost-first.md`; v0.3-детали ниже — историч.
@@ -18,7 +18,8 @@ last_verified: 2026-07-30
 ## Навигация (v0.4, сквозная шапка — ADR-0017)
 Одна шапка `SiteHeader.tsx`: логотип + «Моя лаборатория»; ниже ОДИН ряд: материалы · ремонт ·
 Дизайн · Стили · Советы (шапка 1100px). Десктоп: бренд+ряд центрируются целиком, зум+лаборатория
-справа. Мобильный: скролл сворачивает ряд (`site-header--collapsed`), ≤480px компакт.
+справа. Узкое окно ≤700px: скролл сворачивает ряд (урок 7 [[lessons]]); ≤480px компакт.
+Активный раздел — заливка кнопки, не кольцо.
 Иконки владельца: `public/icons/` + фавиконка `app/icon.png` — [[access-and-integrations]].
 Главная (`app/page.tsx`) = «о проекте целиком».
 - **`/styles`** — игра-карточки «узнай свой вкус» (`components/StyleQuiz.tsx`, сид `lib/styles/quiz.ts`):

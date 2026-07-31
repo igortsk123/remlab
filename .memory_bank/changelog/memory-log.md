@@ -48,3 +48,18 @@ cost-first-funnel, sub-e1/e5/e6/e8, accuracy-upgrade-fal, object-size-reference,
 round-oval-footprint, stage1-master-roadmap, stage1-skeleton) — причины в шапках файлов
 и в таблице «Судьба прежних планов» мастер-плана `plans/MASTER-cost-first.md`.
 Остались: sub-e0/e2(скоуп+материалы)/e3/e4/e7, ml-замеры (для «сфоткай—посчитаем»), ads-*.
+
+## 2026-07-31 — Восстановлен autopilot (ADR-0033) + починен корневой баг кита
+Симптом: агент переспрашивал на каждой команде, хотя проект в режиме `autopilot`. Причина —
+не промпты и не хуки: 2026-07-23 повторным `apply.sh` поверх autopilot лёг пресет `important`,
+`ask` склеился 13 → 26, а `ask` в Claude Code сильнее `allow`. Правки: `.claude/settings.local.json`
+→ чистый autopilot (хуки и `autoMode` сохранены, бэкап `.bak-20260731-090154`); заведён
+`_kit/permission-mode.txt` = `autopilot`; ADR-0033 в `decisions.md`. Корень починен апстримом —
+кит v1.4.1 (`merge-settings.py/.ps1`: вычитание kit-managed записей при смене режима). Банк
+не менялся структурно, audit чист (55 доков, Tier 0 7.9 KB / 1.7%).
+
+## 2026-07-31 — /memory-check после calc-walls-ui-header-fixes
+Захват: уроки 7–8 в `core/lessons.md` (гистерезис sticky-коллапса; активная кнопка — заливкой);
+`core/estimate.md` (стены из карточки размеров), `core/user-flow.md` (шапка) обновлены. Мост
+авто-памяти: пусто (3 файла — per-user). План → `completed_plans/`. TIER1-BLOAT (estimate,
+lessons, user-flow) ужат без потери смысла. Audit чист (55 доков, Tier 0 7.9 KB / 1.7%).

@@ -3,7 +3,7 @@ tier: 1
 topic: decisions
 scope: ADR-лог — архитектурные решения с обоснованием и влиянием
 tier2: "../docs/DECISIONS.md"
-updated: 2026-07-22
+updated: 2026-07-31
 importance: high
 source: manual
 status: stable
@@ -449,3 +449,26 @@ ADR-0026 «только ключевые». **Почему:** цель «мак�
 `lib/calc/fetch-page.ts` (тип без `needs_file`, прокси для всех), `components/calc/LinkAutofill.tsx`
 (без upload, «подождите»), удалён роут приёма файла. Магазины, режущие только
 ДЦ-IP (Леруа/Петрович/ВсеИнструменты), через прокси читаются штатно.
+
+## [2026-07-31] Права проекта: восстановлен настоящий autopilot — ADR-0033
+**Решение:** `.claude/settings.local.json` приведён к чистому пресету `autopilot` кита:
+`allow = [Read, Edit, Write, Bash, WebFetch, WebSearch]`, `ask` = 13 записей (только
+`rm -rf /|/*|~|~/*`, `sudo`, `dd`, `mkfs`, `git push --force`, `git reset --hard`, чтение
+`.env`/`.ssh`/`.aws`). Хуки (Stop `--block --tier0-max-kb 10`, SessionStart, PreCompact,
+PostToolUse) и блок `autoMode` (преавторизация read-only SSH-диагностики прода) сохранены
+без изменений. Двухэтапный workflow «план → деплой» НЕ трогали (решение владельца).
+**Почему:** 2026-07-23 поверх autopilot повторным `apply.sh` был наложен пресет `important`,
+и `ask` склеился 13 → 26. В Claude Code `ask` **сильнее** `allow` — голый `Bash` в `allow`
+нейтрализовался записями `Bash(git commit *)`, `Bash(git push *)`, `Bash(npx *)`, `Bash(rm *)`.
+Режим назывался autopilot, вёл себя как important: агент переспрашивал на каждой команде, в том
+числе на обязательном `commit → push → ./deploy.sh` — прямое противоречие постоянному разрешению
+владельца от 2026-07-05 (`.claude/rules/agent-workflow.md`, «Выкатка после изменений»).
+**Альтернативы:** править `ask` руками — отвергнуто, лечит симптом (корневой баг остался бы в ките);
+ослаблять текстовый гейт «жду деплой» — отвергнуто владельцем (автопилот про команды, не про план).
+**Влияет на:** `.claude/settings.local.json` (вне git; бэкап `.bak-20260731-090154`),
+`.memory_bank/_kit/permission-mode.txt` (новый — фиксирует активный режим).
+
+**Грабли на будущее:** повторный `apply.sh --permission-mode <другой>` до кита v1.4.1 объединял
+`allow`/`ask` union'ом без вычитания — режим можно было только ужесточить. Починено апстримом
+(кит v1.4.1: kit-managed вычитание, round-trip autopilot↔important обратим, +3 merge-кейса).
+При любой смене режима — **сверять diff с `.bak-*`**, а не доверять статусной строке `apply.sh`.
