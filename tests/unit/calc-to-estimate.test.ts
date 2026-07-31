@@ -7,7 +7,7 @@ let n = 0;
 const mkId = () => `i${++n}`;
 
 describe("calc → estimate", () => {
-  it("комнаты → позиции + сопутствующие, все валидны по схеме", () => {
+  it("комнаты → только расчётные позиции (сопутка — чек-лист на /e, не позиции; ADR-0040)", () => {
     const project: CalcProject = {
       version: 1, kind: "laminat", updatedAt: "",
       rooms: [
@@ -15,19 +15,17 @@ describe("calc → estimate", () => {
       ],
     };
     const items = calcToItems(project, mkId);
+    expect(items.length).toBe(1);
     expect(items[0]!.title).toContain("Гостиная");
     expect(items[0]!.source).toBe("calc");
-    expect(items.length).toBeGreaterThan(1); // + сопутствующие
     for (const it of items) expect(estimateItem.safeParse(it).success).toBe(true);
   });
 
-  it("комнаты с нулевым расчётом пропускаются", () => {
+  it("комнаты с нулевым расчётом → пустой список (сохранение такого расчёта не пройдёт)", () => {
     const project: CalcProject = {
       version: 1, kind: "oboi", updatedAt: "",
       rooms: [{ id: "r1", name: "Пустая", surfaces: [], material: {} }],
     };
-    const items = calcToItems(project, mkId);
-    // расчётных позиций нет (площадь 0), только сопутствующие
-    expect(items.every((i) => i.source !== "calc")).toBe(true);
+    expect(calcToItems(project, mkId)).toEqual([]);
   });
 });

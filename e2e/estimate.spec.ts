@@ -28,7 +28,7 @@ test("калькулятор → смета → своя ссылка → /go/",
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Расчёт обоев", { timeout: 15_000 });
   await expect(page.getByText(/Сохранено в «Мою лабораторию»/)).toBeVisible();
   await expect(page.getByText(/\d+ рулон/).first()).toBeVisible();
-  await expect(page.getByText("Клей обойный")).toBeVisible(); // сопутствующее «предвосхищение»
+  await expect(page.getByText("Клей обойный")).toBeVisible(); // сопутка — блок галочек «Не забудьте»
 
   // Добавить свою ссылку
   await page.locator('input[name="url"]').fill("https://www.ozon.ru/product/oboi-123");

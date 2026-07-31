@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { estimateRepo } from "@/modules/estimate/repository";
-import { itemTotal, estimateTotal } from "@/contracts/estimate";
-import { estimateLabel } from "@/lib/estimate/label";
+import { itemTotal, estimateTotal, type EstimateItem } from "@/contracts/estimate";
+import { estimateLabel, estimateKind } from "@/lib/estimate/label";
+import { CompanionChecklist } from "@/components/estimate/CompanionChecklist";
 import { addLink, removeItem } from "@/app/estimate-actions";
 import { ShareButton } from "@/components/ShareButton";
 import { GoLink } from "@/components/GoLink";
@@ -25,16 +26,23 @@ export default async function EstimatePage({
   const est = await estimateRepo().get(id);
   if (!est) notFound();
 
+  // Легаси-сопутка (раньше зашивалась позициями «1 шт») скрыта: теперь она — блок галочек
+  // CompanionChecklist (ADR-0040). Данные не удаляем, старые расчёты очищаются отображением.
+  const isCompanion = (i: EstimateItem) => i.note?.startsWith("сопутствующее") ?? false;
+  const items = est.items.filter((i) => !isCompanion(i));
+  const kind = estimateKind(est);
+
   const total = estimateTotal(est);
-  const hasPrices = est.items.some((i) => i.unitPriceRub !== undefined);
+  const hasPrices = items.some((i) => i.unitPriceRub !== undefined);
 
   return (
     <main className="container">
-      {/* Крошка: документ лежит в лаборатории — имя полки кликается, «расчёт» = что это (ADR-0039). */}
-      <p className="eyebrow">
-        <Link href="/lab" style={{ color: "inherit" }}>🧪 Моя лаборатория</Link> → расчёт
-      </p>
-      <h1>{estimateLabel(est)}</h1>
+      {/* Крошка заметной строкой, заголовок скромнее: сперва «где я», потом «что это» (ADR-0039/0040). */}
+      <nav aria-label="Вы здесь" style={{ fontSize: 15 }}>
+        <Link href="/lab" style={{ color: "var(--accent-hover)", fontWeight: 600 }}>🧪 Моя лаборатория</Link>
+        <span className="muted"> / расчёт</span>
+      </nav>
+      <h1 style={{ fontSize: 24, margin: "6px 0 0" }}>{estimateLabel(est)}</h1>
       {est.meta?.depthLabel ? <p className="muted" style={{ marginTop: -4 }}>{String(est.meta.depthLabel)}</p> : null}
 
       {saved ? (
@@ -45,7 +53,7 @@ export default async function EstimatePage({
       ) : null}
 
       <div className="stack" style={{ marginTop: 16 }}>
-        {est.items.map((it) => {
+        {items.map((it) => {
           const t = itemTotal(it);
           return (
             <div key={it.id} className="card row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
@@ -68,6 +76,8 @@ export default async function EstimatePage({
           );
         })}
       </div>
+
+      {kind ? <CompanionChecklist estimateId={est.id} kind={kind} /> : null}
 
       {hasPrices ? (
         <div className="card" style={{ marginTop: 16 }}>

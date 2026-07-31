@@ -1,10 +1,11 @@
 // Материализация проекта калькулятора v2 → позиции сметы (M1). Чистая функция (тестируется).
-// По комнате — расчётная позиция; плюс сопутствующие по виду. Внешние ссылки уйдут через /go/.
+// Позиции = только расчёты по комнатам; сопутка — НЕ позиция, а чек-лист-подсказка на /e/[id]
+// (CompanionChecklist, ADR-0040). Внешние ссылки уйдут через /go/.
 
 import type { CalcProject } from "@/contracts/calc";
 import type { EstimateItem } from "@/contracts/estimate";
 import { computeRoomParts } from "./formulas";
-import { CALC_META, COMPANIONS } from "@/lib/estimate/companions";
+import { CALC_META } from "@/lib/estimate/companions";
 import { domainFromUrl } from "@/lib/estimate/links";
 
 export function calcToItems(project: CalcProject, mkId: () => string): EstimateItem[] {
@@ -34,9 +35,6 @@ export function calcToItems(project: CalcProject, mkId: () => string): EstimateI
         note: out.note,
       });
     }
-  }
-  for (const c of COMPANIONS[project.kind]) {
-    items.push({ id: mkId(), title: c, qty: 1, unit: "шт", source: "our_pick", note: "сопутствующее — не забудьте" });
   }
   return items;
 }

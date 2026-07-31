@@ -22,7 +22,7 @@ const SHOW_WIP = process.env.NEXT_PUBLIC_SHOW_WIP === "1";
 type LabTab = "materials" | "remont" | "design";
 
 const TABS: { key: LabTab; href: string; label: string }[] = [
-  { key: "materials", href: "/lab", label: "Материалы" },
+  { key: "materials", href: "/lab", label: "Расчёты материалов" },
   { key: "remont", href: "/lab?tab=remont", label: "Ремонт" },
   { key: "design", href: "/lab?tab=design", label: "Дизайны" },
 ];

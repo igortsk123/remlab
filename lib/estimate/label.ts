@@ -5,7 +5,12 @@
 import type { Estimate } from "@/contracts/estimate";
 import { CALC_META, type CalcKind } from "@/lib/estimate/companions";
 
-export function estimateLabel(e: Estimate): string {
+export function estimateKind(e: Estimate): CalcKind | undefined {
   const kind = (e.meta as { kind?: string } | undefined)?.kind as CalcKind | undefined;
-  return kind && CALC_META[kind] ? `Расчёт ${CALC_META[kind].titleGen}` : e.title;
+  return kind && CALC_META[kind] ? kind : undefined;
+}
+
+export function estimateLabel(e: Estimate): string {
+  const kind = estimateKind(e);
+  return kind ? `Расчёт ${CALC_META[kind].titleGen}` : e.title;
 }
