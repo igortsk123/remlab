@@ -73,3 +73,8 @@ UI-грабли сведены в Tier 2: `anti-patterns.md` §6 (скрытый
 `anti-patterns.md` §7: иконка-подсказка в отдельной строке (пустая полоса) и рядом с зоной
 разрушающих действий; при переносе к левому краю — `.help--start` (сторона тултипа). План →
 `completed_plans/`. Audit чист.
+
+## 2026-07-31 — /memory-check после calc-assumed-defaults-visible
+ADR-0034 (не считать по молчаливым дефолтам) в `decisions.md`; правило в `core/estimate.md`,
+урок 7 в `core/lessons.md`. План → `completed_plans/`. Tier 1 (estimate, lessons) ужаты под
+лимит 3 KB. Audit чист (56 доков, Tier 0 7.9 KB / 1.7%).
