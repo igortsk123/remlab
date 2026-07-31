@@ -63,3 +63,8 @@ round-oval-footprint, stage1-master-roadmap, stage1-skeleton) — причины
 `core/estimate.md` (стены из карточки размеров), `core/user-flow.md` (шапка) обновлены. Мост
 авто-памяти: пусто (3 файла — per-user). План → `completed_plans/`. TIER1-BLOAT (estimate,
 lessons, user-flow) ужат без потери смысла. Audit чист (55 доков, Tier 0 7.9 KB / 1.7%).
+
+## 2026-07-31 — /memory-check после calc-empty-hint-above-card
+UI-грабли сведены в Tier 2: `anti-patterns.md` §6 (скрытый скролл навигации, мерцание sticky-шапки,
+активная кнопка «в рамочке», подсказка под формой) — в `core/lessons.md` остался bullet 2 со ссылкой
+(Tier 1 упирался в лимит 3 KB). План → `completed_plans/`. Audit чист (56 доков, Tier 0 7.9 KB / 1.7%).
