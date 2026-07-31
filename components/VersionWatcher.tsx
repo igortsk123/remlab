@@ -44,7 +44,7 @@ export function VersionWatcher({ current }: { current: string }) {
         position: "fixed", left: 12, right: 12, bottom: 12, zIndex: 9999,
         display: "flex", gap: 12, alignItems: "center", justifyContent: "center", flexWrap: "wrap",
         padding: "12px 16px", borderRadius: 12,
-        background: "var(--text, #2b2b2b)", color: "var(--surface, #fff)",
+        background: "var(--color-bg-primary-solid)", color: "var(--color-text-primary_on-brand)",
         boxShadow: "0 6px 24px rgba(0,0,0,.18)", fontSize: 15,
       }}
     >
@@ -53,7 +53,7 @@ export function VersionWatcher({ current }: { current: string }) {
         onClick={() => location.reload()}
         style={{
           padding: "8px 16px", borderRadius: 8, border: "none", cursor: "pointer",
-          background: "var(--accent, #7c9070)", color: "#fff", fontSize: 15, fontFamily: "inherit",
+          background: "var(--color-bg-brand-solid)", color: "var(--color-white)", fontSize: 15, fontFamily: "inherit",
         }}
       >
         Обновить

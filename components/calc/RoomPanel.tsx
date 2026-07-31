@@ -46,7 +46,7 @@ function PartNote({ part, label }: { part: RoomPart; label?: string }) {
       <div style={{ marginTop: 4 }}>
         Нужно:{" "}
         {o.qtyUnknown ? (
-          <span style={{ color: "var(--accent)" }}>
+          <span style={{ color: "var(--color-text-brand-secondary)" }}>
             <strong>? {pluralUnit(o.unit, 0)}</strong>{" "}
             <em style={{ fontWeight: 400 }}>→ {o.ask}</em>
           </span>

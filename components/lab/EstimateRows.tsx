@@ -22,7 +22,7 @@ export function EstimateRows({ estimates }: { estimates: Estimate[] }) {
             <Link href={`/e/${e.id}`} style={{ textDecoration: "none", color: "inherit", flex: 1 }}>
               <strong style={{ fontSize: 16 }}>
                 {estimateLabel(e)}
-                <span aria-hidden style={{ color: "var(--accent-strong)", fontSize: 19, marginLeft: 8, verticalAlign: "-1px" }}>→</span>
+                <span aria-hidden style={{ color: "var(--color-fg-brand-primary)", fontSize: 19, marginLeft: 8, verticalAlign: "-1px" }}>→</span>
               </strong>
               <p className="muted" style={{ margin: "2px 0 0", fontSize: 14 }}>
                 {fmtDate(e.createdAt)}

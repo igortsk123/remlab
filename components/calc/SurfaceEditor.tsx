@@ -59,7 +59,7 @@ export function SurfaceEditor({
   return (
     <div className="stack" style={{ gap: 12 }}>
       {surfaces.map((s, i) => (
-        <div key={s.id} className="stack" style={{ gap: 8, borderLeft: "2px solid var(--border)", paddingLeft: 12 }}>
+        <div key={s.id} className="stack" style={{ gap: 8, borderLeft: "2px solid var(--color-border-secondary)", paddingLeft: 12 }}>
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
             <span className="row" style={{ gap: 6, alignItems: "center", margin: 0 }}>
               <strong style={{ fontSize: 15 }}>{s.label || "Стена"}</strong>
@@ -81,7 +81,7 @@ export function SurfaceEditor({
 
           {/* Проёмы стены (плитка/краска): окно/дверь Ширина×Высота, вычитаются фактом ввода. */}
           {!isOboi && s.openings.map((o, oi) => (
-            <div key={o.id} className="stack" style={{ gap: 8, borderLeft: "2px solid var(--accent)", paddingLeft: 10 }}>
+            <div key={o.id} className="stack" style={{ gap: 8, borderLeft: "2px solid var(--color-border-brand)", paddingLeft: 10 }}>
               <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
                 <strong style={{ fontSize: 14 }}>Проём {oi + 1}</strong>
                 <Button type="button" color="link-gray" size="sm" className="text-xs underline" onClick={() => patchOpenings(s.id, (os) => os.filter((x) => x.id !== o.id))}>удалить</Button>

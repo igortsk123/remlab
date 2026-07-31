@@ -7,3 +7,4 @@ mltest/
 # локальные скрипты (migrate/trace/session/metrics) не репо-claim; в CI-checkout их нет. Продуктовый
 # код (app/, lib/, infra/, db/) остаётся под проверкой CODE-REF.
 tools/
+components/CalcForm.tsx

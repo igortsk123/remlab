@@ -48,7 +48,7 @@ export function ResultView({ project }: { project: CalcProject }) {
         </div>
       ))}
       {totalCost > 0 && (
-        <div className="row" style={{ justifyContent: "space-between", borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+        <div className="row" style={{ justifyContent: "space-between", borderTop: "1px solid var(--color-border-secondary)", paddingTop: 8 }}>
           <strong>Итого материалы</strong>
           <strong>~{totalCost.toLocaleString("ru-RU")} ₽</strong>
         </div>

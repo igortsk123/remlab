@@ -38,6 +38,10 @@ last_verified: 2026-07-31
   `core/user-flow.md`.
 - **Калькулятор v2 (2026-07-21…22, ADR-0018–0028):** NumInput, плитка стены+пол, автозаполнение по
   ссылке, лид-карточка. Детали — `core/estimate.md`, `decisions.md`.
+- **Дизайн-система (2026-07-31, ADR-0041):** весь UI на **Untitled UI React** (Tailwind v4 +
+  React Aria, copy-paste в `components/base|application`), палитра-гибрид (терракота-brand,
+  stone-нейтраль, крем; `styles/brand.css`), Inter self-host. Старые токены/классы удалены;
+  4 атомарных деплоя U0–U4 (план `uui-migration`). Правила — `.claude/rules/ui-rules.md`.
 - **Прод:** https://remont-lab.online — версия = git SHA (АВТО-деплой на каждый push в main,
   нативный arm64-раннер, с 2026-07-28). Контейнеры: `remlab-app`,
   `remlab-caddy`, `remlab-db` (pg17+pgvector), `remlab-imagor`. LE-cert до 2026-09-29. Секреты —

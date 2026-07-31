@@ -1,5 +1,5 @@
 ---
-description: UI-правила (заготовка — активна только если в проекте есть фронтенд)
+description: UI-правила remlab — Untitled UI (Tailwind v4 + React Aria), палитра-гибрид
 paths:
   - "app/**/*.tsx"
   - "app/**/*.jsx"
@@ -8,28 +8,52 @@ paths:
   - "**/globals.css"
 ---
 
-# UI-правила (заготовка)
+# UI-правила (Untitled UI, план uui-migration)
 
-> `/memory-init` оставляет этот файл только если обнаружен фронтенд; иначе удаляет.
-> Подстрой токены/брейкпоинты под дизайн-систему проекта.
+Дизайн-система — **Untitled UI React** (copy-paste): примитивы скопированы в
+`components/base/**` и `components/application/**` (React Aria + Tailwind v4).
+Токены: `styles/uui/theme.css` (семантика UUI) + `styles/brand.css` (палитра-гибрид:
+терракота-бренд от #b06a4a, stone-нейтраль, крем-фоны). Обновление компонентов — копированием
+из github.com/untitleduico/react (main), правки копий — минимальные (линт/строгий TS).
 
 ## Дизайн-токены
-- Только **семантические** токены темы (напр. `bg-primary`, `text-muted-foreground`, `bg-card`).
-- Запрещены сырые цвета (`bg-white`, `text-gray-*`, hex в классах) — ломают тему/тёмный режим.
-
-## Раскладка и адаптивность
-- Mobile-first: базовые стили — мобильные, расширяем брейкпоинтами вверх.
-- Контейнеры верхнего уровня — полноширинные (не обрезать контент на узких экранах).
+- Только **семантические** токены/утилиты UUI: `bg-primary`, `bg-brand-solid`, `text-primary`,
+  `text-tertiary`, `text-fg-quaternary`, `ring-primary`, `border-secondary`, `text-error-primary`…
+  В inline-style — `var(--color-*)` (напр. `var(--color-border-secondary)`).
+- ЗАПРЕЩЕНЫ сырые цвета (`bg-white`, hex, `text-gray-*`) и старые токены (`--bg`, `--accent`…,
+  удалены в U4). Бренд меняется ТОЛЬКО в `styles/brand.css`.
+- Второго акцента нет: прежний «шалфей» упразднён (гибрид U0); смысловой зелёный — только
+  `success`-токены.
 
 ## Компоненты
-- Переиспользуй компоненты дизайн-системы; не правь сгенерированные ui-примитивы напрямую.
-- Иконки — из одного набора (консистентность).
-- Headless-UI (base-ui/Radix): пункты меню активируй `onClick` (не `onSelect`); части-обёртки
-  (`GroupLabel` и т.п.) держи внутри обязательных родителей (`Group`) — иначе рантайм-краш. Подробнее
-  и другие грабли — `_optional/memory/anti-patterns.md`.
+- Кнопка — `components/base/buttons/button` (`color`: primary/secondary/tertiary/link-gray…,
+  `size`, `href` для ссылок — клиентскую навигацию даёт RouterProvider в `components/Providers.tsx`).
+  Кнопки-пилюли «+ добавить…» — `size="sm" className="rounded-full"`.
+- Поля — `base/input`, `base/textarea` (RAC: `onChange` отдаёт СТРОКУ, не event); селекты —
+  `base/select/select-native` (нативный select, лучше на мобиле); чекбоксы — `base/checkbox`;
+  чипы-переключатели — наш `base/chip` (ToggleButton); бейджи — `base/badges`; тултипы —
+  `base/tooltip` (`Tooltip` + `TooltipTrigger`); модалки — `application/modals`
+  (`ModalOverlay isOpen isDismissable` + `Modal` + `Dialog`); лоадер — `application/loading-indicator`.
+- Числовые поля — наш `components/calc/NumInput` (строка-буфер «1,2», UUI-классы).
+- В **серверных** формах (server actions, без JS) — нативные `<input>/<select>` с utility-классами
+  в стиле InputBase (см. `app/e/[id]/page.tsx: inputCls`); `name` обязателен.
+- Не править скопированные примитивы под задачу — оборачивать или расширять props.
+- Иконки — из одного набора (`@untitledui/icons`); разовые SVG — inline, `stroke="currentColor"`.
 
-## Состояния
-Каждый экран покрывает `loading` / `error+retry` / `empty` / `success`.
+## Раскладка и адаптивность
+- Mobile-first. Раскладочные хелперы проекта (`.container`, `.stack`, `.row`, `.card`, `.note`,
+  `.eyebrow`, `.muted`) живут в `app/globals.css` НА ТОКЕНАХ UUI — использовать их, не плодить копий.
+- Масштаб П4 (`body{zoom}` + `data-font-scale`) — не трогать без отдельного плана.
+- Тап-зоны ≥44px (кнопки-крестики: `min-h-11 min-w-11`).
 
-> Доменные ограничения (тон, дисклеймеры и т.п.) — выноси в отдельный path-scoped rule,
-> см. `_HOW-TO-WRITE-RULES.md`.
+## Состояния и аналитика
+- Каждый экран: `loading` / `error+retry` / `empty` / `success`.
+- Цели Метрики — на РЕАЛЬНОЕ действие (ADR-0036); при замене кнопок события сохранять 1:1,
+  новые цели не вешать без решения владельца.
+
+## Грабли (см. также anti-patterns.md §6–7)
+- RAC `onChange`/`onPress` вместо DOM-событий; `isDisabled`/`isLoading`, не `disabled`.
+- `label` у Badge/Checkbox — проп, а `aria-label` Badge НЕ пробрасывает (оборачивать span'ом).
+- Пустые `interface X extends Y {}` в копиях UUI валят CI-гейт (`no-empty-object-type`) → `type X = Y`.
+- Препролёт Tailwind гасит маркеры списков и рамки нативных полей — контентные `ol/ul` чинит
+  правило в globals.css; нативные поля всегда с классами.

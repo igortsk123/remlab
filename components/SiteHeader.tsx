@@ -87,7 +87,8 @@ export function SiteHeader() {
               Посчитать материалы
             </Link>
             <Link href="/calc/remont" className={`nav-cta nav-cta--alt${costActive ? " nav-cta--active" : ""}`}>
-              Сколько стоит ремонт<span className="soon-badge soon-badge--onfill">скоро</span>
+              Сколько стоит ремонт
+              <span className="ml-2 rounded-full bg-white/25 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-white uppercase">скоро</span>
             </Link>
             {NAV.map((n) => (
               <Link
@@ -96,7 +97,9 @@ export function SiteHeader() {
                 className={`nav-link${matches(pathname, n.match) ? " nav-link--active" : ""}`}
               >
                 {n.label}
-                {n.soon && <span className="soon-badge">скоро</span>}
+                {n.soon && (
+                  <span className="ml-2 rounded-full bg-brand-100 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-brand-secondary uppercase">скоро</span>
+                )}
               </Link>
             ))}
           </nav>

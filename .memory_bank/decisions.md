@@ -599,3 +599,26 @@ localStorage по id расчёта, на сервер не пишутся; то
 **Влияет на:** `lib/calc/to-estimate.ts`, `components/estimate/CompanionChecklist.tsx` (НОВЫЙ),
 `app/e/[id]/page.tsx`, `lib/estimate/label.ts` (+`estimateKind`), `app/lab/page.tsx`.
 План: `e-companions-checklist`. Откат: тег `rollback-pre-companions` (52cd38e).
+
+## [2026-07-31] Дизайн-система = Untitled UI React + палитра-гибрид — ADR-0041
+**Решение:** фронтенд полностью переведён на **Untitled UI React** (copy-paste-модель, MIT):
+Tailwind CSS v4 + React Aria Components; примитивы скопированы в `components/base/**` и
+`components/application/**`, обновляются копированием из github.com/untitleduico/react.
+Палитра — **гибрид** (преднастроенной терракоты у UUI нет, orange отвергнут — «маркетплейсный»):
+brand = кастом-шкала от прод-CTA `#b06a4a` (500/600 = прежние CTA/hover), нейтраль = Tailwind
+stone (тёплый серый, japandi), статусные = пресеты red/yellow/green, фоны = крем прода,
+шрифт = Inter self-host (`next/font`, subsets latin+cyrillic). Второй акцент «шалфей» упразднён.
+Всё — в `styles/brand.css` (единственное место бренда). Старые токены/классы (`--bg`, `.btn`,
+`.chip`, `.modal`…) удалены; раскладочные хелперы (`.card`, `.stack`, `.note`…) переписаны на
+токены UUI в `app/globals.css`. Клиентская навигация href-кнопок — RouterProvider
+(`components/Providers.tsx`). PRO ($349) не покупали — бесплатного набора хватило.
+**Почему:** ручной CSS (337 строк, 17 самописных компонентов) не масштабировался на М1–М3;
+владелец выбрал UUI из топ-3 (shadcn/ui, UUI, antd) за качество дефолтного дизайна и мост в
+Figma; терракота сохранена ради преемственности бренда.
+**Альтернативы:** shadcn/ui (больше экосистема, но дефолт серее, нет Figma-пары); Ant Design
+(сильные таблицы, но «офисный» вид, чужой узнаваемый стиль); пресет orange (ломает тон).
+**Влияет на:** `package.json` (+tailwindcss v4, react-aria-components и др.), `postcss.config.mjs`,
+`styles/{brand,uui/*}.css`, `app/globals.css`, `app/layout.tsx`, `components/**` (все),
+`app/**` (все страницы), `.claude/rules/ui-rules.md`, `utils/cx.ts`, `hooks/use-resize-observer.ts`.
+Удалён мёртвый `components/CalcForm.tsx` (0 импортов). План: `uui-migration` (U0–U4, четыре
+атомарных деплоя). Откат: `remlab-app:prev` / revert коммитов 2480bda..HEAD.

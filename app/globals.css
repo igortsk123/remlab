@@ -1,30 +1,16 @@
-/* Тема remlab — тёплый japandi. Только семантические токены (ui-rules): сырые цвета не использовать.
-   U0 (план uui-migration): подключён Untitled UI (Tailwind v4 + токены) + палитра brand.css.
-   Легаси-классы ниже вне @layer — по каскаду сильнее слоёв Tailwind; демонтаж — U4. */
+/* Тема remlab = Untitled UI (Tailwind v4 + React Aria) + палитра-гибрид styles/brand.css
+   (терракота-бренд, stone-нейтраль, крем-фоны; план uui-migration, U0–U4).
+   Ниже — только раскладочные хелперы и бespoke-паттерны проекта на СЕМАНТИЧЕСКИХ токенах UUI
+   (--color-*). Сырые цвета и старые токены (--bg/--accent/…) запрещены — ui-rules.md. */
 @import "../styles/uui/globals.css";
 @import "../styles/brand.css";
 
 :root {
-  /* Мост U0: старые токены = алиасы токенов UUI там, где значения совпадают по brand.css. */
-  --bg: var(--color-bg-secondary);      /* крем — фон */
-  --surface: var(--color-bg-primary);   /* карточки/поверхности */
-  --base: #c4b5a5;        /* greige — рамки/вторичное */
-  --accent: #8a9a7b;      /* шалфей — мягкий акцент (упраздняется к U4) */
-  --accent-strong: var(--color-brand-500); /* терракота — основные CTA */
-  --accent-strong-hover: var(--color-brand-600);
-  --accent-hover: #7c8b6d;  /* тёмный шалфей — hover вторичной кнопки */
-  --text: #3a342e;        /* тёплый графит */
-  --muted: #7d746a;       /* приглушённый текст */
-  --border: #e4dccf;
-  --danger: #a4462f;
-  --ok: #5f7a54;
   --radius: 16px;
   --radius-sm: 10px;
   --shadow: 0 1px 2px rgba(58, 52, 46, 0.05), 0 8px 24px rgba(58, 52, 46, 0.06);
   --maxw: 720px;
 }
-
-* { box-sizing: border-box; }
 
 /* ═══ Масштаб (П4): screen-zoom — большие экраны; user-zoom — контрол 100–130% (data-font-scale).
    Через CSS zoom, т.к. вёрстка в px: масштабируется всё. Нет поддержки → остаётся 100%. ═══ */
@@ -41,16 +27,11 @@ html, body {
   /* Scroll-anchoring отключён: сворачивание шапки меняет её высоту, и авто-компенсация
      скролла браузером гоняла y через пороги коллапса → шапка мерцала при скролле вверх. */
   overflow-anchor: none;
-  background: var(--bg);
-  color: var(--text);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
   font-family: var(--font-body, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif);
   line-height: 1.5;
 }
-
-/* Мост U0: препролёт Tailwind гасит маркеры списков — контентным спискам возвращаем дефолт.
-   (.checklist сам выключает маркеры — не задет.) */
-ol { list-style: decimal; }
-ul:not(.checklist) { list-style: disc; }
 
 h1, h2, h3 { line-height: 1.2; font-weight: 650; margin: 0 0 12px; letter-spacing: -0.01em; }
 h1 { font-size: clamp(28px, 5vw, 40px); }
@@ -58,110 +39,51 @@ h2 { font-size: clamp(22px, 4vw, 28px); }
 p { margin: 0 0 12px; }
 a { color: inherit; }
 
+/* Препролёт Tailwind гасит маркеры списков — контентным спискам возвращаем дефолт.
+   (.checklist сам выключает маркеры — не задет.) */
+ol { list-style: decimal; }
+ul:not(.checklist) { list-style: disc; }
+
 .container { width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 24px 20px 64px; }
-.eyebrow { letter-spacing: 2px; text-transform: uppercase; font-size: 12px; color: var(--muted); }
-.muted { color: var(--muted); }
+.eyebrow { letter-spacing: 2px; text-transform: uppercase; font-size: 12px; color: var(--color-text-quaternary); }
+.muted { color: var(--color-text-tertiary); }
 .center { text-align: center; }
 .stack { display: flex; flex-direction: column; gap: 16px; }
 .row { display: flex; flex-wrap: wrap; gap: 12px; }
 .spacer { flex: 1; }
 
 .card {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-secondary);
   border-radius: var(--radius);
   padding: 20px;
   box-shadow: var(--shadow);
 }
 
-/* Пометки «скоро» (запуск, П1): пилюля на заглушках разделов и мини-бейдж на плитках/в навигации */
-.soon-pill {
-  display: inline-block; padding: 6px 12px; border-radius: 999px;
-  background: var(--accent); color: var(--surface);
-  font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 600;
-}
-.soon-badge {
-  display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px;
-  background: rgba(138, 154, 123, 0.16); color: var(--accent-hover);
-  font-size: 11px; letter-spacing: 0.6px; text-transform: uppercase; font-weight: 600;
-  vertical-align: middle; white-space: nowrap;
-}
-.soon-badge--onfill { background: rgba(251, 248, 243, 0.28); color: var(--surface); }
-
-/* Счётчик сохранённых расчётов у «Моей лаборатории» (шапка/плитка) — тёплый акцент. */
-.lab-badge {
-  display: inline-block; margin-left: 8px; min-width: 20px; padding: 2px 7px; border-radius: 999px;
-  background: var(--accent-strong); color: var(--surface);
-  font-size: 12px; font-weight: 700; text-align: center; vertical-align: middle; line-height: 1.4;
-}
-
-/* Вкладки лаборатории (/lab): ссылки-вкладки, активная — терракотовое подчёркивание. */
-.lab-tabs { display: flex; gap: 4px; margin-top: 24px; border-bottom: 1px solid var(--border); }
-.lab-tab {
-  display: inline-flex; align-items: center; gap: 7px;
-  padding: 10px 14px 12px; font-size: 15px; color: var(--muted); text-decoration: none;
-  border-bottom: 3px solid transparent; margin-bottom: -1px;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-}
-.lab-tab:hover { color: var(--text); background: rgba(196, 181, 165, 0.12); }
-.lab-tab[data-active="true"] { color: var(--text); font-weight: 600; border-bottom-color: var(--accent-strong); }
-@media (max-width: 480px) { .lab-tab { padding: 10px 10px 12px; font-size: 14px; } }
-
 /* Кружок-палитра стиля в карточке «Мой стиль» (цвета — из данных стиля, не темы). */
-.style-swatch { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); flex: none; }
-
-.btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  border: 1px solid transparent; border-radius: 999px;
-  padding: 13px 22px; font-size: 16px; font-weight: 600; cursor: pointer;
-  background: var(--accent-strong); color: var(--surface);
-  transition: background 0.15s ease, transform 0.05s ease; text-decoration: none;
-}
-.btn:hover { background: var(--accent-strong-hover); }
-.btn:active { transform: translateY(1px); }
-.btn[disabled] { opacity: 0.5; cursor: not-allowed; }
-.btn-secondary { background: transparent; color: var(--text); border-color: var(--base); }
-.btn-secondary:hover { background: rgba(196, 181, 165, 0.15); }
-.btn-block { width: 100%; }
-
-.chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  border: 1px solid var(--base); border-radius: 999px;
-  padding: 9px 15px; font-size: 15px; cursor: pointer; background: var(--surface);
-  color: var(--text); user-select: none; transition: all 0.12s ease;
-}
-.chip[data-selected="true"] { background: var(--accent); color: var(--surface); border-color: var(--accent); }
-.chip[data-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
-/* Акцентная (зелёная) кнопка-«добавить» — единый стиль для «+ размеры стены/пола». */
-.chip--accent { background: var(--accent); color: var(--surface); border-color: var(--accent); }
-
-/* Плейсхолдеры полей — светло-серые: на контрасте видно, где заполнено, где нет. */
-input::placeholder, textarea::placeholder { color: #b9b1a6; opacity: 1; }
+.style-swatch { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--color-border-secondary); flex: none; }
 
 .grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
 
 .locked { position: relative; }
 .locked::after {
   content: "🔒"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  background: rgba(251, 248, 243, 0.7); border-radius: var(--radius-sm); font-size: 22px;
+  background: color-mix(in srgb, var(--color-bg-primary) 70%, transparent);
+  border-radius: var(--radius-sm); font-size: 22px;
 }
 
 .note {
-  font-size: 14px; color: var(--muted);
-  background: rgba(138, 154, 123, 0.12); border: 1px solid rgba(138, 154, 123, 0.3);
+  font-size: 14px; color: var(--color-text-tertiary);
+  background: var(--color-bg-brand-primary); border: 1px solid var(--color-brand-200);
   border-radius: var(--radius-sm); padding: 12px 14px;
 }
 
-.progress { display: flex; gap: 6px; margin-bottom: 20px; }
-.progress span { height: 4px; flex: 1; border-radius: 4px; background: var(--border); }
-.progress span[data-on="true"] { background: var(--accent-strong); }
-
-img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(--border); display: block; }
+img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(--color-border-secondary); display: block; }
 
 /* Сквозная шапка (SiteHeader): все разделы на виду, две кнопки-калькулятора выделены. */
 .site-header {
   position: sticky; top: 0; z-index: 50;
-  background: var(--surface); border-bottom: 1px solid var(--border);
+  background: var(--color-bg-primary); border-bottom: 1px solid var(--color-border-secondary);
 }
 .site-header-inner {
   /* Шапка ШИРЕ контента (контент остаётся var(--maxw)): все 5 пунктов меню в одну линию
@@ -182,19 +104,7 @@ img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(-
   .header-controls { position: absolute; right: 20px; top: 10px; height: 36px; }
 }
 
-/* Контрол масштаба в шапке: − 100% + (компактный, доступный). */
-.zoom-control {
-  display: inline-flex; align-items: center; gap: 2px;
-  border: 1px solid var(--border); border-radius: 999px; padding: 2px 4px;
-}
-.zoom-control button {
-  border: none; background: none; cursor: pointer; color: var(--text);
-  font-size: 16px; line-height: 1; min-width: 28px; min-height: 28px; border-radius: 999px;
-}
-.zoom-control button:hover:not(:disabled) { background: rgba(196, 181, 165, 0.2); }
-.zoom-control button:disabled { color: var(--border); cursor: default; }
-.zoom-control-value { font-size: 12px; font-weight: 600; min-width: 36px; text-align: center; font-variant-numeric: tabular-nums; }
-.site-brand { font-size: 18px; font-weight: 700; letter-spacing: 0.02em; text-decoration: none; color: var(--text); }
+.site-brand { font-size: 18px; font-weight: 700; letter-spacing: 0.02em; text-decoration: none; color: var(--color-text-primary); }
 
 /* Полоса разделов: один ряд (материалы · ремонт · Дизайн). flex-wrap — страховка: при крайнем
    зуме/ширине лучше перенос, чем скрытая обрезка. */
@@ -208,140 +118,66 @@ img.preview { width: 100%; border-radius: var(--radius); border: 1px solid var(-
   .site-header--collapsed .site-nav { display: none; }
 }
 
-/* Узкий экран: компактные кнопки и бейджи «скоро» прячем, чтобы три пункта жили в ОДНОМ ряду. */
+/* Узкий экран: компактные кнопки и без бейджей «скоро», чтобы пункты жили в ОДНОМ ряду. */
 @media (max-width: 480px) {
   .site-nav { gap: 6px; }
   .site-nav .nav-cta { font-size: 13px; padding: 7px 10px; }
   .site-nav .nav-link { font-size: 13px; padding: 7px 6px; }
-  .site-nav .soon-badge { display: none; }
+  .site-nav .nav-cta span, .site-nav .nav-link span { display: none; } /* бейджи «скоро» прячем */
 }
 
 .nav-cta {
   flex: 0 0 auto; display: inline-flex; align-items: center; white-space: nowrap;
   border: 1px solid transparent; border-radius: 999px; padding: 8px 16px;
   font-size: 15px; font-weight: 600; text-decoration: none;
-  background: var(--accent-strong); color: var(--surface);
+  background: var(--color-bg-brand-solid); color: var(--color-white);
   transition: background 0.15s ease, box-shadow 0.15s ease;
 }
-.nav-cta:hover { background: var(--accent-strong-hover); }
-.nav-cta--alt { background: var(--accent); }
-.nav-cta--alt:hover { background: var(--accent-hover); }
+.nav-cta:hover { background: var(--color-bg-brand-solid_hover); }
+/* Второй CTA — темнее терракоты (прежний шалфей упразднён палитрой-гибридом U0). */
+.nav-cta--alt { background: var(--color-brand-800); }
+.nav-cta--alt:hover { background: var(--color-brand-900); }
 /* Текущий раздел: «нажатая» кнопка — тёмная заливка + лёгкая внутренняя тень (кольцо
    выглядело как сбой фокуса). */
-.nav-cta--active { background: var(--accent-strong-hover); box-shadow: inset 0 2px 4px rgba(58, 52, 46, 0.18); }
-.nav-cta--alt.nav-cta--active { background: var(--accent-hover); }
+.nav-cta--active { background: var(--color-bg-brand-solid_hover); box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.18); }
+.nav-cta--alt.nav-cta--active { background: var(--color-brand-900); }
 
 .nav-link {
   flex: 0 0 auto; display: inline-flex; align-items: center; white-space: nowrap;
   padding: 8px 10px; border-radius: 999px;
-  font-size: 15px; color: var(--muted); text-decoration: none; transition: color 0.12s ease;
+  font-size: 15px; color: var(--color-text-quaternary); text-decoration: none; transition: color 0.12s ease;
 }
-.nav-link:hover { color: var(--text); }
-.nav-link--active { color: var(--text); font-weight: 600; }
+.nav-link:hover { color: var(--color-text-primary); }
+.nav-link--active { color: var(--color-text-primary); font-weight: 600; }
 
 /* Игра «Узнай свой вкус» (StyleQuiz). Плитка-swatch — плейсхолдер до реальных фото. */
-.quiz-swatch { width: 100%; height: 180px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+.quiz-swatch { width: 100%; height: 180px; border-radius: var(--radius-sm); border: 1px solid var(--color-border-secondary); }
 .quiz-swatch--result { height: 120px; }
-.quiz-link {
-  align-self: flex-start; background: none; border: none; padding: 0;
-  color: var(--muted); font-size: 14px; cursor: pointer; text-decoration: underline;
-}
-.quiz-link:hover { color: var(--text); }
-
-/* Разрыв-разделитель внутри карточки (визуально разводит блоки). */
-.divider { height: 1px; background: var(--border); border: 0; margin: 0; }
 
 /* Выделенная карточка «Найдём этот товар дешевле» — заметный терракотовый баннер (цвет привлечения/CTA). */
-.lead-card { border: 2px solid var(--accent-strong); background: rgba(176, 106, 74, 0.10); }
+.lead-card { border: 2px solid var(--color-brand-500); background: var(--color-bg-brand-primary); }
 
 /* Подсказки автокомплита города (модалка «найдём дешевле», П7). */
 .city-hits {
   position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 20;
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--color-bg-primary); border: 1px solid var(--color-border-secondary); border-radius: var(--radius-sm);
   box-shadow: var(--shadow); overflow: hidden;
 }
 .city-hits button {
   display: block; width: 100%; text-align: left; border: none; background: none; cursor: pointer;
-  padding: 9px 12px; font-size: 14px; color: var(--text);
+  padding: 9px 12px; font-size: 14px; color: var(--color-text-primary);
 }
-.city-hits button:hover { background: rgba(196, 181, 165, 0.15); }
-
-/* Пометка «авто» у поля, заполненного из ссылки (П5). Ручная правка снимает пометку. */
-.auto-badge {
-  display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px;
-  background: rgba(138, 154, 123, 0.18); color: var(--accent-hover);
-  font-size: 10px; letter-spacing: 0.4px; font-weight: 600; vertical-align: middle;
-}
-
-/* Крестик удаления строки: тап-зона ≥44px, контрастнее (danger на hover). */
-.icon-del {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: 44px; min-height: 44px; margin: -10px 0;
-  border: none; background: none; cursor: pointer;
-  color: var(--muted); font-size: 20px; line-height: 1;
-}
-.icon-del:hover { color: var(--danger); }
+.city-hits button:hover { background: var(--color-bg-primary_hover); }
 
 /* Липкая шапка итогов калькулятора — липнет под сквозной шапкой (--site-header-h). */
 .calc-sticky {
   position: sticky; top: var(--site-header-h, 56px); z-index: 40;
   display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline;
-  background: var(--surface); border: 1px solid var(--border);
+  background: var(--color-bg-primary); border: 1px solid var(--color-border-secondary);
   border-radius: var(--radius-sm); box-shadow: var(--shadow); padding: 10px 14px; font-size: 15px;
 }
-
-/* Модалка (напр. «Сообщить по почте»): затемнение + карточка по центру. */
-.modal-overlay {
-  position: fixed; inset: 0; z-index: 100;
-  background: rgba(58, 52, 46, 0.45);
-  display: flex; align-items: center; justify-content: center; padding: 20px;
-}
-.modal {
-  position: relative; width: 100%; max-width: 420px;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); box-shadow: var(--shadow); padding: 22px;
-}
-.modal-close {
-  position: absolute; top: 6px; right: 10px; background: none; border: none;
-  font-size: 24px; line-height: 1; color: var(--muted); cursor: pointer; padding: 4px;
-}
-.modal-close:hover { color: var(--text); }
-
-/* Крутилка загрузки (напр. чтение страницы товара при вводе ссылки). */
-.spinner {
-  width: 14px; height: 14px; border-radius: 50%;
-  border: 2px solid var(--base); border-top-color: var(--accent-strong);
-  display: inline-block; animation: spin 0.7s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* Кратковременная подсветка блока (напр. «Найдём выгоднее» при переходе сверху). */
-@keyframes pulseHighlight {
-  0% { box-shadow: 0 0 0 0 rgba(176, 106, 74, 0); }
-  25% { box-shadow: 0 0 0 4px rgba(176, 106, 74, 0.45); }
-  100% { box-shadow: 0 0 0 0 rgba(176, 106, 74, 0); }
-}
-.pulse-highlight { animation: pulseHighlight 1.4s ease-out; }
 
 /* Чек-лист «Также не забудьте» — пункты с галочкой. */
 .checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .checklist li { display: flex; align-items: flex-start; gap: 10px; font-size: 15px; }
-.checklist li::before { content: "✓"; color: var(--ok); font-weight: 700; line-height: 1.5; flex: 0 0 auto; }
-
-/* Подсказка при наведении/фокусе (иконка-«окно» у обоев). Раскрывается по hover и по фокусу (тап/клавиатура). */
-.help { position: relative; display: inline-flex; align-items: center; color: var(--muted); cursor: help; }
-.help:hover, .help:focus { color: var(--text); outline: none; }
-/* Иконка у ЛЕВОГО края блока — тултип раскрываем вправо, иначе он уезжает за край экрана. */
-.help--start::after { left: 0; right: auto; }
-.help::after {
-  content: attr(data-tip);
-  position: absolute; right: 0; top: calc(100% + 8px); z-index: 30;
-  width: max-content; max-width: 260px;
-  background: var(--text); color: var(--surface);
-  font-size: 13px; line-height: 1.45; text-align: left;
-  padding: 10px 12px; border-radius: var(--radius-sm); box-shadow: var(--shadow);
-  opacity: 0; visibility: hidden; transform: translateY(-4px);
-  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
-  pointer-events: none;
-}
-.help:hover::after, .help:focus::after { opacity: 1; visibility: visible; transform: translateY(0); }
+.checklist li::before { content: "✓"; color: var(--color-text-success-primary); font-weight: 700; line-height: 1.5; flex: 0 0 auto; }
