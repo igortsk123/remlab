@@ -8,6 +8,14 @@ import { clearProject } from "@/lib/calc/storage";
 import { saveCalcEstimate } from "@/app/calc-actions";
 import { trackGoal } from "@/lib/metrika";
 
+// Примечание под итогом — по виду материала: «подрезка» есть не везде (у краски — расход и слои).
+const RESULT_NOTE: Record<CalcProject["kind"], string> = {
+  oboi: "Считаем с запасом на подрезку и подгонку рисунка. Проверьте перед покупкой.",
+  plitka: "Считаем с запасом на подрезку и бой. Проверьте перед покупкой.",
+  laminat: "Считаем с запасом на подрезку. Проверьте перед покупкой.",
+  kraska: "Считаем по расходу и числу слоёв — фактический расход зависит от поверхности. Проверьте перед покупкой.",
+};
+
 // Итог по проекту: разбивка по комнатам, суммарная стоимость, сохранение в смету (М1).
 export function ResultView({ project }: { project: CalcProject }) {
   const [pending, startTransition] = useTransition();
@@ -60,7 +68,7 @@ export function ResultView({ project }: { project: CalcProject }) {
       >
         {pending ? "Сохраняем…" : "Сохранить в Мою лабораторию"}
       </button>
-      <p className="note">Считаем с запасом на подрезку. Проверьте перед покупкой.</p>
+      <p className="note">{RESULT_NOTE[project.kind]}</p>
     </div>
   );
 }

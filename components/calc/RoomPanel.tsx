@@ -84,7 +84,6 @@ function SizedBlock({ part, label, card }: { part?: RoomPart; label?: string; ca
 }
 
 // Подзаголовок открытой секции (стены/пол): неброский eyebrow + «убрать» (сворачивает и чистит секцию).
-// Не перебивает «Вставьте ссылку» — сам блок ссылки остаётся главным CTA.
 function SectionHeader({ title, onRemove }: { title: string; onRemove: () => void }) {
   return (
     <div className="row" style={{ justifyContent: "space-between", alignItems: "center", margin: "4px 0 -6px" }}>
@@ -94,9 +93,9 @@ function SectionHeader({ title, onRemove }: { title: string; onRemove: () => voi
   );
 }
 
-// Панель активной комнаты: стек карточек. Материал (ссылка+параметры) — ОТДЕЛЬНОЙ карточкой ПЕРЕД
-// размерами. Плитка может иметь две плитки (стены/пол), каждая — своя карточка ссылки + карточка
-// размеров, и свой результат инлайн под блоком.
+// Панель активной комнаты: стек карточек. Порядок — СНАЧАЛА размеры, ПОТОМ материал (ссылка+
+// параметры): люди приходят посчитать и ищут, куда вводить размеры (фидбек мобильных, 2026-07-31).
+// Плитка может иметь две плитки (стены/пол), каждая — свои размеры + карточка ссылки.
 export function RoomPanel({
   room,
   kind,
@@ -179,7 +178,6 @@ export function RoomPanel({
 
       {kind === "laminat" ? (
         <>
-          {wallLink}
           <SizedBlock
             part={mainPart}
             card={
@@ -188,16 +186,17 @@ export function RoomPanel({
               </div>
             }
           />
+          {wallLink}
         </>
       ) : kind === "plitka" ? (
         <>
-          {/* Секция «Плитка для стен» — закрыта по умолчанию (кнопка), открывается в ссылку + размеры. */}
+          {/* Секция «Плитка для стен» — закрыта по умолчанию (кнопка), открывается в размеры + ссылку. */}
           {wallsOpen ? (
             <>
               <SectionHeader title="Плитка для стен" onRemove={removeWalls} />
-              {wallLink}
               <SizedBlock part={wallsPart} label="" card={room.surfaces.length > 0 && wallSizes} />
               {addWallBtn}
+              {wallLink}
             </>
           ) : (
             <button type="button" className="chip chip--accent" onClick={() => setWallsOpen(true)}>+ Плитка для стен</button>
@@ -207,7 +206,6 @@ export function RoomPanel({
           {room.floor ? (
             <>
               <SectionHeader title="Плитка для пола" onRemove={removeFloor} />
-              <LinkAutofill kind={kind} url={room.floorProductUrl} onUrl={(u) => onUpdate((r) => ({ ...r, floorProductUrl: u }))} spec={room.floorMaterial ?? {}} onSpec={setFloorMaterial} onAutoSpec={autoFloorMaterial} autoKeys={room.floorAutoKeys} />
               <SizedBlock
                 part={floorPart}
                 label=""
@@ -217,6 +215,7 @@ export function RoomPanel({
                   </div>
                 }
               />
+              <LinkAutofill kind={kind} url={room.floorProductUrl} onUrl={(u) => onUpdate((r) => ({ ...r, floorProductUrl: u }))} spec={room.floorMaterial ?? {}} onSpec={setFloorMaterial} onAutoSpec={autoFloorMaterial} autoKeys={room.floorAutoKeys} />
             </>
           ) : (
             <button type="button" className="chip chip--accent" onClick={addFloor}>+ Плитка для пола</button>
@@ -224,9 +223,9 @@ export function RoomPanel({
         </>
       ) : (
         <>
-          {wallLink}
           <SizedBlock part={mainPart} card={room.surfaces.length > 0 && wallSizes} />
           {addWallBtn}
+          {wallLink}
         </>
       )}
 
