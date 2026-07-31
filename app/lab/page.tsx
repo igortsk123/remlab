@@ -56,8 +56,10 @@ export default async function LabPage({ searchParams }: { searchParams: Promise<
 
       <MyStyleCard style={styleRes ? STYLES[styleRes.style] : null} quizWip={!SHOW_WIP} />
 
-      {/* Вкладки — обычные ссылки (?tab=...); вид — «button-border» из Untitled UI Tabs. */}
-      <nav className="mt-6 -mb-px flex gap-1 border-b border-secondary" aria-label="Разделы лаборатории">
+      {/* Вкладки — обычные ссылки (?tab=...); вид — «button-border» из Untitled UI Tabs.
+          На узких экранах не сжимаются → одна строка с горизонтальным скроллом (как site-nav),
+          иначе распирали страницу по ширине (iPhone SE: +76px). */}
+      <nav className="scrollbar-hide mt-6 -mb-px flex gap-1 overflow-x-auto border-b border-secondary" aria-label="Разделы лаборатории">
         {TABS.map((t) => {
           const active = tab === t.key;
           return (
@@ -65,7 +67,7 @@ export default async function LabPage({ searchParams }: { searchParams: Promise<
               key={t.key}
               href={t.href}
               aria-current={active ? "page" : undefined}
-              className={`inline-flex items-center gap-1.5 border-b-2 px-3.5 pt-2.5 pb-3 text-md ${
+              className={`inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3.5 pt-2.5 pb-3 text-md whitespace-nowrap ${
                 active
                   ? "border-brand font-semibold text-brand-secondary"
                   : "border-transparent text-quaternary hover:bg-primary_hover hover:text-secondary"

@@ -37,7 +37,8 @@ h1, h2, h3 { line-height: 1.2; font-weight: 650; margin: 0 0 12px; letter-spacin
 h1 { font-size: clamp(28px, 5vw, 40px); }
 h2 { font-size: clamp(22px, 4vw, 28px); }
 p { margin: 0 0 12px; }
-a { color: inherit; }
+/* a { color: inherit } НЕ дублировать вне слоёв: preflight Tailwind уже даёт это в @layer base,
+   а внеслойный дубль перебивал text-white у кнопок-ссылок (баг «чёрный текст на терракоте»). */
 
 /* Препролёт Tailwind гасит маркеры списков — контентным спискам возвращаем дефолт.
    (.checklist сам выключает маркеры — не задет.) */
