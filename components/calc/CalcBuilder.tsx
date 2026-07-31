@@ -10,6 +10,8 @@ import { ResultView } from "./ResultView";
 import { VizCta } from "./VizCta";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+// Чьи размеры просим в пустом состоянии («заполните размеры …»).
+const SIZE_ASK: Record<CalcKind, string> = { oboi: "стены", kraska: "стены", plitka: "стены или пола", laminat: "пола" };
 // Визуализация по фото — раздел за заглушкой до запуска (launch-p1); баннер скрыт тем же флагом.
 const SHOW_WIP = process.env.NEXT_PUBLIC_SHOW_WIP === "1";
 
@@ -34,19 +36,21 @@ export function CalcBuilder({ kind }: { kind: CalcKind }) {
   return (
     <div className="stack">
       <div className="calc-sticky">
+        {/* Состав строки постоянный на всех стадиях (Площадь · Нужно · призыв) — меняются только
+            значения: неизвестное показываем как «?», не как 0 (ноль читается как результат). */}
         <span className="eyebrow" style={{ margin: 0 }}>Итог</span>
-        <span>Площадь: <strong>{totalNet} м²</strong></span>
-        {qtyUnit && totalQty > 0 && <span>Нужно: <strong>{totalQty} {pluralUnit(qtyUnit, totalQty)}</strong></span>}
+        <span>Площадь: <strong>{totalNet > 0 ? `${totalNet} м²` : "?"}</strong></span>
+        {qtyUnit && totalQty > 0 ? (
+          <span>Нужно: <strong>{totalQty} {pluralUnit(qtyUnit, totalQty)}</strong></span>
+        ) : (
+          <span>Нужно: <strong>?</strong></span>
+        )}
         {totalCost > 0 && <span>≈ <strong>{totalCost.toLocaleString("ru-RU")} ₽</strong></span>}
-        {/* Единая подсказка «что дальше» — одинаково во всех 4 видах. */}
+        {/* Призыв «что дальше» — по стадии. */}
         {totalNet <= 0 ? (
-          <span className="muted" style={{ fontSize: 13 }}>→ заполните размеры, чтобы посчитать</span>
+          <span className="muted" style={{ fontSize: 13 }}>→ заполните размеры {SIZE_ASK[kind]}</span>
         ) : needMaterial ? (
-          <>
-            {/* «Нужно: ?» — только если нет НИКАКОГО посчитанного количества (иначе рядом уже стоит «Нужно: N»). */}
-            {!(qtyUnit && totalQty > 0) && <span>Нужно: <strong>?</strong></span>}
-            <span className="muted" style={{ fontSize: 13 }}>→ вставьте ссылку или задайте параметры материала</span>
-          </>
+          <span className="muted" style={{ fontSize: 13 }}>→ вставьте ссылку или задайте параметры материала</span>
         ) : totalCost <= 0 ? (
           <span className="muted" style={{ fontSize: 13 }}>→ укажите цену товара, чтобы увидеть стоимость</span>
         ) : null}
