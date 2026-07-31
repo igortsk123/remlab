@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { QUIZ_CARDS, STYLES, tallyStyle, type StyleId } from "@/lib/styles/quiz";
-import { trackQuizCompleted } from "@/app/styles-actions";
+import { completeQuiz } from "@/app/styles-actions";
 
 // Игра-карточки «Узнай свой вкус»: листаем интерьеры «Нравится / Не моё» → в конце показываем стиль.
 // Картинки пока плейсхолдеры (палитра-градиент из swatch). Состояния экрана: игра / результат /
@@ -24,7 +24,7 @@ export function StyleQuiz() {
     if (index + 1 >= TOTAL) {
       setDone(true);
       const top = tallyStyle(nextLiked);
-      if (top) void trackQuizCompleted(top);
+      if (top) void completeQuiz(top);
     } else {
       setIndex(index + 1);
     }

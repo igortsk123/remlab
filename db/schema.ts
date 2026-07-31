@@ -122,6 +122,13 @@ export const generationAssets = pgTable(
   (t) => [index("gen_assets_run_idx").on(t.runId)],
 );
 
+// Результат игры «узнай свой вкус» (/styles): один стиль на сессию, повторная игра перезаписывает.
+export const styleResults = pgTable("style_results", {
+  sessionId: text("session_id").primaryKey(),
+  style: text("style").notNull(), // StyleId из lib/styles/quiz.ts
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Лиды «найти дешевле» (К6). email — ПДн: собираем ТОЛЬКО по согласию (чекбокс, interim); юр. часть — TODO.
 export const leads = pgTable(
   "leads",

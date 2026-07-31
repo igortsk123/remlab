@@ -85,6 +85,21 @@ a { color: inherit; }
   font-size: 12px; font-weight: 700; text-align: center; vertical-align: middle; line-height: 1.4;
 }
 
+/* Вкладки лаборатории (/lab): ссылки-вкладки, активная — терракотовое подчёркивание. */
+.lab-tabs { display: flex; gap: 4px; margin-top: 24px; border-bottom: 1px solid var(--border); }
+.lab-tab {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 10px 14px 12px; font-size: 15px; color: var(--muted); text-decoration: none;
+  border-bottom: 3px solid transparent; margin-bottom: -1px;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+.lab-tab:hover { color: var(--text); background: rgba(196, 181, 165, 0.12); }
+.lab-tab[data-active="true"] { color: var(--text); font-weight: 600; border-bottom-color: var(--accent-strong); }
+@media (max-width: 480px) { .lab-tab { padding: 10px 10px 12px; font-size: 14px; } }
+
+/* Кружок-палитра стиля в карточке «Мой стиль» (цвета — из данных стиля, не темы). */
+.style-swatch { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); flex: none; }
+
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   border: 1px solid transparent; border-radius: 999px;

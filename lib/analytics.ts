@@ -15,6 +15,7 @@ export type EventName =
   | "estimate_saved"
   | "estimate_deleted"
   | "quiz_completed"
+  | "lab_tab"
   | "viz_started"
   | "lead_captured"
   | "lead_replied"
