@@ -100,7 +100,7 @@ export function LeadModal({ kind, url, channel, onClose }: { kind: CalcKind; url
 
             <div style={{ position: "relative" }}>
               <Input
-                size="sm"
+                size="md"
                 placeholder="Ваш город"
                 value={city}
                 onChange={onCity}
@@ -119,7 +119,7 @@ export function LeadModal({ kind, url, channel, onClose }: { kind: CalcKind; url
             </div>
 
             {needEmail && (
-              <Input size="sm" type="email" inputMode="email" placeholder="E-mail для ответа" value={email} onChange={setEmail} aria-label="E-mail для ответа" />
+              <Input size="md" type="email" inputMode="email" placeholder="E-mail для ответа" value={email} onChange={setEmail} aria-label="E-mail для ответа" />
             )}
 
             <Checkbox

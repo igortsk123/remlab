@@ -46,7 +46,7 @@ export default async function EstimatePage({
       {est.meta?.depthLabel ? <p className="muted" style={{ marginTop: -4 }}>{String(est.meta.depthLabel)}</p> : null}
 
       {saved ? (
-        <p className="note">
+        <p className="note" style={{ background: "var(--color-bg-success-primary)", borderColor: "var(--color-utility-green-300)" }}>
           ✓ Сохранено в «Мою лабораторию». Эта страница — постоянная: можно вернуться к ней
           в любой момент или отправить кому-то.
         </p>

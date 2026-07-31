@@ -5,7 +5,7 @@ import { Button } from "@/components/base/buttons/button";
 
 // Пилюля «Скоро» на плитках/кнопках главной.
 const Soon = () => (
-  <span className="ml-2 inline-block align-middle"><Badge type="pill-color" color="slate" size="sm">Скоро</Badge></span>
+  <span className="ml-2 inline-block align-middle"><Badge type="pill-color" color="slate" size="sm">скоро</Badge></span>
 );
 
 export const metadata = {

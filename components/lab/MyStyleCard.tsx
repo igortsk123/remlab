@@ -10,7 +10,7 @@ export function MyStyleCard({ style, quizWip }: { style: StyleInfo | null; quizW
       <div className="card row" style={{ alignItems: "center", justifyContent: "space-between", marginTop: 20, gap: 12 }}>
         <p style={{ margin: 0 }}>
           🎨 Узнайте свой стиль интерьера — короткая игра-тест
-          {quizWip && <span className="ml-2 inline-block align-middle"><Badge type="pill-color" color="slate" size="sm">СКОРО</Badge></span>}
+          {quizWip && <span className="ml-2 inline-block align-middle"><Badge type="pill-color" color="slate" size="sm">скоро</Badge></span>}
         </p>
         <Button color="secondary" size="md" href="/styles">К игре</Button>
       </div>

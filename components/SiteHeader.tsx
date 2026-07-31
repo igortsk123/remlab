@@ -88,7 +88,7 @@ export function SiteHeader() {
             </Link>
             <Link href="/calc/remont" className={`nav-cta nav-cta--alt${costActive ? " nav-cta--active" : ""}`}>
               Сколько стоит ремонт
-              <span className="ml-2 rounded-full bg-white/25 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-white uppercase">скоро</span>
+              <span className="ml-2 rounded-full bg-brand-800/15 px-2 py-0.5 text-[11px] font-semibold text-brand-800">скоро</span>
             </Link>
             {NAV.map((n) => (
               <Link
@@ -98,7 +98,7 @@ export function SiteHeader() {
               >
                 {n.label}
                 {n.soon && (
-                  <span className="ml-2 rounded-full bg-brand-100 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-brand-secondary uppercase">скоро</span>
+                  <span className="ml-2 rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-quaternary ring-1 ring-border-primary ring-inset">скоро</span>
                 )}
               </Link>
             ))}

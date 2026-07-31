@@ -80,7 +80,7 @@ export function LinkAutofill({
         <span className="muted" style={{ fontSize: 14 }}>Не придётся вводить размеры и цену вручную.</span>
       </div>
 
-      <Input size="sm" placeholder="Ссылка на товар из магазина" value={value} onChange={setValue} />
+      <Input size="md" placeholder="Ссылка на товар из магазина" value={value} onChange={setValue} />
       {state === "loading" && (
         <span className="muted" style={{ fontSize: 14, display: "inline-flex", alignItems: "center", gap: 8 }}>
           <LoadingIndicator type="line-simple" size="sm" />

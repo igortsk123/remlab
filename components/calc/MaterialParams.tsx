@@ -68,7 +68,7 @@ function TilePrice({ spec, onChange, auto }: { spec: MaterialSpec; onChange: (pa
       <label className="stack" style={{ flex: 1, minWidth: 120, gap: 4 }}>
         <span className="eyebrow">За единицу</span>
         <NativeSelect
-          size="sm"
+          size="md"
           aria-label="За единицу"
           value={unit}
           onChange={(e) => write(e.target.value as "m2" | "piece" | "pack", value)}
@@ -131,7 +131,7 @@ export function MaterialParams({ kind, spec, onChange, autoKeys }: { kind: CalcK
             <label className="stack" style={{ flex: 1, minWidth: 140, gap: 4 }}>
               <span className="eyebrow">Тип поверхности</span>
               <NativeSelect
-                size="sm"
+                size="md"
                 aria-label="Тип поверхности"
                 value={spec.surfaceType ?? ""}
                 onChange={(e) => onChange({ surfaceType: e.target.value || undefined })}
@@ -141,7 +141,7 @@ export function MaterialParams({ kind, spec, onChange, autoKeys }: { kind: CalcK
             <label className="stack" style={{ flex: 1, minWidth: 140, gap: 4 }}>
               <span className="eyebrow">Тип краски</span>
               <NativeSelect
-                size="sm"
+                size="md"
                 aria-label="Тип краски"
                 value={spec.paintType ?? ""}
                 onChange={(e) => onChange({ paintType: e.target.value || undefined })}
@@ -169,7 +169,7 @@ export function MaterialParams({ kind, spec, onChange, autoKeys }: { kind: CalcK
             <label className="stack" style={{ flex: 1, minWidth: 140, gap: 4 }}>
               <span className="eyebrow">Направление укладки</span>
               <NativeSelect
-                size="sm"
+                size="md"
                 aria-label="Направление укладки"
                 value={spec.direction ?? "length"}
                 onChange={(e) => onChange({ direction: e.target.value as MaterialSpec["direction"] })}
@@ -182,7 +182,7 @@ export function MaterialParams({ kind, spec, onChange, autoKeys }: { kind: CalcK
                 <HelpTip tip={ROW_OFFSET_TIP} />
               </span>
               <NativeSelect
-                size="sm"
+                size="md"
                 aria-label="Смещение рядов"
                 value={spec.rowOffset ?? "third"}
                 onChange={(e) => onChange({ rowOffset: e.target.value as MaterialSpec["rowOffset"] })}
