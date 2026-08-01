@@ -2,11 +2,17 @@
 workstream: commercial
 slug: sub-e2-feeds
 title: Э2 — фиды Гдеслон, автоподбор, постбэки
-status: draft
+status: cancelled
 created: 2026-07-11
-updated: 2026-07-11
+updated: 2026-08-01
 completed:
+superseded_by: gdeslon-catalog
 ---
+
+> ⚠️ **SUPERSEDED (2026-08-01)** планом [[gdeslon-catalog]] (ADR-0042): этот план писался ДО
+> реализации М1 и расходится с прод-кодом (`/go/<clickId>` vs живой `/go/[eid]/[iid]`; только
+> мебель без материалов; embeddings/matching — отложены в follow-up). Схема products, парсер
+> размеров и постбэки отсюда переиспользованы в новом плане.
 
 # Э2: фиды Гдеслон — автоподбор
 

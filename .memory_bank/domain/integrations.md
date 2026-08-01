@@ -3,7 +3,7 @@ tier: 2
 topic: integrations-details
 scope: Детали внешних интеграций — эндпоинты, форматы запросов/ответов, env-переменные, конфиги, цены
 tier1: ../core/access-and-integrations.md
-updated: 2026-07-11
+updated: 2026-08-01
 importance: high
 source: manual
 status: working
@@ -45,10 +45,26 @@ last_verified: 2026-07-11
 - **События:** project_started, brief_completed, style_selected, preview_ready, paywall_viewed, pack_unlocked, app_error.
 - Бесплатный тариф PostHog: 1M событий/мес. Sentry не заводим (покрыто PostHog).
 
-## Affiliate-сеть и фиды (М0/v0.4 — КЛЮЧЕВАЯ, ещё НЕ интегрировано)
-- **М0-вопрос №1: deeplink** — превращение произвольной ссылки юзера в партнёрскую; покрытие DIY-магазинов; комиссии категорий стройматериалов (реф-смета, ADR-0016).
-- **Сеть РФ:** **Гдеслон** (и аналоги) — фиды AliExpress, «Симфония мебели» и др. (~200+ магазинов),
-  комиссия ~3% с выкупа. Реф-ссылки в подборе (free и paid). UK-аналоги позже: Awin/CJ.
+## Affiliate-сеть и фиды (М0/v0.4 — КЛЮЧЕВАЯ; доступ есть, код ещё НЕ написан)
+- **Статус 2026-08-01 (ADR-0042):** аккаунт Гдеслон есть, **доступ одобрен к 14 магазинам**.
+  Merchant ID (mid = `_id` в shops.json): divan.ru 112923, sanok.ru 109882, petrovich.ru 94804,
+  ormatek.com 93965, nonton.ru 116933, askona.ru 111950, tvoydom.ru 99272, lemanapro.ru 95644,
+  mnogomebeli.com 114667, maxidom.ru 117043, lazurit.com 102708, gipfel.ru 112098,
+  divanboss.ru 114082, h-f-l.ru 110353. План интеграции — [[gdeslon-catalog]].
+- **Гдеслон API (подтверждено ресёрчем 2026-08-01, доки = FAQ gdeslon.ru/faq/17,20,21,23,24,26):**
+  - **Товарные фиды**: создаются владельцем в кабинете `/export_files/` (выбор магазинов/категорий →
+    постоянная ссылка; URL содержит ключ = секрет). Формат **YML (Яндекс.Маркет XML) в ZIP** с одним
+    .xml; партнёрские ссылки УЖЕ вшиты в `<url>` (f.gdeslon.ru/cf/…); характеристики — `<param name="…">`
+    (габариты «Ширина/Глубина/Высота» — состав зависит от магазина, полноту мерить). Обновление —
+    по расписанию магазина. Эталон парсинга — офиц. плагин github.com/GdeSlon/wp-affiliate-shop.
+  - **Deeplink**: `https://f.gdeslon.ru/cf/{hash}?mid={mid}&erid={erid}&sub_id={subid}&goto={encoded_url}`;
+    hash/erid — один раз из кабинета `/deeplinks/`. Это заполнит `link_routes` для прод `/go/[eid]/[iid]`.
+  - **XML API поиска**: `GET https://api.gdeslon.ru/api/search.xml?q=…&m=<mid>&l=100&p=N&_gs_at=<TOKEN>`
+    (токен из `/api_settings/xml`; лимит 100/запрос). Категории: `api.gdeslon.ru/gdeslon-categories.json`
+    (публично; мебель = корень 41: 42 детская, 613 кухня, 615 спальня, 617 столы, 619 стулья, 621 корпусная).
+  - **Продажи**: `POST https://www.gdeslon.ru/api/orders/` (Basic `ID:key`); state 3=подтверждён, 4=оплачен.
+    Постбэки — faq/24 (`GDESLON_POSTBACK_SECRET`). Sub ID: sub_id…sub_id5.
+- UK-аналоги позже: Awin/CJ.
 - **Пайплайн фидов (Stage 1):** загрузка → нормализация (категории/размеры/цвета/материалы/style_tags) →
   embeddings (image+text) → векторный индекс (pgvector) → ресинк цен/наличия/статуса; фильтр мусора.
 - **Атрибуция:** click_id при переходе → постбэк сети «оформлен»/«выкуплен» → атрибутированная покупка

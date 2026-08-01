@@ -8,3 +8,8 @@ mltest/
 # код (app/, lib/, infra/, db/) остаётся под проверкой CODE-REF.
 tools/
 components/CalcForm.tsx
+# ADR-0042 (мебельный трек): планируемые файлы (код ещё не написан) + внешний URL API Гдеслона:
+db/init/007-products.sql
+db/init/008-sets.sql
+services/planner-solver/
+api.gdeslon.ru/
