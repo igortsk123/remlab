@@ -57,8 +57,12 @@ last_verified: 2026-07-11
     .xml; партнёрские ссылки УЖЕ вшиты в `<url>` (f.gdeslon.ru/cf/…); характеристики — `<param name="…">`
     (габариты «Ширина/Глубина/Высота» — состав зависит от магазина, полноту мерить). Обновление —
     по расписанию магазина. Эталон парсинга — офиц. плагин github.com/GdeSlon/wp-affiliate-shop.
-  - **Deeplink**: `https://f.gdeslon.ru/cf/{hash}?mid={mid}&erid={erid}&sub_id={subid}&goto={encoded_url}`;
-    hash/erid — один раз из кабинета `/deeplinks/`. Это заполнит `link_routes` для прод `/go/[eid]/[iid]`.
+  - **Deeplink (подтверждено живьём 2026-08-01)**: официальный шаблон
+    `https://sf.gdeslon.ru/cf/<ПОЛНЫЙ_API_TOKEN>?mid={mid}&goto={encoded_url}`; в фидах ссылки
+    `af.gdeslon.ru/cm/{hash10}` (hash10 = первые 10 симв. токена), erid per-merchant — в
+    `tagging_ads` оффера. Сид `link_routes` возможен БЕЗ ручного `/deeplinks/`.
+    ⚠️ Шаблон содержит токен → строки link_routes не светить в логах.
+
   - **XML API поиска**: `GET https://api.gdeslon.ru/api/search.xml?q=…&m=<mid>&l=100&p=N&_gs_at=<TOKEN>`
     (токен из `/api_settings/xml`; лимит 100/запрос). Категории: `api.gdeslon.ru/gdeslon-categories.json`
     (публично; мебель = корень 41: 42 детская, 613 кухня, 615 спальня, 617 столы, 619 стулья, 621 корпусная).
