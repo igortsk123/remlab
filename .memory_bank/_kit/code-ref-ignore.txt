@@ -13,3 +13,4 @@ db/init/007-products.sql
 db/init/008-sets.sql
 services/planner-solver/
 api.gdeslon.ru/
+data/planner/composition.ts

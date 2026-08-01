@@ -12,16 +12,18 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт ремонта/м�
 
 | Задача (scope) | Tier 1 | Tier 2 |
 |----------------|--------|--------|
-| Внешние интеграции/доступы — где ключи, какие модели/эндпоинты, форматы, клиенты в коде | `core/access-and-integrations.md` | `../domain/integrations.md` |
+| Интеграции/доступы — где ключи, эндпоинты, форматы, клиенты в коде | `core/access-and-integrations.md` | `../domain/integrations.md` |
 | Стек, структура, модули, генерация, деплой — по коду | `core/architecture.md` | `../../docs/tech-spec-ts-stack.md` |
 | Реальная схема БД (таблицы), изоляция сессий, миграции, pgvector | `core/data-model.md` | `../../docs/tech-spec-ts-stack.md` |
 | Деплой/откат/сервер exit-fi — playbook | `deployment.md` | — |
-| Смета-лист (ядро v0.4) — калькуляторы (вход А), стоимость ремонта (вход Б), чек-лист, /go/ реф | `core/estimate.md` | `../domain/pricing-works-ru.md` |
+| Смета-лист (ядро v0.4) — калькуляторы, стоимость ремонта, чек-лист, /go/ реф | `core/estimate.md` | `../domain/pricing-works-ru.md` |
+| Мебельный трек — каталог Гдеслона, сеты, витринная визуализация | `core/furniture.md` | `../domain/viz-fidelity-playbook.md` |
 | Цели продукта — v0.4 «Смета-first»; fit-ветка — отложена (архив) | `core/goals.md` | `../goals-one-photo-furnish-fit.md` |
 | Лид-канал «найдём дешевле» — заявка, служебный TG-бот, ответ реплаем | `core/leads.md` | — |
-| Перед планированием — уроки; что пробовали и что НЕ сработало, отброшенные подходы | `core/lessons.md` | `../anti-patterns.md` |
+| Уроки перед планированием — что пробовали и что НЕ сработало | `core/lessons.md` | `../anti-patterns.md` |
+| Композиция гостиной — доли площади по метражам (справка владельца) | `core/lr-composition.md` | `../domain/lr-composition-guide.md` |
 | Рынок RU/UK — спрос, конкуренты, монетизация, оценки, контекст основателя | `core/market.md` | `../domain/market-research.md` |
-| Привлечение/реклама — Яндекс (Директ/Метрика/Вордстат), семантика ниши, сезонность, стратегия | `core/marketing-acquisition.md` | `../domain/wordstat-semantics.md` |
+| Привлечение/реклама — Яндекс, семантика ниши, сезонность, стратегия | `core/marketing-acquisition.md` | `../domain/wordstat-semantics.md` |
 | Трейсинг AI-пайплайна — лог каждого вызова LLM, «номер генерации», разбор, сжатие | `core/observability-tracing.md` | `../domain/observability.md` |
 | Бизнес-контекст — зачем/для кого; v0.4 «Смета-first» (v0.3 — истор.) | `product_brief.md` | `domain/brief-details.md` |
 | Регресс-защита — тесты, CI-гейт, observability, eval, гардрейлы, DoD | `core/regression-net.md` | `../../docs/tech-spec-ts-stack.md` |
@@ -36,9 +38,8 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт ремонта/м�
 `docs/`: tech-spec-ts-stack (инж. спека) · DECISIONS (ADR) · master-brief-v0.3, cjm-ux-v0.2, market-research (истор.).
 
 ## Планы
-**Мастер: `plans/MASTER-cost-first.md`** (v0.4 «Смета-first», ADR-0016; М0–М7, сценарий,
-судьба прежних; старое — `archive/plans/`). Исполнение — `guides/execution-playbook.md`.
-Цикл: draft → «деплой» → completed → `completed_plans/` (гейт: `/memory-check` + audit чисто).
+**Мастер: `plans/MASTER-cost-first.md`** (М0–М7; старое — `archive/plans/`). Исполнение —
+`guides/execution-playbook.md`. Цикл: draft → «деплой» → completed → `completed_plans/`.
 
 ## Обслуживание
-`/memory-check` (конец сессии) · `/memory-cleanup` · `METADATA_SCHEMA.md` · лог — `changelog/memory-log.md`.
+`/memory-check` · `/memory-cleanup` · `METADATA_SCHEMA.md` · лог — `changelog/memory-log.md`.
