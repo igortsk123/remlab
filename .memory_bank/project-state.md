@@ -41,7 +41,8 @@ last_verified: 2026-07-31
 - **Дизайн-система (2026-07-31, ADR-0041):** весь UI на **Untitled UI React** (Tailwind v4 +
   React Aria, copy-paste в `components/base|application`), палитра-гибрид (терракота-brand,
   stone-нейтраль, крем; `styles/brand.css`), Inter self-host. Старые токены/классы удалены;
-  4 атомарных деплоя U0–U4 (план `uui-migration`). Правила — `.claude/rules/ui-rules.md`.
+  4 атомарных деплоя U0–U4 (план `uui-migration`) + полировки p1/p2 (кнопки brand-500, тёплый
+  графит текста, tap-подсказки, мобильная шапка/вкладки скроллом). Правила — `.claude/rules/ui-rules.md`.
 - **Прод:** https://remont-lab.online — версия = git SHA (АВТО-деплой на каждый push в main,
   нативный arm64-раннер, с 2026-07-28). Контейнеры: `remlab-app`,
   `remlab-caddy`, `remlab-db` (pg17+pgvector), `remlab-imagor`. LE-cert до 2026-09-29. Секреты —

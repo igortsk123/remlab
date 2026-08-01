@@ -622,3 +622,8 @@ Figma; терракота сохранена ради преемственнос
 `app/**` (все страницы), `.claude/rules/ui-rules.md`, `utils/cx.ts`, `hooks/use-resize-observer.ts`.
 Удалён мёртвый `components/CalcForm.tsx` (0 импортов). План: `uui-migration` (U0–U4, четыре
 атомарных деплоя). Откат: `remlab-app:prev` / revert коммитов 2480bda..HEAD.
+**Дополнение (полировки p1/p2, 2026-07-31, по аудиту владельца):** в `brand.css` переопределены
+`--color-bg-brand-solid` = brand-500 (#b06a4a — прежний CTA прода; UUI-дефолт 600 темнил кнопки)
+и `--color-text-primary` = stone-800 (тёплый графит, 13:1 на креме). Подсказки «?» — примитив
+`components/base/hint/hint-popover.tsx` (Popover по тапу: RAC Tooltip не работает на тач-экранах).
+Бренд-тинт — только один акцент на страницу (lead-card); бейджи «скоро» — slate, строчные.

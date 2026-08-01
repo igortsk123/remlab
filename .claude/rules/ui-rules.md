@@ -31,8 +31,8 @@ paths:
   Кнопки-пилюли «+ добавить…» — `size="sm" className="rounded-full"`.
 - Поля — `base/input`, `base/textarea` (RAC: `onChange` отдаёт СТРОКУ, не event); селекты —
   `base/select/select-native` (нативный select, лучше на мобиле); чекбоксы — `base/checkbox`;
-  чипы-переключатели — наш `base/chip` (ToggleButton); бейджи — `base/badges`; тултипы —
-  `base/tooltip` (`Tooltip` + `TooltipTrigger`); модалки — `application/modals`
+  чипы-переключатели — наш `base/chip` (ToggleButton); бейджи — `base/badges`; подсказки —
+  ТОЛЬКО наш `base/hint/hint-popover` (тап; RAC Tooltip не работает на тач-экранах); модалки — `application/modals`
   (`ModalOverlay isOpen isDismissable` + `Modal` + `Dialog`); лоадер — `application/loading-indicator`.
 - Числовые поля — наш `components/calc/NumInput` (строка-буфер «1,2», UUI-классы).
 - В **серверных** формах (server actions, без JS) — нативные `<input>/<select>` с utility-классами
@@ -57,3 +57,5 @@ paths:
 - Пустые `interface X extends Y {}` в копиях UUI валят CI-гейт (`no-empty-object-type`) → `type X = Y`.
 - Препролёт Tailwind гасит маркеры списков и рамки нативных полей — контентные `ol/ul` чинит
   правило в globals.css; нативные поля всегда с классами.
+- Element-резеты (`a{...}`, `h1{...}`) вне `@layer` перебивают ЛЮБЫЕ утилиты — новые резеты
+  в globals.css не добавлять (кейс: чёрный текст href-кнопок из-за `a{color:inherit}`).
