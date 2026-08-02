@@ -54,3 +54,21 @@ Sources: [Ангстрем](https://www.angstrem-mebel.ru/blog/mebel/336002/) ·
 Sources: [Ами Ковры](https://amikovry.ru/news/kak-pravilno-vybrat-kover-v-gostinuyu/) ·
 [Grand Carpets](https://grand-carpets.ru/blog/sovety-pokupatelyam/kak-razmestit-kover-v-interere/) ·
 [Ansy Gallery](https://ansygallery.ru/carpets/recommended/kak_vyibrat_razmer_kovra/)
+
+## Правила расстановки (ресёрч 2026-08-02, для солвера — план layout-quality)
+- Проходы 60–90 см; мебель не блокирует двери и пути движения.
+- ТВ — главный focal point: посадка ориентируется на него; диван↔ТВ = 1.5–2 диагонали,
+  минимум ~180 см и НЕ ДАЛЬШЕ ~300 см; центр экрана на уровне глаз сидя (~100–110 см).
+- Разговорная зона: посадочные места не дальше ~240 см друг от друга; столик 30–50 см от дивана.
+- Угловой диван: в угол/у окна ("поворотной частью к окну или противоположной стене"),
+  зонирует комнату; сидящему видно вход; НЕ прямо напротив двери; за диваном не оставлять
+  пустой щели у стены — либо вплотную, либо осознанная зона (торшер/консоль).
+- Корпусная мебель (шкафы/стеллажи/витрины) — спиной к стене, лицом в комнату; не на стене ТВ
+  и не между диваном и ТВ. Камин не совмещать с ТВ при наличии тумбы (дизайнеры против).
+Sources: [Mr.Doors](https://www.mrdoors.ru/blog_new/rasstanovka_mebeli_v_gostinoy/) ·
+[design-homes](https://design-homes.ru/komnaty/gostinaya/rasstanovka-mebeli-v-gostinoj) ·
+[Anderssen](https://www.anderssen.ru/information/articles/rasstanovka-mebeli-v-gostinoy/) ·
+[Keck: traffic flow/TV](https://keckfurniture.com/blog/living-room-layout-rules-traffic-flow-conversation-zones-and-tv-placement/) ·
+[CoCreative spacing](https://www.cocreativeinteriors.com/blog/2022/03/furniture-spacing-tips-and-tricks/) ·
+[divano.ru угловой](https://www.divano.ru/informacija/kak-razmestit-uglovoy-divan-v-komnate/) ·
+[pushe.ru угловой](https://pushe.ru/blog/kuda-postavit-uglovoy-divan/)
