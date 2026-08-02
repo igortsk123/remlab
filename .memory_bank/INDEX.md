@@ -36,7 +36,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт ремонта/м�
 `deployment.md` (деплой/откат exit-fi).
 
 ## Ключевые исходники
-`docs/`: tech-spec-ts-stack (инж. спека) · DECISIONS (ADR) · master-brief-v0.3, cjm-ux-v0.2, market-research (истор.).
+`docs/`: tech-spec-ts-stack · DECISIONS · истор.: master-brief-v0.3, cjm-ux-v0.2.
 
 ## Планы
 **Мастер: `plans/MASTER-cost-first.md`** (М0–М7; старое — `archive/plans/`). Исполнение —
