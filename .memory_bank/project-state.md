@@ -3,12 +3,12 @@ tier: 1
 topic: project-state
 scope: Снимок «где проект сейчас» — точка ресинхронизации при /clear и resume
 tier2: "changelog/project-history.md"
-updated: 2026-08-01
+updated: 2026-08-03
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-08-01
+last_verified: 2026-08-03
 ---
 
 # Project State — снимок состояния
@@ -25,13 +25,17 @@ last_verified: 2026-08-01
   заглушки, лаборатория-центр, UX калькуляторов, зум 100–130%, чтение ссылок, лид-канал; хронология
   — `changelog/project-history.md`). **Ждут владельца:** токены 3 ботов + SMTP (`core/leads.md`),
   включение Этапа 1 рекламы. Кампании SUSPENDED; Этап 2/AI-дизайн НЕ включать (ведут на заглушки).
-- **Мебельный трек v2 (2026-08-02, ADR-0042–0045):** конвейер витрины ГОТОВ (этапы A+B: с нуля
-  без подсказок, 2 кадра/сет ~$0.14, солвер-расстановка); сборка сетов v2 «как дизайнер»
-  готова (чекпоинт v1-vs-v2 у владельца); свежесть каталога — ежедневный автоцикл (наличие по
-  карточкам, автозамены). Прод-код НЕ начат ([[gdeslon-catalog]]/[[ergonomics-planner]]/
-  [[living-room-sets]] draft; [[viz-pipeline]]/[[sets-compose-v2]]/[[catalog-freshness]]
-  in_progress). **Ждут владельца:** вердикт v1-vs-v2; команда на Этап C (витрина 21 сета);
-  divan/askona/ormatek; cozyhome; Gemini-ключ. Сводка — `core/furniture.md`.
+- **Мебельный трек v3 «стили+правила» (2026-08-03, ADR-0042–0050):** сеты по СТИЛЯМ —
+  126 (7 метражей × 6 стилей × 3 тира, sets3.json), стиль-скоринг 15.7k товаров, судья с
+  политикой замен, правило разнообразия ≤3/≤5; свод правил гостиной (2 раунда мульти-джоб
+  ресёрча → occupancy.json: динамические шкалы от площади — решения владельца); расстановка:
+  ЗОНА-БИЛДЕР (ADR-0050) + DFS-периферия; витрина-6 v4 отдана (по кадру на стиль). Свежесть —
+  ежедневный автоцикл (+стиль-дельта новинок). Прод-ядро расстановки — план
+  [[prod-layout-engine]] in_progress (спека `guides/layout-engine-spec.md`, Э0 добыча правил
+  workflow'ом; Э1+ в свежей сессии). Планы [[sets-style-v3]]/[[layout-quality]]/[[room-size-fit]]
+  in_progress; [[scalability-hardening]] draft. **Ждут владельца:** вердикт витрины v4;
+  cozyhome (ковры!); divan/askona/ormatek; Gemini-ключ. Сводки — `core/furniture.md`,
+  `core/styles.md`, `core/lr-checklist.md`.
 - **Чтение ссылок П5b ЗАКРЫТ (2026-07-30, ADR-0031/0032):** только сервер — direct → резидентский
   прокси (`PARSE_PROXY_URLS` в `/opt/remlab/.env`) для всех магазинов; вход LLM = JSON-LD + окно
   «Характеристик»; загрузки файла НЕТ. ⚠️ Ozon/WB блокируют IP пула (капча) — нужен прокси-анблокер
@@ -75,22 +79,12 @@ last_verified: 2026-08-01
 - Ревизия планов: 12 → `archive/plans/` (таблица «Судьба» в мастере), живые: sub-e0/e2/e3/e4/e7,
   ml-замеры («сфоткай—посчитаем»), ads-*.
 
-## Что готово (со ссылками)
-- **Bootstrap S1–S4** (Memory Bank, сервер, каркас, регресс-сетка) — `completed_plans/remlab-bootstrap.md`.
-- **Stage 1 M0–M8** — `archive/plans/stage1-master-roadmap.md`: Gemini-провайдеры (ADR-0007),
-  контракты Zod, Postgres/Drizzle (ADR-0008/0011), модули room-analysis/visual-generation/ideas,
-  экраны landing→…→rooms, japandi, e2e в CI, фейк-ИИ (ADR-0010).
-- **Observability** — `lib/analytics.ts` → PostHog (ADR-0012), no-op без ключа; воронка + captureError.
-- **Сквозная навигация + разделы-каркасы (2026-07-12, ADR-0017)** — единая шапка `SiteHeader`;
-  главная «о проекте целиком»; `/styles` (игра «узнай свой вкус»), `/sovety` (плейсхолдеры).
-  Детали — `completed_plans/site-nav-and-scenarios.md`, `core/user-flow.md`.
-- **Калькулятор v2 (ADR-0018, К0–К6) — в проде**, основной на `/calc/[kind]` (localStorage);
-  скелеты К5/К6 ждут ключей владельца (YooKassa, токены ботов); ПДн — TODO. `core/estimate.md`.
-- **Трейсинг AI-пайплайна в проде** (ADR-0013) — `generation_runs/steps/assets`, захват в слое
-  провайдеров, реестры промптов/пайплайнов, imagor-сжатие; разбор: `/trace` (гард
-  `TRACE_ADMIN_TOKEN`); ретеншн 90 дн `pnpm trace:prune` (пока вручную) —
-  `core/observability-tracing.md`, `completed_plans/pipeline-tracing.md`.
-- Хронология вех/сессий — `changelog/project-history.md`.
+## Что готово (детали — по ссылкам)
+Bootstrap S1–S4 (`completed_plans/remlab-bootstrap.md`) · Stage 1 M0–M8
+(`archive/plans/stage1-master-roadmap.md`) · Observability/PostHog (ADR-0012) · навигация+каркасы
+(ADR-0017, `completed_plans/site-nav-and-scenarios.md`) · Калькулятор v2 в проде (ADR-0018,
+`core/estimate.md`; К5/К6 ждут ключей) · трейсинг пайплайна в проде (ADR-0013,
+`core/observability-tracing.md`). Хронология — `changelog/project-history.md`.
 
 ## Ключевые решения (строкой; полные — `decisions.md`, `docs/DECISIONS.md`)
 ADR-0001 self-host compose на exit-fi, не Vercel · 0002 pg17+pgvector в контейнере, не Supabase ·

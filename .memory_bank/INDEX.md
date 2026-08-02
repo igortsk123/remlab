@@ -16,20 +16,21 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт ремонта/м�
 | Стек, модули, генерация, деплой — по коду | `core/architecture.md` | `../../docs/tech-spec-ts-stack.md` |
 | Схема БД, изоляция сессий, миграции, pgvector | `core/data-model.md` | `../../docs/tech-spec-ts-stack.md` |
 | Деплой/откат/сервер exit-fi — playbook | `deployment.md` | — |
-| Смета-лист (ядро v0.4) — калькуляторы, стоимость ремонта, чек-лист, /go/ реф | `core/estimate.md` | `../domain/pricing-works-ru.md` |
-| Мебельный трек — каталог, сеты, визуализация | `core/furniture.md` | `../domain/viz-fidelity-playbook.md` |
+| Смета-лист — калькуляторы, стоимость, /go/ реф | `core/estimate.md` | `../domain/pricing-works-ru.md` |
+| Мебель — каталог, сеты, визуализация | `core/furniture.md` | `../domain/viz-fidelity-playbook.md` |
 | Цели продукта — v0.4 «Смета-first» | `core/goals.md` | `../goals-one-photo-furnish-fit.md` |
+| Расстановка — свод правил, зона-билдер, прод-ядро | `core/layout.md` | `../domain/occupancy-rules.md` |
 | Лид-канал «найдём дешевле» — заявка, TG-бот | `core/leads.md` | — |
 | Уроки перед планированием — что пробовали и что НЕ сработало | `core/lessons.md` | `../anti-patterns.md` |
-| Композиция гостиной — доли площади (справка владельца) | `core/lr-composition.md` | `../domain/lr-composition-guide.md` |
+| Композиция гостиной — доли площади | `core/lr-composition.md` | `../domain/lr-composition-guide.md` |
 | Рынок RU/UK — спрос, конкуренты, монетизация | `core/market.md` | `../domain/market-research.md` |
-| Привлечение/реклама — Яндекс, семантика, стратегия | `core/marketing-acquisition.md` | `../domain/wordstat-semantics.md` |
-| Трейсинг AI-пайплайна — лог вызовов LLM, «номер генерации», разбор | `core/observability-tracing.md` | `../domain/observability.md` |
+| Реклама — Яндекс, семантика, стратегия | `core/marketing-acquisition.md` | `../domain/wordstat-semantics.md` |
+| Трейсинг AI-пайплайна — лог LLM-вызовов, разбор | `core/observability-tracing.md` | `../domain/observability.md` |
 | Бизнес-контекст — зачем/для кого; v0.4 «Смета-first» (v0.3 — истор.) | `product_brief.md` | `domain/brief-details.md` |
 | Регресс-защита — тесты, CI, eval, гардрейлы, DoD | `core/regression-net.md` | `../../docs/tech-spec-ts-stack.md` |
-| Стили интерьера — паспорта, стиль-скоринг товаров, сеты и генерация под стиль | `core/styles.md` | `../domain/interior-styles.md` |
+| Стили — паспорта, скоринг товаров, сеты и генерация | `core/styles.md` | `../domain/interior-styles.md` |
 | Stage 1 UX-flow, экраны, аналитика | `core/user-flow.md` | `../domain/user-flow-details.md` |
-| Состав гостиной — обязательные категории сета и пригодность товаров | `core/lr-checklist.md` | `../domain/living-room-checklist.md` |
+| Состав гостиной — роли сета и пригодность товаров | `core/lr-checklist.md` | `../domain/living-room-checklist.md` |
 <!-- GENERATED:decision-tree END -->
 
 ## Always-on docs (Tier 0/1)

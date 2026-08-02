@@ -2,7 +2,7 @@
 workstream: furniture
 slug: prod-layout-engine
 title: Прод-ядро авторасстановки — beam search + скоринг + top-K (по спеке layout-engine-spec)
-status: draft
+status: in_progress
 created: 2026-08-03
 updated: 2026-08-03
 completed:
@@ -12,7 +12,7 @@ completed:
 Коммерчески чистое ядро расстановки: комната (полигон, двери/окна/радиаторы) + предметы
 каталога → **3–5 разных валидных планировок** с объяснениями. Заменяет цепочку
 «жадный DFS + пост-фиксы» на: кандидаты → hard-фильтр → beam search → скоринг → локальное
-уточнение → diversity top-K. База: `domain/layout-engine-spec.md` (ресёрч владельца,
+уточнение → diversity top-K. База: `guides/layout-engine-spec.md` (ресёрч владельца,
 принят с поправками) + наши occupancy.json/size-bands/зона-билдер.
 
 ## Источник задачи
@@ -25,6 +25,13 @@ FastAPI/OR-Tools. Holodeck 2.0 / LayoutVLM / ATISS / DiffuScene — идеи и�
 кода/промптов. `LICENSES/THIRD_PARTY_NOTICES.md` с первого коммита.
 
 ## Этапы (каждый деплоится отдельно)
+**Э0 Добыча правил и кода из ЧИСТЫХ источников (владелец 2026-08-03: «может взять готовое»).**
+Легально копируемое: (а) остаток allenai/Holodeck (Apache-2.0) — онтология констрейнтов+промпты,
+двери/окна, MILP-оптимизатор; (б) **ProcTHOR** (AllenAI, Apache-2.0) — правила процедурного
+размещения мебели по комнатам; (в) **Infinigen Indoor** (BSD-3, Princeton) — constraint-система
+расстановки. Только читаемое (clean-room, БЕЗ копирования кода): Holodeck 2.0, LayoutVLM —
+ресёрч-джобами извлечь ПРАВИЛА в спецификацию своими словами. Выход: rules-extract доклад +
+список готовых модулей к переносу с notices.
 **Э1 Геометрическое ядро (без LLM).** `services/planner-solver/`: Pydantic-модели
 (Room/Opening/Furniture/Placement), footprint-полигоны с поворотами, коллизии,
 exclusion-зоны (дверь+дуга, окно, радиатор), функциональные клиренсы (access_zones по ролям
@@ -63,5 +70,8 @@ conflict-repair ≤3 итераций, фолбэк-шаблоны (наши CON
 - [ ] ADR (смена ядра); core/furniture + architecture обновлены; `/memory-check`; audit чисто
 
 ## Лог выполнения
+- 2026-08-03 — «деплой»; Э0 запущен workflow'ом (4 джоба: ProcTHOR/Infinigen/Holodeck-остаток/
+  clean-room NC + синтез). Граница по NC-коду удержана (смотреть/выписывать правила — да,
+  копировать код — нет; согласовано с владельцем). Э1+ — в свежей сессии.
 - 2026-08-03 — план создан (draft) по спеке владельца; спека сохранена в
-  `domain/layout-engine-spec.md`; лицензии сверены с нашим воркфлоу-ресёрчем (совпали)
+  `guides/layout-engine-spec.md`; лицензии сверены с нашим воркфлоу-ресёрчем (совпали)

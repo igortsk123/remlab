@@ -2,7 +2,7 @@
 tier: 2
 topic: occupancy-rules
 scope: Свод количественных правил гостиной — наполняемость, пропорции, количества, клиренсы, высоты (мульти-джоб ресёрч)
-tier1: ../core/lr-checklist.md
+tier1: ../core/layout.md
 updated: 2026-08-02
 importance: high
 source: external:web (~35 источников, 4 research-джоба; workflow wf_882a3ed0)

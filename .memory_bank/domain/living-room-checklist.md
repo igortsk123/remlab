@@ -1,7 +1,7 @@
 ---
 tier: 2
 topic: living-room-checklist
-scope: Чек-лист категорий гостиной (ресёрч RU+EN) — какие роли обязательны в сете по метражу
+scope: Чек-лист гостиной — обязательные роли по метражу
 tier1: ../core/lr-composition.md
 updated: 2026-08-02
 importance: med

@@ -15,19 +15,20 @@
 | `access-and-integrations.md` | access-and-integrations | Интеграции/доступы — ключи, эндпоинты, клиенты | `../domain/integrations.md` | 2026-08-02 |
 | `architecture.md` | architecture | Стек, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-07-31 |
 | `data-model.md` | data-model | Схема БД, изоляция сессий, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-07-31 |
-| `estimate.md` | estimate | Смета-лист (ядро v0.4) — калькуляторы, стоимость ремонта, чек-лист, /go/ реф | `../domain/pricing-works-ru.md` | 2026-07-31 |
-| `furniture.md` | furniture | Мебельный трек — каталог, сеты, визуализация | `../domain/viz-fidelity-playbook.md` | 2026-08-02 |
+| `estimate.md` | estimate | Смета-лист — калькуляторы, стоимость, /go/ реф | `../domain/pricing-works-ru.md` | 2026-07-31 |
+| `furniture.md` | furniture | Мебель — каталог, сеты, визуализация | `../domain/viz-fidelity-playbook.md` | 2026-08-02 |
 | `goals.md` | goals-furnish-fit | Цели продукта — v0.4 «Смета-first» | `../goals-one-photo-furnish-fit.md` | 2026-07-09 |
+| `layout.md` | layout | Расстановка — свод правил, зона-билдер, прод-ядро | `../domain/occupancy-rules.md` | 2026-08-03 |
 | `leads.md` | leads | Лид-канал «найдём дешевле» — заявка, TG-бот | — | 2026-07-28 |
 | `lessons.md` | lessons | Уроки перед планированием — что пробовали и что НЕ сработало | `../anti-patterns.md` | 2026-08-02 |
-| `lr-composition.md` | lr-composition | Композиция гостиной — доли площади (справка владельца) | `../domain/lr-composition-guide.md` | 2026-08-01 |
+| `lr-composition.md` | lr-composition | Композиция гостиной — доли площади | `../domain/lr-composition-guide.md` | 2026-08-01 |
 | `market.md` | market | Рынок RU/UK — спрос, конкуренты, монетизация | `../domain/market-research.md` | 2026-07-11 |
-| `marketing-acquisition.md` | marketing-acquisition | Привлечение/реклама — Яндекс, семантика, стратегия | `../domain/wordstat-semantics.md` | 2026-07-11 |
-| `observability-tracing.md` | observability-tracing | Трейсинг AI-пайплайна — лог вызовов LLM, «номер генерации», разбор | `../domain/observability.md` | 2026-07-09 |
+| `marketing-acquisition.md` | marketing-acquisition | Реклама — Яндекс, семантика, стратегия | `../domain/wordstat-semantics.md` | 2026-07-11 |
+| `observability-tracing.md` | observability-tracing | Трейсинг AI-пайплайна — лог LLM-вызовов, разбор | `../domain/observability.md` | 2026-07-09 |
 | `regression-net.md` | regression-net | Регресс-защита — тесты, CI, eval, гардрейлы, DoD | `../../docs/tech-spec-ts-stack.md` | 2026-07-11 |
-| `styles.md` | styles | Стили интерьера — паспорта, стиль-скоринг товаров, сеты и генерация под стиль | `../domain/interior-styles.md` | 2026-08-02 |
+| `styles.md` | styles | Стили — паспорта, скоринг товаров, сеты и генерация | `../domain/interior-styles.md` | 2026-08-02 |
 | `user-flow.md` | user-flow | Stage 1 UX-flow, экраны, аналитика | `../domain/user-flow-details.md` | 2026-07-31 |
-| `lr-checklist.md` | lr-checklist | Состав гостиной — обязательные категории сета и пригодность товаров | `../domain/living-room-checklist.md` | 2026-08-02 |
+| `lr-checklist.md` | lr-checklist | Состав гостиной — роли сета и пригодность товаров | `../domain/living-room-checklist.md` | 2026-08-02 |
 <!-- GENERATED:core-registry END -->
 
 > Реестр и decision tree в INDEX регенерирует `tools/memory-audit.mjs` (или `/memory-check`
