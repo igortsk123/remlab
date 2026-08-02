@@ -12,6 +12,7 @@ from .clearances import (LOW_ITEM_MAX_H_CM, NEVER_BLOCKING_ROLES, band_scale, di
                          passage_min_cm)
 from .geometry import (
     access_zone,
+    facing_vector,
     footprint,
     free_space,
     opening_polygon,
@@ -217,6 +218,36 @@ def check_facing(ps: list[Placement]) -> list[Violation]:
     return []
 
 
+# За спинкой дивана — только НИЗКОЕ (консоль/комод до ~90 см). Высокий шкаф/стеллаж вплотную
+# за диваном читается как «диван задвинули к шкафу» (вердикт владельца 2026-08-02; в DFS-движке
+# это была «бронь тыла» ADR-0050 — при переносе в beam правило потерялось).
+BEHIND_SOFA_MAX_H_CM = 90.0
+
+
+def check_behind_sofa(room: Room, ps: list[Placement]) -> list[Violation]:
+    from shapely.geometry import box as _box
+
+    by = {p.role: p for p in ps}
+    sofa = by.get("диван")
+    if sofa is None or sofa.item is None:
+        return []
+    fx, fy = facing_vector(sofa.rot)
+    x0, y0, x1, y1 = footprint(sofa).bounds
+    if abs(fy) > abs(fx):
+        strip = _box(x0, 0, x1, y0) if fy > 0 else _box(x0, y1, x1, room.depth_cm)
+    else:
+        strip = _box(0, y0, x0, y1) if fx > 0 else _box(x1, y0, room.width_cm, y1)
+    out = []
+    for p in ps:
+        if p is sofa or p.item is None:
+            continue
+        h = p.item.h_cm or 0
+        if h > BEHIND_SOFA_MAX_H_CM and footprint(p).intersection(strip).area > 400:
+            out.append(_v("TALL_BEHIND_SOFA", f"«{p.role}» ({h:.0f} см) стоит за спинкой дивана",
+                          [p.role, "диван"], h, f"за диваном только ниже {BEHIND_SOFA_MAX_H_CM:.0f} см"))
+    return out
+
+
 def check_zone(ps: list[Placement]) -> list[Violation]:
     """Разговорная зона — не набор «где-то рядом»: столик перед диваном, кресло в зоне.
 
@@ -295,6 +326,7 @@ def validate(room: Room, placements: list[Placement], *, passage: str = "seconda
     vs += check_wall_only(room, placements)
     vs += check_zone(placements)
     vs += check_sightline(placements)
+    vs += check_behind_sofa(room, placements)
     vs += check_floor_cap(room, placements)
     from .geometry import floor_used_pct
 

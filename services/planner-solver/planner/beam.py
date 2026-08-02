@@ -14,6 +14,7 @@ from .models import Item, Layout, Placement, Room
 from .refine import refine
 from .score import Score, score_layout
 from .validate import (
+    check_behind_sofa,
     check_boundary,
     check_distances,
     check_collisions,
@@ -52,7 +53,7 @@ def _hard_ok(room: Room, ps: list[Placement]) -> bool:
                 or check_openings(room, ps) or check_radiators(room, ps)
                 or check_facing(ps) or check_distances(room, ps)
                 or check_wall_only(room, ps) or check_zone(ps)
-                or check_sightline(ps))
+                or check_sightline(ps) or check_behind_sofa(room, ps))
 
 
 def _diverse(a: State, b: State) -> bool:

@@ -66,7 +66,9 @@ def _wall_distance(room: Room, p: Placement) -> float:
     return min(x0, y0, room.width_cm - x1, room.depth_cm - y1)
 
 
-BACKING_ROLES = ("стеллаж", "комод", "стенка", "витрина", "шкаф", "камин", "столик")
+# закрыть стену за отплывшим диваном может только НИЗКОЕ (консоль/комод) — высокое там запрещено
+BACKING_ROLES = ("комод", "столик", "пуф")
+BACKING_MAX_H_CM = 90.0
 
 
 def _storage_behind(room: Room, sofa: Placement, ps: list[Placement]) -> bool:
@@ -79,7 +81,8 @@ def _storage_behind(room: Room, sofa: Placement, ps: list[Placement]) -> bool:
         strip = _box(x0 - 40, 0, x1 + 40, y0) if fy > 0 else _box(x0 - 40, y1, x1 + 40, room.depth_cm)
     else:
         strip = _box(0, y0 - 40, x0, y1 + 40) if fx > 0 else _box(x1, y0 - 40, room.width_cm, y1 + 40)
-    return any(p.role in BACKING_ROLES and footprint(p).intersects(strip) for p in ps if p is not sofa)
+    return any(p.role in BACKING_ROLES and (p.item is None or (p.item.h_cm or 0) <= BACKING_MAX_H_CM)
+               and footprint(p).intersects(strip) for p in ps if p is not sofa)
 
 
 def score_layout(room: Room, ps: list[Placement], *, fast: bool = False) -> Score:
