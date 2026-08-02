@@ -1,0 +1,23 @@
+{
+ "_meta": {
+  "source": "external:github.com/princeton-vl/infinigen (BSD-3) home.py LIVINGROOMS — стартовая таблица весов, адаптированная под правила remlab",
+  "note": "Таргеты берём СВОИ (кап пола по бэндам, шкалы диван↔ТВ/столик — решения владельца); у Infinigen заимствована относительная важность термов, а не числа-таргеты. Конфликты — guides/layout-mined-rules.md.",
+  "updated": "2026-08-02"
+ },
+ "floor_fill": 15,
+ "sofa_tv_dist": 5,
+ "sofa_faces_tv": 5,
+ "tv_faces_sofa": 3,
+ "sofa_table_dist": 5,
+ "seats_group": 4,
+ "armchair_faces_tv": 3,
+ "wall_hug": 3,
+ "dining_off_wall": 5,
+ "axis_alignment": 8,
+ "storage_spacing": 2,
+ "free_space_fragmentation": 4,
+ "wall_centering": 3,
+ "armchair_zone_radius": 6,
+ "armchair_not_at_tv": 4,
+ "sliver_gap": 5
+}

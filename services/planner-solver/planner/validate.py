@@ -16,6 +16,7 @@ from .geometry import (
     free_space,
     opening_polygon,
     radiator_polygon,
+    relative_position,
     room_polygon,
     static_blockers,
     swing_polygon,
@@ -162,6 +163,111 @@ def check_distances(room: Room, ps: list[Placement]) -> list[Violation]:
     return out
 
 
+# Мебель хранения/техники живёт ТОЛЬКО у стены (ProcTHOR placement-annotations: onEdge,
+# inMiddle=false). Отдельно стоящий шкаф посреди комнаты — вердикт владельца «так нельзя».
+WALL_ONLY_ROLES = frozenset({"тв-тумба", "шкаф", "комод", "стенка", "витрина", "стеллаж", "камин"})
+WALL_TOUCH_MAX_CM = 20.0
+
+
+def check_wall_only(room: Room, ps: list[Placement]) -> list[Violation]:
+    out = []
+    for p in ps:
+        if p.role not in WALL_ONLY_ROLES:
+            continue
+        x0, y0, x1, y1 = footprint(p).bounds
+        d = min(x0, y0, room.width_cm - x1, room.depth_cm - y1)
+        if d > WALL_TOUCH_MAX_CM:
+            out.append(_v("NOT_AT_WALL", f"«{p.role}» стоит не у стены ({d:.0f} см)", [p.role],
+                          round(d), f"≤{WALL_TOUCH_MAX_CM:.0f} см до стены"))
+    return out
+
+
+def check_facing(ps: list[Placement]) -> list[Violation]:
+    """«Диван параллельно телеку» (правило владельца): фронты встречные + боковое перекрытие.
+
+    Соответствует MILP-констрейнту Holodeck «относительные позиции — в локальной системе цели,
+    боковой разброс ≤ полуширины цели».
+    """
+    by = {p.role: p for p in ps}
+    if "диван" not in by or "тв-тумба" not in by:
+        return []
+    sofa, tv = by["диван"], by["тв-тумба"]
+    if (int(sofa.rot) - int(tv.rot)) % 360 != 180:
+        return [_v("FACING_MISMATCH", "диван и ТВ не смотрят друг на друга", ["диван", "тв-тумба"],
+                   None, "фронты встречные (разница 180°)")]
+    sx0, sy0, sx1, sy1 = footprint(sofa).bounds
+    tx0, ty0, tx1, ty1 = footprint(tv).bounds
+    if int(sofa.rot) % 180 == 0:          # ось зоны вертикальная → перекрытие по X
+        ov = min(sx1, tx1) - max(sx0, tx0)
+        need = 0.3 * min(sx1 - sx0, tx1 - tx0)
+    else:                                  # ось горизонтальная → перекрытие по Y
+        ov = min(sy1, ty1) - max(sy0, ty0)
+        need = 0.3 * min(sy1 - sy0, ty1 - ty0)
+    if ov < need:
+        return [_v("TV_OFF_AXIS", "ТВ смещён с оси дивана", ["диван", "тв-тумба"],
+                   round(max(ov, 0)), f"перекрытие ≥{need:.0f} см")]
+    return []
+
+
+def check_zone(ps: list[Placement]) -> list[Violation]:
+    """Разговорная зона — не набор «где-то рядом»: столик перед диваном, кресло в зоне.
+
+    Боковой разброс ограничен полушириной якоря (+запас) — правило Holodeck-MILP;
+    кресло допускается сбоку-впереди (дуга ADR-0051), но не за спинкой дивана.
+    """
+    by = {p.role: p for p in ps}
+    sofa = by.get("диван")
+    if sofa is None or sofa.item is None:
+        return []
+    half = sofa.item.w_cm / 2
+    out = []
+    tbl = by.get("столик")
+    if tbl is not None:
+        fwd, lat = relative_position(sofa, tbl)
+        if fwd <= 0:
+            out.append(_v("TABLE_BEHIND_SOFA", "столик не перед диваном", ["диван", "столик"],
+                          round(fwd), "перед фронтом дивана"))
+        elif abs(lat) > half * 0.75:
+            out.append(_v("TABLE_OFF_AXIS", f"столик смещён на {abs(lat):.0f} см от оси дивана",
+                          ["диван", "столик"], round(abs(lat)), f"≤{half * 0.75:.0f} см"))
+    arm = by.get("кресло")
+    if arm is not None and tbl is not None:
+        g = footprint(arm).distance(footprint(tbl))
+        if g > 120:
+            out.append(_v("ARMCHAIR_FAR_FROM_ZONE", f"кресло в {g:.0f} см от столика — вне полукруга",
+                          ["кресло", "столик"], round(g), "≤120 см"))
+    if arm is not None and arm.item is not None:
+        fwd, lat = relative_position(sofa, arm)
+        if fwd < -20:
+            out.append(_v("ARMCHAIR_BEHIND_SOFA", "кресло стоит за диваном", ["диван", "кресло"],
+                          round(fwd), "в зоне перед диваном"))
+        elif abs(lat) > half + arm.item.w_cm + 60:
+            out.append(_v("ARMCHAIR_OUT_OF_ZONE", f"кресло в {abs(lat):.0f} см вбок от зоны",
+                          ["диван", "кресло"], round(abs(lat)),
+                          f"≤{half + arm.item.w_cm + 60:.0f} см"))
+    return out
+
+
+def check_sightline(ps: list[Placement]) -> list[Violation]:
+    """Линия взгляда диван→ТВ не должна быть перекрыта (Infinigen: «экран не загорожен»)."""
+    by = {p.role: p for p in ps}
+    sofa, tv = by.get("диван"), by.get("тв-тумба")
+    if sofa is None or tv is None or sofa.item is None or tv.item is None:
+        return []
+    corridor = footprint(sofa).union(footprint(tv)).convex_hull.buffer(-5)
+    out = []
+    for p in ps:
+        if p.role in ("диван", "тв-тумба", "ковёр", "столик"):
+            continue
+        h = (p.item.h_cm if p.item else None) or 0
+        if h <= 60:                     # ниже линии взгляда сидящего — не мешает
+            continue
+        if footprint(p).intersection(corridor).area > 400:
+            out.append(_v("SIGHTLINE_BLOCKED", f"«{p.role}» перекрывает вид на ТВ", [p.role, "тв-тумба"],
+                          None, "коридор диван↔ТВ свободен"))
+    return out
+
+
 def check_floor_cap(room: Room, ps: list[Placement]) -> list[Violation]:
     from .geometry import floor_used_pct
 
@@ -182,6 +288,10 @@ def validate(room: Room, placements: list[Placement], *, passage: str = "seconda
     vs += check_access(placements)
     vs += check_passages(room, placements, passage)
     vs += check_distances(room, placements)
+    vs += check_facing(placements)
+    vs += check_wall_only(room, placements)
+    vs += check_zone(placements)
+    vs += check_sightline(placements)
     vs += check_floor_cap(room, placements)
     from .geometry import floor_used_pct
 

@@ -104,4 +104,5 @@ class Layout(BaseModel):
 
     @property
     def ok(self) -> bool:
-        return not any(v.severity is Severity.HARD for v in self.violations)
+        """Валидна = ни одного hard-нарушения И все запрошенные предметы размещены."""
+        return not self.unplaced and not any(v.severity is Severity.HARD for v in self.violations)

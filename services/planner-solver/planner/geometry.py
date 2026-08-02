@@ -27,17 +27,29 @@ def quantize_rot(rot: float) -> int:
     return int(round((rot % 360) / 90) % 4) * 90
 
 
+_FP_CACHE: dict[tuple, Polygon] = {}   # beam гоняет одни и те же footprint'ы тысячи раз
+
+
 def footprint(p: Placement, item: Item | None = None) -> Polygon:
     """Полигон следа предмета на полу с учётом поворота (Г-диван — 6 точек)."""
     it = item or p.item
     if it is None:
         raise ValueError(f"footprint({p.role}): нет габаритов (item=None)")
+    key = (it.role, it.w_cm, it.d_cm, it.corner, it.corner_section_cm,
+           round(p.x, 2), round(p.y, 2), round(p.rot, 2))
+    hit = _FP_CACHE.get(key)
+    if hit is not None:
+        return hit
     if it.corner:
         poly = _corner_polygon(it)
     else:
         poly = box(-it.w_cm / 2, -it.d_cm / 2, it.w_cm / 2, it.d_cm / 2)
     poly = rotate(poly, -p.rot, origin=(0, 0), use_radians=False)
-    return translate(poly, p.x, p.y)
+    poly = translate(poly, p.x, p.y)
+    if len(_FP_CACHE) > 200_000:
+        _FP_CACHE.clear()
+    _FP_CACHE[key] = poly
+    return poly
 
 
 def _corner_polygon(it: Item) -> Polygon:
@@ -82,6 +94,19 @@ def access_zone(p: Placement, item: Item | None = None, spec: ClearanceSpec | No
     zone = unary_union(parts)
     zone = rotate(zone, -p.rot, origin=(0, 0), use_radians=False)
     return translate(zone, p.x, p.y)
+
+
+def relative_position(anchor: Placement, target: Placement) -> tuple[float, float]:
+    """Позиция target в ЛОКАЛЬНОЙ системе anchor: (вперёд вдоль лица, вбок).
+
+    Формализует Holodeck-MILP «in front of / side of»: боковой разброс ограничивается
+    полушириной якоря, иначе «перед диваном» превращается в «где-то сбоку».
+    """
+    fx, fy = facing_vector(anchor.rot)
+    dx, dy = target.x - anchor.x, target.y - anchor.y
+    forward = dx * fx + dy * fy
+    lateral = dx * (-fy) + dy * fx
+    return forward, lateral
 
 
 def blocked_footprint(p: Placement, item: Item | None = None) -> Polygon:
@@ -139,12 +164,18 @@ def static_blockers(room: Room) -> list[Polygon]:
     return out
 
 
-def free_space(room: Room, placements: list[Placement], *, with_clearance: bool = True) -> Polygon:
-    """«Открытый полигон» комнаты: комната − двери/радиаторы − (следы [+ клиренсы])."""
+def free_space(room: Room, placements: list[Placement], *, with_clearance: bool = True,
+               ignore_access_of: frozenset[str] | set[str] = frozenset()) -> Polygon:
+    """«Открытый полигон» комнаты: комната − двери/радиаторы − (следы [+ клиренсы]).
+
+    `ignore_access_of` — роли, чьи зоны подхода не блокируют (предметы ОДНОЙ зоны: кресло
+    легитимно стоит у фронта дивана сбоку — ProcTHOR внутри ассет-группы margin не применяет).
+    """
     poly = room_polygon(room)
     blockers = static_blockers(room)
     for p in placements:
-        blockers.append(blocked_footprint(p) if with_clearance else footprint(p))
+        skip_access = p.role in ignore_access_of
+        blockers.append(footprint(p) if (not with_clearance or skip_access) else blocked_footprint(p))
     if blockers:
         poly = poly.difference(unary_union(blockers))
     return poly
