@@ -4,7 +4,7 @@ slug: prod-layout-engine
 title: Прод-ядро авторасстановки — beam search + скоринг + top-K (по спеке layout-engine-spec)
 status: in_progress
 created: 2026-08-03
-updated: 2026-08-03
+updated: 2026-08-02
 completed:
 ---
 
@@ -70,6 +70,18 @@ conflict-repair ≤3 итераций, фолбэк-шаблоны (наши CON
 - [ ] ADR (смена ядра); core/furniture + architecture обновлены; `/memory-check`; audit чисто
 
 ## Лог выполнения
+- 2026-08-02 — **Э0 ЗАВЕРШЁН** (workflow wf_8b68fc08-0fc, 4 джоба + синтез, 388k токенов):
+  118 правил разложены по этапам движка (candidate-gen / hard / soft-приоры / скоринг /
+  ordering / repair) → `../guides/layout-mined-rules.md`. Там же: 15 модулей к переносу
+  (vendor: PT constants.py + placement-annotations.json + asset_groups/*.json, IG annealing.py;
+  adapt: PT objects.py/asset_groups.py, IG home.py/trimesh_geometry.py, HD prompts.py/milp_utils.py/
+  DFS_Solver_Wall) и 15 конфликтов с нашим occupancy — при конфликте канон наш.
+  Главное новое: margin как часть footprint (клиренс вычитается из свободного полигона ДО
+  размещения, а не проверяется постфактум), «открытый полигон + максимальные прямоугольники»,
+  per-type матрица якорей, формулы скоринга IG (accessibility cosθ/dist², focus_score, hinge)
+  + готовая таблица весов гостиной, violation-first annealing с DOF-проекцией сдвигов.
+  На владельца вынесены 2 развилки: кресло 90° к столику vs PT-полукруг 135–225°;
+  занятость поверхностей 30% (наш, unsourced) vs 50–90% (IG/HD).
 - 2026-08-03 — «деплой»; Э0 запущен workflow'ом (4 джоба: ProcTHOR/Infinigen/Holodeck-остаток/
   clean-room NC + синтез). Граница по NC-коду удержана (смотреть/выписывать правила — да,
   копировать код — нет; согласовано с владельцем). Э1+ — в свежей сессии.

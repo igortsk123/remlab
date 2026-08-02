@@ -26,7 +26,7 @@ draft → in_progress → completed → перенос в completed_plans/
 
 | slug | Название | status | created | updated |
 |------|----------|--------|---------|---------|
-| prod-layout-engine | Прод-ядро авторасстановки — beam search + скоринг + top-K (по спеке layout-engine-spec) | in_progress | 2026-08-03 | 2026-08-03 |
+| prod-layout-engine | Прод-ядро авторасстановки — beam search + скоринг + top-K (по спеке layout-engine-spec) | in_progress | 2026-08-03 | 2026-08-02 |
 | sets-style-v3 | Сеты по стилям — паспорта стилей, классификация товаров, стилевая генерация | in_progress | 2026-08-02 | 2026-08-02 |
 | scalability-hardening | Аудит масштабируемости — единый источник правил, гонки, невшитые правила свода | draft | 2026-08-02 | 2026-08-02 |
 | room-size-fit | Габариты товаров под площадь гостиной — наполняемость и размерный подбор | in_progress | 2026-08-02 | 2026-08-02 |

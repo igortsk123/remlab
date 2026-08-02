@@ -14,3 +14,13 @@ db/init/008-sets.sql
 services/planner-solver/
 api.gdeslon.ru/
 data/planner/composition.ts
+# Э0 prod-layout-engine: пути ВНЕШНИХ репо (ProcTHOR/Infinigen/Holodeck) в guides/layout-mined-rules.md —
+# это цитаты чужого кода с URL, не claim о нашем дереве:
+procthor/
+ai2holodeck/
+src/infinigen_examples/
+src/infinigen/
+example_solver/
+node_impl/
+annealing.py
+trimesh_geometry.py

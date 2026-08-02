@@ -3,7 +3,7 @@ tier: 1
 topic: layout
 scope: Расстановка — свод правил, зона-билдер, прод-ядро
 tier2: ../domain/occupancy-rules.md
-updated: 2026-08-03
+updated: 2026-08-02
 importance: high
 source: manual
 status: working
@@ -18,7 +18,9 @@ status: working
 столик по шкале, кресло у столика 90°, пуф вне оси, буфер 65 см, бронь полосы за диваном;
 Г-диван полигоном в угол, float к ТВ), DFS Holodeck — только периферия; hard-проверки по шкалам.
 **Прод-ядро**: план [[prod-layout-engine]] — кандидаты → hard → beam search → скоринг →
-top-K с объяснениями; спека `../guides/layout-engine-spec.md`; Э0 — добыча правил из
-ProcTHOR/Infinigen (лицензии чистые) + clean-room NC. Clean-room обязателен: NC-код не копируем.
+top-K с объяснениями; спека `../guides/layout-engine-spec.md`. **Э0 ГОТОВ** (2026-08-02):
+118 правил из ProcTHOR/Infinigen/Holodeck + clean-room из NC-статей → `../guides/layout-mined-rules.md`
+(там же 15 модулей к легальному vendor/adapt и 15 конфликтов с нашими правилами — при конфликте
+канон наш: `occupancy.json` + решения владельца). Clean-room обязателен: NC-код не копируем.
 
-**Tier 2:** ../domain/occupancy-rules.md · ../guides/layout-engine-spec.md
+**Tier 2:** ../domain/occupancy-rules.md · ../guides/layout-mined-rules.md · ../guides/layout-engine-spec.md
