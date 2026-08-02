@@ -26,7 +26,7 @@
 | `observability-tracing.md` | observability-tracing | Трейсинг AI-пайплайна — лог каждого вызова LLM, «номер генерации», разбор, сжатие | `../domain/observability.md` | 2026-07-09 |
 | `regression-net.md` | regression-net | Регресс-защита — тесты, CI-гейт, observability, eval, гардрейлы, DoD | `../../docs/tech-spec-ts-stack.md` | 2026-07-11 |
 | `user-flow.md` | user-flow | Stage 1 UX-flow (построенный AI-флоу), экраны, аналитика | `../domain/user-flow-details.md` | 2026-07-31 |
-| `lr-checklist.md` | lr-checklist | Состав гостиной — какие категории обязательны в сете (ядро/слои по метражу), пригодность товаров | `../domain/living-room-checklist.md` | 2026-08-02 |
+| `lr-checklist.md` | lr-checklist | Состав гостиной — обязательные категории сета и пригодность товаров | `../domain/living-room-checklist.md` | 2026-08-02 |
 <!-- GENERATED:core-registry END -->
 
 > Реестр и decision tree в INDEX регенерирует `tools/memory-audit.mjs` (или `/memory-check`
