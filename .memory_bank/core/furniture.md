@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: furniture
-scope: Мебельный трек — каталог Гдеслона, сеты, витринная визуализация
+scope: Мебельный трек — каталог, сеты, визуализация
 tier2: "../domain/viz-fidelity-playbook.md"
 updated: 2026-08-02
 importance: high

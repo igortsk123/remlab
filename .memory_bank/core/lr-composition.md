@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: lr-composition
-scope: Композиция гостиной — доли площади по метражам (справка владельца)
+scope: Композиция гостиной — доли площади (справка владельца)
 tier2: "../domain/lr-composition-guide.md"
 updated: 2026-08-01
 importance: high

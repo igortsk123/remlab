@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: goals-furnish-fit
-scope: Цели продукта — v0.4 «Смета-first»; fit-ветка — отложена (архив)
+scope: Цели продукта — v0.4 «Смета-first»
 tier2: "../goals-one-photo-furnish-fit.md"
 updated: 2026-07-09
 importance: high

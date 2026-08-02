@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: regression-net
-scope: Регресс-защита — тесты, CI-гейт, observability, eval, гардрейлы, DoD
+scope: Регресс-защита — тесты, CI, eval, гардрейлы, DoD
 tier2: "../../docs/tech-spec-ts-stack.md"
 updated: 2026-07-11
 importance: high

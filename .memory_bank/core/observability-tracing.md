@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: observability-tracing
-scope: Трейсинг AI-пайплайна — лог каждого вызова LLM, «номер генерации», разбор, сжатие
+scope: Трейсинг AI-пайплайна — лог вызовов LLM, «номер генерации», разбор
 tier2: ../domain/observability.md
 updated: 2026-07-09
 importance: high

@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: architecture
-scope: Стек, структура, модули, генерация, деплой — по коду
+scope: Стек, модули, генерация, деплой — по коду
 tier2: "../../docs/tech-spec-ts-stack.md"
 updated: 2026-07-31
 importance: high
