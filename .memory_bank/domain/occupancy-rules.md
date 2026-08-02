@@ -17,7 +17,7 @@ status: working
 
 - **RU-консенсус: мебель занимает от ~1/3 до ≤50% пола**, минимум 50% свободно — 2 независимых RU-источника: [ivd.ru](https://www.ivd.ru/dizajn-i-dekor/gostinaa/planirovka-gostinoj-idei-dla-sovremennogo-i-funkcionalnogo-prostranstva-29061), [inmyroom](https://www.inmyroom.ru/posts/10640-soblyudaem-distantsiyu-5-pravil-rasstanovki-mebeli-v-gostinoy); «около трети площади» — [remontexpress](https://www.remontexpress.ru/blog/rasstavlyaem-mebel-pravilno-osnovnye-osobennosti-obustroystva-komnat/); 35–50% — [fayni-mebli](https://fayni-mebli.com/10-pravil-rasstanovki-mebeli.html).
 - **EN-правило 60/40**: мебель ≤60% пола, ≥40% свободно ([comfyco](https://www.comfyco.com/articles/how-much-space-should-furniture-take.html)); комфортный диапазон 60–70% ([meltflexai](https://www.meltflexai.com/blog/what-size-furniture-fits-my-room-visual-guide)); 60%/40% также [3asignature](https://3asignature.com/en/living-room-area/). EN заметно либеральнее RU.
-- Горизонтальные поверхности (столы, полки): занято ≤30%, 70% свободно ([remontexpress](https://www.remontexpress.ru/blog/rasstavlyaem-mebel-pravilno-osnovnye-osobennosti-obustroystva-komnat/)).
+- Горизонтальные поверхности (столы, полки): **таргет 50–70%, максимум 90%** — решение владельца 2026-08-02 (ADR-0051). Прежнее «≤30%» было unsourced (проверка раунда 2: страницы-источника правило не содержит); канон — Holodeck ≤90% площади рецептакла и Infinigen 50–100% верха storage ([layout-mined-rules](../guides/layout-mined-rules.md)).
 - Стеллаж: 60% книги / 30% декор / 10% пусто (варианты 70/30, 80/20) ([journee-mondiale](https://www.journee-mondiale.com/en/the-bookshelf-styling-ratio-that-designers-follow-60-30-10/)).
 - Зонирование комнаты: пропорция зон 2:1 (2/3 мягкая зона, 1/3 хранение/обеденная) ([salon-yut](https://salon-yut.ru/blog/stati-o-mebeli/pravilnoe-raspolozhenie-mebeli-v-gostinoy-osnovnye-rekomendatsii/)).
 - Нижняя граница метража (РФ, СП 54.13330): гостиная ≥14 м² (1-комн.) / ≥16 м² (2+ комн.) ([docs.cntd.ru](https://docs.cntd.ru/document/351139048)).
@@ -167,7 +167,7 @@ status: working
 - **Торшер** — чтение 127–147 см, ambient 147–163 см ([edishine](https://www.edishine.com/blogs/news/how-tall-should-a-floor-lamp-be)); 15–30 см от подлокотника, свет из-за плеча ~45°, от стены 5–10 см ([masdio](https://masdio.com/blogs/news/where-to-put-floor-lamp-in-living-room)).
 
 ### Не найдено / отброшено
-- «Поверхности ≤30%» — источника нет (remontexpress не содержит).
+- ~~«Поверхности ≤30%» — источника нет~~ → ЗАМЕНЕНО на 50–70%/max 90% (ADR-0051, 2026-08-02).
 - Угол/расстояние «ТВ от окна» в числах — нет нигде; только качественное «сбоку от окна».
 - Ориентация угла Г-дивана в градусах — нет; замена: «короткое плечо ≤ 1/2 ширины комнаты».
 - Размеры декоративных подушек и «42″ между креслами» — только сниппеты, не верифицированы.
