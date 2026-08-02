@@ -28,6 +28,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт ремонта/м�
 | Бизнес-контекст — зачем/для кого; v0.4 «Смета-first» (v0.3 — истор.) | `product_brief.md` | `domain/brief-details.md` |
 | Регресс-защита — тесты, CI-гейт, observability, eval, гардрейлы, DoD | `core/regression-net.md` | `../../docs/tech-spec-ts-stack.md` |
 | Stage 1 UX-flow (построенный AI-флоу), экраны, аналитика | `core/user-flow.md` | `../domain/user-flow-details.md` |
+| Состав гостиной — какие категории обязательны в сете (ядро/слои по метражу), пригодность товаров | `core/lr-checklist.md` | `../domain/living-room-checklist.md` |
 <!-- GENERATED:decision-tree END -->
 
 ## Always-on docs (Tier 0/1)
