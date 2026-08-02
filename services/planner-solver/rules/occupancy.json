@@ -1,0 +1,859 @@
+{
+ "_meta": {
+  "bands_m2": [
+   "14-16",
+   "17-20",
+   "21-25",
+   "26-30",
+   "31-40",
+   "41-50",
+   "50+"
+  ],
+  "note": "Только цифры, подтверждённые источниками ресёрча. Спорное с правилами владельца (кап пола 28/38/40, доля дивана 10-16%, ковёр 30-50% зоны) вынесено в раздел КОНФЛИКТЫ и сюда не включено. Источники по метражам кап не дифференцируют — floor_cap_pct одинаков для всех диапазонов (RU-консенсус)."
+ },
+ "floor_cap_pct": {
+  "14-16": [
+   33,
+   50
+  ],
+  "17-20": [
+   33,
+   50
+  ],
+  "21-25": [
+   33,
+   50
+  ],
+  "26-30": [
+   33,
+   50
+  ],
+  "31-40": [
+   33,
+   50
+  ],
+  "41-50": [
+   33,
+   50
+  ],
+  "50+": [
+   33,
+   50
+  ],
+  "_sources": [
+   "ivd.ru (~50%)",
+   "inmyroom (50% свободно)",
+   "remontexpress (~33%)",
+   "fayni-mebli (35-50%)"
+  ],
+  "_en_alternative_max": 60
+ },
+ "item_share": {
+  "_note": "Подтверждённые пропорции — относительные (правило 2/3), а не доли пола; доли пола по ролям в источниках отсутствуют либо конфликтуют с владельческими.",
+  "sofa_vs_wall_length_pct": {
+   "any": [
+    60,
+    75
+   ]
+  },
+  "coffee_table_vs_sofa_length_pct": {
+   "any": [
+    60,
+    70
+   ]
+  },
+  "wall_art_vs_sofa_width_pct": {
+   "any": [
+    60,
+    70
+   ]
+  },
+  "tv_vs_stand_width_pct": {
+   "any": [
+    66,
+    75
+   ]
+  },
+  "tv_stand_vs_wall_pct": {
+   "any": [
+    0,
+    66
+   ]
+  },
+  "rug_vs_sofa_length_extra_cm": {
+   "any": [
+    30,
+    50
+   ]
+  },
+  "shelf_fill_pct": {
+   "books": 60,
+   "decor": 30,
+   "empty": 10
+  },
+  "surfaces_occupied_pct": {
+   "target": [
+    50,
+    70
+   ],
+   "max": 90,
+   "comment": "Решение владельца 2026-08-02: полки/столешницы — не пол, пустые полки читаются как незаконченный интерьер. Прежний максимум 30% был без источника, заменён.",
+   "sources": [
+    "external:github.com/allenai/Holodeck small_objects.py (≤90% площади рецептакла, коэфф. 0.8)",
+    "external:github.com/princeton-vl/infinigen home.py (верх storage 50–100%)"
+   ]
+  }
+ },
+ "counts": {
+  "14-16": {
+   "seats": [
+    4,
+    5
+   ],
+   "core_items": [
+    "sofa",
+    "armchair",
+    "coffee_table"
+   ],
+   "storage_units": null,
+   "light_levels": [
+    3,
+    4
+   ],
+   "light_lm": [
+    2100,
+    2400
+   ],
+   "spots": [
+    7,
+    11
+   ],
+   "zones": 1
+  },
+  "17-20": {
+   "seats": [
+    5,
+    7
+   ],
+   "storage_units": null,
+   "light_levels": [
+    3,
+    4
+   ],
+   "light_lm": [
+    2550,
+    3000
+   ],
+   "spots": [
+    9,
+    13
+   ],
+   "zones": 1
+  },
+  "21-25": {
+   "seats": [
+    6,
+    7
+   ],
+   "storage_units": null,
+   "light_levels": [
+    3,
+    4
+   ],
+   "light_lm": [
+    3150,
+    3750
+   ],
+   "spots": [
+    11,
+    17
+   ],
+   "zones": 1
+  },
+  "26-30": {
+   "seats": [
+    6,
+    8
+   ],
+   "storage_units": null,
+   "light_levels": [
+    3,
+    4
+   ],
+   "light_lm": [
+    3900,
+    4500
+   ],
+   "spots": [
+    13,
+    20
+   ],
+   "zones": 2
+  },
+  "31-40": {
+   "seats": null,
+   "storage_units": null,
+   "light_levels": [
+    3,
+    4
+   ],
+   "light_lm": [
+    4650,
+    6000
+   ],
+   "spots": [
+    16,
+    27
+   ],
+   "zones": 2
+  },
+  "41-50": {
+   "seats": null,
+   "storage_units": null,
+   "light_levels": [
+    3,
+    4
+   ],
+   "light_lm": [
+    6150,
+    7500
+   ],
+   "spots": [
+    21,
+    33
+   ],
+   "zones": 2
+  },
+  "50+": {
+   "seats": null,
+   "storage_units": null,
+   "light_levels": [
+    3,
+    4
+   ],
+   "light_lm": [
+    7500,
+    99999
+   ],
+   "spots": [
+    25,
+    99
+   ],
+   "zones": 2
+  },
+  "_notes": "seats: homestratosphere (12м²→4-5, 20м²→6-7, 28м²→2+ зоны; промежуточные — интерполяция); light: 150 лм/м² (divan.ru, коэф. потолка 1.2/1.5/2 не учтён — умножать при потолке >2.7м); spots: 1/1.5-2 м² (svetstolitsy); storage_units: числовых правил в источниках нет; decor: группы нечётные 3/5/7/9"
+ },
+ "heights_cm": {
+  "tv_center_ru": [
+   120,
+   130
+  ],
+  "tv_center_ru_over55inch": [
+   130,
+   135
+  ],
+  "tv_center_en": [
+   107,
+   122
+  ],
+  "tv_stand_low_h": [
+   40,
+   45
+  ],
+  "tv_stand_mid_h": [
+   55,
+   70
+  ],
+  "tv_stand_depth": [
+   35,
+   50
+  ],
+  "coffee_table": [
+   36,
+   46
+  ],
+  "coffee_table_below_seat": [
+   2.5,
+   5
+  ],
+  "side_table_vs_armrest_delta": [
+   -5,
+   5
+  ],
+  "sofa_seat": [
+   40,
+   50
+  ],
+  "sofa_back": [
+   80,
+   100
+  ],
+  "sofa_armrest": [
+   50,
+   70
+  ],
+  "sofa_seat_depth": [
+   50,
+   70
+  ],
+  "sconce": [
+   130,
+   150
+  ],
+  "floor_lamp_shade_bottom": 120,
+  "chandelier_bottom_min": 210,
+  "pendant_over_sofa": [
+   210,
+   230
+  ],
+  "chandelier_above_dining_table": [
+   71,
+   89
+  ],
+  "art_center": [
+   145,
+   160
+  ],
+  "art_bottom_above_sofa_back": [
+   10,
+   20
+  ],
+  "art_gap_between_frames": [
+   5,
+   8
+  ],
+  "dining_table": [
+   71,
+   81
+  ],
+  "dining_chair_seat": [
+   46,
+   51
+  ],
+  "storage_access_zone": [
+   70,
+   180
+  ],
+  "wardrobe_max_h": 250
+ },
+ "distances_cm": {
+  "passage_secondary_min": 60,
+  "passage_secondary_comfort": [
+   76,
+   90
+  ],
+  "passage_main": [
+   90,
+   107
+  ],
+  "passage_absolute_min_tight": [
+   46,
+   61
+  ],
+  "sofa_coffee_table": [
+   36,
+   50
+  ],
+  "coffee_table_reach_abs_min": 30,
+  "sofa_tv_cm": [
+   180,
+   300
+  ],
+  "sofa_tv_diagonals": [
+   1.2,
+   2.5
+  ],
+  "facing_seats": [
+   110,
+   240
+  ],
+  "sofa_back_to_wall_vent": [
+   8,
+   10
+  ],
+  "sofa_to_radiator_wall": [
+   15,
+   20
+  ],
+  "sofa_to_wall_passage": 70,
+  "wardrobe_hinged_front_min": 80,
+  "wardrobe_sliding_front": [
+   50,
+   70
+  ],
+  "dresser_front": [
+   76,
+   91
+  ],
+  "dining_chair_pullout": [
+   55,
+   71
+  ],
+  "dining_table_to_wall_no_pass": 91,
+  "dining_table_to_wall_with_pass": 112,
+  "fireplace_clear": [
+   100,
+   150
+  ],
+  "rug_to_wall": [
+   30,
+   46
+  ],
+  "rug_to_wall_small_room_le16m2": 15,
+  "rug_beyond_sofa_side": [
+   15,
+   20
+  ],
+  "rug_longer_than_sofa": [
+   30,
+   50
+  ],
+  "door_to_furniture": [
+   150,
+   200
+  ],
+  "legroom_front_of_seat": 46,
+  "legroom_if_passage": 92,
+  "side_table_to_armrest": [
+   5,
+   10
+  ],
+  "art_bottom_above_furniture": [
+   15,
+   20
+  ]
+ },
+ "dynamic": {
+  "version": "round2-2026-08-01",
+  "area_bins_m2": [
+   "14-16",
+   "17-20",
+   "21-25",
+   "26-30",
+   "31-40",
+   "41-50",
+   "50+"
+  ],
+  "floor_cap_pct": {
+   "14-16": [
+    40,
+    50
+   ],
+   "17-20": [
+    38,
+    47
+   ],
+   "21-25": [
+    36,
+    44
+   ],
+   "26-30": [
+    34,
+    42
+   ],
+   "31-40": [
+    31,
+    39
+   ],
+   "41-50": [
+    28,
+    36
+   ],
+   "50+": [
+    26,
+    34
+   ]
+  },
+  "sofa_table_cm": {
+   "14-16": [
+    30,
+    45
+   ],
+   "17-20": [
+    33,
+    47
+   ],
+   "21-25": [
+    35,
+    50
+   ],
+   "26-30": [
+    38,
+    52
+   ],
+   "31-40": [
+    40,
+    55
+   ],
+   "41-50": [
+    42,
+    57
+   ],
+   "50+": [
+    45,
+    60
+   ]
+  },
+  "sofa_tv_cm": {
+   "14-16": [
+    180,
+    260
+   ],
+   "17-20": [
+    190,
+    280
+   ],
+   "21-25": [
+    200,
+    300
+   ],
+   "26-30": [
+    210,
+    320
+   ],
+   "31-40": [
+    220,
+    340
+   ],
+   "41-50": [
+    235,
+    370
+   ],
+   "50+": [
+    250,
+    400
+   ]
+  },
+  "sofa_tv_diagonal_clamp": {
+   "min_coeff": 1.2,
+   "max_coeff": 2.5,
+   "rule": "итоговая дистанция = clamp(шкала по площади, 1.2 x диагональ, 2.5 x диагональ)",
+   "thx_4k_min_coeff": 1.2,
+   "cnet_coeff": 1.5,
+   "smpte_hd_coeff": 1.6,
+   "viewing_angle_max_deg": 30,
+   "sources": [
+    "https://www.divan.ru/idei-i-trendy/normy-rasstoania-ot-divana-do-televizora",
+    "https://www.onkron.ru/articles_inc.php?url=na-kakom-rasstoyanii-smotret-televizor-tablica-po-diagonalyam-i-sovety-po-razmescheniyu"
+   ]
+  },
+  "rug_rules": {
+   "front_legs_on_rug_cm": 25,
+   "longer_than_sofa_cm": [
+    30,
+    50
+   ],
+   "side_overhang_cm": [
+    15,
+    20
+   ],
+   "wall_clearance_cm": {
+    "default": 30,
+    "small_le16m2": 15
+   },
+   "verified_r2": {
+    "front_legs_scheme_side_overhang_each_cm": [
+     25,
+     35
+    ],
+    "beyond_furniture_min_cm": [
+     20,
+     30
+    ],
+    "island_floor_gap_perimeter_cm": [
+     30,
+     50
+    ],
+    "source": "https://kovroteka.com/blog/partnerstvo/kak-ne-oshibitsya-s-masshtabom/"
+   },
+   "wall_source": "https://www.tut-news.ru/dizayn-i-interer/pochemu-kovyor-v-gostinoy-dolzhen-byt-menshe-chem-kazhetsya-pravilo-30-santimetrov"
+  },
+  "window_tv_glare": {
+   "tv_screen_opposite_window": false,
+   "placement": "сбоку от окна; напротив окна только с затемнением",
+   "min_eye_to_screen_cm": 150,
+   "drywall_max_tv_kg": 30,
+   "sources": [
+    "https://www.inmyroom.ru/posts/6293-gde-i-kak-razmestit-televizor",
+    "https://design-homes.ru/komnaty/gostinaya/kak-ne-nado-razmeshchat-televizor"
+   ]
+  },
+  "window_sofa": {
+   "min_offset_from_window_cm": [
+    15,
+    20
+   ],
+   "sill_passage_cm": [
+    40,
+    45
+   ],
+   "backrest_not_above_glass_bottom": true,
+   "sources": [
+    "https://www.divan.ru/idei-i-trendy/sofa-by-the-window",
+    "https://www.domfront.ru/2025/08/divan-vozle-okna-v-gostinoj/"
+   ]
+  },
+  "door_swing": {
+   "leaf_width_cm": [
+    60,
+    90
+   ],
+   "swing_area_m2": 1.0,
+   "hinge_open_angle_deg": [
+    110,
+    120
+   ],
+   "clear_radius_before_door_cm": 100,
+   "balcony_door_clear_pass_cm": 60,
+   "balcony_door_min_height_cm": 190,
+   "drawer_cabinet_front_clear_cm": 60,
+   "sources": [
+    "https://www.4living.su/items/article/skolko-mesta-nuzhno-dlia-otkryvaniia-dveri-sravnivaem-populiarnye/",
+    "http://archkonstrukt.narod.ru/FRAM.files/OKNADVER.files/oknadver9.htm",
+    "https://cazarina.com/blog/kak-rasstavit-mebel-v-gostinoy/"
+   ]
+  },
+  "radiator": {
+   "hard_min_clearance_cm": [
+    15,
+    20
+   ],
+   "comfort_clearance_cm": [
+    50,
+    100
+   ],
+   "note": "вплотную нельзя (пластик/дерево особенно); 15-20 см допустимо при экране/низкой спинке",
+   "sources": [
+    "https://mebel.ru/articles/interer-i-oformlenie-doma/na-kakom-rasstoyanii-ot-radiatora-stavit-mebel-dec20/",
+    "https://www.divan.ru/idei-i-trendy/sofa-by-the-window"
+   ]
+  },
+  "narrow_room": {
+   "aspect_ratio_narrow_threshold": 1.5,
+   "min_comfort_width_cm": 250,
+   "ru_norm_living_min_width_cm": 320,
+   "sofa_orientation": "поперёк длинной оси, спинкой к входу",
+   "sofa_to_window_cm": 150,
+   "pass_behind_sofa_cm": 80,
+   "main_pass_cm": [
+    76,
+    91
+   ],
+   "secondary_pass_cm": [
+    46,
+    61
+   ],
+   "doorway_pass_cm": 61,
+   "float_from_wall_cm": [
+    30,
+    46
+   ],
+   "float_requires_pass_behind_cm": 76,
+   "two_facing_sofas_min_room_width_cm": [
+    335,
+    366
+   ],
+   "l_sofa": {
+    "short_leg_max_room_width_frac": 0.5,
+    "max_depth_cm": 91,
+    "long_leg": "вдоль длинной стены"
+   },
+   "diagonal": {
+    "angle_deg": 45,
+    "visual_widening_pct": [
+     20,
+     25
+    ],
+    "min_pass_cm": 80
+   },
+   "tv_wall": "короткая стена напротив поперечного дивана",
+   "sources": [
+    "https://cazarina.com/blog/kak-rasstavit-mebel-v-gostinoy/",
+    "https://planner5d.com/blog/narrow-living-room-layouts/",
+    "https://www.mebelevo.org/blog/planirovka-i-prostranstvo/kak-rasstavit-mebel-v-gostinoy-skhemy-dlya-raznykh-form-komnat/",
+    "https://www.belnovosti.by/dizayn-i-interer/kak-rasstavit-mebel-v-uzkoy-komnate-pravilo-prohoda-80-sm-i-diagonalnaya",
+    "https://mkad65.ru/optimalniy-razmer-komnat/",
+    "https://thestagingplace.ca/blog/guide-to-best-furniture-layout-narrow-living-room/"
+   ]
+  },
+  "chandelier_size": {
+   "diameter_cm_formula": "(L_m + W_m) * 8.2",
+   "diameter_in_formula": "L_ft + W_ft",
+   "height_in_per_ceiling_ft": [
+    2.5,
+    3
+   ],
+   "above_dining_table_bottom_cm": [
+    76,
+    86
+   ],
+   "diameter_to_table_width_ratio": [
+    0.5,
+    0.67
+   ],
+   "walkway_bottom_clearance_cm": 213,
+   "source": "https://www.lightopia.com/how-to-choose-a-chandelier-size"
+  },
+  "armchair_clearances": {
+   "width_cm": [
+    66,
+    81
+   ],
+   "depth_cm": [
+    70,
+    81
+   ],
+   "seat_height_cm": [
+    43,
+    48
+   ],
+   "compact_width_cm": [
+    61,
+    71
+   ],
+   "oversized_width_cm": [
+    81,
+    97
+   ],
+   "to_coffee_table_cm": [
+    41,
+    61
+   ],
+   "front_clear_cm": [
+    45,
+    60
+   ],
+   "side_clear_each_cm": [
+    25,
+    30
+   ],
+   "between_armchairs_center_to_center_cm": [
+    122,
+    244
+   ],
+   "facing_sofa_seat_to_seat_cm": [
+    183,
+    244
+   ],
+   "min_between_furniture_cm": 91,
+   "walk_around_cm": 91,
+   "sources": [
+    "https://penghaofurniture.com/blogs/chairs/accent-chair-dimensions-guide",
+    "https://loomlan.com/pages/accent-chair-guide",
+    "https://chitaliving.com/blogs/blog/two-accent-chairs-living-room-layout",
+    "https://rocabudesigns.com/en-us/blogs/living-room-design/living-room-furniture-spacing-rules"
+   ],
+   "placement_scheme": {
+    "mode": "procthor_arc",
+    "comment": "Решение владельца 2026-08-02: кресло ставится ПОЛУКРУГОМ к ТВ-зоне (вокруг столика), а не строго 90° к столику.",
+    "arc_deg_from_tv_axis": [
+     135,
+     225
+    ],
+    "jitter_deg": 35,
+    "face_target": "conversation_center",
+    "source": "external:github.com/allenai/procthor asset_groups/television-sofa.json (Apache-2.0)"
+   }
+  },
+  "cushions_count": {
+   "by_sofa_width_cm": [
+    {
+     "max_cm": 183,
+     "count": [
+      1,
+      3
+     ]
+    },
+    {
+     "min_cm": 190,
+     "max_cm": 241,
+     "count": 3,
+     "count_if_wider_than_229_cm": 5
+    },
+    {
+     "min_cm": 254,
+     "max_cm": 305,
+     "count": 5
+    },
+    {
+     "min_cm": 305,
+     "count": 7,
+     "pattern": "2+3+2"
+    }
+   ],
+   "sectional_under_254_cm": [
+    3,
+    5
+   ],
+   "armchair": [
+    0,
+    1
+   ],
+   "source": "https://onton.com/blog/the-perfect-number-of-throw-pillows-depending-on-couch-sizes"
+  },
+  "extras": {
+   "tv_center_height_cm": [
+    100,
+    120
+   ],
+   "tv_center_height_sources": [
+    "https://www.lg.com/ru/lg-magazine/how-to/na-kakoj-vysote-veshat-televizor-na-stenu",
+    "https://prodomdesign.ru/o-remonte/remont-gostinoj/tv-zona-rasstoyanie-razmeshhenie-i-oformlenie/"
+   ],
+   "spots": {
+    "one_spot_per_m2": [
+     1.5,
+     2
+    ],
+    "watt": [
+     5,
+     8
+    ],
+    "lumen": [
+     400,
+     700
+    ],
+    "source": "https://svetstolitsy.shop/blog/kak-rasschitat-kolichestvo-svetilnikov-v-komnate/"
+   },
+   "sockets": {
+    "tv_wall_mount_cm": [
+     120,
+     140
+    ],
+    "tv_on_stand_cm": [
+     20,
+     30
+    ],
+    "switch_cm": [
+     75,
+     90
+    ],
+    "general_cm": 30,
+    "source": "https://remplanner.ru/blog/rozetki_dlya_televizora_skolko_ix_nuzhno_i_na_kakoj_vysote/"
+   },
+   "floor_lamp": {
+    "height_reading_cm": [
+     127,
+     147
+    ],
+    "height_ambient_cm": [
+     147,
+     163
+    ],
+    "from_armrest_cm": [
+     15,
+     30
+    ],
+    "from_wall_cm": [
+     5,
+     10
+    ],
+    "source": "https://masdio.com/blogs/news/where-to-put-floor-lamp-in-living-room"
+   },
+   "dining_rug_overhang_min_cm": 61,
+   "dining_rug_source": "https://www.rugs-direct.com/dining-room-rug-size"
+  },
+  "corner_sofa_section_depth_cm": 95,
+  "judge_style_thr": 6
+ }
+}
