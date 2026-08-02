@@ -3,12 +3,12 @@ tier: 1
 topic: access-and-integrations
 scope: Интеграции/доступы — где ключи, эндпоинты, форматы, клиенты в коде
 tier2: "../domain/integrations.md"
-updated: 2026-08-01
+updated: 2026-08-02
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-07-21
+last_verified: 2026-08-02
 review_after: ""
 ---
 
@@ -35,6 +35,5 @@ review_after: ""
 - **Gemini:** один ключ на обе задачи; модели `gemini-3.1-flash-image` и `gemini-flash-latest`.
 - **OpenAI (ADR-0026):** ИИ-фолбэк парсинга ссылок; `OPENAI_EXTRACT_MODEL` (деф. `gpt-4o-mini`).
 - **Яндекс:** Метрика `110599064`; чужую кампанию `708745261` не трогать. [[marketing-acquisition]].
-- **UI-иконки:** PNG 512 от владельца (Drive `1l2j65g8…`) → `public/icons/`; только `<img>` (нет sharp).
 
-**Tier 2:** `../domain/integrations.md` (эндпоинты, форматы, env, цены). Решения — `decisions.md` (ADR-0007/0011/0012/0013).
+**Tier 2:** `../domain/integrations.md` (эндпоинты, форматы, env, фиды/наличие). Решения — ADR-0007/0011/0012/0013/0045.

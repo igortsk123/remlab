@@ -3,7 +3,7 @@ tier: 2
 topic: integrations-details
 scope: Детали внешних интеграций — эндпоинты, форматы запросов/ответов, env-переменные, конфиги, цены
 tier1: ../core/access-and-integrations.md
-updated: 2026-08-01
+updated: 2026-08-02
 importance: high
 source: manual
 status: working
@@ -130,3 +130,21 @@ last_verified: 2026-07-11
 - Вывод: главный денежный рычаг Stage 1 — стоимость **генерации** картинки; резолюция под free/paid — рычаг.
 
 **Tier 1:** `../core/access-and-integrations.md` — сводка-реестр. Решение по провайдерам — `decisions.md` (ADR-0007).
+
+
+## Гдеслон: свежесть фидов и наличие (2026-08-02, ADR-0045)
+- Выгрузки: ПОСТОЯННЫЕ ссылки export.gdeslon.ru/uploads/exports/<hash>.xml.zip — все 7 в
+  `_secrets/ACCESS.md`; фид регенерится на стороне Гдеслона (~ежесуточно, `yml_catalog date`).
+- ⚠️ `available` в выгрузках НЕ проставляется (все true) — наличие определять ТОЛЬКО по
+  карточкам магазинов: tvoydom — `"quantity":N` в инлайн-JSON (страница ~4 МБ, читать целиком;
+  текстовый маркер «нет в наличии» там ЛОЖНЫЙ — из шаблона); nonton/gipfel/sanok — текстовый
+  маркер честный; mnogomebeli/divanboss — SPA, карточки для прямого захода 404 → живость =
+  модель упоминается на странице серии.
+- `products.direct_url` = полный unquote goto= (для SPA-пары — обрезка до серии); реф-переход
+  строить deeplink'ом `sf.gdeslon.ru/cf/<токен>?mid=&goto=<direct_url>` — комиссия сохраняется.
+- Автоцикл: `tools/scout/refresh_daily.sh` (cron 09:40 + @reboot, guard) → load3.py (upsert,
+  снятие исчезнувших) → health.py (карточки, автозамены sets2) → sync_metrics.py (цены/размеры/
+  площади/перцентили тиров). XML API search — точечная перепроверка.
+
+## UI-иконки (перенос из Tier1-сводки, 2026-08-02)
+PNG 512 от владельца (Drive `1l2j65g8…`) → `public/icons/`; вставлять только `<img>` (sharp в проде нет).

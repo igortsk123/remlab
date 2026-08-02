@@ -9,7 +9,7 @@ source: manual
 status: working
 source_of_truth: canonical
 last_verified: 2026-07-11
-review_after: "2026-08-01"
+review_after: "2026-08-16"
 ---
 
 # Директ — кампании remlab (снимок 2026-07-11, этапная схема)

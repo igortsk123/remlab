@@ -12,14 +12,14 @@
 
 | Файл | topic | Когда читать (scope) | Tier 2 | updated |
 |------|-------|----------------------|--------|---------|
-| `access-and-integrations.md` | access-and-integrations | Интеграции/доступы — где ключи, эндпоинты, форматы, клиенты в коде | `../domain/integrations.md` | 2026-08-01 |
+| `access-and-integrations.md` | access-and-integrations | Интеграции/доступы — где ключи, эндпоинты, форматы, клиенты в коде | `../domain/integrations.md` | 2026-08-02 |
 | `architecture.md` | architecture | Стек, структура, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-07-31 |
 | `data-model.md` | data-model | Реальная схема БД (таблицы), изоляция сессий, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-07-31 |
 | `estimate.md` | estimate | Смета-лист (ядро v0.4) — калькуляторы, стоимость ремонта, чек-лист, /go/ реф | `../domain/pricing-works-ru.md` | 2026-07-31 |
-| `furniture.md` | furniture | Мебельный трек — каталог Гдеслона, сеты, витринная визуализация | `../domain/viz-fidelity-playbook.md` | 2026-08-01 |
+| `furniture.md` | furniture | Мебельный трек — каталог Гдеслона, сеты, витринная визуализация | `../domain/viz-fidelity-playbook.md` | 2026-08-02 |
 | `goals.md` | goals-furnish-fit | Цели продукта — v0.4 «Смета-first»; fit-ветка — отложена (архив) | `../goals-one-photo-furnish-fit.md` | 2026-07-09 |
 | `leads.md` | leads | Лид-канал «найдём дешевле» — заявка, служебный TG-бот, ответ реплаем | — | 2026-07-28 |
-| `lessons.md` | lessons | Уроки перед планированием — что пробовали и что НЕ сработало | `../anti-patterns.md` | 2026-08-01 |
+| `lessons.md` | lessons | Уроки перед планированием — что пробовали и что НЕ сработало | `../anti-patterns.md` | 2026-08-02 |
 | `lr-composition.md` | lr-composition | Композиция гостиной — доли площади по метражам (справка владельца) | `../domain/lr-composition-guide.md` | 2026-08-01 |
 | `market.md` | market | Рынок RU/UK — спрос, конкуренты, монетизация, оценки, контекст основателя | `../domain/market-research.md` | 2026-07-11 |
 | `marketing-acquisition.md` | marketing-acquisition | Привлечение/реклама — Яндекс, семантика ниши, сезонность, стратегия | `../domain/wordstat-semantics.md` | 2026-07-11 |
