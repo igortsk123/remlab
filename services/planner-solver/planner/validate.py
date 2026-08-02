@@ -16,6 +16,7 @@ from .geometry import (
     free_space,
     opening_polygon,
     radiator_polygon,
+    front_gap,
     relative_position,
     room_polygon,
     static_blockers,
@@ -138,6 +139,13 @@ def check_passages(room: Room, ps: list[Placement], kind: str = "secondary") -> 
     return out
 
 
+def _zone_gap(sofa: Placement, other: Placement) -> float:
+    """Дистанция зоны: от фронта посадочного места (у Г-дивана — длинной секции)."""
+    if sofa.item is not None and sofa.item.corner:
+        return front_gap(sofa, other)
+    return footprint(sofa).distance(footprint(other))
+
+
 def check_distances(room: Room, ps: list[Placement]) -> list[Violation]:
     """Шкалы проекта от площади: диван↔ТВ, диван↔столик (решения владельца)."""
     by = {p.role: p for p in ps}
@@ -145,19 +153,19 @@ def check_distances(room: Room, ps: list[Placement]) -> list[Violation]:
     tv = band_scale("sofa_tv_cm", room.band, distances().get("sofa_tv_cm", [180, 300]))
     tbl = band_scale("sofa_table_cm", room.band, distances().get("sofa_coffee_table", [36, 50]))
     if "диван" in by and "тв-тумба" in by:
-        g = footprint(by["диван"]).distance(footprint(by["тв-тумба"]))
+        g = _zone_gap(by["диван"], by["тв-тумба"])
         if not (tv[0] - EPS <= g <= tv[1] + EPS):
             out.append(_v("SOFA_TV_DIST", f"диван↔ТВ {g:.0f} см вне шкалы", ["диван", "тв-тумба"],
                           round(g), f"{tv[0]:.0f}–{tv[1]:.0f} см"))
     if "диван" in by and "столик" in by:
-        g = footprint(by["диван"]).distance(footprint(by["столик"]))
-        if not (tbl[0] - EPS <= g <= tbl[1] + EPS):
+        g = _zone_gap(by["диван"], by["столик"])
+        if not (tbl[0] <= g <= tbl[1]):
             out.append(_v("SOFA_TABLE_DIST", f"диван↔столик {g:.0f} см вне шкалы", ["диван", "столик"],
                           round(g), f"{tbl[0]:.0f}–{tbl[1]:.0f} см"))
     if "диван" in by and "кресло" in by:
         g = footprint(by["диван"]).distance(footprint(by["кресло"]))
-        lim = distances().get("facing_seats", [110, 240])[1]
-        if g > lim + EPS:
+        lim = distances().get("seats_group_max", 200)   # единый порог для обоих движков
+        if g > lim:
             out.append(_v("SEATS_TOO_FAR", f"диван↔кресло {g:.0f} см — зона разорвана", ["диван", "кресло"],
                           round(g), f"≤{lim:.0f} см"))
     return out
@@ -231,11 +239,6 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
             out.append(_v("TABLE_OFF_AXIS", f"столик смещён на {abs(lat):.0f} см от оси дивана",
                           ["диван", "столик"], round(abs(lat)), f"≤{half * 0.75:.0f} см"))
     arm = by.get("кресло")
-    if arm is not None and tbl is not None:
-        g = footprint(arm).distance(footprint(tbl))
-        if g > 120:
-            out.append(_v("ARMCHAIR_FAR_FROM_ZONE", f"кресло в {g:.0f} см от столика — вне полукруга",
-                          ["кресло", "столик"], round(g), "≤120 см"))
     if arm is not None and arm.item is not None:
         fwd, lat = relative_position(sofa, arm)
         if fwd < -20:

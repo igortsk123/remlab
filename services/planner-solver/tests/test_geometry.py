@@ -59,8 +59,10 @@ def test_free_space_subtracts_item_and_clearance():
 
 
 def test_free_space_subtracts_door_swing():
+    """Дуга двери вычитается целиком + технологический зазор (SAFE_GAP_CM)."""
     room = _room(openings=[Opening(kind="door", wall="south", offset_cm=20, width_cm=90, swing_cm=100)])
-    assert isclose(room_polygon(room).area - free_space(room, []).area, 90 * 100, rel_tol=1e-6)
+    cut = room_polygon(room).area - free_space(room, []).area
+    assert 90 * 100 <= cut <= (90 + 12) * (100 + 12)
 
 
 def test_floor_used_pct_counts_overlap_once():

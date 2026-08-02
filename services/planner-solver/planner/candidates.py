@@ -25,8 +25,9 @@ WALL_GAP_CM = 5.0       # технологический зазор от сте�
 # приоритет размещения: якоря зоны первыми (PT: PRIORITY_ASSET_TYPES для LivingRoom)
 # ТВ-зона первой: ТВ-тумба самая ограниченная (только у стены) и задаёт ось зоны —
 # ProcTHOR ставит Television первым в PRIORITY_ASSET_TYPES гостиной по той же причине.
-ROLE_ORDER = ["тв-тумба", "диван", "стенка", "камин", "столик", "кресло", "пуф", "стол обеденный",
-              "стул", "шкаф", "комод", "витрина", "стеллаж", "торшер", "кашпо", "ковёр"]
+# порядок: ось зоны (ТВ, диван) → крупное пристенное хранение → наполнение зоны → мелочь
+ROLE_ORDER = ["тв-тумба", "диван", "стенка", "камин", "шкаф", "комод", "витрина", "стеллаж",
+              "столик", "кресло", "пуф", "стол обеденный", "стул", "торшер", "кашпо", "ковёр"]
 
 WALLS = ("north", "south", "west", "east")
 # роли, которым разрешён «отплыв» от стены (наш narrow_room.float_from_wall + проход за спинкой)
@@ -127,6 +128,17 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
     role = item.role
     out: list[Candidate] = []
 
+    def seat_center(anchor: Placement) -> tuple[float, float]:
+        """Центр СВОБОДНОГО сегмента посадки: у Г-дивана короткое плечо занимает часть ширины,
+        и столик, центрированный по всей ширине, влезает прямо в плечо (был провал сетов 38/97)."""
+        if anchor.item is None or not anchor.item.corner:
+            return anchor.x, anchor.y
+        fx, fy = _face_dir(anchor.rot)
+        # плечо занимает локальный +x, что в мировых координатах = −lateral (см. relative_position),
+        # поэтому центр свободного сегмента смещаем на +lateral
+        lat = anchor.item.corner_section_cm / 2
+        return anchor.x + lat * (-fy), anchor.y + lat * fx
+
     def add(x: float, y: float, rot: float, note: str):
         p = Placement(role=role, x=x, y=y, rot=rot, item=item)
         if _fits(room, p, free):
@@ -141,27 +153,31 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
         tfp = footprint(tv)
         rot = (tv.rot + 180) % 360
         w, d = _dims_for_rot(item, rot)
-        for frac in (0.2, 0.4, 0.6, 0.8, 1.0):
-            gap = lo + (hi - lo) * frac
-            off = gap + _half_along(tfp, fx, fy) + d / 2
+        for frac in (0.15, 0.35, 0.55, 0.75, 0.9):
+            gap = min(max(lo + (hi - lo) * frac, lo + 3), hi - 3)   # держим запас от границ шкалы
+            from .geometry import seating_front_offset
+            off = gap + _half_along(tfp, fx, fy) + seating_front_offset(item)
             add(tv.x + fx * off, tv.y + fy * off, rot, f"напротив ТВ, {gap:.0f} см")
     if role == "тв-тумба" and sofa is not None:
         lo, hi = band_scale("sofa_tv_cm", room.band, distances().get("sofa_tv_cm", [180, 300]))
         fx, fy = _face_dir(sofa.rot)
         sfp = footprint(sofa)
         for frac in (0.35, 0.5, 0.75):
-            gap = lo + (hi - lo) * frac
+            gap = min(max(lo + (hi - lo) * frac, lo + 3), hi - 3)
             w, d = _dims_for_rot(item, (sofa.rot + 180) % 360)
-            cx = sofa.x + fx * (gap + _half_along(sfp, fx, fy) + d / 2)
-            cy = sofa.y + fy * (gap + _half_along(sfp, fx, fy) + d / 2)
+            scx, scy = seat_center(sofa)
+            cx = scx + fx * (gap + _half_along(sfp, fx, fy) + d / 2)
+            cy = scy + fy * (gap + _half_along(sfp, fx, fy) + d / 2)
             add(cx, cy, (sofa.rot + 180) % 360, f"напротив дивана, {gap:.0f} см")
     if role == "столик" and sofa is not None:
         lo, hi = band_scale("sofa_table_cm", room.band, distances().get("sofa_coffee_table", [36, 50]))
         fx, fy = _face_dir(sofa.rot)
         sfp = footprint(sofa)
-        for gap in (lo, (lo + hi) / 2, hi):
-            off = gap + _half_along(sfp, fx, fy) + _dims_for_rot(item, sofa.rot)[1] / 2
-            add(sofa.x + fx * off, sofa.y + fy * off, sofa.rot, f"перед диваном, {gap:.0f} см")
+        from .geometry import seating_front_offset
+        scx, scy = seat_center(sofa)
+        for gap in (lo + 3, (lo + hi) / 2, hi - 3):
+            off = gap + seating_front_offset(sofa.item) + _dims_for_rot(item, sofa.rot)[1] / 2
+            add(scx + fx * off, scy + fy * off, sofa.rot, f"перед диваном, {gap:.0f} см")
     if role == "кресло" and sofa is not None:
         out += _arc_candidates(room, item, by, free, sofa)
     if role == "пуф" and ("столик" in by or sofa is not None):
@@ -230,8 +246,19 @@ def _rot_towards(x: float, y: float, tx: float, ty: float) -> int:
     return 0 if dy > 0 else 180
 
 
-# Предметы разговорной зоны: между собой их зоны подхода не блокируют друг друга
-ZONE_GROUP = frozenset({"диван", "столик", "кресло", "пуф"})
+# Функциональные группы: внутри группы зоны подхода друг друга не блокируют (стул ДОЛЖЕН стоять
+# в зоне «отодвинуть стул» у стола, кресло — у фронта дивана). Идея ProcTHOR: asset group ставится
+# целиком, margin применяется к группе, а не к её членам.
+GROUPS = (frozenset({"диван", "столик", "кресло", "пуф"}),
+          frozenset({"стол обеденный", "стул"}))
+ZONE_GROUP = GROUPS[0]
+
+
+def group_of(role: str) -> frozenset[str]:
+    for g in GROUPS:
+        if role in g:
+            return g
+    return frozenset()
 
 
 def is_low(item: Item) -> bool:
@@ -241,7 +268,7 @@ def is_low(item: Item) -> bool:
 
 def generate(room: Room, item: Item, placed: list[Placement], *, limit: int = 48) -> list[Candidate]:
     """Все кандидаты для предмета при текущем состоянии комнаты (дедуп по сетке 10 см)."""
-    ignore = ZONE_GROUP if item.role in ZONE_GROUP else frozenset()
+    ignore = group_of(item.role)
     free_poly = free_space(room, placed, with_clearance=not is_low(item), ignore_access_of=ignore)
     free = _Fitter(room, free_poly)
     cands = anchor_candidates(room, item, placed, free)

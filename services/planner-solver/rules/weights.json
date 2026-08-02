@@ -19,5 +19,6 @@
  "wall_centering": 3,
  "armchair_zone_radius": 6,
  "armchair_not_at_tv": 4,
- "sliver_gap": 5
+ "sliver_gap": 5,
+ "empty_wall_behind_sofa": 6
 }

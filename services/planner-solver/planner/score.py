@@ -66,6 +66,22 @@ def _wall_distance(room: Room, p: Placement) -> float:
     return min(x0, y0, room.width_cm - x1, room.depth_cm - y1)
 
 
+BACKING_ROLES = ("стеллаж", "комод", "стенка", "витрина", "шкаф", "камин", "столик")
+
+
+def _storage_behind(room: Room, sofa: Placement, ps: list[Placement]) -> bool:
+    """Есть ли предмет в полосе между спинкой дивана и стеной за ним."""
+    from shapely.geometry import box as _box
+
+    fx, fy = facing_vector(sofa.rot)
+    x0, y0, x1, y1 = footprint(sofa).bounds
+    if abs(fy) > abs(fx):                      # зона по оси Y — полоса за спинкой до стены
+        strip = _box(x0 - 40, 0, x1 + 40, y0) if fy > 0 else _box(x0 - 40, y1, x1 + 40, room.depth_cm)
+    else:
+        strip = _box(0, y0 - 40, x0, y1 + 40) if fx > 0 else _box(x1, y0 - 40, room.width_cm, y1 + 40)
+    return any(p.role in BACKING_ROLES and footprint(p).intersects(strip) for p in ps if p is not sofa)
+
+
 def score_layout(room: Room, ps: list[Placement], *, fast: bool = False) -> Score:
     w = weights()
     s = Score()
@@ -88,7 +104,7 @@ def score_layout(room: Room, ps: list[Placement], *, fast: bool = False) -> Scor
         s.add("sofa_table_dist", hinge(g, lo, hi), w["sofa_table_dist"])
     if "кресло" in by and "диван" in by:
         g = footprint(by["кресло"]).distance(footprint(by["диван"]))
-        lo, hi = distances().get("facing_seats", [110, 240])
+        hi = distances().get("seats_group_max", 200)
         s.add("seats_group", hinge(g, 0, hi), w["seats_group"])
         if "тв-тумба" in by:
             s.add("armchair_faces_tv", focus_score(by["кресло"], by["тв-тумба"]), w["armchair_faces_tv"])
@@ -104,6 +120,10 @@ def score_layout(room: Room, ps: list[Placement], *, fast: bool = False) -> Scor
         if p.role in ("шкаф", "комод", "стенка", "витрина", "стеллаж", "тв-тумба", "камин"):
             s.add("wall_hug", hinge(d, 0, 15, scale=50.0), w["wall_hug"])
         if p.role == "диван":
+            # «диван по центру» допустим, но тогда стена ЗА ним не должна пустовать
+            # (вердикт владельца 2026-08-02): либо диван к стене, либо за ним хранение/консоль
+            if d > 60 and not _storage_behind(room, p, ps):
+                s.add("empty_wall_behind_sofa", min(d - 60, 200) / 100.0, w["empty_wall_behind_sofa"])
             # диван либо ВПЛОТНУЮ к стене, либо «отплыл» с проходом за спинкой (≥76 см);
             # промежуточное положение — щель, в которую не пройти (наш narrow_room-свод)
             pass_behind = distances().get("sofa_to_wall_passage", 70)

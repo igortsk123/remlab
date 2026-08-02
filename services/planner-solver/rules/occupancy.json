@@ -421,7 +421,9 @@
   "art_bottom_above_furniture": [
    15,
    20
-  ]
+  ],
+  "seats_group_max": 200,
+  "_note_seats_group_max": "facing_seats 110–240 — про кресла НАПРОТИВ друг друга; для связности зоны (кресло у дивана) берём 200 см — порог, по которому scout судил раскладки с самого начала"
  },
  "dynamic": {
   "version": "round2-2026-08-01",

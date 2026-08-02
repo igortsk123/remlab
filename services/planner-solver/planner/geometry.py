@@ -16,6 +16,9 @@ from shapely.ops import unary_union
 from .clearances import ClearanceSpec, clearance_for
 from .models import Item, Opening, Placement, Radiator, Room
 
+SAFE_GAP_CM = 3.0   # запас у статических блокеров (дверь/радиатор): касание = нарушение
+
+
 # «Лицо» предмета по повороту (см. models: rot 0 → +y, 90 → +x, 180 → −y, 270 → −x)
 def facing_vector(rot: float) -> tuple[float, float]:
     r = math.radians(rot)
@@ -96,6 +99,28 @@ def access_zone(p: Placement, item: Item | None = None, spec: ClearanceSpec | No
     return translate(zone, p.x, p.y)
 
 
+def seating_front_offset(item: Item) -> float:
+    """Расстояние от центра предмета до его ФРОНТА вдоль оси «лица» (см).
+
+    Для Г-дивана фронт — передняя грань длинной секции, а не край короткого плеча:
+    иначе столик и ТВ отмеряются от плеча и уезжают на 60+ см от места, где сидят.
+    """
+    if not item.corner:
+        return item.d_cm / 2
+    d = max(item.d_cm, item.corner_section_cm + 1)
+    return item.corner_section_cm - d / 2
+
+
+def front_gap(anchor: Placement, target: Placement) -> float:
+    """Зазор от фронта якоря до ближней грани цели вдоль оси «лица» якоря (см)."""
+    if anchor.item is None or target.item is None:
+        return footprint(anchor).distance(footprint(target))
+    fwd, _lat = relative_position(anchor, target)
+    tw, td = (target.item.d_cm, target.item.w_cm) if int(target.rot) % 180 == 90 else (target.item.w_cm, target.item.d_cm)
+    near = abs(fwd) - td / 2
+    return near - seating_front_offset(anchor.item)
+
+
 def relative_position(anchor: Placement, target: Placement) -> tuple[float, float]:
     """Позиция target в ЛОКАЛЬНОЙ системе anchor: (вперёд вдоль лица, вбок).
 
@@ -132,7 +157,11 @@ def swing_polygon(room: Room, op: Opening) -> Polygon:
     """
     if op.kind == "window" or op.swing_cm <= 0:
         return Polygon()
-    return _wall_strip(room, op.wall, op.offset_cm, op.width_cm, op.swing_cm)
+    # +SAFE_GAP: предмет ВПЛОТНУЮ к дуге у соседней проверки (intersects) уже считается
+    # нарушением — держим зазор (прямоугольником, БЕЗ buffer: круглые углы плодят вершины,
+    # а перебор свободных прямоугольников квадратично чувствителен к их числу)
+    return _wall_strip(room, op.wall, op.offset_cm - SAFE_GAP_CM, op.width_cm + 2 * SAFE_GAP_CM,
+                       op.swing_cm + SAFE_GAP_CM)
 
 
 def radiator_polygon(room: Room, rad: Radiator) -> Polygon:
@@ -208,7 +237,9 @@ def largest_free_rectangles(poly: Polygon, min_side_cm: float = 50.0, limit: int
             for x, y in ring.coords:
                 xs.add(round(x, 3))
                 ys.add(round(y, 3))
-    xs, ys = sorted(xs), sorted(ys)
+    # квантуем координаты: перебор пар по обеим осям квартичен, лишние вершины его убивают
+    xs = sorted({round(v / 5) * 5 for v in xs})
+    ys = sorted({round(v / 5) * 5 for v in ys})
     rects: list[Polygon] = []
     for i in range(len(xs) - 1):
         for j in range(i + 1, len(xs)):
