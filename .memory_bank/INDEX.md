@@ -27,6 +27,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт ремонта/м�
 | Трейсинг AI-пайплайна — лог вызовов LLM, «номер генерации», разбор | `core/observability-tracing.md` | `../domain/observability.md` |
 | Бизнес-контекст — зачем/для кого; v0.4 «Смета-first» (v0.3 — истор.) | `product_brief.md` | `domain/brief-details.md` |
 | Регресс-защита — тесты, CI, eval, гардрейлы, DoD | `core/regression-net.md` | `../../docs/tech-spec-ts-stack.md` |
+| Стили интерьера — паспорта, стиль-скоринг товаров, сеты и генерация под стиль | `core/styles.md` | `../domain/interior-styles.md` |
 | Stage 1 UX-flow, экраны, аналитика | `core/user-flow.md` | `../domain/user-flow-details.md` |
 | Состав гостиной — обязательные категории сета и пригодность товаров | `core/lr-checklist.md` | `../domain/living-room-checklist.md` |
 <!-- GENERATED:decision-tree END -->

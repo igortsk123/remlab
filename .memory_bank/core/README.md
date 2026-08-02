@@ -25,6 +25,7 @@
 | `marketing-acquisition.md` | marketing-acquisition | Привлечение/реклама — Яндекс, семантика, стратегия | `../domain/wordstat-semantics.md` | 2026-07-11 |
 | `observability-tracing.md` | observability-tracing | Трейсинг AI-пайплайна — лог вызовов LLM, «номер генерации», разбор | `../domain/observability.md` | 2026-07-09 |
 | `regression-net.md` | regression-net | Регресс-защита — тесты, CI, eval, гардрейлы, DoD | `../../docs/tech-spec-ts-stack.md` | 2026-07-11 |
+| `styles.md` | styles | Стили интерьера — паспорта, стиль-скоринг товаров, сеты и генерация под стиль | `../domain/interior-styles.md` | 2026-08-02 |
 | `user-flow.md` | user-flow | Stage 1 UX-flow, экраны, аналитика | `../domain/user-flow-details.md` | 2026-07-31 |
 | `lr-checklist.md` | lr-checklist | Состав гостиной — обязательные категории сета и пригодность товаров | `../domain/living-room-checklist.md` | 2026-08-02 |
 <!-- GENERATED:core-registry END -->
