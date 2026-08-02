@@ -18,8 +18,11 @@ status: working
 столик по шкале, кресло ПОЛУКРУГОМ к ТВ 135–225°±35° (ADR-0051, было 90° к столику),
 пуф вне оси, буфер 65 см, бронь полосы за диваном;
 Г-диван полигоном в угол, float к ТВ), DFS Holodeck — только периферия; hard-проверки по шкалам.
-**Прод-ядро**: план [[prod-layout-engine]] — кандидаты → hard → beam search → скоринг →
-top-K с объяснениями; спека `../guides/layout-engine-spec.md`. **Э0 ГОТОВ** (2026-08-02):
+**Прод-ядро** (ADR-0052, `services/planner-solver/`, Python+shapely, БЕЗ ML): кандидаты → hard-фильтр
+→ beam search (20×8) → скоринг (`services/planner-solver/rules/weights.json`) → уточнение → top-K с объяснениями.
+**Э1–Э5 в коде**, 60 тестов, 1.5–2.2 с/комнату, детерминизм; канон правил переехал в
+`services/planner-solver/rules/occupancy.json` (был вне git). Осталось: Э6 LLM-слой, Э7 интеграция
+со scout (`--engine beam`). Спека `../guides/layout-engine-spec.md`. **Э0 ГОТОВ** (2026-08-02):
 118 правил из ProcTHOR/Infinigen/Holodeck + clean-room из NC-статей → `../guides/layout-mined-rules.md`
 (там же 15 модулей к легальному vendor/adapt и 15 конфликтов с нашими правилами — при конфликте
 канон наш: `occupancy.json` + решения владельца). Clean-room обязателен: NC-код не копируем.
