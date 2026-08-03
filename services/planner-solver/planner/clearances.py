@@ -73,7 +73,10 @@ def _table() -> dict[str, ClearanceSpec]:
         "тв-тумба": ClearanceSpec(45, 0, 0, "подход к технике"),
         "камин": ClearanceSpec(_d("fireplace_clear", 100), 0, 0, "безопасная зона у камина"),
         # обеденная группа: отодвинуть стул
-        "стол обеденный": ClearanceSpec(_d("dining_chair_pullout", 55), _d("dining_chair_pullout", 55), _d("dining_chair_pullout", 55), "отодвинуть стул"),
+        # стол обеденный: стулья отодвигают с трёх сторон; четвёртая может быть у стены —
+        # наш свод прямо это допускает (dining_table_to_wall_no_pass 91 см), а клиренс со ВСЕХ
+        # сторон требовал остров 2.3×2.0 м и рушил 6 сетов из 126
+        "стол обеденный": ClearanceSpec(_d("dining_chair_pullout", 55), _d("dining_chair_pullout", 55), 0, "отодвинуть стул"),
         "стул": ClearanceSpec(_d("dining_chair_pullout", 55), 0, 0, "отодвинуть стул"),
         # мелочь клиренса не требует
         "столик": ClearanceSpec(0, 0, 0, "журнальный столик — центр зоны"),
