@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .candidates import Candidate, generate, order_items
+from .clearances import rules
 from .geometry import footprint
 from .models import Item, Layout, Placement, Room, Severity
 from .refine import refine, repair_unplaced
@@ -32,23 +33,23 @@ from .validate import (
 BEAM_WIDTH = 20          # спека: 20–30
 CAND_PER_ITEM = 8        # сколько кандидатов раскрываем от каждого состояния
 DIVERSITY_CM = 60.0      # два варианта «разные», если хоть один предмет сдвинут дальше этого
-# штраф за НЕразмещённый предмет: без него ветка «выкинуть ТВ» побеждает ветку «подвинуть диван»
-# цена «не поставить» по важности предмета: без градации движок выкидывал СТЕЛЛАЖ, лишь бы
-# оставить кашпо (штрафы были равны). Ядро зоны > крупное хранение > мелочь/декор.
-CORE_ROLES = frozenset({"диван", "тв-тумба", "столик", "кресло"})
-STORAGE_ROLES = frozenset({"шкаф", "стенка", "комод", "витрина", "стеллаж", "камин",
-                           "стол обеденный"})
-# штраф должен ЗАВЕДОМО перевешивать сумму мягких (плавающий Г-диван в большой комнате
-# набирал 40+ штрафа, и ветка «выкинуть диван» обгоняла ветку «оставить диван»)
-UNPLACED_PENALTY = {"core": 400.0, "storage": 200.0, "other": 40.0}
+# Ярусы наполнения гостиной берём из ФАЙЛА правил (placement_tiers), не из кода: база
+# обязательна, хранение и обеденная группа — по площади, остальное по остаточному принципу.
+# Штраф за неразмещённое должен ЗАВЕДОМО перевешивать сумму мягких штрафов (плавающий Г-диван
+# в большой комнате набирал 40+, и ветка «выкинуть диван» обгоняла ветку «оставить»).
+UNPLACED_PENALTY = {"base": 400.0, "storage": 200.0, "dining": 120.0, "optional": 40.0}
+
+
+def tier_of(role: str) -> str:
+    t = rules().get("placement_tiers", {})
+    for name in ("base", "storage", "dining", "optional"):
+        if role in t.get(name, ()):
+            return name
+    return "optional"
 
 
 def _unplaced_cost(role: str) -> float:
-    if role in CORE_ROLES:
-        return UNPLACED_PENALTY["core"]
-    if role in STORAGE_ROLES:
-        return UNPLACED_PENALTY["storage"]
-    return UNPLACED_PENALTY["other"]
+    return UNPLACED_PENALTY.get(tier_of(role), 40.0)
 
 
 @dataclass
@@ -89,7 +90,7 @@ def _diverse(a: State, b: State) -> bool:
             return True
         # разворот считается «другим вариантом» только для якорей зоны: повёрнутое кашпо —
         # не другая планировка (иначе top-K заполняется клонами)
-        if p.role in CORE_ROLES and int(p.rot) != int(q.rot):
+        if tier_of(p.role) == "base" and int(p.rot) != int(q.rot):
             return True
     return False
 
@@ -166,7 +167,8 @@ def solve(room: Room, items: list[Item], *, top_k: int = 3, beam_width: int = BE
     # разнообразие проверяем ПОСЛЕ доводки: уточнение стягивает похожие ветки в одну точку
     for st in keep_best_diverse(pool, max(top_k * 4, 8)):
         layout = validate(room, st.placements)
-        layout.unplaced = st.unplaced
+        layout.unplaced = [r for r in st.unplaced if tier_of(r) != "optional"]
+        layout.skipped_optional = [r for r in st.unplaced if tier_of(r) == "optional"]
         if polish:                      # Э4: доводка — снимает остаточные нарушения
             if layout.unplaced:         # ...и перестановка ради непоставленного (шаг 1 плана gaps)
                 layout = repair_unplaced(room, layout, items)

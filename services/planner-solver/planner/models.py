@@ -100,9 +100,15 @@ class Layout(BaseModel):
     placements: list[Placement]
     violations: list[Violation] = Field(default_factory=list)
     floor_used_pct: float | None = None
-    unplaced: list[str] = Field(default_factory=list)
+    unplaced: list[str] = Field(default_factory=list, description="базовое/крупное, что НЕ встало — это проблема")
+    skipped_optional: list[str] = Field(default_factory=list,
+                                        description="опциональное, для которого не нашлось места — норма")
 
     @property
     def ok(self) -> bool:
-        """Валидна = ни одного hard-нарушения И все запрошенные предметы размещены."""
+        """Валидна = нет hard-нарушений И всё ОБЯЗАТЕЛЬНОЕ размещено.
+
+        Пропуск опционального (кресло/пуф/кашпо в тесной комнате) браком не считается —
+        состав гостиной зависит от площади (чек-лист + решение владельца 2026-08-03).
+        """
         return not self.unplaced and not any(v.severity is Severity.HARD for v in self.violations)

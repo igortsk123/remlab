@@ -870,5 +870,95 @@
   "chair_requires_dining_table": true,
   "zone_buffer_cm": 40,
   "zone_buffer_note": "посторонняя мебель не ближе этого к дивану/столику; 65 см из ADR-0050 были настроены под DFS-периферию, для beam достаточно 40 (остальное держат ACCESS_BLOCKED и штраф за щели)"
+ },
+ "placement_tiers": {
+  "_note": "Ярусы наполнения гостиной: база обязательна, дальше — по остаточному принципу от площади. Источник: наш чек-лист domain/living-room-checklist.md (сводка RU+EN дизайнерских списков) + решение владельца 2026-08-03: не влезший ОПЦИОНАЛЬНЫЙ предмет — не провал раскладки.",
+  "base": [
+   "диван",
+   "столик",
+   "тв-тумба",
+   "ковёр"
+  ],
+  "storage": [
+   "стенка",
+   "комод",
+   "стеллаж",
+   "шкаф",
+   "витрина"
+  ],
+  "optional": [
+   "кресло",
+   "торшер",
+   "кашпо",
+   "пуф",
+   "камин"
+  ],
+  "dining": [
+   "стол обеденный",
+   "стул"
+  ],
+  "decor_non_floor": [
+   "подушка",
+   "плед",
+   "ваза",
+   "лампа",
+   "люстра"
+  ],
+  "max_floor_items_by_band": {
+   "14-16": 5,
+   "17-20": 7,
+   "21-25": 8,
+   "26-30": 10,
+   "31-40": 11,
+   "41-50": 12,
+   "50+": 12
+  },
+  "tiers_allowed_by_band": {
+   "14-16": [
+    "base",
+    "storage"
+   ],
+   "17-20": [
+    "base",
+    "storage",
+    "optional"
+   ],
+   "21-25": [
+    "base",
+    "storage",
+    "optional",
+    "dining"
+   ],
+   "26-30": [
+    "base",
+    "storage",
+    "optional",
+    "dining"
+   ],
+   "31-40": [
+    "base",
+    "storage",
+    "optional",
+    "dining"
+   ],
+   "41-50": [
+    "base",
+    "storage",
+    "optional",
+    "dining"
+   ],
+   "50+": [
+    "base",
+    "storage",
+    "optional",
+    "dining"
+   ]
+  },
+  "sources": [
+   "https://www.ivd.ru/dizajn-i-dekor/gostinaa/kak-oformit-interer-gostinoj-komnaty-plosadu-18-kvadratnyh-metrov-6-resenij-26891",
+   "https://www.mrdoors.ru/blog_new/dizayn_gostinoy_18_kv_m_idei_i_sovety_po_planirovke_i_oformleniyu/",
+   "https://parachutehome.com/blogs/posts/living-room-essentials-stylish-functional-necessities",
+   "https://inhabitr.com/blog/essential-furniture-pieces-for-a-living-room-a-checklist"
+  ]
  }
 }
