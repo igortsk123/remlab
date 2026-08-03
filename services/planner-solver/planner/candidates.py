@@ -216,7 +216,10 @@ def _arc_candidates(room: Room, item: Item, by: dict, free: Polygon, sofa: Place
     jit = scheme.get("jitter_deg", 35)
     center = by.get("столик") or sofa
     cx, cy = center.x, center.y
-    base = max(item.w_cm, item.d_cm) / 2 + 45 + max(center.item.w_cm, center.item.d_cm) / 2
+    # зазор кресло↔столик = зазор диван↔столик (шкала площади): зона собрана, а не рыхлая
+    lo_t, hi_t = band_scale("sofa_table_cm", room.band, distances().get("sofa_coffee_table", [36, 50]))
+    gap_t = (lo_t + hi_t) / 2
+    base = max(item.w_cm, item.d_cm) / 2 + gap_t + max(center.item.w_cm, center.item.d_cm) / 2
     out: list[Candidate] = []
     for th in (lo, hi, lo + jit, hi - jit, lo - jit, hi + jit):
         for k in (1.0, 1.35, 1.7):

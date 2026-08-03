@@ -106,6 +106,34 @@ def keep_best_diverse(states: list[State], k: int) -> list[State]:
     return out
 
 
+def drop_optional_until_valid(room: Room, layout: Layout) -> Layout:
+    """Раскладка не сходится → УБИРАЕМ опциональное, а не ставим его с нарушением.
+
+    Иначе движок отдавал «лучшее из плохого»: кресло вставало в один ряд с ТВ-тумбой, лишь бы
+    стоять. Опциональный предмет, которому нет законного места, — это норма (ярусы наполнения).
+    """
+    if layout.ok:
+        return layout
+    guilty_first = sorted(
+        [p for p in layout.placements if tier_of(p.role) == "optional"],
+        key=lambda p: 0 if any(p.role in v.roles for v in layout.violations
+                               if v.severity is Severity.HARD) else 1)
+    dropped: list[str] = []
+    cur = layout
+    for p in guilty_first:
+        if cur.ok:
+            break
+        trial = validate(room, [q for q in cur.placements if q is not p])
+        if len(trial.violations) < len(cur.violations) or trial.ok:
+            dropped.append(p.role)
+            trial.unplaced = list(cur.unplaced)
+            trial.skipped_optional = list(cur.skipped_optional) + [p.role]
+            cur = trial
+    if dropped:
+        cur.skipped_optional = sorted(set(cur.skipped_optional))
+    return cur
+
+
 def solve(room: Room, items: list[Item], *, top_k: int = 3, beam_width: int = BEAM_WIDTH,
           cand_per_item: int = CAND_PER_ITEM, polish: bool = True) -> list[Layout]:
     """Комната + предметы → до top_k валидных РАЗНЫХ раскладок, лучшие первыми."""
@@ -173,6 +201,7 @@ def solve(room: Room, items: list[Item], *, top_k: int = 3, beam_width: int = BE
             if layout.unplaced:         # ...и перестановка ради непоставленного (шаг 1 плана gaps)
                 layout = repair_unplaced(room, layout, items)
             layout = refine(room, layout)
+            layout = drop_optional_until_valid(room, layout)
         cand = State(layout.placements, layout.unplaced, st.score, st.penalty)
         if any(not _diverse(cand, k) for k in kept):
             continue

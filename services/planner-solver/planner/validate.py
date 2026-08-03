@@ -275,6 +275,9 @@ def check_behind_sofa(room: Room, ps: list[Placement]) -> list[Violation]:
     return out
 
 
+_ROOM_BAND = [None]      # текущий бэнд для проверок зоны (ставится в validate)
+
+
 def check_zone(ps: list[Placement]) -> list[Violation]:
     """Разговорная зона — не набор «где-то рядом»: столик перед диваном, кресло в зоне.
 
@@ -296,7 +299,24 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
         elif abs(lat) > half * 0.75:
             out.append(_v("TABLE_OFF_AXIS", f"столик смещён на {abs(lat):.0f} см от оси дивана",
                           ["диван", "столик"], round(abs(lat)), f"≤{half * 0.75:.0f} см"))
+    pouf = by.get("пуф")
+    if pouf is not None:
+        fwd, lat = relative_position(sofa, pouf)
+        if fwd <= 0:
+            out.append(_v("POUF_BEHIND_SOFA", "пуф стоит за диваном", ["диван", "пуф"],
+                          round(fwd), "перед фронтом дивана"))
+        elif abs(lat) > half + 80:
+            out.append(_v("POUF_OUT_OF_ZONE", f"пуф в {abs(lat):.0f} см вбок от зоны", ["пуф"],
+                          round(abs(lat)), f"≤{half + 80:.0f} см"))
     arm = by.get("кресло")
+    if arm is not None and tbl is not None and _lr("armchair_to_table_same_as_sofa", True):
+        from .clearances import band_scale as _bs
+        lo_t, hi_t = _bs("sofa_table_cm", _ROOM_BAND[0], distances().get("sofa_coffee_table", [36, 50]))
+        g = footprint(arm).distance(footprint(tbl))
+        if not (lo_t - 5 <= g <= hi_t + 60):
+            out.append(_v("ARMCHAIR_TABLE_DIST", f"кресло в {g:.0f} см от столика — вне зоны",
+                          ["кресло", "столик"], round(g),
+                          f"{lo_t:.0f}–{hi_t + 60:.0f} см (зона вокруг столика)"))
     if arm is not None and arm.item is not None:
         fwd, lat = relative_position(sofa, arm)
         if fwd < -20:
@@ -378,6 +398,15 @@ def check_layout_rules(room: Room, ps: list[Placement]) -> list[Violation]:
             # мягко: в комнате 50+ Г-диван ОБЯЗАН отплыть от стены, иначе не выполнить шкалу диван↔ТВ
             out.append(_v("CORNER_SOFA_ADRIFT", "угловой диван стоит посреди комнаты", ["диван"],
                           None, "хотя бы одна секция к стене", Severity.SOFT))
+    if "кресло" in by and sofa is not None and by.get("столик") is not None:
+        # кресло стоит НА ЛИНИИ столика (полукруг вокруг зоны), а не глубже — иначе оно уезжает
+        # к ТВ-тумбе и читается как часть ТВ-зоны (вердикт владельца 2026-08-03). Проверка «та же
+        # стена» не годится: в углу предмет числится по соседней стене и правило не срабатывало.
+        fwd_a, _ = relative_position(sofa, by["кресло"])
+        fwd_t, _ = relative_position(sofa, by["столик"])
+        if fwd_a > fwd_t + 80:
+            out.append(_v("ARMCHAIR_TOO_DEEP", "кресло уехало за столик, к ТВ-зоне", ["кресло", "столик"],
+                          round(fwd_a - fwd_t), "не дальше 80 см за линию столика"))
     if "стул" in by and "стол обеденный" not in by and _lr("chair_requires_dining_table", True):
         out.append(_v("CHAIR_WITHOUT_TABLE", "стул без обеденного стола", ["стул"], None,
                       "стул ставится только к столу"))
@@ -410,6 +439,7 @@ def check_floor_cap(room: Room, ps: list[Placement]) -> list[Violation]:
 
 
 def validate(room: Room, placements: list[Placement], *, passage: str = "secondary") -> Layout:
+    _ROOM_BAND[0] = room.band
     vs: list[Violation] = []
     vs += check_boundary(room, placements)
     vs += check_collisions(placements)
