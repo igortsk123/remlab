@@ -11,14 +11,16 @@ from dataclasses import dataclass, field
 from .candidates import Candidate, generate, order_items
 from .geometry import footprint
 from .models import Item, Layout, Placement, Room
-from .refine import refine
+from .refine import refine, repair_unplaced
 from .score import Score, score_layout
 from .validate import (
+    check_access,
     check_behind_sofa,
     check_boundary,
     check_distances,
     check_collisions,
     check_facing,
+    check_layout_rules,
     check_openings,
     check_radiators,
     check_sightline,
@@ -31,8 +33,20 @@ BEAM_WIDTH = 20          # спека: 20–30
 CAND_PER_ITEM = 8        # сколько кандидатов раскрываем от каждого состояния
 DIVERSITY_CM = 60.0      # два варианта «разные», если хоть один предмет сдвинут дальше этого
 # штраф за НЕразмещённый предмет: без него ветка «выкинуть ТВ» побеждает ветку «подвинуть диван»
+# цена «не поставить» по важности предмета: без градации движок выкидывал СТЕЛЛАЖ, лишь бы
+# оставить кашпо (штрафы были равны). Ядро зоны > крупное хранение > мелочь/декор.
 CORE_ROLES = frozenset({"диван", "тв-тумба", "столик", "кресло"})
-UNPLACED_PENALTY = {"core": 120.0, "other": 25.0}
+STORAGE_ROLES = frozenset({"шкаф", "стенка", "комод", "витрина", "стеллаж", "камин",
+                           "стол обеденный"})
+UNPLACED_PENALTY = {"core": 120.0, "storage": 80.0, "other": 15.0}
+
+
+def _unplaced_cost(role: str) -> float:
+    if role in CORE_ROLES:
+        return UNPLACED_PENALTY["core"]
+    if role in STORAGE_ROLES:
+        return UNPLACED_PENALTY["storage"]
+    return UNPLACED_PENALTY["other"]
 
 
 @dataclass
@@ -53,7 +67,8 @@ def _hard_ok(room: Room, ps: list[Placement]) -> bool:
                 or check_openings(room, ps) or check_radiators(room, ps)
                 or check_facing(ps) or check_distances(room, ps)
                 or check_wall_only(room, ps) or check_zone(ps)
-                or check_sightline(ps) or check_behind_sofa(room, ps))
+                or check_sightline(ps) or check_behind_sofa(room, ps)
+                or check_layout_rules(room, ps) or check_access(ps))
 
 
 def _diverse(a: State, b: State) -> bool:
@@ -101,7 +116,7 @@ def solve(room: Room, items: list[Item], *, top_k: int = 3, beam_width: int = BE
                 scored.append((sc.total, c, sc))
             scored.sort(key=lambda t: (-t[0], t[1].placement.x, t[1].placement.y, t[1].placement.rot))
             if not scored:  # предмет не встал ни в одну позицию — ветка продолжается без него
-                pen = st.penalty + UNPLACED_PENALTY["core" if item.role in CORE_ROLES else "other"]
+                pen = st.penalty + _unplaced_cost(item.role)
                 st2 = State(list(st.placements), st.unplaced + [item.role],
                             st.score - (pen - st.penalty), pen)
                 if st2.key() not in seen:
@@ -142,6 +157,8 @@ def solve(room: Room, items: list[Item], *, top_k: int = 3, beam_width: int = BE
         layout = validate(room, st.placements)
         layout.unplaced = st.unplaced
         if polish:                      # Э4: доводка — снимает остаточные нарушения
+            if layout.unplaced:         # ...и перестановка ради непоставленного (шаг 1 плана gaps)
+                layout = repair_unplaced(room, layout, items)
             layout = refine(room, layout)
         cand = State(layout.placements, layout.unplaced, st.score, st.penalty)
         if any(not _diverse(cand, k) for k in kept):

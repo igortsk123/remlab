@@ -857,5 +857,18 @@
   },
   "corner_sofa_section_depth_cm": 95,
   "judge_style_thr": 6
+ },
+ "layout_rules": {
+  "_note": "Правила расстановки ИМЕНОВАНО (урок 46: правило, живущее только в коде, теряется при переписывании движка). Каждое имеет проверку в services/planner-solver/planner/validate.py и тест.",
+  "behind_sofa_max_h_cm": 90,
+  "behind_sofa_note": "за спинкой дивана только низкое (консоль/комод); ящики должны открываться — зона подхода обязана быть свободна",
+  "tv_not_on_window_wall": true,
+  "tall_storage_not_on_tv_wall_h_cm": 110,
+  "fireplace_not_on_tv_wall": true,
+  "pouf_out_of_view_axis": true,
+  "corner_sofa_must_be_in_corner": true,
+  "chair_requires_dining_table": true,
+  "zone_buffer_cm": 40,
+  "zone_buffer_note": "посторонняя мебель не ближе этого к дивану/столику; 65 см из ADR-0050 были настроены под DFS-периферию, для beam достаточно 40 (остальное держат ACCESS_BLOCKED и штраф за щели)"
  }
 }

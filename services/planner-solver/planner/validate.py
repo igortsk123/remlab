@@ -9,7 +9,7 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
 from .clearances import (LOW_ITEM_MAX_H_CM, NEVER_BLOCKING_ROLES, band_scale, distances,
-                         passage_min_cm)
+                         passage_min_cm, rules)
 from .geometry import (
     access_zone,
     facing_vector,
@@ -112,9 +112,17 @@ def check_access(ps: list[Placement]) -> list[Violation]:
     return out
 
 
+MAIN_PATH_ROLES = frozenset({"диван", "тв-тумба", "столик", "стол обеденный"})
+
+
 def check_passages(room: Room, ps: list[Placement], kind: str = "secondary") -> list[Violation]:
-    """Связность: от двери можно дойти до каждого предмета проходом нужной ширины."""
-    need = passage_min_cm(kind)
+    """Связность: до КАЖДОГО предмета — минимальный проход (наш `passage_absolute_min_tight`),
+    до предметов главного маршрута (диван/ТВ/столы) — полноценный вторичный проход.
+
+    Раньше 60 см требовалось до всего подряд — в 18 м² с полным сетом это невыполнимо, и
+    движок честно, но бесполезно отказывался ставить стеллаж (свод: тесный проход 46–61 см).
+    """
+    need = float(distances().get("passage_absolute_min_tight", [46, 61])[0])
     free = free_space(room, ps, with_clearance=False)
     for b in static_blockers(room):
         free = free.difference(b)
@@ -137,6 +145,20 @@ def check_passages(room: Room, ps: list[Placement], kind: str = "secondary") -> 
         if not reach.intersects(main):
             out.append(_v("UNREACHABLE", f"к «{p.role}» нет прохода {need:.0f} см", [p.role],
                           need, f"≥{need:.0f} см"))
+    wide = passage_min_cm(kind)                      # главный маршрут — полноценный проход
+    core_w = free.buffer(-wide / 2)
+    if not core_w.is_empty:
+        parts_w = [core_w] if core_w.geom_type == "Polygon" else list(core_w.geoms)
+        main_w = max(parts_w, key=lambda g: g.area)
+        for p in ps:
+            if p.role not in MAIN_PATH_ROLES:
+                continue
+            if not footprint(p).buffer(wide / 2 + EPS).intersects(main_w):
+                out.append(_v("MAIN_PATH_TIGHT", f"к «{p.role}» проход уже {wide:.0f} см", [p.role],
+                              wide, f"≥{wide:.0f} см", Severity.SOFT))
+    else:
+        out.append(_v("MAIN_PATH_TIGHT", f"в комнате нет прохода {wide:.0f} см", [], 0,
+                      f"≥{wide:.0f} см", Severity.SOFT))
     return out
 
 
@@ -155,7 +177,7 @@ def check_distances(room: Room, ps: list[Placement]) -> list[Violation]:
     tbl = band_scale("sofa_table_cm", room.band, distances().get("sofa_coffee_table", [36, 50]))
     if "диван" in by and "тв-тумба" in by:
         g = _zone_gap(by["диван"], by["тв-тумба"])
-        if not (tv[0] - EPS <= g <= tv[1] + EPS):
+        if not (tv[0] <= g <= tv[1]):        # без допуска: соседняя проверка судит строго
             out.append(_v("SOFA_TV_DIST", f"диван↔ТВ {g:.0f} см вне шкалы", ["диван", "тв-тумба"],
                           round(g), f"{tv[0]:.0f}–{tv[1]:.0f} см"))
     if "диван" in by and "столик" in by:
@@ -221,7 +243,12 @@ def check_facing(ps: list[Placement]) -> list[Violation]:
 # За спинкой дивана — только НИЗКОЕ (консоль/комод до ~90 см). Высокий шкаф/стеллаж вплотную
 # за диваном читается как «диван задвинули к шкафу» (вердикт владельца 2026-08-02; в DFS-движке
 # это была «бронь тыла» ADR-0050 — при переносе в beam правило потерялось).
-BEHIND_SOFA_MAX_H_CM = 90.0
+def _lr(key, default):
+    """Именованное правило расстановки из файла правил (не из кода — урок 46)."""
+    return rules().get("layout_rules", {}).get(key, default)
+
+
+BEHIND_SOFA_MAX_H_CM = float(_lr("behind_sofa_max_h_cm", 90))
 
 
 def check_behind_sofa(room: Room, ps: list[Placement]) -> list[Violation]:
@@ -302,6 +329,74 @@ def check_sightline(ps: list[Placement]) -> list[Violation]:
     return out
 
 
+ZONE_ROLES = frozenset({"диван", "столик", "кресло", "пуф", "ковёр", "торшер"})
+
+
+def check_layout_rules(room: Room, ps: list[Placement]) -> list[Violation]:
+    """Правила, потерянные при переносе из DFS-движка (см. layout_rules в файле правил)."""
+    by = {p.role: p for p in ps}
+    out: list[Violation] = []
+    tv = by.get("тв-тумба")
+    sofa = by.get("диван")
+
+    def wall_of(p: Placement) -> str | None:
+        x0, y0, x1, y1 = footprint(p).bounds
+        d = {"west": x0, "south": y0, "east": room.width_cm - x1, "north": room.depth_cm - y1}
+        w = min(d, key=d.get)
+        return w if d[w] <= 25 else None
+
+    if tv is not None and _lr("tv_not_on_window_wall", True):
+        tvw = wall_of(tv)
+        if tvw and any(o.kind == "window" and o.wall == tvw for o in room.openings):
+            out.append(_v("TV_ON_WINDOW_WALL", "ТВ на стене с окном — блики в экран", ["тв-тумба"],
+                          None, "ТВ на глухой стене", Severity.SOFT))
+    if tv is not None:
+        tvw = wall_of(tv)
+        hmin = float(_lr("tall_storage_not_on_tv_wall_h_cm", 110))
+        for p in ps:
+            if p.role in ("шкаф", "стенка", "стеллаж", "витрина") and (p.item.h_cm or 0) >= hmin \
+                    and wall_of(p) == tvw and tvw is not None:
+                out.append(_v("TALL_ON_TV_WALL", f"«{p.role}» на стене ТВ — стена перегружена",
+                              [p.role, "тв-тумба"], None, "высокое хранение на другой стене",
+                              Severity.SOFT))
+        if "камин" in by and _lr("fireplace_not_on_tv_wall", True) and wall_of(by["камин"]) == tvw:
+            out.append(_v("FIREPLACE_ON_TV_WALL", "камин и ТВ на одной стене — два центра внимания",
+                          ["камин", "тв-тумба"], None, "камин на другой стене", Severity.SOFT))
+    if sofa is not None and tv is not None and "пуф" in by and _lr("pouf_out_of_view_axis", True):
+        corridor = footprint(sofa).union(footprint(tv)).convex_hull.buffer(-30)
+        if footprint(by["пуф"]).intersection(corridor).area > 900:
+            out.append(_v("POUF_IN_VIEW_AXIS", "пуф стоит на оси просмотра диван↔ТВ", ["пуф"],
+                          None, "сбоку от оси"))
+    if sofa is not None and sofa.item is not None and sofa.item.corner \
+            and _lr("corner_sofa_must_be_in_corner", True):
+        x0, y0, x1, y1 = footprint(sofa).bounds
+        # жёстко — хотя бы одна секция у стены; «оба плеча в углу» поощряется скорингом
+        # (в глубокой комнате Г обязан отплывать к ТВ, иначе не выполняется шкала — ADR-0050)
+        near_x = min(x0, room.width_cm - x1) <= 25
+        near_y = min(y0, room.depth_cm - y1) <= 25
+        if not (near_x or near_y):
+            out.append(_v("CORNER_SOFA_ADRIFT", "угловой диван стоит посреди комнаты", ["диван"],
+                          None, "хотя бы одна секция к стене"))
+    if "стул" in by and "стол обеденный" not in by and _lr("chair_requires_dining_table", True):
+        out.append(_v("CHAIR_WITHOUT_TABLE", "стул без обеденного стола", ["стул"], None,
+                      "стул ставится только к столу"))
+    buf = float(_lr("zone_buffer_cm", 65))
+    if sofa is not None and buf > 0:
+        zone = footprint(sofa)
+        if "столик" in by:
+            zone = zone.union(footprint(by["столик"]))
+        zone = zone.buffer(buf)
+        for p in ps:
+            if p.role in ZONE_ROLES or p.item is None:
+                continue
+            if (p.item.h_cm or 0) <= 60:      # низкий декор зону не ломает
+                continue
+            if footprint(p).intersection(zone).area > 900:
+                out.append(_v("ZONE_BUFFER", f"«{p.role}» вплотную к разговорной зоне", [p.role],
+                              None, f"≥{buf:.0f} см от дивана/столика", Severity.SOFT))
+    return out
+
+
 def check_floor_cap(room: Room, ps: list[Placement]) -> list[Violation]:
     from .geometry import floor_used_pct
 
@@ -327,6 +422,7 @@ def validate(room: Room, placements: list[Placement], *, passage: str = "seconda
     vs += check_zone(placements)
     vs += check_sightline(placements)
     vs += check_behind_sofa(room, placements)
+    vs += check_layout_rules(room, placements)
     vs += check_floor_cap(room, placements)
     from .geometry import floor_used_pct
 

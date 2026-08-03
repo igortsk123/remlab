@@ -152,6 +152,21 @@ def score_layout(room: Room, ps: list[Placement], *, fast: bool = False) -> Scor
             g = fa.distance(fb)
             if 5 < g < pass_min:
                 s.add("sliver_gap", (pass_min - g) / pass_min, w["sliver_gap"])
+    # 3d) Г-диван тянет в угол: обе секции к стенам — идеал, одна — допустимо (hard-правило мягче)
+    _sofa = by.get("диван")
+    if _sofa is not None and _sofa.item is not None and _sofa.item.corner:
+        x0, y0, x1, y1 = footprint(_sofa).bounds
+        dx = min(x0, room.width_cm - x1)
+        dy = min(y0, room.depth_cm - y1)
+        s.add("corner_sofa_hug", (max(dx, dy) - 25) / 100.0 if max(dx, dy) > 25 else 0,
+              w["corner_sofa_hug"])
+    # 3e) мягкие правила расстановки (ТВ у окна, высокое на стене ТВ, буфер зоны): в тесной
+    # комнате они невыполнимы — не блокируют, но штрафуются, чтобы в просторной соблюдались
+    if not fast:
+        from .validate import check_layout_rules, check_passages
+        for v in list(check_layout_rules(room, ps)) + list(check_passages(room, ps)):
+            if v.severity == "soft":
+                s.add("soft_rule_" + v.code.lower(), 1.0, w["soft_layout_rule"])
     # 4) не сбиваться в кучу: пристенные попарно 20–60 см (Infinigen)
     wallish = [p for p in ps if p.role in ("шкаф", "комод", "стенка", "витрина", "стеллаж")]
     for i, a in enumerate(wallish):
