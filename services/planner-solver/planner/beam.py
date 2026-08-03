@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 from .candidates import Candidate, generate, order_items
 from .geometry import footprint
-from .models import Item, Layout, Placement, Room
+from .models import Item, Layout, Placement, Room, Severity
 from .refine import refine, repair_unplaced
 from .score import Score, score_layout
 from .validate import (
@@ -38,7 +38,9 @@ DIVERSITY_CM = 60.0      # два варианта «разные», если х
 CORE_ROLES = frozenset({"диван", "тв-тумба", "столик", "кресло"})
 STORAGE_ROLES = frozenset({"шкаф", "стенка", "комод", "витрина", "стеллаж", "камин",
                            "стол обеденный"})
-UNPLACED_PENALTY = {"core": 120.0, "storage": 80.0, "other": 15.0}
+# штраф должен ЗАВЕДОМО перевешивать сумму мягких (плавающий Г-диван в большой комнате
+# набирал 40+ штрафа, и ветка «выкинуть диван» обгоняла ветку «оставить диван»)
+UNPLACED_PENALTY = {"core": 400.0, "storage": 200.0, "other": 40.0}
 
 
 def _unplaced_cost(role: str) -> float:
@@ -62,13 +64,18 @@ class State:
 
 
 def _hard_ok(room: Room, ps: list[Placement]) -> bool:
-    """Быстрые hard-проверки для отсечения кандидата (полная валидация — в конце)."""
-    return not (check_boundary(room, ps) or check_collisions(ps)
-                or check_openings(room, ps) or check_radiators(room, ps)
-                or check_facing(ps) or check_distances(room, ps)
-                or check_wall_only(room, ps) or check_zone(ps)
-                or check_sightline(ps) or check_behind_sofa(room, ps)
-                or check_layout_rules(room, ps) or check_access(ps))
+    """Быстрые проверки для отсечения кандидата — ТОЛЬКО жёсткие.
+
+    Раньше проверялось «список нарушений пуст», и любая МЯГКАЯ пометка (ТВ у окна, буфер зоны)
+    убивала кандидата наравне с коллизией — движок терял диван в комнатах 50+.
+    """
+    for check in (check_boundary(room, ps), check_collisions(ps), check_openings(room, ps),
+                  check_radiators(room, ps), check_facing(ps), check_distances(room, ps),
+                  check_wall_only(room, ps), check_zone(ps), check_sightline(ps),
+                  check_behind_sofa(room, ps), check_layout_rules(room, ps), check_access(ps)):
+        if any(v.severity is Severity.HARD for v in check):
+            return False
+    return True
 
 
 def _diverse(a: State, b: State) -> bool:
@@ -105,6 +112,10 @@ def solve(room: Room, items: list[Item], *, top_k: int = 3, beam_width: int = BE
     for item in order_items(items):
         nxt: list[State] = []
         seen: set[tuple] = set()
+        # раскрываем столько кандидатов, чтобы луч оставался полным: на первом предмете веток
+        # всего одна, и cand_per_item=8 давал 8 позиций — если среди них нет ни одной, куда
+        # встанет следующий предмет, вся раскладка теряла его (сеты 50+ теряли диван)
+        per_state = max(cand_per_item, -(-beam_width // max(1, len(beams))))
         for st in beams:
             cands: list[Candidate] = generate(room, item, st.placements)
             scored: list[tuple[float, Candidate, Score]] = []
@@ -123,7 +134,7 @@ def solve(room: Room, items: list[Item], *, top_k: int = 3, beam_width: int = BE
                     seen.add(st2.key())
                     nxt.append(st2)
                 continue
-            for total, c, _sc in scored[:cand_per_item]:
+            for total, c, _sc in scored[:per_state]:
                 st2 = State(st.placements + [c.placement], list(st.unplaced),
                             total - st.penalty, st.penalty)
                 k = st2.key()

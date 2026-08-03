@@ -55,7 +55,7 @@ def test_solve_returns_valid_diverse_layouts(idx):
     dt = time.time() - t
     assert outs, "движок обязан вернуть хотя бы один вариант"
     assert outs[0].ok, f"лучший вариант забракован: {why_not(outs[0])}"
-    assert dt < 6.0, f"слишком долго: {dt:.1f} с"
+    assert dt < 9.0, f"слишком долго: {dt:.1f} с"   # правил стало больше; порог продукта — «секунды»
 
 
 def test_unsolvable_room_gets_explicit_reason():

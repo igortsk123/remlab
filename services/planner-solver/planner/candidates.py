@@ -140,6 +140,11 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
         return anchor.x + lat * (-fy), anchor.y + lat * fx
 
     def add(x: float, y: float, rot: float, note: str):
+        # позицию от якоря КЛАМПИМ в комнату: якорь может стоять у самого края (ТВ в углу),
+        # и предмет напротив вылезал за стену — кандидат молча пропадал (сеты 50+ теряли диван)
+        w, d = _dims_for_rot(item, rot)
+        x = min(max(x, WALL_GAP_CM + w / 2), room.width_cm - WALL_GAP_CM - w / 2)
+        y = min(max(y, WALL_GAP_CM + d / 2), room.depth_cm - WALL_GAP_CM - d / 2)
         p = Placement(role=role, x=x, y=y, rot=rot, item=item)
         if _fits(room, p, free):
             out.append(Candidate(p, "anchor", note))

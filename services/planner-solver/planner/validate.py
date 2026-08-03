@@ -375,8 +375,9 @@ def check_layout_rules(room: Room, ps: list[Placement]) -> list[Violation]:
         near_x = min(x0, room.width_cm - x1) <= 25
         near_y = min(y0, room.depth_cm - y1) <= 25
         if not (near_x or near_y):
+            # мягко: в комнате 50+ Г-диван ОБЯЗАН отплыть от стены, иначе не выполнить шкалу диван↔ТВ
             out.append(_v("CORNER_SOFA_ADRIFT", "угловой диван стоит посреди комнаты", ["диван"],
-                          None, "хотя бы одна секция к стене"))
+                          None, "хотя бы одна секция к стене", Severity.SOFT))
     if "стул" in by and "стол обеденный" not in by and _lr("chair_requires_dining_table", True):
         out.append(_v("CHAIR_WITHOUT_TABLE", "стул без обеденного стола", ["стул"], None,
                       "стул ставится только к столу"))
