@@ -177,9 +177,16 @@ def check_distances(room: Room, ps: list[Placement]) -> list[Violation]:
     tbl = band_scale("sofa_table_cm", room.band, distances().get("sofa_coffee_table", [36, 50]))
     if "диван" in by and "тв-тумба" in by:
         g = _zone_gap(by["диван"], by["тв-тумба"])
-        if not (tv[0] <= g <= tv[1]):        # без допуска: соседняя проверка судит строго
+        # СЛИШКОМ БЛИЗКО — жёстко (глаза), СЛИШКОМ ДАЛЕКО — мягко: в глубокой комнате верхняя
+        # граница шкалы заставляла диван «отплывать» от стены на метр, что владелец забраковал.
+        # Абсолютный потолок — из клампа диагоналей свода (2.5 диагонали ≈ 400 см).
+        hard_hi = max(tv[1], float(distances().get("sofa_tv_hard_max", 400)))
+        if g < tv[0] or g > hard_hi:
             out.append(_v("SOFA_TV_DIST", f"диван↔ТВ {g:.0f} см вне шкалы", ["диван", "тв-тумба"],
-                          round(g), f"{tv[0]:.0f}–{tv[1]:.0f} см"))
+                          round(g), f"{tv[0]:.0f}–{hard_hi:.0f} см"))
+        elif g > tv[1]:
+            out.append(_v("SOFA_TV_FAR", f"диван↔ТВ {g:.0f} см — дальше комфортной шкалы",
+                          ["диван", "тв-тумба"], round(g), f"≤{tv[1]:.0f} см", Severity.SOFT))
     if "диван" in by and "столик" in by:
         g = _zone_gap(by["диван"], by["столик"])
         if not (tbl[0] <= g <= tbl[1]):
@@ -201,15 +208,27 @@ WALL_TOUCH_MAX_CM = 20.0
 
 
 def check_wall_only(room: Room, ps: list[Placement]) -> list[Violation]:
+    """Корпусная мебель стоит СПИНКОЙ к стене, а не «касается стены каким-нибудь боком».
+
+    Раньше хватало любой ближайшей стороны — и комод вставал перпендикулярно, торча в комнату
+    как перегородка, формально «у стены» (вердикт владельца 2026-08-03).
+    """
     out = []
     for p in ps:
         if p.role not in WALL_ONLY_ROLES:
             continue
         x0, y0, x1, y1 = footprint(p).bounds
-        d = min(x0, y0, room.width_cm - x1, room.depth_cm - y1)
+        fx, fy = facing_vector(p.rot)
+        # спинка — сторона, противоположная «лицу»
+        if abs(fy) > abs(fx):
+            back = y1 if fy < 0 else y0
+            d = (room.depth_cm - back) if fy < 0 else back
+        else:
+            back = x1 if fx < 0 else x0
+            d = (room.width_cm - back) if fx < 0 else back
         if d > WALL_TOUCH_MAX_CM:
-            out.append(_v("NOT_AT_WALL", f"«{p.role}» стоит не у стены ({d:.0f} см)", [p.role],
-                          round(d), f"≤{WALL_TOUCH_MAX_CM:.0f} см до стены"))
+            out.append(_v("NOT_AT_WALL", f"«{p.role}» стоит спинкой не к стене ({d:.0f} см)", [p.role],
+                          round(d), f"спинка ≤{WALL_TOUCH_MAX_CM:.0f} см до стены"))
     return out
 
 
@@ -305,9 +324,13 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
         if fwd <= 0:
             out.append(_v("POUF_BEHIND_SOFA", "пуф стоит за диваном", ["диван", "пуф"],
                           round(fwd), "перед фронтом дивана"))
-        elif abs(lat) > half + 80:
-            out.append(_v("POUF_OUT_OF_ZONE", f"пуф в {abs(lat):.0f} см вбок от зоны", ["пуф"],
-                          round(abs(lat)), f"≤{half + 80:.0f} см"))
+        elif abs(lat) > half:
+            out.append(_v("POUF_OUT_OF_ZONE", f"пуф в {abs(lat):.0f} см вбок от оси дивана", ["пуф"],
+                          round(abs(lat)), f"в пределах ширины дивана (≤{half:.0f} см)"))
+        elif tbl is not None and footprint(pouf).distance(footprint(tbl)) > 80:
+            out.append(_v("POUF_FAR_FROM_TABLE",
+                          f"пуф в {footprint(pouf).distance(footprint(tbl)):.0f} см от столика",
+                          ["пуф", "столик"], None, "≤80 см: пуф — подставка для ног у столика"))
     arm = by.get("кресло")
     if arm is not None and tbl is not None and _lr("armchair_to_table_same_as_sofa", True):
         from .clearances import band_scale as _bs
