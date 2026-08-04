@@ -271,9 +271,10 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]]) -> str
         f'OPENINGS. Top frame: {openings_brief(n, a)} Bottom frame: {openings_brief(n, b)}\n\n'
         'ALWAYS:\n'
         '- "placement" is binding: follow it literally, it outranks your idea of a nice composition.\n'
-        '- Rotate every item to match "orientation". Items standing on the floor have their TRUE '
-        'FOOTPRINT outlined on the floor in the collage with a thin dark line: set the item onto '
-        'that outline — its base must fill exactly that rectangle, which fixes the rotation.\n'
+        '- Every item standing on the floor has its TRUE FOOTPRINT outlined on the floor in the '
+        'collage with a thin dark line. The base of the item must fill exactly that rectangle: '
+        'same size, same rotation. Never draw an item larger than its outline.\n'
+        '- Rotate every item to match "orientation".\n'
         + shops_note(n)
         + '- Read "product" and "details": the name, material and colour tell what the item really is.\n'
         '- "in_top"/"in_bottom": whole, only a part (draw just that part, never complete it), or '

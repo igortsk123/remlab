@@ -59,7 +59,8 @@ def main() -> None:
     room, placements = load_scene(n)
     cam = next(c for c in cameras_for(room, placements) if c.name == view)
     prefix = os.path.join(SCENE_DIR, f'scene{n}-{view}')
-    src = f'{prefix}-pasted.jpg' if '--pasted' in sys.argv else f'{prefix}-base-{model}.jpg'
+    src = (f'{prefix}-final.jpg' if '--final' in sys.argv else
+           f'{prefix}-pasted.jpg' if '--pasted' in sys.argv else f'{prefix}-base-{model}.jpg')
     img = Image.open(src).convert('RGB')
     to_px = projector(cam, img.size)
     d = ImageDraw.Draw(img, 'RGBA')
@@ -107,7 +108,7 @@ def main() -> None:
             d.text((top[0] - 30, top[1] - 14), p.role, fill=(255, 90, 70), font=f_lbl,
                    stroke_width=3, stroke_fill=(255, 255, 255))
 
-    dst = f'{prefix}-check.jpg'
+    dst = f'{prefix}-check{"-final" if "--final" in sys.argv else ""}.jpg'
     img.save(dst, quality=90)
     meta = json.load(open(f'{prefix}-frame.json'))
     print(dst, '· видно:', ', '.join(meta['visible']))

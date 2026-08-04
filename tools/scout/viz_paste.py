@@ -484,11 +484,13 @@ def main() -> None:
             return (W / 2 + focal * float(rel @ right) / z,
                     H / 2 - focal * float(rel @ up) / z + cam.shift_y * H)
 
-        for role in done_roles:
+        for role in in_frame:
             pl = by.get(role)
-            if pl is None or pl.item is None or role in FRONTED:
+            if pl is None or pl.item is None:
                 continue
-            if float(getattr(pl, 'elev_cm', 0.0)) > 1.0 or role in FLOOR:
+            # контур рисуем ВСЕМ напольным предметам: он задаёт не только разворот, но и РАЗМЕР —
+            # без него модель рисует предметы крупнее их следа (владелец, 2026-08-04)
+            if float(getattr(pl, 'elev_cm', 0.0)) > 1.0 or role in FLOOR or role in SOFT:
                 continue
             xs_f, ys_f = _fp(pl, pl.item).exterior.coords.xy
             pts = [to_px(x, y) for x, y in zip(xs_f, ys_f)]
