@@ -285,10 +285,13 @@ def main() -> None:
         return
     cam = sys.argv[sys.argv.index('--cam') + 1] if '--cam' in sys.argv else 'C1'
     prefix = os.path.join(SCENE_DIR, f'scene{n}-{cam}')
-    if '--no-angled' not in sys.argv:
+    # ВАЖНО: печать промпта не должна запускать генерацию — иначе `--print-prompt` тихо
+    # тратит деньги и подменяет коллаж результатом (поймано 2026-08-04).
+    if '--no-angled' not in sys.argv and '--print-prompt' not in sys.argv:
         redraw_angled(n, prefix)
     src, marked, legend = build(n, cam)
-    clean = Image.open(src).convert('RGB').resize((2048, 1360))
+    ready = f'{prefix}-ready.jpg'
+    clean = Image.open(ready if os.path.exists(ready) else src).convert('RGB').resize((2048, 1360))
     mark = Image.open(marked).convert('RGB').resize((2048, 1360))
     plan_p = os.path.join(SCENE_DIR, f'scene{n}-plan.png')
     plan = Image.open(plan_p).convert('RGB') if os.path.exists(plan_p) else None
