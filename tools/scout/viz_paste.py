@@ -465,6 +465,38 @@ def main() -> None:
         if px:
             done_roles.append(role)
         print(f'  {role}: {px} px' if px else f'  {role}: не попал в кадр')
+    # След предмета на полу тонким контуром: фотография не может показать разворот (вырезка
+    # всегда смотрит на камеру), а контур показывает — и модель ставит предмет на него.
+    # Так разворот задаётся ГЕОМЕТРИЕЙ, а не словами (владелец, 2026-08-04).
+    if '--no-footprints' not in sys.argv:
+        from PIL import ImageDraw
+        from planner.geometry import footprint as _fp
+        img_fp = Image.fromarray(pano)
+        dr = ImageDraw.Draw(img_fp, 'RGBA')
+        eye, fwd, right, up = cam.basis()
+        focal = (W / 2) / math.tan(math.radians(cam.fov_deg) / 2)
+
+        def to_px(x, y):
+            rel = np.array([x, 0.0, y], float) - eye
+            z = float(rel @ fwd)
+            if z <= 1e-3:
+                return None
+            return (W / 2 + focal * float(rel @ right) / z,
+                    H / 2 - focal * float(rel @ up) / z + cam.shift_y * H)
+
+        for role in done_roles:
+            pl = by.get(role)
+            if pl is None or pl.item is None or role in FRONTED:
+                continue
+            if float(getattr(pl, 'elev_cm', 0.0)) > 1.0 or role in FLOOR:
+                continue
+            xs_f, ys_f = _fp(pl, pl.item).exterior.coords.xy
+            pts = [to_px(x, y) for x, y in zip(xs_f, ys_f)]
+            if any(q is None for q in pts):
+                continue
+            dr.line(pts + [pts[0]], fill=(70, 70, 70, 190), width=3)
+        pano = np.asarray(img_fp)
+
     img = Image.fromarray(pano)
     dst = f'{prefix}-pasted.jpg'
     img.save(dst, quality=93)
