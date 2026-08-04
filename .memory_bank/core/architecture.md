@@ -3,7 +3,7 @@ tier: 1
 topic: architecture
 scope: Стек, модули, генерация, деплой — по коду
 tier2: "../../docs/tech-spec-ts-stack.md"
-updated: 2026-07-31
+updated: 2026-08-04
 importance: high
 source: manual
 status: working
@@ -26,7 +26,14 @@ TS strict, pnpm, Next.js 15 App Router (full-stack). Drizzle — только sc
 - `/app`: `page.tsx` (главная). **Смета-first (M1):** `/calc` хаб, `/calc/[kind]`, `/calc/remont` (вход Б), `/e/[id]` чек-лист, `/estimates` (redirect → `/lab`, ADR-0036), `/go/[eid]/[iid]` редирект. **Навигация (ADR-0017):** шапка `components/SiteHeader.tsx`; каркасы `/styles` (StyleQuiz), `/sovety`, `/lab`. **Legacy AI-флоу (М5):** `/start`, `/p/[id]/{brief,select,style,preview,paywall}`, `/rooms`. `/api` (health, p, trace).
 - `/modules` — store (projects) + **estimate** (`repository.ts`: memory/pg). visual-generation/generation-job/ideas/room-analysis — AI-флоу (М5).
 - **Смета (v0.4):** `contracts/estimate.ts`; `lib/estimate/{calc,links,companions}`; `lib/pricing/works`; `app/estimate-actions.ts`. Наружу ТОЛЬКО через `/go/`. **Калькулятор v2 (ADR-0018):** `contracts/calc.ts`+`lib/calc/*`+`components/calc/*` (клиентское состояние, localStorage), флаг `CALC_V2` до К3.
-- `/db` (init 001-004), `/contracts`, `/lib`, `/e2e`, `/tools`, `/docs`.
+- `/db` (init 001-004), `/contracts`, `/lib`, `/e2e`, `/docs`.
+- `/tools` — **в git целиком** (ADR-0055): скрипты проекта (`tools/migrate.mjs` — раннер миграций,
+  `tools/trace-show.mjs` за `pnpm trace`, `tools/update-cities.mjs`, `tools/smoke-providers.mjs`),
+  Python-пайплайн подбора и расстановки `tools/scout/*.py` (`pipeline2.py`, `load3.py`, `judge.py`,
+  `viz*.py`, крон `refresh_daily.sh`) и хуки Memory Bank (`tools/memory-audit.mjs`,
+  `session-reminder.mjs`, `precompact-guard.mjs`, `session-freshness.mjs`, `read-logger.mjs`).
+  Не в git только ДАННЫЕ scout — `tools/scout/{feeds2,thumbs,xlsx,big}/` и артефакты рендеров
+  (338 МБ). В docker-образ `tools` не попадает вовсе (`.dockerignore`).
 
 ## Генерация AI (legacy, М5)
 СИНХРОННО: `app/api/p/[id]/generate` → `runGenerate`, `maxDuration=60`. Ретраев/квот/Inngest нет.
