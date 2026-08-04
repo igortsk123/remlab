@@ -1,0 +1,48 @@
+{
+  "//": "ОПЦИОНАЛЬНО (для режима default; в пресетах important/autopilot хуки уже включены).",
+  "//2": "Скопируй блок hooks в .claude/settings.json или settings.local.json целевого проекта.",
+  "//3": "Stop: НАПОМИНАНИЕ про /memory-check при незафиксированной работе (session-reminder;",
+  "//4": "структурный audit встроен). Мягкий режим — напоминание видит ПОЛЬЗОВАТЕЛЬ, не агент;",
+  "//5": "блокирующий гейт (агент не может закончить без /memory-check) — флаг --block, как в",
+  "//6": "пресетах important/autopilot.",
+  "//7": "PreCompact: перед компакцией один раз блокирует, если работа была, а захват пуст —",
+  "//8": "durable-факты не теряются при сжатии контекста (guard одноразовый на сессию).",
+  "//9": "SessionStart: баннер свежести памяти (session-freshness) — молчит, когда всё чисто.",
+  "//10": "Это НЕ авто-сейв контента (его делает агент по memory-discipline), а напоминание+гейт.",
+  "//11": "Без Node хуки мягко деградируют: Stop печатает shell-напоминание при git-изменениях.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/session-freshness.mjs ]; then node tools/session-freshness.mjs . || true; fi"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/session-reminder.mjs ]; then node tools/session-reminder.mjs . || true; elif [ -n \"$(git status --porcelain 2>/dev/null | grep -v '^.. \\.memory_bank/')\" ]; then echo 'Внимание: изменения сессии не зафиксированы в памяти — перед /clear запусти /memory-check (.memory_bank/)'; fi"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/precompact-guard.mjs ]; then node tools/precompact-guard.mjs .; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

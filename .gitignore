@@ -24,13 +24,19 @@ test-results/
 .DS_Store
 *.log
 
-# memory bank kit (не часть проекта)
 _optional/
-tools/*
-# исключение: CI-воркфлоу memory-audit.yml гоняет этот скрипт → он ДОЛЖЕН быть в репо
-# (zero-dep, без секретов). Остальной tools/ остаётся локальным.
-!tools/memory-audit.mjs
 _intake/_processed/
+
+# tools/ — В git целиком, и скрипты проекта (migrate.mjs, trace-show.mjs, update-cities.mjs),
+# и хуки Memory Bank. Прежнее правило `tools/*` задумывалось против кита, но проглатывало и
+# своё: раннер миграций и хуки памяти существовали только на одной машине — свежий клон их не
+# получал, а хук, которого нет в репо, никакой гарантией не является (ADR-0055).
+# Исключение — только ДАННЫЕ scout (сотни МБ: фиды, тумбы, xlsx, рендеры); код scout в git.
+tools/scout/*
+!tools/scout/*.py
+!tools/scout/*.sh
+!tools/scout/*.sql
+!tools/scout/README.md
 
 # docker artifacts
 *.tar
