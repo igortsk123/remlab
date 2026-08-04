@@ -105,17 +105,27 @@ def cameras_for(room: Room, placements: list[Placement]) -> list[Camera]:
     eye_c, inset = 155.0, 45.0
     corners = [(inset, inset), (W - inset, inset), (W - inset, D - inset), (inset, D - inset)]
 
-    # целимся в ЦЕНТР МАССЫ мебели, а не в геометрический угол: иначе диван уезжает за край кадра
-    fx = [pl.x for pl in placements if pl.item is not None]
-    fy = [pl.y for pl in placements if pl.item is not None]
-    aim = (sum(fx) / len(fx), sum(fy) / len(fy)) if fx else (W / 2, D / 2)
+    # Взгляд — ПО ДИАГОНАЛИ, из угла в угол: так в кадр попадают две стены и вся комната.
+    # Угол объектива считаем под конкретную комнату: берём ровно столько, чтобы перекрыть
+    # её целиком, и не шире 84° (≈20 мм) — за этим пределом растяжение по краям заметно глазу.
+    FOV_MIN, FOV_MAX = 70.0, 84.0
+
+    def fov_for(cx: float, cy: float, tx: float, ty: float) -> float:
+        base = math.atan2(ty - cy, tx - cx)
+        worst = 0.0
+        for px, py in ((0, 0), (W, 0), (W, D), (0, D)):
+            a = math.atan2(py - cy, px - cx) - base
+            a = (a + math.pi) % (2 * math.pi) - math.pi
+            worst = max(worst, abs(a))
+        return min(FOV_MAX, max(FOV_MIN, math.degrees(worst) * 2 + 4))
 
     def probe(ci: int) -> tuple[int, Camera, set]:
         """Сколько предметов реально попадает в кадр из этого угла (быстрый z-буфер 336×224)."""
         cx, cy = corners[ci]
-        tx, ty = aim
+        tx, ty = W - cx, D - cy                # противоположный угол — диагональ комнаты
+        fov = fov_for(cx, cy, tx, ty)
         cam = Camera(f"C{ci}", (cx, eye_c, cy), (tx, eye_c, ty),
-                     fov_deg=75.0, shift_y=-0.10, width=1344, height=896)
+                     fov_deg=fov, shift_y=-0.10, width=1344, height=896)
         small = Camera(cam.name, cam.eye, cam.target, fov_deg=cam.fov_deg,
                        shift_y=cam.shift_y, width=336, height=224)
         out = compile_scene(room, placements, small)
