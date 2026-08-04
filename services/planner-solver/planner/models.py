@@ -76,6 +76,7 @@ class Placement(BaseModel):
     y: float
     rot: float = 0
     item: Item | None = None
+    elev_cm: float = Field(default=0, ge=0, description="подъём над полом: ТВ на стене, люстра")
 
     @model_validator(mode="after")
     def _role_matches(self) -> "Placement":

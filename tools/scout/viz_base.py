@@ -189,9 +189,19 @@ def main() -> None:
         payload['enable_safety_checker'] = False
     if which == 'sdxl':
         payload['depth_preprocess'] = False       # карта уже готова, препроцесс не нужен
+    # что именно ушло в модель — рядом с результатом: владелец смотрит запрос и ответ вместе
+    req = {k: v for k, v in payload.items() if not isinstance(v, str) or not v.startswith('data:')}
+    req['model'] = model
+    req['controls'] = [k for k, v in payload.items() if isinstance(v, str) and v.startswith('data:')]
+    req['view'] = view
+    json.dump(req, open(f'{prefix}-request.json', 'w'), ensure_ascii=False, indent=1)
+
     t0 = time.time()
     if view == 'P':                              # панорама — двумя плитками со склейкой
         pano = panorama(prefix, payload, model, key)
+        req['tiles'] = 2
+        req['seed'] = 4242
+        json.dump(req, open(f'{prefix}-request.json', 'w'), ensure_ascii=False, indent=1)
         dst = f'{prefix}-base-{which}.jpg'
         pano.save(dst, quality=92)
         print(f'{dst}  ({time.time() - t0:.0f} с, панорама {pano.size[0]}×{pano.size[1]})')

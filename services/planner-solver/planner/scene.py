@@ -71,13 +71,20 @@ def cameras_for(room: Room, placements: list[Placement]) -> list[Camera]:
         sx, sy = sofa.x, sofa.y
         tx, ty = tv.x, tv.y
         # A: стоим у ТВ, смотрим на диван; B: стоим за диваном, смотрим на ТВ
-        for name, a, b in (("A", (tx, ty), (sx, sy)), ("B", (sx, sy), (tx, ty))):
+        for name, a, b, anchor in (("A", (tx, ty), (sx, sy), tv), ("B", (sx, sy), (tx, ty), sofa)):
             dx, dy = b[0] - a[0], b[1] - a[1]
             n = math.hypot(dx, dy) or 1.0
-            back = 60.0                     # отступаем от предмета, за которым стоим
-            ex, ey = a[0] - dx / n * back, a[1] - dy / n * back
-            ex = min(max(ex, 10.0), W - 10.0)
-            ey = min(max(ey, 10.0), D - 10.0)
+            # встаём ПЕРЕД предметом, за которым стоим (за его переднюю грань + 25 см), иначе
+            # телевизор на стене оказывается в 15 см от объектива и закрывает весь кадр
+            it_a = anchor.item
+            if it_a is None:
+                half = 30.0
+            else:                       # берём габарит ВДОЛЬ взгляда, а не наибольший:
+                rot_a = int(round(anchor.rot)) % 180      # иначе камера уезжает за столик
+                half = float(it_a.d_cm if rot_a == 0 else it_a.w_cm) / 2
+            ex, ey = a[0] + dx / n * (half + 25.0), a[1] + dy / n * (half + 25.0)
+            ex = min(max(ex, 25.0), W - 25.0)
+            ey = min(max(ey, 25.0), D - 25.0)
             # 75° — как штатный интерьерный ширик: при 60° пол ближе 2,5 м не попадал в кадр
             # и комната читалась теснее, чем она есть (замечание владельца 2026-08-04)
             cams.append(Camera(name, (ex, eye_h, ey), (b[0], eye_h * 0.8, b[1]), fov_deg=75.0))
@@ -145,6 +152,9 @@ _PLANT = [(0.25, 0.75, 0.25, 0.75, 0.0, 0.45),     # горшок
           (0.3, 0.7, 0.3, 0.7, 0.86, 1.0)]         # читается как пуф (поймано 2026-08-04)
 _BED = [(0.0, 1.0, 0.0, 0.88, 0.0, 0.55), (0.0, 1.0, 0.88, 1.0, 0.0, 1.0)]
 _PANEL = [(0.0, 1.0, 0.35, 0.65, 0.0, 1.0)]
+_RUG = [(0.0, 1.0, 0.0, 1.0, 0.0, 0.02)]           # ковёр — почти плоский, но контур виден
+_LAMP = [(0.42, 0.58, 0.42, 0.58, 0.0, 0.55),      # подвес
+         (0.0, 1.0, 0.0, 1.0, 0.55, 1.0)]          # плафон
 
 PROXY: dict[str, list[tuple[float, ...]]] = {
     "диван": _SEAT, "кресло": _SEAT, "кресло-качалка": _SEAT,
@@ -153,6 +163,7 @@ PROXY: dict[str, list[tuple[float, ...]]] = {
     "стеллаж": _SHELF, "полка": _SHELF,
     "кашпо": _PLANT, "растение": _PLANT,
     "кровать": _BED, "тв": _PANEL, "телевизор": _PANEL,
+    "ковёр": _RUG, "ковер": _RUG, "люстра": _LAMP,
 }
 
 
@@ -165,9 +176,10 @@ def proxy_parts(p: Placement, it: Item) -> list[tuple[float, ...]]:
     X0, X1 = float(c[:, 0].min()), float(c[:, 0].max())
     Z0, Z1 = float(c[:, 2].min()), float(c[:, 2].max())
     h = float(c[:, 1].max())
+    base = float(p.elev_cm)                   # ТВ на стене, люстра под потолком
     parts = [] if it.corner else PROXY.get(p.role, [])
     if not parts:
-        return [(X0, X1, 0.0, h, Z0, Z1)]
+        return [(X0, X1, base, base + h, Z0, Z1)]
     rot = int(round(p.rot)) % 360
     out = []
     for u0, u1, v0, v1, h0, h1 in parts:
@@ -179,7 +191,8 @@ def proxy_parts(p: Placement, it: Item) -> list[tuple[float, ...]]:
             z0, z1 = Z0 + (Z1 - Z0) * u0, Z0 + (Z1 - Z0) * u1
             a, b = (X1, X0) if rot == 90 else (X0, X1)
             x0, x1 = a + (b - a) * v0, a + (b - a) * v1
-        out.append((min(x0, x1), max(x0, x1), h * h0, h * h1, min(z0, z1), max(z0, z1)))
+        out.append((min(x0, x1), max(x0, x1), base + h * h0, base + h * h1,
+                    min(z0, z1), max(z0, z1)))
     return out
 
 

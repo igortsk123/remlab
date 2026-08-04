@@ -40,7 +40,44 @@ def load_scene(n: int) -> tuple[Room, list[Placement]]:
         it = Item(role=role, w_cm=p['w'], d_cm=p['d'], h_cm=heights.get(role) or 60,
                   corner=bool(p.get('corner')))
         placements.append(Placement(role=role, x=p['x'], y=p['z'], rot=p['rot'], item=it))
+    placements += derived(room, placements, sets[n - 1]['items'])
     return room, placements
+
+
+def derived(room, placements, items):
+    """Предметы, которых нет в раскладке пола, но которые обязаны быть в кадре.
+
+    Телевизор, ковёр и люстра раньше не передавались вовсе — генератор ставил их куда придётся
+    (владелец: «телек не там стоит, в угол не влез»). Теперь они часть геометрии.
+    """
+    by = {p.role: p for p in placements}
+    out = []
+    tv_stand = by.get('тв-тумба')
+    if tv_stand is not None and 'тв' not in by:
+        w = min(float(tv_stand.item.w_cm) * 0.85, 120.0)
+        out.append(Placement(role='тв', x=tv_stand.x, y=tv_stand.y, rot=tv_stand.rot,
+                             elev_cm=105.0,
+                             item=Item(role='тв', w_cm=w, d_cm=8.0, h_cm=w * 0.58)))
+    sofa, table = by.get('диван'), by.get('столик')
+    rug = items.get('ковёр')
+    if rug and sofa is not None and table is not None and 'ковёр' not in by:
+        # длинная сторона ковра — вдоль длинной стороны дивана (решение владельца)
+        long, short = max(float(rug['w']), float(rug['d'])), min(float(rug['w']), float(rug['d']))
+        long, short = max(long, float(sofa.item.w_cm) * 0.9), max(short, 120.0)
+        horizontal = int(round(sofa.rot)) % 180 == 0
+        w_cm, d_cm = (long, short) if horizontal else (short, long)
+        out.append(Placement(role='ковёр', x=table.x, y=table.y, rot=0,
+                             item=Item(role='ковёр', w_cm=w_cm, d_cm=d_cm, h_cm=1.0)))
+    lamp = items.get('люстра')
+    if lamp and 'люстра' not in by:
+        cx = (sofa.x if sofa is not None else room.width_cm / 2)
+        cy = ((sofa.y + table.y) / 2 if sofa is not None and table is not None
+              else room.depth_cm / 2)
+        h = float(lamp.get('h') or 45)
+        out.append(Placement(role='люстра', x=cx, y=cy, rot=0, elev_cm=270.0 - h,
+                             item=Item(role='люстра', w_cm=float(lamp['w']),
+                                       d_cm=float(lamp['d']), h_cm=h)))
+    return out
 
 
 def draw_plan(room: Room, placements: list[Placement], cams, path: str) -> str:
