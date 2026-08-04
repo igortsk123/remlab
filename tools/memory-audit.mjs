@@ -9,13 +9,21 @@
 //   - completed_plans/README.md: блок GENERATED:completed-plans-registry.
 //   В --check режиме файлы не пишутся; расхождение → REGISTRY-STALE.
 //
-// Категории проверок (exit 1 при любой находке):
+// Находки делятся на два класса:
+//   problems  — влияют на exit code и на Stop-гейт (`session-reminder --block`);
+//   warnings  — печатаются и считаются в метриках, но НЕ делают прогон «грязным». Фаза сбора
+//               эмпирики для новой категории: сперва меряем частоту находок по флоту, потом
+//               осознанно повышаем до problems (тот же путь warn→block, что у CI-гейта).
+//
+// Категории проверок (exit 1 при любой находке класса problems):
 //   ORPHAN          content-док без frontmatter `topic` (невидим в навигации)
 //   STALE           Tier 1 сводка, чей tier2-док новее (Tier2.updated > Tier1.updated)
 //   BROKEN          указатели tier1/tier2 и [[ссылки]], которые не резолвятся; нет маркеров GENERATED
 //   LAGGING         Tier 1 док отстаёт от project-state.updated более чем на --stale-days (дрейф слоя)
 //   REVIEW          review_after в прошлом — пересмотреть актуальность
 //   UNVERIFIED      source_of_truth: canonical без last_verified
+//   LAST-VERIFIED-OLD (warning) last_verified старше --verified-max-days и review_after не задан
+//                   (UNVERIFIED проверяет только ФАКТ наличия даты, значение — никто)
 //   BLOATED         project-state.md больше --ps-max-kb (снимок превратился в журнал)
 //   NO-TIER1        domain/-док без парной Tier 1 сводки (не попадёт в decision tree)
 //   PLACEHOLDER     незаполненные {{...}} в живых доках / INDEX.md / корневом CLAUDE.md
@@ -30,6 +38,8 @@
 //   DIVERGENCE      найдена вторая .memory_bank (в предках до git-root или внутри проекта)
 //   SECRET          _secrets/ без .gitignore при git-репо; похожее на значение секрета вне _secrets/
 //   CODE-REF        backtick-путь к файлу кода в памяти не найден в дереве репозитория (память отстала от кода)
+//   CODE-DRIFT      (warning) код, на который док ссылается, изменён после last_verified/updated дока
+//                   более чем на --code-drift-days — утверждение про этот код никто не пересверял
 //   FROZEN-MEMORY   код менялся в >N коммитах с момента последнего коммита в .memory_bank/ (замерзание памяти)
 //   RULES-FM        frontmatter правил .claude/rules/: Cursor-поля (alwaysApply/globs), inline-массив
 //                   или некавыченный глоб в paths — правило может МОЛЧА не загружаться
@@ -41,7 +51,9 @@
 //   node tools/memory-audit.mjs --check [root]          (не писать, только проверка; для CI/hook)
 //   Флаги порогов: --stale-days N (30) · --ps-max-kb N (12) · --tier1-max-kb N (3)
 //                  --tier0-max-kb N (8) · --plan-stale-days N (14) · --frozen-commits N (12)
-//   --no-git: отключить git-проверку FROZEN-MEMORY (иначе включается при наличии .git и git в PATH).
+//                  --code-drift-days N (7) · --verified-max-days N (90)
+//   --no-git: отключить git-проверки FROZEN-MEMORY и CODE-DRIFT (иначе включаются при наличии
+//             .git и git в PATH). --no-code-drift: отключить только CODE-DRIFT.
 //   --metrics: доп. строка `METRICS ...` (footprint Tier0/корпус + счётчик находок по категориям) —
 //              для пассивного сбора эмпирики (tools/metrics-append.sh, CI-summary).
 //
@@ -161,8 +173,9 @@ function findNestedBanks(dir, depth, out, canon) {
 }
 
 // ---------- основной прогон ----------
-// opts: { write, staleDays, psMaxKb, tier1MaxKb, tier0MaxKb, planStaleDays, today }
-// Возвращает { ok, fatal?, problems, notes, docCount, psUpdated, psAgeDays }.
+// opts: { write, staleDays, psMaxKb, tier1MaxKb, tier0MaxKb, planStaleDays, codeDriftDays, today }
+// Возвращает { ok, fatal?, problems, warnings, notes, docCount, psUpdated, psAgeDays }.
+// ok считается ТОЛЬКО по problems: warnings информируют, но не блокируют (см. шапку файла).
 export function runChecks(root, opts = {}) {
   const o = {
     write: false,
@@ -172,17 +185,21 @@ export function runChecks(root, opts = {}) {
     tier0MaxKb: 8,
     planStaleDays: 14,
     frozenCommits: 12,
+    codeDriftDays: 7,
+    verifiedMaxDays: 90,
     noGit: false,
+    noCodeDrift: false,
     today: todayISO(),
     ...opts,
   };
   root = resolve(root);
   const mbDir = join(root, ".memory_bank");
   if (!existsSync(mbDir)) {
-    return { ok: false, fatal: `не найдено .memory_bank в ${root}`, problems: [], notes: [] };
+    return { ok: false, fatal: `не найдено .memory_bank в ${root}`, problems: [], warnings: [], notes: [] };
   }
 
   const problems = [];
+  const warnings = [];
   const notes = [];
 
   // Собрать все доки (кроме SKIP_DIRS)
@@ -310,6 +327,16 @@ export function runChecks(root, opts = {}) {
       !PH_RE.test(String(d.fm.last_verified || ""))
     )
       problems.push(`UNVERIFIED ${d.rel} — canonical без last_verified`);
+    // 7b) LAST-VERIFIED-OLD (warning) — дата есть, но древняя. UNVERIFIED проверяет только ФАКТ
+    //     наличия даты: док с last_verified 2019 года проходил как проверенный. Не дублируем
+    //     REVIEW: если у дока задан review_after, хозяин этого дока — он, одна находка на док.
+    if (isDate(d.fm.last_verified) && !isDate(d.fm.review_after)) {
+      const age = daysBetween(d.fm.last_verified, o.today);
+      if (age > o.verifiedMaxDays)
+        warnings.push(
+          `LAST-VERIFIED-OLD ${d.rel} — сверялся ${age}д назад (${d.fm.last_verified}), review_after не задан — перепроверить и обновить дату`
+        );
+    }
   }
 
   // 8) BLOATED / TIER1-BLOAT / TIER0-BLOAT — бюджеты размеров
@@ -533,6 +560,8 @@ export function runChecks(root, opts = {}) {
     }
   }
 
+  let driftCoverage = null; // {docsWithRefs, docsCovered} — заполняется в блоке 16, см. там
+
   // 16) CODE-REF — backtick-путь к файлу кода в памяти не найден в дереве репо (память ↔ код разъехались).
   //     Консервативно: под-флаг важнее пере-флага. Флагаем ТОЛЬКО inline-code-токены, похожие на
   //     репо-относительный путь файла (есть `/` и известное код-расширение) или на вложенную папку (после
@@ -564,6 +593,7 @@ export function runChecks(root, opts = {}) {
         return true;
       };
       const seen = new Set(); // одна находка на (doc, path)
+      const codeClaims = []; // живые ссылки на код в репо — вход для CODE-DRIFT (16b)
       for (const d of contentDocs) {
         for (const m of d.text.matchAll(/`([^`\n]+)`/g)) {
           let tok = m[1].trim().replace(/^\.\//, "");
@@ -584,12 +614,92 @@ export function runChecks(root, opts = {}) {
           seen.add(key);
           // Резолвим и от корня репо (код), и от .memory_bank (memory-относительные пути вроде
           // `_intake/brief/`, `core/…`) — как INDEX-REF. Найдено в любом → не claim о коде.
-          const resolved = [join(root, bare), join(mbDir, bare)].find((p) => existsSync(p));
+          const inRepo = existsSync(join(root, bare));
+          const resolved = inRepo ? join(root, bare) : existsSync(join(mbDir, bare)) ? join(mbDir, bare) : null;
           const ok = resolved && (isDir ? statSync(resolved).isDirectory() : true);
           if (!ok)
             problems.push(
               `CODE-REF ${d.rel} — \`${tok}\` не найден в дереве репозитория (память отстала от кода? обнови ссылку или добавь в _kit/code-ref-ignore.txt)`
             );
+          // Живая ссылка на код в репо — кандидат для CODE-DRIFT (16b).
+          else if (inRepo) codeClaims.push({ d, tok, bare, isDir });
+        }
+      }
+
+      // 16b) CODE-DRIFT (warning) — путь на месте, но код за ним уехал. CODE-REF ловит только
+      //      удаление/переименование: если файл переписали, а путь остался, память молча врёт.
+      //      Якорь свежести дока — last_verified (когда утверждения сверяли), иначе updated.
+      //      Даты кода берём ОДНИМ проходом git log (процесс на токен — недопустимо дорого).
+      //      Исключения: always-on мета-доки (decisions/project-state/source-of-truth — журналы
+      //      решений, они и должны быть старше кода) и source_of_truth: historical.
+      const anchorOf = (d) =>
+        isDate(d.fm.last_verified) ? d.fm.last_verified : isDate(d.fm.updated) ? d.fm.updated : null;
+      // Исключённые по политике (журналы решений, historical) — НЕ «непокрытые»: их не проверяют
+      // намеренно. Поэтому они уходят и из числителя, и из знаменателя покрытия.
+      const eligible = codeClaims.filter(
+        (c) => !ALWAYS_ON_TOPICS.has(c.d.fm.topic) && c.d.fm.source_of_truth !== "historical"
+      );
+      const tracked = eligible.filter((c) => anchorOf(c.d));
+      // Покрытие: сколько доков со ссылками на код проверка вообще ВИДИТ. Без даты-якоря во
+      // frontmatter CODE-DRIFT по доку молчит — а у докитовых банков якорей нет ни у одного дока,
+      // и тогда «0 находок» читается как здоровье. Молчание проверки ≠ здоровье, поэтому цифра
+      // покрытия идёт в вывод и в METRICS рядом с находками.
+      driftCoverage = {
+        docsWithRefs: new Set(eligible.map((c) => c.d.rel)).size,
+        docsCovered: new Set(tracked.map((c) => c.d.rel)).size,
+      };
+
+      const gitOk = !o.noGit && !o.noCodeDrift && existsSync(join(root, ".git"));
+      if (gitOk && codeClaims.length) {
+        const since = tracked.map((c) => anchorOf(c.d)).sort()[0];
+        if (since) {
+          // path -> дата последнего коммита (git log идёт от новых к старым → первая победа).
+          const lastTouch = new Map();
+          try {
+            const r = spawnSync(
+              "git",
+              // -n: потолок на случай древнего якоря в большом репо. Лог идёт от новых к старым,
+              // так что срезаются только СТАРЫЕ касания — а такой банк уже ловит FROZEN-MEMORY.
+              ["-C", root, "log", `--since=${since}`, "-n", "4000", "--format=%cs", "--name-only", "--no-renames"],
+              { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024 }
+            );
+            if (!r.error && r.status === 0) {
+              let cur = null;
+              for (const line of (r.stdout || "").split("\n")) {
+                const s = line.trim();
+                if (!s) continue;
+                if (isDate(s)) cur = s;
+                else if (cur && !lastTouch.has(s)) lastTouch.set(s, cur);
+              }
+            }
+          } catch {
+            /* git недоступен — CODE-DRIFT просто не сработает, это не ошибка банка */
+          }
+          // Дата последнего касания пути: файл — точное совпадение, папка — максимум по префиксу.
+          const touchedAt = (bare, isDir) => {
+            if (!isDir) return lastTouch.get(bare) || null;
+            const pref = bare.endsWith("/") ? bare : bare + "/";
+            let best = null;
+            for (const [p, dt] of lastTouch) if (p.startsWith(pref) && (!best || dt > best)) best = dt;
+            return best;
+          };
+          const perDoc = new Map(); // rel -> { d, anchor, hits: [{tok, date, days}] }
+          for (const c of tracked) {
+            const at = touchedAt(c.bare, c.isDir);
+            if (!at) continue;
+            const anchor = anchorOf(c.d);
+            const gap = daysBetween(anchor, at);
+            if (gap < o.codeDriftDays) continue;
+            if (!perDoc.has(c.d.rel)) perDoc.set(c.d.rel, { anchor, hits: [] });
+            perDoc.get(c.d.rel).hits.push({ tok: c.tok, date: at, days: gap });
+          }
+          for (const [rel, { anchor, hits }] of [...perDoc].sort((a, b) => a[0].localeCompare(b[0]))) {
+            const top = hits.sort((a, b) => b.days - a.days)[0];
+            const more = hits.length > 1 ? `, всего ссылок разошлось: ${hits.length}` : "";
+            warnings.push(
+              `CODE-DRIFT ${rel} — код изменился после ${anchor} (\`${top.tok}\` → ${top.date}, +${top.days}д${more}) — сверь утверждения и обнови last_verified`
+            );
+          }
         }
       }
     }
@@ -721,8 +831,48 @@ export function runChecks(root, opts = {}) {
   const corpusBytes = claudeBytes + docsBytes; // всё, что агент может прочитать (CLAUDE + весь банк)
   const alwaysOnBytes = claudeBytes + indexBytes; // всегда в контексте
   const footprintPct = corpusBytes > 0 ? Math.round((alwaysOnBytes / corpusBytes) * 1000) / 10 : null;
+  // Аннотация «читался N×» по changelog/reads.log (PostToolUse-логгер, локальный, в .gitignore).
+  // Отвечает на вопрос, который у находки про свежесть возникает первым: это живой док или мёртвый
+  // вес? Сортировать находки по частоте НЕ стали — замер 2026-08-04 показал, что сортировать
+  // нечего: топ-читаемые доки сверены 1–4 дня назад, а у 8 из 9 находок CODE-DRIFT ноль чтений
+  // (дрейфует ровно то, чего никто не открывает). Порядок вывода остаётся детерминированным.
+  {
+    const readsFile = join(mbDir, "changelog", "reads.log");
+    if (existsSync(readsFile)) {
+      const counts = new Map();
+      let firstDay = null;
+      for (const line of readDoc(readsFile).split(/\r?\n/)) {
+        const [day, p] = line.trim().split(/\s+/);
+        if (!p) continue;
+        counts.set(p, (counts.get(p) || 0) + 1);
+        if (isDate(day) && (!firstDay || day < firstDay)) firstDay = day;
+      }
+      if (counts.size) {
+        // Окно лога обязательно в тексте: «не открывался» за 5 дней и за полгода — разные факты.
+        const windowDays = firstDay ? Math.max(1, daysBetween(firstDay, o.today)) : null;
+        const ANNOTATED = /^(CODE-DRIFT|LAST-VERIFIED-OLD|REVIEW|UNVERIFIED)\b/;
+        const annotate = (list) => {
+          for (let i = 0; i < list.length; i++) {
+            if (!ANNOTATED.test(list[i])) continue;
+            const rel = list[i].split(/\s+/)[1];
+            const n = counts.get(rel) || 0;
+            list[i] += n
+              ? ` (читался ${n}×)`
+              : windowDays
+                ? ` (не открывался за ${windowDays}д лога чтений)`
+                : " (не открывался по логу чтений)";
+          }
+        };
+        annotate(problems);
+        annotate(warnings);
+      }
+    }
+  }
+
+  // Счётчик — по обоим классам: warn-категории в фазе сбора эмпирики нужны в метриках именно
+  // затем, чтобы понять их частоту до повышения в problems.
   const byCategory = {};
-  for (const p of problems) {
+  for (const p of [...problems, ...warnings]) {
     const cat = p.split(/\s+/)[0];
     byCategory[cat] = (byCategory[cat] || 0) + 1;
   }
@@ -730,6 +880,7 @@ export function runChecks(root, opts = {}) {
   return {
     ok: problems.length === 0,
     problems,
+    warnings,
     notes,
     docCount: docs.length,
     psUpdated: ps && isDate(ps.fm.updated) ? ps.fm.updated : null,
@@ -738,6 +889,7 @@ export function runChecks(root, opts = {}) {
     corpusBytes,
     footprintPct,
     byCategory,
+    driftCoverage,
   };
 }
 
@@ -752,7 +904,7 @@ if (isMain) {
     const n = Number(args[i + 1]);
     return Number.isFinite(n) ? n : def;
   };
-  const BOOL_FLAGS = new Set(["--check", "--no-git", "--metrics"]); // не забирают значение → не съедают позиционный root
+  const BOOL_FLAGS = new Set(["--check", "--no-git", "--no-code-drift", "--metrics"]); // не забирают значение → не съедают позиционный root
   const positional = args.filter(
     (a, i) => !a.startsWith("--") && !(i > 0 && args[i - 1].startsWith("--") && !BOOL_FLAGS.has(args[i - 1]))
   );
@@ -765,7 +917,10 @@ if (isMain) {
     tier0MaxKb: flagVal("--tier0-max-kb", 8),
     planStaleDays: flagVal("--plan-stale-days", 14),
     frozenCommits: flagVal("--frozen-commits", 12),
+    codeDriftDays: flagVal("--code-drift-days", 7),
+    verifiedMaxDays: flagVal("--verified-max-days", 90),
     noGit: args.includes("--no-git"),
+    noCodeDrift: args.includes("--no-code-drift"),
   });
   if (res.fatal) {
     console.error(`[memory-audit] ${res.fatal}`);
@@ -780,13 +935,33 @@ if (isMain) {
     );
   if (res.psAgeDays !== null && res.psAgeDays > 14)
     console.log(`[memory-audit] ⚠ project-state обновлялся ${res.psAgeDays}д назад (${res.psUpdated}) — возможно, снимок отстал`);
+  // Покрытие CODE-DRIFT: без даты-якоря во frontmatter проверка по доку молчит. У докитовых
+  // банков якорей нет вовсе — «0 находок» там означает «не смотрели», а не «чисто».
+  if (res.driftCoverage && res.driftCoverage.docsWithRefs > 0) {
+    const { docsWithRefs, docsCovered } = res.driftCoverage;
+    const pct = Math.round((docsCovered / docsWithRefs) * 100);
+    console.log(
+      `[memory-audit] сверка память↔код покрывает ${docsCovered} из ${docsWithRefs} доков со ссылками на код (${pct}%)`
+    );
+    if (pct < 50)
+      console.log(
+        `[memory-audit] ⚠ у ${docsWithRefs - docsCovered} доков нет даты-якоря (updated/last_verified) — CODE-DRIFT по ним слеп, «0 находок» ≠ «чисто». Банк без frontmatter → рехидратация, см. HEAL.md`
+      );
+  }
   // Машинная строка метрик для пассивного сбора (metrics-append.sh / CI-summary): footprint + частота находок.
   if (args.includes("--metrics")) {
     const kb = (b) => (b / 1024).toFixed(1);
     const cats = Object.keys(res.byCategory).sort().map((c) => `${c}=${res.byCategory[c]}`).join(" ");
+    const dc = res.driftCoverage;
+    const cov = dc && dc.docsWithRefs > 0 ? ` drift_cov=${dc.docsCovered}/${dc.docsWithRefs}` : "";
     console.log(
-      `METRICS date=${todayISO()} docs=${res.docCount} tier0_kb=${kb(res.alwaysOnBytes)} corpus_kb=${kb(res.corpusBytes)} footprint_pct=${res.footprintPct ?? "NA"} findings=${res.problems.length}${cats ? " " + cats : ""}`
+      `METRICS date=${todayISO()} docs=${res.docCount} tier0_kb=${kb(res.alwaysOnBytes)} corpus_kb=${kb(res.corpusBytes)} footprint_pct=${res.footprintPct ?? "NA"} findings=${res.problems.length} warns=${res.warnings.length}${cov}${cats ? " " + cats : ""}`
     );
+  }
+  // Предупреждения печатаем всегда, но на exit code они не влияют (фаза сбора эмпирики).
+  if (res.warnings.length) {
+    console.log(`[memory-audit] ⚠ предупреждений: ${res.warnings.length} (не блокируют)`);
+    for (const w of res.warnings) console.log("  ~ " + w);
   }
   if (res.ok) {
     console.log("[memory-audit] ✓ проблем не найдено");
