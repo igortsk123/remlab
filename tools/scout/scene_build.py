@@ -22,6 +22,8 @@ from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 from planner.models import Item, Placement, Room  # noqa: E402
 from planner.scene import cameras_for, compile_scene, save_maps  # noqa: E402
 
+import steps  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCENE_DIR = os.environ.get('SCENE_DIR', os.path.expanduser('~/scout-scenes'))
 FONT = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
@@ -183,6 +185,16 @@ def main() -> None:
         # карта ПУСТОЙ комнаты: базовый кадр рисуется по ней, иначе генератор заполняет пустые
         # стены своей мебелью (шкаф, обеденный стол, торшер — поймано 2026-08-04)
         save_maps(compile_scene(room, [], cam), f'{prefix}-empty')
+        steps.reset(prefix)
+        steps.log(prefix, 'Считаем сцену из плана расстановки',
+                  params={'камера': cam.name, 'точка (см)': [round(v) for v in cam.eye],
+                          'объектив': f'{cam.fov_deg:.0f}°', 'кадр': [cam.width, cam.height],
+                          'в кадре': list(out['visible']), 'вне кадра': out['behind']},
+                  inputs=[os.path.join(SCENE_DIR, f'scene{n}-plan.png')],
+                  outputs=[f'{prefix}-clay.png', f'{prefix}-instances.png',
+                           f'{prefix}-empty-clay.png'],
+                  note='Карта глубины, маски объектов и пустая комната — всё из нашей геометрии, '
+                       'без нейросети.')
         print(f'{cam.name}: видно {", ".join(out["visible"])}'
               + (f'  · вне кадра: {", ".join(out["behind"])}' if out['behind'] else ''))
 

@@ -20,6 +20,8 @@ import urllib.request
 import numpy as np
 from PIL import Image
 
+import steps
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCENE_DIR = os.environ.get('SCENE_DIR', os.path.expanduser('~/scout-scenes'))
 
@@ -275,6 +277,13 @@ def main() -> None:
     img = urllib.request.urlopen(url, timeout=120).read()
     dst = f'{prefix}-{"empty" if empty else "base"}-{which}.jpg'
     open(dst, 'wb').write(img)
+    steps.log(prefix,
+              'Рисуем ПУСТУЮ комнату по карте глубины' if empty else 'Рисуем кадр по карте глубины',
+              model=model, prompt=payload['prompt'],
+              params={k: v for k, v in payload.items()
+                      if not (isinstance(v, str) and v.startswith('data:'))},
+              inputs=[f'{ctrl_prefix}-depth16.png'], outputs=[dst],
+              note='Управляющий сигнал — карта глубины: композицию модель изменить не может.')
     print(f'{dst}  ({time.time() - t0:.0f} с, модель {model})')
 
 

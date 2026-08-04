@@ -28,10 +28,13 @@ from scene_build import SCENE_DIR, load_scene  # noqa: E402
 from viz_objects import product  # noqa: E402
 from viz_base import fal_key, fal_run, uri_from_image  # noqa: E402
 
+import steps  # noqa: E402
+
 # Плоские/мелкие роли не вклеиваем: у ковра и люстры фронтальной грани нет, декор не опознаётся
 SKIP = {'ковёр', 'ковер', 'люстра', 'тв', 'кашпо', 'ваза', 'лампа', 'подушка', 'подушка 2', 'плед'}
 
 
+_CUTS: list[tuple[str, str]] = []      # что вырезали в этом прогоне — для журнала
 CUTOUT = 'fal-ai/birefnet'          # вырезание фона: разово на товар, ~1 цент, кэш навсегда
 
 
@@ -44,6 +47,7 @@ def cutout(path: str) -> Image.Image:
     dst = os.path.splitext(path)[0] + '-cut.png'
     if os.path.exists(dst):
         return Image.open(dst).convert('RGBA')
+    _CUTS.append((path, dst))
     src = Image.open(path).convert('RGB')
     res = fal_run(CUTOUT, {'image_url': uri_from_image(src)}, fal_key())
     url = (res.get('image') or {}).get('url') or (res.get('images') or [{}])[0].get('url')
@@ -97,16 +101,40 @@ def face_of(p, it) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, float]:
     return corner, wvec, n, float(np.linalg.norm(wvec)), h
 
 
+def billboard(p, it, cam):
+    """Вырезка товара СТОИТ НА ПОЛУ лицом к камере — как фигура на подставке.
+
+    Раньше фото натягивалось на переднюю плоскость коробки. У низкой мебели (столик, тумба) мы
+    сверху видим не перёд, а столешницу, и фотография оказывалась вертикальной картинкой ВНУТРИ
+    серого объёма — «отражение внутри модели» (владелец, 2026-08-04). Стоячая вырезка так не врёт:
+    предмет всегда повёрнут к зрителю тем, что снято на фото.
+    """
+    eye, fwd, right, up = cam.basis()
+    centre = np.array([p.x, 0.0, p.y])
+    look = centre - eye
+    look[1] = 0.0
+    n = np.linalg.norm(look)
+    look = look / (n if n > 1e-6 else 1.0)
+    side = np.cross(np.array([0.0, 1.0, 0.0]), look)          # горизонтальная ось вырезки
+    side /= max(float(np.linalg.norm(side)), 1e-6)
+    w_cm = float(it.w_cm)
+    h_cm = float(it.h_cm or 60.0) + float(getattr(p, "elev_cm", 0.0))
+    base = float(getattr(p, "elev_cm", 0.0))
+    corner = centre - side * (w_cm / 2) + np.array([0.0, base, 0.0])
+    return corner, side * w_cm, np.array([0.0, h_cm - base, 0.0]), look
+
+
 def paste_role(pano: np.ndarray, ids: np.ndarray, sid: int, cam, p, it,
                photo: Image.Image) -> int:
-    """Проецирует фото товара на его грань. Возвращает число закрашенных пикселей."""
+    """Ставит вырезку товара на его место в кадре. Возвращает число закрашенных пикселей."""
     H, W = pano.shape[:2]
     eye, fwd, right, up = cam.basis()
     fv = (H / 2) / math.tan(math.radians(cam.vfov_deg) / 2)
     mask = ids == sid
     if mask.sum() < 200:
         return 0
-    ys, xs = np.where(mask)
+    from scipy import ndimage                       # вырезка чуть шире коробки — берём с запасом
+    ys, xs = np.where(ndimage.binary_dilation(mask, iterations=14))
 
     if cam.cyl:                                            # панорама
         ang = (xs - W / 2) / W * math.radians(cam.fov_deg)
@@ -119,22 +147,15 @@ def paste_role(pano: np.ndarray, ids: np.ndarray, sid: int, cam, p, it,
                 + right[None, :] * (xs - W / 2)[:, None]
                 + up[None, :] * (H / 2 + cam.shift_y * H - ys)[:, None])
 
-    corner, wvec, n, w_cm, h_cm = face_of(p, it)
-    # Вклеивать фронтальное фото имеет смысл, только пока грань РАЗВЁРНУТА к нам. У комода и
-    # ТВ-тумбы на боковой стене угол 3° — мы видим их с торца, фото туда натягивать бессмысленно;
-    # такие предметы уходят на дешёвый нейросетевой проход (замечание владельца 2026-08-04).
-    centre = corner + wvec / 2 + np.array([0.0, h_cm / 2, 0.0])
-    look = centre - eye
-    look = look / max(float(np.linalg.norm(look)), 1e-6)
-    face_deg = 90.0 - math.degrees(math.acos(min(1.0, abs(float(look @ n)))))
-    if face_deg < float(os.environ.get('PASTE_MIN_ANGLE', 40)):
-        return -1
+    corner, wvec, hvec, n = billboard(p, it, cam)
+    w_cm = float(np.linalg.norm(wvec))
+    h_cm = float(np.linalg.norm(hvec))
     denom = dirs @ n
     with np.errstate(divide='ignore', invalid='ignore'):
         t = ((corner - eye) @ n) / denom
     hit = eye[None, :] + dirs * t[:, None]
-    s = ((hit - corner[None, :]) @ wvec) / (w_cm ** 2)      # доля по ширине грани
-    v = hit[:, 1] / max(h_cm, 1e-6)                         # доля по высоте
+    s = ((hit - corner[None, :]) @ wvec) / (w_cm ** 2)
+    v = ((hit - corner[None, :]) @ hvec) / (h_cm ** 2)
     ok = np.isfinite(t) & (t > 0) & (s >= -0.02) & (s <= 1.02) & (v >= -0.02) & (v <= 1.02)
     if ok.sum() < 200:
         return 0
@@ -234,7 +255,7 @@ def main() -> None:
     prefix = os.path.join(SCENE_DIR, f'scene{n}-{cam_name}')
     # По умолчанию вклеиваем в НАШ clay-рендер: он геометрически точен. Сгенерированная оболочка
     # ставит пол и стены «примерно», из-за чего вклеенная мебель повисает в воздухе (2026-08-04).
-    base = f'{prefix}-clay.png'
+    base = f'{prefix}-empty-clay.png'    # пустая комната: серых коробок в кадре быть не должно
     if '--base' in sys.argv:
         base = f'{prefix}-{sys.argv[sys.argv.index("--base") + 1]}.jpg'
     pano = np.asarray(Image.open(base).convert('RGB')).copy()
@@ -249,6 +270,7 @@ def main() -> None:
 
     total = 0
     angled: list[str] = []
+    done_roles: list[str] = []
     for sid, role in id_map.items():
         if role in SKIP or (only and role != only) or role not in by:
             continue
@@ -266,10 +288,25 @@ def main() -> None:
             print(f'  {role}: сильный ракурс — на нейросетевой проход')
             continue
         total += px
-        print(f'  {role}: {px} px' if px else f'  {role}: грань не попала в кадр')
+        if px:
+            done_roles.append(role)
+        print(f'  {role}: {px} px' if px else f'  {role}: не попал в кадр')
     img = Image.fromarray(pano)
     dst = f'{prefix}-pasted.jpg'
     img.save(dst, quality=93)
+    refs = []
+    for role in done_roles:
+        try:
+            refs.append(product(n, role)[1])
+        except KeyError:
+            pass
+    steps.log(prefix, 'Ставим фотографии товаров на их места',
+              params={'товаров вклеено': len(done_roles), 'предметы': done_roles,
+                      'на нейросетевой проход (сильный ракурс)': angled,
+                      'генераций': 0},
+              inputs=[f'{prefix}-empty-clay.png'] + refs[:8], outputs=[dst],
+              note='Вырезка товара ставится на пол лицом к камере, размер и место — из плана. '
+                   'Это математика, не генерация: узнаваемость стопроцентная.')
     print(f'{dst}  (закрашено {total} px, генераций 0)'
           + (f'; на нейросетевой проход: {", ".join(angled)}' if angled else ''))
     json.dump(angled, open(f'{prefix}-angled.json', 'w'), ensure_ascii=False)
@@ -293,6 +330,12 @@ def main() -> None:
             import urllib.request as _u
             out = Image.open(io.BytesIO(_u.urlopen(url, timeout=240).read())).convert('RGB')
             out.resize(img.size).save(f'{prefix}-final.jpg', quality=93)
+            steps.log(prefix, 'Доводим до фотореализма', model='fal-ai/fast-sdxl/image-to-image',
+                      prompt='Photorealistic interior photo…',
+                      params={'сила': os.environ.get('REALISM_STRENGTH', 0.35)},
+                      inputs=[f'{prefix}-pasted.jpg'], outputs=[f'{prefix}-final.jpg'],
+                      note='Открытый вопрос: без управления глубиной на большой силе модель '
+                           'начинает пересочинять комнату.')
             print(f'{prefix}-final.jpg  (реализм поверх точной геометрии)')
         return
     if '--finish' in sys.argv:
