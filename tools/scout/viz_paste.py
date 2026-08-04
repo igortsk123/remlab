@@ -173,7 +173,14 @@ def billboard(p, it, cam):
     look = look / (n if n > 1e-6 else 1.0)
     side = np.cross(np.array([0.0, 1.0, 0.0]), look)          # горизонтальная ось вырезки
     side /= max(float(np.linalg.norm(side)), 1e-6)
-    w_cm = float(it.w_cm)
+    # Ширину берём НЕ из паспорта, а как видимую ширину следа под текущим углом: пуф 71×57,
+    # повёрнутый к нам углом, занимает больше 71 см по горизонтали, и вырезка вылезала за свой
+    # след (владелец: «пуф крупнее», 2026-08-04).
+    from planner.geometry import footprint as _fp
+    poly = _fp(p, it)
+    xs_f, ys_f = poly.exterior.coords.xy
+    proj = [float(x) * side[0] + float(y) * side[2] for x, y in zip(xs_f, ys_f)]
+    w_cm = max(max(proj) - min(proj), 1.0)
     h_cm = float(it.h_cm or 60.0) + float(getattr(p, "elev_cm", 0.0))
     base = float(getattr(p, "elev_cm", 0.0))
     corner = centre - side * (w_cm / 2) + np.array([0.0, base, 0.0])
