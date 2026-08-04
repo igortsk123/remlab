@@ -379,17 +379,17 @@ def main() -> None:
     prefix = os.path.join(SCENE_DIR, f'scene{n}-{cam_name}')
     # По умолчанию вклеиваем в НАШ clay-рендер: он геометрически точен. Сгенерированная оболочка
     # ставит пол и стены «примерно», из-за чего вклеенная мебель повисает в воздухе (2026-08-04).
-    # База — ПОЛНЫЙ clay-рендер: предметы, которые нельзя вклеить фронтальным фото (сильный
-    # ракурс), остаются в кадре серым объёмом, а не пропадают вовсе. Под вклеенные предметы
-    # коробка стирается — берём чистый фон из рендера пустой комнаты (владелец: «тв-тумбы нет»).
-    base = f'{prefix}-clay.png'
+    # База — рендер ПУСТОЙ комнаты. Объём (серую коробку) дорисовываем только тем предметам,
+    # которые не удалось вклеить. Обратный порядок — стирать коробки из полного рендера — оставлял
+    # на полу заплатки другого тона (владелец: «что это за жёлтые зоны», 2026-08-04).
+    base = f'{prefix}-empty-clay.png'
     if '--base' in sys.argv:
         base = f'{prefix}-{sys.argv[sys.argv.index("--base") + 1]}.jpg'
     pano = np.asarray(Image.open(base).convert('RGB')).copy()
     H, W = pano.shape[:2]
-    empty_p = f'{prefix}-empty-clay.png'
-    empty = (np.asarray(Image.open(empty_p).convert('RGB').resize((W, H))).copy()
-             if os.path.exists(empty_p) else None)
+    full_p = f'{prefix}-clay.png'
+    full = (np.asarray(Image.open(full_p).convert('RGB').resize((W, H))).copy()
+            if os.path.exists(full_p) else None)
     inst_img = Image.open(f'{prefix}-instances.png').convert('RGB').resize((W, H), Image.NEAREST)
     ids_full = np.asarray(inst_img)[..., 0] // 8
     id_map = json.load(open(f'{prefix}-frame.json'))['ids']
@@ -417,13 +417,11 @@ def main() -> None:
         if not os.path.exists(photo_path):
             print(f'  {role}: нет фото товара')
             continue
-        if empty is not None:                      # стираем серую коробку под этим предметом
-            m_box = ids_full == int(sid)
-            saved = pano[m_box].copy()
-            pano[m_box] = empty[m_box]
         px = paste_role(pano, zbuf, cam, by[role], by[role].item, cutout(photo_path))
-        if empty is not None and px <= 0:
-            pano[m_box] = saved                    # не вклеилось — возвращаем объём на место
+        if px <= 0 and full is not None:           # не вклеилось — показываем объём предмета
+            m_box = ids_full == int(sid)
+            if m_box.any():
+                pano[m_box] = full[m_box]
         if px < 0:
             angled.append(role)
             print(f'  {role}: сильный ракурс — на нейросетевой проход')
