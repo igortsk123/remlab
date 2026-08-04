@@ -301,6 +301,18 @@ def run_pair(n: int, cams: tuple[str, str]) -> None:
     imgs = [sheet, sheet_marks] + ([Image.open(plan_p).convert('RGB')] if os.path.exists(plan_p) else [])
     out = edit_gpt_raw(imgs, prompt, size='2048x2864')
     out.save(f'{out_dir}-final.jpg', quality=94)
+    from viz_objects import LAST_USAGE
+    usage = dict(LAST_USAGE)
+    # цены OpenAI за миллион токенов (gpt-image): текст на входе, картинки на входе, картинки на выходе
+    rate = {'text_in': 5.0, 'image_in': 10.0, 'image_out': 40.0}
+    det = usage.get('input_tokens_details', {}) or {}
+    cost = (det.get('text_tokens', 0) * rate['text_in']
+            + det.get('image_tokens', 0) * rate['image_in']
+            + usage.get('output_tokens', 0) * rate['image_out']) / 1e6
+    json.dump({'usage': usage, 'cost_usd': round(cost, 4), 'prompt_chars': len(prompt)},
+              open(f'{out_dir}-cost.json', 'w'), ensure_ascii=False, indent=1)
+    open(f'{out_dir}-prompt.txt', 'w').write(prompt)
+    print(f'расход: {usage} → ≈ ${cost:.3f}')
     # Режем ответ по маркерной полосе, а не по фиксированным отступам: модель может немного
     # сместить кадры, а полосу видно всегда (владелец, 2026-08-04).
     for c, part in zip(cams, split_pair(out)):

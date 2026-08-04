@@ -163,7 +163,12 @@ def edit_gpt(scene: Image.Image, ref: Image.Image, mask: np.ndarray,
                                           'Content-Type': f'multipart/form-data; boundary={B}'})
     with urllib.request.urlopen(req, timeout=900) as r:
         data = json.loads(r.read())
+    LAST_USAGE.clear()
+    LAST_USAGE.update(data.get('usage') or {})      # расход токенов последнего запроса
     return Image.open(io.BytesIO(base64.b64decode(data['data'][0]['b64_json']))).convert('RGB')
+
+
+LAST_USAGE: dict = {}
 
 
 def edit_gpt_raw(images: list, prompt: str, size: str = '1536x1024', mask=None) -> 'Image.Image':
@@ -209,6 +214,8 @@ def edit_gpt_raw(images: list, prompt: str, size: str = '1536x1024', mask=None) 
                                           'Content-Type': f'multipart/form-data; boundary={B}'})
     with urllib.request.urlopen(req, timeout=900) as r:
         data = json.loads(r.read())
+    LAST_USAGE.clear()
+    LAST_USAGE.update(data.get('usage') or {})      # расход токенов последнего запроса
     return Image.open(io.BytesIO(base64.b64decode(data['data'][0]['b64_json']))).convert('RGB')
 
 
