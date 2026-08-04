@@ -21,7 +21,7 @@ import numpy as np
 from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCENE_DIR = os.environ.get('SCENE_DIR', '/tmp/room-scene')
+SCENE_DIR = os.environ.get('SCENE_DIR', os.path.expanduser('~/scout-scenes'))
 
 UPSCALER = 'fal-ai/esrgan'          # быстрый апскейл ×2: дешевле, чем гнать генерацию крупнее
 

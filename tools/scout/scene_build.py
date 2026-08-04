@@ -23,7 +23,7 @@ from planner.models import Item, Placement, Room  # noqa: E402
 from planner.scene import cameras_for, compile_scene, save_maps  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCENE_DIR = os.environ.get('SCENE_DIR', '/tmp/room-scene')
+SCENE_DIR = os.environ.get('SCENE_DIR', os.path.expanduser('~/scout-scenes'))
 FONT = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
 
 

@@ -17,7 +17,7 @@ import sys
 import numpy as np
 from PIL import Image
 
-SCENE_DIR = os.environ.get('SCENE_DIR', '/tmp/room-scene')
+SCENE_DIR = os.environ.get('SCENE_DIR', os.path.expanduser('~/scout-scenes'))
 NAMES = {-1: 'left', 0: 'center', 1: 'right'}
 RU = {-1: 'налево', 0: 'прямо', 1: 'направо'}
 
@@ -35,7 +35,7 @@ def sample(pano: np.ndarray, cols: np.ndarray, rows: np.ndarray) -> np.ndarray:
 
 
 def crop_view(pano: np.ndarray, pano_fov: float, yaw_deg: float, fov_deg: float,
-              size: tuple[int, int]) -> Image.Image:
+              size: tuple[int, int], nearest: bool = False) -> Image.Image:
     """Перспективный кадр с поворотом yaw из цилиндрической панорамы."""
     H, W = pano.shape[:2]
     ow, oh = size
@@ -48,6 +48,11 @@ def crop_view(pano: np.ndarray, pano_fov: float, yaw_deg: float, fov_deg: float,
     horiz = np.hypot(dx, 1.0)
     cols = W / 2 + ang * fv_pano
     rows = H / 2 - fv_pano * dy / horiz
+    if nearest:                                   # для масок: id нельзя усреднять
+        H, W = pano.shape[:2]
+        c = np.clip(np.round(cols).astype(int), 0, W - 1)
+        r = np.clip(np.round(rows).astype(int), 0, H - 1)
+        return Image.fromarray(pano[r, c])
     return Image.fromarray(sample(pano, cols, rows))
 
 
