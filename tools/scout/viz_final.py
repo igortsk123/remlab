@@ -26,13 +26,63 @@ SCENE_DIR = os.environ.get('SCENE_DIR', os.path.expanduser('~/scout-scenes'))
 
 def room_brief(n: int) -> str:
     s = json.load(open(os.path.join(HERE, 'sets3.json')))[n - 1]
-    style = ''
-    if s.get('style'):
-        sp = json.load(open(os.path.join(HERE, 'styles.json')))['styles']
-        style = sp.get(s['style'], {}).get('prompt', '') or s['style']
-    return (f'A living room in a Russian city flat, {s.get("band", "18-20")} m², '
-            f'4.00 × 4.60 m, ceiling 2.7 m, one window on the right-hand wall, one door. '
-            f'Interior style: {style}')
+    # Про окна и двери в шапке не пишем: их состав для КАЖДОГО кадра считается отдельно
+    # (openings_brief) — иначе шапка противоречит кадру, где проёмов нет.
+    return (f'ROOM: a living room in a city flat, {s.get("band", "18-20")} m², '
+            f'4.00 × 4.60 m, ceiling 2.7 m.')
+
+
+def style_name(n: int) -> str:
+    s = json.load(open(os.path.join(HERE, 'sets3.json')))[n - 1]
+    sp = json.load(open(os.path.join(HERE, 'styles.json')))['styles']
+    return sp.get(s.get('style', ''), {}).get('en', s.get('style', ''))
+
+
+def style_brief(n: int) -> str:
+    """Паспорт стиля: чем именно модель имеет право «делать ремонт»."""
+    s = json.load(open(os.path.join(HERE, 'sets3.json')))[n - 1]
+    sp = json.load(open(os.path.join(HERE, 'styles.json')))['styles']
+    return sp.get(s.get('style', ''), {}).get('prompt', '')
+
+
+def openings_brief(n: int, cam_name: str) -> str:
+    """Проёмы считаем МЫ и передаём словами: где они в кадре и что их больше нет."""
+    import math
+
+    import numpy as np
+    sys.path.insert(0, '/home/pakar/igor/remlab/services/planner-solver')
+    from planner.scene import cameras_for
+    from scene_build import load_scene
+    room, placements = load_scene(n)
+    cam = next(c for c in cameras_for(room, placements) if c.name == cam_name)
+    eye, fwd, right, up = cam.basis()
+    W, H = cam.width, cam.height
+    focal = (W / 2) / math.tan(math.radians(cam.fov_deg) / 2)
+
+    def where(pt):
+        rel = np.array(pt, float) - eye
+        z = float(rel @ fwd)
+        if z <= 1e-3:
+            return None
+        u = W / 2 + focal * float(rel @ right) / z
+        v = H / 2 - focal * float(rel @ up) / z + cam.shift_y * H
+        return (u, v) if 0 <= u < W and 0 <= v < H else None
+
+    seen = []
+    for op in room.openings:
+        o0, o1 = op.offset_cm, op.offset_cm + op.width_cm
+        pts = {'south': [(o0, 0), (o1, 0)], 'north': [(o0, room.depth_cm), (o1, room.depth_cm)],
+               'west': [(0, o0), (0, o1)], 'east': [(room.width_cm, o0), (room.width_cm, o1)]}[op.wall]
+        got = [where([x, 120, y]) for x, y in pts]
+        if not any(got):
+            continue
+        side = 'left' if (np.mean([g[0] for g in got if g]) < W / 2) else 'right'
+        kind = 'window' if op.kind == 'window' else 'door'
+        whole = 'fully in frame' if all(got) else 'only partly in frame'
+        seen.append(f'one {kind} on the {side}-hand wall ({whole}, {int(op.width_cm)} cm wide)')
+    if not seen:
+        return ('There is NO window and NO door in this frame — all walls in view are blank. ')
+    return 'Openings visible in this frame: ' + '; '.join(seen) + '. '
 
 
 def legend_json(legend: list[dict]) -> str:
@@ -106,31 +156,47 @@ def main() -> None:
     plan_p = os.path.join(SCENE_DIR, f'scene{n}-plan.png')
     plan = Image.open(plan_p).convert('RGB') if os.path.exists(plan_p) else None
 
+    openings = openings_brief(n, cam)
     prompt = (
-        f'{room_brief(n)}. '
-        'The FIRST image is a collage: every piece of furniture is a real product photo placed at '
-        'its exact position and true size. Turn it into one believable photograph of this room: '
-        'add soft contact shadows under every item, unify lighting and white balance, soften the '
-        'pasted outlines, make floor and wall junctions correct, keep vertical lines vertical. '
-        'The SECOND image is the SAME frame with red numbered markers above each item and a thin '
-        'leader line ending on the item — it is an annotation for you only. '
-        'The THIRD image is the floor plan of this room with the camera position (red dot) and its '
-        'field of view: use it to understand where each item stands, which items are close to the '
-        'camera and which parts of them the frame cuts off. '
-        'NEVER draw numbers, circles or lines in the output. '
-        'Here is what every number is and how it must sit (JSON): ' + legend_json(legend) + '. '
+        f'{room_brief(n)}\n\n'
+        'INPUT IMAGES\n'
+        '1) The collage: every piece of furniture is a real product photo placed at its exact '
+        'position and true size, on a neutral render of the room.\n'
+        '2) The same frame with red numbered markers above each item and a leader line ending on '
+        'the item — an annotation for you only.\n'
+        '3) The floor plan of the room with the camera position and its field of view — use it to '
+        'understand what stands where and which parts the frame cuts off.\n\n'
+        'WHAT YOU MUST NOT CHANGE\n'
+        '- Products. Never replace, restyle, recolour or resize any item from the list. What is '
+        'shown IS the product the customer buys.\n'
+        '- Positions. Do not move an item to another place and do not swap items.\n'
+        f'- Openings. {openings} Do NOT invent, move, add or remove any window or door: their '
+        'places are given by the plan, not by you.\n'
+        '- The room shell: wall planes, floor plane, ceiling height and the camera stay as they are.\n\n'
+        'WHAT YOU MAY AND SHOULD DO\n'
+        '- Turn an item slightly around its own vertical axis so it sits naturally (an ottoman '
+        'faces the sofa, a coffee table is parallel to the sofa). Product photos are frontal, a '
+        'small rotation makes the scene believable.\n'
+        '- Renovate the room in the chosen style: wall finish and colour, flooring, ceiling, '
+        'skirting, and the FRAMES and dressing of the given window and door (frame colour, '
+        'curtains) — all in that style, without changing where they are.\n'
+        '- Add greenery and wall art that suit the style: potted plants and framed prints only.\n'
+        '- Every planter or pot in the list MUST have a living plant in it.\n'
+        '- Light the scene naturally, add soft contact shadows under every item, soften the pasted '
+        'outlines, make floor and wall junctions correct, keep vertical lines vertical.\n'
+        '- Add nothing else: no extra furniture, no rugs, no lamps, no TV, no textiles beyond the '
+        'list.\n\n'
+        f'STYLE OF THIS SET — {style_name(n)}\n{style_brief(n)}\n\n'
+        'ITEMS IN THE FRAME (JSON: id = number on image 2)\n' + legend_json(legend) + '\n\n'
         'The visibility field says whether an item is whole or cut by the frame edge: never '
-        'complete a cut-off item — draw exactly the part that is in the frame. '
-        'Follow the placement field exactly: a throw drapes over the sofa, cushions rest on the '
-        'seat, a vase and a lamp stand on the chest of drawers, a rug lies flat on the floor. '
-        'You MAY turn an item slightly around its own vertical axis so that it sits logically '
-        'in the room (an ottoman faces the sofa, a coffee table is parallel to the sofa) — the '
-        'product photos are frontal, so a small rotation makes the scene believable. '
-        'STRICT: do not move an item to another place, do not resize or replace it; do not add '
-        'furniture, decor, '
-        'plants or artwork that is not in the list; keep the walls, floor, window and door as they '
-        'are. Photorealistic interior photography, natural daylight, no people, no text.'
+        'complete a cut-off item — draw exactly the part that is in the frame. Follow the '
+        'placement field exactly.\n\n'
+        'OUTPUT: one photorealistic interior photograph, natural daylight, no people, no text, '
+        'no numbers, no circles, no leader lines.'
     )
+    if '--print-prompt' in sys.argv:        # показать запрос без генерации
+        print(prompt)
+        return
     imgs = [clean, mark] + ([plan] if plan is not None else [])
     out = edit_gpt_raw(imgs, prompt, size='1536x1024')
     dst = f'{prefix}-final.jpg'
