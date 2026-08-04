@@ -131,6 +131,29 @@ def face_of(p, it) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, float]:
     return corner, wvec, n, float(np.linalg.norm(wvec)), h
 
 
+def axis_plane(p, it, cam):
+    """Плоскость вырезки ВДОЛЬ СОБСТВЕННОЙ длинной стороны предмета, а не лицом к камере.
+
+    Для столика, ковра, пуфа «лица» нет, но есть вытянутость. Камерная вырезка показывала их
+    развёрнутыми к зрителю — и модель честно копировала этот разворот, игнорируя текст
+    (владелец: «столик не развёрнут», 2026-08-04). Здесь предмет стоит своей осью, как в плане.
+    """
+    eye, fwd, right, up = cam.basis()
+    w, d = float(it.w_cm), float(it.d_cm)
+    rot = int(round(p.rot)) % 180
+    long_x = (w >= d) if rot == 0 else (d > w)
+    axis = np.array([1.0, 0.0, 0.0]) if long_x else np.array([0.0, 0.0, 1.0])
+    length = max(w, d)
+    normal = np.array([0.0, 0.0, 1.0]) if long_x else np.array([1.0, 0.0, 0.0])
+    to_cam = np.array([eye[0] - p.x, 0.0, eye[2] - p.y])
+    if float(normal @ to_cam) < 0:
+        normal = -normal
+    base = float(getattr(p, 'elev_cm', 0.0))
+    h_cm = float(it.h_cm or 60.0)
+    corner = np.array([p.x, base, p.y]) - axis * (length / 2)
+    return corner, axis * length, np.array([0.0, h_cm, 0.0]), normal
+
+
 def billboard(p, it, cam):
     """Вырезка товара СТОИТ НА ПОЛУ лицом к камере — как фигура на подставке.
 
@@ -174,6 +197,13 @@ def paste_role(pano: np.ndarray, zbuf: np.ndarray, cam, p, it, photo: Image.Imag
     fv = (H / 2) / math.tan(math.radians(cam.vfov_deg) / 2)
     if p.role in FLOOR:                    # ковёр лежит НА ПОЛУ: проекция на горизонталь
         corner, wvec, hvec, n = floor_quad(p, it)
+    elif p.role not in FRONTED and float(getattr(p, 'elev_cm', 0.0)) <= 1.0:
+        # вытянутый предмет без фасада — ставим по СВОЕЙ оси, как в плане
+        w_i, d_i = float(it.w_cm), float(it.d_cm)
+        if max(w_i, d_i) > 0 and abs(w_i - d_i) / max(w_i, d_i) >= 0.12:
+            corner, wvec, hvec, n = axis_plane(p, it, cam)
+        else:
+            corner, wvec, hvec, n = billboard(p, it, cam)
     else:
         # Фронтальное фото годится, только пока мы смотрим предмету В ЛИЦО. Если по плану он
         # повёрнут к нам боком, вырезка врёт: диван «разворачивается» во всю ширину там, где
