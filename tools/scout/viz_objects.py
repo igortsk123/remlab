@@ -188,11 +188,117 @@ def blend(base: Image.Image, new: Image.Image, mask: np.ndarray, feather: int = 
     return out
 
 
+# Крупное врисовываем по одному (узнаваемость), мелкий декор не трогаем: его опознать всё равно
+# нельзя, а каждый вызов стоит денег. Порядок — от дальних к ближним, ближний перекрывает дальний.
+BIG = ('диван', 'кресло', 'стеллаж', 'комод', 'тв-тумба', 'шкаф', 'стенка', 'кровать', 'столик')
+
+
+def depth_order(n: int, view: str, roles: list[str]) -> list[str]:
+    """Сортировка ролей по удалённости от камеры (дальние первыми)."""
+    import sys as _s
+    _s.path.insert(0, '/home/pakar/igor/remlab/services/planner-solver')
+    from planner.scene import cameras_for
+    from scene_build import load_scene
+    room, placements = load_scene(n)
+    cam = next(c for c in cameras_for(room, placements) if c.name == 'P')
+    ex, _, ez = cam.eye
+    dist = {p.role: ((p.x - ex) ** 2 + (p.y - ez) ** 2) ** 0.5 for p in placements}
+    return sorted(roles, key=lambda r: -dist.get(r, 0))
+
+
+def run_pano(n: int, mech: str) -> str:
+    """Врисовка ПРЯМО В ПАНОРАМУ по кропу вокруг каждого предмета.
+
+    Почему не в каждый вид отдельно: диван виден и слева, и по центру — правя виды по одному,
+    получим два разных дивана. Панорама одна, поэтому и товар один. Кроп вокруг маски даёт модели
+    крупный план (лучше узнаваемость) и стоит дешевле, чем правка кадра 4096 px целиком.
+    """
+    prefix = os.path.join(SCENE_DIR, f'scene{n}-P')
+    pano = Image.open(f'{prefix}-base-sdxl.jpg').convert('RGB')
+    W, H = pano.size
+    inst = np.asarray(Image.open(f'{prefix}-instances.png').convert('RGB'))
+    ids = np.asarray(Image.fromarray(inst).resize((W, H), Image.NEAREST))[..., 0] // 8
+    id_map = json.load(open(f'{prefix}-frame.json'))['ids']
+    items = json.load(open(os.path.join(HERE, 'sets3.json')))[n - 1]['items']
+    key = fal_key() if mech != 'gpt' else ''
+
+    todo = [r for _, r in id_map.items() if r in BIG and r in items]
+    done = []
+    for role in depth_order(n, 'P', todo):
+        sid = next(int(k) for k, v in id_map.items() if v == role)
+        mask = (ids == sid)
+        if mask.sum() < 20000:                       # слишком мелко в кадре — не трогаем
+            continue
+        ys, xs = np.where(mask)
+        pad = int(max(np.ptp(xs), np.ptp(ys)) * 0.22)   # numpy 2.x убрал метод .ptp
+        x0, x1 = max(0, xs.min() - pad), min(W, xs.max() + pad)
+        y0, y1 = max(0, ys.min() - pad), min(H, ys.max() + pad)
+        crop = pano.crop((x0, y0, x1, y1))
+        sub = mask[y0:y1, x0:x1]
+        it, photo = product(n, role)
+        if not os.path.exists(photo):
+            print(f'  пропуск {role}: нет фото товара')
+            continue
+        name = (it.get('name') or role)[:90]
+        ref = on_white(photo)
+        edited = (edit_gpt(crop, ref, sub, role, name) if mech == 'gpt'
+                  else edit_ref(crop, ref, role, name, key))
+        merged = blend(crop, edited, sub)
+        pano.paste(merged, (x0, y0))
+        done.append(role)
+        print(f'  {role}: врисован в панораму, кроп {x1 - x0}×{y1 - y0}')
+    dst = f'{prefix}-base-sdxl.jpg'
+    Image.open(dst).save(f'{prefix}-base-clean.jpg', quality=93)   # копия «до»
+    pano.save(dst, quality=93)
+    print(f'{dst}  ({len(done)} предметов: {", ".join(done)})')
+    return dst
+
+
+def run_all(n: int, view: str, mech: str) -> str:
+    """Весь комплект: по объекту за вызов, каждый со своей маской и своим фото товара."""
+    prefix = os.path.join(SCENE_DIR, f'scene{n}-P')
+    scene = Image.open(f'{prefix}-{view}.jpg').convert('RGB')
+    ids, id_map = masks_for_view(n, view, scene.size)
+    items = json.load(open(os.path.join(HERE, 'sets3.json')))[n - 1]['items']
+    px_total = ids.size
+    todo = []
+    for sid, role in id_map.items():
+        if role not in BIG or role not in items:
+            continue
+        m = (ids == int(sid))
+        if m.sum() < px_total * 0.012:          # предмет почти не виден — врисовывать нечего
+            continue
+        todo.append(role)
+    key = fal_key() if mech != 'gpt' else ''
+    done = []
+    for role in depth_order(n, view, todo):
+        sid = next(int(k) for k, v in id_map.items() if v == role)
+        mask = (ids == sid)
+        it, photo = product(n, role)
+        if not os.path.exists(photo):
+            print(f'  пропуск {role}: нет фото товара')
+            continue
+        name = (it.get('name') or role)[:90]
+        ref = on_white(photo)
+        edited = (edit_gpt(scene, ref, mask, role, name) if mech == 'gpt'
+                  else edit_ref(scene, ref, role, name, key))
+        scene = blend(scene, edited, mask)
+        done.append(role)
+        print(f'  {role}: врисован ({int(mask.sum())} px)')
+    dst = f'{prefix}-{view}-all-{mech}.jpg'
+    scene.save(dst, quality=93)
+    print(f'{dst}  ({len(done)} предметов: {", ".join(done)})')
+    return dst
+
+
 def main() -> None:
     n = int(sys.argv[1])
     role = sys.argv[2]
     view = sys.argv[sys.argv.index('--view') + 1] if '--view' in sys.argv else 'center'
     mech = sys.argv[sys.argv.index('--mech') + 1] if '--mech' in sys.argv else 'ref'
+    if role == 'все':
+        run_pano(n, mech) if view == 'pano' else run_all(n, view, mech)
+        return
     prefix = os.path.join(SCENE_DIR, f'scene{n}-P')
     scene = Image.open(f'{prefix}-{view}.jpg').convert('RGB')
     ids, id_map = masks_for_view(n, view, scene.size)

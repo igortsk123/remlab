@@ -90,13 +90,46 @@ def panorama(prefix: str, payload: dict, model: str, key: str, seed: int = 4242)
         url = (res.get('images') or [{}])[0].get('url')
         outs.append(Image.open(io.BytesIO(urllib.request.urlopen(url, timeout=120).read())))
     a, b = [o.convert('RGB').resize((tile, H)) for o in outs]
-    canvas = Image.new('RGB', (W, H))
-    canvas.paste(a, (0, 0))
-    ov = tile - (W - tile)                      # ширина перекрытия
+    a.save(f'{prefix}-tile0.png')
+    b.save(f'{prefix}-tile1.png')   # плитки на диск: шов можно пересобрать без новой генерации
+    return stitch(a, b, W)
+
+
+def stitch(a: Image.Image, b: Image.Image, W: int) -> Image.Image:
+    """Склейка двух плиток ШВОМ ПО ЛИНИИ НАИМЕНЬШЕЙ РАЗНИЦЫ.
+
+    Широкий градиент давал двойное изображение: в зоне перекрытия просвечивали сразу обе
+    генерации — «призрачные» двери и столики (замечание владельца 2026-08-04). Здесь по
+    перекрытию ищется вертикальный шов, вдоль которого картинки расходятся меньше всего, и
+    пиксели берутся с одной стороны или с другой — двоиться нечему.
+    """
+    tile, H = a.size
+    ov = tile - (W - tile)
     band_a = np.asarray(a.crop((tile - ov, 0, tile, H)), np.float32)
     band_b = np.asarray(b.crop((0, 0, ov, H)), np.float32)
-    ramp = np.linspace(0, 1, ov, dtype=np.float32)[None, :, None]
-    band = (band_a * (1 - ramp) + band_b * ramp).astype(np.uint8)
+    cost = np.abs(band_a - band_b).sum(axis=2)                  # разница плиток по пикселям
+
+    acc = cost.copy()                                           # ищем путь сверху вниз
+    back = np.zeros_like(acc, np.int16)
+    for y in range(1, H):
+        left = np.roll(acc[y - 1], 1); left[0] = 1e9
+        right = np.roll(acc[y - 1], -1); right[-1] = 1e9
+        stack = np.stack([left, acc[y - 1], right])
+        idx = stack.argmin(0)
+        back[y] = idx - 1
+        acc[y] += stack.min(0)
+    seam = np.zeros(H, int)
+    seam[-1] = int(acc[-1].argmin())
+    for y in range(H - 1, 0, -1):
+        seam[y - 1] = min(max(seam[y] + int(back[y][seam[y]]), 0), ov - 1)
+
+    feather = 6
+    xs = np.arange(ov)[None, :]
+    alpha = np.clip((xs - seam[:, None] + feather) / (2 * feather), 0, 1)[..., None]
+    band = (band_a * (1 - alpha) + band_b * alpha).astype(np.uint8)
+
+    canvas = Image.new('RGB', (W, H))
+    canvas.paste(a, (0, 0))
     canvas.paste(Image.fromarray(band), (W - tile, 0))
     canvas.paste(b.crop((ov, 0, tile, H)), (W - tile + ov, 0))
     return canvas
