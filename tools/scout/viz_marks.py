@@ -63,7 +63,8 @@ def build(n: int, cam_name: str = 'C1') -> tuple[str, str, list[dict]]:
         if frag < 0.004:
             continue
         seen_txt = ('виден целиком' if not touches_edge else
-                    'виден частично: обрезан краем кадра, рисовать только видимую часть')
+                    f'в кадр попадает ТОЛЬКО ЧАСТЬ предмета ({role}) — рисовать именно эту часть, '
+                    'не достраивать предмет целиком')
         num += 1
         ys, xs = np.where(m)
         cx = float(xs.mean())

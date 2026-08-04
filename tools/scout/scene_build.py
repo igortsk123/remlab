@@ -123,14 +123,15 @@ def derived(room, placements, items):
 
     lamp = items.get('люстра')
     if lamp and 'люстра' not in by:
-        cx = (sofa.x if sofa is not None else room.width_cm / 2)
-        cy = ((sofa.y + table.y) / 2 if sofa is not None and table is not None
-              else room.depth_cm / 2)
+        # Люстра — всегда по ЦЕНТРУ комнаты, а не над зоной отдыха: это классика подвесного
+        # освещения, к тому же так она не «привязывается» к дивану (владелец, 2026-08-04).
         h = float(lamp.get('h') or 45)
-        rel['люстра'] = 'висит на потолке над зоной отдыха'
-        out.append(Placement(role='люстра', x=cx, y=cy, rot=0, elev_cm=270.0 - h,
+        rel['люстра'] = 'висит на потолке ровно по центру комнаты'
+        out.append(Placement(role='люстра', x=room.width_cm / 2, y=room.depth_cm / 2,
+                             rot=0, elev_cm=270.0 - h,
                              item=Item(role='люстра', w_cm=float(lamp['w']),
                                        d_cm=float(lamp['d']), h_cm=h)))
+
     return out, rel
 
 
