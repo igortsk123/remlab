@@ -35,7 +35,9 @@ SKIP = {'ковёр', 'ковер', 'люстра', 'тв', 'кашпо', 'ва�
 
 
 _CUTS: list[tuple[str, str]] = []      # что вырезали в этом прогоне — для журнала
-CUTOUT = 'fal-ai/birefnet'          # вырезание фона: разово на товар, ~1 цент, кэш навсегда
+# birefnet/v2 — вдвое чище край, чем birefnet и bria (замер на диване: светлый ореол 7,3% против
+# 14,9% и 14,8% краевых пикселей). Разово на товар, ~1 цент, кэш навсегда.
+CUTOUT = 'fal-ai/birefnet/v2'
 
 
 def cutout(path: str) -> Image.Image:
@@ -54,8 +56,26 @@ def cutout(path: str) -> Image.Image:
     if not url:
         return src.convert('RGBA')
     import urllib.request as _u
-    open(dst, 'wb').write(_u.urlopen(url, timeout=120).read())
-    return Image.open(dst).convert('RGBA')
+    raw = Image.open(io.BytesIO(_u.urlopen(url, timeout=120).read())).convert('RGBA')
+    clean = defringe(raw)
+    clean.save(dst)
+    return clean
+
+
+def defringe(img: Image.Image) -> Image.Image:
+    """Снимает светлую кайму: у полупрозрачных пикселей вычитаем подмешанный фон карточки.
+
+    Иначе вместе с товаром в кадр уезжает белый ободок, и предмет выглядит наклеенным.
+    """
+    a = np.asarray(img).astype(np.float32)
+    rgb, alpha = a[..., :3], a[..., 3:4] / 255.0
+    corners = np.concatenate([a[:4, :4, :3].reshape(-1, 3), a[:4, -4:, :3].reshape(-1, 3),
+                              a[-4:, :4, :3].reshape(-1, 3), a[-4:, -4:, :3].reshape(-1, 3)])
+    bg = corners.mean(axis=0) if len(corners) else np.array([255.0, 255.0, 255.0])
+    soft = (alpha > 0.05) & (alpha < 0.97)
+    fixed = np.where(soft, np.clip((rgb - (1 - alpha) * bg) / np.maximum(alpha, 0.05), 0, 255), rgb)
+    out = np.concatenate([fixed, alpha * 255], axis=2).astype(np.uint8)
+    return Image.fromarray(out, 'RGBA')
 
 
 def trim_alpha(img: Image.Image) -> Image.Image:
@@ -161,15 +181,28 @@ def paste_role(pano: np.ndarray, ids: np.ndarray, sid: int, cam, p, it,
         return 0
 
     cut = trim_alpha(photo)
-    src = np.asarray(cut)
+    src = np.asarray(cut).astype(np.float32)
     sh, sw = src.shape[:2]
-    px = np.clip((s[ok] * (sw - 1)).astype(int), 0, sw - 1)
-    py = np.clip(((1 - v[ok]) * (sh - 1)).astype(int), 0, sh - 1)
-    rgb = src[py, px][:, :3]
-    alpha = (src[py, px][:, 3] > 128) if src.shape[2] > 3 else np.ones(len(px), bool)
-    yy, xx = ys[ok][alpha], xs[ok][alpha]
-    pano[yy, xx] = rgb[alpha]
-    return int(alpha.sum())
+    # ПРОПОРЦИИ ФОТО НЕ ЛОМАЕМ: вписываем снимок в габарит предмета и ставим по низу и центру,
+    # иначе диван сплющивается по высоте, а стеллаж растягивается (владелец, 2026-08-04)
+    box_ar = (w_cm / h_cm) if h_cm > 1e-6 else 1.0
+    ph_ar = sw / max(sh, 1)
+    fit_w = min(1.0, ph_ar / box_ar)
+    fit_h = min(1.0, box_ar / ph_ar)
+    su = (s[ok] - (1 - fit_w) / 2) / fit_w          # центрируем по ширине
+    sv = v[ok] / fit_h                              # прижимаем к полу
+    inside = (su >= 0) & (su <= 1) & (sv >= 0) & (sv <= 1)
+    if inside.sum() < 100:
+        return 0
+    px = np.clip((su[inside] * (sw - 1)).astype(int), 0, sw - 1)
+    py = np.clip(((1 - sv[inside]) * (sh - 1)).astype(int), 0, sh - 1)
+    smp = src[py, px]
+    rgb = smp[:, :3]
+    alpha = (smp[:, 3:4] / 255.0) if src.shape[2] > 3 else np.ones((len(px), 1), np.float32)
+    yy, xx = ys[ok][inside], xs[ok][inside]
+    base_px = pano[yy, xx].astype(np.float32)
+    pano[yy, xx] = np.clip(rgb * alpha + base_px * (1 - alpha), 0, 255).astype(np.uint8)
+    return int((alpha[:, 0] > 0.5).sum())
 
 
 HARMONIZE = 'fal-ai/nano-banana/edit'      # один вызов на кадр, ~4 цента, независимо от числа
