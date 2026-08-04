@@ -93,7 +93,14 @@ def build(n: int, cam_name: str = 'C1') -> tuple[str, str, list[dict]]:
         my = max(r + 4, my)
         mx = min(max(r + 4, mx), W - r - 4)
         placed.append((mx, my, r))
-        d.line([mx, my + r, cx, top + 4], fill=(200, 30, 30, 200), width=2)
+        # Выноска ведёт В САМ ПРЕДМЕТ, а не к его верхней кромке: иначе у соседних объектов
+        # (подушки, ваза с комодом) непонятно, к кому относится номер (владелец, 2026-08-04).
+        cy_m, cx_m = float(ys.mean()), float(xs.mean())
+        near = np.argmin((ys - cy_m) ** 2 + (xs - cx_m) ** 2)   # точка внутри маски
+        ax, ay = float(xs[near]), float(ys[near])
+        d.line([mx, my + r, ax, ay], fill=(200, 30, 30, 210), width=2)
+        d.ellipse([ax - 6, ay - 6, ax + 6, ay + 6], fill=(200, 30, 30, 235),
+                  outline=(255, 255, 255, 220), width=2)
         d.ellipse([mx - r, my - r, mx + r, my + r], fill=(200, 30, 30, 235),
                   outline=(255, 255, 255, 255), width=3)
         fnt = ImageFont.truetype(FONT, int(r * 1.35))
