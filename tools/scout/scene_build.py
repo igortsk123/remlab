@@ -76,7 +76,8 @@ def derived(room, placements, items):
         long, short = max(long, float(sofa.item.w_cm) * 0.9), max(short, 120.0)
         horizontal = int(round(sofa.rot)) % 180 == 0
         w_cm, d_cm = (long, short) if horizontal else (short, long)
-        rel['ковёр'] = 'лежит на полу под журнальным столиком'
+        rel['ковёр'] = ('лежит плашмя на полу под журнальным столиком, длинной стороной ВДОЛЬ '
+                        'дивана (параллельно его спинке)')
         out.append(Placement(role='ковёр', x=table.x, y=table.y, rot=0,
                              item=Item(role='ковёр', w_cm=w_cm, d_cm=d_cm, h_cm=1.0)))
     # Декор на поверхностях: мы знаем высоту столешницы каждого предмета, поэтому ставим точно.
@@ -104,6 +105,13 @@ def derived(room, placements, items):
                              item=Item(role=role, w_cm=float(it_spec.get('w') or 30),
                                        d_cm=float(it_spec.get('d') or 25),
                                        h_cm=float(it_spec.get('h') or 30))))
+
+    if 'пуф' in by:
+        rel['пуф'] = 'стоит на полу перед диваном и развёрнут сиденьем к нему'
+    if 'столик' in by:
+        rel['столик'] = 'стоит на ковре перед диваном, параллельно его спинке'
+    if 'кресло' in by:
+        rel['кресло'] = 'стоит на полу и развёрнуто к дивану'
 
     lamp = items.get('люстра')
     if lamp and 'люстра' not in by:

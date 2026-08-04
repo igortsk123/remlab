@@ -134,8 +134,17 @@ def cameras_for(room: Room, placements: list[Placement]) -> list[Camera]:
     seen = {ci: probe(ci) for ci in range(4)}
     # Точки съёмки ВСЕГДА диагонально противоположны: так два кадра показывают разные стены и
     # вместе дают всю комнату. Две камеры у одной стены дублируют друг друга (владелец, 2026-08-04).
-    first = max(range(4), key=lambda ci: len(seen[ci][2]))
-    second = (first + 2) % 4
+    # Обе точки диагональны, но саму диагональ выбираем по СЛАБОМУ кадру: иначе второй вид
+    # оказывается почти пустым и непонятным (владелец, 2026-08-04).
+    def pair_score(d):
+        a, b = len(seen[d[0]][2]), len(seen[d[1]][2])
+        return (min(a, b), a + b)
+
+    first, second = max([(0, 2), (1, 3)], key=pair_score)
+    if len(seen[second][2]) > len(seen[first][2]):
+        first, second = second, first
+    # Обе точки — строго в углах, по диагонали. Камеру НЕ подвигаем под мебель: честный обзор
+    # комнаты с двух разных углов, что видно с места — то и в кадре (владелец, 2026-08-04).
     for k, ci in enumerate((first, second)):
         cam = seen[ci][1]
         cam.name = f"C{k + 1}"

@@ -209,14 +209,23 @@ def paste_role(pano: np.ndarray, zbuf: np.ndarray, cam, p, it, photo: Image.Imag
         return 0
 
     cut = trim_alpha(photo)
+    if p.role in FLOOR:
+        # У ковра снимок обычно вертикальный, а след — вдоль дивана. Разворачиваем фото под след
+        # и заполняем его целиком: иначе ковёр ложится поперёк (владелец, 2026-08-04).
+        long_x = float(np.linalg.norm(wvec)) >= float(np.linalg.norm(hvec))
+        if (cut.width >= cut.height) != long_x:
+            cut = cut.transpose(Image.ROTATE_90)
     src = np.asarray(cut).astype(np.float32)
     sh, sw = src.shape[:2]
     # ПРОПОРЦИИ ФОТО НЕ ЛОМАЕМ: вписываем снимок в габарит предмета и ставим по низу и центру,
     # иначе диван сплющивается по высоте, а стеллаж растягивается (владелец, 2026-08-04)
     box_ar = (w_cm / h_cm) if h_cm > 1e-6 else 1.0
     ph_ar = sw / max(sh, 1)
-    fit_w = min(1.0, ph_ar / box_ar)
-    fit_h = min(1.0, box_ar / ph_ar)
+    if p.role in FLOOR:                    # ковёр растягиваем на весь след — он и есть его размер
+        fit_w = fit_h = 1.0
+    else:
+        fit_w = min(1.0, ph_ar / box_ar)
+        fit_h = min(1.0, box_ar / ph_ar)
     su = (s[ok] - (1 - fit_w) / 2) / fit_w          # центрируем по ширине
     sv = v[ok] / fit_h                              # прижимаем к полу
     inside = (su >= 0) & (su <= 1) & (sv >= 0) & (sv <= 1)

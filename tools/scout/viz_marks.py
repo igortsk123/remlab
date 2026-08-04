@@ -110,8 +110,14 @@ def build(n: int, cam_name: str = 'C1') -> tuple[str, str, list[dict]]:
             _, photo = product(n, role)
         except KeyError:
             photo = ''
+        details = ', '.join(x for x in (
+            it.get('cls'), it.get('fabric') and f'обивка: {it["fabric"]}',
+            it.get('wood') and f'дерево: {it["wood"]}',
+            it.get('metal') and f'металл: {it["metal"]}',
+            it.get('style') and f'стиль: {it["style"]}') if x)
         legend.append({
             'n': num, 'роль': role, 'товар': (it.get('name') or '')[:80],
+            'описание': details[:160],
             'габариты_см': [int(it.get('w') or 0), int(it.get('d') or 0), int(it.get('h') or 0)],
             'положение': rel.get(role, 'стоит на полу'),
             'фото': os.path.basename(photo),

@@ -43,6 +43,7 @@ def legend_json(legend: list[dict]) -> str:
             'type': e['роль'],
             'size_cm': e['габариты_см'],
             'placement': e['положение'],
+            'details': e.get('описание', ''),
         })
     return json.dumps(out, ensure_ascii=False)
 
@@ -67,7 +68,11 @@ def main() -> None:
         'Here is what every number is and how it must sit (JSON): ' + legend_json(legend) + '. '
         'Follow the placement field exactly: a throw drapes over the sofa, cushions rest on the '
         'seat, a vase and a lamp stand on the chest of drawers, a rug lies flat on the floor. '
-        'STRICT: do not move, resize, rotate or replace any item; do not add furniture, decor, '
+        'You MAY turn an item slightly around its own vertical axis so that it sits logically '
+        'in the room (an ottoman faces the sofa, a coffee table is parallel to the sofa) — the '
+        'product photos are frontal, so a small rotation makes the scene believable. '
+        'STRICT: do not move an item to another place, do not resize or replace it; do not add '
+        'furniture, decor, '
         'plants or artwork that is not in the list; keep the walls, floor, window and door as they '
         'are. Photorealistic interior photography, natural daylight, no people, no text.'
     )
