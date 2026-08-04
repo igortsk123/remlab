@@ -32,11 +32,13 @@ class Camera:
     target: tuple[float, float, float]
     fov_deg: float = 60.0
     ortho: bool = False
+    cyl: bool = False          # цилиндрическая панорама: широкий обзор без «рыбьего глаза»
     ortho_width_cm: float = 0.0
     # размер кратен 64 и в пределах бюджета SDXL: иначе генератор округляет сам и кадр перестаёт
     # совпадать по пропорциям с картой глубины (2026-08-04)
     width: int = 1344
     height: int = 896
+    vfov_deg: float = 55.0     # вертикальный угол — только для панорамы
 
     def basis(self):
         ex, ey, ez = self.eye
@@ -76,7 +78,9 @@ def cameras_for(room: Room, placements: list[Placement]) -> list[Camera]:
             ex, ey = a[0] - dx / n * back, a[1] - dy / n * back
             ex = min(max(ex, 10.0), W - 10.0)
             ey = min(max(ey, 10.0), D - 10.0)
-            cams.append(Camera(name, (ex, eye_h, ey), (b[0], eye_h * 0.75, b[1])))
+            # 75° — как штатный интерьерный ширик: при 60° пол ближе 2,5 м не попадал в кадр
+            # и комната читалась теснее, чем она есть (замечание владельца 2026-08-04)
+            cams.append(Camera(name, (ex, eye_h, ey), (b[0], eye_h * 0.8, b[1]), fov_deg=75.0))
     else:
         cams.append(Camera("A", (W / 2, eye_h, -60.0), (W / 2, eye_h * 0.75, D / 2)))
     # вид сверху: кадр по пропорциям комнаты, иначе при 1536×1024 по вертикали влезает лишь
@@ -86,9 +90,25 @@ def cameras_for(room: Room, placements: list[Placement]) -> list[Camera]:
 
     long_px = 1216
     t_w, t_h = (long_px, px64(long_px * D / W)) if W >= D else (px64(long_px * W / D), long_px)
+    # P: панорама «осмотреться от двери» — одна широкая картинка вместо трёх склеенных, чтобы
+    # свет и материалы не разъезжались между кадрами (просьба владельца 2026-08-04)
+    door = next((o for o in room.openings if o.kind in ("door", "balcony")), None)
+    if door is not None:
+        cx, cy = _wall_point(room, door.wall, door.offset_cm + door.width_cm / 2, inset=55.0)
+    else:
+        cx, cy = W / 2, 40.0
+    cams.append(Camera("P", (cx, 160.0, cy), (W / 2, 120.0, D / 2),
+                       fov_deg=140.0, cyl=True, vfov_deg=58.0, width=2048, height=768))
     cams.append(Camera("T", (W / 2, max(W, D) * 1.15, D / 2), (W / 2, 0.0, D / 2),
                        ortho=True, ortho_width_cm=W * 1.08, width=t_w, height=t_h))
     return cams
+
+
+def _wall_point(room: Room, wall: str, along_cm: float, inset: float) -> tuple[float, float]:
+    """Точка у стены, сдвинутая внутрь комнаты на inset — куда встать «в дверях»."""
+    W, D = room.width_cm, room.depth_cm
+    return {"south": (along_cm, inset), "north": (along_cm, D - inset),
+            "west": (inset, along_cm), "east": (W - inset, along_cm)}[wall]
 
 
 def _box_corners(p: Placement, it: Item) -> np.ndarray:
@@ -172,6 +192,15 @@ def _project(cam: Camera, pts: np.ndarray):
         u = cam.width / 2 + (rel @ right) * scale
         v = cam.height / 2 - (rel @ up) * scale
         return u, v, z
+    if cam.cyl:
+        # разворачиваем обзор по кругу: колонка кадра = угол, строка = наклон. Прямой кадр шире
+        # ~75° уже «пухнет» по краям, а панорама остаётся честной на все 150–180°
+        ang = np.arctan2(rel @ right, rel @ fwd)
+        horiz = np.hypot(rel @ right, rel @ fwd)
+        fv = (cam.height / 2) / math.tan(math.radians(cam.vfov_deg) / 2)
+        u = cam.width / 2 + ang / math.radians(cam.fov_deg) * cam.width
+        v = cam.height / 2 - fv * (rel @ up) / np.where(horiz <= 1e-3, 1e-3, horiz)
+        return u, v, horiz
     f = (cam.width / 2) / math.tan(math.radians(cam.fov_deg) / 2)
     zz = np.where(z <= 1e-3, 1e-3, z)
     u = cam.width / 2 + f * (rel @ right) / zz
@@ -190,7 +219,7 @@ def compile_scene(room: Room, placements: list[Placement], cam: Camera) -> dict:
     focal = (Wp / 2) / math.tan(math.radians(cam.fov_deg) / 2)
     ortho_scale = Wp / (cam.ortho_width_cm or 1.0)
 
-    def raster_quad(corners3d: np.ndarray, inst_id: int, sem_id: int):
+    def raster_flat(corners3d: np.ndarray, inst_id: int, sem_id: int):
         """Растеризация грани с ПОПИКСЕЛЬНОЙ глубиной (луч × плоскость).
 
         Раньше глубина бралась одним числом на грань — пол со средней глубиной «накрывал» мебель,
@@ -221,6 +250,16 @@ def compile_scene(room: Room, placements: list[Placement], cam: Camera) -> dict:
                 return
             t = (d - origin @ n) / denom
             zpix = t
+        elif cam.cyl:
+            ang = (xs - Wp / 2) / Wp * math.radians(cam.fov_deg)
+            fv = (Hp / 2) / math.tan(math.radians(cam.vfov_deg) / 2)
+            dirs = (fwd[None, None, :] * np.cos(ang)[..., None]
+                    + right[None, None, :] * np.sin(ang)[..., None]
+                    + up[None, None, :] * ((Hp / 2 - ys) / fv)[..., None])
+            denom = dirs @ n
+            with np.errstate(divide="ignore", invalid="ignore"):
+                t = (d - float(n @ eye)) / denom
+            zpix = t          # горизонтальная часть луча единичная → t и есть расстояние
         else:
             dirs = (fwd[None, None, :] * focal
                     + right[None, None, :] * (xs - Wp / 2)[..., None]
@@ -236,6 +275,27 @@ def compile_scene(room: Room, placements: list[Placement], cam: Camera) -> dict:
         sub[upd] = zpix[upd]
         inst[y0:y1 + 1, x0:x1 + 1][upd] = inst_id
         sem[y0:y1 + 1, x0:x1 + 1][upd] = sem_id
+
+    def raster_quad(corners3d: np.ndarray, inst_id: int, sem_id: int, sub: int = 0):
+        """В панораме прямая линия становится дугой, и выпуклая оболочка четырёх углов не
+        покрывает истинную область — по краям кадра оставались чёрные клинья. Поэтому крупные
+        грани режем на сетку мелких (2026-08-04)."""
+        n_sub = sub or (10 if cam.cyl else 1)
+        if n_sub <= 1:
+            raster_flat(corners3d, inst_id, sem_id)
+            return
+        a, b, c, d_ = corners3d[0], corners3d[1], corners3d[2], corners3d[3]
+        for i in range(n_sub):
+            t0, t1 = i / n_sub, (i + 1) / n_sub
+            for j in range(n_sub):
+                s0, s1 = j / n_sub, (j + 1) / n_sub
+
+                def pt(t, s):
+                    return (a * (1 - t) * (1 - s) + b * t * (1 - s)
+                            + c * t * s + d_ * (1 - t) * s)
+
+                raster_flat(np.array([pt(t0, s0), pt(t1, s0), pt(t1, s1), pt(t0, s1)]),
+                            inst_id, sem_id)
 
     def _point_in_convex(xs, ys, pu, pv):
         hull = _convex_hull(np.stack([pu, pv], 1))

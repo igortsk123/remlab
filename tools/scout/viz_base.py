@@ -59,6 +59,47 @@ def depth_for_controlnet(path: str) -> str:
     return 'data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode()
 
 
+def uri_from_image(img: Image.Image) -> str:
+    buf = io.BytesIO()
+    img.convert('RGB').save(buf, 'PNG')
+    return 'data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode()
+
+
+def depth_image(path: str) -> Image.Image:
+    d = np.asarray(Image.open(path)).astype(np.float32)
+    d = (d - d.min()) / max(d.max() - d.min(), 1e-6)
+    return Image.fromarray((((1.0 - d) ** 0.7) * 255).astype(np.uint8)).convert('RGB')
+
+
+def panorama(prefix: str, payload: dict, model: str, key: str, seed: int = 4242) -> Image.Image:
+    """Панорама шире 1344 px: генератор режет ширину, поэтому идём двумя перекрытыми плитками
+    с одним seed и промптом, а шов растворяем линейной склейкой (2026-08-04)."""
+    ctrl = depth_image(f'{prefix}-depth16.png')
+    W, H = ctrl.size
+    tile = 1344
+    lefts = [0, W - tile]
+    outs = []
+    for x0 in lefts:
+        part = dict(payload)
+        part['seed'] = seed
+        part['image_size'] = {'width': tile, 'height': H}
+        part['depth_image_url'] = uri_from_image(ctrl.crop((x0, 0, x0 + tile, H)))
+        res = fal_run(model, part, key)
+        url = (res.get('images') or [{}])[0].get('url')
+        outs.append(Image.open(io.BytesIO(urllib.request.urlopen(url, timeout=120).read())))
+    a, b = [o.convert('RGB').resize((tile, H)) for o in outs]
+    canvas = Image.new('RGB', (W, H))
+    canvas.paste(a, (0, 0))
+    ov = tile - (W - tile)                      # ширина перекрытия
+    band_a = np.asarray(a.crop((tile - ov, 0, tile, H)), np.float32)
+    band_b = np.asarray(b.crop((0, 0, ov, H)), np.float32)
+    ramp = np.linspace(0, 1, ov, dtype=np.float32)[None, :, None]
+    band = (band_a * (1 - ramp) + band_b * ramp).astype(np.uint8)
+    canvas.paste(Image.fromarray(band), (W - tile, 0))
+    canvas.paste(b.crop((ov, 0, tile, H)), (W - tile + ov, 0))
+    return canvas
+
+
 def img_uri(path: str) -> str:
     """Готовое изображение сцены (clay) как data-URI — основа для доводки."""
     buf = io.BytesIO()
@@ -149,6 +190,12 @@ def main() -> None:
     if which == 'sdxl':
         payload['depth_preprocess'] = False       # карта уже готова, препроцесс не нужен
     t0 = time.time()
+    if view == 'P':                              # панорама — двумя плитками со склейкой
+        pano = panorama(prefix, payload, model, key)
+        dst = f'{prefix}-base-{which}.jpg'
+        pano.save(dst, quality=92)
+        print(f'{dst}  ({time.time() - t0:.0f} с, панорама {pano.size[0]}×{pano.size[1]})')
+        return
     out = fal_run(model, payload, key)
     url = (out.get('images') or [{}])[0].get('url')
     if not url:
