@@ -23,6 +23,8 @@ from PIL import Image
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCENE_DIR = os.environ.get('SCENE_DIR', '/tmp/room-scene')
 
+UPSCALER = 'fal-ai/esrgan'          # быстрый апскейл ×2: дешевле, чем гнать генерацию крупнее
+
 MODELS = {
     # union принимает контроли ИМЕНОВАННЫМИ полями (depth/canny/openpose...), а не общим
     # control_image_url — иначе 422 «ControlNet must be enabled» (проверено 2026-08-04)
@@ -98,6 +100,15 @@ def panorama(prefix: str, payload: dict, model: str, key: str, seed: int = 4242)
     canvas.paste(Image.fromarray(band), (W - tile, 0))
     canvas.paste(b.crop((ov, 0, tile, H)), (W - tile + ov, 0))
     return canvas
+
+
+def upscale(img: Image.Image, key: str) -> Image.Image:
+    """Апскейл ×2 — снимает «мыло» после генерации на низком разрешении."""
+    res = fal_run(UPSCALER, {'image_url': uri_from_image(img), 'scale': 2}, key)
+    url = (res.get('image') or {}).get('url') or (res.get('images') or [{}])[0].get('url')
+    if not url:
+        return img
+    return Image.open(io.BytesIO(urllib.request.urlopen(url, timeout=180).read())).convert('RGB')
 
 
 def img_uri(path: str) -> str:
@@ -199,6 +210,9 @@ def main() -> None:
     t0 = time.time()
     if view == 'P':                              # панорама — двумя плитками со склейкой
         pano = panorama(prefix, payload, model, key)
+        if '--no-upscale' not in sys.argv:
+            pano = upscale(pano, key)
+            req['upscale'] = UPSCALER
         req['tiles'] = 2
         req['seed'] = 4242
         json.dump(req, open(f'{prefix}-request.json', 'w'), ensure_ascii=False, indent=1)

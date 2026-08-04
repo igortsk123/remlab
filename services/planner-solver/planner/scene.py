@@ -104,8 +104,13 @@ def cameras_for(room: Room, placements: list[Placement]) -> list[Camera]:
         cx, cy = _wall_point(room, door.wall, door.offset_cm + door.width_cm / 2, inset=55.0)
     else:
         cx, cy = W / 2, 40.0
-    cams.append(Camera("P", (cx, 160.0, cy), (W / 2, 120.0, D / 2),
-                       fov_deg=140.0, cyl=True, vfov_deg=58.0, width=2048, height=768))
+    # высота 1024 — родное разрешение SDXL: на 768 кадр выходил мыльным (владелец, 2026-08-04).
+    # Вертикальный угол считаем из горизонтального, чтобы картинку не сплющивало по вертикали.
+    p_w, p_h, p_fov = 2048, 1024, 140.0
+    fv = p_w / math.radians(p_fov)
+    cams.append(Camera("P", (cx, 160.0, cy), (W / 2, 120.0, D / 2), fov_deg=p_fov, cyl=True,
+                       vfov_deg=math.degrees(2 * math.atan((p_h / 2) / fv)),
+                       width=p_w, height=p_h))
     cams.append(Camera("T", (W / 2, max(W, D) * 1.15, D / 2), (W / 2, 0.0, D / 2),
                        ortho=True, ortho_width_cm=W * 1.08, width=t_w, height=t_h))
     return cams
