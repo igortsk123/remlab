@@ -83,10 +83,14 @@ def derived(room, placements, items):
     # Декор на поверхностях: мы знаем высоту столешницы каждого предмета, поэтому ставим точно.
     # Так делают в дизайн-подаче: без мелочей кадр выглядит нежилым (владелец, 2026-08-04).
     # (хозяин, сдвиг вдоль его ширины, доля высоты — куда садится, сдвиг вперёд от спинки, см)
-    hosts = {'ваза': ('комод', 0.0, 1.0, 0.0), 'лампа': ('комод', -0.34, 1.0, 0.0),
-             'подушка': ('диван', -0.28, 0.46, 18.0), 'подушка 2': ('диван', 0.24, 0.46, 18.0),
-             'плед': ('диван', 0.44, 0.50, 24.0)}
-    for role, (host_role, along, hfrac, fwd_cm) in hosts.items():
+    # (хозяин, сдвиг вдоль ширины, доля высоты, сдвиг вперёд см, потолок ширины см)
+    # Мягкий декор ограничиваем по размеру: плед 140 см в фас превращался в белую плиту на весь
+    # диван, подушки — в щиты (владелец, 2026-08-04).
+    hosts = {'ваза': ('комод', 0.0, 1.0, 0.0, 40.0), 'лампа': ('комод', -0.34, 1.0, 0.0, 40.0),
+             'подушка': ('диван', -0.30, 0.50, 12.0, 50.0),
+             'подушка 2': ('диван', 0.18, 0.50, 12.0, 50.0),
+             'плед': ('диван', 0.46, 0.42, 6.0, 65.0)}
+    for role, (host_role, along, hfrac, fwd_cm, wmax) in hosts.items():
         host = by.get(host_role)
         it_spec = items.get(role)
         if host is None or it_spec is None or role in by:
@@ -100,11 +104,15 @@ def derived(room, placements, items):
         top = float(host.item.h_cm or 60) * hfrac
         rel[role] = ('лежит на сиденье дивана' if host_role == 'диван'
                      else f'стоит на поверхности: {host_role}')
+        w_cm = min(float(it_spec.get('w') or 30), wmax)
+        h_cm = float(it_spec.get('h') or 30)
+        if role == 'плед':
+            h_cm = max(h_cm, 55.0)                  # плед свисает с подлокотника
         out.append(Placement(role=role, x=host.x + dx, y=host.y + dy, rot=host.rot,
                              elev_cm=top,
-                             item=Item(role=role, w_cm=float(it_spec.get('w') or 30),
-                                       d_cm=float(it_spec.get('d') or 25),
-                                       h_cm=float(it_spec.get('h') or 30))))
+                             item=Item(role=role, w_cm=w_cm,
+                                       d_cm=min(float(it_spec.get('d') or 25), wmax),
+                                       h_cm=h_cm)))
 
     if 'пуф' in by:
         rel['пуф'] = 'стоит на полу перед диваном и развёрнут сиденьем к нему'

@@ -34,6 +34,9 @@ import steps  # noqa: E402
 # Ковёр лежит на полу — у него отдельная ветка проекции. ТВ рисует базовый проход.
 SKIP = {'тв'}
 FLOOR = {'ковёр', 'ковер'}
+# Мягкий декор снимают на белом фоне и часто «в наборе» — вырезка тащит в кадр белую подложку
+# карточки. Такие позиции не вклеиваем никогда, их рисует модель по фото (владелец, 2026-08-04).
+SOFT = {'подушка', 'подушка 2', 'плед', 'плед 2', 'покрывало'}
 
 
 _CUTS: list[tuple[str, str]] = []      # что вырезали в этом прогоне — для журнала
@@ -232,7 +235,20 @@ def paste_role(pano: np.ndarray, zbuf: np.ndarray, cam, p, it, photo: Image.Imag
     if ok.sum() < 200:
         return 0
 
+    if p.role in SOFT:
+        return -1
     cut = trim_alpha(photo)
+    a = np.asarray(cut)
+    if a.shape[2] > 3:
+        # Признак несработавшего матирования — НЕПРОЗРАЧНАЯ РАМКА по краю: у настоящей вырезки
+        # углы прозрачны. Белый товар на белом фоне (подушки, плед) режется плохо, и в кадр
+        # уезжает белый прямоугольник (владелец, 2026-08-04).
+        al = a[..., 3] > 128
+        border = np.concatenate([al[0], al[-1], al[:, 0], al[:, -1]])
+        rgb_op = a[..., :3][al]
+        near_white = float((rgb_op.min(axis=1) > 238).mean()) if len(rgb_op) else 0.0
+        if border.mean() > 0.5 or al.mean() > 0.88 or near_white > 0.45:
+            return -1                              # в вырезке осталась белая подложка карточки
     if p.role in FLOOR:
         # У ковра снимок обычно вертикальный, а след — вдоль дивана. Разворачиваем фото под след
         # и заполняем его целиком: иначе ковёр ложится поперёк (владелец, 2026-08-04).
@@ -357,11 +373,19 @@ def main() -> None:
     prefix = os.path.join(SCENE_DIR, f'scene{n}-{cam_name}')
     # По умолчанию вклеиваем в НАШ clay-рендер: он геометрически точен. Сгенерированная оболочка
     # ставит пол и стены «примерно», из-за чего вклеенная мебель повисает в воздухе (2026-08-04).
-    base = f'{prefix}-empty-clay.png'    # пустая комната: серых коробок в кадре быть не должно
+    # База — ПОЛНЫЙ clay-рендер: предметы, которые нельзя вклеить фронтальным фото (сильный
+    # ракурс), остаются в кадре серым объёмом, а не пропадают вовсе. Под вклеенные предметы
+    # коробка стирается — берём чистый фон из рендера пустой комнаты (владелец: «тв-тумбы нет»).
+    base = f'{prefix}-clay.png'
     if '--base' in sys.argv:
         base = f'{prefix}-{sys.argv[sys.argv.index("--base") + 1]}.jpg'
     pano = np.asarray(Image.open(base).convert('RGB')).copy()
     H, W = pano.shape[:2]
+    empty_p = f'{prefix}-empty-clay.png'
+    empty = (np.asarray(Image.open(empty_p).convert('RGB').resize((W, H))).copy()
+             if os.path.exists(empty_p) else None)
+    inst_img = Image.open(f'{prefix}-instances.png').convert('RGB').resize((W, H), Image.NEAREST)
+    ids_full = np.asarray(inst_img)[..., 0] // 8
     id_map = json.load(open(f'{prefix}-frame.json'))['ids']
     room, placements = load_scene(n)
     cam = next(c for c in cameras_for(room, placements) if c.name == cam_name)
@@ -387,7 +411,13 @@ def main() -> None:
         if not os.path.exists(photo_path):
             print(f'  {role}: нет фото товара')
             continue
+        if empty is not None:                      # стираем серую коробку под этим предметом
+            m_box = ids_full == int(sid)
+            saved = pano[m_box].copy()
+            pano[m_box] = empty[m_box]
         px = paste_role(pano, zbuf, cam, by[role], by[role].item, cutout(photo_path))
+        if empty is not None and px <= 0:
+            pano[m_box] = saved                    # не вклеилось — возвращаем объём на место
         if px < 0:
             angled.append(role)
             print(f'  {role}: сильный ракурс — на нейросетевой проход')
