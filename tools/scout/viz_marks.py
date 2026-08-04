@@ -27,7 +27,7 @@ from viz_objects import product  # noqa: E402
 from viz_paste import FRONTED  # noqa: E402  (единый список предметов с выраженным фасадом)
 
 FONT = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
-SKIP_MARK = {'тв'}
+SKIP_MARK: set[str] = set()   # ТВ тоже подписываем: он есть всегда, где есть тумба
 
 
 WALL_RU = {'north': 'дальней', 'south': 'ближней', 'west': 'левой', 'east': 'правой'}
@@ -126,7 +126,12 @@ def build(n: int, cam_name: str = 'C1') -> tuple[str, str, list[dict]]:
     placed: list[tuple[float, float, int]] = []
     num = 0
     for sid, role in meta['ids'].items():
-        if role in SKIP_MARK or role not in items:
+        if role in SKIP_MARK:
+            continue
+        # Роли, которых нет в каталоге (телевизор достраивается к тумбе), тоже подписываем:
+        # иначе модель не знает, что этот прямоугольник — ТВ (владелец, 2026-08-04).
+        spec = items.get(role)
+        if spec is None and role not in by:
             continue
         m = ids == int(sid)
         if m.sum() < 400:
@@ -202,7 +207,9 @@ def build(n: int, cam_name: str = 'C1') -> tuple[str, str, list[dict]]:
                   outline=(255, 255, 255, 255), width=3)
         fnt = ImageFont.truetype(FONT, int(r * 1.35))
         d.text((mx, my), str(num), fill=(255, 255, 255), font=fnt, anchor='mm')
-        it = items[role]
+        it = spec if spec is not None else {
+            'name': 'телевизор (подбирается моделью по размеру тумбы)',
+            'w': by[role].item.w_cm, 'd': by[role].item.d_cm, 'h': by[role].item.h_cm}
         try:
             _, photo = product(n, role)
         except KeyError:

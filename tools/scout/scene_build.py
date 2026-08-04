@@ -64,7 +64,8 @@ def derived(room, placements, items):
     tv_stand = by.get('тв-тумба')
     if tv_stand is not None and 'тв' not in by:
         w = min(float(tv_stand.item.w_cm) * 0.85, 120.0)
-        rel['тв'] = 'висит на стене над тв-тумбой'
+        rel['тв'] = ('телевизор при ТВ-тумбе есть ВСЕГДА: либо стоит на тумбе, либо повешен на '
+                     'стене прямо над ней — выбрать по размеру и виду тумбы')
         out.append(Placement(role='тв', x=tv_stand.x, y=tv_stand.y, rot=tv_stand.rot,
                              elev_cm=105.0,
                              item=Item(role='тв', w_cm=w, d_cm=8.0, h_cm=w * 0.58)))
