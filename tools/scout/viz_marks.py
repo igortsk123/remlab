@@ -59,25 +59,37 @@ def build(n: int, cam_name: str = 'C1') -> tuple[str, str, list[dict]]:
         # Номер ставим НАД предметом, а не по центру: на мелких (лампа, ваза) кружок закрывал
         # сам товар, и модель не видела, о чём речь (замечание владельца 2026-08-04).
         r = int(min(26, max(13, (xs.max() - xs.min()) / 6)))
-        my, mx = top - r - 10, cx
-        yy, xx = np.mgrid[0:H, 0:W]
-
-        def free(px, py):
-            """Маркер не должен закрывать ни один товар и другие маркеры."""
+        def ok_at(px, py):
+            """Место годится, если номер не закрывает товар, не липнет к другому номеру и
+            стоит от него ОТДЕЛЬНО ПО ГОРИЗОНТАЛИ — иначе два номера читаются как один
+            (владелец: «4 и 10 сливаются»)."""
             if py - r < 2 or px - r < 2 or px + r > W - 2:
                 return False
             box = objs[max(0, int(py - r)):int(py + r), max(0, int(px - r)):int(px + r)]
             if box.size and box.mean() > 0.02:
                 return False
-            return all((px - ux) ** 2 + (py - uy) ** 2 > (r + ur + 6) ** 2 for ux, uy, ur in placed)
+            for ux, uy, ur in placed:
+                if abs(px - ux) < r + ur + 12 and abs(py - uy) < (r + ur) * 3.2:
+                    return False                       # столбиком друг под другом — запрещено
+                if (px - ux) ** 2 + (py - uy) ** 2 < (r + ur + 8) ** 2:
+                    return False
+            return True
 
-        for step in range(40):                    # поднимаем, потом пробуем вбок
-            if free(mx, my):
-                break
-            my -= r + 6
-            if my - r < 4:
-                my = top - r - 10
-                mx = cx + (r * 2.4) * (1 if step % 2 else -1) * (step // 2 + 1)
+        mx, my = cx, top - r - 10
+        if not ok_at(mx, my):
+            found = False
+            for k in range(1, 9):                      # сначала вбок, потом чуть выше
+                for dx in (-1, 1):
+                    for dy in (0, -1.4, -2.8):
+                        px = cx + dx * k * (r * 1.9)
+                        py = top - r - 10 + dy * r
+                        if ok_at(px, py):
+                            mx, my, found = px, py, True
+                            break
+                    if found:
+                        break
+                if found:
+                    break
         my = max(r + 4, my)
         mx = min(max(r + 4, mx), W - r - 4)
         placed.append((mx, my, r))
