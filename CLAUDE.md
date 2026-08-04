@@ -1,10 +1,8 @@
 # remlab (remont-lab)
 
-B2C-сервис **«Смета-first» (v0.4, ADR-0016)**: расчёт ремонта/материалов → сохранённая
-смета-список с реф-ссылками (комиссия — и со ссылок самого юзера, deeplink) →
-хвосты: AI-визуализация по фото и мастера-лиды. Входы: калькуляторы материалов и «сколько стоит ремонт». **Мастер-план — `.memory_bank/plans/MASTER-cost-first.md`** (М0–М7
-+ сценарий). Модель v0.3 (`docs/master-brief-v0.3.md`) — истор. база ступени М5.
-Рынок РФ (Гдеслон) → UK, locale-agnostic.
+B2C-сервис **«Смета-first» (v0.4, ADR-0016)**: расчёт ремонта/материалов → смета-список с
+реф-ссылками (комиссия, в т.ч. с юзерских ссылок) → хвосты: AI-визуализация и мастера-лиды.
+Мастер-план — `.memory_bank/plans/MASTER-cost-first.md` (М0–М7). Рынок РФ (Гдеслон) → UK.
 Стек: TS strict + Next.js (App Router) + Drizzle + Zod + Inngest + self-host postgres/pgvector +
 Gemini (Vertex/fal запас) + YooKassa + PostHog (детали — `core/architecture.md`).
 Стадия: **Stage 1 задеплоен** (`remont-lab.online`), трейсинг, Метрика, Директ (4 кампании

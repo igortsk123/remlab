@@ -1,0 +1,589 @@
+{
+  "image": {
+    "image_width_px": 960,
+    "image_height_px": 1280,
+    "coordinate_origin": "top_left",
+    "x_axis": "right",
+    "y_axis": "down"
+  },
+  "scene_summary": {
+    "room_geometry_visible": "Portrait photo of a carpeted room with a bay-window/recess area at the back, visible ceiling, left foreground wall, right wall, and partially visible wall-floor boundaries behind furniture.",
+    "has_bay_window_or_recess": true,
+    "main_measurement_risks": [
+      "floor_wall_edge in bay area is partially hidden by table, chairs and radiator",
+      "right floor_wall_edge is partly hidden by chair, plant and sofa/mattress",
+      "window frames are obscured by blinds and plants",
+      "A4 sheet is on textured carpet and lower edge is near bottom of image"
+    ]
+  },
+  "annotations": [
+    {
+      "id": "floor_plane_01",
+      "label": "floor_plane",
+      "type": "plane",
+      "geometry_type": "polygon",
+      "coordinates": [[0, 839], [66, 835], [82, 789], [114, 752], [172, 724], [267, 700], [388, 675], [516, 657], [654, 657], [766, 690], [959, 761], [959, 1279], [0, 1279]],
+      "visibility": "partial",
+      "confidence": 0.72,
+      "measurement_use": "Defines visible floor area and supports floor-plane homography.",
+      "notes": "Boundary under furniture is approximated where occluded."
+    },
+    {
+      "id": "ceiling_plane_01",
+      "label": "ceiling_plane",
+      "type": "plane",
+      "geometry_type": "polygon",
+      "coordinates": [[0, 0], [843, 0], [835, 92], [699, 93], [563, 178], [58, 96], [0, 95]],
+      "visibility": "partial",
+      "confidence": 0.74,
+      "measurement_use": "Ceiling plane and wall-ceiling edges for room height/perspective constraints.",
+      "notes": "Visible ceiling only; upper right continues out of frame."
+    },
+    {
+      "id": "left_wall_plane_01",
+      "label": "left_wall_plane",
+      "type": "plane",
+      "geometry_type": "polygon",
+      "coordinates": [[0, 0], [58, 96], [68, 803], [48, 834], [0, 839]],
+      "visibility": "partial",
+      "confidence": 0.68,
+      "measurement_use": "Left wall plane for room layout and bay opening alignment.",
+      "notes": "Large bay opening cuts through this wall; lower edge partly shadowed."
+    },
+    {
+      "id": "right_wall_plane_01",
+      "label": "right_wall_plane",
+      "type": "plane",
+      "geometry_type": "polygon",
+      "coordinates": [[843, 0], [960, 0], [960, 758], [849, 724], [760, 691], [691, 659], [699, 93]],
+      "visibility": "partial",
+      "confidence": 0.76,
+      "measurement_use": "Right wall plane for wall-floor and wall-ceiling constraints.",
+      "notes": "Lower part partly hidden by sofa/mattress, plant and chair."
+    },
+    {
+      "id": "back_wall_plane_01",
+      "label": "back_wall_plane_around_bay_opening",
+      "type": "plane",
+      "geometry_type": "polygon",
+      "coordinates": [[58, 96], [563, 178], [553, 663], [515, 657], [493, 543], [85, 574], [68, 803]],
+      "visibility": "partial",
+      "confidence": 0.58,
+      "measurement_use": "Back wall and bay opening surround for perspective and opening geometry.",
+      "notes": "Wall plane is interrupted by recessed bay/window area; lower edge occluded by furniture."
+    },
+    {
+      "id": "bay_window_recess_01",
+      "label": "bay_window_recess",
+      "type": "plane",
+      "geometry_type": "polygon",
+      "coordinates": [[58, 96], [563, 178], [554, 663], [437, 668], [191, 722], [68, 803]],
+      "visibility": "partial",
+      "confidence": 0.69,
+      "measurement_use": "Defines recess/bay zone for separating it from main wall planes.",
+      "notes": "Approximate outer area of bay/recess; furniture hides bottom."
+    },
+    {
+      "id": "window_reveal_left_01",
+      "label": "left_window_reveal_plane",
+      "type": "plane",
+      "geometry_type": "polygon",
+      "coordinates": [[58, 96], [85, 164], [84, 574], [69, 803]],
+      "visibility": "partial",
+      "confidence": 0.63,
+      "measurement_use": "Left reveal plane of bay opening for depth/perspective cues.",
+      "notes": "Narrow reveal, partly obscured by blinds and chair."
+    },
+    {
+      "id": "window_reveal_right_01",
+      "label": "right_window_reveal_plane",
+      "type": "plane",
+      "geometry_type": "polygon",
+      "coordinates": [[563, 178], [493, 193], [493, 543], [553, 663]],
+      "visibility": "partial",
+      "confidence": 0.66,
+      "measurement_use": "Right reveal plane of bay opening for bay depth and vertical alignment.",
+      "notes": "Lower part partly occluded by right chair and plant."
+    },
+    {
+      "id": "window_reveal_top_01",
+      "label": "top_window_reveal_plane",
+      "type": "plane",
+      "geometry_type": "polygon",
+      "coordinates": [[58, 96], [563, 178], [493, 193], [85, 164]],
+      "visibility": "partial",
+      "confidence": 0.7,
+      "measurement_use": "Top reveal/soffit of bay opening for height and perspective constraints.",
+      "notes": ""
+    },
+    {
+      "id": "bay_lower_wall_01",
+      "label": "lower_wall_under_windows_in_bay",
+      "type": "plane",
+      "geometry_type": "polygon",
+      "coordinates": [[84, 574], [493, 543], [553, 663], [439, 668], [192, 722], [69, 803]],
+      "visibility": "partial",
+      "confidence": 0.52,
+      "measurement_use": "Lower bay wall area and skirting position.",
+      "notes": "Radiator, table and chairs hide much of the lower wall."
+    },
+    {
+      "id": "full_window_group_01",
+      "label": "full_window_group",
+      "type": "opening",
+      "geometry_type": "bbox",
+      "coordinates": {"x1": 83, "y1": 160, "x2": 496, "y2": 573},
+      "visibility": "partial",
+      "confidence": 0.77,
+      "measurement_use": "Overall window group opening for height/width reference and frame detection.",
+      "notes": "Includes two main visible window units; blinds obscure frame details."
+    },
+    {
+      "id": "left_window_01",
+      "label": "left_window",
+      "type": "opening",
+      "geometry_type": "bbox",
+      "coordinates": {"x1": 85, "y1": 164, "x2": 336, "y2": 571},
+      "visibility": "partial",
+      "confidence": 0.78,
+      "measurement_use": "Window opening/frame region for OpenCV line refinement.",
+      "notes": "Blinds and plants obscure the lower central part."
+    },
+    {
+      "id": "right_window_01",
+      "label": "right_window",
+      "type": "opening",
+      "geometry_type": "bbox",
+      "coordinates": {"x1": 366, "y1": 192, "x2": 494, "y2": 544},
+      "visibility": "partial",
+      "confidence": 0.8,
+      "measurement_use": "Window opening/frame region for OpenCV line refinement.",
+      "notes": "Blinds obscure horizontal frame lines."
+    },
+    {
+      "id": "radiator_under_window_01",
+      "label": "radiator_under_window",
+      "type": "object",
+      "geometry_type": "bbox",
+      "coordinates": {"x1": 172, "y1": 570, "x2": 321, "y2": 684},
+      "visibility": "partial",
+      "confidence": 0.68,
+      "measurement_use": "Occluding object below window; helps mask hidden wall-floor boundary.",
+      "notes": "Partly hidden by chair and table."
+    },
+    {
+      "id": "table_01",
+      "label": "round_table",
+      "type": "object",
+      "geometry_type": "bbox",
+      "coordinates": {"x1": 224, "y1": 516, "x2": 482, "y2": 758},
+      "visibility": "partial",
+      "confidence": 0.82,
+      "measurement_use": "Occlusion mask and furniture contact references on floor.",
+      "notes": "Legs visible below tabletop."
+    },
+    {
+      "id": "chair_left_01",
+      "label": "chair_left",
+      "type": "object",
+      "geometry_type": "bbox",
+      "coordinates": {"x1": 193, "y1": 502, "x2": 355, "y2": 879},
+      "visibility": "partial",
+      "confidence": 0.84,
+      "measurement_use": "Occlusion mask; visible legs provide floor contact points.",
+      "notes": ""
+    },
+    {
+      "id": "chair_right_01",
+      "label": "chair_right",
+      "type": "object",
+      "geometry_type": "bbox",
+      "coordinates": {"x1": 500, "y1": 481, "x2": 656, "y2": 791},
+      "visibility": "partial",
+      "confidence": 0.83,
+      "measurement_use": "Occlusion mask; visible legs provide floor contact points.",
+      "notes": ""
+    },
+    {
+      "id": "sofa_or_mattress_right_01",
+      "label": "sofa_or_mattress_right",
+      "type": "object",
+      "geometry_type": "polygon",
+      "coordinates": [[626, 689], [860, 692], [959, 732], [959, 950], [667, 857], [582, 784]],
+      "visibility": "partial",
+      "confidence": 0.78,
+      "measurement_use": "Large occluding object hiding right floor and wall-floor edge.",
+      "notes": "Right side continues out of image."
+    },
+    {
+      "id": "plant_right_01",
+      "label": "plant_right",
+      "type": "object",
+      "geometry_type": "bbox",
+      "coordinates": {"x1": 680, "y1": 484, "x2": 823, "y2": 725},
+      "visibility": "partial",
+      "confidence": 0.8,
+      "measurement_use": "Occlusion of right wall and floor-wall edge; pot contact gives floor reference.",
+      "notes": ""
+    },
+    {
+      "id": "wall_socket_or_switch_01",
+      "label": "wall_socket_or_switch",
+      "type": "object",
+      "geometry_type": "bbox",
+      "coordinates": {"x1": 690, "y1": 445, "x2": 722, "y2": 467},
+      "visibility": "full",
+      "confidence": 0.86,
+      "measurement_use": "Small fixed wall feature useful for local wall-plane validation.",
+      "notes": ""
+    },
+    {
+      "id": "skirting_boards_01",
+      "label": "skirting_boards",
+      "type": "object",
+      "geometry_type": "polyline",
+      "coordinates": [[0, 823], [67, 821], [78, 785], [116, 746], [188, 722], [315, 691], [440, 668], [553, 662], [694, 664], [820, 712], [959, 762]],
+      "visibility": "partial",
+      "confidence": 0.62,
+      "measurement_use": "Skirting provides floor-wall boundary cues.",
+      "notes": "Several stretches are hidden or visually weak."
+    },
+    {
+      "id": "furniture_floor_contacts_01",
+      "label": "visible_furniture_leg_floor_contacts",
+      "type": "point",
+      "geometry_type": "multi_point",
+      "coordinates": [[238, 875], [331, 855], [232, 701], [320, 719], [392, 747], [443, 732], [522, 779], [602, 787], [628, 710], [737, 725]],
+      "visibility": "partial",
+      "confidence": 0.59,
+      "measurement_use": "Visible contact points with floor for checking floor plane consistency.",
+      "notes": "Some points are approximate due to carpet and shadows."
+    },
+    {
+      "id": "yellow_blanket_01",
+      "label": "yellow_blanket_on_floor",
+      "type": "object",
+      "geometry_type": "bbox",
+      "coordinates": {"x1": 762, "y1": 1030, "x2": 955, "y2": 1279},
+      "visibility": "partial",
+      "confidence": 0.77,
+      "measurement_use": "Occlusion mask for lower right floor area.",
+      "notes": "Continues beyond bottom/right edge."
+    }
+  ],
+  "key_lines": [
+    {
+      "id": "floor_wall_edge_left_01",
+      "label": "floor_wall_edge_left",
+      "type": "line",
+      "geometry_type": "line",
+      "coordinates": [[0, 838], [68, 835]],
+      "visibility": "partial",
+      "confidence": 0.72,
+      "measurement_use": "Wall-floor boundary at skirting for left wall/floor perspective.",
+      "notes": "Short visible segment near lower left."
+    },
+    {
+      "id": "floor_wall_edge_back_01",
+      "label": "floor_wall_edge_back_bay",
+      "type": "line",
+      "geometry_type": "polyline",
+      "coordinates": [[68, 803], [96, 760], [143, 733], [210, 714], [314, 690], [439, 668], [553, 662]],
+      "visibility": "partial",
+      "confidence": 0.46,
+      "measurement_use": "Wall-floor boundary at skirting inside bay/recess.",
+      "notes": "Partly visually continued behind chair, radiator and table; confidence reduced."
+    },
+    {
+      "id": "floor_wall_edge_right_01",
+      "label": "floor_wall_edge_right",
+      "type": "line",
+      "geometry_type": "polyline",
+      "coordinates": [[553, 662], [693, 663], [818, 711], [959, 762]],
+      "visibility": "partial",
+      "confidence": 0.48,
+      "measurement_use": "Right wall-floor boundary at skirting for perspective.",
+      "notes": "Partly hidden by right chair, plant and sofa/mattress."
+    },
+    {
+      "id": "wall_ceiling_edge_bay_top_01",
+      "label": "wall_ceiling_edge_bay_opening_top",
+      "type": "line",
+      "geometry_type": "line",
+      "coordinates": [[58, 96], [563, 178]],
+      "visibility": "full",
+      "confidence": 0.83,
+      "measurement_use": "Top horizontal/oblique edge of bay opening for perspective and height.",
+      "notes": ""
+    },
+    {
+      "id": "wall_ceiling_edge_rear_right_01",
+      "label": "wall_ceiling_edge_back_to_right",
+      "type": "line",
+      "geometry_type": "polyline",
+      "coordinates": [[563, 178], [699, 93], [843, 0]],
+      "visibility": "partial",
+      "confidence": 0.6,
+      "measurement_use": "Wall-ceiling boundary near right upper corner.",
+      "notes": "Edge is soft due to lighting."
+    },
+    {
+      "id": "wall_ceiling_edge_right_01",
+      "label": "wall_ceiling_edge_right",
+      "type": "line",
+      "geometry_type": "line",
+      "coordinates": [[843, 0], [960, 0]],
+      "visibility": "partial",
+      "confidence": 0.52,
+      "measurement_use": "Top edge of right wall/ceiling for room orientation.",
+      "notes": "Runs along image top edge and is partly out of frame."
+    },
+    {
+      "id": "vertical_wall_edge_bay_left_outer_01",
+      "label": "bay_opening_left_outer_vertical",
+      "type": "line",
+      "geometry_type": "line",
+      "coordinates": [[58, 96], [68, 803]],
+      "visibility": "partial",
+      "confidence": 0.78,
+      "measurement_use": "Vertical edge of bay opening for perspective/height calibration.",
+      "notes": "Lower part merges with skirting/base."
+    },
+    {
+      "id": "vertical_wall_edge_bay_right_outer_01",
+      "label": "bay_opening_right_outer_vertical",
+      "type": "line",
+      "geometry_type": "line",
+      "coordinates": [[563, 178], [553, 663]],
+      "visibility": "partial",
+      "confidence": 0.76,
+      "measurement_use": "Vertical edge of bay opening for perspective/height calibration.",
+      "notes": "Lower segment partly hidden by furniture."
+    },
+    {
+      "id": "vertical_wall_edge_right_corner_01",
+      "label": "right_wall_inside_corner_vertical",
+      "type": "line",
+      "geometry_type": "line",
+      "coordinates": [[699, 93], [693, 660]],
+      "visibility": "partial",
+      "confidence": 0.69,
+      "measurement_use": "Vertical room corner separating back/right wall planes.",
+      "notes": "Lower part is weak and partly hidden."
+    },
+    {
+      "id": "bay_inner_left_window_vertical_01",
+      "label": "left_window_left_frame_vertical",
+      "type": "line",
+      "geometry_type": "line",
+      "coordinates": [[86, 164], [84, 573]],
+      "visibility": "partial",
+      "confidence": 0.72,
+      "measurement_use": "Window frame vertical for local OpenCV refinement.",
+      "notes": "Blinds overlap this edge."
+    },
+    {
+      "id": "bay_inner_left_window_right_vertical_01",
+      "label": "left_window_right_frame_vertical",
+      "type": "line",
+      "geometry_type": "line",
+      "coordinates": [[333, 167], [336, 570]],
+      "visibility": "partial",
+      "confidence": 0.7,
+      "measurement_use": "Window frame vertical for local OpenCV refinement.",
+      "notes": "Partly hidden by blinds and plants."
+    },
+    {
+      "id": "bay_inner_right_window_left_vertical_01",
+      "label": "right_window_left_frame_vertical",
+      "type": "line",
+      "geometry_type": "line",
+      "coordinates": [[366, 193], [367, 544]],
+      "visibility": "partial",
+      "confidence": 0.75,
+      "measurement_use": "Window frame vertical for local OpenCV refinement.",
+      "notes": ""
+    },
+    {
+      "id": "bay_inner_right_window_right_vertical_01",
+      "label": "right_window_right_frame_vertical",
+      "type": "line",
+      "geometry_type": "line",
+      "coordinates": [[493, 193], [493, 544]],
+      "visibility": "partial",
+      "confidence": 0.73,
+      "measurement_use": "Window frame vertical for local OpenCV refinement.",
+      "notes": ""
+    },
+    {
+      "id": "left_window_mid_horizontal_01",
+      "label": "left_window_mid_frame_horizontal",
+      "type": "line",
+      "geometry_type": "line",
+      "coordinates": [[88, 366], [334, 363]],
+      "visibility": "partial",
+      "confidence": 0.67,
+      "measurement_use": "Window horizontal frame/mullion for perspective and scale checks.",
+      "notes": "Obscured by blinds."
+    },
+    {
+      "id": "right_window_mid_horizontal_01",
+      "label": "right_window_mid_frame_horizontal",
+      "type": "line",
+      "geometry_type": "line",
+      "coordinates": [[367, 370], [493, 370]],
+      "visibility": "partial",
+      "confidence": 0.7,
+      "measurement_use": "Window horizontal frame/mullion for perspective and scale checks.",
+      "notes": "Obscured by blinds."
+    },
+    {
+      "id": "windowsill_line_left_01",
+      "label": "left_windowsill_line",
+      "type": "line",
+      "geometry_type": "line",
+      "coordinates": [[66, 577], [330, 561]],
+      "visibility": "partial",
+      "confidence": 0.65,
+      "measurement_use": "Windowsill edge for bay/window geometry.",
+      "notes": "Partly hidden by table objects and radiator."
+    },
+    {
+      "id": "windowsill_line_right_01",
+      "label": "right_windowsill_line",
+      "type": "line",
+      "geometry_type": "line",
+      "coordinates": [[386, 543], [492, 540]],
+      "visibility": "partial",
+      "confidence": 0.68,
+      "measurement_use": "Windowsill edge for bay/window geometry.",
+      "notes": "Small plant pot on sill partly occludes."
+    },
+    {
+      "id": "vanishing_guide_floor_left_01",
+      "label": "floor_perspective_guide_left_baseboard",
+      "type": "line",
+      "geometry_type": "line",
+      "coordinates": [[0, 838], [439, 668]],
+      "visibility": "partial",
+      "confidence": 0.45,
+      "measurement_use": "Long floor/baseboard perspective guide.",
+      "notes": "Partially inferred from skirting/floor boundary."
+    },
+    {
+      "id": "vanishing_guide_floor_right_01",
+      "label": "floor_perspective_guide_right_baseboard",
+      "type": "line",
+      "geometry_type": "line",
+      "coordinates": [[553, 662], [959, 762]],
+      "visibility": "partial",
+      "confidence": 0.45,
+      "measurement_use": "Long right-side floor/baseboard perspective guide.",
+      "notes": "Partially occluded by furniture."
+    },
+    {
+      "id": "room_corners_visible_01",
+      "label": "visible_room_and_opening_corners",
+      "type": "point",
+      "geometry_type": "multi_point",
+      "coordinates": [[58, 96], [563, 178], [68, 803], [553, 663], [699, 93], [693, 660]],
+      "visibility": "partial",
+      "confidence": 0.62,
+      "measurement_use": "Visible corner landmarks for geometric reconstruction.",
+      "notes": "Some lower corners are at or behind skirting/furniture."
+    }
+  ],
+  "reference_objects": [
+    {
+      "id": "paper_sheet_01",
+      "label": "paper_sheet_on_floor_possible_A4",
+      "type": "reference",
+      "geometry_type": "polygon",
+      "coordinates": [[358, 1135], [466, 1139], [461, 1266], [334, 1264]],
+      "corner_order": ["top_left", "top_right", "bottom_right", "bottom_left"],
+      "visibility": "full",
+      "confidence": 0.86,
+      "measurement_use": "Scale reference for floor-plane calibration.",
+      "notes": "Appears to be a single A4-like sheet on carpet; corners approximate due to slight blur and perspective."
+    }
+  ],
+  "occlusions": [
+    {
+      "id": "occlusion_01",
+      "label": "left_chair_occluding_floor_and_bay_lower_wall",
+      "type": "occlusion",
+      "geometry_type": "bbox",
+      "coordinates": {"x1": 193, "y1": 502, "x2": 355, "y2": 879},
+      "visibility": "full",
+      "confidence": 0.84,
+      "measurement_use": "Marks area where floor, radiator and wall-floor boundary are hidden.",
+      "notes": ""
+    },
+    {
+      "id": "occlusion_02",
+      "label": "table_occluding_bay_floor_wall_edge",
+      "type": "occlusion",
+      "geometry_type": "bbox",
+      "coordinates": {"x1": 224, "y1": 516, "x2": 482, "y2": 758},
+      "visibility": "full",
+      "confidence": 0.82,
+      "measurement_use": "Marks bay lower wall and floor boundary hidden by table.",
+      "notes": ""
+    },
+    {
+      "id": "occlusion_03",
+      "label": "right_chair_occluding_right_floor_wall_edge",
+      "type": "occlusion",
+      "geometry_type": "bbox",
+      "coordinates": {"x1": 500, "y1": 481, "x2": 656, "y2": 791},
+      "visibility": "full",
+      "confidence": 0.83,
+      "measurement_use": "Marks area where right wall-floor edge and floor are hidden.",
+      "notes": ""
+    },
+    {
+      "id": "occlusion_04",
+      "label": "plant_occluding_right_wall_and_floor",
+      "type": "occlusion",
+      "geometry_type": "bbox",
+      "coordinates": {"x1": 680, "y1": 484, "x2": 823, "y2": 725},
+      "visibility": "full",
+      "confidence": 0.78,
+      "measurement_use": "Marks right wall/floor boundary hidden by plant and pot.",
+      "notes": ""
+    },
+    {
+      "id": "occlusion_05",
+      "label": "sofa_or_mattress_occluding_right_floor",
+      "type": "occlusion",
+      "geometry_type": "bbox",
+      "coordinates": {"x1": 582, "y1": 689, "x2": 960, "y2": 952},
+      "visibility": "partial",
+      "confidence": 0.78,
+      "measurement_use": "Marks large hidden floor area on right side.",
+      "notes": "Extends out of image to the right."
+    },
+    {
+      "id": "occlusion_06",
+      "label": "radiator_occluding_lower_bay_wall",
+      "type": "occlusion",
+      "geometry_type": "bbox",
+      "coordinates": {"x1": 172, "y1": 570, "x2": 321, "y2": 684},
+      "visibility": "partial",
+      "confidence": 0.68,
+      "measurement_use": "Marks lower bay wall and skirting hidden behind radiator.",
+      "notes": ""
+    },
+    {
+      "id": "occlusion_07",
+      "label": "yellow_blanket_occluding_floor",
+      "type": "occlusion",
+      "geometry_type": "bbox",
+      "coordinates": {"x1": 762, "y1": 1030, "x2": 955, "y2": 1279},
+      "visibility": "partial",
+      "confidence": 0.77,
+      "measurement_use": "Marks lower right floor area hidden by blanket.",
+      "notes": ""
+    }
+  ]
+}

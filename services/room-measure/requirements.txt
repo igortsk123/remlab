@@ -1,0 +1,8 @@
+# room-measure: замер комнаты по фото (перенесено из mltest 2026-08-04)
+opencv-python>=4.9
+numpy>=1.26
+Pillow>=10.0
+shapely>=2.0
+torch>=2.2
+transformers>=4.40
+ultralytics>=8.2

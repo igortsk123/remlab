@@ -16,20 +16,14 @@ review_after: ""
 
 > Секретов тут НЕТ — только где они. Детали — Tier 2.
 
-## Реестр
-| Интеграция | Статус | Задача | Ключи (где) | Код |
-|---|---|---|---|---|
-| Google Gemini | ⚠️ КЛЮЧ МЁРТВ 2026-08-01 — пересоздать; проверить прод | картинки+анализ | `GEMINI_API_KEY` | `lib/providers/gemini.ts` |
-| OpenAI | ✅ соседский | GPT-5.1 тексты; gpt-image-2 витрина | `_secrets/ACCESS.md` | ads-watchdog; scout |
-| PostHog | код есть, прод no-op (ADR-0012) | аналитика+ошибки | `POSTHOG_KEY` не задан | `lib/analytics.ts` |
-| Гдеслон | доступ ✅ 14 магазинов (ADR-0042) | фиды→каталог, /go/ реф | `GDESLON_*` в `.env` | кода нет; план `gdeslon-catalog` |
-| imagor | активен (ADR-0013) | сжатие картинок, internal | ключей НЕТ (unsafe) | `lib/images/compress.ts` |
-| GHCR/CI | авто-деплой ✅ (arm64) | образы + деплой | `GITHUB_TOKEN`; SSH `remlab_ci_deploy` | GitHub Actions |
-| Яндекс (WS/Директ/Метрика) | доступ ✅ | реклама/аналитика | `_secrets/ACCESS.md` (вне git) | кода нет, curl |
-| Лид-канал П7 | скелет до токенов | заявки+диалог | `LEADS_*` в `/opt/remlab/.env` — `[[leads]]` | `lib/leads/*` |
-| YooKassa | код-скелет, БЕЗ ключей (К5) | оплата 60₽ визуализации | ключи не заданы | `lib/payments/yookassa.ts` |
-| fal.ai | активен ✅ | NB2/Seedream/Flux/SAM2/LaMa per-request | `FAL_KEY` (mltest/.env) | scout/mltest |
-| РФ-прокси | ✅ ADR-0031 | фолбэк parse-link; квота 1 ГБ | `PARSE_PROXY_URLS`; креды — VPN `_secrets/` | `lib/calc/fetch-page.ts` |
+## fal.ai (2026-08-04) — картинки и image-to-3D
+`FAL_KEY` (значение — `_secrets/ACCESS.md`); баланс $9.03 на 2026-08-04. Цены и применение —
+`../domain/integrations.md`. Используется в `services/room-measure/run_viz.py`.
+
+## Чужие ключи на машине
+Соседние проекты (sib, sing, sup2) держат свои ключи в своих `.env` — НЕ наши, не трогать.
+Инвентаризация: `node tools/access-inventory.mjs`. Прежде чем сказать «у нас нет доступа» —
+прогнать её (урок 57).
 
 ## Ключевые факты
 - **Gemini:** один ключ на обе задачи; модели `gemini-3.1-flash-image` и `gemini-flash-latest`.
@@ -37,3 +31,6 @@ review_after: ""
 - **Яндекс:** Метрика `110599064`; чужую кампанию `708745261` не трогать. [[marketing-acquisition]].
 
 **Tier 2:** `../domain/integrations.md` (эндпоинты, форматы, env, фиды/наличие). Решения — ADR-0007/0011/0012/0013/0045.
+
+
+**Детали разделов: Реестр → `../domain/integrations.md`**

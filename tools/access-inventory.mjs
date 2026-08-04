@@ -62,6 +62,7 @@ for (const dir of SEARCH_DIRS) {
       if (!m) continue;
       const value = m[3].replace(/^["']|["']$/g, "");
       if (!value || value.length < 8 || value.startsWith("<") || value.includes("...")) continue;
+      if (m[1].startsWith("NEXT_PUBLIC_") || /_URL$|_BASE$/.test(m[1])) continue;   // адреса, не секреты
       found.push({ name: m[1], file, hint: value.slice(0, 4) + "…", len: value.length });
     }
   }
@@ -81,14 +82,26 @@ const vendorOf = (name) => {
   return name.toLowerCase();
 };
 
-const rows = found.map((f) => ({ ...f, vendor: vendorOf(f.name), inRegistry: known.includes(vendorOf(f.name)) }));
+// ключи соседних проектов учитываются одной строкой реестра «Чужие ключи на машине» —
+// такие файлы не должны подсвечиваться как пропущенные
+const FOREIGN_DIRS = ["igor/sib", "igor/sing", "igor/sup2"];
+const foreignCovered = /чужие ключи на машине/i.test(registry);
+const rows = found.map((f) => {
+  const foreign = FOREIGN_DIRS.some((d) => f.file.includes(d));
+  return {
+    ...f,
+    vendor: vendorOf(f.name),
+    foreign,
+    inRegistry: known.includes(vendorOf(f.name)) || (foreign && foreignCovered),
+  };
+});
 
 if (process.argv.includes("--json")) {
   console.log(JSON.stringify(rows, null, 1));
 } else {
   console.log(`[access-inventory] найдено ключей: ${rows.length}\n`);
   for (const r of rows) {
-    const mark = r.inRegistry ? "✓" : "✗ НЕ В РЕЕСТРЕ";
+    const mark = r.foreign ? "· чужой" : r.inRegistry ? "✓" : "✗ НЕ В РЕЕСТРЕ";
     console.log(`  ${mark.padEnd(14)} ${r.name.padEnd(26)} ${r.hint} (${r.len})  ${r.file.replace(HOME, "~")}`);
   }
   const missing = rows.filter((r) => !r.inRegistry);

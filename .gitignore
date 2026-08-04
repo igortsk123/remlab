@@ -59,3 +59,10 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
+
+# room-measure: веса моделей и кэш прогонов — воспроизводимы, в git не нужны
+services/room-measure/weights/
+services/room-measure/cache/
+services/room-measure/tmp/
+services/room-measure/*.pt
+services/room-measure/*.npy
