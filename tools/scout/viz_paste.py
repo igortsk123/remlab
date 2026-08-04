@@ -422,9 +422,14 @@ def main() -> None:
             print(f'  {role}: нет фото товара')
             continue
         px = paste_role(pano, zbuf, cam, by[role], by[role].item, cutout(photo_path))
-        if px <= 0 and full is not None:           # не вклеилось — показываем объём предмета
+        if px <= 0 and full is not None:
+            # Объём показываем только у КРУПНЫХ предметов, стоящих на полу. Декор, лежащий на
+            # мебели (подушки, плед, ваза, лампа), серой коробкой закрывал бы сам диван —
+            # его дорисует модель по легенде (владелец, 2026-08-04).
+            on_floor = float(getattr(by[role], 'elev_cm', 0)) <= 1.0
             m_box = ids_full == int(sid)
-            if m_box.any():
+            big = m_box.mean() > 0.01
+            if on_floor and role not in SOFT and big:
                 pano[m_box] = full[m_box]
         if px < 0:
             angled.append(role)
