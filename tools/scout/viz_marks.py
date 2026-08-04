@@ -52,6 +52,18 @@ def build(n: int, cam_name: str = 'C1') -> tuple[str, str, list[dict]]:
         m = ids == int(sid)
         if m.sum() < 400:
             continue
+        # Доля видимости: если предмет обрезан краем кадра или закрыт другим, модель должна об
+        # этом ЗНАТЬ — иначе она пытается дорисовать целый предмет из фрагмента (владелец,
+        # 2026-08-04). Совсем мелкие фрагменты в легенду не попадают вовсе.
+        ys_a, xs_a = np.where(m)
+        touches_edge = (xs_a.min() <= 1 or xs_a.max() >= W - 2
+                        or ys_a.min() <= 1 or ys_a.max() >= H - 2)
+        share = float(m.sum()) / max(1.0, (xs_a.max() - xs_a.min() + 1) * (ys_a.max() - ys_a.min() + 1))
+        frag = m.sum() / (W * H)
+        if frag < 0.004:
+            continue
+        seen_txt = ('виден целиком' if not touches_edge else
+                    'виден частично: обрезан краем кадра, рисовать только видимую часть')
         num += 1
         ys, xs = np.where(m)
         cx = float(xs.mean())
@@ -120,6 +132,7 @@ def build(n: int, cam_name: str = 'C1') -> tuple[str, str, list[dict]]:
             'описание': details[:160],
             'габариты_см': [int(it.get('w') or 0), int(it.get('d') or 0), int(it.get('h') or 0)],
             'положение': rel.get(role, 'стоит на полу'),
+            'видимость': seen_txt,
             'фото': os.path.basename(photo),
         })
     dst = f'{prefix}-marked.jpg'

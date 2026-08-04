@@ -167,11 +167,35 @@ def paste_role(pano: np.ndarray, zbuf: np.ndarray, cam, p, it, photo: Image.Imag
     if p.role in FLOOR:                    # ковёр лежит НА ПОЛУ: проекция на горизонталь
         corner, wvec, hvec, n = floor_quad(p, it)
     else:
+        # Фронтальное фото годится, только пока мы смотрим предмету В ЛИЦО. Если по плану он
+        # повёрнут к нам боком, вырезка врёт: диван «разворачивается» во всю ширину там, где
+        # виден торец (владелец, 2026-08-04). Такие предметы уходят на нейросетевой проход.
+        rot_f = int(round(p.rot)) % 360
+        face_n = {0: (0.0, 1.0), 90: (1.0, 0.0), 180: (0.0, -1.0), 270: (-1.0, 0.0)}.get(rot_f)
+        if face_n is not None:
+            look = np.array([p.x - eye[0], 0.0, p.y - eye[2]])
+            ln = float(np.linalg.norm(look))
+            if ln > 1e-6:
+                look /= ln
+                cosang = abs(float(look[0] * face_n[0] + look[2] * face_n[1]))
+                face_deg = math.degrees(math.asin(min(1.0, max(0.0, cosang))))
+                if face_deg < float(os.environ.get('PASTE_MIN_ANGLE', 38)):
+                    return -1
         corner, wvec, hvec, n = billboard(p, it, cam)
     w_cm = float(np.linalg.norm(wvec))
     h_cm = float(np.linalg.norm(hvec))
     quad = np.array([corner, corner + wvec, corner + wvec + hvec, corner + hvec])
     rel = quad - eye
+    # Предмет, оказавшийся ЗА камерой, рисовать нельзя: проекция «заворачивается» и в кадр
+    # попадает призрак (в виде C2 так появлялся диван, которого там нет — 2026-08-04).
+    if not cam.cyl and float(np.max(rel @ fwd)) <= 1.0:
+        return 0
+    centre_dir = (corner + wvec / 2 + hvec / 2) - eye
+    centre_dir = centre_dir / max(float(np.linalg.norm(centre_dir)), 1e-6)
+    if not cam.cyl:
+        ang_off = math.degrees(math.acos(max(-1.0, min(1.0, float(centre_dir @ fwd)))))
+        if ang_off > cam.fov_deg / 2 + 30:
+            return 0
     if cam.cyl:
         angq = np.arctan2(rel @ right, rel @ fwd)
         horiz = np.hypot(rel @ right, rel @ fwd)
