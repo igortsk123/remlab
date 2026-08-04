@@ -197,13 +197,9 @@ def paste_role(pano: np.ndarray, zbuf: np.ndarray, cam, p, it, photo: Image.Imag
     fv = (H / 2) / math.tan(math.radians(cam.vfov_deg) / 2)
     if p.role in FLOOR:                    # ковёр лежит НА ПОЛУ: проекция на горизонталь
         corner, wvec, hvec, n = floor_quad(p, it)
-    elif p.role not in FRONTED and float(getattr(p, 'elev_cm', 0.0)) <= 1.0:
-        # вытянутый предмет без фасада — ставим по СВОЕЙ оси, как в плане
-        w_i, d_i = float(it.w_cm), float(it.d_cm)
-        if max(w_i, d_i) > 0 and abs(w_i - d_i) / max(w_i, d_i) >= 0.12:
-            corner, wvec, hvec, n = axis_plane(p, it, cam)
-        else:
-            corner, wvec, hvec, n = billboard(p, it, cam)
+    # ОТКАЧЕНО 2026-08-04: постановка вытянутых предметов по собственной оси искажала форму —
+    # фронтальное фото, показанное боком, сплющивается. Вырезка снова смотрит на камеру,
+    # а разворот описывается словами в легенде (`axis_of`).
     else:
         # Фронтальное фото годится, только пока мы смотрим предмету В ЛИЦО. Если по плану он
         # повёрнут к нам боком, вырезка врёт: диван «разворачивается» во всю ширину там, где

@@ -224,12 +224,26 @@ def split_pair(sheet: 'Image.Image') -> list:
             sheet.crop((0, y1 + 1, sheet.width, sheet.height))]
 
 
-def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]]) -> str:
-    """Единый запрос на два вида: ОДИН список предметов со сквозными номерами.
+def shops_note(n: int) -> str:
+    """Заметка про ракурс карточек — только для поставщиков, у кого он ЗАМЕРЕН.
 
-    Номера одинаковы в обоих кадрах, поэтому список не дублируется — короче и однозначнее
-    (владелец, 2026-08-04). У каждой позиции сказано, как она видна в каждом кадре.
+    Замер: `measure_angle.py` (nonton.ru — медиана 20°, «три четверти»). Для остальных магазинов
+    ничего не пишем: выдумывать ракурс нельзя (владелец, 2026-08-04).
     """
+    path = os.path.join(HERE, 'photo_angles.json')
+    if not os.path.exists(path):
+        return ''
+    table = json.load(open(path))
+    items = json.load(open(os.path.join(HERE, 'sets3.json')))[n - 1]['items']
+    shops = sorted({it.get('shop') for it in items.values() if it.get('shop') in table})
+    if not shops:
+        return ''
+    return ('- Product photos from ' + ', '.join(shops) + ' are 3/4 shots, not frontal: in the '
+            'collage such items look turned towards the viewer — correct that rotation.\n')
+
+
+def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]]) -> str:
+    """Единый запрос на два вида: коротко, с акцентами и одним списком предметов."""
     a, b = cams
     merged: dict[int, dict] = {}
     for idx, legend in enumerate(legends):
@@ -244,41 +258,35 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]]) -> str
     items = json.dumps([merged[k] for k in sorted(merged)], ensure_ascii=False)
     return (
         f'{room_brief(n)}\n\n'
-        'IMAGES: 1 — a sheet with TWO collages of the SAME room, one above the other: TOP is view '
-        f'{a}, BOTTOM is view {b}, separated by a bright magenta band. Each collage puts real '
-        'product photos at their places on a neutral render; it shows POSITION and APPROXIMATE '
-        'scale, true dimensions are in the list. 2 — the same sheet with red numbered markers '
-        '(annotation only; the same number always means the same item in both frames). 3 — the '
-        'floor plan with both camera positions and their fields of view.\n\n'
-        'Render BOTH views as one sheet in the SAME layout: two photographs of the same room, '
-        'identical finishes, identical light, identical products — only the camera differs. Keep '
-        'the magenta band exactly where it is, same colour and height, nothing drawn on it.\n\n'
-        'DO NOT CHANGE: the products (never replace, recolour or resize); their places; the room '
-        'shell (walls, floor, ceiling, cameras).\n'
-        f'TOP VIEW openings. {openings_brief(n, a)}\n'
-        f'BOTTOM VIEW openings. {openings_brief(n, b)}\n\n'
-        'DO: turn each item slightly around its vertical axis to match its "orientation" and '
-        '"placement" fields — product photos are shot from their own viewpoint, so this rotation '
-        'makes the scene believable. Renovate the room in the style below: walls, floor, ceiling, '
-        'skirting, frames and dressing of the given openings. Soft contact shadows, natural light, '
-        'correct wall-floor junctions, verticals vertical. You may add wall art and small decor '
-        'typical of the style. Fill every planter and vase from the list with a live plant sized '
-        'to it. Where the list has a TV stand, a TV is ALWAYS present: put it either standing on '
-        'the stand or wall-mounted right above it — choose by the size and design of that stand.\n\n'
-        'NEVER ADD: furniture, rugs, lamps, TV, textiles, pots, planters or floor plants that are '
-        'not in the list. Do not duplicate items to make the room look fuller.\n\n'
-        f'STYLE (finishes, colour, light and mood only — it never adds objects) — {style_name(n)}: '
+        f'IMAGES. 1 — sheet with two collages of the SAME room: TOP = view {a}, BOTTOM = view {b}, '
+        'split by a magenta band; every piece of furniture is a real product photo at its place '
+        '(position and approximate scale only, true sizes are in the list). 2 — the same sheet '
+        'with red numbers (annotation only; same number = same item in both frames). 3 — floor '
+        'plan with both camera positions and their fields of view.\n\n'
+        'TASK. Turn both collages into two photographs of one room: identical finishes, light and '
+        'products, only the camera differs. Keep the magenta band as it is.\n\n'
+        'NEVER: replace, recolour or resize a product; move it elsewhere; add furniture, rugs, '
+        'lamps, TV, textiles, pots or decor that is not in the list; duplicate items to fill the '
+        'room; draw numbers or markers.\n\n'
+        f'OPENINGS. Top frame: {openings_brief(n, a)} Bottom frame: {openings_brief(n, b)}\n\n'
+        'ALWAYS:\n'
+        '- "placement" is binding: follow it literally, it outranks your idea of a nice composition.\n'
+        '- Rotate every item to match "orientation".\n'
+        + shops_note(n)
+        + '- Read "product" and "details": the name, material and colour tell what the item really is.\n'
+        '- "in_top"/"in_bottom": whole, only a part (draw just that part, never complete it), or '
+        'not in that frame.\n'
+        '- Renovate in the style below: walls, floor, ceiling, skirting, frames and dressing of the '
+        'given openings. Soft contact shadows, natural light, verticals vertical.\n'
+        '- Fill every planter and vase from the list with a live plant sized to it.\n'
+        '- Where the list has a TV stand, a TV is always there: on the stand or wall-mounted above '
+        'it, by the size and design of that stand.\n'
+        '- You may add wall art and small decor typical of the style.\n\n'
+        f'STYLE — {style_name(n)} (finishes, colour, light, mood; it never adds objects): '
         f'{style_brief(n)}\n\n'
-        'ITEMS (JSON, one list for both frames; "id" = the number on image 2).\n'
-        'The "placement" field is BINDING and the most important one: it says what the item '
-        'stands or lies on, next to which piece it is and which piece it faces. Follow it '
-        'literally — it outranks your own idea of a nice composition. "orientation" says which '
-        'way the item is turned. Read "product" and "details" carefully too: the product name and '
-        'its material, colour and style often carry details that explain what you see in the '
-        'collage — use them to render the item correctly. "in_top" and "in_bottom" say how the item is seen in each frame: '
-        'whole, only a part (never complete it), or not in that frame at all.\n' + items + '\n\n'
-        'OUTPUT: one sheet with the two photorealistic photographs in the same places as the input '
-        'collages and the magenta band between them; no people, no text, no markers.'
+        'ITEMS (JSON, one list for both frames; id = number on image 2):\n' + items + '\n\n'
+        'OUTPUT: one sheet, two photorealistic photographs in the same places as the collages, '
+        'magenta band between them, no people, no text, no markers.'
     )
 
 
