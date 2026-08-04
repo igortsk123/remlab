@@ -24,9 +24,58 @@ import scene_build  # noqa: E402
 from planner.scene import cameras_for, proxy_parts  # noqa: E402
 from scene_build import SCENE_DIR, load_scene  # noqa: E402
 from viz_objects import product  # noqa: E402
+from viz_paste import FRONTED  # noqa: E402  (единый список предметов с выраженным фасадом)
 
 FONT = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
 SKIP_MARK = {'тв'}
+
+
+WALL_RU = {'north': 'дальней', 'south': 'ближней', 'west': 'левой', 'east': 'правой'}
+
+
+def orientation_of(p, placements, room) -> str:
+    """Куда предмет повёрнут — считается из геометрии, а не пишется руками.
+
+    Луч из центра предмета по направлению его лица: если упирается в другой предмет — «развёрнут
+    к нему», иначе — в стену. Плюс отмечается, если предмет стоит спинкой к стене. Так правило
+    работает для ЛЮБОЙ расстановки, а не для одного примера (владелец, 2026-08-04).
+    """
+    import math
+
+    from planner.geometry import footprint
+    from shapely.geometry import LineString
+    # Ориентацию имеет смысл описывать только у предметов с выраженным фасадом: у ковра,
+    # люстры, пледа и подушек «лица» нет, и фраза «развёрнут к столику» была бы шумом.
+    if p.role not in FRONTED or p.item is None:
+        return ''
+    rot = int(round(p.rot)) % 360
+    face = {0: (0.0, 1.0), 90: (1.0, 0.0), 180: (0.0, -1.0), 270: (-1.0, 0.0)}.get(rot)
+    if face is None:
+        return ''
+    reach = 420.0
+    ray = LineString([(p.x, p.y), (p.x + face[0] * reach, p.y + face[1] * reach)])
+    best, best_d = None, 1e9
+    for q in placements:
+        if q is p or q.item is None or q.role == p.role:
+            continue
+        poly = footprint(q, q.item)
+        if ray.intersects(poly):
+            d = math.hypot(q.x - p.x, q.y - p.y)
+            if d < best_d:
+                best, best_d = q.role, d
+    parts = []
+    if best:
+        parts.append(f'развёрнут лицом к: {best}')
+    else:
+        wall = {(0.0, 1.0): 'north', (1.0, 0.0): 'east', (0.0, -1.0): 'south',
+                (-1.0, 0.0): 'west'}[face]
+        parts.append(f'смотрит в сторону {WALL_RU[wall]} стены')
+    back = {(0.0, 1.0): ('south', p.y), (1.0, 0.0): ('west', p.x),
+            (0.0, -1.0): ('north', room.depth_cm - p.y),
+            (-1.0, 0.0): ('east', room.width_cm - p.x)}[face]
+    if back[1] <= float(p.item.d_cm) / 2 + 30:
+        parts.append(f'стоит спинкой к {WALL_RU[back[0]]} стене')
+    return ', '.join(parts)
 
 
 def build(n: int, cam_name: str = 'C1') -> tuple[str, str, list[dict]]:
@@ -166,6 +215,7 @@ def build(n: int, cam_name: str = 'C1') -> tuple[str, str, list[dict]]:
             'описание': details[:160],
             'габариты_см': [int(it.get('w') or 0), int(it.get('d') or 0), int(it.get('h') or 0)],
             'положение': rel.get(role, 'стоит на полу'),
+            'ориентация': orientation_of(by[role], placements, room) if role in by else '',
             'видимость': seen_txt,
             'фото': os.path.basename(photo),
         })

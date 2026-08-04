@@ -46,7 +46,11 @@ def style_brief(n: int) -> str:
 
 
 def openings_brief(n: int, cam_name: str) -> str:
-    """Проёмы считаем МЫ и передаём словами: где они в кадре и что их больше нет."""
+    """Фраза про проёмы собирается ДИНАМИЧЕСКИ по геометрии кадра.
+
+    Варианты: ни одного проёма · только окно · только дверь · оба · каждый из них целиком или
+    частью. Модель проёмы не придумывает — их состав считаем мы (правило владельца 2026-08-04).
+    """
     import math
 
     import numpy as np
@@ -59,30 +63,53 @@ def openings_brief(n: int, cam_name: str) -> str:
     W, H = cam.width, cam.height
     focal = (W / 2) / math.tan(math.radians(cam.fov_deg) / 2)
 
-    def where(pt):
+    def px(pt):
         rel = np.array(pt, float) - eye
         z = float(rel @ fwd)
         if z <= 1e-3:
-            return None
-        u = W / 2 + focal * float(rel @ right) / z
-        v = H / 2 - focal * float(rel @ up) / z + cam.shift_y * H
-        return (u, v) if 0 <= u < W and 0 <= v < H else None
+            return None, None
+        return (W / 2 + focal * float(rel @ right) / z,
+                H / 2 - focal * float(rel @ up) / z + cam.shift_y * H)
 
-    seen = []
+    found = {'window': [], 'door': []}
     for op in room.openings:
         o0, o1 = op.offset_cm, op.offset_cm + op.width_cm
-        pts = {'south': [(o0, 0), (o1, 0)], 'north': [(o0, room.depth_cm), (o1, room.depth_cm)],
-               'west': [(0, o0), (0, o1)], 'east': [(room.width_cm, o0), (room.width_cm, o1)]}[op.wall]
-        got = [where([x, 120, y]) for x, y in pts]
-        if not any(got):
+        ends = {'south': [(o0, 0), (o1, 0)], 'north': [(o0, room.depth_cm), (o1, room.depth_cm)],
+                'west': [(0, o0), (0, o1)],
+                'east': [(room.width_cm, o0), (room.width_cm, o1)]}[op.wall]
+        pts = [px([x, 120, y]) for x, y in ends]
+        inside = [q for q in pts if q[0] is not None and 0 <= q[0] < W]
+        if not inside:
             continue
-        side = 'left' if (np.mean([g[0] for g in got if g]) < W / 2) else 'right'
+        whole = len(inside) == 2
+        side = 'left-hand' if float(np.mean([q[0] for q in inside])) < W / 2 else 'right-hand'
         kind = 'window' if op.kind == 'window' else 'door'
-        whole = 'fully in frame' if all(got) else 'only partly in frame'
-        seen.append(f'one {kind} on the {side}-hand wall ({whole}, {int(op.width_cm)} cm wide)')
-    if not seen:
-        return ('There is NO window and NO door in this frame — all walls in view are blank. ')
-    return 'Openings visible in this frame: ' + '; '.join(seen) + '. '
+        found[kind].append((side, whole, int(op.width_cm)))
+
+    def phrase(kind: str, items: list) -> str:
+        out = []
+        for side, whole, w in items:
+            state = ('fully visible' if whole else
+                     'only PARTLY in frame — draw only the part that is inside the frame, '
+                     'do not complete it')
+            out.append(f'one {kind} on the {side} wall, {w} cm wide, {state}')
+        return '; '.join(out)
+
+    win, door = found['window'], found['door']
+    if not win and not door:
+        body = ('There is NO window and NO door in this frame — every wall in view is blank. '
+                'Do not put an opening anywhere.')
+    elif win and not door:
+        body = (f'The only opening in this frame is {phrase("window", win)}. '
+                'There is NO door in this frame.')
+    elif door and not win:
+        body = (f'The only opening in this frame is {phrase("door", door)}. '
+                'There is NO window in this frame.')
+    else:
+        body = (f'Openings in this frame: {phrase("window", win)}; and {phrase("door", door)}. '
+                'There are no other openings.')
+    return (body + ' Do NOT invent, move, add or remove any window or door: their places come '
+            'from the plan, not from you.')
 
 
 def legend_json(legend: list[dict]) -> str:
@@ -97,6 +124,7 @@ def legend_json(legend: list[dict]) -> str:
             'placement': e['положение'],
             'details': e.get('описание', ''),
             'visibility': e.get('видимость', 'виден целиком'),
+            'orientation': e.get('ориентация', ''),
         })
     return json.dumps(out, ensure_ascii=False)
 
@@ -170,23 +198,28 @@ def main() -> None:
         '- Products. Never replace, restyle, recolour or resize any item from the list. What is '
         'shown IS the product the customer buys.\n'
         '- Positions. Do not move an item to another place and do not swap items.\n'
-        f'- Openings. {openings} Do NOT invent, move, add or remove any window or door: their '
-        'places are given by the plan, not by you.\n'
+        f'- Openings. {openings}\n'
         '- The room shell: wall planes, floor plane, ceiling height and the camera stay as they are.\n\n'
         'WHAT YOU MAY AND SHOULD DO\n'
-        '- Turn an item slightly around its own vertical axis so it sits naturally (an ottoman '
-        'faces the sofa, a coffee table is parallel to the sofa). Product photos are frontal, a '
-        'small rotation makes the scene believable.\n'
+        '- Turn each item slightly around its own vertical axis so that it matches its own '
+        '"orientation" and "placement" fields in the list below. Product photos are frontal, so a '
+        'small rotation is what makes the scene believable.\n'
         '- Renovate the room in the chosen style: wall finish and colour, flooring, ceiling, '
         'skirting, and the FRAMES and dressing of the given window and door (frame colour, '
         'curtains) — all in that style, without changing where they are.\n'
-        '- Add greenery and wall art that suit the style: potted plants and framed prints only.\n'
-        '- Every planter or pot in the list MUST have a living plant in it.\n'
+        '- Wall art that suits the style may be added: framed prints on the walls only.\n'
+        '- GREENERY ONLY IN THE PLANTERS THAT ARE ALREADY IN THE LIST. Never add a new pot, '
+        'planter, vase or floor plant of your own. Every planter and vase from the list MUST be '
+        'filled with a live plant or branches, sized to that particular planter (its size in cm is '
+        'in the list) and suiting the style.\n'
         '- Light the scene naturally, add soft contact shadows under every item, soften the pasted '
         'outlines, make floor and wall junctions correct, keep vertical lines vertical.\n'
-        '- Add nothing else: no extra furniture, no rugs, no lamps, no TV, no textiles beyond the '
-        'list.\n\n'
-        f'STYLE OF THIS SET — {style_name(n)}\n{style_brief(n)}\n\n'
+        '- Add nothing else: no extra furniture, no rugs, no lamps, no TV, no textiles, no pots '
+        'and no decor objects beyond the list.\n\n'
+        f'STYLE OF THIS SET — {style_name(n)}\n{style_brief(n)}\n'
+        'The style description above defines FINISHES, COLOURS and MOOD only. Where it mentions '
+        'objects (plants, pots, textiles, furniture), the object rules above take precedence: no '
+        'new pots or objects, greenery only inside the planters from the list.\n\n'
         'ITEMS IN THE FRAME (JSON: id = number on image 2)\n' + legend_json(legend) + '\n\n'
         'The visibility field says whether an item is whole or cut by the frame edge: never '
         'complete a cut-off item — draw exactly the part that is in the frame. Follow the '
