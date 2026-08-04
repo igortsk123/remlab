@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -448,7 +449,31 @@ def compile_scene(room: Room, placements: list[Placement], cam: Camera) -> dict:
             for f in faces:
                 raster_quad(np.array(f, float), i, SEMANTIC["furniture"])
 
+    # Предмет, от которого в кадр попало меньше 15% его собственной проекции, из
+    # кадра ИСКЛЮЧАЕТСЯ целиком: тонкая полоска у края не читается ни человеком, ни моделью
+    # (правило владельца 2026-08-04). Маска обнуляется, поэтому вклейка и подписи его не увидят.
+    min_share = float(os.environ.get("FRAME_MIN_SHARE", 0.15))
     total = {i: int((inst == i).sum()) for i in ids}
+    own: dict[int, float] = {}
+    for i, p in enumerate(placements, start=1):
+        if p.item is None or i not in ids:
+            continue
+        us, vs = [], []
+        for x0, x1, ylo, yhi, z0, z1 in proxy_parts(p, p.item):
+            corners = np.array([[X, Y, Z] for X in (x0, x1) for Y in (ylo, yhi) for Z in (z0, z1)],
+                               float)
+            u, v, z = _project(cam, corners)
+            keep = z > 1e-3
+            if keep.any():
+                us += list(u[keep])
+                vs += list(v[keep])
+        own[i] = (max(us) - min(us)) * (max(vs) - min(vs)) * 0.6 if len(us) > 1 else 0.0
+
+    dropped = [i for i in ids
+               if total[i] <= 400 or (own.get(i, 0) > 1 and total[i] / own[i] < min_share)]
+    for i in dropped:
+        inst[inst == i] = 0
+        total[i] = 0
     visible = {ids[i]: px for i, px in total.items() if px > 400}
     behind = [ids[i] for i in ids if total[i] <= 400]
     return {

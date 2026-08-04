@@ -392,7 +392,9 @@ def main() -> None:
             if os.path.exists(full_p) else None)
     inst_img = Image.open(f'{prefix}-instances.png').convert('RGB').resize((W, H), Image.NEAREST)
     ids_full = np.asarray(inst_img)[..., 0] // 8
-    id_map = json.load(open(f'{prefix}-frame.json'))['ids']
+    meta = json.load(open(f'{prefix}-frame.json'))
+    id_map = meta['ids']
+    in_frame = set(meta['visible'])        # правило «меньше 15% предмета → вне кадра» — общее
     room, placements = load_scene(n)
     cam = next(c for c in cameras_for(room, placements) if c.name == cam_name)
     by = {p.role: p for p in placements}
@@ -408,6 +410,8 @@ def main() -> None:
     angled: list[str] = []
     done_roles: list[str] = []
     for sid, role in order:
+        if role not in in_frame:           # компилятор уже решил, что предмета в кадре нет
+            continue
         if role in SKIP or (only and role != only) or role not in by:
             continue
         try:
