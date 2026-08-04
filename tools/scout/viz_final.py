@@ -38,11 +38,19 @@ def style_name(n: int) -> str:
     return sp.get(s.get('style', ''), {}).get('en', s.get('style', ''))
 
 
+OBJECT_WORDS = ('plant', 'pot', 'cushion', 'pillow', 'throw', 'blanket', 'rug', 'vase',
+                'poster', 'print', 'gallery', 'candle', 'furniture', 'sofa', 'lamp')
+
+
 def style_brief(n: int) -> str:
-    """Паспорт стиля: чем именно модель имеет право «делать ремонт»."""
+    """Паспорт стиля — про ОТДЕЛКУ. Куски про объекты вырезаем: наполнением управляем мы,
+    иначе стиль тянет модель добавить «пару растений в горшках» (владелец, 2026-08-04)."""
     s = json.load(open(os.path.join(HERE, 'sets3.json')))[n - 1]
     sp = json.load(open(os.path.join(HERE, 'styles.json')))['styles']
-    return sp.get(s.get('style', ''), {}).get('prompt', '')
+    text = sp.get(s.get('style', ''), {}).get('prompt', '')
+    keep = [c.strip() for c in text.replace(';', ',').split(',')
+            if c.strip() and not any(w in c.lower() for w in OBJECT_WORDS)]
+    return ', '.join(keep)
 
 
 def openings_brief(n: int, cam_name: str) -> str:
@@ -172,8 +180,111 @@ def redraw_angled(n: int, prefix: str) -> None:
                    'по их же фотографиям.')
 
 
+def stack_pair(paths: list[str], size=(1024, 1536), gap=(20, 130, 20)) -> 'Image.Image':
+    """Два кадра на одном листе, сверху и снизу. Пропорции 3:2 у каждого сохраняются —
+    поэтому лист вертикальный: так модель отдаёт ОБА вида за один ответ и в одном стиле."""
+    W, H = size
+    top, mid, bot = gap
+    fh = (H - top - mid - bot) // 2
+    canvas = Image.new('RGB', size, (250, 250, 248))
+    for i, p in enumerate(paths[:2]):
+        im = Image.open(p).convert('RGB')
+        im = im.resize((W, int(W * im.height / im.width)))
+        if im.height > fh:
+            im = im.crop((0, (im.height - fh) // 2, W, (im.height - fh) // 2 + fh))
+        y = top if i == 0 else top + fh + mid
+        canvas.paste(im, (0, y + (fh - im.height) // 2))
+    return canvas
+
+
+def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]]) -> str:
+    """Единый запрос на два вида: общий стиль и правила, а состав и проёмы — по каждому кадру."""
+    a, b = cams
+    return (
+        f'{room_brief(n)}\n\n'
+        'IMAGES: 1 — a sheet with TWO collages of the SAME room, one above the other: TOP is view '
+        f'{a}, BOTTOM is view {b}. Each collage puts real product photos at their places on a '
+        'neutral render; it shows POSITION and APPROXIMATE scale, true dimensions are in the lists. '
+        '2 — the same sheet with red numbered markers (annotation only). 3 — the floor plan with '
+        'both camera positions and their fields of view.\n\n'
+        'Render BOTH views as one sheet in the SAME layout: two photographs of the same room, '
+        'identical finishes, identical light, identical products — only the camera differs.\n\n'
+        'DO NOT CHANGE: the products (never replace, recolour or resize); their places; the room '
+        'shell (walls, floor, ceiling, cameras).\n'
+        f'TOP VIEW openings. {openings_brief(n, a)}\n'
+        f'BOTTOM VIEW openings. {openings_brief(n, b)}\n\n'
+        'DO: turn each item slightly around its vertical axis to match its "orientation" and '
+        '"placement" fields — product photos are shot from their own viewpoint, so this rotation '
+        'makes the scene believable. Renovate the room in the style below: walls, floor, ceiling, '
+        'skirting, frames and dressing of the given openings. Soft contact shadows, natural light, '
+        'correct wall-floor junctions, verticals vertical. You may add wall art and small decor '
+        'typical of the style. Fill every planter and vase from the lists with a live plant sized '
+        'to it.\n\n'
+        'NEVER ADD: furniture, rugs, lamps, TV, textiles, pots, planters or floor plants that are '
+        'not in the lists. Do not duplicate items to make the room look fuller.\n\n'
+        f'STYLE (finishes, colour, light and mood only — it never adds objects) — {style_name(n)}: '
+        f'{style_brief(n)}\n\n'
+        f'ITEMS IN THE TOP VIEW ({a}), JSON:\n' + legend_json(legends[0]) + '\n'
+        f'ITEMS IN THE BOTTOM VIEW ({b}), JSON:\n' + legend_json(legends[1]) + '\n'
+        '"visibility" says whether the item is whole or cut by the frame edge — never complete a '
+        'cut-off item.\n\n'
+        'OUTPUT: one sheet with the two photorealistic photographs in the same places as the '
+        'input collages, no people, no text, no markers.'
+    )
+
+
+def run_pair(n: int, cams: tuple[str, str]) -> None:
+    """Оба вида одним запросом: единый стиль по построению."""
+    prefixes = [os.path.join(SCENE_DIR, f'scene{n}-{c}') for c in cams]
+    srcs, marks, legends = [], [], []
+    for c, pref in zip(cams, prefixes):
+        src, marked, legend = build(n, c)
+        srcs.append(src)
+        marks.append(marked)
+        legends.append(legend)
+    sheet = stack_pair(srcs)
+    sheet_marks = stack_pair(marks)
+    out_dir = os.path.join(SCENE_DIR, f'scene{n}-pair')
+    sheet.save(f'{out_dir}-collage.jpg', quality=93)
+    sheet_marks.save(f'{out_dir}-marked.jpg', quality=93)
+    prompt = pair_prompt(n, cams, legends)
+    if '--print-prompt' in sys.argv:
+        print(prompt)
+        return
+    plan_p = os.path.join(SCENE_DIR, f'scene{n}-plan.png')
+    imgs = [sheet, sheet_marks] + ([Image.open(plan_p).convert('RGB')] if os.path.exists(plan_p) else [])
+    out = edit_gpt_raw(imgs, prompt, size='1024x1536')
+    out.save(f'{out_dir}-final.jpg', quality=94)
+    # Лист вмещает два кадра по ~1024×683 — это ниже родного 1536×1024, поэтому каждый вид
+    # вырезаем и увеличиваем вдвое (владелец: «тогда надо большое разрешение», 2026-08-04).
+    from viz_base import fal_key as _key, upscale as _up
+    W, H = out.size
+    top, mid, bot = 20, 130, 20
+    fh = (H - top - mid - bot) // 2
+    for i, c in enumerate(cams):
+        y = top if i == 0 else top + fh + mid
+        part = out.crop((0, y, W, y + fh))
+        try:
+            part = _up(part, _key())
+        except SystemExit:
+            pass
+        part.save(os.path.join(SCENE_DIR, f'scene{n}-{c}-final.jpg'), quality=94)
+        print(os.path.join(SCENE_DIR, f'scene{n}-{c}-final.jpg'), part.size)
+    steps.log(prefixes[0], 'Оба вида одним запросом',
+              model='openai/gpt-image-2 (images/edits)', prompt=prompt,
+              params={'виды': list(cams), 'лист': '1024×1536'},
+              inputs=[f'{out_dir}-collage.jpg', f'{out_dir}-marked.jpg'],
+              outputs=[f'{out_dir}-final.jpg'],
+              note='Один холст на два вида: стиль и свет совпадают по построению.')
+    print(f'{out_dir}-final.jpg')
+
+
 def main() -> None:
     n = int(sys.argv[1])
+    if '--pair' in sys.argv:
+        pair = sys.argv[sys.argv.index('--pair') + 1].split(',')
+        run_pair(n, (pair[0], pair[1]))
+        return
     cam = sys.argv[sys.argv.index('--cam') + 1] if '--cam' in sys.argv else 'C1'
     prefix = os.path.join(SCENE_DIR, f'scene{n}-{cam}')
     if '--no-angled' not in sys.argv:
@@ -187,49 +298,30 @@ def main() -> None:
     openings = openings_brief(n, cam)
     prompt = (
         f'{room_brief(n)}\n\n'
-        'INPUT IMAGES\n'
-        '1) The collage: every piece of furniture is a real product photo placed at its exact '
-        'position and true size, on a neutral render of the room.\n'
-        '2) The same frame with red numbered markers above each item and a leader line ending on '
-        'the item — an annotation for you only.\n'
-        '3) The floor plan of the room with the camera position and its field of view — use it to '
-        'understand what stands where and which parts the frame cuts off.\n\n'
-        'WHAT YOU MUST NOT CHANGE\n'
-        '- Products. Never replace, restyle, recolour or resize any item from the list. What is '
-        'shown IS the product the customer buys.\n'
-        '- Positions. Do not move an item to another place and do not swap items.\n'
-        f'- Openings. {openings}\n'
-        '- The room shell: wall planes, floor plane, ceiling height and the camera stay as they are.\n\n'
-        'WHAT YOU MAY AND SHOULD DO\n'
-        '- Turn each item slightly around its own vertical axis so that it matches its own '
-        '"orientation" and "placement" fields in the list below. Product photos are frontal, so a '
-        'small rotation is what makes the scene believable.\n'
-        '- Renovate the room in the chosen style: wall finish and colour, flooring, ceiling, '
-        'skirting, and the FRAMES and dressing of the given window and door (frame colour, '
-        'curtains) — all in that style, without changing where they are.\n'
-        '- Wall art that suits the style may be added: framed prints on the walls only.\n'
-        '- GREENERY ONLY IN THE PLANTERS THAT ARE ALREADY IN THE LIST. Never add a new pot, '
-        'planter, vase or floor plant of your own. Every planter and vase from the list MUST be '
-        'filled with a live plant or branches, sized to that particular planter (its size in cm is '
-        'in the list) and suiting the style.\n'
-        '- Light the scene naturally, add soft contact shadows under every item, soften the pasted '
-        'outlines, make floor and wall junctions correct, keep vertical lines vertical.\n'
-        '- Add nothing else: no extra furniture, no rugs, no lamps, no TV, no textiles, no pots '
-        'and no decor objects beyond the list.\n\n'
-        f'STYLE OF THIS SET — {style_name(n)}\n{style_brief(n)}\n'
-        'The style description above is ADVISORY and applies to FINISHES, COLOURS, LIGHT and MOOD '
-        'only. The composition of the room — which objects are in it and how many — is fully '
-        'defined by the item list below and by us, not by the style text and not by you. If the '
-        'style mentions plants, cushions, posters or furniture, that is a hint about mood, never a '
-        'permission to add them: do not add or duplicate any object to make the room look fuller. '
-        'A small room stays sparse if the list is short.\n\n'
-        'ITEMS IN THE FRAME (JSON: id = number on image 2)\n' + legend_json(legend) + '\n\n'
-        'The visibility field says whether an item is whole or cut by the frame edge: never '
-        'complete a cut-off item — draw exactly the part that is in the frame. Follow the '
-        'placement field exactly.\n\n'
-        'OUTPUT: one photorealistic interior photograph, natural daylight, no people, no text, '
-        'no numbers, no circles, no leader lines.'
+        'IMAGES: 1 — collage, each piece of furniture is a real product photo put at its place on '
+        'a neutral render of the room; the collage shows POSITION and APPROXIMATE scale, the true '
+        'dimensions are in the list below. 2 — the same frame with red numbered markers (annotation '
+        'only). 3 — the floor plan with the camera position and its field of view.\n\n'
+        'DO NOT CHANGE: the products themselves (never replace, recolour or resize — this is what '
+        'the customer buys); their places; the room shell (walls, floor, ceiling, camera). '
+        f'{openings}\n\n'
+        'DO: turn each item slightly around its vertical axis to match its "orientation" and '
+        '"placement" fields — product photos are shot from their own viewpoint, so this rotation '
+        'is what makes the scene believable. Renovate the room in the style below: walls, floor, '
+        'ceiling, skirting, and the frames and dressing of the given openings. Add soft contact '
+        'shadows, natural light, correct wall-floor junctions, keep verticals vertical. You may add '
+        'wall art and small decor typical of the style. Fill every planter and vase from the list '
+        'with a live plant sized to it.\n\n'
+        'NEVER ADD: furniture, rugs, lamps, TV, textiles, pots, planters or floor plants that are '
+        'not in the list. Do not duplicate items to make the room look fuller — a small room stays '
+        'sparse if the list is short.\n\n'
+        f'STYLE (finishes, colour, light and mood only — it never adds objects) — {style_name(n)}: '
+        f'{style_brief(n)}\n\n'
+        'ITEMS (JSON, id = number on image 2). "visibility" says whether the item is whole or cut '
+        'by the frame edge — never complete a cut-off item.\n' + legend_json(legend) + '\n\n'
+        'OUTPUT: one photorealistic interior photograph, no people, no text, no markers.'
     )
+
     if '--print-prompt' in sys.argv:        # показать запрос без генерации
         print(prompt)
         return
