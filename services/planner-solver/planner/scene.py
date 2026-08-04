@@ -417,14 +417,15 @@ def compile_scene(room: Room, placements: list[Placement], cam: Camera) -> dict:
         sem_id = SEMANTIC["window"] if op.kind == "window" else SEMANTIC["door"]
         hi, lo = (210.0, 90.0) if op.kind == "window" else (205.0, 0.0)
         o0, o1 = op.offset_cm, op.offset_cm + op.width_cm
-        # проём УТОПЛЕН в стену на 8 см: на карте глубины появляется ниша, и генератор ставит окно
-        # или дверь именно туда. Вровень со стеной глубина одинаковая — сигнала нет (2026-08-04)
-        r = 8.0
+        # Проём рисуем НА САНТИМЕТР ВНУТРЬ комнаты, а не вглубь стены: утопленный проём
+        # проигрывал стене по глубине и просто не появлялся в кадре — окно и дверь пропадали
+        # (владелец, 2026-08-04).
+        r = 1.0
         quad = {
-            "south": [[o0, lo, -r], [o1, lo, -r], [o1, hi, -r], [o0, hi, -r]],
-            "north": [[o0, lo, D + r], [o1, lo, D + r], [o1, hi, D + r], [o0, hi, D + r]],
-            "west": [[-r, lo, o0], [-r, lo, o1], [-r, hi, o1], [-r, hi, o0]],
-            "east": [[W + r, lo, o0], [W + r, lo, o1], [W + r, hi, o1], [W + r, hi, o0]],
+            "south": [[o0, lo, r], [o1, lo, r], [o1, hi, r], [o0, hi, r]],
+            "north": [[o0, lo, D - r], [o1, lo, D - r], [o1, hi, D - r], [o0, hi, D - r]],
+            "west": [[r, lo, o0], [r, lo, o1], [r, hi, o1], [r, hi, o0]],
+            "east": [[W - r, lo, o0], [W - r, lo, o1], [W - r, hi, o1], [W - r, hi, o0]],
         }[op.wall]
         raster_quad(np.array(quad, float), 0, sem_id)
 
