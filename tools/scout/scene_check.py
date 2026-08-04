@@ -44,7 +44,10 @@ def projector(cam, size):
         z = float(rel @ fwd)
         if z <= 1e-3:
             return None
-        return (W / 2 + focal * float(rel @ right) / z, H / 2 - focal * float(rel @ up) / z)
+        # сдвиг объектива обязан учитываться и в проверке — иначе следы плана уезжают вниз
+        # на 0.1 высоты кадра и кажется, что мебель висит (поймано 2026-08-04)
+        return (W / 2 + focal * float(rel @ right) / z,
+                H / 2 - focal * float(rel @ up) / z + cam.shift_y * H)
 
     return to_px
 
@@ -56,7 +59,8 @@ def main() -> None:
     room, placements = load_scene(n)
     cam = next(c for c in cameras_for(room, placements) if c.name == view)
     prefix = os.path.join(SCENE_DIR, f'scene{n}-{view}')
-    img = Image.open(f'{prefix}-base-{model}.jpg').convert('RGB')
+    src = f'{prefix}-pasted.jpg' if '--pasted' in sys.argv else f'{prefix}-base-{model}.jpg'
+    img = Image.open(src).convert('RGB')
     to_px = projector(cam, img.size)
     d = ImageDraw.Draw(img, 'RGBA')
     f_lbl = ImageFont.truetype(FONT, 26)
