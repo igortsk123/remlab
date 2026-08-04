@@ -113,6 +113,15 @@ def paste_role(pano: np.ndarray, ids: np.ndarray, sid: int, cam, p, it,
             + up[None, :] * ((H / 2 - ys) / fv)[:, None])
 
     corner, wvec, n, w_cm, h_cm = face_of(p, it)
+    # Вклеивать фронтальное фото имеет смысл, только пока грань РАЗВЁРНУТА к нам. У комода и
+    # ТВ-тумбы на боковой стене угол 3° — мы видим их с торца, фото туда натягивать бессмысленно;
+    # такие предметы уходят на дешёвый нейросетевой проход (замечание владельца 2026-08-04).
+    centre = corner + wvec / 2 + np.array([0.0, h_cm / 2, 0.0])
+    look = centre - eye
+    look = look / max(float(np.linalg.norm(look)), 1e-6)
+    face_deg = 90.0 - math.degrees(math.acos(min(1.0, abs(float(look @ n)))))
+    if face_deg < float(os.environ.get('PASTE_MIN_ANGLE', 40)):
+        return -1
     denom = dirs @ n
     with np.errstate(divide='ignore', invalid='ignore'):
         t = ((corner - eye) @ n) / denom
@@ -229,6 +238,7 @@ def main() -> None:
     by = {p.role: p for p in placements}
 
     total = 0
+    angled: list[str] = []
     for sid, role in id_map.items():
         if role in SKIP or (only and role != only) or role not in by:
             continue
@@ -241,12 +251,18 @@ def main() -> None:
             continue
         px = paste_role(pano, ids, int(sid), cam, by[role], by[role].item,
                         cutout(photo_path))
+        if px < 0:
+            angled.append(role)
+            print(f'  {role}: сильный ракурс — на нейросетевой проход')
+            continue
         total += px
         print(f'  {role}: {px} px' if px else f'  {role}: грань не попала в кадр')
     img = Image.fromarray(pano)
     dst = f'{prefix}-pasted.jpg'
     img.save(dst, quality=93)
-    print(f'{dst}  (закрашено {total} px, генераций 0)')
+    print(f'{dst}  (закрашено {total} px, генераций 0)'
+          + (f'; на нейросетевой проход: {", ".join(angled)}' if angled else ''))
+    json.dump(angled, open(f'{prefix}-angled.json', 'w'), ensure_ascii=False)
     if '--gpt-frames' in sys.argv:
         roles = [r for _, r in id_map.items() if r not in SKIP and r in by]
         sheet, names = ref_sheet(n, roles)
