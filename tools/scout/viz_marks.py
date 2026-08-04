@@ -80,7 +80,7 @@ def orientation_of(p, placements, room) -> str:
 
 def build(n: int, cam_name: str = 'C1') -> tuple[str, str, list[dict]]:
     prefix = os.path.join(SCENE_DIR, f'scene{n}-{cam_name}')
-    src = f'{prefix}-pasted.jpg'
+    src = f'{prefix}-ready.jpg' if os.path.exists(f'{prefix}-ready.jpg') else f'{prefix}-pasted.jpg'
     img = Image.open(src).convert('RGB')
     W, H = img.size
     ids_img = Image.open(f'{prefix}-instances.png').convert('RGB').resize((W, H), Image.NEAREST)

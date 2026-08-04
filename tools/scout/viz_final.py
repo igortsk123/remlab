@@ -171,16 +171,18 @@ def redraw_angled(n: int, prefix: str) -> None:
     import io as _io
     import urllib.request as _u
     out = Image.open(_io.BytesIO(_u.urlopen(url, timeout=240).read())).convert('RGB')
-    out.resize(view.size).save(f'{prefix}-pasted.jpg', quality=93)
+    # Пишем в ОТДЕЛЬНЫЙ файл: коллаж `-pasted.jpg` — исходник, его перезаписывать нельзя,
+    # иначе в контроль и на лист уезжает уже сгенерированная картинка (владелец, 2026-08-04).
+    out.resize(view.size).save(f'{prefix}-ready.jpg', quality=93)
     steps.log(prefix, 'Дорисовываем предметы, повёрнутые к камере боком',
               model='fal-ai/nano-banana/edit', prompt=pr,
               params={'предметы': angled, 'фото-референсов': len(refs)},
-              inputs=[f'{prefix}-pasted.jpg'], outputs=[f'{prefix}-pasted.jpg'],
+              inputs=[f'{prefix}-pasted.jpg'], outputs=[f'{prefix}-ready.jpg'],
               note='Фронтальное фото на боковой ракурс не натянуть — эти предметы рисует модель '
                    'по их же фотографиям.')
 
 
-def stack_pair(paths: list[str], size=(1024, 1536), gap=(20, 130, 20)) -> 'Image.Image':
+def stack_pair(paths: list[str], size=(2048, 3072), gap=(40, 260, 40)) -> 'Image.Image':
     """Два кадра на одном листе, сверху и снизу. Пропорции 3:2 у каждого сохраняются —
     поэтому лист вертикальный: так модель отдаёт ОБА вида за один ответ и в одном стиле."""
     W, H = size
@@ -253,26 +255,22 @@ def run_pair(n: int, cams: tuple[str, str]) -> None:
         return
     plan_p = os.path.join(SCENE_DIR, f'scene{n}-plan.png')
     imgs = [sheet, sheet_marks] + ([Image.open(plan_p).convert('RGB')] if os.path.exists(plan_p) else [])
-    out = edit_gpt_raw(imgs, prompt, size='1024x1536')
+    out = edit_gpt_raw(imgs, prompt, size='2048x3072')
     out.save(f'{out_dir}-final.jpg', quality=94)
-    # Лист вмещает два кадра по ~1024×683 — это ниже родного 1536×1024, поэтому каждый вид
-    # вырезаем и увеличиваем вдвое (владелец: «тогда надо большое разрешение», 2026-08-04).
-    from viz_base import fal_key as _key, upscale as _up
+    # gpt-image-2 берёт нестандартные размеры до 3840 px по длинной стороне (кратно 16,
+    # соотношение до 3:1), поэтому лист просим сразу 2048×3072 — каждый вид выходит ~2048×1366
+    # нативно, апскейл не нужен (проверено по документации 2026-08-04).
     W, H = out.size
-    top, mid, bot = 20, 130, 20
+    top, mid, bot = 40, 260, 40
     fh = (H - top - mid - bot) // 2
     for i, c in enumerate(cams):
         y = top if i == 0 else top + fh + mid
         part = out.crop((0, y, W, y + fh))
-        try:
-            part = _up(part, _key())
-        except SystemExit:
-            pass
         part.save(os.path.join(SCENE_DIR, f'scene{n}-{c}-final.jpg'), quality=94)
         print(os.path.join(SCENE_DIR, f'scene{n}-{c}-final.jpg'), part.size)
     steps.log(prefixes[0], 'Оба вида одним запросом',
               model='openai/gpt-image-2 (images/edits)', prompt=prompt,
-              params={'виды': list(cams), 'лист': '1024×1536'},
+              params={'виды': list(cams), 'лист': '2048×3072', 'кадр': '≈2048×1366'},
               inputs=[f'{out_dir}-collage.jpg', f'{out_dir}-marked.jpg'],
               outputs=[f'{out_dir}-final.jpg'],
               note='Один холст на два вида: стиль и свет совпадают по построению.')
@@ -290,8 +288,8 @@ def main() -> None:
     if '--no-angled' not in sys.argv:
         redraw_angled(n, prefix)
     src, marked, legend = build(n, cam)
-    clean = Image.open(src).convert('RGB').resize((1536, 1024))
-    mark = Image.open(marked).convert('RGB').resize((1536, 1024))
+    clean = Image.open(src).convert('RGB').resize((2048, 1360))
+    mark = Image.open(marked).convert('RGB').resize((2048, 1360))
     plan_p = os.path.join(SCENE_DIR, f'scene{n}-plan.png')
     plan = Image.open(plan_p).convert('RGB') if os.path.exists(plan_p) else None
 
@@ -326,12 +324,12 @@ def main() -> None:
         print(prompt)
         return
     imgs = [clean, mark] + ([plan] if plan is not None else [])
-    out = edit_gpt_raw(imgs, prompt, size='1536x1024')
+    out = edit_gpt_raw(imgs, prompt, size='2048x1360')
     dst = f'{prefix}-final.jpg'
     out.save(dst, quality=94)
     steps.log(prefix, 'Делаем фотореалистичный кадр по разметке и описанию',
               model='openai/gpt-image-2 (images/edits)', prompt=prompt,
-              params={'номеров в разметке': len(legend), 'кадр': '1536×1024'},
+              params={'номеров в разметке': len(legend), 'кадр': '2048×1360'},
               inputs=[src, marked] + ([plan_p] if plan is not None else []), outputs=[dst],
               note='Модель получает аппликацию, разметку с номерами и JSON: что каждый номер '
                    'значит и как предмет должен стоять. Двигать и добавлять запрещено.')
