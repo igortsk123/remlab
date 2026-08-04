@@ -33,6 +33,41 @@ SKIP_MARK: set[str] = set()   # ТВ тоже подписываем: он ес�
 WALL_RU = {'north': 'дальней', 'south': 'ближней', 'west': 'левой', 'east': 'правой'}
 
 
+def axis_of(p, placements, room) -> str:
+    """Как лежит ДЛИННАЯ сторона предмета — для вещей без фасада (столик, ковёр, пуф).
+
+    У них нет «лица», но есть вытянутость: столик должен стоять длинной стороной параллельно
+    дивану, а не поперёк. Раньше такие предметы вообще не получали ориентации, и модель ставила
+    их как придётся (владелец, 2026-08-04).
+    """
+    import math
+    it = p.item
+    if it is None:
+        return ''
+    w, d = float(it.w_cm), float(it.d_cm)
+    if max(w, d) < 1e-6 or abs(w - d) / max(w, d) < 0.12:
+        return ''                                   # почти квадратный — разворот не важен
+    rot = int(round(p.rot)) % 180
+    long_along_x = (w >= d) if rot == 0 else (d > w)
+    axis = (1.0, 0.0) if long_along_x else (0.0, 1.0)
+    anchor = None
+    for role in ('диван', 'кровать', 'стенка'):
+        q = next((x for x in placements if x.role == role and x.item is not None), None)
+        if q is not None:
+            anchor = q
+            break
+    if anchor is not None and anchor is not p:
+        aw, ad = float(anchor.item.w_cm), float(anchor.item.d_cm)
+        arot = int(round(anchor.rot)) % 180
+        a_along_x = (aw >= ad) if arot == 0 else (ad > aw)
+        same = (a_along_x == long_along_x)
+        rel = 'ПАРАЛЛЕЛЬНО' if same else 'ПОПЕРЁК'
+        return f'длинной стороной {rel} {anchor.role}у' if anchor.role == 'диван' else \
+               f'длинной стороной {rel} предмету «{anchor.role}»'
+    wall = 'левой и правой' if axis == (0.0, 1.0) else 'дальней и ближней'
+    return f'длинной стороной вдоль {wall} стены'
+
+
 def orientation_of(p, placements, room) -> str:
     """Куда предмет повёрнут — считается из геометрии, а не пишется руками.
 
@@ -46,8 +81,10 @@ def orientation_of(p, placements, room) -> str:
     from shapely.geometry import LineString
     # Ориентацию имеет смысл описывать только у предметов с выраженным фасадом: у ковра,
     # люстры, пледа и подушек «лица» нет, и фраза «развёрнут к столику» была бы шумом.
-    if p.role not in FRONTED or p.item is None:
+    if p.item is None:
         return ''
+    if p.role not in FRONTED:
+        return axis_of(p, placements, room)        # без фасада — описываем вытянутость
     rot = int(round(p.rot)) % 360
     face = {0: (0.0, 1.0), 90: (1.0, 0.0), 180: (0.0, -1.0), 270: (-1.0, 0.0)}.get(rot)
     if face is None:
