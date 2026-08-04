@@ -39,6 +39,8 @@ class Camera:
     width: int = 1344
     height: int = 896
     vfov_deg: float = 55.0     # вертикальный угол — только для панорамы
+    shift_y: float = 0.0       # сдвиг объектива, доля высоты кадра: архитектурная норма —
+                               # НЕ наклонять камеру (вертикали сходятся), а сдвигать кадр
 
     def basis(self):
         ex, ey, ez = self.eye
@@ -97,6 +99,33 @@ def cameras_for(room: Room, placements: list[Placement]) -> list[Camera]:
 
     long_px = 1216
     t_w, t_h = (long_px, px64(long_px * D / W)) if W >= D else (px64(long_px * W / D), long_px)
+    # C1/C2: два кадра из противоположных углов — профессиональный стандарт интерьерной съёмки
+    # (объектив 24–35 мм, высота 1,5–1,7 м, двухточечная перспектива). Панорама остаётся
+    # служебной: архитектор говорит, что человек так пространство не воспринимает (2026-08-04).
+    eye_c, inset = 155.0, 45.0
+    corners = [(inset, inset), (W - inset, inset), (W - inset, D - inset), (inset, D - inset)]
+
+    def probe(ci: int) -> tuple[int, Camera, set]:
+        """Сколько предметов реально попадает в кадр из этого угла (быстрый z-буфер 336×224)."""
+        cx, cy = corners[ci]
+        tx, ty = W - cx, D - cy                # смотрим в противоположный угол — две стены в кадре
+        cam = Camera(f"C{ci}", (cx, eye_c, cy), (tx, eye_c, ty),
+                     fov_deg=75.0, shift_y=0.08, width=1344, height=896)
+        small = Camera(cam.name, cam.eye, cam.target, fov_deg=cam.fov_deg,
+                       shift_y=cam.shift_y, width=336, height=224)
+        out = compile_scene(room, placements, small)
+        return len(out["visible"]), cam, set(out["visible"])
+
+    seen = {ci: probe(ci) for ci in range(4)}
+    # Точки съёмки ВСЕГДА диагонально противоположны: так два кадра показывают разные стены и
+    # вместе дают всю комнату. Две камеры у одной стены дублируют друг друга (владелец, 2026-08-04).
+    first = max(range(4), key=lambda ci: len(seen[ci][2]))
+    second = (first + 2) % 4
+    for k, ci in enumerate((first, second)):
+        cam = seen[ci][1]
+        cam.name = f"C{k + 1}"
+        cams.append(cam)
+
     # P: панорама «осмотреться от двери» — одна широкая картинка вместо трёх склеенных, чтобы
     # свет и материалы не разъезжались между кадрами (просьба владельца 2026-08-04)
     door = next((o for o in room.openings if o.kind in ("door", "balcony")), None)
@@ -222,7 +251,7 @@ def _project(cam: Camera, pts: np.ndarray):
     f = (cam.width / 2) / math.tan(math.radians(cam.fov_deg) / 2)
     zz = np.where(z <= 1e-3, 1e-3, z)
     u = cam.width / 2 + f * (rel @ right) / zz
-    v = cam.height / 2 - f * (rel @ up) / zz
+    v = cam.height / 2 - f * (rel @ up) / zz + cam.shift_y * cam.height
     return u, v, z
 
 
@@ -281,7 +310,7 @@ def compile_scene(room: Room, placements: list[Placement], cam: Camera) -> dict:
         else:
             dirs = (fwd[None, None, :] * focal
                     + right[None, None, :] * (xs - Wp / 2)[..., None]
-                    + up[None, None, :] * (Hp / 2 - ys)[..., None])
+                    + up[None, None, :] * (Hp / 2 + cam.shift_y * Hp - ys)[..., None])
             denom = dirs @ n
             with np.errstate(divide="ignore", invalid="ignore"):
                 t = (d - float(n @ eye)) / denom

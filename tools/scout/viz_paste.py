@@ -107,10 +107,16 @@ def paste_role(pano: np.ndarray, ids: np.ndarray, sid: int, cam, p, it,
         return 0
     ys, xs = np.where(mask)
 
-    ang = (xs - W / 2) / W * math.radians(cam.fov_deg)     # цилиндрическая камера
-    dirs = (fwd[None, :] * np.cos(ang)[:, None]
-            + right[None, :] * np.sin(ang)[:, None]
-            + up[None, :] * ((H / 2 - ys) / fv)[:, None])
+    if cam.cyl:                                            # панорама
+        ang = (xs - W / 2) / W * math.radians(cam.fov_deg)
+        dirs = (fwd[None, :] * np.cos(ang)[:, None]
+                + right[None, :] * np.sin(ang)[:, None]
+                + up[None, :] * ((H / 2 - ys) / fv)[:, None])
+    else:                                                  # обычный кадр со сдвигом объектива
+        focal = (W / 2) / math.tan(math.radians(cam.fov_deg) / 2)
+        dirs = (fwd[None, :] * focal
+                + right[None, :] * (xs - W / 2)[:, None]
+                + up[None, :] * (H / 2 + cam.shift_y * H - ys)[:, None])
 
     corner, wvec, n, w_cm, h_cm = face_of(p, it)
     # Вклеивать фронтальное фото имеет смысл, только пока грань РАЗВЁРНУТА к нам. У комода и
@@ -223,7 +229,8 @@ def harmonize_gpt(frame: Image.Image, sheet: Image.Image, names: list[str]) -> I
 def main() -> None:
     n = int(sys.argv[1])
     only = sys.argv[sys.argv.index('--only') + 1] if '--only' in sys.argv else None
-    prefix = os.path.join(SCENE_DIR, f'scene{n}-P')
+    cam_name = sys.argv[sys.argv.index('--cam') + 1] if '--cam' in sys.argv else 'P'
+    prefix = os.path.join(SCENE_DIR, f'scene{n}-{cam_name}')
     base = f'{prefix}-base-clean.jpg'
     if not os.path.exists(base):
         base = f'{prefix}-base-sdxl.jpg'
@@ -234,7 +241,7 @@ def main() -> None:
     id_map = json.load(open(f'{prefix}-frame.json'))['ids']
 
     room, placements = load_scene(n)
-    cam = next(c for c in cameras_for(room, placements) if c.name == 'P')
+    cam = next(c for c in cameras_for(room, placements) if c.name == cam_name)
     by = {p.role: p for p in placements}
 
     total = 0

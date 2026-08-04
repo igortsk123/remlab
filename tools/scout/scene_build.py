@@ -85,9 +85,9 @@ def draw_plan(room: Room, placements: list[Placement], cams, path: str) -> str:
     from planner.geometry import footprint
 
     sc = 900 / max(room.width_cm, room.depth_cm)
-    pad = 60
+    pad = 92
     W = int(room.width_cm * sc) + pad * 2
-    H = int(room.depth_cm * sc) + pad * 2
+    H = int(room.depth_cm * sc) + pad * 2 + 20
     img = Image.new('RGB', (W, H), '#F6F7F5')
     d = ImageDraw.Draw(img, 'RGBA')
 
@@ -97,16 +97,44 @@ def draw_plan(room: Room, placements: list[Placement], cams, path: str) -> str:
     d.rectangle([T(0, room.depth_cm), T(room.width_cm, 0)], outline='#1A1F1C', width=3)
     f_small = ImageFont.truetype(FONT, 15)
     f_cam = ImageFont.truetype(FONT, 17)
+    f_dim = ImageFont.truetype(FONT, 19)
 
-    for p in placements:
+    # размерные линии и площадь — план должен читаться как чертёж, а не как схема
+    top = pad - 26
+    d.line([(pad, top), (pad + room.width_cm * sc, top)], fill='#5C655E', width=2)
+    for x in (pad, pad + room.width_cm * sc):
+        d.line([(x, top - 7), (x, top + 7)], fill='#5C655E', width=2)
+    wtxt = f'{room.width_cm / 100:.2f} м'
+    d.text((pad + room.width_cm * sc / 2 - d.textlength(wtxt, font=f_dim) / 2, top - 26),
+           wtxt, fill='#3A423C', font=f_dim)
+    left = pad - 26
+    d.line([(left, pad), (left, pad + room.depth_cm * sc)], fill='#5C655E', width=2)
+    for y in (pad, pad + room.depth_cm * sc):
+        d.line([(left - 7, y), (left + 7, y)], fill='#5C655E', width=2)
+    d.text((left - 22, pad + room.depth_cm * sc / 2), f'{room.depth_cm / 100:.2f} м',
+           fill='#3A423C', font=f_dim, anchor='mm')
+    area = f'{room.width_cm * room.depth_cm / 10000:.1f} м²'
+    d.text((pad + 10, pad + room.depth_cm * sc + 12), f'Площадь {area}',
+           fill='#3A423C', font=f_dim)
+
+    used: list[tuple[float, float, float]] = []          # занятые прямоугольники подписей
+    for p in sorted(placements, key=lambda q: -(q.item.w_cm * q.item.d_cm)):
         poly = footprint(p, p.item)
         xs, ys = poly.exterior.coords.xy
         pts = [T(x, y) for x, y in zip(xs, ys)]
-        d.polygon(pts, fill=(63, 107, 87, 55), outline='#3F6B57')
+        flat = float(p.item.h_cm or 60) <= 5                 # ковёр рисуем контуром, без заливки
+        d.polygon(pts, fill=(63, 107, 87, 0 if flat else 48), outline='#3F6B57')
         cx, cz = T(p.x, p.y)
         label = f'{p.role} {int(p.item.w_cm)}×{int(p.item.d_cm)}'
         w = d.textlength(label, font=f_small)
-        d.text((cx - w / 2, cz - 8), label, fill='#1A1F1C', font=f_small)
+        y = cz - 8
+        for _ in range(12):                                  # сдвигаем, пока подпись не свободна
+            if all(abs(y - uy) > 17 or abs(cx - ux) > (w + uw) / 2 for ux, uy, uw in used):
+                break
+            y += 17
+        used.append((cx, y, w))
+        d.rectangle([cx - w / 2 - 3, y - 2, cx + w / 2 + 3, y + 17], fill=(246, 247, 245, 225))
+        d.text((cx - w / 2, y), label, fill='#1A1F1C', font=f_small)
 
     for op in room.openings:                       # проёмы — на плане и в картах один источник
         o0, o1 = op.offset_cm, op.offset_cm + op.width_cm
@@ -124,12 +152,12 @@ def draw_plan(room: Room, placements: list[Placement], cams, path: str) -> str:
         tx, _, tz = cam.target
         half = math.radians(cam.fov_deg) / 2
         ang = math.atan2(tz - ez, tx - ex)
-        reach = max(room.width_cm, room.depth_cm) * 1.4
-        cone = [T(ex, ez)] + [
-            T(ex + math.cos(ang + a) * reach, ez + math.sin(ang + a) * reach)
-            for a in (-half, -half / 2, 0, half / 2, half)
-        ]
-        d.polygon(cone, fill=(162, 73, 59, 38))
+        # направление съёмки — двумя тонкими лучами до стен, без заливки: заливка забивала лист
+        for a in (-half, half):
+            reach = max(room.width_cm, room.depth_cm)
+            x2 = min(max(ex + math.cos(ang + a) * reach, 0), room.width_cm)
+            z2 = min(max(ez + math.sin(ang + a) * reach, 0), room.depth_cm)
+            d.line([T(ex, ez), T(x2, z2)], fill=(162, 73, 59, 120), width=2)
         px, pz = T(ex, ez)
         d.ellipse([px - 9, pz - 9, px + 9, pz + 9], fill='#A2493B')
         d.text((px + 13, pz - 10), f'камера {cam.name}', fill='#A2493B', font=f_cam)
