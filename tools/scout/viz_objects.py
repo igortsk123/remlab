@@ -152,11 +152,51 @@ def edit_gpt(scene: Image.Image, ref: Image.Image, mask: np.ndarray,
     part('model', 'gpt-image-2')
     part('prompt', prompt)
     part('size', '1536x1024')
-    part('quality', 'high')
+    part('quality', os.environ.get('EDIT_QUALITY', 'medium'))  # high ≈ $0.19/кадр, medium ≈ $0.05
     part('n', '1')
     part('image[]', png(scene), 'scene.png', 'image/png')
     part('image[]', png(ref), 'product.png', 'image/png')
     part('mask', png(hole), 'mask.png', 'image/png')
+    body.write(f'--{B}--\r\n'.encode())
+    req = urllib.request.Request('https://api.openai.com/v1/images/edits', data=body.getvalue(),
+                                 headers={'Authorization': f'Bearer {oai}',
+                                          'Content-Type': f'multipart/form-data; boundary={B}'})
+    with urllib.request.urlopen(req, timeout=900) as r:
+        data = json.loads(r.read())
+    return Image.open(io.BytesIO(base64.b64decode(data['data'][0]['b64_json']))).convert('RGB')
+
+
+def edit_gpt_raw(images: list, prompt: str, size: str = '1536x1024') -> 'Image.Image':
+    """OpenAI images/edits с НЕСКОЛЬКИМИ картинками (до 16) и без маски."""
+    oai = os.environ.get('OPENAI_API_KEY') or _dotenv('OPENAI_API_KEY')
+    if not oai:
+        raise SystemExit('нет OPENAI_API_KEY')
+
+    def png(im):
+        b = io.BytesIO()
+        im.convert('RGB').save(b, 'PNG')
+        return b.getvalue()
+
+    B = uuid.uuid4().hex
+    body = io.BytesIO()
+
+    def part(field, val, fname=None, ctype=None):
+        body.write(f'--{B}\r\n'.encode())
+        if fname:
+            body.write(f'Content-Disposition: form-data; name="{field}"; filename="{fname}"\r\n'
+                       f'Content-Type: {ctype}\r\n\r\n'.encode())
+            body.write(val)
+            body.write(b'\r\n')
+        else:
+            body.write(f'Content-Disposition: form-data; name="{field}"\r\n\r\n{val}\r\n'.encode())
+
+    part('model', 'gpt-image-2')
+    part('prompt', prompt)
+    part('size', size)
+    part('quality', os.environ.get('EDIT_QUALITY', 'medium'))
+    part('n', '1')
+    for i, im in enumerate(images[:16]):          # предел OpenAI — 16 картинок на запрос
+        part('image[]', png(im), f'img{i}.png', 'image/png')
     body.write(f'--{B}--\r\n'.encode())
     req = urllib.request.Request('https://api.openai.com/v1/images/edits', data=body.getvalue(),
                                  headers={'Authorization': f'Bearer {oai}',

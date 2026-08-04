@@ -62,7 +62,8 @@ def main() -> None:
     fov = float(sys.argv[sys.argv.index('--fov') + 1]) if '--fov' in sys.argv else 65.0
     prefix = os.path.join(SCENE_DIR, f'scene{n}-P')
     meta = json.load(open(f'{prefix}-frame.json'))
-    pano = np.asarray(Image.open(f'{prefix}-base-sdxl.jpg').convert('RGB'))
+    src = sys.argv[sys.argv.index('--src') + 1] if '--src' in sys.argv else 'base-sdxl'
+    pano = np.asarray(Image.open(f'{prefix}-{src}.jpg').convert('RGB'))
     out_w = int(pano.shape[1] * fov / meta['camera']['fov'])
     out_h = int(out_w * 2 / 3)
     for k, name in NAMES.items():
