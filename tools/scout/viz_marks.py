@@ -11,6 +11,7 @@
   ~/venvs/scout/bin/python viz_marks.py 21 --cam C1
 """
 import json
+import math
 import os
 import sys
 
@@ -20,6 +21,7 @@ import numpy as np  # noqa: E402
 from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 
 import scene_build  # noqa: E402
+from planner.scene import cameras_for, proxy_parts  # noqa: E402
 from scene_build import SCENE_DIR, load_scene  # noqa: E402
 from viz_objects import product  # noqa: E402
 
@@ -35,8 +37,34 @@ def build(n: int, cam_name: str = 'C1') -> tuple[str, str, list[dict]]:
     ids_img = Image.open(f'{prefix}-instances.png').convert('RGB').resize((W, H), Image.NEAREST)
     ids = np.asarray(ids_img)[..., 0] // 8
     meta = json.load(open(f'{prefix}-frame.json'))
-    load_scene(n)                                   # заполняет scene_build.RELATIONS
+    room, placements = load_scene(n)                # заодно заполняет scene_build.RELATIONS
     rel = dict(scene_build.RELATIONS)
+    cam = next(c for c in cameras_for(room, placements) if c.name == cam_name)
+    by = {p.role: p for p in placements}
+
+    def own_area(role: str) -> float:
+        """Площадь предмета в кадре, если бы его ничто не закрывало и не обрезало."""
+        p = by.get(role)
+        if p is None or p.item is None:
+            return 0.0
+        eye, fwd, right, up = cam.basis()
+        focal = (W / 2) / math.tan(math.radians(cam.fov_deg) / 2)
+        pts = []
+        for x0, x1, y0, y1, z0, z1 in proxy_parts(p, p.item):
+            for X in (x0, x1):
+                for Y in (y0, y1):
+                    for Z in (z0, z1):
+                        rel_v = np.array([X, Y, Z], float) - eye
+                        zz = float(rel_v @ fwd)
+                        if zz <= 1e-3:
+                            continue
+                        pts.append((W / 2 + focal * float(rel_v @ right) / zz,
+                                    H / 2 - focal * float(rel_v @ up) / zz + cam.shift_y * H))
+        if len(pts) < 3:
+            return 0.0
+        xs_p = [q[0] for q in pts]
+        ys_p = [q[1] for q in pts]
+        return max(1.0, (max(xs_p) - min(xs_p)) * (max(ys_p) - min(ys_p)) * 0.6)
     items = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                         'sets3.json')))[n - 1]['items']
 
@@ -59,8 +87,13 @@ def build(n: int, cam_name: str = 'C1') -> tuple[str, str, list[dict]]:
         touches_edge = (xs_a.min() <= 1 or xs_a.max() >= W - 2
                         or ys_a.min() <= 1 or ys_a.max() >= H - 2)
         share = float(m.sum()) / max(1.0, (xs_a.max() - xs_a.min() + 1) * (ys_a.max() - ys_a.min() + 1))
-        frag = m.sum() / (W * H)
-        if frag < 0.004:
+        # Доля видимости считается от площади САМОГО предмета: тонкая полоска у края кадра —
+        # это не предмет, модели о нём говорить не надо (владелец: «на виде 2 одна подушка, а
+        # подписано две», 2026-08-04).
+        own = own_area(role)
+        share_own = float(m.sum()) / own if own > 0 else 0.0
+        big_in_frame = m.sum() / (W * H) >= 0.015      # заметный кусок кадра — оставляем
+        if m.sum() / (W * H) < 0.004 or (share_own < 0.15 and not big_in_frame):
             continue
         seen_txt = ('виден целиком' if not touches_edge else
                     f'в кадр попадает ТОЛЬКО ЧАСТЬ предмета ({role}) — рисовать именно эту часть, '
