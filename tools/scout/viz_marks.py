@@ -40,10 +40,11 @@ def build(n: int, cam_name: str = 'C1') -> tuple[str, str, list[dict]]:
     items = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                         'sets3.json')))[n - 1]['items']
 
+    objs = ids > 0
     marked = img.copy()
     d = ImageDraw.Draw(marked, 'RGBA')
-    f = ImageFont.truetype(FONT, 34)
     legend: list[dict] = []
+    placed: list[tuple[float, float, int]] = []
     num = 0
     for sid, role in meta['ids'].items():
         if role in SKIP_MARK or role not in items:
@@ -53,10 +54,38 @@ def build(n: int, cam_name: str = 'C1') -> tuple[str, str, list[dict]]:
             continue
         num += 1
         ys, xs = np.where(m)
-        cx, cy = float(xs.mean()), float(ys.mean())
-        d.ellipse([cx - 24, cy - 24, cx + 24, cy + 24], fill=(200, 30, 30, 235),
+        cx = float(xs.mean())
+        top = float(ys.min())
+        # Номер ставим НАД предметом, а не по центру: на мелких (лампа, ваза) кружок закрывал
+        # сам товар, и модель не видела, о чём речь (замечание владельца 2026-08-04).
+        r = int(min(26, max(13, (xs.max() - xs.min()) / 6)))
+        my, mx = top - r - 10, cx
+        yy, xx = np.mgrid[0:H, 0:W]
+
+        def free(px, py):
+            """Маркер не должен закрывать ни один товар и другие маркеры."""
+            if py - r < 2 or px - r < 2 or px + r > W - 2:
+                return False
+            box = objs[max(0, int(py - r)):int(py + r), max(0, int(px - r)):int(px + r)]
+            if box.size and box.mean() > 0.02:
+                return False
+            return all((px - ux) ** 2 + (py - uy) ** 2 > (r + ur + 6) ** 2 for ux, uy, ur in placed)
+
+        for step in range(40):                    # поднимаем, потом пробуем вбок
+            if free(mx, my):
+                break
+            my -= r + 6
+            if my - r < 4:
+                my = top - r - 10
+                mx = cx + (r * 2.4) * (1 if step % 2 else -1) * (step // 2 + 1)
+        my = max(r + 4, my)
+        mx = min(max(r + 4, mx), W - r - 4)
+        placed.append((mx, my, r))
+        d.line([mx, my + r, cx, top + 4], fill=(200, 30, 30, 200), width=2)
+        d.ellipse([mx - r, my - r, mx + r, my + r], fill=(200, 30, 30, 235),
                   outline=(255, 255, 255, 255), width=3)
-        d.text((cx, cy), str(num), fill=(255, 255, 255), font=f, anchor='mm')
+        fnt = ImageFont.truetype(FONT, int(r * 1.35))
+        d.text((mx, my), str(num), fill=(255, 255, 255), font=fnt, anchor='mm')
         it = items[role]
         try:
             _, photo = product(n, role)
