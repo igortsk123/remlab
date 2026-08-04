@@ -225,20 +225,34 @@ def split_pair(sheet: 'Image.Image') -> list:
 
 
 def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]]) -> str:
-    """Единый запрос на два вида: общий стиль и правила, а состав и проёмы — по каждому кадру."""
+    """Единый запрос на два вида: ОДИН список предметов со сквозными номерами.
+
+    Номера одинаковы в обоих кадрах, поэтому список не дублируется — короче и однозначнее
+    (владелец, 2026-08-04). У каждой позиции сказано, как она видна в каждом кадре.
+    """
     a, b = cams
+    merged: dict[int, dict] = {}
+    for idx, legend in enumerate(legends):
+        for e in legend:
+            item = merged.setdefault(e['n'], {
+                'id': e['n'], 'product': e['товар'], 'type': e['роль'],
+                'size_cm': e['габариты_см'], 'details': e.get('описание', ''),
+                'placement': e['положение'], 'orientation': e.get('ориентация', ''),
+                'in_top': 'not in this frame', 'in_bottom': 'not in this frame',
+            })
+            item['in_top' if idx == 0 else 'in_bottom'] = e['видимость']
+    items = json.dumps([merged[k] for k in sorted(merged)], ensure_ascii=False)
     return (
         f'{room_brief(n)}\n\n'
         'IMAGES: 1 — a sheet with TWO collages of the SAME room, one above the other: TOP is view '
-        f'{a}, BOTTOM is view {b}. Each collage puts real product photos at their places on a '
-        'neutral render; it shows POSITION and APPROXIMATE scale, true dimensions are in the lists. '
-        '2 — the same sheet with red numbered markers (annotation only). 3 — the floor plan with '
-        'both camera positions and their fields of view.\n\n'
+        f'{a}, BOTTOM is view {b}, separated by a bright magenta band. Each collage puts real '
+        'product photos at their places on a neutral render; it shows POSITION and APPROXIMATE '
+        'scale, true dimensions are in the list. 2 — the same sheet with red numbered markers '
+        '(annotation only; the same number always means the same item in both frames). 3 — the '
+        'floor plan with both camera positions and their fields of view.\n\n'
         'Render BOTH views as one sheet in the SAME layout: two photographs of the same room, '
-        'identical finishes, identical light, identical products — only the camera differs.\n'
-        'The bright magenta horizontal band between the two frames is a technical separator: keep '
-        'it in the output exactly where it is, same colour, same height, full width, with nothing '
-        'drawn on it. The photographs must fill the areas above and below it.\n\n'
+        'identical finishes, identical light, identical products — only the camera differs. Keep '
+        'the magenta band exactly where it is, same colour and height, nothing drawn on it.\n\n'
         'DO NOT CHANGE: the products (never replace, recolour or resize); their places; the room '
         'shell (walls, floor, ceiling, cameras).\n'
         f'TOP VIEW openings. {openings_brief(n, a)}\n'
@@ -248,27 +262,29 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]]) -> str
         'makes the scene believable. Renovate the room in the style below: walls, floor, ceiling, '
         'skirting, frames and dressing of the given openings. Soft contact shadows, natural light, '
         'correct wall-floor junctions, verticals vertical. You may add wall art and small decor '
-        'typical of the style. Fill every planter and vase from the lists with a live plant sized '
-        'to it. Where the list has a TV stand, a TV is ALWAYS present: put it either standing on the stand or wall-mounted right above it — choose by the size and design of that stand.\n\n'
+        'typical of the style. Fill every planter and vase from the list with a live plant sized '
+        'to it. Where the list has a TV stand, a TV is ALWAYS present: put it either standing on '
+        'the stand or wall-mounted right above it — choose by the size and design of that stand.\n\n'
         'NEVER ADD: furniture, rugs, lamps, TV, textiles, pots, planters or floor plants that are '
-        'not in the lists. Do not duplicate items to make the room look fuller.\n\n'
+        'not in the list. Do not duplicate items to make the room look fuller.\n\n'
         f'STYLE (finishes, colour, light and mood only — it never adds objects) — {style_name(n)}: '
         f'{style_brief(n)}\n\n'
-        f'ITEMS IN THE TOP VIEW ({a}), JSON:\n' + legend_json(legends[0]) + '\n'
-        f'ITEMS IN THE BOTTOM VIEW ({b}), JSON:\n' + legend_json(legends[1]) + '\n'
-        '"visibility" says whether the item is whole or cut by the frame edge — never complete a '
-        'cut-off item.\n\n'
-        'OUTPUT: one sheet with the two photorealistic photographs in the same places as the '
-        'input collages, no people, no text, no markers.'
+        'ITEMS (JSON, one list for both frames; "id" = the number on image 2). "in_top" and '
+        '"in_bottom" say how the item is seen in each frame: whole, only a part (never complete '
+        'it), or not in that frame at all.\n' + items + '\n\n'
+        'OUTPUT: one sheet with the two photorealistic photographs in the same places as the input '
+        'collages and the magenta band between them; no people, no text, no markers.'
     )
 
 
 def run_pair(n: int, cams: tuple[str, str]) -> None:
     """Оба вида одним запросом: единый стиль по построению."""
     prefixes = [os.path.join(SCENE_DIR, f'scene{n}-{c}') for c in cams]
+    from viz_marks import numbering
+    nums = numbering(n, cams)
     srcs, marks, legends = [], [], []
     for c, pref in zip(cams, prefixes):
-        src, marked, legend = build(n, c)
+        src, marked, legend = build(n, c, nums)
         srcs.append(src)
         marks.append(marked)
         legends.append(legend)

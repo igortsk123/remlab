@@ -78,7 +78,26 @@ def orientation_of(p, placements, room) -> str:
     return ', '.join(parts)
 
 
-def build(n: int, cam_name: str = 'C1') -> tuple[str, str, list[dict]]:
+def numbering(n: int, cams=('C1', 'C2')) -> dict:
+    """Сквозная нумерация предметов НА КОМПЛЕКТ: один и тот же номер во всех видах.
+
+    Раньше номера считались внутри каждого кадра, и диван был №1 в одном виде и №4 в другом —
+    модели приходилось давать два разных списка (владелец, 2026-08-04).
+    """
+    order, seen = [], set()
+    for c in cams:
+        meta_p = os.path.join(SCENE_DIR, f'scene{n}-{c}-frame.json')
+        if not os.path.exists(meta_p):
+            continue
+        ids = json.load(open(meta_p))['ids']
+        for _, role in sorted(ids.items(), key=lambda kv: int(kv[0])):
+            if role not in seen:
+                seen.add(role)
+                order.append(role)
+    return {role: i + 1 for i, role in enumerate(order)}
+
+
+def build(n: int, cam_name: str = 'C1', nums: dict | None = None) -> tuple[str, str, list[dict]]:
     prefix = os.path.join(SCENE_DIR, f'scene{n}-{cam_name}')
     # Подписи всегда строятся по КОЛЛАЖУ, а не по результату генерации: иначе в контроль
     # и на лист уезжает нарисованная картинка (владелец, дважды, 2026-08-04).
@@ -122,9 +141,9 @@ def build(n: int, cam_name: str = 'C1') -> tuple[str, str, list[dict]]:
     objs = ids > 0
     marked = img.copy()
     d = ImageDraw.Draw(marked, 'RGBA')
+    nums = nums if nums is not None else numbering(n)
     legend: list[dict] = []
     placed: list[tuple[float, float, int]] = []
-    num = 0
     for sid, role in meta['ids'].items():
         if role in SKIP_MARK:
             continue
@@ -154,7 +173,9 @@ def build(n: int, cam_name: str = 'C1') -> tuple[str, str, list[dict]]:
         seen_txt = ('виден целиком' if not touches_edge else
                     f'в кадр попадает ТОЛЬКО ЧАСТЬ предмета ({role}) — рисовать именно эту часть, '
                     'не достраивать предмет целиком')
-        num += 1
+        num = nums.get(role, 0)
+        if not num:
+            continue
         ys, xs = np.where(m)
         cx = float(xs.mean())
         top = float(ys.min())
