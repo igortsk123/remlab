@@ -519,7 +519,11 @@ print(f"seed {seed}, нарушений {nf}")
 
 out={r:{'x':placed[r][0][0],'z':placed[r][0][1],'rot':placed[r][1],
         'w':dict(FLOOR)[r][0],'d':dict(FLOOR)[r][1]} for r in placed}
-out['_room']={'w':RW,'d':RD}  # габариты комнаты — рендеру (комнаты больше 3.8×4 рисуются по ним)
+# габариты И проёмы — рендеру и компилятору сцены: без проёмов генератор придумывает свои
+# двери/окна, и кадр перестаёт совпадать с планом (поймано 2026-08-04)
+out['_room']={'w':RW,'d':RD,'openings':[
+    {'kind':'door','wall':'south','offset_cm':20,'width_cm':90,'swing_cm':92},
+    {'kind':'window','wall':'east','offset_cm':140,'width_cm':140,'sill_cm':80}]}
 _sfx=os.environ.get('LAYOUT_SUFFIX','')
 json.dump(out,open(os.path.join(HERE,f'{TAG}{n}-layout{_sfx}.json'),'w'),ensure_ascii=False,indent=1)
 
