@@ -144,32 +144,44 @@ def billboard(p, it, cam):
     return corner, side * w_cm, np.array([0.0, h_cm - base, 0.0]), look
 
 
-def paste_role(pano: np.ndarray, ids: np.ndarray, sid: int, cam, p, it,
-               photo: Image.Image) -> int:
-    """Ставит вырезку товара на его место в кадре. Возвращает число закрашенных пикселей."""
+def paste_role(pano: np.ndarray, zbuf: np.ndarray, cam, p, it, photo: Image.Image) -> int:
+    """Ставит вырезку товара в кадр. Рисуем по прямоугольнику вырезки, а не по силуэту коробки:
+    иначе часть товара срезается по её краю (у столика отрезало половину столешницы — владелец,
+    2026-08-04). Что чем перекрыто, решает z-буфер сцены."""
     H, W = pano.shape[:2]
     eye, fwd, right, up = cam.basis()
     fv = (H / 2) / math.tan(math.radians(cam.vfov_deg) / 2)
-    mask = ids == sid
-    if mask.sum() < 200:
+    corner, wvec, hvec, n = billboard(p, it, cam)
+    w_cm = float(np.linalg.norm(wvec))
+    h_cm = float(np.linalg.norm(hvec))
+    quad = np.array([corner, corner + wvec, corner + wvec + hvec, corner + hvec])
+    rel = quad - eye
+    if cam.cyl:
+        angq = np.arctan2(rel @ right, rel @ fwd)
+        horiz = np.hypot(rel @ right, rel @ fwd)
+        uq = W / 2 + angq / math.radians(cam.fov_deg) * W
+        vq = H / 2 - fv * (rel @ up) / np.maximum(horiz, 1e-3)
+    else:
+        focal = (W / 2) / math.tan(math.radians(cam.fov_deg) / 2)
+        zq = np.maximum(rel @ fwd, 1e-3)
+        uq = W / 2 + focal * (rel @ right) / zq
+        vq = H / 2 - focal * (rel @ up) / zq + cam.shift_y * H
+    x0, x1 = int(max(0, np.floor(uq.min()))), int(min(W - 1, np.ceil(uq.max())))
+    y0, y1 = int(max(0, np.floor(vq.min()))), int(min(H - 1, np.ceil(vq.max())))
+    if x1 <= x0 or y1 <= y0:
         return 0
-    from scipy import ndimage                       # вырезка чуть шире коробки — берём с запасом
-    ys, xs = np.where(ndimage.binary_dilation(mask, iterations=14))
-
+    gy, gx = np.mgrid[y0:y1 + 1, x0:x1 + 1]
+    ys, xs = gy.ravel(), gx.ravel()
     if cam.cyl:                                            # панорама
         ang = (xs - W / 2) / W * math.radians(cam.fov_deg)
         dirs = (fwd[None, :] * np.cos(ang)[:, None]
                 + right[None, :] * np.sin(ang)[:, None]
                 + up[None, :] * ((H / 2 - ys) / fv)[:, None])
     else:                                                  # обычный кадр со сдвигом объектива
-        focal = (W / 2) / math.tan(math.radians(cam.fov_deg) / 2)
-        dirs = (fwd[None, :] * focal
+        focal2 = (W / 2) / math.tan(math.radians(cam.fov_deg) / 2)
+        dirs = (fwd[None, :] * focal2
                 + right[None, :] * (xs - W / 2)[:, None]
                 + up[None, :] * (H / 2 + cam.shift_y * H - ys)[:, None])
-
-    corner, wvec, hvec, n = billboard(p, it, cam)
-    w_cm = float(np.linalg.norm(wvec))
-    h_cm = float(np.linalg.norm(hvec))
     denom = dirs @ n
     with np.errstate(divide='ignore', invalid='ignore'):
         t = ((corner - eye) @ n) / denom
@@ -200,9 +212,17 @@ def paste_role(pano: np.ndarray, ids: np.ndarray, sid: int, cam, p, it,
     rgb = smp[:, :3]
     alpha = (smp[:, 3:4] / 255.0) if src.shape[2] > 3 else np.ones((len(px), 1), np.float32)
     yy, xx = ys[ok][inside], xs[ok][inside]
+    zpix = (t[ok][inside] if cam.cyl else t[ok][inside] * (dirs[ok][inside] @ fwd))
+    visible = (zpix < zbuf[yy, xx] + 1.0) & (alpha[:, 0] > 0.02)   # 1 см допуска на стену за спиной
+    if visible.sum() < 50:
+        return 0
+    yy, xx, rgb, alpha, zpix = (yy[visible], xx[visible], rgb[visible],
+                                alpha[visible], zpix[visible])
     base_px = pano[yy, xx].astype(np.float32)
     pano[yy, xx] = np.clip(rgb * alpha + base_px * (1 - alpha), 0, 255).astype(np.uint8)
-    return int((alpha[:, 0] > 0.5).sum())
+    hard = alpha[:, 0] > 0.5
+    zbuf[yy[hard], xx[hard]] = zpix[hard]                          # ближние перекроют дальние
+    return int(hard.sum())
 
 
 HARMONIZE = 'fal-ai/nano-banana/edit'      # один вызов на кадр, ~4 цента, независимо от числа
@@ -293,18 +313,22 @@ def main() -> None:
         base = f'{prefix}-{sys.argv[sys.argv.index("--base") + 1]}.jpg'
     pano = np.asarray(Image.open(base).convert('RGB')).copy()
     H, W = pano.shape[:2]
-    inst = Image.open(f'{prefix}-instances.png').convert('RGB').resize((W, H), Image.NEAREST)
-    ids = np.asarray(inst)[..., 0] // 8
     id_map = json.load(open(f'{prefix}-frame.json'))['ids']
-
     room, placements = load_scene(n)
     cam = next(c for c in cameras_for(room, placements) if c.name == cam_name)
     by = {p.role: p for p in placements}
+    # z-буфер стартует с ПУСТОЙ комнаты: дальше каждый вклеенный товар пишет в него свою глубину,
+    # поэтому ближние честно перекрывают дальние, а стены отсекают то, что за ними
+    from planner.scene import compile_scene
+    zbuf = compile_scene(room, [], cam)['depth'].copy()
+    ex, _, ez = cam.eye
+    order = sorted(id_map.items(), key=lambda kv: -((by[kv[1]].x - ex) ** 2 + (by[kv[1]].y - ez) ** 2)
+                   if kv[1] in by else 0)
 
     total = 0
     angled: list[str] = []
     done_roles: list[str] = []
-    for sid, role in id_map.items():
+    for sid, role in order:
         if role in SKIP or (only and role != only) or role not in by:
             continue
         try:
@@ -314,8 +338,7 @@ def main() -> None:
         if not os.path.exists(photo_path):
             print(f'  {role}: нет фото товара')
             continue
-        px = paste_role(pano, ids, int(sid), cam, by[role], by[role].item,
-                        cutout(photo_path))
+        px = paste_role(pano, zbuf, cam, by[role], by[role].item, cutout(photo_path))
         if px < 0:
             angled.append(role)
             print(f'  {role}: сильный ракурс — на нейросетевой проход')
