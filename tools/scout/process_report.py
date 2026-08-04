@@ -74,11 +74,15 @@ def main():
             continue
         steps = json.load(open(path))
         blocks = ''.join(step_block(st) for st in steps)
+        # Итог — выход ПОСЛЕДНЕГО шага журнала, а не файл с «правильным» именем: иначе на
+        # странице висит артефакт прошлого прогона (владелец поймал серый куб вместо пуфа).
         final = ''
-        for cand in (f'{prefix}-final.jpg', f'{prefix}-pasted.jpg'):
-            if os.path.exists(cand):
-                final = (f'<figure class="big"><img src="{uri(cand, 1500)}" alt="итог">'
-                         f'<figcaption>Итог этого вида</figcaption></figure>')
+        for st in reversed(steps):
+            outs = [o for o in st['outputs'] if o.lower().endswith(('.jpg', '.jpeg', '.png'))]
+            if outs:
+                final = (f'<figure class="big"><img src="{uri(outs[0], 1500)}" alt="итог">'
+                         f'<figcaption>Итог этого вида — шаг {st["n"]}: '
+                         f'{html.escape(st["title"])}</figcaption></figure>')
                 break
         parts.append(f'<h2>Вид {html.escape(cam)}</h2>{final}{blocks}')
 
