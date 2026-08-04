@@ -31,7 +31,9 @@ from viz_base import fal_key, fal_run, uri_from_image  # noqa: E402
 import steps  # noqa: E402
 
 # Плоские/мелкие роли не вклеиваем: у ковра и люстры фронтальной грани нет, декор не опознаётся
-SKIP = {'ковёр', 'ковер', 'люстра', 'тв', 'кашпо', 'ваза', 'лампа', 'подушка', 'подушка 2', 'плед'}
+# Ковёр лежит на полу — у него отдельная ветка проекции. ТВ рисует базовый проход.
+SKIP = {'тв'}
+FLOOR = {'ковёр', 'ковер'}
 
 
 _CUTS: list[tuple[str, str]] = []      # что вырезали в этом прогоне — для журнала
@@ -144,6 +146,17 @@ def billboard(p, it, cam):
     return corner, side * w_cm, np.array([0.0, h_cm - base, 0.0]), look
 
 
+def floor_quad(p, it):
+    """Горизонтальный четырёхугольник ковра: он лежит, а не стоит."""
+    from planner.geometry import footprint
+    poly = footprint(p, it)
+    xs, ys = poly.exterior.coords.xy
+    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+    corner = np.array([x0, 0.6, y0])
+    return (corner, np.array([x1 - x0, 0.0, 0.0]), np.array([0.0, 0.0, y1 - y0]),
+            np.array([0.0, 1.0, 0.0]))
+
+
 def paste_role(pano: np.ndarray, zbuf: np.ndarray, cam, p, it, photo: Image.Image) -> int:
     """Ставит вырезку товара в кадр. Рисуем по прямоугольнику вырезки, а не по силуэту коробки:
     иначе часть товара срезается по её краю (у столика отрезало половину столешницы — владелец,
@@ -151,7 +164,10 @@ def paste_role(pano: np.ndarray, zbuf: np.ndarray, cam, p, it, photo: Image.Imag
     H, W = pano.shape[:2]
     eye, fwd, right, up = cam.basis()
     fv = (H / 2) / math.tan(math.radians(cam.vfov_deg) / 2)
-    corner, wvec, hvec, n = billboard(p, it, cam)
+    if p.role in FLOOR:                    # ковёр лежит НА ПОЛУ: проекция на горизонталь
+        corner, wvec, hvec, n = floor_quad(p, it)
+    else:
+        corner, wvec, hvec, n = billboard(p, it, cam)
     w_cm = float(np.linalg.norm(wvec))
     h_cm = float(np.linalg.norm(hvec))
     quad = np.array([corner, corner + wvec, corner + wvec + hvec, corner + hvec])

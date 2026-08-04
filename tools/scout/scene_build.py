@@ -70,6 +70,30 @@ def derived(room, placements, items):
         w_cm, d_cm = (long, short) if horizontal else (short, long)
         out.append(Placement(role='ковёр', x=table.x, y=table.y, rot=0,
                              item=Item(role='ковёр', w_cm=w_cm, d_cm=d_cm, h_cm=1.0)))
+    # Декор на поверхностях: мы знаем высоту столешницы каждого предмета, поэтому ставим точно.
+    # Так делают в дизайн-подаче: без мелочей кадр выглядит нежилым (владелец, 2026-08-04).
+    # (хозяин, сдвиг вдоль его ширины, доля высоты — куда садится, сдвиг вперёд от спинки, см)
+    hosts = {'ваза': ('комод', 0.0, 1.0, 0.0), 'лампа': ('комод', -0.34, 1.0, 0.0),
+             'подушка': ('диван', -0.28, 0.46, 18.0), 'подушка 2': ('диван', 0.24, 0.46, 18.0),
+             'плед': ('диван', 0.44, 0.50, 24.0)}
+    for role, (host_role, along, hfrac, fwd_cm) in hosts.items():
+        host = by.get(host_role)
+        it_spec = items.get(role)
+        if host is None or it_spec is None or role in by:
+            continue
+        hw = float(host.item.w_cm)
+        rot = int(round(host.rot)) % 360
+        dx, dy = (hw * along, 0.0) if rot in (0, 180) else (0.0, hw * along)
+        face = {0: (0.0, 1.0), 90: (1.0, 0.0), 180: (0.0, -1.0), 270: (-1.0, 0.0)}[rot]
+        dx += face[0] * fwd_cm                      # подушки — на сиденье, а не на спинку
+        dy += face[1] * fwd_cm
+        top = float(host.item.h_cm or 60) * hfrac
+        out.append(Placement(role=role, x=host.x + dx, y=host.y + dy, rot=host.rot,
+                             elev_cm=top,
+                             item=Item(role=role, w_cm=float(it_spec.get('w') or 30),
+                                       d_cm=float(it_spec.get('d') or 25),
+                                       h_cm=float(it_spec.get('h') or 30))))
+
     lamp = items.get('люстра')
     if lamp and 'люстра' not in by:
         cx = (sofa.x if sofa is not None else room.width_cm / 2)
