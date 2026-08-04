@@ -188,6 +188,8 @@ def main() -> None:
     which = sys.argv[sys.argv.index('--model') + 1] if '--model' in sys.argv else 'sdxl'
     model, ctrl_field = MODELS[which]
     prefix = os.path.join(SCENE_DIR, f'scene{n}-{view}')
+    empty = '--empty' in sys.argv          # оболочка комнаты без мебели — под вклейку товаров
+    ctrl_prefix = f'{prefix}-empty' if empty else prefix
     meta = json.load(open(f'{prefix}-frame.json'))
     sets = json.load(open(os.path.join(HERE, 'sets3.json')))
     s = sets[n - 1]
@@ -199,6 +201,14 @@ def main() -> None:
             style_block = ' ' + sp[s['style']]['prompt']
 
     visible = ', '.join(meta['visible'])
+    if empty:                               # пустая комната: мебель придёт вклейкой, не генерацией
+        prompt_empty = (
+            'Photorealistic interior photo of a COMPLETELY EMPTY living room in a city flat, '
+            'ceiling 2.7 m. No furniture at all, no decor, no rugs, no plants, no TV, no pictures: '
+            'only bare walls, floor, ceiling, one window and one door exactly as the depth map '
+            'defines them.' + style_block +
+            ' Neutral matte walls, light wood floor, natural daylight, soft shadows. '
+            'No people, no text, no watermarks.')
     shot = ('Orthographic doll-house top view of a living room, camera straight above, walls cut '
             'away at 1.2 m' if view == 'T' else
             'Photorealistic interior photo of a small city-flat living room, ceiling 2.7 m')
@@ -214,11 +224,13 @@ def main() -> None:
 
     key = fal_key()
     payload = {
-        'prompt': prompt,
-        'negative_prompt': 'extra furniture, duplicated objects, distorted perspective, text, watermark',
+        'prompt': prompt_empty if empty else prompt,
+        'negative_prompt': ('furniture, sofa, table, cabinet, wardrobe, shelf, tv, lamp, rug, plant, '
+                            'pictures, decor, text, watermark' if empty else
+                            'extra furniture, duplicated objects, distorted perspective, text, watermark'),
         'num_inference_steps': 30,
         'guidance_scale': 6.0,
-        **({ctrl_field: depth_for_controlnet(f'{prefix}-depth16.png')} if ctrl_field else {}),
+        **({ctrl_field: depth_for_controlnet(f'{ctrl_prefix}-depth16.png')} if ctrl_field else {}),
         # без явного размера модель отдаёт квадрат 1024² и кадр не совпадает с картой (2026-08-04)
         'image_size': {'width': meta['camera']['size'][0], 'height': meta['camera']['size'][1]},
     }
@@ -232,7 +244,10 @@ def main() -> None:
         # без этого fal возвращает ЧЁРНЫЙ кадр: safety-checker ложно срабатывает на clay-рендере
         payload['enable_safety_checker'] = False
     if which == 'sdxl':
-        payload['depth_preprocess'] = False       # карта уже готова, препроцесс не нужен
+        payload['depth_preprocess'] = False
+        # без этого fal иногда отдаёт ЧЁРНЫЙ кадр: safety-checker ложно срабатывает на пустой
+        # комнате (пойман на виде C2, 2026-08-04)
+        payload['enable_safety_checker'] = False       # карта уже готова, препроцесс не нужен
     # что именно ушло в модель — рядом с результатом: владелец смотрит запрос и ответ вместе
     req = {k: v for k, v in payload.items() if not isinstance(v, str) or not v.startswith('data:')}
     req['model'] = model
@@ -258,7 +273,7 @@ def main() -> None:
     if not url:
         raise SystemExit(f'fal вернул без картинки: {json.dumps(out)[:300]}')
     img = urllib.request.urlopen(url, timeout=120).read()
-    dst = f'{prefix}-base-{which}.jpg'
+    dst = f'{prefix}-{"empty" if empty else "base"}-{which}.jpg'
     open(dst, 'wb').write(img)
     print(f'{dst}  ({time.time() - t0:.0f} с, модель {model})')
 

@@ -180,6 +180,9 @@ def main() -> None:
         out = compile_scene(room, placements, cam)
         prefix = os.path.join(SCENE_DIR, f'scene{n}-{cam.name}')
         save_maps(out, prefix)
+        # карта ПУСТОЙ комнаты: базовый кадр рисуется по ней, иначе генератор заполняет пустые
+        # стены своей мебелью (шкаф, обеденный стол, торшер — поймано 2026-08-04)
+        save_maps(compile_scene(room, [], cam), f'{prefix}-empty')
         print(f'{cam.name}: видно {", ".join(out["visible"])}'
               + (f'  · вне кадра: {", ".join(out["behind"])}' if out['behind'] else ''))
 

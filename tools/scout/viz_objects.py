@@ -166,8 +166,8 @@ def edit_gpt(scene: Image.Image, ref: Image.Image, mask: np.ndarray,
     return Image.open(io.BytesIO(base64.b64decode(data['data'][0]['b64_json']))).convert('RGB')
 
 
-def edit_gpt_raw(images: list, prompt: str, size: str = '1536x1024') -> 'Image.Image':
-    """OpenAI images/edits с НЕСКОЛЬКИМИ картинками (до 16) и без маски."""
+def edit_gpt_raw(images: list, prompt: str, size: str = '1536x1024', mask=None) -> 'Image.Image':
+    """OpenAI images/edits: до 16 картинок; опциональная маска (белое = где можно рисовать)."""
     oai = os.environ.get('OPENAI_API_KEY') or _dotenv('OPENAI_API_KEY')
     if not oai:
         raise SystemExit('нет OPENAI_API_KEY')
@@ -197,6 +197,12 @@ def edit_gpt_raw(images: list, prompt: str, size: str = '1536x1024') -> 'Image.I
     part('n', '1')
     for i, im in enumerate(images[:16]):          # предел OpenAI — 16 картинок на запрос
         part('image[]', png(im), f'img{i}.png', 'image/png')
+    if mask is not None:                          # в формате OpenAI прозрачное = разрешено рисовать
+        m = np.asarray(mask.convert('L'))
+        rgba = np.dstack([np.zeros((*m.shape, 3), np.uint8), 255 - m])
+        b = io.BytesIO()
+        Image.fromarray(rgba, 'RGBA').save(b, 'PNG')
+        part('mask', b.getvalue(), 'mask.png', 'image/png')
     body.write(f'--{B}--\r\n'.encode())
     req = urllib.request.Request('https://api.openai.com/v1/images/edits', data=body.getvalue(),
                                  headers={'Authorization': f'Bearer {oai}',

@@ -110,7 +110,7 @@ def cameras_for(room: Room, placements: list[Placement]) -> list[Camera]:
         cx, cy = corners[ci]
         tx, ty = W - cx, D - cy                # смотрим в противоположный угол — две стены в кадре
         cam = Camera(f"C{ci}", (cx, eye_c, cy), (tx, eye_c, ty),
-                     fov_deg=75.0, shift_y=0.08, width=1344, height=896)
+                     fov_deg=75.0, shift_y=-0.10, width=1344, height=896)
         small = Camera(cam.name, cam.eye, cam.target, fov_deg=cam.fov_deg,
                        shift_y=cam.shift_y, width=336, height=224)
         out = compile_scene(room, placements, small)

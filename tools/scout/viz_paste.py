@@ -12,6 +12,7 @@
   ~/venvs/scout/bin/python viz_paste.py 21              # вклеить все товары в панораму
   ~/venvs/scout/bin/python viz_paste.py 21 --only диван
 """
+import io
 import json
 import math
 import os
@@ -231,9 +232,11 @@ def main() -> None:
     only = sys.argv[sys.argv.index('--only') + 1] if '--only' in sys.argv else None
     cam_name = sys.argv[sys.argv.index('--cam') + 1] if '--cam' in sys.argv else 'P'
     prefix = os.path.join(SCENE_DIR, f'scene{n}-{cam_name}')
-    base = f'{prefix}-base-clean.jpg'
-    if not os.path.exists(base):
-        base = f'{prefix}-base-sdxl.jpg'
+    # По умолчанию вклеиваем в НАШ clay-рендер: он геометрически точен. Сгенерированная оболочка
+    # ставит пол и стены «примерно», из-за чего вклеенная мебель повисает в воздухе (2026-08-04).
+    base = f'{prefix}-clay.png'
+    if '--base' in sys.argv:
+        base = f'{prefix}-{sys.argv[sys.argv.index("--base") + 1]}.jpg'
     pano = np.asarray(Image.open(base).convert('RGB')).copy()
     H, W = pano.shape[:2]
     inst = Image.open(f'{prefix}-instances.png').convert('RGB').resize((W, H), Image.NEAREST)
@@ -270,6 +273,44 @@ def main() -> None:
     print(f'{dst}  (закрашено {total} px, генераций 0)'
           + (f'; на нейросетевой проход: {", ".join(angled)}' if angled else ''))
     json.dump(angled, open(f'{prefix}-angled.json', 'w'), ensure_ascii=False)
+    if '--realism' in sys.argv:
+        # доводка поверх ТОЧНОЙ геометрии: низкая сила — структура не уезжает
+        from viz_base import fal_key, fal_run, uri_from_image
+        img = Image.fromarray(pano)
+        res = fal_run('fal-ai/fast-sdxl/image-to-image', {
+            'prompt': ('Photorealistic interior photo of a living room, natural daylight, soft '
+                       'shadows, matte walls, wooden floor. Keep every object exactly where it is.'),
+            'negative_prompt': 'extra furniture, moved furniture, distorted perspective, text',
+            'image_url': uri_from_image(img),
+            'strength': float(os.environ.get('REALISM_STRENGTH', 0.35)),
+            'num_inference_steps': 30, 'guidance_scale': 6.0,
+            'image_size': {'width': img.width, 'height': img.height},
+            'preserve_aspect_ratio': True, 'enable_safety_checker': False,
+            'seed': int(os.environ.get('VIZ_SEED', 4242)),
+        }, fal_key())
+        url = (res.get('images') or [{}])[0].get('url')
+        if url:
+            import urllib.request as _u
+            out = Image.open(io.BytesIO(_u.urlopen(url, timeout=240).read())).convert('RGB')
+            out.resize(img.size).save(f'{prefix}-final.jpg', quality=93)
+            print(f'{prefix}-final.jpg  (реализм поверх точной геометрии)')
+        return
+    if '--finish' in sys.argv:
+        # Доводка ТОЛЬКО по кайме вокруг предметов: модель получает маску-полоску, поэтому
+        # физически не может ни перекрасить товар, ни дорисовать шкаф на пустой стене.
+        from scipy import ndimage
+        from viz_objects import edit_gpt_raw
+        obj = ids > 0
+        band = ndimage.binary_dilation(obj, iterations=26) & ~ndimage.binary_erosion(obj, iterations=5)
+        img = Image.fromarray(pano)
+        pr = ('Photo of a living room where furniture was composited in. Blend it into the scene: '
+              'add soft contact shadows on the floor under each piece, soften the pasted outlines, '
+              'match the room lighting. Do not change the furniture itself and do not add anything.')
+        edited = edit_gpt_raw([img.resize((1536, 1024))], pr, size='1536x1024',
+                              mask=Image.fromarray((band * 255).astype(np.uint8)).resize((1536, 1024)))
+        edited.resize(img.size).save(f'{prefix}-final.jpg', quality=93)
+        print(f'{prefix}-final.jpg  (доводка по кайме, 1 вызов)')
+        return
     if '--gpt-frames' in sys.argv:
         roles = [r for _, r in id_map.items() if r not in SKIP and r in by]
         sheet, names = ref_sheet(n, roles)
