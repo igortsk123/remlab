@@ -182,21 +182,46 @@ def redraw_angled(n: int, prefix: str) -> None:
                    'по их же фотографиям.')
 
 
-def stack_pair(paths: list[str], size=(2048, 3072), gap=(40, 260, 40)) -> 'Image.Image':
-    """Два кадра на одном листе, сверху и снизу. Пропорции 3:2 у каждого сохраняются —
-    поэтому лист вертикальный: так модель отдаёт ОБА вида за один ответ и в одном стиле."""
+BAND_RGB = (255, 0, 255)          # маркерная полоса между кадрами: чистый маджента, такого
+BAND_PX = 94                      # цвета в интерьере не бывает, поэтому шов легко найти
+
+
+def stack_pair(paths: list[str], size=(2048, 2864), margin=20) -> 'Image.Image':
+    """Два кадра на одном листе, между ними ЯРКАЯ ПОЛОСА-разделитель.
+
+    Полосу модель обязана вернуть в ответе — по ней мы режем результат на два снимка
+    (правило владельца 2026-08-04). Пропорции кадров 3:2 сохраняются.
+    """
     W, H = size
-    top, mid, bot = gap
-    fh = (H - top - mid - bot) // 2
+    fh = (H - 2 * margin - BAND_PX) // 2
     canvas = Image.new('RGB', size, (250, 250, 248))
     for i, p in enumerate(paths[:2]):
-        im = Image.open(p).convert('RGB')
-        im = im.resize((W, int(W * im.height / im.width)))
+        im = Image.open(p).convert('RGB').resize((W, int(W * Image.open(p).height /
+                                                        Image.open(p).width)))
         if im.height > fh:
-            im = im.crop((0, (im.height - fh) // 2, W, (im.height - fh) // 2 + fh))
-        y = top if i == 0 else top + fh + mid
+            top = (im.height - fh) // 2
+            im = im.crop((0, top, W, top + fh))
+        y = margin if i == 0 else margin + fh + BAND_PX
         canvas.paste(im, (0, y + (fh - im.height) // 2))
+    band = Image.new('RGB', (W, BAND_PX), BAND_RGB)
+    canvas.paste(band, (0, margin + fh))
     return canvas
+
+
+def split_pair(sheet: 'Image.Image') -> list:
+    """Режем ответ модели по маркерной полосе. Если её нет — делим пополам."""
+    import numpy as np
+    a = np.asarray(sheet.convert('RGB')).astype(int)
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    mask = (r > 170) & (b > 170) & (g < 110)          # строки маджента-полосы
+    rows = np.where(mask.mean(axis=1) > 0.5)[0]
+    if len(rows) < 8:
+        half = sheet.height // 2
+        return [sheet.crop((0, 0, sheet.width, half)),
+                sheet.crop((0, half, sheet.width, sheet.height))]
+    y0, y1 = int(rows.min()), int(rows.max())
+    return [sheet.crop((0, 0, sheet.width, y0)),
+            sheet.crop((0, y1 + 1, sheet.width, sheet.height))]
 
 
 def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]]) -> str:
@@ -210,7 +235,10 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]]) -> str
         '2 — the same sheet with red numbered markers (annotation only). 3 — the floor plan with '
         'both camera positions and their fields of view.\n\n'
         'Render BOTH views as one sheet in the SAME layout: two photographs of the same room, '
-        'identical finishes, identical light, identical products — only the camera differs.\n\n'
+        'identical finishes, identical light, identical products — only the camera differs.\n'
+        'The bright magenta horizontal band between the two frames is a technical separator: keep '
+        'it in the output exactly where it is, same colour, same height, full width, with nothing '
+        'drawn on it. The photographs must fill the areas above and below it.\n\n'
         'DO NOT CHANGE: the products (never replace, recolour or resize); their places; the room '
         'shell (walls, floor, ceiling, cameras).\n'
         f'TOP VIEW openings. {openings_brief(n, a)}\n'
@@ -255,22 +283,19 @@ def run_pair(n: int, cams: tuple[str, str]) -> None:
         return
     plan_p = os.path.join(SCENE_DIR, f'scene{n}-plan.png')
     imgs = [sheet, sheet_marks] + ([Image.open(plan_p).convert('RGB')] if os.path.exists(plan_p) else [])
-    out = edit_gpt_raw(imgs, prompt, size='2048x3072')
+    out = edit_gpt_raw(imgs, prompt, size='2048x2864')
     out.save(f'{out_dir}-final.jpg', quality=94)
-    # gpt-image-2 берёт нестандартные размеры до 3840 px по длинной стороне (кратно 16,
-    # соотношение до 3:1), поэтому лист просим сразу 2048×3072 — каждый вид выходит ~2048×1366
-    # нативно, апскейл не нужен (проверено по документации 2026-08-04).
-    W, H = out.size
-    top, mid, bot = 40, 260, 40
-    fh = (H - top - mid - bot) // 2
-    for i, c in enumerate(cams):
-        y = top if i == 0 else top + fh + mid
-        part = out.crop((0, y, W, y + fh))
-        part.save(os.path.join(SCENE_DIR, f'scene{n}-{c}-final.jpg'), quality=94)
-        print(os.path.join(SCENE_DIR, f'scene{n}-{c}-final.jpg'), part.size)
+    # Режем ответ по маркерной полосе, а не по фиксированным отступам: модель может немного
+    # сместить кадры, а полосу видно всегда (владелец, 2026-08-04).
+    for c, part in zip(cams, split_pair(out)):
+        dst = os.path.join(SCENE_DIR, f'scene{n}-{c}-final.jpg')
+        part.save(dst, quality=94)
+        print(dst, part.size)
+
     steps.log(prefixes[0], 'Оба вида одним запросом',
               model='openai/gpt-image-2 (images/edits)', prompt=prompt,
-              params={'виды': list(cams), 'лист': '2048×3072', 'кадр': '≈2048×1366'},
+              params={'виды': list(cams), 'лист': '2048×2864', 'кадр': '2048×1365',
+                      'разделитель': 'маджента, 94 px'},
               inputs=[f'{out_dir}-collage.jpg', f'{out_dir}-marked.jpg'],
               outputs=[f'{out_dir}-final.jpg'],
               note='Один холст на два вида: стиль и свет совпадают по построению.')
