@@ -72,6 +72,21 @@ CLAUDE.md
 
 🧩 Модули общаются ТОЛЬКО через `index.ts` → можно выдрать модуль в сервис позже.
 
+### §2.1. `/tools` — что там лежит и что из этого в git (факт, 2026-08-04, ADR-0055)
+
+Папка **в git целиком**; исключены только ДАННЫЕ scout.
+
+| Группа | Файлы | В git |
+|---|---|---|
+| Скрипты проекта | `tools/migrate.mjs` (идемпотентный раннер миграций поверх `db/init/*.sql`), `tools/trace-show.mjs` (за `pnpm trace`), `tools/update-cities.mjs`, `tools/smoke-providers.mjs` | да |
+| Пайплайн подбора/расстановки (Python) | `tools/scout/*.py` — `pipeline2.py`, `load3.py`, `judge.py`, `viz*.py`, `compose*.py`; крон `tools/scout/refresh_daily.sh` (09:40), `tools/scout/bootstrap.sql` | да |
+| Memory Bank (kit-owned) | `tools/memory-audit.mjs`, `session-reminder.mjs` (Stop-гейт), `precompact-guard.mjs`, `session-freshness.mjs`, `read-logger.mjs`, `metrics-append.sh`, `merge-settings.{py,ps1}` | да |
+| Данные scout | `tools/scout/{feeds2,thumbs,xlsx,big}/`, `*.png/jpg/json/npz/xlsx` (≈338 МБ: фиды, тумбы, рендеры, эмбеддинги, `sets*.json`) | **нет** |
+
+Python-окружение scout — venv `~/venvs/scout` (PEP 668, не в репо). В docker-образ `tools` не
+попадает вовсе (`.dockerignore`), поэтому на прод эти скрипты не едут; SQL-инициализация уезжает
+отдельными `scp` в `deploy.sh`.
+
 ---
 
 ## §3. Контракты модулей (Zod-first)
@@ -223,6 +238,15 @@ YooKassa: createPayment → confirmation → webhook `payment.succeeded` → и�
 **12.1 Тесты:** Unit (Vitest) на чистую логику (Cost Engine, ранжирование, мапперы, style_profile→prompt, гардрейлы); Integration (Vitest + тестовая БД) на API/RLS/миграции/Zod, внешние — мокать; e2e (Playwright) критические потоки + пути ошибок (happy path; generation lifecycle; paywall; failure paths). Нет e2e на затронутый поток → срез не готов.
 
 **12.2 Definition of Done:** typecheck ✓, lint ✓, unit+integration ✓, e2e (+≥1 путь ошибки) ✓, все состояния ошибки имеют UX, события PostHog/Sentry эмитятся, нет секретов/новые env задокументированы, миграция обратима и на чистой БД, отклонения в DECISIONS.
+
+**12.7 Грабли регресс-сетки (факт).** 2026-07-11: смена флоу (коммит `7f970ad`, экран `/select`) без правки e2e — CI-гейт стоял красным 9 дней, и никто не заметил. Правило: меняешь флоу — правь `e2e/` в том же коммите; после push смотри статус гейта. Гарантия, на которую не смотрят, не работает — тот же класс провала, что и хук вне репозитория (§12.6).
+
+**12.6 Гарантии памяти (кит Memory Bank v1.6.0, факт 2026-08-04, ADR-0055).** Механическая часть регресс-защиты, направленная не на код, а на память проекта:
+- `tools/memory-audit.mjs` — детерминированные структурные проверки банка (связи, бюджеты уровней, реестры, секреты, сверка память↔код). Гоняется в CI (`.github/workflows/memory-audit.yml`, режим `warn`) и из хуков.
+- Четыре хука в `.claude/settings.local.json`: `session-freshness.mjs` (SessionStart — баннер свежести), `session-reminder.mjs --block` (Stop — гейт: не завершить ответ, если план в работе, код менялся, а захват пуст или аудит грязный), `precompact-guard.mjs` (PreCompact — не сжимать контекст, пока durable-факты не выписаны), `read-logger.mjs` (PostToolUse — лог чтений доков).
+- **Все они в git** (ADR-0055). Раньше `.gitignore` прятал `tools/*`, и файлы жили только на одной машине; команды хуков обёрнуты в `[ -f ... ]`, поэтому их отсутствие давало тишину, а не ошибку — тот же класс провала, что и красный gate, которого никто не смотрит.
+- **`CODE-DRIFT`** — сравнение даты последнего коммита кода по backtick-ссылкам из дока с его `last_verified`. На 2026-08-04: 9 доков-должников при формально чистом аудите, покрытие сверки 17 из 17 доков со ссылками на код. Класс — предупреждение: exit code и Stop-гейт не трогает.
+- Дисциплина дат: `updated` двигается при любой правке дока, `last_verified` — ТОЛЬКО когда содержимое реально сверили с кодом. Путать значит гасить `CODE-DRIFT`, ничего не проверив.
 
 **12.3 CI-гейт (GitHub Actions):** postgres pgvector service → checkout → pnpm install → typecheck → lint → db:migrate → test → build → playwright install → e2e. Красный гейт = merge запрещён.
 
