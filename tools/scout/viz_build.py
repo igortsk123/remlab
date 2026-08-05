@@ -58,7 +58,7 @@ def main() -> None:
         print('коллаж принят, 3D не понадобилось')
         return
 
-    print('3. собираю 3D только для непрошедших')
+    print('3. собираю 3D непрошедшим и сильно развёрнутым')
     sys.path.insert(0, HERE)
     sys.path.insert(0, os.path.join(HERE, '../../services/planner-solver'))
     from mesh_make import ensure_mesh, mesh_trusted
@@ -68,8 +68,16 @@ def main() -> None:
     from scene_build import load_scene
     _, placements = load_scene(n)
     by = {p.role: p for p in placements}
+    # Кандидаты: провалившие приёмку И сильно развёрнутые к камере (порог владельца — 45°).
+    # Список развёрнутых берём у `mesh_need.analyse` — там уже отфильтровано по тому, что реально
+    # ВИДНО в кадре. Своя копия расчёта дала диван, которого во втором виде нет вообще, и зря
+    # собрала для него модель (2026-08-05).
+    from mesh_need import analyse
+    turned = sorted({r['role'] for r in analyse(n, cams) if r['need']})
+    if turned:
+        print(f'   сильно развёрнуты: {", ".join(turned)}')
     key, use = fal_key(), []
-    for role in bad:
+    for role in sorted(set(bad) | set(turned)):
         p = by.get(role)
         if p is None:
             continue
