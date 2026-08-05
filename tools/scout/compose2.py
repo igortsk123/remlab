@@ -322,6 +322,9 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
         if fb and fb in ctx['fabrics']: s+=1.5; why.append(f"фактура {fb} повтор+1.5")
         # Ф2 v3: стиль-фит из style-scores (LLM+правила+CLIP) с ВИЗУАЛЬНЫМ весом роли
         if ctx.get('style_name'):
+            # порядок проверен замером (2026-08-05): обогащение ОСНОВНЫМ источником дало
+            # пересечение стилей 15.3% против 15.0% запасным — старый стиль-скор на своих
+            # товарах не хуже, поэтому он остаётся первым, а обогащение закрывает пробелы
             sf=SS.get(emb_key(it['mid'],it['eid'])) or EB.style_scores(it['mid'],it['eid'])
             if sf:
                 wgt=ROLE_W.get(role,0.4)
