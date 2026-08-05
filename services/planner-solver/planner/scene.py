@@ -106,6 +106,27 @@ def cameras_for(room: Room, placements: list[Placement]) -> list[Camera]:
     eye_c, inset = 155.0, 45.0
     corners = [(inset, inset), (W - inset, inset), (W - inset, D - inset), (inset, D - inset)]
 
+    # КАМЕРА НЕ СТОИТ ВНУТРИ МЕБЕЛИ. Угловой диван занимает угол комнаты целиком, и точка съёмки
+    # оказывалась внутри него — кадр переставал совпадать с планом (владелец, 2026-08-05). Такой
+    # угол просто ВЫБЫВАЕТ из выбора: сдвигать камеру внутрь комнаты нельзя, иначе разваливается
+    # диагональ и второй вид приходит пустым.
+    def _blocked(cx: float, cy: float) -> bool:
+        from shapely.geometry import Point
+
+        from .geometry import footprint
+        pt = Point(cx, cy)
+        for q in placements:
+            if q.item is None or float(getattr(q, 'elev_cm', 0.0)) > 1.0:
+                continue
+            try:
+                if footprint(q, q.item).buffer(20).contains(pt):
+                    return True
+            except Exception:  # noqa: BLE001 — предмет без габаритов камере не мешает
+                pass
+        return False
+
+    blocked = [_blocked(cx, cy) for cx, cy in corners]
+
     # Взгляд — ПО ДИАГОНАЛИ, из угла в угол: так в кадр попадают две стены и вся комната.
     # Угол объектива считаем под конкретную комнату: берём ровно столько, чтобы перекрыть
     # её целиком, и не шире 84° (≈20 мм) — за этим пределом растяжение по краям заметно глазу.
@@ -130,6 +151,8 @@ def cameras_for(room: Room, placements: list[Placement]) -> list[Camera]:
         small = Camera(cam.name, cam.eye, cam.target, fov_deg=cam.fov_deg,
                        shift_y=cam.shift_y, width=336, height=224)
         out = compile_scene(room, placements, small)
+        if blocked[ci] and not all(blocked):      # угол занят мебелью — не снимаем оттуда
+            return -1, cam, set()
         return len(out["visible"]), cam, set(out["visible"])
 
     seen = {ci: probe(ci) for ci in range(4)}
