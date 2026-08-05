@@ -124,6 +124,10 @@ def check(n: int, cam_name: str) -> list[dict]:
         if role in SKIP or role in SOFT:
             rows.append({'role': role, 'cam': cam_key, 'status': 'рисует модель', 'bad': []})
             continue
+        # Эталон должен совпадать с ТЕМ ЖЕ способом, каким предмет ставили. Рендер 3D-модели
+        # кладётся по силуэту из карты объектов, а не на плоскую карточку — значит и мерить его
+        # надо по силуэту, иначе приёмка сравнивает с прямоугольником, которого в кадре нет
+        # (поймано на пуфе: «высота 121», 2026-08-05).
         try:
             geom = target_box(by[role], by[role].item, cam, W, H)
         except Exception:  # noqa: BLE001 — предмет без габаритов не проверяем
@@ -137,9 +141,15 @@ def check(n: int, cam_name: str) -> list[dict]:
                          'visible': round(vis, 2), 'bad': []})
             continue
         gx0, gy0, gx1, gy1 = geom
+        raw = max(gx1 - gx0, 1) * max(gy1 - gy0, 1)
         gx0, gx1 = max(gx0, 0), min(gx1, W - 1)
         gy0, gy1 = max(gy0, 0), min(gy1, H - 1)
         gw, gh = max(gx1 - gx0, 1), max(gy1 - gy0, 1)
+        # Предмет, чьё место само выходит за край кадра, числами не меряется: он обрезан по
+        # построению, и доли считать не от чего (пуф в 1,2 м от камеры, 2026-08-05).
+        if gw * gh < raw * 0.6:
+            rows.append({'role': role, 'cam': cam_key, 'status': 'обрезан кадром', 'bad': []})
+            continue
         rec = {'role': role, 'cam': cam_key, 'target_px': [gw, gh],
                'target': [gx0, gy0, gx1, gy1], 'bad': []}
         got = bbox(paint == int(sid))
@@ -178,10 +188,10 @@ def draw_report(n: int, cam_name: str, rows: list[dict]) -> str:
     d = ImageDraw.Draw(im)
     f = ImageFont.truetype(FONT, 26)
     for r in rows:
-        if r['status'] in ('рисует модель', 'частично закрыт'):
+        if r['status'] in ('рисует модель', 'частично закрыт', 'обрезан кадром'):
             continue
         g = r.get('target')
-        if g:
+        if g and g[2] > g[0] and g[3] > g[1]:      # предмет может уходить за край кадра
             d.rectangle(g, outline=(40, 190, 90), width=4)
         p = bbox(paint == by_role.get(r['role'], -1))
         if p:
@@ -207,7 +217,7 @@ def main() -> None:
         print(f'{"предмет":14s} {"как показан":15s} {"ширина":>7s} {"высота":>7s} '
               f'{"висит":>6s} {"сдвиг":>6s}   замечания')
         for r in rows:
-            if r['status'] in ('рисует модель', 'частично закрыт'):
+            if r['status'] in ('рисует модель', 'частично закрыт', 'обрезан кадром'):
                 note = f'видно {r["visible"]:.0%}' if 'visible' in r else '—'
                 print(f'{r["role"]:14s} {r["status"]:15s} {"—":>7s} {"—":>7s} {"—":>6s} '
                       f'{"—":>6s}   {note}')

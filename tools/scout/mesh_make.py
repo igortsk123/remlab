@@ -67,11 +67,22 @@ def mesh_trusted(path: str, photo: str, min_iou: float = 0.6) -> bool:
             a = np.asarray(shot.resize(size, Image.LANCZOS))[..., 3] > 90
             union = float((a | b).sum())
             iou = max(iou, float((a & b).sum()) / union if union else 0.0)
-    ok = iou >= min_iou
-    json.dump({'iou': round(iou, 3), 'ok': ok, 'min_iou': min_iou},
+    # ЦВЕТ ТОЖЕ СВЕРЯЕМ. Силуэт может совпасть, а текстура выйти чёрной — так диван с белой
+    # обивкой приехал в кадр с чёрной спинкой и прошёл проверку на 88% (владелец, 2026-08-05).
+    shot = trim_alpha(render(parts, 0.0, 12.0, size=(500, 500)))
+    sa = np.asarray(shot.resize(size, Image.LANCZOS))
+    ca = np.asarray(card.resize(size, Image.LANCZOS))
+    sm = sa[..., 3] > 90
+    cm = ca[..., 3] > 90 if ca.shape[2] > 3 else np.ones(size, bool)
+    if sm.sum() > 50 and cm.sum() > 50:
+        dcol = float(np.linalg.norm(sa[..., :3][sm].mean(axis=0) - ca[..., :3][cm].mean(axis=0)))
+    else:
+        dcol = 0.0
+    ok = iou >= min_iou and dcol <= 55.0
+    json.dump({'iou': round(iou, 3), 'colour_dist': round(dcol, 1), 'ok': ok, 'min_iou': min_iou},
               open(verdict, 'w'), ensure_ascii=False)
-    print(f'  самопроверка модели {os.path.basename(path)}: совпадение с карточкой '
-          f'{iou:.0%} → {"годится" if ok else "брак, работаем по фото"}', flush=True)
+    print(f'  самопроверка модели {os.path.basename(path)}: силуэт {iou:.0%}, расхождение цвета '
+          f'{dcol:.0f} → {"годится" if ok else "брак, работаем по фото"}', flush=True)
     return ok
 
 

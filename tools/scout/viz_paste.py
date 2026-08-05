@@ -300,38 +300,48 @@ def _footprint_mask(p, it, cam, W: int, H: int) -> np.ndarray | None:
         return None
 
 
-def paste_mesh_screen(pano: np.ndarray, mask: np.ndarray, img: Image.Image,
+def paste_mesh_screen(pano: np.ndarray, cam, p, it, img: Image.Image,
                       paint: np.ndarray | None = None, sid: int = 0) -> int:
-    """Рендер 3D-модели ставится ПО НАСТОЯЩЕМУ СИЛУЭТУ предмета из карты объектов.
+    """Рендер 3D-модели ставится по РЕАЛЬНОМУ МЕСТУ предмета в кадре.
 
-    Плоская вертикальная карточка не совпадает с силуэтом низкой мебели вблизи: у пуфа в 1,2 м от
-    камеры она уходила целиком ниже кадра, хотя сам пуф в кадре есть (владелец, 2026-08-05).
-    Маска из компилятора сцены уже знает и обрезку кадром, и перекрытия — вписываем рендер в её
-    габаритный прямоугольник и рисуем строго внутри маски.
+    Ширина — видимая ширина следа под этим углом, низ — линия касания пола (обе величины считает
+    та же геометрия, что рисует сцену). Пропорции рендера не ломаем: он уже сделан под углом
+    камеры. Если предмет обрезан краем кадра, рендер уходит за край и обрезается естественно —
+    подгонять его под обрезанный силуэт нельзя, иначе он сжимается или вытягивается (владелец,
+    2026-08-05).
     """
-    ys, xs = np.nonzero(mask)
-    if not len(ys):
+    H, W = pano.shape[:2]
+    eye, fwd, right, up = cam.basis()
+    corner, wv, hv, _n = billboard(p, it, cam)
+    quad = np.array([corner, corner + wv, corner + wv + hv, corner + hv])
+    rel = quad - eye
+    if float(np.max(rel @ fwd)) <= 1.0:
         return 0
-    x0, x1, y0, y1 = int(xs.min()), int(xs.max()), int(ys.min()), int(ys.max())
-    bw, bh = max(x1 - x0 + 1, 2), max(y1 - y0 + 1, 2)
+    focal = (W / 2) / math.tan(math.radians(cam.fov_deg) / 2)
+    z = np.maximum(rel @ fwd, 1e-3)
+    us = W / 2 + focal * (rel @ right) / z
+    vs = H / 2 - focal * (rel @ up) / z + cam.shift_y * H
+    bw = float(us.max() - us.min())
+    if bw < 4:
+        return 0
     cut = trim_alpha(img)
-    k = min(bw / cut.width, bh / cut.height)          # пропорции рендера не ломаем
+    k = bw / cut.width
     nw, nh = max(int(cut.width * k), 2), max(int(cut.height * k), 2)
     cut = cut.resize((nw, nh), Image.LANCZOS)
     src = np.asarray(cut).astype(np.float32)
-    # ставим по низу и по центру габарита предмета — так низ рендера ложится на линию касания пола
-    ox, oy = x0 + (bw - nw) // 2, y1 - nh + 1
-    sub = mask[max(oy, 0):oy + nh, max(ox, 0):ox + nw]
-    sy0, sx0 = max(-oy, 0), max(-ox, 0)
-    src = src[sy0:sy0 + sub.shape[0], sx0:sx0 + sub.shape[1]]
-    if src.size == 0:
+    ox = int(round((us.min() + us.max()) / 2 - nw / 2))
+    oy = int(round(float(vs.max()) - nh))            # низ рендера — на линии касания пола
+    y_from, x_from = max(oy, 0), max(ox, 0)
+    y_to, x_to = min(oy + nh, H), min(ox + nw, W)
+    if y_to <= y_from or x_to <= x_from:
         return 0
+    src = src[y_from - oy:y_to - oy, x_from - ox:x_to - ox]
     alpha = (src[..., 3:4] / 255.0) if src.shape[2] > 3 else np.ones(src.shape[:2] + (1,), np.float32)
-    ok = sub & (alpha[..., 0] > 0.15)
+    ok = alpha[..., 0] > 0.15
     if ok.sum() < 50:
         return 0
     yy, xx = np.nonzero(ok)
-    Y, X = yy + max(oy, 0), xx + max(ox, 0)
+    Y, X = yy + y_from, xx + x_from
     a = alpha[yy, xx]
     base = pano[Y, X].astype(np.float32)
     pano[Y, X] = np.clip(src[yy, xx, :3] * a + base * (1 - a), 0, 255).astype(np.uint8)
@@ -654,7 +664,8 @@ def main() -> None:
                     if role in MESH_ROLES else None)
         if mesh_img is not None:
             # у модели есть настоящий силуэт в карте объектов — ставим по нему
-            px = paste_mesh_screen(pano, ids_full == int(sid), mesh_img, paint, int(sid))
+            px = paste_mesh_screen(pano, cam, by[role], by[role].item, mesh_img,
+                                   paint, int(sid))
         else:
             px = paste_role(pano, zbuf, cam, by[role], by[role].item, cutout(photo_path),
                             paint=paint, sid=int(sid))
