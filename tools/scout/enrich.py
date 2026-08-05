@@ -267,11 +267,17 @@ def run_batch(items: list[dict]) -> None:
     for i in range(0, len(lines), step):
         ids.append(_submit(lines[i:i + step], key, str(i // step + 1)))
     open(os.path.join(HERE, 'enrich-batch-id.txt'), 'w').write('\n'.join(ids))
+    # Режим пишем рядом: забор результата запускается отдельно (из enrich_wait.sh) и командной
+    # строки уже не видит. Без этого слияние не срабатывало, и ответ по фото затирал текстовый
+    # целиком — поймано на первых 5 420 карточках (2026-08-05).
+    open(os.path.join(HERE, 'enrich-batch-mode.txt'), 'w').write('vision' if vision else 'text')
     print(f'отправлено частей: {len(ids)}. Забрать: --fetch (id читаются из enrich-batch-id.txt)')
 
 
 def fetch(batch_id: str, items: dict | None = None) -> None:
     key = _key()
+    mode_path = os.path.join(HERE, 'enrich-batch-mode.txt')
+    mode_vision = os.path.exists(mode_path) and open(mode_path).read().strip() == 'vision'
     b = json.load(urllib.request.urlopen(urllib.request.Request(
         f'{API}/batches/{batch_id}', headers={'Authorization': f'Bearer {key}'}), timeout=120))
     print(f'{batch_id}: статус {b["status"]}, готово {b["request_counts"]["completed"]}'
@@ -296,9 +302,9 @@ def fetch(batch_id: str, items: dict | None = None) -> None:
         except json.JSONDecodeError:
             continue
         if len(got) >= 2000:
-            save(got)
+            save(got, MODEL, mode_vision)
             got = []
-    save(got)
+    save(got, MODEL, mode_vision)
     print('результат записан в product_enrichment')
     stats()
 

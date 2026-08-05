@@ -125,12 +125,49 @@ def photo_flags(mid, eid) -> dict:
     return (e or {}).get('photo') or {}
 
 
+# Редкость стиля. Замер по каталогу (2026-08-05): «современный» подходит 97.2% товаров,
+# «минимализм» 87.1%, а «неоклассика» и «лофт» — по 38%. Оценка «современный: высокая» не отличает
+# ничего: её имеет почти каждый товар. Поэтому балл стиля взвешиваем его редкостью — частый стиль
+# тянет к нейтралу, редкий решает. Приоры считаются из самого каталога и лежат в style-priors.json,
+# чтобы их можно было посмотреть и пересчитать, а не гадать.
+PRIORS_PATH = os.path.join(HERE, 'style-priors.json')
+_PRIORS: dict | None = None
+
+
+def priors(rebuild: bool = False) -> dict:
+    global _PRIORS
+    if _PRIORS is not None and not rebuild:
+        return _PRIORS
+    if os.path.exists(PRIORS_PATH) and not rebuild:
+        _PRIORS = json.load(open(PRIORS_PATH))
+        return _PRIORS
+    acc: dict[str, list] = {}
+    for v in load().values():
+        for st, lvl in (v.get('styles') or {}).items():
+            a = acc.setdefault(st, [0.0, 0])
+            a[0] += LEVEL10.get(lvl, 5.0)
+            a[1] += 1
+    _PRIORS = {st: round(a[0] / max(a[1], 1), 2) for st, a in acc.items()}
+    json.dump(_PRIORS, open(PRIORS_PATH, 'w'), ensure_ascii=False)
+    return _PRIORS
+
+
 def style_scores(mid, eid) -> dict | None:
-    """Стилевой вектор в шкале 0–10 — фолбэк для товаров, которых нет в style-scores.json."""
+    """Стилевой вектор в шкале 0–10, взвешенный редкостью стиля.
+
+    Фолбэк для товаров, которых нет в style-scores.json, и заодно поправка на «стоп-стили»:
+    оценка, которую имеет почти весь каталог, сдвигается к нейтральной пятёрке, а редкая —
+    усиливается. Иначе подбор под лофт и под современный даёт почти один и тот же список.
+    """
     e = get(mid, eid)
     if not e or not e['styles']:
         return None
-    out = {k: LEVEL10.get(v, 5.0) for k, v in e['styles'].items()}
+    pr = priors()
+    out = {}
+    for k, v in e['styles'].items():
+        raw = LEVEL10.get(v, 5.0)
+        mean = pr.get(k, 5.0)
+        out[k] = max(0.0, min(10.0, round(5.0 + (raw - mean) * 1.6, 1)))
     out['universal'] = e.get('strength') == 'нейтральный'
     out['src'] = 'enrich'
     return out
