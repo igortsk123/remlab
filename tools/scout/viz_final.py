@@ -116,8 +116,7 @@ def openings_brief(n: int, cam_name: str) -> str:
     else:
         body = (f'Openings in this frame: {phrase("window", win)}; and {phrase("door", door)}. '
                 'There are no other openings.')
-    return (body + ' Do NOT invent, move, add or remove any window or door: their places come '
-            'from the plan, not from you.')
+    return body
 
 
 def legend_json(legend: list[dict]) -> str:
@@ -252,53 +251,63 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]]) -> str
                 'id': e['n'], 'product': e['товар'], 'type': e['роль'],
                 'size_cm': e['габариты_см'], 'details': e.get('описание', ''),
                 'placement': e['положение'], 'orientation': e.get('ориентация', ''),
-                'in_top': 'not in this frame', 'in_bottom': 'not in this frame',
+                'in_top': 'absent', 'in_bottom': 'absent',
             })
-            item['in_top' if idx == 0 else 'in_bottom'] = e['видимость']
+            code = ('whole' if e['видимость'].startswith('виден целиком') else 'part')
+            item['in_top' if idx == 0 else 'in_bottom'] = code
+    from viz_paste import FLOOR, KEY_FLOOR, SOFT
+    sys.path.insert(0, '/home/pakar/igor/remlab/services/planner-solver')
+    from scene_build import load_scene as _ls
+    _room, _pl = _ls(n)
+    _by = {q.role: q for q in _pl}
+    fp_ids = [k for k in sorted(merged)
+              if merged[k]['type'] in KEY_FLOOR and merged[k]['type'] not in FLOOR
+              and merged[k]['type'] not in SOFT
+              and float(getattr(_by.get(merged[k]['type']), 'elev_cm', 0) or 0) <= 1.0]
+    on_top = {k: merged[k]['placement'] for k in sorted(merged)
+              if float(getattr(_by.get(merged[k]['type']), 'elev_cm', 0) or 0) > 1.0}
     items = json.dumps([merged[k] for k in sorted(merged)], ensure_ascii=False)
+    fp_list = ', '.join(f'#{k}' for k in fp_ids) or 'none'
+    top_list = ', '.join(f'#{k}' for k in on_top) or 'none'
     return (
-        'ROLE. You are an interior designer and photographer. The furniture on the collages is '
-        'already bought by the customer: it cannot be replaced, recoloured or resized. Your job is '
-        'to design the room AROUND these exact products — finishes, light, colour and small decor — '
-        'so that they look their best, and to deliver it as two photographs.\n\n'
-        f'{room_brief(n)}\n\n'
-        f'IMAGES. 1 — sheet with two collages of the SAME room: TOP = view {a}, BOTTOM = view {b}, '
-        'split by a magenta band; each piece of furniture is a real product photo at its place '
-        '(position and approximate scale only, true sizes are in the list). 2 — the same sheet '
-        'with red numbers (annotation only; same number = same item in both frames). 3 — floor '
-        'plan with both camera positions and their fields of view.\n\n'
-        'MOST IMPORTANT. On the floor of image 1 the main furniture has thin dark rectangles. Each '
-        'rectangle is the TRUE BASE of that item: its real size on the floor and the way it is '
-        'turned. Every such item MUST fit its own rectangle exactly — not wider, not longer, not '
-        'turned differently, not shifted. If the rectangle and the pasted photo disagree, the '
-        'RECTANGLE WINS. Never draw the rectangles.\n\n'
-        'PRODUCTS ARE FIXED. Do not replace, recolour, restyle or resize any item; do not move it '
-        'to another place; do not add furniture, rugs, lamps, TV, textiles, pots or decor that is '
-        'not in the list; do not duplicate items to fill the room. You MAY rotate an item around '
-        'its vertical axis so that it matches its rectangle and its "orientation" field — the '
-        'catalogue photos are shot at an angle, so this rotation is expected.\n\n'
-        f'OPENINGS. Top frame: {openings_brief(n, a)} Bottom frame: {openings_brief(n, b)}\n\n'
-        'YOUR DESIGN WORK:\n'
-        '- Renovate the room in the style below: wall finish and colour, flooring, ceiling, '
-        'skirting, and the frames and dressing of the given openings.\n'
-        '- Light the scene naturally, add soft contact shadows under every item, correct '
-        'wall-to-floor junctions, keep vertical lines vertical.\n'
-        '- You may add wall art and small decor typical of the style.\n'
-        '- Fill every planter and vase from the list with a live plant sized to it.\n'
-        '- Where the list has a TV stand, a TV is always there: on the stand or wall-mounted above '
-        'it, by the size and design of that stand.\n'
-        '- Follow "placement" literally: what the item stands or lies on, next to and facing what.\n'
-        '- Read "product" and "details": the name, material and colour tell what the item really is.\n'
-        '- "in_top"/"in_bottom": whole, only a part (draw just that part, never complete it), or '
-        'not in that frame.\n\n'
+        'TASK. You are an interior designer and photographer. The furniture is already bought by '
+        'the customer and cannot be changed. Design the room AROUND these exact products — '
+        'finishes, light, colour — and deliver two photographs on one sheet: TOP is view '
+        f'{a}, BOTTOM is view {b}, with the magenta band between them kept exactly as in the input '
+        '(same position, height and colour, nothing drawn on it).\n\n'
+        'INPUT IMAGES. 1 — the collages: real product photos placed at their spots on a neutral '
+        'render; on the floor thin dark rectangles mark the true base of the main furniture. '
+        '2 — the same sheet with red numbers (annotation only, the same number is the same item in '
+        'both frames). 3 — the floor plan with both camera positions and their fields of view.\n\n'
+        'GEOMETRY PRIORITY (highest first): floor rectangle in image 1 → floor plan in image 3 → '
+        'size_cm in the item list → the pasted photo. If they disagree, the higher source wins. '
+        'APPEARANCE PRIORITY: the pasted product photo → product name and details.\n\n'
+        f'FOOTPRINTS. Items {fp_list} have a floor rectangle: each item must fill its own rectangle '
+        'exactly — same width, same length, same rotation, same position. Items ' + top_list +
+        ' stand on other furniture and inherit its position. Never draw the rectangles.\n\n'
+        'IMMUTABLE. Products: no replacing, recolouring, restyling, resizing, moving or '
+        'duplicating. Room shell: walls, floor, ceiling and cameras stay as they are. Openings: '
+        'exactly as listed below — never invent, move, add or remove a window or a door.\n'
+        f'  TOP frame: {openings_brief(n, a)}\n'
+        f'  BOTTOM frame: {openings_brief(n, b)}\n\n'
+        'ALLOWED EDITS. Rotate an item around its vertical axis to match its rectangle and its '
+        '"orientation" field. Renovate in the style below: wall finish and colour, flooring, '
+        'ceiling, skirting, frames and dressing of the given openings. Natural light, soft contact '
+        'shadows, correct wall-to-floor junctions, vertical lines vertical. Framed wall art may be '
+        'added; no tabletop, shelf, floor or freestanding decor of your own. Every planter and vase '
+        'from the list must hold a live plant sized to it. Where the list has a TV stand, a TV is '
+        'always present — on the stand or wall-mounted right above it.\n'
         + shops_note(n) + '\n'
-        f'STYLE — {style_name(n)} (finishes, colour, light, mood; it never adds objects): '
+        f'STYLE — {style_name(n)} (finishes, colour, light and mood only; it never adds objects): '
         f'{style_brief(n)}\n\n'
-        'ITEMS (JSON, one list for both frames; id = number on image 2):\n' + items + '\n\n'
-        'OUTPUT: one sheet, two photorealistic interior photographs in the same places as the '
-        'collages, magenta band between them, no people, no text, no markers, no floor rectangles. '
-        'Before finishing, check every main item against its floor rectangle: same size, same '
-        'rotation, same place.'
+        'ITEMS (JSON, one list for both frames; id = number on image 2; "in_top"/"in_bottom": '
+        'whole = draw fully, part = draw only the visible part and never complete it, absent = not '
+        'in that frame):\n' + items + '\n\n'
+        'INVALID OUTPUT — redo if any of this happens: an item is bigger than its floor rectangle '
+        'or shifted off it; an item is replaced, recoloured or resized; an object that is not in '
+        'the list appears; an item shows up in the wrong frame; a window or door appears where the '
+        'list says there is none; the magenta band is missing, moved or painted over; numbers, '
+        'rectangles or any markup are drawn in the photograph.'
     )
 
 

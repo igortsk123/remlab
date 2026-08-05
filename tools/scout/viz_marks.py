@@ -96,21 +96,28 @@ def orientation_of(p, placements, room) -> str:
     reach = 420.0
     ray = LineString([(p.x, p.y), (p.x + face[0] * reach, p.y + face[1] * reach)])
     best, best_d = None, 1e9
+    from shapely.geometry import Point
+    self_poly = footprint(p, p.item)
     for q in placements:
         if q is p or q.item is None or q.role == p.role:
             continue
+        if float(getattr(q, 'elev_cm', 0.0)) > 1.0:
+            continue                                   # предмет НА чём-то (ваза, лампа, ТВ)
         poly = footprint(q, q.item)
+        if self_poly.contains(Point(q.x, q.y)):
+            continue                                   # стоит внутри нашего же следа
         if ray.intersects(poly):
             d = math.hypot(q.x - p.x, q.y - p.y)
             if d < best_d:
                 best, best_d = q.role, d
+    ANCHORS = {'диван', 'кресло', 'тв-тумба', 'кровать'}
     parts = []
-    if best:
-        parts.append(f'развёрнут лицом к: {best}')
+    if best in ANCHORS:
+        parts.append(f'фасадом к: {best}')
     else:
         wall = {(0.0, 1.0): 'north', (1.0, 0.0): 'east', (0.0, -1.0): 'south',
                 (-1.0, 0.0): 'west'}[face]
-        parts.append(f'смотрит в сторону {WALL_RU[wall]} стены')
+        parts.append(f'фасадом в сторону {WALL_RU[wall]} стены')
     back = {(0.0, 1.0): ('south', p.y), (1.0, 0.0): ('west', p.x),
             (0.0, -1.0): ('north', room.depth_cm - p.y),
             (-1.0, 0.0): ('east', room.width_cm - p.x)}[face]
@@ -286,7 +293,9 @@ def build(n: int, cam_name: str = 'C1', nums: dict | None = None) -> tuple[str, 
         legend.append({
             'n': num, 'роль': role, 'товар': (it.get('name') or '')[:80],
             'описание': details[:160],
-            'габариты_см': [int(it.get('w') or 0), int(it.get('d') or 0), int(it.get('h') or 0)],
+            'габариты_см': ([int(by[role].item.w_cm), int(by[role].item.d_cm),
+                             int(by[role].item.h_cm or 0)] if role in by and by[role].item
+                            else [int(it.get('w') or 0), int(it.get('d') or 0), int(it.get('h') or 0)]),
             'положение': rel.get(role, 'стоит на полу'),
             'ориентация': orientation_of(by[role], placements, room) if role in by else '',
             'видимость': seen_txt,
