@@ -73,8 +73,23 @@ def project(pts: np.ndarray, cam, W: int, H: int):
 
 
 def target_box(p, it, cam, W: int, H: int):
-    """Эталон: прямоугольник, который вклейка обязана заполнить (в пикселях кадра)."""
+    """Эталон: прямоугольник, который вклейка обязана заполнить (в пикселях кадра).
+
+    Высота считается ВИДИМАЯ: у низкой мебели камера видит ещё и крышку, поэтому предмет в кадре
+    выше своего габарита. Без этой поправки честный рендер пуфа числился «выше места на 42%»
+    (владелец, 2026-08-05).
+    """
     corner, wvec, hvec, _ = (floor_quad(p, it) if p.role in FLOOR else billboard(p, it, cam))
+    if p.role not in FLOOR:
+        import math as _m
+        eye = cam.eye
+        dist = _m.hypot(p.x - eye[0], p.y - eye[2])
+        h = float(getattr(it, 'h_cm', 0) or 0) + float(getattr(p, 'elev_cm', 0.0))
+        pitch = _m.atan2(max(float(eye[1]) - h, 0.0), max(dist, 1.0))
+        depth = float(getattr(it, 'd_cm', 0) or 0)
+        extra = depth * _m.sin(pitch)
+        if extra > 1 and float(np.linalg.norm(hvec)) > 1:
+            hvec = hvec * (1.0 + extra / float(np.linalg.norm(hvec)))
     quad = np.array([corner, corner + wvec, corner + wvec + hvec, corner + hvec])
     us, vs = project(quad, cam, W, H)
     return int(us.min()), int(vs.min()), int(us.max()), int(vs.max())
