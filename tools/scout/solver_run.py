@@ -117,9 +117,14 @@ def hard_checks(placed, zone_used=()):
         tgt=[c[ax] for c in placed[role][2]]
         return (lv[1]-max(tgt)) if srot in (180,270) else (min(tgt)-lv[-2])
     checks=[]
+    # Пуф стоит ЗА СТОЛИКОМ, поэтому меряем его по соседу — столику, а не по дивану: до дивана
+    # там законные 120-140 см (владелец, 2026-08-05).
+    if 'пуф' in placed and 'столик' in placed:
+        gt=gap('столик','пуф')
+        checks.append(('столик↔пуф ≤60 см', gt<=60, round(gt)))
     if 'диван' in placed and 'пуф' in placed:
         gp=zone_gap('пуф')
-        checks.append(('диван↔пуф ≤80 см', gp<=80, round(gp)))
+        checks.append(('диван↔пуф ≤180 см', gp<=180, round(gp)))
     if 'диван' in placed and 'столик' in placed:
         g=zone_gap('столик')
         checks.append((f'диван↔столик {TBL[0]}–{TBL[1]} см',TBL[0]<=g<=TBL[1]+10,round(g)))
@@ -242,6 +247,13 @@ def attempt(seed):
         if 'пуф' in fd:
             w_p,d_p=fd['пуф']
             cands=[]
+            # ПУФ — ЗА СТОЛИКОМ, ПАРАЛЛЕЛЬНО ДИВАНУ. Это классическая постановка оттоманки: она
+            # продолжает зону отдыха, а не встаёт поперёк прохода перед столиком (владелец,
+            # 2026-08-05). Ставим по оси дивана, дальше столика от дивана, тем же разворотом.
+            if 'столик' in placed:
+                tzc_=placed['столик'][0][1]; d_t_=fd['столик'][1]
+                pz=tzc_-d_t_/2-30-d_p/2
+                cands.append((sofa_cx, pz, 180, w_p, d_p))
             if not CORNER:  # справа от зоны (у Г там короткое плечо)
                 cands.append((min(RW-20-d_p/2,sofa_x1+40+d_p/2),
                               (sofa_front-gap/2-w_p/2 if 'столик' in fd else sofa_front-60),270,d_p,w_p))

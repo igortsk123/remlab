@@ -466,11 +466,12 @@ def identity_sheet(n: int, legends: list[list[dict]], nums: dict) -> 'Image.Imag
     from PIL import ImageDraw, ImageFont
     from viz_objects import product
     from viz_paste import cutout, trim_alpha
+    # ЭТАЛОН НУЖЕН КАЖДОЙ ПОЗИЦИИ, а не только «проблемной»: модель рисует верно ровно то, что
+    # видела фотографией, остальное придумывает по названию (проверено дважды, владелец 2026-08-05).
     partial = {}
     for legend in legends:
         for e in legend:
-            if not e['видимость'].startswith('виден целиком'):
-                partial.setdefault(e['n'], e['роль'])
+            partial.setdefault(e['n'], e['роль'])
     # и те, кого мы принципиально не вклеиваем фотографией (низкая мебель, мягкий декор):
     # их внешний вид модель узнаёт только из эталона
     for c in ('C1', 'C2'):
