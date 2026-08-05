@@ -67,22 +67,29 @@ def sofa_mesh(p, it):
     face = {0: (0.0, 1.0), 90: (1.0, 0.0), 180: (0.0, -1.0),
             270: (-1.0, 0.0)}.get(int(round(p.rot)) % 360, (0.0, -1.0))
     back = trimesh.creation.box(extents=[x1 - x0, back_t, h - seat_h])
+    # Спинка и подлокотники живут ТОЛЬКО на прямой секции. Если брать глубину по всему габариту,
+    # подлокотник у углового дивана встаёт стеной поперёк оттоманки (владелец: «фронтал стенка,
+    # у нас такого нет», 2026-08-05).
+    sec = float(getattr(it, 'corner_section_cm', 0) or 0) if getattr(it, 'corner', False) else 0.0
+    arms = []
     if face[1] != 0:                                  # лицо по оси Y → спинка у противоположной
+        depth = min(sec or (y1 - y0), y1 - y0)
         by = (y0 + back_t / 2) if face[1] > 0 else (y1 - back_t / 2)
         back.apply_translation([(x0 + x1) / 2, by, seat_h + (h - seat_h) / 2])
-        arms = []
+        cy = (y0 + depth / 2) if face[1] > 0 else (y1 - depth / 2)
         for ax in (x0 + arm_t / 2, x1 - arm_t / 2):
-            a = trimesh.creation.box(extents=[arm_t, (y1 - y0) * 0.75, arm_h - seat_h])
-            a.apply_translation([ax, (y0 + y1) / 2, seat_h + (arm_h - seat_h) / 2])
+            a = trimesh.creation.box(extents=[arm_t, depth * 0.85, arm_h - seat_h])
+            a.apply_translation([ax, cy, seat_h + (arm_h - seat_h) / 2])
             arms.append(a)
     else:                                             # лицо по оси X
+        depth = min(sec or (x1 - x0), x1 - x0)
         back = trimesh.creation.box(extents=[back_t, y1 - y0, h - seat_h])
         bx = (x0 + back_t / 2) if face[0] > 0 else (x1 - back_t / 2)
         back.apply_translation([bx, (y0 + y1) / 2, seat_h + (h - seat_h) / 2])
-        arms = []
+        cx = (x0 + depth / 2) if face[0] > 0 else (x1 - depth / 2)
         for ay in (y0 + arm_t / 2, y1 - arm_t / 2):
-            a = trimesh.creation.box(extents=[(x1 - x0) * 0.75, arm_t, arm_h - seat_h])
-            a.apply_translation([(x0 + x1) / 2, ay, seat_h + (arm_h - seat_h) / 2])
+            a = trimesh.creation.box(extents=[depth * 0.85, arm_t, arm_h - seat_h])
+            a.apply_translation([cx, ay, seat_h + (arm_h - seat_h) / 2])
             arms.append(a)
     m = trimesh.util.concatenate(parts + [back] + arms)
     # экструзия даёт Z-вверх, а наш мир Y-вверх — разворачиваем
