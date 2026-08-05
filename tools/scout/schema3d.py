@@ -46,6 +46,51 @@ FLOOR = np.array([214, 205, 194], np.float32)
 OBJ = np.array([176, 181, 186], np.float32)
 
 
+def sofa_mesh(p, it):
+    """Диван строим ПО СВОИМ ДАННЫМ, а не растягиваем чужую модель.
+
+    Из кита диван приезжает со своими пропорциями, и при растяжении под 230×150 он плывёт
+    (владелец, 2026-08-05). У нас есть точный след (у углового — Г-образный), высота сиденья 42 см
+    и общая высота из чертежа: сиденье = экструзия следа, спинка — плита вдоль тыльной стороны,
+    подлокотник — по краю прямой секции.
+    """
+    import trimesh
+    from planner.geometry import footprint
+    from shapely.affinity import translate as _tr
+    poly = footprint(p, it)
+    poly = _tr(poly, -p.x, -p.y)                     # в локальные координаты предмета
+    h = float(it.h_cm or 88)
+    seat_h = min(42.0, h * 0.5)
+    back_t, arm_t, arm_h = 22.0, 20.0, seat_h + 22.0
+    parts = [trimesh.creation.extrude_polygon(poly, seat_h)]
+    x0, y0, x1, y1 = poly.bounds
+    face = {0: (0.0, 1.0), 90: (1.0, 0.0), 180: (0.0, -1.0),
+            270: (-1.0, 0.0)}.get(int(round(p.rot)) % 360, (0.0, -1.0))
+    back = trimesh.creation.box(extents=[x1 - x0, back_t, h - seat_h])
+    if face[1] != 0:                                  # лицо по оси Y → спинка у противоположной
+        by = (y0 + back_t / 2) if face[1] > 0 else (y1 - back_t / 2)
+        back.apply_translation([(x0 + x1) / 2, by, seat_h + (h - seat_h) / 2])
+        arms = []
+        for ax in (x0 + arm_t / 2, x1 - arm_t / 2):
+            a = trimesh.creation.box(extents=[arm_t, (y1 - y0) * 0.75, arm_h - seat_h])
+            a.apply_translation([ax, (y0 + y1) / 2, seat_h + (arm_h - seat_h) / 2])
+            arms.append(a)
+    else:                                             # лицо по оси X
+        back = trimesh.creation.box(extents=[back_t, y1 - y0, h - seat_h])
+        bx = (x0 + back_t / 2) if face[0] > 0 else (x1 - back_t / 2)
+        back.apply_translation([bx, (y0 + y1) / 2, seat_h + (h - seat_h) / 2])
+        arms = []
+        for ay in (y0 + arm_t / 2, y1 - arm_t / 2):
+            a = trimesh.creation.box(extents=[(x1 - x0) * 0.75, arm_t, arm_h - seat_h])
+            a.apply_translation([(x0 + x1) / 2, ay, seat_h + (arm_h - seat_h) / 2])
+            arms.append(a)
+    m = trimesh.util.concatenate(parts + [back] + arms)
+    # экструзия даёт Z-вверх, а наш мир Y-вверх — разворачиваем
+    v = np.asarray(m.vertices, np.float64).copy()
+    m.vertices = np.column_stack([v[:, 0], v[:, 2], v[:, 1]])
+    return m
+
+
 def kit_model(role: str, it):
     """Модель кита под наши габариты, начало координат — в центре следа на полу."""
     import glob as _g
@@ -105,16 +150,25 @@ def scene_geometry(n: int, only: set | None = None):
             continue
         if only is not None and p.role not in only:
             continue
-        m = kit_model(p.role, p.item)
+        if p.role in ('диван', 'кресло-кровать'):
+            try:
+                m = sofa_mesh(p, p.item)
+            except Exception:  # noqa: BLE001 — не вышло: берём модель кита
+                m = kit_model(p.role, p.item)
+        else:
+            m = kit_model(p.role, p.item)
         if m is None:
             continue
         sid += 1
         names[sid] = p.role
         v = np.asarray(m.vertices, np.float64).copy()
-        a = math.radians(-float(p.rot))
-        ca, sa = math.cos(a), math.sin(a)
-        x, z = v[:, 0] * ca - v[:, 2] * sa, v[:, 0] * sa + v[:, 2] * ca
-        v[:, 0], v[:, 2] = x + p.x, z + p.y
+        if p.role not in ('диван', 'кресло-кровать'):     # след дивана уже повёрнут
+            a = math.radians(-float(p.rot))
+            ca, sa = math.cos(a), math.sin(a)
+            x, z = v[:, 0] * ca - v[:, 2] * sa, v[:, 0] * sa + v[:, 2] * ca
+            v[:, 0], v[:, 2] = x, z
+        v[:, 0] += p.x
+        v[:, 2] += p.y
         v[:, 1] += float(getattr(p, 'elev_cm', 0.0))
         f = np.asarray(m.faces, np.int32) + len(V)
         V = np.vstack([V, v])
