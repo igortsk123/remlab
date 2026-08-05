@@ -113,6 +113,7 @@ def main() -> None:
     except OSError:
         prompt = ''
 
+    inputs_only = '--inputs-only' in sys.argv
     steps = [
         ('Вход 1 — коллаж',
          'Фотографии товаров, поставленные по плану в наш рендер комнаты. Два вида на одном '
@@ -129,10 +130,11 @@ def main() -> None:
         ('Вход 4 — эталоны внешнего вида',
          'Карточки тех товаров, что попали в кадр только частью. Модель берёт отсюда внешний вид, '
          'но не место и не размер.', f'{P}-pair-identity.jpg'),
-        ('Выход — лист ответа',
-         'Модель вернула оба кадра на одном холсте, полоса на месте. По ней ответ и режется.',
-         f'{P}-pair-final.jpg'),
     ]
+    if not inputs_only:
+        steps.append(('Выход — лист ответа',
+                      'Модель вернула оба кадра на одном холсте, полоса на месте. По ней ответ '
+                      'и режется.', f'{P}-pair-final.jpg'))
     blocks = ''
     for title, note, path in steps:
         if not os.path.exists(path):
@@ -191,7 +193,7 @@ def main() -> None:
 <title>Комплект {n} — весь пакет: вход, выход, товары</title>
 <style>{CSS}</style>
 <div class="w">
-<h1>Комплект {n} — весь пакет</h1>
+<h1>Комплект {n} — {'что уходит в модель' if inputs_only else 'весь пакет'}</h1>
 <p class="sub">Гостиная {html.escape(str(s.get('band', '')))} м², стиль
 {html.escape(str(s.get('style', '')))}. Ровно то, что ушло в модель, ровно то, что она вернула,
 приёмка и товары комплекта.</p>
@@ -209,7 +211,7 @@ def main() -> None:
 
 {blocks}
 
-<section class="card"><h2>Выход — два кадра после разреза</h2>{frames}</section>
+{'' if inputs_only else f'<section class="card"><h2>Выход — два кадра после разреза</h2>{frames}</section>'}
 
 <section class="card"><h2>Приёмка коллажа перед отправкой</h2>
 <p>Конвейер сам сверил каждый предмет с его местом в кадре: {ok} из {checked} позиций без

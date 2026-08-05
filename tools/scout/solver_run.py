@@ -44,6 +44,11 @@ def _sofa_corner(setn: int) -> tuple[bool, float]:
 
 
 SOFA_CORNER, SOFA_ARM_CM = _sofa_corner(n)
+# Пока солвер и план считают мебель прямоугольниками, Г-след включать нельзя: замер по нему
+# честно валит расстановку, но чинить её нечем — постановка всё равно прямоугольная. Признак
+# из фида уже читается; переключатель снимается вместе с переводом солвера на полигоны.
+CORNER_GEOMETRY_READY = False
+SOFA_CORNER = SOFA_CORNER and CORNER_GEOMETRY_READY
 
 
 def real_gap(a: str, b: str, placed=None, fd=None):
@@ -166,6 +171,10 @@ def hard_checks(placed, zone_used=()):
         tgt=[c[ax] for c in placed[role][2]]
         return (lv[1]-max(tgt)) if srot in (180,270) else (min(tgt)-lv[-2])
     checks=[]
+    # Пуф — часть группы у дивана, а не отдельный предмет посреди комнаты (владелец, 2026-08-05).
+    if 'диван' in placed and 'пуф' in placed:
+        gp=zone_gap('пуф')
+        checks.append(('диван↔пуф ≤130 см', gp<=130, round(gp)))
     if 'диван' in placed and 'столик' in placed:
         g=real_gap('диван','столик',placed,dict(FLOOR))
         if g is None:
@@ -303,7 +312,10 @@ def attempt(seed):
                 tx1=max(c[0] for c in placed['столик'][2]); tx0=min(c[0] for c in placed['столик'][2])
                 tzc=placed['столик'][0][1]
                 cands.append((tx1+30+d_p/2, tzc, 270, d_p, w_p))          # восточнее столика
-                cands.append((tx0-30-d_p/2, tzc-90, 90, d_p, w_p))        # юго-западная диагональ
+                # По диагонали пуф отодвигался на 90 см вперёд и оказывался один посреди
+                # комнаты (владелец: «куда у тебя пуф съехал», 2026-08-05). Пуф — часть группы
+                # у дивана: держим его вплотную к столику.
+                cands.append((tx0-30-d_p/2, tzc-40, 90, d_p, w_p))         # юго-западная диагональ
             for px,pz,rot_,ww,dd_ in cands:
                 pc=_rect(px,pz,ww,dd_)
                 if _fits(pc): placed['пуф']=((px,pz),rot_,pc,1); zone_used.add('пуф'); break

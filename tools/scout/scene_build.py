@@ -60,10 +60,12 @@ def load_scene(n: int) -> tuple[Room, list[Placement]]:
                 openings=room_spec.get('openings', []))
     placements = []
     for role, p in L.items():
-        corner, section = corner_from_feed(n, role, p)
-        it = Item(role=role, w_cm=p['w'], d_cm=p['d'] if not corner else max(p['d'], section * 1.6),
-                  h_cm=heights.get(role) or 60,
-                  corner=corner, corner_section_cm=section)
+        # ВНИМАНИЕ: Г-образный след пока НЕ включаем в геометрию сцены. Полигон понимает только
+        # `footprint()`, а солвер и план считают мебель габаритными прямоугольниками — при
+        # глубине углового дивана 152 см он занял четверть комнаты и вытеснил пуф в пустой угол
+        # (владелец, 2026-08-05). Включаем после перевода солвера и плана на полигоны.
+        it = Item(role=role, w_cm=p['w'], d_cm=p['d'], h_cm=heights.get(role) or 60,
+                  corner=bool(p.get('corner')))
         placements.append(Placement(role=role, x=p['x'], y=p['z'], rot=p['rot'], item=it))
     extra, rel = derived(room, placements, sets[n - 1]['items'])
     RELATIONS.clear()
