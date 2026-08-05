@@ -5,7 +5,7 @@
 - Товары магазинов свежих фидов, ИСЧЕЗНУВШИЕ из фида → in_stock=false (снят с продажи).
 - Магазины без свежего фида (nonton, h-f-l) не трогаем — наличие проверит health-цикл.
 Запуск: python3 load3.py"""
-import zipfile, glob, os, re, sys, json, subprocess, urllib.parse
+import zipfile, glob, os, re, sys, json, subprocess, urllib.parse, hashlib
 import xml.etree.ElementTree as ET
 
 HERE=os.path.dirname(os.path.abspath(__file__))
@@ -23,6 +23,24 @@ sql("alter table products add column if not exists direct_url text;"
     "alter table products add column if not exists last_seen date;"
     "alter table products add column if not exists description text;")
 
+# --- дельта: ЧТО именно изменилось у товара (ADR-0068) ---------------------------------------
+# Раньше признаком изменения был сам факт присутствия в фиде, поэтому «пересчитывать или нет»
+# решалось грубо: цена сдвинулась на рубль — и товар считался новым для всей семантики.
+# Три дешёвых хеша считаются прямо при разборе; четвёртый (перцептивный, по самой картинке) —
+# отдельно в `phash.py`, он требует скачивания файла.
+_WS=re.compile(r'\s+')
+def _h(*parts):
+    s='\x1f'.join('' if p is None else str(p) for p in parts)
+    return hashlib.sha1(s.encode('utf-8')).hexdigest()[:20]
+def _norm(t):
+    return _WS.sub(' ',(t or '').strip().lower())
+def commercial_hash(price,oldp,in_stock,url): return _h(price,oldp,in_stock,url)
+def text_hash(name,desc):                     return _h(_norm(name),_norm(desc))
+def geometry_hash(w,d,h,ln,dia):
+    # округляем до сантиметра: фид иногда шлёт 60.0 и 60, это не изменение товара
+    return _h(*[None if v is None else round(float(v)) for v in (w,d,h,ln,dia)])
+def image_hash(url):                          return _h(_norm(url))
+
 SPA_CUT=re.compile(r'/!.*$')  # mnogomebeli/divanboss: вариант после /! — серверу неизвестен
 def direct(url):
     m=re.search(r'goto=(.+)$',url or '')
@@ -35,7 +53,7 @@ def direct(url):
     return u
 
 total=0; per={}
-rows=[]; mids=set()
+rows=[]; erows=[]; mids=set()
 for z in sorted(glob.glob(os.path.join(FEEDS,'*.zip'))):
     zf=zipfile.ZipFile(z); name=zf.namelist()[0]
     cats={}
@@ -67,9 +85,15 @@ for z in sorted(glob.glob(os.path.join(FEEDS,'*.zip'))):
                 return None
             w=dim(['Ширина','Ширина, см','Ширина, мм']); d=dim(['Глубина','Глубина, см','Глубина, мм'])
             h=dim(['Высота','Высота, см','Высота, мм']); ln=dim(['Длина','Длина, см']); dia=dim(['Диаметр','Диаметр, см'])
+            p_int=int(float(price)) if price else None
+            o_int=int(float(oldp)) if oldp else None
             rows.append('\t'.join(esc(x) for x in (mid,eid,shop,cid,cats.get(cid,''),nm,el.findtext('vendor'),
-                url,pic,int(float(price)) if price else None,int(float(oldp)) if oldp else None,None,
+                url,pic,p_int,o_int,None,
                 't',w,d,h,ln,dia,None,json.dumps(params,ensure_ascii=False),direct(url),desc)))
+            erows.append('\t'.join(esc(x) for x in (mid,eid,
+                commercial_hash(p_int,o_int,bool(p_int),direct(url)),
+                text_hash(nm,desc), geometry_hash(w,d,h,ln,dia), image_hash(pic),
+                'active' if p_int else 'out_of_stock')))
             per[shop]=per.get(shop,0)+1; total+=1
             el.clear()
 print('офферов в свежих фидах:',total,per,flush=True)
@@ -101,3 +125,54 @@ select 'снято с наличия: '||count(*) from products where shop_mid i
 """)
 print(out.strip())
 print(sql("select shop, count(*) filter (where in_stock) live, count(*) filter (where not in_stock) dead from products group by 1 order by 2 desc;"))
+
+# ---------- дельта и жизненный цикл (ADR-0068) ------------------------------------------------
+# Считаем ДО обновления: сколько товаров реально сменили семантику (текст, размеры, картинку).
+# Смена цены и наличия семантику не меняет и повторного анализа не требует — это и есть экономия.
+sql("drop table if exists enrich_new;"
+    "create table enrich_new (shop_mid int, external_id text, commercial_hash text, text_hash text,"
+    " geometry_hash text, image_hash text, feed_status text);")
+sql(None, "copy enrich_new(shop_mid,external_id,commercial_hash,text_hash,geometry_hash,image_hash,"
+          "feed_status) from stdin;\n"+"\n".join(erows)+"\n\\.\n")
+delta=sql("""
+select 'новых: '||count(*) filter (where e.shop_mid is null)
+     ||'; сменили текст: '||count(*) filter (where e.text_hash is distinct from n.text_hash and e.shop_mid is not null)
+     ||'; размеры: '||count(*) filter (where e.geometry_hash is distinct from n.geometry_hash and e.shop_mid is not null)
+     ||'; картинку(URL): '||count(*) filter (where e.image_hash is distinct from n.image_hash and e.shop_mid is not null)
+     ||'; только цена/наличие: '||count(*) filter (where e.shop_mid is not null
+           and e.text_hash is not distinct from n.text_hash
+           and e.geometry_hash is not distinct from n.geometry_hash
+           and e.image_hash is not distinct from n.image_hash
+           and e.commercial_hash is distinct from n.commercial_hash)
+from enrich_new n left join product_enrichment e using (shop_mid, external_id);
+""")
+print('ДЕЛЬТА', delta.strip())
+sql(f"""
+begin;
+insert into product_enrichment as e (shop_mid,external_id,commercial_hash,text_hash,geometry_hash,
+       image_hash,status,missing_runs,missing_since,last_seen)
+select shop_mid,external_id,commercial_hash,text_hash,geometry_hash,image_hash,feed_status,0,null,current_date
+from enrich_new
+on conflict (shop_mid,external_id) do update set
+  commercial_hash=excluded.commercial_hash, text_hash=excluded.text_hash,
+  geometry_hash=excluded.geometry_hash, image_hash=excluded.image_hash,
+  status=excluded.status, missing_runs=0, missing_since=null,
+  last_seen=current_date, updated_at=now();
+-- пропал из свежего фида: помечаем, но обогащение НЕ трогаем. Три пропуска подряд → в архив.
+update product_enrichment e set missing_runs=e.missing_runs+1,
+       missing_since=coalesce(e.missing_since,current_date),
+       status=case when e.missing_runs+1>=3 then 'archived' else 'missing' end,
+       updated_at=now()
+ where e.shop_mid in ({mlist})
+   and not exists (select 1 from enrich_new n
+                   where n.shop_mid=e.shop_mid and n.external_id=e.external_id);
+-- products.status — копия для совместимости: скрипты смотрят на in_stock, ломать их незачем
+update products p set status=e.status, in_stock=(e.status='active')
+  from product_enrichment e
+ where p.shop_mid=e.shop_mid and p.external_id=e.external_id and p.shop_mid in ({mlist})
+   and (p.status is distinct from e.status or p.in_stock is distinct from (e.status='active'));
+drop table enrich_new;
+commit;
+""")
+print('СТАТУСЫ', sql("select status||': '||count(*) from product_enrichment"
+                     " group by status order by count(*) desc;").strip())

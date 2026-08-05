@@ -30,6 +30,8 @@ review_after: ""
 ## Ключевые факты
 - **Gemini:** один ключ на обе задачи; модели `gemini-3.1-flash-image` и `gemini-flash-latest`.
 - **OpenAI (ADR-0026):** ИИ-фолбэк парсинга ссылок; `OPENAI_EXTRACT_MODEL` (деф. `gpt-4o-mini`).
+  Реестр моделей и цен для обогащения каталога (сверять перед прогоном, ADR-0067) —
+  `../domain/catalog-enrichment.md`; `gpt-4o-mini` под картинки НЕ брать.
 - **Яндекс:** Метрика `110599064`; чужую кампанию `708745261` не трогать. [[marketing-acquisition]].
 
 **Tier 2:** `../domain/integrations.md` (эндпоинты, форматы, env, фиды/наличие). Решения — ADR-0007/0011/0012/0013/0045.
