@@ -3,7 +3,7 @@ tier: 1
 topic: access-and-integrations
 scope: Интеграции/доступы — ключи, эндпоинты, клиенты
 tier2: "../domain/integrations.md"
-updated: 2026-08-02
+updated: 2026-08-05
 importance: high
 source: manual
 status: working
@@ -16,9 +16,11 @@ review_after: ""
 
 > Секретов тут НЕТ — только где они. Детали — Tier 2.
 
-## fal.ai (2026-08-04) — картинки и image-to-3D
+## fal.ai (2026-08-05) — картинки и image-to-3D
 `FAL_KEY` (значение — `_secrets/ACCESS.md`); баланс $9.03 на 2026-08-04. Цены и применение —
 `../domain/integrations.md`. Используется в `services/room-measure/run_viz.py`.
+Фото → 3D: `fal-ai/trellis` (GLB, ~56 с, ≈$0.02) и `fal-ai/hunyuan3d/v2` (~30 с). Рендера меша
+на fal НЕТ — крутим сами (`tools/scout/mesh_render.py`, ADR-0060).
 
 ## Чужие ключи на машине
 Соседние проекты (sib, sing, sup2) держат свои ключи в своих `.env` — НЕ наши, не трогать.

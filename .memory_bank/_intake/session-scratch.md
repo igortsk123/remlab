@@ -13,11 +13,6 @@
 > только для этого диалога. Значения секретов — НИКОГДА (только в `_secrets/`, вне git).
 
 <!-- SCRATCH START — /memory-check переносит обработанное в банк и усекает до этой метки -->
-- 2026-08-04 Кит Memory Bank обновлён до v1.5.0 (соседний репо `~/igor/memory-bank-template`,
-  коммит fc344e0): новая проверка CODE-DRIFT — код, изменённый после `last_verified` дока.
-  Прогон по remlab: **9 доков ссылаются на код, который уехал** (core/architecture.md +19д,
-  core/observability-tracing.md и domain/observability.md +22д на `db/schema.ts`,
-  domain/user-flow-details.md, domain/integrations.md, core/regression-net.md,
-  domain/pricing-works-ru.md, guides/*). Это долг: утверждения про этот код никто не пересверял.
-  Разобрать на ближайшем /memory-check (Этап 4) — сверить с кодом, потом двигать `last_verified`.
-  Апгрейд самого remlab до v1.5.0 (`./upgrade.sh`) ещё НЕ прогонялся.
+- 2026-08-04 ДОЛГ: 9 доков с находкой CODE-DRIFT (кит v1.5.0) — утверждения про уехавший
+  код не пересверены; нужен прогон субагента `verify` по списку доков. Апгрейд remlab до
+  v1.5.0 (`./upgrade.sh`) не прогонялся.
