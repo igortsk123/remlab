@@ -25,60 +25,6 @@ BAND=s.get('band') or '14-16'
 TBL=(OCC['sofa_table_cm'].get(BAND,[30,50]) if OCC else [30,50])          # диван↔столик
 TVD=(OCC['sofa_tv_cm'].get(BAND,[180,300]) if OCC else [180,300])         # диван↔ТВ
 items={r.replace(' 2',''):it for r,it in s['items'].items()}
-# Угловой диван — признак ИЗ ФИДА («Конфигурация: Угловой»), а не догадка: у него перед прямой
-# секцией стоит столик, а плечо-оттоманка выступает вперёд и в расчёт прохода не идёт.
-def _sofa_corner(setn: int) -> tuple[bool, float]:
-    try:
-        sys.path.insert(0, HERE)
-        from viz_objects import feed_card
-        sets_all = json.load(open(os.path.join(HERE, SETS_FILE)))
-        it = sets_all[setn - 1]['items'].get('диван') or {}
-        prm = (feed_card(it).get('params') or {})
-        txt = ' '.join(str(v) for v in prm.values()).lower()
-        # Плечо угловой секции равно ГЛУБИНЕ СИДЕНЬЯ. В карточке сета глубины часто нет —
-        # тогда типовая 95, та же, что берёт раскладка (иначе солвер и сцена считают разное).
-        d = float(it.get('d') or 0)
-        return ('углов' in txt), (d if d >= 60 else 95.0)
-    except Exception:
-        return False, 95.0
-
-
-SOFA_CORNER, SOFA_ARM_CM = _sofa_corner(n)
-# Пока солвер и план считают мебель прямоугольниками, Г-след включать нельзя: замер по нему
-# честно валит расстановку, но чинить её нечем — постановка всё равно прямоугольная. Признак
-# из фида уже читается; переключатель снимается вместе с переводом солвера на полигоны.
-CORNER_GEOMETRY_READY = False
-SOFA_CORNER = SOFA_CORNER and CORNER_GEOMETRY_READY
-
-
-def real_gap(a: str, b: str, placed=None, fd=None):
-    """Зазор между предметами по НАСТОЯЩИМ следам ТЕКУЩЕЙ расстановки.
-
-    У углового дивана след Г-образный, и замер по габаритному прямоугольнику врёт: солвер
-    рапортовал 37 см там, где до выступающего плеча было 9 (владелец, 2026-08-05). Считаем по
-    кандидату из `placed`, а не по файлу раскладки — иначе меряется прошлый прогон.
-    """
-    try:
-        sys.path.insert(0, os.path.join(HERE, '../../services/planner-solver'))
-        from planner.geometry import footprint
-        from planner.models import Item, Placement
-    except Exception:
-        return None
-    if not placed or not fd or a not in placed or b not in placed:
-        return None
-
-    def poly(role):
-        (x, z), rot, _rect_, _ = placed[role]
-        w, d = fd[role]
-        corner = SOFA_CORNER and role == 'диван'
-        it = Item(role=role, w_cm=w, d_cm=max(d, SOFA_ARM_CM * 1.6) if corner else d,
-                  h_cm=60, corner=corner, corner_section_cm=SOFA_ARM_CM)
-        return footprint(Placement(role=role, x=x, y=z, rot=rot, item=it), it)
-
-    try:
-        return poly(a).distance(poly(b))
-    except Exception:
-        return None
 
 def dims(role,defw,defd):
     it=items.get(role) or {}
@@ -171,14 +117,8 @@ def hard_checks(placed, zone_used=()):
         tgt=[c[ax] for c in placed[role][2]]
         return (lv[1]-max(tgt)) if srot in (180,270) else (min(tgt)-lv[-2])
     checks=[]
-    # Пуф — часть группы у дивана, а не отдельный предмет посреди комнаты (владелец, 2026-08-05).
-    if 'диван' in placed and 'пуф' in placed:
-        gp=zone_gap('пуф')
-        checks.append(('диван↔пуф ≤130 см', gp<=130, round(gp)))
     if 'диван' in placed and 'столик' in placed:
-        g=real_gap('диван','столик',placed,dict(FLOOR))
-        if g is None:
-            g=zone_gap('столик')
+        g=zone_gap('столик')
         checks.append((f'диван↔столик {TBL[0]}–{TBL[1]} см',TBL[0]<=g<=TBL[1]+10,round(g)))
     if 'диван' in placed and 'тв-тумба' in placed:
         # верхняя граница шкалы — КОМФОРТ (мягко), жёсткий потолок — кламп диагоналей (400 см):
@@ -247,26 +187,10 @@ def attempt(seed):
             if _fits(tvc): placed['тв-тумба']=((tvx,d_tv/2),0,tvc,1); zone_used.add('тв-тумба')
         # столик: по центру фронта, gap по шкале площади
         if 'столик' in fd:
-            # Отраслевая норма: 14–18 дюймов (36–46 см) от переднего края сиденья, и это
-            # НЕ середина нашего диапазона — журнальный столик должен быть в руке у сидящего
-            # (владелец, 2026-08-05). Целимся в нижнюю треть: ближе к дивану, но проход остаётся.
-            w_t,d_t=fd['столик']; gap=TBL[0]+(TBL[1]-TBL[0])*0.3
-            # У УГЛОВОГО дивана столик встаёт перед ПРЯМОЙ секцией, а не по центру всей ширины:
-            # выступающее плечо (оттоманка) иначе оказывается вплотную к столику — замер по
-            # настоящему Г-следу давал 9 см вместо 37 (владелец, 2026-08-05).
-            # У УГЛОВОГО дивана прямоугольник врёт: выступающее плечо-оттоманка стоит впереди,
-            # и столик, поставленный «по центру фронта», оказывается вплотную к нему (замер по
-            # настоящему Г-следу давал 9 см вместо 37). Поэтому позицию ПОДБИРАЕМ: сдвигаем в
-            # сторону от плеча и отодвигаем вперёд, пока зазор по настоящему следу не попадёт
-            # в норму (владелец, 2026-08-05).
-            # ЗАДАЧА В ОЧЕРЕДИ: у углового дивана столик должен вставать перед ПРЯМОЙ секцией,
-            # а не по центру всей ширины — выступающее плечо-оттоманка иначе оказывается вплотную.
-            # Подбор позиции по настоящему Г-следу пока не сходится, поэтому ставим как прежде,
-            # а расхождение честно показывает проверка `диван↔столик` (замер по Г-следу).
-            tz = sofa_front - gap - d_t / 2
-            tc = _rect(sofa_cx, tz, w_t, d_t)
-            if _fits(tc):
-                placed['столик'] = ((sofa_cx, tz), 180, tc, 1); zone_used.add('столик')
+            w_t,d_t=fd['столик']; gap=(TBL[0]+TBL[1])/2
+            tz=sofa_front-gap-d_t/2
+            tc=_rect(sofa_cx,tz,w_t,d_t)
+            if _fits(tc): placed['столик']=((sofa_cx,tz),180,tc,1); zone_used.add('столик')
         # кресло: ПОЛУКРУГОМ вокруг зоны (ADR-0051, схема ProcTHOR — решение владельца 2026-08-02;
         # было: строго 90° к столику слева). Азимут от центра зоны: 180° = сторона дивана,
         # 0° = сторона ТВ; берём дугу 135–225° с джиттером ±35°, кресло смотрит в центр зоны,
@@ -312,10 +236,7 @@ def attempt(seed):
                 tx1=max(c[0] for c in placed['столик'][2]); tx0=min(c[0] for c in placed['столик'][2])
                 tzc=placed['столик'][0][1]
                 cands.append((tx1+30+d_p/2, tzc, 270, d_p, w_p))          # восточнее столика
-                # По диагонали пуф отодвигался на 90 см вперёд и оказывался один посреди
-                # комнаты (владелец: «куда у тебя пуф съехал», 2026-08-05). Пуф — часть группы
-                # у дивана: держим его вплотную к столику.
-                cands.append((tx0-30-d_p/2, tzc-40, 90, d_p, w_p))         # юго-западная диагональ
+                cands.append((tx0-30-d_p/2, tzc-90, 90, d_p, w_p))        # юго-западная диагональ
             for px,pz,rot_,ww,dd_ in cands:
                 pc=_rect(px,pz,ww,dd_)
                 if _fits(pc): placed['пуф']=((px,pz),rot_,pc,1); zone_used.add('пуф'); break

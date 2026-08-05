@@ -29,27 +29,6 @@ SCENE_DIR = os.environ.get('SCENE_DIR', os.path.expanduser('~/scout-scenes'))
 FONT = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
 
 
-def corner_from_feed(n: int, role: str, p: dict) -> tuple[bool, float]:
-    """Г-образный диван — по параметрам ФИДА, а не по догадке раскладки.
-
-    В фиде у такого дивана прямо написано «Конфигурация: Угловой». Без этого признака след
-    считался обычным прямоугольником, и в кадре у дивана пропадала угловая секция — модель
-    честно дорисовывала прямой торец (владелец, 2026-08-05). Глубину выступающей части
-    берём из «Ширина спального места»/глубины спального места, иначе типовые 1,6 глубины сиденья.
-    """
-    if role != 'диван':
-        return bool(p.get('corner')), float(p.get('d') or 95)
-    try:
-        from viz_objects import feed_card, product
-        prm = (feed_card(product(n, role)[0]).get('params') or {})
-    except Exception:  # noqa: BLE001 — нет карточки: работаем как раньше
-        prm = {}
-    text = ' '.join(str(v) for v in prm.values()).lower()
-    corner = bool(p.get('corner')) or 'углов' in text
-    section = float(p.get('d') or 95)
-    return corner, section
-
-
 def load_scene(n: int) -> tuple[Room, list[Placement]]:
     """Комната и расстановка из канонического `v3set{n}-layout.json` (его же рисует viz_plan)."""
     L = json.load(open(os.path.join(HERE, f'v3set{n}-layout.json')))
@@ -60,10 +39,6 @@ def load_scene(n: int) -> tuple[Room, list[Placement]]:
                 openings=room_spec.get('openings', []))
     placements = []
     for role, p in L.items():
-        # ВНИМАНИЕ: Г-образный след пока НЕ включаем в геометрию сцены. Полигон понимает только
-        # `footprint()`, а солвер и план считают мебель габаритными прямоугольниками — при
-        # глубине углового дивана 152 см он занял четверть комнаты и вытеснил пуф в пустой угол
-        # (владелец, 2026-08-05). Включаем после перевода солвера и плана на полигоны.
         it = Item(role=role, w_cm=p['w'], d_cm=p['d'], h_cm=heights.get(role) or 60,
                   corner=bool(p.get('corner')))
         placements.append(Placement(role=role, x=p['x'], y=p['z'], rot=p['rot'], item=it))
