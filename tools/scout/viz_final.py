@@ -283,7 +283,7 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]],
         for e in legend:
             item = merged.setdefault(e['n'], {
                 'id': e['n'], 'product': e['товар'], 'type': e['роль'],
-                'size_cm': e['габариты_см'], 'details': e.get('описание', ''),
+                'size_cm': e['габариты_см'], 'appearance': e.get('внешний_вид', {}),
                 'placement': e['положение'], 'orientation': e.get('ориентация', ''),
                 'in_top': 'absent', 'in_bottom': 'absent',
             })
@@ -308,6 +308,20 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]],
                 ids = [k for k in merged if merged[k]['type'] == role]
                 meshed_ids += ids
     meshed_ids = sorted(set(meshed_ids))
+    not_shown = set()
+    for c in cams:
+        pp = os.path.join(SCENE_DIR, f'scene{n}-{c}-paint.json')
+        if os.path.exists(pp):
+            not_shown |= set(json.load(open(pp)).get('volumes') or [])
+    # Свойства предмета живут В САМОМ ПРЕДМЕТЕ, а не в абзацах со списками номеров: иначе при
+    # другом наборе мебели промпт приходится переписывать руками (разбор промпта, 2026-08-05).
+    for k, m in merged.items():
+        role = m['type']
+        m['appearance_source'] = ('reconstructed_3d' if k in meshed_ids else
+                                  'not_shown' if role in not_shown else 'product_photo')
+        m['has_footprint'] = k in fp_ids
+        m['support'] = ('parent' if k in on_top else
+                        'ceiling' if role in ('люстра',) else 'floor')
     items = json.dumps([merged[k] for k in sorted(merged)], ensure_ascii=False)
     fp_list = ', '.join(f'#{k}' for k in fp_ids) or 'none'
     top_list = ', '.join(f'#{k}' for k in on_top) or 'none'
@@ -317,7 +331,7 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]],
         'finishes, light, colour — and deliver two photographs on one sheet: TOP is view '
         f'{a}, BOTTOM is view {b}, with the magenta band between them kept exactly as in the input '
         '(same position, height and colour, nothing drawn on it).\n'
-        'THE ROOM ITSELF IS FIXED. Keep the architecture of image 1 pixel-for-pixel: the wall '
+        'THE ROOM ITSELF IS FIXED. Treat image 1 as a locked composition and perspective guide: the wall '
         'planes and the vertical corner where two walls meet stay at the same place and angle, the '
         'ceiling line and the floor line stay at the same height, the room keeps its proportions '
         'and the camera does not move. You repaint and light the room, you do not rebuild it.\n\n'
@@ -332,20 +346,23 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]],
            'background and carry a shop logo or watermark — read the product itself and ignore '
            'that background, the logo and any lettering; never copy them into the room.'
            if has_identity else '') + '\n\n'
-        'READ THE ITEM LIST BEFORE YOU DRAW ANYTHING. For every id: its "product" is the exact '
-        'retail name, "details" carries the real material, colour and finish, and "size_cm" is '
-        '[width, depth, height] in centimetres — measured, not guessed. Draw each item as that '
-        'text describes it: an upholstered fabric stays fabric and never becomes leather, oak '
-        'stays oak, a colour word in the name wins over your impression of the photo. Scale every '
-        'item to its own size_cm relative to the room and to the other items — a 44 cm pouf must '
-        'read as knee-high next to an 88 cm sofa. Mismatched material, colour or scale is a defect.'
-        + (f' Items {", ".join("#" + str(i) for i in meshed_ids)} are shown in image 1 as computed '
-           '3D renders: their position, size and rotation are exact, but their surface is '
-           'reconstructed and dull — take their material and colour from the item text and from '
-           'image 4, never from the render.' if meshed_ids else '') + '\n\n'
+        'READ THE ITEM LIST BEFORE YOU DRAW ANYTHING. "product" is the exact retail name; '
+        '"appearance" carries the measured material, official colour and colour_hex; "size_cm" is '
+        '[width, depth, height] in centimetres, measured. An upholstered fabric stays fabric and '
+        'never becomes leather, oak stays oak. Scale every item to its own size_cm relative to the '
+        'room and to the other items — a 44 cm pouf must read as knee-high next to an 88 cm sofa. '
+        'Mismatched material, colour or scale is a defect.'
+        + '\n\n'
         'GEOMETRY PRIORITY (highest first): floor rectangle in image 1 → floor plan in image 3 → '
-        'size_cm in the item list → the pasted photo. If they disagree, the higher source wins. '
-        'APPEARANCE PRIORITY: the pasted product photo → product name and details.\n\n'
+        'size_cm in the item list → the pasted photo. If they disagree, the higher source wins.\n'
+        'APPEARANCE — one source per attribute, never a blend: shape and construction from the '
+        'pasted product photo (or from image 4 when "appearance_source" is not "product_photo"); '
+        'material from "appearance.material"; official colour from "appearance.colour_name"; '
+        'tone calibration from "appearance.colour_hex"; texture and small details from the photo. '
+        'An item whose "appearance_source" is "reconstructed_3d" is shown in image 1 as a computed '
+        'render: its position, size and rotation are exact, its surface is not — never copy that '
+        'surface. An item whose "appearance_source" is "not_shown" is missing from image 1 '
+        'altogether: draw it from image 4 and its own data, on its floor rectangle.\n\n'
         'GREY VOLUMES. An item shown as a plain grey block in image 1 is a placeholder: its size, '
         'place and rotation are right, its look is not — draw the real product using image 4 and '
         'the item list.\n\n'
@@ -556,6 +573,10 @@ def main() -> None:
         'shadows, natural light, correct wall-floor junctions, keep verticals vertical. You may add '
         'wall art and small decor typical of the style. Fill every planter and vase from the list '
         'with a live plant sized to it. Where the list has a TV stand, a TV is ALWAYS present: put it either standing on the stand or wall-mounted right above it — choose by the size and design of that stand.\n\n'
+        'ALLOWED GENERATED ELEMENTS (nothing else may be invented): a live plant inside a listed '
+        'planter or vase; a TV on or above a listed TV stand; curtains or blinds on a listed '
+        'window; a radiator under a listed window; restrained framed wall art; light, shadows and '
+        'reflections. These must not cover or outshine the purchased products.\n\n'
         'NEVER ADD: furniture, rugs, lamps, TV, textiles, pots, planters or floor plants that are '
         'not in the list. Do not duplicate items to make the room look fuller — a small room stays '
         'sparse if the list is short.\n\n'

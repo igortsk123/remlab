@@ -200,7 +200,10 @@ def billboard(p, it, cam):
     # предмета проецируется выше настоящей линии касания пола, и товар выглядит висящим —
     # особенно низкая мебель, на которую смотрят сверху (владелец, 2026-08-05).
     depth = [float(x) * look[0] + float(y) * look[2] for x, y in zip(xs_f, ys_f)]
-    near = (max(depth) - min(depth)) / 2          # половина протяжённости следа вдоль взгляда
+    # Сдвиг ОГРАНИЧЕН. На всю глубину предмета его двигать нельзя: диван глубиной 150 см уезжал
+    # к зрителю на 75 см и выглядел отставленным от стены, а пуф уходил ниже кадра целиком
+    # (владелец, 2026-08-05). 20 см хватает, чтобы низкая мебель перестала висеть.
+    near = min((max(depth) - min(depth)) / 2, 20.0)
     centre = centre - look * near
     corner = centre - side * (w_cm / 2) + np.array([0.0, base, 0.0])
     return corner, side * w_cm, np.array([0.0, h_cm - base, 0.0]), look
@@ -295,6 +298,46 @@ def _footprint_mask(p, it, cam, W: int, H: int) -> np.ndarray | None:
         return np.asarray(m) > 0
     except Exception:  # noqa: BLE001 — нет следа: работаем как раньше
         return None
+
+
+def paste_mesh_screen(pano: np.ndarray, mask: np.ndarray, img: Image.Image,
+                      paint: np.ndarray | None = None, sid: int = 0) -> int:
+    """Рендер 3D-модели ставится ПО НАСТОЯЩЕМУ СИЛУЭТУ предмета из карты объектов.
+
+    Плоская вертикальная карточка не совпадает с силуэтом низкой мебели вблизи: у пуфа в 1,2 м от
+    камеры она уходила целиком ниже кадра, хотя сам пуф в кадре есть (владелец, 2026-08-05).
+    Маска из компилятора сцены уже знает и обрезку кадром, и перекрытия — вписываем рендер в её
+    габаритный прямоугольник и рисуем строго внутри маски.
+    """
+    ys, xs = np.nonzero(mask)
+    if not len(ys):
+        return 0
+    x0, x1, y0, y1 = int(xs.min()), int(xs.max()), int(ys.min()), int(ys.max())
+    bw, bh = max(x1 - x0 + 1, 2), max(y1 - y0 + 1, 2)
+    cut = trim_alpha(img)
+    k = min(bw / cut.width, bh / cut.height)          # пропорции рендера не ломаем
+    nw, nh = max(int(cut.width * k), 2), max(int(cut.height * k), 2)
+    cut = cut.resize((nw, nh), Image.LANCZOS)
+    src = np.asarray(cut).astype(np.float32)
+    # ставим по низу и по центру габарита предмета — так низ рендера ложится на линию касания пола
+    ox, oy = x0 + (bw - nw) // 2, y1 - nh + 1
+    sub = mask[max(oy, 0):oy + nh, max(ox, 0):ox + nw]
+    sy0, sx0 = max(-oy, 0), max(-ox, 0)
+    src = src[sy0:sy0 + sub.shape[0], sx0:sx0 + sub.shape[1]]
+    if src.size == 0:
+        return 0
+    alpha = (src[..., 3:4] / 255.0) if src.shape[2] > 3 else np.ones(src.shape[:2] + (1,), np.float32)
+    ok = sub & (alpha[..., 0] > 0.15)
+    if ok.sum() < 50:
+        return 0
+    yy, xx = np.nonzero(ok)
+    Y, X = yy + max(oy, 0), xx + max(ox, 0)
+    a = alpha[yy, xx]
+    base = pano[Y, X].astype(np.float32)
+    pano[Y, X] = np.clip(src[yy, xx, :3] * a + base * (1 - a), 0, 255).astype(np.uint8)
+    if paint is not None:
+        paint[Y, X] = sid
+    return int(ok.sum())
 
 
 def paste_role(pano: np.ndarray, zbuf: np.ndarray, cam, p, it, photo: Image.Image,
@@ -609,9 +652,12 @@ def main() -> None:
             continue
         mesh_img = (mesh_source(n, role, by[role], by[role].item, cam)
                     if role in MESH_ROLES else None)
-        px = paste_role(pano, zbuf, cam, by[role], by[role].item,
-                        mesh_img if mesh_img is not None else cutout(photo_path),
-                        paint=paint, sid=int(sid), is_mesh=mesh_img is not None)
+        if mesh_img is not None:
+            # у модели есть настоящий силуэт в карте объектов — ставим по нему
+            px = paste_mesh_screen(pano, ids_full == int(sid), mesh_img, paint, int(sid))
+        else:
+            px = paste_role(pano, zbuf, cam, by[role], by[role].item, cutout(photo_path),
+                            paint=paint, sid=int(sid))
         if mesh_img is not None and px > 0:
             meshed.append(role)
         if px <= 0:

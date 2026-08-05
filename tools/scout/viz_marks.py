@@ -329,8 +329,24 @@ def build(n: int, cam_name: str = 'C1', nums: dict | None = None) -> tuple[str, 
             colour and f'средний цвет по фото: {colour}',
             _f('wood') and f'дерево: {_f("wood")}',
             _f('metal') and f'металл: {_f("metal")}') if x)
+        # Структурированные поля вместо одной строки описания: разбор промпта показал, что в
+        # `details` мешались машинный тег, HEX, материал и свободный текст, и модель не понимала,
+        # что из этого главное (владелец, 2026-08-05).
+        appearance = {k: v for k, v in {
+            'material': prm.get('Материал') or prm.get('Материал обивки') or prm.get('Ткань')
+            or _f('fabric') or (f'дерево {_f("wood")}' if _f('wood') else None),
+            'colour_name': prm.get('Цвет') or prm.get('Цвет корпуса'),
+            'colour_hex': colour or None,
+            'construction': prm.get('Конфигурация') or prm.get('Тип дивана')
+            or prm.get('Тип товара'),
+            'series': prm.get('Коллекция/серия') or prm.get('Серия'),
+            'notes': (fc.get('description') or '')[:160] or None,
+        }.items() if v}
         legend.append({
             'n': num, 'роль': role, 'товар': (it.get('name') or '')[:80],
+            'внешний_вид': appearance,
+            'подпора': ('пол' if float(getattr(by.get(role), 'elev_cm', 0) or 0) <= 1
+                        else 'стоит на другой мебели'),
             'описание': details[:420],
             'габариты_см': ([int(by[role].item.w_cm), int(by[role].item.d_cm),
                              int(by[role].item.h_cm or 0)] if role in by and by[role].item
