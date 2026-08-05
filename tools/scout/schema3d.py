@@ -236,7 +236,16 @@ def render(cam, V, F, C, ids, size=(1344, 896)):
         shade = 0.62 + 0.38 * lam
         img[y0:y1, x0:x1][upd] = np.clip(C[idx] * shade, 0, 255)
         inst[y0:y1, x0:x1][upd] = ids[idx]
-    return Image.fromarray(img.astype(np.uint8)), inst
+    # Карта глубины той же сцены: ближе — светлее. Отдаём её модели пятой картинкой как подсказку
+    # о пространстве (у семейства GPT-4o есть задачи пространственного контроля по глубине).
+    fin = np.isfinite(zbuf) & (zbuf < 1e17)
+    depth = np.zeros_like(zbuf)
+    if fin.any():
+        lo, hi = float(np.percentile(zbuf[fin], 1)), float(np.percentile(zbuf[fin], 99))
+        depth = np.clip((zbuf - lo) / max(hi - lo, 1e-6), 0, 1)
+        depth[~fin] = 1.0
+    dep_img = Image.fromarray(((1 - depth) * 255).astype(np.uint8))
+    return Image.fromarray(img.astype(np.uint8)), inst, dep_img
 
 
 def draw_callouts(img: Image.Image, inst: np.ndarray, names, by, nums) -> Image.Image:
@@ -295,7 +304,8 @@ def main() -> None:
         room, placements, V, F, C, ids, names = scene_geometry(n, only)
         by = {p.role: p for p in placements}
         all_cams = {c.name: c for c in cameras_for(room, placements)}
-        img, inst = render(all_cams[cam_name], V, F, C, ids)
+        img, inst, dep = render(all_cams[cam_name], V, F, C, ids)
+        dep.save(f'{os.path.join(SCENE_DIR, f"scene{n}-{cam_name}")}-schema-depth.png')
         plain = f'{os.path.join(SCENE_DIR, f"scene{n}-{cam_name}")}-schema3d.jpg'
         img.save(plain, quality=94)
         # ОДИН ИСТОЧНИК ПРАВДЫ О КАДРЕ. Раньше «что в кадре» считалось в двух местах по-разному:
