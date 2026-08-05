@@ -70,8 +70,13 @@ def flat_colors(mesh) -> np.ndarray:
 
 
 def render(parts, yaw_deg: float, pitch_deg: float = 18.0,
-           size: tuple[int, int] = (900, 900), light=(0.35, 0.7, 0.9)) -> Image.Image:
-    """Ортографический рендер с общим z-буфером. RGBA, фон прозрачный."""
+           size: tuple[int, int] = (900, 900), light=(0.35, 0.7, 0.9),
+           flat: tuple[int, int, int] | None = None) -> Image.Image:
+    """Ортографический рендер с общим z-буфером. RGBA, фон прозрачный.
+
+    `flat` — залить одним цветом вместо текстуры: нужен для СХЕМЫ, где важна форма и место
+    предмета, а внешний вид модель берёт с эталона (владелец, 2026-08-05).
+    """
     if not isinstance(parts, (list, tuple)):
         parts = [parts]
     W, H = size
@@ -127,7 +132,11 @@ def render(parts, yaw_deg: float, pitch_deg: float = 18.0,
             if not upd.any():
                 continue
             sub[upd] = z[upd]
-            if tex is not None:
+            if flat is not None:
+                col = np.repeat(np.array(flat, np.float32)[None, :], inside.size, axis=0)
+                col = col.reshape(inside.shape + (3,)) * shade[idx]
+                img[y0:y1, x0:x1][upd] = np.clip(col[upd], 0, 255)
+            elif tex is not None:
                 th, tw = tex.shape[:2]
                 u = w0 * uv[a, 0] + w1 * uv[b, 0] + w2 * uv[c, 0]
                 vv = w0 * uv[a, 1] + w1 * uv[b, 1] + w2 * uv[c, 1]
