@@ -18,6 +18,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from style_tags import tag as style_tag  # noqa: E402
+from desc_quality import classify as _desc_class, trusted as _desc_trusted  # noqa: E402
 
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
         '-q', '-v', 'ON_ERROR_STOP=1', '-t', '-A', '-F', '\x1f']
@@ -103,7 +104,8 @@ def extract(it: dict) -> dict:
         'brand_hint': brand,
         'dims_quality': dims_quality,
         'dims_sane': sane,
-        'has_desc': bool(it.get('desc')),
+        'has_desc': bool(it.get('desc')) and _desc_trusted(it.get('desc')),
+        'desc_class': _desc_class(it.get('desc')),
         'name_generic': len((it.get('name') or '').split()) <= 2,
     }
 

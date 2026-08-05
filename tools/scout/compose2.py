@@ -10,6 +10,7 @@ import numpy as np
 from PIL import Image
 from style_tags import tag, style_ok
 from item_function import fits_role, subtype
+import enrich_bridge as EB   # проверенное моделью обогащение каталога (К2): подтип, стиль, качество
 from proportions import P as _PROP, check as prop_check
 PROP_RULES={r['id']: r['allowed'] for r in _PROP['rules']}
 
@@ -261,9 +262,17 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
             if not (tgt_lo*0.75<=it['fp']<=tgt_hi*1.25): continue
             if not (plo<=it['price']<=phi) and not soft: continue
             # ЖЁСТКИЕ ОГРАНИЧЕНИЯ ДО ЭСТЕТИКИ (sets-feasibility-first, 2026-08-05).
+            # 0) карточка должна быть годной: обогащение К2 отбраковывает мусорные размеры и
+            #    карточки, где текст сам себе противоречит. Товара без обогащения это не касается.
+            if not EB.quality_ok(it['mid'], it['eid']):
+                continue
             # 1) товар должен подходить роли ПО ФУНКЦИИ: банкетка — не пуф, кресло-мешок — не пуф.
+            #    Подтип из обогащения точнее регекса по названию; нет обогащения — старая эвристика.
+            _sub_e = EB.subtype_ok(role, it['mid'], it['eid'])
+            if _sub_e is False:
+                continue
             fit_ok, _sub = fits_role(role, it)
-            if not fit_ok:
+            if not fit_ok and _sub_e is not True:
                 continue
             # 2) пропорции относительно уже выбранных предметов: вне допустимых рамок — выбываем,
             #    сколько бы баллов ни давали цвет и стиль.
@@ -313,7 +322,7 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
         if fb and fb in ctx['fabrics']: s+=1.5; why.append(f"фактура {fb} повтор+1.5")
         # Ф2 v3: стиль-фит из style-scores (LLM+правила+CLIP) с ВИЗУАЛЬНЫМ весом роли
         if ctx.get('style_name'):
-            sf=SS.get(emb_key(it['mid'],it['eid']))
+            sf=SS.get(emb_key(it['mid'],it['eid'])) or EB.style_scores(it['mid'],it['eid'])
             if sf:
                 wgt=ROLE_W.get(role,0.4)
                 if sf.get('universal'): s+=0.3; why.append("нейтрал+0.3")
@@ -534,7 +543,7 @@ for bi,band in enumerate(COMP['bands']):
         if style_name:  # взвешенный стиль-фит сета: визуальный вес = роль × площадь (просьба владельца)
             num=den=0.0
             for r,it in chosen.items():
-                c=SS.get(emb_key(it['mid'],it['eid']))
+                c=SS.get(emb_key(it['mid'],it['eid'])) or EB.style_scores(it['mid'],it['eid'])
                 if not c: continue
                 w=ROLE_W.get(r,ROLE_W.get(r.replace(' 2',''),0.3))*max(it.get('fp') or 0.16,0.05)
                 num+=(5.5 if c.get('universal') else c[style_name])*w; den+=w

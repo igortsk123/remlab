@@ -95,6 +95,12 @@ SYS = (
 
 
 def prompt(it: dict) -> str:
+    # Описание отдаём модели, только если оно вообще что-то говорит о товаре. Замер 2026-08-05:
+    # годных описаний в пуле 12.3%, остальное — маркетинговый шаблон магазина (969 диванов с одной
+    # фразой), инструкция по креплению или обрывок в две строки. Шум занимает место в промпте,
+    # стоит денег и создаёт ложное ощущение информативной карточки (замечание владельца).
+    from desc_quality import trusted as _desc_ok
+    _desc = it.get('desc') if _desc_ok(it.get('desc')) else ''
     dims = ' × '.join(f'{k}{int(v)}' for k, v in
                       (('Ш', it.get('w')), ('Г', it.get('d')), ('В', it.get('h')),
                        ('⌀', it.get('dia'))) if v)
@@ -106,7 +112,7 @@ def prompt(it: dict) -> str:
             f'Размеры, см: {dims or "не указаны"}\n'
             f'Цена: {it["price"]} ₽\n'
             f'Параметры фида: {json.dumps(params, ensure_ascii=False) if params else "нет"}\n'
-            f'Описание: {it["desc"][:700] or "нет"}')
+            f'Описание: {_desc[:700] or "нет"}')
 
 
 def _key() -> str:
@@ -121,11 +127,22 @@ def _key() -> str:
 USAGE = {'in': 0, 'out': 0, 'fails': 0}
 
 
-def ask(it: dict, model: str, key: str) -> dict | None:
+def ask(it: dict, model: str, key: str, vision: bool = False) -> dict | None:
+    # С картинкой: текст карточки + фото товара в низком разрешении. Смысл — проверить, добавляет
+    # ли фотография то, чего в тексте нет (стиль, форма, материал). Замер 2026-08-05 показал, что
+    # стиль по одному тексту совпадает со стилем по картинке лишь в 16% — на уровне случайности,
+    # значит опираться только на текст в стилевых ролях нельзя (вопрос владельца).
+    if vision and it.get('img'):
+        url = it['img']
+        url = 'https:' + url if url.startswith('//') else url
+        content = [{'type': 'text', 'text': prompt(it)},
+                   {'type': 'image_url', 'image_url': {'url': url, 'detail': 'low'}}]
+    else:
+        content = prompt(it)
     body = {
         'model': model,
         'messages': [{'role': 'system', 'content': SYS},
-                     {'role': 'user', 'content': prompt(it)}],
+                     {'role': 'user', 'content': content}],
         'response_format': {'type': 'json_schema',
                             'json_schema': {'name': 'furniture', 'strict': True, 'schema': SCHEMA}},
     }
@@ -174,7 +191,8 @@ def main() -> None:
     t0 = time.time()
     res: dict[str, dict] = {}
     with cf.ThreadPoolExecutor(8) as ex:
-        futs = {ex.submit(ask, it, model, key): it for it in items}
+        vision = '--vision' in sys.argv
+        futs = {ex.submit(ask, it, model, key, vision): it for it in items}
         done = 0
         for f in cf.as_completed(futs):
             it = futs[f]

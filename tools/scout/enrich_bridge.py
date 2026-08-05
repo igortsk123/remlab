@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""Мост между обогащением каталога и сборщиком комплектов.
+
+Сборщик исторически знает о товаре три вещи: роль по регексу категории, стилевой вектор из
+`style-scores.json` и подтип по эвристике `item_function`. После К2 у нас есть проверенное
+моделью обогащение на 26 147 товаров: роль, функциональный подтип, цвет, материалы, стилевой
+вектор и системная оценка качества карточки.
+
+Мост подключает это, не переписывая сборщик:
+  * подтип берём из обогащения, если он там есть (модель отличает банкетку от пуфа надёжнее
+    регекса по названию);
+  * стилевой вектор — фолбэк там, где `style-scores.json` товар не знает (покрытие 15 735 → 23 879);
+  * карточки с качеством ниже порога в комплект не пускаем: плохая карточка не должна попадать
+    в подбор только потому, что подошла по размеру.
+
+  ~/venvs/scout/bin/python enrich_bridge.py     # замер покрытия
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
+        '-q', '-v', 'ON_ERROR_STOP=1', '-t', '-A', '-F', '\x1f']
+MIN_QUALITY = 0.65
+
+# «нет/низкая/средняя/высокая» → шкала 0–10, в которой живёт style-scores.json.
+# Дискретные ступени — осознанный выбор К3: числа 0–1 от модели не воспроизводятся между
+# прогонами, а ступени воспроизводятся; в общую шкалу переводим один раз здесь.
+LEVEL10 = {'нет': 1.5, 'низкая': 4.0, 'средняя': 7.0, 'высокая': 9.0}
+
+# подтипы обогащения → роли сборщика, для которых они допустимы
+SUB_OK = {
+    'пуф': {'подставка_для_ног', 'дополнительное_сиденье', 'пуф_стол', 'пуф_хранение'},
+    'столик': {'журнальный_стол', 'приставной_стол', 'пуф_стол'},
+    'комод': {'комод_хранение', 'сервант'},
+    'тв-тумба': {'тумба_под_тв'},
+    'стеллаж': {'книжный_стеллаж', 'стеллаж_перегородка', 'витрина'},
+    'торшер': {'напольный_светильник'},
+    'лампа': {'настольная_лампа'},
+    'люстра': {'подвесной_светильник'},
+}
+
+_CACHE: dict | None = None
+
+
+def _key(mid, eid) -> str:
+    return f'{mid}:{eid}'
+
+
+def load() -> dict:
+    """Обогащение в память: 26 тысяч строк, это десятки мегабайт и одна секунда."""
+    global _CACHE
+    if _CACHE is not None:
+        return _CACHE
+    r = subprocess.run(PSQL, capture_output=True, text=True, input="""
+        select shop_mid, external_id, quality,
+               payload->'model'->>'role', payload->'model'->>'functional_subtype',
+               payload->'model'->>'primary_color', payload->'model'->>'materials',
+               payload->'model'->>'styles', payload->'model'->>'style_strength',
+               payload->'model'->>'visual_mass', payload->'model'->>'warmth'
+          from product_enrichment where payload is not null and status='active'
+    """)
+    if r.returncode != 0:
+        print(r.stderr[:300])
+        return {}
+    out = {}
+    for line in r.stdout.strip().split('\n'):
+        if not line:
+            continue
+        f = line.split('\x1f')
+        if len(f) < 11:
+            continue          # строка с переносом внутри описания — пропускаем, их единицы
+        out[_key(f[0], f[1])] = dict(
+            quality=float(f[2] or 0), role=f[3], subtype=f[4], colour=f[5],
+            materials=json.loads(f[6]) if f[6] else [],
+            styles=json.loads(f[7]) if f[7] else {},
+            strength=f[8], mass=f[9], warmth=f[10])
+    _CACHE = out
+    return out
+
+
+def get(mid, eid) -> dict | None:
+    return load().get(_key(mid, eid))
+
+
+def quality_ok(mid, eid) -> bool:
+    """Пускать ли карточку в подбор. Товар без обогащения не отвергаем — просто нет данных."""
+    e = get(mid, eid)
+    return True if e is None else e['quality'] >= MIN_QUALITY
+
+
+def subtype_ok(role: str, mid, eid) -> bool | None:
+    """Годится ли товар роли по функции. None — обогащения нет, решает старая эвристика."""
+    e = get(mid, eid)
+    if not e or role not in SUB_OK:
+        return None
+    return e['subtype'] in SUB_OK[role]
+
+
+def style_scores(mid, eid) -> dict | None:
+    """Стилевой вектор в шкале 0–10 — фолбэк для товаров, которых нет в style-scores.json."""
+    e = get(mid, eid)
+    if not e or not e['styles']:
+        return None
+    out = {k: LEVEL10.get(v, 5.0) for k, v in e['styles'].items()}
+    out['universal'] = e.get('strength') == 'нейтральный'
+    out['src'] = 'enrich'
+    return out
+
+
+def main() -> None:
+    e = load()
+    ss_path = os.path.join(HERE, 'style-scores.json')
+    ss = json.load(open(ss_path)) if os.path.exists(ss_path) else {}
+
+    def emb_key(mid, eid):
+        return f"{mid}-{re.sub(r'[^A-Za-z0-9]', '_', str(eid))[:40]}"
+
+    have_ss = sum(1 for k in e if emb_key(*k.split(':', 1)) in ss)
+    low = sum(1 for v in e.values() if v['quality'] < MIN_QUALITY)
+    subs: dict[str, int] = {}
+    for v in e.values():
+        subs[v['subtype']] = subs.get(v['subtype'], 0) + 1
+    print(f'обогащено: {len(e)}')
+    print(f'  из них уже были в style-scores.json: {have_ss} ({have_ss / len(e) * 100:.0f}%)')
+    print(f'  добавляем стилевой вектор: {len(e) - have_ss}')
+    print(f'  не пройдут порог качества {MIN_QUALITY}: {low} ({low / len(e) * 100:.1f}%)')
+    print('\nфункциональные подтипы (топ-12):')
+    for s, n in sorted(subs.items(), key=lambda kv: -kv[1])[:12]:
+        print(f'  {s:26s} {n:>6}')
+
+
+if __name__ == '__main__':
+    main()

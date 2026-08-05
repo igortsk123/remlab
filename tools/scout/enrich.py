@@ -34,8 +34,10 @@ from golden_label import SCHEMA, SYS, prompt, _key  # noqa: E402
 from rules0 import extract, flags, pool  # noqa: E402
 
 MODEL = 'gpt-5.6-luna'
+MODEL_STRONG = 'gpt-5.6-terra'    # уровень 3: только спорным, и только если сильной модели есть
+                                  # с чем работать — размеры она восстановить не может
 ENRICH_VERSION = 'furniture-v1'
-PROMPT_VERSION = 'p2'
+PROMPT_VERSION = 'p3'
 SCHEMA_VERSION = 's2'
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
         '-q', '-v', 'ON_ERROR_STOP=1', '-t', '-A', '-F', '\x1f']
@@ -89,9 +91,9 @@ def quality(r0: dict, m: dict) -> float:
     return max(0.0, min(1.0, round(q, 2)))
 
 
-def body_for(it: dict) -> dict:
+def body_for(it: dict, model: str = MODEL) -> dict:
     return {
-        'model': MODEL,
+        'model': model,
         'messages': [{'role': 'system', 'content': SYS},
                      {'role': 'user', 'content': prompt(it)}],
         'response_format': {'type': 'json_schema',
@@ -100,11 +102,18 @@ def body_for(it: dict) -> dict:
     }
 
 
+# p2 остаётся годной там, где промпт p3 ничего не поменял: разница между ними одна — p3 не шлёт
+# негодное описание. Если описания не было или оно было годным, ответ p2 идентичен p3, и платить
+# за перегон незачем (2026-08-05).
+ACCEPT_PROMPTS = ("'p2'", "'p3'")
+
+
 def todo(items: list[dict]) -> list[dict]:
     """Кому обогащение реально нужно: новым и тем, у кого поменялся смысл или версия."""
     rows = sql(f"""select shop_mid, external_id from product_enrichment
                  where payload is not null and enrichment_version='{ENRICH_VERSION}'
-                   and prompt_version='{PROMPT_VERSION}' and schema_version='{SCHEMA_VERSION}'""")
+                   and prompt_version in ({','.join(ACCEPT_PROMPTS)})
+                   and schema_version='{SCHEMA_VERSION}'""")
     done = {tuple(l.split('\x1f')) for l in rows.strip().split('\n') if l}
     out = [it for it in items if (str(it['mid']), it['eid']) not in done]
     if len(out) < len(items):
@@ -112,7 +121,7 @@ def todo(items: list[dict]) -> list[dict]:
     return out
 
 
-def save(rows: list[tuple[dict, dict, dict]]) -> None:
+def save(rows: list[tuple[dict, dict, dict]], model: str = MODEL) -> None:
     """Запись обогащения одной пачкой: payload + качество + версии."""
     if not rows:
         return
@@ -123,7 +132,7 @@ def save(rows: list[tuple[dict, dict, dict]]) -> None:
         vals.append(f"({it['mid']},'{it['eid']}','{payload}'::jsonb,{quality(r0, m)})")
     sql(f"""
       update product_enrichment e set payload=v.payload, quality=v.q,
-             enrichment_version='{ENRICH_VERSION}', model_name='{MODEL}',
+             enrichment_version='{ENRICH_VERSION}', model_name='{model}',
              prompt_version='{PROMPT_VERSION}', schema_version='{SCHEMA_VERSION}',
              enriched_at=now(), updated_at=now()
         from (values {','.join(vals)}) as v(mid, eid, payload, q)
@@ -131,8 +140,9 @@ def save(rows: list[tuple[dict, dict, dict]]) -> None:
     """)
 
 
-def ask(it: dict, key: str) -> dict | None:
-    req = urllib.request.Request(f'{API}/chat/completions', data=json.dumps(body_for(it)).encode(),
+def ask(it: dict, key: str, model: str = MODEL) -> dict | None:
+    req = urllib.request.Request(f'{API}/chat/completions',
+                                 data=json.dumps(body_for(it, model)).encode(),
                                  headers={'Authorization': f'Bearer {key}',
                                           'Content-Type': 'application/json'})
     for attempt in range(3):
@@ -149,12 +159,12 @@ def ask(it: dict, key: str) -> dict | None:
     return None
 
 
-def run_sync(items: list[dict]) -> None:
+def run_sync(items: list[dict], model: str = MODEL) -> None:
     key = _key()
     got: list[tuple[dict, dict, dict]] = []
     t0 = time.time()
     with cf.ThreadPoolExecutor(8) as ex:
-        futs = {ex.submit(ask, it, key): it for it in items}
+        futs = {ex.submit(ask, it, key, model): it for it in items}
         for i, f in enumerate(cf.as_completed(futs), 1):
             it = futs[f]
             m = f.result()
@@ -162,7 +172,7 @@ def run_sync(items: list[dict]) -> None:
                 got.append((it, extract(it), m))
             if i % 50 == 0:
                 print(f'  {i}/{len(items)}', flush=True)
-    save(got)
+    save(got, model)
     qs = [quality(r0, m) for _, r0, m in got]
     low = sum(1 for q in qs if q < 0.65)
     print(f'обогащено {len(got)}/{len(items)} за {time.time() - t0:.0f} с; '
@@ -273,6 +283,29 @@ def main() -> None:
         if not items:
             return
         run_batch(items) if '--batch' in a else run_sync(items)
+    elif '--redo-desc' in a:
+        # Перегон карточек, где в промпт уходил негодный текст (шаблон магазина, инструкция,
+        # обрывок). Замер на 150 таких карточек: подтип меняется у 9%, роль у 2%, стиль на две
+        # ступени у 5%. Подтип задаёт жёсткие правила размеров, поэтому перегон оправдан
+        # (замечание владельца, 2026-08-05).
+        from desc_quality import classify as _dc
+        items = [it for it in pool() if _dc(it.get('desc')) in ('duplicate', 'boilerplate', 'short')]
+        print(f'перегон по негодным описаниям: {len(items)}')
+        if items:
+            run_batch(items) if '--batch' in a else run_sync(items)
+    elif '--escalate' in a:
+        # Уровень 3 только тем, кому сильная модель реально поможет: текст есть, размеры полные,
+        # а роль или подтип спорны. Позициям с дырами в размерах эскалация бесполезна — модель
+        # не восстанавливает сантиметры (замер 2026-08-05: из 2 284 слабых таких 2 143).
+        ids = sql("""select shop_mid, external_id from product_enrichment
+                     where quality<0.65 and payload is not null
+                       and payload->'rules'->>'has_desc'='true'
+                       and payload->'rules'->>'dims_quality'='полные'""")
+        keys = {tuple(l.split('\x1f')) for l in ids.strip().split('\n') if l}
+        items = [it for it in pool() if (str(it['mid']), it['eid']) in keys]
+        print(f'на эскалацию: {len(items)} товаров, модель {MODEL_STRONG}')
+        if items:
+            run_sync(items, MODEL_STRONG)
     elif '--sample' in a:
         n = int(a[a.index('--sample') + 1])
         all_items = todo(pool())
