@@ -347,6 +347,16 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]],
         m['appearance_source'] = ('reconstructed_3d' if k in meshed_ids else
                                   'not_shown' if role in not_shown else 'product_photo')
         m['has_footprint'] = k in fp_ids
+        # Откуда взяты габариты: из фида целиком, частично или подставлены типовые. Модель должна
+        # знать, где число измерено, а где достроено (владелец, 2026-08-05).
+        try:
+            from viz_objects import feed_card as _fc, product as _pr
+            _prm = (_fc(_pr(n, m['type'])[0]).get('params') or {})
+            _have = sum(1 for kk in ('Ширина', 'Глубина', 'Высота') if _prm.get(kk))
+            m['size_source'] = ('feed' if _have == 3 else
+                                'feed_partial' if _have else 'typical')
+        except Exception:  # noqa: BLE001 — нет карточки: считаем типовыми
+            m['size_source'] = 'typical'
         # Ковёр и другие подгоняемые под сцену вещи: в названии магазина свой размер, у нас — свой.
         # Без явной пометки модель верит названию и рисует не тот размер (разбор промпта).
         import re as _re
