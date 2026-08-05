@@ -38,7 +38,7 @@ MODEL_STRONG = 'gpt-5.6-terra'    # уровень 3: только спорны�
                                   # с чем работать — размеры она восстановить не может
 ENRICH_VERSION = 'furniture-v1'
 PROMPT_VERSION = 'p3'
-SCHEMA_VERSION = 's2'
+SCHEMA_VERSION = 's3'
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
         '-q', '-v', 'ON_ERROR_STOP=1', '-t', '-A', '-F', '\x1f']
 API = 'https://api.openai.com/v1'
@@ -132,7 +132,7 @@ def todo(items: list[dict]) -> list[dict]:
 
 
 VISION_FIELDS = ('styles', 'style_strength', 'materials', 'primary_color', 'shape',
-                 'visual_mass', 'warmth', 'decorativeness', 'base_type')
+                 'visual_mass', 'warmth', 'decorativeness', 'base_type', 'image_type', 'photo')
 
 
 def save(rows: list[tuple[dict, dict, dict]], model: str = MODEL, vision: bool = False) -> None:
@@ -319,6 +319,24 @@ def main() -> None:
             fetch(bid, cache)
     elif '--pool' in a:
         items = todo(pool())
+        if '--sets-roles' in a:
+            # Роли, которые сборщик комплектов реально использует. Шкафы-купе и «другое» в
+            # гостиную не идут — платить за их фотографии незачем (6 423 товара, 4.4 $).
+            keep = {'диван', 'кресло', 'пуф', 'столик', 'тв-тумба', 'комод', 'стеллаж', 'витрина',
+                    'стенка', 'стол обеденный', 'стул', 'камин', 'кашпо', 'торшер', 'ковёр',
+                    'лампа', 'люстра', 'ваза', 'статуэтка', 'плед', 'подушка', 'растение',
+                    'зеркало', 'полка', 'часы', 'шторы', 'бра'}
+            rows = sql("select shop_mid, external_id, payload->'model'->>'role' "
+                       "from product_enrichment where payload is not null")
+            role_of = {}
+            for line in rows.strip().split('\n'):
+                f = line.split('\x1f')
+                if len(f) >= 3:
+                    role_of[(f[0], f[1])] = f[2]
+            before = len(items)
+            items = [it for it in items
+                     if role_of.get((str(it['mid']), it['eid']), 'диван') in keep]
+            print(f'по ролям комплектов: {len(items)} из {before}')
         print(f'к обогащению: {len(items)}')
         if not items:
             return
