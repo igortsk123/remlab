@@ -466,9 +466,20 @@ def identity_sheet(n: int, legends: list[list[dict]], nums: dict) -> 'Image.Imag
     from PIL import ImageDraw, ImageFont
     from viz_objects import product
     from viz_paste import cutout, trim_alpha
-    # ЭТАЛОН НУЖЕН КАЖДОЙ ПОЗИЦИИ, а не только «проблемной»: модель рисует верно ровно то, что
-    # видела фотографией, остальное придумывает по названию (проверено дважды, владелец 2026-08-05).
+    # ЭТАЛОН НА КАЖДЫЙ ТОВАР КОМПЛЕКТА. Не «на проблемные» и даже не «на попавшие в кадр»: модель
+    # рисует верно ровно то, что видела фотографией, остальное придумывает по названию. Список
+    # берём из самого комплекта, а не из легенды кадра — легенда теряет позиции, чью маску срезал
+    # порог видимости (владелец проверил дважды, 2026-08-05).
+    import json as _j
     partial = {}
+    try:
+        _items = _j.load(open(os.path.join(HERE, 'sets3.json')))[n - 1]['items']
+        for role in _items:
+            num = nums.get(role)
+            if num:
+                partial[num] = role
+    except Exception:  # noqa: BLE001 — нет комплекта: работаем по легендам
+        pass
     for legend in legends:
         for e in legend:
             partial.setdefault(e['n'], e['роль'])
