@@ -203,7 +203,79 @@ def floor_quad(p, it):
             np.array([0.0, 1.0, 0.0]))
 
 
-def paste_role(pano: np.ndarray, zbuf: np.ndarray, cam, p, it, photo: Image.Image) -> int:
+def mesh_yaw_pitch(p, it, cam) -> tuple[float, float]:
+    """Под каким углом развернуть 3D-модель, чтобы камера увидела предмет как в плане.
+
+    Знак разворота выводится, а не подбирается: у модели, собранной по фронтальному фото, «лицо»
+    смотрит в камеру при yaw = 0, а положительный yaw выводит на экран ЛЕВЫЙ бок. Поэтому
+    считаем, какой бок предмета виден по плану и с какой стороны кадра он окажется.
+    """
+    face = {0: (0.0, 1.0), 90: (1.0, 0.0), 180: (0.0, -1.0),
+            270: (-1.0, 0.0)}.get(int(round(p.rot)) % 360, (0.0, 1.0))
+    eye, fwd, right, up = cam.basis()
+    v = np.array([eye[0] - p.x, eye[2] - p.y], float)
+    v /= max(float(np.linalg.norm(v)), 1e-6)
+    f = np.array(face, float)
+    mag = math.degrees(math.acos(max(-1.0, min(1.0, float(f @ v)))))
+    side = np.array([f[1], -f[0]])                    # какой бок предмета повёрнут к камере
+    if float(side @ v) < 0:
+        side = -side
+    on_screen = float(side[0] * right[0] + side[1] * right[2])   # он слева или справа в кадре
+    yaw = mag if on_screen < 0 else -mag
+    dist = math.hypot(p.x - eye[0], p.y - eye[2])
+    h = float(getattr(it, 'h_cm', 0) or 0) + float(getattr(p, 'elev_cm', 0.0))
+    pitch = math.degrees(math.atan2(max(float(eye[1]) - h, 0.0), max(dist, 1.0)))
+    return yaw, pitch
+
+
+def mesh_source(n: int, role: str, p, it, cam) -> Image.Image | None:
+    """Картинка предмета с 3D-модели под углом камеры — если модель для товара уже собрана.
+
+    Плоская карточка снята со своей точки и в чужом ракурсе врёт; рендер модели даёт и разворот,
+    и правильные пропорции в кадре, поэтому вклейка честно заполняет своё место (ADR-0060).
+    """
+    try:
+        from mesh_make import mesh_path
+        from mesh_render import load_parts, render
+        from viz_objects import product as _product
+        path = mesh_path(_product(n, role)[0])
+        if not os.path.exists(path):
+            return None
+        yaw, pitch = mesh_yaw_pitch(p, it, cam)
+        img = render(load_parts(path), yaw, pitch, size=(900, 900))
+        return trim_alpha(img)
+    except Exception as e:  # noqa: BLE001 — нет модели/сбой рендера: работаем по фотографии
+        print(f'  {role}: 3D не вышло ({str(e)[:60]}) — беру фото')
+        return None
+
+
+def _footprint_mask(p, it, cam, W: int, H: int) -> np.ndarray | None:
+    """След предмета на полу, залитый в пикселях кадра. Внутри него пол предмету не помеха."""
+    if cam.cyl or float(getattr(p, 'elev_cm', 0.0)) > 1.0:
+        return None
+    try:
+        from PIL import ImageDraw
+        from planner.geometry import footprint as _fp
+        eye, fwd, right, up = cam.basis()
+        focal = (W / 2) / math.tan(math.radians(cam.fov_deg) / 2)
+        xs, ys = _fp(p, it).exterior.coords.xy
+        pts = []
+        for x, y in zip(xs, ys):
+            rel = np.array([float(x), 0.0, float(y)]) - eye
+            z = float(rel @ fwd)
+            if z <= 1e-3:
+                return None
+            pts.append((W / 2 + focal * float(rel @ right) / z,
+                        H / 2 - focal * float(rel @ up) / z + cam.shift_y * H))
+        m = Image.new('L', (W, H), 0)
+        ImageDraw.Draw(m).polygon(pts, fill=255)
+        return np.asarray(m) > 0
+    except Exception:  # noqa: BLE001 — нет следа: работаем как раньше
+        return None
+
+
+def paste_role(pano: np.ndarray, zbuf: np.ndarray, cam, p, it, photo: Image.Image,
+               paint: np.ndarray | None = None, sid: int = 0, is_mesh: bool = False) -> int:
     """Ставит вырезку товара в кадр. Рисуем по прямоугольнику вырезки, а не по силуэту коробки:
     иначе часть товара срезается по её краю (у столика отрезало половину столешницы — владелец,
     2026-08-04). Что чем перекрыто, решает z-буфер сцены."""
@@ -221,7 +293,7 @@ def paste_role(pano: np.ndarray, zbuf: np.ndarray, cam, p, it, photo: Image.Imag
         # виден торец (владелец, 2026-08-04). Такие предметы уходят на нейросетевой проход.
         rot_f = int(round(p.rot)) % 360
         face_n = ({0: (0.0, 1.0), 90: (1.0, 0.0), 180: (0.0, -1.0), 270: (-1.0, 0.0)}.get(rot_f)
-                  if p.role in FRONTED else None)
+                  if p.role in FRONTED and not is_mesh else None)
         if face_n is not None:
             look = np.array([p.x - eye[0], 0.0, p.y - eye[2]])
             ln = float(np.linalg.norm(look))
@@ -284,11 +356,11 @@ def paste_role(pano: np.ndarray, zbuf: np.ndarray, cam, p, it, photo: Image.Imag
 
     if p.role in SOFT:
         return -1
-    if p.role in LOW and float(it.h_cm or 100) <= LOW_MAX_H:
+    if p.role in LOW and float(it.h_cm or 100) <= LOW_MAX_H and not is_mesh:
         return -1
     cut = trim_alpha(photo)
     a = np.asarray(cut)
-    if a.shape[2] > 3:
+    if a.shape[2] > 3 and not is_mesh:
         # Признак несработавшего матирования — НЕПРОЗРАЧНАЯ РАМКА по краю: у настоящей вырезки
         # углы прозрачны. Белый товар на белом фоне (подушки, плед) режется плохо, и в кадр
         # уезжает белый прямоугольник (владелец, 2026-08-04).
@@ -304,14 +376,21 @@ def paste_role(pano: np.ndarray, zbuf: np.ndarray, cam, p, it, photo: Image.Imag
         long_x = float(np.linalg.norm(wvec)) >= float(np.linalg.norm(hvec))
         if (cut.width >= cut.height) != long_x:
             cut = cut.transpose(Image.ROTATE_90)
+    # Картинку сперва УМЕНЬШАЕМ под размер её места в кадре, и только потом выбираем пиксели.
+    # Иначе выборка «через один» теряет тонкие детали: у столика пропадали ножки, и приёмка
+    # честно писала «висит» (2026-08-05). Усреднение при уменьшении делает их полупрозрачными,
+    # но видимыми.
+    box_w, box_h = max(x1 - x0, 1), max(y1 - y0, 1)
+    if cut.width > box_w * 1.4 or cut.height > box_h * 1.4:
+        cut = cut.resize((max(int(box_w), 8), max(int(box_h), 8)), Image.LANCZOS)
     src = np.asarray(cut).astype(np.float32)
     sh, sw = src.shape[:2]
     # ПРОПОРЦИИ ФОТО НЕ ЛОМАЕМ: вписываем снимок в габарит предмета и ставим по низу и центру,
     # иначе диван сплющивается по высоте, а стеллаж растягивается (владелец, 2026-08-04)
     box_ar = (w_cm / h_cm) if h_cm > 1e-6 else 1.0
     ph_ar = sw / max(sh, 1)
-    if p.role in FLOOR:                    # ковёр растягиваем на весь след — он и есть его размер
-        fit_w = fit_h = 1.0
+    if p.role in FLOOR or is_mesh:         # ковёр — на весь след; рендер модели уже в нужной
+        fit_w = fit_h = 1.0                # пропорции, вписывать «по фото» его не надо
     else:
         fit_w = min(1.0, ph_ar / box_ar)
         fit_h = min(1.0, box_ar / ph_ar)
@@ -327,7 +406,18 @@ def paste_role(pano: np.ndarray, zbuf: np.ndarray, cam, p, it, photo: Image.Imag
     alpha = (smp[:, 3:4] / 255.0) if src.shape[2] > 3 else np.ones((len(px), 1), np.float32)
     yy, xx = ys[ok][inside], xs[ok][inside]
     zpix = (t[ok][inside] if cam.cyl else t[ok][inside] * (dirs[ok][inside] @ fwd))
+    # ПОЛ НЕ МОЖЕТ ЗАКРЫВАТЬ ПРЕДМЕТ, КОТОРЫЙ НА НЁМ СТОИТ. Вырезка стоит в плоскости центра
+    # предмета, а пол перед ней ближе к камере — из-за этого у низкой мебели z-буфер срезал низ:
+    # у столика с высоты 155 см пропадала треть высоты вместе с ножками, и приёмка честно писала
+    # «ВИСИТ» (2026-08-05). Внутри собственного следа предмета глубина сцены не действует.
+    free = _footprint_mask(p, it, cam, W, H)
+    saved = None
+    if free is not None:
+        saved = zbuf[free].copy()
+        zbuf[free] = 1e9
     visible = (zpix < zbuf[yy, xx] + 1.0) & (alpha[:, 0] > 0.02)   # 1 см допуска на стену за спиной
+    if free is not None:
+        zbuf[free] = saved
     if visible.sum() < 50:
         return 0
     yy, xx, rgb, alpha, zpix = (yy[visible], xx[visible], rgb[visible],
@@ -335,7 +425,16 @@ def paste_role(pano: np.ndarray, zbuf: np.ndarray, cam, p, it, photo: Image.Imag
     base_px = pano[yy, xx].astype(np.float32)
     pano[yy, xx] = np.clip(rgb * alpha + base_px * (1 - alpha), 0, 255).astype(np.uint8)
     hard = alpha[:, 0] > 0.5
-    zbuf[yy[hard], xx[hard]] = zpix[hard]                          # ближние перекроют дальние
+    # Ковёр лежит на полу и не может ничего заслонять: когда он писал глубину, у мебели, стоящей
+    # НА нём, срезались ножки (приёмка ловила это как «ВИСИТ» у столика, 2026-08-05).
+    if p.role not in FLOOR:
+        zbuf[yy[hard], xx[hard]] = zpix[hard]                      # ближние перекроют дальние
+    if paint is not None:
+        # Карта «что куда легло» — по ней конвейер сам себя проверяет. Порог мягче, чем у
+        # z-буфера: тонкие ножки столика почти прозрачны, и по жёсткому порогу приёмка считала
+        # предмет висящим над полом, хотя ножки нарисованы (2026-08-05).
+        soft = alpha[:, 0] > 0.15
+        paint[yy[soft], xx[soft]] = sid
     return int(hard.sum())
 
 
@@ -446,12 +545,22 @@ def main() -> None:
     from planner.scene import compile_scene
     zbuf = compile_scene(room, [], cam)['depth'].copy()
     ex, _, ez = cam.eye
-    order = sorted(id_map.items(), key=lambda kv: -((by[kv[1]].x - ex) ** 2 + (by[kv[1]].y - ez) ** 2)
-                   if kv[1] in by else 0)
+    # Ковёр кладём ПЕРВЫМ, остальное — от дальнего к ближнему. По одному только расстоянию ковёр
+    # оказывался последним (его центр ближе к камере) и закрашивал ножки мебели, стоящей на нём
+    # (поймано приёмкой: у столика «ВИСИТ 0.45», 2026-08-05).
+    order = sorted(id_map.items(),
+                   key=lambda kv: (0 if kv[1] in FLOOR else 1,
+                                   -((by[kv[1]].x - ex) ** 2 + (by[kv[1]].y - ez) ** 2)
+                                   if kv[1] in by else 0))
 
     total = 0
     angled: list[str] = []
     done_roles: list[str] = []
+    # Карта «что куда легло»: id предмета в каждом закрашенном пикселе. Нужна, чтобы конвейер САМ
+    # сверял коллаж с геометрией (`collage_audit.py`) и не отправлял в модель заведомый брак.
+    paint = np.zeros((H, W), np.int32)
+    volumes: list[str] = []
+    meshed: list[str] = []
     for sid, role in order:
         if role not in in_frame:           # компилятор уже решил, что предмета в кадре нет
             continue
@@ -464,7 +573,13 @@ def main() -> None:
         if not os.path.exists(photo_path):
             print(f'  {role}: нет фото товара')
             continue
-        px = paste_role(pano, zbuf, cam, by[role], by[role].item, cutout(photo_path))
+        mesh_img = (None if '--no-mesh' in sys.argv
+                    else mesh_source(n, role, by[role], by[role].item, cam))
+        px = paste_role(pano, zbuf, cam, by[role], by[role].item,
+                        mesh_img if mesh_img is not None else cutout(photo_path),
+                        paint=paint, sid=int(sid), is_mesh=mesh_img is not None)
+        if mesh_img is not None and px > 0:
+            meshed.append(role)
         if px <= 0 and full is not None:
             # Объём показываем только у КРУПНЫХ предметов, стоящих на полу. Декор, лежащий на
             # мебели (подушки, плед, ваза, лампа), серой коробкой закрывал бы сам диван —
@@ -474,6 +589,7 @@ def main() -> None:
             big = m_box.mean() > 0.01
             if on_floor and role not in SOFT and big:
                 pano[m_box] = full[m_box]
+                volumes.append(role)
         if px < 0:
             angled.append(role)
             print(f'  {role}: сильный ракурс — на нейросетевой проход')
@@ -521,6 +637,10 @@ def main() -> None:
     img = Image.fromarray(pano)
     dst = f'{prefix}-pasted.jpg'
     img.save(dst, quality=93)
+    Image.fromarray(np.clip(paint, 0, 255).astype(np.uint8)).save(f'{prefix}-painted.png')
+    json.dump({'ids': {str(k): v for k, v in id_map.items()}, 'pasted': done_roles,
+               'volumes': volumes, 'angled': angled, 'meshed': meshed},
+              open(f'{prefix}-paint.json', 'w'), ensure_ascii=False, indent=1)
     refs = []
     for role in done_roles:
         try:
