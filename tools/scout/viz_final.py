@@ -80,10 +80,20 @@ def corner_brief(n: int, cam_name: str) -> str:
         if 0 < u < W:
             out.append(round(u / W * 100))
     if not out:
-        return 'no wall corner is visible in this frame'
-    return ('the vertical corner where two walls meet is at '
-            + ' and '.join(f'{v}% of the frame width' for v in out)
-            + ' — keep it exactly there')
+        return 'no vertical wall corner is visible in this frame'
+    out = sorted(out)
+    if len(out) == 1:
+        return (f'the vertical corner where two walls meet is at {out[0]}% of the frame width — '
+                'keep it exactly there')
+    # Углов в кадре может быть несколько; одна фраза про «угол на 99% и 42%» читалась как
+    # невозможное требование к ОДНОМУ углу (разбор промпта, 2026-08-05).
+    return ('this frame shows ' + str(len(out)) + ' vertical wall corners, at '
+            + ', '.join(f'{v}%' for v in out)
+            + ' of the frame width — keep each of them exactly there').replace(
+                'this frame shows', 'there are', 1) if False else (
+        'there are ' + str(len(out)) + ' vertical wall corners, at '
+        + ', '.join(f'{v}%' for v in out)
+        + ' of the frame width — keep each of them exactly there')
 
 
 def openings_brief(n: int, cam_name: str) -> str:
@@ -290,6 +300,7 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]],
             code = ('whole' if e['видимость'].startswith('виден целиком') else 'part')
             item['in_top' if idx == 0 else 'in_bottom'] = code
     from viz_paste import FLOOR, KEY_FLOOR, SOFT
+    from scene_build import RELATIONS
     sys.path.insert(0, '/home/pakar/igor/remlab/services/planner-solver')
     from scene_build import load_scene as _ls
     _room, _pl = _ls(n)
@@ -320,8 +331,34 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]],
         m['appearance_source'] = ('reconstructed_3d' if k in meshed_ids else
                                   'not_shown' if role in not_shown else 'product_photo')
         m['has_footprint'] = k in fp_ids
-        m['support'] = ('parent' if k in on_top else
-                        'ceiling' if role in ('люстра',) else 'floor')
+        # Ковёр и другие подгоняемые под сцену вещи: в названии магазина свой размер, у нас — свой.
+        # Без явной пометки модель верит названию и рисует не тот размер (разбор промпта).
+        import re as _re
+        nm = _re.search(r'(\d{2,3})\s*[xх×]\s*(\d{2,3})', m['product'] or '')
+        if nm:
+            n1, n2 = sorted((int(nm.group(1)), int(nm.group(2))))
+            s1, s2 = sorted(m['size_cm'][:2])
+            if abs(n1 - s1) > max(10, s1 * 0.15) or abs(n2 - s2) > max(10, s2 * 0.15):
+                m['dimension_override'] = True
+                m['dimension_note'] = ('use size_cm; the size written in the retail name does not '
+                                       'apply to this project instance')
+        # У предмета, стоящего на мебели, указываем НА ЧЁМ именно он стоит: без этого модель
+        # знает «на чём-то», но не знает на чём (разбор промпта, 2026-08-05).
+        by_role_id = {v['type']: kk for kk, v in merged.items()}
+        if role in ('люстра', 'бра'):
+            m['support'] = {'type': 'ceiling'}
+        elif k in on_top or role == 'тв':
+            host = None
+            if role == 'тв':
+                host = 'тв-тумба'
+            else:
+                text = (RELATIONS.get(role) or '') + ' ' + (m.get('placement') or '')
+                host = next((r for r in by_role_id if r != role and r in text), None)
+            hid = by_role_id.get(host) if host else None
+            m['support'] = ({'type': 'item', 'parent_id': hid, 'parent': host} if hid
+                            else {'type': 'item'})
+        else:
+            m['support'] = {'type': 'floor'}
     items = json.dumps([merged[k] for k in sorted(merged)], ensure_ascii=False)
     fp_list = ', '.join(f'#{k}' for k in fp_ids) or 'none'
     top_list = ', '.join(f'#{k}' for k in on_top) or 'none'
@@ -366,9 +403,11 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]],
         'GREY VOLUMES. An item shown as a plain grey block in image 1 is a placeholder: its size, '
         'place and rotation are right, its look is not — draw the real product using image 4 and '
         'the item list.\n\n'
-        f'FOOTPRINTS. Items {fp_list} have a floor rectangle: each item must fill its own rectangle '
-        'exactly — same width, same length, same rotation, same position. Items ' + top_list +
-        ' stand on other furniture and inherit its position. Never draw the rectangles.\n\n'
+        'FOOTPRINTS. Every item with "has_footprint": true has a thin rectangle drawn on the floor '
+        'and must fill exactly that rectangle — same width, same length, same rotation, same '
+        'position. Every item whose "support" is an object with "parent_id" must stay physically '
+        'on that parent item and inherit its position. An item with "support": "ceiling" hangs '
+        'from the ceiling. Never draw the rectangles themselves.\n\n'
         'IMMUTABLE. Products: no replacing, recolouring, restyling, resizing, moving or '
         'duplicating. Room shell: walls, floor, ceiling and cameras stay as they are. Openings: '
         'exactly as listed below — never invent, move, add or remove a window or a door.\n'

@@ -145,6 +145,21 @@ def numbering(n: int, cams=('C1', 'C2')) -> dict:
     return {role: i + 1 for i, role in enumerate(order)}
 
 
+_COLOUR_WORDS = ('крем', 'беж', 'сер', 'бел', 'чёрн', 'черн', 'корич', 'дуб', 'венге', 'орех',
+                 'графит', 'антрацит', 'молоч', 'песоч', 'капучино', 'латте', 'ваниль', 'сонома',
+                 'вотан', 'санремо', 'смоки', 'харбор', 'шамони')
+
+
+def _colour_from_name(name: str) -> str | None:
+    low = (name or '').lower()
+    hit = [w for w in _COLOUR_WORDS if w in low]
+    if not hit:
+        return None
+    # берём хвост названия — там магазины и пишут цвет/декор
+    tail = ' '.join((name or '').split()[-3:])
+    return tail if any(w in tail.lower() for w in hit) else hit[0]
+
+
 def build(n: int, cam_name: str = 'C1', nums: dict | None = None) -> tuple[str, str, list[dict]]:
     prefix = os.path.join(SCENE_DIR, f'scene{n}-{cam_name}')
     # Подписи всегда строятся по КОЛЛАЖУ, а не по результату генерации: иначе в контроль
@@ -335,7 +350,10 @@ def build(n: int, cam_name: str = 'C1', nums: dict | None = None) -> tuple[str, 
         appearance = {k: v for k, v in {
             'material': prm.get('Материал') or prm.get('Материал обивки') or prm.get('Ткань')
             or _f('fabric') or (f'дерево {_f("wood")}' if _f('wood') else None),
-            'colour_name': prm.get('Цвет') or prm.get('Цвет корпуса'),
+            # Цвет часто есть только в названии («…Шенилл Клауд крем», «…дуб вотан»): без него
+            # правило «официальный цвет берём из colour_name» повисает (разбор промпта).
+            'colour_name': prm.get('Цвет') or prm.get('Цвет корпуса') or _colour_from_name(
+                it.get('name') or ''),
             'colour_hex': colour or None,
             'construction': prm.get('Конфигурация') or prm.get('Тип дивана')
             or prm.get('Тип товара'),
