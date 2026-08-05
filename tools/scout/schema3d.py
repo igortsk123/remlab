@@ -323,6 +323,11 @@ def main() -> None:
         marked = draw_callouts(img.copy(), inst, names, by, nums)
         dst = f'{os.path.join(SCENE_DIR, f"scene{n}-{cam_name}")}-schema3d-marked.jpg'
         marked.save(dst, quality=94)
+        # Та же сцена НА КАРТЕ ГЛУБИНЫ, с номерами: пространство передаётся глубиной, а не
+        # серой заливкой (владелец, 2026-08-05).
+        dep_marked = draw_callouts(dep.convert('RGB'), inst, names, by, nums)
+        dep_marked.save(f'{os.path.join(SCENE_DIR, f"scene{n}-{cam_name}")}-schema-depth-marked.jpg',
+                        quality=94)
         print(f'{cam_name}: предметов в кадре {len(set(inst.ravel()) - {0})} → {dst}', flush=True)
 
 
