@@ -317,12 +317,16 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]],
         'render; on the floor thin dark rectangles mark the true base of the main furniture. '
         '2 — the same sheet with red numbers (annotation only, the same number is the same item in '
         'both frames). 3 — the floor plan with both camera positions and their fields of view.'
-        + (' 4 — reference photos of the items that are only partly visible in the frames, each '
-           'labelled with its number: use image 4 ONLY to know how such an item looks, never for '
-           'its size, place or rotation.' if has_identity else '') + '\n\n'
+        + (' 4 — reference photos of the items whose look cannot be read from the collage (they are '
+           'cut by the frame, or shown only as a grey volume), each labelled with its number: take '
+           'their appearance from image 4, but their size, place and rotation only from the floor '
+           'rectangle in image 1.' if has_identity else '') + '\n\n'
         'GEOMETRY PRIORITY (highest first): floor rectangle in image 1 → floor plan in image 3 → '
         'size_cm in the item list → the pasted photo. If they disagree, the higher source wins. '
         'APPEARANCE PRIORITY: the pasted product photo → product name and details.\n\n'
+        'GREY VOLUMES. An item shown as a plain grey block in image 1 is a placeholder: its size, '
+        'place and rotation are right, its look is not — draw the real product using image 4 and '
+        'the item list.\n\n'
         f'FOOTPRINTS. Items {fp_list} have a floor rectangle: each item must fill its own rectangle '
         'exactly — same width, same length, same rotation, same position. Items ' + top_list +
         ' stand on other furniture and inherit its position. Never draw the rectangles.\n\n'
@@ -366,6 +370,15 @@ def identity_sheet(n: int, legends: list[list[dict]], nums: dict) -> 'Image.Imag
         for e in legend:
             if not e['видимость'].startswith('виден целиком'):
                 partial.setdefault(e['n'], e['роль'])
+    # и те, кого мы принципиально не вклеиваем фотографией (низкая мебель, мягкий декор):
+    # их внешний вид модель узнаёт только из эталона
+    for c in ('C1', 'C2'):
+        ap = os.path.join(SCENE_DIR, f'scene{n}-{c}-angled.json')
+        if os.path.exists(ap):
+            for role in json.load(open(ap)):
+                num = nums.get(role)
+                if num:
+                    partial.setdefault(num, role)
     cells = []
     for num, role in sorted(partial.items()):
         try:
