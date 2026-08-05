@@ -14,6 +14,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт ремонта/м�
 |----------------|--------|--------|
 | Интеграции/доступы — ключи, эндпоинты, клиенты | `core/access-and-integrations.md` | `../domain/integrations.md` |
 | Стек, модули, генерация, деплой — по коду | `core/architecture.md` | `../../docs/tech-spec-ts-stack.md` |
+| Каталог товаров — состав, свежесть, обогащение, дельта | `core/catalog.md` | `../domain/catalog-enrichment.md` |
 | Схема БД, изоляция сессий, миграции, pgvector | `core/data-model.md` | `../../docs/tech-spec-ts-stack.md` |
 | Деплой/откат/сервер exit-fi — playbook | `deployment.md` | — |
 | Смета-лист — калькуляторы, стоимость, /go/ реф | `core/estimate.md` | `../domain/pricing-works-ru.md` |
