@@ -308,6 +308,19 @@ def build(n: int, cam_name: str = 'C1', nums: dict | None = None) -> tuple[str, 
                   outline=(255, 255, 255, 255), width=3)
         fnt = ImageFont.truetype(FONT, int(r * 1.35))
         d.text((mx, my), str(num), fill=(255, 255, 255), font=fnt, anchor='mm')
+        # РАЗМЕР НАД НОМЕРОМ. Число рядом с предметом читается моделью вместе с картинкой, а не
+        # только из текста списка — так масштаб задаётся там же, где предмет (владелец, 2026-08-05).
+        pl_i = by.get(role)
+        if pl_i is not None and pl_i.item is not None:
+            dims = (f'{int(pl_i.item.w_cm)}×{int(pl_i.item.d_cm)}'
+                    f'×{int(pl_i.item.h_cm or 0)}')
+            fs = max(int(r * 0.85), 13)
+            fd_ = ImageFont.truetype(FONT, fs)
+            tw = d.textlength(dims, font=fd_)
+            ty = my - r - fs - 8
+            d.rectangle([mx - tw / 2 - 6, ty - 3, mx + tw / 2 + 6, ty + fs + 4],
+                        fill=(200, 30, 30, 210), outline=(255, 255, 255, 230), width=2)
+            d.text((mx, ty + fs / 2 + 1), dims, fill=(255, 255, 255), font=fd_, anchor='mm')
         it = spec if spec is not None else {
             'name': 'телевизор (подбирается моделью по размеру тумбы)',
             'w': by[role].item.w_cm, 'd': by[role].item.d_cm, 'h': by[role].item.h_cm}
