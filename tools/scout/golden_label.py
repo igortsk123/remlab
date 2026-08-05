@@ -47,6 +47,12 @@ LEVEL = ['нет', 'низкая', 'средняя', 'высокая']
 STYLES = ['сканди', 'современный', 'минимализм', 'лофт', 'неоклассика', 'джапанди']
 FLAGS = ['нет_описания', 'размеры_неполные', 'название_общее', 'текст_противоречив',
          'не_для_гостиной', 'нет']
+# Что вообще изображено. Проверка 30 карточек глазами (2026-08-05) показала: среди «фото товара»
+# попадаются инфографика с характеристиками, интерьерная сцена и голая панель — по ним стиль
+# недостоверен, а модель всё равно отвечает уверенно. Поле было в исходном документе, я его
+# ошибочно выбросил из схемы.
+IMAGE_TYPES = ['товар_на_фоне', 'товар_в_интерьере', 'инфографика', 'несколько_товаров',
+               'непонятно', 'фото_не_смотрел']
 
 
 def _enum(name, vals):
@@ -56,7 +62,8 @@ def _enum(name, vals):
 SCHEMA = {
     'type': 'object', 'additionalProperties': False,
     'required': ['role', 'functional_subtype', 'materials', 'primary_color', 'shape', 'base_type',
-                 'visual_mass', 'warmth', 'decorativeness', 'styles', 'style_strength', 'flags'],
+                 'visual_mass', 'warmth', 'decorativeness', 'styles', 'style_strength', 'flags',
+                 'image_type'],
     'properties': {
         'role': _enum('роль предмета в гостиной', ROLES),
         'functional_subtype': _enum('функция, а не категория', SUBTYPES),
@@ -72,6 +79,7 @@ SCHEMA = {
         'style_strength': _enum('насколько выражен характер',
                                 ['нейтральный', 'умеренный', 'характерный']),
         'flags': {'type': 'array', 'items': _enum('проблемы карточки', FLAGS)},
+        'image_type': _enum('что изображено на картинке', IMAGE_TYPES),
     },
 }
 
@@ -86,6 +94,9 @@ SYS = (
     'джапанди и минимализму. Это не распределение, сумма не важна.\n'
     '4. Не выдумывай: чего в тексте нет — "не_определён". Размеры по фотографии не угадывают.\n'
     '5. style_strength: "нейтральный" — подойдёт куда угодно; "характерный" — сильно диктует стиль.\n'
+    '7. Если картинки нет — image_type="фото_не_смотрел". Если на картинке не сам товар на '
+    'чистом фоне, а интерьерная сцена, схема с характеристиками или несколько разных вещей — '
+    'скажи это в image_type и НЕ выводи стиль из обстановки: оценивай только сам товар.\n'
     '6. Светильники различай по креплению: потолочный/подвесной — role="люстра", '
     'подтип "подвесной_светильник"; настенный — role="бра", подтип "подвесной_светильник"; '
     'напольный на стойке — role="торшер", подтип "напольный_светильник"; настольный — '
@@ -124,6 +135,34 @@ def _key() -> str:
     raise SystemExit('нет OPENAI_API_KEY')
 
 
+_IMG_CACHE: dict = {}
+
+
+def _image_b64(url: str) -> str | None:
+    """Картинка байтами, а не ссылкой: на ссылки магазина API отвечал 400 каждой шестой карточке.
+
+    Заодно ужимаем до 512 px — уровень detail=low всё равно видит только такой размер.
+    """
+    import base64
+    import io as _io
+    from PIL import Image as _Im
+    if url in _IMG_CACHE:
+        return _IMG_CACHE[url]
+    u = 'https:' + url if url.startswith('//') else url
+    try:
+        req = urllib.request.Request(u, headers={'User-Agent': 'Mozilla/5.0'})
+        raw = urllib.request.urlopen(req, timeout=40).read()
+        im = _Im.open(_io.BytesIO(raw)).convert('RGB')
+        im.thumbnail((512, 512))
+        buf = _io.BytesIO()
+        im.save(buf, 'JPEG', quality=82)
+        out = base64.b64encode(buf.getvalue()).decode()
+    except Exception:  # noqa: BLE001 — мёртвая ссылка: работаем по тексту
+        out = None
+    _IMG_CACHE[url] = out
+    return out
+
+
 USAGE = {'in': 0, 'out': 0, 'fails': 0}
 
 
@@ -133,10 +172,11 @@ def ask(it: dict, model: str, key: str, vision: bool = False) -> dict | None:
     # стиль по одному тексту совпадает со стилем по картинке лишь в 16% — на уровне случайности,
     # значит опираться только на текст в стилевых ролях нельзя (вопрос владельца).
     if vision and it.get('img'):
-        url = it['img']
-        url = 'https:' + url if url.startswith('//') else url
-        content = [{'type': 'text', 'text': prompt(it)},
-                   {'type': 'image_url', 'image_url': {'url': url, 'detail': 'low'}}]
+        b64 = _image_b64(it['img'])
+        content = ([{'type': 'text', 'text': prompt(it)},
+                    {'type': 'image_url',
+                     'image_url': {'url': f'data:image/jpeg;base64,{b64}', 'detail': 'low'}}]
+                   if b64 else prompt(it))
     else:
         content = prompt(it)
     body = {

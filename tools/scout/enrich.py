@@ -91,11 +91,21 @@ def quality(r0: dict, m: dict) -> float:
     return max(0.0, min(1.0, round(q, 2)))
 
 
-def body_for(it: dict, model: str = MODEL) -> dict:
+def body_for(it: dict, model: str = MODEL, vision: bool = False) -> dict:
+    # Уровень 2 включается ПО ПОЛЮ, а не по «нет описания». Замер 2026-08-05: роль и функция по
+    # тексту надёжны (88% и 91% совпадения с разметкой по фото), а главный стиль меняется у 47%
+    # товаров, когда модель видит вещь; на декоре — у 60-80%. Значит стиль, материал и цвет
+    # считаем по фотографии, роль и функцию оставляем тексту (вопрос владельца «это реально?»).
+    content = prompt(it)
+    if vision and it.get('img'):
+        url = it['img']
+        url = 'https:' + url if url.startswith('//') else url
+        content = [{'type': 'text', 'text': content},
+                   {'type': 'image_url', 'image_url': {'url': url, 'detail': 'low'}}]
     return {
         'model': model,
         'messages': [{'role': 'system', 'content': SYS},
-                     {'role': 'user', 'content': prompt(it)}],
+                     {'role': 'user', 'content': content}],
         'response_format': {'type': 'json_schema',
                             'json_schema': {'name': 'furniture', 'strict': True, 'schema': SCHEMA}},
         'reasoning_effort': 'low',
@@ -121,13 +131,41 @@ def todo(items: list[dict]) -> list[dict]:
     return out
 
 
-def save(rows: list[tuple[dict, dict, dict]], model: str = MODEL) -> None:
-    """Запись обогащения одной пачкой: payload + качество + версии."""
+VISION_FIELDS = ('styles', 'style_strength', 'materials', 'primary_color', 'shape',
+                 'visual_mass', 'warmth', 'decorativeness', 'base_type')
+
+
+def save(rows: list[tuple[dict, dict, dict]], model: str = MODEL, vision: bool = False) -> None:
+    """Запись обогащения одной пачкой: payload + качество + версии.
+
+    В режиме с картинкой ответ НЕ затирает текстовый: роль и функцию оставляем от текста (они
+    надёжнее и дешевле), а внешние признаки берём от фотографии. Обе версии остаются в payload,
+    чтобы было видно, чем именно они разошлись.
+    """
     if not rows:
         return
+    old = {}
+    if vision:
+        keys = ','.join(f"({it['mid']},'{it['eid']}')" for it, _, _ in rows)
+        for line in sql(f"""select shop_mid, external_id, payload->'model'
+                            from product_enrichment
+                           where (shop_mid, external_id) in ({keys})""").strip().split('\n'):
+            f = line.split('\x1f')
+            if len(f) >= 3 and f[2]:
+                old[f'{f[0]}:{f[1]}'] = json.loads(f[2])
     vals = []
     for it, r0, m in rows:
-        payload = json.dumps({'rules': r0, 'model': m, 'flags': flags(r0)}, ensure_ascii=False)
+        if vision:
+            base = dict(old.get(f'{it["mid"]}:{it["eid"]}') or m)
+            merged = dict(base)
+            for fld in VISION_FIELDS:
+                if fld in m:
+                    merged[fld] = m[fld]
+            payload = json.dumps({'rules': r0, 'model': merged, 'model_text': base,
+                                  'model_vision': m, 'flags': flags(r0)}, ensure_ascii=False)
+            m = merged
+        else:
+            payload = json.dumps({'rules': r0, 'model': m, 'flags': flags(r0)}, ensure_ascii=False)
         payload = payload.replace("'", "''")
         vals.append(f"({it['mid']},'{it['eid']}','{payload}'::jsonb,{quality(r0, m)})")
     sql(f"""
@@ -140,9 +178,9 @@ def save(rows: list[tuple[dict, dict, dict]], model: str = MODEL) -> None:
     """)
 
 
-def ask(it: dict, key: str, model: str = MODEL) -> dict | None:
+def ask(it: dict, key: str, model: str = MODEL, vision: bool = False) -> dict | None:
     req = urllib.request.Request(f'{API}/chat/completions',
-                                 data=json.dumps(body_for(it, model)).encode(),
+                                 data=json.dumps(body_for(it, model, vision)).encode(),
                                  headers={'Authorization': f'Bearer {key}',
                                           'Content-Type': 'application/json'})
     for attempt in range(3):
@@ -164,7 +202,8 @@ def run_sync(items: list[dict], model: str = MODEL) -> None:
     got: list[tuple[dict, dict, dict]] = []
     t0 = time.time()
     with cf.ThreadPoolExecutor(8) as ex:
-        futs = {ex.submit(ask, it, key, model): it for it in items}
+        vision = '--vision' in sys.argv
+        futs = {ex.submit(ask, it, key, model, vision): it for it in items}
         for i, f in enumerate(cf.as_completed(futs), 1):
             it = futs[f]
             m = f.result()
@@ -172,7 +211,7 @@ def run_sync(items: list[dict], model: str = MODEL) -> None:
                 got.append((it, extract(it), m))
             if i % 50 == 0:
                 print(f'  {i}/{len(items)}', flush=True)
-    save(got, model)
+    save(got, model, '--vision' in sys.argv)
     qs = [quality(r0, m) for _, r0, m in got]
     low = sum(1 for q in qs if q < 0.65)
     print(f'обогащено {len(got)}/{len(items)} за {time.time() - t0:.0f} с; '
@@ -214,9 +253,10 @@ def run_batch(items: list[dict]) -> None:
     (схема с перечислениями повторяется в каждой строке).
     """
     key = _key()
+    vision = '--vision' in sys.argv
     lines = [json.dumps({'custom_id': f'{it["mid"]}:{it["eid"]}', 'method': 'POST',
-                         'url': '/v1/chat/completions', 'body': body_for(it)}, ensure_ascii=False)
-             for it in items]
+                         'url': '/v1/chat/completions', 'body': body_for(it, MODEL, vision)},
+                        ensure_ascii=False) for it in items]
     ids = []
     for i in range(0, len(lines), CHUNK):
         ids.append(_submit(lines[i:i + CHUNK], key, str(i // CHUNK + 1)))
