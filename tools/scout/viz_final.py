@@ -53,6 +53,39 @@ def style_brief(n: int) -> str:
     return ', '.join(keep)
 
 
+def corner_brief(n: int, cam_name: str) -> str:
+    """Где в кадре вертикальный угол комнаты — числом.
+
+    Словесного «не трогай стены» мало: во втором кадре угол уезжал на пятую часть ширины.
+    Число проверяемо и его видно на картинке (владелец, 2026-08-05).
+    """
+    import math
+
+    import numpy as np
+    sys.path.insert(0, '/home/pakar/igor/remlab/services/planner-solver')
+    from planner.scene import cameras_for
+    from scene_build import load_scene
+    room, placements = load_scene(n)
+    cam = next(c for c in cameras_for(room, placements) if c.name == cam_name)
+    eye, fwd, right, up = cam.basis()
+    W = cam.width
+    focal = (W / 2) / math.tan(math.radians(cam.fov_deg) / 2)
+    out = []
+    for x, y in ((0, 0), (room.width_cm, 0), (room.width_cm, room.depth_cm), (0, room.depth_cm)):
+        rel = np.array([x, 150.0, y], float) - eye
+        z = float(rel @ fwd)
+        if z <= 1e-3:
+            continue
+        u = W / 2 + focal * float(rel @ right) / z
+        if 0 < u < W:
+            out.append(round(u / W * 100))
+    if not out:
+        return 'no wall corner is visible in this frame'
+    return ('the vertical corner where two walls meet is at '
+            + ' and '.join(f'{v}% of the frame width' for v in out)
+            + ' — keep it exactly there')
+
+
 def openings_brief(n: int, cam_name: str) -> str:
     """Фраза про проёмы собирается ДИНАМИЧЕСКИ по геометрии кадра.
 
@@ -296,8 +329,8 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]],
         'IMMUTABLE. Products: no replacing, recolouring, restyling, resizing, moving or '
         'duplicating. Room shell: walls, floor, ceiling and cameras stay as they are. Openings: '
         'exactly as listed below — never invent, move, add or remove a window or a door.\n'
-        f'  TOP frame: {openings_brief(n, a)}\n'
-        f'  BOTTOM frame: {openings_brief(n, b)}\n\n'
+        f'  TOP frame: {openings_brief(n, a)} In this frame {corner_brief(n, a)}.\n'
+        f'  BOTTOM frame: {openings_brief(n, b)} In this frame {corner_brief(n, b)}.\n\n'
         'ALLOWED EDITS. Rotate an item around its vertical axis to match its rectangle and its '
         '"orientation" field. Renovate in the style below: wall finish and colour, flooring, '
         'ceiling, skirting, frames and dressing of the given openings. Natural light, soft contact '
