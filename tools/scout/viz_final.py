@@ -299,7 +299,23 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]],
             })
             code = ('whole' if e['видимость'].startswith('виден целиком') else 'part')
             item['in_top' if idx == 0 else 'in_bottom'] = code
-    from viz_paste import FLOOR, KEY_FLOOR, SOFT
+    # Если кадр собран СХЕМОЙ — берём видимость из неё: это ровно то, что видит камера схемы,
+    # и список перестаёт спорить с картинкой (владелец: «на виде 2 расположение не соответствует
+    # схеме», 2026-08-05).
+    for idx, cam_name in enumerate(cams):
+        vp = os.path.join(SCENE_DIR, f'scene{n}-{cam_name}-schema-vis.json')
+        if not os.path.exists(vp):
+            continue
+        seen_now = json.load(open(vp))
+        key = 'in_top' if idx == 0 else 'in_bottom'
+        for k, m in merged.items():
+            from viz_paste import SKIP as _SKIP
+            if m['type'] in _SKIP:       # ТВ в схеме не строим — он достраивается по тумбе
+                continue
+            rec = seen_now.get(m['type'])
+            m[key] = ('absent' if not rec else
+                      'whole' if rec['share_frame'] >= 0.02 else 'part')
+    from viz_paste import FLOOR, KEY_FLOOR, SKIP, SOFT
     from scene_build import RELATIONS
     sys.path.insert(0, '/home/pakar/igor/remlab/services/planner-solver')
     from scene_build import load_scene as _ls

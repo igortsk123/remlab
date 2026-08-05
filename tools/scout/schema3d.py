@@ -298,6 +298,18 @@ def main() -> None:
         img, inst = render(all_cams[cam_name], V, F, C, ids)
         plain = f'{os.path.join(SCENE_DIR, f"scene{n}-{cam_name}")}-schema3d.jpg'
         img.save(plain, quality=94)
+        # ОДИН ИСТОЧНИК ПРАВДЫ О КАДРЕ. Раньше «что в кадре» считалось в двух местах по-разному:
+        # компилятор (доля кадра) и разметка (доля самого предмета). Схема показывала лампу,
+        # которую список объявлял отсутствующей (владелец, 2026-08-05). Пишем, что реально видит
+        # камера схемы, и этим же питаем список предметов.
+        vis = {}
+        total = float(inst.size)
+        for s_id, r_name in names.items():
+            px = int((inst == s_id).sum())
+            if px:
+                vis[r_name] = {'px': px, 'share_frame': round(px / total, 4)}
+        json.dump(vis, open(f'{os.path.join(SCENE_DIR, f"scene{n}-{cam_name}")}-schema-vis.json',
+                            'w'), ensure_ascii=False, indent=1)
         marked = draw_callouts(img.copy(), inst, names, by, nums)
         dst = f'{os.path.join(SCENE_DIR, f"scene{n}-{cam_name}")}-schema3d-marked.jpg'
         marked.save(dst, quality=94)
