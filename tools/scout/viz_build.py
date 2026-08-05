@@ -64,7 +64,7 @@ def main() -> None:
     from mesh_make import ensure_mesh, mesh_trusted
     from viz_base import fal_key
     from viz_objects import product
-    from viz_paste import HANG_MIN_ELEV
+    from mesh_need import on_floor
     from scene_build import load_scene
     _, placements = load_scene(n)
     by = {p.role: p for p in placements}
@@ -73,8 +73,8 @@ def main() -> None:
         p = by.get(role)
         if p is None:
             continue
-        if float(getattr(p, 'elev_cm', 0.0)) >= HANG_MIN_ELEV:
-            print(f'   {role}: подвесное — модель не делаем, остаётся фото')
+        if not on_floor(p):
+            print(f'   {role}: не напольное — модель не делаем, остаётся фото')
             continue
         try:
             path = ensure_mesh(n, role, key)

@@ -249,8 +249,9 @@ def mesh_source(n: int, role: str, p, it, cam) -> Image.Image | None:
          силуэтом этой карточки. Не совпал — модель бракованная, работаем по фото.
     """
     try:
-        if float(getattr(p, 'elev_cm', 0.0)) >= HANG_MIN_ELEV:
-            return None                                   # правило 1: подвесное не моделим
+        if float(getattr(p, 'elev_cm', 0.0)) > 1.0:
+            return None      # правило 1: моделим только напольное (подвесное и то, что стоит
+                             # на мебели, — фотографией)
         from mesh_make import mesh_path, mesh_trusted
         from mesh_render import load_parts, render
         from viz_objects import product as _product

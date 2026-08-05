@@ -36,6 +36,15 @@ from planner.scene import cameras_for  # noqa: E402
 MIN_YAW = float(os.environ.get('MESH_MIN_YAW', 90))   # сильный разворот — от этого угла
 
 
+def on_floor(p) -> bool:
+    """Моделим только то, что СТОИТ НА ПОЛУ (владелец, 2026-08-05).
+
+    Ваза и лампа стоят на комоде, люстра висит под потолком: мелочь на мебели зритель видит
+    издали и мелко, а подвесное генератор превращает в мятую железку. Им — фотография.
+    """
+    return float(getattr(p, 'elev_cm', 0.0)) <= 1.0
+
+
 def turn_deg(p, it, cam) -> float:
     """На сколько градусов предмет развёрнут относительно ракурса своей карточки."""
     yaw = abs(mesh_yaw_pitch(p, it, cam)[0])
@@ -46,10 +55,10 @@ def turn_deg(p, it, cam) -> float:
 
 
 def needs_mesh(p, it, cam) -> bool:
-    """Нужна ли этому предмету 3D-модель в этом кадре."""
+    """Нужна ли этому предмету 3D-модель в этом кадре. Только для НАПОЛЬНЫХ предметов."""
     if p.role in SKIP or p.role in SOFT or p.role in FLOOR:
         return False
-    if float(getattr(p, 'elev_cm', 0.0)) >= HANG_MIN_ELEV:      # подвесное не моделим никогда
+    if not on_floor(p):
         return False
     return turn_deg(p, it, cam) >= MIN_YAW
 
@@ -67,8 +76,10 @@ def analyse(n: int, cams: list[str]) -> list[dict]:
             if role in SKIP or role in SOFT or role in FLOOR or role not in visible:
                 continue
             rec = seen.setdefault(role, {'role': role, 'turn': {}, 'need': [], 'why': ''})
-            if float(getattr(p, 'elev_cm', 0.0)) >= HANG_MIN_ELEV:
-                rec['why'] = 'подвесное — не моделим'
+            if not on_floor(p):
+                rec['why'] = ('подвесное — не моделим'
+                              if float(getattr(p, 'elev_cm', 0.0)) >= HANG_MIN_ELEV
+                              else 'стоит на мебели — не моделим')
                 continue
             rec['turn'][cam_name] = round(turn_deg(p, p.item, cam))
             if needs_mesh(p, p.item, cam):
