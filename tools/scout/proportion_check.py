@@ -16,48 +16,66 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-RULES = json.load(open(os.path.join(HERE, 'proportions.json')))
 
 
-def dims(it: dict) -> dict:
-    """Габариты товара в сантиметрах плюс производные (площадь следа, высота сиденья)."""
-    w = float(it.get('w') or 0)
-    d = float(it.get('d') or 0)
-    h = float(it.get('h') or 0)
-    return {'w': w, 'd': d, 'h': h, 'area': w * d / 10000,
-            'seat_h': h * float(RULES['defaults']['seat_h_ratio'])}
+
+from proportions import P as RULES_P, metrics  # noqa: E402
 
 
-def value(path: str, items: dict, room_wall: float):
-    role, field = path.split('.')
-    if role == 'room':
-        return room_wall
-    it = items.get(role)
-    if not it:
-        return None
-    return dims(it).get(field)
+_BANDS = {b['band']: b['m2'] for b in
+          json.load(open(os.path.join(HERE, 'composition.json')))['bands']}
+
+
+def wall_of(band: str) -> float:
+    """Длина стены метража — по ТОМУ ЖЕ справочнику, что и сборщик.
+
+    Раньше метраж парсился из строки, и «50+» не разбирался: подставлялась стена 4 м, из-за чего
+    18 больших сетов числились нарушителями на ровном месте (2026-08-05).
+    """
+    pair = _BANDS.get(str(band))
+    if pair:
+        m2 = sum(pair) / 2
+    else:
+        try:
+            lo, hi = (float(x) for x in str(band).split('-'))
+            m2 = (lo + hi) / 2
+        except Exception:  # noqa: BLE001 — незнакомый метраж: типовая стена 4 м
+            return 400.0
+    # формула ровно как в сборщике, иначе пограничные сеты «мигают» между проверками
+    return float(int((m2 * 10000 / 1.15) ** 0.5 // 5 * 5))
 
 
 def check(setn: int, sets: list) -> list[dict]:
+    """Каждое правило по готовому сету: попадает ли в допустимые и предпочтительные рамки."""
     s = sets[setn - 1]
     items = s['items']
-    band = str(s.get('band', ''))
-    try:
-        lo, hi = (float(x) for x in band.split('-'))
-        wall = (lo + hi) / 2 ** 0.5 * 100 / 10          # грубая оценка стены по метражу
-    except Exception:  # noqa: BLE001 — нет метража: берём типовую стену 4 м
-        wall = 400.0
+    corner = bool('углов' in str((items.get('диван') or {}).get('name', '')).lower())
+    ctx = {'chosen': items, 'wall': wall_of(s.get('band', '')), 'corner_sofa': corner}
     out = []
-    for r in RULES['rules']:
-        a = value(r['a'], items, wall)
-        b = value(r['b'], items, wall)
+    from item_function import subtype as _sub
+    for r in RULES_P['rules']:
+        role = r.get('role')
+        it = items.get(role)
+        if not it:
+            continue
+        # исключения по подтипу: пуф-стол живёт по правилам столика, а не пуфа
+        if _sub(role, it) in (r.get('only_if_subtype_not') or []):
+            continue
+        ref_role, field = r['b'].split('.')
+        a = metrics(role, it, corner).get(r['a'].split('.')[1])
+        if ref_role == 'room':
+            b = ctx['wall']
+        else:
+            other = items.get(ref_role)
+            b = metrics(ref_role, other, corner).get(field) if other else None
         if not a or not b:
             continue
         ratio = a / b
-        lo_r, hi_r = r.get('min'), r.get('max')
-        ok = (lo_r is None or ratio >= lo_r) and (hi_r is None or ratio <= hi_r)
+        lo, hi = r['allowed']
+        plo, phi = r['preferred']
         out.append({'set': setn, 'id': r['id'], 'what': r['what'], 'ratio': round(ratio, 2),
-                    'min': lo_r, 'max': hi_r, 'ok': ok, 'why': r['why'],
+                    'allowed': (lo, hi), 'preferred': (plo, phi),
+                    'ok': lo <= ratio <= hi, 'best': plo <= ratio <= phi, 'why': r['why'],
                     'a': f"{r['a']}={a:.0f}", 'b': f"{r['b']}={b:.0f}"})
     return out
 
@@ -75,18 +93,20 @@ def main() -> None:
                     bad_by_rule[r['id']] = bad_by_rule.get(r['id'], 0) + 1
         print(f'сетов проверено: {total}\n')
         for rid, cnt in sorted(bad_by_rule.items(), key=lambda kv: -kv[1]):
-            rule = next(r for r in RULES['rules'] if r['id'] == rid)
+            rule = next(r for r in RULES_P['rules'] if r['id'] == rid)
             print(f'{cnt:4d} сетов нарушают · {rule["what"]}')
+        if not bad_by_rule:
+            print('нарушений допустимых рамок нет')
         return
 
     n = int(sys.argv[1])
     rows = check(n, sets)
     print(f'комплект {n}\n')
-    print(f'{"правило":22s} {"что":46s} {"факт":>6s} {"норма":>12s}   вывод')
+    print(f'{"правило":22s} {"что":42s} {"факт":>6s} {"допустимо":>12s}   вывод')
     for r in rows:
-        norm = (f'{r["min"] or ""}–{r["max"] or ""}').strip('–')
-        print(f'{r["id"]:22s} {r["what"][:46]:46s} {r["ratio"]:6.2f} {norm:>12s}   '
-              f'{"ок" if r["ok"] else "НЕ ПРОХОДИТ"}')
+        norm = f'{r["allowed"][0]}–{r["allowed"][1]}'
+        verdict = 'ок, в норме' if r['best'] else ('ок' if r['ok'] else 'НЕ ПРОХОДИТ')
+        print(f'{r["id"]:22s} {r["what"][:42]:42s} {r["ratio"]:6.2f} {norm:>12s}   {verdict}')
     bad = [r for r in rows if not r['ok']]
     print(f'\nнарушено правил: {len(bad)} из {len(rows)}')
     for r in bad:

@@ -9,6 +9,9 @@ import subprocess, re, io, os, sys, json, math, colorsys, urllib.request, concur
 import numpy as np
 from PIL import Image
 from style_tags import tag, style_ok
+from item_function import fits_role, subtype
+from proportions import P as _PROP, check as prop_check
+PROP_RULES={r['id']: r['allowed'] for r in _PROP['rules']}
 
 HERE=os.path.dirname(os.path.abspath(__file__))
 THUMBS=os.path.join(HERE,'thumbs'); os.makedirs(THUMBS,exist_ok=True)
@@ -248,6 +251,18 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
             if gate and not size_gate(ctx.get('band',''),role,it['w']): continue
             if not (tgt_lo*0.75<=it['fp']<=tgt_hi*1.25): continue
             if not (plo<=it['price']<=phi) and not soft: continue
+            # ЖЁСТКИЕ ОГРАНИЧЕНИЯ ДО ЭСТЕТИКИ (sets-feasibility-first, 2026-08-05).
+            # 1) товар должен подходить роли ПО ФУНКЦИИ: банкетка — не пуф, кресло-мешок — не пуф.
+            fit_ok, _sub = fits_role(role, it)
+            if not fit_ok:
+                continue
+            # 2) пропорции относительно уже выбранных предметов: вне допустимых рамок — выбываем,
+            #    сколько бы баллов ни давали цвет и стиль.
+            _pctx = {'chosen': ctx.get('chosen_ref') or {}, 'wall': ctx.get('wall_len_cm'),
+                     'corner_sofa': ctx.get('corner_sofa', False)}
+            prop_ok, _bonus, _notes = prop_check(role, it, _pctx, _sub)
+            if not prop_ok:
+                continue
             if not overlap_ok(emb_key(it['mid'],it['eid']),ctx.get('style_name'),ctx.get('chosen_ref',{})): continue
             cs.append(it)
         return cs
@@ -297,16 +312,12 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
                     f_=sf[ctx['style_name']]
                     s+=(f_-5)*0.9*wgt; why.append(f"стиль-фит {f_}·w{wgt}")
                     if f_<3.5 and wgt>=0.5: s-=3.0  # явный чужак на крупной роли
-        # Ф3: пропорции
-        if role=='столик' and it['w'] and ctx.get('sofa_w'):
-            r_=it['w']/ctx['sofa_w']
-            if 0.5<=r_<=0.7: s+=1.5; why.append("пропорция столика+1.5")
-            elif r_>0.85 or r_<0.35: s-=1.5
-        if role=='тв-тумба' and it['w']:
-            if it['w']>=115: s+=1.0; why.append("тумба шире ТВ+1")
-            elif it['w']<95: s-=1.0
-        if role=='кресло' and it['h'] and ctx.get('sofa_h'):
-            if abs(it['h']-ctx['sofa_h'])<=15: s+=1.0; why.append("высота как у дивана+1")
+        # Ф3: пропорции — теперь ТОЛЬКО бонус за попадание в предпочтительный диапазон;
+        # всё, что вне допустимого, уже отсеяно фильтром выше и сюда не доходит
+        _pctx={'chosen': ctx.get('chosen_ref') or {}, 'wall': ctx.get('wall_len_cm'),
+               'corner_sofa': ctx.get('corner_sofa', False)}
+        _ok,_pb,_pn = prop_check(role,it,_pctx, subtype(role,it))
+        if _pb: s+=_pb; why.append('пропорции+%.1f'%_pb)
         if role=='торшер' and it['h']:
             s+= 1.0 if it['h']>=140 else -1.0
         # Ф4: визуальная похожесть на диван-якорь
@@ -347,7 +358,8 @@ for bi,band in enumerate(COMP['bands']):
         WALL_ROLES=('стенка','шкаф','комод','витрина','стеллаж','тв-тумба','камин')
         WALL_SHARE=float((OCC or {}).get('wall_items_max_perimeter_share') or
                  json.load(open(os.path.join(HERE,'occupancy.json')))['layout_rules']['wall_items_max_perimeter_share'])
-        ctx['chosen_ref']=chosen  # живая ссылка — для правила разнообразия в pick2
+        ctx['chosen_ref']=chosen  # живая ссылка — для правила разнообразия и для пропорций
+        ctx['wall_len_cm']=float(_W)  # длина стены этого метража — для правила «диван ≤ 2/3 стены»
         order=['диван','кресло','стол обеденный','стул','стенка','витрина','стеллаж','комод',
                'тв-тумба','столик','пуф','камин','торшер','кашпо']
         # взаимоисключающие роли по бэнду (кресло/пуф в малой площади) — из файла правил
@@ -383,6 +395,7 @@ for bi,band in enumerate(COMP['bands']):
             # якорь и капсула сета — от первых выбранных
             if role=='диван':
                 ctx['sofa_key']=emb_key(it['mid'],it['eid']); ctx['sofa_w']=it['w']; ctx['sofa_h']=it['h']
+                ctx['corner_sofa']=bool(re.search(r'углов', (it.get('name') or '').lower()))
                 ctx['temp']=temperature(tuple(it['rgb']) if it['rgb'] else None)
                 if it.get('fabric'): ctx['fabrics'].add(it['fabric'])
             for kf in ('style','wood','metal'):
@@ -416,6 +429,17 @@ for bi,band in enumerate(COMP['bands']):
                     kv=band.get('kover_pct') or (30,50)
                     score=abs(it['fp']-(kv[0]+kv[1])/2/100*m2)*100
                 if score<bs: bs=score; best=it
+            # ЛУЧШЕ НЕ ДОСТРОИТЬ, ЧЕМ ДОСТРОИТЬ НЕВЕРНО (правило владельца 2026-08-05). Ковёр,
+            # который не дотягивает до допустимого соотношения с диваном, в гостиной читается
+            # половиком у дивана. В каталоге сейчас всего 14 ковров, крупнейший 100x150 — для
+            # дивана 230 нужен от 265. Не кладём вовсе и помечаем дыру состава.
+            if best and sofa_w:
+                _long=max(best.get('w') or 0, best.get('d') or 0)
+                _lo=PROP_RULES['rug_len_vs_sofa'][0]
+                if _long and _long/sofa_w < _lo:
+                    print(f"  дыра каталога: ковра от {int(sofa_w*_lo)} см нет "
+                          f"(лучший {int(_long)} см) — сет без ковра",flush=True)
+                    best=None
             if best: chosen['ковёр']=dict(best,qty=1)
         # люстра: диаметр по метражу + металл капсулы
         _f=(OCC or {}).get('chandelier_size',{}).get('diameter_cm_formula','')
