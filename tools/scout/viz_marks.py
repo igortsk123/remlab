@@ -182,6 +182,16 @@ def build(n: int, cam_name: str = 'C1', nums: dict | None = None) -> tuple[str, 
         px = float((out['instances'] > 0).sum())
         return px * (W * H) / (small.width * small.height)
 
+    # что реально легло в коллаж, а что нет — берём из журнала вклейки
+    _not_pasted: set[str] = set()
+    try:
+        _pj = f'{prefix}-paint.json'
+        if os.path.exists(_pj):
+            _meta = json.load(open(_pj))
+            _not_pasted = set(_meta.get('volumes') or [])
+    except Exception:  # noqa: BLE001 — нет журнала: считаем, что всё вклеено
+        pass
+
     objs = ids > 0
     marked = img.copy()
     d = ImageDraw.Draw(marked, 'RGBA')
@@ -219,6 +229,13 @@ def build(n: int, cam_name: str = 'C1', nums: dict | None = None) -> tuple[str, 
         seen_txt = ('виден целиком' if share_own >= 0.9 else
                     f'в кадр попадает ТОЛЬКО ЧАСТЬ предмета ({role}) — рисовать именно эту часть, '
                     'не достраивать предмет целиком')
+        # ЛЕГЕНДА НЕ ВРЁТ. Предмет, который не удалось вклеить, в коллаже отсутствует, и писать
+        # про него «виден целиком» нельзя: номер стоит, а под номером пусто (владелец: «на виде 2
+        # есть цифра 4, а пуфа нет», 2026-08-05). Говорим прямо: рисовать по эталону и следу.
+        if role in _not_pasted:
+            seen_txt = ('в коллаже НЕ показан (фотографию поставить не удалось): нарисуй этот '
+                        'товар сам по эталону с картинки 4, а место, размер и разворот возьми '
+                        'с контура следа на полу')
         num = nums.get(role, 0)
         if not num:
             continue
