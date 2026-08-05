@@ -2,7 +2,7 @@
 workstream: sets
 slug: sets-feasibility-first
 title: Подбор сетов «сперва допустимость, потом красота» — геометрия в ограничения, оценка комплекта целиком
-status: draft
+status: in_progress
 created: 2026-08-05
 updated: 2026-08-05
 completed:

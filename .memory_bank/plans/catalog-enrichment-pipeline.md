@@ -2,7 +2,7 @@
 workstream: catalog
 slug: catalog-enrichment-pipeline
 title: Конвейер обогащения каталога — три независимых потока, дельта и каскад по стоимости
-status: draft
+status: in_progress
 created: 2026-08-05
 updated: 2026-08-05
 completed:
