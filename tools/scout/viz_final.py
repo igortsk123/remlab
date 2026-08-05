@@ -241,7 +241,8 @@ def shops_note(n: int) -> str:
             'collage such items look turned towards the viewer — correct that rotation.\n')
 
 
-def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]]) -> str:
+def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]],
+                has_identity: bool = False) -> str:
     """Единый запрос на два вида: коротко, с акцентами и одним списком предметов."""
     a, b = cams
     merged: dict[int, dict] = {}
@@ -274,11 +275,18 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]]) -> str
         'the customer and cannot be changed. Design the room AROUND these exact products — '
         'finishes, light, colour — and deliver two photographs on one sheet: TOP is view '
         f'{a}, BOTTOM is view {b}, with the magenta band between them kept exactly as in the input '
-        '(same position, height and colour, nothing drawn on it).\n\n'
+        '(same position, height and colour, nothing drawn on it).\n'
+        'THE ROOM ITSELF IS FIXED. Keep the architecture of image 1 pixel-for-pixel: the wall '
+        'planes and the vertical corner where two walls meet stay at the same place and angle, the '
+        'ceiling line and the floor line stay at the same height, the room keeps its proportions '
+        'and the camera does not move. You repaint and light the room, you do not rebuild it.\n\n'
         'INPUT IMAGES. 1 — the collages: real product photos placed at their spots on a neutral '
         'render; on the floor thin dark rectangles mark the true base of the main furniture. '
         '2 — the same sheet with red numbers (annotation only, the same number is the same item in '
-        'both frames). 3 — the floor plan with both camera positions and their fields of view.\n\n'
+        'both frames). 3 — the floor plan with both camera positions and their fields of view.'
+        + (' 4 — reference photos of the items that are only partly visible in the frames, each '
+           'labelled with its number: use image 4 ONLY to know how such an item looks, never for '
+           'its size, place or rotation.' if has_identity else '') + '\n\n'
         'GEOMETRY PRIORITY (highest first): floor rectangle in image 1 → floor plan in image 3 → '
         'size_cm in the item list → the pasted photo. If they disagree, the higher source wins. '
         'APPEARANCE PRIORITY: the pasted product photo → product name and details.\n\n'
@@ -311,6 +319,45 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]]) -> str
     )
 
 
+def identity_sheet(n: int, legends: list[list[dict]], nums: dict) -> 'Image.Image | None':
+    """Лист эталонов: крупные ЦЕЛЫЕ фото тех товаров, которые в кадрах видны лишь частью.
+
+    Модель не может понять по обрезку, что это за предмет; эталон даёт внешний вид, но НЕ место
+    (рекомендация из разбора, 2026-08-05).
+    """
+    from PIL import ImageDraw, ImageFont
+    from viz_objects import product
+    from viz_paste import cutout, trim_alpha
+    partial = {}
+    for legend in legends:
+        for e in legend:
+            if not e['видимость'].startswith('виден целиком'):
+                partial.setdefault(e['n'], e['роль'])
+    cells = []
+    for num, role in sorted(partial.items()):
+        try:
+            _, photo = product(n, role)
+        except KeyError:
+            continue
+        if os.path.exists(photo):
+            cells.append((num, role, trim_alpha(cutout(photo)).convert('RGB')))
+    if not cells:
+        return None
+    cols = min(3, len(cells))
+    rows = (len(cells) + cols - 1) // cols
+    cw, ch = 640, 620
+    sheet = Image.new('RGB', (cols * cw, rows * ch), (255, 255, 255))
+    d = ImageDraw.Draw(sheet)
+    f = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 40)
+    for i, (num, role, im) in enumerate(cells):
+        im = im.copy()
+        im.thumbnail((cw - 40, ch - 110))
+        x, y = (i % cols) * cw, (i // cols) * ch
+        sheet.paste(im, (x + (cw - im.width) // 2, y + 30))
+        d.text((x + 24, y + ch - 70), f'#{num} {role}', fill=(200, 30, 30), font=f)
+    return sheet
+
+
 def run_pair(n: int, cams: tuple[str, str]) -> None:
     """Оба вида одним запросом: единый стиль по построению."""
     prefixes = [os.path.join(SCENE_DIR, f'scene{n}-{c}') for c in cams]
@@ -327,12 +374,16 @@ def run_pair(n: int, cams: tuple[str, str]) -> None:
     out_dir = os.path.join(SCENE_DIR, f'scene{n}-pair')
     sheet.save(f'{out_dir}-collage.jpg', quality=93)
     sheet_marks.save(f'{out_dir}-marked.jpg', quality=93)
-    prompt = pair_prompt(n, cams, legends)
+    prompt = pair_prompt(n, cams, legends, has_identity=identity_sheet(n, legends, nums) is not None)
     if '--print-prompt' in sys.argv:
         print(prompt)
         return
     plan_p = os.path.join(SCENE_DIR, f'scene{n}-plan.png')
+    ident = identity_sheet(n, legends, nums)
     imgs = [sheet, sheet_marks] + ([Image.open(plan_p).convert('RGB')] if os.path.exists(plan_p) else [])
+    if ident is not None:
+        ident.save(f'{out_dir}-identity.jpg', quality=92)
+        imgs.append(ident)
     out = edit_gpt_raw(imgs, prompt, size='2048x2864')
     out.save(f'{out_dir}-final.jpg', quality=94)
     from viz_objects import LAST_USAGE

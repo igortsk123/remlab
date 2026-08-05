@@ -21,7 +21,7 @@ import numpy as np  # noqa: E402
 from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 
 import scene_build  # noqa: E402
-from planner.scene import cameras_for, proxy_parts  # noqa: E402
+from planner.scene import Camera, cameras_for, compile_scene  # noqa: E402
 from scene_build import SCENE_DIR, load_scene  # noqa: E402
 from viz_objects import product  # noqa: E402
 from viz_paste import FRONTED  # noqa: E402  (единый список предметов с выраженным фасадом)
@@ -159,32 +159,28 @@ def build(n: int, cam_name: str = 'C1', nums: dict | None = None) -> tuple[str, 
     rel = dict(scene_build.RELATIONS)
     cam = next(c for c in cameras_for(room, placements) if c.name == cam_name)
     by = {p.role: p for p in placements}
+    items = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                        'sets3.json')))[n - 1]['items']
 
     def own_area(role: str) -> float:
-        """Площадь предмета в кадре, если бы его ничто не закрывало и не обрезало."""
+        """Площадь предмета в кадре, если бы его ничто не закрывало и не обрезало.
+
+        Считаем честно: рендерим ОДИН этот предмет в уменьшенном кадре и меряем его маску.
+        Прежняя грубая оценка по габаритному прямоугольнику врала на подвесных предметах —
+        у люстры подвес раздувал прямоугольник, и она вечно числилась «частью» (2026-08-05).
+        """
         p = by.get(role)
         if p is None or p.item is None:
             return 0.0
-        eye, fwd, right, up = cam.basis()
-        focal = (W / 2) / math.tan(math.radians(cam.fov_deg) / 2)
-        pts = []
-        for x0, x1, y0, y1, z0, z1 in proxy_parts(p, p.item):
-            for X in (x0, x1):
-                for Y in (y0, y1):
-                    for Z in (z0, z1):
-                        rel_v = np.array([X, Y, Z], float) - eye
-                        zz = float(rel_v @ fwd)
-                        if zz <= 1e-3:
-                            continue
-                        pts.append((W / 2 + focal * float(rel_v @ right) / zz,
-                                    H / 2 - focal * float(rel_v @ up) / zz + cam.shift_y * H))
-        if len(pts) < 3:
+        small = Camera(cam.name, cam.eye, cam.target, fov_deg=cam.fov_deg, ortho=cam.ortho,
+                       cyl=cam.cyl, ortho_width_cm=cam.ortho_width_cm, vfov_deg=cam.vfov_deg,
+                       shift_y=cam.shift_y, width=336, height=224)
+        try:
+            out = compile_scene(room, [p], small)
+        except Exception:  # noqa: BLE001 — оценка не должна валить сборку
             return 0.0
-        xs_p = [q[0] for q in pts]
-        ys_p = [q[1] for q in pts]
-        return max(1.0, (max(xs_p) - min(xs_p)) * (max(ys_p) - min(ys_p)) * 0.6)
-    items = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                        'sets3.json')))[n - 1]['items']
+        px = float((out['instances'] > 0).sum())
+        return px * (W * H) / (small.width * small.height)
 
     objs = ids > 0
     marked = img.copy()
@@ -218,7 +214,9 @@ def build(n: int, cam_name: str = 'C1', nums: dict | None = None) -> tuple[str, 
         big_in_frame = m.sum() / (W * H) >= 0.015      # заметный кусок кадра — оставляем
         if m.sum() / (W * H) < 0.004 or (share_own < 0.15 and not big_in_frame):
             continue
-        seen_txt = ('виден целиком' if not touches_edge else
+        # «часть» ставим по ДОЛЕ ВИДИМОСТИ, а не по касанию края: у люстры маска доходит до
+        # верха кадра из-за подвеса, хотя сам светильник виден целиком (владелец, 2026-08-05)
+        seen_txt = ('виден целиком' if share_own >= 0.9 else
                     f'в кадр попадает ТОЛЬКО ЧАСТЬ предмета ({role}) — рисовать именно эту часть, '
                     'не достраивать предмет целиком')
         num = nums.get(role, 0)
