@@ -67,34 +67,40 @@ def sofa_mesh(p, it):
     face = {0: (0.0, 1.0), 90: (1.0, 0.0), 180: (0.0, -1.0),
             270: (-1.0, 0.0)}.get(int(round(p.rot)) % 360, (0.0, -1.0))
     back = trimesh.creation.box(extents=[x1 - x0, back_t, h - seat_h])
-    # Спинка и подлокотники живут ТОЛЬКО на прямой секции. Если брать глубину по всему габариту,
-    # подлокотник у углового дивана встаёт стеной поперёк оттоманки (владелец: «фронтал стенка,
-    # у нас такого нет», 2026-08-05).
+    # НЕ ДОСТРОИТЬ ЛУЧШЕ, ЧЕМ ПЕРЕСТРОИТЬ (правило владельца, 2026-08-05). В схеме показываем
+    # только то, что ИЗМЕРЕНО: след из плана, высоту сиденья и общую высоту. Подлокотники мы не
+    # знаем — их не рисуем: выдуманную деталь модель примет за факт, а недостающую дорисует по
+    # эталону сама. Спинка — единственная добавка, без неё сиденье читается как тумба; она стоит
+    # у тыльной стороны прямой секции и не выходит за её пределы.
     sec = float(getattr(it, 'corner_section_cm', 0) or 0) if getattr(it, 'corner', False) else 0.0
-    arms = []
-    if face[1] != 0:                                  # лицо по оси Y → спинка у противоположной
-        depth = min(sec or (y1 - y0), y1 - y0)
+    if face[1] != 0:
         by = (y0 + back_t / 2) if face[1] > 0 else (y1 - back_t / 2)
         back.apply_translation([(x0 + x1) / 2, by, seat_h + (h - seat_h) / 2])
-        cy = (y0 + depth / 2) if face[1] > 0 else (y1 - depth / 2)
-        for ax in (x0 + arm_t / 2, x1 - arm_t / 2):
-            a = trimesh.creation.box(extents=[arm_t, depth * 0.85, arm_h - seat_h])
-            a.apply_translation([ax, cy, seat_h + (arm_h - seat_h) / 2])
-            arms.append(a)
-    else:                                             # лицо по оси X
-        depth = min(sec or (x1 - x0), x1 - x0)
+    else:
         back = trimesh.creation.box(extents=[back_t, y1 - y0, h - seat_h])
         bx = (x0 + back_t / 2) if face[0] > 0 else (x1 - back_t / 2)
         back.apply_translation([bx, (y0 + y1) / 2, seat_h + (h - seat_h) / 2])
-        cx = (x0 + depth / 2) if face[0] > 0 else (x1 - depth / 2)
-        for ay in (y0 + arm_t / 2, y1 - arm_t / 2):
-            a = trimesh.creation.box(extents=[depth * 0.85, arm_t, arm_h - seat_h])
-            a.apply_translation([cx, ay, seat_h + (arm_h - seat_h) / 2])
-            arms.append(a)
-    m = trimesh.util.concatenate(parts + [back] + arms)
+    m = trimesh.util.concatenate(parts + [back])
     # экструзия даёт Z-вверх, а наш мир Y-вверх — разворачиваем
     v = np.asarray(m.vertices, np.float64).copy()
     m.vertices = np.column_stack([v[:, 0], v[:, 2], v[:, 1]])
+    return m
+
+
+def box_mesh(p, it):
+    """Самая простая честная форма: объём НАСТОЯЩЕГО следа предмета на его высоту.
+
+    Максимально схематично (владелец, 2026-08-05): никаких чужих моделей и придуманных деталей —
+    только то, что измерено. Форму вещи модель возьмёт с эталона, от схемы нужны место, размер и
+    разворот.
+    """
+    import trimesh
+    from planner.geometry import footprint
+    from shapely.affinity import translate as _tr
+    poly = _tr(footprint(p, it), -p.x, -p.y)
+    m = trimesh.creation.extrude_polygon(poly, max(float(it.h_cm or 40), 2.0))
+    v = np.asarray(m.vertices, np.float64).copy()
+    m.vertices = np.column_stack([v[:, 0], v[:, 2], v[:, 1]])      # экструзия Z-вверх → наш Y-вверх
     return m
 
 
@@ -157,19 +163,16 @@ def scene_geometry(n: int, only: set | None = None):
             continue
         if only is not None and p.role not in only:
             continue
-        if p.role in ('диван', 'кресло-кровать'):
-            try:
-                m = sofa_mesh(p, p.item)
-            except Exception:  # noqa: BLE001 — не вышло: берём модель кита
-                m = kit_model(p.role, p.item)
-        else:
-            m = kit_model(p.role, p.item)
+        try:
+            m = sofa_mesh(p, p.item) if p.role in ('диван', 'кресло-кровать') else box_mesh(p, p.item)
+        except Exception:  # noqa: BLE001 — не вышло: пропускаем предмет, чем рисовать неверно
+            m = None
         if m is None:
             continue
         sid += 1
         names[sid] = p.role
         v = np.asarray(m.vertices, np.float64).copy()
-        if p.role not in ('диван', 'кресло-кровать'):     # след дивана уже повёрнут
+        if False:                                        # след уже повёрнут — не крутим
             a = math.radians(-float(p.rot))
             ca, sa = math.cos(a), math.sin(a)
             x, z = v[:, 0] * ca - v[:, 2] * sa, v[:, 0] * sa + v[:, 2] * ca
