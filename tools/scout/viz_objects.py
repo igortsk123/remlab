@@ -36,6 +36,44 @@ MECHS = {'ref': 'fal-ai/nano-banana/edit', 'mask': 'fal-ai/inpaint',
 YAW = {'left': -45.0, 'center': 0.0, 'right': 45.0}
 
 
+_CARDS = None
+
+
+def feed_card(it: dict) -> dict:
+    """Полная карточка товара из фида: описание, все параметры, оригинальное фото.
+
+    Собирает `feed_cards.py`. В сеты попадает урезанный слепок (дерево/металл/ткань), а материал
+    и цвет у половины товаров лежат именно в параметрах фида (владелец, 2026-08-05).
+    """
+    global _CARDS
+    if _CARDS is None:
+        path = os.path.join(HERE, 'feed-cards.json')
+        _CARDS = json.load(open(path)) if os.path.exists(path) else {}
+    return _CARDS.get(f"{it.get('mid')}-{it.get('eid')}", {})
+
+
+def orig_photo(it: dict) -> str:
+    """Фото магазина в исходном размере (1080 px против 450 у витринного). Кэш — `refs/…-orig`."""
+    card = feed_card(it)
+    url = card.get('original_picture')
+    if not url:
+        return ''
+    key = re.sub(r'[^A-Za-z0-9]', '_', str(it['eid']))[:40]
+    ext = '.png' if url.lower().endswith('.png') else '.jpg'
+    dst = os.path.join(HERE, 'refs', f"{it['mid']}-{key}-orig{ext}")
+    if os.path.exists(dst):
+        return dst
+    try:
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        req = urllib.request.Request('https:' + url if url.startswith('//') else url,
+                                     headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=90) as r:
+            open(dst, 'wb').write(r.read())
+        return dst
+    except Exception:  # noqa: BLE001 — нет оригинала: работаем с витринным фото
+        return ''
+
+
 def product(n: int, role: str) -> tuple[dict, str]:
     """Карточка товара и путь к ПОЛНОРАЗМЕРНОМУ фото.
 

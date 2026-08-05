@@ -435,10 +435,14 @@ def identity_sheet(n: int, legends: list[list[dict]], nums: dict) -> 'Image.Imag
             _, photo = product(n, role)
         except KeyError:
             continue
-        if os.path.exists(photo):
-            # Эталон — ОРИГИНАЛЬНОЕ фото из фида, а не наша вырезка (владелец, 2026-08-05):
-            # вырезка теряет края, тени и часть фактуры, а модель здесь смотрит именно на то,
-            # как вещь выглядит. Берём максимум, что даёт фид (450 px), и апскейлим ×2.
+        # Эталон — ОРИГИНАЛЬНОЕ фото магазина из поля `original_picture` фида (1080 px против
+        # 450 у витринного), а не наша вырезка: вырезка теряет края, тени и часть фактуры
+        # (владелец, 2026-08-05). Нет оригинала — берём витринное и апскейлим ×2.
+        from viz_objects import orig_photo, product as _prod
+        big = orig_photo(_prod(n, role)[0])
+        if big and os.path.exists(big):
+            cells.append((num, role, Image.open(big).convert('RGB')))
+        elif os.path.exists(photo):
             cells.append((num, role,
                           hires(Image.open(photo).convert('RGB'),
                                 os.path.splitext(photo)[0] + '-up.jpg')))

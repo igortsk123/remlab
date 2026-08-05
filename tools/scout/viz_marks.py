@@ -293,19 +293,28 @@ def build(n: int, cam_name: str = 'C1', nums: dict | None = None) -> tuple[str, 
             except Exception:  # noqa: BLE001 — нет цвета: просто не пишем
                 return ''
         colour = _hex(it.get('rgb')) if it.get('rgb') not in (None, 'None') else ''
+        # Всё, что даёт фид: материал, цвет, обивка, тип, коллекция, особенности и описание.
+        from viz_objects import feed_card
+        fc = feed_card(it)
+        prm = fc.get('params') or {}
+        feed_bits = [f'{k}: {prm[k]}' for k in
+                     ('Материал', 'Материал обивки', 'Ткань', 'Материал каркаса', 'Материал корпуса',
+                      'Цвет', 'Цвет корпуса', 'Тип товара', 'Тип дивана', 'Конфигурация',
+                      'Коллекция/серия', 'Серия', 'Особенности', 'Стиль')
+                     if prm.get(k)]
+        if fc.get('description'):
+            feed_bits.append(f'описание: {fc["description"][:180]}')
         def _f(key):
             v = it.get(key)
             return None if v in (None, 'None', '') else v
-        details = ', '.join(x for x in (
-            it.get('cls'),
-            colour and f'средний цвет товара по фото: {colour}',
-            _f('fabric') and f'обивка: {_f("fabric")}',
+        details = '; '.join(x for x in (
+            '; '.join(feed_bits),
+            colour and f'средний цвет по фото: {colour}',
             _f('wood') and f'дерево: {_f("wood")}',
-            _f('metal') and f'металл: {_f("metal")}',
-            _f('style') and f'стиль: {_f("style")}') if x)
+            _f('metal') and f'металл: {_f("metal")}') if x)
         legend.append({
             'n': num, 'роль': role, 'товар': (it.get('name') or '')[:80],
-            'описание': details[:160],
+            'описание': details[:420],
             'габариты_см': ([int(by[role].item.w_cm), int(by[role].item.d_cm),
                              int(by[role].item.h_cm or 0)] if role in by and by[role].item
                             else [int(it.get('w') or 0), int(it.get('d') or 0), int(it.get('h') or 0)]),
