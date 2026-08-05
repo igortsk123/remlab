@@ -408,7 +408,9 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]],
            'their appearance from image 4, but their size, place and rotation only from the floor '
            'rectangle in image 1. Image 4 holds the original shop photos: some sit on a branded '
            'background and carry a shop logo or watermark — read the product itself and ignore '
-           'that background, the logo and any lettering; never copy them into the room.'
+           'that background, the logo and any lettering; never copy them into the room. '
+           'A tile captioned "вне кадров" belongs to the set but stands outside both views: '
+           'it is there for completeness only — do not draw it.'
            if has_identity else '') + '\n\n'
         'READ THE ITEM LIST BEFORE YOU DRAW ANYTHING. "product" is the exact retail name; '
         '"appearance" carries the measured material, official colour and colour_hex; "size_cm" is '
@@ -446,8 +448,14 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]],
         'ceiling, skirting, frames and dressing of the given openings. Natural light, soft contact '
         'shadows, correct wall-to-floor junctions, vertical lines vertical. Framed wall art may be '
         'added; no tabletop, shelf, floor or freestanding decor of your own. Every planter and vase '
-        'from the list must hold a live plant sized to it. Where the list has a TV stand, a TV is '
-        'always present — on the stand or wall-mounted right above it.\n'
+        'from the list must hold a live plant sized to it.'
+        # Фразу про телевизор даём ТОЛЬКО когда в комплекте есть ТВ-тумба: без неё модель
+        # дорисовывала и тумбу, и телевизор, которых в сете нет (владелец: «шкаф 2 раза встал»,
+        # 2026-08-05).
+        + (' Where the list has a TV stand, a TV is always present — on the stand or wall-mounted '
+           'right above it.' if any(m['type'] == 'тв-тумба' for m in merged.values()) else
+           ' This set has NO TV stand and NO TV: do not draw a television or any cabinet under one.')
+        + '\n'
         + shops_note(n) + '\n'
         f'STYLE — {style_name(n)} (finishes, colour, light and mood only; it never adds objects): '
         f'{style_brief(n)}\n\n'
@@ -500,10 +508,16 @@ def identity_sheet(n: int, legends: list[list[dict]], nums: dict) -> 'Image.Imag
     partial = {}
     try:
         _items = _j.load(open(os.path.join(HERE, 'sets3.json')))[n - 1]['items']
+        # Номер есть только у того, что попало хотя бы в один кадр. Товар без номера всё равно
+        # получает эталон — иначе лист «на все позиции» терял вазу и подушку, стоящие вне вида
+        # (владелец проверил трижды, 2026-08-05). Такие идут в конец с пометкой «вне кадров».
+        _extra = 10_000
         for role in _items:
             num = nums.get(role)
-            if num:
-                partial[num] = role
+            if not num:
+                _extra += 1
+                num = _extra
+            partial[num] = role
     except Exception:  # noqa: BLE001 — нет комплекта: работаем по легендам
         pass
     for legend in legends:
@@ -557,7 +571,8 @@ def identity_sheet(n: int, legends: list[list[dict]], nums: dict) -> 'Image.Imag
         im.thumbnail((cw - 40, ch - 110))
         x, y = (i % cols) * cw, (i // cols) * ch
         sheet.paste(im, (x + (cw - im.width) // 2, y + 30))
-        d.text((x + 24, y + ch - 70), f'#{num} {role}', fill=(200, 30, 30), font=f)
+        cap = f'#{num} {role}' if num < 10_000 else f'{role} — вне кадров'
+        d.text((x + 24, y + ch - 70), cap, fill=(200, 30, 30), font=f)
     return sheet
 
 
@@ -655,7 +670,10 @@ def main() -> None:
         'wall art and small decor typical of the style. Fill every planter and vase from the list '
         'with a live plant sized to it. Where the list has a TV stand, a TV is ALWAYS present: put it either standing on the stand or wall-mounted right above it — choose by the size and design of that stand.\n\n'
         'ALLOWED GENERATED ELEMENTS (nothing else may be invented): a live plant inside a listed '
-        'planter or vase; a TV on or above a listed TV stand; curtains or blinds on a listed '
+        'planter or vase;'
+        + (' a TV on or above a listed TV stand;' if any(m['type'] == 'тв-тумба'
+                                                        for m in merged.values()) else '')
+        + ' curtains or blinds on a listed '
         'window; a radiator under a listed window; restrained framed wall art; light, shadows and '
         'reflections. These must not cover or outshine the purchased products.\n\n'
         'NEVER ADD: furniture, rugs, lamps, TV, textiles, pots, planters or floor plants that are '

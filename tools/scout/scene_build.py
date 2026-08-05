@@ -135,8 +135,8 @@ def derived(room, placements, items):
         rel['люстра'] = 'висит на потолке ровно по центру комнаты'
         out.append(Placement(role='люстра', x=room.width_cm / 2, y=room.depth_cm / 2,
                              rot=0, elev_cm=270.0 - h,
-                             item=Item(role='люстра', w_cm=float(lamp['w']),
-                                       d_cm=float(lamp['d']), h_cm=h)))
+                             item=Item(role='люстра', w_cm=float(lamp['w'] or 60),
+                                       d_cm=float(lamp['d'] or lamp['w'] or 60), h_cm=h)))
 
     return out, rel
 

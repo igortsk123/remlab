@@ -61,6 +61,9 @@ def check(setn: int, sets: list) -> list[dict]:
         # исключения по подтипу: пуф-стол живёт по правилам столика, а не пуфа
         if _sub(role, it) in (r.get('only_if_subtype_not') or []):
             continue
+        # у ковра две схемы: проверяем ту, по которой он и выбран
+        if r.get('scheme') and it.get('rug_scheme') and r['scheme'] != it['rug_scheme']:
+            continue
         ref_role, field = r['b'].split('.')
         a = metrics(role, it, corner).get(r['a'].split('.')[1])
         if ref_role == 'room':

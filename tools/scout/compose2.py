@@ -433,14 +433,33 @@ for bi,band in enumerate(COMP['bands']):
             # который не дотягивает до допустимого соотношения с диваном, в гостиной читается
             # половиком у дивана. В каталоге сейчас всего 14 ковров, крупнейший 100x150 — для
             # дивана 230 нужен от 265. Не кладём вовсе и помечаем дыру состава.
+            # Две схемы ковра. Основная — «передние ножки»: ковёр заходит под диван и держит всю
+            # зону. Если такого нет, допустима схема «только под столиком»: ковёр выступает за
+            # столик со всех сторон (владелец, 2026-08-05). Если не годится ни одна — ковра нет.
+            _scheme=None
             if best and sofa_w:
                 _long=max(best.get('w') or 0, best.get('d') or 0)
-                _lo=PROP_RULES['rug_len_vs_sofa'][0]
-                if _long and _long/sofa_w < _lo:
-                    print(f"  дыра каталога: ковра от {int(sofa_w*_lo)} см нет "
-                          f"(лучший {int(_long)} см) — сет без ковра",flush=True)
-                    best=None
-            if best: chosen['ковёр']=dict(best,qty=1)
+                if _long and _long/sofa_w >= PROP_RULES['rug_len_vs_sofa'][0]:
+                    _scheme='front_legs'
+                else:
+                    _tbl=chosen.get('столик')
+                    _tl=max((_tbl or {}).get('w') or 0, (_tbl or {}).get('d') or 0) if _tbl else 0
+                    _rlo,_rhi=PROP_RULES['rug_len_vs_table']
+                    # под столик берём НАИБОЛЬШИЙ подходящий ковёр, а не ближайший к дивану
+                    _cands=[]
+                    for it2 in cat['ковёр']:
+                        if not it2['fp'] or re.search(r'ассортимент|мехов|ванн|придверн|подложк',
+                                                      it2['name'].lower()): continue
+                        l2=max(it2.get('w') or 0, it2.get('d') or 0)
+                        if _tl and _rlo<=l2/_tl<=_rhi: _cands.append((l2,it2))
+                    if _cands:
+                        best=max(_cands,key=lambda x:x[0])[1]; _scheme='table_only'
+                    else:
+                        print(f"  дыра каталога: ковра нет ни под диван (нужен от "
+                              f"{int(sofa_w*PROP_RULES['rug_len_vs_sofa'][0])} см), ни под столик "
+                              f"— сет без ковра",flush=True)
+                        best=None
+            if best: chosen['ковёр']=dict(best,qty=1,rug_scheme=_scheme)
         # люстра: диаметр по метражу + металл капсулы
         _f=(OCC or {}).get('chandelier_size',{}).get('diameter_cm_formula','')
         if '8.2' in _f:  # формула свода: (L+W)м × 8.2, ±20%

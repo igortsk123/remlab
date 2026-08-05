@@ -85,14 +85,40 @@ def product(n: int, role: str) -> tuple[dict, str]:
     key = re.sub(r'[^A-Za-z0-9]', '_', str(it['eid']))[:40]
     big = os.path.join(HERE, 'refs', f"{it['mid']}-{key}.jpg")
     if not os.path.exists(big) and it.get('img'):
-        url = it['img']
-        url = 'https:' + url if url.startswith('//') else url
-        os.makedirs(os.path.dirname(big), exist_ok=True)
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=60) as r:
-            open(big, 'wb').write(r.read())
+        # Ссылка на фото может быть мёртвой (404) — это не повод ронять весь прогон: работаем по
+        # миниатюре, а сбойный товар подсветит health-проверка каталога (2026-08-05).
+        try:
+            url = it['img']
+            url = 'https:' + url if url.startswith('//') else url
+            os.makedirs(os.path.dirname(big), exist_ok=True)
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                open(big, 'wb').write(r.read())
+        except Exception as e:  # noqa: BLE001
+            print(f'  фото товара не скачалось ({str(e)[:40]}) — беру миниатюру', flush=True)
+            if os.path.exists(big):
+                os.remove(big)
+    # Скачанный файл может оказаться битым (обрыв закачки, заглушка магазина) — тогда PIL падает
+    # и валит весь пакет. Проверяем и перекачиваем один раз, иначе отдаём миниатюру (2026-08-05).
     if os.path.exists(big):
-        return it, big
+        try:
+            from PIL import Image as _I
+            _I.open(big).verify()
+            return it, big
+        except Exception:  # noqa: BLE001 — битый кэш: удаляем и пробуем ещё раз
+            os.remove(big)
+            if it.get('img'):
+                try:
+                    url = it['img']
+                    url = 'https:' + url if url.startswith('//') else url
+                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req, timeout=60) as r:
+                        open(big, 'wb').write(r.read())
+                    _I.open(big).verify()
+                    return it, big
+                except Exception:  # noqa: BLE001 — не вышло: работаем по миниатюре
+                    if os.path.exists(big):
+                        os.remove(big)
     return it, os.path.join(HERE, 'thumbs', f"{it['mid']}-{key}.png")
 
 
