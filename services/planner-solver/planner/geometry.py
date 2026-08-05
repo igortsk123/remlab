@@ -38,7 +38,7 @@ def footprint(p: Placement, item: Item | None = None) -> Polygon:
     it = item or p.item
     if it is None:
         raise ValueError(f"footprint({p.role}): нет габаритов (item=None)")
-    key = (it.role, it.w_cm, it.d_cm, it.corner, it.corner_section_cm,
+    key = (it.role, it.w_cm, it.d_cm, it.corner, it.corner_section_cm, it.corner_left,
            round(p.x, 2), round(p.y, 2), round(p.rot, 2))
     hit = _FP_CACHE.get(key)
     if hit is not None:
@@ -62,16 +62,17 @@ def _corner_polygon(it: Item) -> Polygon:
     (совпадает с направлением facing при rot 0).
     """
     w, d, s = it.w_cm, max(it.d_cm, it.corner_section_cm + 1), it.corner_section_cm
-    return Polygon(
-        [
-            (-w / 2, -d / 2),
-            (w / 2, -d / 2),
-            (w / 2, d / 2),
-            (w / 2 - s, d / 2),
-            (w / 2 - s, -d / 2 + s),
-            (-w / 2, -d / 2 + s),
-        ]
-    )
+    pts = [
+        (-w / 2, -d / 2),
+        (w / 2, -d / 2),
+        (w / 2, d / 2),
+        (w / 2 - s, d / 2),
+        (w / 2 - s, -d / 2 + s),
+        (-w / 2, -d / 2 + s),
+    ]
+    if it.corner_left:            # плечо на другой стороне — зеркалим по X (иначе след выходит
+        pts = [(-x, y) for x, y in pts]   # зеркальным и мебель врезается друг в друга)
+    return Polygon(pts)
 
 
 def access_zone(p: Placement, item: Item | None = None, spec: ClearanceSpec | None = None) -> Polygon:
