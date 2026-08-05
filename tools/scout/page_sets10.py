@@ -68,15 +68,39 @@ def dims(it: dict) -> str:
     return '×'.join(parts) + ' см' if parts else 'размер не указан'
 
 
-def card(role: str, it: dict, num: int | None) -> str:
+SHOWN_RANK = {'фото': 0, '3D-модель': 1, 'рисует нейросеть': 2, 'вне кадра': 3}
+
+
+def how_shown(n: int) -> dict:
+    """Как каждый товар попал в аппликацию — по журналу вклейки, а не на глазок.
+
+    Фотография товара — основной путь; сильно развёрнутые напольные предметы идут 3D-моделью;
+    мягкий декор (подушки, плед) и то, что не прошло, дорисовывает нейросеть по эталону.
+    """
+    out: dict[str, str] = {}
+    for c in ('C1', 'C2'):
+        p = os.path.join(SCENES, f'scene{n}-{c}-paint.json')
+        if not os.path.exists(p):
+            continue
+        j = json.load(open(p))
+        for role in j.get('ids', {}).values():
+            state = ('3D-модель' if role in j.get('meshed', []) else
+                     'фото' if role in j.get('pasted', []) else 'рисует нейросеть')
+            if SHOWN_RANK[state] < SHOWN_RANK.get(out.get(role, 'вне кадра'), 3):
+                out[role] = state
+    return out
+
+
+def card(role: str, it: dict, num: int | None, shown: str) -> str:
     src = photo(it)
     img = (f'<img src="{src}" alt="" loading="lazy">' if src
            else '<div class="noimg">фото недоступно</div>')
     mark = f'<span class="num">{num}</span>' if num else ''
+    cls = {'фото': 'ok', '3D-модель': 'mesh', 'рисует нейросеть': 'ai'}.get(shown, 'off')
     return f"""<article class="card">
   <div class="ph">{img}{mark}</div>
   <div class="meta">
-    <div class="role">{html.escape(role)}</div>
+    <div class="role">{html.escape(role)} <span class="how {cls}">{shown}</span></div>
     <a class="name" href="{html.escape(it.get('url') or '#')}" target="_blank" rel="noopener">{html.escape(it['name'])}</a>
     <div class="line"><span class="dim">{dims(it)}</span><span class="price">{it['price']:,} ₽</span></div>
     <div class="shop">{html.escape(it.get('shop') or '')}</div>
@@ -89,7 +113,13 @@ def section(n: int, sets: list, nums: dict) -> str:
     items = s['items']
     order = sorted(items.items(),
                    key=lambda kv: ROLE_ORDER.index(kv[0]) if kv[0] in ROLE_ORDER else 99)
-    cards = '\n'.join(card(r, it, nums.get(r)) for r, it in order)
+    shown = how_shown(n)
+    cards = '\n'.join(card(r, it, nums.get(r), shown.get(r, 'вне кадра')) for r, it in order)
+    tally = {}
+    for r, _ in order:
+        k = shown.get(r, 'вне кадра')
+        tally[k] = tally.get(k, 0) + 1
+    tally_s = ' · '.join(f'{k}: {v}' for k, v in sorted(tally.items(), key=lambda kv: SHOWN_RANK[kv[0]]))
     gaps = s.get('gaps') or []
     gap_html = ''
     if gaps:
@@ -107,7 +137,8 @@ def section(n: int, sets: list, nums: dict) -> str:
       <span>{s['tier']}</span><span class="tot">{s['total']:,} ₽</span></div>
   </header>
   <p class="sub">Позиций в комплекте: <b>{len(items)}</b>. В кадре видно: вид 1 — {vis[0]},
-     вид 2 — {vis[1]} (второй вид смотрит в пустой угол, там стоит меньше вещей).</p>
+     вид 2 — {vis[1]} (второй вид смотрит в пустой угол, там стоит меньше вещей).<br>
+     На аппликации — {tally_s}.</p>
   {gap_html}
   <h3>Аппликация — два вида</h3>
   <a href="collage{n}.jpg" target="_blank"><img class="big" src="collage{n}.jpg" loading="lazy" alt=""></a>
@@ -162,7 +193,14 @@ h3{font-size:14px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim)
      width:24px;height:24px;display:flex;align-items:center;justify-content:center;
      font-size:13px;font-weight:700}
 .meta{padding:10px 11px 12px;display:flex;flex-direction:column;gap:4px}
-.role{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim)}
+.role{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);
+      display:flex;justify-content:space-between;gap:6px;align-items:center}
+.how{text-transform:none;letter-spacing:0;font-size:10.5px;padding:1px 7px;border-radius:999px;
+     border:1px solid var(--line);white-space:nowrap}
+.how.ok{color:#2f7d4f;border-color:#2f7d4f55}
+.how.mesh{color:#2d6ea8;border-color:#2d6ea855}
+.how.ai{color:#9a6a1f;border-color:#9a6a1f55}
+.how.off{color:var(--dim)}
 .name{font-size:13.5px;line-height:1.35;color:var(--ink);text-decoration:none}
 .name:hover{color:var(--acc);text-decoration:underline}
 .line{display:flex;justify-content:space-between;gap:8px;font-size:13px;
