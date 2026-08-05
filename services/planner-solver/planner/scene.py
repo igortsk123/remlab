@@ -110,22 +110,43 @@ def cameras_for(room: Room, placements: list[Placement]) -> list[Camera]:
     # оказывалась внутри него — кадр переставал совпадать с планом (владелец, 2026-08-05). Такой
     # угол просто ВЫБЫВАЕТ из выбора: сдвигать камеру внутрь комнаты нельзя, иначе разваливается
     # диагональ и второй вид приходит пустым.
-    def _blocked(cx: float, cy: float) -> bool:
-        from shapely.geometry import Point
-
+    def _obstacles():
         from .geometry import footprint
-        pt = Point(cx, cy)
+        out = []
         for q in placements:
             if q.item is None or float(getattr(q, 'elev_cm', 0.0)) > 1.0:
                 continue
             try:
-                if footprint(q, q.item).buffer(20).contains(pt):
-                    return True
+                out.append(footprint(q, q.item).buffer(20))
             except Exception:  # noqa: BLE001 — предмет без габаритов камере не мешает
                 pass
-        return False
+        return out
 
-    blocked = [_blocked(cx, cy) for cx, cy in corners]
+    _OBST = _obstacles()
+
+    def _free(cx: float, cy: float) -> bool:
+        from shapely.geometry import Point
+        pt = Point(cx, cy)
+        return not any(o.contains(pt) for o in _OBST)
+
+    def _corner_spot(cx: float, cy: float) -> tuple[float, float]:
+        """Точка съёмки в этом углу, свободная от мебели.
+
+        Угловой диван или кашпо занимают сам угол — тогда отходим ВДОЛЬ СТЕНЫ, оставаясь в
+        углу комнаты. Сдвигать камеру внутрь комнаты нельзя: разваливается диагональ и второй
+        вид приходит пустым (проверено, владелец 2026-08-05).
+        """
+        if _free(cx, cy):
+            return cx, cy
+        dx = 1.0 if cx < W / 2 else -1.0
+        dy = 1.0 if cy < D / 2 else -1.0
+        for step in range(1, 22):
+            for px, py in ((cx + dx * step * 20.0, cy), (cx, cy + dy * step * 20.0)):
+                if inset <= px <= W - inset and inset <= py <= D - inset and _free(px, py):
+                    return px, py
+        return cx, cy
+
+    corners = [_corner_spot(cx, cy) for cx, cy in corners]
 
     # Взгляд — ПО ДИАГОНАЛИ, из угла в угол: так в кадр попадают две стены и вся комната.
     # Угол объектива считаем под конкретную комнату: берём ровно столько, чтобы перекрыть
@@ -151,8 +172,6 @@ def cameras_for(room: Room, placements: list[Placement]) -> list[Camera]:
         small = Camera(cam.name, cam.eye, cam.target, fov_deg=cam.fov_deg,
                        shift_y=cam.shift_y, width=336, height=224)
         out = compile_scene(room, placements, small)
-        if blocked[ci] and not all(blocked):      # угол занят мебелью — не снимаем оттуда
-            return -1, cam, set()
         return len(out["visible"]), cam, set(out["visible"])
 
     seen = {ci: probe(ci) for ci in range(4)}

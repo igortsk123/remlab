@@ -221,7 +221,9 @@ def draw_plan(room: Room, placements: list[Placement], cams, path: str) -> str:
             d.line([T(ex, ez), T(x2, z2)], fill=(162, 73, 59, 120), width=2)
         px, pz = T(ex, ez)
         d.ellipse([px - 9, pz - 9, px + 9, pz + 9], fill='#A2493B')
-        d.text((px + 13, pz - 10), f'камера {cam.name}', fill='#A2493B', font=f_cam)
+        # покупателю показываем простые имена: угловые камеры это «A» и «B»
+        label = {'C1': 'A', 'C2': 'B'}.get(cam.name, cam.name)
+        d.text((px + 13, pz - 10), f'камера {label}', fill='#A2493B', font=f_cam)
 
     img.save(path)
     return path
@@ -229,8 +231,11 @@ def draw_plan(room: Room, placements: list[Placement], cams, path: str) -> str:
 
 def main() -> None:
     n = int(sys.argv[1])
+    # По умолчанию — ИМЕННО ТЕ камеры, из которых собирается выдача: два угла комнаты (C1/C2).
+    # Раньше план рисовался со служебными A/B (у дивана и у ТВ), и точки съёмки на плане не
+    # совпадали с кадрами (владелец: «камера А и камера В по углам должны быть», 2026-08-05).
     views = (sys.argv[sys.argv.index('--views') + 1].split(',')
-             if '--views' in sys.argv else ['A', 'B', 'T'])
+             if '--views' in sys.argv else ['C1', 'C2', 'T'])
     os.makedirs(SCENE_DIR, exist_ok=True)
     room, placements = load_scene(n)
     cams = [c for c in cameras_for(room, placements) if c.name in views]
