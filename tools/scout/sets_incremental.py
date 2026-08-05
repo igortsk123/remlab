@@ -106,8 +106,76 @@ def why(mid: str, eid: str) -> None:
     print('  в запасе у: ' + (', '.join(f'{s["set"]}({s["role"]})' for s in rec['spare']) or '—'))
 
 
+def heal(apply: bool = False) -> None:
+    """Лечение комплектов: выбывший товар меняем на запасной той же роли.
+
+    Замена обязана пройти те же ворота, что и оригинал: быть в наличии, попадать в ценовую вилку
+    (±30%) и не ломать пропорции относительно остальных предметов комплекта. Иначе «починка» тихо
+    портит комплект — а это хуже, чем честно показать дырку.
+    """
+    import shutil
+    from proportions import check as prop_check
+    from item_function import subtype as _sub
+
+    idx = _load()
+    sets = json.load(open(SETS))
+    ids = [k.split(':') for k in idx if idx[k]['used']]
+    vals = ','.join(f"({m},'{e}')" for m, e in ids)
+    dead = {}
+    for row in _rows(f"""select e.shop_mid, e.external_id, e.status from product_enrichment e
+            join (values {vals}) v(mid,eid) on e.shop_mid=v.mid and e.external_id=v.eid
+           where e.status <> 'active'"""):
+        if len(row) >= 3:
+            dead[key(row[0], row[1])] = row[2]
+    if not dead:
+        print('выбывших товаров в комплектах нет — лечить нечего')
+        return
+    alive = {key(r[0], r[1]) for r in _rows(
+        "select shop_mid, external_id from product_enrichment where status='active'") if len(r) >= 2}
+
+    healed, hopeless = 0, []
+    for n, s in enumerate(sets, 1):
+        for role, it in list(s['items'].items()):
+            k = key(it['mid'], it['eid'])
+            if k not in dead:
+                continue
+            spares = [a for a in ((s.get('alternates') or {}).get(role) or [])
+                      if key(a['mid'], a['eid']) in alive]
+            picked = None
+            for a in spares:
+                if not (0.7 * it['price'] <= a.get('price', 0) <= 1.3 * it['price']):
+                    continue
+                cand = dict(it)
+                cand.update({kk: a[kk] for kk in ('mid', 'eid', 'name', 'price') if kk in a})
+                ctx = {'chosen': {r: v for r, v in s['items'].items() if r != role},
+                       'wall': None,
+                       'corner_sofa': 'углов' in str((s['items'].get('диван') or {}).get('name', '')).lower()}
+                ok, _b, _no = prop_check(role, cand, ctx, _sub(role, cand))
+                if ok:
+                    picked = cand
+                    break
+            if picked:
+                healed += 1
+                print(f'  комплект {n}: {role} «{it["name"][:32]}» ({dead[k]}) → «{picked["name"][:32]}»')
+                if apply:
+                    s['items'][role] = picked
+            else:
+                hopeless.append((n, role, it['name'][:38], dead[k]))
+    print(f'\nвылечено ролей: {healed}; без замены: {len(hopeless)}')
+    for n, role, name, st in hopeless[:10]:
+        print(f'  комплект {n}: {role} «{name}» — {st}, запаса нет → комплект скрывается')
+    if apply and healed:
+        shutil.copy(SETS, SETS + '.bak')
+        json.dump(sets, open(SETS, 'w'), ensure_ascii=False)
+        print('\nsets3.json обновлён (бэкап рядом, .bak)')
+    elif not apply:
+        print('\nэто был показ без изменений; применить — ключом --apply')
+
+
 def main() -> None:
-    if '--index' in sys.argv:
+    if '--heal' in sys.argv:
+        heal('--apply' in sys.argv)
+    elif '--index' in sys.argv:
         build()
     elif '--check' in sys.argv:
         check()

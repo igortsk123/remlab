@@ -193,9 +193,9 @@ def _image_b64(url: str) -> str | None:
         req = urllib.request.Request(u, headers={'User-Agent': 'Mozilla/5.0'})
         raw = urllib.request.urlopen(req, timeout=40).read()
         im = _Im.open(_io.BytesIO(raw)).convert('RGB')
-        im.thumbnail((512, 512))
+        im.thumbnail((448, 448))
         buf = _io.BytesIO()
-        im.save(buf, 'JPEG', quality=82)
+        im.save(buf, 'JPEG', quality=78)
         out = base64.b64encode(buf.getvalue()).decode()
     except Exception:  # noqa: BLE001 — мёртвая ссылка: работаем по тексту
         out = None

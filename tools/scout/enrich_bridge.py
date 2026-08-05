@@ -60,7 +60,8 @@ def load() -> dict:
                payload->'model'->>'role', payload->'model'->>'functional_subtype',
                payload->'model'->>'primary_color', payload->'model'->>'materials',
                payload->'model'->>'styles', payload->'model'->>'style_strength',
-               payload->'model'->>'visual_mass', payload->'model'->>'warmth'
+               payload->'model'->>'visual_mass', payload->'model'->>'warmth',
+               payload->'model'->>'photo', payload->'model'->>'image_type'
           from product_enrichment where payload is not null and status='active'
     """)
     if r.returncode != 0:
@@ -71,13 +72,15 @@ def load() -> dict:
         if not line:
             continue
         f = line.split('\x1f')
-        if len(f) < 11:
+        if len(f) < 11:  # строка с переносом внутри описания
             continue          # строка с переносом внутри описания — пропускаем, их единицы
         out[_key(f[0], f[1])] = dict(
             quality=float(f[2] or 0), role=f[3], subtype=f[4], colour=f[5],
             materials=json.loads(f[6]) if f[6] else [],
             styles=json.loads(f[7]) if f[7] else {},
-            strength=f[8], mass=f[9], warmth=f[10])
+            strength=f[8], mass=f[9], warmth=f[10],
+            photo=json.loads(f[11]) if len(f) > 11 and f[11] else {},
+            image_type=f[12] if len(f) > 12 else None)
     _CACHE = out
     return out
 
@@ -98,6 +101,28 @@ def subtype_ok(role: str, mid, eid) -> bool | None:
     if not e or role not in SUB_OK:
         return None
     return e['subtype'] in SUB_OK[role]
+
+
+# Угол, под которым СНЯТ сам товар на карточке. Раньше конвейер вклейки считал любую карточку
+# фронтальной и вычислял разворот только из геометрии сцены — а по факту 53% карточек сняты
+# в три четверти (замер по 5 420 товарам, 2026-08-05). Из-за этого предметы, стоящие в сцене
+# вполоборота, считались «сильно развёрнутыми» и уезжали на платную 3D-модель зря.
+PHOTO_YAW = {'фронтально': 0.0, 'три_четверти': 35.0, 'сбоку': 90.0,
+             'сверху': 0.0, 'деталь_крупно': 0.0, 'неясно': 0.0}
+
+
+def photo_yaw(mid, eid) -> float | None:
+    """Собственный разворот товара на фото, градусы. None — фото не смотрели."""
+    e = get(mid, eid)
+    if not e:
+        return None
+    return PHOTO_YAW.get((e.get('photo') or {}).get('view_angle'))
+
+
+def photo_flags(mid, eid) -> dict:
+    """Что не так с карточкой: логотип, посторонние предметы, обрезка, годность эталоном."""
+    e = get(mid, eid)
+    return (e or {}).get('photo') or {}
 
 
 def style_scores(mid, eid) -> dict | None:

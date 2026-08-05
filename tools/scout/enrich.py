@@ -30,7 +30,7 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from golden_label import SCHEMA, SYS, prompt, _key  # noqa: E402
+from golden_label import SCHEMA, SYS, prompt, _key, _image_b64  # noqa: E402
 from rules0 import extract, flags, pool  # noqa: E402
 
 MODEL = 'gpt-5.6-luna'
@@ -98,10 +98,14 @@ def body_for(it: dict, model: str = MODEL, vision: bool = False) -> dict:
     # считаем по фотографии, роль и функцию оставляем тексту (вопрос владельца «это реально?»).
     content = prompt(it)
     if vision and it.get('img'):
-        url = it['img']
-        url = 'https:' + url if url.startswith('//') else url
-        content = [{'type': 'text', 'text': content},
-                   {'type': 'image_url', 'image_url': {'url': url, 'detail': 'low'}}]
+        # Картинку кладём БАЙТАМИ. Со ссылкой магазина OpenAI не успевает её скачать: в первом
+        # пакетном прогоне 2 972 запроса из 19 752 (15%) упали с «Timeout while downloading»
+        # (2026-08-05). Байты дороже по объёму файла, поэтому пакеты режем мельче.
+        b64 = _image_b64(it['img'])
+        if b64:
+            content = [{'type': 'text', 'text': content},
+                       {'type': 'image_url',
+                        'image_url': {'url': f'data:image/jpeg;base64,{b64}', 'detail': 'low'}}]
     return {
         'model': model,
         'messages': [{'role': 'system', 'content': SYS},
@@ -220,6 +224,7 @@ def run_sync(items: list[dict], model: str = MODEL) -> None:
 
 
 CHUNK = 7000     # ~50 МБ на файл при лимите 200 МБ и 50 000 запросов
+CHUNK_VISION = 2000   # с картинкой в теле запроса файл растёт вчетверо — режем мельче
 
 
 def _submit(lines: list[str], key: str, tag: str) -> str:
@@ -257,9 +262,10 @@ def run_batch(items: list[dict]) -> None:
     lines = [json.dumps({'custom_id': f'{it["mid"]}:{it["eid"]}', 'method': 'POST',
                          'url': '/v1/chat/completions', 'body': body_for(it, MODEL, vision)},
                         ensure_ascii=False) for it in items]
+    step = CHUNK_VISION if vision else CHUNK
     ids = []
-    for i in range(0, len(lines), CHUNK):
-        ids.append(_submit(lines[i:i + CHUNK], key, str(i // CHUNK + 1)))
+    for i in range(0, len(lines), step):
+        ids.append(_submit(lines[i:i + step], key, str(i // step + 1)))
     open(os.path.join(HERE, 'enrich-batch-id.txt'), 'w').write('\n'.join(ids))
     print(f'отправлено частей: {len(ids)}. Забрать: --fetch (id читаются из enrich-batch-id.txt)')
 
