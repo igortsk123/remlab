@@ -9,6 +9,7 @@
 
   ~/venvs/scout/bin/python mesh_make.py 21 --roles столик,пуф,кашпо
 """
+import json
 import os
 import re
 import sys
@@ -32,6 +33,46 @@ def mesh_path(it: dict) -> str:
     """Имя файла — по товару, а не по комплекту: модель переиспользуется во всех сценах."""
     k = re.sub(r'[^A-Za-z0-9]', '_', f"{it.get('mid', '?')}-{it.get('eid', '?')}")[:60]
     return os.path.join(MESH_DIR, f'{k}.glb')
+
+
+def mesh_trusted(path: str, photo: str, min_iou: float = 0.6) -> bool:
+    """Модель обязана совпасть с карточкой, из которой сделана — иначе она бракованная.
+
+    Проверка без человека: рендерим модель В ТОМ ЖЕ ракурсе, что и фото (разворот 0), и сравниваем
+    силуэты. У люстры генератор слепил рожки в мятую железку — силуэт разошёлся, и такую модель
+    подставлять нельзя (владелец, 2026-08-05). Вердикт кэшируется рядом с моделью.
+    """
+    import numpy as np
+    from PIL import Image
+
+    verdict = os.path.splitext(path)[0] + '-check.json'
+    if os.path.exists(verdict):
+        try:
+            return bool(json.load(open(verdict))['ok'])
+        except Exception:  # noqa: BLE001 — битый вердикт пересчитаем
+            pass
+    from mesh_render import load_parts, render
+    from viz_paste import cutout, trim_alpha
+    parts = load_parts(path)
+    card = trim_alpha(cutout(photo))
+    size = (256, 256)
+    b = np.asarray(card.resize(size, Image.LANCZOS))[..., 3] > 90
+    # Карточку снимают не строго в лоб, а «в три четверти» и чуть сверху (замер магазинов —
+    # `measure_angle.py`). Поэтому ищем ЛУЧШЕЕ совпадение по нескольким правдоподобным ракурсам:
+    # иначе честная модель проваливает проверку из-за чужого угла съёмки.
+    iou = 0.0
+    for yaw in (0.0, -20.0, 20.0):
+        for pitch in (0.0, 12.0, 22.0):
+            shot = trim_alpha(render(parts, yaw, pitch, size=(500, 500)))
+            a = np.asarray(shot.resize(size, Image.LANCZOS))[..., 3] > 90
+            union = float((a | b).sum())
+            iou = max(iou, float((a & b).sum()) / union if union else 0.0)
+    ok = iou >= min_iou
+    json.dump({'iou': round(iou, 3), 'ok': ok, 'min_iou': min_iou},
+              open(verdict, 'w'), ensure_ascii=False)
+    print(f'  самопроверка модели {os.path.basename(path)}: совпадение с карточкой '
+          f'{iou:.0%} → {"годится" if ok else "брак, работаем по фото"}', flush=True)
+    return ok
 
 
 def ensure_mesh(n: int, role: str, key: str | None = None) -> str | None:

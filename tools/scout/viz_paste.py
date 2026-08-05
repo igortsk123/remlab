@@ -50,6 +50,14 @@ KEY_FLOOR = FRONTED | {'столик', 'стол', 'обеденный стол'
 # серый объём, а внешний вид уходит эталоном отдельной картинкой (владелец, 2026-08-05).
 LOW = {'столик', 'стол', 'обеденный стол', 'пуф'}
 LOW_MAX_H = 60.0
+# Подвесное под потолком (люстра, бра) 3D-моделью не заменяем никогда: оно высоко, разворот с
+# пола не читается, а тонкие рожки и стекло генератор не восстанавливает — выходит мятая железка
+# (владелец, 2026-08-05). Ни одна мебельная поверхность так высоко не поднимается.
+HANG_MIN_ELEV = 150.0
+# Роли, которым в ЭТОМ прогоне разрешено подставить 3D-модель. Список приходит от приёмки
+# (`viz_build.py`): модель ставится не «на всякий случай», а только там, где фотография уже
+# провалила проверку числами. По умолчанию — пусто: фото как есть (владелец, 2026-08-05).
+MESH_ROLES: set[str] = set()
 
 
 _CUTS: list[tuple[str, str]] = []      # что вырезали в этом прогоне — для журнала
@@ -229,21 +237,29 @@ def mesh_yaw_pitch(p, it, cam) -> tuple[float, float]:
 
 
 def mesh_source(n: int, role: str, p, it, cam) -> Image.Image | None:
-    """Картинка предмета с 3D-модели под углом камеры — если модель для товара уже собрана.
+    """Картинка предмета с 3D-модели под углом камеры — ЕСЛИ модель тут вообще уместна.
 
-    Плоская карточка снята со своей точки и в чужом ракурсе врёт; рендер модели даёт и разворот,
-    и правильные пропорции в кадре, поэтому вклейка честно заполняет своё место (ADR-0060).
+    Модель подставляется не всегда, а по трём правилам подряд (владелец, 2026-08-05):
+      1. Подвесное под потолком (люстра, бра) — НИКОГДА. Оно высоко, разворот с пола не читается,
+         а тонкие рожки и стекло генератор не восстанавливает: выходит мятая железка.
+      2. Решение «этому предмету нужна модель» принимает ПРИЁМКА кадра (`viz_build`): фото
+         подставляется по умолчанию, и только провалившие проверку числами уходят на 3D.
+         Роль обязана быть в `MESH_ROLES` — сюда её кладёт сборщик, а не догадка.
+      3. Сама модель должна пройти самопроверку: рендер под ракурсом карточки обязан совпасть с
+         силуэтом этой карточки. Не совпал — модель бракованная, работаем по фото.
     """
     try:
-        from mesh_make import mesh_path
+        if float(getattr(p, 'elev_cm', 0.0)) >= HANG_MIN_ELEV:
+            return None                                   # правило 1: подвесное не моделим
+        from mesh_make import mesh_path, mesh_trusted
         from mesh_render import load_parts, render
         from viz_objects import product as _product
-        path = mesh_path(_product(n, role)[0])
-        if not os.path.exists(path):
+        it_card, photo = _product(n, role)
+        path = mesh_path(it_card)
+        if not os.path.exists(path) or not mesh_trusted(path, photo):   # правило 3
             return None
         yaw, pitch = mesh_yaw_pitch(p, it, cam)
-        img = render(load_parts(path), yaw, pitch, size=(900, 900))
-        return trim_alpha(img)
+        return trim_alpha(render(load_parts(path), yaw, pitch, size=(900, 900)))
     except Exception as e:  # noqa: BLE001 — нет модели/сбой рендера: работаем по фотографии
         print(f'  {role}: 3D не вышло ({str(e)[:60]}) — беру фото')
         return None
@@ -291,18 +307,14 @@ def paste_role(pano: np.ndarray, zbuf: np.ndarray, cam, p, it, photo: Image.Imag
         # Фронтальное фото годится, только пока мы смотрим предмету В ЛИЦО. Если по плану он
         # повёрнут к нам боком, вырезка врёт: диван «разворачивается» во всю ширину там, где
         # виден торец (владелец, 2026-08-04). Такие предметы уходят на нейросетевой проход.
-        rot_f = int(round(p.rot)) % 360
-        face_n = ({0: (0.0, 1.0), 90: (1.0, 0.0), 180: (0.0, -1.0), 270: (-1.0, 0.0)}.get(rot_f)
-                  if p.role in FRONTED and not is_mesh else None)
-        if face_n is not None:
-            look = np.array([p.x - eye[0], 0.0, p.y - eye[2]])
-            ln = float(np.linalg.norm(look))
-            if ln > 1e-6:
-                look /= ln
-                cosang = abs(float(look[0] * face_n[0] + look[2] * face_n[1]))
-                face_deg = math.degrees(math.asin(min(1.0, max(0.0, cosang))))
-                if face_deg < float(os.environ.get('PASTE_MIN_ANGLE', 38)):
-                    return -1
+        # Фотографию вставляем КАК ЕСТЬ. Отказываемся от неё только при СИЛЬНОМ развороте —
+        # когда камера смотрит на сторону, которой на карточке просто нет (правило владельца
+        # 2026-08-05: порог 90°, `mesh_need`). При меньших углах фото честнее любого рендера:
+        # это настоящий вид товара.
+        if not is_mesh:
+            from mesh_need import needs_mesh as _needs
+            if _needs(p, it, cam) and p.role not in MESH_ROLES:
+                return -1
         corner, wvec, hvec, n = billboard(p, it, cam)
     w_cm = float(np.linalg.norm(wvec))
     h_cm = float(np.linalg.norm(hvec))
@@ -355,8 +367,6 @@ def paste_role(pano: np.ndarray, zbuf: np.ndarray, cam, p, it, photo: Image.Imag
         return 0
 
     if p.role in SOFT:
-        return -1
-    if p.role in LOW and float(it.h_cm or 100) <= LOW_MAX_H and not is_mesh:
         return -1
     cut = trim_alpha(photo)
     a = np.asarray(cut)
@@ -516,6 +526,8 @@ def harmonize_gpt(frame: Image.Image, sheet: Image.Image, names: list[str]) -> I
 
 def main() -> None:
     n = int(sys.argv[1])
+    if '--mesh-roles' in sys.argv:
+        MESH_ROLES.update(r for r in sys.argv[sys.argv.index('--mesh-roles') + 1].split(',') if r)
     only = sys.argv[sys.argv.index('--only') + 1] if '--only' in sys.argv else None
     cam_name = sys.argv[sys.argv.index('--cam') + 1] if '--cam' in sys.argv else 'P'
     prefix = os.path.join(SCENE_DIR, f'scene{n}-{cam_name}')
@@ -573,8 +585,8 @@ def main() -> None:
         if not os.path.exists(photo_path):
             print(f'  {role}: нет фото товара')
             continue
-        mesh_img = (None if '--no-mesh' in sys.argv
-                    else mesh_source(n, role, by[role], by[role].item, cam))
+        mesh_img = (mesh_source(n, role, by[role], by[role].item, cam)
+                    if role in MESH_ROLES else None)
         px = paste_role(pano, zbuf, cam, by[role], by[role].item,
                         mesh_img if mesh_img is not None else cutout(photo_path),
                         paint=paint, sid=int(sid), is_mesh=mesh_img is not None)
