@@ -300,6 +300,14 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]],
               and float(getattr(_by.get(merged[k]['type']), 'elev_cm', 0) or 0) <= 1.0]
     on_top = {k: merged[k]['placement'] for k in sorted(merged)
               if float(getattr(_by.get(merged[k]['type']), 'elev_cm', 0) or 0) > 1.0}
+    meshed_ids = []
+    for c in cams:
+        pp = os.path.join(SCENE_DIR, f'scene{n}-{c}-paint.json')
+        if os.path.exists(pp):
+            for role in json.load(open(pp)).get('meshed', []):
+                ids = [k for k in merged if merged[k]['type'] == role]
+                meshed_ids += ids
+    meshed_ids = sorted(set(meshed_ids))
     items = json.dumps([merged[k] for k in sorted(merged)], ensure_ascii=False)
     fp_list = ', '.join(f'#{k}' for k in fp_ids) or 'none'
     top_list = ', '.join(f'#{k}' for k in on_top) or 'none'
@@ -320,7 +328,21 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]],
         + (' 4 — reference photos of the items whose look cannot be read from the collage (they are '
            'cut by the frame, or shown only as a grey volume), each labelled with its number: take '
            'their appearance from image 4, but their size, place and rotation only from the floor '
-           'rectangle in image 1.' if has_identity else '') + '\n\n'
+           'rectangle in image 1. Image 4 holds the original shop photos: some sit on a branded '
+           'background and carry a shop logo or watermark — read the product itself and ignore '
+           'that background, the logo and any lettering; never copy them into the room.'
+           if has_identity else '') + '\n\n'
+        'READ THE ITEM LIST BEFORE YOU DRAW ANYTHING. For every id: its "product" is the exact '
+        'retail name, "details" carries the real material, colour and finish, and "size_cm" is '
+        '[width, depth, height] in centimetres — measured, not guessed. Draw each item as that '
+        'text describes it: an upholstered fabric stays fabric and never becomes leather, oak '
+        'stays oak, a colour word in the name wins over your impression of the photo. Scale every '
+        'item to its own size_cm relative to the room and to the other items — a 44 cm pouf must '
+        'read as knee-high next to an 88 cm sofa. Mismatched material, colour or scale is a defect.'
+        + (f' Items {", ".join("#" + str(i) for i in meshed_ids)} are shown in image 1 as computed '
+           '3D renders: their position, size and rotation are exact, but their surface is '
+           'reconstructed and dull — take their material and colour from the item text and from '
+           'image 4, never from the render.' if meshed_ids else '') + '\n\n'
         'GEOMETRY PRIORITY (highest first): floor rectangle in image 1 → floor plan in image 3 → '
         'size_cm in the item list → the pasted photo. If they disagree, the higher source wins. '
         'APPEARANCE PRIORITY: the pasted product photo → product name and details.\n\n'
@@ -356,8 +378,27 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]],
     )
 
 
+def hires(img: 'Image.Image', cache: str = '', min_side: int = 900) -> 'Image.Image':
+    """Эталон в нормальном разрешении: фиды дают максимум 450 px (проверено — у CDN Гдеслона
+    других вариантов нет), а по мыльной картинке модель не видит ни фактуру ткани, ни текстуру
+    дерева. Апскейлим ×2 нейросетью и кэшируем рядом с фото: разово на товар."""
+    if min(img.size) >= min_side:
+        return img
+    if cache and os.path.exists(cache):
+        return Image.open(cache)
+    from viz_base import fal_key, upscale
+    try:
+        big = upscale(img, fal_key())
+        if cache:
+            big.save(cache, quality=95)
+        return big
+    except Exception as e:  # noqa: BLE001 — не вышло: отдаём как есть
+        print(f'  апскейл эталона не вышел ({str(e)[:50]})')
+        return img
+
+
 def identity_sheet(n: int, legends: list[list[dict]], nums: dict) -> 'Image.Image | None':
-    """Лист эталонов: крупные ЦЕЛЫЕ фото тех товаров, которые в кадрах видны лишь частью.
+    """Лист эталонов: ОРИГИНАЛЬНЫЕ фото товаров из фида, в максимальном разрешении.
 
     Модель не может понять по обрезку, что это за предмет; эталон даёт внешний вид, но НЕ место
     (рекомендация из разбора, 2026-08-05).
@@ -379,6 +420,15 @@ def identity_sheet(n: int, legends: list[list[dict]], nums: dict) -> 'Image.Imag
                 num = nums.get(role)
                 if num:
                     partial.setdefault(num, role)
+        # Предмет, показанный 3D-рендером, ОБЯЗАН попасть в эталоны: текстура модели
+        # восстановлена по одному фото и всегда беднее оригинала — пуф вышел кожаным вместо
+        # тканевого (владелец, 2026-08-05). Геометрия с коллажа, материал — отсюда.
+        pp = os.path.join(SCENE_DIR, f'scene{n}-{c}-paint.json')
+        if os.path.exists(pp):
+            for role in json.load(open(pp)).get('meshed', []):
+                num = nums.get(role)
+                if num:
+                    partial.setdefault(num, role)
     cells = []
     for num, role in sorted(partial.items()):
         try:
@@ -386,7 +436,12 @@ def identity_sheet(n: int, legends: list[list[dict]], nums: dict) -> 'Image.Imag
         except KeyError:
             continue
         if os.path.exists(photo):
-            cells.append((num, role, trim_alpha(cutout(photo)).convert('RGB')))
+            # Эталон — ОРИГИНАЛЬНОЕ фото из фида, а не наша вырезка (владелец, 2026-08-05):
+            # вырезка теряет края, тени и часть фактуры, а модель здесь смотрит именно на то,
+            # как вещь выглядит. Берём максимум, что даёт фид (450 px), и апскейлим ×2.
+            cells.append((num, role,
+                          hires(Image.open(photo).convert('RGB'),
+                                os.path.splitext(photo)[0] + '-up.jpg')))
     if not cells:
         return None
     cols = min(3, len(cells))

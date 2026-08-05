@@ -283,11 +283,26 @@ def build(n: int, cam_name: str = 'C1', nums: dict | None = None) -> tuple[str, 
             _, photo = product(n, role)
         except KeyError:
             photo = ''
+        # Материал и ЦВЕТ пишем явно. У части карточек полей материала нет (у пуфа в фиде пусто),
+        # поэтому цвет берём измеренный по самой фотографии товара — модель рисовала тканевый пуф
+        # кожаным, потому что о материале и цвете ей никто не сказал (владелец, 2026-08-05).
+        def _hex(v):
+            try:
+                r, g, b = json.loads(v) if isinstance(v, str) else v
+                return f'#{int(r):02X}{int(g):02X}{int(b):02X}'
+            except Exception:  # noqa: BLE001 — нет цвета: просто не пишем
+                return ''
+        colour = _hex(it.get('rgb')) if it.get('rgb') not in (None, 'None') else ''
+        def _f(key):
+            v = it.get(key)
+            return None if v in (None, 'None', '') else v
         details = ', '.join(x for x in (
-            it.get('cls'), it.get('fabric') and f'обивка: {it["fabric"]}',
-            it.get('wood') and f'дерево: {it["wood"]}',
-            it.get('metal') and f'металл: {it["metal"]}',
-            it.get('style') and f'стиль: {it["style"]}') if x)
+            it.get('cls'),
+            colour and f'средний цвет товара по фото: {colour}',
+            _f('fabric') and f'обивка: {_f("fabric")}',
+            _f('wood') and f'дерево: {_f("wood")}',
+            _f('metal') and f'металл: {_f("metal")}',
+            _f('style') and f'стиль: {_f("style")}') if x)
         legend.append({
             'n': num, 'роль': role, 'товар': (it.get('name') or '')[:80],
             'описание': details[:160],
