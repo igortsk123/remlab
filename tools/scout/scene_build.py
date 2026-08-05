@@ -40,7 +40,8 @@ def load_scene(n: int) -> tuple[Room, list[Placement]]:
     placements = []
     for role, p in L.items():
         it = Item(role=role, w_cm=p['w'], d_cm=p['d'], h_cm=heights.get(role) or 60,
-                  corner=bool(p.get('corner')))
+                  corner=bool(p.get('corner')),
+                  corner_section_cm=float(p.get('section') or 95))
         placements.append(Placement(role=role, x=p['x'], y=p['z'], rot=p['rot'], item=it))
     extra, rel = derived(room, placements, sets[n - 1]['items'])
     RELATIONS.clear()
