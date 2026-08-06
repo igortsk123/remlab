@@ -43,6 +43,7 @@ def _observed(e: dict) -> dict:
     ph.update(e.get('specific') or {})
     obs = {
         'materials': e.get('materials') or [],
+        'primary_color': e.get('colour'),
         'finish': ph.get('finish'),
         'pattern': ph.get('pattern'),
         'warmth': e.get('warmth'),

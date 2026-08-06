@@ -86,11 +86,17 @@ CATEGORY_MARKERS = {
 }
 
 
+COLOURS = ['белый', 'бежевый', 'серый', 'чёрный', 'коричневый', 'синий', 'зелёный', 'жёлтый',
+           'красный', 'розовый', 'фиолетовый', 'оранжевый', 'разноцветный', 'не_определён']
+
+
 def attrs_for_category(role: str) -> dict:
     g = group_of(role)
     if not g:
         return {}
     out = {k: dict(v) for k, v in Q[g]['attrs'].items() if k not in (DROP.get(role) or [])}
+    # цвет участвует у всех: насыщенные оттенки — язык современного, монохром — минимализма
+    out['primary_color'] = {'q': 'основной цвет', 'opts': COLOURS}
     for k, opts in (ADD.get(role) or {}).items():
         out.setdefault(k, {'q': k, 'opts': opts})
     return out
