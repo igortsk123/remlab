@@ -96,25 +96,62 @@ def evidence(mid, eid) -> tuple[dict, list, int]:
     return pts, fired, seen
 
 
+STATS_PATH = os.path.join(HERE, 'style-stats.json')
+_STATS: dict | None = None
+
+
+def stats(rebuild: bool = False) -> dict:
+    """Среднее и разброс СЫРЫХ ОЧКОВ каждого стиля по каталогу.
+
+    Первая версия множила отклонение на «редкость стиля», и редкие языки систематически всплывали
+    наверх: у пяти люстр подряд выходил лофт, включая белую классическую и хрустальную (проверка
+    глазами, 2026-08-06). Правильнее нормировать каждый стиль по ЕГО СОБСТВЕННОЙ шкале: тогда
+    средний товар получает пятёрку по любому стилю, а высокий балл значит «выделяется среди
+    остальных именно этим языком».
+    """
+    global _STATS
+    if _STATS is not None and not rebuild:
+        return _STATS
+    if os.path.exists(STATS_PATH) and not rebuild:
+        _STATS = json.load(open(STATS_PATH))
+        return _STATS
+    acc = {s: [] for s in STYLES}
+    for key in EB.load():
+        mid, eid = key.split(':', 1)
+        pts, _f, seen = evidence(mid, eid)
+        if not pts or seen < 3:
+            continue
+        for s in STYLES:
+            acc[s].append(pts[s])
+    _STATS = {}
+    for s, v in acc.items():
+        if len(v) < 50:
+            _STATS[s] = {'mean': 0.0, 'sd': 3.0}
+            continue
+        m = sum(v) / len(v)
+        sd = (sum((x - m) ** 2 for x in v) / len(v)) ** 0.5
+        _STATS[s] = {'mean': round(m, 2), 'sd': round(max(sd, 0.5), 2), 'n': len(v)}
+    json.dump(_STATS, open(STATS_PATH, 'w'), ensure_ascii=False)
+    return _STATS
+
+
 def scores(mid, eid) -> dict | None:
     """Непрерывная оценка 0–10 по каждому стилю.
 
-    Три поправки, каждая со своей причиной:
-      1. редкость стиля — «современный» подходит 97% каталога и потому ничего не отличает;
-      2. уверенность — если модель разглядела два признака из десяти, оценку тянем к нейтралу;
-      3. насыщение — очки уводим в 0–10 плавной кривой, чтобы один сильный признак не решал всё.
+    Две поправки, каждая со своей причиной:
+      1. нормировка по собственной шкале стиля — иначе редкие языки систематически побеждают;
+      2. уверенность — если модель разглядела два признака из десяти, оценку тянем к нейтралу.
     """
     pts, fired, seen = evidence(mid, eid)
     if not pts:
         return None
     conf = min(1.0, seen / FULL_EVIDENCE)
-    pr = EB.priors()
+    st_stats = stats()
     out = {}
     for st in STYLES:
-        # плавное насыщение: ±6 очков → почти края шкалы, дальше прирост мал
-        base = 5.0 + 5.0 * math.tanh(pts[st] / 4.0)
-        rare = 1.0 + (5.0 - pr.get(st, 5.0)) / 5.0        # частый стиль тянем к нейтралу
-        val = 5.0 + (base - 5.0) * conf * max(0.4, min(1.6, rare))
+        s = st_stats.get(st) or {'mean': 0.0, 'sd': 3.0}
+        z = (pts[st] - s['mean']) / s['sd']
+        val = 5.0 + 2.2 * max(-2.2, min(2.2, z)) * conf
         out[st] = round(max(0.0, min(10.0, val)), 1)
     top = max(out.values())
     med = sorted(out.values())[len(out) // 2]
