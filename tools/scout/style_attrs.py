@@ -78,12 +78,12 @@ _FREQ: dict | None = None
 
 
 def freq(rebuild: bool = False) -> dict:
-    """Как часто признак встречается в каталоге.
+    """Как часто признак встречается — ОТДЕЛЬНО ПО КАЖДОЙ ГРУППЕ ПРЕДМЕТОВ.
 
-    Маркер обязан быть РЕДКИМ: «увидел — почти наверняка этот стиль». Признак, который есть у
-    половины каталога, маркером быть не может, сколько бы источников его ни называли характерным.
-    Я на этом уже ошибся: назначил маркером сканди «мягко скруглённые линии», и сканди стал
-    побеждать в 45% случаев (2026-08-06). Поэтому ранг понижается по частоте автоматически.
+    Маркер обязан быть редким, но редкость своя у каждого типа вещи: тонкая металлическая опора
+    у журнального столика — обычное дело, а у дивана редкость; открытые полки у стеллажа норма,
+    а у комода уже характер. Считать частоту по всему каталогу значит мерить диван линейкой
+    светильника (замечание владельца, 2026-08-06).
     """
     global _FREQ
     if _FREQ is not None and not rebuild:
@@ -91,27 +91,29 @@ def freq(rebuild: bool = False) -> dict:
     if os.path.exists(FREQ_PATH) and not rebuild:
         _FREQ = json.load(open(FREQ_PATH))
         return _FREQ
+    from role_prompt import group_of
     cnt: dict[str, int] = {}
-    total = 0
+    tot: dict[str, int] = {}
     for key in EB.load():
         mid, eid = key.split(':', 1)
         e = EB.get(mid, eid) or {}
         obs = _observed(e)
         if not obs:
             continue
-        total += 1
+        g = group_of(e.get('role') or '') or 'прочее'
+        tot[g] = tot.get(g, 0) + 1
         for a, v in obs.items():
             for vv in (v if isinstance(v, list) else [v]):
-                cnt[f'{a}={vv}'] = cnt.get(f'{a}={vv}', 0) + 1
-    _FREQ = {k: round(n / max(total, 1), 4) for k, n in cnt.items()}
-    _FREQ['_total'] = total
+                cnt[f'{g}|{a}={vv}'] = cnt.get(f'{g}|{a}={vv}', 0) + 1
+    _FREQ = {k: round(n / max(tot.get(k.split('|')[0], 1), 1), 4) for k, n in cnt.items()}
+    _FREQ['_totals'] = tot
     json.dump(_FREQ, open(FREQ_PATH, 'w'), ensure_ascii=False)
     return _FREQ
 
 
-def _tier_capped(attr: str, val: str, tier: str) -> str:
-    """Понижение ранга по частоте: частый признак не может быть маркером."""
-    f = freq().get(f'{attr}={val}')
+def _tier_capped(attr: str, val: str, tier: str, group: str | None) -> str:
+    """Понижение ранга по частоте ВНУТРИ ГРУППЫ: частый для этого типа вещей признак — не маркер."""
+    f = freq().get(f'{group or "прочее"}|{attr}={val}')
     if f is None:
         return tier
     if f > 0.45:
@@ -131,6 +133,8 @@ def evidence(mid, eid) -> tuple[dict, list, int, dict]:
     e = EB.get(mid, eid)
     if not e:
         return {}, [], 0, {}
+    from role_prompt import group_of
+    grp = group_of(e.get('role') or '')
     obs = _observed(e)
     pts = {s: 0.0 for s in STYLES}
     kind = {s: {'маркер': 0, 'поддержка': 0, 'фон': 0} for s in STYLES}
@@ -149,7 +153,7 @@ def evidence(mid, eid) -> tuple[dict, list, int, dict]:
                 for st, t in (r.get('tiers') or {}).items():
                     if st not in pts:
                         continue
-                    tier = _tier_capped(attr, v, t['tier'])
+                    tier = _tier_capped(attr, v, t['tier'], grp)
                     w = TIER_W[tier] * t.get('sign', 1)
                     pts[st] += w
                     if w > 0:
