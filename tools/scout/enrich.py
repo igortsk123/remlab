@@ -261,6 +261,33 @@ def run_batch(items: list[dict]) -> None:
     """
     key = _key()
     vision = '--vision' in sys.argv
+    if vision:
+        # Картинки качаем ПАРАЛЛЕЛЬНО и с отчётом. Последовательная скачка 25 тысяч фото — это
+        # 3-7 часов полного молчания: прогон был запущен и семь минут не подавал признаков жизни
+        # (поймано владельцем, 2026-08-06). Прогресс печатается, чтобы падение было видно сразу.
+        from golden_label import _image_b64, IMG_STATS
+        t0 = time.time()
+        done = [0]
+
+        def _warm(it):
+            _image_b64(it.get('img') or '')
+            done[0] += 1
+            if done[0] % 1000 == 0:
+                el = time.time() - t0
+                left = el / max(done[0], 1) * (len(items) - done[0])
+                print(f"  картинки: {done[0]}/{len(items)} (отказов {IMG_STATS['fail']}), "
+                      f'прошло {el/60:.0f} мин, осталось ~{left/60:.0f} мин', flush=True)
+
+        # 6 потоков, не 24: CDN магазина отдаёт 403 при высокой параллельности и прогон уходит
+        # в модель вслепую (2026-08-06)
+        with cf.ThreadPoolExecutor(6) as ex:
+            list(ex.map(_warm, items))
+        got = IMG_STATS['ok'] + IMG_STATS['from_disk']
+        print(f"  картинки: получено {got}, не скачалось {IMG_STATS['fail']}, "
+              f"за {(time.time() - t0)/60:.1f} мин", flush=True)
+        if got < len(items) * 0.9:
+            print('  СТОП: картинок меньше 90% — прогон вслепую не отправляю', flush=True)
+            sys.exit(1)
     lines = [json.dumps({'custom_id': f'{it["mid"]}:{it["eid"]}', 'method': 'POST',
                          'url': '/v1/chat/completions', 'body': body_for(it, MODEL, vision)},
                         ensure_ascii=False) for it in items]
@@ -331,8 +358,45 @@ def main() -> None:
         cache = {f'{it["mid"]}:{it["eid"]}': it for it in pool()}   # один разбор пула на все части
         for bid in ids:
             fetch(bid, cache)
+    elif '--download' in a:
+        # Этап 1: скачать все картинки в дисковый кэш и НИЧЕГО не отправлять. Так проверка
+        # «дошли ли фото» отделена от траты денег (предложение владельца, 2026-08-06).
+        from golden_label import _image_b64, IMG_STATS
+        items = pool()
+        t0 = time.time()
+        done = [0]
+
+        def _warm(it):
+            _image_b64(it.get('img') or '')
+            done[0] += 1
+            if done[0] % 1000 == 0:
+                el = time.time() - t0
+                print(f"  {done[0]}/{len(items)} (отказов {IMG_STATS['fail']}), "
+                      f'прошло {el/60:.0f} мин, осталось ~{el/done[0]*(len(items)-done[0])/60:.0f} мин',
+                      flush=True)
+
+        with cf.ThreadPoolExecutor(6) as ex:
+            list(ex.map(_warm, items))
+        got = IMG_STATS['ok'] + IMG_STATS['from_disk']
+        print(f"скачано {got} из {len(items)}, отказов {IMG_STATS['fail']} "
+              f"({IMG_STATS['fail']/max(len(items),1)*100:.1f}%), за {(time.time()-t0)/60:.0f} мин")
     elif '--pool' in a:
         items = todo(pool())
+        if '--limit' in a:
+            n = int(a[a.index('--limit') + 1])
+            # Пилот берём ПОРОВНУ ИЗ ВСЕХ КАТЕГОРИЙ, а не первые N подряд: пул отсортирован по
+            # магазину, и «первая тысяча» — это один поставщик и две-три категории, то есть
+            # проверка ни о чём (замечание владельца, 2026-08-06).
+            by: dict = {}
+            for it in items:
+                by.setdefault(it['role_feed'], []).append(it)
+            per = max(n // max(len(by), 1), 1)
+            picked = []
+            for role, lst in sorted(by.items()):
+                step = max(len(lst) // per, 1)
+                picked += lst[::step][:per]
+            items = picked[:n]
+            print(f'пилот: {len(items)} товаров из {len(by)} категорий, примерно по {per}')
         if '--sets-roles' in a:
             # Роли, которые сборщик комплектов реально использует. Шкафы-купе и «другое» в
             # гостиную не идут — платить за их фотографии незачем (6 423 товара, 4.4 $).

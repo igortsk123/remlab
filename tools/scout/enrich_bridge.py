@@ -61,7 +61,8 @@ def load() -> dict:
                payload->'model'->>'primary_color', payload->'model'->>'materials',
                payload->'model'->>'styles', payload->'model'->>'style_strength',
                payload->'model'->>'visual_mass', payload->'model'->>'warmth',
-               payload->'model'->>'photo', payload->'model'->>'image_type'
+               payload->'model'->>'photo', payload->'model'->>'image_type',
+               payload->'model'->>'specific'
           from product_enrichment where payload is not null and status='active'
     """)
     if r.returncode != 0:
@@ -80,7 +81,11 @@ def load() -> dict:
             styles=json.loads(f[7]) if f[7] else {},
             strength=f[8], mass=f[9], warmth=f[10],
             photo=json.loads(f[11]) if len(f) > 11 and f[11] else {},
-            image_type=f[12] if len(f) > 12 else None)
+            image_type=f[12] if len(f) > 12 else None,
+            # ответы по вопросам КАТЕГОРИИ — без них оценка видит только общие признаки,
+            # ни один собственный маркер не срабатывает и 95% каталога уходит в «нейтральные»
+            # (поймано на первом же полном пересчёте, 2026-08-06)
+            specific=json.loads(f[13]) if len(f) > 13 and f[13] else {})
     _CACHE = out
     return out
 

@@ -215,30 +215,57 @@ def _key() -> str:
 
 
 _IMG_CACHE: dict = {}
+IMG_DIR = os.path.join(HERE, 'imgcache')
+IMG_STATS = {'ok': 0, 'fail': 0, 'from_disk': 0}
 
 
-def _image_b64(url: str) -> str | None:
-    """Картинка байтами, а не ссылкой: на ссылки магазина API отвечал 400 каждой шестой карточке.
+def _image_b64(url: str, retries: int = 3) -> str | None:
+    """Картинка байтами, ужатая до 448 px, с кэшем НА ДИСКЕ и ретраями.
 
-    Заодно ужимаем до 512 px — уровень detail=low всё равно видит только такой размер.
+    Две грабли, обе стоили денег:
+      1. ссылку магазина API не успевал скачать — 2 987 запросов из 19 752 упали по таймауту;
+      2. CDN отдаёт 403 при высокой параллельности: в 24 потока скачалось 14 из 40, и прогон на
+         25 тысяч ушёл в модель ВСЛЕПУЮ — картинку получили 287 запросов из 2000, остальные
+         отвечали «не_видно» (2026-08-06). Молчаливый `except` это скрыл.
+    Поэтому: ретраи с паузой, счётчик отказов наружу и кэш на диск — повторный прогон не качает.
     """
     import base64
     import io as _io
+    import time as _t
     from PIL import Image as _Im
     if url in _IMG_CACHE:
         return _IMG_CACHE[url]
+    os.makedirs(IMG_DIR, exist_ok=True)
+    key = re.sub(r'[^A-Za-z0-9]', '_', url)[-90:]
+    path = os.path.join(IMG_DIR, key + '.jpg')
+    if os.path.exists(path):
+        with open(path, 'rb') as f:
+            out = base64.b64encode(f.read()).decode()
+        _IMG_CACHE[url] = out
+        IMG_STATS['from_disk'] += 1
+        return out
     u = 'https:' + url if url.startswith('//') else url
-    try:
-        req = urllib.request.Request(u, headers={'User-Agent': 'Mozilla/5.0'})
-        raw = urllib.request.urlopen(req, timeout=40).read()
-        im = _Im.open(_io.BytesIO(raw)).convert('RGB')
-        im.thumbnail((448, 448))
-        buf = _io.BytesIO()
-        im.save(buf, 'JPEG', quality=78)
-        out = base64.b64encode(buf.getvalue()).decode()
-    except Exception:  # noqa: BLE001 — мёртвая ссылка: работаем по тексту
-        out = None
-    _IMG_CACHE[url] = out
+    out = None
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(u, headers={'User-Agent': 'Mozilla/5.0'})
+            raw = urllib.request.urlopen(req, timeout=45).read()
+            im = _Im.open(_io.BytesIO(raw)).convert('RGB')
+            im.thumbnail((448, 448))
+            buf = _io.BytesIO()
+            im.save(buf, 'JPEG', quality=78)
+            with open(path, 'wb') as f:
+                f.write(buf.getvalue())
+            out = base64.b64encode(buf.getvalue()).decode()
+            IMG_STATS['ok'] += 1
+            break
+        except Exception:  # noqa: BLE001 — 403 от CDN при параллельности: ждём и пробуем ещё
+            if attempt == retries - 1:
+                IMG_STATS['fail'] += 1
+            else:
+                _t.sleep(1.5 * (attempt + 1))
+    if out is None:
+        _IMG_CACHE[url] = None
     return out
 
 
