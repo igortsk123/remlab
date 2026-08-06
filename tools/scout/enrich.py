@@ -259,6 +259,12 @@ def run_batch(items: list[dict]) -> None:
     Режем на части по 7 000 запросов: один файл каталога целиком упирается в лимит 200 МБ
     (схема с перечислениями повторяется в каждой строке).
     """
+    idpath = os.path.join(HERE, 'enrich-batch-id.txt')
+    if os.path.exists(idpath) and open(idpath).read().strip():
+        # Иначе id незабранного пакета затираются и оплаченный результат теряется:
+        # так 06.08 весь свет (2 000 карточек) остался лежать у OpenAI
+        print('СТОП: предыдущий пакет не забран (enrich-batch-id.txt не пуст) — сначала --fetch')
+        sys.exit(1)
     key = _key()
     vision = '--vision' in sys.argv
     if vision:
@@ -312,7 +318,7 @@ def fetch(batch_id: str, items: dict | None = None) -> None:
     print(f'{batch_id}: статус {b["status"]}, готово {b["request_counts"]["completed"]}'
           f'/{b["request_counts"]["total"]}, ошибок {b["request_counts"]["failed"]}')
     if b['status'] != 'completed':
-        return
+        return b['status']
     out = urllib.request.urlopen(urllib.request.Request(
         f'{API}/files/{b["output_file_id"]}/content',
         headers={'Authorization': f'Bearer {key}'}), timeout=900).read().decode()
@@ -336,6 +342,7 @@ def fetch(batch_id: str, items: dict | None = None) -> None:
     save(got, MODEL, mode_vision)
     print('результат записан в product_enrichment')
     stats()
+    return b['status']
 
 
 def stats() -> None:
@@ -353,11 +360,29 @@ def main() -> None:
         stats()
     elif '--fetch' in a:
         i = a.index('--fetch')
-        ids = ([a[i + 1]] if len(a) > i + 1 and a[i + 1].startswith('batch_')
-               else open(os.path.join(HERE, 'enrich-batch-id.txt')).read().split())
+        idpath = os.path.join(HERE, 'enrich-batch-id.txt')
+        if len(a) > i + 1 and a[i + 1].startswith('batch_'):
+            fetch(a[i + 1])
+            return
+        if not os.path.exists(idpath) or not open(idpath).read().strip():
+            print('активного пакета нет (enrich-batch-id.txt пуст) — забирать нечего')
+            return
+        ids = open(idpath).read().split()
         cache = {f'{it["mid"]}:{it["eid"]}': it for it in pool()}   # один разбор пула на все части
-        for bid in ids:
-            fetch(bid, cache)
+        statuses = {bid: fetch(bid, cache) for bid in ids}
+        bad = {b: s for b, s in statuses.items() if s != 'completed'}
+        if not bad:
+            # Пакет забран целиком: id — в журнал, активный файл убираем, гейт отправки открыт.
+            # Пока файл существует, run_batch не отправит новый пакет и не затрёт эти id.
+            mode_path = os.path.join(HERE, 'enrich-batch-mode.txt')
+            mode = open(mode_path).read().strip() if os.path.exists(mode_path) else '?'
+            with open(os.path.join(HERE, 'enrich-batch-log.txt'), 'a') as f:
+                f.write(f'{time.strftime("%Y-%m-%d %H:%M")} {mode} {" ".join(ids)}\n')
+            os.remove(idpath)
+            print('пакет забран целиком — id в enrich-batch-log.txt, гейт отправки открыт')
+        else:
+            print(f'НЕ забрано {len(bad)} из {len(ids)}: '
+                  + ', '.join(f'{b} ({s})' for b, s in bad.items()))
     elif '--download' in a:
         # Этап 1: скачать все картинки в дисковый кэш и НИЧЕГО не отправлять. Так проверка
         # «дошли ли фото» отделена от траты денег (предложение владельца, 2026-08-06).
