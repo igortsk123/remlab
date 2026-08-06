@@ -133,8 +133,10 @@ def evidence(mid, eid) -> tuple[dict, list, int, dict]:
     e = EB.get(mid, eid)
     if not e:
         return {}, [], 0, {}
-    from role_prompt import group_of
-    grp = group_of(e.get('role') or '')
+    from role_prompt import group_of, matrix
+    role = (e.get('role') or '').strip()
+    grp = group_of(role)
+    cat = matrix().get(role)     # ранги ИЗ ЯЧЕЙКИ КАТЕГОРИИ, а не из общего правила
     obs = _observed(e)
     pts = {s: 0.0 for s in STYLES}
     kind = {s: {'маркер': 0, 'поддержка': 0, 'фон': 0} for s in STYLES}
@@ -145,7 +147,9 @@ def evidence(mid, eid) -> tuple[dict, list, int, dict]:
         vals = val if isinstance(val, list) else [val]
         hit = False
         for v in vals:
-            for r in RULES:
+            cell = (((cat or {}).get('attrs') or {}).get(attr) or {}).get('values', {}).get(v)
+            for r in ([{'attr': attr, 'value': v, 'tiers': cell['tiers'], 'veto': cell['veto'],
+                        'why': ''}] if cell else RULES):
                 if r['attr'] != attr or r['value'] != v:
                     continue
                 hit = True
@@ -153,7 +157,9 @@ def evidence(mid, eid) -> tuple[dict, list, int, dict]:
                 for st, t in (r.get('tiers') or {}).items():
                     if st not in pts:
                         continue
-                    tier = _tier_capped(attr, v, t['tier'], grp)
+                    # если ячейка категории известна — ранг уже посчитан в ней с учётом
+                    # частоты именно этой категории; общий понижатель тогда не нужен
+                    tier = t['tier'] if cell else _tier_capped(attr, v, t['tier'], grp)
                     w = TIER_W[tier] * t.get('sign', 1)
                     pts[st] += w
                     if w > 0:
@@ -228,10 +234,13 @@ def scores(mid, eid) -> dict | None:
     for st in STYLES:
         z = (pts[st] - mean) / sd
         k = kind.get(st) or {}
-        # достаточность: без единого маркера и меньше трёх поддерживающих признаков стиль
-        # не может уйти высоко — иначе он выигрывает на одном фоне вроде «тёплая гамма»
+        # достаточность: без единого ПОЛОЖИТЕЛЬНОГО маркера и меньше трёх поддерживающих
+        # признаков стиль не уходит высоко — иначе он выигрывает на том, чего у вещи НЕТ
+        # (нет декора, линии прямые, фасады гладкие), а это верно для любой категории
         if not k.get('маркер') and k.get('поддержка', 0) < 3:
             z = min(z, 0.6)
+        if not k.get('маркер'):
+            z = min(z, 1.2)
         val = 5.0 + 2.2 * max(-2.2, min(2.2, z)) * conf
         out[st] = round(max(0.0, min(10.0, val)), 1)
     top = max(out.values())

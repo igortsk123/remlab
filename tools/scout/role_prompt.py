@@ -28,7 +28,23 @@ def group_of(role: str) -> str | None:
     return _BY_ROLE.get((role or '').strip())
 
 
+_MATRIX = None
+
+
+def matrix() -> dict:
+    """Таблица «категория × признак» — один источник и для вопросов, и для рангов."""
+    global _MATRIX
+    if _MATRIX is None:
+        p = os.path.join(HERE, 'style-matrix.json')
+        _MATRIX = json.load(open(p)) if os.path.exists(p) else {}
+    return _MATRIX
+
+
 def attrs_for(role: str) -> dict:
+    """Вопросы ИМЕННО К ЭТОЙ вещи: у пледа не спрашиваем про ножки, у люстры про юбку."""
+    m = matrix().get((role or '').strip())
+    if m:
+        return {k: {'q': v['q'], 'opts': v['opts']} for k, v in m['attrs'].items()}
     g = group_of(role)
     return Q[g]['attrs'] if g else {}
 
