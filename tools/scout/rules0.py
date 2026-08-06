@@ -150,6 +150,7 @@ def pool(limit: int = 0) -> list[dict]:
       left join product_enrichment e using (shop_mid, external_id)
      where p.cat_role is not null and p.price_rub is not null
        and coalesce(e.status,'active')='active'
+       and p.in_stock  -- health.py гасит мёртвые карточки поверх статуса фида (А2)
      order by p.shop_mid, p.external_id {lim}
     """
     out = []

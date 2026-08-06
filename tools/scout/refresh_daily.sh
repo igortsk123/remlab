@@ -22,11 +22,16 @@ step() {                       # step <имя> <команда...>
   if "$@" >> "$LOG" 2>&1; then RES[$name]=ok; else RES[$name]=FAIL; echo "$name FAIL" >> "$LOG"; fi
 }
 finish() {                     # статус пишем ВСЕГДА, даже если шаг упал
-  local parts=""
-  for k in "${!RES[@]}"; do parts="$parts\"$k\":\"${RES[$k]}\","; done
+  local parts="" fails=""
+  for k in "${!RES[@]}"; do
+    parts="$parts\"$k\":\"${RES[$k]}\","
+    [ "${RES[$k]}" = FAIL ] && fails="$fails $k"
+  done
   printf '{"date":"%s","finished":"%s","feeds_ok":%s,%s"products":%s}\n' \
     "$today" "$(date '+%F %T')" "${ok:-0}" "$parts" "$(products_count)" > "$STATUS"
   echo "=== $(date '+%F %T') готово (фиды ok=${ok:-0}) ===" >> "$LOG"
+  # сбой не должен ждать, пока его случайно заметят (урок: load3 FAIL 05.08 нашли вечером)
+  [ -n "$fails" ] && bash alert.sh "remlab: refresh_daily FAIL:$fails (см. refresh.log)"
 }
 products_count() {
   docker exec -i remlab-devdb psql -U remlab -d remlab -tAc \
@@ -70,16 +75,27 @@ step load3 "$PY" load3.py
 step phash "$PY" phash.py --from-cache
 
 # 4. Обогащение НОВИНОК и тех, у кого сменился смысл. Дельта, обычно единицы процентов пула.
-step enrich "$PY" enrich.py --pool --batch
+# --vision: стиль по тексту совпадает с фото лишь в 16% — фото обязательно (картинки дельты
+# качаются в кэш перед отправкой, со счётчиком и стоп-предохранителем).
+step enrich "$PY" enrich.py --pool --vision --batch
 
-# 5. Индекс кандидатов и здоровье комплектов
+# 4b. Отправили — обязаны забрать (ADR-0073): ожидание фоновое (пакет считается до 24 ч),
+# успех = id-файл заархивирован; после забора enrich_wait сам пересоберёт индекс и комплекты.
+if [ -s enrich-batch-id.txt ]; then
+  nohup bash enrich_wait.sh >> "$LOG" 2>&1 &
+  echo "пакет отправлен — enrich_wait.sh ждёт и заберёт в фоне (pid $!)" >> "$LOG"
+fi
+
+# 5. Индекс кандидатов и здоровье комплектов (по текущим данным; после забора батча
+# enrich_wait обновит индекс ещё раз — уже с новинками)
 step candidates "$PY" candidates.py --build
 step sets_index "$PY" sets_incremental.py --index
 step sets_check "$PY" sets_incremental.py --check
 
-# 6. Старое поколение проверок (карточки sets2, метрики, стиль-оценки новинок)
+# 6. Старое поколение проверок (карточки sets2, метрики). style_score.py убран (А1):
+# он платно скорил новинки по тексту параллельно с обогащением — двойная оплата, мост
+# enrich_bridge берёт attrs-путь из product_enrichment.
 step health "$PY" health.py
 step metrics "$PY" sync_metrics.py
-step style "$PY" style_score.py
 
 echo "$today" > "$STAMP"

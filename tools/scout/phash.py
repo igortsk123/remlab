@@ -26,6 +26,7 @@ from PIL import Image
 HERE = os.path.dirname(os.path.abspath(__file__))
 THUMBS = os.path.join(HERE, 'thumbs')
 REFS = os.path.join(HERE, 'refs')
+IMGCACHE = os.path.join(HERE, 'imgcache')   # главный кэш обогащения, ключ файла = image_url
 EMB_PATH = os.path.join(HERE, 'embeddings.npz')
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
         '-q', '-v', 'ON_ERROR_STOP=1', '-t', '-A', '-F', '\x1f']
@@ -153,10 +154,35 @@ def _key(mid, eid) -> str:
     return f"{mid}-{re.sub(r'[^A-Za-z0-9]', '_', str(eid))[:40]}"
 
 
+def _from_imgcache() -> list[tuple[int, str, str]]:
+    """(mid, eid, fp) для товаров БЕЗ отпечатка, чей файл уже лежит в imgcache.
+
+    Имя файла — тот же ключ, что у `golden_label._image_b64`: не-алфавитные символы URL → '_',
+    последние 90 символов, расширение .jpg. Соответствие товар→файл точное (по image_url).
+    """
+    if not os.path.isdir(IMGCACHE):
+        return []
+    rows = _rows("select e.shop_mid, e.external_id, p.image_url from product_enrichment e "
+                 "join products p using (shop_mid, external_id) "
+                 "where e.perceptual_hash is null and p.image_url is not null "
+                 "and p.image_url<>''")
+    out = []
+    for mid, eid, url in rows:
+        path = os.path.join(IMGCACHE, re.sub(r'[^A-Za-z0-9]', '_', url)[-90:] + '.jpg')
+        if not os.path.exists(path):
+            continue
+        fp = fingerprint_file(path)
+        if fp:
+            out.append((int(mid), eid, fp))
+    return out
+
+
 def from_cache() -> None:
     """Проставить перцептивный хеш всем товарам, чья картинка уже лежит в кэше.
 
-    Ни одной новой закачки: работаем по тому, что скачано ради миниатюр и эталонов.
+    Ни одной новой закачки: работаем по тому, что скачано ради миниатюр и эталонов, плюс
+    главный кэш обогащения `imgcache/` (24.9k картинок 448px) — раньше он не сканировался,
+    и отпечаток был лишь у 17% пула (аудит 06.08, волна А1).
     """
     done = 0
     updates = []
@@ -174,8 +200,25 @@ def from_cache() -> None:
                 continue
             updates.append((int(m.group(1)), m.group(2), fp))
             done += 1
-    if not updates:
+    imgcache_updates = _from_imgcache()
+    done += len(imgcache_updates)
+    if not updates and not imgcache_updates:
         print('в кэше нечего хешировать')
+        return
+    if imgcache_updates:
+        # точное соответствие товар→файл (ключ = image_url), префиксные like не нужны
+        for chunk_start in range(0, len(imgcache_updates), 2000):
+            chunk = imgcache_updates[chunk_start:chunk_start + 2000]
+            vals = ','.join(f"({mid},'{eid}','{fp}')" for mid, eid, fp in chunk)
+            _rows(f"""
+              update product_enrichment e set perceptual_hash=v.fp, updated_at=now()
+                from (values {vals}) as v(mid, eid, fp)
+               where e.shop_mid=v.mid and e.external_id=v.eid
+                 and e.perceptual_hash is distinct from v.fp;""")
+        print(f'imgcache: отпечатков посчитано {len(imgcache_updates)}')
+    if not updates:
+        print(_rows("select 'с отпечатком: '||count(*) from product_enrichment "
+                    "where perceptual_hash is not null")[0][0])
         return
     # ключ в кэше — усечённый external_id, поэтому обновляем по префиксу
     vals = ','.join(f"({mid},'{eid}','{fp}')" for mid, eid, fp in updates)

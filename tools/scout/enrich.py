@@ -323,24 +323,39 @@ def fetch(batch_id: str, items: dict | None = None) -> None:
         f'{API}/files/{b["output_file_id"]}/content',
         headers={'Authorization': f'Bearer {key}'}), timeout=900).read().decode()
     items = items or {f'{it["mid"]}:{it["eid"]}': it for it in pool()}
+    # Счётчик потерь обязателен (правило владельца, урок 189/190): каждая строка ответа либо
+    # записана, либо посчитана в конкретной графе потерь — молчаливых continue нет.
+    n = {'lines': 0, 'saved': 0, 'err': 0, 'refusal': 0, 'parse': 0, 'not_in_pool': 0}
     got = []
     for line in out.strip().split('\n'):
         r = json.loads(line)
+        n['lines'] += 1
         it = items.get(r['custom_id'])
-        if not it or r.get('error'):
+        if not it:
+            n['not_in_pool'] += 1
+            continue
+        if r.get('error'):
+            n['err'] += 1
             continue
         msg = r['response']['body']['choices'][0]['message']
         if msg.get('refusal'):
+            n['refusal'] += 1
             continue
         try:
             got.append((it, extract(it), json.loads(msg['content'])))
         except json.JSONDecodeError:
+            n['parse'] += 1
             continue
+        n['saved'] += 1
         if len(got) >= 2000:
             save(got, MODEL, mode_vision)
             got = []
     save(got, MODEL, mode_vision)
-    print('результат записан в product_enrichment')
+    lost = n['lines'] - n['saved']
+    print(f"записано {n['saved']} из {n['lines']} (ошибок {n['err']}, отказов {n['refusal']}, "
+          f"не разобрано {n['parse']}, вне пула {n['not_in_pool']})")
+    if n['lines'] and n['saved'] < n['lines'] * 0.9:
+        print(f'АЛЯРМ: потеряно {lost} из {n["lines"]} (>10%) — разобраться, прежде чем платить дальше')
     stats()
     return b['status']
 

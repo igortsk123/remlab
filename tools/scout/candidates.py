@@ -59,6 +59,7 @@ def build() -> dict:
         from product_enrichment e join products p using (shop_mid, external_id)
        where e.payload is not null and e.status='active' and e.quality >= {MIN_QUALITY}
          and p.price_rub is not null and p.image_url is not null
+         and p.in_stock  -- мёртвые карточки (health.py) не должны попадать в комплекты (А2)
     """)
     idx: dict[str, list] = {}
     items: dict[str, dict] = {}

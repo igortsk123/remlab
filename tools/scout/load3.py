@@ -44,13 +44,17 @@ def image_hash(url):                          return _h(_norm(url))
 # Берём из фида ТОЛЬКО категории, признанные нужными (`category-roles.json`, category_map.py).
 # Иначе завтрашний прогон вернёт в базу посуду, матрасы и садовую технику, которые мы вычистили
 # (решение владельца 2026-08-06: «остальное неактуальное удали и только их обновляй»).
+# Карта не читается → СТОП, а не «грузим всё»: молчаливый fallback возвращал бы мусор в базу (А1).
 _CATROLE={}
 try:
     for _c in json.load(open(os.path.join(HERE,'category-roles.json'))).values():
         if _c.get('role'): _CATROLE[(int(_c['mid']), str(_c['id']))]=_c['role']
-    print(f'карта категорий: {len(_CATROLE)} нужных категорий', flush=True)
 except Exception as _e:
-    print(f'карты категорий нет ({_e}) — грузим всё подряд', flush=True)
+    print(f'СТОП: карта категорий не читается ({_e}) — прогон отменён', flush=True); sys.exit(1)
+if not _CATROLE:
+    print('СТОП: карта категорий пуста — прогон отменён', flush=True); sys.exit(1)
+print(f'карта категорий: {len(_CATROLE)} нужных категорий', flush=True)
+from category_map import is_kids  # noqa: E402 — детское ловим по названию и в ежедневном пути
 
 SPA_CUT=re.compile(r'/!.*$')  # mnogomebeli/divanboss: вариант после /! — серверу неизвестен
 def direct(url):
@@ -80,6 +84,7 @@ for z in sorted(glob.glob(os.path.join(FEEDS,'*.zip'))):
             nm=(el.findtext('name') or el.findtext('model') or '').strip()
             price=el.findtext('price'); oldp=el.findtext('oldprice')
             pic=el.findtext('picture'); cid=el.findtext('categoryId')
+            if pic and '/None/' in pic: pic=None   # битый URL из фида — не скачается никогда (А2)
             # роль из категории пишем сразу при загрузке
             if _CATROLE and (mid, str(cid)) not in _CATROLE:
                 el.clear(); continue          # категория не нужна гостиной — товар не грузим
@@ -101,10 +106,12 @@ for z in sorted(glob.glob(os.path.join(FEEDS,'*.zip'))):
             h=dim(['Высота','Высота, см','Высота, мм']); ln=dim(['Длина','Длина, см']); dia=dim(['Диаметр','Диаметр, см'])
             p_int=int(float(price)) if price else None
             o_int=int(float(oldp)) if oldp else None
+            # детское внутри разрешённых категорий — роль зануляем (иначе upsert вернул бы её)
+            role=None if is_kids(nm) else _CATROLE.get((mid,str(cid)))
             rows.append('\t'.join(esc(x) for x in (mid,eid,shop,cid,cats.get(cid,''),nm,el.findtext('vendor'),
                 url,pic,p_int,o_int,None,
                 't',w,d,h,ln,dia,None,json.dumps(params,ensure_ascii=False),direct(url),desc,
-                _CATROLE.get((mid,str(cid))))))
+                role)))
             erows.append('\t'.join(esc(x) for x in (mid,eid,
                 commercial_hash(p_int,o_int,bool(p_int),direct(url)),
                 text_hash(nm,desc), geometry_hash(w,d,h,ln,dia), image_hash(pic),
@@ -113,6 +120,19 @@ for z in sorted(glob.glob(os.path.join(FEEDS,'*.zip'))):
             el.clear()
 print('офферов в свежих фидах:',total,per,flush=True)
 print('строк с description:',sum(1 for r in rows if not r.endswith('\\N')),flush=True)
+
+# Предохранитель от «похудевшего» фида (А1): урезанный/битый фид иначе молча увёл бы тысячи
+# товаров в missing→archived. Порог 70% от вчерашнего непархивного числа; осознанный обход —
+# FORCE_SHRINK=1 (например, магазин реально закрыл категорию).
+if mids:
+    _prev_out=sql(f"select count(*) from product_enrichment where shop_mid in ({','.join(map(str,sorted(mids)))})"
+                  " and status<>'archived';")
+    _m=re.search(r'\d+',_prev_out)   # sql() здесь без -tA: вывод psql с заголовком
+    _prev=int(_m.group(0)) if _m else 0
+    if _prev and total < 0.7*_prev and os.environ.get('FORCE_SHRINK')!='1':
+        print(f'СТОП: офферов сегодня {total} < 70% от вчерашних {_prev} — фид похудел, статусы не трогаю '
+              f'(осознанно — FORCE_SHRINK=1)', flush=True)
+        sys.exit(2)
 
 sql("drop table if exists products_new; create table products_new (like products including all);")
 cols=("shop_mid,external_id,shop,category_id,category_path,name,brand,url,image_url,price_rub,"
@@ -135,7 +155,8 @@ on conflict (shop_mid,external_id) do update set
   old_price_rub=excluded.old_price_rub,in_stock=true,direct_url=excluded.direct_url,last_seen=current_date,
   w_cm=coalesce(p.w_cm,excluded.w_cm),d_cm=coalesce(p.d_cm,excluded.d_cm),
   h_cm=coalesce(p.h_cm,excluded.h_cm),params=excluded.params,description=excluded.description,
-  cat_role=excluded.cat_role;
+  cat_role=excluded.cat_role,
+  category_id=excluded.category_id,category_path=excluded.category_path;
 drop table products_new;
 commit;
 select 'снято с наличия: '||count(*) from products where shop_mid in ({mlist}) and not in_stock;
@@ -174,6 +195,11 @@ on conflict (shop_mid,external_id) do update set
   commercial_hash=excluded.commercial_hash, text_hash=excluded.text_hash,
   geometry_hash=excluded.geometry_hash, image_hash=excluded.image_hash,
   status=excluded.status, missing_runs=0, missing_since=null,
+  -- сменился смысл (текст/размеры) → версия сбрасывается, todo() возьмёт товар в переобогащение;
+  -- payload остаётся до нового ответа. Раньше дельта только печаталась и ничего не запускала (А1).
+  enrichment_version=case when e.text_hash is distinct from excluded.text_hash
+                            or e.geometry_hash is distinct from excluded.geometry_hash
+                          then null else e.enrichment_version end,
   last_seen=current_date, updated_at=now();
 -- пропал из свежего фида: помечаем, но обогащение НЕ трогаем. Три пропуска подряд → в архив.
 update product_enrichment e set missing_runs=e.missing_runs+1,
