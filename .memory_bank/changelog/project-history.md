@@ -140,3 +140,66 @@ htmlToText для LLM, пометки авто/вручную `autoKeys`); П6 �
 1100px, центрирование блока «бренд+кнопки», сворачивание на мобильном при скролле; Стили/Советы
 скрывались и были возвращены. Иконки владельца (Drive → `public/icons/`) вместо emoji на `/calc`,
 главной, `/start`; фавиконка-колба `app/icon.png`. П5b чтения ссылок — ADR-0031/0032.
+
+## Где
+- **Стадия:** v0.4 «Смета-first» (ADR-0016); ядро сметы М1 в проде (входы А/Б, чек-лист, /go/ реф) —
+  `core/estimate.md`. Автопилот рекламы DRY-RUN на все кампании — `advertising/autopilot.md`.
+- **Запуск: ЗОНТ launch-prep ЗАКРЫТ (2026-07-28) — платформа ГОТОВА.** П1–П7 в проде (витрина-
+  заглушки, лаборатория-центр, UX калькуляторов, зум 100–130%, чтение ссылок, лид-канал; хронология
+  — `changelog/project-history.md`). **Ждут владельца:** токены 3 ботов + SMTP (`core/leads.md`),
+  включение Этапа 1 рекламы. Кампании SUSPENDED; Этап 2/AI-дизайн НЕ включать (ведут на заглушки).
+- **Мебельный трек v3 «стили+правила» (2026-08-03, ADR-0042–0050):** сеты по СТИЛЯМ —
+  126 (7 метражей × 6 стилей × 3 тира, sets3.json), стиль-скоринг 15.7k товаров, судья с
+  политикой замен, правило разнообразия ≤3/≤5; свод правил гостиной (2 раунда мульти-джоб
+  ресёрча → occupancy.json: динамические шкалы от площади — решения владельца); расстановка:
+  ЗОНА-БИЛДЕР (ADR-0050) + DFS-периферия; витрина-6 v4 отдана (по кадру на стиль). Свежесть —
+  ежедневный автоцикл (+стиль-дельта новинок). Прод-ядро расстановки — план
+  [[prod-layout-engine]] in_progress (спека `guides/layout-engine-spec.md`, Э0 добыча правил
+  workflow'ом; Э1+ в свежей сессии). Планы [[sets-style-v3]]/[[layout-quality]]/[[room-size-fit]]
+  in_progress; [[scalability-hardening]] draft. **Ждут владельца:** вердикт витрины v4;
+  cozyhome (ковры!); divan/askona/ormatek; Gemini-ключ. Сводки — `core/furniture.md`,
+  `core/styles.md`, `core/lr-checklist.md`.
+- **Чтение ссылок П5b ЗАКРЫТ (2026-07-30, ADR-0031/0032):** только сервер — direct → резидентский
+  прокси (`PARSE_PROXY_URLS` в `/opt/remlab/.env`) для всех магазинов; вход LLM = JSON-LD + окно
+  «Характеристик»; загрузки файла НЕТ. ⚠️ Ozon/WB блокируют IP пула (капча) — нужен прокси-анблокер
+  (Bright Data/Zyte), решение владельца.
+- **UX-полировка (ADR-0030/0034–0039) и Калькулятор v2 (ADR-0018–0028)** — в проде; детали:
+  `core/estimate.md`, `core/user-flow.md`, `decisions.md`.
+- **Дизайн-система (2026-07-31, ADR-0041):** весь UI на **Untitled UI React** (Tailwind v4 +
+  React Aria, copy-paste в `components/base|application`), палитра-гибрид (терракота-brand,
+  stone-нейтраль, крем; `styles/brand.css`), Inter self-host. Старые токены/классы удалены;
+  4 атомарных деплоя U0–U4 (план `uui-migration`) + полировки p1/p2 (кнопки brand-500, тёплый
+  графит текста, tap-подсказки, мобильная шапка/вкладки скроллом). Правила — `.claude/rules/ui-rules.md`.
+- **Прод:** https://remont-lab.online — версия = git SHA (АВТО-деплой на каждый push в main,
+  нативный arm64-раннер, с 2026-07-28). Контейнеры: `remlab-app`,
+  `remlab-caddy`, `remlab-db` (pg17+pgvector), `remlab-imagor`. LE-cert до 2026-09-29. Секреты —
+  только `/opt/remlab/.env`. Бэкапы БД: `/opt/remlab/backups/`. Откат: образ `remlab-app:prev`.
+- **Репозиторий:** github.com/igortsk123/remlab (`main`, CI-deploy-ключ `~/.ssh/remlab_ci_deploy` —
+  авторизован на сервере как `remlab-ci-deploy`; для секрета `DEPLOY_SSH_KEY`. `remlab_deploy_ed25519` НЕ авторизован).
+  CI: GitHub Actions гейт.
+- **Память (инфра):** кит Memory Bank **v1.3.0** (2026-07-12, план `completed_plans/kit-align-v13`).
+  Аудит ловит CODE-REF (память↔код) и FROZEN-MEMORY; CI `.github/workflows/memory-audit.yml` в режиме
+  **`warn`** (`_kit/gate-mode.txt`; флип в `block` — позже); захват на ходу `_intake/session-scratch.md`;
+  метрики footprint+находки → `changelog/metrics.log` (`tools/metrics-append.sh`). Footprint Tier 0 ≈ 2.1%.
+- **Сервер:** exit-fi `89.167.127.0` (Hetzner EU, Ubuntu 24.04, **aarch64/ARM**, 2 vCPU / 3.7 GB / 38 GB).
+  НЕ выделенный remlab-сервер: на хосте боевая VPN-нода `remnanode` (+`rw-core`, nginx :80) — не
+  трогать; remlab изолирован (`remlab-net`, mem-лимиты).
+- **Деплой (АВТО, работает с 2026-07-28):** push в `main` → CI gate → **`deploy.yml` собирает arm64
+  на НАТИВНОМ раннере `ubuntu-24.04-arm`** (repo public; БЕЗ QEMU — эмуляция крашила Next-SWC SIGILL) →
+  push в GHCR → сервер `docker compose pull` (не собирает) → smoke+откат. Секрет `DEPLOY_SSH_KEY` задан
+  (ключ `remlab_ci_deploy`). Версия в `/api/health` = git SHA. Локальный `./deploy.sh` — НЕ использовать:
+  arm64-сборка под QEMU OOM'ит DEV-VM `pakardev` (2.7 ГБ). Playbook: `deployment.md`, грабля: `core/lessons.md`.
+
+
+## Концепция v0.4 «Смета-first» (ADR-0016, 2026-07-11; мастер: `plans/MASTER-cost-first.md`)
+Ядро — «Смета-лист»: расчёт количеств/стоимости → сохранённый список с реф-ссылками (комиссия,
+в т.ч. со ссылок самого юзера через deeplink). Входы: А калькуляторы материалов (~70–90k/мес),
+Б «сколько стоит ремонт» (~52k+). Хвосты: визуализация по фото (бывшее ядро, ступень М5),
+мастера-лиды (М6, партнёрка — не свой каталог). Утверждённый сценарий — в мастер-плане.
+Этапы: М0 партнёрка (Гдеслон ⏸) ∥ М1 смета → М2 вход А (+Этап 4 рекламы) → М3 вход Б
+(+Этап 2) → М4 автопилот на все → М5 визуализация+мебель → М6 мастера → М7 SEO.
+- **Код-долг v0.4:** ядро сметы М1–М3 не построено; фиды (sub-e2) расширить материалами.
+- Модель v0.3 (3 ступени, мебельный affiliate) — историческая; её paid-механика вернётся в М5.
+- Ревизия планов: 12 → `archive/plans/` (таблица «Судьба» в мастере), живые: sub-e0/e2/e3/e4/e7,
+  ml-замеры («сфоткай—посчитаем»), ads-*.
+
