@@ -171,6 +171,18 @@ SYS = (
 )
 
 
+def schema_for(it: dict) -> dict:
+    """Схема ответа под конкретную роль: общая часть плюс блок вопросов этого типа предмета."""
+    from role_prompt import schema_block
+    blk = schema_block(it.get('role_feed') or '')
+    if not blk:
+        return SCHEMA
+    sc = json.loads(json.dumps(SCHEMA))
+    sc['properties']['specific'] = blk
+    sc['required'] = sc['required'] + ['specific']
+    return sc
+
+
 def prompt(it: dict) -> str:
     # Описание отдаём модели, только если оно вообще что-то говорит о товаре. Замер 2026-08-05:
     # годных описаний в пуле 12.3%, остальное — маркетинговый шаблон магазина (969 диванов с одной
@@ -189,7 +201,8 @@ def prompt(it: dict) -> str:
             f'Размеры, см: {dims or "не указаны"}\n'
             f'Цена: {it["price"]} ₽\n'
             f'Параметры фида: {json.dumps(params, ensure_ascii=False) if params else "нет"}\n'
-            f'Описание: {_desc[:700] or "нет"}')
+            f'Описание: {_desc[:700] or "нет"}'
+            + __import__('role_prompt').prompt_block(it.get('role_feed') or ''))
 
 
 def _key() -> str:
@@ -250,7 +263,8 @@ def ask(it: dict, model: str, key: str, vision: bool = False) -> dict | None:
         'messages': [{'role': 'system', 'content': SYS},
                      {'role': 'user', 'content': content}],
         'response_format': {'type': 'json_schema',
-                            'json_schema': {'name': 'furniture', 'strict': True, 'schema': SCHEMA}},
+                            'json_schema': {'name': 'furniture', 'strict': True,
+                                            'schema': schema_for(it)}},
     }
     if model.startswith('gpt-5'):
         body['reasoning_effort'] = 'low'      # рассуждать тут не о чем, платить за это незачем

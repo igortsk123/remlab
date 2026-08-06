@@ -30,7 +30,7 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from golden_label import SCHEMA, SYS, prompt, _key, _image_b64  # noqa: E402
+from golden_label import SCHEMA, SYS, prompt, schema_for, _key, _image_b64  # noqa: E402
 from rules0 import extract, flags, pool  # noqa: E402
 
 MODEL = 'gpt-5.6-luna'
@@ -38,7 +38,7 @@ MODEL_STRONG = 'gpt-5.6-terra'    # уровень 3: только спорны�
                                   # с чем работать — размеры она восстановить не может
 ENRICH_VERSION = 'furniture-v1'
 PROMPT_VERSION = 'p3'
-SCHEMA_VERSION = 's4'
+SCHEMA_VERSION = 's5'
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
         '-q', '-v', 'ON_ERROR_STOP=1', '-t', '-A', '-F', '\x1f']
 API = 'https://api.openai.com/v1'
@@ -111,7 +111,8 @@ def body_for(it: dict, model: str = MODEL, vision: bool = False) -> dict:
         'messages': [{'role': 'system', 'content': SYS},
                      {'role': 'user', 'content': content}],
         'response_format': {'type': 'json_schema',
-                            'json_schema': {'name': 'furniture', 'strict': True, 'schema': SCHEMA}},
+                            'json_schema': {'name': 'furniture', 'strict': True,
+                                            'schema': schema_for(it)}},
         'reasoning_effort': 'low',
     }
 
@@ -136,7 +137,8 @@ def todo(items: list[dict]) -> list[dict]:
 
 
 VISION_FIELDS = ('styles', 'style_strength', 'materials', 'primary_color', 'shape',
-                 'visual_mass', 'warmth', 'decorativeness', 'base_type', 'image_type', 'photo')
+                 'visual_mass', 'warmth', 'decorativeness', 'base_type', 'image_type', 'photo',
+                 'specific')
 
 
 def save(rows: list[tuple[dict, dict, dict]], model: str = MODEL, vision: bool = False) -> None:

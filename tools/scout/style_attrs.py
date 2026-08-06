@@ -30,12 +30,17 @@ import enrich_bridge as EB  # noqa: E402
 RULES = json.load(open(os.path.join(HERE, 'style_rules.json')))['rules']
 STYLES = ['сканди', 'современный', 'минимализм', 'лофт', 'неоклассика', 'джапанди']
 # сколько признаков модель обычно успевает увидеть; по этому числу считаем уверенность
-FULL_EVIDENCE = 8.0
+FULL_EVIDENCE = 10.0   # столько признаков обычно видно, когда вопросы заданы под роль
 
 
 def _observed(e: dict) -> dict:
-    """Наблюдаемые признаки товара из обогащения, приведённые к именам правил."""
-    ph = e.get('photo') or {}
+    """Наблюдаемые признаки товара из обогащения, приведённые к именам правил.
+
+    Часть вопросов общая (материал, отделка, теплота), часть — своя у каждого типа предмета
+    (`specific`: подлокотник у дивана, ручки у комода, каркас у люстры, ворс у ковра).
+    """
+    ph = dict(e.get('photo') or {})
+    ph.update(e.get('specific') or {})
     obs = {
         'materials': e.get('materials') or [],
         'finish': ph.get('finish'),
@@ -48,8 +53,20 @@ def _observed(e: dict) -> dict:
         'hardware': ph.get('hardware'),
         'proportions': ph.get('proportions'),
         'formality': ph.get('formality'),
+        'arms': ph.get('arms'), 'tufting': ph.get('tufting'), 'seam': ph.get('seam'),
+        'back': ph.get('back'), 'seat_height': ph.get('seat_height'),
+        'base': ph.get('base'), 'edge': ph.get('edge'), 'top_material': ph.get('top_material'),
+        'fronts': ph.get('fronts'), 'handles': ph.get('handles'),
+        'handle_finish': ph.get('handle_finish'), 'openness': ph.get('openness'),
+        'body': ph.get('body'), 'frame': ph.get('frame'), 'shade': ph.get('shade'),
+        'shade_material': ph.get('shade_material'), 'metal_finish': ph.get('metal_finish'),
+        'pile': ph.get('pile'), 'rug_pattern': ph.get('rug_pattern'),
+        'weave': ph.get('weave'), 'edge_trim': ph.get('edge_trim'),
+        'glaze': ph.get('glaze'), 'relief': ph.get('relief'), 'form': ph.get('form'),
+        'textile_pattern': ph.get('textile_pattern'),
     }
-    return {k: v for k, v in obs.items() if v and v not in ('неясно', 'не_определён')}
+    return {k: v for k, v in obs.items()
+            if v and v not in ('неясно', 'не_определён', 'не_видно', 'не_применимо')}
 
 
 def evidence(mid, eid) -> tuple[dict, list, int]:
