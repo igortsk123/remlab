@@ -3,12 +3,12 @@ tier: 1
 topic: regression-net
 scope: Регресс-защита — тесты, CI, eval, гардрейлы, DoD
 tier2: "../../docs/tech-spec-ts-stack.md"
-updated: 2026-08-04
+updated: 2026-08-06
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-07-11
+last_verified: 2026-08-06
 review_after: ""
 ---
 
@@ -17,16 +17,15 @@ review_after: ""
 > Сетка для соло-не-кодера: ошибки ловит автоматика. «Цель» = НЕ реализовано.
 
 ## Есть в коде
-- **Unit (Vitest, `tests/unit/`):** flow-pipeline, health, providers, restyle-prompt, trace-sign,
-  trace. Интеграция с БД — только `pg-repository.test.ts` (skipIf без `TEST_DATABASE_URL`).
-  Мок моделей — fake-провайдер (`REMLAB_FAKE_AI=1`).
-- **e2e:** happy path `flow.spec.ts` (через /select) + 3 smoke; error-путей НЕТ.
+- **Unit (Vitest, `tests/unit/`):** 24 файла (AI-флоу, calc, estimate, leads/style/lab, утилиты).
+  БД-интеграция — только `pg-repository.test.ts` (skipIf без `TEST_DATABASE_URL`); мок — `REMLAB_FAKE_AI=1`.
+- **e2e:** happy path `flow.spec.ts` (через /select) + 5 smoke + `estimate.spec.ts`; error-путей НЕТ.
 - **CI-гейт (`ci.yml`, S4):** postgres (pgvector/pgvector:pg17) → install → typecheck → lint →
   test → build → e2e. Шага db:migrate НЕТ (таблицу тест создаёт сам). Красный = merge запрещён.
 - **Observability:** трейс каждого LLM-вызова (`traced.ts`/`lib/trace/`; costUsd/шаг,
-  total_cost_usd/прогон); PostHog (`lib/analytics.ts`) — 5 из 9 событий. Sentry НЕ заводим.
+  total_cost_usd/прогон); PostHog (`lib/analytics.ts`) — 22 объявлено, 12 эмитится. Sentry НЕ заводим.
 - **Грабля:** меняешь флоу — правь e2e тем же коммитом; после push смотри gate (§12.7).
-- **Гарантии памяти (ADR-0055):** аудит + 4 хука в git; `CODE-DRIFT` — 9 должников (§12.6).
+- **Гарантии памяти (ADR-0055):** аудит + 4 хука в git; CODE-DRIFT закрыт verify-сверкой 06.08.
 
 ## Цель (спека §12) — НЕ реализовано
 - Тесты: Cost Engine/matching/work_types/гардрейлы (модулей нет); интеграционные API/миграции;

@@ -3,12 +3,12 @@ tier: 1
 topic: observability-tracing
 scope: Трейсинг AI-пайплайна — лог LLM-вызовов, разбор
 tier2: ../domain/observability.md
-updated: 2026-07-09
+updated: 2026-08-06
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-07-09
+last_verified: 2026-08-06
 ---
 
 # Observability — Tracing AI-пайплайна (ADR-0013)

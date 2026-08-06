@@ -3,7 +3,7 @@ tier: 1
 topic: estimate
 scope: Смета-лист — калькуляторы, стоимость, /go/ реф
 tier2: "../domain/pricing-works-ru.md"
-updated: 2026-07-31
+updated: 2026-08-06
 importance: high
 source: manual
 status: working

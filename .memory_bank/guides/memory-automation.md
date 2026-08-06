@@ -3,7 +3,8 @@ tier: 2
 topic: memory-automation
 scope: Как история проекта попадает в Memory Bank — слои, мост, хуки-напоминания, гейты
 tier1: ""
-updated: 2026-07-09
+last_verified: 2026-08-06
+updated: 2026-08-06
 importance: high
 source: manual
 ---
@@ -39,8 +40,9 @@ source: manual
 
 ## Механический слой (Node, опционально, но рекомендован)
 - `tools/memory-audit.mjs` — детерминированная проверка: полный список категорий в его шапке
-  (ORPHAN/STALE/LAGGING/BROKEN/REVIEW/UNVERIFIED/BLOATED/TIER1-BLOAT/TIER0-BLOAT/NO-TIER1/
-  PLACEHOLDER/DUP-TOPIC/BAD-FM/INDEX-REF/REGISTRY-STALE/PLAN-*/DIVERGENCE/SECRET) + регенерация
+  (ORPHAN/STALE/LAGGING/BROKEN/REVIEW/UNVERIFIED/LAST-VERIFIED-OLD/BLOATED/TIER1-BLOAT/
+  TIER0-BLOAT/NO-TIER1/PLACEHOLDER/DUP-TOPIC/BAD-FM/INDEX-REF/REGISTRY-STALE/PLAN-*/DIVERGENCE/
+  SECRET/CODE-REF/CODE-DRIFT/FROZEN-MEMORY/RULES-FM/MEM-INJECT — полный список в шапке аудита) + регенерация
   decision tree и реестров. Для CI/хука: `--check` (не пишет файлы).
 - Хуки в пресетах important/autopilot (или `tools/stop-hook.example.json` для default):
   Stop = напоминание + audit --check; SessionStart = баннер свежести. Без Node — shell-fallback.

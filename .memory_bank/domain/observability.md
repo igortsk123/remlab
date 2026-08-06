@@ -3,17 +3,17 @@ tier: 2
 topic: observability-details
 scope: Детали трейсинга AI-пайплайна — БД, env, роуты, подписанные URL, imagor, ретеншн, гочи прода
 tier1: ../core/observability-tracing.md
-updated: 2026-07-09
+updated: 2026-08-06
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-07-09
+last_verified: 2026-08-06
 ---
 
 # Observability — детали (Tier 2 к [[observability-tracing]])
 
-> Сверено с кодом 2026-07-09. Tier 1: `../core/observability-tracing.md`.
+> Сверено с кодом 2026-08-06 (verify-агент). Tier 1: `../core/observability-tracing.md`.
 
 ## Сущности БД — детали (`db/schema.ts`, `db/init/003-traces.sql`, `tools/migrate.mjs`)
 - `generation_runs` — прогон = один запуск превью. `seq` из sequence `generation_seq` —
@@ -75,7 +75,8 @@ imagor читает файл из `FILE_LOADER_BASE_DIR` (= том TRACE_DIR) п
   app (идемпотентно). `saveAsset` (`lib/trace/assets.ts`) при сбое пишет `console.warn` (без секретов),
   чтобы такой класс багов не прятался. Картинки прогонов ДО фикса невосстановимы (байты не захватывались).
 - Ретеншн: `pnpm trace:prune` (`tools/trace-prune.mjs`) — удаляет прогоны + шаги + ассеты + файлы (в т.ч.
-  `_tmp`) старше `TRACE_RETENTION_DAYS`; вешается на серверный таймер `remlab-cleanup` (ops-шаг деплоя).
+  `_tmp`) старше `TRACE_RETENTION_DAYS`; на серверный таймер `remlab-cleanup` пока НЕ повешен —
+  TODO (open question в `project-state.md`), запуск руками.
 - Логирование best-effort: ошибка записи/диска НЕ валит пайплайн. Секреты (API-ключи) в лог не пишем.
 - Фото — ПДн (TODO legal, не блокируемся).
 

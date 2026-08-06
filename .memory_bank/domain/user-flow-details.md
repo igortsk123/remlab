@@ -3,12 +3,12 @@ tier: 2
 topic: user-flow-details
 scope: Детальные сценарии и экраны Stage 1 — 7-экранный flow, free/paid варианты, сегменты, аналитика
 tier1: ../core/user-flow.md
-updated: 2026-07-09
+updated: 2026-08-06
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-07-09
+last_verified: 2026-08-06
 ---
 
 > ⚠️ ADR-0016: **v0.4 «Смета-first»** — `plans/MASTER-cost-first.md`; ниже — v0.3-контекст.
@@ -54,13 +54,15 @@ last_verified: 2026-07-09
 - Оплата — **заглушка**: `unlockPack` в `app/actions.ts`, на paywall-экране явный «Демо-режим»;
   настоящая оплата (YooKassa) — отдельным шагом.
 
-## Экраны в коде (сверено 2026-07-09)
-- `/` (`app/page.tsx`) — лендинг: CTA «Обновить комнату» → `/start`, «Рассчитать стоимость» →
-  `/soon?f=cost`; ссылка «Мои комнаты» → `/rooms`.
+## Экраны в коде (сверено 2026-08-06)
+- `/` (`app/page.tsx`) — хаб из 6 плиток: /calc, /calc/remont, /start, /styles, /sovety, /lab
+  (`/start` и `/calc/remont` помечены `soon: true`); прежних CTA «→ /soon?f=cost» и ссылки
+  «Мои комнаты» на лендинге больше нет.
 - `/start` → создание проекта; `/p/[id]/brief` → фото+бриф; `/p/[id]/select` → интерактивный выбор;
   `/p/[id]/preview` → превью+идеи+товары; `/p/[id]/paywall` → демо-paywall.
 - `/rooms` — workspace «Мои комнаты» (список проектов сессии, статусы started…paid).
-- `/soon` — fake-door «Расчёт стоимости ремонта» (сбор email, событие `cost_fake_door_viewed`).
+- `/soon` — fake-door «Расчёт стоимости ремонта»; форма-демо не отправляется, событие
+  `cost_fake_door_viewed` объявлено, но НЕ эмитится.
 - `/p/[id]/style` — редирект на `/p/[id]/select` (экран стиля перенесён туда).
 
 ### Интерактивный выбор (`/select`, план `interactive-object-selection`)

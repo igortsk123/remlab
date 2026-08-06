@@ -3,12 +3,12 @@ tier: 2
 topic: integrations-details
 scope: Детали внешних интеграций — эндпоинты, форматы запросов/ответов, env-переменные, конфиги, цены
 tier1: ../core/access-and-integrations.md
-updated: 2026-08-02
+updated: 2026-08-06
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-07-11
+last_verified: 2026-08-06
 ---
 
 # Интеграции — детали (Tier 2)
@@ -42,7 +42,9 @@ last_verified: 2026-07-11
 - **Ключ:** `POSTHOG_KEY` (+ `POSTHOG_HOST`, дефолт `https://eu.i.posthog.com`) в env. Без ключа — no-op.
 - ⚠️ Одним ключом на проде НЕ включить: compose передаёт в app явный `environment:`-список без
   `POSTHOG_*` — нужна правка compose.
-- **События:** project_started, brief_completed, style_selected, preview_ready, paywall_viewed, pack_unlocked, app_error.
+- **События (06.08):** 22 объявлено в `lib/analytics.ts`, 12 эмитится (estimate_*, lab_tab,
+  lead_*, quiz_completed, viz_started и др.); `brief_completed`/`style_selected`/`paywall_viewed`
+  объявлены, но НЕ эмитятся.
 - Бесплатный тариф PostHog: 1M событий/мес. Sentry не заводим (покрыто PostHog).
 
 ## Affiliate-сеть и фиды (М0/v0.4 — КЛЮЧЕВАЯ; доступ есть, код ещё НЕ написан)
@@ -82,7 +84,7 @@ last_verified: 2026-07-11
   Клиент — `lib/images/compress.ts`, вызов `${IMAGOR_BASE_URL}/unsafe/fit-in/1536x1536/filters:format(webp):quality(80):strip_exif()/<key>`.
 - **Env (в `/opt/remlab/.env` на сервере):** `TRACE_DIR=/app/data/traces`, `IMAGOR_BASE_URL=http://remlab-imagor:8000`,
   `TRACE_ADMIN_TOKEN` (гард admin-роутов разбора; не задан → открыто), `TRACE_RETENTION_DAYS` (дефолт 90).
-- **Данные:** фото-ассеты — на томе `remlab-traces` → `/opt/remlab/data/traces`; трейс — в Postgres
+- **Данные:** фото-ассеты — на named-томе `remlab-traces` (Docker-managed, bind-пути на хосте НЕТ); трейс — в Postgres
   (`generation_runs/steps/assets`). Разбор: `/api/trace/<N>`, `/api/trace/asset/<id>`, скилл `/trace`, `pnpm trace <N>`.
 - Детали архитектуры: `../core/observability-tracing.md`.
 
@@ -168,7 +170,7 @@ PNG 512 от владельца (Drive `1l2j65g8…`) → `public/icons/`; вс�
 | Google Gemini | ⚠️ КЛЮЧ МЁРТВ 2026-08-01 — пересоздать; проверить прод | картинки+анализ | `GEMINI_API_KEY` | `lib/providers/gemini.ts` |
 | OpenAI | ✅ соседский | GPT-5.1 тексты; gpt-image-2 витрина | `_secrets/ACCESS.md` | ads-watchdog; scout |
 | PostHog | код есть, прод no-op (ADR-0012) | аналитика+ошибки | `POSTHOG_KEY` не задан | `lib/analytics.ts` |
-| Гдеслон | доступ ✅ 14 магазинов (ADR-0042) | фиды→каталог, /go/ реф | `GDESLON_*` в `.env` | кода нет; план `gdeslon-catalog` |
+| Гдеслон | доступ ✅ 14 магазинов (ADR-0042) | фиды→каталог, /go/ реф | `GDESLON_*` в `.env` | app-интеграции нет; scout-разведка живёт (`tools/scout/*`); план `gdeslon-catalog` |
 | imagor | активен (ADR-0013) | сжатие картинок, internal | ключей НЕТ (unsafe) | `lib/images/compress.ts` |
 | GHCR/CI | авто-деплой ✅ (arm64) | образы + деплой | `GITHUB_TOKEN`; SSH `remlab_ci_deploy` | GitHub Actions |
 | Яндекс (WS/Директ/Метрика) | доступ ✅ | реклама/аналитика | `_secrets/ACCESS.md` (вне git) | кода нет, curl |
