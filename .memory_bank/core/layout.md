@@ -28,9 +28,10 @@ beam (20×8) → скоринг → уточнение → top-K с объясн
 Осталось: Э6 LLM-слой, backtracking 26–30 м². Спека `../guides/layout-engine-spec.md`;
 добытые правила — `../guides/layout-mined-rules.md` (при конфликте канон наш, NC-код не копируем).
 
-**Аудит 06.08 ([[MASTER-pipeline-hardening]] А3/А5, там детали):** дефолт всё ещё DFS
-(`tools/scout/solver_run.py`), батчи рендеров идут им; метрика solver_check слепа к soft
-(«валидно, но глупо» проходит); ковёр вне солвера, щель 20–70 мягкая; дверь/окно одни на все
-сеты; Э6 (`services/planner-solver/planner/llm_planner.py`) написан, план draft.
+**Волны А3/А5 (06.08, [[MASTER-pipeline-hardening]]):** дефолт — **beam** везде; solver_check
+видит SOFT-термы, ранжирует «глупых» (DUMB_T=12, калибровать вердиктами); SOFA_SLIVER hard
+20–76 + тест; пуф-пороги в ядре (60/180, урок 194) — итог **117/126** на сегодняшних данных
+(урок 193); проёмы вариативны от сета; ковёр — к дивану. Э6 — отрицательная партия (урок 195,
+[[llm-layout-planner]]). Остаток: backtracking ([[layout-engine-gaps]]); Г-диван в угол.
 
 **Tier 2:** ../domain/occupancy-rules.md · ../guides/layout-mined-rules.md · ../guides/layout-engine-spec.md
