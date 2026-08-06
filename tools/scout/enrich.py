@@ -38,7 +38,7 @@ MODEL_STRONG = 'gpt-5.6-terra'    # уровень 3: только спорны�
                                   # с чем работать — размеры она восстановить не может
 ENRICH_VERSION = 'furniture-v1'
 PROMPT_VERSION = 'p3'
-SCHEMA_VERSION = 's3'
+SCHEMA_VERSION = 's4'
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
         '-q', '-v', 'ON_ERROR_STOP=1', '-t', '-A', '-F', '\x1f']
 API = 'https://api.openai.com/v1'
