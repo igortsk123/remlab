@@ -294,6 +294,39 @@ def check_behind_sofa(room: Room, ps: list[Placement]) -> list[Violation]:
     return out
 
 
+SOFA_SLIVER_MIN_CM = 20.0
+
+
+def check_sofa_sliver(room: Room, ps: list[Placement]) -> list[Violation]:
+    """Щель за спинкой дивана 20–76 см запрещена ЖЁСТКО: или вплотную (<20), или проход ≥76.
+
+    Правило владельца 2026-08-02 («промежуточная щель — запрещена»); раньше жило только мягким
+    штрафом sofa_dead_gap, и валидная раскладка могла выйти с непроходимой щелью (А5).
+    Щель, заполненная хранением/консолью, щелью не считается (диван «по центру» с хранением сзади).
+    """
+    from shapely.geometry import box as _box
+
+    by = {p.role: p for p in ps}
+    sofa = by.get("диван")
+    if sofa is None or sofa.item is None:
+        return []
+    fx, fy = facing_vector(sofa.rot)
+    x0, y0, x1, y1 = footprint(sofa).bounds
+    if abs(fy) > abs(fx):
+        d = y0 if fy > 0 else room.depth_cm - y1
+        strip = _box(x0, 0, x1, y0) if fy > 0 else _box(x0, y1, x1, room.depth_cm)
+    else:
+        d = x0 if fx > 0 else room.width_cm - x1
+        strip = _box(0, y0, x0, y1) if fx > 0 else _box(x1, y0, room.width_cm, y1)
+    passage = float(distances().get("sofa_to_wall_passage", 76))
+    if SOFA_SLIVER_MIN_CM <= d < passage:
+        filled = any(footprint(p).intersection(strip).area > 400 for p in ps if p is not sofa)
+        if not filled:
+            return [_v("SOFA_SLIVER", f"щель за спинкой дивана {d:.0f} см — ни вплотную, ни проход",
+                       ["диван"], round(d), f"<{SOFA_SLIVER_MIN_CM:.0f} см или ≥{passage:.0f} см")]
+    return []
+
+
 _ROOM_BAND = [None]      # текущий бэнд для проверок зоны (ставится в validate)
 
 
@@ -476,6 +509,7 @@ def validate(room: Room, placements: list[Placement], *, passage: str = "seconda
     vs += check_zone(placements)
     vs += check_sightline(placements)
     vs += check_behind_sofa(room, placements)
+    vs += check_sofa_sliver(room, placements)
     vs += check_layout_rules(room, placements)
     vs += check_floor_cap(room, placements)
     from .geometry import floor_used_pct

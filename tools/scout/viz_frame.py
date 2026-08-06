@@ -28,10 +28,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 exec(open(os.path.join(HERE, 'viz3.py')).read().split("HERE=")[0])   # clean_bg
 
 OAI = None
-for line in open('/home/pakar/igor/v0-health-card/backend/.env'):
-    m = re.match(r'OPENAI_API_KEY=(.+)', line.strip())
-    if m:
-        OAI = m.group(1).strip().strip('"')
+for _envp in (os.path.join(HERE, '.env'), '/home/pakar/igor/v0-health-card/backend/.env'):
+    if OAI or not os.path.exists(_envp):
+        continue
+    for line in open(_envp):
+        m = re.match(r'OPENAI_API_KEY=(.+)', line.strip())
+        if m:
+            OAI = m.group(1).strip().strip('"')
 
 n = int(sys.argv[1]) if len(sys.argv) > 1 else 1
 VIEW = sys.argv[sys.argv.index('--view') + 1] if '--view' in sys.argv else 'A'

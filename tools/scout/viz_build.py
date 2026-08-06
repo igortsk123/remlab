@@ -24,8 +24,29 @@ SCENE_DIR = os.environ.get('SCENE_DIR', os.path.expanduser('~/scout-scenes'))
 PY = sys.executable
 
 
-def paste(n: int, cam: str, mesh_roles: list[str]) -> None:
+def ensure_shell(n: int, cams: list[str]) -> bool:
+    """Фотореал-оболочка пустой комнаты (ADR-0063, дефолт с А4): ~2 ₽/камера, кэш по комнате.
+
+    Оболочка строится по НАШЕЙ карте глубины (ControlNet), поэтому геометрия совпадает с clay —
+    возражение «мебель повисает» относилось к оболочкам без depth-условия (2026-08-04).
+    Не собралась — честный фолбэк на clay."""
+    if os.environ.get('VIZ_BASE', 'shell') == 'clay':
+        return False
+    missing = [c for c in cams
+               if not os.path.exists(os.path.join(SCENE_DIR, f'scene{n}-{c}-shell.jpg'))]
+    if missing:
+        r = subprocess.run([PY, os.path.join(HERE, 'shell_make.py'), str(n),
+                            '--cams', ','.join(missing)], cwd=HERE, capture_output=True, text=True)
+        if r.returncode != 0:
+            print(f'   оболочка не собралась ({(r.stderr or r.stdout)[-120:].strip()}) — база clay')
+            return False
+    return all(os.path.exists(os.path.join(SCENE_DIR, f'scene{n}-{c}-shell.jpg')) for c in cams)
+
+
+def paste(n: int, cam: str, mesh_roles: list[str], shell: bool = False) -> None:
     cmd = [PY, os.path.join(HERE, 'viz_paste.py'), str(n), '--cam', cam]
+    if shell:
+        cmd += ['--base', 'shell']
     if mesh_roles:
         cmd += ['--mesh-roles', ','.join(mesh_roles)]
     subprocess.run(cmd, cwd=HERE, check=True, capture_output=True)
@@ -46,9 +67,10 @@ def main() -> None:
     cams = (sys.argv[sys.argv.index('--cams') + 1].split(',')
             if '--cams' in sys.argv else ['C1', 'C2'])
 
-    print('1. коллаж на фотографиях товаров')
+    shell = ensure_shell(n, cams)
+    print(f'1. коллаж на фотографиях товаров (база: {"shell" if shell else "clay"})')
     for c in cams:
-        paste(n, c, [])
+        paste(n, c, [], shell)
     rows = audit(n, cams)
     bad = failing(rows)
     total = len([r for r in rows if r['status'] not in ('рисует модель', 'частично закрыт')])
@@ -88,18 +110,36 @@ def main() -> None:
             path = ensure_mesh(n, role, key)
         except Exception as e:  # noqa: BLE001 — сбой генератора не должен ронять сборку
             print(f'   {role}: модель не собралась ({str(e)[:60]}) — остаётся фото')
-            continue
+            path = None
         if path and mesh_trusted(path, product(n, role)[1]):
             use.append(role)
+            continue
+        # Вторая попытка другим генератором (А6): 39% Trellis-мешей браковала самопроверка,
+        # и хвост (столик/кашпо/стеллаж) оставался «рисует модель по эталону».
+        fb = os.environ.get('MESH_FALLBACK', 'fal-ai/hunyuan3d/v2')
+        try:
+            path2 = ensure_mesh(n, role, key, model=fb) if fb else None
+        except Exception as e:  # noqa: BLE001
+            print(f'   {role}: фолбэк-модель не собралась ({str(e)[:60]})')
+            path2 = None
+        if path2 and mesh_trusted(path2, product(n, role)[1]):
+            # рендер ищет меш по каноничному пути — доверенный фолбэк становится канонм
+            import shutil
+            from mesh_make import mesh_path
+            shutil.copyfile(path2, mesh_path(product(n, role)[0]))
+            print(f'   {role}: прошла модель фолбэка ({fb})')
+            use.append(role)
         else:
-            print(f'   {role}: модель не прошла самопроверку — остаётся фото')
+            print(f'   {role}: обе модели не прошли самопроверку — остаётся фото')
     if not use:
-        print('годных моделей нет — коллаж остаётся на фотографиях')
-        return
+        print('годных моделей нет — коллаж остаётся на фотографиях, приёмка НЕ пройдена')
+        json.dump({'mesh_roles': [], 'still_bad': bad},
+                  open(os.path.join(SCENE_DIR, f'scene{n}-build.json'), 'w'), ensure_ascii=False)
+        sys.exit(1)   # раньше выходили нулём, и батч считал сцену чистой (А4)
 
     print(f'4. пересобираю с моделями: {", ".join(use)}')
     for c in cams:
-        paste(n, c, use)
+        paste(n, c, use, shell)
     rows = audit(n, cams)
     bad2 = failing(rows)
     total2 = len([r for r in rows if r['status'] not in ('рисует модель', 'частично закрыт')])

@@ -206,7 +206,8 @@ def prompt(it: dict) -> str:
 
 
 def _key() -> str:
-    for p in ('/home/pakar/mltest/.env', os.path.join(HERE, '../../.env')):
+    # свой .env первым: зависимость от чужих проектов ломается при их переезде (А4)
+    for p in (os.path.join(HERE, '.env'), '/home/pakar/mltest/.env', os.path.join(HERE, '../../.env')):
         if os.path.exists(p):
             for line in open(p):
                 if line.startswith('OPENAI_API_KEY='):

@@ -79,9 +79,18 @@ def derived(room, placements, items):
         long, short = max(long, float(sofa.item.w_cm) * 0.9), max(short, 120.0)
         horizontal = int(round(sofa.rot)) % 180 == 0
         w_cm, d_cm = (long, short) if horizontal else (short, long)
-        rel['ковёр'] = ('лежит плашмя на полу под журнальным столиком, длинной стороной ВДОЛЬ '
-                        'дивана (параллельно его спинке)')
-        out.append(Placement(role='ковёр', x=table.x, y=table.y, rot=0,
+        # Привязка к ДИВАНУ, не к столику (правило владельца, А5): передние ножки дивана стоят
+        # на ковре — ближний край заходит под фронт дивана на 25 см, ковёр стелется в зону.
+        from planner.geometry import facing_vector
+        fx, fy = facing_vector(sofa.rot)
+        sd = float(sofa.item.d_cm or 100.0)
+        fr_x, fr_y = sofa.x + fx * sd / 2, sofa.y + fy * sd / 2   # линия фронта дивана
+        depth_along = d_cm if abs(fy) > abs(fx) else w_cm          # размер ковра вдоль взгляда
+        rug_x = fr_x + fx * (depth_along / 2 - 25.0)
+        rug_y = fr_y + fy * (depth_along / 2 - 25.0)
+        rel['ковёр'] = ('лежит плашмя на полу, ближний край заходит под передние ножки дивана, '
+                        'длинной стороной ВДОЛЬ дивана (параллельно его спинке)')
+        out.append(Placement(role='ковёр', x=rug_x, y=rug_y, rot=0,
                              item=Item(role='ковёр', w_cm=w_cm, d_cm=d_cm, h_cm=1.0)))
     # Декор на поверхностях: мы знаем высоту столешницы каждого предмета, поэтому ставим точно.
     # Так делают в дизайн-подаче: без мелочей кадр выглядит нежилым (владелец, 2026-08-04).

@@ -622,6 +622,11 @@ def run_pair(n: int, cams: tuple[str, str]) -> None:
         dst = os.path.join(SCENE_DIR, f'scene{n}-{c}-final.jpg')
         part.save(dst, quality=94)
         print(dst, part.size)
+    # Пост-QA сразу после генерации (А4, урок 191): ΔRGB + VLM-судья, вердикт в -qa.json.
+    # Здесь не роняем прогон (файлы уже сохранены) — гейтит батч через `viz_qa.py N` (exit 3).
+    from viz_qa import qa_cam
+    for c in cams:
+        qa_cam(n, c)
 
     steps.log(prefixes[0], 'Оба вида одним запросом',
               model='openai/gpt-image-2 (images/edits)', prompt=prompt,

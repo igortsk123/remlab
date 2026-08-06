@@ -20,6 +20,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.request
 import uuid
 
@@ -225,8 +226,24 @@ def edit_gpt(scene: Image.Image, ref: Image.Image, mask: np.ndarray,
     req = urllib.request.Request('https://api.openai.com/v1/images/edits', data=body.getvalue(),
                                  headers={'Authorization': f'Bearer {oai}',
                                           'Content-Type': f'multipart/form-data; boundary={B}'})
-    with urllib.request.urlopen(req, timeout=900) as r:
-        data = json.loads(r.read())
+    # Дорогой вызов — 3 ретрая на транзиентные 5xx/сеть (урок render7: сет 47 упал на голом 502;
+    # паттерн ретраев из pipeline2 при переезде потеряли — А4, урок 191)
+    data = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=900) as r:
+                data = json.loads(r.read())
+            break
+        except urllib.error.HTTPError as e:
+            if e.code < 500 or attempt == 2:
+                raise
+            print(f'  edits {e.code} — ретрай {attempt + 2}/3 через 20 с', flush=True)
+            time.sleep(20)
+        except (urllib.error.URLError, TimeoutError):
+            if attempt == 2:
+                raise
+            print(f'  edits сеть/таймаут — ретрай {attempt + 2}/3 через 20 с', flush=True)
+            time.sleep(20)
     LAST_USAGE.clear()
     LAST_USAGE.update(data.get('usage') or {})      # расход токенов последнего запроса
     return Image.open(io.BytesIO(base64.b64decode(data['data'][0]['b64_json']))).convert('RGB')
@@ -276,16 +293,33 @@ def edit_gpt_raw(images: list, prompt: str, size: str = '1536x1024', mask=None) 
     req = urllib.request.Request('https://api.openai.com/v1/images/edits', data=body.getvalue(),
                                  headers={'Authorization': f'Bearer {oai}',
                                           'Content-Type': f'multipart/form-data; boundary={B}'})
-    with urllib.request.urlopen(req, timeout=900) as r:
-        data = json.loads(r.read())
+    # Дорогой вызов — 3 ретрая на транзиентные 5xx/сеть (урок render7: сет 47 упал на голом 502;
+    # паттерн ретраев из pipeline2 при переезде потеряли — А4, урок 191)
+    data = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=900) as r:
+                data = json.loads(r.read())
+            break
+        except urllib.error.HTTPError as e:
+            if e.code < 500 or attempt == 2:
+                raise
+            print(f'  edits {e.code} — ретрай {attempt + 2}/3 через 20 с', flush=True)
+            time.sleep(20)
+        except (urllib.error.URLError, TimeoutError):
+            if attempt == 2:
+                raise
+            print(f'  edits сеть/таймаут — ретрай {attempt + 2}/3 через 20 с', flush=True)
+            time.sleep(20)
     LAST_USAGE.clear()
     LAST_USAGE.update(data.get('usage') or {})      # расход токенов последнего запроса
     return Image.open(io.BytesIO(base64.b64decode(data['data'][0]['b64_json']))).convert('RGB')
 
 
 def _dotenv(name: str) -> str:
-    for p in ('/home/pakar/mltest/.env', os.path.join(HERE, '../../.env'),
-              os.path.join(HERE, '.env')):
+    # свой .env первым (А4): зависимость от чужих проектов ломается при их переезде
+    for p in (os.path.join(HERE, '.env'), '/home/pakar/mltest/.env',
+              os.path.join(HERE, '../../.env')):
         try:
             for line in open(p):
                 m = re.match(rf'{name}=(.+)', line.strip())

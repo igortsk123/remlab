@@ -12,9 +12,11 @@ from PIL import Image, ImageDraw
 HERE=os.path.dirname(os.path.abspath(__file__))
 exec(open(os.path.join(HERE,'viz3.py')).read().split("HERE=")[0])
 OAI=None
-for line in open('/home/pakar/igor/v0-health-card/backend/.env'):
-    m=re.match(r'OPENAI_API_KEY=(.+)',line.strip())
-    if m: OAI=m.group(1).strip().strip('"')
+for _envp in (os.path.join(HERE,'.env'),'/home/pakar/igor/v0-health-card/backend/.env'):
+    if OAI or not os.path.exists(_envp): continue
+    for line in open(_envp):
+        m=re.match(r'OPENAI_API_KEY=(.+)',line.strip())
+        if m: OAI=m.group(1).strip().strip('"')
 SETS_FILE='sets3.json' if '--v3' in sys.argv else ('sets2.json' if '--v2' in sys.argv else 'sets.json')
 TAG='v3set' if '--v3' in sys.argv else 'set'  # артефакты v3 не перетирают v1/v2
 sets=json.load(open(os.path.join(HERE,SETS_FILE)))

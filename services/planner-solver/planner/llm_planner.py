@@ -23,7 +23,11 @@ from .refine import refine
 from .validate import WALL_ONLY_ROLES, validate
 
 MODEL = os.environ.get('LAYOUT_LLM_MODEL', 'gpt-5-mini')
-ENV_PATH = os.environ.get('OPENAI_ENV', '/home/pakar/igor/v0-health-card/backend/.env')
+# свой .env scout первым (А4/А5): зависимость от чужих проектов ломается при их переезде
+_SCOUT_ENV = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'tools', 'scout', '.env')
+ENV_PATH = os.environ.get('OPENAI_ENV',
+                          _SCOUT_ENV if os.path.exists(_SCOUT_ENV)
+                          else '/home/pakar/igor/v0-health-card/backend/.env')
 WALL_GAP_CM = 5.0
 
 

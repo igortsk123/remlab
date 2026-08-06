@@ -86,11 +86,18 @@ def mesh_trusted(path: str, photo: str, min_iou: float = 0.6) -> bool:
     return ok
 
 
-def ensure_mesh(n: int, role: str, key: str | None = None) -> str | None:
-    """GLB товара: из кэша или сгенерировать. None — если фото нет."""
+def ensure_mesh(n: int, role: str, key: str | None = None, model: str = 'fal-ai/trellis') -> str | None:
+    """GLB товара: из кэша или сгенерировать. None — если фото нет.
+
+    `model` — генератор: дефолт Trellis; фолбэк — Hunyuan3D (А6: хвост брака приёмки — это
+    в основном роли, где Trellis-меш не проходит самопроверку; по сверке с рынком 2026-08
+    Hunyuan3D точнее на мебели). Кэш — на пару (товар, генератор).
+    """
     os.makedirs(MESH_DIR, exist_ok=True)
     it, photo = product(n, role)
     dst = mesh_path(it)
+    if model != 'fal-ai/trellis':
+        dst = dst[:-4] + '-' + re.sub(r'[^a-z0-9]+', '_', model) + '.glb'
     if os.path.exists(dst):
         return dst
     if not os.path.exists(photo):
@@ -99,9 +106,13 @@ def ensure_mesh(n: int, role: str, key: str | None = None) -> str | None:
     white = Image.new('RGBA', cut.size, (255, 255, 255, 255))
     white.alpha_composite(cut)
     t0 = time.time()
-    res = fal_run('fal-ai/trellis', {'image_url': uri_from_image(white.convert('RGB'))},
-                  key or fal_key(), timeout=900)
-    url = (res.get('model_mesh') or {}).get('url')
+    uri = uri_from_image(white.convert('RGB'))
+    payload = ({'image_url': uri} if model == 'fal-ai/trellis'
+               else {'input_image_url': uri, 'textured_mesh': True})
+    res = fal_run(model, payload, key or fal_key(), timeout=900)
+    url = ((res.get('model_mesh') or {}).get('url')
+           or (res.get('model_glb') or {}).get('url')
+           or (res.get('model_glb_pbr') or {}).get('url'))
     if not url:
         return None
     # Скачиваем через временный файл: оборванная закачка иначе оставляет в кэше пустой GLB,

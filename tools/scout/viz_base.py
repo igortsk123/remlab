@@ -41,7 +41,8 @@ def fal_key() -> str:
     k = os.environ.get('FAL_KEY')
     if k:
         return k
-    for p in ('/home/pakar/mltest/.env', os.path.join(HERE, '../../.env')):
+    # свой .env первым (А4): зависимость от чужих проектов ломается при их переезде
+    for p in (os.path.join(HERE, '.env'), '/home/pakar/mltest/.env', os.path.join(HERE, '../../.env')):
         try:
             for line in open(p):
                 m = re.match(r'FAL_KEY=(.+)', line.strip())
@@ -154,6 +155,25 @@ def img_uri(path: str) -> str:
 
 
 def fal_run(model: str, payload: dict, key: str, timeout: int = 300) -> dict:
+    # 3 попытки на транзиентное (5xx/сеть/таймаут ожидания); 4xx (не тот набор полей) и FAILED
+    # (детерминированный отказ модели) не ретраим — это не «мигнуло», а ошибка (А4).
+    last = None
+    for attempt in range(3):
+        try:
+            return _fal_once(model, payload, key, timeout)
+        except _FalTransient as e:
+            last = e
+            if attempt < 2:
+                print(f'  fal транзиент ({e}) — ретрай {attempt + 2}/3 через 15 с', flush=True)
+                time.sleep(15)
+    raise SystemExit(f'fal: 3 попытки исчерпаны ({last})')
+
+
+class _FalTransient(Exception):
+    pass
+
+
+def _fal_once(model: str, payload: dict, key: str, timeout: int) -> dict:
     req = urllib.request.Request(
         f'https://queue.fal.run/{model}',
         data=json.dumps(payload).encode(),
@@ -163,14 +183,21 @@ def fal_run(model: str, payload: dict, key: str, timeout: int = 300) -> dict:
         with urllib.request.urlopen(req, timeout=60) as r:
             job = json.loads(r.read())
     except urllib.error.HTTPError as e:      # 422 = не тот набор полей: показываем схему ошибки
+        if e.code >= 500:
+            raise _FalTransient(f'submit {e.code}') from e
         raise SystemExit(f'fal {e.code}: {e.read().decode()[:600]}')
+    except (urllib.error.URLError, TimeoutError) as e:
+        raise _FalTransient(f'submit сеть: {str(e)[:80]}') from e
     status_url = job.get('status_url') or job.get('response_url')
     t0 = time.time()
     while time.time() - t0 < timeout:
         time.sleep(3)
         sreq = urllib.request.Request(status_url, headers={'Authorization': f'Key {key}'})
-        with urllib.request.urlopen(sreq, timeout=60) as r:
-            st = json.loads(r.read())
+        try:
+            with urllib.request.urlopen(sreq, timeout=60) as r:
+                st = json.loads(r.read())
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
+            continue                          # разовый сбой опроса — просто спросим ещё раз
         if st.get('status') == 'COMPLETED':
             time.sleep(1)
             rreq = urllib.request.Request(job['response_url'], headers={'Authorization': f'Key {key}'})
@@ -178,10 +205,12 @@ def fal_run(model: str, payload: dict, key: str, timeout: int = 300) -> dict:
                 with urllib.request.urlopen(rreq, timeout=60) as r:
                     return json.loads(r.read())
             except urllib.error.HTTPError as e:
+                if e.code >= 500:
+                    raise _FalTransient(f'результат {e.code}') from e
                 raise SystemExit(f'fal результат {e.code}: {e.read().decode()[:500]}')
         if st.get('status') in ('FAILED', 'ERROR'):
             raise SystemExit(f'fal: {json.dumps(st)[:400]}')
-    raise SystemExit('fal: таймаут ожидания результата')
+    raise _FalTransient('таймаут ожидания результата')
 
 
 def main() -> None:

@@ -95,10 +95,15 @@ CORNER=bool(items.get('диван')) and (
     bool(_re.search(r'углов',(items['диван'].get('name') or '').lower()))
     or (items['диван'].get('d') or 0)>150)
 room=Polygon([(0,0),(RW,0),(RW,RD),(0,RD)])
-# дверь (юг, слева) с дугой открывания 90 см и окно (восток) с зоной радиатора 15 см
-door=box(20,0,110,92); window=box(RW-15,140,RW,280)
-initial={'дверь':((65,45),0,tuple(door.exterior.coords[:]),1),
-         'окно-радиатор':((RW-8,210),0,tuple(window.exterior.coords[:]),1)}
+# Дверь (юг) и окно (восток) — ВАРИАТИВНЫЕ от номера сета (А5, аудит 06.08): раньше проёмы были
+# одни на все сеты, и «логичность» тестировалась на нереальной комнате. Детерминированно
+# (никакого random — воспроизводимость), стены фиксированы: на них завязаны glare-правила и камеры.
+_r1=((n*2654435761)>>4)%1000/1000.0; _r2=((n*40503)>>3)%1000/1000.0
+DOOR_W=90; DOOR_OFF=round(20+_r1*max(RW-DOOR_W-60-20,0))
+WIN_W=round(120+_r2*60); WIN_OFF=round(100+(((n*97)%100)/100.0)*max(RD-WIN_W-200,0))
+door=box(DOOR_OFF,0,DOOR_OFF+DOOR_W,92); window=box(RW-15,WIN_OFF,RW,WIN_OFF+WIN_W)
+initial={'дверь':((DOOR_OFF+DOOR_W/2,45),0,tuple(door.exterior.coords[:]),1),
+         'окно-радиатор':((RW-8,WIN_OFF+WIN_W/2),0,tuple(window.exterior.coords[:]),1)}
 
 def hard_checks(placed, zone_used=()):
     """Hard-проверки раскладки (общие для DFS-зона-билдера и beam-движка Э2)."""
@@ -501,9 +506,11 @@ def attempt_beam():
     from planner.models import Item as _It, Opening as _Op, Radiator as _Rad, Room as _Rm
 
     room_p = _Rm(width_cm=RW, depth_cm=RD, band=BAND,
-                 openings=[_Op(kind='door', wall='south', offset_cm=20, width_cm=90, swing_cm=92),
-                           _Op(kind='window', wall='east', offset_cm=140, width_cm=140, sill_cm=80)],
-                 radiators=[_Rad(wall='east', offset_cm=140, width_cm=140, depth_cm=15)])
+                 openings=[_Op(kind='door', wall='south', offset_cm=DOOR_OFF, width_cm=DOOR_W,
+                               swing_cm=92),
+                           _Op(kind='window', wall='east', offset_cm=WIN_OFF, width_cm=WIN_W,
+                               sill_cm=80)],
+                 radiators=[_Rad(wall='east', offset_cm=WIN_OFF, width_cm=WIN_W, depth_cm=15)])
     its = []
     for role, (w, d) in FLOOR:
         src = items.get(role) or {}
@@ -527,6 +534,15 @@ def attempt_beam():
         if not outs:
             return {}, [r for r, _ in FLOOR], []
         lay = outs[0]
+    # Зрячая метрика (А3): «нет hard-нарушений» ≠ «логично» — глупая-но-валидная схема раньше
+    # проходила как OK. Наружу отдаём score-термы и soft-нарушения, solver_check их собирает.
+    from planner.score import score_layout as _score
+    _sc = _score(room_p, lay.placements)
+    print('SOFT ' + json.dumps({
+        'terms': {k: v for k, v in sorted(_sc.terms.items()) if abs(v) > 0.01},
+        'soft_violations': [f'{v.code}:{",".join(v.roles)}' for v in lay.violations
+                            if v.severity.name != 'HARD'],
+    }, ensure_ascii=False), flush=True)
     placed = {p.role: ((p.x, p.y), int(p.rot) % 360, tuple(_fp(p).exterior.coords[:]), 1)
               for p in lay.placements}
     missing = list(lay.unplaced)
@@ -535,7 +551,9 @@ def attempt_beam():
 
 
 _eng_arg = sys.argv[sys.argv.index('--engine') + 1] if '--engine' in sys.argv else None
-ENGINE = _eng_arg or os.environ.get('LAYOUT_ENGINE', 'dfs')   # dfs | beam | llm
+# Дефолт — beam (А3, аудит 06.08): прод-ядро выигрывает у DFS 110+/122 против 107/126, но
+# батчи коллажей/рендеров шли через дефолт и рендерили DFS — чинили beam, а ляпы были DFS.
+ENGINE = _eng_arg or os.environ.get('LAYOUT_ENGINE', 'beam')   # beam | dfs | llm
 
 # перебор сидов ПОСЛЕДОВАТЕЛЬНО с ранним выходом (чистый сид обычно первый-второй, max_duration=12);
 # параллельность — на уровне СЕТОВ (render6.sh): внутренний ProcessPool на слабой VM ловил OOM
@@ -579,8 +597,8 @@ if CORNER and 'диван' in out:
 # габариты И проёмы — рендеру и компилятору сцены: без проёмов генератор придумывает свои
 # двери/окна, и кадр перестаёт совпадать с планом (поймано 2026-08-04)
 out['_room']={'w':RW,'d':RD,'openings':[
-    {'kind':'door','wall':'south','offset_cm':20,'width_cm':90,'swing_cm':92},
-    {'kind':'window','wall':'east','offset_cm':140,'width_cm':140,'sill_cm':80}]}
+    {'kind':'door','wall':'south','offset_cm':DOOR_OFF,'width_cm':DOOR_W,'swing_cm':92},
+    {'kind':'window','wall':'east','offset_cm':WIN_OFF,'width_cm':WIN_W,'sill_cm':80}]}
 _sfx=os.environ.get('LAYOUT_SUFFIX','')
 json.dump(out,open(os.path.join(HERE,f'{TAG}{n}-layout{_sfx}.json'),'w'),ensure_ascii=False,indent=1)
 

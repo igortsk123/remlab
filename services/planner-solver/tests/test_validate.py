@@ -113,3 +113,24 @@ def test_violations_are_explainable():
     ps[1] = ps[1].model_copy(update={"y": ps[0].y - 60})
     v = next(v for v in validate(room, ps).violations if v.code == "SOFA_TV_DIST")
     assert v.expected and v.value is not None and v.roles == ["диван", "тв-тумба"]
+
+
+def test_sofa_sliver_hard():
+    """Щель за спинкой дивана 20–76 см — жёсткий запрет (правило владельца 2026-08-02)."""
+    from tests.rooms import make_room
+    room = make_room("31-40")
+    sofa_gap_45 = Placement(role="диван", x=room.width_cm / 2, y=45 + 50, rot=0,
+                            item=Item(role="диван", w_cm=220, d_cm=100, h_cm=85))
+    lay = validate(room, [sofa_gap_45])
+    assert "SOFA_SLIVER" in {v.code for v in lay.violations}, "щель 45 см должна браковаться"
+    sofa_tight = Placement(role="диван", x=room.width_cm / 2, y=50, rot=0,
+                           item=Item(role="диван", w_cm=220, d_cm=100, h_cm=85))
+    assert "SOFA_SLIVER" not in {v.code for v in validate(room, [sofa_tight]).violations}
+    sofa_pass = Placement(role="диван", x=room.width_cm / 2, y=90 + 50, rot=0,
+                          item=Item(role="диван", w_cm=220, d_cm=100, h_cm=85))
+    assert "SOFA_SLIVER" not in {v.code for v in validate(room, [sofa_pass]).violations}
+    behind = Placement(role="комод", x=room.width_cm / 2, y=20, rot=0,
+                       item=Item(role="комод", w_cm=180, d_cm=40, h_cm=80))
+    lay_filled = validate(room, [sofa_gap_45, behind])
+    assert "SOFA_SLIVER" not in {v.code for v in lay_filled.violations}, \
+        "щель, заполненная хранением, щелью не считается"
