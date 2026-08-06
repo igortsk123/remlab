@@ -139,7 +139,7 @@ def evidence(mid, eid) -> tuple[dict, list, int, dict]:
     cat = matrix().get(role)     # ранги ИЗ ЯЧЕЙКИ КАТЕГОРИИ, а не из общего правила
     obs = _observed(e)
     pts = {s: 0.0 for s in STYLES}
-    kind = {s: {'маркер': 0, 'поддержка': 0, 'фон': 0} for s in STYLES}
+    kind = {s: {'маркер': 0, 'поддержка': 0, 'фон': 0, 'свой': 0} for s in STYLES}
     banned: set = set()
     fired = []
     seen = 0
@@ -164,6 +164,14 @@ def evidence(mid, eid) -> tuple[dict, list, int, dict]:
                     pts[st] += w
                     if w > 0:
                         kind[st][tier] += 1
+                        # Свой признак категории: по нему решается, есть ли у вещи стиль вообще.
+                        # Считаем ЛЮБОЙ положительный вклад, а не только ранг «маркер»: после
+                        # понижения по частоте свои признаки часто становятся поддержкой, и
+                        # требование маркера объявляло нейтральными две трети каталога
+                        # (замер 2026-08-06: 66% при цели 15-35%).
+                        own = (((cat or {}).get('attrs') or {}).get(attr) or {}).get('own_marker')
+                        if own:
+                            kind[st]['свой'] += 1
                 fired.append((attr, v, r.get('tiers') or {}, r.get('why', '')))
         seen += 1 if hit else 0
     for st in banned:
@@ -222,6 +230,9 @@ def scores(mid, eid) -> dict | None:
     pts, fired, seen, kind = evidence(mid, eid)
     if not pts:
         return None
+    item = EB.get(mid, eid) or {}
+    from role_prompt import matrix as _matrix
+    cat_meta = _matrix().get((item.get('role') or '').strip())
     conf = min(1.0, seen / FULL_EVIDENCE)
     # Нормируем ВНУТРИ ТОВАРА: стили соревнуются друг с другом на одних и тех же признаках.
     # Сравнение со средним по каталогу давало сбой, пока каталог опрошен старым набором вопросов,
@@ -230,6 +241,16 @@ def scores(mid, eid) -> dict | None:
     vals = list(pts.values())
     mean = sum(vals) / len(vals)
     sd = max((sum((v - mean) ** 2 for v in vals) / len(vals)) ** 0.5, 1.2)
+    # Стилево нейтральный товар: ни один СОБСТВЕННЫЙ маркер категории не сработал в плюс.
+    # Искусственная орхидея одинаково уместна и в сканди, и в неоклассике — честнее сказать
+    # «стиля нет», чем назначать победителя (замер 2026-08-06: детский коврик и букет лилейника
+    # получали сканди просто потому, что кто-то должен был выиграть).
+    neutral = (sum(k.get('свой', 0) for k in kind.values()) == 0
+               or bool((cat_meta or {}).get('neutral_by_nature')))
+    damp = 0.3 if neutral else 1.0
+    # по интерьерной сцене судить о вещи нельзя: на фото комната, а не товар
+    if (item.get('image_type') or '') == 'товар_в_интерьере':
+        damp *= 0.6
     out = {}
     for st in STYLES:
         z = (pts[st] - mean) / sd
@@ -241,11 +262,12 @@ def scores(mid, eid) -> dict | None:
             z = min(z, 0.6)
         if not k.get('маркер'):
             z = min(z, 1.2)
-        val = 5.0 + 2.2 * max(-2.2, min(2.2, z)) * conf
+        val = 5.0 + 2.2 * max(-2.2, min(2.2, z)) * conf * damp
         out[st] = round(max(0.0, min(10.0, val)), 1)
-    top = max(out.values())
-    med = sorted(out.values())[len(out) // 2]
-    out['universal'] = (top - med) < 1.2                  # ничего не выделяется — товар нейтрален
+    out['neutral'] = neutral
+    top = max(out[s] for s in STYLES)
+    med = sorted(out[s] for s in STYLES)[len(STYLES) // 2]
+    out['universal'] = neutral or (top - med) < 1.2                  # ничего не выделяется — товар нейтрален
     out['confidence'] = round(conf, 2)
     out['src'] = 'attrs'
     return out

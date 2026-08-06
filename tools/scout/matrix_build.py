@@ -51,6 +51,10 @@ ADD = {
     'камин': {'top_material': ['дерево', 'шпон', 'стекло', 'камень', 'металл', 'ЛДСП', 'неясно']},
 }
 # Свои маркеры категории (из источников), даже если частота их не выделяет
+# Категории, у которых стиля нет по природе вещи: искусственная зелень одинаково уместна
+# в любом интерьере, а её «стиль» задаёт кашпо, а не сам букет (замер 2026-08-06).
+NEUTRAL_BY_NATURE = {'растение'}
+
 CATEGORY_MARKERS = {
     'люстра': ['frame', 'shade', 'shade_material'],
     'бра': ['frame', 'shade_material'],
@@ -128,7 +132,8 @@ def build() -> dict:
                 per_value[val] = {'tiers': tiers, 'veto': hit[0].get('veto') or []}
             cells[attr] = {'q': spec['q'], 'opts': spec['opts'], 'values': per_value,
                            'own_marker': attr in own}
-        matrix[role] = {'group': group_of(role), 'attrs': cells}
+        matrix[role] = {'group': group_of(role), 'attrs': cells,
+                        'neutral_by_nature': role in NEUTRAL_BY_NATURE}
     json.dump(matrix, open(OUT, 'w'), ensure_ascii=False)
     print(f'категорий в таблице: {len(matrix)}')
     print(f'{"категория":16s} {"вопросов":>9} {"своих маркеров":>15}')

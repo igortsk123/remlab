@@ -92,6 +92,18 @@ ALLOW = [
 ]
 
 
+# Детское просачивается ВНУТРЬ разрешённых категорий: в «лампах» нашлись 4 детских, в
+# «подушках» одна (замер 2026-08-06). Категория тут не спасает — ловим по названию товара.
+KIDS = re.compile(
+    r'детск|для детей|дет\.|машинк|мультфильм|единорог|русалк|дракош|мишк[аи] тедди|'
+    r'человек-паук|принцесс|микки|лего|барби|смешарик|котят|щенячий|фиксик|подростков',
+    re.I)
+
+
+def is_kids(name: str) -> bool:
+    return bool(KIDS.search(name or ''))
+
+
 def classify(path: str) -> tuple[str | None, str]:
     """(роль или None, причина). Запреты сильнее разрешений."""
     low = path.lower()
@@ -145,12 +157,15 @@ def apply() -> None:
     """Записать роль из категории в БД — колонка products.cat_role."""
     out = json.load(open(OUT)) if os.path.exists(OUT) else build()
     vals = [f"({c['mid']},'{c['id']}','{c['role']}')" for c in out.values() if c['role']]
+    kids_sql = ("update products set cat_role=null where cat_role is not null and name ~* "
+                "'детск|для детей|машинк|мультфильм|единорог|русалк|дракош|человек-паук|"
+                "принцесс|микки|лего|барби|смешарик|котят|щенячий|фиксик|подростков';")
     subprocess.run(PSQL, input=(
         "alter table products add column if not exists cat_role text;"
         "create index if not exists idx_products_cat_role on products (cat_role);"
         "update products set cat_role=null where cat_role is not null;"
         f"update products p set cat_role=v.role from (values {','.join(vals)}) "
-        "as v(mid, cid, role) where p.shop_mid=v.mid and p.category_id::text=v.cid;"
+        "as v(mid, cid, role) where p.shop_mid=v.mid and p.category_id::text=v.cid;" + kids_sql
     ), capture_output=True, text=True)
     r = subprocess.run(PSQL, capture_output=True, text=True, input=
                        "select cat_role, count(*) from products where cat_role is not null "

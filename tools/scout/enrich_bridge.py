@@ -153,7 +153,31 @@ def priors(rebuild: bool = False) -> dict:
 
 
 def style_scores(mid, eid) -> dict | None:
-    """Стилевой вектор в шкале 0–10, взвешенный редкостью стиля.
+    """Стилевой вектор в шкале 0–10.
+
+    Если товар опрошен по признакам (есть блок `specific` из вопросов под категорию), считаем
+    рейтингом по рангам — он объяснимый и умеет отвечать «стиля нет». Нейтральный товар получает
+    ровные пятёрки и флаг `universal`: сборщик не штрафует его за чужой стиль и подбирает по
+    цвету, размеру и цене (решение владельца 2026-08-06).
+    """
+    e = get(mid, eid)
+    if e and (e.get('photo') or {}).get('legs') is not None or (e or {}).get('specific'):
+        try:
+            from style_attrs import scores as _attr_scores, STYLES as _ST
+            sc = _attr_scores(mid, eid)
+            if sc:
+                out = {k: sc[k] for k in _ST}
+                out['universal'] = bool(sc.get('universal') or sc.get('neutral'))
+                out['neutral'] = bool(sc.get('neutral'))
+                out['src'] = 'attrs'
+                return out
+        except Exception:  # noqa: BLE001 — нет таблицы или правил: работаем по ступеням
+            pass
+    return _levels_scores(mid, eid)
+
+
+def _levels_scores(mid, eid) -> dict | None:
+    """Запасной путь: ступени «нет/низкая/средняя/высокая» в шкале 0–10.
 
     Фолбэк для товаров, которых нет в style-scores.json, и заодно поправка на «стоп-стили»:
     оценка, которую имеет почти весь каталог, сдвигается к нейтральной пятёрке, а редкая —
