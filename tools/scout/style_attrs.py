@@ -71,13 +71,70 @@ def _observed(e: dict) -> dict:
             if v and v not in ('неясно', 'не_определён', 'не_видно', 'не_применимо')}
 
 
-def evidence(mid, eid) -> tuple[dict, list, int]:
-    """Очки по каждому стилю, список сработавших правил и число наблюдённых признаков."""
+TIER_W = {'маркер': 3.0, 'поддержка': 1.5, 'фон': 0.6}
+
+FREQ_PATH = os.path.join(HERE, 'attr-freq.json')
+_FREQ: dict | None = None
+
+
+def freq(rebuild: bool = False) -> dict:
+    """Как часто признак встречается в каталоге.
+
+    Маркер обязан быть РЕДКИМ: «увидел — почти наверняка этот стиль». Признак, который есть у
+    половины каталога, маркером быть не может, сколько бы источников его ни называли характерным.
+    Я на этом уже ошибся: назначил маркером сканди «мягко скруглённые линии», и сканди стал
+    побеждать в 45% случаев (2026-08-06). Поэтому ранг понижается по частоте автоматически.
+    """
+    global _FREQ
+    if _FREQ is not None and not rebuild:
+        return _FREQ
+    if os.path.exists(FREQ_PATH) and not rebuild:
+        _FREQ = json.load(open(FREQ_PATH))
+        return _FREQ
+    cnt: dict[str, int] = {}
+    total = 0
+    for key in EB.load():
+        mid, eid = key.split(':', 1)
+        e = EB.get(mid, eid) or {}
+        obs = _observed(e)
+        if not obs:
+            continue
+        total += 1
+        for a, v in obs.items():
+            for vv in (v if isinstance(v, list) else [v]):
+                cnt[f'{a}={vv}'] = cnt.get(f'{a}={vv}', 0) + 1
+    _FREQ = {k: round(n / max(total, 1), 4) for k, n in cnt.items()}
+    _FREQ['_total'] = total
+    json.dump(_FREQ, open(FREQ_PATH, 'w'), ensure_ascii=False)
+    return _FREQ
+
+
+def _tier_capped(attr: str, val: str, tier: str) -> str:
+    """Понижение ранга по частоте: частый признак не может быть маркером."""
+    f = freq().get(f'{attr}={val}')
+    if f is None:
+        return tier
+    if f > 0.45:
+        return 'фон'
+    if f > 0.22 and tier == 'маркер':
+        return 'поддержка'
+    return tier
+
+
+def evidence(mid, eid) -> tuple[dict, list, int, dict]:
+    """Очки по стилям, сработавшие правила, число признаков и «чем именно набрано».
+
+    Балл даёт РАНГ признака, а не вкусовой вес: маркер (увидел — почти наверняка этот стиль),
+    поддержка (согласуется), фон (слабый намёк). Признак с вето обнуляет стиль целиком: лофта
+    с хрустальными подвесами не бывает, сколько бы металла ни было рядом.
+    """
     e = EB.get(mid, eid)
     if not e:
-        return {}, [], 0
+        return {}, [], 0, {}
     obs = _observed(e)
     pts = {s: 0.0 for s in STYLES}
+    kind = {s: {'маркер': 0, 'поддержка': 0, 'фон': 0} for s in STYLES}
+    banned: set = set()
     fired = []
     seen = 0
     for attr, val in obs.items():
@@ -88,12 +145,22 @@ def evidence(mid, eid) -> tuple[dict, list, int]:
                 if r['attr'] != attr or r['value'] != v:
                     continue
                 hit = True
-                for st, w in r['w'].items():
-                    if st in pts:
-                        pts[st] += w
-                fired.append((attr, v, r['w'], r.get('why', '')))
+                banned.update(r.get('veto') or [])
+                for st, t in (r.get('tiers') or {}).items():
+                    if st not in pts:
+                        continue
+                    tier = _tier_capped(attr, v, t['tier'])
+                    w = TIER_W[tier] * t.get('sign', 1)
+                    pts[st] += w
+                    if w > 0:
+                        kind[st][tier] += 1
+                fired.append((attr, v, r.get('tiers') or {}, r.get('why', '')))
         seen += 1 if hit else 0
-    return pts, fired, seen
+    for st in banned:
+        if st in pts:
+            pts[st] = min(pts[st], -6.0)      # вето: стиль уходит в самый низ шкалы
+            kind[st] = {'маркер': 0, 'поддержка': 0, 'фон': 0, 'вето': 1}
+    return pts, fired, seen, kind
 
 
 STATS_PATH = os.path.join(HERE, 'style-stats.json')
@@ -118,7 +185,7 @@ def stats(rebuild: bool = False) -> dict:
     acc = {s: [] for s in STYLES}
     for key in EB.load():
         mid, eid = key.split(':', 1)
-        pts, _f, seen = evidence(mid, eid)
+        pts, _f, seen, _k = evidence(mid, eid)
         if not pts or seen < 3:
             continue
         for s in STYLES:
@@ -142,15 +209,25 @@ def scores(mid, eid) -> dict | None:
       1. нормировка по собственной шкале стиля — иначе редкие языки систематически побеждают;
       2. уверенность — если модель разглядела два признака из десяти, оценку тянем к нейтралу.
     """
-    pts, fired, seen = evidence(mid, eid)
+    pts, fired, seen, kind = evidence(mid, eid)
     if not pts:
         return None
     conf = min(1.0, seen / FULL_EVIDENCE)
-    st_stats = stats()
+    # Нормируем ВНУТРИ ТОВАРА: стили соревнуются друг с другом на одних и тех же признаках.
+    # Сравнение со средним по каталогу давало сбой, пока каталог опрошен старым набором вопросов,
+    # а карточка — новым: у неё признаков больше, очки выше, и один стиль побеждал в половине
+    # случаев просто потому, что накопил больше свидетельств (поймано на замере, 2026-08-06).
+    vals = list(pts.values())
+    mean = sum(vals) / len(vals)
+    sd = max((sum((v - mean) ** 2 for v in vals) / len(vals)) ** 0.5, 1.2)
     out = {}
     for st in STYLES:
-        s = st_stats.get(st) or {'mean': 0.0, 'sd': 3.0}
-        z = (pts[st] - s['mean']) / s['sd']
+        z = (pts[st] - mean) / sd
+        k = kind.get(st) or {}
+        # достаточность: без единого маркера и меньше трёх поддерживающих признаков стиль
+        # не может уйти высоко — иначе он выигрывает на одном фоне вроде «тёплая гамма»
+        if not k.get('маркер') and k.get('поддержка', 0) < 3:
+            z = min(z, 0.6)
         val = 5.0 + 2.2 * max(-2.2, min(2.2, z)) * conf
         out[st] = round(max(0.0, min(10.0, val)), 1)
     top = max(out.values())
@@ -166,16 +243,20 @@ def explain(mid, eid) -> None:
     if not e:
         print('нет обогащения у этого товара')
         return
-    pts, fired, seen = evidence(mid, eid)
+    pts, fired, seen, kind = evidence(mid, eid)
     sc = scores(mid, eid)
     print(f'наблюдено признаков: {seen}, уверенность {sc["confidence"]}\n')
     print('что сработало:')
-    for attr, val, w, why in fired:
-        plus = ', '.join(f'{s}{v:+.1f}' for s, v in sorted(w.items(), key=lambda kv: -kv[1])[:3])
-        print(f'  {attr}={val:20s} → {plus:44s} {why[:50]}')
+    for attr, val, tiers, why in fired:
+        top = ', '.join(f'{s} {t["tier"]}{"−" if t.get("sign", 1) < 0 else ""}'
+                        for s, t in list(tiers.items())[:3])
+        print(f'  {attr}={val:22s} → {top:48s} {why[:44]}')
     print('\nитог:')
     for s in sorted(STYLES, key=lambda x: -sc[x]):
-        print(f'  {s:14s} {sc[s]:5.1f}   (очков {pts[s]:+.1f})')
+        k = kind.get(s) or {}
+        mark = ('ВЕТО' if k.get('вето') else
+                f'маркеров {k.get("маркер", 0)}, поддержки {k.get("поддержка", 0)}')
+        print(f'  {s:14s} {sc[s]:5.1f}   очков {pts[s]:+5.1f}   {mark}')
 
 
 def main() -> None:
