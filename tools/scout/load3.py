@@ -41,6 +41,17 @@ def geometry_hash(w,d,h,ln,dia):
     return _h(*[None if v is None else round(float(v)) for v in (w,d,h,ln,dia)])
 def image_hash(url):                          return _h(_norm(url))
 
+# Берём из фида ТОЛЬКО категории, признанные нужными (`category-roles.json`, category_map.py).
+# Иначе завтрашний прогон вернёт в базу посуду, матрасы и садовую технику, которые мы вычистили
+# (решение владельца 2026-08-06: «остальное неактуальное удали и только их обновляй»).
+_CATROLE={}
+try:
+    for _c in json.load(open(os.path.join(HERE,'category-roles.json'))).values():
+        if _c.get('role'): _CATROLE[(int(_c['mid']), str(_c['id']))]=_c['role']
+    print(f'карта категорий: {len(_CATROLE)} нужных категорий', flush=True)
+except Exception as _e:
+    print(f'карты категорий нет ({_e}) — грузим всё подряд', flush=True)
+
 SPA_CUT=re.compile(r'/!.*$')  # mnogomebeli/divanboss: вариант после /! — серверу неизвестен
 def direct(url):
     m=re.search(r'goto=(.+)$',url or '')
@@ -69,6 +80,9 @@ for z in sorted(glob.glob(os.path.join(FEEDS,'*.zip'))):
             nm=(el.findtext('name') or el.findtext('model') or '').strip()
             price=el.findtext('price'); oldp=el.findtext('oldprice')
             pic=el.findtext('picture'); cid=el.findtext('categoryId')
+            # роль из категории пишем сразу при загрузке
+            if _CATROLE and (mid, str(cid)) not in _CATROLE:
+                el.clear(); continue          # категория не нужна гостиной — товар не грузим
             params={p.get('name'):(p.text or '') for p in el.findall('param')}
             desc=re.sub(r'<[^>]+>',' ',el.findtext('description') or '')
             desc=re.sub(r'\s+',' ',desc).strip()[:1500] or None
@@ -89,7 +103,8 @@ for z in sorted(glob.glob(os.path.join(FEEDS,'*.zip'))):
             o_int=int(float(oldp)) if oldp else None
             rows.append('\t'.join(esc(x) for x in (mid,eid,shop,cid,cats.get(cid,''),nm,el.findtext('vendor'),
                 url,pic,p_int,o_int,None,
-                't',w,d,h,ln,dia,None,json.dumps(params,ensure_ascii=False),direct(url),desc)))
+                't',w,d,h,ln,dia,None,json.dumps(params,ensure_ascii=False),direct(url),desc,
+                _CATROLE.get((mid,str(cid))))))
             erows.append('\t'.join(esc(x) for x in (mid,eid,
                 commercial_hash(p_int,o_int,bool(p_int),direct(url)),
                 text_hash(nm,desc), geometry_hash(w,d,h,ln,dia), image_hash(pic),
@@ -101,7 +116,8 @@ print('строк с description:',sum(1 for r in rows if not r.endswith('\\N'))
 
 sql("drop table if exists products_new; create table products_new (like products including all);")
 cols=("shop_mid,external_id,shop,category_id,category_path,name,brand,url,image_url,price_rub,"
-      "old_price_rub,charge_rub,in_stock,w_cm,d_cm,h_cm,len_cm,dia_cm,dims_source,params,direct_url,description")
+      "old_price_rub,charge_rub,in_stock,w_cm,d_cm,h_cm,len_cm,dia_cm,dims_source,params,direct_url,"
+      "description,cat_role")
 sql(None, f"copy products_new({cols}) from stdin;\n"+"\n".join(rows)+"\n\\.\n")
 mlist=",".join(map(str,sorted(mids)))
 out=sql(f"""
@@ -110,15 +126,16 @@ update products p set in_stock=false
  where p.shop_mid in ({mlist})
    and not exists (select 1 from products_new n where n.shop_mid=p.shop_mid and n.external_id=p.external_id);
 insert into products as p (shop_mid,external_id,shop,category_id,category_path,name,brand,url,image_url,
-  price_rub,old_price_rub,charge_rub,in_stock,w_cm,d_cm,h_cm,len_cm,dia_cm,dims_source,params,direct_url,description,last_seen)
+  price_rub,old_price_rub,charge_rub,in_stock,w_cm,d_cm,h_cm,len_cm,dia_cm,dims_source,params,direct_url,description,cat_role,last_seen)
 select shop_mid,external_id,shop,category_id,category_path,name,brand,url,image_url,
-  price_rub,old_price_rub,charge_rub,true,w_cm,d_cm,h_cm,len_cm,dia_cm,dims_source,params,direct_url,description,current_date
+  price_rub,old_price_rub,charge_rub,true,w_cm,d_cm,h_cm,len_cm,dia_cm,dims_source,params,direct_url,description,cat_role,current_date
 from products_new
 on conflict (shop_mid,external_id) do update set
   name=excluded.name,url=excluded.url,image_url=excluded.image_url,price_rub=excluded.price_rub,
   old_price_rub=excluded.old_price_rub,in_stock=true,direct_url=excluded.direct_url,last_seen=current_date,
   w_cm=coalesce(p.w_cm,excluded.w_cm),d_cm=coalesce(p.d_cm,excluded.d_cm),
-  h_cm=coalesce(p.h_cm,excluded.h_cm),params=excluded.params,description=excluded.description;
+  h_cm=coalesce(p.h_cm,excluded.h_cm),params=excluded.params,description=excluded.description,
+  cat_role=excluded.cat_role;
 drop table products_new;
 commit;
 select 'снято с наличия: '||count(*) from products where shop_mid in ({mlist}) and not in_stock;

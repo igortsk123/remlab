@@ -514,7 +514,9 @@ for bi,band in enumerate(COMP['bands']):
             p3=pick2('подушка',m2,(0.1,3),tier,pair,ctx,soft=True)
             it3=next((t for t in (p3 or []) if t['eid'] not in {x['eid'] for x in (chosen.get('подушка'),chosen.get('подушка 2')) if x}),None)
             if it3: chosen['подушка 3']=dict(it3,qty=1)
-        for role in ('плед','ваза','лампа'):  # растение убрано: декор-зелень рисует нейронка (решение владельца 2026-08-02)
+        # Шторы — часть комплекта гостиной (решение владельца 2026-08-06). В occupancy они и так
+        # описаны как «100-160% ширины оконной стены по ткани», просто раньше не подбирались.
+        for role in ('плед','ваза','лампа','шторы'):  # растение убрано: декор-зелень рисует нейронка (2026-08-02)
             if role=='лампа' and not (chosen.get('комод') or chosen.get('тв-тумба')): continue
             top=pick2(role,m2,(0.1,3),tier,pair,ctx,soft=True)
             if top: chosen[role]=dict(top[0],qty=1); alts[role]=[{k:a[k] for k in ('mid','eid','name','price','score')} for a in top[1:]]
@@ -524,7 +526,7 @@ for bi,band in enumerate(COMP['bands']):
                 d1,_=dominant2(p) if p else (None,None)
                 it['cls']=classify(d1); it['rgb']=list(d1) if d1 else None
         # --- валидатор состава по чек-листу гостиной (владелец 2026-08-02) ---
-        CORE={'диван','столик','тв-тумба','ковёр','люстра','плед','подушка'}
+        CORE={'диван','столик','тв-тумба','ковёр','люстра','плед','подушка','шторы'}
         need=set(CORE)
         if m2>=16: need|={'кресло','ваза','кашпо'}
         # взаимоисключающие роли: если конкурент уже в сете — «дырку» не добираем
