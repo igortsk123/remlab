@@ -191,13 +191,15 @@ ROLES=['диван','кресло','пуф','столик','тв-тумба','к
  'стол обеденный','стул','камин','кашпо','торшер','ковёр','лампа','люстра','ваза','статуэтка',
  'плед','подушка','растение','зеркало','полка','часы','шторы','бра']
 print("Загружаю каталог...",flush=True)
-raw=rows("""select l.role, l.shop_mid, l.external_id, l.name, l.w_cm, l.d_cm, l.len_cm, l.dia_cm, l.h_cm,
- l.price_rub, l.shop, l.image_url,
- coalesce(p.direct_url, replace(replace(replace(substring(l.url from 'goto=([^&]+)'),'%3A',':'),'%2F','/'),'%3F','?')),
+# Роль — из КАТЕГОРИИ ФИДА (`products.cat_role`, см. category_map.py). Регекс по названию
+# заводил в комплект карнизы вместо штор и садовые вазоны вместо кашпо (владелец, 2026-08-06).
+raw=rows("""select p.cat_role, p.shop_mid, p.external_id, p.name, p.w_cm, p.d_cm, p.len_cm, p.dia_cm, p.h_cm,
+ p.price_rub, p.shop, p.image_url,
+ coalesce(p.direct_url, replace(replace(replace(substring(p.url from 'goto=([^&]+)'),'%3A',':'),'%2F','/'),'%3F','?')),
  coalesce(p.params->>'Материал','')||' '||coalesce(p.params->>'Назначение','')||' '||coalesce(p.params->>'Тип','')
- from lr_roles l join products p using (shop_mid, external_id)
- where l.role is not null and l.price_rub is not null and l.image_url is not null and p.in_stock
- order by l.price_rub, l.shop_mid, l.external_id""")
+ from products p
+ where p.cat_role is not null and p.price_rub is not null and p.image_url is not null and p.in_stock
+ order by p.price_rub, p.shop_mid, p.external_id""")
 assert len(raw)>1000, f"каталог-запрос вернул {len(raw)} строк — SQL сломан, СТОП (не собирать пустые сеты)"
 
 

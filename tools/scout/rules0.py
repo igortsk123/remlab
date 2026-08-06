@@ -139,15 +139,18 @@ def _rows(q: str) -> list[list[str]]:
 def pool(limit: int = 0) -> list[dict]:
     """Пул гостиной: то, что вообще может попасть в комплект."""
     lim = f'limit {limit}' if limit else ''
+    # Роль берём из КАТЕГОРИИ ФИДА (`cat_role`), а не из регекса по названию: магазин уже
+    # разложил товар по дереву, и там карнизы отдельно от штор, а садовые кашпо отдельно от
+    # всего остального (замечание владельца, 2026-08-06).
     q = f"""
-    select l.shop_mid, l.external_id, l.name, coalesce(p.description,''), l.category_path,
-           coalesce(l.price_rub,0), coalesce(l.w_cm,0), coalesce(l.d_cm,0), coalesce(l.h_cm,0),
-           coalesce(l.dia_cm,0), coalesce(p.params::text,'{{}}'), l.role, coalesce(l.image_url,'')
-      from lr_roles l join products p using (shop_mid, external_id)
+    select p.shop_mid, p.external_id, p.name, coalesce(p.description,''), p.category_path,
+           coalesce(p.price_rub,0), coalesce(p.w_cm,0), coalesce(p.d_cm,0), coalesce(p.h_cm,0),
+           coalesce(p.dia_cm,0), coalesce(p.params::text,'{{}}'), p.cat_role, coalesce(p.image_url,'')
+      from products p
       left join product_enrichment e using (shop_mid, external_id)
-     where l.role is not null and l.price_rub is not null
+     where p.cat_role is not null and p.price_rub is not null
        and coalesce(e.status,'active')='active'
-     order by l.shop_mid, l.external_id {lim}
+     order by p.shop_mid, p.external_id {lim}
     """
     out = []
     for r in _rows(q):

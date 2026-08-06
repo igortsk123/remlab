@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+"""Роль товара — по КАТЕГОРИИ ИЗ ФИДА, а не по регексу на названии.
+
+Магазин уже разложил товар по дереву: «Текстиль / Текстиль для спальни и гостиной / Шторы и тюль»
+и рядом отдельная ветка «Карнизы»; «Товары для сада / Уход за растениями / Кашпо»; «Текстиль для
+ванной / Шторки». Мы это дерево игнорировали и угадывали роль по словам в названии — поэтому
+в шторы попадали карнизы и потолочные плинтусы (199 из 746), а все 636 «кашпо» оказались
+садовыми (замечание владельца, 2026-08-06).
+
+Здесь решение принимается один раз на КАТЕГОРИЮ и запоминается: эту ветку берём в такую-то роль,
+эту не берём никогда. Правила читаются сверху вниз, первое совпадение выигрывает — как в файрволе.
+
+  ~/venvs/scout/bin/python category_map.py --build    # разложить дерево по ролям
+  ~/venvs/scout/bin/python category_map.py --review   # что осталось без решения
+  ~/venvs/scout/bin/python category_map.py --apply    # записать роли в БД
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+TAX = os.path.join(HERE, 'feed-taxonomy.json')
+OUT = os.path.join(HERE, 'category-roles.json')
+PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
+        '-q', '-v', 'ON_ERROR_STOP=1', '-t', '-A', '-F', '\x1f']
+
+# ЗАПРЕТЫ идут первыми: ветка целиком не про гостиную, что бы ни было написано в листе.
+DENY = [
+    (r'товары для сада|садов|для дачи|теплиц|рассад|семена|газон|полив', 'сад и дача'),
+    (r'для ванной|сантехник|санфаянс|душев|унитаз', 'ванная'),
+    (r'детск|для новорожд|игрушк', 'детское'),
+    (r'кухн|посуд|сервиров|продукт|бытовая техник|холодильник', 'кухня и техника'),
+    (r'фурнитур|крепеж|стяжк|шуруп|винт|петл[иья]|направляющ|механизм|опоры мебельн', 'фурнитура'),
+    (r'постельн|наматрасник|матрас|одеял|пододеяльник|наволочк|простын', 'спальные принадлежности'),
+    (r'косметик|гигиен|уборк|моющ|бытовая хими', 'быт и уборка'),
+    (r'офисн|компьютерн|геймерск', 'офис'),
+    (r'прихож|коридор|обув', 'прихожая'),
+    (r'новогодн|[её]лочн|подарочн', 'сезонное'),
+    (r'карниз|кронштейн|наконечник|плинтус|молдинг|багет', 'комплектующие для штор и отделки'),
+    (r'лампочк|светодиодн лент|розетк|выключател|трансформатор|фонарик|элементы питания|спот',
+     'электрика и точечный свет'),
+    (r'уличн|для улицы|фасадн', 'улица'),
+    (r'шкатулк|фоторамк|свеч|аромат|подсвечник|декоративная посуд|подстав|поднос',
+     'мелкий декор — в комплект не ставим'),
+    (r'кроват|спальн гарнитур|изголов|прикроватн|туалетн', 'спальня'),
+    (r'инструмент|гайковерт|дрел|перфоратор|шуруповерт', 'инструменты'),
+    (r'придверн|коврики для ванной', 'коврики, а не ковры гостиной'),
+]
+
+# РАЗРЕШЕНИЯ: лист (или его ветка) → роль в гостиной. Порядок важен.
+ALLOW = [
+    (r'угловые диваны|прямые диваны|диван|тахта|софа|еврокнижк', 'диван'),
+    (r'кресл(о|а)|кресло-кроват', 'кресло'),
+    (r'пуф|банкетк|оттоманк', 'пуф'),
+    (r'журнальн|столик', 'столик'),
+    (r'столы и столики|стол обеденн|обеденные стол', 'стол обеденный'),
+    (r'\bстул', 'стул'),
+    (r'тв-тумб|тумбы под тв|тумба под телевизор', 'тв-тумба'),
+    (r'комод', 'комод'),
+    (r'стеллаж', 'стеллаж'),
+    (r'витрин', 'витрина'),
+    (r'гостиные|стенк|модульные систем', 'стенка'),
+    (r'шкаф', 'шкаф'),
+    (r'полк[аи]', 'полка'),
+    # граница слова обязательна: без неё «гайковерт» попадал в ковры (2026-08-06)
+    (r'\bковр[оы]|\bков[её]р', 'ковёр'),
+    (r'торшер', 'торшер'),
+    (r'настольные лампы|настольная лампа', 'лампа'),
+    (r'люстр|настенно-потолочн|потолочн светильник', 'люстра'),
+    (r'\bбра\b|настенные светильник', 'бра'),
+    (r'кашпо|горшк', 'кашпо'),
+    (r'вазы|ваза', 'ваза'),
+    (r'статуэтк|фигур', 'статуэтка'),
+    (r'зеркал', 'зеркало'),
+    (r'\bчасы\b', 'часы'),
+    (r'шторы и тюль|штор|тюль|портьер|гардин', 'шторы'),
+    (r'пледы|покрывал|плед', 'плед'),
+    (r'декоративные подушк|подушки декоратив', 'подушка'),
+    (r'камин|биокамин|очаг', 'камин'),
+    (r'искусственные растен|растени', 'растение'),
+    (r'мягкая мебель', 'диван'),
+]
+
+
+def classify(path: str) -> tuple[str | None, str]:
+    """(роль или None, причина). Запреты сильнее разрешений."""
+    low = path.lower()
+    for rx, why in DENY:
+        if re.search(rx, low):
+            return None, f'исключено: {why}'
+    for rx, role in ALLOW:
+        if re.search(rx, low):
+            return role, 'по категории фида'
+    return None, 'не относится к гостиной'
+
+
+def build() -> dict:
+    cats = json.load(open(TAX))
+    out = {}
+    for key, c in cats.items():
+        role, why = classify(c['path'])
+        out[key] = {'mid': c['mid'], 'id': c['id'], 'path': c['path'],
+                    'offers': c['offers'], 'role': role, 'why': why}
+    json.dump(out, open(OUT, 'w'), ensure_ascii=False)
+    by_role: dict[str, int] = {}
+    denied: dict[str, int] = {}
+    for c in out.values():
+        if c['role']:
+            by_role[c['role']] = by_role.get(c['role'], 0) + c['offers']
+        elif c['offers']:
+            denied[c['why']] = denied.get(c['why'], 0) + c['offers']
+    print(f'категорий разобрано: {len(out)}\n')
+    print('ПУЛ ГОСТИНОЙ по категориям фида:')
+    for r, n in sorted(by_role.items(), key=lambda kv: -kv[1]):
+        print(f'  {n:>6}  {r}')
+    print(f'\n  ИТОГО в пуле: {sum(by_role.values())}')
+    print('\nИСКЛЮЧЕНО:')
+    for w, n in sorted(denied.items(), key=lambda kv: -kv[1])[:14]:
+        print(f'  {n:>6}  {w}')
+    return out
+
+
+def review(limit: int = 25) -> None:
+    """Крупные категории, оставшиеся без роли — по ним решение ещё не принято."""
+    out = json.load(open(OUT)) if os.path.exists(OUT) else build()
+    rest = [c for c in out.values()
+            if not c['role'] and c['offers'] > 30 and c['why'] == 'не относится к гостиной']
+    rest.sort(key=lambda c: -c['offers'])
+    print(f'категорий без решения (товаров > 30): {len(rest)}\n')
+    for c in rest[:limit]:
+        print(f'  {c["offers"]:>6}  [{c["mid"]}] {c["path"][:76]}')
+
+
+def apply() -> None:
+    """Записать роль из категории в БД — колонка products.cat_role."""
+    out = json.load(open(OUT)) if os.path.exists(OUT) else build()
+    vals = [f"({c['mid']},'{c['id']}','{c['role']}')" for c in out.values() if c['role']]
+    subprocess.run(PSQL, input=(
+        "alter table products add column if not exists cat_role text;"
+        "create index if not exists idx_products_cat_role on products (cat_role);"
+        "update products set cat_role=null where cat_role is not null;"
+        f"update products p set cat_role=v.role from (values {','.join(vals)}) "
+        "as v(mid, cid, role) where p.shop_mid=v.mid and p.category_id::text=v.cid;"
+    ), capture_output=True, text=True)
+    r = subprocess.run(PSQL, capture_output=True, text=True, input=
+                       "select cat_role, count(*) from products where cat_role is not null "
+                       "and in_stock group by 1 order by 2 desc")
+    print('роли из категорий записаны в products.cat_role:\n')
+    for line in r.stdout.strip().split('\n'):
+        f = line.split('\x1f')
+        if len(f) == 2:
+            print(f'  {f[1]:>6}  {f[0]}')
+
+
+def main() -> None:
+    if '--build' in sys.argv:
+        build()
+    elif '--review' in sys.argv:
+        review()
+    elif '--apply' in sys.argv:
+        apply()
+    else:
+        print(__doc__)
+
+
+if __name__ == '__main__':
+    main()

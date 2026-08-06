@@ -63,7 +63,9 @@ def _observed(e: dict) -> dict:
         'pile': ph.get('pile'), 'rug_pattern': ph.get('rug_pattern'),
         'weave': ph.get('weave'), 'edge_trim': ph.get('edge_trim'),
         'glaze': ph.get('glaze'), 'relief': ph.get('relief'), 'form': ph.get('form'),
-        'textile_pattern': ph.get('textile_pattern'),
+        'textile_pattern': ph.get('textile_pattern'), 'heading': ph.get('heading'),
+        'skirt': ph.get('skirt'), 'pot_material': ph.get('pot_material'),
+        'base_form': ph.get('base_form'),
     }
     return {k: v for k, v in obs.items()
             if v and v not in ('неясно', 'не_определён', 'не_видно', 'не_применимо')}
