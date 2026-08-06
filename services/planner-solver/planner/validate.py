@@ -304,8 +304,12 @@ def check_sofa_sliver(room: Room, ps: list[Placement]) -> list[Violation]:
     штрафом sofa_dead_gap, и валидная раскладка могла выйти с непроходимой щелью (А5).
     Щель, заполненная хранением/консолью, щелью не считается (диван «по центру» с хранением сзади).
     """
+    import os as _os
+
     from shapely.geometry import box as _box
 
+    if _os.environ.get("NO_SOFA_SLIVER") == "1":   # диагностика/калибровка
+        return []
     by = {p.role: p for p in ps}
     sofa = by.get("диван")
     if sofa is None or sofa.item is None:
@@ -360,10 +364,17 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
         elif abs(lat) > half:
             out.append(_v("POUF_OUT_OF_ZONE", f"пуф в {abs(lat):.0f} см вбок от оси дивана", ["пуф"],
                           round(abs(lat)), f"в пределах ширины дивана (≤{half:.0f} см)"))
-        elif tbl is not None and footprint(pouf).distance(footprint(tbl)) > 80:
+        elif tbl is not None and (footprint(pouf).distance(footprint(tbl))
+                                  > distances().get("pouf_table_max", 60)):
             out.append(_v("POUF_FAR_FROM_TABLE",
                           f"пуф в {footprint(pouf).distance(footprint(tbl)):.0f} см от столика",
-                          ["пуф", "столик"], None, "≤80 см: пуф — подставка для ног у столика"))
+                          ["пуф", "столик"], None,
+                          f"≤{distances().get('pouf_table_max', 60)} см: пуф — подставка для ног"))
+        if footprint(pouf).distance(footprint(sofa)) > distances().get("sofa_pouf_max", 180):
+            out.append(_v("SOFA_POUF_FAR",
+                          f"пуф в {footprint(pouf).distance(footprint(sofa)):.0f} см от дивана",
+                          ["диван", "пуф"], None,
+                          f"≤{distances().get('sofa_pouf_max', 180)} см — пуф в зоне"))
     arm = by.get("кресло")
     if arm is not None and tbl is not None and _lr("armchair_to_table_same_as_sofa", True):
         from .clearances import band_scale as _bs

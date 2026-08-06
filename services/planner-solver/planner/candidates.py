@@ -189,8 +189,17 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
         anchor = by.get("столик") or sofa
         for ang in (90, 270):                      # сбоку от столика, ВНЕ оси просмотра
             fx, fy = _face_dir((anchor.rot + ang) % 360)
-            off = 40 + max(item.w_cm, item.d_cm) / 2 + max(anchor.item.w_cm, anchor.item.d_cm) / 2
-            add(anchor.x + fx * off, anchor.y + fy * off, (anchor.rot + ang + 180) % 360, "сбоку от столика")
+            # отступ — по ФАКТИЧЕСКОЙ полуширине вдоль направления, а не по max-габариту:
+            # max-формула давала футпринт-гэп 61–80 см при пороге pouf_table_max=60, и пуф
+            # массово браковался (перегон 2026-08-06, А5)
+            rot_i = (anchor.rot + ang + 180) % 360
+            aw, ad = _dims_for_rot(anchor.item, anchor.rot)
+            iw, id_ = _dims_for_rot(item, rot_i)
+            ahalf = abs(fx) * aw / 2 + abs(fy) * ad / 2
+            ihalf = abs(fx) * iw / 2 + abs(fy) * id_ / 2
+            for gap in (25.0, 45.0):
+                add(anchor.x + fx * (gap + ahalf + ihalf), anchor.y + fy * (gap + ahalf + ihalf),
+                    rot_i, f"сбоку от столика, {gap:.0f} см")
     if role == "торшер":
         for anchor in (by.get("кресло"), sofa):
             if anchor is None:
