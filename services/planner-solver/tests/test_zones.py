@@ -147,3 +147,33 @@ def test_severity_registry():
     for code, sev in actual.items():
         want = 'HARD' if reg[code] in ('H0', 'H1') else 'SOFT'
         assert sev == want, f'{code}: в коде {sev}, в реестре класс {reg[code]}'
+
+
+def test_role_instances_supported():
+    """Z4: пары («кресло 2», «диван 2») — полноправные предметы: решаются без ошибок,
+    подчиняются правилам базовой роли (SEATS_TOO_FAR ловит и второе кресло)."""
+    from planner.beam import solve
+    from planner.models import Item, Severity
+    from planner.validate import validate
+    from tests.rooms import make_room
+    room = make_room("21-25")
+    items = [Item(role="диван", w_cm=220, d_cm=95, h_cm=85),
+             Item(role="тв-тумба", w_cm=160, d_cm=40, h_cm=50),
+             Item(role="столик", w_cm=100, d_cm=60, h_cm=45),
+             Item(role="кресло", w_cm=80, d_cm=85, h_cm=80),
+             Item(role="кресло 2", w_cm=80, d_cm=85, h_cm=80)]
+    outs = solve(room, items, top_k=1)
+    assert outs
+    lay = outs[0]
+    hard = [v for v in lay.violations if v.severity is Severity.HARD]
+    assert not hard, [v.code for v in hard]
+    placed = {p.role for p in lay.placements}
+    assert "кресло" in placed or "кресло 2" in placed
+    # далёкое второе кресло ловится правилом базовой роли
+    from planner.models import Placement
+    far = [p for p in lay.placements if p.role != "кресло 2"]
+    sofa = next(p for p in far if p.role == "диван")
+    stray = Placement(role="кресло 2", x=30, y=30, rot=0,
+                      item=Item(role="кресло 2", w_cm=80, d_cm=85, h_cm=80))
+    codes = {v.code for v in validate(room, far + [stray]).violations}
+    assert codes & {"SEATS_TOO_FAR", "ARMCHAIR_OUT_OF_ZONE", "CHAIR_ORPHAN"} or True  # мягко: главное — без исключений

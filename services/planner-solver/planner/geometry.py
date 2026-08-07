@@ -33,6 +33,13 @@ def quantize_rot(rot: float) -> int:
 _FP_CACHE: dict[tuple, Polygon] = {}   # beam гоняет одни и те же footprint'ы тысячи раз
 
 
+def base_role(role: str) -> str:
+    """«кресло 2»/«диван 2» → базовая роль: правила и кандидаты экземпляра те же, что у первого
+    (Z4: составы содержат пары — солвер обязан их понимать, а не терять)."""
+    parts = role.rsplit(" ", 1)
+    return parts[0] if len(parts) == 2 and parts[1].isdigit() else role
+
+
 def footprint(p: Placement, item: Item | None = None) -> Polygon:
     """Полигон следа предмета на полу с учётом поворота (Г-диван — 6 точек)."""
     it = item or p.item

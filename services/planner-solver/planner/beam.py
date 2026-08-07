@@ -41,6 +41,8 @@ UNPLACED_PENALTY = {"base": 400.0, "storage": 200.0, "dining": 120.0, "optional"
 
 
 def tier_of(role: str) -> str:
+    from .geometry import base_role
+    role = base_role(role)
     t = rules().get("placement_tiers", {})
     for name in ("base", "storage", "dining", "optional"):
         if role in t.get(name, ()):

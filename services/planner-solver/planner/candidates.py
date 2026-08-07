@@ -15,7 +15,7 @@ from shapely.prepared import prep
 
 from .clearances import (LOW_ITEM_MAX_H_CM, NEVER_BLOCKING_ROLES, band_scale, distances,
                          rules)
-from .geometry import blocked_footprint, footprint, free_space, largest_free_rectangles, room_polygon
+from .geometry import base_role, blocked_footprint, footprint, free_space, largest_free_rectangles, room_polygon
 from .models import Item, Placement, Room
 
 GRID_CM = 25.0          # шаг скольжения вдоль стены (Holodeck DFS работал на 15 см;
@@ -45,6 +45,7 @@ class Candidate:
 
 
 def role_rank(role: str) -> int:
+    role = base_role(role)
     return ROLE_ORDER.index(role) if role in ROLE_ORDER else len(ROLE_ORDER)
 
 
@@ -179,7 +180,7 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
 
     sofa = by.get("диван")
     tv = by.get("тв-тумба")
-    if role == "диван" and tv is not None:
+    if base_role(role) == "диван" and tv is not None:
         # диван напротив ТВ: ось зоны задана тумбой, дистанция — по шкале площади
         lo, hi = band_scale("sofa_tv_cm", room.band, distances().get("sofa_tv_cm", [180, 300]))
         fx, fy = _face_dir(tv.rot)
@@ -211,7 +212,7 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
         for gap in (lo + 3, (lo + hi) / 2, hi - 3):
             off = gap + seating_front_offset(sofa.item) + _dims_for_rot(item, sofa.rot)[1] / 2
             add(scx + fx * off, scy + fy * off, sofa.rot, f"перед диваном, {gap:.0f} см")
-    if role == "кресло" and sofa is not None:
+    if base_role(role) == "кресло" and sofa is not None:
         out += _arc_candidates(room, item, by, free, sofa)
     if role == "пуф" and ("столик" in by or sofa is not None):
         anchor = by.get("столик") or sofa

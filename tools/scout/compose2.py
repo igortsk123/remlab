@@ -291,7 +291,7 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
                 if role in ('торшер','кашпо','камин') and it['h']: it=dict(it,fp=0.16)
                 else: continue
             if not sane_dims(role,it): continue        # мусорные/перепутанные габариты — мимо
-            if gate and not size_gate(ctx.get('band',''),role,it['w']): continue
+            if gate and not size_gate(ctx.get('band',''),role,it['w']): continue  # legacy-ветка (не зовётся)
             if not (tgt_lo*0.75<=it['fp']<=tgt_hi*1.25): continue
             if not (plo<=it['price']<=phi) and not soft: continue
             # ЖЁСТКИЕ ОГРАНИЧЕНИЯ ДО ЭСТЕТИКИ (sets-feasibility-first, 2026-08-05).
@@ -317,13 +317,13 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
             if not overlap_ok(emb_key(it['mid'],it['eid']),ctx.get('style_name'),ctx.get('chosen_ref',{}),role=role,tier=tier): continue
             cs.append(it)
         return cs
-    # room-size-fit Ф2: сперва с жёстким размер-гейтом; пусто → фолбэк без гейта с пометкой
-    cands=_collect(True); relaxed=False
-    if not cands:
-        cands=_collect(False); relaxed=bool(cands)
-        if relaxed: print(f"  size_relaxed: {role} ({ctx.get('band','')}) — нет товара в размерном диапазоне",flush=True)
+    # W3 (аудит 08.08): размерная вилка band'а — ПРИОРИТЕТ, не жёсткий отсев SKU:
+    # in-band сортируются первыми (и получат бонус в скоре), out-of-band живут со штрафом —
+    # жёсткое выбывание оставлено только функции/пропорциям/качеству карточки (выше).
+    cands=_collect(False); relaxed=False
     if not cands: return []
-    cands=cands[:70]
+    _inb=lambda it: size_gate(ctx.get('band',''),role,it['w'])
+    cands=sorted(cands,key=lambda it: 0 if _inb(it) else 1)[:70]
     with cf.ThreadPoolExecutor(8) as ex:
         list(ex.map(lambda it: get_thumb(it['img'],it['mid'],it['eid']), cands))
     embed_batch(cands)
@@ -372,6 +372,9 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
                'corner_sofa': ctx.get('corner_sofa', False)}
         _ok,_pb,_pn = prop_check(role,it,_pctx, subtype(role,it))
         if _pb: s+=_pb; why.append('пропорции+%.1f'%_pb)
+        # W3: размер вне вилки метража — штраф вместо выбывания (band-вилка = приор)
+        if not size_gate(ctx.get('band',''),role,it['w']):
+            s-=1.5; why.append('размер-вне-вилки-1.5')
         if role=='торшер' and it['h']:
             s+= 1.0 if it['h']>=140 else -1.0
         # Ф4: визуальная похожесть на диван-якорь

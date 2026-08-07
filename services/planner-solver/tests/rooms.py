@@ -51,10 +51,8 @@ CATALOG = {
 
 
 def manual_layout(room: Room) -> list[Placement]:
-    """Эталонная ручная раскладка под комнату (по нашим шкалам от площади)."""
-    tv_lo, tv_hi = band_scale("sofa_tv_cm", room.band, [180, 300])
-    tb_lo, tb_hi = band_scale("sofa_table_cm", room.band, [36, 50])
-    gap_tbl = (tb_lo + tb_hi) / 2
+    """Эталонная ручная раскладка (W2: эргономика фикс — столик 36–46, ТВ от диагонали)."""
+    gap_tbl = 41.0    # центр комфортной вилки 36–46 (не зависит от площади)
     sofa, tvs, tbl, arm = (CATALOG[r].model_copy() for r in ("диван", "тв-тумба", "столик", "кресло"))
     # диван по ширине комнаты (узкая комната — короче), но не уже 160
     sofa.w_cm = max(160, min(sofa.w_cm, room.width_cm - 120))
@@ -62,7 +60,13 @@ def manual_layout(room: Room) -> list[Placement]:
     sofa_y = room.depth_cm - sofa.d_cm / 2
     sofa_front = sofa_y - sofa.d_cm / 2
     tv_y = tvs.d_cm / 2
-    # ТВ-тумба у южной стены; если расстояние вылезает за шкалу — диван «отплывает» от стены
+    # сперва скорректировать ширину тумбы под дверь (диагональ зависит от ширины)
+    for op in room.openings:
+        if op.wall == "south" and op.swing_cm > 0:
+            tvs.w_cm = min(tvs.w_cm, room.width_cm - (op.offset_cm + op.width_cm) - 30)
+    # ТВ у южной стены; комфорт-потолок = 2.0 диагонали (экран ≈ 70% тумбы / 0.872) —
+    # дальше диван «отплывает» от стены (W2: диагональ-метод, не площадь)
+    tv_hi = 2.0 * (tvs.w_cm * 0.70 / 0.872)
     gap = sofa_front - tvs.d_cm
     if gap > tv_hi:
         off = gap - tv_hi

@@ -43,6 +43,17 @@ FLOOR=[(r,dims(r,*d)) for r,d in FLOOR_TYPICAL if r in items]
 # диван без глубины в фиде — типовая 95
 if items.get('диван') and not items['диван'].get('d'):
     FLOOR[0]=('диван',(FLOOR[0][1][0],95))
+# Z4: солвер обязан видеть ВЕСЬ состав — экземпляры по qty («кресло 2», «стул 2–4») и роль
+# «диван 2» (раньше qty терялся: сет с парой кресел раскладывался с одним)
+_extra=[]
+for _r,(_w,_d) in FLOOR:
+    _q=int((items.get(_r) or {}).get('qty') or 1)
+    for _k in range(2,_q+1):
+        _extra.append((f'{_r} {_k}',(_w,_d)))
+if items.get('диван 2'):
+    _it2=items['диван 2']
+    _extra.insert(0,('диван 2',(int(_it2.get('w') or 190),int(_it2.get('d') or _it2.get('dia') or 95))))
+FLOOR+=_extra
 
 # фолбэк-констрейнты по ролям (онтология Holodeck; порядок = порядок размещения)
 CONS={

@@ -169,35 +169,66 @@ def _zone_gap(sofa: Placement, other: Placement) -> float:
     return footprint(sofa).distance(footprint(other))
 
 
+def _inst(ps: list[Placement], base: str) -> list[Placement]:
+    """Все экземпляры базовой роли: «кресло», «кресло 2», … (Z4: составы содержат пары)."""
+    from .geometry import base_role
+    return [p for p in ps if base_role(p.role) == base]
+
+
+def _by_base(ps: list[Placement]) -> dict:
+    """role→placement, где экземпляры схлопнуты к базовой роли (первый — канонический якорь);
+    точечные правила «у дивана/у кресла» получают якорь, циклы по экземплярам — через _inst."""
+    from .geometry import base_role
+    out = {}
+    for p in ps:
+        out.setdefault(base_role(p.role), p)
+    return out
+
+
 def check_distances(room: Room, ps: list[Placement]) -> list[Violation]:
     """Шкалы проекта от площади: диван↔ТВ, диван↔столик (решения владельца)."""
-    by = {p.role: p for p in ps}
+    by = _by_base(ps)
     out = []
-    tv = band_scale("sofa_tv_cm", room.band, distances().get("sofa_tv_cm", [180, 300]))
-    tbl = band_scale("sofa_table_cm", room.band, distances().get("sofa_coffee_table", [36, 50]))
     if "диван" in by and "тв-тумба" in by:
         g = _zone_gap(by["диван"], by["тв-тумба"])
-        # СЛИШКОМ БЛИЗКО — жёстко (глаза), СЛИШКОМ ДАЛЕКО — мягко: в глубокой комнате верхняя
-        # граница шкалы заставляла диван «отплывать» от стены на метр, что владелец забраковал.
-        # Абсолютный потолок — из клампа диагоналей свода (2.5 диагонали ≈ 400 см).
-        hard_hi = max(tv[1], float(distances().get("sofa_tv_hard_max", 400)))
-        if g < tv[0] or g > hard_hi:
-            out.append(_v("SOFA_TV_DIST", f"диван↔ТВ {g:.0f} см вне шкалы", ["диван", "тв-тумба"],
-                          round(g), f"{tv[0]:.0f}–{hard_hi:.0f} см"))
-        elif g > tv[1]:
-            out.append(_v("SOFA_TV_FAR", f"диван↔ТВ {g:.0f} см — дальше комфортной шкалы",
-                          ["диван", "тв-тумба"], round(g), f"≤{tv[1]:.0f} см", Severity.SOFT))
+        # W2 (аудит 08.08): PRIMARY — диагональ экрана (RTINGS-метод), площадь — только фолбэк.
+        # Диагонали ТВ в сете нет (ТВ рисует генератор) — оцениваем по ширине тумбы:
+        # экран ≈ 70% тумбы (item_share.tv_vs_stand_width_pct), диагональ = ширина/0.872 (16:9).
+        stand_w = by["тв-тумба"].item.w_cm or 0
+        if stand_w >= 60:
+            diag = stand_w * 0.70 / 0.872
+            lo, hi = 1.2 * diag, 2.5 * diag
+            soft_hi = 2.0 * diag
+        else:
+            tv = band_scale("sofa_tv_cm", room.band, distances().get("sofa_tv_cm", [180, 300]))
+            lo, hi = tv[0], max(tv[1], float(distances().get("sofa_tv_hard_max", 400)))
+            soft_hi = tv[1]
+        if g < lo or g > hi:
+            out.append(_v("SOFA_TV_DIST", f"диван↔ТВ {g:.0f} см вне шкалы (диагональ-метод)",
+                          ["диван", "тв-тумба"], round(g), f"{lo:.0f}–{hi:.0f} см"))
+        elif g > soft_hi:
+            out.append(_v("SOFA_TV_FAR", f"диван↔ТВ {g:.0f} см — дальше комфортного",
+                          ["диван", "тв-тумба"], round(g), f"≤{soft_hi:.0f} см", Severity.SOFT))
     if "диван" in by and "столик" in by:
         g = _zone_gap(by["диван"], by["столик"])
-        if not (tbl[0] <= g <= tbl[1]):
-            out.append(_v("SOFA_TABLE_DIST", f"диван↔столик {g:.0f} см вне шкалы", ["диван", "столик"],
-                          round(g), f"{tbl[0]:.0f}–{tbl[1]:.0f} см"))
-    if "диван" in by and "кресло" in by:
-        g = footprint(by["диван"]).distance(footprint(by["кресло"]))
+        # W2 (аудит 08.08): досягаемость руки НЕ зависит от площади комнаты — фикс-вилки:
+        # hard 32–50 (fallback tight-space), комфорт 36–46 (soft) — из zones.json/сводов.
+        t_hard = distances().get("sofa_coffee_table_hard", [32, 50])
+        t_pref = distances().get("sofa_coffee_table", [36, 46])
+        if not (t_hard[0] <= g <= t_hard[1]):
+            out.append(_v("SOFA_TABLE_DIST", f"диван↔столик {g:.0f} см вне вилки", ["диван", "столик"],
+                          round(g), f"{t_hard[0]:.0f}–{t_hard[1]:.0f} см"))
+        elif not (t_pref[0] <= g <= t_pref[1]):
+            out.append(_v("SOFA_TABLE_COMFORT", f"диван↔столик {g:.0f} см — вне комфортной вилки",
+                          ["диван", "столик"], round(g),
+                          f"{t_pref[0]:.0f}–{t_pref[1]:.0f} см", Severity.SOFT))
+    if "диван" in by:
         lim = distances().get("seats_group_max", 200)   # единый порог для обоих движков
-        if g > lim:
-            out.append(_v("SEATS_TOO_FAR", f"диван↔кресло {g:.0f} см — зона разорвана", ["диван", "кресло"],
-                          round(g), f"≤{lim:.0f} см"))
+        for arm in _inst(ps, "кресло"):
+            g = footprint(by["диван"]).distance(footprint(arm))
+            if g > lim:
+                out.append(_v("SEATS_TOO_FAR", f"диван↔{arm.role} {g:.0f} см — зона разорвана",
+                              ["диван", arm.role], round(g), f"≤{lim:.0f} см"))
     return out
 
 
@@ -238,7 +269,7 @@ def check_facing(ps: list[Placement]) -> list[Violation]:
     Соответствует MILP-констрейнту Holodeck «относительные позиции — в локальной системе цели,
     боковой разброс ≤ полуширины цели».
     """
-    by = {p.role: p for p in ps}
+    by = _by_base(ps)
     if "диван" not in by or "тв-тумба" not in by:
         return []
     sofa, tv = by["диван"], by["тв-тумба"]
@@ -271,7 +302,7 @@ BEHIND_SOFA_MAX_H_CM = float(_lr("behind_sofa_max_h_cm", 90))
 
 
 def check_behind_sofa(room: Room, ps: list[Placement]) -> list[Violation]:
-    by = {p.role: p for p in ps}
+    by = _by_base(ps)
     sofa = by.get("диван")
     if sofa is None or sofa.item is None:
         return []
@@ -352,7 +383,7 @@ def _behind_strip(room: Room, sofa: Placement):
 
 
 def check_dead_zone_behind_sofa(room: Room, ps: list[Placement]) -> list[Violation]:
-    by = {p.role: p for p in ps}
+    by = _by_base(ps)
     sofa = by.get("диван")
     if sofa is None or sofa.item is None:
         return []
@@ -374,7 +405,7 @@ def check_sofa_aim(room: Room, ps: list[Placement]) -> list[Violation]:
     Вердикт владельца («где-то диван не напротив ТВ») + данные R2 [[layout-rules-v2]]."""
     import math as _m
 
-    by = {p.role: p for p in ps}
+    by = _by_base(ps)
     sofa, tv = by.get("диван"), by.get("тв-тумба")
     if sofa is None or tv is None:
         return []
@@ -423,7 +454,7 @@ def check_sofa_sliver(room: Room, ps: list[Placement]) -> list[Violation]:
 
     if _os.environ.get("NO_SOFA_SLIVER") == "1":   # диагностика/калибровка
         return []
-    by = {p.role: p for p in ps}
+    by = _by_base(ps)
     sofa = by.get("диван")
     if sofa is None or sofa.item is None:
         return []
@@ -453,7 +484,7 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
     Боковой разброс ограничен полушириной якоря (+запас) — правило Holodeck-MILP;
     кресло допускается сбоку-впереди (дуга ADR-0051), но не за спинкой дивана.
     """
-    by = {p.role: p for p in ps}
+    by = _by_base(ps)
     sofa = by.get("диван")
     if sofa is None or sofa.item is None:
         return []
@@ -511,7 +542,7 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
 
 def check_sightline(ps: list[Placement]) -> list[Violation]:
     """Линия взгляда диван→ТВ не должна быть перекрыта (Infinigen: «экран не загорожен»)."""
-    by = {p.role: p for p in ps}
+    by = _by_base(ps)
     sofa, tv = by.get("диван"), by.get("тв-тумба")
     if sofa is None or tv is None or sofa.item is None or tv.item is None:
         return []
@@ -534,7 +565,7 @@ ZONE_ROLES = frozenset({"диван", "столик", "кресло", "пуф", 
 
 def check_layout_rules(room: Room, ps: list[Placement]) -> list[Violation]:
     """Правила, потерянные при переносе из DFS-движка (см. layout_rules в файле правил)."""
-    by = {p.role: p for p in ps}
+    by = _by_base(ps)
     out: list[Violation] = []
     tv = by.get("тв-тумба")
     sofa = by.get("диван")

@@ -102,9 +102,29 @@ def score_layout(room: Room, ps: list[Placement], *, fast: bool = False) -> Scor
         s.add("sofa_faces_tv", focus_score(by["диван"], by["тв-тумба"]), w["sofa_faces_tv"])
         s.add("tv_faces_sofa", focus_score(by["тв-тумба"], by["диван"]), w["tv_faces_sofa"])
     if "диван" in by and "столик" in by:
-        lo, hi = band_scale("sofa_table_cm", room.band, distances().get("sofa_coffee_table", [36, 50]))
+        lo, hi = distances().get("sofa_coffee_table", [36, 46])   # W2: фикс-эргономика
         g = footprint(by["диван"]).distance(footprint(by["столик"]))
         s.add("sofa_table_dist", hinge(g, lo, hi), w["sofa_table_dist"])
+    from .geometry import base_role as _br
+    arms = [p for p in ps if _br(p.role) == "кресло"]
+    if len(arms) >= 2 and "диван" in by:
+        # W5 (аудит 08.08, Stanford/LEGO-Net): пара кресел симметрична относительно оси
+        # диван→ТВ (или оси взгляда дивана) и на равном удалении от дивана — S2-ярус,
+        # никогда не ломает функционально лучший вариант (лексикографический низ)
+        import math as _m
+        sofa_p = by["диван"]
+        if "тв-тумба" in by:
+            ax, ay = (by["тв-тумба"].x - sofa_p.x), (by["тв-тумба"].y - sofa_p.y)
+        else:
+            from .geometry import facing_vector as _fv
+            ax, ay = _fv(sofa_p.rot)
+        n = _m.hypot(ax, ay) or 1.0
+        ax, ay = ax / n, ay / n
+        d = [ (p.x - sofa_p.x) * (-ay) + (p.y - sofa_p.y) * ax for p in arms[:2] ]
+        mirror = abs(d[0] + d[1])                     # зеркальность поперёк оси
+        g = [footprint(p).distance(footprint(sofa_p)) for p in arms[:2]]
+        spacing = abs(g[0] - g[1])                    # равные интервалы до дивана
+        s.add("pair_symmetry", (mirror + spacing) / 100.0, w.get("pair_symmetry", 0.6))
     if "кресло" in by and "диван" in by:
         g = footprint(by["кресло"]).distance(footprint(by["диван"]))
         hi = distances().get("seats_group_max", 200)
