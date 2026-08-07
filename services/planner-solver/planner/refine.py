@@ -70,9 +70,9 @@ def repair_unplaced(room: Room, layout: Layout, items: list) -> Layout:
             if p.role not in MOVABLE_FOR_REPAIR or done:
                 continue
             others = [q for j, q in enumerate(placed) if j != i]
-            for alt in generate(room, p.item, others)[:4]:
+            for alt in generate(room, p.item, others)[:6]:
                 base = others + [alt.placement]
-                for c in generate(room, item, base)[:8]:
+                for c in generate(room, item, base)[:12]:
                     trial = validate(room, base + [c.placement])
                     if not [v for v in trial.violations if v.severity is Severity.HARD]:
                         trial.unplaced = [r for r in layout.unplaced if r != role]

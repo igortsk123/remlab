@@ -86,29 +86,43 @@ def _fits(room: Room, cand: Placement, free) -> bool:
 
 
 def wall_candidates(room: Room, item: Item, free: Polygon, *, step: float = GRID_CM) -> list[Candidate]:
-    """Скольжение вдоль каждой стены спинкой к ней (углы отдаются отдельным kind='corner')."""
+    """Скольжение спинкой вдоль КАЖДОГО РЕБРА контура (Э8: работает и на Г/П-контурах).
+
+    Для прямоугольника рёбра совпадают с 4 стенами (та же геометрия, что и раньше). Косые
+    рёбра пока пропускаются ([[layout-polygon-rooms]], следующий шаг — неквантованные повороты)."""
+    import math as _m
+
+    from .geometry import room_edges
     out: list[Candidate] = []
-    for wall in WALLS:
-        rot = WALL_FACING_ROT[wall]
-        w, d = _dims_for_rot(item, rot)
-        along = room.width_cm if wall in ("north", "south") else room.depth_cm
-        if w + 2 * WALL_GAP_CM > along:
+    for ei, ((x1, y1), (x2, y2)) in enumerate(room_edges(room)):
+        ex, ey = x2 - x1, y2 - y1
+        elen = _m.hypot(ex, ey)
+        if elen < 40:
             continue
-        lo, hi = WALL_GAP_CM + w / 2, along - WALL_GAP_CM - w / 2
+        if abs(ex) > 1 and abs(ey) > 1:
+            continue                      # косое ребро — Э8 следующий шаг
+        nx, ny = -ey / elen, ex / elen    # внутренняя нормаль (контур CCW)
+        rot = _m.degrees(_m.atan2(nx, ny)) % 360
+        w, d = _dims_for_rot(item, rot)
+        if w + 2 * WALL_GAP_CM > elen:
+            continue
+        lo, hi = WALL_GAP_CM + w / 2, elen - WALL_GAP_CM - w / 2
         n = max(1, int((hi - lo) // step))
         offs = [lo + i * (hi - lo) / n for i in range(n + 1)]
         floats = FLOAT_OFFSETS_CM if item.role in FLOATABLE else (0.0,)
         for off in offs:
             for fl in floats:
-                x, y = _wall_xy(room, wall, off, d, float_cm=fl)
+                dist = d / 2 + fl
+                x = x1 + ex / elen * off + nx * dist
+                y = y1 + ey / elen * off + ny * dist
                 p = Placement(role=item.role, x=x, y=y, rot=rot, item=item)
                 if not _fits(room, p, free):
                     continue
                 if fl == 0:
                     is_corner = off <= lo + step / 2 or off >= hi - step / 2
-                    out.append(Candidate(p, "corner" if is_corner else "wall", f"{wall}"))
+                    out.append(Candidate(p, "corner" if is_corner else "wall", f"ребро {ei}"))
                 else:
-                    out.append(Candidate(p, "wall", f"{wall}, отплыв {fl:.0f} см"))
+                    out.append(Candidate(p, "wall", f"ребро {ei}, отплыв {fl:.0f} см"))
     return out
 
 
@@ -330,17 +344,18 @@ def corner_snap_candidates(room: Room, item: Item, free) -> list[Candidate]:
     в стену варианты гибнут на обычных проверках."""
     if item.corner is not True:
         return []
+    from .geometry import room_polygon
+    verts = list(room_polygon(room).exterior.coords)[:-1]   # Э8: углы = ВЕРШИНЫ контура
     out: list[Candidate] = []
     for rot in (0, 90, 180, 270):
         w, d = _dims_for_rot(item, rot)
-        for cx, cy, name in ((WALL_GAP_CM + w / 2, WALL_GAP_CM + d / 2, "SW"),
-                             (room.width_cm - WALL_GAP_CM - w / 2, WALL_GAP_CM + d / 2, "SE"),
-                             (WALL_GAP_CM + w / 2, room.depth_cm - WALL_GAP_CM - d / 2, "NW"),
-                             (room.width_cm - WALL_GAP_CM - w / 2,
-                              room.depth_cm - WALL_GAP_CM - d / 2, "NE")):
-            p = Placement(role=item.role, x=cx, y=cy, rot=rot, item=item)
-            if _fits(room, p, free):
-                out.append(Candidate(p, "corner", f"угол {name}"))
+        for vx, vy in verts:
+            for sx in (1, -1):
+                for sy in (1, -1):
+                    p = Placement(role=item.role, x=vx + sx * (WALL_GAP_CM + w / 2),
+                                  y=vy + sy * (WALL_GAP_CM + d / 2), rot=rot, item=item)
+                    if _fits(room, p, free):     # вне контура/в пилоне — отфильтрует сам
+                        out.append(Candidate(p, "corner", f"угол ({vx:.0f},{vy:.0f})"))
     return out
 
 

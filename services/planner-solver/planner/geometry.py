@@ -142,7 +142,16 @@ def blocked_footprint(p: Placement, item: Item | None = None) -> Polygon:
 
 
 def room_polygon(room: Room) -> Polygon:
+    if room.contour:
+        p = Polygon(room.contour)
+        return p if p.exterior.is_ccw else Polygon(room.contour[::-1])
     return box(0, 0, room.width_cm, room.depth_cm)
+
+
+def room_edges(room: Room) -> list[tuple[tuple[float, float], tuple[float, float]]]:
+    """Рёбра контура (CCW): внутренняя нормаль каждого — слева от направления ребра (Э8)."""
+    coords = list(room_polygon(room).exterior.coords)
+    return [(coords[i], coords[i + 1]) for i in range(len(coords) - 1)]
 
 
 def opening_polygon(room: Room, op: Opening) -> Polygon:

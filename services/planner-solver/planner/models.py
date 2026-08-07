@@ -42,16 +42,34 @@ class Radiator(BaseModel):
 
 
 class Room(BaseModel):
-    """Прямоугольная комната (Э1). Полигональные комнаты — расширение Э2+."""
+    """Комната: прямоугольник (width×depth) или произвольный контур (Э8, [[layout-polygon-rooms]]).
+
+    `contour` — вершины (см), обход любой; пока поддержаны ОСЕВЫЕ рёбра (Г/П-контуры, пилоны —
+    референсы владельца а/б); косые стены (трапеция, референс в) — следующий шаг: требуют
+    неквантованных поворотов в доводке. width/depth при контуре = его bbox (шкалы от площади и
+    легаси-код продолжают работать)."""
 
     width_cm: float = Field(gt=0)
     depth_cm: float = Field(gt=0)
+    contour: list[tuple[float, float]] | None = Field(default=None)
     openings: list[Opening] = Field(default_factory=list)
     radiators: list[Radiator] = Field(default_factory=list)
     band: str | None = Field(default=None, description="метражный бэнд проекта, напр. '21-25'")
 
+    @model_validator(mode="after")
+    def _contour_bbox(self) -> "Room":
+        if self.contour:
+            xs = [p[0] for p in self.contour]
+            ys = [p[1] for p in self.contour]
+            object.__setattr__(self, "width_cm", max(xs) - min(xs))
+            object.__setattr__(self, "depth_cm", max(ys) - min(ys))
+        return self
+
     @property
     def area_m2(self) -> float:
+        if self.contour:
+            from .geometry import room_polygon
+            return room_polygon(self).area / 10_000
         return self.width_cm * self.depth_cm / 10_000
 
 

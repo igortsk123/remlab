@@ -159,6 +159,18 @@ def score_layout(room: Room, ps: list[Placement], *, fast: bool = False) -> Scor
             g = fa.distance(fb)
             if 5 < g < pass_min:
                 s.add("sliver_gap", (pass_min - g) / pass_min, w["sliver_gap"])
+    # 3c2) R1: обеденная группа тянется к ОКНУ (референс-планы владельца + практика дизайнеров);
+    # дальше 150 см от окна — растущий штраф
+    _tbl = by.get("стол обеденный")
+    if _tbl is not None and getattr(room, "openings", None):
+        _wins = [op for op in room.openings if op.kind == "window"]
+        if _wins:
+            def _wpt(op):
+                mid = op.offset_cm + op.width_cm / 2
+                return {"south": (mid, 0.0), "north": (mid, room.depth_cm),
+                        "west": (0.0, mid), "east": (room.width_cm, mid)}[op.wall]
+            _d = min(math.hypot(_tbl.x - wx, _tbl.y - wy) for wx, wy in map(_wpt, _wins))
+            s.add("dining_by_window", max(0.0, _d - 150) / 100.0, w.get("dining_by_window", 3))
     # 3d) Г-диван тянет в угол: обе секции к стенам — идеал, одна — допустимо (hard-правило мягче)
     _sofa = by.get("диван")
     if _sofa is not None and _sofa.item is not None and _sofa.item.corner:

@@ -294,6 +294,50 @@ def check_behind_sofa(room: Room, ps: list[Placement]) -> list[Violation]:
     return out
 
 
+# ФУНКЦИОНАЛЬНЫЕ ЗОНЫ (R1, [[layout-rules-v2]]): зона — деривативная от якорей, поэтому работает
+# инкрементально внутри beam и на любом контуре комнаты (Э8-совместимо). Разговорная зона =
+# конверт(диван, ТВ[, столик]); обеденная = конверт(стол, стулья). Правила: столовая группа не
+# лезет в разговорную зону, высокое хранение — не в обеденную (вердикты владельца 2026-08-07:
+# «стол за диваном», «зачем стеллаж в обеденной зоне»).
+ZONE_BUFFER_CM = 30.0
+STORAGE_HIGH_ROLES = ("стеллаж", "витрина", "стенка", "шкаф")
+
+
+def _zone(ps: list[Placement], roles: tuple[str, ...]):
+    from shapely.ops import unary_union
+    fps = [footprint(p) for p in ps if p.role in roles or p.role.split(' ')[0] in roles]
+    if not fps:
+        return None
+    return unary_union(fps).convex_hull.buffer(ZONE_BUFFER_CM)
+
+
+def check_functional_zones(room: Room, ps: list[Placement]) -> list[Violation]:
+    out = []
+    living = _zone(ps, ("диван", "тв-тумба", "столик"))
+    dining = _zone(ps, ("стол обеденный", "стул"))
+    if living is not None:
+        for p in ps:
+            if p.role != "стол обеденный" and not p.role.startswith("стул"):
+                continue
+            f = footprint(p)
+            if f.intersection(living).area > 0.2 * f.area:
+                out.append(_v("DINING_IN_LIVING_ZONE",
+                              f"«{p.role}» внутри разговорной зоны — столовая группа живёт отдельно",
+                              [p.role, "диван"]))
+    if dining is not None:
+        for p in ps:
+            if p.role not in STORAGE_HIGH_ROLES or p.item is None:
+                continue
+            if (p.item.h_cm or 0) <= 90:
+                continue
+            f = footprint(p)
+            if f.intersection(dining).area > 0.2 * f.area:
+                out.append(_v("STORAGE_IN_DINING_ZONE",
+                              f"«{p.role}» внутри обеденной зоны — хранению там не место",
+                              [p.role, "стол обеденный"]))
+    return out
+
+
 # За спинкой дивана — МЁРТВАЯ зона для функционального и декора (вердикт владельца 2026-08-07:
 # «предметы расставляются не там, где функционально нужны, типа кашпо за диваном»).
 # Разрешено там только низкое хранение/консоль (check_behind_sofa) — посадка, столы и декор вон.
@@ -591,6 +635,7 @@ def validate(room: Room, placements: list[Placement], *, passage: str = "seconda
     vs += check_dead_zone_behind_sofa(room, placements)
     vs += check_sofa_aim(room, placements)
     vs += check_chairs_at_table(room, placements)
+    vs += check_functional_zones(room, placements)
     vs += check_layout_rules(room, placements)
     vs += check_floor_cap(room, placements)
     from .geometry import floor_used_pct

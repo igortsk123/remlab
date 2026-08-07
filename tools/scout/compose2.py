@@ -435,6 +435,27 @@ for bi,band in enumerate(COMP['bands']):
                     chosen['диван 2']=dict(it2,qty=1); floor_fp+=it2['fp']
             if floor_fp<m2*cap_lo/100 and 'кресло' in chosen and chosen['кресло']['qty']==1 and not band.get('kreslo_max'):
                 chosen['кресло']['qty']=2; floor_fp+=chosen['кресло']['fp']
+        # R3 [[layout-rules-v2]] — состав по функциональным зонам (вердикты владельца 2026-08-07):
+        # 1) стол ⇔ стулья: столовая группа целиком или никак — стол-«сирота» и стулья без стола
+        #    рождали нелогичные раскладки (сет 59); priors: у стола p50 = 3 стула вплотную
+        if ('стол обеденный' in chosen) != ('стул' in chosen):
+            _orph='стол обеденный' if 'стол обеденный' in chosen else 'стул'
+            _fp_o=chosen[_orph].get('fp') or 0
+            print(f"  R3: «{_orph}» без пары (стол⇔стулья) — из состава вон")
+            floor_fp-=_fp_o*chosen[_orph].get('qty',1); chosen.pop(_orph); alts.pop(_orph,None)
+        if 'стул' in chosen and chosen['стул'].get('qty',1)<3 and (m2>=26):
+            chosen['стул']['qty']=3   # priors p50: три стула вплотную к столу
+        # 2) норматив хранения: p50 5 / p90 15 см ширины на м² (данные 18 804 сцен) — перебор
+        #    выкидываем от наименее важного (витрина → стеллаж → комод; стенка — носитель ТВ, держим)
+        _stw=lambda r: (chosen[r].get('w') or chosen[r].get('d') or 0)*chosen[r].get('qty',1)
+        _storage=[r for r in ('витрина','стеллаж','комод','стенка') if r in chosen]
+        _total=sum(_stw(r) for r in _storage)
+        while _storage and _total > 15*m2:
+            _r=next((r for r in ('витрина','стеллаж','комод') if r in _storage), None)
+            if not _r: break
+            print(f"  R3: хранения {_total:.0f} см при потолке {15*m2:.0f} (15 см/м²) — «{_r}» вон")
+            _total-=_stw(_r); floor_fp-=(chosen[_r].get('fp') or 0)*chosen[_r].get('qty',1)
+            chosen.pop(_r); alts.pop(_r,None); _storage.remove(_r)
         # ковёр — ПРИВЯЗКА К ДИВАНУ (решение владельца по своду р.2): ширина ≈ диван + 25–35 см
         # с каждой стороны (схема «передние ножки»); фолбэк на % пола, если дивана/размеров нет
         if cat.get('ковёр'):

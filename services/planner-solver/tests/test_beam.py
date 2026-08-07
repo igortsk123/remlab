@@ -129,3 +129,26 @@ def test_why_not_explains_invalid_layout():
     broken = [p.model_copy(update={"x": p.x + 200}) if p.role == "тв-тумба" else p for p in ps]
     layout = validate(room, broken)
     assert not layout.ok and why_not(layout)
+
+
+def test_polygon_room_L_shape():
+    """Э8: Г-контур (референс владельца — кухня-гостиная) — beam расставляет внутри контура."""
+    from planner.beam import solve
+    from planner.geometry import room_polygon, footprint
+    from planner.models import Item, Opening, Room
+    room = Room(width_cm=1, depth_cm=1, band="21-25",
+                contour=[(0, 0), (620, 0), (620, 780), (320, 780), (320, 420), (0, 420)],
+                openings=[Opening(kind="door", wall="south", offset_cm=40, width_cm=90,
+                                  swing_cm=92)])
+    assert room.width_cm == 620 and room.depth_cm == 780   # bbox из контура
+    items = [Item(role="диван", w_cm=220, d_cm=95, h_cm=85),
+             Item(role="тв-тумба", w_cm=160, d_cm=40, h_cm=50),
+             Item(role="столик", w_cm=100, d_cm=60, h_cm=45),
+             Item(role="кресло", w_cm=80, d_cm=85, h_cm=80)]
+    outs = solve(room, items, top_k=1)
+    assert outs, "Г-контур должен решаться"
+    lay = outs[0]
+    assert "диван" not in lay.unplaced and "тв-тумба" not in lay.unplaced
+    rp = room_polygon(room).buffer(1)
+    for p in lay.placements:
+        assert rp.contains(footprint(p)), f"{p.role} вне контура"

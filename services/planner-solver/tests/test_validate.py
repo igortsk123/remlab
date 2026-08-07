@@ -156,3 +156,23 @@ def test_dead_zone_and_aim_and_chairs():
                           item=Item(role="стул", w_cm=45, d_cm=45, h_cm=90))
     codes = {v.code for v in validate(room, [tbl, chair_far]).violations}
     assert "CHAIR_ORPHAN" in codes, "стул вдали от стола должен браковаться"
+
+
+def test_functional_zones():
+    """R1: столовая группа не в разговорной зоне; высокое хранение не в обеденной."""
+    from tests.rooms import make_room
+    room = make_room("41-50")
+    sofa = Placement(role="диван", x=200, y=room.depth_cm - 150, rot=180,
+                     item=Item(role="диван", w_cm=220, d_cm=100, h_cm=85))
+    tv = Placement(role="тв-тумба", x=200, y=30, rot=0,
+                   item=Item(role="тв-тумба", w_cm=180, d_cm=45, h_cm=50))
+    table_in_zone = Placement(role="стол обеденный", x=200, y=room.depth_cm - 320, rot=0,
+                              item=Item(role="стол обеденный", w_cm=140, d_cm=80, h_cm=75))
+    codes = {v.code for v in validate(room, [sofa, tv, table_in_zone]).violations}
+    assert "DINING_IN_LIVING_ZONE" in codes, "стол на оси диван→ТВ должен браковаться"
+    tbl = Placement(role="стол обеденный", x=room.width_cm - 120, y=150, rot=0,
+                    item=Item(role="стол обеденный", w_cm=140, d_cm=80, h_cm=75))
+    shelf_in_dining = Placement(role="стеллаж", x=room.width_cm - 120, y=225, rot=180,
+                                item=Item(role="стеллаж", w_cm=80, d_cm=35, h_cm=180))
+    codes = {v.code for v in validate(room, [tbl, shelf_in_dining]).violations}
+    assert "STORAGE_IN_DINING_ZONE" in codes, "стеллаж вплотную к обеденной группе — брак"
