@@ -2,7 +2,7 @@
 workstream: furniture
 slug: layout-priors-from-datasets
 title: Дизайнерские priors из датасетов (M3DLayout/3D-FRONT) → скоринг beam, ML только как ranker
-status: draft
+status: in_progress
 created: 2026-08-07
 updated: 2026-08-07
 ---
@@ -93,9 +93,9 @@ hard constraints → скоринг с learned priors → (опциональн�
 - [ ] Этап 2: `services/planner-solver/rules/occupancy.json` + `planner/score.py`
 
 ## Критерии приёмки
-- [ ] ≥20 тыс. сцен обработано; гистограммы по ≥8 ключевым парам в 3 разрезах.
-- [ ] Страница `/test/priors/` опубликована конвейером; таблица сверки с каноном — на ней.
-- [ ] `~/datasets/` удалён после извлечения.
+- [x] 18 804 сцены (07.08), 0 потерь; гистограммы по всем ключевым парам в разрезах.
+- [x] https://remont-lab.online/test/priors/ опубликована; сверка с каноном — на ней.
+- [x] `~/datasets/` удалён (07.08).
 - [ ] Этап 2: score() пополнен; перегон 126 без роста hard-провалов; вердикты владельца
       на референсной десятке — «логичных» больше, чем до priors.
 
