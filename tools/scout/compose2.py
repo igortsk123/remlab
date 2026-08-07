@@ -395,11 +395,29 @@ if STYLE_MODE:  # псевдо-бэнды (метраж × стиль); по у�
     runs=[(dict(b),st) for b in src for st in SNAMES6]
     COMP['bands']=[b for b,_ in runs]
     STYLE_OF={i:st for i,(_,st) in enumerate(runs)}
+# ТЕСТОВЫЙ РЕЖИМ (владелец 07.08, «чтоб быстрее пока тестим»): SETS_ONLY="3,17,…" — пересборка
+# только этих номеров, остальные КОПИРУЮТСЯ из прежнего sets3.json и честно участвуют в реестре
+# разнообразия. По умолчанию (без env) — все сеты, это боевой режим.
+from testmode import only as _tm_only
+_ONLY=_tm_only()
+_PREV=None
+if _ONLY and STYLE_MODE and os.path.exists(os.path.join(HERE,'sets3.json')):
+    _PREV=json.load(open(os.path.join(HERE,'sets3.json')))
+    print(f'тестовый режим: пересобираю только {sorted(_ONLY)}, остальные {len(_PREV)-len(_ONLY)} — из прежнего файла')
 sets=[]
 for bi,band in enumerate(COMP['bands']):
     m2=sum(band['m2'])/2
     style_name=STYLE_OF.get(bi) if STYLE_MODE else None
     for ti,tier in enumerate(TIERS):
+        _set_no=len(sets)+1
+        if _ONLY is not None and _PREV and _set_no<=len(_PREV) and _set_no not in _ONLY:
+            _p=_PREV[_set_no-1]
+            sets.append(_p)
+            if STYLE_MODE:
+                BUILT.append((_p.get('style'),
+                              {emb_key(it['mid'],it['eid']) for it in _p['items'].values()},
+                              {emb_key(it['mid'],it['eid']) for r,it in _p['items'].items() if r in MAJOR_ROLES}))
+            continue
         pair=STYLE_PAIR[style_name] if style_name else PAIRS[(bi+ti)%len(PAIRS)]
         ctx=dict(style=style_name,wood=None,metal=None,fabrics=set(),temp='mid',
                  sofa_key=None,sofa_w=None,sofa_h=None,used_shops=set(),style_name=style_name,

@@ -9,8 +9,12 @@ HERE=os.path.dirname(os.path.abspath(__file__))
 PY=os.path.expanduser('~/venvs/scout/bin/python')
 sets=json.load(open(os.path.join(HERE,'sets3.json')))
 a,b=(int(sys.argv[1]),int(sys.argv[2])) if len(sys.argv)>2 else (1,len(sets))
+sys.path.insert(0,HERE)
+from testmode import only as _tm_only
+_only=_tm_only()
+nums=[i for i in range(a,b+1) if _only is None or i in _only]
 report=[]
-for i in range(a,b+1):
+for i in nums:
     s=sets[i-1]
     try:  # перебор сидов может идти до ~6×25 с — таймаут щедрый, и он НЕ роняет весь батч
         # суффикс уникален на диапазон: параллельные воркеры не дерутся за одни файлы раскладок

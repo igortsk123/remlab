@@ -93,12 +93,20 @@ def ask(s,jpg):
     try: return json.loads(m.group(0))
     except Exception: return {"grade":None,"outliers":[]}
 report=[]
-# вердикты параллельно (8 потоков; раньше последовательно — 126 сетов шли ~45 мин вместо ~6)
+from testmode import only as _tm_only
+_ONLY=_tm_only()
+# вердикты параллельно (8 потоков); в тестовом режиме модель зовём ТОЛЬКО для выбранных сетов
 import concurrent.futures as _cf
+_judge_idx=[i for i in range(len(sets)) if _ONLY is None or (i+1) in _ONLY]
 with _cf.ThreadPoolExecutor(8) as _ex:
-    _verdicts=list(_ex.map(lambda s: ask(s,collage(s)), sets))
+    _vlist=list(_ex.map(lambda i: ask(sets[i],collage(sets[i])), _judge_idx))
+_verdicts={i:v for i,v in zip(_judge_idx,_vlist)}
 for i,s in enumerate(sets):
-    v=_verdicts[i]
+    if _ONLY is not None and (i+1) not in _ONLY:
+        report.append(dict(set=i+1,band=s['band'],tier=s['tier'],style=s.get('style'),
+                           grade=None,style_grade=None,outliers=None,swaps=[]))
+        continue
+    v=_verdicts.get(i) or {"grade":None,"outliers":[]}
     swaps=[]
     # стилевой сет с достойным style_grade не трогаем (порог); без стиля — старое поведение
     sg=v.get('style_grade')

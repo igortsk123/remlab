@@ -82,6 +82,9 @@ def collect(n: int) -> dict[str, str]:
 
 def main() -> None:
     sets = [int(a) for a in sys.argv[1:] if a.isdigit()]
+    if not sets:
+        from testmode import REFERENCE_TEN
+        sets = list(REFERENCE_TEN)
     os.makedirs(OUT, exist_ok=True)
     meta = json.load(open(os.path.join(HERE, 'sets3.json')))
     blocks = []

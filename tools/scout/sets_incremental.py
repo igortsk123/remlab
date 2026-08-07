@@ -154,8 +154,11 @@ def refresh(apply: bool = False, max_swaps_per_set: int = 2) -> None:
             _CAND_CACHE.update(json.load(open(p)))
     items_idx = _CAND_CACHE.get('items', {})
     major = ('диван', 'кресло', 'столик', 'тв-тумба', 'стеллаж', 'комод', 'стол обеденный')
+    from testmode import skip as _tm_skip
     swapped = 0
     for n, s in enumerate(sets, 1):
+        if _tm_skip(n):
+            continue                     # тест-режим: освежаем только выбранные (heal — всегда все)
         style = s.get('style')
         if not style:
             continue
