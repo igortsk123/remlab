@@ -21,7 +21,10 @@ def esc(v):
 
 sql("alter table products add column if not exists direct_url text;"
     "alter table products add column if not exists last_seen date;"
-    "alter table products add column if not exists description text;")
+    "alter table products add column if not exists description text;"
+    "alter table products add column if not exists dims_evidence jsonb;")  # T1: 002-dims-evidence.sql
+
+from dim_resolver import resolve as resolve_dims  # noqa: E402 — T1: единицы по свидетельствам
 
 # --- дельта: ЧТО именно изменилось у товара (ADR-0068) ---------------------------------------
 # Раньше признаком изменения был сам факт присутствия в фиде, поэтому «пересчитывать или нет»
@@ -92,26 +95,19 @@ for z in sorted(glob.glob(os.path.join(FEEDS,'*.zip'))):
             desc=re.sub(r'<[^>]+>',' ',el.findtext('description') or '')
             desc=re.sub(r'\s+',' ',desc).strip()[:1500] or None
             shop=urllib.parse.urlparse(direct(url)).netloc.replace('www.','') or str(mid)
-            def dim(keys):
-                for k in keys:
-                    v=params.get(k)
-                    if v:
-                        m2=re.search(r'\d+(?:[.,]\d+)?',v)
-                        if m2:
-                            try: x=float(m2.group(0).replace(',','.'))
-                            except ValueError: return None
-                            return x/10 if x>400 else x  # мм → см
-                return None
-            w=dim(['Ширина','Ширина, см','Ширина, мм']); d=dim(['Глубина','Глубина, см','Глубина, мм'])
-            h=dim(['Высота','Высота, см','Высота, мм']); ln=dim(['Длина','Длина, см']); dia=dim(['Диаметр','Диаметр, см'])
             p_int=int(float(price)) if price else None
             o_int=int(float(oldp)) if oldp else None
             # детское внутри разрешённых категорий — роль зануляем (иначе upsert вернул бы её)
             role=None if is_kids(nm) else _CATROLE.get((mid,str(cid)))
+            # T1 truth-first: единицы — по свидетельствам (имя/значение параметра, титул,
+            # приор магазин×роль×ось, правдоподобие), НЕ порогом «>400 → /10»: тот калечил
+            # диваны 440 см и не делил «350 мм». Провенанс — dims_source + dims_evidence.
+            dims,ev,dsrc=resolve_dims(mid,nm,params,role)
+            w,d,h,ln,dia=dims['w'],dims['d'],dims['h'],dims['len'],dims['dia']
             rows.append('\t'.join(esc(x) for x in (mid,eid,shop,cid,cats.get(cid,''),nm,el.findtext('vendor'),
                 url,pic,p_int,o_int,None,
-                't',w,d,h,ln,dia,None,json.dumps(params,ensure_ascii=False),direct(url),desc,
-                role)))
+                't',w,d,h,ln,dia,dsrc,json.dumps(params,ensure_ascii=False),direct(url),desc,
+                role,json.dumps(ev,ensure_ascii=False) if ev else None)))
             erows.append('\t'.join(esc(x) for x in (mid,eid,
                 commercial_hash(p_int,o_int,bool(p_int),direct(url)),
                 text_hash(nm,desc), geometry_hash(w,d,h,ln,dia), image_hash(pic),
@@ -137,7 +133,7 @@ if mids:
 sql("drop table if exists products_new; create table products_new (like products including all);")
 cols=("shop_mid,external_id,shop,category_id,category_path,name,brand,url,image_url,price_rub,"
       "old_price_rub,charge_rub,in_stock,w_cm,d_cm,h_cm,len_cm,dia_cm,dims_source,params,direct_url,"
-      "description,cat_role")
+      "description,cat_role,dims_evidence")
 sql(None, f"copy products_new({cols}) from stdin;\n"+"\n".join(rows)+"\n\\.\n")
 mlist=",".join(map(str,sorted(mids)))
 out=sql(f"""
@@ -146,15 +142,24 @@ update products p set in_stock=false
  where p.shop_mid in ({mlist})
    and not exists (select 1 from products_new n where n.shop_mid=p.shop_mid and n.external_id=p.external_id);
 insert into products as p (shop_mid,external_id,shop,category_id,category_path,name,brand,url,image_url,
-  price_rub,old_price_rub,charge_rub,in_stock,w_cm,d_cm,h_cm,len_cm,dia_cm,dims_source,params,direct_url,description,cat_role,last_seen)
+  price_rub,old_price_rub,charge_rub,in_stock,w_cm,d_cm,h_cm,len_cm,dia_cm,dims_source,params,direct_url,description,cat_role,dims_evidence,last_seen)
 select shop_mid,external_id,shop,category_id,category_path,name,brand,url,image_url,
-  price_rub,old_price_rub,charge_rub,true,w_cm,d_cm,h_cm,len_cm,dia_cm,dims_source,params,direct_url,description,cat_role,current_date
+  price_rub,old_price_rub,charge_rub,true,w_cm,d_cm,h_cm,len_cm,dia_cm,dims_source,params,direct_url,description,cat_role,dims_evidence,current_date
 from products_new
 on conflict (shop_mid,external_id) do update set
   name=excluded.name,url=excluded.url,image_url=excluded.image_url,price_rub=excluded.price_rub,
   old_price_rub=excluded.old_price_rub,in_stock=true,direct_url=excluded.direct_url,last_seen=current_date,
-  w_cm=coalesce(p.w_cm,excluded.w_cm),d_cm=coalesce(p.d_cm,excluded.d_cm),
-  h_cm=coalesce(p.h_cm,excluded.h_cm),params=excluded.params,description=excluded.description,
+  -- T1: authority сильнее свежести (правка рефери) — scrape/manual фид НЕ затирает,
+  -- остальное resolver обновляет каждый прогон (так лечатся и жертвы старого «>400 → /10»,
+  -- и жившее вечно coalesce, из-за которого фиксы фида не доезжали)
+  w_cm   =case when p.dims_source in ('scrape','manual') then p.w_cm    else excluded.w_cm    end,
+  d_cm   =case when p.dims_source in ('scrape','manual') then p.d_cm    else excluded.d_cm    end,
+  h_cm   =case when p.dims_source in ('scrape','manual') then p.h_cm    else excluded.h_cm    end,
+  len_cm =case when p.dims_source in ('scrape','manual') then p.len_cm  else excluded.len_cm  end,
+  dia_cm =case when p.dims_source in ('scrape','manual') then p.dia_cm  else excluded.dia_cm  end,
+  dims_source  =case when p.dims_source in ('scrape','manual') then p.dims_source   else excluded.dims_source   end,
+  dims_evidence=case when p.dims_source in ('scrape','manual') then p.dims_evidence else excluded.dims_evidence end,
+  params=excluded.params,description=excluded.description,
   cat_role=excluded.cat_role,
   category_id=excluded.category_id,category_path=excluded.category_path;
 drop table products_new;
