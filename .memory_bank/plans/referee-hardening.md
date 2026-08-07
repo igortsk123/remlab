@@ -87,6 +87,12 @@ completed:
 - Партия 2: свой замер на каждом пункте (long-сцены, фикстуры ТВ, единый канон столика).
 
 ## Материалы для рефери
+- **Публичные ссылки на сайте (для передачи рефери, 08.08):**
+  - Сводный документ конвейера: https://remont-lab.online/test/referee/
+  - Ответ на аудит v2 (статусы + наши пруфы + встречные вопросы):
+    https://remont-lab.online/test/referee/reply-audit-v2.html
+  Источники: `~/scout-scenes/referee-pages/` (rsync в `/opt/remlab/test/referee/`),
+  md-оригинал ответа — `/home/pakar/referee-reply-audit-v2.md`.
 - Сводный документ «весь конвейер: фиды → каталог → обогащение → сеты → зонный солвер →
   визуализация» (обзор для рефери, собран 2026-08-07 разбором кода/dev-БД/банка):
   https://claude.ai/code/artifact/0aaa437b-26f5-47d3-b878-aac54f8c52ba

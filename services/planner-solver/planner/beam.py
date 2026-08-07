@@ -157,7 +157,18 @@ def solve(room: Room, items: list[Item], *, top_k: int = 3, beam_width: int = BE
         # П8 (вердикт 07.08, сет 47) + вердикт 08.08 («минимум 2 стула»): обеденная группа
         # целиком или никак — стол без ≥2 стульев снимается, стулья без стола снимаются
         chairs_placed = [p for p in lay.placements if _br(p.role) == "стул"]
-        tbl_placed = any(p.role == "стол обеденный" for p in lay.placements)
+        tbl_p = next((p for p in lay.placements if p.role == "стол обеденный"), None)
+        if tbl_p is not None and chairs_placed:
+            # в группе считаются только стулья У СТОЛА (≤45 см до кромки — порог CHAIR_ORPHAN
+            # с запасом): стул, уехавший через комнату, не «член группы», а брак — снимаем
+            tfp = footprint(tbl_p)
+            far = [p for p in chairs_placed if footprint(p).distance(tfp) > 45]
+            if far:
+                gone = [p.role for p in far]
+                lay.placements = [p for p in lay.placements if p.role not in gone]
+                lay.unplaced = lay.unplaced + gone
+                chairs_placed = [p for p in chairs_placed if p.role not in gone]
+        tbl_placed = tbl_p is not None
         if tbl_placed and len(chairs_placed) < 2:
             gone = ["стол обеденный"] + [p.role for p in chairs_placed]
             lay.placements = [p for p in lay.placements if p.role not in gone]
