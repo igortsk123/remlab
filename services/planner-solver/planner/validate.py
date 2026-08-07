@@ -210,9 +210,9 @@ def check_distances(room: Room, ps: list[Placement]) -> list[Violation]:
         # идёт distance-first: diag ≈ g/1.6 (FOV ~30°), clamp в [0.70..0.90]·тумба.
         stand_w = by["тв-тумба"].item.w_cm or 0
         if stand_w >= 60:
-            d_min, d_max = stand_w * 0.70 / 0.872, stand_w * 0.90 / 0.872
-            lo, hi = 1.2 * d_min, 2.5 * d_max
-            soft_hi = 2.0 * d_max
+            # T6: одна каноническая ТВ-функция на все слои (planner/tv.py, рефери §21)
+            from .tv import distance_range
+            lo, hi, soft_hi = distance_range(stand_w)
         else:
             tv = band_scale("sofa_tv_cm", room.band, distances().get("sofa_tv_cm", [180, 300]))
             lo, hi = tv[0], max(tv[1], float(distances().get("sofa_tv_hard_max", 400)))
@@ -558,8 +558,9 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
                           f"≤{distances().get('sofa_pouf_max', 180)} см — пуф в зоне"))
     arm = by.get("кресло")
     if arm is not None and tbl is not None and _lr("armchair_to_table_same_as_sofa", True):
-        from .clearances import band_scale as _bs
-        lo_t, hi_t = _bs("sofa_table_cm", _ROOM_BAND[0], distances().get("sofa_coffee_table", [36, 50]))
+        # T6: фикс-эргономика и для кресла (последний потребитель area-шкалы sofa_table_cm
+        # вычищен — рефери §23 «кресло всё ещё зависит от площади, диван уже нет»)
+        lo_t, hi_t = distances().get("sofa_coffee_table", [36, 46])
         g = footprint(arm).distance(footprint(tbl))
         if not (lo_t - 5 <= g <= hi_t + 60):
             out.append(_v("ARMCHAIR_TABLE_DIST", f"кресло в {g:.0f} см от столика — вне зоны",
@@ -661,7 +662,7 @@ def check_layout_rules(room: Room, ps: list[Placement]) -> list[Violation]:
     if "стул" in by and "стол обеденный" not in by and _lr("chair_requires_dining_table", True):
         out.append(_v("CHAIR_WITHOUT_TABLE", "стул без обеденного стола", ["стул"], None,
                       "стул ставится только к столу"))
-    buf = float(_lr("zone_buffer_cm", 65))
+    buf = float(_lr("zone_buffer_cm", 40))  # T6: фолбэк = значению данных (65 был остатком DFS-эры)
     if sofa is not None and buf > 0:
         zone = footprint(sofa)
         if "столик" in by:

@@ -133,8 +133,8 @@ def score_layout(room: Room, ps: list[Placement], *, fast: bool = False) -> Scor
             s.add("armchair_faces_tv", focus_score(by["кресло"], by["тв-тумба"]), w["armchair_faces_tv"])
         if "столик" in by:   # полукруг вокруг столика: не дальше вытянутой руки от зоны
             gz = footprint(by["кресло"]).distance(footprint(by["столик"]))
-            lo_t, hi_t = band_scale("sofa_table_cm", room.band,
-                                    distances().get("sofa_coffee_table", [36, 50]))
+            # фикс-эргономика W2 (T6: area-шкала sofa_table_cm вычищена из скоринга)
+            lo_t, hi_t = distances().get("sofa_coffee_table", [36, 46])
             s.add("armchair_zone_radius", hinge(gz, lo_t, hi_t + 20), w["armchair_zone_radius"])
         if "тв-тумба" in by:  # кресло, приткнутое вплотную к ТВ, читается как «мебель у техники»
             gt = footprint(by["кресло"]).distance(footprint(by["тв-тумба"]))

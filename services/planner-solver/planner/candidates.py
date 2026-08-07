@@ -208,7 +208,10 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
             cy = scy + fy * (gap + _half_along(sfp, fx, fy) + d / 2)
             add(cx, cy, (sofa.rot + 180) % 360, f"напротив дивана, {gap:.0f} см")
     if rb == "столик" and sofa is not None:
-        lo, hi = band_scale("sofa_table_cm", room.band, distances().get("sofa_coffee_table", [36, 50]))
+        # T6: диван↔столик — фикс-эргономика (W2), area-шкала sofa_table_cm вычищена и из
+        # ГЕНЕРАЦИИ кандидатов (рефери §23: генератор предлагал позиции, которые валидатор
+        # уже не принимает — хорошая раскладка могла не попасть в пространство поиска)
+        lo, hi = distances().get("sofa_coffee_table", [36, 46])
         fx, fy = _face_dir(sofa.rot)
         sfp = footprint(sofa)
         from .geometry import seating_front_offset
@@ -303,8 +306,8 @@ def _arc_candidates(room: Room, item: Item, by: dict, free: Polygon, sofa: Place
     jit = scheme.get("jitter_deg", 35)
     center = by.get("столик") or sofa
     cx, cy = center.x, center.y
-    # зазор кресло↔столик = зазор диван↔столик (шкала площади): зона собрана, а не рыхлая
-    lo_t, hi_t = band_scale("sofa_table_cm", room.band, distances().get("sofa_coffee_table", [36, 50]))
+    # зазор кресло↔столик = зазор диван↔столик (фикс-эргономика W2; area-шкала вычищена, T6)
+    lo_t, hi_t = distances().get("sofa_coffee_table", [36, 46])
     gap_t = (lo_t + hi_t) / 2
     base = max(item.w_cm, item.d_cm) / 2 + gap_t + max(center.item.w_cm, center.item.d_cm) / 2
     out: list[Candidate] = []

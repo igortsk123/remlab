@@ -70,10 +70,16 @@ def zones_brief(n: int) -> str:
     if 'камин' in roles:
         parts.append('the fireplace is a secondary focal point of the seating zone')
     if 'тв-тумба' in roles:
-        # Q2 (рефери 08.08): ТВ рисуется distance-first (FOV ~30°), тумба — только clamp
-        parts.append('size the TV from the viewing distance (screen diagonal is roughly the '
-                     'sofa-to-TV distance divided by 1.6), and keep the screen 70–90% of the '
-                     'TV stand width — never wider than the stand')
+        # Q2 (рефери 08.08): ТВ рисуется distance-first (FOV ~30°), тумба — только clamp.
+        # T6: фраза берётся из КАНОНИЧЕСКОЙ функции planner.tv (те же числа, что валидатор),
+        # хардкод оставлен только фолбэком на случай недоступности планнера
+        try:
+            from planner.tv import prompt_brief
+            parts.append(prompt_brief())
+        except Exception:
+            parts.append('size the TV from the viewing distance (screen diagonal is roughly the '
+                         'sofa-to-TV distance divided by 1.6), and keep the screen 70–90% of the '
+                         'TV stand width — never wider than the stand')
     if 'картина' in roles:
         # A4 (исследование рефери 08.08): wall art — semantic-элемент со своими правилами
         parts.append('the wall art hangs centered above the sofa: its width is 50–70% of the '

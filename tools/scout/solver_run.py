@@ -521,13 +521,21 @@ def attempt_beam():
     # Z5: приёмочные сцены могут задавать осевой КОНТУР комнаты (Э8) через env;
     # RW/RD тогда — bbox контура (двери/окна валидны: юг у фикс-контуров сплошной)
     _ctr = os.environ.get('SCENE_CONTOUR')
+    # T6 truth-first: реальные проёмы через env (real-бенч acceptance_real.py / мост замера);
+    # без SCENE_OPENINGS — прежние синтетические (детерминированные от номера сета)
+    _ops = os.environ.get('SCENE_OPENINGS')
+    if _ops and json.loads(_ops):
+        openings_p = [_Op(**o) for o in json.loads(_ops)]
+        radiators_p = [_Rad(**r) for r in json.loads(os.environ.get('SCENE_RADIATORS') or '[]')]
+    else:
+        openings_p = [_Op(kind='door', wall='south', offset_cm=DOOR_OFF, width_cm=DOOR_W,
+                          swing_cm=92),
+                      _Op(kind='window', wall='east', offset_cm=WIN_OFF, width_cm=WIN_W,
+                          sill_cm=80)]
+        radiators_p = [_Rad(wall='east', offset_cm=WIN_OFF, width_cm=WIN_W, depth_cm=15)]
     room_p = _Rm(width_cm=RW, depth_cm=RD, band=BAND,
                  contour=(json.loads(_ctr) if _ctr else None),
-                 openings=[_Op(kind='door', wall='south', offset_cm=DOOR_OFF, width_cm=DOOR_W,
-                               swing_cm=92),
-                           _Op(kind='window', wall='east', offset_cm=WIN_OFF, width_cm=WIN_W,
-                               sill_cm=80)],
-                 radiators=[_Rad(wall='east', offset_cm=WIN_OFF, width_cm=WIN_W, depth_cm=15)])
+                 openings=openings_p, radiators=radiators_p)
     its = []
     for role, (w, d) in FLOOR:
         src = items.get(role) or {}

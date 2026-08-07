@@ -144,6 +144,12 @@ def solve(room: Room, items: list[Item], *, top_k: int = 3, beam_width: int = BE
     (большая комната: угол и шкала диван↔ТВ несовместимы) — пере-решаем старым порядком и
     берём вариант без потерь. Компромисс зафиксирован: лучше диван посреди стены с ТВ, чем
     угол без ТВ (вердикт по перегону 2026-08-06; финальное слово — калибровка владельцем)."""
+    # T6 truth-first: band выставляется ЗДЕСЬ, а не лениво в validate() — иначе быстрые
+    # check_* в _hard_ok первого прогона видят band предыдущей сцены процесса, и повторное
+    # решение той же комнаты даёт другую раскладку (найдено fuzz_rooms 08.08, подтверждено
+    # сбросом глобала). Один процесс = много сцен (solver_check, фаззер) — заражение реально.
+    from .validate import _ROOM_BAND
+    _ROOM_BAND[0] = room.band
     outs = _solve_ordered(room, items, top_k=top_k, beam_width=beam_width,
                           cand_per_item=cand_per_item, polish=polish, corner_sofa_first=True)
     has_corner = any(it.role == "диван" and it.corner for it in items)
