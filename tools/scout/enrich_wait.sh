@@ -9,9 +9,30 @@ set -u
 cd "$(dirname "$0")"
 PY="$HOME/venvs/scout/bin/python"
 [ -s enrich-batch-id.txt ] || { echo "активного пакета нет — ждать нечего"; exit 0; }
+# Гейт старше 26 ч = пакет истёк или застрял — алерт сразу, не ждём ещё сутки (T0, урок 203)
+if [ -n "$(find enrich-batch-id.txt -mmin +1560 2>/dev/null)" ]; then
+  bash alert.sh "remlab: enrich-batch-id.txt старше 26 ч — гейт заклинен, нужен человек"
+fi
+CRASHES=0
 for i in $(seq 1 288); do
   out=$($PY enrich.py --fetch 2>&1)
   echo "[$(date +%H:%M)] $out"
+  # Забор падает исключением (404/сеть/бag) — три подряд = алерт и выход, не молчать сутки
+  if grep -q 'Traceback' <<<"$out"; then
+    CRASHES=$((CRASHES+1))
+    if [ "$CRASHES" -ge 3 ]; then
+      bash alert.sh "remlab: enrich --fetch падает исключением 3 раза подряд — см. refresh.log"
+      exit 1
+    fi
+    sleep 300; continue
+  fi
+  CRASHES=0
+  # Терминальность по результату (урок 203): completed с 0 готовых — сбой, не «ждём дальше»
+  if grep -q 'СБОЙ-РЕЗУЛЬТАТА' <<<"$out"; then
+    echo "пакет completed, но результата нет (0 готовых) — нужен человек, id остаются"
+    bash alert.sh "remlab: batch completed с 0 готовых (биллинг?) — обогащение НЕ забрано, гейт закрыт"
+    exit 1
+  fi
   if [ ! -s enrich-batch-id.txt ]; then
     echo "все части забраны и записаны в БД"
     $PY enrich.py --stats

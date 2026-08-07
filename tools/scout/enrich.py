@@ -319,6 +319,13 @@ def fetch(batch_id: str, items: dict | None = None) -> None:
           f'/{b["request_counts"]["total"]}, ошибок {b["request_counts"]["failed"]}')
     if b['status'] != 'completed':
         return b['status']
+    # Терминальность — по РЕЗУЛЬТАТУ, не по статусу (урок 203): у «completed» с 0 готовых нет
+    # output_file_id, и забор падал 404 по .../files/None/content, а сторож молчал сутки.
+    if not b['request_counts']['completed'] or not b.get('output_file_id'):
+        print(f'СБОЙ-РЕЗУЛЬТАТА {batch_id}: статус completed, но готово '
+              f'{b["request_counts"]["completed"]}/{b["request_counts"]["total"]} — '
+              f'все запросы провалены (проверь биллинг/error_file), пакет забирать нечего')
+        return 'failed_empty'
     out = urllib.request.urlopen(urllib.request.Request(
         f'{API}/files/{b["output_file_id"]}/content',
         headers={'Authorization': f'Bearer {key}'}), timeout=900).read().decode()

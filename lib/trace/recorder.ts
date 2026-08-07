@@ -5,6 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { traceStore } from "@/lib/trace/store";
 import { runInContext, type RunContext } from "@/lib/trace/context";
+import { traceWriteFailed } from "@/lib/trace/failures";
 import type { RunStatus, StepRow } from "@/lib/trace/types";
 
 export type RunMeta = {
@@ -20,7 +21,10 @@ export async function runWithTrace<T>(
   fn: (ctx: RunContext) => Promise<T>,
 ): Promise<{ result: T; ctx: RunContext }> {
   const store = traceStore();
-  const seq = await store.allocSeq().catch(() => 0);
+  const seq = await store.allocSeq().catch((e) => {
+    traceWriteFailed("allocSeq", e);
+    return 0;
+  });
   const ctx: RunContext = {
     runId: randomUUID(), seq,
     projectId: runMeta.projectId ?? null, sessionId: runMeta.sessionId ?? null,
@@ -31,7 +35,7 @@ export async function runWithTrace<T>(
     pipelineId: runMeta.pipelineId, pipelineVersion: runMeta.pipelineVersion,
     status: "running", error: null, totalLatencyMs: null, totalCostUsd: null,
     meta: runMeta.meta ?? null, startedAt: new Date(), finishedAt: null,
-  }).catch(() => {});
+  }).catch((e) => traceWriteFailed("insertRun", e));
 
   let status: RunStatus = "ok";
   let error: string | null = null;
@@ -45,7 +49,7 @@ export async function runWithTrace<T>(
   } finally {
     await store.finishRun(ctx.runId, {
       status, error, totalLatencyMs: ctx.totalLatencyMs, totalCostUsd: ctx.totalCostUsd, finishedAt: new Date(),
-    }).catch(() => {});
+    }).catch((e) => traceWriteFailed("finishRun", e));
   }
 }
 
@@ -57,5 +61,5 @@ export async function recordStep(
   const idx = ctx.stepCounter++;
   ctx.totalCostUsd += step.costUsd ?? 0;
   ctx.totalLatencyMs += step.latencyMs ?? 0;
-  await traceStore().insertStep({ ...step, runId: ctx.runId, idx }).catch(() => {});
+  await traceStore().insertStep({ ...step, runId: ctx.runId, idx }).catch((e) => traceWriteFailed("insertStep", e));
 }
