@@ -100,7 +100,8 @@ def optimize(sets: list, only: set[int] | None) -> dict:
                     alt_style = (EB.style_scores(row['mid'], row['eid']) or {}).get(target_style, 5.0)
                     if alt_style < cur_style - 0.5:
                         continue
-                    trial = copy.deepcopy(sets)
+                    trial = list(sets)
+                    trial[i] = copy.deepcopy(sets[i])
                     trial[i]['items'][role] = {**cur, **row}
                     if len(proportion_check.check(i + 1, trial)) > base_viol:
                         continue

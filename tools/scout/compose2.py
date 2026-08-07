@@ -289,10 +289,18 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
         for it in cat.get(role,[]):
             if it['fp'] is None:
                 if role in ('торшер','кашпо','камин') and it['h']: it=dict(it,fp=0.16)
+                # T5 truth-first: шторы — не напольная роль, footprint им не положен вовсе
+                # (WINDOW-слой онтологии). Требования: полотно до пола (h≥250) и ткань
+                # ≥250 см (комплект «2 шт» = 2×w) — покрыть окно 120-180 + сборка.
+                # Раньше отсутствие fp выкидывало ВСЕ шторы → дыра 126/126 (аудит рефери §14).
+                elif role=='шторы' and it['h'] and it['w']:
+                    cloth=it['w']*(2 if re.search(r'2\s*шт',it['name'],re.I) else 1)
+                    if it['h']>=250 and cloth>=250: it=dict(it,fp=0.0)
+                    else: continue
                 else: continue
             if not sane_dims(role,it): continue        # мусорные/перепутанные габариты — мимо
             if gate and not size_gate(ctx.get('band',''),role,it['w']): continue  # legacy-ветка (не зовётся)
-            if not (tgt_lo*0.75<=it['fp']<=tgt_hi*1.25): continue
+            if role!='шторы' and not (tgt_lo*0.75<=it['fp']<=tgt_hi*1.25): continue  # шторы: fp=0, целевая доля не применима
             if not (plo<=it['price']<=phi) and not soft: continue
             # ЖЁСТКИЕ ОГРАНИЧЕНИЯ ДО ЭСТЕТИКИ (sets-feasibility-first, 2026-08-05).
             # 0) карточка должна быть годной: обогащение К2 отбраковывает мусорные размеры и
