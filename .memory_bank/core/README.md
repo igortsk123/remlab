@@ -14,7 +14,7 @@
 |------|-------|----------------------|--------|---------|
 | `access-and-integrations.md` | access-and-integrations | Интеграции/доступы — ключи, эндпоинты, клиенты | `../domain/integrations.md` | 2026-08-06 |
 | `architecture.md` | architecture | Стек, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-08-06 |
-| `catalog.md` | catalog | Каталог товаров — состав, свежесть, обогащение, дельта | `../domain/catalog-enrichment.md` | 2026-08-06 |
+| `catalog.md` | catalog | Каталог товаров — состав, свежесть, обогащение, дельта | `../domain/catalog-enrichment.md` | 2026-08-07 |
 | `data-model.md` | data-model | Схема БД, изоляция сессий, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-07-31 |
 | `estimate.md` | estimate | Смета-лист — калькуляторы, стоимость, /go/ реф | `../domain/pricing-works-ru.md` | 2026-08-06 |
 | `furniture.md` | furniture | Мебель — каталог, сеты, визуализация | `../domain/viz-fidelity-playbook.md` | 2026-08-06 |
