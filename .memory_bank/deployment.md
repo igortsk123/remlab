@@ -32,15 +32,16 @@ buildx arm64 → прежний образ в `:prev` → `docker save|ssh|docke
 (+ 5b: SQL-миграции `db/init/*.sql` psql-ом, идемпотентно) → smoke → провал = откат на `:prev`.
 
 **Авто-деплой РАБОТАЕТ (2026-07-31):** push в `main` → `CI gate` (typecheck/lint/unit/e2e) → джоба
-`Deploy prod`; проверка — `/api/health.version` == HEAD main. Ручной `./deploy.sh` — запасной
-(⚠️ НЕ с DEV-VM pakardev: QEMU-сборка OOM'ит). CI гейтит e2e — правишь UI, чини `e2e/*.spec.ts`.
+`Deploy prod`; проверка — health.version == HEAD. Ручной `./deploy.sh` — запасной
+(⚠️ НЕ с DEV-VM: OOM). CI гейтит e2e.
 
 ## Откат / smoke
-- Откат: `ssh root@89.167.127.0 'cd /opt/remlab && docker tag remlab-app:prev remlab-app:latest && docker compose up -d'`
-- Smoke: `/` = 200; `/api/health` = `{"ok":true}`; VPN цел: remnanode Up, :8444/:9443/:2222 живы.
+- Откат: на сервере `docker tag remlab-app:prev remlab-app:latest && docker compose up -d`
+- Smoke: `/`=200; `/api/health` ok; VPN цел (remnanode Up, :8444/:9443/:2222).
 
 ## Автоочистка (ADR-0005)
-Логи json-file 10m×3; weekly `remlab-cleanup`; ночной `pg_dump` → `/opt/remlab/backups` (7 шт); df-watchdog >80%.
+Логи json-file 10m×3; weekly `remlab-cleanup` (шаг 6 с 08.08 — трейсы >90 дн., shell-эквивалент
+trace-prune, бэкап cleanup.sh.bak-2026-08-08); ночной `pg_dump` (7 шт); df-watchdog >80%.
 
 ## Секреты
 `.env` в `/opt/remlab` (вне git): `POSTGRES_PASSWORD`/`GEMINI_API_KEY`/`TRACE_ADMIN_TOKEN` и пр.
@@ -49,8 +50,3 @@ Compose передаёт app ЯВНЫЙ `environment:`-список — новы
 ## Принципы
 Верифицируй деплой (health-версия); перед правкой сервера — бэкап + rollback; VPN не трогать.
 
-## Ретеншн трейсов (2026-08-08)
-`remlab-cleanup.timer` (вс 04:30) теперь чистит и трейсы: шаг 6 в `/opt/remlab/scripts/cleanup.sh`
-— shell-эквивалент `tools/trace-prune.mjs` (tools/ нет в standalone-образе): удаляет каталоги
-прогонов в томе `remlab_remlab-traces` и строки assets/steps/runs старше 90 дн. через
-`docker exec remlab-db psql`. Бэкап перед правкой: `cleanup.sh.bak-2026-08-08`. Пробный запуск ок.
