@@ -495,6 +495,12 @@ for bi,band in enumerate(COMP['bands']):
             if role not in band['floor']: continue
             if any(role in g and (g & set(chosen)) for g in _EXCL):
                 continue     # роль-конкурент уже в сете (напр. кресло при выбранном пуфе)
+            # Z4: обеденная группа — ТОЛЬКО при свободном регионе (док владельца «dining у окна
+            # requires_free_region»): после посадочной группы должно оставаться ≥6 м² usable —
+            # иначе стол+стулья геометрически не встают (провалы band 21-25 на приёмке 08.08)
+            if role=='стол обеденный' and (z_usable-zgroup['footprint_m2'])<6.0:
+                print(f"  Z4: usable {z_usable:.1f} − группа {zgroup['footprint_m2']} < 6 м² — обеденной группе нет региона")
+                continue
             # Z4: посадочные роли диктует ГРУППА — кресло/пуф вне её состава не берём;
             # спутники (пуф/торшер/кашпо) режет anchor-принцип (extras_max band'а)
             if role in ('кресло','пуф') and role not in _zreq and role not in _zopt:
