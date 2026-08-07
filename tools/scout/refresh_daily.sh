@@ -91,6 +91,10 @@ fi
 step candidates "$PY" candidates.py --build
 step sets_index "$PY" sets_incremental.py --index
 step sets_check "$PY" sets_incremental.py --check
+# 5b. АВТОЗАМЕНА выбывших (владелец 2026-08-07: «товар заменяться должен автоматом, если
+# наличия нет»): запасной той же роли, в наличии, ±30% цены, с перепроверкой пропорций;
+# без замены — комплект честно помечается. Бэкап sets3.json пишет сам heal.
+step sets_heal "$PY" sets_incremental.py --heal --apply
 
 # 6. Старое поколение проверок (карточки sets2, метрики). style_score.py убран (А1):
 # он платно скорил новинки по тексту параллельно с обогащением — двойная оплата, мост

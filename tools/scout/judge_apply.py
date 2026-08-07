@@ -30,7 +30,8 @@ for r in report:
             if alt:
                 old=s['items'][role]['name'][:45]
                 keep_q=s['items'][role].get('qty',1)
-                sc=SS.get(skey(ba['mid'],ba['eid']),{}).get(s.get('style'),'—')
+                from judge import _style_of
+                sc=_style_of(ba['mid'],ba['eid']).get(s.get('style'),'—')
                 s['items'][role]=dict(alt,qty=keep_q,why=f"замена по судье (стиль-вектор {sc}): {o.get('why','')[:70]}")
                 r['swaps'].append(f"{role}: {old} → {alt['name'][:45]}")
                 swaps_n+=1

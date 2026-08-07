@@ -29,13 +29,21 @@ def _overlap_ok_swap(cand,set_i):
         lim=5 if o['style']==sets[set_i].get('style') else 3
         if len(cur&ok_)+(1 if (ck in ok_ and ck not in cur) else 0)>lim: return False
     return True
+def _style_of(mid,eid):
+    """Стиль-вектор: обогащение (attrs, ADR-0071) первым, старый style-scores — фолбэк (06.08)."""
+    try:
+        import enrich_bridge as _EB
+        sc=_EB.style_scores(mid,eid)
+        if sc: return sc
+    except Exception: pass  # noqa: BLE001 — нет БД/моста: работаем по старому файлу
+    return SS.get(skey(mid,eid),{})
 def best_alt(alts,style,set_i=None):
     """Запасной с максимальным стиль-скором под стиль сета (alts уже из нужного ценового сегмента);
     кандидаты, ломающие лимиты разнообразия, отбрасываются."""
     pool=[a for a in alts if set_i is None or _overlap_ok_swap(a,set_i)]
     if not pool: return None
-    if not style or not SS: return pool[0]
-    return sorted(pool,key=lambda a:-(SS.get(skey(a['mid'],a['eid']),{}).get(style,0)))[0]
+    if not style: return pool[0]
+    return sorted(pool,key=lambda a:-(_style_of(a['mid'],a['eid']).get(style,0) or 0))[0]
 PSQL=["docker","exec","-i","remlab-devdb","psql","-U","remlab","-d","remlab","-q","-v","ON_ERROR_STOP=1","-t","-A","-F","\x1f"]
 def thumb_path(mid,eid): return os.path.join(THUMBS,f"{mid}-{re.sub(r'[^A-Za-z0-9]','_',eid)[:40]}.png")
 def fetch_alt(mid,eid):

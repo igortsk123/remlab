@@ -121,17 +121,23 @@ def heal(apply: bool = False) -> None:
     sets = json.load(open(SETS))
     ids = [k.split(':') for k in idx if idx[k]['used']]
     vals = ','.join(f"({m},'{e}')" for m, e in ids)
+    # выбыл = пропал из фида (status) ИЛИ карточка мертва (health.py гасит in_stock поверх фида)
     dead = {}
-    for row in _rows(f"""select e.shop_mid, e.external_id, e.status from product_enrichment e
-            join (values {vals}) v(mid,eid) on e.shop_mid=v.mid and e.external_id=v.eid
-           where e.status <> 'active'"""):
+    for row in _rows(f"""select e.shop_mid, e.external_id,
+                    case when e.status <> 'active' then e.status else 'карточка мертва' end
+             from product_enrichment e
+             join products p on p.shop_mid=e.shop_mid and p.external_id=e.external_id
+             join (values {vals}) v(mid,eid) on e.shop_mid=v.mid and e.external_id=v.eid
+            where e.status <> 'active' or not p.in_stock"""):
         if len(row) >= 3:
             dead[key(row[0], row[1])] = row[2]
     if not dead:
         print('выбывших товаров в комплектах нет — лечить нечего')
         return
     alive = {key(r[0], r[1]) for r in _rows(
-        "select shop_mid, external_id from product_enrichment where status='active'") if len(r) >= 2}
+        "select e.shop_mid, e.external_id from product_enrichment e "
+        "join products p using (shop_mid, external_id) "
+        "where e.status='active' and p.in_stock") if len(r) >= 2}
 
     healed, hopeless = 0, []
     for n, s in enumerate(sets, 1):

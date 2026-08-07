@@ -322,12 +322,12 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
             else: s-=2.0; why.append(f"металл {mt}≠{ctx['metal']}-2")
         fb=it.get('fabric')
         if fb and fb in ctx['fabrics']: s+=1.5; why.append(f"фактура {fb} повтор+1.5")
-        # Ф2 v3: стиль-фит из style-scores (LLM+правила+CLIP) с ВИЗУАЛЬНЫМ весом роли
+        # Ф2 v3: стиль-фит — ПЕРВЫМ идёт обогащение (attrs, ADR-0071): полное покрытие пула,
+        # признаки с фото, честный «нейтральный». Старый style-scores.json — текстовый (16%
+        # совпадения с фото), заморожен (style_score.py убран из крона 06.08) — только фолбэк.
+        # Прежний обратный порядок опирался на замер 05.08, сделанный ДО vision-прогона.
         if ctx.get('style_name'):
-            # порядок проверен замером (2026-08-05): обогащение ОСНОВНЫМ источником дало
-            # пересечение стилей 15.3% против 15.0% запасным — старый стиль-скор на своих
-            # товарах не хуже, поэтому он остаётся первым, а обогащение закрывает пробелы
-            sf=SS.get(emb_key(it['mid'],it['eid'])) or EB.style_scores(it['mid'],it['eid'])
+            sf=EB.style_scores(it['mid'],it['eid']) or SS.get(emb_key(it['mid'],it['eid']))
             if sf:
                 wgt=ROLE_W.get(role,0.4)
                 if sf.get('universal'): s+=0.3; why.append("нейтрал+0.3")
@@ -550,7 +550,7 @@ for bi,band in enumerate(COMP['bands']):
         if style_name:  # взвешенный стиль-фит сета: визуальный вес = роль × площадь (просьба владельца)
             num=den=0.0
             for r,it in chosen.items():
-                c=SS.get(emb_key(it['mid'],it['eid'])) or EB.style_scores(it['mid'],it['eid'])
+                c=EB.style_scores(it['mid'],it['eid']) or SS.get(emb_key(it['mid'],it['eid']))
                 if not c: continue
                 w=ROLE_W.get(r,ROLE_W.get(r.replace(' 2',''),0.3))*max(it.get('fp') or 0.16,0.05)
                 num+=(5.5 if c.get('universal') else c[style_name])*w; den+=w
