@@ -24,12 +24,14 @@ open-plan кухня-гостиная, эркеры) — план [[layout-polyg
 backtracking 26–30 м². Спека `../guides/layout-engine-spec.md`; добытые правила —
 `../guides/layout-mined-rules.md` (при конфликте канон наш).
 
-**Зоны-first (08.08, ADR-0074, [[MASTER-zones-first]]):** `services/planner-solver/planner/zones.py` — usable-площадь
-(контур − swing − радиаторы − входной резерв), выбор посадочной группы по `services/planner-solver/rules/zones.json`
-(10 групп, reference-футпринты), `solve_zoned`; финальный отбор ЛЕКСИКОГРАФИЧЕСКИ
-(hard→циркуляция→функция→зоны→эстетика — эстетика не компенсирует проход). Hard — только физика,
-числа soft. 73 теста: антипаттерны Q2/Q3/Q6 + 3 Э8-контура (эркер/пилоны/трапеция).
-Приёмка — 252 фикс-сцены (`acceptance_run.py`, A/B beam/zoned, jsonl-resume, ENGINE=zoned).
+**Зонный — боевой дефолт (08.08, ADR-0075):** приёмка 252 фикс-сцены — zoned 239/252 vs beam
+119/252, 0 сцен хуже; экземпляры ролей («кресло 2»/«диван 2»/«стул N») — полноправны
+(`base_role`, qty из сета в FLOOR); W-правки аудита: severity-реестр+тест, столик 36–46 фикс,
+ТВ от диагонали тумбы, size-bands→приоры, pair_symmetry (S2).
+**Зоны-first (ADR-0074):** `services/planner-solver/planner/zones.py` — usable-площадь, группа по
+`services/planner-solver/rules/zones.json`, `solve_zoned`, ЛЕКСИКОГРАФИЧЕСКИЙ отбор (hard→циркуляция→функция→зоны→
+эстетика). Hard — только физика. Тесты: Q-антипаттерны + 3 Э8-контура; приёмка — 252 фикс-сцены
+(`acceptance_run.py`, jsonl-resume).
 **А3/А5 (06.08, [[MASTER-pipeline-hardening]]):** beam — дефолт; SOFT-термы и порог «глупости»
 DUMB_T=12; пуф-пороги в ядре; 117/126. Остаток: backtracking 26–30 ([[layout-engine-gaps]]).
 

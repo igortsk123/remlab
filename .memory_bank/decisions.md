@@ -1157,3 +1157,23 @@ zoned; (6) зонная семантика в промпт генератора 
 **Влияет на.** `services/planner-solver/planner/{zones,beam}.py`, `services/planner-solver/rules/zones.json`,
 `tools/scout/{compose2.py,acceptance_scenes.py,acceptance_run.py,solver_run.py (ENGINE=zoned,
 SCENE_CONTOUR),viz_final.py,layout10_page.py,judge.py (ретрай 429/квота)}`.
+
+## [2026-08-08] Зонный солвер — боевой дефолт; экземпляры ролей; W-правки аудита — ADR-0075
+
+**Решение.** (1) Дефолт движка расстановки — `zoned` (`solver_run.py`; beam остаётся для A/B).
+Основание: приёмка на 252 фикс-сценах, оба движка на одних Z4-составах — zoned 239/252 чистых
+против beam 119/252, ни одной сцены хуже; эркер/пилоны 20–21/21 против 4–12/21.
+(2) Ядро понимает ЭКЗЕМПЛЯРЫ ролей («кресло 2», «диван 2», «стул 2–4»): `base_role()` в
+`services/planner-solver/planner/geometry.py`, нормализация в candidates/beam/validate;
+solver_run передаёт qty>1 и «диван 2» в FLOOR (раньше пары молча терялись). (3) W-правки
+аудита: severity-реестр `services/planner-solver/rules/severity.json` (классы H0/H1/S1/S2 + тест-инвариант
+`test_severity_registry`); диван↔столик — фикс-эргономика 36–46/32–50 БЕЗ зависимости от площади
+(SOFA_TABLE_COMFORT S1); ТВ-дистанция от оценённой диагонали (экран ≈ 70% ширины тумбы / 0.872),
+area-шкала — фолбэк; size-bands — приоритет со штрафом −1.5, не отсев SKU; pair_symmetry (S2) в
+скоринге; articulation-зоны признаны уже реализованными (clearances: фасады 50–80, ящик 76).
+
+**Почему.** Аудит советника 08.08 (принят выборочно: 3 «P0» оказались уже реализованными — судил
+по выгрузке с пустой жёсткостью); вердикты владельца по десятке; приёмочные цифры.
+
+**Влияет на.** `solver_run.py` (ENGINE default), `planner/{geometry,candidates,beam,validate,score,zones}.py`,
+`services/planner-solver/rules/{severity,occupancy,weights}.json`, `compose2.py` (W3), `rules_export.py` (--referee).
