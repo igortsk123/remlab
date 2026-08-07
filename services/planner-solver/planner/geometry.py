@@ -220,7 +220,8 @@ def free_space(room: Room, placements: list[Placement], *, with_clearance: bool 
     poly = room_polygon(room)
     blockers = static_blockers(room)
     for p in placements:
-        skip_access = p.role in ignore_access_of
+        # экземпляры («стул 2») — члены той же группы, что и базовая роль
+        skip_access = p.role in ignore_access_of or base_role(p.role) in ignore_access_of
         blockers.append(footprint(p) if (not with_clearance or skip_access) else blocked_footprint(p))
     if blockers:
         poly = poly.difference(unary_union(blockers))

@@ -541,6 +541,20 @@ for bi,band in enumerate(COMP['bands']):
             chosen[role]=dict(it,qty=q); alts[role]=[{k:a[k] for k in ('mid','eid','name','price','score')} for a in top[1:]]
             if role in _EXTRA_ROLES: _extras_left-=1
             ctx['used_shops'].add(it['shop']); floor_fp+=add
+            # A2 (исследование рефери 08.08): приставной = subtype узкого столика (роли-SKU в
+            # каталоге нет); ставим, когда его требует/допускает посадочная группа — поверхность
+            # у кресел (H&G: every seat needs a surface; одна обслуживает соседние места)
+            if role=='кресло' and ('приставной' in _zreq or 'приставной' in _zopt) \
+                    and 'приставной' not in chosen:
+                _side=pick2('столик',m2,(0.02,0.6),tier,pair,ctx,soft=True) or []
+                _mid0=(chosen.get('столик') or {}).get('mid')
+                _side=[t for t in _side if (t.get('w') or t.get('dia') or 99)<=55
+                       and t.get('mid')!=_mid0]
+                if _side and floor_fp+(_side[0]['fp'] or 0.09)<=m2*cap_hi/100:
+                    chosen['приставной']=dict(_side[0],qty=1)
+                    floor_fp+=(_side[0]['fp'] or 0.09)
+                else:
+                    print("  A2: узкого столика (≤55 см) под приставной нет — группа без него")
             # якорь и капсула сета — от первых выбранных
             if role=='диван':
                 ctx['sofa_key']=emb_key(it['mid'],it['eid']); ctx['sofa_w']=it['w']; ctx['sofa_h']=it['h']
@@ -655,6 +669,16 @@ for bi,band in enumerate(COMP['bands']):
             lu2=[it for it in lu if plo<=it['price']<=phi] or lu
             lu3=[it for it in lu2 if not it.get('metal') or not ctx['metal'] or it['metal']==ctx['metal']] or lu2
             chosen['люстра']=dict(lu3[len(lu3)//2],qty=1)
+        # A4 (исследование рефери 08.08): картина над диваном — focal-альтернатива ТВ; числа
+        # из occupancy (wall_art_vs_sofa_width_pct 60–70, центр 145–160). Категории картин
+        # включены в category-roles (роль появится в cat после следующей загрузки каталога).
+        _sw=ctx.get('sofa_w') or 0
+        _art=[it for it in cat.get('картина',[]) if it.get('w') and _sw
+              and 0.5*_sw<=it['w']<=0.7*_sw]
+        _art=[it for it in _art if overlap_ok(emb_key(it['mid'],it['eid']),style_name,chosen,
+                                              role='картина',tier=tier)]
+        if _art:
+            chosen['картина']=dict(_art[len(_art)//2],qty=1)
         # Ф3: подушки — ДВЕ РАЗНЫЕ (акцент №1 и акцент №2/нейтраль); плед/ваза/лампа/растение
         p1=pick2('подушка',m2,(0.1,3),tier,pair,ctx,soft=True,color_goal='accent_'+pair[0])
         if p1: chosen['подушка']=dict(p1[0],qty=1)  # СРАЗУ в сет: иначе п2 не видит п1 в лимите разнообразия

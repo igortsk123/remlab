@@ -92,14 +92,24 @@ def check_radiators(room: Room, ps: list[Placement]) -> list[Violation]:
 
 
 def check_access(ps: list[Placement]) -> list[Violation]:
-    """Функциональная зона (подход/ноги/фасады) не должна быть занята другим предметом."""
+    """Функциональная зона (подход/ноги/фасады) не должна быть занята другим предметом.
+
+    Члены ОДНОЙ функциональной группы (стол↔стулья, диван↔кресло/пуф) зоны друг друга не
+    блокируют (ProcTHOR asset-group; тот же принцип в candidates.free_space). Без этого
+    обеденная группа была геометрически невозможна: стул обязан ≤40 см (CHAIR_ORPHAN), но
+    ближе 55 попадал в «отодвинуть стул» стола → ACCESS_BLOCKED (найдено 08.08)."""
+    from .candidates import group_of
+    from .geometry import base_role as _brole
     out = []
     for a in ps:
         zone = access_zone(a)
         if zone.is_empty:
             continue
+        ga = group_of(a.role)
         for b in ps:
             if b is a or b.role in NEVER_BLOCKING_ROLES:
+                continue
+            if _brole(b.role) in ga:
                 continue
             bh = (b.item.h_cm if b.item else None)
             if bh is not None and bh <= LOW_ITEM_MAX_H_CM:
@@ -382,9 +392,10 @@ def check_functional_zones(room: Room, ps: list[Placement]) -> list[Violation]:
 # «предметы расставляются не там, где функционально нужны, типа кашпо за диваном»).
 # Разрешено там только низкое хранение/консоль (check_behind_sofa) — посадка, столы и декор вон.
 # Камина в списке НЕТ (рефери 08.08 Q3): focal-behind ловится угловым чеком
-# FIREPLACE_FAR_FROM_SEATING (сектор 75°), а не полосой.
-DEAD_BEHIND_ROLES = ("кашпо", "торшер", "столик", "пуф", "кресло",
-                     "стол обеденный", "стул", "лампа", "ваза")
+# FIREPLACE_FAR_FROM_SEATING (сектор 75°), а не полосой. Обеденной группы (стол/стул) тоже
+# НЕТ (рефери 08.08: floating sofa — легитимный разделитель зон, dining за спинкой — норма
+# open-plan; стол в разговорной зоне ловит DINING_IN_LIVING_ZONE, проходы — циркуляция).
+DEAD_BEHIND_ROLES = ("кашпо", "торшер", "столик", "пуф", "кресло", "лампа", "ваза")
 
 # Боковой запас локальной полосы: покрывает «торшер за плечом» (вердикт 07.08, сет 25),
 # но не запрещает легитимное использование дальних краёв комнаты (рефери 08.08 Q3:
@@ -680,6 +691,36 @@ def check_floor_cap(room: Room, ps: list[Placement]) -> list[Violation]:
     return []
 
 
+def check_service_surface(room: Room, ps: list[Placement]) -> list[Violation]:
+    """A1 (исследование рефери 08.08, H&G «every seat needs a surface» + Function2Scene
+    reach/activity_support): у каждого primary-места (диван, каждый экземпляр кресла) —
+    поверхность (столик/приставной/консоль) в досягаемости. Coverage-правило: одна поверхность
+    обслуживает соседние места; «каждому креслу свой стол» НЕ требуется. Параметры —
+    zones.json group_scheme.service_surface."""
+    from .zones import zone_rules
+
+    ss = zone_rules().get("group_scheme", {}).get("service_surface", {})
+    if not ss:
+        return []
+    reach = float(ss.get("reach_cm", 75))
+    surf_roles = set(ss.get("surface_roles", ["столик", "приставной"]))
+    surfaces = [footprint(p) for p in ps
+                if p.role in surf_roles or p.role.split(' ')[0] in surf_roles]
+    if not surfaces:
+        surfaces = []
+    out = []
+    for p in ps:
+        base = p.role.split(' ')[0]
+        if base not in ("диван", "кресло"):
+            continue
+        fp = footprint(p)
+        if not any(fp.distance(s) <= reach for s in surfaces):
+            out.append(_v("SERVICE_SURFACE",
+                          f"у «{p.role}» нет поверхности в {reach:.0f} см — напиток ставить некуда",
+                          [p.role], None, f"столик/приставной в ≤{reach:.0f} см", Severity.SOFT))
+    return out
+
+
 def check_fireplace_seating(room: Room, ps: list[Placement]) -> list[Violation]:
     """Вердикт владельца 08.08 (set91: камин в 520 см по диагонали — странно) + рефери Q6:
     S1-prior, не канон — камин в вилке 200–450 см от главной посадки и в поле зрения (≤75°
@@ -772,6 +813,7 @@ def validate(room: Room, placements: list[Placement], *, passage: str = "seconda
     vs += check_floor_cap(room, placements)
     vs += check_fireplace_seating(room, placements)
     vs += check_window_sofa(room, placements)
+    vs += check_service_surface(room, placements)
     from .geometry import floor_used_pct
 
     return Layout(room=room, placements=placements, violations=vs,

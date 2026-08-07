@@ -236,7 +236,47 @@
    "task_for": "чтение"
   },
   "floating_allowed": true,
-  "floating_note": "в просторных комнатах группа отрывается от стен (пустой центр — штраф); в малых диван у стены — ок; диван спинкой к проходу — легальный разделитель зон"
+  "floating_note": "в просторных комнатах группа отрывается от стен (пустой центр — штраф); в малых диван у стены — ок; диван спинкой к проходу — легальный разделитель зон",
+  "service_surface": {
+   "rule": "every_primary_seat_reachable",
+   "severity": "S1",
+   "reach_cm": 75,
+   "surface_roles": [
+    "столик",
+    "приставной",
+    "консоль"
+   ],
+   "can_serve_multiple_adjacent_seats": true,
+   "_source": "external:H&G every-seat-needs-a-surface + Function2Scene reach/activity_support (A1, исследование рефери 08.08)"
+  },
+  "side_table": {
+   "seat_gap_cm_preferred": [
+    5,
+    10
+   ],
+   "top_vs_arm_cm_preferred": [
+    -5,
+    5
+   ],
+   "subtype_of": "столик",
+   "max_w_cm": 55,
+   "_source": "external:H&G living-room clearances guide (5-10 см от дивана, столешница ±5 см от подлокотника)"
+  },
+  "console": {
+   "subtype_of": "комод",
+   "max_d_cm": 40,
+   "placement_modes": [
+    "behind_floating_sofa",
+    "wall_console"
+   ],
+   "height_not_above_sofa_back": true,
+   "length_vs_sofa_soft": [
+    0.5,
+    0.75
+   ],
+   "route_after_console_required": true,
+   "_source": "external:BHG what-is-a-sofa-table + H&G styling-the-back-of-the-sofa (A3; внедрение — после появления subtype-тегинга комодов)"
+  }
  },
  "zones": {
   "seating_media": {

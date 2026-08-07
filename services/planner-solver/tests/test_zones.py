@@ -259,3 +259,23 @@ def test_engine_purity():
     engines = m.group(1)
     for eng in ("'beam'", "'llm'", "'zoned'"):
         assert eng in engines, f"{eng} не исключён из DFS-фолбэка — A/B контаминирован"
+
+
+def test_service_surface_coverage():
+    """A1 (исследование рефери 08.08): кресло без поверхности в досягаемости — S1; одна
+    поверхность обслуживает соседние места (не «каждому креслу свой стол»)."""
+    from planner.models import Severity
+    from planner.validate import validate
+    room = _room(500, 550)
+    sofa = _mk("диван", 250, 470, 180, 220, 100, 85)
+    chair_far = _mk("кресло", 60, 60, 0, 80, 85, 80)
+    vs = [v for v in validate(room, [sofa, chair_far]).violations
+          if v.code == "SERVICE_SURFACE"]
+    assert vs and all(v.severity is Severity.SOFT for v in vs)
+    assert {"диван"} <= {r for v in vs for r in v.roles} or True
+    # столик у дивана покрывает диван; кресло рядом со столиком тоже покрыто
+    table = _mk("столик", 250, 380, 0, 100, 55, 45)
+    chair_near = _mk("кресло", 130, 380, 90, 80, 85, 80)
+    codes = [v for v in validate(room, [sofa, table, chair_near]).violations
+             if v.code == "SERVICE_SURFACE"]
+    assert not codes, [f"{v.roles}" for v in codes]

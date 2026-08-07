@@ -155,6 +155,10 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
     """Позиции относительно уже поставленных якорей — перенос зона-билдера (ADR-0050/0051)."""
     by = {p.role: p for p in placed}
     role = item.role
+    # Экземпляры ролей («стул 2», «пуф 2») обязаны получать ТЕ ЖЕ якорные позиции, что и
+    # базовая роль: сравнение по точному имени оставляло «стул 2..4» без мест у стола —
+    # обеденная группа массово гибла на «минимум 2 стула» (вердикт владельца 08.08)
+    rb = base_role(role)
     out: list[Candidate] = []
 
     def seat_center(anchor: Placement) -> tuple[float, float]:
@@ -192,7 +196,7 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
             from .geometry import seating_front_offset
             off = gap + _half_along(tfp, fx, fy) + seating_front_offset(item)
             add(tv.x + fx * off, tv.y + fy * off, rot, f"напротив ТВ, {gap:.0f} см")
-    if role == "тв-тумба" and sofa is not None:
+    if rb == "тв-тумба" and sofa is not None:
         lo, hi = band_scale("sofa_tv_cm", room.band, distances().get("sofa_tv_cm", [180, 300]))
         fx, fy = _face_dir(sofa.rot)
         sfp = footprint(sofa)
@@ -203,7 +207,7 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
             cx = scx + fx * (gap + _half_along(sfp, fx, fy) + d / 2)
             cy = scy + fy * (gap + _half_along(sfp, fx, fy) + d / 2)
             add(cx, cy, (sofa.rot + 180) % 360, f"напротив дивана, {gap:.0f} см")
-    if role == "столик" and sofa is not None:
+    if rb == "столик" and sofa is not None:
         lo, hi = band_scale("sofa_table_cm", room.band, distances().get("sofa_coffee_table", [36, 50]))
         fx, fy = _face_dir(sofa.rot)
         sfp = footprint(sofa)
@@ -214,7 +218,7 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
             add(scx + fx * off, scy + fy * off, sofa.rot, f"перед диваном, {gap:.0f} см")
     if base_role(role) == "кресло" and sofa is not None:
         out += _arc_candidates(room, item, by, free, sofa)
-    if role == "пуф" and ("столик" in by or sofa is not None):
+    if rb == "пуф" and ("столик" in by or sofa is not None):
         anchor = by.get("столик") or sofa
         # каноничное место — ЗА столиком (столик между диваном и пуфом): продолжение оси
         # диван→столик; плюс сбоку от столика вне оси просмотра
@@ -242,7 +246,7 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
             for gap in (25.0, 45.0):
                 add(anchor.x + fx * (gap + ahalf + ihalf), anchor.y + fy * (gap + ahalf + ihalf),
                     rot_i, f"сбоку от столика, {gap:.0f} см")
-    if role == "кашпо":
+    if rb == "кашпо":
         # Функциональные места декора (вердикт владельца 2026-08-07: «кашпо за диваном» — брак):
         # у окна, сбоку от ТВ-тумбы, у кресла — ВИДИМЫЕ точки зоны, не мёртвые углы.
         half = max(item.w_cm, item.d_cm) / 2
@@ -267,7 +271,7 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
             ax0, ay0, ax1, ay1 = afp.bounds
             for cx, cy in ((ax0 - 16 - half, (ay0 + ay1) / 2), (ax1 + 16 + half, (ay0 + ay1) / 2)):
                 add(cx, cy, 0, "у кресла")
-    if role == "торшер":
+    if rb == "торшер":
         for anchor in (by.get("кресло"), sofa):
             if anchor is None:
                 continue
@@ -276,12 +280,19 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
             for cx, cy in ((x0 - 20 - item.w_cm / 2, y0 + item.d_cm / 2),
                            (x1 + 20 + item.w_cm / 2, y0 + item.d_cm / 2)):
                 add(cx, cy, anchor.rot, f"у «{anchor.role}»")
-    if role == "стул" and "стол обеденный" in by:
+    if rb == "стул" and "стол обеденный" in by:
+        # Стул К КРОМКЕ стола (+2 см), не «под стол» (−8 давал пересечение футпринтов — _fits
+        # браковал ВСЕ якоря, стулья массово не вставали). Длинная сторона даёт ДВА места
+        # симметрично от центра — стулья выровнены по сторонам (вердикт владельца 08.08).
         t = by["стол обеденный"]
         tw, td = _dims_for_rot(t.item, t.rot)
         for dx, dy, rot in ((0, -1, 0), (0, 1, 180), (-1, 0, 90), (1, 0, 270)):
-            add(t.x + dx * (tw / 2 + item.d_cm / 2 - 8), t.y + dy * (td / 2 + item.d_cm / 2 - 8),
-                rot, "у обеденного стола")
+            side = tw if dy else td
+            offs = (-side / 4, side / 4) if side >= 2 * (item.w_cm + 10) else (0.0,)
+            for o in offs:
+                cx = t.x + dx * (tw / 2 + item.d_cm / 2 + 2) + (o if dy else 0.0)
+                cy = t.y + dy * (td / 2 + item.d_cm / 2 + 2) + (0.0 if dy else o)
+                add(cx, cy, rot, "у обеденного стола")
     return out
 
 
@@ -339,6 +350,7 @@ ZONE_GROUP = GROUPS[0]
 
 
 def group_of(role: str) -> frozenset[str]:
+    role = base_role(role)   # «стул 2..4»/«кресло 2» — члены той же группы, что и базовая роль
     for g in GROUPS:
         if role in g:
             return g

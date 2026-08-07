@@ -90,7 +90,11 @@ DEFAULT_MIDDLE = ClearanceSpec(35, 35, 35, "ProcTHOR: предмет вне ст
 
 
 def clearance_for(role: str) -> ClearanceSpec:
-    return _table().get(role, ClearanceSpec(35, 0, 0, "дефолт: подход спереди"))
+    from .geometry import base_role
+    # «стул 2..4»/«кресло 2» — те же клиренсы, что у базовой роли (иначе экземпляр получал
+    # дефолт 35 вместо, например, chair pullout 55)
+    return _table().get(base_role(role)) or _table().get(role) or \
+        ClearanceSpec(35, 0, 0, "дефолт: подход спереди")
 
 
 def passage_min_cm(kind: str = "secondary") -> float:

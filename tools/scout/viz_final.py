@@ -74,6 +74,11 @@ def zones_brief(n: int) -> str:
         parts.append('size the TV from the viewing distance (screen diagonal is roughly the '
                      'sofa-to-TV distance divided by 1.6), and keep the screen 70–90% of the '
                      'TV stand width — never wider than the stand')
+    if 'картина' in roles:
+        # A4 (исследование рефери 08.08): wall art — semantic-элемент со своими правилами
+        parts.append('the wall art hangs centered above the sofa: its width is 50–70% of the '
+                     'sofa width, its centre is 145–160 cm above the floor, and its bottom edge '
+                     'sits 10–20 cm above the sofa back')
     if not parts:
         return ''
     return ('FUNCTIONAL ZONES (context only — never move items): '
