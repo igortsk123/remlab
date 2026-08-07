@@ -9,9 +9,12 @@ set -u
 cd "$(dirname "$0")"
 PY="$HOME/venvs/scout/bin/python"
 [ -s enrich-batch-id.txt ] || { echo "активного пакета нет — ждать нечего"; exit 0; }
-# Гейт старше 26 ч = пакет истёк или застрял — алерт сразу, не ждём ещё сутки (T0, урок 203)
+# Гейт старше 26 ч = пакет истёк или застрял (окно Batch API — 24 ч): алерт и ВЫХОД с
+# ошибкой — опрашивать труп бессмысленно, id остаются человеку (T0, урок 203; verify-фикс:
+# план требует FAIL, а не только алерт)
 if [ -n "$(find enrich-batch-id.txt -mmin +1560 2>/dev/null)" ]; then
   bash alert.sh "remlab: enrich-batch-id.txt старше 26 ч — гейт заклинен, нужен человек"
+  exit 1
 fi
 CRASHES=0
 for i in $(seq 1 288); do

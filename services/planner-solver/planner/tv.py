@@ -2,7 +2,9 @@
 
 До этого жили две логики с разным направлением причинности: валидатор выводил диагональ из
 ширины тумбы, а промпт генератора считал distance-first (diag ≈ дистанция/1.6, clamp по
-тумбе). Здесь — единый канон, который зовут candidates, validate, scene_build и viz_final:
+тумбе). Здесь — единый канон; его зовут candidates (позиции диван↔ТВ), score (терм
+sofa_tv_dist), validate (SOFA_TV_DIST) и viz_final (prompt_brief). Вне канона — только
+legacy-фолбэк узкой тумбы (<60 см, area-шкала) и старый DFS-путь solver_run:
 
   1. viewing distance (диван↔ТВ) — первичен: диагональ = дистанция / PREFERRED_DIAG
      (FOV ≈ 30°, RTINGS/SMPTE);

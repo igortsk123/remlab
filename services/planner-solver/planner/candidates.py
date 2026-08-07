@@ -185,8 +185,14 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
     sofa = by.get("диван")
     tv = by.get("тв-тумба")
     if base_role(role) == "диван" and tv is not None:
-        # диван напротив ТВ: ось зоны задана тумбой, дистанция — по шкале площади
-        lo, hi = band_scale("sofa_tv_cm", room.band, distances().get("sofa_tv_cm", [180, 300]))
+        # диван напротив ТВ: ось зоны задана тумбой; дистанция — КАНОНИЧЕСКАЯ ТВ-функция
+        # (verify T6: генератор обязан предлагать то, что validate примет — рефери §23);
+        # узкая тумба <60 см — legacy area-шкала, как и в validate
+        if (tv.item.w_cm or 0) >= 60:
+            from .tv import distance_range
+            lo, hi, _ = distance_range(tv.item.w_cm)
+        else:
+            lo, hi = band_scale("sofa_tv_cm", room.band, distances().get("sofa_tv_cm", [180, 300]))
         fx, fy = _face_dir(tv.rot)
         tfp = footprint(tv)
         rot = (tv.rot + 180) % 360
@@ -197,7 +203,11 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
             off = gap + _half_along(tfp, fx, fy) + seating_front_offset(item)
             add(tv.x + fx * off, tv.y + fy * off, rot, f"напротив ТВ, {gap:.0f} см")
     if rb == "тв-тумба" and sofa is not None:
-        lo, hi = band_scale("sofa_tv_cm", room.band, distances().get("sofa_tv_cm", [180, 300]))
+        if (item.w_cm or 0) >= 60:
+            from .tv import distance_range
+            lo, hi, _ = distance_range(item.w_cm)
+        else:
+            lo, hi = band_scale("sofa_tv_cm", room.band, distances().get("sofa_tv_cm", [180, 300]))
         fx, fy = _face_dir(sofa.rot)
         sfp = footprint(sofa)
         for frac in (0.35, 0.5, 0.75):

@@ -512,7 +512,8 @@ def check_sofa_sliver(room: Room, ps: list[Placement]) -> list[Violation]:
     return []
 
 
-_ROOM_BAND = [None]      # текущий бэнд для проверок зоны (ставится в validate)
+_ROOM_BAND = [None]      # текущий бэнд; ставится в beam.solve (T6: лениво в validate —
+                         # заражение следующей сцены процесса, урок 206) и дублируется в validate()
 
 
 def check_zone(ps: list[Placement]) -> list[Violation]:

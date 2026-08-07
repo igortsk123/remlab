@@ -96,7 +96,12 @@ def score_layout(room: Room, ps: list[Placement], *, fast: bool = False) -> Scor
     s.add("floor_overfill", hinge(used, 0, cap_hi, scale=10.0), w["floor_fill"])
     # 2) зона: диван↔ТВ, диван↔столик — по нашим шкалам
     if "диван" in by and "тв-тумба" in by:
-        lo, hi = band_scale("sofa_tv_cm", room.band, distances().get("sofa_tv_cm", [180, 300]))
+        stand_w = by["тв-тумба"].item.w_cm or 0
+        if stand_w >= 60:   # каноническая ТВ-функция (T6/verify); узкая тумба — legacy-шкала
+            from .tv import distance_range
+            lo, hi, _ = distance_range(stand_w)
+        else:
+            lo, hi = band_scale("sofa_tv_cm", room.band, distances().get("sofa_tv_cm", [180, 300]))
         g = footprint(by["диван"]).distance(footprint(by["тв-тумба"]))
         s.add("sofa_tv_dist", hinge(g, lo, hi), w["sofa_tv_dist"])
         s.add("sofa_faces_tv", focus_score(by["диван"], by["тв-тумба"]), w["sofa_faces_tv"])
