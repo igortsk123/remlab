@@ -151,8 +151,9 @@ def save(rows: list[tuple[dict, dict, dict]], model: str = MODEL, vision: bool =
     if not rows:
         return
     old = {}
-    if vision:
-        keys = ','.join(f"({it['mid']},'{it['eid']}')" for it, _, _ in rows)
+    legacy = [r for r in rows if len(r) == 3]
+    if vision and legacy:
+        keys = ','.join(f"({it['mid']},'{it['eid']}')" for it, _, _ in legacy)
         for line in sql(f"""select shop_mid, external_id, payload->'model'
                             from product_enrichment
                            where (shop_mid, external_id) in ({keys})""").strip().split('\n'):
@@ -160,8 +161,20 @@ def save(rows: list[tuple[dict, dict, dict]], model: str = MODEL, vision: bool =
             if len(f) >= 3 and f[2]:
                 old[f'{f[0]}:{f[1]}'] = json.loads(f[2])
     vals = []
-    for it, r0, m in rows:
-        if vision:
+    for row in rows:
+        if len(row) == 4:
+            # T2: явная пара (текст-ответ + vision-ответ из ОДНОГО пакета) — слияние не
+            # зависит от того, был ли товар обогащён текстом когда-то раньше
+            it, r0, base, mv = row
+            merged = dict(base)
+            for fld in VISION_FIELDS:
+                if fld in mv:
+                    merged[fld] = mv[fld]
+            payload = json.dumps({'rules': r0, 'model': merged, 'model_text': base,
+                                  'model_vision': mv, 'flags': flags(r0)}, ensure_ascii=False)
+            m = merged
+        elif vision:
+            it, r0, m = row
             base = dict(old.get(f'{it["mid"]}:{it["eid"]}') or m)
             merged = dict(base)
             for fld in VISION_FIELDS:
@@ -171,6 +184,7 @@ def save(rows: list[tuple[dict, dict, dict]], model: str = MODEL, vision: bool =
                                   'model_vision': m, 'flags': flags(r0)}, ensure_ascii=False)
             m = merged
         else:
+            it, r0, m = row
             payload = json.dumps({'rules': r0, 'model': m, 'flags': flags(r0)}, ensure_ascii=False)
         payload = payload.replace("'", "''")
         vals.append(f"({it['mid']},'{it['eid']}','{payload}'::jsonb,{quality(r0, m)})")
@@ -294,10 +308,27 @@ def run_batch(items: list[dict]) -> None:
         if got < len(items) * 0.9:
             print('  СТОП: картинок меньше 90% — прогон вслепую не отправляю', flush=True)
             sys.exit(1)
-    lines = [json.dumps({'custom_id': f'{it["mid"]}:{it["eid"]}', 'method': 'POST',
-                         'url': '/v1/chat/completions', 'body': body_for(it, MODEL, vision)},
-                        ensure_ascii=False) for it in items]
-    step = CHUNK_VISION if vision else CHUNK
+    # T2 truth-first (фикс слияния): в vision-режиме шлём ПАРУ запросов на товар — текстовый
+    # (#t) и с фото (#v). Раньше слияние опиралось на УЖЕ лежащий в БД текстовый payload,
+    # а ежедневный конвейер шлёт новинкам только vision → base оказывался vision-ответом и
+    # model_text == model_vision (дефект пойман на полном прогоне, признан в аудите рефери §6).
+    # Пары держим соседними строками; чанк чётный — пара не рвётся между частями пакета.
+    if vision:
+        lines = []
+        for it in items:
+            cid = f'{it["mid"]}:{it["eid"]}'
+            lines.append(json.dumps({'custom_id': cid + '#t', 'method': 'POST',
+                                     'url': '/v1/chat/completions',
+                                     'body': body_for(it, MODEL, False)}, ensure_ascii=False))
+            lines.append(json.dumps({'custom_id': cid + '#v', 'method': 'POST',
+                                     'url': '/v1/chat/completions',
+                                     'body': body_for(it, MODEL, True)}, ensure_ascii=False))
+        step = CHUNK_VISION if CHUNK_VISION % 2 == 0 else CHUNK_VISION - 1
+    else:
+        lines = [json.dumps({'custom_id': f'{it["mid"]}:{it["eid"]}', 'method': 'POST',
+                             'url': '/v1/chat/completions', 'body': body_for(it, MODEL, vision)},
+                            ensure_ascii=False) for it in items]
+        step = CHUNK
     ids = []
     for i in range(0, len(lines), step):
         ids.append(_submit(lines[i:i + step], key, str(i // step + 1)))
@@ -334,10 +365,13 @@ def fetch(batch_id: str, items: dict | None = None) -> None:
     # записана, либо посчитана в конкретной графе потерь — молчаливых continue нет.
     n = {'lines': 0, 'saved': 0, 'err': 0, 'refusal': 0, 'parse': 0, 'not_in_pool': 0}
     got = []
+    pairs: dict[str, dict] = {}   # T2: парный режим — custom_id вида mid:eid#t / mid:eid#v
     for line in out.strip().split('\n'):
         r = json.loads(line)
         n['lines'] += 1
-        it = items.get(r['custom_id'])
+        cid = r['custom_id']
+        base_id, _, ptype = cid.partition('#')
+        it = items.get(base_id)
         if not it:
             n['not_in_pool'] += 1
             continue
@@ -349,15 +383,34 @@ def fetch(batch_id: str, items: dict | None = None) -> None:
             n['refusal'] += 1
             continue
         try:
-            got.append((it, extract(it), json.loads(msg['content'])))
+            parsed = json.loads(msg['content'])
         except json.JSONDecodeError:
             n['parse'] += 1
             continue
         n['saved'] += 1
+        if ptype:                      # парный режим: копим до полной пары
+            pairs.setdefault(base_id, {'it': it})[ptype] = parsed
+        else:
+            got.append((it, extract(it), parsed))
         if len(got) >= 2000:
             save(got, MODEL, mode_vision)
             got = []
     save(got, MODEL, mode_vision)
+    if pairs:
+        full, half = [], []
+        for d in pairs.values():
+            it = d['it']
+            if 't' in d and 'v' in d:
+                full.append((it, extract(it), d['t'], d['v']))
+            elif 'v' in d:             # текстовая половина потерялась — старый путь (base из БД)
+                half.append((it, extract(it), d['v']))
+            elif 't' in d:
+                half.append((it, extract(it), d['t']))
+        for i in range(0, len(full), 2000):
+            save(full[i:i + 2000], MODEL, True)
+        if half:
+            print(f'  неполных пар: {len(half)} — сохранены одиночным путём')
+            save(half, MODEL, mode_vision)
     lost = n['lines'] - n['saved']
     print(f"записано {n['saved']} из {n['lines']} (ошибок {n['err']}, отказов {n['refusal']}, "
           f"не разобрано {n['parse']}, вне пула {n['not_in_pool']})")
