@@ -106,4 +106,10 @@ step metrics "$PY" sync_metrics.py
 # (требование владельца 2026-08-07: никаких ручных сборок). Набор сетов — референсная десятка.
 step layout_page env LAYOUT10_PUBLISH=1 "$PY" layout10_page.py 1 14 21 29 55 59 66 84 113 117
 
+# 8. ЕЖЕНЕДЕЛЬНО (понедельник): полный перегон размещаемости всех сетов — решение владельца
+# 2026-08-07 («прогон по остаткам раз в неделю достаточно»). Отчёт: solver-check-report.json.
+if [ "$(date +%u)" = "1" ]; then
+  step solver_full env CHECK_TAG=weekly "$PY" solver_check.py
+fi
+
 echo "$today" > "$STAMP"
