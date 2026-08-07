@@ -21,7 +21,7 @@ last_verified: 2026-08-04
   mem app 1G / pg 1G / caddy 128M (ADR-0004).
 - Статик без пересборки (Caddyfile `handle_path`): `/test/*` → `/opt/remlab/test` (страницы проверок
   владельцу, browse+noindex), `/lab/*` → `/opt/remlab/temp`. ⚠ Caddy читает их через bind
-  `./test:/srv/test:ro` в compose (добавлен 2026-08-07: блок в Caddyfile существовал с 04.08,
+  `./test:/srv/test:ro` в РЕПОЗИТОРНОМ compose (2026-08-07; правка только на сервере затиралась CI-деплоем за час — блок в Caddyfile существовал с 04.08,
   а том не был примонтирован — весь /test/ отдавал 404, никто не заметил). Бэкапы compose —
   `docker-compose.yml.bak.*` там же. Страница расстановок публикуется КОНВЕЙЕРОМ:
   `layout10_page.py --publish` (шаг `layout_page` в `refresh_daily.sh`).

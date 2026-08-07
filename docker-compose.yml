@@ -12,6 +12,10 @@ services:
       - "443:443/udp"   # HTTP/3
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # страницы проверок владельцу: Caddyfile отдаёт /test/* из /srv/test. Том обязан жить
+      # ЗДЕСЬ (в репо): правка только на сервере затиралась CI-деплоем, и /test/ падал в 404
+      # (2026-08-04 блок добавили без тома; 2026-08-07 том добавили на сервере — затёрло за час)
+      - ./test:/srv/test:ro
       - caddy-data:/data
       - caddy-config:/config
     networks: [remlab-net]
