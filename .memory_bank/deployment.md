@@ -20,11 +20,9 @@ last_verified: 2026-08-04
   НЕ `next start`), `remlab-caddy` (:443), `remlab-db` (pgvector:pg17), `remlab-imagor`, `traces-init`.
   mem app 1G / pg 1G / caddy 128M (ADR-0004).
 - Статик без пересборки (Caddyfile `handle_path`): `/test/*` → `/opt/remlab/test` (страницы проверок
-  владельцу, browse+noindex), `/lab/*` → `/opt/remlab/temp`. ⚠ Caddy читает их через bind
-  `./test:/srv/test:ro` в РЕПОЗИТОРНОМ compose (2026-08-07; правка только на сервере затиралась CI-деплоем за час — блок в Caddyfile существовал с 04.08,
-  а том не был примонтирован — весь /test/ отдавал 404, никто не заметил). Бэкапы compose —
-  `docker-compose.yml.bak.*` там же. Страница расстановок публикуется КОНВЕЙЕРОМ:
-  `layout10_page.py --publish` (шаг `layout_page` в `refresh_daily.sh`).
+  владельцу, browse+noindex), `/lab/*` → `/opt/remlab/temp`. ⚠ Bind `./test:/srv/test:ro`
+  живёт в РЕПОЗИТОРНОМ compose (серверные правки затирает CI-деплой — урок 07.08, дважды).
+  Публикация страниц — конвейером (`layout10_page.py --publish`, rsync).
 
 ## Сервер
 exit-fi 89.167.127.0 (Hetzner, Ubuntu 24.04, 2 vCPU/3.7G/38G), Docker+compose v2, рабдир `/opt/remlab`.

@@ -32,9 +32,14 @@ STYLE_PAIR={'сканди':('terra','green'),'современный':('blue','y
             'лофт':('terra','cyan'),'неоклассика':('blue','yellow'),'джапанди':('terra','green')}
 # --- Разнообразие сетов (правило владельца 2026-08-02): пересечение по товарам
 # между сетами РАЗНЫХ стилей ≤3, между вариантами ОДНОГО стиля ≤5 (попарно) ---
-BUILT=[]  # [(style, {keys})] — уже собранные сеты этого прогона
-def overlap_ok(cand_key,style,chosen):
-    """Лимит повторов между комплектами: не более 5 совпадений внутри стиля и 3 между стилями.
+BUILT=[]  # [(style, {keys}, {major_keys})] — уже собранные сеты этого прогона
+# «Лицо сета» — крупная мебель: между СТИЛЯМИ общая максимум 1 позиция, иначе стили визуально
+# сливаются даже при общем лимите 3 (владелец 2026-08-07: «чтоб не было — один стиль на другой
+# мебель половина похожа»); декор гуляет свободнее в рамках общего лимита
+MAJOR_ROLES={'диван','диван 2','кресло','столик','тв-тумба','стеллаж','витрина','стенка','комод','стол обеденный','камин'}
+def overlap_ok(cand_key,style,chosen,role=None):
+    """Лимит повторов между комплектами: ≤5 совпадений внутри стиля, ≤3 между стилями,
+    и КРУПНАЯ мебель между стилями — ≤1 (стили не должны делить «лицо» сета).
 
     Проверяем ТОЛЬКО того кандидата, который реально увеличивает пересечение. Раньше сумма
     считалась по всему набранному комплекту, и как только пересечение уже превышало лимит,
@@ -44,11 +49,15 @@ def overlap_ok(cand_key,style,chosen):
     """
     if not STYLE_MODE: return True
     cur={emb_key(it['mid'],it['eid']) for it in chosen.values()}
+    cur_major={emb_key(it['mid'],it['eid']) for r,it in chosen.items() if r in MAJOR_ROLES}
     if cand_key in cur: return True          # товар уже в комплекте — пересечение не растёт
-    for st,keys in BUILT:
+    is_major=role in MAJOR_ROLES if role else False
+    for st,keys,mkeys in BUILT:
         if cand_key not in keys: continue    # с этим комплектом кандидат ничего не повторяет
         lim=5 if st==style else 3
         if len(cur&keys)+1>lim: return False
+        if st!=style and is_major and cand_key in mkeys and len(cur_major&mkeys)+1>1:
+            return False                     # «лицо» другого стиля — уже занято
     return True
 # --- Ш1 set-quality-fixes: санитайзер габаритов -------------------------------------------
 # В фидах оси путаются (кашпо «80x40x50 см» приехало как Ш=40/Г=80) и встречается мусор
@@ -577,7 +586,7 @@ for bi,band in enumerate(COMP['bands']):
                 num+=(5.5 if c.get('universal') else c[style_name])*w; den+=w
             sfit_agg=round(num/max(den,1e-6),1)
         if STYLE_MODE:  # реестр для правила разнообразия следующих сетов
-            BUILT.append((style_name,{emb_key(it['mid'],it['eid']) for it in chosen.values()}))
+            BUILT.append((style_name,{emb_key(it['mid'],it['eid']) for it in chosen.values()},{emb_key(it['mid'],it['eid']) for r,it in chosen.items() if r in MAJOR_ROLES}))
         sets.append(dict(band=band['band'],m2=m2,tier=tier,pair=list(pair),gaps=gaps,
                          style=style_name,style_fit=sfit_agg,
                          capsule=dict(style=ctx['style'],wood=ctx['wood'],metal=ctx['metal'],
