@@ -29,7 +29,7 @@ draft → in_progress → completed → перенос в completed_plans/
 | layout-rules-v2 | МАСТЕР — система правил расстановки v2: функциональные зоны + priors из 18 804 сцен | in_progress | 2026-08-07 | 2026-08-07 |
 | layout-priors-from-datasets | Дизайнерские priors из датасетов (M3DLayout/3D-FRONT) → скоринг beam, ML только как ranker | in_progress | 2026-08-07 | 2026-08-07 |
 | layout-polygon-rooms | Э8 — нестандартные планировки: полигональный контур, открытые кухни-гостиные, эркеры | draft | 2026-08-07 | 2026-08-07 |
-| MASTER-zones-first | МАСТЕР — движок «зоны-first»: focal point, маршруты, seating group как система (Z0–Z5) | draft | 2026-08-07 | 2026-08-07 |
+| MASTER-zones-first | МАСТЕР — движок «зоны-first» (Z0–Z6): focal point, маршруты, посадочные группы, inventory-prior | draft | 2026-08-07 | 2026-08-07 |
 | MASTER-pipeline-hardening | МАСТЕР — усиление пайплайна по аудиту 06.08 (А0–А7) | in_progress | 2026-08-06 | 2026-08-06 |
 | sets-feasibility-first | Подбор сетов «сперва допустимость, потом красота» — геометрия в ограничения, оценка комплекта целиком | in_progress | 2026-08-05 | 2026-08-05 |
 | catalog-freshness-chain | К7 — цепочка свежести: фид → база → обогащение → комплекты | in_progress | 2026-08-05 | 2026-08-06 |

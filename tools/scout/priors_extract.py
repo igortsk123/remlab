@@ -148,6 +148,13 @@ def scene_metrics(objs: list[dict], poly: Polygon | None, ctx: str, H: dict) -> 
     # ко-присутствие и количества — сырьё для R3 (состав сетов по зонам)
     for role in TOP_ROLES:
         hist_add(H, f'count|{role}|{room}', len(by_role.get(role) or []), 1, 8)
+    # Z2 (MASTER-zones-first): ПРИСУТСТВИЕ роли × ПЛОЩАДЬ комнаты (бины 5 м²) — сверка
+    # порогов inventory-prior данными дизайнеров («что должно быть на этой площади»)
+    if poly is not None:
+        _ab = int(min(poly.area / 10_000, 60) // 5) * 5
+        for role in TOP_ROLES:
+            hist_add(H, f'presence_area|{role}|{room}|{_ab}',
+                     1 if by_role.get(role) else 0, 1, 1)
     if poly is not None:
         area_m2 = poly.area / 10_000
         st_w = sum(2 * max(o['hw'], o['hd']) for r in STORAGE for o in (by_role.get(r) or []))

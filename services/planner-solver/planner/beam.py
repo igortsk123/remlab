@@ -165,6 +165,17 @@ def solve(room: Room, items: list[Item], *, top_k: int = 3, beam_width: int = BE
         fresh = validate(room, lay.placements)
         lay.violations = fresh.violations
         lay.floor_used_pct = fresh.floor_used_pct
+    # Z3 (правка владельца 07.08): финальный отбор — ЛЕКСИКОГРАФИЧЕСКИ по уровням
+    # feasibility → circulation → functional → zone → aesthetics: эстетика никогда не
+    # компенсирует заблокированный проход. Внутри beam — быстрая сумма, здесь — строгий порядок.
+    from .score import score_layout as _sl
+    from .zones import lexo_key
+
+    def _key(lay):
+        hard = sum(1 for v in lay.violations if v.severity is Severity.HARD)
+        req = sum(1 for r in lay.unplaced if tier_of(r) != "optional")
+        return lexo_key(hard, req, _sl(room, lay.placements).terms)
+    outs.sort(key=_key)
     return outs
 
 
