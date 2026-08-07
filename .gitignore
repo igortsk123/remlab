@@ -37,6 +37,8 @@ tools/scout/*
 !tools/scout/*.sh
 !tools/scout/*.sql
 !tools/scout/README.md
+!tools/scout/pages/
+!tools/scout/pages/**
 
 # docker artifacts
 *.tar
