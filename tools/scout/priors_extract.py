@@ -62,6 +62,40 @@ def fp(cx, cz, hw, hd, yaw) -> Polygon:
     return shp_rotate(b, -math.degrees(yaw), origin=(cx, cz))
 
 
+# Гипотезы «куда смотрит фронт» при yaw=0 (v2): конвенцию НЕ угадываем — калибруем по данным.
+# v1 приняла (sin,cos) на веру, и пик «ориентации к стене» вышел на 75–90°: спинка мерилась вбок.
+FACING_HYP = {'+z': lambda y: (math.sin(y), math.cos(y)),
+              '+x': lambda y: (math.cos(y), -math.sin(y)),
+              '-z': lambda y: (-math.sin(y), -math.cos(y)),
+              '-x': lambda y: (-math.cos(y), math.sin(y))}
+FACING = [FACING_HYP['+z']]      # выбирается calibrate_facing()
+
+
+def calibrate_facing(samples: list[tuple[list, Polygon]]) -> str:
+    """Выбор гипотезы по НЕОСПОРИМОЙ семантике: диван смотрит НА ТВ (медиана угла минимальна).
+
+    Критерий «спинка ближе к стене» обманывается: в LivingDiningRoom дизайнеры ставят диван
+    посреди объединённого пространства, и фронт может быть ближе к (ТВ-)стене, чем спинка к
+    своей (проверено 2026-08-07: aim-критерий даёт +z с медианой 2.7°, стеновой голосовал -z)."""
+    aims = {k: [] for k in FACING_HYP}
+    for objs, _poly in samples:
+        sofa = next((o for o in objs if o['role'] == 'диван'), None)
+        tv = next((o for o in objs if o['role'] == 'тв-тумба'), None)
+        if not sofa or not tv:
+            continue
+        vx, vz = tv['x'] - sofa['x'], tv['z'] - sofa['z']
+        n = math.hypot(vx, vz) or 1
+        for name, f in FACING_HYP.items():
+            fx, fz = f(sofa['yaw'])
+            aims[name].append(math.degrees(math.acos(max(-1, min(1, (fx * vx + fz * vz) / n)))))
+    med = {k: (sorted(v)[len(v) // 2] if v else 999) for k, v in aims.items()}
+    best = min(med, key=med.get)
+    print(f'конвенция фронта: {best} (медианы aim диван→ТВ: '
+          f'{ {k: round(v, 1) for k, v in med.items()} }, n={len(aims[best])})')
+    FACING[0] = FACING_HYP[best]
+    return best
+
+
 def room_shape(poly: Polygon) -> str:
     """rect / L / complex — по упрощённому контуру и заполнению bbox."""
     area = poly.area
@@ -76,12 +110,34 @@ def room_shape(poly: Polygon) -> str:
     return 'complex'
 
 
+TOP_ROLES = ('диван', 'диван_углов', 'столик', 'тв-тумба', 'кресло', 'стеллаж', 'комод',
+             'стол обеденный', 'стул', 'пуф', 'консоль', 'витрина', 'кровать', 'тумбочка', 'шкаф')
+STORAGE = ('стеллаж', 'комод', 'витрина', 'шкаф', 'консоль')
+
+
+def _facing(o):
+    return FACING[0](o['yaw'])
+
+
+def _pair_gap(a, b, H, key, ctx, sofa_depth):
+    """Зазор пары v2: пересечение рамок — отдельная метрика, гистограмма только по чистым."""
+    g = a['fp'].distance(b['fp'])
+    inter = a['fp'].intersects(b['fp'])
+    hist_add(H, f'overlap|{key}|{ctx}', 1 if inter else 0, 1, 1)   # доля пересечений
+    if inter:
+        return
+    hist_add(H, f'gap|{key}|{ctx}', g, DBIN, DMAX)
+    if sofa_depth:
+        hist_add(H, f'gapn|{key}|{ctx}', 100 * g / sofa_depth, 10, 300)
+
+
 def scene_metrics(objs: list[dict], poly: Polygon | None, ctx: str, H: dict) -> None:
     """objs: [{role, x, z, hw, hd, hh, yaw, cat}], всё в см. ctx = 'room|shape|source'."""
     by_role: dict[str, list] = {}
     for o in objs:
         o['fp'] = fp(o['x'], o['z'], o['hw'], o['hd'], o['yaw'])
         by_role.setdefault(o['role'], []).append(o)
+    room = ctx.split('|')[0]
 
     def one(role):
         lst = by_role.get(role) or by_role.get(role + '_углов') or []
@@ -89,22 +145,31 @@ def scene_metrics(objs: list[dict], poly: Polygon | None, ctx: str, H: dict) -> 
 
     sofa = one('диван')
     sofa_depth = 2 * sofa['hd'] if sofa else None
+    # ко-присутствие и количества — сырьё для R3 (состав сетов по зонам)
+    for role in TOP_ROLES:
+        hist_add(H, f'count|{role}|{room}', len(by_role.get(role) or []), 1, 8)
     if poly is not None:
+        area_m2 = poly.area / 10_000
+        st_w = sum(2 * max(o['hw'], o['hd']) for r in STORAGE for o in (by_role.get(r) or []))
+        hist_add(H, f'storage_cm_per_m2|{room}', st_w / max(area_m2, 1), 2, 60)
         ring = poly.exterior
         for o in objs:
             if o['role'] in LAMPS:
                 continue
-            fx, fz = math.sin(o['yaw']), math.cos(o['yaw'])   # y-up: yaw против часовой от +z
-            back = Point(o['x'] - fx * o['hd'], o['z'] - fz * o['hd'])
+            fx, fz = _facing(o)
+            hd_look = abs(fx) * o['hw'] + abs(fz) * o['hd']   # полуглубина вдоль взгляда
+            back = Point(o['x'] - fx * hd_look, o['z'] - fz * hd_look)
             d = ring.distance(back)
             hist_add(H, f'wall_gap|{o["role"]}|{ctx}', d, DBIN, DMAX)
             # ориентация спинки к ближайшему ребру (важно для косых стен, Э8)
             t = ring.project(back)
             p1, p2 = ring.interpolate(max(t - 30, 0)), ring.interpolate(t + 30)
             edge_ang = math.degrees(math.atan2(p2.x - p1.x, p2.y - p1.y))
-            rel = abs((math.degrees(o['yaw']) - edge_ang + 90) % 180 - 90)
+            face_ang = math.degrees(math.atan2(fx, fz))
+            rel = abs((face_ang - edge_ang + 90) % 180 - 90)
+            # 0° = идеально спинкой к стене (фронт перпендикулярен ребру); шкала интуитивная
             if d < 80:
-                hist_add(H, f'wall_align|{o["role"]}|{ctx}', rel, ABIN, 90)
+                hist_add(H, f'wall_align|{o["role"]}|{ctx}', 90 - rel, ABIN, 90)
         corner = (by_role.get('диван_углов') or [None])[0]
         if corner is not None:
             c = corner['fp']
@@ -113,10 +178,10 @@ def scene_metrics(objs: list[dict], poly: Polygon | None, ctx: str, H: dict) -> 
                             (poly.bounds[2], poly.bounds[1]), (poly.bounds[2], poly.bounds[3])})
             hist_add(H, f'corner_sofa_corner_dist|{ctx}', dists[0], DBIN, DMAX)
         if sofa is not None:
-            fx, fz = math.sin(sofa['yaw']), math.cos(sofa['yaw'])
-            ray = LineString([(sofa['x'] + fx * sofa['hd'], sofa['z'] + fz * sofa['hd']),
-                              (sofa['x'] + fx * (sofa['hd'] + 600),
-                               sofa['z'] + fz * (sofa['hd'] + 600))])
+            fx, fz = _facing(sofa)
+            hd_look = abs(fx) * sofa['hw'] + abs(fz) * sofa['hd']
+            ray = LineString([(sofa['x'] + fx * hd_look, sofa['z'] + fz * hd_look),
+                              (sofa['x'] + fx * (hd_look + 600), sofa['z'] + fz * (hd_look + 600))])
             hits = [ray.intersection(o2['fp']) for o2 in objs
                     if o2 is not sofa and o2['role'] not in LAMPS]
             hits = [h.distance(Point(ray.coords[0])) for h in hits if not h.is_empty]
@@ -125,16 +190,32 @@ def scene_metrics(objs: list[dict], poly: Polygon | None, ctx: str, H: dict) -> 
                 hits.append(wall_hit.distance(Point(ray.coords[0])))
             if hits:
                 hist_add(H, f'sofa_front_clear|{ctx}', min(hits), DBIN, DMAX)
+    # прицел диван→ТВ: угол между взглядом дивана и направлением на ТВ (вердикт «диван не на ТВ»)
+    tv = one('тв-тумба')
+    if sofa is not None and tv is not None:
+        fx, fz = _facing(sofa)
+        vx, vz = tv['x'] - sofa['x'], tv['z'] - sofa['z']
+        n = math.hypot(vx, vz) or 1
+        aim = math.degrees(math.acos(max(-1, min(1, (fx * vx + fz * vz) / n))))
+        hist_add(H, f'aim|диван→тв|{ctx}', aim, ABIN, 180)
+    # стол ⇒ стулья: сколько стульев ВПЛОТНУЮ (≤30 см) к обеденному столу
+    dt = one('стол обеденный')
+    if dt is not None:
+        near = sum(1 for ch in (by_role.get('стул') or []) if dt['fp'].distance(ch['fp']) <= 30)
+        hist_add(H, f'chairs_at_table|{room}', near, 1, 10)
+    # основные пары — с формой комнаты; полная матрица — без формы (иначе взрыв разрезов)
     for ra, rb in PAIRS:
         a, b = one(ra), one(rb)
-        if a is None or b is None:
-            continue
-        g = a['fp'].distance(b['fp'])
-        hist_add(H, f'gap|{ra}~{rb}|{ctx}', g, DBIN, DMAX)
-        if sofa_depth:
-            hist_add(H, f'gapn|{ra}~{rb}|{ctx}', 100 * g / sofa_depth, 10, 300)
-        rel = abs((math.degrees(a['yaw'] - b['yaw']) + 180) % 360 - 180)
-        hist_add(H, f'ang|{ra}~{rb}|{ctx}', rel, ABIN, 180)
+        if a is not None and b is not None:
+            _pair_gap(a, b, H, f'{ra}~{rb}', ctx, sofa_depth)
+            rel = abs((math.degrees(a['yaw'] - b['yaw']) + 180) % 360 - 180)
+            hist_add(H, f'ang|{ra}~{rb}|{ctx}', rel, ABIN, 180)
+    src = ctx.split('|')[-1]
+    for i, ra in enumerate(TOP_ROLES):
+        for rb in TOP_ROLES[i + 1:]:
+            a, b = one(ra), one(rb)
+            if a is not None and b is not None and (ra, rb) not in PAIRS and (rb, ra) not in PAIRS:
+                _pair_gap(a, b, H, f'{ra}~{rb}', f'{room}|all|{src}', sofa_depth)
     # симметрия: две тумбочки/два кресла у якоря
     for role, anchor_role in (('тумбочка', 'кровать'), ('кресло', 'диван')):
         pair = by_role.get(role) or []
@@ -145,8 +226,36 @@ def scene_metrics(objs: list[dict], poly: Polygon | None, ctx: str, H: dict) -> 
             hist_add(H, f'sym|{role}@{anchor_role}|{ctx}', abs(d1 - d2), DBIN, 200)
 
 
+def _parse_is_scene(p: str, labels: list[str]):
+    z = np.load(p)
+    v = z['floor_plan_vertices'][:, [0, 2]] * 100
+    poly = unary_union([Polygon(v[t]) for t in z['floor_plan_faces']]).buffer(0)
+    if poly.geom_type != 'Polygon' or poly.area < 4 * 10_000:
+        return None, None
+    objs = []
+    for cl, tr, sz, an in zip(z['class_labels'], z['translations'], z['sizes'], z['angles']):
+        cat = labels[int(cl.argmax())]
+        role = CAT.get(cat)
+        if not role:
+            continue
+        objs.append(dict(role=role, cat=cat, x=tr[0] * 100, z=tr[2] * 100,
+                         hw=sz[0] * 100, hd=sz[2] * 100, hh=sz[1] * 100, yaw=float(an[0])))
+    return (objs or None), poly
+
+
 def load_instructscene(H: dict, counts: dict) -> None:
     base = os.path.join(DS, 'instructscene', 'InstructScene')
+    # v2: сперва калибруем конвенцию фронта по 300 гостиным — не принимаем на веру
+    stats0 = json.load(open(os.path.join(base, 'threed_front_livingroom', 'dataset_stats.txt')))
+    sample = []
+    for p in sorted(glob.glob(os.path.join(base, 'threed_front_livingroom', '*', 'boxes.npz')))[:300]:
+        try:
+            objs, poly = _parse_is_scene(p, stats0['class_labels'])
+            if objs:
+                sample.append((objs, poly))
+        except Exception:  # noqa: BLE001
+            pass
+    calibrate_facing(sample)
     for room in ('livingroom', 'diningroom', 'bedroom'):
         stats = json.load(open(os.path.join(base, f'threed_front_{room}', 'dataset_stats.txt')))
         labels = stats['class_labels']
@@ -155,21 +264,7 @@ def load_instructscene(H: dict, counts: dict) -> None:
             scenes = scenes[:LIMIT]
         for i, p in enumerate(scenes):
             try:
-                z = np.load(p)
-                v = z['floor_plan_vertices'][:, [0, 2]] * 100
-                poly = unary_union([Polygon(v[t]) for t in z['floor_plan_faces']]).buffer(0)
-                if poly.geom_type != 'Polygon' or poly.area < 4 * 10_000:
-                    continue
-                objs = []
-                for cl, tr, sz, an in zip(z['class_labels'], z['translations'],
-                                          z['sizes'], z['angles']):
-                    cat = labels[int(cl.argmax())]
-                    role = CAT.get(cat)
-                    if not role:
-                        continue
-                    objs.append(dict(role=role, cat=cat, x=tr[0] * 100, z=tr[2] * 100,
-                                     hw=sz[0] * 100, hd=sz[2] * 100, hh=sz[1] * 100,
-                                     yaw=float(an[0])))
+                objs, poly = _parse_is_scene(p, labels)
                 if not objs:
                     continue
                 shape = room_shape(poly)
@@ -273,15 +368,64 @@ def report(H: dict, counts: dict) -> None:
         q = quantiles({int(b): c for b, c in merged.items()}, DBIN)
         canon_rows.append(f'<tr><td>{label}</td><td>{q.get("p10")}</td><td><b>{q.get("p50")}</b>'
                           f'</td><td>{q.get("p90")}</td><td>{q["n"]}</td></tr>')
+    def q_of(prefix, must='3dfront', step=DBIN):
+        h: dict = {}
+        for k, v in agg.items():
+            if k.startswith(prefix) and must in k:
+                for b, c in v['hist'].items():
+                    h[int(b)] = h.get(int(b), 0) + c
+        return quantiles(h, step) if h else {}
+
+    # «Выводы для правил» — простым языком (владелец: прошлую подачу «не вполне понял»)
+    concl = []
+
+    def say(txt):
+        concl.append(f'<li>{txt}</li>')
+
+    aim = q_of('aim|диван→тв|livingroom', step=ABIN)
+    if aim:
+        say(f'<b>Диван смотрит на ТВ.</b> У дизайнеров угол между взглядом дивана и ТВ: половина '
+            f'комнат ≤{aim.get("p50", "—")}°, 90% ≤{aim.get("p90", "—")}° — правило «диван на ТВ» '
+            f'делаем жёстче (твой вердикт подтверждён данными).')
+    ch = q_of('chairs_at_table|', must='')
+    if ch:
+        zero = agg.get('chairs_at_table|livingroom', {}).get('hist', {}).get('0', 0)
+        say(f'<b>Стол ⇒ стулья.</b> Медиана стульев вплотную к обеденному столу: '
+            f'{ch.get("p50", "—")} (90% комнат ≤{ch.get("p90", "—")}). Стол без стульев — '
+            f'аномалия ({zero} гостиных из {ch.get("n", 0)}) — в правило состава.')
+    g = q_of('gap|диван~столик|livingroom')
+    ov = q_of('overlap|диван~столик|livingroom', step=1)
+    if g:
+        say(f'<b>Диван↔столик.</b> Чистая медиана (без пересечения рамок) {g.get("p50", "—")} см, '
+            f'90% ≤{g.get("p90", "—")} см; наша вилка 36–50 — решение: сузить/сдвинуть по этим данным.')
+    wg = q_of('wall_gap|диван|livingroom')
+    if wg:
+        say(f'<b>Диван и стена.</b> Медиана зазора спинки {wg.get("p50", "—")} см: дизайнеры часто '
+            f'отпускают диван от стены (open-plan) — «или вплотную, или проход» согласуется.')
+    st = q_of('storage_cm_per_m2|livingroom', must='')
+    if st:
+        say(f'<b>Сколько хранения.</b> Медиана {st.get("p50", "—")} см ширины корпусной мебели '
+            f'на 1 м² гостиной — норматив для состава сета (лечит «полкомнаты пусто»).')
+    bd = q_of('gap|кровать~тумбочка|bedroom')
+    sym = q_of('sym|тумбочка@кровать|bedroom')
+    if bd:
+        say(f'<b>Спальня (задел).</b> Тумбочка вплотную к кровати (медиана {bd.get("p50", "—")} см), '
+            f'пары тумбочек зеркальны (|d1−d2| медиана {sym.get("p50", "—")} см).')
+    conclusions = '<h2>Выводы для правил</h2><ul>' + ''.join(concl) + '</ul>'
     groups = {
         'Сверка с каноном (дизайнерские 3D-FRONT гостиные, см)': None,
-        'Пары: зазоры (см)': [k for k in agg if k.startswith('gap|')],
+        'Пары: зазоры, см (пересечения рамок исключены)': [k for k in agg if k.startswith('gap|')],
+        'Пары: доля пересечения рамок (0=нет, 1=да)': [k for k in agg if k.startswith('overlap|')],
         'Пары: зазоры, % глубины дивана': [k for k in agg if k.startswith('gapn|')],
         'Пары: взаимные углы (°)': [k for k in agg if k.startswith('ang|')],
+        'Прицел диван→ТВ (°)': [k for k in agg if k.startswith('aim|')],
+        'Стульев вплотную к обеденному столу (шт)': [k for k in agg if k.startswith('chairs_at_table')],
+        'Число предметов роли на комнату (шт)': [k for k in agg if k.startswith('count|')],
+        'Хранение: см ширины на м² (бин 2)': [k for k in agg if k.startswith('storage_cm_per_m2')],
         'До стены: зазор спинки (см)': [k for k in agg if k.startswith('wall_gap|')],
         'До стены: ориентация к ребру (°, у стоящих ≤80 см)': [k for k in agg if k.startswith('wall_align|')],
         'Г-диван: до ближайшего угла (см)': [k for k in agg if k.startswith('corner_sofa')],
-        'Проход перед диваном (см)': [k for k in agg if k.startswith('sofa_front_clear')],
+        'Перед диваном до первого объекта (см)': [k for k in agg if k.startswith('sofa_front_clear')],
         'Симметрия пар у якоря (|d1−d2|, см)': [k for k in agg if k.startswith('sym|')],
         'Площади комнат (м², бин 2)': [k for k in agg if k.startswith('room_area|')],
     }
@@ -305,6 +449,7 @@ td,th{{border:1px solid #ddd;padding:3px 8px;font-size:13px;text-align:left}}
 3dfront (дизайнеры), mp3d (сканы), infinigen (процедурный — в правила не мешать).
 Сверка с каноном: канон владельца по умолчанию выигрывает.</p>
 <p>Обработано: {json.dumps({k: v for k, v in sorted(counts.items())}, ensure_ascii=False)}</p>
+{conclusions}
 {body}</body></html>"""
     open(os.path.join(OUT, 'index.html'), 'w').write(html)
     print(f'{OUT}/index.html; сцен {n_sc}')
