@@ -48,9 +48,23 @@ def role_rank(role: str) -> int:
     return ROLE_ORDER.index(role) if role in ROLE_ORDER else len(ROLE_ORDER)
 
 
-def order_items(items: list[Item]) -> list[Item]:
-    """Порядок размещения: сначала якоря зоны, внутри группы — крупные первыми."""
-    return sorted(items, key=lambda it: (role_rank(it.role), -(it.w_cm * it.d_cm)))
+def order_items(items: list[Item], *, corner_sofa_first: bool = True) -> list[Item]:
+    """Порядок размещения: сначала якоря зоны, внутри группы — крупные первыми.
+
+    С Г-диваном порядок обратный: ДИВАН определяет комнату (канон «строго в угол»), а ТВ-тумба
+    якорится к нему. При старом порядке ТВ вставала по центру стены первой, и ВСЕ угловые
+    позиции дивана гибли на шкале диван↔ТВ — Г-диван оседал посреди стены (перегон 2026-08-06).
+    В БОЛЬШОЙ комнате угол и шкала ТВ несовместимы — там beam пере-решает старым порядком
+    (`corner_sofa_first=False`), это делает solve()."""
+    has_corner_sofa = (corner_sofa_first
+                       and any(it.role == "диван" and it.corner for it in items))
+
+    def rank(it: Item) -> float:
+        if has_corner_sofa and it.role == "диван":
+            return -1
+        return role_rank(it.role)
+
+    return sorted(items, key=lambda it: (rank(it), -(it.w_cm * it.d_cm)))
 
 
 def _dims_for_rot(item: Item, rot: float) -> tuple[float, float]:
@@ -283,12 +297,35 @@ def is_low(item: Item) -> bool:
     return item.role in NEVER_BLOCKING_ROLES or (item.h_cm or 999) <= LOW_ITEM_MAX_H_CM
 
 
+def corner_snap_candidates(room: Room, item: Item, free) -> list[Candidate]:
+    """Г-диван — явные позиции «двумя секциями в угол» (канон владельца, layout-quality п.1).
+
+    Скольжение вдоль стен даёт углы случайно (на перегоне 2026-08-06 — 1 кандидат из 48),
+    поэтому Г-диван вставал посреди стены. Здесь все 4 угла × 4 поворота; развёрнутые лицом
+    в стену варианты гибнут на обычных проверках."""
+    if item.corner is not True:
+        return []
+    out: list[Candidate] = []
+    for rot in (0, 90, 180, 270):
+        w, d = _dims_for_rot(item, rot)
+        for cx, cy, name in ((WALL_GAP_CM + w / 2, WALL_GAP_CM + d / 2, "SW"),
+                             (room.width_cm - WALL_GAP_CM - w / 2, WALL_GAP_CM + d / 2, "SE"),
+                             (WALL_GAP_CM + w / 2, room.depth_cm - WALL_GAP_CM - d / 2, "NW"),
+                             (room.width_cm - WALL_GAP_CM - w / 2,
+                              room.depth_cm - WALL_GAP_CM - d / 2, "NE")):
+            p = Placement(role=item.role, x=cx, y=cy, rot=rot, item=item)
+            if _fits(room, p, free):
+                out.append(Candidate(p, "corner", f"угол {name}"))
+    return out
+
+
 def generate(room: Room, item: Item, placed: list[Placement], *, limit: int = 48) -> list[Candidate]:
     """Все кандидаты для предмета при текущем состоянии комнаты (дедуп по сетке 10 см)."""
     ignore = group_of(item.role)
     free_poly = free_space(room, placed, with_clearance=not is_low(item), ignore_access_of=ignore)
     free = _Fitter(room, free_poly)
-    cands = anchor_candidates(room, item, placed, free)
+    cands = corner_snap_candidates(room, item, free)   # углы ПЕРВЫМИ: дедуп оставит именно их
+    cands += anchor_candidates(room, item, placed, free)
     cands += wall_candidates(room, item, free)
     if item.role in ("стол обеденный", "столик", "пуф", "ковёр"):
         cands += middle_candidates(room, item, free_poly, fitter=free)

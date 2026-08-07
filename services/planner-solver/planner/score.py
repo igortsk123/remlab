@@ -142,6 +142,11 @@ def score_layout(room: Room, ps: list[Placement], *, fast: bool = False) -> Scor
         p = by.get(role)
         if p is None:
             continue
+        if role == "диван" and p.item is not None and p.item.corner:
+            # Г-диван тянется в УГОЛ (канон владельца, layout-quality п.1) — центрирование
+            # с ним воевало и побеждало весом (8 против 5): вся верхушка «глупых» перегона
+            # 2026-08-06 — Г-диван посреди стены (corner_sofa_hug ~12.6)
+            continue
         along = room.width_cm if int(p.rot) % 180 == 0 else room.depth_cm
         pos = p.x if int(p.rot) % 180 == 0 else p.y
         s.add("wall_centering", abs(pos - along / 2) / 100.0, w["wall_centering"])

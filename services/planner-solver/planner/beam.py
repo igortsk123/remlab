@@ -136,9 +136,27 @@ def drop_optional_until_valid(room: Room, layout: Layout) -> Layout:
 
 def solve(room: Room, items: list[Item], *, top_k: int = 3, beam_width: int = BEAM_WIDTH,
           cand_per_item: int = CAND_PER_ITEM, polish: bool = True) -> list[Layout]:
-    """Комната + предметы → до top_k валидных РАЗНЫХ раскладок, лучшие первыми."""
+    """Комната + предметы → до top_k валидных РАЗНЫХ раскладок, лучшие первыми.
+
+    С Г-диваном сначала пробуем «диван в угол первым» (канон); если так теряется ТВ-тумба
+    (большая комната: угол и шкала диван↔ТВ несовместимы) — пере-решаем старым порядком и
+    берём вариант без потерь. Компромисс зафиксирован: лучше диван посреди стены с ТВ, чем
+    угол без ТВ (вердикт по перегону 2026-08-06; финальное слово — калибровка владельцем)."""
+    outs = _solve_ordered(room, items, top_k=top_k, beam_width=beam_width,
+                          cand_per_item=cand_per_item, polish=polish, corner_sofa_first=True)
+    has_corner = any(it.role == "диван" and it.corner for it in items)
+    if has_corner and outs and "тв-тумба" in (outs[0].unplaced or []):
+        alt = _solve_ordered(room, items, top_k=top_k, beam_width=beam_width,
+                             cand_per_item=cand_per_item, polish=polish, corner_sofa_first=False)
+        if alt and "тв-тумба" not in (alt[0].unplaced or []):
+            return alt
+    return outs
+
+
+def _solve_ordered(room: Room, items: list[Item], *, top_k: int, beam_width: int,
+                   cand_per_item: int, polish: bool, corner_sofa_first: bool) -> list[Layout]:
     beams: list[State] = [State()]
-    for item in order_items(items):
+    for item in order_items(items, corner_sofa_first=corner_sofa_first):
         nxt: list[State] = []
         seen: set[tuple] = set()
         # раскрываем столько кандидатов, чтобы луч оставался полным: на первом предмете веток
