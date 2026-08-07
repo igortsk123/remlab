@@ -404,6 +404,39 @@ _PREV=None
 if _ONLY and STYLE_MODE and os.path.exists(os.path.join(HERE,'sets3.json')):
     _PREV=json.load(open(os.path.join(HERE,'sets3.json')))
     print(f'тестовый режим: пересобираю только {sorted(_ONLY)}, остальные {len(_PREV)-len(_ONLY)} — из прежнего файла')
+# --- Z4 (MASTER-zones-first): состав из ШАБЛОНОВ ПОСАДОЧНЫХ ГРУПП (rules/zones.json) ---
+# Группа выбирается по ПОЛЕЗНОЙ площади (usable = комната − swing двери − радиаторы − входной
+# резерв; честный расчёт планнером, фолбэк 0.72·m2) и ротируется между сетами band'а —
+# «не максимизировать посадку» (документ владельца) + разные лица групп между стилями.
+_ZONES=json.load(open(os.path.join(HERE,'..','..','services','planner-solver','rules','zones.json')))
+_ZGROUPS={g['id']:g for g in _ZONES['seating_groups']}
+_ZBANDS=_ZONES['inventory_prior']['bands_usable_m2']
+def _usable_m2(m2):
+    try:
+        sys.path.insert(0,os.path.join(HERE,'..','..','services','planner-solver'))
+        from planner.models import Opening as _O, Radiator as _R, Room as _Rm
+        from planner.zones import usable_m2 as _um
+        W=int((m2*10000/1.15)**0.5//5*5); D=int(m2*10000/W//5*5)
+        room=_Rm(width_cm=W,depth_cm=D,band='17-20',
+                 openings=[_O(kind='door',wall='south',offset_cm=40,width_cm=90,swing_cm=92),
+                           _O(kind='window',wall='east',offset_cm=int(D*0.3),width_cm=140,sill_cm=80)],
+                 radiators=[_R(wall='east',offset_cm=int(D*0.3),width_cm=140,depth_cm=15)])
+        return _um(room)
+    except Exception as e:
+        print(f'  Z4: планнер недоступен ({e}) — usable ≈ 0.72·m2')
+        return m2*0.72
+def _zone_group(m2,seq,kreslo_max=None):
+    um=_usable_m2(m2)
+    zb=next(b for b in _ZBANDS if um<=b['max'])
+    def _ok(gid):
+        g=_ZGROUPS[gid]
+        req=g['roles']['required']
+        # группа обязана быть ВЫПОЛНИМОЙ: kreslo_max=1 band'а несовместим с «кресло 2»
+        if kreslo_max==1 and 'кресло 2' in req: return False
+        need={r.split(' ')[0] for r in req}
+        return all(cat.get(r) for r in need)
+    avail=[gid for gid in zb['groups'] if _ok(gid)] or ['sofa_armchair']
+    return _ZGROUPS[avail[seq%len(avail)]],zb,um
 sets=[]
 for bi,band in enumerate(COMP['bands']):
     m2=sum(band['m2'])/2
@@ -422,6 +455,16 @@ for bi,band in enumerate(COMP['bands']):
         ctx=dict(style=style_name,wood=None,metal=None,fabrics=set(),temp='mid',
                  sofa_key=None,sofa_w=None,sofa_h=None,used_shops=set(),style_name=style_name,
                  band=band['band'])
+        # Z4: посадочная группа этого сета (ротация по индексу band+tier)
+        zgroup,zband,z_usable=_zone_group(m2,bi+ti,band.get('kreslo_max'))
+        _zreq={}; _zopt=set()
+        for _r in zgroup['roles']['required']:
+            _b=_r.split(' ')[0]; _zreq[_b]=_zreq.get(_b,0)+1
+        for _r in zgroup['roles'].get('optional',[]):
+            _zopt.add(_r.split(' ')[0])
+        print(f"  Z4: группа {zgroup['id']} (мест {zgroup['seats']}, usable {z_usable:.1f} м²)")
+        _extras_left=int(zband.get('extras_max',3))
+        _EXTRA_ROLES={'пуф','торшер','кашпо'}
         chosen={}; alts={}; floor_fp=0; wall_len=0.0
         # свободный периметр комнаты этого метража (минус дверь+окно ≈230 см) — под кап
         # «суммарная ширина пристенной мебели ≤ доли периметра» (решение владельца 2026-08-03)
@@ -439,6 +482,10 @@ for bi,band in enumerate(COMP['bands']):
                .get('placement_tiers',{}).get('exclusive_by_band',{}).get(band['band'],[]))]
         _EXCL=[set(g) for g in (json.load(open(os.path.join(HERE,'occupancy.json')))
                .get('placement_tiers',{}).get('exclusive_by_band',{}).get(band['band'],[]))]
+        # Z4: группа — связная система; роли, ТРЕБУЕМЫЕ группой, обходят взаимоисключение
+        # (сет 17: exclusive «пуф vs кресло» в 14-16 убивал кресла заявленной sofa_2armchairs)
+        _EXCL_ORDERED=[g for g in _EXCL_ORDERED if not (set(g) & set(_zreq))]
+        _EXCL=[g for g in _EXCL if not (g & set(_zreq))]
         # предпочтительная роль из взаимоисключающей пары идёт РАНЬШЕ (первая в списке правил)
         for _g in _EXCL_ORDERED:
             if len(_g) > 1 and _g[0] in order and _g[1] in order:
@@ -448,10 +495,30 @@ for bi,band in enumerate(COMP['bands']):
             if role not in band['floor']: continue
             if any(role in g and (g & set(chosen)) for g in _EXCL):
                 continue     # роль-конкурент уже в сете (напр. кресло при выбранном пуфе)
-            q=1 if (role=='кресло' and band.get('kreslo_max')==1) else QTY.get(role,1)
+            # Z4: посадочные роли диктует ГРУППА — кресло/пуф вне её состава не берём;
+            # спутники (пуф/торшер/кашпо) режет anchor-принцип (extras_max band'а)
+            if role in ('кресло','пуф') and role not in _zreq and role not in _zopt:
+                print(f"  Z4: «{role}» вне группы {zgroup['id']} — пропуск")
+                continue
+            if role in _EXTRA_ROLES:
+                if _extras_left<=0:
+                    print(f"  Z4: extras_max исчерпан — «{role}» не берём")
+                    continue
+            if role=='кресло':
+                q=_zreq.get('кресло',1) if 'кресло' in _zreq else 1
+                if band.get('kreslo_max')==1: q=min(q,1)
+            else:
+                q=QTY.get(role,1)
             top=pick2(role,m2,band['floor'][role],tier,pair,ctx,qty=q) or \
                 pick2(role,m2,band['floor'][role],tier,pair,ctx,soft=True,qty=q)
             if not top: continue
+            # Z4: длина столика 55–75%% ширины дивана — принудительна ПРИ ПОДБОРЕ
+            # (в валидации soft — правка владельца 07.08)
+            if role=='столик' and ctx.get('sofa_w'):
+                _lo,_hi=0.55*ctx['sofa_w'],0.75*ctx['sofa_w']
+                _fit=[t for t in top if (t.get('w') or t.get('dia')) and _lo<=(t.get('w') or t.get('dia'))<=_hi]
+                if _fit: top=_fit
+                else: print(f"  Z4: нет столика {_lo:.0f}–{_hi:.0f} см (55–75%% дивана) — берём ближайший")
             it=top[0]
             add=(it['fp'] or 0.16)*q
             cap_hi=(OCC['floor_cap_pct'].get(band['band'],[None,COMP['global_floor_cap'][2]])[1]
@@ -463,6 +530,7 @@ for bi,band in enumerate(COMP['bands']):
                 if wall_len+(it['w'] or 100)*q > free_perimeter*WALL_SHARE: continue
                 wall_len+=(it['w'] or 100)*q
             chosen[role]=dict(it,qty=q); alts[role]=[{k:a[k] for k in ('mid','eid','name','price','score')} for a in top[1:]]
+            if role in _EXTRA_ROLES: _extras_left-=1
             ctx['used_shops'].add(it['shop']); floor_fp+=add
             # якорь и капсула сета — от первых выбранных
             if role=='диван':
@@ -473,17 +541,23 @@ for bi,band in enumerate(COMP['bands']):
             for kf in ('style','wood','metal'):
                 if it.get(kf) and not ctx[kf]: ctx[kf]=it[kf]
             if it.get('fabric'): ctx['fabrics'].add(it['fabric'])
-        # добор при пустоте
+        # Z4: «диван 2» — легальная роль СОСТАВА ГРУППЫ (sofa_facing_sofa/loveseat, с 12–15 м²
+        # usable), а не заплатка недобора площади (старое правило «только 41+» удалено)
+        if _zreq.get('диван',0)>=2 and 'диван' in chosen:
+            top=pick2('диван',m2,band['floor']['диван'],tier,pair,ctx,soft=True)
+            it2=next((t for t in (top or []) if t['eid']!=chosen['диван']['eid'] and
+                      (t.get('w') or 999)<= (chosen['диван'].get('w') or 999)),None) or \
+                next((t for t in (top or []) if t['eid']!=chosen['диван']['eid']),None)
+            if it2 and floor_fp+it2['fp']<=m2*0.40:
+                chosen['диван 2']=dict(it2,qty=1); floor_fp+=it2['fp']
+                print(f"  Z4: группа {zgroup['id']} — добавлен «диван 2» ({it2['name'][:40]})")
+        # добор при пустоте — только квотой кресла, если группа его предусматривает
         cap_lo=(OCC['floor_cap_pct'].get(band['band'],[COMP['global_floor_cap'][0]])[0]
                 if OCC else COMP['global_floor_cap'][0])
         if floor_fp<m2*cap_lo/100:
-            if m2>=41 and 'диван' in chosen:
-                top=pick2('диван',m2,band['floor']['диван'],tier,pair,ctx,soft=True)
-                it2=next((t for t in top if t['eid']!=chosen['диван']['eid']),None)
-                if it2 and floor_fp+it2['fp']<=m2*0.40:
-                    chosen['диван 2']=dict(it2,qty=1); floor_fp+=it2['fp']
-            if floor_fp<m2*cap_lo/100 and 'кресло' in chosen and chosen['кресло']['qty']==1 and not band.get('kreslo_max'):
-                chosen['кресло']['qty']=2; floor_fp+=chosen['кресло']['fp']
+            if ('кресло' in chosen and chosen['кресло']['qty']<_zreq.get('кресло',1)
+                    and not band.get('kreslo_max')):
+                chosen['кресло']['qty']=_zreq['кресло']; floor_fp+=chosen['кресло']['fp']
         # R3 [[layout-rules-v2]] — состав по функциональным зонам (вердикты владельца 2026-08-07):
         # 1) стол ⇔ стулья: столовая группа целиком или никак — стол-«сирота» и стулья без стола
         #    рождали нелогичные раскладки (сет 59); priors: у стола p50 = 3 стула вплотную
@@ -628,6 +702,7 @@ for bi,band in enumerate(COMP['bands']):
         if STYLE_MODE:  # реестр для правила разнообразия следующих сетов
             BUILT.append((style_name,{emb_key(it['mid'],it['eid']) for it in chosen.values()},{emb_key(it['mid'],it['eid']) for r,it in chosen.items() if r in MAJOR_ROLES}))
         sets.append(dict(band=band['band'],m2=m2,tier=tier,pair=list(pair),gaps=gaps,
+                         group=zgroup['id'],usable_m2=round(z_usable,1),
                          style=style_name,style_fit=sfit_agg,
                          capsule=dict(style=ctx['style'],wood=ctx['wood'],metal=ctx['metal'],
                                       temp=ctx['temp'],fabrics=sorted(ctx['fabrics'])),

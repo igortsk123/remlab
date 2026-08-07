@@ -87,7 +87,20 @@ def ask(s,jpg):
         {"type":"image_url","image_url":{"url":"data:image/jpeg;base64,"+b64}}]}]}
     req=urllib.request.Request("https://api.openai.com/v1/chat/completions",data=json.dumps(body).encode(),
         headers={"Authorization":f"Bearer {OAI}","Content-Type":"application/json"})
-    with urllib.request.urlopen(req,timeout=120) as r: out=json.loads(r.read())
+    # 429/5xx — ретрай с бэкоффом (8 потоков легко упираются в rate limit; падение всего
+    # прогона из-за минутного лимита — не масштабируемо). Исчерпали попытки — пробрасываем.
+    import time as _t
+    for _try in range(4):
+        try:
+            with urllib.request.urlopen(req,timeout=120) as r: out=json.loads(r.read()); break
+        except urllib.error.HTTPError as e:
+            _body=e.read().decode(errors='replace')[:300]
+            if 'insufficient_quota' in _body or 'credit_balance' in _body:
+                # квоту ретраить бессмысленно — падаем сразу с человеческим сообщением
+                raise SystemExit(f"judge: кредиты OpenAI исчерпаны — пополнить биллинг ({_body[:120]})")
+            if e.code not in (429,500,502,503) or _try==3: raise
+            _w=15*(2**_try)
+            print(f"  judge: HTTP {e.code}, ретрай через {_w} с",flush=True); _t.sleep(_w)
     txt=out['choices'][0]['message']['content']
     m=re.search(r'\{.*\}',txt,re.S)
     try: return json.loads(m.group(0))

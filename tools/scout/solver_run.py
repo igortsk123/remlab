@@ -507,7 +507,11 @@ def attempt_beam():
     from planner.geometry import footprint as _fp
     from planner.models import Item as _It, Opening as _Op, Radiator as _Rad, Room as _Rm
 
+    # Z5: приёмочные сцены могут задавать осевой КОНТУР комнаты (Э8) через env;
+    # RW/RD тогда — bbox контура (двери/окна валидны: юг у фикс-контуров сплошной)
+    _ctr = os.environ.get('SCENE_CONTOUR')
     room_p = _Rm(width_cm=RW, depth_cm=RD, band=BAND,
+                 contour=(json.loads(_ctr) if _ctr else None),
                  openings=[_Op(kind='door', wall='south', offset_cm=DOOR_OFF, width_cm=DOOR_W,
                                swing_cm=92),
                            _Op(kind='window', wall='east', offset_cm=WIN_OFF, width_cm=WIN_W,
@@ -537,7 +541,13 @@ def attempt_beam():
                 print(f"  LLM-вариант с нарушениями ({_hc(lay)}) — фолбэк на beam", flush=True)
                 lay = None
     if lay is None:
-        outs = _solve(room_p, its, top_k=1)
+        if ENGINE == 'zoned':
+            # Z3/Z5: зонный солвер — группа по полезной площади, лексо-отбор (A/B со старым)
+            from planner.zones import solve_zoned
+            outs, _gid = solve_zoned(room_p, its, top_k=1)
+            print(f"зонная группа: {_gid}", flush=True)
+        else:
+            outs = _solve(room_p, its, top_k=1)
         if not outs:
             return {}, [r for r, _ in FLOOR], []
         lay = outs[0]
@@ -564,12 +574,12 @@ def attempt_beam():
 _eng_arg = sys.argv[sys.argv.index('--engine') + 1] if '--engine' in sys.argv else None
 # Дефолт — beam (А3, аудит 06.08): прод-ядро выигрывает у DFS 110+/122 против 107/126, но
 # батчи коллажей/рендеров шли через дефолт и рендерили DFS — чинили beam, а ляпы были DFS.
-ENGINE = _eng_arg or os.environ.get('LAYOUT_ENGINE', 'beam')   # beam | dfs | llm
+ENGINE = _eng_arg or os.environ.get('LAYOUT_ENGINE', 'beam')   # beam | zoned | dfs | llm
 
 # перебор сидов ПОСЛЕДОВАТЕЛЬНО с ранним выходом (чистый сид обычно первый-второй, max_duration=12);
 # параллельность — на уровне СЕТОВ (render6.sh): внутренний ProcessPool на слабой VM ловил OOM
 best=None
-if ENGINE in ('beam', 'llm'):
+if ENGINE in ('beam', 'zoned', 'llm'):
     _pl, _ms, _ck = attempt_beam()
     best = (sum(1 for _, ok, _ in _ck if not ok) + len(_ms), ENGINE, _pl, _ms, _ck)
 for seed in ([] if ENGINE in ('beam', 'llm') else (7,11,23,42,77,101)):
