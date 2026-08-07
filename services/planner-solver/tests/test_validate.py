@@ -134,3 +134,25 @@ def test_sofa_sliver_hard():
     lay_filled = validate(room, [sofa_gap_45, behind])
     assert "SOFA_SLIVER" not in {v.code for v in lay_filled.violations}, \
         "щель, заполненная хранением, щелью не считается"
+
+
+def test_dead_zone_and_aim_and_chairs():
+    """R1/R2 (2026-08-07): мёртвая зона за спинкой, прицел на ТВ, стул-сирота."""
+    from tests.rooms import make_room
+    room = make_room("31-40")
+    sofa = Placement(role="диван", x=room.width_cm / 2, y=room.depth_cm - 150, rot=180,
+                     item=Item(role="диван", w_cm=220, d_cm=100, h_cm=85))
+    kashpo_behind = Placement(role="кашпо", x=room.width_cm / 2, y=room.depth_cm - 50, rot=0,
+                              item=Item(role="кашпо", w_cm=30, d_cm=30, h_cm=60))
+    codes = {v.code for v in validate(room, [sofa, kashpo_behind]).violations}
+    assert "DEAD_ZONE_BEHIND_SOFA" in codes, "кашпо за спинкой дивана должно браковаться"
+    tv_aside = Placement(role="тв-тумба", x=60, y=room.depth_cm - 80, rot=90,
+                         item=Item(role="тв-тумба", w_cm=180, d_cm=45, h_cm=50))
+    codes = {v.code for v in validate(room, [sofa, tv_aside]).violations}
+    assert "SOFA_AIM_OFF_TV" in codes, "диван, смотрящий мимо ТВ, должен браковаться"
+    tbl = Placement(role="стол обеденный", x=100, y=100, rot=0,
+                    item=Item(role="стол обеденный", w_cm=140, d_cm=80, h_cm=75))
+    chair_far = Placement(role="стул", x=room.width_cm - 60, y=100, rot=0,
+                          item=Item(role="стул", w_cm=45, d_cm=45, h_cm=90))
+    codes = {v.code for v in validate(room, [tbl, chair_far]).violations}
+    assert "CHAIR_ORPHAN" in codes, "стул вдали от стола должен браковаться"

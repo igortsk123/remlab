@@ -214,6 +214,31 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
             for gap in (25.0, 45.0):
                 add(anchor.x + fx * (gap + ahalf + ihalf), anchor.y + fy * (gap + ahalf + ihalf),
                     rot_i, f"сбоку от столика, {gap:.0f} см")
+    if role == "кашпо":
+        # Функциональные места декора (вердикт владельца 2026-08-07: «кашпо за диваном» — брак):
+        # у окна, сбоку от ТВ-тумбы, у кресла — ВИДИМЫЕ точки зоны, не мёртвые углы.
+        half = max(item.w_cm, item.d_cm) / 2
+        for op in room.openings:
+            if op.kind != "window":
+                continue
+            mid = op.offset_cm + op.width_cm / 2
+            off = half + 18
+            wx, wy = {"south": (mid, off), "north": (mid, room.depth_cm - off),
+                      "west": (off, mid), "east": (room.width_cm - off, mid)}[op.wall]
+            add(wx, wy, 0, "у окна")
+        tvs = by.get("тв-тумба")
+        if tvs is not None:
+            fx, fy = _face_dir((tvs.rot + 90) % 360)
+            tw, td = _dims_for_rot(tvs.item, tvs.rot)
+            gap = 22 + half + max(tw, td) / 2
+            for sgn in (1, -1):
+                add(tvs.x + sgn * fx * gap, tvs.y + sgn * fy * gap, tvs.rot, "сбоку от ТВ")
+        arm = by.get("кресло")
+        if arm is not None:
+            afp = footprint(arm)
+            ax0, ay0, ax1, ay1 = afp.bounds
+            for cx, cy in ((ax0 - 16 - half, (ay0 + ay1) / 2), (ax1 + 16 + half, (ay0 + ay1) / 2)):
+                add(cx, cy, 0, "у кресла")
     if role == "торшер":
         for anchor in (by.get("кресло"), sofa):
             if anchor is None:

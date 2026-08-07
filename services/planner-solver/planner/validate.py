@@ -294,6 +294,73 @@ def check_behind_sofa(room: Room, ps: list[Placement]) -> list[Violation]:
     return out
 
 
+# За спинкой дивана — МЁРТВАЯ зона для функционального и декора (вердикт владельца 2026-08-07:
+# «предметы расставляются не там, где функционально нужны, типа кашпо за диваном»).
+# Разрешено там только низкое хранение/консоль (check_behind_sofa) — посадка, столы и декор вон.
+DEAD_BEHIND_ROLES = ("кашпо", "торшер", "столик", "пуф", "кресло",
+                     "стол обеденный", "стул", "лампа", "ваза")
+
+
+def check_dead_zone_behind_sofa(room: Room, ps: list[Placement]) -> list[Violation]:
+    from shapely.geometry import box as _box
+
+    by = {p.role: p for p in ps}
+    sofa = by.get("диван")
+    if sofa is None or sofa.item is None:
+        return []
+    fx, fy = facing_vector(sofa.rot)
+    x0, y0, x1, y1 = footprint(sofa).bounds
+    if abs(fy) > abs(fx):
+        strip = _box(x0, 0, x1, y0) if fy > 0 else _box(x0, y1, x1, room.depth_cm)
+    else:
+        strip = _box(0, y0, x0, y1) if fx > 0 else _box(x1, y0, room.width_cm, y1)
+    out = []
+    for p in ps:
+        if p.role.split(' ')[0] not in DEAD_BEHIND_ROLES and p.role not in DEAD_BEHIND_ROLES:
+            continue
+        if footprint(p).intersection(strip).area > 0.5 * footprint(p).area:
+            out.append(_v("DEAD_ZONE_BEHIND_SOFA",
+                          f"«{p.role}» за спинкой дивана — функциональному и декору там не место",
+                          [p.role, "диван"]))
+    return out
+
+
+def check_sofa_aim(room: Room, ps: list[Placement]) -> list[Violation]:
+    """Диван смотрит НА ТВ: прицел ≤30° hard (priors 18 804 сцен: p50 7°, p90 22° + запас).
+
+    Вердикт владельца («где-то диван не напротив ТВ») + данные R2 [[layout-rules-v2]]."""
+    import math as _m
+
+    by = {p.role: p for p in ps}
+    sofa, tv = by.get("диван"), by.get("тв-тумба")
+    if sofa is None or tv is None:
+        return []
+    fx, fy = facing_vector(sofa.rot)
+    vx, vy = tv.x - sofa.x, tv.y - sofa.y
+    n = _m.hypot(vx, vy) or 1.0
+    aim = _m.degrees(_m.acos(max(-1.0, min(1.0, (fx * vx + fy * vy) / n))))
+    lim = float(distances().get("sofa_tv_aim_deg_max", 30))
+    if aim > lim:
+        return [_v("SOFA_AIM_OFF_TV", f"диван смотрит мимо ТВ на {aim:.0f}°",
+                   ["диван", "тв-тумба"], round(aim), f"≤{lim:.0f}° (дизайнеры: p90 22°)")]
+    return []
+
+
+def check_chairs_at_table(room: Room, ps: list[Placement]) -> list[Violation]:
+    """Стул живёт у обеденного стола: стул-сирота дальше 100 см — брак (priors: вплотную, p50 3 шт)."""
+    tbl = next((p for p in ps if p.role == "стол обеденный"), None)
+    chairs = [p for p in ps if p.role.startswith("стул")]
+    if tbl is None or not chairs:
+        return []
+    out = []
+    for ch in chairs:
+        d = footprint(ch).distance(footprint(tbl))
+        if d > 100:
+            out.append(_v("CHAIR_ORPHAN", f"стул в {d:.0f} см от обеденного стола",
+                          [ch.role, "стол обеденный"], round(d), "≤100 см (дизайнеры: вплотную)"))
+    return out
+
+
 SOFA_SLIVER_MIN_CM = 20.0
 
 
@@ -521,6 +588,9 @@ def validate(room: Room, placements: list[Placement], *, passage: str = "seconda
     vs += check_sightline(placements)
     vs += check_behind_sofa(room, placements)
     vs += check_sofa_sliver(room, placements)
+    vs += check_dead_zone_behind_sofa(room, placements)
+    vs += check_sofa_aim(room, placements)
+    vs += check_chairs_at_table(room, placements)
     vs += check_layout_rules(room, placements)
     vs += check_floor_cap(room, placements)
     from .geometry import floor_used_pct
