@@ -6,12 +6,16 @@ acceptance-report-<engine>.json + сводка: чистых / hard-провал
 Запуск: ~/venvs/scout/bin/python acceptance_run.py [beam|zoned|ab] [N_from N_to]
 По умолчанию ab (оба движка). Сцены режутся диапазоном НОМЕРОВ СЕТОВ (не сцен).
 """
+import concurrent.futures as cf
 import json
 import os
 import re
 import statistics
 import subprocess
 import sys
+import threading
+
+WORKERS = int(os.environ.get('ACC_WORKERS', '4'))   # RAM 4 ГБ: 4 солвера параллельно — безопасно
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PY = os.path.expanduser('~/venvs/scout/bin/python')
@@ -23,37 +27,63 @@ if len(nums) >= 2:
     SCENES = [sc for sc in SCENES if a <= sc['set'] <= b]
 
 
+def _one(engine, sc):
+    """Один прогон сцены; уникальный LAYOUT_SUFFIX на СЦЕНУ — параллельные воркеры не дерутся
+    за файлы раскладок (set3-base и set3-pylons писали бы в один v3set3-layout-*.json)."""
+    env = dict(os.environ, LAYOUT_ENGINE=engine, LAYOUT_SUFFIX=f"-acc-{engine}-{sc['id']}")
+    args = [PY, os.path.join(HERE, 'solver_run.py'), str(sc['set']), '--v3']
+    if sc['kind'] == 'contour':
+        xs = [p[0] for p in sc['contour']]; ys = [p[1] for p in sc['contour']]
+        env['SCENE_CONTOUR'] = json.dumps(sc['contour'])
+        args += [str(max(xs)), str(max(ys))]
+    elif 'w' in sc:
+        args += [str(sc['w']), str(sc['d'])]
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, timeout=300, env=env)
+    except subprocess.TimeoutExpired:
+        return dict(scene=sc['id'], set=sc['set'], ok=False,
+                    fails=['TIMEOUT'], missing=[], soft_score=None)
+    out = r.stdout
+    fails = [l.strip() for l in out.splitlines() if l.startswith('FAIL')]
+    m = re.search(r'НЕ размещены: (\[.*\])', out)
+    missing = eval(m.group(1)) if m else []
+    msoft = re.search(r'^SOFT (\{.*\})$', out, re.M)
+    soft = json.loads(msoft.group(1)) if msoft else {}
+    dumb = round(sum(soft.get('terms', {}).values()), 1)
+    ok = not fails and not missing and r.returncode == 0
+    return dict(scene=sc['id'], set=sc['set'], ok=ok, fails=fails,
+                missing=missing, soft_score=dumb,
+                group=(re.search(r'зонная группа: (\S+)', out) or [None, None])[1])
+
+
 def run_engine(engine):
-    report = []
-    for sc in SCENES:
-        env = dict(os.environ, LAYOUT_ENGINE=engine, LAYOUT_SUFFIX=f'-acc-{engine}')
-        args = [PY, os.path.join(HERE, 'solver_run.py'), str(sc['set']), '--v3']
-        if sc['kind'] == 'contour':
-            xs = [p[0] for p in sc['contour']]; ys = [p[1] for p in sc['contour']]
-            env['SCENE_CONTOUR'] = json.dumps(sc['contour'])
-            args += [str(max(xs)), str(max(ys))]
-        elif 'w' in sc:
-            args += [str(sc['w']), str(sc['d'])]
-        try:
-            r = subprocess.run(args, capture_output=True, text=True, timeout=300, env=env)
-        except subprocess.TimeoutExpired:
-            report.append(dict(scene=sc['id'], set=sc['set'], ok=False,
-                               fails=['TIMEOUT'], missing=[], soft_score=None))
-            print(f"{sc['id']} [{engine}]: TIMEOUT", flush=True)
-            continue
-        out = r.stdout
-        fails = [l.strip() for l in out.splitlines() if l.startswith('FAIL')]
-        m = re.search(r'НЕ размещены: (\[.*\])', out)
-        missing = eval(m.group(1)) if m else []
-        msoft = re.search(r'^SOFT (\{.*\})$', out, re.M)
-        soft = json.loads(msoft.group(1)) if msoft else {}
-        dumb = round(sum(soft.get('terms', {}).values()), 1)
-        ok = not fails and not missing and r.returncode == 0
-        report.append(dict(scene=sc['id'], set=sc['set'], ok=ok, fails=fails,
-                           missing=missing, soft_score=dumb,
-                           group=(re.search(r'зонная группа: (\S+)', out) or [None, None])[1]))
-        print(f"{sc['id']} [{engine}]: " + ('OK' if ok else f'FAIL {fails} miss={missing}')
-              + f' soft={dumb}', flush=True)
+    """Параллельно (ACC_WORKERS), с покадровой записью в jsonl: упавший/убитый прогон
+    не теряет готовые сцены — при рестарте они читаются из jsonl и не пересчитываются."""
+    jl_path = os.path.join(HERE, f'acceptance-report-{engine}.jsonl')
+    done = {}
+    if os.path.exists(jl_path):
+        for line in open(jl_path):
+            try:
+                rec = json.loads(line); done[rec['scene']] = rec
+            except Exception:
+                pass
+        if done:
+            print(f'[{engine}] из jsonl подхвачено готовых: {len(done)}', flush=True)
+    todo = [sc for sc in SCENES if sc['id'] not in done]
+    lock = threading.Lock()
+    jl = open(jl_path, 'a')
+    with cf.ThreadPoolExecutor(WORKERS) as ex:
+        futs = {ex.submit(_one, engine, sc): sc for sc in todo}
+        for fut in cf.as_completed(futs):
+            rec = fut.result()
+            with lock:
+                done[rec['scene']] = rec
+                jl.write(json.dumps(rec, ensure_ascii=False) + '\n'); jl.flush()
+            print(f"{rec['scene']} [{engine}]: "
+                  + ('OK' if rec['ok'] else f"FAIL {rec['fails']} miss={rec['missing']}")
+                  + f" soft={rec['soft_score']} [{len(done)}/{len(SCENES)}]", flush=True)
+    jl.close()
+    report = [done[sc['id']] for sc in SCENES if sc['id'] in done]
     json.dump(report, open(os.path.join(HERE, f'acceptance-report-{engine}.json'), 'w'),
               ensure_ascii=False, indent=1)
     return report

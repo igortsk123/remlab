@@ -1129,3 +1129,31 @@ Florence-2 не берём (SAM 3 закрывает и детекцию по т
 
 **Влияет на.** `tools/scout/enrich.py`, `refresh_daily.sh` (волна А1 [[MASTER-pipeline-hardening]]),
 любые будущие batch-конвейеры.
+
+## [2026-08-08] Зоны-first: состав и расстановка от посадочных групп и полезной площади — ADR-0074
+
+**Решение.** Компоновка перестроена с «предмет-first» на «зоны-first» ([[MASTER-zones-first]]):
+(1) полезная площадь = контур − дверные дуги − радиаторы − входной резерв (`services/planner-solver/planner/zones.py:
+usable_polygon`); (2) посадочная ГРУППА выбирается по ней из библиотеки 10 групп с reference-футпринтами
+(`services/planner-solver/rules/zones.json`, Dimensions + оба верифицированных документа владельца) и диктует состав
+(`compose2.py`: диван 2/кресла×N; группа обходит exclusive-пары; kreslo_max фильтрует группы;
+столик 55–75% ширины дивана принудительно ПРИ ПОДБОРЕ; extras_max — anchor-принцип; обеденная
+группа только при остатке usable ≥ 6 м²); (3) финальный отбор раскладок — ЛЕКСИКОГРАФИЧЕСКИ:
+hard feasibility → circulation → functional relationships → zone quality → aesthetics
+(`zones.py: lexo_key` в `beam.solve`); (4) hard — только физика, все числовые правила soft
+(правки владельца 07.08); (5) приёмка — зафиксированный набор 252 сцен
+(`acceptance-scenes.json` в git; `acceptance_run.py` — 8 воркеров, jsonl-resume), A/B beam vs
+zoned; (6) зонная семантика в промпт генератора (`viz_final.py: zones_brief`).
+
+**Почему.** Вердикты Q1–Q8: предметы стояли «валидно, но нелогично» (кашпо за диваном, пуф спиной
+к ТВ) — координаты должны быть следствием функциональных отношений зон. Пороги подтверждены
+данными: presence_area из 5 742 гостиных 3D-FRONT (кресло 30→81% с площадью, пуф 11–27%).
+
+**Альтернативы.** Пересадка на внешние системы (ProcTHOR/Holodeck/Infinigen/Function2Scene,
+2 письма советника) — разобраны и отклонены: полезные абстракции берём модульно (asset-groups уже
+в ядре, нормативы полок уже в правилах), замена ядра не оправдана; полный разбор —
+`tools/scout/pages/zones-vs-external/` (https://remont-lab.online/test/zones-vs-external/).
+
+**Влияет на.** `services/planner-solver/planner/{zones,beam}.py`, `services/planner-solver/rules/zones.json`,
+`tools/scout/{compose2.py,acceptance_scenes.py,acceptance_run.py,solver_run.py (ENGINE=zoned,
+SCENE_CONTOUR),viz_final.py,layout10_page.py,judge.py (ретрай 429/квота)}`.

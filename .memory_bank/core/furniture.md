@@ -3,7 +3,7 @@ tier: 1
 topic: furniture
 scope: Мебель — каталог, сеты, визуализация
 tier2: "../domain/viz-fidelity-playbook.md"
-updated: 2026-08-06
+updated: 2026-08-08
 importance: high
 source: manual
 status: working
@@ -23,17 +23,17 @@ last_verified: 2026-08-02
   (было 107+88). Планы [[sets-feasibility-first]], [[catalog-enrichment-pipeline]].
 - **Стили** (ADR-0047/0048, [[sets-style-v3]]): 6 паспортов + стиль-скор → sets3.json
   (126 сетов); судья, замены. `../domain/interior-styles.md`.
-- **Расстановка**: два движка, дефолт всё ещё DFS — см. [[layout]] (`../core/layout.md`).
+- **Состав от посадочных групп (08.08, ADR-0074)**: группа по usable-площади диктует диван 2/
+  кресла×N/пуф; столик 55–75% дивана при подборе; обеденная только при остатке ≥6 м²; extras_max;
+  поле `group` в сете; судья ждёт пополнения OpenAI-кредитов (честная ошибка квоты в judge.py).
+- **Расстановка**: дефолт **beam**; с 08.08 зоны-first (ADR-0074) — см. [[layout]].
 - **Визуализация** (ADR-0043, [[viz-pipeline]]): ветка A `pipeline2.py`; факт цены кадра
   $0.14–0.35 (2–5 вызовов), не $0.07.
 - **Сборка кадра — ветка B** (ADR-0061/0062/0063, `viz_build.py`): фото по умолчанию → приёмка
   числами (`collage_audit.py`, ворота перед оплатой) → 3D непрошедшим → приёмка снова; финал —
   лист двух видов $0.128. Подвесное и стоящее на мебели не моделим.
 Ключи: fal (mltest), OpenAI (соседский — из чужих `.env`, хрупко), Gemini МЁРТВ.
-- **Волны А4/А6 (06.08, [[MASTER-pipeline-hardening]]):** пост-QA финала `viz_qa.py`
-  (ΔRGB+VLM, вшит в `run_pair`, гейтит батчи — уже ловит реальный брак); 3 ретрая
-  edit/fal; shell-база дефолт; приёмка блокирует батч; меш-фолбэк Hunyuan3D
-  (`mesh_make model=`); A/B финала — `viz_ab.py` (NB Pro на fal есть; первый замер:
-  чуть лучше по цвету, состав врёт так же). Плейбук Tier 2 — ветка A (помечен).
+- **А4/А6 (06.08):** пост-QA финала `viz_qa.py` гейтит батчи; 3 ретрая; меш-фолбэк Hunyuan3D;
+  A/B финала `viz_ab.py`.
 
 **Tier 2:** `../domain/viz-fidelity-playbook.md` · `../domain/lr-composition-guide.md` · `../domain/integrations.md`.
