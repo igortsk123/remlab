@@ -53,6 +53,28 @@ def style_brief(n: int) -> str:
     return ', '.join(keep)
 
 
+def zones_brief(n: int) -> str:
+    """Z6 (MASTER-zones-first): зонная семантика для генератора — модель рисует свет/акценты
+    осмысленнее, когда знает, ЧТО за функциональные кластеры перед ней (не двигая предметы)."""
+    s = json.load(open(os.path.join(HERE, 'sets3.json')))[n - 1]
+    roles = set(s.get('items', {}))
+    parts = []
+    g = s.get('group')
+    if g:
+        parts.append(f'the main seating group ("{g}") is one conversation unit gathered around '
+                     'the TV / focal point — light it as the heart of the room')
+    if 'стол обеденный' in roles:
+        parts.append('the dining table with its chairs forms a separate dining zone')
+    if 'кресло' in roles and 'торшер' in roles:
+        parts.append('an armchair with the floor lamp can read as a quiet reading spot')
+    if 'камин' in roles:
+        parts.append('the fireplace is a secondary focal point of the seating zone')
+    if not parts:
+        return ''
+    return ('FUNCTIONAL ZONES (context only — never move items): '
+            + '; '.join(parts) + '.\n\n')
+
+
 def corner_brief(n: int, cam_name: str) -> str:
     """Где в кадре вертикальный угол комнаты — числом.
 
@@ -459,7 +481,8 @@ def pair_prompt(n: int, cams: tuple[str, str], legends: list[list[dict]],
         + shops_note(n) + '\n'
         f'STYLE — {style_name(n)} (finishes, colour, light and mood only; it never adds objects): '
         f'{style_brief(n)}\n\n'
-        'ITEMS (JSON, one list for both frames; id = number on image 2; "in_top"/"in_bottom": '
+        + zones_brief(n)
+        + 'ITEMS (JSON, one list for both frames; id = number on image 2; "in_top"/"in_bottom": '
         'whole = draw fully, part = draw only the visible part and never complete it, absent = not '
         'in that frame):\n' + items + '\n\n'
         'INVALID OUTPUT — redo if any of this happens: an item is bigger than its floor rectangle '

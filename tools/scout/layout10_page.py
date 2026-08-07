@@ -107,6 +107,8 @@ def main() -> None:
         blocks.append(f"""
 <section>
  <h2>Сет {n} — {s['band']} м², {s['tier']}, {s.get('style', '')}</h2>
+ <p class="st">Z6: посадочная группа <b>{s.get('group', '—')}</b>, полезная площадь
+ {s.get('usable_m2', '—')} м² (группа выбрана по ней — зоны-first)</p>
  <p class="st">{status}</p>
  <div class="row">
   {img('plan', 'план с камерами')}{img('c1', 'вид C1 — схема с номерами')}
