@@ -390,7 +390,9 @@ def check_sofa_aim(room: Room, ps: list[Placement]) -> list[Violation]:
 
 
 def check_chairs_at_table(room: Room, ps: list[Placement]) -> list[Violation]:
-    """Стул живёт у обеденного стола: стул-сирота дальше 100 см — брак (priors: вплотную, p50 3 шт)."""
+    """Стул живёт у обеденного стола: обеденный стул дальше 40 см — брак (priors: вплотную, p50 3 шт).
+
+    Только роль «стул» (обеденный); кресло/акцентное — другая роль, правило его не касается."""
     tbl = next((p for p in ps if p.role == "стол обеденный"), None)
     chairs = [p for p in ps if p.role.startswith("стул")]
     if tbl is None or not chairs:

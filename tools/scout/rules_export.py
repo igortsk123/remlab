@@ -74,27 +74,45 @@ def add_sheet(wb, title, rows, headers):
 
 
 def validator_codes():
+    """Каждый вызов _v(...) разбираем ЦЕЛИКОМ (многострочно): severity часто на следующей
+    строке, и однострочный парс оставлял «Жёсткость» пустой — внешний аудит 08.08 счёл это
+    отсутствием источника истины. Дефолт _v без Severity — HARD (см. сигнатуру _v)."""
     src = open(os.path.join(SOLVER, 'planner', 'validate.py')).read()
-    rows = []
-    func = ''
-    fdoc = ''
-    for i, line in enumerate(src.splitlines(), 1):
+    lines = src.splitlines()
+    funcs = []
+    for i, line in enumerate(lines, 1):
         m = re.match(r'def (check_\w+)', line)
         if m:
-            func = m.group(1)
             rest = src.split(line, 1)[1]
             d = re.match(r'[^"]*"""(.*?)"""', rest, re.S)
-            fdoc = ' '.join(d.group(1).split())[:200] if d else ''
-        for code in re.findall(r'"([A-Z][A-Z_]{3,})"', line):
-            sev = ('SOFT' if 'Severity.SOFT' in line or 'soft' in line.lower() else
-                   'HARD' if 'Severity.HARD' in line else '')
-            rows.append((code, sev, func, i, fdoc))
+            funcs.append((i, m.group(1), ' '.join(d.group(1).split())[:200] if d else ''))
+    def func_of(ln):
+        cur = ('', '')
+        for fi, fn, doc in funcs:
+            if fi <= ln:
+                cur = (fn, doc)
+        return cur
     seen = {}
-    for code, sev, fn, ln, doc in rows:
+    for m in re.finditer(r'_v\(\s*"([A-Z][A-Z_]{3,})"', src):
+        ln = src[:m.start()].count('\n') + 1
+        depth = 0
+        j = m.start()
+        while j < len(src):
+            if src[j] == '(':
+                depth += 1
+            elif src[j] == ')':
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        call = src[m.start():j + 1]
+        code = m.group(1)
+        sev = ('SOFT' if 'Severity.SOFT' in call else 'HARD')
+        fn, doc = func_of(ln)
         if code not in seen:
             seen[code] = [code, sev, fn, f'validate.py:{ln}', doc]
-        elif sev and not seen[code][1]:
-            seen[code][1] = sev
+        elif sev == 'SOFT' and seen[code][1] == 'HARD':
+            seen[code][1] = 'HARD/SOFT (по условию)'
     return sorted(seen.values())
 
 
