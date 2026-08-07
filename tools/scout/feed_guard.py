@@ -51,14 +51,19 @@ def scan() -> dict:
                         m = re.search(r'yml_catalog date="([^"]+)"', head)
                         if m:
                             yml_date = m.group(1)
+                    mids: set[int] = set()
                     with z.open(name) as f:
                         # потоковый счёт без разбора дерева; маркер «<offer » (с пробелом),
                         # иначе тег-обёртка <offers> считается оффером; на стыке чанков
-                        # вычитаем счёт хвоста, чтобы не задвоить маркер
+                        # вычитаем счёт хвоста, чтобы не задвоить маркер. Попутно собираем
+                        # mid магазинов (для freshness-фильтра в compose2).
                         mark = b'<offer '
                         buf = b''
                         while chunk := f.read(1 << 20):
                             offers += (buf + chunk).count(mark) - buf.count(mark)
+                            if len(mids) < 8:
+                                for m in re.finditer(rb'mid(?:=|%3D)(\d+)', chunk):
+                                    mids.add(int(m.group(1)))
                             buf = chunk[-len(mark):]
         except (zipfile.BadZipFile, OSError) as e:
             out[h] = {'offers': 0, 'error': str(e)[:120], 'state': 'broken'}
@@ -84,7 +89,7 @@ def scan() -> dict:
         elif state == 'stale':
             _alert(f'remlab: фид {h[:12]} протух — yml_date {yml_date} ({age_h:.0f} ч), '
                    f'товары едут на старых ценах/наличии')
-        out[h] = {'offers': offers, 'prev_offers': prev_offers,
+        out[h] = {'offers': offers, 'prev_offers': prev_offers, 'mids': sorted(mids),
                   'yml_date': yml_date, 'age_hours': age_h, 'state': state}
     json.dump(out, open(STATE, 'w'), ensure_ascii=False, indent=1)
     return out

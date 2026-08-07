@@ -106,7 +106,26 @@ def build(max_families: int = 150) -> None:
 
 # ------------------------------------------------------------------ eval
 
-def _embed_paths(paths, aug=False):
+def _dino_embed(paths):
+    """Челленджер DINOv2 (ViT-S/14, torch.hub, CPU) — рефери §10: fine-grained identity
+    обычно сильнее у DINO-семейства, чем у CLIP. Веса кэшируются в ~/.cache/torch."""
+    import torch
+    from PIL import Image
+    import torchvision.transforms as T
+    model = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14', verbose=False)
+    model.eval()
+    tf = T.Compose([T.Resize(244), T.CenterCrop(224), T.ToTensor(),
+                    T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
+    out = []
+    with torch.no_grad():
+        for i in range(0, len(paths), 16):
+            batch = torch.stack([tf(Image.open(p).convert('RGB')) for p in paths[i:i + 16]])
+            out.append(model(batch).numpy())
+    a = np.concatenate(out)
+    return a / np.linalg.norm(a, axis=1, keepdims=True)
+
+
+def _embed_paths(paths, aug=False, embedder='clip'):
     from fastembed import ImageEmbedding
     from PIL import Image, ImageOps
     import tempfile
@@ -123,12 +142,14 @@ def _embed_paths(paths, aug=False):
             q = os.path.join(tmpdir, os.path.basename(p) + '.aug.jpg')
             im.save(q, quality=90)
             use.append(q)
+    if embedder == 'dino':
+        return _dino_embed(use)
     vecs = list(model.embed(use))
     a = np.array(vecs)
     return a / np.linalg.norm(a, axis=1, keepdims=True)
 
 
-def evaluate() -> None:
+def evaluate(embedder: str = 'clip') -> None:
     bench = json.load(open(BENCH))
     fams = bench['families']
     paths, owner = [], []
@@ -136,9 +157,9 @@ def evaluate() -> None:
         for m in f['members']:
             paths.append(m['img'])
             owner.append(fi)
-    print(f'эмбеддинг {len(paths)} карточек (CLIP, CPU)...', flush=True)
-    E = _embed_paths(paths)
-    EA = _embed_paths(paths, aug=True)
+    print(f'эмбеддинг {len(paths)} карточек ({embedder}, CPU)...', flush=True)
+    E = _embed_paths(paths, embedder=embedder)
+    EA = _embed_paths(paths, aug=True, embedder=embedder)
     owner = np.array(owner)
     split = np.array([fams[o]['split'] for o in owner])
     pos = (E * EA).sum(1)                                   # своя карточка ↔ своя аугментация
@@ -187,8 +208,8 @@ def evaluate() -> None:
                'pos_mean': float(pos.mean()), 'hard_mean': float(hard.mean()),
                'recall1': r1 / len(paths), 'recall5': r5 / len(paths),
                'n_pos': len(pos), 'n_hard': len(hard),
-               'embedder': 'clip-ViT-B-32 (fastembed)', 'positives': 'v1-proxy (self-aug)'},
-              open(os.path.join(HERE, 'sku-bench-report.json'), 'w'), indent=1)
+               'embedder': embedder, 'positives': 'v1-proxy (self-aug)'},
+              open(os.path.join(HERE, f'sku-bench-report{"" if embedder == "clip" else "-" + embedder}.json'), 'w'), indent=1)
 
 
 if __name__ == '__main__':
@@ -196,6 +217,7 @@ if __name__ == '__main__':
         i = sys.argv.index('--families') if '--families' in sys.argv else -1
         build(int(sys.argv[i + 1]) if i > 0 else 150)
     elif '--eval' in sys.argv:
-        evaluate()
+        i = sys.argv.index('--model') if '--model' in sys.argv else -1
+        evaluate(sys.argv[i + 1] if i > 0 else 'clip')
     else:
         print(__doc__)

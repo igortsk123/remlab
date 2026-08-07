@@ -781,7 +781,8 @@
     ],
     "jitter_deg": 35,
     "face_target": "conversation_center",
-    "source": "external:github.com/allenai/procthor asset_groups/television-sofa.json (Apache-2.0)"
+    "source": "internal heuristic inspired by ProcTHOR-style asset grouping",
+    "_provenance": "проверено 2026-08-08 (verify рефери §25): github.com/allenai/procthor@53d5bd4c8c96 procthor/databases/asset_groups/television-sofa*.json СУЩЕСТВУЮТ (Apache-2.0), но содержат дерево позиций asset-групп, а НЕ угловые диапазоны — числа 135–225/jitter 35 наши, вдохновлены их схемой sofa+armchair вокруг ТВ; прежняя пометка source:external приписывала ProcTHOR точные числа — исправлено"
    }
   },
   "cushions_count": {

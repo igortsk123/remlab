@@ -233,6 +233,21 @@ raw=rows("""select p.cat_role, p.shop_mid, p.external_id, p.name, p.w_cm, p.d_cm
  order by p.price_rub, p.shop_mid, p.external_id""")
 assert len(raw)>1000, f"каталог-запрос вернул {len(raw)} строк — SQL сломан, СТОП (не собирать пустые сеты)"
 
+# Freshness SLA (T0 truth-first): магазины с ПРОТУХШИМ/битым фидом (feed_guard) не участвуют
+# в сборке НОВЫХ сетов — цены/наличие недельной давности хуже дыры. Heal существующих сетов
+# это не трогает (sets_incremental работает по своим правилам).
+try:
+    _fresh=json.load(open(os.path.join(HERE,'feed-freshness.json')))
+    _stale_mids={int(m) for rec in _fresh.values()
+                 if rec.get('state') in ('stale','broken') for m in rec.get('mids',[])}
+except Exception:
+    _stale_mids=set()
+if _stale_mids:
+    _before=len(raw)
+    raw=[r for r in raw if int(r[1]) not in _stale_mids]
+    print(f'freshness: исключены протухшие фиды mid={sorted(_stale_mids)} '
+          f'(−{_before-len(raw)} офферов из пула сборки)')
+
 
 # СИСТЕМНЫЙ фильтр пригодности для жилой гостиной (правило владельца: решения — на масштаб,
 # не «для 1 ситуации»): недопустимые материалы/назначения по классам ролей, из params фида

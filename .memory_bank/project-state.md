@@ -103,7 +103,6 @@ v0.3 · 0015 авто-коммит+пуш · **0016 пивот v0.4 «Смета
 UK · кухня как вход (пока).
 
 ## Open questions / TODO
-- `trace:prune` повесить на таймер `remlab-cleanup`.
 - Код под v0.4 — см. «Код-долг» в разделе Концепции.
 - Прокси-анблокер (Bright Data/Zyte) для чтения Ozon/WB — решение/оплата владельца (ADR-0032).
 - Auth: anonymous session id (интерим) vs GoTrue — Stage 1. Realtime job: polling vs self-host — Stage 2.

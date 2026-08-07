@@ -48,3 +48,9 @@ Compose передаёт app ЯВНЫЙ `environment:`-список — новы
 
 ## Принципы
 Верифицируй деплой (health-версия); перед правкой сервера — бэкап + rollback; VPN не трогать.
+
+## Ретеншн трейсов (2026-08-08)
+`remlab-cleanup.timer` (вс 04:30) теперь чистит и трейсы: шаг 6 в `/opt/remlab/scripts/cleanup.sh`
+— shell-эквивалент `tools/trace-prune.mjs` (tools/ нет в standalone-образе): удаляет каталоги
+прогонов в томе `remlab_remlab-traces` и строки assets/steps/runs старше 90 дн. через
+`docker exec remlab-db psql`. Бэкап перед правкой: `cleanup.sh.bak-2026-08-08`. Пробный запуск ок.
