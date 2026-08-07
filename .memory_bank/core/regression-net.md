@@ -3,7 +3,7 @@ tier: 1
 topic: regression-net
 scope: Регресс-защита — тесты, CI, eval, гардрейлы, DoD
 tier2: "../../docs/tech-spec-ts-stack.md"
-updated: 2026-08-06
+updated: 2026-08-08
 importance: high
 source: manual
 status: working
@@ -17,15 +17,15 @@ review_after: ""
 > Сетка для соло-не-кодера: ошибки ловит автоматика. «Цель» = НЕ реализовано.
 
 ## Есть в коде
-- **Unit (Vitest, `tests/unit/`):** 24 файла (AI-флоу, calc, estimate, leads/style/lab, утилиты).
-  БД-интеграция — только `pg-repository.test.ts` (skipIf без `TEST_DATABASE_URL`); мок — `REMLAB_FAKE_AI=1`.
+- **Unit (Vitest, `tests/unit/`):** 24 файла; БД — `pg-repository.test.ts` (skipIf);
+  мок — `REMLAB_FAKE_AI=1`.
 - **e2e:** happy path `flow.spec.ts` (через /select) + 5 smoke + `estimate.spec.ts`; error-путей НЕТ.
-- **CI-гейт (`ci.yml`, S4):** postgres (pgvector/pgvector:pg17) → install → typecheck → lint →
-  test → build → e2e. Шага db:migrate НЕТ (таблицу тест создаёт сам). Красный = merge запрещён.
-- **Observability:** трейс каждого LLM-вызова (`traced.ts`/`lib/trace/`; costUsd/шаг,
-  total_cost_usd/прогон); PostHog (`lib/analytics.ts`) — 22 объявлено, 12 эмитится. Sentry НЕ заводим.
-- **Грабля:** меняешь флоу — правь e2e тем же коммитом; после push смотри gate (§12.7).
-- **Гарантии памяти (ADR-0055):** аудит + 4 хука в git; CODE-DRIFT закрыт verify-сверкой 06.08.
+- **CI-гейт (`ci.yml`):** джоб gate (postgres → typecheck → lint → test → build → e2e) +
+  джоб planner (pytest солвера, T6). Красный = merge запрещён.
+- **Observability:** трейс LLM-вызовов (`lib/trace/`; сбои записи видны — traceWriteFailures
+  в /api/health, T0); PostHog. Sentry НЕ заводим.
+- **Грабля:** меняешь флоу — правь e2e тем же коммитом; после push смотри gate.
+- **Гарантии памяти (ADR-0055):** аудит + 4 хука в git.
 
 ## Цель (спека §12) — НЕ реализовано
 - Тесты: Cost Engine/matching/work_types/гардрейлы (модулей нет); интеграционные API/миграции;
@@ -41,5 +41,9 @@ review_after: ""
 
 **DoD (цель-чеклист):** typecheck/lint/тесты ✓; e2e +≥1 путь ошибки; UX всех ошибок; события
 эмитятся; env задокументированы; отклонения → DECISIONS.
+
+**Бенчи мебельного трека (08.08):** 252 синтетики + real-бенч `tools/scout/acceptance_real.py`
++ фаззинг + constraint-CI + SKU-бенч (CLIP AUC 0.547 — ворот нет). Числа подписывать
+commit'ом. Детали — ADR-0079/0080.
 
 **Tier 2:** `../../docs/tech-spec-ts-stack.md` §12 (регресс-защита), §8 (самопроверка моделей).

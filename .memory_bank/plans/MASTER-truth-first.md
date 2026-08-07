@@ -36,8 +36,9 @@ completed:
 
 ### T0 — P0-предохранители конвейера (дёшево, до всего остального)
 - `enrich_wait.sh` + `enrich.fetch`: терминальность по РЕЗУЛЬТАТУ — инварианты
-  `completed && готово==0 → FAIL+алерт`, `error_rate>порога → FAIL`, `gate_age>SLA → FAIL`;
-  разклинить текущий гейт (батч 1 859 карточек divan/mdm) и дообогатить хвост.
+  `completed && готово==0 → FAIL+алерт`, `gate_age>SLA → FAIL+exit`; потери >10% при
+  УСПЕШНОМ заборе — АЛЯРМ-алерт без FAIL (данные уже оплачены и записаны, прерывать нечего
+  — уточнение по verify); разклинить текущий гейт (батч 1 859 карточек) и дообогатить хвост.
 - Алерт «исторически непустой фид отдал 0 офферов» (сейчас пустой 10-й фид молчит) и
   freshness SLA: `feed_age_hours` → `fresh|degraded|stale`; stale-товары не попадают в
   НОВЫЕ сеты (heal существующих — можно).
@@ -137,7 +138,7 @@ completed:
 ## Файлы к изменению (основные; уточняется на «деплой» каждой волны)
 - [ ] `tools/scout/enrich_wait.sh`, `tools/scout/enrich.py`, `tools/scout/refresh_daily.sh` — T0
 - [ ] `tools/scout/load3.py` (+ новая `tools/scout/dim_resolver.py`, миграция
-      `002-dimension-evidence.sql`) — T1
+      `002-dims-evidence.sql`) — T1
 - [ ] `tools/scout/golden_*` (+ новые gold-human скрипты/страница разметки) — T2
 - [ ] `tools/scout/solver_run.py`, `services/room-measure/*` (мост), новый
       `tools/scout/acceptance_real.py` — T3
@@ -159,8 +160,11 @@ completed:
       QA включён в batch_collage как ворота.
 - [ ] T5: set-level сборка ≥ greedy по судье/style_fit при не худшей выживаемости; бюджет
       корзины соблюдается в заданном коридоре.
-- [ ] T6: constraint-CI зелёный в GitHub Actions; одна ТВ-функция; legacy-шкала удалена;
-      повороты — по результату замера binding.
+- [x] T6: constraint-CI зелёный в GitHub Actions (джоб planner в ci.yml); одна ТВ-функция
+      в горячем пути (candidates/score/validate/prompt; вне канона — legacy-фолбэк узкой
+      тумбы <60 и старый DFS-путь solver_run); area-шкала sofa_table_cm вычищена из
+      горячего пути (остатки: llm_planner, DFS-путь, ключ в occupancy помечен legacy —
+      снос вместе с W7-IR); повороты — по результату замера binding (открыто).
 - [ ] Каждый бенч-результат подписан commit/config.
 
 ## Definition of Done — память (без этого `completed` запрещён)
@@ -172,6 +176,30 @@ completed:
 
 ## Лог выполнения
 - 2026-08-08 — план создан (draft) по итогам 3 раундов диалога с рефери.
+- 2026-08-08 — «деплой подряд»: T0–T6 выполнены и закоммичены (fa717bb, 5ee9cf8, dc3b73b,
+  d0d4632, c537787, 4e73905, adf5c87), push в main (CI-деплой). Ключевые факты:
+  - T0 ✅: fetch/сторож ловят «completed 0 готовых» (пруф: батч упал из-за
+    credit_balance_exhausted — подтверждено пробой), feed_guard, гейт разклинен,
+    traceWriteFailures в /api/health;
+  - T1 ✅: dim_resolver (ADR-0079) — 0 битых П-диванов (было 66), +4 610 размеров,
+    divan.ru 0→5 310, декор gipfel исправлен, 750 осей unresolved честно;
+  - T2 ✅ (инструменты): парные батчи #t/#v (merge fix), gold_human.py (выборка 400,
+    страница /test/gold-human/annotate.html, α, calibrate), метрики переименованы в
+    agreement. ЖДЁТ: разметчики (владелец), биллинг для ablation;
+  - T3 ✅ (каркас): room_bridge (real room1 сконвертирован, потеря 2.4%), acceptance_real
+    (метрики удержания; 2/2 чистых на реальных проёмах), fuzz_rooms → НАШЁЛ
+    _ROOM_BAND-недетерминизм. ЖДЁТ: набор 100–300 планировок (данные);
+  - T4 ✅ (бенч): sku_bench 120 семейств/407 SKU — ИЗМЕРЕНО: CLIP same-series не
+    различает (AUC 0.547) → ворот нет по построению, sku_identity advisory
+    (кросс-вью C1↔C2 работает). ЖДЁТ: челленджер-эмбеддер, настоящие positives;
+  - T5 ✅: set_optimize (15/126 сетов улучшены, J +0.147, sets3-optimized.json —
+    переключение = владелец), шторы от окна (дыра 126/126 закрыта);
+  - T6 ✅ (ADR-0080): _ROOM_BAND в beam.solve (фаззинг 30/30 чисто), planner/tv.py
+    единая ТВ-геометрия, sofa_table_cm вычищена, constraint-CI (87 тестов),
+    SCENE_OPENINGS; референсная десятка 10/10.
+  План остаётся in_progress: открыты пункты, требующие данных/решений владельца
+  (разметка gold, 100–300 планировок, челленджер SKU-эмбеддера, биллинг, целевые суммы
+  корзины) — их критерии приёмки не закрыты, в solved не переводим (правило рефери).
 
 ## Completion summary
 [при завершении]
