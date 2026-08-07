@@ -26,7 +26,7 @@ draft → in_progress → completed → перенос в completed_plans/
 
 | slug | Название | status | created | updated |
 |------|----------|--------|---------|---------|
-| MASTER-truth-first | Мастер: truth-first — итог аудита рефери v2 (данные → eval → реальные комнаты → SKU) | draft | 2026-08-08 | 2026-08-08 |
+| MASTER-truth-first | Мастер: truth-first — итог аудита рефери v2 (данные → eval → реальные комнаты → SKU) | in_progress | 2026-08-08 | 2026-08-08 |
 | referee-hardening | Правки по арбитражу рефери (Q1–Q7 + 5 доп. находок) | in_progress | 2026-08-07 | 2026-08-07 |
 | layout-rules-v2 | МАСТЕР — система правил расстановки v2: функциональные зоны + priors из 18 804 сцен | in_progress | 2026-08-07 | 2026-08-07 |
 | layout-priors-from-datasets | Дизайнерские priors из датасетов (M3DLayout/3D-FRONT) → скоринг beam, ML только как ranker | in_progress | 2026-08-07 | 2026-08-07 |
