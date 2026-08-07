@@ -1,0 +1,88 @@
+{
+ "_meta": {
+  "source": "external:своды владельца 2026-08-07 (living-room-zoning-verified, living-room-inventory-by-area: H&G/AD/RTINGS/West Elm/Spruce/Dimensions/IKEA/BH&G/HouseBeautiful) + наши priors 18 804 сцен",
+  "note": "Библиотека посадочных ГРУПП (футпринты Dimensions.com, м²) и функциональных ЗОН. Футпринт — типовой конверт; фактический пересчитывается от габаритов выбранных товаров (риск: американские типоразмеры < наших диванов). Роли — наши; sectional=диван углов, loveseat=компактный «диван 2»."
+ },
+ "seating_groups": [
+  {"id": "armchair_pair", "footprint_m2": 4.6, "seats": 2,
+   "roles": {"required": ["кресло", "кресло 2", "приставной"], "optional": ["ковёр", "торшер"]},
+   "note": "малые пространства ИЛИ вторичная зона большой комнаты"},
+  {"id": "compact_sectional", "footprint_m2": 7.4, "seats": 3,
+   "roles": {"required": ["диван"], "optional": ["столик", "ковёр", "приставной"]},
+   "sofa_subtype": "углов", "note": "sectional использует мёртвый угол — РАЗРЕШЁН в малых (AD)"},
+  {"id": "sofa_armchair", "footprint_m2": 8.4, "seats": 4,
+   "roles": {"required": ["диван", "кресло", "столик"], "optional": ["ковёр", "пуф", "торшер", "приставной"]}},
+  {"id": "sectional_armchair", "footprint_m2": 9.1, "seats": 5,
+   "roles": {"required": ["диван", "кресло", "столик"], "optional": ["ковёр", "приставной", "торшер"]},
+   "sofa_subtype": "углов"},
+  {"id": "sofa_facing_sofa", "footprint_m2": 10.0, "seats": 6,
+   "roles": {"required": ["диван", "диван 2", "столик"], "optional": ["ковёр", "торшер"]},
+   "note": "два компактных дивана визави — НЕ привилегия больших комнат"},
+  {"id": "sofa_2armchairs", "footprint_m2": 11.2, "seats": 5,
+   "roles": {"required": ["диван", "кресло", "кресло 2", "столик"], "optional": ["ковёр", "пуф", "торшер", "приставной"]},
+   "note": "U 10.9 / L 11.5 — классика"},
+  {"id": "sofa_loveseat", "footprint_m2": 11.8, "seats": 5,
+   "roles": {"required": ["диван", "диван 2", "столик"], "optional": ["ковёр", "пуф", "торшер"]},
+   "note": "loveseat — альтернатива двум креслам уже с 12–15 м²"},
+  {"id": "sofa_4armchairs", "footprint_m2": 12.8, "seats": 7,
+   "roles": {"required": ["диван", "кресло", "кресло 2", "кресло 3", "кресло 4", "столик"], "optional": ["ковёр", "торшер"]},
+   "note": "высокая плотность: от ~15–18 при хорошей геометрии, естественно от 20"},
+  {"id": "sofa_loveseat_2armchairs", "footprint_m2": 13.7, "seats": 7,
+   "roles": {"required": ["диван", "диван 2", "кресло", "кресло 2", "столик"], "optional": ["ковёр", "торшер"]}},
+  {"id": "two_sofas_2armchairs", "footprint_m2": 15.8, "seats": 8,
+   "roles": {"required": ["диван", "диван 2", "кресло", "кресло 2", "столик"], "optional": ["ковёр", "торшер"]},
+   "note": "реалистично от ~22–25 без ущерба циркуляции"}
+ ],
+ "group_scheme": {
+  "coffee_table": {"gap_cm": [36, 46], "preferred_cm": [40, 45], "length_vs_sofa_pct": [55, 75],
+                   "height_vs_seat_cm": [-5, 0], "position": "центр фронта дивана, сдвиг ≤15% ширины"},
+  "armchair": {"angle_to_axis_deg": [30, 60], "circle_max_cm": 305,
+               "note": "к центру беседы/фокусу, не автоматически параллельно стене"},
+  "pouf": {"position": "сбоку столика", "behind_table_allowed_only_without_tv": true,
+           "table_gap_max_cm": 60},
+  "rug": {"anchor": "front_legs_all_seating", "note": "передние ножки ВСЕЙ посадки; не коврик под столиком"},
+  "floor_lamp": {"position": "передний угол дивана или у кресла", "task_for": "чтение"},
+  "floating_allowed": true,
+  "floating_note": "в просторных комнатах группа отрывается от стен (пустой центр — штраф); в малых диван у стены — ок; диван спинкой к проходу — легальный разделитель зон"
+ },
+ "zones": {
+  "seating_media": {
+   "primary": true,
+   "tv": {"axis_aim_deg_max": 30, "distance_diag": [1.2, 2.5], "distance_diag_preferred": 1.6,
+          "main_seat_near_axis": true, "route_between_sofa_and_tv": "forbidden"},
+   "fireplace": {"as_zone_focal": true, "walls": ["tv_wall_offset_ge_cm", "side_wall"],
+                 "tv_wall_min_offset_cm": 150, "distance_to_seating_cm": [200, 450],
+                 "behind_seating": "forbidden"}
+  },
+  "circulation": {"first_class": true, "route_width_cm": [76, 91], "tight_min_cm": 46,
+                  "note": "маршруты дверь→двери/окно/зоны считаются ДО мебели; теснота 46–61 — растущий штраф"},
+  "reading": {"roles": ["кресло", "приставной", "торшер|лампа"], "where": "свободный угол/у окна",
+              "min_free_m2": 3.0, "note": "дом «лишнего» кресла; связка оценивается как группа"},
+  "dining": {"roles": ["стол обеденный", "стул×3+"], "where": "у окна",
+             "requires_free_region": true, "chairs_gap_max_cm": 40},
+  "storage": {"where": "стены/ниши, по сторонам focal point", "width_cm_per_m2": [2, 15],
+              "keep_focal_visible": true, "tall_behind_seating": "forbidden"},
+  "decor": {"spots": ["у окна", "фланги ТВ-стены вне ширины экрана", "у кресла"],
+            "screen_axis_strip": "forbidden"},
+  "light": {"ambient": "люстра", "task": "торшер у чтения / лампа на комоде", "accent": "optional",
+            "note": "состав света — из зон, одной люстры недостаточно"}
+ },
+ "inventory_prior": {
+  "_note": "вероятностный prior по ПОЛЕЗНОЙ площади (usable = полигон − маршруты − door swing − радиаторы); утверждение порогов — владелец; сверка датасетами — Z2.4",
+  "bands_usable_m2": [
+   {"max": 8,  "groups": ["armchair_pair", "compact_sectional"], "coffee_table": "optional",
+    "extras_max": 1, "note": "стол журнальный заменим приставным/пуфом-хранением; хранение вверх"},
+   {"max": 12, "groups": ["compact_sectional", "sofa_armchair", "sectional_armchair"],
+    "extras_max": 2, "tv_unit": "optional_wall_mount_better"},
+   {"max": 18, "groups": ["sofa_armchair", "sofa_2armchairs", "sofa_facing_sofa", "sofa_loveseat", "sectional_armchair"],
+    "extras_max": 3, "second_microzone": "only_if_free_corner"},
+   {"max": 25, "groups": ["sofa_2armchairs", "sofa_loveseat", "sofa_loveseat_2armchairs", "sofa_facing_sofa"],
+    "extras_max": 4, "storage_media": "normal", "reading": "after_main_group"},
+   {"max": 30, "groups": ["sofa_2armchairs", "sofa_loveseat_2armchairs", "two_sofas_2armchairs"],
+    "secondary_zone": "preferred_over_growing_main", "seats_cap_main": 8},
+   {"max": 999, "groups": ["sofa_2armchairs", "two_sofas_2armchairs"],
+    "secondary_zones": "normal", "note": "35+: несколько зон — норма; главной зоне часто хватает одного дивана"}
+  ],
+  "anchor_principle": "малой комнате — один нормальный якорь + лёгкие спутники; лимит НЕЗАВИСИМЫХ предметов, не размер каждого"
+ }
+}

@@ -2,7 +2,7 @@
 workstream: furniture
 slug: MASTER-zones-first
 title: МАСТЕР — движок «зоны-first» (Z0–Z6): focal point, маршруты, посадочные группы, inventory-prior
-status: draft
+status: in_progress
 created: 2026-08-07
 updated: 2026-08-07
 ---
