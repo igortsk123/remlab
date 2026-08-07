@@ -135,9 +135,10 @@ section{{border-top:1px solid #ddd;padding-top:10px}}
     open(os.path.join(OUT, 'index.html'), 'w').write(html)
     print(f'страница: {OUT}/index.html ({len(sets)} сетов)')
     if '--publish' in sys.argv or os.environ.get('LAYOUT10_PUBLISH') == '1':
-        # публикация — часть конвейера, не ручной шаг (требование владельца 2026-08-07)
-        r = subprocess.run(['scp', '-r', '-o', 'ConnectTimeout=15', OUT,
-                            'root@89.167.127.0:/opt/remlab/test/'],
+        # публикация — часть конвейера, не ручной шаг (владелец 2026-08-07). rsync, не scp -r:
+        # повторный scp клал каталог ВНУТРЬ существующего (test/layout10/layout10 → 404)
+        r = subprocess.run(['rsync', '-a', '--delete', '-e', 'ssh -o ConnectTimeout=15',
+                            OUT + '/', 'root@89.167.127.0:/opt/remlab/test/layout10/'],
                            capture_output=True, text=True, timeout=600)
         print('опубликовано: https://remont-lab.online/test/layout10/' if r.returncode == 0
               else f'ПУБЛИКАЦИЯ НЕ ПРОШЛА: {r.stderr[:200]}')
