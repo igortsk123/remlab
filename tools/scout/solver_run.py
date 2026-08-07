@@ -516,7 +516,12 @@ def attempt_beam():
     its = []
     for role, (w, d) in FLOOR:
         src = items.get(role) or {}
-        its.append(_It(role=role, w_cm=w, d_cm=d, h_cm=(src.get('h') or None),
+        # beam решает СРАЗУ по каталожным габаритам (фолбэк — типовые): пост-фикс «типовые →
+        # каталожные» после солвера выводил зону из шкал — с составами R3 столик мельче типового
+        # уезжал на 58–59 см при вилке 33–47, и 41 сет падал (перегон 2026-08-07)
+        rw = float(src.get('w') or src.get('dia') or w)
+        rd = float(src.get('d') or src.get('dia') or d)
+        its.append(_It(role=role, w_cm=rw, d_cm=rd, h_cm=(src.get('h') or None),
                        name=(src.get('name') or None),
                        corner=(role == 'диван' and CORNER),
                        corner_section_cm=(OCC or {}).get('corner_sofa_section_depth_cm', 95)))
@@ -548,8 +553,12 @@ def attempt_beam():
     placed = {p.role: ((p.x, p.y), int(p.rot) % 360, tuple(_fp(p).exterior.coords[:]), 1)
               for p in lay.placements}
     missing = list(lay.unplaced)
-    # zone_used=все роли: у Г-дивана дистанции меряются от фронта длинной секции (как в DFS-ветке)
-    return placed, missing, hard_checks(placed, set(placed))
+    # ОДНА линейка (2026-08-07): вердикты планнера. Scout-чеки поверх мерили Г-диван другой
+    # методикой и спорили с ядром (41 ложный провал «диван↔столик» на перегоне) — они остаются
+    # только у DFS, который планнером не проверяется.
+    pl = [(v.code, False, v.value if v.value is not None else '')
+          for v in lay.violations if v.severity.name == 'HARD']
+    return placed, missing, (pl or [('planner: hard-чисто', True, '')])
 
 
 _eng_arg = sys.argv[sys.argv.index('--engine') + 1] if '--engine' in sys.argv else None
@@ -573,13 +582,15 @@ print(f"seed {seed}, нарушений {nf}")
 
 out={r:{'x':placed[r][0][0],'z':placed[r][0][1],'rot':placed[r][1],
         'w':dict(FLOOR)[r][0],'d':dict(FLOOR)[r][1]} for r in placed}
-# ПРЕДМЕТ НЕ ТОРЧИТ ЗА СТЕНУ. Движки ставят мебель по типовым габаритам, а в раскладку уходят
-# КАТАЛОЖНЫЕ — комод и стеллаж вылезали за стену на 4-5 см (владелец: «шкаф вдоль стены не
-# пашет», 2026-08-05). Прижимаем центр так, чтобы след целиком лежал в комнате.
-for _r, _v in out.items():
-    _w, _d = (_v['w'], _v['d']) if int(_v['rot']) % 180 == 0 else (_v['d'], _v['w'])
-    _v['x'] = min(max(_v['x'], _w / 2), RW - _w / 2)
-    _v['z'] = min(max(_v['z'], _d / 2), RD - _d / 2)
+# ПРЕДМЕТ НЕ ТОРЧИТ ЗА СТЕНУ — только для DFS: он решает по типовым габаритам, и каталожные
+# вылезали за стену (владелец, 2026-08-05). Beam с 2026-08-07 решает СРАЗУ по каталожным
+# (check_boundary hard) — пост-прижим ему не нужен и ВРЕДЕН: сдвиг после валидации выводил
+# зону из шкал, и вторая линейка (scout-чек) спорила с первой (планнером) — 41 ложный провал.
+if ENGINE not in ('beam', 'llm'):
+    for _r, _v in out.items():
+        _w, _d = (_v['w'], _v['d']) if int(_v['rot']) % 180 == 0 else (_v['d'], _v['w'])
+        _v['x'] = min(max(_v['x'], _w / 2), RW - _w / 2)
+        _v['z'] = min(max(_v['z'], _d / 2), RD - _d / 2)
 
 # Г-ДИВАН ДОЛЖЕН ДОЙТИ ДО СЦЕНЫ. Солвер ставит его настоящим шестиугольником, но в раскладку
 # уезжали только x/z/w/d — сцена и план рисовали прямоугольник, который вдобавок стоял в 45 см
