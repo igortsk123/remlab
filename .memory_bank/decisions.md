@@ -1177,3 +1177,49 @@ area-шкала — фолбэк; size-bands — приоритет со штр�
 
 **Влияет на.** `solver_run.py` (ENGINE default), `planner/{geometry,candidates,beam,validate,score,zones}.py`,
 `services/planner-solver/rules/{severity,occupancy,weights}.json`, `compose2.py` (W3), `rules_export.py` (--referee).
+
+## [2026-08-08] Чистота A/B движков: один лейбл — один алгоритмический путь — ADR-0076
+
+**Решение.** Лейбл движка (`ENGINE=zoned|beam|dfs`) означает РОВНО один алгоритмический путь:
+никаких скрытых кросс-движковых «спасений». Найдено на приёмке: под `ENGINE=zoned` после
+планнера гонялись 6 DFS-попыток и при меньшем числе нарушений подменяли результат — A/B был
+контаминирован (плюс таймауты, ×2 к времени сцены). Убрано: `tools/scout/solver_run.py`
+(seed-цикл исключает zoned), инвариант закреплён тестом `test_engine_purity`
+(`services/planner-solver/tests/test_zones.py`).
+**Почему.** Рефери-финал 08.08 п.11: доверие к бенчмарку важнее косметики скора; подмена
+результата чужим движком делает цифры приёмки недоказуемыми.
+**Влияет на.** acceptance_run A/B, все будущие сравнения движков, ADR-0075 (цифры пере-сняты
+чистым zoned).
+
+## [2026-08-08] Арбитраж внешнего рефери принят: пакет правок валидатора/данных — ADR-0077
+
+**Решение.** Внешний рефери (арбитраж по 13-листовому xlsx-своду, финальная оценка 9.2/10:
+«архитектуру не менять, zoned остаётся production-core») — ВСЕ рекомендации внедрены тремя
+партиями. Правило владельца: расходиться с рефери можно ТОЛЬКО с самостоятельно найденным
+пруфом из источников.
+(1) `FLOOR_OVERFILL` HARD→S1 — процент пола сам по себе не брак, физику ловят
+коллизии/проходы/двери (`planner/validate.py check_floor_cap`).
+(2) Новые мягкие чеки: `FIREPLACE_FAR_FROM_SEATING` S1 (вне 200–450 см от посадки ИЛИ вне
+сектора видимости 75°, `check_fireplace_seating`); `SOFA_WINDOW_GAP` S1 + `SOFA_BACK_ABOVE_SILL`
+S2 (`check_window_sofa`; доступ был H0).
+(3) Ярусы = ПРИОРИТЕТ УДЕРЖАНИЯ, не обязательный инвентарь: не влезшие dining/storage/optional
+дропаются ярусом в skipped (не провал сцены); обеденная группа атомарна — стол + ≥2 стульев или
+ничего (`beam.solve`); 6 м² — префильтр состава, финальное слово за геометрией солвера.
+(4) Мёртвая зона за диваном локализована: ширина дивана + 100 см (не вся комната); камин
+исключён из полосы — focal-behind ловит угловой чек (`_behind_strip`, DEAD_BEHIND_ROLES).
+(5) «Спинкой к стене» — из данных: `occupancy.layout_rules.requires_wall_back` /
+`room_divider_capable` (стеллаж) / `_active` (пусто до divider-сценариев).
+(6) ТВ: primary от дистанции просмотра (FOV ~30°), тумба — clamp с канон-приором экран/тумба
+70–90% (`check_distances`; генератору — distance-first в `viz_final.zones_brief`).
+(7) Пропорции: флаг `hard` — 6 эстетических ratio штрафуют (−1.5), не выбраковывают
+(`tools/scout/proportions.json/.py`); канон высоты столика — zones `[-5,0]` (proportions —
+производная); карта классов маршрутов в `distances_cm._route_classes`; `narrow_room` —
+кандидат-шаблоны, не канон.
+(8) Таксономия: `SOFA_SLIVER` H0→H1; H0 = «physical/mandatory operability». Реестр — 47 кодов
+(H0×10, H1×25, S1×9, S2×3), сверка тестом `test_severity_registry`.
+**Почему.** Рефери прошёлся по источникам (RTINGS/Dimensions/Spruce/H&G/Function2Scene/
+FlairGPT); его вердикты совпали с нашей критической оценкой, кроме Q3 — решение владельца
+«делаем как рефери». 95% internal clean ≠ «дизайнерское качество» — следующий слой: слепой
+human A/B (решение владельца).
+**Влияет на.** validate.py (3 новых чека, 2 демоции), beam.solve (дроп ярусов), severity.json,
+occupancy/zones/proportions/size-bands JSON, rules_export (13 листов, --date), приёмка 252.

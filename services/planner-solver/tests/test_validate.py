@@ -179,7 +179,8 @@ def test_functional_zones():
 
 
 def test_verdicts_0807():
-    """В4 (вердикты 07.08): камин за спиной, полоса на всю ширину, стул ≤40."""
+    """В4 (вердикты 07.08, скорректированы рефери 08.08 Q3): камин за спиной ловится
+    угловым чеком (focal-behind), торшер за плечом — локальной полосой; стул ≤40."""
     from tests.rooms import make_room
     room = make_room("41-50")
     sofa = Placement(role="диван", x=room.width_cm / 2, y=room.depth_cm / 2, rot=0,
@@ -187,7 +188,15 @@ def test_verdicts_0807():
     fireplace_behind = Placement(role="камин", x=80, y=60, rot=0,
                                  item=Item(role="камин", w_cm=100, d_cm=40, h_cm=110))
     codes = {v.code for v in validate(room, [sofa, fireplace_behind]).violations}
-    assert "DEAD_ZONE_BEHIND_SOFA" in codes, "камин за спиной (в т.ч. в углу) — брак"
+    assert "FIREPLACE_FAR_FROM_SEATING" in codes, \
+        "камин за спиной/по диагонали — вне сектора видимости (Q3/Q6: угловой чек, не полоса)"
+    # торшер сразу за плечом дивана — внутри локальной полосы (ширина+100)
+    lamp = Placement(role="торшер", x=room.width_cm / 2 - 120 - 40, y=room.depth_cm / 2, rot=0,
+                     item=Item(role="торшер", w_cm=35, d_cm=35, h_cm=160))
+    lamp.x = room.width_cm / 2 - 180   # за плечом, в 60 см от края дивана
+    lamp.y = room.depth_cm / 2 - 120   # позади спинки (диван смотрит в +y)
+    codes = {v.code for v in validate(room, [sofa, lamp]).violations}
+    assert "DEAD_ZONE_BEHIND_SOFA" in codes, "торшер за плечом — в локальной полосе"
     tbl = Placement(role="стол обеденный", x=100, y=room.depth_cm - 100, rot=0,
                     item=Item(role="стол обеденный", w_cm=140, d_cm=80, h_cm=75))
     chair_60 = Placement(role="стул", x=100 + 70 + 22 + 60, y=room.depth_cm - 100, rot=270,

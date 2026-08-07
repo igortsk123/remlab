@@ -1,6 +1,6 @@
 {
  "_meta": {
-  "source": "external:github.com/princeton-vl/infinigen (BSD-3) home.py LIVINGROOMS — стартовая таблица весов, адаптированная под правила remlab",
+  "source": "external:github.com/princeton-vl/infinigen@25a7d28 (BSD-3) src/infinigen_examples/constraints/home.py: секция livingrooms (constraints/score_terms['sofa'|'livingroom'], строки ~1085–1250) — стартовая таблица весов, ЧИСЛА АДАПТИРОВАНЫ под правила remlab (derived, не copied); путь и SHA сверены 2026-08-08",
   "note": "Таргеты берём СВОИ (кап пола по бэндам, шкалы диван↔ТВ/столик — решения владельца); у Infinigen заимствована относительная важность термов, а не числа-таргеты. Конфликты — guides/layout-mined-rules.md.",
   "updated": "2026-08-02"
  },
@@ -24,6 +24,5 @@
  "corner_sofa_hug": 5,
  "soft_layout_rule": 4,
  "dining_by_window": 3,
- "source": "external:github.com/princeton-vl/infinigen@25a7d28 (BSD-3) src/infinigen_examples/constraints/home.py: секция livingrooms (constraints/score_terms['sofa'|'livingroom'], строки ~1085–1250) — стартовая таблица весов, ЧИСЛА АДАПТИРОВАНЫ под правила remlab (derived, не copied); путь и SHA сверены 2026-08-08",
  "pair_symmetry": 0.6
 }

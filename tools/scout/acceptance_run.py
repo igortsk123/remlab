@@ -50,9 +50,11 @@ def _one(engine, sc):
     msoft = re.search(r'^SOFT (\{.*\})$', out, re.M)
     soft = json.loads(msoft.group(1)) if msoft else {}
     dumb = round(sum(soft.get('terms', {}).values()), 1)
+    mskip = re.search(r'^SKIPPED (\[.*\])$', out, re.M)
+    skipped = json.loads(mskip.group(1)) if mskip else []
     ok = not fails and not missing and r.returncode == 0
     return dict(scene=sc['id'], set=sc['set'], ok=ok, fails=fails,
-                missing=missing, soft_score=dumb,
+                missing=missing, skipped=skipped, soft_score=dumb,
                 group=(re.search(r'зонная группа: (\S+)', out) or [None, None])[1])
 
 

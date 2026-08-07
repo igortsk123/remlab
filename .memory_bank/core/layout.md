@@ -12,22 +12,22 @@ status: working
 # Расстановка — Tier 1
 
 **Правила**: свод `../domain/occupancy-rules.md` → машиночитаемо
-`services/planner-solver/rules/occupancy.json` (ОДИН файл на оба движка); шкалы от площади;
-ковёр — к дивану.
-**Legacy (scout)**: DFS — периферия, для A/B (`solver_run.py --engine dfs`).
+`services/planner-solver/rules/occupancy.json` (ОДИН файл на оба движка).
 **Прод-ядро** (ADR-0052, `services/planner-solver/`, Python+shapely, БЕЗ ML): кандидаты → hard →
-beam (20×8) → скоринг → уточнение → top-K с объяснениями. Э1–Э5 в коде, 61 тест,
-1.5–2.2 с/комнату, детерминизм. Комнаты пока прямоугольные, геометрия полигонная.
-**Требование владельца 07.08: обязательна работа в нестандартных планировках** (Г-контуры,
-open-plan кухня-гостиная, эркеры) — план [[layout-polygon-rooms]] (Э8); правила и priors
-([[layout-priors-from-datasets]]) строить сразу в терминах контура. Осталось также:
-backtracking 26–30 м². Спека `../guides/layout-engine-spec.md`; добытые правила —
-`../guides/layout-mined-rules.md` (при конфликте канон наш).
+beam → скоринг → уточнение → top-K с объяснениями; детерминизм; полигонные контуры (Э8).
+DFS — периферия для A/B (`--engine dfs`). Остатки: backtracking 26–30, косые стены.
+Спека `../guides/layout-engine-spec.md`; добытые правила — `../guides/layout-mined-rules.md`.
 
 **Зонный — боевой дефолт (08.08, ADR-0075):** приёмка 252 фикс-сцены — zoned 239/252 vs beam
 119/252, 0 сцен хуже; экземпляры ролей («кресло 2»/«диван 2»/«стул N») — полноправны
-(`base_role`, qty из сета в FLOOR); W-правки аудита: severity-реестр+тест, столик 36–46 фикс,
-ТВ от диагонали тумбы, size-bands→приоры, pair_symmetry (S2).
+(`base_role`, qty из сета в FLOOR); W-правки: severity-реестр 47 кодов+тест, столик 36–46 фикс,
+size-bands→приоры, pair_symmetry (S2).
+**Арбитраж рефери принят (08.08, ADR-0076/0077):** ярусы = приоритет удержания — не влезшие
+dining/storage дропаются ярусом, обеденная атомарна (стол+≥2 стульев, `beam.solve`); новые S-чеки
+камин/окно; FLOOR_OVERFILL и SOFA_SLIVER демотированы; мёртвая зона локализована (диван+100);
+wall-back из данных; ТВ distance-first (приор тумбы 70–90); zoned — чистый планнер (DFS-фолбэк
+убран, test_engine_purity). Расходиться с рефери — только с самостоятельным пруфом (владелец).
+План: [[referee-hardening]].
 **Зоны-first (ADR-0074):** `services/planner-solver/planner/zones.py` — usable-площадь, группа по
 `services/planner-solver/rules/zones.json`, `solve_zoned`, ЛЕКСИКОГРАФИЧЕСКИЙ отбор (hard→циркуляция→функция→зоны→
 эстетика). Hard — только физика. Тесты: Q-антипаттерны + 3 Э8-контура; приёмка — 252 фикс-сцены

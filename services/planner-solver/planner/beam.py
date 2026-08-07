@@ -152,16 +152,27 @@ def solve(room: Room, items: list[Item], *, top_k: int = 3, beam_width: int = BE
                              cand_per_item=cand_per_item, polish=polish, corner_sofa_first=False)
         if alt and "тв-тумба" not in (alt[0].unplaced or []):
             outs = alt
+    from .geometry import base_role as _br
     for lay in outs:
-        # П8 (вердикт 07.08, сет 47): стол обеденный ТОЛЬКО со стульями — стулья не встали →
-        # стол снимается (обеденная группа целиком или никак)
-        chairs_lost = any(r.startswith("стул") for r in lay.unplaced + lay.skipped_optional)
-        chairs_placed = any(p.role.startswith("стул") for p in lay.placements)
-        if chairs_lost and not chairs_placed:
-            tbl = [p for p in lay.placements if p.role == "стол обеденный"]
-            if tbl:
-                lay.placements = [p for p in lay.placements if p.role != "стол обеденный"]
-                lay.unplaced = lay.unplaced + ["стол обеденный"]
+        # П8 (вердикт 07.08, сет 47) + вердикт 08.08 («минимум 2 стула»): обеденная группа
+        # целиком или никак — стол без ≥2 стульев снимается, стулья без стола снимаются
+        chairs_placed = [p for p in lay.placements if _br(p.role) == "стул"]
+        tbl_placed = any(p.role == "стол обеденный" for p in lay.placements)
+        if tbl_placed and len(chairs_placed) < 2:
+            gone = ["стол обеденный"] + [p.role for p in chairs_placed]
+            lay.placements = [p for p in lay.placements if p.role not in gone]
+            lay.unplaced = lay.unplaced + gone
+        elif not tbl_placed and chairs_placed:
+            gone = [p.role for p in chairs_placed]
+            lay.placements = [p for p in lay.placements if p.role not in gone]
+            lay.unplaced = lay.unplaced + gone
+        # Рефери 08.08 (Q1/3.3): ярусы dining/storage — приоритет удержания, не обязательный
+        # инвентарь. Не встали (площадный гейт состава — префильтр, финальное слово за
+        # геометрией) → честный дроп в skipped_optional, а не провал всей сцены.
+        droppable = [r for r in lay.unplaced if tier_of(r) in ("dining", "storage", "optional")]
+        if droppable:
+            lay.unplaced = [r for r in lay.unplaced if r not in droppable]
+            lay.skipped_optional = sorted(set(lay.skipped_optional) | set(droppable))
         # Страховка (вердикт 07.08, сет 76: стул в 140 см прошёл «ok»): ПОЛНАЯ ревалидация
         # финального размещения — доводка/ремонт не имеют права выпускать hard мимо отчёта
         fresh = validate(room, lay.placements)

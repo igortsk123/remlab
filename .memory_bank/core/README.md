@@ -21,7 +21,7 @@
 | `goals.md` | goals-furnish-fit | Цели продукта — v0.4 «Смета-first» | `../goals-one-photo-furnish-fit.md` | 2026-07-09 |
 | `layout.md` | layout | Расстановка — свод правил, зона-билдер, прод-ядро | `../domain/occupancy-rules.md` | 2026-08-08 |
 | `leads.md` | leads | Лид-канал «найдём дешевле» — заявка, TG-бот | — | 2026-07-28 |
-| `lessons.md` | lessons | Уроки перед планированием — что пробовали и что НЕ сработало | `../anti-patterns.md` | 2026-08-06 |
+| `lessons.md` | lessons | Уроки перед планированием — что пробовали и что НЕ сработало | `../anti-patterns.md` | 2026-08-08 |
 | `lr-composition.md` | lr-composition | Композиция гостиной — доли площади | `../domain/lr-composition-guide.md` | 2026-08-01 |
 | `market.md` | market | Рынок RU/UK — спрос, конкуренты, монетизация | `../domain/market-research.md` | 2026-07-11 |
 | `marketing-acquisition.md` | marketing-acquisition | Реклама — Яндекс, семантика, стратегия | `../domain/wordstat-semantics.md` | 2026-07-11 |

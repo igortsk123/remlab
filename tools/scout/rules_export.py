@@ -3,8 +3,8 @@
 
 Листы: оглавление · канон occupancy.json (один файл на оба движка) · zones.json (группы/зоны/
 inventory-prior/иерархия) · weights.json (веса скоринга) · composition.json (доли пола по
-метражу) · size-bands.json (размерные гейты) · proportions.json · коды валидатора (из
-validate.py, с severity и местом).
+метражу) · size-bands.json (размерные priors, не гейты) · proportions.json (hard/soft) ·
+коды валидатора (из validate.py, с severity и местом).
 
 Запуск: ~/venvs/scout/bin/python rules_export.py [выходной .xlsx]
 """
@@ -20,8 +20,13 @@ from openpyxl.utils import get_column_letter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SOLVER = os.path.join(HERE, '..', '..', 'services', 'planner-solver')
-OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser(
-    f'~/rules-svod-{datetime.date.today().isoformat()}.xlsx')
+_pos = [a for a in sys.argv[1:] if not a.startswith('--')]
+# --date=YYYY-MM-DD: дата пакета, если «сегодня» владельца/рефери не совпадает с UTC машины
+# (рефери-финал 08.08 P0.1: имя файла и оглавление обязаны совпадать — оба берутся отсюда)
+_dt = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('--date=')), None)
+STAMP = _dt or datetime.date.today().isoformat()
+OUT = _pos[0] if _pos else os.path.expanduser(
+    f'~/rules-{"for-referee" if "--referee" in sys.argv else "svod"}-{STAMP}.xlsx')
 
 FILES = [
     ('occupancy.json', os.path.join(SOLVER, 'rules', 'occupancy.json'),
@@ -35,9 +40,9 @@ FILES = [
     ('composition.json', os.path.join(HERE, 'composition.json'),
      'Состав сетов: доли площади пола по ролям в каждом метраже'),
     ('size-bands.json', os.path.join(HERE, 'size-bands.json'),
-     'Размерный гейт: допустимая ширина роли в метраже'),
+     'Размерные priors/preferred bands: in-band приоритет, вне диапазона штраф — НЕ отсев (W3)'),
     ('proportions.json', os.path.join(HERE, 'proportions.json'),
-     'Пропорции предметов друг к другу (жёсткий фильтр до скоринга)'),
+     'Пропорции: hard functional filters + soft aesthetic preferences (флаг hard, 5.1)'),
 ]
 
 
@@ -145,6 +150,70 @@ REFEREE_QUESTIONS = [
  ('Q7', 'Диван спинкой к окну: enforce отступ 15–20 см + «спинка не выше низа стекла» (правило есть в данных, в валидатор не доведено). Какой класс — H1 или S1?'),
 ]
 
+# Финальная строка приёмки: читаем свежий jsonl, если он полон; иначе честная пометка
+def _acceptance_final() -> str:
+    import json as _json
+    p = os.path.join(HERE, 'acceptance-report-zoned.jsonl')
+    try:
+        rows = [_json.loads(l) for l in open(p)]
+    except OSError:
+        return 'прогон не найден на момент экспорта'
+    ok = sum(1 for r in rows if r.get('ok'))
+    note = '' if len(rows) >= 252 else f' (ПРОМЕЖУТОЧНО, прогон идёт: {len(rows)}/252 сцен)'
+    import collections as _c
+    fails = _c.Counter()
+    for r in rows:
+        if not r.get('ok'):
+            for f in (r.get('fails') or ['unplaced base']):
+                fails[str(f).replace('FAIL', '').strip()[:40]] += 1
+    top = '; '.join(f'{k}×{v}' for k, v in fails.most_common(6)) or 'провалов нет'
+    return f'{ok}/{len(rows)} чистых{note}; провалы: {top}'
+
+
+ACCEPTANCE_FINAL = _acceptance_final()
+
+# Детальный отчёт внедрения 08.08: пункт рефери → изменение → якорь в коде → проверка
+IMPLEMENTATION_REPORT = [
+ ('Q5 floor-cap не HARD', 'FLOOR_OVERFILL: Severity HARD→SOFT; класс H1→S1 в реестре',
+  'planner/validate.py check_floor_cap; rules/severity.json',
+  'test_floor_overfill_is_soft; test_severity_registry (механическая сверка реестр↔код)'),
+ ('Q6 камин S1-prior', 'НОВЫЙ чек FIREPLACE_FAR_FROM_SEATING (S1): дистанция вне 200–450 см до посадки ИЛИ вне сектора видимости 75° от оси взгляда дивана; пороги из zones.json fireplace.distance_to_seating_cm',
+  'planner/validate.py check_fireplace_seating', 'test_fireplace_far_is_soft (far→S1, в вилке+в поле→чисто)'),
+ ('Q7 окно раздельно', 'Доступ был H0 (WINDOW_BLOCKED/RADIATOR); НОВЫЕ: SOFA_WINDOW_GAP (S1, спинка к окну ближе 15 см, из window_sofa.min_offset) и SOFA_BACK_ABOVE_SILL (S2, спинка выше sill_cm проёма)',
+  'planner/validate.py check_window_sofa', 'test_sofa_window_gap_and_sill'),
+ ('Q1/3.3 ярусы = retention-priority', 'Не влезшие dining/storage/optional дропаются ЯРУСОМ в skipped_optional (не провал сцены); обеденная группа атомарна: стол + ≥2 стульев или ничего; 6 м² остаётся префильтром состава; дроп виден наружу (SKIPPED в выводе солвера и поле skipped приёмки — no silent caps)',
+  'planner/beam.py solve; tools/scout/solver_run.py; acceptance_run.py', 'test_dining_storage_drop_not_fail'),
+ ('Q3 локализация полосы', '_behind_strip: ширина дивана + 100 см бокового запаса (не вся комната); камин исключён из DEAD_BEHIND_ROLES (focal-behind — угловым чеком)',
+  'planner/validate.py _behind_strip, DEAD_BEHIND_ROLES', 'test_verdicts_0807 (камин→угловой чек; торшер за плечом→полоса)'),
+ ('Q4 subtype-флаги', 'requires_wall_back=[тв-тумба,шкаф,комод,стенка,витрина,стеллаж,камин]; room_divider_capable=[стеллаж]; room_divider_capable_active=[] (активация без переписывания severity)',
+  'rules/occupancy.json layout_rules; validate.py _wall_only_roles', 'поведение текущего скоупа без изменений (79 тестов)'),
+ ('Q2 ТВ от дистанции', 'Валидатор: вилка от существования диагонали при приоре 0.70–0.90 экрана к тумбе; генератор: distance-first (диагональ ≈ дистанция/1.6 по FOV ~30°, clamp 70–90% тумбы)',
+  'validate.py check_distances; tools/scout/viz_final.py zones_brief', 'фикстуры manual_layout валидны в новой вилке'),
+ ('5.1 эстетика ≠ отсев', 'Флаг hard у каждого правила пропорций: 6 эстетических (chair_h, rug×2, pouf_area, sofa_vs_wall, storage_vs_wall) вне allowed → штраф −1.5, товар НЕ выбывает; hard остались: длина/высота столика, высота пуфа, тумба-не-уже-ТВ',
+  'tools/scout/proportions.json (hard); proportions.py', 'подбор: физику проверяет геометрия солвера'),
+ ('5.2 один канон высоты столика', 'Канон: zones height_vs_seat_cm [-5,0] (вровень или до 5 см ниже сиденья); proportions table_h_vs_seat — производная (allowed 0.78–1.08 — выше сиденья убрано, preferred 0.89–1.0)',
+  'rules/zones.json (_canon_height); proportions.json', '—'),
+ ('5.3 классы маршрутов', 'Авторитетная карта: primary_route=passage_main[90,107]; secondary_route=walkway[76,91]; object_access=gaps 60–75; tight_fallback=[46,61]; переименование ключей — в constraint-IR (W7)',
+  'rules/occupancy.json distances_cm._route_classes', '—'),
+ ('5.4 narrow-room = кандидаты', 'dynamic.narrow_room помечен как кандидат-шаблоны генерации, НЕ канон-констрейнты (enforcement в валидаторе и не было); вытянутые — солверная работа (очередь №1)',
+  'rules/occupancy.json dynamic.narrow_room._note', '—'),
+ ('P0.8 authoritative floor-cap', 'Авторитетный метрик — band-scale floor_cap_pct валидатора; composition.global_floor_cap — legacy-фолбэк подбора; развод на 4 метрики — W7',
+  'validate.py check_floor_cap', '—'),
+ ('Гигиена A/B (наша находка)', 'Под ENGINE=zoned после планнера гонялись 6 DFS-попыток и при меньшем числе нарушений подменяли результат (контаминация A/B + таймауты) — убрано: zoned = чистый планнер',
+  'tools/scout/solver_run.py', 'таймауты ушли, скорость прогона ×2'),
+]
+
+# Вердикты рефери 08.08 и что сделано по ним (арбитраж завершён)
+REFEREE_VERDICTS = [
+ ('Q1', '6 м² — только permissive-префильтр; финал по фактической геометрии', 'ПРИНЯТО, так и работает: гейт в составе — префильтр, финальное слово за солвером (клиренсы стульев/проходы). Дополнено 08.08: не влезшие dining/storage дропаются ЯРУСОМ в skipped (retention-priority, п.3.3 рефери), а не валят сцену.'),
+ ('Q2', 'stand→TV 70% — только fallback; primary — от sofa-distance/FOV (~30°)', 'ПРИНЯТО, СДЕЛАНО 08.08: валидатор принимает дистанцию, под которую СУЩЕСТВУЕТ диагональ при приоре экран/тумба 0.70–0.90 (hard [1.2·d_min, 2.5·d_max], не точка 0.70); генератору передана distance-first инструкция (диагональ ≈ дистанция/1.6, clamp 70–90% тумбы, не шире тумбы). Калибровка приора по каталогу — при накоплении рендеров.'),
+ ('Q3', 'room-wide полоса слишком широка; локализовать + отдельный focal-behind', 'ПРИНЯТО, СДЕЛАНО 08.08 (решение владельца: «делаем как рефери»): полоса локализована — ширина дивана + 100 см бокового запаса (кейс «торшер за плечом» покрыт); камин исключён из полосы — focal-behind ловит угловой чек FIREPLACE_FAR_FROM_SEATING (сектор 75°). Отдельный FOCAL_BEHIND_MAIN_SEAT — при мульти-focal сценариях.'),
+ ('Q4', 'H1 допустим в текущем скоупе, но только с subtype-привязкой; open shelving divider — exemption', 'ПРИНЯТО, СДЕЛАНО 08.08: requires_wall_back / room_divider_capable (стеллаж) / room_divider_capable_active в occupancy.layout_rules; валидатор читает из данных. Активация divider-exemption — переносом роли в _active, severity переписывать не нужно (сейчас пусто: divider-сценариев в продукте нет).'),
+ ('Q5', 'dynamic floor-cap — временно ок, но НЕ HARD; один authoritative metric', 'ПРИНЯТО, СДЕЛАНО 08.08: FLOOR_OVERFILL → S1 (SOFT). Authoritative — band-scale floor_cap_pct валидатора; composition.global_floor_cap — legacy-фолбэк подбора; развод на 4 метрики — в IR (W7).'),
+ ('Q6', '200–450 и ≤75° — только S1-prior, safety отдельно от композиции', 'ПРИНЯТО, СДЕЛАНО 08.08: FIREPLACE_FAR_FROM_SEATING (S1) — вне вилки 200–450 ИЛИ вне сектора ≤75°; safety-clearance прибора — вне скоупа (метаданные товара, TODO). Тест в test_zones.'),
+ ('Q7', 'разделить: доступ H0/H1; зазор S1 (preferred 25–30, tight 15–20); спинка выше стекла S2', 'ПРИНЯТО, СДЕЛАНО 08.08: доступ/радиатор уже H0 (WINDOW_BLOCKED/RADIATOR); SOFA_WINDOW_GAP (S1, tight-минимум 15); SOFA_BACK_ABOVE_SILL (S2, порог — sill_cm проёма). Preferred 25–30 — в данные при калибровке.'),
+]
+
 def referee_sheets(wb):
     ws = add_sheet(wb, 'ответ на аудит', AUDIT_RESPONSE,
                    ['Пункт аудита', 'Статус', 'Позиция проекта / что сделано'])
@@ -157,10 +226,20 @@ def referee_sheets(wb):
      ('Зонный движок, новые составы', '239/252 чистых (95%); медиана 9.7; сцен хуже старого — 0'),
      ('Зонный по типам сцен', 'база 124/126, вытянутые 56/63, эркер 20/21, пилоны 21/21, трапеция 18/21'),
      ('Решение', 'зонный — боевой дефолт с 08.08; beam остаётся для A/B (--engine beam)'),
-     ('Прогон с W-правками', 'идёт на момент экспорта; W2 строже (фикс-эргономика) + впервые полные составы с парами'),
+     ('Прогон с W-правками (08.08, до пакета рефери)', '221/252 при СТАРОМ понимании required; разбор: 22 из 31 провала — не влезшие dining/storage в новых амбициозных составах (закрыто дропом ярусом по Q1/3.3), 2 таймаута — DFS-фолбэк под лейблом zoned (убран), остальное — диван↔ТВ/sliver'),
+     ('Финальный прогон с ПОЛНЫМ пакетом рефери (партии 1+2)', ACCEPTANCE_FINAL),
     ]
     ws3 = add_sheet(wb, 'приёмка (контекст)', accpt, ['Что', 'Результат'])
     ws3.column_dimensions['B'].width = 120
+    ws4 = add_sheet(wb, 'вердикты рефери', REFEREE_VERDICTS,
+                    ['№', 'Вердикт рефери (08.08)', 'Решение проекта / статус'])
+    ws4.column_dimensions['B'].width = 70
+    ws4.column_dimensions['C'].width = 110
+    ws5 = add_sheet(wb, 'внедрение (детально)', IMPLEMENTATION_REPORT,
+                    ['Пункт', 'Изменение', 'Якорь в коде', 'Проверка'])
+    ws5.column_dimensions['B'].width = 90
+    ws5.column_dimensions['C'].width = 55
+    ws5.column_dimensions['D'].width = 55
 
 
 def main():
@@ -169,7 +248,7 @@ def main():
     ws.title = 'Оглавление'
     ws.append(['Свод правил remlab — полный экспорт', ''])
     ws['A1'].font = Font(bold=True, size=14)
-    ws.append([f'Дата: {datetime.date.today().isoformat()}', ''])
+    ws.append([f'Дата: {STAMP}', ''])
     ws.append(['Лист', 'Что это'])
     for name, _, note in FILES:
         ws.append([name, note])

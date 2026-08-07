@@ -574,6 +574,9 @@ def attempt_beam():
     placed = {p.role: ((p.x, p.y), int(p.rot) % 360, tuple(_fp(p).exterior.coords[:]), 1)
               for p in lay.placements}
     missing = list(lay.unplaced)
+    # Рефери 08.08 (Q1/3.3): дроп ярусом — не провал, но и не молчание (no silent caps)
+    if lay.skipped_optional:
+        print('SKIPPED ' + json.dumps(sorted(lay.skipped_optional), ensure_ascii=False), flush=True)
     # ОДНА линейка (2026-08-07): вердикты планнера. Scout-чеки поверх мерили Г-диван другой
     # методикой и спорили с ядром (41 ложный провал «диван↔столик» на перегоне) — они остаются
     # только у DFS, который планнером не проверяется.
@@ -596,7 +599,7 @@ best=None
 if ENGINE in ('beam', 'zoned', 'llm'):
     _pl, _ms, _ck = attempt_beam()
     best = (sum(1 for _, ok, _ in _ck if not ok) + len(_ms), ENGINE, _pl, _ms, _ck)
-for seed in ([] if ENGINE in ('beam', 'llm') else (7,11,23,42,77,101)):
+for seed in ([] if ENGINE in ('beam', 'llm', 'zoned') else (7,11,23,42,77,101)):
     placed,missing,checks=attempt(seed)
     nf=sum(1 for _,ok,_ in checks if not ok)+len(missing)
     if best is None or nf<best[0]: best=(nf,seed,placed,missing,checks)

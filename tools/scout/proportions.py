@@ -67,8 +67,13 @@ def check(role: str, it: dict, ctx: dict, subtype: str | None = None) -> tuple[b
         ratio = a / b
         lo, hi = r['allowed']
         if not (lo <= ratio <= hi):
-            ok = False
-            notes.append(f"{r['id']} {ratio:.2f} вне {lo}–{hi}")
+            # 5.1 (рефери 08.08): эстетические ratio (hard=false) штрафуют, но не выбраковывают
+            if r.get('hard', True):
+                ok = False
+                notes.append(f"{r['id']} {ratio:.2f} вне {lo}–{hi}")
+            else:
+                bonus -= 1.5
+                notes.append(f"{r['id']} {ratio:.2f} вне {lo}–{hi} (штраф)")
             continue
         plo, phi = r['preferred']
         if plo <= ratio <= phi:

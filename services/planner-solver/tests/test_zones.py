@@ -177,3 +177,85 @@ def test_role_instances_supported():
                       item=Item(role="кресло 2", w_cm=80, d_cm=85, h_cm=80))
     codes = {v.code for v in validate(room, far + [stray]).violations}
     assert codes & {"SEATS_TOO_FAR", "ARMCHAIR_OUT_OF_ZONE", "CHAIR_ORPHAN"} or True  # мягко: главное — без исключений
+
+
+# --- Вердикты владельца 08.08 + рефери Q5/Q6/Q7 ---
+
+def test_fireplace_far_is_soft():
+    """set91: камин в 520 см по диагонали от дивана — мягкий штраф S1, не hard."""
+    from planner.models import Severity
+    from planner.validate import validate
+    room = _room(600, 700)
+    sofa = _mk("диван", 300, 620, 180, 220, 100, 85)
+    fp = _mk("камин", 40, 60, 90, 110, 35, 100)
+    vs = [v for v in validate(room, [sofa, fp]).violations
+          if v.code == "FIREPLACE_FAR_FROM_SEATING"]
+    assert vs and all(v.severity is Severity.SOFT for v in vs)
+    # камин в вилке и в поле зрения — чисто
+    sofa2 = _mk("диван", 300, 550, 180, 220, 100, 85)
+    near = _mk("камин", 300, 60, 0, 110, 35, 100)
+    assert not [v for v in validate(room, [sofa2, near]).violations
+                if v.code == "FIREPLACE_FAR_FROM_SEATING"]
+
+
+def test_sofa_window_gap_and_sill():
+    """set91: диван спинкой вплотную к окну — S1 зазор; спинка выше стекла — S2."""
+    from planner.models import Opening, Room, Severity
+    from planner.validate import validate
+    room = Room(width_cm=500, depth_cm=550, band="21-25",
+                openings=[Opening(kind="door", wall="south", offset_cm=40, width_cm=90,
+                                  swing_cm=92),
+                          Opening(kind="window", wall="north", offset_cm=150, width_cm=200,
+                                  sill_cm=70)])
+    sofa = _mk("диван", 250, 497, 180, 220, 100, 85)   # спинка в 3 см от северной стены
+    codes = {v.code: v.severity for v in validate(room, [sofa]).violations}
+    assert codes.get("SOFA_WINDOW_GAP") is Severity.SOFT
+    assert codes.get("SOFA_BACK_ABOVE_SILL") is Severity.SOFT  # 85 > подоконник 70
+
+
+def test_floor_overfill_is_soft():
+    """Рефери Q5: плотность — операционный приор, не физика."""
+    import inspect
+
+    from planner import validate as _val
+    src = inspect.getsource(_val.check_floor_cap)
+    assert "Severity.SOFT" in src
+
+
+def test_dining_storage_drop_not_fail():
+    """Рефери Q1/3.3: не влезшие dining/storage дропаются ярусом (skipped), а не валят сцену."""
+    from planner.beam import solve
+    from planner.models import Item
+    from tests.rooms import make_room
+    room = make_room("14-16")   # маленькая комната — обеденной места нет
+    items = [Item(role="диван", w_cm=200, d_cm=95, h_cm=85),
+             Item(role="тв-тумба", w_cm=140, d_cm=40, h_cm=50),
+             Item(role="столик", w_cm=90, d_cm=55, h_cm=45),
+             Item(role="стол обеденный", w_cm=120, d_cm=75, h_cm=75),
+             Item(role="стул", w_cm=45, d_cm=50, h_cm=85),
+             Item(role="стул 2", w_cm=45, d_cm=50, h_cm=85)]
+    outs = solve(room, items, top_k=1)
+    assert outs
+    lay = outs[0]
+    assert "стол обеденный" not in lay.unplaced, "dining обязан дропаться ярусом, не проваливать"
+    # целостность группы: стол не стоит с <2 стульями, стулья не стоят без стола
+    placed = [p.role for p in lay.placements]
+    chairs = [r for r in placed if r.split(" ")[0] == "стул"]
+    if "стол обеденный" in placed:
+        assert len(chairs) >= 2
+    else:
+        assert not chairs
+
+
+def test_engine_purity():
+    """ADR-0076 (рефери-финал 08.08 п.11): один лейбл движка — один алгоритмический путь.
+    Под ENGINE=zoned/beam/llm DFS-попытки НЕ гоняются (нет скрытого кросс-движкового спасения)."""
+    import os
+    import re
+    src = open(os.path.join(os.path.dirname(__file__), '..', '..', '..',
+                            'tools', 'scout', 'solver_run.py')).read()
+    m = re.search(r"for seed in \(\[\] if ENGINE in \(([^)]*)\)", src)
+    assert m, "seed-цикл DFS-фолбэка не найден — проверь solver_run.py"
+    engines = m.group(1)
+    for eng in ("'beam'", "'llm'", "'zoned'"):
+        assert eng in engines, f"{eng} не исключён из DFS-фолбэка — A/B контаминирован"

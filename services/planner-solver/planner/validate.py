@@ -186,19 +186,23 @@ def _by_base(ps: list[Placement]) -> dict:
 
 
 def check_distances(room: Room, ps: list[Placement]) -> list[Violation]:
-    """Шкалы проекта от площади: диван↔ТВ, диван↔столик (решения владельца)."""
+    """Дистанции пар: диван↔ТВ — диагональ/FOV (приор экран/тумба 0.70–0.90, W2+Q2);
+    диван↔столик — фикс-эргономика (hard 32–50, комфорт 36–46, W2). Area-шкалы — только
+    legacy-фолбэк (узкая тумба <60 см)."""
     by = _by_base(ps)
     out = []
     if "диван" in by and "тв-тумба" in by:
         g = _zone_gap(by["диван"], by["тв-тумба"])
-        # W2 (аудит 08.08): PRIMARY — диагональ экрана (RTINGS-метод), площадь — только фолбэк.
-        # Диагонали ТВ в сете нет (ТВ рисует генератор) — оцениваем по ширине тумбы:
-        # экран ≈ 70% тумбы (item_share.tv_vs_stand_width_pct), диагональ = ширина/0.872 (16:9).
+        # W2 + рефери Q2 (08.08): ТВ — не SKU, его рисует генератор, поэтому валидна дистанция,
+        # под которую СУЩЕСТВУЕТ диагональ, совместимая с тумбой. Приор экран/тумба — вилка
+        # 0.70–0.90 (не точка 0.70: RTINGS выбирает размер от дистанции/FOV, тумба — только
+        # clamp; практика стендов — стенд на пару дюймов шире экрана). Генератор при отрисовке
+        # идёт distance-first: diag ≈ g/1.6 (FOV ~30°), clamp в [0.70..0.90]·тумба.
         stand_w = by["тв-тумба"].item.w_cm or 0
         if stand_w >= 60:
-            diag = stand_w * 0.70 / 0.872
-            lo, hi = 1.2 * diag, 2.5 * diag
-            soft_hi = 2.0 * diag
+            d_min, d_max = stand_w * 0.70 / 0.872, stand_w * 0.90 / 0.872
+            lo, hi = 1.2 * d_min, 2.5 * d_max
+            soft_hi = 2.0 * d_max
         else:
             tv = band_scale("sofa_tv_cm", room.band, distances().get("sofa_tv_cm", [180, 300]))
             lo, hi = tv[0], max(tv[1], float(distances().get("sofa_tv_hard_max", 400)))
@@ -232,8 +236,19 @@ def check_distances(room: Room, ps: list[Placement]) -> list[Violation]:
     return out
 
 
-# Мебель хранения/техники живёт ТОЛЬКО у стены (ProcTHOR placement-annotations: onEdge,
-# inMiddle=false). Отдельно стоящий шкаф посреди комнаты — вердикт владельца «так нельзя».
+# Мебель хранения/техники живёт спинкой к стене — из ДАННЫХ (рефери 08.08 Q4: subtype-флаги
+# requires_wall_back / room_divider_capable вместо «всей корпусной»; divider-capable
+# освобождается от NOT_AT_WALL, когда в продукте появятся open-plan сценарии).
+# Фолбэк — прежний список (ProcTHOR onEdge + вердикт владельца «шкаф посреди комнаты нельзя»).
+def _wall_only_roles() -> frozenset:
+    from .clearances import rules as _rules
+    lr = _rules().get("layout_rules", {})
+    req = lr.get("requires_wall_back")
+    if not req:
+        return frozenset({"тв-тумба", "шкаф", "комод", "стенка", "витрина", "стеллаж", "камин"})
+    return frozenset(req) - frozenset(lr.get("room_divider_capable_active") or [])
+
+
 WALL_ONLY_ROLES = frozenset({"тв-тумба", "шкаф", "комод", "стенка", "витрина", "стеллаж", "камин"})
 WALL_TOUCH_MAX_CM = 20.0
 
@@ -245,8 +260,9 @@ def check_wall_only(room: Room, ps: list[Placement]) -> list[Violation]:
     как перегородка, формально «у стены» (вердикт владельца 2026-08-03).
     """
     out = []
+    wall_only = _wall_only_roles()
     for p in ps:
-        if p.role not in WALL_ONLY_ROLES:
+        if p.role not in wall_only:
             continue
         x0, y0, x1, y1 = footprint(p).bounds
         fx, fy = facing_vector(p.rot)
@@ -306,7 +322,7 @@ def check_behind_sofa(room: Room, ps: list[Placement]) -> list[Violation]:
     sofa = by.get("диван")
     if sofa is None or sofa.item is None:
         return []
-    strip = _behind_strip(room, sofa)   # вся ширина комнаты (вердикт 07.08, сет 25)
+    strip = _behind_strip(room, sofa)   # локальная полоса (рефери 08.08 Q3)
     out = []
     for p in ps:
         if p is sofa or p.item is None:
@@ -365,21 +381,31 @@ def check_functional_zones(room: Room, ps: list[Placement]) -> list[Violation]:
 # За спинкой дивана — МЁРТВАЯ зона для функционального и декора (вердикт владельца 2026-08-07:
 # «предметы расставляются не там, где функционально нужны, типа кашпо за диваном»).
 # Разрешено там только низкое хранение/консоль (check_behind_sofa) — посадка, столы и декор вон.
+# Камина в списке НЕТ (рефери 08.08 Q3): focal-behind ловится угловым чеком
+# FIREPLACE_FAR_FROM_SEATING (сектор 75°), а не полосой.
 DEAD_BEHIND_ROLES = ("кашпо", "торшер", "столик", "пуф", "кресло",
-                     "стол обеденный", "стул", "лампа", "ваза", "камин")
+                     "стол обеденный", "стул", "лампа", "ваза")
+
+# Боковой запас локальной полосы: покрывает «торшер за плечом» (вердикт 07.08, сет 25),
+# но не запрещает легитимное использование дальних краёв комнаты (рефери 08.08 Q3:
+# room-wide полоса конфликтует с диваном-разделителем и зонированием open-plan)
+BEHIND_LATERAL_MARGIN_CM = 100.0
 
 
 def _behind_strip(room: Room, sofa: Placement):
-    """Полоса за спинкой дивана НА ВСЮ ШИРИНУ КОМНАТЫ (вердикты 07.08: торшер за плечом,
-    стеллаж в углу за спиной — узкая полоса «в ширину дивана» их пропускала)."""
+    """Локальная полоса за спинкой дивана: ширина дивана + боковой запас, в глубину до стены
+    (рефери 08.08 Q3 — local projection, не вся ширина комнаты)."""
     from shapely.geometry import box as _box
 
+    m = BEHIND_LATERAL_MARGIN_CM
     fx, fy = facing_vector(sofa.rot)
     x0, y0, x1, y1 = footprint(sofa).bounds
     if abs(fy) > abs(fx):
-        return _box(0, 0, room.width_cm, y0) if fy > 0 else _box(0, y1, room.width_cm, room.depth_cm)
-    return (_box(0, 0, x0, room.depth_cm) if fx > 0
-            else _box(x1, 0, room.width_cm, room.depth_cm))
+        lo, hi = max(0.0, x0 - m), min(room.width_cm, x1 + m)
+        return _box(lo, 0, hi, y0) if fy > 0 else _box(lo, y1, hi, room.depth_cm)
+    lo, hi = max(0.0, y0 - m), min(room.depth_cm, y1 + m)
+    return (_box(0, lo, x0, hi) if fx > 0
+            else _box(x1, lo, room.width_cm, hi))
 
 
 def check_dead_zone_behind_sofa(room: Room, ps: list[Placement]) -> list[Violation]:
@@ -647,9 +673,79 @@ def check_floor_cap(room: Room, ps: list[Placement]) -> list[Violation]:
     cap = band_scale("floor_cap_pct", room.band, [26, 50])
     used = floor_used_pct(room, ps)
     if used > cap[1] + 0.5:
+        # Рефери 08.08 (Q5): процент сам по себе не брак — физику ловят коллизии/проходы/
+        # двери/доступ; плотность — операционный приор (S1), не hard
         return [_v("FLOOR_OVERFILL", f"мебель занимает {used:.0f}% пола", [], round(used, 1),
-                   f"≤{cap[1]:.0f}%")]
+                   f"≤{cap[1]:.0f}%", Severity.SOFT)]
     return []
+
+
+def check_fireplace_seating(room: Room, ps: list[Placement]) -> list[Violation]:
+    """Вердикт владельца 08.08 (set91: камин в 520 см по диагонали — странно) + рефери Q6:
+    S1-prior, не канон — камин в вилке 200–450 см от главной посадки и в поле зрения (≤75°
+    от оси взгляда дивана). Данные — zones.json fireplace.distance_to_seating_cm."""
+    import math as _m
+
+    from .zones import zone_rules
+
+    by = _by_base(ps)
+    fp, sofa = by.get("камин"), by.get("диван")
+    if fp is None or sofa is None:
+        return []
+    lo, hi = zone_rules()["zones"]["seating_media"]["fireplace"]["distance_to_seating_cm"]
+    d = footprint(sofa).distance(footprint(fp))
+    out = []
+    if d > hi:
+        out.append(_v("FIREPLACE_FAR_FROM_SEATING",
+                      f"камин в {d:.0f} см от посадки — вне вилки {lo:.0f}–{hi:.0f}",
+                      ["камин", "диван"], round(d), f"{lo:.0f}–{hi:.0f} см", Severity.SOFT))
+        return out
+    fx, fy = facing_vector(sofa.rot)
+    sc, fc = footprint(sofa).centroid, footprint(fp).centroid
+    vx, vy = fc.x - sc.x, fc.y - sc.y
+    n = _m.hypot(vx, vy)
+    if n > 1 and (vx * fx + vy * fy) / n < _m.cos(_m.radians(75)):
+        out.append(_v("FIREPLACE_FAR_FROM_SEATING",
+                      "камин вне поля зрения посадки (>75° от оси взгляда дивана)",
+                      ["камин", "диван"], None, "в секторе ≤75°", Severity.SOFT))
+    return out
+
+
+def check_window_sofa(room: Room, ps: list[Placement]) -> list[Violation]:
+    """Вердикт владельца 08.08 (set91: диван вплотную к окну) + рефери Q7 — раздельно:
+    доступ/радиатор уже H0 (WINDOW_BLOCKED/RADIATOR); здесь мягкое — зазор спинка↔окно S1
+    (tight-минимум из window_sofa) и «спинка выше низа стекла» S2."""
+    by = _by_base(ps)
+    sofa = by.get("диван")
+    if sofa is None or sofa.item is None:
+        return []
+    from .clearances import rules as _rules
+    ws = _rules().get("dynamic", {}).get("window_sofa", {})
+    gap_min = float((ws.get("min_offset_from_window_cm") or [15, 20])[0])
+    fx, fy = facing_vector(sofa.rot)
+    back_wall = ("south" if fy > 0 else "north") if abs(fy) > abs(fx) else \
+                ("west" if fx > 0 else "east")
+    x0, y0, x1, y1 = footprint(sofa).bounds
+    out = []
+    for op in room.openings:
+        if op.kind != "window" or op.wall != back_wall:
+            continue
+        # поперечное перекрытие проёма спинкой
+        span = (x0, x1) if op.wall in ("south", "north") else (y0, y1)
+        if min(span[1], op.offset_cm + op.width_cm) - max(span[0], op.offset_cm) < 30:
+            continue
+        gap = {"south": y0, "north": room.depth_cm - y1,
+               "west": x0, "east": room.width_cm - x1}[op.wall]
+        if gap < gap_min:
+            out.append(_v("SOFA_WINDOW_GAP",
+                          f"диван спинкой к окну в {gap:.0f} см — воздуха/шторам нет",
+                          ["диван"], round(gap), f"≥{gap_min:.0f} см", Severity.SOFT))
+        if op.sill_cm > 0 and (sofa.item.h_cm or 0) > op.sill_cm:
+            out.append(_v("SOFA_BACK_ABOVE_SILL",
+                          f"спинка {sofa.item.h_cm:.0f} см выше низа стекла ({op.sill_cm:.0f})",
+                          ["диван"], sofa.item.h_cm, f"≤{op.sill_cm:.0f} см", Severity.SOFT))
+        break
+    return out
 
 
 def validate(room: Room, placements: list[Placement], *, passage: str = "secondary") -> Layout:
@@ -674,6 +770,8 @@ def validate(room: Room, placements: list[Placement], *, passage: str = "seconda
     vs += check_functional_zones(room, placements)
     vs += check_layout_rules(room, placements)
     vs += check_floor_cap(room, placements)
+    vs += check_fireplace_seating(room, placements)
+    vs += check_window_sofa(room, placements)
     from .geometry import floor_used_pct
 
     return Layout(room=room, placements=placements, violations=vs,

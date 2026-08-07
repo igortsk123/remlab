@@ -2,7 +2,7 @@
  "_meta": {
   "source": "external:аудит советника 2026-08-08 (W1) — классы правил в реестре, не только в коде",
   "classes": {
-   "H0": "физика: коллизии, границы, двери/swing, обязательный доступ — нарушать нельзя никогда",
+   "H0": "physical / mandatory operability: коллизии, границы, двери/swing, обязательный доступ (заблокированный ящик/сиденье = предмет непригоден) — нарушать нельзя никогда; рефери-финал 08.08: щель-качество (SOFA_SLIVER) сюда НЕ относится — это H1",
    "H1": "функция по сценарию: жёстко в ТЕКУЩЕМ продукте (media-гостиная); при появлении иных сценариев (conversation-first, fireplace-first) переводится в условное",
    "S1": "эргономика preferred: нарушение допустимо в tight-space с растущим штрафом",
    "S2": "композиция/эстетика: никогда не разрушает функционально лучший вариант (лексикографический низ)"
@@ -19,7 +19,7 @@
   "ACCESS_BLOCKED": "H0",
   "RADIATOR": "H0",
   "WINDOW_BLOCKED": "H0",
-  "SOFA_SLIVER": "H0",
+  "SOFA_SLIVER": "H1",
   "FACING_MISMATCH": "H1",
   "SOFA_AIM_OFF_TV": "H1",
   "TV_OFF_AXIS": "H1",
@@ -45,7 +45,7 @@
   "DINING_IN_LIVING_ZONE": "H1",
   "STORAGE_IN_DINING_ZONE": "H1",
   "NOT_AT_WALL": "H1",
-  "FLOOR_OVERFILL": "H1",
+  "FLOOR_OVERFILL": "S1",
   "MAIN_PATH_TIGHT": "S1",
   "ZONE_BUFFER": "S1",
   "SOFA_TV_FAR": "S1",
@@ -53,6 +53,9 @@
   "TALL_ON_TV_WALL": "S1",
   "CORNER_SOFA_ADRIFT": "S2",
   "FIREPLACE_ON_TV_WALL": "S2",
-  "SOFA_TABLE_COMFORT": "S1"
+  "SOFA_TABLE_COMFORT": "S1",
+  "FIREPLACE_FAR_FROM_SEATING": "S1",
+  "SOFA_WINDOW_GAP": "S1",
+  "SOFA_BACK_ABOVE_SILL": "S2"
  }
 }

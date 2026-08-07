@@ -69,6 +69,11 @@ def zones_brief(n: int) -> str:
         parts.append('an armchair with the floor lamp can read as a quiet reading spot')
     if 'камин' in roles:
         parts.append('the fireplace is a secondary focal point of the seating zone')
+    if 'тв-тумба' in roles:
+        # Q2 (рефери 08.08): ТВ рисуется distance-first (FOV ~30°), тумба — только clamp
+        parts.append('size the TV from the viewing distance (screen diagonal is roughly the '
+                     'sofa-to-TV distance divided by 1.6), and keep the screen 70–90% of the '
+                     'TV stand width — never wider than the stand')
     if not parts:
         return ''
     return ('FUNCTIONAL ZONES (context only — never move items): '
