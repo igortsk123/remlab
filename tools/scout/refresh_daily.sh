@@ -98,4 +98,8 @@ step sets_check "$PY" sets_incremental.py --check
 step health "$PY" health.py
 step metrics "$PY" sync_metrics.py
 
+# 7. Страница расстановок владельцу — пересобирается и публикуется КОНВЕЙЕРОМ ежедневно
+# (требование владельца 2026-08-07: никаких ручных сборок). Набор сетов — референсная десятка.
+step layout_page env LAYOUT10_PUBLISH=1 "$PY" layout10_page.py 1 14 21 29 55 59 66 84 113 117
+
 echo "$today" > "$STAMP"

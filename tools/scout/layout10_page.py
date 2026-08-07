@@ -47,12 +47,29 @@ def run(n: int) -> dict:
     return info
 
 
+def _reparse(n: int) -> dict:
+    """Инфо из уже посчитанной раскладки: солвер заново не гоняем (--collect)."""
+    info = {'set': n, 'fails': [], 'soft': {}, 'missing': []}
+    env = dict(os.environ, LAYOUT_SUFFIX='-info')
+    r = subprocess.run([PY, os.path.join(HERE, 'solver_run.py'), str(n), '--v3'],
+                       capture_output=True, text=True, timeout=600, env=env, cwd=HERE)
+    import re
+    info['fails'] = [l.strip() for l in r.stdout.splitlines() if l.startswith('FAIL')]
+    m = re.search(r'^SOFT (\{.*\})$', r.stdout, re.M)
+    if m:
+        info['soft'] = json.loads(m.group(1))
+    m = re.search(r'НЕ размещены: (\[.*\])', r.stdout)
+    if m:
+        info['missing'] = eval(m.group(1))  # noqa: S307
+    return info
+
+
 def collect(n: int) -> dict[str, str]:
     """Копируем артефакты сета в layout10/ (маленькие имена для html)."""
     files = {}
     for key, src in (('plan', f'scene{n}-plan.png'),
-                     ('c1', f'scene{n}-C1-schema-marked.jpg'),
-                     ('c2', f'scene{n}-C2-schema-marked.jpg'),
+                     ('c1', f'scene{n}-C1-schema3d-marked.jpg'),
+                     ('c2', f'scene{n}-C2-schema3d-marked.jpg'),
                      ('d1', f'scene{n}-C1-schema-depth-marked.jpg'),
                      ('ident', f'scene{n}-identity10.jpg')):
         p = os.path.join(SCENE_DIR, src)
@@ -68,9 +85,10 @@ def main() -> None:
     os.makedirs(OUT, exist_ok=True)
     meta = json.load(open(os.path.join(HERE, 'sets3.json')))
     blocks = []
+    reuse = '--collect' in sys.argv   # артефакты уже посчитаны — только пересобрать страницу
     for n in sets:
         print(f'== сет {n}', flush=True)
-        info = run(n)
+        info = run(n) if not reuse else _reparse(n)
         files = collect(n)
         s = meta[n - 1]
         soft_terms = info['soft'].get('terms', {})
@@ -116,6 +134,15 @@ section{{border-top:1px solid #ddd;padding-top:10px}}
 </body></html>"""
     open(os.path.join(OUT, 'index.html'), 'w').write(html)
     print(f'страница: {OUT}/index.html ({len(sets)} сетов)')
+    if '--publish' in sys.argv or os.environ.get('LAYOUT10_PUBLISH') == '1':
+        # публикация — часть конвейера, не ручной шаг (требование владельца 2026-08-07)
+        r = subprocess.run(['scp', '-r', '-o', 'ConnectTimeout=15', OUT,
+                            'root@89.167.127.0:/opt/remlab/test/'],
+                           capture_output=True, text=True, timeout=600)
+        print('опубликовано: https://remont-lab.online/test/layout10/' if r.returncode == 0
+              else f'ПУБЛИКАЦИЯ НЕ ПРОШЛА: {r.stderr[:200]}')
+        if r.returncode != 0:
+            sys.exit(1)
 
 
 if __name__ == '__main__':
