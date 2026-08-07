@@ -574,7 +574,10 @@ def attempt_beam():
 _eng_arg = sys.argv[sys.argv.index('--engine') + 1] if '--engine' in sys.argv else None
 # Дефолт — beam (А3, аудит 06.08): прод-ядро выигрывает у DFS 110+/122 против 107/126, но
 # батчи коллажей/рендеров шли через дефолт и рендерили DFS — чинили beam, а ляпы были DFS.
-ENGINE = _eng_arg or os.environ.get('LAYOUT_ENGINE', 'beam')   # beam | zoned | dfs | llm
+# Боевой дефолт — ZONED (приёмка 08.08 на 252 фикс-сценах, оба движка на одних Z4-составах:
+# zoned 239/252 чистых против beam 119/252, ни одной сцены хуже; эркер/пилоны/трапеция
+# 20-21/21 против 4-12/21). beam остаётся для A/B: --engine beam.
+ENGINE = _eng_arg or os.environ.get('LAYOUT_ENGINE', 'zoned')   # zoned | beam | dfs | llm
 
 # перебор сидов ПОСЛЕДОВАТЕЛЬНО с ранним выходом (чистый сид обычно первый-второй, max_duration=12);
 # параллельность — на уровне СЕТОВ (render6.sh): внутренний ProcessPool на слабой VM ловил OOM
