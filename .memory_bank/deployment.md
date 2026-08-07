@@ -19,15 +19,13 @@ last_verified: 2026-08-04
 - Контейнеры (compose, сеть `remlab-net`): `remlab-app` (Next **standalone**, `node server.js`, :3000 —
   НЕ `next start`), `remlab-caddy` (:443), `remlab-db` (pgvector:pg17), `remlab-imagor`, `traces-init`.
   mem app 1G / pg 1G / caddy 128M (ADR-0004).
-- Статик без пересборки (Caddyfile `handle_path`): `/test/*` → `/opt/remlab/test` (страницы проверок
-  владельцу, browse+noindex), `/lab/*` → `/opt/remlab/temp`. ⚠ Bind `./test:/srv/test:ro`
-  живёт в РЕПОЗИТОРНОМ compose (серверные правки затирает CI-деплой — урок 07.08, дважды).
-  Публикация страниц — конвейером (`layout10_page.py --publish`, rsync).
+- Статик: `/test/*` → `/opt/remlab/test` (browse+noindex), `/lab/*` → `/opt/remlab/temp`.
+  ⚠ Bind `./test:/srv/test:ro` — в РЕПОЗИТОРНОМ compose (серверные правки затирает CI-деплой,
+  урок 07.08). Публикация — конвейером (`layout10_page.py --publish`, rsync).
 
 ## Сервер
-exit-fi 89.167.127.0 (Hetzner, Ubuntu 24.04, 2 vCPU/3.7G/38G), Docker+compose v2, рабдир `/opt/remlab`.
-Swap 4G; iptables INPUT=DROP (:443 открыт, :80 закрыт); SSH root@ (и :22222).
-Соседи НЕ трогать: remnanode, rw-core (:8444/:9443/:2222), системный nginx :80.
+exit-fi 89.167.127.0 (Hetzner, 2 vCPU/3.7G/38G), compose v2, `/opt/remlab`; swap 4G;
+:443 открыт, :80 закрыт; SSH root@ (:22222). Соседи НЕ трогать: remnanode, rw-core, nginx :80.
 
 ## Деплой — `./deploy.sh <tag>` (всё автоматом)
 buildx arm64 → прежний образ в `:prev` → `docker save|ssh|docker load` → `compose up -d`
