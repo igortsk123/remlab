@@ -1,0 +1,60 @@
+{
+ "_meta": {
+  "source": "external:аудит советника 2026-08-08 (W1) — классы правил в реестре, не только в коде",
+  "classes": {
+   "H0": "физика: коллизии, границы, двери/swing, обязательный доступ — нарушать нельзя никогда",
+   "H1": "функция по сценарию: жёстко в ТЕКУЩЕМ продукте (media-гостиная); при появлении иных сценариев (conversation-first, fireplace-first) переводится в условное",
+   "S1": "эргономика preferred: нарушение допустимо в tight-space с растущим штрафом",
+   "S2": "композиция/эстетика: никогда не разрушает функционально лучший вариант (лексикографический низ)"
+  },
+  "invariant": "H0/H1 → Severity.HARD в validate.py, S1/S2 → Severity.SOFT; сверяется тестом test_severity_registry (иначе реестр — мёртвые метаданные)"
+ },
+ "codes": {
+  "OUT_OF_ROOM": "H0",
+  "COLLISION": "H0",
+  "DOOR_SWING": "H0",
+  "DOOR_UNREACHABLE": "H0",
+  "NO_PASSAGE": "H0",
+  "UNREACHABLE": "H0",
+  "ACCESS_BLOCKED": "H0",
+  "RADIATOR": "H0",
+  "WINDOW_BLOCKED": "H0",
+  "SOFA_SLIVER": "H0",
+
+  "FACING_MISMATCH": "H1",
+  "SOFA_AIM_OFF_TV": "H1",
+  "TV_OFF_AXIS": "H1",
+  "SOFA_TV_DIST": "H1",
+  "SOFA_TABLE_DIST": "H1",
+  "SIGHTLINE_BLOCKED": "H1",
+  "POUF_IN_VIEW_AXIS": "H1",
+  "POUF_BEHIND_SOFA": "H1",
+  "POUF_OUT_OF_ZONE": "H1",
+  "POUF_FAR_FROM_TABLE": "H1",
+  "SOFA_POUF_FAR": "H1",
+  "CHAIR_ORPHAN": "H1",
+  "CHAIR_WITHOUT_TABLE": "H1",
+  "SEATS_TOO_FAR": "H1",
+  "ARMCHAIR_OUT_OF_ZONE": "H1",
+  "ARMCHAIR_BEHIND_SOFA": "H1",
+  "ARMCHAIR_TABLE_DIST": "H1",
+  "ARMCHAIR_TOO_DEEP": "H1",
+  "DEAD_ZONE_BEHIND_SOFA": "H1",
+  "TALL_BEHIND_SOFA": "H1",
+  "TABLE_BEHIND_SOFA": "H1",
+  "TABLE_OFF_AXIS": "H1",
+  "DINING_IN_LIVING_ZONE": "H1",
+  "STORAGE_IN_DINING_ZONE": "H1",
+  "NOT_AT_WALL": "H1",
+  "FLOOR_OVERFILL": "H1",
+
+  "MAIN_PATH_TIGHT": "S1",
+  "ZONE_BUFFER": "S1",
+  "SOFA_TV_FAR": "S1",
+  "TV_ON_WINDOW_WALL": "S1",
+  "TALL_ON_TV_WALL": "S1",
+
+  "CORNER_SOFA_ADRIFT": "S2",
+  "FIREPLACE_ON_TV_WALL": "S2"
+ }
+}

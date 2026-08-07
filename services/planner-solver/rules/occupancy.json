@@ -101,8 +101,8 @@
    "max": 90,
    "comment": "Решение владельца 2026-08-02: полки/столешницы — не пол, пустые полки читаются как незаконченный интерьер. Прежний максимум 30% был без источника, заменён.",
    "sources": [
-    "external:github.com/allenai/Holodeck small_objects.py (≤90% площади рецептакла, коэфф. 0.8)",
-    "external:github.com/princeton-vl/infinigen home.py (верх storage 50–100%)"
+    "external:github.com/allenai/Holodeck@362b8ed ai2holodeck/generation/small_objects.py (≤90% площади рецептакла, коэфф. 0.8; derived) — путь и SHA сверены 2026-08-08",
+    "external:github.com/princeton-vl/infinigen@25a7d28 src/infinigen_examples/constraints/home.py (верх storage 50–100%; derived) — сверено 2026-08-08"
    ]
   }
  },

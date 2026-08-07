@@ -117,3 +117,33 @@ def test_solve_zoned_reference_contours():
         assert not hard, f"{name}: hard-нарушения {[v.code for v in hard]}"
         assert "диван" not in lay.unplaced, f"{name}: диван не размещён"
         assert gid, f"{name}: группа не выбрана"
+
+
+def test_severity_registry():
+    """W1 (аудит 08.08): классы правил живут в rules/severity.json и МЕХАНИЧЕСКИ сверяются
+    с фактической жёсткостью в validate.py — реестр не имеет права расходиться с кодом."""
+    import json
+    import os
+    import re
+    root = os.path.join(os.path.dirname(__file__), '..')
+    reg = json.load(open(os.path.join(root, 'rules', 'severity.json')))['codes']
+    src = open(os.path.join(root, 'planner', 'validate.py')).read()
+    actual = {}
+    for m in re.finditer(r'_v\(\s*"([A-Z][A-Z_]{3,})"', src):
+        depth, j = 0, m.start()
+        while j < len(src):
+            if src[j] == '(':
+                depth += 1
+            elif src[j] == ')':
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        sev = 'SOFT' if 'Severity.SOFT' in src[m.start():j + 1] else 'HARD'
+        actual.setdefault(m.group(1), sev)
+    assert set(actual) == set(reg), (
+        f'реестр и код разошлись: только в коде {set(actual) - set(reg)}, '
+        f'только в реестре {set(reg) - set(actual)}')
+    for code, sev in actual.items():
+        want = 'HARD' if reg[code] in ('H0', 'H1') else 'SOFT'
+        assert sev == want, f'{code}: в коде {sev}, в реестре класс {reg[code]}'

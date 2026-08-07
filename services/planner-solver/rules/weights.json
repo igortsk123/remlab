@@ -23,5 +23,6 @@
  "empty_wall_behind_sofa": 6,
  "corner_sofa_hug": 5,
  "soft_layout_rule": 4,
- "dining_by_window": 3
+ "dining_by_window": 3,
+ "source": "external:github.com/princeton-vl/infinigen@25a7d28 (BSD-3) src/infinigen_examples/constraints/home.py: секция livingrooms (constraints/score_terms['sofa'|'livingroom'], строки ~1085–1250) — стартовая таблица весов, ЧИСЛА АДАПТИРОВАНЫ под правила remlab (derived, не copied); путь и SHA сверены 2026-08-08"
 }
