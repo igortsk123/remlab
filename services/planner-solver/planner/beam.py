@@ -149,7 +149,22 @@ def solve(room: Room, items: list[Item], *, top_k: int = 3, beam_width: int = BE
         alt = _solve_ordered(room, items, top_k=top_k, beam_width=beam_width,
                              cand_per_item=cand_per_item, polish=polish, corner_sofa_first=False)
         if alt and "тв-тумба" not in (alt[0].unplaced or []):
-            return alt
+            outs = alt
+    for lay in outs:
+        # П8 (вердикт 07.08, сет 47): стол обеденный ТОЛЬКО со стульями — стулья не встали →
+        # стол снимается (обеденная группа целиком или никак)
+        chairs_lost = any(r.startswith("стул") for r in lay.unplaced + lay.skipped_optional)
+        chairs_placed = any(p.role.startswith("стул") for p in lay.placements)
+        if chairs_lost and not chairs_placed:
+            tbl = [p for p in lay.placements if p.role == "стол обеденный"]
+            if tbl:
+                lay.placements = [p for p in lay.placements if p.role != "стол обеденный"]
+                lay.unplaced = lay.unplaced + ["стол обеденный"]
+        # Страховка (вердикт 07.08, сет 76: стул в 140 см прошёл «ok»): ПОЛНАЯ ревалидация
+        # финального размещения — доводка/ремонт не имеют права выпускать hard мимо отчёта
+        fresh = validate(room, lay.placements)
+        lay.violations = fresh.violations
+        lay.floor_used_pct = fresh.floor_used_pct
     return outs
 
 

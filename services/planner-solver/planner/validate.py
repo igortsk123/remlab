@@ -271,18 +271,11 @@ BEHIND_SOFA_MAX_H_CM = float(_lr("behind_sofa_max_h_cm", 90))
 
 
 def check_behind_sofa(room: Room, ps: list[Placement]) -> list[Violation]:
-    from shapely.geometry import box as _box
-
     by = {p.role: p for p in ps}
     sofa = by.get("диван")
     if sofa is None or sofa.item is None:
         return []
-    fx, fy = facing_vector(sofa.rot)
-    x0, y0, x1, y1 = footprint(sofa).bounds
-    if abs(fy) > abs(fx):
-        strip = _box(x0, 0, x1, y0) if fy > 0 else _box(x0, y1, x1, room.depth_cm)
-    else:
-        strip = _box(0, y0, x0, y1) if fx > 0 else _box(x1, y0, room.width_cm, y1)
+    strip = _behind_strip(room, sofa)   # вся ширина комнаты (вердикт 07.08, сет 25)
     out = []
     for p in ps:
         if p is sofa or p.item is None:
@@ -342,22 +335,28 @@ def check_functional_zones(room: Room, ps: list[Placement]) -> list[Violation]:
 # «предметы расставляются не там, где функционально нужны, типа кашпо за диваном»).
 # Разрешено там только низкое хранение/консоль (check_behind_sofa) — посадка, столы и декор вон.
 DEAD_BEHIND_ROLES = ("кашпо", "торшер", "столик", "пуф", "кресло",
-                     "стол обеденный", "стул", "лампа", "ваза")
+                     "стол обеденный", "стул", "лампа", "ваза", "камин")
+
+
+def _behind_strip(room: Room, sofa: Placement):
+    """Полоса за спинкой дивана НА ВСЮ ШИРИНУ КОМНАТЫ (вердикты 07.08: торшер за плечом,
+    стеллаж в углу за спиной — узкая полоса «в ширину дивана» их пропускала)."""
+    from shapely.geometry import box as _box
+
+    fx, fy = facing_vector(sofa.rot)
+    x0, y0, x1, y1 = footprint(sofa).bounds
+    if abs(fy) > abs(fx):
+        return _box(0, 0, room.width_cm, y0) if fy > 0 else _box(0, y1, room.width_cm, room.depth_cm)
+    return (_box(0, 0, x0, room.depth_cm) if fx > 0
+            else _box(x1, 0, room.width_cm, room.depth_cm))
 
 
 def check_dead_zone_behind_sofa(room: Room, ps: list[Placement]) -> list[Violation]:
-    from shapely.geometry import box as _box
-
     by = {p.role: p for p in ps}
     sofa = by.get("диван")
     if sofa is None or sofa.item is None:
         return []
-    fx, fy = facing_vector(sofa.rot)
-    x0, y0, x1, y1 = footprint(sofa).bounds
-    if abs(fy) > abs(fx):
-        strip = _box(x0, 0, x1, y0) if fy > 0 else _box(x0, y1, x1, room.depth_cm)
-    else:
-        strip = _box(0, y0, x0, y1) if fx > 0 else _box(x1, y0, room.width_cm, y1)
+    strip = _behind_strip(room, sofa)
     out = []
     for p in ps:
         if p.role.split(' ')[0] not in DEAD_BEHIND_ROLES and p.role not in DEAD_BEHIND_ROLES:
@@ -399,9 +398,10 @@ def check_chairs_at_table(room: Room, ps: list[Placement]) -> list[Violation]:
     out = []
     for ch in chairs:
         d = footprint(ch).distance(footprint(tbl))
-        if d > 100:
+        if d > 40:
             out.append(_v("CHAIR_ORPHAN", f"стул в {d:.0f} см от обеденного стола",
-                          [ch.role, "стол обеденный"], round(d), "≤100 см (дизайнеры: вплотную)"))
+                          [ch.role, "стол обеденный"], round(d),
+                          "≤40 см (priors 18 804 сцен: вплотную, p50 5)"))
     return out
 
 
@@ -557,7 +557,10 @@ def check_layout_rules(room: Room, ps: list[Placement]) -> list[Violation]:
                 out.append(_v("TALL_ON_TV_WALL", f"«{p.role}» на стене ТВ — стена перегружена",
                               [p.role, "тв-тумба"], None, "высокое хранение на другой стене",
                               Severity.SOFT))
-        if "камин" in by and _lr("fireplace_not_on_tv_wall", True) and wall_of(by["камин"]) == tvw:
+        # Правило «камин не на ТВ-стене» ОТМЕНЕНО (вердикт владельца 07.08, сет 104): оно
+        # выталкивало камин за спину дивана — абсурд. Практика: ТВ над/рядом с камином — норма;
+        # «за спиной» ловит DEAD_ZONE_BEHIND_SOFA (камин в DEAD_BEHIND_ROLES).
+        if "камин" in by and _lr("fireplace_not_on_tv_wall", False) and wall_of(by["камин"]) == tvw:
             out.append(_v("FIREPLACE_ON_TV_WALL", "камин и ТВ на одной стене — два центра внимания",
                           ["камин", "тв-тумба"], None, "камин на другой стене", Severity.SOFT))
     if sofa is not None and tv is not None and "пуф" in by and _lr("pouf_out_of_view_axis", True):

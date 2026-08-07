@@ -106,6 +106,97 @@ def why(mid: str, eid: str) -> None:
     print('  в запасе у: ' + (', '.join(f'{s["set"]}({s["role"]})' for s in rec['spare']) or '—'))
 
 
+_CAND_CACHE: dict = {}
+
+
+def _live_candidates(role: str, cur: dict, style: str | None, alive: set,
+                     exclude: set, limit: int = 10) -> list[dict]:
+    """Кандидаты из живого candidates-index.json: роль та же, в наличии, ±30% цены,
+    сортировка по ступени стиля сета и близости цены (В3)."""
+    if not _CAND_CACHE:
+        p = os.path.join(HERE, 'candidates-index.json')
+        if not os.path.exists(p):
+            return []
+        _CAND_CACHE.update(json.load(open(p)))
+    steps = {'нет': 0, 'низкая': 1, 'средняя': 2, 'высокая': 3}
+    out = []
+    for k, item in _CAND_CACHE.get('items', {}).items():
+        if item.get('role') != role or k in exclude or k not in alive:
+            continue
+        pr = item.get('price') or 0
+        if not (0.7 * cur['price'] <= pr <= 1.3 * cur['price']):
+            continue
+        st = steps.get(str((item.get('styles') or {}).get(style or '', 'нет')), 0)
+        out.append((st, abs(pr - cur['price']), {'mid': item['mid'], 'eid': item['eid'],
+                                                 'name': item['name'], 'price': pr,
+                                                 'w': item.get('w'), 'd': item.get('d'),
+                                                 'h': item.get('h')}))
+    out.sort(key=lambda t: (-t[0], t[1]))
+    return [x[2] for x in out[:limit]]
+
+
+def refresh(apply: bool = False, max_swaps_per_set: int = 2) -> None:
+    """Еженедельное ТОЧЕЧНОЕ освежение (В3/К4, владелец 07.08): новинка ЗАМЕТНО лучше
+    стоящего в сете по силе стиля (ступень строго выше, цель «высокая») и в ±30% цены —
+    точечная замена с воротами пропорций. Состав не «прыгает»: ≤2 замен на сет за прогон."""
+    import shutil
+    from proportions import check as prop_check
+    from item_function import subtype as _sub
+    steps = {'нет': 0, 'низкая': 1, 'средняя': 2, 'высокая': 3}
+    sets = json.load(open(SETS))
+    alive = {key(r[0], r[1]) for r in _rows(
+        "select e.shop_mid, e.external_id from product_enrichment e "
+        "join products p using (shop_mid, external_id) "
+        "where e.status='active' and p.in_stock") if len(r) >= 2}
+    if not _CAND_CACHE:
+        p = os.path.join(HERE, 'candidates-index.json')
+        if os.path.exists(p):
+            _CAND_CACHE.update(json.load(open(p)))
+    items_idx = _CAND_CACHE.get('items', {})
+    major = ('диван', 'кресло', 'столик', 'тв-тумба', 'стеллаж', 'комод', 'стол обеденный')
+    swapped = 0
+    for n, s in enumerate(sets, 1):
+        style = s.get('style')
+        if not style:
+            continue
+        done = 0
+        for role in major:
+            if done >= max_swaps_per_set:
+                break
+            it = s['items'].get(role)
+            if not it:
+                continue
+            cur_rec = items_idx.get(key(it['mid'], it['eid'])) or {}
+            cur_step = steps.get(str((cur_rec.get('styles') or {}).get(style, 'нет')), 0)
+            if cur_step >= 3:
+                continue                     # уже «высокая» — менять незачем
+            for cand in _live_candidates(role, it, style, alive,
+                                         exclude={key(it['mid'], it['eid'])}, limit=5):
+                cst = steps.get(str((items_idx.get(key(cand['mid'], cand['eid']), {})
+                                     .get('styles') or {}).get(style, 'нет')), 0)
+                if cst < 3 or cst <= cur_step:
+                    continue                 # замена только на СТРОГО лучшую, до «высокой»
+                trial = dict(it)
+                trial.update({k2: cand[k2] for k2 in ('mid', 'eid', 'name', 'price') if k2 in cand})
+                ctx = {'chosen': {r: v for r, v in s['items'].items() if r != role}, 'wall': None,
+                       'corner_sofa': 'углов' in str((s['items'].get('диван') or {}).get('name', '')).lower()}
+                ok, _b, _no = prop_check(role, trial, ctx, _sub(role, trial))
+                if not ok:
+                    continue
+                print(f'  сет {n} [{style}]: {role} «{it["name"][:30]}» (ступень {cur_step}) '
+                      f'→ «{cand["name"][:30]}» (высокая)')
+                if apply:
+                    s['items'][role] = trial
+                swapped += 1
+                done += 1
+                break
+    print(f'освежено позиций: {swapped}' + ('' if apply else ' (показ; применить — --apply)'))
+    if apply and swapped:
+        shutil.copy(SETS, SETS + '.bak')
+        json.dump(sets, open(SETS, 'w'), ensure_ascii=False)
+        print('sets3.json обновлён (бэкап .bak)')
+
+
 def heal(apply: bool = False) -> None:
     """Лечение комплектов: выбывший товар меняем на запасной той же роли.
 
@@ -147,6 +238,10 @@ def heal(apply: bool = False) -> None:
                 continue
             spares = [a for a in ((s.get('alternates') or {}).get(role) or [])
                       if key(a['mid'], a['eid']) in alive]
+            # В3 (владелец 07.08): снапшот запасных не видит новинок — добираем из ЖИВОГО
+            # индекса кандидатов той же роли, лучшие по силе стиля сета и близости цены
+            spares = spares + _live_candidates(role, it, s.get('style'), alive,
+                                               exclude={key(a['mid'], a['eid']) for a in spares})
             picked = None
             for a in spares:
                 if not (0.7 * it['price'] <= a.get('price', 0) <= 1.3 * it['price']):
@@ -179,7 +274,9 @@ def heal(apply: bool = False) -> None:
 
 
 def main() -> None:
-    if '--heal' in sys.argv:
+    if '--refresh' in sys.argv:
+        refresh('--apply' in sys.argv)
+    elif '--heal' in sys.argv:
         heal('--apply' in sys.argv)
     elif '--index' in sys.argv:
         build()

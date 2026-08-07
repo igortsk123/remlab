@@ -215,6 +215,19 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
         out += _arc_candidates(room, item, by, free, sofa)
     if role == "пуф" and ("столик" in by or sofa is not None):
         anchor = by.get("столик") or sofa
+        # каноничное место — ЗА столиком (столик между диваном и пуфом): продолжение оси
+        # диван→столик; плюс сбоку от столика вне оси просмотра
+        if anchor.role == "столик" and sofa is not None:
+            ddx, ddy = anchor.x - sofa.x, anchor.y - sofa.y
+            n = max((ddx * ddx + ddy * ddy) ** 0.5, 1e-6)
+            ux, uy = ddx / n, ddy / n
+            aw, ad = _dims_for_rot(anchor.item, anchor.rot)
+            iw, id_ = _dims_for_rot(item, anchor.rot)
+            ahalf = abs(ux) * aw / 2 + abs(uy) * ad / 2
+            ihalf = abs(ux) * iw / 2 + abs(uy) * id_ / 2
+            for gap in (25.0, 45.0):
+                add(anchor.x + ux * (gap + ahalf + ihalf), anchor.y + uy * (gap + ahalf + ihalf),
+                    anchor.rot, f"за столиком, {gap:.0f} см")
         for ang in (90, 270):                      # сбоку от столика, ВНЕ оси просмотра
             fx, fy = _face_dir((anchor.rot + ang) % 360)
             # отступ — по ФАКТИЧЕСКОЙ полуширине вдоль направления, а не по max-габариту:
@@ -359,15 +372,31 @@ def corner_snap_candidates(room: Room, item: Item, free) -> list[Candidate]:
     return out
 
 
+# Декор и пуф — ТОЛЬКО у своих якорей (вердикты владельца 07.08, сеты 17/25: торшер за плечом
+# дивана, кашпо-сирота у стены, пуф у стены вдали от столика). Нет валидного якорного места —
+# роль честно пропускается: лучше без торшера, чем торшер в мёртвом углу.
+ANCHOR_ONLY_ROLES = frozenset({"пуф", "торшер", "кашпо"})
+
+
 def generate(room: Room, item: Item, placed: list[Placement], *, limit: int = 48) -> list[Candidate]:
     """Все кандидаты для предмета при текущем состоянии комнаты (дедуп по сетке 10 см)."""
     ignore = group_of(item.role)
     free_poly = free_space(room, placed, with_clearance=not is_low(item), ignore_access_of=ignore)
     free = _Fitter(room, free_poly)
+    if item.role in ANCHOR_ONLY_ROLES:
+        cands = anchor_candidates(room, item, placed, free)
+        seen0: set[tuple] = set()
+        out0: list[Candidate] = []
+        for c in cands:
+            key = (round(c.placement.x / 10), round(c.placement.y / 10), int(c.placement.rot) % 360)
+            if key not in seen0:
+                seen0.add(key)
+                out0.append(c)
+        return out0[:limit]
     cands = corner_snap_candidates(room, item, free)   # углы ПЕРВЫМИ: дедуп оставит именно их
     cands += anchor_candidates(room, item, placed, free)
     cands += wall_candidates(room, item, free)
-    if item.role in ("стол обеденный", "столик", "пуф", "ковёр"):
+    if item.role in ("стол обеденный", "столик", "ковёр"):
         cands += middle_candidates(room, item, free_poly, fitter=free)
     seen: set[tuple] = set()
     out: list[Candidate] = []

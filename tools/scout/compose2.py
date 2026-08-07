@@ -33,31 +33,53 @@ STYLE_PAIR={'сканди':('terra','green'),'современный':('blue','y
 # --- Разнообразие сетов (правило владельца 2026-08-02): пересечение по товарам
 # между сетами РАЗНЫХ стилей ≤3, между вариантами ОДНОГО стиля ≤5 (попарно) ---
 BUILT=[]  # [(style, {keys}, {major_keys})] — уже собранные сеты этого прогона
-# «Лицо сета» — крупная мебель: между СТИЛЯМИ общая максимум 1 позиция, иначе стили визуально
-# сливаются даже при общем лимите 3 (владелец 2026-08-07: «чтоб не было — один стиль на другой
-# мебель половина похожа»); декор гуляет свободнее в рамках общего лимита
+# --- Разнообразие v2 (решение владельца 2026-08-07, П2: «чтоб не казалось всё одинаково») ---
+# Старое грубое правило «≤5 общих внутри стиля / ≤3 между стилями» УДАЛЕНО. Новая механика:
+#  1) «ЛИЦО ≤1»: между сетами РАЗНЫХ стилей — не больше 1 общего предмета «лица» (диван/кресло/
+#     столик/стол обеденный). Только для обеспеченных стилей (сканди/современный/минимализм)
+#     и только для ролей с ≥100 кандидатов в своём тире — дефицит получает поблажку автоматически.
+#  2) «СВЯЗКИ»: повторная ПАРА крупной мебели (тот же диван + то же кресло) между ЛЮБЫМИ двумя
+#     сетами запрещена — одинаковость глазом ловится именно по связкам; работает и для
+#     дефицитных стилей (лофт/неоклассика/джапанди), где жёсткий лимит порвал бы составы.
+# Ёмкость снята 07.08: лофт-кресло 6, неокл-стол 0 … — жёсткость там физически невыполнима.
 MAJOR_ROLES={'диван','диван 2','кресло','столик','тв-тумба','стеллаж','витрина','стенка','комод','стол обеденный','камин'}
-def overlap_ok(cand_key,style,chosen,role=None):
-    """Лимит повторов между комплектами: ≤5 совпадений внутри стиля, ≤3 между стилями,
-    и КРУПНАЯ мебель между стилями — ≤1 (стили не должны делить «лицо» сета).
-
-    Проверяем ТОЛЬКО того кандидата, который реально увеличивает пересечение. Раньше сумма
-    считалась по всему набранному комплекту, и как только пересечение уже превышало лимит,
-    отсекался ЛЮБОЙ следующий товар — даже отсутствующий в том комплекте. Роли добираются по
-    очереди, декор последним, поэтому комплекты 17/20/29 разом теряли торшер, люстру, подушки,
-    плед и вазу: 6-7 позиций вместо 11-13 (владелец увидел пустые аппликации, 2026-08-05).
-    """
+FACE_ROLES={'диван','диван 2','кресло','столик','стол обеденный'}
+ASSURED_STYLES={'сканди','современный','минимализм'}
+_TIER_BAND_SQL={'эконом':'p.price_rub<=30000','комфорт':'p.price_rub between 20000 and 90000','премиум':'p.price_rub>=60000'}
+RICH={}   # (role,tier) -> кандидатов ≥100
+def _load_rich():
+    if RICH or not STYLE_MODE: return
+    import subprocess as _sp
+    q=("select p.cat_role, "
+       +", ".join(f"count(*) filter (where {c})" for c in _TIER_BAND_SQL.values())
+       +" from products p join product_enrichment e using (shop_mid, external_id)"
+       " where p.cat_role is not null and p.status='active' and p.in_stock"
+       " and e.payload is not null and e.quality>=0.65 group by 1;")
+    r=_sp.run(PSQL,input=q,capture_output=True,text=True)
+    for line in r.stdout.strip().split('\n'):
+        f=line.split('\x1f')
+        if len(f)>=4:
+            for t,cnt in zip(_TIER_BAND_SQL, f[1:4]):
+                RICH[(f[0],t)]=int(cnt or 0)>=100
+def overlap_ok(cand_key,style,chosen,role=None,tier=None):
+    """Разнообразие v2: «лицо ≤1» между стилями (обеспеченные стили и богатые роли) +
+    запрет повторных СВЯЗОК крупных пар между любыми сетами. Декор лимитами не душим
+    (урок 2026-08-05: жёсткая сумма оставляла сеты без люстры и подушек)."""
     if not STYLE_MODE: return True
+    _load_rich()
     cur={emb_key(it['mid'],it['eid']) for it in chosen.values()}
+    if cand_key in cur: return True
     cur_major={emb_key(it['mid'],it['eid']) for r,it in chosen.items() if r in MAJOR_ROLES}
-    if cand_key in cur: return True          # товар уже в комплекте — пересечение не растёт
-    is_major=role in MAJOR_ROLES if role else False
+    is_face=role in FACE_ROLES
+    is_major=role in MAJOR_ROLES
+    rich=RICH.get((role or '',tier or ''),False) if role else False
     for st,keys,mkeys in BUILT:
-        if cand_key not in keys: continue    # с этим комплектом кандидат ничего не повторяет
-        lim=5 if st==style else 3
-        if len(cur&keys)+1>lim: return False
-        if st!=style and is_major and cand_key in mkeys and len(cur_major&mkeys)+1>1:
-            return False                     # «лицо» другого стиля — уже занято
+        if cand_key not in keys: continue
+        if is_major and cand_key in mkeys and (cur_major & mkeys):
+            return False                     # повторная связка крупной пары — одинаковость
+        if st!=style and is_face and rich and style in ASSURED_STYLES and cand_key in mkeys \
+           and len(cur_major & mkeys)>=1:
+            return False                     # «лицо» уже делит >1 предмета с другим стилем
     return True
 # --- Ш1 set-quality-fixes: санитайзер габаритов -------------------------------------------
 # В фидах оси путаются (кашпо «80x40x50 см» приехало как Ш=40/Г=80) и встречается мусор
@@ -292,7 +314,7 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
             prop_ok, _bonus, _notes = prop_check(role, it, _pctx, _sub)
             if not prop_ok:
                 continue
-            if not overlap_ok(emb_key(it['mid'],it['eid']),ctx.get('style_name'),ctx.get('chosen_ref',{})): continue
+            if not overlap_ok(emb_key(it['mid'],it['eid']),ctx.get('style_name'),ctx.get('chosen_ref',{}),role=role,tier=tier): continue
             cs.append(it)
         return cs
     # room-size-fit Ф2: сперва с жёстким размер-гейтом; пусто → фолбэк без гейта с пометкой
@@ -472,7 +494,7 @@ for bi,band in enumerate(COMP['bands']):
             best=None;bs=1e9
             for it in cat['ковёр']:
                 if not it['fp'] or re.search(r'ассортимент|мехов|ванн|придверн|подложк',it['name'].lower()): continue
-                if not overlap_ok(emb_key(it['mid'],it['eid']),style_name,chosen): continue
+                if not overlap_ok(emb_key(it['mid'],it['eid']),style_name,chosen,role='ковёр',tier=tier): continue
                 rw=max(it.get('w') or 0, it.get('d') or 0) or None  # длинная сторона ковра
                 if sofa_w and rw:
                     _ov=(OCC or {}).get('rug_rules',{}).get('verified_r2',{}).get('front_legs_scheme_side_overhang_each_cm',[25,35])
@@ -506,7 +528,7 @@ for bi,band in enumerate(COMP['bands']):
                         # лимит повторов действует и здесь: ветка «ковёр под столик» его обходила,
                         # и ровно из-за неё 40 пар комплектов повторяли друг друга сверх нормы
                         # (4 общих товара при лимите 3, 2026-08-05)
-                        if not overlap_ok(emb_key(it2['mid'],it2['eid']),style_name,chosen): continue
+                        if not overlap_ok(emb_key(it2['mid'],it2['eid']),style_name,chosen,role='ковёр',tier=tier): continue
                         l2=max(it2.get('w') or 0, it2.get('d') or 0)
                         if _tl and _rlo<=l2/_tl<=_rhi: _cands.append((l2,it2))
                     if _cands:
@@ -526,7 +548,7 @@ for bi,band in enumerate(COMP['bands']):
         else:
             dlo,dhi=(45,70) if m2<=20 else ((60,90) if m2<=30 else (60,100))
         lu=[it for it in cat.get('люстра',[]) if it['dia'] and dlo<=it['dia']<=dhi] or cat.get('люстра',[])
-        lu=[it for it in lu if overlap_ok(emb_key(it['mid'],it['eid']),style_name,chosen)]  # строго: лимит важнее люстры
+        lu=[it for it in lu if overlap_ok(emb_key(it['mid'],it['eid']),style_name,chosen,role='люстра',tier=tier)]  # строго: лимит важнее люстры
         if lu:
             plo,phi=tier_band('люстра',tier)
             lu2=[it for it in lu if plo<=it['price']<=phi] or lu

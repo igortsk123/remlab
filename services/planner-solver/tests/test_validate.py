@@ -176,3 +176,21 @@ def test_functional_zones():
                                 item=Item(role="стеллаж", w_cm=80, d_cm=35, h_cm=180))
     codes = {v.code for v in validate(room, [tbl, shelf_in_dining]).violations}
     assert "STORAGE_IN_DINING_ZONE" in codes, "стеллаж вплотную к обеденной группе — брак"
+
+
+def test_verdicts_0807():
+    """В4 (вердикты 07.08): камин за спиной, полоса на всю ширину, стул ≤40."""
+    from tests.rooms import make_room
+    room = make_room("41-50")
+    sofa = Placement(role="диван", x=room.width_cm / 2, y=room.depth_cm / 2, rot=0,
+                     item=Item(role="диван", w_cm=240, d_cm=100, h_cm=85))
+    fireplace_behind = Placement(role="камин", x=80, y=60, rot=0,
+                                 item=Item(role="камин", w_cm=100, d_cm=40, h_cm=110))
+    codes = {v.code for v in validate(room, [sofa, fireplace_behind]).violations}
+    assert "DEAD_ZONE_BEHIND_SOFA" in codes, "камин за спиной (в т.ч. в углу) — брак"
+    tbl = Placement(role="стол обеденный", x=100, y=room.depth_cm - 100, rot=0,
+                    item=Item(role="стол обеденный", w_cm=140, d_cm=80, h_cm=75))
+    chair_60 = Placement(role="стул", x=100 + 70 + 22 + 60, y=room.depth_cm - 100, rot=270,
+                         item=Item(role="стул", w_cm=45, d_cm=45, h_cm=90))
+    codes = {v.code for v in validate(room, [tbl, chair_60]).violations}
+    assert "CHAIR_ORPHAN" in codes, "стул в 60 см — уже брак (порог 40)"
