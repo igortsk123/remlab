@@ -305,14 +305,19 @@
      450
     ],
     "behind_seating": "penalized",
-    "_note_behind": "Рефери-финал 08.08 п.4: код даёт S1 (FIREPLACE_FAR_FROM_SEATING, сектор 75°), а не hard-запрет — слово forbidden завышало жёсткость. primary focal (ТВ) за спиной ловят H1-правила facing/aim; отдельный FOCAL_BEHIND_MAIN_SEAT — при мульти-focal сценариях.",
+    "_note_behind": "Рефери-финал 08.08 п.4: FIREPLACE_FAR_FROM_SEATING — H1 (реестр severity.json, тесты test_validate/test_zones); слово forbidden завышало жёсткость поведенчески: код не запрещает камин, а требует focal-зону хоть одной посадки. primary focal (ТВ) за спиной ловят H1-правила facing/aim; отдельный FOCAL_BEHIND_MAIN_SEAT — при мульти-focal сценариях.",
+    "primary_sector_deg": {
+     "диван": 35,
+     "прочая_посадка": 45,
+     "_note": "L2 (канон 09.08, E6/G2): камин перед посадкой — диван строго (35°), прочая посадка мягче (45°); эти же числа использует кандидатный гейт _fireplace_scenario"
+    },
     "secondary_zone": {
      "armchair_dist_cm": [
-      100,
-      250
+      20,
+      280
      ],
-     "cone_deg": 45,
-     "_note": "D5: кресло у камина = вторичная зона (fireplace corner) — законный дом для кресла вне дивановой дуги"
+     "cone_deg": 75,
+     "_note": "D5+канон флангов (decorilla/willis 08.08): кресло ПО БОКУ камина (от 20 см, фланг) до предела уголка 280; развёрнуто «чуть внутрь» — конус 75° к зоне (центр+фронт). До L2 здесь лежали стейл-значения 100–250/45°, код им не следовал"
     }
    },
    "armchair": {

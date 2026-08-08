@@ -173,3 +173,34 @@ def test_wall_unit_is_tv_bearer():
     from planner.tv import distance_range
     lo, hi, _ = distance_range(280, bearer='стенка')
     assert 120 < lo < 200 and 300 < hi < 550, f'ниша стенки даёт странную вилку {lo:.0f}-{hi:.0f}'
+
+
+# ---------------------------------------------------------------- L2. candidate topology
+
+def test_second_armchair_candidates_are_structurally_paired():
+    """L2 (MASTER-layout-v5): кандидаты «кресло 2» отбираются по СТРУКТУРНОМУ полю
+    Candidate.topology (pair_*/fireplace_flank), а не парсингом русских подстрок note.
+    Заодно смоук: при стоящем первом кресле пара получает ≥1 позицию (урок 205)."""
+    from planner.candidates import generate
+    from planner.models import Placement
+
+    room = canonical_room()
+    sofa = mk('диван')
+    arm1 = mk('кресло')
+    ps = [Placement(role='диван', x=260, y=52.5, rot=0, item=sofa),
+          Placement(role='кресло', x=100, y=250, rot=90, item=arm1)]
+    cands = generate(room, mk('кресло 2'), ps)
+    assert cands, 'второе кресло не получило ни одного парного кандидата'
+    assert all(c.topology.startswith('pair_') or c.topology == 'fireplace_flank'
+               for c in cands), \
+        f'непарная топология у кандидатов второго кресла: {[c.topology or c.note for c in cands]}'
+
+
+def test_second_armchair_without_first_has_no_candidates():
+    """Гейт «пара строится только от первого» сохранён после перевода фильтра на topology."""
+    from planner.candidates import generate
+    from planner.models import Placement
+
+    room = canonical_room()
+    ps = [Placement(role='диван', x=260, y=52.5, rot=0, item=mk('диван'))]
+    assert generate(room, mk('кресло 2'), ps) == []
