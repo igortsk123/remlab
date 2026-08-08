@@ -632,16 +632,32 @@ if ENGINE not in ('beam', 'llm'):
 # от стены (там, где у настоящего дивана выступает плечо). Владелец 2026-08-05: «или буквой Г,
 # или не делать». Передаём признак, глубину с плечом и центр ГАБАРИТНОГО прямоугольника.
 if CORNER and 'диван' in out:
-    _dd = max(dict(FLOOR)['диван'][1], 150)
+    # P0.2 (ревью рефери 08.08, set66): единственный canonical footprint — тот, которым РЕШАЛ
+    # солвер. Прежний код мутировал экспорт (d→max(150) «с плечом», corner_left=True хардкод,
+    # пересчёт Z): при SKU без глубины солвер решал с d=95 ВАЛИДНО, а реконструкция
+    # scene_build с d=150 уезжала за стену (−22.5 см, OUT_OF_ROOM). Экспортируем solve-time
+    # параметры без мутаций; зеркальность — сверкой IoU с фактическим полигоном солвера.
     _sec = (OCC or {}).get('corner_sofa_section_depth_cm', 95)
+    _dd = dict(FLOOR)['диван'][1]                 # глубина, которой решал солвер
     _cs = placed['диван'][2]                      # шестиугольник от солвера
-    _zs = [c[1] for c in _cs]
-    out['диван'].update({'corner': True, 'section': _sec, 'd': _dd,
-                         'z': (min(_zs) + max(_zs)) / 2,
-                         # плечо стоит у ВОСТОЧНОЙ стены; при развороте 180° это левая сторона
-                         # локальных координат — иначе след получается зеркальным и столик
-                         # «врезается» в диван (владелец, 2026-08-05)
-                         'corner_left': True})
+    out['диван'].update({'corner': True, 'section': _sec, 'd': _dd})
+    from shapely.geometry import Polygon as _Poly
+    from planner.geometry import footprint as _fpc
+    from planner.models import Item as _Itc, Placement as _Plc
+    _sol = _Poly(_cs)
+    _best = (0.0, False)
+    for _cl in (True, False):
+        _itc = _Itc(role='диван', w_cm=out['диван']['w'], d_cm=_dd, h_cm=85,
+                    corner=True, corner_section_cm=_sec, corner_left=_cl)
+        _fpp = _fpc(_Plc(role='диван', x=out['диван']['x'], y=out['диван']['z'],
+                         rot=out['диван']['rot'], item=_itc))
+        _iou = _sol.intersection(_fpp).area / max(_sol.union(_fpp).area, 1e-6)
+        if _iou > _best[0]:
+            _best = (_iou, _cl)
+    out['диван']['corner_left'] = _best[1]
+    if _best[0] < 0.98:
+        print(f'CANONICAL-FOOTPRINT WARN: реконструкция Г-дивана IoU={_best[0]:.2f} — '
+              'экспорт расходится с полигоном солвера', flush=True)
 # габариты И проёмы — рендеру и компилятору сцены: без проёмов генератор придумывает свои
 # двери/окна, и кадр перестаёт совпадать с планом (поймано 2026-08-04)
 out['_room']={'w':RW,'d':RD,'openings':[
