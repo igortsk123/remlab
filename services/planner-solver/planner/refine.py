@@ -84,6 +84,38 @@ def repair_unplaced(room: Room, layout: Layout, items: list) -> Layout:
     return best
 
 
+def _snap_table_center(room: Room, layout: Layout) -> Layout:
+    """D2 (вердикты 08.08 «столики не всегда по центру»): пробуем поставить столик РОВНО в
+    центр активной посадки; свободно и не хуже по hard — принимаем."""
+    from .geometry import base_role, facing_vector, footprint
+    by = {}
+    for p in layout.placements:
+        by.setdefault(base_role(p.role), p)
+    sofa, tbl = by.get("диван"), by.get("столик")
+    if sofa is None or tbl is None or sofa.item is None:
+        return layout
+    import math
+    r = math.radians(sofa.rot)
+    fx, fy = math.sin(r), math.cos(r)
+    act = (sofa.item.corner_section_cm / 2) if sofa.item.corner else 0.0
+    dx, dy = tbl.x - sofa.x, tbl.y - sofa.y
+    fwd = dx * fx + dy * fy
+    nx = sofa.x + fx * fwd + (-fy) * act
+    ny = sofa.y + fy * fwd + fx * act
+    if abs(nx - tbl.x) < 2 and abs(ny - tbl.y) < 2:
+        return layout
+    moved = [p if p is not tbl else p.model_copy(update={"x": nx, "y": ny})
+             for p in layout.placements]
+    from .validate import validate
+    trial = validate(room, moved)
+    old_hard = sum(1 for v in layout.violations if v.severity.name == "HARD")
+    if sum(1 for v in trial.violations if v.severity.name == "HARD") <= old_hard:
+        trial.unplaced = layout.unplaced
+        trial.skipped_optional = layout.skipped_optional
+        return trial
+    return layout
+
+
 def refine(room: Room, layout: Layout, *, rounds: int = MAX_ROUNDS) -> Layout:
     """Доводка раскладки: те же предметы, чуть другие координаты — меньше нарушений."""
     best = layout

@@ -137,6 +137,10 @@ def solve_zoned(room: Room, items, **kw):
         outs1 = solve(room, core, **kw)
         if outs1 and rest:
             base_ps = list(outs1[0].placements)
+            # предметы ядра, не вставшие в проходе 1 (ковёр и т.п.), едут во второй проход —
+            # иначе терялись в шве двухпрохода без следа (вердикт 08.08: «ковра нет»)
+            lost1 = set(outs1[0].unplaced) | set(outs1[0].skipped_optional)
+            rest = rest + [it for it in core if it.role in lost1]
             outs = solve(room, rest, fixed=base_ps, **kw)
             if outs:
                 carry = set(outs1[0].skipped_optional)

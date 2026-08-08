@@ -272,12 +272,15 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
             mrot = math.degrees(math.atan2(f1x - 2 * l1 * (-sfy0),
                                            f1y - 2 * l1 * sfx0)) % 360
             add(mx, my, round(mrot / 90) * 90 % 360, "пара: зеркало первого кресла")
-            for gap in (30.0, 45.0):
-                off = first.item.w_cm / 2 + item.w_cm / 2 + gap
-                for sgn in (-1.0, 1.0):
-                    px = first.x + (-f1y) * off * sgn
-                    py = first.y + f1x * off * sgn
-                    add(px, py, first.rot, "пара: бок-о-бок")
+            # бок-о-бок канонен ТОЛЬКО когда кресла НАПРОТИВ дивана (лицом к нему):
+            # для боковых кресел он строил «лесенку в затылок» вдоль стены (вердикт 08.08)
+            if int(first.rot) % 360 == int(sofa.rot + 180) % 360:
+                for gap in (30.0, 45.0):
+                    off = first.item.w_cm / 2 + item.w_cm / 2 + gap
+                    for sgn in (-1.0, 1.0):
+                        px = first.x + (-f1y) * off * sgn
+                        py = first.y + f1x * off * sgn
+                        add(px, py, first.rot, "пара: бок-о-бок")
     if base_role(role) == "кресло" and by.get("камин") is not None:
         # D5 (fireplace corner): кресло перед камином, лицом к нему — вторичная зона.
         # Дистанция — от КРОМОК с учётом безопасной зоны камина (fireplace_clear 100 см):
@@ -423,7 +426,7 @@ def _arc_candidates(room: Room, item: Item, by: dict, free: Polygon, sofa: Place
     base = max(item.w_cm, item.d_cm) / 2 + gap_t + max(center.item.w_cm, center.item.d_cm) / 2
     out: list[Candidate] = []
     for th in (lo, hi, lo + jit, hi - jit, lo - jit, hi + jit):
-        for k in (1.0, 1.35, 1.7):
+        for k in (1.0, 1.2):   # дальние радиусы давали «лесенку» кресел к медиастене (08.08)
             r = math.radians(th)
             # 180° — сторона дивана, 0° — сторона ТВ (ось зоны совпадает с «лицом» дивана)
             ax, ay = _face_dir(sofa.rot)          # направление «лица» дивана = ось зоны на ТВ
@@ -570,9 +573,11 @@ def generate(room: Room, item: Item, placed: list[Placement], *, limit: int = 48
     # G3 (вердикт владельца set113: «кресла не симметричны — референсы разные»): второе
     # кресло ставится ТОЛЬКО парными кандидатами (зеркало/бок-о-бок/другой фланг камина из
     # anchor_candidates) — generic-стены ему запрещены; не влезло парно → честный дроп
-    _pair_only = (base_role(item.role) == "кресло" and item.role != "кресло"
-                  and any(p.role == "кресло" for p in placed))
-    if _pair_only:
+    _is_instance = base_role(item.role) == "кресло" and item.role != "кресло"
+    _first_placed = any(p.role == "кресло" for p in placed)
+    if _is_instance and not _first_placed:
+        return []   # пара строится ТОЛЬКО от первого кресла (лазейка «второй на дугу» закрыта)
+    if _is_instance:
         cands = [c for c in cands if c.kind == "anchor" and
                  ("пара" in c.note or "фланг камина" in c.note)]
     else:

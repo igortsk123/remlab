@@ -593,6 +593,18 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
                           f"столик смещён на {dev:.0f} см от центра посадки (10–20%)",
                           ["диван", "столик"], round(dev),
                           f"≤{0.10 * act_w:.0f} см (10% посадки)", Severity.SOFT))
+        # RUG_ORIENTATION (вердикт владельца 08.08): ковёр — длинной стороной параллельно
+        # фронту дивана (как столик)
+        rg = by.get("ковёр")
+        if rg is not None and rg.item is not None and \
+                max(rg.item.w_cm, rg.item.d_cm) >= 1.2 * min(rg.item.w_cm, rg.item.d_cm):
+            long_ok = (rg.item.w_cm >= rg.item.d_cm) == \
+                (int(rg.rot) % 180 == int(sofa.rot) % 180)
+            if not long_ok:
+                out.append(_v("RUG_ORIENTATION",
+                              "ковёр короткой стороной к дивану — развернуть длинной",
+                              ["диван", "ковёр"], None, "длинная сторона параллельна фронту",
+                              Severity.SOFT))
         # D1 (вердикт владельца set55 + веб-канон 2Modern/CarpentryShop): прямоугольный
         # столик — ДЛИННОЙ стороной параллельно фронту дивана
         if tbl.item is not None and max(tbl.item.w_cm, tbl.item.d_cm) >= \
@@ -658,6 +670,14 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
             continue
         # P0.4 (рефери 08.08): у Г/П-дивана кресло — только со стороны conversation opening;
         # боковой предел меряем от АКТИВНОГО центра (плечо — закрытая сторона)
+        if tbl is not None:
+            fwd_t, _ = relative_position(sofa, tbl)
+            if fwd - fwd_t > 60 + arm.item.d_cm / 2:
+                out.append(_v("ARMCHAIR_OUT_OF_ZONE",
+                              f"«{arm.role}» уехало вперёд столика к медиастене",
+                              ["диван", arm.role], round(fwd - fwd_t),
+                              "не дальше линии столика (+60 см)"))
+                continue
         if abs(lat - act_lat) > act_w / 2 + arm.item.w_cm + 60:
             out.append(_v("ARMCHAIR_OUT_OF_ZONE", f"«{arm.role}» в {abs(lat - act_lat):.0f} см от посадки",
                           ["диван", arm.role], round(abs(lat - act_lat)),

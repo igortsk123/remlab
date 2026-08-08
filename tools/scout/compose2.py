@@ -557,6 +557,9 @@ for bi,band in enumerate(COMP['bands']):
             if role=='кресло':
                 q=_zreq.get('кресло',1) if 'кресло' in _zreq else 1
                 if band.get('kreslo_max')==1: q=min(q,1)
+                # канон sectional (08.08): у Г-дивана chaise уже даёт посадку — пара кресел
+                # избыточна и геометрически не встаёт (зеркало попадает в плечо); одно кресло
+                if ctx.get('corner_sofa'): q=min(q,1)
             else:
                 q=QTY.get(role,1)
             top=pick2(role,m2,band['floor'][role],tier,pair,ctx,qty=q) or \
