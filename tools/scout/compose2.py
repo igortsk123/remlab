@@ -462,6 +462,14 @@ def _zone_group(m2,seq,kreslo_max=None):
         need={r.split(' ')[0] for r in req}
         return all(cat.get(r) for r in need)
     avail=[gid for gid in zb['groups'] if _ok(gid)] or ['sofa_armchair']
+    # D5b (вердикт владельца 50+): дефицит не молчит — если самая вместительная группа band'а
+    # отпала из-за отсутствия роли в каталоге, логируем причину (иначе «почему один диван?»
+    # невозможно диагностировать по сету)
+    lost=[gid for gid in zb['groups'] if gid not in avail]
+    if lost and _ZGROUPS[zb['groups'][0]]['seats']>_ZGROUPS[avail[0]]['seats']:
+        _miss={r.split(' ')[0] for gid in lost for r in _ZGROUPS[gid]['roles']['required']
+               if not cat.get(r.split(' ')[0])}
+        print(f"  D5: группы {lost} недоступны (нет ролей {sorted(_miss)}) — band {zb.get('max')} м² собирается меньшей группой")
     return _ZGROUPS[avail[seq%len(avail)]],zb,um
 sets=[]
 for bi,band in enumerate(COMP['bands']):

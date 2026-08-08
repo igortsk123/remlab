@@ -563,6 +563,16 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
                           f"столик смещён на {dev:.0f} см от центра посадки (10–20%)",
                           ["диван", "столик"], round(dev),
                           f"≤{0.10 * act_w:.0f} см (10% посадки)", Severity.SOFT))
+        # D1 (вердикт владельца set55 + веб-канон 2Modern/CarpentryShop): прямоугольный
+        # столик — ДЛИННОЙ стороной параллельно фронту дивана
+        if tbl.item is not None and max(tbl.item.w_cm, tbl.item.d_cm) >= \
+                1.25 * min(tbl.item.w_cm, tbl.item.d_cm):
+            long_along_front = (tbl.item.w_cm >= tbl.item.d_cm) == \
+                (int(tbl.rot) % 180 == int(sofa.rot) % 180)
+            if not long_along_front:
+                out.append(_v("TABLE_ORIENTATION",
+                              "столик короткой стороной к дивану — развернуть длинной",
+                              ["диван", "столик"], None, "длинная сторона параллельна фронту"))
     pouf = by.get("пуф")
     if pouf is not None:
         fwd, lat = relative_position(sofa, pouf)
@@ -598,6 +608,29 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
                 out.append(_v("ARMCHAIR_TABLE_DIST", f"«{arm.role}» в {g:.0f} см от столика — вне зоны",
                               [arm.role, "столик"], round(g),
                               f"{lo_t:.0f}–{hi_t + 60:.0f} см (зона вокруг столика)"))
+        # D5 (вторичная зона): кресло у камина (100–250 см, конус 45°) — законный дом
+        # кресла вне дивановой дуги (fireplace corner) — дуговые чеки не применяются
+        fpl = by.get("камин")
+        if fpl is not None:
+            import math as _m
+            _fd = footprint(arm).distance(footprint(fpl))
+            _afx, _afy = facing_vector(arm.rot)
+            _fc, _acn = footprint(fpl).centroid, footprint(arm).centroid
+            _vx, _vy = _fc.x - _acn.x, _fc.y - _acn.y
+            _n = _m.hypot(_vx, _vy)
+            if 100 <= _fd <= 250 and _n > 1 and \
+                    (_vx * _afx + _vy * _afy) / _n >= _m.cos(_m.radians(45)):
+                continue
+        # D3 (вердикт владельца set59 + Swyft/Dimensions): кресло НЕ у ТВ-носителя —
+        # там оно спиной/боком к экрану и вне разговорной дуги
+        tvb = by.get("тв-тумба") or by.get("стенка")
+        if tvb is not None and footprint(arm).distance(footprint(tvb)) < \
+                float(rules().get("dynamic", {}).get("armchair_clearances", {})
+                      .get("not_at_tv_wall_gap_cm", 80)):
+            out.append(_v("ARMCHAIR_AT_TV_WALL",
+                          f"«{arm.role}» вплотную к ТВ-носителю — вне разговорной дуги",
+                          [arm.role], None, "кресло напротив/по диагонали от дивана"))
+            continue
         fwd, lat = relative_position(sofa, arm)
         if fwd < -20:
             out.append(_v("ARMCHAIR_BEHIND_SOFA", f"«{arm.role}» стоит за диваном", ["диван", arm.role],

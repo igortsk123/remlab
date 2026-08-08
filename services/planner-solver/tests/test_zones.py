@@ -361,3 +361,44 @@ def test_effective_group_regroup_after_loss():
         f"required группы {gid} обязаны быть размещены: {placed}"
     hard = [v for v in lay.violations if v.severity is Severity.HARD]
     assert not hard, [v.code for v in hard]
+
+
+# --- D-этапы (план layout-composition-deep, вердикты владельца 08.08) ---
+
+def test_table_orientation_long_side():
+    """D1 (set55): прямоугольный столик короткой стороной к дивану — H1."""
+    from planner.models import Severity
+    from planner.validate import validate
+    room = _room(500, 550)
+    sofa = _mk("диван", 250, 470, 180, 220, 100, 85)
+    wrong = _mk("столик", 250, 390, 90, 120, 58, 45)   # rot 90 при диване 180 — поперёк
+    codes = {v.code: v.severity for v in validate(room, [sofa, wrong]).violations}
+    assert codes.get("TABLE_ORIENTATION") is Severity.HARD
+    right = _mk("столик", 250, 390, 180, 120, 58, 45)
+    codes2 = {v.code for v in validate(room, [sofa, right]).violations}
+    assert "TABLE_ORIENTATION" not in codes2
+
+
+def test_armchair_not_at_tv_wall():
+    """D3 (set59): кресло вплотную к ТВ-носителю — вне разговорной дуги, H1."""
+    from planner.models import Severity
+    from planner.validate import validate
+    room = _room(500, 550)
+    sofa = _mk("диван", 250, 470, 180, 220, 100, 85)
+    tv = _mk("тв-тумба", 250, 25, 0, 160, 40, 50)
+    arm = _mk("кресло", 420, 60, 90, 80, 85, 80)   # у ТВ-стены
+    codes = {v.code: v.severity for v in validate(room, [sofa, tv, arm]).violations}
+    assert codes.get("ARMCHAIR_AT_TV_WALL") is Severity.HARD
+
+
+def test_armchair_fireplace_corner_allowed():
+    """D5: кресло у камина (100–250, лицом) — вторичная зона, дуговые чеки не применяются."""
+    from planner.validate import validate
+    room = _room(600, 700)
+    sofa = _mk("диван", 300, 620, 180, 220, 100, 85)
+    fpl = _mk("камин", 80, 350, 90, 110, 35, 100)     # у западной стены, в вилке от дивана
+    arm = _mk("кресло", 240, 350, 270, 80, 85, 80)    # перед камином, лицом на запад
+    codes = {v.code for v in validate(room, [sofa, fpl, arm]).violations
+             if "кресло" in v.roles}
+    assert not codes & {"ARMCHAIR_OUT_OF_ZONE", "ARMCHAIR_NOT_FACING_GROUP",
+                        "ARMCHAIR_TABLE_DIST"}, codes

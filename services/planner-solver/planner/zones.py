@@ -180,7 +180,7 @@ _TERM_LEVEL = {
     'soft_rule_tall_on_tv_wall': 'zone_quality', 'soft_rule_tv_on_window_wall': 'zone_quality',
     'soft_rule_fireplace_on_tv_wall': 'zone_quality',
     # aesthetics: выравнивание/центрирование
-    'wall_hug': 'aesthetics', 'pair_symmetry': 'aesthetics', 'axis_alignment': 'aesthetics', 'wall_centering': 'aesthetics',
+    'wall_hug': 'aesthetics', 'pair_symmetry': 'aesthetics', 'table_centering': 'zone_quality', 'functional_coverage': 'zone_quality', 'axis_alignment': 'aesthetics', 'wall_centering': 'aesthetics',
 }
 
 

@@ -208,7 +208,9 @@
     0
    ],
    "position": "центр фронта дивана, сдвиг ≤15% ширины",
-   "_canon_height": "КАНОН высоты столика (5.2, рефери 08.08): столешница вровень с сиденьем или до 5 см ниже; proportions.json table_h_vs_seat — производная в ratio-виде (allowed 0.78–1.08, preferred 0.89–1.0), не второй канон."
+   "_canon_height": "КАНОН высоты столика (5.2, рефери 08.08): столешница вровень с сиденьем или до 5 см ниже; proportions.json table_h_vs_seat — производная в ratio-виде (allowed 0.78–1.08, preferred 0.89–1.0), не второй канон.",
+   "orientation": "long_side_parallel_to_sofa_front",
+   "_orientation_src": "external:2modern.com + thecarpentryshopco.com (прямоугольный столик длинной стороной к дивану, параллельно и по центру; D1 08.08)"
   },
   "armchair": {
    "angle_to_axis_deg": [
@@ -303,7 +305,19 @@
      450
     ],
     "behind_seating": "penalized",
-    "_note_behind": "Рефери-финал 08.08 п.4: код даёт S1 (FIREPLACE_FAR_FROM_SEATING, сектор 75°), а не hard-запрет — слово forbidden завышало жёсткость. primary focal (ТВ) за спиной ловят H1-правила facing/aim; отдельный FOCAL_BEHIND_MAIN_SEAT — при мульти-focal сценариях."
+    "_note_behind": "Рефери-финал 08.08 п.4: код даёт S1 (FIREPLACE_FAR_FROM_SEATING, сектор 75°), а не hard-запрет — слово forbidden завышало жёсткость. primary focal (ТВ) за спиной ловят H1-правила facing/aim; отдельный FOCAL_BEHIND_MAIN_SEAT — при мульти-focal сценариях.",
+    "secondary_zone": {
+     "armchair_dist_cm": [
+      100,
+      250
+     ],
+     "cone_deg": 45,
+     "_note": "D5: кресло у камина = вторичная зона (fireplace corner) — законный дом для кресла вне дивановой дуги"
+    }
+   },
+   "armchair": {
+    "not_at_tv_wall_gap_cm": 80,
+    "_src_opposite": "external:swyfthome + dimensions.com (кресла напротив/по диагонали, слегка внутрь; разговорный круг <=244-305 см; D3 08.08)"
    }
   },
   "circulation": {

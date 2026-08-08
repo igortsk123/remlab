@@ -24,5 +24,7 @@
  "corner_sofa_hug": 5,
  "soft_layout_rule": 4,
  "dining_by_window": 3,
- "pair_symmetry": 0.6
+ "pair_symmetry": 0.6,
+ "table_centering": 1.2,
+ "functional_coverage": 1.0
 }

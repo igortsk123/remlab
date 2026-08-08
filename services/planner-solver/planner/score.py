@@ -113,6 +113,29 @@ def score_layout(room: Room, ps: list[Placement], *, fast: bool = False) -> Scor
         lo, hi = distances().get("sofa_coffee_table", [36, 46])   # W2: фикс-эргономика
         g = footprint(by["диван"]).distance(footprint(by["столик"]))
         s.add("sofa_table_dist", hinge(g, lo, hi), w["sofa_table_dist"])
+        # D2 (вердикты владельца set59/66): ПРИТЯЖЕНИЕ столика к центру активной посадки —
+        # непрерывный градиент, а не только порог 20% (порог оставлял столик на 19.9%)
+        sofa_p, tbl_p = by["диван"], by["столик"]
+        if sofa_p.item is not None:
+            from .geometry import relative_position as _rp
+            _, lat = _rp(sofa_p, tbl_p)
+            if sofa_p.item.corner:
+                act_lat = sofa_p.item.corner_section_cm / 2
+                act_w = max(sofa_p.item.w_cm - sofa_p.item.corner_section_cm, 80.0)
+            else:
+                act_lat, act_w = 0.0, sofa_p.item.w_cm
+            s.add("table_centering", abs(lat - act_lat) / act_w * 10.0,
+                  w.get("table_centering", 1.2))
+    # D5/рефери P1.5: functional coverage больших комнат — primary-зона не может «оставить
+    # пустой» комнату 40+ м²; сигнальный терм (не hard), калибруется human-оценкой
+    room_m2 = room.width_cm * room.depth_cm / 10_000
+    if room_m2 >= 40 and len(ps) >= 3:
+        from shapely.ops import unary_union as _uu
+        hull = _uu([footprint(p) for p in ps]).convex_hull
+        share = hull.area / (room.width_cm * room.depth_cm)
+        if share < 0.40:
+            s.add("functional_coverage", (0.40 - share) * 25.0,
+                  w.get("functional_coverage", 1.0))
     from .geometry import base_role as _br
     arms = [p for p in ps if _br(p.role) == "кресло"]
     if len(arms) >= 2 and "диван" in by:

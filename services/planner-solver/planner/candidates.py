@@ -231,6 +231,25 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
         for gap in (lo + 3, (lo + hi) / 2, hi - 3):
             off = gap + seating_front_offset(sofa.item) + _dims_for_rot(item, sofa.rot)[1] / 2
             add(scx + fx * off, scy + fy * off, sofa.rot, f"перед диваном, {gap:.0f} см")
+    if base_role(role) == "кресло" and by.get("камин") is not None:
+        # D5 (fireplace corner): кресло перед камином, лицом к нему — вторичная зона
+        fpl = by["камин"]
+        ffx, ffy = _face_dir(fpl.rot)
+        for gap in (110.0, 160.0, 210.0):
+            for side in (-0.35, 0.0, 0.35):
+                px = fpl.x + ffx * gap + (-ffy) * gap * side
+                py = fpl.y + ffy * gap + ffx * gap * side
+                add(px, py, _rot_towards(px, py, fpl.x, fpl.y), "у камина (вторая зона)")
+    if base_role(role) == "кресло" and sofa is not None:
+        # D3 (Swyft/Dimensions): позиции НАПРОТИВ дивана, слегка внутрь — канонная
+        # разговорная посадка (в дополнение к дуге 135–225)
+        sfx, sfy = _face_dir(sofa.rot)
+        scx0, scy0 = seat_center(sofa)
+        for gap in (170.0, 210.0, 244.0):
+            for side in (-0.3, 0.3):
+                px = scx0 + sfx * gap + (-sfy) * (sofa.item.w_cm / 3) * side
+                py = scy0 + sfy * gap + sfx * (sofa.item.w_cm / 3) * side
+                add(px, py, (_rot_towards(px, py, scx0, scy0)), "напротив дивана")
     if base_role(role) == "кресло" and sofa is not None:
         out += _arc_candidates(room, item, by, free, sofa)
     if rb == "пуф" and ("столик" in by or sofa is not None):
@@ -461,6 +480,12 @@ def generate(room: Room, item: Item, placed: list[Placement], *, limit: int = 48
     cands += wall_candidates(room, item, free)
     if item.role in ("стол обеденный", "столик", "ковёр"):
         cands += middle_candidates(room, item, free_poly, fitter=free)
+        # D1: столик в middle-позициях — длинной стороной по фронту дивана, не 0/90 вслепую
+        if base_role(item.role) == "столик":
+            sofa0 = next((p for p in placed if base_role(p.role) == "диван"), None)
+            if sofa0 is not None:
+                cands = [c for c in cands
+                         if c.kind != "middle" or int(c.placement.rot) % 180 == int(sofa0.rot) % 180]
     if base_role(item.role) == "камин":
         cands = _fireplace_scenario(cands, placed)
     seen: set[tuple] = set()

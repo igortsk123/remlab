@@ -41,7 +41,9 @@ FLOOR_TYPICAL=[(r,tuple(v)) for r,v in json.load(open(_TD)).items()] if os.path.
 FLOOR=[(r,dims(r,*d)) for r,d in FLOOR_TYPICAL if r in items]
 # P0.6 (рефери 08.08): стенка XOR тв-тумба — МЬЮТЕКС ДО солвера, не soft после. Стенка =
 # носитель ТВ (tv_bearer_roles); легаси-сеты с обоими носителями чинятся прямо здесь.
+_TV_STAND_BACKUP=None
 if any(r=='стенка' for r,_ in FLOOR) and any(r=='тв-тумба' for r,_ in FLOOR):
+    _TV_STAND_BACKUP=next(d for r,d in FLOOR if r=='тв-тумба')
     FLOOR=[(r,d) for r,d in FLOOR if r!='тв-тумба']
     print('MUTEX: стенка = носитель ТВ — отдельная тв-тумба исключена из размещения', flush=True)
 
@@ -584,6 +586,23 @@ def attempt_beam():
         'soft_violations': [f'{v.code}:{",".join(v.roles)}' for v in lay.violations
                             if v.severity.name != 'HARD'],
     }, ensure_ascii=False), flush=True)
+    # D4 (вердикт владельца set84): мьютекс = «ОДИН носитель ТВ», а не «ноль» — если
+    # стенка не встала, а тумбу мы исключили, пере-решаем с тумбой (меньший носитель)
+    _pr = {p.role for p in lay.placements}
+    if _TV_STAND_BACKUP is not None and 'стенка' not in _pr and 'тв-тумба' not in _pr:
+        print('D4: стенка не встала — пере-решение с тв-тумбой как носителем', flush=True)
+        its2 = [i for i in its if i.role != 'стенка']
+        _w2, _d2 = _TV_STAND_BACKUP
+        _src2 = items.get('тв-тумба') or {}
+        its2.append(_It(role='тв-тумба', w_cm=float(_src2.get('w') or _w2),
+                        d_cm=float(_src2.get('d') or _d2), h_cm=(_src2.get('h') or None),
+                        name=(_src2.get('name') or None)))
+        if ENGINE == 'zoned':
+            outs2, _g2 = solve_zoned(room_p, its2, top_k=1)
+        else:
+            outs2 = _solve(room_p, its2, top_k=1)
+        if outs2 and 'тв-тумба' in {p.role for p in outs2[0].placements}:
+            lay = outs2[0]
     placed = {p.role: ((p.x, p.y), int(p.rot) % 360, tuple(_fp(p).exterior.coords[:]), 1)
               for p in lay.placements}
     missing = list(lay.unplaced)
