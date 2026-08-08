@@ -137,7 +137,8 @@ def drop_optional_until_valid(room: Room, layout: Layout) -> Layout:
 
 
 def solve(room: Room, items: list[Item], *, top_k: int = 3, beam_width: int = BEAM_WIDTH,
-          cand_per_item: int = CAND_PER_ITEM, polish: bool = True) -> list[Layout]:
+          cand_per_item: int = CAND_PER_ITEM, polish: bool = True,
+          fixed: list[Placement] | None = None) -> list[Layout]:
     """Комната + предметы → до top_k валидных РАЗНЫХ раскладок, лучшие первыми.
 
     С Г-диваном сначала пробуем «диван в угол первым» (канон); если так теряется ТВ-тумба
@@ -151,12 +152,26 @@ def solve(room: Room, items: list[Item], *, top_k: int = 3, beam_width: int = BE
     from .validate import _ROOM_BAND
     _ROOM_BAND[0] = room.band
     outs = _solve_ordered(room, items, top_k=top_k, beam_width=beam_width,
-                          cand_per_item=cand_per_item, polish=polish, corner_sofa_first=True)
+                          cand_per_item=cand_per_item, polish=polish, corner_sofa_first=True,
+                          fixed=fixed)
     has_corner = any(it.role == "диван" and it.corner for it in items)
-    if has_corner and outs and "тв-тумба" in (outs[0].unplaced or []):
+    # носитель ТВ — тумба ИЛИ стенка (правило владельца 08.08); прежняя страховка знала
+    # только тумбу, и Г-диван-первым терял СТЕНКУ без пере-решения (set113, 19 предметов → 3)
+    _bearer = ("тв-тумба" if any(it.role == "тв-тумба" for it in items)
+               else ("стенка" if any(it.role == "стенка" for it in items) else None))
+    def _lost(lay):
+        return _bearer is not None and _bearer not in {p.role for p in lay.placements}
+    def _anchors(lay):
+        pr = {p.role for p in lay.placements}
+        return (('диван' in pr) + (_bearer in pr if _bearer else 1),
+                -sum(1 for r in lay.unplaced))
+    if has_corner and outs and _lost(outs[0]):
         alt = _solve_ordered(room, items, top_k=top_k, beam_width=beam_width,
-                             cand_per_item=cand_per_item, polish=polish, corner_sofa_first=False)
-        if alt and "тв-тумба" not in (alt[0].unplaced or []):
+                             cand_per_item=cand_per_item, polish=polish, corner_sofa_first=False,
+                             fixed=fixed)
+        # выбор ветки — по ОБОИМ якорям (диван И носитель), не только носителю:
+        # прежний выбор брал вариант со стенкой, но без дивана (set113)
+        if alt and _anchors(alt[0]) > _anchors(outs[0]):
             outs = alt
     from .geometry import base_role as _br
     for lay in outs:
@@ -210,8 +225,9 @@ def solve(room: Room, items: list[Item], *, top_k: int = 3, beam_width: int = BE
 
 
 def _solve_ordered(room: Room, items: list[Item], *, top_k: int, beam_width: int,
-                   cand_per_item: int, polish: bool, corner_sofa_first: bool) -> list[Layout]:
-    beams: list[State] = [State()]
+                   cand_per_item: int, polish: bool, corner_sofa_first: bool,
+                   fixed: list[Placement] | None = None) -> list[Layout]:
+    beams: list[State] = [State(placements=list(fixed))] if fixed else [State()]
     for item in order_items(items, corner_sofa_first=corner_sofa_first):
         nxt: list[State] = []
         seen: set[tuple] = set()

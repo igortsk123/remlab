@@ -50,6 +50,9 @@ def role_rank(role: str) -> int:
 
 
 def order_items(items: list[Item], *, corner_sofa_first: bool = True) -> list[Item]:
+    """H3-фикс (08.08, set113): стенка-НОСИТЕЛЬ ТВ (тумбы в составе нет) размещается в
+    приоритете тумбы — ПЕРВОЙ: иначе диван ориентируется в никуда, и все позиции стенки
+    бьются о его прицел (FACING/AIM/DIST) — богатый состав рушился каскадом до 3 предметов."""
     """Порядок размещения: сначала якоря зоны, внутри группы — крупные первыми.
 
     С Г-диваном порядок обратный: ДИВАН определяет комнату (канон «строго в угол»), а ТВ-тумба
@@ -60,9 +63,14 @@ def order_items(items: list[Item], *, corner_sofa_first: bool = True) -> list[It
     has_corner_sofa = (corner_sofa_first
                        and any(it.role == "диван" and it.corner for it in items))
 
+    has_stand = any(it.role == "тв-тумба" for it in items)
+    wall_unit_is_bearer = (not has_stand) and any(it.role == "стенка" for it in items)
+
     def rank(it: Item) -> float:
         if has_corner_sofa and it.role == "диван":
             return -1
+        if wall_unit_is_bearer and it.role == "стенка":
+            return -0.5    # приоритет носителя ТВ (как у тумбы), после Г-дивана-якоря
         return role_rank(it.role)
 
     return sorted(items, key=lambda it: (rank(it), -(it.w_cm * it.d_cm)))

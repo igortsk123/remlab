@@ -119,7 +119,35 @@ def solve_zoned(room: Room, items, **kw):
             dropped.append(it.role)
         else:
             keep.append(it)
-    outs = solve(room, keep, **kw)
+    # H3 (08.08): большие комнаты с богатым составом — ДВУХПРОХОДНОЕ размещение:
+    # проход 1 — ядро (группа+носитель ТВ+столик+ковёр), проход 2 — достройка (обеденная,
+    # камин, хранение, спутники) на зафиксированном ядре. Один проход beam на 19 предметах
+    # в 57 м² рушился каскадом (то диван без стенки, то стенка без дивана).
+    room_m2 = room.width_cm * room.depth_cm / 10_000
+    if room_m2 >= 26 and len(keep) > 8:
+        has_stand = any(i.role == 'тв-тумба' for i in keep)
+        core_bases = {'диван', 'кресло', 'тв-тумба', 'столик', 'ковёр'}
+        core, rest = [], []
+        for it in keep:
+            b = _base(it.role)
+            if b in core_bases or (b == 'стенка' and not has_stand):
+                core.append(it)
+            else:
+                rest.append(it)
+        outs1 = solve(room, core, **kw)
+        if outs1 and rest:
+            base_ps = list(outs1[0].placements)
+            outs = solve(room, rest, fixed=base_ps, **kw)
+            if outs:
+                carry = set(outs1[0].skipped_optional)
+                for lay in outs:
+                    lay.skipped_optional = sorted(set(lay.skipped_optional) | carry)
+            else:
+                outs = outs1
+        else:
+            outs = outs1 or solve(room, keep, **kw)
+    else:
+        outs = solve(room, keep, **kw)
     # P0.1 (рефери 08.08, set59/113): потерян REQUIRED-слот группы → НЕ удерживать остатки
     # старой группы, а выбрать лучшую валидную effective-группу и пере-решить один раз
     # только её составом («не удерживать предмет потому, что он помещается»).
