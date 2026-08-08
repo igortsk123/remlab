@@ -105,3 +105,26 @@ completed:
 ## Связанные
 `plans/MASTER-zones-first.md` (секция «Рефери-арбитраж 08.08») · `rules/severity.json` ·
 `core/layout.md`
+
+## Ревью раскладок рефери (08.08, по layouts.json + PNG) — партия 4
+Вердикт: солвер не менять; проблемы выше/ниже геометрии. Принято (владелец: «делаем как рефери»):
+- **P0.2 boundary set66 — ПОДТВЕРЖДЁН НАМИ**: экспорт Г-дивана в solver_run мутирует раскладку
+  (corner_left=True хардкод, пересчёт только Z, d→max(150)) — солвер решает валидным
+  шестиугольником, реконструкция scene_build при rot=90 даёт bbox за стеной (−22.5 см,
+  OUT_OF_ROOM 61 дм²). Фикс: центр bbox по ОБЕИМ осям из полигона солвера, corner_left — по
+  IoU с фактическим полигоном; QA-перепроверка реконструкции в layout_export.
+- **P0.1/0.7 slots группы**: requested группа ↔ фактика ↔ skipped расходятся (сет 55/59/66/84 —
+  «диван 2»/«кресло 2» исчезают без следа: compose гейтит роли ДО солвера и никуда не пишет).
+  Canonical slots группы с terminal state (PLACED/DROPPED/NOT_IN_CATALOG/INFEASIBLE) +
+  actual_group после солвера + consistency-тест.
+- **P0.4 UNREACHABLE объясним**: bottleneck xy + clearance + blockers в violation, path overlay
+  на плане (set21 — diagnostic regression).
+- **P0.5 dining pullout**: у стула STATIC + PULLOUT envelope, существует ли направление
+  отодвигания + egress (set59 regression).
+- **P0.6 SERVICE_SURFACE** — уже внедрён (set113 ловится).
+- P1: media-wall balance вместо грубого tall_on_tv_wall (set29 — false-positive кандидат);
+  wall_centering ослабить (focal/group оси приоритетнее); zone-coherence поверх pairwise;
+  re-optimize группы после дропа важного члена; dead space ≠ negative space; dedup
+  коррелирующих soft-штрафов; large-room challenger (A vs B + human).
+- Снято рефери: «столик 120 велик» (наши 42–49 см / 52–65% — в норме дизайнерских вилок).
+- P2: preference-reranker на top-K, RelTriple-фичи, owner-labels на странице.

@@ -154,6 +154,8 @@ def middle_candidates(room: Room, item: Item, free: Polygon, *, limit: int = 6,
 def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Polygon) -> list[Candidate]:
     """Позиции относительно уже поставленных якорей — перенос зона-билдера (ADR-0050/0051)."""
     by = {p.role: p for p in placed}
+    if "тв-тумба" not in by and "стенка" in by:
+        by["тв-тумба"] = by["стенка"]   # стенка = носитель ТВ (правило владельца 08.08)
     role = item.role
     # Экземпляры ролей («стул 2», «пуф 2») обязаны получать ТЕ ЖЕ якорные позиции, что и
     # базовая роль: сравнение по точному имени оставляло «стул 2..4» без мест у стола —
@@ -190,7 +192,7 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
         # узкая тумба <60 см — legacy area-шкала, как и в validate
         if (tv.item.w_cm or 0) >= 60:
             from .tv import distance_range
-            lo, hi, _ = distance_range(tv.item.w_cm)
+            lo, hi, _ = distance_range(tv.item.w_cm, bearer=base_role(tv.role))
         else:
             lo, hi = band_scale("sofa_tv_cm", room.band, distances().get("sofa_tv_cm", [180, 300]))
         fx, fy = _face_dir(tv.rot)

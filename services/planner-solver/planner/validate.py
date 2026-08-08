@@ -187,11 +187,18 @@ def _inst(ps: list[Placement], base: str) -> list[Placement]:
 
 def _by_base(ps: list[Placement]) -> dict:
     """role→placement, где экземпляры схлопнуты к базовой роли (первый — канонический якорь);
-    точечные правила «у дивана/у кресла» получают якорь, циклы по экземплярам — через _inst."""
+    точечные правила «у дивана/у кресла» получают якорь, циклы по экземплярам — через _inst.
+
+    Носитель ТВ (правило владельца 08.08): в стенке всегда есть место под ТВ по центру —
+    при составе БЕЗ тв-тумбы стенка алиасится под ключ «тв-тумба», и ВСЕ ТВ-правила
+    (дистанция/ось/facing/sightline/блики) работают от стенки. Реальная роль предмета
+    остаётся «стенка» (bearer различается по placement.role, напр. в check_distances)."""
     from .geometry import base_role
     out = {}
     for p in ps:
         out.setdefault(base_role(p.role), p)
+    if "тв-тумба" not in out and "стенка" in out:
+        out["тв-тумба"] = out["стенка"]
     return out
 
 
@@ -208,11 +215,14 @@ def check_distances(room: Room, ps: list[Placement]) -> list[Violation]:
         # 0.70–0.90 (не точка 0.70: RTINGS выбирает размер от дистанции/FOV, тумба — только
         # clamp; практика стендов — стенд на пару дюймов шире экрана). Генератор при отрисовке
         # идёт distance-first: diag ≈ g/1.6 (FOV ~30°), clamp в [0.70..0.90]·тумба.
-        stand_w = by["тв-тумба"].item.w_cm or 0
+        bearer = by["тв-тумба"]
+        stand_w = bearer.item.w_cm or 0
         if stand_w >= 60:
-            # T6: одна каноническая ТВ-функция на все слои (planner/tv.py, рефери §21)
+            # T6: одна каноническая ТВ-функция на все слои (planner/tv.py, рефери §21);
+            # носитель «стенка» — диагональ от ниши, не от всей ширины (правило владельца 08.08)
+            from .geometry import base_role as _br2
             from .tv import distance_range
-            lo, hi, soft_hi = distance_range(stand_w)
+            lo, hi, soft_hi = distance_range(stand_w, bearer=_br2(bearer.role))
         else:
             tv = band_scale("sofa_tv_cm", room.band, distances().get("sofa_tv_cm", [180, 300]))
             lo, hi = tv[0], max(tv[1], float(distances().get("sofa_tv_hard_max", 400)))
@@ -624,6 +634,8 @@ def check_layout_rules(room: Room, ps: list[Placement]) -> list[Violation]:
         tvw = wall_of(tv)
         hmin = float(_lr("tall_storage_not_on_tv_wall_h_cm", 110))
         for p in ps:
+            if p is tv:
+                continue   # носитель ТВ (стенка-алиас, правило владельца 08.08) сам себя не штрафует
             if p.role in ("шкаф", "стенка", "стеллаж", "витрина") and (p.item.h_cm or 0) >= hmin \
                     and wall_of(p) == tvw and tvw is not None:
                 out.append(_v("TALL_ON_TV_WALL", f"«{p.role}» на стене ТВ — стена перегружена",

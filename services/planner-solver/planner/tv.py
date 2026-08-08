@@ -39,12 +39,19 @@ def diag_from_stand(stand_w_cm: float) -> tuple[float, float]:
             stand_w_cm * c["share"][1] / ASPECT_W)
 
 
-def distance_range(stand_w_cm: float) -> tuple[float, float, float]:
-    """(lo, hi, soft_hi) валидной дистанции диван↔ТВ для данной тумбы.
-    Существует диагональ в clamp → дистанция в [1.2·d_min, 2.5·d_max]; дальше soft_hi —
-    мягкое «далековато» (SOFA_TV_FAR)."""
+def distance_range(stand_w_cm: float, bearer: str = "тв-тумба") -> tuple[float, float, float]:
+    """(lo, hi, soft_hi) валидной дистанции диван↔ТВ для данного НОСИТЕЛЯ ТВ.
+    Носитель «стенка» (правило владельца 08.08: ТВ всегда в стенке по центру, тумба не
+    нужна): экран ограничен не всей шириной стенки, а нишей layout_rules.tv_niche_screen_cm
+    (100–160 см) — иначе стенка 300 см дала бы диагональ под 3 метра.
+    Существует диагональ в clamp → дистанция в [1.2·d_min, 2.5·d_max]; soft_hi — «далековато»."""
     c = _cfg()
-    d_min, d_max = diag_from_stand(stand_w_cm)
+    if bearer == "стенка":
+        lr = rules().get("layout_rules", {})
+        s_lo, s_hi = lr.get("tv_niche_screen_cm", [100, 160])
+        d_min, d_max = s_lo / ASPECT_W, min(s_hi, stand_w_cm * 0.5) / ASPECT_W
+    else:
+        d_min, d_max = diag_from_stand(stand_w_cm)
     return c["diag_range"][0] * d_min, c["diag_range"][1] * d_max, c["soft_coeff"] * d_max
 
 

@@ -89,6 +89,8 @@ def score_layout(room: Room, ps: list[Placement], *, fast: bool = False) -> Scor
     w = weights()
     s = Score()
     by = {p.role: p for p in ps}
+    if "тв-тумба" not in by and "стенка" in by:
+        by["тв-тумба"] = by["стенка"]   # стенка = носитель ТВ (правило владельца 08.08)
     # 1) заполненность пола — наша шкала от площади (НЕ 60–90% Infinigen: конфликт, канон наш)
     # кап пола — ВЕРХНЯЯ граница (недобор не дефект: состав сета задаёт витрина, не солвер)
     _cap_lo, cap_hi = band_scale("floor_cap_pct", room.band, [26, 50])
@@ -98,8 +100,9 @@ def score_layout(room: Room, ps: list[Placement], *, fast: bool = False) -> Scor
     if "диван" in by and "тв-тумба" in by:
         stand_w = by["тв-тумба"].item.w_cm or 0
         if stand_w >= 60:   # каноническая ТВ-функция (T6/verify); узкая тумба — legacy-шкала
+            from .geometry import base_role as _br
             from .tv import distance_range
-            lo, hi, _ = distance_range(stand_w)
+            lo, hi, _ = distance_range(stand_w, bearer=_br(by["тв-тумба"].role))
         else:
             lo, hi = band_scale("sofa_tv_cm", room.band, distances().get("sofa_tv_cm", [180, 300]))
         g = footprint(by["диван"]).distance(footprint(by["тв-тумба"]))

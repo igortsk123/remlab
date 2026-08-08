@@ -918,7 +918,16 @@
    "стеллаж"
   ],
   "room_divider_capable_active": [],
-  "_note_wall_back": "Q4 (рефери 08.08): «спинкой к стене» — subtype-свойство, не класс всей корпусной мебели. room_divider_capable — роли, легитимные как перегородка open-plan (open shelving: H&G living-room-divider-ideas, AD best-room-divider); СЕЙЧАС не активировано (divider-сценариев в продукте нет) — активация переносом в room_divider_capable_active, severity переписывать не придётся."
+  "_note_wall_back": "Q4 (рефери 08.08): «спинкой к стене» — subtype-свойство, не класс всей корпусной мебели. room_divider_capable — роли, легитимные как перегородка open-plan (open shelving: H&G living-room-divider-ideas, AD best-room-divider); СЕЙЧАС не активировано (divider-сценариев в продукте нет) — активация переносом в room_divider_capable_active, severity переписывать не придётся.",
+  "tv_bearer_roles": [
+   "тв-тумба",
+   "стенка"
+  ],
+  "tv_niche_screen_cm": [
+   100,
+   160
+  ],
+  "_note_tv_bearer": "Правило владельца 2026-08-08: в стенке ВСЕГДА есть место под ТВ по центру — при стенке в составе тв-тумба не нужна, стенка размещается как носитель ТВ (ТВ по центру стенки). Диагональ для стенки считается не от всей её ширины, а от ниши tv_niche_screen_cm (экран 100–160 см)."
  },
  "placement_tiers": {
   "_note": "Ярусы наполнения гостиной = ПРИОРИТЕТ УДЕРЖАНИЯ при размещении (placement-retention, рефери 08.08 п.3.3), НЕ обязательный inventory-шаблон: base держим до последнего, dining/storage/optional при невместимости дропаются ярусом в skipped (не провал раскладки). Источник: domain/living-room-checklist.md + решения владельца 2026-08-03 (не влезший опциональный — не провал; стул только при столе, chair_requires_dining_table) и 2026-08-08 (обеденная группа целиком или никак, ≥2 стульев).",

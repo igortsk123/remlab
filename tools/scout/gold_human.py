@@ -123,8 +123,8 @@ def sample(n: int = 400) -> None:
 def _model_answers(items: list) -> dict:
     """Предразметка автоматом (схема владельца 08.08): модельные ответы из product_enrichment
     предзаполняют форму, человек ПРАВИТ, расхождения human↔model = карта ошибок автомата.
-    ВАЖНО (anchor-bias): C-подмножество (?rater=C) остаётся СЛЕПЫМ — без предзаполнения;
-    сравнение C-слепых с prefilled-разметкой A/B измеряет, насколько автомат «якорит» людей."""
+    Решение владельца 08.08: предзаполнение на ВСЕЙ выборке, включая C-подмножество
+    («человек ответственный — всегда поправит»); слепой режим отменён."""
     keys = ','.join(f"({it['mid']},'{it['eid']}')" for it in items)
     out = {}
     for line in sql(f"""select shop_mid, external_id, payload->'model'
@@ -192,10 +192,10 @@ function render() {{
   const c = document.getElementById('cards'); c.innerHTML = '';
   const it = list[idx]; if (!it) return;
   document.getElementById('pos').textContent = (idx + 1) + ' / ' + list.length;
-  // предзаполнение: сохранённое человеком сильнее автомата; C-режим всегда слепой
-  const auto = (!onlyC && PREFILL[K(it)]) || {{}};
+  // предзаполнение автоматом на всей выборке (решение владельца 08.08); правки человека сильнее
+  const auto = PREFILL[K(it)] || {{}};
   const prev = store(K(it)) || auto;
-  const isAuto = !store(K(it)) && !!PREFILL[K(it)] && !onlyC;
+  const isAuto = !store(K(it)) && !!PREFILL[K(it)];
   const sel = (name, vals, cur) => `<select data-f="${{name}}">` +
     ['— выберите —', ...vals, 'uncertain'].map(v => `<option ${{v === cur ? 'selected' : ''}}>${{v}}</option>`).join('') + '</select>';
   const mats = MATERIALS.map(m => `<label class="m"><input type="checkbox" data-mat="${{m}}" ${{(prev.materials || []).includes(m) ? 'checked' : ''}}>${{m}}</label>`).join('');

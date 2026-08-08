@@ -64,6 +64,16 @@ def derived(room, placements, items):
     out = []
     rel: dict[str, str] = {}
     tv_stand = by.get('тв-тумба')
+    if tv_stand is None and by.get('стенка') is not None:
+        # Правило владельца 08.08: в стенке всегда есть место под ТВ ПО ЦЕНТРУ — стенка и
+        # есть носитель ТВ, отдельная тумба не нужна (occupancy.layout_rules.tv_bearer_roles)
+        wall_unit = by['стенка']
+        w = min(float(wall_unit.item.w_cm) * 0.5, 150.0)
+        rel['тв'] = ('телевизор встроен в СТЕНКУ по центру её ниши — не рисовать отдельную '
+                     'тумбу; экран в центральной секции стенки')
+        out.append(Placement(role='тв', x=wall_unit.x, y=wall_unit.y, rot=wall_unit.rot,
+                             elev_cm=110.0,
+                             item=Item(role='тв', w_cm=w, d_cm=8.0, h_cm=w * 0.58)))
     if tv_stand is not None and 'тв' not in by:
         w = min(float(tv_stand.item.w_cm) * 0.85, 120.0)
         rel['тв'] = ('телевизор при ТВ-тумбе есть ВСЕГДА: либо стоит на тумбе, либо повешен на '

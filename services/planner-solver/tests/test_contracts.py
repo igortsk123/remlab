@@ -152,3 +152,24 @@ def test_side_table_not_caught_by_coffee_table_rules():
            if c in codes and 'приставной' in str([v.roles for v in validate(room, ps).violations
                                                   if v.code == c])]
     assert not bad, f'приставной пойман правилами столика: {bad}'
+
+
+# ---------------------------------------------------------------- F. стенка = носитель ТВ
+
+def test_wall_unit_is_tv_bearer():
+    """Правило владельца 08.08: при стенке в составе (без тв-тумбы) ТВ-правила работают
+    ОТ СТЕНКИ — дистанция/ось меряются, стенка не штрафует сама себя как «высокое на стене
+    ТВ», и раскладка диван+стенка+столик решается без hard."""
+    room = canonical_room()
+    wall_unit = Item(role='стенка', w_cm=280, d_cm=45, h_cm=200)
+    items = [mk('диван'), wall_unit, mk('столик')]
+    layouts = solve(room, items, top_k=1)
+    assert layouts, 'диван+стенка+столик не решилось'
+    lay = layouts[0]
+    assert not hard_codes(lay), f'hard при стенке-носителе: {hard_codes(lay)}'
+    codes = [v.code for v in lay.violations]
+    assert 'TALL_ON_TV_WALL' not in codes, 'стенка-носитель оштрафовала сама себя'
+    # ТВ-геометрия от ниши, не от всей ширины стенки: дистанция в разумной вилке
+    from planner.tv import distance_range
+    lo, hi, _ = distance_range(280, bearer='стенка')
+    assert 120 < lo < 200 and 300 < hi < 550, f'ниша стенки даёт странную вилку {lo:.0f}-{hi:.0f}'
