@@ -53,9 +53,13 @@ def _one(engine, sc):
     mskip = re.search(r'^SKIPPED (\[.*\])$', out, re.M)
     skipped = json.loads(mskip.group(1)) if mskip else []
     ok = not fails and not missing and r.returncode == 0
-    return dict(scene=sc['id'], set=sc['set'], ok=ok, fails=fails,
-                missing=missing, skipped=skipped, soft_score=dumb,
-                group=(re.search(r'зонная группа: (\S+)', out) or [None, None])[1])
+    rec = dict(scene=sc['id'], set=sc['set'], ok=ok, fails=fails,
+               missing=missing, skipped=skipped, soft_score=dumb,
+               group=(re.search(r'зонная группа: (\S+)', out) or [None, None])[1])
+    if r.returncode != 0:   # крэш без FAIL-строк иначе неотличим от «просто не ok»
+        rec['rc'] = r.returncode
+        rec['err'] = (r.stderr or '').strip()[-400:]
+    return rec
 
 
 def run_engine(engine):
