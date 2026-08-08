@@ -312,7 +312,7 @@ def _in_fireplace_zone(ps: list[Placement], arm: Placement) -> bool:
     if fpl is None or arm.item is None:
         return False
     d = footprint(arm).distance(footprint(fpl))
-    if not (20 <= d <= 250):     # 20+: фланг по бокам камина (канон), 250: предел уголка
+    if not (20 <= d <= 280):     # 20+: фланг по бокам камина (канон), 280: предел уголка
         return False
     afx, afy = facing_vector(arm.rot)
     fc, ac = footprint(fpl).centroid, footprint(arm).centroid
@@ -700,6 +700,15 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
                               [arm.role, "столик"], round(g4), "в группе: столик ≤106 см"))
     # F1 (канон пары кресел): пара в conversation-группе — зеркально относительно оси
     # диван→фокус ИЛИ бок-о-бок (зазор 30–45, один разворот); иначе — мягкий штраф
+    # пара не разрывается между зонами: ровно один из двух у камина — брак паттерна
+    _arms_any = [a for a in _inst(ps, "кресло") if a.item is not None]
+    if len(_arms_any) == 2:
+        _fz = [_in_fireplace_zone(ps, a) for a in _arms_any]
+        if _fz.count(True) == 1:
+            out.append(_v("PAIR_PATTERN",
+                          "пара кресел разорвана между зонами (одно у камина, одно у дивана)",
+                          [a.role for a in _arms_any], None,
+                          "оба во фланг камина ИЛИ оба в разговорной группе", Severity.SOFT))
     arms_all = [a for a in _inst(ps, "кресло")
                 if a.item is not None and not _in_fireplace_zone(ps, a)]
     if len(arms_all) >= 2:

@@ -231,6 +231,21 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
         for gap in (lo + 3, (lo + hi) / 2, hi - 3):
             off = gap + seating_front_offset(sofa.item) + _dims_for_rot(item, sofa.rot)[1] / 2
             add(scx + fx * off, scy + fy * off, sofa.rot, f"перед диваном, {gap:.0f} см")
+    if base_role(role) == "кресло" and role != "кресло" and by.get("камин") is not None:
+        # F1+: первый уже у камина → второй — ЗЕРКАЛО относительно оси камина (другой фланг),
+        # пара не разрывается между зонами (вердикт владельца set113)
+        first = by.get("кресло")
+        fpl0 = by["камин"]
+        if first is not None and first.item is not None:
+            ffx0, ffy0 = _face_dir(fpl0.rot)
+            dfx, dfy = first.x - fpl0.x, first.y - fpl0.y
+            lat_f = dfx * (-ffy0) + dfy * ffx0
+            fwd_f = dfx * ffx0 + dfy * ffy0
+            if abs(lat_f) > 20 and footprint(first).distance(footprint(fpl0)) <= 280:
+                mx = fpl0.x + ffx0 * fwd_f + (-ffy0) * (-lat_f)
+                my = fpl0.y + ffy0 * fwd_f + ffx0 * (-lat_f)
+                tx, ty = fpl0.x + ffx0 * 150, fpl0.y + ffy0 * 150
+                add(mx, my, _rot_towards(mx, my, tx, ty), "пара: другой фланг камина")
     if base_role(role) == "кресло" and role != "кресло" and sofa is not None:
         # F1 (канон пары): второе кресло — ЗЕРКАЛО первого относительно оси диван→фокус
         # или БОК-О-БОК с ним (зазор 30–45) — пара ставится паттерном, не одиночками

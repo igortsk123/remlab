@@ -66,6 +66,6 @@
   "SEAT_IN_VIEW_AXIS": "H1",
   "LAMP_ORPHAN": "S1",
   "PLANT_IN_OPEN_FLOOR": "S1",
-  "PAIR_PATTERN": "S2"
+  "PAIR_PATTERN": "S1"
  }
 }
