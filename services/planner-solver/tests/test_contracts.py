@@ -204,3 +204,33 @@ def test_second_armchair_without_first_has_no_candidates():
     room = canonical_room()
     ps = [Placement(role='диван', x=260, y=52.5, rot=0, item=mk('диван'))]
     assert generate(room, mk('кресло 2'), ps) == []
+
+
+# ---------------------------------------------------------------- L3. joint-пара кресел
+
+def test_pair_candidates_joint_generation():
+    """L3: joint-генератор пар даёт кандидатов с extra-позой второго кресла БЕЗ уже
+    стоящего первого — порядковая зависимость «№2 только от №1» снята."""
+    from planner.candidates import pair_candidates
+    from planner.models import Placement
+
+    room = canonical_room()
+    ps = [Placement(role='диван', x=260, y=52.5, rot=0, item=mk('диван')),
+          Placement(role='столик', x=260, y=190, rot=0, item=mk('столик'))]
+    pairs = pair_candidates(room, mk('кресло'), mk('кресло 2'), ps)
+    assert pairs, 'joint-пара не дала ни одного кандидата в канонической комнате'
+    for c in pairs:
+        assert len(c.extra) == 1 and c.extra[0].role == 'кресло 2'
+        assert c.topology.startswith('pair_joint:')
+
+
+def test_beam_places_armchair_pair_atomically():
+    """L3: solve() с парой кресел в составе ставит ОБА (или ни одного) — пара конкурирует
+    в луче атомарно; сцена канонической комнаты обязана вместить пару."""
+    room = canonical_room()
+    items = [mk('диван'), mk('тв-тумба'), mk('столик'), mk('кресло'), mk('кресло 2')]
+    layouts = solve(room, items, top_k=1)
+    assert layouts, 'сцена не решилась'
+    placed = {p.role for p in layouts[0].placements}
+    assert 'кресло' in placed and 'кресло 2' in placed, \
+        f'пара кресел не встала: placed={sorted(placed)}, unplaced={layouts[0].unplaced}'

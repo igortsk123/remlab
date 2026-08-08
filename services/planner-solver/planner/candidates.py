@@ -46,6 +46,9 @@ class Candidate:
     # note — только человекочитаемая подпись (раньше фильтр парсил русские подстроки note).
     # Значения: pair_mirror | pair_side | pair_fireplace_flank | fireplace_flank | arc | ...
     topology: str = ""
+    # L3: joint-кандидат группы — доп. размещения, ставящиеся АТОМАРНО вместе с placement
+    # (пара кресел одним ходом луча). Пустой кортеж = обычный одиночный кандидат.
+    extra: tuple[Placement, ...] = ()
 
 
 def role_rank(role: str) -> int:
@@ -637,4 +640,27 @@ def generate(room: Room, item: Item, placed: list[Placement], *, limit: int = 48
         out.append(c)
         if len(out) >= limit:
             break
+    return out
+
+
+def pair_candidates(room: Room, item: Item, partner: Item, placed: list[Placement],
+                    *, limit_first: int = 12, limit: int = 24) -> list[Candidate]:
+    """L3 (MASTER-layout-v5): joint-генерация ПАРЫ кресел — обе позы одним кандидатом.
+
+    Снимает порядковую зависимость «№2 только от уже выбранного №1» (V5 §17–18): плохой выбор
+    первого кресла схлопывал пространство второго (`generate` инстанса без первого → []).
+    Формулы позиций переиспользуются: для каждой позы первого кресла (дуга/фланг/напротив
+    дивана) вторая поза строится тем же деривативным путём `generate(partner, ...)` — т.е.
+    пары идентичны тем, что луч мог найти последовательно, но видны АТОМАРНО и конкурируют
+    с одиночными ветками честно. Валидация/скоринг пары — на совокупности (beam)."""
+    out: list[Candidate] = []
+    for c1 in generate(room, item, placed)[:limit_first]:
+        for c2 in generate(room, partner, placed + [c1.placement]):
+            # generate() инстанса уже отфильтрован до pair_*/fireplace_flank (гейт L2)
+            out.append(Candidate(c1.placement, "anchor",
+                                 f"пара joint: {c1.note} + {c2.note}",
+                                 f"pair_joint:{c2.topology or '?'}",
+                                 (c2.placement,)))
+            if len(out) >= limit:
+                return out
     return out

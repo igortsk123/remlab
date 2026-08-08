@@ -238,11 +238,27 @@ def _solve_ordered(room: Room, items: list[Item], *, top_k: int, beam_width: int
         # всего одна, и cand_per_item=8 давал 8 позиций — если среди них нет ни одной, куда
         # встанет следующий предмет, вся раскладка теряла его (сеты 50+ теряли диван)
         per_state = max(cand_per_item, -(-beam_width // max(1, len(beams))))
+        # L3 (MASTER-layout-v5): пара кресел раскрывается АТОМАРНО — joint-кандидаты конкурируют
+        # с одиночными в одном шаге луча; «кресло 2» из порядка не убирается: состояния, где
+        # пара уже стоит, проносятся сквозь его шаг без изменений (см. ниже)
+        pair_partner = None
+        if item.role == "кресло":
+            pair_partner = next((it for it in items if it.role == "кресло 2"), None)
         for st in beams:
+            if any(p.role == item.role for p in st.placements):
+                # предмет уже поставлен joint-кандидатом на шаге первого кресла
+                if st.key() not in seen:
+                    seen.add(st.key())
+                    nxt.append(st)
+                continue
             cands: list[Candidate] = generate(room, item, st.placements)
+            if pair_partner is not None and not any(p.role == pair_partner.role
+                                                    for p in st.placements):
+                from .candidates import pair_candidates
+                cands = cands + pair_candidates(room, item, pair_partner, st.placements)
             scored: list[tuple[float, Candidate, Score]] = []
             for c in cands:
-                ps = st.placements + [c.placement]
+                ps = st.placements + [c.placement, *c.extra]
                 if not _hard_ok(room, ps):
                     continue
                 sc = score_layout(room, ps, fast=True)
@@ -257,7 +273,7 @@ def _solve_ordered(room: Room, items: list[Item], *, top_k: int, beam_width: int
                     nxt.append(st2)
                 continue
             for total, c, _sc in scored[:per_state]:
-                st2 = State(st.placements + [c.placement], list(st.unplaced),
+                st2 = State(st.placements + [c.placement, *c.extra], list(st.unplaced),
                             total - st.penalty, st.penalty)
                 k = st2.key()
                 if k in seen:
