@@ -406,6 +406,41 @@ def corner_snap_candidates(room: Room, item: Item, free) -> list[Candidate]:
 ANCHOR_ONLY_ROLES = frozenset({"пуф", "торшер", "кашпо"})
 
 
+def _fireplace_scenario(cands: list[Candidate], placed: list[Placement]) -> list[Candidate]:
+    """Ревью рефери 08.08 (set113 «камин в дальнем углу по диагонали»): камин — focal-элемент,
+    не optional-filler «где нашлось место». Кандидат допустим, только если с ГЛАВНОЙ посадки
+    он в вилке дистанции (zones fireplace.distance_to_seating_cm) И в секторе видимости ≤75°.
+    Ни одного такого места нет → роль честно дропается ярусом (optional), а не ставится в угол."""
+    import math as _m
+
+    sofa = next((p for p in placed if base_role(p.role) == "диван"), None)
+    if sofa is None:
+        return cands
+    from .clearances import rules as _rules
+    try:
+        import json as _json
+        import os as _os
+        zr = _json.load(open(_os.path.join(_os.path.dirname(__file__), '..', 'rules',
+                                           'zones.json')))
+        lo, hi = zr['zones']['seating_media']['fireplace']['distance_to_seating_cm']
+    except Exception:
+        lo, hi = 200, 450
+    fx, fy = _face_dir(sofa.rot)
+    sfp = footprint(sofa)
+    keep = []
+    for c in cands:
+        ffp = footprint(c.placement)
+        d = sfp.distance(ffp)
+        if not (lo <= d <= hi):
+            continue
+        vx, vy = ffp.centroid.x - sfp.centroid.x, ffp.centroid.y - sfp.centroid.y
+        n = _m.hypot(vx, vy)
+        if n > 1 and (vx * fx + vy * fy) / n < _m.cos(_m.radians(75)):
+            continue
+        keep.append(c)
+    return keep
+
+
 def generate(room: Room, item: Item, placed: list[Placement], *, limit: int = 48) -> list[Candidate]:
     """Все кандидаты для предмета при текущем состоянии комнаты (дедуп по сетке 10 см)."""
     ignore = group_of(item.role)
@@ -426,6 +461,8 @@ def generate(room: Room, item: Item, placed: list[Placement], *, limit: int = 48
     cands += wall_candidates(room, item, free)
     if item.role in ("стол обеденный", "столик", "ковёр"):
         cands += middle_candidates(room, item, free_poly, fitter=free)
+    if base_role(item.role) == "камин":
+        cands = _fireplace_scenario(cands, placed)
     seen: set[tuple] = set()
     out: list[Candidate] = []
     for c in cands:

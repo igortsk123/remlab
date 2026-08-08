@@ -279,3 +279,53 @@ def test_service_surface_coverage():
     codes = [v for v in validate(room, [sofa, table, chair_near]).violations
              if v.code == "SERVICE_SURFACE"]
     assert not codes, [f"{v.roles}" for v in codes]
+
+
+def test_tv_stand_with_wall_unit_flagged():
+    """Ревью рефери 08.08 (set59/84): стенка = носитель ТВ, отдельная тумба при стенке — дубль
+    (S1 до пересборки легаси-сетов, после A8 — H1)."""
+    from planner.models import Severity
+    from planner.validate import validate
+    room = _room(500, 550)
+    wall_unit = _mk("стенка", 150, 25, 0, 240, 45, 190)
+    stand = _mk("тв-тумба", 400, 25, 0, 120, 40, 50)
+    vs = [v for v in validate(room, [wall_unit, stand]).violations
+          if v.code == "TV_STAND_WITH_WALL_UNIT"]
+    assert vs and vs[0].severity is Severity.SOFT
+
+
+def test_fireplace_scenario_gate():
+    """Ревью рефери 08.08 (set113): камин без сценария (вне вилки/сектора с главной посадки)
+    не получает кандидатов — роль дропается, а не встаёт в дальний угол."""
+    from planner.candidates import generate
+    from planner.models import Item, Placement
+    room = _room(600, 700)
+    sofa = Placement(role="диван", x=300, y=620, rot=180,
+                     item=Item(role="диван", w_cm=220, d_cm=100, h_cm=85))
+    fp = Item(role="камин", w_cm=110, d_cm=35, h_cm=100)
+    cands = generate(room, fp, [sofa])
+    import math
+    from planner.geometry import footprint, facing_vector
+    sfp = footprint(sofa)
+    fx, fy = facing_vector(sofa.rot)
+    for c in cands:
+        ffp = footprint(c.placement)
+        d = sfp.distance(ffp)
+        assert 200 <= d <= 450, f"кандидат вне вилки: {d:.0f}"
+        vx, vy = ffp.centroid.x - sfp.centroid.x, ffp.centroid.y - sfp.centroid.y
+        n = math.hypot(vx, vy)
+        assert (vx * fx + vy * fy) / n >= math.cos(math.radians(75)) - 1e-6, "вне сектора"
+
+
+def test_second_armchair_zone_checked():
+    """Ревью рефери 08.08 (set55/84): зонные чеки видят ВСЕ экземпляры кресел — «кресло 2»
+    у витрины в другом конце комнаты ловится, как и первое."""
+    from planner.validate import validate
+    room = _room(600, 700)
+    sofa = _mk("диван", 300, 620, 180, 220, 100, 85)
+    arm1 = _mk("кресло", 160, 500, 90, 80, 85, 80)
+    arm2 = _mk("кресло 2", 560, 60, 0, 80, 85, 80)   # у дальнего угла, вне зоны
+    codes = [v.code for v in validate(room, [sofa, arm1, arm2]).violations
+             if "кресло 2" in v.roles]
+    assert any(c in ("ARMCHAIR_OUT_OF_ZONE", "ARMCHAIR_BEHIND_SOFA", "SEATS_TOO_FAR")
+               for c in codes), codes

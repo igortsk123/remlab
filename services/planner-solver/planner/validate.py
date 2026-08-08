@@ -567,24 +567,28 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
                           f"пуф в {footprint(pouf).distance(footprint(sofa)):.0f} см от дивана",
                           ["диван", "пуф"], None,
                           f"≤{distances().get('sofa_pouf_max', 180)} см — пуф в зоне"))
-    arm = by.get("кресло")
-    if arm is not None and tbl is not None and _lr("armchair_to_table_same_as_sofa", True):
-        # T6: фикс-эргономика и для кресла (последний потребитель area-шкалы sofa_table_cm
-        # вычищен — рефери §23 «кресло всё ещё зависит от площади, диван уже нет»)
-        lo_t, hi_t = distances().get("sofa_coffee_table", [36, 46])
-        g = footprint(arm).distance(footprint(tbl))
-        if not (lo_t - 5 <= g <= hi_t + 60):
-            out.append(_v("ARMCHAIR_TABLE_DIST", f"кресло в {g:.0f} см от столика — вне зоны",
-                          ["кресло", "столик"], round(g),
-                          f"{lo_t:.0f}–{hi_t + 60:.0f} см (зона вокруг столика)"))
-    if arm is not None and arm.item is not None:
+    # ВСЕ экземпляры кресел (ревью рефери 08.08, set55/84 «кресло у витрины неясно зачем»):
+    # прежний by.get("кресло") видел только первый — «кресло 2» уходило из зоны безнаказанно,
+    # и каждая посадка обязана принадлежать зоне (EVERY_SEAT_BELONGS_TO_ZONE)
+    for arm in _inst(ps, "кресло"):
+        if arm.item is None:
+            continue
+        if tbl is not None and _lr("armchair_to_table_same_as_sofa", True):
+            # T6: фикс-эргономика и для кресла (последний потребитель area-шкалы sofa_table_cm
+            # вычищен — рефери §23 «кресло всё ещё зависит от площади, диван уже нет»)
+            lo_t, hi_t = distances().get("sofa_coffee_table", [36, 46])
+            g = footprint(arm).distance(footprint(tbl))
+            if not (lo_t - 5 <= g <= hi_t + 60):
+                out.append(_v("ARMCHAIR_TABLE_DIST", f"«{arm.role}» в {g:.0f} см от столика — вне зоны",
+                              [arm.role, "столик"], round(g),
+                              f"{lo_t:.0f}–{hi_t + 60:.0f} см (зона вокруг столика)"))
         fwd, lat = relative_position(sofa, arm)
         if fwd < -20:
-            out.append(_v("ARMCHAIR_BEHIND_SOFA", "кресло стоит за диваном", ["диван", "кресло"],
+            out.append(_v("ARMCHAIR_BEHIND_SOFA", f"«{arm.role}» стоит за диваном", ["диван", arm.role],
                           round(fwd), "в зоне перед диваном"))
         elif abs(lat) > half + arm.item.w_cm + 60:
-            out.append(_v("ARMCHAIR_OUT_OF_ZONE", f"кресло в {abs(lat):.0f} см вбок от зоны",
-                          ["диван", "кресло"], round(abs(lat)),
+            out.append(_v("ARMCHAIR_OUT_OF_ZONE", f"«{arm.role}» в {abs(lat):.0f} см вбок от зоны",
+                          ["диван", arm.role], round(abs(lat)),
                           f"≤{half + arm.item.w_cm + 60:.0f} см"))
     return out
 
@@ -630,6 +634,13 @@ def check_layout_rules(room: Room, ps: list[Placement]) -> list[Violation]:
         if tvw and any(o.kind == "window" and o.wall == tvw for o in room.openings):
             out.append(_v("TV_ON_WINDOW_WALL", "ТВ на стене с окном — блики в экран", ["тв-тумба"],
                           None, "ТВ на глухой стене", Severity.SOFT))
+    # Ревью рефери 08.08 (set59/84): стенка = носитель ТВ → отдельная тумба при стенке —
+    # дубль носителя. Составы новее правила это не кладут (compose-mutex); код ловит ЛЕГАСИ
+    # сеты. S1 до пересборки волны A8, после — поднять в H1 (план referee-hardening).
+    if "стенка" in by and "тв-тумба" in by and by["стенка"] is not by["тв-тумба"]:
+        out.append(_v("TV_STAND_WITH_WALL_UNIT",
+                      "стенка и отдельная ТВ-тумба — два носителя ТВ",
+                      ["стенка", "тв-тумба"], None, "носитель один: стенка", Severity.SOFT))
     if tv is not None:
         tvw = wall_of(tv)
         hmin = float(_lr("tall_storage_not_on_tv_wall_h_cm", 110))
