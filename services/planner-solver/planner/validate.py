@@ -748,7 +748,8 @@ def check_sightline(ps: list[Placement]) -> list[Violation]:
     corridor = _view_corridor(sofa, tv)
     out = []
     for p in ps:
-        if p.role in ("диван", "тв-тумба", "ковёр", "столик"):
+        # сам носитель (тумба ИЛИ стенка-алиас) и сам диван коридор не «блокируют»
+        if p is tv or p is sofa or p.role in ("диван", "тв-тумба", "ковёр", "столик"):
             continue
         h = (p.item.h_cm if p.item else None) or 0
         if h <= 60:                     # ниже линии взгляда сидящего — не мешает
