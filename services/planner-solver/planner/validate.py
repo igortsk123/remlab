@@ -47,8 +47,12 @@ def check_boundary(room: Room, ps: list[Placement]) -> list[Violation]:
 def check_collisions(ps: list[Placement]) -> list[Violation]:
     out = []
     for i, a in enumerate(ps):
+        if a.role.split(' ')[0] == "ковёр":
+            continue   # подложка: мебель СТОИТ на ковре (front-legs канон)
         fa = footprint(a)
         for b in ps[i + 1:]:
+            if b.role.split(' ')[0] == "ковёр":
+                continue
             inter = fa.intersection(footprint(b)).area
             if inter > EPS * EPS:
                 out.append(_v("COLLISION", f"«{a.role}» пересекается с «{b.role}»", [a.role, b.role],
@@ -151,6 +155,10 @@ def check_passages(room: Room, ps: list[Placement], kind: str = "secondary") -> 
         main = max(touching, key=lambda g: g.area)
     out = []
     for p in ps:
+        if p.role.split(' ')[0] == "ковёр":
+            continue   # подложка: по ковру ходят, «проход к ковру» не нужен
+        if ((p.item.h_cm if p.item else None) or 999) <= LOW_ITEM_MAX_H_CM:
+            continue   # низкое (столик/пуф) достают С ПОСАДКИ — пеший коридор 46 не нужен
         reach = footprint(p).buffer(need / 2 + EPS)
         if not reach.intersects(main):
             out.append(_v("UNREACHABLE", f"к «{p.role}» нет прохода {need:.0f} см", [p.role],
@@ -593,6 +601,29 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
                           f"столик смещён на {dev:.0f} см от центра посадки (10–20%)",
                           ["диван", "столик"], round(dev),
                           f"≤{0.10 * act_w:.0f} см (10% посадки)", Severity.SOFT))
+        # I1-чеки (канон rug rules): ковёр заякорен на группе — не «отрешён»
+        rg0 = by.get("ковёр")
+        if rg0 is not None and rg0.item is not None:
+            _, rlat = relative_position(sofa, rg0)
+            rug_along = max(rg0.item.w_cm, rg0.item.d_cm)
+            inter = footprint(sofa).intersection(footprint(rg0))
+            # передние ножки дивана на ковре: перекрытие по глубине 10–45 см
+            depth_over = (inter.area / rug_along) if not inter.is_empty else 0.0
+            if abs(rlat - act_lat) > 0.20 * act_w or not (5 <= depth_over <= 50):
+                out.append(_v("RUG_DETACHED",
+                              "ковёр отвязан от посадки (центр/заход под ножки вне канона)",
+                              ["диван", "ковёр"], round(abs(rlat - act_lat)),
+                              "центр по посадке, заход под передние ножки 10–45 см",
+                              Severity.SOFT))
+            if tbl is not None and tbl.item is not None:
+                rfp = footprint(rg0)
+                tfp = footprint(tbl)
+                margin = rfp.exterior.distance(tfp) if rfp.contains(tfp) else -1
+                if margin < 30:
+                    out.append(_v("RUG_TABLE_MARGIN",
+                                  "столик не в центре ковра (поле ковра <30 см вокруг)",
+                                  ["столик", "ковёр"], round(max(margin, 0)),
+                                  "столик на ковре, поле ≥30 см", Severity.SOFT))
         # RUG_ORIENTATION (вердикт владельца 08.08): ковёр — длинной стороной параллельно
         # фронту дивана (как столик)
         rg = by.get("ковёр")
@@ -653,6 +684,12 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
         # D5 (вторичная зона): кресло камин-уголка — дуговые чеки не применяются
         if _in_fireplace_zone(ps, arm):
             continue
+        rg4 = by.get("ковёр")
+        if rg4 is not None and footprint(arm).intersection(footprint(rg4)).area < arm.item.w_cm * 10:
+            out.append(_v("ARMCHAIR_OFF_RUG",
+                          f"«{arm.role}» не на ковре группы (передние ножки должны заходить)",
+                          [arm.role, "ковёр"], None, "передние ножки на ковре",
+                          Severity.SOFT))
         # D3 (вердикт владельца set59 + Swyft/Dimensions): кресло НЕ у ТВ-носителя —
         # там оно спиной/боком к экрану и вне разговорной дуги
         tvb = by.get("тв-тумба") or by.get("стенка")

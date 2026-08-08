@@ -426,7 +426,7 @@ def _arc_candidates(room: Room, item: Item, by: dict, free: Polygon, sofa: Place
     base = max(item.w_cm, item.d_cm) / 2 + gap_t + max(center.item.w_cm, center.item.d_cm) / 2
     out: list[Candidate] = []
     for th in (lo, hi, lo + jit, hi - jit, lo - jit, hi + jit):
-        for k in (1.0, 1.2):   # дальние радиусы давали «лесенку» кресел к медиастене (08.08)
+        for k in (1.0, 1.35):  # лесенку держит fwd-предел «не дальше столика+60», не радиус
             r = math.radians(th)
             # 180° — сторона дивана, 0° — сторона ТВ (ось зоны совпадает с «лицом» дивана)
             ax, ay = _face_dir(sofa.rot)          # направление «лица» дивана = ось зоны на ТВ
@@ -583,7 +583,33 @@ def generate(room: Room, item: Item, placed: list[Placement], *, limit: int = 48
     else:
         cands += wall_candidates(room, item, free)
     cands += m_c
-    if item.role in ("стол обеденный", "столик", "ковёр"):
+    if base_role(item.role) == "ковёр":
+        sofa0 = next((p for p in placed if base_role(p.role) == "диван"), None)
+        if sofa0 is not None and sofa0.item is not None:
+            # I1 (канон Lulu&Georgia/E.Henderson): ковёр — дериватив якоря: центр по активной
+            # посадке, задний край на 25–30 см ПОД передними ножками, длинной стороной ∥ фронту
+            import math as _m
+            r0 = _m.radians(sofa0.rot)
+            fx0, fy0 = _m.sin(r0), _m.cos(r0)
+            act = (sofa0.item.corner_section_cm / 2) if sofa0.item.corner else 0.0
+            rug_along = max(item.w_cm, item.d_cm)
+            rug_deep = min(item.w_cm, item.d_cm)
+            rot0 = int(sofa0.rot) % 180 if item.w_cm >= item.d_cm else (int(sofa0.rot) + 90) % 180
+            front = sofa0.item.d_cm / 2
+            out_c = []
+            for overlap in (25.0, 30.0):
+                fwd_c = front - overlap + rug_deep / 2
+                px = sofa0.x + fx0 * fwd_c + (-fy0) * act
+                py = sofa0.y + fy0 * fwd_c + fx0 * act
+                pl = Placement(role=item.role, x=px, y=py, rot=rot0, item=item)
+                # ковёр — ПОДЛОЖКА: пересекается с мебелью по определению; проверяем только
+                # вхождение в комнату, не в «свободный» полигон
+                from .geometry import room_polygon
+                if room_polygon(room).buffer(1).contains(footprint(pl)):
+                    out_c.append(Candidate(pl, "anchor", f"под ножки дивана, заход {overlap:.0f}"))
+            return out_c[:limit]
+        return []
+    if item.role in ("стол обеденный", "столик"):
         cands += middle_candidates(room, item, free_poly, fitter=free)
         # D1: столик в middle-позициях — длинной стороной по фронту дивана, не 0/90 вслепую
         if base_role(item.role) == "столик":

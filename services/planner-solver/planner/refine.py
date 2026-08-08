@@ -84,6 +84,39 @@ def repair_unplaced(room: Room, layout: Layout, items: list) -> Layout:
     return best
 
 
+def _snap_rug_anchor(room: Room, layout: Layout) -> Layout:
+    """I2 (канон): ковёр снапится к якорю — центр по активной посадке, задний край под
+    передние ножки (25–30 см), длинной стороной по фронту."""
+    from .geometry import base_role, footprint
+    by = {}
+    for p in layout.placements:
+        by.setdefault(base_role(p.role), p)
+    sofa, rug = by.get("диван"), by.get("ковёр")
+    if sofa is None or rug is None or sofa.item is None or rug.item is None:
+        return layout
+    import math
+    r = math.radians(sofa.rot)
+    fx, fy = math.sin(r), math.cos(r)
+    act = (sofa.item.corner_section_cm / 2) if sofa.item.corner else 0.0
+    rug_deep = min(rug.item.w_cm, rug.item.d_cm)
+    rot0 = int(sofa.rot) % 180 if rug.item.w_cm >= rug.item.d_cm else (int(sofa.rot) + 90) % 180
+    fwd_c = sofa.item.d_cm / 2 - 27 + rug_deep / 2
+    nx = sofa.x + fx * fwd_c + (-fy) * act
+    ny = sofa.y + fy * fwd_c + fx * act
+    if abs(nx - rug.x) < 2 and abs(ny - rug.y) < 2 and int(rug.rot) % 180 == rot0:
+        return layout
+    moved = [p if p is not rug else p.model_copy(update={"x": nx, "y": ny, "rot": float(rot0)})
+             for p in layout.placements]
+    from .validate import validate
+    trial = validate(room, moved)
+    old_hard = sum(1 for v in layout.violations if v.severity.name == "HARD")
+    if sum(1 for v in trial.violations if v.severity.name == "HARD") <= old_hard:
+        trial.unplaced = layout.unplaced
+        trial.skipped_optional = layout.skipped_optional
+        return trial
+    return layout
+
+
 def _snap_table_center(room: Room, layout: Layout) -> Layout:
     """D2 (вердикты 08.08 «столики не всегда по центру»): пробуем поставить столик РОВНО в
     центр активной посадки; свободно и не хуже по hard — принимаем."""

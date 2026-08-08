@@ -675,7 +675,11 @@ for bi,band in enumerate(COMP['bands']):
             _scheme=None
             if best and sofa_w:
                 _long=max(best.get('w') or 0, best.get('d') or 0)
-                if _long and _long/sofa_w >= PROP_RULES['rug_len_vs_sofa'][0]:
+                # I3 (канон 08.08, Lulu&Georgia/E.Henderson): ковёр от РАБОЧЕЙ ширины дивана
+                # (у Г — минус плечо) + 15 см с каждой стороны; полная Г-длина требовала
+                # несуществующих гигантов («нужен от 507» при рабочей 246+30=276)
+                _work_w=sofa_w-(95 if ctx.get('corner_sofa') else 0)
+                if _long and _long >= _work_w + 30:
                     _scheme='front_legs'
                 else:
                     _tbl=chosen.get('столик')
@@ -696,7 +700,7 @@ for bi,band in enumerate(COMP['bands']):
                         best=max(_cands,key=lambda x:x[0])[1]; _scheme='table_only'
                     else:
                         print(f"  дыра каталога: ковра нет ни под диван (нужен от "
-                              f"{int(sofa_w*PROP_RULES['rug_len_vs_sofa'][0])} см), ни под столик "
+                              f"{int(_work_w+30)} см — от РАБОЧЕЙ ширины), ни под столик "
                               f"— сет без ковра",flush=True)
                         best=None
             if best: chosen['ковёр']=dict(best,qty=1,rug_scheme=_scheme)
