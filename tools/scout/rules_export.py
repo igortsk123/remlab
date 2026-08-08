@@ -242,7 +242,44 @@ def referee_sheets(wb):
     ws5.column_dimensions['D'].width = 55
 
 
+def export_json():
+    """--json: тот же пакет одним машиночитаемым файлом (для внешнего ИИ; вопрос владельца
+    08.08 — JSON первичен). Файлы правил кладём СЫРЬЁМ (они и есть источник истины)."""
+    sev = json.load(open(os.path.join(SOLVER, 'rules', 'severity.json')))
+    doc = {
+        '_meta': {
+            'project': 'remlab layout rule pack', 'date': STAMP,
+            'what': ('полный свод правил расстановки: сырые файлы правил + реестр severity '
+                     '(H0/H1/S1/S2) + 48 кодов валидатора с местом в коде + арбитраж рефери '
+                     '(вопросы, вердикты, внедрение) + контекст приёмки 252 сцен'),
+        },
+        'rule_files': {name: json.load(open(path)) for name, path, _ in FILES},
+        'severity_registry': sev,
+        'validator_codes': [
+            {'code': c, 'hardness': s, 'class': sev['codes'].get(c),
+             'function': fn, 'where': loc, 'doc': d}
+            for c, s, fn, loc, d in validator_codes()],
+        'audit_response': [dict(zip(('point', 'status', 'position'), r)) for r in AUDIT_RESPONSE],
+        'referee_questions': [dict(zip(('q', 'question'), r)) for r in REFEREE_QUESTIONS],
+        'referee_verdicts': [dict(zip(('q', 'verdict', 'resolution'), r)) for r in REFEREE_VERDICTS],
+        'implementation_report': [dict(zip(('point', 'change', 'code_anchor', 'verified_by'), r))
+                                  for r in IMPLEMENTATION_REPORT],
+        'acceptance': {'final_run': ACCEPTANCE_FINAL,
+                       'history': {'old_beam': '119/252 (47%)',
+                                   'zoned_pre_referee': '239/252 (95%)',
+                                   'zoned_referee_package': '243/252 (96.4%)',
+                                   'zoned_full_with_dining': '238/252 (94.4%)'}},
+    }
+    out = os.path.splitext(OUT)[0] + '.json'
+    json.dump(doc, open(out, 'w'), ensure_ascii=False, indent=1)
+    print(f'{out}: {len(doc["rule_files"])} файлов правил, {len(doc["validator_codes"])} кодов')
+    return out
+
+
 def main():
+    if '--json' in sys.argv:
+        export_json()
+        return
     wb = Workbook()
     ws = wb.active
     ws.title = 'Оглавление'
