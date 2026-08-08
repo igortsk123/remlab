@@ -249,6 +249,9 @@ def check_distances(room: Room, ps: list[Placement]) -> list[Violation]:
     if "диван" in by:
         lim = distances().get("seats_group_max", 200)   # единый порог для обоих движков
         for arm in _inst(ps, "кресло"):
+            # D5: кресло камин-уголка (вторичная зона) — законно далеко от дивана
+            if _in_fireplace_zone(ps, arm):
+                continue
             g = footprint(by["диван"]).distance(footprint(arm))
             if g > lim:
                 out.append(_v("SEATS_TOO_FAR", f"диван↔{arm.role} {g:.0f} см — зона разорвана",
@@ -297,6 +300,25 @@ def check_wall_only(room: Room, ps: list[Placement]) -> list[Violation]:
             out.append(_v("NOT_AT_WALL", f"«{p.role}» стоит спинкой не к стене ({d:.0f} см)", [p.role],
                           round(d), f"спинка ≤{WALL_TOUCH_MAX_CM:.0f} см до стены"))
     return out
+
+
+def _in_fireplace_zone(ps: list[Placement], arm: Placement) -> bool:
+    """D5 (план layout-composition-deep): кресло принадлежит камин-уголку — 100–250 см от
+    камина, лицом к нему (конус 45°). Такое кресло — вторичная зона, не член дивановой дуги."""
+    import math as _m
+
+    by = _by_base(ps)
+    fpl = by.get("камин")
+    if fpl is None or arm.item is None:
+        return False
+    d = footprint(arm).distance(footprint(fpl))
+    if not (100 <= d <= 250):
+        return False
+    afx, afy = facing_vector(arm.rot)
+    fc, ac = footprint(fpl).centroid, footprint(arm).centroid
+    vx, vy = fc.x - ac.x, fc.y - ac.y
+    n = _m.hypot(vx, vy)
+    return n > 1 and (vx * afx + vy * afy) / n >= _m.cos(_m.radians(45))
 
 
 def check_facing(ps: list[Placement]) -> list[Violation]:
@@ -608,19 +630,9 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
                 out.append(_v("ARMCHAIR_TABLE_DIST", f"«{arm.role}» в {g:.0f} см от столика — вне зоны",
                               [arm.role, "столик"], round(g),
                               f"{lo_t:.0f}–{hi_t + 60:.0f} см (зона вокруг столика)"))
-        # D5 (вторичная зона): кресло у камина (100–250 см, конус 45°) — законный дом
-        # кресла вне дивановой дуги (fireplace corner) — дуговые чеки не применяются
-        fpl = by.get("камин")
-        if fpl is not None:
-            import math as _m
-            _fd = footprint(arm).distance(footprint(fpl))
-            _afx, _afy = facing_vector(arm.rot)
-            _fc, _acn = footprint(fpl).centroid, footprint(arm).centroid
-            _vx, _vy = _fc.x - _acn.x, _fc.y - _acn.y
-            _n = _m.hypot(_vx, _vy)
-            if 100 <= _fd <= 250 and _n > 1 and \
-                    (_vx * _afx + _vy * _afy) / _n >= _m.cos(_m.radians(45)):
-                continue
+        # D5 (вторичная зона): кресло камин-уголка — дуговые чеки не применяются
+        if _in_fireplace_zone(ps, arm):
+            continue
         # D3 (вердикт владельца set59 + Swyft/Dimensions): кресло НЕ у ТВ-носителя —
         # там оно спиной/боком к экрану и вне разговорной дуги
         tvb = by.get("тв-тумба") or by.get("стенка")

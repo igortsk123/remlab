@@ -232,10 +232,15 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
             off = gap + seating_front_offset(sofa.item) + _dims_for_rot(item, sofa.rot)[1] / 2
             add(scx + fx * off, scy + fy * off, sofa.rot, f"перед диваном, {gap:.0f} см")
     if base_role(role) == "кресло" and by.get("камин") is not None:
-        # D5 (fireplace corner): кресло перед камином, лицом к нему — вторичная зона
+        # D5 (fireplace corner): кресло перед камином, лицом к нему — вторичная зона.
+        # Дистанция — от КРОМОК с учётом безопасной зоны камина (fireplace_clear 100 см):
+        # центр кресла = фронт камина + клиренс + запас + полглубины кресла
         fpl = by["камин"]
         ffx, ffy = _face_dir(fpl.rot)
-        for gap in (110.0, 160.0, 210.0):
+        clear = float(distances().get("fireplace_clear", [100, 150])[0])
+        base_off = (fpl.item.d_cm if fpl.item else 35) / 2 + clear + item.d_cm / 2
+        for extra in (10.0, 45.0, 90.0):
+            gap = base_off + extra
             for side in (-0.35, 0.0, 0.35):
                 px = fpl.x + ffx * gap + (-ffy) * gap * side
                 py = fpl.y + ffy * gap + ffx * gap * side

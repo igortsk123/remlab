@@ -78,8 +78,10 @@ def pick_group(room: Room, roles_available: set[str], seats_target: int | None =
     for gid in band['groups']:
         g = groups[gid]
         req = set(g['roles']['required'])
-        # «кресло 2» доступно, если кресел в каталоге сета ≥1 (qty решит подбор)
-        need = {r.split(' ')[0] for r in req}
+        # Доступность группы — по ПОСАДОЧНЫМ ролям (set113: отсутствие столика в составе
+        # каскадно рубило ВСЕ посадочные группы до «только диван» — кресла гибли на входе).
+        # «кресло 2» доступно, если кресел в каталоге сета ≥1 (qty решит подбор).
+        need = {r.split(' ')[0] for r in req if r.split(' ')[0] in SEATING_ROLES}
         if need <= roles_available:
             candidates.append(g)
     if not candidates:
@@ -126,10 +128,16 @@ def solve_zoned(room: Room, items, **kw):
         req = set(group['roles']['required'])
         if not (req <= placed_roles):
             groups = {g['id']: g for g in zone_rules()['seating_groups']}
+            # Матчинг фолбэка — по ПОСАДОЧНЫМ ролям: отсутствие столика в СОСТАВЕ (дефицит
+            # каталога) не повод резать живые кресла до «только диван» (set113: fallback
+            # требовал столик, которого в сете нет, и убивал оба размещённых кресла)
+            def _seats_of(g):
+                return {r for r in g['roles']['required'] if _base(r) in SEATING_ROLES}
+            req_seats = _seats_of(group)
             fallback = None
             for gid, g in sorted(groups.items(), key=lambda kv: -kv[1]['seats']):
-                r2 = set(g['roles']['required'])
-                if r2 and r2 < req and r2 <= placed_roles:
+                r2 = _seats_of(g)
+                if r2 and r2 < req_seats and r2 <= placed_roles:
                     fallback = g
                     break
             if fallback is not None:

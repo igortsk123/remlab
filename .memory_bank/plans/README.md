@@ -26,6 +26,7 @@ draft → in_progress → completed → перенос в completed_plans/
 
 | slug | Название | status | created | updated |
 |------|----------|--------|---------|---------|
+| layout-composition-deep | Глубокие причины 6 замечаний владельца по десятке (столик/кресла/носитель ТВ/пустые 50+) | in_progress | 2026-08-08 | 2026-08-08 |
 | MASTER-truth-first | Мастер: truth-first — итог аудита рефери v2 (данные → eval → реальные комнаты → SKU) | in_progress | 2026-08-08 | 2026-08-08 |
 | referee-hardening | Правки по арбитражу рефери (Q1–Q7 + 5 доп. находок) | in_progress | 2026-08-07 | 2026-08-07 |
 | layout-rules-v2 | МАСТЕР — система правил расстановки v2: функциональные зоны + priors из 18 804 сцен | in_progress | 2026-08-07 | 2026-08-07 |

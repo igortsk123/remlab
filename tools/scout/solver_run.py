@@ -601,8 +601,27 @@ def attempt_beam():
             outs2, _g2 = solve_zoned(room_p, its2, top_k=1)
         else:
             outs2 = _solve(room_p, its2, top_k=1)
-        if outs2 and 'тв-тумба' in {p.role for p in outs2[0].placements}:
+        def _seats(l):
+            return sum(1 for p in l.placements if p.role.split(' ')[0] in ('кресло', 'диван'))
+        if outs2 and 'тв-тумба' in {p.role for p in outs2[0].placements} \
+                and _seats(outs2[0]) >= _seats(lay):
             lay = outs2[0]
+            FLOOR.append(('тв-тумба', _TV_STAND_BACKUP))   # экспорт берёт габариты из FLOOR
+        elif outs2 and 'тв-тумба' in {p.role for p in outs2[0].placements}:
+            # носитель против посадки: ещё одна попытка (beam недетерминирован по веткам),
+            # затем выбираем вариант с носителем, если посадка не хуже более чем на 1
+            if ENGINE == 'zoned':
+                outs3, _g3 = solve_zoned(room_p, its2, top_k=3)
+            else:
+                outs3 = _solve(room_p, its2, top_k=3)
+            best2 = max([o for o in (outs3 or []) if 'тв-тумба' in {p.role for p in o.placements}]
+                        or outs2, key=_seats)
+            if _seats(best2) >= _seats(lay):
+                lay = best2
+                FLOOR.append(('тв-тумба', _TV_STAND_BACKUP))
+            else:
+                print(f'D4: с тумбой посадка хуже ({_seats(best2)}<{_seats(lay)}) — '
+                      'оставляем вариант без носителя, дефицит в лог', flush=True)
     placed = {p.role: ((p.x, p.y), int(p.rot) % 360, tuple(_fp(p).exterior.coords[:]), 1)
               for p in lay.placements}
     missing = list(lay.unplaced)
