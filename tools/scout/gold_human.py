@@ -120,8 +120,33 @@ def sample(n: int = 400) -> None:
 
 # ------------------------------------------------------------------ страница разметки
 
+def _model_answers(items: list) -> dict:
+    """Предразметка автоматом (схема владельца 08.08): модельные ответы из product_enrichment
+    предзаполняют форму, человек ПРАВИТ, расхождения human↔model = карта ошибок автомата.
+    ВАЖНО (anchor-bias): C-подмножество (?rater=C) остаётся СЛЕПЫМ — без предзаполнения;
+    сравнение C-слепых с prefilled-разметкой A/B измеряет, насколько автомат «якорит» людей."""
+    keys = ','.join(f"({it['mid']},'{it['eid']}')" for it in items)
+    out = {}
+    for line in sql(f"""select shop_mid, external_id, payload->'model'
+                          from product_enrichment
+                         where (shop_mid, external_id) in ({keys})
+                           and payload is not null""").strip().split('\n'):
+        f = line.split('\x1f')
+        if len(f) >= 3 and f[2]:
+            try:
+                m = json.loads(f[2])
+            except json.JSONDecodeError:
+                continue
+            out[f'{f[0]}:{f[1]}'] = {
+                'role': m.get('role'), 'color': m.get('primary_color'),
+                'materials': [x for x in (m.get('materials') or []) if x],
+                'styles': m.get('styles') or {}}
+    return out
+
+
 def page() -> None:
     items = json.load(open(os.path.join(OUT, 'sample.json')))
+    prefill = _model_answers(items) if '--prefill' in sys.argv else {}
     opt = lambda vals: ''.join(f'<option>{v}</option>' for v in vals)  # noqa: E731
     html = f"""<!doctype html><html lang="ru"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
@@ -150,6 +175,7 @@ def page() -> None:
 <div id="cards"></div>
 <script>
 const ITEMS = {json.dumps(items, ensure_ascii=False)};
+const PREFILL = {json.dumps(prefill, ensure_ascii=False)};   // предразметка автоматом; для C — не применяется (слепое подмножество)
 const ROLES = {json.dumps(ROLES, ensure_ascii=False)};
 const COLORS = {json.dumps(COLORS, ensure_ascii=False)};
 const MATERIALS = {json.dumps(MATERIALS, ensure_ascii=False)};
@@ -166,14 +192,18 @@ function render() {{
   const c = document.getElementById('cards'); c.innerHTML = '';
   const it = list[idx]; if (!it) return;
   document.getElementById('pos').textContent = (idx + 1) + ' / ' + list.length;
-  const prev = store(K(it)) || {{}};
+  // предзаполнение: сохранённое человеком сильнее автомата; C-режим всегда слепой
+  const auto = (!onlyC && PREFILL[K(it)]) || {{}};
+  const prev = store(K(it)) || auto;
+  const isAuto = !store(K(it)) && !!PREFILL[K(it)] && !onlyC;
   const sel = (name, vals, cur) => `<select data-f="${{name}}">` +
     ['— выберите —', ...vals, 'uncertain'].map(v => `<option ${{v === cur ? 'selected' : ''}}>${{v}}</option>`).join('') + '</select>';
   const mats = MATERIALS.map(m => `<label class="m"><input type="checkbox" data-mat="${{m}}" ${{(prev.materials || []).includes(m) ? 'checked' : ''}}>${{m}}</label>`).join('');
   const styleRows = STYLES.map(s => `<tr><td>${{s}}</td><td>${{sel('style:' + s, LEVELS.slice(0, 4), (prev.styles || {{}})[s])}}</td></tr>`).join('');
   c.innerHTML = `<div class="card active ${{prev.role ? 'done' : ''}}">
     <img src="${{it.img.startsWith('//') ? 'https:' + it.img : it.img}}" loading="lazy">
-    <h3>${{it.name}}</h3><div class="hint">${{it.shop}} · ${{it.price}} ₽ · категория фида: ${{it.role_feed}}</div>
+    <h3>${{it.name}}</h3><div class="hint">${{it.shop}} · ${{it.price}} ₽ · категория фида: ${{it.role_feed}}
+    ${{isAuto ? ' · <b style="color:#b07c2e">⚠ предзаполнено автоматом — проверь каждое поле</b>' : ''}}</div>
     <fieldset><legend>Роль</legend>${{sel('role', ROLES, prev.role)}}</fieldset>
     <fieldset><legend>Основной цвет</legend>${{sel('color', COLORS, prev.color)}}</fieldset>
     <fieldset><legend>Материалы (видимые)</legend>${{mats}}</fieldset>
