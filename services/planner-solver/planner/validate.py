@@ -537,16 +537,32 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
     if sofa is None or sofa.item is None:
         return []
     half = sofa.item.w_cm / 2
+    # P0.4/P0.5 (рефери 08.08): у Г/П-дивана считаем не bbox, а АКТИВНУЮ посадку
+    # (conversation cavity): плечо занимает −lateral (см. candidates.seat_center) —
+    # активный центр смещён на +section/2, активная ширина = w − section
+    if sofa.item.corner:
+        act_lat = sofa.item.corner_section_cm / 2
+        act_w = max(sofa.item.w_cm - sofa.item.corner_section_cm, 80.0)
+    else:
+        act_lat, act_w = 0.0, sofa.item.w_cm
     out = []
     tbl = by.get("столик")
     if tbl is not None:
         fwd, lat = relative_position(sofa, tbl)
+        dev = abs(lat - act_lat)
         if fwd <= 0:
             out.append(_v("TABLE_BEHIND_SOFA", "столик не перед диваном", ["диван", "столик"],
                           round(fwd), "перед фронтом дивана"))
-        elif abs(lat) > half * 0.75:
-            out.append(_v("TABLE_OFF_AXIS", f"столик смещён на {abs(lat):.0f} см от оси дивана",
-                          ["диван", "столик"], round(abs(lat)), f"≤{half * 0.75:.0f} см"))
+        elif dev > 0.20 * act_w:
+            # P0.5: >20% активной ширины — группа потеряла ось (set66); было 37.5% от bbox
+            out.append(_v("TABLE_OFF_AXIS",
+                          f"столик смещён на {dev:.0f} см от центра посадки",
+                          ["диван", "столик"], round(dev), f"≤{0.20 * act_w:.0f} см (20% посадки)"))
+        elif dev > 0.10 * act_w:
+            out.append(_v("COFFEE_TABLE_OFF_CENTER",
+                          f"столик смещён на {dev:.0f} см от центра посадки (10–20%)",
+                          ["диван", "столик"], round(dev),
+                          f"≤{0.10 * act_w:.0f} см (10% посадки)", Severity.SOFT))
     pouf = by.get("пуф")
     if pouf is not None:
         fwd, lat = relative_position(sofa, pouf)
@@ -586,10 +602,40 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
         if fwd < -20:
             out.append(_v("ARMCHAIR_BEHIND_SOFA", f"«{arm.role}» стоит за диваном", ["диван", arm.role],
                           round(fwd), "в зоне перед диваном"))
-        elif abs(lat) > half + arm.item.w_cm + 60:
-            out.append(_v("ARMCHAIR_OUT_OF_ZONE", f"«{arm.role}» в {abs(lat):.0f} см вбок от зоны",
-                          ["диван", arm.role], round(abs(lat)),
-                          f"≤{half + arm.item.w_cm + 60:.0f} см"))
+            continue
+        # P0.4 (рефери 08.08): у Г/П-дивана кресло — только со стороны conversation opening;
+        # боковой предел меряем от АКТИВНОГО центра (плечо — закрытая сторона)
+        if abs(lat - act_lat) > act_w / 2 + arm.item.w_cm + 60:
+            out.append(_v("ARMCHAIR_OUT_OF_ZONE", f"«{arm.role}» в {abs(lat - act_lat):.0f} см от посадки",
+                          ["диван", arm.role], round(abs(lat - act_lat)),
+                          f"≤{act_w / 2 + arm.item.w_cm + 60:.0f} см от центра посадки"))
+            continue
+        # P0.3 (рефери 08.08): кресло — участник беседы: его луч взгляда обязан пересекать
+        # столик (с запасом) или разговорный центр перед активным фронтом дивана
+        import math as _m
+
+        afx, afy = facing_vector(arm.rot)
+        ac = footprint(arm).centroid
+        # конус взгляда ≤45°: цель — столик, разговорный центр или ТВ-носитель (media-сценарий)
+        sfx, sfy = facing_vector(sofa.rot)
+        latx, laty = -sfy, sfx     # +lateral в мировых координатах
+        gap = (distances().get("sofa_coffee_table", [36, 46])[1] + 30)
+        cc = (sofa.x + latx * act_lat + sfx * (sofa.item.d_cm / 2 + gap),
+              sofa.y + laty * act_lat + sfy * (sofa.item.d_cm / 2 + gap))
+        tgt_pts = [cc]
+        if tbl is not None:
+            tgt_pts.append((footprint(tbl).centroid.x, footprint(tbl).centroid.y))
+        tv_b = by.get("тв-тумба") or by.get("стенка")
+        if tv_b is not None:
+            tgt_pts.append((footprint(tv_b).centroid.x, footprint(tv_b).centroid.y))
+        def _in_cone(px, py):
+            vx, vy = px - ac.x, py - ac.y
+            n = _m.hypot(vx, vy)
+            return n <= 30 or (vx * afx + vy * afy) / max(n, 1e-6) >= _m.cos(_m.radians(45))
+        if not any(_in_cone(px, py) for px, py in tgt_pts):
+            out.append(_v("ARMCHAIR_NOT_FACING_GROUP",
+                          f"«{arm.role}» не смотрит в разговорный центр группы",
+                          [arm.role], None, "луч взгляда через столик/центр беседы"))
     return out
 
 
@@ -747,34 +793,37 @@ def check_service_surface(room: Room, ps: list[Placement]) -> list[Violation]:
 
 
 def check_fireplace_seating(room: Room, ps: list[Placement]) -> list[Violation]:
-    """Вердикт владельца 08.08 (set91: камин в 520 см по диагонали — странно) + рефери Q6:
-    S1-prior, не канон — камин в вилке 200–450 см от главной посадки и в поле зрения (≤75°
-    от оси взгляда дивана). Данные — zones.json fireplace.distance_to_seating_cm."""
+    """P0.7 (рефери 08.08, финальный свод): камин — focal-элемент, не filler; H1.
+    Разрешён, только если он в focal-зоне ХОТЬ ОДНОЙ посадки: (A) primary — главный диван
+    в вилке 200–450 и секторе ≤75°; (B) secondary — кресло/посадка, ориентированная на камин
+    в тех же рамках. Ни A, ни B → HARD (кандидатный гейт _fireplace_scenario такие места и
+    не предлагает — код ловит легаси/чужие пути). Данные — zones.json."""
     import math as _m
 
     from .zones import zone_rules
 
     by = _by_base(ps)
-    fp, sofa = by.get("камин"), by.get("диван")
-    if fp is None or sofa is None:
+    fp = by.get("камин")
+    if fp is None:
+        return []
+    seats = ([by["диван"]] if "диван" in by else []) + _inst(ps, "кресло")
+    if not seats:
         return []
     lo, hi = zone_rules()["zones"]["seating_media"]["fireplace"]["distance_to_seating_cm"]
-    d = footprint(sofa).distance(footprint(fp))
-    out = []
-    if d > hi:
-        out.append(_v("FIREPLACE_FAR_FROM_SEATING",
-                      f"камин в {d:.0f} см от посадки — вне вилки {lo:.0f}–{hi:.0f}",
-                      ["камин", "диван"], round(d), f"{lo:.0f}–{hi:.0f} см", Severity.SOFT))
-        return out
-    fx, fy = facing_vector(sofa.rot)
-    sc, fc = footprint(sofa).centroid, footprint(fp).centroid
-    vx, vy = fc.x - sc.x, fc.y - sc.y
-    n = _m.hypot(vx, vy)
-    if n > 1 and (vx * fx + vy * fy) / n < _m.cos(_m.radians(75)):
-        out.append(_v("FIREPLACE_FAR_FROM_SEATING",
-                      "камин вне поля зрения посадки (>75° от оси взгляда дивана)",
-                      ["камин", "диван"], None, "в секторе ≤75°", Severity.SOFT))
-    return out
+    ffp = footprint(fp)
+    for seat in seats:
+        d = footprint(seat).distance(ffp)
+        if not (lo <= d <= hi):
+            continue
+        fx, fy = facing_vector(seat.rot)
+        sc, fc = footprint(seat).centroid, ffp.centroid
+        vx, vy = fc.x - sc.x, fc.y - sc.y
+        n = _m.hypot(vx, vy)
+        if n <= 1 or (vx * fx + vy * fy) / n >= _m.cos(_m.radians(75)):
+            return []   # камин в focal-зоне этой посадки — сценарий есть
+    return [_v("FIREPLACE_FAR_FROM_SEATING",
+               f"камин вне focal-зоны любой посадки (вилка {lo:.0f}–{hi:.0f}, сектор 75°)",
+               ["камин"], None, "primary- или secondary-focal зона")]
 
 
 def check_window_sofa(room: Room, ps: list[Placement]) -> list[Violation]:

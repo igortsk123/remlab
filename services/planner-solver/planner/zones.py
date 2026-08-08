@@ -118,6 +118,42 @@ def solve_zoned(room: Room, items, **kw):
         else:
             keep.append(it)
     outs = solve(room, keep, **kw)
+    # P0.1 (рефери 08.08, set59/113): потерян REQUIRED-слот группы → НЕ удерживать остатки
+    # старой группы, а выбрать лучшую валидную effective-группу и пере-решить один раз
+    # только её составом («не удерживать предмет потому, что он помещается»).
+    if outs:
+        placed_roles = {p.role for p in outs[0].placements}
+        req = set(group['roles']['required'])
+        if not (req <= placed_roles):
+            groups = {g['id']: g for g in zone_rules()['seating_groups']}
+            fallback = None
+            for gid, g in sorted(groups.items(), key=lambda kv: -kv[1]['seats']):
+                r2 = set(g['roles']['required'])
+                if r2 and r2 < req and r2 <= placed_roles:
+                    fallback = g
+                    break
+            if fallback is not None:
+                allowed2 = set(fallback['roles']['required']) | set(fallback['roles'].get('optional', []))
+                keep2, dropped2 = [], list(dropped)
+                for it in keep:
+                    if _base(it.role) in SEATING_ROLES and it.role not in allowed2 \
+                            and _base(it.role) not in allowed2:
+                        dropped2.append(it.role)
+                    else:
+                        keep2.append(it)
+                if len(keep2) < len(keep):
+                    outs2 = solve(room, keep2, **kw)
+                    if outs2 and set(fallback['roles']['required']) <= \
+                            {p.role for p in outs2[0].placements}:
+                        for lay in outs2:
+                            lay.skipped_optional = sorted(set(lay.skipped_optional) | set(dropped2))
+                        return outs2, fallback['id']
+                else:
+                    # состав уже совпадает с fallback-группой — честно меняем ТОЛЬКО метку
+                    # (сет не должен заявлять группу, которой физически нет)
+                    for lay in outs:
+                        lay.skipped_optional = sorted(set(lay.skipped_optional) | set(dropped))
+                    return outs, fallback['id']
     for lay in outs:
         lay.skipped_optional = sorted(set(lay.skipped_optional) | set(dropped))
     return outs, group['id']

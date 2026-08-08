@@ -39,6 +39,11 @@ FLOOR_TYPICAL=[(r,tuple(v)) for r,v in json.load(open(_TD)).items()] if os.path.
     ('стеллаж',(80,35)),('камин',(100,30)),('кресло',(76,70)),('столик',(90,50)),
     ('стул',(45,50)),('пуф',(67,50)),('торшер',(33,33)),('кашпо',(30,30))]
 FLOOR=[(r,dims(r,*d)) for r,d in FLOOR_TYPICAL if r in items]
+# P0.6 (рефери 08.08): стенка XOR тв-тумба — МЬЮТЕКС ДО солвера, не soft после. Стенка =
+# носитель ТВ (tv_bearer_roles); легаси-сеты с обоими носителями чинятся прямо здесь.
+if any(r=='стенка' for r,_ in FLOOR) and any(r=='тв-тумба' for r,_ in FLOOR):
+    FLOOR=[(r,d) for r,d in FLOOR if r!='тв-тумба']
+    print('MUTEX: стенка = носитель ТВ — отдельная тв-тумба исключена из размещения', flush=True)
 
 # диван без глубины в фиде — типовая 95
 if items.get('диван') and not items['диван'].get('d'):

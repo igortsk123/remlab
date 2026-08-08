@@ -181,21 +181,28 @@ def test_role_instances_supported():
 
 # --- Вердикты владельца 08.08 + рефери Q5/Q6/Q7 ---
 
-def test_fireplace_far_is_soft():
-    """set91: камин в 520 см по диагонали от дивана — мягкий штраф S1, не hard."""
+def test_fireplace_requires_focal_zone():
+    """P0.7 (рефери 08.08): камин — focal-элемент, H1: обязан быть в focal-зоне хоть одной
+    посадки (primary диван ИЛИ secondary кресло); иначе — HARD, роль дропается ещё гейтом
+    кандидатов (_fireplace_scenario)."""
     from planner.models import Severity
     from planner.validate import validate
     room = _room(600, 700)
     sofa = _mk("диван", 300, 620, 180, 220, 100, 85)
-    fp = _mk("камин", 40, 60, 90, 110, 35, 100)
-    vs = [v for v in validate(room, [sofa, fp]).violations
+    far = _mk("камин", 40, 60, 90, 110, 35, 100)
+    vs = [v for v in validate(room, [sofa, far]).violations
           if v.code == "FIREPLACE_FAR_FROM_SEATING"]
-    assert vs and all(v.severity is Severity.SOFT for v in vs)
-    # камин в вилке и в поле зрения — чисто
+    assert vs and all(v.severity is Severity.HARD for v in vs)
+    # primary: камин в вилке и в поле зрения дивана — чисто
     sofa2 = _mk("диван", 300, 550, 180, 220, 100, 85)
     near = _mk("камин", 300, 60, 0, 110, 35, 100)
     assert not [v for v in validate(room, [sofa2, near]).violations
                 if v.code == "FIREPLACE_FAR_FROM_SEATING"]
+    # secondary: диван далеко/спиной, но кресло ориентировано на камин в вилке — чисто
+    arm = _mk("кресло", 200, 300, 270, 80, 85, 80)   # смотрит на запад... к камину
+    fp_west = _mk("камин", 40, 300, 90, 110, 35, 100)
+    codes = [v.code for v in validate(room, [sofa, arm, fp_west]).violations]
+    assert "FIREPLACE_FAR_FROM_SEATING" not in codes
 
 
 def test_sofa_window_gap_and_sill():
@@ -329,3 +336,28 @@ def test_second_armchair_zone_checked():
              if "кресло 2" in v.roles]
     assert any(c in ("ARMCHAIR_OUT_OF_ZONE", "ARMCHAIR_BEHIND_SOFA", "SEATS_TOO_FAR")
                for c in codes), codes
+
+
+def test_effective_group_regroup_after_loss():
+    """P0.1 (рефери 08.08): потерян required-слот группы → пересборка effective-группы и
+    пере-решение, а не остатки старой (запрошена sofa_2armchairs, кресла не влезли →
+    группа честно понижается, gid отражает фактику)."""
+    from planner.models import Item, Severity
+    from planner.zones import solve_zoned
+    from tests.rooms import make_room
+    room = make_room("14-16")   # тесно: пара кресел не встанет
+    items = [Item(role="диван", w_cm=200, d_cm=95, h_cm=85),
+             Item(role="тв-тумба", w_cm=140, d_cm=40, h_cm=50),
+             Item(role="столик", w_cm=90, d_cm=55, h_cm=45),
+             Item(role="кресло", w_cm=85, d_cm=90, h_cm=80),
+             Item(role="кресло 2", w_cm=85, d_cm=90, h_cm=80)]
+    outs, gid = solve_zoned(room, items, top_k=1)
+    assert outs
+    lay = outs[0]
+    placed = {p.role for p in lay.placements}
+    from planner.zones import zone_rules
+    g = {x['id']: x for x in zone_rules()['seating_groups']}[gid]
+    assert set(g['roles']['required']) <= placed, \
+        f"required группы {gid} обязаны быть размещены: {placed}"
+    hard = [v for v in lay.violations if v.severity is Severity.HARD]
+    assert not hard, [v.code for v in hard]
