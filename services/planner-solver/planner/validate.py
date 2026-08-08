@@ -726,13 +726,26 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
     return out
 
 
+def _view_corridor(sofa: Placement, tv: Placement):
+    """Полоса обзора диван→экран ШИРИНОЙ НОСИТЕЛЯ (не convex hull двух предметов: у П-дивана
+    341 см hull накрывал полкомнаты и ложно ловил фланги камина у ТВ-стены — G-разбор 08.08)."""
+    from shapely.geometry import LineString
+
+    sc = footprint(sofa).centroid
+    tc = footprint(tv).centroid
+    # ширина полосы = ЭКРАН (~70% носителя, Q2-приор), не носитель целиком: кресла,
+    # канонично фланкирующие ТВ/камин, не должны ловиться как «между диваном и экраном»
+    w = 0.70 * (tv.item.w_cm if tv.item else 120)
+    return LineString([(sc.x, sc.y), (tc.x, tc.y)]).buffer(w / 2)
+
+
 def check_sightline(ps: list[Placement]) -> list[Violation]:
     """Линия взгляда диван→ТВ не должна быть перекрыта (Infinigen: «экран не загорожен»)."""
     by = _by_base(ps)
     sofa, tv = by.get("диван"), by.get("тв-тумба")
     if sofa is None or tv is None or sofa.item is None or tv.item is None:
         return []
-    corridor = footprint(sofa).union(footprint(tv)).convex_hull.buffer(-5)
+    corridor = _view_corridor(sofa, tv)
     out = []
     for p in ps:
         if p.role in ("диван", "тв-тумба", "ковёр", "столик"):
@@ -792,14 +805,14 @@ def check_layout_rules(room: Room, ps: list[Placement]) -> list[Violation]:
             out.append(_v("FIREPLACE_ON_TV_WALL", "камин и ТВ на одной стене — два центра внимания",
                           ["камин", "тв-тумба"], None, "камин на другой стене", Severity.SOFT))
     if sofa is not None and tv is not None and "пуф" in by and _lr("pouf_out_of_view_axis", True):
-        corridor = footprint(sofa).union(footprint(tv)).convex_hull.buffer(-30)
+        corridor = _view_corridor(sofa, tv)
         if footprint(by["пуф"]).intersection(corridor).area > 900:
             out.append(_v("POUF_IN_VIEW_AXIS", "пуф стоит на оси просмотра диван↔ТВ", ["пуф"],
                           None, "сбоку от оси"))
     # E5 (вердикт владельца set113 + Wayfair/Houzz «unobstructed view у каждой посадки»):
     # НИКАКАЯ посадка не стоит между диваном и экраном — расширение пуфового правила
     if sofa is not None and tv is not None:
-        corridor = footprint(sofa).union(footprint(tv)).convex_hull.buffer(-30)
+        corridor = _view_corridor(sofa, tv)
         for arm in _inst(ps, "кресло"):
             if footprint(arm).intersection(corridor).area > 900:
                 out.append(_v("SEAT_IN_VIEW_AXIS",
@@ -936,11 +949,17 @@ def check_fireplace_seating(room: Room, ps: list[Placement]) -> list[Violation]:
     fp = by.get("камин")
     if fp is None:
         return []
-    seats = ([by["диван"]] if "диван" in by else []) + _inst(ps, "кресло")
+    # secondary: кресло в камин-зоне (окно 20–280 + конус) — фокус обеспечен
+    if any(_in_fireplace_zone(ps, a) for a in _inst(ps, "кресло")):
+        return []
+    seats = [by["диван"]] if "диван" in by else []
     if not seats:
         return []
     lo, hi = zone_rules()["zones"]["seating_media"]["fireplace"]["distance_to_seating_cm"]
     ffp = footprint(fp)
+    # G2-пересмотр (веб-проверка 08.08): угловой камин ЛЕГАЛЕН (corner electric fireplace —
+    # признанный класс), но ТОЛЬКО как настоящий фокус: посадка обязана быть ориентирована
+    # НА него — сектор primary сужен до 35° (не «вполоборота»), либо кресла-фланг.
     for seat in seats:
         d = footprint(seat).distance(ffp)
         if not (lo <= d <= hi):
@@ -951,7 +970,7 @@ def check_fireplace_seating(room: Room, ps: list[Placement]) -> list[Violation]:
         n = _m.hypot(vx, vy)
         # E6 (вердикт владельца set113): камин — ПЕРЕД посадкой (передняя полусфера),
         # «напротив, можно под углом» — сектор ≤50°, не 75
-        if n <= 1 or (vx * fx + vy * fy) / n >= _m.cos(_m.radians(50)):
+        if n <= 1 or (vx * fx + vy * fy) / n >= _m.cos(_m.radians(35 if seat.role.split(' ')[0] == 'диван' else 45)):
             return []   # камин в focal-зоне этой посадки — сценарий есть
     return [_v("FIREPLACE_FAR_FROM_SEATING",
                f"камин вне focal-зоны любой посадки (вилка {lo:.0f}–{hi:.0f}, сектор 75°)",

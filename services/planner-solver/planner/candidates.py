@@ -497,7 +497,7 @@ def corner_snap_candidates(room: Room, item: Item, free) -> list[Candidate]:
 ANCHOR_ONLY_ROLES = frozenset({"пуф", "торшер", "кашпо"})
 
 
-def _fireplace_scenario(cands: list[Candidate], placed: list[Placement]) -> list[Candidate]:
+def _fireplace_scenario(cands: list[Candidate], placed: list[Placement], room: Room = None) -> list[Candidate]:
     """Ревью рефери 08.08 (set113 «камин в дальнем углу по диагонали»): камин — focal-элемент,
     не optional-filler «где нашлось место». Кандидат допустим, только если с ГЛАВНОЙ посадки
     он в вилке дистанции (zones fireplace.distance_to_seating_cm) И в секторе видимости ≤75°.
@@ -521,12 +521,13 @@ def _fireplace_scenario(cands: list[Candidate], placed: list[Placement]) -> list
     keep = []
     for c in cands:
         ffp = footprint(c.placement)
+        # G2-пересмотр (веб 08.08): угловой камин легален; фокус обеспечивает сектор 35°
         d = sfp.distance(ffp)
         if not (lo <= d <= hi):
             continue
         vx, vy = ffp.centroid.x - sfp.centroid.x, ffp.centroid.y - sfp.centroid.y
         n = _m.hypot(vx, vy)
-        if n > 1 and (vx * fx + vy * fy) / n < _m.cos(_m.radians(50)):
+        if n > 1 and (vx * fx + vy * fy) / n < _m.cos(_m.radians(35)):
             continue
         keep.append(c)
     return keep
@@ -547,9 +548,28 @@ def generate(room: Room, item: Item, placed: list[Placement], *, limit: int = 48
                 seen0.add(key)
                 out0.append(c)
         return out0[:limit]
+    if item.corner and not getattr(item, 'corner_side_fixed', False):
+        # G1 (вердикт владельца set119 «диван обратной буквой Г»): сторона угла не задана
+        # SKU → пробуем ОБА зеркала, поиск выберет вписывающееся углом к углу
+        mirrored = item.model_copy(update={'corner_left': not item.corner_left})
+        m_c = corner_snap_candidates(room, mirrored, free)
+        m_c += anchor_candidates(room, mirrored, placed, free)
+        m_c += wall_candidates(room, mirrored, free)
+    else:
+        m_c = []
     cands = corner_snap_candidates(room, item, free)   # углы ПЕРВЫМИ: дедуп оставит именно их
     cands += anchor_candidates(room, item, placed, free)
-    cands += wall_candidates(room, item, free)
+    # G3 (вердикт владельца set113: «кресла не симметричны — референсы разные»): второе
+    # кресло ставится ТОЛЬКО парными кандидатами (зеркало/бок-о-бок/другой фланг камина из
+    # anchor_candidates) — generic-стены ему запрещены; не влезло парно → честный дроп
+    _pair_only = (base_role(item.role) == "кресло" and item.role != "кресло"
+                  and any(p.role == "кресло" for p in placed))
+    if _pair_only:
+        cands = [c for c in cands if c.kind == "anchor" and
+                 ("пара" in c.note or "фланг камина" in c.note)]
+    else:
+        cands += wall_candidates(room, item, free)
+    cands += m_c
     if item.role in ("стол обеденный", "столик", "ковёр"):
         cands += middle_candidates(room, item, free_poly, fitter=free)
         # D1: столик в middle-позициях — длинной стороной по фронту дивана, не 0/90 вслепую
@@ -559,7 +579,7 @@ def generate(room: Room, item: Item, placed: list[Placement], *, limit: int = 48
                 cands = [c for c in cands
                          if c.kind != "middle" or int(c.placement.rot) % 180 == int(sofa0.rot) % 180]
     if base_role(item.role) == "камин":
-        cands = _fireplace_scenario(cands, placed)
+        cands = _fireplace_scenario(cands, placed, room)
     seen: set[tuple] = set()
     out: list[Candidate] = []
     for c in cands:

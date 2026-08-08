@@ -85,6 +85,7 @@ class Item(BaseModel):
     corner: bool = Field(default=False, description="Г-образный диван — полигон из 6 точек")
     corner_section_cm: float = Field(default=95, gt=0, description="глубина секции Г-дивана")
     corner_left: bool = Field(default=False, description="плечо Г-дивана на левой стороне")
+    corner_side_fixed: bool = False   # сторона угла задана SKU — зеркало не пробовать
 
 
 class Placement(BaseModel):

@@ -554,7 +554,12 @@ def attempt_beam():
         its.append(_It(role=role, w_cm=rw, d_cm=rd, h_cm=(src.get('h') or None),
                        name=(src.get('name') or None),
                        corner=(role == 'диван' and CORNER),
-                       corner_section_cm=(OCC or {}).get('corner_sofa_section_depth_cm', 95)))
+                       corner_section_cm=(OCC or {}).get('corner_sofa_section_depth_cm', 95),
+                       # LAF/RAF (веб 08.08): сторона угла — свойство SKU; «левый/правый»
+                       # в названии фиксирует зеркало, иначе солвер пробует оба (G1)
+                       corner_left=bool(_re.search(r'лев', (src.get('name') or '').lower())),
+                       corner_side_fixed=bool(_re.search(r'\bлев|\bправ',
+                                              (src.get('name') or '').lower()))))
     lay = None
     if ENGINE == 'llm':
         # LLM играет дизайнера (выбирает схему), геометрия притягивает и проверяет;
