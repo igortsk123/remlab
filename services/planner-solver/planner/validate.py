@@ -698,6 +698,22 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
                 out.append(_v("ARMCHAIR_NOT_FACING_GROUP",
                               f"«{arm.role}» смотрит на ТВ издалека, столик вне reach ({g4:.0f} см)",
                               [arm.role, "столик"], round(g4), "в группе: столик ≤106 см"))
+    # F1 (канон пары кресел): пара в conversation-группе — зеркально относительно оси
+    # диван→фокус ИЛИ бок-о-бок (зазор 30–45, один разворот); иначе — мягкий штраф
+    arms_all = [a for a in _inst(ps, "кресло")
+                if a.item is not None and not _in_fireplace_zone(ps, a)]
+    if len(arms_all) >= 2:
+        a1, a2 = arms_all[0], arms_all[1]
+        f1, l1 = relative_position(sofa, a1)
+        f2, l2 = relative_position(sofa, a2)
+        mirror = abs((l1 - act_lat) + (l2 - act_lat)) <= 60 and abs(f1 - f2) <= 60
+        gap12 = footprint(a1).distance(footprint(a2))
+        side_by_side = gap12 <= 60 and int(a1.rot) % 360 == int(a2.rot) % 360
+        if not (mirror or side_by_side):
+            out.append(_v("PAIR_PATTERN",
+                          "пара кресел стоит вразнобой — ни зеркала, ни бок-о-бок",
+                          [a1.role, a2.role], None,
+                          "зеркально к оси или рядом (зазор 30–45)", Severity.SOFT))
     return out
 
 
@@ -849,9 +865,9 @@ def check_decor_anchoring(room: Room, ps: list[Placement]) -> list[Violation]:
         base = p.role.split(' ')[0]
         if base == "торшер" and seats:
             d = min(footprint(p).distance(footprint(sp)) for sp in seats)
-            if d > 80:
+            if d > 90:
                 out.append(_v("LAMP_ORPHAN", f"торшер в {d:.0f} см от посадки — далековато",
-                              [p.role], round(d), "≤80 см от посадки", Severity.SOFT))
+                              [p.role], round(d), "60–90 см от посадки", Severity.SOFT))
         if base == "кашпо":
             x0, y0, x1, y1 = footprint(p).bounds
             wall_gap = min(x0, y0, room.width_cm - x1, room.depth_cm - y1)

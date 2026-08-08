@@ -231,6 +231,30 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
         for gap in (lo + 3, (lo + hi) / 2, hi - 3):
             off = gap + seating_front_offset(sofa.item) + _dims_for_rot(item, sofa.rot)[1] / 2
             add(scx + fx * off, scy + fy * off, sofa.rot, f"перед диваном, {gap:.0f} см")
+    if base_role(role) == "кресло" and role != "кресло" and sofa is not None:
+        # F1 (канон пары): второе кресло — ЗЕРКАЛО первого относительно оси диван→фокус
+        # или БОК-О-БОК с ним (зазор 30–45) — пара ставится паттерном, не одиночками
+        first = by.get("кресло")
+        if first is not None and first.item is not None:
+            sfx0, sfy0 = _face_dir(sofa.rot)
+            fwd0 = (first.x - sofa.x) * sfx0 + (first.y - sofa.y) * sfy0
+            lat0 = (first.x - sofa.x) * (-sfy0) + (first.y - sofa.y) * sfx0
+            act0 = (sofa.item.corner_section_cm / 2) if sofa.item.corner else 0.0
+            mlat = 2 * act0 - lat0
+            mx = sofa.x + sfx0 * fwd0 + (-sfy0) * mlat
+            my = sofa.y + sfy0 * fwd0 + sfx0 * mlat
+            # зеркальный разворот: отражаем направление взгляда первого кресла
+            f1x, f1y = _face_dir(first.rot)
+            l1 = f1x * (-sfy0) + f1y * sfx0
+            mrot = math.degrees(math.atan2(f1x - 2 * l1 * (-sfy0),
+                                           f1y - 2 * l1 * sfx0)) % 360
+            add(mx, my, round(mrot / 90) * 90 % 360, "пара: зеркало первого кресла")
+            for gap in (30.0, 45.0):
+                off = first.item.w_cm / 2 + item.w_cm / 2 + gap
+                for sgn in (-1.0, 1.0):
+                    px = first.x + (-f1y) * off * sgn
+                    py = first.y + f1x * off * sgn
+                    add(px, py, first.rot, "пара: бок-о-бок")
     if base_role(role) == "кресло" and by.get("камин") is not None:
         # D5 (fireplace corner): кресло перед камином, лицом к нему — вторичная зона.
         # Дистанция — от КРОМОК с учётом безопасной зоны камина (fireplace_clear 100 см):
@@ -341,6 +365,12 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
             for cx, cy in ((x0 - 20 - item.w_cm / 2, y0 + item.d_cm / 2),
                            (x1 + 20 + item.w_cm / 2, y0 + item.d_cm / 2)):
                 add(cx, cy, anchor.rot, f"у «{anchor.role}»")
+            # F2 (канон BenQ/EDISHINE): «слегка позади, свет через плечо» — задние углы посадки
+            afx, afy = _face_dir(anchor.rot)
+            for sgn in (-1.0, 1.0):
+                bx = anchor.x + (-afy) * ((x1 - x0) / 2 + 25) * sgn - afx * ((y1 - y0) / 2 - 5)
+                by_ = anchor.y + afx * ((x1 - x0) / 2 + 25) * sgn - afy * ((y1 - y0) / 2 - 5)
+                add(bx, by_, anchor.rot, f"за плечом «{anchor.role}»")
     if rb == "стул" and "стол обеденный" in by:
         # Стул К КРОМКЕ стола (+2 см), не «под стол» (−8 давал пересечение футпринтов — _fits
         # браковал ВСЕ якоря, стулья массово не вставали). Длинная сторона даёт ДВА места

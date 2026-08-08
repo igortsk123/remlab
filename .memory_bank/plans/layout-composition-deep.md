@@ -168,3 +168,18 @@ quick10 на 55/66/84/113/117 после каждого E; страница PLAN
 кресло/ТВ: chitaliving.com arrange tv-stand-sofa-recliner · bellonausa.com layout-guide-for-tv ·
 wayfair.com arrange-living-room-furniture-around-a-tv · houzz.com arrange-your-room-for-tv ·
 Г-диван: castlery.com arrange-a-sectional · swyfthome.com l-shaped-sofa · povison.com l-shaped-tv
+
+## Партия F — пара кресел паттерном + торшер по канону (08.08, веб-сверка)
+### F1. Пара кресел — атомарный паттерн, не два одиночки
+Паттерны (по сценарию): (1) напротив дивана бок-о-бок, зазор 30–45, слегка внутрь (при ТВ на
+оси — боковая дуга); (2) фланг камина зеркально; (3) асимметрия — только при ломаной сетке.
+Реализация: кандидаты «кресло N» при уже стоящем первом — ЗЕРКАЛО относительно оси
+диван→фокус + «бок-о-бок» рядом с первым; валидатор PAIR_PATTERN (S1): пара в conversation-
+группе обязана быть зеркальной ИЛИ бок-о-бок; скоринг pair_symmetry уже тянет к равенству.
+Источники: homedecorbliss 11-layouts · lindseybrookedesign no-fail · H&G fireplace-flank ·
+nolitaharbour (асимметрия при смещённом камине).
+### F2. Торшер: 60–90 см, «слегка позади», через плечо
+Кандидаты: + точки «за задним углом» посадки (over-shoulder), не только сбоку у плеча;
+LAMP_ORPHAN вилка 80→90 (канон 2–3 фута), дроп >150. Не в ось экрана (SIGHTLINE), не на
+маршруте. Источники: benq floor-lamp-101 · lightinghomei · edishine.
+### F3. Проверка: quick10 пятёрка → страница PLANS_ONLY.
