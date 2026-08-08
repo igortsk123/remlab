@@ -312,13 +312,21 @@ def _in_fireplace_zone(ps: list[Placement], arm: Placement) -> bool:
     if fpl is None or arm.item is None:
         return False
     d = footprint(arm).distance(footprint(fpl))
-    if not (100 <= d <= 250):
+    if not (20 <= d <= 250):     # 20+: фланг по бокам камина (канон), 250: предел уголка
         return False
     afx, afy = facing_vector(arm.rot)
     fc, ac = footprint(fpl).centroid, footprint(arm).centroid
-    vx, vy = fc.x - ac.x, fc.y - ac.y
-    n = _m.hypot(vx, vy)
-    return n > 1 and (vx * afx + vy * afy) / n >= _m.cos(_m.radians(45))
+    # фланговое кресло развёрнуто «чуть внутрь» — смотрит на точку ПЕРЕД камином,
+    # поэтому конус меряем к зоне камина (центр + фронт), порог 75°
+    ffx, ffy = facing_vector(fpl.rot)
+    tx = fc.x + ffx * 120
+    ty = fc.y + ffy * 120
+    for px, py in ((fc.x, fc.y), (tx, ty)):
+        vx, vy = px - ac.x, py - ac.y
+        n = _m.hypot(vx, vy)
+        if n > 1 and (vx * afx + vy * afy) / n >= _m.cos(_m.radians(75)):
+            return True
+    return False
 
 
 def check_facing(ps: list[Placement]) -> list[Violation]:

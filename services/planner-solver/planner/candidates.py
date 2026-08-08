@@ -235,11 +235,24 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
         # D5 (fireplace corner): кресло перед камином, лицом к нему — вторичная зона.
         # Дистанция — от КРОМОК с учётом безопасной зоны камина (fireplace_clear 100 см):
         # центр кресла = фронт камина + клиренс + запас + полглубины кресла
+        # Канон (decorilla/willis, 08.08): кресла ПО БОКАМ камина, развёрнуты чуть внутрь
+        # (классическая U: диван напротив камина, кресла фланкируют) + резерв «перед камином»
         fpl = by["камин"]
         ffx, ffy = _face_dir(fpl.rot)
+        lx, ly = -ffy, ffx           # боковое направление вдоль стены камина
         clear = float(distances().get("fireplace_clear", [100, 150])[0])
-        base_off = (fpl.item.d_cm if fpl.item else 35) / 2 + clear + item.d_cm / 2
-        for extra in (10.0, 45.0, 90.0):
+        fw = (fpl.item.w_cm if fpl.item else 110)
+        fd = (fpl.item.d_cm if fpl.item else 35)
+        fwd0 = fd / 2 + item.d_cm / 2 + 30      # чуть вперёд от линии камина
+        for sgn in (-1.0, 1.0):                  # фланги: слева/справа от камина
+            for lat in (fw / 2 + item.w_cm / 2 + 25, fw / 2 + item.w_cm / 2 + 70):
+                px = fpl.x + lx * lat * sgn + ffx * fwd0
+                py = fpl.y + ly * lat * sgn + ffy * fwd0
+                # развёрнуто «чуть внутрь»: на точку перед камином, а не на сам камин
+                tx, ty = fpl.x + ffx * (clear + fd), fpl.y + ffy * (clear + fd)
+                add(px, py, _rot_towards(px, py, tx, ty), "фланг камина (вторая зона)")
+        base_off = fd / 2 + clear + item.d_cm / 2
+        for extra in (10.0, 60.0):
             gap = base_off + extra
             for side in (-0.35, 0.0, 0.35):
                 px = fpl.x + ffx * gap + (-ffy) * gap * side
