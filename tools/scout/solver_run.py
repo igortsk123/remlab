@@ -616,7 +616,11 @@ def attempt_beam():
                 outs3 = _solve(room_p, its2, top_k=3)
             best2 = max([o for o in (outs3 or []) if 'тв-тумба' in {p.role for p in o.placements}]
                         or outs2, key=_seats)
-            if _seats(best2) >= _seats(lay):
+            if _seats(best2) >= _seats(lay) - 1:
+                # медиа-гостиная БЕЗ носителя ТВ хуже, чем минус одно кресло
+                if _seats(best2) < _seats(lay):
+                    print(f'D4: носитель принят ценой 1 места ({_seats(best2)}<{_seats(lay)})',
+                          flush=True)
                 lay = best2
                 FLOOR.append(('тв-тумба', _TV_STAND_BACKUP))
             else:
