@@ -298,7 +298,12 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
     """ctx: dict(style, wood, metal, fabrics, temp, sofa_key, sofa_w, sofa_h, used_shops).
     Возвращает список топ-N кандидатов с why."""
     lo,hi=share; plo,phi=tier_band(role,tier)
-    tgt_lo,tgt_hi=m2*lo/100/qty, m2*hi/100/qty
+    # H0 (корень «в больших комнатах меньше мебели», 08.08): доля роли — от площади ЗОНЫ
+    # (кап 30 м² = потолок одной зоны по канону), не всей комнаты: 57 м² требовали стол
+    # 1.7–5.8 м² и кресло 2.6–7 м² — таких SKU нет, роли отсеивались «0 кандидатов».
+    # Рост метража даёт БОЛЬШЕ предметов/зон, а не мебель-гигантов (2modern/minimalistliving).
+    zone_m2=min(m2, 30.0)
+    tgt_lo,tgt_hi=zone_m2*lo/100/qty, zone_m2*hi/100/qty
     def _collect(gate):
         cs=[]
         for it in cat.get(role,[]):
@@ -556,7 +561,9 @@ for bi,band in enumerate(COMP['bands']):
                 q=QTY.get(role,1)
             top=pick2(role,m2,band['floor'][role],tier,pair,ctx,qty=q) or \
                 pick2(role,m2,band['floor'][role],tier,pair,ctx,soft=True,qty=q)
-            if not top: continue
+            if not top:
+                print(f"  ОТКАЗ: «{role}» — 0 кандидатов даже soft (тир/стиль/размер/пропорции)")
+                continue
             # Z4: длина столика 55–75%% ширины дивана — принудительна ПРИ ПОДБОРЕ
             # (в валидации soft — правка владельца 07.08)
             if role=='столик' and ctx.get('sofa_w'):
@@ -793,7 +800,11 @@ for bi,band in enumerate(COMP['bands']):
               f"капсула {ctx['style']}/{ctx['wood']}/{ctx['metal']}/{ctx['temp']}, пол {fill}%"
               +(f", стиль-фит {sfit_agg}" if sfit_agg else "")+f", {total:,} ₽".replace(',',' '),flush=True)
 OUT_SETS='sets3.json' if STYLE_MODE else 'sets2.json'
-json.dump(sets,open(os.path.join(HERE,OUT_SETS),'w'),ensure_ascii=False,indent=1)
+# АТОМАРНАЯ запись (инцидент 08.08: падение посреди json.dump оставило файл на 18/126 сетов):
+# пишем во временный и переименовываем — rename на одной ФС атомарен
+_tmp=os.path.join(HERE,OUT_SETS+'.tmp')
+json.dump(sets,open(_tmp,'w'),ensure_ascii=False,indent=1)
+os.replace(_tmp,os.path.join(HERE,OUT_SETS))
 np.savez_compressed(EMB_PATH,**_emb)
 print(f"OK: {OUT_SETS} ({len(_emb)} embeddings в кэше)",flush=True)
 
