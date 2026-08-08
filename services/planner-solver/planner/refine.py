@@ -84,6 +84,42 @@ def repair_unplaced(room: Room, layout: Layout, items: list) -> Layout:
     return best
 
 
+def _snap_bearer_axis(room: Room, layout: Layout) -> Layout:
+    """Снап носителя ТВ (стенка/тумба) к ОСИ дивана: медиа-блок центрируется по посадке,
+    не по стене (канон: практика просмотра важнее симметрии стены; вердикт владельца 08.08 —
+    смещения 40–132 см). Скользим вдоль своей стены; принять, если hard не хуже."""
+    from .geometry import base_role, footprint
+    by = {}
+    for p in layout.placements:
+        by.setdefault(base_role(p.role), p)
+    sofa = by.get("диван")
+    bearer = by.get("тв-тумба") or by.get("стенка")
+    if sofa is None or bearer is None or sofa.item is None or bearer.item is None:
+        return layout
+    import math
+    r = math.radians(sofa.rot)
+    fx, fy = math.sin(r), math.cos(r)
+    dx, dy = bearer.x - sofa.x, bearer.y - sofa.y
+    lat = dx * (-fy) + dy * fx
+    act = (sofa.item.corner_section_cm / 2) if sofa.item.corner else 0.0
+    if abs(lat - act) < 8:
+        return layout
+    from .validate import validate
+    old_hard = sum(1 for v in layout.violations if v.severity.name == "HARD")
+    # полный сдвиг может не влезть (стенка 360 в стене 490) — центрируем НАСКОЛЬКО влезает
+    for frac in (1.0, 0.6, 0.35):
+        sx = -(lat - act) * (-fy) * frac
+        sy = -(lat - act) * fx * frac
+        moved = [p if p is not bearer else p.model_copy(update={"x": p.x + sx, "y": p.y + sy})
+                 for p in layout.placements]
+        trial = validate(room, moved)
+        if sum(1 for v in trial.violations if v.severity.name == "HARD") <= old_hard:
+            trial.unplaced = layout.unplaced
+            trial.skipped_optional = layout.skipped_optional
+            return trial
+    return layout
+
+
 def _snap_rug_anchor(room: Room, layout: Layout) -> Layout:
     """I2 (канон): ковёр снапится к якорю — центр по активной посадке, задний край под
     передние ножки (25–30 см), длинной стороной по фронту."""

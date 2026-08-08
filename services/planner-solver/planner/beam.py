@@ -207,8 +207,8 @@ def solve(room: Room, items: list[Item], *, top_k: int = 3, beam_width: int = BE
             lay.skipped_optional = sorted(set(lay.skipped_optional) | set(droppable))
         # Страховка (вердикт 07.08, сет 76: стул в 140 см прошёл «ok»): ПОЛНАЯ ревалидация
         # финального размещения — доводка/ремонт не имеют права выпускать hard мимо отчёта
-        from .refine import _snap_rug_anchor, _snap_table_center
-        lay2 = _snap_table_center(room, _snap_rug_anchor(room, lay))
+        from .refine import _snap_bearer_axis, _snap_rug_anchor, _snap_table_center
+        lay2 = _snap_table_center(room, _snap_rug_anchor(room, _snap_bearer_axis(room, lay)))
         lay.placements = lay2.placements
         fresh = validate(room, lay.placements)
         lay.violations = fresh.violations
