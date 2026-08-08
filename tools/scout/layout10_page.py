@@ -35,6 +35,12 @@ def run(n: int) -> dict:
     m = re.search(r'НЕ размещены: (\[.*\])', out)
     if m:
         info['missing'] = eval(m.group(1))  # noqa: S307 — свой вывод
+    # PLANS_ONLY=1 (решение владельца 08.08): для теста качества нужны только ПЛАНЫ —
+    # схемы-кубики/глубина/эталоны не рисуем (они нужны перед реальной генерацией рендеров)
+    if os.environ.get('PLANS_ONLY') == '1':
+        subprocess.run([PY, os.path.join(HERE, 'scene_build.py'), str(n)],
+                       capture_output=True, text=True, timeout=600, cwd=HERE)
+        return info
     for cmd in (['scene_build.py', str(n)], ['schema3d.py', str(n), '--cams', 'C1,C2']):
         subprocess.run([PY, os.path.join(HERE, cmd[0])] + cmd[1:],
                        capture_output=True, text=True, timeout=600, cwd=HERE)
@@ -89,9 +95,17 @@ def main() -> None:
     meta = json.load(open(os.path.join(HERE, 'sets3.json')))
     blocks = []
     reuse = '--collect' in sys.argv   # артефакты уже посчитаны — только пересобрать страницу
+    # Решения сетов — ПАРАЛЛЕЛЬНО (файлы per-set, не конфликтуют): солвер с пере-решениями
+    # стал ~3 мин/сет, последовательная десятка не влезала ни в какое ожидание (владелец 08.08)
+    import concurrent.futures as _cf
+    _infos = {}
+    if not reuse:
+        with _cf.ThreadPoolExecutor(max_workers=int(os.environ.get('PAGE_WORKERS', '5'))) as _ex:
+            for n, info in zip(sets, _ex.map(run, sets)):
+                _infos[n] = info
     for n in sets:
         print(f'== сет {n}', flush=True)
-        info = run(n) if not reuse else _reparse(n)
+        info = _infos.get(n) if not reuse else _reparse(n)
         files = collect(n)
         s = meta[n - 1]
         soft_terms = info['soft'].get('terms', {})

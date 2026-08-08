@@ -705,6 +705,16 @@ for bi,band in enumerate(COMP['bands']):
             lu2=[it for it in lu if plo<=it['price']<=phi] or lu
             lu3=[it for it in lu2 if not it.get('metal') or not ctx['metal'] or it['metal']==ctx['metal']] or lu2
             chosen['люстра']=dict(lu3[len(lu3)//2],qty=1)
+        # E1 (вердикт владельца set55): media-состав ОБЯЗАН иметь носитель ТВ — нет ни
+        # стенки, ни тумбы → добираем тумбу в мягком режиме (любой тир, пометка дефицита)
+        if 'стенка' not in chosen and 'тв-тумба' not in chosen:
+            _tvf = pick2('тв-тумба', m2, band['floor'].get('тв-тумба', (0.03, 0.8)),
+                         tier, pair, ctx, soft=True)
+            if _tvf:
+                chosen['тв-тумба'] = dict(_tvf[0], qty=1, deficit_fallback=True)
+                print('  E1: носитель ТВ добран soft-режимом (дефицит тира)')
+            else:
+                print('  E1: ДЕФИЦИТ — носителя ТВ нет даже soft (media-сет без ТВ!)')
         # A4 (исследование рефери 08.08): картина над диваном — focal-альтернатива ТВ; числа
         # из occupancy (wall_art_vs_sofa_width_pct 60–70, центр 145–160). Категории картин
         # включены в category-roles (роль появится в cat после следующей загрузки каталога).

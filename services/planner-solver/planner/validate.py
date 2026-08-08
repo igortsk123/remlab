@@ -685,10 +685,19 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
             vx, vy = px - ac.x, py - ac.y
             n = _m.hypot(vx, vy)
             return n <= 30 or (vx * afx + vy * afy) / max(n, 1e-6) >= _m.cos(_m.radians(45))
-        if not any(_in_cone(px, py) for px, py in tgt_pts):
+        matched = [i for i, (px, py) in enumerate(tgt_pts) if _in_cone(px, py)]
+        if not matched:
             out.append(_v("ARMCHAIR_NOT_FACING_GROUP",
                           f"«{arm.role}» не смотрит в разговорный центр группы",
                           [arm.role], None, "луч взгляда через столик/центр беседы"))
+        elif tbl is not None and matched == [len(tgt_pts) - 1]:
+            # E4 (вердикт владельца set66 + CHITA/Bellona): взгляд ТОЛЬКО на ТВ через
+            # комнату — не членство; кресло обязано быть при столике группы (reach ≤106)
+            g4 = footprint(arm).distance(footprint(tbl))
+            if g4 > 106:
+                out.append(_v("ARMCHAIR_NOT_FACING_GROUP",
+                              f"«{arm.role}» смотрит на ТВ издалека, столик вне reach ({g4:.0f} см)",
+                              [arm.role, "столик"], round(g4), "в группе: столик ≤106 см"))
     return out
 
 
@@ -762,6 +771,15 @@ def check_layout_rules(room: Room, ps: list[Placement]) -> list[Violation]:
         if footprint(by["пуф"]).intersection(corridor).area > 900:
             out.append(_v("POUF_IN_VIEW_AXIS", "пуф стоит на оси просмотра диван↔ТВ", ["пуф"],
                           None, "сбоку от оси"))
+    # E5 (вердикт владельца set113 + Wayfair/Houzz «unobstructed view у каждой посадки»):
+    # НИКАКАЯ посадка не стоит между диваном и экраном — расширение пуфового правила
+    if sofa is not None and tv is not None:
+        corridor = footprint(sofa).union(footprint(tv)).convex_hull.buffer(-30)
+        for arm in _inst(ps, "кресло"):
+            if footprint(arm).intersection(corridor).area > 900:
+                out.append(_v("SEAT_IN_VIEW_AXIS",
+                              f"«{arm.role}» между диваном и экраном — загораживает просмотр",
+                              [arm.role], None, "сбоку от оси, углом к ТВ"))
     if sofa is not None and sofa.item is not None and sofa.item.corner \
             and _lr("corner_sofa_must_be_in_corner", True):
         x0, y0, x1, y1 = footprint(sofa).bounds
@@ -769,8 +787,14 @@ def check_layout_rules(room: Room, ps: list[Placement]) -> list[Violation]:
         # (в глубокой комнате Г обязан отплывать к ТВ, иначе не выполняется шкала — ADR-0050)
         near_x = min(x0, room.width_cm - x1) <= 25
         near_y = min(y0, room.depth_cm - y1) <= 25
-        if not (near_x or near_y):
-            # мягко: в комнате 50+ Г-диван ОБЯЗАН отплыть от стены, иначе не выполнить шкалу диван↔ТВ
+        room_m2 = room.width_cm * room.depth_cm / 10_000
+        if room_m2 < 30 and not (near_x and near_y):
+            # E7 (вердикт владельца set117 + Castlery/Swyft): в малых/средних Г-диван стоит
+            # УГЛОМ В УГОЛ — обе секции вдоль двух смежных стен
+            out.append(_v("CORNER_SOFA_ADRIFT", "Г-диван не углом в угол (обе секции к стенам)",
+                          ["диван"], None, "вдоль двух смежных стен", Severity.SOFT))
+        elif not (near_x or near_y):
+            # в больших floating разрешён, но плечо к стене (ADR-0050)
             out.append(_v("CORNER_SOFA_ADRIFT", "угловой диван стоит посреди комнаты", ["диван"],
                           None, "хотя бы одна секция к стене", Severity.SOFT))
     if "кресло" in by and sofa is not None and by.get("столик") is not None:
@@ -813,6 +837,34 @@ def check_floor_cap(room: Room, ps: list[Placement]) -> list[Violation]:
         return [_v("FLOOR_OVERFILL", f"мебель занимает {used:.0f}% пола", [], round(used, 1),
                    f"≤{cap[1]:.0f}%", Severity.SOFT)]
     return []
+
+
+def check_decor_anchoring(room: Room, ps: list[Placement]) -> list[Violation]:
+    """E2/E3 (вердикты владельца set66 + Outlight/Lightopia, MyPlantin/MaisonDePax):
+    торшер живёт У ПОСАДКИ (рядом/чуть позади дивана или кресла), кашпо — периметр/угол/
+    окно/фланг крупной мебели; центр комнаты — антипаттерн для обоих."""
+    out = []
+    seats = ([p for p in ps if p.role.split(' ')[0] in ("диван", "кресло")])
+    for p in ps:
+        base = p.role.split(' ')[0]
+        if base == "торшер" and seats:
+            d = min(footprint(p).distance(footprint(sp)) for sp in seats)
+            if d > 80:
+                out.append(_v("LAMP_ORPHAN", f"торшер в {d:.0f} см от посадки — далековато",
+                              [p.role], round(d), "≤80 см от посадки", Severity.SOFT))
+        if base == "кашпо":
+            x0, y0, x1, y1 = footprint(p).bounds
+            wall_gap = min(x0, y0, room.width_cm - x1, room.depth_cm - y1)
+            big = [q for q in ps
+                   if q.role.split(' ')[0] in ("диван", "стенка", "шкаф", "стеллаж", "комод",
+                                               "витрина", "тв-тумба", "камин")]
+            flank = min((footprint(p).distance(footprint(q)) for q in big), default=999)
+            if wall_gap > 70 and flank > 50:
+                out.append(_v("PLANT_IN_OPEN_FLOOR",
+                              f"кашпо в открытом полу ({wall_gap:.0f} см от стен)",
+                              [p.role], round(wall_gap),
+                              "периметр/угол/окно/фланг мебели", Severity.SOFT))
+    return out
 
 
 def check_service_surface(room: Room, ps: list[Placement]) -> list[Violation]:
@@ -872,7 +924,9 @@ def check_fireplace_seating(room: Room, ps: list[Placement]) -> list[Violation]:
         sc, fc = footprint(seat).centroid, ffp.centroid
         vx, vy = fc.x - sc.x, fc.y - sc.y
         n = _m.hypot(vx, vy)
-        if n <= 1 or (vx * fx + vy * fy) / n >= _m.cos(_m.radians(75)):
+        # E6 (вердикт владельца set113): камин — ПЕРЕД посадкой (передняя полусфера),
+        # «напротив, можно под углом» — сектор ≤50°, не 75
+        if n <= 1 or (vx * fx + vy * fy) / n >= _m.cos(_m.radians(50)):
             return []   # камин в focal-зоне этой посадки — сценарий есть
     return [_v("FIREPLACE_FAR_FROM_SEATING",
                f"камин вне focal-зоны любой посадки (вилка {lo:.0f}–{hi:.0f}, сектор 75°)",
@@ -941,6 +995,7 @@ def validate(room: Room, placements: list[Placement], *, passage: str = "seconda
     vs += check_fireplace_seating(room, placements)
     vs += check_window_sofa(room, placements)
     vs += check_service_surface(room, placements)
+    vs += check_decor_anchoring(room, placements)
     from .geometry import floor_used_pct
 
     return Layout(room=room, placements=placements, violations=vs,

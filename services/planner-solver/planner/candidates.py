@@ -263,11 +263,20 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
         # разговорная посадка (в дополнение к дуге 135–225)
         sfx, sfy = _face_dir(sofa.rot)
         scx0, scy0 = seat_center(sofa)
-        for gap in (170.0, 210.0, 244.0):
-            for side in (-0.3, 0.3):
-                px = scx0 + sfx * gap + (-sfy) * (sofa.item.w_cm / 3) * side
-                py = scy0 + sfy * gap + sfx * (sofa.item.w_cm / 3) * side
-                add(px, py, (_rot_towards(px, py, scx0, scy0)), "напротив дивана")
+        # E5: в media-комнате «напротив дивана» стоит ЭКРАН — позиции только если ТВ-носителя
+        # нет на оси взгляда дивана (иначе кресло залезает в коридор просмотра, set113)
+        _tvb = by.get("тв-тумба") or by.get("стенка")
+        _axis_tv = False
+        if _tvb is not None:
+            _vx, _vy = _tvb.x - sofa.x, _tvb.y - sofa.y
+            _nn = math.hypot(_vx, _vy)
+            _axis_tv = _nn > 1 and (_vx * sfx + _vy * sfy) / _nn > 0.5
+        if not _axis_tv:
+            for gap in (170.0, 210.0, 244.0):
+                for side in (-0.3, 0.3):
+                    px = scx0 + sfx * gap + (-sfy) * (sofa.item.w_cm / 3) * side
+                    py = scy0 + sfy * gap + sfx * (sofa.item.w_cm / 3) * side
+                    add(px, py, (_rot_towards(px, py, scx0, scy0)), "напротив дивана")
     if base_role(role) == "кресло" and sofa is not None:
         out += _arc_candidates(room, item, by, free, sofa)
     if rb == "пуф" and ("столик" in by or sofa is not None):
@@ -472,7 +481,7 @@ def _fireplace_scenario(cands: list[Candidate], placed: list[Placement]) -> list
             continue
         vx, vy = ffp.centroid.x - sfp.centroid.x, ffp.centroid.y - sfp.centroid.y
         n = _m.hypot(vx, vy)
-        if n > 1 and (vx * fx + vy * fy) / n < _m.cos(_m.radians(75)):
+        if n > 1 and (vx * fx + vy * fy) / n < _m.cos(_m.radians(50)):
             continue
         keep.append(c)
     return keep
