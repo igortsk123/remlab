@@ -264,6 +264,16 @@ def _solve_ordered(room: Room, items: list[Item], *, top_k: int, beam_width: int
                 sc = score_layout(room, ps, fast=True)
                 scored.append((sc.total, c, sc))
             scored.sort(key=lambda t: (-t[0], t[1].placement.x, t[1].placement.y, t[1].placement.rot))
+            # L3.2: пары и одиночки — РАЗДЕЛЬНЫЕ квоты среза. Joint-пара размещает 2 предмета,
+            # её fast-score систематически выше одиночного → пары вытесняли одиночные ветки из
+            # per_state-среза, а на полной валидации падали (A/B 09.08: −6 кресел, +5 hard).
+            # Пары идут ДОБАВКОЙ к полному одиночному срезу, а не вместо него.
+            if any(t[1].extra for t in scored):
+                singles = [t for t in scored if not t[1].extra][:per_state]
+                pairs = [t for t in scored if t[1].extra][:max(2, per_state // 2)]
+                expand = singles + pairs
+            else:
+                expand = scored[:per_state]
             if not scored:  # предмет не встал ни в одну позицию — ветка продолжается без него
                 pen = st.penalty + _unplaced_cost(item.role)
                 st2 = State(list(st.placements), st.unplaced + [item.role],
@@ -272,7 +282,7 @@ def _solve_ordered(room: Room, items: list[Item], *, top_k: int, beam_width: int
                     seen.add(st2.key())
                     nxt.append(st2)
                 continue
-            for total, c, _sc in scored[:per_state]:
+            for total, c, _sc in expand:
                 st2 = State(st.placements + [c.placement, *c.extra], list(st.unplaced),
                             total - st.penalty, st.penalty)
                 k = st2.key()
