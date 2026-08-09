@@ -238,16 +238,45 @@ def _solve_ordered(room: Room, items: list[Item], *, top_k: int, beam_width: int
         # всего одна, и cand_per_item=8 давал 8 позиций — если среди них нет ни одной, куда
         # встанет следующий предмет, вся раскладка теряла его (сеты 50+ теряли диван)
         per_state = max(cand_per_item, -(-beam_width // max(1, len(beams))))
+        # L3 (MASTER-layout-v5): пара кресел раскрывается АТОМАРНО — joint-кандидаты конкурируют
+        # с одиночными в одном шаге луча; «кресло 2» из порядка не убирается: состояния, где
+        # пара уже стоит, проносятся сквозь его шаг без изменений (см. ниже)
+        # LAYOUT_PAIR_JOINT=0 — выключатель joint-пар для честного A/B на одном коде и данных
+        # (урок L3: baseline, склеенный resume'ом из строк разных дней, для сравнения непригоден)
+        import os as _os
+        pair_partner = None
+        if item.role == "кресло" and _os.environ.get("LAYOUT_PAIR_JOINT", "1") != "0":
+            pair_partner = next((it for it in items if it.role == "кресло 2"), None)
         for st in beams:
+            if any(p.role == item.role for p in st.placements):
+                # предмет уже поставлен joint-кандидатом на шаге первого кресла
+                if st.key() not in seen:
+                    seen.add(st.key())
+                    nxt.append(st)
+                continue
             cands: list[Candidate] = generate(room, item, st.placements)
+            if pair_partner is not None and not any(p.role == pair_partner.role
+                                                    for p in st.placements):
+                from .candidates import pair_candidates
+                cands = cands + pair_candidates(room, item, pair_partner, st.placements)
             scored: list[tuple[float, Candidate, Score]] = []
             for c in cands:
-                ps = st.placements + [c.placement]
+                ps = st.placements + [c.placement, *c.extra]
                 if not _hard_ok(room, ps):
                     continue
                 sc = score_layout(room, ps, fast=True)
                 scored.append((sc.total, c, sc))
             scored.sort(key=lambda t: (-t[0], t[1].placement.x, t[1].placement.y, t[1].placement.rot))
+            # L3.2: пары и одиночки — РАЗДЕЛЬНЫЕ квоты среза. Joint-пара размещает 2 предмета,
+            # её fast-score систематически выше одиночного → пары вытесняли одиночные ветки из
+            # per_state-среза, а на полной валидации падали (A/B 09.08: −6 кресел, +5 hard).
+            # Пары идут ДОБАВКОЙ к полному одиночному срезу, а не вместо него.
+            if any(t[1].extra for t in scored):
+                singles = [t for t in scored if not t[1].extra][:per_state]
+                pairs = [t for t in scored if t[1].extra][:max(2, per_state // 2)]
+                expand = singles + pairs
+            else:
+                expand = scored[:per_state]
             if not scored:  # предмет не встал ни в одну позицию — ветка продолжается без него
                 pen = st.penalty + _unplaced_cost(item.role)
                 st2 = State(list(st.placements), st.unplaced + [item.role],
@@ -256,8 +285,8 @@ def _solve_ordered(room: Room, items: list[Item], *, top_k: int, beam_width: int
                     seen.add(st2.key())
                     nxt.append(st2)
                 continue
-            for total, c, _sc in scored[:per_state]:
-                st2 = State(st.placements + [c.placement], list(st.unplaced),
+            for total, c, _sc in expand:
+                st2 = State(st.placements + [c.placement, *c.extra], list(st.unplaced),
                             total - st.penalty, st.penalty)
                 k = st2.key()
                 if k in seen:
@@ -265,7 +294,20 @@ def _solve_ordered(room: Room, items: list[Item], *, top_k: int, beam_width: int
                 seen.add(k)
                 nxt.append(st2)
         # отбор луча — с разнообразием: иначе ветки-клоны вытесняют принципиально другие схемы
-        beams = keep_best_diverse(nxt, beam_width) or sorted(nxt, key=lambda s: -s.score)[:beam_width]
+        if pair_partner is not None:
+            # L3.3: на шаге пары луч делится ПОПОЛАМ между ветками «пара стоит» и «без пары».
+            # Квоты в срезе кандидатов (L3.2) не спасали: пары-состояния (score выше — размещено
+            # на предмет больше) занимали ВСЕ слоты keep_best_diverse, одиночные ветки гибли, и
+            # когда пары падали на полной валидации (проходы/зоны — их нет в _hard_ok), запасных
+            # не оставалось (A/B 09.08: L3.2 ≡ L3.1, −6 кресел, +5 hard).
+            has2 = lambda s: any(p.role == pair_partner.role for p in s.placements)
+            with_pair = [s for s in nxt if has2(s)]
+            without = [s for s in nxt if not has2(s)]
+            beams = (keep_best_diverse(with_pair, beam_width // 2)
+                     + keep_best_diverse(without, beam_width - beam_width // 2))
+            beams = beams or sorted(nxt, key=lambda s: -s.score)[:beam_width]
+        else:
+            beams = keep_best_diverse(nxt, beam_width) or sorted(nxt, key=lambda s: -s.score)[:beam_width]
         if not beams:
             beams = [State()]
     finals: list[State] = []

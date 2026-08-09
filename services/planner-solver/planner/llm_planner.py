@@ -71,7 +71,9 @@ def _num(v, default: float) -> float:
 def _rules_brief(room: Room) -> str:
     d = distances()
     tv = band_scale("sofa_tv_cm", room.band, d.get("sofa_tv_cm", [180, 300]))
-    tbl = band_scale("sofa_table_cm", room.band, d.get("sofa_coffee_table", [36, 50]))
+    # T6/W2: диван↔столик — фикс-эргономика, area-шкала sofa_table_cm вычищена; этот хвост
+    # был последним потребителем band_scale по ней (L2 мета-плана layout-v5)
+    tbl = d.get("sofa_coffee_table", [36, 46])
     return (f"sofa-to-TV {tv[0]:.0f}–{tv[1]:.0f} cm (up to 400 acceptable if the sofa then stands "
             f"against a wall); sofa-to-coffee-table {tbl[0]:.0f}–{tbl[1]:.0f} cm; "
             f"walkways at least {_num(d.get('passage_secondary_min'), 60):.0f} cm; "
