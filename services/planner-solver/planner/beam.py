@@ -291,7 +291,20 @@ def _solve_ordered(room: Room, items: list[Item], *, top_k: int, beam_width: int
                 seen.add(k)
                 nxt.append(st2)
         # отбор луча — с разнообразием: иначе ветки-клоны вытесняют принципиально другие схемы
-        beams = keep_best_diverse(nxt, beam_width) or sorted(nxt, key=lambda s: -s.score)[:beam_width]
+        if pair_partner is not None:
+            # L3.3: на шаге пары луч делится ПОПОЛАМ между ветками «пара стоит» и «без пары».
+            # Квоты в срезе кандидатов (L3.2) не спасали: пары-состояния (score выше — размещено
+            # на предмет больше) занимали ВСЕ слоты keep_best_diverse, одиночные ветки гибли, и
+            # когда пары падали на полной валидации (проходы/зоны — их нет в _hard_ok), запасных
+            # не оставалось (A/B 09.08: L3.2 ≡ L3.1, −6 кресел, +5 hard).
+            has2 = lambda s: any(p.role == pair_partner.role for p in s.placements)
+            with_pair = [s for s in nxt if has2(s)]
+            without = [s for s in nxt if not has2(s)]
+            beams = (keep_best_diverse(with_pair, beam_width // 2)
+                     + keep_best_diverse(without, beam_width - beam_width // 2))
+            beams = beams or sorted(nxt, key=lambda s: -s.score)[:beam_width]
+        else:
+            beams = keep_best_diverse(nxt, beam_width) or sorted(nxt, key=lambda s: -s.score)[:beam_width]
         if not beams:
             beams = [State()]
     finals: list[State] = []
