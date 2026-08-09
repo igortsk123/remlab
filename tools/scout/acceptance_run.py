@@ -55,7 +55,8 @@ def _one(engine, sc):
     ok = not fails and not missing and r.returncode == 0
     rec = dict(scene=sc['id'], set=sc['set'], ok=ok, fails=fails,
                missing=missing, skipped=skipped, soft_score=dumb,
-               group=(re.search(r'зонная группа: (\S+)', out) or [None, None])[1])
+               group=(re.search(r'зонная группа: (\S+)', out) or [None, None])[1],
+               topo=(re.search(r'^TOPO (.+)$', out, re.M) or [None, None])[1])
     if r.returncode != 0:   # крэш без FAIL-строк иначе неотличим от «просто не ok»
         rec['rc'] = r.returncode
         rec['err'] = (r.stderr or '').strip()[-400:]

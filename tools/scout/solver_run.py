@@ -719,6 +719,10 @@ if CORNER and 'диван' in out:
 out['_room']={'w':RW,'d':RD,'openings':[
     {'kind':'door','wall':'south','offset_cm':DOOR_OFF,'width_cm':DOOR_W,'swing_cm':92},
     {'kind':'window','wall':'east','offset_cm':WIN_OFF,'width_cm':WIN_W,'sill_cm':80}]}
+# L4 (MASTER-layout-v5): топология-сигнатура — семантическая схема раскладки в артефакт и лог
+from topo_sig import topo_key, topo_signature
+out['_topo'] = topo_signature(out)
+print('TOPO ' + topo_key(out['_topo']), flush=True)
 _sfx=os.environ.get('LAYOUT_SUFFIX','')
 json.dump(out,open(os.path.join(HERE,f'{TAG}{n}-layout{_sfx}.json'),'w'),ensure_ascii=False,indent=1)
 
