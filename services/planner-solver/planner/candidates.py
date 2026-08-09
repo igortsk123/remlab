@@ -608,16 +608,27 @@ def generate(room: Room, item: Item, placed: list[Placement], *, limit: int = 48
             rot0 = int(sofa0.rot) % 180 if item.w_cm >= item.d_cm else (int(sofa0.rot) + 90) % 180
             front = sofa0.item.d_cm / 2
             out_c = []
-            for overlap in (25.0, 30.0):
+            from .geometry import room_polygon
+            rp = room_polygon(room).buffer(1)
+            # L6 (сцены set98/set1-bay: диван у боковой стены — центрированный ковёр вылезал
+            # боком за комнату, кандидатов 0, ковёр-якорь терялся): боковой КЛАМП в комнату
+            # (сдвиг вдоль фронта легален — центр по посадке preferred, сдвиг лучше потери) и
+            # запасные заходы глубже 30 (вариант канона «вся мебель на ковре», zones rug.variants)
+            for overlap in (25.0, 30.0, 45.0, 60.0, 80.0):
                 fwd_c = front - overlap + rug_deep / 2
                 px = sofa0.x + fx0 * fwd_c + (-fy0) * act
                 py = sofa0.y + fy0 * fwd_c + fx0 * act
+                if abs(fy0) > abs(fx0):   # фронт вдоль оси Y → боковая ось X
+                    px = min(max(px, rug_along / 2 + 2), room.width_cm - rug_along / 2 - 2)
+                else:
+                    py = min(max(py, rug_along / 2 + 2), room.depth_cm - rug_along / 2 - 2)
                 pl = Placement(role=item.role, x=px, y=py, rot=rot0, item=item)
                 # ковёр — ПОДЛОЖКА: пересекается с мебелью по определению; проверяем только
                 # вхождение в комнату, не в «свободный» полигон
-                from .geometry import room_polygon
-                if room_polygon(room).buffer(1).contains(footprint(pl)):
+                if rp.contains(footprint(pl)):
                     out_c.append(Candidate(pl, "anchor", f"под ножки дивана, заход {overlap:.0f}"))
+                if len(out_c) >= 3:       # канон-заходы 25/30 первыми; глубже — только фолбэк
+                    break
             return out_c[:limit]
         return []
     if item.role in ("стол обеденный", "столик"):

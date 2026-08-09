@@ -220,6 +220,12 @@ def free_space(room: Room, placements: list[Placement], *, with_clearance: bool 
     poly = room_polygon(room)
     blockers = static_blockers(room)
     for p in placements:
+        # L6 (set112/121: столик не вставал, пуф 0%, стулья на ковре гибли): ковёр — ПОДЛОЖКА,
+        # мебель на нём СТОИТ (front-legs канон). check_collisions его пропускает — free_space
+        # обязан быть симметричен, иначе ковёр, встав раньше (шов двухпрохода), выедал зону
+        # столика/пуфа/стульев и роли терялись без следа.
+        if base_role(p.role) == "ковёр":
+            continue
         # экземпляры («стул 2») — члены той же группы, что и базовая роль
         skip_access = p.role in ignore_access_of or base_role(p.role) in ignore_access_of
         blockers.append(footprint(p) if (not with_clearance or skip_access) else blocked_footprint(p))
