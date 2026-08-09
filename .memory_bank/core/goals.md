@@ -3,12 +3,12 @@ tier: 1
 topic: goals-furnish-fit
 scope: Цели продукта — v0.4 «Смета-first»
 tier2: "../goals-one-photo-furnish-fit.md"
-updated: 2026-07-09
+updated: 2026-08-09
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-07-09
+last_verified: 2026-08-09
 review_after: ""
 ---
 

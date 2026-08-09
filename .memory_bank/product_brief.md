@@ -3,12 +3,12 @@ tier: 1
 topic: product
 scope: Бизнес-контекст — зачем/для кого; v0.4 «Смета-first» (v0.3 — истор.)
 tier2: domain/brief-details.md
-updated: 2026-07-09
+updated: 2026-08-09
 importance: high
 source: _intake/brief
 status: working
 source_of_truth: supporting
-last_verified: 2026-07-09
+last_verified: 2026-08-09
 review_after: ""
 ---
 
