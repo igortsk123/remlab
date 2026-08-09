@@ -241,11 +241,14 @@ def _solve_ordered(room: Room, items: list[Item], *, top_k: int, beam_width: int
         # L3 (MASTER-layout-v5): пара кресел раскрывается АТОМАРНО — joint-кандидаты конкурируют
         # с одиночными в одном шаге луча; «кресло 2» из порядка не убирается: состояния, где
         # пара уже стоит, проносятся сквозь его шаг без изменений (см. ниже)
-        # LAYOUT_PAIR_JOINT=0 — выключатель joint-пар для честного A/B на одном коде и данных
-        # (урок L3: baseline, склеенный resume'ом из строк разных дней, для сравнения непригоден)
+        # LAYOUT_PAIR_JOINT=1 включает joint-пары. Вердикт L3 (честный A/B флагом 09.08,
+        # отчёт chair-pair-compound-ab.md): на текущих данных парных групп почти нет
+        # («кресло 2» не required в выбираемых группах), нетто-эффект 0 кресел + один плохой
+        # трейд (set112-long: −диван). Дефолт ВЫКЛ до возврата парных групп в данные и разбора
+        # диван-аномалии; код и тесты сохранены — включение одной переменной среды.
         import os as _os
         pair_partner = None
-        if item.role == "кресло" and _os.environ.get("LAYOUT_PAIR_JOINT", "1") != "0":
+        if item.role == "кресло" and _os.environ.get("LAYOUT_PAIR_JOINT", "0") == "1":
             pair_partner = next((it for it in items if it.role == "кресло 2"), None)
         for st in beams:
             if any(p.role == item.role for p in st.placements):

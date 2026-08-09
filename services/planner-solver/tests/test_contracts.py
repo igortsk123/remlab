@@ -224,9 +224,11 @@ def test_pair_candidates_joint_generation():
         assert c.topology.startswith('pair_joint:')
 
 
-def test_beam_places_armchair_pair_atomically():
+def test_beam_places_armchair_pair_atomically(monkeypatch):
     """L3: solve() с парой кресел в составе ставит ОБА (или ни одного) — пара конкурирует
-    в луче атомарно; сцена канонической комнаты обязана вместить пару."""
+    в луче атомарно; сцена канонической комнаты обязана вместить пару.
+    Фича под флагом (дефолт ВЫКЛ по вердикту A/B 09.08) — тест включает её явно."""
+    monkeypatch.setenv('LAYOUT_PAIR_JOINT', '1')
     room = canonical_room()
     items = [mk('диван'), mk('тв-тумба'), mk('столик'), mk('кресло'), mk('кресло 2')]
     layouts = solve(room, items, top_k=1)
