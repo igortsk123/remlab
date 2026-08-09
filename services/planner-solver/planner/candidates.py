@@ -42,13 +42,6 @@ class Candidate:
     placement: Placement
     kind: str          # wall | corner | anchor | middle
     note: str = ""
-    # L2 (мета-план layout-v5): структурная топология кандидата. Управляющая логика читает ЕЁ,
-    # note — только человекочитаемая подпись (раньше фильтр парсил русские подстроки note).
-    # Значения: pair_mirror | pair_side | pair_fireplace_flank | fireplace_flank | arc | ...
-    topology: str = ""
-    # L3: joint-кандидат группы — доп. размещения, ставящиеся АТОМАРНО вместе с placement
-    # (пара кресел одним ходом луча). Пустой кортеж = обычный одиночный кандидат.
-    extra: tuple[Placement, ...] = ()
 
 
 def role_rank(role: str) -> int:
@@ -189,7 +182,7 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
         lat = anchor.item.corner_section_cm / 2
         return anchor.x + lat * (-fy), anchor.y + lat * fx
 
-    def add(x: float, y: float, rot: float, note: str, topology: str = ""):
+    def add(x: float, y: float, rot: float, note: str):
         # позицию от якоря КЛАМПИМ в комнату: якорь может стоять у самого края (ТВ в углу),
         # и предмет напротив вылезал за стену — кандидат молча пропадал (сеты 50+ теряли диван)
         w, d = _dims_for_rot(item, rot)
@@ -197,7 +190,7 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
         y = min(max(y, WALL_GAP_CM + d / 2), room.depth_cm - WALL_GAP_CM - d / 2)
         p = Placement(role=role, x=x, y=y, rot=rot, item=item)
         if _fits(room, p, free):
-            out.append(Candidate(p, "anchor", note, topology))
+            out.append(Candidate(p, "anchor", note))
 
     sofa = by.get("диван")
     tv = by.get("тв-тумба")
@@ -260,7 +253,7 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
                 mx = fpl0.x + ffx0 * fwd_f + (-ffy0) * (-lat_f)
                 my = fpl0.y + ffy0 * fwd_f + ffx0 * (-lat_f)
                 tx, ty = fpl0.x + ffx0 * 150, fpl0.y + ffy0 * 150
-                add(mx, my, _rot_towards(mx, my, tx, ty), "пара: другой фланг камина", "pair_fireplace_flank")
+                add(mx, my, _rot_towards(mx, my, tx, ty), "пара: другой фланг камина")
     if base_role(role) == "кресло" and role != "кресло" and sofa is not None:
         # F1 (канон пары): второе кресло — ЗЕРКАЛО первого относительно оси диван→фокус
         # или БОК-О-БОК с ним (зазор 30–45) — пара ставится паттерном, не одиночками
@@ -278,7 +271,7 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
             l1 = f1x * (-sfy0) + f1y * sfx0
             mrot = math.degrees(math.atan2(f1x - 2 * l1 * (-sfy0),
                                            f1y - 2 * l1 * sfx0)) % 360
-            add(mx, my, round(mrot / 90) * 90 % 360, "пара: зеркало первого кресла", "pair_mirror")
+            add(mx, my, round(mrot / 90) * 90 % 360, "пара: зеркало первого кресла")
             # бок-о-бок канонен ТОЛЬКО когда кресла НАПРОТИВ дивана (лицом к нему):
             # для боковых кресел он строил «лесенку в затылок» вдоль стены (вердикт 08.08)
             if int(first.rot) % 360 == int(sofa.rot + 180) % 360:
@@ -287,7 +280,7 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
                     for sgn in (-1.0, 1.0):
                         px = first.x + (-f1y) * off * sgn
                         py = first.y + f1x * off * sgn
-                        add(px, py, first.rot, "пара: бок-о-бок", "pair_side")
+                        add(px, py, first.rot, "пара: бок-о-бок")
     if base_role(role) == "кресло" and by.get("камин") is not None:
         # D5 (fireplace corner): кресло перед камином, лицом к нему — вторичная зона.
         # Дистанция — от КРОМОК с учётом безопасной зоны камина (fireplace_clear 100 см):
@@ -307,14 +300,14 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
                 py = fpl.y + ly * lat * sgn + ffy * fwd0
                 # развёрнуто «чуть внутрь»: на точку перед камином, а не на сам камин
                 tx, ty = fpl.x + ffx * (clear + fd), fpl.y + ffy * (clear + fd)
-                add(px, py, _rot_towards(px, py, tx, ty), "фланг камина (вторая зона)", "fireplace_flank")
+                add(px, py, _rot_towards(px, py, tx, ty), "фланг камина (вторая зона)")
         base_off = fd / 2 + clear + item.d_cm / 2
         for extra in (10.0, 60.0):
             gap = base_off + extra
             for side in (-0.35, 0.0, 0.35):
                 px = fpl.x + ffx * gap + (-ffy) * gap * side
                 py = fpl.y + ffy * gap + ffx * gap * side
-                add(px, py, _rot_towards(px, py, fpl.x, fpl.y), "у камина (вторая зона)", "fireplace_front")
+                add(px, py, _rot_towards(px, py, fpl.x, fpl.y), "у камина (вторая зона)")
     if base_role(role) == "кресло" and sofa is not None:
         # D3 (Swyft/Dimensions): позиции НАПРОТИВ дивана, слегка внутрь — канонная
         # разговорная посадка (в дополнение к дуге 135–225)
@@ -333,7 +326,7 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
                 for side in (-0.3, 0.3):
                     px = scx0 + sfx * gap + (-sfy) * (sofa.item.w_cm / 3) * side
                     py = scy0 + sfy * gap + sfx * (sofa.item.w_cm / 3) * side
-                    add(px, py, (_rot_towards(px, py, scx0, scy0)), "напротив дивана", "opposite_sofa")
+                    add(px, py, (_rot_towards(px, py, scx0, scy0)), "напротив дивана")
     if base_role(role) == "кресло" and sofa is not None:
         out += _arc_candidates(room, item, by, free, sofa)
     if rb == "пуф" and ("столик" in by or sofa is not None):
@@ -443,7 +436,7 @@ def _arc_candidates(room: Room, item: Item, by: dict, free: Polygon, sofa: Place
             rot = _rot_towards(px, py, cx, cy)
             p = Placement(role=item.role, x=px, y=py, rot=rot, item=item)
             if _fits(room, p, free):
-                out.append(Candidate(p, "anchor", f"дуга {th:.0f}°", "arc"))
+                out.append(Candidate(p, "anchor", f"дуга {th:.0f}°"))
                 break   # для угла берём ближайший подходящий радиус
     return out
 
@@ -525,29 +518,27 @@ def _fireplace_scenario(cands: list[Candidate], placed: list[Placement], room: R
     sofa = next((p for p in placed if base_role(p.role) == "диван"), None)
     if sofa is None:
         return cands
+    from .clearances import rules as _rules
     try:
         import json as _json
         import os as _os
         zr = _json.load(open(_os.path.join(_os.path.dirname(__file__), '..', 'rules',
                                            'zones.json')))
-        fz = zr['zones']['seating_media']['fireplace']
-        lo, hi = fz['distance_to_seating_cm']
-        sector = float(fz.get('primary_sector_deg', {}).get('диван', 35))
+        lo, hi = zr['zones']['seating_media']['fireplace']['distance_to_seating_cm']
     except Exception:
-        lo, hi, sector = 200, 450, 35.0
+        lo, hi = 200, 450
     fx, fy = _face_dir(sofa.rot)
     sfp = footprint(sofa)
     keep = []
     for c in cands:
         ffp = footprint(c.placement)
-        # G2-пересмотр (веб 08.08): угловой камин легален; фокус обеспечивает primary-сектор
-        # (число — zones.json primary_sector_deg, единый источник с валидатором — L2)
+        # G2-пересмотр (веб 08.08): угловой камин легален; фокус обеспечивает сектор 35°
         d = sfp.distance(ffp)
         if not (lo <= d <= hi):
             continue
         vx, vy = ffp.centroid.x - sfp.centroid.x, ffp.centroid.y - sfp.centroid.y
         n = _m.hypot(vx, vy)
-        if n > 1 and (vx * fx + vy * fy) / n < _m.cos(_m.radians(sector)):
+        if n > 1 and (vx * fx + vy * fy) / n < _m.cos(_m.radians(35)):
             continue
         keep.append(c)
     return keep
@@ -587,10 +578,8 @@ def generate(room: Room, item: Item, placed: list[Placement], *, limit: int = 48
     if _is_instance and not _first_placed:
         return []   # пара строится ТОЛЬКО от первого кресла (лазейка «второй на дугу» закрыта)
     if _is_instance:
-        # L2: фильтр по структурному полю topology (раньше — по русским подстрокам note);
-        # поведение то же: парные позиции + фланги камина (generic-фланг легален для второго)
-        cands = [c for c in cands
-                 if c.topology.startswith("pair_") or c.topology == "fireplace_flank"]
+        cands = [c for c in cands if c.kind == "anchor" and
+                 ("пара" in c.note or "фланг камина" in c.note)]
     else:
         cands += wall_candidates(room, item, free)
     cands += m_c
@@ -640,27 +629,4 @@ def generate(room: Room, item: Item, placed: list[Placement], *, limit: int = 48
         out.append(c)
         if len(out) >= limit:
             break
-    return out
-
-
-def pair_candidates(room: Room, item: Item, partner: Item, placed: list[Placement],
-                    *, limit_first: int = 12, limit: int = 24) -> list[Candidate]:
-    """L3 (MASTER-layout-v5): joint-генерация ПАРЫ кресел — обе позы одним кандидатом.
-
-    Снимает порядковую зависимость «№2 только от уже выбранного №1» (V5 §17–18): плохой выбор
-    первого кресла схлопывал пространство второго (`generate` инстанса без первого → []).
-    Формулы позиций переиспользуются: для каждой позы первого кресла (дуга/фланг/напротив
-    дивана) вторая поза строится тем же деривативным путём `generate(partner, ...)` — т.е.
-    пары идентичны тем, что луч мог найти последовательно, но видны АТОМАРНО и конкурируют
-    с одиночными ветками честно. Валидация/скоринг пары — на совокупности (beam)."""
-    out: list[Candidate] = []
-    for c1 in generate(room, item, placed)[:limit_first]:
-        for c2 in generate(room, partner, placed + [c1.placement]):
-            # generate() инстанса уже отфильтрован до pair_*/fireplace_flank (гейт L2)
-            out.append(Candidate(c1.placement, "anchor",
-                                 f"пара joint: {c1.note} + {c2.note}",
-                                 f"pair_joint:{c2.topology or '?'}",
-                                 (c2.placement,)))
-            if len(out) >= limit:
-                return out
     return out

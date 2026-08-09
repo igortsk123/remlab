@@ -311,33 +311,28 @@ def check_wall_only(room: Room, ps: list[Placement]) -> list[Violation]:
 
 
 def _in_fireplace_zone(ps: list[Placement], arm: Placement) -> bool:
-    """D5: кресло принадлежит камин-уголку (вторичная зона, не член дивановой дуги).
-    Дистанция и конус — из zones.json secondary_zone (L2: код читает данные, не наоборот)."""
+    """D5 (план layout-composition-deep): кресло принадлежит камин-уголку — 100–250 см от
+    камина, лицом к нему (конус 45°). Такое кресло — вторичная зона, не член дивановой дуги."""
     import math as _m
-
-    from .zones import zone_rules
 
     by = _by_base(ps)
     fpl = by.get("камин")
     if fpl is None or arm.item is None:
         return False
-    sz = zone_rules()["zones"]["seating_media"]["fireplace"]["secondary_zone"]
-    lo, hi = sz["armchair_dist_cm"]      # 20+: фланг по бокам камина, 280: предел уголка
-    cone = float(sz["cone_deg"])
     d = footprint(arm).distance(footprint(fpl))
-    if not (lo <= d <= hi):
+    if not (20 <= d <= 280):     # 20+: фланг по бокам камина (канон), 280: предел уголка
         return False
     afx, afy = facing_vector(arm.rot)
     fc, ac = footprint(fpl).centroid, footprint(arm).centroid
     # фланговое кресло развёрнуто «чуть внутрь» — смотрит на точку ПЕРЕД камином,
-    # поэтому конус меряем к зоне камина (центр + фронт)
+    # поэтому конус меряем к зоне камина (центр + фронт), порог 75°
     ffx, ffy = facing_vector(fpl.rot)
     tx = fc.x + ffx * 120
     ty = fc.y + ffy * 120
     for px, py in ((fc.x, fc.y), (tx, ty)):
         vx, vy = px - ac.x, py - ac.y
         n = _m.hypot(vx, vy)
-        if n > 1 and (vx * afx + vy * afy) / n >= _m.cos(_m.radians(cone)):
+        if n > 1 and (vx * afx + vy * afy) / n >= _m.cos(_m.radians(75)):
             return True
     return False
 
@@ -1001,10 +996,9 @@ def check_service_surface(room: Room, ps: list[Placement]) -> list[Violation]:
 def check_fireplace_seating(room: Room, ps: list[Placement]) -> list[Violation]:
     """P0.7 (рефери 08.08, финальный свод): камин — focal-элемент, не filler; H1.
     Разрешён, только если он в focal-зоне ХОТЬ ОДНОЙ посадки: (A) primary — главный диван
-    в вилке distance_to_seating_cm и секторе primary_sector_deg; (B) secondary — кресло в
-    камин-уголке (secondary_zone). Ни A, ни B → HARD (кандидатный гейт _fireplace_scenario
-    такие места и не предлагает — код ловит легаси/чужие пути). Все числа — zones.json;
-    текст нарушения строится из них же (L2: один источник, дрифт текстов невозможен)."""
+    в вилке 200–450 и секторе ≤75°; (B) secondary — кресло/посадка, ориентированная на камин
+    в тех же рамках. Ни A, ни B → HARD (кандидатный гейт _fireplace_scenario такие места и
+    не предлагает — код ловит легаси/чужие пути). Данные — zones.json."""
     import math as _m
 
     from .zones import zone_rules
@@ -1013,21 +1007,17 @@ def check_fireplace_seating(room: Room, ps: list[Placement]) -> list[Violation]:
     fp = by.get("камин")
     if fp is None:
         return []
-    # secondary: кресло в камин-зоне (окно+конус из secondary_zone) — фокус обеспечен
+    # secondary: кресло в камин-зоне (окно 20–280 + конус) — фокус обеспечен
     if any(_in_fireplace_zone(ps, a) for a in _inst(ps, "кресло")):
         return []
     seats = [by["диван"]] if "диван" in by else []
     if not seats:
         return []
-    fz = zone_rules()["zones"]["seating_media"]["fireplace"]
-    lo, hi = fz["distance_to_seating_cm"]
-    sec = fz.get("primary_sector_deg", {})
-    sec_sofa = float(sec.get("диван", 35))
-    sec_other = float(sec.get("прочая_посадка", 45))
+    lo, hi = zone_rules()["zones"]["seating_media"]["fireplace"]["distance_to_seating_cm"]
     ffp = footprint(fp)
     # G2-пересмотр (веб-проверка 08.08): угловой камин ЛЕГАЛЕН (corner electric fireplace —
     # признанный класс), но ТОЛЬКО как настоящий фокус: посадка обязана быть ориентирована
-    # НА него (E6, set113: камин ПЕРЕД посадкой, сектор primary_sector_deg) — либо кресла-фланг.
+    # НА него — сектор primary сужен до 35° (не «вполоборота»), либо кресла-фланг.
     for seat in seats:
         d = footprint(seat).distance(ffp)
         if not (lo <= d <= hi):
@@ -1036,12 +1026,12 @@ def check_fireplace_seating(room: Room, ps: list[Placement]) -> list[Violation]:
         sc, fc = footprint(seat).centroid, ffp.centroid
         vx, vy = fc.x - sc.x, fc.y - sc.y
         n = _m.hypot(vx, vy)
-        sector = sec_sofa if seat.role.split(' ')[0] == 'диван' else sec_other
-        if n <= 1 or (vx * fx + vy * fy) / n >= _m.cos(_m.radians(sector)):
+        # E6 (вердикт владельца set113): камин — ПЕРЕД посадкой (передняя полусфера),
+        # «напротив, можно под углом» — сектор ≤50°, не 75
+        if n <= 1 or (vx * fx + vy * fy) / n >= _m.cos(_m.radians(35 if seat.role.split(' ')[0] == 'диван' else 45)):
             return []   # камин в focal-зоне этой посадки — сценарий есть
     return [_v("FIREPLACE_FAR_FROM_SEATING",
-               f"камин вне focal-зоны любой посадки (вилка {lo:.0f}–{hi:.0f}, "
-               f"сектор {sec_sofa:.0f}°/{sec_other:.0f}°)",
+               f"камин вне focal-зоны любой посадки (вилка {lo:.0f}–{hi:.0f}, сектор 75°)",
                ["камин"], None, "primary- или secondary-focal зона")]
 
 
