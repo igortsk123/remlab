@@ -71,6 +71,30 @@ def _key() -> str:
     raise SystemExit('нет OPENAI_API_KEY')
 
 
+_KB_CACHE: dict[str, str] = {}
+
+
+def _kb_rules(ctx: dict) -> str:
+    """Применимые правила базы (PLANE A) — субпроцессом в kdb-venv, с кэшем.
+    Владелец 10.08: только применимые к сцене, не весь корпус."""
+    import subprocess
+    key = json.dumps(ctx, sort_keys=True, ensure_ascii=False)
+    if key not in _KB_CACHE:
+        try:
+            out = subprocess.run(
+                [os.path.expanduser('~/venvs/kdb/bin/python'), '-m',
+                 'kdb.scene_rules', key],
+                cwd=os.path.join(HERE, '..', '..', 'services', 'knowledge-db'),
+                capture_output=True, text=True, timeout=120)
+            _KB_CACHE[key] = out.stdout.strip() if out.returncode == 0 else ''
+            if out.returncode != 0:
+                print(f'  WARNING: kb-правила недоступны: {out.stderr[:120]}')
+        except Exception as e:  # noqa: BLE001 — конвейер живёт и без базы
+            print(f'  WARNING: kb-правила недоступны ({e})')
+            _KB_CACHE[key] = ''
+    return _KB_CACHE[key]
+
+
 def _rules_digest() -> str:
     d = OCC['distances_cm']
 
@@ -116,18 +140,30 @@ SYS = (
 )
 
 
-def call_judge(layout: dict, png_path: str, cache: dict) -> dict | None:
+def call_judge(layout: dict, png_path: str, cache: dict,
+               owner_comment: str | None = None) -> dict | None:
     payload = {'layout': {k: v for k, v in layout.items() if not k.startswith('_')},
                'room': layout['_room']}
-    h = hashlib.sha256((MODEL + json.dumps(payload, sort_keys=True,
-                                           ensure_ascii=False)).encode()).hexdigest()
+    h = hashlib.sha256((MODEL + (owner_comment or '') +
+                        json.dumps(payload, sort_keys=True,
+                                   ensure_ascii=False)).encode()).hexdigest()
     if h in cache:
         return cache[h]['verdict']
     b64 = base64.b64encode(open(png_path, 'rb').read()).decode()
+    ctx = {'room_type': 'living_room',
+           'zone_types': ['conversation', 'tv_media', 'relaxation'],
+           'jurisdiction': 'us_north_america'}
+    blocks = []
+    if owner_comment:
+        blocks.append("ЗАМЕЧАНИЕ ВЛАДЕЛЬЦА (высший приоритет — выполнить, не "
+                      f"ломая правила): {owner_comment}")
+    blocks.append(_rules_digest())
+    kb = _kb_rules(ctx)
+    if kb:
+        blocks.append("Применимые правила из книги (сила в скобках):\n" + kb)
+    blocks.append("Координаты (см):\n" + json.dumps(payload, ensure_ascii=False))
     user = [
-        {'type': 'text', 'text':
-            _rules_digest() + "\n\nКоординаты (см):\n" +
-            json.dumps(payload, ensure_ascii=False)},
+        {'type': 'text', 'text': "\n\n".join(blocks)},
         {'type': 'image_url', 'image_url': {
             'url': f'data:image/png;base64,{b64}', 'detail': 'high'}},
     ]
@@ -218,12 +254,24 @@ def main():
     ap.add_argument('--scenes', nargs='*', default=None)
     ap.add_argument('--pilot', type=int, default=0,
                     help='взять N худших сцен (FAIL/soft) из приёмки')
+    ap.add_argument('--from-comments', action='store_true',
+                    help='обработать сцены из owner-comments.jsonl')
     ap.add_argument('--rounds', type=int, default=2)
     args = ap.parse_args()
 
+    comments: dict[str, str] = {}
+    cpath = os.path.join(HERE, 'owner-comments.jsonl')
+    if os.path.exists(cpath):
+        for l in open(cpath):
+            if l.strip():
+                row = json.loads(l)
+                comments[row['id']] = row['comment']
+
     report = [json.loads(l) for l in
               open(os.path.join(HERE, 'acceptance-report-zoned.jsonl'))]
-    if args.scenes:
+    if args.from_comments:
+        todo = [r for r in report if r['id'] in comments]
+    elif args.scenes:
         todo = [r for r in report if r['id'] in set(args.scenes)]
     else:
         bad = [r for r in report if not (r.get('verdict') == 'OK' or r.get('ok'))]
@@ -254,7 +302,8 @@ def main():
         applied_log = []
         verdict = None
         for _ in range(args.rounds):
-            verdict = call_judge(layout, png_path, cache)
+            verdict = call_judge(layout, png_path, cache,
+                                 owner_comment=comments.get(sid))
             if not verdict or not verdict['suggested_moves']:
                 break
             cur, after, log = apply_moves(room, cur, verdict['suggested_moves'])
