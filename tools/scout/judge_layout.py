@@ -327,13 +327,9 @@ def main():
         changed = after != before or any(
             l['result'].startswith('ACCEPT') for l in applied_log)
         after_png = os.path.join(OUT_DIR, f'{sid}-after.png')
-        import shutil
-        shutil.copy(png_path, os.path.join(OUT_DIR, f'{sid}-before.png'))
-        if changed:
-            from scene_build import draw_plan
-            draw_plan(room, cur, [], after_png)
-        else:
-            shutil.copy(png_path, after_png)
+        # всегда рендерим заново (не копия): единый стиль/шрифты у всех планов страницы
+        from scene_build import draw_plan
+        draw_plan(room, cur, [], after_png)
         summary.append({'id': sid, 'before': before, 'after': after,
                         'score': (verdict or {}).get('score'),
                         'issues': (verdict or {}).get('issues', []),
@@ -343,10 +339,7 @@ def main():
             f"<section><h2>{sid} <small>судья: {(verdict or {}).get('score','—')}/10 · "
             f"hard/soft {before}→{after} · принято ходов {accepted}/"
             f"{len(applied_log)}</small></h2>"
-            f"<div class='pair'><figure><figcaption>до</figcaption>"
-            f"<img src='{sid}-before.png'></figure>"
-            f"<figure><figcaption>после</figcaption>"
-            f"<img src='{sid}-after.png'></figure></div>"
+            f"<img class='plan' src='{sid}-after.png'>"
             + "".join(f"<p class='iss'>• [{i['severity']}] {', '.join(i['roles'])}: "
                       f"{i['why']}</p>" for i in (verdict or {}).get('issues', []))
             + "".join(f"<p class='mv'>→ {l['move']['role']} → "
@@ -360,16 +353,15 @@ def main():
               ensure_ascii=False, indent=1)
     page = f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex"><title>Судья раскладок — до/после</title>
-<style>body{{margin:0;background:#fff;color:#1A1F1C;font:15px/1.5 system-ui}}
+<meta name="robots" content="noindex"><title>Судья раскладок — итоговые планы</title>
+<style>body{{margin:0;background:#fff;color:#1A1F1C;font:17px/1.5 system-ui}}
 .wrap{{max-width:1100px;margin:0 auto;padding:20px 14px 60px}}
-section{{border-top:1px solid #E4E6E2;padding:14px 0}}
-h2 small{{color:#5C655E;font-weight:400;font-size:13px}}
-.pair{{display:grid;grid-template-columns:1fr 1fr;gap:10px}}
-figure{{margin:0}} figcaption{{color:#5C655E;font-size:12px}}
-img{{max-width:100%;border:1px solid #ECEEEA;border-radius:4px}}
-.iss{{color:#A2493B;font-size:13.5px;margin:4px 0}}
-.mv{{color:#2F6B8F;font-size:13.5px;margin:4px 0}}</style></head>
+section{{border-top:1px solid #E4E6E2;padding:16px 0}}
+h2{{font-size:22px;margin:0 0 10px}}
+h2 small{{color:#5C655E;font-weight:400;font-size:16px}}
+img.plan{{display:block;max-width:100%;border:1px solid #ECEEEA;border-radius:4px}}
+.iss{{color:#A2493B;font-size:16px;margin:5px 0}}
+.mv{{color:#2F6B8F;font-size:16px;margin:5px 0}}</style></head>
 <body><div class="wrap"><h1>Судья раскладок (terra-vision) — до/после,
 {len(summary)} сцен</h1>{''.join(rows_html)}</div></body></html>"""
     open(os.path.join(OUT_DIR, 'index.html'), 'w').write(page)

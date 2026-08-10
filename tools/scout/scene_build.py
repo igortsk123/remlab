@@ -201,9 +201,10 @@ def draw_plan(room: Room, placements: list[Placement], cams, path: str) -> str:
         return (pad + x * sc, pad + (room.depth_cm - z) * sc)
 
     d.rectangle([T(0, room.depth_cm), T(room.width_cm, 0)], outline='#1A1F1C', width=3)
-    f_small = ImageFont.truetype(FONT, 15)
-    f_cam = ImageFont.truetype(FONT, 17)
-    f_dim = ImageFont.truetype(FONT, 19)
+    # 10.08 владелец: «подписи не видно нифига» — шрифты плана крупнее
+    f_small = ImageFont.truetype(FONT, 22)
+    f_cam = ImageFont.truetype(FONT, 22)
+    f_dim = ImageFont.truetype(FONT, 24)
 
     # размерные линии и площадь — план должен читаться как чертёж, а не как схема
     top = pad - 26
