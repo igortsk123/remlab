@@ -39,7 +39,9 @@ def _one(engine, sc):
     elif 'w' in sc:
         args += [str(sc['w']), str(sc['d'])]
     try:
-        r = subprocess.run(args, capture_output=True, text=True, timeout=300, env=env)
+        # W5 (урок 213 + 10.08): при >2 воркерах контеншн замедляет тяжёлые сцены —
+        # таймаут 600, чтобы они ДОСЧИТЫВАЛИСЬ, а не падали ложным TIMEOUT
+        r = subprocess.run(args, capture_output=True, text=True, timeout=600, env=env)
     except subprocess.TimeoutExpired:
         return dict(scene=sc['id'], set=sc['set'], ok=False,
                     fails=['TIMEOUT'], missing=[], soft_score=None)
