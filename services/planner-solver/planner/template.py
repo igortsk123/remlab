@@ -35,7 +35,8 @@ FLANK_GAP = 32.0                 # кресло от торца дивана (25
 VIS_FACE = (183.0, 305.0)        # фронт-фронт визави (TYPICAL face-to-face, KB)
 L_GAP = 20.0                     # Г-стык торец-к-торцу (10–30)
 CIRCLE_D = 396.0                 # круг беседы, верх PREFERRED (KB)
-CHAIR_TUCK = 8.0                 # заезд стула под столешницу (задвинут — норма)
+CHAIR_GAP = 2.0                  # стул вплотную к кромке (заезд под столешницу =
+                                 # COLLISION в движке — урок 205, стык без пересечения)
 TOP_FULL_VALIDATE = 6            # лучших блоков на полный validate
 
 
@@ -235,7 +236,7 @@ def build_dining(by_role: dict[str, Item], max_chairs: int,
             spots.append((x, -d / 2, 0.0))         # дальняя сторона
     spots += [(w / 2, 0.0, 270.0), (-w / 2, 0.0, 90.0)]   # торцы
     for ch, (sx, sy, srot) in zip(chairs, spots):
-        off = ch.d_cm / 2 - CHAIR_TUCK
+        off = ch.d_cm / 2 + CHAIR_GAP
         dx, dy = _rt(0.0, off, srot)               # сдвиг наружу вдоль взгляда стула
         b.add(ch, sx - dx, sy - dy, srot)
     return b
