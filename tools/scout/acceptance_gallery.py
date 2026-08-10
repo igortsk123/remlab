@@ -24,7 +24,7 @@ rows.sort(key=lambda r: (r.get('set') or 0, r.get('id') or ''))
 cards = []
 combined = {}
 for r in rows:
-    sid = r['id']; n = r.get('set')
+    sid = r['scene']; n = r.get('set')
     png = os.path.join(HERE, f"v3set{n}-layout-acc-zoned-{sid}.png")
     lay = os.path.join(HERE, f"v3set{n}-layout-acc-zoned-{sid}.json")
     if not os.path.exists(png):
@@ -33,9 +33,9 @@ for r in rows:
     if os.path.exists(lay):
         shutil.copy(lay, os.path.join(OUT, f"{sid}.json"))
         combined[sid] = json.load(open(lay))
-    ok = r.get('verdict') == 'OK' or r.get('ok')
+    ok = r.get('ok')
     status = 'OK' if ok else 'FAIL'
-    fails = ', '.join(r.get('fails') or r.get('hard') or []) if not ok else ''
+    fails = ', '.join(r.get('fails') or []) if not ok else ''
     soft = r.get('soft_score')
     cards.append(
         f"<section id='{html.escape(sid)}'>"

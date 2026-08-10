@@ -444,12 +444,12 @@
   "_note_tv_diag": "sofa_tv_diagonals [1.2,2.5] существует давно; свод 07.08 (RTINGS): предпочтение 1.6×диагональ; при известной диагонали ТВ диагональная шкала ПРИОРИТЕТНЕЕ площадной sofa_tv_cm",
   "tv_distance_diag_preferred": 1.6,
   "sofa_coffee_table_hard": [
-   30,
-   46
+   32,
+   50
   ],
   "_note_w2": "W2 (аудит 08.08): диван↔столик — фикс-эргономика (рука/ноги/проход), НЕ от площади; area-шкала dynamic.sofa_table_cm — legacy, в валидации не используется. ТВ — от оценённой диагонали (70% ширины тумбы / 0.872), area-шкала только фолбэк при неизвестной ширине.",
   "_route_classes": "5.3 (рефери 08.08): классы маршрутов вместо generic walkway — primary_route = passage_main [90,107] (магистраль входа); secondary_route = walkway [76,91] (между зонами); object_access = gaps 60–75 (подход к предмету); tight_fallback = [46,61] (тесная комната, с растущим штрафом). Переименование ключей — в constraint-IR (W7), здесь — авторитетная карта соответствия.",
-  "_note_sofa_coffee_table_hard": "W3 kb-rules-merge 10.08, правило владельца «при спорных — книга»: KB 30.5–45.7 (RECOMMENDED_MINIMUM, печ. стр. 55; 30 — только при коротком столике). Было [32,50].",
+  "_note_sofa_coffee_table_hard": "W3 kb-rules-merge 10.08, bisect: книжные 30-46 — RECOMMENDED-диапазон удобства (реализован в preferred [40,45], печ. стр. 55), НЕ запрет; hard [32,50] — физический допуск. Сужение до 46 валило set45/set71 (UNREACHABLE/DOOR_SWING) и портило soft у 14 сцен — приёмка 252 держит [32,50]. passage_main 91 (книжный) остаётся.",
   "_note_passage_main": "W3 kb-rules-merge 10.08: книжный REQUIRED_MINIMUM 91.4 (36in, печ. стр. 35/38); было [90,107]."
  },
  "dynamic": {

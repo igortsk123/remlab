@@ -29,7 +29,12 @@ OUT_JSON = REPO_ROOT / "docs" / "kb-rules-classification.json"
 MAPPING = [
     dict(param="sofa_coffee_table_hard", query="cocktail table sofa distance edge",
          dims={"RELATIVE_FURNITURE_DISTANCE", "CLEARANCE"}, subject_any=("sofa",),
-         compare="range_overlap"),
+         compare="review",
+         review_note="классовое различие: книжные 30–46 — RECOMMENDED-диапазон "
+                     "удобства (реализован в preferred [40,45]); hard [32,50] — "
+                     "наш физический допуск. Bisect 10.08: сужение hard до 46 "
+                     "валит set45/set71 и портит soft у 14 сцен — приёмка 252 "
+                     "держит [32,50]"),
     dict(param="sofa_coffee_table_preferred", query="cocktail table sofa distance edge",
          dims={"RELATIVE_FURNITURE_DISTANCE", "CLEARANCE"}, subject_any=("sofa",),
          compare="inside_kb"),

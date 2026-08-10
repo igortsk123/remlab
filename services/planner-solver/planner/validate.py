@@ -1088,9 +1088,12 @@ def check_sofa_pair_geometry(ps: list[Placement]) -> list[Violation]:
     одного дивана, упирающийся в БОК/СПИНКУ другого, — блокировка: сидящие смотрят
     в заднюю панель соседа (S1)."""
     import math as _m
+    import os as _os
 
     from .geometry import base_role
 
+    if _os.environ.get("KDB_DISABLE_SOFA_PAIR"):   # отладка/изоляция A-B
+        return []
     sofas = [p for p in ps if base_role(p.role) == "диван" and p.item is not None]
     if len(sofas) < 2:
         return []

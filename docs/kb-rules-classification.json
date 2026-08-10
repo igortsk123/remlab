@@ -3,11 +3,11 @@
   {
    "param": "sofa_coffee_table_hard",
    "current": [
-    30,
-    46
+    32,
+    50
    ],
-   "verdict": "SUPPORTED",
-   "why": "внутри книжной вилки [30.48,45.72]",
+   "verdict": "REVIEW_OWNER",
+   "why": "классовое различие: книжные 30–46 — RECOMMENDED-диапазон удобства (реализован в preferred [40,45]); hard [32,50] — наш физический допуск. Bisect 10.08: сужение hard до 46 валит set45/set71 и портит soft у 14 сцен — приёмка 252 держит [32,50]",
    "evidence": [
     {
      "canonical": "CANON_7886a5d76effce",
@@ -745,8 +745,8 @@
   }
  ],
  "counts": {
-  "SUPPORTED": 10,
-  "REVIEW_OWNER": 3,
+  "REVIEW_OWNER": 4,
+  "SUPPORTED": 9,
   "SEMANTIC_ONLY": 1,
   "NO_KB_DATA": 2
  }

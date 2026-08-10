@@ -1,12 +1,12 @@
 # Классификация прод-правил против source-KB (W0, kb-rules-merge)
 
-Снапшот KB: `runs/r20260810a` · параметров разобрано: 16 из 37 в distances_cm (остальные — вне книжной тематики или NOT_MAPPED_YET) · итог: {'SUPPORTED': 10, 'REVIEW_OWNER': 3, 'SEMANTIC_ONLY': 1, 'NO_KB_DATA': 2}
+Снапшот KB: `runs/r20260810a` · параметров разобрано: 16 из 37 в distances_cm (остальные — вне книжной тематики или NOT_MAPPED_YET) · итог: {'REVIEW_OWNER': 4, 'SUPPORTED': 9, 'SEMANTIC_ONLY': 1, 'NO_KB_DATA': 2}
 
 Правило W0: прод НЕ меняется этим документом. SUPPORTED — фиксируем пруф; REVIEW_OWNER/TOO_* / CONTRADICTED — решение владельца построчно.
 
 | Параметр | Движок | Вердикт | Почему | Пруф (печ. стр.) |
 |---|---|---|---|---|
-| `sofa_coffee_table_hard` | [30, 46] | **SUPPORTED** | внутри книжной вилки [30.48,45.72] | 55 |
+| `sofa_coffee_table_hard` | [32, 50] | **REVIEW_OWNER** | классовое различие: книжные 30–46 — RECOMMENDED-диапазон удобства (реализован в preferred [40,45]); hard [32,50] — наш физический допуск. Bisect 10.08: сужение hard до 46 валит set45/set71 и портит soft у 14 сцен — приёмка 252 держит [32,50] | 55 |
 | `sofa_coffee_table_preferred` | [40, 45] | **SUPPORTED** | текущее [40,45] внутри KB [30.48,45.72] | 55 |
 | `sofa_tv_cm` | [180, 300] | **SUPPORTED** | внутри книжной вилки [152.4,335.28] | 55 |
 | `passage_main` | [91, 107] | **SUPPORTED** | минимум движка 91 ≥ книжного 91.44 | 35, 38, 39 |
