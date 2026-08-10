@@ -482,6 +482,20 @@ def main() -> None:
               f"({IMG_STATS['fail']/max(len(items),1)*100:.1f}%), за {(time.time()-t0)/60:.0f} мин")
     elif '--pool' in a:
         items = todo(pool())
+        # W5 (аудит 10.08): переобогащение = свежая картинка. Кэш imgcache ключуется
+        # URL'ом, и при подмене фото магазином по тому же URL модель вечно видела бы
+        # старый снимок — сбрасываем кэш всем, кто идёт на переобогащение.
+        import re as _re
+        from golden_label import IMG_DIR as _IMGD
+        _busted = 0
+        for it in items:
+            if it.get('img'):
+                _p = os.path.join(_IMGD, _re.sub(r'[^A-Za-z0-9]', '_',
+                                                 it['img'])[-90:] + '.jpg')
+                if os.path.exists(_p):
+                    os.remove(_p); _busted += 1
+        if _busted:
+            print(f'imgcache: сброшено {_busted} картинок переобогащаемых')
         if '--limit' in a:
             n = int(a[a.index('--limit') + 1])
             # Пилот берём ПОРОВНУ ИЗ ВСЕХ КАТЕГОРИЙ, а не первые N подряд: пул отсортирован по
@@ -539,6 +553,9 @@ def main() -> None:
                        and payload->'rules'->>'dims_quality'='полные'""")
         keys = {tuple(l.split('\x1f')) for l in ids.strip().split('\n') if l}
         items = [it for it in pool() if (str(it['mid']), it['eid']) in keys]
+        # W5: дневной кап для крона — разовая добивка новичков (~3.2k), дальше капли
+        if '--limit' in a:
+            items = items[:int(a[a.index('--limit') + 1])]
         print(f'на эскалацию: {len(items)} товаров, модель {MODEL_STRONG}')
         if items:
             run_sync(items, MODEL_STRONG)

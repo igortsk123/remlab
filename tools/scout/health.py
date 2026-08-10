@@ -37,8 +37,11 @@ def alive(shop,du,name):
 
 sets2=json.load(open(os.path.join(HERE,'sets2.json')))
 sets1=json.load(open(os.path.join(HERE,'sets.json')))
+# W5 (аудит 10.08): боевое поколение sets3 раньше НЕ проверялось на живость карточек
+sets3=json.load(open(os.path.join(HERE,'sets3.json'))) \
+    if os.path.exists(os.path.join(HERE,'sets3.json')) else []
 todo={}
-for src,ss in (('v1',sets1),('v2',sets2)):
+for src,ss in (('v1',sets1),('v2',sets2),('v3',sets3)):
     for si,s in enumerate(ss):
         for role,it in s['items'].items():
             todo.setdefault((it['mid'],it['eid']),{'name':it['name'],'refs':[]})['refs'].append((src,si,role))

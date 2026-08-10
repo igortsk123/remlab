@@ -24,7 +24,7 @@ def band(role,tier):
     return {'эконом':(pc(.05),pc(.45)),'комфорт':(pc(.35),pc(.80)),'премиум':(pc(.70),pc(.97))}[tier]
 
 report={'updated':0,'price_changes':[],'tier_outliers':[],'missing':[]}
-for fname in ('sets.json','sets2.json'):
+for fname in ('sets.json','sets2.json','sets3.json'):  # W5: sets3 раньше не обновлялся
     path=os.path.join(HERE,fname)
     if not os.path.exists(path): continue
     sets=json.load(open(path))

@@ -95,16 +95,19 @@ fi
 step candidates "$PY" candidates.py --build
 step sets_index "$PY" sets_incremental.py --index
 step sets_check "$PY" sets_incremental.py --check
+# 6→5b. W5 (аудит 10.08): ЖИВОСТЬ КАРТОЧЕК ДО ЛЕЧЕНИЯ — иначе мёртвое, найденное сегодня,
+# лечится только завтра. health теперь проверяет и sets3 (боевое поколение).
+step health "$PY" health.py
+step metrics "$PY" sync_metrics.py
 # 5b. АВТОЗАМЕНА выбывших (владелец 2026-08-07: «товар заменяться должен автоматом, если
 # наличия нет»): запасной той же роли, в наличии, ±30% цены, с перепроверкой пропорций;
 # без замены — комплект честно помечается. Бэкап sets3.json пишет сам heal.
 step sets_heal "$PY" sets_incremental.py --heal --apply
-
-# 6. Старое поколение проверок (карточки sets2, метрики). style_score.py убран (А1):
-# он платно скорил новинки по тексту параллельно с обогащением — двойная оплата, мост
-# enrich_bridge берёт attrs-путь из product_enrichment.
-step health "$PY" health.py
-step metrics "$PY" sync_metrics.py
+# W5: после замен индекс обязан сойтись с sets3 СЕГОДНЯ, а не завтра
+step sets_reindex "$PY" sets_incremental.py --index
+# W5: терра-эскалация слабых карточек — в кроне с дневным капом (разовая добивка новичков
+# трёх свежих фидов ~3.2k, дальше капли; владелец 10.08 подтвердил)
+step escalate "$PY" enrich.py --escalate --limit 400
 
 # 7. Страница расстановок владельцу — пересобирается и публикуется КОНВЕЙЕРОМ ежедневно
 # (требование владельца 2026-08-07: никаких ручных сборок). Набор сетов — референсная десятка.
@@ -116,6 +119,12 @@ if [ "$(date +%u)" = "1" ]; then
   step solver_full env CHECK_TAG=weekly "$PY" solver_check.py
   # В3 (владелец 07.08): точечное освежение сетов новинками — лучшая ступень стиля, ≤2 замен/сет
   step sets_refresh "$PY" sets_incremental.py --refresh --apply
+  # W5: после недельных замен — переиндекс и судья сетов (вернулся в цикл: баланс OpenAI есть,
+  # владелец 10.08); судья смотрит коллажи и отмечает выбивающиеся предметы
+  step sets_reindex_w "$PY" sets_incremental.py --index
+  step sets_judge "$PY" judge.py || true
+  # W5: еженедельный бэкап каталога (dev-БД существует в единственном экземпляре)
+  step db_backup bash -c 'mkdir -p ~/backups && docker exec remlab-devdb pg_dump -U remlab remlab | gzip > ~/backups/remlab-devdb-$(date +%Y%m%d).sql.gz && ls -t ~/backups/remlab-devdb-*.sql.gz | tail -n +5 | xargs -r rm'
 fi
 
 echo "$today" > "$STAMP"

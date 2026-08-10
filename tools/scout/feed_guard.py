@@ -81,10 +81,12 @@ def scan() -> dict:
         prev_offers = (prev.get(h) or {}).get('offers', 0)
         if offers == 0:
             state = 'empty'
-            # алертим только исторически непустой: вечно пустой фид — известная особенность,
-            # о нём алерт один раз при переходе непустой→пустой
-            if prev_offers > 100:
-                _alert(f'remlab: фид {h[:12]} отдал 0 офферов (было {prev_offers}) — '
+            # W5 (аудит 10.08): алертим ЛЮБОЙ переход в empty (в т.ч. первый раз увиденный
+            # пустой фид) — раньше «вечно пустой» e2fccbea жил незамеченным месяцами.
+            prev_state = (prev.get(h) or {}).get('state')
+            if prev_state != 'empty':
+                _alert(f'remlab: фид {h[:12]} отдал 0 офферов'
+                       f'{f" (было {prev_offers})" if prev_offers else " (пустой)"} — '
                        f'скачался «успешно», но каталог пуст')
         elif state == 'stale':
             _alert(f'remlab: фид {h[:12]} протух — yml_date {yml_date} ({age_h:.0f} ч), '

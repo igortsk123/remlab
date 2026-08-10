@@ -48,9 +48,10 @@ def image_hash(url):                          return _h(_norm(url))
 # Иначе завтрашний прогон вернёт в базу посуду, матрасы и садовую технику, которые мы вычистили
 # (решение владельца 2026-08-06: «остальное неактуальное удали и только их обновляй»).
 # Карта не читается → СТОП, а не «грузим всё»: молчаливый fallback возвращал бы мусор в базу (А1).
-_CATROLE={}
+_CATROLE={}; _CAT_KNOWN=set()
 try:
     for _c in json.load(open(os.path.join(HERE,'category-roles.json'))).values():
+        _CAT_KNOWN.add((int(_c['mid']), str(_c['id'])))   # W5: размеченные, вкл. null
         if _c.get('role'): _CATROLE[(int(_c['mid']), str(_c['id']))]=_c['role']
 except Exception as _e:
     print(f'СТОП: карта категорий не читается ({_e}) — прогон отменён', flush=True); sys.exit(1)
@@ -71,7 +72,7 @@ def direct(url):
     return u
 
 total=0; per={}
-rows=[]; erows=[]; mids=set()
+rows=[]; erows=[]; mids=set(); _dropped={}
 for z in sorted(glob.glob(os.path.join(FEEDS,'*.zip'))):
     zf=zipfile.ZipFile(z); name=zf.namelist()[0]
     cats={}
@@ -90,6 +91,10 @@ for z in sorted(glob.glob(os.path.join(FEEDS,'*.zip'))):
             if pic and '/None/' in pic: pic=None   # битый URL из фида — не скачается никогда (А2)
             # роль из категории пишем сразу при загрузке
             if _CATROLE and (mid, str(cid)) not in _CATROLE:
+                # W5: считаем только НЕразмеченные категории (дыра карты);
+                # осознанный null в category-roles («не для гостиной») — не алерт
+                if (mid, str(cid)) not in _CAT_KNOWN:
+                    _dropped[mid]=_dropped.get(mid,0)+1
                 el.clear(); continue          # категория не нужна гостиной — товар не грузим
             params={p.get('name'):(p.text or '') for p in el.findall('param')}
             desc=re.sub(r'<[^>]+>',' ',el.findtext('description') or '')
@@ -116,6 +121,18 @@ for z in sorted(glob.glob(os.path.join(FEEDS,'*.zip'))):
             el.clear()
 print('офферов в свежих фидах:',total,per,flush=True)
 print('строк с description:',sum(1 for r in rows if not r.endswith('\\N')),flush=True)
+# W5 (аудит 10.08): выброшенные «без роли» офферы — считаем и алертим, а не молчим.
+# Фид, у которого ВСЕ офферы без роли, — это неразмеченный category-roles, дыра каталога.
+if _dropped:
+    _kept_mids={int(r.split('\t',1)[0]) for r in rows}
+    for _m,_n in sorted(_dropped.items(),key=lambda kv:-kv[1]):
+        print(f'БЕЗ РОЛИ: mid={_m} выброшено {_n} офферов'
+              +(' (ВЕСЬ ФИД — категории не размечены!)' if _m not in _kept_mids else ''),flush=True)
+    _dead=[str(m) for m in _dropped if m not in _kept_mids]
+    if _dead and os.path.exists(os.path.join(HERE,'alert.sh')):
+        os.system(f'bash {os.path.join(HERE,"alert.sh")} '
+                  f'"remlab: фиды mid={",".join(_dead)} целиком без ролей — '
+                  f'category-roles.json не покрывает, офферы выбрасываются" || true')
 
 # Предохранитель от «похудевшего» фида (А1): урезанный/битый фид иначе молча увёл бы тысячи
 # товаров в missing→archived. Порог 70% от вчерашнего непархивного числа; осознанный обход —
@@ -202,8 +219,11 @@ on conflict (shop_mid,external_id) do update set
   status=excluded.status, missing_runs=0, missing_since=null,
   -- сменился смысл (текст/размеры) → версия сбрасывается, todo() возьмёт товар в переобогащение;
   -- payload остаётся до нового ответа. Раньше дельта только печаталась и ничего не запускала (А1).
+  -- W5 (аудит 10.08): смена ФОТО тоже сбрасывает версию — стиль решается картинкой
+  -- (текст совпадает с фото лишь в 16%), замороженный стиль от старого снимка — дыра
   enrichment_version=case when e.text_hash is distinct from excluded.text_hash
                             or e.geometry_hash is distinct from excluded.geometry_hash
+                            or e.image_hash is distinct from excluded.image_hash
                           then null else e.enrichment_version end,
   last_seen=current_date, updated_at=now();
 -- пропал из свежего фида: помечаем, но обогащение НЕ трогаем. Три пропуска подряд → в архив.
