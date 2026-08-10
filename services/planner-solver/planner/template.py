@@ -109,14 +109,19 @@ def _add_coffee(b: Block, seat: Item, table: Item | None) -> tuple[float, float]
     return ty + tt.d_cm / 2, fx
 
 
-def _add_rug(b: Block, seat: Item, rug: Item | None, far_y: float) -> None:
+def _add_rug(b: Block, seat: Item, rug: Item | None, far_y: float,
+             min_left: float | None = None) -> None:
     """Ковёр — производная блока: по оси свободной части якоря, длинной стороной
     вдоль дивана. Габарит SKU фиксирован: крупный накрывает передние ножки,
-    малый честно ложится под столик (легальный паттерн)."""
+    малый честно ложится под столик (легальный паттерн). min_left — левая граница
+    (Г-стык: ковёр не заезжает под торец второго дивана — на чертеже сливалось
+    в «перекрытие», замечание владельца 10.08)."""
     if rug is None:
         return
     fx, _ = _free_x(seat)
     w, d = max(rug.w_cm, rug.d_cm), min(rug.w_cm, rug.d_cm)
+    if min_left is not None:
+        fx = max(fx, min_left + w / 2)
     ry = max(_front(seat) - 15.0 + d / 2,
              min(_front(seat) + 5.0 + d / 2, (far_y + _front(seat)) / 2))
     b.add(Item(role=rug.role, w_cm=w, d_cm=d, h_cm=rug.h_cm, name=rug.name,
@@ -169,6 +174,7 @@ def build_block(group_id: str, by_role: dict[str, Item],
     b = Block(sofa)
     far, table_x = _add_coffee(b, sofa, table)
     _, free_side = _free_x(sofa)
+    rug_min_left = None
 
     if group_id == 'sofa_facing_sofa':
         # v2.2: два дивана визави — чистая беседа/камин. С носителем ТВ в составе
@@ -186,6 +192,7 @@ def build_block(group_id: str, by_role: dict[str, Item],
         if not sofa2 or sofa.corner or sofa2.corner:
             return None
         _add_L(b, sofa, sofa2)
+        rug_min_left = -(sofa.w_cm / 2 + L_GAP) + 6.0   # правый край дивана 2 + зазор
         # кресла замыкают «квадрат» с ВОСТОКА, якорясь к СТОЛИКУ (не к торцу
         # широкого дивана — иначе ARMCHAIR_TABLE_DIST); в столбик вдоль оси
         tw_half = (max(table.w_cm, table.d_cm) / 2) if table else 40.0
@@ -242,7 +249,7 @@ def build_block(group_id: str, by_role: dict[str, Item],
         # Совсем нечего запекать (ни столика, ни ковра) — блока нет.
         if table is None and rug is None:
             return None
-    _add_rug(b, sofa, rug, far)
+    _add_rug(b, sofa, rug, far, min_left=rug_min_left)
     return b
 
 
