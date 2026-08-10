@@ -132,6 +132,11 @@ SYS = (
     "Система координат: начало — юго-западный (нижний-левый) угол; x вправо "
     "(восток), z вверх по плану (север); позиция — ЦЕНТР предмета; rot: 0 — "
     "лицом на север (+z), 90 — восток, 180 — юг, 270 — запад.\n"
+    "Семантика КЛИРЕНСОВ (важно, по пилоту 10.08): клиренс в правилах — это "
+    "СВОБОДНОЕ ПРОСТРАНСТВО ДЛЯ ДВИЖЕНИЯ рядом с предметом, а не статический "
+    "отступ между предметами. Пример: «отодвинутый стул 46–61 см» — это место "
+    "ПОЗАДИ стула (от кромки стола до препятствия), чтобы стул можно было "
+    "отодвинуть; сам стул, задвинутый вплотную к столу, — НОРМА, не нарушение.\n"
     "Правила ответа: suggested_moves — только уверенные улучшения (0–4 хода), "
     "каждый ход — итоговые x,z,rot и краткое «почему» со ссылкой на правило; "
     "не выдумывай предметы; не двигай дверь/окно; если раскладка хороша — "
@@ -267,12 +272,16 @@ def main():
                 row = json.loads(l)
                 comments[row['id']] = row['comment']
 
-    report = [json.loads(l) for l in
-              open(os.path.join(HERE, 'acceptance-report-zoned.jsonl'))]
+    seen = {}   # ключ строки отчёта — 'scene'; дубли в jsonl — последняя запись побеждает
+    for l in open(os.path.join(HERE, 'acceptance-report-zoned.jsonl')):
+        if l.strip():
+            row = json.loads(l)
+            seen[row['scene']] = row
+    report = list(seen.values())
     if args.from_comments:
-        todo = [r for r in report if r['id'] in comments]
+        todo = [r for r in report if r['scene'] in comments]
     elif args.scenes:
-        todo = [r for r in report if r['id'] in set(args.scenes)]
+        todo = [r for r in report if r['scene'] in set(args.scenes)]
     else:
         bad = [r for r in report if not (r.get('verdict') == 'OK' or r.get('ok'))]
         rest = sorted((r for r in report if r.get('verdict') == 'OK' or r.get('ok')),
@@ -289,7 +298,7 @@ def main():
     rows_html = []
     summary = []
     for r in todo:
-        sid, n = r['id'], r['set']
+        sid, n = r['scene'], r['set']
         lay_path = os.path.join(HERE, f'v3set{n}-layout-acc-zoned-{sid}.json')
         png_path = os.path.join(HERE, f'v3set{n}-layout-acc-zoned-{sid}.png')
         if not (os.path.exists(lay_path) and os.path.exists(png_path)):
