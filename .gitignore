@@ -39,6 +39,10 @@ tools/scout/*
 !tools/scout/README.md
 !tools/scout/pages/
 !tools/scout/pages/**
+# replay-реестры петли судьи — канон, как frozen registries KB (ADR-0080)
+!tools/scout/judge-layout-verdicts.jsonl
+!tools/scout/judge-rule-candidates.md
+!tools/scout/owner-comments.jsonl
 
 # docker artifacts
 *.tar
