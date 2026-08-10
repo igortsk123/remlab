@@ -1,0 +1,1163 @@
+{
+ "files": {
+  "ch1": 77,
+  "ch10": 99,
+  "ch2": 198,
+  "ch3": 146,
+  "ch4_seg1of3": 168,
+  "ch4_seg2of3": 179,
+  "ch4_seg3ofU3": 100,
+  "ch5": 108,
+  "ch6_seg1of2": 79,
+  "ch6_seg2of2": 125,
+  "ch7": 205,
+  "ch8": 109,
+  "ch9": 136
+ },
+ "total_records": 1729,
+ "authority_dist": {
+  "BOOK_DESIGN_GUIDANCE": 1437,
+  "CITED_CODE": 157,
+  "CITED_STANDARD": 88,
+  "AUTHOR_EXAMPLE": 47
+ },
+ "cited_pairs": [
+  [
+   "International Residential Code (IRC)",
+   "2015 edition, per the chapter references list",
+   28
+  ],
+  [
+   "Remodeling 2015 Cost vs. Value Report",
+   "2015",
+   23
+  ],
+  [
+   "International Residential Code (IRC)",
+   "2015 edition per the chapter references list",
+   20
+  ],
+  [
+   "International Residential Code (IRC)",
+   "—",
+   16
+  ],
+  [
+   "IRC (International Residential Code)",
+   "2015",
+   12
+  ],
+  [
+   "International Residential Code",
+   "2015 edition",
+   11
+  ],
+  [
+   "American Council on Exercise",
+   "2009",
+   10
+  ],
+  [
+   "International Residential Code",
+   "2015 (per the chapter's reference list)",
+   9
+  ],
+  [
+   "International Residential Code (IRC)",
+   "2003 edition cited in the chapter references",
+   9
+  ],
+  [
+   "Center for Inclusive Design and Environmental Access (IDEA Center)",
+   "—",
+   6
+  ],
+  [
+   "IRC (International Residential Code)",
+   "—",
+   6
+  ],
+  [
+   "Edward Hall, The Hidden Dimension",
+   "1966",
+   5
+  ],
+  [
+   "California Title 24 Energy Code",
+   "2013",
+   5
+  ],
+  [
+   "IDEA Center",
+   "—",
+   4
+  ],
+  [
+   "Concrete Change visitability criteria",
+   "2015",
+   3
+  ],
+  [
+   "National Kitchen and Bath Association (NKBA)",
+   "—",
+   3
+  ],
+  [
+   "International Residential Code",
+   "—",
+   3
+  ],
+  [
+   "International Residential Code (IRC)",
+   "2015",
+   3
+  ],
+  [
+   "National Association of Home Builders (NAHB)",
+   "2006",
+   2
+  ],
+  [
+   "Jon Lang, Creating Architectural Theory",
+   "1987",
+   2
+  ],
+  [
+   "Lighting Research Center, Rensselaer Polytechnic Institute",
+   "—",
+   2
+  ],
+  [
+   "ANSI/UFAS (as referenced by the source); prototypes designed by the Ability Center of Greater Toledo, Ohio",
+   "—",
+   2
+  ],
+  [
+   "Ability Center of Greater Toledo, Ohio",
+   "—",
+   2
+  ],
+  [
+   "ANSI/UFAS (as referenced by the source)",
+   "—",
+   2
+  ],
+  [
+   "Underwriters Laboratories (UL)",
+   "—",
+   2
+  ],
+  [
+   "California Title 24 (Building Energy Efficiency Standards)",
+   "2013 Title 24 Part 6, per the chapter references",
+   2
+  ],
+  [
+   "National Trust for Historic Preservation",
+   "—",
+   2
+  ],
+  [
+   "building codes (unnamed)",
+   "—",
+   2
+  ],
+  [
+   "Dietz / Eye on Housing (NAHB)",
+   "2015",
+   1
+  ],
+  [
+   "Marianne Cusato",
+   "—",
+   1
+  ],
+  [
+   "Robert Sommer, Personal Space",
+   "1969",
+   1
+  ],
+  [
+   "Christopher Alexander et al., A Pattern Language",
+   "1977",
+   1
+  ],
+  [
+   "Oscar Newman, Defensible Space",
+   "1972",
+   1
+  ],
+  [
+   "Clare Cooper",
+   "1967",
+   1
+  ],
+  [
+   "Sebba and Churchman, The Uniqueness of the Home",
+   "1986",
+   1
+  ],
+  [
+   "IDEA Center (Center for Inclusive Design and Environmental Access)",
+   "—",
+   1
+  ],
+  [
+   "FHAA 1988; UFAS; ANSI A117.1; ADA",
+   "ANSI A117.1-2003",
+   1
+  ],
+  [
+   "Randall Whitehead, Residential Lighting",
+   "2004",
+   1
+  ],
+  [
+   "Lighting Research Center, Rensselaer Polytechnic Institute",
+   "2006",
+   1
+  ],
+  [
+   "California Lighting Technology Center, UC Davis",
+   "2010",
+   1
+  ],
+  [
+   "Panero and Zelnik, Human Dimension and Interior Space",
+   "1979",
+   1
+  ],
+  [
+   "Joint Center for Housing Studies of Harvard University",
+   "2015",
+   1
+  ],
+  [
+   "Ching, Francis. Home Renovation",
+   "1983",
+   1
+  ],
+  [
+   "Consumer Reports Online",
+   "2010",
+   1
+  ],
+  [
+   "A Philosophy of Interior Design (Stanley Abercrombie), as cited by the chapter",
+   "1991",
+   1
+  ],
+  [
+   "A Pattern Language (Christopher Alexander et al.), as cited by the chapter",
+   "1977",
+   1
+  ],
+  [
+   "ADA Standards and International Building Code (IBC)",
+   "2015 edition per the chapter references list",
+   1
+  ],
+  [
+   "ADA Standards",
+   "2015 edition per the chapter references list",
+   1
+  ],
+  [
+   "ADAAG",
+   "2015 edition per the chapter references list",
+   1
+  ],
+  [
+   "IRC; ADA and IBC for the public case",
+   "2015 edition per the chapter references list",
+   1
+  ],
+  [
+   "IRC; IBC and ADAAG for public stairs",
+   "2015 edition per the chapter references list",
+   1
+  ],
+  [
+   "International Code Council, 2015 International Residential Code for One- and Two-Family Dwellings",
+   "2015",
+   1
+  ],
+  [
+   "unnamed local codes referenced by the authors",
+   "—",
+   1
+  ],
+  [
+   "Driver, Nicole, '64 Important Numbers Every Homeowner Should Know', This Old House Magazine",
+   "2015",
+   1
+  ],
+  [
+   "unnamed code requirement referenced by the authors",
+   "—",
+   1
+  ],
+  [
+   "University of Illinois Small Homes Council; Cornell University",
+   "—",
+   1
+  ],
+  [
+   "Paralyzed Veterans of America, Kitchen Design for the Wheelchair User (Kim A. Beasley and Thomas D. Davies Jr.)",
+   "—",
+   1
+  ],
+  [
+   "American National Standards Institute (ANSI); Uniform Federal Accessibility Standards (UFAS)",
+   "—",
+   1
+  ],
+  [
+   "National Kitchen and Bath Association, Kitchen Basics",
+   "—",
+   1
+  ],
+  [
+   "local municipal codes (unnamed)",
+   "—",
+   1
+  ],
+  [
+   "Consumer Reports, Greener Choices website",
+   "—",
+   1
+  ],
+  [
+   "US federal minimum standards; Energy Star; EnergyGuide; unnamed state detergent rules",
+   "—",
+   1
+  ],
+  [
+   "Aga (named as the best-known maker of this range type)",
+   "—",
+   1
+  ],
+  [
+   "ANSI 4.32.5.6; UFAS 4.34.6",
+   "—",
+   1
+  ],
+  [
+   "Consumer Reports magazine",
+   "—",
+   1
+  ],
+  [
+   "ADAAG",
+   "—",
+   1
+  ],
+  [
+   "ANSI / ADA (ADAAG)",
+   "—",
+   1
+  ],
+  [
+   "Blum (manufacturer literature)",
+   "—",
+   1
+  ],
+  [
+   "National Kitchen and Bath Association, Kitchen Planning Guidelines",
+   "—",
+   1
+  ],
+  [
+   "KraftMaid Cabinetry, Passport Series",
+   "—",
+   1
+  ],
+  [
+   "Fair Housing Amendments Act (FHAA)",
+   "—",
+   1
+  ],
+  [
+   "UFAS",
+   "—",
+   1
+  ],
+  [
+   "NKBA, Kitchen Basics",
+   "—",
+   1
+  ],
+  [
+   "National Electrical Code",
+   "—",
+   1
+  ],
+  [
+   "International Residential Code; National Fire Alarm and Signaling Code (NFPA 72)",
+   "2015 (per the chapter's reference list)",
+   1
+  ],
+  [
+   "International Residential Code",
+   "2015 (per the chapter's reference list); requirement stated as effective 1 January 2011",
+   1
+  ],
+  [
+   "National Association of Home Builders (NAHB)",
+   "—",
+   1
+  ],
+  [
+   "Sarah Susanka, The Not So Big House",
+   "—",
+   1
+  ],
+  [
+   "building codes (unnamed) as reported by the book",
+   "—",
+   1
+  ],
+  [
+   "plumbing codes (unnamed) as reported by the book",
+   "—",
+   1
+  ],
+  [
+   "ANSI A117.1; UFAS; Fair Housing Amendments Act (FHAA) 1988; ADA; local visitability codes",
+   "FHAA 1988",
+   1
+  ],
+  [
+   "U.S. Department of Energy (quoted by the book)",
+   "—",
+   1
+  ],
+  [
+   "Americans with Disabilities Act (ADA) guidelines",
+   "—",
+   1
+  ],
+  [
+   "Center for Universal Design; Center for Independent Living; IDEA Center; ADA",
+   "—",
+   1
+  ],
+  [
+   "Marc Mendelsohn, Bomarc Barrier Free Foundation; IDEA Center",
+   "—",
+   1
+  ],
+  [
+   "Keidel's Planning Guide (online guide); GROHE",
+   "—",
+   1
+  ],
+  [
+   "U.S. federal regulations as reported by the book",
+   "—",
+   1
+  ],
+  [
+   "National Kitchen and Bath Association, Bathroom Basics",
+   "—",
+   1
+  ],
+  [
+   "NAHB survey, What 21st Century Home Buyers Want",
+   "—",
+   1
+  ],
+  [
+   "Center for Universal Design",
+   "—",
+   1
+  ],
+  [
+   "most codes",
+   "—",
+   1
+  ],
+  [
+   "California Title 24",
+   "2013 Residential Compliance Manual referenced",
+   1
+  ],
+  [
+   "ADAAG (Americans with Disabilities Act Accessibility Guidelines)",
+   "not stated in the source",
+   1
+  ],
+  [
+   "Energy Star (U.S. Department of Energy / EPA); EnergyGuide",
+   "2015 reference in the chapter bibliography",
+   1
+  ],
+  [
+   "local code jurisdictions (unnamed)",
+   "—",
+   1
+  ],
+  [
+   "local codes (unnamed)",
+   "—",
+   1
+  ],
+  [
+   "IESNA, as cited within the California Title 24 guidance",
+   "not stated in the source",
+   1
+  ],
+  [
+   "International Residential Code (IRC)",
+   "2015 (chapter references)",
+   1
+  ],
+  [
+   "Fireplaces Magazine",
+   "—",
+   1
+  ],
+  [
+   "U.S. Environmental Protection Agency",
+   "2015",
+   1
+  ],
+  [
+   "Cheney House fireplace, cherry casework (architect: Nystuen), dated 6/30/01",
+   "—",
+   1
+  ]
+ ],
+ "auth_no_name": 12,
+ "auth_no_name_by_auth": {
+  "CITED_CODE": 12
+ },
+ "dup": {
+  "nonempty": 38,
+  "resolved": 38,
+  "unresolved": []
+ },
+ "conf": {
+  "nonempty": 48,
+  "resolved_refs": 56,
+  "unresolved": []
+ },
+ "crossfile_refs": [],
+ "conflict_examples": [
+  [
+   "ch1",
+   "R003",
+   [
+    "R004"
+   ],
+   "Average area of new US single-family homes completed in Q1 2015 - metric equivalency as printed in the running"
+  ],
+  [
+   "ch1",
+   "R004",
+   [
+    "R003"
+   ],
+   "Average area of new US single-family homes in 2015 - metric equivalency as printed in Figure 1-2"
+  ],
+  [
+   "ch1",
+   "R024",
+   [
+    "R026"
+   ],
+   "Visitability criterion 2: all main-floor interior doors including the bathroom must provide 32 in (813 mm) of "
+  ],
+  [
+   "ch1",
+   "R026",
+   [
+    "R024"
+   ],
+   "Some visitability ordinances accept 32-inch door leaves, which yield only 30 in (762 mm) of clear space"
+  ],
+  [
+   "ch2",
+   "R067",
+   [
+    "R092"
+   ],
+   "Figure 2-11a item 3g: the IRC code maximum dimension between floors or landings is 12 feet 3 inches (3734 mm)."
+  ],
+  [
+   "ch2",
+   "R089",
+   [
+    "R067"
+   ],
+   "A stair landing is, as the term implies, a place to land if you were to fall. The IRC calls for a landing ever"
+  ],
+  [
+   "ch2",
+   "R129",
+   [
+    "R077",
+    "R145"
+   ],
+   "A spiral stair comes close to an elevator in requiring virtually no horizontal movement for the floor-to-floor"
+  ],
+  [
+   "ch2",
+   "R156",
+   [
+    "R077",
+    "R129"
+   ],
+   "Figure 2-23 items B and C: the minimum footprint of all steps is 6 by 5 feet, 30 plus or minus square feet (2."
+  ],
+  [
+   "ch2",
+   "R168",
+   [
+    "R089"
+   ],
+   "Checklist item: limit the potential falling distance. Provide landings at no more than every 12 feet 3 inches "
+  ],
+  [
+   "ch3",
+   "R006",
+   [
+    "R007"
+   ],
+   "Spacing between furniture pieces inside a conversation cluster"
+  ]
+ ],
+ "evidence": {
+  "total": 3146,
+  "types": {
+   "DIRECT_TEXT": 2134,
+   "DIRECT_FIGURE": 883,
+   "DIRECT_TABLE": 124,
+   "FIGURE_PLUS_TEXT": 3,
+   "INFERENCE": 2
+  },
+  "strength": {
+   "DIRECT": 3137,
+   "PARTIAL": 7,
+   "INFERRED": 2
+  },
+  "confidence": {
+   "high": 3003,
+   "medium": 134,
+   "low": 9
+  },
+  "with_table": 125,
+  "with_figure": 1602,
+  "derived_nonempty": 2
+ },
+ "top_findings_count": 65,
+ "top_findings": [
+  [
+   "ch1",
+   "R040",
+   "IRC minimum habitable room area of 70 sq ft (6.5 m2) with no plan dimension under 7 ft (2134 mm) is the hardest floor available for generated room footprints."
+  ],
+  [
+   "ch1",
+   "R043",
+   "Sloped ceiling rule turns ceiling height into a usable-area computation rather than a single height test, which matters for attic and loft rooms."
+  ],
+  [
+   "ch1",
+   "R039",
+   "Glazing at 8 percent and openable ventilation at 4 percent of floor area tie window sizing directly to room area."
+  ],
+  [
+   "ch1",
+   "R010",
+   "Hall personal-casual band of 0.5 to 1.2 m is the proxemic target for sizing conversation groups, and the source explicitly links casual interaction to it."
+  ],
+  [
+   "ch1",
+   "R026",
+   "Shows that a nominal 32 in door yields only 30 in of clear passage, forcing an explicit separation of door leaf width from clear width in the vocabulary."
+  ],
+  [
+   "ch10",
+   "R089",
+   "The only true dimensional data in the chapter: typical front (20-40 ft) and side (6 ft) setbacks and a proportional rear setback, which bound the footprint of any addition."
+  ],
+  [
+   "ch10",
+   "R085",
+   "States that circulation, organizational flow and clearances must be re-checked whenever space is added or rearranged, linking the remodeling workflow to the room-level clearance rules held elsewhere."
+  ],
+  [
+   "ch10",
+   "R045",
+   "Attic conversion is gated on a required minimum ceiling height that this chapter names without a value: an explicit gap to fill from a codes chapter during merge."
+  ],
+  [
+   "ch10",
+   "R046",
+   "A clean conditional gate: a basement may become a bedroom only with appropriate egress and ventilation."
+  ],
+  [
+   "ch10",
+   "R014",
+   "Defines the wall-surface-to-wall-surface convention for overall room dimensions, which normalises how measured-survey inputs should be read."
+  ],
+  [
+   "ch2",
+   "R112",
+   "The 2R + T = 25 in (610-660 mm) proportioning formula is the single most generative rule in the chapter: it ties riser and tread together for any stair a generator produces, and the chapter supplies worked examples at both ends of the legal band."
+  ],
+  [
+   "ch2",
+   "R099",
+   "The accessibility checklist collects the four numbers that govern accessible circulation in one place: 813 mm clear at doors, 914 mm paths, 1524 mm turning circle or T-turn, and ramp or elevator in place of stairs."
+  ],
+  [
+   "ch2",
+   "R102",
+   "Separates the legal minimum corridor width (914 mm) from the functional one, by stating explicitly that two adults cannot pass at the minimum and that public buildings use 1118-1219 mm. This is the clearest hard-versus-soft threshold pair in the chapter."
+  ],
+  [
+   "ch2",
+   "R145",
+   "Converts ceiling height into floor-to-floor height via a 305 mm floor structure assumption, which is the bridge a generator needs between room parameters and the rise a stair must resolve."
+  ],
+  [
+   "ch2",
+   "R092",
+   "States that one- and two-step level changes are as hazardous as full flights because they are hard to see, and lists the visual cues that mitigate this. It is a rare example of a safety rule that applies to level changes too small to trigger stair code."
+  ],
+  [
+   "ch3",
+   "R073",
+   "Layered perimeter clearances around a dining table (seat, chair movement, through traffic) are the most directly usable operational knowledge in the chapter."
+  ],
+  [
+   "ch3",
+   "R064",
+   "Sofa-to-table clearance with an explicit conditional minimum, one of the few genuinely hard candidates."
+  ],
+  [
+   "ch3",
+   "R060",
+   "Per-person occupancy envelope for upholstered seating, needed before any cluster geometry can be validated."
+  ],
+  [
+   "ch3",
+   "R008",
+   "Conversation cluster diameter, the geometric core of the chapter's seating logic."
+  ],
+  [
+   "ch3",
+   "R123",
+   "IRC ceiling height and beam clearance minimums, hard constraints independent of furniture."
+  ],
+  [
+   "ch4_seg1of3",
+   "R034",
+   "Gives a single measurable and layout-relevant parameter for the preparation zone: a contiguous counter run of at least 914 mm, ideally between sink and refrigerator."
+  ],
+  [
+   "ch4_seg1of3",
+   "R020",
+   "Provides the classic per-leg bounds of the work triangle with explicit centre-to-centre measurement endpoints, usable as a soft layout check."
+  ],
+  [
+   "ch4_seg1of3",
+   "R092",
+   "Gives a directly checkable appliance adjacency: dishwasher within 914 mm of the primary sink."
+  ],
+  [
+   "ch4_seg1of3",
+   "R037",
+   "Two-cook rule with clear geometry: the second work triangle must not cross the primary one but may share the refrigerator-range leg."
+  ],
+  [
+   "ch4_seg1of3",
+   "R043",
+   "States a mandatory landing-space requirement at sink, cooking area and refrigerator; the missing dimensions mark exactly what the next segment must supply."
+  ],
+  [
+   "ch4_seg2of3",
+   "R020",
+   "Splits the combined kitchen aisle into a 914 mm work zone plus a 610-762 mm circulation zone totalling at least 1524 mm, and pairs with R018/R019 to give a complete conditional set of aisle minimums driven by through traffic and cook count."
+  ],
+  [
+   "ch4_seg2of3",
+   "R111",
+   "The North American stock cabinet size grid (9 in start, 3 in steps to 24 in, 6 in steps to 48 in; 12 in wall and 24 in base depths) lets generated cabinet runs snap to purchasable sizes rather than arbitrary widths."
+  ],
+  [
+   "ch4_seg2of3",
+   "R128",
+   "The 32 mm frameless system-hole grid with 5 mm holes governs hinge, slide and front positions and is the one genuinely metric modular grid in the chapter."
+  ],
+  [
+   "ch4_seg2of3",
+   "R047",
+   "Asymmetric landing space at the primary sink (610 mm one side, 457 mm the other, both at sink height) is the template for the appliance landing-space family that runs through R069, R090 and R100."
+  ],
+  [
+   "ch4_seg2of3",
+   "R104",
+   "NKBA storage frontage tied to kitchen floor area and to a 1829 mm radius from the sink centre is an unusual quantity-of-storage rule that can be evaluated directly against a generated layout."
+  ],
+  [
+   "ch4_seg3ofU3",
+   "R009",
+   "Explicit min/typical/max band for the work corridor between opposing runs (42 / 48 / 60 in), one of the few quantified clearance rules in the segment."
+  ],
+  [
+   "ch4_seg3ofU3",
+   "R007",
+   "Recommended 26 ft maximum work triangle length, paired with the 'under 9 ft is too small' claim, gives a usable band for triangle geometry."
+  ],
+  [
+   "ch4_seg3ofU3",
+   "R010",
+   "Island aisle drawn at 48 in with a 42 in minimum; directly reusable for island placement checks."
+  ],
+  [
+   "ch4_seg3ofU3",
+   "R017",
+   "Stool spacing at 27 in on centre and a stated required minimum knee space of 15 in at eating bars."
+  ],
+  [
+   "ch4_seg3ofU3",
+   "R015",
+   "The chapter's most repeated trade-off: openness and glazing cost wall-cabinet storage, which must be compensated by pantry and drawer storage."
+  ],
+  [
+   "ch5",
+   "R021",
+   "Bed-side clearance for bed making is the single most reusable hard geometry in the chapter, and the source cleanly separates the functional minimum from the comfortable target."
+  ],
+  [
+   "ch5",
+   "R066",
+   "Area-to-capability threshold: it converts a room area directly into how many walls can carry furniture, which is exactly the decision a layout solver makes first."
+  ],
+  [
+   "ch5",
+   "R034",
+   "Storage front clearance is object-state dependent (drawer open vs closed), a distinction that a naive footprint model would lose entirely."
+  ],
+  [
+   "ch5",
+   "R060",
+   "Closet-to-entrance adjacency with an explicit frequency rationale, and it implies a traffic path from entry to closet that does not pass the bed."
+  ],
+  [
+   "ch5",
+   "R101",
+   "One of the very few quantified efficiency relationships in the chapter: double loading yields 27 percent more rod per square foot of closet area."
+  ],
+  [
+   "ch6_seg1of2",
+   "R057",
+   "Separates the recommended minimum shower size (36 by 36 in) from the IRC P2708.1 code minimum (30 by 30 in) and records the sub-minimum 2 ft 8 in case, giving RemLab two distinct thresholds instead of one blended number."
+  ],
+  [
+   "ch6_seg1of2",
+   "R072",
+   "Gives a directly generative vanity constraint: at least 24 in of cabinet width at any sink location, with top drawers omitted across that width, plus an explicit not-recommended band at 15 in and below."
+  ],
+  [
+   "ch6_seg1of2",
+   "R070",
+   "A measurable seated-reach band of 15 to 48 in above the floor for bathroom storage and accessories, attributed to NKBA and tied to an explicit user context."
+  ],
+  [
+   "ch6_seg1of2",
+   "R049",
+   "The only explicit minimum clear floor space in the segment (30 by 60 in at an accessible tub), together with the companion features the IDEA Center requires alongside it."
+  ],
+  [
+   "ch6_seg1of2",
+   "R060",
+   "A genuinely conditional code rule where a dimensional relaxation to 25 in is valid only when total stall area reaches 1300 square inches, a shape RemLab cannot represent as a plain minimum."
+  ],
+  [
+   "ch6_seg2of2",
+   "R059",
+   "The bathroom equivalent of a work triangle: rules of thumb that order sink, toilet and bathing fixtures relative to the entry door, giving RemLab a placement sequence rather than only isolated clearances."
+  ],
+  [
+   "ch6_seg2of2",
+   "R120",
+   "Standard toilet clear zone with both minimum and recommended width and depth, and with the bounding element generalized to 'fixture, wall or door' - directly usable as a clearance primitive."
+  ],
+  [
+   "ch6_seg2of2",
+   "R100",
+   "IRC P2705 gives the code floor (381 mm centreline, 533 mm in front) beneath the more generous recommended values elsewhere in the chapter, so RemLab can distinguish hard constraints from preferences."
+  ],
+  [
+   "ch6_seg2of2",
+   "R095",
+   "A rare explicit parametric relationship: a second sink increases room area by 35 percent, which supports program sizing rather than only conflict checking."
+  ],
+  [
+   "ch6_seg2of2",
+   "R122",
+   "Shower door swing direction is conditional on stall size, an example of a genuine conditional rule that must not be flattened into a constant."
+  ],
+  [
+   "ch7",
+   "R128",
+   "36 in (914 mm) minimum circulation and work space in front of the washer and dryer is the single most directly applicable clearance in the chapter for a laundry zone."
+  ],
+  [
+   "ch7",
+   "R192",
+   "IRC requirement that an appliance receptacle sits within 6 ft (1829 mm) of the appliance is a checkable distance constraint between a service point and an appliance position."
+  ],
+  [
+   "ch7",
+   "R157",
+   "Code-derived keep-out volume in front of an electrical service panel, a hard constraint candidate for any utility room that hosts the panel."
+  ],
+  [
+   "ch7",
+   "R169",
+   "Activity-specific work surface height: 28 in (711 mm) for sewing against 36 in (915 mm) for laundry work, showing that counter height must follow the activity rather than the room."
+  ],
+  [
+   "ch7",
+   "R085",
+   "Zone-to-room area ratio (stretching zone at roughly 25-50 percent of the gym floor area) is a rare proportional rule usable directly as a soft layout constraint."
+  ],
+  [
+   "ch8",
+   "R012",
+   "Net programmed area equals 80-85 percent of gross area: a transferable sanity check between a room programme and an overall floor area, independent of this project."
+  ],
+  [
+   "ch8",
+   "R097",
+   "Typical ceiling height 8'-0\" (243.8 cm) with dropped soffits at 7'-0\" (213.4 cm), stated both in the finish schedule and on the reflected ceiling plan; a direct vertical envelope prior."
+  ],
+  [
+   "ch8",
+   "R072",
+   "Exterior and plumbing walls nominal 6 in (15.2 cm, actual 16.5-19.1 cm) versus interior partitions nominal 4 in (10.2 cm, actual 11.4 cm); needed to convert between clear room dimensions and overall building dimensions. See also R073."
+  ],
+  [
+   "ch8",
+   "R099",
+   "Room-by-surface finish assignments from Table 8-2 give material priors per room type (hardwood in living zones, ceramic tile in wet rooms, sheet rubber in utility, carpet in bedroom and stairs). See also R100 and R101."
+  ],
+  [
+   "ch8",
+   "R049",
+   "Doors are drawn open at 90 degrees specifically so that nothing impedes the full swing: an explicit statement that the door swing envelope must stay clear of furniture."
+  ],
+  [
+   "ch9",
+   "R087",
+   "Fireplace placement must enhance the room without impeding traffic flow or making the room difficult to furnish - a direct scoring criterion for generated layouts."
+  ],
+  [
+   "ch9",
+   "R038",
+   "Central door placement divides a room in half while corner placement pushes circulation to the edges and frees the interior for furniture groups."
+  ],
+  [
+   "ch9",
+   "R059",
+   "Window placement should support multiple furniture layouts rather than a single one - directly applicable to layout generation and evaluation."
+  ],
+  [
+   "ch9",
+   "R049",
+   "Floor material transitions belong directly under the closed door leaf - an unambiguous geometric rule for finish boundaries."
+  ],
+  [
+   "ch9",
+   "R039",
+   "Door swings should land against a blank wall and must not overlap circulation or other swings - a checkable opening-envelope constraint."
+  ]
+ ],
+ "fp": {
+  "formats": {
+   "(3, True)": 921,
+   "(2, True)": 786,
+   "(4, True)": 21,
+   "(6, True)": 1
+  },
+  "missing": 0,
+  "per_file": {
+   "ch1": {
+    "unique": 75,
+    "total": 77,
+    "dup_count": 2,
+    "dup_sample": [
+     [
+      "US_DWELLING__2015__AVERAGE_FLOOR_AREA",
+      2
+     ],
+     [
+      "INTERIOR_DOOR__CLEAR_PASSAGE_WIDTH__VISITABILITY",
+      2
+     ]
+    ]
+   },
+   "ch10": {
+    "unique": 99,
+    "total": 99,
+    "dup_count": 0,
+    "dup_sample": []
+   },
+   "ch2": {
+    "unique": 193,
+    "total": 198,
+    "dup_count": 4,
+    "dup_sample": [
+     [
+      "BUILT_IN_CASEWORK__AS_STAIR_GUARD__HEIGHT",
+      2
+     ],
+     [
+      "STAIR__HEADROOM__MIN_2032MM",
+      3
+     ],
+     [
+      "HANDRAIL__HEIGHT_ABOVE_NOSING",
+      2
+     ]
+    ]
+   },
+   "ch3": {
+    "unique": 145,
+    "total": 146,
+    "dup_count": 1,
+    "dup_sample": [
+     [
+      "DINING_ZONE__FLOOR_AREA_PER_PERSON",
+      2
+     ]
+    ]
+   },
+   "ch4_seg1of3": {
+    "unique": 168,
+    "total": 168,
+    "dup_count": 0,
+    "dup_sample": []
+   },
+   "ch4_seg2of3": {
+    "unique": 173,
+    "total": 179,
+    "dup_count": 6,
+    "dup_sample": [
+     [
+      "PANTRY_SHELF__DEPTH__VISIBILITY_OF_CONTENTS",
+      2
+     ],
+     [
+      "HOOD__COOKTOP__WIDTH_OVERHANG",
+      2
+     ],
+     [
+      "WALL_OVEN__PULLOUT_SHELF_BELOW__MINIMUM_EXTENSION",
+      2
+     ]
+    ]
+   },
+   "ch4_seg3ofU3": {
+    "unique": 73,
+    "total": 100,
+    "dup_count": 3,
+    "dup_sample": [
+     [
+      "KITCHEN__CABINET_RUN__ELEMENT_FRONTAGE_WIDTH",
+      14
+     ],
+     [
+      "KITCHEN__WORK_TRIANGLE__TOTAL_LINEAL_LENGTH__PROTOTYPE",
+      13
+     ],
+     [
+      "KITCHEN__NEGATIVE_EXAMPLE__PLAN_AREA_AND_TRIANGLE",
+      3
+     ]
+    ]
+   },
+   "ch5": {
+    "unique": 104,
+    "total": 108,
+    "dup_count": 3,
+    "dup_sample": [
+     [
+      "DOOR__CLEAR_OPENING__WHEELCHAIR_ACCESS",
+      2
+     ],
+     [
+      "WHEELCHAIR__TURNING_SPACE__CLEAR_CIRCLE",
+      2
+     ],
+     [
+      "BEDROOM__EXAMPLE_PLAN__SIZE_AND_ROD_LENGTH",
+      3
+     ]
+    ]
+   },
+   "ch6_seg1of2": {
+    "unique": 79,
+    "total": 79,
+    "dup_count": 0,
+    "dup_sample": []
+   },
+   "ch6_seg2of2": {
+    "unique": 125,
+    "total": 125,
+    "dup_count": 0,
+    "dup_sample": []
+   },
+   "ch7": {
+    "unique": 205,
+    "total": 205,
+    "dup_count": 0,
+    "dup_sample": []
+   },
+   "ch8": {
+    "unique": 109,
+    "total": 109,
+    "dup_count": 0,
+    "dup_sample": []
+   },
+   "ch9": {
+    "unique": 136,
+    "total": 136,
+    "dup_count": 0,
+    "dup_sample": []
+   }
+  },
+  "examples": [
+   [
+    "ch1",
+    "US_DWELLING__1900__TYPICAL_FLOOR_AREA",
+    "IRC__HABITABLE_ROOM__GLAZING_AND_VENTILATION_RATIO"
+   ],
+   [
+    "ch10",
+    "REMODELING_PROJECT__EXPECTATION_AND_SUCCESS_FACTORS",
+    "ADDITION__TYPOLOGY_AND_INTERVENTION_RANGE"
+   ],
+   [
+    "ch2",
+    "CIRCULATION__DEFINITION__SCOPE",
+    "SPIRAL_STAIR__PASSING_CONFLICT__NARROW_INNER_TREAD"
+   ],
+   [
+    "ch3",
+    "INTERACTION_AREA__MIN_SEATED_PERSONS",
+    "DINING_ROOM__MIN_WIDTH_RECT_TABLE"
+   ],
+   [
+    "ch4_seg1of3",
+    "KITCHEN__HISTORICAL_PLACEMENT_IN_DWELLING",
+    "INSTANT_HOT_WATER__DELIVERY_TEMPERATURE"
+   ]
+  ]
+ }
+}

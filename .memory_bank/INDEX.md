@@ -1,7 +1,7 @@
 # Memory Bank — Index (Tier 0)
 
 remlab — «Смета-first» v0.4 (ADR-0016): расчёт ремонта/материалов → реф-смета; мастер —
-`plans/MASTER-cost-first.md`. Выжимки: `product_brief.md`, `core/market.md`, `core/goals.md`.
+`plans/MASTER-cost-first.md`.
 
 ## Decision tree — что читать
 
@@ -20,6 +20,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт ремонта/м�
 | Смета-лист — калькуляторы, стоимость, /go/ реф | `core/estimate.md` | `../domain/pricing-works-ru.md` |
 | Мебель — каталог, сеты, визуализация | `core/furniture.md` | `../domain/viz-fidelity-playbook.md` |
 | Цели продукта — v0.4 «Смета-first» | `core/goals.md` | `../goals-one-photo-furnish-fit.md` |
+| Source-KB из книг — спека, план KB0–KB9 | `core/knowledge-db.md` | `../../remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md` |
 | Расстановка — свод правил, зона-билдер, прод-ядро | `core/layout.md` | `../domain/occupancy-rules.md` |
 | Лид-канал «найдём дешевле» — заявка, TG-бот | `core/leads.md` | — |
 | Уроки перед планированием — что пробовали и что НЕ сработало | `core/lessons.md` | `../anti-patterns.md` |

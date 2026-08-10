@@ -19,6 +19,7 @@
 | `estimate.md` | estimate | Смета-лист — калькуляторы, стоимость, /go/ реф | `../domain/pricing-works-ru.md` | 2026-08-06 |
 | `furniture.md` | furniture | Мебель — каталог, сеты, визуализация | `../domain/viz-fidelity-playbook.md` | 2026-08-08 |
 | `goals.md` | goals-furnish-fit | Цели продукта — v0.4 «Смета-first» | `../goals-one-photo-furnish-fit.md` | 2026-08-09 |
+| `knowledge-db.md` | knowledge-db | Source-KB из книг — спека, план KB0–KB9 | `../../remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md` | 2026-08-10 |
 | `layout.md` | layout | Расстановка — свод правил, зона-билдер, прод-ядро | `../domain/occupancy-rules.md` | 2026-08-09 |
 | `leads.md` | leads | Лид-канал «найдём дешевле» — заявка, TG-бот | — | 2026-07-28 |
 | `lessons.md` | lessons | Уроки перед планированием — что пробовали и что НЕ сработало | `../anti-patterns.md` | 2026-08-09 |

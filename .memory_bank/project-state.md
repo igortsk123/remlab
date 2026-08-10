@@ -3,7 +3,7 @@ tier: 1
 topic: project-state
 scope: Снимок «где проект сейчас» — точка ресинхронизации при /clear и resume
 tier2: "changelog/project-history.md"
-updated: 2026-08-09
+updated: 2026-08-10
 importance: high
 source: manual
 status: working
@@ -59,6 +59,10 @@ last_verified: 2026-08-09
 - **Прочие остатки:** backtracking 26–30 ([[layout-engine-gaps]]); косые стены Э8 (трапеция —
   пока осевая аппроксимация); target_box хвоста виз-приёмки; калибровка DUMB_T вердиктами;
   3 новых фида в проде (divan.ru mid 112923, mdm-complect 96431 + ещё один) — каталог ~32k.
+- **Source-KB из книг (10.08, [[knowledge-db]])**: корпус Mitton/Nystuen 2016 извлечён и
+  распакован (`remlab_knowledge_db_v1/sources/`, 1729 records), спека сохранена (обрезана в
+  фазе 9 — хвост запрошен), **план `plans/MASTER-source-kb.md` draft (KB0–KB9), ждёт «деплой»**;
+  открытые вопросы владельцу: хвост спеки, манифест полноты, git-политика, copyright, LLM-бюджет.
 
 Предыдущий фокус (аудит 06.08 и MASTER-pipeline-hardening А0–А7 — выполнен, beam везде,
 117/126) — хронология в `changelog/project-history.md`.

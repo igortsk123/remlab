@@ -1,0 +1,287 @@
+ch1	None	source_collection_id was not supplied by the user and could not be resolved unambiguously from project context; set to SOURCE_ID_MISSING and source_identity_complete=false. It must be assigned before this package is merged with other chapters.
+ch1	None	Master page mapping was not supplied. It was taken from the input file name suffix 15-42, which matches the 28 provided pages exactly (printed 1-28), so source_page_master_file = printed + 14. Confirm against the master PDF before merging.
+ch1	None	Bibliographic metadata (authors, publisher, edition, publication year, ISBN) does not appear on the provided pages and was not invented. The title was taken from the input file name, not from a title page.
+ch1	None	The master PDF file name is unknown, so source_file_name is 'unknown' while input_file_name holds the actually processed segment.
+ch1	R003	Metric equivalency of the 2015 average home area conflicts between body text (245 m2) and Figure 1-2 (254 m2). Both preserved, see R004.
+ch1	R007	Source asserts a code minimum dwelling floor area exists but gives no value, jurisdiction or edition.
+ch1	R013	Claim links casual interaction to the personal distance band but states no number; the value must be taken from R010 and not re-derived.
+ch1	R026	Clear passage width conflict with R024: 32 in of clear space versus a 32 in door leaf giving 30 in clear. Requires an explicit door leaf versus clear width distinction in the RemLab vocabulary.
+ch1	R028	Outlet height endpoint on the outlet side (centre, box bottom or box top) is not stated in the source.
+ch1	R030	Figure 1-6 caption note 3 prints 1067 to 118 mm while the dimension line prints 1067 - 1118 mm; the caption appears to contain a typographic error.
+ch1	R032	Universal design feature list is qualitative; numeric values are said to live in the per-room chapters.
+ch1	R033	Wheelchair circulation and turning space values are in Figures 2-14b and 2-14c, which are not part of this input.
+ch1	R034	Adaptable counter and cabinet illustrations are said to be in Chapter 4, which is not part of this input.
+ch1	R037	ANSI Type A and Type B kitchen and bath layouts are said to be in Appendix D, which is not part of this input.
+ch1	R044	Authors state they do not know how widely the sprinkler requirement is applied; adoption must be checked per jurisdiction.
+ch1	R050	IRC E3901.2.1 metric equivalency prints 1289 mm where 6 ft is about 1829 mm; normalization used the imperial value and the discrepancy is preserved.
+ch1	R053	Conflict between seating and supply-air registers is stated qualitatively, with no offset distance.
+ch1	R061	Reflected glare mitigation is described as placing the source at an angle, with no angle value.
+ch1	R066	Metric equivalents for lamp diameters were computed by the extractor because the source gives none; conversion recorded in conversion_note.
+ch10	None	source_collection_id is missing. The user supplied no stable book/edition ID and none is derivable from the input; set to SOURCE_ID_MISSING and source_identity_complete=false. A stable ID must be assigned before this package is merged with other chapters of the same edition.
+ch10	None	Bibliographic metadata (authors, edition, publication year, publisher, ISBN) is not present anywhere in the eight supplied pages. Only the title is carried, and it is taken from the input file name rather than from the source pages.
+ch10	None	source_page_master_file values (252-259) are derived from the '-252-259' suffix of the input file name, which maps 1:1 onto the eight input pages at a constant offset of +14 from the printed page numbers (238-245). The master PDF itself was not supplied, so this mapping must be confirmed before merging; source_file_name is left as 'unknown'.
+ch10	R010	The twenty-year and five-year horizons are author examples illustrating quality of life versus ROI, not decision thresholds; must not become rule values.
+ch10	R028	'Similar dimensions' versus 'very different dimensions' is the operative distinction of a cost rule but is never quantified.
+ch10	R033	Eight-to-twelve-month lead time is stated prescriptively ('should begin') but immediately qualified as varying greatly; which endpoint is operative is unresolved.
+ch10	R039	The lowest-to-highest cost ordering of the four design strategies is explicitly 'rough'; overlaps between strategies are possible.
+ch10	R045	PRESENT_BUT_UNCERTAIN: the chapter asserts a required minimum ceiling height for attic conversion but gives no value. The number must come from a codes chapter or a cited code, never from general knowledge.
+ch10	R046	Egress and ventilation are stated as preconditions for converting a basement to a bedroom, with quantitative criteria deferred to the book's Chapter 5, which is not part of this input.
+ch10	R048	'Small' versus 'large' porch drives different conversion outcomes but is not quantified.
+ch10	R050	'Moving a wall a few feet' and 'substantial square footage' are unquantified magnitudes; no measurement was created rather than guessing a value.
+ch10	R056	The five budget shares sum to 86-116 percent, so they are indicative bands rather than an exact partition; they were not normalised.
+ch10	R063	Table 10-1 row 'Basement remodel': the printed cost recouped percentage does not match the ratio of the two printed dollar figures. Both preserved, neither corrected.
+ch10	R065	Table 10-1 row 'Sunroom addition': the printed percentage (72.8) diverges strongly from the ratio implied by the printed dollar figures (about 48.5). Both preserved, neither corrected.
+ch10	R068	Table 10-2 row 'Entry door (steel)': the printed percentage (101.8) diverges strongly from the ratio implied by the printed dollar figures (about 123.7). Both preserved, neither corrected.
+ch10	R072	Table 10-2 row 'Siding (fiber-cement)': the printed percentage (84.3) diverges from the ratio implied by the printed dollar figures (about 69.2). Both preserved, neither corrected.
+ch10	R085	The chapter requires circulation, organizational flow and clearances to be considered but holds no numeric clearance itself, deferring to its Chapter 2 and the room chapters, which are not part of this input.
+ch10	R088	Minimum lot size and minimum/maximum allowable floor area are named as regulated quantities with no values; measurement left null.
+ch10	R089	Setback values are cross-jurisdiction typicals, not requirements for any site. The printed metric equivalent of the 6-foot side setback is given as '1829 m', a unit error for 1829 mm; recorded as printed and flagged, not repaired.
+ch10	R091	The number of required parking spaces that could block a garage conversion is not given.
+ch10	R092	Maximum lot coverage percentage is named as a binding limit with no value given.
+ch10	R093	Maximum building height is named as a binding limit with neither a value nor a measuring datum.
+ch10	R096	Permit thresholds are described qualitatively and vary by locality; not usable as a hard rule.
+ch2	None	source_collection_id was not supplied by the user and could not be derived from the provided pages, so it is set to SOURCE_ID_MISSING with source_identity_complete=false. A stable ID must be assigned before this package is merged with other chapters of the same edition.
+ch2	None	Bibliographic metadata is incomplete. Authors, edition, publication year, publisher and ISBN do not appear anywhere in the provided pages and were left empty rather than invented. The title was taken from the input file name only.
+ch2	None	source_file_name (the master PDF) is unknown. The page mapping printed+14=master and printed-28=input was derived from the input file name range 43-64 aligning exactly with the 22 provided pages and printed pages 29-50; it should be confirmed against the master file before the master page numbers are relied on.
+ch2	R031	Figure 2-7 prints the entrance stoop as 50 square feet with a metric equivalent of 15.2 m2. These are not equivalent (50 sq ft is about 4.6 m2). Both printed values are retained unnormalized and no value was chosen.
+ch2	R131	The curved-stair radius on printed p.42 is printed as 24 feet with a metric equivalent of 73,151 mm, which is off by roughly a factor of ten. Both printed values are retained and no value was chosen.
+ch2	R176	Figure 2-25 item B prints the minimum stair width as 36 inches with a metric equivalent of 91 mm, which is off by a factor of ten against the 914 mm used for the same dimension everywhere else in the chapter. The imperial value was normalized and the discrepancy recorded.
+ch2	R088	The degree-and-minute angle annotations on Figure 2-12 are hand-lettered and not reliably legible in the provided scan. They were not transcribed; the record is retained as a pointer with low extraction confidence.
+ch2	R105	Figure 2-14b carries a 24-inch maximum dimension whose subject is stated neither in the caption nor in the body text. Retained as a REFERENCE_ONLY pointer rather than dropped.
+ch2	R067	Local conflict: the chapter gives both 12 feet 3 inches (3734 mm) as the maximum vertical distance between floors or landings and a landing every 12 feet (3658 mm) of vertical rise. Both are recorded and cross-linked; they were not averaged.
+ch2	R129	Local conflict: three different spiral-stair footprints appear in this chapter (22 sq ft, 20 sq ft at a 5-foot diameter, 28 sq ft for a 6-foot diameter with 3-foot treads). Stated diameters differ where given, so the figures are cross-linked rather than reconciled.
+ch2	R182	The 7 3/4-inch maximum riser is printed with three different metric equivalents across the chapter: 197 mm, 196 mm and 196.85 mm. Each is recorded as printed at its own location.
+ch2	R103	The 7-foot minimum ceiling height annotated in Figure 2-14a is a figure-only annotation with no metric equivalent and no supporting body text or code citation in this chapter.
+ch2	R107	The source does not state the orientation of the 30 by 48 inch wheelchair clear floor space relative to the item being accessed, so the two dimensions were recorded without assigning one to the approach direction.
+ch2	R191	The outlet spacing rule for circulation areas is deferred by the source to Chapter 1, which is outside this input segment, so no numeric value could be extracted.
+ch2	R188	Figure 2-27 states that it presents only a limited interpretation of the IRC graspability requirements and gives no numeric limits for Type b handrail profiles.
+ch2	R198	All IRC citations in this package are dated to the 2015 edition on the strength of the chapter's own references list alone; the individual in-text code citations do not state an edition year.
+ch3	None	source_collection_id was not supplied and could not be taken from an unambiguous project context; the package carries SOURCE_ID_MISSING and source_identity_complete=false. Assign the stable book ID before merging.
+ch3	None	Bibliographic metadata (authors, edition, publication year, publisher, ISBN) is not present in the supplied pages and was deliberately not invented. The title was taken from the input file name only.
+ch3	None	Master page mapping (master = printed + 14) was derived from the page range in the input file name and confirmed only by page count (15 input pages, printed 51-65). Confirm against the master PDF before merging; if wrong, every source_page_master_file in this package must be recomputed.
+ch3	None	The visual layer was not independently verified: the PDF was available as text plus figure labels, but page images could not be rasterised in this run. All figure-derived width/depth axis assignments follow label-position convention. coverage_complete is therefore false.
+ch3	R006	Body text spacing (4-10 ft) conflicts with the Figure 3-1 caption (6-10 ft) while both print the same millimetre range.
+ch3	R007	Figure 3-1 caption prints 6-10 ft with 1200-3048 mm; 1200 mm equals 4 ft. Unit conflict unresolved.
+ch3	R032	Recliner depth 54-68 in may describe the reclined state; object state is not stated in Figure 3-3.
+ch3	R035	One sectional dimension (66 in) could not be assigned to an axis.
+ch3	R039	End table width/depth axis assignment not independently confirmed.
+ch3	R044	Media armoire depth: printed inch and centimetre values disagree (16 in vs 56 cm).
+ch3	R046	Cabinet depth under a flat screen: 16 in printed as 46 cm.
+ch3	R058	Screen size table prints 52 in with the millimetre value of the 40 in row.
+ch3	R077	An adjacent 18-24 in dimension in the buffet section could not be assigned a role.
+ch3	R079	Figure 3-8b note prints 18 in as 914 mm and 24 in as 1067 mm, contradicting the plan figures.
+ch3	R104	Area per person (0.93 m2) differs from R105 (1.08 m2) under the same fingerprint; contexts differ in capacity and comfort level, values kept separate.
+ch3	R105	See R104: second value for the same fingerprint, deliberately not averaged.
+ch3	R106	The constant 12 in counter-to-stool difference is inferred from two examples and is not stated in the source.
+ch3	R109	Required clear space between frame walls and a masonry fireplace is not dimensioned in the chapter.
+ch3	R112	The same 48 in screen height is printed as 1219 mm and 1220 mm on the same figure.
+ch3	R122	IRC minimum horizontal dimension printed as 7 feet (2143 mm); 7 ft equals 2134 mm.
+ch3	R124	Emergency escape opening requirement carries no dimensions in this chapter.
+ch4_seg1of3	None	source_collection_id was not supplied and could not be taken from an unambiguous project context, so it is set to SOURCE_ID_MISSING and source_identity_complete is false. A stable book/edition ID must be assigned before this package is merged with other chapters.
+ch4_seg1of3	None	Bibliographic metadata is incomplete: the title is derived from the input file name, and authors, edition, publication year, publisher and ISBN are unknown from the provided input and were not invented.
+ch4_seg1of3	None	Master page mapping is derived, not supplied: the input file name carries the range 80-100 and the input holds exactly 21 pages carrying printed pages 66-86, so source_page_master_file is recorded as printed page + 14. This mapping should be confirmed against the master PDF before merging, because it must be identical across all packages of this book.
+ch4_seg1of3	None	The input is a segment, not a complete chapter. It starts at the chapter opening but ends inside the Refrigerators discussion; segment_total is unknown. Chapter 4 sections referenced but not provided include Ergonomics and Required Clearances, Prototype Kitchen Illustrations, Kitchen Storage and Cabinetry, Related Codes and Constraints, and Electrical and Mechanical.
+ch4_seg1of3	None	Many clearance and mounting-height claims in this segment are stated without values because the source places the dimensions in the Ergonomics and Required Clearances section, which is outside this input. These records are kept as SOFT_CANDIDATE or REFERENCE_ONLY with needs_verification and must be completed from the later segment.
+ch4_seg1of3	None	No HARD_CANDIDATE was assigned in this segment. Every measurable claim here is presented either as an authors' recommendation, as a guideline, or as a typical product size, and the chapter explicitly calls the work triangle dimensions guidelines. Promotion to hard rules should not happen on the basis of this segment alone.
+ch4_seg1of3	None	Figure legend and dimension-arrow assignments in Figures 4-9, 4-13, 4-15 and 4-16 were read from the drawings; letter-to-dimension mappings and plus/minus tolerances are marked with medium confidence and needs_verification where the reading is not certain.
+ch4_seg1of3	R011	The source states clearances must exceed the recommended dimensions but gives no numeric uplift.
+ch4_seg1of3	R017	No distance value is given for the access relationship.
+ch4_seg1of3	R033	Landing-area dimensions are said to be in the Fixtures and Appliances / Ergonomics sections, which are outside this input segment.
+ch4_seg1of3	R040	Stated count (13) does not match the number of labels read from Figure 4-8 (14); detailed prototype figures live in a section outside this segment.
+ch4_seg1of3	R043	The source states the requirement but places the dimensions in the Ergonomics and Required Clearances section, which is not in this input segment.
+ch4_seg1of3	R044	No dimensions given here; the source refers to the Ergonomics and Required Clearances section outside this segment.
+ch4_seg1of3	R055	No counter height or knee space dimensions are given in this segment; the source refers to the Ergonomics and Required Clearances section.
+ch4_seg1of3	R068	Mounting heights and clearances are held in sections outside this input segment.
+ch4_seg1of3	R070	The mapping of legend letters A, B and D onto specific dimension arrows is read from the drawing and should be confirmed against the original figure.
+ch4_seg1of3	R071	Legend letter to arrow mapping read from the drawing; the plus/minus tolerances are not quantified.
+ch4_seg1of3	R072	Legend letter to arrow mapping read from the drawing.
+ch4_seg1of3	R074	The magnitude of the reduction is not given.
+ch4_seg1of3	R092	Measurement endpoints are not specified in the source.
+ch4_seg1of3	R100	The referenced Figure 4-21b and the clearance dimensions are outside this input segment.
+ch4_seg1of3	R113	The required fire-safety separation distance for true commercial ranges is not quantified in the source.
+ch4_seg1of3	R114	Ventilation rates and hood dimensions are held in the Electrical and Mechanical section, outside this input segment.
+ch4_seg1of3	R115	The printed metric equivalent of the 60 inch width (1727 mm) is internally inconsistent and conflicts with Figure 4-15.
+ch4_seg1of3	R119	The depth arrow of the compact plan carries no separate metric annotation and its assignment is read from the drawing.
+ch4_seg1of3	R122	Assignment of the small-unit dimension arrows in the compact cooktop row is read from the drawing and should be confirmed.
+ch4_seg1of3	R124	Seated reach heights and knee clearances are held in the Ergonomics and Clearances section, outside this input segment.
+ch4_seg1of3	R125	No knee clearance or counter height values are given in this segment.
+ch4_seg1of3	R130	No cavity depth values are given in the source.
+ch4_seg1of3	R131	The magnitude of the counter space lost is not quantified in the source.
+ch4_seg1of3	R132	Installed mounting height is left to the host cabinet and is not given in this segment.
+ch4_seg1of3	R134	The optimum mounting height is described but not given numerically in this segment.
+ch4_seg1of3	R135	Knee space dimensions are held in the Ergonomics and Required Clearances section, outside this segment.
+ch4_seg1of3	R140	The source refers to the Ergonomics and Required Clearances section for the amount of counter space required.
+ch4_seg1of3	R149	The source states the clearance requirement without giving a dimension.
+ch4_seg1of3	R153	No door width or swing dimension is given in the source.
+ch4_seg1of3	R159	Dimensions for single refrigerator and single freezer models are not shown in the figure.
+ch4_seg2of3	None	source_collection_id was not supplied by the user and could not be resolved from an unambiguous project context, so it is set to SOURCE_ID_MISSING and source_identity_complete is false. A stable ID must be assigned before this package is merged with other chapters of the same edition.
+ch4_seg2of3	None	Master page mapping is derived, not supplied: the input file name declares master pages 101-128 and the segment contains exactly 28 pages carrying printed page numbers 87-114, giving a constant offset of +14 (source_page_master_file = source_page_printed + 14). Confirm against the full master PDF before merging.
+ch4_seg2of3	None	The master PDF file name is unknown, so source_file_name is 'unknown' while input_file_name records the segment actually processed.
+ch4_seg2of3	None	Segment index and segment total within Chapter 4 are unknown. The chapter begins before printed page 87 (figures 4-1 to 4-17 are not in this input) and its end is not established, so chapter_is_complete_input is false and the output file name carries no segment suffix. Two segments of this chapter would collide on file name; assign segment metadata before processing further parts.
+ch4_seg2of3	None	Bibliographic metadata beyond the title is unknown: authors, edition, publication year, publisher and ISBN were not supplied and were not invented.
+ch4_seg2of3	None	Several figures carry dimension callouts as vector outlines rather than text, so they were read from rendered page images at approximately 200 dpi. Figure dimensions are marked with extraction_confidence medium or low and the affected pages are listed in coverage_audit.unreadable_or_ambiguous_pages.
+ch4_seg2of3	None	Internal metric/imperial conversion inconsistencies were found in the source and preserved rather than corrected. See the conversion_note fields of R010/M001 (1 ft 8 in printed as 408 mm), R011/M001 (1 ft 9 in printed as 457 mm), R029/M001 (2 ft 4 in printed as 865 mm), R032/M003 (2 ft 5 in printed as 762 mm), R088/M002 (36 in printed as 762 mm), R095/M001 (10 in printed as 610 mm), R104/M003 (150 sq ft printed as 1395 m2, and 350 sq ft printed as 3252 m2 in the large-kitchen row) and R162 (24 in printed as 305 mm in the exception paragraph).
+ch4_seg2of3	R010	One or more measurements require verification.
+ch4_seg2of3	R011	One or more measurements require verification.
+ch4_seg2of3	R014	Dimension read from a drawn dimension line, not repeated in the note text.
+ch4_seg2of3	R016	Dimensions read from drawn dimension lines; which element each depth belongs to is only partly explicit.
+ch4_seg2of3	R017	Origin of the dimension line (floor vs counter) read from the drawing; verify against Figure 4-23, which gives hood-to-cooktop clearances directly.
+ch4_seg2of3	R029	Cited standard reproduced from the book; currency of the citation not checked.
+ch4_seg2of3	R032	One or more measurements require verification.
+ch4_seg2of3	R050	Secondary-sink dimensions are drawn but not described in the note text; endpoints uncertain.
+ch4_seg2of3	R054	Cited standard reproduced as printed; the source itself notes individual residential preferences may differ and that single-family homes are not bound by it.
+ch4_seg2of3	R082	Source gives no numeric clearance, only that it may be below the general minimum.
+ch4_seg2of3	R088	One or more measurements require verification.
+ch4_seg2of3	R095	The printed metric equivalent conflicts with the same claim on printed page 96, where 10 inches is given as 254 mm.
+ch4_seg2of3	R104	One or more measurements require verification.
+ch4_seg2of3	R118	The European dimensions themselves are in Appendix F, which is outside this input segment.
+ch4_seg2of3	R142	All dimensions are hand-lettered on a sketch plan and were read at limited resolution; the bracketed values are the ranges the sketch offers around the drawn dimension.
+ch4_seg2of3	R144	Design guidance for outdoor and outpost kitchens is in Appendix E, outside this input segment.
+ch4_seg3ofU3	None	source_collection_id was not supplied by the user and no unambiguous project context was available; SOURCE_ID_MISSING was used and source_identity_complete is false. A stable ID must be assigned before this package is merged with other chapters of the same edition.
+ch4_seg3ofU3	None	Bibliographic metadata (authors, edition, publication year, publisher, ISBN) is not present anywhere in the provided pages and was deliberately not filled in from general knowledge.
+ch4_seg3ofU3	None	source_file_name is 'unknown': the master PDF was not provided, only the sliced segment. source_page_master_file values were derived from the page range encoded in the input file name (pages 129-139 of the master, matching printed pages 115-125, giving master = printed + 14). This mapping is declared, not verified against the master file, and must be confirmed before merging.
+ch4_seg3ofU3	None	This input is only the closing part of Chapter 4. Earlier parts of the chapter, which contain the clearance standards, counter-space recommendations and Figures 4-6 to 4-8, 4-29 and 4-31 that the captions refer to, were not provided; chapter_is_complete_input is false.
+ch4_seg3ofU3	None	The chapter References list (printed pages 124-125) was excluded as bibliography, but it names external authorities that the chapter relies on, including the 2015 International Residential Code, the NKBA Kitchen Planning guidelines, and the Ability Center of Greater Toledo. These are recorded here so that a later modern-source verification pass can pick them up.
+ch4_seg3ofU3	None	The Accessibility Note lists Figures 4-49, 4-50 and 4-51 as wheelchair-accessible prototypes, while the adjacent paragraph presents Figures 4-51 to 4-53 as negative examples. Figure 4-51 is therefore claimed by both statements; the figure itself is captioned as a negative example. Preserved as an inconsistency in the source rather than resolved.
+ch4_seg3ofU3	R020	The recommended clear counter space at the range is referred to four times but never given numerically in this segment; the value must come from an earlier segment of the chapter.
+ch4_seg3ofU3	R021	The recommended total counter space is referenced but not quantified in this segment.
+ch4_seg3ofU3	R027	Refers to a minimum dishwasher loading space and to Figure 4-31 a, neither of which is in this input.
+ch4_seg3ofU3	R010	The 42 in island aisle minimum exists only as a figure annotation with no supporting text.
+ch4_seg3ofU3	R022	Four minimum widths are annotated on plans only; the elements they dimension are partly inferred from position.
+ch4_seg3ofU3	R094	The source's own imperial and metric values for the ANSI/UFAS clearance disagree (3 ft 6 in vs 1016 mm).
+ch4_seg3ofU3	R099	Caption and plan title block of Figure 4-46 give different floor areas (160 vs 150 square feet).
+ch4_seg3ofU3	R100	Several printed metric equivalents in this segment are internally inconsistent; imperial values were treated as primary and both readings preserved.
+ch4_seg3ofU3	R095	Dimension lines on the two accessible prototypes are unlabelled; the elements they span could not be identified from the figures.
+ch4_seg3ofU3	R056	Several small island callouts in Figure 4-38 are densely lettered; the run segment widths were read individually but the runs could not be sum-checked against a stated overall dimension.
+ch4_seg3ofU3	R071	The upper run segment widths of Figure 4-43 do not sum to the stated 17 ft overall length, so at least one unlabelled segment was not captured.
+ch4_seg3ofU3	R083	Figure 4-47 carries a (9"-27") annotation next to the range with oven(s) and exhaust hood whose subject could not be identified.
+ch5	None	source_collection_id is absent. No stable book/edition identifier was supplied by the user and none is derivable from the input. Set to SOURCE_ID_MISSING with source_identity_complete=false; this package cannot be merged with other chapters of the same edition until an ID is assigned.
+ch5	None	Bibliographic metadata (authors, edition, publication year, publisher, ISBN) is not present anywhere in the supplied pages and was not invented. Title is taken from the input file name, not from a title page, and should be verified.
+ch5	None	Master page mapping is derived, not supplied: the input file name states pages 140-161 and the printed page numbers run 126-147, an exact 22-page alignment giving offset master = printed + 14. Applied throughout, but must be confirmed against the master PDF before cross-chapter merge.
+ch5	None	source_file_name is unknown. The input is a 22-page slice; the name of the master PDF it was cut from was not supplied.
+ch5	None	The chapter cross-references Figure 1-5 (ceiling heights relative to room areas), Figure 1-6 (vertical switch placement) and Figure 2-14b (T-shaped turn geometry), all in chapters not supplied. Accessibility and habitable-area rules in this package are therefore incomplete on their own.
+ch5	R016	Night stand depth label prints an imperial/metric pair that does not convert (16 in given as 30 cm). Printed values retained verbatim; requires check against the original figure.
+ch5	R024	Overall room dimension lines of Figure 5-7 could not be read reliably; the printed imperial and metric pairs on the perimeter appear mutually inconsistent in the supplied rendering. Area and closet rod length were extracted, room dimensions were not.
+ch5	R028	Local conflict with R027: the same value (1524 mm) is stated as a wheelchair turning DIAMETER on printed pp.131 and 142 and as a turning RADIUS on printed p.131. A factor-of-two difference in required floor area. Not averaged, not resolved.
+ch5	R027	Counterpart of the turning space conflict; see R028.
+ch5	R050	Sliding door panel-configuration sub-ranges in Figure 5-11 are only partly legible; the overall opening range was extracted, the per-panel breakdown was not.
+ch5	R057	Printed metric area for reach-in closet c1 in Figure 5-12 does not match its imperial value in the supplied rendering. Imperial value used as the basis; printed metric not adopted.
+ch5	R080	Local conflict with R025: the 32-inch door clear opening is printed with a metric equivalent of 831 mm on printed p.140 and 813 mm on printed p.131. Preserved unresolved.
+ch5	R083	IRC R304 minimum horizontal dimension of 7 feet is printed as 2143 mm, while the same 7-foot dimension is printed as 2134 mm in the ceiling height requirement on the same page. Conflicts with R081.
+ch5	R084	Sloped ceiling threshold of 5 feet is printed as 1534 mm; 5 feet converts to 1524 mm. Printed value retained without correction.
+ch5	R090	Figure 5-19d prints imperial dimensions only, unlike the rest of the chapter. Metric values in this record are conversions performed during extraction, not source claims.
+ch5	R095	The narrow-room failure is asserted qualitatively with a single failing example (9 x 17 ft). The aspect ratio of 1.889 is derived, and no threshold ratio is given by the source.
+ch5	R009	Youth bed size is stated as varying with no value given. Entity retained with a null measurement so it is not lost at merge.
+ch5	R011	Sofa beds are dimensioned only in the closed state. Deployed depth, which governs circulation when in use, is absent from the source.
+ch5	R088	Temperature quantities fall outside the canonical unit list (LENGTH/ANGLE/AREA/RATIO/PERCENT/COUNT). Recorded with canonical_unit 'degC' and flagged here rather than dropped.
+ch5	R055	The 2.5x area ratio between walk-in a2 and reach-in a1 is derived from two printed areas; the source states only 'far more square footage'.
+ch5	R094	The 1.75x rod-yield ratio is derived from two printed values; the source does not state it as a ratio.
+ch5	R096	Context tension rather than conflict: a 914 mm leaf is required for wheelchair access (R074, R102) and penalised as cumbersome for frequently operated closet doors here. Contexts differ; flagged for reconciliation rather than logged as local_conflicts_with.
+ch6_seg1of2	None	source_collection_id was not supplied by the user and no unambiguous project context was available, so SOURCE_ID_MISSING is used and source_identity_complete is false. A stable ID must be assigned before this package is merged with other chapters of the same edition.
+ch6_seg1of2	None	Bibliographic metadata (authors, edition, publisher, publication year, ISBN) is absent from the provided pages and was not invented. The title was taken from the input file name only and should be confirmed.
+ch6_seg1of2	None	Master page mapping was derived from the input file name range 162-183 against printed pages 148-169, an exact 22-page match giving a constant offset of +14. This is a filename-based derivation rather than a user-confirmed mapping and must be verified before packages are merged.
+ch6_seg1of2	None	The input is a partial chapter. It begins at the chapter opening (printed 148) and stops inside Storage and Cabinetry (printed 169), cutting off mid-topic. The Ergonomics and Required Clearances section is referenced eight times within this segment but is not included, so most clearance dimensions for this chapter are still missing.
+ch6_seg1of2	R024	Source prints 15 to 16 inches against 318 to 406 mm in the same sentence; 15 in is 381 mm, so the imperial and metric values disagree. Both retained, neither corrected.
+ch6_seg1of2	R036	One hexagonal vessel sink prints 17 in against 732 mm, which do not correspond. Inch value retained at low confidence.
+ch6_seg1of2	R053	The worked slope example (1/4 in drop in a 5 by 5 ft stall with a centre drain) implies about 0.1 in per foot, below the stated 1/8 in per foot minimum in the same paragraph. Conflict preserved, not averaged.
+ch6_seg1of2	R060	The 25 by 52 in example equals 1300 square inches exactly while the note calls it larger than the minimum, and the note prints 0.84 m2 in the rule against 0.084 m2 in the example.
+ch6_seg1of2	R049	The 30 by 60 in minimum clear floor space at an accessible tub is the strongest hard candidate in the segment, but the source does not state where the rectangle is measured from or how it is oriented relative to the tub.
+ch6_seg1of2	R022	Which of the two urinal dimensions is width and which is height or projection is not labelled in words in Figure 6-7.
+ch6_seg1of2	R033	Width and depth assignment across the Figure 6-13a and 6-13b sink size groups is inferred from drawing layout rather than written axis labels; applies equally to R034, R035 and R036.
+ch6_seg1of2	R062	The second plan dimension of the 5-ft roll-in shower is not given in this segment and is deferred to Figure 6-36 in the Ergonomics and Required Clearances section, which was not provided.
+ch6_seg1of2	R075	The clearance required for two sink users at a double vanity is stated as a requirement but its dimension is explicitly deferred to a section outside this segment.
+ch6_seg1of2	R016	Cited standards (ANSI A117.1, UFAS, FHAA, ADA, IRC P2708.1) are recorded exactly as the book reports them. Currency against present-day editions was deliberately not checked, per the extraction rules.
+ch6_seg1of2	R002	NAHB statistics are undated relative to an unknown publication year, so the reference period cannot be established.
+ch6_seg2of2	None	source_collection_id was not supplied by the user or by project context, so SOURCE_ID_MISSING is used and source_identity_complete is false. Authors, edition, publisher, ISBN and publication year do not appear in the provided pages and were not inferred. The master file name is unknown; only the input file name is recorded.
+ch6_seg2of2	None	The input is a segment: printed pages 170-187 of Chapter 6. Earlier pages of the chapter were not provided, so chapter_is_complete_input is false and no claim is made about material outside this range. segment_total is set to 1 because no segmentation scheme was supplied; if the chapter is later split differently, this metadata must be revised.
+ch6_seg2of2	None	cross_chapter_check_complete is false: the chapter refers to Chapter 1, Chapter 4, Appendix B, Appendix D, Figure 1-5 and Figure 2-4c, none of which were provided, so no cross-chapter deduplication or reconciliation was attempted.
+ch6_seg2of2	R016	Conflicts with R024 on showerhead height: 1829 mm as a single value against a 1829-2057 mm band. Both are retained unaveraged.
+ch6_seg2of2	R024	Conflicts with R016 on showerhead height. Both are retained unaveraged.
+ch6_seg2of2	R035	Conflicts with R037 on roll-in shower clear space: 914 x 1524 mm in Figure 6-27d against 762 x 1219 mm in the body text. Both are retained unaveraged.
+ch6_seg2of2	R037	Conflicts with R035 on roll-in shower clear space. Both are retained unaveraged.
+ch6_seg2of2	R079	The source prints '21 inches (762 mm)', an internally inconsistent imperial/metric pair. Both readings are kept as separate measurements (533 mm from the imperial value, 762 mm as printed) rather than averaged or silently corrected.
+ch6_seg2of2	R103	Figure 6-37 note E prints '2-foot, 4-inch (813-mm) door'; 2 feet 4 inches is 711 mm, so the printed pair is inconsistent. The metric value as printed is recorded and flagged.
+ch6_seg2of2	R115	The source prints 'at least 24 inches (510 mm)'; 24 inches is 610 mm. Both readings are kept as separate measurements and flagged.
+ch6_seg2of2	R120	Figure 6-26c prints 5'-0" RECOM. against 1542 mm; elsewhere the chapter prints 5'-0" as 1524 mm. The printed metric value is recorded unchanged and flagged.
+ch6_seg2of2	R043	Dimension read from the figure has at least one unlabelled endpoint; recorded as REFERENCE_ONLY with the reading stated rather than dropped.
+ch6_seg2of2	R044	Unlabelled wall accessory dimensions (203 mm and 660 mm) in Figure 6-28a: the object is drawn but not named in the caption or notes.
+ch6_seg2of2	R056	One dimension endpoint (787 mm) is not labelled in the figure; the reading is retained with reduced confidence.
+ch6_seg2of2	R070	The source describes a planning fault involving the shower and toilet without stating any numeric value; retained as REFERENCE_ONLY.
+ch6_seg2of2	R072	One dimension endpoint (1143 mm) is not labelled in the figure; the reading is retained with reduced confidence.
+ch6_seg2of2	R075	The source describes a window access fault without stating any numeric value; retained as REFERENCE_ONLY.
+ch6_seg2of2	R109	The 42 inch receptacle height in Figure 6-38 is printed without a metric equivalent and without a stated datum; recorded with medium confidence.
+ch6_seg2of2	R114	The luminaire mounting height is given only as 'roughly eye level' and is recorded as a relationship expression with no numeric value.
+ch6_seg2of2	R119	The 152 mm offset between the tub and the adjacent fixture has unlabelled endpoints in Figure 6-26c.
+ch7	None	source_collection_id was not supplied by the user and cannot be derived from the input; set to SOURCE_ID_MISSING and source_identity_complete=false. The correct stable ID for this edition must be assigned before this package is merged with other chapters.
+ch7	None	Bibliographic metadata (authors, edition, publisher, publication year, ISBN) is not present in the provided pages and has not been invented. The title was taken from the input file name and should be confirmed against the title page.
+ch7	None	Master page mapping printed+14=master (printed 188-201 -> master 202-215) was derived from the page range in the input file name plus the continuous printed page numbers. It is consistent but unverified against the master PDF and must be confirmed before merging.
+ch7	None	source_file_name is set to unknown because the master PDF file name was not supplied; only the segment file name is recorded in input_file_name.
+ch7	None	Several figure dimensions carry no printed metric equivalent (notably in Figures 7-5, 7-6 and 7-9); these were converted from the imperial value and every affected measurement is flagged needs_verification with a conversion_note.
+ch7	R101	Source-internal contradiction: Figure 7-1 prints 868-737 mm for a 27-29 in dryer width while the running text gives 686-737 mm. Both preserved; no silent correction.
+ch7	R187	Source-internal contradiction: the IRC R302.6 passage prints 127 mm as the metric equivalent of one half inch (12.7 mm), a factor-of-ten error. Original preserved in the conversion note.
+ch7	R141	Source-internal inconsistency: 24 ft double garage width is printed as 7313 mm in the Figure 7-4 note and 7315 mm on the drawing.
+ch7	R133	Figure 7-3b parallel approach elevation dimensions are unlabelled as to endpoints; the reading of 24 in as maximum obstruction depth and 30 in as wheelchair space is an interpretation of the drawing.
+ch7	R157	The IRC electrical panel clear space is quoted as '3 feet by 2 feet, 6 inches wide by 6 feet, 6 inches high' without stating which horizontal dimension is the depth in front of the panel; no IRC section number is given by the source.
+ch7	R055	The requirements-list bullet on bulletin, pin-up, chalk and white boards ends page 190 and no matching answer paragraph appears at the top of page 191 in this input; only the question is available.
+ch7	R016	Source alludes to respondents without naming a study or reporting shares.
+ch7	R018	No numeric turning-space or clear-space value is given in this passage; numbers appear elsewhere in the chapter.
+ch7	R023	No numeric reach range is given here; the source refers to the Ergonomics and Required Clearances section of the same chapter.
+ch7	R029	Child reach height is asserted as a relationship with no value, age group or percentile.
+ch7	R041	No numeric clearance is given here; the source defers to the Organizational Flow section.
+ch7	R049	No surface dimensions are given for any equipment type.
+ch7	R053	Access space is required but no dimension is given.
+ch7	R057	The bullet carries a footnote marker but no dimensional answer in the provided pages.
+ch7	R064	Dependency is directional with no numeric baseline or increment.
+ch7	R065	Ergonomic values are deferred to Appendix G, which is not part of the provided input.
+ch7	R078	No circulation dimension is given; only the area estimates of Table 7-1 are provided.
+ch7	R082	No load value or floor construction is specified.
+ch7	R100	Upper bound of the depth range is printed as open-ended (26"+).
+ch7	R114	The clearance is required but no dimension is given anywhere in the provided input.
+ch7	R123	Relative comparison with no dimensions given.
+ch7	R129	Dimension endpoints are read from a drawing; the start point is a centerline mark rather than a labelled face.
+ch7	R134	Interpretation of an unlabelled vertical dimension in the elevation.
+ch7	R142	Only part of the depth annotation carries a printed metric equivalent.
+ch7	R145	Several dimensions carry no printed metric equivalent, and the metric value for the single bay sits ambiguously between the 11 ft and 12 ft options.
+ch7	R180	The seated height is not given numerically; it is deferred to Appendix G.
+ch7	R188	No slope value is given in the source.
+ch7	R200	No absolute illuminance values are given, only a multiplier relative to an unstated general level.
+ch7	R203	No metric equivalents are printed and the reference point of the height is not stated.
+ch8	None	source_collection_id was not supplied by the user and cannot be resolved unambiguously from project context. Set to SOURCE_ID_MISSING with origin MISSING; source_identity_complete=false. A stable ID must be assigned before this package is merged with other chapters of the same edition.
+ch8	None	Bibliographic metadata (authors, edition, publication year, publisher, ISBN) does not appear anywhere in the supplied pages and was not invented. The title was taken from the input file name only.
+ch8	None	source_file_name of the master PDF is unknown. Master page numbers were derived from the input file name, which encodes the range 216-236, combined with the fact that the input has exactly 21 pages carrying printed pages 202-222 in sequence (offset master = printed + 14). This mapping should be confirmed against the master file before merging.
+ch8	R030	Same 6 ft side setback is printed with two different metric equivalents (1829 mm on p.205, 1819 mm on p.206) and the p.205 unit is typed as 'm' rather than 'mm'. Both values preserved; not averaged.
+ch8	R037	Printed lot area of 72,000 sq ft contradicts both the printed lot dimensions (60 x 120 ft = 7,200 sq ft) and the printed metric equivalent (668.9 m2). Order-of-magnitude error in the source.
+ch8	R077	Foundation wall thickness of 8 in is converted as 203 mm on p.214 and 204 mm on p.216.
+ch8	R083	Stated riser height of 7 1/2 in multiplied by 14 risers gives 8'-9", not the printed total rise of 8'-8 3/8". In addition, the total-rise glyph in the Figure 8-12 note block is not fully legible; the value was taken from the legible Figure 8-14 annotation, which agrees with the printed floor elevations.
+ch8	R084	Riser height on the attic stair is present in the Figure 8-13 note block but is not legibly readable at the available reproduction quality. Left as null rather than reconstructed. The total rise of 8'-11 3/8" is confirmed by the floor elevations in Figure 8-14.
+ch8	R076	Dimension values in Figure 8-11 are legible, but which wall or opening each string spans cannot be established from the reproduction. Kept as REFERENCE_ONLY with needs_verification rather than dropped.
+ch8	R106	Surface mounted ceiling fluorescent length reads as 18 in on the rasterised fixture schedule but as 16 in in the PDF text layer of the same page. The drawing was preferred; confirm against the master file.
+ch8	R108	Kitchen device mounting heights (44 in, 32 in, 58 in) were read from annotations on the electrical plan. That they are measured above finished floor follows from the chapter's A.F.F. convention stated on the reflected ceiling plan, not from a note on Figure 8-17 itself.
+ch8	R070	The relationship 'television mounted above the fireplace' is read from the Figure 8-15a elevation; the caption names only the television, and the element beneath it is identified as the gas fireplace by cross-reading Figure 8-9 and the programme text.
+ch8	R100	'EASTERN CEDAR' appears in the CEILING MAT'L column for the closet row. Cedar closet linings commonly cover walls as well; the table as printed says ceiling only, and no wall material is asserted.
+ch8	R031	Rear setback is defined only as a percentage of lot depth or green space. The chapter refers the reader to Chapter 10 for setbacks, which was not part of this input.
+ch8	R050	The numeric width of door frame trim is deferred to Figures 5-11 and 9-4b, which are outside this input.
+ch8	R082	The bedroom window requirement is stated as a requirement without naming a code and without minimum opening dimensions. The chapter's reference list contains the 2015 IRC, but the note does not cite it.
+ch9	None	source_collection_id was not supplied by the user and no unambiguous project context was available; the package carries SOURCE_ID_MISSING and source_identity_complete=false. A stable ID must be assigned before this package is merged with other chapters of the same edition.
+ch9	None	Bibliographic metadata (authors, edition, publication year, publisher, ISBN) is not present in the provided input. The title was taken from the input file name only; authors were deliberately not filled in from general knowledge.
+ch9	None	Master page mapping was derived from the input file name range (master pages 237-251) aligned with the 15 printed pages 223-237 of the input. The mapping is consistent but was not confirmed against the master PDF itself; verify before merging.
+ch9	R006	Source metric range for sheet thickness (6.35-24.5 mm) is inconsistent with the imperial range (1/4-1 in = 6.35-25.4 mm).
+ch9	R010	Figure 9-2 legend item D prints '(8 to 10 inches [38 by 140 mm])'; the metric value is internally inconsistent with the imperial value and was preserved rather than corrected.
+ch9	R016	Egress window requirement is stated without any opening dimensions; numeric values must come from an external code source.
+ch9	R019	Total interior partition thickness is an INFERENCE (3 1/2 in stud + 2 x 1/2 in board), not a source claim.
+ch9	R024	The phrase '3 feet by 2 feet, 6 inches ... wide' does not resolve which plan dimension is depth and which is width for the required clear space at the service panel.
+ch9	R029	'Adequate air circulation space' around the condensing unit is required but never quantified.
+ch9	R036	Whether the 3 ft egress requirement applies to the door leaf or to the clear opening is unresolved; conflicts with R037.
+ch9	R037	Figure 9-4a note 1 as printed repeats the same value for leaf and clear opening; the intended reduction is not quantified.
+ch9	R057	Placement relative to seated and standing eye level is required but no numeric eye-level values are given in this chapter.
+ch9	R093	IRC minimum firebox depth of 20 in conflicts with the 16-24 in firebox range dimensioned in the same figure (R094).
+ch9	R094	Dimensioned firebox depth range starts below the IRC minimum stated in the legend of the same figure; both values preserved.
+ch9	R097	Hearth size and combustible clearances are delegated to IRC sections R1001.10 and 1001.11 without reproducing any values.
+ch9	R098	The source prints 0.65 m2 both for 1008 sq in and for 100.8 sq in; the second metric conversion is wrong in the book.
+ch9	R100	In the larger-fireplace example it is unclear which dimension the 72 in width and the 40 in opening describe.
+ch9	R102	The Figure 9-7a plan dimension chain does not reconcile at the lower endpoint (24 in opening + 2 x 8 in = 3 ft 4 in, but the drawing states 3 ft 8 in) and the depth dimension endpoints are ambiguous.
+ch9	R111	The 2 in separation at the hearth support is marked on the drawing without identifying both faces.
+ch9	R112	The 2 ft chimney rule of thumb is given without naming the reference plane.
+ch9	R117	Figure 9-8a is marked N.T.S.; the base depth dimension is not labelled as to what it spans.
+ch9	R121	Stove clearances are delegated to UL listings and manufacturer data with no values in the source.
+ch9	R136	Hand-lettered project dimensions read visually from Figures 9-9a/9-9b at 200 dpi; endpoints not labelled.

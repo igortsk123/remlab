@@ -1,0 +1,276 @@
+TOTAL measurements: 2559 across 13 files
+PER FILE: {
+"remlab_SOURCE_ID_MISSING_ch1.json": 74,
+"remlab_SOURCE_ID_MISSING_ch10.json": 90,
+"remlab_SOURCE_ID_MISSING_ch2.json": 269,
+"remlab_SOURCE_ID_MISSING_ch3.json": 186,
+"remlab_SOURCE_ID_MISSING_ch4_seg1of3.json": 155,
+"remlab_SOURCE_ID_MISSING_ch4_seg2of3.json": 247,
+"remlab_SOURCE_ID_MISSING_ch4_seg3ofU3.json": 289,
+"remlab_SOURCE_ID_MISSING_ch5.json": 315,
+"remlab_SOURCE_ID_MISSING_ch6_seg1of2.json": 214,
+"remlab_SOURCE_ID_MISSING_ch6_seg2of2.json": 317,
+"remlab_SOURCE_ID_MISSING_ch7.json": 180,
+"remlab_SOURCE_ID_MISSING_ch8.json": 105,
+"remlab_SOURCE_ID_MISSING_ch9.json": 118
+}
+
+### quantity_kind (8 distinct)
+| value | n |
+|---|---|
+| LENGTH | 1993 |
+| AREA | 173 |
+| OTHER | 137 |
+| COUNT | 125 |
+| PERCENT | 80 |
+| RATIO | 33 |
+| ANGLE | 16 |
+| UNKNOWN | 2 |
+
+### value_type (9 distinct)
+| value | n |
+|---|---|
+| EXAMPLE | 742 |
+| TYPICAL | 567 |
+| RANGE | 473 |
+| MINIMUM | 455 |
+| MAXIMUM | 140 |
+| RELATIONSHIP | 90 |
+| RECOMMENDED_MINIMUM | 49 |
+| PREFERRED | 29 |
+| UNKNOWN | 14 |
+
+### comparison_operator (8 distinct)
+| value | n |
+|---|---|
+| EQUAL | 937 |
+| BETWEEN_INCLUSIVE | 539 |
+| GTE | 501 |
+| APPROX | 319 |
+| LTE | 125 |
+| NONE | 106 |
+| LT | 18 |
+| GT | 14 |
+
+### unit_original (58 distinct)
+| value | n |
+|---|---|
+| in | 1332 |
+| mm | 276 |
+| ft | 180 |
+| None | 127 |
+| ft2 | 118 |
+| inch | 78 |
+| percent | 77 |
+| ft_in | 75 |
+| count | 68 |
+| USD | 40 |
+| sq ft | 32 |
+| deg | 17 |
+| sq_ft | 16 |
+| W | 10 |
+| risers | 9 |
+| rise:run | 8 |
+| degF | 8 |
+| V | 5 |
+| gallon | 5 |
+| foot | 5 |
+| CRI | 4 |
+| years | 4 |
+| riser:tread | 4 |
+| Btu | 4 |
+| cfm | 4 |
+| gallon_per_flush | 4 |
+| rooms | 3 |
+| K | 3 |
+| in2 | 3 |
+| gpm | 3 |
+| 1 | 3 |
+| amp | 3 |
+| steps | 2 |
+| months | 2 |
+| US gallon per load | 2 |
+| pair | 2 |
+| square inch | 2 |
+| levels | 1 |
+| receptacles | 1 |
+| outlets | 1 |
+| layers | 1 |
+| lumens | 1 |
+| footcandle | 1 |
+| switch locations | 1 |
+| hp | 1 |
+| gal/min | 1 |
+| gal/year | 1 |
+| W_per_ft | 1 |
+| rank | 1 |
+| lbf | 1 |
+| lb | 1 |
+| A | 1 |
+| visits_per_month | 1 |
+| rise_over_run | 1 |
+| sheet | 1 |
+| ton | 1 |
+| square foot | 1 |
+| degree | 1 |
+
+### canonical_unit (25 distinct)
+| value | n |
+|---|---|
+| cm | 1992 |
+| m2 | 173 |
+| count | 124 |
+| percent | 80 |
+| None | 52 |
+| usd | 40 |
+| 1 | 34 |
+| deg | 16 |
+| W | 10 |
+| degC | 9 |
+| CRI | 4 |
+| Btu | 4 |
+| cfm | 4 |
+| K | 3 |
+| V | 2 |
+| years | 2 |
+| degF | 2 |
+| lm/W | 1 |
+| lumens | 1 |
+| months | 1 |
+| footcandle | 1 |
+| hp | 1 |
+| L/min | 1 |
+| L/year | 1 |
+| W_per_ft | 1 |
+
+value/range: value_only=0 range_only=587 both=1972 neither=0
+relationship_expression non-null: 143
+
+15 distinct relationship_expression examples:
+- [remlab_SOURCE_ID_MISSING_ch1.json R023] rise / run <= 1/12
+- [remlab_SOURCE_ID_MISSING_ch1.json R039] glazing_area >= 0.08 * floor_area
+- [remlab_SOURCE_ID_MISSING_ch1.json R039] openable_area >= 0.04 * floor_area
+- [remlab_SOURCE_ID_MISSING_ch1.json R043] area_below_7ft <= 0.50 * required_floor_area
+- [remlab_SOURCE_ID_MISSING_ch1.json R048] one receptacle per 12 ft of wall length
+- [remlab_SOURCE_ID_MISSING_ch1.json R064] efficacy = lumens / watts
+- [remlab_SOURCE_ID_MISSING_ch10.json R027] cost(project WITH relocation of ductwork/gas/electrical/plumbing) > cost(similar project WITHOUT such relocation)
+- [remlab_SOURCE_ID_MISSING_ch10.json R028] cost(replacement with SIMILAR dimensions) < cost(installation of element with VERY DIFFERENT dimensions)
+- [remlab_SOURCE_ID_MISSING_ch10.json R029] cost(remove existing element) > cost(retain existing element); strongest case = removal of a load-bearing wall
+- [remlab_SOURCE_ID_MISSING_ch10.json R030] cost(moving exterior door or window) = high relative to comparable non-opening work
+- [remlab_SOURCE_ID_MISSING_ch10.json R031] cost_effectiveness(refurbish/refinish) >> cost_effectiveness(remodel/remove/replace)
+- [remlab_SOURCE_ID_MISSING_ch10.json R039] cost(repair & refurbish) <= cost(rearrange existing space) <= cost(convert unused space) <= cost(add new space)
+- [remlab_SOURCE_ID_MISSING_ch10.json R043] cost(rearranging space) varies from very little to quite a bit, driven by complexity of new construction and related demolition
+- [remlab_SOURCE_ID_MISSING_ch10.json R057] cost_per_square_foot(major kitchen remodel + addition + service relocation) >> cost_per_square_foot(small bedroom within existing structure)
+- [remlab_SOURCE_ID_MISSING_ch10.json R089] rear_setback = percentage_of(lot depth) OR percentage_of(green space)
+
+NORMALIZATION CHECK (in/ft/sqft -> metric): checked=1736 exact(<=0.5%)=1657 rounding(<=3%)=60 mismatch(>3%)=19
+- [remlab_SOURCE_ID_MISSING_ch1.json R003/M001] sq ft->m2 worst_rel_err=3.6%: orig=2736 norm=245 expected=254.2
+- [remlab_SOURCE_ID_MISSING_ch1.json R009/M001] in->cm worst_rel_err=9.4%: orig=0 norm=0 expected=0; orig=18 norm=50 expected=45.72
+- [remlab_SOURCE_ID_MISSING_ch1.json R009/M002] in->cm worst_rel_err=31.2%: orig=0 norm=0 expected=0; orig=6 norm=20 expected=15.24
+- [remlab_SOURCE_ID_MISSING_ch1.json R009/M003] in->cm worst_rel_err=31.2%: orig=6 norm=20 expected=15.24; orig=18 norm=50 expected=45.72
+- [remlab_SOURCE_ID_MISSING_ch1.json R010/M001] ft->cm worst_rel_err=9.4%: orig=1.5 norm=50 expected=45.72; orig=4 norm=120 expected=121.9
+- [remlab_SOURCE_ID_MISSING_ch1.json R010/M002] ft->cm worst_rel_err=9.4%: orig=1.5 norm=50 expected=45.72; orig=2.5 norm=80 expected=76.2
+- [remlab_SOURCE_ID_MISSING_ch1.json R010/M003] ft->cm worst_rel_err=5.0%: orig=2.5 norm=80 expected=76.2; orig=4 norm=120 expected=121.9
+- [remlab_SOURCE_ID_MISSING_ch2.json R032/M001] in->cm worst_rel_err=4.9%: orig=40 norm=106.6 expected=101.6
+
+REF INTEGRITY: files with violations: 0
+- all evidence_ids/context_ids resolve within their record in all files
+
+SUBJECT keys: {"entity_family": 2559, "entity_type": 2559, "proposed_entity_type": 2559, "source_label": 2559}
+REFERENCE keys: {"entity_family": 1805, "entity_type": 1805, "proposed_entity_type": 1805, "source_label": 1805}
+
+subject.entity_family top10:
+| architectural_element | 694 |
+| storage | 275 |
+| sanitary_fixture | 241 |
+| kitchen_appliance | 232 |
+| table_surface | 191 |
+| other | 188 |
+| opening | 152 |
+| circulation | 147 |
+| activity_zone | 96 |
+| human | 80 |
+
+subject.entity_type top10:
+| None | 841 |
+| room_boundary | 279 |
+| door | 125 |
+| countertop | 121 |
+| kitchen_cabinet | 90 |
+| person | 80 |
+| stair | 78 |
+| bathroom_sink | 78 |
+| circulation_path | 53 |
+| sink | 52 |
+
+subject.proposed_entity_type top10:
+| None | 1720 |
+| clear_floor_space | 61 |
+| stair_riser | 33 |
+| grab_bar | 33 |
+| garage | 25 |
+| youth_furniture | 24 |
+| project_cost | 21 |
+| resale_value_added | 20 |
+| cost_recouped | 20 |
+| landing | 19 |
+
+subject.source_label top10:
+| bedroom | 55 |
+| clear space | 34 |
+| stair riser | 33 |
+| door | 28 |
+| closet | 24 |
+| bathroom | 21 |
+| wall hung lavatory | 17 |
+| stair | 16 |
+| stair tread | 16 |
+| kitchen floor area (NET) | 16 |
+
+reference.entity_family top10:
+| unknown | 1303 |
+| architectural_element | 205 |
+| sanitary_fixture | 77 |
+| other | 59 |
+| kitchen_appliance | 31 |
+| storage | 30 |
+| table_surface | 24 |
+| human | 20 |
+| kitchen_fixture | 20 |
+| opening | 13 |
+
+reference.entity_type top10:
+| None | 1503 |
+| wall | 51 |
+| room_boundary | 27 |
+| bathroom_sink | 21 |
+| person | 20 |
+| bathtub | 18 |
+| sink | 17 |
+| toilet | 15 |
+| countertop | 14 |
+| kitchen_cabinet | 13 |
+
+reference.proposed_entity_type top10:
+| None | 1605 |
+| floor | 56 |
+| project_cost | 20 |
+| finished_floor | 13 |
+| adjacent_fixture_line | 9 |
+| landing | 6 |
+| construction_budget | 5 |
+| lot | 5 |
+| stair_tread | 5 |
+| grade | 5 |
+
+reference.source_label top10:
+|  | 1106 |
+| None | 208 |
+| floor | 50 |
+| finished floor | 18 |
+| wall | 17 |
+| sink | 17 |
+| toilet | 10 |
+| adjacent fixture line | 9 |
+| tub | 9 |
+| wall or obstruction | 7 |
