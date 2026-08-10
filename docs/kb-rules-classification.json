@@ -8,18 +8,7 @@
    ],
    "verdict": "REVIEW_OWNER",
    "why": "классовое различие: книжные 30–46 — RECOMMENDED-диапазон удобства (реализован в preferred [40,45]); hard [32,50] — наш физический допуск. Bisect 10.08: сужение hard до 46 валит set45/set71 и портит soft у 14 сцен — приёмка 252 держит [32,50]",
-   "evidence": [
-    {
-     "canonical": "CANON_7886a5d76effce",
-     "lo": 30.48,
-     "hi": 45.72,
-     "strength": "RECOMMENDED_MINIMUM",
-     "operator": "BETWEEN_INCLUSIVE",
-     "page_master": 69,
-     "page_printed": 55,
-     "text": "sofa | clearance | 30.48..45.72cm [RECOMMENDED_MINIMUM] | rooms: universal_residential | cond: 12 in is a minimum availa"
-    }
-   ],
+   "evidence": [],
    "query": "cocktail table sofa distance edge"
   },
   {
@@ -155,16 +144,6 @@
    "why": "книжные 81–91 см — основные пути/доступность; прямого аналога «вторичного прохода между мебелью» книга не даёт",
    "evidence": [
     {
-     "canonical": "CANON_161723c3a954d1",
-     "lo": 91.44,
-     "hi": 91.44,
-     "strength": "PREFERRED",
-     "operator": "GTE",
-     "page_master": 145,
-     "page_printed": 131,
-     "text": "circulation space | clearance | GTE 91.44cm [PREFERRED] | rooms: bedroom | cond: all circulation space, wheelchair user "
-    },
-    {
      "canonical": "CANON_c49efa2ae776a3",
      "lo": 91.44,
      "hi": 91.44,
@@ -203,6 +182,16 @@
      "page_master": 52,
      "page_printed": 38,
      "text": "doorway | clearance | GTE 81.28cm [REQUIRED_MINIMUM] | rooms: universal_residential | Accessibility note: adequate circu"
+    },
+    {
+     "canonical": "CANON_3ebad38ae983cc",
+     "lo": 152.4,
+     "hi": 152.4,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "GTE",
+     "page_master": 52,
+     "page_printed": 38,
+     "text": "wheelchair turning space | diameter | GTE 152.40cm [REQUIRED_MINIMUM] | rooms: universal_residential | cond: or a t-shap"
     }
    ],
    "query": "clear space circulation furniture 32"
@@ -213,60 +202,9 @@
     55,
     71
    ],
-   "verdict": "SUPPORTED",
-   "why": "внутри книжной вилки [45.72,106.68]",
-   "evidence": [
-    {
-     "canonical": "CANON_ff6d96c78e856c",
-     "lo": 91.44,
-     "hi": 106.68,
-     "strength": "REQUIRED_MINIMUM",
-     "operator": "BETWEEN_INCLUSIVE",
-     "page_master": 71,
-     "page_printed": 57,
-     "text": "table edge | clearance | 91.44..106.68cm [REQUIRED_MINIMUM] | rooms: dining_room,living_room | cond: allows access to th"
-    },
-    {
-     "canonical": "CANON_4d29a7db930947",
-     "lo": 91.44,
-     "hi": 106.68,
-     "strength": "REQUIRED_MINIMUM",
-     "operator": "BETWEEN_INCLUSIVE",
-     "page_master": 71,
-     "page_printed": 57,
-     "text": "chair in use | clearance | 91.44..106.68cm [REQUIRED_MINIMUM] | rooms: dining_room,living_room | cond: minimum 36 in (91"
-    },
-    {
-     "canonical": "CANON_7a90be5bb272be",
-     "lo": 45.72,
-     "hi": 60.96,
-     "strength": "REQUIRED_MINIMUM",
-     "operator": "BETWEEN_INCLUSIVE",
-     "page_master": 71,
-     "page_printed": 57,
-     "text": "chair pulled away from the table | clearance | 45.72..60.96cm [REQUIRED_MINIMUM] | rooms: dining_room,living_room | cond"
-    },
-    {
-     "canonical": "CANON_27e6c9f7b3d8d2",
-     "lo": 76.2,
-     "hi": 91.44,
-     "strength": "REQUIRED_MINIMUM",
-     "operator": "BETWEEN_INCLUSIVE",
-     "page_master": 71,
-     "page_printed": 57,
-     "text": "round table edge | clearance | 76.20..91.44cm [REQUIRED_MINIMUM] | rooms: dining_room,living_room | cond: round tables o"
-    },
-    {
-     "canonical": "CANON_b979009e7c05fa",
-     "lo": 45.72,
-     "hi": 45.72,
-     "strength": "REQUIRED_MINIMUM",
-     "operator": "GTE",
-     "page_master": 71,
-     "page_printed": 57,
-     "text": "chair in use | clearance | GTE 45.72cm [REQUIRED_MINIMUM] | rooms: dining_room,living_room | cond: seating space only | "
-    }
-   ],
+   "verdict": "NO_KB_DATA",
+   "why": "релевантных числовых утверждений не найдено",
+   "evidence": [],
    "query": "dining chair pullout clearance table"
   },
   {
@@ -746,8 +684,8 @@
  ],
  "counts": {
   "REVIEW_OWNER": 4,
-  "SUPPORTED": 9,
-  "SEMANTIC_ONLY": 1,
-  "NO_KB_DATA": 2
+  "SUPPORTED": 8,
+  "NO_KB_DATA": 3,
+  "SEMANTIC_ONLY": 1
  }
 }

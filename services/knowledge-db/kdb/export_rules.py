@@ -27,7 +27,7 @@ OUT_JSON = REPO_ROOT / "docs" / "kb-rules-classification.json"
 # параметр движка -> как искать в KB и как сравнивать.
 # strengths_ok: какие силы KB-утверждений принимаем в сравнение.
 MAPPING = [
-    dict(param="sofa_coffee_table_hard", query="cocktail table sofa distance edge",
+    dict(param="sofa_coffee_table_hard", layer="hard", query="cocktail table sofa distance edge",
          dims={"RELATIVE_FURNITURE_DISTANCE", "CLEARANCE"}, subject_any=("sofa",),
          compare="review",
          review_note="классовое различие: книжные 30–46 — RECOMMENDED-диапазон "
@@ -35,20 +35,20 @@ MAPPING = [
                      "наш физический допуск. Bisect 10.08: сужение hard до 46 "
                      "валит set45/set71 и портит soft у 14 сцен — приёмка 252 "
                      "держит [32,50]"),
-    dict(param="sofa_coffee_table_preferred", query="cocktail table sofa distance edge",
+    dict(param="sofa_coffee_table_preferred", layer="preferred", query="cocktail table sofa distance edge",
          dims={"RELATIVE_FURNITURE_DISTANCE", "CLEARANCE"}, subject_any=("sofa",),
          compare="inside_kb"),
-    dict(param="sofa_tv_cm", query="television viewing distance screen",
+    dict(param="sofa_tv_cm", layer="preferred", query="television viewing distance screen",
          dims={"VIEWING_DISTANCE", "RELATIVE_FURNITURE_DISTANCE"},
          subject_any=("seat", "sofa"), compare="range_overlap"),
-    dict(param="passage_main", query="hallway width minimum residential code",
+    dict(param="passage_main", layer="hard", query="hallway width minimum residential code",
          dims={"CIRCULATION"}, subject_any=("hallway", "circulation"),
          compare="min_within"),
-    dict(param="passage_secondary_min", query="clear space circulation furniture 32",
+    dict(param="passage_secondary_min", layer="hard", query="clear space circulation furniture 32",
          dims={"CIRCULATION", "CLEARANCE"}, subject_any=(), compare="review",
          review_note="книжные 81–91 см — основные пути/доступность; прямого "
                      "аналога «вторичного прохода между мебелью» книга не даёт"),
-    dict(param="dining_chair_pullout", query="dining chair pullout clearance table",
+    dict(param="dining_chair_pullout", layer="preferred", query="dining chair pullout clearance table",
          dims={"CLEARANCE", "ACTIVITY_ZONE"}, subject_any=("chair", "dining"),
          compare="range_overlap"),
     dict(param="dining_table_to_wall_no_pass",
@@ -59,7 +59,7 @@ MAPPING = [
          query="dining table wall clearance passage behind seated",
          dims={"CLEARANCE", "CIRCULATION"}, subject_any=("dining", "table"),
          compare="min_within"),
-    dict(param="facing_seats", query="conversation distance between facing seats",
+    dict(param="facing_seats", layer="preferred", query="conversation distance between facing seats",
          dims={"RELATIVE_FURNITURE_DISTANCE", "BODY_DIMENSION", "ACTIVITY_ZONE"},
          subject_any=(), compare="range_overlap"),
     dict(param="conversation_circle_max_cm",
@@ -74,7 +74,7 @@ MAPPING = [
     dict(param="legroom_front_of_seat", query="single seat zone depth upholstered",
          dims={"ACTIVITY_ZONE", "CLEARANCE"}, subject_any=("seat",),
          compare="review"),
-    dict(param="wardrobe_hinged_front_min", query="closet door clearance front dressing",
+    dict(param="wardrobe_hinged_front_min", layer="hard", query="closet door clearance front dressing",
          dims={"CLEARANCE", "CIRCULATION"}, subject_any=("closet", "wardrobe"),
          compare="min_within"),
     dict(param="door_to_furniture", query="door swing furniture route blank wall",
@@ -105,6 +105,15 @@ MISSING_CANDIDATES = [
 STRENGTH_RANK = {"REQUIRED_MINIMUM": 3, "RECOMMENDED_MINIMUM": 2, "MAXIMUM": 2,
                  "PREFERRED": 1, "TYPICAL_RANGE": 1}
 
+# Класс-гейт (урок бисекта 10.08: рекомендация книги чуть не стала hard-запретом
+# и уронила 2 сцены): свидетельство может «спорить» ТОЛЬКО с параметром своего
+# класса. hard-слой движка слушает только кодовые силы; preferred — рекомендации.
+LAYER_STRENGTHS = {
+    "hard": {"REQUIRED_MINIMUM", "MAXIMUM"},
+    "preferred": {"RECOMMENDED_MINIMUM", "PREFERRED", "TYPICAL_RANGE"},
+    "any": set(STRENGTH_RANK),
+}
+
 
 def _kb_numbers(kq: KBQuery, atoms_by_id: dict, row: dict,
                 top_k: int = 12) -> list[dict]:
@@ -122,11 +131,12 @@ def _kb_numbers(kq: KBQuery, atoms_by_id: dict, row: dict,
         if row["subject_any"] and not any(t in subj or t in h["text"].lower()
                                           for t in row["subject_any"]):
             continue
+        allowed = LAYER_STRENGTHS[row.get("layer", "any")]
         for v in c.get("value_variants", []):
             if v.get("unit") != "cm":
                 continue
             strength = v.get("strength")
-            if strength not in STRENGTH_RANK:
+            if strength not in STRENGTH_RANK or strength not in allowed:
                 continue
             lo = hi = None
             if v.get("value"):
@@ -167,11 +177,13 @@ def _verdict(row: dict, cur_lo: float, cur_hi: float,
         return ("SEMANTIC_ONLY",
                 "книга даёт качественное правило (без числа) — движок реализует "
                 "его геометрически")
-    if not ev:
-        return "NO_KB_DATA", "релевантных числовых утверждений не найдено"
     if mode == "review":
         return "REVIEW_OWNER", row.get("review_note",
                                        "метрики книги и движка различаются по смыслу")
+    if not ev:
+        return "NO_KB_DATA", ("кодовых свидетельств для hard-слоя нет "
+                              "(класс-гейт)" if row.get("layer") == "hard"
+                              else "релевантных числовых утверждений не найдено")
     los = [e["lo"] for e in ev if e["lo"] is not None]
     his = [e["hi"] for e in ev if e["hi"] is not None]
     kb_lo = min(los) if los else min(his)
