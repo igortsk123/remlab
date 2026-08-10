@@ -169,6 +169,9 @@ def _branch_ast(ctx: dict, extra_opaque: str | None) -> dict:
         preds.append({"op": "UNKNOWN",
                       "reason": "OPAQUE_CONDITION_PENDING_NORMALIZATION",
                       "condition_raw": cond})
+    if ctx.get("assignment_basis") == "INFERRED":
+        # C16: INFERRED — не definite до верификации (не даёт MATCH)
+        preds.append({"op": "UNKNOWN", "reason": "INFERRED_BASIS"})
     if extra_opaque:
         preds.append({"op": "UNKNOWN",
                       "reason": "OPAQUE_MEASUREMENT_CONDITION",

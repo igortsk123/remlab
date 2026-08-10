@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -54,16 +55,22 @@ class LLMStats:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cost_usd_by_model: dict = field(default_factory=dict)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def add_usage(self, model: str, usage: dict) -> None:
         pt = usage.get("prompt_tokens", 0)
         ct = usage.get("completion_tokens", 0)
-        self.prompt_tokens += pt
-        self.completion_tokens += ct
-        pin, pout = PRICE.get(model, (0, 0))
-        cost = pt / 1e6 * pin + ct / 1e6 * pout
-        self.cost_usd_by_model[model] = round(
-            self.cost_usd_by_model.get(model, 0.0) + cost, 6)
+        with self._lock:
+            self.prompt_tokens += pt
+            self.completion_tokens += ct
+            pin, pout = PRICE.get(model, (0, 0))
+            cost = pt / 1e6 * pin + ct / 1e6 * pout
+            self.cost_usd_by_model[model] = round(
+                self.cost_usd_by_model.get(model, 0.0) + cost, 6)
+
+    def bump(self, field_name: str) -> None:
+        with self._lock:
+            setattr(self, field_name, getattr(self, field_name) + 1)
 
     @property
     def cost_usd(self) -> float:
@@ -85,7 +92,7 @@ def call_json(model: str, system: str, user: str, schema_name: str,
                             "schema": schema})
     cache_path = CACHE_DIR / f"{cache_key}.json"
     if cache_path.exists():
-        stats.cache_hits += 1
+        stats.bump('cache_hits')
         return json.loads(cache_path.read_text(encoding="utf-8"))["response"]
     if os.environ.get("KDB_NO_LLM"):
         raise LLMDisabled("KDB_NO_LLM=1 и нет кэша")
@@ -108,7 +115,7 @@ def call_json(model: str, system: str, user: str, schema_name: str,
                 headers={"Authorization": f"Bearer {api_key()}",
                          "Content-Type": "application/json"})
             r = json.load(urllib.request.urlopen(req, timeout=180))
-            stats.calls += 1
+            stats.bump('calls')
             stats.add_usage(model, r.get("usage", {}))
             content = r["choices"][0]["message"]["content"]
             obj = json.loads(content)
@@ -121,8 +128,8 @@ def call_json(model: str, system: str, user: str, schema_name: str,
         except (urllib.error.URLError, json.JSONDecodeError, KeyError,
                 TimeoutError) as e:
             last_err = e
-            stats.retries += 1
+            stats.bump('retries')
             time.sleep(2 * (attempt + 1))
-    stats.failures += 1
+    stats.bump('failures')
     raise RuntimeError(f"LLM-вызов не удался после {max_retries} попыток: "
                        f"{last_err}")
