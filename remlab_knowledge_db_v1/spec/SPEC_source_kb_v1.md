@@ -1,12 +1,11 @@
-# SPEC: REMLAB_INTERIOR_SOURCE_KB — контракт пайплайна (v1)
+# SPEC: REMLAB_INTERIOR_SOURCE_KB — контракт пайплайна (v1.1 — ПОЛНАЯ)
 
 > **Provenance:** промпт владельца, чат 2026-08-10 (metadata origin: `PROMPT_SUPPLIED`).
-> **⚠️ ОБРЕЗАН**: исходное сообщение превысило лимит чата (50 000 символов) и оборвалось
-> внутри PHASE 9 на строке «Required coverage matrix:». Фазы 9 (продолжение), 10, 11
-> реконструируются по output-контракту (`09_eval_queries.jsonl`, `10_quality_report.md`,
-> `11_next_stage_plan.md`). Хвост запрошен у владельца — при получении дописать сюда и
-> поднять версию спеки.
-> Ниже — конспект-контракт, близкий к тексту оригинала (структура и все нормативные
+> **v1.1 (2026-08-10):** первое сообщение оборвалось лимитом чата внутри PHASE 9; владелец
+> прислал хвост вторым сообщением — от «Required coverage matrix» и ниже вставлен **verbatim
+> (EN)**, моя реконструкция удалена. Нумерация фаз оригинала: PHASE 10 = независимый аудит,
+> PHASE 11 = `10_quality_report.md`, PHASE 12 = `11_next_stage_plan.md`.
+> Фазы 0–8 ниже — конспект-контракт, близкий к тексту оригинала (структура и все нормативные
 > положения сохранены; формулировки местами сжаты без потери смысла).
 
 ## Роль и задача
@@ -538,23 +537,296 @@ Geometry boundary: runtime-геометрия — только из RemLab geome
 retrieval-прозы. Embeddings: model/provider/version, template, language handling, dimensions,
 normalization, batching, checksum/config; top-K/fusion/rerank — tunable config.
 
-## PHASE 9 — eval (`09_eval_queries.jsonl`) — ⚠️ ОБРЕЗАНО ЗДЕСЬ
+## PHASE 9 — retrieval/consolidation eval (`09_eval_queries.jsonl`) — VERBATIM (v1.1)
 
-Frozen auditable eval set: synthetic + verified real-source; synthetic помечен; production-метрики
-требуют verified frozen holdout. Далее в оригинале следовала «Required coverage matrix:» — текст
-не получен. Реконструкция требований (по контракту артефактов и логике фаз): покрытие обоих
-retrieval-планов (enumeration completeness + discovery relevance), RU/EN запросы, scope edge
-cases (unknown/mismatch/overlay), closure-кейсы (конфликт/зависимость обязаны подтянуться),
-negative controls; метрики recall/precision@K, MATCH-полнота против oracle; результаты — в
-`10_quality_report.md`.
+Build a frozen, auditable eval set covering both synthetic and verified real-source cases.
+Synthetic cases are useful for regression but must be labeled synthetic; production-quality
+metrics require verified frozen holdout.
 
-## PHASE 10 — quality report (`10_quality_report.md`) — реконструкция
+Required coverage matrix:
+1. exact source lookup and provenance reconstruction;
+2. EN source / RU query semantic retrieval;
+3. numeric equivalent units, rounding, internal source equivalency discrepancy;
+4. symbolic opposite/equivalent relations and OPAQUE expressions;
+5. same semantic question with different numeric/strength variants;
+6. equivalent/overlapping/disjoint/unknown scopes;
+7. room/zone set semantics and `universal_residential`;
+8. optional unknown qualifier vs unresolved selector;
+9. CHAPTER_CONTEXT definite scope vs INFERRED unknown;
+10. source-wide overlay inheritance and source-scope mismatch routing;
+11. composite cited authority child binding, edition/locator provenance;
+12. same external assertion quoted by multiple books vs genuinely independent origins;
+13. re-extraction stability and no support-count inflation;
+14. existence/cardinality retrieval when target is missing;
+15. conflict fairness: selecting one side retrieves full active conflict group;
+16. dependency fairness: qualifier/exception/tradeoff/reference closure cannot be hidden by ranking;
+17. candidate-pair generation recall for verified duplicate/conflict/dependency positives;
+18. family no-chaining / incremental bridging stability;
+19. exhaustive applicability set equality vs full-scan oracle;
+20. Judge routing: operational backbone retained, examples/history/reference remain supplemental
+    unless explicitly relevant.
 
-Сводный аудит качества: счётчики фаз и гейтов, целостность, покрытие, unresolved/review
-инвентарь, метрики eval, известные ограничения, санкционированные отклонения от спеки.
+For relevance metrics use appropriate recall/precision/MRR/nDCG as applicable. For
+completeness-critical Plane A and consolidation candidate graph, prioritize false-negative
+audits and set equality/verified-positive recall over average ranking score.
 
-## PHASE 11 — next stage plan (`11_next_stage_plan.md`) — реконструкция
+## PHASE 10 — independent quality audit — VERBATIM (v1.1)
 
-План будущего redesign RemLab rules НА ОСНОВЕ KB, без выполнения redesign: как canonical/
-conflict/dependency слои мапятся на кандидатов в `services/planner-solver/rules/*.json`, процесс
-верификации и решения владельца, интеграция с constraint-contract CI, Judge-слой. Только план.
+Use fresh-context verifier/subagent when supported; otherwise implement independent code
+paths/checks where practical. Mechanical checks should be code, not LLM self-assessment.
+
+Mandatory audit groups:
+
+A. INPUT/RAW/SCHEMA
+- duplicate-key rejection; parse/schema success; no dangling refs;
+- lossless before/after counts and source-object canonical serialization equality;
+- artifact/content hashes reproducible; observation UID uniqueness.
+
+B. STATE/ID STABILITY
+- prior-state hash/lineage validation;
+- deterministic derived-ID recomputation;
+- source assertion/atomic ID unchanged under unrelated sibling edits, local
+  reordering/renumbering, note/confidence/description changes, added support evidence,
+  vocabulary alias changes;
+- corrected semantic extraction value changes atomic version, not logical claim; unresolved
+  revision conflict not double-counted;
+- membership changes do not change family/canonical IDs unless semantic/scope identity changes.
+
+C. SOURCE SUBGRAPH / FIELD PRECEDENCE
+- measurement contexts/evidence do not leak from siblings;
+- measurement strengths/conditions/states remain child-local;
+- record MIXED/qualifiers/authority do not overwrite heterogeneous measurements;
+- OR-across-context / AND-within-branch Boolean semantics;
+- selector-unknown vs optional-unspecified semantics.
+
+D. PROVENANCE / AUTHORITY / CORROBORATION
+- source document vs work/lineage vs cited authority vs claim-origin separation;
+- composite authority binding is atomic, not unioned across siblings;
+- edition/year/locator attribution basis preserved;
+- same-work editions and repeated quotations do not inflate independent corroboration;
+- separately ingested original + quotations do not double-count origin.
+
+E. SEMANTIC CONSOLIDATION
+- candidate-pair recall = 100% on verified positive regression set;
+- family formation from canonical signature, no connected-component chaining;
+- inconsistent triangles/bridges caught;
+- numeric/strength/provenance-only changes do not wrongly split semantic family;
+- scope comparability prevents false cross-scope consensus/conflict;
+- canonical variants pass scope-homogeneity assertion;
+- verified dependency vs conflict distinction correct.
+
+F. RETRIEVAL/APPLICABILITY
+- applicability full-scan oracle: explicit MATCH zero false negatives for supported structured semantics;
+- OPAQUE/unknown does not silently become MATCH/MISMATCH;
+- zone sets and approved subsumption behave correctly;
+- missing target does not suppress existence/cardinality claim;
+- source scope overlays inherited to matching claims only;
+- Plane A/B/C separation enforced;
+- full source retention is independent of Judge token selection;
+- conflict and dependency closure is cycle-safe/fair.
+
+G. PRODUCTION BOUNDARY
+- no production RemLab rule changed;
+- source strength/candidate-use/Judge source evaluation never silently becomes production
+  HARD/SOFT PASS/FAIL.
+
+Any failure affecting provenance identity, losslessness, scope semantics, pair recall, family
+consistency, applicability completeness, source/production separation or snapshot integrity
+blocks COMMITTED state.
+
+## MANDATORY CURRENT-DATA REGRESSIONS — VERBATIM (v1.1)
+
+Retain a small high-value real-data regression set because these examples catch distinct
+structural errors:
+
+1. Chapter 1 `R030`:
+- C001 standing/standard vs C002 wheelchair;
+- M001/M002 must not inherit C002; M003/M004 must not inherit C001;
+- parent `MIXED` must not overwrite child `TYPICAL_RANGE/PREFERRED/MAXIMUM` strengths.
+
+2. Chapter 2 `R096`:
+- doorway M001/M002 and hallway M003 stay in their own contexts;
+- 914 mm hallway cannot become door-width claim; door measurements cannot become
+  hallway-width claim.
+
+3. Chapter 2 `R068`:
+- 1:8 `MAXIMUM` under its source condition and 1:12 `REQUIRED_MINIMUM` under its distinct
+  egress condition remain separate scoped semantics;
+- record-level wheelchair note must not leak into unrelated child without evidence.
+
+4. Presence/cardinality example:
+`not less than one egress door must be provided for each unit` => separate existence/cardinality
+atomic from width/height/openability.
+
+5. Chapter 1 source-wide overlays:
+- `R014`: verified whole-source North-American scope applies only to source-stated
+  clearance/ergonomic/proxemic classes; explicit incompatible project scope removes those
+  members from definite Judge P1 but keeps them retrievable as cross-scope reference;
+- `R075`: unit convention is parsing/interpretation overlay, not applicability restriction;
+- `R076`: North-American furniture/appliance market basis applies to matching
+  furniture/appliance size claims, not unrelated claims.
+
+6. Authority/origin regressions:
+Explicitly attributed Hall proxemic bands, Sommer personal-space definition and similar external
+source assertions must not default to analyzed-book authorship. Composite authority records must
+bind only the authority relevant to each atomic child.
+
+7. Re-extraction identity regressions:
+- unrelated sibling edit or package hash change => observation IDs change, stable
+  assertion/atomic ID does not;
+- added supporting evidence => support fingerprint changes, stable assertion/atomic ID does not;
+- corrected extracted value => same assertion/atomic ID, new version ID, revision conflict
+  unless explicit supersession;
+- overlapping re-extraction => one logical assertion, multiple observations, no support inflation;
+- two distinct claims on same page/figure => distinct semantic slots/atomic IDs.
+
+Any leakage/failure in these regressions blocks commit.
+
+## PHASE 11 — `10_quality_report.md` — VERBATIM (v1.1)
+
+Report concise evidence, not generic prose:
+- run mode, parent state validation, corpus/delta/completeness status;
+- active/blocked/unresolved package counts;
+- active source document/work/resolved lineage counts + unresolved lineage;
+- raw/atomic/family/canonical/conflict/dependency/retrieval/applicability counts;
+- source assertion revision statuses and support-inflation audit;
+- vocabulary/authority/origin/scope overlay counts and unresolved items;
+- candidate-pair generation channels + verified-positive recall/blocked-out audit;
+- family consistency/no-chaining status;
+- scope-homogeneity/false consensus/conflict audit;
+- applicability oracle results;
+- retrieval/eval metrics by plane and synthetic vs verified holdout labeling;
+- schema/referential errors;
+- independent verifier outcomes;
+- production-rule-change count (must be 0);
+- blockers/human-review queue;
+- commit state + snapshot hashes.
+Do not claim completeness or quality not proven by files/tests.
+
+## PHASE 12 — `11_next_stage_plan.md`, PLAN ONLY — VERBATIM (v1.1)
+
+Do not modify production rules now. Describe a future separate rule-redesign stage that would
+consume canonical/source knowledge plus authoritative/current standards and RemLab runtime
+constraints.
+
+Plan should cover the original next-stage decisions explicitly:
+- ingest other books/sources with the same source pipeline and perform cross-source canonical
+  reconciliation;
+- separate source consensus, source disagreement, jurisdiction/code-specific,
+  anthropometric/scenario-specific, examples and semantic guidance;
+- verify current standards/codes only in a separate process;
+- compare canonical knowledge to the current RemLab validator/rule pack and classify each
+  production rule as `supported | unsupported | contradicted | too_strict | too_weak | missing |
+  semantic_only`;
+- propose future policy class `HARD | SOFT | semantic/LLM guidance | source/reference-only |
+  reject`, but do not approve it in this run;
+- create a separate APPROVED PRODUCTION RULE REGISTRY with immutable `production_rule_id`,
+  supporting/contradicting canonical IDs, approved severity, applicability/runtime requirements,
+  version/effective date and human/referee approval provenance; canonical source DB remains
+  immutable;
+- run layout regressions; future LLM Judge receives exact `layout_fact_snapshot +
+  validator_snapshot + LAYOUT_JUDGE_CONTEXT`, reasons about semantic/compositional quality and
+  missing expected objects but never replaces geometry; solver translates intentions into
+  candidate geometry and exact validators rerun after each iteration;
+- migration/versioning/rollback and human/referee approval gates before production deployment.
+
+## DATASET-SPECIFIC RULES — VERBATIM (v1.1)
+
+- Preserve `source_page_master_file`, `source_page_input`, `source_page_printed` separately.
+- Segments such as 4A/4B/4C or 6A/6B remain separate source packages until later semantic
+  grouping; do not mechanically merge them into one package.
+- Different records/chapters in one book are not independent authorities/sources merely because
+  they are separate records.
+- Text + figure restating one proposition enrich provenance of one logical assertion, not
+  cross-source consensus.
+- Explicit non-code external attributions (e.g. Hall/Sommer/Whitehead/Alexander/NAHB-like cases
+  when source evidence supports attribution) use `CITED_EXTERNAL_ASSERTION` even if locator is
+  null; do not default them to analyzed-book authorship.
+- Source-wide overlays, claim-local dependency edges, and conflicts are three distinct mechanisms.
+
+## ANTI-PATTERNS — VERBATIM (v1.1)
+
+Never:
+- rewrite raw source or "correct" source numbers/units from general knowledge;
+- treat source normalized numbers as comparison truth;
+- merge different editions/documents by title similarity;
+- equate cited authority with analyzed source document;
+- count document/work/authority mentions as independent claim corroboration;
+- treat repeated extraction/text+figure restatement as extra independent evidence;
+- let package hash/local record IDs drive stable semantic IDs;
+- use current staging files as trusted previous registry;
+- flatten source arrays or attach all contexts/evidence/entities to every child;
+- promote parent MIXED/qualifiers/authority into all measurements;
+- treat optional `unknown` as runtime predicate or selector `unknown` as wildcard;
+- infer applicability from presence of constrained target;
+- lose presence/cardinality/prohibition/alternatives because no scalar measurement exists;
+- use vocabulary hierarchy as implicit applicability inheritance;
+- create source-wide overlays from notes/model interpretation alone;
+- let source-wide overlay cross `source_document_id` boundary;
+- let one exact/BM25/vector block be candidate-completeness gate;
+- form claim family by connected components or pairwise transitivity;
+- classify conflict before same-question + scope comparability + dependency check;
+- call disjoint-scope agreement consensus or disjoint-scope difference conflict;
+- union non-equivalent scopes in one canonical claim;
+- use raw `local_duplicate_of/local_conflicts_with` as retrieval/graph edges;
+- let top-K hide another side of conflict or active qualifier/exception/tradeoff;
+- turn `REFERENCE_ONLY`, example, history or meta facts into mandatory Judge P1 solely because
+  they are applicable/evaluable;
+- turn source claim strength into production severity;
+- rely on embeddings to reconstruct numeric/operator/scope facts;
+- hash final `pipeline_state.json` into its own payload manifest;
+- mark state COMMITTED before all machine/schema/referential/semantic/completeness gates pass.
+
+## COMPLETION GATE — VERBATIM (v1.1)
+
+Commit is allowed only if ALL are true:
+1. run mode and KB identity fixed; required prior state validated; active corpus correctly
+   applies delta without omission-as-deletion;
+2. every semantic-active package resolves to exactly one persistent source document; unresolved
+   packages are audit-only; registry/lineage integrity passes;
+3. claim-origin layer covers corroboration-eligible atomics; unresolved/composite origins do not
+   inflate corroboration;
+4. all parsable inputs inventoried; all machine artifacts schema-valid; referential errors = 0;
+5. mechanical merge is lossless; duplicate-key/hash/JCS/UID assertions pass; raw mutation = 0;
+6. stable source assertion/revision identity works across re-extraction; support inflation = 0;
+   unresolved revision conflicts are not projected as independent claims;
+7. atomic projection preserves exact subgraph edges, field precedence, field-sensitive unknown
+   and Boolean branch semantics; authority binding is atomic;
+8. numeric dual representation, symbolic constraints and presence/cardinality semantics are retained;
+9. vocabulary/authority/source-scope registries are persistent and migration-safe; verified
+   overlays inherit correctly;
+10. high-recall semantic candidate graph exists and current verified-positive candidate recall = 100%;
+11. family LAYER A/B/C separation passes; every committed non-provisional family is
+    signature-consistent; no silent bridge merge;
+12. duplicate/conflict logic is scope-aware; canonical variants are scope-homogeneous; no false
+    disjoint-scope consensus/conflict;
+13. verified dependencies are auditable and closure-safe;
+14. retrieval records/applicability rows preserve one effective scope signature; exhaustive
+    applicability explicit-MATCH has zero false negatives vs full-scan oracle for supported semantics;
+15. conflict/dependency closure fairness passes; missing target does not hide existence/presence claims;
+16. Plane A/B/C and source-vs-production boundaries are enforced; all source knowledge retained
+    even when not in Judge context;
+17. eval set and independent verifier audits complete; quality report + next-stage plan created;
+18. production RemLab rules changed = 0;
+19. new snapshot only; prior state unchanged;
+20. payload hash manifest excludes `pipeline_state.json`/mutable pointers, root recomputes
+    exactly, final pipeline state external hash computed after finalization;
+21. only then finalize `state_status="COMMITTED"`; otherwise leave non-reusable state.
+
+## EXECUTION STYLE — VERBATIM (v1.1)
+
+Work autonomously end-to-end. Ask only if action is irreversible, scope truly changes, or
+indispensable source identity cannot be obtained otherwise. Do not expose chain-of-thought;
+preserve decision logs, counts, mappings and audit evidence instead. Do not add speculative
+layers/formats "just in case". Before claiming completion, verify actual files/tool results.
+
+## FINAL RESPONSE — VERBATIM (v1.1)
+
+After completion do not print the KB. Report only:
+- `run_mode`, committed `state_snapshot_id`, parent snapshot ID if any, committed snapshot path;
+- concise outcome;
+- created artifacts;
+- key counts, including active source documents, works, resolved document-lineage groups,
+  resolved claim-corroboration origins and unresolved counts;
+- blockers/human-review items;
+- facts supported by actual tool/file results only.

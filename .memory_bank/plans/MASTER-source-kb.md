@@ -20,10 +20,11 @@ committed snapshot. **Production-правила солвера НЕ трогае
 ## Источник задачи
 
 Промпт владельца 2026-08-10: скачать архив (13 JSON-пакетов, `CHAPTER_KNOWLEDGE_PACKAGE` v3.2),
-распаковать в проект, построить KB по детальной спеке (фазы 0–11, инварианты A–G, контракты
-run/state/ID). Спека сохранена: `remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md` — **она
-нормативный контракт этого плана** (здесь только волны/гейты/решения).
-⚠️ Спека обрезана лимитом чата внутри фазы 9 — см. «Открытые вопросы» №1.
+распаковать в проект, построить KB по детальной спеке (фазы 0–12, инварианты A–G, контракты
+run/state/ID, completion gate из 21 пункта). Спека сохранена:
+`remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md` (**v1.1 — полная**: хвост, обрезанный лимитом
+чата, владелец прислал 2026-08-10, вставлен verbatim) — **она нормативный контракт этого плана**
+(здесь только волны/гейты/решения).
 
 ## Контекст: что уже есть (профилирование 2026-08-10)
 
@@ -80,9 +81,12 @@ run/state/ID). Спека сохранена: `remlab_knowledge_db_v1/spec/SPEC_
 
 Спека (вероятно, внешняя GPT-заготовка) в целом **высокого качества и внутренне согласована**;
 принимается как контракт. Корректировки — все с обоснованием:
-1. **Обрезка**: текст оборвался в фазе 9 («Required coverage matrix:»). Фазы 9–11
-   реконструированы по output-контракту (см. спеку, помечено). Запросить хвост у владельца;
-   до получения волна KB8 исполняется по реконструкции.
+1. **Обрезка — РЕШЕНО (2026-08-10)**: хвост получен, спека v1.1 полная. Реконструкция была
+   близка, но оригинал строже: 20-пунктная матрица покрытия eval; **обязательные регрессии на
+   реальных данных** (R030/R096/R068, egress-презенс, оверлеи R014/R075/R076, авторитеты
+   Hall/Sommer, re-extraction identity) — любой провал блокирует commit; PHASE 10 — независимый
+   аудит групп A–G (код + fresh-context verifier); completion gate из 21 пункта. Всё внесено
+   в волны KB2–KB9 ниже.
 2. **`candidate_pair_recall=100%` против verified positive pairs** — на bootstrap'е таких пар
    не существует, а мерить recall набором, вшитым в каналы генерации, циркулярно. Интерпретация:
    в KB5a создаём и замораживаем seed-набор ПАР (рёбер): 38 dup + 56 conflict из local hints
@@ -139,10 +143,14 @@ run/state/ID). Спека сохранена: `remlab_knowledge_db_v1/spec/SPEC_
   хэш-манифесты и **дистиллированные LLM-вердикты**; вне git (.gitignore) — `*.staging/`,
   `04a` (крупный, регенерируем из вердиктов), `07/07b/07c` (регенерируемы детерминированно),
   embeddings `*.npz`, сырой LLM-кэш; prior snapshots старше N−1 — диск/бэкап, не git.
-- **LLM**: Gemini (`GEMINI_API_KEY`, REST — паттерн `lib/providers/gemini.ts`, py-клиент в
-  `kdb/llm.py`): flash для батч-классификации, structured output по JSON Schema, retries,
-  счётчики отказов, дисковый кэш `(model, prompt_sha256) → response`. Никаких массовых
-  прогонов без пилота с замером объёма и стоимости.
+- **LLM (решение владельца 2026-08-10 — НЕ Gemini)**: OpenAI **`gpt-5.6-luna`**
+  ($0.20/$1.20 за М токенов) для батч-классификации, эскалация спорных/adversarial на
+  `gpt-5.6-terra` — тот же каскад, что в обогащении каталога (`tools/scout/enrich.py`,
+  переиспользуем паттерн и ключ `OPENAI_API_KEY`). Py-клиент в `kdb/llm.py`: structured output
+  по JSON Schema, retries, счётчики отказов, дисковый кэш `(model, prompt_sha256) → response`.
+  Никаких массовых прогонов без пилота с замером объёма и стоимости.
+  ⚠️ Prereq: **пополнить биллинг OpenAI** (кредиты исчерпаны — блокер из project-state 08.08);
+  без этого LLM-волны (KB2+) стоят.
 - **Embeddings**: fastembed (паттерн `tools/scout/style_score.py`); модель-дефолт
   `paraphrase-multilingual-MiniLM-L12-v2` (~470 МБ) — **e5-large запрещён: RAM VM 5 ГБ**;
   кэш моделей на диск, НЕ /tmp (tmpfs); пины `fastembed==0.8.0`/`onnxruntime==1.28.0`
@@ -180,9 +188,14 @@ anchor-fingerprint), assertion slots, mint `source_assertion_uid`/`atomic_claim_
 **Пилот гл. 1 ДО корпуса** с заранее заданными порогами провала: отчёт отказов LLM;
 **collision-rate slot-подписей RECORD_SEMANTIC-атомов** (коллизии ≠ осознанные compound —
 провал пилота, чинить подпись). `02_atomic_claims.jsonl` пишется как ПРЕДВАРИТЕЛЬНЫЙ
-(финализация полей — KB3). **Гейт:** каждый measurement ровно в одном атоме (или явный
-compound); все атомы резолвят observation UIDs; повторный прогон — те же ID; счётчики
-observation/locus/assertion раздельны.
+(финализация полей — KB3). **Здесь же стартует пакет обязательных real-data регрессий спеки**
+(pytest-фикстуры, растут по волнам, все зелёные до COMMITTED): KB2 — R030 (контексты
+standing/wheelchair не перетекают между measurements, MIXED не перетирает силы детей), R096
+(дверь/коридор в своих контекстах), R068 (1:8 MAX и 1:12 REQ_MIN — раздельные scoped-семантики),
+egress-презенс (existence/cardinality отдельно от размеров), re-extraction identity (7 кейсов).
+**Гейт:** каждый measurement ровно в одном атоме (или явный compound); все атомы резолвят
+observation UIDs; повторный прогон — те же ID; счётчики observation/locus/assertion раздельны;
+регрессии KB2 зелёные.
 
 ### KB3 — PHASE 2B/2C/2D/2E: обогащение и финализация 02_atomic_claims.jsonl
 Артефакт волны — **пере-эмиссия `02_atomic_claims.jsonl` с сохранением стабильных ID**
@@ -206,17 +219,21 @@ CITED_EXTERNAL_ASSERTION; BOOK_DESIGN_GUIDANCE/AUTHOR_EXAMPLE → ANALYZED_SOURC
 composite — раздельно); `03c` scope registry + runtime evaluability (что RemLab сейчас умеет
 оценивать: комнаты/зоны/клиренсы — да, лестницы/ADA-подъёмники — нет); `03d` overlays
 (кандидаты: whole-book «US residential», unit-конвенции; только при source evidence).
+Регрессии спеки для KB4: авторитеты Hall/Sommer/Alexander → `CITED_EXTERNAL_ASSERTION` даже без
+локатора (не авторство книги); composite authority биндится per-child; оверлеи R014 (NA-scope —
+только на clearance/ergonomic/proxemic классы), R075 (unit-конвенция = interpretation, не
+applicability), R076 (NA-рынок мебели — только на size-claims мебели/техники).
 **Гейт:** каждый атом — резолвленный origin; 0 атомов с authority-строкой без authority-ID
-(или explicit unresolved); реестры идемпотентны.
+(или explicit unresolved); реестры идемпотентны; регрессии KB4 зелёные.
 
 ### KB5a — PHASE 3E: candidate graph + вердикты пар + аудит hints
 UNION каналов (signature-блоки, entity/dimension-блоки, numeric-совместимость, BM25, векторный,
 local hints как seeds, authority-блоки; сегменты гл. 4/6 обязаны связаться). **Бюджет пар —
 явный конфиг per-channel top-k капов, суммарно ≤150k**; детерминированная предклассификация
 закрывает без LLM numeric-идентичные EXACT_DUPLICATE-кандидаты и DISJOINT-scope пары (ожидаемо
-30–50% объёма); остаток — LLM-вердикты батчами (flash, кэш). **Пилот-партия: замер фактического
-UNION-размера и экстраполяция стоимости ДО полного прогона; эскалация владельцу при >200k пар
-или >$60.** Adversarial второй проход по TRUE_CONFLICT/DUPLICATE. Аудит всех 38 dup + 56
+30–50% объёма); остаток — LLM-вердикты батчами (`gpt-5.6-luna`, кэш; adversarial-проход и
+спорные — `gpt-5.6-terra`). **Пилот-партия: замер фактического UNION-размера и экстраполяция
+стоимости ДО полного прогона; эскалация владельцу при >200k пар или прогнозе >$60.** Adversarial второй проход по TRUE_CONFLICT/DUPLICATE. Аудит всех 38 dup + 56
 conflict hints (CONFIRMED/…). Seed-набор пар (крит. №2) — заморозить в `eval/`.
 **Гейт:** candidate_pair_recall=100% полным UNION'ом + абляционный recall ≥95% без
 hint-канала; 100% hints аудированы.
@@ -245,20 +262,35 @@ embeddings-пин (KB0). Минимальный CLI: `kdb query --plane A|B --co
 bucket'ы, сверенные с oracle, И **доля definite_matches содержательна** (не пустые definite при
 толстом possible_unknowns — иначе predicate coverage чинить, не гейт ослаблять).
 
-### KB8 — PHASE 9/10 eval и отчёт качества
-`09_eval_queries.jsonl`: synthetic (помечены) + real из 65 top_findings и review-кейсов; RU+EN;
-edge-кейсы scope/unknown/closure; negative controls. Прогон → метрики → `10_quality_report.md`
-(гейты, покрытие, unresolved-инвентарь, ограничения, отклонения, ablation-таблица каналов).
-**Гейт:** eval заморожен (fingerprint в state); отчёт полон.
+### KB8 — PHASE 9 eval (матрица из 20 пунктов)
+`09_eval_queries.jsonl` по **обязательной матрице покрытия спеки — все 20 пунктов** (lookup/
+провенанс, EN→RU, юниты/округления, symbolic/OPAQUE, варианты значений в одной семье, 4 вида
+scope-отношений, зоны/universal_residential, unknown-семантика, CHAPTER_CONTEXT vs INFERRED,
+оверлеи, composite authority, origins, re-extraction, presence при отсутствии таргета,
+честность конфликтов и зависимостей, pair-recall, no-chaining, oracle-равенство, Judge-роутинг);
+synthetic помечены, real — из 65 top_findings и review-кейсов. Метрики: recall/precision/MRR/nDCG
+для PLANE B; для PLANE A и candidate graph — приоритет FN-аудитов и set-equality (по спеке).
+**Гейт:** матрица покрыта 20/20 (каждый пункт ≥1 verified-кейс); eval заморожен (fingerprint
+в state).
 
-### KB9 — commit + план следующего этапа
-Commit-протокол по спеке (payload-хэши → snapshot_content_root → COMMITTED → внешний
-pipeline_state_sha256 → CURRENT); `11_next_stage_plan.md` — план редизайна правил RemLab
-(маппинг canonical→кандидаты `rules/occupancy.json`/`zones.json` с пруфами и силами, конфликты
-на решение владельца, прогон constraint-contract CI, место Judge-слоя; **с учётом урока 54:
-KB питает проверки и пороги, не процедуру выбора схемы; только план**).
-**Гейт:** snapshot валиден как prior state для будущего `REBUILD/INCREMENTAL`; субагент `verify`
-(план >5 файлов) прогнан ДО `/memory-check`.
+### KB9 — независимый аудит (PHASE 10) + отчёт (PHASE 11) + план этапа (PHASE 12) + commit
+1. **Независимый аудит PHASE 10**: группы A–G кодом (независимые пере-проверки, не
+   LLM-самооценка) + **fresh-context verify-субагент** по чек-листу групп; все обязательные
+   real-data регрессии (KB2/KB4 + полный свод) зелёные — любой провал блокирует COMMITTED.
+2. `10_quality_report.md` строго по списку PHASE 11 (только доказанное файлами/тестами;
+   production-rule-change count = 0 — обязательная строка).
+3. `11_next_stage_plan.md` по требованиям PHASE 12: инжест следующих книг + кросс-source
+   reconciliation; расслоение consensus/disagreement/jurisdiction/anthropometric/examples;
+   классификация КАЖДОГО текущего прод-правила (`supported|unsupported|contradicted|too_strict|
+   too_weak|missing|semantic_only`); предложение (не утверждение) policy-классов; отдельный
+   APPROVED PRODUCTION RULE REGISTRY (immutable production_rule_id, пруфы canonical-IDs,
+   approval-провенанс владельца/рефери); Judge получает только layout_fact_snapshot +
+   validator_snapshot + PLANE C и никогда не заменяет геометрию; migration/rollback + гейты
+   утверждения. **С учётом урока 54: KB питает проверки и пороги, не процедуру выбора схемы.**
+4. Commit-протокол по спеке (payload-хэши → snapshot_content_root → **completion gate: чек-лист
+   всех 21 пунктов в state** → COMMITTED → внешний pipeline_state_sha256 → CURRENT).
+**Гейт:** 21/21 пунктов completion gate; snapshot валиден как prior state для будущего
+`REBUILD/INCREMENTAL`; финальный отчёт — по формату `final_response` спеки.
 
 ## Скоуп — что входит
 - Пайплайн фаз 0–11 по спеке для одного документа (RID_MITTON_NYSTUEN_2016_3E), BOOTSTRAP_FULL.
@@ -311,30 +343,31 @@ KB питает проверки и пороги, не процедуру выб
 
 ## Риски
 - **Объём LLM-вердиктов**: реалистичная оценка UNION до капов — 100–200k пар; с капами ≤150k и
-  детерминированной предклассификацией — LLM-остаток ~50–100k; стоимость на flash **~$10–40**
-  (не «единицы $»); точная цифра — из пилота KB5a; триггер эскалации владельцу: >200k пар или >$60.
+  детерминированной предклассификацией — LLM-остаток ~50–100k; стоимость на `gpt-5.6-luna`
+  **~$5–15** (потолок владельца $60); точная цифра — из пилота KB5a; триггер эскалации:
+  >200k пар или прогноз >$60. Prereq: биллинг OpenAI пополнен.
 - **Недетерминизм LLM / нестабильность ID** — закрыт крит. №7 (замороженные registry +
   ID-стабильность-гейт KB5b); смена модели = supersedes-миграция, не remint.
 - **Free-text условия** (~880 уникальных): без нормализации PLANE A вернёт пустые
   definite_matches при формально зелёном oracle (UNKNOWN ≠ negative) — закрыто гейтами
   predicate_coverage (KB3) и definite_matches (KB7).
 - **Пере-инжиниринг** (спека огромна): волны строго по порядку, каждая с работающим артефактом;
-  ничего «на вырост» сверх схем спеки (крит. №4).
-- **Обрезанная фаза 9** — KB8 по реконструкции; при получении хвоста — diff и допилка.
+  ничего «на вырост» сверх схем спеки (крит. №4; execution style спеки: «no speculative layers»).
 - **RAM VM 5 ГБ** — только компактные ONNX-модели (MiniLM), кэш на диск; тяжёлые прогоны
   ACC-стиля не требуются.
 - Правки сервера/прода не требуются вовсе — VPN-нода не затрагивается.
 
-## Открытые вопросы владельцу (не блокируют KB0–KB3)
-1. Прислать хвост спеки (после «Required coverage matrix:» в фазе 9 + фазы 10–11), если он есть.
-2. Подтвердить `expected_input_manifest`: 10 глав = полный основной корпус; приложения A–G —
-   будут ли извлекаться позже?
-3. Git-политика больших артефактов — рекомендация в «Архитектуре» (в git: реестры/canonical/
-   state/вердикты; вне git: 04a/07*, регенерируемые): ок?
-4. Copyright-статус KB с цитатами-якорями из книги (юр. логику не реализуем — только решение
-   о допустимости хранения в приватном репо; прецедент — layout-mined-rules).
-5. Бюджет LLM: ориентир $10–40 на полный прогон вердиктов (после пилота — точная цифра;
-   эскалация при >$60). Ок?
+## Вопросы владельцу — ВСЕ РЕШЕНЫ 2026-08-10
+1. ~~Хвост спеки~~ — получен, спека v1.1 полная.
+2. ~~Полнота корпуса~~ — **«приложения добавлю позже»**: манифест = главы 1–10 полные,
+   Appendix A–G ожидаются (PENDING); добавление — режимом `INCREMENTAL_UPDATE` без перестройки.
+3. ~~Git-политика~~ — **«смешанно»** (по рекомендации): в git — sources/spec/код/схемы/реестры/
+   canonical/вердикты/отчёты/state; вне git — 04a/07*, npz, staging, сырой кэш.
+4. ~~Copyright~~ — **«ок, храним как есть»**: короткие цитаты-якоря в приватном репо для
+   аудита; наружу тексты книги не публикуются.
+5. ~~Бюджет LLM~~ — **до $60, модель — `gpt-5.6-luna`** (не Gemini; та же дешёвая GPT, что в
+   каскаде обогащения каталога), эскалация спорных на `gpt-5.6-terra`. С luna-ценами прогноз
+   полного прогона ~$5–15.
 
 ## Definition of Done — память (без этого `completed` запрещён)
 - [ ] Memory Bank обновлён: `core/knowledge-db.md` (новая область в decision tree), `decisions.md`
@@ -349,6 +382,12 @@ KB питает проверки и пороги, не процедуру выб
 - 2026-08-10 — адверсариальное ревью 3 критиками (spec-compliance / project-fit / feasibility):
   блокер по ID-стабильности и 3 major-находки внесены в план (крит. №2/№7, KB5a/KB5b,
   predicate coverage, бюджеты/эскалация, пины моделей, .dockerignore, push-политика)
+- 2026-08-10 — владелец прислал хвост спеки (фазы 9–12, регрессии, анти-паттерны, completion
+  gate) → спека v1.1 полная (verbatim), план обновлён: матрица eval 20/20 в KB8, real-data
+  регрессии в KB2/KB4/KB9, независимый аудит A–G и 21-пунктный гейт в KB9
+- 2026-08-10 — владелец ответил на все вопросы: приложения позже (INCREMENTAL), git смешанно,
+  цитаты храним, бюджет ≤$60 на `gpt-5.6-luna` (не Gemini). LLM-провайдер в плане заменён на
+  OpenAI-каскад из enrich.py; prereq — пополнить биллинг OpenAI
 
 ## Completion summary
 [при завершении]
