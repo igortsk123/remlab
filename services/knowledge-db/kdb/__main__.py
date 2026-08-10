@@ -41,6 +41,13 @@ def main(argv: list[str] | None = None) -> int:
             from .phase1 import run_phase1
             r = run_phase1(staging, args.sources)
             print(f"phase1: merged записей {r['gate']['records']}, гейт OK")
+        elif ph == "2":
+            from .phase2 import run_phase2
+            s = run_phase2(staging)
+            print(f"phase2: атомов {s['atomics_total']} "
+                  f"(MB {s['measurement_bound']} + RS {s['record_semantic']}), "
+                  f"коллизий слотов {s['slot_collision_groups']} "
+                  f"(rate {s['collision_rate']})")
         else:
             print(f"фаза {ph!r} ещё не реализована", file=sys.stderr)
             return 2
