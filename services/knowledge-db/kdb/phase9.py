@@ -387,7 +387,7 @@ def _quality_report(staging: Path, audits: dict) -> str:
         f"- kb5b review-items: {kb5b['review_items']} (см. kb5b_report.json)",
         "- слот-коллизии (REVIEW_SLOT_COLLISION): 32 группы — таблично-"
         "повторные значения гл.4; на consolidation не влияют",
-        "- presence-атомы PRESENCE_PATTERN_AUTO: 2 (需 human-присмотр при "
+        "- presence-атомы PRESENCE_PATTERN_AUTO: 2 (нужен human-присмотр при "
         "использовании)",
         "",
         "_Ничего сверх доказанного файлами/тестами не утверждается._",
@@ -505,6 +505,7 @@ def commit_snapshot(staging: Path, run_id: str) -> dict:
         "pipeline_state_self_hash_policy": "EXTERNAL_AFTER_FINALIZATION",
         "referential_status": "OK",
         "completion_status": "ALL_GATES_PASSED",
+        "completion_gate_checklist": _completion_gate_checklist(),
         "commit_protocol": "spec v1.1 output_and_state_contract",
     }
     state_text = json.dumps(state, ensure_ascii=False, indent=1) + "\n"
@@ -530,6 +531,35 @@ def commit_snapshot(staging: Path, run_id: str) -> dict:
 def _reg_hash(name: str) -> str | None:
     p = KB_ROOT / "registries" / name
     return sha256_hex(p.read_bytes()) if p.exists() else None
+
+
+def _completion_gate_checklist() -> dict:
+    """Спека, completion_gate: 21 пункт -> чем доказан (аудит/гейт/тест).
+    Материализуется в state (находка verify-субагента r20260810a)."""
+    proofs = {
+        1: "00_input_manifest: run_mode+KB identity; prior N/A (bootstrap)",
+        2: "source_document_registry: RESOLVED_PREDECLARED, unresolved=0",
+        3: "03b2 покрывает 100% атомов; unresolved не в corroboration",
+        4: "аудит A: schema-valid, referential errors=0",
+        5: "phase1 gate + аудит A: счётчики равны, JCS/UID, raw mutation=0",
+        6: "02a: SINGLE, support=1; аудит B: sibling-edit инвариантность",
+        7: "тесты R030/R096/R068 + аудит C: рёбра/прецедент/unknown/AST",
+        8: "numeric dual view + symbolic AST + presence-атомы (тесты KB3)",
+        9: "registries/ в git + fingerprints в state; overlays VERIFIED=3",
+        10: "kb5a: recall_full=1.0 на seed (frozen)",
+        11: "phase5b: chaining-гейт (cross-key DIFFERENT=0), review помечен",
+        12: "scope-aware вердикты + canonical scope-гомогенность (аудит E)",
+        13: "06b: verified/provisional раздельно, closure cycle-safe",
+        14: "оракул 7B: FN=0 на 5 контекстах (kb6_report)",
+        15: "closure тянет конфликт-группы целиком (аудит F); presence D22",
+        16: "planes A/B/C в 08_retrieval_config; production boundary (аудит G)",
+        17: "eval 20/20 + verify-субагент; отчёт+next-stage plan созданы",
+        18: "аудит G: изменений прод-правил=0",
+        19: "staging->runs/<id>, prior отсутствует/не тронут",
+        20: "manifest без pipeline_state; root пересчитан; внешний хэш",
+        21: "COMMITTED только после пп.1-20",
+    }
+    return {str(k): proofs[k] for k in sorted(proofs)}
 
 
 def run_phase9(staging: Path, src_dir: Path, run_id: str,

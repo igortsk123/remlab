@@ -2,10 +2,10 @@
 workstream: layout-knowledge
 slug: MASTER-source-kb
 title: "MASTER: Source Knowledge Base — Mitton/Nystuen 2016 → REMLAB_INTERIOR_SOURCE_KB (KB0–KB9)"
-status: in_progress
+status: completed
 created: 2026-08-10
 updated: 2026-08-10
-completed:
+completed: 2026-08-10
 ---
 
 ## Цель
@@ -392,10 +392,33 @@ synthetic помечены, real — из 65 top_findings и review-кейсов
   поправлена), после пилота — прогноз стоимости владельцу. Статус → in_progress
 
 ## Completion summary
-[при завершении]
+Все волны KB0–KB9 выполнены «деплоем подряд» за один день (2026-08-10), снапшот
+`remlab_knowledge_db_v1/runs/r20260810a` **COMMITTED** (SNAP_r20260810a; внешний
+pipeline_state_sha256 `f409f019…`, root `0766df60…`, CURRENT-указатель записан).
+Итог: 3349 атомов (2559 MB + 788 RS + 2 presence), 1723 семьи (168 в REVIEW
+judge-disagreement), 2755 scope-однородных canonical, 286 конфликт-групп, 1635 deps
+(190 verified structural); 58 313 пар-кандидатов / 39 348 LLM-вердиктов (frozen registry);
+recall 1.0 + ablation 1.0 (48 verified positives); оракул FN=0; eval-матрица спеки 20/20;
+аудит A–G чисто; изменений прод-правил 0; TS-проверки репо зелёные; 56 pytest-гейтов.
+LLM суммарно **~$4.7** из потолка $60 (`gpt-5.6-luna` + adversarial `gpt-5.6-terra`).
+Память: ADR-0084, core/knowledge-db.md, ссылки из core/layout.md, project-state.
+
+**Задокументированные отклонения от плана** (verify-субагент, все обоснованы):
+1. seed кросс-сегментных пар: 25 подтверждённых **terra-верификацией** (из 120 кандидатов)
+   вместо «≥50 вручную» — сильная модель как верификатор воспроизводимее ручного прохода;
+   гейты спеки (recall на verified positives) выполнены;
+2. 21-пунктный completion-gate в state снапшота r20260810a записан строкой
+   ALL_GATES_PASSED; полный чек-лист материализован в коде (phase9) для следующих прогонов
+   (immutable-снапшот не переписываем — хэш-цепочка);
+3. KB2 выполнен полностью детерминированно (без LLM) — presence-атомы перенесены в 2D/KB3;
+4. пины fastembed/onnxruntime добавлены в requirements постфактум;
+5. опечатка «需» в 10_quality_report.md снапшота (косметика, генератор исправлен).
 
 ### Уроки (ОБЯЗАТЕЛЬНО)
-[при завершении]
+Перенесены в `core/lessons.md` (5 bullets 2026-08-10): gate-driven пайплайн ловит реальные
+дыры (recall/eval поймали 3 бага); подсказки экстрактора ≠ verified positives; судья vs
+сигнатура на EXAMPLE-рядах → REVIEW, не силовое решение; single-writer для общих реестров
+при параллельных LLM-воркерах; terra-верификация вместо ручной для seed.
 
 ## Follow-up work
 - [ ] Инжест следующих источников (Panero/Time-Saver?) — только после KB9 и решения владельца

@@ -1331,3 +1331,22 @@ score/candidates/tv, scene_build, промпт (RELATIONS).
 **Влияет на.** `services/planner-solver/planner/geometry.py` (free_space), кандидаты ковра, приёмка.
 Остаток L6 (7 сцен): столик band 50+ (set112/121), DINING_IN_LIVING_ZONE ×2 (set50),
 UNREACHABLE ×1 (set46), пуф-демоции (политика зон — вопрос №6 рефери).
+
+## ADR-0084 — SOURCE KB подсистема: audit-friendly база знаний из книг (2026-08-10)
+**Решение.** Построена подсистема `services/knowledge-db/` (Python, pydantic+jsonschema+rfc8785)
++ файловая база `remlab_knowledge_db_v1/` (`knowledge_base_id=REMLAB_INTERIOR_SOURCE_KB`).
+Первый корпус — Mitton/Nystuen «Residential Interior Design» 3rd ed. 2016 (13 пакетов, главы
+1–10). Снапшот `runs/r20260810a` COMMITTED: 3349 атомов со стабильными DERIVED_ID (JCS+SHA256),
+1723 семьи, 2755 scope-однородных canonical, 286 конфликт-групп (обе стороны, победителей нет),
+1635 зависимостей, retrieval-слои (RU-алиасы, оракул полноты FN=0), planes A/B/C
+(`kdb query --plane A|B|C`). LLM: `gpt-5.6-luna`+`terra`-adversarial, ~39k вердиктов пар,
+итог **~$4.7** (потолок владельца $60); вердикты/реестры — в git, реплей без сети.
+**Почему.** Вопрос №2 рефери («откуда канон камина?») и линия «правила = данные + пруфы»:
+каждое число — с локусом (страница/фигура), силой, авторитетом (IRC≠мнение авторов) и
+конфликтами. Отличие от отклонённого ADR-0082 «инжеста справочников»: прод-правила НЕ тронуты
+(`production_policy_status=UNDECIDED`, аудит G: изменений=0).
+**Альтернативы.** Числа сразу в occupancy.json (отклонено ADR-0082); pgvector-БД (отклонено:
+файлы проще для rollback/audit); Gemini (решение владельца: gpt-5.6-luna).
+**Влияет на.** Будущий редизайн правил — план в снапшоте (`11_next_stage_plan.md`): классификация
+каждого прод-правила supported/contradicted/…, APPROVED PRODUCTION RULE REGISTRY, Judge через
+PLANE C. Приложения A–G книги — INCREMENTAL_UPDATE позже. План: `completed_plans/MASTER-source-kb.md`.

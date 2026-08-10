@@ -19,9 +19,11 @@ last_verified: 2026-08-10
 только кандидаты с пруфами для будущего редизайна. Отличие от отклонённого ADR-0082 «инжеста
 справочников»: source-слой с провенансом, не числа напрямую в прод.
 
-**Статус (2026-08-10):** план **`plans/MASTER-source-kb.md` — in_progress, «деплой» начат
-10.08**. Решения владельца: LLM — `gpt-5.6-luna`/`terra` (НЕ Gemini), бюджет ≤$60, баланс
-OpenAI есть; git смешанно; цитаты храним; приложения книги — позже (INCREMENTAL).
+**Статус (2026-08-10): ПОСТРОЕНА (ADR-0084)** — снапшот `runs/r20260810a` COMMITTED: 3349
+атомов, 1723 семьи, 2755 canonical, 286 конфликтов, 1635 deps; eval 20/20, аудит A–G чисто,
+оракул FN=0; LLM ~$4.7 (`gpt-5.6-luna`+terra). Запросы: `kdb query --plane A|B|C` из
+`services/knowledge-db`. Дальше: приложения A–G (INCREMENTAL), редизайн правил — план в
+снапшоте (`11_next_stage_plan.md`). План — `completed_plans/MASTER-source-kb.md`.
 
 **На диске** (`remlab_knowledge_db_v1/`):
 - `remlab_knowledge_db_v1/sources/` — 13 пакетов `CHAPTER_KNOWLEDGE_PACKAGE` v3.2 (~11 МБ):
@@ -32,13 +34,11 @@ OpenAI есть; git смешанно; цитаты храним; приложе
   (фазы 0–12, инварианты A–G, real-data регрессии, completion gate 21 п.).
 - `remlab_knowledge_db_v1/scratch_profile/` — скрипты профилирования корпуса.
 
-**Ключевое о корпусе:** целостность ссылок 0 нарушений; нормализация верна на 95.4%
-(расхождения = опечатки книги, см. conversion_note; 1 подозрение на 10×-ошибку — ch8 R037);
-IRC в 8+ написаниях; 54% relation_type='other', 636 proposed entity types; дубли/конфликты
-только внутрифайловые.
+**Ключевое о корпусе:** целостность 0 нарушений; ~20 CONFLICTING = опечатки книги;
+IRC в 8+ написаниях; дубли/конфликты размечены только внутрифайлово.
 
-**Посадка кода (план):** подсистема services/knowledge-db (Python, pydantic + jsonschema +
-rfc8785, venv ~/venvs/kdb); артефакты — runs/<run_id> в KB-каталоге.
+**Код:** `services/knowledge-db/` (Python, pydantic + jsonschema + rfc8785, pytest 56 гейтов,
+venv ~/venvs/kdb); артефакты — runs/<run_id> в KB-каталоге; реестры LLM-вердиктов в git
+(реплей без сети, ID-стабильность).
 
-Tier 2: спека (`tier2:`) · план `plans/MASTER-source-kb.md` · методология-родственник —
-[[occupancy-rules]], `guides/layout-mined-rules.md`.
+Tier 2: спека (`tier2:`) · [[occupancy-rules]] · `guides/layout-mined-rules.md`.

@@ -31,3 +31,5 @@ constraint-contract CI; 205 на каждый тип якоря — smoke «≥1
   следа (`services/planner-solver/planner/geometry.py`, ADR-0083); 212 дериватив-якоря клампить
   в контур (якорь у стены терял весь дериватив); 213 TIMEOUT/крэши приёмки dev-VM = контеншн
   ≥4 воркеров, не код (ACC_WORKERS=2; раннер пишет rc+stderr).
+- [2026-08-10, source-KB] Гейты поймали 3 бага; хинты ≠ positives; судья vs подпись →
+  REVIEW; single-writer реестров. Детали — anti-patterns.md.

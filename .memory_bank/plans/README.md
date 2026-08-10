@@ -26,7 +26,6 @@ draft → in_progress → completed → перенос в completed_plans/
 
 | slug | Название | status | created | updated |
 |------|----------|--------|---------|---------|
-| MASTER-source-kb | MASTER: Source Knowledge Base — Mitton/Nystuen 2016 → REMLAB_INTERIOR_SOURCE_KB (KB0–KB9) | in_progress | 2026-08-10 | 2026-08-10 |
 | MASTER-layout-v5 | Мета-план по рекомендации V5: retention группы, пары кресел, дрифт правил, условный AI | in_progress | 2026-08-09 | 2026-08-09 |
 | layout-composition-deep | Глубокие причины 6 замечаний владельца по десятке (столик/кресла/носитель ТВ/пустые 50+) | in_progress | 2026-08-08 | 2026-08-08 |
 | MASTER-truth-first | Мастер: truth-first — итог аудита рефери v2 (данные → eval → реальные комнаты → SKU) | in_progress | 2026-08-08 | 2026-08-08 |

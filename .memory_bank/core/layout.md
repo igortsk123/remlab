@@ -35,5 +35,6 @@ beam → скоринг → уточнение → top-K; детерминизм
 `Candidate.topology` + TOPO-сигнатуры `tools/scout/topo_sig.py`. Реестр 58 кодов, 99 тестов.
 Приёмка: `tools/scout/acceptance_run.py` (ACC_WORKERS=2!) + analyze/ab_compare/layout_export.
 Остаток L6 (7 сцен: столик band 50+, set50, set46; пуф-демоции) — план.
+Source-KB пруфов из книг — [[knowledge-db]] (ADR-0084).
 
 **Tier 2:** ../domain/occupancy-rules.md · ../guides/layout-mined-rules.md · ../guides/layout-engine-spec.md

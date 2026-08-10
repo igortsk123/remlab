@@ -59,10 +59,12 @@ last_verified: 2026-08-09
 - **Прочие остатки:** backtracking 26–30 ([[layout-engine-gaps]]); косые стены Э8 (трапеция —
   пока осевая аппроксимация); target_box хвоста виз-приёмки; калибровка DUMB_T вердиктами;
   3 новых фида в проде (divan.ru mid 112923, mdm-complect 96431 + ещё один) — каталог ~32k.
-- **Source-KB из книг (10.08, [[knowledge-db]])**: корпус Mitton/Nystuen 2016 извлечён и
-  распакован (`remlab_knowledge_db_v1/sources/`, 1729 records), спека сохранена (обрезана в
-  фазе 9 — хвост запрошен), **план `plans/MASTER-source-kb.md` draft (KB0–KB9), ждёт «деплой»**;
-  открытые вопросы владельцу: хвост спеки, манифест полноты, git-политика, copyright, LLM-бюджет.
+- **Source-KB из книг (10.08, ADR-0084, [[knowledge-db]]) — ВЫПОЛНЕНО «деплоем подряд»**:
+  `services/knowledge-db/` + снапшот `remlab_knowledge_db_v1/runs/r20260810a` **COMMITTED**
+  (книга Mitton/Nystuen целиком: 3349 атомов, 2755 canonical, 286 конфликтов, eval 20/20,
+  аудит A–G чисто, LLM ~$4.7, прод-правила не тронуты). Запросы: `kdb query --plane A|B|C`.
+  Дальше (отдельные планы): приложения A–G инкрементом; редизайн правил — по
+  `runs/r20260810a/11_next_stage_plan.md`. План — `completed_plans/MASTER-source-kb.md`.
 
 Предыдущий фокус (аудит 06.08 и MASTER-pipeline-hardening А0–А7 — выполнен, beam везде,
 117/126) — хронология в `changelog/project-history.md`.
