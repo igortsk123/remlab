@@ -186,8 +186,10 @@ def derived(room, placements, items):
     return out, rel
 
 
-def draw_plan(room: Room, placements: list[Placement], cams, path: str) -> str:
-    """План сверху из ТЕХ ЖЕ placements + позиции камер и сектор обзора."""
+def draw_plan(room: Room, placements: list[Placement], cams, path: str,
+              room_dims: bool = True) -> str:
+    """План сверху из ТЕХ ЖЕ placements + позиции камер и сектор обзора.
+    room_dims=False — рамка без размеров/площади (чертёж блока-шаблона, не комната)."""
     from planner.geometry import footprint
 
     sc = 900 / max(room.width_cm, room.depth_cm)
@@ -206,23 +208,25 @@ def draw_plan(room: Room, placements: list[Placement], cams, path: str) -> str:
     f_cam = ImageFont.truetype(FONT, 22)
     f_dim = ImageFont.truetype(FONT, 24)
 
-    # размерные линии и площадь — план должен читаться как чертёж, а не как схема
-    top = pad - 26
-    d.line([(pad, top), (pad + room.width_cm * sc, top)], fill='#5C655E', width=2)
-    for x in (pad, pad + room.width_cm * sc):
-        d.line([(x, top - 7), (x, top + 7)], fill='#5C655E', width=2)
-    wtxt = f'{room.width_cm / 100:.2f} м'
-    d.text((pad + room.width_cm * sc / 2 - d.textlength(wtxt, font=f_dim) / 2, top - 26),
-           wtxt, fill='#3A423C', font=f_dim)
-    left = pad - 26
-    d.line([(left, pad), (left, pad + room.depth_cm * sc)], fill='#5C655E', width=2)
-    for y in (pad, pad + room.depth_cm * sc):
-        d.line([(left - 7, y), (left + 7, y)], fill='#5C655E', width=2)
-    d.text((left - 22, pad + room.depth_cm * sc / 2), f'{room.depth_cm / 100:.2f} м',
-           fill='#3A423C', font=f_dim, anchor='mm')
-    area = f'{room.width_cm * room.depth_cm / 10000:.1f} м²'
-    d.text((pad + 10, pad + room.depth_cm * sc + 12), f'Площадь {area}',
-           fill='#3A423C', font=f_dim)
+    # размерные линии и площадь — план должен читаться как чертёж, а не как схема;
+    # room_dims=False (витрина шаблонов): рамка — не комната, размеры не рисуем
+    if room_dims:
+        top = pad - 26
+        d.line([(pad, top), (pad + room.width_cm * sc, top)], fill='#5C655E', width=2)
+        for x in (pad, pad + room.width_cm * sc):
+            d.line([(x, top - 7), (x, top + 7)], fill='#5C655E', width=2)
+        wtxt = f'{room.width_cm / 100:.2f} м'
+        d.text((pad + room.width_cm * sc / 2 - d.textlength(wtxt, font=f_dim) / 2, top - 26),
+               wtxt, fill='#3A423C', font=f_dim)
+        left = pad - 26
+        d.line([(left, pad), (left, pad + room.depth_cm * sc)], fill='#5C655E', width=2)
+        for y in (pad, pad + room.depth_cm * sc):
+            d.line([(left - 7, y), (left + 7, y)], fill='#5C655E', width=2)
+        d.text((left - 22, pad + room.depth_cm * sc / 2), f'{room.depth_cm / 100:.2f} м',
+               fill='#3A423C', font=f_dim, anchor='mm')
+        area = f'{room.width_cm * room.depth_cm / 10000:.1f} м²'
+        d.text((pad + 10, pad + room.depth_cm * sc + 12), f'Площадь {area}',
+               fill='#3A423C', font=f_dim)
 
     used: list[tuple[float, float, float]] = []          # занятые прямоугольники подписей
     for p in sorted(placements, key=lambda q: -(q.item.w_cm * q.item.d_cm)):
