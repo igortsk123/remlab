@@ -145,7 +145,8 @@ def _add_L(b: Block, sofa: Item, other: Item) -> None:
     b.add(other, ox, oy, 90.0)
 
 
-def build_block(group_id: str, by_role: dict[str, Item]) -> Block | None:
+def build_block(group_id: str, by_role: dict[str, Item],
+                variant: str = 'default') -> Block | None:
     """Инстанс шаблона разговорной группы от фактических SKU. v1: канонический
     вариант на группу (вариативность даёт позиция/поворот блока); диван соло без
     спутников блоком не считаем (нечего запекать)."""
@@ -169,11 +170,31 @@ def build_block(group_id: str, by_role: dict[str, Item]) -> Block | None:
     far, table_x = _add_coffee(b, sofa, table)
     _, free_side = _free_x(sofa)
 
-    if group_id in ('sofa_facing_sofa', 'sofa_loveseat', 'sofa_loveseat_2armchairs',
-                    'two_sofas_2armchairs'):
-        # v2: двухдиванные блоки (визави конкурирует с ТВ-стеной, Г-стык душит столик
-        # по центру — contract-тест поймал) — пока прежний путь beam, он их решает
-        return None
+    if group_id == 'sofa_facing_sofa':
+        # v2.2: два дивана визави — чистая беседа/камин. С носителем ТВ в составе
+        # честное face-to-face несовместимо с прицелом ≤30° (никто не смотрит на
+        # экран) — фолбэк beam найдёт компромиссную не-визави постановку.
+        if not sofa2 or sofa.corner or sofa2.corner:
+            return None
+        if by_role.get('стенка') is not None or by_role.get('тв-тумба') is not None:
+            return None
+        _add_facing(b, sofa, sofa2, far)
+    elif group_id in ('sofa_loveseat', 'sofa_loveseat_2armchairs',
+                      'two_sofas_2armchairs'):
+        # v2.1: Г-стык торец-к-торцу; столик остаётся по центру ГЛАВНОГО дивана
+        # (SOFA_TABLE_DIST в validate привязан только к главному — проверено)
+        if not sofa2 or sofa.corner or sofa2.corner:
+            return None
+        _add_L(b, sofa, sofa2)
+        # кресла замыкают «квадрат» с ВОСТОКА, якорясь к СТОЛИКУ (не к торцу
+        # широкого дивана — иначе ARMCHAIR_TABLE_DIST); в столбик вдоль оси
+        tw_half = (max(table.w_cm, table.d_cm) / 2) if table else 40.0
+        ax = tw_half + FLANK_GAP + (arm1.d_cm / 2 if arm1 else 0)
+        if arm1:
+            ay1 = _front(sofa) + arm1.w_cm / 2 + 12
+            b.add(arm1, ax, ay1, 270.0)
+            if arm2 and group_id != 'sofa_loveseat':
+                b.add(arm2, ax, ay1 + arm1.w_cm / 2 + arm2.w_cm / 2 + 12, 270.0)
     elif group_id in ('sofa_2armchairs', 'sofa_4armchairs'):
         if not (arm1 and arm2):
             return None
@@ -193,9 +214,19 @@ def build_block(group_id: str, by_role: dict[str, Item]) -> Block | None:
             _add_flank(b, sofa, arm2, +1, far)
         a3, a4 = by_role.get('кресло 3'), by_role.get('кресло 4')
         if group_id == 'sofa_4armchairs' and a3 and a4:
-            off = sofa.w_cm / 4
-            b.add(a3, -off, far + 45 + a3.d_cm / 2, 180.0)
-            b.add(a4, +off, far + 45 + a4.d_cm / 2, 180.0)
+            if variant == 'u':
+                # v2.12 (интернет-свод): U-композиция — кресла СТОЛБИКАМИ по бокам
+                # (2+2), контур открыт к фокусу; вторые кресла за первыми
+                for arm_x, extra in ((-1, a3), (+1, a4)):
+                    base_arm = arm1 if arm_x < 0 else arm2
+                    ax = arm_x * min(sofa.w_cm / 2 + FLANK_GAP + extra.d_cm / 2,
+                                     CIRCLE_D / 2 - 10)
+                    b.add(extra, ax, far + base_arm.w_cm / 2 + extra.w_cm / 2 + 12,
+                          270.0 if arm_x > 0 else 90.0)
+            else:
+                off = sofa.w_cm / 4
+                b.add(a3, -off, far + 45 + a3.d_cm / 2, 180.0)
+                b.add(a4, +off, far + 45 + a4.d_cm / 2, 180.0)
     elif group_id in ('sofa_armchair', 'sectional_armchair'):
         if not arm1:
             return None
@@ -206,8 +237,11 @@ def build_block(group_id: str, by_role: dict[str, Item]) -> Block | None:
         else:
             _add_flank(b, sofa, arm1, free_side, far)
     else:
-        # compact_sectional и пр.: диван соло — блок не даёт выигрыша
-        return None
+        # v1.1 (аудит полноты): диван соло + столик + ковёр — блоком тоже (самый
+        # частый состав малых комнат; привязка ковра/столика нужна и без кресел).
+        # Совсем нечего запекать (ни столика, ни ковра) — блока нет.
+        if table is None and rug is None:
+            return None
     _add_rug(b, sofa, rug, far)
     return b
 
@@ -228,7 +262,9 @@ def build_dining(by_role: dict[str, Item], max_chairs: int,
         return None
     b = Block(tbl)
     w, d = tbl.w_cm, tbl.d_cm
-    xs = [0.0] if w < 110 else [-w / 4, w / 4]
+    # v2.3: круглый/квадратный стол (w==d) — по одному стулу с каждой стороны
+    # (через 90°); прямоугольный — пары по длинным сторонам
+    xs = [0.0] if (w < 110 or abs(w - d) < 2) else [-w / 4, w / 4]
     spots: list[tuple[float, float, float]] = []
     for x in sorted(xs, key=abs):
         spots.append((x, d / 2, 180.0))            # сторона комнаты, стул лицом к столу
@@ -262,11 +298,19 @@ def _tv_probe(room: Room, sofa_p: Placement, free: Polygon, need_w: float) -> fl
     spot = Point(sofa_p.x + dx * (d - 45), sofa_p.y + dy * (d - 45)) \
         .buffer(max(need_w / 2, 40.0), resolution=4)
     frac = free.intersection(spot).area / max(spot.area, 1e-6)
-    return (1.0 if 200 <= d <= 480 else 0.6) * (0.4 + 0.6 * frac)
+    # реальная ТВ-вилка от ширины носителя (planner.tv, диагональ-метод): дистанция
+    # диван→носитель ≈ (до стены − глубина носителя); вне вилки — сильный штраф,
+    # чтобы в больших комнатах выигрывали «плавающие» позиции (v2.10)
+    from .tv import distance_range
+    lo, hi, soft_hi = distance_range(need_w)
+    dd = d - 40.0
+    band = 1.0 if lo <= dd <= hi else (0.5 if dd <= soft_hi else 0.15)
+    return band * (0.4 + 0.6 * frac)
 
 
 def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
-                fixed: list[Placement] | None) -> list[Placement] | None:
+                fixed: list[Placement] | None,
+                axis_seat: Placement | None = None) -> list[Placement] | None:
     """Общий отборщик: fits-проба всех членов → ТВ-проба → эвристический ранг →
     полный validate (hard) топ-N; первый чистый побеждает."""
     room_poly = room_polygon(room)
@@ -290,11 +334,26 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
         score = 1.0 if c.kind == 'wall' else 0.8
         if 'отплыв' in (c.note or ''):
             score -= 0.15                   # прижатый канон приоритетнее отплыва
+        # v2.11 (интернет-свод): вытянутая комната → посадка ПОПЕРЁК длинной оси
+        # (якорь на длинной стене «раздвигает стены»)
+        rw, rd = room.width_cm, room.depth_cm
+        if max(rw, rd) / max(min(rw, rd), 1) >= 1.6:
+            along_long = (int(c.placement.rot) % 180 == 90) if rd > rw else                 (int(c.placement.rot) % 180 == 0)
+            if along_long:
+                score += 0.3
         if tv is not None or b.anchor.role == 'диван':
             probe = _tv_probe(room, ps[0], free, tv.w_cm if tv else 120.0)
             if tv is not None and probe <= 0.0:
                 continue                    # ТВ ставить некуда — мёртвая ветка
             score += probe * 2.0
+        if axis_seat is not None:
+            # медиа-блок: приоритет соосности с главным посадочным (межзонная связь)
+            r = math.radians(axis_seat.rot)
+            vx, vy = ps[0].x - axis_seat.x, ps[0].y - axis_seat.y
+            n = math.hypot(vx, vy) or 1.0
+            cosang = (math.sin(r) * vx + math.cos(r) * vy) / n
+            ang = math.degrees(math.acos(max(-1.0, min(1.0, cosang))))
+            score += max(0.0, 1.5 - ang / 30.0)
         scored.append((score, ps))
     scored.sort(key=lambda t: -t[0])
     base = list(fixed or [])
@@ -313,7 +372,8 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
     by_role: dict[str, Item] = {}
     for it in items:
         by_role.setdefault(it.role, it)
-    tv = by_role.get('стенка') or by_role.get('тв-тумба')
+    # фокус зоны: медиа-носитель, а без него — камин (v2.5: камин-фокус легален)
+    tv = by_role.get('стенка') or by_role.get('тв-тумба') or by_role.get('камин')
     # каскад демоций: полный блок → без столика (бывают невозможные пары «длинный
     # столик × Г-диван», beam их тоже терял в missing) → без столика и ковра
     variants = [by_role]
@@ -322,12 +382,18 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
         if 'ковёр' in by_role:
             variants.append({k: v for k, v in by_role.items()
                              if k not in ('столик', 'ковёр')})
+    shapes = ['default', 'u'] if group_id == 'sofa_4armchairs' else ['default']
     for br in variants:
-        b = build_block(group_id, br)
+      for shape in shapes:
+        b = build_block(group_id, br, variant=shape)
         if b is None or len(b.rel) < 2:
             continue
-        ps = _best_block(room, b, free, wall_candidates(room, b.anchor, free),
-                         tv=tv, fixed=fixed)
+        cands = list(wall_candidates(room, b.anchor, free))
+        # v2.10: в просторных комнатах посадка может «плавать» (зонирование
+        # спинкой); тыл за спинкой проверят passage/sliver-чеки validate
+        if room.width_cm * room.depth_cm > 40 * 10_000:
+            cands += list(middle_candidates(room, b.anchor, free, limit=6))
+        ps = _best_block(room, b, free, cands, tv=tv, fixed=fixed)
         if ps is not None:
             return ps
     return None
@@ -358,3 +424,102 @@ def place_dining(room: Room, items: list[Item], free: Polygon, usable_m2: float,
     return _best_block(room, b_front, free,
                        list(wall_candidates(room, b_front.anchor, free)),
                        tv=None, fixed=fixed)
+
+
+STORAGE_ROLES = ('стеллаж', 'стеллаж 2', 'шкаф', 'комод')
+
+
+def build_storage(by_role: dict[str, Item]) -> Block | None:
+    """v2.4: стеллаж-стена — ряд хранения вдоль одной стены, фасады в линию,
+    зазор 8 см; якорь — самый широкий предмет, остальные вправо от него."""
+    items = [by_role[r] for r in STORAGE_ROLES if r in by_role]
+    if len(items) < 2:
+        return None
+    items.sort(key=lambda i: -i.w_cm)
+    anchor = items[0]
+    b = Block(anchor)
+    x = anchor.w_cm / 2
+    for it in items[1:]:
+        # глубины разные — фасады в линию: сдвиг по y на полуразность глубин
+        b.add(it, x + 8 + it.w_cm / 2, (anchor.d_cm - it.d_cm) / 2, 0.0)
+        x += 8 + it.w_cm
+    return b
+
+
+def place_storage(room: Room, items: list[Item], free: Polygon,
+                  fixed: list[Placement] | None = None) -> list[Placement] | None:
+    if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
+        return None
+    by_role: dict[str, Item] = {}
+    for it in items:
+        by_role.setdefault(it.role, it)
+    b = build_storage(by_role)
+    if b is None:
+        return None
+    return _best_block(room, b, free, wall_candidates(room, b.anchor, free),
+                       tv=None, fixed=fixed)
+
+
+def build_reading(by_role: dict[str, Item]) -> Block | None:
+    """v2.6: уголок чтения — кресло + торшер за плечом (30–40 от спинки, сбоку)
+    + приставной у другого подлокотника (≤15)."""
+    arm = by_role.get('кресло 3') or by_role.get('кресло')
+    lamp, side = by_role.get('торшер'), by_role.get('приставной')
+    if arm is None or (lamp is None and side is None):
+        return None
+    b = Block(arm)
+    if lamp is not None:
+        b.add(lamp, arm.w_cm / 2 + lamp.w_cm / 2 + 6, -arm.d_cm / 2 + 8, 0.0)
+    if side is not None:
+        b.add(side, -(arm.w_cm / 2 + side.w_cm / 2 + 8), 5.0, 0.0)
+    return b
+
+
+def place_reading(room: Room, items: list[Item], free: Polygon,
+                  fixed: list[Placement] | None = None) -> list[Placement] | None:
+    if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
+        return None
+    by_role: dict[str, Item] = {}
+    for it in items:
+        by_role.setdefault(it.role, it)
+    b = build_reading(by_role)
+    if b is None:
+        return None
+    return _best_block(room, b, free, wall_candidates(room, b.anchor, free),
+                       tv=None, fixed=fixed)
+
+
+def build_media(by_role: dict[str, Item], with_flanks: bool = True) -> Block | None:
+    """v2.7/v2.8: медиа-зона — носитель ТВ (стенка ИЛИ тумба, ADR-0081) + при
+    наличии свободного декора симметричные фланги (кашпо/торшер, 25 см от торцов)."""
+    bearer = by_role.get('стенка') or by_role.get('тв-тумба')
+    if bearer is None:
+        return None
+    b = Block(bearer)
+    if with_flanks:
+        deco = [by_role[r] for r in ('кашпо', 'торшер', 'кашпо 2') if r in by_role][:2]
+        for i, d in enumerate(deco):
+            side = -1 if i == 0 else 1
+            b.add(d, side * (bearer.w_cm / 2 + 25 + d.w_cm / 2), 0.0, 0.0)
+    return b
+
+
+def place_media(room: Room, items: list[Item], free: Polygon,
+                fixed: list[Placement] | None = None) -> list[Placement] | None:
+    """Медиа-зона блоком; позиция — по межзонной связи (соосность с главным
+    посадочным из fixed, дистанция/прицел проверит validate)."""
+    if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
+        return None
+    by_role: dict[str, Item] = {}
+    for it in items:
+        by_role.setdefault(it.role, it)
+    seat = next((p for p in (fixed or []) if p.role == 'диван'), None) or         next((p for p in (fixed or []) if p.role == 'кресло'), None)
+    for flanks in (True, False):
+        b = build_media(by_role, with_flanks=flanks)
+        if b is None:
+            return None
+        ps = _best_block(room, b, free, wall_candidates(room, b.anchor, free),
+                         tv=None, fixed=fixed, axis_seat=seat)
+        if ps is not None:
+            return ps
+    return None

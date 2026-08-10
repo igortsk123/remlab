@@ -108,16 +108,23 @@ def keep_best_diverse(states: list[State], k: int) -> list[State]:
     return out
 
 
-def drop_optional_until_valid(room: Room, layout: Layout) -> Layout:
+def drop_optional_until_valid(room: Room, layout: Layout,
+                              protected: set[str] | None = None) -> Layout:
     """Раскладка не сходится → УБИРАЕМ опциональное, а не ставим его с нарушением.
 
     Иначе движок отдавал «лучшее из плохого»: кресло вставало в один ряд с ТВ-тумбой, лишь бы
     стоять. Опциональный предмет, которому нет законного места, — это норма (ярусы наполнения).
+
+    protected (T3, 10.08): члены зонных БЛОКОВ неприкосновенны — hard-чистый блок не
+    разбирается ради «стало меньше soft» (дроппер съедал кресла/стулья блока, когда
+    НЕ ВСТАВАЛ посторонний предмет вроде тумбы — лечил не ту болезнь).
     """
     if layout.ok:
         return layout
+    protected = protected or set()
     guilty_first = sorted(
-        [p for p in layout.placements if tier_of(p.role) == "optional"],
+        [p for p in layout.placements
+         if tier_of(p.role) == "optional" and p.role not in protected],
         key=lambda p: 0 if any(p.role in v.roles for v in layout.violations
                                if v.severity is Severity.HARD) else 1)
     dropped: list[str] = []
@@ -230,6 +237,7 @@ def solve(room: Room, items: list[Item], *, top_k: int = 3, beam_width: int = BE
 def _solve_ordered(room: Room, items: list[Item], *, top_k: int, beam_width: int,
                    cand_per_item: int, polish: bool, corner_sofa_first: bool,
                    fixed: list[Placement] | None = None) -> list[Layout]:
+    prot_roles = {p.role for p in (fixed or [])}   # члены блоков — неприкосновенны
     beams: list[State] = [State(placements=list(fixed))] if fixed else [State()]
     for item in order_items(items, corner_sofa_first=corner_sofa_first):
         nxt: list[State] = []
@@ -339,7 +347,7 @@ def _solve_ordered(room: Room, items: list[Item], *, top_k: int, beam_width: int
             if layout.unplaced:         # ...и перестановка ради непоставленного (шаг 1 плана gaps)
                 layout = repair_unplaced(room, layout, items)
             layout = refine(room, layout)
-            layout = drop_optional_until_valid(room, layout)
+            layout = drop_optional_until_valid(room, layout, protected=prot_roles)
         cand = State(layout.placements, layout.unplaced, st.score, st.penalty)
         if any(not _diverse(cand, k) for k in kept):
             continue

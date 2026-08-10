@@ -496,17 +496,27 @@ def check_sofa_aim(room: Room, ps: list[Placement]) -> list[Violation]:
     import math as _m
 
     by = _by_base(ps)
-    sofa, tv = by.get("диван"), by.get("тв-тумба")
-    if sofa is None or tv is None:
+    # prime-seat (v2.2, 10.08): экран обслуживает ЗОНУ — прицел удовлетворён, если
+    # ЛУЧШИЙ из диванов группы смотрит на ТВ в пределах лимита (при двух диванах
+    # компаньон легально смотрит от экрана).
+    sofas = [p for p in ps if p.role == "диван" or
+             (p.role.startswith("диван") and p.role.split(" ")[-1].isdigit())]
+    tv = by.get("тв-тумба")
+    if not sofas or tv is None:
         return []
-    fx, fy = facing_vector(sofa.rot)
-    vx, vy = tv.x - sofa.x, tv.y - sofa.y
-    n = _m.hypot(vx, vy) or 1.0
-    aim = _m.degrees(_m.acos(max(-1.0, min(1.0, (fx * vx + fy * vy) / n))))
+    best_aim, main = None, sofas[0]
+    for sf in sofas:
+        fx, fy = facing_vector(sf.rot)
+        vx, vy = tv.x - sf.x, tv.y - sf.y
+        n = _m.hypot(vx, vy) or 1.0
+        aim = _m.degrees(_m.acos(max(-1.0, min(1.0, (fx * vx + fy * vy) / n))))
+        if best_aim is None or aim < best_aim:
+            best_aim, main = aim, sf
     lim = float(distances().get("sofa_tv_aim_deg_max", 30))
-    if aim > lim:
-        return [_v("SOFA_AIM_OFF_TV", f"диван смотрит мимо ТВ на {aim:.0f}°",
-                   ["диван", "тв-тумба"], round(aim), f"≤{lim:.0f}° (дизайнеры: p90 22°)")]
+    if best_aim > lim:
+        return [_v("SOFA_AIM_OFF_TV", f"диван смотрит мимо ТВ на {best_aim:.0f}°",
+                   [main.role, "тв-тумба"], round(best_aim),
+                   f"≤{lim:.0f}° (дизайнеры: p90 22°)")]
     return []
 
 

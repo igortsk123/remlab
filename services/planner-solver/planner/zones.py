@@ -161,6 +161,20 @@ def solve_zoned(room: Room, items, **kw):
             keep = [it for it in keep if it.role not in din_roles]
             block = block + din
             tpl_tag = '+tpl+din'
+        # цепочка зон дальше (зоны раздельны — решение владельца; порядок — канон
+        # свода 07.08: группа → МЕДИА → хранение → декор): медиа → хранение → чтение;
+        # каждый следующий блок видит free без предыдущих и валидируется на объединении
+        from .template import place_media, place_reading, place_storage
+        for placer, tag in ((place_media, '+tv'), (place_storage, '+st'),
+                            (place_reading, '+rd')):
+            occ2 = _uu([_fp(p) for p in block if p.role != 'ковёр'])
+            extra = placer(room, keep, usable_polygon(room).difference(occ2),
+                           fixed=block)
+            if extra:
+                roles2 = {p.role for p in extra}
+                keep = [it for it in keep if it.role not in roles2]
+                block = block + extra
+                tpl_tag += tag
     # H3 (08.08): большие комнаты с богатым составом — ДВУХПРОХОДНОЕ размещение:
     # проход 1 — ядро (группа+носитель ТВ+столик+ковёр), проход 2 — достройка (обеденная,
     # камин, хранение, спутники) на зафиксированном ядре. Один проход beam на 19 предметах
