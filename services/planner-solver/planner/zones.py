@@ -66,26 +66,36 @@ def usable_m2(room: Room) -> float:
     return usable_polygon(room).area / 10_000
 
 
-def pick_group(room: Room, roles_available: set[str], seats_target: int | None = None) -> dict:
+def pick_group(room: Room, roles_available: set[str] | dict, seats_target: int | None = None) -> dict:
     """Выбор посадочной группы: band по usable-площади → самая вместительная группа band'а,
     чьи обязательные роли доступны в каталоге сета. Футпринты — reference (правка владельца),
-    физику проверит размещение."""
+    физику проверит размещение.
+
+    T3-фикс (10.08, корень пустых band50+): доступность считается по ЧИСЛУ ЭКЗЕМПЛЯРОВ,
+    не по базовой роли — «two_sofas_…» при одном диване в сете выбиралась как max-seats,
+    была нереализуема, и P0.1-фолбэк проваливался до «диван соло», срезая живые кресла
+    (set112: 8 ролей в skipped на 57.5 м²). roles_available: set (счёт=1) или dict
+    {база: сколько экземпляров}."""
+    from collections import Counter
     zr = zone_rules()
     um2 = usable_m2(room)
     band = next(b for b in zr['inventory_prior']['bands_usable_m2'] if um2 <= b['max'])
     groups = {g['id']: g for g in zr['seating_groups']}
+    # dict = точные счёты экземпляров (строгая проверка); set = только базовые роли,
+    # количество неизвестно → «роль есть — качество решит подбор» (прежняя семантика)
+    have = Counter(dict(roles_available)) if isinstance(roles_available, dict) \
+        else Counter({r: 999 for r in roles_available})
     candidates = []
     for gid in band['groups']:
         g = groups[gid]
-        req = set(g['roles']['required'])
-        # Доступность группы — по ПОСАДОЧНЫМ ролям (set113: отсутствие столика в составе
-        # каскадно рубило ВСЕ посадочные группы до «только диван» — кресла гибли на входе).
-        # «кресло 2» доступно, если кресел в каталоге сета ≥1 (qty решит подбор).
-        need = {r.split(' ')[0] for r in req if r.split(' ')[0] in SEATING_ROLES}
-        if need <= roles_available:
+        req = list(g['roles']['required'])
+        # Доступность — по ПОСАДОЧНЫМ ролям (set113: отсутствие столика в составе каскадно
+        # рубило все группы до «только диван»); столик/декор группу не фильтруют.
+        need = Counter(r.split(' ')[0] for r in req if r.split(' ')[0] in SEATING_ROLES)
+        if all(have.get(role, 0) >= n for role, n in need.items()):
             candidates.append(g)
     if not candidates:
-        candidates = [groups['sofa_armchair'] if 'диван' in roles_available
+        candidates = [groups['sofa_armchair'] if have.get('диван', 0) > 0
                       else groups['armchair_pair']]
     if seats_target:
         fit = [g for g in candidates if g['seats'] >= seats_target]
@@ -108,9 +118,16 @@ def solve_zoned(room: Room, items, **kw):
     уходят в skipped_optional. Старый solve() нетронут — A/B на перегоне.
 
     Возвращает (layouts, group_id)."""
+    from collections import Counter
+
     from .beam import solve
     avail = {_base(i.role) for i in items}
-    group = pick_group(room, avail)
+    counts = Counter(_base(i.role) for i in items)
+    group = pick_group(room, dict(counts))
+    if os.environ.get('ZONES_DEBUG'):
+        import sys as _sys
+        print(f"ZDBG usable={usable_m2(room):.1f} avail={sorted(avail)} group={group['id']}",
+              file=_sys.stderr, flush=True)
     allowed = {_base(r) for r in group['roles']['required']} | \
               {_base(r) for r in group['roles'].get('optional', [])}
     keep, dropped = [], []
@@ -119,12 +136,37 @@ def solve_zoned(room: Room, items, **kw):
             dropped.append(it.role)
         else:
             keep.append(it)
+    # T3 (solver-speed, владелец 10.08): сперва пробуем ШАБЛОН разговорной зоны — блок
+    # с запечённой геометрией (столик/кресла/ковёр привязаны к дивану). Удался — члены
+    # блока уходят из перебора (fixed), beam доставляет остальное. Нет — прежний путь.
+    block = None
+    if os.environ.get('LAYOUT_TEMPLATES', '1') != '0':
+        from .template import place_template
+        block = place_template(room, group['id'], keep, usable_polygon(room))
+    tpl_tag = '+tpl' if block else ''
+    if block:
+        block_roles = {p.role for p in block}
+        keep = [it for it in keep if it.role not in block_roles]
+        # столовая зона тоже блоком (владелец 10.08) — на free без разговорного блока;
+        # стулья по band: ≤18 м² — 2, ≤30 — 4, дальше 6
+        from shapely.ops import unary_union as _uu
+
+        from .geometry import footprint as _fp
+        from .template import place_dining
+        occ = _uu([_fp(p) for p in block if p.role != 'ковёр'])
+        din = place_dining(room, keep, usable_polygon(room).difference(occ),
+                           usable_m2(room), fixed=block)
+        if din:
+            din_roles = {p.role for p in din}
+            keep = [it for it in keep if it.role not in din_roles]
+            block = block + din
+            tpl_tag = '+tpl+din'
     # H3 (08.08): большие комнаты с богатым составом — ДВУХПРОХОДНОЕ размещение:
     # проход 1 — ядро (группа+носитель ТВ+столик+ковёр), проход 2 — достройка (обеденная,
     # камин, хранение, спутники) на зафиксированном ядре. Один проход beam на 19 предметах
     # в 57 м² рушился каскадом (то диван без стенки, то стенка без дивана).
     room_m2 = room.width_cm * room.depth_cm / 10_000
-    if room_m2 >= 26 and len(keep) > 8:
+    if room_m2 >= 26 and len(keep) + (len(block) if block else 0) > 8:
         has_stand = any(i.role == 'тв-тумба' for i in keep)
         core_bases = {'диван', 'кресло', 'тв-тумба', 'столик', 'ковёр'}
         core, rest = [], []
@@ -134,7 +176,7 @@ def solve_zoned(room: Room, items, **kw):
                 core.append(it)
             else:
                 rest.append(it)
-        outs1 = solve(room, core, **kw)
+        outs1 = solve(room, core, fixed=block, **kw)
         if outs1 and rest:
             base_ps = list(outs1[0].placements)
             # предметы ядра, не вставшие в проходе 1 (ковёр и т.п.), едут во второй проход —
@@ -149,9 +191,9 @@ def solve_zoned(room: Room, items, **kw):
             else:
                 outs = outs1
         else:
-            outs = outs1 or solve(room, keep, **kw)
+            outs = outs1 or solve(room, keep, fixed=block, **kw)
     else:
-        outs = solve(room, keep, **kw)
+        outs = solve(room, keep, fixed=block, **kw)
     # P0.1 (рефери 08.08, set59/113): потерян REQUIRED-слот группы → НЕ удерживать остатки
     # старой группы, а выбрать лучшую валидную effective-группу и пере-решить один раз
     # только её составом («не удерживать предмет потому, что он помещается»).
@@ -196,7 +238,7 @@ def solve_zoned(room: Room, items, **kw):
                     return outs, fallback['id']
     for lay in outs:
         lay.skipped_optional = sorted(set(lay.skipped_optional) | set(dropped))
-    return outs, group['id']
+    return outs, group['id'] + tpl_tag
 
 
 # --- Лексикографическая оценка (правка владельца 07.08): эстетика не компенсирует проход ---

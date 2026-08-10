@@ -109,6 +109,10 @@ def wall_candidates(room: Room, item: Item, free: Polygon, *, step: float = GRID
     import math as _m
 
     from .geometry import room_edges
+    # T3 (solver-speed, п.1): адаптивный шаг — большие комнаты грубее (×2), точность
+    # добивает refine; кратно меньше кандидатов на 40+ м² («не все вариации жизнеспособны»)
+    if room.width_cm * room.depth_cm > 40 * 10_000 and step <= GRID_CM:
+        step = step * 2
     out: list[Candidate] = []
     for ei, ((x1, y1), (x2, y2)) in enumerate(room_edges(room)):
         ex, ey = x2 - x1, y2 - y1
@@ -119,7 +123,11 @@ def wall_candidates(room: Room, item: Item, free: Polygon, *, step: float = GRID
             continue                      # косое ребро — Э8 следующий шаг
         nx, ny = -ey / elen, ex / elen    # внутренняя нормаль (контур CCW)
         rot = _m.degrees(_m.atan2(nx, ny)) % 360
-        w, d = _dims_for_rot(item, rot)
+        # T3-фикс (10.08): предмет у стены ВСЕГДА идёт шириной вдоль ребра, глубиной поперёк
+        # (фасад параллелен стене). Прежний _dims_for_rot давал МИРОВЫЕ x/y-экстенты — для
+        # вертикальных рёбер «вдоль/поперёк» инвертировались, кандидат висел в w/2 от стены
+        # и гиб (SLIVER): эмпирика 252 сцен — ноль диванов r90/270, полкомнаты недоступно.
+        w, d = item.w_cm, item.d_cm
         if w + 2 * WALL_GAP_CM > elen:
             continue
         lo, hi = WALL_GAP_CM + w / 2, elen - WALL_GAP_CM - w / 2
