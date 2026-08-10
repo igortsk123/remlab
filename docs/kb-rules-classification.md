@@ -1,15 +1,15 @@
 # Классификация прод-правил против source-KB (W0, kb-rules-merge)
 
-Снапшот KB: `runs/r20260810a` · параметров разобрано: 16 из 37 в distances_cm (остальные — вне книжной тематики или NOT_MAPPED_YET) · итог: {'REVIEW_OWNER': 5, 'SUPPORTED': 8, 'SEMANTIC_ONLY': 1, 'NO_KB_DATA': 2}
+Снапшот KB: `runs/r20260810a` · параметров разобрано: 16 из 37 в distances_cm (остальные — вне книжной тематики или NOT_MAPPED_YET) · итог: {'SUPPORTED': 10, 'REVIEW_OWNER': 3, 'SEMANTIC_ONLY': 1, 'NO_KB_DATA': 2}
 
 Правило W0: прод НЕ меняется этим документом. SUPPORTED — фиксируем пруф; REVIEW_OWNER/TOO_* / CONTRADICTED — решение владельца построчно.
 
 | Параметр | Движок | Вердикт | Почему | Пруф (печ. стр.) |
 |---|---|---|---|---|
-| `sofa_coffee_table_hard` | [32, 50] | **REVIEW_OWNER** | сдвинуто вверх от KB [30.48,45.72] | 55 |
+| `sofa_coffee_table_hard` | [30, 46] | **SUPPORTED** | внутри книжной вилки [30.48,45.72] | 55 |
 | `sofa_coffee_table_preferred` | [40, 45] | **SUPPORTED** | текущее [40,45] внутри KB [30.48,45.72] | 55 |
 | `sofa_tv_cm` | [180, 300] | **SUPPORTED** | внутри книжной вилки [152.4,335.28] | 55 |
-| `passage_main` | [90, 107] | **REVIEW_OWNER** | минимум движка 90 чуть ниже книжного 91.44 | 35, 38, 39 |
+| `passage_main` | [91, 107] | **SUPPORTED** | минимум движка 91 ≥ книжного 91.44 | 35, 38, 39 |
 | `passage_secondary_min` | 60 | **REVIEW_OWNER** | книжные 81–91 см — основные пути/доступность; прямого аналога «вторичного прохода между мебелью» книга не даёт | 38, 131 |
 | `dining_chair_pullout` | [55, 71] | **SUPPORTED** | внутри книжной вилки [45.72,106.68] | 57 |
 | `dining_table_to_wall_no_pass` | 91 | **SUPPORTED** | минимум движка 91 ≥ книжного 45.72 | 57 |

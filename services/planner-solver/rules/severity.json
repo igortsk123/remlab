@@ -70,6 +70,10 @@
   "RUG_ORIENTATION": "S1",
   "RUG_DETACHED": "S1",
   "RUG_TABLE_MARGIN": "S1",
-  "ARMCHAIR_OFF_RUG": "S1"
+  "ARMCHAIR_OFF_RUG": "S1",
+  "SOFA_BLOCKS_SOFA": "S1"
+ },
+ "_notes": {
+  "SOFA_BLOCKS_SOFA": "W2 kb-rules-merge 10.08: пара диванов легальна лицом-к-лицу или Г-стыком торец-к-торцу; фронт в бок/спинку соседа — блокировка"
  }
 }

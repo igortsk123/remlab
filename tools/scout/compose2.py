@@ -616,14 +616,44 @@ for bi,band in enumerate(COMP['bands']):
             if it.get('fabric'): ctx['fabrics'].add(it['fabric'])
         # Z4: «диван 2» — легальная роль СОСТАВА ГРУППЫ (sofa_facing_sofa/loveseat, с 12–15 м²
         # usable), а не заплатка недобора площади (старое правило «только 41+» удалено)
+        # W1 kb-rules-merge (владелец 10.08): «два РАЗНЫХ дивана выглядят странно» — пара
+        # только (а) та же модель, (б) та же коллекция (магазин + корень имени; сюда же
+        # «угловой + прямой одной модели»), (в) тот же магазин + тот же цвет-класс и не шире
+        # первого. Иначе — демоция к книжной композиции «диван + 2 ОДИНАКОВЫХ кресла»
+        # (qty=2 одной SKU; экземпляры «кресло 2» делает ядро).
         if _zreq.get('диван',0)>=2 and 'диван' in chosen:
-            top=pick2('диван',m2,band['floor']['диван'],tier,pair,ctx,soft=True)
-            it2=next((t for t in (top or []) if t['eid']!=chosen['диван']['eid'] and
-                      (t.get('w') or 999)<= (chosen['диван'].get('w') or 999)),None) or \
-                next((t for t in (top or []) if t['eid']!=chosen['диван']['eid']),None)
+            top=pick2('диван',m2,band['floor']['диван'],tier,pair,ctx,soft=True) or []
+            first=chosen['диван']
+            _TYPE_WORDS={'диван','угловой','еврокнижка','прямой','модульный','кровать',
+                         'диван-кровать','мини','xl','хл'}
+            def _model_token(nm):
+                for w in (nm or '').lower().replace('-',' ').split():
+                    if w not in _TYPE_WORDS: return w
+                return (nm or '').lower()
+            it2=why=None
+            for t in top:
+                if t['mid']==first['mid']: it2,why=t,'same_model'; break
+            if not it2:
+                for t in top:
+                    if t['eid']!=first['eid'] and t['shop']==first['shop'] \
+                            and _model_token(t['name'])==_model_token(first['name']):
+                        it2,why=t,'same_collection'; break
+            if not it2:
+                for t in top:
+                    if t['eid']==first['eid'] or t['shop']!=first['shop']: continue
+                    if t.get('cls')!=first.get('cls'): continue
+                    if (t.get('w') or 999)>(first.get('w') or 999): continue
+                    it2,why=t,'palette_match'; break
             if it2 and floor_fp+it2['fp']<=m2*0.40:
                 chosen['диван 2']=dict(it2,qty=1); floor_fp+=it2['fp']
-                print(f"  Z4: группа {zgroup['id']} — добавлен «диван 2» ({it2['name'][:40]})")
+                print(f"  Z4/W1: «диван 2» по парности ({why}): {it2['name'][:40]}")
+            elif ('кресло' in chosen and not band.get('kreslo_max')
+                    and not ctx.get('corner_sofa')
+                    and chosen['кресло'].get('qty',1)<2):
+                floor_fp+=chosen['кресло']['fp']; chosen['кресло']['qty']=2
+                print("  W1: пары дивану нет — демоция к «диван + 2 одинаковых кресла»")
+            else:
+                print("  W1: пары дивану нет (парность) — группа без «диван 2»")
         # добор при пустоте — только квотой кресла, если группа его предусматривает
         cap_lo=(OCC['floor_cap_pct'].get(band['band'],[COMP['global_floor_cap'][0]])[0]
                 if OCC else COMP['global_floor_cap'][0])

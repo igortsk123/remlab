@@ -23,7 +23,7 @@ from .geometry import (
     static_blockers,
     swing_polygon,
 )
-from .models import Layout, Placement, Room, Severity, Violation
+from .models import Item, Layout, Placement, Room, Severity, Violation
 
 EPS = 1.0  # см: допуск на округления (Holodeck EPSILON=1 см в наших единицах)
 
@@ -1082,6 +1082,45 @@ def check_window_sofa(room: Room, ps: list[Placement]) -> list[Violation]:
     return out
 
 
+def check_sofa_pair_geometry(ps: list[Placement]) -> list[Violation]:
+    """W2 kb-rules-merge (владелец 10.08; урок ручного демо 57.5 м²): пара диванов
+    легальна ЛИЦОМ-К-ЛИЦУ (sofa_facing_sofa) или Г-стыком ТОРЕЦ-К-ТОРЦУ. Фронт
+    одного дивана, упирающийся в БОК/СПИНКУ другого, — блокировка: сидящие смотрят
+    в заднюю панель соседа (S1)."""
+    import math as _m
+
+    from .geometry import base_role
+
+    sofas = [p for p in ps if base_role(p.role) == "диван" and p.item is not None]
+    if len(sofas) < 2:
+        return []
+    out: list[Violation] = []
+    for a in sofas:
+        for b in sofas:
+            if a is b:
+                continue
+            ang = (a.rot - b.rot) % 360
+            if 150 <= ang <= 210:      # лицом-к-лицу: дистанцию держит facing-чек
+                continue
+            r = _m.radians(a.rot)
+            fx, fy = _m.sin(r), _m.cos(r)
+            fz = Placement(role="_front", rot=a.rot,
+                           x=a.x + fx * (a.item.d_cm / 2 + 60),
+                           y=a.y + fy * (a.item.d_cm / 2 + 60),
+                           item=Item(role="_front", w_cm=a.item.w_cm,
+                                     d_cm=120, h_cm=1))
+            fb = footprint(b)
+            inter = footprint(fz).intersection(fb)
+            if fb.area > 0 and inter.area > 0.2 * fb.area:
+                out.append(_v("SOFA_BLOCKS_SOFA",
+                              f"фронт «{a.role}» упирается в бок/спинку «{b.role}» "
+                              f"(перекрытие {inter.area / fb.area:.0%})",
+                              [a.role, b.role], None,
+                              "лицом-к-лицу или Г-стык торец-к-торцу",
+                              severity=Severity.SOFT))
+    return out
+
+
 def validate(room: Room, placements: list[Placement], *, passage: str = "secondary") -> Layout:
     _ROOM_BAND[0] = room.band
     vs: list[Violation] = []
@@ -1100,6 +1139,7 @@ def validate(room: Room, placements: list[Placement], *, passage: str = "seconda
     vs += check_sofa_sliver(room, placements)
     vs += check_dead_zone_behind_sofa(room, placements)
     vs += check_sofa_aim(room, placements)
+    vs += check_sofa_pair_geometry(placements)
     vs += check_chairs_at_table(room, placements)
     vs += check_functional_zones(room, placements)
     vs += check_layout_rules(room, placements)

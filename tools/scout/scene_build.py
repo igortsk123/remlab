@@ -148,11 +148,37 @@ def derived(room, placements, items):
 
     lamp = items.get('люстра')
     if lamp and 'люстра' not in by:
-        # Люстра — всегда по ЦЕНТРУ комнаты, а не над зоной отдыха: это классика подвесного
-        # освещения, к тому же так она не «привязывается» к дивану (владелец, 2026-08-04).
+        # Люстра — по ЦЕНТРУ комнаты (владелец, 2026-08-04). W2 kb-rules-merge (10.08):
+        # если центр попадает в footprint ПОСАДКИ глубже порога (occupancy:
+        # chandelier_shift_if_center_in_seat_cm; KB: жёсткий свет над головой сидящего
+        # даёт резкие тени) — демоция к центру зоны отдыха: столик, иначе ковёр.
         h = float(lamp.get('h') or 45)
-        rel['люстра'] = 'висит на потолке ровно по центру комнаты'
-        out.append(Placement(role='люстра', x=room.width_cm / 2, y=room.depth_cm / 2,
+        cx, cy = room.width_cm / 2, room.depth_cm / 2
+        note = 'висит на потолке ровно по центру комнаты'
+        try:
+            from shapely.geometry import Point
+
+            from planner.geometry import footprint as _fp
+            _occ = json.load(open(os.path.join(HERE, '..', '..', 'services',
+                                               'planner-solver', 'rules',
+                                               'occupancy.json')))
+            _shift = float(_occ.get('layout_rules', {})
+                           .get('chandelier_shift_if_center_in_seat_cm', 15))
+            _seats = [p for p in placements
+                      if p.role.split(' ')[0] in ('диван', 'кресло') and p.item]
+            if any(_fp(p).buffer(-_shift).contains(Point(cx, cy)) for p in _seats):
+                _tbl = next((p for p in placements
+                             if p.role.split(' ')[0] == 'столик'), None) or \
+                       next((p for p in placements
+                             if p.role.split(' ')[0] == 'ковёр'), None)
+                if _tbl is not None:
+                    cx, cy = _tbl.x, _tbl.y
+                    note = ('висит над центром зоны отдыха (центр комнаты занят '
+                            'посадкой — демоция W2)')
+        except Exception as e:  # noqa: BLE001 — демоция не должна валить сцену
+            print(f'  люстра: демоция недоступна ({e}) — центр комнаты')
+        rel['люстра'] = note
+        out.append(Placement(role='люстра', x=cx, y=cy,
                              rot=0, elev_cm=270.0 - h,
                              item=Item(role='люстра', w_cm=float(lamp['w'] or 60),
                                        d_cm=float(lamp['d'] or lamp['w'] or 60), h_cm=h)))
