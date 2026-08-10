@@ -1,0 +1,1404 @@
+{
+ "artifact": "authority_map_registry",
+ "note": "канон нормализации цитируемых авторитетов (LLM, без web); издания раздельны, unknown не сливается с известным",
+ "raw_variants": {
+  "A Pattern Language (Christopher Alexander et al.), as cited by the chapter | 1977": {
+   "components": [
+    {
+     "canonical": "A Pattern Language",
+     "edition": "1977",
+     "kind": "BOOK",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "A Philosophy of Interior Design (Stanley Abercrombie), as cited by the chapter | 1991": {
+   "components": [
+    {
+     "canonical": "A Philosophy of Interior Design",
+     "edition": "1991",
+     "kind": "BOOK",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ADA Standards and International Building Code (IBC) | 2015 edition per the chapter references list": {
+   "components": [
+    {
+     "canonical": "ADA Standards",
+     "edition": "2015",
+     "kind": "GUIDELINE",
+     "unresolved": false
+    },
+    {
+     "canonical": "International Building Code",
+     "edition": "2015",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ADA Standards | 2015 edition per the chapter references list": {
+   "components": [
+    {
+     "canonical": "ADA Standards",
+     "edition": "2015",
+     "kind": "GUIDELINE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ADAAG (Americans with Disabilities Act Accessibility Guidelines) | not stated in the source": {
+   "components": [
+    {
+     "canonical": "ADA Accessibility Guidelines (ADAAG)",
+     "edition": "",
+     "kind": "GUIDELINE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ADAAG | ": {
+   "components": [
+    {
+     "canonical": "ADA Accessibility Guidelines (ADAAG)",
+     "edition": "",
+     "kind": "GUIDELINE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ADAAG | 2015 edition per the chapter references list": {
+   "components": [
+    {
+     "canonical": "ADA Accessibility Guidelines (ADAAG)",
+     "edition": "2015",
+     "kind": "GUIDELINE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ANSI / ADA (ADAAG) | ": {
+   "components": [
+    {
+     "canonical": "American National Standards Institute (ANSI)",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    },
+    {
+     "canonical": "ADA Accessibility Guidelines (ADAAG)",
+     "edition": "",
+     "kind": "GUIDELINE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ANSI 4.32.5.6; UFAS 4.34.6 | ": {
+   "components": [
+    {
+     "canonical": "ANSI 4.32.5.6",
+     "edition": "",
+     "kind": "STANDARD",
+     "unresolved": false
+    },
+    {
+     "canonical": "Uniform Federal Accessibility Standards (UFAS) 4.34.6",
+     "edition": "",
+     "kind": "STANDARD",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ANSI A117.1; UFAS; Fair Housing Amendments Act (FHAA) 1988; ADA; local visitability codes | FHAA 1988": {
+   "components": [
+    {
+     "canonical": "ANSI A117.1",
+     "edition": "",
+     "kind": "STANDARD",
+     "unresolved": false
+    },
+    {
+     "canonical": "Uniform Federal Accessibility Standards (UFAS)",
+     "edition": "",
+     "kind": "STANDARD",
+     "unresolved": false
+    },
+    {
+     "canonical": "Fair Housing Amendments Act (FHAA)",
+     "edition": "1988",
+     "kind": "CODE",
+     "unresolved": false
+    },
+    {
+     "canonical": "Americans with Disabilities Act (ADA)",
+     "edition": "",
+     "kind": "GUIDELINE",
+     "unresolved": false
+    },
+    {
+     "canonical": "UNRESOLVED_LOCAL_CODES",
+     "edition": "",
+     "kind": "UNKNOWN",
+     "unresolved": true
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ANSI/UFAS (as referenced by the source) | ": {
+   "components": [
+    {
+     "canonical": "ANSI",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    },
+    {
+     "canonical": "Uniform Federal Accessibility Standards (UFAS)",
+     "edition": "",
+     "kind": "STANDARD",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ANSI/UFAS (as referenced by the source); prototypes designed by the Ability Center of Greater Toledo, Ohio | ": {
+   "components": [
+    {
+     "canonical": "ANSI",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    },
+    {
+     "canonical": "Uniform Federal Accessibility Standards (UFAS)",
+     "edition": "",
+     "kind": "STANDARD",
+     "unresolved": false
+    },
+    {
+     "canonical": "Ability Center of Greater Toledo, Ohio",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Ability Center of Greater Toledo, Ohio | ": {
+   "components": [
+    {
+     "canonical": "Ability Center of Greater Toledo, Ohio",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Aga (named as the best-known maker of this range type) | ": {
+   "components": [
+    {
+     "canonical": "Aga",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "American Council on Exercise | 2009": {
+   "components": [
+    {
+     "canonical": "American Council on Exercise",
+     "edition": "2009",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "American National Standards Institute (ANSI); Uniform Federal Accessibility Standards (UFAS) | ": {
+   "components": [
+    {
+     "canonical": "American National Standards Institute (ANSI)",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    },
+    {
+     "canonical": "Uniform Federal Accessibility Standards (UFAS)",
+     "edition": "",
+     "kind": "STANDARD",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Americans with Disabilities Act (ADA) guidelines | ": {
+   "components": [
+    {
+     "canonical": "Americans with Disabilities Act (ADA) guidelines",
+     "edition": "",
+     "kind": "GUIDELINE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Blum (manufacturer literature) | ": {
+   "components": [
+    {
+     "canonical": "Blum",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "California Lighting Technology Center, UC Davis | 2010": {
+   "components": [
+    {
+     "canonical": "California Lighting Technology Center, UC Davis",
+     "edition": "2010",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "California Title 24 (Building Energy Efficiency Standards) | 2013 Title 24 Part 6, per the chapter references": {
+   "components": [
+    {
+     "canonical": "California Title 24 (Building Energy Efficiency Standards)",
+     "edition": "2013",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "California Title 24 Energy Code | 2013": {
+   "components": [
+    {
+     "canonical": "California Title 24 Energy Code",
+     "edition": "2013",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "California Title 24 | 2013 Residential Compliance Manual referenced": {
+   "components": [
+    {
+     "canonical": "California Title 24 Energy Code",
+     "edition": "2013",
+     "kind": "CODE",
+     "unresolved": false
+    },
+    {
+     "canonical": "California Title 24 Residential Compliance Manual",
+     "edition": "",
+     "kind": "GUIDELINE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Center for Inclusive Design and Environmental Access (IDEA Center) | ": {
+   "components": [
+    {
+     "canonical": "Center for Inclusive Design and Environmental Access (IDEA Center)",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Center for Universal Design | ": {
+   "components": [
+    {
+     "canonical": "Center for Universal Design",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Center for Universal Design; Center for Independent Living; IDEA Center; ADA | ": {
+   "components": [
+    {
+     "canonical": "Center for Universal Design",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    },
+    {
+     "canonical": "Center for Independent Living",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    },
+    {
+     "canonical": "Center for Inclusive Design and Environmental Access (IDEA Center)",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    },
+    {
+     "canonical": "Americans with Disabilities Act (ADA)",
+     "edition": "",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Cheney House fireplace, cherry casework (architect: Nystuen), dated 6/30/01 | ": {
+   "components": [
+    {
+     "canonical": "Cheney House fireplace, cherry casework (architect: Nystuen)",
+     "edition": "2001",
+     "kind": "OTHER",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Ching, Francis. Home Renovation | 1983": {
+   "components": [
+    {
+     "canonical": "Francis D. K. Ching, Home Renovation",
+     "edition": "1983",
+     "kind": "BOOK",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Christopher Alexander et al., A Pattern Language | 1977": {
+   "components": [
+    {
+     "canonical": "Christopher Alexander et al., A Pattern Language",
+     "edition": "1977",
+     "kind": "BOOK",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Clare Cooper | 1967": {
+   "components": [
+    {
+     "canonical": "Clare Cooper",
+     "edition": "1967",
+     "kind": "UNKNOWN",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Concrete Change visitability criteria | 2015": {
+   "components": [
+    {
+     "canonical": "Concrete Change visitability criteria",
+     "edition": "2015",
+     "kind": "GUIDELINE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Consumer Reports Online | 2010": {
+   "components": [
+    {
+     "canonical": "Consumer Reports Online",
+     "edition": "2010",
+     "kind": "OTHER",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Consumer Reports magazine | ": {
+   "components": [
+    {
+     "canonical": "Consumer Reports magazine",
+     "edition": "",
+     "kind": "OTHER",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Consumer Reports, Greener Choices website | ": {
+   "components": [
+    {
+     "canonical": "Consumer Reports, Greener Choices website",
+     "edition": "",
+     "kind": "OTHER",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Dietz / Eye on Housing (NAHB) | 2015": {
+   "components": [
+    {
+     "canonical": "Dietz / Eye on Housing (NAHB)",
+     "edition": "2015",
+     "kind": "OTHER",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Driver, Nicole, '64 Important Numbers Every Homeowner Should Know', This Old House Magazine | 2015": {
+   "components": [
+    {
+     "canonical": "Nicole Driver, “64 Important Numbers Every Homeowner Should Know,” This Old House Magazine",
+     "edition": "2015",
+     "kind": "OTHER",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Edward Hall, The Hidden Dimension | 1966": {
+   "components": [
+    {
+     "canonical": "Edward T. Hall, The Hidden Dimension",
+     "edition": "1966",
+     "kind": "BOOK",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Energy Star (U.S. Department of Energy / EPA); EnergyGuide | 2015 reference in the chapter bibliography": {
+   "components": [
+    {
+     "canonical": "Energy Star (U.S. Department of Energy / EPA)",
+     "edition": "2015",
+     "kind": "GUIDELINE",
+     "unresolved": false
+    },
+    {
+     "canonical": "EnergyGuide",
+     "edition": "",
+     "kind": "OTHER",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "FHAA 1988; UFAS; ANSI A117.1; ADA | ANSI A117.1-2003": {
+   "components": [
+    {
+     "canonical": "Fair Housing Amendments Act (FHAA)",
+     "edition": "1988",
+     "kind": "CODE",
+     "unresolved": false
+    },
+    {
+     "canonical": "Uniform Federal Accessibility Standards (UFAS)",
+     "edition": "",
+     "kind": "CODE",
+     "unresolved": false
+    },
+    {
+     "canonical": "ANSI A117.1",
+     "edition": "2003",
+     "kind": "STANDARD",
+     "unresolved": false
+    },
+    {
+     "canonical": "Americans with Disabilities Act (ADA)",
+     "edition": "",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Fair Housing Amendments Act (FHAA) | ": {
+   "components": [
+    {
+     "canonical": "Fair Housing Amendments Act (FHAA)",
+     "edition": "",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Fireplaces Magazine | ": {
+   "components": [
+    {
+     "canonical": "Fireplaces Magazine",
+     "edition": "",
+     "kind": "OTHER",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "IDEA Center (Center for Inclusive Design and Environmental Access) | ": {
+   "components": [
+    {
+     "canonical": "IDEA Center (Center for Inclusive Design and Environmental Access)",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "IDEA Center | ": {
+   "components": [
+    {
+     "canonical": "IDEA Center",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "IESNA, as cited within the California Title 24 guidance | not stated in the source": {
+   "components": [
+    {
+     "canonical": "IESNA",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "IRC (International Residential Code) | ": {
+   "components": [
+    {
+     "canonical": "International Residential Code",
+     "edition": "",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "IRC (International Residential Code) | 2015": {
+   "components": [
+    {
+     "canonical": "International Residential Code",
+     "edition": "2015",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "IRC; ADA and IBC for the public case | 2015 edition per the chapter references list": {
+   "components": [
+    {
+     "canonical": "International Residential Code",
+     "edition": "2015",
+     "kind": "CODE",
+     "unresolved": false
+    },
+    {
+     "canonical": "Americans with Disabilities Act",
+     "edition": "2015",
+     "kind": "CODE",
+     "unresolved": false
+    },
+    {
+     "canonical": "International Building Code",
+     "edition": "2015",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "IRC; IBC and ADAAG for public stairs | 2015 edition per the chapter references list": {
+   "components": [
+    {
+     "canonical": "International Residential Code",
+     "edition": "2015",
+     "kind": "CODE",
+     "unresolved": false
+    },
+    {
+     "canonical": "International Building Code",
+     "edition": "2015",
+     "kind": "CODE",
+     "unresolved": false
+    },
+    {
+     "canonical": "ADA Accessibility Guidelines",
+     "edition": "2015",
+     "kind": "GUIDELINE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "International Code Council, 2015 International Residential Code for One- and Two-Family Dwellings | 2015": {
+   "components": [
+    {
+     "canonical": "International Residential Code for One- and Two-Family Dwellings",
+     "edition": "2015",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "International Residential Code (IRC) | ": {
+   "components": [
+    {
+     "canonical": "International Residential Code",
+     "edition": "",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "International Residential Code (IRC) | 2003 edition cited in the chapter references": {
+   "components": [
+    {
+     "canonical": "International Residential Code",
+     "edition": "2003",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "International Residential Code (IRC) | 2015": {
+   "components": [
+    {
+     "canonical": "International Residential Code",
+     "edition": "2015",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "International Residential Code (IRC) | 2015 (chapter references)": {
+   "components": [
+    {
+     "canonical": "International Residential Code",
+     "edition": "2015",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "International Residential Code (IRC) | 2015 edition per the chapter references list": {
+   "components": [
+    {
+     "canonical": "International Residential Code",
+     "edition": "2015",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "International Residential Code (IRC) | 2015 edition, per the chapter references list": {
+   "components": [
+    {
+     "canonical": "International Residential Code",
+     "edition": "2015",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "International Residential Code | ": {
+   "components": [
+    {
+     "canonical": "International Residential Code",
+     "edition": "",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "International Residential Code | 2015 (per the chapter's reference list)": {
+   "components": [
+    {
+     "canonical": "International Residential Code",
+     "edition": "2015",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "International Residential Code | 2015 (per the chapter's reference list); requirement stated as effective 1 January 2011": {
+   "components": [
+    {
+     "canonical": "International Residential Code",
+     "edition": "2015",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "International Residential Code | 2015 edition": {
+   "components": [
+    {
+     "canonical": "International Residential Code",
+     "edition": "2015",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "International Residential Code; National Fire Alarm and Signaling Code (NFPA 72) | 2015 (per the chapter's reference list)": {
+   "components": [
+    {
+     "canonical": "International Residential Code",
+     "edition": "2015",
+     "kind": "CODE",
+     "unresolved": false
+    },
+    {
+     "canonical": "National Fire Alarm and Signaling Code (NFPA 72)",
+     "edition": "2015",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Joint Center for Housing Studies of Harvard University | 2015": {
+   "components": [
+    {
+     "canonical": "Joint Center for Housing Studies of Harvard University",
+     "edition": "2015",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Jon Lang, Creating Architectural Theory | 1987": {
+   "components": [
+    {
+     "canonical": "Jon Lang, Creating Architectural Theory",
+     "edition": "1987",
+     "kind": "BOOK",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Keidel's Planning Guide (online guide); GROHE | ": {
+   "components": [
+    {
+     "canonical": "Keidel's Planning Guide",
+     "edition": "",
+     "kind": "GUIDELINE",
+     "unresolved": false
+    },
+    {
+     "canonical": "GROHE",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "KraftMaid Cabinetry, Passport Series | ": {
+   "components": [
+    {
+     "canonical": "KraftMaid Cabinetry, Passport Series",
+     "edition": "",
+     "kind": "OTHER",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Lighting Research Center, Rensselaer Polytechnic Institute | ": {
+   "components": [
+    {
+     "canonical": "Lighting Research Center, Rensselaer Polytechnic Institute",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Lighting Research Center, Rensselaer Polytechnic Institute | 2006": {
+   "components": [
+    {
+     "canonical": "Lighting Research Center, Rensselaer Polytechnic Institute",
+     "edition": "2006",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Marc Mendelsohn, Bomarc Barrier Free Foundation; IDEA Center | ": {
+   "components": [
+    {
+     "canonical": "Marc Mendelsohn",
+     "edition": "",
+     "kind": "UNKNOWN",
+     "unresolved": false
+    },
+    {
+     "canonical": "Bomarc Barrier Free Foundation",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    },
+    {
+     "canonical": "IDEA Center",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Marianne Cusato | ": {
+   "components": [
+    {
+     "canonical": "Marianne Cusato",
+     "edition": "",
+     "kind": "UNKNOWN",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "NAHB survey, What 21st Century Home Buyers Want | ": {
+   "components": [
+    {
+     "canonical": "NAHB survey, What 21st Century Home Buyers Want",
+     "edition": "",
+     "kind": "OTHER",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "NKBA, Kitchen Basics | ": {
+   "components": [
+    {
+     "canonical": "NKBA, Kitchen Basics",
+     "edition": "",
+     "kind": "GUIDELINE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "National Association of Home Builders (NAHB) | ": {
+   "components": [
+    {
+     "canonical": "National Association of Home Builders (NAHB)",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "National Association of Home Builders (NAHB) | 2006": {
+   "components": [
+    {
+     "canonical": "National Association of Home Builders (NAHB)",
+     "edition": "2006",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "National Electrical Code | ": {
+   "components": [
+    {
+     "canonical": "National Electrical Code",
+     "edition": "",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "National Kitchen and Bath Association (NKBA) | ": {
+   "components": [
+    {
+     "canonical": "National Kitchen and Bath Association (NKBA)",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "National Kitchen and Bath Association, Bathroom Basics | ": {
+   "components": [
+    {
+     "canonical": "National Kitchen and Bath Association, Bathroom Basics",
+     "edition": "",
+     "kind": "GUIDELINE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "National Kitchen and Bath Association, Kitchen Basics | ": {
+   "components": [
+    {
+     "canonical": "National Kitchen and Bath Association, Kitchen Basics",
+     "edition": "",
+     "kind": "GUIDELINE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "National Kitchen and Bath Association, Kitchen Planning Guidelines | ": {
+   "components": [
+    {
+     "canonical": "NKBA Kitchen Planning Guidelines",
+     "edition": "",
+     "kind": "GUIDELINE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "National Trust for Historic Preservation | ": {
+   "components": [
+    {
+     "canonical": "National Trust for Historic Preservation",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Oscar Newman, Defensible Space | 1972": {
+   "components": [
+    {
+     "canonical": "Oscar Newman, Defensible Space",
+     "edition": "1972",
+     "kind": "BOOK",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Panero and Zelnik, Human Dimension and Interior Space | 1979": {
+   "components": [
+    {
+     "canonical": "Panero and Zelnik, Human Dimension and Interior Space",
+     "edition": "1979",
+     "kind": "BOOK",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Paralyzed Veterans of America, Kitchen Design for the Wheelchair User (Kim A. Beasley and Thomas D. Davies Jr.) | ": {
+   "components": [
+    {
+     "canonical": "Paralyzed Veterans of America, Kitchen Design for the Wheelchair User (Kim A. Beasley and Thomas D. Davies Jr.)",
+     "edition": "",
+     "kind": "GUIDELINE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Randall Whitehead, Residential Lighting | 2004": {
+   "components": [
+    {
+     "canonical": "Randall Whitehead, Residential Lighting",
+     "edition": "2004",
+     "kind": "BOOK",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Remodeling 2015 Cost vs. Value Report | 2015": {
+   "components": [
+    {
+     "canonical": "Remodeling Cost vs. Value Report",
+     "edition": "2015",
+     "kind": "OTHER",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Robert Sommer, Personal Space | 1969": {
+   "components": [
+    {
+     "canonical": "Robert Sommer, Personal Space",
+     "edition": "1969",
+     "kind": "BOOK",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Sarah Susanka, The Not So Big House | ": {
+   "components": [
+    {
+     "canonical": "Sarah Susanka, The Not So Big House",
+     "edition": "",
+     "kind": "BOOK",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Sebba and Churchman, The Uniqueness of the Home | 1986": {
+   "components": [
+    {
+     "canonical": "Sebba and Churchman, The Uniqueness of the Home",
+     "edition": "1986",
+     "kind": "BOOK",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "U.S. Department of Energy (quoted by the book) | ": {
+   "components": [
+    {
+     "canonical": "U.S. Department of Energy",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "U.S. Environmental Protection Agency | 2015": {
+   "components": [
+    {
+     "canonical": "U.S. Environmental Protection Agency",
+     "edition": "2015",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "U.S. federal regulations as reported by the book | ": {
+   "components": [
+    {
+     "canonical": "U.S. federal regulations",
+     "edition": "",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "UFAS | ": {
+   "components": [
+    {
+     "canonical": "UFAS",
+     "edition": "",
+     "kind": "CODE",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "US federal minimum standards; Energy Star; EnergyGuide; unnamed state detergent rules | ": {
+   "components": [
+    {
+     "canonical": "U.S. federal minimum standards",
+     "edition": "",
+     "kind": "STANDARD",
+     "unresolved": false
+    },
+    {
+     "canonical": "Energy Star",
+     "edition": "",
+     "kind": "OTHER",
+     "unresolved": false
+    },
+    {
+     "canonical": "EnergyGuide",
+     "edition": "",
+     "kind": "OTHER",
+     "unresolved": false
+    },
+    {
+     "canonical": "UNRESOLVED_STATE_DETERGENT_RULES",
+     "edition": "",
+     "kind": "UNKNOWN",
+     "unresolved": true
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "Underwriters Laboratories (UL) | ": {
+   "components": [
+    {
+     "canonical": "Underwriters Laboratories (UL)",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "University of Illinois Small Homes Council; Cornell University | ": {
+   "components": [
+    {
+     "canonical": "University of Illinois Small Homes Council",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    },
+    {
+     "canonical": "Cornell University",
+     "edition": "",
+     "kind": "ORGANIZATION",
+     "unresolved": false
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "building codes (unnamed) as reported by the book | ": {
+   "components": [
+    {
+     "canonical": "UNRESOLVED_LOCAL_CODES",
+     "edition": "",
+     "kind": "UNKNOWN",
+     "unresolved": true
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "building codes (unnamed) | ": {
+   "components": [
+    {
+     "canonical": "UNRESOLVED_LOCAL_CODES",
+     "edition": "",
+     "kind": "UNKNOWN",
+     "unresolved": true
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "local code jurisdictions (unnamed) | ": {
+   "components": [
+    {
+     "canonical": "UNRESOLVED_LOCAL_CODES",
+     "edition": "",
+     "kind": "UNKNOWN",
+     "unresolved": true
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "local codes (unnamed) | ": {
+   "components": [
+    {
+     "canonical": "UNRESOLVED_LOCAL_CODES",
+     "edition": "",
+     "kind": "UNKNOWN",
+     "unresolved": true
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "local municipal codes (unnamed) | ": {
+   "components": [
+    {
+     "canonical": "UNRESOLVED_LOCAL_CODES",
+     "edition": "",
+     "kind": "UNKNOWN",
+     "unresolved": true
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "most codes | ": {
+   "components": [
+    {
+     "canonical": "UNRESOLVED_LOCAL_CODES",
+     "edition": "",
+     "kind": "UNKNOWN",
+     "unresolved": true
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "plumbing codes (unnamed) as reported by the book | ": {
+   "components": [
+    {
+     "canonical": "UNRESOLVED_LOCAL_CODES",
+     "edition": "",
+     "kind": "UNKNOWN",
+     "unresolved": true
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "unnamed code requirement referenced by the authors | ": {
+   "components": [
+    {
+     "canonical": "UNRESOLVED_LOCAL_CODES",
+     "edition": "",
+     "kind": "UNKNOWN",
+     "unresolved": true
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "unnamed local codes referenced by the authors | ": {
+   "components": [
+    {
+     "canonical": "UNRESOLVED_LOCAL_CODES",
+     "edition": "",
+     "kind": "UNKNOWN",
+     "unresolved": true
+    }
+   ],
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  }
+ }
+}

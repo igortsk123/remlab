@@ -1,0 +1,4374 @@
+{
+ "artifact": "vocabulary_map_registry",
+ "note": "канон LLM-маппинга proposed_entity_type; подписи/канон реплеятся отсюда без сети",
+ "proposed_entity_types": {
+  "accent_luminaire": {
+   "status": "NARROWER",
+   "core": "ceiling_light",
+   "canonical_label": "accent_luminaire",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "accessibility_improvement": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "accessibility_improvement",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "accessibility_requirement": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "accessibility_requirement",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "activity_space": {
+   "status": "SYNONYM",
+   "core": "activity_zone",
+   "canonical_label": "activity_zone",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "adjacent_fixture_line": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "adjacent_fixture_line",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "adjustable_component": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "adjustable_component",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "adjustable_recessed_luminaire": {
+   "status": "NARROWER",
+   "core": "ceiling_light",
+   "canonical_label": "adjustable_recessed_luminaire",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "aesthetic_problem": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "aesthetic_problem",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "air_diffuser": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "air_diffuser",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "air_lock_vestibule": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "air_lock_vestibule",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "alcove": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "alcove",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "alley": {
+   "status": "RELATED",
+   "core": "circulation_path",
+   "canonical_label": "alley",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ambient_lighting": {
+   "status": "BROADER",
+   "core": "ceiling_light",
+   "canonical_label": "ambient_lighting",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "angled_mirror": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "angled_mirror",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "appliance": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "appliance",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "appliance_control": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "appliance_control",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "appliance_controls": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "appliance_controls",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "appliance_cord": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "appliance_cord",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "appliance_finish_material": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "appliance_finish_material",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "appliance_garage": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "appliance_garage",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "appliance_pedestal": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "appliance_pedestal",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "appliance_set": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "appliance_set",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "appliance_storage_volume": {
+   "status": "NARROWER",
+   "core": "storage_unit",
+   "canonical_label": "appliance_storage_volume",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "architectural_luminaire": {
+   "status": "BROADER",
+   "core": "ceiling_light",
+   "canonical_label": "architectural_luminaire",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "area_well": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "area_well",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "artwork": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "artwork",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "as_built_drawing": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "as_built_drawing",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "assessment_phase": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "assessment_phase",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "assistive_device": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "assistive_device",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "attached_garage": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "attached_garage",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "attic_floor": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "attic_floor",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "attic_insulation": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "attic_insulation",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "audiovisual_equipment": {
+   "status": "RELATED",
+   "core": "tv_unit",
+   "canonical_label": "audiovisual_equipment",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "backup_power_generator": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "backup_power_generator",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "balcony": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "balcony",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "baluster": {
+   "status": "RELATED",
+   "core": "stair",
+   "canonical_label": "baluster",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "bar_area": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "bar_area",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "base_finish": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "base_finish",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "baseboard_convector": {
+   "status": "RELATED",
+   "core": "radiator",
+   "canonical_label": "baseboard_convector",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "basement": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "basement",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "basement_slab": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "basement_slab",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "bathing_toilet_compartment": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "bathing_toilet_compartment",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "bathroom": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "bathroom",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "bathroom_room": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "bathroom",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "bathroom_space": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "bathroom_space",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "bathroom_storage": {
+   "status": "NARROWER",
+   "core": "storage_unit",
+   "canonical_label": "bathroom_storage",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "bathroom_vent": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "bathroom_vent",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "beam": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "beam",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "bed_frame": {
+   "status": "NARROWER",
+   "core": "bed",
+   "canonical_label": "bed_frame",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "bedroom_space": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "bedroom_space",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "benchmark": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "benchmark",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "bibliography": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "bibliography",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "boot_scraper": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "boot_scraper",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "booth_assembly": {
+   "status": "RELATED",
+   "core": "bench",
+   "canonical_label": "booth_assembly",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "bounding_element": {
+   "status": "BROADER",
+   "core": "room_boundary",
+   "canonical_label": "bounding_element",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "branch_circuit": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "branch_circuit",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "breaker_panel": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "breaker_panel",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "building_addition": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "building_addition",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "building_appearance": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "building_appearance",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "building_character": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "building_character",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "building_facade": {
+   "status": "BROADER",
+   "core": "wall",
+   "canonical_label": "building_facade",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "building_footprint": {
+   "status": "RELATED",
+   "core": "room_boundary",
+   "canonical_label": "building_footprint",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "building_height": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "building_height",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "building_permit": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "building_permit",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "building_section": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "building_section",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "burner_grate": {
+   "status": "RELATED",
+   "core": "cooktop",
+   "canonical_label": "burner_grate",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "butlers_pantry": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "butlers_pantry",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "butt_hinge": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "butt_hinge",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "cabinet_door": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "cabinet_door",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "cabinet_drawer_run": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "cabinet_drawer_run",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "cabinet_pull": {
+   "status": "RELATED",
+   "core": "cabinet",
+   "canonical_label": "cabinet_pull",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "car": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "car",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "car_space": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "car_space",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "cardio_machine": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "cardio_machine",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "cardio_zone": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "cardio_zone",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "carport": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "carport",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "carport_floor": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "carport_floor",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ceiling": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "ceiling",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ceiling_diffuser": {
+   "status": "RELATED",
+   "core": "ceiling_light",
+   "canonical_label": "ceiling_diffuser",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ceiling_fan": {
+   "status": "RELATED",
+   "core": "ceiling_light",
+   "canonical_label": "ceiling_fan",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ceiling_profile": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "ceiling_profile",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "cement_board": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "cement_board",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ceramic_tile": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "ceramic_tile",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ceramic_tile_wall": {
+   "status": "RELATED",
+   "core": "wall",
+   "canonical_label": "ceramic_tile_wall",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "charging_station": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "charging_station",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "chimney": {
+   "status": "RELATED",
+   "core": "fireplace",
+   "canonical_label": "chimney",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "clear_approach_space": {
+   "status": "RELATED",
+   "core": "circulation_path",
+   "canonical_label": "clear_approach_space",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "clear_floor_space": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "clear_floor_space",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "clear_opening": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "clear_opening",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "clear_space": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "clear_space",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "clear_width": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "clear_width",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "clothing_hook_rod_locker": {
+   "status": "NARROWER",
+   "core": "closet",
+   "canonical_label": "clothing_hook_rod_locker",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "clothing_rod": {
+   "status": "RELATED",
+   "core": "closet",
+   "canonical_label": "clothing_rod",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "cluster_position": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "cluster_position",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "cluster_table": {
+   "status": "RELATED",
+   "core": "coffee_table",
+   "canonical_label": "cluster_table",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "co_alarm": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "co_alarm",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "coat_hook": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "coat_hook",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "code_inspection": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "code_inspection",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "code_jurisdiction": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "code_jurisdiction",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "cold_weather_clothing": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "cold_weather_clothing",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "combustible_framing": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "combustible_framing",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "combustion_air_duct": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "combustion_air_duct",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "communication_line": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "communication_line",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "communication_outlet": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "communication_outlet",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "computer_monitor": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "computer_monitor",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "concealed_luminaire": {
+   "status": "NARROWER",
+   "core": "ceiling_light",
+   "canonical_label": "concealed_luminaire",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "concrete_slab": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "concrete_slab",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "concrete_slab_on_grade": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "concrete_slab_on_grade",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "condensing_unit": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "condensing_unit",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "construction_budget": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "construction_budget",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "control_access_area": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "control_access_area",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "control_area": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "control_area",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "control_device": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "control_device",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "control_panel": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "control_panel",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "control_wall_zone": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "control_wall_zone",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "conversation_cluster": {
+   "status": "RELATED",
+   "core": "activity_zone",
+   "canonical_label": "conversation_cluster",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "cookware": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "cookware",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "copier": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "copier",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "cost_recouped": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "cost_recouped",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "counter_corner": {
+   "status": "NARROWER",
+   "core": "countertop",
+   "canonical_label": "counter_corner",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "countertop_appliance": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "countertop_appliance",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "cradle_bassinet": {
+   "status": "NARROWER",
+   "core": "crib",
+   "canonical_label": "cradle_bassinet",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "craft_materials_and_tools": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "craft_materials_and_tools",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "craft_work_area": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "craft_work_area",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "crawl_space": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "crawl_space",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "credenza": {
+   "status": "NARROWER",
+   "core": "cabinet",
+   "canonical_label": "credenza",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "cubby": {
+   "status": "NARROWER",
+   "core": "storage_unit",
+   "canonical_label": "cubby",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "curb": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "curb",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "cut_plane": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "cut_plane",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "damper": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "damper",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "daylight_zone": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "daylight_zone",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "dead_attic_space": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "dead_attic_space",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "dead_corner": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "dead_corner",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "deck": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "deck",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "decorative_fireplace": {
+   "status": "NARROWER",
+   "core": "fireplace",
+   "canonical_label": "decorative_fireplace",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "decorative_luminaire": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "decorative_luminaire",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "design_option": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "design_option",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "design_review_board": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "design_review_board",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "design_solution": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "design_solution",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "design_temperature": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "design_temperature",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "detached_garage": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "detached_garage",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "detergent_phosphorus": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "detergent_phosphorus",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "diffuser_register": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "diffuser_register",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "dimension_string": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "dimension_string",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "dimensional_lumber": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "dimensional_lumber",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "dimmer": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "dimmer",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "dining_alcove": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "dining_alcove",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "dish_storage_drawer_bank": {
+   "status": "NARROWER",
+   "core": "kitchen_cabinet",
+   "canonical_label": "dish_storage_drawer_bank",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "door_casing": {
+   "status": "RELATED",
+   "core": "door",
+   "canonical_label": "door_casing",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "door_frame": {
+   "status": "RELATED",
+   "core": "door",
+   "canonical_label": "door_frame",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "door_frame_trim": {
+   "status": "RELATED",
+   "core": "door",
+   "canonical_label": "door_frame_trim",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "door_stop": {
+   "status": "RELATED",
+   "core": "door",
+   "canonical_label": "door_stop",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "door_trim": {
+   "status": "RELATED",
+   "core": "door",
+   "canonical_label": "door_trim",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "downdraft_vent": {
+   "status": "RELATED",
+   "core": "cooktop",
+   "canonical_label": "downdraft_vent",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "drain_tile": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "drain_tile",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "drain_trap": {
+   "status": "RELATED",
+   "core": "sink",
+   "canonical_label": "drain_trap",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "drainboard": {
+   "status": "RELATED",
+   "core": "sink",
+   "canonical_label": "drainboard",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "drawer": {
+   "status": "NARROWER",
+   "core": "cabinet",
+   "canonical_label": "drawer",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "dressing_makeup_area": {
+   "status": "RELATED",
+   "core": "vanity_counter",
+   "canonical_label": "dressing_makeup_area",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "drinking_fountain": {
+   "status": "NARROWER",
+   "core": "sink",
+   "canonical_label": "drinking_fountain",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "driveway": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "driveway",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "dryer_duct": {
+   "status": "RELATED",
+   "core": "dryer",
+   "canonical_label": "dryer_duct",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "dryer_sensor": {
+   "status": "RELATED",
+   "core": "dryer",
+   "canonical_label": "dryer_sensor",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "dumbbell": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "dumbbell",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "dwelling_location": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "dwelling_location",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "easement": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "easement",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "eating_bar": {
+   "status": "RELATED",
+   "core": "countertop",
+   "canonical_label": "eating_bar",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "egress": {
+   "status": "NARROWER",
+   "core": "circulation_path",
+   "canonical_label": "egress",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "electrical_circuit": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "electrical_circuit",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "electrical_outlet": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "electrical_outlet",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "electrical_panel": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "electrical_panel",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "electrical_receptacle": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "electrical_receptacle",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "electrical_service": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "electrical_service",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "electrical_service_panel": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "electrical_service_panel",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "electrical_system": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "electrical_system",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "elevator": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "elevator",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "elevator_shaft": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "elevator_shaft",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "elliptical_machine": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "elliptical_machine",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "entry_foyer": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "activity_zone",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "entry_recess": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "entry_recess",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "entry_transition_area": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "activity_zone",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "entry_vestibule": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "activity_zone",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "exercise_equipment": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "exercise_equipment",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "exhaust_fan": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "exhaust_fan",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "existing_furnishing": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "existing_furnishing",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "existing_structure": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "existing_structure",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "extension_jamb": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "extension_jamb",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "exterior_light": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "exterior_light",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "exterior_steps": {
+   "status": "NARROWER",
+   "core": "stair",
+   "canonical_label": "stair",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "faucet": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "faucet",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "file_cabinet": {
+   "status": "NARROWER",
+   "core": "cabinet",
+   "canonical_label": "cabinet",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "finish_floor_elevation": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "finish_floor_elevation",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "finish_floor_material": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "finish_floor_material",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "finish_material": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "finish_material",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "finish_schedule": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "finish_schedule",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "finished_floor": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "finished_floor",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "fire_sprinkler": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "fire_sprinkler",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "firebox": {
+   "status": "RELATED",
+   "core": "fireplace",
+   "canonical_label": "firebox",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "firebox_housing": {
+   "status": "RELATED",
+   "core": "fireplace",
+   "canonical_label": "firebox_housing",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "firebrick": {
+   "status": "RELATED",
+   "core": "fireplace",
+   "canonical_label": "firebrick",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "fireplace_insert": {
+   "status": "NARROWER",
+   "core": "fireplace",
+   "canonical_label": "fireplace",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "fireplace_opening": {
+   "status": "RELATED",
+   "core": "fireplace",
+   "canonical_label": "fireplace_opening",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "fireplace_surround": {
+   "status": "RELATED",
+   "core": "fireplace",
+   "canonical_label": "fireplace_surround",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "fixture_controls": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "fixture_controls",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "fixture_space": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "fixture_space",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "floor": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "floor",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "floor_area": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "floor_area",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "floor_assembly": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "floor_assembly",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "floor_drain": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "floor_drain",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "floor_finish": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "floor_finish",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "floor_grid_module": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "floor_grid_module",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "floor_joist": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "floor_joist",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "floor_level": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "floor_level",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "floor_level_change": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "floor_level_change",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "floor_line_point": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "floor_line_point",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "floor_material_transition": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "floor_material_transition",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "floor_outlet": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "floor_outlet",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "floor_plan": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "floor_plan",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "floor_platform": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "floor_platform",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "floor_sink": {
+   "status": "NARROWER",
+   "core": "sink",
+   "canonical_label": "sink",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "floor_structure": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "floor_structure",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "floor_underlayment": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "floor_underlayment",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "flooring_finish": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "flooring_finish",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "flue": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "flue",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "fluorescent_lamp": {
+   "status": "NARROWER",
+   "core": "ceiling_light",
+   "canonical_label": "fluorescent_lamp",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "focal_lighting": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "focal_lighting",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "focal_point": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "focal_point",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "footing": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "footing",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "formal_living_room": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "activity_zone",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "foundation": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "foundation",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "foundation_wall": {
+   "status": "NARROWER",
+   "core": "wall",
+   "canonical_label": "foundation_wall",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "framing": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "framing",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "free_weights": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "free_weights",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "front_porch": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "front_porch",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "front_property_line": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "front_property_line",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "furnace": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "furnace",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "furnace_air_handling_unit": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "furnace_air_handling_unit",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "furnishing_set": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "furnishing_set",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "furniture_group": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "furniture_group",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "furniture_item": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "furniture_item",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "furniture_size_reference": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "furniture_size_reference",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "furred_ceiling": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "furred_ceiling",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "game_area": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "game_area",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "game_table": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "game_table",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ganged_theater_seating": {
+   "status": "NARROWER",
+   "core": "chair",
+   "canonical_label": "ganged_theater_seating",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "garage": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "garage",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "garage_bay": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "garage_bay",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "garage_floor": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "garage_floor",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "garage_stall": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "garage_stall",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "garage_task_area": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "garage_task_area",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "garbage_disposer": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "garbage_disposer",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "garden": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "garden",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "garment_rack": {
+   "status": "NARROWER",
+   "core": "storage_unit",
+   "canonical_label": "garment_rack",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "gas_hookup": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "gas_hookup",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "generic_seating": {
+   "status": "BROADER",
+   "core": "chair",
+   "canonical_label": "generic_seating",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "gfci_device": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "gfci_device",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "gfci_receptacle": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "gfci_receptacle",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "gfi_receptacle": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "gfi_receptacle",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "glass_block": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "glass_block",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "glass_enclosure": {
+   "status": "BROADER",
+   "core": "shower_enclosure",
+   "canonical_label": "glass_enclosure",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "glazing": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "glazing",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "grab_bar": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "grab_bar",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "grab_bar_wall": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "grab_bar_wall",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "grade": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "grade",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "grade_level": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "grade_level",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "grade_line": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "grade_line",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "great_room": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "great_room",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "green_space": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "green_space",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ground_surface": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "ground_surface",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "guardrail": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "guardrail",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "guardrail_opening": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "guardrail_opening",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "gypsum_board": {
+   "status": "NARROWER",
+   "core": "wall",
+   "canonical_label": "gypsum_board",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "gypsum_board_ceiling": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "gypsum_board_ceiling",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "hamper": {
+   "status": "NARROWER",
+   "core": "storage_unit",
+   "canonical_label": "hamper",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "handheld_showerhead": {
+   "status": "RELATED",
+   "core": "shower",
+   "canonical_label": "handheld_showerhead",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "handrail": {
+   "status": "RELATED",
+   "core": "stair",
+   "canonical_label": "handrail",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "headboard": {
+   "status": "RELATED",
+   "core": "bed",
+   "canonical_label": "headboard",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "header": {
+   "status": "RELATED",
+   "core": "wall",
+   "canonical_label": "header",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "hearth": {
+   "status": "RELATED",
+   "core": "fireplace",
+   "canonical_label": "hearth",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "heat_delivery": {
+   "status": "BROADER",
+   "core": "radiator",
+   "canonical_label": "heat_delivery",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "heat_lamp": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "heat_lamp",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "heat_lamp_with_exhaust_fan": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "heat_lamp_with_exhaust_fan",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "heating_system": {
+   "status": "BROADER",
+   "core": "radiator",
+   "canonical_label": "heating_system",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "high_efficacy_luminaire": {
+   "status": "NARROWER",
+   "core": "ceiling_light",
+   "canonical_label": "high_efficacy_luminaire",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "historic_restoration": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "historic_restoration",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "hoa_covenant": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "hoa_covenant",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "hobby_area": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "hobby_area",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "hobby_craft_sewing_room": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "hobby_craft_sewing_room",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "hobby_work_area": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "hobby_work_area",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "home_gym": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "home_gym",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "home_value_increase": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "home_value_increase",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "host_room": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "host_room",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "hvac_vent": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "hvac_vent",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "inside_corner": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "inside_corner",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "instant_hot_water_dispenser": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "instant_hot_water_dispenser",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "interior_finish": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "interior_finish",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "interior_obstruction": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "interior_obstruction",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ironing_board": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "ironing_board",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "kitchen_layout_prototype": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "kitchen_layout_prototype",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "kitchen_layout_shape": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "kitchen_layout_shape",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "kitchen_peninsula": {
+   "status": "NARROWER",
+   "core": "kitchen_island",
+   "canonical_label": "kitchen_peninsula",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "knee_clearance": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "knee_clearance",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "knee_space": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "knee_space",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ladder": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "ladder",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ladder_rung": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "ladder_rung",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "lamp": {
+   "status": "RELATED",
+   "core": "ceiling_light",
+   "canonical_label": "lamp",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "landing": {
+   "status": "RELATED",
+   "core": "stair",
+   "canonical_label": "landing",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "landing_area": {
+   "status": "NARROWER",
+   "core": "circulation_path",
+   "canonical_label": "landing_area",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "large_format_paper": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "large_format_paper",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "laundry_appliance_location": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "laundry_appliance_location",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "laundry_area": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "laundry_area",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "laundry_room": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "laundry_room",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "laundry_work_zone": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "laundry_work_zone",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "lawn_and_sporting_equipment": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "lawn_and_sporting_equipment",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "lazy_susan": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "lazy_susan",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "led_lamp": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "led_lamp",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "led_luminaire": {
+   "status": "RELATED",
+   "core": "ceiling_light",
+   "canonical_label": "led_luminaire",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "leisure_space": {
+   "status": "RELATED",
+   "core": "ceiling_light",
+   "canonical_label": "leisure_space",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "light_fixture": {
+   "status": "RELATED",
+   "core": "ceiling_light",
+   "canonical_label": "light_fixture",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "light_source": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "light_source",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "light_switch": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "light_switch",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "lighting_layer": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "lighting_layer",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "lighting_scheme": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "lighting_scheme",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "lighting_system": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "lighting_system",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "linear_luminaire": {
+   "status": "RELATED",
+   "core": "ceiling_light",
+   "canonical_label": "linear_luminaire",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "linked_connection": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "linked_connection",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "lintel": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "lintel",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "living_room_space": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "living_room_space",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "lot": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "lot",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "lot_line": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "lot_line",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "luminaire": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "luminaire",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "luminaire_type": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "luminaire_type",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "main_floor_level": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "main_floor_level",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "major_appliance": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "major_appliance",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "mantel": {
+   "status": "RELATED",
+   "core": "fireplace",
+   "canonical_label": "mantel",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "masonry_hood": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "masonry_hood",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "masonry_mass": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "masonry_mass",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "mat_area": {
+   "status": "NARROWER",
+   "core": "rug",
+   "canonical_label": "mat_area",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "measured_survey_sketch": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "measured_survey_sketch",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "mechanical_electrical": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "mechanical_electrical",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "mechanical_electrical_equipment": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "mechanical_electrical_equipment",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "mechanical_ventilation": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "mechanical_ventilation",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "media_room": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "media_room",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "medicine_cabinet": {
+   "status": "NARROWER",
+   "core": "cabinet",
+   "canonical_label": "medicine_cabinet",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "mirror": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "mirror",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "mirror_luminaire": {
+   "status": "NARROWER",
+   "core": "wall_light",
+   "canonical_label": "mirror_luminaire",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "mudroom": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "mudroom",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "multi_gym": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "multi_gym",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "multi_station_gym": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "multi_station_gym",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "multipurpose_activity_room": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "multipurpose_activity_room",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "municipal_sewer_system": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "municipal_sewer_system",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "newel_post": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "newel_post",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "non_computer_work_area": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "non_computer_work_area",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "nonabsorbent_finish": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "nonabsorbent_finish",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "open_eating_area": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "open_eating_area",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "open_riser_gap": {
+   "status": "RELATED",
+   "core": "stair",
+   "canonical_label": "open_riser_gap",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "open_storage_container": {
+   "status": "NARROWER",
+   "core": "storage_unit",
+   "canonical_label": "open_storage_container",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ornamental_garden": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "ornamental_garden",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "outdoor_dining_space": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "outdoor_dining_space",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "outdoor_kitchen": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "outdoor_kitchen",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "outdoor_living_space": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "outdoor_living_space",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "outerwear": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "outerwear",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "outpost_kitchen": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "outpost_kitchen",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "overflow_pan": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "overflow_pan",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "overhead_obstruction": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "overhead_obstruction",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "pantry": {
+   "status": "NARROWER",
+   "core": "closet",
+   "canonical_label": "pantry",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "pantry_storage": {
+   "status": "NARROWER",
+   "core": "storage_unit",
+   "canonical_label": "storage_unit",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "parking_space": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "parking_space",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "patio": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "patio",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "paving": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "paving",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "pendant_light": {
+   "status": "SYNONYM",
+   "core": "ceiling_light",
+   "canonical_label": "ceiling_light",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "pendant_luminaire": {
+   "status": "SYNONYM",
+   "core": "ceiling_light",
+   "canonical_label": "ceiling_light",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "peninsula": {
+   "status": "NARROWER",
+   "core": "kitchen_island",
+   "canonical_label": "kitchen_island",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "peninsula_counter": {
+   "status": "NARROWER",
+   "core": "countertop",
+   "canonical_label": "countertop",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "period_home": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "period_home",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "personal_space_bubble": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "personal_space_bubble",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "pet": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "pet",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "pet_item_storage": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "pet_item_storage",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "pillow": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "pillow",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "pinboard_whiteboard": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "pinboard_whiteboard",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "pipe_shroud_panel": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "pipe_shroud_panel",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "place_setting": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "place_setting",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "plate_rack": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "plate_rack",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "plumbing_fixture": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "plumbing_fixture",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "plumbing_fixture_group": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "plumbing_fixture_group",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "plumbing_line": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "plumbing_line",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "plumbing_location": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "plumbing_location",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "plumbing_pipe": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "plumbing_pipe",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "plumbing_service": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "plumbing_service",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "plumbing_service_location": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "plumbing_service_location",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "plumbing_system": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "plumbing_system",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "porch": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "porch",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "pot_filler_faucet": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "pot_filler_faucet",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "powder_room": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "powder_room",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "power_strip": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "power_strip",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "preparation_work_area": {
+   "status": "RELATED",
+   "core": "countertop",
+   "canonical_label": "preparation_work_area",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "prevailing_wind": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "prevailing_wind",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "printer_fax": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "printer_fax",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "privacy_zone": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "privacy_zone",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "problem_area": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "problem_area",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "project_budget": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "project_budget",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "project_cost": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "project_cost",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "project_phase": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "project_phase",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "project_problem_list": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "project_problem_list",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "property_line": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "property_line",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "puck_light": {
+   "status": "NARROWER",
+   "core": "ceiling_light",
+   "canonical_label": "puck_light",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "pull_down_rod": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "pull_down_rod",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "pull_down_shelf": {
+   "status": "NARROWER",
+   "core": "shelving_unit",
+   "canonical_label": "pull_down_shelf",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "pull_up_bar": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "pull_up_bar",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "pullout_drawer": {
+   "status": "RELATED",
+   "core": "cabinet",
+   "canonical_label": "pullout_drawer",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "pullout_shelf": {
+   "status": "NARROWER",
+   "core": "shelving_unit",
+   "canonical_label": "pullout_shelf",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "pullout_table": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "pullout_table",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "pullout_work_board": {
+   "status": "RELATED",
+   "core": "desk",
+   "canonical_label": "pullout_work_board",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "radiant_floor_heating": {
+   "status": "RELATED",
+   "core": "radiator",
+   "canonical_label": "radiant_floor_heating",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "raised_hearth": {
+   "status": "NARROWER",
+   "core": "fireplace",
+   "canonical_label": "raised_hearth",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ramp": {
+   "status": "NARROWER",
+   "core": "circulation_path",
+   "canonical_label": "ramp",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "range_exhaust_fan": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "range_exhaust_fan",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "range_hood": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "range_hood",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "reach_in_pantry": {
+   "status": "NARROWER",
+   "core": "closet",
+   "canonical_label": "reach_in_pantry",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "reading_light": {
+   "status": "RELATED",
+   "core": "table_lamp",
+   "canonical_label": "reading_light",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "rear_setback": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "rear_setback",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "receptacle": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "electrical_receptacle",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "receptacle_or_control": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "electrical_receptacle_or_control",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "receptacle_outlet": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "electrical_receptacle",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "recessed_downlight": {
+   "status": "NARROWER",
+   "core": "ceiling_light",
+   "canonical_label": "recessed_downlight",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "recessed_luminaire": {
+   "status": "NARROWER",
+   "core": "ceiling_light",
+   "canonical_label": "recessed_luminaire",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "recycling_bin": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "recycling_bin",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "reflected_ceiling_plan": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "reflected_ceiling_plan",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "reflective_surface": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "reflective_surface",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "refurbishment": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "refurbishment",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "remodeling_project": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "remodeling_project",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "replacement_element": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "replacement_element",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "required_clearance": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "required_clearance",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "required_fixture_set": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "required_fixture_set",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "required_repair": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "required_repair",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "resale_value_added": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "resale_value_added",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "resistance_tubing": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "resistance_tubing",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "retained_element": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "retained_element",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "return_air_grille": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "return_air_grille",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "return_air_opening": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "return_air_opening",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ridge_vent": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "ridge_vent",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "rigid_foam_insulation": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "rigid_foam_insulation",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "roi_report": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "roi_report",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "roof": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "roof",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "roof_gutter": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "roof_gutter",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "roof_overhang": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "roof_overhang",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "roof_truss": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "roof_truss",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "roof_valley": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "roof_valley",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "rough_opening": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "rough_opening",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "rowing_machine": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "rowing_machine",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "sanitary_sewer_main": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "sanitary_sewer_main",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "screw_base_socket": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "screw_base_socket",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "seated_exercise_machine": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "seated_exercise_machine",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "secondary_building": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "secondary_building",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "secondary_work_triangle": {
+   "status": "RELATED",
+   "core": "activity_zone",
+   "canonical_label": "secondary_work_triangle",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "setback": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "setback",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "shading_device": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "shading_device",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "shared_access_zone": {
+   "status": "RELATED",
+   "core": "circulation_path",
+   "canonical_label": "shared_access_zone",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "shim_space": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "shim_space",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ships_ladder": {
+   "status": "NARROWER",
+   "core": "stair",
+   "canonical_label": "ships_ladder",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "shoe_storage": {
+   "status": "NARROWER",
+   "core": "storage_unit",
+   "canonical_label": "storage_unit",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "shower_curb": {
+   "status": "RELATED",
+   "core": "shower_enclosure",
+   "canonical_label": "shower_curb",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "shower_curtain": {
+   "status": "RELATED",
+   "core": "shower_enclosure",
+   "canonical_label": "shower_curtain",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "shower_curtain_rod": {
+   "status": "RELATED",
+   "core": "shower_enclosure",
+   "canonical_label": "shower_curtain_rod",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "shower_floor": {
+   "status": "RELATED",
+   "core": "shower",
+   "canonical_label": "shower_floor",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "shower_opening": {
+   "status": "RELATED",
+   "core": "shower_enclosure",
+   "canonical_label": "shower_opening",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "shower_receptor": {
+   "status": "NARROWER",
+   "core": "shower",
+   "canonical_label": "shower_receptor",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "shower_seat": {
+   "status": "RELATED",
+   "core": "shower",
+   "canonical_label": "shower_seat",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "shower_slide_bar": {
+   "status": "RELATED",
+   "core": "shower",
+   "canonical_label": "shower_slide_bar",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "shower_threshold": {
+   "status": "RELATED",
+   "core": "shower_enclosure",
+   "canonical_label": "shower_threshold",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "shower_valve": {
+   "status": "RELATED",
+   "core": "shower",
+   "canonical_label": "shower_valve",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "showerhead": {
+   "status": "RELATED",
+   "core": "shower",
+   "canonical_label": "showerhead",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "shutoff_valve": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "shutoff_valve",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "side_property_line": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "side_property_line",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "side_setback": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "side_setback",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "sidelight": {
+   "status": "NARROWER",
+   "core": "window",
+   "canonical_label": "window",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "siding": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "siding",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "single_station_gym": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "single_station_gym",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "single_step": {
+   "status": "NARROWER",
+   "core": "stair",
+   "canonical_label": "stair",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "sink_accessory": {
+   "status": "RELATED",
+   "core": "sink",
+   "canonical_label": "sink_accessory",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "sink_compartment": {
+   "status": "RELATED",
+   "core": "sink",
+   "canonical_label": "sink_compartment",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "sink_material": {
+   "status": "RELATED",
+   "core": "sink",
+   "canonical_label": "sink_material",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "sink_mounting_style": {
+   "status": "RELATED",
+   "core": "sink",
+   "canonical_label": "sink_mounting_style",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "site": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "site",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "site_context": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "site_context",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "site_elevation": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "site_elevation",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "site_exterior": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "site_exterior",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ski_machine": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "ski_machine",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "slab_recess": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "slab_recess",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "sloped_ceiling": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "sloped_ceiling",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "sloped_ceiling_area": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "sloped_ceiling_area",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "sloped_floor": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "sloped_floor",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "sloped_roof_surface": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "sloped_roof_surface",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "smoke_alarm": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "smoke_alarm",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "smoke_chamber": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "smoke_chamber",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "smoke_detector": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "smoke_detector",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "soffit": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "soffit",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "soffit_vent": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "soffit_vent",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "soil_stack": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "soil_stack",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "solar_orientation": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "solar_orientation",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "special_equipment": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "special_equipment",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "specialised_ceiling": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "specialised_ceiling",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "sporting_goods_storage": {
+   "status": "NARROWER",
+   "core": "storage_unit",
+   "canonical_label": "sporting_goods_storage",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "sprinkler_head": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "sprinkler_head",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "staging_area": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "staging_area",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "stair_climber": {
+   "status": "RELATED",
+   "core": "stair",
+   "canonical_label": "stair_climber",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "stair_nosing": {
+   "status": "RELATED",
+   "core": "stair",
+   "canonical_label": "stair_nosing",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "stair_riser": {
+   "status": "RELATED",
+   "core": "stair",
+   "canonical_label": "stair_riser",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "stair_stringer": {
+   "status": "NARROWER",
+   "core": "stair",
+   "canonical_label": "stair_stringer",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "stair_tread": {
+   "status": "RELATED",
+   "core": "stair",
+   "canonical_label": "stair_tread",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "stair_walkline": {
+   "status": "RELATED",
+   "core": "stair",
+   "canonical_label": "stair_walkline",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "stationary_bike": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "stationary_bike",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "stoop": {
+   "status": "NARROWER",
+   "core": "stair",
+   "canonical_label": "stoop",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "storm_shelter": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "storm_shelter",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "stormwater_retention": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "stormwater_retention",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "street_centerline": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "street_centerline",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "street_or_alley": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "street_or_alley",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "street_right_of_way": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "street_right_of_way",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "stretching_zone": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "stretching_zone",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "structural_sheet": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "structural_sheet",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "stud": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "stud",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "subfloor": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "subfloor",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "sump_pit_and_pump": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "sump_pit_and_pump",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "sunroom": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "sunroom",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "supply_air_register": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "supply_air_register",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "support_spaces": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "support_spaces",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "surface_drainage": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "surface_drainage",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "switch": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "switch",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "switch_control": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "switch_control",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "system_hole": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "system_hole",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "table_service_items": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "table_service_items",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "tableware": {
+   "status": "RELATED",
+   "core": "kitchen_cabinet",
+   "canonical_label": "tableware",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "target_event": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "target_event",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "task_light": {
+   "status": "RELATED",
+   "core": "table_lamp",
+   "canonical_label": "task_light",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "task_lighting": {
+   "status": "RELATED",
+   "core": "ceiling_light",
+   "canonical_label": "task_lighting",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "task_luminaire": {
+   "status": "RELATED",
+   "core": "ceiling_light",
+   "canonical_label": "task_luminaire",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "television": {
+   "status": "RELATED",
+   "core": "tv_unit",
+   "canonical_label": "television",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "temperature_control": {
+   "status": "RELATED",
+   "core": "radiator",
+   "canonical_label": "temperature_control",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "territory_level": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "territory_level",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "tilt_out_drawer": {
+   "status": "NARROWER",
+   "core": "cabinet",
+   "canonical_label": "tilt_out_drawer",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "toe_clearance": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "toe_clearance",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "toe_kick": {
+   "status": "RELATED",
+   "core": "kitchen_cabinet",
+   "canonical_label": "toe_kick",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "toe_space_heater": {
+   "status": "NARROWER",
+   "core": "radiator",
+   "canonical_label": "toe_space_heater",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "toilet_paper_roll": {
+   "status": "RELATED",
+   "core": "toilet",
+   "canonical_label": "toilet_paper_roll",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "toilet_seat_riser": {
+   "status": "RELATED",
+   "core": "toilet",
+   "canonical_label": "toilet_seat_riser",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "towel_bar": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "towel_bar",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "towel_warmer": {
+   "status": "NARROWER",
+   "core": "radiator",
+   "canonical_label": "towel_warmer",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "track_lighting": {
+   "status": "NARROWER",
+   "core": "ceiling_light",
+   "canonical_label": "track_lighting",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "track_luminaire": {
+   "status": "NARROWER",
+   "core": "ceiling_light",
+   "canonical_label": "track_luminaire",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "transom": {
+   "status": "NARROWER",
+   "core": "window",
+   "canonical_label": "transom",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "trash_compactor": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "trash_compactor",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "treadmill": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "treadmill",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "trim": {
+   "status": "RELATED",
+   "core": "wall",
+   "canonical_label": "trim",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "tub_deck": {
+   "status": "RELATED",
+   "core": "bathtub",
+   "canonical_label": "tub_deck",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "tub_shower_combination": {
+   "status": "RELATED",
+   "core": "bathtub",
+   "canonical_label": "tub_shower_combination",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "turning_circle": {
+   "status": "RELATED",
+   "core": "circulation_path",
+   "canonical_label": "turning_circle",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "turning_space": {
+   "status": "NARROWER",
+   "core": "circulation_path",
+   "canonical_label": "turning_space",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "under_lavatory_clear_depth": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "under_lavatory_clear_depth",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "under_sink_clear_area": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "under_sink_clear_area",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "undercabinet_light": {
+   "status": "RELATED",
+   "core": "ceiling_light",
+   "canonical_label": "undercabinet_light",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "undercabinet_luminaire": {
+   "status": "NARROWER",
+   "core": "ceiling_light",
+   "canonical_label": "undercabinet_luminaire",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "unit_conversion_annotation": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "unit_conversion_annotation",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "unlabeled_plan_dimension": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "unlabeled_plan_dimension",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "unprotected_surface": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "unprotected_surface",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "upright_freezer": {
+   "status": "NARROWER",
+   "core": "refrigerator",
+   "canonical_label": "upright_freezer",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "urinal": {
+   "status": "RELATED",
+   "core": "toilet",
+   "canonical_label": "urinal",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "utility_easement": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "utility_easement",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "utility_room": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "utility_room",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "utility_sink": {
+   "status": "NARROWER",
+   "core": "sink",
+   "canonical_label": "utility_sink",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "utility_space": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "utility_space",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "vacancy_sensor": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "vacancy_sensor",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "variance": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "variance",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "vegetable_garden": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "vegetable_garden",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "vehicle": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "vehicle",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "vent_flue_housing": {
+   "status": "RELATED",
+   "core": "fireplace",
+   "canonical_label": "vent_flue_housing",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "vent_stack": {
+   "status": "RELATED",
+   "core": "fireplace",
+   "canonical_label": "vent_stack",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ventilation": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "ventilation",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ventilation_duct": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "ventilation_duct",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "ventilation_system": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "ventilation_system",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "view": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "view",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "visual_direction": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "visual_direction",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "wainscot": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "wainscot",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "walk_in_pantry": {
+   "status": "NARROWER",
+   "core": "closet",
+   "canonical_label": "walk_in_pantry",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "walk_in_refrigerator": {
+   "status": "NARROWER",
+   "core": "refrigerator",
+   "canonical_label": "walk_in_refrigerator",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "wall_control": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "wall_control",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "wall_finish": {
+   "status": "RELATED",
+   "core": "wall",
+   "canonical_label": "wall_finish",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "wall_mounted_accessory": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "wall_mounted_accessory",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "wall_sheathing": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "wall_sheathing",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "wall_washer": {
+   "status": "NARROWER",
+   "core": "wall_light",
+   "canonical_label": "wall_washer",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "warm_weather_clothing": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "warm_weather_clothing",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "warming_drawer": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "warming_drawer",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "waste_bin": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "waste_bin",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "waste_pipe": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "waste_pipe",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "water_filter": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "water_filter",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "water_heater": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "water_heater",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "water_supply_pipe": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "water_supply_pipe",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "water_treatment_equipment": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "water_treatment_equipment",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "waterproof_shower_light": {
+   "status": "NARROWER",
+   "core": "ceiling_light",
+   "canonical_label": "waterproof_shower_light",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "waterproof_tray": {
+   "status": "RELATED",
+   "core": "shower",
+   "canonical_label": "waterproof_tray",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "weights_zone": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "weights_zone",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "wet_item": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "wet_item",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "wet_item_storage": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "wet_item_storage",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "wheel_track": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "wheel_track",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "wheelchair": {
+   "status": "RELATED",
+   "core": "person",
+   "canonical_label": "wheelchair",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "wheelchair_turning_space": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "wheelchair_turning_space",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "whirlpool_tub": {
+   "status": "NARROWER",
+   "core": "bathtub",
+   "canonical_label": "whirlpool_tub",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "window_casing": {
+   "status": "RELATED",
+   "core": "window",
+   "canonical_label": "window_casing",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "window_frame": {
+   "status": "RELATED",
+   "core": "window",
+   "canonical_label": "window_frame",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "window_sill_trim": {
+   "status": "RELATED",
+   "core": "window",
+   "canonical_label": "window_sill_trim",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "wine_cooler": {
+   "status": "NARROWER",
+   "core": "refrigerator",
+   "canonical_label": "wine_cooler",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "wire_basket": {
+   "status": "NARROWER",
+   "core": "storage_unit",
+   "canonical_label": "wire_basket",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "wireless_charging_station": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "wireless_charging_station",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "wood_ceiling": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "wood_ceiling",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "wood_fired_oven": {
+   "status": "NARROWER",
+   "core": "oven",
+   "canonical_label": "wood_fired_oven",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "wood_floor_platform": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "wood_floor_platform",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "wood_stove": {
+   "status": "NARROWER",
+   "core": "stove",
+   "canonical_label": "wood_stove",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "work_center": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "work_center",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "work_triangle": {
+   "status": "RELATED",
+   "core": "activity_zone",
+   "canonical_label": "work_triangle",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "work_triangle_leg": {
+   "status": "RELATED",
+   "core": "activity_zone",
+   "canonical_label": "work_triangle_leg",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "work_zone": {
+   "status": "NARROWER",
+   "core": "activity_zone",
+   "canonical_label": "work_zone",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "working_drawing": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "working_drawing",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "youth_furniture": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "youth_furniture",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "zoning_ordinance": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "zoning_regulation",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  },
+  "zoning_regulation": {
+   "status": "NEW_CONCEPT",
+   "core": null,
+   "canonical_label": "zoning_regulation",
+   "basis": "LLM",
+   "model": "gpt-5.6-luna"
+  }
+ }
+}

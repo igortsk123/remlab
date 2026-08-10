@@ -54,6 +54,12 @@ def main(argv: list[str] | None = None) -> int:
             from .phase3 import run_phase3
             s = run_phase3(staging)
             print("phase3:", _json.dumps(s, ensure_ascii=False, indent=1))
+        elif ph == "4":
+            import json as _json
+
+            from .phase4 import run_phase4
+            s = run_phase4(staging)
+            print("phase4:", _json.dumps(s, ensure_ascii=False, indent=1))
         else:
             print(f"фаза {ph!r} ещё не реализована", file=sys.stderr)
             return 2

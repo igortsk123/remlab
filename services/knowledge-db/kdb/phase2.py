@@ -204,6 +204,9 @@ def _applicability(contexts: list[dict], meas_condition: str | None) -> dict:
 def _parent_meta(r: dict) -> dict:
     return {
         "knowledge_type": r.get("knowledge_type"),
+        "dimension_type": r.get("dimension_type"),
+        "relation_type": r.get("relation_type"),
+        "source_relation_label": r.get("source_relation_label"),
         "record_source_claim_strength": r.get("source_claim_strength"),
         "remlab_candidate_use": r.get("remlab_candidate_use"),
         "source_authority": r.get("source_authority"),
@@ -333,6 +336,7 @@ def build_atomics(merged: dict) -> tuple[list[dict], list[dict], dict]:
                         "source_relation_label": r.get("source_relation_label"),
                         "dimension_type": r.get("dimension_type"),
                         "condition": r.get("condition") or None,
+                        "entities": r.get("entities") or [],
                     },
                     "strength": {"effective": r.get("source_claim_strength"),
                                  "origin": "RECORD",
