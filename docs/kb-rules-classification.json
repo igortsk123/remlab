@@ -1,0 +1,753 @@
+{
+ "rows": [
+  {
+   "param": "sofa_coffee_table_hard",
+   "current": [
+    32,
+    50
+   ],
+   "verdict": "REVIEW_OWNER",
+   "why": "сдвинуто вверх от KB [30.48,45.72]",
+   "evidence": [
+    {
+     "canonical": "CANON_7886a5d76effce",
+     "lo": 30.48,
+     "hi": 45.72,
+     "strength": "RECOMMENDED_MINIMUM",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 69,
+     "page_printed": 55,
+     "text": "sofa | clearance | 30.48..45.72cm [RECOMMENDED_MINIMUM] | rooms: universal_residential | cond: 12 in is a minimum availa"
+    }
+   ],
+   "query": "cocktail table sofa distance edge"
+  },
+  {
+   "param": "sofa_coffee_table_preferred",
+   "current": [
+    40,
+    45
+   ],
+   "verdict": "SUPPORTED",
+   "why": "текущее [40,45] внутри KB [30.48,45.72]",
+   "evidence": [
+    {
+     "canonical": "CANON_7886a5d76effce",
+     "lo": 30.48,
+     "hi": 45.72,
+     "strength": "RECOMMENDED_MINIMUM",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 69,
+     "page_printed": 55,
+     "text": "sofa | clearance | 30.48..45.72cm [RECOMMENDED_MINIMUM] | rooms: universal_residential | cond: 12 in is a minimum availa"
+    }
+   ],
+   "query": "cocktail table sofa distance edge"
+  },
+  {
+   "param": "sofa_tv_cm",
+   "current": [
+    180,
+    300
+   ],
+   "verdict": "SUPPORTED",
+   "why": "внутри книжной вилки [152.4,335.28]",
+   "evidence": [
+    {
+     "canonical": "CANON_be240589d258cd",
+     "lo": 213.36,
+     "hi": 335.28,
+     "strength": "TYPICAL_RANGE",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 69,
+     "page_printed": 55,
+     "text": "sofa/seat | distance | 213.36..335.28cm [TYPICAL_RANGE] | rooms: universal_residential | cond: screen size printed as 52"
+    },
+    {
+     "canonical": "CANON_8016c90b3e4325",
+     "lo": 152.4,
+     "hi": 243.84,
+     "strength": "TYPICAL_RANGE",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 69,
+     "page_printed": 55,
+     "text": "sofa/seat | distance | 152.40..243.84cm [TYPICAL_RANGE] | rooms: universal_residential | cond: screen size 40 in (1016 m"
+    },
+    {
+     "canonical": "CANON_a409395d032452",
+     "lo": 182.88,
+     "hi": 304.8,
+     "strength": "TYPICAL_RANGE",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 69,
+     "page_printed": 55,
+     "text": "sofa/seat | distance | 182.88..304.80cm [TYPICAL_RANGE] | rooms: universal_residential | cond: screen size 46 in (1168 m"
+    }
+   ],
+   "query": "television viewing distance screen"
+  },
+  {
+   "param": "passage_main",
+   "current": [
+    90,
+    107
+   ],
+   "verdict": "REVIEW_OWNER",
+   "why": "минимум движка 90 чуть ниже книжного 91.44",
+   "evidence": [
+    {
+     "canonical": "CANON_8d56a8616a7b60",
+     "lo": 91.44,
+     "hi": 91.44,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "GTE",
+     "page_master": 53,
+     "page_printed": 39,
+     "text": "residential hallway or stair | width | GTE 91.44cm [REQUIRED_MINIMUM] | rooms: hallway,universal_residential | The curre"
+    },
+    {
+     "canonical": "CANON_e7ed046cc697eb",
+     "lo": 111.76,
+     "hi": 121.92,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 52,
+     "page_printed": 38,
+     "text": "public building stair or corridor | width | 111.76..121.92cm [REQUIRED_MINIMUM] | rooms: hallway,universal_residential |"
+    },
+    {
+     "canonical": "CANON_9e38f845498d52",
+     "lo": 91.44,
+     "hi": 91.44,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "GTE",
+     "page_master": 49,
+     "page_printed": 35,
+     "text": "hallway | width | GTE 91.44cm [REQUIRED_MINIMUM]; GTE 91.44cm [REQUIRED_MINIMUM]; GTE 91.44cm [REQUIRED_MINIMUM] | rooms"
+    },
+    {
+     "canonical": "CANON_9e38f845498d52",
+     "lo": 91.44,
+     "hi": 91.44,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "GTE",
+     "page_master": 49,
+     "page_printed": 35,
+     "text": "hallway | width | GTE 91.44cm [REQUIRED_MINIMUM]; GTE 91.44cm [REQUIRED_MINIMUM]; GTE 91.44cm [REQUIRED_MINIMUM] | rooms"
+    },
+    {
+     "canonical": "CANON_9e38f845498d52",
+     "lo": 91.44,
+     "hi": 91.44,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "GTE",
+     "page_master": 49,
+     "page_printed": 35,
+     "text": "hallway | width | GTE 91.44cm [REQUIRED_MINIMUM]; GTE 91.44cm [REQUIRED_MINIMUM]; GTE 91.44cm [REQUIRED_MINIMUM] | rooms"
+    }
+   ],
+   "query": "hallway width minimum residential code"
+  },
+  {
+   "param": "passage_secondary_min",
+   "current": 60,
+   "verdict": "REVIEW_OWNER",
+   "why": "книжные 81–91 см — основные пути/доступность; прямого аналога «вторичного прохода между мебелью» книга не даёт",
+   "evidence": [
+    {
+     "canonical": "CANON_161723c3a954d1",
+     "lo": 91.44,
+     "hi": 91.44,
+     "strength": "PREFERRED",
+     "operator": "GTE",
+     "page_master": 145,
+     "page_printed": 131,
+     "text": "circulation space | clearance | GTE 91.44cm [PREFERRED] | rooms: bedroom | cond: all circulation space, wheelchair user "
+    },
+    {
+     "canonical": "CANON_c49efa2ae776a3",
+     "lo": 91.44,
+     "hi": 91.44,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "GTE",
+     "page_master": 145,
+     "page_printed": 131,
+     "text": "circulation space | clearance | GTE 91.44cm [REQUIRED_MINIMUM] | rooms: bedroom | cond: major circulation areas, wheelch"
+    },
+    {
+     "canonical": "CANON_ec8f99f6a292df",
+     "lo": 81.28,
+     "hi": 81.28,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "GTE",
+     "page_master": 145,
+     "page_printed": 131,
+     "text": "circulation space | clearance | GTE 81.28cm [REQUIRED_MINIMUM] | rooms: bedroom | cond: absolute clear minimum, wheelcha"
+    },
+    {
+     "canonical": "CANON_b8dd1567f7e06b",
+     "lo": 91.44,
+     "hi": 91.44,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "GTE",
+     "page_master": 52,
+     "page_printed": 38,
+     "text": "hallway | clearance | GTE 91.44cm [REQUIRED_MINIMUM] | rooms: hallway | Accessibility note: adequate circulation is gene"
+    },
+    {
+     "canonical": "CANON_2013e6cdd789f3",
+     "lo": 81.28,
+     "hi": 81.28,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "GTE",
+     "page_master": 52,
+     "page_printed": 38,
+     "text": "doorway | clearance | GTE 81.28cm [REQUIRED_MINIMUM] | rooms: universal_residential | Accessibility note: adequate circu"
+    }
+   ],
+   "query": "clear space circulation furniture 32"
+  },
+  {
+   "param": "dining_chair_pullout",
+   "current": [
+    55,
+    71
+   ],
+   "verdict": "SUPPORTED",
+   "why": "внутри книжной вилки [45.72,106.68]",
+   "evidence": [
+    {
+     "canonical": "CANON_ff6d96c78e856c",
+     "lo": 91.44,
+     "hi": 106.68,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 71,
+     "page_printed": 57,
+     "text": "table edge | clearance | 91.44..106.68cm [REQUIRED_MINIMUM] | rooms: dining_room,living_room | cond: allows access to th"
+    },
+    {
+     "canonical": "CANON_4d29a7db930947",
+     "lo": 91.44,
+     "hi": 106.68,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 71,
+     "page_printed": 57,
+     "text": "chair in use | clearance | 91.44..106.68cm [REQUIRED_MINIMUM] | rooms: dining_room,living_room | cond: minimum 36 in (91"
+    },
+    {
+     "canonical": "CANON_7a90be5bb272be",
+     "lo": 45.72,
+     "hi": 60.96,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 71,
+     "page_printed": 57,
+     "text": "chair pulled away from the table | clearance | 45.72..60.96cm [REQUIRED_MINIMUM] | rooms: dining_room,living_room | cond"
+    },
+    {
+     "canonical": "CANON_27e6c9f7b3d8d2",
+     "lo": 76.2,
+     "hi": 91.44,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 71,
+     "page_printed": 57,
+     "text": "round table edge | clearance | 76.20..91.44cm [REQUIRED_MINIMUM] | rooms: dining_room,living_room | cond: round tables o"
+    },
+    {
+     "canonical": "CANON_b979009e7c05fa",
+     "lo": 45.72,
+     "hi": 45.72,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "GTE",
+     "page_master": 71,
+     "page_printed": 57,
+     "text": "chair in use | clearance | GTE 45.72cm [REQUIRED_MINIMUM] | rooms: dining_room,living_room | cond: seating space only | "
+    }
+   ],
+   "query": "dining chair pullout clearance table"
+  },
+  {
+   "param": "dining_table_to_wall_no_pass",
+   "current": 91,
+   "verdict": "SUPPORTED",
+   "why": "минимум движка 91 ≥ книжного 45.72",
+   "evidence": [
+    {
+     "canonical": "CANON_14402f15c7393c",
+     "lo": 121.92,
+     "hi": 121.92,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "GTE",
+     "page_master": 71,
+     "page_printed": 57,
+     "text": "round table edge | clearance | GTE 121.92cm [REQUIRED_MINIMUM] | rooms: dining_room,living_room | cond: where through ci"
+    },
+    {
+     "canonical": "CANON_ff6d96c78e856c",
+     "lo": 91.44,
+     "hi": 106.68,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 71,
+     "page_printed": 57,
+     "text": "table edge | clearance | 91.44..106.68cm [REQUIRED_MINIMUM] | rooms: dining_room,living_room | cond: allows access to th"
+    },
+    {
+     "canonical": "CANON_27e6c9f7b3d8d2",
+     "lo": 76.2,
+     "hi": 91.44,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 71,
+     "page_printed": 57,
+     "text": "round table edge | clearance | 76.20..91.44cm [REQUIRED_MINIMUM] | rooms: dining_room,living_room | cond: round tables o"
+    },
+    {
+     "canonical": "CANON_7a90be5bb272be",
+     "lo": 45.72,
+     "hi": 60.96,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 71,
+     "page_printed": 57,
+     "text": "chair pulled away from the table | clearance | 45.72..60.96cm [REQUIRED_MINIMUM] | rooms: dining_room,living_room | cond"
+    },
+    {
+     "canonical": "CANON_2dc92ef1c4e250",
+     "lo": 106.68,
+     "hi": 121.92,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 71,
+     "page_printed": 57,
+     "text": "table edge | clearance | 106.68..121.92cm [REQUIRED_MINIMUM] | rooms: dining_room,living_room | cond: where through circ"
+    }
+   ],
+   "query": "dining table wall clearance no passage"
+  },
+  {
+   "param": "dining_table_to_wall_with_pass",
+   "current": 112,
+   "verdict": "SUPPORTED",
+   "why": "минимум движка 112 ≥ книжного 45.72",
+   "evidence": [
+    {
+     "canonical": "CANON_2dc92ef1c4e250",
+     "lo": 106.68,
+     "hi": 121.92,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 71,
+     "page_printed": 57,
+     "text": "table edge | clearance | 106.68..121.92cm [REQUIRED_MINIMUM] | rooms: dining_room,living_room | cond: where through circ"
+    },
+    {
+     "canonical": "CANON_14402f15c7393c",
+     "lo": 121.92,
+     "hi": 121.92,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "GTE",
+     "page_master": 71,
+     "page_printed": 57,
+     "text": "round table edge | clearance | GTE 121.92cm [REQUIRED_MINIMUM] | rooms: dining_room,living_room | cond: where through ci"
+    },
+    {
+     "canonical": "CANON_ff6d96c78e856c",
+     "lo": 91.44,
+     "hi": 106.68,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 71,
+     "page_printed": 57,
+     "text": "table edge | clearance | 91.44..106.68cm [REQUIRED_MINIMUM] | rooms: dining_room,living_room | cond: allows access to th"
+    },
+    {
+     "canonical": "CANON_27e6c9f7b3d8d2",
+     "lo": 76.2,
+     "hi": 91.44,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 71,
+     "page_printed": 57,
+     "text": "round table edge | clearance | 76.20..91.44cm [REQUIRED_MINIMUM] | rooms: dining_room,living_room | cond: round tables o"
+    },
+    {
+     "canonical": "CANON_7a90be5bb272be",
+     "lo": 45.72,
+     "hi": 60.96,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 71,
+     "page_printed": 57,
+     "text": "chair pulled away from the table | clearance | 45.72..60.96cm [REQUIRED_MINIMUM] | rooms: dining_room,living_room | cond"
+    }
+   ],
+   "query": "dining table wall clearance passage behind seated"
+  },
+  {
+   "param": "facing_seats",
+   "current": [
+    110,
+    240
+   ],
+   "verdict": "SUPPORTED",
+   "why": "внутри книжной вилки [0,304.8]",
+   "evidence": [
+    {
+     "canonical": "CANON_5f237873a3b6ce",
+     "lo": 15.24,
+     "hi": 45.72,
+     "strength": "TYPICAL_RANGE",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 19,
+     "page_printed": 5,
+     "text": "distance | 15.24..45.72cm [TYPICAL_RANGE] | rooms: universal_residential | cond: far phase of intimate distance | Hall i"
+    },
+    {
+     "canonical": "CANON_900a47bd014b31",
+     "lo": 0.0,
+     "hi": 15.24,
+     "strength": "TYPICAL_RANGE",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 19,
+     "page_printed": 5,
+     "text": "distance | 0.00..15.24cm [TYPICAL_RANGE] | rooms: universal_residential | cond: close phase of intimate distance | Hall "
+    },
+    {
+     "canonical": "CANON_c6d35070437466",
+     "lo": 121.92,
+     "hi": 304.8,
+     "strength": "PREFERRED",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 66,
+     "page_printed": 52,
+     "text": "furniture piece | distance | 121.92..304.80cm [PREFERRED] | rooms: universal_residential | Spacing between furniture pie"
+    }
+   ],
+   "query": "conversation distance between facing seats"
+  },
+  {
+   "param": "conversation_circle_max_cm",
+   "current": 305,
+   "verdict": "SUPPORTED",
+   "why": "потолок движка 305 ≤ книжного 396.24",
+   "evidence": [
+    {
+     "canonical": "CANON_8b3e4a5e78a9fa",
+     "lo": 365.76,
+     "hi": 396.24,
+     "strength": "PREFERRED",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 66,
+     "page_printed": 52,
+     "text": "conversation cluster | diameter | 365.76..396.24cm [PREFERRED] | rooms: universal_residential | Overall diameter of a co"
+    }
+   ],
+   "query": "face-to-face interaction circle diameter"
+  },
+  {
+   "param": "fireplace_clear",
+   "current": [
+    100,
+    150
+   ],
+   "verdict": "REVIEW_OWNER",
+   "why": "найденные 41–51 см — глубина пода/выступа, не зона трафика перед камином; прямого аналога параметра нет",
+   "evidence": [
+    {
+     "canonical": "CANON_9c756819c0e9c3",
+     "lo": 40.64,
+     "hi": 50.8,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 67,
+     "page_printed": 53,
+     "text": "noncombustible hearth | clearance | 40.64..50.80cm [REQUIRED_MINIMUM] | rooms: universal_residential | cond: wood-burnin"
+    }
+   ],
+   "query": "fireplace clearance traffic front"
+  },
+  {
+   "param": "legroom_front_of_seat",
+   "current": 46,
+   "verdict": "REVIEW_OWNER",
+   "why": "метрики книги и движка различаются по смыслу",
+   "evidence": [
+    {
+     "canonical": "CANON_06008038ab461e",
+     "lo": 101.6,
+     "hi": 116.84,
+     "strength": "RECOMMENDED_MINIMUM",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 69,
+     "page_printed": 55,
+     "text": "single seat zone | depth | 101.60..116.84cm [RECOMMENDED_MINIMUM] | rooms: universal_residential | Space required for a "
+    },
+    {
+     "canonical": "CANON_762f425324afb7",
+     "lo": 86.36,
+     "hi": 86.36,
+     "strength": "TYPICAL_RANGE",
+     "operator": "APPROX",
+     "page_master": 69,
+     "page_printed": 55,
+     "text": "chair | depth | APPROX 86.36cm [TYPICAL_RANGE] | rooms: universal_residential | Space required for a single upholstered "
+    },
+    {
+     "canonical": "CANON_aad6fd6c35acfe",
+     "lo": 101.6,
+     "hi": 116.84,
+     "strength": "RECOMMENDED_MINIMUM",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 69,
+     "page_printed": 55,
+     "text": "three-seat sofa zone | depth | 101.60..116.84cm [RECOMMENDED_MINIMUM]; 101.60..116.84cm [RECOMMENDED_MINIMUM] | rooms: u"
+    },
+    {
+     "canonical": "CANON_aad6fd6c35acfe",
+     "lo": 101.6,
+     "hi": 116.84,
+     "strength": "RECOMMENDED_MINIMUM",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 69,
+     "page_printed": 55,
+     "text": "three-seat sofa zone | depth | 101.60..116.84cm [RECOMMENDED_MINIMUM]; 101.60..116.84cm [RECOMMENDED_MINIMUM] | rooms: u"
+    },
+    {
+     "canonical": "CANON_93a001946e6c82",
+     "lo": 71.12,
+     "hi": 86.36,
+     "strength": "RECOMMENDED_MINIMUM",
+     "operator": "BETWEEN_INCLUSIVE",
+     "page_master": 69,
+     "page_printed": 55,
+     "text": "seated person | width | 71.12..86.36cm [RECOMMENDED_MINIMUM] | rooms: universal_residential | Space required for a singl"
+    }
+   ],
+   "query": "single seat zone depth upholstered"
+  },
+  {
+   "param": "wardrobe_hinged_front_min",
+   "current": 80,
+   "verdict": "SUPPORTED",
+   "why": "минимум движка 80 ≥ книжного 38.1",
+   "evidence": [
+    {
+     "canonical": "CANON_dad3c8f1baf2cb",
+     "lo": 38.1,
+     "hi": 38.1,
+     "strength": "REQUIRED_MINIMUM",
+     "operator": "GTE",
+     "page_master": 197,
+     "page_printed": 183,
+     "text": "water closet or bidet | clearance | GTE 38.1cm [REQUIRED_MINIMUM] | rooms: bathroom | IRC P2705 fixture centerline and f"
+    }
+   ],
+   "query": "closet door clearance front dressing"
+  },
+  {
+   "param": "door_to_furniture",
+   "current": [
+    150,
+    200
+   ],
+   "verdict": "SEMANTIC_ONLY",
+   "why": "книга даёт качественное правило (без числа) — движок реализует его геометрически",
+   "evidence": [],
+   "query": "door swing furniture route blank wall"
+  },
+  {
+   "param": "rug_longer_than_sofa",
+   "current": [
+    30,
+    50
+   ],
+   "verdict": "NO_KB_DATA",
+   "why": "книга ковровых правил не даёт — прод-канон из других источников",
+   "evidence": [],
+   "query": "rug size under sofa front legs"
+  },
+  {
+   "param": "rug_beyond_sofa_side",
+   "current": [
+    15,
+    20
+   ],
+   "verdict": "NO_KB_DATA",
+   "why": "книга ковровых правил не даёт — прод-канон из других источников",
+   "evidence": [],
+   "query": "rug size beside sofa area"
+  }
+ ],
+ "missing": [
+  {
+   "name": "conversation_cluster_diameter_preferred",
+   "note": "предпочтительный габарит разговорной зоны; у движка есть только верх face-to-face круга (305)",
+   "evidence": [
+    {
+     "text": "conversation cluster | diameter | 365.76..396.24cm [PREFERRED] | rooms: universal_residential | Overall diameter of a conversation",
+     "page_printed": 52,
+     "values": [
+      {
+       "atomic_claim_id": "ATOM_efcd72e19e6a572aa9d93830bea7e8679871cebfa0bfa2659119b8ce58374b2f",
+       "value": null,
+       "range": [
+        "365.76",
+        "396.24"
+       ],
+       "unit": "cm",
+       "operator": "BETWEEN_INCLUSIVE",
+       "strength": "PREFERRED"
+      }
+     ]
+    },
+    {
+     "text": "face-to-face interaction circle | diameter | 182.88..304.80cm [TYPICAL_RANGE] | rooms: universal_residential | Face-to-face intera",
+     "page_printed": 52,
+     "values": [
+      {
+       "atomic_claim_id": "ATOM_a09acf677da8166a66b06169141ef9c9dd64945a7c1259a4e5c8453912ff7761",
+       "value": null,
+       "range": [
+        "182.88",
+        "304.80"
+       ],
+       "unit": "cm",
+       "operator": "BETWEEN_INCLUSIVE",
+       "strength": "TYPICAL_RANGE"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "single_seat_envelope_depth",
+   "note": "конверт одного посадочного места (сиденье+ноги)",
+   "evidence": [
+    {
+     "text": "single seat zone | depth | 101.60..116.84cm [RECOMMENDED_MINIMUM] | rooms: universal_residential | Space required for a single uph",
+     "page_printed": 55,
+     "values": [
+      {
+       "atomic_claim_id": "ATOM_002392e42ca93be31537d9726d00511a4157364d141fb45fa16062bd986f1eb2",
+       "value": null,
+       "range": [
+        "101.60",
+        "116.84"
+       ],
+       "unit": "cm",
+       "operator": "BETWEEN_INCLUSIVE",
+       "strength": "RECOMMENDED_MINIMUM"
+      }
+     ]
+    },
+    {
+     "text": "single garage | depth | EQUAL 731.52cm [EXAMPLE] | rooms: other | cond: single garage, larger depth option | Single garage: 12 ft ",
+     "page_printed": 196,
+     "values": [
+      {
+       "atomic_claim_id": "ATOM_874bef8e457672631acebe6025167a5ba96586c31b0bfa53f41cee1a8ab75473",
+       "value": "731.52",
+       "range": [
+        null,
+        null
+       ],
+       "unit": "cm",
+       "operator": "EQUAL",
+       "strength": "EXAMPLE"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "seat_width_middle_position",
+   "note": "ширина места в середине дивана — для честного подсчёта посадок",
+   "evidence": [
+    {
+     "text": "seated person, middle place | width | 66.04..71.12cm [RECOMMENDED_MINIMUM] | rooms: universal_residential | cond: middle seating p",
+     "page_printed": 55,
+     "values": [
+      {
+       "atomic_claim_id": "ATOM_65382e9f39c6a1ed498c47838923d61a5dfa7cb76a4acf58f6d6d15df01c840e",
+       "value": null,
+       "range": [
+        "66.04",
+        "71.12"
+       ],
+       "unit": "cm",
+       "operator": "BETWEEN_INCLUSIVE",
+       "strength": "RECOMMENDED_MINIMUM"
+      }
+     ]
+    },
+    {
+     "text": "seated person, outer place | width | 71.12..86.36cm [RECOMMENDED_MINIMUM] | rooms: universal_residential | cond: each of the two o",
+     "page_printed": 55,
+     "values": [
+      {
+       "atomic_claim_id": "ATOM_659ec8f6628b1bd3980c96e47a615c8d34d37d567dda733f243d3d55a31e7431",
+       "value": null,
+       "range": [
+        "71.12",
+        "86.36"
+       ],
+       "unit": "cm",
+       "operator": "BETWEEN_INCLUSIVE",
+       "strength": "RECOMMENDED_MINIMUM"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "tv_cabinet_depth_typical",
+   "note": "типовая глубина тумбы под ТВ — для подбора в композиторе",
+   "evidence": [
+    {
+     "text": "cabinet below flat-screen television | depth | APPROX 40.64cm [TYPICAL_RANGE] | rooms: universal_residential | Depth of a cabinet ",
+     "page_printed": 54,
+     "values": [
+      {
+       "atomic_claim_id": "ATOM_82a3f751f8ddf171691c9e69c5acd68d08333246cfcc30a01d93ae5e0d9cfdc6",
+       "value": "40.64",
+       "range": [
+        null,
+        null
+       ],
+       "unit": "cm",
+       "operator": "APPROX",
+       "strength": "TYPICAL_RANGE"
+      }
+     ]
+    },
+    {
+     "text": "wall cabinet | depth | EQUAL 30.48cm [TYPICAL_RANGE] | rooms: kitchen | Standard wall cabinet depth, and the wall cabinet heights ",
+     "page_printed": 88,
+     "values": [
+      {
+       "atomic_claim_id": "ATOM_0d83d74fa69d02e2f726302194e12e1a0b125ed077fce790beae973f8888988d",
+       "value": "30.48",
+       "range": [
+        null,
+        null
+       ],
+       "unit": "cm",
+       "operator": "EQUAL",
+       "strength": "TYPICAL_RANGE"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "counts": {
+  "REVIEW_OWNER": 5,
+  "SUPPORTED": 8,
+  "SEMANTIC_ONLY": 1,
+  "NO_KB_DATA": 2
+ }
+}
