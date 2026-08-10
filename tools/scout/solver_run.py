@@ -723,6 +723,21 @@ out['_room']={'w':RW,'d':RD,'openings':[
 from topo_sig import topo_key, topo_signature
 out['_topo'] = topo_signature(out)
 print('TOPO ' + topo_key(out['_topo']), flush=True)
+# W2.4 (kb-rules-merge): аннотация диагонали ТВ от фактической дистанции просмотра —
+# подсказка подбору ТВ в смету/сет (дистанция >3 м → ТВ от 55″), числа из tv._cfg
+_bearer = next((r for r in ('стенка', 'тв-тумба') if r in out), None)
+if _bearer and 'диван' in out:
+    import math as _m
+    from planner.tv import _cfg as _tvcfg
+    _s, _b = out['диван'], out[_bearer]
+    _dist = max(0.0, _m.hypot(_s['x'] - _b['x'], _s['z'] - _b['z'])
+                - (_s['d'] + _b['d']) / 2)
+    _c = _tvcfg()
+    out['_tv'] = {'bearer': _bearer, 'viewing_distance_cm': round(_dist),
+                  'diag_min_in': round(_dist / _c['diag_range'][1] / 2.54),
+                  'diag_preferred_in': round(_dist / _c['preferred'] / 2.54)}
+    if _dist > 300:
+        out['_tv']['note'] = 'дистанция просмотра >3 м — ТВ от 55″'
 _sfx=os.environ.get('LAYOUT_SUFFIX','')
 json.dump(out,open(os.path.join(HERE,f'{TAG}{n}-layout{_sfx}.json'),'w'),ensure_ascii=False,indent=1)
 
