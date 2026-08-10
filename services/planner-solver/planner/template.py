@@ -262,9 +262,12 @@ def build_dining(by_role: dict[str, Item], max_chairs: int,
         return None
     b = Block(tbl)
     w, d = tbl.w_cm, tbl.d_cm
+    chair_w = max(c.w_cm for c in chairs)
     # v2.3: круглый/квадратный стол (w==d) — по одному стулу с каждой стороны
-    # (через 90°); прямоугольный — пары по длинным сторонам
-    xs = [0.0] if (w < 110 or abs(w - d) < 2) else [-w / 4, w / 4]
+    # (через 90°). Прямоугольный — пары по длинным сторонам, но ТОЛЬКО если пара
+    # физически помещается с зазором ≥8 (set37: узкий стол бил стул о стул)
+    pair_ok = w >= 2 * chair_w + 24
+    xs = [0.0] if (abs(w - d) < 2 or not pair_ok) else [-w / 4, w / 4]
     spots: list[tuple[float, float, float]] = []
     for x in sorted(xs, key=abs):
         spots.append((x, d / 2, 180.0))            # сторона комнаты, стул лицом к столу
@@ -357,10 +360,18 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
         scored.append((score, ps))
     scored.sort(key=lambda t: -t[0])
     base = list(fixed or [])
+    first_hard = None
     for _, ps in scored[:TOP_FULL_VALIDATE]:
         lay = validate(room, base + ps)
-        if not any(v.severity is Severity.HARD for v in lay.violations):
+        hards = [v for v in lay.violations if v.severity is Severity.HARD]
+        if not hards:
             return ps
+        if first_hard is None:
+            first_hard = [(v.code, v.roles, v.value) for v in hards[:3]]
+    if os.environ.get('ZONES_DEBUG'):
+        import sys
+        print(f"ZDBG block[{b.anchor.role}+{len(b.rel)-1}] REJECT: "
+              f"fits={len(scored)} top_hard={first_hard}", file=sys.stderr, flush=True)
     return None
 
 

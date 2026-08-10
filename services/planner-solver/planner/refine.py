@@ -105,7 +105,11 @@ def _snap_bearer_axis(room: Room, layout: Layout) -> Layout:
     if abs(lat - act) < 8:
         return layout
     from .validate import validate
-    old_hard = sum(1 for v in layout.violations if v.severity.name == "HARD")
+    # T3-фикс (10.08, set37): «hard не больше ЧИСЛОМ» позволял ОБМЕН нарушений —
+    # снап тумбы вносил RADIATOR вместо ушедшего другого hard. Правило как в refine:
+    # никаких НОВЫХ видов hard (по коду+ролям); базу считаем честным пересчётом.
+    old_set = {(v.code, tuple(v.roles)) for v in
+               validate(room, layout.placements).violations if v.severity.name == "HARD"}
     # полный сдвиг может не влезть (стенка 360 в стене 490) — центрируем НАСКОЛЬКО влезает
     for frac in (1.0, 0.6, 0.35):
         sx = -(lat - act) * (-fy) * frac
@@ -113,7 +117,9 @@ def _snap_bearer_axis(room: Room, layout: Layout) -> Layout:
         moved = [p if p is not bearer else p.model_copy(update={"x": p.x + sx, "y": p.y + sy})
                  for p in layout.placements]
         trial = validate(room, moved)
-        if sum(1 for v in trial.violations if v.severity.name == "HARD") <= old_hard:
+        new_set = {(v.code, tuple(v.roles)) for v in trial.violations
+                   if v.severity.name == "HARD"}
+        if new_set <= old_set:
             trial.unplaced = layout.unplaced
             trial.skipped_optional = layout.skipped_optional
             return trial

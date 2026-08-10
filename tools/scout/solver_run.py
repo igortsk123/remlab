@@ -644,7 +644,7 @@ def attempt_beam():
     # ОДНА линейка (2026-08-07): вердикты планнера. Scout-чеки поверх мерили Г-диван другой
     # методикой и спорили с ядром (41 ложный провал «диван↔столик» на перегоне) — они остаются
     # только у DFS, который планнером не проверяется.
-    pl = [(v.code, False, v.value if v.value is not None else '')
+    pl = [(f"{v.code}[{','.join(v.roles)}]", False, v.value if v.value is not None else '')
           for v in lay.violations if v.severity.name == 'HARD']
     return placed, missing, (pl or [('planner: hard-чисто', True, '')])
 
@@ -716,7 +716,7 @@ if CORNER and 'диван' in out:
               'экспорт расходится с полигоном солвера', flush=True)
 # габариты И проёмы — рендеру и компилятору сцены: без проёмов генератор придумывает свои
 # двери/окна, и кадр перестаёт совпадать с планом (поймано 2026-08-04)
-out['_room']={'w':RW,'d':RD,'openings':[
+out['_room']={'w':RW,'d':RD,'m2':round(RW*RD/10_000,1),'openings':[
     {'kind':'door','wall':'south','offset_cm':DOOR_OFF,'width_cm':DOOR_W,'swing_cm':92},
     {'kind':'window','wall':'east','offset_cm':WIN_OFF,'width_cm':WIN_W,'sill_cm':80}]}
 # L4 (MASTER-layout-v5): топология-сигнатура — семантическая схема раскладки в артефакт и лог
