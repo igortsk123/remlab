@@ -1,0 +1,18 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "remlab-kdb/07_retrieval_records.row.schema.json",
+ "title": "07_retrieval_records (row)",
+ "type": "object",
+ "required": [
+  "retrieval_id",
+  "canonical_claim_id",
+  "retrieval_text",
+  "filters"
+ ],
+ "properties": {
+  "retrieval_id": {},
+  "canonical_claim_id": {},
+  "retrieval_text": {},
+  "filters": {}
+ }
+}

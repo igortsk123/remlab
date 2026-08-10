@@ -1,0 +1,16 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "remlab-kdb/07b_applicability_index.row.schema.json",
+ "title": "07b_applicability_index (row)",
+ "type": "object",
+ "required": [
+  "canonical_claim_id",
+  "applicability_ast_members",
+  "runtime_evaluability"
+ ],
+ "properties": {
+  "canonical_claim_id": {},
+  "applicability_ast_members": {},
+  "runtime_evaluability": {}
+ }
+}

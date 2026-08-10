@@ -270,6 +270,8 @@ def run_phase8(staging: Path) -> dict:
     if not EVAL_PATH.exists():  # frozen
         write_jsonl(EVAL_PATH, _queries())
     queries = read_jsonl(EVAL_PATH)
+    # копия замороженного набора в снапшот (обязательный артефакт спеки)
+    (staging / "09_eval_queries.jsonl").write_bytes(EVAL_PATH.read_bytes())
 
     atoms = read_jsonl(staging / "02_atomic_claims.jsonl")
     canon_rows = read_jsonl(staging / "06_canonical_knowledge.jsonl")

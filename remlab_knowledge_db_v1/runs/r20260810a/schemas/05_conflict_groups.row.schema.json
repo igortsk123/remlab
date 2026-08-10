@@ -1,0 +1,20 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "remlab-kdb/05_conflict_groups.row.schema.json",
+ "title": "05_conflict_groups (row)",
+ "type": "object",
+ "required": [
+  "conflict_group_id",
+  "claim_family_id",
+  "scope_relation",
+  "member_ids",
+  "resolution_status"
+ ],
+ "properties": {
+  "conflict_group_id": {},
+  "claim_family_id": {},
+  "scope_relation": {},
+  "member_ids": {},
+  "resolution_status": {}
+ }
+}

@@ -1,0 +1,152 @@
+{
+ "artifact": "08_retrieval_config",
+ "pipeline_version": "kdb-0.1.0",
+ "derived_schema_version": "1.0.0",
+ "planes": {
+  "A": {
+   "goal": "CONSTRAINT_ENUMERATION/COMPLETENESS_FIRST",
+   "implementation": "kdb.query.KBQuery.plane_a",
+   "semantics": "полный structured-скан 07b; MATCH/MISMATCH/UNKNOWN; бакеты не удаляются ранжированием",
+   "buckets": [
+    "definite_matches",
+    "evaluable_definite_matches",
+    "contextual_matches",
+    "cross_scope_source_references",
+    "applicable_but_not_evaluable",
+    "possible_unknowns"
+   ]
+  },
+  "B": {
+   "goal": "DISCOVERY_QA/RELEVANCE_FIRST",
+   "implementation": "kdb.query.KBQuery.plane_b",
+   "channels": [
+    "bm25(retrieval_text+ru_alias)",
+    "structured filter boosts (open-world)"
+   ],
+   "vector_channel": {
+    "status": "available_offline",
+    "note": "эмбеддинги используются в 3E; для query-времени включаются переиндексацией npz"
+   }
+  },
+  "C": {
+   "goal": "LAYOUT_JUDGE_CONTEXT",
+   "implementation": "kdb.query.KBQuery.plane_c",
+   "inputs": [
+    "layout_fact_snapshot",
+    "validator_snapshot",
+    "project_context",
+    "design/user goals"
+   ],
+   "geometry_boundary": "сцену читаем ТОЛЬКО из snapshot; retrieval-проза геометрию не задаёт",
+   "priorities": [
+    "P1_SOURCE_BACKBONE",
+    "P1_CLOSURE",
+    "P2_NOT_EVALUABLE",
+    "P2_SEMANTIC_GUIDANCE",
+    "P3_CROSS_SCOPE"
+   ]
+  }
+ },
+ "embeddings": {
+  "provider": "fastembed==0.8.0 (onnxruntime==1.28.0)",
+  "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "dimensions": 384,
+  "pooling_note": "mean pooling (fastembed>=0.6 поведение)",
+  "text_template": "kdb.pairing.atom_text / retrieval_text",
+  "language_handling": "EN текст + RU алиасы (registries/ru_aliases)",
+  "storage": "npz вне git (регенерируемо)"
+ },
+ "tunables": {
+  "plane_b_top_k": 15,
+  "plane_c_budget_items": 60,
+  "note": "eval-дефолты, не семантические константы"
+ },
+ "smoke": [
+  {
+   "context": {
+    "room_type": "living_room",
+    "zone_types": [
+     "conversation",
+     "tv_media"
+    ]
+   },
+   "plane_a_counts": {
+    "definite_matches": 94,
+    "evaluable_definite_matches": 47,
+    "contextual_matches": 47,
+    "cross_scope_source_references": 1240,
+    "applicable_but_not_evaluable": 47,
+    "possible_unknowns": 133
+   },
+   "plane_c_bundle": 77
+  },
+  {
+   "context": {
+    "room_type": "bedroom",
+    "zone_types": [
+     "sleeping",
+     "storage"
+    ]
+   },
+   "plane_a_counts": {
+    "definite_matches": 223,
+    "evaluable_definite_matches": 120,
+    "contextual_matches": 95,
+    "cross_scope_source_references": 1200,
+    "applicable_but_not_evaluable": 103,
+    "possible_unknowns": 145
+   },
+   "plane_c_bundle": 91
+  },
+  {
+   "context": {
+    "room_type": "kitchen",
+    "zone_types": [
+     "cooking",
+     "food_preparation"
+    ]
+   },
+   "plane_a_counts": {
+    "definite_matches": 296,
+    "evaluable_definite_matches": 86,
+    "contextual_matches": 209,
+    "cross_scope_source_references": 1055,
+    "applicable_but_not_evaluable": 210,
+    "possible_unknowns": 177
+   },
+   "plane_c_bundle": 98
+  }
+ ],
+ "plane_b_demo_ru_query": [
+  {
+   "canonical_claim_id": "CANON_0ac37d3db51b9feef06e892f9dfb36a120c9c09753a0040e09df5df53d15ffd3",
+   "score": 19.625,
+   "text": "single-loaded circulation | ratio | rooms: universal_residential | Single-loaded circulation, as shown in Figure 2-18 item A, is twice as long and takes twice t",
+   "ru": "односторонний коридор | соотношение | помещения: жилые помещения | Односторонний коридор, показанный на рисунке 2-18, по"
+  },
+  {
+   "canonical_claim_id": "CANON_b8dd1567f7e06b9085ae30f745c04aed072bdc4f79c48a149401dc306ada9112",
+   "score": 16.178,
+   "text": "hallway | clearance | GTE 91.44cm [REQUIRED_MINIMUM] | rooms: hallway | Accessibility note: adequate circulation is generally accomplished by providing 32 inche",
+   "ru": "коридор | проход | не менее 91,44 см [ОБЯЗАТЕЛЬНЫЙ МИНИМУМ] | помещения: коридор | примечание по доступности: достаточна"
+  },
+  {
+   "canonical_claim_id": "CANON_a5a518996b5a50cf581cf5236a5aa819756a5a69af8c1dde10667908c555aa71",
+   "score": 14.881,
+   "text": "hallway | height | EQUAL 243.84cm [EXAMPLE] | rooms: hallway | Figure 2-14a also indicates ceiling heights at the hallway section: an 8-foot ceiling is shown wi",
+   "ru": "коридор | высота | EQUAL 243.84cm [EXAMPLE] | помещения: коридор | на рисунке 2-14a также указана высота потолка в корид"
+  },
+  {
+   "canonical_claim_id": "CANON_e7ed046cc697eb12926a7a5b8b462e7fc2097cd6a929bcb023e6448af94922c9",
+   "score": 11.907,
+   "text": "public building stair or corridor | width | 111.76..121.92cm [REQUIRED_MINIMUM] | rooms: hallway,universal_residential | cond: varies with the specific code jur",
+   "ru": "лестница или коридор общественного здания | ширина | 111.76..121.92cm [ОБЯЗАТЕЛЬНЫЙ МИНИМУМ] | помещения: коридор, жилые"
+  },
+  {
+   "canonical_claim_id": "CANON_8d56a8616a7b603629bb1387af3e93a3d01b24db69c46a2db748deed4906c8ba",
+   "score": 11.907,
+   "text": "residential hallway or stair | width | GTE 91.44cm [REQUIRED_MINIMUM] | rooms: hallway,universal_residential | The current code minimum in a residential setting",
+   "ru": "жилой коридор или лестница | ширина | БОЛЬШЕ ИЛИ РАВНО 91.44cm [ОБЯЗАТЕЛЬНЫЙ МИНИМУМ] | помещения: коридор,универсальное"
+  }
+ ]
+}

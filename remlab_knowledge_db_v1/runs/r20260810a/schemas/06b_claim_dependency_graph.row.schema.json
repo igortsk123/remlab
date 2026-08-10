@@ -1,0 +1,20 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "remlab-kdb/06b_claim_dependency_graph.row.schema.json",
+ "title": "06b_claim_dependency_graph (row)",
+ "type": "object",
+ "required": [
+  "edge_id",
+  "from_atomic_claim_id",
+  "to_atomic_claim_id",
+  "type",
+  "verification_status"
+ ],
+ "properties": {
+  "edge_id": {},
+  "from_atomic_claim_id": {},
+  "to_atomic_claim_id": {},
+  "type": {},
+  "verification_status": {}
+ }
+}

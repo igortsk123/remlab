@@ -1,0 +1,20 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "remlab-kdb/02a_source_assertion_revision_registry.row.schema.json",
+ "title": "02a_source_assertion_revision_registry (row)",
+ "type": "object",
+ "required": [
+  "source_assertion_uid",
+  "atomic_claim_id",
+  "revision_status",
+  "observation_count",
+  "support_document_count"
+ ],
+ "properties": {
+  "source_assertion_uid": {},
+  "atomic_claim_id": {},
+  "revision_status": {},
+  "observation_count": {},
+  "support_document_count": {}
+ }
+}

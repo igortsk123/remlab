@@ -1,0 +1,30 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "remlab-kdb/source_document_registry.schema.json",
+ "title": "source_document_registry",
+ "type": "object",
+ "required": ["artifact", "documents"],
+ "properties": {
+  "artifact": {"const": "source_document_registry"},
+  "documents": {
+   "type": "array",
+   "minItems": 1,
+   "items": {
+    "type": "object",
+    "required": [
+     "source_document_id", "source_work_id", "source_independence_group_id",
+     "lineage_relation", "resolution_status", "document_kind",
+     "bibliographic", "metadata_origin", "packages"
+    ],
+    "properties": {
+     "lineage_relation": {"enum": ["ORIGINAL", "REVISION_OF", "TRANSLATION_OF",
+       "ABRIDGEMENT_OF", "DERIVED_FROM", "RELATED_WORK", "UNKNOWN"]},
+     "resolution_status": {"enum": ["RESOLVED_PREDECLARED", "RESOLVED_MANIFEST",
+       "RESOLVED_PRIOR_REGISTRY", "RESOLVED_IDENTIFIER", "RESOLVED_BIBLIO", "UNRESOLVED"]},
+     "document_kind": {"enum": ["BOOK", "CODE", "STANDARD", "GUIDELINE", "OTHER"]},
+     "packages": {"type": "array", "items": {"type": "string"}, "minItems": 1}
+    }
+   }
+  }
+ }
+}

@@ -246,16 +246,19 @@ def run_audits(staging: Path, src_dir: Path) -> dict:
         if len(sigs) != 1:
             e_err.append(f"canonical scope-гетерогенен: {c['canonical_claim_id'][:12]}")
             break
-    dep_pairs = {tuple(sorted([d["from_atomic_claim_id"],
-                               d["to_atomic_claim_id"]])) for d in deps
-                 if d["type"] in ("QUALIFIES", "EXCEPTION_TO",
-                                  "OVERRIDES_IN_SCOPE")}
+    from .verdicts import pair_id as _pid
+    dep_pair_ids = {_pid(d["from_atomic_claim_id"], d["to_atomic_claim_id"])
+                    for d in deps
+                    if d["type"] in ("QUALIFIES", "EXCEPTION_TO",
+                                     "OVERRIDES_IN_SCOPE",
+                                     "LIMITS_APPLICABILITY_OF")}
     for g in conflicts:
-        ms = sorted(g["member_ids"])
-        for i in range(len(ms)):
-            for j in range(i + 1, len(ms)):
-                if (ms[i], ms[j]) in dep_pairs:
-                    e_err.append(f"конфликт при deps-паре: {g['conflict_group_id'][:12]}")
+        # спека: конфликтующая ПАРА не может быть одновременно dep-парой;
+        # транзитивное соседство в группе — не нарушение
+        bad = [p for p in g["pair_rows"] if p["pair_id"] in dep_pair_ids]
+        if bad:
+            e_err.append(f"конфликт-пара = deps-пара: "
+                         f"{g['conflict_group_id'][:12]}")
     res["E_consolidation"] = {"errors": e_err, "families": len(fams),
                               "canonical": len(canon),
                               "conflicts": len(conflicts),

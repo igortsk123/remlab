@@ -1,0 +1,50 @@
+{
+ "artifact": "source_document_registry",
+ "documents": [
+  {
+   "source_document_id": "RID_MITTON_NYSTUEN_2016_3E",
+   "source_work_id": "RID_MITTON_NYSTUEN_WORK",
+   "source_independence_group_id": "RID_MITTON_NYSTUEN_WORK",
+   "lineage_relation": "ORIGINAL",
+   "lineage_parents": [],
+   "resolution_status": "RESOLVED_PREDECLARED",
+   "resolution_basis": "PROMPT_SUPPLIED (fixed_project_identity спеки)",
+   "document_kind": "BOOK",
+   "bibliographic": {
+    "title": "Residential Interior Design: A Guide to Planning Spaces",
+    "authors": [
+     "Maureen Mitton",
+     "Courtney Nystuen"
+    ],
+    "edition": "Third Edition",
+    "publication_year": 2016
+   },
+   "metadata_origin": "PROMPT_SUPPLIED",
+   "raw_metadata_variants": [
+    "Residential Interior Design - A Guide to Planning Spaces",
+    "Residential Interior Design: A Guide to Planning Spaces"
+   ],
+   "identity_confidence": "HIGH",
+   "packages": [
+    "RID_MITTON_NYSTUEN_2016_3E::ch01::p0015-0042",
+    "RID_MITTON_NYSTUEN_2016_3E::ch02::p0043-0064",
+    "RID_MITTON_NYSTUEN_2016_3E::ch03::p0065-0079",
+    "RID_MITTON_NYSTUEN_2016_3E::ch04::p0080-0100",
+    "RID_MITTON_NYSTUEN_2016_3E::ch04::p0101-0128",
+    "RID_MITTON_NYSTUEN_2016_3E::ch04::p0129-0139",
+    "RID_MITTON_NYSTUEN_2016_3E::ch05::p0140-0161",
+    "RID_MITTON_NYSTUEN_2016_3E::ch06::p0162-0183",
+    "RID_MITTON_NYSTUEN_2016_3E::ch06::p0184-0201",
+    "RID_MITTON_NYSTUEN_2016_3E::ch07::p0202-0215",
+    "RID_MITTON_NYSTUEN_2016_3E::ch08::p0216-0236",
+    "RID_MITTON_NYSTUEN_2016_3E::ch09::p0237-0251",
+    "RID_MITTON_NYSTUEN_2016_3E::ch10::p0252-0259"
+   ],
+   "migrations": []
+  }
+ ],
+ "legacy_migration_checks": {
+  "canonical_source_collection_id_as_kb_id": "N/A (BOOTSTRAP_FULL, prior state отсутствует; проверка выполняется при загрузке prior)",
+  "cited_authority_provision_rename": "N/A (см. state.py при REBUILD)"
+ }
+}

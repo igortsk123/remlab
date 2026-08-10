@@ -1,0 +1,86 @@
+{
+ "candidates": {
+  "channels": {
+   "FP": {
+    "blocks": 1685,
+    "new_pairs": 11493
+   },
+   "SUBJ_DIM": {
+    "blocks": 858,
+    "new_pairs": 19630
+   },
+   "SUBJ_REF": {
+    "blocks": 247,
+    "new_pairs": 268
+   },
+   "AUTH": {
+    "blocks": 150,
+    "new_pairs": 2949
+   },
+   "SIBLING": {
+    "blocks": 1729,
+    "new_pairs": 415
+   },
+   "HINT": {
+    "blocks": 185,
+    "new_pairs": 165
+   },
+   "NUMNEIGH": {
+    "blocks": 7534,
+    "new_pairs": 5381
+   },
+   "BM25": {
+    "blocks": 26792,
+    "new_pairs": 10323
+   },
+   "VEC": {
+    "blocks": 26792,
+    "new_pairs": 7689
+   }
+  },
+  "total_pairs": 58313,
+  "budget": 150000
+ },
+ "deterministic": 7445,
+ "llm_judged": {
+  "pairs_total": 96,
+  "from_registry": 96,
+  "llm_needed": 0,
+  "llm_done": 10,
+  "failed_batches": 0,
+  "forecast_usd": null,
+  "pilot": null
+ },
+ "not_judged_low_signal": 11520,
+ "adversarial": {
+  "pairs": 0,
+  "confirmed": 0,
+  "downgraded": 0
+ },
+ "seed": {
+  "total": 99,
+  "hint": 74,
+  "cross_segment": 25,
+  "verified_positives": 48
+ },
+ "recall_full": 1.0,
+ "recall_ablation_no_hint": 1.0,
+ "hint_audit": {
+  "CONFIRMED": 23,
+  "PARTIAL": 43,
+  "REJECTED": 0,
+  "UNRESOLVED": 8
+ },
+ "llm": {
+  "calls": 2,
+  "cache_hits": 0,
+  "failures": 0,
+  "retries": 0,
+  "prompt_tokens": 2970,
+  "completion_tokens": 561,
+  "cost_usd": 0.0013,
+  "cost_usd_by_model": {
+   "gpt-5.6-luna": 0.001268
+  }
+ }
+}

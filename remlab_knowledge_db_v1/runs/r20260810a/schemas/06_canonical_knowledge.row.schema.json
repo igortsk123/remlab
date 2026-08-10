@@ -1,0 +1,22 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "remlab-kdb/06_canonical_knowledge.row.schema.json",
+ "title": "06_canonical_knowledge (row)",
+ "type": "object",
+ "required": [
+  "canonical_claim_id",
+  "claim_family_id",
+  "scoped_variant_signature",
+  "member_ids",
+  "production_policy_status",
+  "provenance"
+ ],
+ "properties": {
+  "canonical_claim_id": {},
+  "claim_family_id": {},
+  "scoped_variant_signature": {},
+  "member_ids": {},
+  "production_policy_status": {},
+  "provenance": {}
+ }
+}

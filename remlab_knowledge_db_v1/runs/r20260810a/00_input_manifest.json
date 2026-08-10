@@ -1,0 +1,658 @@
+{
+ "artifact": "00_input_manifest",
+ "knowledge_base_id": "REMLAB_INTERIOR_SOURCE_KB",
+ "pipeline_version": "kdb-0.1.0",
+ "derived_schema_version": "1.0.0",
+ "run_id": "r20260810a",
+ "run_mode": "BOOTSTRAP_FULL",
+ "parent_state_snapshot_id": null,
+ "parent_pipeline_state_sha256": null,
+ "input_delta_manifest": null,
+ "expected_input_manifest": {
+  "origin": "OWNER_DECISION_2026_08_10",
+  "expected_present": [
+   "RID_MITTON_NYSTUEN_2016_3E::ch01::p0015-0042",
+   "RID_MITTON_NYSTUEN_2016_3E::ch02::p0043-0064",
+   "RID_MITTON_NYSTUEN_2016_3E::ch03::p0065-0079",
+   "RID_MITTON_NYSTUEN_2016_3E::ch04::p0080-0100",
+   "RID_MITTON_NYSTUEN_2016_3E::ch04::p0101-0128",
+   "RID_MITTON_NYSTUEN_2016_3E::ch04::p0129-0139",
+   "RID_MITTON_NYSTUEN_2016_3E::ch05::p0140-0161",
+   "RID_MITTON_NYSTUEN_2016_3E::ch06::p0162-0183",
+   "RID_MITTON_NYSTUEN_2016_3E::ch06::p0184-0201",
+   "RID_MITTON_NYSTUEN_2016_3E::ch07::p0202-0215",
+   "RID_MITTON_NYSTUEN_2016_3E::ch08::p0216-0236",
+   "RID_MITTON_NYSTUEN_2016_3E::ch09::p0237-0251",
+   "RID_MITTON_NYSTUEN_2016_3E::ch10::p0252-0259"
+  ],
+  "expected_future_additions": [
+   {
+    "scope": "appendix_A",
+    "status": "EXPECTED_LATER"
+   },
+   {
+    "scope": "appendix_B",
+    "status": "EXPECTED_LATER"
+   },
+   {
+    "scope": "appendix_C",
+    "status": "EXPECTED_LATER"
+   },
+   {
+    "scope": "appendix_D",
+    "status": "EXPECTED_LATER"
+   },
+   {
+    "scope": "appendix_E",
+    "status": "EXPECTED_LATER"
+   },
+   {
+    "scope": "appendix_F",
+    "status": "EXPECTED_LATER"
+   },
+   {
+    "scope": "appendix_G",
+    "status": "EXPECTED_LATER"
+   }
+  ],
+  "notes": "Главы 1-10 объявлены владельцем полным основным корпусом; приложения будут добавлены отдельным INCREMENTAL_UPDATE."
+ },
+ "collection_input_completeness": "COMPLETE",
+ "completeness_basis": "expected_input_manifest (решение владельца), все 13 пакетов встык по master-страницам 15-259",
+ "packages": [
+  {
+   "logical_package_key": "RID_MITTON_NYSTUEN_2016_3E::ch01::p0015-0042",
+   "artifact_uid": "RID_MITTON_NYSTUEN_2016_3E::ch01::p0015-0042::RAW_SHA256_1e13bdef830481456a7e2383db5536ec2b1e0245c1d02af3695eb152c78a8405",
+   "package_content_uid": "RID_MITTON_NYSTUEN_2016_3E::ch01::p0015-0042::JCS_SHA256_217b33bc100143597970ea15483cd58c9bab91c490aefbb930042cb39ba61162",
+   "content_identity_quality": "JCS",
+   "file_name": "remlab_SOURCE_ID_MISSING_ch1.json",
+   "file_bytes": 457086,
+   "file_sha256": "1e13bdef830481456a7e2383db5536ec2b1e0245c1d02af3695eb152c78a8405",
+   "canonical_json_sha256": "217b33bc100143597970ea15483cd58c9bab91c490aefbb930042cb39ba61162",
+   "chapter_number": 1,
+   "segment_identity": "p0015-0042",
+   "derived_segment_index": 1,
+   "derived_segment_total": 1,
+   "pages_master": [
+    15,
+    42
+   ],
+   "pages_printed": [
+    1,
+    28
+   ],
+   "source_document_id": "RID_MITTON_NYSTUEN_2016_3E",
+   "document_resolution_basis": "PREDECLARED_PROMPT_MAPPING",
+   "active_for_semantic_projection": true,
+   "counts": {
+    "records": 77,
+    "measurements": 74,
+    "evidence": 167,
+    "applicability_contexts": 90,
+    "entities": 139,
+    "excluded_source_items": 18,
+    "chapter_review_queue": 19,
+    "top_findings": 5
+   },
+   "anomalies": [
+    {
+     "kind": "SOURCE_ID_MISSING",
+     "file": "remlab_SOURCE_ID_MISSING_ch1.json",
+     "detail": "identity задаётся predeclared-маппингом (спека)"
+    }
+   ]
+  },
+  {
+   "logical_package_key": "RID_MITTON_NYSTUEN_2016_3E::ch02::p0043-0064",
+   "artifact_uid": "RID_MITTON_NYSTUEN_2016_3E::ch02::p0043-0064::RAW_SHA256_4c882f49cfeb3e992684ab1a6d6e185738796bb6707cca6636cc31811800cc02",
+   "package_content_uid": "RID_MITTON_NYSTUEN_2016_3E::ch02::p0043-0064::JCS_SHA256_6d3b271f5fc5130041e7de449259a170878402d33ed52f9f80ef477b60305a54",
+   "content_identity_quality": "JCS",
+   "file_name": "remlab_SOURCE_ID_MISSING_ch2.json",
+   "file_bytes": 1242390,
+   "file_sha256": "4c882f49cfeb3e992684ab1a6d6e185738796bb6707cca6636cc31811800cc02",
+   "canonical_json_sha256": "6d3b271f5fc5130041e7de449259a170878402d33ed52f9f80ef477b60305a54",
+   "chapter_number": 2,
+   "segment_identity": "p0043-0064",
+   "derived_segment_index": 1,
+   "derived_segment_total": 1,
+   "pages_master": [
+    43,
+    64
+   ],
+   "pages_printed": [
+    29,
+    50
+   ],
+   "source_document_id": "RID_MITTON_NYSTUEN_2016_3E",
+   "document_resolution_basis": "PREDECLARED_PROMPT_MAPPING",
+   "active_for_semantic_projection": true,
+   "counts": {
+    "records": 198,
+    "measurements": 269,
+    "evidence": 305,
+    "applicability_contexts": 219,
+    "entities": 472,
+    "excluded_source_items": 2,
+    "chapter_review_queue": 16,
+    "top_findings": 5
+   },
+   "anomalies": [
+    {
+     "kind": "SOURCE_ID_MISSING",
+     "file": "remlab_SOURCE_ID_MISSING_ch2.json",
+     "detail": "identity задаётся predeclared-маппингом (спека)"
+    }
+   ]
+  },
+  {
+   "logical_package_key": "RID_MITTON_NYSTUEN_2016_3E::ch03::p0065-0079",
+   "artifact_uid": "RID_MITTON_NYSTUEN_2016_3E::ch03::p0065-0079::RAW_SHA256_094ff5aea0a4822cb9889e17d9bb4053bd4d90d2c13c8ac28ffb0534f92176af",
+   "package_content_uid": "RID_MITTON_NYSTUEN_2016_3E::ch03::p0065-0079::JCS_SHA256_d52233ce65e1b376dca26f6938a16c484a5aec1a7a263a716f5382dea3d73d81",
+   "content_identity_quality": "JCS",
+   "file_name": "remlab_SOURCE_ID_MISSING_ch3.json",
+   "file_bytes": 807537,
+   "file_sha256": "094ff5aea0a4822cb9889e17d9bb4053bd4d90d2c13c8ac28ffb0534f92176af",
+   "canonical_json_sha256": "d52233ce65e1b376dca26f6938a16c484a5aec1a7a263a716f5382dea3d73d81",
+   "chapter_number": 3,
+   "segment_identity": "p0065-0079",
+   "derived_segment_index": 1,
+   "derived_segment_total": 1,
+   "pages_master": [
+    65,
+    79
+   ],
+   "pages_printed": [
+    51,
+    65
+   ],
+   "source_document_id": "RID_MITTON_NYSTUEN_2016_3E",
+   "document_resolution_basis": "PREDECLARED_PROMPT_MAPPING",
+   "active_for_semantic_projection": true,
+   "counts": {
+    "records": 146,
+    "measurements": 186,
+    "evidence": 192,
+    "applicability_contexts": 188,
+    "entities": 316,
+    "excluded_source_items": 10,
+    "chapter_review_queue": 21,
+    "top_findings": 5
+   },
+   "anomalies": [
+    {
+     "kind": "SOURCE_ID_MISSING",
+     "file": "remlab_SOURCE_ID_MISSING_ch3.json",
+     "detail": "identity задаётся predeclared-маппингом (спека)"
+    },
+    {
+     "kind": "COVERAGE_INCOMPLETE",
+     "file": "remlab_SOURCE_ID_MISSING_ch3.json",
+     "detail": "Source items are counted as distinct evidence locations: every text passage, table cell group, figure callout and dimension label that supports a claim. Text, tables, figure callouts, figure notes and"
+    }
+   ]
+  },
+  {
+   "logical_package_key": "RID_MITTON_NYSTUEN_2016_3E::ch04::p0080-0100",
+   "artifact_uid": "RID_MITTON_NYSTUEN_2016_3E::ch04::p0080-0100::RAW_SHA256_3166b8df61e2b1919d0988e5821b98419b5a51bba99db55cd856d6b0c5ddd178",
+   "package_content_uid": "RID_MITTON_NYSTUEN_2016_3E::ch04::p0080-0100::JCS_SHA256_ae8b3fbbddbf1f162cbeb0ef2ede4f8a10969c2f7a64f9c16ba05385534ca5c8",
+   "content_identity_quality": "JCS",
+   "file_name": "remlab_SOURCE_ID_MISSING_ch4_seg1of3.json",
+   "file_bytes": 1000405,
+   "file_sha256": "3166b8df61e2b1919d0988e5821b98419b5a51bba99db55cd856d6b0c5ddd178",
+   "canonical_json_sha256": "ae8b3fbbddbf1f162cbeb0ef2ede4f8a10969c2f7a64f9c16ba05385534ca5c8",
+   "chapter_number": 4,
+   "segment_identity": "p0080-0100",
+   "derived_segment_index": 1,
+   "derived_segment_total": 3,
+   "pages_master": [
+    80,
+    100
+   ],
+   "pages_printed": [
+    66,
+    86
+   ],
+   "source_document_id": "RID_MITTON_NYSTUEN_2016_3E",
+   "document_resolution_basis": "PREDECLARED_PROMPT_MAPPING",
+   "active_for_semantic_projection": true,
+   "counts": {
+    "records": 168,
+    "measurements": 155,
+    "evidence": 409,
+    "applicability_contexts": 176,
+    "entities": 376,
+    "excluded_source_items": 9,
+    "chapter_review_queue": 37,
+    "top_findings": 5
+   },
+   "anomalies": [
+    {
+     "kind": "SOURCE_ID_MISSING",
+     "file": "remlab_SOURCE_ID_MISSING_ch4_seg1of3.json",
+     "detail": "identity задаётся predeclared-маппингом (спека)"
+    },
+    {
+     "kind": "SEGMENT_FIELDS_BROKEN",
+     "file": "remlab_SOURCE_ID_MISSING_ch4_seg1of3.json",
+     "detail": "segment_index=1 segment_total=None"
+    }
+   ]
+  },
+  {
+   "logical_package_key": "RID_MITTON_NYSTUEN_2016_3E::ch04::p0101-0128",
+   "artifact_uid": "RID_MITTON_NYSTUEN_2016_3E::ch04::p0101-0128::RAW_SHA256_9130e0b8ae108be19957664e5a8f603b8762db5ad0e77f1bbb9e55b605f4603f",
+   "package_content_uid": "RID_MITTON_NYSTUEN_2016_3E::ch04::p0101-0128::JCS_SHA256_d501c05a27bd76fd636484f6fb1154f34542c72303691b3e726858bf5bcd774a",
+   "content_identity_quality": "JCS",
+   "file_name": "remlab_SOURCE_ID_MISSING_ch4_seg2of3.json",
+   "file_bytes": 1185973,
+   "file_sha256": "9130e0b8ae108be19957664e5a8f603b8762db5ad0e77f1bbb9e55b605f4603f",
+   "canonical_json_sha256": "d501c05a27bd76fd636484f6fb1154f34542c72303691b3e726858bf5bcd774a",
+   "chapter_number": 4,
+   "segment_identity": "p0101-0128",
+   "derived_segment_index": 2,
+   "derived_segment_total": 3,
+   "pages_master": [
+    101,
+    128
+   ],
+   "pages_printed": [
+    87,
+    114
+   ],
+   "source_document_id": "RID_MITTON_NYSTUEN_2016_3E",
+   "document_resolution_basis": "PREDECLARED_PROMPT_MAPPING",
+   "active_for_semantic_projection": true,
+   "counts": {
+    "records": 179,
+    "measurements": 247,
+    "evidence": 344,
+    "applicability_contexts": 189,
+    "entities": 439,
+    "excluded_source_items": 12,
+    "chapter_review_queue": 23,
+    "top_findings": 5
+   },
+   "anomalies": [
+    {
+     "kind": "SOURCE_ID_MISSING",
+     "file": "remlab_SOURCE_ID_MISSING_ch4_seg2of3.json",
+     "detail": "identity задаётся predeclared-маппингом (спека)"
+    },
+    {
+     "kind": "SEGMENT_FIELDS_BROKEN",
+     "file": "remlab_SOURCE_ID_MISSING_ch4_seg2of3.json",
+     "detail": "segment_index=None segment_total=None"
+    }
+   ]
+  },
+  {
+   "logical_package_key": "RID_MITTON_NYSTUEN_2016_3E::ch04::p0129-0139",
+   "artifact_uid": "RID_MITTON_NYSTUEN_2016_3E::ch04::p0129-0139::RAW_SHA256_0a0e9ddc16861ea692272b987d47b33c8bf37747a12f8788e8eb1cbdbf5bf4fe",
+   "package_content_uid": "RID_MITTON_NYSTUEN_2016_3E::ch04::p0129-0139::JCS_SHA256_edef496fc22338d9f2638e0bfde14237bb38183485a730c8edbc5b1db9183555",
+   "content_identity_quality": "JCS",
+   "file_name": "remlab_SOURCE_ID_MISSING_ch4_seg3ofU3.json",
+   "file_bytes": 983457,
+   "file_sha256": "0a0e9ddc16861ea692272b987d47b33c8bf37747a12f8788e8eb1cbdbf5bf4fe",
+   "canonical_json_sha256": "edef496fc22338d9f2638e0bfde14237bb38183485a730c8edbc5b1db9183555",
+   "chapter_number": 4,
+   "segment_identity": "p0129-0139",
+   "derived_segment_index": 3,
+   "derived_segment_total": 3,
+   "pages_master": [
+    129,
+    139
+   ],
+   "pages_printed": [
+    115,
+    125
+   ],
+   "source_document_id": "RID_MITTON_NYSTUEN_2016_3E",
+   "document_resolution_basis": "PREDECLARED_PROMPT_MAPPING",
+   "active_for_semantic_projection": true,
+   "counts": {
+    "records": 100,
+    "measurements": 289,
+    "evidence": 233,
+    "applicability_contexts": 100,
+    "entities": 359,
+    "excluded_source_items": 6,
+    "chapter_review_queue": 18,
+    "top_findings": 5
+   },
+   "anomalies": [
+    {
+     "kind": "SOURCE_ID_MISSING",
+     "file": "remlab_SOURCE_ID_MISSING_ch4_seg3ofU3.json",
+     "detail": "identity задаётся predeclared-маппингом (спека)"
+    },
+    {
+     "kind": "SEGMENT_FIELDS_BROKEN",
+     "file": "remlab_SOURCE_ID_MISSING_ch4_seg3ofU3.json",
+     "detail": "segment_index=1 segment_total=None"
+    },
+    {
+     "kind": "FILENAME_TYPO",
+     "file": "remlab_SOURCE_ID_MISSING_ch4_seg3ofU3.json",
+     "detail": "ofU3 вместо of3 (raw не переименовываем)"
+    }
+   ]
+  },
+  {
+   "logical_package_key": "RID_MITTON_NYSTUEN_2016_3E::ch05::p0140-0161",
+   "artifact_uid": "RID_MITTON_NYSTUEN_2016_3E::ch05::p0140-0161::RAW_SHA256_258b974e9f3bf5f70f9ea6187796c57dbbac09106387f89a4b19a383f04eb2a8",
+   "package_content_uid": "RID_MITTON_NYSTUEN_2016_3E::ch05::p0140-0161::JCS_SHA256_1c2fc2f07bda7f8ad18017d15a40fdffb86d1a6f9c931a64e34fcd61a329b7dc",
+   "content_identity_quality": "JCS",
+   "file_name": "remlab_SOURCE_ID_MISSING_ch5.json",
+   "file_bytes": 916753,
+   "file_sha256": "258b974e9f3bf5f70f9ea6187796c57dbbac09106387f89a4b19a383f04eb2a8",
+   "canonical_json_sha256": "1c2fc2f07bda7f8ad18017d15a40fdffb86d1a6f9c931a64e34fcd61a329b7dc",
+   "chapter_number": 5,
+   "segment_identity": "p0140-0161",
+   "derived_segment_index": 1,
+   "derived_segment_total": 1,
+   "pages_master": [
+    140,
+    161
+   ],
+   "pages_printed": [
+    126,
+    147
+   ],
+   "source_document_id": "RID_MITTON_NYSTUEN_2016_3E",
+   "document_resolution_basis": "PREDECLARED_PROMPT_MAPPING",
+   "active_for_semantic_projection": true,
+   "counts": {
+    "records": 108,
+    "measurements": 315,
+    "evidence": 268,
+    "applicability_contexts": 128,
+    "entities": 366,
+    "excluded_source_items": 9,
+    "chapter_review_queue": 22,
+    "top_findings": 5
+   },
+   "anomalies": [
+    {
+     "kind": "SOURCE_ID_MISSING",
+     "file": "remlab_SOURCE_ID_MISSING_ch5.json",
+     "detail": "identity задаётся predeclared-маппингом (спека)"
+    }
+   ]
+  },
+  {
+   "logical_package_key": "RID_MITTON_NYSTUEN_2016_3E::ch06::p0162-0183",
+   "artifact_uid": "RID_MITTON_NYSTUEN_2016_3E::ch06::p0162-0183::RAW_SHA256_f79718df0949cf415c7dc1d153f5f7929a7280762a43ef978ada7098f358c705",
+   "package_content_uid": "RID_MITTON_NYSTUEN_2016_3E::ch06::p0162-0183::JCS_SHA256_51336481f2a62e752e394ad094876ee5c8278853a58fb204dec04a08df6d599e",
+   "content_identity_quality": "JCS",
+   "file_name": "remlab_SOURCE_ID_MISSING_ch6_seg1of2.json",
+   "file_bytes": 821835,
+   "file_sha256": "f79718df0949cf415c7dc1d153f5f7929a7280762a43ef978ada7098f358c705",
+   "canonical_json_sha256": "51336481f2a62e752e394ad094876ee5c8278853a58fb204dec04a08df6d599e",
+   "chapter_number": 6,
+   "segment_identity": "p0162-0183",
+   "derived_segment_index": 1,
+   "derived_segment_total": 2,
+   "pages_master": [
+    162,
+    183
+   ],
+   "pages_printed": [
+    148,
+    169
+   ],
+   "source_document_id": "RID_MITTON_NYSTUEN_2016_3E",
+   "document_resolution_basis": "PREDECLARED_PROMPT_MAPPING",
+   "active_for_semantic_projection": true,
+   "counts": {
+    "records": 79,
+    "measurements": 214,
+    "evidence": 259,
+    "applicability_contexts": 81,
+    "entities": 263,
+    "excluded_source_items": 10,
+    "chapter_review_queue": 15,
+    "top_findings": 5
+   },
+   "anomalies": [
+    {
+     "kind": "SOURCE_ID_MISSING",
+     "file": "remlab_SOURCE_ID_MISSING_ch6_seg1of2.json",
+     "detail": "identity задаётся predeclared-маппингом (спека)"
+    },
+    {
+     "kind": "SEGMENT_FIELDS_BROKEN",
+     "file": "remlab_SOURCE_ID_MISSING_ch6_seg1of2.json",
+     "detail": "segment_index=1 segment_total=None"
+    }
+   ]
+  },
+  {
+   "logical_package_key": "RID_MITTON_NYSTUEN_2016_3E::ch06::p0184-0201",
+   "artifact_uid": "RID_MITTON_NYSTUEN_2016_3E::ch06::p0184-0201::RAW_SHA256_7e7ce5d6a589be4e8405144eaaa9db3f59657fcc24022f0cfc3a9492d076a4dc",
+   "package_content_uid": "RID_MITTON_NYSTUEN_2016_3E::ch06::p0184-0201::JCS_SHA256_806762a53f62e5f43c569152080b202bd028eb937afd50916f42cb1e05b1c980",
+   "content_identity_quality": "JCS",
+   "file_name": "remlab_SOURCE_ID_MISSING_ch6_seg2of2.json",
+   "file_bytes": 1036808,
+   "file_sha256": "7e7ce5d6a589be4e8405144eaaa9db3f59657fcc24022f0cfc3a9492d076a4dc",
+   "canonical_json_sha256": "806762a53f62e5f43c569152080b202bd028eb937afd50916f42cb1e05b1c980",
+   "chapter_number": 6,
+   "segment_identity": "p0184-0201",
+   "derived_segment_index": 2,
+   "derived_segment_total": 2,
+   "pages_master": [
+    184,
+    201
+   ],
+   "pages_printed": [
+    170,
+    187
+   ],
+   "source_document_id": "RID_MITTON_NYSTUEN_2016_3E",
+   "document_resolution_basis": "PREDECLARED_PROMPT_MAPPING",
+   "active_for_semantic_projection": true,
+   "counts": {
+    "records": 125,
+    "measurements": 317,
+    "evidence": 183,
+    "applicability_contexts": 150,
+    "entities": 400,
+    "excluded_source_items": 6,
+    "chapter_review_queue": 20,
+    "top_findings": 5
+   },
+   "anomalies": [
+    {
+     "kind": "SOURCE_ID_MISSING",
+     "file": "remlab_SOURCE_ID_MISSING_ch6_seg2of2.json",
+     "detail": "identity задаётся predeclared-маппингом (спека)"
+    },
+    {
+     "kind": "SEGMENT_FIELDS_BROKEN",
+     "file": "remlab_SOURCE_ID_MISSING_ch6_seg2of2.json",
+     "detail": "segment_index=1 segment_total=1"
+    }
+   ]
+  },
+  {
+   "logical_package_key": "RID_MITTON_NYSTUEN_2016_3E::ch07::p0202-0215",
+   "artifact_uid": "RID_MITTON_NYSTUEN_2016_3E::ch07::p0202-0215::RAW_SHA256_8f44d233d32e58bb87cbd46a96155d0f6312a3cd16cb884b5d3a9c63d11e5585",
+   "package_content_uid": "RID_MITTON_NYSTUEN_2016_3E::ch07::p0202-0215::JCS_SHA256_f99db181c266bd36edf963f03a3d5e04764964ddb585e7611ac3c8ff053ee5bc",
+   "content_identity_quality": "JCS",
+   "file_name": "remlab_SOURCE_ID_MISSING_ch7.json",
+   "file_bytes": 1123293,
+   "file_sha256": "8f44d233d32e58bb87cbd46a96155d0f6312a3cd16cb884b5d3a9c63d11e5585",
+   "canonical_json_sha256": "f99db181c266bd36edf963f03a3d5e04764964ddb585e7611ac3c8ff053ee5bc",
+   "chapter_number": 7,
+   "segment_identity": "p0202-0215",
+   "derived_segment_index": 1,
+   "derived_segment_total": 1,
+   "pages_master": [
+    202,
+    215
+   ],
+   "pages_printed": [
+    188,
+    201
+   ],
+   "source_document_id": "RID_MITTON_NYSTUEN_2016_3E",
+   "document_resolution_basis": "PREDECLARED_PROMPT_MAPPING",
+   "active_for_semantic_projection": true,
+   "counts": {
+    "records": 205,
+    "measurements": 180,
+    "evidence": 259,
+    "applicability_contexts": 231,
+    "entities": 602,
+    "excluded_source_items": 14,
+    "chapter_review_queue": 34,
+    "top_findings": 5
+   },
+   "anomalies": [
+    {
+     "kind": "SOURCE_ID_MISSING",
+     "file": "remlab_SOURCE_ID_MISSING_ch7.json",
+     "detail": "identity задаётся predeclared-маппингом (спека)"
+    }
+   ]
+  },
+  {
+   "logical_package_key": "RID_MITTON_NYSTUEN_2016_3E::ch08::p0216-0236",
+   "artifact_uid": "RID_MITTON_NYSTUEN_2016_3E::ch08::p0216-0236::RAW_SHA256_897c44aeae07ca576c1f3081a74b74a5ade2f87a56114b6ff097a6f1c1cd293e",
+   "package_content_uid": "RID_MITTON_NYSTUEN_2016_3E::ch08::p0216-0236::JCS_SHA256_f483ced9002c971e20150365dc27585cbd31368d14bd67b1d6b3efdc5a0832b8",
+   "content_identity_quality": "JCS",
+   "file_name": "remlab_SOURCE_ID_MISSING_ch8.json",
+   "file_bytes": 631623,
+   "file_sha256": "897c44aeae07ca576c1f3081a74b74a5ade2f87a56114b6ff097a6f1c1cd293e",
+   "canonical_json_sha256": "f483ced9002c971e20150365dc27585cbd31368d14bd67b1d6b3efdc5a0832b8",
+   "chapter_number": 8,
+   "segment_identity": "p0216-0236",
+   "derived_segment_index": 1,
+   "derived_segment_total": 1,
+   "pages_master": [
+    216,
+    236
+   ],
+   "pages_printed": [
+    202,
+    222
+   ],
+   "source_document_id": "RID_MITTON_NYSTUEN_2016_3E",
+   "document_resolution_basis": "PREDECLARED_PROMPT_MAPPING",
+   "active_for_semantic_projection": true,
+   "counts": {
+    "records": 109,
+    "measurements": 105,
+    "evidence": 198,
+    "applicability_contexts": 136,
+    "entities": 281,
+    "excluded_source_items": 18,
+    "chapter_review_queue": 16,
+    "top_findings": 5
+   },
+   "anomalies": [
+    {
+     "kind": "SOURCE_ID_MISSING",
+     "file": "remlab_SOURCE_ID_MISSING_ch8.json",
+     "detail": "identity задаётся predeclared-маппингом (спека)"
+    }
+   ]
+  },
+  {
+   "logical_package_key": "RID_MITTON_NYSTUEN_2016_3E::ch09::p0237-0251",
+   "artifact_uid": "RID_MITTON_NYSTUEN_2016_3E::ch09::p0237-0251::RAW_SHA256_134f4f35b89ce801e81523cabaf08fe920a93880eb894c2de43729772c699472",
+   "package_content_uid": "RID_MITTON_NYSTUEN_2016_3E::ch09::p0237-0251::JCS_SHA256_5a21555c70639d3595439aeb4c3909975a7e7bec81d1e8b58d3904f5edf1693e",
+   "content_identity_quality": "JCS",
+   "file_name": "remlab_SOURCE_ID_MISSING_ch9.json",
+   "file_bytes": 705556,
+   "file_sha256": "134f4f35b89ce801e81523cabaf08fe920a93880eb894c2de43729772c699472",
+   "canonical_json_sha256": "5a21555c70639d3595439aeb4c3909975a7e7bec81d1e8b58d3904f5edf1693e",
+   "chapter_number": 9,
+   "segment_identity": "p0237-0251",
+   "derived_segment_index": 1,
+   "derived_segment_total": 1,
+   "pages_master": [
+    237,
+    251
+   ],
+   "pages_printed": [
+    223,
+    237
+   ],
+   "source_document_id": "RID_MITTON_NYSTUEN_2016_3E",
+   "document_resolution_basis": "PREDECLARED_PROMPT_MAPPING",
+   "active_for_semantic_projection": true,
+   "counts": {
+    "records": 136,
+    "measurements": 118,
+    "evidence": 183,
+    "applicability_contexts": 153,
+    "entities": 278,
+    "excluded_source_items": 13,
+    "chapter_review_queue": 23,
+    "top_findings": 5
+   },
+   "anomalies": [
+    {
+     "kind": "SOURCE_ID_MISSING",
+     "file": "remlab_SOURCE_ID_MISSING_ch9.json",
+     "detail": "identity задаётся predeclared-маппингом (спека)"
+    }
+   ]
+  },
+  {
+   "logical_package_key": "RID_MITTON_NYSTUEN_2016_3E::ch10::p0252-0259",
+   "artifact_uid": "RID_MITTON_NYSTUEN_2016_3E::ch10::p0252-0259::RAW_SHA256_315629f97af8d7622c8abdd4de94fe390410cf518a925aeafc922a1643bf1add",
+   "package_content_uid": "RID_MITTON_NYSTUEN_2016_3E::ch10::p0252-0259::JCS_SHA256_32c0960feb73c66205a337667ddaa49cfa776d8e46b508fcd9f30cb6bd40d672",
+   "content_identity_quality": "JCS",
+   "file_name": "remlab_SOURCE_ID_MISSING_ch10.json",
+   "file_bytes": 537964,
+   "file_sha256": "315629f97af8d7622c8abdd4de94fe390410cf518a925aeafc922a1643bf1add",
+   "canonical_json_sha256": "32c0960feb73c66205a337667ddaa49cfa776d8e46b508fcd9f30cb6bd40d672",
+   "chapter_number": 10,
+   "segment_identity": "p0252-0259",
+   "derived_segment_index": 1,
+   "derived_segment_total": 1,
+   "pages_master": [
+    252,
+    259
+   ],
+   "pages_printed": [
+    238,
+    245
+   ],
+   "source_document_id": "RID_MITTON_NYSTUEN_2016_3E",
+   "document_resolution_basis": "PREDECLARED_PROMPT_MAPPING",
+   "active_for_semantic_projection": true,
+   "counts": {
+    "records": 99,
+    "measurements": 90,
+    "evidence": 146,
+    "applicability_contexts": 113,
+    "entities": 164,
+    "excluded_source_items": 10,
+    "chapter_review_queue": 23,
+    "top_findings": 5
+   },
+   "anomalies": [
+    {
+     "kind": "SOURCE_ID_MISSING",
+     "file": "remlab_SOURCE_ID_MISSING_ch10.json",
+     "detail": "identity задаётся predeclared-маппингом (спека)"
+    }
+   ]
+  }
+ ],
+ "corpus_totals": {
+  "records": 1729,
+  "measurements": 2559,
+  "evidence": 3146,
+  "applicability_contexts": 1954,
+  "entities": 4455,
+  "excluded_source_items": 137,
+  "chapter_review_queue": 287,
+  "top_findings": 65
+ },
+ "corpus_anomalies": [],
+ "unresolved_packages": [],
+ "exact_duplicate_groups": []
+}

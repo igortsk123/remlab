@@ -1,0 +1,14 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "remlab-kdb/07c_context_closure_index.row.schema.json",
+ "title": "07c_context_closure_index (row)",
+ "type": "object",
+ "required": [
+  "canonical_claim_id",
+  "mandatory_closure_ids"
+ ],
+ "properties": {
+  "canonical_claim_id": {},
+  "mandatory_closure_ids": {}
+ }
+}

@@ -1,0 +1,82 @@
+{
+ "retrieval_records": 2755,
+ "ru_aliases": 2755,
+ "applicability_rows": 2755,
+ "evaluable_rows": 2063,
+ "oracle": [
+  {
+   "context": {
+    "room_type": "living_room",
+    "zone_types": [
+     "conversation",
+     "tv_media"
+    ]
+   },
+   "index_matches": 94,
+   "reference_matches": 94,
+   "false_negatives": 0
+  },
+  {
+   "context": {
+    "room_type": "bedroom",
+    "zone_types": [
+     "sleeping",
+     "storage"
+    ]
+   },
+   "index_matches": 223,
+   "reference_matches": 223,
+   "false_negatives": 0
+  },
+  {
+   "context": {
+    "room_type": "kitchen",
+    "zone_types": [
+     "cooking",
+     "food_preparation"
+    ]
+   },
+   "index_matches": 296,
+   "reference_matches": 296,
+   "false_negatives": 0
+  },
+  {
+   "context": {
+    "room_type": "bathroom",
+    "zone_types": [
+     "bathing_shower",
+     "toilet"
+    ]
+   },
+   "index_matches": 216,
+   "reference_matches": 216,
+   "false_negatives": 0
+  },
+  {
+   "context": {
+    "room_type": "hallway",
+    "zone_types": [
+     "circulation"
+    ],
+    "jurisdiction": "us_north_america"
+   },
+   "index_matches": 241,
+   "reference_matches": 241,
+   "false_negatives": 0
+  }
+ ],
+ "closure_rows": 2755,
+ "closure_nonempty": 353,
+ "llm": {
+  "calls": 2,
+  "cache_hits": 0,
+  "failures": 0,
+  "retries": 0,
+  "prompt_tokens": 1761,
+  "completion_tokens": 1880,
+  "cost_usd": 0.0026,
+  "cost_usd_by_model": {
+   "gpt-5.6-luna": 0.002609
+  }
+ }
+}

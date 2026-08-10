@@ -1,0 +1,18 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "remlab-kdb/04_claim_groups.row.schema.json",
+ "title": "04_claim_groups (row)",
+ "type": "object",
+ "required": [
+  "claim_family_id",
+  "signature_anchor",
+  "member_ids",
+  "membership_fingerprint_sha256"
+ ],
+ "properties": {
+  "claim_family_id": {},
+  "signature_anchor": {},
+  "member_ids": {},
+  "membership_fingerprint_sha256": {}
+ }
+}

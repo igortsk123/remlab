@@ -1,0 +1,20 @@
+{
+ "artifact": "schema_registry",
+ "json_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+ "schemas": {
+  "02_atomic_claims": "schemas/02_atomic_claims.row.schema.json",
+  "02a_source_assertion_revision_registry": "schemas/02a_source_assertion_revision_registry.row.schema.json",
+  "03b2_claim_corroboration_origins": "schemas/03b2_claim_corroboration_origins.row.schema.json",
+  "04_claim_groups": "schemas/04_claim_groups.row.schema.json",
+  "04a_semantic_comparison_candidates": "schemas/04a_semantic_comparison_candidates.row.schema.json",
+  "05_conflict_groups": "schemas/05_conflict_groups.row.schema.json",
+  "06_canonical_knowledge": "schemas/06_canonical_knowledge.row.schema.json",
+  "06b_claim_dependency_graph": "schemas/06b_claim_dependency_graph.row.schema.json",
+  "07_retrieval_records": "schemas/07_retrieval_records.row.schema.json",
+  "07b_applicability_index": "schemas/07b_applicability_index.row.schema.json",
+  "07c_context_closure_index": "schemas/07c_context_closure_index.row.schema.json",
+  "09_eval_queries": "schemas/09_eval_queries.row.schema.json",
+  "00_input_manifest": "schemas/00_input_manifest.schema.json",
+  "source_document_registry": "schemas/source_document_registry.schema.json"
+ }
+}

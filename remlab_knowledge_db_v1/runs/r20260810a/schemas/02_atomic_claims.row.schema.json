@@ -1,0 +1,38 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "remlab-kdb/02_atomic_claims.row.schema.json",
+ "title": "02_atomic_claims (row)",
+ "type": "object",
+ "required": [
+  "atomic_claim_id",
+  "atomic_claim_version_uid",
+  "source_assertion_uid",
+  "projection_mode",
+  "observation",
+  "anchor",
+  "slot",
+  "bindings",
+  "applicability",
+  "claim",
+  "strength",
+  "parent_record",
+  "utility",
+  "views"
+ ],
+ "properties": {
+  "atomic_claim_id": {},
+  "atomic_claim_version_uid": {},
+  "source_assertion_uid": {},
+  "projection_mode": {},
+  "observation": {},
+  "anchor": {},
+  "slot": {},
+  "bindings": {},
+  "applicability": {},
+  "claim": {},
+  "strength": {},
+  "parent_record": {},
+  "utility": {},
+  "views": {}
+ }
+}

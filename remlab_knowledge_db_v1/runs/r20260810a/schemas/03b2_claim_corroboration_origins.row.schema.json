@@ -1,0 +1,18 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "remlab-kdb/03b2_claim_corroboration_origins.row.schema.json",
+ "title": "03b2_claim_corroboration_origins (row)",
+ "type": "object",
+ "required": [
+  "atomic_claim_id",
+  "origin_kind",
+  "origin_group_id",
+  "unresolved"
+ ],
+ "properties": {
+  "atomic_claim_id": {},
+  "origin_kind": {},
+  "origin_group_id": {},
+  "unresolved": {}
+ }
+}

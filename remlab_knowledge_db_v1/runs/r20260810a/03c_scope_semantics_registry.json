@@ -1,0 +1,62 @@
+{
+ "artifact": "03c_scope_semantics_registry",
+ "room_concepts": [
+  "balcony_loggia",
+  "bathroom",
+  "bedroom",
+  "children_room",
+  "dining_room",
+  "entry_hall",
+  "guest_room",
+  "hallway",
+  "home_office",
+  "kitchen",
+  "living_room",
+  "other",
+  "universal_residential",
+  "utility_room"
+ ],
+ "zone_concepts": [
+  "bathing_shower",
+  "bedside",
+  "children_play",
+  "circulation",
+  "conversation",
+  "cooking",
+  "dining",
+  "entry_transition",
+  "food_preparation",
+  "general_access",
+  "other",
+  "reading",
+  "relaxation",
+  "sleeping",
+  "storage",
+  "toilet",
+  "tv_media",
+  "unknown",
+  "vanity_grooming",
+  "wardrobe_dressing",
+  "washing",
+  "work_study"
+ ],
+ "scope_qualifiers": [
+  "jurisdiction",
+  "mobility_context",
+  "activity_context",
+  "dwelling_feature",
+  "market_basis",
+  "residential_domain"
+ ],
+ "runtime_capabilities": {
+  "room_type_context": "EVALUABLE",
+  "zone_types_context": "EVALUABLE",
+  "residential_domain": "EVALUABLE",
+  "jurisdiction": "EVALUABLE_STATIC",
+  "mobility_context": "NOT_EVALUABLE",
+  "activity_context": "PARTIALLY_EVALUABLE",
+  "dwelling_feature": "NOT_EVALUABLE"
+ },
+ "applicability_subsumption_edges": [],
+ "notes": "universal_residential — domain-маркер, не литеральная комната (C18); наследование только по APPROVED-рёбрам (C19)"
+}

@@ -1,0 +1,20 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "remlab-kdb/04a_semantic_comparison_candidates.row.schema.json",
+ "title": "04a_semantic_comparison_candidates (row)",
+ "type": "object",
+ "required": [
+  "pair_id",
+  "a",
+  "b",
+  "channels",
+  "verdict_status"
+ ],
+ "properties": {
+  "pair_id": {},
+  "a": {},
+  "b": {},
+  "channels": {},
+  "verdict_status": {}
+ }
+}

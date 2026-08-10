@@ -1,0 +1,251 @@
+{
+ "total": 20,
+ "passed": 20,
+ "failed": [],
+ "results": [
+  {
+   "eval_id": "EV01",
+   "matrix_item": 1,
+   "type": "real",
+   "check": "provenance_lookup",
+   "params": {
+    "record": "R040",
+    "ch": "ch01"
+   },
+   "description": "точный lookup + реконструкция провенанса (страница/якорь)",
+   "passed": true,
+   "details": "атомов 2, у всех локус+стр."
+  },
+  {
+   "eval_id": "EV02",
+   "matrix_item": 2,
+   "type": "real",
+   "check": "ru_retrieval",
+   "params": {
+    "query": "минимальная ширина коридора",
+    "expect_token": "hallway"
+   },
+   "description": "EN-источник / RU-запрос",
+   "passed": true,
+   "details": "top10 hit=True"
+  },
+  {
+   "eval_id": "EV03",
+   "matrix_item": 3,
+   "type": "real",
+   "check": "numeric_discrepancy",
+   "params": {
+    "record": "R079",
+    "ch": "ch03"
+   },
+   "description": "юниты/округления/внутреннее расхождение источника",
+   "passed": true,
+   "details": "CONFLICTING=2"
+  },
+  {
+   "eval_id": "EV04",
+   "matrix_item": 4,
+   "type": "real",
+   "check": "symbolic_views",
+   "params": {},
+   "description": "symbolic PARSED + OPAQUE сохранён и retrievable",
+   "passed": true,
+   "details": "parsed=22, opaque=48 (сохранены)"
+  },
+  {
+   "eval_id": "EV05",
+   "matrix_item": 5,
+   "type": "real",
+   "check": "family_variants",
+   "params": {
+    "record": "R030",
+    "ch": "ch01"
+   },
+   "description": "один вопрос — разные значения/силы",
+   "passed": true,
+   "details": "canonical-вариантов 4, семей 2"
+  },
+  {
+   "eval_id": "EV06",
+   "matrix_item": 6,
+   "type": "real",
+   "check": "scope_classes",
+   "params": {},
+   "description": "4 класса scope-отношений; DISJOINT не dup/conflict",
+   "passed": true,
+   "details": "классы=['DISJOINT', 'EQUIVALENT', 'OVERLAPPING', 'UNKNOWN'], нарушений=0"
+  },
+  {
+   "eval_id": "EV07",
+   "matrix_item": 7,
+   "type": "real",
+   "check": "zone_semantics",
+   "params": {
+    "ctx": {
+     "room_type": "living_room",
+     "zone_types": [
+      "tv_media"
+     ]
+    }
+   },
+   "description": "zone-set overlap + universal_residential как домен",
+   "passed": true,
+   "details": "{\"definite_matches\": 57, \"evaluable_definite_matches\": 26, \"contextual_matches\": 31, \"cross_scope_source_references\": 1294, \"applicable_but_not_evaluable\": 31, \"possible_unknowns\": 87}"
+  },
+  {
+   "eval_id": "EV08",
+   "matrix_item": 8,
+   "type": "real",
+   "check": "unknown_semantics",
+   "params": {},
+   "description": "optional UNSPECIFIED без предиката vs unresolved selector",
+   "passed": true,
+   "details": "UNSPECIFIED=3322, UNRESOLVED_SELECTOR=152 (раздельно)"
+  },
+  {
+   "eval_id": "EV09",
+   "matrix_item": 9,
+   "type": "real",
+   "check": "inferred_not_definite",
+   "params": {},
+   "description": "CHAPTER_CONTEXT definite vs INFERRED -> не definite",
+   "passed": true,
+   "details": "INFERRED-атомов 32, все не-definite"
+  },
+  {
+   "eval_id": "EV10",
+   "matrix_item": 10,
+   "type": "real",
+   "check": "overlay_routing",
+   "params": {
+    "ctx_ru": {
+     "room_type": "living_room",
+     "zone_types": [
+      "conversation"
+     ],
+     "jurisdiction": "ru"
+    },
+    "ctx_us": {
+     "room_type": "living_room",
+     "zone_types": [
+      "conversation"
+     ],
+     "jurisdiction": "us_north_america"
+    }
+   },
+   "description": "наследование оверлея + маршрутизация mismatch в cross-scope",
+   "passed": true,
+   "details": "RU cross-scope=1274, US definite больше=True"
+  },
+  {
+   "eval_id": "EV11",
+   "matrix_item": 11,
+   "type": "real",
+   "check": "composite_authority",
+   "params": {},
+   "description": "composite authority биндится per-child с изданием",
+   "passed": true,
+   "details": "composite-атомов 32"
+  },
+  {
+   "eval_id": "EV12",
+   "matrix_item": 12,
+   "type": "synthetic",
+   "check": "origin_identity",
+   "params": {},
+   "description": "одна внешняя ассерция -> один origin (identity стабильна)",
+   "passed": true,
+   "details": "identity детерминирована"
+  },
+  {
+   "eval_id": "EV13",
+   "matrix_item": 13,
+   "type": "synthetic",
+   "check": "reextraction_stability",
+   "params": {},
+   "description": "re-extraction: observation/version меняются, ATOM нет",
+   "passed": true,
+   "details": "покрыто pytest: test_stable_id_under_unrelated_sibling_edit + test_ids_stable_through_enrichment"
+  },
+  {
+   "eval_id": "EV14",
+   "matrix_item": 14,
+   "type": "real",
+   "check": "presence_missing_target",
+   "params": {},
+   "description": "existence/cardinality при отсутствии таргета",
+   "passed": true,
+   "details": "presence-атомов 2"
+  },
+  {
+   "eval_id": "EV15",
+   "matrix_item": 15,
+   "type": "real",
+   "check": "conflict_fairness",
+   "params": {},
+   "description": "выбор одной стороны тянет всю конфликт-группу",
+   "passed": true,
+   "details": "групп 286, все двусторонние"
+  },
+  {
+   "eval_id": "EV16",
+   "matrix_item": 16,
+   "type": "real",
+   "check": "dependency_fairness",
+   "params": {
+    "record": "R068",
+    "ch": "ch02"
+   },
+   "description": "qualifier/exception closure не прячется ранжированием",
+   "passed": true,
+   "details": "exception-вариант в closure/variants"
+  },
+  {
+   "eval_id": "EV17",
+   "matrix_item": 17,
+   "type": "real",
+   "check": "candidate_recall",
+   "params": {},
+   "description": "candidate-pair recall на verified positives",
+   "passed": true,
+   "details": "recall=1.0, ablation=1.0"
+  },
+  {
+   "eval_id": "EV18",
+   "matrix_item": 18,
+   "type": "real",
+   "check": "no_chaining",
+   "params": {},
+   "description": "семьи без blind-chaining: нет DIFFERENT-пар внутри семьи",
+   "passed": true,
+   "details": "непомеченных DIFFERENT-пар: 0; в REVIEW: 3131"
+  },
+  {
+   "eval_id": "EV19",
+   "matrix_item": 19,
+   "type": "real",
+   "check": "oracle_equality",
+   "params": {
+    "ctx": {
+     "room_type": "bedroom",
+     "zone_types": [
+      "sleeping"
+     ]
+    }
+   },
+   "description": "exhaustive applicability == full-scan oracle (0 FN)",
+   "passed": true,
+   "details": "FN=0"
+  },
+  {
+   "eval_id": "EV20",
+   "matrix_item": 20,
+   "type": "real",
+   "check": "judge_routing",
+   "params": {},
+   "description": "examples/history не становятся P1",
+   "passed": true,
+   "details": "bundle=101, example-в-P1=0"
+  }
+ ]
+}

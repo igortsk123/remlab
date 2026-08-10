@@ -73,3 +73,9 @@ services/room-measure/*.npy
 remlab_knowledge_db_v1/runs/*.staging/
 remlab_knowledge_db_v1/llm_cache/
 remlab_knowledge_db_v1/**/*.npz
+remlab_knowledge_db_v1/runs/*/04a_semantic_comparison_candidates.jsonl
+remlab_knowledge_db_v1/runs/*/07_retrieval_records.jsonl
+remlab_knowledge_db_v1/runs/*/07b_applicability_index.jsonl
+remlab_knowledge_db_v1/runs/*/07c_context_closure_index.jsonl
+remlab_knowledge_db_v1/runs/*/embeddings_*.npz
+remlab_knowledge_db_v1/*.log
