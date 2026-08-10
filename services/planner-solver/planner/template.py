@@ -128,10 +128,17 @@ def _add_rug(b: Block, seat: Item, rug: Item | None, far_y: float,
                item_id=rug.item_id), fx, ry, 0.0)
 
 
-def _add_flank(b: Block, seat: Item, arm: Item, side: int, at_y: float) -> None:
+def _add_flank(b: Block, seat: Item, arm: Item, side: int, at_y: float,
+               table_half_w: float | None = None) -> None:
     """Кресло флангом сбоку зоны на уровне столика, лицом к центру (компасный rot:
-    справа → смотрит запад 270); не разлетаться шире круга беседы."""
-    ax = side * min(seat.w_cm / 2 + FLANK_GAP + arm.d_cm / 2, CIRCLE_D / 2 - 10)
+    справа → смотрит запад 270); не разлетаться шире круга беседы. У ШИРОКОГО
+    дивана (set50: 285 см) якорь от торца уводит кресло от столика (ARMCHAIR_
+    TABLE_DIST 109) — тогда якоримся к столику (min из двух)."""
+    ax_sofa = seat.w_cm / 2 + FLANK_GAP + arm.d_cm / 2
+    ax = ax_sofa
+    if table_half_w is not None:
+        ax = min(ax_sofa, table_half_w + FLANK_GAP + arm.d_cm / 2 + 20)
+    ax = side * min(ax, CIRCLE_D / 2 - 10)
     b.add(arm, ax, at_y, 270.0 if side > 0 else 90.0)
 
 
@@ -216,9 +223,19 @@ def build_block(group_id: str, by_role: dict[str, Item],
             fx0, _ = _free_x(sofa)
             b.add(arm1, fx0 - (arm1.w_cm / 2 + 8), ay, 180.0)
             b.add(arm2, fx0 + (arm2.w_cm / 2 + 8), ay, 180.0)
+        elif variant in ('tandem_r', 'tandem_l'):
+            # узкая комната (set37): фланги с двух сторон не влезают по ширине —
+            # кресла СТОЛБИКОМ с одного бока, лицом к центру зоны
+            side = +1 if variant == 'tandem_r' else -1
+            ax = side * (sofa.w_cm / 2 + FLANK_GAP + arm1.d_cm / 2)
+            rot = 270.0 if side > 0 else 90.0
+            ay1 = _front(sofa) + arm1.w_cm / 2 + 10
+            b.add(arm1, ax, ay1, rot)
+            b.add(arm2, ax, ay1 + arm1.w_cm / 2 + arm2.w_cm / 2 + 12, rot)
         else:
-            _add_flank(b, sofa, arm1, -1, far)
-            _add_flank(b, sofa, arm2, +1, far)
+            thw = max(table.w_cm, table.d_cm) / 2 if table else None
+            _add_flank(b, sofa, arm1, -1, far, table_half_w=thw)
+            _add_flank(b, sofa, arm2, +1, far, table_half_w=thw)
         a3, a4 = by_role.get('кресло 3'), by_role.get('кресло 4')
         if group_id == 'sofa_4armchairs' and a3 and a4:
             if variant == 'u':
@@ -242,7 +259,8 @@ def build_block(group_id: str, by_role: dict[str, Item],
             ax = table_x + free_side * (tw_half + FLANK_GAP + arm1.d_cm / 2)
             b.add(arm1, ax, far, 270.0 if free_side > 0 else 90.0)
         else:
-            _add_flank(b, sofa, arm1, free_side, far)
+            _add_flank(b, sofa, arm1, free_side, far,
+                       table_half_w=(max(table.w_cm, table.d_cm) / 2 if table else None))
     else:
         # v1.1 (аудит полноты): диван соло + столик + ковёр — блоком тоже (самый
         # частый состав малых комнат; привязка ковра/столика нужна и без кресел).
@@ -400,7 +418,9 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
         if 'ковёр' in by_role:
             variants.append({k: v for k, v in by_role.items()
                              if k not in ('столик', 'ковёр')})
-    shapes = ['default', 'u'] if group_id == 'sofa_4armchairs' else ['default']
+    shapes = {'sofa_4armchairs': ['default', 'u'],
+              'sofa_2armchairs': ['default', 'tandem_r', 'tandem_l'],
+              }.get(group_id, ['default'])
     for br in variants:
       for shape in shapes:
         b = build_block(group_id, br, variant=shape)

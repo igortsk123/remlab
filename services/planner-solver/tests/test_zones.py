@@ -356,7 +356,8 @@ def test_effective_group_regroup_after_loss():
     lay = outs[0]
     placed = {p.role for p in lay.placements}
     from planner.zones import zone_rules
-    g = {x['id']: x for x in zone_rules()['seating_groups']}[gid]
+    # gid несёт теги применённых блоков («sofa_2armchairs+tpl+din») — id до «+»
+    g = {x['id']: x for x in zone_rules()['seating_groups']}[gid.split('+')[0]]
     assert set(g['roles']['required']) <= placed, \
         f"required группы {gid} обязаны быть размещены: {placed}"
     hard = [v for v in lay.violations if v.severity is Severity.HARD]

@@ -153,20 +153,15 @@ def solve_zoned(room: Room, items, **kw):
 
         from .geometry import footprint as _fp
         from .template import place_dining
-        occ = _uu([_fp(p) for p in block if p.role != 'ковёр'])
-        din = place_dining(room, keep, usable_polygon(room).difference(occ),
-                           usable_m2(room), fixed=block)
-        if din:
-            din_roles = {p.role for p in din}
-            keep = [it for it in keep if it.role not in din_roles]
-            block = block + din
-            tpl_tag = '+tpl+din'
-        # цепочка зон дальше (зоны раздельны — решение владельца; порядок — канон
-        # свода 07.08: группа → МЕДИА → хранение → декор): медиа → хранение → чтение;
-        # каждый следующий блок видит free без предыдущих и валидируется на объединении
+        # цепочка зон (зоны раздельны — решение владельца; порядок — канон свода
+        # 07.08: группа → МЕДИА → столовая → хранение → декор; set50: обеденная
+        # раньше медиа занимала ТВ-стену и душила носитель ACCESS/SIGHTLINE'ом)
         from .template import place_media, place_reading, place_storage
-        for placer, tag in ((place_media, '+tv'), (place_storage, '+st'),
-                            (place_reading, '+rd')):
+
+        def _din(r, k, f, fixed=None):
+            return place_dining(r, k, f, usable_m2(r), fixed=fixed)
+        for placer, tag in ((place_media, '+tv'), (_din, '+din'),
+                            (place_storage, '+st'), (place_reading, '+rd')):
             occ2 = _uu([_fp(p) for p in block if p.role != 'ковёр'])
             extra = placer(room, keep, usable_polygon(room).difference(occ2),
                            fixed=block)
