@@ -68,3 +68,8 @@ services/room-measure/cache/
 services/room-measure/tmp/
 services/room-measure/*.pt
 services/room-measure/*.npy
+
+# knowledge-db (MASTER-source-kb): staging и регенерируемый крупняк — вне git
+remlab_knowledge_db_v1/runs/*.staging/
+remlab_knowledge_db_v1/llm_cache/
+remlab_knowledge_db_v1/**/*.npz

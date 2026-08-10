@@ -19,3 +19,5 @@ test-results
 .env
 .env.*
 !.env.example
+remlab_knowledge_db_v1
+services/knowledge-db

@@ -1,0 +1,6 @@
+# venv: ~/venvs/kdb (pip только в venv — правило DEV-VM)
+# Проверено на Python 3.14.4 (факт этой машины)
+pydantic==2.13.4
+jsonschema==4.26.0
+rfc8785==0.1.4
+pytest==9.1.1
