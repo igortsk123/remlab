@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""ЕДИНАЯ страница-навигатор (заявка владельца 11.08): все публикуемые сведения
+в одном месте, чтобы не искать ссылки по переписке. Обновлять при появлении
+новой публикации: добавить запись в LINKS и запустить с --publish.
+
+  ~/venvs/scout/bin/python hub_page.py --publish     # → /test/
+"""
+import html
+import json
+import os
+import subprocess
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+VER = str(int(time.time()))
+
+# (раздел, [(заголовок, путь, описание, «что с этим делать»)])
+LINKS = [
+    ('Согласование расстановки', [
+        ('Библиотека шаблонов зон', 'templates',
+         'Все схемы блоками: посадка, медиа, столовая, хранение, камин, чтение. '
+         'Табы по площади комнаты, у каждой карточки — занятая площадь и % пола.',
+         'Смотреть и присылать замечания по названию шаблона.'),
+        ('Планы всех приёмочных сцен', 'acceptance-plans',
+         '252 сцены подряд: название, план, ссылка на координаты.',
+         'Проверять итог движка; замечания — порциями, любым текстом.'),
+        ('Правила солвера — прозрачный свод', 'rules',
+         'Все числа и коды проверок, автогенерация из файлов правил.',
+         'Смотреть, если непонятно «почему движок так решил».'),
+    ]),
+    ('Проверки и отчёты', [
+        ('Покрытие каталогом: шаблон × стиль', 'coverage',
+         'Хватает ли мебели на каждый шаблон в каждом стиле — с конвертами '
+         '−20/+10% и правилом разнообразия.',
+         'Смотреть перед расширением библиотеки или закупкой категорий.'),
+        ('Майнинг композиций (9013 гостиных)', 'composition-mining',
+         'Частоты схем расстановки по площадям из ProcTHOR-10k.',
+         'Опора для новых шаблонов; данные в прод не переносятся.'),
+        ('Майнинг оформления', 'decor-mining',
+         'Как украшают зоны: сколько декора на поверхностях и на полу.',
+         'Основание правила «украшают поверхности, а не бока».'),
+    ]),
+    ('Петля качества', [
+        ('Судья раскладок — итоговые планы', 'judge-loop',
+         'Результаты пилота GPT-судьи: план после его правок, найденные проблемы.',
+         'Запускается ТОЛЬКО по вашей команде (расход платный).'),
+    ]),
+    ('Ручные демо (историческое)', [
+        ('Демо 15 м² по правилам книги', 'set112-manual',
+         'Ручная расстановка сета 112 в малой гостиной.', 'Референс.'),
+        ('Демо 57.5 м² (band 50+)', 'set112-50m2-manual',
+         'Ручная расстановка в большой гостиной — эталон для мерджа правил.',
+         'Референс.'),
+    ]),
+]
+
+
+def build() -> str:
+    secs = ''
+    for title, rows in LINKS:
+        items = ''
+        for name, path, desc, how in rows:
+            items += (f"<li><a href='/test/{path}/?v={VER}'>{html.escape(name)}</a>"
+                      f"<div class='d'>{html.escape(desc)}</div>"
+                      f"<div class='h'>{html.escape(how)}</div></li>")
+        secs += f"<section><h2>{html.escape(title)}</h2><ul>{items}</ul></section>"
+    return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex"><meta http-equiv="cache-control" content="no-cache">
+<title>RemLab — сводка публикаций</title>
+<style>body{{margin:0;background:#fff;color:#1A1F1C;font:17px/1.55 system-ui}}
+.wrap{{max-width:860px;margin:0 auto;padding:24px 16px 70px}}
+h1{{font-size:23px;margin:0 0 4px}} .sub{{color:#5C655E;font-size:15px;margin:0 0 10px}}
+section{{border-top:1px solid #E4E6E2;padding:16px 0}}
+h2{{font-size:19px;margin:0 0 10px}}
+ul{{list-style:none;padding:0;margin:0}} li{{margin:0 0 16px}}
+a{{color:#2E7D4F;font-size:18px;font-weight:600;text-decoration:none}}
+a:hover{{text-decoration:underline}}
+.d{{color:#3A423C;font-size:15px;margin-top:2px}}
+.h{{color:#5C655E;font-size:14px;margin-top:2px}}
+.note{{margin:10px 0 4px;padding:10px 12px;border-left:3px solid #3B76A2;
+background:#F4F7FA;font-size:15px}}
+</style></head><body><div class="wrap">
+<h1>RemLab — всё опубликованное в одном месте</h1>
+<p class="sub">Закладка на эту страницу: <b>remont-lab.online/test/</b> — ссылки ниже
+всегда ведут на свежие версии.</p>
+<div class="note">Страницы генерируются кодом (не рисуются руками): что на них —
+то и в движке. Если что-то выглядит устаревшим, обновите страницу с хвостом
+<code>?v2</code> — это обходит кэш браузера.</div>
+{secs}</div></body></html>"""
+
+
+if __name__ == '__main__':
+    out = os.path.expanduser('~/scout-scenes/hub-page')
+    os.makedirs(out, exist_ok=True)
+    dst = os.path.join(out, 'index.html')
+    open(dst, 'w').write(build())
+    print(f'OK → {dst}')
+    if '--publish' in sys.argv:
+        subprocess.run(['scp', '-q', dst, 'root@89.167.127.0:/tmp/hub.html'], check=True)
+        subprocess.run(['ssh', 'root@89.167.127.0',
+                        'mkdir -p /opt/remlab/test && '
+                        'mv /tmp/hub.html /opt/remlab/test/index.html'], check=True)
+        print('опубликовано: /test/')

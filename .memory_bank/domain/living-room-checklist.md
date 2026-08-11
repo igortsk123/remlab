@@ -72,3 +72,11 @@ Sources: [Mr.Doors](https://www.mrdoors.ru/blog_new/rasstanovka_mebeli_v_gostino
 [CoCreative spacing](https://www.cocreativeinteriors.com/blog/2022/03/furniture-spacing-tips-and-tricks/) ·
 [divano.ru угловой](https://www.divano.ru/informacija/kak-razmestit-uglovoy-divan-v-komnate/) ·
 [pushe.ru угловой](https://pushe.ru/blog/kuda-postavit-uglovoy-divan/)
+
+## Правило декора (11.08) — полный текст
+- **«Украшают ПОВЕРХНОСТИ, а не бока»** (правило владельца 11.08; пруф — майнинг 9013
+  гостиных, `tools/scout/mine_decor.py`, /test/decor-mining/): носители несут 1.0–2.8
+  предмета, напольного декора 0.7–1.0 на комнату и он почти не жмётся к мебели.
+  Следствия: декор масштабируется по ЧИСЛУ ПОВЕРХНОСТЕЙ (≥2 носителя → вторая ваза,
+  `tools/scout/compose2.py`); напольное — 1 предмет (32+ м² — до 2); пары кашпо у
+  носителя НЕ канон (`zones.json` → `decor_policy`).
