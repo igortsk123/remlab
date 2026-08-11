@@ -37,7 +37,8 @@ L_GAP = 20.0                     # Г-стык торец-к-торцу (10–30
 CIRCLE_D = 396.0                 # круг беседы, верх PREFERRED (KB)
 CHAIR_GAP = 2.0                  # стул вплотную к кромке (заезд под столешницу =
                                  # COLLISION в движке — урок 205, стык без пересечения)
-TOP_FULL_VALIDATE = 6            # лучших блоков на полный validate
+TOP_FULL_VALIDATE = 12           # лучших блоков на полный validate (резерв
+                                 # места под носитель отсекает часть позиций)
 
 
 def _rt(x: float, y: float, deg: float) -> tuple[float, float]:
@@ -536,7 +537,8 @@ def _side_probe(room: Room, seat_p: Placement, free: Polygon, need_w: float) -> 
 def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
                 fixed: list[Placement] | None,
                 axis_seat: Placement | None = None,
-                second_focus: Item | None = None) -> list[Placement] | None:
+                second_focus: Item | None = None,
+                require_bearer: Item | None = None) -> list[Placement] | None:
     """Общий отборщик: fits-проба всех членов → ТВ-проба → эвристический ранг →
     полный validate (hard) топ-N; первый чистый побеждает."""
     room_poly = room_polygon(room)
@@ -593,6 +595,30 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
     for _, ps in scored[:TOP_FULL_VALIDATE]:
         lay = validate(room, base + ps)
         hards = [v for v in lay.violations if v.severity is Severity.HARD]
+        if not hards and require_bearer is not None:
+            # РЕЗЕРВ МЕСТА ПОД МЕДИА (регресс 11.08: блок занимал стену, и носитель
+            # ТВ потом не вставал — 40 сцен): позиция блока принимается, только если
+            # существует hard-чистая постановка носителя при ней
+            from shapely.ops import unary_union as _uu
+            occ = _uu([footprint(p) for p in ps if p.role != 'ковёр'])
+            free2 = free.difference(occ)
+            bcs = wall_candidates(room, require_bearer, free2)
+            seat = ps[0]
+            def _aim(c):
+                r = math.radians(seat.rot)
+                vx, vy = c.placement.x - seat.x, c.placement.y - seat.y
+                n = math.hypot(vx, vy) or 1.0
+                return -((math.sin(r) * vx + math.cos(r) * vy) / n)
+            ok_combo = False
+            for bc in sorted(bcs, key=_aim)[:10]:
+                lay2 = validate(room, base + ps + [bc.placement])
+                if not any(v.severity is Severity.HARD for v in lay2.violations):
+                    ok_combo = True
+                    break
+            if not ok_combo:
+                if first_hard is None:
+                    first_hard = [('NO_ROOM_FOR_BEARER', [require_bearer.role], None)]
+                continue
         if not hards:
             return ps
         if first_hard is None:
@@ -645,7 +671,7 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
         if room.width_cm * room.depth_cm > 40 * 10_000:
             cands += list(middle_candidates(room, b.anchor, free, limit=6))
         ps = _best_block(room, b, free, cands, tv=tv, fixed=fixed,
-                         second_focus=second)
+                         second_focus=second, require_bearer=bearer)
         if ps is not None:
             return ps
     return None
