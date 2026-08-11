@@ -106,6 +106,8 @@ def pick_group(room: Room, roles_available: set[str] | dict, seats_target: int |
 # Посадочные роли, состав которых диктует ГРУППА (Z3); прочее (media/хранение/декор/обеденная)
 # группой не фильтруется — их судьбу решают ярусы наполнения и сам beam
 SEATING_ROLES = {'диван', 'кресло', 'пуф'}
+# пристенные роли считаются за ПОЛОВИНУ футпринта (веб-свод 11.08: они не режут пол)
+WALL_HUGGING_ROLES = {'стенка', 'тв-тумба', 'комод', 'стеллаж', 'витрина', 'шкаф', 'камин'}
 
 
 def _base(role: str) -> str:
@@ -156,11 +158,27 @@ def solve_zoned(room: Room, items, **kw):
 
         from .geometry import footprint as _fp
         from .template import place_dining
-        # цепочка зон (зоны раздельны — решение владельца; порядок — канон свода
-        # 07.08: группа → МЕДИА → столовая → хранение → декор; set50: обеденная
-        # раньше медиа занимала ТВ-стену и душила носитель ACCESS/SIGHTLINE'ом)
+        # ЦЕПОЧКА ЗОН ПО ПРИОРИТЕТУ + БЮДЖЕТ ПЛОЩАДИ (решение владельца 11.08,
+        # пруфы — zones.json `fill_policy`): порядок посадка → медиа → камин →
+        # столовая → хранение → тихая зона → чтение; перед каждой зоной считаем
+        # ПРОГНОЗ заполнения (пристенные ×0.5) и пропускаем зону, если она выводит
+        # комнату выше верхней границы коридора 30–45% — следующая (меньшая) зона
+        # ещё может влезть.
         from .template import (place_fireplace, place_media, place_quiet,
                                place_reading, place_storage)
+        _fp_pol = zone_rules().get('fill_policy', {})
+        _lo, _hi = _fp_pol.get('target_pct', [30, 45])
+        _half = set(WALL_HUGGING_ROLES)
+        _room_m2 = room.width_cm * room.depth_cm / 10_000
+
+        def _fill_pct(pls):
+            a = 0.0
+            for p in pls:
+                if p.role == 'ковёр':
+                    continue                      # подложка пол не занимает
+                fa = _fp(p).area / 10_000
+                a += fa * (0.5 if _base(p.role) in _half else 1.0)
+            return a / _room_m2 * 100
 
         def _din(r, k, f, fixed=None):
             return place_dining(r, k, f, usable_m2(r), fixed=fixed)
@@ -170,6 +188,13 @@ def solve_zoned(room: Room, items, **kw):
             occ2 = _uu([_fp(p) for p in block if p.role != 'ковёр'])
             extra = placer(room, keep, usable_polygon(room).difference(occ2),
                            fixed=block)
+            if extra and _fill_pct(block + extra) > _hi:
+                if os.environ.get('ZONES_DEBUG'):
+                    import sys as _s
+                    print(f'ZDBG зона {tag} пропущена: заполнение стало бы '
+                          f'{_fill_pct(block + extra):.0f}% > {_hi}%',
+                          file=_s.stderr, flush=True)
+                extra = None                      # зона не влезает в бюджет — пробуем следующую
             if extra:
                 roles2 = {p.role for p in extra}
                 keep = [it for it in keep if it.role not in roles2]

@@ -722,6 +722,20 @@ out['_room']={'w':RW,'d':RD,'m2':round(RW*RD/10_000,1),'openings':[
 # L4 (MASTER-layout-v5): топология-сигнатура — семантическая схема раскладки в артефакт и лог
 from topo_sig import topo_key, topo_signature
 out['_topo'] = topo_signature(out)
+# ЗАПОЛНЕННОСТЬ (правило владельца 11.08, коридор 30–45%): доля пола под мебелью,
+# пристенное — за половину футпринта (веб-свод); ковёр как подложка не считается
+try:
+    from planner.zones import WALL_HUGGING_ROLES as _WH, _base as _bs
+    _fill = 0.0
+    for _r, (_c, _rot, _poly, _q) in placed.items():
+        if _r in ('ковёр', 'дверь', 'окно'):
+            continue
+        from shapely.geometry import Polygon as _P
+        _fill += _P(_poly).area / 10_000 * (0.5 if _bs(_r) in _WH else 1.0)
+    out['_fill_pct'] = round(_fill / (RW * RD / 10_000) * 100, 1)
+    print(f'FILL {out["_fill_pct"]}', flush=True)
+except Exception as _e:
+    pass
 print('TOPO ' + topo_key(out['_topo']), flush=True)
 # W2.4 (kb-rules-merge): аннотация диагонали ТВ от фактической дистанции просмотра —
 # подсказка подбору ТВ в смету/сет (дистанция >3 м → ТВ от 55″), числа из tv._cfg

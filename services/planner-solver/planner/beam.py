@@ -108,6 +108,9 @@ def keep_best_diverse(states: list[State], k: int) -> list[State]:
     return out
 
 
+DROPPABLE_TIERS = ("optional", "storage", "dining")   # что можно честно НЕ ставить
+
+
 def drop_optional_until_valid(room: Room, layout: Layout,
                               protected: set[str] | None = None) -> Layout:
     """Раскладка не сходится → УБИРАЕМ опциональное, а не ставим его с нарушением.
@@ -122,9 +125,13 @@ def drop_optional_until_valid(room: Room, layout: Layout,
     if layout.ok:
         return layout
     protected = protected or set()
+    # ПРАВИЛО ВЛАДЕЛЬЦА 11.08 «не влезло — значит места нет»: если предмет второго
+    # плана (хранение/столовая/декор) стоит С НАРУШЕНИЕМ — его честно НЕ ставим,
+    # а не втискиваем в недоступный угол (экзамен: 21 сцена UNREACHABLE у
+    # стеллажа/комода, которые beam запихивал после блоков).
     guilty_first = sorted(
         [p for p in layout.placements
-         if tier_of(p.role) == "optional" and p.role not in protected],
+         if tier_of(p.role) in DROPPABLE_TIERS and p.role not in protected],
         key=lambda p: 0 if any(p.role in v.roles for v in layout.violations
                                if v.severity is Severity.HARD) else 1)
     dropped: list[str] = []
