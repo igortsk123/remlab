@@ -109,27 +109,49 @@ def _add_coffee(b: Block, seat: Item, table: Item | None) -> tuple[float, float,
     return ty + tt.d_cm / 2, fx, ty
 
 
+RUG_TUCK = 15.0                  # заход ковра под передние ножки посадки (веб: 6-12")
+
+
 def _add_rug(b: Block, seat: Item, rug: Item | None, far_y: float,
-             min_left: float | None = None) -> None:
+             min_left: float | None = None, others: list[Item] | None = None,
+             others_y: float | None = None, others_x: float | None = None) -> None:
     """Ковёр — производная блока: по оси свободной части якоря, длинной стороной
-    вдоль дивана. Габарит SKU фиксирован: крупный накрывает передние ножки,
-    малый честно ложится под столик (легальный паттерн). min_left — левая граница
-    (Г-стык: ковёр не заезжает под торец второго дивана — на чертеже сливалось
-    в «перекрытие», замечание владельца 10.08)."""
+    вдоль дивана.
+
+    КОНСИСТЕНТНОСТЬ ЗАХОДА (замечание владельца 11.08, веб-канон «be consistent
+    with how you handle the legs»): ковёр должен заходить под передние ножки ВСЕХ
+    посадочных ОДИНАКОВО (~15 см), а не глубоко под диван и краем под кресло.
+    Если спутники (кресла/второй диван) стоят дальше — ковёр смещается вперёд,
+    чтобы захватить и их фронт; при малом ковре он честно ложится под столик.
+    min_left — левая граница (Г-стык: не заезжать под торец второго дивана)."""
     if rug is None:
         return
     fx, _ = _free_x(seat)
     w, d = max(rug.w_cm, rug.d_cm), min(rug.w_cm, rug.d_cm)
     if min_left is not None:
         fx = max(fx, min_left + w / 2)
-    ry = max(_front(seat) - 15.0 + d / 2,
-             min(_front(seat) + 5.0 + d / 2, (far_y + _front(seat)) / 2))
+    near = _front(seat) - RUG_TUCK               # ближняя кромка ковра = под ножки дивана
+    ry = near + d / 2
+    if others and others_y is not None:
+        # достаёт ли ковёр до спутников? фланги стоят СБОКУ (по x), визави — дальше (по y)
+        reach_x = others_x
+        want_far = others_y + max(o.d_cm for o in others) / 2 - RUG_TUCK
+        far_ok = (near + d) >= want_far + RUG_TUCK - 1
+        # заход должен быть ЗНАЧИМЫМ (те же ~15 см), а не касанием кромки
+        side_ok = reach_x is None or (w / 2) >= reach_x + RUG_TUCK
+        if not far_ok and (near + d) < want_far:
+            ry = min(want_far - d / 2, (near + want_far) / 2 + d / 4)
+            far_ok = True
+        if not (far_ok and side_ok):
+            # ковёр мал — НЕ подсовываем его частично под диван (веб-канон: либо
+            # ножки всех посадочных на ковре, либо ничьи): центрируем под столик
+            ry = others_y
     b.add(Item(role=rug.role, w_cm=w, d_cm=d, h_cm=rug.h_cm, name=rug.name,
                item_id=rug.item_id), fx, ry, 0.0)
 
 
 def _add_flank(b: Block, seat: Item, arm: Item, side: int, at_y: float,
-               table_half_w: float | None = None) -> None:
+               table_half_w: float | None = None) -> float:
     """Кресло флангом сбоку зоны на уровне столика, лицом к центру (компасный rot:
     справа → смотрит запад 270); не разлетаться шире круга беседы. У ШИРОКОГО
     дивана (set50: 285 см) якорь от торца уводит кресло от столика (ARMCHAIR_
@@ -140,6 +162,7 @@ def _add_flank(b: Block, seat: Item, arm: Item, side: int, at_y: float,
         ax = min(ax_sofa, table_half_w + FLANK_GAP + arm.d_cm / 2 + 20)
     ax = side * min(ax, CIRCLE_D / 2 - 10)
     b.add(arm, ax, at_y, 270.0 if side > 0 else 90.0)
+    return abs(ax) - arm.d_cm / 2              # внутренняя кромка кресла — для ковра
 
 
 def _add_facing(b: Block, seat: Item, other: Item, far_y: float) -> None:
@@ -191,6 +214,9 @@ def build_block(group_id: str, by_role: dict[str, Item],
     far, table_x, table_cy = _add_coffee(b, sofa, table)
     _, free_side = _free_x(sofa)
     rug_min_left = None
+    rug_others: list[Item] | None = None
+    rug_others_y: float | None = None
+    rug_others_x: float | None = None
 
     if group_id == 'sofa_facing_sofa':
         # v2.2: два дивана визави — чистая беседа/камин. С носителем ТВ в составе
@@ -293,8 +319,10 @@ def build_block(group_id: str, by_role: dict[str, Item],
             b.add(arm2, ax, ay1 + arm1.w_cm / 2 + arm2.w_cm / 2 + 12, rot)
         else:
             thw = max(table.w_cm, table.d_cm) / 2 if table else None
-            _add_flank(b, sofa, arm1, -1, table_cy, table_half_w=thw)
-            _add_flank(b, sofa, arm2, +1, table_cy, table_half_w=thw)
+            _fx1 = _add_flank(b, sofa, arm1, -1, table_cy, table_half_w=thw)
+            _fx2 = _add_flank(b, sofa, arm2, +1, table_cy, table_half_w=thw)
+            rug_others, rug_others_y = [arm1, arm2], table_cy
+            rug_others_x = max(_fx1, _fx2)
         a3, a4 = by_role.get('кресло 3'), by_role.get('кресло 4')
         if group_id == 'sofa_4armchairs' and a3 and a4:
             if variant == 'u':
@@ -318,15 +346,18 @@ def build_block(group_id: str, by_role: dict[str, Item],
             ax = table_x + free_side * (tw_half + FLANK_GAP + arm1.d_cm / 2)
             b.add(arm1, ax, far, 270.0 if free_side > 0 else 90.0)
         else:
-            _add_flank(b, sofa, arm1, free_side, table_cy,
-                       table_half_w=(max(table.w_cm, table.d_cm) / 2 if table else None))
+            _fx1 = _add_flank(b, sofa, arm1, free_side, table_cy,
+                              table_half_w=(max(table.w_cm, table.d_cm) / 2
+                                            if table else None))
+            rug_others, rug_others_y, rug_others_x = [arm1], table_cy, _fx1
     else:
         # v1.1 (аудит полноты): диван соло + столик + ковёр — блоком тоже (самый
         # частый состав малых комнат; привязка ковра/столика нужна и без кресел).
         # Совсем нечего запекать (ни столика, ни ковра) — блока нет.
         if table is None and rug is None:
             return None
-    _add_rug(b, sofa, rug, far, min_left=rug_min_left)
+    _add_rug(b, sofa, rug, far, min_left=rug_min_left,
+             others=rug_others, others_y=rug_others_y, others_x=rug_others_x)
     return b
 
 
