@@ -30,16 +30,27 @@ for r in rows:
     if not os.path.exists(png):
         continue
     shutil.copy(png, os.path.join(OUT, f"{sid}.png"))
+    room_note = ''
     if os.path.exists(lay):
-        shutil.copy(lay, os.path.join(OUT, f"{sid}.json"))
-        combined[sid] = json.load(open(lay))
+        data = json.load(open(lay))
+        rm = data.get('_room') or {}
+        # владелец 10.08: площадь и габариты комнаты — и в подпись, и в координаты
+        # (судья-LLM должен видеть размеры)
+        if rm.get('w') and rm.get('d'):
+            rm['m2'] = round(rm['w'] * rm['d'] / 10_000, 1)
+            rm['size_note'] = f"комната {rm['w']}×{rm['d']} см, {rm['m2']} м²"
+            room_note = f"{rm['m2']} м² · {rm['w']}×{rm['d']} см · "
+        json.dump(data, open(os.path.join(OUT, f"{sid}.json"), 'w'),
+                  ensure_ascii=False, indent=1)
+        combined[sid] = data
     ok = r.get('ok')
     status = 'OK' if ok else 'FAIL'
     fails = ', '.join(r.get('fails') or []) if not ok else ''
     soft = r.get('soft_score')
     cards.append(
         f"<section id='{html.escape(sid)}'>"
-        f"<h2>{html.escape(sid)} <small>({'✅ ' + status if ok else '❌ ' + status}"
+        f"<h2>{html.escape(sid)} <small>({html.escape(room_note)}"
+        f"{'✅ ' + status if ok else '❌ ' + status}"
         f"{' · ' + html.escape(fails) if fails else ''}"
         f"{f' · soft {soft}' if soft is not None else ''})"
         f" · <a href='{html.escape(sid)}.json'>координаты</a></small></h2>"

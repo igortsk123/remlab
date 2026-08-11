@@ -166,6 +166,17 @@ def _add_flank(b: Block, seat: Item, arm: Item, side: int, at_y: float,
     return abs(ax) - arm.d_cm / 2              # внутренняя кромка кресла — для ковра
 
 
+def _add_lamp(b: Block, seat: Item, lamp: Item | None, side: int = -1) -> None:
+    """Торшер У ПОСАДКИ (заявка владельца 11.08; веб-свод: «a pair of matching lamps
+    look great flanking a sofa», свет от 60–90 см сбоку, абажур над плечом сидящего).
+    Ставим ОДИН у торца дивана — данные майнинга говорят, что напольных предметов
+    в комнате около одного; пара — только если в сете два торшера."""
+    if lamp is None:
+        return
+    b.add(lamp, side * (seat.w_cm / 2 + 12 + lamp.w_cm / 2),
+          -seat.d_cm / 2 + lamp.d_cm / 2 + 6, 0.0)
+
+
 def _add_facing(b: Block, seat: Item, other: Item, far_y: float) -> None:
     """Визави: второй посадочный напротив через столик, СИММЕТРИЧНО — равный
     зазор от столика с обеих сторон (замечание владельца 11.08: «один дальше
@@ -414,13 +425,19 @@ def build_block(group_id: str, by_role: dict[str, Item],
                 b.add(a4, +off, far + 45 + a4.d_cm / 2, 180.0)
     elif group_id in ('sofa_armchair', 'sectional_armchair'):
         if not arm1:
-            # C1 (v2): в тесных гостиных вместо кресла — ПУФ у столика
-            # (правило пуф-exclusive band 14-16 уже в zones.json)
-            pouf = by_role.get('пуф')
+            # C1 (v2, перепроверено вебом 11.08): пуфы вместо кресла в тесных.
+            # СИММЕТРИЯ (замечание владельца): пара одинаковых пуфов по бокам
+            # столика; одиночный — только если второго в сете нет.
+            pouf, pouf2 = by_role.get('пуф'), by_role.get('пуф 2')
             if pouf is None:
                 return None
-            b.add(pouf, table_x + (max(table.w_cm, table.d_cm) / 2 if table else 40)
-                  + 20 + pouf.w_cm / 2, table_cy, 270.0)
+            off = (max(table.w_cm, table.d_cm) / 2 if table else 40) + 20
+            if pouf2 is not None:
+                b.add(pouf, table_x - off - pouf.w_cm / 2, table_cy, 90.0)
+                b.add(pouf2, table_x + off + pouf2.w_cm / 2, table_cy, 270.0)
+            else:
+                b.add(pouf, table_x + off + pouf.w_cm / 2, table_cy, 270.0)
+            _add_lamp(b, sofa, by_role.get('торшер'))
             _add_rug(b, sofa, rug, far, min_left=rug_min_left)
             return b
         if variant == 'facing' and not sofa.corner:
@@ -442,6 +459,9 @@ def build_block(group_id: str, by_role: dict[str, Item],
         # Совсем нечего запекать (ни столика, ни ковра) — блока нет.
         if table is None and rug is None:
             return None
+    _add_lamp(b, sofa, by_role.get('торшер'))
+    if by_role.get('торшер 2') is not None:
+        _add_lamp(b, sofa, by_role.get('торшер 2'), side=+1)   # пара — симметрично
     _add_rug(b, sofa, rug, far, min_left=rug_min_left,
              others=rug_others, others_y=rug_others_y, others_x=rug_others_x)
     return b
