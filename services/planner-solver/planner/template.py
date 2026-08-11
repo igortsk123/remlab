@@ -395,9 +395,32 @@ def _tv_probe(room: Room, sofa_p: Placement, free: Polygon, need_w: float) -> fl
     return band * (0.4 + 0.6 * frac)
 
 
+def _side_probe(room: Room, seat_p: Placement, free: Polygon, need_w: float) -> float:
+    """v2.5b (двойной фокус): есть ли место под ВТОРОЙ фокус (камин) на СМЕЖНОЙ
+    стене — луч под ±60° от взгляда посадки. Возвращает 0..1 (лучшая из сторон)."""
+    best = 0.0
+    for off in (-60.0, 60.0):
+        r = math.radians(seat_p.rot + off)
+        dx, dy = math.sin(r), math.cos(r)
+        poly = room_polygon(room)
+        d, t = None, 60.0
+        while t <= 900.0:
+            if not poly.contains(Point(seat_p.x + dx * t, seat_p.y + dy * t)):
+                d = t
+                break
+            t += 30.0
+        if d is None or d < 150:
+            continue
+        spot = Point(seat_p.x + dx * (d - 40), seat_p.y + dy * (d - 40)) \
+            .buffer(max(need_w / 2, 40.0), resolution=4)
+        best = max(best, free.intersection(spot).area / max(spot.area, 1e-6))
+    return best
+
+
 def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
                 fixed: list[Placement] | None,
-                axis_seat: Placement | None = None) -> list[Placement] | None:
+                axis_seat: Placement | None = None,
+                second_focus: Item | None = None) -> list[Placement] | None:
     """Общий отборщик: fits-проба всех членов → ТВ-проба → эвристический ранг →
     полный validate (hard) топ-N; первый чистый побеждает."""
     room_poly = room_polygon(room)
@@ -433,6 +456,10 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
             if tv is not None and probe <= 0.0:
                 continue                    # ТВ ставить некуда — мёртвая ветка
             score += probe * 2.0
+            if second_focus is not None:
+                # v2.5b: камин + ТВ на СМЕЖНЫХ стенах — посадка по диагонали к
+                # обоим (данные-правило tv_wall_offset уже в zones.json)
+                score += _side_probe(room, ps[0], free, second_focus.w_cm) * 1.2
         if axis_seat is not None:
             # медиа-блок: приоритет соосности с главным посадочным (межзонная связь)
             r = math.radians(axis_seat.rot)
@@ -468,7 +495,11 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
     for it in items:
         by_role.setdefault(it.role, it)
     # фокус зоны: медиа-носитель, а без него — камин (v2.5: камин-фокус легален)
-    tv = by_role.get('стенка') or by_role.get('тв-тумба') or by_role.get('камин')
+    bearer = by_role.get('стенка') or by_role.get('тв-тумба')
+    fireplace = by_role.get('камин')
+    tv = bearer or fireplace
+    # v2.5b: оба фокуса в составе → второй уходит на смежную стену (диагональ)
+    second = fireplace if (bearer is not None and fireplace is not None) else None
     # каскад демоций: полный блок → без столика (бывают невозможные пары «длинный
     # столик × Г-диван», beam их тоже терял в missing) → без столика и ковра
     variants = [by_role]
@@ -494,7 +525,8 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
         # спинкой); тыл за спинкой проверят passage/sliver-чеки validate
         if room.width_cm * room.depth_cm > 40 * 10_000:
             cands += list(middle_candidates(room, b.anchor, free, limit=6))
-        ps = _best_block(room, b, free, cands, tv=tv, fixed=fixed)
+        ps = _best_block(room, b, free, cands, tv=tv, fixed=fixed,
+                         second_focus=second)
         if ps is not None:
             return ps
     return None
