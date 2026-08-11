@@ -369,8 +369,22 @@ def build_block(group_id: str, by_role: dict[str, Item],
             b.add(arm1, table_x - (arm1.w_cm / 2 + 10), ay, 180.0)
             b.add(arm2, table_x + (arm2.w_cm / 2 + 10), ay, 180.0)
             _add_lamp(b, sofa, by_role.get('торшер'))
-            _add_rug(b, sofa, rug, far, min_left=rug_min_left,
-                     others=[arm1, arm2], others_y=ay, others_x=None)
+            if rug is not None:
+                # ковёр по ЦЕНТРУ ВНУТРЕННЕГО КОНТУРА (замечание владельца 11.08:
+                # столик был не по центру ковра, кресла на ковре, диван мимо).
+                # Правило то же, что в П-композиции: либо ножки всех, либо ничьи.
+                (ix0, iy0, ix1, iy1) = _inner_zone(b)
+                rw, rd = max(rug.w_cm, rug.d_cm), min(rug.w_cm, rug.d_cm)
+                need_x, need_y = (ix1 - ix0) + 2 * RUG_TUCK, (iy1 - iy0) + 2 * RUG_TUCK
+                if rw >= need_x and rd >= need_y:
+                    w_, d_ = rw, rd
+                elif rd >= need_x and rw >= need_y:
+                    w_, d_ = rd, rw
+                else:
+                    w_, d_ = ((rw, rd) if (ix1 - ix0) >= (iy1 - iy0) else (rd, rw))
+                b.add(Item(role=rug.role, w_cm=w_, d_cm=d_, h_cm=rug.h_cm,
+                           name=rug.name, item_id=rug.item_id),
+                      (ix0 + ix1) / 2, (iy0 + iy1) / 2, 0.0)
             return b
         if variant == 'u':
             tw_half = (max(table.w_cm, table.d_cm) / 2) if table else 40.0
@@ -407,12 +421,16 @@ def build_block(group_id: str, by_role: dict[str, Item],
         elif variant == 'bridge':
             # B1 (v2, веб-свод): диван смотрит на ТВ, одно кресло развёрнуто ПОД
             # УГЛОМ (45°) — мостик между медиа-зоной и камином
+            # ПАРА ПОД ЗЕРКАЛЬНЫМИ УГЛАМИ (замечание владельца 11.08 + веб-свод:
+            # «identical seating on each side», пара кресел — симметрия). Одно
+            # кресло под углом, другое прямо — визуально неряшливо.
             _fx1 = _add_flank(b, sofa, arm1, +1, table_cy,
                               table_half_w=(max(table.w_cm, table.d_cm) / 2
                                             if table else None))
             b.rel[-1] = (arm1, b.rel[-1][1], b.rel[-1][2], 225.0)
             _add_flank(b, sofa, arm2, -1, table_cy,
                        table_half_w=(max(table.w_cm, table.d_cm) / 2 if table else None))
+            b.rel[-1] = (arm2, b.rel[-1][1], b.rel[-1][2], 135.0)   # зеркально
             rug_others, rug_others_y, rug_others_x = [arm1, arm2], table_cy, _fx1
         elif variant == 'facing':
             # кресла ВИЗАВИ прямого дивана (майнинг ProcTHOR 11.08: схема так же
@@ -494,8 +512,25 @@ def build_block(group_id: str, by_role: dict[str, Item],
     _add_lamp(b, sofa, by_role.get('торшер'))
     if by_role.get('торшер 2') is not None:
         _add_lamp(b, sofa, by_role.get('торшер 2'), side=+1)   # пара — симметрично
-    _add_rug(b, sofa, rug, far, min_left=rug_min_left,
-             others=rug_others, others_y=rug_others_y, others_x=rug_others_x)
+    # ЕДИНОЕ ПРАВИЛО КОВРА (ревизия 11.08 по замечанию владельца): если в зоне есть
+    # спутники — ковёр центрируется по ВНУТРЕННЕМУ КОНТУРУ зоны (тогда и столик по
+    # центру ковра, и заход под ножки у всех одинаковый); мал — ложится под столик
+    # (канон «либо ножки всех, либо ничьи»). Диван соло — привязка к его ножкам.
+    if rug is not None and rug_others:
+        (ix0, iy0, ix1, iy1) = _inner_zone(b)
+        rw, rd = max(rug.w_cm, rug.d_cm), min(rug.w_cm, rug.d_cm)
+        need_x, need_y = (ix1 - ix0) + 2 * RUG_TUCK, (iy1 - iy0) + 2 * RUG_TUCK
+        if rw >= need_x and rd >= need_y:
+            w_, d_ = rw, rd
+        elif rd >= need_x and rw >= need_y:
+            w_, d_ = rd, rw
+        else:
+            w_, d_ = ((rw, rd) if (ix1 - ix0) >= (iy1 - iy0) else (rd, rw))
+        b.add(Item(role=rug.role, w_cm=w_, d_cm=d_, h_cm=rug.h_cm, name=rug.name,
+                   item_id=rug.item_id), (ix0 + ix1) / 2, (iy0 + iy1) / 2, 0.0)
+    else:
+        _add_rug(b, sofa, rug, far, min_left=rug_min_left,
+                 others=rug_others, others_y=rug_others_y, others_x=rug_others_x)
     return b
 
 
@@ -928,6 +963,40 @@ def build_fireplace(by_role: dict[str, Item]) -> Block | None:
             b.add(it, side * (fp.w_cm / 2 + 20 + it.w_cm / 2),
                   (fp.d_cm - it.d_cm) / 2, 0.0)   # фасады в линию с камином
     return b
+
+
+def build_media_fireplace(by_role: dict[str, Item]) -> Block | None:
+    """ЗОНА «МЕДИА + КАМИН НА ОДНОЙ СТЕНЕ» (заявка владельца 11.08, веб-свод
+    подтвердил: side-by-side на широкой стене — рабочая схема, «TV ниже, камин
+    остаётся виден на той же фасадной стене»). Носитель по центру взгляда, камин
+    сбоку на той же стене с зазором 40 см — оба в поле зрения, кресло можно
+    развернуть к огню."""
+    bearer = by_role.get('стенка') or by_role.get('тв-тумба')
+    fp = by_role.get('камин')
+    if bearer is None or fp is None:
+        return None
+    b = Block(bearer)
+    # ВЫРАВНИВАНИЕ ПО СПИНКЕ (обе вещи пристенные): камин у той же стены, иначе
+    # он «отходит» от неё на разницу глубин и ловит NOT_AT_WALL
+    b.add(fp, bearer.w_cm / 2 + 40 + fp.w_cm / 2, -(bearer.d_cm - fp.d_cm) / 2, 0.0)
+    return b
+
+
+def place_media_fireplace(room: Room, items: list[Item], free: Polygon,
+                          fixed: list[Placement] | None = None) -> list[Placement] | None:
+    """Ставится ДО отдельных медиа/каминной зон: когда в комплекте есть и носитель,
+    и камин, они должны делить одну фасадную стену, а не конкурировать за стены."""
+    if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
+        return None
+    by_role: dict[str, Item] = {}
+    for it in items:
+        by_role.setdefault(it.role, it)
+    seat = next((p for p in (fixed or []) if p.role == 'диван'), None)
+    b = build_media_fireplace(by_role)
+    if b is None:
+        return None
+    return _best_block(room, b, free, wall_candidates(room, b.anchor, free),
+                       tv=None, fixed=fixed, axis_seat=seat)
 
 
 def place_fireplace(room: Room, items: list[Item], free: Polygon,

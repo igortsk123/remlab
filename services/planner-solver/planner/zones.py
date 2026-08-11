@@ -176,8 +176,9 @@ def solve_zoned(room: Room, items, **kw):
         # ПРОГНОЗ заполнения (пристенные ×0.5) и пропускаем зону, если она выводит
         # комнату выше верхней границы коридора 30–45% — следующая (меньшая) зона
         # ещё может влезть.
-        from .template import (place_decor, place_fireplace, place_media, place_pouf,
-                               place_quiet, place_reading, place_storage)
+        from .template import (place_decor, place_fireplace, place_media,
+                               place_media_fireplace, place_pouf, place_quiet,
+                               place_reading, place_storage)
         _fp_pol = zone_rules().get('fill_policy', {})
         _lo, _hi = _fp_pol.get('target_pct', [30, 45])
         _half = set(WALL_HUGGING_ROLES)
@@ -199,9 +200,12 @@ def solve_zoned(room: Room, items, **kw):
         # просторных комнатах он идёт ПЕРВЫМ, в малых приоритет у медиа.
         _fp_first = (room.width_cm * room.depth_cm > 32 * 10_000
                      and any(_base(i.role) == 'камин' for i in keep))
+        # ОБА ФОКУСА НА ОДНОЙ СТЕНЕ (заявка владельца 11.08, веб подтвердил
+        # side-by-side): сперва пробуем совмещённую зону «носитель + камин», и
+        # только если не встала — раздельные зоны в порядке приоритета.
         _order = ((place_fireplace, '+fp'), (place_media, '+tv')) if _fp_first \
             else ((place_media, '+tv'), (place_fireplace, '+fp'))
-        for placer, tag in (_order[0], _order[1],
+        for placer, tag in ((place_media_fireplace, '+tvfp'), _order[0], _order[1],
                             (_din, '+din'), (place_storage, '+st'),
                             (place_storage, '+st2'), (place_storage, '+st3'),
                             (place_quiet, '+qz'), (place_reading, '+rd'),
