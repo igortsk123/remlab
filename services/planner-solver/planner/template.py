@@ -85,13 +85,13 @@ def _free_x(seat: Item) -> tuple[float, int]:
     return (s / 2, +1) if seat.corner_left else (-s / 2, -1)
 
 
-def _add_coffee(b: Block, seat: Item, table: Item | None) -> tuple[float, float]:
+def _add_coffee(b: Block, seat: Item, table: Item | None) -> tuple[float, float, float]:
     """Столик по центру свободного фронта якоря; у Г-дивана дополнительно отжат от
     плеча на hard-минимум 32 (SOFA_TABLE_DIST мерит мин-гэп футпринтов, плечо рядом).
-    Возвращает (y дальней кромки, фактический x столика)."""
+    Возвращает (y дальней кромки, фактический x столика, y ЦЕНТРА столика)."""
     fx, _ = _free_x(seat)
     if table is None:
-        return _front(seat) + COFFEE_GAP, fx
+        return _front(seat) + COFFEE_GAP, fx, _front(seat) + COFFEE_GAP
     # столик длинной стороной ВДОЛЬ дивана (TABLE_ORIENTATION): нормализуем габариты
     tw, td = max(table.w_cm, table.d_cm), min(table.w_cm, table.d_cm)
     tt = table if table.w_cm >= table.d_cm else Item(
@@ -106,7 +106,7 @@ def _add_coffee(b: Block, seat: Item, table: Item | None) -> tuple[float, float]
             fx = min(-sc / 2, edge - 32 - tw / 2)
     ty = _front(seat) + COFFEE_GAP + tt.d_cm / 2
     b.add(tt, fx, ty, 0.0)
-    return ty + tt.d_cm / 2, fx
+    return ty + tt.d_cm / 2, fx, ty
 
 
 def _add_rug(b: Block, seat: Item, rug: Item | None, far_y: float,
@@ -171,7 +171,7 @@ def build_block(group_id: str, by_role: dict[str, Item],
         if not (arm1 and arm2):
             return None
         b = Block(arm1)
-        far, _fx = _add_coffee(b, arm1, table or by_role.get('приставной'))
+        far, _fx, _tcy = _add_coffee(b, arm1, table or by_role.get('приставной'))
         _add_facing(b, arm1, arm2, far)
         _add_rug(b, arm1, rug, far)
         return b
@@ -179,7 +179,7 @@ def build_block(group_id: str, by_role: dict[str, Item],
     if sofa is None:
         return None
     b = Block(sofa)
-    far, table_x = _add_coffee(b, sofa, table)
+    far, table_x, table_cy = _add_coffee(b, sofa, table)
     _, free_side = _free_x(sofa)
     rug_min_left = None
 
@@ -234,8 +234,8 @@ def build_block(group_id: str, by_role: dict[str, Item],
             b.add(arm2, ax, ay1 + arm1.w_cm / 2 + arm2.w_cm / 2 + 12, rot)
         else:
             thw = max(table.w_cm, table.d_cm) / 2 if table else None
-            _add_flank(b, sofa, arm1, -1, far, table_half_w=thw)
-            _add_flank(b, sofa, arm2, +1, far, table_half_w=thw)
+            _add_flank(b, sofa, arm1, -1, table_cy, table_half_w=thw)
+            _add_flank(b, sofa, arm2, +1, table_cy, table_half_w=thw)
         a3, a4 = by_role.get('кресло 3'), by_role.get('кресло 4')
         if group_id == 'sofa_4armchairs' and a3 and a4:
             if variant == 'u':
@@ -245,7 +245,7 @@ def build_block(group_id: str, by_role: dict[str, Item],
                     base_arm = arm1 if arm_x < 0 else arm2
                     ax = arm_x * min(sofa.w_cm / 2 + FLANK_GAP + extra.d_cm / 2,
                                      CIRCLE_D / 2 - 10)
-                    b.add(extra, ax, far + base_arm.w_cm / 2 + extra.w_cm / 2 + 12,
+                    b.add(extra, ax, table_cy + base_arm.w_cm / 2 + extra.w_cm / 2 + 12,
                           270.0 if arm_x > 0 else 90.0)
             else:
                 off = sofa.w_cm / 4
@@ -259,7 +259,7 @@ def build_block(group_id: str, by_role: dict[str, Item],
             ax = table_x + free_side * (tw_half + FLANK_GAP + arm1.d_cm / 2)
             b.add(arm1, ax, far, 270.0 if free_side > 0 else 90.0)
         else:
-            _add_flank(b, sofa, arm1, free_side, far,
+            _add_flank(b, sofa, arm1, free_side, table_cy,
                        table_half_w=(max(table.w_cm, table.d_cm) / 2 if table else None))
     else:
         # v1.1 (аудит полноты): диван соло + столик + ковёр — блоком тоже (самый
