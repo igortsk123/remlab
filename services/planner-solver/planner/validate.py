@@ -725,11 +725,22 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
         if tbl is not None:
             fwd_t, _ = relative_position(sofa, tbl)
             if fwd - fwd_t > 60 + arm.item.d_cm / 2:
-                out.append(_v("ARMCHAIR_OUT_OF_ZONE",
-                              f"«{arm.role}» уехало вперёд столика к медиастене",
-                              ["диван", arm.role], round(fwd - fwd_t),
-                              "не дальше линии столика (+60 см)"))
-                continue
+                # П/U-композиции (владелец 11.08): кресло НАПРОТИВ дивана легально,
+                # если оно НЕ на пути к экрану — караем только кресло на оси
+                # диван→носитель (реально загораживает медиазону)
+                bearer = by.get("тв-тумба")
+                on_tv_path = False
+                if bearer is not None:
+                    fwd_b, lat_b = relative_position(sofa, bearer)
+                    _, lat_a = relative_position(sofa, arm)
+                    on_tv_path = (fwd < fwd_b and
+                                  abs(lat_a - lat_b) < (bearer.item.w_cm + arm.item.w_cm) / 2)
+                if bearer is None or on_tv_path:
+                    out.append(_v("ARMCHAIR_OUT_OF_ZONE",
+                                  f"«{arm.role}» уехало вперёд столика к медиастене",
+                                  ["диван", arm.role], round(fwd - fwd_t),
+                                  "не дальше линии столика (+60 см)"))
+                    continue
         if abs(lat - act_lat) > act_w / 2 + arm.item.w_cm + 60:
             out.append(_v("ARMCHAIR_OUT_OF_ZONE", f"«{arm.role}» в {abs(lat - act_lat):.0f} см от посадки",
                           ["диван", arm.role], round(abs(lat - act_lat)),

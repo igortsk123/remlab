@@ -143,17 +143,19 @@ def _add_flank(b: Block, seat: Item, arm: Item, side: int, at_y: float,
 
 
 def _add_facing(b: Block, seat: Item, other: Item, far_y: float) -> None:
-    """Визави: второй посадочный напротив через столик, фронт-фронт в вилке."""
+    """Визави: второй посадочный напротив через столик, СИММЕТРИЧНО — равный
+    зазор от столика с обеих сторон (замечание владельца 11.08: «один дальше
+    другого»; книжный face-to-face получается из симметрии сам)."""
     fx, _ = _free_x(seat)
-    face = min(VIS_FACE[1], max(VIS_FACE[0], (far_y - _front(seat)) + COFFEE_GAP))
-    b.add(other, fx, _front(seat) + face + other.d_cm / 2, 180.0)
+    b.add(other, fx, far_y + COFFEE_GAP + other.d_cm / 2, 180.0)
 
 
 def _add_L(b: Block, sofa: Item, other: Item) -> None:
-    """Г-стык торец-к-торцу (KB/владелец): второй диван перпендикулярно, спинки
-    наружу, его торец у торца первого, общий угол зоны слева."""
+    """Г/П-стык (правка владельца 11.08): второй диван перпендикулярно слева,
+    спинкой наружу; его ближний торец — на уровне ФРОНТА первого (не спинки:
+    хвост до линии спинки читался как «перекрытие зоны» на чертеже)."""
     ox = -(sofa.w_cm / 2 + L_GAP + other.d_cm / 2)
-    oy = -sofa.d_cm / 2 + other.w_cm / 2
+    oy = _front(sofa) + 5.0 + other.w_cm / 2
     b.add(other, ox, oy, 90.0)
 
 
@@ -202,15 +204,15 @@ def build_block(group_id: str, by_role: dict[str, Item],
             return None
         _add_L(b, sofa, sofa2)
         rug_min_left = -(sofa.w_cm / 2 + L_GAP) + 6.0   # правый край дивана 2 + зазор
-        # кресла замыкают «квадрат» с ВОСТОКА, якорясь к СТОЛИКУ (не к торцу
-        # широкого дивана — иначе ARMCHAIR_TABLE_DIST); в столбик вдоль оси
-        tw_half = (max(table.w_cm, table.d_cm) / 2) if table else 40.0
-        ax = tw_half + FLANK_GAP + (arm1.d_cm / 2 if arm1 else 0)
+        # П-композиция (владелец 11.08): кресла — на ДЛИННОЙ стороне столика
+        # НАПРОТИВ главного дивана, лицом к нему; открытая сторона П — к экрану
         if arm1:
-            ay1 = _front(sofa) + arm1.w_cm / 2 + 12
-            b.add(arm1, ax, ay1, 270.0)
+            ay = far + COFFEE_GAP + arm1.d_cm / 2
             if arm2 and group_id != 'sofa_loveseat':
-                b.add(arm2, ax, ay1 + arm1.w_cm / 2 + arm2.w_cm / 2 + 12, 270.0)
+                b.add(arm1, table_x - (arm1.w_cm / 2 + 8), ay, 180.0)
+                b.add(arm2, table_x + (arm2.w_cm / 2 + 8), ay, 180.0)
+            else:
+                b.add(arm1, table_x, ay, 180.0)
     elif group_id in ('sofa_2armchairs', 'sofa_4armchairs'):
         if not (arm1 and arm2):
             return None
