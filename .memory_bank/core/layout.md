@@ -20,25 +20,23 @@ beam → скоринг → уточнение → top-K; детерминизм
 + группы из `services/planner-solver/rules/zones.json`, лексикографический отбор; `base_role`.
 Рефери — ADR-0076/0077 (расходиться — со своим пруфом); обеденная — ADR-0078; T6 —
 ADR-0080 (`services/planner-solver/planner/tv.py`, constraint-CI).
-**MASTER-layout-v5 (ADR-0082/0083):** подложка вне free_space, кламп дериватив-якорей,
-joint-пары ВЫКЛ, `tools/scout/topo_sig.py`; 62 кода. Приёмка:
-`tools/scout/acceptance_run.py` (ACC_WORKERS=6, timeout 600; рядом тяжёлое не гонять —
-аварийные записи).
-**KB-merge (10.08, план kb-rules-merge):** книжные числа в occupancy только через класс-гейт
-LAYER_STRENGTHS (`services/knowledge-db/kdb/export_rules.py`): hard слушает REQUIRED/MAXIMUM,
-рекомендации — preferred (ADR-0086). Парность диванов — `tools/scout/compose2.py`
-(same_model→collection→palette→2 кресла); Г-стык + SOFA_BLOCKS_SOFA S1
-(`services/planner-solver/planner/validate.py`). Бисект — `tools/scout/acceptance_bisect.py`.
-Гейт: 252/252, 0 хуже, 245 чистых, band50+ 32/36; `_tv`-аннотация — `tools/scout/solver_run.py`.
+**MASTER-layout-v5 (ADR-0082/0083):** подложка вне free_space, кламп якорей, joint ВЫКЛ,
+`tools/scout/topo_sig.py`; 62 кода. Приёмка: `tools/scout/acceptance_run.py`
+(ACC_WORKERS=6, timeout 600; рядом тяжёлое не гонять).
+**KB-merge (10.08, kb-rules-merge):** книжные числа в occupancy только через класс-гейт
+LAYER_STRENGTHS (`services/knowledge-db/kdb/export_rules.py`), рекомендации — preferred
+(ADR-0086). Парность диванов и подбор — `tools/scout/compose2.py`; Г-стык +
+SOFA_BLOCKS_SOFA S1 — `services/planner-solver/planner/validate.py`; бисект —
+`tools/scout/acceptance_bisect.py`. Гейт: 252/252, 0 хуже, 245 чистых, band50+ 32/36.
 **Петля судьи (10.08, ADR-0085):** СУДЬЯ один — GPT terra-vision (`tools/scout/judge_layout.py`;
 judge.py по коллажам — «контроль коллажей», не судья), запуск ТОЛЬКО по команде владельца.
 Ходы принимаются по lex_score; реестры в git; кандидаты правок — `tools/scout/judge_learn.py`;
 прозрачность — /test/rules/ (`tools/scout/rules_page.py`); ~$0.043/сцена; замечания —
 `tools/scout/owner-comments.jsonl`.
-**Шаблоны зон (11.08, [[solver-speed]] T3.5):** библиотека блоков —
-`services/planner-solver/planner/template.py` (посадка/медиа/столовая/хранение/чтение/камин);
-цепочка зон — `services/planner-solver/planner/zones.py` (теги `+tpl+tv+fp+din+st+rd`),
-фолбэк beam жив (`LAYOUT_TEMPLATES=0`); витрина с табами — `tools/scout/templates_page.py`.
-Датасеты и декор — ADR-0087; очередь схем — [[template-library-v2]]. Экзамен 252 ждёт владельца.
+**Шаблоны зон (11.08, [[solver-speed]] T3.5):** блоки-зоны и цепочка —
+`services/planner-solver/planner/template.py` (+ `zones.py`, теги `+tpl+tv+fp+din+st+rd`),
+фолбэк beam жив (`LAYOUT_TEMPLATES=0`); витрина с табами по площади —
+`tools/scout/templates_page.py` (порог = доля пола + вместимость). Датасеты и правило
+декора — ADR-0087; очередь схем — [[template-library-v2]].
 
 **Tier 2:** ../domain/occupancy-rules.md · ../guides/layout-mined-rules.md · ../guides/layout-engine-spec.md
