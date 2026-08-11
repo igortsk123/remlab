@@ -247,13 +247,22 @@ def build_block(group_id: str, by_role: dict[str, Item],
             tw_half = (max(table.w_cm, table.d_cm) / 2) if table else 40.0
             a3, a4 = by_role.get('кресло 3'), by_role.get('кресло 4')
             for side, near, far_arm in ((-1, arm1, a3), (+1, arm2, a4)):
-                ax = side * (abs(table_x) * 0 + tw_half + FLANK_GAP + near.d_cm / 2) + table_x
+                ax = side * (tw_half + FLANK_GAP + near.d_cm / 2) + table_x
                 rot = 90.0 if side < 0 else 270.0
                 b.add(near, ax, table_cy, rot)
                 if far_arm is not None:
                     b.add(far_arm, ax,
                           table_cy + near.w_cm / 2 + far_arm.w_cm / 2 + 12, rot)
-            _add_rug(b, sofa, rug, far, min_left=rug_min_left)
+            side_t = by_role.get('приставной')
+            if table is not None and side_t is not None:
+                # U обслуживает 3 стороны — пары столиков валидны (веб-свод 11.08:
+                # «paired coffee tables»); приставной в линию к столику по оси
+                b.add(side_t, table_x, table_cy + max(table.w_cm, table.d_cm) / 2 * 0
+                      + min(table.w_cm, table.d_cm) / 2 + 8 + side_t.d_cm / 2, 0.0)
+            if rug is not None:
+                rw, rd = max(rug.w_cm, rug.d_cm), min(rug.w_cm, rug.d_cm)
+                b.add(Item(role=rug.role, w_cm=rw, d_cm=rd, h_cm=rug.h_cm,
+                           name=rug.name, item_id=rug.item_id), table_x, table_cy, 0.0)
             return b
         if sofa.corner:
             # Г-диван: кресла ПАРОЙ визави напротив свободной секции (сбоку от оси
@@ -266,6 +275,13 @@ def build_block(group_id: str, by_role: dict[str, Item],
             fx0, _ = _free_x(sofa)
             b.add(arm1, fx0 - (arm1.w_cm / 2 + 8), ay, 180.0)
             b.add(arm2, fx0 + (arm2.w_cm / 2 + 8), ay, 180.0)
+        elif variant == 'facing':
+            # кресла ВИЗАВИ прямого дивана (майнинг ProcTHOR 11.08: схема так же
+            # часта, как фланг — 612 vs 626 из 9013 гостиных; легальна, когда
+            # кресло не на пути диван→экран — ослабленный P0.4)
+            ay = far + COFFEE_GAP + arm1.d_cm / 2
+            b.add(arm1, table_x - (arm1.w_cm / 2 + 8), ay, 180.0)
+            b.add(arm2, table_x + (arm2.w_cm / 2 + 8), ay, 180.0)
         elif variant in ('tandem_r', 'tandem_l'):
             # узкая комната (set37): фланги с двух сторон не влезают по ширине —
             # кресла СТОЛБИКОМ с одного бока, лицом к центру зоны
@@ -293,6 +309,10 @@ def build_block(group_id: str, by_role: dict[str, Item],
     elif group_id in ('sofa_armchair', 'sectional_armchair'):
         if not arm1:
             return None
+        if variant == 'facing' and not sofa.corner:
+            b.add(arm1, table_x, far + COFFEE_GAP + arm1.d_cm / 2, 180.0)
+            _add_rug(b, sofa, rug, far, min_left=rug_min_left)
+            return b
         if sofa.corner:
             tw_half = (max(table.w_cm, table.d_cm) / 2) if table else 40.0
             ax = table_x + free_side * (tw_half + FLANK_GAP + arm1.d_cm / 2)
@@ -458,7 +478,8 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
             variants.append({k: v for k, v in by_role.items()
                              if k not in ('столик', 'ковёр')})
     shapes = {'sofa_4armchairs': ['default', 'u'],
-              'sofa_2armchairs': ['default', 'tandem_r', 'tandem_l'],
+              'sofa_2armchairs': ['default', 'facing', 'tandem_r', 'tandem_l'],
+              'sofa_armchair': ['default', 'facing'],
               'two_sofas_2armchairs': ['default', 'square'],
               'sofa_loveseat': ['default', 'square'],
               'sofa_loveseat_2armchairs': ['default', 'square'],
