@@ -747,7 +747,11 @@ def place_dining(room: Room, items: list[Item], free: Polygon, usable_m2: float,
     by_role: dict[str, Item] = {}
     for it in items:
         by_role.setdefault(it.role, it)
-    max_chairs = 2 if usable_m2 <= 18 else (4 if usable_m2 <= 30 else 6)
+    # число стульев = сколько ЕСТЬ в сете (до предела band): лишние стулья иначе
+    # оставались без зоны (экзамен 11.08: «стул 4» пропущен в 125 сценах)
+    have_chairs = sum(1 for it in items if it.role == 'стул' or it.role.startswith('стул '))
+    cap = 2 if usable_m2 <= 18 else (4 if usable_m2 <= 30 else 6)
+    max_chairs = max(2, min(have_chairs, cap))
     # остров (стулья вокруг) — на свободных позициях; не встал — пристенный вариант
     # (стулья со стороны комнаты и с торцов) на стенных позициях
     b_all = build_dining(by_role, max_chairs, sides='all')
@@ -767,11 +771,13 @@ def place_dining(room: Room, items: list[Item], free: Polygon, usable_m2: float,
 STORAGE_ROLES = ('шкаф', 'стеллаж', 'стеллаж 2', 'витрина', 'комод')
 
 
-def build_storage(by_role: dict[str, Item]) -> Block | None:
-    """v2.4: стеллаж-стена — ряд хранения вдоль одной стены, фасады в линию,
-    зазор 8 см; якорь — самый широкий предмет, остальные вправо от него."""
-    items = [by_role[r] for r in STORAGE_ROLES if r in by_role]
-    if len(items) < 2:
+def build_storage(by_role: dict[str, Item], max_items: int = 3) -> Block | None:
+    """ЗОНА ХРАНЕНИЯ (v3, правило владельца 11.08 «зона может быть из одного
+    предмета»): ряд вдоль стены из 1–3 предметов, фасады в линию, зазор 8 см.
+    Веб-свод: открытые полки дают вертикаль, комод — вес у пола; пара ламп по
+    бокам комода задаёт симметрию (лампы ставит рендер на поверхность)."""
+    items = [by_role[r] for r in STORAGE_ROLES if r in by_role][:max_items]
+    if not items:
         return None
     items.sort(key=lambda i: -i.w_cm)
     anchor = items[0]
@@ -998,4 +1004,54 @@ def place_decor(room: Room, items: list[Item], free: Polygon,
                 best, best_d = p, d
         if best is not None:
             out.append(best)
+    return out or None
+
+
+POUF_GAP = 40.0                  # пуф от фронта дивана (веб-свод: 14-18", ~35-45 см)
+
+
+def build_pouf(by_role: dict[str, Item]) -> Block | None:
+    """ЗОНА ПУФА (v3): пуф-компаньон у посадки — своя микро-зона, когда он не вошёл
+    в разговорный блок. Якорь — сам пуф; ставится как одиночная зона (правило
+    владельца: зона из одного предмета допустима), а межзонное правило «в шаге от
+    дивана» проверит валидатор."""
+    pouf = by_role.get('пуф') or by_role.get('пуф 2')
+    if pouf is None:
+        return None
+    return Block(pouf)
+
+
+def place_pouf(room: Room, items: list[Item], free: Polygon,
+               fixed: list[Placement] | None = None) -> list[Placement] | None:
+    """Пуф ставится ПЕРЕД посадкой на расстоянии 35–45 см (веб-свод), а не у стены."""
+    if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
+        return None
+    by_role: dict[str, Item] = {}
+    for it in items:
+        by_role.setdefault(it.role, it)
+    b = build_pouf(by_role)
+    if b is None:
+        return None
+    seat = next((p for p in (fixed or []) if p.role == 'диван'), None)
+    if seat is None:
+        return None
+    r = math.radians(seat.rot)
+    fx, fy = math.sin(r), math.cos(r)
+    sd = (seat.item.d_cm if seat.item else 90.0) / 2
+    out = []
+    for gap in (POUF_GAP, 55.0, 70.0):
+        for lat in (0.0, 60.0, -60.0):
+            dist = sd + gap + b.anchor.d_cm / 2
+            x = seat.x + fx * dist + (-fy) * lat
+            y = seat.y + fy * dist + fx * lat
+            p = Placement(role=b.anchor.role, x=x, y=y, rot=seat.rot, item=b.anchor)
+            fp = footprint(p)
+            if free.intersection(fp).area < fp.area * 0.97:
+                continue
+            lay = validate(room, list(fixed or []) + [p])
+            if not any(v.severity is Severity.HARD for v in lay.violations):
+                out = [p]
+                break
+        if out:
+            break
     return out or None

@@ -164,7 +164,7 @@ def solve_zoned(room: Room, items, **kw):
         # ПРОГНОЗ заполнения (пристенные ×0.5) и пропускаем зону, если она выводит
         # комнату выше верхней границы коридора 30–45% — следующая (меньшая) зона
         # ещё может влезть.
-        from .template import (place_decor, place_fireplace, place_media,
+        from .template import (place_decor, place_fireplace, place_media, place_pouf,
                                place_quiet, place_reading, place_storage)
         _fp_pol = zone_rules().get('fill_policy', {})
         _lo, _hi = _fp_pol.get('target_pct', [30, 45])
@@ -185,7 +185,7 @@ def solve_zoned(room: Room, items, **kw):
         for placer, tag in ((place_media, '+tv'), (place_fireplace, '+fp'),
                             (_din, '+din'), (place_storage, '+st'),
                             (place_quiet, '+qz'), (place_reading, '+rd'),
-                            (place_decor, '+dc')):
+                            (place_pouf, '+pf'), (place_decor, '+dc')):
             occ2 = _uu([_fp(p) for p in block if p.role != 'ковёр'])
             extra = placer(room, keep, usable_polygon(room).difference(occ2),
                            fixed=block)
@@ -206,6 +206,30 @@ def solve_zoned(room: Room, items, **kw):
     # шаблонов — создаём новые». Раскладка собирается ТОЛЬКО из зонных блоков;
     # то, что не попало ни в один блок, честно уходит в пропущенное, а не
     # раскидывается поштучным перебором (он и портил геометрию зон).
+    if os.environ.get('LAYOUT_ONLY_TEMPLATES', '1') != '0' and not block:
+        # НЕТ ПОДХОДЯЩЕГО ШАБЛОНА (замечание владельца 11.08: «ковёр/столик не могут
+        # теряться поодиночке — их нет как отдельных шаблонов»). Раньше сцена
+        # проваливалась в поштучный перебор — он и терял ядро зоны. Теперь: пробуем
+        # минимальную схему «диван соло», а если и она не встала — сцена честно
+        # остаётся без раскладки и попадает в список «нужен новый шаблон».
+        from .template import place_template as _pt
+        block = _pt(room, 'compact_sectional', keep, usable_polygon(room))
+        if block:
+            tpl_tag = '+tpl-min'
+            block_roles = {p.role for p in block}
+            _refine_mod.LOCKED |= block_roles
+            keep = [it for it in keep if it.role not in block_roles]
+        else:
+            from .validate import validate as _val0
+            lay0 = _val0(room, [])
+            lay0.unplaced = []
+            lay0.skipped_optional = sorted({it.role for it in items})
+            if os.environ.get('ZONES_DEBUG'):
+                import sys as _s0
+                print('ZDBG НЕТ ШАБЛОНА под этот состав/комнату — сцена пуста',
+                      file=_s0.stderr, flush=True)
+            return [lay0], group['id'] + '+notpl'
+
     if block and os.environ.get('LAYOUT_ONLY_TEMPLATES', '1') != '0':
         from .validate import validate as _val
         lay = _val(room, block)
