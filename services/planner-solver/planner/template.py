@@ -201,6 +201,12 @@ def build_block(group_id: str, by_role: dict[str, Item],
         if by_role.get('стенка') is not None or by_role.get('тв-тумба') is not None:
             return None
         _add_facing(b, sofa, sofa2, far)
+        if rug is not None:
+            # симметричная схема: ковёр по ЦЕНТРУ столика (владелец 11.08)
+            rw, rd = max(rug.w_cm, rug.d_cm), min(rug.w_cm, rug.d_cm)
+            b.add(Item(role=rug.role, w_cm=rw, d_cm=rd, h_cm=rug.h_cm,
+                       name=rug.name, item_id=rug.item_id), table_x, table_cy, 0.0)
+        return b
     elif group_id in ('sofa_loveseat', 'sofa_loveseat_2armchairs',
                       'two_sofas_2armchairs'):
         # v2.1: Г-стык торец-к-торцу; столик остаётся по центру ГЛАВНОГО дивана
