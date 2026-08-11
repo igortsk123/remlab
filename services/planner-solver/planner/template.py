@@ -352,6 +352,18 @@ def build_block(group_id: str, by_role: dict[str, Item],
     elif group_id in ('sofa_2armchairs', 'sofa_4armchairs'):
         if not (arm1 and arm2):
             return None
+        if variant == 'bulky' or (variant == 'default' and arm1.d_cm >= 100):
+            # КРУПНЫЕ КРЕСЛА (новая схема 11.08, сет 112: кресла-кровати 118×119 —
+            # по глубине почти диван). Флангом у столика они не встают физически
+            # (круг беседы против дистанции до столика). Схема: кресла ВТОРЫМ РЯДОМ
+            # напротив дивана, развёрнуты к зоне; столик остаётся у дивана.
+            ay = far + COFFEE_GAP + arm1.d_cm / 2
+            b.add(arm1, table_x - (arm1.w_cm / 2 + 10), ay, 180.0)
+            b.add(arm2, table_x + (arm2.w_cm / 2 + 10), ay, 180.0)
+            _add_lamp(b, sofa, by_role.get('торшер'))
+            _add_rug(b, sofa, rug, far, min_left=rug_min_left,
+                     others=[arm1, arm2], others_y=ay, others_x=None)
+            return b
         if variant == 'u':
             tw_half = (max(table.w_cm, table.d_cm) / 2) if table else 40.0
             a3, a4 = by_role.get('кресло 3'), by_role.get('кресло 4')
@@ -622,6 +634,7 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
     from .score import score_layout
     from .zones import lexo_key
     ok_variants: list[tuple[tuple, list[Placement]]] = []
+    nb_variants: list[tuple[tuple, list[Placement]]] = []   # без места под носитель
     for _, ps in scored[:TOP_FULL_VALIDATE]:
         lay = validate(room, base + ps)
         hards = [v for v in lay.violations if v.severity is Severity.HARD]
@@ -646,6 +659,13 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
                     ok_combo = True
                     break
             if not ok_combo:
+                # РЕЗЕРВ МЕСТА — ПРЕДПОЧТЕНИЕ, НЕ ЗАПРЕТ (11.08): раньше блок
+                # отвергался целиком, и сцена оставалась без схемы (сет 112 и др.).
+                # Теперь позиция уходит в резервный список: если ни одна не оставляет
+                # места носителю, ставим лучшую из них, а медиа-зона честно
+                # пропускается («не влезло — значит места нет»).
+                terms_nb = score_layout(room, base + ps).terms
+                nb_variants.append((lexo_key(0, 0, terms_nb), ps))
                 if first_hard is None:
                     first_hard = [('NO_ROOM_FOR_BEARER', [require_bearer.role], None)]
                 continue
@@ -658,6 +678,9 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
     if ok_variants:
         ok_variants.sort(key=lambda t: t[0])
         return ok_variants[0][1]
+    if nb_variants:
+        nb_variants.sort(key=lambda t: t[0])
+        return nb_variants[0][1]
     if os.environ.get('ZONES_DEBUG'):
         import sys
         print(f"ZDBG block[{b.anchor.role}+{len(b.rel)-1}] REJECT: "
@@ -712,7 +735,7 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
         group_id = 'sofa_2armchairs' if 'кресло 2' in _av else (
             'sofa_armchair' if 'кресло' in _av else 'compact_sectional')
     shapes = {'sofa_4armchairs': ['default', 'u'],
-              'sofa_2armchairs': ['default', 'facing', 'bridge', 'tandem_r',
+              'sofa_2armchairs': ['default', 'bulky', 'facing', 'bridge', 'tandem_r',
                                   'tandem_l'],
               'sofa_armchair': ['default', 'facing'],
               'two_sofas_2armchairs': ['default', 'square'],
@@ -1049,15 +1072,20 @@ def place_pouf(room: Room, items: list[Item], free: Polygon,
     b = build_pouf(by_role)
     if b is None:
         return None
-    seat = next((p for p in (fixed or []) if p.role == 'диван'), None)
+    seat = next((p for p in (fixed or []) if p.role == 'диван'), None) or \
+        next((p for p in (fixed or []) if p.role.startswith('кресло')), None)
     if seat is None:
         return None
     r = math.radians(seat.rot)
     fx, fy = math.sin(r), math.cos(r)
     sd = (seat.item.d_cm if seat.item else 90.0) / 2
     out = []
-    for gap in (POUF_GAP, 55.0, 70.0):
-        for lat in (0.0, 60.0, -60.0):
+    # зазор и боковой сдвиг: перед посадкой место обычно занято столиком/ковром,
+    # поэтому сразу пробуем и БОКОВЫЕ позиции (у торца дивана — веб-свод «next to
+    # or in front of the sofa»), и увеличенные дистанции
+    sw = (seat.item.w_cm if seat.item else 200.0) / 2
+    for gap in (POUF_GAP, 55.0, 70.0, 95.0, 120.0):
+        for lat in (0.0, 60.0, -60.0, sw + 40, -(sw + 40)):
             dist = sd + gap + b.anchor.d_cm / 2
             x = seat.x + fx * dist + (-fy) * lat
             y = seat.y + fy * dist + fx * lat

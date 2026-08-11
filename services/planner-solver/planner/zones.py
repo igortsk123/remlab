@@ -134,7 +134,11 @@ def solve_zoned(room: Room, items, **kw):
               {_base(r) for r in group['roles'].get('optional', [])}
     keep, dropped = [], []
     for it in items:
-        if _base(it.role) in SEATING_ROLES and _base(it.role) not in allowed:
+        # ПУФ НЕ ВЫБРАКОВЫВАЕМ группой (11.08): у него теперь СВОЯ зона (place_pouf,
+        # перед/сбоку дивана по веб-своду). Раньше фильтр посадочных ролей выбрасывал
+        # его до цепочки зон — отсюда «пуф пропущен» в 168 сценах.
+        if (_base(it.role) in SEATING_ROLES and _base(it.role) not in allowed
+                and _base(it.role) != 'пуф'):
             dropped.append(it.role)
         else:
             keep.append(it)
