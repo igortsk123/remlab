@@ -31,15 +31,14 @@ LAYER_STRENGTHS (`services/knowledge-db/kdb/export_rules.py`): hard слушае
 (`services/planner-solver/planner/validate.py`). Бисект — `tools/scout/acceptance_bisect.py`.
 Гейт: 252/252, 0 хуже, 245 чистых, band50+ 32/36; `_tv`-аннотация — `tools/scout/solver_run.py`.
 **Петля судьи (10.08, ADR-0085):** СУДЬЯ один — GPT terra-vision (`tools/scout/judge_layout.py`;
-judge.py по коллажам — «контроль коллажей», не судья). Применимые правила из [[knowledge-db]],
-ходы принимаются по lex_score; реестры в git; кандидаты правок — `tools/scout/judge_learn.py`
-(решает владелец); прозрачность — /test/rules/ (`tools/scout/rules_page.py`); ~$0.043/сцена;
-замечания — `tools/scout/owner-comments.jsonl`.
+judge.py по коллажам — «контроль коллажей», не судья), запуск ТОЛЬКО по команде владельца.
+Ходы принимаются по lex_score; реестры в git; кандидаты правок — `tools/scout/judge_learn.py`;
+прозрачность — /test/rules/ (`tools/scout/rules_page.py`); ~$0.043/сцена; замечания —
+`tools/scout/owner-comments.jsonl`.
 **Шаблоны зон (11.08, [[solver-speed]] T3.5):** библиотека блоков —
 `services/planner-solver/planner/template.py` (посадка/медиа/столовая/хранение/чтение/камин);
-цепочка зон в `planner/zones.py` (теги `+tpl+tv+fp+din+st+rd`), фолбэк beam жив
-(`LAYOUT_TEMPLATES=0`). Витрина с табами по площади — `tools/scout/templates_page.py`
-(/test/templates/). Датасет-опора и правило декора — ADR-0087; очередь новых схем —
-[[template-library-v2]] (draft). Экзамен 252 ждёт команды владельца.
+цепочка зон — `services/planner-solver/planner/zones.py` (теги `+tpl+tv+fp+din+st+rd`),
+фолбэк beam жив (`LAYOUT_TEMPLATES=0`); витрина с табами — `tools/scout/templates_page.py`.
+Датасеты и декор — ADR-0087; очередь схем — [[template-library-v2]]. Экзамен 252 ждёт владельца.
 
 **Tier 2:** ../domain/occupancy-rules.md · ../guides/layout-mined-rules.md · ../guides/layout-engine-spec.md
