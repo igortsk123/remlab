@@ -233,6 +233,13 @@ def build_block(group_id: str, by_role: dict[str, Item],
                 b.add(arm2, table_x + (arm2.w_cm / 2 + 8), ay, 180.0)
             else:
                 b.add(arm1, table_x, ay, 180.0)
+        if rug is not None:
+            # ковёр по ЦЕНТРУ СТОЛИКА (замечание владельца 11.08): симметрия зоны;
+            # заезд под передние ножки дивана 2 — канон «front legs on rug»
+            rw, rd = max(rug.w_cm, rug.d_cm), min(rug.w_cm, rug.d_cm)
+            b.add(Item(role=rug.role, w_cm=rw, d_cm=rd, h_cm=rug.h_cm,
+                       name=rug.name, item_id=rug.item_id), table_x, table_cy, 0.0)
+        return b
     elif group_id in ('sofa_2armchairs', 'sofa_4armchairs'):
         if not (arm1 and arm2):
             return None
