@@ -796,16 +796,33 @@ def build_storage(by_role: dict[str, Item], max_items: int = 3) -> Block | None:
 
 def place_storage(room: Room, items: list[Item], free: Polygon,
                   fixed: list[Placement] | None = None) -> list[Placement] | None:
+    """КАСКАД ДЛИНЫ РЯДА (экзамен 11.08: ряд из трёх ~280 см не влезал — fits=0,
+    зона хранения срабатывала лишь в 12% сцен): пробуем 3 предмета, потом 2, потом
+    каждый по одному. Зона из ОДНОГО предмета легальна (правило владельца)."""
     if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
         return None
     by_role: dict[str, Item] = {}
     for it in items:
         by_role.setdefault(it.role, it)
-    b = build_storage(by_role)
-    if b is None:
+    have = [r for r in STORAGE_ROLES if r in by_role]
+    if not have:
         return None
-    return _best_block(room, b, free, wall_candidates(room, b.anchor, free),
-                       tv=None, fixed=fixed)
+    tries: list[dict[str, Item]] = []
+    if len(have) >= 3:
+        tries.append({r: by_role[r] for r in have[:3]})
+    if len(have) >= 2:
+        for i in range(len(have) - 1):
+            tries.append({r: by_role[r] for r in have[i:i + 2]})
+    tries += [{r: by_role[r]} for r in have]         # одиночные — последним шансом
+    for br in tries:
+        b = build_storage(br, max_items=len(br))
+        if b is None:
+            continue
+        ps = _best_block(room, b, free, wall_candidates(room, b.anchor, free),
+                         tv=None, fixed=fixed)
+        if ps is not None:
+            return ps
+    return None
 
 
 def build_reading(by_role: dict[str, Item]) -> Block | None:

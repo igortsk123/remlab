@@ -184,6 +184,7 @@ def solve_zoned(room: Room, items, **kw):
             return place_dining(r, k, f, usable_m2(r), fixed=fixed)
         for placer, tag in ((place_media, '+tv'), (place_fireplace, '+fp'),
                             (_din, '+din'), (place_storage, '+st'),
+                            (place_storage, '+st2'), (place_storage, '+st3'),
                             (place_quiet, '+qz'), (place_reading, '+rd'),
                             (place_pouf, '+pf'), (place_decor, '+dc')):
             occ2 = _uu([_fp(p) for p in block if p.role != 'ковёр'])
