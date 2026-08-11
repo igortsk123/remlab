@@ -791,6 +791,17 @@ for bi,band in enumerate(COMP['bands']):
             if role=='лампа' and not (chosen.get('комод') or chosen.get('тв-тумба') or chosen.get('стенка')): continue
             top=pick2(role,m2,(0.1,3),tier,pair,ctx,soft=True)
             if top: chosen[role]=dict(top[0],qty=1); alts[role]=[{k:a[k] for k in ('mid','eid','name','price','score')} for a in top[1:]]
+        # ПРАВИЛО ВЛАДЕЛЬЦА 11.08 «украшают ПОВЕРХНОСТИ, а не бока» (майнинг 9013
+        # гостиных ProcTHOR: тв-тумба несёт 2.8 предмета, комод 2.0, стеллаж 1.0;
+        # напольного декора всего 0.7–1.0 на комнату). Значит декор масштабируется
+        # по ЧИСЛУ ПОВЕРХНОСТЕЙ в сете, а не по площади: вторая ваза при двух и
+        # более носителях. Напольное (кашпо) остаётся одним — так в данных.
+        _SURFACES=('комод','тв-тумба','стенка','стеллаж','витрина')
+        _nsurf=sum(1 for r in _SURFACES if chosen.get(r))
+        if _nsurf>=2 and chosen.get('ваза'):
+            v2=pick2('ваза',m2,(0.1,3),tier,pair,ctx,soft=True)
+            it2=next((t for t in (v2 or []) if t['eid']!=chosen['ваза']['eid']),None)
+            if it2: chosen['ваза 2']=dict(it2,qty=1)
         for role,it in chosen.items():
             if 'cls' not in it or it.get('rgb') is None:
                 p=get_thumb(it['img'],it['mid'],it['eid'])

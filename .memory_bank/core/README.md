@@ -31,7 +31,7 @@
 | `room-measurement.md` | room-measurement | Замер комнаты по фото — что готово, чем меряем, что переиспользовать | `../domain/room-measurement.md` | 2026-08-04 |
 | `styles.md` | styles | Стили — паспорта, скоринг товаров, сеты и генерация | `../domain/interior-styles.md` | 2026-08-02 |
 | `user-flow.md` | user-flow | Stage 1 UX-flow, экраны, аналитика | `../domain/user-flow-details.md` | 2026-08-06 |
-| `lr-checklist.md` | lr-checklist | Состав гостиной — роли сета и пригодность товаров | `../domain/living-room-checklist.md` | 2026-08-02 |
+| `lr-checklist.md` | lr-checklist | Состав гостиной — роли сета и пригодность товаров | `../domain/living-room-checklist.md` | 2026-08-11 |
 <!-- GENERATED:core-registry END -->
 
 > Реестр и decision tree в INDEX регенерирует `tools/memory-audit.mjs` (или `/memory-check`
