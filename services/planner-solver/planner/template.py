@@ -182,6 +182,54 @@ def _add_L(b: Block, sofa: Item, other: Item) -> None:
     b.add(other, ox, oy, 90.0)
 
 
+def _seating_bbox(b: Block) -> tuple[tuple[float, float], tuple[float, float]]:
+    """Центр и размах посадочного контура блока в ЛОКАЛЬНЫХ координатах (повороты
+    осевые). Нужен ковру многосторонних композиций: класть его по центру контура,
+    а не по оси одного дивана."""
+    xs, ys = [], []
+    for it, x, y, rot in b.rel:
+        if not it.role.startswith(('диван', 'кресло')):
+            continue
+        w, d = (it.d_cm, it.w_cm) if int(rot) % 180 == 90 else (it.w_cm, it.d_cm)
+        xs += [x - w / 2, x + w / 2]
+        ys += [y - d / 2, y + d / 2]
+    if not xs:
+        return (0.0, 0.0), (0.0, 0.0)
+    return (((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2),
+            (max(xs) - min(xs), max(ys) - min(ys)))
+
+
+def _inner_zone(b: Block) -> tuple[float, float, float, float]:
+    """Внутренний контур зоны — прямоугольник между ФРОНТАМИ посадочных (то, что
+    ковёр обязан накрыть, чтобы ножки всех сторон стояли на нём одинаково)."""
+    x0, y0, x1, y1 = -1e9, -1e9, 1e9, 1e9
+    for it, x, y, rot in b.rel:
+        if not it.role.startswith(('диван', 'кресло')):
+            continue
+        w, d = (it.d_cm, it.w_cm) if int(rot) % 180 == 90 else (it.w_cm, it.d_cm)
+        r = int(rot) % 360
+        if r == 0:      # смотрит +y → фронт снизу зоны
+            y0 = max(y0, y + d / 2)
+        elif r == 180:
+            y1 = min(y1, y - d / 2)
+        elif r == 90:   # смотрит +x
+            x0 = max(x0, x + w / 2)
+        else:           # 270, смотрит -x
+            x1 = min(x1, x - w / 2)
+    # открытая сторона (там никто не сидит) — берём край посадочного контура
+    (_, _), _sp = _seating_bbox(b), None
+    (cx, cy), (sx, sy) = _seating_bbox(b)
+    if x0 < -1e8:
+        x0 = cx - sx / 2
+    if y0 < -1e8:
+        y0 = cy - sy / 2
+    if x1 > 1e8:
+        x1 = cx + sx / 2
+    if y1 > 1e8:
+        y1 = cy + sy / 2
+    return (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+
+
 def build_block(group_id: str, by_role: dict[str, Item],
                 variant: str = 'default') -> Block | None:
     """Инстанс шаблона разговорной группы от фактических SKU. v1: канонический
@@ -260,11 +308,30 @@ def build_block(group_id: str, by_role: dict[str, Item],
             else:
                 b.add(arm1, table_x, ay, 180.0)
         if rug is not None:
-            # ковёр по ЦЕНТРУ СТОЛИКА (замечание владельца 11.08): симметрия зоны;
-            # заезд под передние ножки дивана 2 — канон «front legs on rug»
+            # П-композиция (замечание владельца 11.08 «неравномерно заходят»):
+            # ковёр кладём по центру ВНУТРЕННЕГО контура зоны и только если он
+            # достаёт до фронтов ВСЕХ сторон с одинаковым заходом; иначе —
+            # честный малый паттерн «под столик» (канон: либо ножки всех, либо ничьи)
+            (cx, cy), _ = _seating_bbox(b)
+            (ix0, iy0, ix1, iy1) = _inner_zone(b)
+            need_x = (ix1 - ix0) + 2 * RUG_TUCK
+            need_y = (iy1 - iy0) + 2 * RUG_TUCK
             rw, rd = max(rug.w_cm, rug.d_cm), min(rug.w_cm, rug.d_cm)
-            b.add(Item(role=rug.role, w_cm=rw, d_cm=rd, h_cm=rug.h_cm,
-                       name=rug.name, item_id=rug.item_id), table_x, table_cy, 0.0)
+            fits_wide = rw >= need_x and rd >= need_y
+            fits_tall = rd >= need_x and rw >= need_y
+            if fits_wide or fits_tall:
+                w_, d_ = (rw, rd) if fits_wide else (rd, rw)
+                b.add(Item(role=rug.role, w_cm=w_, d_cm=d_, h_cm=rug.h_cm,
+                           name=rug.name, item_id=rug.item_id),
+                      (ix0 + ix1) / 2, (iy0 + iy1) / 2, 0.0)
+            else:
+                # мал для «ножек всех» — кладём по центру ВНУТРЕННЕГО контура:
+                # так перекос захода минимален (под столик ушёл бы к одной стороне)
+                w_, d_ = ((rw, rd) if (ix1 - ix0) >= (iy1 - iy0) else (rd, rw))
+                b.add(Item(role=rug.role, w_cm=w_, d_cm=d_, h_cm=rug.h_cm,
+                           name=rug.name, item_id=rug.item_id),
+                      (ix0 + ix1) / 2, (iy0 + iy1) / 2, 0.0)
+            _ = cx, cy
         return b
     elif group_id in ('sofa_2armchairs', 'sofa_4armchairs'):
         if not (arm1 and arm2):

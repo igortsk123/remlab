@@ -45,6 +45,7 @@ tools/scout/*
 !tools/scout/owner-comments.jsonl
 !tools/scout/composition-mining.json
 !tools/scout/decor-mining.json
+!tools/scout/template-coverage.json
 
 # docker artifacts
 *.tar
