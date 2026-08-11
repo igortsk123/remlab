@@ -156,14 +156,14 @@ def solve_zoned(room: Room, items, **kw):
         # цепочка зон (зоны раздельны — решение владельца; порядок — канон свода
         # 07.08: группа → МЕДИА → столовая → хранение → декор; set50: обеденная
         # раньше медиа занимала ТВ-стену и душила носитель ACCESS/SIGHTLINE'ом)
-        from .template import (place_fireplace, place_media, place_reading,
-                               place_storage)
+        from .template import (place_fireplace, place_media, place_quiet,
+                               place_reading, place_storage)
 
         def _din(r, k, f, fixed=None):
             return place_dining(r, k, f, usable_m2(r), fixed=fixed)
         for placer, tag in ((place_media, '+tv'), (place_fireplace, '+fp'),
                             (_din, '+din'), (place_storage, '+st'),
-                            (place_reading, '+rd')):
+                            (place_quiet, '+qz'), (place_reading, '+rd')):
             occ2 = _uu([_fp(p) for p in block if p.role != 'ковёр'])
             extra = placer(room, keep, usable_polygon(room).difference(occ2),
                            fixed=block)

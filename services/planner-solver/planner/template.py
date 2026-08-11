@@ -368,6 +368,16 @@ def build_block(group_id: str, by_role: dict[str, Item],
             fx0, _ = _free_x(sofa)
             b.add(arm1, fx0 - (arm1.w_cm / 2 + 8), ay, 180.0)
             b.add(arm2, fx0 + (arm2.w_cm / 2 + 8), ay, 180.0)
+        elif variant == 'bridge':
+            # B1 (v2, веб-свод): диван смотрит на ТВ, одно кресло развёрнуто ПОД
+            # УГЛОМ (45°) — мостик между медиа-зоной и камином
+            _fx1 = _add_flank(b, sofa, arm1, +1, table_cy,
+                              table_half_w=(max(table.w_cm, table.d_cm) / 2
+                                            if table else None))
+            b.rel[-1] = (arm1, b.rel[-1][1], b.rel[-1][2], 225.0)
+            _add_flank(b, sofa, arm2, -1, table_cy,
+                       table_half_w=(max(table.w_cm, table.d_cm) / 2 if table else None))
+            rug_others, rug_others_y, rug_others_x = [arm1, arm2], table_cy, _fx1
         elif variant == 'facing':
             # кресла ВИЗАВИ прямого дивана (майнинг ProcTHOR 11.08: схема так же
             # часта, как фланг — 612 vs 626 из 9013 гостиных; легальна, когда
@@ -403,7 +413,15 @@ def build_block(group_id: str, by_role: dict[str, Item],
                 b.add(a4, +off, far + 45 + a4.d_cm / 2, 180.0)
     elif group_id in ('sofa_armchair', 'sectional_armchair'):
         if not arm1:
-            return None
+            # C1 (v2): в тесных гостиных вместо кресла — ПУФ у столика
+            # (правило пуф-exclusive band 14-16 уже в zones.json)
+            pouf = by_role.get('пуф')
+            if pouf is None:
+                return None
+            b.add(pouf, table_x + (max(table.w_cm, table.d_cm) / 2 if table else 40)
+                  + 20 + pouf.w_cm / 2, table_cy, 270.0)
+            _add_rug(b, sofa, rug, far, min_left=rug_min_left)
+            return b
         if variant == 'facing' and not sofa.corner:
             b.add(arm1, table_x, far + COFFEE_GAP + arm1.d_cm / 2, 180.0)
             _add_rug(b, sofa, rug, far, min_left=rug_min_left)
@@ -540,6 +558,8 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
         if not ok:
             continue
         score = 1.0 if c.kind == 'wall' else 0.8
+        if c.kind == 'corner' and getattr(b.anchor, 'corner', False):
+            score += 0.5          # D2 (v2): Г-диван в угол — освобождает пол
         if 'отплыв' in (c.note or ''):
             score -= 0.15                   # прижатый канон приоритетнее отплыва
         # v2.11 (интернет-свод): вытянутая комната → посадка ПОПЕРЁК длинной оси
@@ -607,7 +627,8 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
             variants.append({k: v for k, v in by_role.items()
                              if k not in ('столик', 'ковёр')})
     shapes = {'sofa_4armchairs': ['default', 'u'],
-              'sofa_2armchairs': ['default', 'facing', 'tandem_r', 'tandem_l'],
+              'sofa_2armchairs': ['default', 'facing', 'bridge', 'tandem_r',
+                                  'tandem_l'],
               'sofa_armchair': ['default', 'facing'],
               'two_sofas_2armchairs': ['default', 'square'],
               'sofa_loveseat': ['default', 'square'],
@@ -733,7 +754,8 @@ def build_fireplace(by_role: dict[str, Item]) -> Block | None:
     fp = by_role.get('камин')
     if fp is None:
         return None
-    pairs = [('стеллаж', 'стеллаж 2'), ('стеллаж', 'комод'), ('кашпо', 'кашпо 2')]
+    pairs = [('стеллаж', 'стеллаж 2'), ('стеллаж', 'комод'),
+             ('кресло 3', 'кресло 4'), ('кашпо', 'кашпо 2')]
     left = right = None
     for a, bb in pairs:
         if a in by_role and bb in by_role:
@@ -745,11 +767,18 @@ def build_fireplace(by_role: dict[str, Item]) -> Block | None:
             return None                      # камин без оформления — блок не нужен
         left = single
     b = Block(fp)
+    chairs = left is not None and left.role.startswith('кресло')
     for side, it in ((-1, left), (+1, right)):
         if it is None:
             continue
-        b.add(it, side * (fp.w_cm / 2 + 20 + it.w_cm / 2),
-              (fp.d_cm - it.d_cm) / 2, 0.0)   # фасады в одну линию с камином
+        if chairs:
+            # A2 (v2, веб-канон «identical seating on each side»): кресла лицом
+            # друг к другу, зона безопасности от очага 61–91 см
+            b.add(it, side * (fp.w_cm / 2 + 15 + it.d_cm / 2), 75.0 + it.w_cm / 2,
+                  270.0 if side > 0 else 90.0)
+        else:
+            b.add(it, side * (fp.w_cm / 2 + 20 + it.w_cm / 2),
+                  (fp.d_cm - it.d_cm) / 2, 0.0)   # фасады в линию с камином
     return b
 
 
@@ -814,3 +843,38 @@ def place_media(room: Room, items: list[Item], free: Polygon,
         if ps is not None:
             return ps
     return None
+
+
+def build_quiet(by_role: dict[str, Item]) -> Block | None:
+    """B2 (v2, веб-свод «watch zone + quiet zone»): вторая подзона просторных
+    гостиных — пара кресел визави + приставной между ними; ставится у камина
+    или свободного угла ПОСЛЕ главной зоны."""
+    a1 = by_role.get('кресло 3')
+    a2 = by_role.get('кресло 4')
+    if not (a1 and a2):
+        return None
+    b = Block(a1)
+    side = by_role.get('приставной') or by_role.get('столик')
+    gap = (side.d_cm if side else 60.0)
+    b.add(a2, 0.0, a1.d_cm / 2 + gap + 40 + a2.d_cm / 2, 180.0)
+    if side is not None:
+        b.add(side, 0.0, a1.d_cm / 2 + (gap + 40) / 2, 0.0)
+    return b
+
+
+def place_quiet(room: Room, items: list[Item], free: Polygon,
+                fixed: list[Placement] | None = None) -> list[Placement] | None:
+    """Тихая зона — только в просторных комнатах (45+ м²) и только если главная
+    зона уже стоит: иначе кресла нужнее в основной группе."""
+    if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
+        return None
+    if room.width_cm * room.depth_cm < 45 * 10_000:
+        return None
+    by_role: dict[str, Item] = {}
+    for it in items:
+        by_role.setdefault(it.role, it)
+    b = build_quiet(by_role)
+    if b is None:
+        return None
+    return _best_block(room, b, free, wall_candidates(room, b.anchor, free),
+                       tv=None, fixed=fixed)
