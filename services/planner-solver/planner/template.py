@@ -37,8 +37,8 @@ L_GAP = 20.0                     # Г-стык торец-к-торцу (10–30
 CIRCLE_D = 396.0                 # круг беседы, верх PREFERRED (KB)
 CHAIR_GAP = 2.0                  # стул вплотную к кромке (заезд под столешницу =
                                  # COLLISION в движке — урок 205, стык без пересечения)
-TOP_FULL_VALIDATE = 12           # лучших блоков на полный validate (резерв
-                                 # места под носитель отсекает часть позиций)
+TOP_FULL_VALIDATE = 24           # позиций блока на полный разбор: из hard-чистых
+                                 # выбирается лучшая по лексикографическому скору
 
 
 def _rt(x: float, y: float, deg: float) -> tuple[float, float]:
@@ -86,13 +86,15 @@ def _free_x(seat: Item) -> tuple[float, int]:
     return (s / 2, +1) if seat.corner_left else (-s / 2, -1)
 
 
-def _add_coffee(b: Block, seat: Item, table: Item | None) -> tuple[float, float, float]:
+def _add_coffee(b: Block, seat: Item, table: Item | None, gap: float = COFFEE_GAP,
+                shift: float = 0.0) -> tuple[float, float, float]:
     """Столик по центру свободного фронта якоря; у Г-дивана дополнительно отжат от
     плеча на hard-минимум 32 (SOFA_TABLE_DIST мерит мин-гэп футпринтов, плечо рядом).
     Возвращает (y дальней кромки, фактический x столика, y ЦЕНТРА столика)."""
     fx, _ = _free_x(seat)
+    fx += shift
     if table is None:
-        return _front(seat) + COFFEE_GAP, fx, _front(seat) + COFFEE_GAP
+        return _front(seat) + gap, fx, _front(seat) + gap
     # столик длинной стороной ВДОЛЬ дивана (TABLE_ORIENTATION): нормализуем габариты
     tw, td = max(table.w_cm, table.d_cm), min(table.w_cm, table.d_cm)
     tt = table if table.w_cm >= table.d_cm else Item(
@@ -105,7 +107,7 @@ def _add_coffee(b: Block, seat: Item, table: Item | None) -> tuple[float, float,
             fx = max(sc / 2, -edge + 32 + tw / 2)
         else:
             fx = min(-sc / 2, edge - 32 - tw / 2)
-    ty = _front(seat) + COFFEE_GAP + tt.d_cm / 2
+    ty = _front(seat) + gap + tt.d_cm / 2
     b.add(tt, fx, ty, 0.0)
     return ty + tt.d_cm / 2, fx, ty
 
@@ -243,7 +245,8 @@ def _inner_zone(b: Block) -> tuple[float, float, float, float]:
 
 
 def build_block(group_id: str, by_role: dict[str, Item],
-                variant: str = 'default') -> Block | None:
+                variant: str = 'default', table_gap: float = COFFEE_GAP,
+                table_shift: float = 0.0) -> Block | None:
     """Инстанс шаблона разговорной группы от фактических SKU. v1: канонический
     вариант на группу (вариативность даёт позиция/поворот блока); диван соло без
     спутников блоком не считаем (нечего запекать)."""
@@ -258,7 +261,8 @@ def build_block(group_id: str, by_role: dict[str, Item],
         # СИММЕТРИЯ (замечание владельца 11.08): оба кресла на РАВНОМ зазоре от
         # столика (книжный face-to-face 183 давал разные плечи при мелком столике)
         b = Block(arm1)
-        far, _fx, tcy = _add_coffee(b, arm1, table or by_role.get('приставной'))
+        far, _fx, tcy = _add_coffee(b, arm1, table or by_role.get('приставной'),
+                                    table_gap, table_shift)
         b.add(arm2, 0.0, far + COFFEE_GAP + arm2.d_cm / 2, 180.0)
         if rug is not None:
             # ковёр по ЦЕНТРУ СТОЛИКА (замечание владельца 11.08): зона пары
@@ -271,7 +275,7 @@ def build_block(group_id: str, by_role: dict[str, Item],
     if sofa is None:
         return None
     b = Block(sofa)
-    far, table_x, table_cy = _add_coffee(b, sofa, table)
+    far, table_x, table_cy = _add_coffee(b, sofa, table, table_gap, table_shift)
     _, free_side = _free_x(sofa)
     rug_min_left = None
     rug_others: list[Item] | None = None
@@ -612,6 +616,12 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
     scored.sort(key=lambda t: -t[0])
     base = list(fixed or [])
     first_hard = None
+    # КАЧЕСТВО ВЫБОРА ПОЗИЦИИ (A/B 11.08: эвристика давала soft 30.8 против 1.2 у
+    # поштучного перебора): среди hard-чистых позиций блока выбираем ЛУЧШУЮ по той же
+    # лексикографической мере, что и весь движок, а не первую попавшуюся.
+    from .score import score_layout
+    from .zones import lexo_key
+    ok_variants: list[tuple[tuple, list[Placement]]] = []
     for _, ps in scored[:TOP_FULL_VALIDATE]:
         lay = validate(room, base + ps)
         hards = [v for v in lay.violations if v.severity is Severity.HARD]
@@ -640,9 +650,14 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
                     first_hard = [('NO_ROOM_FOR_BEARER', [require_bearer.role], None)]
                 continue
         if not hards:
-            return ps
+            terms = score_layout(room, base + ps).terms
+            ok_variants.append((lexo_key(0, 0, terms), ps))
+            continue
         if first_hard is None:
             first_hard = [(v.code, v.roles, v.value) for v in hards[:3]]
+    if ok_variants:
+        ok_variants.sort(key=lambda t: t[0])
+        return ok_variants[0][1]
     if os.environ.get('ZONES_DEBUG'):
         import sys
         print(f"ZDBG block[{b.anchor.role}+{len(b.rel)-1}] REJECT: "
@@ -666,12 +681,23 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
     second = fireplace if (bearer is not None and fireplace is not None) else None
     # каскад демоций: полный блок → без столика (бывают невозможные пары «длинный
     # столик × Г-диван», beam их тоже терял в missing) → без столика и ковра
-    variants = [by_role]
+    # СНАЧАЛА пробуем сохранить столик: зазор в hard-вилке 32–50 и боковой сдвиг
+    # ≤15% ширины дивана (регресс 11.08: демоция роняла столик, и он оставался
+    # без места — 25 сцен «столик не размещён»)
+    sofa_w = (by_role.get('диван') or by_role.get('кресло'))
+    _sh = (sofa_w.w_cm * 0.12) if sofa_w else 20.0
+    tries = [(by_role, COFFEE_GAP, 0.0)]
     if 'столик' in by_role:
-        variants.append({k: v for k, v in by_role.items() if k != 'столик'})
+        for g in (36.0, 32.0, 48.0):
+            tries.append((by_role, g, 0.0))
+        for sh in (_sh, -_sh):
+            tries.append((by_role, COFFEE_GAP, sh))
+        tries.append(({k: v for k, v in by_role.items() if k != 'столик'},
+                      COFFEE_GAP, 0.0))
         if 'ковёр' in by_role:
-            variants.append({k: v for k, v in by_role.items()
-                             if k not in ('столик', 'ковёр')})
+            tries.append(({k: v for k, v in by_role.items()
+                           if k not in ('столик', 'ковёр')}, COFFEE_GAP, 0.0))
+    variants = tries
     # ЭФФЕКТИВНАЯ группа (11.08): выбранная группа может требовать роль, которой в
     # сете нет (sofa_armchair без кресла) — тогда блок не собирался и сцена уходила
     # в поштучный фолбэк. Понижаем группу до реально доступного состава.
@@ -693,9 +719,10 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
               'sofa_loveseat': ['default', 'square'],
               'sofa_loveseat_2armchairs': ['default', 'square'],
               }.get(group_id, ['default'])
-    for br in variants:
+    for br, _gap, _shift in variants:
       for shape in shapes:
-        b = build_block(group_id, br, variant=shape)
+        b = build_block(group_id, br, variant=shape, table_gap=_gap,
+                        table_shift=_shift)
         if b is None or len(b.rel) < 2:
             continue
         cands = list(wall_candidates(room, b.anchor, free))

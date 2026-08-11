@@ -214,6 +214,11 @@ def solve_zoned(room: Room, items, **kw):
     # только её составом («не удерживать предмет потому, что он помещается»).
     if outs:
         placed_roles = {p.role for p in outs[0].placements}
+        if os.environ.get('ZONES_DEBUG'):
+            import sys as _s
+            print(f"ZDBG после beam: block={'да' if block else 'нет'} "
+                  f"placed={sorted(placed_roles)} unplaced={outs[0].unplaced}",
+                  file=_s.stderr, flush=True)
         req = set(group['roles']['required'])
         if not (req <= placed_roles):
             groups = {g['id']: g for g in zone_rules()['seating_groups']}
@@ -251,6 +256,11 @@ def solve_zoned(room: Room, items, **kw):
                     for lay in outs:
                         lay.skipped_optional = sorted(set(lay.skipped_optional) | set(dropped))
                     return outs, fallback['id']
+    if os.environ.get('ZONES_DEBUG'):
+        import sys as _s
+        print(f"ZDBG итог: block={'да' if block else 'нет'} tag={tpl_tag} "
+              f"placed={sorted(p.role for p in outs[0].placements)} "
+              f"unplaced={outs[0].unplaced}", file=_s.stderr, flush=True)
     for lay in outs:
         lay.skipped_optional = sorted(set(lay.skipped_optional) | set(dropped))
     return outs, group['id'] + tpl_tag
