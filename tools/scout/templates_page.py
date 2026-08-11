@@ -214,7 +214,9 @@ queue_html = ''.join(
 
 page = f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex"><title>Шаблоны зон — на согласование</title>
+<meta name="robots" content="noindex">
+<meta http-equiv="cache-control" content="no-cache, must-revalidate">
+<title>Шаблоны зон — на согласование</title>
 <style>body{{margin:0;background:#fff;color:#1A1F1C;font:17px/1.55 system-ui}}
 .wrap{{max-width:980px;margin:0 auto;padding:22px 14px 60px}}
 h1{{font-size:23px;margin:0 0 6px}} .sub{{color:#5C655E;font-size:15px;margin-bottom:6px}}
