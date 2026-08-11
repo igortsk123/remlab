@@ -640,7 +640,12 @@ def attempt_beam():
     missing = list(lay.unplaced)
     # Рефери 08.08 (Q1/3.3): дроп ярусом — не провал, но и не молчание (no silent caps)
     if lay.skipped_optional:
-        print('SKIPPED ' + json.dumps(sorted(lay.skipped_optional), ensure_ascii=False), flush=True)
+        # ТЕРМИНОЛОГИЯ (правило владельца 11.08): предметы вне выбранных шаблонов —
+        # ИЗБЫТОК КОМПЛЕКТА, а не «предмет не поставился». Не ставится ШАБЛОН.
+        print('SURPLUS ' + json.dumps(sorted(lay.skipped_optional), ensure_ascii=False),
+              flush=True)
+        print('SKIPPED ' + json.dumps(sorted(lay.skipped_optional), ensure_ascii=False),
+              flush=True)   # legacy-строка для прежних потребителей отчёта
     # ОДНА линейка (2026-08-07): вердикты планнера. Scout-чеки поверх мерили Г-диван другой
     # методикой и спорили с ядром (41 ложный провал «диван↔столик» на перегоне) — они остаются
     # только у DFS, который планнером не проверяется.

@@ -53,12 +53,16 @@ def _one(engine, sc):
     soft = json.loads(msoft.group(1)) if msoft else {}
     dumb = round(sum(soft.get('terms', {}).values()), 1)
     mfill = re.search(r'^FILL ([\d.]+)$', out, re.M)
+    mtpl = re.search(r'зонная группа: (\S+)', out)          # какие ШАБЛОНЫ применены
+    msur = re.search(r'^SURPLUS (\[.*\])$', out, re.M)      # избыток комплекта
     mskip = re.search(r'^SKIPPED (\[.*\])$', out, re.M)
     skipped = json.loads(mskip.group(1)) if mskip else []
     ok = not fails and not missing and r.returncode == 0
     rec = dict(scene=sc['id'], set=sc['set'], ok=ok, fails=fails,
                missing=missing, skipped=skipped, soft_score=dumb,
                fill_pct=(float(mfill.group(1)) if mfill else None),
+               templates=(mtpl.group(1) if mtpl else None),
+               surplus=(json.loads(msur.group(1)) if msur else []),
                group=(re.search(r'зонная группа: (\S+)', out) or [None, None])[1],
                topo=(re.search(r'^TOPO (.+)$', out, re.M) or [None, None])[1])
     if r.returncode != 0:   # крэш без FAIL-строк иначе неотличим от «просто не ok»

@@ -4,6 +4,14 @@
 Порядок решений (своды владельца 07.08): геометрия → маршруты → focal point → группа как
 система → media → хранение → декор. Здесь — фундамент уровня 1; блочное размещение зон
 наращивается поверх этих примитивов.
+
+ПРАВИЛО АТОМАРНОСТИ ШАБЛОНА (владелец, 11.08 — действует во всём движке):
+    ШАБЛОН СТАВИТСЯ ЦЕЛИКОМ ИЛИ НЕ СТАВИТСЯ ВОВСЕ.
+Выбрасывать предмет ИЗ шаблона запрещено. Не влез — берём ДРУГОЙ шаблон меньшего
+состава (столовая 6→4→2, хранение 3→2→1, посадка диван+2 кресла→диван+кресло→соло).
+Формулировка «предмет не поставился» недопустима: не ставится ШАБЛОН. Предметы
+комплекта вне выбранного шаблона — ИЗБЫТОК КОМПЛЕКТА, не ошибка расстановки.
+Пруф и примеры: services/planner-solver/rules/zones.json → template_atomicity.
 """
 from __future__ import annotations
 
@@ -238,6 +246,9 @@ def solve_zoned(room: Room, items, **kw):
     if block and os.environ.get('LAYOUT_ONLY_TEMPLATES', '1') != '0':
         from .validate import validate as _val
         lay = _val(room, block)
+        # ИНВАРИАНТ АТОМАРНОСТИ: все члены применённых шаблонов обязаны стоять
+        _missing_block = {p.role for p in block} - {p.role for p in lay.placements}
+        assert not _missing_block, f'шаблон разобран: не хватает {_missing_block}'
         lay.unplaced = []
         lay.skipped_optional = sorted({it.role for it in keep} | set(dropped))
         outs = [lay]
