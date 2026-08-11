@@ -170,9 +170,11 @@ def build_block(group_id: str, by_role: dict[str, Item],
     if group_id == 'armchair_pair':
         if not (arm1 and arm2):
             return None
+        # СИММЕТРИЯ (замечание владельца 11.08): оба кресла на РАВНОМ зазоре от
+        # столика (книжный face-to-face 183 давал разные плечи при мелком столике)
         b = Block(arm1)
         far, _fx, _tcy = _add_coffee(b, arm1, table or by_role.get('приставной'))
-        _add_facing(b, arm1, arm2, far)
+        b.add(arm2, 0.0, far + COFFEE_GAP + arm2.d_cm / 2, 180.0)
         _add_rug(b, arm1, rug, far)
         return b
 
