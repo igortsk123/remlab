@@ -764,7 +764,7 @@ def place_dining(room: Room, items: list[Item], free: Polygon, usable_m2: float,
                        tv=None, fixed=fixed)
 
 
-STORAGE_ROLES = ('стеллаж', 'стеллаж 2', 'шкаф', 'комод')
+STORAGE_ROLES = ('шкаф', 'стеллаж', 'стеллаж 2', 'витрина', 'комод')
 
 
 def build_storage(by_role: dict[str, Item]) -> Block | None:
@@ -964,3 +964,38 @@ def place_quiet(room: Room, items: list[Item], free: Polygon,
         return None
     return _best_block(room, b, free, wall_candidates(room, b.anchor, free),
                        tv=None, fixed=fixed)
+
+
+def place_decor(room: Room, items: list[Item], free: Polygon,
+                fixed: list[Placement] | None = None) -> list[Placement] | None:
+    """ЗОНА ДЕКОРА (последняя по приоритету, правило владельца 11.08): напольная
+    зелень ставится в СВОБОДНЫЙ УГОЛ, а не вплотную к мебели — по майнингу 9013
+    гостиных декор в 60–120 см от мебели встречается единицами, основная масса
+    дальше 250 см. Кашпо — один предмет (в просторных до двух)."""
+    if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
+        return None
+    plants = [it for it in items if it.role.startswith('кашпо')]
+    if not plants:
+        return None
+    cap = 2 if room.width_cm * room.depth_cm > 32 * 10_000 else 1
+    plants = plants[:cap]
+    base = list(fixed or [])
+    occ = [footprint(p) for p in base if p.role != 'ковёр']
+    out: list[Placement] = []
+    for pl in plants:
+        best, best_d = None, -1.0
+        for c in wall_candidates(room, pl, free):
+            if c.kind != 'corner':
+                continue                      # только углы (свод: зелень в угол)
+            p = c.placement
+            d = min((footprint(p).distance(o) for o in occ), default=999.0)
+            if d < 60:
+                continue                      # вплотную к мебели не ставим
+            lay = validate(room, base + out + [p])
+            if any(v.severity is Severity.HARD for v in lay.violations):
+                continue
+            if d > best_d:
+                best, best_d = p, d
+        if best is not None:
+            out.append(best)
+    return out or None

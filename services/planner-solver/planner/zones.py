@@ -164,8 +164,8 @@ def solve_zoned(room: Room, items, **kw):
         # ПРОГНОЗ заполнения (пристенные ×0.5) и пропускаем зону, если она выводит
         # комнату выше верхней границы коридора 30–45% — следующая (меньшая) зона
         # ещё может влезть.
-        from .template import (place_fireplace, place_media, place_quiet,
-                               place_reading, place_storage)
+        from .template import (place_decor, place_fireplace, place_media,
+                               place_quiet, place_reading, place_storage)
         _fp_pol = zone_rules().get('fill_policy', {})
         _lo, _hi = _fp_pol.get('target_pct', [30, 45])
         _half = set(WALL_HUGGING_ROLES)
@@ -184,7 +184,8 @@ def solve_zoned(room: Room, items, **kw):
             return place_dining(r, k, f, usable_m2(r), fixed=fixed)
         for placer, tag in ((place_media, '+tv'), (place_fireplace, '+fp'),
                             (_din, '+din'), (place_storage, '+st'),
-                            (place_quiet, '+qz'), (place_reading, '+rd')):
+                            (place_quiet, '+qz'), (place_reading, '+rd'),
+                            (place_decor, '+dc')):
             occ2 = _uu([_fp(p) for p in block if p.role != 'ковёр'])
             extra = placer(room, keep, usable_polygon(room).difference(occ2),
                            fixed=block)
@@ -234,6 +235,40 @@ def solve_zoned(room: Room, items, **kw):
             outs = outs1 or solve(room, keep, fixed=block, **kw)
     else:
         outs = solve(room, keep, fixed=block, **kw)
+    # ОБОГАЩЕНИЕ ДО НИЖНЕЙ ГРАНИЦЫ (правило владельца 11.08): комната ниже коридора
+    # выглядит пустой (замер: 15–25% при цели 30%). Если после всех зон заполнение
+    # < нижней границы, ВТОРОЙ проход по зонам с остатком предметов — вдруг что-то
+    # не встало из-за порядка, а не из-за места.
+    if block and outs and keep:
+        from .models import Severity as _Sev
+        from .validate import validate
+        _cur = _fill_pct(outs[0].placements)
+        if _cur < _lo:
+            _occ3 = _uu([_fp(p) for p in outs[0].placements if p.role != 'ковёр'])
+            _free3 = usable_polygon(room).difference(_occ3)
+            for placer2, tag2 in ((place_storage, '+st2'), (place_decor, '+dc2'),
+                                  (place_reading, '+rd2')):
+                got = placer2(room, keep, _free3, fixed=list(outs[0].placements))
+                if not got:
+                    continue
+                trial = validate(room, list(outs[0].placements) + got)
+                if any(v.severity is _Sev.HARD for v in trial.violations):
+                    continue
+                roles3 = {p.role for p in got}
+                keep = [it for it in keep if it.role not in roles3]
+                outs[0].placements = list(outs[0].placements) + got
+                outs[0].violations = trial.violations
+                _refine_mod.LOCKED |= roles3
+                tpl_tag += tag2
+                _occ3 = _uu([_fp(p) for p in outs[0].placements if p.role != 'ковёр'])
+                _free3 = usable_polygon(room).difference(_occ3)
+                if _fill_pct(outs[0].placements) >= _lo:
+                    break
+            if os.environ.get('ZONES_DEBUG'):
+                import sys as _s
+                print(f'ZDBG обогащение: {_cur:.0f}% → {_fill_pct(outs[0].placements):.0f}% '
+                      f'(цель ≥{_lo}%)', file=_s.stderr, flush=True)
+
     # P0.1 (рефери 08.08, set59/113): потерян REQUIRED-слот группы → НЕ удерживать остатки
     # старой группы, а выбрать лучшую валидную effective-группу и пере-решить один раз
     # только её составом («не удерживать предмет потому, что он помещается»).

@@ -831,6 +831,38 @@ for bi,band in enumerate(COMP['bands']):
             v2=pick2('ваза',m2,(0.1,3),tier,pair,ctx,soft=True)
             it2=next((t for t in (v2 or []) if t['eid']!=chosen['ваза']['eid']),None)
             if it2: chosen['ваза 2']=dict(it2,qty=1)
+        # ОБОГАЩЕНИЕ ДО КОРИДОРА ЗАПОЛНЕНИЯ (решение владельца 11.08; пруфы —
+        # zones.json fill_policy: цель 30–45% пола, пристенное считается за половину).
+        # Замер 11.08: комнаты выходили на 15–25% — пустые. Пока прогноз ниже нижней
+        # границы, добираем СЛЕДУЮЩИЕ ПО ПРИОРИТЕТУ роли (хранение → посадка →
+        # столовая → декор): солвер сам обогатить не может — мебели просто нет в сете.
+        _WALLH={'стенка','тв-тумба','комод','стеллаж','витрина','шкаф','камин'}
+        def _fill_now():
+            a=0.0
+            for r,it in chosen.items():
+                if r.split(' ')[0] in ('ковёр','люстра','бра','плед','подушка','ваза',
+                                       'лампа','шторы','картина','статуэтка','растение'):
+                    continue
+                w=(it.get('w') or 0)/100.0; d=(it.get('d') or it.get('dia') or 0)/100.0
+                if not (w and d): continue
+                a+=w*d*int(it.get('qty') or 1)*(0.5 if r.split(' ')[0] in _WALLH else 1.0)
+            return a/max(m2,1)*100
+        _ENRICH=[('стеллаж',1),('витрина',1),('комод 2',1),('кресло 3',1),('кресло 4',1),
+                 ('пуф',1),('приставной',1),('стол обеденный',1),('стул',4)]
+        _fill0=_fill_now()
+        for _r,_q in _ENRICH:
+            if _fill_now()>=30: break
+            _base_r=_r.split(' ')[0]
+            if chosen.get(_r): continue
+            _top=pick2(_base_r,m2,(0.05,6),tier,pair,ctx,soft=True,qty=_q)
+            if not _top: continue
+            _cand=next((t for t in _top if t['eid'] not in {x.get('eid') for x in chosen.values()}),None)
+            if not _cand: continue
+            chosen[_r]=dict(_cand,qty=_q)
+            if _fill_now()>45:            # перебор — откатываем последний добор
+                chosen.pop(_r); break
+        if os.environ.get('COMPOSE_DEBUG'):
+            print(f'  обогащение: {_fill0:.0f}% → {_fill_now():.0f}% (цель 30–45%)',flush=True)
         for role,it in chosen.items():
             if 'cls' not in it or it.get('rgb') is None:
                 p=get_thumb(it['img'],it['mid'],it['eid'])
