@@ -204,9 +204,18 @@ def build_block(group_id: str, by_role: dict[str, Item],
             return None
         _add_L(b, sofa, sofa2)
         rug_min_left = -(sofa.w_cm / 2 + L_GAP) + 6.0   # правый край дивана 2 + зазор
-        # П-композиция (владелец 11.08): кресла — на ДЛИННОЙ стороне столика
-        # НАПРОТИВ главного дивана, лицом к нему; открытая сторона П — к экрану
-        if arm1:
+        if variant == 'square':
+            # фолбэк для тесных канонических комнат: кресла столбиком сбоку столика
+            tw_half = (max(table.w_cm, table.d_cm) / 2) if table else 40.0
+            ax = table_x + tw_half + FLANK_GAP + (arm1.d_cm / 2 if arm1 else 0)
+            if arm1:
+                b.add(arm1, ax, table_cy, 270.0)
+                if arm2 and group_id != 'sofa_loveseat':
+                    b.add(arm2, ax,
+                          table_cy + arm1.w_cm / 2 + arm2.w_cm / 2 + 12, 270.0)
+        elif arm1:
+            # П-композиция (владелец 11.08): кресла — на ДЛИННОЙ стороне столика
+            # НАПРОТИВ главного дивана, лицом к нему; открытая сторона П — к экрану
             ay = far + COFFEE_GAP + arm1.d_cm / 2
             if arm2 and group_id != 'sofa_loveseat':
                 b.add(arm1, table_x - (arm1.w_cm / 2 + 8), ay, 180.0)
@@ -216,6 +225,18 @@ def build_block(group_id: str, by_role: dict[str, Item],
     elif group_id in ('sofa_2armchairs', 'sofa_4armchairs'):
         if not (arm1 and arm2):
             return None
+        if variant == 'u':
+            tw_half = (max(table.w_cm, table.d_cm) / 2) if table else 40.0
+            a3, a4 = by_role.get('кресло 3'), by_role.get('кресло 4')
+            for side, near, far_arm in ((-1, arm1, a3), (+1, arm2, a4)):
+                ax = side * (abs(table_x) * 0 + tw_half + FLANK_GAP + near.d_cm / 2) + table_x
+                rot = 90.0 if side < 0 else 270.0
+                b.add(near, ax, table_cy, rot)
+                if far_arm is not None:
+                    b.add(far_arm, ax,
+                          table_cy + near.w_cm / 2 + far_arm.w_cm / 2 + 12, rot)
+            _add_rug(b, sofa, rug, far, min_left=rug_min_left)
+            return b
         if sofa.corner:
             # Г-диван: кресла ПАРОЙ визави напротив свободной секции (сбоку от оси
             # экрана); со столиком у Г-компакта пара «столик×плечо» часто нерешаема
@@ -243,14 +264,10 @@ def build_block(group_id: str, by_role: dict[str, Item],
         a3, a4 = by_role.get('кресло 3'), by_role.get('кресло 4')
         if group_id == 'sofa_4armchairs' and a3 and a4:
             if variant == 'u':
-                # v2.12 (интернет-свод): U-композиция — кресла СТОЛБИКАМИ по бокам
-                # (2+2), контур открыт к фокусу; вторые кресла за первыми
-                for arm_x, extra in ((-1, a3), (+1, a4)):
-                    base_arm = arm1 if arm_x < 0 else arm2
-                    ax = arm_x * min(sofa.w_cm / 2 + FLANK_GAP + extra.d_cm / 2,
-                                     CIRCLE_D / 2 - 10)
-                    b.add(extra, ax, table_cy + base_arm.w_cm / 2 + extra.w_cm / 2 + 12,
-                          270.0 if arm_x > 0 else 90.0)
+                # v2.12 (правка владельца 11.08): столбики ПО БОКАМ СТОЛИКА —
+                # якорь к столику (не к дивану), ближние центрированы по нему,
+                # вторые кресла строго за ближними тем же x
+                pass
             else:
                 off = sofa.w_cm / 4
                 b.add(a3, -off, far + 45 + a3.d_cm / 2, 180.0)
@@ -424,6 +441,9 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
                              if k not in ('столик', 'ковёр')})
     shapes = {'sofa_4armchairs': ['default', 'u'],
               'sofa_2armchairs': ['default', 'tandem_r', 'tandem_l'],
+              'two_sofas_2armchairs': ['default', 'square'],
+              'sofa_loveseat': ['default', 'square'],
+              'sofa_loveseat_2armchairs': ['default', 'square'],
               }.get(group_id, ['default'])
     for br in variants:
       for shape in shapes:
@@ -485,6 +505,10 @@ def build_storage(by_role: dict[str, Item]) -> Block | None:
         # глубины разные — фасады в линию: сдвиг по y на полуразность глубин
         b.add(it, x + 8 + it.w_cm / 2, (anchor.d_cm - it.d_cm) / 2, 0.0)
         x += 8 + it.w_cm
+    plant = by_role.get('кашпо')
+    if plant is not None:
+        # живой акцент у торца ряда (веб-свод 11.08: растение у стеллажа/полок)
+        b.add(plant, x + 15 + plant.w_cm / 2, (anchor.d_cm - plant.d_cm) / 2, 0.0)
     return b
 
 
@@ -511,7 +535,8 @@ def build_reading(by_role: dict[str, Item]) -> Block | None:
         return None
     b = Block(arm)
     if lamp is not None:
-        b.add(lamp, arm.w_cm / 2 + lamp.w_cm / 2 + 6, -arm.d_cm / 2 + 8, 0.0)
+        # сбоку и чуть сзади — свет через плечо (веб-свод 11.08 подтвердил)
+        b.add(lamp, arm.w_cm / 2 + lamp.w_cm / 2 + 12, -arm.d_cm / 2 + 8, 0.0)
     if side is not None:
         b.add(side, -(arm.w_cm / 2 + side.w_cm / 2 + 8), 5.0, 0.0)
     return b
@@ -539,7 +564,9 @@ def build_media(by_role: dict[str, Item], with_flanks: bool = True) -> Block | N
         return None
     b = Block(bearer)
     if with_flanks:
-        deco = [by_role[r] for r in ('кашпо', 'торшер', 'кашпо 2') if r in by_role][:2]
+        # только растения/декор (веб-свод 11.08: торшер — у ПОСАДКИ, не у тумбы;
+        # мелкая лампа — НА поверхности, её ставит рендер-механика hosts)
+        deco = [by_role[r] for r in ('кашпо', 'кашпо 2') if r in by_role][:2]
         for i, d in enumerate(deco):
             side = -1 if i == 0 else 1
             b.add(d, side * (bearer.w_cm / 2 + 25 + d.w_cm / 2), 0.0, 0.0)
