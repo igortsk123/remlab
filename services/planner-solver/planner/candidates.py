@@ -109,10 +109,18 @@ def wall_candidates(room: Room, item: Item, free: Polygon, *, step: float = GRID
     import math as _m
 
     from .geometry import room_edges
-    # T3 (solver-speed, п.1): адаптивный шаг — большие комнаты грубее (×2), точность
-    # добивает refine; кратно меньше кандидатов на 40+ м² («не все вариации жизнеспособны»)
-    if room.width_cm * room.depth_cm > 40 * 10_000 and step <= GRID_CM:
-        step = step * 2
+    # T3 (solver-speed, п.1): АДАПТИВНЫЙ ШАГ — крупная комната перебирается грубее,
+    # точность добивает refine (он двигает предметы шагами 10 см и мельче).
+    # Ступени по площади: ≤40 м² — базовый 25 см; 40–60 — ×2; >60 — ×3.
+    # Дополнительно шаг не мельче 1/12 габарита предмета: скользить диван 285 см
+    # с шагом 25 см бессмысленно — соседние позиции неразличимы для правил.
+    if step <= GRID_CM:
+        _m2 = room.width_cm * room.depth_cm / 10_000
+        if _m2 > 60:
+            step *= 3
+        elif _m2 > 40:
+            step *= 2
+        step = max(step, min(item.w_cm, item.d_cm) / 12.0)
     out: list[Candidate] = []
     for ei, ((x1, y1), (x2, y2)) in enumerate(room_edges(room)):
         ex, ey = x2 - x1, y2 - y1

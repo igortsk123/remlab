@@ -139,6 +139,8 @@ def solve_zoned(room: Room, items, **kw):
     # T3 (solver-speed, владелец 10.08): сперва пробуем ШАБЛОН разговорной зоны — блок
     # с запечённой геометрией (столик/кресла/ковёр привязаны к дивану). Удался — члены
     # блока уходят из перебора (fixed), beam доставляет остальное. Нет — прежний путь.
+    from . import refine as _refine_mod
+    _refine_mod.LOCKED = set()        # чистый старт на каждую сцену (детерминизм)
     block = None
     if os.environ.get('LAYOUT_TEMPLATES', '1') != '0':
         from .template import place_template
@@ -146,6 +148,7 @@ def solve_zoned(room: Room, items, **kw):
     tpl_tag = '+tpl' if block else ''
     if block:
         block_roles = {p.role for p in block}
+        _refine_mod.LOCKED |= block_roles      # шаблон нерушим: доводка их не двигает
         keep = [it for it in keep if it.role not in block_roles]
         # столовая зона тоже блоком (владелец 10.08) — на free без разговорного блока;
         # стулья по band: ≤18 м² — 2, ≤30 — 4, дальше 6
@@ -171,6 +174,7 @@ def solve_zoned(room: Room, items, **kw):
                 roles2 = {p.role for p in extra}
                 keep = [it for it in keep if it.role not in roles2]
                 block = block + extra
+                _refine_mod.LOCKED |= roles2
                 tpl_tag += tag
     # H3 (08.08): большие комнаты с богатым составом — ДВУХПРОХОДНОЕ размещение:
     # проход 1 — ядро (группа+носитель ТВ+столик+ковёр), проход 2 — достройка (обеденная,

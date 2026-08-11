@@ -105,12 +105,17 @@ def check_access(ps: list[Placement]) -> list[Violation]:
     from .candidates import group_of
     from .geometry import base_role as _brole
     out = []
-    for a in ps:
+    # СКОРОСТЬ (профиль 11.08: check_access — 26 из 94 с): предвычисляем футпринты и
+    # их bbox один раз, и пересекаем полигоны ТОЛЬКО когда bbox'ы задевают друг друга.
+    fps = [footprint(b) for b in ps]
+    bbs = [f.bounds for f in fps]
+    for i, a in enumerate(ps):
         zone = access_zone(a)
         if zone.is_empty:
             continue
+        zb = zone.bounds
         ga = group_of(a.role)
-        for b in ps:
+        for j, b in enumerate(ps):
             if b is a or b.role in NEVER_BLOCKING_ROLES:
                 continue
             if _brole(b.role) in ga:
@@ -118,7 +123,10 @@ def check_access(ps: list[Placement]) -> list[Violation]:
             bh = (b.item.h_cm if b.item else None)
             if bh is not None and bh <= LOW_ITEM_MAX_H_CM:
                 continue   # низкий предмет (столик/пуф) подход не перекрывает
-            inter = zone.intersection(footprint(b)).area
+            fb = bbs[j]
+            if fb[0] >= zb[2] or fb[2] <= zb[0] or fb[1] >= zb[3] or fb[3] <= zb[1]:
+                continue   # bbox'ы не пересекаются — полигонов не трогаем
+            inter = zone.intersection(fps[j]).area
             if inter > 100:  # >0.01 м² — не округление
                 out.append(_v("ACCESS_BLOCKED",
                               f"«{b.role}» перекрывает подход к «{a.role}»", [a.role, b.role],

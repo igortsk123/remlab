@@ -31,6 +31,8 @@ def quantize_rot(rot: float) -> int:
 
 
 _FP_CACHE: dict[tuple, Polygon] = {}   # beam гоняет одни и те же footprint'ы тысячи раз
+_AZ_CACHE: dict[tuple, Polygon] = {}   # то же для зон доступа (профиль 11.08: 100k вызовов,
+                                       # 16 с из 94 — вторая по весу статья после validate)
 
 
 def base_role(role: str) -> str:
@@ -91,6 +93,11 @@ def access_zone(p: Placement, item: Item | None = None, spec: ClearanceSpec | No
     sp = spec or clearance_for(p.role)
     if it is None:
         raise ValueError(f"access_zone({p.role}): нет габаритов")
+    key = (p.role, it.w_cm, it.d_cm, sp.front_cm, sp.side_cm, sp.back_cm,
+           round(p.x, 2), round(p.y, 2), round(p.rot, 2))
+    hit = _AZ_CACHE.get(key)
+    if hit is not None:
+        return hit
     w, d = it.w_cm, it.d_cm
     parts = []
     if sp.front_cm > 0:  # перед лицом (+y в локальных координатах, см. facing_vector)
@@ -101,10 +108,15 @@ def access_zone(p: Placement, item: Item | None = None, spec: ClearanceSpec | No
     if sp.back_cm > 0:   # за спинкой (−y): вентзазор/проход
         parts.append(box(-w / 2, -d / 2 - sp.back_cm, w / 2, -d / 2))
     if not parts:
-        return Polygon()
+        _AZ_CACHE[key] = Polygon()
+        return _AZ_CACHE[key]
     zone = unary_union(parts)
     zone = rotate(zone, -p.rot, origin=(0, 0), use_radians=False)
-    return translate(zone, p.x, p.y)
+    zone = translate(zone, p.x, p.y)
+    if len(_AZ_CACHE) > 200_000:
+        _AZ_CACHE.clear()
+    _AZ_CACHE[key] = zone
+    return zone
 
 
 def seating_front_offset(item: Item) -> float:

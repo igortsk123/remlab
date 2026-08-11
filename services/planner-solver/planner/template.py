@@ -672,6 +672,19 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
         if 'ковёр' in by_role:
             variants.append({k: v for k, v in by_role.items()
                              if k not in ('столик', 'ковёр')})
+    # ЭФФЕКТИВНАЯ группа (11.08): выбранная группа может требовать роль, которой в
+    # сете нет (sofa_armchair без кресла) — тогда блок не собирался и сцена уходила
+    # в поштучный фолбэк. Понижаем группу до реально доступного состава.
+    _av = set(by_role)
+    if group_id in ('sofa_2armchairs', 'sofa_4armchairs') and 'кресло 2' not in _av:
+        group_id = 'sofa_armchair'
+    if group_id in ('sofa_armchair', 'sectional_armchair') and 'кресло' not in _av \
+            and 'пуф' not in _av:
+        group_id = 'compact_sectional'
+    if group_id in ('sofa_facing_sofa', 'sofa_loveseat', 'sofa_loveseat_2armchairs',
+                    'two_sofas_2armchairs') and 'диван 2' not in _av:
+        group_id = 'sofa_2armchairs' if 'кресло 2' in _av else (
+            'sofa_armchair' if 'кресло' in _av else 'compact_sectional')
     shapes = {'sofa_4armchairs': ['default', 'u'],
               'sofa_2armchairs': ['default', 'facing', 'bridge', 'tandem_r',
                                   'tandem_l'],

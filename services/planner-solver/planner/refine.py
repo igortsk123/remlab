@@ -96,6 +96,8 @@ def _snap_bearer_axis(room: Room, layout: Layout) -> Layout:
     bearer = by.get("тв-тумба") or by.get("стенка")
     if sofa is None or bearer is None or sofa.item is None or bearer.item is None:
         return layout
+    if bearer.role in LOCKED:
+        return layout        # носитель поставлен медиа-блоком
     import math
     r = math.radians(sofa.rot)
     fx, fy = math.sin(r), math.cos(r)
@@ -136,6 +138,8 @@ def _snap_rug_anchor(room: Room, layout: Layout) -> Layout:
     sofa, rug = by.get("диван"), by.get("ковёр")
     if sofa is None or rug is None or sofa.item is None or rug.item is None:
         return layout
+    if rug.role in LOCKED:
+        return layout        # ковёр поставлен шаблоном — не трогаем
     import math
     r = math.radians(sofa.rot)
     fx, fy = math.sin(r), math.cos(r)
@@ -169,6 +173,8 @@ def _snap_table_center(room: Room, layout: Layout) -> Layout:
     sofa, tbl = by.get("диван"), by.get("столик")
     if sofa is None or tbl is None or sofa.item is None:
         return layout
+    if tbl.role in LOCKED:
+        return layout        # столик поставлен шаблоном
     import math
     r = math.radians(sofa.rot)
     fx, fy = math.sin(r), math.cos(r)
@@ -191,8 +197,16 @@ def _snap_table_center(room: Room, layout: Layout) -> Layout:
     return layout
 
 
+LOCKED: set[str] = set()   # роли-члены зонных БЛОКОВ: доводка их не трогает
+                           # (правило владельца 11.08 «шаблоны нерушимы»): внутренняя
+                           # геометрия блока уже параметрическая — отступы пересчитаны
+                           # от фактических габаритов SKU, снапам там нечего улучшать.
+
+
 def refine(room: Room, layout: Layout, *, rounds: int = MAX_ROUNDS) -> Layout:
-    """Доводка раскладки: те же предметы, чуть другие координаты — меньше нарушений."""
+    """Доводка раскладки: те же предметы, чуть другие координаты — меньше нарушений.
+
+    Члены зонных блоков (`LOCKED`) пропускаются: их позиции заданы шаблоном."""
     best = layout
     best_h, best_s = _hard(best), score_layout(room, best.placements).total
     best_codes = _hard_codes(best)
@@ -208,6 +222,8 @@ def refine(room: Room, layout: Layout, *, rounds: int = MAX_ROUNDS) -> Layout:
                        key=lambda i: 0 if best.placements[i].role in guilty else 1)
         for i in order:
             p = best.placements[i]
+            if p.role in LOCKED:
+                continue          # член блока — шаблон нерушим
             for step in steps:
                 for ax, ay in _axes_for(room, p):
                     for sign in (1, -1):
