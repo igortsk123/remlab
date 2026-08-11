@@ -10,6 +10,9 @@ import json
 import os
 import subprocess
 import sys
+import time
+
+VER = str(int(time.time()))   # cache-busting: браузер владельца кэшировал старые PNG
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -201,7 +204,7 @@ items_html = []
 for name, title, note, status in cards:
     items_html.append(
         f"<section><h2>{html.escape(title)} <small>{html.escape(status)}</small></h2>"
-        f"<img src='{name}.png' loading='lazy'>"
+        f"<img src='{name}.png?v={VER}' loading='lazy'>"
         f"<p class='note'>{html.escape(note)}</p></section>")
 queue_html = ''.join(
     f"<h3>{html.escape(zone)}</h3><ul>" +
