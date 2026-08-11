@@ -256,6 +256,30 @@ def solve_zoned(room: Room, items, **kw):
                     for lay in outs:
                         lay.skipped_optional = sorted(set(lay.skipped_optional) | set(dropped))
                     return outs, fallback['id']
+    # ГАРАНТИЯ «НЕ ХУЖЕ» (гейт 11.08): шаблон — предпочтение, а не обязанность.
+    # Если блочная раскладка вышла с нарушениями или потеряла предметы — считаем
+    # ВТОРОЙ вариант прежним поштучным путём и берём лучший лексикографически.
+    from .models import Severity as _Sev
+    if block and outs and (outs[0].unplaced or
+                           any(v.severity is _Sev.HARD for v in outs[0].violations)):
+        alt = solve(room, [it for it in items
+                           if _base(it.role) not in SEATING_ROLES
+                           or _base(it.role) in allowed], **kw)
+        if alt:
+            from .score import score_layout as _sl
+
+            def _key(l):
+                h = sum(1 for v in l.violations if v.severity is _Sev.HARD)
+                return lexo_key(h, len(l.unplaced), _sl(room, l.placements).terms)
+            if _key(alt[0]) < _key(outs[0]):
+                _refine_mod.LOCKED = set()
+                for lay in alt:
+                    lay.skipped_optional = sorted(set(lay.skipped_optional) | set(dropped))
+                if os.environ.get('ZONES_DEBUG'):
+                    import sys as _s
+                    print('ZDBG фолбэк ЛУЧШЕ блока — берём поштучный',
+                          file=_s.stderr, flush=True)
+                return alt, group['id'] + '+fb'
     if os.environ.get('ZONES_DEBUG'):
         import sys as _s
         print(f"ZDBG итог: block={'да' if block else 'нет'} tag={tpl_tag} "
