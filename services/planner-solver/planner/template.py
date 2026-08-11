@@ -175,9 +175,14 @@ def build_block(group_id: str, by_role: dict[str, Item],
         # СИММЕТРИЯ (замечание владельца 11.08): оба кресла на РАВНОМ зазоре от
         # столика (книжный face-to-face 183 давал разные плечи при мелком столике)
         b = Block(arm1)
-        far, _fx, _tcy = _add_coffee(b, arm1, table or by_role.get('приставной'))
+        far, _fx, tcy = _add_coffee(b, arm1, table or by_role.get('приставной'))
         b.add(arm2, 0.0, far + COFFEE_GAP + arm2.d_cm / 2, 180.0)
-        _add_rug(b, arm1, rug, far)
+        if rug is not None:
+            # ковёр по ЦЕНТРУ СТОЛИКА (замечание владельца 11.08): зона пары
+            # симметрична — оба кресла заходят на ковёр одинаково
+            rw, rd = max(rug.w_cm, rug.d_cm), min(rug.w_cm, rug.d_cm)
+            b.add(Item(role=rug.role, w_cm=rw, d_cm=rd, h_cm=rug.h_cm,
+                       name=rug.name, item_id=rug.item_id), 0.0, tcy, 0.0)
         return b
 
     if sofa is None:
