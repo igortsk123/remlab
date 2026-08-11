@@ -3,7 +3,7 @@ tier: 1
 topic: layout
 scope: Расстановка — свод правил, зона-билдер, прод-ядро
 tier2: ../domain/occupancy-rules.md
-updated: 2026-08-10
+updated: 2026-08-11
 importance: high
 source: manual
 status: working
@@ -35,6 +35,11 @@ judge.py по коллажам — «контроль коллажей», не �
 ходы принимаются по lex_score; реестры в git; кандидаты правок — `tools/scout/judge_learn.py`
 (решает владелец); прозрачность — /test/rules/ (`tools/scout/rules_page.py`); ~$0.043/сцена;
 замечания — `tools/scout/owner-comments.jsonl`.
-**Дальше:** [[solver-speed]] (draft) — зонные ШАБЛОНЫ по band'ам, слот-конверты −20/+10%.
+**Шаблоны зон (11.08, [[solver-speed]] T3.5):** библиотека блоков —
+`services/planner-solver/planner/template.py` (посадка/медиа/столовая/хранение/чтение/камин);
+цепочка зон в `planner/zones.py` (теги `+tpl+tv+fp+din+st+rd`), фолбэк beam жив
+(`LAYOUT_TEMPLATES=0`). Витрина с табами по площади — `tools/scout/templates_page.py`
+(/test/templates/). Датасет-опора и правило декора — ADR-0087; очередь новых схем —
+[[template-library-v2]] (draft). Экзамен 252 ждёт команды владельца.
 
 **Tier 2:** ../domain/occupancy-rules.md · ../guides/layout-mined-rules.md · ../guides/layout-engine-spec.md

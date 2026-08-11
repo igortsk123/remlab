@@ -1386,3 +1386,20 @@ hard-слой (пруф: [30,46]-регресс, урок 214; механиче�
 американские максимум точечно (отдельный проход по registry).
 **Влияет на.** `occupancy.json` (ноты-пруфы), экспорт W0, будущие мерджи книг; `[[core/layout]]`,
 `[[core/knowledge-db]]`.
+
+## ADR-0087 — Датасеты расстановок: 3D-FRONT отклонён, опора — ProcTHOR/ReplicaCAD (2026-08-11)
+**Решение.** Для проектирования шаблонов зон используем только лицензионно чистые датасеты:
+**ProcTHOR-10k** (Apache 2.0, `~/datasets/procthor-10k`, 9013 гостиных) и **ReplicaCAD**
+(CC BY 4.0). **3D-FRONT ЗАПРЕЩЁН** — соглашение Alibaba запрещает коммерческое использование
+«datasets, derivative works AND the results obtained based on the datasets»; идея «нарезать
+шаблоны и удалить исходники» НЕ легализует (шаблоны = results based on). Из чистых датасетов
+берём ТОЛЬКО агрегаты/схемы, в прод данные не переносим; числа остаются из KB.
+**Находки, вшитые в движок** (майнеры `tools/scout/mine_compositions.py`, `mine_decor.py`;
+отчёты /test/composition-mining/, /test/decor-mining/): кресло ВИЗАВИ дивана так же часто,
+как флангом (612/626) → shape `facing`; соло-диван 52% (v1.1 подтверждён); напольного декора
+0.7–1.0 на комнату и он редко жмётся к мебели → один акцент вместо пары; поверхности несут
+1.0–2.8 предмета → правило владельца «украшают ПОВЕРХНОСТИ, а не бока»
+(`services/planner-solver/rules/zones.json`→`decor_policy`, `tools/scout/compose2.py`). Каминов в ProcTHOR 0 → каминная схема
+опирается на веб-свод и книгу, данными непроверяема (честное ограничение).
+**Влияет на.** `services/planner-solver/planner/template.py`, `tools/scout/compose2.py`,
+[[layout]], [[lr-checklist]]; будущие волны шаблонов ([[template-library-v2]]).
