@@ -28,11 +28,10 @@ LAYER_STRENGTHS (`services/knowledge-db/kdb/export_rules.py`), рекоменд�
 (ADR-0086). Парность диванов и подбор — `tools/scout/compose2.py`; Г-стык +
 SOFA_BLOCKS_SOFA S1 — `services/planner-solver/planner/validate.py`; бисект —
 `tools/scout/acceptance_bisect.py`. Гейт: 252/252, 0 хуже, 245 чистых, band50+ 32/36.
-**Петля судьи (10.08, ADR-0085):** СУДЬЯ один — GPT terra-vision (`tools/scout/judge_layout.py`;
-judge.py по коллажам — «контроль коллажей», не судья), запуск ТОЛЬКО по команде владельца.
-Ходы принимаются по lex_score; реестры в git; кандидаты правок — `tools/scout/judge_learn.py`;
-прозрачность — /test/rules/ (`tools/scout/rules_page.py`); ~$0.043/сцена; замечания —
-`tools/scout/owner-comments.jsonl`.
+**Петля судьи (10.08, ADR-0085):** судья один — GPT terra-vision
+(`tools/scout/judge_layout.py`), запуск ТОЛЬКО по команде владельца; ходы по lex_score,
+реестры в git, кандидаты правок — `tools/scout/judge_learn.py`; прозрачность — /test/rules/
+(`tools/scout/rules_page.py`); ~$0.043/сцена.
 **Шаблоны зон (11.08, [[solver-speed]] T3.5):** блоки-зоны и цепочка —
 `services/planner-solver/planner/template.py` (+ `zones.py`, теги `+tpl+tv+fp+din+st+rd`),
 фолбэк beam жив (`LAYOUT_TEMPLATES=0`); витрина с табами по площади —
