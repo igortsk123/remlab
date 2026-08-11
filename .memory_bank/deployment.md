@@ -34,13 +34,12 @@ exit-fi 89.167.127.0 (Hetzner, 2 vCPU/3.7G/38G), compose v2, `/opt/remlab`; swap
 buildx arm64 → прежний образ в `:prev` → `docker save|ssh|docker load` → `compose up -d`
 (+ 5b: SQL-миграции `db/init/*.sql` psql-ом, идемпотентно) → smoke → провал = откат на `:prev`.
 
-**Авто-деплой РАБОТАЕТ (2026-07-31):** push в `main` → `CI gate` (typecheck/lint/unit/e2e) → джоба
-`Deploy prod`; проверка — health.version == HEAD. Ручной `./deploy.sh` — запасной
-(⚠️ НЕ с DEV-VM: OOM). CI гейтит e2e.
+**Авто-деплой (2026-07-31):** push в `main` → `CI gate` → джоба `Deploy prod`; проверка —
+health.version == HEAD. Ручной `./deploy.sh` — запасной (⚠️ НЕ с DEV-VM: OOM).
 
 ## Откат / smoke
-- Откат: на сервере `docker tag remlab-app:prev remlab-app:latest && docker compose up -d`
-- Smoke: `/`=200; `/api/health` ok; VPN цел (remnanode Up, :8444/:9443/:2222).
+- Откат: `docker tag remlab-app:prev remlab-app:latest && docker compose up -d`
+- Smoke: `/`=200; `/api/health` ok; VPN цел (remnanode Up).
 
 ## Автоочистка (ADR-0005)
 Логи json-file 10m×3; weekly `remlab-cleanup` (с 08.08 шаг 6 — трейсы >90 дн.);
