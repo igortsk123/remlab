@@ -194,7 +194,14 @@ def solve_zoned(room: Room, items, **kw):
 
         def _din(r, k, f, fixed=None):
             return place_dining(r, k, f, usable_m2(r), fixed=fixed)
-        for placer, tag in ((place_media, '+tv'), (place_fireplace, '+fp'),
+        # ПОРЯДОК ФОКУСОВ (экзамен 11.08: камин избыточен в 72 сценах 40+ м² —
+        # медиа-зона забирала стену первой). Канон: камин — фокус помещения; в
+        # просторных комнатах он идёт ПЕРВЫМ, в малых приоритет у медиа.
+        _fp_first = (room.width_cm * room.depth_cm > 32 * 10_000
+                     and any(_base(i.role) == 'камин' for i in keep))
+        _order = ((place_fireplace, '+fp'), (place_media, '+tv')) if _fp_first \
+            else ((place_media, '+tv'), (place_fireplace, '+fp'))
+        for placer, tag in (_order[0], _order[1],
                             (_din, '+din'), (place_storage, '+st'),
                             (place_storage, '+st2'), (place_storage, '+st3'),
                             (place_quiet, '+qz'), (place_reading, '+rd'),

@@ -483,6 +483,14 @@ def build_block(group_id: str, by_role: dict[str, Item],
         # Совсем нечего запекать (ни столика, ни ковра) — блока нет.
         if table is None and rug is None:
             return None
+    # ПУФ-КОМПАНЬОН (экзамен 11.08: пуф избыточен в 124 сценах — отдельная зона
+    # ловит место редко). Ставим его в САМ шаблон посадки: у свободного фланга,
+    # на линии столика (веб-свод: «next to or in front of the sofa»).
+    _pouf = by_role.get('пуф')
+    if _pouf is not None and 'кресло 2' not in by_role:
+        _px = (table_x + free_side * ((max(table.w_cm, table.d_cm) / 2 if table else 40)
+                                      + 25 + _pouf.w_cm / 2))
+        b.add(_pouf, _px, table_cy, 270.0 if free_side > 0 else 90.0)
     _add_lamp(b, sofa, by_role.get('торшер'))
     if by_role.get('торшер 2') is not None:
         _add_lamp(b, sofa, by_role.get('торшер 2'), side=+1)   # пара — симметрично
@@ -933,11 +941,24 @@ def place_fireplace(room: Room, items: list[Item], free: Polygon,
         by_role.setdefault(it.role, it)
     seat = next((p for p in (fixed or []) if p.role == 'диван'), None) or \
         next((p for p in (fixed or []) if p.role == 'кресло'), None)
-    b = build_fireplace(by_role)
-    if b is None:
+    # КАСКАД (экзамен 11.08: камин избыточен в 88 сценах — «камин+фланг» не влезал,
+    # fits=0): фланги → один фланг → КАМИН СОЛО (зона из одного предмета легальна)
+    fp = by_role.get('камин')
+    if fp is None:
         return None
-    return _best_block(room, b, free, wall_candidates(room, b.anchor, free),
-                       tv=None, fixed=fixed, axis_seat=seat)
+    tries = [by_role,
+             {k: v for k, v in by_role.items()
+              if k in ('камин', 'стеллаж', 'кресло 3', 'кашпо')},
+             {'камин': fp}]
+    for br in tries:
+        b = build_fireplace(br) if len(br) > 1 else Block(fp)
+        if b is None:
+            continue
+        ps = _best_block(room, b, free, wall_candidates(room, b.anchor, free),
+                         tv=None, fixed=fixed, axis_seat=seat)
+        if ps is not None:
+            return ps
+    return None
 
 
 def build_media(by_role: dict[str, Item], with_flanks: bool = True,
