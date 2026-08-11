@@ -627,17 +627,70 @@ def place_reading(room: Room, items: list[Item], free: Polygon,
                        tv=None, fixed=fixed)
 
 
-def build_media(by_role: dict[str, Item], with_flanks: bool = True) -> Block | None:
-    """v2.7/v2.8: медиа-зона — носитель ТВ (стенка ИЛИ тумба, ADR-0081) + при
-    наличии свободного декора симметричные фланги (кашпо/торшер, 25 см от торцов)."""
+def build_fireplace(by_role: dict[str, Item]) -> Block | None:
+    """v2.5 КАМИННАЯ ЗОНА блоком (заявка владельца 11.08; веб-свод: симметричные
+    built-ins по бокам камина — канон): камин-якорь + пара симметричных флангов.
+    Приоритет флангов: стеллаж×2 (классика) → стеллаж+комод → кашпо×2 (зелень).
+    Фасады в линию с камином, зазор 20 см от его торцов."""
+    fp = by_role.get('камин')
+    if fp is None:
+        return None
+    pairs = [('стеллаж', 'стеллаж 2'), ('стеллаж', 'комод'), ('кашпо', 'кашпо 2')]
+    left = right = None
+    for a, bb in pairs:
+        if a in by_role and bb in by_role:
+            left, right = by_role[a], by_role[bb]
+            break
+    if left is None:
+        single = by_role.get('стеллаж') or by_role.get('кашпо')
+        if single is None:
+            return None                      # камин без оформления — блок не нужен
+        left = single
+    b = Block(fp)
+    for side, it in ((-1, left), (+1, right)):
+        if it is None:
+            continue
+        b.add(it, side * (fp.w_cm / 2 + 20 + it.w_cm / 2),
+              (fp.d_cm - it.d_cm) / 2, 0.0)   # фасады в одну линию с камином
+    return b
+
+
+def place_fireplace(room: Room, items: list[Item], free: Polygon,
+                    fixed: list[Placement] | None = None) -> list[Placement] | None:
+    """Каминная зона блоком; ставится ПОСЛЕ посадки — камин должен смотреть в зону
+    (межзонная связь), поэтому позиции ранжируются соосностью с главным диваном."""
+    if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
+        return None
+    by_role: dict[str, Item] = {}
+    for it in items:
+        by_role.setdefault(it.role, it)
+    seat = next((p for p in (fixed or []) if p.role == 'диван'), None) or \
+        next((p for p in (fixed or []) if p.role == 'кресло'), None)
+    b = build_fireplace(by_role)
+    if b is None:
+        return None
+    return _best_block(room, b, free, wall_candidates(room, b.anchor, free),
+                       tv=None, fixed=fixed, axis_seat=seat)
+
+
+def build_media(by_role: dict[str, Item], with_flanks: bool = True,
+                max_flanks: int = 1) -> Block | None:
+    """v2.7/v2.8: медиа-зона — носитель ТВ (стенка ИЛИ тумба, ADR-0081) + напольный
+    акцент сбоку.
+
+    ВАЖНО (майнинг ProcTHOR 11.08, 9013 гостиных): напольного декора в комнате
+    в среднем 0.7–1.0 предмета, и он РЕДКО стоит вплотную к носителю (в 60–120 см
+    от якоря — единицы процентов). Поэтому по умолчанию ставим ОДИН акцент,
+    пару — только в просторных комнатах (max_flanks=2). «Красота» медиа-зоны
+    в реальных сценах живёт НА поверхности (тумба несёт 2.8 предмета) — это
+    делает рендер-механика hosts, не блок."""
     bearer = by_role.get('стенка') or by_role.get('тв-тумба')
     if bearer is None:
         return None
     b = Block(bearer)
-    if with_flanks:
-        # только растения/декор (веб-свод 11.08: торшер — у ПОСАДКИ, не у тумбы;
-        # мелкая лампа — НА поверхности, её ставит рендер-механика hosts)
-        deco = [by_role[r] for r in ('кашпо', 'кашпо 2') if r in by_role][:2]
+    if with_flanks and max_flanks > 0:
+        # только растения (веб-свод 11.08: торшер — у ПОСАДКИ, не у тумбы)
+        deco = [by_role[r] for r in ('кашпо', 'кашпо 2') if r in by_role][:max_flanks]
         for i, d in enumerate(deco):
             side = -1 if i == 0 else 1
             b.add(d, side * (bearer.w_cm / 2 + 25 + d.w_cm / 2), 0.0, 0.0)

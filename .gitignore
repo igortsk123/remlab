@@ -44,6 +44,7 @@ tools/scout/*
 !tools/scout/judge-rule-candidates.md
 !tools/scout/owner-comments.jsonl
 !tools/scout/composition-mining.json
+!tools/scout/decor-mining.json
 
 # docker artifacts
 *.tar
