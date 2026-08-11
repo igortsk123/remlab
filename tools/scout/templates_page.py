@@ -12,14 +12,17 @@ import subprocess
 import sys
 import time
 
-VER = str(int(time.time()))   # cache-busting: браузер владельца кэшировал старые PNG
+# Владелец обновляет страницу БЕЗ ?v (11.08): полагаемся на заголовки/мету
+# no-store и уникальный суффикс имени файла картинок при каждой публикации.
+VER = str(int(time.time()))
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 '..', '..', 'services', 'planner-solver'))
 from planner.models import Item, Room  # noqa: E402
 from planner.template import (build_block, build_dining,  # noqa: E402
-                              build_fireplace, build_media, build_pouf,
+                              build_fireplace, build_media,
+                              build_media_fireplace, build_pouf,
                               build_quiet, build_reading, build_storage)
 from scene_build import draw_plan  # noqa: E402
 
@@ -226,6 +229,14 @@ card('bridge_chair', 'Кресло-мостик: диван к ТВ, кресл�
      'по диагонали — связывает медиа-зону с каминной. Выбирается автоматически, '
      'когда в составе есть и носитель ТВ, и камин.')
 
+card('media_fireplace', 'МЕДИА + КАМИН НА ОДНОЙ СТЕНЕ (side-by-side)',
+     build_media_fireplace({'стенка': _mk('стенка', 280, 51),
+                            'камин': _mk('камин', 120, 35)}),
+     'Заявка владельца: камин и экран не должны конкурировать за стены. Обе вещи '
+     'на одной фасадной стене, зазор 40 см, выровнены по спинке — оба в поле '
+     'зрения, кресло можно развернуть к огню. Веб-свод подтверждает схему '
+     'side-by-side; ставится ДО раздельных зон медиа и камина.')
+
 card('fireplace_solo', 'ЗОНА ИЗ ОДНОГО: камин соло',
      build_fireplace({'камин': _mk('камин', 120, 35), 'кашпо': _mk('кашпо', 40, 40)}),
      'Каскад каминной зоны: камин+стеллажи → камин+один фланг → КАМИН СОЛО. '
@@ -397,7 +408,8 @@ queue_html = ''.join(
 page = f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<meta http-equiv="cache-control" content="no-cache, must-revalidate">
+<meta http-equiv="cache-control" content="no-store, no-cache, must-revalidate, max-age=0">
+<meta http-equiv="pragma" content="no-cache"><meta http-equiv="expires" content="0">
 <title>Шаблоны зон — на согласование</title>
 <style>body{{margin:0;background:#fff;color:#1A1F1C;font:17px/1.55 system-ui}}
 .wrap{{max-width:980px;margin:0 auto;padding:22px 14px 60px}}

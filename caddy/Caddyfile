@@ -6,5 +6,19 @@
 
 remont-lab.online {
 	encode zstd gzip
+
+	# служебные страницы проверки (витрина шаблонов, галереи, отчёты) — статик из
+	# /opt/remlab/test. БЫЛО ТОЛЬКО НА СЕРВЕРЕ: репо-версия затирала блок при
+	# деплое (урок 07.08) — сведено 11.08.
+	handle_path /test/* {
+		root * /srv/test
+		file_server browse
+		header X-Robots-Tag "noindex, nofollow"
+		# страницы обновляются часто, владелец открывает БЕЗ ?v — кэш запрещаем,
+		# иначе он видит прошлую версию (правило владельца 11.08)
+		header Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+		header Pragma "no-cache"
+	}
+
 	reverse_proxy remlab-app:3000
 }
