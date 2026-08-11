@@ -298,6 +298,29 @@ def tier_band(role,tier):
     return {'эконом':(pc(.05),pc(.45)),'комфорт':(pc(.35),pc(.80)),'премиум':(pc(.70),pc(.97))}[tier]
 
 # ---------- Ф1+Ф2+Ф3+Ф4+Ф5: скоринг ----------
+_ZR_PATH=os.path.join(HERE,'..','..','services','planner-solver','rules','zones.json')
+try:
+    _SLOT_ENV=json.load(open(_ZR_PATH)).get('template_slot_envelopes',{})
+except Exception:
+    _SLOT_ENV={}
+
+
+def slot_ideal(role,m2,qty=1):
+    """Идеальная ширина слота под каталог (решение владельца 11.08): подгоняем
+    ИДЕАЛ под плотность фидов, не нарушая правил дизайна. Конфиг — zones.json
+    `template_slot_envelopes` (тот же источник, что у шаблонов и проверки покрытия
+    tools/scout/template_coverage.py). None — правило для роли не задано."""
+    cfg=(_SLOT_ENV.get('slots') or {}).get(role)
+    if not cfg: return None
+    if 'ideal' in cfg: return float(cfg['ideal'])
+    if 'by_seats' in cfg:                      # обеденный стол: 61 см кромки на едока
+        seats='6' if m2>=40 else ('4' if m2>=22 else '2')
+        return float(cfg['by_seats'][seats])
+    if 'by_area_m2' in cfg:
+        return float(cfg['by_area_m2']['>32' if m2>32 else '<=32'])
+    return None
+
+
 def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
     """ctx: dict(style, wood, metal, fabrics, temp, sofa_key, sofa_w, sofa_h, used_shops).
     Возвращает список топ-N кандидатов с why."""
@@ -366,6 +389,12 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
         cls1,cls2=classify(d1),classify(d2)
         why=[]
         s=palette_score(cls1,cls2,pair,ctx['temp'],d1); why.append(f"палитра{s:+.1f}")
+        _ideal=slot_ideal(role,m2,qty)
+        if _ideal:
+            _tol=_SLOT_ENV.get('tolerance',[0.80,1.10])
+            _w=max(it['w'] or 0, it['d'] or 0) if role=='ковёр' else (it['w'] or 0)
+            if _w and _ideal*_tol[0]<=_w<=_ideal*_tol[1]:
+                s+=1.2; why.append("в конверте слота+1.2")
         if color_goal:  # напр. вторая подушка обязана быть акцентной
             if cls1==color_goal or cls2==color_goal: s+=2.5; why.append("цель-цвет+2.5")
             else: s-=2.0
