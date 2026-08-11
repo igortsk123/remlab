@@ -202,6 +202,22 @@ def solve_zoned(room: Room, items, **kw):
                 block = block + extra
                 _refine_mod.LOCKED |= roles2
                 tpl_tag += tag
+    # ПРАВИЛО ВЛАДЕЛЬЦА 11.08: «если это не шаблон — ставить нельзя; не хватает
+    # шаблонов — создаём новые». Раскладка собирается ТОЛЬКО из зонных блоков;
+    # то, что не попало ни в один блок, честно уходит в пропущенное, а не
+    # раскидывается поштучным перебором (он и портил геометрию зон).
+    if block and os.environ.get('LAYOUT_ONLY_TEMPLATES', '1') != '0':
+        from .validate import validate as _val
+        lay = _val(room, block)
+        lay.unplaced = []
+        lay.skipped_optional = sorted({it.role for it in keep} | set(dropped))
+        outs = [lay]
+        if os.environ.get('ZONES_DEBUG'):
+            import sys as _s
+            print(f'ZDBG только-шаблоны: поставлено {len(block)} из блоков, '
+                  f'пропущено {len(lay.skipped_optional)}', file=_s.stderr, flush=True)
+        return outs, group['id'] + tpl_tag
+
     # H3 (08.08): большие комнаты с богатым составом — ДВУХПРОХОДНОЕ размещение:
     # проход 1 — ядро (группа+носитель ТВ+столик+ковёр), проход 2 — достройка (обеденная,
     # камин, хранение, спутники) на зафиксированном ядре. Один проход beam на 19 предметах
