@@ -75,8 +75,22 @@ def card(name, title, block, note, gross_m2=22, pos='wall', status='v1 — ак�
         return
     bw, bd = _render(name, block, gross_m2, pos)
     cards.append((name, f'{title} — блок {bw:.1f}×{bd:.1f} м · для комнат от ~{gross_m2} м²',
-                  note, status))
+                  note, status, gross_m2))
 
+
+card('sofa_solo', 'ПРОСТОЙ: диван + столик + ковёр (v1.1)',
+     build_block('compact_sectional', {'диван': SOFA_S, 'столик': TBL_S,
+                                       'ковёр': RUG_S}),
+     'Самый частый состав малых гостиных (52% сцен в данных ProcTHOR). Столик '
+     '40–45 см от фронта, ковёр по оси под передние ножки. Работает и с угловым '
+     'диваном.', gross_m2=12)
+
+card('dining_2', 'ПРОСТОЙ: стол + 2 стула',
+     build_dining({'стол обеденный': _mk('стол обеденный', 90, 80),
+                   **{k: v for k, v in CHAIRS.items()}}, 2),
+     'Микро-столовая для комнат до ~18 м²: два стула по длинным сторонам, '
+     'задвинуты к кромке. Место для отодвигания (46–61 см) проверяют проходы.',
+     gross_m2=15, pos='center')
 
 card('sofa_armchair', 'Диван + кресло (фланг)',
      build_block('sofa_armchair', {'диван': SOFA_S, 'кресло': ARM_S, 'столик': TBL_S,
@@ -225,12 +239,38 @@ QUEUE = {
     ],
 }
 
+BANDS = [12, 15, 22, 32, 45]     # «комната от N м²» — таб показывает всё применимое
 items_html = []
-for name, title, note, status in cards:
+for name, title, note, status, gm2 in cards:
     items_html.append(
-        f"<section><h2>{html.escape(title)} <small>{html.escape(status)}</small></h2>"
+        f"<section data-min='{gm2}'><h2>{html.escape(title)} "
+        f"<small>{html.escape(status)}</small></h2>"
         f"<img src='{name}.png?v={VER}' loading='lazy'>"
         f"<p class='note'>{html.escape(note)}</p></section>")
+tabs_html = "<div class='tabs'>" + ''.join(
+    f"<button data-band='{b}'>комната {b} м²</button>" for b in BANDS
+) + "<button data-band='all' class='on'>все шаблоны</button></div>"
+tabs_js = '''<script>
+(function(){
+  var btns=[].slice.call(document.querySelectorAll('.tabs button'));
+  var secs=[].slice.call(document.querySelectorAll('section[data-min]'));
+  function apply(band){
+    btns.forEach(function(b){b.classList.toggle('on', b.dataset.band===band);});
+    var n=0;
+    secs.forEach(function(s){
+      var ok = band==='all' || parseFloat(s.dataset.min) <= parseFloat(band);
+      s.style.display = ok ? '' : 'none';
+      if(ok) n++;
+    });
+    var c=document.getElementById('cnt');
+    if(c) c.textContent = band==='all'
+      ? ('всего шаблонов: '+n)
+      : ('применимо к комнате '+band+' м²: '+n+' шаблон(ов)');
+  }
+  btns.forEach(function(b){b.onclick=function(){apply(b.dataset.band);};});
+  apply('all');
+})();
+</script>'''
 queue_html = ''.join(
     f"<h3>{html.escape(zone)}</h3><ul>" +
     ''.join(f"<li><b>{html.escape(t)}</b> — {html.escape(n)}</li>" for t, n in items) +
@@ -250,6 +290,12 @@ h2{{font-size:20px;margin:0 0 10px}} h2 small{{color:#2E7D4F;font-weight:400;fon
 img{{max-width:100%;border:1px solid #ECEEEA;border-radius:4px}}
 .note{{font-size:16px;color:#3A423C}} ul{{font-size:16px}}
 .head{{margin:10px 0 4px;padding:10px 12px;border-left:3px solid #3B76A2;background:#F4F7FA;font-size:15.5px}}
+.tabs{{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0 6px;position:sticky;top:0;
+background:#fff;padding:10px 0;border-bottom:1px solid #ECEEEA;z-index:5}}
+.tabs button{{font:inherit;font-size:15px;padding:7px 13px;border:1px solid #D7DBD6;
+border-radius:20px;background:#fff;color:#3A423C;cursor:pointer}}
+.tabs button.on{{background:#2E7D4F;border-color:#2E7D4F;color:#fff}}
+#cnt{{color:#5C655E;font-size:14.5px;margin:2px 0 0}}
 </style></head><body><div class="wrap">
 <h1>Шаблоны зон — библиотека на согласование</h1>
 <div class="head">АКТИВНЫЕ ПОВЕДЕНИЯ ПОЗИЦИОНИРОВАНИЯ (не блоки, а правила выбора
@@ -270,9 +316,11 @@ img{{max-width:100%;border:1px solid #ECEEEA;border-radius:4px}}
 напротив посадки должно остаться место для ТВ-зоны — но сама ТВ-зона ставится
 своим блоком). Блок не встал в геометрию — прежний поштучный перебор (страховка
 «0 хуже»). Замечания пишите по названию шаблона.</div>
+{tabs_html}
+<p id="cnt"></p>
 {''.join(items_html)}
-<section><h2>Очередь по 6 зонам <small>ЗАКРЫТА 11.08 — библиотека полная</small></h2>{queue_html}</section>
-</div></body></html>"""
+<section data-min="0"><h2>Очередь по 6 зонам <small>ЗАКРЫТА 11.08 — библиотека полная</small></h2>{queue_html}</section>
+</div>{tabs_js}</body></html>"""
 open(os.path.join(OUT, 'index.html'), 'w').write(page)
 print(f'OK: {len(cards)} шаблонов → {OUT}')
 if '--publish' in sys.argv:
