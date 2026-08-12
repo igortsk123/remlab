@@ -35,6 +35,7 @@ from shapely.geometry import Point, Polygon
 from .candidates import middle_candidates, wall_candidates
 from .geometry import footprint, room_polygon
 from .models import Item, Placement, Room, Severity
+from .invariants import check_block
 from .validate import validate
 
 # --- параметры внутренней геометрии (см); пруфы — KB/occupancy ---
@@ -62,6 +63,8 @@ class Block:
     def __init__(self, anchor: Item):
         self.anchor = anchor
         self.rel: list[tuple[Item, float, float, float]] = [(anchor, 0.0, 0.0, 0.0)]
+        self.tpl_id = ''          # паспорт схемы (rules/templates.json) — ставит _valid
+        self.tpl_version = ''
 
     def add(self, item: Item, x: float, y: float, rot: float) -> None:
         self.rel.append((item, x, y, rot % 360))
@@ -71,8 +74,112 @@ class Block:
         for it, rx, ry, rrot in self.rel:
             wx, wy = _rt(rx, ry, arot)
             out.append(Placement(role=it.role, x=ax + wx, y=ay + wy,
-                                 rot=(rrot + arot) % 360, item=it))
+                                 rot=(rrot + arot) % 360, item=it,
+                                 tpl_id=self.tpl_id, tpl_version=self.tpl_version))
         return out
+
+
+def block_self_overlap(b: Block) -> tuple[str, str] | None:
+    """Самопроверка схемы: предметы ВНУТРИ шаблона не должны налезать друг на друга.
+
+    Причина (12.08): подставка для ног перед креслом попадала на журнальный столик
+    (COLLISION «столик»×«пуф» до 0.13 м²), и весь блок отбраковывался на любой
+    позиции в комнате — сцена уходила в отказ. Ловим это на СБОРКЕ: схема с
+    самопересечением недействительна → каскад берёт следующую (меньшую) схему.
+    Ковёр — подложка (мебель стоит НА нём), он из проверки исключён.
+    """
+    ps = [p for p in b.to_world(0.0, 0.0, 0.0) if p.role.split(' ')[0] != 'ковёр']
+    def _tucked(r1: str, r2: str) -> bool:      # задвинутый стул — норма (CHAIR_TUCK)
+        a, bb = r1.split(' ')[0], r2.split(' ')[0]
+        return {a, bb} == {'стол обеденный', 'стул'}
+    fps = [footprint(p) for p in ps]
+    for i, fa in enumerate(fps):
+        for j in range(i + 1, len(fps)):
+            if _tucked(ps[i].role, ps[j].role):
+                continue
+            if fa.intersection(fps[j]).area > 1.0:      # >1 см² — не численный шум
+                return (ps[i].role, ps[j].role)
+    return None
+
+
+def _valid(b: Block | None, zone: str = 'seating') -> Block | None:
+    """Схема действительна, только если прошла ИНВАРИАНТЫ своего паспорта
+    (`rules/templates.json`): нет самопересечений, ножки посадочных на ковре,
+    столик в досягаемости, в зоне ≥2 предмета. Не прошла — недействительна,
+    каскад возьмёт следующий шаблон (правило владельца «берём другой шаблон»)."""
+    if b is None:
+        return None
+    from .invariants import TEMPLATES as _TPL
+    b.tpl_id = zone
+    b.tpl_version = str((_TPL['zones'].get(zone) or {}).get('version') or '')
+    why = check_block(b.to_world(0.0, 0.0, 0.0), zone)
+    if why is not None:
+        if os.environ.get('ZONES_DEBUG'):
+            import sys
+            print(f"ZDBG схема отброшена на сборке [{zone}]: {why}",
+                  file=sys.stderr, flush=True)
+        return None
+    return b
+
+
+def _place_zone_rug(b: Block, rug: Item, tuck: float = None) -> None:
+    """Ковёр по внутреннему контуру зоны: центр — центр контура, размер подобран
+    так, чтобы ножки посадочных заходили на ковёр (канон front-legs)."""
+    t = RUG_TUCK if tuck is None else tuck
+    ix0, iy0, ix1, iy1 = _inner_zone(b)
+    rw, rd = max(rug.w_cm, rug.d_cm), min(rug.w_cm, rug.d_cm)
+    need_x, need_y = (ix1 - ix0) + 2 * t, (iy1 - iy0) + 2 * t
+    if rw >= need_x and rd >= need_y:
+        w_, d_ = rw, rd
+    elif rd >= need_x and rw >= need_y:
+        w_, d_ = rd, rw
+    else:
+        w_, d_ = ((rw, rd) if (ix1 - ix0) >= (iy1 - iy0) else (rd, rw))
+    b.add(Item(role=rug.role, w_cm=w_, d_cm=d_, h_cm=rug.h_cm, name=rug.name,
+               item_id=rug.item_id), (ix0 + ix1) / 2, (iy0 + iy1) / 2, 0.0)
+
+
+def _pull_seats_onto_rug(b: Block, tuck: float = None) -> None:
+    """Посадочные ДОЛЖНЫ стоять на ковре передними ножками (канон front-legs;
+    замечание владельца 12.08 по set6-base: «кресло на ковёр ножками не заходит»).
+    Ковёр мельче зоны — не оставляем кресло в стороне, а подтягиваем его к ковру.
+    Якорь блока (индекс 0) не двигаем — он задаёт систему координат схемы."""
+    t = RUG_TUCK if tuck is None else tuck
+    rug = next((r for r in b.rel if r[0].role.split(' ')[0] == 'ковёр'), None)
+    if rug is None:
+        return
+    ri, rx, ry, _ = rug
+    rx0, rx1, ry0, ry1 = rx - ri.w_cm / 2, rx + ri.w_cm / 2, ry - ri.d_cm / 2, ry + ri.d_cm / 2
+    for i, (it, x, y, rot) in enumerate(b.rel):
+        if i == 0 or it.role.split(' ')[0] not in ('кресло', 'диван'):
+            continue
+        w, d = (it.d_cm, it.w_cm) if int(rot) % 180 == 90 else (it.w_cm, it.d_cm)
+        x0, x1, y0, y1 = x - w / 2, x + w / 2, y - d / 2, y + d / 2
+        dx = dy = 0.0
+        if x1 < rx0 + t:
+            dx = rx0 + t - x1
+        elif x0 > rx1 - t:
+            dx = rx1 - t - x0
+        if y1 < ry0 + t:
+            dy = ry0 + t - y1
+        elif y0 > ry1 - t:
+            dy = ry1 - t - y0
+        if not (dx or dy):
+            continue
+        # подтяжка не должна нарушить канон «колени до столика 40-45 см»
+        _tbl = next((r for r in b.rel if r[0].role.split(' ')[0] == 'столик'), None)
+        for _k in (1.0, 0.6, 0.3):
+            b.rel[i] = (it, x + dx * _k, y + dy * _k, rot)
+            _ok = block_self_overlap(b) is None
+            if _ok and _tbl is not None:
+                _p = b.to_world(0.0, 0.0, 0.0)
+                _fi = footprint(_p[i])
+                _ft = footprint(_p[b.rel.index(_tbl)])
+                _ok = _fi.distance(_ft) >= 38.0     # hard-вилка столика (32-50)
+            if _ok:
+                break
+        else:
+            b.rel[i] = (it, x, y, rot)              # подтянуть нельзя — оставляем
 
 
 def _front(seat: Item) -> float:
@@ -268,9 +375,16 @@ def build_block(group_id: str, by_role: dict[str, Item],
     # ПУФ ВМЕСТО СТОЛИКА (веб-свод 12.08: «use a compact round table or an ottoman
     # instead of a large rectangular table»): крупный пуф (от 70 см) — мягкий столик
     # по центру зоны, а не подставка для ног сбоку.
+    # КАНОН (перепроверено вебом 12.08 по замечанию владельца): пуф работает
+    # столиком, только если он ~2/3 длины дивана (HORNE, Decorating Den) — иначе это
+    # подставка для ног, а не поверхность. Прежний порог «от 70 см» был липовый:
+    # пуфы каталога 75-80 см против диванов 200-230 дают 0.33-0.38 длины.
     _big_pouf = by_role.get('пуф')
+    _pouf_ratio = 0.6
+    _seat_w = (sofa or arm1).w_cm if (sofa or arm1) else 0.0
     if variant == 'pouf_table' and _big_pouf is not None \
-            and _big_pouf.w_cm >= POUF_AS_TABLE_MIN_W:
+            and _big_pouf.w_cm >= POUF_AS_TABLE_MIN_W \
+            and _seat_w and _big_pouf.w_cm >= _pouf_ratio * _seat_w:
         table = _big_pouf
         by_role = {k: v for k, v in by_role.items() if k != 'пуф'}
 
@@ -284,12 +398,12 @@ def build_block(group_id: str, by_role: dict[str, Item],
                                     table_gap, table_shift)
         b.add(arm2, 0.0, far + COFFEE_GAP + arm2.d_cm / 2, 180.0)
         if rug is not None:
-            # ковёр по ЦЕНТРУ СТОЛИКА (замечание владельца 11.08): зона пары
-            # симметрична — оба кресла заходят на ковёр одинаково
-            rw, rd = max(rug.w_cm, rug.d_cm), min(rug.w_cm, rug.d_cm)
-            b.add(Item(role=rug.role, w_cm=rw, d_cm=rd, h_cm=rug.h_cm,
-                       name=rug.name, item_id=rug.item_id), 0.0, tcy, 0.0)
-        return b
+            # ковёр по ВНУТРЕННЕМУ КОНТУРУ зоны (замечание владельца 12.08 «оба
+            # кресла не на ковре»): центр столика не гарантировал заход ножек —
+            # при глубоких креслах ковёр оказывался только под столиком
+            _place_zone_rug(b, rug)
+        _pull_seats_onto_rug(b)
+        return _valid(b)
 
     if sofa is None:
         return None
@@ -528,16 +642,24 @@ def build_block(group_id: str, by_role: dict[str, Item],
     # сбоку от столика (там он бился о кресло: COLLISION 22 см, POUF_OUT_OF_ZONE).
     _pouf = by_role.get('пуф')
     if _pouf is not None:
+        # ДВЕ КАНОННЫЕ ПОЗИЦИИ, а не одна (12.08): подставка для ног перед креслом
+        # часто попадает на журнальный столик — тогда пуф уходит на свободный фланг
+        # столика. Раньше схема из-за этого браковалась целиком, и зона теряла столик.
+        _spots = []
         _arm_p = next((t for t in b.rel if t[0].role.startswith('кресло')), None)
         if _arm_p is not None:
             _ai, _ax, _ay, _arot = _arm_p
             _dist = _ai.d_cm / 2 + 25 + _pouf.d_cm / 2
             _dx, _dy = _rt(0.0, _dist, _arot)
-            b.add(_pouf, _ax + _dx, _ay + _dy, _arot)
-        else:
-            _px = (table_x + free_side * ((max(table.w_cm, table.d_cm) / 2 if table else 40)
-                                          + 25 + _pouf.w_cm / 2))
-            b.add(_pouf, _px, table_cy, 270.0 if free_side > 0 else 90.0)
+            _spots.append((_ax + _dx, _ay + _dy, _arot))
+        _px = (table_x + free_side * ((max(table.w_cm, table.d_cm) / 2 if table else 40)
+                                      + 25 + _pouf.w_cm / 2))
+        _spots.append((_px, table_cy, 270.0 if free_side > 0 else 90.0))
+        for _sx, _sy, _srt in _spots:
+            b.add(_pouf, _sx, _sy, _srt)
+            if block_self_overlap(b) is None:
+                break
+            b.rel.pop()                      # не встал — пробуем другую позицию
     _add_lamp(b, sofa, by_role.get('торшер'))
     if by_role.get('торшер 2') is not None:
         _add_lamp(b, sofa, by_role.get('торшер 2'), side=+1)   # пара — симметрично
@@ -560,7 +682,8 @@ def build_block(group_id: str, by_role: dict[str, Item],
     else:
         _add_rug(b, sofa, rug, far, min_left=rug_min_left,
                  others=rug_others, others_y=rug_others_y, others_x=rug_others_x)
-    return b
+    _pull_seats_onto_rug(b)
+    return _valid(b)
 
 
 def build_dining(by_role: dict[str, Item], max_chairs: int,
@@ -595,7 +718,7 @@ def build_dining(by_role: dict[str, Item], max_chairs: int,
         off = ch.d_cm / 2 + CHAIR_GAP
         dx, dy = _rt(0.0, off, srot)               # сдвиг наружу вдоль взгляда стула
         b.add(ch, sx - dx, sy - dy, srot)
-    return b
+    return _valid(b, 'dining')
 
 
 def _tv_probe(room: Room, sofa_p: Placement, free: Polygon, need_w: float) -> float:
@@ -884,9 +1007,14 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
         _rot_rug = Item(role=_rg.role, w_cm=_rg.d_cm, d_cm=_rg.w_cm, h_cm=_rg.h_cm,
                         name=_rg.name, item_id=_rg.item_id)
         tries.append(({**by_role, 'ковёр': _rot_rug}, COFFEE_GAP, 0.0))
+        # НИКАКОГО «ужать предмет на 10-20%» (владелец 12.08): конверт −20/+10 —
+        # это допуск ШАБЛОНА под реальный SKU, а не право менять габарит товара.
+        # Придуманный размер = мебель, которой нет в каталоге, и неверная смета.
+        # Не влезло — берём ДРУГОЙ шаблон (каскад ниже).
     if 'столик' in by_role:
         for g in (36.0, 32.0, 48.0):
             tries.append((by_role, g, 0.0))
+        # (габариты столика НЕ подгоняем — см. правило выше про конверт слота)
         for sh in (_sh, -_sh):
             tries.append((by_role, COFFEE_GAP, sh))
         tries.append(({k: v for k, v in by_role.items() if k != 'столик'},
@@ -916,21 +1044,29 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
               'sofa_loveseat': ['default', 'square'],
               'sofa_loveseat_2armchairs': ['default', 'square'],
               }.get(group_id, ['default'])
-    for br, _gap, _shift in variants:
-      for shape in shapes:
-        b = build_block(group_id, br, variant=shape, table_gap=_gap,
+    # ДВА ПРОХОДА (замечание владельца 12.08 «столиков нигде не вижу»): сперва ВСЕ
+    # схемы с НАСТОЯЩИМ журнальным столиком — и только если ни одна не встала, схема
+    # «пуф вместо столика». Раньше pouf_table стоял вторым в списке и выигрывал у
+    # столика ещё до перебора остальных схем: 104 сцены остались без столика.
+    for _pass in (0, 1):
+      _shapes = [sh for sh in shapes if (sh == 'pouf_table') == bool(_pass)]
+      if not _shapes:
+          continue
+      for br, _gap, _shift in variants:
+        for shape in _shapes:
+          b = build_block(group_id, br, variant=shape, table_gap=_gap,
                         table_shift=_shift)
-        if b is None or len(b.rel) < 2:
-            continue
-        cands = list(wall_candidates(room, b.anchor, free))
-        # v2.10: в просторных комнатах посадка может «плавать» (зонирование
-        # спинкой); тыл за спинкой проверят passage/sliver-чеки validate
-        if room.width_cm * room.depth_cm > 40 * 10_000:
-            cands += list(middle_candidates(room, b.anchor, free, limit=6))
-        ps = _best_block(room, b, free, cands, tv=tv, fixed=fixed,
-                         second_focus=second, require_bearer=bearer)
-        if ps is not None:
-            return ps
+          if b is None or len(b.rel) < 2:
+              continue
+          cands = list(wall_candidates(room, b.anchor, free))
+          # v2.10: в просторных комнатах посадка может «плавать» (зонирование
+          # спинкой); тыл за спинкой проверят passage/sliver-чеки validate
+          if room.width_cm * room.depth_cm > 40 * 10_000:
+              cands += list(middle_candidates(room, b.anchor, free, limit=6))
+          ps = _best_block(room, b, free, cands, tv=tv, fixed=fixed,
+                           second_focus=second, require_bearer=bearer)
+          if ps is not None:
+              return ps
     return None
 
 
@@ -991,14 +1127,15 @@ def build_storage(by_role: dict[str, Item], max_items: int = 3) -> Block | None:
         # «загорожено стеллажом») — то же число, что в межзонном правиле декора.
         b.add(plant, x + _DECOR_GAP_CM + plant.w_cm / 2,
               (anchor.d_cm - plant.d_cm) / 2, 0.0)
-    return b
+    return _valid(b, 'storage')
 
 
 def place_storage(room: Room, items: list[Item], free: Polygon,
                   fixed: list[Placement] | None = None) -> list[Placement] | None:
-    """КАСКАД ДЛИНЫ РЯДА (экзамен 11.08: ряд из трёх ~280 см не влезал — fits=0,
-    зона хранения срабатывала лишь в 12% сцен): пробуем 3 предмета, потом 2, потом
-    каждый по одному. Зона из ОДНОГО предмета легальна (правило владельца)."""
+    """ЗОНА ХРАНЕНИЯ — правила владельца (12.08, замечание по set4-base):
+    НЕ БОЛЕЕ ДВУХ предметов в зоне и НЕ БОЛЕЕ ДВУХ зон хранения на гостиную;
+    вторая зона — на ДРУГОЙ стене (стеллаж+витрина+комод в один ряд по одной стене
+    читаются как склад). Каскад длины ряда: 2 предмета → каждый по одному."""
     if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
         return None
     by_role: dict[str, Item] = {}
@@ -1007,9 +1144,10 @@ def place_storage(room: Room, items: list[Item], free: Polygon,
     have = [r for r in STORAGE_ROLES if r in by_role]
     if not have:
         return None
+    # стены, уже занятые хранением: вторую зону туда не ставим
+    _busy = {_wall_of(room, p) for p in (fixed or [])
+             if _base_role(p.role) in STORAGE_ROLES}
     tries: list[dict[str, Item]] = []
-    if len(have) >= 3:
-        tries.append({r: by_role[r] for r in have[:3]})
     if len(have) >= 2:
         for i in range(len(have) - 1):
             tries.append({r: by_role[r] for r in have[i:i + 2]})
@@ -1018,10 +1156,13 @@ def place_storage(room: Room, items: list[Item], free: Polygon,
         b = build_storage(br, max_items=len(br))
         if b is None:
             continue
-        ps = _best_block(room, b, free, wall_candidates(room, b.anchor, free),
-                         tv=None, fixed=fixed)
-        if ps is not None:
-            return ps
+        for _avoid in ((True, False) if _busy else (False,)):
+            cands = wall_candidates(room, b.anchor, free)
+            if _avoid:                    # сперва ищем СВОБОДНУЮ стену
+                cands = [c for c in cands if _wall_of(room, c.placement) not in _busy]
+            ps = _best_block(room, b, free, cands, tv=None, fixed=fixed)
+            if ps is not None:
+                return ps
     return None
 
 
@@ -1038,7 +1179,7 @@ def build_reading(by_role: dict[str, Item]) -> Block | None:
         b.add(lamp, arm.w_cm / 2 + lamp.w_cm / 2 + 12, -arm.d_cm / 2 + 8, 0.0)
     if side is not None:
         b.add(side, -(arm.w_cm / 2 + side.w_cm / 2 + 8), 5.0, 0.0)
-    return b
+    return _valid(b, 'reading')
 
 
 def place_reading(room: Room, items: list[Item], free: Polygon,
@@ -1083,12 +1224,15 @@ def build_fireplace(by_role: dict[str, Item]) -> Block | None:
         if chairs:
             # A2 (v2, веб-канон «identical seating on each side»): кресла лицом
             # друг к другу, зона безопасности от очага 61–91 см
+            # 45° К ОЧАГУ, зеркально (замечание владельца 11.08 и 12.08): кресла
+            # развёрнуты и к камину, и друг к другу — «лицом друг к другу» под 90°
+            # оставляло камин сбоку от взгляда
             b.add(it, side * (fp.w_cm / 2 + 15 + it.d_cm / 2), 75.0 + it.w_cm / 2,
-                  270.0 if side > 0 else 90.0)
+                  225.0 if side > 0 else 135.0)
         else:
             b.add(it, side * (fp.w_cm / 2 + 20 + it.w_cm / 2),
                   (fp.d_cm - it.d_cm) / 2, 0.0)   # фасады в линию с камином
-    return b
+    return _valid(b, 'fireplace')
 
 
 def build_media_fireplace(by_role: dict[str, Item]) -> Block | None:
@@ -1105,7 +1249,7 @@ def build_media_fireplace(by_role: dict[str, Item]) -> Block | None:
     # ВЫРАВНИВАНИЕ ПО СПИНКЕ (обе вещи пристенные): камин у той же стены, иначе
     # он «отходит» от неё на разницу глубин и ловит NOT_AT_WALL
     b.add(fp, bearer.w_cm / 2 + 40 + fp.w_cm / 2, -(bearer.d_cm - fp.d_cm) / 2, 0.0)
-    return b
+    return _valid(b, 'fireplace')
 
 
 def place_media_fireplace(room: Room, items: list[Item], free: Polygon,
@@ -1179,7 +1323,7 @@ def build_media(by_role: dict[str, Item], with_flanks: bool = True,
             # просвет декора — единое число межзонного правила (было 25 см, кашпо
             # читалось зажатым: замечание владельца 12.08)
             b.add(d, side * (bearer.w_cm / 2 + _DECOR_GAP_CM + d.w_cm / 2), 0.0, 0.0)
-    return b
+    return _valid(b, 'media')
 
 
 def _corner_candidates(room: Room, item: Item, free: Polygon) -> list:
@@ -1237,7 +1381,7 @@ def build_quiet(by_role: dict[str, Item]) -> Block | None:
     b.add(a2, 0.0, a1.d_cm / 2 + gap + 40 + a2.d_cm / 2, 180.0)
     if side is not None:
         b.add(side, 0.0, a1.d_cm / 2 + (gap + 40) / 2, 0.0)
-    return b
+    return _valid(b, 'quiet')
 
 
 def place_quiet(room: Room, items: list[Item], free: Polygon,
@@ -1293,60 +1437,11 @@ def place_decor(room: Room, items: list[Item], free: Polygon,
             if d > best_d:
                 best, best_d = p, d
         if best is not None:
-            out.append(best)
+            # прослеживаемость: декор — тоже шаблон (паспорт decor)
+            out.append(best.model_copy(update={'tpl_id': 'decor', 'tpl_version': '1.0'}))
     return out or None
 
-
-POUF_GAP = 40.0                  # пуф от фронта дивана (веб-свод: 14-18", ~35-45 см)
-
-
-def build_pouf(by_role: dict[str, Item]) -> Block | None:
-    """ЗОНА ПУФА (v3): пуф-компаньон у посадки — своя микро-зона, когда он не вошёл
-    в разговорный блок. Якорь — сам пуф; ставится как одиночная зона (правило
-    владельца: зона из одного предмета допустима), а межзонное правило «в шаге от
-    дивана» проверит валидатор."""
-    pouf = by_role.get('пуф') or by_role.get('пуф 2')
-    if pouf is None:
-        return None
-    return Block(pouf)
-
-
-def place_pouf(room: Room, items: list[Item], free: Polygon,
-               fixed: list[Placement] | None = None) -> list[Placement] | None:
-    """Пуф ставится ПЕРЕД посадкой на расстоянии 35–45 см (веб-свод), а не у стены."""
-    if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
-        return None
-    by_role: dict[str, Item] = {}
-    for it in items:
-        by_role.setdefault(it.role, it)
-    b = build_pouf(by_role)
-    if b is None:
-        return None
-    seat = next((p for p in (fixed or []) if p.role == 'диван'), None) or \
-        next((p for p in (fixed or []) if p.role.startswith('кресло')), None)
-    if seat is None:
-        return None
-    r = math.radians(seat.rot)
-    fx, fy = math.sin(r), math.cos(r)
-    sd = (seat.item.d_cm if seat.item else 90.0) / 2
-    out = []
-    # зазор и боковой сдвиг: перед посадкой место обычно занято столиком/ковром,
-    # поэтому сразу пробуем и БОКОВЫЕ позиции (у торца дивана — веб-свод «next to
-    # or in front of the sofa»), и увеличенные дистанции
-    sw = (seat.item.w_cm if seat.item else 200.0) / 2
-    for gap in (POUF_GAP, 55.0, 70.0, 95.0, 120.0):
-        for lat in (0.0, 60.0, -60.0, sw + 40, -(sw + 40)):
-            dist = sd + gap + b.anchor.d_cm / 2
-            x = seat.x + fx * dist + (-fy) * lat
-            y = seat.y + fy * dist + fx * lat
-            p = Placement(role=b.anchor.role, x=x, y=y, rot=seat.rot, item=b.anchor)
-            fp = footprint(p)
-            if free.intersection(fp).area < fp.area * 0.97:
-                continue
-            lay = validate(room, list(fixed or []) + [p])
-            if not any(v.severity is Severity.HARD for v in lay.violations):
-                out = [p]
-                break
-        if out:
-            break
-    return out or None
+# ЗОНА ПУФА УДАЛЕНА 12.08 (владелец: «зачем шаблон из одного пуфа?»). Одиночный
+# предмет — не шаблон: он читался как случайный (пуф в линию с креслом, мимо ковра).
+# Пуф ставится ТОЛЬКО внутри схемы посадки, где его координаты задаёт схема
+# (две канонные позиции: подставка для ног перед креслом либо свободный фланг столика).

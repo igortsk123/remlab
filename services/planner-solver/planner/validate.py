@@ -33,6 +33,25 @@ def _v(code: str, msg: str, roles: list[str], value: float | None = None, expect
     return Violation(code=code, severity=severity, message=msg, roles=roles, value=value, expected=expected)
 
 
+# ПЛОСКОЕ НАПОЛЬНОЕ ПОКРЫТИЕ — не мебель (системное правило 12.08, веб-канон).
+# Ковёр не перекрывает конвекцию радиатора (радиатор висит над полом, норма 30 см
+# относится к МЕБЕЛИ перед ним) и не мешает двери: межкомнатная дверь имеет подрез
+# ~2 см, ковры с ворсом до ~1.3 см проходят под дугой. Пруфы: geyser.co.uk
+# (radiator placement), housedigest.com (door clearance / rug pile).
+# Причина правила: эти два hard'а на КОВРЕ роняли ЦЕЛЫЙ шаблон (атомарность) —
+# сцена set1-bay оставалась вообще без расстановки.
+FLAT_FLOOR_ROLES = {"ковёр"}
+MAX_FLAT_PILE_CM = 1.3
+
+
+def is_flat_floor(p: Placement) -> bool:
+    """Ковёр с неизвестной или малой высотой ворса — плоское покрытие."""
+    if p.role.split(' ')[0] not in FLAT_FLOOR_ROLES:
+        return False
+    h = (p.item.h_cm if p.item else None) or 0.0
+    return h <= MAX_FLAT_PILE_CM
+
+
 def check_boundary(room: Room, ps: list[Placement]) -> list[Violation]:
     rp = room_polygon(room).buffer(EPS)
     out = []
@@ -67,6 +86,14 @@ def check_openings(room: Room, ps: list[Placement]) -> list[Violation]:
         if swing.is_empty:
             continue
         for p in ps:
+            if is_flat_floor(p):
+                # ковёр проходит ПОД дугой двери, но не лезет в сам проём:
+                # у входа держим свободную полосу 30 см (замечание владельца 12.08
+                # «предметы на дверь заходят» + канон входной зоны)
+                if footprint(p).intersects(opening_polygon(room, op).buffer(30.0)):
+                    out.append(_v("DOOR_THRESHOLD", f"«{p.role}» заходит в дверной проём",
+                                  [p.role], 30.0, "≥30 см от проёма"))
+                continue
             if footprint(p).intersects(swing.buffer(-EPS)):
                 out.append(_v("DOOR_SWING", f"«{p.role}» стоит в зоне открывания двери", [p.role],
                               None, f"дуга {op.swing_cm:.0f} см свободна"))
@@ -89,6 +116,8 @@ def check_radiators(room: Room, ps: list[Placement]) -> list[Violation]:
     for rad in room.radiators:
         zone = radiator_polygon(room, rad).buffer(hard)
         for p in ps:
+            if is_flat_floor(p):
+                continue                      # ковёр не мешает конвекции
             if footprint(p).intersects(zone.buffer(-EPS)):
                 out.append(_v("RADIATOR", f"«{p.role}» ближе {hard:.0f} см к радиатору", [p.role],
                               hard, f"≥{hard:.0f} см"))

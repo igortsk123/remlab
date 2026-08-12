@@ -354,6 +354,16 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
             if not sane_dims(role,it): continue        # мусорные/перепутанные габариты — мимо
             if gate and not size_gate(ctx.get('band',''),role,it['w']): continue  # legacy-ветка (не зовётся)
             if role!='шторы' and not (tgt_lo*0.75<=it['fp']<=tgt_hi*1.25): continue  # шторы: fp=0, целевая доля не применима
+            # КОНВЕРТ СЛОТА — ЖЁСТКИЙ ФИЛЬТР ДЛЯ ВСЕХ СЛОТОВ (ADR template-integrity,
+            # 12.08). Допуск −20/+10 применяется ЗДЕСЬ, при подборе товара в сет, и
+            # больше нигде: солверу менять габарит SKU запрещено. Мягкого бонуса в
+            # скоринге не хватало — в 15 м² попадал ковёр 290x200 (39% пола).
+            _id=slot_ideal(role,m2)
+            if _id:
+                _tol=_SLOT_ENV.get('tolerance',[0.80,1.10])
+                _len=(max(it.get('w') or 0, it.get('d') or 0) if role=='ковёр'
+                      else (it.get('w') or 0))
+                if _len and not (_id*_tol[0]<=_len<=_id*_tol[1]): continue
             if not (plo<=it['price']<=phi) and not soft: continue
             # ЖЁСТКИЕ ОГРАНИЧЕНИЯ ДО ЭСТЕТИКИ (sets-feasibility-first, 2026-08-05).
             # 0) карточка должна быть годной: обогащение К2 отбраковывает мусорные размеры и
@@ -721,18 +731,30 @@ for bi,band in enumerate(COMP['bands']):
         # с каждой стороны (схема «передние ножки»); фолбэк на % пола, если дивана/размеров нет
         if cat.get('ковёр'):
             sofa_w=(chosen.get('диван') or {}).get('w')
-            best=None;bs=1e9
+            # ПОТОЛОК ПО ПЛОЩАДИ КОМНАТЫ (владелец 12.08): привязка к дивану даёт
+            # ковёр 290 в комнате 15 м² (39% пола) — он не находил места и оставался
+            # в банке. Верхняя граница — конверт слота (zones.json) +10%.
+            # КАНОН РАЗМЕРА (перепроверено 12.08): ковёр достаёт до передних ножек
+            # посадочных (диван + ~30 см с каждой стороны), а у стен остаётся полоса
+            # пола 45-60 см. Потолок — по комнате, не по «доле пола».
+            import math as _mt
+            _room_cap=_mt.sqrt(max(m2,1.0))*100-90
+            _rug_cap=min((slot_ideal('ковёр',m2) or 999)*1.10, _room_cap)
+            best=None;bs=1e9; _best_any=None; _bs_any=1e9
             for it in cat['ковёр']:
                 if not it['fp'] or re.search(r'ассортимент|мехов|ванн|придверн|подложк',it['name'].lower()): continue
                 if not overlap_ok(emb_key(it['mid'],it['eid']),style_name,chosen,role='ковёр',tier=tier): continue
                 rw=max(it.get('w') or 0, it.get('d') or 0) or None  # длинная сторона ковра
+                _too_big = bool(_rug_cap and rw and rw>_rug_cap)
                 if sofa_w and rw:
                     _ov=(OCC or {}).get('rug_rules',{}).get('verified_r2',{}).get('front_legs_scheme_side_overhang_each_cm',[25,35])
-                    tgt=sofa_w+2*sum(_ov)/2  # диван + выступ с каждой стороны (occupancy)
+                    tgt=min(sofa_w+2*sum(_ov)/2, _rug_cap or 1e9)  # диван + выступ, но в габарит комнаты
                     score=abs(rw-tgt)
                 else:
                     kv=band.get('kover_pct') or (30,50)
                     score=abs(it['fp']-(kv[0]+kv[1])/2/100*m2)*100
+                if score<_bs_any: _bs_any=score; _best_any=it     # запасной: без потолка
+                if _too_big: continue                              # крупнее нормы площади
                 if score<bs: bs=score; best=it
             # ЛУЧШЕ НЕ ДОСТРОИТЬ, ЧЕМ ДОСТРОИТЬ НЕВЕРНО (правило владельца 2026-08-05). Ковёр,
             # который не дотягивает до допустимого соотношения с диваном, в гостиной читается
@@ -772,6 +794,8 @@ for bi,band in enumerate(COMP['bands']):
                               f"{int(_work_w+30)} см — от РАБОЧЕЙ ширины), ни под столик "
                               f"— сет без ковра",flush=True)
                         best=None
+            if best is None and _best_any is not None:
+                best=_best_any      # в каталоге нет ковра под площадь — берём ближайший
             if best: chosen['ковёр']=dict(best,qty=1,rug_scheme=_scheme)
         # люстра: диаметр по метражу + металл капсулы
         _f=(OCC or {}).get('chandelier_size',{}).get('diameter_cm_formula','')

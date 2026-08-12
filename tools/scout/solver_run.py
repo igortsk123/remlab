@@ -2,6 +2,7 @@
 """Этап B: раскладка сета солвером Holodeck DFS (см) + hard-проверки эргономики + top-down PNG.
 Фолбэк-констрейнты по ролям (Gemini мёртв — статичная таблица из плана).
 Запуск (venv!): ~/venvs/scout/bin/python solver_run.py <сет> [W_см D_см]"""
+import hashlib
 import json, os, sys, random, math
 from shapely.geometry import Polygon, box
 import solver_core
@@ -637,6 +638,13 @@ def attempt_beam():
                       'оставляем вариант без носителя, дефицит в лог', flush=True)
     placed = {p.role: ((p.x, p.y), int(p.rot) % 360, tuple(_fp(p).exterior.coords[:]), 1)
               for p in lay.placements}
+    # ПРОСЛЕЖИВАЕМОСТЬ ШАБЛОНА (ADR template-integrity): каким паспортом схемы
+    # поставлен каждый предмет — в артефакт, отчёт и галерею
+    global TPL_BY_ROLE
+    TPL_BY_ROLE = {p.role: (p.tpl_id, p.tpl_version) for p in lay.placements}
+    _no_tpl = sorted(r for r, (t, _) in TPL_BY_ROLE.items() if not t)
+    if _no_tpl and os.environ.get('LAYOUT_ONLY_TEMPLATES', '1') == '1':
+        print('NOTPL ' + json.dumps(_no_tpl, ensure_ascii=False), flush=True)
     missing = list(lay.unplaced)
     # Рефери 08.08 (Q1/3.3): дроп ярусом — не провал, но и не молчание (no silent caps)
     if lay.skipped_optional:
@@ -725,9 +733,17 @@ if CORNER and 'диван' in out:
               'экспорт расходится с полигоном солвера', flush=True)
 # габариты И проёмы — рендеру и компилятору сцены: без проёмов генератор придумывает свои
 # двери/окна, и кадр перестаёт совпадать с планом (поймано 2026-08-04)
-out['_room']={'w':RW,'d':RD,'m2':round(RW*RD/10_000,1),'openings':[
+_ops_env=os.environ.get('SCENE_OPENINGS')
+_room_ops=(json.loads(_ops_env) if (_ops_env and json.loads(_ops_env)) else [
     {'kind':'door','wall':'south','offset_cm':DOOR_OFF,'width_cm':DOOR_W,'swing_cm':92},
-    {'kind':'window','wall':'east','offset_cm':WIN_OFF,'width_cm':WIN_W,'sill_cm':80}]}
+    {'kind':'window','wall':'east','offset_cm':WIN_OFF,'width_cm':WIN_W,'sill_cm':80}])
+# контур комнаты — в артефакт: план обязан рисовать НАСТОЯЩИЕ стены, а не bbox
+# (замечание владельца 12.08: «диван заходит за границы комнаты» — это врал чертёж)
+out['_templates']={r:{'id':t,'version':v} for r,(t,v) in (globals().get('TPL_BY_ROLE') or {}).items()}
+out['_set_hash']=hashlib.sha1(json.dumps(items,ensure_ascii=False,sort_keys=True).encode()).hexdigest()[:12]
+out['_room']={'w':RW,'d':RD,'m2':round(RW*RD/10_000,1),'openings':_room_ops,
+              'contour':(json.loads(os.environ.get('SCENE_CONTOUR')) 
+                         if os.environ.get('SCENE_CONTOUR') else None)}
 # L4 (MASTER-layout-v5): топология-сигнатура — семантическая схема раскладки в артефакт и лог
 from topo_sig import topo_key, topo_signature
 out['_topo'] = topo_signature(out)
@@ -772,16 +788,19 @@ json.dump(out,open(os.path.join(HERE,f'{TAG}{n}-layout{_sfx}.json'),'w'),ensure_
 # top-down PNG — В НОРМАЛИЗОВАННОМ ВИДЕ (как кадр pipeline2): диван у ДАЛЬНЕЙ стены лицом
 # к камере, камера снизу. Так план и генерация читаются как одна и та же комната.
 _srot=int(placed.get('диван',((0,0),180))[1])%360 if 'диван' in placed else 180
+RWO,RDO=RW,RD                      # ИСХОДНЫЕ габариты — только по ним и нормализуем
 def _nrm(x,z):
+    # БАГ до 12.08: здесь стояли RW/RD, которые ниже подменяются на swapped —
+    # при повороте плана предметы пересчитывались по чужим габаритам и «выезжали»
+    # за стены (замечание владельца «диван заходит за границы комнаты»).
     if _srot==180: return x,z
-    if _srot==0:   return RW-x,RD-z
-    if _srot==90:  return z,RW-x
-    return RD-z,x
-RWO,RDO=RW,RD                      # исходные габариты — для пересчёта двери/окна
+    if _srot==0:   return RWO-x,RDO-z
+    if _srot==90:  return z,RWO-x
+    return RDO-z,x
 if _srot in (90,270): RW,RD=RD,RW
 placed={r:(_nrm(*v[0]), (v[1]-(_srot-180))%360, tuple(_nrm(*c) for c in v[2]), v[3])
         for r,v in placed.items()}
-SC=2.2
+SC=2.6                             # крупнее план — крупнее и подписи (владелец 12.08)
 img=Image.new('RGB',(int(RW*SC)+40,int(RD*SC)+40),(250,247,240)); dr=ImageDraw.Draw(img)
 # шрифт с кириллицей: дефолтный bitmap-шрифт PIL рисует русские подписи «иероглифами» (урок 42)
 from PIL import ImageFont as _IF
@@ -790,28 +809,98 @@ def _font(sz):
                '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf'):
         if os.path.exists(_p): return _IF.truetype(_p,sz)
     return _IF.load_default()
-F_ITEM,F_TXT=_font(15),_font(16)
+F_ITEM,F_TXT=_font(21),_font(22)   # подписи было не разобрать (владелец 12.08)
+_LBL_BOXES=[]                      # занятые прямоугольники подписей — против наложений
+_ITEM_BOXES=[]                     # рамки предметов — подпись не должна их накрывать
+
+
+def _put_label(dr, x, y, txt, font, fill=(15,15,15)):
+    """Подпись без наложения на другие подписи: пробуем сместиться по вертикали,
+    держимся в кадре; если пришлось уехать далеко — тянем выноску к предмету."""
+    bb = dr.textbbox((0, 0), txt, font=font)
+    w, h = bb[2] - bb[0], bb[3] - bb[1]
+    W, H = img.width, img.height
+    x = min(max(x, w / 2 + 6), W - w / 2 - 6)
+
+    def _hits(box, boxes):
+        return any(box[0] < b[2] and b[0] < box[2] and box[1] < b[3] and b[1] < box[3]
+                   for b in boxes)
+
+    own = None
+    for _b in _ITEM_BOXES:                       # своя рамка — по ней подпись не мешает
+        if _b[0] <= x <= _b[2] and _b[1] <= y + h <= _b[3] + h:
+            own = _b if own is None else own
+    others = [b for b in _ITEM_BOXES if b is not own]
+    # два круга: сперва ищем место, свободное И от подписей, И от чужих блоков
+    for _strict in (True, False):
+      for k in (0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5, -6, 6):
+        cy = min(max(y + k * (h + 6), h / 2 + 6), H - h / 2 - 6)
+        box = (x - w / 2 - 3, cy - h / 2 - 3, x + w / 2 + 3, cy + h / 2 + 3)
+        if _hits(box, _LBL_BOXES) or (_strict and _hits(box, others)):
+            continue
+        if True:
+            _LBL_BOXES.append(box)
+            if abs(cy - y) > h:                       # уехала — показываем, к чему она
+                dr.line([x, cy, x, y], fill=(120, 120, 120), width=1)
+            dr.text((x, cy), txt, fill=fill, font=font, anchor='mm',
+                    stroke_width=3, stroke_fill=(255, 255, 255))
+            return x, cy
+    _LBL_BOXES.append((x - w / 2, y - h / 2, x + w / 2, y + h / 2))
+    dr.text((x, y), txt, fill=fill, font=font, anchor='mm',
+            stroke_width=3, stroke_fill=(255, 255, 255))
+    return x, y
 def T(x,z): return (20+x*SC,20+(RD-z)*SC)  # z вверх
-dr.rectangle([T(0,RD),T(RW,0)],outline=(60,60,60),width=3)
-# дверь и окно тоже нормализуем — иначе на плане они остаются на «старых» стенах
-_dr_pts=[_nrm(20,0),_nrm(110,0),_nrm(110,92),_nrm(20,92)]
-_wn_pts=[_nrm(RWO-15,140),_nrm(RWO,140),_nrm(RWO,280),_nrm(RWO-15,280)]
-dr.polygon([T(x,z) for x,z in _dr_pts],outline=(200,120,60),width=2)
-_dcx=sum(p[0] for p in _dr_pts)/4; _dcz=sum(p[1] for p in _dr_pts)/4
-dr.text(T(_dcx,_dcz),'дверь',fill=(180,110,50),font=F_TXT,anchor='mm')
-dr.polygon([T(x,z) for x,z in _wn_pts],fill=(180,210,240))
-_wcx=sum(p[0] for p in _wn_pts)/4; _wcz=sum(p[1] for p in _wn_pts)/4
-dr.text(T(_wcx,_wcz),'окно',fill=(60,110,170),font=F_TXT,anchor='mm')
+# СТЕНЫ ПО ФАКТУ: если сцена задана контуром — рисуем контур, а не прямоугольник
+_ctr_pts=out['_room'].get('contour')
+if _ctr_pts:
+    dr.polygon([T(*_nrm(x,z)) for x,z in _ctr_pts],outline=(60,60,60),width=3)
+else:
+    dr.rectangle([T(0,RD),T(RW,0)],outline=(60,60,60),width=3)
+
+
+def _wall_seg(op):
+    """Отрезок проёма на стене В ИСХОДНЫХ координатах (до нормализации)."""
+    o,w = op['offset_cm'], op['width_cm']
+    if op['wall']=='south': return (o,0),(o+w,0)
+    if op['wall']=='north': return (o,RDO),(o+w,RDO)
+    if op['wall']=='west':  return (0,o),(0,o+w)
+    return (RWO,o),(RWO,o+w)
+
+
+# ПРОЁМЫ ПО ФАКТУ (те же, что видел солвер) — раньше дверь/окно рисовались в
+# фиксированных местах и не совпадали с расстановкой (владелец 12.08)
+for _op in out['_room']['openings']:
+    (_ax,_az),(_bx,_bz) = _wall_seg(_op)
+    _p1,_p2 = T(*_nrm(_ax,_az)), T(*_nrm(_bx,_bz))
+    _door = _op['kind']=='door'
+    dr.line([_p1,_p2],fill=((200,120,60) if _door else (90,150,210)),width=9)
+    _mid=((_p1[0]+_p2[0])/2,(_p1[1]+_p2[1])/2)
+    # подпись — внутрь комнаты, чтобы не уезжала за кадр
+    _cx0,_cy0 = T(*_nrm(RWO/2,RDO/2))
+    _dx,_dy = _cx0-_mid[0], _cy0-_mid[1]
+    _n=max((_dx*_dx+_dy*_dy)**0.5,1e-6)
+    _put_label(dr,_mid[0]+_dx/_n*34,_mid[1]+_dy/_n*34,
+               'дверь' if _door else 'окно',F_TXT,
+               fill=(180,110,50) if _door else (60,110,170))
+    if _door:                      # дуга открывания — как на строительных планах
+        _sw=_op.get('swing_cm') or _op['width_cm']
+        _r=_sw*SC
+        dr.arc([_p1[0]-_r,_p1[1]-_r,_p1[0]+_r,_p1[1]+_r],0,360,fill=(220,180,140),width=1)
 cols={'диван':(120,120,190),'тв-тумба':(160,160,160),'кресло':(190,150,140),'столик':(150,120,90),
       'пуф':(170,170,150),'торшер':(60,60,60),'кашпо':(170,140,169)}
-for r,v in placed.items():
+# СНАЧАЛА ковёр (подложка), потом мебель — иначе ковёр закрашивает диван
+_order=sorted(placed.items(), key=lambda kv: 0 if kv[0].split(' ')[0]=='ковёр' else 1)
+for r,v in _order:
     pts=[T(x,z) for x,z in v[2]]
     dr.polygon(pts,outline=(40,40,40),fill=cols.get(r,(200,200,200)))
+    xs=[p[0] for p in pts]; ys=[p[1] for p in pts]
+    _ITEM_BOXES.append((min(xs),min(ys),max(xs),max(ys)))
+# подписи — вторым проходом, поверх всей мебели и в обход чужих блоков
+for r,v in _order:
     cx,cz=v[0]; _w,_d=dict(FLOOR).get(r,(0,0))
     _lbl=f"{r} {int(_w)}x{int(_d)} см, {v[1]}°"
     _tx,_ty=T(cx,cz)
-    dr.text((min(max(_tx,60),int(RW*SC)-60),_ty-8),_lbl,fill=(15,15,15),font=F_ITEM,anchor='mm',
-            stroke_width=3,stroke_fill=(255,255,255))
+    _put_label(dr,_tx,_ty-8,_lbl,F_ITEM)
     # стрелка «куда смотрит»: rot 180 = к южной стене (к камере вида A)
     import math as _m
     _a=_m.radians(v[1]); _fx,_fz=_m.sin(_a),-_m.cos(_a)

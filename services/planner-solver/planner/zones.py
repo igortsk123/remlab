@@ -131,6 +131,7 @@ def solve_zoned(room: Room, items, **kw):
     from collections import Counter
 
     from .beam import solve
+    from .invariants import phantom_dimensions
     avail = {_base(i.role) for i in items}
     counts = Counter(_base(i.role) for i in items)
     group = pick_group(room, dict(counts))
@@ -142,7 +143,8 @@ def solve_zoned(room: Room, items, **kw):
               {_base(r) for r in group['roles'].get('optional', [])}
     keep, dropped = [], []
     for it in items:
-        # ПУФ НЕ ВЫБРАКОВЫВАЕМ группой (11.08): у него теперь СВОЯ зона (place_pouf,
+        # ПУФ ставится ТОЛЬКО внутри схемы посадки (владелец 12.08: зона из одного
+        # предмета — не шаблон; отдельно стоящий пуф читался как случайный). (11.08:
         # перед/сбоку дивана по веб-своду). Раньше фильтр посадочных ролей выбрасывал
         # его до цепочки зон — отсюда «пуф пропущен» в 168 сценах.
         if (_base(it.role) in SEATING_ROLES and _base(it.role) not in allowed
@@ -200,7 +202,7 @@ def solve_zoned(room: Room, items, **kw):
         # комнату выше верхней границы коридора 30–45% — следующая (меньшая) зона
         # ещё может влезть.
         from .template import (place_decor, place_fireplace, place_media,
-                               place_media_fireplace, place_pouf, place_quiet,
+                               place_media_fireplace, place_quiet,
                                place_reading, place_storage)
         _fp_pol = zone_rules().get('fill_policy', {})
         _lo, _hi = _fp_pol.get('target_pct', [30, 45])
@@ -230,9 +232,10 @@ def solve_zoned(room: Room, items, **kw):
             else ((place_media, '+tv'), (place_fireplace, '+fp'))
         for placer, tag in ((place_media_fireplace, '+tvfp'), _order[0], _order[1],
                             (_din, '+din'), (place_storage, '+st'),
-                            (place_storage, '+st2'), (place_storage, '+st3'),
+                            # НЕ БОЛЕЕ ДВУХ зон хранения на гостиную (владелец 12.08)
+                            (place_storage, '+st2'),
                             (place_quiet, '+qz'), (place_reading, '+rd'),
-                            (place_pouf, '+pf'), (place_decor, '+dc')):
+                            (place_decor, '+dc')):
             occ2 = _uu([_fp(p) for p in block if p.role != 'ковёр'])
             extra = placer(room, keep, usable_polygon(room).difference(occ2),
                            fixed=block)
@@ -389,6 +392,16 @@ def solve_zoned(room: Room, items, **kw):
               f"unplaced={outs[0].unplaced}", file=_s.stderr, flush=True)
     for lay in outs:
         lay.skipped_optional = sorted(set(lay.skipped_optional) | set(dropped))
+    # ЗАПРЕТ ФАНТОМНЫХ ГАБАРИТОВ (ADR template-integrity): габарит поставленного
+    # предмета обязан совпадать с SKU из сета. Солвер не имеет права «ужать» товар,
+    # чтобы он влез — это мебель, которой нет в каталоге, и неверная смета.
+    _src = {}
+    for it in items:
+        _src.setdefault(it.role, it)
+    for lay in outs:
+        _bad = phantom_dimensions(lay.placements, _src)
+        if _bad:
+            raise AssertionError('ФАНТОМНЫЕ ГАБАРИТЫ (габарит ≠ SKU): ' + '; '.join(_bad))
     return outs, group['id'] + tpl_tag
 
 

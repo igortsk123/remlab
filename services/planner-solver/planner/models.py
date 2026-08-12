@@ -97,6 +97,10 @@ class Placement(BaseModel):
     rot: float = 0
     item: Item | None = None
     elev_cm: float = Field(default=0, ge=0, description="подъём над полом: ТВ на стене, люстра")
+    # ПРОСЛЕЖИВАЕМОСТЬ ШАБЛОНА (ADR template-integrity, 12.08): каким паспортом схемы
+    # поставлен предмет. Пусто = вне шаблона; при LAYOUT_ONLY_TEMPLATES=1 это ошибка.
+    tpl_id: str = ""
+    tpl_version: str = ""
 
     @model_validator(mode="after")
     def _role_matches(self) -> "Placement":
