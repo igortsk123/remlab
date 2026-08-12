@@ -3,7 +3,7 @@ tier: 1
 topic: layout
 scope: Расстановка — свод правил, зона-билдер, прод-ядро
 tier2: ../domain/occupancy-rules.md
-updated: 2026-08-11
+updated: 2026-08-12
 importance: high
 source: manual
 status: working
@@ -16,26 +16,25 @@ status: working
 beam → скоринг → уточнение → top-K; детерминизм; полигонные контуры. Остатки: backtracking
 26–30 ([[layout-engine-gaps]]), косые стены.
 
-**Зонный — боевой дефолт (ADR-0074/0075):** `services/planner-solver/planner/zones.py` usable
-+ группы из `services/planner-solver/rules/zones.json`, лексикографический отбор; `base_role`.
-Рефери — ADR-0076/0077 (расходиться — со своим пруфом); обеденная — ADR-0078; T6 —
-ADR-0080 (`services/planner-solver/planner/tv.py`, constraint-CI).
-**MASTER-layout-v5 (ADR-0082/0083):** подложка вне free_space, кламп якорей, joint ВЫКЛ,
-`tools/scout/topo_sig.py`; 62 кода. Приёмка: `tools/scout/acceptance_run.py`
-(ACC_WORKERS=6, timeout 600; рядом тяжёлое не гонять).
-**KB-merge (10.08, kb-rules-merge):** книжные числа в occupancy только через класс-гейт
-LAYER_STRENGTHS (`services/knowledge-db/kdb/export_rules.py`), рекомендации — preferred
-(ADR-0086). Парность диванов и подбор — `tools/scout/compose2.py`; Г-стык +
-SOFA_BLOCKS_SOFA S1 — `services/planner-solver/planner/validate.py`; бисект —
-`tools/scout/acceptance_bisect.py`. Гейт: 252/252, 0 хуже, 245 чистых, band50+ 32/36.
-**Петля судьи (10.08, ADR-0085):** судья один — GPT terra-vision
-(`tools/scout/judge_layout.py`), запуск ТОЛЬКО по команде владельца; ходы по lex_score,
-реестры в git, кандидаты правок — `tools/scout/judge_learn.py`; прозрачность — /test/rules/
-(`tools/scout/rules_page.py`); ~$0.043/сцена.
+**Зонный — боевой дефолт (ADR-0074/0075):** `services/planner-solver/planner/zones.py` + группы `services/planner-solver/rules/zones.json`,
+лексикографический отбор. Рефери — ADR-0076/0077; обеденная — ADR-0078; T6 — ADR-0080
+(`services/planner-solver/planner/tv.py`).
 **Шаблоны зон (11.08, [[solver-speed]] T3.5):** блоки-зоны и цепочка —
 `services/planner-solver/planner/template.py` (+ `zones.py`, теги `+tpl+tv+fp+din+st+rd`),
 фолбэк beam жив (`LAYOUT_TEMPLATES=0`); витрина с табами по площади —
 `tools/scout/templates_page.py` (порог = доля пола + вместимость). Датасеты и правило
 декора — ADR-0087; очередь схем — [[template-library-v2]].
+
+**Целостность шаблонов (12.08, ADR-0088/0089/0090):** паспорта зон —
+`services/planner-solver/rules/templates.json` (состав, приоритет схем, инварианты, пруфы);
+машинная проверка на СБОРКЕ — `services/planner-solver/planner/invariants.py` (вызов
+`template._valid`); габарит == SKU (иначе прогон падает), конверт −20/+10 только при подборе
+(`tools/scout/compose2.py`); `tpl_id` у каждого размещения; сторож —
+`services/planner-solver/tests/test_template_integrity.py`, пруфы чисел —
+`tools/scout/rules_audit.py`. Зоны: медиа приоритетнее хранения (стена напротив посадки
+резервируется), за спинкой отодвинутого дивана — столовая, хранение ≤2 предметов и ≤2 зон.
+Медиа-стенка — паспорт `media_wall`; дверь — сектор у петли + проход 76 см. Зона одного пуфа
+удалена. Замер 12.08: 252/252 чисто, медиа 191 сцена, хранение 246, посадочные на ковре 100%.
+Очередь — [[media-anchor-and-zone-priority]].
 
 **Tier 2:** ../domain/occupancy-rules.md · ../guides/layout-mined-rules.md · ../guides/layout-engine-spec.md

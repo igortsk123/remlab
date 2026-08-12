@@ -78,3 +78,18 @@ scoring, diversity, local_refinement.
 Источники: github allenai/Holodeck (+LICENSE), arxiv 2312.09067, bzx20/Holodeck2.0 + arxiv
 2508.05899, sunfanyunn/LayoutVLM + arxiv 2412.02193, nv-tlabs/ATISS, tangjiapeng/DiffuScene,
 chenguolin/InstructScene, UK CDPA 1988 s.50BA, gov.uk/copyright.
+
+## История ядра (перенесено из core/layout.md 12.08)
+**MASTER-layout-v5 (ADR-0082/0083):** подложка вне free_space, кламп якорей, joint ВЫКЛ,
+`tools/scout/topo_sig.py`; 62 кода. Приёмка: `tools/scout/acceptance_run.py`
+(ACC_WORKERS=6, timeout 600; рядом тяжёлое не гонять).
+**KB-merge (10.08, kb-rules-merge):** книжные числа в occupancy только через класс-гейт
+LAYER_STRENGTHS (`services/knowledge-db/kdb/export_rules.py`), рекомендации — preferred
+(ADR-0086). Парность диванов и подбор — `tools/scout/compose2.py`; Г-стык +
+SOFA_BLOCKS_SOFA S1 — `services/planner-solver/planner/validate.py`; бисект —
+`tools/scout/acceptance_bisect.py`. Гейт: 252/252, 0 хуже, 245 чистых, band50+ 32/36.
+**Петля судьи (10.08, ADR-0085):** судья один — GPT terra-vision
+(`tools/scout/judge_layout.py`), запуск ТОЛЬКО по команде владельца; ходы по lex_score,
+реестры в git, кандидаты правок — `tools/scout/judge_learn.py`; прозрачность — /test/rules/
+(`tools/scout/rules_page.py`); ~$0.043/сцена.
+

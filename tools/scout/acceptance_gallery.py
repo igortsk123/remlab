@@ -57,9 +57,12 @@ for r in rows:
             (f" · заполнение {fillp}%" if fillp else '')
     fails = ', '.join(r.get('fails') or []) if not ok else ''
     soft = r.get('soft_score')
+    # НОМЕР ПЛАНА (просьба владельца 12.08: «сделай каждому плану номер — так проще»):
+    # сквозной 1..252 в порядке галереи, чтобы можно было сказать «план №37».
     cards.append(
-        f"<section id='{html.escape(sid)}'>"
-        f"<h2>{html.escape(sid)} <small>({html.escape(room_note)}"
+        f"<section id='plan{len(cards)+1}'>"
+        f"<h2><a href='#plan{len(cards)+1}' style='text-decoration:none'>План №{len(cards)+1}</a>"
+        f" — {html.escape(sid)} <small>({html.escape(room_note)}"
         f"{'✅ ' + status if ok else '❌ ' + status}"
         f"{' · ' + html.escape(fails) if fails else ''}"
         f"{f' · soft {soft}' if soft is not None else ''}"
