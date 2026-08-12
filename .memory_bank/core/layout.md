@@ -19,12 +19,6 @@ beam → скоринг → уточнение → top-K; детерминизм
 **Зонный — боевой дефолт (ADR-0074/0075):** `services/planner-solver/planner/zones.py` + группы `services/planner-solver/rules/zones.json`,
 лексикографический отбор. Рефери — ADR-0076/0077; обеденная — ADR-0078; T6 — ADR-0080
 (`services/planner-solver/planner/tv.py`).
-**Шаблоны зон (11.08, [[solver-speed]] T3.5):** блоки-зоны и цепочка —
-`services/planner-solver/planner/template.py` (+ `zones.py`, теги `+tpl+tv+fp+din+st+rd`),
-фолбэк beam жив (`LAYOUT_TEMPLATES=0`); витрина с табами по площади —
-`tools/scout/templates_page.py` (порог = доля пола + вместимость). Датасеты и правило
-декора — ADR-0087; очередь схем — [[template-library-v2]].
-
 **Целостность шаблонов (12.08, ADR-0088/0089/0090):** паспорта зон —
 `services/planner-solver/rules/templates.json` (состав, приоритет схем, инварианты, пруфы);
 машинная проверка на СБОРКЕ — `services/planner-solver/planner/invariants.py` (вызов
@@ -35,6 +29,9 @@ beam → скоринг → уточнение → top-K; детерминизм
 резервируется), за спинкой отодвинутого дивана — столовая, хранение ≤2 предметов и ≤2 зон.
 Медиа-стенка — паспорт `media_wall`; дверь — сектор у петли + проход 76 см. Зона одного пуфа
 удалена. Замер 12.08: 252/252 чисто, медиа 191 сцена, хранение 246, посадочные на ковре 100%.
-Очередь — [[design-order-pipeline]].
+Дизайнерский порядок (12.08, ADR-0091): фокус-стена → диван → циркуляция → носитель →
+ковёр/столик → доп. посадка → хранение → свет → декор; три круга фокуса в `place_template`,
+гейт деградации на вторичных зонах — `services/planner-solver/planner/quality.py`
+(маршрут ≥75, «щели» 45 см, смещение носителя ≤40); fill — диагностика, не цель.
 
 **Tier 2:** ../domain/occupancy-rules.md · ../guides/layout-mined-rules.md · ../guides/layout-engine-spec.md

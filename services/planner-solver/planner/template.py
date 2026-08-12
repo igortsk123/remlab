@@ -359,6 +359,14 @@ def _inner_zone(b: Block) -> tuple[float, float, float, float]:
     return (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
 
 
+# ФОКУС-СТЕНА ОБЯЗАТЕЛЬНА (свод владельца 12.08): позиция посадки, не оставляющая
+# чистого места носителю ТВ, отвергается. Снимается только на последнем круге каскада,
+# когда НИ ОДНА схема не смогла ужиться с фокусом — тогда честнее поставить посадку,
+# чем оставить сцену пустой.
+# 2 — носителю нужно место В ОСИ взгляда; 1 — любое чистое место; 0 — требования нет
+_FOCUS_LEVEL = 2
+
+
 POUF_AS_TABLE_MIN_W = 70.0       # пуф от 70 см заменяет журнальный столик (веб-свод)
 
 
@@ -842,7 +850,7 @@ def _base_role(role: str) -> str:
 
 
 def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
-                fixed: list[Placement] | None,
+                fixed: list[Placement] | None, top: int = 1,
                 axis_seat: Placement | None = None,
                 second_focus: Item | None = None,
                 require_bearer: Item | None = None) -> list[Placement] | None:
@@ -928,7 +936,7 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
     for _, ps in scored[:TOP_FULL_VALIDATE]:
         lay = validate(room, base + ps)
         hards = [v for v in lay.violations if v.severity is Severity.HARD]
-        if not hards and require_bearer is not None:
+        if not hards and require_bearer is not None and _FOCUS_LEVEL >= 1:
             # РЕЗЕРВ МЕСТА ПОД МЕДИА (регресс 11.08: блок занимал стену, и носитель
             # ТВ потом не вставал — 40 сцен): позиция блока принимается, только если
             # существует hard-чистая постановка носителя при ней
@@ -946,6 +954,16 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
                 vx, vy = c.placement.x - seat.x, c.placement.y - seat.y
                 n = math.hypot(vx, vy) or 1.0
                 return -((math.sin(r) * vx + math.cos(r) * vy) / n)
+            # ЦЕНТР ПРОВЕРЯЕМ ЗАРАНЕЕ (свод владельца 12.08): в круге «фокус обязателен»
+            # позиция посадки принимается, только если носителю есть место В ОСИ взгляда.
+            # Иначе ось упирается в дверь, и тумба уезжает на 90-150 см вбок.
+            if _FOCUS_LEVEL >= 2:
+                # круг «центр обязателен»: нет места В ОСИ — позиция посадки не годится
+                bcs = _axis_filter(bcs, seat)
+                if not bcs:
+                    if first_hard is None:
+                        first_hard = [('NO_CENTERED_BEARER', [require_bearer.role], None)]
+                    continue
             ok_combo = False
             for bc in sorted(bcs, key=_aim)[:24]:
                 lay2 = validate(room, base + ps + [bc.placement])
@@ -971,9 +989,13 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
             first_hard = [(v.code, v.roles, v.value) for v in hards[:3]]
     if ok_variants:
         ok_variants.sort(key=lambda t: t[0])
+        if top > 1:
+            return [v[1] for v in ok_variants[:top]]
         return ok_variants[0][1]
-    if nb_variants:
+    if nb_variants and _FOCUS_LEVEL == 0:
         nb_variants.sort(key=lambda t: t[0])
+        if top > 1:
+            return [v[1] for v in nb_variants[:top]]
         return nb_variants[0][1]
     if os.environ.get('ZONES_DEBUG'):
         import sys
@@ -1060,29 +1082,41 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
               'sofa_loveseat': ['default', 'square'],
               'sofa_loveseat_2armchairs': ['default', 'square'],
               }.get(group_id, ['default'])
-    # ДВА ПРОХОДА (замечание владельца 12.08 «столиков нигде не вижу»): сперва ВСЕ
-    # схемы с НАСТОЯЩИМ журнальным столиком — и только если ни одна не встала, схема
-    # «пуф вместо столика». Раньше pouf_table стоял вторым в списке и выигрывал у
-    # столика ещё до перебора остальных схем: 104 сцены остались без столика.
-    for _pass in (0, 1):
-      _shapes = [sh for sh in shapes if (sh == 'pouf_table') == bool(_pass)]
-      if not _shapes:
-          continue
-      for br, _gap, _shift in variants:
-        for shape in _shapes:
-          b = build_block(group_id, br, variant=shape, table_gap=_gap,
-                        table_shift=_shift)
-          if b is None or len(b.rel) < 2:
+    # ФОКУС-СТЕНА ОБЯЗАТЕЛЬНА (свод владельца 12.08: «стена напротив дивана не должна
+    # быть пустой»). КРУГ 1 — принимаем только те позиции посадки, при которых носителю
+    # ТВ остаётся чистое место. КРУГ 2 (если ни одна схема не ужилась) — ставим посадку
+    # без этого требования: лучше зона, чем пустая сцена, и носитель честно уходит в
+    # «не использовано».
+    # ВНУТРИ каждого круга — прежние два прохода: сперва схемы с НАСТОЯЩИМ столиком,
+    # затем «пуф вместо столика» (104 сцены оставались без столика, 12.08).
+    global _FOCUS_LEVEL
+    _rounds = (2, 1, 0) if (bearer is not None
+                            and os.environ.get('LAYOUT_FOCUS_MANDATORY', '1') != '0') \
+        else (0,)
+    for _lvl in _rounds:
+      _FOCUS_LEVEL = _lvl
+      try:
+        for _pass in (0, 1):
+          _shapes = [sh for sh in shapes if (sh == 'pouf_table') == bool(_pass)]
+          if not _shapes:
               continue
-          cands = list(wall_candidates(room, b.anchor, free))
-          # v2.10: в просторных комнатах посадка может «плавать» (зонирование
-          # спинкой); тыл за спинкой проверят passage/sliver-чеки validate
-          if room.width_cm * room.depth_cm > 40 * 10_000:
-              cands += list(middle_candidates(room, b.anchor, free, limit=6))
-          ps = _best_block(room, b, free, cands, tv=tv, fixed=fixed,
-                           second_focus=second, require_bearer=bearer)
-          if ps is not None:
-              return ps
+          for br, _gap, _shift in variants:
+            for shape in _shapes:
+              b = build_block(group_id, br, variant=shape, table_gap=_gap,
+                              table_shift=_shift)
+              if b is None or len(b.rel) < 2:
+                  continue
+              cands = list(wall_candidates(room, b.anchor, free))
+              # v2.10: в просторных комнатах посадка может «плавать» (зонирование
+              # спинкой); тыл за спинкой проверят passage/sliver-чеки validate
+              if room.width_cm * room.depth_cm > 40 * 10_000:
+                  cands += list(middle_candidates(room, b.anchor, free, limit=6))
+              ps = _best_block(room, b, free, cands, tv=tv, fixed=fixed,
+                               second_focus=second, require_bearer=bearer)
+              if ps is not None:
+                  return ps
+      finally:
+        _FOCUS_LEVEL = 0
     return None
 
 
@@ -1413,8 +1447,23 @@ def _jamb_candidates(room: Room, item: Item, free: Polygon) -> list:
     return out
 
 
+def _axis_filter(cands, seat: Placement | None):
+    """Кандидаты, стоящие В ОСИ ВЗГЛЯДА посадки (поперечное смещение ≤ порога)."""
+    if seat is None:
+        return []
+    from .quality import FOCUS_OFFSET_MAX_CM
+    r = math.radians(seat.rot)
+    out = []
+    for c in cands:
+        vx, vy = c.placement.x - seat.x, c.placement.y - seat.y
+        if abs(math.cos(r) * vx - math.sin(r) * vy) <= FOCUS_OFFSET_MAX_CM:
+            out.append(c)
+    return out
+
+
 def place_media(room: Room, items: list[Item], free: Polygon,
-                fixed: list[Placement] | None = None) -> list[Placement] | None:
+                fixed: list[Placement] | None = None,
+                top: int = 1) -> list[Placement] | None:
     """Медиа-зона блоком; позиция — по межзонной связи (соосность с главным
     посадочным из fixed, дистанция/прицел проверит validate)."""
     if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
@@ -1440,9 +1489,21 @@ def place_media(room: Room, items: list[Item], free: Polygon,
                     _cands = list(wall_candidates(room, b.anchor, free)) \
                         + _jamb_candidates(room, b.anchor, free) \
                         + list(_corner_candidates(room, b.anchor, free))
-                    ps = _best_block(room, b, free, _cands,
+                    # ЦЕНТР — ПОРОГ, А НЕ БОНУС (свод владельца 12.08): сперва только
+                    # позиции в оси взгляда (смещение ≤ FOCUS_OFFSET_MAX_CM); если таких
+                    # нет вовсе — весь список. Раньше центровка была слагаемым скора и
+                    # проигрывала прочим штрафам: 163 сцены со смещением >40 см.
+                    _strict = _axis_filter(_cands, seat)
+                    ps = _best_block(room, b, free, _strict or _cands, top=top,
                                      tv=None, fixed=fixed, axis_seat=seat)
-                    if ps is not None and (best is None or _axis_off(ps, seat) < _axis_off(best, seat)):
+                    if ps is None and _strict:
+                        ps = _best_block(room, b, free, _cands, top=top,
+                                         tv=None, fixed=fixed, axis_seat=seat)
+                    if ps is None:
+                        continue
+                    if top > 1:
+                        best = (best or []) + ps
+                    elif best is None or _axis_off(ps, seat) < _axis_off(best, seat):
                         best = ps
                     if not flanks:
                         break            # без акцентов зеркалить нечего

@@ -196,6 +196,16 @@ def _tv_wall_strip(room, block):
     return strip.intersection(_rp(room))
 
 
+def _fp0(p):
+    from .geometry import footprint as _f
+    return _f(p)
+
+
+def _uu0(polys):
+    from shapely.ops import unary_union as _u
+    return _u(polys)
+
+
 def solve_zoned(room: Room, items, **kw):
     """Z3, уровень 1 (MVP): сначала выбирается посадочная ГРУППА по полезной площади, затем
     beam решает предметы; посадочные роли вне группы не размещаются «лишь бы стоять», а честно
@@ -206,6 +216,8 @@ def solve_zoned(room: Room, items, **kw):
 
     from .beam import solve
     from .invariants import phantom_dimensions
+    from .quality import not_worse as _not_worse
+    from .quality import scene_quality as _quality
     avail = {_base(i.role) for i in items}
     counts = Counter(_base(i.role) for i in items)
     group = pick_group(room, dict(counts))
@@ -233,8 +245,29 @@ def solve_zoned(room: Room, items, **kw):
     _refine_mod.LOCKED = set()        # чистый старт на каждую сцену (детерминизм)
     block = None
     if os.environ.get('LAYOUT_TEMPLATES', '1') != '0':
-        from .template import place_template
-        block = place_template(room, group['id'], keep, usable_polygon(room))
+        from .template import place_media, place_template
+        # ДИЗАЙНЕРСКИЙ ПОРЯДОК (свод владельца 12.08): фокус-стена важнее удобной
+        # позиции дивана. Прямая постановка «медиа первой» в тесных комнатах не встаёт
+        # (обе зоны помещаются лишь в согласованной паре), поэтому порядок реализован
+        # ЖЁСТКИМ ТРЕБОВАНИЕМ в схеме посадки: позиция дивана принимается, только если
+        # носителю ТВ остаётся чистое место (`place_template` → require_bearer,
+        # LAYOUT_FOCUS_MANDATORY). Эксперимент «медиа первой» остаётся под флагом.
+        media_opts = []
+        if os.environ.get('LAYOUT_FOCUS_FIRST', '0') != '0':
+            _m = place_media(room, keep, usable_polygon(room), fixed=None, top=8)
+            # top>1 отдаёт СПИСОК вариантов позиции медиа-блока
+            media_opts = _m if (_m and isinstance(_m[0], list)) else ([_m] if _m else [])
+        for media_first in media_opts:
+            _occ = _uu0([_fp0(p) for p in media_first if p.role.split(' ')[0] != 'ковёр'])
+            _blk = place_template(room, group['id'], keep,
+                                  usable_polygon(room).difference(_occ),
+                                  fixed=media_first)
+            if _blk:
+                block = list(media_first) + list(_blk)
+                keep = [it for it in keep if it.role not in {p.role for p in media_first}]
+                break
+        if not block:
+            block = place_template(room, group['id'], keep, usable_polygon(room))
     if os.environ.get('LAYOUT_ONLY_TEMPLATES', '1') != '0' and not block:
         # НЕТ ПОДХОДЯЩЕГО ШАБЛОНА (замечание владельца 11.08: «ковёр/столик не могут
         # теряться поодиночке — их нет как отдельных шаблонов»). Раньше сцена
@@ -325,13 +358,22 @@ def solve_zoned(room: Room, items, **kw):
             if tag not in ('+din',) and _behind_reserved(room, block, keep):
                 _free_z = _free_z.difference(_behind_sofa_strip(room, block))
             extra = placer(room, keep, _free_z, fixed=block)
-            if extra and _fill_pct(block + extra) > _hi:
-                if os.environ.get('ZONES_DEBUG'):
-                    import sys as _s
-                    print(f'ZDBG зона {tag} пропущена: заполнение стало бы '
-                          f'{_fill_pct(block + extra):.0f}% > {_hi}%',
-                          file=_s.stderr, flush=True)
-                extra = None                      # зона не влезает в бюджет — пробуем следующую
+            # ГЕЙТ ДЕГРАДАЦИИ (свод владельца 12.08): зона принимается, только если не
+            # ухудшила достигнутое — маршрут ≥75 см, «щели» уже 45 см не выросли, фокус
+            # не сбился. Заполнение пола (fill) больше НЕ цель, а диагностика: прежний
+            # бюджет заставлял добивать площадь, отсюда кашпо в щели и кресло, портящее
+            # проход. Пруфы и пороги — rules/zones.json → quality_gate.
+            if extra and tag not in ('+tv', '+tvfp', '+fp'):
+                _q_before = _quality(room, block)
+                _q_after = _quality(room, block + extra)
+                if not _not_worse(_q_before, _q_after):
+                    if os.environ.get('ZONES_DEBUG'):
+                        import sys as _s
+                        print(f'ZDBG зона {tag} ОТКЛОНЕНА гейтом качества: маршрут '
+                              f"{_q_before['circulation']:.0f}→{_q_after['circulation']:.0f} см, "
+                              f"щели {_q_before['sliver_m2']:.2f}→{_q_after['sliver_m2']:.2f} м²",
+                              file=_s.stderr, flush=True)
+                    extra = None
             if extra:
                 roles2 = {p.role for p in extra}
                 keep = [it for it in keep if it.role not in roles2]

@@ -27,6 +27,10 @@ REPORT = os.path.join(SCOUT, 'acceptance-report-zoned.jsonl')
 # Пороги зафиксированы от замера и могут только УЛУЧШАТЬСЯ (правило регресс-сети).
 MIN_SEATS_ON_RUG_SHARE = 0.90      # доля посадочных, стоящих на ковре
 MAX_STORAGE_PER_ZONE = 2           # предметов хранения в одной зоне (правило владельца)
+# Дизайнерский порядок (ADR design-order-pipeline): пороги от замера 12.08, только вверх
+MIN_ROUTE_CM = 70                  # главный маршрут от двери
+MAX_FOCUS_OFFSET_MEDIAN_CM = 30    # медиана смещения носителя от оси взгляда
+MAX_EMPTY_FOCUS_SCENES = 29        # сцен, где носитель в банке, но не поставлен
 
 
 def _scenes():
@@ -151,3 +155,49 @@ def test_no_single_item_zones():
         if lonely:
             bad[scene] = lonely
     assert not bad, f'зоны из одного предмета: {dict(list(bad.items())[:5])}'
+
+
+def test_route_is_walkable():
+    """Главный маршрут от двери не уже порога (циркуляция важнее лишнего предмета)."""
+    from planner.quality import route_width_cm
+    bad = {}
+    for scene, _lay, room, ps in _scenes():
+        w = route_width_cm(room, ps)
+        if w < MIN_ROUTE_CM:
+            bad[scene] = w
+    assert not bad, f'узкий маршрут: {dict(list(bad.items())[:5])}'
+
+
+def test_focus_is_centered():
+    """Носитель ТВ стоит в оси взгляда с дивана (медиана смещения)."""
+    import statistics
+
+    from planner.quality import focus_offset_cm
+    offs = []
+    for _scene, _lay, _room, ps in _scenes():
+        if not any(p.role.split(' ')[0] in ('тв-тумба', 'стенка') for p in ps):
+            continue
+        o = focus_offset_cm([p for p in ps
+                             if p.role.split(' ')[0] != 'камин'])
+        if o is not None:
+            offs.append(o)
+    if not offs:
+        pytest.skip('нет сцен с носителем')
+    med = statistics.median(offs)
+    assert med <= MAX_FOCUS_OFFSET_MEDIAN_CM, (
+        f'носитель уезжает от оси: медиана {med:.0f} см > {MAX_FOCUS_OFFSET_MEDIAN_CM}')
+
+
+def test_focus_wall_not_empty():
+    """Носитель есть в банке — стена напротив дивана не должна пустовать."""
+    sets = json.load(open(os.path.join(SCOUT, 'sets3.json'), encoding='utf-8'))
+    empty = []
+    for scene, _lay, _room, ps in _scenes():
+        n = int(scene.split('-')[0].replace('set', ''))
+        items = (sets[n - 1].get('items') or {})
+        if not any(k in items for k in ('тв-тумба', 'стенка')):
+            continue
+        if not any(p.role.split(' ')[0] in ('тв-тумба', 'стенка') for p in ps):
+            empty.append(scene)
+    assert len(empty) <= MAX_EMPTY_FOCUS_SCENES, (
+        f'сцен с пустой фокус-стеной {len(empty)} > {MAX_EMPTY_FOCUS_SCENES}: {empty[:6]}')
