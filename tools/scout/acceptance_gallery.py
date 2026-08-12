@@ -45,6 +45,16 @@ for r in rows:
         combined[sid] = data
     ok = r.get('ok')
     status = 'OK' if ok else 'FAIL'
+    ub = r.get('used_of_bank') or None
+    fillp = r.get('fill_pct')
+    zones_tag = (r.get('group') or '').split('+', 1)[1] if '+' in (r.get('group') or '') else ''
+    _ZN = {'tpl': 'посадка', 'tpl-min': 'посадка(мин)', 'tv': 'медиа', 'tvfp': 'медиа+камин',
+           'fp': 'камин', 'din': 'столовая', 'st': 'хранение', 'st2': 'хранение2',
+           'st3': 'хранение3', 'pf': 'пуф', 'dc': 'декор', 'rd': 'чтение', 'qz': 'тихая',
+           'notpl': 'нет схемы'}
+    zones_ru = ' · '.join(_ZN.get(t, t) for t in zones_tag.split('+') if t) if zones_tag else '—'
+    extra = (f" · из банка сета {ub[0]}/{ub[1]}" if ub else '') + \
+            (f" · заполнение {fillp}%" if fillp else '')
     fails = ', '.join(r.get('fails') or []) if not ok else ''
     soft = r.get('soft_score')
     cards.append(
@@ -52,8 +62,10 @@ for r in rows:
         f"<h2>{html.escape(sid)} <small>({html.escape(room_note)}"
         f"{'✅ ' + status if ok else '❌ ' + status}"
         f"{' · ' + html.escape(fails) if fails else ''}"
-        f"{f' · soft {soft}' if soft is not None else ''})"
-        f" · <a href='{html.escape(sid)}.json'>координаты</a></small></h2>"
+        f"{f' · soft {soft}' if soft is not None else ''}"
+        f"{html.escape(extra)})"
+        f" · <a href='{html.escape(sid)}.json'>координаты</a></small><br>"
+        f"<small style='color:#2E7D4F'>зоны: {html.escape(zones_ru)}</small></h2>"
         f"<img src='{html.escape(sid)}.png' loading='lazy' alt='{html.escape(sid)}'>"
         f"</section>")
 
@@ -62,7 +74,9 @@ json.dump(combined, open(os.path.join(OUT, 'layouts-all.json'), 'w'),
 
 page = f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex"><title>Приёмка: планы всех сцен</title>
+<meta name="robots" content="noindex">
+<meta http-equiv="cache-control" content="no-store, no-cache, must-revalidate, max-age=0">
+<title>Приёмка: планы всех сцен</title>
 <style>
 body{{margin:0;background:#fff;color:#1A1F1C;font:15px/1.5 system-ui,sans-serif}}
 .wrap{{max-width:920px;margin:0 auto;padding:20px 14px 60px}}
@@ -73,7 +87,8 @@ img{{max-width:100%;height:auto;border:1px solid #ECEEEA;border-radius:4px}}
 a{{color:#2F6B8F}}
 </style></head><body><div class="wrap">
 <h1>Приёмка — планы всех сцен ({len(cards)})</h1>
-<p class="sub">Прогон с правилами kb-rules-merge · «название, план» подряд · у каждой сцены —
+<p class="sub">Расстановка ТОЛЬКО шаблонами зон (правило владельца): у каждой сцены видно,
+какие зоны применились и сколько предметов взято из банка сета · «название, план» подряд · у каждой сцены —
 машиночитаемые координаты (JSON, система координат описана в
 <a href="layouts-all.json">layouts-all.json</a>) · карты глубины не собираются (отдельный
 процесс) · комментарии можно писать постепенно — сеты от них не пересобираются, партия

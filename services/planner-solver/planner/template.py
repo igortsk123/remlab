@@ -293,6 +293,14 @@ def build_block(group_id: str, by_role: dict[str, Item],
 
     if sofa is None:
         return None
+    # СВЯЗКА ЗОНЫ (замечание владельца 12.08, set1-bay): разговорная зона из
+    # НЕСКОЛЬКИХ посадочных обязана иметь «клей» — столик ИЛИ ковёр. Без них кресло
+    # читается как оторванное, даже стоя на канонической фланговой дистанции.
+    # Нет клея → эта схема недействительна, каскад возьмёт меньшую (диван соло),
+    # а кресло уйдёт в свою зону (уголок чтения).
+    _companions = any(k.startswith(('кресло', 'диван 2', 'пуф')) for k in by_role)
+    if _companions and table is None and rug is None:
+        return None
     b = Block(sofa)
     far, table_x, table_cy = _add_coffee(b, sofa, table, table_gap, table_shift)
     _, free_side = _free_x(sofa)
@@ -642,6 +650,57 @@ def _side_probe(room: Room, seat_p: Placement, free: Polygon, need_w: float) -> 
     return best
 
 
+_RUG_FORBID = ('комод', 'стеллаж', 'витрина', 'шкаф', 'камин', 'кашпо',
+               'стол обеденный', 'стул')
+_MEDIA_TOE_CM = 15.0        # носителю ТВ можно «чуть заехать» кромкой (веб-свод)
+_DECOR_GAP_CM = 30.0        # просвет напольному декору от корпусной мебели
+
+
+def _inter_zone_ok(room: Room, ps: list[Placement],
+                   fixed: list[Placement] | None) -> bool:
+    """МЕЖЗОННЫЕ ПРАВИЛА (замечания владельца 12.08, `zones.json` →
+    inter_zone_rules): 1) ковёр — подложка ПОСАДОЧНОЙ зоны, поздние зоны на него
+    не заходят (носителю ТВ можно кромкой ≤15 см); 2) напольному декору нужен
+    просвет ≥30 см от корпусной мебели, иначе он выглядит зажатым."""
+    base = list(fixed or [])
+    rug = next((p for p in base if p.role == 'ковёр'), None)
+    if rug is not None:
+        rug_fp = footprint(rug)
+        for p in ps:
+            b_ = _base_role(p.role)
+            if b_ in _RUG_FORBID:
+                if rug_fp.intersection(footprint(p)).area > 100:      # >0.01 м²
+                    return False
+            elif b_ in ('тв-тумба', 'стенка'):
+                inter = rug_fp.intersection(footprint(p))
+                if not inter.is_empty:
+                    ix0, iy0, ix1, iy1 = inter.bounds
+                    if min(ix1 - ix0, iy1 - iy0) > _MEDIA_TOE_CM:
+                        return False
+    case_fp = [footprint(p) for p in base
+               if _base_role(p.role) in ('комод', 'стеллаж', 'витрина', 'шкаф',
+                                         'стенка', 'тв-тумба', 'камин')]
+    for p in ps:
+        if _base_role(p.role) in ('кашпо', 'торшер') and case_fp:
+            if min(footprint(p).distance(c) for c in case_fp) < _DECOR_GAP_CM:
+                return False
+    return True
+
+
+_OPPOSITE = {'north': 'south', 'south': 'north', 'west': 'east', 'east': 'west'}
+
+
+def _wall_of(room: Room, p: Placement) -> str:
+    """К какой стене прижат предмет (по минимальному расстоянию до её линии)."""
+    d = {'south': p.y, 'north': room.depth_cm - p.y,
+         'west': p.x, 'east': room.width_cm - p.x}
+    return min(d, key=d.get)
+
+
+def _base_role(role: str) -> str:
+    return role.split(' ')[0] if role.split(' ')[-1].isdigit() else role
+
+
 def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
                 fixed: list[Placement] | None,
                 axis_seat: Placement | None = None,
@@ -667,7 +726,21 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
                 break
         if not ok:
             continue
+        if not _inter_zone_ok(room, ps, fixed):
+            continue                       # межзонные правила (ковёр/декор)
         score = 1.0 if c.kind == 'wall' else 0.8
+        # БЛИКИ (заявка владельца 12.08, веб-свод: «не ставить ТВ напротив окна;
+        # лучше стена ПЕРПЕНДИКУЛЯРНО окнам»): носитель на оконной стене или
+        # прямо напротив окна получает сильный штраф — уходит вниз рейтинга,
+        # но остаётся возможным, если других стен нет
+        if _base_role(ps[0].role) in ('тв-тумба', 'стенка'):
+            for op in room.openings:
+                if op.kind != 'window':
+                    continue
+                same = _wall_of(room, ps[0]) == op.wall
+                opposite = _wall_of(room, ps[0]) == _OPPOSITE.get(op.wall)
+                if same or opposite:
+                    score -= 1.2 if opposite else 0.8
         if c.kind == 'corner' and getattr(b.anchor, 'corner', False):
             score += 0.5          # D2 (v2): Г-диван в угол — освобождает пол
         if 'отплыв' in (c.note or ''):

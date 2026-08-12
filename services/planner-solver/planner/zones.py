@@ -159,7 +159,30 @@ def solve_zoned(room: Room, items, **kw):
     if os.environ.get('LAYOUT_TEMPLATES', '1') != '0':
         from .template import place_template
         block = place_template(room, group['id'], keep, usable_polygon(room))
-    tpl_tag = '+tpl' if block else ''
+    if os.environ.get('LAYOUT_ONLY_TEMPLATES', '1') != '0' and not block:
+        # НЕТ ПОДХОДЯЩЕГО ШАБЛОНА (замечание владельца 11.08: «ковёр/столик не могут
+        # теряться поодиночке — их нет как отдельных шаблонов»). Раньше сцена
+        # проваливалась в поштучный перебор — он и терял ядро зоны. Теперь: пробуем
+        # минимальную схему «диван соло», а если и она не встала — сцена честно
+        # остаётся без раскладки и попадает в список «нужен новый шаблон».
+        from .template import place_template as _pt
+        block = _pt(room, 'compact_sectional', keep, usable_polygon(room))
+        _min_used = bool(block)
+        if not block:
+            from .validate import validate as _val0
+            lay0 = _val0(room, [])
+            lay0.unplaced = []
+            lay0.skipped_optional = sorted({it.role for it in items})
+            if os.environ.get('ZONES_DEBUG'):
+                import sys as _s0
+                print('ZDBG НЕТ ШАБЛОНА под этот состав/комнату — сцена пуста',
+                      file=_s0.stderr, flush=True)
+            return [lay0], group['id'] + '+notpl'
+
+    # ЕДИНАЯ ЦЕПОЧКА ЗОН для ОБОИХ путей (баг 12.08, замечания владельца по
+    # set6-long/set7-bay/set5-trapezoid: при минимальной схеме цепочка зон не
+    # выполнялась вовсе — комната оставалась без медиа и хранения, хотя место было)
+    tpl_tag = ('+tpl-min' if locals().get('_min_used') else '+tpl') if block else ''
     if block:
         block_roles = {p.role for p in block}
         _refine_mod.LOCKED |= block_roles      # шаблон нерушим: доводка их не двигает
@@ -230,30 +253,6 @@ def solve_zoned(room: Room, items, **kw):
     # шаблонов — создаём новые». Раскладка собирается ТОЛЬКО из зонных блоков;
     # то, что не попало ни в один блок, честно уходит в пропущенное, а не
     # раскидывается поштучным перебором (он и портил геометрию зон).
-    if os.environ.get('LAYOUT_ONLY_TEMPLATES', '1') != '0' and not block:
-        # НЕТ ПОДХОДЯЩЕГО ШАБЛОНА (замечание владельца 11.08: «ковёр/столик не могут
-        # теряться поодиночке — их нет как отдельных шаблонов»). Раньше сцена
-        # проваливалась в поштучный перебор — он и терял ядро зоны. Теперь: пробуем
-        # минимальную схему «диван соло», а если и она не встала — сцена честно
-        # остаётся без раскладки и попадает в список «нужен новый шаблон».
-        from .template import place_template as _pt
-        block = _pt(room, 'compact_sectional', keep, usable_polygon(room))
-        if block:
-            tpl_tag = '+tpl-min'
-            block_roles = {p.role for p in block}
-            _refine_mod.LOCKED |= block_roles
-            keep = [it for it in keep if it.role not in block_roles]
-        else:
-            from .validate import validate as _val0
-            lay0 = _val0(room, [])
-            lay0.unplaced = []
-            lay0.skipped_optional = sorted({it.role for it in items})
-            if os.environ.get('ZONES_DEBUG'):
-                import sys as _s0
-                print('ZDBG НЕТ ШАБЛОНА под этот состав/комнату — сцена пуста',
-                      file=_s0.stderr, flush=True)
-            return [lay0], group['id'] + '+notpl'
-
     if block and os.environ.get('LAYOUT_ONLY_TEMPLATES', '1') != '0':
         from .validate import validate as _val
         lay = _val(room, block)
