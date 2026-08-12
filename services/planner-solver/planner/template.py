@@ -776,6 +776,12 @@ def _side_probe(room: Room, seat_p: Placement, free: Polygon, need_w: float) -> 
 _RUG_FORBID = ('комод', 'стеллаж', 'витрина', 'шкаф', 'камин', 'кашпо',
                'стол обеденный', 'стул')
 _MEDIA_TOE_CM = 15.0        # носителю ТВ можно «чуть заехать» кромкой (веб-свод)
+# КРАЙНИЙ СЛУЧАЙ (решение владельца 12.08): «ковёр может заходить под медиа-зону».
+# Сначала ищем место при обычном заходе 15 см; если медиа-зоны иначе не будет вовсе —
+# разрешаем ковру уйти под носитель глубже (до глубины тумбы). Лучше зона с заходом
+# ковра, чем сцена без ТВ.
+_MEDIA_TOE_MAX_CM = 45.0
+_MEDIA_TOE_RELAXED = False
 _DECOR_GAP_CM = 30.0        # просвет напольному декору от корпусной мебели
 
 
@@ -798,7 +804,8 @@ def _inter_zone_ok(room: Room, ps: list[Placement],
                 inter = rug_fp.intersection(footprint(p))
                 if not inter.is_empty:
                     ix0, iy0, ix1, iy1 = inter.bounds
-                    if min(ix1 - ix0, iy1 - iy0) > _MEDIA_TOE_CM:
+                    _toe = _MEDIA_TOE_MAX_CM if _MEDIA_TOE_RELAXED else _MEDIA_TOE_CM
+                    if min(ix1 - ix0, iy1 - iy0) > _toe:
                         return False
     case_fp = [footprint(p) for p in base
                if _base_role(p.role) in ('комод', 'стеллаж', 'витрина', 'шкаф',
@@ -923,7 +930,11 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
             from shapely.ops import unary_union as _uu
             occ = _uu([footprint(p) for p in ps if p.role != 'ковёр'])
             free2 = free.difference(occ)
-            bcs = wall_candidates(room, require_bearer, free2)
+            # ищем место носителю И у стен, И по диагонали в углу: с 10 позиций
+            # «по прицелу» проба ошибалась и объявляла место занятым (set3-pylons,
+            # владелец 12.08: «тут тоже влезла бы спокойно»)
+            bcs = list(wall_candidates(room, require_bearer, free2)) \
+                + list(_corner_candidates(room, require_bearer, free2))
             seat = ps[0]
             def _aim(c):
                 r = math.radians(seat.rot)
@@ -931,7 +942,7 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
                 n = math.hypot(vx, vy) or 1.0
                 return -((math.sin(r) * vx + math.cos(r) * vy) / n)
             ok_combo = False
-            for bc in sorted(bcs, key=_aim)[:10]:
+            for bc in sorted(bcs, key=_aim)[:24]:
                 lay2 = validate(room, base + ps + [bc.placement])
                 if not any(v.severity is Severity.HARD for v in lay2.violations):
                     ok_combo = True
@@ -1361,14 +1372,22 @@ def place_media(room: Room, items: list[Item], free: Polygon,
     for it in items:
         by_role.setdefault(it.role, it)
     seat = next((p for p in (fixed or []) if p.role == 'диван'), None) or         next((p for p in (fixed or []) if p.role == 'кресло'), None)
-    for flanks in (True, False):
-        b = build_media(by_role, with_flanks=flanks)
-        if b is None:
-            return None
-        ps = _best_block(room, b, free, wall_candidates(room, b.anchor, free),
-                         tv=None, fixed=fixed, axis_seat=seat)
-        if ps is not None:
-            return ps
+    global _MEDIA_TOE_RELAXED
+    # Ступени: обычный заход ковра под носитель (15 см) → без флангов → КРАЙНИЙ
+    # СЛУЧАЙ: ковёр уходит под медиа-зону глубже (решение владельца 12.08).
+    for relaxed in (False, True):
+        _MEDIA_TOE_RELAXED = relaxed
+        try:
+            for flanks in (True, False):
+                b = build_media(by_role, with_flanks=flanks)
+                if b is None:
+                    break
+                ps = _best_block(room, b, free, wall_candidates(room, b.anchor, free),
+                                 tv=None, fixed=fixed, axis_seat=seat)
+                if ps is not None:
+                    return ps
+        finally:
+            _MEDIA_TOE_RELAXED = False
     return None
 
 

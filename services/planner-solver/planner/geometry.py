@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 
 from shapely.affinity import rotate, translate
-from shapely.geometry import Polygon, box
+from shapely.geometry import Point, Polygon, box
 from shapely.ops import unary_union
 
 from .clearances import ClearanceSpec, clearance_for
@@ -178,6 +178,18 @@ def opening_polygon(room: Room, op: Opening) -> Polygon:
     return _wall_strip(room, op.wall, op.offset_cm, op.width_cm, 1.0)
 
 
+
+def _wall_point(room: Room, wall: str, offset_cm: float) -> Point:
+    """Точка на стене по смещению от её начала (запад→восток / юг→север)."""
+    if wall == "south":
+        return Point(offset_cm, 0.0)
+    if wall == "north":
+        return Point(offset_cm, room.depth_cm)
+    if wall == "west":
+        return Point(0.0, offset_cm)
+    return Point(room.width_cm, offset_cm)
+
+
 def swing_polygon(room: Room, op: Opening) -> Polygon:
     """Зона открывания двери внутрь комнаты (Holodeck: блокер с обеих сторон проёма).
 
@@ -186,11 +198,20 @@ def swing_polygon(room: Room, op: Opening) -> Polygon:
     """
     if op.kind == "window" or op.swing_cm <= 0:
         return Polygon()
-    # +SAFE_GAP: предмет ВПЛОТНУЮ к дуге у соседней проверки (intersects) уже считается
-    # нарушением — держим зазор (прямоугольником, БЕЗ buffer: круглые углы плодят вершины,
-    # а перебор свободных прямоугольников квадратично чувствителен к их числу)
-    return _wall_strip(room, op.wall, op.offset_cm - SAFE_GAP_CM, op.width_cm + 2 * SAFE_GAP_CM,
-                       op.swing_cm + SAFE_GAP_CM)
+    # ЧЕТВЕРТЬ КРУГА У СВОЕЙ ПЕТЛИ (замечание владельца 12.08). Створка выметает
+    # четверть диска радиусом в ширину полотна от петли — от закрытого положения
+    # (вдоль стены, по проёму) до открытого (перпендикулярно стене). Прежняя модель
+    # держала полосу во всю ширину проёма с обеих сторон и съедала лишнее место.
+    r = min(op.swing_cm, op.width_cm) + SAFE_GAP_CM
+    # петля — у своего края проёма; сектор идёт ОТ петли в сторону второго косяка
+    if op.hinge == "left":
+        start, span = op.offset_cm - SAFE_GAP_CM, r
+    else:
+        start, span = op.offset_cm + op.width_cm + SAFE_GAP_CM - r, r
+    quarter = _wall_strip(room, op.wall, start, span, r)
+    hinge_at = op.offset_cm if op.hinge == "left" else op.offset_cm + op.width_cm
+    disc = _wall_point(room, op.wall, hinge_at).buffer(r, resolution=8)
+    return quarter.intersection(disc)
 
 
 def radiator_polygon(room: Room, rad: Radiator) -> Polygon:

@@ -545,8 +545,10 @@ def attempt_beam():
         openings_p = [_Op(**o) for o in json.loads(_ops)]
         radiators_p = [_Rad(**r) for r in json.loads(os.environ.get('SCENE_RADIATORS') or '[]')]
     else:
+        # СТОРОНА ПЕТЕЛЬ — своя у каждой сцены (владелец 12.08: «в одном случае вправо,
+        # в другом влево»). Детерминированно от номера сета: набор не должен «плыть».
         openings_p = [_Op(kind='door', wall='south', offset_cm=DOOR_OFF, width_cm=DOOR_W,
-                          swing_cm=92),
+                          swing_cm=92, hinge=('left' if n % 2 else 'right')),
                       _Op(kind='window', wall='east', offset_cm=WIN_OFF, width_cm=WIN_W,
                           sill_cm=80)]
         radiators_p = [_Rad(wall='east', offset_cm=WIN_OFF, width_cm=WIN_W, depth_cm=15)]
@@ -887,10 +889,18 @@ for _op in out['_room']['openings']:
     _put_label(dr,_mid[0]+_dx/_n*34,_mid[1]+_dy/_n*34,
                'дверь' if _door else 'окно',F_TXT,
                fill=(180,110,50) if _door else (60,110,170))
-    if _door:                      # дуга открывания — как на строительных планах
-        _sw=_op.get('swing_cm') or _op['width_cm']
-        _r=_sw*SC
-        dr.arc([_p1[0]-_r,_p1[1]-_r,_p1[0]+_r,_p1[1]+_r],0,360,fill=(220,180,140),width=1)
+    if _door:
+        # ЗОНА ОТКРЫВАНИЯ — РОВНО ТА, ЧТО ПРОВЕРЯЕТ ПРАВИЛО (замечание владельца 12.08:
+        # «рисуешь полукруг, а дверь открывается с одной стороны»). Раньше рисовалась
+        # окружность 360° — картинка не совпадала с тем, что резервирует движок.
+        # Модель консервативна: полоса глубиной swing внутрь комнаты у проёма.
+        # рисуем РОВНО ту зону, которую резервирует правило (четверть круга у петли)
+        from planner.geometry import swing_polygon as _swp
+        from planner.models import Opening as _OpM, Room as _RmM
+        _sp=_swp(_RmM(width_cm=RWO, depth_cm=RDO, band=BAND), _OpM(**_op))
+        if not _sp.is_empty:
+            dr.polygon([T(*_nrm(x,z)) for x,z in _sp.exterior.coords],
+                       outline=(225,190,150))
 cols={'диван':(120,120,190),'тв-тумба':(160,160,160),'кресло':(190,150,140),'столик':(150,120,90),
       'пуф':(170,170,150),'торшер':(60,60,60),'кашпо':(170,140,169)}
 # СНАЧАЛА ковёр (подложка), потом мебель — иначе ковёр закрашивает диван
