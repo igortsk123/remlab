@@ -2,7 +2,10 @@
  "_purpose": "ПАСПОРТА ШАБЛОНОВ ЗОН (ADR template-integrity, 12.08). Шаблон — объект с составом, приоритетом, предусловиями и ПРОВЕРЯЕМЫМИ инвариантами, а не процедура в коде. Правило владельца: расставляем только шаблоны; не влезло — берём ДРУГОЙ шаблон, а не ломаем этот и не подгоняем габарит товара.",
  "_version": "1.0",
  "envelope": {
-  "tolerance": [0.8, 1.1],
+  "tolerance": [
+   0.8,
+   1.1
+  ],
   "applies_to": "ПОДБОР товара в сет (tools/scout/compose2.py). Солверу менять габарит SKU запрещено — см. invariants.sku_dimensions_intact",
   "why": "−20%/+10% — допуск ШАБЛОНА под реальный товар (перебор размера ломает клиренсы, недобор — только эстетика). Не право уменьшать товар: придуманный размер = мебель, которой нет в каталоге, и неверная смета (владелец 12.08)"
  },
@@ -17,7 +20,12 @@
    "why": "канон front-legs: at least the front legs on the rug; разрыв между мебелью и ковром читается как две разные зоны. Пруф: rugs-direct.com 8x10 guide, luluandgeorgia.com"
   },
   "table_reach_all_seats": {
-   "min_cm": 38, "ideal_cm": [40, 45], "max_cm": 90,
+   "min_cm": 38,
+   "ideal_cm": [
+    40,
+    45
+   ],
+   "max_cm": 90,
    "why": "KB 5.2 + веб: 16-18\" между посадкой и столиком — колени проходят, рука достаёт"
   },
   "focus_visible": {
@@ -34,63 +42,158 @@
   },
   "sku_dimensions_intact": {
    "check": "габариты поставленного предмета равны габаритам SKU из сета (поворот ковра — допустим)",
-   "why": "солвер ужимал ковёр и столик на 10-20%, чтобы влезли — это выдуманная мебель и неверная смета (владелец 12.08)"
+   "why": "солвер ужимал ковёр и столик на 10-20%, чтобы влезли — это выдуманная мебель и неверная смета (владелец 12.08)",
+   "tolerance_cm": 1,
+   "missing_dims": "если у товара в фиде НЕТ габарита (у 122 из 126 диванов нет глубины), подставляется типовое значение — это ЯВНАЯ подстановка, а не подгонка: смета считается по реальному SKU, а расстановка по типовой глубине. Такие случаи считаются и показываются отдельно"
   }
  },
  "zones": {
   "seating": {
-   "id": "seating", "version": "3.0", "priority": 1,
+   "id": "seating",
+   "version": "3.0",
+   "priority": 1,
    "purpose": "разговорная зона — ядро гостиной",
-   "required": ["диван|кресло"],
-   "glue": ["столик", "ковёр"],
+   "required": [
+    "диван|кресло"
+   ],
+   "glue": [
+    "столик",
+    "ковёр"
+   ],
    "glue_rule": "зона из НЕСКОЛЬКИХ посадочных обязана иметь столик ИЛИ ковёр — иначе кресло читается оторванным",
-   "invariants": ["no_self_overlap", "seats_front_legs_on_rug", "table_reach_all_seats", "min_composition", "sku_dimensions_intact"],
+   "invariants": [
+    "no_self_overlap",
+    "seats_front_legs_on_rug",
+    "table_reach_all_seats",
+    "min_composition",
+    "sku_dimensions_intact"
+   ],
    "schemes": [
-    {"id": "default", "order": 1, "why": "канон: столик по центру фронта посадки"},
-    {"id": "bulky", "order": 2, "when": "кресло глубже 100 см", "why": "крупные кресла вторым рядом (замечание владельца 11.08)"},
-    {"id": "facing", "order": 3, "when": "есть диван 2 либо 2 кресла", "why": "визави face-to-face 183-305 см (KB)"},
-    {"id": "bridge", "order": 4, "why": "кресло-мостик между диваном и фокусом"},
-    {"id": "tandem_r", "order": 5}, {"id": "tandem_l", "order": 5},
-    {"id": "u", "order": 6, "when": "площадь > 25 м²", "why": "П-композиция вместо Г (замечание владельца)"},
-    {"id": "square", "order": 6, "when": "два дивана"},
-    {"id": "pouf_table", "order": 99,
+    {
+     "id": "default",
+     "order": 1,
+     "why": "канон: столик по центру фронта посадки"
+    },
+    {
+     "id": "bulky",
+     "order": 2,
+     "when": "кресло глубже 100 см",
+     "why": "крупные кресла вторым рядом (замечание владельца 11.08)"
+    },
+    {
+     "id": "facing",
+     "order": 3,
+     "when": "есть диван 2 либо 2 кресла",
+     "why": "визави face-to-face 183-305 см (KB)"
+    },
+    {
+     "id": "bridge",
+     "order": 4,
+     "why": "кресло-мостик между диваном и фокусом"
+    },
+    {
+     "id": "tandem_r",
+     "order": 5
+    },
+    {
+     "id": "tandem_l",
+     "order": 5
+    },
+    {
+     "id": "u",
+     "order": 6,
+     "when": "площадь > 25 м²",
+     "why": "П-композиция вместо Г (замечание владельца)"
+    },
+    {
+     "id": "square",
+     "order": 6,
+     "when": "два дивана"
+    },
+    {
+     "id": "pouf_table",
+     "order": 99,
      "when": "пуф ≥ 60% длины дивана И ≥ 70 см",
-     "why": "ottoman as coffee table — канон ТОЛЬКО для крупного пуфа ~2/3 длины дивана с подносом (HORNE, Decorating Den, Stahl). Порог «от 70 см» без привязки к дивану был ошибкой: 104 сцены остались без столика (12.08)"}
+     "why": "ottoman as coffee table — канон ТОЛЬКО для крупного пуфа ~2/3 длины дивана с подносом (HORNE, Decorating Den, Stahl). Порог «от 70 см» без привязки к дивану был ошибкой: 104 сцены остались без столика (12.08)"
+    }
    ]
   },
   "media": {
-   "id": "media", "version": "2.0", "priority": 2,
+   "id": "media",
+   "version": "2.0",
+   "priority": 2,
    "purpose": "ТВ-зона: носитель + акценты",
-   "required": ["тв-тумба|стенка"],
-   "invariants": ["no_self_overlap", "focus_visible", "sku_dimensions_intact"],
+   "required": [
+    "тв-тумба|стенка"
+   ],
+   "invariants": [
+    "no_self_overlap",
+    "focus_visible",
+    "sku_dimensions_intact"
+   ],
    "rules": {
     "not_opposite_window": "медиа-зону не ставим напротив окна — блики на экране (замечание владельца 12.08)",
     "toe_cm": 15
    }
   },
   "fireplace": {
-   "id": "fireplace", "version": "2.5", "priority": 3,
+   "id": "fireplace",
+   "version": "2.5",
+   "priority": 3,
    "purpose": "каминная зона: очаг + симметричные фланги",
-   "required": ["камин"],
-   "invariants": ["no_self_overlap", "symmetry", "min_composition", "sku_dimensions_intact"],
+   "required": [
+    "камин"
+   ],
+   "invariants": [
+    "no_self_overlap",
+    "symmetry",
+    "min_composition",
+    "sku_dimensions_intact"
+   ],
    "rules": {
     "chair_angle_deg": 45,
     "why_angle": "кресла у камина разворачиваются под 45° к очагу зеркально — и к огню, и друг к другу (замечание владельца 11.08 и 12.08)",
-    "safety_zone_cm": [61, 91]
+    "safety_zone_cm": [
+     61,
+     91
+    ]
    }
   },
   "dining": {
-   "id": "dining", "version": "2.0", "priority": 4,
+   "id": "dining",
+   "version": "2.0",
+   "priority": 4,
    "purpose": "столовая зона: стол + стулья",
-   "required": ["стол обеденный", "стул"],
-   "invariants": ["no_self_overlap", "min_composition", "sku_dimensions_intact"],
-   "rules": {"seats_by_area": {"<=18": 2, "<=30": 4, ">30": 6}, "edge_per_diner_cm": 61}
+   "required": [
+    "стол обеденный",
+    "стул"
+   ],
+   "invariants": [
+    "no_self_overlap",
+    "min_composition",
+    "sku_dimensions_intact"
+   ],
+   "rules": {
+    "seats_by_area": {
+     "<=18": 2,
+     "<=30": 4,
+     ">30": 6
+    },
+    "edge_per_diner_cm": 61
+   }
   },
   "storage": {
-   "id": "storage", "version": "3.0", "priority": 5,
+   "id": "storage",
+   "version": "3.0",
+   "priority": 5,
    "purpose": "зона хранения: ряд корпусной мебели",
-   "required": ["стеллаж|витрина|комод|шкаф"],
-   "invariants": ["no_self_overlap", "sku_dimensions_intact"],
+   "required": [
+    "стеллаж|витрина|комод|шкаф"
+   ],
+   "invariants": [
+    "no_self_overlap",
+    "sku_dimensions_intact"
+   ],
    "rules": {
     "max_items_per_zone": 2,
     "max_zones_per_room": 2,
@@ -98,9 +201,57 @@
     "why": "правило владельца 12.08 (set4-base): стеллаж+витрина+комод в один ряд по одной стене читаются как склад; вторая зона идёт на свободную стену"
    }
   },
-  "quiet": {"id": "quiet", "version": "1.0", "priority": 6, "purpose": "тихая зона", "invariants": ["no_self_overlap", "min_composition", "sku_dimensions_intact"]},
-  "reading": {"id": "reading", "version": "2.6", "priority": 7, "purpose": "уголок чтения: кресло + торшер за плечом + приставной", "required": ["кресло"], "invariants": ["no_self_overlap", "min_composition", "sku_dimensions_intact"]},
-  "decor": {"id": "decor", "version": "1.0", "priority": 8, "purpose": "напольный декор у корпусной мебели", "invariants": ["sku_dimensions_intact"], "rules": {"gap_cm": 30, "why": "напольный декор не жмётся к мебели (замечание владельца 11.08 + датасет ProcTHOR)"}}
+  "quiet": {
+   "id": "quiet",
+   "version": "1.0",
+   "priority": 6,
+   "purpose": "тихая зона",
+   "invariants": [
+    "no_self_overlap",
+    "min_composition",
+    "sku_dimensions_intact"
+   ]
+  },
+  "reading": {
+   "id": "reading",
+   "version": "2.6",
+   "priority": 7,
+   "purpose": "уголок чтения: кресло + торшер за плечом + приставной",
+   "required": [
+    "кресло"
+   ],
+   "invariants": [
+    "no_self_overlap",
+    "min_composition",
+    "sku_dimensions_intact"
+   ]
+  },
+  "decor": {
+   "id": "decor",
+   "version": "1.0",
+   "priority": 8,
+   "purpose": "напольный декор у корпусной мебели",
+   "invariants": [
+    "sku_dimensions_intact"
+   ],
+   "rules": {
+    "gap_cm": 30,
+    "why": "напольный декор не жмётся к мебели (замечание владельца 11.08 + датасет ProcTHOR)"
+   }
+  },
+  "fireplace_solo": {
+   "id": "fireplace_solo",
+   "version": "1.0",
+   "priority": 3,
+   "purpose": "камин без оформления — архитектурный фокус ставится сам по себе",
+   "required": [
+    "камин"
+   ],
+   "invariants": [
+    "sku_dimensions_intact"
+   ],
+   "why": "камин — не предмет обстановки, а элемент комнаты: если флангов нет, он всё равно обязан стоять. Поэтому min_composition к нему не применяется"
+  }
  },
  "removed": {
   "pouf_zone": "УДАЛЕНА 12.08 (владелец: «зачем шаблон из одного пуфа?»). Пуф ставится только внутри схемы посадки, где его координаты заданы схемой"

@@ -17,7 +17,7 @@ import sys
 import pytest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(os.path.dirname(HERE))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 SCOUT = os.path.join(ROOT, 'tools', 'scout')
 sys.path.insert(0, os.path.join(ROOT, 'services', 'planner-solver'))
 sys.path.insert(0, SCOUT)
@@ -49,7 +49,10 @@ def test_no_items_outside_templates():
     """Каждый предмет поставлен ШАБЛОНОМ (правило владельца: только шаблоны)."""
     bad = {}
     for scene, lay, _room, _ps in _scenes():
-        tpl = lay.get('_templates') or {}
+        tpl = lay.get('_templates')
+        if tpl is None:      # артефакт старого формата — это тоже дыра, а не «ок»
+            bad[scene] = ['нет поля _templates: артефакт собран до прослеживаемости']
+            continue
         orphans = sorted(r for r, v in tpl.items() if not (v or {}).get('id'))
         if orphans:
             bad[scene] = orphans
@@ -57,9 +60,15 @@ def test_no_items_outside_templates():
 
 
 def test_no_phantom_dimensions():
-    """Габарит поставленного == габарит SKU: солвер не подгоняет размер товара."""
+    """Габарит поставленного == габарит SKU: солвер не подгоняет размер товара.
+
+    Отдельно от подделки стоит ЯВНАЯ подстановка: у 122 из 126 диванов в фиде нет
+    глубины, и расстановка берёт типовую. Это считается и печатается, но провалом
+    не является — смета всё равно по реальному SKU (паспорт: missing_dims).
+    """
     sets = json.load(open(os.path.join(SCOUT, 'sets3.json'), encoding='utf-8'))
-    bad = {}
+    tol = 1                       # округление сантиметров по пути в артефакт
+    bad, substituted = {}, 0
     for scene, lay, _room, ps in _scenes():
         n = int(scene.split('-')[0].replace('set', ''))
         items = (sets[n - 1].get('items') or {})
@@ -67,12 +76,16 @@ def test_no_phantom_dimensions():
             continue
         for p in ps:
             src = items.get(p.role) or items.get(p.role.split(' ')[0])
-            if not src or not src.get('w') or p.item is None:
+            if not src or p.item is None:
+                continue
+            if not src.get('w') or not src.get('d'):
+                substituted += 1          # габарита нет в каталоге — типовая подстановка
                 continue
             got = sorted((round(p.item.w_cm), round(p.item.d_cm)))
-            want = sorted((round(src['w']), round(src['d'] or 0)))
-            if got != want:
+            want = sorted((round(src['w']), round(src['d'])))
+            if any(abs(a - b) > tol for a, b in zip(got, want)):
                 bad.setdefault(scene, []).append(f'{p.role} {got} ≠ {want}')
+    print(f'типовых подстановок габарита (нет в фиде): {substituted}')
     assert not bad, f'фантомные габариты: {dict(list(bad.items())[:5])}'
 
 
@@ -117,14 +130,22 @@ def test_storage_zone_limits():
 
 
 def test_no_single_item_zones():
-    """Зона из одного предмета — не шаблон (кроме декора, он всегда компаньон)."""
+    """Зона из одного предмета — не шаблон ТАМ, ГДЕ ПАСПОРТ ЭТОГО ТРЕБУЕТ.
+
+    Проверяем не «моё представление», а объявленный инвариант min_composition:
+    медиа-зона из одной тумбы и одинокий камин законны (у них его нет), а
+    посадка/столовая/чтение из одного предмета — нет.
+    """
+    from planner.invariants import TEMPLATES
+    strict = {z for z, cfg in TEMPLATES['zones'].items()
+              if 'min_composition' in (cfg.get('invariants') or ())}
     bad = {}
     for scene, lay, _room, _ps in _scenes():
         tpl = lay.get('_templates') or {}
         cnt: dict[str, int] = {}
         for _r, v in tpl.items():
             zid = (v or {}).get('id')
-            if zid and zid != 'decor':
+            if zid in strict:
                 cnt[zid] = cnt.get(zid, 0) + 1
         lonely = sorted(z for z, c in cnt.items() if c < 2)
         if lonely:

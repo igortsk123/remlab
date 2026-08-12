@@ -437,7 +437,7 @@ def build_block(group_id: str, by_role: dict[str, Item],
             rw, rd = max(rug.w_cm, rug.d_cm), min(rug.w_cm, rug.d_cm)
             b.add(Item(role=rug.role, w_cm=rw, d_cm=rd, h_cm=rug.h_cm,
                        name=rug.name, item_id=rug.item_id), table_x, table_cy, 0.0)
-        return b
+        return _valid(b)
     elif group_id in ('sofa_loveseat', 'sofa_loveseat_2armchairs',
                       'two_sofas_2armchairs'):
         # v2.1: Г-стык торец-к-торцу; столик остаётся по центру ГЛАВНОГО дивана
@@ -489,7 +489,7 @@ def build_block(group_id: str, by_role: dict[str, Item],
                            name=rug.name, item_id=rug.item_id),
                       (ix0 + ix1) / 2, (iy0 + iy1) / 2, 0.0)
             _ = cx, cy
-        return b
+        return _valid(b)
     elif group_id in ('sofa_2armchairs', 'sofa_4armchairs'):
         if not (arm1 and arm2):
             return None
@@ -518,7 +518,7 @@ def build_block(group_id: str, by_role: dict[str, Item],
                 b.add(Item(role=rug.role, w_cm=w_, d_cm=d_, h_cm=rug.h_cm,
                            name=rug.name, item_id=rug.item_id),
                       (ix0 + ix1) / 2, (iy0 + iy1) / 2, 0.0)
-            return b
+            return _valid(b)
         if variant == 'u':
             tw_half = (max(table.w_cm, table.d_cm) / 2) if table else 40.0
             a3, a4 = by_role.get('кресло 3'), by_role.get('кресло 4')
@@ -539,7 +539,7 @@ def build_block(group_id: str, by_role: dict[str, Item],
                 rw, rd = max(rug.w_cm, rug.d_cm), min(rug.w_cm, rug.d_cm)
                 b.add(Item(role=rug.role, w_cm=rw, d_cm=rd, h_cm=rug.h_cm,
                            name=rug.name, item_id=rug.item_id), table_x, table_cy, 0.0)
-            return b
+            return _valid(b)
         if sofa.corner:
             # Г-диван: кресла ПАРОЙ визави напротив свободной секции (сбоку от оси
             # экрана); со столиком у Г-компакта пара «столик×плечо» часто нерешаема
@@ -614,11 +614,11 @@ def build_block(group_id: str, by_role: dict[str, Item],
                 b.add(pouf, table_x + off + pouf.w_cm / 2, table_cy, 270.0)
             _add_lamp(b, sofa, by_role.get('торшер'))
             _add_rug(b, sofa, rug, far, min_left=rug_min_left)
-            return b
+            return _valid(b)
         if variant == 'facing' and not sofa.corner:
             b.add(arm1, table_x, far + COFFEE_GAP + arm1.d_cm / 2, 180.0)
             _add_rug(b, sofa, rug, far, min_left=rug_min_left)
-            return b
+            return _valid(b)
         if sofa.corner:
             tw_half = (max(table.w_cm, table.d_cm) / 2) if table else 40.0
             ax = table_x + free_side * (tw_half + FLANK_GAP + arm1.d_cm / 2)
@@ -1290,7 +1290,7 @@ def place_fireplace(room: Room, items: list[Item], free: Polygon,
               if k in ('камин', 'стеллаж', 'кресло 3', 'кашпо')},
              {'камин': fp}]
     for br in tries:
-        b = build_fireplace(br) if len(br) > 1 else Block(fp)
+        b = build_fireplace(br) if len(br) > 1 else _valid(Block(fp), 'fireplace_solo')
         if b is None:
             continue
         ps = _best_block(room, b, free, wall_candidates(room, b.anchor, free),

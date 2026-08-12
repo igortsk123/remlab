@@ -25,7 +25,12 @@ OCC=json.load(open(os.path.join(HERE,'occupancy.json')))['dynamic'] if os.path.e
 BAND=s.get('band') or '14-16'
 TBL=(OCC['sofa_table_cm'].get(BAND,[30,50]) if OCC else [30,50])          # диван↔столик
 TVD=(OCC['sofa_tv_cm'].get(BAND,[180,300]) if OCC else [180,300])         # диван↔ТВ
-items={r.replace(' 2',''):it for r,it in s['items'].items()}
+# БАГ до 12.08: «диван 2» затирал «диван» в этом словаре — и план показывал габарит
+# ВТОРОГО дивана вместо первого (сет 20: 200x90 вместо 214x98). Аудит целостности
+# поймал это как фантомный габарит. Первый выигрывает, парные роли только дополняют.
+items={}
+for _r, _it in s['items'].items():
+    items.setdefault(_r.replace(' 2', ''), _it)
 
 def dims(role,defw,defd):
     it=items.get(role) or {}
