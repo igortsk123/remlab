@@ -68,13 +68,20 @@ def seats_off_rug(ps: list[Placement]) -> list[str]:
 
 
 def seats_out_of_table_reach(ps: list[Placement]) -> list[str]:
-    """table_reach_all_seats: посадочный ближе hard-порога к столику (колени)."""
+    """table_reach_all_seats: посадочный ближе hard-порога к столику (колени).
+
+    Г-диван исключён: столик у секционного дивана стоит ВНУТРИ буквы Г, и канон мерит
+    зазор от фронта прямой секции, а не от угла-шезлонга — тот законно ближе. Проверка
+    по всему полигону роняла схему у каждого Г-дивана (set7-bay, 12.08).
+    """
     tables = [p for p in ps if _base(p.role) == 'столик']
     if not tables:
         return []
     tf = footprint(tables[0])
     return [p.role for p in ps
-            if _base(p.role) in SEAT_ROLES and footprint(p).distance(tf) < _TABLE_MIN_CM]
+            if _base(p.role) in SEAT_ROLES
+            and not (p.item is not None and getattr(p.item, 'corner', False))
+            and footprint(p).distance(tf) < _TABLE_MIN_CM]
 
 
 def too_few_items(ps: list[Placement], minimum: int = 2) -> bool:

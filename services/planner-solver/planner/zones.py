@@ -122,6 +122,37 @@ def _base(role: str) -> str:
     return role.split(' ')[0] if role.split(' ')[-1].isdigit() else role
 
 
+
+def _tv_wall_reserved(room, block, keep) -> bool:
+    """Носитель ТВ есть в банке, но ещё не поставлен — стена под него занята «в кредит»."""
+    placed = {p.role.split(' ')[0] for p in (block or [])}
+    if 'тв-тумба' in placed or 'стенка' in placed:
+        return False
+    return any(i.role.split(' ')[0] in ('тв-тумба', 'стенка') for i in keep)
+
+
+def _tv_wall_strip(room, block):
+    """Полоса у стены, В КОТОРУЮ СМОТРИТ посадка: место медиа-зоны.
+
+    Ширина полосы — 60 см (глубина тумбы с запасом на плинтус и провода).
+    Нет посадки — полосы нет (резервировать нечего).
+    """
+    from shapely.geometry import box as _box
+    from .geometry import room_polygon as _rp
+    seat = next((p for p in (block or []) if p.role.split(' ')[0] == 'диван'), None)
+    if seat is None:
+        return _box(0, 0, 0, 0)
+    r = int(seat.rot) % 360
+    W, D, T = room.width_cm, room.depth_cm, 60.0
+    strip = {0: _box(0, D - T, W, D),          # диван смотрит на север
+             180: _box(0, 0, W, T),            # на юг
+             90: _box(W - T, 0, W, D),         # на восток
+             270: _box(0, 0, T, D)}.get(r)
+    if strip is None:
+        return _box(0, 0, 0, 0)
+    return strip.intersection(_rp(room))
+
+
 def solve_zoned(room: Room, items, **kw):
     """Z3, уровень 1 (MVP): сначала выбирается посадочная ГРУППА по полезной площади, затем
     beam решает предметы; посадочные роли вне группы не размещаются «лишь бы стоять», а честно
@@ -237,8 +268,14 @@ def solve_zoned(room: Room, items, **kw):
                             (place_quiet, '+qz'), (place_reading, '+rd'),
                             (place_decor, '+dc')):
             occ2 = _uu([_fp(p) for p in block if p.role != 'ковёр'])
-            extra = placer(room, keep, usable_polygon(room).difference(occ2),
-                           fixed=block)
+            _free_z = usable_polygon(room).difference(occ2)
+            # ПРИОРИТЕТ МЕДИА НАД ХРАНЕНИЕМ (правило владельца 12.08, set7-bay:
+            # стеллаж занял стену напротив дивана, а тумба осталась в банке).
+            # Пока носитель ТВ не поставлен, стена напротив посадки за ним
+            # зарезервирована — остальные зоны туда не лезут.
+            if tag not in ('+tv', '+tvfp') and _tv_wall_reserved(room, block, keep):
+                _free_z = _free_z.difference(_tv_wall_strip(room, block))
+            extra = placer(room, keep, _free_z, fixed=block)
             if extra and _fill_pct(block + extra) > _hi:
                 if os.environ.get('ZONES_DEBUG'):
                     import sys as _s

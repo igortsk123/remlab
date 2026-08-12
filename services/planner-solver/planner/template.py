@@ -1315,6 +1315,11 @@ def build_media(by_role: dict[str, Item], with_flanks: bool = True,
     if bearer is None:
         return None
     b = Block(bearer)
+    # МЕДИА-СТЕНКА — свой паспорт (владелец 12.08: «стенка = медиазона»). По канону
+    # она занимает 2.5-4 м стены и уже несёт хранение, поэтому флангов ей не даём:
+    # кашпо у корпуса 2.6 м читается как случайный предмет (barkerandcobespoke.co.uk).
+    if bearer.role == 'стенка':
+        return _valid(b, 'media_wall')
     if with_flanks and max_flanks > 0:
         # только растения (веб-свод 11.08: торшер — у ПОСАДКИ, не у тумбы)
         deco = [by_role[r] for r in ('кашпо', 'кашпо 2') if r in by_role][:max_flanks]
