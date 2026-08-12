@@ -909,6 +909,11 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
             cosang = (math.sin(r) * vx + math.cos(r) * vy) / n
             ang = math.degrees(math.acos(max(-1.0, min(1.0, cosang))))
             score += max(0.0, 1.5 - ang / 30.0)
+            # ПО ЦЕНТРУ НАПРОТИВ ДИВАНА (замечание владельца 12.08, set6-long: «есть
+            # ровная свободная стена, а тумба встала с краю»). Поперечное смещение от
+            # оси взгляда — вес сильнее углового: 0 см = +3, 120 см = 0.
+            off = abs(math.cos(r) * vx - math.sin(r) * vy)
+            score += max(0.0, 3.0 - off / 40.0)
         scored.append((score, ps))
     scored.sort(key=lambda t: -t[0])
     base = list(fixed or [])
@@ -1312,7 +1317,7 @@ def place_fireplace(room: Room, items: list[Item], free: Polygon,
 
 
 def build_media(by_role: dict[str, Item], with_flanks: bool = True,
-                max_flanks: int = 1) -> Block | None:
+                max_flanks: int = 1, mirror: bool = False) -> Block | None:
     """v2.7/v2.8: медиа-зона — носитель ТВ (стенка ИЛИ тумба, ADR-0081) + напольный
     акцент сбоку.
 
@@ -1335,7 +1340,10 @@ def build_media(by_role: dict[str, Item], with_flanks: bool = True,
         # только растения (веб-свод 11.08: торшер — у ПОСАДКИ, не у тумбы)
         deco = [by_role[r] for r in ('кашпо', 'кашпо 2') if r in by_role][:max_flanks]
         for i, d in enumerate(deco):
-            side = -1 if i == 0 else 1
+            # ЗЕРКАЛЬНЫЙ ВАРИАНТ (заявка владельца 12.08, set1-base): акцент бывает и
+            # слева, и справа от носителя — схемы две, побеждает та, где носитель
+            # встал ровнее к дивану
+            side = (1 if mirror else -1) if i == 0 else (-1 if mirror else 1)
             # просвет декора — единое число межзонного правила (было 25 см, кашпо
             # читалось зажатым: замечание владельца 12.08)
             b.add(d, side * (bearer.w_cm / 2 + _DECOR_GAP_CM + d.w_cm / 2), 0.0, 0.0)
@@ -1362,6 +1370,49 @@ def _corner_candidates(room: Room, item: Item, free: Polygon) -> list:
     return out
 
 
+
+def _axis_off(ps: list[Placement], seat: Placement | None) -> float:
+    """Насколько носитель ТВ смещён с оси взгляда дивана (см). Меньше — лучше."""
+    if seat is None or not ps:
+        return 0.0
+    bearer = next((p for p in ps if _base_role(p.role) in ('тв-тумба', 'стенка')), ps[0])
+    r = math.radians(seat.rot)
+    vx, vy = bearer.x - seat.x, bearer.y - seat.y
+    return abs(math.cos(r) * vx - math.sin(r) * vy)      # поперечное смещение от оси
+
+
+def _jamb_candidates(room: Room, item: Item, free: Polygon) -> list:
+    """Схема «носитель вплотную к косяку» (владелец 12.08): позиции у КРАЯ дверного
+    проёма, где предмет прижат к косяку торцом. Канон разрешает мебель у косяка,
+    если сохранён проход 76-91 см перед дверью и предмет вне дуги (weekand.com,
+    auramodernhome.com) — оба условия проверит validate (DOOR_PASSAGE, DOOR_SWING).
+    """
+    from .candidates import WALL_FACING_ROT, Candidate
+    out = []
+    for op in room.openings:
+        if op.kind != 'door':
+            continue
+        rot = WALL_FACING_ROT.get(op.wall)
+        if rot is None:
+            continue
+        w, d = item.w_cm, item.d_cm
+        if int(rot) % 180 == 90:
+            w, d = d, w
+        for side in (-1, +1):          # к левому и к правому косяку
+            edge = op.offset_cm if side < 0 else op.offset_cm + op.width_cm
+            along = edge - w / 2 if side < 0 else edge + w / 2
+            if op.wall in ('south', 'north'):
+                x, y = along, (d / 2 if op.wall == 'south' else room.depth_cm - d / 2)
+            else:
+                x, y = (d / 2 if op.wall == 'west' else room.width_cm - d / 2), along
+            p = Placement(role=item.role, x=x, y=y, rot=float(rot), item=item)
+            if free.intersection(footprint(p)).area < footprint(p).area * 0.97:
+                continue
+            out.append(Candidate(placement=p, kind='wall', note='у косяка двери',
+                                 topology='door_jamb'))
+    return out
+
+
 def place_media(room: Room, items: list[Item], free: Polygon,
                 fixed: list[Placement] | None = None) -> list[Placement] | None:
     """Медиа-зона блоком; позиция — по межзонной связи (соосность с главным
@@ -1379,13 +1430,24 @@ def place_media(room: Room, items: list[Item], free: Polygon,
         _MEDIA_TOE_RELAXED = relaxed
         try:
             for flanks in (True, False):
-                b = build_media(by_role, with_flanks=flanks)
-                if b is None:
-                    break
-                ps = _best_block(room, b, free, wall_candidates(room, b.anchor, free),
-                                 tv=None, fixed=fixed, axis_seat=seat)
-                if ps is not None:
-                    return ps
+                # обе зеркальные схемы разом: _best_block сам выберет позицию с лучшей
+                # соосностью носителя и дивана, а мы берём лучший из двух вариантов
+                best = None
+                for mirror in (False, True):
+                    b = build_media(by_role, with_flanks=flanks, mirror=mirror)
+                    if b is None:
+                        break
+                    _cands = list(wall_candidates(room, b.anchor, free)) \
+                        + _jamb_candidates(room, b.anchor, free) \
+                        + list(_corner_candidates(room, b.anchor, free))
+                    ps = _best_block(room, b, free, _cands,
+                                     tv=None, fixed=fixed, axis_seat=seat)
+                    if ps is not None and (best is None or _axis_off(ps, seat) < _axis_off(best, seat)):
+                        best = ps
+                    if not flanks:
+                        break            # без акцентов зеркалить нечего
+                if best is not None:
+                    return best
         finally:
             _MEDIA_TOE_RELAXED = False
     return None

@@ -15,6 +15,7 @@ from .geometry import (
     facing_vector,
     footprint,
     free_space,
+    _wall_strip,
     opening_polygon,
     radiator_polygon,
     front_gap,
@@ -85,6 +86,19 @@ def check_openings(room: Room, ps: list[Placement]) -> list[Violation]:
         swing = swing_polygon(room, op)
         if swing.is_empty:
             continue
+        # ПРОХОД ЧЕРЕЗ ДВЕРЬ (веб-канон: перед дверью держат 30-36 дюймов = 76-91 см
+        # СВЕРХ дуги открывания — weekand.com, auramodernhome.com). Мебель может
+        # стоять ВПЛОТНУЮ К КОСЯКУ (решение владельца 12.08: так тумба встаёт ровнее
+        # к дивану), но входить в проход не имеет права.
+        _pass = _wall_strip(room, op.wall, op.offset_cm, op.width_cm, 76.0) \
+            if op.kind == 'door' else None
+        if _pass is not None and not _pass.is_empty:
+            for p in ps:
+                if is_flat_floor(p):
+                    continue
+                if footprint(p).intersects(_pass.buffer(-EPS)):
+                    out.append(_v("DOOR_PASSAGE", f"«{p.role}» перекрывает проход в дверь",
+                                  [p.role], 76.0, "≥76 см прохода"))
         for p in ps:
             if is_flat_floor(p):
                 # ковёр проходит ПОД дугой двери, но не лезет в сам проём:

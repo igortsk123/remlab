@@ -26,7 +26,20 @@ with open(_RULES_PATH, encoding='utf-8') as _f:
 RUG_ROLE = 'ковёр'
 SEAT_ROLES = ('диван', 'кресло')
 _TUCK_MIN_SHARE = 0.02          # ≥2% футпринта посадочного на ковре = ножки заходят
-_TABLE_MIN_CM = 38.0            # hard-порог столика (паспорт: table_reach_all_seats)
+def _table_min_cm() -> float:
+    """Нижний порог «диван↔столик» — ИЗ ОДНОГО ИСТОЧНИКА с движком (occupancy,
+    самый мягкий band). Своё число 38 конфликтовало с hard-вилкой 30-45 и роняло
+    схемы, которые движок считает законными (set6-long, 12.08)."""
+    try:
+        from .rules import distances
+        vals = [v[0] for v in distances().get('sofa_table_cm', {}).values()
+                if isinstance(v, list) and v]
+        return float(min(vals)) if vals else 30.0
+    except Exception:
+        return 30.0
+
+
+_TABLE_MIN_CM = _table_min_cm()   # hard-порог столика (паспорт: table_reach_all_seats)
 
 
 def _base(role: str) -> str:

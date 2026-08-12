@@ -489,6 +489,14 @@ if _ONLY and STYLE_MODE and os.path.exists(os.path.join(HERE,'sets3.json')):
 # резерв; честный расчёт планнером, фолбэк 0.72·m2) и ротируется между сетами band'а —
 # «не максимизировать посадку» (документ владельца) + разные лица групп между стилями.
 _ZONES=json.load(open(os.path.join(HERE,'..','..','services','planner-solver','rules','zones.json')))
+_TPL=json.load(open(os.path.join(HERE,'..','..','services','planner-solver','rules','templates.json')))
+_TPL_ROLES=_TPL.get('floor_roles_claimable') or {}
+# напольные роли, которые вообще участвуют в расстановке (декор на поверхностях,
+# текстиль и свет в смете есть, но их ставит не схема)
+_FLOOR_ROLES_ALL={'диван','диван 2','кресло','кресло 2','кресло 3','кресло 4','столик',
+                  'приставной','ковёр','пуф','пуф 2','торшер','торшер 2','тв-тумба','стенка',
+                  'стеллаж','стеллаж 2','витрина','комод','комод 2','шкаф','камин','кашпо',
+                  'кашпо 2','стол обеденный','стул','стул 2','стул 3','стул 4','стул 5','стул 6'}
 _ZGROUPS={g['id']:g for g in _ZONES['seating_groups']}
 _ZBANDS=_ZONES['inventory_prior']['bands_usable_m2']
 def _usable_m2(m2):
@@ -947,6 +955,24 @@ for bi,band in enumerate(COMP['bands']):
                 chosen[r]=dict(top[0],qty=QTY.get(r,1) if r!='подушка' else 1)
                 gaps.remove(r)
         if gaps: print(f"  ДЫРКИ состава (нет товара в каталоге): {', '.join(gaps)}",flush=True)
+        # СЕТ СОБИРАЕТСЯ ПОД ШАБЛОНЫ (правило владельца 12.08: «шаблона на два стула
+        # нет — как они попали в сет?»). Напольная роль, которую ни одна схема не может
+        # поставить, — мусор в банке: она никогда не встанет и путает смету.
+        _claim=set()
+        for _z,_rs in (_TPL_ROLES or {}).items():
+            if not _z.startswith('_'): _claim |= set(_rs)
+        for _r in [r for r in chosen if r in _FLOOR_ROLES_ALL and r not in _claim]:
+            print(f'  ШАБЛОНА НЕТ: «{_r}» — ни одна схема его не ставит, из состава вон')
+            floor_fp-=(chosen[_r].get('fp') or 0)*chosen[_r].get('qty',1)
+            chosen.pop(_r); alts.pop(_r,None)
+        # ФИНАЛЬНАЯ СВЕРКА ПАР (12.08): проверка стол⇔стулья стоит РАНЬШЕ обрезки по
+        # площади, и стол мог уйти позже — 27 из 126 сетов уезжали со стульями без
+        # стола (мёртвый груз: стул сам по себе зоны не образует).
+        if not any(r == 'стол обеденный' for r in chosen) and any(r.startswith('стул') for r in chosen):
+            for _r in [r for r in chosen if r.startswith('стул')]:
+                floor_fp -= (chosen[_r].get('fp') or 0)*chosen[_r].get('qty',1)
+                chosen.pop(_r); alts.pop(_r, None)
+            print('  R3-финал: стулья без обеденного стола — из состава вон')
         total=sum(it['price']*it['qty'] for it in chosen.values())
         fill=round(floor_fp/m2*100,1)
         sfit_agg=None

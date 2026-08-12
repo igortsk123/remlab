@@ -123,6 +123,49 @@ def _base(role: str) -> str:
 
 
 
+
+def _behind_reserved(room, block, keep) -> bool:
+    """Диван стоит НЕ у стены и в банке есть обеденный стол — место за спинкой его."""
+    seat = next((p for p in (block or []) if p.role.split(' ')[0] == 'диван'), None)
+    if seat is None:
+        return False
+    if 'стол обеденный' in {p.role.split(' ')[0] for p in (block or [])}:
+        return False
+    if not any(i.role == 'стол обеденный' for i in keep):
+        return False
+    return _sofa_is_floating(room, seat)
+
+
+def _sofa_is_floating(room, seat, gap_cm: float = 90.0) -> bool:
+    """Диван «плавает», если за его спинкой больше 90 см до стены (проход + место зоны)."""
+    import math as _m
+    r = _m.radians(seat.rot)
+    bx = seat.x - _m.sin(r) * ((seat.item.d_cm if seat.item else 95.0) / 2)
+    by = seat.y - _m.cos(r) * ((seat.item.d_cm if seat.item else 95.0) / 2)
+    back = {0: by, 180: room.depth_cm - by, 90: bx, 270: room.width_cm - bx}
+    return back.get(int(seat.rot) % 360, 0.0) > gap_cm
+
+
+def _behind_sofa_strip(room, block):
+    """Полоса ЗА спинкой дивана — место второй зоны (столовой)."""
+    from shapely.geometry import box as _box
+
+    from .geometry import room_polygon as _rp
+    seat = next((p for p in (block or []) if p.role.split(' ')[0] == 'диван'), None)
+    if seat is None:
+        return _box(0, 0, 0, 0)
+    d = (seat.item.d_cm if seat.item else 95.0) / 2
+    W, D = room.width_cm, room.depth_cm
+    r = int(seat.rot) % 360
+    strip = {0: _box(0, 0, W, max(seat.y - d, 0)),                # смотрит на север → тыл южнее
+             180: _box(0, min(seat.y + d, D), W, D),
+             90: _box(0, 0, max(seat.x - d, 0), D),
+             270: _box(min(seat.x + d, W), 0, W, D)}.get(r)
+    if strip is None:
+        return _box(0, 0, 0, 0)
+    return strip.intersection(_rp(room))
+
+
 def _tv_wall_reserved(room, block, keep) -> bool:
     """Носитель ТВ есть в банке, но ещё не поставлен — стена под него занята «в кредит»."""
     placed = {p.role.split(' ')[0] for p in (block or [])}
@@ -275,6 +318,12 @@ def solve_zoned(room: Room, items, **kw):
             # зарезервирована — остальные зоны туда не лезут.
             if tag not in ('+tv', '+tvfp') and _tv_wall_reserved(room, block, keep):
                 _free_z = _free_z.difference(_tv_wall_strip(room, block))
+            # ЗА СПИНКОЙ ОТОДВИНУТОГО ДИВАНА — СТОЛОВАЯ (веб-канон RU: диван спинкой к
+            # обеденной зоне — типовой приём зонирования; вторая зона гостиной чаще
+            # всего именно столовая/барная — inmyroom.ru, 4happyhome.ru).
+            # Пока столовая не поставлена, полосу за спинкой держим за ней.
+            if tag not in ('+din',) and _behind_reserved(room, block, keep):
+                _free_z = _free_z.difference(_behind_sofa_strip(room, block))
             extra = placer(room, keep, _free_z, fixed=block)
             if extra and _fill_pct(block + extra) > _hi:
                 if os.environ.get('ZONES_DEBUG'):
