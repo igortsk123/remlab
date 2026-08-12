@@ -252,6 +252,9 @@ def _inner_zone(b: Block) -> tuple[float, float, float, float]:
     return (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
 
 
+POUF_AS_TABLE_MIN_W = 70.0       # пуф от 70 см заменяет журнальный столик (веб-свод)
+
+
 def build_block(group_id: str, by_role: dict[str, Item],
                 variant: str = 'default', table_gap: float = COFFEE_GAP,
                 table_shift: float = 0.0) -> Block | None:
@@ -262,6 +265,14 @@ def build_block(group_id: str, by_role: dict[str, Item],
     arm1, arm2 = by_role.get('кресло'), by_role.get('кресло 2')
     sofa2 = by_role.get('диван 2')
     table, rug = by_role.get('столик'), by_role.get('ковёр')
+    # ПУФ ВМЕСТО СТОЛИКА (веб-свод 12.08: «use a compact round table or an ottoman
+    # instead of a large rectangular table»): крупный пуф (от 70 см) — мягкий столик
+    # по центру зоны, а не подставка для ног сбоку.
+    _big_pouf = by_role.get('пуф')
+    if variant == 'pouf_table' and _big_pouf is not None \
+            and _big_pouf.w_cm >= POUF_AS_TABLE_MIN_W:
+        table = _big_pouf
+        by_role = {k: v for k, v in by_role.items() if k != 'пуф'}
 
     if group_id == 'armchair_pair':
         if not (arm1 and arm2):
@@ -504,11 +515,21 @@ def build_block(group_id: str, by_role: dict[str, Item],
     # ПУФ-КОМПАНЬОН (экзамен 11.08: пуф избыточен в 124 сценах — отдельная зона
     # ловит место редко). Ставим его в САМ шаблон посадки: у свободного фланга,
     # на линии столика (веб-свод: «next to or in front of the sofa»).
+    # ПУФ-КОМПАНЬОН (веб-свод 12.08: «narrow ottoman that tucks neatly in front»):
+    # при наличии кресла пуф — ПОДСТАВКА ДЛЯ НОГ перед ним (20–30 см), а не предмет
+    # сбоку от столика (там он бился о кресло: COLLISION 22 см, POUF_OUT_OF_ZONE).
     _pouf = by_role.get('пуф')
-    if _pouf is not None and 'кресло 2' not in by_role:
-        _px = (table_x + free_side * ((max(table.w_cm, table.d_cm) / 2 if table else 40)
-                                      + 25 + _pouf.w_cm / 2))
-        b.add(_pouf, _px, table_cy, 270.0 if free_side > 0 else 90.0)
+    if _pouf is not None:
+        _arm_p = next((t for t in b.rel if t[0].role.startswith('кресло')), None)
+        if _arm_p is not None:
+            _ai, _ax, _ay, _arot = _arm_p
+            _dist = _ai.d_cm / 2 + 25 + _pouf.d_cm / 2
+            _dx, _dy = _rt(0.0, _dist, _arot)
+            b.add(_pouf, _ax + _dx, _ay + _dy, _arot)
+        else:
+            _px = (table_x + free_side * ((max(table.w_cm, table.d_cm) / 2 if table else 40)
+                                          + 25 + _pouf.w_cm / 2))
+            b.add(_pouf, _px, table_cy, 270.0 if free_side > 0 else 90.0)
     _add_lamp(b, sofa, by_role.get('торшер'))
     if by_role.get('торшер 2') is not None:
         _add_lamp(b, sofa, by_role.get('торшер 2'), side=+1)   # пара — симметрично
@@ -760,7 +781,15 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
     # без места — 25 сцен «столик не размещён»)
     sofa_w = (by_role.get('диван') or by_role.get('кресло'))
     _sh = (sofa_w.w_cm * 0.12) if sofa_w else 20.0
+    # КАСКАД СХЕМ (правило атомарности: не выкидываем предмет «на ходу», а берём
+    # ДРУГУЮ схему из библиотеки). Порядок отказов — от наименее ценного:
+    # компаньоны (пуф → торшер → ковёр) → сдвиги/зазоры столика → без столика.
     tries = [(by_role, COFFEE_GAP, 0.0)]
+    _companions = [c for c in ('пуф', 'торшер', 'ковёр') if c in by_role]
+    _cur = dict(by_role)
+    for c in _companions:
+        _cur = {k: v for k, v in _cur.items() if k != c}
+        tries.append((dict(_cur), COFFEE_GAP, 0.0))
     if 'столик' in by_role:
         for g in (36.0, 32.0, 48.0):
             tries.append((by_role, g, 0.0))
@@ -768,9 +797,8 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
             tries.append((by_role, COFFEE_GAP, sh))
         tries.append(({k: v for k, v in by_role.items() if k != 'столик'},
                       COFFEE_GAP, 0.0))
-        if 'ковёр' in by_role:
-            tries.append(({k: v for k, v in by_role.items()
-                           if k not in ('столик', 'ковёр')}, COFFEE_GAP, 0.0))
+        tries.append(({k: v for k, v in _cur.items() if k != 'столик'},
+                      COFFEE_GAP, 0.0))
     variants = tries
     # ЭФФЕКТИВНАЯ группа (11.08): выбранная группа может требовать роль, которой в
     # сете нет (sofa_armchair без кресла) — тогда блок не собирался и сцена уходила
@@ -785,10 +813,11 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
                     'two_sofas_2armchairs') and 'диван 2' not in _av:
         group_id = 'sofa_2armchairs' if 'кресло 2' in _av else (
             'sofa_armchair' if 'кресло' in _av else 'compact_sectional')
-    shapes = {'sofa_4armchairs': ['default', 'u'],
-              'sofa_2armchairs': ['default', 'bulky', 'facing', 'bridge', 'tandem_r',
-                                  'tandem_l'],
-              'sofa_armchair': ['default', 'facing'],
+    shapes = {'sofa_4armchairs': ['default', 'u', 'pouf_table'],
+              'compact_sectional': ['default', 'pouf_table'],
+              'sofa_2armchairs': ['default', 'bulky', 'pouf_table', 'facing',
+                                  'bridge', 'tandem_r', 'tandem_l'],
+              'sofa_armchair': ['default', 'pouf_table', 'facing'],
               'two_sofas_2armchairs': ['default', 'square'],
               'sofa_loveseat': ['default', 'square'],
               'sofa_loveseat_2armchairs': ['default', 'square'],
