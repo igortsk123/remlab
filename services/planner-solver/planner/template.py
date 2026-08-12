@@ -684,6 +684,16 @@ def _inter_zone_ok(room: Room, ps: list[Placement],
         if _base_role(p.role) in ('кашпо', 'торшер') and case_fp:
             if min(footprint(p).distance(c) for c in case_fp) < _DECOR_GAP_CM:
                 return False
+    # СИММЕТРИЧНО (баг 12.08, set4-base: кашпо стояло раньше, стеллаж пришёл в 3 см):
+    # новая корпусная мебель тоже обязана держать просвет к уже стоящему декору
+    decor_fp = [footprint(p) for p in base
+                if _base_role(p.role) in ('кашпо', 'торшер')]
+    if decor_fp:
+        for p in ps:
+            if _base_role(p.role) in ('комод', 'стеллаж', 'витрина', 'шкаф',
+                                      'стенка', 'тв-тумба', 'камин'):
+                if min(footprint(p).distance(dfp) for dfp in decor_fp) < _DECOR_GAP_CM:
+                    return False
     return True
 
 
@@ -858,7 +868,10 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
     # ДРУГУЮ схему из библиотеки). Порядок отказов — от наименее ценного:
     # компаньоны (пуф → торшер → ковёр) → сдвиги/зазоры столика → без столика.
     tries = [(by_role, COFFEE_GAP, 0.0)]
-    _companions = [c for c in ('пуф', 'торшер', 'ковёр') if c in by_role]
+    # КОВЁР НЕ ОТБРАСЫВАЕТСЯ (правило владельца, повторено 12.08: «диван без
+    # коврика» — недопустимо, если ковёр есть в банке). Каскад жертвует только
+    # пуфом и торшером; не влезло — берётся МЕНЬШИЙ шаблон, тоже с ковром.
+    _companions = [c for c in ('пуф', 'торшер') if c in by_role]
     _cur = dict(by_role)
     for c in _companions:
         _cur = {k: v for k, v in _cur.items() if k != c}
@@ -965,8 +978,11 @@ def build_storage(by_role: dict[str, Item], max_items: int = 3) -> Block | None:
         x += 8 + it.w_cm
     plant = by_role.get('кашпо')
     if plant is not None:
-        # живой акцент у торца ряда (веб-свод 11.08: растение у стеллажа/полок)
-        b.add(plant, x + 15 + plant.w_cm / 2, (anchor.d_cm - plant.d_cm) / 2, 0.0)
+        # живой акцент у торца ряда (веб-свод 11.08: растение у стеллажа/полок).
+        # ПРОСВЕТ 30 см (замечание владельца 12.08: кашпо в 3 см читалось как
+        # «загорожено стеллажом») — то же число, что в межзонном правиле декора.
+        b.add(plant, x + _DECOR_GAP_CM + plant.w_cm / 2,
+              (anchor.d_cm - plant.d_cm) / 2, 0.0)
     return b
 
 
@@ -1152,8 +1168,30 @@ def build_media(by_role: dict[str, Item], with_flanks: bool = True,
         deco = [by_role[r] for r in ('кашпо', 'кашпо 2') if r in by_role][:max_flanks]
         for i, d in enumerate(deco):
             side = -1 if i == 0 else 1
-            b.add(d, side * (bearer.w_cm / 2 + 25 + d.w_cm / 2), 0.0, 0.0)
+            # просвет декора — единое число межзонного правила (было 25 см, кашпо
+            # читалось зажатым: замечание владельца 12.08)
+            b.add(d, side * (bearer.w_cm / 2 + _DECOR_GAP_CM + d.w_cm / 2), 0.0, 0.0)
     return b
+
+
+def _corner_candidates(room: Room, item: Item, free: Polygon) -> list:
+    """Кандидаты «по диагонали в углу» (заявка владельца 12.08 + веб-свод: угловое
+    диагональное размещение — рабочий приём, когда прямых стен не осталось).
+    Предмет ставится под 45° спинкой в угол."""
+    from .candidates import Candidate
+    out = []
+    w, d = item.w_cm, item.d_cm
+    diag = (w / 2) * math.sin(math.radians(45)) + (d / 2) * math.cos(math.radians(45))
+    for cx, cy, rot in ((0, 0, 45), (room.width_cm, 0, 315),
+                        (0, room.depth_cm, 135), (room.width_cm, room.depth_cm, 225)):
+        r = math.radians(rot)
+        x = cx + math.sin(r) * (diag + 6)
+        y = cy + math.cos(r) * (diag + 6)
+        p = Placement(role=item.role, x=x, y=y, rot=float(rot), item=item)
+        fp = footprint(p)
+        if free.intersection(fp).area >= fp.area * 0.97:
+            out.append(Candidate(p, 'corner', 'диагональ в углу'))
+    return out
 
 
 def place_media(room: Room, items: list[Item], free: Polygon,
@@ -1237,6 +1275,10 @@ def place_decor(room: Room, items: list[Item], free: Polygon,
             d = min((footprint(p).distance(o) for o in occ), default=999.0)
             if d < 60:
                 continue                      # вплотную к мебели не ставим
+            # МЕЖЗОННЫЕ ПРАВИЛА и здесь (баг 12.08: зона декора шла своим путём,
+            # мимо общей проверки — кашпо вставало в 3 см от стеллажа)
+            if not _inter_zone_ok(room, [p], base + out):
+                continue
             lay = validate(room, base + out + [p])
             if any(v.severity is Severity.HARD for v in lay.violations):
                 continue
