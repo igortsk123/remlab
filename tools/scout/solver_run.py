@@ -640,10 +640,14 @@ def attempt_beam():
     missing = list(lay.unplaced)
     # Рефери 08.08 (Q1/3.3): дроп ярусом — не провал, но и не молчание (no silent caps)
     if lay.skipped_optional:
-        # ТЕРМИНОЛОГИЯ (правило владельца 11.08): предметы вне выбранных шаблонов —
-        # ИЗБЫТОК КОМПЛЕКТА, а не «предмет не поставился». Не ставится ШАБЛОН.
-        print('SURPLUS ' + json.dumps(sorted(lay.skipped_optional), ensure_ascii=False),
+        # МОДЕЛЬ (решение владельца 12.08): СЕТ — банк кандидатов, РАССТАНОВКА —
+        # один вариант планировки. Предметы банка, не вошедшие в эту расстановку,
+        # это НОРМА (для другой квартиры выбор будет другим), а не ошибка.
+        # Смета строится по факту расстановки (`placed`), не по банку.
+        print('UNUSED ' + json.dumps(sorted(lay.skipped_optional), ensure_ascii=False),
               flush=True)
+        print('SURPLUS ' + json.dumps(sorted(lay.skipped_optional), ensure_ascii=False),
+              flush=True)   # legacy-имя, уберём после перехода отчётов
         print('SKIPPED ' + json.dumps(sorted(lay.skipped_optional), ensure_ascii=False),
               flush=True)   # legacy-строка для прежних потребителей отчёта
     # ОДНА линейка (2026-08-07): вердикты планнера. Scout-чеки поверх мерили Г-диван другой
@@ -739,6 +743,11 @@ try:
         _fill += _P(_poly).area / 10_000 * (0.5 if _bs(_r) in _WH else 1.0)
     out['_fill_pct'] = round(_fill / (RW * RD / 10_000) * 100, 1)
     print(f'FILL {out["_fill_pct"]}', flush=True)
+    # доля банка сета, задействованная в ЭТОЙ расстановке
+    _bank = len(FLOOR)
+    _used = len([r for r in placed if r not in ('дверь', 'окно')])
+    out['_used_of_bank'] = f'{_used}/{_bank}'
+    print(f'USED {_used}/{_bank}', flush=True)
 except Exception as _e:
     pass
 print('TOPO ' + topo_key(out['_topo']), flush=True)

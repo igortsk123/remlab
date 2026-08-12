@@ -3,7 +3,7 @@ tier: 1
 topic: lr-checklist
 scope: Состав гостиной — роли сета и пригодность товаров
 tier2: "../domain/living-room-checklist.md"
-updated: 2026-08-11
+updated: 2026-08-12
 importance: med
 source: manual
 status: working

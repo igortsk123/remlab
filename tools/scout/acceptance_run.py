@@ -54,7 +54,8 @@ def _one(engine, sc):
     dumb = round(sum(soft.get('terms', {}).values()), 1)
     mfill = re.search(r'^FILL ([\d.]+)$', out, re.M)
     mtpl = re.search(r'зонная группа: (\S+)', out)          # какие ШАБЛОНЫ применены
-    msur = re.search(r'^SURPLUS (\[.*\])$', out, re.M)      # избыток комплекта
+    msur = re.search(r'^UNUSED (\[.*\])$', out, re.M)   # не вошло в ЭТУ расстановку
+    mused = re.search(r'^USED (\d+)/(\d+)$', out, re.M)  # задействовано из банка сета
     mskip = re.search(r'^SKIPPED (\[.*\])$', out, re.M)
     skipped = json.loads(mskip.group(1)) if mskip else []
     ok = not fails and not missing and r.returncode == 0
@@ -62,7 +63,8 @@ def _one(engine, sc):
                missing=missing, skipped=skipped, soft_score=dumb,
                fill_pct=(float(mfill.group(1)) if mfill else None),
                templates=(mtpl.group(1) if mtpl else None),
-               surplus=(json.loads(msur.group(1)) if msur else []),
+               unused=(json.loads(msur.group(1)) if msur else []),
+               used_of_bank=([int(mused.group(1)), int(mused.group(2))] if mused else None),
                group=(re.search(r'зонная группа: (\S+)', out) or [None, None])[1],
                topo=(re.search(r'^TOPO (.+)$', out, re.M) or [None, None])[1])
     if r.returncode != 0:   # крэш без FAIL-строк иначе неотличим от «просто не ok»
