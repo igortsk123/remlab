@@ -876,6 +876,14 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
     for c in _companions:
         _cur = {k: v for k, v in _cur.items() if k != c}
         tries.append((dict(_cur), COFFEE_GAP, 0.0))
+    # МАЛЫЙ КОВЁР / ПОВОРОТ (заявка владельца 12.08): прежде чем жертвовать чем-то,
+    # пробуем уложить ковёр вдоль ДРУГОЙ оси — так он уходит из дверной дуги и из
+    # узкого места, оставаясь в зоне
+    if 'ковёр' in by_role:
+        _rg = by_role['ковёр']
+        _rot_rug = Item(role=_rg.role, w_cm=_rg.d_cm, d_cm=_rg.w_cm, h_cm=_rg.h_cm,
+                        name=_rg.name, item_id=_rg.item_id)
+        tries.append(({**by_role, 'ковёр': _rot_rug}, COFFEE_GAP, 0.0))
     if 'столик' in by_role:
         for g in (36.0, 32.0, 48.0):
             tries.append((by_role, g, 0.0))

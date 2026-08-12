@@ -317,7 +317,13 @@ def slot_ideal(role,m2,qty=1):
         seats='6' if m2>=40 else ('4' if m2>=22 else '2')
         return float(cfg['by_seats'][seats])
     if 'by_area_m2' in cfg:
-        return float(cfg['by_area_m2']['>32' if m2>32 else '<=32'])
+        ba=cfg['by_area_m2']
+        for _k in ('<=18','<=30','<=32'):
+            if _k in ba:
+                lim=float(_k.replace('<=',''))
+                if m2<=lim: return float(ba[_k])
+        for _k in ('>30','>32'):
+            if _k in ba: return float(ba[_k])
     return None
 
 
