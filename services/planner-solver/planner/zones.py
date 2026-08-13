@@ -274,15 +274,48 @@ def solve_zoned(room: Room, items, **kw):
         # группы от вместительной к соло; каждый шаблон ставится ЦЕЛИКОМ, не встал —
         # СЛЕДУЮЩАЯ ступень (смена шаблона, а не выкидывание предметов из большого).
         if os.environ.get('LAYOUT_LADDER', '1') != '0':
+            # СПУСК С ПРОВЕРКОЙ МИНИМУМА (владелец 13.08, план №20: «медиа +
+            # коммуникативная — минимум везде»). Ступень, которая встала, но не
+            # оставила места носителю ТВ, НЕ принимается сразу: пробуем следующую;
+            # если ни одна не дала минимум — берём первую вставшую (fallback).
+            _has_bearer0 = any(_base(i.role) in ('тв-тумба', 'стенка') for i in keep)
+            _fb_block = _fb_group = None
             for _g in pick_ladder(room, dict(counts)):
-                block = place_template(room, _g['id'], keep, usable_polygon(room))
-                if block:
-                    group = _g
-                    if os.environ.get('ZONES_DEBUG'):
-                        import sys as _sl
-                        print(f"ZDBG лестница: ступень {_g['id']} принята",
-                              file=_sl.stderr, flush=True)
-                    break
+                _blk = place_template(room, _g['id'], keep, usable_polygon(room))
+                if not _blk:
+                    continue
+                if _has_bearer0:
+                    from .template import place_media as _pm0
+                    _occ0 = _uu0([_fp0(p) for p in _blk if p.role.split(' ')[0] != 'ковёр'])
+                    _m0 = _pm0(room, keep,
+                               usable_polygon(room).difference(_occ0), fixed=_blk)
+                    if not _m0:
+                        if _fb_block is None:
+                            _fb_block, _fb_group = _blk, _g
+                        if os.environ.get('ZONES_DEBUG'):
+                            import sys as _sl
+                            print(f"ZDBG лестница: ступень {_g['id']} встала, но БЕЗ "
+                                  f"медиа — пробуем следующую", file=_sl.stderr, flush=True)
+                        continue
+                block, group = _blk, _g
+                if _has_bearer0 and _m0:
+                    # ПРОБА = ФАКТ: медиа из проверки минимума входит в раскладку сразу
+                    # (повторный place_media в цепочке видел бы другой free после
+                    # резервов — проба проходила, а зона не вставала: план №14)
+                    _r0 = {p.role for p in _m0}
+                    block = list(block) + list(_m0)
+                    keep = [it for it in keep if it.role not in _r0]
+                if os.environ.get('ZONES_DEBUG'):
+                    import sys as _sl
+                    print(f"ZDBG лестница: ступень {_g['id']} принята (минимум собрался)",
+                          file=_sl.stderr, flush=True)
+                break
+            if block is None and _fb_block is not None:
+                block, group = _fb_block, _fb_group
+                if os.environ.get('ZONES_DEBUG'):
+                    import sys as _sl
+                    print(f"ZDBG лестница: минимум не собрался ни на одной ступени — "
+                          f"fallback {group['id']}", file=_sl.stderr, flush=True)
         # ДИЗАЙНЕРСКИЙ ПОРЯДОК (свод владельца 12.08): фокус-стена важнее удобной
         # позиции дивана. Прямая постановка «медиа первой» в тесных комнатах не встаёт
         # (обе зоны помещаются лишь в согласованной паре), поэтому порядок реализован
@@ -379,6 +412,9 @@ def solve_zoned(room: Room, items, **kw):
         # только если не встала — раздельные зоны в порядке приоритета.
         _order = ((place_fireplace, '+fp'), (place_media, '+tv')) if _fp_first \
             else ((place_media, '+tv'), (place_fireplace, '+fp'))
+        _media_in = any(p.role.split(' ')[0] in ('тв-тумба', 'стенка') for p in (block or []))
+        if _media_in and '+tv' not in tpl_tag:
+            tpl_tag += '+tv'
         for placer, tag in ((place_media_fireplace, '+tvfp'), _order[0], _order[1],
                             (_din, '+din'), (place_storage, '+st'),
                             # НЕ БОЛЕЕ ДВУХ зон хранения на гостиную (владелец 12.08)

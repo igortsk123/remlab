@@ -286,12 +286,17 @@ def check_distances(room: Room, ps: list[Placement]) -> list[Violation]:
             tv = band_scale("sofa_tv_cm", room.band, distances().get("sofa_tv_cm", [180, 300]))
             lo, hi = tv[0], max(tv[1], float(distances().get("sofa_tv_hard_max", 400)))
             soft_hi = tv[1]
-        if g < lo or g > hi:
+        # ВЕРХНЯЯ ГРАНИЦА — РЕКОМЕНДАЦИЯ, НЕ ЗАПРЕТ (владелец 13.08, план №14: тумба
+        # 90 см давала hi=232, а диван в эркерной комнате стоит в 261 — правило рубило
+        # ВСЕ позиции, и сцена оставалась без ТВ). Канон: слишком БЛИЗКО — вредно
+        # (hard); дальше комфортного — сидеть можно (soft). Абсурдная даль (>400) — hard.
+        hard_far = max(hi, float(distances().get("sofa_tv_hard_max", 400)))
+        if g < lo or g > hard_far:
             out.append(_v("SOFA_TV_DIST", f"диван↔ТВ {g:.0f} см вне шкалы (диагональ-метод)",
-                          ["диван", "тв-тумба"], round(g), f"{lo:.0f}–{hi:.0f} см"))
-        elif g > soft_hi:
+                          ["диван", "тв-тумба"], round(g), f"{lo:.0f}–{hard_far:.0f} см"))
+        elif g > min(soft_hi, hi):
             out.append(_v("SOFA_TV_FAR", f"диван↔ТВ {g:.0f} см — дальше комфортного",
-                          ["диван", "тв-тумба"], round(g), f"≤{soft_hi:.0f} см", Severity.SOFT))
+                          ["диван", "тв-тумба"], round(g), f"≤{min(soft_hi, hi):.0f} см", Severity.SOFT))
     if "диван" in by and "столик" in by:
         g = _zone_gap(by["диван"], by["столик"])
         # W2 (аудит 08.08): досягаемость руки НЕ зависит от площади комнаты — фикс-вилки:
@@ -356,6 +361,17 @@ def check_wall_only(room: Room, ps: list[Placement]) -> list[Violation]:
             back = x1 if fx < 0 else x0
             d = (room.width_cm - back) if fx < 0 else back
         if d > WALL_TOUCH_MAX_CM:
+            # НОСИТЕЛЬ ТВ ПЕРЕД ОКНОМ (решение владельца 13.08, план №14): тумба стоит
+            # с отступом от стены на глубину радиатора + конвекцию (~40 см) — это
+            # ЗАКОННАЯ позиция «перед окном», а не «плавает посреди комнаты».
+            # Противоречие №10 аудита: разрешение владельца против NOT_AT_WALL.
+            if p.role.split(' ')[0] == 'тв-тумба' and d <= 45.0:
+                _wall_dir = ('north' if (abs(fy) > abs(fx) and fy < 0) else
+                             'south' if abs(fy) > abs(fx) else
+                             'east' if fx < 0 else 'west')
+                if any(o.kind == 'window' and o.wall == _wall_dir
+                       for o in room.openings):
+                    continue
             out.append(_v("NOT_AT_WALL", f"«{p.role}» стоит спинкой не к стене ({d:.0f} см)", [p.role],
                           round(d), f"спинка ≤{WALL_TOUCH_MAX_CM:.0f} см до стены"))
     return out
