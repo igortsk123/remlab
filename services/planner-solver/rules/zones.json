@@ -190,6 +190,51 @@
     ]
    },
    "note": "реалистично от ~22–25 без ущерба циркуляции"
+  },
+  {
+   "id": "sofa_pouf",
+   "seats": 3.5,
+   "roles": {
+    "required": [
+     "диван",
+     "пуф",
+     "столик"
+    ],
+    "optional": [
+     "ковёр",
+     "торшер"
+    ]
+   },
+   "why": "ступень между «диван+кресло» и «диван соло»: пуф-компаньон у фланга столика или подставкой (веб-свод «next to or in front of the sofa»); для комнат, где кресло уже не встаёт"
+  },
+  {
+   "id": "sofa_lamp",
+   "seats": 3,
+   "roles": {
+    "required": [
+     "диван",
+     "торшер",
+     "столик"
+    ],
+    "optional": [
+     "ковёр"
+    ]
+   },
+   "why": "диван с торшером за плечом — младшая ступень с компаньоном-светом (KB: свет у посадки)"
+  },
+  {
+   "id": "sofa_solo",
+   "seats": 3,
+   "roles": {
+    "required": [
+     "диван",
+     "столик"
+    ],
+    "optional": [
+     "ковёр"
+    ]
+   },
+   "why": "нижняя ступень: диван со столиком и ковром (клей зоны обязателен — glue_rule); подтверждено ProcTHOR: соло-диван 52% гостиных"
   }
  ],
  "group_scheme": {
@@ -394,7 +439,10 @@
     "max": 8,
     "groups": [
      "armchair_pair",
-     "compact_sectional"
+     "compact_sectional",
+     "sofa_pouf",
+     "sofa_lamp",
+     "sofa_solo"
     ],
     "coffee_table": "optional",
     "extras_max": 1,
@@ -405,7 +453,10 @@
     "groups": [
      "compact_sectional",
      "sofa_armchair",
-     "sectional_armchair"
+     "sectional_armchair",
+     "sofa_pouf",
+     "sofa_lamp",
+     "sofa_solo"
     ],
     "extras_max": 2,
     "tv_unit": "optional_wall_mount_better"
@@ -417,7 +468,10 @@
      "sofa_2armchairs",
      "sofa_facing_sofa",
      "sofa_loveseat",
-     "sectional_armchair"
+     "sectional_armchair",
+     "sofa_pouf",
+     "sofa_lamp",
+     "sofa_solo"
     ],
     "extras_max": 3,
     "second_microzone": "only_if_free_corner"
@@ -428,7 +482,10 @@
      "sofa_2armchairs",
      "sofa_loveseat",
      "sofa_loveseat_2armchairs",
-     "sofa_facing_sofa"
+     "sofa_facing_sofa",
+     "sofa_pouf",
+     "sofa_lamp",
+     "sofa_solo"
     ],
     "extras_max": 4,
     "storage_media": "normal",
@@ -439,7 +496,10 @@
     "groups": [
      "sofa_2armchairs",
      "sofa_loveseat_2armchairs",
-     "two_sofas_2armchairs"
+     "two_sofas_2armchairs",
+     "sofa_pouf",
+     "sofa_lamp",
+     "sofa_solo"
     ],
     "secondary_zone": "preferred_over_growing_main",
     "seats_cap_main": 8
@@ -448,7 +508,10 @@
     "max": 999,
     "groups": [
      "sofa_2armchairs",
-     "two_sofas_2armchairs"
+     "two_sofas_2armchairs",
+     "sofa_pouf",
+     "sofa_lamp",
+     "sofa_solo"
     ],
     "secondary_zones": "normal",
     "note": "35+: несколько зон — норма; главной зоне часто хватает одного дивана"
@@ -766,5 +829,23 @@
   ],
   "rule": "предмет не ставится вообще, если ухудшает уже достигнутое (маршрут, фокус, «щели»)",
   "why": "свод владельца 12.08 по его ресёрчу: дизайнер сначала обеспечивает главную функцию и проходы (75-90 см вокруг группы, а не сквозь неё), затем композицию, и только потом вторичное — «room to breathe» важнее, чем поставить по одному предмету каждого типа. Слабый генератор пытается впихнуть максимум предметов, дизайнер — сохранить качество"
+ },
+ "seating_ladder": {
+  "_why": "план seating-template-ladder (владелец 13.08: «правильный шаблон коммуникативной зоны подбирать, а не выкидывать предметы»). Спуск по лестнице = смена ШАБЛОНА; состав каждой ступени зафиксирован здесь, вычитания на ходу запрещены",
+  "ladder": [
+   "two_sofas_2armchairs",
+   "sofa_loveseat_2armchairs",
+   "sofa_4armchairs",
+   "sofa_2armchairs",
+   "sofa_facing_sofa",
+   "sofa_loveseat",
+   "sectional_armchair",
+   "sofa_armchair",
+   "sofa_pouf",
+   "sofa_lamp",
+   "compact_sectional",
+   "sofa_solo",
+   "armchair_pair"
+  ]
  }
 }

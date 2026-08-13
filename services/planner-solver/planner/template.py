@@ -965,30 +965,6 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
         # 2 — нужно место в оси, 1 — любое чистое, 0 — можно без него (но позиции с
         # местом всё равно предпочтительнее).
         if not hards and require_bearer is not None:
-            _sf = ps[0]
-            _fr = math.radians(_sf.rot)
-            _fx, _fy = math.sin(_fr), math.cos(_fr)
-            _blocked = False
-            for _p in ps[1:]:
-                if not _p.role.startswith('кресло'):
-                    continue
-                _vx, _vy = _p.x - _sf.x, _p.y - _sf.y
-                _d = math.hypot(_vx, _vy) or 1.0
-                # кресло впереди дивана и близко к его оси — это и есть «у стены ТВ»
-                if (_fx * _vx + _fy * _vy) / _d > 0.5:
-                    _blocked = True
-                    break
-            if _blocked:
-                if first_hard is None:
-                    first_hard = [('ARMCHAIR_ON_FOCUS_WALL', ['кресло'], None)]
-                continue
-        # ПРОБА МЕСТА ПОД НОСИТЕЛЬ РАБОТАЕТ НА ВСЕХ КРУГАХ (регресс 13.08: с условием
-        # `_FOCUS_LEVEL >= 1` на последнем круге проба не запускалась вовсе, и позиция
-        # дивана выбиралась без оглядки на ТВ — медиа-зона упала с 223 до 118 сцен).
-        # Круги отличаются ТОЛЬКО тем, можно ли принять позицию БЕЗ места носителю:
-        # 2 — нужно место в оси, 1 — любое чистое, 0 — можно без него (но позиции с
-        # местом всё равно предпочтительнее).
-        if not hards and require_bearer is not None:
             # РЕЗЕРВ МЕСТА ПОД МЕДИА (регресс 11.08: блок занимал стену, и носитель
             # ТВ потом не вставал — 40 сцен): позиция блока принимается, только если
             # существует hard-чистая постановка носителя при ней
@@ -1056,6 +1032,18 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
     return None
 
 
+def _zone_rules() -> dict:
+    import json as _j
+    _p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                      'rules', 'zones.json')
+    global _ZR_CACHE
+    try:
+        return _ZR_CACHE
+    except NameError:
+        _ZR_CACHE = _j.load(open(_p, encoding='utf-8'))
+        return _ZR_CACHE
+
+
 def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
                    fixed: list[Placement] | None = None) -> list[Placement] | None:
     """Разговорная зона блоком: лучший hard-чистый вариант или None (фолбэк beam)."""
@@ -1064,6 +1052,20 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
     by_role: dict[str, Item] = {}
     for it in items:
         by_role.setdefault(it.role, it)
+    # СОСТАВ СТУПЕНИ — ИЗ ПАСПОРТА (план seating-template-ladder): в блок посадки идут
+    # только required+optional роли группы (плюс клей: столик и ковёр всегда допустимы).
+    # Раньше в схему затекали ВСЕ роли сета, и «лишние» лечились каскадом дропов.
+    _grp_cfg = next((g for g in _zone_rules().get('seating_groups', [])
+                     if g['id'] == group_id), None)
+    if _grp_cfg is not None:
+        _allowed = {r for r in _grp_cfg['roles'].get('required', [])} \
+            | {r for r in _grp_cfg['roles'].get('optional', [])} \
+            | {'столик', 'ковёр', 'приставной'} \
+            | {'тв-тумба', 'стенка', 'камин'}   # ФОКУС: не член схемы, но проба места
+                                                # под носитель обязана его видеть
+        _allowed |= {r + ' 2' for r in list(_allowed)}
+        by_role = {k: v for k, v in by_role.items()
+                   if k in _allowed or k.split(' ')[0] in _allowed}
     # фокус зоны: медиа-носитель, а без него — камин (v2.5: камин-фокус легален)
     bearer = by_role.get('стенка') or by_role.get('тв-тумба')
     fireplace = by_role.get('камин')
@@ -1087,19 +1089,11 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
     # ПОРЯДОК ДИЗАЙНЕРА (свод владельца 12.08): консоль ТВ важнее дополнительного
     # кресла. Если кресло занимает стену под носитель (ARMCHAIR_AT_TV_WALL), берём
     # МЕНЬШУЮ схему — без кресла; само кресло уйдёт в свою зону (чтение/тихая).
-    _companions = [c for c in ('пуф', 'торшер') if c in by_role]
-    _cur = dict(by_role)
-    for c in _companions:
-        _cur = {k: v for k, v in _cur.items() if k != c}
-        tries.append((dict(_cur), COFFEE_GAP, 0.0))
-    # МАЛЫЙ КОВЁР / ПОВОРОТ (заявка владельца 12.08): прежде чем жертвовать чем-то,
-    # пробуем уложить ковёр вдоль ДРУГОЙ оси — так он уходит из дверной дуги и из
-    # узкого места, оставаясь в зоне
-    # схемы без кресла — после отказа от компаньонов, но ДО отказа от столика
-    for _arm in ('кресло 2', 'кресло'):
-        if _arm in _cur:
-            _cur = {k: v for k, v in _cur.items() if k != _arm}
-            tries.append((dict(_cur), COFFEE_GAP, 0.0))
+    # КАСКАД ДРОПОВ УДАЛЁН (план seating-template-ladder, владелец 13.08: «кресло —
+    # только если есть в шаблоне; правильный шаблон подбирать, а не выкидывать
+    # предметы»). Состав ступени фиксирован паспортом (`zones.json → seating_groups`);
+    # не встал — solve_zoned спускается на СЛЕДУЮЩУЮ ступень лестницы. Здесь остаются
+    # только законные ДОПУСКИ СХЕМЫ: зазор/сдвиг столика и поворот ковра.
     if 'ковёр' in by_role:
         _rg = by_role['ковёр']
         _rot_rug = Item(role=_rg.role, w_cm=_rg.d_cm, d_cm=_rg.w_cm, h_cm=_rg.h_cm,
@@ -1134,6 +1128,9 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
         group_id = 'sofa_2armchairs' if 'кресло 2' in _av else (
             'sofa_armchair' if 'кресло' in _av else 'compact_sectional')
     shapes = {'sofa_4armchairs': ['default', 'u', 'pouf_table'],
+              'sofa_pouf': ['default'],
+              'sofa_lamp': ['default'],
+              'sofa_solo': ['default'],
               'compact_sectional': ['default', 'pouf_table'],
               'sofa_2armchairs': ['default', 'bulky', 'pouf_table', 'facing',
                                   'bridge', 'tandem_r', 'tandem_l'],

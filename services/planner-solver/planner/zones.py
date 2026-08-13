@@ -111,6 +111,30 @@ def pick_group(room: Room, roles_available: set[str] | dict, seats_target: int |
     return max(candidates, key=lambda g: g['seats'])
 
 
+def pick_ladder(room: Room, roles_available: set[str] | dict) -> list[dict]:
+    """ЛЕСТНИЦА шаблонов посадки (план seating-template-ladder, владелец 13.08):
+    упорядоченный список групп «от самой вместительной к соло», доступных по
+    инвентарю сета. Спуск по лестнице = смена ШАБЛОНА (не вычитание предметов).
+    Порядок — данные (`zones.json → seating_ladder`), не код."""
+    from collections import Counter
+    zr = zone_rules()
+    um2 = usable_m2(room)
+    band = next(b for b in zr['inventory_prior']['bands_usable_m2'] if um2 <= b['max'])
+    groups = {g['id']: g for g in zr['seating_groups']}
+    have = Counter(dict(roles_available)) if isinstance(roles_available, dict) \
+        else Counter({r: 999 for r in roles_available})
+    out = []
+    for gid in zr.get('seating_ladder', {}).get('ladder', []):
+        if gid not in groups or gid not in band['groups']:
+            continue
+        g = groups[gid]
+        need = Counter(r.split(' ')[0] for r in g['roles']['required']
+                       if r.split(' ')[0] in SEATING_ROLES)
+        if all(have.get(role, 0) >= n for role, n in need.items()):
+            out.append(g)
+    return out or [groups['sofa_solo' if have.get('диван', 0) > 0 else 'armchair_pair']]
+
+
 # Посадочные роли, состав которых диктует ГРУППА (Z3); прочее (media/хранение/декор/обеденная)
 # группой не фильтруется — их судьбу решают ярусы наполнения и сам beam
 SEATING_ROLES = {'диван', 'кресло', 'пуф'}
@@ -246,18 +270,33 @@ def solve_zoned(room: Room, items, **kw):
     block = None
     if os.environ.get('LAYOUT_TEMPLATES', '1') != '0':
         from .template import place_media, place_template
+        # ЛЕСТНИЦА ШАБЛОНОВ (план seating-template-ladder, владелец 13.08): пробуем
+        # группы от вместительной к соло; каждый шаблон ставится ЦЕЛИКОМ, не встал —
+        # СЛЕДУЮЩАЯ ступень (смена шаблона, а не выкидывание предметов из большого).
+        if os.environ.get('LAYOUT_LADDER', '1') != '0':
+            for _g in pick_ladder(room, dict(counts)):
+                block = place_template(room, _g['id'], keep, usable_polygon(room))
+                if block:
+                    group = _g
+                    if os.environ.get('ZONES_DEBUG'):
+                        import sys as _sl
+                        print(f"ZDBG лестница: ступень {_g['id']} принята",
+                              file=_sl.stderr, flush=True)
+                    break
         # ДИЗАЙНЕРСКИЙ ПОРЯДОК (свод владельца 12.08): фокус-стена важнее удобной
         # позиции дивана. Прямая постановка «медиа первой» в тесных комнатах не встаёт
         # (обе зоны помещаются лишь в согласованной паре), поэтому порядок реализован
         # ЖЁСТКИМ ТРЕБОВАНИЕМ в схеме посадки: позиция дивана принимается, только если
         # носителю ТВ остаётся чистое место (`place_template` → require_bearer,
         # LAYOUT_FOCUS_MANDATORY). Эксперимент «медиа первой» остаётся под флагом.
+        if block is None and os.environ.get('LAYOUT_LADDER', '1') != '0':
+            pass                          # лестница исчерпана — ниже минимальная схема
         media_opts = []
         if os.environ.get('LAYOUT_FOCUS_FIRST', '0') != '0':
             _m = place_media(room, keep, usable_polygon(room), fixed=None, top=8)
             # top>1 отдаёт СПИСОК вариантов позиции медиа-блока
             media_opts = _m if (_m and isinstance(_m[0], list)) else ([_m] if _m else [])
-        for media_first in media_opts:
+        for media_first in (media_opts if block is None else []):
             _occ = _uu0([_fp0(p) for p in media_first if p.role.split(' ')[0] != 'ковёр'])
             _blk = place_template(room, group['id'], keep,
                                   usable_polygon(room).difference(_occ),
@@ -266,7 +305,7 @@ def solve_zoned(room: Room, items, **kw):
                 block = list(media_first) + list(_blk)
                 keep = [it for it in keep if it.role not in {p.role for p in media_first}]
                 break
-        if not block:
+        if not block and os.environ.get('LAYOUT_LADDER', '1') == '0':
             block = place_template(room, group['id'], keep, usable_polygon(room))
     if os.environ.get('LAYOUT_ONLY_TEMPLATES', '1') != '0' and not block:
         # НЕТ ПОДХОДЯЩЕГО ШАБЛОНА (замечание владельца 11.08: «ковёр/столик не могут

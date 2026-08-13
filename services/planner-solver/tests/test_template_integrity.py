@@ -201,3 +201,34 @@ def test_focus_wall_not_empty():
             empty.append(scene)
     assert len(empty) <= MAX_EMPTY_FOCUS_SCENES, (
         f'сцен с пустой фокус-стеной {len(empty)} > {MAX_EMPTY_FOCUS_SCENES}: {empty[:6]}')
+
+
+def test_seating_matches_ladder_step():
+    """Состав посадки == состав одной из ступеней лестницы (план seating-template-ladder).
+
+    «Самодельный» состав (вычитание предметов из большого шаблона на ходу) запрещён:
+    правильный шаблон ПОДБИРАЕТСЯ из библиотеки, а не строгается по месту.
+    """
+    zr = json.load(open(os.path.join(ROOT, 'services', 'planner-solver', 'rules',
+                                     'zones.json'), encoding='utf-8'))
+    steps = {}
+    for g in zr['seating_groups']:
+        req = {r.split(' ')[0] for r in g['roles'].get('required', [])}
+        opt = {r.split(' ')[0] for r in g['roles'].get('optional', [])}
+        steps[g['id']] = (req, opt | {'столик', 'ковёр', 'приставной', 'пуф', 'торшер'})
+    sets = json.load(open(os.path.join(SCOUT, 'sets3.json'), encoding='utf-8'))
+    bad = {}
+    for scene, lay, _room, ps in _scenes():
+        tpl = lay.get('_templates') or {}
+        seat_roles = {r.split(' ')[0] for r, v in tpl.items()
+                      if (v or {}).get('id') == 'seating'}
+        if not seat_roles:
+            continue
+        n = int(scene.split('-')[0].replace('set', ''))
+        bank = {k.split(' ')[0] for k in (sets[n - 1].get('items') or {})}
+        # required-роль, которой нет в БАНКЕ сета, со ступени не спрашивается
+        ok = any((req & bank) <= seat_roles and seat_roles <= (req | opt)
+                 for req, opt in steps.values())
+        if not ok:
+            bad[scene] = sorted(seat_roles)
+    assert not bad, f'самодельные составы посадки: {dict(list(bad.items())[:5])}'
