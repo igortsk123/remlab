@@ -47,6 +47,7 @@ FACE_ROLES={'диван','диван 2','кресло','столик','стол 
 ASSURED_STYLES={'сканди','современный','минимализм'}
 _TIER_BAND_SQL={'эконом':'p.price_rub<=30000','комфорт':'p.price_rub between 20000 and 90000','премиум':'p.price_rub>=60000'}
 RICH={}   # (role,tier) -> кандидатов ≥100
+_SLOT_MISS={}   # К5 (slots-everywhere): счётчик отбраковок по конверту слота — отчёт «слот не закрыт»
 def _load_rich():
     if RICH or not STYLE_MODE: return
     import subprocess as _sp
@@ -321,13 +322,15 @@ def slot_ideal(role,m2,qty=1):
         seats='6' if m2>=40 else ('4' if m2>=22 else '2')
         return float(cfg['by_seats'][seats])
     if 'by_area_m2' in cfg:
+        # ОБОБЩЁННЫЙ парсер ключей (13.08: фиксированный список ключей молча ронял
+        # слот дивана '<=16'/'<=20' в ветку 230 — диван 230 проходил в комнату 15 м²)
         ba=cfg['by_area_m2']
-        for _k in ('<=18','<=30','<=32'):
-            if _k in ba:
-                lim=float(_k.replace('<=',''))
-                if m2<=lim: return float(ba[_k])
-        for _k in ('>30','>32'):
-            if _k in ba: return float(ba[_k])
+        _les=sorted(((float(k[2:]),k) for k in ba if k.startswith('<=')))
+        for lim,k in _les:
+            if m2<=lim: return float(ba[k])
+        _gts=sorted(((float(k[1:]),k) for k in ba if k.startswith('>')),reverse=True)
+        for lim,k in _gts:
+            if m2>lim: return float(ba[k])
     return None
 
 
@@ -367,7 +370,9 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
                 _tol=_SLOT_ENV.get('tolerance',[0.80,1.10])
                 _len=(max(it.get('w') or 0, it.get('d') or 0) if role=='ковёр'
                       else (it.get('w') or 0))
-                if _len and not (_id*_tol[0]<=_len<=_id*_tol[1]): continue
+                if _len and not (_id*_tol[0]<=_len<=_id*_tol[1]):
+                    _SLOT_MISS.setdefault(role,0); _SLOT_MISS[role]+=1
+                    continue
             if not (plo<=it['price']<=phi) and not soft: continue
             # ЖЁСТКИЕ ОГРАНИЧЕНИЯ ДО ЭСТЕТИКИ (sets-feasibility-first, 2026-08-05).
             # 0) карточка должна быть годной: обогащение К2 отбраковывает мусорные размеры и
@@ -1003,6 +1008,11 @@ for bi,band in enumerate(COMP['bands']):
                 _bk=_cands[0]
                 chosen['диван 2']=dict(_bk,qty=1)  # футпринт НЕ добавляем: запасной, ставится вместо
                 print(f"  ЛЕСТНИЦА ДИВАНОВ: запасной прямой в банк: {_bk['name'][:40]}")
+        # К5: явный отчёт незакрытых слотов (роль в слоте есть, товара в конверте не нашлось)
+        for _r in list(_SLOT_MISS):
+            if _r not in chosen and slot_ideal(_r,m2):
+                print(f'  СЛОТ НЕ ЗАКРЫТ: «{_r}» — {_SLOT_MISS[_r]} кандидатов вне конверта, в конверте 0')
+        _SLOT_MISS.clear()
         total=sum(it['price']*it['qty'] for it in chosen.values())
         fill=round(floor_fp/m2*100,1)
         sfit_agg=None
