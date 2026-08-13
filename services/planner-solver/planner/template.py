@@ -1000,6 +1000,8 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
             # владелец 12.08: «тут тоже влезла бы спокойно»)
             bcs = list(wall_candidates(room, require_bearer, free2)) \
                 + list(_corner_candidates(room, require_bearer, free2))
+            if require_bearer.role == 'тв-тумба':
+                bcs += _window_candidates(room, require_bearer, free2)
             seat = ps[0]
             def _aim(c):
                 r = math.radians(seat.rot)
@@ -1664,8 +1666,11 @@ def place_media(room: Room, items: list[Item], free: Polygon,
                     _cands = list(wall_candidates(room, b.anchor, free)) \
                         + _jamb_candidates(room, b.anchor, free) \
                         + list(_corner_candidates(room, b.anchor, free))
-                    if relaxed and b.anchor.role == 'тв-тумба':
-                        # низкой тумбе можно к окну (владелец 13.08); стенке — нельзя
+                    if b.anchor.role == 'тв-тумба':
+                        # НИЗКОЙ ТУМБЕ МОЖНО К ОКНУ, ЕСЛИ ТЕСНО (владелец 13.08,
+                        # повторено): кандидаты у окна есть всегда, но несут soft-штраф
+                        # TV_ON_WINDOW_WALL — выигрывают только когда больше некуда.
+                        # Стенке к окну нельзя (перекроет свет).
                         _cands += _window_candidates(room, b.anchor, free)
                     # ЦЕНТР — ПОРОГ, А НЕ БОНУС (свод владельца 12.08): сперва только
                     # позиции в оси взгляда (смещение ≤ FOCUS_OFFSET_MAX_CM); если таких
