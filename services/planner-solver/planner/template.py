@@ -768,10 +768,15 @@ def _tv_range_candidates(room: Room, item: Item, free: Polygon) -> list:
     from .candidates import Candidate
     from .tv import distance_range
     lo, hi, _ = distance_range(120.0)
-    d_mid = (lo + hi) / 2 + item.d_cm / 2 + 40.0     # дистанция + полкорпуса + тумба
     W, D = room.width_cm, room.depth_cm
-    spots = [(W / 2, d_mid, 180.0), (W / 2, D - d_mid, 0.0),
-             (d_mid, D / 2, 270.0), (W - d_mid, D / 2, 90.0)]
+    spots = []
+    # ступени дистанции: середина вилки и верх (13.08: блок с ковром и пуфом ГЛУБЖЕ
+    # одного дивана — от середины вилки фронту блока не хватало места до стены,
+    # и стенка не вставала; от верха вилки — помещается блок целиком)
+    for base_d in ((lo + hi) / 2, hi * 0.92):
+        d_mid = base_d + item.d_cm / 2 + 40.0
+        spots += [(W / 2, d_mid, 180.0), (W / 2, D - d_mid, 0.0),
+                  (d_mid, D / 2, 270.0), (W - d_mid, D / 2, 90.0)]
     out = []
     for x, y, rot in spots:
         p = Placement(role=item.role, x=x, y=y, rot=rot, item=item)
@@ -975,7 +980,7 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
             # оси взгляда — вес сильнее углового: 0 см = +3, 120 см = 0.
             off = abs(math.cos(r) * vx - math.sin(r) * vy)
             score += max(0.0, 3.0 - off / 40.0)
-        scored.append((score, ps))
+        scored.append((score, ps, getattr(c, 'topology', '')))
     scored.sort(key=lambda t: -t[0])
     base = list(fixed or [])
     first_hard = None
@@ -986,7 +991,12 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
     from .zones import lexo_key
     ok_variants: list[tuple[tuple, list[Placement]]] = []
     nb_variants: list[tuple[tuple, list[Placement]]] = []   # без места под носитель
-    for _, ps in scored[:TOP_FULL_VALIDATE]:
+    # КВОТА ВИЛОЧНЫХ (13.08): топ-24 по эвристике — сплошь пристенные, и позиции
+    # «на ТВ-вилке» (деление глубокой комнаты на 2 зоны) не доходили до полного
+    # разбора вовсе. Вилочные разбираются ВСЕ, сверх топ-N.
+    _pool = scored[:TOP_FULL_VALIDATE] + [t for t in scored[TOP_FULL_VALIDATE:]
+                                          if t[2] == 'tv_range']
+    for _, ps, _topo in _pool:
         lay = validate(room, base + ps)
         hards = [v for v in lay.violations if v.severity is Severity.HARD]
         # СНЯТО 13.08: эвристика «кресло впереди дивана = занимает стену ТВ» рубила

@@ -310,6 +310,42 @@ def solve_zoned(room: Room, items, **kw):
                     print(f"ZDBG лестница: ступень {_g['id']} принята (минимум собрался)",
                           file=_sl.stderr, flush=True)
                 break
+            if block is None:
+                # ЛЕСТНИЦА ДИВАНОВ (владелец 13.08, планы 145/236/252: «надо было
+                # выбирать не угловой диван, а прямой — тогда не в угол, а в верхнюю
+                # половину, затем медиа, внизу столовая»). Угловой главный диван не
+                # дал минимума ни на одной ступени — пробуем те же ступени с ПРЯМЫМ
+                # диваном из банка («диван 2»), угловой уходит в неиспользованное.
+                # ищем в ИСХОДНОМ составе: «диван 2» мог быть отфильтрован группой
+                _d1 = next((i for i in items if i.role == 'диван'), None)
+                _d2 = next((i for i in items if i.role == 'диван 2'), None)
+                if _d1 is not None and getattr(_d1, 'corner', False) \
+                        and _d2 is not None and not getattr(_d2, 'corner', False):
+                    _keep2 = [i for i in keep if _base(i.role) != 'диван']
+                    _keep2.append(_d2.model_copy(update={'role': 'диван', 'corner': False}))
+                    if os.environ.get('ZONES_DEBUG'):
+                        import sys as _sl
+                        print('ZDBG лестница диванов: пробуем ПРЯМОЙ вместо углового',
+                              file=_sl.stderr, flush=True)
+                    for _g in pick_ladder(room, dict(counts)):
+                        _blk = place_template(room, _g['id'], _keep2, usable_polygon(room))
+                        if not _blk:
+                            continue
+                        from .template import place_media as _pm1
+                        _occ1 = _uu0([_fp0(p) for p in _blk
+                                      if p.role.split(' ')[0] != 'ковёр'])
+                        _m1 = _pm1(room, _keep2,
+                                   usable_polygon(room).difference(_occ1), fixed=_blk)
+                        if _m1:
+                            keep = _keep2
+                            block, group = list(_blk) + list(_m1), _g
+                            keep = [it for it in keep
+                                    if it.role not in {p.role for p in block}]
+                            if os.environ.get('ZONES_DEBUG'):
+                                import sys as _sl
+                                print('ZDBG лестница диванов: прямой вместо углового — '
+                                      'минимум собрался', file=_sl.stderr, flush=True)
+                            break
             if block is None and _fb_block is not None:
                 block, group = _fb_block, _fb_group
                 if os.environ.get('ZONES_DEBUG'):

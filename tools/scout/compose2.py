@@ -105,6 +105,10 @@ def sane_dims(role,it):
     # декор без габаритов брать нельзя: так в сет попал «Абажур для настольной лампы»
     # (комплектующая, а не светильник) — размеров нет, значит и проверить нечем
     if not w or not d: return False
+    # ТОППЕР/ЧЕХОЛ — НЕ ДИВАН (владелец 13.08, set115: «Топпер для дивана» прошёл в
+    # роль «диван 2»): аксессуары дивана в посадочные роли не годятся
+    if role.startswith('диван') and re.search(r'топпер|чехол|наматрасник', (it.get('name') or '').lower()):
+        return False
     if w and d and d>w*ratio and d>w:             # оси перепутаны — меняем местами
         it['w'],it['d']=d,w; w,d=it['w'],it['d']
     if (d and d>dmax) or (w and w>wmax): return False
@@ -646,6 +650,7 @@ for bi,band in enumerate(COMP['bands']):
                 if wall_len+(it['w'] or 100)*q > free_perimeter*WALL_SHARE: continue
                 wall_len+=(it['w'] or 100)*q
             chosen[role]=dict(it,qty=q); alts[role]=[{k:a[k] for k in ('mid','eid','name','price','score')} for a in top[1:]]
+            if role=='диван': _sofa_top=[dict(a) for a in top[:12]]   # полные карточки — для лестницы диванов
             if role in _EXTRA_ROLES: _extras_left-=1
             ctx['used_shops'].add(it['shop']); floor_fp+=add
             # A2 (исследование рефери 08.08): приставной = subtype узкого столика (роли-SKU в
@@ -979,6 +984,21 @@ for bi,band in enumerate(COMP['bands']):
                 floor_fp -= (chosen[_r].get('fp') or 0)*chosen[_r].get('qty',1)
                 chosen.pop(_r); alts.pop(_r, None)
             print('  R3-финал: стулья без обеденного стола — из состава вон')
+        # ЛЕСТНИЦА ДИВАНОВ (владелец 13.08, планы без медиа: «угловой не влезает —
+        # надо было прямой шаблон»): главный диван угловой и запасного прямого нет →
+        # кладём ПРЯМОЙ диван в банк («диван 2»). В изрезанных комнатах (эркер/пилоны)
+        # расстановка сама спустится на прямой; в обычных он честно останется в банке.
+        _main=chosen.get('диван')
+        import re as _re
+        def _is_corner(d): return bool(_re.search(r'углов|модульн', (d.get('name') or '').lower()))
+        if _main and _is_corner(_main) and 'диван 2' not in chosen:
+            _cands=[t for t in (locals().get('_sofa_top') or []) if not _is_corner(t)
+                    and not _re.search(r'топпер|чехол', (t.get('name') or '').lower())
+                    and 140<=(t.get('w') or 0)<=220]
+            if _cands:
+                _bk=_cands[0]
+                chosen['диван 2']=dict(_bk,qty=1)  # футпринт НЕ добавляем: запасной, ставится вместо
+                print(f"  ЛЕСТНИЦА ДИВАНОВ: запасной прямой в банк: {_bk['name'][:40]}")
         total=sum(it['price']*it['qty'] for it in chosen.values())
         fill=round(floor_fp/m2*100,1)
         sfit_agg=None
