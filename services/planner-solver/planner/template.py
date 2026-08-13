@@ -661,6 +661,11 @@ def build_block(group_id: str, by_role: dict[str, Item],
         # ДВЕ КАНОННЫЕ ПОЗИЦИИ, а не одна (12.08): подставка для ног перед креслом
         # часто попадает на журнальный столик — тогда пуф уходит на свободный фланг
         # столика. Раньше схема из-за этого браковалась целиком, и зона теряла столик.
+        # ПУФ И КРЕСЛО — ПО РАЗНЫЕ СТОРОНЫ (владелец 13.08, планы №1/№2: «пуф рядом
+        # с креслом нелогично — либо разнесены, либо одного из них нет»). Подставка
+        # для ног строго ПЕРЕД креслом (25 см по его оси); фланговая позиция пуфа —
+        # только НА ПРОТИВОПОЛОЖНОМ от кресла фланге столика. Обе не встали — пуф
+        # выбывает из схемы (каскад и так пробует состав без пуфа первым делом).
         _spots = []
         _arm_p = next((t for t in b.rel if t[0].role.startswith('кресло')), None)
         if _arm_p is not None:
@@ -668,9 +673,13 @@ def build_block(group_id: str, by_role: dict[str, Item],
             _dist = _ai.d_cm / 2 + 25 + _pouf.d_cm / 2
             _dx, _dy = _rt(0.0, _dist, _arot)
             _spots.append((_ax + _dx, _ay + _dy, _arot))
-        _px = (table_x + free_side * ((max(table.w_cm, table.d_cm) / 2 if table else 40)
-                                      + 25 + _pouf.w_cm / 2))
-        _spots.append((_px, table_cy, 270.0 if free_side > 0 else 90.0))
+            # фланг: строго противоположный креслу (кресло слева → пуф справа)
+            _pouf_side = -1 if _ax * free_side > 0 else free_side
+        else:
+            _pouf_side = free_side
+        _px = (table_x + _pouf_side * ((max(table.w_cm, table.d_cm) / 2 if table else 40)
+                                       + 25 + _pouf.w_cm / 2))
+        _spots.append((_px, table_cy, 270.0 if _pouf_side > 0 else 90.0))
         for _sx, _sy, _srt in _spots:
             b.add(_pouf, _sx, _sy, _srt)
             if block_self_overlap(b) is None:
@@ -1106,10 +1115,10 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
         # (габариты столика НЕ подгоняем — см. правило выше про конверт слота)
         for sh in (_sh, -_sh):
             tries.append((by_role, COFFEE_GAP, sh))
-        tries.append(({k: v for k, v in by_role.items() if k != 'столик'},
-                      COFFEE_GAP, 0.0))
-        tries.append(({k: v for k, v in _cur.items() if k != 'столик'},
-                      COFFEE_GAP, 0.0))
+        # СХЕМ БЕЗ СТОЛИКА В КАСКАДЕ НЕТ (владелец 13.08: «куда делся столик?»).
+        # Столик — клей зоны (glue_rule паспорта); каскад жертвует пуфом, торшером,
+        # креслом — но столик и ковёр неприкосновенны. Нет места столику — берётся
+        # меньший состав ВОКРУГ него, а не зона без поверхности.
     variants = tries
     # ЭФФЕКТИВНАЯ группа (11.08): выбранная группа может требовать роль, которой в
     # сете нет (sofa_armchair без кресла) — тогда блок не собирался и сцена уходила
@@ -1530,6 +1539,42 @@ def _jamb_candidates(room: Room, item: Item, free: Polygon) -> list:
     return out
 
 
+def _window_candidates(room: Room, item: Item, free: Polygon) -> list:
+    """Носитель ТВ ПЕРЕД ОКНОМ (разрешение владельца 13.08: «ТВ можно, если нет других
+    вариантов, перед окном ставить; тумба низкая — окно полностью не перекроет»).
+
+    Под окном обычно радиатор — тумба отступает от стены на его глубину + зазор
+    конвекции, стоит по центру окна. WINDOW_BLOCKED не сработает (высота тумбы ниже
+    подоконника), RADIATOR не сработает (отступили), TV_ON_WINDOW_WALL остаётся
+    мягким штрафом — потому эти кандидаты только в relaxed-круге.
+    """
+    from .candidates import WALL_FACING_ROT, Candidate
+    out = []
+    rad_depth = max((r.depth_cm for r in room.radiators), default=15.0)
+    setback = rad_depth + 17.0            # зазор конвекции к радиатору
+    for op in room.openings:
+        if op.kind != 'window':
+            continue
+        rot = WALL_FACING_ROT.get(op.wall)
+        if rot is None:
+            continue
+        w, d = item.w_cm, item.d_cm
+        mid = op.offset_cm + op.width_cm / 2
+        if op.wall in ('south', 'north'):
+            x = mid
+            y = setback + d / 2 if op.wall == 'south' else room.depth_cm - setback - d / 2
+        else:
+            y = mid
+            x = setback + d / 2 if op.wall == 'west' else room.width_cm - setback - d / 2
+        p = Placement(role=item.role, x=x, y=y, rot=float(rot), item=item)
+        fp = footprint(p)
+        if free.intersection(fp).area < fp.area * 0.97:
+            continue
+        out.append(Candidate(placement=p, kind='wall', note='перед окном',
+                             topology='window_front'))
+    return out
+
+
 def _axis_filter(cands, seat: Placement | None):
     """Кандидаты, стоящие В ОСИ ВЗГЛЯДА посадки (поперечное смещение ≤ порога)."""
     if seat is None:
@@ -1576,6 +1621,9 @@ def place_media(room: Room, items: list[Item], free: Polygon,
                     _cands = list(wall_candidates(room, b.anchor, free)) \
                         + _jamb_candidates(room, b.anchor, free) \
                         + list(_corner_candidates(room, b.anchor, free))
+                    if relaxed and b.anchor.role == 'тв-тумба':
+                        # низкой тумбе можно к окну (владелец 13.08); стенке — нельзя
+                        _cands += _window_candidates(room, b.anchor, free)
                     # ЦЕНТР — ПОРОГ, А НЕ БОНУС (свод владельца 12.08): сперва только
                     # позиции в оси взгляда (смещение ≤ FOCUS_OFFSET_MAX_CM); если таких
                     # нет вовсе — весь список. Раньше центровка была слагаемым скора и

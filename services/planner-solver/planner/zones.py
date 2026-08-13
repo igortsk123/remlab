@@ -400,6 +400,50 @@ def solve_zoned(room: Room, items, **kw):
                 _refine_mod.LOCKED |= roles3
                 tpl_tag += '+tv2'
 
+        # ПЛАВАЮЩИЙ ДИВАН БЕЗ СТОЛОВОЙ ЗА СПИНКОЙ — НЕЛЬЗЯ (владелец 13.08, планы
+        # №4/№7: «делишь комнату — вторая зона столовая, или не делать вовсе»).
+        # Если диван отодвинут (>90 см до стены), а столовая в итоге НЕ встала —
+        # пробуем пересобрать посадку заново БЕЗ «плавающих» позиций (только у стен).
+        _din_placed = '+din' in tpl_tag
+        if (block and not _din_placed and os.environ.get('LAYOUT_NO_ORPHAN_SPLIT', '1') != '0'):
+            _seat0 = next((p for p in block if p.role.split(' ')[0] == 'диван'), None)
+            if _seat0 is not None and _sofa_is_floating(room, _seat0):
+                from .template import place_template as _pt2
+                try:
+                    import planner.candidates as _cmod
+                    _orig_mid = _cmod.middle_candidates
+                    _cmod.middle_candidates = lambda *a, **k: []   # только пристенные
+                    _blk2 = _pt2(room, group['id'],
+                                 [i for i in items if i.role in
+                                  {p.role for p in block} | {it.role for it in keep}],
+                                 usable_polygon(room))
+                finally:
+                    _cmod.middle_candidates = _orig_mid
+                if _blk2:
+                    if os.environ.get('ZONES_DEBUG'):
+                        import sys as _s9
+                        print('ZDBG плавающий диван без столовой — пересобрано у стены',
+                              file=_s9.stderr, flush=True)
+                    # пересборка: заново прогнать цепочку зон нельзя дёшево — берём
+                    # пристенную посадку и достраиваем хранение/декор на новом free
+                    block = _blk2
+                    keep = [it for it in items if it.role not in {p.role for p in block}]
+                    tpl_tag = '+tpl-wall'
+                    from shapely.ops import unary_union as _uu9
+
+                    from .geometry import footprint as _fp9
+                    for placer9, tag9 in ((place_media, '+tv'), (place_storage, '+st'),
+                                          (place_storage, '+st2'), (place_decor, '+dc')):
+                        occ9 = _uu9([_fp9(p) for p in block if p.role != 'ковёр'])
+                        extra9 = placer9(room, keep, usable_polygon(room).difference(occ9),
+                                         fixed=block)
+                        if extra9:
+                            r9 = {p.role for p in extra9}
+                            keep = [it for it in keep if it.role not in r9]
+                            block = block + extra9
+                            _refine_mod.LOCKED |= r9
+                            tpl_tag += tag9
+
     # ПРАВИЛО ВЛАДЕЛЬЦА 11.08: «если это не шаблон — ставить нельзя; не хватает
     # шаблонов — создаём новые». Раскладка собирается ТОЛЬКО из зонных блоков;
     # то, что не попало ни в один блок, честно уходит в пропущенное, а не
