@@ -50,11 +50,12 @@ def _tv_target_cm(media: Item) -> float:
 
 
 def _media_positions(rmap: RoomMap, media: Item):
-    """Позиции якоря медиа-блока по участкам стен: центр участка; для участков с
-    окном за спиной — только НИЗКИЙ носитель (решает вызывающая сторона)."""
+    """Позиции якоря медиа-блока по участкам стен: центр участка. Запас краёв —
+    по режиму: small +20 (по 10 на сторону, свод №3 §3), иначе +40 (large-свод)."""
+    margin = 20.0 if rmap.mode == 'small' else 40.0
     for wall, info in rmap.walls.items():
         for seg in info.segments:
-            if seg.length_cm < media.w_cm + 40.0:
+            if seg.length_cm < media.w_cm + margin:
                 continue
             mid = (seg.start_cm + seg.end_cm) / 2
             yield wall, seg, mid
@@ -97,6 +98,8 @@ def generate_pairs(room: Room, rmap: RoomMap, media: Item, sofa: Item,
     """
     target = _tv_target_cm(media)
     out: list[Pair] = []
+    _small = rmap.mode == 'small'
+    _sm = _CFG.get('small_mode', {})
     for wall, seg, mid in _media_positions(rmap, media):
         m_rot = WALL_ROT[wall]
         mx, my = _to_xy(room, wall, mid, media.d_cm / 2)
@@ -118,6 +121,12 @@ def generate_pairs(room: Room, rmap: RoomMap, media: Item, sofa: Item,
             score = float(_WS.get('fits_media', 20))
             d_err = abs(dist - target) / max(target, 1.0)
             score += float(_WS.get('distance_near_target', 20)) * max(0.0, 1 - d_err)
+            if _small:
+                # S2: в small пристенный диван — приоритет №1 (максимум пола),
+                # floating без нужды штрафуется (свод №3 §4)
+                if scheme == 'floating_pair':
+                    score -= 12.0
+                score += float(_sm.get('wall_score', {}).get('circulation', 25)) -                     float(_WS.get('route_not_cutting', 15))   # вес циркуляции выше
             # L2 (large-room): пороги 1.2×/1.5×V — только в large-режиме
             if rmap.mode == 'large' and scheme == 'opposite_wall':
                 ratio = dist / max(target, 1.0)

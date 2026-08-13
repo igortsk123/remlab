@@ -747,6 +747,23 @@ _room_ops=(json.loads(_ops_env) if (_ops_env and json.loads(_ops_env)) else [
 # контур комнаты — в артефакт: план обязан рисовать НАСТОЯЩИЕ стены, а не bbox
 # (замечание владельца 12.08: «диван заходит за границы комнаты» — это врал чертёж)
 out['_templates']={r:{'id':t,'version':v} for r,(t,v) in (globals().get('TPL_BY_ROLE') or {}).items()}
+# S3 (small-room-mode): «ТВ адаптируется к комнате легче, чем планировка к ТВ» — если
+# фактическая дистанция посадка↔носитель меньше цели RTINGS, пишем рекомендацию меньшей
+# диагонали в артефакт (для сметы/подбора); геометрию НЕ ломаем
+try:
+    _b=next((r for r in ('стенка','тв-тумба') if r in placed), None)
+    if _b and 'диван' in placed:
+        import math as _m3
+        _sx,_sz=placed['диван'][0]; _bx,_bz=placed[_b][0]
+        _dist=_m3.hypot(_bx-_sx,_bz-_sz)
+        _diag_max=_dist/1.6/2.54          # RTINGS: дюймы диагонали из дистанции
+        _bw=dict(FLOOR).get(_b,(120,40))[0]
+        _diag_fit=(_bw-20)/2.54
+        if _diag_max<_diag_fit-5:
+            out['_tv_advice']={'max_diag_inch':round(_diag_max),
+                'why':'дистанция посадки меньше цели RTINGS для носителя — рекомендован меньший экран'}
+except Exception:
+    pass
 out['_set_hash']=hashlib.sha1(json.dumps(items,ensure_ascii=False,sort_keys=True).encode()).hexdigest()[:12]
 out['_room']={'w':RW,'d':RD,'m2':round(RW*RD/10_000,1),'openings':_room_ops,
               'contour':(json.loads(os.environ.get('SCENE_CONTOUR')) 

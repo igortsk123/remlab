@@ -415,6 +415,10 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
             _w=max(it['w'] or 0, it['d'] or 0) if role=='ковёр' else (it['w'] or 0)
             if _w and _ideal*_tol[0]<=_w<=_ideal*_tol[1]:
                 s+=1.2; why.append("в конверте слота+1.2")
+        # S5 (small-свод §16): вертикальный бонус хранения — высокий узкий лучше
+        # низкого широкого при равном объёме (вертикаль экономит стену)
+        if role in ('стеллаж','витрина') and (it.get('h') or 0)>=180 and (it.get('w') or 99)<=90:
+            s+=1.0; why.append("вертикаль+1.0")
         if color_goal:  # напр. вторая подушка обязана быть акцентной
             if cls1==color_goal or cls2==color_goal: s+=2.5; why.append("цель-цвет+2.5")
             else: s-=2.0

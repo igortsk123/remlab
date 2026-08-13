@@ -232,3 +232,58 @@ def test_seating_matches_ladder_step():
         if not ok:
             bad[scene] = sorted(seat_roles)
     assert not bad, f'самодельные составы посадки: {dict(list(bad.items())[:5])}'
+
+
+def test_large_room_distance_bounded():
+    """Large-room: дистанция медиа↔посадка ≤1.5×V — «ТВ→5 м пустоты→диван» не существует."""
+    import math
+    sys.path.insert(0, os.path.join(ROOT, 'services', 'planner-solver'))
+    from planner.room_map import room_mode
+    from planner.tv import distance_target
+    bad = []
+    for scene, _lay, room, ps in _scenes():
+        if room_mode(room) != 'large':
+            continue
+        seat = next((p for p in ps if p.role.split(' ')[0] == 'диван'), None)
+        bearer = next((p for p in ps
+                       if p.role.split(' ')[0] in ('тв-тумба', 'стенка')), None)
+        if seat is None or bearer is None:
+            continue
+        d = math.hypot(bearer.x - seat.x, bearer.y - seat.y)
+        v = distance_target(bearer.item.w_cm, bearer=bearer.role.split(' ')[0])
+        if d > 1.5 * max(v, 180.0) + 60:      # +60 — центры блоков, не глаза/экран
+            bad.append((scene, round(d), round(v)))
+    assert not bad, f'дистанция >1.5×V в large: {bad[:5]}'
+
+
+def test_group_compactness_everywhere():
+    """Пары посадочных внутри группы не дальше VIS_FACE (беседа не разорвана)."""
+    from planner.invariants import group_stretched
+    bad = {}
+    for scene, _lay, _room, ps in _scenes():
+        seat_ps = [p for p in ps if p.role.split(' ')[0] in ('диван', 'кресло')]
+        if len(seat_ps) < 2:
+            continue
+        st = group_stretched(seat_ps)
+        if st:
+            bad[scene] = f'{st[0]}↔{st[1]} {st[2]:.0f} см'
+    assert not bad, f'группа растянута: {dict(list(bad.items())[:5])}'
+
+
+def test_small_room_core_connected():
+    """Small-режим: медиа и посадка — ОДНО ядро (дистанция блоков ≤ compact-порога)."""
+    import math
+    from planner.room_map import room_mode
+    bad = []
+    for scene, _lay, room, ps in _scenes():
+        if room_mode(room) != 'small':
+            continue
+        seat = next((p for p in ps if p.role.split(' ')[0] == 'диван'), None)
+        bearer = next((p for p in ps
+                       if p.role.split(' ')[0] in ('тв-тумба', 'стенка')), None)
+        if seat is None or bearer is None:
+            continue
+        d = math.hypot(bearer.x - seat.x, bearer.y - seat.y)
+        if d > 420:                      # ядро разорвано (порог: вилка+глубины блоков)
+            bad.append((scene, round(d)))
+    assert not bad, f'ядро small разорвано: {bad[:5]}'

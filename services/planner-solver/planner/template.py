@@ -1292,20 +1292,27 @@ def place_dining(room: Room, items: list[Item], free: Polygon, usable_m2: float,
     have_chairs = sum(1 for it in items if it.role == 'стул' or it.role.startswith('стул '))
     cap = 2 if usable_m2 <= 18 else (4 if usable_m2 <= 30 else 6)
     max_chairs = max(2, min(have_chairs, cap))
-    # остров (стулья вокруг) — на свободных позициях; не встал — пристенный вариант
-    # (стулья со стороны комнаты и с торцов) на стенных позициях
-    b_all = build_dining(by_role, max_chairs, sides='all')
-    if b_all is None or len(b_all.rel) < 2:
-        return None
-    ps = _best_block(room, b_all, free,
-                     list(middle_candidates(room, b_all.anchor, free, limit=8)),
-                     tv=None, fixed=fixed)
-    if ps is not None:
-        return ps
-    b_front = build_dining(by_role, max_chairs, sides='front')
-    return _best_block(room, b_front, free,
-                       list(wall_candidates(room, b_front.anchor, free)),
-                       tv=None, fixed=fixed)
+    # S4 (small-свод §14): каскад масштаба — если полный состав не встал, пробуем
+    # столовую на 2 места, прежде чем отказаться (living не ломаем ради стола)
+    _chair_steps = [max_chairs] + ([2] if max_chairs > 2 else [])
+    # схемы паспорта: остров → у стены; каскад масштаба стульев (S4)
+    for _nch in _chair_steps:
+        b_all = build_dining(by_role, _nch, sides='all')
+        if b_all is None or len(b_all.rel) < 2:
+            continue
+        ps = _best_block(room, b_all, free,
+                         list(middle_candidates(room, b_all.anchor, free, limit=8)),
+                         tv=None, fixed=fixed)
+        if ps is not None:
+            return ps
+        b_front = build_dining(by_role, _nch, sides='front')
+        if b_front is not None:
+            ps = _best_block(room, b_front, free,
+                             list(wall_candidates(room, b_front.anchor, free)),
+                             tv=None, fixed=fixed)
+            if ps is not None:
+                return ps
+    return None
 
 
 STORAGE_ROLES = ('шкаф', 'стеллаж', 'стеллаж 2', 'витрина', 'комод')
@@ -1359,6 +1366,14 @@ def place_storage(room: Room, items: list[Item], free: Polygon,
         for i in range(len(have) - 1):
             tries.append({r: by_role[r] for r in have[i:i + 2]})
     tries += [{r: by_role[r]} for r in have]         # одиночные — последним шансом
+    # L5 (large-room): узкая полоса за спинкой (машина R: passage_plus_shallow_storage)
+    # предпочитает НЕГЛУБОКОЕ хранение — глубже 40 см туда не ставим
+    _seat_fx = next((p for p in (fixed or []) if p.role.split(' ')[0] == 'диван'), None)
+    if _seat_fx is not None:
+        from .zones import _behind_decision
+        if _behind_decision(room, _seat_fx) == 'passage_plus_shallow_storage':
+            _shallow = [t for t in tries if all(v.d_cm <= 40 for v in t.values())]
+            tries = _shallow + [t for t in tries if t not in _shallow]
     for br in tries:
         b = build_storage(br, max_items=len(br))
         if b is None:
