@@ -148,8 +148,30 @@ def _base(role: str) -> str:
 
 
 
+def _residual_R(room, seat) -> float:
+    """Остаток за спинкой дивана до стены (машина R, large-room свод §5)."""
+    import math as _m
+    r = _m.radians(seat.rot)
+    d2 = (seat.item.d_cm if seat.item else 95.0) / 2
+    bx = seat.x - _m.sin(r) * d2
+    by = seat.y - _m.cos(r) * d2
+    return {0: by, 180: room.depth_cm - by,
+            90: bx, 270: room.width_cm - bx}.get(int(seat.rot) % 360, 0.0)
+
+
+def _behind_decision(room, seat) -> str:
+    """Решение по остатку R — из паспорта residual_behind_sofa."""
+    from .invariants import TEMPLATES
+    R = _residual_R(room, seat)
+    for band in TEMPLATES.get('residual_behind_sofa', {}).get('bands_cm', []):
+        if R <= float(band['max']):
+            return band['decision']
+    return 'nothing'
+
+
 def _behind_reserved(room, block, keep) -> bool:
-    """Диван стоит НЕ у стены и в банке есть обеденный стол — место за спинкой его."""
+    """Полоса за спинкой резервируется под столовую ТОЛЬКО когда машина R говорит
+    dining_mandatory (заменяет бинарный запрет floating-без-столовой 13.08)."""
     seat = next((p for p in (block or []) if p.role.split(' ')[0] == 'диван'), None)
     if seat is None:
         return False
@@ -157,7 +179,7 @@ def _behind_reserved(room, block, keep) -> bool:
         return False
     if not any(i.role == 'стол обеденный' for i in keep):
         return False
-    return _sofa_is_floating(room, seat)
+    return _behind_decision(room, seat) == 'dining_mandatory'
 
 
 def _sofa_is_floating(room, seat, gap_cm: float = 90.0) -> bool:
@@ -518,7 +540,7 @@ def solve_zoned(room: Room, items, **kw):
         _din_placed = '+din' in tpl_tag
         if (block and not _din_placed and os.environ.get('LAYOUT_NO_ORPHAN_SPLIT', '1') != '0'):
             _seat0 = next((p for p in block if p.role.split(' ')[0] == 'диван'), None)
-            if _seat0 is not None and _sofa_is_floating(room, _seat0):
+            if _seat0 is not None and _behind_decision(room, _seat0) == 'dining_mandatory':
                 from .template import place_template as _pt2
                 try:
                     import planner.candidates as _cmod
