@@ -49,9 +49,9 @@ FLOOR=[(r,dims(r,*d)) for r,d in FLOOR_TYPICAL if r in items]
 # носитель ТВ (tv_bearer_roles); легаси-сеты с обоими носителями чинятся прямо здесь.
 _TV_STAND_BACKUP=None
 if any(r=='стенка' for r,_ in FLOOR) and any(r=='тв-тумба' for r,_ in FLOOR):
-    _TV_STAND_BACKUP=next(d for r,d in FLOOR if r=='тв-тумба')
-    FLOOR=[(r,d) for r,d in FLOOR if r!='тв-тумба']
-    print('MUTEX: стенка = носитель ТВ — отдельная тв-тумба исключена из размещения', flush=True)
+    # ЛЕСТНИЦА НОСИТЕЛЕЙ (владелец 13.08): оба в банке, ставится ОДИН — лестницу
+    # «стенка → тумба» отрабатывает place_media; здесь тумбу больше не выкидываем.
+    print('BEARERS: стенка приоритетна, тв-тумба — запасной носитель (лестница медиа)', flush=True)
 
 # диван без глубины в фиде — типовая 95
 if items.get('диван') and not items['диван'].get('d'):

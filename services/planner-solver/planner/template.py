@@ -746,6 +746,30 @@ def build_dining(by_role: dict[str, Item], max_chairs: int,
     return _valid(b, 'dining')
 
 
+def _tv_range_candidates(room: Room, item: Item, free: Polygon) -> list:
+    """Позиции дивана НА ТВ-ВИЛКЕ от стены будущего носителя (глубокие комнаты).
+
+    Владелец 13.08: в глубокой комнате коммуникативная зона придвигается к медиа
+    (дистанция просмотра в вилке диагонали), а за спинкой остаётся столовая. Даём
+    позиции «спинкой в комнату» на расстоянии середины вилки от каждой из 4 стен.
+    """
+    from .candidates import Candidate
+    from .tv import distance_range
+    lo, hi, _ = distance_range(120.0)
+    d_mid = (lo + hi) / 2 + item.d_cm / 2 + 40.0     # дистанция + полкорпуса + тумба
+    W, D = room.width_cm, room.depth_cm
+    spots = [(W / 2, d_mid, 180.0), (W / 2, D - d_mid, 0.0),
+             (d_mid, D / 2, 270.0), (W - d_mid, D / 2, 90.0)]
+    out = []
+    for x, y, rot in spots:
+        p = Placement(role=item.role, x=x, y=y, rot=rot, item=item)
+        fp = footprint(p)
+        if free.intersection(fp).area >= fp.area * 0.97:
+            out.append(Candidate(placement=p, kind='middle', note='на ТВ-вилке',
+                                 topology='tv_range'))
+    return out
+
+
 def _tv_probe(room: Room, sofa_p: Placement, free: Polygon, need_w: float) -> float:
     """Дешёвая ТВ-проба до валидации (ранняя отбраковка): луч взгляда якоря до
     стены; счёт 0..1 — дистанция в разумной вилке и свободное пятно под носитель."""
@@ -1166,8 +1190,20 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
               cands = list(wall_candidates(room, b.anchor, free))
               # v2.10: в просторных комнатах посадка может «плавать» (зонирование
               # спинкой); тыл за спинкой проверят passage/sliver-чеки validate
-              if room.width_cm * room.depth_cm > 40 * 10_000:
-                  cands += list(middle_candidates(room, b.anchor, free, limit=6))
+              # «плавающие» позиции: в просторных комнатах — всегда; в ГЛУБОКИХ
+              # (глубина по оси взгляда больше верха ТВ-вилки) — тоже: диван у стены
+              # даёт SOFA_TV_DIST на всей противоположной стене, и медиа-зона гибла
+              # (13.08, 10 сцен long: комната 475 при вилке до ~370). Отход дивана
+              # от стены + столовая за спинкой — канонное решение для глубоких комнат.
+              _deep = max(room.width_cm, room.depth_cm) > 430
+              if room.width_cm * room.depth_cm > 40 * 10_000 or _deep:
+                  cands += list(middle_candidates(room, b.anchor, free,
+                                                  limit=10 if _deep else 6))
+              if _deep:
+                  # ГЛУБОКАЯ КОМНАТА = ДВЕ ЗОНЫ (владелец 13.08: «двигаем коммуникативную
+                  # зону БЛИЖЕ к медиа, вторая часть — столовая»). Прямые кандидаты:
+                  # диван на ТВ-вилке от каждой стены, спинкой к будущей столовой.
+                  cands += _tv_range_candidates(room, b.anchor, free)
               ps = _best_block(room, b, free, cands, tv=tv, fixed=fixed,
                                second_focus=second, require_bearer=bearer)
               if ps is not None:
@@ -1597,6 +1633,16 @@ def place_media(room: Room, items: list[Item], free: Polygon,
     for it in items:
         by_role.setdefault(it.role, it)
     seat = next((p for p in (fixed or []) if p.role == 'диван'), None) or         next((p for p in (fixed or []) if p.role == 'кресло'), None)
+    # ЛЕСТНИЦА НОСИТЕЛЕЙ (владелец 13.08: «шаблон со стенкой не лезет — автоматом
+    # выбирать с тумбой»): при обоих носителях в банке сперва вся попытка со СТЕНКОЙ,
+    # не встала ни в одном круге — повтор с ТУМБОЙ (стенка исключается из вида).
+    if 'стенка' in by_role and 'тв-тумба' in by_role:
+        ps = place_media(room, [it for it in items if it.role != 'тв-тумба'],
+                         free, fixed=fixed, top=top, relaxed=relaxed)
+        if ps is not None:
+            return ps
+        return place_media(room, [it for it in items if it.role != 'стенка'],
+                           free, fixed=fixed, top=top, relaxed=relaxed)
     global _MEDIA_TOE_RELAXED
     # Ступени: обычный заход ковра под носитель (15 см) → без флангов → КРАЙНИЙ
     # СЛУЧАЙ: ковёр уходит под медиа-зону глубже (решение владельца 12.08).
