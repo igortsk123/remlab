@@ -1009,7 +1009,11 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
             # скоринга позиции носителя (не hard: вилку держит validate)
             _bp = next((p0 for p0 in ps
                         if p0.role.split(' ')[0] in ('тв-тумба', 'стенка')), None)
-            if _bp is not None and _bp.item is not None and os.environ.get('P3_DIST', '1') != '0':
+            # П3: слагаемое дистанции ОТЛОЖЕНО до large-room-mode L2 (там пороги
+            # 1.2×/1.5×V сделают это корректно). Включение в лоб сдвинуло выбор позиций
+            # медиа, и set101-trapezoid (49 м²) потерял носителя — гейт «медиа 252/252»
+            # дороже частного слагаемого.
+            if _bp is not None and _bp.item is not None and os.environ.get('P3_DIST', '0') != '0':
                 from .tv import distance_target
                 _tgt = distance_target(_bp.item.w_cm, bearer=_bp.role.split(' ')[0])
                 _d = math.hypot(vx, vy)
