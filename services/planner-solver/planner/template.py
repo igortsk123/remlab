@@ -1009,15 +1009,9 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
             # скоринга позиции носителя (не hard: вилку держит validate)
             _bp = next((p0 for p0 in ps
                         if p0.role.split(' ')[0] in ('тв-тумба', 'стенка')), None)
-            # П3: слагаемое дистанции ОТЛОЖЕНО до large-room-mode L2 (там пороги
-            # 1.2×/1.5×V сделают это корректно). Включение в лоб сдвинуло выбор позиций
-            # медиа, и set101-trapezoid (49 м²) потерял носителя — гейт «медиа 252/252»
-            # дороже частного слагаемого.
-            if _bp is not None and _bp.item is not None and os.environ.get('P3_DIST', '0') != '0':
-                from .tv import distance_target
-                _tgt = distance_target(_bp.item.w_cm, bearer=_bp.role.split(' ')[0])
-                _d = math.hypot(vx, vy)
-                score += max(0.0, 2.0 * (1 - abs(_d - _tgt) / max(_tgt, 1.0)))
+            # П3 отложен целиком в large-room-mode L2: и слагаемое, и расширение пула
+            # сдвигали выбор позиций, set101-trapezoid терял носителя. Функция цели
+            # RTINGS живёт в planner/tv.py (distance_target) и ждёт L2.
         scored.append((score, ps, getattr(c, 'topology', '')))
     scored.sort(key=lambda t: -t[0])
     base = list(fixed or [])
@@ -1032,11 +1026,8 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
     # КВОТА ВИЛОЧНЫХ (13.08): топ-24 по эвристике — сплошь пристенные, и позиции
     # «на ТВ-вилке» (деление глубокой комнаты на 2 зоны) не доходили до полного
     # разбора вовсе. Вилочные разбираются ВСЕ, сверх топ-N.
-    _topn = TOP_FULL_VALIDATE * (2 if b.anchor.role.split(' ')[0]
-                                 in ('тв-тумба', 'стенка') else 1)
-    # носителю ТВ — двойной разбор (антиошибка №5: скоринговое слагаемое П3 сдвинуло
-    # топ-24 к «идеальной дистанции», и валидные неидеальные позиции выпали — set101)
-    _pool = scored[:_topn] + [t for t in scored[_topn:] if t[2] == 'tv_range']
+    _pool = scored[:TOP_FULL_VALIDATE] + [t for t in scored[TOP_FULL_VALIDATE:]
+                                          if t[2] == 'tv_range']
     for _, ps, _topo in _pool:
         lay = validate(room, base + ps)
         hards = [v for v in lay.violations if v.severity is Severity.HARD]

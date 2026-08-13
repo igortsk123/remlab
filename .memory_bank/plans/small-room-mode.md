@@ -2,7 +2,7 @@
 workstream: layout
 slug: small-room-mode
 title: SMALL ROOM MODE — медиа+коммуникация как одно ядро, всё остальное ужимается вокруг
-status: draft
+status: in_progress
 created: 2026-08-13
 updated: 2026-08-13
 completed:
