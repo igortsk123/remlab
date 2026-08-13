@@ -97,6 +97,23 @@ def seats_out_of_table_reach(ps: list[Placement]) -> list[str]:
             and footprint(p).distance(tf) < _TABLE_MIN_CM]
 
 
+def group_stretched(ps: list[Placement]) -> tuple[str, str, float] | None:
+    """group_compactness: пара посадочных дальше предела VIS_FACE (беседа разорвана).
+
+    Верх — из template.VIS_FACE (KB face-to-face), единое число (сверка конфликтов
+    large-room-mode: второе не заводим)."""
+    from .template import VIS_FACE
+    seats = [p for p in ps if _base(p.role) in SEAT_ROLES]
+    lim = float(VIS_FACE[1])
+    for i, a in enumerate(seats):
+        fa = footprint(a)
+        for b in seats[i + 1:]:
+            g = fa.distance(footprint(b))
+            if g > lim:
+                return (a.role, b.role, g)
+    return None
+
+
 def too_few_items(ps: list[Placement], minimum: int = 2) -> bool:
     """min_composition: зона из одного предмета — не шаблон."""
     return len(ps) < minimum
@@ -139,6 +156,10 @@ def check_block(ps: list[Placement], zone: str = 'seating') -> str | None:
         off = seats_off_rug(ps)
         if off:
             return f'мимо ковра: {", ".join(off)}'
+    if 'group_compactness' in inv:
+        st = group_stretched(ps)
+        if st:
+            return f'группа разорвана: {st[0]}↔{st[1]} {st[2]:.0f} см'
     if 'table_reach_all_seats' in inv:
         near = seats_out_of_table_reach(ps)
         if near:
