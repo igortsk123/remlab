@@ -358,7 +358,8 @@ def solve_zoned(room: Room, items, **kw):
             # обеденной зоне — типовой приём зонирования; вторая зона гостиной чаще
             # всего именно столовая/барная — inmyroom.ru, 4happyhome.ru).
             # Пока столовая не поставлена, полосу за спинкой держим за ней.
-            if tag not in ('+din',) and _behind_reserved(room, block, keep):
+            # медиа-зона ПРИОРИТЕТНЕЕ столовой (12.08): полосу за спинкой у неё не отнимаем
+            if tag not in ('+din', '+tv', '+tvfp') and _behind_reserved(room, block, keep):
                 _free_z = _free_z.difference(_behind_sofa_strip(room, block))
             extra = placer(room, keep, _free_z, fixed=block)
             # ГЕЙТ ДЕГРАДАЦИИ (свод владельца 12.08): зона принимается, только если не
