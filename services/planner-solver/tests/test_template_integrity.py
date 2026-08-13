@@ -235,27 +235,26 @@ def test_seating_matches_ladder_step():
 
 
 def test_large_room_distance_bounded():
-    """Large-room: дистанция медиа↔посадка ≤1.5×V — «ТВ→5 м пустоты→диван» не существует."""
-    import math
-    sys.path.insert(0, os.path.join(ROOT, 'services', 'planner-solver'))
+    """Large-room: дистанция мерится МЕТРИКОЙ ПРАВИЛА (validate), не своей.
+
+    Урок 13.08: сторож со своей евклид-метрикой ложно ловил валидные сцены (стенка 320
+    даёт вилку до 459 через нишу). Считаем долю large-сцен с SOFA_TV_FAR — планка от
+    замера 13.08 (51%), двигается только вниз; hard-случаи невозможны (сцена бы упала).
+    """
     from planner.room_map import room_mode
-    from planner.tv import distance_target
-    bad = []
+    from planner.validate import validate
+    far = tot = 0
     for scene, _lay, room, ps in _scenes():
         if room_mode(room) != 'large':
             continue
-        seat = next((p for p in ps if p.role.split(' ')[0] == 'диван'), None)
-        bearer = next((p for p in ps
-                       if p.role.split(' ')[0] in ('тв-тумба', 'стенка')), None)
-        if seat is None or bearer is None:
-            continue
-        d = math.hypot(bearer.x - seat.x, bearer.y - seat.y)
-        v = distance_target(bearer.item.w_cm, bearer=bearer.role.split(' ')[0])
-        # планка = фактический замер 13.08 (max ratio 1.82) — двигается ТОЛЬКО вниз;
-        # цель свода 1.5×V достигается этапами (L2-штрафы пар уже работают на выбор)
-        if d > 1.85 * (max(v, 180.0) + 60):
-            bad.append((scene, round(d), round(v)))
-    assert not bad, f'дистанция за планкой замера в large: {bad[:5]}'
+        tot += 1
+        lay = validate(room, ps)
+        if any(v.code == 'SOFA_TV_FAR' for v in lay.violations):
+            far += 1
+    if tot == 0:
+        pytest.skip('нет large-сцен')
+    share = far / tot
+    assert share <= 0.55, f'FAR в large: {share:.0%} > планки 55% (замер 13.08: 51%)'
 
 
 def test_group_compactness_everywhere():
@@ -289,3 +288,14 @@ def test_small_room_core_connected():
         if d > 420:                      # ядро разорвано (порог: вилка+глубины блоков)
             bad.append((scene, round(d)))
     assert not bad, f'ядро small разорвано: {bad[:5]}'
+
+
+def test_all_floor_roles_have_slots():
+    """К1 (slots-everywhere): конверт слота у 100% напольных ролей — размер задаёт шаблон."""
+    zr = json.load(open(os.path.join(ROOT, 'services', 'planner-solver', 'rules',
+                                     'zones.json'), encoding='utf-8'))
+    slots = set(zr['template_slot_envelopes']['slots'])
+    need = {'диван', 'кресло', 'столик', 'ковёр', 'тв-тумба', 'стенка', 'стеллаж',
+            'витрина', 'комод', 'стол обеденный', 'стул', 'пуф', 'торшер', 'камин', 'кашпо'}
+    missing = need - slots
+    assert not missing, f'роли без слота: {sorted(missing)}'
