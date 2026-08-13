@@ -30,7 +30,7 @@ MAX_STORAGE_PER_ZONE = 2           # предметов хранения в од
 # Дизайнерский порядок (ADR design-order-pipeline): пороги от замера 12.08, только вверх
 MIN_ROUTE_CM = 70                  # главный маршрут от двери
 MAX_FOCUS_OFFSET_MEDIAN_CM = 30    # медиана смещения носителя от оси взгляда
-MAX_EMPTY_FOCUS_SCENES = 29        # сцен, где носитель в банке, но не поставлен
+MAX_EMPTY_FOCUS_SCENES = 23        # лучший замер 13.08 (лестница носителей); только вниз
 
 
 def _scenes():
