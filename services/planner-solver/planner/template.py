@@ -657,6 +657,7 @@ def build_block(group_id: str, by_role: dict[str, Item],
     # при наличии кресла пуф — ПОДСТАВКА ДЛЯ НОГ перед ним (20–30 см), а не предмет
     # сбоку от столика (там он бился о кресло: COLLISION 22 см, POUF_OUT_OF_ZONE).
     _pouf = by_role.get('пуф')
+    _has_bearer = any(r in by_role for r in ('тв-тумба', 'стенка'))
     if _pouf is not None:
         # ДВЕ КАНОННЫЕ ПОЗИЦИИ, а не одна (12.08): подставка для ног перед креслом
         # часто попадает на журнальный столик — тогда пуф уходит на свободный фланг
@@ -680,7 +681,18 @@ def build_block(group_id: str, by_role: dict[str, Item],
         _px = (table_x + _pouf_side * ((max(table.w_cm, table.d_cm) / 2 if table else 40)
                                        + 25 + _pouf.w_cm / 2))
         _spots.append((_px, table_cy, 270.0 if _pouf_side > 0 else 90.0))
+        # ПУФ НЕ НА ОСИ ВЗГЛЯДА (владелец 13.08, «чини»: 22 из 23 пустых фокус-стен —
+        # пуф схемы попадал в коридор диван↔ТВ при развороте к окну, и медиа гибла).
+        # Ось известна уже на СБОРКЕ: фронт дивана в локальном фрейме = полоса x∈[-60,60]
+        # перед фронтом. Пуф в этой полосе недопустим, если в банке есть носитель ТВ.
+        def _on_axis(px: float, py: float) -> bool:
+            if not _has_bearer:
+                return False
+            half = _pouf.w_cm / 2 + 8
+            return (abs(px) - half) < 60.0 and py > 0
         for _sx, _sy, _srt in _spots:
+            if _on_axis(_sx, _sy):
+                continue
             b.add(_pouf, _sx, _sy, _srt)
             if block_self_overlap(b) is None:
                 break
