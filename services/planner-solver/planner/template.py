@@ -1005,6 +1005,15 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
             # оси взгляда — вес сильнее углового: 0 см = +3, 120 см = 0.
             off = abs(math.cos(r) * vx - math.sin(r) * vy)
             score += max(0.0, 3.0 - off / 40.0)
+            # П3 (MASTER-tv-sofa-pair): дистанция к ЦЕЛИ RTINGS 1.6×D — слагаемое
+            # скоринга позиции носителя (не hard: вилку держит validate)
+            _bp = next((p0 for p0 in ps
+                        if p0.role.split(' ')[0] in ('тв-тумба', 'стенка')), None)
+            if _bp is not None and _bp.item is not None and os.environ.get('P3_DIST', '1') != '0':
+                from .tv import distance_target
+                _tgt = distance_target(_bp.item.w_cm, bearer=_bp.role.split(' ')[0])
+                _d = math.hypot(vx, vy)
+                score += max(0.0, 2.0 * (1 - abs(_d - _tgt) / max(_tgt, 1.0)))
         scored.append((score, ps, getattr(c, 'topology', '')))
     scored.sort(key=lambda t: -t[0])
     base = list(fixed or [])
@@ -1019,8 +1028,11 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
     # КВОТА ВИЛОЧНЫХ (13.08): топ-24 по эвристике — сплошь пристенные, и позиции
     # «на ТВ-вилке» (деление глубокой комнаты на 2 зоны) не доходили до полного
     # разбора вовсе. Вилочные разбираются ВСЕ, сверх топ-N.
-    _pool = scored[:TOP_FULL_VALIDATE] + [t for t in scored[TOP_FULL_VALIDATE:]
-                                          if t[2] == 'tv_range']
+    _topn = TOP_FULL_VALIDATE * (2 if b.anchor.role.split(' ')[0]
+                                 in ('тв-тумба', 'стенка') else 1)
+    # носителю ТВ — двойной разбор (антиошибка №5: скоринговое слагаемое П3 сдвинуло
+    # топ-24 к «идеальной дистанции», и валидные неидеальные позиции выпали — set101)
+    _pool = scored[:_topn] + [t for t in scored[_topn:] if t[2] == 'tv_range']
     for _, ps, _topo in _pool:
         lay = validate(room, base + ps)
         hards = [v for v in lay.violations if v.severity is Severity.HARD]

@@ -41,10 +41,12 @@ class Pair:
 
 
 def _tv_target_cm(media: Item) -> float:
-    """Целевая дистанция RTINGS: 1.6 × диагональ; диагональ ≈ ширина носителя − 20
-    (носитель шире экрана на 15–30 см по паспорту)."""
-    diag = max(media.w_cm - 20.0, 80.0)
-    return 1.6 * diag
+    """Целевая дистанция RTINGS 1.6×диагональ — ЕДИНЫЙ источник planner/tv.py
+    (антиошибка №1: не заводить второе число рядом с существующим)."""
+    from .tv import distance_target
+    # защита от вырожденной цели у узких тумб: floating ближе 1.8 м к экрану не имеет
+    # смысла (столик+проход не помещаются между диваном и медиа)
+    return max(distance_target(media.w_cm, bearer=media.role.split(' ')[0]), 180.0)
 
 
 def _media_positions(rmap: RoomMap, media: Item):

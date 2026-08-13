@@ -55,6 +55,19 @@ def distance_range(stand_w_cm: float, bearer: str = "тв-тумба") -> tuple[
     return c["diag_range"][0] * d_min, c["diag_range"][1] * d_max, c["soft_coeff"] * d_max
 
 
+def distance_target(stand_w_cm: float, bearer: str = "тв-тумба") -> float:
+    """П3 (MASTER-tv-sofa-pair): ЦЕЛЕВАЯ дистанция RTINGS mixed usage — 1.6 × диагональ.
+    Не вилка и не hard: функция оценки для скоринга пар и позиций (свод владельца §5).
+    Диагональ — середина допуска носителя (та же геометрия, что в distance_range)."""
+    if bearer == "стенка":
+        lr = rules().get("layout_rules", {})
+        s_lo, s_hi = lr.get("tv_niche_screen_cm", [100, 160])
+        d_min, d_max = s_lo / ASPECT_W, min(s_hi, stand_w_cm * 0.5) / ASPECT_W
+    else:
+        d_min, d_max = diag_from_stand(stand_w_cm)
+    return 1.6 * (d_min + d_max) / 2
+
+
 def diag_from_distance(distance_cm: float, stand_w_cm: float | None = None) -> float:
     """Distance-first выбор диагонали (генератор): дистанция/PREFERRED, clamp по тумбе."""
     c = _cfg()
