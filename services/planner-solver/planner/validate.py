@@ -303,9 +303,14 @@ def check_distances(room: Room, ps: list[Placement]) -> list[Violation]:
         # hard 32–50 (fallback tight-space), комфорт 36–46 (soft) — из zones.json/сводов.
         t_hard = distances().get("sofa_coffee_table_hard", [32, 50])
         t_pref = distances().get("sofa_coffee_table", [36, 46])
-        if not (t_hard[0] <= g <= t_hard[1]):
+        # Г-ДИВАН: нижней границы НЕТ (столик стоит внутри буквы Г, шезлонг соседствует
+        # с ним вплотную — нога лежит; канон уже принят для инварианта схемы, 12.08).
+        # Ложный «столик близко 8 см» рубил ВСЕ вилочные позиции set71 (13.08).
+        _corner = by["диван"].item is not None and by["диван"].item.corner
+        _lo_t = 0.0 if _corner else t_hard[0]
+        if not (_lo_t <= g <= t_hard[1]):
             out.append(_v("SOFA_TABLE_DIST", f"диван↔столик {g:.0f} см вне вилки", ["диван", "столик"],
-                          round(g), f"{t_hard[0]:.0f}–{t_hard[1]:.0f} см"))
+                          round(g), f"{_lo_t:.0f}–{t_hard[1]:.0f} см"))
         elif not (t_pref[0] <= g <= t_pref[1]):
             out.append(_v("SOFA_TABLE_COMFORT", f"диван↔столик {g:.0f} см — вне комфортной вилки",
                           ["диван", "столик"], round(g),
