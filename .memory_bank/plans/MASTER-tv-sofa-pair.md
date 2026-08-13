@@ -2,7 +2,7 @@
 workstream: layout
 slug: MASTER-tv-sofa-pair
 title: МАСТЕР — связка «ТВ↔диван» как ядро, карта ограничений, WallScore вместо длинной стены
-status: draft
+status: in_progress
 created: 2026-08-13
 updated: 2026-08-13
 completed:

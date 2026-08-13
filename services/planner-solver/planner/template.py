@@ -758,6 +758,31 @@ def build_dining(by_role: dict[str, Item], max_chairs: int,
     return _valid(b, 'dining')
 
 
+def _pair_sofa_candidates(room: Room, sofa_item: Item, free: Polygon,
+                          media: Item | None) -> list:
+    """Якоря дивана из топ-пар генератора П1 (`planner/tv_sofa.py`)."""
+    if media is None:
+        return []
+    try:
+        from .candidates import Candidate
+        from .room_map import build_room_map
+        from .tv_sofa import generate_pairs
+        rmap = build_room_map(room)
+        out = []
+        for pr in generate_pairs(room, rmap, media, sofa_item, top_k=6):
+            p = Placement(role=sofa_item.role, x=pr.sofa_x, y=pr.sofa_y,
+                          rot=pr.sofa_rot, item=sofa_item)
+            fp = footprint(p)
+            if free.intersection(fp).area < fp.area * 0.97:
+                continue
+            out.append(Candidate(placement=p, kind='middle',
+                                 note=f'пара WallScore {pr.score}',
+                                 topology='tv_range'))
+        return out
+    except Exception:
+        return []
+
+
 def _tv_range_candidates(room: Room, item: Item, free: Polygon) -> list:
     """Позиции дивана НА ТВ-ВИЛКЕ от стены будущего носителя (глубокие комнаты).
 
@@ -1224,9 +1249,10 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
                   cands += list(middle_candidates(room, b.anchor, free,
                                                   limit=10 if _deep else 6))
               if _deep:
-                  # ГЛУБОКАЯ КОМНАТА = ДВЕ ЗОНЫ (владелец 13.08: «двигаем коммуникативную
-                  # зону БЛИЖЕ к медиа, вторая часть — столовая»). Прямые кандидаты:
-                  # диван на ТВ-вилке от каждой стены, спинкой к будущей столовой.
+                  # П1 (MASTER-tv-sofa-pair): кандидаты дивана — из генератора ПАР
+                  # «медиа-блок × блок посадки» (WallScore, свод владельца §3–7).
+                  # Прежние tv_range-кандидаты остаются фолбэком.
+                  cands += _pair_sofa_candidates(room, b.anchor, free, tv)
                   cands += _tv_range_candidates(room, b.anchor, free)
               ps = _best_block(room, b, free, cands, tv=tv, fixed=fixed,
                                second_focus=second, require_bearer=bearer)
