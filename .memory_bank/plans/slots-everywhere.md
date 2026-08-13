@@ -2,7 +2,7 @@
 workstream: layout
 slug: slots-everywhere
 title: Слот шаблона — у каждой роли; фокус-стена без пустот; камин как фокус
-status: draft
+status: in_progress
 created: 2026-08-13
 updated: 2026-08-13
 completed:

@@ -20,6 +20,17 @@ WORKERS = int(os.environ.get('ACC_WORKERS', '4'))   # RAM 4 ГБ: 4 солвер
 HERE = os.path.dirname(os.path.abspath(__file__))
 PY = os.path.expanduser('~/venvs/scout/bin/python')
 SCENES = json.load(open(os.path.join(HERE, 'acceptance-scenes.json')))
+
+# Ф2 (план cwd-free-tooling): АБСОЛЮТНЫЙ путь отчёта на старте + возраст прежнего файла —
+# защита от «смотрю старый отчёт как новый» (13.08 это стоило получаса ложных выводов)
+def _announce_report(engine: str) -> None:
+    import time
+    p = os.path.join(HERE, f'acceptance-report-{engine}.jsonl')
+    print(f'ОТЧЁТ: {os.path.abspath(p)}', flush=True)
+    if os.path.exists(p):
+        age = time.time() - os.path.getmtime(p)
+        print(f'  ВНИМАНИЕ: прежний отчёт существует, возраст {age/60:.0f} мин — '
+              f'дозапись/резюм по нему', flush=True)
 mode = sys.argv[1] if len(sys.argv) > 1 else 'ab'
 nums = [a for a in sys.argv[2:] if a.isdigit()]
 if len(nums) >= 2:
@@ -86,6 +97,7 @@ def run_engine(engine):
                 pass
         if done:
             print(f'[{engine}] из jsonl подхвачено готовых: {len(done)}', flush=True)
+    _announce_report(engine)
     todo = [sc for sc in SCENES if sc['id'] not in done]
     lock = threading.Lock()
     jl = open(jl_path, 'a')
