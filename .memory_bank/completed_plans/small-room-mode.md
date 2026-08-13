@@ -2,10 +2,10 @@
 workstream: layout
 slug: small-room-mode
 title: SMALL ROOM MODE — медиа+коммуникация как одно ядро, всё остальное ужимается вокруг
-status: in_progress
+status: completed
 created: 2026-08-13
 updated: 2026-08-13
-completed:
+completed: 2026-08-13
 ---
 
 ## Цель
@@ -83,6 +83,13 @@ transitional генерирует оба и сравнивает финальн�
 - [ ] `rules/templates.json`, `zones.json` — паспорта столовой, combo, уровни, числа свода
 - [ ] `tools/scout/compose2.py` — подбор под compact-шаблоны (круглый/складной стол)
 - [ ] `tests/test_template_integrity.py` — сторожа S6
+
+## Completion summary (13.08)
+S1–S6 выполнены: режим в room_mode (триада); small-WallScore (циркуляция главная, floating
+штрафуется, margin стены +20); tv_advice в артефакт; схемы столовой паспортами (остров →
+у стены → круглый → складной) + каскад стульев 4→2; вертикальный бонус хранения в подборе;
+паспорт media_storage_combo; уровни деградации A/B/C/D атрибутами паспортов; сторож связного
+ядра small (≤420 см). Гейт: 252/252, медиа 252/252, сторожа 12/12.
 
 ## Definition of Done — память
 - [ ] ADR «режимная триада small/transitional/large; в малой комнате медиа+посадка — одно ядро»

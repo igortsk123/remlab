@@ -3,7 +3,7 @@ tier: 1
 topic: layout
 scope: Расстановка — свод правил, зона-билдер, прод-ядро
 tier2: ../domain/occupancy-rules.md
-updated: 2026-08-12
+updated: 2026-08-13
 importance: high
 source: manual
 status: working
@@ -28,6 +28,9 @@ SKU (иначе прогон падает), конверт слота приме
 Порядок: фокус-стена → диван → циркуляция → носитель → ковёр/столик → доп. посадка → хранение →
 свет → декор. Сторожа — `services/planner-solver/tests/test_template_integrity.py` (8),
 пруфы чисел — `tools/scout/rules_audit.py`. Замер 12.08: 252/252 чисто, медиа 223 сцены,
-смещение носителя медиана 27 см, маршрут ≥70 везде. Очередь — [[slots-everywhere]].
+смещение носителя медиана 27 см, маршрут ≥70 везде. Режимная триада small/transitional/large (13.08, ADR-0092): пары ТВ↔диван
+(`services/planner-solver/planner/tv_sofa.py`), карта ограничений
+(`services/planner-solver/planner/room_map.py`), машина остатка R, уровни деградации A/B/C/D;
+12 сторожей. Очередь — [[slots-everywhere]].
 
 **Tier 2:** ../domain/occupancy-rules.md · ../guides/layout-mined-rules.md · ../guides/layout-engine-spec.md

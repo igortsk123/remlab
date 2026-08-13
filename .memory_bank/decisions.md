@@ -1468,3 +1468,19 @@ hard-слой (пруф: [30,46]-регресс, урок 214; механиче�
 (`services/planner-solver/tests/test_template_integrity.py`), пороги только вверх.
 **Влияет на.** [[layout]], `template.py`, `zones.py`, `quality.py`, `services/planner-solver/rules/zones.json`
 (`quality_gate`), приёмка.
+
+## ADR-0092 — Режимная триада small/transitional/large; машина остатка R; пары ТВ↔диван (2026-08-13)
+**Решение.** Расстановка режимная: `planner/room_map.room_mode` (small ≤18 м² или короткая
+сторона ≤350; large ≥25 м² или ось ТВ ≥500 или длина ≥600; между — transitional) — единый
+источник, двойники удалены. Large: пристенный диван при V_wall>1.5×V проигрывает floating
+(«ТВ→5 м пустоты→диван» не существует); остаток R за спинкой решается машиной из паспорта
+`residual_behind_sofa` (<90 ничего / ≤150 проход+узкое хранение / ≤255 стена / ≥260 столовая
+обязательна). Small: медиа+посадка — ОДНО ядро (сторож связности ≤420 см), циркуляция — главный
+вес WallScore, столовая масштабируется (4→2→складной), хранение вертикальное, уровни
+деградации A/B/C/D в паспортах (A — не трогаем никогда). Пары «медиа-блок × блок посадки»
+(`services/planner-solver/planner/tv_sofa.py`, WallScore из паспорта, длина стены — tie-breaker) + карта ограничений
+(`services/planner-solver/planner/room_map.py`: участки стен, маршруты старше мебели).
+**Все правила — в терминах шаблонов**: единица — неделимый паспорт; спуск/деградация — только
+сменой шаблона; 12 сторожей в CI. Свод и пруфы — планы large-room-mode / small-room-mode
+(completed) и MASTER-tv-sofa-pair.
+**Влияет на.** [[layout]], room_map/tv_sofa/zones/template/invariants, rules/templates.json.
