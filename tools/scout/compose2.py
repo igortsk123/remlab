@@ -745,9 +745,11 @@ for bi,band in enumerate(COMP['bands']):
             # КАНОН РАЗМЕРА (перепроверено 12.08): ковёр достаёт до передних ножек
             # посадочных (диван + ~30 см с каждой стороны), а у стен остаётся полоса
             # пола 45-60 см. Потолок — по комнате, не по «доле пола».
-            import math as _mt
-            _room_cap=_mt.sqrt(max(m2,1.0))*100-90
-            _rug_cap=min((slot_ideal('ковёр',m2) or 999)*1.10, _room_cap)
+            # ПОТОЛОК — ИЗ СЛОТА ШАБЛОНА, без вычислений в коде (замечание владельца
+            # 12.08: «почему ковёр вообще считался, если есть чёткие шаблоны?»).
+            # Число и его обоснование — services/planner-solver/rules/zones.json →
+            # template_slot_envelopes.slots.ковёр; здесь только фильтр каталога.
+            _rug_cap=(slot_ideal('ковёр',m2) or 999)*1.10
             best=None;bs=1e9; _best_any=None; _bs_any=1e9
             for it in cat['ковёр']:
                 if not it['fp'] or re.search(r'ассортимент|мехов|ванн|придверн|подложк',it['name'].lower()): continue

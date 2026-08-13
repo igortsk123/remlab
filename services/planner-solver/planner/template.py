@@ -39,13 +39,21 @@ from .invariants import check_block
 from .validate import validate
 
 # --- параметры внутренней геометрии (см); пруфы — KB/occupancy ---
-COFFEE_GAP = 42.5                # столик от фронта дивана (preferred 40–45, KB 5.2)
-FLANK_GAP = 32.0                 # кресло от торца дивана (25–40)
-VIS_FACE = (183.0, 305.0)        # фронт-фронт визави (TYPICAL face-to-face, KB)
-L_GAP = 20.0                     # Г-стык торец-к-торцу (10–30)
-CIRCLE_D = 396.0                 # круг беседы, верх PREFERRED (KB)
-CHAIR_GAP = 2.0                  # стул вплотную к кромке (заезд под столешницу =
-                                 # COLLISION в движке — урок 205, стык без пересечения)
+# ЧИСЛА ГЕОМЕТРИИ СХЕМ — ИЗ ПАСПОРТА (`rules/templates.json` → geometry), не из кода:
+# правило владельца 12.08 «шаблон задаёт размер, нерушимый, везде». Здесь только чтение
+# с дефолтами на случай отсутствия ключа.
+def _g(name: str, default):
+    from .invariants import TEMPLATES as _T
+    v = ((_T.get('geometry') or {}).get(name) or {}).get('v')
+    return default if v is None else v
+
+
+COFFEE_GAP = float(_g('coffee_gap_cm', 42.5))    # столик от фронта дивана
+FLANK_GAP = float(_g('flank_gap_cm', 32.0))      # кресло от торца дивана
+VIS_FACE = tuple(_g('visavi_face_cm', [183.0, 305.0]))   # фронт-фронт визави
+L_GAP = float(_g('l_joint_gap_cm', 20.0))        # Г-стык торец-к-торцу
+CIRCLE_D = float(_g('circle_d_cm', 396.0))       # круг беседы
+CHAIR_GAP = float(_g('chair_tuck_cm', 2.0))      # задвинутый стул
 TOP_FULL_VALIDATE = 24           # позиций блока на полный разбор: из hard-чистых
                                  # выбирается лучшая по лексикографическому скору
 
@@ -227,7 +235,7 @@ def _add_coffee(b: Block, seat: Item, table: Item | None, gap: float = COFFEE_GA
     return ty + tt.d_cm / 2, fx, ty
 
 
-RUG_TUCK = 15.0                  # заход ковра под передние ножки посадки (веб: 6-12")
+RUG_TUCK = float(_g('rug_tuck_cm', 15.0))        # заход ковра под ножки посадки
 
 
 def _add_rug(b: Block, seat: Item, rug: Item | None, far_y: float,
@@ -367,7 +375,7 @@ def _inner_zone(b: Block) -> tuple[float, float, float, float]:
 _FOCUS_LEVEL = 2
 
 
-POUF_AS_TABLE_MIN_W = 70.0       # пуф от 70 см заменяет журнальный столик (веб-свод)
+POUF_AS_TABLE_MIN_W = float(_g('pouf_as_table_min_w_cm', 70.0))
 
 
 def build_block(group_id: str, by_role: dict[str, Item],
@@ -783,14 +791,14 @@ def _side_probe(room: Room, seat_p: Placement, free: Polygon, need_w: float) -> 
 
 _RUG_FORBID = ('комод', 'стеллаж', 'витрина', 'шкаф', 'камин', 'кашпо',
                'стол обеденный', 'стул')
-_MEDIA_TOE_CM = 15.0        # носителю ТВ можно «чуть заехать» кромкой (веб-свод)
+_MEDIA_TOE_CM = float(_g('media_toe_cm', 15.0))
 # КРАЙНИЙ СЛУЧАЙ (решение владельца 12.08): «ковёр может заходить под медиа-зону».
 # Сначала ищем место при обычном заходе 15 см; если медиа-зоны иначе не будет вовсе —
 # разрешаем ковру уйти под носитель глубже (до глубины тумбы). Лучше зона с заходом
 # ковра, чем сцена без ТВ.
-_MEDIA_TOE_MAX_CM = 45.0
+_MEDIA_TOE_MAX_CM = float(_g('media_toe_max_cm', 45.0))
 _MEDIA_TOE_RELAXED = False
-_DECOR_GAP_CM = 30.0        # просвет напольному декору от корпусной мебели
+_DECOR_GAP_CM = float(_g('decor_gap_cm', 30.0))
 
 
 def _inter_zone_ok(room: Room, ps: list[Placement],
@@ -936,6 +944,28 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
     for _, ps in scored[:TOP_FULL_VALIDATE]:
         lay = validate(room, base + ps)
         hards = [v for v in lay.violations if v.severity is Severity.HARD]
+        # КРЕСЛО НЕ ЗАНИМАЕТ СТЕНУ ФОКУСА (12.08): пока кресло стоит у стены, в которую
+        # смотрит диван, носителю ТВ там места нет ни при каких условиях
+        # (hard ARMCHAIR_AT_TV_WALL). В кругах «фокус важен» такие позиции отвергаем —
+        # каскад возьмёт схему без кресла, а кресло уйдёт в свою зону.
+        if not hards and require_bearer is not None and _FOCUS_LEVEL >= 1:
+            _sf = ps[0]
+            _fr = math.radians(_sf.rot)
+            _fx, _fy = math.sin(_fr), math.cos(_fr)
+            _blocked = False
+            for _p in ps[1:]:
+                if not _p.role.startswith('кресло'):
+                    continue
+                _vx, _vy = _p.x - _sf.x, _p.y - _sf.y
+                _d = math.hypot(_vx, _vy) or 1.0
+                # кресло впереди дивана и близко к его оси — это и есть «у стены ТВ»
+                if (_fx * _vx + _fy * _vy) / _d > 0.5:
+                    _blocked = True
+                    break
+            if _blocked:
+                if first_hard is None:
+                    first_hard = [('ARMCHAIR_ON_FOCUS_WALL', ['кресло'], None)]
+                continue
         if not hards and require_bearer is not None and _FOCUS_LEVEL >= 1:
             # РЕЗЕРВ МЕСТА ПОД МЕДИА (регресс 11.08: блок занимал стену, и носитель
             # ТВ потом не вставал — 40 сцен): позиция блока принимается, только если
@@ -1032,6 +1062,9 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
     # КОВЁР НЕ ОТБРАСЫВАЕТСЯ (правило владельца, повторено 12.08: «диван без
     # коврика» — недопустимо, если ковёр есть в банке). Каскад жертвует только
     # пуфом и торшером; не влезло — берётся МЕНЬШИЙ шаблон, тоже с ковром.
+    # ПОРЯДОК ДИЗАЙНЕРА (свод владельца 12.08): консоль ТВ важнее дополнительного
+    # кресла. Если кресло занимает стену под носитель (ARMCHAIR_AT_TV_WALL), берём
+    # МЕНЬШУЮ схему — без кресла; само кресло уйдёт в свою зону (чтение/тихая).
     _companions = [c for c in ('пуф', 'торшер') if c in by_role]
     _cur = dict(by_role)
     for c in _companions:
@@ -1040,6 +1073,11 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
     # МАЛЫЙ КОВЁР / ПОВОРОТ (заявка владельца 12.08): прежде чем жертвовать чем-то,
     # пробуем уложить ковёр вдоль ДРУГОЙ оси — так он уходит из дверной дуги и из
     # узкого места, оставаясь в зоне
+    # схемы без кресла — после отказа от компаньонов, но ДО отказа от столика
+    for _arm in ('кресло 2', 'кресло'):
+        if _arm in _cur:
+            _cur = {k: v for k, v in _cur.items() if k != _arm}
+            tries.append((dict(_cur), COFFEE_GAP, 0.0))
     if 'ковёр' in by_role:
         _rg = by_role['ковёр']
         _rot_rug = Item(role=_rg.role, w_cm=_rg.d_cm, d_cm=_rg.w_cm, h_cm=_rg.h_cm,
@@ -1114,6 +1152,10 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
               ps = _best_block(room, b, free, cands, tv=tv, fixed=fixed,
                                second_focus=second, require_bearer=bearer)
               if ps is not None:
+                  if os.environ.get('ZONES_DEBUG'):
+                      import sys as _s
+                      print(f'ZDBG посадка принята: круг фокуса={_lvl} схема={shape} '
+                            f'состав={sorted(br)}', file=_s.stderr, flush=True)
                   return ps
       finally:
         _FOCUS_LEVEL = 0
@@ -1319,6 +1361,25 @@ def place_media_fireplace(room: Room, items: list[Item], free: Polygon,
                        tv=None, fixed=fixed, axis_seat=seat)
 
 
+def _view_filter(cands, seat: Placement | None, max_deg: float = 60.0,
+                 min_dist_cm: float = 90.0):
+    """Кандидаты, попадающие в УГОЛ ОБЗОРА с посадки и не ближе безопасной дистанции."""
+    if seat is None:
+        return list(cands)
+    r = math.radians(seat.rot)
+    fx, fy = math.sin(r), math.cos(r)
+    out = []
+    for c in cands:
+        vx, vy = c.placement.x - seat.x, c.placement.y - seat.y
+        d = math.hypot(vx, vy)
+        if d < min_dist_cm:
+            continue
+        cosang = (fx * vx + fy * vy) / (d or 1.0)
+        if math.degrees(math.acos(max(-1.0, min(1.0, cosang)))) <= max_deg:
+            out.append(c)
+    return out
+
+
 def place_fireplace(room: Room, items: list[Item], free: Polygon,
                     fixed: list[Placement] | None = None) -> list[Placement] | None:
     """Каминная зона блоком; ставится ПОСЛЕ посадки — камин должен смотреть в зону
@@ -1330,6 +1391,11 @@ def place_fireplace(room: Room, items: list[Item], free: Polygon,
         by_role.setdefault(it.role, it)
     seat = next((p for p in (fixed or []) if p.role == 'диван'), None) or \
         next((p for p in (fixed or []) if p.role == 'кресло'), None)
+    # КАМИН ОБЯЗАН БЫТЬ В УГЛУ ОБЗОРА (правило владельца 12.08 + веб-канон: камин и ТВ
+    # на смежных стенах, посадка развёрнута к углу между ними — «clear view without
+    # twisting», intdesigners.com, homesandgardens.com). Держим ≤60° от оси взгляда:
+    # дальше человеку приходится выворачивать корпус, и зона перестаёт читаться.
+    # Плюс безопасная дистанция 90 см от посадки до очага (веб-канон 90-120 см).
     # КАСКАД (экзамен 11.08: камин избыточен в 88 сценах — «камин+фланг» не влезал,
     # fits=0): фланги → один фланг → КАМИН СОЛО (зона из одного предмета легальна)
     fp = by_role.get('камин')
@@ -1343,7 +1409,11 @@ def place_fireplace(room: Room, items: list[Item], free: Polygon,
         b = build_fireplace(br) if len(br) > 1 else _valid(Block(fp), 'fireplace_solo')
         if b is None:
             continue
-        ps = _best_block(room, b, free, wall_candidates(room, b.anchor, free),
+        _cands = list(wall_candidates(room, b.anchor, free)) \
+            + list(_corner_candidates(room, b.anchor, free))
+        _inview = _view_filter(_cands, seat, max_deg=float(_g('fireplace_view_max_deg', 60.0)),
+                               min_dist_cm=float(_g('fireplace_min_dist_cm', 90.0)))
+        ps = _best_block(room, b, free, _inview or [],
                          tv=None, fixed=fixed, axis_seat=seat)
         if ps is not None:
             return ps
@@ -1463,7 +1533,7 @@ def _axis_filter(cands, seat: Placement | None):
 
 def place_media(room: Room, items: list[Item], free: Polygon,
                 fixed: list[Placement] | None = None,
-                top: int = 1) -> list[Placement] | None:
+                top: int = 1, relaxed: bool = False) -> list[Placement] | None:
     """Медиа-зона блоком; позиция — по межзонной связи (соосность с главным
     посадочным из fixed, дистанция/прицел проверит validate)."""
     if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
@@ -1493,7 +1563,10 @@ def place_media(room: Room, items: list[Item], free: Polygon,
                     # позиции в оси взгляда (смещение ≤ FOCUS_OFFSET_MAX_CM); если таких
                     # нет вовсе — весь список. Раньше центровка была слагаемым скора и
                     # проигрывала прочим штрафам: 163 сцены со смещением >40 см.
-                    _strict = _axis_filter(_cands, seat)
+                    # ПОСЛЕДНЯЯ ПОПЫТКА (правило владельца 12.08: «тумба или стенка
+                    # должна быть везде»): в relaxed-режиме центровка не требуется —
+                    # лучше носитель сбоку, чем сцена вообще без ТВ.
+                    _strict = [] if relaxed else _axis_filter(_cands, seat)
                     ps = _best_block(room, b, free, _strict or _cands, top=top,
                                      tv=None, fixed=fixed, axis_seat=seat)
                     if ps is None and _strict:
