@@ -24,8 +24,8 @@
 | `leads.md` | leads | Лид-канал «найдём дешевле» — заявка, TG-бот | — | 2026-07-28 |
 | `lessons.md` | lessons | Уроки перед планированием — что пробовали и что НЕ сработало | `../anti-patterns.md` | 2026-08-12 |
 | `lr-composition.md` | lr-composition | Композиция гостиной — доли площади | `../domain/lr-composition-guide.md` | 2026-08-01 |
-| `market.md` | market | Рынок RU/UK — спрос, конкуренты, монетизация | `../domain/market-research.md` | 2026-07-11 |
-| `marketing-acquisition.md` | marketing-acquisition | Реклама — Яндекс, семантика, стратегия | `../domain/wordstat-semantics.md` | 2026-07-11 |
+| `market.md` | market | Рынок RU/UK — спрос, конкуренты, монетизация | `../domain/market-research.md` | 2026-08-13 |
+| `marketing-acquisition.md` | marketing-acquisition | Реклама — Яндекс, семантика, стратегия | `../domain/wordstat-semantics.md` | 2026-08-13 |
 | `observability-tracing.md` | observability-tracing | Трейсинг AI-пайплайна — лог LLM-вызовов, разбор | `../domain/observability.md` | 2026-08-06 |
 | `regression-net.md` | regression-net | Регресс-защита — тесты, CI, eval, гардрейлы, DoD | `../../docs/tech-spec-ts-stack.md` | 2026-08-08 |
 | `room-measurement.md` | room-measurement | Замер комнаты по фото — что готово, чем меряем, что переиспользовать | `../domain/room-measurement.md` | 2026-08-04 |

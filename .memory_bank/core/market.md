@@ -3,7 +3,7 @@ tier: 1
 topic: market
 scope: Рынок RU/UK — спрос, конкуренты, монетизация
 tier2: "../domain/market-research.md"
-updated: 2026-07-11
+updated: 2026-08-13
 importance: high
 source: manual
 status: working
@@ -42,3 +42,5 @@ RU (по Вордстат 2026-07-11): Remplanner (~35–40k бренд-спро
 - Compliance (RU ПДн, UK regs) — с первого дня.
 
 **Tier 2:** `../domain/market-research.md`; полное — `../../docs/market-research-ru-uk.md`.
+
+> Не сверялось с 11.07 (работа шла по расстановке) — сверить перед возвратом к теме.

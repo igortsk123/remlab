@@ -3,7 +3,7 @@ tier: 1
 topic: marketing-acquisition
 scope: Реклама — Яндекс, семантика, стратегия
 tier2: "../domain/wordstat-semantics.md"
-updated: 2026-07-11
+updated: 2026-08-13
 importance: high
 source: manual
 status: working
@@ -39,3 +39,5 @@ autotargeting не удалить — ставка-минимум; минусо�
 `campaign_state.md`; дальше эшелон 3 и РСЯ (планы отдельно).
 
 **Tier 2:** `../domain/wordstat-semantics.md` (семантика) · `../advertising/campaign_state.md` (кампания).
+
+> Не сверялось с 11.07 (работа шла по расстановке) — сверить перед возвратом к теме.
