@@ -108,6 +108,7 @@ def generate_pairs(room: Room, rmap: RoomMap, media: Item, sofa: Item,
         wall_off = sofa.d_cm / 2 + 5.0
         sofa_spots.append((far - wall_off, 'opposite_wall'))
         sofa_spots.append((media.d_cm + target + sofa.d_cm / 2, 'floating_pair'))
+        _pen = _CFG.get('wall_sofa_penalty', {})
         for depth_off, scheme in sofa_spots:
             if depth_off >= far - 10:
                 continue
@@ -117,6 +118,13 @@ def generate_pairs(room: Room, rmap: RoomMap, media: Item, sofa: Item,
             score = float(_WS.get('fits_media', 20))
             d_err = abs(dist - target) / max(target, 1.0)
             score += float(_WS.get('distance_near_target', 20)) * max(0.0, 1 - d_err)
+            # L2 (large-room): пороги 1.2×/1.5×V — только в large-режиме
+            if rmap.mode == 'large' and scheme == 'opposite_wall':
+                ratio = dist / max(target, 1.0)
+                if ratio > float(_pen.get('prefer_floating_ratio', 1.5)):
+                    score -= 30.0          # «5 м пустоты» проигрывает всегда
+                elif ratio > float(_pen.get('ok_ratio', 1.2)):
+                    score -= 10.0          # floating предпочтителен
             if ang <= _ANGLE.get('perfect', 15):
                 score += float(_WS.get('sofa_opposite', 15))
             elif ang <= _ANGLE.get('ok', 30):
