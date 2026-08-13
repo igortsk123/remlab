@@ -1251,7 +1251,10 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
               # даёт SOFA_TV_DIST на всей противоположной стене, и медиа-зона гибла
               # (13.08, 10 сцен long: комната 475 при вилке до ~370). Отход дивана
               # от стены + столовая за спинкой — канонное решение для глубоких комнат.
-              _deep = max(room.width_cm, room.depth_cm) > 430
+              # L1 (large-room-mode): единый источник режима — room_map.room_mode;
+              # прежний двойник max(сторона)>430 удалён (сверка конфликтов)
+              from .room_map import room_mode as _rm
+              _deep = _rm(room) == 'large'
               if room.width_cm * room.depth_cm > 40 * 10_000 or _deep:
                   cands += list(middle_candidates(room, b.anchor, free,
                                                   limit=10 if _deep else 6))

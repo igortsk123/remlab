@@ -53,6 +53,7 @@ class RoomMap:
     walls: dict[str, WallInfo]
     routes: list[LineString]           # основные маршруты (дверь→дверь/окно/центр)
     light_walls: list[str]             # стены с окнами — источники света
+    mode: str = 'transitional'         # small / transitional / large (room_mode)
 
     def wall(self, w: str) -> WallInfo:
         return self.walls[w]
@@ -115,6 +116,28 @@ def _routes(room: Room) -> list[LineString]:
     return out
 
 
+def tv_axis_depth(room: Room, media_wall: str) -> float:
+    """Глубина комнаты ПО ОСИ ТВ: от стены носителя до противоположной."""
+    return room.depth_cm if media_wall in ('south', 'north') else room.width_cm
+
+
+def room_mode(room: Room) -> str:
+    """Режимная триада (своды владельца 13.08 №2/№3, единый источник — здесь):
+    small / transitional / large. Прежний `_deep = max(сторона)>430` в template.py —
+    двойник, подлежит замене на этот режим (сверка конфликтов large-room-mode)."""
+    area = room.width_cm * room.depth_cm / 10_000
+    short = min(room.width_cm, room.depth_cm)
+    long_ = max(room.width_cm, room.depth_cm)
+    if area >= 25.0 or long_ >= 600.0 or any(
+            tv_axis_depth(room, w) >= 500.0 for w in WALLS):
+        if area <= 25.0 and short <= 360.0:
+            return 'transitional'
+        return 'large'
+    if area <= 18.0 or short <= 350.0:
+        return 'small'
+    return 'transitional'
+
+
 def build_room_map(room: Room) -> RoomMap:
     walls: dict[str, WallInfo] = {}
     for w in WALLS:
@@ -125,4 +148,5 @@ def build_room_map(room: Room) -> RoomMap:
                    if op.kind in ('door', 'balcony') and op.wall == w],
             radiators=[r for r in room.radiators if r.wall == w])
     return RoomMap(walls=walls, routes=_routes(room),
-                   light_walls=[w for w in WALLS if walls[w].windows])
+                   light_walls=[w for w in WALLS if walls[w].windows],
+                   mode=room_mode(room))
