@@ -316,3 +316,25 @@ def test_level_a_never_degrades():
         if 'диван' in items and 'диван' not in placed:
             bad[scene] = 'диван в банке, но не стоит'
     assert not bad, f'LEVEL A деградировал: {dict(list(bad.items())[:5])}'
+
+
+def test_elongated_long_wall_pair_present():
+    """E1 (elongated): пара «медиа на длинной стене» присутствует в топ-K."""
+    from planner.models import Item
+    from planner.room_map import build_room_map, room_shape
+    from planner.tv_sofa import generate_pairs
+    from planner.models import Room, Opening, Radiator
+    room = Room(width_cm=350, depth_cm=525, band='17-20',
+                openings=[Opening(kind='door', wall='south', offset_cm=80, width_cm=90,
+                                  swing_cm=92, hinge='left'),
+                          Opening(kind='window', wall='east', offset_cm=180,
+                                  width_cm=150, sill_cm=80)],
+                radiators=[Radiator(wall='east', offset_cm=180, width_cm=150,
+                                    depth_cm=15)])
+    assert room_shape(room) == 'elongated'
+    rmap = build_room_map(room)
+    pairs = generate_pairs(room, rmap, Item(role='тв-тумба', w_cm=140, d_cm=40),
+                           Item(role='диван', w_cm=200, d_cm=95), top_k=6)
+    long_walls = {'east', 'west'}          # 525 — длинная ось: длинные стены E/W
+    assert any(p.media_wall in long_walls for p in pairs), \
+        f'long-wall пары нет в топ-6: {[p.media_wall for p in pairs]}'

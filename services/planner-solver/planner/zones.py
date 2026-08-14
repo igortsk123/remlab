@@ -160,10 +160,14 @@ def _residual_R(room, seat) -> float:
 
 
 def _behind_decision(room, seat) -> str:
-    """Решение по остатку R — из паспорта residual_behind_sofa."""
+    """Решение по остатку R — ЕДИНАЯ таблица residual_bands по режиму формы
+    (elongated — свод №4, иначе large-набор; конфликт-сверка: двойников нет)."""
     from .invariants import TEMPLATES
+    from .room_map import room_shape
     R = _residual_R(room, seat)
-    for band in TEMPLATES.get('residual_behind_sofa', {}).get('bands_cm', []):
+    bands = TEMPLATES.get('residual_bands', {})
+    key = 'elongated' if room_shape(room) in ('elongated', 'strongly') else 'large'
+    for band in bands.get(key, []):
         if R <= float(band['max']):
             return band['decision']
     return 'nothing'
@@ -202,7 +206,7 @@ def _behind_reserved(room, block, keep) -> bool:
         return False
     if not any(i.role == 'стол обеденный' for i in keep):
         return False
-    return _behind_decision(room, seat) == 'dining_mandatory'
+    return _behind_decision(room, seat) in ('dining_mandatory', 'second_zone_mandatory')
 
 
 def _sofa_is_floating(room, seat, gap_cm: float = 90.0) -> bool:
@@ -563,7 +567,8 @@ def solve_zoned(room: Room, items, **kw):
         _din_placed = '+din' in tpl_tag
         if (block and not _din_placed and os.environ.get('LAYOUT_NO_ORPHAN_SPLIT', '1') != '0'):
             _seat0 = next((p for p in block if p.role.split(' ')[0] == 'диван'), None)
-            if _seat0 is not None and _behind_decision(room, _seat0) == 'dining_mandatory':
+            if _seat0 is not None and _behind_decision(room, _seat0) in (
+                    'dining_mandatory', 'second_zone_mandatory'):
                 from .template import place_template as _pt2
                 try:
                     import planner.candidates as _cmod

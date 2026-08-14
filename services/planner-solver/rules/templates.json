@@ -619,7 +619,8 @@
     "why": "≥2.6 м: 90+80..90+90=260..270 — полноценная dining zone ОБЯЗАНА быть вариантом"
    }
   ],
-  "replaces": "бинарный запрет «floating без столовой → пересборка у стены» 13.08 — теперь его частный случай (R<90 не floating; 90-260 законно без столовой)"
+  "replaces": "бинарный запрет «floating без столовой → пересборка у стены» 13.08 — теперь его частный случай (R<90 не floating; 90-260 законно без столовой)",
+  "_deprecated": "заменена residual_bands (единая таблица режимов, 14.08)"
  },
  "template_slot_envelopes": {},
  "degradation_levels": {
@@ -629,5 +630,52 @@
   "D": "декор: кашпо — только в dead space",
   "order": "D → C → B; уровень A не деградирует никогда (small-свод §19-20)",
   "why": "иерархия удаления владельца: не портить правильные диван и ТВ ради второстепенного"
+ },
+ "room_shape": {
+  "thresholds": {
+   "slightly": 1.25,
+   "elongated": 1.4,
+   "strongly": 1.7
+  },
+  "why": "свод владельца №4: L/W <1.25 normal; 1.25-1.40 slightly; 1.40-1.70 elongated; >1.70 strongly. Ортогонально режиму small/large (315×475 = small И elongated 1.51). Пороги владельца, практика Houzz long-narrow"
+ },
+ "residual_bands": {
+  "_why": "ЕДИНАЯ таблица остатка за границей primary-зоны (конфликт-сверка elongated-плана: двойник порогов не заводим). large — свод №2 §5 (R&B 91 см); elongated — свод №4 §4",
+  "large": [
+   {
+    "max": 90,
+    "decision": "nothing"
+   },
+   {
+    "max": 150,
+    "decision": "passage_plus_shallow_storage"
+   },
+   {
+    "max": 255,
+    "decision": "wall_use_only"
+   },
+   {
+    "max": 9999,
+    "decision": "dining_mandatory"
+   }
+  ],
+  "elongated": [
+   {
+    "max": 80,
+    "decision": "nothing"
+   },
+   {
+    "max": 130,
+    "decision": "passage_plus_shallow_storage"
+   },
+   {
+    "max": 180,
+    "decision": "reading_nook"
+   },
+   {
+    "max": 9999,
+    "decision": "second_zone_mandatory"
+   }
+  ]
  }
 }

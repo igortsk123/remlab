@@ -111,6 +111,12 @@ def generate_pairs(room: Room, rmap: RoomMap, media: Item, sofa: Item,
         wall_off = sofa.d_cm / 2 + 5.0
         sofa_spots.append((far - wall_off, 'opposite_wall'))
         sofa_spots.append((media.d_cm + target + sofa.d_cm / 2, 'floating_pair'))
+        # E5 (elongated): вариант «кластер стянут к медиа» — дистанция у нижней границы
+        # комфорта, пустота уходит за спинку одним куском (там её заберёт вторая зона
+        # или штраф E4 отбракует позицию)
+        if rmap.shape in ('elongated', 'strongly'):
+            sofa_spots.append((media.d_cm + max(target * 0.82, 150.0) + sofa.d_cm / 2,
+                               'floating_pair'))
         _pen = _CFG.get('wall_sofa_penalty', {})
         for depth_off, scheme in sofa_spots:
             if depth_off >= far - 10:
@@ -121,6 +127,21 @@ def generate_pairs(room: Room, rmap: RoomMap, media: Item, sofa: Item,
             score = float(_WS.get('fits_media', 20))
             d_err = abs(dist - target) / max(target, 1.0)
             score += float(_WS.get('distance_near_target', 20)) * max(0.0, 1 - d_err)
+            # E4 (elongated, свод №4 §7): floating-диван поперёк длинной оси — граница
+            # зоны. Сторона за спинкой обязана иметь функцию или быть circulation;
+            # «пусто за границей» — сильный штраф (комод зоной не считается — приоритет
+            # второй зоны решает лестница зон, здесь только штраф пустоты).
+            if rmap.shape in ('elongated', 'strongly') and scheme == 'floating_pair':
+                far_axis = (room.depth_cm if wall in ('south', 'north')
+                            else room.width_cm)
+                behind = far_axis - depth_off - sofa.d_cm / 2
+                # вычесть законную пустоту двери на том конце (подход ~110 см)
+                _opp = rmap.opposite(wall)
+                _door_pad = 110.0 if rmap.walls[_opp].doors else 0.0
+                unused = max(0.0, behind - _door_pad)
+                if unused > 130.0:
+                    score -= 18.0        # residual без функции — сильный штраф (E5
+                                         # стянет кластер или отдаст второй зоне)
             if _small:
                 # S2: в small пристенный диван — приоритет №1 (максимум пола),
                 # floating без нужды штрафуется (свод №3 §4)

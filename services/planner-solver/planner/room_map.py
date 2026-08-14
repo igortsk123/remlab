@@ -54,6 +54,7 @@ class RoomMap:
     routes: list[LineString]           # основные маршруты (дверь→дверь/окно/центр)
     light_walls: list[str]             # стены с окнами — источники света
     mode: str = 'transitional'         # small / transitional / large (room_mode)
+    shape: str = 'normal'              # normal / slightly / elongated / strongly (room_shape)
 
     def wall(self, w: str) -> WallInfo:
         return self.walls[w]
@@ -121,6 +122,23 @@ def tv_axis_depth(room: Room, media_wall: str) -> float:
     return room.depth_cm if media_wall in ('south', 'north') else room.width_cm
 
 
+def room_shape(room: Room) -> str:
+    """Форма комнаты (свод №4): normal / slightly / elongated / strongly — ОРТОГОНАЛЬНА
+    режиму small/large (315×475 = small И elongated 1.51). Пороги — паспорт room_shape."""
+    from .invariants import TEMPLATES
+    th = TEMPLATES.get('room_shape', {}).get('thresholds',
+                                             {'slightly': 1.25, 'elongated': 1.40,
+                                              'strongly': 1.70})
+    ratio = max(room.width_cm, room.depth_cm) / max(min(room.width_cm, room.depth_cm), 1.0)
+    if ratio >= th['strongly']:
+        return 'strongly'
+    if ratio >= th['elongated']:
+        return 'elongated'
+    if ratio >= th['slightly']:
+        return 'slightly'
+    return 'normal'
+
+
 def room_mode(room: Room) -> str:
     """Режимная триада (своды владельца 13.08 №2/№3, единый источник — здесь):
     small / transitional / large. Прежний `_deep = max(сторона)>430` в template.py —
@@ -149,4 +167,4 @@ def build_room_map(room: Room) -> RoomMap:
             radiators=[r for r in room.radiators if r.wall == w])
     return RoomMap(walls=walls, routes=_routes(room),
                    light_walls=[w for w in WALLS if walls[w].windows],
-                   mode=room_mode(room))
+                   mode=room_mode(room), shape=room_shape(room))
