@@ -635,9 +635,17 @@ for bi,band in enumerate(COMP['bands']):
             # Z4: обеденная группа — ТОЛЬКО при свободном регионе (док владельца «dining у окна
             # requires_free_region»): после посадочной группы должно оставаться ≥6 м² usable —
             # иначе стол+стулья геометрически не встают (провалы band 21-25 на приёмке 08.08)
-            if role=='стол обеденный' and (z_usable-zgroup['footprint_m2'])<6.0:
-                print(f"  Z4: usable {z_usable:.1f} − группа {zgroup['footprint_m2']} < 6 м² — обеденной группе нет региона")
-                continue
+            if role=='стол обеденный':
+                # Свод №7: регион — по числу мест (2 места ~3 м², не 6): фикс-порог
+                # глушил столовую во всех 15-20 м² (0/72). Числа+пруф —
+                # zones.json → dining_region_m2
+                _drz=(json.load(open(_ZR_PATH))
+                      .get('dining_region_m2',{}).get('by_seats',{'2':3.0,'4':6.0,'6':8.0}))
+                _seats='6' if m2>=40 else ('4' if m2>=22 else '2')
+                _need=float(_drz.get(_seats,6.0))
+                if (z_usable-zgroup['footprint_m2'])<_need:
+                    print(f"  Z4: usable {z_usable:.1f} − группа {zgroup['footprint_m2']} < {_need} м² ({_seats} мест) — обеденной нет региона")
+                    continue
             # Z4: посадочные роли диктует ГРУППА — кресло/пуф вне её состава не берём;
             # спутники (пуф/торшер/кашпо) режет anchor-принцип (extras_max band'а)
             if role in ('кресло','пуф') and role not in _zreq and role not in _zopt:

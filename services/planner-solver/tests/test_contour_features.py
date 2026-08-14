@@ -160,3 +160,21 @@ def test_corner_adrift_functional_gap():
                                         depth_cm=15)])
     codes2 = {v.code for v in validate(room_rad, [p]).violations}
     assert 'CORNER_SOFA_ADRIFT' not in codes2
+
+
+def test_dining_share_watchdog():
+    """Свод №7: доля планов со столовой — планка по лучшему замеру (172/252,
+    14.08), двигается только вверх. Отчёт приёмки нужен свежий."""
+    import json, os
+    rep = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'tools',
+                       'scout', 'acceptance-report-zoned.jsonl')
+    if not os.path.exists(rep):
+        import pytest
+        pytest.skip('нет отчёта приёмки')
+    n = din = 0
+    for line in open(rep, encoding='utf-8'):
+        r = json.loads(line)
+        n += 1
+        din += ('+din' in r.get('templates', ''))
+    assert n == 252, f'отчёт неполный: {n}'
+    assert din >= 172, f'доля столовой упала: {din}/252 (планка 172 — лучший замер)'

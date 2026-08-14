@@ -1102,6 +1102,19 @@ def check_layout_rules(room: Room, ps: list[Placement]) -> list[Violation]:
         if fwd_a > fwd_t + 80 and not _in_secondary_zone(by["кресло"]):
             out.append(_v("ARMCHAIR_TOO_DEEP", "кресло уехало за столик, к ТВ-зоне", ["кресло", "столик"],
                           round(fwd_a - fwd_t), "не дальше 80 см за линию столика"))
+    # Свод №7 S3: обеденная группа на ковре ПОСАДКИ — смешение зон (у столовой
+    # свой ковёр или пол; rugs.com/King Living). Мягко: S1
+    _rug7 = by.get("ковёр")
+    if _rug7 is not None:
+        for _dp in ps:
+            if _dp.role.split(' ')[0] not in ('стол обеденный', 'стул'):
+                continue
+            if footprint(_dp).intersection(footprint(_rug7)).area > 400:
+                out.append(_v("DINING_ON_LIVING_RUG",
+                              f"«{_dp.role}» заходит на ковёр посадки",
+                              [_dp.role, "ковёр"], None,
+                              "у обеденной зоны свой пол/ковёр", Severity.SOFT))
+                break
     if "стул" in by and "стол обеденный" not in by and _lr("chair_requires_dining_table", True):
         out.append(_v("CHAIR_WITHOUT_TABLE", "стул без обеденного стола", ["стул"], None,
                       "стул ставится только к столу"))
