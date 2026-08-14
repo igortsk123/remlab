@@ -187,8 +187,11 @@ def main():
                'totals': {'count': len(index),
                           'dining': sum(1 for x in index if x['dining'])}},
               open(os.path.join(OUT, 'index.json'), 'w'), ensure_ascii=False, indent=1)
+    _mt = os.path.join(HERE, 'missing_templates.md')
+    if os.path.exists(_mt):
+        shutil.copy(_mt, os.path.join(OUT, 'missing_templates.md'))
     open(os.path.join(OUT, 'README.md'), 'w').write(
-        '# Экспорт планов расстановки (252 сцены) для анализа ИИ\n\n'
+        f'# Экспорт планов расстановки ({len(index)} сцен) для анализа ИИ\n\n'
         'На каждый план три файла:\n'
         '- `plan-NNN.json` — структурный: комната (см, контур, проёмы), предметы '
         '(роль, габариты, центр x/z, поворот), шаблоны зон, метрики (маршрут, '
