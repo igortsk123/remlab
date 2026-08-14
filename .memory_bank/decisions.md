@@ -1484,3 +1484,15 @@ hard-слой (пруф: [30,46]-регресс, урок 214; механиче�
 сменой шаблона; 12 сторожей в CI. Свод и пруфы — планы large-room-mode / small-room-mode
 (completed) и MASTER-tv-sofa-pair.
 **Влияет на.** [[layout]], room_map/tv_sofa/zones/template/invariants, rules/templates.json.
+
+## ADR-0093 — Форма комнаты ортогональна режиму; residual_bands — единая таблица (2026-08-14)
+**Решение.** `room_map.shape` (normal/slightly/elongated/strongly, пороги 1.25/1.40/1.70) —
+ортогональный признак рядом с `mode` (315×475 = small И elongated). Остаток за границей
+primary-зоны решает ЕДИНАЯ таблица `rules/templates.json → residual_bands` с колонками
+режимов (large: 90/150/255/260 — своды №2; elongated: 80/130/180/230 — свод №4); прежняя
+`residual_behind_sofa` deprecated. Floating-диван поперёк длинной оси — граница зоны: пустота
+>130 см за спинкой (после вычета подхода двери ~110) штрафуется в парах; «комод не зона».
+У elongated обязана присутствовать long-wall пара (сторож). Вариант «кластер стянут к медиа»
+(0.82×target) отдаёт пустоту второй зоне одним куском.
+**Влияет на.** [[layout]], `services/planner-solver/planner/room_map.py`, `tv_sofa.py`,
+`zones.py`, `rules/templates.json`.

@@ -2,7 +2,7 @@
 workstream: layout
 slug: elongated-room-mode
 title: ELONGATED MODE — сначала распределение длины между функциями, потом предметы
-status: in_progress
+status: partial
 created: 2026-08-14
 updated: 2026-08-14
 completed:
@@ -71,6 +71,14 @@ unused-residual penalty; стягивание кластера к пустоте
 (распределение breathing вокруг), затем проба поворота 90°.
 **E6. Сторожа.** У elongated-сцен: unused residual (после вычета door/circulation) ≤ планки
 замера; floating-граница всегда классифицирована; группа компактна (уже есть).
+
+## Completion summary (14.08, partial)
+E1 shape в карте (ортогонален режиму) + E6 сторож long-wall пары; E2 единая таблица
+residual_bands (double deprecated); E4 штраф floating-границы с пустотой >130 (минус подход
+двери); E5 вариант «кластер стянут к медиа». Гейт: 252/252, медиа 252/252, сторожа 49/49.
+ОСТАЁТСЯ: E3 полная аллокация длин до предметов (сейчас через E4/E5/машину R — работает,
+но выбор «1 зона/2 зоны» не эксплицитен); метрика quality.residual_depth и её планка.
+**Урок:** ортогональные признаки (mode × shape) — отдельными полями, не третьим значением.
 
 ## Definition of Done — память
 - [ ] ADR «elongated: сначала длины, потом предметы; residual_bands — единая таблица»
