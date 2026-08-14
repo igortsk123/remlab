@@ -922,13 +922,28 @@
    "+rd2": "seating_extra",
    "+dc": "decor",
    "+dc2": "decor",
-   "+bay": "seating_extra"
+   "+bay": "seating_extra",
+   "+tvw": "media"
   },
   "reserves": {
    "tv_wall_strip": "media",
    "behind_sofa_strip": "dining"
   },
-  "proof": "ADR-0091 (фокус→диван→циркуляция→носитель→ковёр/столик→доп.посадка→хранение→свет→декор) + свод №4 §5: приоритет ВТОРОЙ зоны dining → secondary seating/nook → storage — столовая выше доп-посадки"
+  "proof": "ADR-0091 (фокус→диван→циркуляция→носитель→ковёр/столик→доп.посадка→хранение→свет→декор) + свод №4 §5: приоритет ВТОРОЙ зоны dining → secondary seating/nook → storage — столовая выше доп-посадки",
+  "status": {
+   "architecture": "required",
+   "focus": "required",
+   "seating": "required",
+   "circulation": "required",
+   "media": "required",
+   "rug_table": "required",
+   "dining": "preferred",
+   "seating_extra": "optional",
+   "storage": "preferred",
+   "light": "optional",
+   "decor": "optional"
+  },
+  "_status_why": "Пакет F свода №8 v2 §4/§7 (согласован 14.08): явные статусы зон вместо хардкода. required — зона ядра, гейт not_worse НЕ применяется (медиа/камин ставились безусловно и до этого — формализация; +tvw вейвер и last-attempt — часть required-семантики медиа). preferred — каскад+retry (dining: остров→edge→sacrifice, ADR-0096/0097; storage — ярусы ADR-0053). optional — только через гейт качества not_worse; отсутствие НЕ штрафуется (negative space легален, ADR-0095)"
  },
  "entry_zone": {
   "_why": "Свод №6 (14.08): полоса за floating-диваном при двери в торце — ENTRY/ARRIVAL zone, не unused residual. Приоритет наполнения по своду; пустота ЛЕГАЛЬНА (negative space), обогащение её не «лечит». Реализация: вход уже вычитается из residual (quality.residual_depth_cm), высокое хранение за спинкой запрещает TALL_BEHIND_SOFA (>90 см), доступ в зону — SEATING_ACCESS_PINCHED",

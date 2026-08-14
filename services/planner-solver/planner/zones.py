@@ -623,7 +623,11 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
             # не сбился. Заполнение пола (fill) больше НЕ цель, а диагностика: прежний
             # бюджет заставлял добивать площадь, отсюда кашпо в щели и кресло, портящее
             # проход. Пруфы и пороги — rules/zones.json → quality_gate.
-            if extra and tag not in ('+tv', '+tvfp', '+fp'):
+            # Пакет F свода №8: статус зоны — ИЗ ДАННЫХ (zone_priority.status), не
+            # хардкод-тройка тегов. required-зоны (медиа/фокус) гейт не проходят —
+            # формализация прежнего поведения; preferred/optional — гейт not_worse.
+            _zst = (_zp.get('status') or {}).get(_zt.get(tag, ''), 'optional')
+            if extra and _zst != 'required':
                 _q_before = _quality(room, block)
                 _q_after = _quality(room, block + extra)
                 if not _not_worse(_q_before, _q_after):
@@ -836,6 +840,13 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                     continue
                 trial = validate(room, list(outs[0].placements) + got)
                 if any(v.severity is _Sev.HARD for v in trial.violations):
+                    continue
+                # Пакет F свода №8 (v2 §1.1): «fill<нижней границы» лишь РАСШИРЯЕТ
+                # поиск — основание принять добор то же, что у любой зоны: не хуже
+                # по осям качества (маршрут/щели/фокус), не «поместилось»
+                from .quality import not_worse as _nw3, scene_quality as _sq3
+                if not _nw3(_sq3(room, outs[0].placements),
+                            _sq3(room, list(outs[0].placements) + got)):
                     continue
                 roles3 = {p.role for p in got}
                 keep = [it for it in keep if it.role not in roles3]
