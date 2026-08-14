@@ -772,17 +772,6 @@ for bi,band in enumerate(COMP['bands']):
             print(f"  R3: хранения {_total:.0f} см при потолке {15*m2:.0f} (15 см/м²) — «{_r}» вон")
             _total-=_stw(_r); floor_fp-=(chosen[_r].get('fp') or 0)*chosen[_r].get('qty',1)
             chosen.pop(_r); alts.pop(_r,None); _storage.remove(_r)
-        # A5 (свод №5, малые): КОНЦЕНТРАЦИЯ хранения — в ≤18 м² один крупный блок
-        # лучше двух мелких на разных стенах (свод: «один 180 лучше 100+80»);
-        # носитель ТВ (стенка/тв-тумба) не считается — он медиа-зона
-        if m2<=18:
-            _units=[r for r in ('витрина','стеллаж','комод') if r in chosen]
-            if len(_units)>=2:
-                _units.sort(key=lambda r:(chosen[r].get('w') or 0)*(chosen[r].get('h') or 200))
-                for _r in _units[:-1]:
-                    print(f"  A5: концентрация хранения в малой — «{_r}» вон (остаётся крупнейший блок)")
-                    floor_fp-=(chosen[_r].get('fp') or 0)*chosen[_r].get('qty',1)
-                    chosen.pop(_r); alts.pop(_r,None)
         # ковёр — ПРИВЯЗКА К ДИВАНУ (решение владельца по своду р.2): ширина ≈ диван + 25–35 см
         # с каждой стороны (схема «передние ножки»); фолбэк на % пола, если дивана/размеров нет
         if cat.get('ковёр'):
@@ -971,6 +960,13 @@ for bi,band in enumerate(COMP['bands']):
             if _fill_now()>=30: break
             _base_r=_r.split(' ')[0]
             if chosen.get(_r): continue
+            # A5 (свод №5, малые): концентрация хранения — в ≤18 м² ВТОРАЯ единица
+            # хранения не добирается (три узких по 80 см = анти-паттерн «россыпь»);
+            # коридор заполнения добивают следующие роли списка (пуф/приставной/столовая)
+            if m2<=18 and _base_r in ('витрина','стеллаж','комод') and any(
+                    r.split(' ')[0] in ('витрина','стеллаж','комод') for r in chosen):
+                print(f"  A5: «{_r}» не добираем — хранение в малой уже есть (концентрация)")
+                continue
             _top=pick2(_base_r,m2,(0.05,6),tier,pair,ctx,soft=True,qty=_q)
             if not _top: continue
             _cand=next((t for t in _top if t['eid'] not in {x.get('eid') for x in chosen.values()}),None)
@@ -1005,6 +1001,21 @@ for bi,band in enumerate(COMP['bands']):
                 chosen[r]=dict(top[0],qty=QTY.get(r,1) if r!='подушка' else 1)
                 gaps.remove(r)
         if gaps: print(f"  ДЫРКИ состава (нет товара в каталоге): {', '.join(gaps)}",flush=True)
+        # A5 (свод №5, малые): КОНЦЕНТРАЦИЯ хранения — в ≤18 м² один крупный блок
+        # лучше двух мелких по разным стенам (свод: «один 180 лучше 100+80»).
+        # Стоит ПОСЛЕ обогащения и gap-fill — раньше хранение ещё не добрано
+        # (первая вставка стояла до них и не срабатывала ни разу). Мелочь убираем,
+        # только если остающийся блок реально крупный (>=120 см); носитель ТВ
+        # (стенка/тв-тумба) — медиа-зона, концентрация его не касается
+        if m2<=18:
+            _units=[r for r in chosen if r.split(' ')[0] in ('витрина','стеллаж','комод')]
+            if len(_units)>=2:
+                _units.sort(key=lambda r:(chosen[r].get('w') or 0)*(chosen[r].get('h') or 200))
+                if (chosen[_units[-1]].get('w') or 0)>=120:
+                    for _r in _units[:-1]:
+                        print(f"  A5: концентрация — «{_r}» вон (остаётся блок {chosen[_units[-1]].get('w'):.0f} см)")
+                        floor_fp-=(chosen[_r].get('fp') or 0)*chosen[_r].get('qty',1)
+                        chosen.pop(_r); alts.pop(_r,None)
         # СЕТ СОБИРАЕТСЯ ПОД ШАБЛОНЫ (правило владельца 12.08: «шаблона на два стула
         # нет — как они попали в сет?»). Напольная роль, которую ни одна схема не может
         # поставить, — мусор в банке: она никогда не встанет и путает смету.

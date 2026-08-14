@@ -60,3 +60,55 @@ def test_square_rect_and_L_machinery():
 def test_room_map_carries_features():
     rmap = build_room_map(_room(PYLONS, [WIN]))
     assert len(rmap.columns) == 1 and rmap.bays == [] and rmap.square is False
+
+
+def test_no_sofa_ladder_reachable():
+    """E1 (M-E, свод №5): диван физически не встаёт (огромный угловой) — лестница
+    легально уходит в armchair_pair (кресла+приставной), сцена НЕ пустая. До фикса
+    состав фильтровался ролями одной группы pick_group, и кресла выбрасывались до
+    спуска — ступень «без дивана» была недостижима."""
+    from planner.models import Item
+    from planner.zones import solve_zoned
+    room = Room(width_cm=300, depth_cm=300,
+                openings=[Opening(kind='door', wall='south', offset_cm=105,
+                                  width_cm=90),
+                          Opening(kind='window', wall='east', offset_cm=60,
+                                  width_cm=180)])
+    items = [Item(role='диван', w_cm=280, d_cm=280, h_cm=85, corner=True),
+             Item(role='кресло', w_cm=75, d_cm=80, h_cm=80),
+             Item(role='кресло 2', w_cm=75, d_cm=80, h_cm=80),
+             Item(role='приставной', w_cm=45, d_cm=45, h_cm=55),
+             Item(role='ковёр', w_cm=160, d_cm=120, h_cm=1),
+             Item(role='тв-тумба', w_cm=120, d_cm=40, h_cm=50)]
+    lays, gid = solve_zoned(room, items)
+    assert lays and lays[0].placements, 'сцена не должна быть пустой'
+    roles = {p.role for p in lays[0].placements}
+    assert 'диван' not in roles and 'кресло' in roles and 'кресло 2' in roles, \
+        (gid, roles)
+
+
+def test_window_block_score_scales_with_height():
+    """D3 (M-D, свод №5): перекрытие окна — низкая тумба 0, высокий стеллаж > 0."""
+    from planner.models import Item, Placement
+    from planner.template import _window_block_score
+    room = Room(width_cm=400, depth_cm=400,
+                openings=[Opening(kind='window', wall='east', offset_cm=100,
+                                  width_cm=160)])
+    low = Placement(role='тв-тумба', x=385, y=180, rot=270,
+                    item=Item(role='тв-тумба', w_cm=140, d_cm=40, h_cm=45))
+    tall = Placement(role='стеллаж', x=385, y=180, rot=270,
+                     item=Item(role='стеллаж', w_cm=140, d_cm=40, h_cm=200))
+    assert _window_block_score(room, low) == 0.0
+    assert _window_block_score(room, tall) > 0.2
+
+
+def test_high_ceiling_prefers_tall_anchor():
+    """D5 (M-D, свод №5): при ceiling>=300 якорь ряда хранения — высокий корпус."""
+    from planner.models import Item
+    from planner.template import build_storage
+    by_role = {'комод': Item(role='комод', w_cm=180, d_cm=45, h_cm=80),
+               'стеллаж': Item(role='стеллаж', w_cm=80, d_cm=35, h_cm=200)}
+    b_norm = build_storage(dict(by_role), ceiling_cm=None)
+    b_high = build_storage(dict(by_role), ceiling_cm=320)
+    assert b_norm.anchor.role == 'комод'      # шире — якорь по умолчанию
+    assert b_high.anchor.role == 'стеллаж'    # высокий потолок — вертикаль первой

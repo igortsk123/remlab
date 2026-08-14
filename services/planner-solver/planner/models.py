@@ -59,6 +59,7 @@ class Room(BaseModel):
     openings: list[Opening] = Field(default_factory=list)
     radiators: list[Radiator] = Field(default_factory=list)
     band: str | None = Field(default=None, description="метражный бэнд проекта, напр. '21-25'")
+    ceiling_cm: float | None = Field(default=None, description="высота потолка (D5, свод №5); нет значения — правило вертикального масштаба спит")
 
     @model_validator(mode="after")
     def _contour_bbox(self) -> "Room":

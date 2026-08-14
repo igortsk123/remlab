@@ -169,6 +169,12 @@ def generate_pairs(room: Room, rmap: RoomMap, media: Item, sofa: Item,
             else:
                 score += float(_WS.get('no_window_conflict', 15)) * 0.4
             score += float(_WS.get('free_length', 5)) * min(1.0, seg.length_cm / 400.0)
+            # E2 (M-E, свод №5): divider по масштабу — floating-граница уже
+            # 45% поперечного пролёта не структурирует пространство (мелочь)
+            if scheme == 'floating_pair':
+                _span = (room.width_cm if wall in ('south', 'north') else room.depth_cm)
+                if sofa.w_cm < float(_CFG.get('divider_min_share', 0.45)) * _span:
+                    score -= float(_CFG.get('divider_scale_penalty', 10))
             # C4 (M-C, свод №5): колонна/пилон в коридоре «медиа↔диван» — беседа и
             # просмотр через препятствие; пары в обход колонны выигрывают
             if rmap.columns:

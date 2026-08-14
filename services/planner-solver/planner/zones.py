@@ -298,8 +298,14 @@ def solve_zoned(room: Room, items, **kw):
         import sys as _sys
         print(f"ZDBG usable={usable_m2(room):.1f} avail={sorted(avail)} group={group['id']}",
               file=_sys.stderr, flush=True)
-    allowed = {_base(r) for r in group['roles']['required']} | \
-              {_base(r) for r in group['roles'].get('optional', [])}
+    # E1 (M-E, свод №5): состав фильтруем по ОБЪЕДИНЕНИЮ ролей всех ступеней
+    # лестницы, а не по одной группе pick_group — иначе кресла выбрасывались до
+    # спуска, и ступень armchair_pair («без дивана») была недостижима: диван,
+    # который никуда не встал, оставлял сцену пустой при живых креслах
+    _steps_all = [group] + pick_ladder(room, dict(counts))
+    allowed = {_base(r) for g in _steps_all
+               for r in list(g['roles']['required']) +
+               list(g['roles'].get('optional', []))}
     keep, dropped = [], []
     for it in items:
         # ПУФ ставится ТОЛЬКО внутри схемы посадки (владелец 12.08: зона из одного

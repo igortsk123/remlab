@@ -932,6 +932,33 @@ def _base_role(role: str) -> str:
     return role.split(' ')[0] if role.split(' ')[-1].isdigit() else role
 
 
+def _window_block_score(room: Room, p: Placement) -> float:
+    """D3 (M-D, свод №5): штраф за перекрытие окна = k × доля перекрытия проёма ×
+    фактор высоты (предмет ниже подоконника свет не крадёт). Числа —
+    `rules/zones.json → wall_preferences.window_blocking`."""
+    from .zones import zone_rules as _zr
+    cfg = _zr().get('wall_preferences', {}).get('window_blocking', {})
+    sill = float(cfg.get('sill_cm', 90))
+    k = float(cfg.get('k', 0.9))
+    h = float(p.item.h_cm or 0.0 if p.item else 0.0)
+    if h <= sill:
+        return 0.0
+    hf = min(1.0, (h - sill) / 100.0)
+    total = 0.0
+    from .geometry import opening_polygon
+    fp = footprint(p).buffer(8.0)
+    for op in room.openings:
+        if op.kind != 'window':
+            continue
+        w_poly = opening_polygon(room, op)
+        inter = fp.intersection(w_poly.buffer(12.0))
+        if inter.is_empty:
+            continue
+        share = min(1.0, inter.area / max(w_poly.area, 1.0))
+        total += k * share * hf
+    return total
+
+
 def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
                 fixed: list[Placement] | None, top: int = 1,
                 axis_seat: Placement | None = None,
@@ -972,6 +999,12 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
                 opposite = _wall_of(room, ps[0]) == _OPPOSITE.get(op.wall)
                 if same or opposite:
                     score -= 1.2 if opposite else 0.8
+        # D3 (M-D, свод №5 window-heavy): перекрытие окна × высота — мягкий скор
+        # для ЛЮБОЙ пристенной мебели (числа — zones.json wall_preferences)
+        for p in ps:
+            if p.role == 'ковёр' or not p.item or not p.item.h_cm:
+                continue
+            score -= _window_block_score(room, p)
         if c.kind == 'corner' and getattr(b.anchor, 'corner', False):
             score += 0.5          # D2 (v2): Г-диван в угол — освобождает пол
         if 'отплыв' in (c.note or ''):
@@ -1369,7 +1402,8 @@ def place_dining(room: Room, items: list[Item], free: Polygon, usable_m2: float,
 STORAGE_ROLES = ('шкаф', 'стеллаж', 'стеллаж 2', 'витрина', 'комод')
 
 
-def build_storage(by_role: dict[str, Item], max_items: int = 3) -> Block | None:
+def build_storage(by_role: dict[str, Item], max_items: int = 3,
+                  ceiling_cm: float | None = None) -> Block | None:
     """ЗОНА ХРАНЕНИЯ (v3, правило владельца 11.08 «зона может быть из одного
     предмета»): ряд вдоль стены из 1–3 предметов, фасады в линию, зазор 8 см.
     Веб-свод: открытые полки дают вертикаль, комод — вес у пола; пара ламп по
@@ -1378,6 +1412,15 @@ def build_storage(by_role: dict[str, Item], max_items: int = 3) -> Block | None:
     if not items:
         return None
     items.sort(key=lambda i: -i.w_cm)
+    # D5 (M-D, свод №5): высокий потолок — вертикальный масштаб: высокий корпус
+    # якорем ряда (числа — zones.json wall_preferences.high_ceiling; сцены без
+    # ceiling_cm правило не трогает)
+    if ceiling_cm is not None:
+        from .zones import zone_rules as _zr5
+        _cfg_hc = _zr5().get('wall_preferences', {}).get('high_ceiling', {})
+        if ceiling_cm >= float(_cfg_hc.get('min_ceiling_cm', 300)):
+            _tall = float(_cfg_hc.get('tall_h_cm', 190))
+            items.sort(key=lambda i: (-(i.h_cm >= _tall), -i.w_cm))
     anchor = items[0]
     b = Block(anchor)
     x = anchor.w_cm / 2
@@ -1426,7 +1469,7 @@ def place_storage(room: Room, items: list[Item], free: Polygon,
             _shallow = [t for t in tries if all(v.d_cm <= 40 for v in t.values())]
             tries = _shallow + [t for t in tries if t not in _shallow]
     for br in tries:
-        b = build_storage(br, max_items=len(br))
+        b = build_storage(br, max_items=len(br), ceiling_cm=room.ceiling_cm)
         if b is None:
             continue
         for _avoid in ((True, False) if _busy else (False,)):
