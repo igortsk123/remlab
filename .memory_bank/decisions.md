@@ -1557,3 +1557,21 @@ rules (templates/zones/registry), приёмка 252.
 жадно и не знает о будущей столовой; свод №4 §5 — dining выше secondary seating.
 **Замер.** Столовая 172→196/252 (77%), +24 сцены тегом +sacrN.
 **Влияет на.** [[layout]], zones.py, приёмка (планка сторожа 196).
+
+## ADR-0098 — Свод №8 (внешний рефери) v2: зоны v2, мастер A–H (2026-08-14)
+**Решение.** Внедряем свод №8 в согласованной редакции v2 (диалог: свод → наш ответ с
+пруфами → v2). Принято: паспорт dining = source of truth (`rules/templates.json →
+zones.dining.rules`: seats_by_area, edge_per_diner_cm, operational_envelope_cm 90 — пруфы
+R&B 36″/Moschino 90–100); каскад классов dining FULL_ISLAND → COMPACT/ROUND_ISLAND → EDGE
+как приоритет классов ПОСЛЕ hard (не вес); island_feasible + why_selected/fallback_reason
+в экспорт (запрет «тихого edge»); виртуальная плоскость экрана + hard «экран не на окне»;
+зеркала L-дивана в шаблонном пути; гейты цепочки зон (eligibility/self-quality/redundancy)
+до not_worse; оси residual_fragmentation/visual_balance — только измерять; регресс —
+append №253+. Рефери ОТОЗВАЛ по нашим пруфам: «score награждает fill» (скор — только
+штрафы), «island or nothing» (ломал планку 196), скалярный marginal score (уроки
+236/161/208), routing-граф (достижимость+эрозия уже есть), проценты island по метражу
+(вместо них island_feasible). План: `plans/MASTER-zones-v2.md` (пакеты A–H).
+**Почему.** ADR-0077 (вердикты рефери — по умолчанию; расхождения только с пруфом);
+медиана «стол↔стена» 2.5 см в экспорте — реальный дефект качества при сохранении покрытия.
+**Влияет на.** [[layout]], template/zones/validate/quality/clearances, rules/*, экспорт,
+приёмка.

@@ -514,12 +514,9 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
 
         from .geometry import footprint as _fp
         from .template import place_dining
-        # ЦЕПОЧКА ЗОН ПО ПРИОРИТЕТУ + БЮДЖЕТ ПЛОЩАДИ (решение владельца 11.08,
-        # пруфы — zones.json `fill_policy`): порядок посадка → медиа → камин →
-        # столовая → хранение → тихая зона → чтение; перед каждой зоной считаем
-        # ПРОГНОЗ заполнения (пристенные ×0.5) и пропускаем зону, если она выводит
-        # комнату выше верхней границы коридора 30–45% — следующая (меньшая) зона
-        # ещё может влезть.
+        # ЦЕПОЧКА ЗОН ПО ПРИОРИТЕТУ (канон порядка — zones.json `zone_priority`,
+        # ADR-0094; коридор `fill_policy.target_pct` — ДИАГНОСТИКА и триггер
+        # второго прохода добора, не гейт — свод №8 v2 §1, ADR-0091).
         from .template import (place_decor, place_fireplace, place_media,
                                place_media_fireplace, place_quiet,
                                place_bay_armchair, place_reading, place_storage)

@@ -14,3 +14,4 @@
 
 <!-- SCRATCH START — /memory-check переносит обработанное в банк и усекает до этой метки -->
 
+- 14.08: свод №8 (внешний рефери) v1 → наш ответ с пруфами (/test/reply-to-referee-svod8.md) → v2 согласована: рефери отозвал «score награждает fill», island-or-nothing, скалярный marginal, routing-граф, % island по метражу; принято: паспорт dining → код (envelope 90, пруфы Room&Board/Moschino), каскад классов island→edge (tie-break, не вес), island_feasible+why_selected в экспорт, зеркала L в шаблонном пути, гейты ZONE_ELIGIBILITY/SELF_QUALITY/REDUNDANCY до not_worse, оси residual_fragmentation/visual_balance только измерять. 9 сцен-кандидатов рефери: 184/193/217, 160/164/165/120, 100/108. План: plans/MASTER-zones-v2.md (draft, пакеты A–H).

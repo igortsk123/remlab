@@ -48,6 +48,49 @@ def _g(name: str, default):
     return default if v is None else v
 
 
+def _dining_rules() -> dict:
+    """Паспорт столовой (`rules/templates.json → zones.dining.rules`) — source of truth
+    по эргономике: seats_by_area, edge_per_diner_cm, operational_envelope_cm (свод №8 v2 §4:
+    параллельную clearance-модель не заводить; физический минимум отодвигания 55 см
+    остаётся в occupancy.json `dining_chair_pullout` — это разные уровни: hard-минимум
+    vs полноценный island-класс)."""
+    from .invariants import TEMPLATES as _T
+    return ((_T.get('zones') or {}).get('dining') or {}).get('rules') or {}
+
+
+def dining_seats_cap(usable_m2: float) -> int:
+    """Мест по площади — из паспорта (`seats_by_area`: "<=18"→2, "<=30"→4, ">30"→6)."""
+    sba = _dining_rules().get('seats_by_area') or {}
+    le = sorted(((float(k[2:]), int(v)) for k, v in sba.items() if k.startswith('<=')))
+    for thr, seats in le:
+        if usable_m2 <= thr:
+            return seats
+    gt = [int(v) for k, v in sba.items() if k.startswith('>')]
+    return gt[0] if gt else 6
+
+
+def dining_envelope_cm() -> float:
+    """Эксплуатационная зона полноценного острова (паспорт; пруфы R&B 36″/Moschino 90-100)."""
+    return float(_dining_rules().get('operational_envelope_cm', 90) or 90)
+
+
+def dining_envelope_ok(table: Placement, free: Polygon, sides: str = 'all') -> bool:
+    """FULL_ISLAND-валидность: паспортный envelope свободен вокруг рабочих сторон стола.
+    sides='all' — все четыре стороны (остров); 'front' — пристенная сторона (локальный −y)
+    envelope не требует (edge-режим асимметричен, свод №8 v2 §4). Проверка на free ДО
+    постановки стульев: стулья — часть зоны, их споты входят в её же envelope."""
+    env = dining_envelope_cm()
+    it = table.item
+    grow_back = env if sides == 'all' else 0.0
+    box = Item(role=it.role, w_cm=it.w_cm + 2 * env,
+               d_cm=it.d_cm + env + grow_back, h_cm=it.h_cm, name=it.name)
+    off = 0.0 if sides == 'all' else (env - grow_back) / 2
+    dx, dy = _rt(0.0, off, table.rot)
+    probe = Placement(role=it.role, x=table.x + dx, y=table.y + dy,
+                      rot=table.rot, item=box)
+    return free.contains(footprint(probe))
+
+
 COFFEE_GAP = float(_g('coffee_gap_cm', 42.5))    # столик от фронта дивана
 FLANK_GAP = float(_g('flank_gap_cm', 32.0))      # кресло от торца дивана
 VIS_FACE = tuple(_g('visavi_face_cm', [183.0, 305.0]))   # фронт-фронт визави
@@ -743,7 +786,9 @@ def build_dining(by_role: dict[str, Item], max_chairs: int,
     # v2.3: круглый/квадратный стол (w==d) — по одному стулу с каждой стороны
     # (через 90°). Прямоугольный — пары по длинным сторонам, но ТОЛЬКО если пара
     # физически помещается с зазором ≥8 (set37: узкий стол бил стул о стул)
-    pair_ok = w >= 2 * chair_w + 24
+    # + паспортная ёмкость кромки: ≥ edge_per_diner_cm на едока (свод №8 пакет A)
+    _edge_min = 2 * float(_dining_rules().get('edge_per_diner_cm', 61) or 61)
+    pair_ok = w >= max(2 * chair_w + 24, _edge_min)
     xs = [0.0] if (abs(w - d) < 2 or not pair_ok) else [-w / 4, w / 4]
     spots: list[tuple[float, float, float]] = []
     for x in sorted(xs, key=abs):
@@ -1370,7 +1415,8 @@ def place_dining(room: Room, items: list[Item], free: Polygon, usable_m2: float,
     # число стульев = сколько ЕСТЬ в сете (до предела band): лишние стулья иначе
     # оставались без зоны (экзамен 11.08: «стул 4» пропущен в 125 сценах)
     have_chairs = sum(1 for it in items if it.role == 'стул' or it.role.startswith('стул '))
-    cap = 2 if usable_m2 <= 18 else (4 if usable_m2 <= 30 else 6)
+    # мест по площади — из паспорта (пакет A свода №8: паспорт = source of truth)
+    cap = dining_seats_cap(usable_m2)
     max_chairs = max(2, min(have_chairs, cap))
     # S4 (small-свод §14): каскад масштаба — если полный состав не встал, пробуем
     # столовую на 2 места, прежде чем отказаться (living не ломаем ради стола)
