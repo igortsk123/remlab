@@ -111,7 +111,8 @@ def pick_group(room: Room, roles_available: set[str] | dict, seats_target: int |
     return max(candidates, key=lambda g: g['seats'])
 
 
-def pick_ladder(room: Room, roles_available: set[str] | dict) -> list[dict]:
+def pick_ladder(room: Room, roles_available: set[str] | dict,
+                skip: int = 0) -> list[dict]:
     """ЛЕСТНИЦА шаблонов посадки (план seating-template-ladder, владелец 13.08):
     упорядоченный список групп «от самой вместительной к соло», доступных по
     инвентарю сета. Спуск по лестнице = смена ШАБЛОНА (не вычитание предметов).
@@ -132,7 +133,47 @@ def pick_ladder(room: Room, roles_available: set[str] | dict) -> list[dict]:
                        if r.split(' ')[0] in SEATING_ROLES)
         if all(have.get(role, 0) >= n for role, n in need.items()):
             out.append(g)
+    if skip:
+        # dining_sacrifice: спуск на N ступеней ниже — жертва мест ради второй зоны
+        out = out[skip:] if skip < len(out) else out[-1:]
     return out or [groups['sofa_solo' if have.get('диван', 0) > 0 else 'armchair_pair']]
+
+
+def solve_zoned(room: Room, items, **kw):
+    """Обёртка dining_sacrifice (правило владельца 14.08, разбор Плана №19):
+    столовая не встала, стол в банке → пересбор с посадкой на СТУПЕНЬ НИЖЕ;
+    принимаем, только если столовая встала, медиа сохранена и качество не хуже
+    (гейт not_worse). Остаток после столовой — зонам хранения (порядок цепочки
+    прежний). Конфиг — rules/zones.json → dining_sacrifice."""
+    outs, gid = _solve_zoned_core(room, items, **kw)
+    cfg = zone_rules().get('dining_sacrifice', {})
+    if not cfg.get('enabled', False) or '+din' in gid:
+        return outs, gid
+    if not outs or not outs[0].placements:
+        return outs, gid
+    bank = set(outs[0].skipped_optional or [])
+    if 'стол обеденный' not in bank:
+        return outs, gid
+    from .quality import not_worse as _nw
+    from .quality import scene_quality as _sq
+    base_q = _sq(room, outs[0].placements)
+    _media0 = any(p.role.split(' ')[0] in ('тв-тумба', 'стенка', 'камин')
+                  for p in outs[0].placements)
+    for _skip in range(1, int(cfg.get('max_steps_down', 2)) + 1):
+        outs2, gid2 = _solve_zoned_core(room, items, _ladder_skip=_skip, **kw)
+        if not outs2 or not outs2[0].placements or '+din' not in gid2:
+            continue
+        if _media0 and not any(p.role.split(' ')[0] in ('тв-тумба', 'стенка', 'камин')
+                               for p in outs2[0].placements):
+            continue
+        if not _nw(base_q, _sq(room, outs2[0].placements)):
+            continue
+        if os.environ.get('ZONES_DEBUG'):
+            import sys as _sd
+            print(f'ZDBG dining_sacrifice: ступень −{_skip} — столовая встала, '
+                  f'качество не хуже (принято)', file=_sd.stderr, flush=True)
+        return outs2, gid2 + f'+sacr{_skip}'
+    return outs, gid
 
 
 # Посадочные роли, состав которых диктует ГРУППА (Z3); прочее (media/хранение/декор/обеденная)
@@ -279,7 +320,7 @@ def _uu0(polys):
     return _u(polys)
 
 
-def solve_zoned(room: Room, items, **kw):
+def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
     """Z3, уровень 1 (MVP): сначала выбирается посадочная ГРУППА по полезной площади, затем
     beam решает предметы; посадочные роли вне группы не размещаются «лишь бы стоять», а честно
     уходят в skipped_optional. Старый solve() нетронут — A/B на перегоне.
@@ -343,7 +384,7 @@ def solve_zoned(room: Room, items, **kw):
             # если ни одна не дала минимум — берём первую вставшую (fallback).
             _has_bearer0 = any(_base(i.role) in ('тв-тумба', 'стенка') for i in keep)
             _fb_block = _fb_group = None
-            for _g in pick_ladder(room, dict(counts)):
+            for _g in pick_ladder(room, dict(counts), skip=_ladder_skip):
                 _blk = place_template(room, _g['id'], keep, usable_polygon(room))
                 if not _blk:
                     continue
@@ -390,7 +431,7 @@ def solve_zoned(room: Room, items, **kw):
                         import sys as _sl
                         print('ZDBG лестница диванов: пробуем ПРЯМОЙ вместо углового',
                               file=_sl.stderr, flush=True)
-                    for _g in pick_ladder(room, dict(counts)):
+                    for _g in pick_ladder(room, dict(counts), skip=_ladder_skip):
                         _blk = place_template(room, _g['id'], _keep2, usable_polygon(room))
                         if not _blk:
                             continue

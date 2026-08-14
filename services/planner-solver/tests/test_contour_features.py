@@ -163,8 +163,8 @@ def test_corner_adrift_functional_gap():
 
 
 def test_dining_share_watchdog():
-    """Свод №7: доля планов со столовой — планка по лучшему замеру (172/252,
-    14.08), двигается только вверх. Отчёт приёмки нужен свежий."""
+    """Свод №7: доля планов со столовой — планка по лучшему замеру (196/252,
+    14.08, после dining_sacrifice), двигается только вверх."""
     import json, os
     rep = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'tools',
                        'scout', 'acceptance-report-zoned.jsonl')
@@ -177,4 +177,31 @@ def test_dining_share_watchdog():
         n += 1
         din += ('+din' in r.get('templates', ''))
     assert n == 252, f'отчёт неполный: {n}'
-    assert din >= 172, f'доля столовой упала: {din}/252 (планка 172 — лучший замер)'
+    assert din >= 196, f'доля столовой упала: {din}/252 (планка 196 — лучший замер)'
+
+
+def test_dining_sacrifice_ladder():
+    """Правило владельца 14.08 (План №19): столовая не встала из-за жадной ступени
+    посадки — пересбор ступенью ниже; кресло в банк, стол+2 встают."""
+    from planner.models import Item
+    from planner.zones import solve_zoned
+    room = Room(width_cm=360, depth_cm=415,
+                openings=[Opening(kind='door', wall='south', offset_cm=86,
+                                  width_cm=90),
+                          Opening(kind='window', wall='east', offset_cm=140,
+                                  width_cm=158)])
+    items = [Item(role='диван', w_cm=190, d_cm=95, h_cm=85),
+             Item(role='кресло', w_cm=68, d_cm=82, h_cm=80),
+             Item(role='столик', w_cm=120, d_cm=50, h_cm=40),
+             Item(role='ковёр', w_cm=230, d_cm=160, h_cm=1),
+             Item(role='тв-тумба', w_cm=120, d_cm=38, h_cm=50),
+             Item(role='стол обеденный', w_cm=80, d_cm=80, h_cm=75),
+             Item(role='стул', w_cm=45, d_cm=50, h_cm=85),
+             Item(role='стул 2', w_cm=45, d_cm=50, h_cm=85),
+             Item(role='торшер', w_cm=28, d_cm=22, h_cm=150)]
+    lays, gid = solve_zoned(room, items)
+    assert lays and lays[0].placements
+    roles = {p.role for p in lays[0].placements}
+    assert 'стол обеденный' in roles and '+din' in gid, (gid, roles)
+    if 'sacr' in gid:
+        assert 'кресло' not in roles      # жертва честно в банке
