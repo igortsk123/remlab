@@ -45,6 +45,13 @@ def _v(code: str, msg: str, roles: list[str], value: float | None = None, expect
     return Violation(code=code, severity=severity, message=msg, roles=roles, value=value, expected=expected)
 
 
+def _in_secondary_zone(p) -> bool:
+    """Кресло ВТОРИЧНОЙ зоны (нук чтения / эркер): дуговые чеки разговорной
+    группы не применяются — зону структурирует свой шаблон/архитектура
+    (bay-nook-templates 14.08, по образцу камин-уголка)."""
+    return getattr(p, 'tpl_id', None) in ('reading', 'bay_armchair')
+
+
 # ПЛОСКОЕ НАПОЛЬНОЕ ПОКРЫТИЕ — не мебель (системное правило 12.08, веб-канон).
 # Ковёр не перекрывает конвекцию радиатора (радиатор висит над полом, норма 30 см
 # относится к МЕБЕЛИ перед ним) и не мешает двери: межкомнатная дверь имеет подрез
@@ -329,8 +336,8 @@ def check_distances(room: Room, ps: list[Placement]) -> list[Violation]:
     if "диван" in by:
         lim = distances().get("seats_group_max", 200)   # единый порог для обоих движков
         for arm in _inst(ps, "кресло"):
-            # D5: кресло камин-уголка (вторичная зона) — законно далеко от дивана
-            if _in_fireplace_zone(ps, arm):
+            # D5: кресло камин-уголка/нука/эркера (вторичная зона) — законно далеко
+            if _in_fireplace_zone(ps, arm) or _in_secondary_zone(arm):
                 continue
             g = footprint(by["диван"]).distance(footprint(arm))
             if g > lim:
@@ -786,7 +793,7 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
         # зона в остатке за спинкой (residual_bands 130-180 → nook), дуговые и
         # ковровые чеки разговорной группы к нему не применяются (аналогично
         # камин-уголку). Иначе ARMCHAIR_BEHIND_SOFA рубил канонный нук свода
-        if getattr(arm, 'tpl_id', None) == 'reading':
+        if _in_secondary_zone(arm):
             continue
         rg4 = by.get("ковёр")
         if rg4 is not None and footprint(arm).intersection(footprint(rg4)).area < arm.item.w_cm * 10:
@@ -1014,7 +1021,7 @@ def check_layout_rules(room: Room, ps: list[Placement]) -> list[Violation]:
         # стена» не годится: в углу предмет числится по соседней стене и правило не срабатывало.
         fwd_a, _ = relative_position(sofa, by["кресло"])
         fwd_t, _ = relative_position(sofa, by["столик"])
-        if fwd_a > fwd_t + 80:
+        if fwd_a > fwd_t + 80 and not _in_secondary_zone(by["кресло"]):
             out.append(_v("ARMCHAIR_TOO_DEEP", "кресло уехало за столик, к ТВ-зоне", ["кресло", "столик"],
                           round(fwd_a - fwd_t), "не дальше 80 см за линию столика"))
     if "стул" in by and "стол обеденный" not in by and _lr("chair_requires_dining_table", True):

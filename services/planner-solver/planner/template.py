@@ -1514,8 +1514,86 @@ def place_reading(room: Room, items: list[Item], free: Polygon,
     b = build_reading(by_role)
     if b is None:
         return None
-    return _best_block(room, b, free, wall_candidates(room, b.anchor, free),
-                       tv=None, fixed=fixed)
+    cands = list(wall_candidates(room, b.anchor, free))
+    # Схема bay (паспорт reading 2.8, свод №5 C5): эркер — канонное место нука.
+    # Кандидат в центре каждого эркера, спинка к наружной кромке, фронт в комнату;
+    # эркер — часть помещения, кресло может выступать из ниши (проверит validate)
+    from .room_map import contour_features as _cfr
+    for _bg in _cfr(room)[0]:
+        _bx, _by = _bg.centroid.x, _bg.centroid.y
+        _rot = 180 if _by > room.depth_cm / 2 else 0
+        if _bg.bounds[2] - _bg.bounds[0] < _bg.bounds[3] - _bg.bounds[1]:
+            _rot = 270 if _bx > room.width_cm / 2 else 90
+        from .candidates import Candidate as _Cnd
+        from .models import Placement as _Pl
+        cands.append(_Cnd(placement=_Pl(role=b.anchor.role, x=_bx, y=_by, rot=_rot,
+                                        item=b.anchor),
+                          kind='wall', note='эркер', topology='bay'))
+    return _best_block(room, b, free, cands, tv=None, fixed=fixed)
+
+
+def place_bay_armchair(room: Room, items: list[Item], free: Polygon,
+                       fixed: list[Placement] | None = None) -> list[Placement] | None:
+    """Шаблон bay_armchair 1.0 (одобрение владельца 14.08): кресло в эркере —
+    ниша сама задаёт рамку зоны. Кандидаты ТОЛЬКО в эркерах (room_map.bays);
+    торшер за плечом — если свободен. Вне эркера шаблон не ставится."""
+    if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
+        return None
+    from .room_map import contour_features as _cfb
+    bays = _cfb(room)[0]
+    if os.environ.get('ZONES_DEBUG'):
+        import sys as _sb
+        print(f'ZDBG bay_armchair: эркеров={len(bays)}', file=_sb.stderr, flush=True)
+    if not bays:
+        return None
+    by_role: dict[str, Item] = {}
+    for it in items:
+        by_role.setdefault(it.role, it)
+    arm = by_role.get('кресло') or by_role.get('кресло 2')
+    if arm is None:
+        return None
+    b = Block(arm)
+    lamp = by_role.get('торшер')
+    if lamp is not None:
+        b.add(lamp, arm.w_cm / 2 + lamp.w_cm / 2 + 12, -arm.d_cm / 2 + 8, 0.0)
+    b = _valid(b, 'bay_armchair')
+    if b is None:
+        return None
+    from .candidates import Candidate as _Cnd
+    cands = []
+    for _bg in bays:
+      x1, y1, x2, y2 = _bg.bounds
+      # три позиции вдоль пролёта ниши (25/50/75%): часть ниши может быть занята
+      # клиренсами соседей — кресло сдвигается, а не отказывается
+      for _t in (0.5, 0.25, 0.75):
+        _bx = x1 + (x2 - x1) * _t
+        _by = y1 + (y2 - y1) * _t
+        pad = 3.0
+        # спинка ПРИЖАТА к наружной кромке ниши (глубокое кресло выступает в комнату —
+        # эркер часть помещения); ориентация — фронтом вглубь комнаты
+        if y2 - y1 <= x2 - x1:          # ниша за север/юг
+            if _bg.centroid.y > room.depth_cm / 2:   # север: фронт на юг
+                _rot, _cy = 180, y2 - arm.d_cm / 2 - pad
+            else:                          # юг: фронт на север
+                _rot, _cy = 0, y1 + arm.d_cm / 2 + pad
+            _cx = _bx
+        else:                            # ниша за запад/восток
+            if _bg.centroid.x > room.width_cm / 2:   # восток: фронт на запад
+                _rot, _cx = 270, x2 - arm.d_cm / 2 - pad
+            else:                          # запад: фронт на восток
+                _rot, _cx = 90, x1 + arm.d_cm / 2 + pad
+            _cy = _by
+        cands.append(_Cnd(placement=Placement(role=arm.role, x=_cx, y=_cy, rot=_rot,
+                                              item=arm),
+                          kind='wall', note='эркер', topology='bay'))
+    if os.environ.get('ZONES_DEBUG'):
+        import sys as _sb2
+        from .geometry import footprint as _fpb
+        for c in cands:
+            _fp = _fpb(c.placement)
+            cov = free.intersection(_fp).area / max(_fp.area, 1.0)
+            print(f'ZDBG bay-канд: ({c.placement.x:.0f},{c.placement.y:.0f}) rot={c.placement.rot} покрытие={cov:.2f}', file=_sb2.stderr, flush=True)
+    return _best_block(room, b, free, cands, tv=None, fixed=fixed)
 
 
 def build_fireplace(by_role: dict[str, Item]) -> Block | None:
@@ -1934,10 +2012,17 @@ def place_decor(room: Room, items: list[Item], free: Polygon,
         best, best_d = None, -1.0
         _bay_cands = []
         for _bg in _bays:
-            _bx, _by = _bg.centroid.x, _bg.centroid.y
-            _bay_cands.append(Placement(role=pl.role, x=_bx, y=_by,
-                                        rot=0 if _by > room.depth_cm / 2 else 180,
-                                        item=pl))
+            bx1, by1, bx2, by2 = _bg.bounds
+            for _t in (0.5, 0.2, 0.8):   # вдоль пролёта: часть ниши может быть занята
+                _bx = bx1 + (bx2 - bx1) * _t
+                _by = by1 + (by2 - by1) * _t
+                if bx2 - bx1 >= by2 - by1:
+                    _by = _bg.centroid.y
+                else:
+                    _bx = _bg.centroid.x
+                _bay_cands.append(Placement(role=pl.role, x=_bx, y=_by,
+                                            rot=180 if _by > room.depth_cm / 2 else 0,
+                                            item=pl))
         for c in list(wall_candidates(room, pl, free)) + _bay_cands:
             _in_bay = isinstance(c, Placement)
             if not _in_bay and c.kind != 'corner':

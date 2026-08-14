@@ -306,6 +306,14 @@ def solve_zoned(room: Room, items, **kw):
     allowed = {_base(r) for g in _steps_all
                for r in list(g['roles']['required']) +
                list(g['roles'].get('optional', []))}
+    # Роли ВТОРИЧНЫХ шаблонов (нук, кресло-в-эркере) — из паспортов, не из лестницы:
+    # кресло, которое не берёт ни одна ступень band'а, легально живёт нуком/эркером
+    # (bay-nook-templates 14.08; раньше отсев состава делал эти шаблоны недостижимыми)
+    from .invariants import TEMPLATES as _TT2
+    for _zid in ('reading', 'bay_armchair'):
+        _z2 = _TT2.get('zones', {}).get(_zid, {})
+        allowed |= {_base(r) for r in list(_z2.get('required', [])) +
+                    list(_z2.get('optional', []))}
     keep, dropped = [], []
     for it in items:
         # ПУФ ставится ТОЛЬКО внутри схемы посадки (владелец 12.08: зона из одного
@@ -473,7 +481,7 @@ def solve_zoned(room: Room, items, **kw):
         # ещё может влезть.
         from .template import (place_decor, place_fireplace, place_media,
                                place_media_fireplace, place_quiet,
-                               place_reading, place_storage)
+                               place_bay_armchair, place_reading, place_storage)
         _fp_pol = zone_rules().get('fill_policy', {})
         _lo, _hi = _fp_pol.get('target_pct', [30, 45])
         _half = set(WALL_HUGGING_ROLES)
@@ -511,6 +519,7 @@ def solve_zoned(room: Room, items, **kw):
                             # НЕ БОЛЕЕ ДВУХ зон хранения на гостиную (владелец 12.08)
                             (place_storage, '+st2'),
                             (place_quiet, '+qz'), (place_reading, '+rd'),
+                            (place_bay_armchair, '+bay'),
                             (place_decor, '+dc')):
             occ2 = _uu([_fp(p) for p in block if p.role != 'ковёр'])
             _free_z = usable_polygon(room).difference(occ2)

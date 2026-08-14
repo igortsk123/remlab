@@ -949,7 +949,8 @@
    "+rd": "seating_extra",
    "+rd2": "seating_extra",
    "+dc": "decor",
-   "+dc2": "decor"
+   "+dc2": "decor",
+   "+bay": "seating_extra"
   },
   "reserves": {
    "tv_wall_strip": "media",
