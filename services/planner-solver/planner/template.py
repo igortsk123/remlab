@@ -74,6 +74,37 @@ def dining_envelope_cm() -> float:
     return float(_dining_rules().get('operational_envelope_cm', 90) or 90)
 
 
+# Пакет B свода №8: диагностика выбора dining (mode/island_feasible/fallback_reason).
+# Канал: place_dining заполняет модульный слот, zones.py кладёт его в Layout.meta,
+# solver_run экспортирует как `_dining`. Сбрасывается в начале place_dining.
+LAST_DINING_DIAG: dict | None = None
+
+
+def dining_island_feasible(table: Item, free: Polygon) -> bool:
+    """Независимая грубая проба (свод №8 v2 §5): существует ли ГДЕ-ТО в свободном
+    полигоне позиция полного острова (стол + envelope со всех сторон) — отдельно от
+    генератора кандидатов, чтобы отличать «остров невозможен геометрически» от
+    «кандидаты его не нашли» (баг генерации). Сетка 25 см, обе ориентации."""
+    from shapely.geometry import box as _box
+    from shapely.prepared import prep as _prep
+    env = dining_envelope_cm()
+    if free.is_empty:
+        return False
+    pf = _prep(free)
+    minx, miny, maxx, maxy = free.bounds
+    for w, d in ((table.w_cm, table.d_cm), (table.d_cm, table.w_cm)):
+        W, D = w + 2 * env, d + 2 * env
+        x = minx + W / 2
+        while x <= maxx - W / 2 + 1e-6:
+            y = miny + D / 2
+            while y <= maxy - D / 2 + 1e-6:
+                if pf.contains(_box(x - W / 2, y - D / 2, x + W / 2, y + D / 2)):
+                    return True
+                y += 25.0
+            x += 25.0
+    return False
+
+
 def dining_envelope_ok(table: Placement, free: Polygon, sides: str = 'all') -> bool:
     """FULL_ISLAND-валидность: паспортный envelope свободен вокруг рабочих сторон стола.
     sides='all' — все четыре стороны (остров); 'front' — пристенная сторона (локальный −y)
@@ -1431,22 +1462,39 @@ def place_dining(room: Room, items: list[Item], free: Polygon, usable_m2: float,
     _rug_fx = next((p for p in (fixed or []) if p.role == 'ковёр'), None)
     if _rug_fx is not None:
         free = free.difference(footprint(_rug_fx))
+    # пакет B свода №8: объяснимость выбора — заполняем диагноз по ходу каскада
+    global LAST_DINING_DIAG
+    _tbl_it = by_role.get('стол обеденный')
+    diag = {'mode': None, 'island_feasible': (
+                dining_island_feasible(_tbl_it, free) if _tbl_it is not None else False),
+            'island_reject': None, 'fallback_reason': None,
+            'envelope_cm': dining_envelope_cm()}
+    LAST_DINING_DIAG = diag
     # схемы паспорта: остров → у стены; каскад масштаба стульев (S4)
     for _nch in _chair_steps:
         b_all = build_dining(by_role, _nch, sides='all')
         if b_all is None or len(b_all.rel) < 2:
+            diag['island_reject'] = diag['island_reject'] or 'no_island_block'
             continue
         ps = _best_block(room, b_all, free,
                          list(middle_candidates(room, b_all.anchor, free, limit=8)),
                          tv=None, fixed=fixed)
         if ps is not None:
+            _tbl_p = next((p for p in ps if p.role == 'стол обеденный'), None)
+            diag['mode'] = ('full_island' if _tbl_p is not None and
+                            dining_envelope_ok(_tbl_p, free, 'all') else 'compact_island')
             return ps
+        diag['island_reject'] = 'island_candidates_failed'
         b_front = build_dining(by_role, _nch, sides='front')
         if b_front is not None:
             ps = _best_block(room, b_front, free,
                              list(wall_candidates(room, b_front.anchor, free)),
                              tv=None, fixed=fixed)
             if ps is not None:
+                diag['mode'] = 'edge'
+                diag['fallback_reason'] = (
+                    'island_infeasible' if not diag['island_feasible']
+                    else diag['island_reject'] or 'island_place_failed')
                 return ps
     return None
 

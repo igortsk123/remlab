@@ -66,6 +66,12 @@ def semantic(scene_id, room, items, rep, set_meta):
         lines.append('')
         lines.append(f"Дистанция диван↔носитель ТВ: {dist:.0f} см.")
     m = []
+    din = (rep or {}).get('_dining') or {}
+    if din:
+        m.append(f"столовая: режим {din.get('mode')}, остров возможен="
+                 f"{din.get('island_feasible')}, причина={din.get('why_selected')}"
+                 + (f", фолбэк={din.get('fallback_reason')}"
+                    if din.get('fallback_reason') else ''))
     if rep:
         m.append(f"шаблоны зон: {rep.get('templates')}")
         if rep.get('unused'):
@@ -146,7 +152,8 @@ def main():
         items = {k: v for k, v in art.items()
                  if not k.startswith('_') and isinstance(v, dict) and 'x' in v}
         set_meta = sets_[sc['set'] - 1]
-        rep = reps.get(sid, {})
+        rep = dict(reps.get(sid, {}))
+        rep['_dining'] = art.get('_dining')   # диагностика dining — из артефакта (пакет B)
         num = f'{i:03d}'
         data = {
             'plan': i, 'scene': sid,
@@ -158,6 +165,7 @@ def main():
             'metrics': {'route_cm': art.get('_route_cm'),
                         'fill_pct': art.get('_fill_pct'),
                         'soft_score': rep.get('soft_score')},
+            'dining': art.get('_dining'),
             'bank_unused': rep.get('unused', []),
             'zones_tag': rep.get('templates'),
         }

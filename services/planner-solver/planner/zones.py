@@ -172,6 +172,9 @@ def solve_zoned(room: Room, items, **kw):
             import sys as _sd
             print(f'ZDBG dining_sacrifice: ступень −{_skip} — столовая встала, '
                   f'качество не хуже (принято)', file=_sd.stderr, flush=True)
+        if isinstance(outs2[0].meta.get('dining'), dict):    # пакет B: объяснимость
+            outs2[0].meta['dining']['sacrifice_step'] = _skip
+            outs2[0].meta['dining']['why_selected'] = 'preferred_coverage+sacrifice'
         return outs2, gid2 + f'+sacr{_skip}'
     return outs, gid
 
@@ -332,6 +335,8 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
     from .invariants import phantom_dimensions
     from .quality import not_worse as _not_worse
     from .quality import scene_quality as _quality
+    from . import template as _tplmod
+    _tplmod.LAST_DINING_DIAG = None      # пакет B: свежий диагноз dining на каждый прогон
     avail = {_base(i.role) for i in items}
     counts = Counter(_base(i.role) for i in items)
     group = pick_group(room, dict(counts))
@@ -602,6 +607,10 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                               f"{_q_before['circulation']:.0f}→{_q_after['circulation']:.0f} см, "
                               f"щели {_q_before['sliver_m2']:.2f}→{_q_after['sliver_m2']:.2f} м²",
                               file=_s.stderr, flush=True)
+                    if tag == '+din':
+                        _dd0 = getattr(_tplmod, 'LAST_DINING_DIAG', None)
+                        if _dd0 is not None:
+                            _dd0['gate_rejected'] = True   # пакет B: причина «не встала»
                     extra = None
             if extra:
                 roles2 = {p.role for p in extra}
@@ -682,6 +691,20 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
         assert not _missing_block, f'шаблон разобран: не хватает {_missing_block}'
         lay.unplaced = []
         lay.skipped_optional = sorted({it.role for it in keep} | set(dropped))
+        # пакет B свода №8: диагноз dining → meta (почему выбран режим / почему нет)
+        _ddiag = getattr(_tplmod, 'LAST_DINING_DIAG', None)
+        if _ddiag is not None:
+            _ddiag = dict(_ddiag)
+            if '+din' in tpl_tag:
+                _seatp = next((p for p in block if p.role.split(' ')[0] == 'диван'), None)
+                _mand = _seatp is not None and _behind_decision(room, _seatp) in (
+                    'dining_mandatory', 'second_zone_mandatory')
+                _ddiag['why_selected'] = ('mandatory_residual_R' if _mand
+                                          else 'preferred_coverage')
+            else:
+                _ddiag['why_selected'] = 'not_placed'
+                _ddiag['mode'] = None
+            lay.meta['dining'] = _ddiag
         outs = [lay]
         if os.environ.get('ZONES_DEBUG'):
             import sys as _s

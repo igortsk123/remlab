@@ -647,8 +647,10 @@ def attempt_beam():
               for p in lay.placements}
     # ПРОСЛЕЖИВАЕМОСТЬ ШАБЛОНА (ADR template-integrity): каким паспортом схемы
     # поставлен каждый предмет — в артефакт, отчёт и галерею
-    global TPL_BY_ROLE
+    global TPL_BY_ROLE, DINING_DIAG
     TPL_BY_ROLE = {p.role: (p.tpl_id, p.tpl_version) for p in lay.placements}
+    # пакет B свода №8: диагноз выбора dining (mode/island_feasible/why) — в артефакт
+    DINING_DIAG = (lay.meta or {}).get('dining')
     _no_tpl = sorted(r for r, (t, _) in TPL_BY_ROLE.items() if not t)
     if _no_tpl and os.environ.get('LAYOUT_ONLY_TEMPLATES', '1') == '1':
         print('NOTPL ' + json.dumps(_no_tpl, ensure_ascii=False), flush=True)
@@ -747,6 +749,7 @@ _room_ops=(json.loads(_ops_env) if (_ops_env and json.loads(_ops_env)) else [
 # контур комнаты — в артефакт: план обязан рисовать НАСТОЯЩИЕ стены, а не bbox
 # (замечание владельца 12.08: «диван заходит за границы комнаты» — это врал чертёж)
 out['_templates']={r:{'id':t,'version':v} for r,(t,v) in (globals().get('TPL_BY_ROLE') or {}).items()}
+out['_dining']=globals().get('DINING_DIAG')   # объяснимость dining (свод №8 пакет B)
 # S3 (small-room-mode): «ТВ адаптируется к комнате легче, чем планировка к ТВ» — если
 # фактическая дистанция посадка↔носитель меньше цели RTINGS, пишем рекомендацию меньшей
 # диагонали в артефакт (для сметы/подбора); геометрию НЕ ломаем
