@@ -1258,6 +1258,13 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
               'sofa_loveseat': ['default', 'square'],
               'sofa_loveseat_2armchairs': ['default', 'square'],
               }.get(group_id, ['default'])
+    # C1 (M-C, свод №5): квадратная комната — симметричные ЦЕНТРАЛЬНЫЕ схемы первыми
+    # (список приоритета — паспорт contour_features, выбор схемы = первая вставшая)
+    from .invariants import TEMPLATES as _CT
+    from .room_map import contour_features as _cf
+    if _cf(room)[2]:
+        _prio = _CT.get('contour_features', {}).get('square_scheme_priority', [])
+        shapes = [s for s in _prio if s in shapes] + [s for s in shapes if s not in _prio]
     # ФОКУС-СТЕНА ОБЯЗАТЕЛЬНА (свод владельца 12.08: «стена напротив дивана не должна
     # быть пустой»). КРУГ 1 — принимаем только те позиции посадки, при которых носителю
     # ТВ остаётся чистое место. КРУГ 2 (если ни одна схема не ужилась) — ставим посадку
@@ -1868,12 +1875,29 @@ def place_decor(room: Room, items: list[Item], free: Polygon,
     base = list(fixed or [])
     occ = [footprint(p) for p in base if p.role != 'ковёр']
     out: list[Placement] = []
+    # C5 (M-C, свод №5): эркер — приоритетное место для растения. Кандидаты в
+    # центре каждого эркера (спиной к наружной кромке), поверх угловых.
+    from .room_map import contour_features as _cf5
+    _bays = _cf5(room)[0]
+    from .invariants import TEMPLATES as _CT5
+    _bay_bonus = float(_CT5.get('contour_features', {}).get('bay_bonus', 25))
     for pl in plants:
         best, best_d = None, -1.0
-        for c in wall_candidates(room, pl, free):
-            if c.kind != 'corner':
+        _bay_cands = []
+        for _bg in _bays:
+            _bx, _by = _bg.centroid.x, _bg.centroid.y
+            _bay_cands.append(Placement(role=pl.role, x=_bx, y=_by,
+                                        rot=0 if _by > room.depth_cm / 2 else 180,
+                                        item=pl))
+        for c in list(wall_candidates(room, pl, free)) + _bay_cands:
+            _in_bay = isinstance(c, Placement)
+            if not _in_bay and c.kind != 'corner':
                 continue                      # только углы (свод: зелень в угол)
-            p = c.placement
+            p = c if _in_bay else c.placement
+            if _in_bay and not (free.contains(footprint(p)) or
+                                any(_bg.buffer(1.0).contains(footprint(p))
+                                    for _bg in _bays)):
+                continue
             d = min((footprint(p).distance(o) for o in occ), default=999.0)
             if d < 60:
                 continue                      # вплотную к мебели не ставим
@@ -1893,8 +1917,9 @@ def place_decor(room: Room, items: list[Item], free: Polygon,
                 from .geometry import opening_polygon as _opw
                 _dw = min(footprint(p).distance(_opw(room, o)) for o in _wins)
                 _light_bonus = max(0.0, 150.0 - _dw)      # ≤1.5 м от окна — бонус
-            if d + _light_bonus > best_d:
-                best, best_d = p, d + _light_bonus
+            _bb = _bay_bonus if _in_bay else 0.0   # C5: растение в эркере
+            if d + _light_bonus + _bb > best_d:
+                best, best_d = p, d + _light_bonus + _bb
         if best is not None:
             # прослеживаемость: декор — тоже шаблон (паспорт decor)
             out.append(best.model_copy(update={'tpl_id': 'decor', 'tpl_version': '1.0'}))

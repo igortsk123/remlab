@@ -169,6 +169,16 @@ def generate_pairs(room: Room, rmap: RoomMap, media: Item, sofa: Item,
             else:
                 score += float(_WS.get('no_window_conflict', 15)) * 0.4
             score += float(_WS.get('free_length', 5)) * min(1.0, seg.length_cm / 400.0)
+            # C4 (M-C, свод №5): колонна/пилон в коридоре «медиа↔диван» — беседа и
+            # просмотр через препятствие; пары в обход колонны выигрывают
+            if rmap.columns:
+                from shapely.geometry import box as _cbox
+                _pad = max(media.w_cm, sofa.w_cm) / 2
+                _corr = _cbox(min(mx, sx) - _pad, min(my, sy) - _pad,
+                              max(mx, sx) + _pad, max(my, sy) + _pad)
+                if any(c.buffer(15.0).intersects(_corr) for c in rmap.columns):
+                    score -= float(TEMPLATES.get('contour_features', {})
+                                   .get('column_pair_penalty', 12))
             out.append(Pair(media_wall=wall, media_x=mx, media_y=my, media_rot=m_rot,
                             sofa_x=sx, sofa_y=sy, sofa_rot=s_rot, sofa_scheme=scheme,
                             score=round(score, 1), dist_cm=round(dist),

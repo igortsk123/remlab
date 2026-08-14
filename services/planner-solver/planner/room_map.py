@@ -55,6 +55,9 @@ class RoomMap:
     light_walls: list[str]             # стены с окнами — источники света
     mode: str = 'transitional'         # small / transitional / large (room_mode)
     shape: str = 'normal'              # normal / slightly / elongated / strongly (room_shape)
+    bays: list = field(default_factory=list)      # эркеры (полигоны, M-C C5)
+    columns: list = field(default_factory=list)   # колонны/пилоны в габарите (M-C C4)
+    square: bool = False               # квадратная комната (M-C C1)
 
     def wall(self, w: str) -> WallInfo:
         return self.walls[w]
@@ -156,6 +159,72 @@ def room_mode(room: Room) -> str:
     return 'transitional'
 
 
+def contour_features(room: Room) -> tuple[list, list, bool]:
+    """M-C (свод №5): классификация осевого контура — (эркеры, колонны, квадрат).
+
+    core = максимальный вписанный прямоугольник; эркер — выступ за core глубиной
+    ≤ порога С ОКНОМ; колонна — вырез bbox−контур малой площади, у которого комната
+    есть С ОБЕИХ сторон вдоль стены (пилон «протыкает» комнату). Пороги — паспорт
+    `contour_features` (rules/templates.json)."""
+    from shapely.geometry import box as _box
+
+    from .geometry import largest_free_rectangles, opening_polygon as _opw
+    from .invariants import TEMPLATES
+    cfg = TEMPLATES.get('contour_features', {})
+    sq_max = float(cfg.get('square_aspect_max', 1.10))
+    ratio = max(room.width_cm, room.depth_cm) / max(min(room.width_cm, room.depth_cm), 1.0)
+    if not room.contour:
+        return [], [], ratio <= sq_max
+    poly = room_polygon(room)
+    bb = _box(*poly.bounds)
+    cores = largest_free_rectangles(poly, min_side_cm=100.0, limit=4)
+    core = cores[0] if cores else poly
+    bay_depth = float(cfg.get('bay_max_depth_cm', 120))
+    need_win = bool(cfg.get('bay_needs_window', True))
+    wins = [_opw(room, o) for o in room.openings if o.kind == 'window']
+
+    def _parts(g):
+        if g.is_empty:
+            return []
+        return [g] if g.geom_type == 'Polygon' else [p for p in g.geoms if p.area > 1.0]
+
+    bays = []
+    kx1, ky1, kx2, ky2 = core.bounds
+    for g in _parts(poly.difference(core)):
+        gx1, gy1, gx2, gy2 = g.bounds
+        if min(gx2 - gx1, gy2 - gy1) > bay_depth or g.area / 10_000 < 0.3:
+            continue
+        # эркер — выступ СТРОГО внутри пролёта core (фланги с двух сторон);
+        # примыкает к боковой стене → ступень/срез формы (трапеция), не эркер
+        if gy2 - gy1 <= gx2 - gx1:   # выступ за север/юг — пролёт по X
+            if gx1 <= kx1 + 1 or gx2 >= kx2 - 1:
+                continue
+        else:                        # выступ за запад/восток — пролёт по Y
+            if gy1 <= ky1 + 1 or gy2 >= ky2 - 1:
+                continue
+        if need_win and wins and not any(g.buffer(25.0).intersects(w) for w in wins):
+            continue
+        bays.append(g)
+    col_max = float(cfg.get('column_max_area_m2', 1.5))
+    cols = []
+    for g in _parts(bb.difference(poly)):
+        if g.area / 10_000 > col_max:
+            continue
+        gx1, gy1, gx2, gy2 = g.bounds
+        # комната с обеих сторон вдоль стены → пилон, а не срез угла/фланг эркера
+        if gx2 - gx1 <= gy2 - gy1:   # вырез в вертикальную стену — соседи сверху/снизу
+            a = _box(gx1, gy1 - 20, gx2, gy1 - 1)
+            b = _box(gx1, gy2 + 1, gx2, gy2 + 20)
+        else:                        # вырез в горизонтальную стену — соседи слева/справа
+            a = _box(gx1 - 20, gy1, gx1 - 1, gy2)
+            b = _box(gx2 + 1, gy1, gx2 + 20, gy2)
+        if poly.intersection(a).area > 1.0 and poly.intersection(b).area > 1.0:
+            cols.append(g)
+    cx1, cy1, cx2, cy2 = core.bounds
+    c_ratio = max(cx2 - cx1, cy2 - cy1) / max(min(cx2 - cx1, cy2 - cy1), 1.0)
+    return bays, cols, c_ratio <= sq_max
+
+
 def build_room_map(room: Room) -> RoomMap:
     walls: dict[str, WallInfo] = {}
     for w in WALLS:
@@ -165,6 +234,8 @@ def build_room_map(room: Room) -> RoomMap:
             doors=[op for op in room.openings
                    if op.kind in ('door', 'balcony') and op.wall == w],
             radiators=[r for r in room.radiators if r.wall == w])
+    bays, cols, square = contour_features(room)
     return RoomMap(walls=walls, routes=_routes(room),
                    light_walls=[w for w in WALLS if walls[w].windows],
-                   mode=room_mode(room), shape=room_shape(room))
+                   mode=room_mode(room), shape=room_shape(room),
+                   bays=bays, columns=cols, square=square)

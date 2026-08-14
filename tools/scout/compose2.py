@@ -435,6 +435,8 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
             s+=min(1.0,_eff*0.35); why.append(f"эфф.посадки+{min(1.0,_eff*0.35):.1f}")
         # M-A3 (свод №5, Livingetc): при вероятном конфликте траекторий круглый/овальный
         # столик предпочтительнее прямоугольного (нет углов в проходе)
+        if m2<=18 and role=='столик' and (( (EB.get(it['mid'],it['eid']) or {}).get('specific') or {}).get('body')):
+            s+=0.5; why.append("столик-хранение+0.5")   # A4 (свод №5): мультифункция прежде нового предмета
         if m2<=18 and role=='столик' and re.search(r'кругл|овал', (it.get('name') or '').lower()):
             s+=0.8; why.append("округлый+0.8")
         # S5 (small-свод §16): вертикальный бонус хранения — высокий узкий лучше
@@ -770,6 +772,17 @@ for bi,band in enumerate(COMP['bands']):
             print(f"  R3: хранения {_total:.0f} см при потолке {15*m2:.0f} (15 см/м²) — «{_r}» вон")
             _total-=_stw(_r); floor_fp-=(chosen[_r].get('fp') or 0)*chosen[_r].get('qty',1)
             chosen.pop(_r); alts.pop(_r,None); _storage.remove(_r)
+        # A5 (свод №5, малые): КОНЦЕНТРАЦИЯ хранения — в ≤18 м² один крупный блок
+        # лучше двух мелких на разных стенах (свод: «один 180 лучше 100+80»);
+        # носитель ТВ (стенка/тв-тумба) не считается — он медиа-зона
+        if m2<=18:
+            _units=[r for r in ('витрина','стеллаж','комод') if r in chosen]
+            if len(_units)>=2:
+                _units.sort(key=lambda r:(chosen[r].get('w') or 0)*(chosen[r].get('h') or 200))
+                for _r in _units[:-1]:
+                    print(f"  A5: концентрация хранения в малой — «{_r}» вон (остаётся крупнейший блок)")
+                    floor_fp-=(chosen[_r].get('fp') or 0)*chosen[_r].get('qty',1)
+                    chosen.pop(_r); alts.pop(_r,None)
         # ковёр — ПРИВЯЗКА К ДИВАНУ (решение владельца по своду р.2): ширина ≈ диван + 25–35 см
         # с каждой стороны (схема «передние ножки»); фолбэк на % пола, если дивана/размеров нет
         if cat.get('ковёр'):
