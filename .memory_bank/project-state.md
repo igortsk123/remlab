@@ -3,7 +3,7 @@ tier: 1
 topic: project-state
 scope: Снимок «где проект сейчас» — точка ресинхронизации при /clear и resume
 tier2: "changelog/project-history.md"
-updated: 2026-08-13
+updated: 2026-08-14
 importance: high
 source: manual
 status: working
@@ -40,7 +40,12 @@ last_verified: 2026-08-09
 126/126. Completed-планы: MASTER-layout-modifiers, MASTER-tv-sofa-pair, elongated-room-mode,
 slots-everywhere, rules-consistency-audit, conflict-audit-modifiers. Отложено честно:
 swivel (нет данных обогащения), open-plan (нет сцен), потолок (Room.ceiling_cm спит),
-камин-ось без ТВ (недостижима при медиа-минимуме). Плюс bay_armchair 1.0 (кресло в эркере) свод №6 (ADR-0095: entry-зона, угловой по главной секции) свод №7 (ADR-0096: столовая от 15 м²) и dining_sacrifice (ADR-0097: жертва ступени, столовая 77% планов) — 14.08.
+камин-ось без ТВ (недостижима при медиа-минимуме). Плюс bay_armchair 1.0 (кресло в эркере) свод №6 (ADR-0095: entry-зона, угловой по главной секции) свод №7 (ADR-0096: столовая от 15 м²) и dining_sacrifice (ADR-0097) — 14.08. **Свод №8 v2 (внешний рефери, согласован диалогом
+с пруфами; ADR-0098…0101, MASTER-zones-v2 completed):** dining-паспорт в коде, каскад
+full_island→compact→edge с объяснимостью (тихий edge 0), виртуальный экран
+(SCREEN_OVER_WINDOW + вейвер +tvw), зеркала Г-дивана, статусы зон данными, оси-замеры,
+приёмка 269 сцен (№253+ свои проёмы). Планка dining 196 честная (брак «экран на окне»
+вскрыт). Экзамен 269/269, медиа 269/269.
 Заполнение пола — диагностика, не цель.
 
 **Замер 12.08 (252 фикс-сцены, `tools/scout/acceptance_run.py`):** чисто 252/252 · медиа-зона
