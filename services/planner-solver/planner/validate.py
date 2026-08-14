@@ -1362,9 +1362,22 @@ def check_sofa_pair_geometry(ps: list[Placement]) -> list[Violation]:
     return out
 
 
+def check_media_cardinality(ps: list[Placement]) -> list[Violation]:
+    """V3-A свода №9 (P0 план №269): тумба и стенка — АЛЬТЕРНАТИВЫ одной media-зоны.
+    Финальный семантический валидатор (3-й уровень защиты после skip в цепочке и
+    декларативной cardinality в zones.json): носителей > 1 → hard."""
+    carriers = [p.role for p in ps if p.role.split(' ')[0] in ('тв-тумба', 'стенка')]
+    if len(carriers) > 1:
+        return [_v("MEDIA_DOUBLE_CARRIER",
+                   f"двойной носитель media-зоны: {', '.join(carriers)}",
+                   carriers, float(len(carriers)), "ровно один носитель ТВ")]
+    return []
+
+
 def validate(room: Room, placements: list[Placement], *, passage: str = "secondary") -> Layout:
     _ROOM_BAND[0] = room.band
     vs: list[Violation] = []
+    vs += check_media_cardinality(placements)
     vs += check_boundary(room, placements)
     vs += check_collisions(placements)
     vs += check_openings(room, placements)

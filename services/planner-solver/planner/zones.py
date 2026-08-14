@@ -604,6 +604,14 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
             def _zidx(t):
                 zz = _zt.get(t)
                 return _zo.index(zz) if zz in _zo else len(_zo)
+            # V3-A (свод №9 P0, план №269): КАРДИНАЛЬНОСТЬ media из данных —
+            # носитель уже в блоке (в т.ч. поставлен лестницей по вейверу +tvw) →
+            # media-теги пропускаются, второй носитель НЕ добирается
+            _cardc = (_zp.get('cardinality') or {}).get(_zt.get(tag, '')) or {}
+            if _cardc.get('rule') == 'exactly_one_carrier' and any(
+                    p.role.split(' ')[0] in tuple(_cardc.get('carrier_roles') or ())
+                    for p in block):
+                continue
             if _zidx(tag) > _zidx('+tv') and _tv_wall_reserved(room, block, keep):
                 _free_z = _free_z.difference(_tv_wall_strip(room, block))
             # ЗА СПИНКОЙ ОТОДВИНУТОГО ДИВАНА — СТОЛОВАЯ (веб-канон RU: диван спинкой к
@@ -671,7 +679,9 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
         # стенка должна быть везде»). Если после всей цепочки фокус-стена пуста, а
         # носитель лежит в банке — ставим его с ослабленными условиями: без требования
         # центровки, ковру можно уйти под него глубже, годятся угловые позиции.
-        if any(_base(i.role) in ('тв-тумба', 'стенка') for i in keep):
+        if any(_base(i.role) in ('тв-тумба', 'стенка') for i in keep) and not any(
+                p.role.split(' ')[0] in ('тв-тумба', 'стенка') for p in (block or [])):
+            # V3-A: второй носитель не добираем — кардинальность media (свод №9 P0)
             from .template import place_media as _pm
             occ3 = _uu([_fp(p) for p in block if p.role != 'ковёр'])
             _extra = _pm(room, keep, usable_polygon(room).difference(occ3),

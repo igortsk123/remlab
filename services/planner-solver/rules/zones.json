@@ -943,7 +943,17 @@
    "light": "optional",
    "decor": "optional"
   },
-  "_status_why": "Пакет F свода №8 v2 §4/§7 (согласован 14.08): явные статусы зон вместо хардкода. required — зона ядра, гейт not_worse НЕ применяется (медиа/камин ставились безусловно и до этого — формализация; +tvw вейвер и last-attempt — часть required-семантики медиа). preferred — каскад+retry (dining: остров→edge→sacrifice, ADR-0096/0097; storage — ярусы ADR-0053). optional — только через гейт качества not_worse; отсутствие НЕ штрафуется (negative space легален, ADR-0095)"
+  "_status_why": "Пакет F свода №8 v2 §4/§7 (согласован 14.08): явные статусы зон вместо хардкода. required — зона ядра, гейт not_worse НЕ применяется (медиа/камин ставились безусловно и до этого — формализация; +tvw вейвер и last-attempt — часть required-семантики медиа). preferred — каскад+retry (dining: остров→edge→sacrifice, ADR-0096/0097; storage — ярусы ADR-0053). optional — только через гейт качества not_worse; отсутствие НЕ штрафуется (negative space легален, ADR-0095)",
+  "cardinality": {
+   "media": {
+    "rule": "exactly_one_carrier",
+    "carrier_roles": [
+     "тв-тумба",
+     "стенка"
+    ],
+    "_why": "Свод №9 P0 (план №269): тумба и стенка — АЛЬТЕРНАТИВНЫЕ реализации одной media-зоны, не две зоны. Вейвер-путь лестницы ставил носитель, а цепочка +tv добирала второй из банка. Камин — отдельная focal-зона, ограничение его не касается"
+   }
+  }
  },
  "entry_zone": {
   "_why": "Свод №6 (14.08): полоса за floating-диваном при двери в торце — ENTRY/ARRIVAL zone, не unused residual. Приоритет наполнения по своду; пустота ЛЕГАЛЬНА (negative space), обогащение её не «лечит». Реализация: вход уже вычитается из residual (quality.residual_depth_cm), высокое хранение за спинкой запрещает TALL_BEHIND_SOFA (>90 см), доступ в зону — SEATING_ACCESS_PINCHED",

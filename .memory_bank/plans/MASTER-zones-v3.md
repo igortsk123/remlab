@@ -2,7 +2,7 @@
 workstream: layout
 slug: MASTER-zones-v3
 title: МАСТЕР — свод №9 (аудит рефери по 269): P0 двойной носитель, trace выбора dining, frozen-core, zone-cohesion
-status: draft
+status: in_progress
 created: 2026-08-14
 updated: 2026-08-14
 completed:
@@ -53,9 +53,10 @@ TEMPLATE_GAP, zone-cohesion вместо пустой оси residual_fragmentat
 
 ## Пакеты (гейт каждого: экзамен 269/269, медиа 269/269 без двойных носителей, dining ≥196 базовых, тихий edge 0, сторожа, rules_audit 0, коммит+галерея)
 
-### V3-A — P0: кардинальность media (его PACKAGE A; ПЕРВЫМ)
-- Фикс вейвер-пути: цепочка `+tv`/`+fp` пропускается, если носитель уже в блоке;
-  декларативно: `zone_priority` → `cardinality: {media: exactly_one_carrier}` (данные).
+### V3-A — P0: кардинальность media (его PACKAGE A; ПЕРВЫМ; поправка рефери: ТРИ уровня)
+- Уровень 1: skip media-тегов цепочки при носителе в блоке; уровень 2: декларативная
+  `zone_priority.cardinality` (данные); уровень 3: финальный семантический валидатор
+  MEDIA_DOUBLE_CARRIER (hard, validate.py).
 - Сторож: 0 планов с «тв-тумба + стенка» одновременно; сцена №270 (L-mirror c обоими
   носителями в банке) append-only.
 - **DoD:** №269 чист; count(carriers)≤1 на всех сценах; вейвер работает.
@@ -74,9 +75,9 @@ TEMPLATE_GAP, zone-cohesion вместо пустой оси residual_fragmentat
 
 ### V3-D — Frozen-core: ответ и (по результату) non-dominated cores (его PACKAGE D)
 - Зафиксировать архитектурный ответ (сейчас: один core на ступень; sacrifice = спуск).
-- Если trace покажет систематический «core A → только edge»: хранить несколько
-  hard-valid core-кандидатов (по существующим осям, Парето), dining пробует каждый;
-  beam width — по замеру, не в rules заранее. Сцена-акцептанс «core A лучше соло /
+- Поправка рефери: сперва SHADOW-TEST альтернативных позиций ТОЙ ЖЕ ступени (без
+  изменения выбора — только замер «дал бы другой core полный остров?»); multi-core
+  search — только по данным shadow-теста; beam width — из замера, не в rules заранее. Сцена-акцептанс «core A лучше соло /
   core B даёт остров» — append №271+.
 - **DoD:** ответ задокументирован; при внедрении — время экзамена ≤1.5×, планки держатся.
 
@@ -87,8 +88,9 @@ TEMPLATE_GAP, zone-cohesion вместо пустой оси residual_fragmentat
 - **DoD:** экспортный mode однозначно отражает топологию; статистика классов пересчитана.
 
 ### V3-F — Семантика active-route + zone-cohesion оси (его PACKAGE F+G)
-- Зафиксировать semantics `route_active_dining_cm` (модель «стул выдвинут»; гейт 75 к ней
-  НЕ применяется — это другой режим; разобрать 22,25,41,72,81,89,141).
+- Зафиксировать semantics `route_active_dining_cm` (модель «стул выдвинут»); гейт 75 к
+  ней не применяется, но «60 см — штатно» НОРМОЙ НЕ закрепляем (поправка рефери; контекст:
+  IKEA ~90, Access Board 915 мм — не наши гейты); разобрать 22,25,41,72,81,89,141.
 - Заменить residual_fragmentation на: `inter_zone_gap`, `largest_unassigned_region`
   (вычитая envelope зон + циркуляцию), `dead_void_depth` — только экспорт+распределение;
   №261 и №268 — корпусные примеры. Пороги — потом, разметкой.
@@ -101,6 +103,8 @@ TEMPLATE_GAP, zone-cohesion вместо пустой оси residual_fragmentat
 - **DoD:** отчёт в архиве; ложных задач на шаблоны нет.
 
 ### V3-H — Identity шаблонов + медиа-верификация в экспорте (его PACKAGE I+L+J)
+- Поправка рефери: зеркала НЕ first-clean — оба валидных зеркала сравниваются одним
+  лексикографическим ключом (без нового скора); счётчики generated/hard_valid по сторонам.
 - На уровне zone instance: template_id/variant_id/mirror/candidate/why_selected;
   `media_validation` (screen/window overlap, view_distance от оси); счётчики зеркал
   (generated/hard-valid per side) + 2 сцены-пруфа №272/273 (left-only/right-only valid).
