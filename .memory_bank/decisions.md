@@ -1532,3 +1532,16 @@ rules (templates/zones/registry), приёмка 252.
 **Почему.** Свод владельца №6 (Livingetc/H&G/Ideal Home/R&B) + три дополнения (точка входа
 в зону; chaise по трафику; функция зазора вместо 30 см).
 **Влияет на.** [[layout]], validate/quality/geometry, rules (zones/templates/severity/registry).
+
+## ADR-0096 — Свод №7: обеденная зона от 15 м², ковёр-запрет (2026-08-14)
+**Решение.** Столовая — почти в каждой гостиной: от 15 м² стол+2 (компакт-доли в
+`tools/scout/composition.json` бэндов 14-16/17-20), от 22 — 4 места, от 40 — 6. Регион
+под группу — по числу мест: `services/planner-solver/rules/zones.json → dining_region_m2`
+(2→3 м², 4→6, 6→8). Обеденная группа НЕ заходит на ковёр посадки: фильтр свободного
+полигона в `place_dining` + DINING_ON_LIVING_RUG S1 (`services/planner-solver/planner/validate.py`).
+Планка-сторож: ≥172/252 планов со столовой (лучший замер, только вверх) —
+`services/planner-solver/tests/test_contour_features.py`.
+**Почему.** Запрос владельца (заполняемость низкая, столовая должна быть в ~2/3 планов)
++ веб-канон (компакт-столовая 2 мест на ~1.5×1.8 м; у столовой свой ковёр или пол).
+**Замер.** 143→172/252 (68%); 15-20 м²: 0→26/72.
+**Влияет на.** [[layout]], composition.json, zones.json, template/validate, приёмка.
