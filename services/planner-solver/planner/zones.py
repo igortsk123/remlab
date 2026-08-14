@@ -481,6 +481,45 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                                   '(+tvw)', file=_sl.stderr, flush=True)
                     else:
                         os.environ.pop('_SCREEN_WINDOW_WAIVED', None)
+                # V3-D (свод №9, frozen-core / known-issue set80-L): и вейвер не дал
+                # носитель → перебираем АЛЬТЕРНАТИВНЫЕ ПОЗИЦИИ той же ступени: вырезаем
+                # выбранную позицию посадки из полигона и переигрываем шаблон; медиа-
+                # минимум проверяется на каждой альтернативе (≤2 попыток — дёшево и
+                # срабатывает только когда сцена уже теряла носитель совсем)
+                if _has_bearer0 and not any(
+                        p.role.split(' ')[0] in ('тв-тумба', 'стенка') for p in block):
+                    _carve = None
+                    _blk_cur = block
+                    for _alt in range(2):
+                        _seat_a = next((p for p in _blk_cur
+                                        if p.role.split(' ')[0] == 'диван'),
+                                       _blk_cur[0] if _blk_cur else None)
+                        if _seat_a is None:
+                            break
+                        _pad = _fp0(_seat_a).buffer(25)
+                        _carve = _pad if _carve is None else _carve.union(_pad)
+                        _blk_a = place_template(
+                            room, group['id'], keep,
+                            usable_polygon(room).difference(_carve))
+                        if not _blk_a:
+                            break
+                        _occ_a = _uu0([_fp0(p) for p in _blk_a
+                                       if p.role.split(' ')[0] != 'ковёр'])
+                        _m_a = place_media(room, keep,
+                                           usable_polygon(room).difference(_occ_a),
+                                           fixed=_blk_a)
+                        if _m_a:
+                            block = list(_blk_a) + list(_m_a)
+                            keep = [it for it in keep
+                                    if it.role not in {p.role for p in _m_a}]
+                            os.environ.pop('_SCREEN_WINDOW_WAIVED', None)
+                            if os.environ.get('ZONES_DEBUG'):
+                                import sys as _sl
+                                print(f'ZDBG лестница: альтернативная позиция №{_alt+1} '
+                                      f'ступени {group["id"]} дала медиа-минимум',
+                                      file=_sl.stderr, flush=True)
+                            break
+                        _blk_cur = _blk_a
                 if os.environ.get('ZONES_DEBUG'):
                     import sys as _sl
                     print(f"ZDBG лестница: минимум не собрался ни на одной ступени — "
