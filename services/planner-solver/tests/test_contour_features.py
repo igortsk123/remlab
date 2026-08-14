@@ -163,7 +163,9 @@ def test_corner_adrift_functional_gap():
 
 
 def test_dining_share_watchdog():
-    """Свод №7: доля планов со столовой — планка по лучшему замеру (210/252,
+    """Свод №7: доля планов со столовой — планка по лучшему замеру под честными правилами (196/252 после
+    SCREEN_OVER_WINDOW: прежние 210 частично держались на браке «экран на окне»,
+    ADR-0099;
     14.08, после dining_sacrifice), двигается только вверх."""
     import json, os
     rep = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'tools',
@@ -177,7 +179,7 @@ def test_dining_share_watchdog():
         n += 1
         din += ('+din' in r.get('templates', ''))
     assert n == 252, f'отчёт неполный: {n}'
-    assert din >= 210, f'доля столовой упала: {din}/252 (планка 210 — лучший замер)'
+    assert din >= 196, f'доля столовой упала: {din}/252 (планка 196 — честный замер, ADR-0099)'
 
 
 def test_dining_sacrifice_ladder():
@@ -185,10 +187,13 @@ def test_dining_sacrifice_ladder():
     посадки — пересбор ступенью ниже; кресло в банк, стол+2 встают."""
     from planner.models import Item
     from planner.zones import solve_zoned
-    room = Room(width_cm=360, depth_cm=415,
+    # сцена скорректирована пакетом D (свод №8): прежняя (окно east 140-298)
+    # держала столовую на браке «экран на окне» — тумба вставала экраном на проём;
+    # с hard SCREEN_OVER_WINDOW механизм жертвы тестируем на честной геометрии
+    room = Room(width_cm=360, depth_cm=450,
                 openings=[Opening(kind='door', wall='south', offset_cm=86,
                                   width_cm=90),
-                          Opening(kind='window', wall='east', offset_cm=140,
+                          Opening(kind='window', wall='west', offset_cm=140,
                                   width_cm=158)])
     items = [Item(role='диван', w_cm=190, d_cm=95, h_cm=85),
              Item(role='кресло', w_cm=68, d_cm=82, h_cm=80),

@@ -337,6 +337,7 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
     from .quality import scene_quality as _quality
     from . import template as _tplmod
     _tplmod.LAST_DINING_DIAG = None      # пакет B: свежий диагноз dining на каждый прогон
+    os.environ.pop('_SCREEN_WINDOW_WAIVED', None)   # пакет D: вейвер экрана — per solve
     avail = {_base(i.role) for i in items}
     counts = Counter(_base(i.role) for i in items)
     group = pick_group(room, dict(counts))
@@ -457,6 +458,29 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                             break
             if block is None and _fb_block is not None:
                 block, group = _fb_block, _fb_group
+                # Пакет D свода №8: прежде чем принять ступень БЕЗ медиа — вейвер
+                # SCREEN_OVER_WINDOW (контурные комнаты: единственная стена носителя
+                # оконная; «носитель должен быть везде» — владелец 12.08 —
+                # приоритетнее запрета экрана на проёме). Явный флаг, не тихо:
+                # тег +tvw добавит сама цепочка (медиа встанет обычным шагом).
+                if _has_bearer0 and os.environ.get(
+                        'LAYOUT_SCREEN_WINDOW_WAIVER', '1') != '0':
+                    os.environ['_SCREEN_WINDOW_WAIVED'] = '1'
+                    from .template import place_media as _pmw
+                    _occw = _uu0([_fp0(p) for p in block
+                                  if p.role.split(' ')[0] != 'ковёр'])
+                    _mw = _pmw(room, keep,
+                               usable_polygon(room).difference(_occw), fixed=block)
+                    if _mw:
+                        block = list(block) + list(_mw)
+                        keep = [it for it in keep
+                                if it.role not in {p.role for p in _mw}]
+                        if os.environ.get('ZONES_DEBUG'):
+                            import sys as _sl
+                            print('ZDBG лестница: медиа встала ПО ВЕЙВЕРУ экрана '
+                                  '(+tvw)', file=_sl.stderr, flush=True)
+                    else:
+                        os.environ.pop('_SCREEN_WINDOW_WAIVED', None)
                 if os.environ.get('ZONES_DEBUG'):
                     import sys as _sl
                     print(f"ZDBG лестница: минимум не собрался ни на одной ступени — "
@@ -556,7 +580,9 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
             else ((place_media, '+tv'), (place_fireplace, '+fp'))
         _media_in = any(p.role.split(' ')[0] in ('тв-тумба', 'стенка') for p in (block or []))
         if _media_in and '+tv' not in tpl_tag:
-            tpl_tag += '+tv'
+            # пакет D: медиа, вставшая по вейверу экрана, помечается явно (+tvw)
+            tpl_tag += ('+tvw' if os.environ.get('_SCREEN_WINDOW_WAIVED') == '1'
+                        else '+tv')
         for placer, tag in ((place_media_fireplace, '+tvfp'), _order[0], _order[1],
                             (_din, '+din'), (place_storage, '+st'),
                             # НЕ БОЛЕЕ ДВУХ зон хранения на гостиную (владелец 12.08)
@@ -652,6 +678,24 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                 block = block + _extra
                 _refine_mod.LOCKED |= roles3
                 tpl_tag += '+tv2'
+            elif os.environ.get('LAYOUT_SCREEN_WINDOW_WAIVER', '1') != '0':
+                # Пакет D свода №8: вейвер SCREEN_OVER_WINDOW. Носитель не встал
+                # НИГДЕ (контурные комнаты: единственная пригодная стена — оконная).
+                # Правило владельца 12.08 «носитель должен быть везде» приоритетнее
+                # запрета экрана на проёме → повтор с выключенным hard, явный тег
+                # +tvw (не «тихое» ослабление). Флаг снимает validate только в этом
+                # процессе решения; сбрасывается на старте каждого solve.
+                os.environ['_SCREEN_WINDOW_WAIVED'] = '1'
+                _extra = _pm(room, keep, usable_polygon(room).difference(occ3),
+                             fixed=block, relaxed=True)
+                if _extra:
+                    roles3 = {p.role for p in _extra}
+                    keep = [it for it in keep if it.role not in roles3]
+                    block = block + _extra
+                    _refine_mod.LOCKED |= roles3
+                    tpl_tag += '+tvw'
+                else:
+                    os.environ.pop('_SCREEN_WINDOW_WAIVED', None)
 
         # ПЛАВАЮЩИЙ ДИВАН БЕЗ СТОЛОВОЙ ЗА СПИНКОЙ — НЕЛЬЗЯ (владелец 13.08, планы
         # №4/№7: «делишь комнату — вторая зона столовая, или не делать вовсе»).

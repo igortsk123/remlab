@@ -647,10 +647,23 @@ def attempt_beam():
               for p in lay.placements}
     # ПРОСЛЕЖИВАЕМОСТЬ ШАБЛОНА (ADR template-integrity): каким паспортом схемы
     # поставлен каждый предмет — в артефакт, отчёт и галерею
-    global TPL_BY_ROLE, DINING_DIAG
+    global TPL_BY_ROLE, DINING_DIAG, VIEW_DIST
     TPL_BY_ROLE = {p.role: (p.tpl_id, p.tpl_version) for p in lay.placements}
     # пакет B свода №8: диагноз выбора dining (mode/island_feasible/why) — в артефакт
     DINING_DIAG = (lay.meta or {}).get('dining')
+    # пакет D свода №8 (v2 §14): ЕДИНЫЙ замер дистанции просмотра — от ОСИ посадки
+    # (seat_axis_origin: Г-диван — центр главной секции) до плоскости носителя
+    # (ближайшая грань его следа), а не «центр↔центр» (три разных замера расходились)
+    VIEW_DIST = None
+    try:
+        from shapely.geometry import Point as _PtV
+        from planner.geometry import footprint as _fpV, seat_axis_origin as _saoV
+        _sofaV = next((p for p in lay.placements if p.role.split(' ')[0] == 'диван'), None)
+        _carV = next((p for p in lay.placements if p.role in ('стенка', 'тв-тумба')), None)
+        if _sofaV is not None and _carV is not None:
+            VIEW_DIST = float(_fpV(_carV).distance(_PtV(*_saoV(_sofaV))))
+    except Exception:
+        VIEW_DIST = None
     _no_tpl = sorted(r for r, (t, _) in TPL_BY_ROLE.items() if not t)
     if _no_tpl and os.environ.get('LAYOUT_ONLY_TEMPLATES', '1') == '1':
         print('NOTPL ' + json.dumps(_no_tpl, ensure_ascii=False), flush=True)
@@ -760,7 +773,7 @@ try:
     if _b and 'диван' in placed:
         import math as _m3
         _sx,_sz=placed['диван'][0]; _bx,_bz=placed[_b][0]
-        _dist=_m3.hypot(_bx-_sx,_bz-_sz)
+        _dist=globals().get('VIEW_DIST') or _m3.hypot(_bx-_sx,_bz-_sz)   # пакет D: единый замер
         _diag_max=_dist/1.6/2.54          # RTINGS: дюймы диагонали из дистанции
         _bw=dict(FLOOR).get(_b,(120,40))[0]
         _diag_fit=(_bw-20)/2.54
@@ -820,8 +833,11 @@ if _bearer and 'диван' in out:
     import math as _m
     from planner.tv import _cfg as _tvcfg
     _s, _b = out['диван'], out[_bearer]
-    _dist = max(0.0, _m.hypot(_s['x'] - _b['x'], _s['z'] - _b['z'])
-                - (_s['d'] + _b['d']) / 2)
+    # пакет D: канонический замер — ось посадки → плоскость носителя (fallback: центры)
+    _dist = globals().get('VIEW_DIST')
+    if _dist is None:
+        _dist = max(0.0, _m.hypot(_s['x'] - _b['x'], _s['z'] - _b['z'])
+                    - (_s['d'] + _b['d']) / 2)
     _c = _tvcfg()
     out['_tv'] = {'bearer': _bearer, 'viewing_distance_cm': round(_dist),
                   'diag_min_in': round(_dist / _c['diag_range'][1] / 2.54),

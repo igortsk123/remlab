@@ -703,6 +703,14 @@
    "сообщение": "обеденная группа заходит на ковёр посадки",
    "где": "planner/validate.py",
    "пруф": "Свод №7: у обеденной свой ковёр (стулья целиком, ~90 см от кромки) или пол; заход на living-ковёр не делают (rugs.com, King Living, Soho Home)"
+  },
+  {
+   "id": "SCREEN_OVER_WINDOW",
+   "вид": "hard",
+   "стадия": "архитектура",
+   "сообщение": "виртуальный экран над «{p.role}» перекрывает окно на {ov:.0f} см",
+   "где": "planner/validate.py",
+   "пруф": "свод №8 v2 §14 (внешний рефери, согласован 14.08): screen projection must not overlap window opening; ширина экрана — tv.screen_width_cm (share/ниша из canonical rules)"
   }
  ],
  "_r5": "R5-замер: LAYOUT_RULE_STATS=<файл> на экзамене; отчёт мёртвых/редких — tools/scout при след. прогонах"

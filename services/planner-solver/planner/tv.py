@@ -85,3 +85,18 @@ def prompt_brief() -> str:
     return (f"size the TV from the viewing distance (screen diagonal is roughly the "
             f"sofa-to-TV distance divided by {c['preferred']:.1f}), and keep the screen "
             f"{lo}–{hi}% of the TV stand width — never wider than the stand")
+
+
+def screen_width_cm(stand_w_cm: float, bearer: str = "тв-тумба",
+                    bound: str = "min") -> float:
+    """Ширина ВИРТУАЛЬНОГО экрана media-шаблона (свод №8 v2 §14: экран — служебная
+    часть шаблона, отдельным предметом не создаётся). «Стенка» — ниша
+    tv_niche_screen_cm (clamp половиной ширины), «тв-тумба» — доля ширины носителя
+    (share из canonical-конфига). bound='min' — нижняя граница (для hard-проверки
+    «даже минимальный экран перекрывает окно»), 'max' — верхняя."""
+    c = _cfg()
+    i = 0 if bound == "min" else 1
+    if bearer == "стенка":
+        s = rules().get("layout_rules", {}).get("tv_niche_screen_cm", [100, 160])
+        return min(float(s[i]), stand_w_cm * 0.5)
+    return stand_w_cm * float(c["share"][i])

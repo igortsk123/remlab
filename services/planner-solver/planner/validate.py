@@ -139,6 +139,36 @@ def check_openings(room: Room, ps: list[Placement]) -> list[Violation]:
             if h > max(op.sill_cm, 80) and footprint(p).distance(win) < 10:
                 out.append(_v("WINDOW_BLOCKED", f"«{p.role}» ({h:.0f} см) перекрывает окно", [p.role],
                               h, f"ниже подоконника {op.sill_cm:.0f} см"))
+        # Свод №8 v2 §14 (пакет D): ВИРТУАЛЬНЫЙ ЭКРАН media-шаблона не перекрывает
+        # окно. Сам носитель (низкая тумба) у окна легален — hard бьёт именно
+        # media-постановку: носитель спиной к оконной стене, и даже МИНИМАЛЬНЫЙ
+        # экран (нижняя граница share/ниши) горизонтально накрывает проём.
+        # Вейвер (_SCREEN_WINDOW_WAIVED, zones.py «последняя попытка»): носитель
+        # иначе не встаёт нигде — правило владельца «медиа везде» приоритетнее.
+        import os as _osw
+        if _osw.environ.get('_SCREEN_WINDOW_WAIVED') == '1':
+            continue
+        for p in ps:
+            base = p.role.split(' ')[0]
+            if base not in ('тв-тумба', 'стенка'):
+                continue
+            r = int(p.rot) % 360
+            back_wall = {0: 'south', 180: 'north', 90: 'west', 270: 'east'}.get(r)
+            if back_wall != op.wall:
+                continue
+            fb = footprint(p).bounds
+            wall_gap = {'south': fb[1], 'north': room.depth_cm - fb[3],
+                        'west': fb[0], 'east': room.width_cm - fb[2]}[op.wall]
+            if wall_gap > 40:      # носитель не у стены — экран не «на стене»
+                continue
+            from .tv import screen_width_cm
+            sw = screen_width_cm((p.item.w_cm if p.item else 120.0), base, 'min')
+            c = p.x if op.wall in ('south', 'north') else p.y
+            ov = min(c + sw / 2, op.offset_cm + op.width_cm) - max(c - sw / 2, op.offset_cm)
+            if ov > 10:
+                out.append(_v("SCREEN_OVER_WINDOW",
+                              f"виртуальный экран над «{p.role}» перекрывает окно на {ov:.0f} см",
+                              [p.role], ov, "проекция экрана вне оконного проёма"))
     return out
 
 
