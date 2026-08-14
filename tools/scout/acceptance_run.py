@@ -49,6 +49,10 @@ def _one(engine, sc):
         args += [str(max(xs)), str(max(ys))]
     elif 'w' in sc:
         args += [str(sc['w']), str(sc['d'])]
+    # Пакет H свода №8: сцены №253+ задают СВОИ проёмы (2 двери, балкон, 2-3 окна…) —
+    # solver_run строит Room из SCENE_OPENINGS (та же ветка, что у артефакта)
+    if sc.get('openings'):
+        env['SCENE_OPENINGS'] = json.dumps(sc['openings'])
     try:
         # W5 (урок 213 + 10.08): при >2 воркерах контеншн замедляет тяжёлые сцены —
         # таймаут 600, чтобы они ДОСЧИТЫВАЛИСЬ, а не падали ложным TIMEOUT

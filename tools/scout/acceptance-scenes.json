@@ -3652,5 +3652,334 @@
   "kind": "rect",
   "w": 615,
   "d": 930
+ },
+ {
+  "id": "set45-r17",
+  "set": 45,
+  "kind": "rect",
+  "w": 365,
+  "d": 630,
+  "_why": "пакет H свода №8: вытянутая 1:1.7"
+ },
+ {
+  "id": "set45-r20",
+  "set": 45,
+  "kind": "rect",
+  "w": 335,
+  "d": 685,
+  "_why": "пакет H свода №8: вытянутая 1:2.0"
+ },
+ {
+  "id": "set45-r23",
+  "set": 45,
+  "kind": "rect",
+  "w": 315,
+  "d": 730,
+  "_why": "пакет H свода №8: вытянутая 1:2.3"
+ },
+ {
+  "id": "set80-r17",
+  "set": 80,
+  "kind": "rect",
+  "w": 455,
+  "d": 780,
+  "_why": "пакет H свода №8: вытянутая 1:1.7"
+ },
+ {
+  "id": "set80-r20",
+  "set": 80,
+  "kind": "rect",
+  "w": 420,
+  "d": 845,
+  "_why": "пакет H свода №8: вытянутая 1:2.0"
+ },
+ {
+  "id": "set80-r23",
+  "set": 80,
+  "kind": "rect",
+  "w": 390,
+  "d": 910,
+  "_why": "пакет H свода №8: вытянутая 1:2.3"
+ },
+ {
+  "id": "set10-r17",
+  "set": 10,
+  "kind": "rect",
+  "w": 295,
+  "d": 505,
+  "_why": "пакет H свода №8: вытянутая 1:1.7"
+ },
+ {
+  "id": "set10-r20",
+  "set": 10,
+  "kind": "rect",
+  "w": 270,
+  "d": 555,
+  "_why": "пакет H свода №8: вытянутая 1:2.0"
+ },
+ {
+  "id": "set110-r17",
+  "set": 110,
+  "kind": "rect",
+  "w": 580,
+  "d": 990,
+  "_why": "пакет H свода №8: вытянутая 1:1.7"
+ },
+ {
+  "id": "set45-2doors",
+  "set": 45,
+  "kind": "rect",
+  "w": 445,
+  "d": 515,
+  "openings": [
+   {
+    "kind": "door",
+    "wall": "south",
+    "offset_cm": 30,
+    "width_cm": 90,
+    "swing_cm": 92
+   },
+   {
+    "kind": "door",
+    "wall": "west",
+    "offset_cm": 30,
+    "width_cm": 80,
+    "swing_cm": 80
+   },
+   {
+    "kind": "window",
+    "wall": "east",
+    "offset_cm": 120,
+    "width_cm": 140,
+    "sill_cm": 90
+   }
+  ],
+  "_why": "пакет H: две двери"
+ },
+ {
+  "id": "set80-balcony",
+  "set": 80,
+  "kind": "rect",
+  "w": 555,
+  "d": 635,
+  "openings": [
+   {
+    "kind": "door",
+    "wall": "south",
+    "offset_cm": 30,
+    "width_cm": 90,
+    "swing_cm": 92
+   },
+   {
+    "kind": "balcony",
+    "wall": "north",
+    "offset_cm": 40,
+    "width_cm": 80,
+    "swing_cm": 80
+   },
+   {
+    "kind": "window",
+    "wall": "east",
+    "offset_cm": 150,
+    "width_cm": 140,
+    "sill_cm": 90
+   }
+  ],
+  "_why": "пакет H: дверь + балконная дверь"
+ },
+ {
+  "id": "set45-2windows",
+  "set": 45,
+  "kind": "rect",
+  "w": 445,
+  "d": 515,
+  "openings": [
+   {
+    "kind": "door",
+    "wall": "south",
+    "offset_cm": 30,
+    "width_cm": 90,
+    "swing_cm": 92
+   },
+   {
+    "kind": "window",
+    "wall": "east",
+    "offset_cm": 120,
+    "width_cm": 140,
+    "sill_cm": 90
+   },
+   {
+    "kind": "window",
+    "wall": "north",
+    "offset_cm": 90,
+    "width_cm": 140,
+    "sill_cm": 90
+   }
+  ],
+  "_why": "пакет H: два окна"
+ },
+ {
+  "id": "set80-3windows",
+  "set": 80,
+  "kind": "rect",
+  "w": 555,
+  "d": 635,
+  "openings": [
+   {
+    "kind": "door",
+    "wall": "south",
+    "offset_cm": 30,
+    "width_cm": 90,
+    "swing_cm": 92
+   },
+   {
+    "kind": "window",
+    "wall": "east",
+    "offset_cm": 150,
+    "width_cm": 140,
+    "sill_cm": 90
+   },
+   {
+    "kind": "window",
+    "wall": "north",
+    "offset_cm": 100,
+    "width_cm": 140,
+    "sill_cm": 90
+   },
+   {
+    "kind": "window",
+    "wall": "west",
+    "offset_cm": 150,
+    "width_cm": 140,
+    "sill_cm": 90
+   }
+  ],
+  "_why": "пакет H: три окна"
+ },
+ {
+  "id": "set110-win-south",
+  "set": 110,
+  "kind": "rect",
+  "w": 705,
+  "d": 815,
+  "openings": [
+   {
+    "kind": "door",
+    "wall": "south",
+    "offset_cm": 30,
+    "width_cm": 90,
+    "swing_cm": 92
+   },
+   {
+    "kind": "window",
+    "wall": "south",
+    "offset_cm": 250,
+    "width_cm": 160,
+    "sill_cm": 90
+   },
+   {
+    "kind": "window",
+    "wall": "east",
+    "offset_cm": 200,
+    "width_cm": 140,
+    "sill_cm": 90
+   }
+  ],
+  "_why": "пакет H: окно на стене двери/потенциальной медиастене"
+ },
+ {
+  "id": "set10-2windows",
+  "set": 10,
+  "kind": "rect",
+  "w": 360,
+  "d": 415,
+  "openings": [
+   {
+    "kind": "door",
+    "wall": "south",
+    "offset_cm": 30,
+    "width_cm": 90,
+    "swing_cm": 92
+   },
+   {
+    "kind": "window",
+    "wall": "east",
+    "offset_cm": 80,
+    "width_cm": 120,
+    "sill_cm": 90
+   },
+   {
+    "kind": "window",
+    "wall": "north",
+    "offset_cm": 60,
+    "width_cm": 120,
+    "sill_cm": 90
+   }
+  ],
+  "_why": "пакет H: малая + два окна"
+ },
+ {
+  "id": "set80-L",
+  "set": 80,
+  "kind": "contour",
+  "contour": [
+   [
+    0,
+    0
+   ],
+   [
+    555,
+    0
+   ],
+   [
+    555,
+    380
+   ],
+   [
+    305,
+    380
+   ],
+   [
+    305,
+    640
+   ],
+   [
+    0,
+    640
+   ]
+  ],
+  "_why": "пакет H: L-комната"
+ },
+ {
+  "id": "set80-Lm",
+  "set": 80,
+  "kind": "contour",
+  "contour": [
+   [
+    0,
+    0
+   ],
+   [
+    555,
+    0
+   ],
+   [
+    555,
+    640
+   ],
+   [
+    250,
+    640
+   ],
+   [
+    250,
+    380
+   ],
+   [
+    0,
+    380
+   ]
+  ],
+  "_why": "пакет H: L зеркальная"
  }
 ]

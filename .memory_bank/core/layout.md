@@ -28,12 +28,16 @@ beam → скоринг → уточнение → top-K; детерминизм
 
 **Tier 2:** ../domain/occupancy-rules.md · ../guides/layout-mined-rules.md · ../guides/layout-engine-spec.md
 
-**Модификаторы (14.08, ADR-0094):** mode × shape × контур комбинируются скорингом —
-`services/planner-solver/planner/room_map.py` (contour_features), quality (clearance/dead_side),
-`tools/scout/compose2.py` (подбор). Приоритет зон — `services/planner-solver/rules/zones.json →
-zone_priority`, резервы читают её. R5: сторожевые правила в registry; `_route_cm` в артефакте.
-Замер 14.08: 252/252, медиа 252/252, маршрут min 75. Отложено: swivel (нет данных), open-plan (нет сцен), потолок (спит до ceiling_cm).
-**Свод №6 (ADR-0095):** entry-зона за диваном (пустота легальна, вход вокруг торца —
-SEATING_ACCESS_PINCHED), Г-диван: ось по ГЛАВНОЙ секции (`seat_axis_origin`), зазор от угла —
-функциональная проверка, не порог; спящие: консоль/раннер/divider.
+**Модификаторы (ADR-0094):** mode × shape × контур скорингом — `planner/room_map.py`
+(contour_features); порядок зон — `rules/zones.json → zone_priority` (резервы читают её).
+Отложено: swivel, open-plan, потолок.
+**Свод №6 (ADR-0095):** entry-зона за диваном (пустота легальна; SEATING_ACCESS_PINCHED),
+ось Г-дивана по главной секции (`seat_axis_origin`); спящие: консоль/раннер/divider.
+**Свод №8 v2 (14.08, ADR-0098…0100):** dining-паспорт читается кодом (envelope 90); каскад
+классов full_island→compact→edge с объяснимостью (`_dining`: mode/island_feasible/why/fallback;
+тихий edge=0) + TEMPLATE_GAP→`tools/scout/template_gaps.py`; экран — виртуальная часть media
+(SCREEN_OVER_WINDOW H0 + вейвер `+tvw`, `planner/validate.py`); зеркала Г-дивана в шаблонном
+пути (`planner/template.py`); статусы зон данными (`zone_priority.status`); оси-замеры
+`_axes` (`planner/quality.py`). Планка dining 196 — честная (ADR-0099). Сцены №253+ со своими
+проёмами (`tools/scout/acceptance_run.py` SCENE_OPENINGS).
 **Экспорт для ИИ:** `tools/scout/export_plans_ai.py` (JSON/семантика+ASCII/PNG + index) → хаб `/test/plans-export.zip`.

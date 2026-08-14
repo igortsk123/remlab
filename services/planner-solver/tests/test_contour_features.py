@@ -173,12 +173,16 @@ def test_dining_share_watchdog():
     if not os.path.exists(rep):
         import pytest
         pytest.skip('нет отчёта приёмки')
+    scenes_p = os.path.join(os.path.dirname(rep), 'acceptance-scenes.json')
+    base_ids = {s['id'] for s in json.load(open(scenes_p, encoding='utf-8'))[:252]}
     n = din = 0
     for line in open(rep, encoding='utf-8'):
         r = json.loads(line)
+        if r.get('scene') not in base_ids:
+            continue          # пакет H: планка — по стабильным №1-252; новые №253+ отдельно
         n += 1
         din += ('+din' in r.get('templates', ''))
-    assert n == 252, f'отчёт неполный: {n}'
+    assert n == 252, f'отчёт неполный по базовым сценам: {n}'
     assert din >= 196, f'доля столовой упала: {din}/252 (планка 196 — честный замер, ADR-0099)'
 
 
