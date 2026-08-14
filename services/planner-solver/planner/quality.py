@@ -225,7 +225,13 @@ def visual_balance(room, ps) -> dict:
         return {'centroid_offset_pct': 0.0, 'west_share': 0.5, 'south_share': 0.5}
     ax = sum(f.area * f.centroid.x for f, _ in fps) / max(sum(f.area for f, _ in fps), 1e-6)
     ay = sum(f.area * f.centroid.y for f, _ in fps) / max(sum(f.area for f, _ in fps), 1e-6)
-    cx, cy = room.width_cm / 2, room.depth_cm / 2
+    # V3-I свода №9 (PACKAGE K): для контурных комнат reference — centroid РЕАЛЬНОГО
+    # полигона (центр bbox у L-комнаты лежит в вырезе и завышал offset, кейс №268)
+    if getattr(room, 'contour', None):
+        _rc = room_polygon(room).centroid
+        cx, cy = _rc.x, _rc.y
+    else:
+        cx, cy = room.width_cm / 2, room.depth_cm / 2
     half_diag = math.hypot(cx, cy)
     total = sum(f.area for f, _ in fps)
     west = sum(min(f.area, f.intersection(_box_half(room, 'west')).area) for f, _ in fps)

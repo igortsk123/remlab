@@ -120,7 +120,8 @@ def score_layout(room: Room, ps: list[Placement], *, fast: bool = False) -> Scor
             from .geometry import relative_position as _rp
             _, lat = _rp(sofa_p, tbl_p)
             if sofa_p.item.corner:
-                act_lat = sofa_p.item.corner_section_cm / 2
+                from .geometry import corner_active_lat as _cal
+                act_lat = _cal(sofa_p.item)
                 act_w = max(sofa_p.item.w_cm - sofa_p.item.corner_section_cm, 80.0)
             else:
                 act_lat, act_w = 0.0, sofa_p.item.w_cm

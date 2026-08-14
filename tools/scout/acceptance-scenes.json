@@ -3981,5 +3981,77 @@
    ]
   ],
   "_why": "пакет H: L зеркальная"
+ },
+ {
+  "id": "set21-mirR",
+  "set": 21,
+  "kind": "rect",
+  "w": 300,
+  "d": 430,
+  "openings": [
+   {
+    "kind": "door",
+    "wall": "east",
+    "offset_cm": 20,
+    "width_cm": 90,
+    "swing_cm": 92
+   },
+   {
+    "kind": "window",
+    "wall": "north",
+    "offset_cm": 80,
+    "width_cm": 120,
+    "sill_cm": 90
+   }
+  ],
+  "_why": "V3-H свода №9: пруф зеркал — валидна только right (дверь восток)"
+ },
+ {
+  "id": "set21-mirL",
+  "set": 21,
+  "kind": "rect",
+  "w": 300,
+  "d": 430,
+  "openings": [
+   {
+    "kind": "door",
+    "wall": "west",
+    "offset_cm": 20,
+    "width_cm": 90,
+    "swing_cm": 92
+   },
+   {
+    "kind": "window",
+    "wall": "north",
+    "offset_cm": 80,
+    "width_cm": 120,
+    "sill_cm": 90
+   }
+  ],
+  "_why": "V3-H: пруф зеркал — валидна только left (дверь запад, зеркальная сцена)"
+ },
+ {
+  "id": "set21-mirQ",
+  "set": 21,
+  "kind": "rect",
+  "w": 360,
+  "d": 450,
+  "openings": [
+   {
+    "kind": "door",
+    "wall": "north",
+    "offset_cm": 135,
+    "width_cm": 90,
+    "swing_cm": 92
+   },
+   {
+    "kind": "window",
+    "wall": "east",
+    "offset_cm": 100,
+    "width_cm": 120,
+    "sill_cm": 90
+   }
+  ],
+  "_why": "V3-H (поправка рефери): ОБА зеркала hard-valid, побеждает left по quality-ключу — first-clean выбрал бы right"
  }
 ]

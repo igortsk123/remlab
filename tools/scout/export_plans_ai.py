@@ -167,6 +167,9 @@ def main():
                         'soft_score': rep.get('soft_score')},
             'dining': art.get('_dining'),
             'axes': art.get('_axes'),
+            'zones': art.get('_zones'),
+            'mirror': art.get('_mirror'),
+            'media_validation': art.get('_media_validation'),
             'bank_unused': rep.get('unused', []),
             'zones_tag': rep.get('templates'),
         }

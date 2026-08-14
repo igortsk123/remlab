@@ -651,6 +651,50 @@ def attempt_beam():
     TPL_BY_ROLE = {p.role: (p.tpl_id, p.tpl_version) for p in lay.placements}
     # пакет B свода №8: диагноз выбора dining (mode/island_feasible/why) — в артефакт
     DINING_DIAG = (lay.meta or {}).get('dining')
+    global MIRROR_STATS, ZONE_IDS, MEDIA_VALIDATION
+    MIRROR_STATS = (lay.meta or {}).get('mirror')
+    # V3-H (PACKAGE I): identity зон — template/variant/mirror/why на уровне zone instance
+    try:
+        ZONE_IDS = {}
+        for p in lay.placements:
+            z = (p.tpl_id or '').strip()
+            if not z:
+                continue
+            zi = ZONE_IDS.setdefault(z, {'template_id': z,
+                                         'version': p.tpl_version or '',
+                                         'members': []})
+            zi['members'].append(p.role)
+            if getattr(p, 'tpl_variant', ''):
+                zi['variant_id'] = p.tpl_variant
+            if p.role == 'диван' and p.item is not None and getattr(p.item, 'corner', False):
+                zi['mirror'] = 'left' if getattr(p.item, 'corner_left', False) else 'right'
+    except Exception:
+        ZONE_IDS = None
+    # V3-H (PACKAGE L): media_validation — проверяемая из экспорта
+    try:
+        from planner.tv import screen_width_cm as _swc
+        _car = next((p for p in lay.placements if p.role in ('стенка', 'тв-тумба')), None)
+        MEDIA_VALIDATION = None
+        if _car is not None:
+            _cw = (_car.item.w_cm if _car.item else 120.0)
+            _r = int(_car.rot) % 360
+            _bw = {0: 'south', 180: 'north', 90: 'west', 270: 'east'}.get(_r)
+            _ov = 0.0
+            for _op in room_p.openings:
+                if _op.kind != 'window' or _op.wall != _bw:
+                    continue
+                _c = _car.x if _op.wall in ('south', 'north') else _car.y
+                _sw = _swc(_cw, _car.role, 'min')
+                _ov = max(_ov, min(_c + _sw / 2, _op.offset_cm + _op.width_cm)
+                          - max(_c - _sw / 2, _op.offset_cm))
+            MEDIA_VALIDATION = {
+                'carrier': _car.role,
+                'screen_w_min_cm': round(_swc(_cw, _car.role, 'min'), 1),
+                'screen_window_overlap_cm': round(max(0.0, _ov), 1),
+                'waived': ('+tvw' in _gid) if '_gid' in dir() else None,
+                'view_distance_measurement': 'seat_axis_to_carrier_plane'}
+    except Exception:
+        MEDIA_VALIDATION = None
     # пакет D свода №8 (v2 §14): ЕДИНЫЙ замер дистанции просмотра — от ОСИ посадки
     # (seat_axis_origin: Г-диван — центр главной секции) до плоскости носителя
     # (ближайшая грань его следа), а не «центр↔центр» (три разных замера расходились)
@@ -787,6 +831,23 @@ _room_ops=(json.loads(_ops_env) if (_ops_env and json.loads(_ops_env)) else [
 out['_templates']={r:{'id':t,'version':v} for r,(t,v) in (globals().get('TPL_BY_ROLE') or {}).items()}
 out['_dining']=globals().get('DINING_DIAG')   # объяснимость dining (свод №8 пакет B)
 out['_axes']=globals().get('QUALITY_AXES')    # пакет G: новые оси — только замер, без порогов
+out['_mirror']=globals().get('MIRROR_STATS')  # V3-H: счётчики зеркал Г-дивана
+out['_zones']=globals().get('ZONE_IDS')       # V3-H: identity зон (template/variant/mirror)
+out['_media_validation']=globals().get('MEDIA_VALIDATION')   # V3-H: проверяемость экрана
+# V3-I свода №9 (§20): хранение у окна — экспорт проверки высоты (правило существующее:
+# WINDOW_BLOCKED бьёт h>max(подоконник,80) ближе 10 см; тут только видимость из zip)
+try:
+    _sw_list=[]
+    for _r,_v in out.items():
+        if not isinstance(_v,dict) or _r.split(' ')[0] not in ('комод','стеллаж','витрина','шкаф','стенка','тв-тумба'):
+            continue
+        for _op in _room_ops:
+            if _op.get('kind')!='window': continue
+        _sw_list.append({'role':_r,'h_cm':(items.get(_r.split(' ')[0]) or {}).get('h')})
+    out['_storage_window_check']={'rule':'WINDOW_BLOCKED: h>max(sill,80) ближе 10 см — hard',
+                                  'items':_sw_list} if _sw_list else None
+except Exception:
+    pass
 # пакет C: структурные дыры библиотеки шаблонов — списком (агрегатор template_gaps.py)
 out['_template_gaps']=[g for g in [(globals().get('DINING_DIAG') or {}).get('gap')] if g]
 # S3 (small-room-mode): «ТВ адаптируется к комнате легче, чем планировка к ТВ» — если

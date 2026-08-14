@@ -106,6 +106,9 @@ class Placement(BaseModel):
     # поставлен предмет. Пусто = вне шаблона; при LAYOUT_ONLY_TEMPLATES=1 это ошибка.
     tpl_id: str = ""
     tpl_version: str = ""
+    # V3-H свода №9 (PACKAGE I): точная схема/вариант блока (default/u/facing/…),
+    # для identity зоны в экспорте; пусто у зон без вариантов
+    tpl_variant: str = ""
 
     @model_validator(mode="after")
     def _role_matches(self) -> "Placement":

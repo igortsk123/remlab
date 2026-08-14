@@ -84,6 +84,18 @@ def _corner_polygon(it: Item) -> Polygon:
     return Polygon(pts)
 
 
+def corner_active_lat(it) -> float:
+    """V3-H свода №9 (корень «правое зеркало всегда»): смещение АКТИВНОГО
+    (посадочного) центра Г-дивана в lateral-конвенции relative_position:
+    плечо на локальном +x (corner_left=False) → +section/2; зеркало → −section/2.
+    Прямой диван: 0. До фикса 8 мест хардкодили +section/2 — левое зеркало
+    систематически ловило TABLE_OFF_AXIS/оси и не могло выиграть нигде."""
+    if it is None or not getattr(it, 'corner', False)             or not getattr(it, 'corner_section_cm', 0):
+        return 0.0
+    s = it.corner_section_cm / 2.0
+    return s if not getattr(it, 'corner_left', False) else -s
+
+
 def seat_axis_origin(p: Placement) -> tuple[float, float]:
     """Точка отсчёта оси взгляда/прицела посадки. Для Г-дивана — центр ГЛАВНОЙ
     (прямой) секции, не центр bbox: chaise асимметричен, центрируется посадочная

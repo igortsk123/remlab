@@ -1622,3 +1622,38 @@ ADR после вердиктов. (H) Приёмка расширена append-
 Планки — по стабильным №1-252; полнота — по всему набору. Итог мастера: 269/269
 чистых, медиа 269/269, dining 196 базовых + 11/17 новых, тихий edge 0.
 **Влияет на.** [[layout]], quality, solver_run/export, acceptance_run/сцены, приёмка.
+
+## ADR-0102 — Свод №9 (аудит рефери по 269): пакеты V3-A…G (2026-08-14)
+**Решение.** (A) P0 «два носителя» (№269) — ТРИ уровня защиты: skip media-тегов при
+носителе в блоке, `zone_priority.cardinality` (данные), финальный валидатор
+MEDIA_DOUBLE_CARRIER hard (`planner/validate.py`). (B) Полный trace поиска dining:
+счётчики generated/fits/hard_valid/quality_valid по классам + `quality.failed_axes`
+(именованные оси гейта) + вектора до/после; диагноз первой попытки сохраняется при
+edge-retry (двусмысленность №216 снята). (C) Разбор 17 кейсов рефери: ВСЕ отвергнуты
+гейтом по одной оси sliver_m2 (+0.37…0.60 при пороге +0.35); острова hard-valid 16/16 →
+**frozen-core не связывает, связывает порог щелей** — вопрос порога передан
+рефери/владельцу, веса не тронуты. (D) Alt-position retry ступени в точке потери
+носителя; set80-L — медиа геометрически недостижима (ограничение сцены). (E) `mode`
+dining — по фактической ТОПОЛОГИИ (сторона со стрипом <55 упёрта → edge; все ≥90 →
+full_island; 55-89 freestanding → compact), `mode_path` отдельно; замер: 34 из 49
+path-compact оказались wall-attached. (F) zone-cohesion оси (inter_zone_gap /
+largest_unassigned_m2 / dead_void_depth_cm на envelope'ах зон) вместо пустой
+residual_fragmentation; семантика осей в `zones.json → axes_semantics» (60 см НЕ норма).
+(G) Таксономия дыр: NO_FEASIBLE_REGION/QUALITY_REJECTED/TEMPLATE_GAP; замер: все 51
+событие = NO_FEASIBLE_REGION, истинных дыр библиотеки 0.
+**Влияет на.** [[layout]], zones/template/validate/quality, rules, экспорт, приёмка.
+
+## ADR-0103 — Зеркала Г-дивана: сравнение вместо first-clean; корень-баг знака (2026-08-14)
+**Решение.** (1) Найден и исправлен КОРЕНЬ «правое зеркало всегда»: 8 мест кода
+(validate/score/candidates/refine) хардкодили активный центр Г-дивана `+section/2`
+БЕЗ учёта corner_left — левое зеркало глобально ловило TABLE_OFF_AXIS и не могло
+выиграть нигде. Единый хелпер `geometry.corner_active_lat` (знак по corner_left).
+После фикса — идеальная симметрия (дверь восток→right, запад→left). (2) Зеркала
+выбираются СРАВНЕНИЕМ (поправка рефери): обе стороны решаются полностью
+(`place_template`-обёртка), при обоюдной hard-валидности победитель — существующий
+лексикографический ключ; счётчики `_mirror` в артефакте. (3) Сцены-пруф №270 (R-only),
+№271 (L-only), №272 (оба валидны, побеждает LEFT по ключу — first-clean выбрал бы
+right). Identity зон в экспорте: `_zones` (template/variant/mirror), `tpl_variant` в
+Placement; `_media_validation` (перекрытие экрана, замер от оси).
+**Влияет на.** [[layout]], geometry/validate/score/candidates/refine/template,
+models, solver_run/экспорт, приёмка (сцены №270-272).

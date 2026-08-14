@@ -1349,11 +1349,44 @@ def _window_back_candidates(room: Room, sofa_item: Item, free: Polygon) -> list:
     return out
 
 
+# V3-H свода №9: счётчики зеркал Г-дивана последнего вызова (debug/export)
+LAST_MIRROR_STATS: dict | None = None
+
+
 def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
                    fixed: list[Placement] | None = None) -> list[Placement] | None:
     """Разговорная зона блоком: лучший hard-чистый вариант или None (фолбэк beam)."""
     if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
         return None
+    # V3-H свода №9 (поправка рефери: зеркала НЕ first-clean): для Г-дивана ОБЕ
+    # стороны решаются полностью, при обоюдной валидности выбор — существующим
+    # лексикографическим ключом движка (score_layout → lexo_key), нового скора нет.
+    _sofa_m = next((i for i in items if i.role == 'диван'), None)
+    if _sofa_m is not None and getattr(_sofa_m, 'corner', False) \
+            and not getattr(_sofa_m, 'corner_side_fixed', False):
+        global LAST_MIRROR_STATS
+        from .score import score_layout as _slm
+        from .zones import lexo_key as _lkm
+        _stats = {'left': {'generated': 0, 'hard_valid': 0},
+                  'right': {'generated': 0, 'hard_valid': 0}, 'winner': None}
+        _outs = []
+        for _cl in (False, True):
+            _side = 'left' if _cl else 'right'
+            _stats[_side]['generated'] = 1
+            _it2 = [i if i.role != 'диван' else _sofa_m.model_copy(
+                update={'corner_left': _cl, 'corner_side_fixed': True})
+                for i in items]
+            _ps = place_template(room, group_id, _it2, free, fixed=fixed)
+            if _ps:
+                _stats[_side]['hard_valid'] = 1
+                _key = _lkm(0, 0, _slm(room, list(fixed or []) + _ps).terms)
+                _outs.append((_key, _side, _ps))
+        LAST_MIRROR_STATS = _stats
+        if not _outs:
+            return None
+        _outs.sort(key=lambda t: t[0])
+        _stats['winner'] = _outs[0][1]
+        return _outs[0][2]
     by_role: dict[str, Item] = {}
     for it in items:
         by_role.setdefault(it.role, it)
@@ -1419,17 +1452,6 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
         # креслом — но столик и ковёр неприкосновенны. Нет места столику — берётся
         # меньший состав ВОКРУГ него, а не зона без поверхности.
     variants = tries
-    # Пакет E свода №8 (v2 §10): ЗЕРКАЛА Г-ДИВАНА перебираются в шаблонном пути —
-    # прежде «обратная буква Г» была недостижима (зеркало жило только в поштучном
-    # candidates.py). Для каждого геометрического варианта: оригинал → зеркало;
-    # выбор — теми же hard+quality гейтами (первый чистый), нового скора нет.
-    _sofa0 = by_role.get('диван')
-    if _sofa0 is not None and getattr(_sofa0, 'corner', False) \
-            and not getattr(_sofa0, 'corner_side_fixed', False):
-        _mir0 = _sofa0.model_copy(
-            update={'corner_left': not getattr(_sofa0, 'corner_left', False)})
-        variants = [v for br0, g0, s0 in tries
-                    for v in ((br0, g0, s0), ({**br0, 'диван': _mir0}, g0, s0))]
     # ЭФФЕКТИВНАЯ группа (11.08): выбранная группа может требовать роль, которой в
     # сете нет (sofa_armchair без кресла) — тогда блок не собирался и сцена уходила
     # в поштучный фолбэк. Понижаем группу до реально доступного состава.
@@ -1511,6 +1533,8 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
               ps = _best_block(room, b, free, cands, tv=tv, fixed=fixed,
                                second_focus=second, require_bearer=bearer)
               if ps is not None:
+                  for _pv in ps:            # V3-H: identity схемы в экспорт
+                      _pv.tpl_variant = shape
                   if os.environ.get('ZONES_DEBUG'):
                       import sys as _s
                       print(f'ZDBG посадка принята: круг фокуса={_lvl} схема={shape} '

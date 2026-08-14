@@ -215,7 +215,8 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
         fx, fy = _face_dir(anchor.rot)
         # плечо занимает локальный +x, что в мировых координатах = −lateral (см. relative_position),
         # поэтому центр свободного сегмента смещаем на +lateral
-        lat = anchor.item.corner_section_cm / 2
+        from .geometry import corner_active_lat as _cal
+        lat = _cal(anchor.item)
         return anchor.x + lat * (-fy), anchor.y + lat * fx
 
     def add(x: float, y: float, rot: float, note: str, topology: str = ""):
@@ -298,7 +299,8 @@ def anchor_candidates(room: Room, item: Item, placed: list[Placement], free: Pol
             sfx0, sfy0 = _face_dir(sofa.rot)
             fwd0 = (first.x - sofa.x) * sfx0 + (first.y - sofa.y) * sfy0
             lat0 = (first.x - sofa.x) * (-sfy0) + (first.y - sofa.y) * sfx0
-            act0 = (sofa.item.corner_section_cm / 2) if sofa.item.corner else 0.0
+            from .geometry import corner_active_lat as _cal0
+            act0 = _cal0(sofa.item)
             mlat = 2 * act0 - lat0
             mx = sofa.x + sfx0 * fwd0 + (-sfy0) * mlat
             my = sofa.y + sfy0 * fwd0 + sfx0 * mlat
@@ -631,7 +633,8 @@ def generate(room: Room, item: Item, placed: list[Placement], *, limit: int = 48
             import math as _m
             r0 = _m.radians(sofa0.rot)
             fx0, fy0 = _m.sin(r0), _m.cos(r0)
-            act = (sofa0.item.corner_section_cm / 2) if sofa0.item.corner else 0.0
+            from .geometry import corner_active_lat as _cal1
+            act = _cal1(sofa0.item)
             rug_along = max(item.w_cm, item.d_cm)
             rug_deep = min(item.w_cm, item.d_cm)
             rot0 = int(sofa0.rot) % 180 if item.w_cm >= item.d_cm else (int(sofa0.rot) + 90) % 180

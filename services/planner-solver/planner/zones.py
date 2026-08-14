@@ -337,6 +337,7 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
     from .quality import scene_quality as _quality
     from . import template as _tplmod
     _tplmod.LAST_DINING_DIAG = None      # пакет B: свежий диагноз dining на каждый прогон
+    _tplmod.LAST_MIRROR_STATS = None     # V3-H: счётчики зеркал — per solve
     os.environ.pop('_SCREEN_WINDOW_WAIVED', None)   # пакет D: вейвер экрана — per solve
     avail = {_base(i.role) for i in items}
     counts = Counter(_base(i.role) for i in items)
@@ -872,6 +873,9 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                         'reason': ('quality_gate' if _ddiag.get('gate_rejected')
                                    else _ddiag.get('island_reject') or 'no_fit')}
             lay.meta['dining'] = _ddiag
+        _mst = getattr(_tplmod, 'LAST_MIRROR_STATS', None)
+        if _mst is not None:
+            lay.meta['mirror'] = dict(_mst)   # V3-H: счётчики зеркал в экспорт
         outs = [lay]
         if os.environ.get('ZONES_DEBUG'):
             import sys as _s

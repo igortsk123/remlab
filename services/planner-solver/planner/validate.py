@@ -766,7 +766,8 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
     # (conversation cavity): плечо занимает −lateral (см. candidates.seat_center) —
     # активный центр смещён на +section/2, активная ширина = w − section
     if sofa.item.corner:
-        act_lat = sofa.item.corner_section_cm / 2
+        from .geometry import corner_active_lat as _cal
+        act_lat = _cal(sofa.item)
         act_w = max(sofa.item.w_cm - sofa.item.corner_section_cm, 80.0)
     else:
         act_lat, act_w = 0.0, sofa.item.w_cm

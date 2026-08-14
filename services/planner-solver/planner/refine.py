@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from .candidates import generate
-from .geometry import footprint
+from .geometry import corner_active_lat, footprint
 from .models import Layout, Placement, Room, Severity
 from .score import score_layout
 from .validate import WALL_ONLY_ROLES, validate
@@ -103,7 +103,7 @@ def _snap_bearer_axis(room: Room, layout: Layout) -> Layout:
     fx, fy = math.sin(r), math.cos(r)
     dx, dy = bearer.x - sofa.x, bearer.y - sofa.y
     lat = dx * (-fy) + dy * fx
-    act = (sofa.item.corner_section_cm / 2) if sofa.item.corner else 0.0
+    act = corner_active_lat(sofa.item)
     if abs(lat - act) < 8:
         return layout
     from .validate import validate
@@ -143,7 +143,7 @@ def _snap_rug_anchor(room: Room, layout: Layout) -> Layout:
     import math
     r = math.radians(sofa.rot)
     fx, fy = math.sin(r), math.cos(r)
-    act = (sofa.item.corner_section_cm / 2) if sofa.item.corner else 0.0
+    act = corner_active_lat(sofa.item)
     rug_deep = min(rug.item.w_cm, rug.item.d_cm)
     rot0 = int(sofa.rot) % 180 if rug.item.w_cm >= rug.item.d_cm else (int(sofa.rot) + 90) % 180
     fwd_c = sofa.item.d_cm / 2 - 27 + rug_deep / 2
@@ -178,7 +178,7 @@ def _snap_table_center(room: Room, layout: Layout) -> Layout:
     import math
     r = math.radians(sofa.rot)
     fx, fy = math.sin(r), math.cos(r)
-    act = (sofa.item.corner_section_cm / 2) if sofa.item.corner else 0.0
+    act = corner_active_lat(sofa.item)
     dx, dy = tbl.x - sofa.x, tbl.y - sofa.y
     fwd = dx * fx + dy * fy
     nx = sofa.x + fx * fwd + (-fy) * act
