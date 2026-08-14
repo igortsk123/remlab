@@ -659,10 +659,12 @@ def attempt_beam():
     global QUALITY_AXES
     QUALITY_AXES = None
     try:
-        from planner.quality import (residual_fragmentation as _rfG,
-                                     route_active_dining_cm as _radG,
-                                     visual_balance as _vbG)
-        QUALITY_AXES = {'residual_fragmentation': _rfG(room_p, lay.placements),
+        from planner.quality import (route_active_dining_cm as _radG,
+                                     visual_balance as _vbG,
+                                     zone_cohesion as _zcG)
+        # V3-F свода №9: residual_fragmentation заменена zone-cohesion осями
+        # (пустая ось: 1 компонент на всех 269, r≈0.99 с площадью — §12 свода)
+        QUALITY_AXES = {'zone_cohesion': _zcG(room_p, lay.placements),
                         'visual_balance': _vbG(room_p, lay.placements),
                         'route_active_dining_cm': _radG(room_p, lay.placements)}
     except Exception:

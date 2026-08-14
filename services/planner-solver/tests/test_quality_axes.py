@@ -40,3 +40,22 @@ def test_active_dining_route_not_wider_than_static():
     assert active is not None and active <= static
     # без столовой — None (ось не применима)
     assert route_active_dining_cm(room, [ps[0]]) is None
+
+
+def test_zone_cohesion_distinguishes():
+    """V3-F: cohesion-оси различают «кластеры по краям» и компактную сцену."""
+    from planner.quality import zone_cohesion
+
+    def _pz(role, x, y, rot, w, d, tpl):
+        p = _p(role, x, y, rot, w, d)
+        p.tpl_id = tpl
+        return p
+    spread = zone_cohesion(Room(width_cm=700, depth_cm=600), [
+        _pz('диван', 120, 560, 180, 220, 95, 'seating'),
+        _pz('стол обеденный', 620, 100, 0, 110, 70, 'dining')])
+    tight = zone_cohesion(Room(width_cm=450, depth_cm=420), [
+        _pz('диван', 350, 540, 180, 220, 95, 'seating'),
+        _pz('тв-тумба', 350, 30, 0, 150, 40, 'media')])
+    assert spread['largest_unassigned_m2'] > tight['largest_unassigned_m2']
+    assert spread['dead_void_depth_cm'] > tight['dead_void_depth_cm']
+    assert spread['inter_zone_gap'] and 'dining~seating' in spread['inter_zone_gap']

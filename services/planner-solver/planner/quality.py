@@ -282,3 +282,64 @@ def route_active_dining_cm(room, ps) -> float | None:
             break
         best = float(r)
     return best
+
+
+def zone_envelopes(room, ps) -> dict:
+    """V3-F свода №9: функциональные envelope ЗОН (следы членов + их клиренсы
+    доступа), сгруппированные по tpl_id. Для cohesion-метрик, не для гейтов."""
+    from collections import defaultdict
+    from shapely.ops import unary_union
+    from .clearances import clearance_for
+    from .geometry import access_zone, footprint as _fp
+    groups = defaultdict(list)
+    for p in ps:
+        z = (p.tpl_id or '').strip() or 'other'
+        parts = [_fp(p)]
+        try:
+            sp = clearance_for(p.role)
+            if sp.front_cm or sp.side_cm or sp.back_cm:
+                parts.append(access_zone(p, spec=sp))
+        except Exception:
+            pass
+        groups[z].append(unary_union(parts))
+    return {z: unary_union(v) for z, v in groups.items()}
+
+
+def zone_cohesion(room, ps) -> dict:
+    """V3-F (замена пустой residual_fragmentation, §13 свода №9) — ТОЛЬКО замер:
+    - inter_zone_gap: расстояния между envelope'ами функциональных зон;
+    - largest_unassigned_m2: крупнейший регион пола ВНЕ envelope'ов зон и
+      входного резерва циркуляции;
+    - dead_void_depth_cm: глубина кармана этого региона (pole of inaccessibility).
+    Порогов нет — сначала корпус и разметка (§13.4), потом ADR."""
+    from shapely.ops import unary_union
+    from .geometry import room_polygon
+    env = zone_envelopes(room, ps)
+    env.pop('other', None)
+    keys = sorted(env)
+    gaps = {}
+    for i, a in enumerate(keys):
+        for b in keys[i + 1:]:
+            gaps[f'{a}~{b}'] = round(env[a].distance(env[b]), 1)
+    out = {'inter_zone_gap': gaps, 'largest_unassigned_m2': 0.0,
+           'dead_void_depth_cm': 0.0}
+    try:
+        from .zones import route_reserve
+        blockers = list(env.values()) + [route_reserve(room)]
+    except Exception:
+        blockers = list(env.values())
+    rest = room_polygon(room).difference(unary_union(blockers)) if blockers \
+        else room_polygon(room)
+    if rest.is_empty:
+        return out
+    comps = sorted(getattr(rest, 'geoms', [rest]), key=lambda g: -g.area)
+    big = comps[0]
+    out['largest_unassigned_m2'] = round(big.area / 10_000, 2)
+    try:
+        from shapely.ops import polylabel
+        pole = polylabel(big, tolerance=5.0)
+        out['dead_void_depth_cm'] = round(pole.distance(big.exterior), 1)
+    except Exception:
+        out['dead_void_depth_cm'] = round(
+            max((big.buffer(-r).area > 0) * r for r in range(0, 200, 10)), 1)
+    return out
