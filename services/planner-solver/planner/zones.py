@@ -649,22 +649,45 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                         _dd0 = getattr(_tplmod, 'LAST_DINING_DIAG', None)
                         if _dd0 is not None:
                             _dd0['gate_rejected'] = True   # пакет B: причина «не встала»
+                            # V3-B: ТОЧНАЯ ось гейта + вектора до/после (объяснимость)
+                            from .quality import failed_axes as _faxes
+                            _rnd = lambda d: {k: (round(v, 2) if isinstance(
+                                v, (int, float)) else v) for k, v in d.items()}
+                            _dd0['gate'] = {'failed_axes': _faxes(_q_before, _q_after),
+                                            'before': _rnd(_q_before),
+                                            'after': _rnd(_q_after)}
+                            _kls = _dd0.get('mode')
+                            if _kls and _dd0.get('search', {}).get(_kls) is not None:
+                                _dd0['search'][_kls]['quality_valid'] = 0
                         # Пакет C: остров отвергнут гейтом качества (маршрут/щели/фокус)
                         # → честный retry классом EDGE с ЯВНОЙ причиной (тихого edge нет:
                         # причина обязана попасть в диагноз — свод №8 v2, ключевой инвариант)
                         from .template import place_dining as _pd_edge
+                        _prev_diag = dict(_dd0) if _dd0 else None
                         _extra_e = _pd_edge(room, keep, _free_z, usable_m2(room),
                                             fixed=block, classes=('edge',))
+                        # V3-B (вопрос рефери по №216): диагноз ПЕРВОЙ попытки (проба
+                        # острова, счётчики island-классов, ось гейта) сохраняется при
+                        # retry — иначе island_feasible пересчитывался на суженном free
+                        _dde = getattr(_tplmod, 'LAST_DINING_DIAG', None)
+                        if _dde is not None and _prev_diag is not None:
+                            _dde['island_feasible'] = _prev_diag.get('island_feasible')
+                            _dde['island_reject'] = _prev_diag.get('island_reject')
+                            if _prev_diag.get('gate'):
+                                _dde['gate'] = _prev_diag['gate']
+                            for _k in ('full_island', 'compact_island'):
+                                if (_prev_diag.get('search') or {}).get(_k):
+                                    _dde.setdefault('search', {})[_k] = \
+                                        _prev_diag['search'][_k]
                         if _extra_e and _not_worse(_q_before,
                                                    _quality(room, block + _extra_e)):
-                            _dde = getattr(_tplmod, 'LAST_DINING_DIAG', None)
                             if _dde is not None:
                                 _dde['mode'] = 'edge'
                                 _dde['fallback_reason'] = 'island_rejected_by_quality_gate'
                                 _dde.pop('gate_rejected', None)
                             extra = _extra_e
                         else:
-                            if _dde := getattr(_tplmod, 'LAST_DINING_DIAG', None):
+                            if _dde is not None:
                                 _dde['gate_rejected'] = True   # retry тоже не прошёл
                             extra = None
                     else:
@@ -778,6 +801,9 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                     'dining_mandatory', 'second_zone_mandatory')
                 _ddiag['why_selected'] = ('mandatory_residual_R' if _mand
                                           else 'preferred_coverage')
+                _mk = _ddiag.get('mode')          # V3-B: принятый класс прошёл гейт
+                if _mk and isinstance((_ddiag.get('search') or {}).get(_mk), dict):
+                    _ddiag['search'][_mk]['quality_valid'] = 1
             else:
                 _ddiag['why_selected'] = 'not_placed'
                 _ddiag['mode'] = None

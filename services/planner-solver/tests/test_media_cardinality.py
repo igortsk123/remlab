@@ -44,3 +44,24 @@ def test_validator_fires_on_double_carrier():
                     item=Item(role='стенка', w_cm=280, d_cm=50, h_cm=200))]
     codes = {v.code for v in validate(room, ps).violations}
     assert 'MEDIA_DOUBLE_CARRIER' in codes
+
+
+def test_validator_semantic_incl_tandem_carrier():
+    """Поправка рефери: носитель считается СЕМАНТИЧЕСКИ (по ролям размещений),
+    включая carrier, поставленный составной схемой +tvfp (медиа+камин). Камин
+    носителем не является и в кардинальность не входит."""
+    from planner.models import Item, Placement, Room
+    from planner.validate import validate
+    room = Room(width_cm=500, depth_cm=500)
+    tandem = [Placement(role='стенка', x=250, y=480, rot=180,
+                        item=Item(role='стенка', w_cm=280, d_cm=50, h_cm=200)),
+              Placement(role='камин', x=60, y=480, rot=180,
+                        item=Item(role='камин', w_cm=120, d_cm=42, h_cm=110))]
+    # стенка из тандема + камин: ОДИН носитель — чисто
+    assert not any(v.code == 'MEDIA_DOUBLE_CARRIER'
+                   for v in validate(room, tandem).violations)
+    # + standalone тумба к тандему: двойной носитель — hard
+    extra = tandem + [Placement(role='тв-тумба', x=250, y=20, rot=0,
+                                item=Item(role='тв-тумба', w_cm=140, d_cm=40, h_cm=50))]
+    assert any(v.code == 'MEDIA_DOUBLE_CARRIER'
+               for v in validate(room, extra).violations)

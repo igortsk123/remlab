@@ -177,22 +177,29 @@ def scene_quality(room: Room, ps: list[Placement]) -> dict:
     }
 
 
+def failed_axes(before: dict, after: dict) -> list[str]:
+    """V3-B свода №9: ИМЕНОВАННЫЕ оси, по которым «стало хуже» (для объяснимости
+    гейта: не только вердикт, но и точная ось). Пороги — те же, что в not_worse."""
+    out = []
+    b_route, a_route = before.get('circulation', 0.0), after.get('circulation', 0.0)
+    if a_route < min(b_route, ROUTE_MIN_CM):
+        out.append('circulation')
+    b_sl, a_sl = before.get('sliver_m2', 0.0), after.get('sliver_m2', 0.0)
+    if a_sl > b_sl + 0.35:          # +0.35 м² новых щелей — предмет «затыкает дыру»
+        out.append('sliver_m2')
+    b_f, a_f = before.get('focus'), after.get('focus')
+    if b_f is not None and a_f is not None and a_f > max(b_f, FOCUS_OFFSET_MAX_CM):
+        out.append('focus')
+    return out
+
+
 def not_worse(before: dict, after: dict) -> bool:
     """Стало ли НЕ хуже по защищённым компонентам (порядок важен).
 
     Защищаем: маршрут (не сузился ниже порога и не стал уже прежнего) и «щели»
     (не выросли заметно). Число предметов защищённым НЕ является — оно следствие.
     """
-    b_route, a_route = before.get('circulation', 0.0), after.get('circulation', 0.0)
-    if a_route < min(b_route, ROUTE_MIN_CM):
-        return False
-    b_sl, a_sl = before.get('sliver_m2', 0.0), after.get('sliver_m2', 0.0)
-    if a_sl > b_sl + 0.35:          # +0.35 м² новых щелей — предмет «затыкает дыру»
-        return False
-    b_f, a_f = before.get('focus'), after.get('focus')
-    if b_f is not None and a_f is not None and a_f > max(b_f, FOCUS_OFFSET_MAX_CM):
-        return False
-    return True
+    return not failed_axes(before, after)
 
 
 # --- Пакет G свода №8 (v2 §6.3-6.4, §8): НОВЫЕ ОСИ — ТОЛЬКО ИЗМЕРЕНИЕ. ---

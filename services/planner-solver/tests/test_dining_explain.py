@@ -101,3 +101,24 @@ def test_no_silent_edge_in_exam_artifacts():
                 d.get('fallback_reason') != 'island_rejected_by_quality_gate':
             silent.append(os.path.basename(f))
     assert not silent, f'тихий edge при возможном острове: {silent}'
+
+
+def test_search_trace_present():
+    """V3-B свода №9: счётчики поиска по классам — в диагнозе."""
+    from planner.models import Item, Opening, Room
+    from planner.zones import solve_zoned
+    room = Room(width_cm=520, depth_cm=460,
+                openings=[Opening(kind='door', wall='south', offset_cm=86, width_cm=90),
+                          Opening(kind='window', wall='west', offset_cm=140, width_cm=158)])
+    lays, gid = solve_zoned(room, _scene_items())
+    d = lays[0].meta.get('dining') or {}
+    sr = d.get('search') or {}
+    assert set(sr) >= {'full_island', 'compact_island', 'edge'}
+    if '+din' in gid:
+        m = d.get('mode')
+        cls = {'full_island': 'full_island', 'compact_island': 'compact_island',
+               'edge': 'edge'}[m]
+        assert sr[cls].get('hard_valid', 0) >= 1 or d.get('fallback_reason')
+        assert sr[cls].get('quality_valid') == 1
+    if d.get('gate'):
+        assert set(d['gate']) >= {'failed_axes', 'before', 'after'}

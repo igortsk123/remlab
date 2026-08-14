@@ -1077,9 +1077,11 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
                 fixed: list[Placement] | None, top: int = 1,
                 axis_seat: Placement | None = None,
                 second_focus: Item | None = None,
-                require_bearer: Item | None = None) -> list[Placement] | None:
+                require_bearer: Item | None = None,
+                stats: dict | None = None) -> list[Placement] | None:
     """Общий отборщик: fits-проба всех членов → ТВ-проба → эвристический ранг →
     полный validate (hard) топ-N; первый чистый побеждает."""
+    cands = list(cands)               # V3-B: счётчики + защита от генераторов
     room_poly = room_polygon(room)
     scored: list[tuple[float, list[Placement]]] = []
     for c in cands:
@@ -1242,6 +1244,18 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
             continue
         if first_hard is None:
             first_hard = [(v.code, v.roles, v.value) for v in hards[:3]]
+    # V3-B свода №9: счётчики поиска для объяснимости (runtime, не правила):
+    # generated → fits-проба → полный validate → hard-чистых; топ-причина отказа
+    if stats is not None:
+        ok_variants.sort(key=lambda t: t[0])
+        stats['generated'] = stats.get('generated', 0) + len(cands)
+        stats['fits'] = stats.get('fits', 0) + len(scored)
+        stats['validated'] = stats.get('validated', 0) + len(_pool)
+        stats['hard_valid'] = stats.get('hard_valid', 0) + len(ok_variants)
+        if first_hard and not stats.get('top_reject'):
+            stats['top_reject'] = [[c, list(r), v] for c, r, v in first_hard]
+        if ok_variants and stats.get('best_key') is None:
+            stats['best_key'] = list(ok_variants[0][0])
     if ok_variants:
         ok_variants.sort(key=lambda t: t[0])
         if top > 1:
@@ -1518,7 +1532,9 @@ def place_dining(room: Room, items: list[Item], free: Polygon, usable_m2: float,
     diag = {'mode': None, 'island_feasible': (
                 dining_island_feasible(_tbl_it, free) if _tbl_it is not None else False),
             'island_reject': None, 'fallback_reason': None,
-            'envelope_cm': dining_envelope_cm()}
+            'envelope_cm': dining_envelope_cm(),
+            # V3-B свода №9: счётчики поиска по классам (runtime, не правила)
+            'search': {'full_island': {}, 'compact_island': {}, 'edge': {}}}
     LAST_DINING_DIAG = diag
     # Пакет C свода №8 (v2 §3/§6.2): КАСКАД КЛАССОВ как приоритет кандидатов ПОСЛЕ
     # hard, не вес: FULL_ISLAND (паспортный envelope со всех сторон; кандидаты — и от
@@ -1535,7 +1551,8 @@ def place_dining(room: Room, items: list[Item], free: Polygon, usable_m2: float,
             for _cands, _klass in ((_full, 'full_island'), (_mids, 'compact_island')):
                 if not _cands:
                     continue
-                ps = _best_block(room, b_all, free, _cands, tv=None, fixed=fixed)
+                ps = _best_block(room, b_all, free, _cands, tv=None, fixed=fixed,
+                                 stats=diag['search'][_klass])
                 if ps is not None:
                     _tbl_p = next((p for p in ps if p.role == 'стол обеденный'), None)
                     diag['mode'] = ('full_island' if _tbl_p is not None and
@@ -1548,7 +1565,7 @@ def place_dining(room: Room, items: list[Item], free: Polygon, usable_m2: float,
         if b_front is not None:
             ps = _best_block(room, b_front, free,
                              list(wall_candidates(room, b_front.anchor, free)),
-                             tv=None, fixed=fixed)
+                             tv=None, fixed=fixed, stats=diag['search']['edge'])
             if ps is not None:
                 diag['mode'] = 'edge'
                 diag['fallback_reason'] = (
