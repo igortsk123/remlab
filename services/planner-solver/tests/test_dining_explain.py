@@ -34,7 +34,7 @@ def test_meta_dining_present_when_placed():
         assert d.get('mode') in ('full_island', 'compact_island', 'edge')
         assert d.get('why_selected') in (
             'preferred_coverage', 'mandatory_residual_R', 'preferred_coverage+sacrifice')
-        if d['mode'] == 'edge':
+        if d.get('mode_path') == 'edge':
             assert d.get('fallback_reason'), 'edge без причины — «тихий edge» запрещён'
     else:
         assert d.get('why_selected') == 'not_placed'
@@ -60,7 +60,8 @@ def test_cascade_full_island_preferred_in_space():
              Item(role='стул 2', w_cm=45, d_cm=50, h_cm=85)]
     ps = place_dining(room, items, room_polygon(room), 24.4)
     assert ps is not None
-    assert T.LAST_DINING_DIAG['mode'] == 'full_island', T.LAST_DINING_DIAG
+    assert T.LAST_DINING_DIAG['mode_path'] == 'full_island', T.LAST_DINING_DIAG
+    assert T.LAST_DINING_DIAG['mode'] in ('full_island', 'compact_island')
 
 
 def test_cascade_edge_fallback_when_island_infeasible():
@@ -77,7 +78,7 @@ def test_cascade_edge_fallback_when_island_infeasible():
     d = T.LAST_DINING_DIAG
     assert d['island_feasible'] is False
     if ps is not None:
-        assert d['mode'] == 'edge' and d['fallback_reason'] == 'island_infeasible', d
+        assert d['mode_path'] == 'edge' and d['fallback_reason'] == 'island_infeasible', d
 
 
 def test_no_silent_edge_in_exam_artifacts():
@@ -97,7 +98,7 @@ def test_no_silent_edge_in_exam_artifacts():
             d = (_j.load(open(f, encoding='utf-8')) or {}).get('_dining') or {}
         except Exception:
             continue
-        if d.get('island_feasible') and d.get('mode') == 'edge' and \
+        if d.get('island_feasible') and (d.get('mode_path') or d.get('mode')) == 'edge' and \
                 d.get('fallback_reason') != 'island_rejected_by_quality_gate':
             silent.append(os.path.basename(f))
     assert not silent, f'тихий edge при возможном острове: {silent}'
@@ -115,10 +116,24 @@ def test_search_trace_present():
     sr = d.get('search') or {}
     assert set(sr) >= {'full_island', 'compact_island', 'edge'}
     if '+din' in gid:
-        m = d.get('mode')
-        cls = {'full_island': 'full_island', 'compact_island': 'compact_island',
-               'edge': 'edge'}[m]
+        cls = d.get('mode_path') or d.get('mode')
         assert sr[cls].get('hard_valid', 0) >= 1 or d.get('fallback_reason')
         assert sr[cls].get('quality_valid') == 1
     if d.get('gate'):
         assert set(d['gate']) >= {'failed_axes', 'before', 'after'}
+
+
+def test_mode_is_topology():
+    """V3-E свода №9: mode — фактическая топология (55/90, существующие числа)."""
+    from shapely.geometry import box as _box
+    from planner.models import Item, Placement
+    from planner.template import dining_mode_topology
+    free = _box(0, 0, 500, 500)
+    tbl = lambda x, y: Placement(role='стол обеденный', x=x, y=y, rot=0.0,
+                                 item=Item(role='стол обеденный', w_cm=110, d_cm=70,
+                                           h_cm=75))
+    assert dining_mode_topology(tbl(250, 250), free) == 'full_island'
+    # стол торцом к стене (западная кромка в 10 см) — wall-attached → edge
+    assert dining_mode_topology(tbl(65, 250), free) == 'edge'
+    # свободен со всех сторон, но до стены 60-80 см (меньше envelope 90) → compact
+    assert dining_mode_topology(tbl(120, 250), free) == 'compact_island'

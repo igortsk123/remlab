@@ -143,6 +143,31 @@ def _island_probe_candidates(table: Item, free: Polygon, limit: int = 6) -> list
     return out
 
 
+def dining_mode_topology(table: Placement, free: Polygon) -> str:
+    """V3-E свода №9 (PACKAGE E): режим — по фактической ТОПОЛОГИИ постановки, не по
+    пути кандидата. Числа СУЩЕСТВУЮЩИЕ: сторона, у которой полоса отодвигания стула
+    (dining_chair_pullout 55, occupancy.json) упирается в стену/мебель → wall-attached
+    → 'edge'; все четыре стороны свободны ≥ паспортного envelope (90) → 'full_island';
+    иначе 'compact_island' (freestanding, 55…89 — fallback-класс; 55 НЕ трактуется
+    как «нормальный проход» — поправка рефери, это минимум отодвигания)."""
+    from .clearances import distances as _dist
+    _pv = _dist().get('dining_chair_pullout', 55)
+    pull = float(_pv[0] if isinstance(_pv, list) else _pv)
+    it = table.item
+    for side_rot, grow in ((0.0, it.d_cm), (180.0, it.d_cm),
+                           (90.0, it.w_cm), (270.0, it.w_cm)):
+        # полоса pull-глубины сразу за соответствующей стороной стола
+        w_ = it.w_cm if side_rot in (0.0, 180.0) else it.d_cm
+        strip = Item(role=it.role, w_cm=w_, d_cm=pull, h_cm=it.h_cm)
+        off = grow / 2 + pull / 2
+        dx, dy = _rt(0.0, off, table.rot + side_rot)
+        probe = Placement(role=it.role, x=table.x + dx, y=table.y + dy,
+                          rot=table.rot + side_rot, item=strip)
+        if not free.contains(footprint(probe)):
+            return 'edge'
+    return 'full_island' if dining_envelope_ok(table, free, 'all') else 'compact_island'
+
+
 def dining_envelope_ok(table: Placement, free: Polygon, sides: str = 'all') -> bool:
     """FULL_ISLAND-валидность: паспортный envelope свободен вокруг рабочих сторон стола.
     sides='all' — все четыре стороны (остров); 'front' — пристенная сторона (локальный −y)
@@ -1555,8 +1580,12 @@ def place_dining(room: Room, items: list[Item], free: Polygon, usable_m2: float,
                                  stats=diag['search'][_klass])
                 if ps is not None:
                     _tbl_p = next((p for p in ps if p.role == 'стол обеденный'), None)
-                    diag['mode'] = ('full_island' if _tbl_p is not None and
-                                    dining_envelope_ok(_tbl_p, free, 'all') else 'compact_island')
+                    diag['mode_path'] = ('full_island' if _tbl_p is not None and
+                                         dining_envelope_ok(_tbl_p, free, 'all')
+                                         else 'compact_island')
+                    # V3-E: экспортный mode — фактическая топология постановки
+                    diag['mode'] = (dining_mode_topology(_tbl_p, free)
+                                    if _tbl_p is not None else diag['mode_path'])
                     return ps
             diag['island_reject'] = 'island_candidates_failed'
         if 'edge' not in classes:
@@ -1567,7 +1596,10 @@ def place_dining(room: Room, items: list[Item], free: Polygon, usable_m2: float,
                              list(wall_candidates(room, b_front.anchor, free)),
                              tv=None, fixed=fixed, stats=diag['search']['edge'])
             if ps is not None:
-                diag['mode'] = 'edge'
+                diag['mode_path'] = 'edge'
+                _tbl_pe = next((p for p in ps if p.role == 'стол обеденный'), None)
+                diag['mode'] = (dining_mode_topology(_tbl_pe, free)
+                                if _tbl_pe is not None else 'edge')
                 diag['fallback_reason'] = (
                     'island_infeasible' if not diag['island_feasible']
                     else diag['island_reject'] or 'island_place_failed')

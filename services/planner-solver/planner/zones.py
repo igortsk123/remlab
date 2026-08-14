@@ -695,7 +695,7 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                             _dd0['gate'] = {'failed_axes': _faxes(_q_before, _q_after),
                                             'before': _rnd(_q_before),
                                             'after': _rnd(_q_after)}
-                            _kls = _dd0.get('mode')
+                            _kls = _dd0.get('mode_path') or _dd0.get('mode')
                             if _kls and _dd0.get('search', {}).get(_kls) is not None:
                                 _dd0['search'][_kls]['quality_valid'] = 0
                         # Пакет C: остров отвергнут гейтом качества (маршрут/щели/фокус)
@@ -721,7 +721,7 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                         if _extra_e and _not_worse(_q_before,
                                                    _quality(room, block + _extra_e)):
                             if _dde is not None:
-                                _dde['mode'] = 'edge'
+                                # V3-E: mode остаётся топологией из place_dining
                                 _dde['fallback_reason'] = 'island_rejected_by_quality_gate'
                                 _dde.pop('gate_rejected', None)
                             extra = _extra_e
@@ -840,7 +840,7 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                     'dining_mandatory', 'second_zone_mandatory')
                 _ddiag['why_selected'] = ('mandatory_residual_R' if _mand
                                           else 'preferred_coverage')
-                _mk = _ddiag.get('mode')          # V3-B: принятый класс прошёл гейт
+                _mk = _ddiag.get('mode_path') or _ddiag.get('mode')   # V3-B/E
                 if _mk and isinstance((_ddiag.get('search') or {}).get(_mk), dict):
                     _ddiag['search'][_mk]['quality_valid'] = 1
             else:
@@ -850,8 +850,23 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                 # классом — структурное событие TEMPLATE_GAP (свод №8 v2 §13)
                 if any(it.role == 'стол обеденный' for it in keep):
                     from .room_map import room_mode, room_shape
+                    # V3-G свода №9 (PACKAGE H рефери): ТАКСОНОМИЯ вместо валового
+                    # TEMPLATE_GAP — «регион невозможен» ≠ «шаблона нет» ≠ «гейт»:
+                    #   NO_FEASIBLE_REGION — проба региона (стол+envelope) отрицательна;
+                    #   QUALITY_REJECTED — кандидаты hard-valid были, убил гейт качества;
+                    #   TEMPLATE_GAP — регион есть, кандидаты были, hard-valid ноль
+                    #                  (истинная дыра библиотеки/кандидатов).
+                    _sr = _ddiag.get('search') or {}
+                    _hv = sum((_sr.get(k) or {}).get('hard_valid', 0)
+                              for k in ('full_island', 'compact_island', 'edge'))
+                    if not _ddiag.get('island_feasible'):
+                        _gtype = 'NO_FEASIBLE_REGION'
+                    elif _ddiag.get('gate_rejected') or _hv > 0:
+                        _gtype = 'QUALITY_REJECTED'
+                    else:
+                        _gtype = 'TEMPLATE_GAP'
                     _ddiag['gap'] = {
-                        'type': 'TEMPLATE_GAP', 'zone': 'dining',
+                        'type': _gtype, 'zone': 'dining',
                         'requested_mode': 'island',
                         'room_class': f'{room_mode(room)}/{room_shape(room)}',
                         'reason': ('quality_gate' if _ddiag.get('gate_rejected')
