@@ -654,6 +654,19 @@ def attempt_beam():
     # пакет D свода №8 (v2 §14): ЕДИНЫЙ замер дистанции просмотра — от ОСИ посадки
     # (seat_axis_origin: Г-диван — центр главной секции) до плоскости носителя
     # (ближайшая грань его следа), а не «центр↔центр» (три разных замера расходились)
+    # пакет G свода №8: residual_fragmentation / visual_balance / active-dining route —
+    # измеряем и экспортируем; порогов нет (v2 §6.3-6.4, §8)
+    global QUALITY_AXES
+    QUALITY_AXES = None
+    try:
+        from planner.quality import (residual_fragmentation as _rfG,
+                                     route_active_dining_cm as _radG,
+                                     visual_balance as _vbG)
+        QUALITY_AXES = {'residual_fragmentation': _rfG(room_p, lay.placements),
+                        'visual_balance': _vbG(room_p, lay.placements),
+                        'route_active_dining_cm': _radG(room_p, lay.placements)}
+    except Exception:
+        QUALITY_AXES = None
     VIEW_DIST = None
     # пакет E свода №8: зеркальность Г-дивана — из решения солвера (Placement),
     # не из IoU-подбора (тот остаётся сверкой канонического следа)
@@ -771,6 +784,7 @@ _room_ops=(json.loads(_ops_env) if (_ops_env and json.loads(_ops_env)) else [
 # (замечание владельца 12.08: «диван заходит за границы комнаты» — это врал чертёж)
 out['_templates']={r:{'id':t,'version':v} for r,(t,v) in (globals().get('TPL_BY_ROLE') or {}).items()}
 out['_dining']=globals().get('DINING_DIAG')   # объяснимость dining (свод №8 пакет B)
+out['_axes']=globals().get('QUALITY_AXES')    # пакет G: новые оси — только замер, без порогов
 # пакет C: структурные дыры библиотеки шаблонов — списком (агрегатор template_gaps.py)
 out['_template_gaps']=[g for g in [(globals().get('DINING_DIAG') or {}).get('gap')] if g]
 # S3 (small-room-mode): «ТВ адаптируется к комнате легче, чем планировка к ТВ» — если

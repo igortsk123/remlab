@@ -166,6 +166,7 @@ def main():
                         'fill_pct': art.get('_fill_pct'),
                         'soft_score': rep.get('soft_score')},
             'dining': art.get('_dining'),
+            'axes': art.get('_axes'),
             'bank_unused': rep.get('unused', []),
             'zones_tag': rep.get('templates'),
         }

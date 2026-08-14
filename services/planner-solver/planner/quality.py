@@ -193,3 +193,85 @@ def not_worse(before: dict, after: dict) -> bool:
     if b_f is not None and a_f is not None and a_f > max(b_f, FOCUS_OFFSET_MAX_CM):
         return False
     return True
+
+
+# --- Пакет G свода №8 (v2 §6.3-6.4, §8): НОВЫЕ ОСИ — ТОЛЬКО ИЗМЕРЕНИЕ. ---
+# Порогов и весов НЕТ сознательно: сначала распределение по 252 планам,
+# порог — отдельным ADR в rules/*.json (урок 161: геометрию не чинить весом).
+
+def residual_fragmentation(room, ps) -> dict:
+    """Фрагментация остаточного пола: сколько связных кусков и их площади (м²).
+    «Плохие бессмысленные карманы» станут видимыми в данных до любых штрафов."""
+    free = _free_space(room, ps)
+    geoms = list(getattr(free, 'geoms', [free])) if not free.is_empty else []
+    areas = sorted((g.area / 10_000 for g in geoms), reverse=True)
+    return {'components': len(areas), 'areas_m2': [round(a, 2) for a in areas[:6]]}
+
+
+def visual_balance(room, ps) -> dict:
+    """Баланс масс: смещение центроида мебели от центра комнаты (% полудиагонали)
+    и доли футпринта мебели по половинам (запад/восток, юг/север)."""
+    import math
+    from .geometry import footprint as _fp
+    fps = [(_fp(p), p) for p in ps if p.role != 'ковёр']
+    if not fps:
+        return {'centroid_offset_pct': 0.0, 'west_share': 0.5, 'south_share': 0.5}
+    ax = sum(f.area * f.centroid.x for f, _ in fps) / max(sum(f.area for f, _ in fps), 1e-6)
+    ay = sum(f.area * f.centroid.y for f, _ in fps) / max(sum(f.area for f, _ in fps), 1e-6)
+    cx, cy = room.width_cm / 2, room.depth_cm / 2
+    half_diag = math.hypot(cx, cy)
+    total = sum(f.area for f, _ in fps)
+    west = sum(min(f.area, f.intersection(_box_half(room, 'west')).area) for f, _ in fps)
+    south = sum(min(f.area, f.intersection(_box_half(room, 'south')).area) for f, _ in fps)
+    return {'centroid_offset_pct': round(math.hypot(ax - cx, ay - cy) / half_diag * 100, 1),
+            'west_share': round(west / max(total, 1e-6), 2),
+            'south_share': round(south / max(total, 1e-6), 2)}
+
+
+def _box_half(room, side: str):
+    from shapely.geometry import box as _bx
+    if side == 'west':
+        return _bx(0, 0, room.width_cm / 2, room.depth_cm)
+    return _bx(0, 0, room.width_cm, room.depth_cm / 2)
+
+
+def route_active_dining_cm(room, ps) -> float | None:
+    """Маршрут в «активном» состоянии столовой (v2 §8): стулья отодвинуты —
+    их pullout-зоны (существующий клиренс, clearances.py) временно препятствия.
+    Возвращает ширину маршрута или None, если столовой нет. Только замер."""
+    din = [p for p in ps if p.role.split(' ')[0] in ('стол обеденный', 'стул')]
+    if not din:
+        return None
+    from .clearances import clearance_for
+    from .geometry import access_zone
+    pseudo = list(ps)
+    extra = []
+    for p in din:
+        spec = clearance_for(p.role)
+        if spec.front_cm > 0:
+            extra.append(access_zone(p, spec=spec))
+    # временные препятствия учитываем прямым вычитанием из свободного пола
+    from shapely.ops import unary_union
+    from shapely.geometry import Point
+    free = _free_space(room, pseudo)
+    if extra:
+        free = free.difference(unary_union(extra))
+    # та же ступенчатая эрозия, что в route_width_cm, но на суженном полу
+    best = 0.0
+    door = next((o for o in room.openings if o.kind == 'door'), None)
+    from .geometry import opening_polygon
+    probe = (opening_polygon(room, door).buffer(30).centroid if door is not None
+             else free.centroid)
+    floor_area = room.width_cm * room.depth_cm
+    for r in (60, 70, 75, 80, 90, 100, 120):
+        er = free.buffer(-r / 2)
+        if er.is_empty:
+            break
+        comps = list(getattr(er, 'geoms', [er]))
+        near = [c for c in comps if c.distance(probe) < r]
+        if not near:
+            break
+        if max(c.area for c in near) < floor_area * 0.10:
+            break
+        best = float(r)
+    return best
