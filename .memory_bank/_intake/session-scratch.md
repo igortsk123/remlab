@@ -14,3 +14,4 @@
 
 <!-- SCRATCH START — /memory-check переносит обработанное в банк и усекает до этой метки -->
 
+- Экспорт планов для внешнего ИИ: tools/scout/export_plans_ai.py — на план 3 слоя (plan-NNN.json структурный / .md семантика+ASCII-карта 20 см/клетка / .png) + index.json; выход ~/scout-scenes/plans-export, архив опубликован на https://remont-lab.online/test/plans-export.zip (18.8 МБ, 252 плана)
