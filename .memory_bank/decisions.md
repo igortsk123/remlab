@@ -1518,3 +1518,17 @@ LAYOUT_RULE_STATS), классифицированы «сторожевыми» 
 min_composition — рамку зоны задаёт ниша; кандидаты только в эркерах (+bay).
 **Влияет на.** [[layout]], room_map/tv_sofa/template/zones/quality/validate, compose2,
 rules (templates/zones/registry), приёмка 252.
+
+## ADR-0095 — Свод №6: входная зона за диваном и угловой диван (2026-08-14)
+**Решение.** (1) Полоса за floating-диваном при двери в торце — ENTRY-зона
+(`services/planner-solver/rules/zones.json → entry_zone`): пустота легальна, высокое хранение
+запрещено (существующий TALL_BEHIND_SOFA ≤90), низкое — легально; доступ в посадочную зону —
+проход вокруг торца (SEATING_ACCESS_PINCHED S1, `services/planner-solver/planner/validate.py`).
+(2) Угловой диван: прицел и фокус-офсет — от центра ГЛАВНОЙ секции
+(`services/planner-solver/planner/geometry.py → seat_axis_origin`), не bbox; «углом в угол» —
+предпочтение, но без числового порога отхода: штрафуется только НЕФУНКЦИОНАЛЬНАЯ пустота за
+секциями (функция = дверь/окно/радиатор/мебель в полосе зазора). Спящие правила: слот консоли
+за диваном, раннер (каталог пуст), divider-стеллаж (нет open-plan сцен).
+**Почему.** Свод владельца №6 (Livingetc/H&G/Ideal Home/R&B) + три дополнения (точка входа
+в зону; chaise по трафику; функция зазора вместо 30 см).
+**Влияет на.** [[layout]], validate/quality/geometry, rules (zones/templates/severity/registry).

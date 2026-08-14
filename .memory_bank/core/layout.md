@@ -38,3 +38,6 @@ clearance-классы и dead_side-маска — `services/planner-solver/plan
 `services/planner-solver/rules/registry.json`), замер — LAYOUT_RULE_STATS; маршрут сцены — `_route_cm`
 в артефакте (`tools/scout/solver_run.py`). Замер 14.08: 252/252, медиа 252/252, маршрут min 75,
 «глупых» 226. Отложено: swivel (нет данных), open-plan (нет сцен), потолок (спит до ceiling_cm).
+**Свод №6 (ADR-0095):** entry-зона за диваном (пустота легальна, вход вокруг торца —
+SEATING_ACCESS_PINCHED), Г-диван: ось по ГЛАВНОЙ секции (`seat_axis_origin`), зазор от угла —
+функциональная проверка, не порог; спящие: консоль/раннер/divider.
