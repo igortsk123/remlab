@@ -2,10 +2,10 @@
 workstream: layout
 slug: dining-sacrifice-ladder
 title: Жертва ступени посадки ради столовой (столовая выше доп-посадки)
-status: in_progress
+status: completed
 created: 2026-08-14
 updated: 2026-08-14
-completed:
+completed: 2026-08-14
 ---
 
 ## Цель
@@ -35,3 +35,11 @@ completed:
 
 ## Definition of Done — память
 - [ ] Гейт 252/252, медиа 252/252, сторожа; замер прироста столовых; ADR; `/memory-check`
+
+## Completion summary (2026-08-14, коммит e40fa6a)
+Обёртка solve_zoned поверх _solve_zoned_core: pick_ladder(skip) — спуск на ступень
+ниже при неставшей столовой со столом в банке; приём: dining встала И медиа сохранена
+И not_worse (маршрут/щели/фокус). Тег +sacrN, конфиг zones.json dining_sacrifice.
+Замер: столовая 172→196/252 (77%), правило сработало в 24 сценах; План №19 — кресло
+в банк, стол+2 встали, хранение на месте. Планка сторожа 172→196 (только вверх).
+Гейт: 252/252, медиа 252/252, сторожа 131/131.
