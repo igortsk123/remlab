@@ -299,3 +299,20 @@ def test_all_floor_roles_have_slots():
             'витрина', 'комод', 'стол обеденный', 'стул', 'пуф', 'торшер', 'камин', 'кашпо'}
     missing = need - slots
     assert not missing, f'роли без слота: {sorted(missing)}'
+
+
+def test_level_a_never_degrades():
+    """П9/S6: LEVEL A (диван, медиа) не деградирует — если они в банке, они стоят.
+
+    Столик/пуф/кресло могут выбывать со ступенью (LEVEL C), кашпо — decor (D),
+    но диван и носитель ТВ жертвой деградации не становятся никогда.
+    """
+    sets = json.load(open(os.path.join(SCOUT, 'sets3.json'), encoding='utf-8'))
+    bad = {}
+    for scene, _lay, _room, ps in _scenes():
+        n = int(scene.split('-')[0].replace('set', ''))
+        items = (sets[n - 1].get('items') or {})
+        placed = {p.role.split(' ')[0] for p in ps}
+        if 'диван' in items and 'диван' not in placed:
+            bad[scene] = 'диван в банке, но не стоит'
+    assert not bad, f'LEVEL A деградировал: {dict(list(bad.items())[:5])}'

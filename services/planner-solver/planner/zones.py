@@ -169,6 +169,29 @@ def _behind_decision(room, seat) -> str:
     return 'nothing'
 
 
+
+def _actual_step(block, requested, zr) -> dict:
+    """Фактическая ступень по СОСТАВУ поставленного блока (тег gid обязан отражать
+    фактику — рефери P0.1; лестница могла принять позицию с законной схемой меньшего
+    состава, и запрошенная ступень в теге вводила в заблуждение)."""
+    from collections import Counter
+    _seatish = ('диван', 'кресло', 'пуф', 'торшер')
+    placed = Counter(p.role.split(' ')[0] for p in block
+                     if p.role.split(' ')[0] in _seatish)
+    best = requested
+    for g in sorted(zr['seating_groups'], key=lambda g: -float(g.get('seats', 0))):
+        req = Counter(r.split(' ')[0] for r in g['roles'].get('required', [])
+                      if r.split(' ')[0] in _seatish)
+        opt = Counter(r.split(' ')[0] for r in g['roles'].get('optional', [])
+                      if r.split(' ')[0] in _seatish)
+        # ЭКЗЕМПЛЯРЫ, не множества: «диван 2» ≠ второй экземпляр «дивана» в base-виде
+        # ронял матч в двухдиванные группы при одном диване (тест P0.1)
+        if all(placed.get(k, 0) >= n for k, n in req.items()) and                 all(placed.get(k, 0) <= req.get(k, 0) + opt.get(k, 0)
+                    for k in placed):
+            return g
+    return best
+
+
 def _behind_reserved(room, block, keep) -> bool:
     """Полоса за спинкой резервируется под столовую ТОЛЬКО когда машина R говорит
     dining_mandatory (заменяет бинарный запрет floating-без-столовой 13.08)."""
@@ -319,7 +342,7 @@ def solve_zoned(room: Room, items, **kw):
                             print(f"ZDBG лестница: ступень {_g['id']} встала, но БЕЗ "
                                   f"медиа — пробуем следующую", file=_sl.stderr, flush=True)
                         continue
-                block, group = _blk, _g
+                block, group = _blk, _actual_step(_blk, _g, zone_rules())
                 if _has_bearer0 and _m0:
                     # ПРОБА = ФАКТ: медиа из проверки минимума входит в раскладку сразу
                     # (повторный place_media в цепочке видел бы другой free после
@@ -715,6 +738,21 @@ def solve_zoned(room: Room, items, **kw):
         print(f"ZDBG итог: block={'да' if block else 'нет'} tag={tpl_tag} "
               f"placed={sorted(p.role for p in outs[0].placements)} "
               f"unplaced={outs[0].unplaced}", file=_s.stderr, flush=True)
+    # П8 (MASTER-tv-sofa-pair): топ-3 пары ТВ↔диван — в атрибут раскладки (артефакт/лог)
+    try:
+        _med0 = next((i for i in items if _base(i.role) in ('стенка', 'тв-тумба')), None)
+        _sof0 = next((i for i in items if i.role == 'диван'), None)
+        if _med0 is not None and _sof0 is not None:
+            from .room_map import build_room_map
+            from .tv_sofa import generate_pairs
+            _prs = generate_pairs(room, build_room_map(room), _med0, _sof0, top_k=3)
+            for lay in outs:
+                lay.meta = getattr(lay, 'meta', {}) or {}
+                lay.meta['tv_sofa_pairs'] = [
+                    {'wall': p.media_wall, 'score': p.score, 'dist': p.dist_cm,
+                     'angle': p.angle_deg, 'scheme': p.sofa_scheme} for p in _prs]
+    except Exception:
+        pass
     for lay in outs:
         lay.skipped_optional = sorted(set(lay.skipped_optional) | set(dropped))
     # ЗАПРЕТ ФАНТОМНЫХ ГАБАРИТОВ (ADR template-integrity): габарит поставленного

@@ -39,7 +39,7 @@ def test_lexo_priority():
 
 def test_zone_rules_load():
     zr = zone_rules()
-    assert len(zr["seating_groups"]) == 10
+    assert len(zr["seating_groups"]) == 13   # +3 ступени лестницы 13.08 (sofa_pouf/lamp/solo)
     assert zr["score_hierarchy"]["order"][0] == "hard_feasibility"
 
 
@@ -358,7 +358,10 @@ def test_effective_group_regroup_after_loss():
     from planner.zones import zone_rules
     # gid несёт теги применённых блоков («sofa_2armchairs+tpl+din») — id до «+»
     g = {x['id']: x for x in zone_rules()['seating_groups']}[gid.split('+')[0]]
-    assert set(g['roles']['required']) <= placed, \
+    # 13.08: столик и ковёр — required во ВСЕХ ступенях, но роль ВНЕ БАНКА сцены
+    # не спрашивается (правило лестницы) — сверяем required ∩ банк
+    bank = {i.role for i in items}
+    assert set(g['roles']['required']) & bank <= placed, \
         f"required группы {gid} обязаны быть размещены: {placed}"
     hard = [v for v in lay.violations if v.severity is Severity.HARD]
     assert not hard, [v.code for v in hard]

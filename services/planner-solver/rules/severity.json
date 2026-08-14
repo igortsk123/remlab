@@ -71,9 +71,13 @@
   "RUG_DETACHED": "S1",
   "RUG_TABLE_MARGIN": "S1",
   "ARMCHAIR_OFF_RUG": "S1",
-  "SOFA_BLOCKS_SOFA": "S1"
+  "SOFA_BLOCKS_SOFA": "S1",
+  "DOOR_PASSAGE": "H0",
+  "DOOR_THRESHOLD": "H0"
  },
  "_notes": {
-  "SOFA_BLOCKS_SOFA": "W2 kb-rules-merge 10.08: пара диванов легальна лицом-к-лицу или Г-стыком торец-к-торцу; фронт в бок/спинку соседа — блокировка"
+  "SOFA_BLOCKS_SOFA": "W2 kb-rules-merge 10.08: пара диванов легальна лицом-к-лицу или Г-стыком торец-к-торцу; фронт в бок/спинку соседа — блокировка",
+  "DOOR_PASSAGE": "проход 76-91 см перед дверью (weekand/auramodernhome; владелец 12.08)",
+  "DOOR_THRESHOLD": "ковёр не ближе 30 см к проёму (владелец 12.08)"
  }
 }

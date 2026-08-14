@@ -59,10 +59,15 @@ def test_free_space_subtracts_item_and_clearance():
 
 
 def test_free_space_subtracts_door_swing():
-    """Дуга двери вычитается целиком + технологический зазор (SAFE_GAP_CM)."""
-    room = _room(openings=[Opening(kind="door", wall="south", offset_cm=20, width_cm=90, swing_cm=100)])
+    """Зона двери — ЧЕТВЕРТЬ круга у петли (правило владельца 12.08: держать одну
+    сторону, а не полосу во всю ширину). Площадь ≈ πr²/4 + зазоры."""
+    import math
+    room = _room(openings=[Opening(kind="door", wall="south", offset_cm=20, width_cm=90,
+                                   swing_cm=100, hinge="left")])
     cut = room_polygon(room).area - free_space(room, []).area
-    assert 90 * 100 <= cut <= (90 + 12) * (100 + 12)
+    r = 90 + 12          # min(swing, width) + SAFE_GAP
+    quarter = math.pi * r * r / 4
+    assert quarter * 0.6 <= cut <= quarter * 1.2
 
 
 def test_floor_used_pct_counts_overlap_once():

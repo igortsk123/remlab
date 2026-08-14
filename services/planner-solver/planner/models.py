@@ -124,6 +124,8 @@ class Violation(BaseModel):
 
 class Layout(BaseModel):
     """Раскладка + результат проверки (объяснимость — требование спеки)."""
+    # П8: произвольные метаданные раскладки (топ-пары ТВ↔диван и т.п.)
+    meta: dict = Field(default_factory=dict)
 
     room: Room
     placements: list[Placement]

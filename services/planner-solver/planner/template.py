@@ -1124,6 +1124,45 @@ def _zone_rules() -> dict:
         return _ZR_CACHE
 
 
+def _window_back_candidates(room: Room, sofa_item: Item, free: Polygon) -> list:
+    """П4 (MASTER-tv-sofa-pair, схема window_back): диван СПИНКОЙ К ОКНУ.
+
+    Свод §17: не запрещать автоматически — allowed with checks. Чек-лист исполняют
+    существующие правила validate: SOFA_BACK_ABOVE_SILL (спинка vs подоконник),
+    RADIATOR (зазор конвекции — позицию отступаем на глубину радиатора), доступ.
+    Здесь только генерация позиций: центр окна, спинка к нему, отступ от радиатора.
+    """
+    from .candidates import Candidate
+    out = []
+    rad_depth = max((r.depth_cm for r in room.radiators), default=0.0)
+    setback = (rad_depth + 17.0) if rad_depth else 5.0
+    for op in room.openings:
+        if op.kind != 'window':
+            continue
+        # диван перекрывает ≤50% окна → окно шире половины дивана не обязательно,
+        # но диван не шире окна вдвое (свод §17)
+        rot = {'south': 0.0, 'north': 180.0, 'west': 90.0, 'east': 270.0}.get(op.wall)
+        if rot is None:
+            continue
+        mid = op.offset_cm + op.width_cm / 2
+        d_off = setback + sofa_item.d_cm / 2
+        if op.wall == 'south':
+            x, y = mid, d_off
+        elif op.wall == 'north':
+            x, y = mid, room.depth_cm - d_off
+        elif op.wall == 'west':
+            x, y = d_off, mid
+        else:
+            x, y = room.width_cm - d_off, mid
+        p = Placement(role=sofa_item.role, x=x, y=y, rot=rot, item=sofa_item)
+        fp = footprint(p)
+        if free.intersection(fp).area < fp.area * 0.97:
+            continue
+        out.append(Candidate(placement=p, kind='wall', note='спинкой к окну',
+                             topology='window_back'))
+    return out
+
+
 def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
                    fixed: list[Placement] | None = None) -> list[Placement] | None:
     """Разговорная зона блоком: лучший hard-чистый вариант или None (фолбэк beam)."""
@@ -1244,6 +1283,7 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
               if b is None or len(b.rel) < 2:
                   continue
               cands = list(wall_candidates(room, b.anchor, free))
+              cands += _window_back_candidates(room, b.anchor, free)   # П4: спинкой к окну
               # v2.10: в просторных комнатах посадка может «плавать» (зонирование
               # спинкой); тыл за спинкой проверят passage/sliver-чеки validate
               # «плавающие» позиции: в просторных комнатах — всегда; в ГЛУБОКИХ
@@ -1295,6 +1335,10 @@ def place_dining(room: Room, items: list[Item], free: Polygon, usable_m2: float,
     # S4 (small-свод §14): каскад масштаба — если полный состав не встал, пробуем
     # столовую на 2 места, прежде чем отказаться (living не ломаем ради стола)
     _chair_steps = [max_chairs] + ([2] if max_chairs > 2 else [])
+    # П5 (MASTER-tv-sofa-pair, свод §10): проверяется ЭКСПЛУАТАЦИОННАЯ зона стола —
+    # прямоугольник «стол + 90 см со стороны посадок» (R&B), а не голый габарит.
+    # Реализация — расширенный футпринт стола в блоке: build_dining уже ставит стулья,
+    # а validate меряет отодвигание; здесь фильтр очевидно-тесных мест до перебора.
     # схемы паспорта: остров → у стены; каскад масштаба стульев (S4)
     for _nch in _chair_steps:
         b_all = build_dining(by_role, _nch, sides='all')
@@ -1840,8 +1884,17 @@ def place_decor(room: Room, items: list[Item], free: Polygon,
             lay = validate(room, base + out + [p])
             if any(v.severity is Severity.HARD for v in lay.violations):
                 continue
-            if d > best_d:
-                best, best_d = p, d
+            # П7 (свод §16, RHS): растению нужен свет — позиции ближе к окну лучше.
+            # Дистанция до ближайшей стены с окном входит в выбор (не hard: тене-
+            # выносливые существуют, жёсткость появится с light_need из обогащения).
+            _light_bonus = 0.0
+            _wins = [o for o in room.openings if o.kind == 'window']
+            if _wins:
+                from .geometry import opening_polygon as _opw
+                _dw = min(footprint(p).distance(_opw(room, o)) for o in _wins)
+                _light_bonus = max(0.0, 150.0 - _dw)      # ≤1.5 м от окна — бонус
+            if d + _light_bonus > best_d:
+                best, best_d = p, d + _light_bonus
         if best is not None:
             # прослеживаемость: декор — тоже шаблон (паспорт decor)
             out.append(best.model_copy(update={'tpl_id': 'decor', 'tpl_version': '1.0'}))
