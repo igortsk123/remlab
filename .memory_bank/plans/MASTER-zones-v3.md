@@ -1,0 +1,154 @@
+---
+workstream: layout
+slug: MASTER-zones-v3
+title: МАСТЕР — свод №9 (аудит рефери по 269): P0 двойной носитель, trace выбора dining, frozen-core, zone-cohesion
+status: draft
+created: 2026-08-14
+updated: 2026-08-14
+completed:
+---
+
+## Цель
+Внедрить свод №9 (аудит рефери свежего прогона 269 планов): исправить P0 «два носителя ТВ»
+(№269), сделать выбор island→edge полностью наблюдаемым (trace по осям), проверить гипотезу
+раннего frozen-core, честная семантика compact_island/island_feasible, таксономия
+TEMPLATE_GAP, zone-cohesion вместо пустой оси residual_fragmentation, identity шаблонов
+в экспорте, пруф зеркал сценами.
+
+## Источник задачи
+Свод №9 — аудит ИИ-советника (Google Drive, 14.08) по plans-export 269. Вердикт: «ядро не
+переписывать»; приоритеты §28; вопросы Q1–Q12 (ответы — `_intake/answers-to-referee-q1-12.md`).
+
+## Критическая оценка (по правилу verify-external-advice)
+**Подтверждаю его находки против СЕБЯ (пруфы в коде сегодняшних пакетов):**
+- **P0 №269 (два носителя)** — реальный баг МОЕГО вейвер-пути пакета D: лестница по вейверу
+  ставит носитель (`+tvw`), но цепочка `+tv` не проверяет «носитель уже стоит» и добирает
+  ВТОРОЙ из банка (`services/planner-solver/planner/zones.py`, ветка вейвера; тег `+tvw+tv`
+  в set80-Lm это показывает). Деклар. cardinality зон нет — вводим.
+- **`island_feasible` неоднозначен** — верно: проба считается на free В МОМЕНТ постановки
+  dining; при edge-retry после гейта качества диагноз пересчитывается на суженном free
+  (потому №216: feasible=false при fallback=quality_gate). Лечится trace-пакетом.
+- **`compact_island` ≠ топология** — верно: класс сейчас по ПУТИ кандидата (middle-кандидат
+  без полного 90-envelope), а не по факту «стоит ли у стены». 12 сцен с <20 см — честная
+  находка. Классифицировать по итоговой топологии (wall_attachment из шаблона), без нового числа.
+- **`residual_fragmentation` пустая** — верно (1 компонент на всех 269, r≈0.99 с площадью):
+  вычитаются только футпринты. Заменяем на zone-cohesion оси (его §13).
+- **Frozen-core** — частично подтверждаю архитектурно: core фиксируется ДО dining (одна
+  ступень лестницы → один core), НО `dining_sacrifice` уже пересобирает всю сцену ступенью
+  ниже (ADR-0097) — multi-core по оси «размер посадки» есть, по ПОЗИЦИЯМ core — нет.
+  Гипотеза жива → его PACKAGE D обоснован (сначала ответ trace, потом non-dominated cores).
+- **TEMPLATE_GAP слишком широк** — верно: 52 события «island_candidates_failed» смешивают
+  «региона нет» и «шаблона нет». Таксономия принимается.
+**Расхождений, требующих спора, нет** — свод №9 методологически совпадает с нашими
+правилами (пороги вместо весов, сначала корпус — потом ADR, append-only сцены).
+
+## Сверка конфликтов
+| Существующее | Риск | Решение |
+|---|---|---|
+| Вейвер `+tvw` (ADR-0099, медиа 252-инвариант) | cardinality-фикс не должен убить вейвер | XOR носителей ВНУТРИ сцены; вейвер остаётся (один носитель) |
+| dining планка 196 / покрытие | trace/семантика не меняют выбор | Пакеты 1–3 read-only к логике выбора; гейт прежний |
+| Оси G «только замер» (ADR-0101) | соблазн порогов | Стадии: экспорт → разметка → ADR (его §13.4 = наш канон) |
+| solver-speed | non-dominated cores удорожат поиск | Beam width НЕ фиксировать до замера (его §7); отдельный пакет после trace |
+| Нумерация №1–269 | новые сцены | Только append №270+ (зеркала-пруф, cardinality-сцена) |
+
+## Пакеты (гейт каждого: экзамен 269/269, медиа 269/269 без двойных носителей, dining ≥196 базовых, тихий edge 0, сторожа, rules_audit 0, коммит+галерея)
+
+### V3-A — P0: кардинальность media (его PACKAGE A; ПЕРВЫМ)
+- Фикс вейвер-пути: цепочка `+tv`/`+fp` пропускается, если носитель уже в блоке;
+  декларативно: `zone_priority` → `cardinality: {media: exactly_one_carrier}` (данные).
+- Сторож: 0 планов с «тв-тумба + стенка» одновременно; сцена №270 (L-mirror c обоими
+  носителями в банке) append-only.
+- **DoD:** №269 чист; count(carriers)≤1 на всех сценах; вейвер работает.
+
+### V3-B — Dining search trace (его PACKAGE B; логику НЕ менять)
+- `dining_search` в артефакт: по каждому классу (full/compact/edge) counters
+  generated/hard_valid/quality_valid + reject_reasons по именованным осям + identity
+  лучшего кандидата; `island_feasible` уходит (замещён счётчиками).
+- Гейт-отказ пишет ТОЧНУЮ ось (route/sliver/focus) и before/after вектора.
+- **DoD:** для любого «edge при hard-valid island» ответ «почему» читается из экспорта.
+
+### V3-C — Разбор 16 edge/island кейсов + №216 (его PACKAGE C; веса НЕ трогать)
+- Прогон 188,196,202,205,212,213,214,229,233,234,235,236,244,249,250,252 + 216 с trace;
+  regression-отчёт: full-island best vs edge winner, diff векторов, failed axis, core id.
+- **DoD:** отчёт в плане + рефери; выводы без изменения логики.
+
+### V3-D — Frozen-core: ответ и (по результату) non-dominated cores (его PACKAGE D)
+- Зафиксировать архитектурный ответ (сейчас: один core на ступень; sacrifice = спуск).
+- Если trace покажет систематический «core A → только edge»: хранить несколько
+  hard-valid core-кандидатов (по существующим осям, Парето), dining пробует каждый;
+  beam width — по замеру, не в rules заранее. Сцена-акцептанс «core A лучше соло /
+  core B даёт остров» — append №271+.
+- **DoD:** ответ задокументирован; при внедрении — время экзамена ≤1.5×, планки держатся.
+
+### V3-E — Семантика режимов dining (его PACKAGE E)
+- `mode` — по итоговой ТОПОЛОГИИ: сторона у стены (wall_attachment шаблона/постановки) →
+  edge; все рабочие стороны свободны → island (full при паспортном envelope, иначе compact).
+  Без новых чисел. Разобрать 12 сцен (48,53,56,68,71,85,89,137,167,189,191,215).
+- **DoD:** экспортный mode однозначно отражает топологию; статистика классов пересчитана.
+
+### V3-F — Семантика active-route + zone-cohesion оси (его PACKAGE F+G)
+- Зафиксировать semantics `route_active_dining_cm` (модель «стул выдвинут»; гейт 75 к ней
+  НЕ применяется — это другой режим; разобрать 22,25,41,72,81,89,141).
+- Заменить residual_fragmentation на: `inter_zone_gap`, `largest_unassigned_region`
+  (вычитая envelope зон + циркуляцию), `dead_void_depth` — только экспорт+распределение;
+  №261 и №268 — корпусные примеры. Пороги — потом, разметкой.
+- **DoD:** оси в экспорте различают сцены (не константа); документация semantics.
+
+### V3-G — TEMPLATE_GAP таксономия + отчёт в zip (его PACKAGE H)
+- Классы: NO_FEASIBLE_REGION / QUALITY_REJECTED / PRODUCT_RULE_SKIPPED / TEMPLATE_GAP
+  (истинный — «регион есть, шаблона нет»); missing_templates.md — только истинные,
+  с frequency; включать в plans-export.zip (+README count из runtime).
+- **DoD:** отчёт в архиве; ложных задач на шаблоны нет.
+
+### V3-H — Identity шаблонов + медиа-верификация в экспорте (его PACKAGE I+L+J)
+- На уровне zone instance: template_id/variant_id/mirror/candidate/why_selected;
+  `media_validation` (screen/window overlap, view_distance от оси); счётчики зеркал
+  (generated/hard-valid per side) + 2 сцены-пруфа №272/273 (left-only/right-only valid).
+- **DoD:** рефери может проверить экран и зеркала из zip; сцены-пруфы зелёные.
+
+### V3-I — Аудиты P2 (его PACKAGE K + §20 + §22)
+- visual_balance: задокументировать semantics (bbox-центр сейчас; polygon-centroid для
+  контуров — поправить), ковёр исключён, веса по площади; разобрать №268.
+- storage/окно: h у SKU есть, WINDOW_BLOCKED уже ловит h>max(sill,80) — экспортировать
+  флаг проверки для 263/264/265. README count — из runtime.
+- **DoD:** ответы в экспорте/доках; изменений скоринга нет.
+
+## Порядок
+**V3-A (P0) → V3-B → V3-C → V3-D → V3-E → V3-F → V3-G → V3-H → V3-I.**
+Его приоритет §28 сохранён; C/D до E/F (сначала наблюдаемость, потом семантика).
+
+## Скоуп — что НЕ входит (его §30 — совпадает с нашим каноном)
+Новые скалярные веса; изменение 75/90 без источника; снижение покрытия dining; запрет edge;
+полный routing-граф; поштучная расстановка; фиксированный beam width; переписывание L-геометрии.
+
+## Файлы к изменению (по пакетам)
+- [ ] `services/planner-solver/planner/zones.py` — A (skip +tv при носителе в блоке), B (trace), D
+- [ ] `services/planner-solver/rules/zones.json` — A (cardinality), F (semantics-доки)
+- [ ] `services/planner-solver/planner/template.py` — B (счётчики классов), E (топология mode), H (зеркала-счётчики)
+- [ ] `services/planner-solver/planner/quality.py` — F (cohesion-оси; visual_balance polygon-centroid)
+- [ ] `tools/scout/solver_run.py` + `export_plans_ai.py` — B/G/H/I (dining_search, identity, media_validation, README)
+- [ ] `tools/scout/template_gaps.py` — G (таксономия, frequency, включение в zip)
+- [ ] `tools/scout/acceptance-scenes.json` — append №270–273
+- [ ] `services/planner-solver/tests/*` — сторожа: cardinality, mode-топология, зеркала-пруф
+
+## Критерии приёмки мастера
+- [ ] 0 планов с двумя носителями; №269 чист; вейвер жив (медиа 269/269)
+- [ ] Любой island→edge объясним из экспорта точной осью (16 кейсов + №216 разобраны)
+- [ ] Ответ по frozen-core задокументирован; если внедрён multi-core — планки держатся, время ≤1.5×
+- [ ] mode = фактическая топология (0 «compact_island у стены»)
+- [ ] cohesion-оси в экспорте различают сцены; порогов не введено
+- [ ] missing_templates.md в zip, только истинные gap'ы; identity шаблонов в экспорте
+- [ ] Сцены №270–273 append-only, зелёные; dining ≥196 базовых; rules_audit 0
+
+## Definition of Done — память
+- [ ] ADR на мастер + пакеты с решениями; `core/layout.md` обновлён; уроки; `/memory-check` чисто
+
+## Лог выполнения
+- 2026-08-14 — план создан (draft) по своду №9; P0 №269 подтверждён как баг вейвер-пути
+  пакета D (свод №8); ответы Q1–Q12 подготовлены и отправлены рефери.
+
+## Completion summary
+[при завершении]
+
+### Уроки (ОБЯЗАТЕЛЬНО)
+[при завершении]
