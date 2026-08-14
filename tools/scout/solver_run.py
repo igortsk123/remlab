@@ -655,6 +655,13 @@ def attempt_beam():
     # (seat_axis_origin: Г-диван — центр главной секции) до плоскости носителя
     # (ближайшая грань его следа), а не «центр↔центр» (три разных замера расходились)
     VIEW_DIST = None
+    # пакет E свода №8: зеркальность Г-дивана — из решения солвера (Placement),
+    # не из IoU-подбора (тот остаётся сверкой канонического следа)
+    global SOFA_CORNER_LEFT
+    SOFA_CORNER_LEFT = next(
+        (bool(getattr(p.item, 'corner_left', False)) for p in lay.placements
+         if p.role == 'диван' and p.item is not None
+         and getattr(p.item, 'corner', False)), None)
     try:
         from shapely.geometry import Point as _PtV
         from planner.geometry import footprint as _fpV, seat_axis_origin as _saoV
@@ -749,10 +756,11 @@ if CORNER and 'диван' in out:
         _iou = _sol.intersection(_fpp).area / max(_sol.union(_fpp).area, 1e-6)
         if _iou > _best[0]:
             _best = (_iou, _cl)
-    out['диван']['corner_left'] = _best[1]
-    if _best[0] < 0.98:
-        print(f'CANONICAL-FOOTPRINT WARN: реконструкция Г-дивана IoU={_best[0]:.2f} — '
-              'экспорт расходится с полигоном солвера', flush=True)
+    _cl_solver = globals().get('SOFA_CORNER_LEFT')
+    out['диван']['corner_left'] = _best[1] if _cl_solver is None else _cl_solver
+    if _best[0] < 0.98 or (_cl_solver is not None and _cl_solver != _best[1]):
+        print(f'CANONICAL-FOOTPRINT WARN: Г-диван IoU={_best[0]:.2f}, '
+              f'solver corner_left={_cl_solver}, IoU-подбор={_best[1]}', flush=True)
 # габариты И проёмы — рендеру и компилятору сцены: без проёмов генератор придумывает свои
 # двери/окна, и кадр перестаёт совпадать с планом (поймано 2026-08-04)
 _ops_env=os.environ.get('SCENE_OPENINGS')

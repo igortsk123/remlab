@@ -1380,6 +1380,17 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
         # креслом — но столик и ковёр неприкосновенны. Нет места столику — берётся
         # меньший состав ВОКРУГ него, а не зона без поверхности.
     variants = tries
+    # Пакет E свода №8 (v2 §10): ЗЕРКАЛА Г-ДИВАНА перебираются в шаблонном пути —
+    # прежде «обратная буква Г» была недостижима (зеркало жило только в поштучном
+    # candidates.py). Для каждого геометрического варианта: оригинал → зеркало;
+    # выбор — теми же hard+quality гейтами (первый чистый), нового скора нет.
+    _sofa0 = by_role.get('диван')
+    if _sofa0 is not None and getattr(_sofa0, 'corner', False) \
+            and not getattr(_sofa0, 'corner_side_fixed', False):
+        _mir0 = _sofa0.model_copy(
+            update={'corner_left': not getattr(_sofa0, 'corner_left', False)})
+        variants = [v for br0, g0, s0 in tries
+                    for v in ((br0, g0, s0), ({**br0, 'диван': _mir0}, g0, s0))]
     # ЭФФЕКТИВНАЯ группа (11.08): выбранная группа может требовать роль, которой в
     # сете нет (sofa_armchair без кресла) — тогда блок не собирался и сцена уходила
     # в поштучный фолбэк. Понижаем группу до реально доступного состава.
