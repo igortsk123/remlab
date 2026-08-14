@@ -28,16 +28,11 @@ beam → скоринг → уточнение → top-K; детерминизм
 
 **Tier 2:** ../domain/occupancy-rules.md · ../guides/layout-mined-rules.md · ../guides/layout-engine-spec.md
 
-**Модификаторы (14.08, ADR-0094, свод №5):** mode × shape × контур — ортогональные признаки,
-комбинируются скорингом: `contour_features` (эркер/колонна/квадрат) —
-`services/planner-solver/planner/room_map.py`, пороги в `services/planner-solver/rules/templates.json`;
-clearance-классы и dead_side-маска — `services/planner-solver/planner/quality.py`; подбор
-(масса/ножки/посадка/круглое/концентрация) — `tools/scout/compose2.py`. Приоритет зон —
-ЕДИНАЯ таблица `services/planner-solver/rules/zones.json → zone_priority`; резервы места читают
-её — `services/planner-solver/planner/zones.py`. R5: 17 hard — «сторожевые» (0 за 252,
-`services/planner-solver/rules/registry.json`), замер — LAYOUT_RULE_STATS; маршрут сцены — `_route_cm`
-в артефакте (`tools/scout/solver_run.py`). Замер 14.08: 252/252, медиа 252/252, маршрут min 75,
-«глупых» 226. Отложено: swivel (нет данных), open-plan (нет сцен), потолок (спит до ceiling_cm).
+**Модификаторы (14.08, ADR-0094):** mode × shape × контур комбинируются скорингом —
+`services/planner-solver/planner/room_map.py` (contour_features), quality (clearance/dead_side),
+`tools/scout/compose2.py` (подбор). Приоритет зон — `services/planner-solver/rules/zones.json →
+zone_priority`, резервы читают её. R5: сторожевые правила в registry; `_route_cm` в артефакте.
+Замер 14.08: 252/252, медиа 252/252, маршрут min 75. Отложено: swivel (нет данных), open-plan (нет сцен), потолок (спит до ceiling_cm).
 **Свод №6 (ADR-0095):** entry-зона за диваном (пустота легальна, вход вокруг торца —
 SEATING_ACCESS_PINCHED), Г-диван: ось по ГЛАВНОЙ секции (`seat_axis_origin`), зазор от угла —
 функциональная проверка, не порог; спящие: консоль/раннер/divider.
