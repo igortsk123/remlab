@@ -1496,3 +1496,23 @@ primary-зоны решает ЕДИНАЯ таблица `services/planner-solv
 (0.82×target) отдаёт пустоту второй зоне одним куском.
 **Влияет на.** [[layout]], `services/planner-solver/planner/room_map.py`, `tv_sofa.py`,
 `zones.py`, `services/planner-solver/rules/templates.json`.
+
+## ADR-0094 — Дерево layout-модификаторов: mode × shape × контур, комбинирование скорингом (2026-08-14)
+**Решение.** Модификаторы комнаты (малая/большая, вытянутая, эркер/колонна/квадрат,
+окна/потолок) — НЕ отдельные алгоритмы, а ОРТОГОНАЛЬНЫЕ признаки, действующие одновременно
+через скоринг поверх единого базового генератора: `room_map.mode` × `room_map.shape` ×
+`contour_features` (эркеры/колонны/квадрат — `services/planner-solver/planner/room_map.py`,
+пороги в `services/planner-solver/rules/templates.json → contour_features`). Потребители:
+скоринг пар (колонна в коридоре, divider-масштаб), порядок схем (симметричные в квадрате),
+декор (кашпо в эркер), подбор (масса/ножки/посадка/концентрация — compose2).
+**Почему.** Свод владельца №5 (14.08): SMALL+ELONGATED+WINDOW-HEAVY встречаются вместе;
+отдельные алгоритмы дублируют друг друга и конфликтуют.
+**Дополнительно.** (1) `zones.json → zone_priority` — единственный источник порядка зон
+(ADR-0091 + свод №4 §5: dining выше доп-посадки); резервы места применяются по таблице —
+`services/planner-solver/planner/zones.py`. (2) 17 hard-правил, не сработавших ни разу за 252 (R5-замер,
+LAYOUT_RULE_STATS), классифицированы «сторожевыми» в `services/planner-solver/rules/registry.json` — генераторы
+соблюдают их by construction, правила остаются страховкой от регрессий; удалять нельзя.
+(3) Кресло reading-нука освобождено от дуговых чеков группы (`services/planner-solver/planner/validate.py`,
+разбор конфликта со сводом №4: residual 130–180 → нук за спинкой).
+**Влияет на.** [[layout]], room_map/tv_sofa/template/zones/quality/validate, compose2,
+rules (templates/zones/registry), приёмка 252.

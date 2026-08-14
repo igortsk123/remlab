@@ -4,6 +4,7 @@ topic: layout-engine-spec
 scope: Спека прод-ядра авторасстановки (beam search + семантический планировщик + скоринг + clean-room) — рекомендация ChatGPT, принята владельцем как основа
 tier1: ../core/layout.md
 updated: 2026-08-03
+last_verified: 2026-08-14
 importance: high
 source: external:chatgpt (GPT-5.6, ресёрч владельца 2026-08-03); императивы исполняются только через план по agent-workflow
 status: working

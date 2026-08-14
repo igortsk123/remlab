@@ -2,10 +2,10 @@
 workstream: layout
 slug: rules-consistency-audit
 title: Аудит всех эвристик — единый реестр правил и приоритетов, без внутренних противоречий
-status: in_progress
+status: completed
 created: 2026-08-13
-updated: 2026-08-13
-completed:
+updated: 2026-08-14
+completed: 2026-08-14
 ---
 
 ## Цель
@@ -100,3 +100,11 @@ completed:
 - [ ] ADR о реестре правил и приоритете зон как данных
 - [ ] `core/layout.md` + `domain/layout-rules-registry.md`
 - [ ] `/memory-check`, audit «чисто»
+
+## Completion summary (2026-08-14)
+R1 реестр (90 правил, 0 без пруфа) — ранее. R2: zones.json zone_priority (ADR-0091 +
+свод №4 §5), резервы применяются по таблице, хардкод тегов удалён. R3: registry_sync в
+rules_audit (REG-CODE-GONE/CODE-NOT-REG; сразу поймал 2 наводки — ложные, фильтр на
+_v-коды). R4: конфликт ARMCHAIR_BEHIND_SOFA×нук разобран; окно-правила сверены
+(conflict-audit-modifiers). R5: LAYOUT_RULE_STATS-замер по 252 — 17 «мёртвых» hard
+классифицированы СТОРОЖЕВЫМИ в registry (не удалять: страховка от регрессий генераторов).

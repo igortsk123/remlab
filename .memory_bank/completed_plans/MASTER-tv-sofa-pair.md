@@ -2,10 +2,10 @@
 workstream: layout
 slug: MASTER-tv-sofa-pair
 title: МАСТЕР — связка «ТВ↔диван» как ядро, карта ограничений, WallScore вместо длинной стены
-status: in_progress
+status: completed
 created: 2026-08-13
-updated: 2026-08-13
-completed:
+updated: 2026-08-14
+completed: 2026-08-14
 ---
 
 ## Цель
@@ -242,3 +242,9 @@ DoD: в артефакте — топ-3 варианта сцены с балл�
 - [ ] ADR «пара ТВ↔диван как ядро; WallScore; длина стены — tie-breaker»
 - [ ] `core/layout.md` переписан под новый конвейер; уроки
 - [ ] `/memory-check`, audit «чисто»
+
+## Completion summary (2026-08-14)
+П0–П9 внедрены в ходе сессий 13–14.08 (карта комнаты, генератор пар, WallScore из
+паспорта, вилочные кандидаты, П4 спинкой к окну, П7 свет, П8 пары в meta артефакта).
+Формальное закрытие 14.08: наследники — MASTER-layout-modifiers (completed) и
+zone_priority (R2). Пороги и веса — в паспортах, rules_audit 0.

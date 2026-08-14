@@ -2,10 +2,10 @@
 workstream: layout
 slug: conflict-audit-modifiers
 title: Конфликт-аудит нововведений M-A…M-E против существующих правил
-status: draft
+status: completed
 created: 2026-08-14
 updated: 2026-08-14
-completed:
+completed: 2026-08-14
 ---
 
 ## Цель
@@ -62,3 +62,9 @@ completed:
 ## Definition of Done
 - [ ] Таблица выше — каждая строка с вердиктом (чисто/конфликт→что сделано)
 - [ ] `/memory-check`, audit «чисто»
+
+## Completion summary (2026-08-14)
+Таблица нововведений M-A…M-E: 14 строк чисто, 1 реальный конфликт найден и разобран
+(ARMCHAIR_BEHIND_SOFA против нука свода №4 — освобождение по tpl_id=reading). Пограничный
+полу-дубль зафиксирован: route_min 75 (гейт) vs main_walkway_min 76 (цель) — свести, когда
+все сцены ≥76. Гейт: 252/252, сторожа 126/126, rules_audit 0.

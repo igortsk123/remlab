@@ -2,10 +2,10 @@
 workstream: layout
 slug: elongated-room-mode
 title: ELONGATED MODE — сначала распределение длины между функциями, потом предметы
-status: partial
+status: completed
 created: 2026-08-14
 updated: 2026-08-14
-completed:
+completed: 2026-08-14
 ---
 
 ## Цель
