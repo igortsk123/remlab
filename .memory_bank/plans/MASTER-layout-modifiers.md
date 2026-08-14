@@ -2,7 +2,7 @@
 workstream: layout
 slug: MASTER-layout-modifiers
 title: МАСТЕР — дерево layout-модификаторов (комбинируемые правила формы/масштаба/фокусов)
-status: draft
+status: in_progress
 created: 2026-08-14
 updated: 2026-08-14
 completed:

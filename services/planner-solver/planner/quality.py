@@ -85,6 +85,21 @@ def route_width_cm(room: Room, ps: list[Placement]) -> float:
     return best
 
 
+def _dead_side_mask(room: Room, ps: list[Placement]):
+    """M-B (свод №5): DEAD_SIDE — узкие полосы МЕЖДУ мебелью и ближайшей стеной,
+    куда человек не должен проходить. Они не «щели»-дефекты и не маршруты."""
+    from shapely.ops import unary_union
+    strips = []
+    for p in ps:
+        if p.role.split(' ')[0] in _FLAT:
+            continue
+        strips.append(footprint(p).buffer(28.0, resolution=4))
+    if not strips:
+        return None
+    ring = room_polygon(room).boundary.buffer(30.0)
+    return unary_union(strips).intersection(ring)
+
+
 def sliver_area_m2(room: Room, ps: list[Placement]) -> float:
     """Площадь «щелей» уже SLIVER_CM — места, куда нельзя ни встать, ни пройти.
 
@@ -95,7 +110,11 @@ def sliver_area_m2(room: Room, ps: list[Placement]) -> float:
     if free.is_empty:
         return 0.0
     opened = free.buffer(-SLIVER_CM / 2, resolution=4).buffer(SLIVER_CM / 2, resolution=4)
-    return max(0.0, (free.area - opened.intersection(free).area)) / 10_000
+    slivers = free.difference(opened.intersection(free))
+    dead = _dead_side_mask(room, ps)
+    if dead is not None:
+        slivers = slivers.difference(dead)     # бок дивана у стены — не дефект (M-B)
+    return max(0.0, slivers.area) / 10_000
 
 
 def focus_offset_cm(ps: list[Placement]) -> float | None:

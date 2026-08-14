@@ -420,6 +420,23 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
             _w=max(it['w'] or 0, it['d'] or 0) if role=='ковёр' else (it['w'] or 0)
             if _w and _ideal*_tol[0]<=_w<=_ideal*_tol[1]:
                 s+=1.2; why.append("в конверте слота+1.2")
+        # M-A2 (свод №5): ВИЗУАЛЬНАЯ МАССА в тесных комнатах — при дефиците площади
+        # предпочесть лёгкие предметы (данные обогащения: visual_mass/ножки/подлокотники)
+        if m2<=18 and role in ('диван','кресло'):
+            _enr=EB.get(it['mid'],it['eid']) or {}
+            _vm=_enr.get('mass'); _legs=(_enr.get('specific') or {}).get('legs') or (_enr.get('photo') or {}).get('legs')
+            if _vm=='лёгкая': s+=1.2; why.append("масса лёгкая+1.2")
+            elif _vm=='тяжёлая': s-=1.0; why.append("масса тяжёлая-1.0")
+            if str(_legs) in ('тонкий_металл','конические_деревянные','прямые_деревянные','точёные'): s+=0.6; why.append("на ножках+0.6")
+        # M-A1 (свод №5): эффективность посадки — при равных местах меньший футпринт лучше
+        if role=='диван' and (it.get('w') or 0):
+            _seats_est=max(2,round((it['w'] or 0)/62))     # ~62 см на место (KB)
+            _eff=_seats_est/max(it.get('fp') or 1.5, 0.5)
+            s+=min(1.0,_eff*0.35); why.append(f"эфф.посадки+{min(1.0,_eff*0.35):.1f}")
+        # M-A3 (свод №5, Livingetc): при вероятном конфликте траекторий круглый/овальный
+        # столик предпочтительнее прямоугольного (нет углов в проходе)
+        if m2<=18 and role=='столик' and re.search(r'кругл|овал', (it.get('name') or '').lower()):
+            s+=0.8; why.append("округлый+0.8")
         # S5 (small-свод §16): вертикальный бонус хранения — высокий узкий лучше
         # низкого широкого при равном объёме (вертикаль экономит стену)
         if role in ('стеллаж','витрина') and (it.get('h') or 0)>=180 and (it.get('w') or 99)<=90:
