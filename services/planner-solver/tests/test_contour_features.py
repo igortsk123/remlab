@@ -163,7 +163,7 @@ def test_corner_adrift_functional_gap():
 
 
 def test_dining_share_watchdog():
-    """Свод №7: доля планов со столовой — планка по лучшему замеру (197/252,
+    """Свод №7: доля планов со столовой — планка по лучшему замеру (210/252,
     14.08, после dining_sacrifice), двигается только вверх."""
     import json, os
     rep = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'tools',
@@ -177,7 +177,7 @@ def test_dining_share_watchdog():
         n += 1
         din += ('+din' in r.get('templates', ''))
     assert n == 252, f'отчёт неполный: {n}'
-    assert din >= 197, f'доля столовой упала: {din}/252 (планка 197 — лучший замер)'
+    assert din >= 210, f'доля столовой упала: {din}/252 (планка 210 — лучший замер)'
 
 
 def test_dining_sacrifice_ladder():

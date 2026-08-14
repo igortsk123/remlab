@@ -105,6 +105,44 @@ def dining_island_feasible(table: Item, free: Polygon) -> bool:
     return False
 
 
+def _island_probe_candidates(table: Item, free: Polygon, limit: int = 6) -> list:
+    """Пакет C свода №8: кандидаты полного острова ИЗ ПРОБЫ. Генератор
+    middle_candidates даёт центры крупнейших прямоугольников — их может не хватить,
+    и тогда «остров возможен, но кандидаты не нашли» = тихий edge из-за генерации
+    (v2 §12). Здесь позиции берутся прямо из сетки пробы envelope (шаг 25 см,
+    прореживание 50 см), класс кандидата — middle."""
+    from shapely.geometry import box as _box
+    from shapely.prepared import prep as _prep
+    from .candidates import Candidate
+    env = dining_envelope_cm()
+    if free.is_empty:
+        return []
+    pf = _prep(free)
+    minx, miny, maxx, maxy = free.bounds
+    out: list = []
+    for rot, (w, d) in ((0.0, (table.w_cm, table.d_cm)),
+                        (90.0, (table.d_cm, table.w_cm))):
+        W, D = w + 2 * env, d + 2 * env
+        hits: list[tuple[float, float]] = []
+        x = minx + W / 2
+        while x <= maxx - W / 2 + 1e-6:
+            y = miny + D / 2
+            while y <= maxy - D / 2 + 1e-6:
+                if pf.contains(_box(x - W / 2, y - D / 2, x + W / 2, y + D / 2)) \
+                        and all(abs(x - hx) + abs(y - hy) >= 50 for hx, hy in hits):
+                    hits.append((x, y))
+                    out.append(Candidate(
+                        Placement(role=table.role, x=x, y=y, rot=rot, item=table),
+                        'middle', 'island-probe'))
+                    if len(hits) >= limit:
+                        break
+                y += 25.0
+            if len(hits) >= limit:
+                break
+            x += 25.0
+    return out
+
+
 def dining_envelope_ok(table: Placement, free: Polygon, sides: str = 'all') -> bool:
     """FULL_ISLAND-валидность: паспортный envelope свободен вокруг рабочих сторон стола.
     sides='all' — все четыре стороны (остров); 'front' — пристенная сторона (локальный −y)
@@ -1434,7 +1472,8 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
 
 
 def place_dining(room: Room, items: list[Item], free: Polygon, usable_m2: float,
-                 fixed: list[Placement] | None = None) -> list[Placement] | None:
+                 fixed: list[Placement] | None = None,
+                 classes: tuple = ('island', 'edge')) -> list[Placement] | None:
     """Столовая зона блоком: стол + стулья по band (малые комнаты 2, средние 4,
     просторные 6 — «заранее продумать» владельца). Кандидаты позиции — у стены и
     свободные (остров); проходы/отодвигание проверит validate на объединении."""
@@ -1470,21 +1509,30 @@ def place_dining(room: Room, items: list[Item], free: Polygon, usable_m2: float,
             'island_reject': None, 'fallback_reason': None,
             'envelope_cm': dining_envelope_cm()}
     LAST_DINING_DIAG = diag
-    # схемы паспорта: остров → у стены; каскад масштаба стульев (S4)
+    # Пакет C свода №8 (v2 §3/§6.2): КАСКАД КЛАССОВ как приоритет кандидатов ПОСЛЕ
+    # hard, не вес: FULL_ISLAND (паспортный envelope со всех сторон; кандидаты — и от
+    # генератора, и из пробы) → COMPACT_ISLAND (остров без полного envelope) → EDGE.
     for _nch in _chair_steps:
-        b_all = build_dining(by_role, _nch, sides='all')
-        if b_all is None or len(b_all.rel) < 2:
+        b_all = build_dining(by_role, _nch, sides='all') if 'island' in classes else None
+        if 'island' in classes and (b_all is None or len(b_all.rel) < 2):
             diag['island_reject'] = diag['island_reject'] or 'no_island_block'
+        if b_all is not None and len(b_all.rel) >= 2:
+            _mids = list(middle_candidates(room, b_all.anchor, free, limit=8))
+            _mids += _island_probe_candidates(b_all.anchor, free)
+            _full = [c for c in _mids if dining_envelope_ok(c.placement, free, 'all')]
+            ps = None
+            for _cands, _klass in ((_full, 'full_island'), (_mids, 'compact_island')):
+                if not _cands:
+                    continue
+                ps = _best_block(room, b_all, free, _cands, tv=None, fixed=fixed)
+                if ps is not None:
+                    _tbl_p = next((p for p in ps if p.role == 'стол обеденный'), None)
+                    diag['mode'] = ('full_island' if _tbl_p is not None and
+                                    dining_envelope_ok(_tbl_p, free, 'all') else 'compact_island')
+                    return ps
+            diag['island_reject'] = 'island_candidates_failed'
+        if 'edge' not in classes:
             continue
-        ps = _best_block(room, b_all, free,
-                         list(middle_candidates(room, b_all.anchor, free, limit=8)),
-                         tv=None, fixed=fixed)
-        if ps is not None:
-            _tbl_p = next((p for p in ps if p.role == 'стол обеденный'), None)
-            diag['mode'] = ('full_island' if _tbl_p is not None and
-                            dining_envelope_ok(_tbl_p, free, 'all') else 'compact_island')
-            return ps
-        diag['island_reject'] = 'island_candidates_failed'
         b_front = build_dining(by_role, _nch, sides='front')
         if b_front is not None:
             ps = _best_block(room, b_front, free,

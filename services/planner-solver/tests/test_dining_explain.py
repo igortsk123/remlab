@@ -46,3 +46,58 @@ def test_island_feasible_probe_distinguishes():
     assert dining_island_feasible(tbl, box(0, 0, 500, 500))
     # тесно: полоса 500×150 — стол+2×90 см не помещается ни в одной ориентации
     assert not dining_island_feasible(tbl, box(0, 0, 500, 150))
+
+
+def test_cascade_full_island_preferred_in_space():
+    """Пакет C: в просторной комнате остров с полным envelope выигрывает у стены."""
+    from planner.geometry import room_polygon
+    from planner.template import LAST_DINING_DIAG, place_dining  # noqa: F401
+    import planner.template as T
+    room = Room(width_cm=520, depth_cm=470,
+                openings=[Opening(kind='door', wall='south', offset_cm=86, width_cm=90)])
+    items = [Item(role='стол обеденный', w_cm=110, d_cm=70, h_cm=75),
+             Item(role='стул', w_cm=45, d_cm=50, h_cm=85),
+             Item(role='стул 2', w_cm=45, d_cm=50, h_cm=85)]
+    ps = place_dining(room, items, room_polygon(room), 24.4)
+    assert ps is not None
+    assert T.LAST_DINING_DIAG['mode'] == 'full_island', T.LAST_DINING_DIAG
+
+
+def test_cascade_edge_fallback_when_island_infeasible():
+    """Пакет C: узкая комната — остров честно невозможен, edge с названной причиной."""
+    from planner.geometry import room_polygon
+    from planner.template import place_dining
+    import planner.template as T
+    room = Room(width_cm=500, depth_cm=170,
+                openings=[Opening(kind='door', wall='east', offset_cm=40, width_cm=90)])
+    items = [Item(role='стол обеденный', w_cm=110, d_cm=70, h_cm=75),
+             Item(role='стул', w_cm=45, d_cm=50, h_cm=85),
+             Item(role='стул 2', w_cm=45, d_cm=50, h_cm=85)]
+    ps = place_dining(room, items, room_polygon(room), 8.5)
+    d = T.LAST_DINING_DIAG
+    assert d['island_feasible'] is False
+    if ps is not None:
+        assert d['mode'] == 'edge' and d['fallback_reason'] == 'island_infeasible', d
+
+
+def test_no_silent_edge_in_exam_artifacts():
+    """Сторож «тихого edge» (свод №8 v2, ключевой инвариант): остров возможен по
+    пробе → edge не выбирается. Скан артефактов последнего экзамена."""
+    import glob
+    import json as _j
+    import os
+    import pytest
+    arts = glob.glob(os.path.join(os.path.dirname(__file__), '..', '..', '..',
+                                  'tools', 'scout', 'v3set*-layout-acc-zoned-*.json'))
+    if not arts:
+        pytest.skip('нет артефактов экзамена')
+    silent = []
+    for f in arts:
+        try:
+            d = (_j.load(open(f, encoding='utf-8')) or {}).get('_dining') or {}
+        except Exception:
+            continue
+        if d.get('island_feasible') and d.get('mode') == 'edge' and \
+                d.get('fallback_reason') != 'island_rejected_by_quality_gate':
+            silent.append(os.path.basename(f))
+    assert not silent, f'тихий edge при возможном острове: {silent}'

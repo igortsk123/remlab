@@ -611,7 +611,26 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                         _dd0 = getattr(_tplmod, 'LAST_DINING_DIAG', None)
                         if _dd0 is not None:
                             _dd0['gate_rejected'] = True   # пакет B: причина «не встала»
-                    extra = None
+                        # Пакет C: остров отвергнут гейтом качества (маршрут/щели/фокус)
+                        # → честный retry классом EDGE с ЯВНОЙ причиной (тихого edge нет:
+                        # причина обязана попасть в диагноз — свод №8 v2, ключевой инвариант)
+                        from .template import place_dining as _pd_edge
+                        _extra_e = _pd_edge(room, keep, _free_z, usable_m2(room),
+                                            fixed=block, classes=('edge',))
+                        if _extra_e and _not_worse(_q_before,
+                                                   _quality(room, block + _extra_e)):
+                            _dde = getattr(_tplmod, 'LAST_DINING_DIAG', None)
+                            if _dde is not None:
+                                _dde['mode'] = 'edge'
+                                _dde['fallback_reason'] = 'island_rejected_by_quality_gate'
+                                _dde.pop('gate_rejected', None)
+                            extra = _extra_e
+                        else:
+                            if _dde := getattr(_tplmod, 'LAST_DINING_DIAG', None):
+                                _dde['gate_rejected'] = True   # retry тоже не прошёл
+                            extra = None
+                    else:
+                        extra = None
             if extra:
                 roles2 = {p.role for p in extra}
                 keep = [it for it in keep if it.role not in roles2]
@@ -704,6 +723,16 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
             else:
                 _ddiag['why_selected'] = 'not_placed'
                 _ddiag['mode'] = None
+                # пакет C: зона нужна (стол в банке), шаблон не встал ни одним
+                # классом — структурное событие TEMPLATE_GAP (свод №8 v2 §13)
+                if any(it.role == 'стол обеденный' for it in keep):
+                    from .room_map import room_mode, room_shape
+                    _ddiag['gap'] = {
+                        'type': 'TEMPLATE_GAP', 'zone': 'dining',
+                        'requested_mode': 'island',
+                        'room_class': f'{room_mode(room)}/{room_shape(room)}',
+                        'reason': ('quality_gate' if _ddiag.get('gate_rejected')
+                                   else _ddiag.get('island_reject') or 'no_fit')}
             lay.meta['dining'] = _ddiag
         outs = [lay]
         if os.environ.get('ZONES_DEBUG'):

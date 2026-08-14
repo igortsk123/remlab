@@ -750,6 +750,8 @@ _room_ops=(json.loads(_ops_env) if (_ops_env and json.loads(_ops_env)) else [
 # (замечание владельца 12.08: «диван заходит за границы комнаты» — это врал чертёж)
 out['_templates']={r:{'id':t,'version':v} for r,(t,v) in (globals().get('TPL_BY_ROLE') or {}).items()}
 out['_dining']=globals().get('DINING_DIAG')   # объяснимость dining (свод №8 пакет B)
+# пакет C: структурные дыры библиотеки шаблонов — списком (агрегатор template_gaps.py)
+out['_template_gaps']=[g for g in [(globals().get('DINING_DIAG') or {}).get('gap')] if g]
 # S3 (small-room-mode): «ТВ адаптируется к комнате легче, чем планировка к ТВ» — если
 # фактическая дистанция посадка↔носитель меньше цели RTINGS, пишем рекомендацию меньшей
 # диагонали в артефакт (для сметы/подбора); геометрию НЕ ломаем
