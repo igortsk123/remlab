@@ -11,15 +11,15 @@ status: working
 
 # Расстановка — Tier 1
 
-**Правила**: свод `../domain/occupancy-rules.md` → `services/planner-solver/rules/occupancy.json`.
-**Прод-ядро** (ADR-0052, `services/planner-solver/`, Python+shapely, БЕЗ ML): кандидаты →
-hard → beam → скоринг → top-K; детерминизм; полигонные контуры ([[layout-engine-gaps]]).
+**Правила**: `../domain/occupancy-rules.md` → `services/planner-solver/rules/occupancy.json`.
+**Прод-ядро** (ADR-0052): Python+shapely, БЕЗ ML; кандидаты → hard → beam → скоринг →
+top-K; детерминизм; контуры ([[layout-engine-gaps]]).
 
 **Зонный — боевой дефолт (ADR-0074/0075):** `services/planner-solver/planner/zones.py` +
 `services/planner-solver/rules/zones.json`; рефери ADR-0076/0077, обеденная ADR-0078.
-**Целостность шаблонов (12.08, ADR-0088…0091):** паспорт+инварианты
-(`services/planner-solver/rules/templates.json`, `services/planner-solver/planner/invariants.py`), конверт слота только при
-подборе (`tools/scout/compose2.py`), гейт качества (`services/planner-solver/planner/quality.py`), fill — диагностика.
+**Целостность шаблонов (ADR-0088…0091):** паспорт+инварианты
+(`services/planner-solver/rules/templates.json`), конверт слота только при подборе
+(`tools/scout/compose2.py`), fill — диагностика.
 Детали/история: `../guides/layout-engine-spec.md` (пары ТВ↔диван, машина остатка R,
 уровни деградации).
 
