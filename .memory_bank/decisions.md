@@ -1512,7 +1512,9 @@ primary-зоны решает ЕДИНАЯ таблица `services/planner-solv
 `services/planner-solver/planner/zones.py`. (2) 17 hard-правил, не сработавших ни разу за 252 (R5-замер,
 LAYOUT_RULE_STATS), классифицированы «сторожевыми» в `services/planner-solver/rules/registry.json` — генераторы
 соблюдают их by construction, правила остаются страховкой от регрессий; удалять нельзя.
-(3) Кресло reading-нука освобождено от дуговых чеков группы (`services/planner-solver/planner/validate.py`,
-разбор конфликта со сводом №4: residual 130–180 → нук за спинкой).
+(3) Кресло ВТОРИЧНОЙ зоны (reading-нук / bay_armchair) освобождено от дуговых чеков
+группы — единый `_in_secondary_zone` (`services/planner-solver/planner/validate.py`).
+(4) Новый паспорт `bay_armchair` 1.0 (одобрение владельца 14.08): кресло в эркере БЕЗ
+min_composition — рамку зоны задаёт ниша; кандидаты только в эркерах (+bay).
 **Влияет на.** [[layout]], room_map/tv_sofa/template/zones/quality/validate, compose2,
 rules (templates/zones/registry), приёмка 252.

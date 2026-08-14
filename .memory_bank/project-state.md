@@ -40,7 +40,7 @@ last_verified: 2026-08-09
 126/126. Completed-планы: MASTER-layout-modifiers, MASTER-tv-sofa-pair, elongated-room-mode,
 slots-everywhere, rules-consistency-audit, conflict-audit-modifiers. Отложено честно:
 swivel (нет данных обогащения), open-plan (нет сцен), потолок (Room.ceiling_cm спит),
-камин-ось без ТВ (недостижима при медиа-минимуме).
+камин-ось без ТВ (недостижима при медиа-минимуме). Плюс bay_armchair 1.0 — кресло в эркере (совершено по данным банка, 14.08).
 Заполнение пола — диагностика, не цель.
 
 **Замер 12.08 (252 фикс-сцены, `tools/scout/acceptance_run.py`):** чисто 252/252 · медиа-зона
