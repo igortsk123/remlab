@@ -30,11 +30,13 @@ hard → beam → скоринг → top-K; детерминизм; полиго
 Отложено: swivel, open-plan, потолок.
 **Свод №6 (ADR-0095):** entry-зона за диваном (пустота легальна; SEATING_ACCESS_PINCHED),
 ось Г-дивана по главной секции (`seat_axis_origin`); спящие: консоль/раннер/divider.
-**Свод №8 v2 (14.08, ADR-0098…0101):** dining-паспорт читается кодом (envelope 90); каскад
-классов full_island→compact→edge с объяснимостью (`_dining`: mode/island_feasible/why/fallback;
-тихий edge=0) + TEMPLATE_GAP→`tools/scout/template_gaps.py`; экран — виртуальная часть media
-(SCREEN_OVER_WINDOW H0 + вейвер `+tvw`, `services/planner-solver/planner/validate.py`);
-зеркала Г-дивана в шаблонном пути; статусы зон данными (`zone_priority.status`); оси-замеры
-`_axes` (`services/planner-solver/planner/quality.py`). Планка dining 196 (ADR-0099).
+**Свод №9 (14.08, ADR-0102/0103):** P0-кардинальность носителя (3 уровня, MEDIA_DOUBLE_CARRIER);
+trace dining (`_dining.search`, failed_axes); mode по топологии (55/90); cohesion-оси;
+таксономия gap; зеркала Г-дивана: корень-баг знака исправлен (`geometry.corner_active_lat`),
+выбор сравнением, сцены-пруф №270-272.
+**Свод №8 v2 (14.08, ADR-0098…0101):** dining-паспорт в коде (envelope 90); каскад
+full_island→compact→edge с объяснимостью (тихий edge=0); экран — часть media
+(SCREEN_OVER_WINDOW + вейвер `+tvw`); статусы зон данными; оси `_axes`
+(`services/planner-solver/planner/quality.py`). Планка dining 196 (ADR-0099).
 Сцены №253+ со своими проёмами (`tools/scout/acceptance_run.py`).
 **Экспорт для ИИ:** `tools/scout/export_plans_ai.py` (JSON/семантика+ASCII/PNG + index) → хаб `/test/plans-export.zip`.

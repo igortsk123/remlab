@@ -1626,7 +1626,7 @@ ADR после вердиктов. (H) Приёмка расширена append-
 ## ADR-0102 — Свод №9 (аудит рефери по 269): пакеты V3-A…G (2026-08-14)
 **Решение.** (A) P0 «два носителя» (№269) — ТРИ уровня защиты: skip media-тегов при
 носителе в блоке, `zone_priority.cardinality` (данные), финальный валидатор
-MEDIA_DOUBLE_CARRIER hard (`planner/validate.py`). (B) Полный trace поиска dining:
+MEDIA_DOUBLE_CARRIER hard (`services/planner-solver/planner/validate.py`). (B) Полный trace поиска dining:
 счётчики generated/fits/hard_valid/quality_valid по классам + `quality.failed_axes`
 (именованные оси гейта) + вектора до/после; диагноз первой попытки сохраняется при
 edge-retry (двусмысленность №216 снята). (C) Разбор 17 кейсов рефери: ВСЕ отвергнуты
