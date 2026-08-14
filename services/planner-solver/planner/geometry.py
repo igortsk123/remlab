@@ -84,6 +84,21 @@ def _corner_polygon(it: Item) -> Polygon:
     return Polygon(pts)
 
 
+def seat_axis_origin(p: Placement) -> tuple[float, float]:
+    """Точка отсчёта оси взгляда/прицела посадки. Для Г-дивана — центр ГЛАВНОЙ
+    (прямой) секции, не центр bbox: chaise асимметричен, центрируется посадочная
+    часть (свод №6, N3а). Обычный предмет — его центр."""
+    import math
+    it = p.item
+    if it is None or not getattr(it, 'corner', False)             or not getattr(it, 'corner_section_cm', 0):
+        return p.x, p.y
+    off = it.corner_section_cm / 2.0
+    if not getattr(it, 'corner_left', False):
+        off = -off
+    r = math.radians(p.rot)
+    return p.x + off * math.cos(r), p.y - off * math.sin(r)
+
+
 def access_zone(p: Placement, item: Item | None = None, spec: ClearanceSpec | None = None) -> Polygon:
     """Функциональная зона доступа: полоса перед лицом + боковые/тыловые отступы.
 

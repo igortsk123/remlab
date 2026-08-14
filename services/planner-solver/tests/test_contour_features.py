@@ -112,3 +112,51 @@ def test_high_ceiling_prefers_tall_anchor():
     b_high = build_storage(dict(by_role), ceiling_cm=320)
     assert b_norm.anchor.role == 'комод'      # шире — якорь по умолчанию
     assert b_high.anchor.role == 'стеллаж'    # высокий потолок — вертикаль первой
+
+
+def test_seat_axis_origin_corner():
+    """N3а (свод №6): ось Г-дивана — центр главной секции, сдвиг на section/2."""
+    from planner.geometry import seat_axis_origin
+    from planner.models import Item, Placement
+    it = Item(role='диван', w_cm=220, d_cm=150, h_cm=85, corner=True,
+              corner_section_cm=80)
+    p = Placement(role='диван', x=100, y=100, rot=0, item=it)
+    x, y = seat_axis_origin(p)
+    assert (round(x), round(y)) == (60, 100)      # плечо на +x → секция смещена в −x
+    straight = Placement(role='диван', x=100, y=100, rot=0,
+                         item=Item(role='диван', w_cm=200, d_cm=95, h_cm=85))
+    assert seat_axis_origin(straight) == (100, 100)
+
+
+def test_seating_access_pinched():
+    """N0 (свод №6): спинка ко входу — нужен проход вокруг торца."""
+    from planner.models import Item, Placement
+    from planner.validate import check_seating_access
+    room = Room(width_cm=300, depth_cm=450,
+                openings=[Opening(kind='door', wall='south', offset_cm=100,
+                                  width_cm=90)])
+    sofa = Item(role='диван', w_cm=260, d_cm=95, h_cm=85)
+    # диван почти во всю ширину — оба торцевых зазора < 60
+    tight = Placement(role='диван', x=150, y=250, rot=0, item=sofa)
+    assert check_seating_access(room, [tight])
+    # узкий диван — проход есть
+    ok = Placement(role='диван', x=110, y=250, rot=0,
+                   item=Item(role='диван', w_cm=180, d_cm=95, h_cm=85))
+    assert not check_seating_access(room, [ok])
+
+
+def test_corner_adrift_functional_gap():
+    """N3в (свод №6): зазор от угла легален при функции (радиатор), штраф — без."""
+    from planner.models import Item, Placement, Radiator
+    from planner.validate import validate
+    sofa = Item(role='диван', w_cm=219, d_cm=142, h_cm=85, corner=True,
+                corner_section_cm=70)
+    room_plain = Room(width_cm=400, depth_cm=460)
+    p = Placement(role='диван', x=71, y=192, rot=90, item=sofa)
+    codes = {v.code for v in validate(room_plain, [p]).violations}
+    assert 'CORNER_SOFA_ADRIFT' in codes
+    room_rad = Room(width_cm=400, depth_cm=460,
+                    radiators=[Radiator(wall='south', offset_cm=20, width_cm=120,
+                                        depth_cm=15)])
+    codes2 = {v.code for v in validate(room_rad, [p]).violations}
+    assert 'CORNER_SOFA_ADRIFT' not in codes2

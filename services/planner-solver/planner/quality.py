@@ -126,7 +126,10 @@ def focus_offset_cm(ps: list[Placement]) -> float | None:
     if seat is None or bearer is None:
         return None
     r = math.radians(seat.rot)
-    vx, vy = bearer.x - seat.x, bearer.y - seat.y
+    # свод №6 N3а: у Г-дивана ось меряется от центра ГЛАВНОЙ секции, не bbox
+    from .geometry import seat_axis_origin
+    sx, sy = seat_axis_origin(seat)
+    vx, vy = bearer.x - sx, bearer.y - sy
     return abs(math.cos(r) * vx - math.sin(r) * vy)
 
 

@@ -691,6 +691,15 @@
    "стул": {
     "ideal": 50,
     "why": "обеденный стул 45-55 (61 см кромки на едока минус зазоры); каталог медиана 50"
+   },
+   "консоль": {
+    "ideal": 110,
+    "behind_sofa": {
+     "height_max": "спинка дивана + 5 см",
+     "width_min": "0.67 ширины дивана",
+     "depth_max_cm": 40
+    },
+    "why": "Свод №6 N2 (H&G, Marianne Brown): консоль за диваном — высота на уровне спинки или ниже (максимум +2\"), ширина ≥2/3 дивана; СПЯЩИЙ слот — роли «консоль» в каталоге нет (0 по имени, 14.08), активируется при появлении"
    }
   }
  },
@@ -957,5 +966,18 @@
    "behind_sofa_strip": "dining"
   },
   "proof": "ADR-0091 (фокус→диван→циркуляция→носитель→ковёр/столик→доп.посадка→хранение→свет→декор) + свод №4 §5: приоритет ВТОРОЙ зоны dining → secondary seating/nook → storage — столовая выше доп-посадки"
+ },
+ "entry_zone": {
+  "_why": "Свод №6 (14.08): полоса за floating-диваном при двери в торце — ENTRY/ARRIVAL zone, не unused residual. Приоритет наполнения по своду; пустота ЛЕГАЛЬНА (negative space), обогащение её не «лечит». Реализация: вход уже вычитается из residual (quality.residual_depth_cm), высокое хранение за спинкой запрещает TALL_BEHIND_SOFA (>90 см), доступ в зону — SEATING_ACCESS_PINCHED",
+  "priority": [
+   "empty_negative_space",
+   "runner_rug",
+   "bench_stool",
+   "narrow_console_shallow_storage",
+   "low_sofa_console"
+  ],
+  "main_path_cm": 90,
+  "proof": "Livingetc foyer-in-open-living (runner как визуальный коридор); H&G perfect-living-room-layout (36\" главный маршрут; не «упираться» в спинку); H&G styling-the-back-of-the-sofa (sofa table за диваном)",
+  "_dormant": "runner: каталог ковров-дорожек пуст (0, замер 14.08); bench/console: ролей нет в каталоге — ветки спят до товаров; активная сейчас: empty + низкое хранение ≤90 см (уже легально)"
  }
 }

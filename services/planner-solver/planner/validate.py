@@ -470,6 +470,55 @@ def _lr(key, default):
 BEHIND_SOFA_MAX_H_CM = float(_lr("behind_sofa_max_h_cm", 90))
 
 
+def check_seating_access(room: Room, ps: list[Placement]) -> list[Violation]:
+    """Свод №6 N0: диван спинкой ко входу — у посадочной зоны должна быть ЯВНАЯ
+    точка входа: проход вокруг хотя бы одного торца дивана не уже secondary-прохода
+    (clearance_classes). Запрет «дверь → препятствие → щель → посадка»."""
+    import os as _os2
+    by = _by_base(ps)
+    sofa = by.get("диван")
+    if sofa is None or sofa.item is None:
+        return []
+    rot = int(sofa.rot) % 360
+    back_wall = {0: 'south', 180: 'north', 90: 'west', 270: 'east'}.get(rot)
+    if not any(op.kind in ('door', 'balcony') and op.wall == back_wall
+               for op in room.openings):
+        return []
+    x0, y0, x1, y1 = footprint(sofa).bounds
+    # зазоры вокруг торцов (перпендикулярно оси взгляда)
+    if rot in (0, 180):
+        gaps = [x0, room.width_cm - x1]
+        spans = [ (0, x0), (x1, room.width_cm) ]
+        strip = lambda a, b: __import__('shapely.geometry', fromlist=['box']).box(a, y0, b, y1)
+    else:
+        gaps = [y0, room.depth_cm - y1]
+        spans = [ (0, y0), (y1, room.depth_cm) ]
+        strip = lambda a, b: __import__('shapely.geometry', fromlist=['box']).box(x0, a, x1, b)
+    need = 60.0
+    try:
+        from .zones import zone_rules as _zr6
+        need = float(_zr6().get('quality_gate', {}).get('clearance_classes', {})
+                     .get('secondary_walkway_cm', 60))
+    except Exception:
+        pass
+    ok = False
+    for g, (a, b) in zip(gaps, spans):
+        if g < need:
+            continue
+        st = strip(a, b)
+        blocked = any(footprint(q).intersection(st).area > 900 for q in ps
+                      if q is not sofa and q.role != 'ковёр')
+        if not blocked:
+            ok = True
+            break
+    if not ok:
+        return [_v("SEATING_ACCESS_PINCHED",
+                   "вход в посадочную зону вокруг торца дивана уже нормы",
+                   ["диван"], round(max(gaps)),
+                   f"проход вокруг торца ≥{need:.0f} см", Severity.SOFT)]
+    return []
+
+
 def check_behind_sofa(room: Room, ps: list[Placement]) -> list[Violation]:
     by = _by_base(ps)
     sofa = by.get("диван")
@@ -597,7 +646,10 @@ def check_sofa_aim(room: Room, ps: list[Placement]) -> list[Violation]:
     best_aim, main = None, sofas[0]
     for sf in sofas:
         fx, fy = facing_vector(sf.rot)
-        vx, vy = tv.x - sf.x, tv.y - sf.y
+        # свод №6 N3а: прицел Г-дивана — от центра главной секции, не bbox
+        from .geometry import seat_axis_origin as _sao
+        _ax, _ay = _sao(sf)
+        vx, vy = tv.x - _ax, tv.y - _ay
         n = _m.hypot(vx, vy) or 1.0
         aim = _m.degrees(_m.acos(max(-1.0, min(1.0, (fx * vx + fy * vy) / n))))
         if best_aim is None or aim < best_aim:
@@ -1007,10 +1059,36 @@ def check_layout_rules(room: Room, ps: list[Placement]) -> list[Violation]:
         near_y = min(y0, room.depth_cm - y1) <= 25
         room_m2 = room.width_cm * room.depth_cm / 10_000
         if room_m2 < 30 and not (near_x and near_y):
-            # E7 (вердикт владельца set117 + Castlery/Swyft): в малых/средних Г-диван стоит
-            # УГЛОМ В УГОЛ — обе секции вдоль двух смежных стен
-            out.append(_v("CORNER_SOFA_ADRIFT", "Г-диван не углом в угол (обе секции к стенам)",
-                          ["диван"], None, "вдоль двух смежных стен", Severity.SOFT))
+            # Свод №6 N3в: жёсткого порога нет — зазор от угла легален, если у него
+            # ЕСТЬ ФУНКЦИЯ (дверь/окно-шторы/радиатор/другая мебель в полосе);
+            # штрафуется только НЕФУНКЦИОНАЛЬНАЯ пустота за секциями
+            from shapely.geometry import box as _gbox
+            from .geometry import opening_polygon as _opz, radiator_polygon as _rpz
+            _strips = []
+            if not near_x:
+                _gx = x0 if x0 <= room.width_cm - x1 else x1
+                _strips.append(_gbox(0, y0, x0, y1) if x0 <= room.width_cm - x1
+                               else _gbox(x1, y0, room.width_cm, y1))
+            if not near_y:
+                _strips.append(_gbox(x0, 0, x1, y0) if y0 <= room.depth_cm - y1
+                               else _gbox(x0, y1, x1, room.depth_cm))
+            _functional = False
+            for _st in _strips:
+                for op in room.openings:
+                    if _opz(room, op).buffer(40).intersects(_st):
+                        _functional = True
+                for rad in room.radiators:
+                    if _rpz(room, rad).buffer(10).intersects(_st):
+                        _functional = True
+                for q in ps:
+                    if q is not sofa and q.role != 'ковёр'                             and footprint(q).intersection(_st).area > 900:
+                        _functional = True
+            if not _functional:
+                out.append(_v("CORNER_SOFA_ADRIFT",
+                              "Г-диван не углом в угол: пустота за секциями без функции",
+                              ["диван"], None,
+                              "в угол, либо зазору нужна функция (проём/радиатор/мебель)",
+                              Severity.SOFT))
         elif not (near_x or near_y):
             # в больших floating разрешён, но плечо к стене (ADR-0050)
             out.append(_v("CORNER_SOFA_ADRIFT", "угловой диван стоит посреди комнаты", ["диван"],
@@ -1256,6 +1334,7 @@ def validate(room: Room, placements: list[Placement], *, passage: str = "seconda
     vs += check_zone(placements)
     vs += check_sightline(placements)
     vs += check_behind_sofa(room, placements)
+    vs += check_seating_access(room, placements)
     vs += check_sofa_sliver(room, placements)
     vs += check_dead_zone_behind_sofa(room, placements)
     vs += check_sofa_aim(room, placements)
