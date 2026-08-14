@@ -36,3 +36,4 @@ zone_priority`, резервы читают её. R5: сторожевые пр�
 **Свод №6 (ADR-0095):** entry-зона за диваном (пустота легальна, вход вокруг торца —
 SEATING_ACCESS_PINCHED), Г-диван: ось по ГЛАВНОЙ секции (`seat_axis_origin`), зазор от угла —
 функциональная проверка, не порог; спящие: консоль/раннер/divider.
+**Экспорт для ИИ:** `tools/scout/export_plans_ai.py` (JSON/семантика+ASCII/PNG + index) → хаб `/test/plans-export.zip`.
