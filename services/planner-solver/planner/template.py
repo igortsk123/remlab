@@ -1487,9 +1487,15 @@ def build_reading(by_role: dict[str, Item]) -> Block | None:
     + приставной у другого подлокотника (≤15)."""
     arm = by_role.get('кресло 3') or by_role.get('кресло')
     lamp, side = by_role.get('торшер'), by_role.get('приставной')
-    if arm is None or (lamp is None and side is None):
+    ott = by_role.get('пуф')
+    # E3 (свод №4, residual 130-180 → nook): аксессуаром нука может быть и пуф-
+    # оттоманка перед креслом — торшер в вытянутых малых часто занят посадкой
+    # (sofa_lamp), и нук не собирался при живом кресле+пуфе в банке
+    if arm is None or (lamp is None and side is None and ott is None):
         return None
     b = Block(arm)
+    if lamp is None and side is None and ott is not None:
+        b.add(ott, 0.0, arm.d_cm / 2 + ott.d_cm / 2 + 10, 0.0)
     if lamp is not None:
         # сбоку и чуть сзади — свет через плечо (веб-свод 11.08 подтвердил)
         b.add(lamp, arm.w_cm / 2 + lamp.w_cm / 2 + 12, -arm.d_cm / 2 + 8, 0.0)

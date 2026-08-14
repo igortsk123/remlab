@@ -336,7 +336,7 @@
   },
   "reading": {
    "id": "reading",
-   "version": "2.6",
+   "version": "2.7",
    "priority": 7,
    "purpose": "уголок чтения: кресло + торшер за плечом + приставной",
    "required": [
@@ -347,7 +347,13 @@
     "min_composition",
     "sku_dimensions_intact"
    ],
-   "degradation_level": "C"
+   "degradation_level": "C",
+   "optional": [
+    "торшер",
+    "приставной",
+    "пуф"
+   ],
+   "_proof_ottoman": "E3 (свод №4): вариант «кресло + пуф-оттоманка» — канон reading nook (armchair+ottoman, Houzz/Ideal Home); нужен, когда единственный торшер занят ступенью sofa_lamp"
   },
   "decor": {
    "id": "decor",

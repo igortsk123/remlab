@@ -764,6 +764,23 @@ try:
                 'why':'дистанция посадки меньше цели RTINGS для носителя — рекомендован меньший экран'}
 except Exception:
     pass
+# К4-замер (slots-everywhere): фактическая ширина главного маршрута — в артефакт;
+# пороги и решения — zones.json quality_gate, здесь только измерение
+try:
+    from planner.models import Item as _I4, Opening as _O4, Placement as _P4, Room as _R4
+    from planner.quality import route_width_cm as _rwc
+    _ops4=[_O4(kind=o['kind'],wall=o['wall'],offset_cm=o['offset_cm'],width_cm=o['width_cm'])
+           for o in _room_ops]
+    _ctr4=json.loads(os.environ['SCENE_CONTOUR']) if os.environ.get('SCENE_CONTOUR') else None
+    _r4=_R4(width_cm=RW,depth_cm=RD,contour=_ctr4,openings=_ops4)
+    _dims4=dict(FLOOR)
+    _ps4=[_P4(role=r,x=v[0][0],y=v[0][1],rot=v[1],
+              item=_I4(role=r,w_cm=_dims4.get(r,(60,60))[0] or 60,
+                       d_cm=_dims4.get(r,(60,60))[1] or 60,h_cm=80))
+          for r,v in placed.items()]
+    out['_route_cm']=round(float(_rwc(_r4,_ps4)),1)
+except Exception:
+    pass
 out['_set_hash']=hashlib.sha1(json.dumps(items,ensure_ascii=False,sort_keys=True).encode()).hexdigest()[:12]
 out['_room']={'w':RW,'d':RD,'m2':round(RW*RD/10_000,1),'openings':_room_ops,
               'contour':(json.loads(os.environ.get('SCENE_CONTOUR')) 

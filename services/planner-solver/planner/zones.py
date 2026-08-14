@@ -518,16 +518,28 @@ def solve_zoned(room: Room, items, **kw):
             # стеллаж занял стену напротив дивана, а тумба осталась в банке).
             # Пока носитель ТВ не поставлен, стена напротив посадки за ним
             # зарезервирована — остальные зоны туда не лезут.
-            if tag not in ('+tv', '+tvfp') and _tv_wall_reserved(room, block, keep):
+            # R2 (rules-consistency-audit): применимость резерва — по ТАБЛИЦЕ
+            # приоритетов зон (zones.json zone_priority), не по хардкоду тегов:
+            # резерв зоны-владельца отнимает место только у зон НИЖЕ приоритетом
+            _zp = zone_rules().get('zone_priority', {})
+            _zo, _zt = _zp.get('order', []), _zp.get('tags', {})
+            def _zidx(t):
+                zz = _zt.get(t)
+                return _zo.index(zz) if zz in _zo else len(_zo)
+            if _zidx(tag) > _zidx('+tv') and _tv_wall_reserved(room, block, keep):
                 _free_z = _free_z.difference(_tv_wall_strip(room, block))
             # ЗА СПИНКОЙ ОТОДВИНУТОГО ДИВАНА — СТОЛОВАЯ (веб-канон RU: диван спинкой к
             # обеденной зоне — типовой приём зонирования; вторая зона гостиной чаще
             # всего именно столовая/барная — inmyroom.ru, 4happyhome.ru).
             # Пока столовая не поставлена, полосу за спинкой держим за ней.
             # медиа-зона ПРИОРИТЕТНЕЕ столовой (12.08): полосу за спинкой у неё не отнимаем
-            if tag not in ('+din', '+tv', '+tvfp') and _behind_reserved(room, block, keep):
+            if _zidx(tag) > _zidx('+din') and _behind_reserved(room, block, keep):
                 _free_z = _free_z.difference(_behind_sofa_strip(room, block))
             extra = placer(room, keep, _free_z, fixed=block)
+            if extra is None and os.environ.get('ZONES_DEBUG'):
+                import sys as _sdz
+                print(f'ZDBG зона {tag}: placer вернул None (roles в банке: '
+                      f'{sorted({i.role for i in keep})})', file=_sdz.stderr, flush=True)
             # ГЕЙТ ДЕГРАДАЦИИ (свод владельца 12.08): зона принимается, только если не
             # ухудшила достигнутое — маршрут ≥75 см, «щели» уже 45 см не выросли, фокус
             # не сбился. Заполнение пола (fill) больше НЕ цель, а диагностика: прежний

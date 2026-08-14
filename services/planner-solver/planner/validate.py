@@ -31,6 +31,17 @@ EPS = 1.0  # см: допуск на округления (Holodeck EPSILON=1 с
 
 def _v(code: str, msg: str, roles: list[str], value: float | None = None, expected: str | None = None,
        severity: Severity = Severity.HARD) -> Violation:
+    # R5 (rules-consistency-audit): счётчик срабатываний — LAYOUT_RULE_STATS=<файл>
+    # пишет каждый код construction'ом (append, межпроцессно безопасно по строкам);
+    # прогон 252 затем показывает мёртвые (0 раз) и вечноживые правила
+    import os as _os
+    _stats = _os.environ.get('LAYOUT_RULE_STATS')
+    if _stats:
+        try:
+            with open(_stats, 'a') as _f:
+                _f.write(f'{code}\t{severity.name}\n')
+        except OSError:
+            pass
     return Violation(code=code, severity=severity, message=msg, roles=roles, value=value, expected=expected)
 
 
@@ -770,6 +781,12 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
                               f"{lo_t:.0f}–{hi_t + 60:.0f} см (зона вокруг столика)"))
         # D5 (вторичная зона): кресло камин-уголка — дуговые чеки не применяются
         if _in_fireplace_zone(ps, arm):
+            continue
+        # E3 (свод №4, разбор R4-конфликта 14.08): кресло READING-нука — отдельная
+        # зона в остатке за спинкой (residual_bands 130-180 → nook), дуговые и
+        # ковровые чеки разговорной группы к нему не применяются (аналогично
+        # камин-уголку). Иначе ARMCHAIR_BEHIND_SOFA рубил канонный нук свода
+        if getattr(arm, 'tpl_id', None) == 'reading':
             continue
         rg4 = by.get("ковёр")
         if rg4 is not None and footprint(arm).intersection(footprint(rg4)).area < arm.item.w_cm * 10:

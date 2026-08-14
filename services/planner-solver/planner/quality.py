@@ -130,12 +130,46 @@ def focus_offset_cm(ps: list[Placement]) -> float | None:
     return abs(math.cos(r) * vx - math.sin(r) * vy)
 
 
+def residual_depth_cm(room: Room, ps: list[Placement]) -> float:
+    """E3-диагностика (свод №4): глубина ПУСТОЙ связной полосы за спинкой
+    floating-дивана (спинка дальше 40 см от стены). 0 — дивана-границы нет или
+    за спинкой есть функция. НЕ гейт: пороги решений — residual_bands (паспорт)."""
+    import math as _m
+    sofa = next((p for p in ps if p.role == 'диван'), None)
+    if sofa is None:
+        return 0.0
+    rot = int(sofa.rot) % 360
+    sd = (sofa.item.d_cm if sofa.item else 95.0)
+    back = {0: sofa.y - sd / 2, 180: room.depth_cm - (sofa.y + sd / 2),
+            90: sofa.x - sd / 2, 270: room.width_cm - (sofa.x + sd / 2)}.get(rot, 0.0)
+    if back <= 40.0:
+        return 0.0
+    def _behind(p) -> bool:
+        if rot == 0:
+            return p.y < sofa.y - sd / 2
+        if rot == 180:
+            return p.y > sofa.y + sd / 2
+        if rot == 90:
+            return p.x < sofa.x - sd / 2
+        return p.x > sofa.x + sd / 2
+    if any(_behind(p) for p in ps if p.role not in ('диван', 'ковёр')):
+        return 0.0
+    # свод №4 §1: пустота у двери (створ + подход) — ЗАКОННАЯ, не residual.
+    # Дверь на стене за спинкой → полоса является входом, остатка нет
+    back_wall = {0: 'south', 180: 'north', 90: 'west', 270: 'east'}.get(rot)
+    if any(op.kind in ('door', 'balcony') and op.wall == back_wall
+           for op in room.openings):
+        return 0.0
+    return back
+
+
 def scene_quality(room: Room, ps: list[Placement]) -> dict:
     """Вектор качества сцены (чем «лучше», тем предпочтительнее)."""
     return {
         'circulation': route_width_cm(room, ps),
         'focus': focus_offset_cm(ps),
         'sliver_m2': sliver_area_m2(room, ps),
+        'residual_cm': residual_depth_cm(room, ps),
         'items': len(ps),
     }
 

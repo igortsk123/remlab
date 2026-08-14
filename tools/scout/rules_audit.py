@@ -37,6 +37,39 @@ def walk(node, path, out, covered=False):
             walk(v, f'{path}[{i}]', out, covered)
 
 
+def registry_sync() -> int:
+    """R3 (rules-consistency-audit): реестр ↔ код. Два направления:
+    REG-CODE-GONE — hard-правило из registry.json не найдено в своём файле
+    (код ушёл, реестр отстал); CODE-NOT-REG — hard-код в validate.py, которого
+    нет в реестре (код вырос, приоритет/стадия не назначены)."""
+    import re
+    reg_p = os.path.join(HERE, '..', '..', 'services', 'planner-solver', 'rules',
+                         'registry.json')
+    val_p = os.path.join(HERE, '..', '..', 'services', 'planner-solver', 'planner',
+                         'validate.py')
+    if not (os.path.exists(reg_p) and os.path.exists(val_p)):
+        return 0
+    reg = json.load(open(reg_p, encoding='utf-8'))
+    rules = reg.get('правила', [])
+    code = open(val_p, encoding='utf-8').read()
+    n = 0
+    for r in rules:
+        if r.get('вид') != 'hard':
+            continue
+        rid = r.get('id', '')
+        if rid and rid not in code:
+            print(f'  REG-CODE-GONE: {rid} — в validate.py не найдено (реестр отстал?)')
+            n += 1
+    reg_ids = {r.get('id') for r in rules}
+    for cid in sorted(set(re.findall(r'_v\(\s*"([A-Z][A-Z0-9_]{3,})"', code))):
+        if cid not in reg_ids:
+            print(f'  CODE-NOT-REG: {cid} — hard-код без записи в registry.json')
+            n += 1
+    if n == 0:
+        print('  реестр ↔ validate.py: синхронны')
+    return n
+
+
 def main() -> int:
     total = 0
     # occupancy.json собирается из KB-экспорта (services/knowledge-db/kdb/export_rules.py):
@@ -59,6 +92,8 @@ def main() -> int:
             total += len(found)
         elif found:
             print(f'  (файл собирается из KB — провенанс в export_rules.py, в strict не входит)')
+    print('\nреестр правил (R3):')
+    total += registry_sync()
     print(f'\nВСЕГО без обоснования: {total}')
     return 1 if ('--strict' in sys.argv and total) else 0
 

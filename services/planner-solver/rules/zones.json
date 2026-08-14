@@ -921,5 +921,40 @@
    "armchair_pair"
   ],
   "_glue": "столик И ковёр — обязательный клей КАЖДОЙ ступени посадки (владелец 13.08: «все шаблоны коммуникативной зоны вкл столик — и ковёр»). Нет в банке — ступень ставится без него честно (required-роль вне банка не спрашивается), но при наличии в банке обязан стоять"
+ },
+ "zone_priority": {
+  "_why": "R2 (rules-consistency-audit): ЕДИНСТВЕННЫЙ источник порядка зон — резервы места обязаны сверяться с ним: резерв зоны N не отнимает место у зоны с приоритетом выше (случай №1: резерв столовой отнимал стену у медиа). Порядок — ADR-0091 (дизайнерский свод владельца 12.08)",
+  "order": [
+   "architecture",
+   "focus",
+   "seating",
+   "circulation",
+   "media",
+   "rug_table",
+   "dining",
+   "seating_extra",
+   "storage",
+   "light",
+   "decor"
+  ],
+  "tags": {
+   "+tvfp": "media",
+   "+tv": "media",
+   "+tv2": "media",
+   "+fp": "focus",
+   "+din": "dining",
+   "+st": "storage",
+   "+st2": "storage",
+   "+qz": "seating_extra",
+   "+rd": "seating_extra",
+   "+rd2": "seating_extra",
+   "+dc": "decor",
+   "+dc2": "decor"
+  },
+  "reserves": {
+   "tv_wall_strip": "media",
+   "behind_sofa_strip": "dining"
+  },
+  "proof": "ADR-0091 (фокус→диван→циркуляция→носитель→ковёр/столик→доп.посадка→хранение→свет→декор) + свод №4 §5: приоритет ВТОРОЙ зоны dining → secondary seating/nook → storage — столовая выше доп-посадки"
  }
 }
