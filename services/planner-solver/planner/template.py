@@ -2301,11 +2301,17 @@ def build_quiet(by_role: dict[str, Item]) -> Block | None:
 
 def place_quiet(room: Room, items: list[Item], free: Polygon,
                 fixed: list[Placement] | None = None) -> list[Placement] | None:
-    """Тихая зона — только в просторных комнатах (45+ м²) и только если главная
-    зона уже стоит: иначе кресла нужнее в основной группе."""
+    """Тихая зона (пара кресло 3/4 визави). C-4 свода №11 (Кодекс Q-B):
+    (1) гейт — режим комнаты из ДАННЫХ (room_mode == large), не отдельные 45 м²;
+    (2) кандидаты — стены + СРЕДИННЫЕ регионы (крупнейший незакреплённый регион
+    часто в центре/за диваном, где wall-якоря нет); главная посадка обязана уже
+    стоять (fixed) — иначе кресла нужнее в основной группе."""
     if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
         return None
-    if room.width_cm * room.depth_cm < 45 * 10_000:
+    from .room_map import room_mode as _rmq
+    if _rmq(room) != 'large':
+        return None
+    if not any(p.role.split(' ')[0] == 'диван' for p in (fixed or [])):
         return None
     by_role: dict[str, Item] = {}
     for it in items:
@@ -2313,8 +2319,9 @@ def place_quiet(room: Room, items: list[Item], free: Polygon,
     b = build_quiet(by_role)
     if b is None:
         return None
-    return _best_block(room, b, free, wall_candidates(room, b.anchor, free),
-                       tv=None, fixed=fixed)
+    _cands = list(wall_candidates(room, b.anchor, free)) \
+        + list(middle_candidates(room, b.anchor, free, limit=8))
+    return _best_block(room, b, free, _cands, tv=None, fixed=fixed)
 
 
 def place_decor(room: Room, items: list[Item], free: Polygon,

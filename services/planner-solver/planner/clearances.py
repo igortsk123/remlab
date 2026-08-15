@@ -37,7 +37,8 @@ def band_scale(key: str, band: str | None, default: list[float]) -> list[float]:
 # в зоне ног легитимно (наше правило sofa_coffee_table 36–50 см; у ProcTHOR такая пара
 # вообще ставится единой ассет-группой, внутри которой margin не применяется).
 LOW_ITEM_MAX_H_CM = 55.0
-NEVER_BLOCKING_ROLES = frozenset({"столик", "ковёр", "пуф", "кашпо", "торшер"})
+NEVER_BLOCKING_ROLES = frozenset({"столик", "ковёр", "пуф", "кашпо", "торшер",
+                                  "приставной"})   # C-4: низкая поверхность между креслами — как столик
 
 
 @dataclass(frozen=True)
@@ -80,6 +81,7 @@ def _table() -> dict[str, ClearanceSpec]:
         "стул": ClearanceSpec(_d("dining_chair_pullout", 55), 0, 0, "отодвинуть стул"),
         # мелочь клиренса не требует
         "столик": ClearanceSpec(0, 0, 0, "журнальный столик — центр зоны"),
+        "приставной": ClearanceSpec(0, 0, 0, "приставная поверхность — центр зоны (C-4)"),
         "торшер": ClearanceSpec(0, 0, 0, ""),
         "кашпо": ClearanceSpec(0, 0, 0, ""),
         "ковёр": ClearanceSpec(0, 0, 0, ""),

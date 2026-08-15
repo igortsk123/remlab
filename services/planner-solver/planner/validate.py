@@ -46,10 +46,11 @@ def _v(code: str, msg: str, roles: list[str], value: float | None = None, expect
 
 
 def _in_secondary_zone(p) -> bool:
-    """Кресло ВТОРИЧНОЙ зоны (нук чтения / эркер): дуговые чеки разговорной
-    группы не применяются — зону структурирует свой шаблон/архитектура
-    (bay-nook-templates 14.08, по образцу камин-уголка)."""
-    return getattr(p, 'tpl_id', None) in ('reading', 'bay_armchair')
+    """Предмет ВТОРИЧНОЙ посадочной зоны (тихая / нук чтения / эркер): правила
+    ГЛАВНОЙ разговорной группы не применяются — зону структурирует её собственный
+    шаблон (C-4 свода №11, Кодекс Q-B: quiet добавлен — его кресла судились как
+    члены диванной группы, и зона была недостижима)."""
+    return getattr(p, 'tpl_id', None) in ('reading', 'bay_armchair', 'quiet')
 
 
 # ПЛОСКОЕ НАПОЛЬНОЕ ПОКРЫТИЕ — не мебель (системное правило 12.08, веб-канон).
@@ -658,6 +659,8 @@ def check_dead_zone_behind_sofa(room: Room, ps: list[Placement]) -> list[Violati
     for p in ps:
         if p.role.split(' ')[0] not in DEAD_BEHIND_ROLES and p.role not in DEAD_BEHIND_ROLES:
             continue
+        if _in_secondary_zone(p):
+            continue          # C-4: кресло вторичной шаблонной зоны за спинкой легально
         if footprint(p).intersection(strip).area > 0.5 * footprint(p).area:
             out.append(_v("DEAD_ZONE_BEHIND_SOFA",
                           f"«{p.role}» за спинкой дивана — функциональному и декору там не место",
@@ -866,6 +869,10 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
     # и каждая посадка обязана принадлежать зоне (EVERY_SEAT_BELONGS_TO_ZONE)
     for arm in _inst(ps, "кресло"):
         if arm.item is None:
+            continue
+        # C-4 свода №11 (Кодекс Q-B): вторичная зона исключается ДО правил главной
+        # группы — прежде ARMCHAIR_TABLE_DIST мерил кресло quiet к ЧУЖОМУ столику
+        if _in_secondary_zone(arm):
             continue
         if tbl is not None and _lr("armchair_to_table_same_as_sofa", True):
             # T6: фикс-эргономика и для кресла (последний потребитель area-шкалы sofa_table_cm
