@@ -44,8 +44,11 @@ def route_reserve(room: Room) -> Polygon:
         if op.kind != 'door':
             continue
         depth = min(max(room.depth_cm, room.width_cm) / 3, 250.0)
-        lo = op.offset_cm - 20
-        hi = op.offset_cm + op.width_cm + 20
+        # C-1 свода №11 (Кодекс §11): route_width_cm РЕАЛЬНО потребляется — полоса
+        # входа не уже маршрутной ширины из данных (для двери 90 идентично прежним ±20)
+        _pad = max(20.0, (w_route - op.width_cm) / 2)
+        lo = op.offset_cm - _pad
+        hi = op.offset_cm + op.width_cm + _pad
         if op.wall == 'south':
             parts.append(box(lo, 0, hi, depth))
         elif op.wall == 'north':
@@ -55,7 +58,6 @@ def route_reserve(room: Room) -> Polygon:
         else:
             parts.append(box(room.width_cm - depth, lo, room.width_cm, hi))
         parts.append(swing_polygon(room, op))
-    _ = w_route  # ширина маршрута обеспечена запасом ±20 к ширине двери
     return unary_union(parts) if parts else Polygon()
 
 
@@ -660,11 +662,17 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
             tpl_tag += ('+tvw' if os.environ.get('_SCREEN_WINDOW_WAIVED') == '1'
                         else '+tv')
         for placer, tag in ((place_media_fireplace, '+tvfp'), _order[0], _order[1],
-                            (_din, '+din'), (place_storage, '+st'),
-                            # НЕ БОЛЕЕ ДВУХ зон хранения на гостиную (владелец 12.08)
-                            (place_storage, '+st2'),
+                            (_din, '+din'),
+                            # C-1 свода №11 (Кодекс §4): порядок исполнения =
+                            # zone_priority.order — SEATING_EXTRA (тихая/чтение/эркер)
+                            # ДО ХРАНЕНИЯ; прежде storage дважды съедал стены и
+                            # остаточный регион до place_quiet (одна из причин
+                            # «вторая зона не встаёт» из свода №10 J)
                             (place_quiet, '+qz'), (place_reading, '+rd'),
                             (place_bay_armchair, '+bay'),
+                            (place_storage, '+st'),
+                            # НЕ БОЛЕЕ ДВУХ зон хранения на гостиную (владелец 12.08)
+                            (place_storage, '+st2'),
                             (place_decor, '+dc')):
             occ2 = _uu([_fp(p) for p in block if p.role != 'ковёр'])
             _free_z = usable_polygon(room).difference(occ2)
@@ -688,7 +696,7 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
             if tag == '+st2' and any(p.role.split(' ')[0] == 'стенка' for p in block):
                 continue
             _cardc = (_zp.get('cardinality') or {}).get(_zt.get(tag, '')) or {}
-            if _cardc.get('rule') == 'exactly_one_carrier' and any(
+            if _cardc.get('rule') in ('at_most_one_carrier', 'exactly_one_carrier') and any(
                     p.role.split(' ')[0] in tuple(_cardc.get('carrier_roles') or ())
                     for p in block):
                 continue
@@ -1096,7 +1104,10 @@ _TERM_LEVEL = {
     'free_space_fragmentation': 'circulation', 'soft_rule_main_path_tight': 'circulation',
     'soft_rule_zone_buffer': 'circulation',
     # functional: связи предметов
-    'sofa_tv_dist': 'functional_relationships', 'sofa_table': 'functional_relationships',
+    'sofa_tv_dist': 'functional_relationships',
+    'sofa_table_dist': 'functional_relationships',   # C-1 (Кодекс §8): точное имя терма
+    'seats_group': 'functional_relationships',       # целостность посадочной группы
+    'storage_spacing': 'zone_quality',               # ряд хранения — качество зоны
     'sofa_faces_tv': 'functional_relationships', 'tv_faces_sofa': 'functional_relationships',
     'armchair_faces_tv': 'functional_relationships',
     'armchair_zone_radius': 'functional_relationships',
