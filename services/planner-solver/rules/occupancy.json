@@ -897,6 +897,7 @@
   "fireplace_not_on_tv_wall": false,
   "pouf_out_of_view_axis": true,
   "corner_sofa_must_be_in_corner": true,
+  "_corner_contract": "ЕДИНЫЙ КОНТРАКТ (V4-I свода №10, снята двусмысленность Q44): флаг НЕ означает безусловный hard. Семантика: <30 м² Г-диван предпочитает угол, зазор легален только при ФУНКЦИИ в полосе (дверь/окно-шторы/радиатор/мебель — свод №6); ≥30 м² floating легален при функции пространства (деление зон/циркуляция/вторая зона), иначе CORNER_SOFA_ADRIFT (S). corner_hug_cm — только КЛАССИФИКАТОР hugged/floating, не порог валидности. Классы в экспорте: _zones.seating.corner_class",
   "chair_requires_dining_table": true,
   "zone_buffer_cm": 40,
   "zone_buffer_note": "посторонняя мебель не ближе этого к дивану/столику; 65 см из ADR-0050 были настроены под DFS-периферию, для beam достаточно 40 (остальное держат ACCESS_BLOCKED и штраф за щели)",

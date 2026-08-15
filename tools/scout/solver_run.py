@@ -672,6 +672,19 @@ def attempt_beam():
                 zi['variant_id'] = p.tpl_variant
             if p.role == 'диван' and p.item is not None and getattr(p.item, 'corner', False):
                 zi['mirror'] = 'left' if getattr(p.item, 'corner_left', False) else 'right'
+                # V4-I: класс контракта угла — hugged / floating_functional / adrift
+                try:
+                    from planner.geometry import footprint as _fpc2
+                    _b = _fpc2(p).bounds
+                    _near_x = min(_b[0], room_p.width_cm - _b[2]) <= 25
+                    _near_y = min(_b[1], room_p.depth_cm - _b[3]) <= 25
+                    _adrift = any(v.code == 'CORNER_SOFA_ADRIFT'
+                                  for v in lay.violations)
+                    zi['corner_class'] = ('hugged' if (_near_x and _near_y) else
+                                          ('adrift' if _adrift else
+                                           'floating_functional'))
+                except Exception:
+                    pass
     except Exception:
         ZONE_IDS = None
     # V3-H (PACKAGE L): media_validation — проверяемая из экспорта
