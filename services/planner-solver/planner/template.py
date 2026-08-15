@@ -1353,6 +1353,9 @@ def _window_back_candidates(room: Room, sofa_item: Item, free: Polygon) -> list:
 LAST_MIRROR_STATS: dict | None = None
 # V4-B2 свода №10: трейс лестницы посадки последнего прогона (пишет zones.py)
 LAST_SEATING_SEARCH: dict | None = None
+# V4-D свода №10: контракт осей — диагнозы столика и медиа последнего прогона
+LAST_AXIS_DIAG: dict | None = None
+LAST_MEDIA_AXIS: dict | None = None
 
 
 def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
@@ -1494,6 +1497,7 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
     # ВНУТРИ каждого круга — прежние два прохода: сперва схемы с НАСТОЯЩИМ столиком,
     # затем «пуф вместо столика» (104 сцены оставались без столика, 12.08).
     global _FOCUS_LEVEL
+    _centered_fails = 0            # V4-D1: счётчик отказов центрированных вариантов
     _rounds = (2, 1, 0) if (bearer is not None
                             and os.environ.get('LAYOUT_FOCUS_MANDATORY', '1') != '0') \
         else (0,)
@@ -1534,9 +1538,20 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
                   cands += _tv_range_candidates(room, b.anchor, free)
               ps = _best_block(room, b, free, cands, tv=tv, fixed=fixed,
                                second_focus=second, require_bearer=bearer)
+              if ps is None and not _shift:
+                  _centered_fails += 1      # V4-D1: centered-провалы — в трейс
               if ps is not None:
+                  # V4-D1 (свод №10): сдвиг столика — ЯВНЫЙ вариант, не тихий default.
+                  # Сдвиговые варианты идут в каскаде ПОСЛЕ центрированных, поэтому
+                  # успех со сдвигом = «centered hard-invalid» по построению.
+                  global LAST_AXIS_DIAG
+                  _variant = shape + ('+axis_shifted' if _shift else '')
+                  LAST_AXIS_DIAG = {'table': {
+                      'shift_cm': round(_shift, 1), 'variant': _variant,
+                      'centered_rejects': _centered_fails,
+                      'reason': ('centered_hard_invalid' if _shift else None)}}
                   for _pv in ps:            # V3-H: identity схемы в экспорт
-                      _pv.tpl_variant = shape
+                      _pv.tpl_variant = _variant
                   if os.environ.get('ZONES_DEBUG'):
                       import sys as _s
                       print(f'ZDBG посадка принята: круг фокуса={_lvl} схема={shape} '
@@ -2165,13 +2180,39 @@ def place_media(room: Room, items: list[Item], free: Polygon,
                     # должна быть везде»): в relaxed-режиме центровка не требуется —
                     # лучше носитель сбоку, чем сцена вообще без ТВ.
                     _strict = [] if relaxed else _axis_filter(_cands, seat)
+                    # V4-D2 (свод №10): классы кандидатов ЛЕКСИКОГРАФИЧЕСКИ —
+                    # CENTERED (ось ≤ существующего порога фокуса) → OFFSET (пристенные
+                    # вне оси) → CORNER/JAMB/WINDOW. Прежде фолбэк мешал всё в один
+                    # список, и №8 получал offset 83 при доступных ближних позициях.
+                    global LAST_MEDIA_AXIS
+                    _mdiag = {'centered_generated': len(_strict),
+                              'centered_hard_valid': 0, 'class': None}
+                    LAST_MEDIA_AXIS = _mdiag
                     ps = _best_block(room, b, free, _strict or _cands, top=top,
                                      tv=None, fixed=fixed, axis_seat=seat)
+                    if ps is not None and _strict:
+                        _mdiag['centered_hard_valid'] = 1
+                        _mdiag['class'] = 'centered'
+                    elif ps is not None:
+                        _mdiag['class'] = 'relaxed'
                     if ps is None and _strict:
-                        ps = _best_block(room, b, free, _cands, top=top,
-                                         tv=None, fixed=fixed, axis_seat=seat)
+                        _off_c = [c for c in _cands if getattr(c, 'kind', '') == 'wall']
+                        _rest_c = [c for c in _cands if getattr(c, 'kind', '') != 'wall']
+                        for _klass, _sub in (('offset', _off_c),
+                                             ('corner_jamb_window', _rest_c)):
+                            if not _sub:
+                                continue
+                            ps = _best_block(room, b, free, _sub, top=top,
+                                             tv=None, fixed=fixed, axis_seat=seat)
+                            if ps is not None:
+                                _mdiag['class'] = _klass
+                                break
                     if ps is None:
                         continue
+                    try:
+                        _mdiag['offset_cm'] = round(_axis_off(ps, seat), 1)
+                    except Exception:
+                        pass
                     if top > 1:
                         best = (best or []) + ps
                     elif best is None or _axis_off(ps, seat) < _axis_off(best, seat):

@@ -358,6 +358,8 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
     _tplmod.LAST_DINING_DIAG = None      # пакет B: свежий диагноз dining на каждый прогон
     _tplmod.LAST_MIRROR_STATS = None     # V3-H: счётчики зеркал — per solve
     _tplmod.LAST_SEATING_SEARCH = None   # V4-B2: трейс лестницы — per solve
+    _tplmod.LAST_AXIS_DIAG = None        # V4-D: контракт осей — per solve
+    _tplmod.LAST_MEDIA_AXIS = None
     os.environ.pop('_SCREEN_WINDOW_WAIVED', None)   # пакет D: вейвер экрана — per solve
     avail = {_base(i.role) for i in items}
     counts = Counter(_base(i.role) for i in items)
@@ -913,6 +915,11 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
         _ssk = getattr(_tplmod, 'LAST_SEATING_SEARCH', None)
         if _ssk is not None:
             lay.meta['seating_search'] = _ssk   # V4-B2: трейс лестницы в экспорт
+        _axd = getattr(_tplmod, 'LAST_AXIS_DIAG', None) or {}
+        _axm = getattr(_tplmod, 'LAST_MEDIA_AXIS', None)
+        if _axd or _axm:                        # V4-D: контракт осей в экспорт
+            lay.meta['axis_contract'] = {**_axd,
+                                         **({'media': _axm} if _axm else {})}
         outs = [lay]
         if os.environ.get('ZONES_DEBUG'):
             import sys as _s
