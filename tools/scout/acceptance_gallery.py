@@ -13,6 +13,81 @@ import json
 import os
 import shutil
 
+
+def _debug_overlay(art: dict, out_png: str) -> bool:
+    """V4-G свода №10: debug-оверлей для рефери — entry reserve, дуги дверей,
+    главный маршрут (эрозия на замеренную ширину), крупнейший незакреплённый регион.
+    Только в referee-галерею; пользовательский рендер не трогаем."""
+    try:
+        import sys
+        sys.path.insert(0, os.path.join(HERE, '..', '..', 'services', 'planner-solver'))
+        from PIL import Image, ImageDraw
+        from planner.models import Item, Opening, Placement, Room
+        from planner.zones import route_reserve
+        from planner.geometry import room_polygon, swing_polygon, footprint
+        from planner.quality import _free_space, zone_cohesion
+        rm = art.get('_room') or {}
+        if not rm.get('w'):
+            return False
+        room = Room(width_cm=rm['w'], depth_cm=rm['d'],
+                    contour=[tuple(pt) for pt in rm['contour']] if rm.get('contour') else None,
+                    openings=[Opening(**{k: v for k, v in op.items()
+                                         if k in ('kind', 'wall', 'offset_cm', 'width_cm',
+                                                  'swing_cm', 'sill_cm', 'hinge')})
+                              for op in (rm.get('openings') or [])])
+        ps = []
+        for role, v in art.items():
+            if role.startswith('_') or not isinstance(v, dict) or 'x' not in v:
+                continue
+            ps.append(Placement(role=role, x=v['x'], y=v['z'],
+                                rot=float(v.get('rot') or 0),
+                                item=Item(role=role, w_cm=v.get('w') or 40,
+                                          d_cm=v.get('d') or 40, h_cm=80)))
+        SC = 2
+        img = Image.new('RGB', (int(room.width_cm) * SC // 1, int(room.depth_cm) * SC // 1),
+                        '#ffffff')
+        dr = ImageDraw.Draw(img, 'RGBA')
+        def poly(g, fill, outline=None):
+            geoms = getattr(g, 'geoms', [g])
+            for gg in geoms:
+                if gg.is_empty or not hasattr(gg, 'exterior'):
+                    continue
+                pts = [(x * SC, (room.depth_cm - y) * SC) for x, y in gg.exterior.coords]
+                dr.polygon(pts, fill=fill, outline=outline)
+        poly(room_polygon(room), '#ffffff', '#333333')
+        # главный маршрут: эрозия свободного пола на замеренную ширину
+        free = _free_space(room, ps)
+        rw = float(art.get('_route_cm') or 75)
+        core = free.buffer(-rw / 2, resolution=4)
+        if not core.is_empty:
+            poly(core.buffer(rw / 2, resolution=4).intersection(free), (46, 125, 50, 70))
+        # entry reserve + дуги
+        poly(route_reserve(room), (33, 150, 243, 60))
+        for op in room.openings:
+            if op.kind in ('door', 'balcony'):
+                poly(swing_polygon(room, op), (33, 150, 243, 90))
+        # мебель поверх
+        for p in ps:
+            poly(footprint(p), (120, 120, 120, 120), '#555555')
+        # крупнейший незакреплённый регион — контур
+        try:
+            zc = (art.get('_axes') or {}).get('zone_cohesion') or {}
+            if zc.get('largest_unassigned_m2', 0) > 0:
+                from planner.quality import zone_envelopes
+                from shapely.ops import unary_union
+                env = zone_envelopes(room, ps); env.pop('other', None)
+                rest = room_polygon(room).difference(
+                    unary_union(list(env.values()) + [route_reserve(room)]))
+                comps = sorted(getattr(rest, 'geoms', [rest]), key=lambda g: -g.area)
+                if comps and not comps[0].is_empty:
+                    poly(comps[0], (255, 152, 0, 60), '#E65100')
+        except Exception:
+            pass
+        img.save(out_png)
+        return True
+    except Exception:
+        return False
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.expanduser('~/scout-scenes/acc-gallery')
 REPORT = os.path.join(HERE, 'acceptance-report-zoned.jsonl')
@@ -30,6 +105,7 @@ for r in rows:
     if not os.path.exists(png):
         continue
     shutil.copy(png, os.path.join(OUT, f"{sid}.png"))
+    _dbg_ok = False
     room_note = ''
     if os.path.exists(lay):
         data = json.load(open(lay))
@@ -43,6 +119,8 @@ for r in rows:
         json.dump(data, open(os.path.join(OUT, f"{sid}.json"), 'w'),
                   ensure_ascii=False, indent=1)
         combined[sid] = data
+        if os.environ.get('DEBUG_OVERLAY', '1') != '0':
+            _dbg_ok = _debug_overlay(data, os.path.join(OUT, f"{sid}-debug.png"))
     ok = r.get('ok')
     status = 'OK' if ok else 'FAIL'
     ub = r.get('used_of_bank') or None
@@ -67,7 +145,9 @@ for r in rows:
         f"{' · ' + html.escape(fails) if fails else ''}"
         f"{f' · soft {soft}' if soft is not None else ''}"
         f"{html.escape(extra)})"
-        f" · <a href='{html.escape(sid)}.json'>координаты</a></small><br>"
+        f" · <a href='{html.escape(sid)}.json'>координаты</a>"
+        + (f" · <a href='{html.escape(sid)}-debug.png'>debug</a>" if _dbg_ok else '')
+        + f"</small><br>"
         f"<small style='color:#2E7D4F'>зоны: {html.escape(zones_ru)}</small></h2>"
         f"<img src='{html.escape(sid)}.png' loading='lazy' alt='{html.escape(sid)}'>"
         f"</section>")
