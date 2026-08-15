@@ -183,7 +183,7 @@ def test_dining_share_watchdog():
         n += 1
         din += ('+din' in r.get('templates', ''))
     assert n == 252, f'отчёт неполный по базовым сценам: {n}'
-    assert din >= 209, f'доля столовой упала: {din}/252 (планка 209 — лучший замер, V4-H1 functional-claim)'
+    assert din >= 210, f'доля столовой упала: {din}/252 (планка 210 — лучший замер: C-6 alt-кресла расширили банк, ступень с креслом освободила регион под столовую; история 209→210)'
 
 
 def test_dining_sacrifice_ladder():

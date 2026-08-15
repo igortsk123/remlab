@@ -1079,6 +1079,22 @@ for bi,band in enumerate(COMP['bands']):
             sfit_agg=round(num/max(den,1e-6),1)
         if STYLE_MODE:  # реестр для правила разнообразия следующих сетов
             BUILT.append((style_name,{emb_key(it['mid'],it['eid']) for it in chosen.values()},{emb_key(it['mid'],it['eid']) for r,it in chosen.items() if r in MAJOR_ROLES}))
+        # C-6 свода №11 (политика Q-A советника + Кодекс §6, dry-run 3/4):
+        # ALTERNATIVE-ONLY кресло в банке с диваном от 17 м² — соседняя ступень
+        # лестницы (sofa_armchair) достижима солвером. Строго в КОНЦЕ сборки:
+        # вне fill/extras/wall-капов, без side-effects на ротации SKU (used_shops
+        # не трогаем; BUILT/style_fit/total сняты ВЫШЕ — дифф только добавка кресла).
+        if m2>=17 and 'диван' in chosen and 'кресло' not in chosen:
+            _sh=band['floor'].get('кресло')
+            if _sh:
+                _atop=pick2('кресло',m2,_sh,tier,pair,ctx,qty=1) or                       pick2('кресло',m2,_sh,tier,pair,ctx,soft=True,qty=1)
+                if _atop:
+                    chosen['кресло']=dict(_atop[0],qty=1,alt=True)
+                    print(f"  C-6: alt-кресло в банк ({_atop[0]['name'][:40]})")
+                else:
+                    gaps.append('coverage_gap: кресло (alt) — нет SKU в стиле/тире')
+            else:
+                gaps.append('coverage_gap: кресло (alt) — нет floor-доли band')
         sets.append(dict(band=band['band'],m2=m2,tier=tier,pair=list(pair),gaps=gaps,
                          group=zgroup['id'],usable_m2=round(z_usable,1),
                          style=style_name,style_fit=sfit_agg,
