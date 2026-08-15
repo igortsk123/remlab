@@ -77,7 +77,8 @@
   "DINING_ON_LIVING_RUG": "S1",
   "SCREEN_OVER_WINDOW": "H0",
   "MEDIA_DOUBLE_CARRIER": "H0",
-  "TALL_SOLID_BEHIND_SOFA": "H1"
+  "TALL_SOLID_BEHIND_SOFA": "H1",
+  "MEDIA_MISSING": "H0"
  },
  "_notes": {
   "SOFA_BLOCKS_SOFA": "W2 kb-rules-merge 10.08: пара диванов легальна лицом-к-лицу или Г-стыком торец-к-торцу; фронт в бок/спинку соседа — блокировка",
@@ -87,6 +88,7 @@
   "DINING_ON_LIVING_RUG": "Свод №7 (14.08, rugs.com/King Living): стулья обеденной целиком на СВОЁМ ковре или на полу; заход на ковёр посадки — смешение зон",
   "SCREEN_OVER_WINDOW": "свод №8 v2 §14: экран — виртуальная часть media-шаблона; носитель спиной к оконной стене с экраном на проёме = REJECT (даже минимальная ширина экрана share_lo/ниша перекрывает). Низкая тумба у окна БЕЗ горизонтального перекрытия — легальна",
   "MEDIA_DOUBLE_CARRIER": "свод №9 P0 (план №269): тв-тумба и стенка — альтернативные реализации ОДНОЙ media-зоны (cardinality exactly_one_carrier в zone_priority); двойной носитель = нарушение semantic contract, hard",
-  "TALL_SOLID_BEHIND_SOFA": "V4-F свода №10: role-скоуп — правило про высокое ГЛУХОЕ хранение (шкаф/стеллаж/витрина/стенка/комод); стулья/кресла второй зоны за floating-диваном легальны (ADR-0078) и управляются зонами/route/residual"
+  "TALL_SOLID_BEHIND_SOFA": "V4-F свода №10: role-скоуп — правило про высокое ГЛУХОЕ хранение (шкаф/стеллаж/витрина/стенка/комод); стулья/кресла второй зоны за floating-диваном легальны (ADR-0078) и управляются зонами/route/residual",
+  "MEDIA_MISSING": "P1 свода №12: media_need=required ⇒ exactly_one_carrier; сцена без носителя при носителе в банке — честный infeasible, не ok (владелец №177; ранее known-list в тесте легализовал set80-L/set21-mir*)"
  }
 }

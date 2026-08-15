@@ -2,7 +2,8 @@
  "_meta": {
   "source": "external:github.com/princeton-vl/infinigen@25a7d28 (BSD-3) src/infinigen_examples/constraints/home.py: секция livingrooms (constraints/score_terms['sofa'|'livingroom'], строки ~1085–1250) — стартовая таблица весов, ЧИСЛА АДАПТИРОВАНЫ под правила remlab (derived, не copied); путь и SHA сверены 2026-08-08",
   "note": "Таргеты берём СВОИ (кап пола по бэндам, шкалы диван↔ТВ/столик — решения владельца); у Infinigen заимствована относительная важность термов, а не числа-таргеты. Конфликты — guides/layout-mined-rules.md.",
-  "updated": "2026-08-02"
+  "updated": "2026-08-02",
+  "media_axis_offset_why": "P1 свода №12 (владелец №1/№2): тай-брейк оси носителя ВНУТРИ класса centered (порог класса — quality.focus_offset_max_cm 40 см, не меняется); functional-ярус; вес 2 — сопоставим с tv_faces_sofa (3), ниже sofa_tv_dist (5): дистанция важнее миллиметров оси"
  },
  "floor_fill": 15,
  "sofa_tv_dist": 5,
@@ -26,5 +27,6 @@
  "dining_by_window": 3,
  "pair_symmetry": 0.6,
  "table_centering": 1.2,
- "functional_coverage": 1.0
+ "functional_coverage": 1.0,
+ "media_axis_offset": 2.0
 }

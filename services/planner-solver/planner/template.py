@@ -2150,6 +2150,50 @@ def _window_candidates(room: Room, item: Item, free: Polygon) -> list:
     return out
 
 
+def _axis_candidates(room, item, free, seat, cands):
+    """P1 свода №12: клоны пристенных кандидатов, сдвинутые ВДОЛЬ СТЕНЫ так, чтобы центр
+    носителя лёг точно на ось взгляда посадки. Только там, где клон целиком в free
+    (проверка footprint), иначе кандидат не добавляется. Не более одного клона на
+    (стена, rot). Ничего не заменяет — расширяет пул; hard-правила решают дальше."""
+    if seat is None:
+        return []
+    from .geometry import seat_axis_origin, footprint as _fpA
+    from shapely.prepared import prep as _prep
+    sx, sy = seat_axis_origin(seat)
+    r = math.radians(seat.rot)
+    # направление оси взгляда (единичный) и поперечный вектор
+    ax, ay = math.sin(r), math.cos(r)
+    out, seen = [], set()
+    _free = _prep(free.buffer(1))
+    for c in cands:
+        if getattr(c, 'kind', '') != 'wall':
+            continue
+        p = c.placement
+        rot = int(round(p.rot)) % 360
+        # стена горизонтальная (rot 0/180) → скользим по x; вертикальная → по y
+        if rot in (0, 180):
+            # проекция оси дивана на эту стену: точка оси при y = p.y
+            if abs(ay) < 1e-6:
+                continue
+            t = (p.y - sy) / ay
+            nx, ny = sx + ax * t, p.y
+        else:
+            if abs(ax) < 1e-6:
+                continue
+            t = (p.x - sx) / ax
+            nx, ny = p.x, sy + ay * t
+        key = (rot, round(p.y if rot in (0, 180) else p.x))
+        if key in seen:
+            continue
+        q = p.model_copy(update={'x': float(nx), 'y': float(ny)})
+        if not _free.contains(_fpA(q)):
+            continue
+        seen.add(key)
+        out.append(type(c)(placement=q, kind='wall', note='ось посадки (P1)',
+                           topology=getattr(c, 'topology', '')))
+    return out
+
+
 def _axis_filter(cands, seat: Placement | None):
     """Кандидаты, стоящие В ОСИ ВЗГЛЯДА посадки (поперечное смещение ≤ порога)."""
     if seat is None:
@@ -2189,8 +2233,10 @@ def place_media(room: Room, items: list[Item], free: Polygon,
             _ps2 = place_media(room, [it for it in items if it.role != _excl],
                                free, fixed=fixed, top=top, relaxed=relaxed)
             if _ps2 is not None:
+                # top>1 → список ВАРИАНТОВ (P1 lookahead): ключ по лучшему (первому)
+                _first2 = _ps2[0] if (_ps2 and isinstance(_ps2[0], list)) else _ps2
                 _key2 = _lkm2(0, 0, _slm2(
-                    room, list(fixed or []) + _ps2).terms)
+                    room, list(fixed or []) + _first2).terms)
                 _outs2.append((_key2, _ps2))
         if not _outs2:
             return None
@@ -2223,6 +2269,13 @@ def place_media(room: Room, items: list[Item], free: Polygon,
                         # TV_ON_WINDOW_WALL — выигрывают только когда больше некуда.
                         # Стенке к окну нельзя (перекроет свет).
                         _cands += _window_candidates(room, b.anchor, free)
+                    # P1 свода №12 (владелец №1/№2): АНАЛИТИЧЕСКИЕ кандидаты «ровно на
+                    # оси дивана» — решётка ~25 см точки на оси не гарантирует, и лучший
+                    # достижимый offset оставался 13–16 см при свободной стене. Для каждой
+                    # пристенной позиции добавляем клона со сдвигом вдоль стены на ось
+                    # (seat_axis_origin: у Г-дивана — центр главной секции).
+                    if os.environ.get('LAYOUT_AXIS_CANDS', '1') != '0':
+                        _cands += _axis_candidates(room, b.anchor, free, seat, _cands)
                     # ЦЕНТР — ПОРОГ, А НЕ БОНУС (свод владельца 12.08): сперва только
                     # позиции в оси взгляда (смещение ≤ FOCUS_OFFSET_MAX_CM); если таких
                     # нет вовсе — весь список. Раньше центровка была слагаемым скора и

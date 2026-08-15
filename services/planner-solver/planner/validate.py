@@ -1380,6 +1380,12 @@ def check_sofa_pair_geometry(ps: list[Placement]) -> list[Violation]:
 
 # C-8: вейвер экрана — состояние ТЕКУЩЕГО решения (сбрасывает zones per solve)
 SCREEN_WINDOW_WAIVED = [False]
+# P1 свода №12: need сценария для media (module-state per solve, как вейвер выше):
+# 'required' + носитель есть в банке (MEDIA_BANK_HAS_CARRIER) → ноль носителей в плане =
+# hard MEDIA_MISSING (прежде «at_most_one» делал ноль легальным → set80-L «ok» без ТВ,
+# владелец №177: «грубое нарушение»). Значения задаёт zones.py из scenario_needs.
+MEDIA_NEED = ['required']
+MEDIA_BANK_HAS_CARRIER = [False]
 
 
 def check_media_cardinality(ps: list[Placement]) -> list[Violation]:
@@ -1391,6 +1397,20 @@ def check_media_cardinality(ps: list[Placement]) -> list[Violation]:
         return [_v("MEDIA_DOUBLE_CARRIER",
                    f"двойной носитель media-зоны: {', '.join(carriers)}",
                    carriers, float(len(carriers)), "ровно один носитель ТВ")]
+    return []
+
+
+def check_media_required_final(ps: list[Placement]) -> list[Violation]:
+    """P1 свода №12: required ⇒ exactly_one (zones.json scenario_needs.media_need.
+    cardinality_when_required). ФИНАЛЬНАЯ проверка (только на готовом плане — внутри
+    validate() её нет, иначе бьёт каждый промежуточный блок посадки до шага медиа).
+    Ноль при пустом банке — не вина плана (нет товара); ноль при носителе в банке —
+    честный infeasible, а не «ok» (владелец №177)."""
+    carriers = [p.role for p in ps if p.role.split(' ')[0] in ('тв-тумба', 'стенка')]
+    if not carriers and MEDIA_NEED[0] == 'required' and MEDIA_BANK_HAS_CARRIER[0]:
+        return [_v("MEDIA_MISSING",
+                   "медиа-зона обязательна (media_need=required), носитель в банке есть, "
+                   "в плане — нет", ['тв-тумба', 'стенка'], 0.0, "ровно один носитель ТВ")]
     return []
 
 

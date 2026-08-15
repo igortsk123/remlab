@@ -115,6 +115,22 @@ def score_layout(room: Room, ps: list[Placement], *, fast: bool = False) -> Scor
         s.add("sofa_tv_dist", hinge(g, lo, hi), w["sofa_tv_dist"])
         s.add("sofa_faces_tv", focus_score(by["диван"], _car), w["sofa_faces_tv"])
         s.add("tv_faces_sofa", focus_score(_car, by["диван"]), w["tv_faces_sofa"])
+        # P1 свода №12 (владелец №1/№2 «тумба не центрирована, хотя место есть»):
+        # внутри класса CENTERED (offset ≤ FOCUS_OFFSET_MAX_CM — порог, не бонус) выбор
+        # раньше не различал 0 и 16 см (focus_score — угол, нечувствителен на 3 м).
+        # Терм = |поперечное смещение носителя от оси дивана| / порог, capped 1.0 —
+        # тай-брейк ВНУТРИ класса на functional-ярусе; порог класса не меняется.
+        from .quality import FOCUS_OFFSET_MAX_CM as _FOM
+        from .quality import focus_offset_cm as _foc
+        _off = _foc([by["диван"], _car])
+        if _off is not None:
+            # квант 5 см (occupancy layout_rules.media_axis_tie_cm): сдвиги внутри кванта —
+            # эквивалентны, ось не перевешивает целые зоны (set25-bay: 0 vs 3 см и столовая)
+            from .clearances import rules as _rl
+            _tie = float((_rl().get('layout_rules') or {}).get('media_axis_tie_cm', 5))
+            _offq = math.floor(_off / _tie) * _tie
+            s.add("media_axis_offset", min(1.0, _offq / max(_FOM, 1.0)),
+                  w.get("media_axis_offset", 1.0))
     if "диван" in by and "столик" in by:
         lo, hi = distances().get("sofa_coffee_table", [36, 46])   # W2: фикс-эргономика
         g = footprint(by["диван"]).distance(footprint(by["столик"]))

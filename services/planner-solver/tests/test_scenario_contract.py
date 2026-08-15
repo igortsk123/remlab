@@ -78,3 +78,44 @@ def test_dining_off_removes_dining_zone():
     assert '+din' not in gid, gid
     assert not any(p.role == 'стол обеденный' for p in outs[0].placements)
     assert outs[0].meta.get('scenario_needs', {}).get('dining') == 'off'
+
+
+def test_media_required_missing_is_hard_final_only():
+    """P1 свода №12: media_need=required + носитель в банке + нет носителя в плане →
+    MEDIA_MISSING на ГОТОВОМ плане; внутри validate() правило не действует (иначе
+    бьёт промежуточные блоки посадки)."""
+    from planner import validate as V
+    from planner.models import Item, Placement
+    sofa = Placement(role='диван', x=200, y=100, rot=0,
+                     item=Item(role='диван', w_cm=200, d_cm=90, h_cm=85))
+    V.MEDIA_NEED[0] = 'required'
+    V.MEDIA_BANK_HAS_CARRIER[0] = True
+    try:
+        assert V.check_media_required_final([sofa])[0].code == 'MEDIA_MISSING'
+        # промежуточный validate — без MEDIA_MISSING
+        assert not any(v.code == 'MEDIA_MISSING'
+                       for v in V.check_media_cardinality([sofa]))
+        # пустой банк — не вина плана
+        V.MEDIA_BANK_HAS_CARRIER[0] = False
+        assert V.check_media_required_final([sofa]) == []
+        # preferred — ноль легален
+        V.MEDIA_BANK_HAS_CARRIER[0] = True
+        V.MEDIA_NEED[0] = 'preferred'
+        assert V.check_media_required_final([sofa]) == []
+    finally:
+        V.MEDIA_NEED[0] = 'required'
+        V.MEDIA_BANK_HAS_CARRIER[0] = False
+
+
+def test_media_axis_offset_term_classified():
+    from planner.zones import _TERM_LEVEL
+    assert _TERM_LEVEL.get('media_axis_offset') == 'functional_relationships'
+
+
+def test_media_lookahead_config_has_proof():
+    z = json.load(open(os.path.join(RULES, 'zones.json'), encoding='utf-8'))
+    la = z['media_lookahead']
+    assert la['enabled'] is True and 1 <= int(la['top_k']) <= 5
+    assert 'set25-bay' in la['_why'], 'каузальный пруф lookahead должен быть в данных'
+    o = _occ()
+    assert o['layout_rules']['media_axis_tie_cm'] == 5

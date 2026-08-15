@@ -657,6 +657,9 @@ def attempt_beam():
     SEATING_SEARCH = (lay.meta or {}).get('seating_search')
     global AXIS_CONTRACT
     AXIS_CONTRACT = (lay.meta or {}).get('axis_contract')
+    global INFEASIBLE_REASON, SCENARIO_NEEDS
+    INFEASIBLE_REASON = (lay.meta or {}).get('infeasible_reason')   # P1 свода №12
+    SCENARIO_NEEDS = (lay.meta or {}).get('scenario_needs')         # P0 свода №12
     # V3-H (PACKAGE I): identity зон — template/variant/mirror/why на уровне zone instance
     try:
         ZONE_IDS = {}
@@ -864,6 +867,8 @@ except Exception:
 out['_mirror']=globals().get('MIRROR_STATS')  # V3-H: счётчики зеркал Г-дивана
 out['_seating_search']=globals().get('SEATING_SEARCH')  # V4-B2: трейс лестницы посадки
 out['_axis_contract']=globals().get('AXIS_CONTRACT')    # V4-D: оси столика/медиа
+out['_infeasible_reason']=globals().get('INFEASIBLE_REASON')  # P1 свода №12: честный отказ
+out['_scenario_needs']=globals().get('SCENARIO_NEEDS')        # P0 свода №12: вход сценария
 out['_zones']=globals().get('ZONE_IDS')       # V3-H: identity зон (template/variant/mirror)
 out['_media_validation']=globals().get('MEDIA_VALIDATION')   # V3-H: проверяемость экрана
 # V3-I свода №9 (§20): хранение у окна — экспорт проверки высоты (правило существующее:

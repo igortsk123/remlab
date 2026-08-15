@@ -57,7 +57,7 @@ def test_single_occupancy_canon():
 def test_cardinality_semantics_at_most_one():
     zp = json.load(open(os.path.join(HERE, '..', 'rules', 'zones.json'),
                         encoding='utf-8'))['zone_priority']
-    assert zp['cardinality']['media']['rule'] == 'at_most_one_carrier'
+    assert zp['cardinality']['media']['rule'] == 'exactly_one_carrier_when_required'
 
 
 def test_single_tv_formula():

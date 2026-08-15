@@ -14,7 +14,7 @@ SCOUT = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'tools', 'scou
 
 def test_cardinality_declared():
     card = json.load(open(RULES, encoding='utf-8'))['zone_priority']['cardinality']
-    assert card['media']['rule'] == 'at_most_one_carrier'
+    assert card['media']['rule'] == 'exactly_one_carrier_when_required'
     assert set(card['media']['carrier_roles']) == {'тв-тумба', 'стенка'}
 
 

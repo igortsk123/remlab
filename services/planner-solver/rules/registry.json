@@ -720,6 +720,14 @@
    "сообщение": "двойной носитель media-зоны: {carriers}",
    "где": "planner/validate.py",
    "пруф": "свод №9 (аудит рефери 14.08) P0 план №269 + правка рефери: три уровня защиты (skip в цепочке → cardinality в данных → финальный семантический валидатор)"
+  },
+  {
+   "id": "MEDIA_MISSING",
+   "вид": "hard",
+   "стадия": "семантика зон",
+   "сообщение": "медиа-зона обязательна (media_need=required), носитель в банке есть, в плане — нет",
+   "где": "planner/validate.py",
+   "пруф": "P1 свода №12 (владелец №177 «грубое нарушение» + Кодекс §2 п.2): status.media=required, но cardinality at_most_one делала ноль легальным; scenario_needs.media_need.cardinality_when_required=exactly_one_carrier; ноль при пустом банке — не вина плана"
   }
  ],
  "_r5": "R5-замер: LAYOUT_RULE_STATS=<файл> на экзамене; отчёт мёртвых/редких — tools/scout при след. прогонах"

@@ -178,6 +178,24 @@ def scenario_needs(**overrides) -> dict:
 
 
 def solve_zoned(room: Room, items, **kw):
+    """P1 свода №12: финальный медиа-контракт поверх _solve_zoned_impl — MEDIA_MISSING
+    hard на ГОТОВОМ плане (внутри validate() правило не живёт: било бы промежуточные
+    блоки посадки до шага медиа)."""
+    outs, gid = _solve_zoned_impl(room, items, **kw)
+    from . import validate as _valF
+    for _l in outs or []:
+        _miss = _valF.check_media_required_final(_l.placements)
+        if _miss:
+            _l.violations = list(_l.violations) + _miss
+            if isinstance(getattr(_l, 'meta', None), dict):
+                _l.meta['infeasible_reason'] = {
+                    'code': 'MEDIA_MISSING', 'zone': 'media',
+                    'why': 'media_need=required, носитель в банке, ни одна ступень/вейвер/'
+                           'альтернативная позиция не дала носителя (владелец №177)'}
+    return outs, gid
+
+
+def _solve_zoned_impl(room: Room, items, **kw):
     """Обёртка dining_sacrifice (правило владельца 14.08, разбор Плана №19):
     столовая не встала, стол в банке → пересбор с посадкой на СТУПЕНЬ НИЖЕ;
     принимаем, только если столовая встала, медиа сохранена и качество не хуже
@@ -186,6 +204,9 @@ def solve_zoned(room: Room, items, **kw):
     outs, gid = _solve_zoned_core(room, items, **kw)
     cfg = zone_rules().get('dining_sacrifice', {})
     _needs = scenario_needs(**{k: v for k, v in kw.items() if k in ('media_need', 'dining_need')})
+    for _l in outs or []:                       # P0 свода №12: вход сценария в артефакте (все пути)
+        if isinstance(getattr(_l, 'meta', None), dict):
+            _l.meta.setdefault('scenario_needs', dict(_needs))
     if not cfg.get('enabled', False) or '+din' in gid or _needs['dining'] == 'off':
         return outs, gid
     if not outs or not outs[0].placements:
@@ -362,6 +383,72 @@ def _uu0(polys):
     return _u(polys)
 
 
+def _media_lookahead(room, keep, blk, occ0, m0, pm, needs, usable_poly):
+    """P1 свода №12: выбор позиции носителя с пробой столовой на остатке.
+    Возвращает вариант медиа (list[Placement]) — m0, если lookahead неприменим/не помог.
+    Применяется только когда: dining_need != off, стол в банке, m0 существует,
+    lookahead включён в данных. Пробуем до K вариантов носителя (один класс оси —
+    place_media(top=K) отдаёт hard-чистые в лексо-порядке); первый, при котором
+    place_dining на остатке даёт стол, — победитель; иначе m0."""
+    cfg = zone_rules().get('media_lookahead', {})
+    if not cfg.get('enabled', True) or m0 is None:
+        return m0
+    if needs.get('dining') == 'off':
+        return m0
+    if not any(i.role == 'стол обеденный' for i in keep):
+        return m0
+    from .template import place_dining as _pd
+    from .geometry import footprint as _fpL
+    from shapely.ops import unary_union as _uuL
+    K = int(cfg.get('top_k', 3))
+    try:
+        opts = pm(room, keep, usable_poly.difference(occ0), fixed=blk, top=K)
+    except TypeError:
+        return m0
+    opts = opts if (opts and isinstance(opts[0], list)) else ([opts] if opts else [])
+    if len(opts) <= 1:
+        return m0
+    um2 = usable_m2(room)
+    for cand in opts:
+        occ1 = _uuL([_fpL(p) for p in list(blk) + list(cand)
+                     if p.role.split(' ')[0] != 'ковёр'])
+        keep1 = [i for i in keep if i.role not in {p.role for p in cand}]
+        try:
+            din = _pd(room, keep1, usable_poly.difference(occ1), um2,
+                      fixed=list(blk) + list(cand))
+        except Exception:
+            din = None
+        if din:
+            if os.environ.get('ZONES_DEBUG') and cand is not opts[0]:
+                import sys as _sl
+                print('ZDBG media_lookahead: носитель с меньшей осью съедал столовую — '
+                      'взят вариант, при котором столовая встаёт', file=_sl.stderr, flush=True)
+            _axis_diag_update(cand, blk, chosen_rank=opts.index(cand), tried=len(opts))
+            return cand
+    _axis_diag_update(m0, blk, chosen_rank=0, tried=len(opts))
+    return m0
+
+
+def _axis_diag_update(media, blk, *, chosen_rank: int, tried: int) -> None:
+    """P1: offset_cm в диагностике оси — от ФАКТИЧЕСКИ выбранного носителя (при top>1
+    place_media его не пишет) + след lookahead (какой по рангу вариант взят)."""
+    from . import template as _tm
+    d = getattr(_tm, 'LAST_MEDIA_AXIS', None)
+    if not isinstance(d, dict) or not media:
+        return
+    try:
+        from .quality import focus_offset_cm as _foc
+        seat = next((p for p in blk if p.role.split(' ')[0] == 'диван'), None)
+        car = next((p for p in media if p.role.split(' ')[0] in ('тв-тумба', 'стенка')), None)
+        if seat is not None and car is not None:
+            off = _foc([seat, car])
+            if off is not None:
+                d['offset_cm'] = round(off, 1)
+        d['lookahead'] = {'tried': tried, 'chosen_rank': chosen_rank}
+    except Exception:
+        pass
+
+
 def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
     """Z3, уровень 1 (MVP): сначала выбирается посадочная ГРУППА по полезной площади, затем
     beam решает предметы; посадочные роли вне группы не размещаются «лишь бы стоять», а честно
@@ -380,6 +467,10 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
     _tplmod.LAST_SEATING_SEARCH = None   # V4-B2: трейс лестницы — per solve
     _needs_eff = scenario_needs(**{k: v for k, v in kw.items()
                                     if k in ('media_need', 'dining_need')})  # P0 свода №12
+    from . import validate as _valmodN
+    _valmodN.MEDIA_NEED[0] = _needs_eff['media']
+    _valmodN.MEDIA_BANK_HAS_CARRIER[0] = any(
+        i.role.split(' ')[0] in ('тв-тумба', 'стенка') for i in items)   # P1 свода №12
     _tplmod.LAST_AXIS_DIAG = None        # V4-D: контракт осей — per solve
     _tplmod.LAST_MEDIA_AXIS = None
     from . import validate as _valmod
@@ -488,6 +579,14 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                     _occ0 = _uu0([_fp0(p) for p in _blk if p.role.split(' ')[0] != 'ковёр'])
                     _m0 = _pm0(room, keep,
                                usable_polygon(room).difference(_occ0), fixed=_blk)
+                    # P1 свода №12 (каузальный пруф set25-bay): позиция носителя внутри
+                    # ОДНОГО класса оси может съесть регион столовой (0.0 см оси vs 3.0 см
+                    # + столовая). Медиа-минимум не видит dining (ставится позже, необратимо)
+                    # → пробуем top-K носителей и берём тот, при котором preferred-столовая
+                    # ВСТАЁТ (покрытие зоны выше косметики оси — наш порядок ярусов).
+                    # Мини-«взгляд вперёд» до P2; K и условия — rules/zones.json.
+                    _m0 = _media_lookahead(room, keep, _blk, _occ0, _m0, _pm0,
+                                           _needs_eff, usable_polygon(room))
                     _se['media_min'] = 1 if _m0 else 0
                     if not _m0:
                         if _fb_block is None:
@@ -575,6 +674,9 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                                   if p.role.split(' ')[0] != 'ковёр'])
                     _mw = _pmw(room, keep,
                                usable_polygon(room).difference(_occw), fixed=block)
+                    if _mw:   # P1 свода №12: тот же взгляд вперёд на столовую (set25-bay: +tvw)
+                        _mw = _media_lookahead(room, keep, block, _occw, _mw, _pmw,
+                                               _needs_eff, usable_polygon(room))
                     if _mw:
                         block = list(block) + list(_mw)
                         keep = [it for it in keep
@@ -758,7 +860,7 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
             if tag == '+st2' and any(p.role.split(' ')[0] == 'стенка' for p in block):
                 continue
             _cardc = (_zp.get('cardinality') or {}).get(_zt.get(tag, '')) or {}
-            if _cardc.get('rule') in ('at_most_one_carrier', 'exactly_one_carrier') and any(
+            if _cardc.get('rule') in ('at_most_one_carrier', 'exactly_one_carrier', 'exactly_one_carrier_when_required') and any(
                     p.role.split(' ')[0] in tuple(_cardc.get('carrier_roles') or ())
                     for p in block):
                 continue
@@ -989,7 +1091,6 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                         'reason': ('quality_gate' if _ddiag.get('gate_rejected')
                                    else _ddiag.get('island_reject') or 'no_fit')}
             lay.meta['dining'] = _ddiag
-        lay.meta['scenario_needs'] = dict(_needs_eff)   # P0 свода №12: вход сценария в артефакте
         _mst = getattr(_tplmod, 'LAST_MIRROR_STATS', None)
         if _mst is not None:
             lay.meta['mirror'] = dict(_mst)   # V3-H: счётчики зеркал в экспорт
@@ -1002,6 +1103,7 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
             lay.meta['axis_contract'] = {**_axd,
                                          **({'media': _axm} if _axm else {})}
         outs = [lay]
+        lay.meta['scenario_needs'] = dict(_needs_eff)   # P0 свода №12 (template-only путь)
         if os.environ.get('ZONES_DEBUG'):
             import sys as _s
             print(f'ZDBG только-шаблоны: поставлено {len(block)} из блоков, '
@@ -1161,6 +1263,7 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
         _bad = phantom_dimensions(lay.placements, _src)
         if _bad:
             raise AssertionError('ФАНТОМНЫЕ ГАБАРИТЫ (габарит ≠ SKU): ' + '; '.join(_bad))
+        lay.meta['scenario_needs'] = dict(_needs_eff)   # P0 свода №12: вход сценария в артефакте
     return outs, group['id'] + tpl_tag
 
 
@@ -1178,6 +1281,7 @@ _TERM_LEVEL = {
     'seats_group': 'functional_relationships',       # целостность посадочной группы
     'storage_spacing': 'zone_quality',               # ряд хранения — качество зоны
     'sofa_faces_tv': 'functional_relationships', 'tv_faces_sofa': 'functional_relationships',
+    'media_axis_offset': 'functional_relationships',   # P1 свода №12: тай-брейк оси внутри класса
     'armchair_faces_tv': 'functional_relationships',
     'armchair_zone_radius': 'functional_relationships',
     'armchair_not_at_tv': 'functional_relationships',

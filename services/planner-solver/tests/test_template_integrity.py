@@ -29,7 +29,7 @@ MIN_SEATS_ON_RUG_SHARE = 0.90      # доля посадочных, стоящи
 MAX_STORAGE_PER_ZONE = 2           # предметов хранения в одной зоне (правило владельца)
 # Дизайнерский порядок (ADR design-order-pipeline): пороги от замера 12.08, только вверх
 MIN_ROUTE_CM = 70                  # главный маршрут от двери
-MAX_FOCUS_OFFSET_MEDIAN_CM = 30    # медиана смещения носителя от оси взгляда
+MAX_FOCUS_OFFSET_MEDIAN_CM = 5.0   # P1 свода №12: аналитические кандидаты на оси + терм media_axis_offset — замер медиана 0.0 (было ~10+); квант 5 см
 MAX_EMPTY_FOCUS_SCENES = 0         # 13.08: медиа во ВСЕХ 252 — минимум владельца достигнут; держим ноль
 
 
@@ -189,27 +189,26 @@ def test_focus_is_centered():
 
 
 def test_focus_wall_not_empty():
-    """Носитель есть в банке — стена напротив дивана не должна пустовать."""
+    """Носитель есть в банке — стена напротив дивана не должна пустовать.
+    P1 свода №12: считаем только ok-сцены — сцена без носителя при required обязана
+    падать MEDIA_MISSING (not ok), «ok без медиа» = ноль без исключений."""
     sets = json.load(open(os.path.join(SCOUT, 'sets3.json'), encoding='utf-8'))
+    _ok = {json.loads(l)['scene']: json.loads(l).get('ok')
+           for l in open(REPORT, encoding='utf-8') if l.strip()}
     empty = []
     for scene, _lay, _room, ps in _scenes():
+        if not _ok.get(scene):
+            continue
         n = int(scene.split('-')[0].replace('set', ''))
         items = (sets[n - 1].get('items') or {})
         if not any(k in items for k in ('тв-тумба', 'стенка')):
             continue
         if not any(p.role.split(' ')[0] in ('тв-тумба', 'стенка') for p in ps):
             empty.append(scene)
-    # ИЗВЕСТНОЕ ОГРАНИЧЕНИЕ (V3-D, свод №9): в L-комнате set80-L (№268) медиа-минимум
-    # ГЕОМЕТРИЧЕСКИ недостижим: диван 282 имеет единственную позицию (зап. рукав),
-    # осевая стена напротив = окно+радиатор (стенка 280 блокирована), прочие стены вне
-    # вилки дистанции; перебор альтернативных позиций (V3-D retry) подтвердил — поз.2
-    # не существует. «Не влезло — значит места нет» (канон NO_ROOM_FOR_BEARER);
-    # для базовых №1-252 планка остаётся 0.
-    # Пруф-сцены зеркал №270/271 (set21-mirR/mirL): односторонность стороны Г-дивана
-    # достигается ИМЕННО узостью (300 см) — носителю места нет по построению; сцены
-    # служат пруфом выбора стороны, не медиа-минимума (V3-H). База №1-252 держит 0.
-    _known = {'set80-L', 'set21-mirR', 'set21-mirL'}
-    empty = [s for s in empty if s not in _known]
+    # P1 свода №12 (владелец №177): known-list {set80-L, set21-mirR/L} СНЯТ — сцена без
+    # носителя при media_need=required теперь падает валидатором MEDIA_MISSING (честный
+    # infeasible), а не считается «ok». Здесь считаем ok-сцены без медиа при носителе в
+    # банке — их должно быть ноль на всём корпусе, без исключений.
     assert len(empty) <= MAX_EMPTY_FOCUS_SCENES, (
         f'сцен с пустой фокус-стеной {len(empty)} > {MAX_EMPTY_FOCUS_SCENES}: {empty[:6]}')
 
