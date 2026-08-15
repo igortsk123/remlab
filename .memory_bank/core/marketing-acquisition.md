@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: marketing-acquisition
-scope: Реклама — Яндекс, семантика, стратегия
+scope: Реклама — Яндекс, семантика
 tier2: "../domain/wordstat-semantics.md"
 updated: 2026-08-13
 importance: high

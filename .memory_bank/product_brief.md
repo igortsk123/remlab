@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: product
-scope: Бизнес-контекст — зачем/для кого; v0.4 «Смета-first» (v0.3 — истор.)
+scope: Бизнес-контекст; v0.4 «Смета-first»
 tier2: domain/brief-details.md
 updated: 2026-08-09
 importance: high

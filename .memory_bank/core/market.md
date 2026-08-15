@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: market
-scope: Рынок RU/UK — спрос, конкуренты, монетизация
+scope: Рынок RU/UK — спрос, монетизация
 tier2: "../domain/market-research.md"
 updated: 2026-08-13
 importance: high

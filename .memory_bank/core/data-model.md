@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: data-model
-scope: Схема БД, изоляция сессий, миграции, pgvector
+scope: Схема БД, миграции, pgvector
 tier2: "../../docs/tech-spec-ts-stack.md"
 updated: 2026-07-31
 importance: high

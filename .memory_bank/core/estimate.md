@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: estimate
-scope: Смета-лист — калькуляторы, стоимость, /go/ реф
+scope: Смета — калькуляторы, /go/ реф
 tier2: "../domain/pricing-works-ru.md"
 updated: 2026-08-06
 importance: high

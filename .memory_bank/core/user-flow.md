@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: user-flow
-scope: Stage 1 UX-flow, экраны, аналитика
+scope: Stage 1 UX-flow, аналитика
 tier2: ../domain/user-flow-details.md
 updated: 2026-08-06
 importance: high

@@ -1657,3 +1657,27 @@ right). Identity зон в экспорте: `_zones` (template/variant/mirror),
 Placement; `_media_validation` (перекрытие экрана, замер от оси).
 **Влияет на.** [[layout]], geometry/validate/score/candidates/refine/template,
 models, solver_run/экспорт, приёмка (сцены №270-272).
+
+## ADR-0104 — Свод №10 (аудит V4): выбор посадки, контракт осей, functional claim (2026-08-15)
+**Решение.** (B) `pick_ladder`: band-список — верхний КАП масштаба + предпочтение, НЕ
+whitelist; лестница закрыта вниз (sofa_armchair до sofa_pouf везде); trace
+`seating_search`; `dining_sacrifice.max_steps_down` 2→4 (пруф: спуск с богатых ступеней).
+Итог: sofa_pouf 149→22, sectional_armchair 18→153. (D) Контракт осей: сдвиг столика —
+только явный вариант `axis_shifted` (centered_hard_invalid по построению каскада);
+медиа-фолбэк классами CENTERED→OFFSET→CORNER/WINDOW; `_axis_contract` в экспорте;
+№8 доказан (relaxed). (H1) Functional claim: pullout-зоны обеденной группы вычитаются
+из sliver-метрики (порог +0.35 не тронут) — все 17 кейсов V3-C резались именно этим;
+dining(база) 197→201→209, острова 44 full + 62 compact. (H2 закрыт данными): класс
+«medium/large + edge + island_infeasible» после H1 пуст; shadow по корпусу советника
+(68/73/94/98) — остров недостижим и с альтернативных позиций: НЕ search gap. (F)
+TALL_SOLID_BEHIND_SOFA — скоуп по ролям хранения (стул за floating-диваном легален,
+ADR-0078). (I) Единый контракт угла (`occupancy._corner_contract`), классы
+hugged/floating_functional/adrift в экспорте. (A) Аудит «паспорт↔код»: quiet приведён
+к коду; rug_table (инертный) убран из zone_priority; «стол+≥2 стульев» гарантирует
+движок; media_wall counts_as_storage реализован (+st2 skip при стенке); спящие ключи
+помечены. (E) Заход носителя на ковёр — доказуемый (rug_overlap/degraded_reason;
+замер: 0 недоказанных). (C/J/K) Диагностика: композитор ограничивает солвер
+(виртуальное кресло использовано в 3/4) — follow-up с отдельным гейтом; вторая зона
+в больших не встаёт (39 банков без кресел 3/4); камин здоров (0 вне сектора и вилки).
+**Влияет на.** [[layout]], zones/template/validate/quality/clearances, rules,
+экспорт, приёмка (планка dining 209).

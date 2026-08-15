@@ -12,26 +12,26 @@
 
 | Файл | topic | Когда читать (scope) | Tier 2 | updated |
 |------|-------|----------------------|--------|---------|
-| `access-and-integrations.md` | access-and-integrations | Интеграции/доступы — ключи, эндпоинты, клиенты | `../domain/integrations.md` | 2026-08-06 |
+| `access-and-integrations.md` | access-and-integrations | Интеграции/доступы — ключи, клиенты | `../domain/integrations.md` | 2026-08-06 |
 | `architecture.md` | architecture | Стек, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-08-06 |
-| `catalog.md` | catalog | Каталог товаров — состав, свежесть, обогащение, дельта | `../domain/catalog-enrichment.md` | 2026-08-08 |
-| `data-model.md` | data-model | Схема БД, изоляция сессий, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-07-31 |
-| `estimate.md` | estimate | Смета-лист — калькуляторы, стоимость, /go/ реф | `../domain/pricing-works-ru.md` | 2026-08-06 |
-| `furniture.md` | furniture | Мебель — каталог, сеты, визуализация | `../domain/viz-fidelity-playbook.md` | 2026-08-08 |
-| `goals.md` | goals-furnish-fit | Цели продукта — v0.4 «Смета-first» | `../goals-one-photo-furnish-fit.md` | 2026-08-09 |
-| `knowledge-db.md` | knowledge-db | Source-KB из книг — спека, план KB0–KB9 | `../../remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md` | 2026-08-10 |
-| `layout.md` | layout | Расстановка — свод правил, зона-билдер, прод-ядро | `../domain/occupancy-rules.md` | 2026-08-14 |
-| `leads.md` | leads | Лид-канал «найдём дешевле» — заявка, TG-бот | — | 2026-07-28 |
-| `lessons.md` | lessons | Уроки перед планированием — что пробовали и что НЕ сработало | `../anti-patterns.md` | 2026-08-14 |
-| `lr-composition.md` | lr-composition | Композиция гостиной — доли площади | `../domain/lr-composition-guide.md` | 2026-08-01 |
-| `market.md` | market | Рынок RU/UK — спрос, конкуренты, монетизация | `../domain/market-research.md` | 2026-08-13 |
-| `marketing-acquisition.md` | marketing-acquisition | Реклама — Яндекс, семантика, стратегия | `../domain/wordstat-semantics.md` | 2026-08-13 |
-| `observability-tracing.md` | observability-tracing | Трейсинг AI-пайплайна — лог LLM-вызовов, разбор | `../domain/observability.md` | 2026-08-06 |
-| `regression-net.md` | regression-net | Регресс-защита — тесты, CI, eval, гардрейлы, DoD | `../../docs/tech-spec-ts-stack.md` | 2026-08-08 |
-| `room-measurement.md` | room-measurement | Замер комнаты по фото — что готово, чем меряем, что переиспользовать | `../domain/room-measurement.md` | 2026-08-04 |
-| `styles.md` | styles | Стили — паспорта, скоринг товаров, сеты и генерация | `../domain/interior-styles.md` | 2026-08-02 |
-| `user-flow.md` | user-flow | Stage 1 UX-flow, экраны, аналитика | `../domain/user-flow-details.md` | 2026-08-06 |
-| `lr-checklist.md` | lr-checklist | Состав гостиной — роли сета и пригодность товаров | `../domain/living-room-checklist.md` | 2026-08-12 |
+| `catalog.md` | catalog | Каталог — состав, свежесть, дельта | `../domain/catalog-enrichment.md` | 2026-08-08 |
+| `data-model.md` | data-model | Схема БД, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-07-31 |
+| `estimate.md` | estimate | Смета — калькуляторы, /go/ реф | `../domain/pricing-works-ru.md` | 2026-08-06 |
+| `furniture.md` | furniture | Мебель — сеты, визуализация | `../domain/viz-fidelity-playbook.md` | 2026-08-08 |
+| `goals.md` | goals-furnish-fit | Цели — v0.4 «Смета-first» | `../goals-one-photo-furnish-fit.md` | 2026-08-09 |
+| `knowledge-db.md` | knowledge-db | Source-KB из книг — спека, KB0–KB9 | `../../remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md` | 2026-08-10 |
+| `layout.md` | layout | Расстановка: правила, зоны, прод-ядро | `../domain/occupancy-rules.md` | 2026-08-14 |
+| `leads.md` | leads | Лид-канал — заявка, TG-бот | — | 2026-07-28 |
+| `lessons.md` | lessons | Уроки перед планированием — что НЕ сработало | `../anti-patterns.md` | 2026-08-14 |
+| `lr-composition.md` | lr-composition | Композиция гостиной — доли | `../domain/lr-composition-guide.md` | 2026-08-01 |
+| `market.md` | market | Рынок RU/UK — спрос, монетизация | `../domain/market-research.md` | 2026-08-13 |
+| `marketing-acquisition.md` | marketing-acquisition | Реклама — Яндекс, семантика | `../domain/wordstat-semantics.md` | 2026-08-13 |
+| `observability-tracing.md` | observability-tracing | Трейсинг AI-пайплайна — лог, разбор | `../domain/observability.md` | 2026-08-06 |
+| `regression-net.md` | regression-net | Регресс-защита — тесты, CI, гардрейлы | `../../docs/tech-spec-ts-stack.md` | 2026-08-08 |
+| `room-measurement.md` | room-measurement | Замер комнаты по фото — что готово и чем меряем | `../domain/room-measurement.md` | 2026-08-04 |
+| `styles.md` | styles | Стили — паспорта, скоринг, сеты | `../domain/interior-styles.md` | 2026-08-02 |
+| `user-flow.md` | user-flow | Stage 1 UX-flow, аналитика | `../domain/user-flow-details.md` | 2026-08-06 |
+| `lr-checklist.md` | lr-checklist | Состав гостиной — роли и пригодность | `../domain/living-room-checklist.md` | 2026-08-12 |
 <!-- GENERATED:core-registry END -->
 
 > Реестр и decision tree в INDEX регенерирует `tools/memory-audit.mjs` (или `/memory-check`

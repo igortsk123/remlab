@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: layout
-scope: Расстановка — свод правил, зона-билдер, прод-ядро
+scope: Расстановка: правила, зоны, прод-ядро
 tier2: ../domain/occupancy-rules.md
 updated: 2026-08-14
 importance: high
@@ -30,13 +30,13 @@ top-K; детерминизм; контуры ([[layout-engine-gaps]]).
 Отложено: swivel, open-plan, потолок.
 **Свод №6 (ADR-0095):** entry-зона за диваном (пустота легальна; SEATING_ACCESS_PINCHED),
 ось Г-дивана по главной секции (`seat_axis_origin`); спящие: консоль/раннер/divider.
-**Свод №9 (14.08, ADR-0102/0103):** P0-кардинальность носителя (3 уровня, MEDIA_DOUBLE_CARRIER);
-trace dining (`_dining.search`, failed_axes); mode по топологии (55/90); cohesion-оси;
-таксономия gap; зеркала Г-дивана: корень-баг знака исправлен (`geometry.corner_active_lat`),
-выбор сравнением, сцены-пруф №270-272.
-**Свод №8 v2 (14.08, ADR-0098…0101):** dining-паспорт в коде (envelope 90); каскад
-full_island→compact→edge с объяснимостью (тихий edge=0); экран — часть media
-(SCREEN_OVER_WINDOW + вейвер `+tvw`); статусы зон данными; оси `_axes`
-(`services/planner-solver/planner/quality.py`). Планка dining 196 (ADR-0099).
-Сцены №253+ со своими проёмами (`tools/scout/acceptance_run.py`).
+**Свод №10 (15.08, ADR-0104):** band=КАП лестницы (pouf 149→22); seating_search/
+axis_contract/rug-trace; functional claim щелей (dining 209, острова 44+62);
+TALL_SOLID_BEHIND_SOFA; контракт угла; аудит контрактов.
+**Свод №9 (ADR-0102/0103):** кардинальность носителя (3 уровня); trace dining;
+mode по топологии; cohesion-оси; корень-баг знака зеркала исправлен
+(`services/planner-solver/planner/geometry.py` corner_active_lat), выбор сравнением.
+**Свод №8 v2 (ADR-0098…0101):** dining-паспорт в коде; каскад island→edge; экран —
+часть media (вейвер `+tvw`); статусы зон данными; оси `_axes`. Сцены №253+ со
+своими проёмами.
 **Экспорт для ИИ:** `tools/scout/export_plans_ai.py` (JSON/семантика+ASCII/PNG + index) → хаб `/test/plans-export.zip`.

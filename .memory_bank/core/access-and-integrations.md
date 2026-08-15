@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: access-and-integrations
-scope: Интеграции/доступы — ключи, эндпоинты, клиенты
+scope: Интеграции/доступы — ключи, клиенты
 tier2: "../domain/integrations.md"
 updated: 2026-08-06
 importance: high

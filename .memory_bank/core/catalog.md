@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: catalog
-scope: Каталог товаров — состав, свежесть, обогащение, дельта
+scope: Каталог — состав, свежесть, дельта
 tier2: "../domain/catalog-enrichment.md"
 updated: 2026-08-08
 importance: high

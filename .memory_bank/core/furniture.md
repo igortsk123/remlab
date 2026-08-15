@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: furniture
-scope: Мебель — каталог, сеты, визуализация
+scope: Мебель — сеты, визуализация
 tier2: "../domain/viz-fidelity-playbook.md"
 updated: 2026-08-08
 importance: high

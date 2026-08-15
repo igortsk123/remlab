@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: goals-furnish-fit
-scope: Цели продукта — v0.4 «Смета-first»
+scope: Цели — v0.4 «Смета-first»
 tier2: "../goals-one-photo-furnish-fit.md"
 updated: 2026-08-09
 importance: high

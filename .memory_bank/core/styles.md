@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: styles
-scope: Стили — паспорта, скоринг товаров, сеты и генерация
+scope: Стили — паспорта, скоринг, сеты
 tier2: ../domain/interior-styles.md
 updated: 2026-08-02
 importance: high

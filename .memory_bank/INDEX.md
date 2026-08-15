@@ -12,28 +12,28 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт ремонта/м�
 
 | Задача (scope) | Tier 1 | Tier 2 |
 |----------------|--------|--------|
-| Интеграции/доступы — ключи, эндпоинты, клиенты | `core/access-and-integrations.md` | `../domain/integrations.md` |
+| Интеграции/доступы — ключи, клиенты | `core/access-and-integrations.md` | `../domain/integrations.md` |
 | Стек, модули, генерация, деплой — по коду | `core/architecture.md` | `../../docs/tech-spec-ts-stack.md` |
-| Каталог товаров — состав, свежесть, обогащение, дельта | `core/catalog.md` | `../domain/catalog-enrichment.md` |
-| Схема БД, изоляция сессий, миграции, pgvector | `core/data-model.md` | `../../docs/tech-spec-ts-stack.md` |
+| Каталог — состав, свежесть, дельта | `core/catalog.md` | `../domain/catalog-enrichment.md` |
+| Схема БД, миграции, pgvector | `core/data-model.md` | `../../docs/tech-spec-ts-stack.md` |
 | Деплой/откат/сервер exit-fi — playbook | `deployment.md` | — |
-| Смета-лист — калькуляторы, стоимость, /go/ реф | `core/estimate.md` | `../domain/pricing-works-ru.md` |
-| Мебель — каталог, сеты, визуализация | `core/furniture.md` | `../domain/viz-fidelity-playbook.md` |
-| Цели продукта — v0.4 «Смета-first» | `core/goals.md` | `../goals-one-photo-furnish-fit.md` |
-| Source-KB из книг — спека, план KB0–KB9 | `core/knowledge-db.md` | `../../remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md` |
-| Расстановка — свод правил, зона-билдер, прод-ядро | `core/layout.md` | `../domain/occupancy-rules.md` |
-| Лид-канал «найдём дешевле» — заявка, TG-бот | `core/leads.md` | — |
-| Уроки перед планированием — что пробовали и что НЕ сработало | `core/lessons.md` | `../anti-patterns.md` |
-| Композиция гостиной — доли площади | `core/lr-composition.md` | `../domain/lr-composition-guide.md` |
-| Рынок RU/UK — спрос, конкуренты, монетизация | `core/market.md` | `../domain/market-research.md` |
-| Реклама — Яндекс, семантика, стратегия | `core/marketing-acquisition.md` | `../domain/wordstat-semantics.md` |
-| Трейсинг AI-пайплайна — лог LLM-вызовов, разбор | `core/observability-tracing.md` | `../domain/observability.md` |
-| Бизнес-контекст — зачем/для кого; v0.4 «Смета-first» (v0.3 — истор.) | `product_brief.md` | `domain/brief-details.md` |
-| Регресс-защита — тесты, CI, eval, гардрейлы, DoD | `core/regression-net.md` | `../../docs/tech-spec-ts-stack.md` |
-| Замер комнаты по фото — что готово, чем меряем, что переиспользовать | `core/room-measurement.md` | `../domain/room-measurement.md` |
-| Стили — паспорта, скоринг товаров, сеты и генерация | `core/styles.md` | `../domain/interior-styles.md` |
-| Stage 1 UX-flow, экраны, аналитика | `core/user-flow.md` | `../domain/user-flow-details.md` |
-| Состав гостиной — роли сета и пригодность товаров | `core/lr-checklist.md` | `../domain/living-room-checklist.md` |
+| Смета — калькуляторы, /go/ реф | `core/estimate.md` | `../domain/pricing-works-ru.md` |
+| Мебель — сеты, визуализация | `core/furniture.md` | `../domain/viz-fidelity-playbook.md` |
+| Цели — v0.4 «Смета-first» | `core/goals.md` | `../goals-one-photo-furnish-fit.md` |
+| Source-KB из книг — спека, KB0–KB9 | `core/knowledge-db.md` | `../../remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md` |
+| Расстановка: правила, зоны, прод-ядро | `core/layout.md` | `../domain/occupancy-rules.md` |
+| Лид-канал — заявка, TG-бот | `core/leads.md` | — |
+| Уроки перед планированием — что НЕ сработало | `core/lessons.md` | `../anti-patterns.md` |
+| Композиция гостиной — доли | `core/lr-composition.md` | `../domain/lr-composition-guide.md` |
+| Рынок RU/UK — спрос, монетизация | `core/market.md` | `../domain/market-research.md` |
+| Реклама — Яндекс, семантика | `core/marketing-acquisition.md` | `../domain/wordstat-semantics.md` |
+| Трейсинг AI-пайплайна — лог, разбор | `core/observability-tracing.md` | `../domain/observability.md` |
+| Бизнес-контекст; v0.4 «Смета-first» | `product_brief.md` | `domain/brief-details.md` |
+| Регресс-защита — тесты, CI, гардрейлы | `core/regression-net.md` | `../../docs/tech-spec-ts-stack.md` |
+| Замер комнаты по фото — что готово и чем меряем | `core/room-measurement.md` | `../domain/room-measurement.md` |
+| Стили — паспорта, скоринг, сеты | `core/styles.md` | `../domain/interior-styles.md` |
+| Stage 1 UX-flow, аналитика | `core/user-flow.md` | `../domain/user-flow-details.md` |
+| Состав гостиной — роли и пригодность | `core/lr-checklist.md` | `../domain/living-room-checklist.md` |
 <!-- GENERATED:decision-tree END -->
 
 ## Always-on docs (Tier 0/1)

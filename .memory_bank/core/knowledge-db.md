@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: knowledge-db
-scope: Source-KB из книг — спека, план KB0–KB9
+scope: Source-KB из книг — спека, KB0–KB9
 tier2: "../../remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md"
 updated: 2026-08-10
 importance: high
