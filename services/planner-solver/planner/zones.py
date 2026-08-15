@@ -421,7 +421,33 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                                         diag=_seat_diag)
             _sseek = {d['id']: dict(d) for d in _seat_diag}
             _tplmod.LAST_SEATING_SEARCH = _sseek
-            for _g in _ladder_steps:
+
+            def _media_comfort(blk, m0) -> str:
+                """C-3 свода №11 (Кодекс Q-C): класс дистанции медиа-минимума —
+                'comfort' (в вилке до min(soft_hi,hi)) или 'far'. Границы и замер —
+                КАНОН (tv.distance_range + фронт-зазор, как validate)."""
+                from .geometry import base_role as _brc, footprint as _fpc
+                from .tv import distance_range as _drc
+                _sofa = next((p for p in blk if p.role.split(' ')[0] == 'диван'),
+                             blk[0] if blk else None)
+                _car = next((p for p in m0 if p.role.split(' ')[0]
+                             in ('тв-тумба', 'стенка')), None)
+                if _sofa is None or _car is None or _car.item is None:
+                    return 'far'
+                lo, hi, soft_hi = _drc(_car.item.w_cm or 120.0,
+                                       bearer=_brc(_car.role))
+                g = _fpc(_sofa).distance(_fpc(_car))
+                return 'comfort' if g <= min(soft_hi, hi) else 'far'
+
+            # ДВУХПРОХОДНАЯ ЛЕСТНИЦА (C-3): pass 1 — принимаются только ступени с
+            # медиа-минимумом класса COMFORT (богатая FAR-группа не побеждает
+            # компактную comfort автоматически); pass 2 — FAR-разрешение с явным
+            # трейсом. Существующие границы, нового скора нет.
+            _m0 = None
+            for _need_comfort in (True, False):
+              if block is not None:
+                  break
+              for _g in _ladder_steps:
                 _se = _sseek.setdefault(_g['id'], {'id': _g['id']})
                 _blk = place_template(room, _g['id'], keep, usable_polygon(room))
                 _se['generated'] = 1
@@ -441,6 +467,15 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                             import sys as _sl
                             print(f"ZDBG лестница: ступень {_g['id']} встала, но БЕЗ "
                                   f"медиа — пробуем следующую", file=_sl.stderr, flush=True)
+                        continue
+                    _mcls = _media_comfort(_blk, _m0)
+                    _se['media_class'] = _mcls
+                    if _need_comfort and _mcls == 'far':
+                        if os.environ.get('ZONES_DEBUG'):
+                            import sys as _sl
+                            print(f"ZDBG лестница: ступень {_g['id']} даёт только FAR "
+                                  f"— comfort-first, пробуем следующую",
+                                  file=_sl.stderr, flush=True)
                         continue
                 _se['winner'] = True
                 block, group = _blk, _actual_step(_blk, _g, zone_rules())

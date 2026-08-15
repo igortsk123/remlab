@@ -265,10 +265,9 @@ def test_large_room_distance_bounded():
     if tot == 0:
         pytest.skip('нет large-сцен')
     share = far / tot
-    assert share <= 0.61, (
-        f'FAR в large: {share:.0%} > планки 61% (ребейс 15.08 V4-B: прежние 51-55% '
-        f'мерились при band-whitelist — 137 сцен искусственно на sofa_pouf; богатая '
-        f'посадка изменила геометрию large. TODO V4-D: перемерить, цель ≤55)')
+    assert share <= 0.40, (
+        f'FAR в large: {share:.0%} > планки 40% (замер 15.08 C-3 свода №11: 39% '
+        f'после comfort-first лестницы + единого ТВ-канона; исторически 51→60→57→39)')
 
 
 def test_group_compactness_everywhere():

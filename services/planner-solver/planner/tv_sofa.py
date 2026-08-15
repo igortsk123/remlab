@@ -194,4 +194,18 @@ def generate_pairs(room: Room, rmap: RoomMap, media: Item, sofa: Item,
                             score=round(score, 1), dist_cm=round(dist),
                             angle_deg=round(ang)))
     out.sort(key=lambda p: -p.score)
-    return out[:top_k]
+    # C-3 свода №11 (Кодекс §Q-C.5): КВОТА comfort-кандидатов — WallScore не должен
+    # вытеснить все комфортные дистанции из top-K (веса — только tie-breaker
+    # внутри класса). Комфорт по канону: фронт-зазор ≤ min(soft_hi,hi).
+    from .geometry import base_role as _brq
+    from .tv import distance_range as _drq
+    lo_q, hi_q, soft_q = _drq(media.w_cm, bearer=_brq(media.role))
+    cap_q = min(soft_q, hi_q)
+    def _gap_of(pr):
+        dxq, dyq = pr.media_x - pr.sofa_x, pr.media_y - pr.sofa_y
+        return max(0.0, math.hypot(dxq, dyq) - (sofa.d_cm + media.d_cm) / 2)
+    comfort = [pr for pr in out if lo_q <= _gap_of(pr) <= cap_q]
+    picked = out[:top_k]
+    if comfort and not any(lo_q <= _gap_of(pr) <= cap_q for pr in picked):
+        picked = picked[:-max(1, top_k // 3)] + comfort[:max(1, top_k // 3)]
+    return picked

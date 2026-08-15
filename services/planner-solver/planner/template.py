@@ -916,9 +916,14 @@ def _pair_sofa_candidates(room: Room, sofa_item: Item, free: Polygon,
             fp = footprint(p)
             if free.intersection(fp).area < fp.area * 0.97:
                 continue
-            out.append(Candidate(placement=p, kind='middle',
+            _cand_pair = Candidate(placement=p, kind='middle',
                                  note=f'пара WallScore {pr.score}',
-                                 topology='tv_range'))
+                                 topology='tv_range')
+            # C-3 свода №11 (Кодекс §3): координаты НОСИТЕЛЯ пары сохраняются —
+            # проба места под медиа проверит ИМЕННО эту позицию первой (прежде
+            # media_x/y выбрасывались, и «пара» была лишь диванным кандидатом)
+            _cand_pair.pair_media = (pr.media_x, pr.media_y, pr.media_rot)
+            out.append(_cand_pair)
         return out
     except Exception:
         return []
@@ -1198,7 +1203,7 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
             # П3 отложен целиком в large-room-mode L2: и слагаемое, и расширение пула
             # сдвигали выбор позиций, set101-trapezoid терял носителя. Функция цели
             # RTINGS живёт в planner/tv.py (distance_target) и ждёт L2.
-        scored.append((score, ps, getattr(c, 'topology', '')))
+        scored.append((score, ps, getattr(c, 'topology', ''), c))
     scored.sort(key=lambda t: -t[0])
     base = list(fixed or [])
     first_hard = None
@@ -1214,7 +1219,7 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
     # разбора вовсе. Вилочные разбираются ВСЕ, сверх топ-N.
     _pool = scored[:TOP_FULL_VALIDATE] + [t for t in scored[TOP_FULL_VALIDATE:]
                                           if t[2] == 'tv_range']
-    for _, ps, _topo in _pool:
+    for _, ps, _topo, _cand0 in _pool:
         lay = validate(room, base + ps)
         hards = [v for v in lay.violations if v.severity is Severity.HARD]
         # СНЯТО 13.08: эвристика «кресло впереди дивана = занимает стену ТВ» рубила
@@ -1242,6 +1247,14 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
                 + list(_corner_candidates(room, require_bearer, free2))
             if require_bearer.role == 'тв-тумба':
                 bcs += _window_candidates(room, require_bearer, free2)
+            # C-3 свода №11: у парного кандидата — СНАЧАЛА позиция носителя из Pair
+            _pm_xy = getattr(_cand0, 'pair_media', None)
+            if _pm_xy is not None:
+                from .candidates import Candidate as _CandJ
+                bcs.insert(0, _CandJ(placement=Placement(
+                    role=require_bearer.role, x=_pm_xy[0], y=_pm_xy[1],
+                    rot=_pm_xy[2], item=require_bearer), kind='wall',
+                    note='joint-пара'))
             seat = ps[0]
             def _aim(c):
                 r = math.radians(seat.rot)
@@ -2151,12 +2164,23 @@ def place_media(room: Room, items: list[Item], free: Polygon,
     # выбирать с тумбой»): при обоих носителях в банке сперва вся попытка со СТЕНКОЙ,
     # не встала ни в одном круге — повтор с ТУМБОЙ (стенка исключается из вида).
     if 'стенка' in by_role and 'тв-тумба' in by_role:
-        ps = place_media(room, [it for it in items if it.role != 'тв-тумба'],
-                         free, fixed=fixed, top=top, relaxed=relaxed)
-        if ps is not None:
-            return ps
-        return place_media(room, [it for it in items if it.role != 'стенка'],
-                           free, fixed=fixed, top=top, relaxed=relaxed)
+        # C-3 свода №11 (Кодекс §Q-C.4): обе альтернативы носителя решаются и
+        # сравниваются ЛЕКСО-КЛЮЧОМ движка (прежний first-feasible «стенка → тумба»
+        # позволял широкой стенке предопределить FAR, хотя тумба давала пару)
+        from .score import score_layout as _slm2
+        from .zones import lexo_key as _lkm2
+        _outs2 = []
+        for _excl in ('тв-тумба', 'стенка'):
+            _ps2 = place_media(room, [it for it in items if it.role != _excl],
+                               free, fixed=fixed, top=top, relaxed=relaxed)
+            if _ps2 is not None:
+                _key2 = _lkm2(0, 0, _slm2(
+                    room, list(fixed or []) + _ps2).terms)
+                _outs2.append((_key2, _ps2))
+        if not _outs2:
+            return None
+        _outs2.sort(key=lambda t: t[0])
+        return _outs2[0][1]
     global _MEDIA_TOE_RELAXED
     # Ступени: обычный заход ковра под носитель (15 см) → без флангов → КРАЙНИЙ
     # СЛУЧАЙ: ковёр уходит под медиа-зону глубже (решение владельца 12.08).
