@@ -2,7 +2,7 @@
 workstream: layout
 slug: MASTER-zones-v5
 title: МАСТЕР — свод №11 (аудит Кодекса): ТВ-канон и comfort-first, разблокировка quiet, контракты, композитор-coverage
-status: draft
+status: in_progress
 created: 2026-08-15
 updated: 2026-08-15
 completed:
