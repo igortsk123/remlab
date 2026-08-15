@@ -2,7 +2,7 @@
 workstream: layout
 slug: MASTER-zones-v4
 title: МАСТЕР — свод №10 (аудит V4): выбор посадочных шаблонов, axis contract, скоупинг правил
-status: draft
+status: in_progress
 created: 2026-08-15
 updated: 2026-08-15
 completed:
