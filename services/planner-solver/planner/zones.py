@@ -160,6 +160,23 @@ def pick_ladder(room: Room, roles_available: set[str] | dict,
     return out or [groups['sofa_solo' if have.get('диван', 0) > 0 else 'armchair_pair']]
 
 
+def scenario_needs(**overrides) -> dict:
+    """P0 свода №12: статусы обязательных зон — ВХОД сценария (rules/zones.json →
+    zone_priority.scenario_needs), не константа. Возвращает {'media': 'required'|
+    'preferred'|'off', 'dining': ...}: дефолт из данных, override из kw солвера
+    (media_need=/dining_need=). Неизвестное значение → дефолт (не тихий off)."""
+    zp = zone_rules().get('zone_priority', {})
+    sn = zp.get('scenario_needs', {})
+    out = {}
+    for zone in ('media', 'dining'):
+        spec = sn.get(f'{zone}_need', {})
+        allowed = set(spec.get('values', ['required', 'preferred', 'off']))
+        val = overrides.get(f'{zone}_need') or spec.get('default') \
+            or (zp.get('status') or {}).get(zone, 'preferred')
+        out[zone] = val if val in allowed else spec.get('default', 'preferred')
+    return out
+
+
 def solve_zoned(room: Room, items, **kw):
     """Обёртка dining_sacrifice (правило владельца 14.08, разбор Плана №19):
     столовая не встала, стол в банке → пересбор с посадкой на СТУПЕНЬ НИЖЕ;
@@ -168,7 +185,8 @@ def solve_zoned(room: Room, items, **kw):
     прежний). Конфиг — rules/zones.json → dining_sacrifice."""
     outs, gid = _solve_zoned_core(room, items, **kw)
     cfg = zone_rules().get('dining_sacrifice', {})
-    if not cfg.get('enabled', False) or '+din' in gid:
+    _needs = scenario_needs(**{k: v for k, v in kw.items() if k in ('media_need', 'dining_need')})
+    if not cfg.get('enabled', False) or '+din' in gid or _needs['dining'] == 'off':
         return outs, gid
     if not outs or not outs[0].placements:
         return outs, gid
@@ -360,6 +378,8 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
     _tplmod.LAST_DINING_DIAG = None      # пакет B: свежий диагноз dining на каждый прогон
     _tplmod.LAST_MIRROR_STATS = None     # V3-H: счётчики зеркал — per solve
     _tplmod.LAST_SEATING_SEARCH = None   # V4-B2: трейс лестницы — per solve
+    _needs_eff = scenario_needs(**{k: v for k, v in kw.items()
+                                    if k in ('media_need', 'dining_need')})  # P0 свода №12
     _tplmod.LAST_AXIS_DIAG = None        # V4-D: контракт осей — per solve
     _tplmod.LAST_MEDIA_AXIS = None
     from . import validate as _valmod
@@ -751,6 +771,12 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
             # медиа-зона ПРИОРИТЕТНЕЕ столовой (12.08): полосу за спинкой у неё не отнимаем
             if _zidx(tag) > _zidx('+din') and _behind_reserved(room, block, keep):
                 _free_z = _free_z.difference(_behind_sofa_strip(room, block))
+            # P0 свода №12: need=off — зона сценарием выключена, placer не зовём
+            if _needs_eff.get(_zt.get(tag, '')) == 'off':
+                if os.environ.get('ZONES_DEBUG'):
+                    import sys as _sdo
+                    print(f'ZDBG зона {tag}: need=off — пропуск', file=_sdo.stderr, flush=True)
+                continue
             extra = placer(room, keep, _free_z, fixed=block)
             if extra is None and os.environ.get('ZONES_DEBUG'):
                 import sys as _sdz
@@ -765,6 +791,8 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
             # хардкод-тройка тегов. required-зоны (медиа/фокус) гейт не проходят —
             # формализация прежнего поведения; preferred/optional — гейт not_worse.
             _zst = (_zp.get('status') or {}).get(_zt.get(tag, ''), 'optional')
+            # P0 свода №12: need сценария переопределяет статус зоны (media/dining)
+            _zst = _needs_eff.get(_zt.get(tag, ''), _zst)
             if extra and _zst != 'required':
                 _q_before = _quality(room, block)
                 _q_after = _quality(room, block + extra)
@@ -961,6 +989,7 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                         'reason': ('quality_gate' if _ddiag.get('gate_rejected')
                                    else _ddiag.get('island_reject') or 'no_fit')}
             lay.meta['dining'] = _ddiag
+        lay.meta['scenario_needs'] = dict(_needs_eff)   # P0 свода №12: вход сценария в артефакте
         _mst = getattr(_tplmod, 'LAST_MIRROR_STATS', None)
         if _mst is not None:
             lay.meta['mirror'] = dict(_mst)   # V3-H: счётчики зеркал в экспорт

@@ -94,7 +94,14 @@ REPORT = os.path.join(HERE, 'acceptance-report-zoned.jsonl')
 
 os.makedirs(OUT, exist_ok=True)
 rows = [json.loads(l) for l in open(REPORT) if l.strip()]
-rows.sort(key=lambda r: (r.get('set') or 0, r.get('id') or ''))
+# P0 свода №12: нумерация «План №N» = порядок acceptance-scenes.json (append-only,
+# стабилен между прогонами) — тот же, что plan-NNN в export_plans_ai. Прежний
+# ключ (set, id) сортировал по set + порядку ЗАВЕРШЕНИЯ воркеров ('id' в отчёте
+# нет) → номера плавали между прогонами, и комментарии владельца «план №N»
+# нельзя было надёжно сопоставить.
+_scene_order = {sc['id']: i for i, sc in enumerate(
+    json.load(open(os.path.join(HERE, 'acceptance-scenes.json'))))}
+rows.sort(key=lambda r: _scene_order.get(r.get('scene'), 10**6))
 
 cards = []
 combined = {}
