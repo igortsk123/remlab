@@ -449,6 +449,14 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                   break
               for _g in _ladder_steps:
                 _se = _sseek.setdefault(_g['id'], {'id': _g['id']})
+                # LEVEL A (владелец: «диван из банка стоит всегда») ВЫШЕ comfort-first:
+                # в comfort-проходе бездиванные ступени пропускаются, пока диван
+                # доступен — иначе пара кресел с comfort-медиа обходила диванные
+                # FAR-ступени (регресс C-3: set61-bay/set77-trapezoid)
+                if _need_comfort and any(i.role == 'диван' for i in keep) \
+                        and 'диван' not in {r.split(' ')[0]
+                                            for r in _g['roles']['required']}:
+                    continue
                 _blk = place_template(room, _g['id'], keep, usable_polygon(room))
                 _se['generated'] = 1
                 _se['hard_valid'] = 1 if _blk else 0
