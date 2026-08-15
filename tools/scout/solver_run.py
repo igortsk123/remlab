@@ -848,6 +848,19 @@ _room_ops=(json.loads(_ops_env) if (_ops_env and json.loads(_ops_env)) else [
 out['_templates']={r:{'id':t,'version':v} for r,(t,v) in (globals().get('TPL_BY_ROLE') or {}).items()}
 out['_dining']=globals().get('DINING_DIAG')   # объяснимость dining (свод №8 пакет B)
 out['_axes']=globals().get('QUALITY_AXES')    # пакет G: новые оси — только замер, без порогов
+# C-7 свода №11 (Кодекс §5-риски): usable_polygon при MultiPolygon оставляет крупнейший
+# компонент — потерянная ветвь комнаты видна из экспорта, не теряется молча
+try:
+    from planner.geometry import room_polygon as _rpU, static_blockers as _sbU
+    from planner.zones import route_reserve as _rrU
+    from shapely.ops import unary_union as _uuU
+    _outU=_rpU(room_p).difference(_uuU(list(_sbU(room_p))+[_rrU(room_p)]))
+    _geoms=list(getattr(_outU,'geoms',[_outU]))
+    if len(_geoms)>1:
+        _lost=sum(g.area for g in sorted(_geoms,key=lambda g:-g.area)[1:])/10_000
+        out['_usable_lost_m2']=round(_lost,2)
+except Exception:
+    pass
 out['_mirror']=globals().get('MIRROR_STATS')  # V3-H: счётчики зеркал Г-дивана
 out['_seating_search']=globals().get('SEATING_SEARCH')  # V4-B2: трейс лестницы посадки
 out['_axis_contract']=globals().get('AXIS_CONTRACT')    # V4-D: оси столика/медиа

@@ -827,13 +827,25 @@ def build_block(group_id: str, by_role: dict[str, Item],
                 return False
             half = _pouf.w_cm / 2 + 8
             return (abs(px) - half) < 60.0 and py > 0
+        _pouf_in = False
         for _sx, _sy, _srt in _spots:
             if _on_axis(_sx, _sy):
                 continue
             b.add(_pouf, _sx, _sy, _srt)
             if block_self_overlap(b) is None:
+                _pouf_in = True
                 break
             b.rel.pop()                      # не встал — пробуем другую позицию
+        # C-5 свода №11 (Кодекс §7, атомарность): пуф — REQUIRED-роль своей группы
+        # (sofa_pouf) — не выпадает ТИХО: обе позиции конфликтуют → схема этой
+        # ступени НЕ собирается, лестница честно спустится (прежде блок возвращался
+        # без пуфа, и _actual_step маскировал разбор переименованием)
+        _grp_req = {r.split(' ')[0]
+                    for g in _zone_rules().get('seating_groups', [])
+                    if g['id'] == group_id
+                    for r in g['roles']['required']}
+        if not _pouf_in and 'пуф' in _grp_req:
+            return None
     _add_lamp(b, sofa, by_role.get('торшер'))
     if by_role.get('торшер 2') is not None:
         _add_lamp(b, sofa, by_role.get('торшер 2'), side=+1)   # пара — симметрично
@@ -1384,7 +1396,8 @@ LAST_MEDIA_AXIS: dict | None = None
 
 
 def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
-                   fixed: list[Placement] | None = None) -> list[Placement] | None:
+                   fixed: list[Placement] | None = None,
+                   wall_only: bool = False) -> list[Placement] | None:
     """Разговорная зона блоком: лучший hard-чистый вариант или None (фолбэк beam)."""
     if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
         return None
@@ -1406,7 +1419,8 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
             _it2 = [i if i.role != 'диван' else _sofa_m.model_copy(
                 update={'corner_left': _cl, 'corner_side_fixed': True})
                 for i in items]
-            _ps = place_template(room, group_id, _it2, free, fixed=fixed)
+            _ps = place_template(room, group_id, _it2, free, fixed=fixed,
+                                 wall_only=wall_only)
             if _ps:
                 _stats[_side]['hard_valid'] = 1
                 _key = _lkm(0, 0, _slm(room, list(fixed or []) + _ps).terms)
@@ -1552,10 +1566,11 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
               # прежний двойник max(сторона)>430 удалён (сверка конфликтов)
               from .room_map import room_mode as _rm
               _deep = _rm(room) == 'large'
-              if room.width_cm * room.depth_cm > 40 * 10_000 or _deep:
+              if (room.width_cm * room.depth_cm > 40 * 10_000 or _deep) \
+                      and not wall_only:
                   cands += list(middle_candidates(room, b.anchor, free,
                                                   limit=10 if _deep else 6))
-              if _deep:
+              if _deep and not wall_only:
                   # П1 (MASTER-tv-sofa-pair): кандидаты дивана — из генератора ПАР
                   # «медиа-блок × блок посадки» (WallScore, свод владельца §3–7).
                   # Прежние tv_range-кандидаты остаются фолбэком.

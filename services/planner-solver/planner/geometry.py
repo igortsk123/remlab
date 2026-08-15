@@ -84,6 +84,25 @@ def _corner_polygon(it: Item) -> Polygon:
     return Polygon(pts)
 
 
+def floor_fill_diag_pct(room, placements, wall_hugging_roles=()) -> float:
+    """C-7 свода №11 (Кодекс §9): ЕДИНАЯ диагностическая семантика заполнения —
+    ковёр исключён (подложка), пристенные роли считаются за ПОЛОВИНУ футпринта.
+    Потребители: цепочка зон (fill-триггер добора) и диагностика артефакта.
+    ВНИМАНИЕ: floor_used_pct (score/validate) — ДРУГАЯ основа (исторический кап
+    floor_cap_pct калиброван по ней, ковёр входит) — не сливать без перекалибровки."""
+    area = room.width_cm * room.depth_cm / 10_000
+    if area <= 0:
+        return 0.0
+    tot = 0.0
+    for p in placements:
+        base = p.role.split(' ')[0]
+        if base == 'ковёр' or p.item is None:
+            continue
+        f = (p.item.w_cm * p.item.d_cm) / 10_000
+        tot += f * (0.5 if base in wall_hugging_roles else 1.0)
+    return tot / area * 100.0
+
+
 def corner_active_lat(it) -> float:
     """V3-H свода №9 (корень «правое зеркало всегда»): смещение АКТИВНОГО
     (посадочного) центра Г-дивана в lateral-конвенции relative_position:

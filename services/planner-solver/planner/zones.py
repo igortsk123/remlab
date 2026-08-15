@@ -362,7 +362,8 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
     _tplmod.LAST_SEATING_SEARCH = None   # V4-B2: трейс лестницы — per solve
     _tplmod.LAST_AXIS_DIAG = None        # V4-D: контракт осей — per solve
     _tplmod.LAST_MEDIA_AXIS = None
-    os.environ.pop('_SCREEN_WINDOW_WAIVED', None)   # пакет D: вейвер экрана — per solve
+    from . import validate as _valmod
+    _valmod.SCREEN_WINDOW_WAIVED[0] = False   # C-8: вейвер экрана — per solve, не env
     avail = {_base(i.role) for i in items}
     counts = Counter(_base(i.role) for i in items)
     group = pick_group(room, dict(counts))
@@ -547,7 +548,8 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                 # тег +tvw добавит сама цепочка (медиа встанет обычным шагом).
                 if _has_bearer0 and os.environ.get(
                         'LAYOUT_SCREEN_WINDOW_WAIVER', '1') != '0':
-                    os.environ['_SCREEN_WINDOW_WAIVED'] = '1'
+                    from . import validate as _valmodW
+                    _valmodW.SCREEN_WINDOW_WAIVED[0] = True
                     from .template import place_media as _pmw
                     _occw = _uu0([_fp0(p) for p in block
                                   if p.role.split(' ')[0] != 'ковёр'])
@@ -562,7 +564,7 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                             print('ZDBG лестница: медиа встала ПО ВЕЙВЕРУ экрана '
                                   '(+tvw)', file=_sl.stderr, flush=True)
                     else:
-                        os.environ.pop('_SCREEN_WINDOW_WAIVED', None)
+                        _valmodW.SCREEN_WINDOW_WAIVED[0] = False
                 # V3-D (свод №9, frozen-core / known-issue set80-L): и вейвер не дал
                 # носитель → перебираем АЛЬТЕРНАТИВНЫЕ ПОЗИЦИИ той же ступени: вырезаем
                 # выбранную позицию посадки из полигона и переигрываем шаблон; медиа-
@@ -594,7 +596,8 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                             block = list(_blk_a) + list(_m_a)
                             keep = [it for it in keep
                                     if it.role not in {p.role for p in _m_a}]
-                            os.environ.pop('_SCREEN_WINDOW_WAIVED', None)
+                            from . import validate as _valmodA
+                            _valmodA.SCREEN_WINDOW_WAIVED[0] = False
                             if os.environ.get('ZONES_DEBUG'):
                                 import sys as _sl
                                 print(f'ZDBG лестница: альтернативная позиция №{_alt+1} '
@@ -676,13 +679,9 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
         _room_m2 = room.width_cm * room.depth_cm / 10_000
 
         def _fill_pct(pls):
-            a = 0.0
-            for p in pls:
-                if p.role == 'ковёр':
-                    continue                      # подложка пол не занимает
-                fa = _fp(p).area / 10_000
-                a += fa * (0.5 if _base(p.role) in _half else 1.0)
-            return a / _room_m2 * 100
+            # C-7: единая диагностическая семантика — geometry.floor_fill_diag_pct
+            from .geometry import floor_fill_diag_pct as _ffd
+            return _ffd(room, pls, wall_hugging_roles=_half)
 
         def _din(r, k, f, fixed=None):
             return place_dining(r, k, f, usable_m2(r), fixed=fixed)
@@ -702,8 +701,8 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
         _media_in = any(p.role.split(' ')[0] in ('тв-тумба', 'стенка') for p in (block or []))
         if _media_in and '+tv' not in tpl_tag:
             # пакет D: медиа, вставшая по вейверу экрана, помечается явно (+tvw)
-            tpl_tag += ('+tvw' if os.environ.get('_SCREEN_WINDOW_WAIVED') == '1'
-                        else '+tv')
+            from . import validate as _valmodT
+            tpl_tag += ('+tvw' if _valmodT.SCREEN_WINDOW_WAIVED[0] else '+tv')
         for placer, tag in ((place_media_fireplace, '+tvfp'), _order[0], _order[1],
                             (_din, '+din'),
                             # C-1 свода №11 (Кодекс §4): порядок исполнения =
@@ -853,7 +852,8 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                 # запрета экрана на проёме → повтор с выключенным hard, явный тег
                 # +tvw (не «тихое» ослабление). Флаг снимает validate только в этом
                 # процессе решения; сбрасывается на старте каждого solve.
-                os.environ['_SCREEN_WINDOW_WAIVED'] = '1'
+                from . import validate as _valmod2
+                _valmod2.SCREEN_WINDOW_WAIVED[0] = True
                 _extra = _pm(room, keep, usable_polygon(room).difference(occ3),
                              fixed=block, relaxed=True)
                 if _extra:
@@ -863,7 +863,8 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                     _refine_mod.LOCKED |= roles3
                     tpl_tag += '+tvw'
                 else:
-                    os.environ.pop('_SCREEN_WINDOW_WAIVED', None)
+                    from . import validate as _valmodB
+                    _valmodB.SCREEN_WINDOW_WAIVED[0] = False
 
         # ПЛАВАЮЩИЙ ДИВАН БЕЗ СТОЛОВОЙ ЗА СПИНКОЙ — НЕЛЬЗЯ (владелец 13.08, планы
         # №4/№7: «делишь комнату — вторая зона столовая, или не делать вовсе»).
@@ -875,16 +876,12 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
             if _seat0 is not None and _behind_decision(room, _seat0) in (
                     'dining_mandatory', 'second_zone_mandatory'):
                 from .template import place_template as _pt2
-                try:
-                    import planner.candidates as _cmod
-                    _orig_mid = _cmod.middle_candidates
-                    _cmod.middle_candidates = lambda *a, **k: []   # только пристенные
-                    _blk2 = _pt2(room, group['id'],
-                                 [i for i in items if i.role in
-                                  {p.role for p in block} | {it.role for it in keep}],
-                                 usable_polygon(room))
-                finally:
-                    _cmod.middle_candidates = _orig_mid
+                # C-8 свода №11 (Кодекс §12): параметр wall_only вместо подмены
+                # модульной функции middle_candidates (нерентерабельная мутация)
+                _blk2 = _pt2(room, group['id'],
+                             [i for i in items if i.role in
+                              {p.role for p in block} | {it.role for it in keep}],
+                             usable_polygon(room), wall_only=True)
                 if _blk2:
                     if os.environ.get('ZONES_DEBUG'):
                         import sys as _s9

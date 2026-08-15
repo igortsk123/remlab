@@ -144,10 +144,11 @@ def check_openings(room: Room, ps: list[Placement]) -> list[Violation]:
         # окно. Сам носитель (низкая тумба) у окна легален — hard бьёт именно
         # media-постановку: носитель спиной к оконной стене, и даже МИНИМАЛЬНЫЙ
         # экран (нижняя граница share/ниши) горизонтально накрывает проём.
-        # Вейвер (_SCREEN_WINDOW_WAIVED, zones.py «последняя попытка»): носитель
-        # иначе не встаёт нигде — правило владельца «медиа везде» приоритетнее.
-        import os as _osw
-        if _osw.environ.get('_SCREEN_WINDOW_WAIVED') == '1':
+        # Вейвер (SCREEN_WINDOW_WAIVED, ставит zones.py): носитель иначе не встаёт
+        # нигде — правило владельца «медиа везде» приоритетнее. C-8 свода №11
+        # (Кодекс §12): module-state per solve, НЕ env (env наследовался
+        # подпроцессами и жил шире одного решения).
+        if SCREEN_WINDOW_WAIVED[0]:
             continue
         for p in ps:
             base = p.role.split(' ')[0]
@@ -1375,6 +1376,10 @@ def check_sofa_pair_geometry(ps: list[Placement]) -> list[Violation]:
                               "лицом-к-лицу или Г-стык торец-к-торцу",
                               severity=Severity.SOFT))
     return out
+
+
+# C-8: вейвер экрана — состояние ТЕКУЩЕГО решения (сбрасывает zones per solve)
+SCREEN_WINDOW_WAIVED = [False]
 
 
 def check_media_cardinality(ps: list[Placement]) -> list[Violation]:
