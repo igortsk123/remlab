@@ -556,12 +556,19 @@ def check_behind_sofa(room: Room, ps: list[Placement]) -> list[Violation]:
         return []
     strip = _behind_strip(room, sofa)   # локальная полоса (рефери 08.08 Q3)
     out = []
+    # V4-F свода №10 (Q42): скоуп ПО РОЛЯМ — пруф правила про высокое ГЛУХОЕ
+    # хранение за спинкой; обеденный стул/кресло второй зоны за floating-диваном
+    # ЛЕГАЛЬНЫ (ADR-0078, residual-машина) и управляются своими зонами/route.
+    _solid = ('шкаф', 'стеллаж', 'витрина', 'стенка', 'комод')
     for p in ps:
         if p is sofa or p.item is None:
             continue
+        if p.role.split(' ')[0] not in _solid:
+            continue
         h = p.item.h_cm or 0
         if h > BEHIND_SOFA_MAX_H_CM and footprint(p).intersection(strip).area > 400:
-            out.append(_v("TALL_BEHIND_SOFA", f"«{p.role}» ({h:.0f} см) стоит за спинкой дивана",
+            out.append(_v("TALL_SOLID_BEHIND_SOFA",
+                          f"«{p.role}» ({h:.0f} см) стоит за спинкой дивана",
                           [p.role, "диван"], h, f"за диваном только ниже {BEHIND_SOFA_MAX_H_CM:.0f} см"))
     return out
 
