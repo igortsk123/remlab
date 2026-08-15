@@ -1681,3 +1681,33 @@ hugged/floating_functional/adrift в экспорте. (A) Аудит «пасп
 в больших не встаёт (39 банков без кресел 3/4); камин здоров (0 вне сектора и вилки).
 **Влияет на.** [[layout]], zones/template/validate/quality/clearances, rules,
 экспорт, приёмка (планка dining 209).
+
+## ADR-0105 — Свод №11 (аудит Кодекса): ТВ-канон, comfort-first, quiet, coverage (2026-08-15)
+**Решение.** Внедрён независимый аудит Кодекса (gpt-5.6 xhigh, исходники инлайн —
+`_intake/codex-audit-v5.md`; 6/6 проверенных утверждений подтверждены по коду).
+(C-1) Контракт-санация: порядок цепочки зон = `zone_priority.order` (данные+тест);
+`_TERM_LEVEL` полный + тест «каждый терм классифицирован»; `tools/scout/occupancy.json`
+— симлинк на канон; cardinality `at_most_one_carrier`; route_reserve потребляет
+`route_width_cm`. (C-2) Единый ТВ-канон: `_tv_target_cm` → `tv.distance_target(bearer)`
+(прежняя аппроксимация врала почти вдвое), пары скорятся ФРОНТ-зазором, score-кап
+`min(soft_hi,hi)`, `tv_range_hi_share 0.92` — в данных. (C-3/C-3b) Comfort-first:
+двухпроходная лестница (COMFORT → FAR, трейс `media_class`), joint-пары `pair_media`
+первыми в require-пробе, place_media сравнивает стенку И тумбу лексо-ключом,
+comfort-квота в generate_pairs; guard LEVEL-A (бездиванные ступени не обходят диванные).
+**FAR-large 60%→40.1%, планка 41** (история 51→60→57→40 — каждая ступень с пруфом).
+(C-4) Quiet разблокирован механически (secondary-семантика, wall+middle кандидаты,
+приставной clearance 0); в проде quiet=0 — ЧЕСТНЫЙ проигрыш приоритету dining
+(0 сцен «кресло в банке И без dining»), механика доказана реплеями. (C-5) Пуф-
+атомарность: required-пуф не выпадает тихо (`_grp_req` → None). (C-7) Единая
+диагностическая fill-семантика `geometry.floor_fill_diag_pct` + `_usable_lost_m2`.
+(C-8) State-гигиена: вейвер экрана — module-state, rebuild — `wall_only=True`.
+(C-6) Композитор-coverage: alt-кресло в сет с диваном ≥17 м² В КОНЦЕ сборки (вне
+fill/extras/wall-капов, после BUILT/style_fit/total — дифф пересборки строго «8
+добавок, 0 грязи»); нет SKU → явный coverage_gap; сторож `test_bank_coverage`;
+солвер в alt-сетах реально берёт sectional_armchair/compact_sectional; dining
+209→210 (каузально: ступень с креслом освободила регион столовой).
+**Гейты финала:** 272/272; dining база 210/252; медиа 252/252; pytest 181;
+rules_audit 0; тихий edge 0; двойных носителей 0.
+**Влияет на.** [[layout]], zones/template/tv_sofa/score/validate/quality/clearances/
+geometry, rules (zones/occupancy), compose2, тесты (contract_sanity, quiet_zone,
+bank_coverage), планки (FAR 41, dining 210).
