@@ -683,6 +683,10 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
             # V3-A (свод №9 P0, план №269): КАРДИНАЛЬНОСТЬ media из данных —
             # носитель уже в блоке (в т.ч. поставлен лестницей по вейверу +tvw) →
             # media-теги пропускаются, второй носитель НЕ добирается
+            # V4-A свода №10: паспорт media_wall counts_as_storage — стенка даёт
+            # вертикаль хранения; ВТОРАЯ зона хранения при ней не добирается
+            if tag == '+st2' and any(p.role.split(' ')[0] == 'стенка' for p in block):
+                continue
             _cardc = (_zp.get('cardinality') or {}).get(_zt.get(tag, '')) or {}
             if _cardc.get('rule') == 'exactly_one_carrier' and any(
                     p.role.split(' ')[0] in tuple(_cardc.get('carrier_roles') or ())

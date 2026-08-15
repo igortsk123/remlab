@@ -902,7 +902,6 @@
    "seating",
    "circulation",
    "media",
-   "rug_table",
    "dining",
    "seating_extra",
    "storage",
@@ -936,7 +935,6 @@
    "seating": "required",
    "circulation": "required",
    "media": "required",
-   "rug_table": "required",
    "dining": "preferred",
    "seating_extra": "optional",
    "storage": "preferred",
@@ -953,7 +951,8 @@
     ],
     "_why": "Свод №9 P0 (план №269): тумба и стенка — АЛЬТЕРНАТИВНЫЕ реализации одной media-зоны, не две зоны. Вейвер-путь лестницы ставил носитель, а цепочка +tv добирала второй из банка. Камин — отдельная focal-зона, ограничение его не касается"
    }
-  }
+  },
+  "_rug_table_removed": "V4-A свода №10: rug_table был ИНЕРТНОЙ записью (ни один тег не мапился, status никогда не читался). Ковёр+столик — КЛЕЙ внутри seating-шаблона (glue_rule), не отдельная зона"
  },
  "entry_zone": {
   "_why": "Свод №6 (14.08): полоса за floating-диваном при двери в торце — ENTRY/ARRIVAL zone, не unused residual. Приоритет наполнения по своду; пустота ЛЕГАЛЬНА (negative space), обогащение её не «лечит». Реализация: вход уже вычитается из residual (quality.residual_depth_cm), высокое хранение за спинкой запрещает TALL_BEHIND_SOFA (>90 см), доступ в зону — SEATING_ACCESS_PINCHED",

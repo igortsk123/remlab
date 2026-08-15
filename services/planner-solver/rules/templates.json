@@ -143,7 +143,8 @@
      "why": "диван у окна — allowed with checks, не forbidden (свод §17): расширяет варианты в комнатах с одной пригодной стеной"
     }
    ],
-   "degradation_level": "A"
+   "degradation_level": "A",
+   "_invariants_note": "V4-A: table_reach_all_seats в check_block проверяет НИЖНИЙ порог (единый с движком); верх пары диван-столик держит hard-вилка 32-50 (validate); max_cm=90 — спящий (схемы визави). symmetry/focus_visible реализованы КОНСТРУКТИВНО построением блока, отдельной ветки check_block нет"
   },
   "media": {
    "id": "media",
@@ -321,7 +322,8 @@
      "why": "открытый стеллаж как граница living|dining — приём ВТОРОГО приоритета в open-plan (large-свод §9)"
     }
    ],
-   "degradation_level": "B"
+   "degradation_level": "B",
+   "_limits_note": "V4-A: max_items_per_zone=2 держит срез пар в build_storage; «не более 2 зон» — числом шагов цепочки (+st,+st2); max_zones_per_room кодом не читается (спящий); second_zone_other_wall — предпочтение с фолбэком на ту же стену (template.py)"
   },
   "quiet": {
    "id": "quiet",
@@ -333,7 +335,12 @@
     "min_composition",
     "sku_dimensions_intact"
    ],
-   "degradation_level": "C"
+   "degradation_level": "C",
+   "required": [
+    "кресло 3",
+    "кресло 4"
+   ],
+   "_contract_v4a": "V4-A свода №10 (аудит quiet ✖): состав приведён к коду build_quiet — пара кресло 3+4 визави, между ними приставной/столик (optional); зона только в 45+ м² и после главной (гейт в place_quiet). Прежний membership (кресло/торшер) не соответствовал коду"
   },
   "reading": {
    "id": "reading",
@@ -425,7 +432,8 @@
     "why": "веб-канон: медиа-стенка занимает 2.5-4 м стены, глубина 30-40 см, центр экрана 105-115 см от пола; комнаты от 3.6 м ширины держат полноразмерную, в тесных берут компактную до 2.4 м. Пруфы: barkerandcobespoke.co.uk, askarinteriors.co.uk, bostonmediawall.com. Каталог: 403 стенки в наличии, медиана 260x43x190 см",
     "no_extra_storage_zone": "стенка уже несёт хранение — вторая зона хранения рядом с ней избыточна"
    },
-   "degradation_level": "A"
+   "degradation_level": "A",
+   "_rules_status": "V4-A: ключи wall_span/depth/tv_center_height/free_wall_margin/compact_max — СПЯЩИЕ (кодом не читаются; экран считается через occupancy tv_niche_screen_cm). counts_as_storage/no_extra_storage_zone РЕАЛИЗОВАНЫ 15.08: при стенке в блоке вторая зона хранения (+st2) пропускается (zones.py)"
   },
   "bay_armchair": {
    "id": "bay_armchair",

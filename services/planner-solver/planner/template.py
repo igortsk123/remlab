@@ -872,7 +872,9 @@ def build_dining(by_role: dict[str, Item], max_chairs: int,
         return None
     chairs = [by_role[r] for r in sorted(by_role)
               if r == 'стул' or r.startswith('стул ')][:max_chairs]
-    if not chairs:
+    # V4-A свода №10 (аудит №5): «стол + ≥2 стульев или ничего» (ADR-0077,
+    # атомарность обеденной группы) — гарантируется ДВИЖКОМ, не только композитором
+    if len(chairs) < 2:
         return None
     b = Block(tbl)
     w, d = tbl.w_cm, tbl.d_cm
@@ -2148,8 +2150,8 @@ def place_media(room: Room, items: list[Item], free: Polygon,
     global _MEDIA_TOE_RELAXED
     # Ступени: обычный заход ковра под носитель (15 см) → без флангов → КРАЙНИЙ
     # СЛУЧАЙ: ковёр уходит под медиа-зону глубже (решение владельца 12.08).
-    for relaxed in (False, True):
-        _MEDIA_TOE_RELAXED = relaxed
+    for relaxed_toe in (False, True):
+        _MEDIA_TOE_RELAXED = relaxed_toe
         try:
             # СНАЧАЛА ГОЛЫЙ НОСИТЕЛЬ, потом с акцентами (13.08): проба места при выборе
             # позиции дивана проверяет именно голый носитель. Обратный порядок давал
@@ -2211,6 +2213,26 @@ def place_media(room: Room, items: list[Item], free: Polygon,
                         continue
                     try:
                         _mdiag['offset_cm'] = round(_axis_off(ps, seat), 1)
+                    except Exception:
+                        pass
+                    # V4-E свода №10: заход носителя на ковёр — ДОКАЗУЕМЫЙ fallback:
+                    # ступень toe=relaxed достигается только после провала чистой
+                    # (clean_nonoverlap_failed=True по построению цикла)
+                    try:
+                        _rugp = next((q for q in (fixed or [])
+                                      if q.role.split(' ')[0] == 'ковёр'), None)
+                        _car = next((q for q in ps if q.role.split(' ')[0]
+                                     in ('тв-тумба', 'стенка')), None)
+                        if _rugp is not None and _car is not None:
+                            _ov = footprint(_car).intersection(
+                                footprint(_rugp)).area
+                            _mdiag['rug_overlap_cm2'] = round(_ov, 0)
+                            if _ov > 0:
+                                _mdiag['degraded_reason'] = (
+                                    'rug_toe_relaxed' if _MEDIA_TOE_RELAXED
+                                    else 'toe_within_norm')
+                                _mdiag['clean_nonoverlap_failed'] = bool(
+                                    _MEDIA_TOE_RELAXED)
                     except Exception:
                         pass
                     if top > 1:
