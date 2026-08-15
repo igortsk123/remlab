@@ -114,6 +114,26 @@ def sliver_area_m2(room: Room, ps: list[Placement]) -> float:
     dead = _dead_side_mask(room, ps)
     if dead is not None:
         slivers = slivers.difference(dead)     # бок дивана у стены — не дефект (M-B)
+    # V4-H1 свода №10 (functional claim, разбор №213 и 16 кейсов V3-C): полосы
+    # ОТОДВИГАНИЯ обеденной группы — эксплуатационная зона острова (paспорт: pullout
+    # 55 / envelope 90), а не «мёртвая щель». Остров в середине по построению создаёт
+    # рабочие полосы вокруг себя — до этого фикса они считались щелями, и гейт
+    # +0.35 м² резал ВСЕ острова (единственная ось всех 17 кейсов). Порог не тронут:
+    # из метрики вычтено только функционально-заявленное (существующие числа).
+    _din = [p for p in ps if p.role.split(' ')[0] in ('стол обеденный', 'стул')]
+    if _din:
+        from .clearances import clearance_for
+        from .geometry import access_zone
+        claims = []
+        for p in _din:
+            try:
+                sp = clearance_for(p.role)
+                if sp.front_cm or sp.side_cm:
+                    claims.append(access_zone(p, spec=sp))
+            except Exception:
+                pass
+        if claims:
+            slivers = slivers.difference(unary_union(claims))
     return max(0.0, slivers.area) / 10_000
 
 

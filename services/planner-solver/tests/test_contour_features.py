@@ -163,7 +163,7 @@ def test_corner_adrift_functional_gap():
 
 
 def test_dining_share_watchdog():
-    """Свод №7: доля планов со столовой — планка по лучшему замеру под честными правилами (201/252 после
+    """Свод №7: доля планов со столовой — планка по лучшему замеру под честными правилами (209/252 после
     SCREEN_OVER_WINDOW: прежние 210 частично держались на браке «экран на окне»,
     ADR-0099;
     14.08, после dining_sacrifice), двигается только вверх."""
@@ -183,7 +183,7 @@ def test_dining_share_watchdog():
         n += 1
         din += ('+din' in r.get('templates', ''))
     assert n == 252, f'отчёт неполный по базовым сценам: {n}'
-    assert din >= 201, f'доля столовой упала: {din}/252 (планка 201 — лучший честный замер, V4-B + sacrifice depth 4)'
+    assert din >= 209, f'доля столовой упала: {din}/252 (планка 209 — лучший замер, V4-H1 functional-claim)'
 
 
 def test_dining_sacrifice_ladder():
