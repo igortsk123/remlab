@@ -41,12 +41,12 @@ class Pair:
 
 
 def _tv_target_cm(media: Item) -> float:
-    """Целевая дистанция RTINGS 1.6×диагональ — ЕДИНЫЙ источник planner/tv.py
-    (антиошибка №1: не заводить второе число рядом с существующим)."""
-    # как в зелёном замере 13.08 (медиа 252/252): аппроксимация диагонали от ширины
-    # носителя; переход на tv.distance_target — вместе с порогами L2 large-room-mode
-    diag = max(media.w_cm - 20.0, 80.0)
-    return 1.6 * diag
+    """Целевая дистанция — КАНОН planner/tv.py (C-2 свода №11, Кодекс §Q-C:
+    прежняя аппроксимация diag=max(w-20,80)·1.6 для стенки 300 давала ~448 см
+    против канонических ~229 — почти двукратная ошибка цели пар)."""
+    from .geometry import base_role
+    from .tv import distance_target
+    return distance_target(media.w_cm, bearer=base_role(media.role))
 
 
 def _media_positions(rmap: RoomMap, media: Item):
@@ -123,9 +123,13 @@ def generate_pairs(room: Room, rmap: RoomMap, media: Item, sofa: Item,
                 continue
             sx, sy = _to_xy(room, wall, mid, depth_off)
             dist, ang = _pair_metrics(room, wall, mx, my, sx, sy, s_rot)
+            # C-2 свода №11 (Кодекс §Q-C): цель сравнивается с ФРОНТ-зазором
+            # (та же величина, что меряет validate), а не с центр-центр —
+            # прежний замер был смещён на полусумму глубин (~60-70 см)
+            gap = max(0.0, dist - (sofa.d_cm + media.d_cm) / 2)
             # скоринг WallScore (числа из паспорта)
             score = float(_WS.get('fits_media', 20))
-            d_err = abs(dist - target) / max(target, 1.0)
+            d_err = abs(gap - target) / max(target, 1.0)
             score += float(_WS.get('distance_near_target', 20)) * max(0.0, 1 - d_err)
             # E4 (elongated, свод №4 §7): floating-диван поперёк длинной оси — граница
             # зоны. Сторона за спинкой обязана иметь функцию или быть circulation;

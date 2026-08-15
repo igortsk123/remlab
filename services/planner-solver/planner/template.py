@@ -924,7 +924,8 @@ def _pair_sofa_candidates(room: Room, sofa_item: Item, free: Polygon,
         return []
 
 
-def _tv_range_candidates(room: Room, item: Item, free: Polygon) -> list:
+def _tv_range_candidates(room: Room, item: Item, free: Polygon,
+                         tv: Item | None = None) -> list:
     """Позиции дивана НА ТВ-ВИЛКЕ от стены будущего носителя (глубокие комнаты).
 
     Владелец 13.08: в глубокой комнате коммуникативная зона придвигается к медиа
@@ -932,15 +933,24 @@ def _tv_range_candidates(room: Room, item: Item, free: Polygon) -> list:
     позиции «спинкой в комнату» на расстоянии середины вилки от каждой из 4 стен.
     """
     from .candidates import Candidate
-    from .tv import distance_range
-    lo, hi, _ = distance_range(120.0)
+    from .tv import distance_range, rules as _tvrules
+    # C-2 свода №11 (Кодекс): вилка — от ФАКТИЧЕСКОГО носителя сцены (ширина и
+    # глубина), а не условных 120/40; доля верха вилки — из данных
+    from .geometry import base_role as _brr
+    if tv is not None and _brr(tv.role) in ('тв-тумба', 'стенка'):
+        lo, hi, _ = distance_range(tv.w_cm, bearer=_brr(tv.role))
+        _tv_depth = tv.d_cm or 40.0
+    else:
+        lo, hi, _ = distance_range(120.0)
+        _tv_depth = 40.0
+    _hi_share = float((_tvrules().get('layout_rules') or {}).get('tv_range_hi_share', 0.92))
     W, D = room.width_cm, room.depth_cm
     spots = []
     # ступени дистанции: середина вилки и верх (13.08: блок с ковром и пуфом ГЛУБЖЕ
     # одного дивана — от середины вилки фронту блока не хватало места до стены,
     # и стенка не вставала; от верха вилки — помещается блок целиком)
-    for base_d in ((lo + hi) / 2, hi * 0.92):
-        d_mid = base_d + item.d_cm / 2 + 40.0
+    for base_d in ((lo + hi) / 2, hi * _hi_share):
+        d_mid = base_d + item.d_cm / 2 + _tv_depth
         spots += [(W / 2, d_mid, 180.0), (W / 2, D - d_mid, 0.0),
                   (d_mid, D / 2, 270.0), (W - d_mid, D / 2, 90.0)]
     out = []
@@ -1537,7 +1547,7 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
                   # «медиа-блок × блок посадки» (WallScore, свод владельца §3–7).
                   # Прежние tv_range-кандидаты остаются фолбэком.
                   cands += _pair_sofa_candidates(room, b.anchor, free, tv)
-                  cands += _tv_range_candidates(room, b.anchor, free)
+                  cands += _tv_range_candidates(room, b.anchor, free, tv=tv)
               ps = _best_block(room, b, free, cands, tv=tv, fixed=fixed,
                                second_focus=second, require_bearer=bearer)
               if ps is None and not _shift:

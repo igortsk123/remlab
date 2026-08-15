@@ -58,3 +58,16 @@ def test_cardinality_semantics_at_most_one():
     zp = json.load(open(os.path.join(HERE, '..', 'rules', 'zones.json'),
                         encoding='utf-8'))['zone_priority']
     assert zp['cardinality']['media']['rule'] == 'at_most_one_carrier'
+
+
+def test_single_tv_formula():
+    """C-2 (Кодекс Q-C): параллельных ТВ-формул нет — цель пар и вилки только
+    из канона planner/tv.py."""
+    tvsofa = open(os.path.join(HERE, '..', 'planner', 'tv_sofa.py'),
+                  encoding='utf-8').read()
+    assert 'media.w_cm - 20' not in tvsofa, 'аппроксимация цели пар вернулась'
+    assert 'distance_target(' in tvsofa
+    score = open(os.path.join(HERE, '..', 'planner', 'score.py'),
+                 encoding='utf-8').read()
+    assert 'hi = min(soft_hi, hi)' in score, 'FAR-дыра (скор мягче валидатора)'
+    assert 'by.get("тв-тумба") or by.get("стенка")' in score, 'стенка не скорится'

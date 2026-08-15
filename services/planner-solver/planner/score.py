@@ -97,18 +97,24 @@ def score_layout(room: Room, ps: list[Placement], *, fast: bool = False) -> Scor
     used = floor_used_pct(room, ps)
     s.add("floor_overfill", hinge(used, 0, cap_hi, scale=10.0), w["floor_fill"])
     # 2) зона: диван↔ТВ, диван↔столик — по нашим шкалам
-    if "диван" in by and "тв-тумба" in by:
-        stand_w = by["тв-тумба"].item.w_cm or 0
+    _car = by.get("тв-тумба") or by.get("стенка")
+    if "диван" in by and _car is not None:
+        # C-2 свода №11 (Кодекс): (1) СТЕНКА тоже скорится по дистанции (раньше —
+        # только тумба, стенка выпадала из терма вовсе); (2) верх штрафа = тот же
+        # порог, что у валидатора SOFA_TV_FAR (min(soft_hi, hi)) — закрыта дыра,
+        # где FAR фиксировался, но не штрафовался
+        stand_w = _car.item.w_cm or 0
         if stand_w >= 60:   # каноническая ТВ-функция (T6/verify); узкая тумба — legacy-шкала
             from .geometry import base_role as _br
             from .tv import distance_range
-            lo, hi, _ = distance_range(stand_w, bearer=_br(by["тв-тумба"].role))
+            lo, hi, soft_hi = distance_range(stand_w, bearer=_br(_car.role))
+            hi = min(soft_hi, hi)
         else:
             lo, hi = band_scale("sofa_tv_cm", room.band, distances().get("sofa_tv_cm", [180, 300]))
-        g = footprint(by["диван"]).distance(footprint(by["тв-тумба"]))
+        g = footprint(by["диван"]).distance(footprint(_car))
         s.add("sofa_tv_dist", hinge(g, lo, hi), w["sofa_tv_dist"])
-        s.add("sofa_faces_tv", focus_score(by["диван"], by["тв-тумба"]), w["sofa_faces_tv"])
-        s.add("tv_faces_sofa", focus_score(by["тв-тумба"], by["диван"]), w["tv_faces_sofa"])
+        s.add("sofa_faces_tv", focus_score(by["диван"], _car), w["sofa_faces_tv"])
+        s.add("tv_faces_sofa", focus_score(_car, by["диван"]), w["tv_faces_sofa"])
     if "диван" in by and "столик" in by:
         lo, hi = distances().get("sofa_coffee_table", [36, 46])   # W2: фикс-эргономика
         g = footprint(by["диван"]).distance(footprint(by["столик"]))
