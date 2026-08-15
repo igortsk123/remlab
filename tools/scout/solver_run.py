@@ -653,6 +653,8 @@ def attempt_beam():
     DINING_DIAG = (lay.meta or {}).get('dining')
     global MIRROR_STATS, ZONE_IDS, MEDIA_VALIDATION
     MIRROR_STATS = (lay.meta or {}).get('mirror')
+    global SEATING_SEARCH
+    SEATING_SEARCH = (lay.meta or {}).get('seating_search')
     # V3-H (PACKAGE I): identity зон — template/variant/mirror/why на уровне zone instance
     try:
         ZONE_IDS = {}
@@ -832,6 +834,7 @@ out['_templates']={r:{'id':t,'version':v} for r,(t,v) in (globals().get('TPL_BY_
 out['_dining']=globals().get('DINING_DIAG')   # объяснимость dining (свод №8 пакет B)
 out['_axes']=globals().get('QUALITY_AXES')    # пакет G: новые оси — только замер, без порогов
 out['_mirror']=globals().get('MIRROR_STATS')  # V3-H: счётчики зеркал Г-дивана
+out['_seating_search']=globals().get('SEATING_SEARCH')  # V4-B2: трейс лестницы посадки
 out['_zones']=globals().get('ZONE_IDS')       # V3-H: identity зон (template/variant/mirror)
 out['_media_validation']=globals().get('MEDIA_VALIDATION')   # V3-H: проверяемость экрана
 # V3-I свода №9 (§20): хранение у окна — экспорт проверки высоты (правило существующее:

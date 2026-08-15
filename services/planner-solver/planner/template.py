@@ -1351,6 +1351,8 @@ def _window_back_candidates(room: Room, sofa_item: Item, free: Polygon) -> list:
 
 # V3-H свода №9: счётчики зеркал Г-дивана последнего вызова (debug/export)
 LAST_MIRROR_STATS: dict | None = None
+# V4-B2 свода №10: трейс лестницы посадки последнего прогона (пишет zones.py)
+LAST_SEATING_SEARCH: dict | None = None
 
 
 def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,

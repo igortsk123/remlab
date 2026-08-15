@@ -112,11 +112,23 @@ def pick_group(room: Room, roles_available: set[str] | dict, seats_target: int |
 
 
 def pick_ladder(room: Room, roles_available: set[str] | dict,
-                skip: int = 0) -> list[dict]:
+                skip: int = 0, diag: list | None = None) -> list[dict]:
     """ЛЕСТНИЦА шаблонов посадки (план seating-template-ladder, владелец 13.08):
     упорядоченный список групп «от самой вместительной к соло», доступных по
     инвентарю сета. Спуск по лестнице = смена ШАБЛОНА (не вычитание предметов).
-    Порядок — данные (`zones.json → seating_ladder`), не код."""
+    Порядок — данные (`zones.json → seating_ladder`), не код.
+
+    V4-B1 (свод №10, Q37): band-список — НЕ жёсткий whitelist, а ВЕРХНИЙ КАП
+    масштаба + предпочтение. Прежде `gid not in band['groups']` выкидывал
+    sofa_armchair в комнатах >18 м² целиком (band'ы max25/30/999 его не содержат),
+    и солвер при одном кресле падал сразу к sofa_pouf — 149/269 сцен, у 137 кресло
+    оставалось в банке (аудит советника, подтверждено скаутом 1-в-1). Теперь:
+    ступени БОГАЧЕ богатейшей band-ступени по-прежнему недоступны (масштаб к
+    площади), но ВНИЗ лестница закрыта полностью — sofa_armchair пробуется ДО
+    sofa_pouf в любой комнате. Победу решают геометрия и медиа-минимум, не фильтр.
+
+    diag (V4-B2): если передан список — на каждую ступень глобальной лестницы
+    пишется {id, band_pref, inventory_complete, eligible} для seating_search."""
     from collections import Counter
     zr = zone_rules()
     um2 = usable_m2(room)
@@ -124,14 +136,21 @@ def pick_ladder(room: Room, roles_available: set[str] | dict,
     groups = {g['id']: g for g in zr['seating_groups']}
     have = Counter(dict(roles_available)) if isinstance(roles_available, dict) \
         else Counter({r: 999 for r in roles_available})
+    ladder = [g for g in zr.get('seating_ladder', {}).get('ladder', []) if g in groups]
+    band_set = set(band['groups'])
+    _first = next((i for i, g in enumerate(ladder) if g in band_set), 0)
     out = []
-    for gid in zr.get('seating_ladder', {}).get('ladder', []):
-        if gid not in groups or gid not in band['groups']:
-            continue
+    for i, gid in enumerate(ladder):
+        cap_ok = gid in band_set or i >= _first     # кап сверху, замыкание вниз
         g = groups[gid]
         need = Counter(r.split(' ')[0] for r in g['roles']['required']
                        if r.split(' ')[0] in SEATING_ROLES)
-        if all(have.get(role, 0) >= n for role, n in need.items()):
+        inv_ok = all(have.get(role, 0) >= n for role, n in need.items())
+        if diag is not None:
+            diag.append({'id': gid, 'band_pref': gid in band_set,
+                         'inventory_complete': inv_ok,
+                         'eligible': cap_ok and inv_ok})
+        if cap_ok and inv_ok:
             out.append(g)
     if skip:
         # dining_sacrifice: спуск на N ступеней ниже — жертва мест ради второй зоны
@@ -338,6 +357,7 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
     from . import template as _tplmod
     _tplmod.LAST_DINING_DIAG = None      # пакет B: свежий диагноз dining на каждый прогон
     _tplmod.LAST_MIRROR_STATS = None     # V3-H: счётчики зеркал — per solve
+    _tplmod.LAST_SEATING_SEARCH = None   # V4-B2: трейс лестницы — per solve
     os.environ.pop('_SCREEN_WINDOW_WAIVED', None)   # пакет D: вейвер экрана — per solve
     avail = {_base(i.role) for i in items}
     counts = Counter(_base(i.role) for i in items)
@@ -391,8 +411,17 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
             # если ни одна не дала минимум — берём первую вставшую (fallback).
             _has_bearer0 = any(_base(i.role) in ('тв-тумба', 'стенка') for i in keep)
             _fb_block = _fb_group = None
-            for _g in pick_ladder(room, dict(counts), skip=_ladder_skip):
+            # V4-B2 (свод №10): seating_search — трейс лестницы (аналог dining_search)
+            _seat_diag: list = []
+            _ladder_steps = pick_ladder(room, dict(counts), skip=_ladder_skip,
+                                        diag=_seat_diag)
+            _sseek = {d['id']: dict(d) for d in _seat_diag}
+            _tplmod.LAST_SEATING_SEARCH = _sseek
+            for _g in _ladder_steps:
+                _se = _sseek.setdefault(_g['id'], {'id': _g['id']})
                 _blk = place_template(room, _g['id'], keep, usable_polygon(room))
+                _se['generated'] = 1
+                _se['hard_valid'] = 1 if _blk else 0
                 if not _blk:
                     continue
                 if _has_bearer0:
@@ -400,6 +429,7 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                     _occ0 = _uu0([_fp0(p) for p in _blk if p.role.split(' ')[0] != 'ковёр'])
                     _m0 = _pm0(room, keep,
                                usable_polygon(room).difference(_occ0), fixed=_blk)
+                    _se['media_min'] = 1 if _m0 else 0
                     if not _m0:
                         if _fb_block is None:
                             _fb_block, _fb_group = _blk, _g
@@ -408,6 +438,7 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                             print(f"ZDBG лестница: ступень {_g['id']} встала, но БЕЗ "
                                   f"медиа — пробуем следующую", file=_sl.stderr, flush=True)
                         continue
+                _se['winner'] = True
                 block, group = _blk, _actual_step(_blk, _g, zone_rules())
                 if _has_bearer0 and _m0:
                     # ПРОБА = ФАКТ: медиа из проверки минимума входит в раскладку сразу
@@ -459,6 +490,9 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                             break
             if block is None and _fb_block is not None:
                 block, group = _fb_block, _fb_group
+                if '_sseek' in dir():
+                    _sseek.setdefault(_fb_group['id'], {}).setdefault(
+                        'winner', 'fallback_no_media')
                 # Пакет D свода №8: прежде чем принять ступень БЕЗ медиа — вейвер
                 # SCREEN_OVER_WINDOW (контурные комнаты: единственная стена носителя
                 # оконная; «носитель должен быть везде» — владелец 12.08 —
@@ -876,6 +910,9 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
         _mst = getattr(_tplmod, 'LAST_MIRROR_STATS', None)
         if _mst is not None:
             lay.meta['mirror'] = dict(_mst)   # V3-H: счётчики зеркал в экспорт
+        _ssk = getattr(_tplmod, 'LAST_SEATING_SEARCH', None)
+        if _ssk is not None:
+            lay.meta['seating_search'] = _ssk   # V4-B2: трейс лестницы в экспорт
         outs = [lay]
         if os.environ.get('ZONES_DEBUG'):
             import sys as _s

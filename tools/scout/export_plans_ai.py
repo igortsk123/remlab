@@ -169,6 +169,7 @@ def main():
             'axes': art.get('_axes'),
             'zones': art.get('_zones'),
             'mirror': art.get('_mirror'),
+            'seating_search': art.get('_seating_search'),
             'media_validation': art.get('_media_validation'),
             'bank_unused': rep.get('unused', []),
             'zones_tag': rep.get('templates'),
