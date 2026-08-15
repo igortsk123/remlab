@@ -1397,10 +1397,20 @@ LAST_MEDIA_AXIS: dict | None = None
 
 def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
                    fixed: list[Placement] | None = None,
-                   wall_only: bool = False) -> list[Placement] | None:
-    """Разговорная зона блоком: лучший hard-чистый вариант или None (фолбэк beam)."""
+                   wall_only: bool = False,
+                   enumerate_k: int | None = None):
+    """Разговорная зона блоком: лучший hard-чистый вариант или None (фолбэк beam).
+
+    P2 свода №12: enumerate_k=K → вместо первого успешного варианта каскада вернуть
+    СПИСОК до K hard-чистых вариантов блока (разные схемы/ранги позиций), в порядке
+    каскада; пустой список = None. Гипотезы посадки для beam-драйвера
+    (zones.solve_zoned_beam). enumerate_k=None — прежнее поведение 1-в-1."""
     if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
         return None
+    _enum: list[list[Placement]] | None = [] if enumerate_k else None
+    _enum_topo: list = []
+    def _uniq_key(ps):
+        return tuple(sorted((q.role, round(q.x), round(q.y), int(q.rot) % 360) for q in ps))
     # V3-H свода №9 (поправка рефери: зеркала НЕ first-clean): для Г-дивана ОБЕ
     # стороны решаются полностью, при обоюдной валидности выбор — существующим
     # лексикографическим ключом движка (score_layout → lexo_key), нового скора нет.
@@ -1420,9 +1430,14 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
                 update={'corner_left': _cl, 'corner_side_fixed': True})
                 for i in items]
             _ps = place_template(room, group_id, _it2, free, fixed=fixed,
-                                 wall_only=wall_only)
+                                 wall_only=wall_only, enumerate_k=enumerate_k)
             if _ps:
                 _stats[_side]['hard_valid'] = 1
+                if enumerate_k:
+                    for _one in _ps:          # P2: варианты обеих сторон — в общий пул
+                        _key = _lkm(0, 0, _slm(room, list(fixed or []) + _one).terms)
+                        _outs.append((_key, _side, _one))
+                    continue
                 _key = _lkm(0, 0, _slm(room, list(fixed or []) + _ps).terms)
                 _outs.append((_key, _side, _ps))
         LAST_MIRROR_STATS = _stats
@@ -1430,6 +1445,8 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
             return None
         _outs.sort(key=lambda t: t[0])
         _stats['winner'] = _outs[0][1]
+        if enumerate_k:
+            return [o[2] for o in _outs[:enumerate_k]]
         return _outs[0][2]
     by_role: dict[str, Item] = {}
     for it in items:
@@ -1576,6 +1593,34 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
                   # Прежние tv_range-кандидаты остаются фолбэком.
                   cands += _pair_sofa_candidates(room, b.anchor, free, tv)
                   cands += _tv_range_candidates(room, b.anchor, free, tv=tv)
+              if _enum is not None:
+                  # P2 свода №12: перечисление — top-K позиций этой схемы, каскад
+                  # продолжается, пока не наберём enumerate_k уникальных вариантов
+                  _pss = _best_block(room, b, free, cands, tv=tv, fixed=fixed,
+                                     second_focus=second, require_bearer=bearer,
+                                     top=max(2, int(enumerate_k)))
+                  for _one in (_pss or []):
+                      _kk = _uniq_key(_one)
+                      if _kk in {_uniq_key(e) for e in _enum}:
+                          continue
+                      # КВОТА РАЗНООБРАЗИЯ (Кодекс §3 п.3): по одному варианту на
+                      # топологию (схема × стена/rot дивана) — иначе K соседних
+                      # позиций одной формы, а гипотезы «другая стена / другая
+                      # схема / другой состав» не попадают в beam (владелец №16)
+                      _sofa1 = next((q for q in _one if q.role.split(' ')[0] == 'диван'),
+                                    _one[0])
+                      _topo = (shape, int(_sofa1.rot) % 360, round(_sofa1.x / 120),
+                               round(_sofa1.y / 120))
+                      if _topo in {e[0] for e in _enum_topo}:
+                          continue
+                      _enum_topo.append((_topo,))
+                      _variant0 = shape + ('+axis_shifted' if _shift else '')
+                      for _pv in _one:
+                          _pv.tpl_variant = _variant0
+                      _enum.append(_one)
+                      if len(_enum) >= enumerate_k:
+                          return _enum
+                  continue
               ps = _best_block(room, b, free, cands, tv=tv, fixed=fixed,
                                second_focus=second, require_bearer=bearer)
               if ps is None and not _shift:
@@ -1599,6 +1644,8 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
                   return ps
       finally:
         _FOCUS_LEVEL = 0
+    if _enum:
+        return _enum
     return None
 
 

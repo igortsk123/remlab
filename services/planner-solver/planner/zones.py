@@ -531,6 +531,14 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
             _seat_diag: list = []
             _ladder_steps = pick_ladder(room, dict(counts), skip=_ladder_skip,
                                         diag=_seat_diag)
+            # P2 свода №12: ГИПОТЕЗА посадки от beam-драйвера — лестница ограничена
+            # её ступенью, блок берётся готовым (медиа-минимум/цепочка — как обычно)
+            _hyp = kw.get('_hyp')
+            if _hyp:
+                _ladder_steps = [g for g in _ladder_steps if g['id'] == _hyp['group']] \
+                    or [next((g for g in zone_rules().get('seating_groups', [])
+                              if g['id'] == _hyp['group']), None)]
+                _ladder_steps = [g for g in _ladder_steps if g]
             _sseek = {d['id']: dict(d) for d in _seat_diag}
             _tplmod.LAST_SEATING_SEARCH = _sseek
 
@@ -569,7 +577,8 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                         and 'диван' not in {r.split(' ')[0]
                                             for r in _g['roles']['required']}:
                     continue
-                _blk = place_template(room, _g['id'], keep, usable_polygon(room))
+                _blk = (list(_hyp['block']) if _hyp
+                        else place_template(room, _g['id'], keep, usable_polygon(room)))
                 _se['generated'] = 1
                 _se['hard_valid'] = 1 if _blk else 0
                 if not _blk:
@@ -1304,3 +1313,151 @@ def lexo_key(hard_count: int, unplaced_required: int, terms: dict) -> tuple:
     for name, val in terms.items():
         lv[_TERM_LEVEL.get(name, 'zone_quality')] += float(val)
     return tuple(round(lv[k], 3) for k in LEVELS)
+
+
+# ---------------------------------------------------------------------------
+# P2 свода №12: BEAM ПО ПЛАНИРОВОЧНЫМ ГИПОТЕЗАМ (владелец: «плохо перебираются
+# комбинации — применяется первая попавшаяся»; Кодекс §3: greedy на уровне ступеней).
+# Гипотеза = (ступень лестницы, вариант блока посадки: схема/позиция/зеркало).
+# Каждая гипотеза достраивается ПОЛНОЙ цепочкой (медиа → dining → …) прежними
+# кирпичами, готовые планы сравниваются ЛЕКСИКОГРАФИЧЕСКИ; старый результат — всегда
+# гипотеза №0 (инвариант «не хуже прежнего»). Числа — rules/zones.json → beam.
+# ---------------------------------------------------------------------------
+
+def plan_key(room: Room, lay, needs: dict, seat_rank: int = 0) -> tuple:
+    """Ключ сравнения ГОТОВОГО плана (меньше — лучше):
+    (hard, missing_required, -covered_preferred, circulation, functional, zone_q, aesthetics).
+    Обязательность зон — из scenario_needs/zone_priority.status (данные)."""
+    from .score import score_layout
+    from .validate import Severity
+    ps = list(lay.placements)
+    hard = sum(1 for v in lay.violations if v.severity is Severity.HARD)
+    zp = zone_rules().get('zone_priority', {})
+    status = dict(zp.get('status') or {})
+    status['media'] = needs.get('media', status.get('media'))
+    status['dining'] = needs.get('dining', status.get('dining'))
+    from .geometry import base_role as _br
+    roles = {_br(p.role) for p in ps}
+    have = {'media': bool(roles & {'тв-тумба', 'стенка'}),
+            'dining': 'стол обеденный' in roles,
+            'seating': bool(roles & {'диван', 'кресло'})}
+    missing_req = sum(1 for z, st in status.items()
+                      if st == 'required' and z in have and not have[z])
+    covered_pref = sum(1 for z, st in status.items()
+                       if st == 'preferred' and have.get(z))
+    lk = lexo_key(hard, len(getattr(lay, 'unplaced', []) or []),
+                  score_layout(room, ps).terms)
+    # lk = (hard_feasibility, circulation, functional, zone_quality, aesthetics)
+    # Богатство посадки (LEVEL A / лестница: sofa_2armchairs выше sectional_armchair)
+    # — иначе beam спускался бы по лестнице: меньше предметов → меньше штрафов
+    # circulation (пруф set87-pylons). seat_rank = позиция ступени в порядке банка.
+    # (seat_rank — из драйвера: позиция ступени в pick_ladder, больший = богаче)
+    # Класс оси медиа (P1): centered(0) < offset(1) < relaxed/corner(2) — выше
+    # circulation-суммы: 128 см сбоку не компенсируется парой см прохода.
+    axis_cls = _axis_class(lay)
+    return (hard, missing_req, -covered_pref, -seat_rank, axis_cls) + tuple(lk[1:])
+
+
+def _axis_class(lay) -> int:
+    ax = ((getattr(lay, 'meta', None) or {}).get('axis_contract') or {}).get('media') or {}
+    c = ax.get('class')
+    return {'centered': 0, 'offset': 1}.get(c, 2 if c else 1)
+
+
+def solve_zoned_beam(room: Room, items, **kw):
+    """P2: драйвер beam. Возвращает (outs, gid) как solve_zoned; в meta лучшего —
+    'beam': {hypotheses, chosen, keys, certificate}. Выключен в данных → solve_zoned."""
+    cfg = zone_rules().get('beam', {})
+    if not cfg.get('enabled', False) or os.environ.get('LAYOUT_BEAM', '1') == '0':
+        return solve_zoned(room, items, **kw)
+    K_steps = int(cfg.get('ladder_steps', 2))
+    K_blocks = int(cfg.get('blocks_per_step', 3))
+    try:                                   # бюджет по режиму комнаты (данные)
+        from .room_map import room_mode as _rmode
+        _bm = (cfg.get('budget_by_mode') or {}).get(_rmode(room)) or {}
+        K_steps = int(_bm.get('ladder_steps', K_steps))
+        K_blocks = int(_bm.get('blocks_per_step', K_blocks))
+    except Exception:
+        pass
+    needs = scenario_needs(**{k: v for k, v in kw.items() if k in ('media_need', 'dining_need')})
+    # гипотеза №0 — прежний greedy-результат (всегда среди кандидатов)
+    base_outs, base_gid = solve_zoned(room, items, **kw)
+    cands = []
+    from collections import Counter as _C
+    _base = lambda r: r.split(' ')[0]
+    counts = _C(_base(i.role) for i in items)
+    steps_all = pick_ladder(room, dict(counts))
+    n_all = len(steps_all)
+    _rank = {g['id']: n_all - i for i, g in enumerate(steps_all)}   # верх лестницы — больший ранг
+    if base_outs and base_outs[0].placements:
+        _g0 = (base_gid or '').split('+')[0]
+        cands.append(('greedy', base_gid, base_outs,
+                      plan_key(room, base_outs[0], needs, seat_rank=_rank.get(_g0, 0))))
+    # ступени лестницы (те же, что видит greedy) — верхние K_steps
+    from .template import place_template as _pt
+    steps = steps_all[:K_steps]
+    _seen = set()
+    for g in steps:
+        variants = _pt(room, g['id'], list(items), usable_polygon(room),
+                       enumerate_k=K_blocks) or []
+        for vi, blk in enumerate(variants):
+            key = tuple(sorted((q.role, round(q.x), round(q.y), int(q.rot) % 360) for q in blk))
+            if key in _seen:
+                continue
+            _seen.add(key)
+            try:
+                outs, gid = solve_zoned(room, items, _hyp={'group': g['id'], 'block': blk}, **kw)
+            except Exception as e:           # гипотеза упала — не роняем сцену
+                if os.environ.get('ZONES_DEBUG'):
+                    import sys as _s
+                    print(f'ZDBG beam: гипотеза {g["id"]}#{vi} упала: {e!r}',
+                          file=_s.stderr, flush=True)
+                continue
+            if not outs or not outs[0].placements:
+                continue
+            cands.append((f'{g["id"]}#{vi}', gid, outs,
+                          plan_key(room, outs[0], needs, seat_rank=_rank.get(g['id'], 0))))
+    if not cands:
+        return base_outs, base_gid
+    # детерминированный порядок: ключ, затем стабильный индекс (greedy первым при равенстве)
+    order = sorted(range(len(cands)), key=lambda i: (cands[i][3], i))
+    best_i = order[0]
+    name, gid, outs, key = cands[best_i]
+    trace = {'hypotheses': [{'name': c[0], 'gid': c[1], 'key': list(c[3])} for c in cands],
+             'chosen': name, 'chosen_key': list(key),
+             'greedy_key': list(cands[0][3]) if cands[0][0] == 'greedy' else None,
+             'improved': bool(cands[0][0] == 'greedy' and best_i != 0)}
+    # сертификат: классы, недостижимые НИ В ОДНОЙ гипотезе (для объяснимости)
+    cert = {}
+    for zname, tag in (('dining', '+din'), ('media', '+tv'), ('quiet', '+qz')):
+        cert[zname] = any(tag in c[1] for c in cands)
+    trace['reachable'] = cert
+    for l in outs:
+        if isinstance(getattr(l, 'meta', None), dict):
+            l.meta['beam'] = trace
+            # ОБЪЯСНИМОСТЬ (тест pouf_wins_are_explained, V4-B2): трейс лестницы
+            # победителя дополняется записями о КАЖДОЙ перебранной beam-ступени
+            # (generated/hard_valid/лучший ключ) — «почему богаче не победила»
+            ss = l.meta.get('seating_search')
+            if isinstance(ss, dict):
+                for c in cands:
+                    gname = c[0].split('#')[0] if c[0] != 'greedy' else (c[1] or '').split('+')[0]
+                    rec = ss.setdefault(gname, {'id': gname})
+                    rec['generated'] = 1
+                    okh = int(c[3][0] == 0 and c[3][1] == 0)
+                    rec['hard_valid'] = max(int(rec.get('hard_valid') or 0), okh)
+                    bk = list(c[3])
+                    if rec.get('beam_best_key') is None or bk < rec['beam_best_key']:
+                        rec['beam_best_key'] = bk
+                # победитель beam — единственный winner в трейсе
+                win_group = name.split('#')[0] if name != 'greedy' else (gid or '').split('+')[0]
+                for gk, rec2 in ss.items():
+                    if not isinstance(rec2, dict):
+                        continue
+                    if gk == win_group:
+                        rec2['winner'] = True
+                        rec2['beam_winner'] = name
+                    elif rec2.get('winner'):
+                        rec2['winner'] = False
+                        rec2['lost_to_beam'] = name
+    return outs, gid

@@ -586,9 +586,15 @@ def attempt_beam():
     if lay is None:
         if ENGINE == 'zoned':
             # Z3/Z5: зонный солвер — группа по полезной площади, лексо-отбор (A/B со старым)
-            from planner.zones import solve_zoned
+            # P2 свода №12: beam по гипотезам посадки (rules/zones.json → beam;
+            # LAYOUT_BEAM=0 — A/B с прежним greedy)
+            from planner.zones import solve_zoned_beam as solve_zoned
             outs, _gid = solve_zoned(room_p, its, top_k=1)
             print(f"зонная группа: {_gid}", flush=True)
+            _bm = (outs[0].meta or {}).get('beam') if outs else None
+            if _bm:
+                print(f"BEAM chosen={_bm.get('chosen')} improved={_bm.get('improved')} "
+                      f"n={len(_bm.get('hypotheses', []))}", flush=True)
         else:
             outs = _solve(room_p, its, top_k=1)
         if not outs:
@@ -657,7 +663,8 @@ def attempt_beam():
     SEATING_SEARCH = (lay.meta or {}).get('seating_search')
     global AXIS_CONTRACT
     AXIS_CONTRACT = (lay.meta or {}).get('axis_contract')
-    global INFEASIBLE_REASON, SCENARIO_NEEDS
+    global INFEASIBLE_REASON, SCENARIO_NEEDS, BEAM_TRACE
+    BEAM_TRACE = (lay.meta or {}).get('beam')                     # P2 свода №12
     INFEASIBLE_REASON = (lay.meta or {}).get('infeasible_reason')   # P1 свода №12
     SCENARIO_NEEDS = (lay.meta or {}).get('scenario_needs')         # P0 свода №12
     # V3-H (PACKAGE I): identity зон — template/variant/mirror/why на уровне zone instance
@@ -868,6 +875,7 @@ out['_mirror']=globals().get('MIRROR_STATS')  # V3-H: счётчики зерк�
 out['_seating_search']=globals().get('SEATING_SEARCH')  # V4-B2: трейс лестницы посадки
 out['_axis_contract']=globals().get('AXIS_CONTRACT')    # V4-D: оси столика/медиа
 out['_infeasible_reason']=globals().get('INFEASIBLE_REASON')  # P1 свода №12: честный отказ
+out['_beam']=globals().get('BEAM_TRACE')                    # P2 свода №12: гипотезы и выбор
 out['_scenario_needs']=globals().get('SCENARIO_NEEDS')        # P0 свода №12: вход сценария
 out['_zones']=globals().get('ZONE_IDS')       # V3-H: identity зон (template/variant/mirror)
 out['_media_validation']=globals().get('MEDIA_VALIDATION')   # V3-H: проверяемость экрана
