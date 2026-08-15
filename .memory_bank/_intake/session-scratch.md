@@ -13,3 +13,4 @@
 > только для этого диалога. Значения секретов — НИКОГДА (только в `_secrets/`, вне git).
 
 <!-- SCRATCH START — /memory-check переносит обработанное в банк и усекает до этой метки -->
+- 15.08: свод №12 — комментарии владельца по галерее (13 планов) → самоанализ → аудит Кодекса (песочница починена: AppArmor-профиль /etc/apparmor.d/codex-bwrap-userns для vendored bwrap; причина — apparmor_restrict_unprivileged_userns резал net_admin) → метаплан plans/MASTER-zones-v6.md (draft, P0–P6). Находки: media required при cardinality at_most_one (0 легален); паспорта богаче runtime (u, media_storage_combo); fill-цели несогласованы (25% в данных нет); greedy на уровне ступеней. Кодекс: codex exec --ephemeral --sandbox read-only -C <repo> - < prompt (правило autoMode.allow добавлено владельцем в settings.local.json). Код не трогали.
