@@ -1711,3 +1711,40 @@ rules_audit 0; тихий edge 0; двойных носителей 0.
 **Влияет на.** [[layout]], zones/template/tv_sofa/score/validate/quality/clearances/
 geometry, rules (zones/occupancy), compose2, тесты (contract_sanity, quiet_zone,
 bank_coverage), планки (FAR 41, dining 210).
+
+## ADR-0106 — Свод №12 (комментарии владельца по галерее + аудит Кодекса): beam по гипотезам, контракт медиа, паспорта=runtime (2026-08-16)
+**Решение.** Метаплан P0–P6 (`completed_plans/MASTER-zones-v6.md`) по 13 планам галереи и
+независимому аудиту Кодекса (repo+web; песочница починена AppArmor-профилем для vendored bwrap).
+(P0) Единый кап пола — occupancy `dynamic.floor_cap_pct` (плоская таблица → указатель; композитор
+уже читал dynamic — Кодекс здесь ошибся); `scenario_needs` в zones.json: `media_need=required`,
+`dining_need=preferred` — «общепринятые» дефолты с источниками (решение владельца), override на
+входе, `off` выключает зону; нумерация галереи = порядок acceptance-scenes.json. «25%» — цели в
+данных нет: кап ≠ цель (fill_policy 30–45 — диагностика).
+(P1) `required ⇒ exactly_one_carrier`: `MEDIA_MISSING` hard ФИНАЛЬНО (в validate() нельзя — бьёт
+промежуточные блоки); known-list focus-empty снят — set80-L/set21-mir* = честный infeasible.
+Аналитические кандидаты на оси дивана + терм `media_axis_offset` (functional, квант 5 см
+`layout_rules.media_axis_tie_cm`): медиана offset centered ~10→0.0. `media_lookahead` (top-3
+носителей с пробой столовой; каузальный пруф set25-bay).
+(P2) `solve_zoned_beam`: `place_template(enumerate_k)` с квотой разнообразия по топологии, `_hyp`-
+инъекция в лестницу, `plan_key` готовых планов (hard → missing_required → -covered_preferred →
+-seat_rank[лестница] → axis_class → circulation → functional → zone → aesthetics), greedy = гипотеза
+№0, детерминизм, бюджет по room_mode (small 3×4 / medium 3×3 / large 2×2 / large_xl≥40 м² 1×2),
+трейс гипотез + сертификат reachable, seating_search дополняется перебранными ступенями.
+Beam улучшил 115/272 сцен, dining база 210→220 (планка).
+(P3) Формы посадки — в паспорте (`seating_groups[].shapes`, `u` для sofa_2armchairs);
+`media_installation` (носитель+компаньоны хранения) как beam-гипотеза `/inst` в large (не локальный
+лексо-выбор — у неё больше предметов); 37 схем паспортов со статусами `implemented_as`/`sleeping`;
+`template_gaps` репортит спящие. (P4) alt-«кресло 2» в банк ≥25 м² (= room_mode large), только при
+кресло qty<2 (иначе фантомные габариты). (P5) пилон/выступ — заливка+подпись; фасад словами с
+приоритетом фокуса вместо градусов; пуф — назначение. (P6) классовые гейты, explainability 13
+сцен, слепые пары `tools/scout/blind_pairs.py` (/test/blind/, ключ вне публикации).
+**Не решено (честно):** стол у стены (остров недостижим ни в одной гипотезе; `edge_nook` —
+catalog_gap), наполняемость длинных (residual-паспорта sleeping: catalog_gap), инсталляция в
+корпусе проигрывает по оси/камину. Скорость: beam ×1.5, компенсировано 10 воркерами (12 ядер);
+оптимизация — после «реально нормально работает» (решение владельца).
+**Гейты финала:** 269 ok + 3 честных MEDIA_MISSING; dining база 220; медиа 252/252; ось 0.0/1.7;
+pytest 200; rules_audit 0.
+**Влияет на.** [[layout]], zones/template/validate/score/candidates, rules (zones/occupancy/
+templates/weights/registry/severity), compose2, solver_run/acceptance_run/gallery/export,
+тесты (scenario_contract, beam_hypotheses, passport_parity, render_semantics, bank_coverage),
+планки (dining 220, ось медиана ≤5).

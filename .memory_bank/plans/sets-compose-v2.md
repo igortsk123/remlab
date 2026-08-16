@@ -2,9 +2,9 @@
 workstream: furniture
 slug: sets-compose-v2
 title: Автосборка сетов v2 — «как дизайнер» (стиль, гамма, пропорции, embeddings)
-status: in_progress
+status: partial
 created: 2026-08-01
-updated: 2026-08-01
+updated: 2026-08-16
 completed:
 ---
 
@@ -96,3 +96,4 @@ completed:
 
 ## Follow-up work
 - [ ] Порт v2 в прод (living-room-sets Ф5); подбор-по-фото юзера на тех же embeddings
+- 2026-08-16 — переведён в partial (аудит PLAN-STUCK): работа остановилась 01.08 при смене курса (свод №12 / зонный солвер, compose2 — преемник по сетам). Не завершён и не отменён — решение о продолжении/отмене за владельцем.
