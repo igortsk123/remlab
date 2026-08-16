@@ -20,6 +20,8 @@ completed:
 (`_intake/codex-audit-blind-round1.md`, /test/codex-blind-round1.md) — мнения совпали;
 + каталожный аудит nook/консоль (`_intake/codex-audit-catalog-nook.md`, /test/codex-catalog-nook.md,
 выгрузка `_intake/catalog-extract-nook.txt`) — владелец согласен с моделью Кодекса.
+Ревью драфта Кодексом (`_intake/codex-review-v7-draft.md`): порядок исправлен (формы кресел ДО ключа,
+сертификатный контракт, identity-адаптер, Q5 разбит, слепой протокол 80+12); учтено ниже.
 
 ## Диагноз (проверено по коду/артефактам)
 1. **plan_key ≠ глаз владельца.** Номинальный `seat_rank` (имя ступени) стоит выше прохода/
@@ -44,89 +46,111 @@ completed:
    посадку в сложенном), 7 круглых ≤110. Разделять категории размером нельзя (высота 68 —
    подлокотники, не сиденье; длинный пуф ≠ банкетка).
 
-## Пакеты (порядок критичен)
+## Пакеты (порядок критичен; зависимости указаны)
+Общий гейт каждого selection-changing пакета: frozen manifest 272 сцен + hash банка/правил/флагов;
+ни одна планка не снижается (планки — по базе №1–252: dining ≥220, медиа 252; сцены №253+
+append-only, отдельно: 269 ok + 3 сертифицированных MEDIA_MISSING); пороги только в JSON с
+`value/unit/semantics/provenance/status`; новые приоритеты — ОТДЕЛЬНЫЕ лексо-поля, НЕ веса
+(`weights.json` не трогаем); 0 фантомных габаритов; детерминизм (hash повтора); новых
+таймаутов нет, p95 ≤1.5× baseline.
 
-### Q0 — Целостность банка composer→solver + диагностика (без изменения выбора)
-- `solver_run`: в FLOOR попадают ВСЕ напольные роли банка, включая нумерованные отдельные SKU
-  (`кресло 2/3/4`, `диван 2`, `стеллаж 2`, `комод 2`) со своими габаритами; артефакт получает
-  `_input_bank` (роль → SKU габарит) и `_bank_unused` (роль → причина: `filtered_adapter` /
-  `not_in_template` / `no_fit` / `quality_gate`).
-- Новые метрики ТОЛЬКО как диагностика в артефакте (`_view`): `entry_sightline_gap_cm`
-  (мин. зазор дверь→коридор диван–ТВ, коридор = ширина экрана+2×запас), `armchair_tv_angles`
-  (углы всех кресел к ТВ, `media_seat_ok = any ≤45°`), `dining_view_cone_overlap_pct`
-  (доля footprint столовой в конусе диван→ТВ, полуугол 45°), `frontal_companions`
-  (число стеллаж/витрина/комод/кашпо на стене носителя, сам носитель не считается),
-  `armchair_tv_dist_ratio` (max d_кресло-ТВ / d_диван-ТВ), `realized_seats/armchairs/footrest`.
-- Гейт: артефакты воспроизводят сигнатуры blind-пар (01: 49/166; 05: 34.5 vs 54/81; 10: 0/94%);
-  экзамен без изменения выбора (метрики не в ключе); pytest.
+### Q0 — Baseline + диагностика + metric contract (выбор не меняется)
+- Метрики ТОЛЬКО в артефакт (`_view`): `entry_sightline_gap_cm` (мин. зазор дверь→коридор
+  диван–ТВ), `armchair_tv_angles` + `media_seat_ok(≤45°)`, `dining_view_cone_overlap_pct`
+  (конус 45°), `frontal_companions` (стеллаж/витрина/комод/кашпо на стене носителя),
+  `armchair_tv_dist_cm` vs `sofa_tv_dist_cm`, `realized_armchairs`, `realized_valid_flex_seats`,
+  `has_actual_footrest` (пуф в зоне ног ≤110 см от посадки, не любой пуф).
+- Fixtures: rectangle/L/trapezoid, несколько дверей, стенка как носитель.
+- Гейт: выбор плана бит-в-бит прежний; blind-сигнатуры воспроизводятся (01: 49/166 см;
+  05: 34.5° vs 54/81°; 10: dining-cone 0/94%) с допуском; pytest.
 
-### Q1 — Правила из данных с пруфами (пороги, не веса)
-- `zones.json → view_contracts`: `entry_sightline_min_gap_cm` (76 = действующий проход, H&G
-  «не вести трафик перед ТВ»), `media_seat_angle_max_deg` 45 (Wayfair: акцентное кресло под
-  углом к ТВ), `dining_view_cone_deg` 45 + `overlap_max_pct` 10 (owner-derived, помечено
-  гипотезой), `frontal_companions_class` {0,1,≥2} по площади (≥20 м² ≥1, ≥30 м² ≥2 — только
-  если атомарная сборка достижима; H&G storage-ideas), `armchair_tv_dist_ratio_max` 1.0+30 см
-  (гипотеза pair03), corner-контракт <30 м² выше насыщенности.
-- `TALL_ON_TV_WALL`: не штрафовать достижимую композицию `media_installation`/компаньонов
-  (скоуп правила — «перегружена», а не «есть компаньон»).
-- Гейт: rules_audit 0; каждое правило — с источником и пометкой «замер/гипотеза».
+### Q1 — Identity-адаптер банк→солвер (shadow → scoped on)
+- `solver_run`: raw bank без разрушительной нормализации; каждый SKU — `instance_id`,
+  `base_role`, `bank_role`, `usage_scope`; qty-копии только если нет явной роли с тем же именем
+  (`кресло 2` alt-SKU не перетирается qty-копией); `диван 2` семантику не расширять;
+  `кресло 3/4` активировать сначала как `secondary_quiet` (исключены из counts главной лестницы);
+  `стеллаж 2`/`комод 2` — shadow до storage-пакета. Phantom-check — по SKU id, не по имени роли.
+- Артефакт: `_input_bank` и `_bank_unused` с терминальной причиной ∈ {adapter_excluded,
+  not_claimed_by_enabled_template, template_infeasible, quality_rejected, feasible_not_selected,
+  reserved_alternative, placed}.
+- Гейт: при флагах off — hash == Q0; каждый SKU имеет ровно одну причину; set110/set126
+  передают кресла 3/4 с габаритами SKU; экзамен без новых таймаутов.
 
-### Q2 — Новый plan_key (по глазу владельца) + фактическая посадка
+### Q2 — Правила и provenance (данные)
+- `zones.json → view_contracts`: `entry_sightline_min_gap_cm` (76 — действующий проход, H&G
+  «не вести трафик перед ТВ», status=measured), `media_seat_angle_max_deg` 45 (Wayfair; measured
+  на blind), `dining_view_cone_deg` 45 + `overlap_max_pct` 10 (owner-derived, status=hypothesis
+  → shadow до контрфактуалов), `frontal_companions_min` по площади (≥20 м² 1, ≥30 м² 2 — только
+  если атомарная сборка достижима; hypothesis → shadow), `armchair_tv_dist_extra_cm` 30
+  (d_chair_tv ≤ d_sofa_tv + 30; hypothesis) + screen-based range, corner-контракт <30 м².
+- `TALL_ON_TV_WALL`: освобождает ТОЛЬКО компаньона того же атомарного `media_installation`.
+- Гейт: rules_audit 0; нет новых порогов-литералов в Python; ничего не добавлено в weighted score.
+
+### Q3 — Медиапригодные формы кресел + сертификаты достижимости (зависит от Q1+Q2)
+- `build_block`: `media_parallel` (одиночное кресло 0°/45°/315°), `media_bridge` (пара
+  45°/315° вместо 135°/225°); intent-метки шаблонов `media_primary/conversation/quiet/fireplace`
+  (паспорт `seating_groups[].shapes` + `intent`); квота beam на ≥1 media-aware форму, в т.ч. в
+  `large_xl`. Проверка угла — к ФАКТИЧЕСКОМУ ТВ на готовом плане, не к локальной ротации.
+- Сертификат `reachable_media_seat_ok` = существует hard-valid media_primary-гипотеза с креслом
+  ≤45° к фактическому ТВ; иначе `SEARCH_GAP_MEDIA_SEAT` в артефакте.
+- Гейт: для каждого media_primary fixture с достижимой геометрией в пуле есть такой кандидат;
+  conversation/quiet/u остаются достижимыми; pair05/09 — smoke.
+
+### Q4 — Новый plan_key (shadow, затем default после Q7; зависит от Q3)
 ```
-(hard, missing_required,
- entry_sightline_violation, media_seat_contract_violation, dining_view_cone_violation,
- corner_contract_violation(<30 м²),
- missing_valid_preferred (столовая в конусе — НЕ покрытие),
- frontal_composition_class, seating_deficit_by_area (armchair_policy count_by_area_m2),
- -realized_seats, -realized_armchairs, -has_footrest,
+(hard_count, missing_required_zones, unplaced_required_items,
+ entry_sightline_violation, media_seat_violation_if_reachable, dining_view_cone_violation,
+ small_room_corner_violation(<30 м²),
+ missing_reachable_valid_preferred (столовая в конусе — НЕ покрытие; storage учитывается),
+ frontal_composition_deficit, seating_deficit(armchair_policy count_by_area_m2),
+ -realized_armchairs, -realized_valid_flex_seats, -has_actual_footrest,
  axis_class, circulation, functional, zone_quality, aesthetics)
 ```
-- Номинальный `seat_rank` — убрать (или последний диагностический tie-break); `have.storage`.
-- Гейт: пары 01/02/04/05/07 ранжируются как выбрал владелец, 08/10 — как beam; hard и
-  required-покрытие не хуже; dining ≥220, медиа 252, ось ≤5; **обязательно новый слепой
-  раунд на ДРУГИХ сценах** (не 10 использованных) — ≥15 пар; критерий фальсификации:
-  если нарушение выбирается ≥8/15 — приоритет снять.
+- Номинальный `seat_rank` убран. Unit-тесты доминирования каждого яруса над нижними.
+- Гейт: 10 пар раунда 1 — smoke (01/02/04/05/07 → greedy-выбор, 08/10 → beam), production —
+  ТОЛЬКО после Q7; планки не хуже.
 
-### Q3 — Атомарные медиапригодные формы кресел
-- `build_block`: `media_parallel` (одиночное кресло 0°/45°/315° к ТВ, рядом с диваном),
-  `media_bridge` (пара 45°/315° вместо 135°/225°); intent-метки шаблонов
-  (`media_primary`/`conversation`/`quiet`/`fireplace`); требование «≥1 кресло ≤45°» — только
-  к `media_primary`; `facing`/`u`/quiet — легальны как разговорные/вторичные.
-- Паспорт (`seating_groups[].shapes` — с P3 в данных); beam перебирает новые формы.
-- Гейт: для каждой медиагруппы с креслами существует гипотеза с креслом ≤45° (pair05/09
-  получают её без hard); ковёр/столик/симметрия не ломаются (тесты форм).
+### Q5 — Посадка по площади и второй pod (зависит от Q1+Q4)
+- `кресло 3/4` для large с 25 м² (композитор), парой ОДНОЙ модели/коллекции (случайная пара
+  запрещена); `seating_deficit` в ключе; в сцене не допускается одно кресло, если существует
+  кандидат с ≥2 и не худшим префиксом ключа до `seating_deficit`; 40+ — hard-valid second-zone
+  кандидат либо причина ∈ {inventory_gap, template_infeasible, quality_rejected,
+  search_budget_exhausted}. Бюджет large_xl — квота на второй pod.
 
-### Q4 — Посадка по площади (после Q0!) и вторая зона
-- `armchair_policy.count_by_area_m2` (≥25 м²: 2–4) → `seating_deficit` класс в ключе;
-  композитор: `кресло 3/4` для large с 25 м² (не 40), только парой одной коллекции/модели
-  (случайная пара запрещена); бюджет beam large_xl проверить — вторая зона должна попадать
-  в поиск (иначе сертификат невозможности).
-- Гейт: ≥25 м² не завершаются с одним креслом при двух размещаемых SKU; 40+ — вторая зона
-  или сертификат; дифф sets3 объясним; планки.
+### Q6a — Capability-модель каталога (данные)
+- `cat_role` не менять; capabilities SKU (`seat_length/depth/height`, `has_back`,
+  `wall_seat_capable`, `dining_seat_capable`, `nominal_seats`, `source_role`, `console_capable`,
+  evidence per attribute); одна планировочная роль-слот `банкетка`; 152 кушетки сохраняют
+  категорию (capability на 42); `seat_height` ≠ общая h; исключённые категории (уголки, книжки)
+  проверяются по source/category ID; `dining_foldable` sleeping до state-data
+  (closed/open, usable_seats_closed, closed_state_is_dining).
+### Q6b — `build/place_edge_nook` (зависит от Q6a)
+- Атом: банкетка спинкой к стене + стол + ≥2 стула со свободных сторон, или ничего; уникальный
+  zone instance; door swing/pullout/route hard. Синтетические тесты.
+### Q6c — Nook bundles + production каскад dining (зависит от Q6b)
+- Композитор `alternative_bundles` (взаимоисключающие паспорта, ≤1 dining/residual bundle на
+  сет; после добавления заново считаются total/style/diversity/identity/envelope — НЕ «после
+  total» как alt-armchair); каскад island → round_compact → edge_nook → naked edge.
+- Гейт: на frozen cohort «остров infeasible» доля naked edge строго ↓; ни один hard-valid
+  island не заменён nook; role conservation.
+### Q6d — Round compact (зависит от Q6a): круг = окружность реального диаметра, не bbox.
+### Q6e — Low storage / console capability (последним; зависит от Q6a)
+- `консоль` роли нет; узкие комоды/тумбы `console_capable` (Г ≤40 за диваном; h ≤ спинка+5 hard /
+  ≤ спинка preferred; ширина ≥⅔ дивана — свести zones.json:376/749); service envelope ящиков;
+  wall-run раньше behind-sofa.
 
-### Q5 — Nook / консоль / круглый стол из фида (модель Кодекса, согласована владельцем)
-- **Данные:** `cat_role` не менять; capabilities SKU: `seat_length/depth/height`, `has_back`,
-  `wall_seat_capable`, `dining_seat_capable`, `nominal_seats`, `source_role`. Одна новая
-  планировочная роль-слот `банкетка` (проецируется из «пуф»/«кушетка»/скамья по
-  capabilities; seat_height ≠ общая h). Кушетки: capability на 42 подходящих, категория
-  сохраняется. `консоль` роли НЕТ: узкие комоды/тумбы — флаг `console_capable`
-  (Г ≤40 за диваном; h ≤ спинка+5 hard / ≤ спинка preferred; ширина ≥⅔ дивана — свести два
-  места zones.json:376/749 в одно). Круглые компакт ≤110 (7 SKU) — circular footprint.
-  `dining_foldable` — sleeping до state-data (closed/open, usable_seats_closed).
-- **Солвер:** `build/place_edge_nook` (банкетка спинкой к стене + стол + ≥2 стула со свободной
-  стороны, атомарно; проходы/pullout/дуга двери); каскад dining: island → round_compact →
-  edge_nook → naked edge; `behind_sofa_low_storage` — placement относительно фактического дивана;
-  quiet — только через bank coverage.
-- **Композитор:** `alternative_bundles` (взаимоисключающие паспорта, ≤1 residual/dining bundle
-  на сет; вне fill-cap, но ВНУТРИ style/tier/quality/SKU-identity/slot-envelope гейтов — не
-  копировать alt-armchair «после total»).
-- Гейт: role conservation (152 кушетки остаются; SKU не одновременно диван и банкетка);
-  nook атомарен; island не теряет приоритет где hard-valid; naked-edge доля ↓ на сценах,
-  где остров infeasible; вторая функциональная зона в large/elongated ↑; планки.
-
-### Q6 — Слепой раунд 2 + отчёт
-- Новые пары (≥15) на сценах, не участвовавших в раунде 1; A/B перемешаны; ключ вне публикации.
-- Отчёт до/после, explainability, память.
+### Q7 — Слепая валидация раунд 2 + rollout (зависит от всех активируемых)
+- Протокол: 10 пар раунда 1 — только smoke; **80 новых пар** на ранее не использованных сценах
+  (по 15 one-property контрфактуалов на каждый из 5 контрактов: маршрут, media-seat, dining-cone,
+  corner, frontal + 5 целостных) + **12 скрытых повторов** с инверсией A/B; стратификация:
+  ≥20 сцен <20 м², ≥20 20–29.9, ≥20 ≥30 (из них ≥10 40+); ≥20 elongated, ≥20 сложных контуров,
+  ≥20 с 2+ проёмами; покрыть 0/1/2/4 кресла, прямой/Г-диван, банки с/без инсталляции.
+  Пороги/порядок ключа заморожены ДО раунда.
+- Фальсификация яруса: нарушающий вариант выбран ≥8/15 → ярус не включать; <10 решающих ответов
+  → неопределённо (не «пройдено»). Deploy-гейт: нижняя граница 95% Wilson CI доли побед нового
+  выбора > 0.5; повторяемость ≥10/12. Иначе — остаётся shadow.
+- Два релиза: (1) core-ranking + second pod (Q0–Q5, Q7), (2) каталожная волна (Q6a–e) со своим
+  раундом.
 
 ## Скоуп — что НЕ входит
 - «Кухонные уголки», «Столы-книжки» (владелец); LLM-расстановщик; изменение размеров SKU;
@@ -135,24 +159,30 @@ completed:
 ## Файлы к изменению (ориентир)
 - [ ] `tools/scout/solver_run.py` — Q0 (FLOOR все роли; _input_bank/_bank_unused; _view метрики)
 - [ ] `services/planner-solver/planner/{quality,score,validate,zones,template}.py` — Q0–Q3
-- [ ] `services/planner-solver/rules/{zones,templates,occupancy,registry,severity,weights}.json` — Q1/Q3/Q5
+- [ ] `services/planner-solver/rules/{zones,templates,occupancy,registry,severity}.json` — Q2/Q3/Q6 (weights.json НЕ трогаем)
 - [ ] `tools/scout/{compose2.py,category_map.py?,capabilities.py(new)}` — Q4/Q5
 - [ ] `services/planner-solver/tests/*` — гейты всех пакетов; `tools/scout/blind_pairs.py` — раунд 2
 
 ## Критерии приёмки мастера
-- [ ] Q0: банк 1:1 в солвер; `_bank_unused` с причинами; метрики воспроизводят blind-сигнатуры
-- [ ] Q2: 01/02/04/05/07 → greedy-выбор, 08/10 → beam; планки не хуже
-- [ ] Q3: гипотеза с креслом ≤45° существует для медиагрупп
-- [ ] Q4: ≥25 м² — ≥2 кресла при наличии SKU; large_xl — вторая зона или сертификат
-- [ ] Q5: nook ставится там, где остров infeasible и bundle есть; role conservation
-- [ ] Q6: слепой раунд 2 ≥15 пар — beam предпочтён чаще greedy (иначе — разбор ключа заново)
+- [ ] Q0: выбор бит-в-бит прежний; метрики воспроизводят blind-сигнатуры
+- [ ] Q1: каждый SKU банка — ровно одна терминальная причина; флаги off ⇒ hash == Q0
+- [ ] Q3: для media_primary fixtures есть hard-valid кандидат ≤45° к фактическому ТВ
+- [ ] Q4: 10 пар раунда 1 — smoke; production только после Q7
+- [ ] Q5: ≥25 м² — ≥2 кресла при наличии SKU одной модели; 40+ — вторая зона или причина
+- [ ] Q6: nook там, где остров infeasible и bundle есть; role conservation; naked-edge ↓
+- [ ] Q7: 80+12 пар, Wilson CI >0.5, повторяемость ≥10/12 — иначе shadow
 
 ## Definition of Done — память
 - [ ] ADR; `core/layout.md`; уроки; `/memory-check` чисто
 
-## Открытые вопросы владельцу
-1. Порог «столовая в конусе взгляда» — 45°/10% как гипотеза; ок стартовать и калибровать раундом 2?
-2. Слепой раунд 2 — 15–20 пар, готов посмотреть?
+## Открытые вопросы владельцу (только его решения)
+1. Слепой раунд 2 — **80 новых пар + 12 скрытых повторов** (в несколько заходов, без раскрытия
+   результатов и без правки правил по ходу) — готов?
+2. Owner-derived пороги (столовая в конусе 45°/10%, компаньоны ТВ-стены 1/2) — сразу в ключ или
+   shadow до своих 15 контрфактуалов? (Кодекс и я рекомендуем shadow.)
+3. Три честных `MEDIA_MISSING` — допустимы как пользовательский отказ «решение не найдено», или
+   релиз блокируется до 272/272 с носителем?
+4. Два релиза (core-ranking + second pod; затем каталожная волна nook/консоль) — или ждать всё вместе?
 
 ## Лог выполнения
 - 2026-08-16 — план создан (draft) по слепой оценке раунд 1 + каталожному аудиту.
