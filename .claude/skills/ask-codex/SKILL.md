@@ -139,6 +139,20 @@ Use a prompt conceptually like:
 >
 > If information is insufficient, say exactly what is missing rather than guessing.
 
+## Step 3b — Persistent project session (preferred for follow-ups)
+
+The project keeps ONE persistent Codex session that was onboarded on the repo and memory bank
+(id in `.memory_bank/core/access-and-integrations.md`, section «Codex»). Prefer it for follow-up
+questions, design reviews and catalog/data questions — the prompt then only needs (a) what changed
+since last time (commits/files) and (b) the question:
+
+```bash
+codex exec resume <SESSION_ID> --sandbox read-only -C "${CLAUDE_PROJECT_DIR:-$PWD}" - < prompt.md
+```
+
+Use `--ephemeral` (fresh session, no memory of our hypotheses) ONLY when independence matters
+(step 2: first consultation on a contested root cause). Re-onboard a new session every few «svods».
+
 ## Step 4 — Invoke Codex
 
 Preflight — confirm the CLI exists before building a long prompt:
