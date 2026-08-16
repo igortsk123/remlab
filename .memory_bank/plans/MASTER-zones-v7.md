@@ -214,6 +214,29 @@ append-only, отдельно: 269 ok + 3 сертифицированных MED
   несколько зон в больших (H&G, AD). Гипотезы владельца без универсальной нормы (25%, «Г-диван всегда
   в углу», площадь для 2 кресел) — статус hypothesis, проверять слепо.
 
+
+## Ревизия зон гостиной: практика ↔ наши шаблоны (16.08; агент `_intake/zones-practice-vs-ours-agent.md` +
+Codex `_intake/codex-zones-practice.md`, независимый веб-поиск, источники в файлах)
+Совпало: базовый репертуар посадки покрыт; главные дыры — медиапригодная богатая посадка, несколько
+полноценных зон в large, nook/round dining, консоль/делитель, честная геометрия спец-SKU.
+Поправки Codex к моей таблице (приняты): Q3-формы ещё НЕ реализованы; `media_fireplace` — только
+side-by-side (ТВ над камином — не делать без данных о камине); `bay_armchair` — кресло в нише, не
+window seat; `media_installation` не гарантирует симметрию; `sofa_loveseat` — имя, «диван 2» без
+семантики loveseat; «стол за спинкой» — топология кандидата, не новый шаблон. Лишнее (не в правила):
+«18–22 ft → 2 зоны», «50″ между зонами» — принцип есть, универсальных порогов нет; бар/рабочее место —
+вне скоупа; парные лампы/side tables/два ковра — не атомы.
+**Добавить в план (приоритет P0):** Q3 — `sectional_2armchairs_media`, `pair_sides`, отдельный
+`two_sofa_media`, убрать подмену богатых схем one-side `square`; Q5 — семейство
+`simple_main + quiet_pair/read/fireplace pod` с собственной beam-квотой; Q6b/c — прямой `edge_nook`;
+Q6d — `round_compact` (окружность); Q6e — `console_behind_sofa`. **P1:** Q6 — `media_installation_
+balanced/asymmetric` (закрытое+открытое хранение), `storage_divider_low/open` с capability
+open_back/finished_back. **P2 (backlog):** window bench / chaise quiet pod, U/curved sectional как SKU
+(новая геометрия), 4 кресла/game pod, conversation circle, L-банкетка, hidden TV, swivel.
+Гейты: Q3 — для каждого богатого семейства `declared → block_generated → full_chain_valid → compared`,
+one-side только с сертификатом; Q5 — 40+ м² с подходящим банком: hard-valid `main+pod` или
+терминальная причина; Q6 — nook не заменяет валидный island; круг = окружность; консоль только за
+floating-диваном с сохранённым проходом; делитель — только SKU с двусторонностью.
+
 ## Скоуп — что НЕ входит
 - «Кухонные уголки», «Столы-книжки» (владелец); LLM-расстановщик; изменение размеров SKU;
   скорость (после «нормально работает» — владелец).
