@@ -237,6 +237,31 @@ one-side только с сертификатом; Q5 — 40+ м² с подхо
 терминальная причина; Q6 — nook не заменяет валидный island; круг = окружность; консоль только за
 floating-диваном с сохранённым проходом; делитель — только SKU с двусторонностью.
 
+
+## Дополнение (владелец 16.08, галерея после Q1–Q4 + Codex `_intake/codex-owner-gallery-rotation-answer.md`)
+**Контекст владельца:** планы пойдут в 3D-сборку и LLM-визуализацию с референсами товаров — **`rot` каждого
+предмета = КОНТРАКТ ПОЗЫ**, не подача: если кресло стоит поперёк, а подписано «к ТВ», 3D и LLM поставят
+поперёк.
+- **Q5+ Контракт ориентации (экспорт):** каждому directional placement в plan-NNN.json — `orientation`
+  {yaw_deg, front_vector_world (2D y→3D Z), intent, facing_target{type,role,point,distance,bearing,
+  angular_error_deg}, relation, validated} + `zone_instance_id/template_id/variant`; MD — стрелка,
+  intent, цель, ошибка. `rot/yaw` — источник истины; facing_target — объяснение. Разрешённая сетка углов —
+  от варианта шаблона (media_half/bridge = 45° законно), НЕ глобальный snap. Подпись «к X» — только
+  ≤15° и ≤250 см; 15–45° — «под углом/вполоборота»; выше — не цель (мои 30° — слишком мягко).
+  Тест pose-hash round-trip: rot в артефакте == rot валидатора == plan-NNN (float, не int).
+- **Q5 второй pod:** `quiet_chat` = кресло 3 + кресло 4 + ОБЯЗАТЕЛЬНО приставной/малый столик, кресла
+  30–45° к общему центру (не 0/180 «интервью»); `fireplace_flank` — по сторонам камина в вилке дистанции
+  и ≤45° к камину, только тогда facing_target=fireplace; порядок place_quiet: fireplace_flank →
+  у окна → свободный угол; НЕ ставить pod без поверхности/валидного камина, при богатой primary
+  (≥2 кресла или 2 дивана), при существующем reading/bay pod, при not_worse-провале. Новый
+  `check_quiet_contract` в validate (secondary-кресла сейчас не проверяются). set91-base (пара визави
+  без стола) — отвергается; set92-base — кресла 1/2 из sofa_2armchairs (intent conversation), камин за
+  5 м — не target (ошибка подписи).
+- **Фланг поперёк (rot 90/270):** допустим как conversation, но НЕ media_primary; media_parallel →
+  media_half по hard-valid геометрии и фактическому углу (в _best_block), не безусловный default.
+- Гейты: 100% directional — pose-hash; 0 quiet-pod без поверхности; fireplace не заявляется вне
+  контракта; fixtures set26-base/set30-base/set31-bay/set91-base/set92-base + планки + TIMEOUT 0.
+
 ## Скоуп — что НЕ входит
 - «Кухонные уголки», «Столы-книжки» (владелец); LLM-расстановщик; изменение размеров SKU;
   скорость (после «нормально работает» — владелец).
@@ -269,3 +294,5 @@ floating-диваном с сохранённым проходом; делите
 ## Лог выполнения
 - 2026-08-16 — план создан (draft) по слепой оценке раунд 1 + каталожному аудиту; переписан по ревью Кодекса; решения владельца зафиксированы.
 - 2026-08-16 — «деплой» (владелец); старт Q0.
+- 2026-08-16 19:20 — Q0–Q4 задеплоены (0d40589): гейт 269+3 честных, TIMEOUT 0, dining 224, медиа 252, u_cluster 15, LEVEL A 0; Q4 — shadow (v2 отличается в 112/272). Каталог: конвейер не работал с 11.08 — починен, nonton в карантине. Далее Q5.
+- 2026-08-16 19:30 — Q5 в работе (дизайн Codex codex-q5-design-answer.md): composer — пара 3/4 одного SKU с 25 м² (seating_pods в zones.json), кресло 2 = клон основного; beam — reserved compact+quiet, requires_roles, сертификат second_pod; plan_key_v2 — valid_connected_armchairs, дефицит только при достижимости; пересборка sets3 (бэкап /home/pakar/scout-scenes/backups/sets3.backup-Q5.json).
