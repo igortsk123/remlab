@@ -147,7 +147,7 @@ questions, design reviews and catalog/data questions — the prompt then only ne
 since last time (commits/files) and (b) the question:
 
 ```bash
-codex exec resume <SESSION_ID> --sandbox read-only -C "${CLAUDE_PROJECT_DIR:-$PWD}" - < prompt.md
+codex exec --sandbox read-only -C "${CLAUDE_PROJECT_DIR:-$PWD}" -o answer.md resume <SESSION_ID> - < prompt.md   # flags BEFORE resume
 ```
 
 Use `--ephemeral` (fresh session, no memory of our hypotheses) ONLY when independence matters

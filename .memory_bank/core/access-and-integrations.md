@@ -39,12 +39,4 @@ review_after: ""
 
 **Детали разделов: Реестр → `../domain/integrations.md`**
 
-## Codex (OpenAI CLI) — постоянная сессия-советник (16.08.2026)
-- **Сессия проекта:** `01a00a62-33e2-7051-93c6-37bff5c6937e` (онбординг 16.08: прочитал CLAUDE.md, INDEX, ADR-0099…0106,
-  MASTER-zones-v7, свои аудиты, карту кода; конспект — `_intake/codex-onboarding-notes.md`).
-- **Как звать:** `codex exec resume 01a00a62-33e2-7051-93c6-37bff5c6937e --sandbox read-only -C /home/pakar/igor/remlab - < prompt.md`
-  (промпт короткий: «что изменилось с прошлого раза (коммиты/файлы) + вопрос»). Для НЕЗАВИСИМОГО second opinion
-  (когда нельзя показывать нашу гипотезу) — по-прежнему `codex exec --ephemeral`.
-- Раз в несколько сводов — новый онбординг (сессия распухает/устаревает), старую архивировать (`codex archive <id>`).
-- Песочница: `/etc/apparmor.d/codex-bwrap-userns` (профиль для vendored bwrap); классификатор auto-mode — правило в
-  `.claude/settings.local.json` autoMode.allow.
+**Codex-советник (постоянная сессия, resume-режим, песочница):** `../domain/integrations.md` § Codex.
