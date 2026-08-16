@@ -975,6 +975,14 @@ if _bearer and 'диван' in out:
     if _dist > 300:
         out['_tv']['note'] = 'дистанция просмотра >3 м — ТВ от 55″'
 _sfx=os.environ.get('LAYOUT_SUFFIX','')
+# Q0 свода №13: метрики «как видит владелец» — только диагностика (planner/view_metrics.py)
+try:
+    from planner.view_metrics import view_metrics as _vm
+    from judge_layout import build_scene as _bs
+    _room_v, _ps_v = _bs(out, n)
+    out['_view'] = _vm(_room_v, _ps_v)
+except Exception as _e:
+    out['_view'] = {'error': repr(_e)[:120]}
 json.dump(out,open(os.path.join(HERE,f'{TAG}{n}-layout{_sfx}.json'),'w'),ensure_ascii=False,indent=1)
 
 # top-down PNG — В НОРМАЛИЗОВАННОМ ВИДЕ (как кадр pipeline2): диван у ДАЛЬНЕЙ стены лицом
