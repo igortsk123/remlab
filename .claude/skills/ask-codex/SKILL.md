@@ -277,6 +277,18 @@ Never instruct Codex to implement the change as part of this skill.
 
 Never blindly copy a Codex patch or command without understanding and validating it.
 
+## Owner rule (16.08.2026) — MANDATORY consultation before acting
+
+1. Root cause not obvious or first fix failed (regressions, "why worse"). 2. Architecture/algorithm
+decisions: ranking tiers/keys, search organisation, budgets/cutoffs, new entities/roles/statuses,
+module contracts. 3. Domain norms/thresholds (sources + web recheck). 4. Data/catalog: roles,
+categories, attributes, feed contents, enrichment pipeline. 5. Any new plan/meta-plan and major
+plan edits — BEFORE showing the owner. 6. Analysis of external evaluations (blind pairs, owner
+comments, adviser reports). 7. Risky changes (security, migrations, payments, concurrency, hard to
+revert). NOT for: trivial text/format edits, obvious one-liners, routine commands, numeric gates by
+existing rules, questions already closed in memory/ADR without a new argument.
+Prefer the persistent project session (Step 3b); ephemeral only when independence matters.
+
 ## When consultation is strongly recommended
 
 Consult Codex when one or more of these apply:
