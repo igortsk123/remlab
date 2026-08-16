@@ -56,7 +56,7 @@ def _one(engine, sc):
     try:
         # W5 (урок 213 + 10.08): при >2 воркерах контеншн замедляет тяжёлые сцены —
         # таймаут 600, чтобы они ДОСЧИТЫВАЛИСЬ, а не падали ложным TIMEOUT
-        r = subprocess.run(args, capture_output=True, text=True, timeout=600, env=env)
+        r = subprocess.run(args, capture_output=True, text=True, timeout=900, env=env)  # P2/P3 свода №12: beam ×1.5 — порог 600 введён при greedy
     except subprocess.TimeoutExpired:
         return dict(scene=sc['id'], set=sc['set'], ok=False,
                     fails=['TIMEOUT'], missing=[], soft_score=None)

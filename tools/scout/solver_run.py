@@ -1045,6 +1045,21 @@ def T(x,z): return (20+x*SC,20+(RD-z)*SC)  # z вверх
 # СТЕНЫ ПО ФАКТУ: если сцена задана контуром — рисуем контур, а не прямоугольник
 _ctr_pts=out['_room'].get('contour')
 if _ctr_pts:
+    # P5 свода №12 (владелец №5: «рисуется прямоугольник у окна — зачем?»): вырез контура
+    # (пилон/выступ) — это НЕ предмет; заштриховать область bbox∖contour и подписать,
+    # чтобы читалось как конструкция, одинаково на всех планах с контуром
+    try:
+        from shapely.geometry import Polygon as _PgC, box as _boxC
+        _cp=_PgC([_nrm(x,z) for x,z in _ctr_pts])
+        _out=_boxC(0,0,RW,RD).difference(_cp)
+        for _g in (getattr(_out,'geoms',[_out]) if not _out.is_empty else []):
+            if _g.area<400: continue
+            _pp=[T(x,z) for x,z in _g.exterior.coords]
+            dr.polygon(_pp,fill=(225,222,214),outline=(120,120,120))
+            _bx=_g.bounds; _sx,_sy=T((_bx[0]+_bx[2])/2,(_bx[1]+_bx[3])/2)
+            _put_label(dr,_sx,_sy,'пилон/выступ',F_TXT,fill=(90,90,90))
+    except Exception:
+        pass
     dr.polygon([T(*_nrm(x,z)) for x,z in _ctr_pts],outline=(60,60,60),width=3)
 else:
     dr.rectangle([T(0,RD),T(RW,0)],outline=(60,60,60),width=3)
@@ -1096,15 +1111,53 @@ for r,v in _order:
     xs=[p[0] for p in pts]; ys=[p[1] for p in pts]
     _ITEM_BOXES.append((min(xs),min(ys),max(xs),max(ys)))
 # подписи — вторым проходом, поверх всей мебели и в обход чужих блоков
+def _facing_word(r, v):
+    """P5 свода №12 (владелец №19: «270° — относительно чего? лицом к ТВ или к дивану?»):
+    фасад словами — ближайшая цель в направлении взгляда (ТВ/диван/столик/окно/стена)."""
+    import math as _m
+    _base=r.split(' ')[0]
+    if _base in ('ковёр','кашпо','торшер','люстра','стол обеденный','стеллаж','витрина','комод','стенка','тв-тумба','камин','столик','приставной','стул','пуф'):
+        # у этих фасад не несёт смысла (столик/пуф) или предмет пристенный
+        return None if _base in ('ковёр','кашпо','люстра','столик','приставной','стул','пуф') else 'вдоль стены'
+    cx,cz=v[0]; _a=_m.radians(v[1]); fx,fz=_m.sin(_a),_m.cos(_a)
+    best=None
+    for r2,v2 in placed.items():
+        if r2==r: continue
+        b2_=r2.split(' ')[0]
+        if b2_ not in ('тв-тумба','стенка','диван','столик','камин','стол обеденный','кресло'): continue
+        dx,dz=v2[0][0]-cx,v2[0][1]-cz; d=_m.hypot(dx,dz) or 1.0
+        cosang=(fx*dx+fz*dz)/d
+        # приоритет цели для посадки: ФОКУС (ТВ/камин) важнее ближнего столика — иначе
+        # диван всегда «к столику», а вопрос владельца был «лицом к ТВ или нет»
+        _pri={'тв-тумба':0,'стенка':0,'камин':1,'диван':2,'кресло':2,'стол обеденный':3,'столик':4}[b2_]
+        if cosang>0.7 and (best is None or (_pri,d)<(best[2],best[0])): best=(d,b2_,_pri)
+    if best: return {'тв-тумба':'к ТВ','стенка':'к ТВ','диван':'к дивану','столик':'к столику','камин':'к камину','стол обеденный':'к столу','кресло':'к креслу'}[best[1]]
+    return {0:'на север',90:'на восток',180:'на юг',270:'на запад'}.get(int(v[1])%360,'')
+
+def _pouf_role(r, v):
+    """P5 (владелец №192: «пуф — для ног или что?»): назначение по близости к посадке."""
+    import math as _m
+    cx,cz=v[0]
+    for r2,v2 in placed.items():
+        b2_=r2.split(' ')[0]
+        if b2_ in ('диван','кресло'):
+            d=_m.hypot(v2[0][0]-cx,v2[0][1]-cz)
+            if d<=110: return 'для ног'
+    return 'доп. место'
+
 for r,v in _order:
     cx,cz=v[0]; _w,_d=dict(FLOOR).get(r,(0,0))
-    _lbl=f"{r} {int(_w)}x{int(_d)} см, {v[1]}°"
+    _fw=_facing_word(r,v)
+    _extra=(f' · {_pouf_role(r,v)}' if r.split(' ')[0]=='пуф' else '')
+    _lbl=f"{r} {int(_w)}x{int(_d)}" + (f" · {_fw}" if _fw else '') + _extra
     _tx,_ty=T(cx,cz)
     _put_label(dr,_tx,_ty-8,_lbl,F_ITEM)
-    # стрелка «куда смотрит»: rot 180 = к южной стене (к камере вида A)
+    # стрелка фасада (заметнее): rot 180 = к южной стене
     import math as _m
-    _a=_m.radians(v[1]); _fx,_fz=_m.sin(_a),-_m.cos(_a)
-    dr.line([_tx,_ty,_tx+_fx*30,_ty+_fz*30],fill=(15,15,15),width=2)
+    if _fw and _fw!='вдоль стены':
+        _a=_m.radians(v[1]); _fx,_fz=_m.sin(_a),-_m.cos(_a)
+        dr.line([_tx,_ty,_tx+_fx*34,_ty+_fz*34],fill=(15,15,15),width=3)
+        dr.ellipse([_tx+_fx*34-4,_ty+_fz*34-4,_tx+_fx*34+4,_ty+_fz*34+4],fill=(15,15,15))
 img.save(os.path.join(HERE,f'{TAG}{n}-layout{_sfx}.png'))
 print("placed:",", ".join(f"{r}@({v[0][0]},{v[0][1]})r{v[1]}" for r,v in placed.items()))
 if missing: print("НЕ размещены:",missing)

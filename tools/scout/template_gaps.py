@@ -34,8 +34,33 @@ def collect() -> list[dict]:
     return gaps
 
 
+def sleeping_passports() -> list[dict]:
+    """P3 свода №12 (Кодекс §2 п.3: отчёт «0 gaps» был ложным — сборщик видел только
+    dining-события): паспорта со статусом sleeping/catalog_gap — ТОЖЕ дыры библиотеки,
+    их надо показывать, а не молчать."""
+    import json as _j
+    tp = os.path.join(HERE, '..', '..', 'services', 'planner-solver', 'rules', 'templates.json')
+    out = []
+    try:
+        t = _j.load(open(tp, encoding='utf-8'))
+    except Exception:
+        return out
+    for zname, z in (t.get('zones') or {}).items():
+        for s in (z.get('schemes') or []):
+            st = str(s.get('status', ''))
+            if st.startswith('sleeping'):
+                out.append({'type': 'PASSPORT_SLEEPING', 'zone': zname, 'id': s['id'], 'why': st})
+            elif not st:
+                out.append({'type': 'PASSPORT_UNCLASSIFIED', 'zone': zname, 'id': s['id'],
+                            'why': 'нет статуса implemented_as/sleeping'})
+    return out
+
+
 def main() -> None:
     gaps = collect()
+    _sl = sleeping_passports()
+    if _sl:
+        gaps = list(gaps) + _sl
     n_arts = len(glob.glob(os.path.join(HERE, 'v3set*-layout-acc-zoned-*.json')))
     true_gaps = [g for g in gaps if g.get('type') == TRUE_GAP]
     other = [g for g in gaps if g.get('type') != TRUE_GAP]
@@ -58,6 +83,12 @@ def main() -> None:
             lines.append(f'- сцены: {scenes}{more}\n')
     else:
         lines.append('Истинных дыр библиотеки не зафиксировано.\n')
+    _sl2 = [x for x in gaps if str(x.get('type', '')).startswith('PASSPORT_')]
+    if _sl2:
+        lines.append('## Паспорта без реализации (P3 свода №12: спящие/каталожные дыры — тоже дыры)\n')
+        for x in _sl2:
+            lines.append(f"- {x['zone']}/{x['id']}: {x.get('why', x['type'])}")
+        lines.append('')
     if other:
         cnt = Counter((g.get('type'), g.get('zone')) for g in other)
         lines.append('## Не-дыры (для полноты; задачи на шаблоны НЕ создавать)')

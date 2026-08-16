@@ -1084,6 +1084,22 @@ for bi,band in enumerate(COMP['bands']):
         # лестницы (sofa_armchair) достижима солвером. Строго в КОНЦЕ сборки:
         # вне fill/extras/wall-капов, без side-effects на ротации SKU (used_shops
         # не трогаем; BUILT/style_fit/total сняты ВЫШЕ — дифф только добавка кресла).
+        # P4 свода №12 (владелец №174: «в 35 м² тот же малый шаблон; был вариант с двумя
+        # креслами — почему не здесь»; Кодекс §2 п.4: богатая посадка с 40 м², а large-режим
+        # солвера — с 25 м² (room_map.room_mode)). Банк large ОБЯЗАН давать ≥2 seating-
+        # альтернативы: пара кресел (sofa_2armchairs) — alt-only, в конце сборки, вне капов.
+        _LARGE_M2 = 25   # = room_map.room_mode large (area ≥ 25) — единый порог с солвером
+        if m2>=_LARGE_M2 and 'диван' in chosen and 'кресло' in chosen and 'кресло 2' not in chosen \
+                and int(chosen['кресло'].get('qty') or 1) < 2:   # qty=2 уже даёт пару (кресло 2 = экземпляр первого)
+            _sh2=band['floor'].get('кресло')
+            _a2=(pick2('кресло',m2,_sh2,tier,pair,ctx,qty=1) or
+                 pick2('кресло',m2,_sh2,tier,pair,ctx,soft=True,qty=1)) if _sh2 else None
+            _a2=[t for t in (_a2 or []) if t.get('mid')!=chosen['кресло'].get('mid')] or (_a2 or [])
+            if _a2:
+                chosen['кресло 2']=dict(_a2[0],qty=1,alt=True)
+                print(f"  P4: alt-кресло 2 в банк large ({_a2[0]['name'][:40]})")
+            else:
+                gaps.append('coverage_gap: кресло 2 (alt, large) — нет SKU')
         if m2>=17 and 'диван' in chosen and 'кресло' not in chosen:
             _sh=band['floor'].get('кресло')
             if _sh:

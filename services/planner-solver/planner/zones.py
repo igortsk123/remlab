@@ -1375,6 +1375,10 @@ def solve_zoned_beam(room: Room, items, **kw):
     try:                                   # бюджет по режиму комнаты (данные)
         from .room_map import room_mode as _rmode
         _bm = (cfg.get('budget_by_mode') or {}).get(_rmode(room)) or {}
+        _xl = (cfg.get('budget_by_mode') or {}).get('large_xl') or {}
+        if _xl and _rmode(room) == 'large' and \
+                room.width_cm * room.depth_cm / 10_000 >= float(_xl.get('min_m2', 40)):
+            _bm = _xl                        # очень большие: гипотеза дорогая (set111)
         K_steps = int(_bm.get('ladder_steps', K_steps))
         K_blocks = int(_bm.get('blocks_per_step', K_blocks))
     except Exception:
@@ -1396,6 +1400,18 @@ def solve_zoned_beam(room: Room, items, **kw):
     # ступени лестницы (те же, что видит greedy) — верхние K_steps
     from .template import place_template as _pt
     steps = steps_all[:K_steps]
+    # P3 свода №12: режимы медиа как гипотезы — 'installation' только в large и при
+    # носителе+компаньонах в банке (иначе дубликат)
+    _media_modes = ['single']
+    try:
+        from .room_map import room_mode as _rmi
+        _roles = {i.role.split(' ')[0] for i in items}
+        if _rmi(room) == 'large' and (_roles & {'стенка', 'тв-тумба'}) \
+                and (_roles & {'витрина', 'стеллаж', 'комод'}) \
+                and os.environ.get('LAYOUT_MEDIA_INSTALLATION', '1') != '0':
+            _media_modes.append('installation')
+    except Exception:
+        pass
     _seen = set()
     for g in steps:
         variants = _pt(room, g['id'], list(items), usable_polygon(room),
@@ -1405,18 +1421,29 @@ def solve_zoned_beam(room: Room, items, **kw):
             if key in _seen:
                 continue
             _seen.add(key)
-            try:
-                outs, gid = solve_zoned(room, items, _hyp={'group': g['id'], 'block': blk}, **kw)
-            except Exception as e:           # гипотеза упала — не роняем сцену
-                if os.environ.get('ZONES_DEBUG'):
-                    import sys as _s
-                    print(f'ZDBG beam: гипотеза {g["id"]}#{vi} упала: {e!r}',
-                          file=_s.stderr, flush=True)
-                continue
-            if not outs or not outs[0].placements:
-                continue
-            cands.append((f'{g["id"]}#{vi}', gid, outs,
-                          plan_key(room, outs[0], needs, seat_rank=_rank.get(g['id'], 0))))
+            # инсталляция — только для ПЕРВОГО варианта блока ступени (бюджет large:
+            # ×2 на все варианты дало TIMEOUT set111-base/pylons)
+            for _mm in (_media_modes if vi == 0 else ['single']):
+                from . import template as _tmm
+                _tmm.MEDIA_MODE[0] = _mm
+                try:
+                    outs, gid = solve_zoned(room, items, _hyp={'group': g['id'], 'block': blk}, **kw)
+                except Exception as e:           # гипотеза упала — не роняем сцену
+                    if os.environ.get('ZONES_DEBUG'):
+                        import sys as _s
+                        print(f'ZDBG beam: гипотеза {g["id"]}#{vi}/{_mm} упала: {e!r}',
+                              file=_s.stderr, flush=True)
+                    continue
+                finally:
+                    _tmm.MEDIA_MODE[0] = 'single'
+                if not outs or not outs[0].placements:
+                    continue
+                if _mm == 'installation' and not any(
+                        getattr(p, 'tpl_variant', '') == 'installation' for p in outs[0].placements):
+                    continue                     # инсталляция не встала — дубликат single, не считаем
+                _nm = f'{g["id"]}#{vi}' + ('/inst' if _mm == 'installation' else '')
+                cands.append((_nm, gid, outs,
+                              plan_key(room, outs[0], needs, seat_rank=_rank.get(g['id'], 0))))
     if not cands:
         return base_outs, base_gid
     # детерминированный порядок: ключ, затем стабильный индекс (greedy первым при равенстве)

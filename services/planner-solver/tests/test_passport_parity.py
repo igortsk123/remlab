@@ -44,10 +44,8 @@ def test_media_installation_passport_and_code():
     assert p['wall_min_cm'] >= 400 and p['gap_cm'] > 0 and p['max_companions'] >= 1
     src = open(os.path.join(PLANNER, 'template.py'), encoding='utf-8').read()
     assert 'def build_media_installation' in src and 'def place_media_installation' in src
-    zsrc = open(os.path.join(PLANNER, 'zones.py'), encoding='utf-8').read()
-    assert "'+tvi'" in zsrc
-    z = json.load(open(os.path.join(RULES, 'zones.json'), encoding='utf-8'))
-    assert z['zone_priority']['tags'].get('+tvi') == 'media'
+    assert 'place_media_installation(room, items, free, fixed=fixed)' in src, \
+        'инсталляция — альтернатива внутри place_media (лексо-сравнение с одиночным носителем)'
 
 
 def test_gaps_report_includes_sleeping():

@@ -1393,6 +1393,7 @@ LAST_SEATING_SEARCH: dict | None = None
 # V4-D свода №10: контракт осей — диагнозы столика и медиа последнего прогона
 LAST_AXIS_DIAG: dict | None = None
 LAST_MEDIA_AXIS: dict | None = None
+MEDIA_MODE = ['single']     # P3 свода №12: 'single' | 'installation' — режим медиа гипотезы beam
 
 
 def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
@@ -1526,18 +1527,10 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
                     'two_sofas_2armchairs') and 'диван 2' not in _av:
         group_id = 'sofa_2armchairs' if 'кресло 2' in _av else (
             'sofa_armchair' if 'кресло' in _av else 'compact_sectional')
-    shapes = {'sofa_4armchairs': ['default', 'u', 'pouf_table'],
-              'sofa_pouf': ['default'],
-              'sofa_lamp': ['default'],
-              'sofa_solo': ['default'],
-              'compact_sectional': ['default', 'pouf_table'],
-              'sofa_2armchairs': ['default', 'bulky', 'pouf_table', 'facing',
-                                  'bridge', 'tandem_r', 'tandem_l'],
-              'sofa_armchair': ['default', 'pouf_table', 'facing'],
-              'two_sofas_2armchairs': ['default', 'square'],
-              'sofa_loveseat': ['default', 'square'],
-              'sofa_loveseat_2armchairs': ['default', 'square'],
-              }.get(group_id, ['default'])
+    # P3 свода №12: формы посадки — ИЗ ПАСПОРТА (rules/zones.json seating_groups[].shapes),
+    # словарь в коде был второй истиной («паспорта богаче runtime», Кодекс §2 п.3)
+    shapes = {g['id']: list(g.get('shapes') or ['default'])
+              for g in _zone_rules().get('seating_groups', [])}.get(group_id, ['default'])
     # C1 (M-C, свод №5): квадратная комната — симметричные ЦЕНТРАЛЬНЫЕ схемы первыми
     # (список приоритета — паспорт contour_features, выбор схемы = первая вставшая)
     from .invariants import TEMPLATES as _CT
@@ -1988,6 +1981,59 @@ def build_media_fireplace(by_role: dict[str, Item]) -> Block | None:
     return _valid(b, 'fireplace')
 
 
+def build_media_installation(by_role: dict[str, Item], wall_len_cm: float,
+                             params: dict) -> Block | None:
+    """P3 свода №12: ИНСТАЛЛЯЦИЯ на длинной стене — носитель ТВ + компаньоны хранения
+    симметрично по бокам (витрина/стеллаж/комод), одним атомарным блоком (владелец
+    №172; паспорт templates.json → zones.media.schemes.media_installation)."""
+    bearer = by_role.get('стенка') or by_role.get('тв-тумба')
+    if bearer is None:
+        return None
+    gap = float(params.get('gap_cm', 40))
+    roles = list(params.get('companion_roles', ['витрина', 'стеллаж', 'комод']))
+    comps = [by_role[r] for r in roles if r in by_role][: int(params.get('max_companions', 2))]
+    if not comps:
+        return None
+    need = bearer.w_cm + sum(c.w_cm for c in comps) + gap * len(comps) + 80
+    if wall_len_cm < max(float(params.get('wall_min_cm', 520)), need):
+        return None
+    b = Block(bearer)
+    for i, c in enumerate(comps):
+        side = -1 if i == 0 else +1
+        # выравнивание по спинке (пристенные): сдвиг на разницу глубин
+        b.add(c, side * (bearer.w_cm / 2 + gap + c.w_cm / 2), -(bearer.d_cm - c.d_cm) / 2, 0.0)
+    return _valid(b, 'media')
+
+
+def place_media_installation(room: Room, items: list[Item], free: Polygon,
+                             fixed: list[Placement] | None = None) -> list[Placement] | None:
+    """Ставится ДО обычной медиа-зоны в large-комнатах: длинная стена оформляется
+    инсталляцией; не встала — обычный place_media (ничего не теряем)."""
+    if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
+        return None
+    from .invariants import TEMPLATES as _T
+    from .room_map import room_mode as _rm
+    sch = next((x for x in _T.get('zones', {}).get('media', {}).get('schemes', [])
+                if x.get('id') == 'media_installation'), None)
+    if not sch or _rm(room) != 'large':
+        return None
+    params = sch.get('params', {})
+    by_role: dict[str, Item] = {}
+    for it in items:
+        by_role.setdefault(it.role, it)
+    seat = next((p for p in (fixed or []) if p.role == 'диван'), None)
+    wall_len = max(room.width_cm, room.depth_cm)
+    b = build_media_installation(by_role, wall_len, params)
+    if b is None:
+        return None
+    ps = _best_block(room, b, free, wall_candidates(room, b.anchor, free),
+                     tv=None, fixed=fixed, axis_seat=seat)
+    if ps:
+        for q in ps:
+            q.tpl_variant = 'installation'      # маркер в экспорте (галерея/ИИ-экспорт)
+    return ps
+
+
 def place_media_fireplace(room: Room, items: list[Item], free: Polygon,
                           fixed: list[Placement] | None = None) -> list[Placement] | None:
     """Ставится ДО отдельных медиа/каминной зон: когда в комплекте есть и носитель,
@@ -2266,6 +2312,28 @@ def place_media(room: Room, items: list[Item], free: Polygon,
     for it in items:
         by_role.setdefault(it.role, it)
     seat = next((p for p in (fixed or []) if p.role == 'диван'), None) or         next((p for p in (fixed or []) if p.role == 'кресло'), None)
+    # P3 свода №12: ИНСТАЛЛЯЦИЯ на длинной стене (large) — альтернатива одиночного
+    # носителя, сравнивается ЛЕКСО-КЛЮЧОМ (как стенка/тумба, C-3): носитель +
+    # компаньоны хранения атомарно; не встала/проиграла — обычная медиа.
+    # P3 свода №12: инсталляция (носитель + компаньоны хранения) — РЕЖИМ медиа,
+    # запрашиваемый beam-драйвером как отдельная ГИПОТЕЗА (MEDIA_MODE), не локальный
+    # лексо-выбор: у инсталляции больше предметов → больше штрафов circulation/zone,
+    # а её функция (хранение размещено сразу) видна только на ГОТОВОМ плане (plan_key).
+    if MEDIA_MODE[0] == 'installation' and not relaxed:
+        _inst = place_media_installation(room, items, free, fixed=fixed)
+        if _inst:
+            return [_inst] if top > 1 else _inst
+        # инсталляция не встала — честный фолбэк на одиночный носитель
+    return _place_media_core(room, items, free, fixed=fixed, top=top, relaxed=relaxed)
+
+
+def _place_media_core(room: Room, items: list[Item], free: Polygon,
+                      fixed: list[Placement] | None = None,
+                      top: int = 1, relaxed: bool = False) -> list[Placement] | None:
+    by_role: dict[str, Item] = {}
+    for it in items:
+        by_role.setdefault(it.role, it)
+    seat = next((p for p in (fixed or []) if p.role == 'диван'), None) or         next((p for p in (fixed or []) if p.role == 'кресло'), None)
     # ЛЕСТНИЦА НОСИТЕЛЕЙ (владелец 13.08: «шаблон со стенкой не лезет — автоматом
     # выбирать с тумбой»): при обоих носителях в банке сперва вся попытка со СТЕНКОЙ,
     # не встала ни в одном круге — повтор с ТУМБОЙ (стенка исключается из вида).
@@ -2277,8 +2345,8 @@ def place_media(room: Room, items: list[Item], free: Polygon,
         from .zones import lexo_key as _lkm2
         _outs2 = []
         for _excl in ('тв-тумба', 'стенка'):
-            _ps2 = place_media(room, [it for it in items if it.role != _excl],
-                               free, fixed=fixed, top=top, relaxed=relaxed)
+            _ps2 = _place_media_core(room, [it for it in items if it.role != _excl],
+                                     free, fixed=fixed, top=top, relaxed=relaxed)
             if _ps2 is not None:
                 # top>1 → список ВАРИАНТОВ (P1 lookahead): ключ по лучшему (первому)
                 _first2 = _ps2[0] if (_ps2 and isinstance(_ps2[0], list)) else _ps2

@@ -80,67 +80,79 @@
     {
      "id": "default",
      "order": 1,
-     "why": "канон: столик по центру фронта посадки"
+     "why": "канон: столик по центру фронта посадки",
+     "status": "implemented_as: template.build_block (variant=default)"
     },
     {
      "id": "bulky",
      "order": 2,
      "when": "кресло глубже 100 см",
-     "why": "крупные кресла вторым рядом (замечание владельца 11.08)"
+     "why": "крупные кресла вторым рядом (замечание владельца 11.08)",
+     "status": "implemented_as: template.build_block (variant=bulky)"
     },
     {
      "id": "facing",
      "order": 3,
      "when": "есть диван 2 либо 2 кресла",
-     "why": "визави face-to-face 183-305 см (KB)"
+     "why": "визави face-to-face 183-305 см (KB)",
+     "status": "implemented_as: template.build_block (variant=facing)"
     },
     {
      "id": "bridge",
      "order": 4,
-     "why": "кресло-мостик между диваном и фокусом"
+     "why": "кресло-мостик между диваном и фокусом",
+     "status": "implemented_as: template.build_block (variant=bridge)"
     },
     {
      "id": "tandem_r",
-     "order": 5
+     "order": 5,
+     "status": "implemented_as: template.build_block (variant=tandem_r)"
     },
     {
      "id": "tandem_l",
-     "order": 5
+     "order": 5,
+     "status": "implemented_as: template.build_block (variant=tandem_l)"
     },
     {
      "id": "u",
      "order": 6,
      "when": "площадь > 25 м²",
-     "why": "П-композиция вместо Г (замечание владельца)"
+     "why": "П-композиция вместо Г (замечание владельца)",
+     "status": "implemented_as: template.build_block (variant=u; P3: и sofa_2armchairs — паспорт zones.seating_groups.shapes)"
     },
     {
      "id": "square",
      "order": 6,
-     "when": "два дивана"
+     "when": "два дивана",
+     "status": "implemented_as: template.build_block (variant=square)"
     },
     {
      "id": "pouf_table",
      "order": 99,
      "when": "пуф ≥ 60% длины дивана И ≥ 70 см",
-     "why": "ottoman as coffee table — канон ТОЛЬКО для крупного пуфа ~2/3 длины дивана с подносом (HORNE, Decorating Den, Stahl). Порог «от 70 см» без привязки к дивану был ошибкой: 104 сцены остались без столика (12.08)"
+     "why": "ottoman as coffee table — канон ТОЛЬКО для крупного пуфа ~2/3 длины дивана с подносом (HORNE, Decorating Den, Stahl). Порог «от 70 см» без привязки к дивану был ошибкой: 104 сцены остались без столика (12.08)",
+     "status": "implemented_as: template.build_block (variant=pouf_table)"
     },
     {
      "id": "floating_pair",
      "order": 2,
      "when": "глубокая комната (>430 см) и носитель в банке",
-     "why": "floating-посадка на ТВ-вилке — деление на 2 зоны, за спинкой столовая (свод §5/§11, H&G open-plan). Бывшие tv_range-кандидаты кода становятся схемой паспорта"
+     "why": "floating-посадка на ТВ-вилке — деление на 2 зоны, за спинкой столовая (свод §5/§11, H&G open-plan). Бывшие tv_range-кандидаты кода становятся схемой паспорта",
+     "status": "implemented_as: template._pair_sofa_candidates / tv_sofa.generate_pairs (scheme floating_pair)"
     },
     {
      "id": "axis_shifted",
      "order": 3,
      "when": "центральных позиций нет",
-     "why": "посадка со смещением оси в пределах угла 15° (свод §5.4, RTINGS)"
+     "why": "посадка со смещением оси в пределах угла 15° (свод §5.4, RTINGS)",
+     "status": "implemented_as: template.place_template каскад сдвига столика (V4-D1, tpl_variant +axis_shifted)"
     },
     {
      "id": "window_back",
      "order": 4,
      "when": "спинка ≤ подоконник+10; зазор к радиатору; доступ к шторам ≥40; окно перекрыто ≤50%",
-     "why": "диван у окна — allowed with checks, не forbidden (свод §17): расширяет варианты в комнатах с одной пригодной стеной"
+     "why": "диван у окна — allowed with checks, не forbidden (свод §17): расширяет варианты в комнатах с одной пригодной стеной",
+     "status": "implemented_as: template._window_back_candidates (П4: спинкой к окну)"
     }
    ],
    "degradation_level": "A",
@@ -170,36 +182,60 @@
     {
      "id": "media_centered",
      "order": 1,
-     "why": "носитель по оси взгляда с дивана — база"
+     "why": "носитель по оси взгляда с дивана — база",
+     "status": "implemented_as: template.place_media class=centered (V4-D2)"
     },
     {
      "id": "media_mirror",
      "order": 1,
-     "why": "акцент с другой стороны носителя (владелец 12.08, set1-base): выбирается тот, где носитель ровнее к дивану"
+     "why": "акцент с другой стороны носителя (владелец 12.08, set1-base): выбирается тот, где носитель ровнее к дивану",
+     "status": "implemented_as: template.place_media flanks mirror (best by axis)"
     },
     {
      "id": "media_at_jamb",
      "order": 2,
      "when": "прямая стена занята, а у косяка есть место",
-     "why": "тумба вплотную к косяку двери даёт более прямой угол взгляда с дивана; допустимо при сохранении прохода 76 см и вне дуги (владелец 12.08 + weekand.com)"
+     "why": "тумба вплотную к косяку двери даёт более прямой угол взгляда с дивана; допустимо при сохранении прохода 76 см и вне дуги (владелец 12.08 + weekand.com)",
+     "status": "implemented_as: template._jamb_candidates → class corner_jamb_window"
     },
     {
      "id": "media_corner",
      "order": 3,
      "when": "свободных прямых стен нет",
-     "why": "диагональ в углу (auton.com)"
+     "why": "диагональ в углу (auton.com)",
+     "status": "implemented_as: template._corner_candidates → class corner_jamb_window"
     },
     {
      "id": "media_between_windows",
      "order": 2,
      "when": "на стене два окна с простенком ≥ W_media",
-     "why": "экран между двух окон обрамлён светом, а не засвечен (coohom, свод §4)"
+     "why": "экран между двух окон обрамлён светом, а не засвечен (coohom, свод §4)",
+     "status": "implemented_as: template._window_candidates (тумба; стенке нельзя)"
     },
     {
      "id": "media_storage_combo",
      "order": 4,
      "when": "small-режим и дефицит стен",
-     "why": "стеллажи по бокам носителя — media+storage одним блоком вместо двух конкурирующих композиций (small-свод §17)"
+     "why": "стеллажи по бокам носителя — media+storage одним блоком вместо двух конкурирующих композиций (small-свод §17)",
+     "status": "implemented_as: media_installation (P3 свода №12)"
+    },
+    {
+     "id": "media_installation",
+     "order": 0,
+     "when": "large-режим И стена носителя ≥ wall_min_cm; в банке ≥1 роль хранения (витрина/стеллаж/комод)",
+     "why": "владелец №172 (35 м², стена 7.8 м: «зачем тумба, когда можно стенку + витрину, серию зон хранения»); практика (H&G living-room storage / large wall): встроенное хранение вокруг ТВ оформляет длинную стену, но не заполняет её целиком и не спорит с камином. Атомарный блок: носитель по оси + до 2 компаньонов симметрично с зазором gap_cm; при провале — обычная медиа-зона.",
+     "status": "implemented",
+     "params": {
+      "wall_min_cm": 520,
+      "gap_cm": 40,
+      "max_companions": 2,
+      "companion_roles": [
+       "витрина",
+       "стеллаж",
+       "комод"
+      ],
+      "_proof": "wall_min 520: носитель ~160–300 + 2 компаньона ~80 + зазоры 2×40 + запас краёв ≥40 с каждой стороны; gap 40 — тот же, что media+камин side-by-side (build_media_fireplace)"
+     }
     }
    ],
    "degradation_level": "A"
@@ -257,24 +293,28 @@
      "id": "dining_island",
      "order": 1,
      "when": "large/transitional и есть простор — стулья вокруг",
-     "why": "классический остров; эксплуатационная зона: стол + 90 см со стороны посадок (R&B)"
+     "why": "классический остров; эксплуатационная зона: стол + 90 см со стороны посадок (R&B)",
+     "status": "implemented_as: template.place_dining classes=island (каскад island→edge)"
     },
     {
      "id": "dining_against_wall",
      "order": 2,
-     "why": "стол одной стороной к стене — сторона без прохода; сильный compact-приём (H&G узкие столы у стены; small-свод §10)"
+     "why": "стол одной стороной к стене — сторона без прохода; сильный compact-приём (H&G узкие столы у стены; small-свод §10)",
+     "status": "implemented_as: template.place_dining classes=edge (после island)"
     },
     {
      "id": "dining_round_compact",
      "order": 3,
      "when": "прямоугольный создаёт конфликты проходов",
-     "why": "круглый/овальный Ø80–100 на 2–4 места — нет углов, движение эффективнее (small-свод §11)"
+     "why": "круглый/овальный Ø80–100 на 2–4 места — нет углов, движение эффективнее (small-свод §11)",
+     "status": "sleeping: catalog_gap — круглый компакт-стол как роль/атрибут в фиде не размечен (решение владельца: источники каталога)"
     },
     {
      "id": "dining_foldable",
      "order": 4,
      "when": "постоянный стол ломает циркуляцию; в товаре флаг «раскладной»",
-     "why": "откидной/раскладной — нормальное дизайнерское решение малых пространств, не деградация (small-свод §12)"
+     "why": "откидной/раскладной — нормальное дизайнерское решение малых пространств, не деградация (small-свод §12)",
+     "status": "sleeping: catalog_gap — складной/пристенный стол в каталоге нет"
     }
    ],
    "degradation_level": "B"
@@ -307,19 +347,22 @@
     {
      "id": "storage_perimeter",
      "order": 1,
-     "why": "свободная стена по периметру — база (свод §14)"
+     "why": "свободная стена по периметру — база (свод §14)",
+     "status": "implemented_as: template.place_storage (пристенные, ≤2 предмета, ≤2 зоны)"
     },
     {
      "id": "storage_shallow",
      "order": 2,
      "when": "остаток за спинкой 120-150 см (машина R)",
-     "why": "проход 80-90 + стеллаж глубиной 30-40 у стены — использование остатка без второй зоны (large-свод §5)"
+     "why": "проход 80-90 + стеллаж глубиной 30-40 у стены — использование остатка без второй зоны (large-свод §5)",
+     "status": "implemented_as: template.place_storage + validate TALL_SOLID_BEHIND_SOFA"
     },
     {
      "id": "storage_zone_divider",
      "order": 3,
      "when": "периметр не дал места; высота ≤150; не на маршруте; не против света",
-     "why": "открытый стеллаж как граница living|dining — приём ВТОРОГО приоритета в open-plan (large-свод §9)"
+     "why": "открытый стеллаж как граница living|dining — приём ВТОРОГО приоритета в open-plan (large-свод §9)",
+     "status": "sleeping: occupancy layout_rules.room_divider_capable_active=[] (стеллаж-делитель — свод №6, спит до данных)"
     }
    ],
    "degradation_level": "B",
@@ -367,7 +410,8 @@
      "id": "bay",
      "order": 2,
      "when": "room_map.bays непуст и кресло проходит по ширине эркера",
-     "why": "свод №5 C5 (Livingetc/H&G bay window ideas): эркер — канонное место компакт-кресла/нука; позиция в центре эркера, спинка к наружной кромке, фронт в комнату; глубокое кресло выступает из ниши в комнату — допустимо, эркер часть помещения"
+     "why": "свод №5 C5 (Livingetc/H&G bay window ideas): эркер — канонное место компакт-кресла/нука; позиция в центре эркера, спинка к наружной кромке, фронт в комнату; глубокое кресло выступает из ниши в комнату — допустимо, эркер часть помещения",
+     "status": "implemented_as: template.place_bay_armchair (+bay)"
     }
    ]
   },
