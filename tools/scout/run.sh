@@ -17,7 +17,7 @@ PY="$HOME/venvs/scout/bin/python"
 case "${1:-}" in
   exam)
     rm -f acceptance-report-zoned.jsonl
-    exec env ACC_WORKERS=10 "$PY" acceptance_run.py zoned ;;
+    exec env ACC_WORKERS=6 "$PY" acceptance_run.py zoned ;;
   sets)
     exec "$PY" compose2.py --style --bands all ;;
   gallery)

@@ -81,9 +81,12 @@ def test_wall_unit_as_carrier_and_full_dict():
 
 
 def test_view_metrics_not_used_by_solver():
-    """Q0: только диагностика — солвер/скоринг/валидатор её не читают."""
+    """Q0/Q4: диагностика; читает её ТОЛЬКО plan_key_v2 (Q4, shadow) в zones.py —
+    validate/score/template/candidates её не импортируют (hard-правила и формы не зависят)."""
     for f in glob.glob(os.path.join(PLANNER, '*.py')):
-        if os.path.basename(f) == 'view_metrics.py':
+        if os.path.basename(f) in ('view_metrics.py', 'zones.py'):
             continue
-        assert 'view_metrics' not in open(f, encoding='utf-8').read(), \
-            f'{os.path.basename(f)} читает view_metrics — в Q0 это запрещено (выбор не меняется)'
+        src = open(f, encoding='utf-8').read()
+        assert 'import view_metrics' not in src and 'from .view_metrics' not in src \
+            and 'view_metrics import' not in src, \
+            f'{os.path.basename(f)} импортирует view_metrics — запрещено (выбор не меняется)'

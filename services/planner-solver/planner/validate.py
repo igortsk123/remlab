@@ -1073,6 +1073,11 @@ def check_layout_rules(room: Room, ps: list[Placement]) -> list[Violation]:
                 continue   # носитель ТВ (стенка-алиас, правило владельца 08.08) сам себя не штрафует
             if p.role in ("шкаф", "стенка", "стеллаж", "витрина") and (p.item.h_cm or 0) >= hmin \
                     and wall_of(p) == tvw and tvw is not None:
+                # Q2 свода №13: компаньон атомарной инсталляции (tpl_variant=installation)
+                # не «перегружает» стену — это и есть желаемая композиция (данные occupancy)
+                if _lr("tall_on_tv_wall_exempt_installation", False) and \
+                        getattr(p, 'tpl_variant', '') == 'installation':
+                    continue
                 out.append(_v("TALL_ON_TV_WALL", f"«{p.role}» на стене ТВ — стена перегружена",
                               [p.role, "тв-тумба"], None, "высокое хранение на другой стене",
                               Severity.SOFT))

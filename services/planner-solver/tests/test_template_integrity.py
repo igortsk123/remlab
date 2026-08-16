@@ -93,17 +93,26 @@ def test_no_phantom_dimensions():
     assert not bad, f'фантомные габариты: {dict(list(bad.items())[:5])}'
 
 
+def _secondary_roles():
+    """Q1 свода №13: кресла 3/4 — вторая (тихая) зона, не члены главной группы посадки —
+    тесты связности/ковра главной группы их не судят (данные zone_priority.secondary_scope_roles)."""
+    z = json.load(open(os.path.join(SCOUT, '..', '..', 'services', 'planner-solver', 'rules',
+                                    'zones.json'), encoding='utf-8'))
+    return set(z['zone_priority'].get('secondary_scope_roles', []))
+
+
 def test_seats_stand_on_rug():
     """Канон front-legs: посадочные заходят на ковёр (замер держим не ниже порога)."""
     from planner.invariants import seats_off_rug
     total = off = 0
     worst = []
+    _sec = _secondary_roles()
     for scene, _lay, _room, ps in _scenes():
-        seats = [p for p in ps if p.role.split(' ')[0] in ('диван', 'кресло')]
+        seats = [p for p in ps if p.role.split(' ')[0] in ('диван', 'кресло') and p.role not in _sec]
         if not any(p.role.split(' ')[0] == 'ковёр' for p in ps):
             continue
         total += len(seats)
-        bad = seats_off_rug(ps)
+        bad = [b for b in seats_off_rug(ps) if b not in _sec]
         off += len(bad)
         if bad:
             worst.append((scene, bad))
@@ -273,8 +282,18 @@ def test_group_compactness_everywhere():
     """Пары посадочных внутри группы не дальше VIS_FACE (беседа не разорвана)."""
     from planner.invariants import group_stretched
     bad = {}
+    _sec = _secondary_roles()
     for scene, _lay, _room, ps in _scenes():
-        seat_ps = [p for p in ps if p.role.split(' ')[0] in ('диван', 'кресло')]
+        # члены ГЛАВНОЙ посадочной зоны — из идентичности зон в артефакте (_zones.seating.members),
+        # иначе кресло из reading/quiet или второй диван визави судятся как «растянутая группа»
+        _mem = None
+        try:
+            _zs = (_lay.get('_zones') or {}).get('seating') or {}
+            _mem = set(_zs.get('members') or []) or None
+        except Exception:
+            _mem = None
+        seat_ps = [p for p in ps if p.role.split(' ')[0] in ('диван', 'кресло') and p.role not in _sec
+                   and (_mem is None or p.role in _mem)]
         if len(seat_ps) < 2:
             continue
         st = group_stretched(seat_ps)

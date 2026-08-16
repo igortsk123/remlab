@@ -24,7 +24,8 @@
    "note": "малые пространства ИЛИ вторичная зона большой комнаты",
    "shapes": [
     "default"
-   ]
+   ],
+   "intent": "conversation"
   },
   {
    "id": "compact_sectional",
@@ -46,7 +47,8 @@
    "shapes": [
     "default",
     "pouf_table"
-   ]
+   ],
+   "intent": "media_primary"
   },
   {
    "id": "sofa_armchair",
@@ -69,8 +71,11 @@
    "shapes": [
     "default",
     "pouf_table",
-    "facing"
-   ]
+    "facing",
+    "media_parallel",
+    "media_half"
+   ],
+   "intent": "media_primary"
   },
   {
    "id": "sectional_armchair",
@@ -91,8 +96,11 @@
    "sofa_subtype": "углов",
    "why": "состав группы «sectional_armchair» — из инвентаря сетов и правил долей площади (docs/DECISIONS ADR-0074/0075)",
    "shapes": [
-    "default"
-   ]
+    "default",
+    "media_parallel",
+    "media_half"
+   ],
+   "intent": "media_primary"
   },
   {
    "id": "sofa_facing_sofa",
@@ -112,7 +120,8 @@
    "note": "два компактных дивана визави — НЕ привилегия больших комнат",
    "shapes": [
     "default"
-   ]
+   ],
+   "intent": "media_primary"
   },
   {
    "id": "sofa_2armchairs",
@@ -141,8 +150,10 @@
     "facing",
     "bridge",
     "tandem_r",
-    "tandem_l"
-   ]
+    "tandem_l",
+    "media_bridge"
+   ],
+   "intent": "media_primary"
   },
   {
    "id": "sofa_loveseat",
@@ -164,7 +175,8 @@
    "shapes": [
     "default",
     "square"
-   ]
+   ],
+   "intent": "media_primary"
   },
   {
    "id": "sofa_4armchairs",
@@ -189,7 +201,10 @@
     "default",
     "u",
     "pouf_table"
-   ]
+   ],
+   "intent": "media_primary",
+   "status": "shadow_alternative",
+   "_status_why": "Q3: кресла 3/4 — secondary (вторая quiet-зона); главная U из 4 кресел — shadow-контрфактуал large_main_u4 (только явный вызов beam, пара одной модели), в production не влияет (Codex: две компактные зоны осмысленнее одной перегруженной группы — план №174)."
   },
   {
    "id": "sofa_loveseat_2armchairs",
@@ -212,7 +227,8 @@
    "shapes": [
     "default",
     "square"
-   ]
+   ],
+   "intent": "media_primary"
   },
   {
    "id": "two_sofas_2armchairs",
@@ -235,7 +251,8 @@
    "shapes": [
     "default",
     "square"
-   ]
+   ],
+   "intent": "media_primary"
   },
   {
    "id": "sofa_pouf",
@@ -256,7 +273,8 @@
    "why_footprint": "reference-футпринт по типовым габаритам (диван 200x95 + клей зоны + подходы), в ряду соседних ступеней",
    "shapes": [
     "default"
-   ]
+   ],
+   "intent": "media_primary"
   },
   {
    "id": "sofa_lamp",
@@ -275,7 +293,8 @@
    "why_footprint": "reference-футпринт по типовым габаритам (диван 200x95 + клей зоны + подходы), в ряду соседних ступеней",
    "shapes": [
     "default"
-   ]
+   ],
+   "intent": "media_primary"
   },
   {
    "id": "sofa_solo",
@@ -293,7 +312,8 @@
    "why_footprint": "reference-футпринт по типовым габаритам (диван 200x95 + клей зоны + подходы), в ряду соседних ступеней",
    "shapes": [
     "default"
-   ]
+   ],
+   "intent": "media_primary"
   }
  ],
  "group_scheme": {
@@ -1029,7 +1049,12 @@
     ],
     "why": "Обеденная зона в гостиной распространена, но не универсальна: зависит от наличия стола на кухне/отдельной столовой (владелец №12; международные источники по зонированию — H&G living-room layout — не дают национального правила). preferred = ставится при наличии региона и товаров, уступает hard/circulation; required/off — по брифу пользователя."
    }
-  }
+  },
+  "secondary_scope_roles": [
+   "кресло 3",
+   "кресло 4"
+  ],
+  "_secondary_scope_why": "Q1 свода №13: composer кладёт «кресло 3/4» для ВТОРОЙ посадочной зоны (quiet/U); в лестнице главной посадки они не считаются. «диван 2» — член двухдиванных primary-шаблонов и запасной прямой вместо углового: в лестнице УЧАСТВУЕТ во всех режимах (Кодекс, разбор регресса dining 220→218: причина не «диван 2», а бюджет beam/sacrifice по инвентарным строкам, а не по достижимым ступеням)."
  },
  "entry_zone": {
   "_why": "Свод №6 (14.08): полоса за floating-диваном при двери в торце — ENTRY/ARRIVAL zone, не unused residual. Приоритет наполнения по своду; пустота ЛЕГАЛЬНА (negative space), обогащение её не «лечит». Реализация: вход уже вычитается из residual (quality.residual_depth_cm), высокое хранение за спинкой запрещает TALL_BEHIND_SOFA (>90 см), доступ в зону — SEATING_ACCESS_PINCHED",
@@ -1082,10 +1107,6 @@
     "ladder_steps": 3,
     "blocks_per_step": 4
    },
-   "medium": {
-    "ladder_steps": 3,
-    "blocks_per_step": 3
-   },
    "large": {
     "ladder_steps": 2,
     "blocks_per_step": 2
@@ -1094,9 +1115,181 @@
     "ladder_steps": 1,
     "blocks_per_step": 2,
     "min_m2": 40
+   },
+   "transitional": {
+    "ladder_steps": 3,
+    "blocks_per_step": 3
    }
   },
-  "_budget_why": "Гипотеза в large-комнате дороже (цепочка длиннее: dining+storage×2+decor, кандидатов больше) — 3×4 давало TIMEOUT 600 с на set106-base/set111-base/set111-pylons (экзамен 15.08). Бюджет по room_mode; расширяется по замеру, когда появятся ядра (владелец: 12 ядер после планов). | large_xl (≥40 м², банки 25+ предметов, set111): гипотеза 5–7 мин при экзаменной нагрузке → бюджет 1×2 (верхняя ступень + инсталляция); замер 15.08."
+  "_budget_why": "Гипотеза в large-комнате дороже (цепочка длиннее: dining+storage×2+decor, кандидатов больше) — 3×4 давало TIMEOUT 600 с на set106-base/set111-base/set111-pylons (экзамен 15.08). Бюджет по room_mode; расширяется по замеру, когда появятся ядра (владелец: 12 ядер после планов). | large_xl (≥40 м², банки 25+ предметов, set111): гипотеза 5–7 мин при экзаменной нагрузке → бюджет 1×2 (верхняя ступень + инсталляция); замер 15.08.",
+  "composition_families": {
+   "_why": "Q3 свода №13 (владелец: в крупных комнатах — одно кресло или пара с одной стороны, хотя шаблоны богаче; Codex по артефактам Q1: 28/74 сцен ≥40 м² one-sided, u — 0 раз, 44/74 — одна гипотеза). Beam планирует ГИПОТЕЗЫ ПО СЕМЕЙСТВАМ композиций, а не по первым K строкам лестницы. Семейство = детерминированная функция (group_id, shape). one_sided_fallback — только при сертификате недостижимости предпочтительных семейств (не «бюджет кончился»).",
+   "pair_sides": {
+    "groups": [
+     "sofa_2armchairs"
+    ],
+    "shapes": [
+     "default",
+     "media_bridge"
+    ]
+   },
+   "u_cluster": {
+    "groups": [
+     "sofa_2armchairs",
+     "sofa_4armchairs"
+    ],
+    "shapes": [
+     "u"
+    ]
+   },
+   "two_sofa": {
+    "groups": [
+     "sofa_loveseat",
+     "sofa_loveseat_2armchairs",
+     "two_sofas_2armchairs"
+    ],
+    "shapes_exclude": [
+     "square"
+    ]
+   },
+   "compact_media_plus_quiet": {
+    "groups": [
+     "sofa_armchair",
+     "sectional_armchair",
+     "sofa_pouf",
+     "sofa_lamp",
+     "sofa_solo"
+    ],
+    "shapes": "*",
+    "require_zone": "+qz"
+   },
+   "compact_media": {
+    "groups": [
+     "sofa_armchair",
+     "sectional_armchair",
+     "compact_sectional",
+     "sofa_pouf",
+     "sofa_lamp",
+     "sofa_solo"
+    ],
+    "shapes": "*"
+   },
+   "one_sided_fallback": {
+    "groups": [
+     "sofa_2armchairs"
+    ],
+    "shapes": [
+     "tandem_l",
+     "tandem_r"
+    ],
+    "also": {
+     "groups": [
+      "sofa_loveseat",
+      "sofa_loveseat_2armchairs",
+      "two_sofas_2armchairs"
+     ],
+     "shapes": [
+      "square"
+     ]
+    },
+    "policy": "allowed_only_if_preferred_families_certified_unreachable"
+   },
+   "preferred_order": {
+    "large": [
+     "pair_sides",
+     "u_cluster",
+     "two_sofa",
+     "compact_media_plus_quiet"
+    ],
+    "large_xl": [
+     "pair_sides",
+     "two_sofa",
+     "compact_media_plus_quiet"
+    ],
+    "transitional": [
+     "pair_sides",
+     "compact_media"
+    ],
+    "small": [
+     "compact_media"
+    ]
+   }
+  },
+  "full_chain_cap": {
+   "small": 8,
+   "transitional": 6,
+   "large": 4,
+   "large_xl": 3,
+   "_why": "ЕДИНЫЙ счётчик полных прогонов сверх greedy (family + general + /inst). Замер 16.08: small-сцена ~20–30 с при 4 гипотезах, таймауты были только transitional/large; при cap 3 в small столовая терялась (set9/14/8/26: раньше находилась 8–9-й гипотезой при 12) → small 8, transitional 6 (breadth-first по рангам), large 4, xl 3. Гейт: TIMEOUT=0, p95 ≤1.5× Q1, dining база ≥220."
+  },
+  "family_enabled_modes": [
+   "large",
+   "large_xl"
+  ],
+  "fallback_min_full_valid_families": 2,
+  "family_enumerate_k": {
+   "pair_sides": 2,
+   "_default": 1,
+   "_why": "pair_sides: 2-й вариант только на другой стене/оси дивана; остальные семейства — 1 позиция"
+  },
+  "_family_modes_why": "Q3: семейный проход только large/xl (в small/transitional greedy почти всегда прав — dining 220+; pair_sides достижим формой; one-sided сертификат — только large/xl, в узких tandem — нормальный fallback). Ключ бюджета был 'medium', а room_mode даёт 'transitional' — бюджет transitional фактически не читался (Codex).",
+  "plan_key_version": "v1",
+  "shadow_hypothesis_tiers": false,
+  "_plan_key_why": "Q4 свода №13: plan_key_v2 — ярусы по глазу владельца (hard → missing_required → unplaced → entry_sightline → media_seat(if reachable) → dining_view_cone → corner(<30 м²) → missing_reachable_valid_preferred → frontal_composition_deficit → seating_deficit → -armchairs/-flex/-footrest → axis_class → штрафы). SHADOW: считается и пишется в _beam (key_v2, v2_would_choose), выбор по v1 до слепого раунда 2 (Q7). hypothesis-ярусы (dining_cone, frontal) — только при shadow_hypothesis_tiers=true (решение владельца: shadow)."
  },
- "_shapes_why": "P3 свода №12 (Кодекс §2 п.3 «паспорта богаче runtime»): формы посадки (schemes) — В ПАСПОРТЕ, код читает их отсюда (template.place_template), не из локального словаря. 'u' для sofa_2armchairs — пара кресел ПО БОКАМ столика лицом друг к другу (владелец №192: «почему два кресла подряд, когда можно по бокам от столика»; H&G paired armchairs); порядок = порядок каскада, beam перебирает все."
+ "_shapes_why": "P3 свода №12 (Кодекс §2 п.3 «паспорта богаче runtime»): формы посадки (schemes) — В ПАСПОРТЕ, код читает их отсюда (template.place_template), не из локального словаря. 'u' для sofa_2armchairs — пара кресел ПО БОКАМ столика лицом друг к другу (владелец №192: «почему два кресла подряд, когда можно по бокам от столика»; H&G paired armchairs); порядок = порядок каскада, beam перебирает все. | Q3 свода №13: media_parallel/media_half (одиночное кресло 0°/полуоборот к ТВ) и media_bridge (пара 45°/315° к экрану) — медиапригодные формы (владелец blind pair05/09; Wayfair). intent шаблона: media_primary (требование «≥1 кресло ≤45° к ТВ» — только к нему), conversation/quiet/fireplace освобождены.",
+ "view_contracts": {
+  "_why": "Q2 свода №13 (слепая оценка раунд 1 + аудит Кодекса с замерами по артефактам): контракты, по которым владелец фактически ранжирует планы. Здесь ТОЛЬКО пороги с provenance и status (measured — подтверждено замером на blind-парах; hypothesis — owner-derived, shadow до своих 15 контрфактуалов раунда 2; решение владельца 16.08). Читаются: диагностика Q0 (view_metrics) и plan_key Q4 (только status=measured, если reachable-сертификат).",
+  "entry_sightline_min_gap_cm": {
+   "value": 76,
+   "unit": "cm",
+   "status": "measured",
+   "semantics": "мин. зазор между дверным проёмом/дугой и коридором взгляда диван→ТВ; 0 = человек от двери проходит перед экраном (pair01: 28 vs 54 см по нашей метрике; 49 vs 166 по замеру Кодекса)",
+   "provenance": "76 см — действующий минимальный проход проекта (occupancy route_min); H&G sofa-arranging-mistakes: не вести трафик между диваном и ТВ"
+  },
+  "media_seat_angle_max_deg": {
+   "value": 45,
+   "unit": "deg",
+   "status": "measured",
+   "semantics": "хотя бы одно кресло главной группы (intent media_primary) с углом фасад→носитель ≤45° (pair02: 41 vs 52; pair05: 34.5 vs 54/81; pair09: 53–59 — оба плохи)",
+   "provenance": "Wayfair how-to-arrange-living-room-furniture-around-a-tv: акцентное кресло рядом с диваном под углом к ТВ; blind раунд 1"
+  },
+  "armchair_tv_dist_extra_cm": {
+   "value": 30,
+   "unit": "cm",
+   "status": "hypothesis",
+   "semantics": "d(кресло,ТВ) ≤ d(диван,ТВ) + 30 — кресло не дальше от экрана, чем диван (pair03: 1.14–1.18× — оба плохи)",
+   "provenance": "гипотеза из pair03; публичная опора — диапазон просмотра 1.5–2.5 диагонали (H&G living-room-layout); проверить контрфактуалами"
+  },
+  "dining_view_cone": {
+   "half_angle_deg": 45,
+   "overlap_max_pct": 10,
+   "status": "hypothesis",
+   "semantics": "доля footprint обеденной группы в конусе взгляда диван→ТВ (полуугол 45°) не более 10% — столовая не «дисплей» перед диваном (pair05: 100 vs 0; pair06: 31 vs 0; pair10: 94 vs 0; pair07: 94 vs 0)",
+   "provenance": "owner-derived (владелец 16.08: «человек смотрит вперёд с дивана — не стол обеденный на пути взгляда»); H&G back-of-couch как разделитель living/dining; shadow до 15 контрфактуалов"
+  },
+  "frontal_companions_min": {
+   "by_area_m2": {
+    "20": 1,
+    "30": 2
+   },
+   "status": "hypothesis",
+   "semantics": "минимум компаньонов хранения/декора на стене носителя ТВ (стеллаж/витрина/комод/кашпо), ТОЛЬКО если атомарная сборка достижима (иначе не нарушение); дефицит = min - фактически (pair02: 3 vs 0; pair08: 3 vs 2; pair10: 2 vs 0)",
+   "provenance": "owner-derived (владелец: «фронтальная зона должна быть наполнена — витрина, стеллаж, кашпо»); H&G living-room-storage-ideas; shadow до контрфактуалов"
+  },
+  "small_room_corner_hug_below_m2": {
+   "value": 30,
+   "unit": "m2",
+   "status": "measured",
+   "semantics": "в комнатах <30 м² Г-диван обязан примыкать (corner_class hugged) — выше насыщенности посадки (pair07: hugged без кресла > floating с креслом)",
+   "provenance": "существующий контракт угла (occupancy _corner_contract, ADR-0104) — поднимается в приоритете по blind"
+  },
+  "seating_deficit": {
+   "source": "armchair_policy.count_by_area_m2",
+   "status": "measured",
+   "semantics": "дефицит кресел относительно нижней границы политики по площади (≥25 м²: 2) — класс, не вес; применяется после проверки достижимости (кандидат с ≥2 креслами существует)",
+   "provenance": "zones.json armchair_policy (artleon/accentsathome/mirodemi, 08.08); blind pair04/05/10 («60 м² и одно кресло — очень плохо»)"
+  }
+ },
+ "_notes_tall_on_tv_wall": {}
 }

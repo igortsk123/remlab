@@ -704,6 +704,18 @@ def build_block(group_id: str, by_role: dict[str, Item],
             fx0, _ = _free_x(sofa)
             b.add(arm1, fx0 - (arm1.w_cm / 2 + 8), ay, 180.0)
             b.add(arm2, fx0 + (arm2.w_cm / 2 + 8), ay, 180.0)
+        elif variant == 'media_bridge':
+            # Q3 свода №13 (blind: владелец хочет кресла параллельно дивану или ПОЛУОБОРОТОМ
+            # к ТВ, не «к дивану»; Wayfair: акцентное кресло рядом с диваном под углом к ТВ):
+            # пара флангами у столика, повёрнута к экрану на 45° (справа 45°, слева 315°) —
+            # зеркально «bridge», который смотрит НАЗАД (135/225). Медиапригодность
+            # проверяется на готовом плане (view_metrics.armchair_tv_angles ≤ 45°).
+            _thw = (max(table.w_cm, table.d_cm) / 2 if table else None)
+            _fx1 = _add_flank(b, sofa, arm1, +1, table_cy, table_half_w=_thw)
+            b.rel[-1] = (arm1, b.rel[-1][1], b.rel[-1][2], 45.0)
+            _fx2 = _add_flank(b, sofa, arm2, -1, table_cy, table_half_w=_thw)
+            b.rel[-1] = (arm2, b.rel[-1][1], b.rel[-1][2], 315.0)
+            rug_others, rug_others_y, rug_others_x = [arm1, arm2], table_cy, max(_fx1, _fx2)
         elif variant == 'bridge':
             # B1 (v2, веб-свод): диван смотрит на ТВ, одно кресло развёрнуто ПОД
             # УГЛОМ (45°) — мостик между медиа-зоной и камином
@@ -776,6 +788,17 @@ def build_block(group_id: str, by_role: dict[str, Item],
             tw_half = (max(table.w_cm, table.d_cm) / 2) if table else 40.0
             ax = table_x + free_side * (tw_half + FLANK_GAP + arm1.d_cm / 2)
             b.add(arm1, ax, far, 270.0 if free_side > 0 else 90.0)
+        elif variant in ('media_parallel', 'media_half'):
+            # Q3 свода №13: одиночное кресло флангом у столика ПАРАЛЛЕЛЬНО дивану — лицом
+            # к ТВ (media_parallel: 0°) или полуоборотом к экрану (media_half: 45°/315°
+            # в сторону центра). Владелец (blind pair09): «кресла должны быть обращены
+            # параллельно дивану — к столику/ТВ, либо полуоборотом к телевизору».
+            _fx1 = _add_flank(b, sofa, arm1, free_side, table_cy,
+                              table_half_w=(max(table.w_cm, table.d_cm) / 2
+                                            if table else None))
+            _rot = 0.0 if variant == 'media_parallel' else (315.0 if free_side > 0 else 45.0)
+            b.rel[-1] = (arm1, b.rel[-1][1], b.rel[-1][2], _rot)
+            rug_others, rug_others_y, rug_others_x = [arm1], table_cy, _fx1
         else:
             _fx1 = _add_flank(b, sofa, arm1, free_side, table_cy,
                               table_half_w=(max(table.w_cm, table.d_cm) / 2
@@ -1399,7 +1422,8 @@ MEDIA_MODE = ['single']     # P3 свода №12: 'single' | 'installation' —
 def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
                    fixed: list[Placement] | None = None,
                    wall_only: bool = False,
-                   enumerate_k: int | None = None):
+                   enumerate_k: int | None = None,
+                   shape_filter: tuple | None = None):
     """Разговорная зона блоком: лучший hard-чистый вариант или None (фолбэк beam).
 
     P2 свода №12: enumerate_k=K → вместо первого успешного варианта каскада вернуть
@@ -1410,6 +1434,7 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
         return None
     _enum: list[list[Placement]] | None = [] if enumerate_k else None
     _enum_topo: list = []
+    _shape_filter = tuple(shape_filter) if shape_filter else None   # Q3: семейство beam
     def _uniq_key(ps):
         return tuple(sorted((q.role, round(q.x), round(q.y), int(q.rot) % 360) for q in ps))
     # V3-H свода №9 (поправка рефери: зеркала НЕ first-clean): для Г-дивана ОБЕ
@@ -1431,7 +1456,8 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
                 update={'corner_left': _cl, 'corner_side_fixed': True})
                 for i in items]
             _ps = place_template(room, group_id, _it2, free, fixed=fixed,
-                                 wall_only=wall_only, enumerate_k=enumerate_k)
+                                 wall_only=wall_only, enumerate_k=enumerate_k,
+                                 shape_filter=shape_filter)
             if _ps:
                 _stats[_side]['hard_valid'] = 1
                 if enumerate_k:
@@ -1538,6 +1564,10 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
     if _cf(room)[2]:
         _prio = _CT.get('contour_features', {}).get('square_scheme_priority', [])
         shapes = [s for s in _prio if s in shapes] + [s for s in shapes if s not in _prio]
+    if _shape_filter is not None:
+        shapes = [sh for sh in shapes if sh in _shape_filter]
+        if not shapes:
+            return None
     # ФОКУС-СТЕНА ОБЯЗАТЕЛЬНА (свод владельца 12.08: «стена напротив дивана не должна
     # быть пустой»). КРУГ 1 — принимаем только те позиции посадки, при которых носителю
     # ТВ остаётся чистое место. КРУГ 2 (если ни одна схема не ужилась) — ставим посадку
@@ -1550,7 +1580,10 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
     _rounds = (2, 1, 0) if (bearer is not None
                             and os.environ.get('LAYOUT_FOCUS_MANDATORY', '1') != '0') \
         else (0,)
-    for _lvl in _rounds:
+    class _EnumFull(Exception):
+        pass
+    try:
+     for _lvl in _rounds:
       _FOCUS_LEVEL = _lvl
       try:
         for _pass in (0, 1):
@@ -1612,7 +1645,7 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
                           _pv.tpl_variant = _variant0
                       _enum.append(_one)
                       if len(_enum) >= enumerate_k:
-                          return _enum
+                          raise _EnumFull      # базовый набор полон — к хвосту (media-квота), не return
                   continue
               ps = _best_block(room, b, free, cands, tv=tv, fixed=fixed,
                                second_focus=second, require_bearer=bearer)
@@ -1637,7 +1670,41 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
                   return ps
       finally:
         _FOCUS_LEVEL = 0
+    except _EnumFull:
+        _FOCUS_LEVEL = 0
     if _enum:
+        # Q3 свода №13: КВОТА media-aware формы — гипотеза с креслом «к ТВ» обязана
+        # попасть в beam, даже если каскад набрал enumerate_k раньше (иначе media-формы
+        # в конце каскада никогда не перебираются). Помечено tpl_variant.
+        _MEDIA_SHAPES = ('media_parallel', 'media_half', 'media_bridge')
+        if not any(getattr(e[0], 'tpl_variant', '').split('+')[0] in _MEDIA_SHAPES for e in _enum)                 and any(sh in _MEDIA_SHAPES for sh in shapes):
+            _saved = list(_enum)
+            _enum.clear()
+            _extra_k = 1
+            try:
+                for _lvl2 in _rounds:
+                    _FOCUS_LEVEL = _lvl2
+                    for br, _gap, _shift in variants:
+                        for shape in [sh for sh in shapes if sh in _MEDIA_SHAPES]:
+                            b = build_block(group_id, br, variant=shape, table_gap=_gap,
+                                            table_shift=_shift)
+                            if b is None or len(b.rel) < 2:
+                                continue
+                            cands = list(wall_candidates(room, b.anchor, free))
+                            cands += _window_back_candidates(room, b.anchor, free)
+                            _pss = _best_block(room, b, free, cands, tv=tv, fixed=fixed,
+                                               second_focus=second, require_bearer=bearer, top=1)
+                            if _pss:
+                                _one = _pss if isinstance(_pss[0], Placement) else _pss[0]
+                                for _pv in _one:
+                                    _pv.tpl_variant = shape + ('+axis_shifted' if _shift else '')
+                                _saved.append(_one)
+                                raise StopIteration
+            except StopIteration:
+                pass
+            finally:
+                _FOCUS_LEVEL = 0
+            _enum.extend(_saved)
         return _enum
     return None
 

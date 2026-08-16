@@ -61,8 +61,12 @@ FEEDS="f7633bdd943d41c718c12dc88e7a61f2b88b55c6 c0021e3fe460caf057f3d7823043b14a
 ok=1
 for h in $FEEDS; do
   for try in 1 2; do
-    curl -sL --max-time 300 -o "feeds2/$h.xml.zip.new" "https://export.gdeslon.ru/uploads/exports/$h.xml.zip" \
-      && [ -s "feeds2/$h.xml.zip.new" ] && mv "feeds2/$h.xml.zip.new" "feeds2/$h.xml.zip" && break
+    # ответ обязан быть zip (magic PK): 16.08 Гдеслон отдал 404-HTML по 777e580d, curl сохранил его как
+    # .xml.zip поверх прежнего архива → load3 упал на BadZipFile и ВЕСЬ конвейер остановился (урок).
+    curl -sfL --max-time 300 -o "feeds2/$h.xml.zip.new" "https://export.gdeslon.ru/uploads/exports/$h.xml.zip" \
+      && [ -s "feeds2/$h.xml.zip.new" ] && "$PY" -c "import zipfile,sys;sys.exit(0 if zipfile.is_zipfile('feeds2/$h.xml.zip.new') and zipfile.ZipFile('feeds2/$h.xml.zip.new').testzip() is None else 1)" \
+      && mv "feeds2/$h.xml.zip.new" "feeds2/$h.xml.zip" && break
+    rm -f "feeds2/$h.xml.zip.new"
     [ "$try" = 2 ] && { echo "фид $h НЕ скачался — оставлен прежний" >> "$LOG"; ok=0; } || sleep 20
   done
 done

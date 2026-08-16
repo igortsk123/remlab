@@ -5,7 +5,7 @@
 - Товары магазинов свежих фидов, ИСЧЕЗНУВШИЕ из фида → in_stock=false (снят с продажи).
 - Магазины без свежего фида (nonton, h-f-l) не трогаем — наличие проверит health-цикл.
 Запуск: python3 load3.py"""
-import zipfile, glob, os, re, sys, json, subprocess, urllib.parse, hashlib
+import json, zipfile, glob, os, re, sys, subprocess, urllib.parse, hashlib
 import xml.etree.ElementTree as ET
 
 HERE=os.path.dirname(os.path.abspath(__file__))
@@ -73,7 +73,21 @@ def direct(url):
 
 total=0; per={}
 rows=[]; erows=[]; mids=set(); _dropped={}
+_FRESH={}
+try:
+    _FRESH=json.load(open(os.path.join(HERE,'feed-freshness.json')))
+except Exception:
+    pass
 for z in sorted(glob.glob(os.path.join(FEEDS,'*.zip'))):
+    # один битый фид не должен валить ВЕСЬ конвейер (16.08: 777e580d = 404-HTML → BadZipFile →
+    # load3 FAIL → обогащение/индексы/heal не запускались). Пропускаем broken/не-zip с записью.
+    _feed_hash=os.path.basename(z).split('.')[0]      # НЕ _h: так называется функция ниже (Codex 16.08)
+    _fst=(_FRESH.get(_feed_hash) or {}).get('state')
+    if _fst in ('broken','stale','empty') or not zipfile.is_zipfile(z):
+        # stale/empty тоже не грузим: иначе старый архив каждый день ставит свежий last_seen и
+        # in_stock=true товарам исчезнувшего источника (Codex, каталожная сессия 16.08)
+        print(f"ФИД {_feed_hash[:12]} ПРОПУЩЕН: {_fst or 'не zip'} — товары магазина остаются как есть (карантин источника)", flush=True)
+        continue
     zf=zipfile.ZipFile(z); name=zf.namelist()[0]
     cats={}
     with zf.open(name) as f:

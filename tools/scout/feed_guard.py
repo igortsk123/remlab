@@ -12,6 +12,7 @@
 Алертит через alert.sh; выход всегда 0 (guard не должен ронять конвейер — только кричать).
 Запуск: refresh_daily.sh шаг feed_guard, либо руками: python feed_guard.py
 """
+from datetime import datetime
 import glob
 import json
 import os
@@ -66,7 +67,11 @@ def scan() -> dict:
                                     mids.add(int(m.group(1)))
                             buf = chunk[-len(mark):]
         except (zipfile.BadZipFile, OSError) as e:
-            out[h] = {'offers': 0, 'error': str(e)[:120], 'state': 'broken'}
+            # mids прежней исправной записи сохраняем: иначе compose2/candidates не узнают, ЧЕЙ
+            # источник сломан (777e580d = 116933 nonton.ru, Codex 16.08), и карантин не сработает
+            _prev_m = (prev.get(h) or {}).get('mids') or []
+            out[h] = {'offers': 0, 'error': str(e)[:120], 'state': 'broken', 'mids': _prev_m,
+                      'broken_since': (prev.get(h) or {}).get('broken_since') or datetime.now().strftime('%Y-%m-%d')}
             _alert(f'remlab: фид {h[:12]} не читается ({e}) — работаем на прежних данных БД')
             continue
         age_h = None

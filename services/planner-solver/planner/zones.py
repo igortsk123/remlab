@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections import Counter
 from functools import lru_cache
 
 from shapely.geometry import Polygon, box
@@ -138,7 +139,8 @@ def pick_ladder(room: Room, roles_available: set[str] | dict,
     groups = {g['id']: g for g in zr['seating_groups']}
     have = Counter(dict(roles_available)) if isinstance(roles_available, dict) \
         else Counter({r: 999 for r in roles_available})
-    ladder = [g for g in zr.get('seating_ladder', {}).get('ladder', []) if g in groups]
+    ladder = [g for g in zr.get('seating_ladder', {}).get('ladder', []) if g in groups
+              and groups[g].get('status') != 'shadow_alternative']   # Q3: shadow — вне production-лестницы
     band_set = set(band['groups'])
     _first = next((i for i, g in enumerate(ladder) if g in band_set), 0)
     out = []
@@ -158,6 +160,21 @@ def pick_ladder(room: Room, roles_available: set[str] | dict,
         # dining_sacrifice: спуск на N ступеней ниже — жертва мест ради второй зоны
         out = out[skip:] if skip < len(out) else out[-1:]
     return out or [groups['sofa_solo' if have.get('диван', 0) > 0 else 'armchair_pair']]
+
+
+def _secondary_scope_roles(room: Room) -> set:
+    """Q1 свода №13: роли, не участвующие в лестнице ГЛАВНОЙ посадки (данные
+    zone_priority.secondary_scope_roles + _by_mode[room_mode]): кресло 3/4 всегда
+    (второй pod/quiet), «диван 2» — в small/transitional (двухдиванные ступени там
+    вытесняют столовую)."""
+    zp = zone_rules().get('zone_priority', {}) or {}
+    sec = set(zp.get('secondary_scope_roles', []))
+    try:
+        from .room_map import room_mode as _rm
+        sec |= set((zp.get('secondary_scope_roles_by_mode') or {}).get(_rm(room), []))
+    except Exception:
+        pass
+    return sec
 
 
 def scenario_needs(**overrides) -> dict:
@@ -219,8 +236,30 @@ def _solve_zoned_impl(room: Room, items, **kw):
     base_q = _sq(room, outs[0].placements)
     _media0 = any(p.role.split(' ')[0] in ('тв-тумба', 'стенка', 'камин')
                   for p in outs[0].placements)
-    for _skip in range(1, int(cfg.get('max_steps_down', 2)) + 1):
+    # Кодекс (разбор dining 220→218, set18-base): max_steps_down — число РЕАЛЬНО
+    # достижимых деградаций посадки, а не инвентарных строк лестницы: недостижимые
+    # (inventory-complete, hard_valid=0) ступени поглощали шаги, и до compact_sectional,
+    # где столовая встаёт, цикл не доходил. Считаем шаг только когда со skip лестница
+    # приняла ДРУГУЮ реально вставшую ступень (по gid); skip идёт по всем строкам.
+    _max_down = int(cfg.get('max_steps_down', 2))
+    _real_steps = 0
+    _seen_gids = {(gid or '').split('+')[0]}
+    _ladder_len = len(pick_ladder(room, dict(Counter(
+        i.role.split(' ')[0] for i in items if i.role not in _secondary_scope_roles(room)))))
+    for _skip in range(1, max(_max_down, _ladder_len) + 1):
+        if _real_steps >= _max_down:
+            break
         outs2, gid2 = _solve_zoned_core(room, items, _ladder_skip=_skip, **kw)
+        _g2 = (gid2 or '').split('+')[0]
+        # LEVEL A (владелец: «диван из банка стоит всегда») старше столовой: жертва ступени
+        # не имеет права спуститься до БЕЗДИВАННОЙ группы, пока диван в банке (регресс после
+        # перевода max_steps_down на реальные деградации: sacr6 → armchair_pair, set47/39)
+        if outs2 and outs2[0].placements and any(i.role == 'диван' for i in items) \
+                and not any(p.role.split(' ')[0] == 'диван' for p in outs2[0].placements):
+            continue
+        if outs2 and outs2[0].placements and _g2 and _g2 not in _seen_gids and '+notpl' not in (gid2 or ''):
+            _seen_gids.add(_g2)
+            _real_steps += 1          # реально вставшая новая ступень = 1 шаг вниз
         if not outs2 or not outs2[0].placements or '+din' not in gid2:
             continue
         if _media0 and not any(p.role.split(' ')[0] in ('тв-тумба', 'стенка', 'камин')
@@ -476,7 +515,12 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
     from . import validate as _valmod
     _valmod.SCREEN_WINDOW_WAIVED[0] = False   # C-8: вейвер экрана — per solve, не env
     avail = {_base(i.role) for i in items}
-    counts = Counter(_base(i.role) for i in items)
+    # Q1 свода №13: роли secondary-scope (кресло 3/4 — второй pod/quiet, данные
+    # zone_priority.secondary_scope_roles) НЕ считаются в лестнице главной посадки —
+    # иначе банк с 4 креслами уводит лестницу в sofa_4armchairs, хотя композитор
+    # предназначал пару второй зоне (Кодекс, ревью v7 §3)
+    _sec = _secondary_scope_roles(room)
+    counts = Counter(_base(i.role) for i in items if i.role not in _sec)
     group = pick_group(room, dict(counts))
     if os.environ.get('ZONES_DEBUG'):
         import sys as _sys
@@ -564,6 +608,7 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
             # компактную comfort автоматически); pass 2 — FAR-разрешение с явным
             # трейсом. Существующие границы, нового скора нет.
             _m0 = None
+            _any_sofa_step_valid = False      # LEVEL A: была ли хоть одна вставшая диванная ступень
             for _need_comfort in (True, False):
               if block is not None:
                   break
@@ -573,14 +618,22 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                 # в comfort-проходе бездиванные ступени пропускаются, пока диван
                 # доступен — иначе пара кресел с comfort-медиа обходила диванные
                 # FAR-ступени (регресс C-3: set61-bay/set77-trapezoid)
-                if _need_comfort and any(i.role == 'диван' for i in keep) \
+                # Q3 свода №13 (set80-L): LEVEL A действует в ОБОИХ проходах — бездиванная
+                # ступень с медиа-минимумом не решение, пока диван в банке; честнее
+                # MEDIA_MISSING на диванной ступени, чем гостиная без дивана.
+                if any(i.role == 'диван' for i in keep) \
                         and 'диван' not in {r.split(' ')[0]
-                                            for r in _g['roles']['required']}:
+                                            for r in _g['roles']['required']} \
+                        and (_need_comfort or _fb_block is not None or _any_sofa_step_valid):
+                    # бездиванная — только если НИ ОДНА диванная ступень не встала вовсе
+                    # (иначе комната пустая — тест quiet_zone); тогда честный последний фолбэк
                     continue
                 _blk = (list(_hyp['block']) if _hyp
                         else place_template(room, _g['id'], keep, usable_polygon(room)))
                 _se['generated'] = 1
                 _se['hard_valid'] = 1 if _blk else 0
+                if _blk and 'диван' in {r.split(' ')[0] for r in _g['roles']['required']}:
+                    _any_sofa_step_valid = True
                 if not _blk:
                     continue
                 if _has_bearer0:
@@ -1358,6 +1411,92 @@ def plan_key(room: Room, lay, needs: dict, seat_rank: int = 0) -> tuple:
     return (hard, missing_req, -covered_pref, -seat_rank, axis_cls) + tuple(lk[1:])
 
 
+def plan_key_v2(room: Room, lay, needs: dict, reach: dict | None = None) -> tuple:
+    """Q4 свода №13 (SHADOW до слепого раунда 2/Q7): ключ ГОТОВОГО плана по ярусам, как
+    ранжирует владелец (слепая оценка раунд 1 + Codex). Меньше — лучше. Пороги —
+    rules/zones.json view_contracts; ярусы со status=hypothesis участвуют только при
+    beam.shadow_hypothesis_tiers (решение владельца: shadow).
+    (hard, missing_required, unplaced_required,
+     entry_sightline_violation, media_seat_violation_if_reachable, dining_view_cone_violation,
+     small_room_corner_violation, missing_reachable_valid_preferred,
+     frontal_composition_deficit, seating_deficit,
+     -realized_armchairs, -realized_valid_flex_seats, -has_actual_footrest,
+     axis_class, circulation, functional, zone_quality, aesthetics)"""
+    from .score import score_layout
+    from .validate import Severity
+    from .geometry import base_role as _br
+    from .view_metrics import view_metrics as _vm
+    ps = list(lay.placements)
+    hard = sum(1 for v in lay.violations if v.severity is Severity.HARD)
+    unplaced = len(getattr(lay, 'unplaced', []) or [])
+    zp = zone_rules().get('zone_priority', {})
+    vc = zone_rules().get('view_contracts', {}) or {}
+    reach = reach or {}
+    status = dict(zp.get('status') or {})
+    status['media'] = needs.get('media', status.get('media'))
+    status['dining'] = needs.get('dining', status.get('dining'))
+    roles = {_br(p.role) for p in ps}
+    m = _vm(room, ps)
+    seat = m.get('seating') or {}
+    have = {'media': bool(roles & {'тв-тумба', 'стенка'}), 'dining': 'стол обеденный' in roles,
+            'seating': bool(roles & {'диван', 'кресло'}),
+            'storage': bool(roles & {'стеллаж', 'витрина', 'комод', 'шкаф', 'стенка'})}
+    missing_req = sum(1 for z, st in status.items() if st == 'required' and z in have and not have[z])
+
+    def _active(key):
+        spec = vc.get(key) or {}
+        return spec.get('status') == 'measured' or bool(reach.get('shadow_hyp'))
+    entry_gap = m.get('entry_sightline_gap_cm')
+    entry_min = float((vc.get('entry_sightline_min_gap_cm') or {}).get('value', 76))
+    entry_viol = int(_active('entry_sightline_min_gap_cm') and entry_gap is not None and entry_gap < entry_min)
+    ang_max = float((vc.get('media_seat_angle_max_deg') or {}).get('value', 45))
+    angs = m.get('armchair_tv_angles') or []
+    media_seat_ok = any(a <= ang_max for a in angs) if angs else None
+    # контракт — только если сертификат говорит, что media-кресло достижимо в этой сцене
+    media_seat_viol = int(_active('media_seat_angle_max_deg') and bool(reach.get('media_seat_reachable'))
+                          and bool(angs) and not media_seat_ok)
+    dvc = vc.get('dining_view_cone') or {}
+    cone = m.get('dining_view_cone_overlap_pct')
+    dining_cone_viol = int(_active('dining_view_cone') and cone is not None
+                           and cone > float(dvc.get('overlap_max_pct', 10)))
+    corner_viol = 0
+    try:
+        crn = float((vc.get('small_room_corner_hug_below_m2') or {}).get('value', 30))
+        zs = (getattr(lay, 'meta', None) or {}).get('zones') or {}
+        cc = (zs.get('seating') or {}).get('corner_class') if isinstance(zs.get('seating'), dict) else None
+        if room.width_cm * room.depth_cm / 10_000 < crn and cc == 'adrift':
+            corner_viol = 1
+    except Exception:
+        pass
+    covered_pref = 0
+    for z, st in status.items():
+        if st != 'preferred':
+            continue
+        ok = have.get(z, False)
+        if z == 'dining' and ok and dining_cone_viol:
+            ok = False                          # столовая в конусе — НЕ покрытие
+        covered_pref += int(bool(ok))
+    n_pref = sum(1 for st in status.values() if st == 'preferred')
+    missing_pref = n_pref - covered_pref
+    fcm = (vc.get('frontal_companions_min') or {}).get('by_area_m2') or {}
+    m2 = room.width_cm * room.depth_cm / 10_000
+    need_c = 0
+    for k, v in sorted(((float(k), int(v)) for k, v in fcm.items())):
+        if m2 >= k:
+            need_c = v
+    frontal_def = max(0, need_c - len(m.get('frontal_companions') or [])) if _active('frontal_companions_min') else 0
+    need_arm = 2 if m2 >= 25 else (1 if m2 > 15 else 0)   # armchair_policy.count_by_area_m2
+    if reach.get('armchairs_reachable') is not None:
+        need_arm = min(need_arm, int(reach['armchairs_reachable']))
+    seat_def = max(0, need_arm - int(seat.get('armchairs', 0)))
+    lk = lexo_key(hard, unplaced, score_layout(room, ps).terms)
+    return (hard, missing_req, unplaced,
+            entry_viol, media_seat_viol, dining_cone_viol, corner_viol,
+            missing_pref, frontal_def, seat_def,
+            -int(seat.get('armchairs', 0)), -int(seat.get('flex_seats', 0)), -int(seat.get('footrest', 0) > 0),
+            _axis_class(lay)) + tuple(lk[1:])
+
+
 def _axis_class(lay) -> int:
     ax = ((getattr(lay, 'meta', None) or {}).get('axis_contract') or {}).get('media') or {}
     c = ax.get('class')
@@ -1389,7 +1528,8 @@ def solve_zoned_beam(room: Room, items, **kw):
     cands = []
     from collections import Counter as _C
     _base = lambda r: r.split(' ')[0]
-    counts = _C(_base(i.role) for i in items)
+    _sec = _secondary_scope_roles(room)
+    counts = _C(_base(i.role) for i in items if i.role not in _sec)   # Q1: secondary вне лестницы
     steps_all = pick_ladder(room, dict(counts))
     n_all = len(steps_all)
     _rank = {g['id']: n_all - i for i, g in enumerate(steps_all)}   # верх лестницы — больший ранг
@@ -1399,7 +1539,34 @@ def solve_zoned_beam(room: Room, items, **kw):
                       plan_key(room, base_outs[0], needs, seat_rank=_rank.get(_g0, 0))))
     # ступени лестницы (те же, что видит greedy) — верхние K_steps
     from .template import place_template as _pt
-    steps = steps_all[:K_steps]
+    # Кодекс (разбор dining 220→218): бюджет ступеней — по ступеням, реально давшим
+    # ≥1 гипотезу, а не по первым K инвентарным строкам: недостижимые (inventory-
+    # complete, hard_valid=0) ступени съедали бюджет, и достижимые sofa_lamp/compact_
+    # sectional не перечислялись (set12-long). Общий фикс класса «мёртвые
+    # альтернативы вытесняют достижимый поиск».
+    steps = steps_all
+    # Q3 свода №13: планировщик СЕМЕЙСТВ композиций (данные beam.composition_families):
+    # в large/XL сначала предпочтительные семейства (pair_sides/u/two_sofa/compact+quiet),
+    # по одной лучшей позиции на семейство; полный прогон цепочки — под жёстким лимитом
+    # max_full_attempts; contributing = семейство дало ПОЛНЫЙ валидный план.
+    _fam_cfg = cfg.get('composition_families') or {}
+    _mode_key = _rmode(room) if '_rmode' in dir() else 'small'
+    try:
+        from .room_map import room_mode as _rmode2
+        _mode_key = _rmode2(room)
+        if _mode_key == 'large' and room.width_cm * room.depth_cm / 10_000 >= \
+                float(((cfg.get('budget_by_mode') or {}).get('large_xl') or {}).get('min_m2', 40)):
+            _mode_key = 'large_xl'
+    except Exception:
+        pass
+    _fam_order = list((_fam_cfg.get('preferred_order') or {}).get(_mode_key, []))
+    if _mode_key not in (cfg.get('family_enabled_modes') or ['large', 'large_xl']):
+        _fam_order = []                       # small/transitional — обычный beam
+    _max_full = int((cfg.get('full_chain_cap') or {}).get(_mode_key, 4))   # ЕДИНЫЙ cap
+    _cert = {'families': {}, 'one_sided': {'allowed': None, 'reason': None},
+             'budget': {'cap': _max_full, 'attempted': 0, 'exhausted': False}, 'mode': _mode_key}
+    _step_by_id = {g['id']: g for g in steps_all}
+    _fam_done = 0
     # P3 свода №12: режимы медиа как гипотезы — 'installation' только в large и при
     # носителе+компаньонах в банке (иначе дубликат)
     _media_modes = ['single']
@@ -1413,10 +1580,127 @@ def solve_zoned_beam(room: Room, items, **kw):
     except Exception:
         pass
     _seen = set()
-    for g in steps:
+    _contrib = 0
+    _full_attempts = 0
+
+    def _family_shapes(fam):
+        spec = _fam_cfg.get(fam) or {}
+        out_ = []
+        for gid in spec.get('groups', []):
+            if gid not in _step_by_id:
+                continue
+            g_ = _step_by_id[gid]
+            if g_.get('status') == 'shadow_alternative':
+                continue                       # sofa_4armchairs — только shadow (Q3)
+            sh_all = list(g_.get('shapes') or ['default'])
+            sh = spec.get('shapes')
+            if sh == '*' or sh is None:
+                sh_sel = [x for x in sh_all if x not in (spec.get('shapes_exclude') or [])]
+            else:
+                sh_sel = [x for x in sh_all if x in sh]
+            if sh_sel:
+                out_.append((g_, tuple(sh_sel)))
+        return out_
+
+    def _full_ok(outs_):
+        if not outs_ or not outs_[0].placements:
+            return False
+        from .validate import Severity as _Sv
+        if any(v.severity is _Sv.HARD for v in outs_[0].violations):
+            return False
+        roles_ = {p.role.split(' ')[0] for p in outs_[0].placements}
+        if needs.get('media') == 'required' and any(i.role.split(' ')[0] in ('тв-тумба', 'стенка') for i in items) \
+                and not (roles_ & {'тв-тумба', 'стенка'}):
+            return False
+        return True
+
+    for fam in _fam_order:
+        if _full_attempts >= _max_full:
+            _cert['budget']['exhausted'] = True
+            break
+        spec = _fam_cfg.get(fam) or {}
+        rec = _cert['families'].setdefault(fam, {'inventory_complete': False, 'block_generated': 0,
+                                                 'full_attempted': 0, 'full_valid': 0, 'reject_codes': []})
+        pairs = _family_shapes(fam)
+        if not pairs:
+            rec['reject_codes'].append('inventory_incomplete')
+            continue
+        rec['inventory_complete'] = True
+        for g_, shapes_ in pairs:
+            if _full_attempts >= _max_full:
+                break
+            _fk = int(((cfg.get('family_enumerate_k') or {}).get(fam)
+                       or (cfg.get('family_enumerate_k') or {}).get('_default') or 1))
+            variants = _pt(room, g_['id'], list(items), usable_polygon(room),
+                           enumerate_k=_fk, shape_filter=shapes_) or []
+            if not variants:
+                rec['reject_codes'].append(f"block_infeasible:{g_['id']}")
+                continue
+            rec['block_generated'] += len(variants)
+            blk = variants[0]
+            key = tuple(sorted((q.role, round(q.x), round(q.y), int(q.rot) % 360) for q in blk))
+            if key in _seen:
+                continue
+            _seen.add(key)
+            _full_attempts += 1
+            _cert['budget']['attempted'] = _full_attempts
+            rec['full_attempted'] += 1
+            try:
+                outs, gid = solve_zoned(room, items, _hyp={'group': g_['id'], 'block': blk}, **kw)
+            except Exception as e:
+                rec['reject_codes'].append(f'chain_error:{type(e).__name__}')
+                continue
+            if not _full_ok(outs):
+                rec['reject_codes'].append('full_chain_invalid')
+                continue
+            if spec.get('require_zone') and spec['require_zone'] not in (gid or ''):
+                rec['reject_codes'].append(f"missing_zone:{spec['require_zone']}")
+                continue
+            rec['full_valid'] += 1
+            _fam_done += 1
+            _nm = f"{fam}:{g_['id']}#{getattr(blk[0], 'tpl_variant', '') or shapes_[0]}"
+            cands.append((_nm, gid, outs,
+                          plan_key(room, outs[0], needs, seat_rank=_rank.get(g_['id'], 0))))
+            break                                # одна лучшая позиция на семейство
+    # one-sided fallback: разрешён только если ВСЕ предпочтительные семейства сертифицированно недостижимы
+    _pref = [f for f in _fam_order]
+    _all_unreach = bool(_pref) and all(
+        (not _cert['families'].get(f, {}).get('inventory_complete'))
+        or _cert['families'].get(f, {}).get('block_generated', 0) == 0
+        or (_cert['families'].get(f, {}).get('full_attempted', 0) >= 1
+            and _cert['families'].get(f, {}).get('full_valid', 0) == 0)
+        for f in _pref)
+    _cert['one_sided']['allowed'] = bool(_all_unreach and not _cert['budget']['exhausted'])
+    _cert['one_sided']['reason'] = ('preferred_certified_unreachable' if _all_unreach
+                                    else ('preferred_family_unattempted' if not _pref else 'preferred_reachable'))
+    if _cert['budget']['exhausted'] and not _all_unreach:
+        _cert['one_sided']['reason'] = 'SEARCH_GAP_COMPOSITION'
+    _step_tries = 0
+    _fam_valid_total = sum(1 for v in _cert['families'].values() if v.get('full_valid', 0) > 0)
+    _skip_general = bool(_fam_order) and _fam_valid_total >= int(cfg.get('fallback_min_full_valid_families', 2))
+    # BREADTH-FIRST (Codex, бюджет Q3): сперва перечисление (дёшево, без полных цепочек) по
+    # contributing-ступеням, затем полные прогоны по РАНГАМ — все #0, потом все #1… — чтобы при
+    # малом cap столовая/зона на ДРУГОЙ ступени нашлась раньше вторых позиций первой (set9/14/8/26:
+    # dining была 8–9-й гипотезой при depth-first).
+    _enum_by_step = []
+    for g in ([] if _skip_general else steps):
+        if _contrib >= K_steps or _step_tries >= 2 * K_steps:
+            break
+        if g.get('status') == 'shadow_alternative':
+            continue                    # Q3: sofa_4armchairs — только shadow-контрфактуал
+        _step_tries += 1
         variants = _pt(room, g['id'], list(items), usable_polygon(room),
                        enumerate_k=K_blocks) or []
-        for vi, blk in enumerate(variants):
+        if variants:
+            _contrib += 1
+            _enum_by_step.append((g, variants))
+    _max_rank = max((len(v) for _, v in _enum_by_step), default=0)
+    for _rank_i in range(_max_rank):
+      for g, variants in _enum_by_step:
+        if _rank_i >= len(variants) or _full_attempts >= _max_full:
+            continue
+        vi, blk = _rank_i, variants[_rank_i]
+        if True:
             key = tuple(sorted((q.role, round(q.x), round(q.y), int(q.rot) % 360) for q in blk))
             if key in _seen:
                 continue
@@ -1424,9 +1708,19 @@ def solve_zoned_beam(room: Room, items, **kw):
             # инсталляция — только для ПЕРВОГО варианта блока ступени (бюджет large:
             # ×2 на все варианты дало TIMEOUT set111-base/pylons)
             for _mm in (_media_modes if vi == 0 else ['single']):
+                if _full_attempts >= _max_full:      # ЕДИНЫЙ cap: family + general + /inst
+                    break
+                # one-sided формы — только по сертификату (Q3)
+                _var0 = (getattr(blk[0], 'tpl_variant', '') or '').split('+')[0]
+                _os = _fam_cfg.get('one_sided_fallback') or {}
+                _is_one_sided = (g['id'] in _os.get('groups', []) and _var0 in _os.get('shapes', [])) or \
+                    (g['id'] in (_os.get('also') or {}).get('groups', []) and _var0 in (_os.get('also') or {}).get('shapes', []))
+                if _is_one_sided and _fam_order and not _cert['one_sided']['allowed']:
+                    continue
                 from . import template as _tmm
                 _tmm.MEDIA_MODE[0] = _mm
                 try:
+                    _full_attempts += 1
                     outs, gid = solve_zoned(room, items, _hyp={'group': g['id'], 'block': blk}, **kw)
                 except Exception as e:           # гипотеза упала — не роняем сцену
                     if os.environ.get('ZONES_DEBUG'):
@@ -1441,16 +1735,39 @@ def solve_zoned_beam(room: Room, items, **kw):
                 if _mm == 'installation' and not any(
                         getattr(p, 'tpl_variant', '') == 'installation' for p in outs[0].placements):
                     continue                     # инсталляция не встала — дубликат single, не считаем
-                _nm = f'{g["id"]}#{vi}' + ('/inst' if _mm == 'installation' else '')
+                _var_nm = (getattr(blk[0], 'tpl_variant', '') or '').split('+')[0]
+                _nm = f'{g["id"]}#{vi}' + (f':{_var_nm}' if _var_nm and _var_nm != 'default' else '') \
+                    + ('/inst' if _mm == 'installation' else '')
+                _cert['budget']['attempted'] = _full_attempts
                 cands.append((_nm, gid, outs,
                               plan_key(room, outs[0], needs, seat_rank=_rank.get(g['id'], 0))))
     if not cands:
         return base_outs, base_gid
     # детерминированный порядок: ключ, затем стабильный индекс (greedy первым при равенстве)
-    order = sorted(range(len(cands)), key=lambda i: (cands[i][3], i))
+    # Q4 свода №13: plan_key_v2 (SHADOW) — считаем для всех кандидатов и пишем в trace;
+    # выбор по v2 включается данными (beam.plan_key_version == 'v2') только после Q7
+    _pkv = str(cfg.get('plan_key_version', 'v1'))
+    _reach = {'media_seat_reachable': any(
+                  (getattr(p, 'tpl_variant', '') or '').split('+')[0] in ('media_parallel', 'media_half', 'media_bridge')
+                  for c in cands for p in (c[2][0].placements if c[2] else [])),
+              'shadow_hyp': bool(cfg.get('shadow_hypothesis_tiers', False))}
+    _v2 = []
+    for c in cands:
+        try:
+            _v2.append(plan_key_v2(room, c[2][0], needs, reach=_reach))
+        except Exception:
+            _v2.append(None)
+    if _pkv == 'v2' and cands and all(v is not None for v in _v2):
+        order = sorted(range(len(cands)), key=lambda i: (_v2[i], i))
+    else:
+        order = sorted(range(len(cands)), key=lambda i: (cands[i][3], i))
     best_i = order[0]
     name, gid, outs, key = cands[best_i]
-    trace = {'hypotheses': [{'name': c[0], 'gid': c[1], 'key': list(c[3])} for c in cands],
+    trace = {'hypotheses': [{'name': c[0], 'gid': c[1], 'key': list(c[3]),
+                             'key_v2': (list(_v2[i]) if _v2[i] is not None else None)} for i, c in enumerate(cands)],
+             'plan_key_version': _pkv,
+             'v2_would_choose': (cands[sorted(range(len(cands)), key=lambda i: (_v2[i], i))[0]][0]
+                                 if cands and all(v is not None for v in _v2) else None),
              'chosen': name, 'chosen_key': list(key),
              'greedy_key': list(cands[0][3]) if cands[0][0] == 'greedy' else None,
              'improved': bool(cands[0][0] == 'greedy' and best_i != 0)}
@@ -1459,6 +1776,7 @@ def solve_zoned_beam(room: Room, items, **kw):
     for zname, tag in (('dining', '+din'), ('media', '+tv'), ('quiet', '+qz')):
         cert[zname] = any(tag in c[1] for c in cands)
     trace['reachable'] = cert
+    trace['composition_certificate'] = _cert     # Q3: семейства/бюджет/one-sided
     for l in outs:
         if isinstance(getattr(l, 'meta', None), dict):
             l.meta['beam'] = trace

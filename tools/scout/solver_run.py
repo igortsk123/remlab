@@ -58,15 +58,52 @@ if items.get('диван') and not items['диван'].get('d'):
     FLOOR[0]=('диван',(FLOOR[0][1][0],95))
 # Z4: солвер обязан видеть ВЕСЬ состав — экземпляры по qty («кресло 2», «стул 2–4») и роль
 # «диван 2» (раньше qty терялся: сет с парой кресел раскладывался с одним)
+# Q1 свода №13 (Кодекс: «банк не доезжает до солвера»): identity-адаптер.
+# RAW_BANK — банк как есть (без сворачивания «X 2» → «X»); каждый SKU получает ровно одну
+# терминальную причину в _bank_unused. Правила:
+#  - qty-копии «X k» создаются ТОЛЬКО если в банке НЕТ явной роли «X k» (alt-SKU не перетирается);
+#  - явные нумерованные SKU (кресло 2 alt, кресло 3/4) идут со СВОИМИ габаритами;
+#  - кресло 3/4 — secondary (quiet/U-композиция) — солвер их уже умеет (build_quiet);
+#  - «диван 2» — прежняя семантика; «стеллаж 2»/«комод 2» — shadow до storage-пакета.
+RAW_BANK=dict(s['items'])
+BANK_DISPOSITION={}   # role → adapter_excluded | passed
+_IDENTITY=os.environ.get('LAYOUT_BANK_IDENTITY','1')!='0'
 _extra=[]
+_explicit={r for r in RAW_BANK if r.split(' ')[-1].isdigit()}
 for _r,(_w,_d) in FLOOR:
     _q=int((items.get(_r) or {}).get('qty') or 1)
     for _k in range(2,_q+1):
+        if f'{_r} {_k}' in _explicit and _IDENTITY:
+            continue                                   # явный SKU важнее qty-копии
         _extra.append((f'{_r} {_k}',(_w,_d)))
-if items.get('диван 2'):
-    _it2=items['диван 2']
-    _extra.insert(0,('диван 2',(int(_it2.get('w') or 190),int(_it2.get('d') or _it2.get('dia') or 95))))
+# «диван 2» (двухдиванные шаблоны sofa_facing_sofa/two_sofas): прежняя ветка читала items['диван 2'],
+# которого после сворачивания «X 2»→«X» НИКОГДА не было — второй диван до солвера не доезжал
+# (Q1 свода №13, найдено при аудите адаптера). Читаем из RAW_BANK; семантика роли не расширяется.
+_d2 = RAW_BANK.get('диван 2') if _IDENTITY else items.get('диван 2')
+if _d2:
+    _extra.insert(0,('диван 2',(int(_d2.get('w') or 190),int(_d2.get('d') or _d2.get('dia') or 95))))
+    items.setdefault('диван 2', _d2)
+if _IDENTITY:
+    _SHADOW_ROLES={'стеллаж 2','комод 2'}             # до storage-пакета
+    for _r in sorted(_explicit):
+        _base=_r.rsplit(' ',1)[0]
+        if _r=='диван 2' or _r in _SHADOW_ROLES:
+            if _r in _SHADOW_ROLES: BANK_DISPOSITION[_r]='adapter_excluded:shadow_storage'
+            continue
+        if _base not in dict(FLOOR_TYPICAL):
+            BANK_DISPOSITION[_r]='adapter_excluded:not_floor_role'; continue
+        if any(rr==_r for rr,_ in _extra):
+            continue
+        _it=RAW_BANK[_r]
+        _extra.append((_r,(int(_it.get('w') or dict(FLOOR_TYPICAL)[_base][0]),
+                            int(_it.get('d') or _it.get('dia') or dict(FLOOR_TYPICAL)[_base][1]))))
+        items.setdefault(_r,_it)                       # габарит SKU для dims()/its
 FLOOR+=_extra
+for _r in RAW_BANK:
+    if _r in dict(FLOOR): BANK_DISPOSITION.setdefault(_r,'passed')
+    elif _r not in BANK_DISPOSITION:
+        BANK_DISPOSITION[_r]=('adapter_excluded:not_floor_role' if _r.rsplit(' ',1)[0] not in dict(FLOOR_TYPICAL)
+                              else 'adapter_excluded')
 
 # фолбэк-констрейнты по ролям (онтология Holodeck; порядок = порядок размещения)
 CONS={
@@ -952,6 +989,23 @@ try:
     _bank = len(FLOOR)
     _used = len([r for r in placed if r not in ('дверь', 'окно')])
     out['_used_of_bank'] = f'{_used}/{_bank}'
+    # Q1 свода №13: банк 1:1 и терминальная причина для КАЖДОГО SKU
+    try:
+        out['_input_bank']={r:{'w':(v or {}).get('w'),'d':(v or {}).get('d'),'qty':(v or {}).get('qty'),
+                               'alt':(v or {}).get('alt'),'mid':(v or {}).get('mid'),'eid':(v or {}).get('eid')}
+                            for r,v in RAW_BANK.items() if isinstance(v,dict)}
+        _placed_roles={r for r in placed}
+        _floor_roles={r for r,_ in FLOOR}
+        _bu={}
+        for r,disp in BANK_DISPOSITION.items():
+            if r in _placed_roles: _bu[r]='placed'
+            elif disp.startswith('adapter_excluded'): _bu[r]=disp
+            elif r in _floor_roles: _bu[r]='passed_not_placed'      # был у солвера, не встал
+                                                                    # (уточнение причины — трейс зон)
+            else: _bu[r]='adapter_excluded'
+        out['_bank_unused']=_bu
+    except Exception as _e:
+        out['_bank_unused']={'error':repr(_e)[:100]}
     print(f'USED {_used}/{_bank}', flush=True)
 except Exception as _e:
     pass
