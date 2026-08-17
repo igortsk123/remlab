@@ -447,13 +447,15 @@ def _add_facing(b: Block, seat: Item, other: Item, far_y: float) -> None:
     b.add(other, fx, far_y + COFFEE_GAP + other.d_cm / 2, 180.0)
 
 
-def _add_L(b: Block, sofa: Item, other: Item) -> None:
-    """Г/П-стык (правка владельца 11.08): второй диван перпендикулярно слева,
+def _add_L(b: Block, sofa: Item, other: Item, side: int = -1) -> None:
+    """Г/П-стык (правка владельца 11.08): второй диван перпендикулярно сбоку,
     спинкой наружу; его ближний торец — на уровне ФРОНТА первого (не спинки:
-    хвост до линии спинки читался как «перекрытие зоны» на чертеже)."""
-    ox = -(sofa.w_cm / 2 + L_GAP + other.d_cm / 2)
+    хвост до линии спинки читался как «перекрытие зоны» на чертеже).
+    Q5 (Codex 16.08): side=-1 слева (прежнее), +1 — зеркально справа (форма L_right):
+    раньше второй диван ставился ТОЛЬКО слева — дыра поиска two_sofa."""
+    ox = side * (sofa.w_cm / 2 + L_GAP + other.d_cm / 2)
     oy = _front(sofa) + 5.0 + other.w_cm / 2
-    b.add(other, ox, oy, 90.0)
+    b.add(other, ox, oy, 90.0 if side < 0 else 270.0)
 
 
 def _seating_bbox(b: Block) -> tuple[tuple[float, float], tuple[float, float]]:
@@ -597,7 +599,7 @@ def build_block(group_id: str, by_role: dict[str, Item],
         # (SOFA_TABLE_DIST в validate привязан только к главному — проверено)
         if not sofa2 or sofa.corner or sofa2.corner:
             return None
-        _add_L(b, sofa, sofa2)
+        _add_L(b, sofa, sofa2, side=(+1 if variant == 'L_right' else -1))
         rug_min_left = -(sofa.w_cm / 2 + L_GAP) + 6.0   # правый край дивана 2 + зазор
         if variant == 'square':
             # фолбэк для тесных канонических комнат: кресла столбиком сбоку столика
@@ -610,13 +612,16 @@ def build_block(group_id: str, by_role: dict[str, Item],
                           table_cy + arm1.w_cm / 2 + arm2.w_cm / 2 + 12, 270.0)
         elif arm1:
             # П-композиция (владелец 11.08): кресла — на ДЛИННОЙ стороне столика
-            # НАПРОТИВ главного дивана, лицом к нему; открытая сторона П — к экрану
-            ay = far + COFFEE_GAP + arm1.d_cm / 2
+            # НАПРОТИВ главного дивана, лицом к нему; открытая сторона П — к экрану.
+            # Q5 (Codex): ay — ПО КАЖДОМУ креслу (передние кромки выровнены), а не по d
+            # первого: иначе клон с меньшей глубиной падал в ARMCHAIR_OUT_OF_ZONE
+            ay1 = far + COFFEE_GAP + arm1.d_cm / 2
             if arm2 and group_id != 'sofa_loveseat':
-                b.add(arm1, table_x - (arm1.w_cm / 2 + 8), ay, 180.0)
-                b.add(arm2, table_x + (arm2.w_cm / 2 + 8), ay, 180.0)
+                ay2 = far + COFFEE_GAP + arm2.d_cm / 2
+                b.add(arm1, table_x - (arm1.w_cm / 2 + 8), ay1, 180.0)
+                b.add(arm2, table_x + (arm2.w_cm / 2 + 8), ay2, 180.0)
             else:
-                b.add(arm1, table_x, ay, 180.0)
+                b.add(arm1, table_x, ay1, 180.0)
         if rug is not None:
             # П-композиция (замечание владельца 11.08 «неравномерно заходят»):
             # ковёр кладём по центру ВНУТРЕННЕГО контура зоны и только если он
@@ -674,7 +679,11 @@ def build_block(group_id: str, by_role: dict[str, Item],
             return _valid(b)
         if variant == 'u':
             tw_half = (max(table.w_cm, table.d_cm) / 2) if table else 40.0
-            a3, a4 = by_role.get('кресло 3'), by_role.get('кресло 4')
+            # Q5 свода №13 (реплей set92): кресла 3/4 — SECONDARY (второй pod, Q1/Q3: sofa_4armchairs
+            # — shadow-контрфактуал); форма «u» главной sofa_2armchairs их НЕ забирает — иначе
+            # pod-комплект (пара + столик 2) обезглавлен, а главная группа перегружена (№174)
+            a3, a4 = ((by_role.get('кресло 3'), by_role.get('кресло 4'))
+                      if group_id == 'sofa_4armchairs' else (None, None))
             for side, near, far_arm in ((-1, arm1, a3), (+1, arm2, a4)):
                 ax = side * (tw_half + FLANK_GAP + near.d_cm / 2) + table_x
                 rot = 90.0 if side < 0 else 270.0
@@ -2532,21 +2541,55 @@ def _place_media_core(room: Room, items: list[Item], free: Polygon,
     return None
 
 
-def build_quiet(by_role: dict[str, Item]) -> Block | None:
-    """B2 (v2, веб-свод «watch zone + quiet zone»): вторая подзона просторных
-    гостиных — пара кресел визави + приставной между ними; ставится у камина
-    или свободного угла ПОСЛЕ главной зоны."""
+QUIET_DIAG: dict = {}   # Q5: почему второй pod (не) встал — читает solve_zoned → артефакт `_quiet_diag`
+
+
+def build_quiet(by_role: dict[str, Item], variant: str = 'quiet_chat',
+                fireplace: Item | None = None) -> Block | None:
+    """Второй pod (Q5 свода №13, Codex по замечаниям владельца №181/№183):
+    quiet_chat — пара кресел 3/4 + ОБЯЗАТЕЛЬНАЯ малая поверхность (приставной|столик 2|столик)
+    между ними, кресла повёрнуты 30–45° к общему центру (не «интервью» 0/180);
+    fireplace_flank — пара по сторонам камина под 45° к очагу (fireplace.rules), камин — часть блока.
+    Без поверхности и без камина — блока НЕТ (пара визави «ни о чём» — владелец)."""
     a1 = by_role.get('кресло 3')
     a2 = by_role.get('кресло 4')
     if not (a1 and a2):
         return None
-    b = Block(a1)
-    side = by_role.get('приставной') or by_role.get('столик')
-    gap = (side.d_cm if side else 60.0)
-    b.add(a2, 0.0, a1.d_cm / 2 + gap + 40 + a2.d_cm / 2, 180.0)
-    if side is not None:
-        b.add(side, 0.0, a1.d_cm / 2 + (gap + 40) / 2, 0.0)
+    if variant == 'fireplace_flank' and fireplace is not None:
+        b = Block(fireplace)
+        _rules = (_zone_rules_tpl().get('zones', {}).get('fireplace', {}).get('rules') or {})
+        _ang = float(_rules.get('chair_angle_deg', 45))
+        _off = fireplace.w_cm / 2 + 45 + a1.w_cm / 2
+        _fwd = float((_rules.get('safety_zone_cm') or [61, 91])[0]) + a1.d_cm / 2 + 20
+        b.add(a1, -_off, _fwd, 180.0 - _ang)      # слева, к очагу под углом
+        b.add(a2, +_off, _fwd, 180.0 + _ang)      # справа, зеркально
+        side = by_role.get('приставной') or by_role.get('столик 2')
+        if side is not None:
+            b.add(side, 0.0, _fwd + a1.d_cm / 2 + 20 + side.d_cm / 2, 0.0)
+        return _valid(b, 'quiet')
+    side = by_role.get('приставной') or by_role.get('столик 2') or by_role.get('столик')
+    if side is None:
+        return None                               # quiet_chat без поверхности не собирается
+    # Геометрия (правка 16.08 после реплея: якорь-кресло под 35° у стены торчал углом В СТЕНУ →
+    # ни одной валидной позиции): якорь — ПОВЕРХНОСТЬ (rot 0, спиной к стене), кресла по обе
+    # стороны ВДОЛЬ стены, развёрнуты на 35° к общему центру; сдвинуты вперёд на «вылет»
+    # повёрнутого прямоугольника, чтобы задний угол не пересекал стену
+    b = Block(side)
+    ang = 35.0
+    r = math.radians(ang)
+    def _fwd(a: Item) -> float:                   # задняя кромка повёрнутого кресла = задняя кромка столика
+        back = a.w_cm / 2 * math.sin(r) + a.d_cm / 2 * math.cos(r)
+        return back - side.d_cm / 2
+    off1 = side.w_cm / 2 + 20 + a1.w_cm / 2       # 20 см — зазор кромок (H&G: reach ≤ ~45 см до поверхности)
+    off2 = side.w_cm / 2 + 20 + a2.w_cm / 2
+    b.add(a1, -off1, _fwd(a1), ang)               # слева, повёрнуто к центру (+x)
+    b.add(a2, +off2, _fwd(a2), 360.0 - ang)       # справа, зеркально
     return _valid(b, 'quiet')
+
+
+def _zone_rules_tpl():
+    from .invariants import TEMPLATES as _T
+    return _T
 
 
 def place_quiet(room: Room, items: list[Item], free: Polygon,
@@ -2558,20 +2601,67 @@ def place_quiet(room: Room, items: list[Item], free: Polygon,
     стоять (fixed) — иначе кресла нужнее в основной группе."""
     if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
         return None
+    QUIET_DIAG.clear()
     from .room_map import room_mode as _rmq
     if _rmq(room) != 'large':
+        QUIET_DIAG['skip'] = 'room_mode_not_large'
         return None
     if not any(p.role.split(' ')[0] == 'диван' for p in (fixed or [])):
+        QUIET_DIAG['skip'] = 'no_main_sofa'
         return None
     by_role: dict[str, Item] = {}
     for it in items:
         by_role.setdefault(it.role, it)
-    b = build_quiet(by_role)
+    if not (by_role.get('кресло 3') and by_role.get('кресло 4')):
+        QUIET_DIAG['skip'] = 'no_pair_3_4'
+        return None
+    # Q5 (Codex): pod не ставится при богатой primary (≥2 кресла в главной группе или два
+    # дивана) и при уже существующем reading/bay pod — вторая зона должна быть осмысленной
+    _fx = list(fixed or [])
+    _main_arm = sum(1 for p in _fx if p.role.split(' ')[0] == 'кресло' and getattr(p, 'tpl_id', '') == 'seating')
+    _sofas = sum(1 for p in _fx if p.role.split(' ')[0] == 'диван')
+    if _main_arm >= 2 or _sofas >= 2:
+        QUIET_DIAG['skip'] = 'primary_rich'
+        return None
+    if any(getattr(p, 'tpl_id', '') in ('reading', 'bay_armchair') for p in _fx):
+        QUIET_DIAG['skip'] = 'existing_pod'
+        return None
+    # порядок: fireplace_flank (камин уже стоит и достижим) → quiet_chat у окна/в углу
+    _fp = next((p for p in _fx if p.role.split(' ')[0] == 'камин'), None)
+    outs = []
+    if _fp is not None and _fp.item is not None:
+        bf = build_quiet(by_role, variant='fireplace_flank', fireplace=_fp.item)
+        if bf is not None:
+            # блок якорится на камине: единственный кандидат — фактическая поза камина
+            from .candidates import Candidate as _CQ
+            _cq = _CQ(placement=Placement(role=_fp.role, x=_fp.x, y=_fp.y, rot=_fp.rot, item=_fp.item),
+                      kind='anchor', note='fireplace_flank')
+            _fx_wo = [p for p in _fx if p is not _fp]
+            ps = _best_block(room, bf, free.union(footprint(_fp)), [_cq], tv=None, fixed=_fx_wo)
+            if ps:
+                for q in ps:
+                    q.tpl_variant = 'fireplace_flank'
+                QUIET_DIAG['placed'] = 'fireplace_flank'
+                return [q for q in ps if q.role != _fp.role]   # камин уже стоит — не дублируем
+            QUIET_DIAG['fireplace_flank'] = 'no_valid_position'
+        else:
+            QUIET_DIAG['fireplace_flank'] = 'block_none'
+    else:
+        QUIET_DIAG['fireplace_flank'] = 'no_fireplace_placed'
+    b = build_quiet(by_role, variant='quiet_chat')
     if b is None:
+        QUIET_DIAG['quiet_chat'] = 'no_surface'   # нет приставной|столик 2|столик в остатке банка
         return None
     _cands = list(wall_candidates(room, b.anchor, free)) \
         + list(middle_candidates(room, b.anchor, free, limit=8))
-    return _best_block(room, b, free, _cands, tv=None, fixed=fixed)
+    ps = _best_block(room, b, free, _cands, tv=None, fixed=fixed)
+    if ps:
+        for q in ps:
+            q.tpl_variant = 'quiet_chat'
+        QUIET_DIAG['placed'] = 'quiet_chat'
+    else:
+        QUIET_DIAG['quiet_chat'] = 'no_valid_position'
+    return ps
 
 
 def place_decor(room: Room, items: list[Item], free: Polygon,

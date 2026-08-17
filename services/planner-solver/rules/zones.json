@@ -174,6 +174,7 @@
    "note": "loveseat — альтернатива двум креслам уже с 12–15 м²",
    "shapes": [
     "default",
+    "L_right",
     "square"
    ],
    "intent": "media_primary"
@@ -226,6 +227,7 @@
    "why": "состав группы «sofa_loveseat_2armchairs» — из инвентаря сетов и правил долей площади (docs/DECISIONS ADR-0074/0075)",
    "shapes": [
     "default",
+    "L_right",
     "square"
    ],
    "intent": "media_primary"
@@ -250,6 +252,7 @@
    "note": "реалистично от ~22–25 без ущерба циркуляции",
    "shapes": [
     "default",
+    "L_right",
     "square"
    ],
    "intent": "media_primary"
@@ -1052,7 +1055,8 @@
   },
   "secondary_scope_roles": [
    "кресло 3",
-   "кресло 4"
+   "кресло 4",
+   "столик 2"
   ],
   "_secondary_scope_why": "Q1 свода №13: composer кладёт «кресло 3/4» для ВТОРОЙ посадочной зоны (quiet/U); в лестнице главной посадки они не считаются. «диван 2» — член двухдиванных primary-шаблонов и запасной прямой вместо углового: в лестнице УЧАСТВУЕТ во всех режимах (Кодекс, разбор регресса dining 220→218: причина не «диван 2», а бюджет beam/sacrifice по инвентарным строкам, а не по достижимым ступеням)."
  },
@@ -1150,7 +1154,8 @@
     ],
     "shapes_exclude": [
      "square"
-    ]
+    ],
+    "_shapes_why": "Q5 (Codex 16.08): default = Г-стык слева, L_right = зеркально справа (раньше поиск two_sofa видел только левый вариант); square исключён политикой (one-side)"
    },
    "compact_media_plus_quiet": {
     "groups": [
@@ -1161,7 +1166,13 @@
      "sofa_solo"
     ],
     "shapes": "*",
-    "require_zone": "+qz"
+    "require_zone": "+qz",
+    "requires_roles": [
+     "кресло 3",
+     "кресло 4",
+     "столик 2"
+    ],
+    "reserved": true
    },
    "compact_media": {
     "groups": [
@@ -1197,14 +1208,14 @@
    "preferred_order": {
     "large": [
      "pair_sides",
+     "compact_media_plus_quiet",
      "u_cluster",
-     "two_sofa",
-     "compact_media_plus_quiet"
+     "two_sofa"
     ],
     "large_xl": [
      "pair_sides",
-     "two_sofa",
-     "compact_media_plus_quiet"
+     "compact_media_plus_quiet",
+     "two_sofa"
     ],
     "transitional": [
      "pair_sides",
@@ -1213,7 +1224,8 @@
     "small": [
      "compact_media"
     ]
-   }
+   },
+   "_reserved_why": "Q5 (Codex): reserved-слот второго pod внутри cap (не сверх): large cap 4: pair_sides → compact+quiet(reserved) → u_cluster → two_sofa; xl cap 3: pair_sides → compact+quiet → two_sofa. Нет согласованной пары 3/4 (requires_roles) — слот освобождается. Сертификат second_pod: full_valid | inventory_gap | quality_rejected | template_infeasible | search_budget_exhausted."
   },
   "full_chain_cap": {
    "small": 8,
@@ -1291,5 +1303,44 @@
    "provenance": "zones.json armchair_policy (artleon/accentsathome/mirodemi, 08.08); blind pair04/05/10 («60 м² и одно кресло — очень плохо»)"
   }
  },
- "_notes_tall_on_tv_wall": {}
+ "_notes_tall_on_tv_wall": {},
+ "seating_pods": {
+  "second_pod_min_m2": 25,
+  "second_pod_certificate_min_m2": 40,
+  "pair_provenance_allowed": [
+   "exact_sku",
+   "explicit_collection"
+  ],
+  "_why": "Q5 свода №13 (Codex): с 25 м² композитор ДАЁТ солверу согласованную пару кресел 3/4 (второй pod — quiet/reading/fireplace) как возможность; с 40 м² beam ГАРАНТИРУЕТ ей слот поиска и пишет сертификат second_pod. Пара = один SKU (shop_mid, external_id) — «одна коллекция» только по явному params (Коллекция/Серия/Модель) + тот же магазин; mid в каталоге = shop_mid, не модель (прежний P4-фильтр mid!= предпочитал ДРУГОЙ магазин — исправлено). armchair_policy count_by_area_m2: ≥25 → 2–4 кресла (artleon/accentsathome/mirodemi).",
+  "pod_kit": {
+   "roles": [
+    "кресло 3",
+    "кресло 4",
+    "столик 2"
+   ],
+   "armchair_preferred_wd_cm": [
+    90,
+    95
+   ],
+   "armchair_hard_wd_cm": [
+    100,
+    105
+   ],
+   "armchair_exclude_regex": "реклайнер|recliner|кресло-кроват|раскладн|качалк|мешок|подвесн",
+   "surface_dia_cm": [
+    35,
+    70
+   ],
+   "surface_side_max_cm": 70,
+   "surface_h_cm": [
+    40,
+    65
+   ],
+   "surface_share_pct": [
+    0.5,
+    3.0
+   ],
+   "_why": "Q5 свода №13 (Codex, каталожная сессия 16.08): второй pod — атомарный комплект пара 3/4 (один SKU, qty=2, компактные: preferred 90×95, hard 100×105, без реклайнеров) + столик 2 (малая поверхность dia 35–70 | стороны ≤70, h 40–65, вне конверта главного столика 120–135). Без поверхности пару не создавать (мёртвый груз; владелец №181). Ёмкость каталога 10.08: ~94 малых оффера/71 модель, только 2 магазина — достаточно, но не отказоустойчиво"
+  }
+ }
 }

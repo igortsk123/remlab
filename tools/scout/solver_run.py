@@ -95,7 +95,7 @@ if _IDENTITY:
         if any(rr==_r for rr,_ in _extra):
             continue
         _it=RAW_BANK[_r]
-        _extra.append((_r,(int(_it.get('w') or dict(FLOOR_TYPICAL)[_base][0]),
+        _extra.append((_r,(int(_it.get('w') or _it.get('dia') or dict(FLOOR_TYPICAL)[_base][0]),   # круглый столик 2: dia×dia
                             int(_it.get('d') or _it.get('dia') or dict(FLOOR_TYPICAL)[_base][1]))))
         items.setdefault(_r,_it)                       # габарит SKU для dims()/its
 FLOOR+=_extra
@@ -1192,9 +1192,14 @@ def _facing_word(r, v):
         # приоритет цели для посадки: ФОКУС (ТВ/камин) важнее ближнего столика — иначе
         # диван всегда «к столику», а вопрос владельца был «лицом к ТВ или нет»
         _pri={'тв-тумба':0,'стенка':0,'камин':1,'диван':2,'кресло':2,'стол обеденный':3,'столик':4}[b2_]
-        if cosang>0.7 and (best is None or (_pri,d)<(best[2],best[0])): best=(d,b2_,_pri)
-    if best: return {'тв-тумба':'к ТВ','стенка':'к ТВ','диван':'к дивану','столик':'к столику','камин':'к камину','стол обеденный':'к столу','кресло':'к креслу'}[best[1]]
-    return {0:'на север',90:'на восток',180:'на юг',270:'на запад'}.get(int(v[1])%360,'')
+        # владелец 16.08 (галерея №51/59/183): «к ТВ» при 40–57° и «к камину» за 5 м вводят в
+        # заблуждение — цель засчитывается только ≤30° и ≤250 см; 30–60° — «вполоборота»
+        # Codex 16.08 (контракт позы для 3D/LLM): «к X» — только ≤15° (cos≥0.966), 15–45° — «под углом к X»
+        if d<=250 and cosang>=0.966 and (best is None or (_pri,d)<(best[2],best[0])): best=(d,b2_,_pri,'к')
+        elif d<=250 and cosang>=0.707 and (best is None or (_pri,d)<(best[2],best[0])): best=(d,b2_,_pri,'под углом к')
+    _nm={'тв-тумба':'ТВ','стенка':'ТВ','диван':'дивану','столик':'столику','камин':'камину','стол обеденный':'столу','кресло':'креслу'}
+    if best: return f"{best[3]} {_nm[best[1]]}"
+    return 'поперёк' if r.split(' ')[0]=='кресло' else {0:'на север',90:'на восток',180:'на юг',270:'на запад'}.get(int(v[1])%360,'')
 
 def _pouf_role(r, v):
     """P5 (владелец №192: «пуф — для ног или что?»): назначение по близости к посадке."""
@@ -1211,6 +1216,16 @@ for r,v in _order:
     cx,cz=v[0]; _w,_d=dict(FLOOR).get(r,(0,0))
     _fw=_facing_word(r,v)
     _extra=(f' · {_pouf_role(r,v)}' if r.split(' ')[0]=='пуф' else '')
+    # зона кресла (владелец 16.08 №62/181): кресло из чтения/тихой/эркера — подписать зону
+    try:
+        _zid=(globals().get('ZONE_IDS') or {})
+        _zn=None
+        for _zk,_zv in (_zid.items() if isinstance(_zid,dict) else []):
+            if isinstance(_zv,dict) and r in (_zv.get('members') or []): _zn=_zk; break
+        if r.split(' ')[0]=='кресло' and _zn in ('reading','quiet','bay_armchair'):
+            _extra+={'reading':' · зона чтения','quiet':' · тихая зона','bay_armchair':' · эркер'}[_zn]
+    except Exception:
+        pass
     _lbl=f"{r} {int(_w)}x{int(_d)}" + (f" · {_fw}" if _fw else '') + _extra
     _tx,_ty=T(cx,cz)
     _put_label(dr,_tx,_ty-8,_lbl,F_ITEM)

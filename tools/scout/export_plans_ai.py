@@ -131,6 +131,75 @@ def ascii_map(room, items):
             f'```\n{body}\n```\n{legend}')
 
 
+_DIRECTIONAL = ('диван', 'кресло', 'тв-тумба', 'стенка', 'камин', 'стул', 'кушетка')
+_TARGETS = ('тв-тумба', 'стенка', 'камин', 'диван', 'столик', 'стол обеденный', 'кресло')
+
+
+def _with_orientation(items: dict, art: dict) -> dict:
+    """Контракт позы для 3D/LLM (Codex, ревью галереи 16.08). Углы: yaw=0 — фронт вдоль +Z
+    (2D +y), по часовой сверху; фронт-вектор мировой; цель — ближайшая по приоритету
+    (ТВ/камин > диван > столик) в пределах 250 см и ≤45°; иначе target=None, relation='none'."""
+    import math
+    zones = art.get('_zones') or {}
+    zone_of = {}
+    for zname, z in zones.items():
+        if isinstance(z, dict):
+            for m in (z.get('members') or []):
+                zone_of[m] = zname
+    out = {}
+    for role, v in items.items():
+        d = dict(v)
+        base = role.split(' ')[0]
+        if base not in _DIRECTIONAL:
+            out[role] = d
+            continue
+        rot = float(v.get('rot', 0.0)) % 360.0
+        r = math.radians(rot)
+        fx, fz = math.sin(r), math.cos(r)
+        cx, cz = float(v['x']), float(v.get('z', v.get('y', 0.0)))
+        best = None
+        for r2, v2 in items.items():
+            if r2 == role or r2.split(' ')[0] not in _TARGETS:
+                continue
+            tx, tz = float(v2['x']), float(v2.get('z', v2.get('y', 0.0)))
+            dx, dz = tx - cx, tz - cz
+            dist = math.hypot(dx, dz)
+            if dist <= 1 or dist > 250:
+                continue
+            bearing = math.degrees(math.atan2(dx, dz)) % 360.0
+            err = abs((bearing - rot + 180) % 360 - 180)
+            if err > 45:
+                continue
+            pri = {'тв-тумба': 0, 'стенка': 0, 'камин': 1, 'диван': 2, 'кресло': 3, 'столик': 4, 'стол обеденный': 4}[r2.split(' ')[0]]
+            key = (pri, err, dist)
+            if best is None or key < best[0]:
+                best = (key, r2, tx, tz, dist, bearing, err)
+        zone = zone_of.get(role)
+        variant = (v.get('tpl_variant') or '').split('+')[0]
+        if base in ('тв-тумба', 'стенка', 'камин'):
+            intent = 'focal'
+        elif variant.startswith('media_'):
+            intent = 'media_primary'
+        elif zone in ('quiet', 'reading', 'bay_armchair'):
+            intent = zone
+        else:
+            intent = 'conversation'
+        orient = {'yaw_deg': round(rot, 1),
+                  'front_vector_world': {'x': round(fx, 3), 'z': round(fz, 3)},
+                  'intent': intent, 'zone_instance': zone,
+                  'facing_target': None, 'relation': 'none', 'validated': True}
+        if best:
+            _, r2, tx, tz, dist, bearing, err = best
+            orient['facing_target'] = {'type': 'item', 'role': r2,
+                                       'point_cm': {'x': round(tx, 1), 'z': round(tz, 1)},
+                                       'distance_cm': round(dist, 1), 'bearing_deg': round(bearing, 1),
+                                       'angular_error_deg': round(err, 1)}
+            orient['relation'] = 'faces' if err <= 15 else 'angled_toward'
+        d['orientation'] = orient
+        out[role] = d
+    return out
+
+
 def main():
     scenes = json.load(open(os.path.join(HERE, 'acceptance-scenes.json')))
     sets_ = json.load(open(os.path.join(HERE, 'sets3.json')))
@@ -151,6 +220,11 @@ def main():
         room = art['_room']
         items = {k: v for k, v in art.items()
                  if not k.startswith('_') and isinstance(v, dict) and 'x' in v}
+        # Q5+ свода №13 (владелец: планы идут в 3D-сборку и LLM-визуализацию — rot = КОНТРАКТ
+        # ПОЗЫ): каждому направленному предмету — orientation {yaw, фронт-вектор, intent,
+        # facing_target с угловой ошибкой, relation}; rot — источник истины, facing_target —
+        # объяснение (не команда LLM довернуть). 2D y → 3D Z. «Лицом к» ≤15°, «под углом» 15–45°.
+        items = _with_orientation(items, art)
         set_meta = sets_[sc['set'] - 1]
         rep = dict(reps.get(sid, {}))
         rep['_dining'] = art.get('_dining')   # диагностика dining — из артефакта (пакет B)

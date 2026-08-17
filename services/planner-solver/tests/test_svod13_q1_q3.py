@@ -14,7 +14,7 @@ def _z():
 def test_secondary_scope_roles_declared_and_excluded_from_ladder():
     z = _z()
     sec = z['zone_priority']['secondary_scope_roles']
-    assert set(sec) == {'кресло 3', 'кресло 4'}
+    assert set(sec) == {'кресло 3', 'кресло 4', 'столик 2'}   # Q5: столик 2 — поверхность pod
     src = open(os.path.join(SCOUT, 'solver_run.py'), encoding='utf-8').read()
     assert 'RAW_BANK' in src and 'BANK_DISPOSITION' in src and "_input_bank" in src and "_bank_unused" in src
 

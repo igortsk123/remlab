@@ -383,7 +383,35 @@
     "кресло 3",
     "кресло 4"
    ],
-   "_contract_v4a": "V4-A свода №10 (аудит quiet ✖): состав приведён к коду build_quiet — пара кресло 3+4 визави, между ними приставной/столик (optional); зона только в 45+ м² и после главной (гейт в place_quiet). Прежний membership (кресло/торшер) не соответствовал коду"
+   "_contract_v4a": "V4-A свода №10 (аудит quiet ✖): состав приведён к коду build_quiet — пара кресло 3+4 визави, между ними приставной/столик (optional); зона только в 45+ м² и после главной (гейт в place_quiet). Прежний membership (кресло/торшер) не соответствовал коду",
+   "required_any": [
+    "приставной",
+    "столик 2",
+    "столик"
+   ],
+   "schemes": [
+    {
+     "id": "quiet_chat",
+     "status": "implemented_as: template.build_quiet(variant=quiet_chat)",
+     "order": 2,
+     "why": "пара кресел + малая поверхность между/рядом, кресла повёрнуты 30–45° к общему центру (не 0/180 «интервью»); AD reading-nook: лампа и маленький приставной стол; владелец №181: пара визави без стола — «что это и зачем»"
+    },
+    {
+     "id": "fireplace_flank",
+     "status": "implemented_as: template.build_quiet(variant=fireplace_flank)",
+     "order": 1,
+     "why": "пара кресел по сторонам камина в вилке дистанции (fireplace.rules.safety_zone/chair_angle 45°), ≤45° к камину — только тогда facing_target=fireplace (H&G furniture-around-a-fireplace); владелец №183: «2 кресла к камину» за 5 м — не камин"
+    }
+   ],
+   "skip_when": {
+    "primary_rich": "≥2 кресла в главной группе или два дивана",
+    "existing_pod": [
+     "reading",
+     "bay_armchair"
+    ],
+    "no_surface_and_no_fireplace": true,
+    "_why": "Q5 (Codex): второй pod ставится только осмысленным; fill% — диагностика, не причина"
+   }
   },
   "reading": {
    "id": "reading",
@@ -566,7 +594,8 @@
    "кресло 3",
    "кресло 4",
    "приставной",
-   "столик"
+   "столик",
+   "столик 2"
   ],
   "decor": [
    "кашпо",

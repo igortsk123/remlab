@@ -967,6 +967,14 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                               f"{_q_before['circulation']:.0f}→{_q_after['circulation']:.0f} см, "
                               f"щели {_q_before['sliver_m2']:.2f}→{_q_after['sliver_m2']:.2f} м²",
                               file=_s.stderr, flush=True)
+                    if tag == '+qz':
+                        # Q5 (Codex): отказ гейта качества — в QUIET_DIAG, иначе сертификат
+                        # second_pod показывал «placed», а зоны в плане нет
+                        try:
+                            _tplmod.QUIET_DIAG['quality_rejected'] = True
+                            _tplmod.QUIET_DIAG.pop('placed', None)
+                        except Exception:
+                            pass
                     if tag == '+din':
                         _dd0 = getattr(_tplmod, 'LAST_DINING_DIAG', None)
                         if _dd0 is not None:
@@ -1485,15 +1493,23 @@ def plan_key_v2(room: Room, lay, needs: dict, reach: dict | None = None) -> tupl
         if m2 >= k:
             need_c = v
     frontal_def = max(0, need_c - len(m.get('frontal_companions') or [])) if _active('frontal_companions_min') else 0
-    need_arm = 2 if m2 >= 25 else (1 if m2 > 15 else 0)   # armchair_policy.count_by_area_m2
-    if reach.get('armchairs_reachable') is not None:
-        need_arm = min(need_arm, int(reach['armchairs_reachable']))
-    seat_def = max(0, need_arm - int(seat.get('armchairs', 0)))
+    # Q5 (Codex, разбор регресса): КАТЕГОРИАЛЬНЫЙ large_enrichment_deficit — в ≥25 м² план
+    # «обогащён», если есть ЛЮБОЕ из: связная пара кресел (≥2 valid) | второй диван | валидный
+    # второй pod (+qz). Сырой -valid_armchairs НЕ ставится выше второго дивана (кресла — не
+    # самоцель, №174/192). Дефицит только если обогащение достижимо (по кандидатам beam).
+    _si = m.get('seat_intents') or {}
+    _valid_arm = int(_si.get('valid_count', seat.get('armchairs', 0)))
+    _enriched = (_valid_arm >= 2) or (int(seat.get('sofas', 0)) >= 2) \
+        or any(getattr(p, 'tpl_id', '') == 'quiet' for p in ps)
+    _need_enrich = m2 >= 25
+    _reach_enrich = reach.get('enrichment_reachable')
+    seat_def = int(_need_enrich and not _enriched and (_reach_enrich is None or bool(_reach_enrich)))
     lk = lexo_key(hard, unplaced, score_layout(room, ps).terms)
     return (hard, missing_req, unplaced,
             entry_viol, media_seat_viol, dining_cone_viol, corner_viol,
             missing_pref, frontal_def, seat_def,
-            -int(seat.get('armchairs', 0)), -int(seat.get('flex_seats', 0)), -int(seat.get('footrest', 0) > 0),
+            -int(seat.get('sofas', 0) >= 2 or _valid_arm >= 2),   # Codex 16.08: сырой -valid_arm ярусом убран
+            -int(seat.get('flex_seats', 0)), -int(seat.get('footrest', 0) > 0),
             _axis_class(lay)) + tuple(lk[1:])
 
 
@@ -1622,6 +1638,10 @@ def solve_zoned_beam(room: Room, items, **kw):
         rec = _cert['families'].setdefault(fam, {'inventory_complete': False, 'block_generated': 0,
                                                  'full_attempted': 0, 'full_valid': 0, 'reject_codes': []})
         pairs = _family_shapes(fam)
+        _req_roles = spec.get('requires_roles') or []
+        if _req_roles and not all(any(i.role == rr for i in items) for rr in _req_roles):
+            rec['reject_codes'].append('inventory_incomplete:requires_roles')
+            pairs = []                                # Q5: reserved-слот освобождается
         if not pairs:
             rec['reject_codes'].append('inventory_incomplete')
             continue
@@ -1634,7 +1654,13 @@ def solve_zoned_beam(room: Room, items, **kw):
             variants = _pt(room, g_['id'], list(items), usable_polygon(room),
                            enumerate_k=_fk, shape_filter=shapes_) or []
             if not variants:
-                rec['reject_codes'].append(f"block_infeasible:{g_['id']}")
+                # Q5 (Codex, разбор two_sofa 32×block_infeasible): различать НЕПОДДЕРЖИВАЕМЫЙ подтип
+                # (угловой главный диван — guard build_block) от реальной геометрии
+                _main_sofa = next((i for i in items if i.role == 'диван'), None)
+                if getattr(_main_sofa, 'corner', False) and fam == 'two_sofa':
+                    rec['reject_codes'].append(f"unsupported_subtype:corner_main:{g_['id']}")
+                else:
+                    rec['reject_codes'].append(f"block_infeasible:{g_['id']}")
                 continue
             rec['block_generated'] += len(variants)
             blk = variants[0]
@@ -1655,6 +1681,9 @@ def solve_zoned_beam(room: Room, items, **kw):
                 continue
             if spec.get('require_zone') and spec['require_zone'] not in (gid or ''):
                 rec['reject_codes'].append(f"missing_zone:{spec['require_zone']}")
+                if 'qz' in str(spec['require_zone']):
+                    from . import template as _tqd
+                    rec['quiet_diag'] = dict(getattr(_tqd, 'QUIET_DIAG', {}) or {})
                 continue
             rec['full_valid'] += 1
             _fam_done += 1
@@ -1662,6 +1691,21 @@ def solve_zoned_beam(room: Room, items, **kw):
             cands.append((_nm, gid, outs,
                           plan_key(room, outs[0], needs, seat_rank=_rank.get(g_['id'], 0))))
             break                                # одна лучшая позиция на семейство
+    # Q5 свода №13: сертификат ВТОРОГО POD (для 40+ м² — обязателен): full_valid | inventory_gap |
+    # quality_rejected | template_infeasible | search_budget_exhausted — из записи семейства
+    # compact_media_plus_quiet (в полной цепочке place_quiet уже вызывается; второй прогон не нужен)
+    _sp = _cert['families'].get('compact_media_plus_quiet') or {}
+    _sp_state = ('full_valid' if _sp.get('full_valid', 0) > 0
+                 else 'inventory_gap' if any(str(c).startswith('inventory_incomplete') for c in _sp.get('reject_codes', []))
+                 else 'quality_rejected' if (_sp.get('quiet_diag') or {}).get('quality_rejected')
+                 else 'pod_not_placed' if any('missing_zone' in str(c) for c in _sp.get('reject_codes', []))
+                 else 'template_infeasible' if _sp.get('block_generated', 0) == 0 and _sp.get('inventory_complete')
+                 else 'search_budget_exhausted' if _sp.get('inventory_complete') and _sp.get('full_attempted', 0) == 0
+                 else ('not_applicable' if not _fam_order else 'quality_rejected'))
+    _cert['second_pod'] = {'state': _sp_state,
+                           'quiet_diag': (None if _sp_state == 'full_valid' else _sp.get('quiet_diag')),
+                           'required': bool(room.width_cm * room.depth_cm / 10_000 >=
+                                            float((zone_rules().get('seating_pods') or {}).get('second_pod_certificate_min_m2', 40)))}
     # one-sided fallback: разрешён только если ВСЕ предпочтительные семейства сертифицированно недостижимы
     _pref = [f for f in _fam_order]
     _all_unreach = bool(_pref) and all(
@@ -1747,7 +1791,23 @@ def solve_zoned_beam(room: Room, items, **kw):
     # Q4 свода №13: plan_key_v2 (SHADOW) — считаем для всех кандидатов и пишем в trace;
     # выбор по v2 включается данными (beam.plan_key_version == 'v2') только после Q7
     _pkv = str(cfg.get('plan_key_version', 'v1'))
-    _reach = {'media_seat_reachable': any(
+    def _valid_arm_of(c):
+        try:
+            from .view_metrics import valid_connected_armchairs as _vca
+            return int(_vca(room, list(c[2][0].placements)).get('valid_count', 0))
+        except Exception:
+            return 0
+    _reach_arm = max((_valid_arm_of(c) for c in cands if c[2] and c[3][0] == 0), default=None)
+    def _enriched_of(c):
+        try:
+            ps_ = list(c[2][0].placements)
+            sofas_ = sum(1 for p in ps_ if p.role.split(' ')[0] == 'диван')
+            return sofas_ >= 2 or _valid_arm_of(c) >= 2 or any(getattr(p, 'tpl_id', '') == 'quiet' for p in ps_)
+        except Exception:
+            return False
+    _reach_enrich = any(_enriched_of(c) for c in cands if c[2] and c[3][0] == 0) if cands else None
+    _reach = {'armchairs_reachable': _reach_arm, 'enrichment_reachable': _reach_enrich,
+              'media_seat_reachable': any(
                   (getattr(p, 'tpl_variant', '') or '').split('+')[0] in ('media_parallel', 'media_half', 'media_bridge')
                   for c in cands for p in (c[2][0].placements if c[2] else [])),
               'shadow_hyp': bool(cfg.get('shadow_hypothesis_tiers', False))}

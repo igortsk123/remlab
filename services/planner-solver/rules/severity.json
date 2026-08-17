@@ -78,7 +78,12 @@
   "SCREEN_OVER_WINDOW": "H0",
   "MEDIA_DOUBLE_CARRIER": "H0",
   "TALL_SOLID_BEHIND_SOFA": "H1",
-  "MEDIA_MISSING": "H0"
+  "MEDIA_MISSING": "H0",
+  "QUIET_POD_COMPOSITION": "H0",
+  "QUIET_POD_NO_SURFACE": "H0",
+  "QUIET_POD_GEOMETRY": "H0",
+  "QUIET_POD_FOCUS": "H0",
+  "QUIET_POD_NO_FOCUS": "H0"
  },
  "_notes": {
   "SOFA_BLOCKS_SOFA": "W2 kb-rules-merge 10.08: пара диванов легальна лицом-к-лицу или Г-стыком торец-к-торцу; фронт в бок/спинку соседа — блокировка",
@@ -89,6 +94,7 @@
   "SCREEN_OVER_WINDOW": "свод №8 v2 §14: экран — виртуальная часть media-шаблона; носитель спиной к оконной стене с экраном на проёме = REJECT (даже минимальная ширина экрана share_lo/ниша перекрывает). Низкая тумба у окна БЕЗ горизонтального перекрытия — легальна",
   "MEDIA_DOUBLE_CARRIER": "свод №9 P0 (план №269): тв-тумба и стенка — альтернативные реализации ОДНОЙ media-зоны (cardinality exactly_one_carrier в zone_priority); двойной носитель = нарушение semantic contract, hard",
   "TALL_SOLID_BEHIND_SOFA": "V4-F свода №10: role-скоуп — правило про высокое ГЛУХОЕ хранение (шкаф/стеллаж/витрина/стенка/комод); стулья/кресла второй зоны за floating-диваном легальны (ADR-0078) и управляются зонами/route/residual",
-  "MEDIA_MISSING": "P1 свода №12: media_need=required ⇒ exactly_one_carrier; сцена без носителя при носителе в банке — честный infeasible, не ok (владелец №177; ранее known-list в тесте легализовал set80-L/set21-mir*)"
+  "MEDIA_MISSING": "P1 свода №12: media_need=required ⇒ exactly_one_carrier; сцена без носителя при носителе в банке — честный infeasible, не ok (владелец №177; ранее known-list в тесте легализовал set80-L/set21-mir*)",
+  "QUIET_POD_*": "Q5 свода №13 (Codex по №181/№183, 16.08): контракт второго pod (tpl_id quiet) — 2 кресла + поверхность (приставной|столик*, ≤120 см, ≤60° к центру) ИЛИ камин-фланг (≤45° и ≤250 см к очагу). Раньше secondary-кресла валидатор пропускал целиком: «пара визави без стола», «к камину за 5 м» проходили как ok. Hard: pod без смысла хуже отсутствия pod"
  }
 }

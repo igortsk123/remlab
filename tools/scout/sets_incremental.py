@@ -235,6 +235,18 @@ def heal(apply: bool = False) -> None:
 
     healed, hopeless = 0, []
     for n, s in enumerate(sets, 1):
+        # Q5 свода №13 (Codex): pod-комплект (pod_key: кресло 3/4 одного SKU + столик 2) лечится
+        # ЦЕЛИКОМ — независимая замена роли рвёт exact-SKU пару. Выбыл любой член → весь pod
+        # снимается (alt-роли, вне total/fill; вернёт следующая полная сборка compose2)
+        _dead_pods = {it.get('pod_key') for role, it in s['items'].items()
+                      if it.get('pod_key') and key(it['mid'], it['eid']) in dead}
+        for _pk in _dead_pods:
+            _members = [r for r, it in s['items'].items() if it.get('pod_key') == _pk]
+            print(f'  комплект {n}: pod {_pk} — выбыл член, снимаем целиком: {_members}')
+            healed += 1
+            if apply:
+                for r in _members:
+                    s['items'].pop(r, None)
         for role, it in list(s['items'].items()):
             k = key(it['mid'], it['eid'])
             if k not in dead:

@@ -249,8 +249,14 @@ try:
     _fresh=json.load(open(os.path.join(HERE,'feed-freshness.json')))
     _stale_mids={int(m) for rec in _fresh.values()
                  if rec.get('state') in ('stale','broken') for m in rec.get('mids',[])}
+    # Q5 (Codex 16.08, fail-closed для НОВЫХ pod-комплектов): у broken/stale-фида и «карантин
+    # отложен» (mids_quarantine_pending, решение владельца) — SKU в pod не берём вовсе: комплект
+    # либо из живого фида, либо честный gap. Общий пул (остальные роли) карантин не трогает.
+    _pod_banned_mids={int(m) for rec in _fresh.values()
+                      if rec.get('state') in ('stale','broken')
+                      for m in list(rec.get('mids',[]))+list(rec.get('mids_quarantine_pending',[]))}
 except Exception:
-    _stale_mids=set()
+    _stale_mids=set(); _pod_banned_mids=set()
 if _stale_mids:
     _before=len(raw)
     raw=[r for r in raw if int(r[1]) not in _stale_mids]
@@ -334,7 +340,7 @@ def slot_ideal(role,m2,qty=1):
     return None
 
 
-def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
+def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3,pre_filter=None,no_envelope=False,no_prop=False):
     """ctx: dict(style, wood, metal, fabrics, temp, sofa_key, sofa_w, sofa_h, used_shops).
     Возвращает список топ-N кандидатов с why."""
     lo,hi=share; plo,phi=tier_band(role,tier)
@@ -359,13 +365,14 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
                     else: continue
                 else: continue
             if not sane_dims(role,it): continue        # мусорные/перепутанные габариты — мимо
+            if pre_filter is not None and not pre_filter(it): continue   # Q5: доп. ворота слота (pod)
             if gate and not size_gate(ctx.get('band',''),role,it['w']): continue  # legacy-ветка (не зовётся)
             if role!='шторы' and not (tgt_lo*0.75<=it['fp']<=tgt_hi*1.25): continue  # шторы: fp=0, целевая доля не применима
             # КОНВЕРТ СЛОТА — ЖЁСТКИЙ ФИЛЬТР ДЛЯ ВСЕХ СЛОТОВ (ADR template-integrity,
             # 12.08). Допуск −20/+10 применяется ЗДЕСЬ, при подборе товара в сет, и
             # больше нигде: солверу менять габарит SKU запрещено. Мягкого бонуса в
             # скоринге не хватало — в 15 м² попадал ковёр 290x200 (39% пола).
-            _id=slot_ideal(role,m2)
+            _id=None if no_envelope else slot_ideal(role,m2)   # Q5: pod-слоты (столик 2) — вне конверта главного слота
             if _id:
                 _tol=_SLOT_ENV.get('tolerance',[0.80,1.10])
                 _len=(max(it.get('w') or 0, it.get('d') or 0) if role=='ковёр'
@@ -391,7 +398,7 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3):
             #    сколько бы баллов ни давали цвет и стиль.
             _pctx = {'chosen': ctx.get('chosen_ref') or {}, 'wall': ctx.get('wall_len_cm'),
                      'corner_sofa': ctx.get('corner_sofa', False)}
-            prop_ok, _bonus, _notes = prop_check(role, it, _pctx, _sub)
+            prop_ok, _bonus, _notes = (True, 0.0, []) if no_prop else prop_check(role, it, _pctx, _sub)
             if not prop_ok:
                 continue
             if not overlap_ok(emb_key(it['mid'],it['eid']),ctx.get('style_name'),ctx.get('chosen_ref',{}),role=role,tier=tier): continue
@@ -951,7 +958,10 @@ for bi,band in enumerate(COMP['bands']):
         # добор — только тем, что примет какой-нибудь шаблон библиотеки:
         # стулья добираем СТРОГО до ёмкости столовой, кресла 3/4 — только в
         # просторных (тихая зона/U-композиция), пуф — компаньон посадки
-        _ENRICH=([('диван 2',1),('кресло 3',1),('кресло 4',1),('стеллаж',1),
+        # Q5 свода №13: кресла 3/4 УБРАНЫ из _ENRICH (там они добирались как два независимых
+        # SKU и только при недоборе fill) — пара второго pod создаётся АТОМАРНО ниже (один SKU,
+        # pair_key), с порога zones.json seating_pods.second_pod_min_m2 (25), не 40
+        _ENRICH=([('диван 2',1),('стеллаж',1),
                   ('стеллаж 2',1),('витрина',1),('комод 2',1),('пуф',1),
                   ('приставной',1),('стол обеденный',1),('стул',_seats_cap)]
                  if m2>=40 else
@@ -1088,18 +1098,81 @@ for bi,band in enumerate(COMP['bands']):
         # креслами — почему не здесь»; Кодекс §2 п.4: богатая посадка с 40 м², а large-режим
         # солвера — с 25 м² (room_map.room_mode)). Банк large ОБЯЗАН давать ≥2 seating-
         # альтернативы: пара кресел (sofa_2armchairs) — alt-only, в конце сборки, вне капов.
-        _LARGE_M2 = 25   # = room_map.room_mode large (area ≥ 25) — единый порог с солвером
+        _POD=(json.load(open(_ZR_PATH)).get('seating_pods') or {})
+        _LARGE_M2 = int(_POD.get('second_pod_min_m2', 25))   # данные (Q5): единый порог с солвером
         if m2>=_LARGE_M2 and 'диван' in chosen and 'кресло' in chosen and 'кресло 2' not in chosen \
                 and int(chosen['кресло'].get('qty') or 1) < 2:   # qty=2 уже даёт пару (кресло 2 = экземпляр первого)
-            _sh2=band['floor'].get('кресло')
-            _a2=(pick2('кресло',m2,_sh2,tier,pair,ctx,qty=1) or
-                 pick2('кресло',m2,_sh2,tier,pair,ctx,soft=True,qty=1)) if _sh2 else None
-            _a2=[t for t in (_a2 or []) if t.get('mid')!=chosen['кресло'].get('mid')] or (_a2 or [])
+            # Q5 (Codex): «кресло 2» = ВТОРОЙ ЭКЗЕМПЛЯР основного кресла (пара одного SKU), а не
+            # альтернативный SKU другого магазина (mid = shop_mid!) — прежний фильтр mid!= был ошибкой
+            _a2=[dict(chosen['кресло'])]
             if _a2:
-                chosen['кресло 2']=dict(_a2[0],qty=1,alt=True)
-                print(f"  P4: alt-кресло 2 в банк large ({_a2[0]['name'][:40]})")
+                chosen['кресло 2']=dict(_a2[0],qty=1,alt=True,pair_key=f"{_a2[0].get('mid')}:{_a2[0].get('eid')}",pair_provenance='exact_sku')
+                print(f"  P4/Q5: кресло 2 = экземпляр основного ({_a2[0]['name'][:40]})")
             else:
                 gaps.append('coverage_gap: кресло 2 (alt, large) — нет SKU')
+        # Q5 свода №13: ВТОРОЙ POD — АТОМАРНЫЙ КОМПЛЕКТ «кресло 3 + кресло 4 (один SKU, qty=2,
+        # компактные) + столик 2 (малая поверхность)», с second_pod_min_m2 (25). Codex (каталожная
+        # сессия 16.08): без поверхности пару НЕ создавать (мёртвый груз `passed_not_placed`,
+        # владелец №181 «пара визави без стола — зачем»); камин — альтернативная раскладка комплекта,
+        # не замена поверхности. Столик 2 — отдельный слот вне конверта главного столика (120–135):
+        # круглый dia 35–70 | прямоугольный обе стороны ≤70, h 40–65 предпочтительно, цена в тире,
+        # (mid,eid) ≠ главного столика. Компактность кресел: preferred w≤90/d≤95, hard w≤100/d≤105,
+        # без реклайнеров/кресел-кроватей. Вне капов (alt), после основного состава; цена/футпринт
+        # комплекта — отдельными полями pod_delta_price/pod_floor_fp (в total их нет).
+        _POD_CFG=_POD.get('pod_kit') or {}
+        if m2>=_LARGE_M2 and 'диван' in chosen and 'кресло 3' not in chosen and 'кресло 4' not in chosen:
+            _pref=tuple(_POD_CFG.get('armchair_preferred_wd_cm',[90,95])); _hard=tuple(_POD_CFG.get('armchair_hard_wd_cm',[100,105]))
+            _bad=re.compile(_POD_CFG.get('armchair_exclude_regex',r'реклайнер|recliner|кресло-кроват|раскладн|качалк|мешок|подвесн'),re.I)
+            def _arm_ok(lim):
+                return lambda it: (it.get('w') or 999)<=lim[0] and (it.get('d') or 999)<=lim[1] and not _bad.search(it.get('name') or '') \
+                    and int(it.get('mid') or 0) not in _pod_banned_mids
+            _sh3=band['floor'].get('кресло')
+            _c3=None
+            if _sh3:
+                for _lim in (_pref,_hard):
+                    _c3=(pick2('кресло',m2,_sh3,tier,pair,ctx,qty=2,pre_filter=_arm_ok(_lim)) or
+                         pick2('кресло',m2,_sh3,tier,pair,ctx,soft=True,qty=2,pre_filter=_arm_ok(_lim)))
+                    if _c3: break
+            _base_key=f"{chosen['кресло'].get('mid')}:{chosen['кресло'].get('eid')}" if 'кресло' in chosen else None
+            _c3=[t for t in (_c3 or []) if f"{t.get('mid')}:{t.get('eid')}"!=_base_key] or (_c3 or [])
+            _main_t=chosen.get('столик') or {}
+            _main_key=f"{_main_t.get('mid')}:{_main_t.get('eid')}"
+            _sd=tuple(_POD_CFG.get('surface_dia_cm',[35,70])); _smax=float(_POD_CFG.get('surface_side_max_cm',70))
+            _sh_rng=tuple(_POD_CFG.get('surface_h_cm',[40,65]))
+            def _surf_ok(strict_h):
+                def _f(it):
+                    if f"{it.get('mid')}:{it.get('eid')}"==_main_key: return False
+                    if int(it.get('mid') or 0) in _pod_banned_mids: return False   # fail-closed: сломанный фид
+                    dia=it.get('dia'); w=it.get('w') or 0; d=it.get('d') or 0
+                    if dia: size_ok=_sd[0]<=dia<=_sd[1]
+                    else: size_ok=(0<w<=_smax) and (0<d<=_smax)
+                    if not size_ok: return False
+                    h=it.get('h')
+                    if strict_h and not (h and _sh_rng[0]<=h<=_sh_rng[1]): return False
+                    return True
+                return _f
+            _surf=None
+            if _c3:
+                for _st in (True,False):
+                    # вне конверта главного слота и вне пропорции к дивану (55–75% ширины — это про
+                    # журнальный столик главной группы, не про малую поверхность pod)
+                    _surf=pick2('столик',m2,tuple(_POD_CFG.get('surface_share_pct',[0.5,3.0])),tier,pair,ctx,qty=1,pre_filter=_surf_ok(_st),no_envelope=True,no_prop=True)
+                    if _surf: break
+            if _c3 and _surf:
+                _k=f"{_c3[0].get('mid')}:{_c3[0].get('eid')}"
+                _sk=f"{_surf[0].get('mid')}:{_surf[0].get('eid')}"
+                _pk=f"{_k}|{_sk}"
+                chosen['кресло 3']=dict(_c3[0],qty=1,alt=True,pair_key=_k,pair_provenance='exact_sku',pod='secondary_quiet',pod_key=_pk)
+                chosen['кресло 4']=dict(_c3[0],qty=1,alt=True,pair_key=_k,pair_provenance='exact_sku',pod='secondary_quiet',pod_key=_pk)
+                chosen['столик 2']=dict(_surf[0],qty=1,alt=True,surface_key=_sk,pod='secondary_quiet',pod_key=_pk)
+                _pod_price=2*(_c3[0].get('price') or 0)+(_surf[0].get('price') or 0)
+                _pod_fp=round(2*(_c3[0].get('fp') or 0)+(_surf[0].get('fp') or 0),2)
+                print(f"  Q5: второй pod — комплект кресло 3/4 ({_c3[0]['name'][:32]}) + столик 2 ({_surf[0]['name'][:28]}), +{_pod_price} ₽, {_pod_fp} м²")
+            else:
+                _pod_price=0; _pod_fp=0.0
+                gaps.append('coverage_gap: quiet_pod — нет ' + ('компактной пары кресел' if not _c3 else 'малой поверхности (столик 2)'))
+        else:
+            _pod_price=0; _pod_fp=0.0
         if m2>=17 and 'диван' in chosen and 'кресло' not in chosen:
             _sh=band['floor'].get('кресло')
             if _sh:
@@ -1113,6 +1186,7 @@ for bi,band in enumerate(COMP['bands']):
                 gaps.append('coverage_gap: кресло (alt) — нет floor-доли band')
         sets.append(dict(band=band['band'],m2=m2,tier=tier,pair=list(pair),gaps=gaps,
                          group=zgroup['id'],usable_m2=round(z_usable,1),
+                         pod_delta_price=_pod_price,pod_floor_fp=_pod_fp,
                          style=style_name,style_fit=sfit_agg,
                          capsule=dict(style=ctx['style'],wood=ctx['wood'],metal=ctx['metal'],
                                       temp=ctx['temp'],fabrics=sorted(ctx['fabrics'])),

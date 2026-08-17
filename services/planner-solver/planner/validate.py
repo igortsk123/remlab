@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+import math
+
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
@@ -918,7 +920,11 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
         # боковой предел меряем от АКТИВНОГО центра (плечо — закрытая сторона)
         if tbl is not None:
             fwd_t, _ = relative_position(sofa, tbl)
-            if fwd - fwd_t > 60 + arm.item.d_cm / 2:
+            # Q5 свода №13 (Codex): зазор — между ФУТПРИНТАМИ (ближняя кромка кресла − дальняя
+            # кромка столика), а не центры с допуском d/2 — иначе результат зависит от глубины
+            # SKU (клон d=90 падал там, где d=118 проходил при том же зазоре)
+            _edge_gap = (fwd - arm.item.d_cm / 2) - (fwd_t + (tbl.item.d_cm if tbl.item else 60) / 2)
+            if _edge_gap > 60:
                 # П/U-композиции (владелец 11.08): кресло НАПРОТИВ дивана легально,
                 # если оно НЕ на пути к экрану — караем только кресло на оси
                 # диван→носитель (реально загораживает медиазону)
@@ -1150,7 +1156,16 @@ def check_layout_rules(room: Room, ps: list[Placement]) -> list[Violation]:
         # стена» не годится: в углу предмет числится по соседней стене и правило не срабатывало.
         fwd_a, _ = relative_position(sofa, by["кресло"])
         fwd_t, _ = relative_position(sofa, by["столик"])
-        if fwd_a > fwd_t + 80 and not _in_secondary_zone(by["кресло"]):
+        # Q5 свода №13 (реплей set105): кресло НАПРОТИВ дивана лицом к нему (П/facing-композиции,
+        # two_sofas_2armchairs) — не «уехало к ТВ-зоне», а часть круга беседы; такое кресло
+        # всегда за линией столика на d_стол/2+зазор+d_кресла/2 ≈ 120 см и правило делало
+        # П-композицию мёртвой по построению. Путь к экрану судит check_zone (on_tv_path).
+        _arm = by["кресло"]
+        _ra = math.radians(_arm.rot)
+        _dx, _dy = sofa.x - _arm.x, sofa.y - _arm.y
+        _n = math.hypot(_dx, _dy) or 1.0
+        _faces_sofa = (math.sin(_ra) * _dx + math.cos(_ra) * _dy) / _n >= math.cos(math.radians(float(_lr("armchair_too_deep_exempt_facing_sofa_deg", 30))))
+        if fwd_a > fwd_t + 80 and not _in_secondary_zone(_arm) and not _faces_sofa:
             out.append(_v("ARMCHAIR_TOO_DEEP", "кресло уехало за столик, к ТВ-зоне", ["кресло", "столик"],
                           round(fwd_a - fwd_t), "не дальше 80 см за линию столика"))
     # Свод №7 S3: обеденная группа на ковре ПОСАДКИ — смешение зон (у столовой
@@ -1419,6 +1434,75 @@ def check_media_required_final(ps: list[Placement]) -> list[Violation]:
     return []
 
 
+def check_quiet_contract(room: Room, ps: list[Placement]) -> list[Violation]:
+    """Q5 свода №13 (Codex по №181/№183): контракт второго pod (tpl_id quiet). Прежде
+    secondary-кресла валидатор пропускал целиком (`_in_secondary_zone`), и «пара визави
+    без стола» / «пара к камину за 5 м» проходили. Проверяем: (1) состав — 2 кресла;
+    (2) quiet_chat: поверхность (приставной|столик*) в блоке, ≤120 см от каждого кресла,
+    и кресла повёрнуты к общему центру (≤60° к центру, не «интервью»); (3) fireplace_flank:
+    камин в плане, каждое кресло ≤45° к очагу и ≤250 см (иначе «к камину» — фикция).
+    Данные: templates.json quiet.required_any / schemes; fireplace.rules chair_angle_deg."""
+    pod = [p for p in ps if getattr(p, 'tpl_id', None) == 'quiet']
+    if not pod:
+        return []
+    out: list[Violation] = []
+    arms = [p for p in pod if p.role.split(' ')[0] == 'кресло']
+    if len(arms) != 2:
+        out.append(_v("QUIET_POD_COMPOSITION", f"quiet pod: кресел {len(arms)} (нужно 2)",
+                      [p.role for p in pod], float(len(arms)), "2 кресла + поверхность | камин"))
+        return out
+    variant = getattr(arms[0], 'tpl_variant', '') or ''
+
+    def _ang_to(p, tx, ty):
+        r = math.radians(p.rot)
+        dx, dy = tx - p.x, ty - p.y
+        n = math.hypot(dx, dy) or 1.0
+        c = max(-1.0, min(1.0, (math.sin(r) * dx + math.cos(r) * dy) / n))
+        return math.degrees(math.acos(c))
+    if variant == 'fireplace_flank':
+        fp = next((p for p in ps if p.role.split(' ')[0] == 'камин'), None)
+        if fp is None:
+            out.append(_v("QUIET_POD_NO_FOCUS", "fireplace_flank без камина в плане",
+                          [a.role for a in arms], 0.0, "камин в плане"))
+            return out
+        from .zones import zone_rules as _zrq
+        _fz = _zrq()["zones"]["seating_media"]["fireplace"]
+        _lim = float((_fz.get("primary_sector_deg") or {}).get("прочая_посадка", 45))
+        for a in arms:
+            ang = _ang_to(a, fp.x, fp.y)
+            d = footprint(a).distance(footprint(fp))
+            if ang > _lim or d > 250:
+                out.append(_v("QUIET_POD_FOCUS", f"«{a.role}» к камину {ang:.0f}°/{d:.0f} см — не фланг",
+                              [a.role, fp.role], round(ang), f"≤{_lim:.0f}° и ≤250 см"))
+        return out
+    surf = [p for p in pod if p.role.split(' ')[0] in ('приставной', 'столик')]
+    if not surf:
+        out.append(_v("QUIET_POD_NO_SURFACE", "quiet pod без поверхности (приставной|столик)",
+                      [a.role for a in arms], 0.0, "поверхность в pod (templates.json quiet.required_any)"))
+        return out
+    for a in arms:
+        d = footprint(a).distance(footprint(surf[0]))
+        if d > 120:
+            out.append(_v("QUIET_POD_GEOMETRY", f"«{a.role}»: {d:.0f} см до поверхности pod",
+                          [a.role, surf[0].role], round(d), "≤120 см (reach до поверхности)"))
+    # сходимость: кресла смотрят к ОБЩЕМУ центру перед поверхностью — угол между фасадами
+    # 40–140° (не параллельно «кинотеатром» ~0°, не «интервью» лицом-к-лицу ~180°), и каждое
+    # имеет положительную составляющую к соседу
+    def _fv(p):
+        r = math.radians(p.rot)
+        return math.sin(r), math.cos(r)
+    (f1x, f1y), (f2x, f2y) = _fv(arms[0]), _fv(arms[1])
+    conv = math.degrees(math.acos(max(-1.0, min(1.0, f1x * f2x + f1y * f2y))))
+    dx, dy = arms[1].x - arms[0].x, arms[1].y - arms[0].y
+    n = math.hypot(dx, dy) or 1.0
+    to_other_1 = (f1x * dx + f1y * dy) / n
+    to_other_2 = -(f2x * dx + f2y * dy) / n
+    if not (40.0 <= conv <= 140.0) or to_other_1 <= 0 or to_other_2 <= 0:
+        out.append(_v("QUIET_POD_GEOMETRY", f"кресла pod: угол сходимости {conv:.0f}° — не к общему центру",
+                      [a.role for a in arms], round(conv), "40–140° и оба к центру (не 0/180)"))
+    return out
+
+
 def validate(room: Room, placements: list[Placement], *, passage: str = "secondary") -> Layout:
     _ROOM_BAND[0] = room.band
     vs: list[Violation] = []
@@ -1448,6 +1532,7 @@ def validate(room: Room, placements: list[Placement], *, passage: str = "seconda
     vs += check_window_sofa(room, placements)
     vs += check_service_surface(room, placements)
     vs += check_decor_anchoring(room, placements)
+    vs += check_quiet_contract(room, placements)
     from .geometry import floor_used_pct
 
     return Layout(room=room, placements=placements, violations=vs,

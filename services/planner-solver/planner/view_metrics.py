@@ -169,6 +169,29 @@ def realized_seating(ps: list[Placement]) -> dict:
             'sofas': sum(1 for p in ps if base_role(p.role) == 'диван')}
 
 
+def valid_connected_armchairs(room: Room, ps: list[Placement], media_angle_max: float = 45.0) -> dict:
+    """Q5 свода №13 (Codex): считать не «сырые» кресла, а кресла с ВАЛИДНЫМ intent в связном
+    шаблоне: входит в атомарную зону (tpl_id seating|quiet|reading|bay), intent по форме:
+    media_* — фактический угол к ТВ ≤ порога; conversation/quiet/reading — членство в зоне
+    (целостность группы держит шаблон). Экспорт по каждому креслу: role/zone/shape/valid."""
+    tv = _find(ps, CARRIER)
+    out = []
+    for p in ps:
+        if base_role(p.role) != 'кресло':
+            continue
+        zone = (getattr(p, 'tpl_id', '') or '')
+        shape = (getattr(p, 'tpl_variant', '') or '').split('+')[0]
+        in_zone = bool(zone)
+        if shape.startswith('media_'):
+            ok = in_zone and tv is not None and _angle_to(p, tv.x, tv.y) <= media_angle_max
+            intent = 'media'
+        else:
+            ok = in_zone
+            intent = 'quiet' if zone in ('quiet', 'reading', 'bay_armchair') else 'conversation'
+        out.append({'role': p.role, 'zone': zone or None, 'shape': shape or None, 'intent': intent, 'valid': bool(ok)})
+    return {'armchairs': out, 'valid_count': sum(1 for a in out if a['valid']), 'total': len(out)}
+
+
 def view_metrics(room: Room, ps: list[Placement]) -> dict:
     """Все метрики Q0 одним словарём — для артефакта `_view`."""
     return {
@@ -179,4 +202,5 @@ def view_metrics(room: Room, ps: list[Placement]) -> dict:
         'dining_view_cone_overlap_pct': dining_view_cone_overlap_pct(room, ps),
         'frontal_companions': frontal_companions(room, ps),
         'seating': realized_seating(ps),
+        'seat_intents': valid_connected_armchairs(room, ps),
     }
