@@ -45,7 +45,8 @@ for i in $(seq 1 288); do
     # хвост цепочки на СВЕЖИХ данных: индекс кандидатов и комплекты (иначе новинки без индекса)
     $PY capabilities.py --build --export; $PY candidates.py --build && $PY sets_incremental.py --index   # Q6a: caps после забора обогащения
     # А7: судья-сэмпл свежих обогащений (сильная модель), дрифт к бейзлайну, копилка для голдена
-    if [ -f openai.off ]; then echo "openai.off: enrich_judge (платный) пропущен" >> refresh.log; else $PY enrich_judge.py || bash alert.sh "remlab: enrich_judge упал — см. refresh.log"; fi
+    # 17.08: дрифт-судья (terra, 30 карточек) — раз в неделю (понедельник), не ежедневно; рубильник openai.off
+    if [ -f openai.off ]; then echo "openai.off: enrich_judge (платный) пропущен" >> refresh.log; elif [ "$(date +%u)" = "1" ]; then $PY enrich_judge.py || bash alert.sh "remlab: enrich_judge упал — см. refresh.log"; else echo "enrich_judge: не понедельник — пропуск (еженедельный режим 17.08)" >> refresh.log; fi
     exit 0
   fi
   if grep -qE 'статус (failed|expired|cancelled)' <<<"$out"; then

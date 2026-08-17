@@ -1,0 +1,9 @@
+{
+ "_meta": {"why": "Оценка расхода OpenAI по токенам (оптимизация 17.08, решение владельца): цены за 1M токенов; провенанс — страница pricing OpenAI на дату; нет цены → cost_usd=null (счётчик токенов честный, доллары не выдумываем). Обновлять руками при смене тарифов.",
+           "provenance": "TODO владелец/агент: сверить с https://openai.com/api/pricing на дату включения конвейера (openai.off снят); до сверки — null"},
+ "models": {
+  "gpt-5.6-luna": {"input_per_1m": null, "output_per_1m": null},
+  "gpt-5.6-terra": {"input_per_1m": null, "output_per_1m": null},
+  "gpt-5-mini": {"input_per_1m": null, "output_per_1m": null}
+ }
+}

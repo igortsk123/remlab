@@ -198,6 +198,59 @@ def save(rows: list[tuple[dict, dict, dict]], model: str = MODEL, vision: bool =
     """)
 
 
+SPEND_LOG = os.path.join(HERE, 'openai-spend.jsonl')
+_PRICES_PATH = os.path.join(HERE, 'rules', 'openai_prices.json')
+
+
+def log_spend(model: str, usage: dict | None, n_req: int = 1, note: str = '') -> None:
+    """Учёт расхода OpenAI (оптимизация 17.08, решение владельца): токены каждого ответа →
+    openai-spend.jsonl; оценка $ — по rules/openai_prices.json (цены за 1M токенов, provenance);
+    нет цены модели → cost_usd=null (считаем токены, не выдумываем). Дневная сумма — `--spend`."""
+    try:
+        u = usage or {}
+        pt = int(u.get('prompt_tokens') or u.get('input_tokens') or 0)
+        ct = int(u.get('completion_tokens') or u.get('output_tokens') or 0)
+        cost = None
+        try:
+            pr = (json.load(open(_PRICES_PATH, encoding='utf-8')).get('models') or {}).get(model)
+            if pr and pr.get('input_per_1m') is not None and pr.get('output_per_1m') is not None:
+                cost = round(pt / 1e6 * float(pr['input_per_1m']) + ct / 1e6 * float(pr['output_per_1m']), 5)
+        except Exception:
+            cost = None
+        with open(SPEND_LOG, 'a', encoding='utf-8') as f:
+            f.write(json.dumps({'ts': time.strftime('%Y-%m-%d %H:%M'), 'model': model, 'n': n_req,
+                                'prompt_tokens': pt, 'completion_tokens': ct, 'cost_usd': cost, 'note': note},
+                               ensure_ascii=False) + '\n')
+    except Exception:
+        pass
+
+
+def spend_report(days: int = 7) -> None:
+    import datetime as _dt
+    if not os.path.exists(SPEND_LOG):
+        print('openai-spend.jsonl пуст — расходов через конвейер не было (или лог заведён позже)')
+        return
+    since = (_dt.date.today() - _dt.timedelta(days=days)).isoformat()
+    by: dict = {}
+    for line in open(SPEND_LOG, encoding='utf-8'):
+        try:
+            r = json.loads(line)
+        except Exception:
+            continue
+        if r['ts'][:10] < since:
+            continue
+        k = (r['ts'][:10], r['model'])
+        d = by.setdefault(k, {'n': 0, 'pt': 0, 'ct': 0, 'usd': 0.0, 'unk': False})
+        d['n'] += r.get('n', 1); d['pt'] += r.get('prompt_tokens', 0); d['ct'] += r.get('completion_tokens', 0)
+        if r.get('cost_usd') is None:
+            d['unk'] = True
+        else:
+            d['usd'] += r['cost_usd']
+    print('date       model            req    prompt_tok  compl_tok   usd')
+    for (dte, m), d in sorted(by.items()):
+        print(f"{dte} {m:16} {d['n']:>5} {d['pt']:>11} {d['ct']:>10}   {'≈'+format(d['usd'],'.2f') if not d['unk'] else 'n/a (нет цены)'}")
+
+
 def ask(it: dict, key: str, model: str = MODEL, vision: bool = False) -> dict | None:
     req = urllib.request.Request(f'{API}/chat/completions',
                                  data=json.dumps(body_for(it, model, vision)).encode(),
@@ -206,6 +259,7 @@ def ask(it: dict, key: str, model: str = MODEL, vision: bool = False) -> dict | 
     for attempt in range(3):
         try:
             r = json.load(urllib.request.urlopen(req, timeout=180))
+            log_spend(model, r.get('usage'), 1, 'ask' + ('+vision' if vision else ''))
             msg = r['choices'][0]['message']
             if msg.get('refusal'):
                 return None
@@ -378,6 +432,11 @@ def fetch(batch_id: str, items: dict | None = None) -> None:
         if r.get('error'):
             n['err'] += 1
             continue
+        try:
+            _resp = (r.get('response') or {}).get('body') or {}
+            log_spend(_resp.get('model') or MODEL, _resp.get('usage'), 1, 'batch:' + batch_id[:14])
+        except Exception:
+            pass
         msg = r['response']['body']['choices'][0]['message']
         if msg.get('refusal'):
             n['refusal'] += 1
@@ -433,6 +492,8 @@ def main() -> None:
     a = sys.argv
     if '--stats' in a:
         stats()
+    elif '--spend' in a:
+        spend_report(int(a[a.index('--spend') + 1]) if len(a) > a.index('--spend') + 1 and a[a.index('--spend') + 1].isdigit() else 7)
     elif '--fetch' in a:
         i = a.index('--fetch')
         idpath = os.path.join(HERE, 'enrich-batch-id.txt')
