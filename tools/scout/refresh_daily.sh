@@ -12,6 +12,11 @@ cd "$(dirname "$0")"
 PY="$HOME/venvs/scout/bin/python"
 STAMP=.last-refresh
 LOG=refresh.log
+# РУБИЛЬНИК платных OpenAI-шагов (владелец 17.08: продукт не запущен, занимаемся расстановкой —
+# обогащение/эскалация/судьи отключены). Файл-флаг: `touch openai.off` — выключено; `rm openai.off` — включено.
+# Бесплатные шаги (фиды, load3, capabilities, индексы, heal, страницы) идут как прежде.
+OPENAI_OFF=0; [ -f openai.off ] && OPENAI_OFF=1
+paid_step() { if [ "$OPENAI_OFF" = "1" ]; then echo "openai.off: платный шаг «$1» пропущен" >> "$LOG"; else step "$@"; fi; }
 STATUS=refresh-status.json
 today=$(date +%F)
 if [ "${1:-}" != "--force" ] && [ -f "$STAMP" ] && [ "$(cat $STAMP)" = "$today" ]; then exit 0; fi
@@ -85,7 +90,7 @@ step phash "$PY" phash.py --from-cache
 # 4. Обогащение НОВИНОК и тех, у кого сменился смысл. Дельта, обычно единицы процентов пула.
 # --vision: стиль по тексту совпадает с фото лишь в 16% — фото обязательно (картинки дельты
 # качаются в кэш перед отправкой, со счётчиком и стоп-предохранителем).
-step enrich "$PY" enrich.py --pool --vision --batch
+paid_step enrich "$PY" enrich.py --pool --vision --batch
 
 # 4b. Отправили — обязаны забрать (ADR-0073): ожидание фоновое (пакет считается до 24 ч),
 # успех = id-файл заархивирован; после забора enrich_wait сам пересоберёт индекс и комплекты.
@@ -117,7 +122,7 @@ fi
 step sets_reindex "$PY" sets_incremental.py --index
 # W5: терра-эскалация слабых карточек — в кроне с дневным капом (разовая добивка новичков
 # трёх свежих фидов ~3.2k, дальше капли; владелец 10.08 подтвердил)
-step escalate "$PY" enrich.py --escalate --limit 400
+paid_step escalate "$PY" enrich.py --escalate --limit 400
 
 # 7. Страница расстановок владельцу — пересобирается и публикуется КОНВЕЙЕРОМ ежедневно
 # (требование владельца 2026-08-07: никаких ручных сборок). Набор сетов — референсная десятка.
@@ -132,7 +137,7 @@ if [ "$(date +%u)" = "1" ]; then
   # W5: после недельных замен — переиндекс и судья сетов (вернулся в цикл: баланс OpenAI есть,
   # владелец 10.08); судья смотрит коллажи и отмечает выбивающиеся предметы
   step sets_reindex_w "$PY" sets_incremental.py --index
-  step sets_judge "$PY" judge.py || true
+  paid_step sets_judge "$PY" judge.py || true
   # W5: еженедельный бэкап каталога (dev-БД существует в единственном экземпляре)
   step db_backup bash -c 'mkdir -p ~/backups && docker exec remlab-devdb pg_dump -U remlab remlab | gzip > ~/backups/remlab-devdb-$(date +%Y%m%d).sql.gz && ls -t ~/backups/remlab-devdb-*.sql.gz | tail -n +5 | xargs -r rm'
 fi
