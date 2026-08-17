@@ -93,9 +93,6 @@ def ask(s,jpg):
     for _try in range(4):
         try:
             with urllib.request.urlopen(req,timeout=120) as r: out=json.loads(r.read()); break
-    try:
-        from openai_budget import log_spend as _ls; _ls(body.get('model','gpt-5-mini'), out.get('usage'), 1, 'judge sets')
-    except Exception: pass
         except urllib.error.HTTPError as e:
             _body=e.read().decode(errors='replace')[:300]
             if 'insufficient_quota' in _body or 'credit_balance' in _body:
@@ -104,6 +101,9 @@ def ask(s,jpg):
             if e.code not in (429,500,502,503) or _try==3: raise
             _w=15*(2**_try)
             print(f"  judge: HTTP {e.code}, ретрай через {_w} с",flush=True); _t.sleep(_w)
+    try:
+        from openai_budget import log_spend as _ls; _ls(body.get('model','gpt-5-mini'), out.get('usage'), 1, 'judge sets')
+    except Exception: pass
     txt=out['choices'][0]['message']['content']
     m=re.search(r'\{.*\}',txt,re.S)
     try: return json.loads(m.group(0))
