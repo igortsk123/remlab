@@ -3,7 +3,7 @@ tier: 1
 topic: catalog
 scope: Каталог — состав, свежесть, дельта
 tier2: "../domain/catalog-enrichment.md"
-updated: 2026-08-08
+updated: 2026-08-17
 importance: high
 source: manual
 status: working
@@ -17,29 +17,28 @@ last_verified: 2026-08-08
 `remlab-devdb`; pgvector нет. Загрузка `load3.py`, cron 09:40 `refresh_daily.sh`
 (feed_guard → load3 → phash → обогащение дельты → индексы/heal → health; алерты alert.sh).
 
-**Роль товара — из дерева категорий фида** (`category_map.py` → `products.cat_role`);
-+3 категории картин (ADR-0078). View `lr_roles` — историческая, не источник.
+**Роль товара — из дерева категорий фида** (`category_map.py` → `products.cat_role`, ADR-0078).
 
-**Обогащение:** active-пул полностью (`gpt-5.6-luna`, furniture-v1/p3/s5); стиль —
-признаки+ранги (ADR-0071); батчи ADR-0073; дельта text/geometry сбрасывает версию.
-Мониторинг: судья terra ежедневно (`enrich-drift.jsonl`); phash 99.7%.
+**Обогащение:** active-пул (`gpt-5.6-luna`); стиль — признаки+ранги (ADR-0071); батчи ADR-0073;
+судья terra ежедневно (`enrich-drift.jsonl`); phash 99.7%. Перед платным прогоном — `--sample 0` (дельта).
 
-**Дельта и жизненный цикл (К1, ADR-0068):** `product_enrichment` переживает пропажу из фида;
-статусы в `load3.py`; phash; обратный индекс; контракт `delta_check.py`.
+**Дельта (К1, ADR-0068):** `product_enrichment` переживает пропажу из фида; статусы в `load3.py`;
+контракт `delta_check.py`.
 
-**Размеры (ADR-0079, 08.08):** evidence-резолвер `tools/scout/dim_resolver.py` вместо
-`>400→/10`; провенанс dims_source+dims_evidence; scrape/manual фид не затирает. Итог: 0 битых,
-+4 610 с шириной (divan.ru 0→5 310), шторы разблокированы. Предохранители T0 — `feed_guard.py`,
-терминальность батча по результату. Детали — Tier 2 и ADR-0079.
+**Размеры (ADR-0079):** evidence-резолвер `tools/scout/dim_resolver.py`, провенанс dims_source/
+evidence; 0 битых, +4 610 с шириной. Предохранители T0 — `feed_guard.py`. Детали — Tier 2.
 
-**Выбор модели (К3):** голден 256 — luna роль 92.6%/функция 89.8% — **model-agreement, не
-точность** (эталон = terra). Человеческий эталон — `tools/scout/gold_human.py` (выборка 400,
-/test/gold-human/annotate.html, α, калибровка 0.65; разметка — владелец). Merge text/vision
-починен парными батчами #t/#v (T2).
+**Выбор модели (К3):** голден 256 — luna 92.6/89.8% = model-agreement (эталон terra); человеческий
+эталон `tools/scout/gold_human.py` (400, разметка — владелец); merge text/vision — парные батчи #t/#v.
 
+**Свежесть фидов (16.08, ADR-0107):** конвейер стоял с 11.08 (nonton 404 → BadZipFile) — теперь
+`refresh_daily.sh` проверяет zip, `load3.py` пропускает broken/stale/empty (`_feed_hash`), `feed_guard`
+хранит mids/broken_since (`feed-freshness.json`, вне git); `compose2.py` не берёт broken/stale в новые
+сеты; nonton (116933, 1076 позиций) — карантин отложен, решение владельца. Pod-комплект (кресло 3/4 +
+столик 2, `seating_pods.pod_kit`) — только из живых фидов (fail-closed). Divan.ru «новый» фид bceea2bc =
+тот же магазин 112923 (не грузим). В фидах есть кушетки/банкетки/консоли/раскладные — спрятаны ролями
+и фильтром импорта (Q6a: разметка ролей).
 
-
-**Дыры:** премиум-тир беден у половины ролей; лофт/неокл/джапанди дефицитны (снабжение —
-владелец). Ковры/стулья закрыты 07.08; шторы 08.08. К4: --refresh еженедельно + heal.
+**Дыры:** премиум-тир беден у половины ролей; лофт/неокл/джапанди дефицитны (снабжение — владелец).
 
 **Tier 2:** `../domain/catalog-enrichment.md` · `../domain/integrations.md` · `../core/furniture.md`.

@@ -2,9 +2,9 @@
 workstream: furniture
 slug: room-size-fit
 title: Габариты товаров под площадь гостиной — наполняемость и размерный подбор
-status: in_progress
+status: partial
 created: 2026-08-02
-updated: 2026-08-02
+updated: 2026-08-17
 completed:
 ---
 
@@ -52,3 +52,5 @@ completed:
   `size_relaxed` с печатью). Ф3: `--bands all` (метраж × стиль × тир) + `solver_check.py`
   (батч-проверка «влезает» солвером, отчёт solver-check-report.json). Ф4 (UI) — прод, не сейчас.
 - 2026-08-02 — план создан (draft) по вопросу владельца; ждёт команды «деплой»
+
+> 2026-08-17 (/memory-check): статус in_progress→partial — работа поглощена сводами MASTER-zones-v2…v7 (ADR-0098…0107); остаток — по мастеру.

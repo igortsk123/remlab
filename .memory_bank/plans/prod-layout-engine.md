@@ -2,9 +2,9 @@
 workstream: furniture
 slug: prod-layout-engine
 title: Прод-ядро авторасстановки — beam search + скоринг + top-K (по спеке layout-engine-spec)
-status: in_progress
+status: partial
 created: 2026-08-03
-updated: 2026-08-02
+updated: 2026-08-17
 completed:
 ---
 
@@ -118,3 +118,5 @@ conflict-repair ≤3 итераций, фолбэк-шаблоны (наши CON
   копировать код — нет; согласовано с владельцем). Э1+ — в свежей сессии.
 - 2026-08-03 — план создан (draft) по спеке владельца; спека сохранена в
   `guides/layout-engine-spec.md`; лицензии сверены с нашим воркфлоу-ресёрчем (совпали)
+
+> 2026-08-17 (/memory-check): статус in_progress→partial — работа поглощена сводами MASTER-zones-v2…v7 (ADR-0098…0107); остаток — по мастеру.

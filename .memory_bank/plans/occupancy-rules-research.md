@@ -2,9 +2,9 @@
 workstream: furniture
 slug: occupancy-rules-research
 title: Большой свод правил наполняемости и расстановки гостиной (мульти-джоб ресёрч)
-status: in_progress
+status: partial
 created: 2026-08-02
-updated: 2026-08-02
+updated: 2026-08-17
 completed:
 ---
 
@@ -63,3 +63,5 @@ completed:
   Planner5D B2B — запасной путь; LayoutVLM-подход «VLM взвешивает констрейнты» — легальная идея).
   Критик: 12 дыр/противоречий; 9 сниппет-источников требуют фетч-верификации ДО зашивки в код.
 - 2026-08-02 — план создан (draft); ждёт «деплой»
+
+> 2026-08-17 (/memory-check): статус in_progress→partial — работа поглощена сводами MASTER-zones-v2…v7 (ADR-0098…0107); остаток — по мастеру.

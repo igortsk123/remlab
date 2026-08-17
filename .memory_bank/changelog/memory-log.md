@@ -88,3 +88,4 @@ ADR-0034 (не считать по молчаливым дефолтам) в `de
 ADR-0035 (возврат проёмов, откат ADR-0027) уже был в decisions.md; `core/estimate.md` — UX-строка
 обновлена («проёмы скрыты» устарело), урок 8 в `core/lessons.md` (удаление функциональности —
 только с явного «да» владельца). План → `completed_plans/`. Tier 1 ужаты. Audit чист.
+- 2026-08-17 /memory-check после Q5 (ADR-0107): захват блокнота (23 строки) → decisions/core-layout/core-catalog/lessons 272–277/project-state (снимок переписан, 12→8 KB, старое → project-history)/anti-patterns (267–271); 6 планов in_progress с 02.08 → partial (поглощены сводами); audit чисто.

@@ -1748,3 +1748,43 @@ pytest 200; rules_audit 0.
 templates/weights/registry/severity), compose2, solver_run/acceptance_run/gallery/export,
 тесты (scenario_contract, beam_hypotheses, passport_parity, render_semantics, bank_coverage),
 планки (dining 220, ось медиана ≤5).
+
+## ADR-0107 — Свод №13 Q0–Q5 (слепая оценка р.1 + галерея владельца + Codex-советник): метрики «как видит владелец», identity-адаптер, медиапригодность, plan_key_v2 shadow, второй pod как комплект (2026-08-17)
+**Контекст.** Слепая оценка раунда 1 (10/20 пар: beam 2, greedy 5, оба плохи 3) показала, что
+`plan_key` не совпадает с глазом владельца; Codex замерил 7 сигналов (маршрут от двери через коридор
+диван→ТВ, кресло ≤45° к ТВ, дальность кресла, столовая во фронтальном конусе, компаньоны ТВ-стены,
+Г-диван hugged, фактическая посадка). Мастер-план `plans/MASTER-zones-v7.md`. С 16.08 действует
+правило владельца «Codex-советник до действий» (`~/.claude/CLAUDE.md`, скилл `ask-codex`, постоянные
+сессии в `core/access-and-integrations.md`; промпты/ответы — `_intake/codex-prompts/`).
+**Решения.** (Q0) `services/planner-solver/planner/view_metrics.py` — только диагностика (`_view`), читает её лишь `plan_key_v2`.
+(Q1) identity-адаптер банк→солвер в `tools/scout/solver_run.py`: RAW_BANK, явные нумерованные SKU со
+своими габаритами, `диван 2` через RAW_BANK (старая ветка была мёртвой), кресло 3/4 (+столик 2) —
+secondary scope (`zone_priority.secondary_scope_roles`), каждый SKU — одна терминальная причина
+(`_bank_unused`). (Q2) пороги/контракты — в `rules/zones.json view_contracts` с provenance и статусом
+measured/hypothesis (dining_view_cone — shadow, решение владельца). (Q3) media-формы кресел
+(`media_parallel/media_half/media_bridge`) в конце каскада паспорта; сертификаты достижимости семейств
+(`composition_families`, `full_chain_cap` по режимам, семейства только large/xl); sofa_4armchairs —
+shadow. (Q4) `plan_key_v2` — SHADOW (`plan_key_version: v1`, `v2_would_choose` в трейсе):
+hard → missing_req → unplaced → entry_sightline → media_seat → dining_cone → corner → missing_reachable_pref
+→ frontal → large_enrichment_deficit (категориальный: пара | второй диван | валидный pod, только если
+достижимо) → -enriched → -flex → -footrest → axis → lexo; default — после Q7.
+(Q5) Второй pod — АТОМАРНЫЙ КОМПЛЕКТ «кресло 3+4 (один SKU, qty=2, компактные ≤90×95/≤100×105, без
+реклайнеров) + столик 2 (малая поверхность 35–70)» — `tools/scout/compose2.py` (`seating_pods.pod_kit`),
+без поверхности пары нет; SKU pod — только из живых фидов (fail-closed к broken/stale +
+quarantine_pending). Солвер: `quiet_chat` (поверхность-якорь спиной к стене, кресла вдоль стены ±35° к
+центру) / `fireplace_flank`; skip при богатой primary/существующем pod; `check_quiet_contract`
+(QUIET_POD_* H0: без поверхности, «интервью» 0/180, «к камину» >45°/250 см); `QUIET_DIAG` →
+`cert.second_pod.quiet_diag`; `ARMCHAIR_TOO_DEEP` не бьёт кресло лицом к дивану (П/facing ожили);
+two_sofa: `L_right`, код `unsupported_subtype:corner_main`. Форма `u` главной группы больше не забирает
+кресла 3/4. Контракт позы для 3D/LLM: `export_plans_ai._with_orientation` (rot — истина, facing_target —
+объяснение), подписи «к X» ≤15°. **Гейт Q5 — по сертификатам** (Codex): second_pod full_valid | точная
+причина; 0 голых pod; планки; TIMEOUT 0. Выбор v1 намеренно предпочитает богатую primary (quiet в
+выбранных 3, pair_sides 42) — до Q7 не менять; несколько зон оправданы функцией, не метражом (H&G,
+House Beautiful).
+**Гейты финала Q5 (17.08):** 269 ok + 3 честных MEDIA_MISSING; TIMEOUT 0 @6 воркеров; dining 239;
+медиа 269; second_pod 57 full_valid / 6 quality_rejected / 11 pod_not_placed (с диагнозом); pytest 222+2.
+**Открыто:** карантин nonton.ru (фид сломан с 11.08; 1076 позиций — решение владельца), Q6a–e
+(каталожная волна: банкетка/кушетка/консоль/раскладной), Q7 слепой раунд 2 (по 20 пар), v2 → default.
+**Влияет на.** [[layout]], [[catalog]], zones/template/validate/view_metrics, rules (zones/occupancy/
+templates/severity), compose2/sets_incremental/solver_run/export_plans_ai, тесты (view_metrics,
+scenario_contract, beam_hypotheses, svod13_q1_q3, quiet_zone, bank_coverage, pose_contract).

@@ -2,9 +2,9 @@
 workstream: furniture
 slug: catalog-freshness
 title: Свежесть каталога — наличие, битые ссылки, автозамены в сетах
-status: in_progress
+status: partial
 created: 2026-08-02
-updated: 2026-08-02
+updated: 2026-08-17
 completed:
 ---
 
@@ -81,3 +81,5 @@ URL из goto= (%21 и др. не разворачивались). Фид = сн
 
 ## Follow-up work
 - [ ] Постбэки Гдеслона (подтверждение покупок) — отдельный план
+
+> 2026-08-17 (/memory-check): статус in_progress→partial — работа поглощена сводами MASTER-zones-v2…v7 (ADR-0098…0107); остаток — по мастеру.

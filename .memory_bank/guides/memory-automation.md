@@ -3,7 +3,7 @@ tier: 2
 topic: memory-automation
 scope: Как история проекта попадает в Memory Bank — слои, мост, хуки-напоминания, гейты
 tier1: ""
-last_verified: 2026-08-06
+last_verified: 2026-08-17
 updated: 2026-08-06
 importance: high
 source: manual
