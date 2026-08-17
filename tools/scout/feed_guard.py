@@ -32,6 +32,11 @@ def _alert(msg: str) -> None:
     subprocess.run(['bash', os.path.join(HERE, 'alert.sh'), msg], timeout=60)
 
 
+# реестр «фид → mid магазина» (для broken-фидов, где mids из архива не прочитать):
+# 777e580d = 116933 nonton.ru (сломан с 11.08); остальные фиды читают mids потоково
+FEED_OWNER = {'777e580d462f92086d4875cf39500375e2a113f6': [116933]}
+
+
 def scan() -> dict:
     prev = {}
     if os.path.exists(STATE):
@@ -70,7 +75,12 @@ def scan() -> dict:
             # mids прежней исправной записи сохраняем: иначе compose2/candidates не узнают, ЧЕЙ
             # источник сломан (777e580d = 116933 nonton.ru, Codex 16.08), и карантин не сработает
             _prev_m = (prev.get(h) or {}).get('mids') or []
+            # 17.08: у broken-фида известен ХОЗЯИН (реестр FEED_OWNER) — держим его в
+            # mids_quarantine_pending, пока владелец не решил карантин: compose2/heal обязаны
+            # fail-closed не брать эти SKU в НОВЫЕ pod-комплекты (общий пул не трогаем)
+            _pend = sorted(set((prev.get(h) or {}).get('mids_quarantine_pending') or []) | set(FEED_OWNER.get(h, [])) - set(_prev_m))
             out[h] = {'offers': 0, 'error': str(e)[:120], 'state': 'broken', 'mids': _prev_m,
+                      'mids_quarantine_pending': _pend,
                       'broken_since': (prev.get(h) or {}).get('broken_since') or datetime.now().strftime('%Y-%m-%d')}
             _alert(f'remlab: фид {h[:12]} не читается ({e}) — работаем на прежних данных БД')
             continue

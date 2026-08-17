@@ -130,7 +130,8 @@ def _live_candidates(role: str, cur: dict, style: str | None, alive: set,
         out.append((st, abs(pr - cur['price']), {'mid': item['mid'], 'eid': item['eid'],
                                                  'name': item['name'], 'price': pr,
                                                  'w': item.get('w'), 'd': item.get('d'),
-                                                 'h': item.get('h')}))
+                                                 'h': item.get('h'), 'dia': item.get('dia'),
+                                                 'shop': item.get('shop'), 'subtype': item.get('subtype')}))
     out.sort(key=lambda t: (-t[0], t[1]))
     return [x[2] for x in out[:limit]]
 
@@ -200,6 +201,87 @@ def refresh(apply: bool = False, max_swaps_per_set: int = 2) -> None:
         print('sets3.json обновлён (бэкап .bak)')
 
 
+_POD_BANNED: set | None = None
+
+
+def _pod_banned_mids() -> set:
+    """Магазины со сломанным/протухшим фидом (+ отложенный карантин) — в pod не берём (fail-closed,
+    как в compose2)."""
+    global _POD_BANNED
+    if _POD_BANNED is None:
+        _POD_BANNED = set()
+        try:
+            fr = json.load(open(os.path.join(HERE, 'feed-freshness.json')))
+            for rec in fr.values():
+                if rec.get('state') in ('stale', 'broken'):
+                    _POD_BANNED |= {int(m) for m in list(rec.get('mids', [])) + list(rec.get('mids_quarantine_pending', []))}
+        except Exception:
+            pass
+    return _POD_BANNED
+
+
+def _heal_pod(s: dict, members: list[str], dead: dict, alive: set, apply: bool = False) -> dict | None:
+    """Замена умерших членов pod-комплекта живыми аналогами (правила pod_kit из zones.json seating_pods).
+    Возвращает {роль: новое имя} или None (замены нет — снять весь pod)."""
+    import re as _re
+    try:
+        zr = json.load(open(os.path.join(HERE, '..', '..', 'services', 'planner-solver', 'rules', 'zones.json'), encoding='utf-8'))
+        cfg = (zr.get('seating_pods') or {}).get('pod_kit') or {}
+    except Exception:
+        cfg = {}
+    hard = tuple(cfg.get('armchair_hard_wd_cm', [100, 105]))
+    bad = _re.compile(cfg.get('armchair_exclude_regex', 'реклайнер|recliner|кресло-кроват|раскладн|качалк|мешок|подвесн'), _re.I)
+    smax = float(cfg.get('surface_side_max_cm', 70)); sdia = tuple(cfg.get('surface_dia_cm', [35, 70]))
+    banned = _pod_banned_mids()
+    items = s['items']
+    out = {}
+    dead_roles = [r for r in members if key(items[r]['mid'], items[r]['eid']) in dead]
+    if any(r in ('кресло 3', 'кресло 4') for r in dead_roles):
+        cur = items.get('кресло 3') or items.get('кресло 4')
+        main_key = key(items['кресло']['mid'], items['кресло']['eid']) if 'кресло' in items else None
+        pick = None
+        for c in _live_candidates('кресло', cur, s.get('style'), alive, exclude=set(), limit=40):
+            if int(c['mid']) in banned or key(c['mid'], c['eid']) == main_key:
+                continue
+            if (c.get('w') or 999) > hard[0] or (c.get('d') or 999) > hard[1] or bad.search(c.get('name') or ''):
+                continue
+            if 'пуф' in (c.get('name') or '').lower() or str(c.get('subtype') or '').startswith('пуф'):
+                continue                                   # роль «кресло» с именем «пуф» — не кресло pod
+            pick = c; break
+        if pick is None:
+            return None
+        pk = key(pick['mid'], pick['eid'])
+        if apply:
+            for r in ('кресло 3', 'кресло 4'):
+                base = dict(items[r]); base.update(pick); base['pair_key'] = pk
+                items[r] = base
+        out['кресло 3/4'] = pick['name'][:36]
+    if 'столик 2' in dead_roles:
+        cur = items['столик 2']
+        main_key = key(items['столик']['mid'], items['столик']['eid']) if 'столик' in items else None
+        pick = None
+        for c in _live_candidates('столик', cur, s.get('style'), alive, exclude=set(), limit=60):
+            if int(c['mid']) in banned or key(c['mid'], c['eid']) == main_key:
+                continue
+            w, d = c.get('w') or 0, c.get('d') or 0
+            if not (0 < w <= smax and 0 < d <= smax) and not (w == d and sdia[0] <= w <= sdia[1]):
+                continue
+            pick = c; break
+        if pick is None:
+            return None
+        if apply:
+            base = dict(cur); base.update(pick); base['surface_key'] = key(pick['mid'], pick['eid'])
+            items['столик 2'] = base
+        out['столик 2'] = pick['name'][:36]
+    # общий pod_key пересобрать
+    if apply and out and all(r in items for r in ('кресло 3', 'столик 2')):
+        pk = f"{items['кресло 3']['mid']}:{items['кресло 3']['eid']}|{items['столик 2']['mid']}:{items['столик 2']['eid']}"
+        for r in members:
+            if r in items:
+                items[r]['pod_key'] = pk
+    return out or None
+
+
 def heal(apply: bool = False) -> None:
     """Лечение комплектов: выбывший товар меняем на запасной той же роли.
 
@@ -242,7 +324,15 @@ def heal(apply: bool = False) -> None:
                       if it.get('pod_key') and key(it['mid'], it['eid']) in dead}
         for _pk in _dead_pods:
             _members = [r for r, it in s['items'].items() if it.get('pod_key') == _pk]
-            print(f'  комплект {n}: pod {_pk} — выбыл член, снимаем целиком: {_members}')
+            # 17.08 (урок: утренний heal снял 55/72 pod из-за одного умершего столика 2): член pod
+            # ЗАМЕНЯЕТСЯ живым аналогом с теми же pod-воротами (пара 3/4 — один компактный SKU на
+            # обоих, столик 2 — малая поверхность), только из живых фидов; нет замены — pod снимается
+            _repl = _heal_pod(s, _members, dead, alive, apply)
+            if _repl:
+                print(f'  комплект {n}: pod {_pk} — член выбыл, заменён: {_repl}')
+                healed += 1
+                continue
+            print(f'  комплект {n}: pod {_pk} — выбыл член, замены нет, снимаем целиком: {_members}')
             healed += 1
             if apply:
                 for r in _members:

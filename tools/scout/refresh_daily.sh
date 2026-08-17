@@ -109,7 +109,10 @@ step metrics "$PY" sync_metrics.py
 # 5b. АВТОЗАМЕНА выбывших (владелец 2026-08-07: «товар заменяться должен автоматом, если
 # наличия нет»): запасной той же роли, в наличии, ±30% цены, с перепроверкой пропорций;
 # без замены — комплект честно помечается. Бэкап sets3.json пишет сам heal.
+# ЗАМОК экзамена (17.08): банки под бегущими воркерами не менять — heal/refresh/сборка отложены до завтра
+if [ -f exam.lock ]; then echo "exam.lock: идёт экзамен — sets_heal/sets_refresh пропущены" >> "$LOG"; else
 step sets_heal "$PY" sets_incremental.py --heal --apply
+fi
 # W5: после замен индекс обязан сойтись с sets3 СЕГОДНЯ, а не завтра
 step sets_reindex "$PY" sets_incremental.py --index
 # W5: терра-эскалация слабых карточек — в кроне с дневным капом (разовая добивка новичков
@@ -125,7 +128,7 @@ step layout_page env LAYOUT10_PUBLISH=1 "$PY" layout10_page.py 1 14 21 29 55 59 
 if [ "$(date +%u)" = "1" ]; then
   step solver_full env CHECK_TAG=weekly "$PY" solver_check.py
   # В3 (владелец 07.08): точечное освежение сетов новинками — лучшая ступень стиля, ≤2 замен/сет
-  step sets_refresh "$PY" sets_incremental.py --refresh --apply
+  [ -f exam.lock ] || step sets_refresh "$PY" sets_incremental.py --refresh --apply
   # W5: после недельных замен — переиндекс и судья сетов (вернулся в цикл: баланс OpenAI есть,
   # владелец 10.08); судья смотрит коллажи и отмечает выбивающиеся предметы
   step sets_reindex_w "$PY" sets_incremental.py --index

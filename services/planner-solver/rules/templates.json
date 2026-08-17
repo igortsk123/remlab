@@ -141,11 +141,11 @@
      "status": "implemented_as: template._pair_sofa_candidates / tv_sofa.generate_pairs (scheme floating_pair)"
     },
     {
-     "id": "axis_shifted",
+     "id": "gap_compact",
      "order": 3,
-     "when": "центральных позиций нет",
-     "why": "посадка со смещением оси в пределах угла 15° (свод §5.4, RTINGS)",
-     "status": "implemented_as: template.place_template каскад сдвига столика (V4-D1, tpl_variant +axis_shifted)"
+     "when": "канонический зазор 42.5 не оставляет проход/зону; зазор 36 — нижняя граница нормы 36–46",
+     "why": "второй канон вместо допуска (владелец 17.08); H&G/KB: 14–18\" (36–46 см) от дивана до столика",
+     "status": "implemented_as: template.place_template каскад (geometry.coffee_gap_compact_cm, tpl_variant +gap36)"
     },
     {
      "id": "window_back",
@@ -156,7 +156,10 @@
     }
    ],
    "degradation_level": "A",
-   "_invariants_note": "V4-A: table_reach_all_seats в check_block проверяет НИЖНИЙ порог (единый с движком); верх пары диван-столик держит hard-вилка 32-50 (validate); max_cm=90 — спящий (схемы визави). symmetry/focus_visible реализованы КОНСТРУКТИВНО построением блока, отдельной ветки check_block нет"
+   "_invariants_note": "V4-A: table_reach_all_seats в check_block проверяет НИЖНИЙ порог (единый с движком); верх пары диван-столик держит hard-вилка 32-50 (validate); max_cm=90 — спящий (схемы визави). symmetry/focus_visible реализованы КОНСТРУКТИВНО построением блока, отдельной ветки check_block нет",
+   "_removed_schemes": {
+    "table_axis_shifted": "владелец 17.08 (№31): «никаких допусков — не влез канон, берём другой канон»: сдвиг столика вдоль дивана удалён из каскада place_template (V4-D1 → снят); template_degradation в plan_key — сторож (0)"
+   }
   },
   "media": {
    "id": "media",
@@ -609,6 +612,10 @@
   "coffee_gap_cm": {
    "v": 42.5,
    "why": "столик от фронта дивана: preferred 40-45 (KB 5.2 + веб 16-18\")"
+  },
+  "coffee_gap_compact_cm": {
+   "v": 36.0,
+   "why": "ВТОРОЙ КАНОН зазора (владелец 17.08: никаких допусков — только каноны): нижняя граница нормы distances.sofa_coffee_table [36,46]; для тесных комнат/проходов. Прежние 32/48 (вне нормы) и сдвиг столика вдоль дивана удалены из каскада"
   },
   "flank_gap_cm": {
    "v": 32,

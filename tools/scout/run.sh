@@ -12,13 +12,18 @@
 #   tools/scout/run.sh guards          # сторожа целостности (pytest)
 set -euo pipefail
 cd "$(dirname "$0")"
+HERE="$(pwd)"
 PY="$HOME/venvs/scout/bin/python"
 
 case "${1:-}" in
   exam)
     rm -f acceptance-report-zoned.jsonl
-    exec env ACC_WORKERS=6 "$PY" acceptance_run.py zoned ;;
+    # ЗАМОК (17.08): пока идёт экзамен, конвейер (refresh_daily/enrich_wait) НЕ трогает sets3.json —
+    # утренний heal переписал банки под бегущими воркерами (pod-комплекты 72→17), экзамен стал смешанным
+    touch "$HERE/exam.lock"; trap 'rm -f "$HERE/exam.lock"' EXIT
+    set +e; env ACC_WORKERS=6 "$PY" acceptance_run.py zoned; rc=$?; rm -f "$HERE/exam.lock"; exit $rc ;;
   sets)
+    if [ -f "$HERE/exam.lock" ]; then echo "exam.lock: идёт экзамен — сборка сетов отложена (не параллелить)"; exit 3; fi
     exec "$PY" compose2.py --style --bands all ;;
   gallery)
     exec "$PY" acceptance_gallery.py ;;

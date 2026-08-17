@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
 from planner.models import Item, Room  # noqa: E402
 from planner.template import (build_block, build_dining,  # noqa: E402
                               build_fireplace, build_media,
-                              build_media_fireplace, build_pouf,
+                              build_media_fireplace,
                               build_quiet, build_reading, build_storage)
 from scene_build import draw_plan  # noqa: E402
 
@@ -264,12 +264,26 @@ card('fireplace_chairs', 'Каминная зона: пара кресел по 
      'Канон симметрии: одинаковые кресла лицом друг к другу, камин между ними; '
      'зона безопасности от очага 61–91 см (веб-свод).')
 
-card('quiet_zone', 'Тихая зона: 2 кресла + приставной (v2 B2, 45+ м²)',
-     build_quiet({'кресло 3': _mk('кресло 3', 80, 75), 'кресло 4': _mk('кресло 4', 80, 75),
-                  'приставной': _mk('приставной', 45, 45)}),
-     'Вторая подзона просторных гостиных: «зона просмотра» у ТВ + «тихая зона» '
-     'у камина/окна. Ставится после главной зоны, если кресла остались свободны.',
-     gross_m2=45)
+card('quiet_zone', 'Тихая зона quiet_chat: пара кресел 3/4 + столик 2 (Q5 свода №13, 25+ м²)',
+     build_quiet({'кресло 3': _mk('кресло 3', 80, 85), 'кресло 4': _mk('кресло 4', 80, 85),
+                  'столик 2': _mk('столик 2', 55, 55)}, variant='quiet_chat'),
+     'Второй pod: атомарный комплект «пара кресел одного SKU + малая поверхность» — '
+     'столик спиной к стене, кресла вдоль стены под 35° к общему центру (не «интервью» лицом '
+     'к лицу). Без поверхности pod не ставится; при богатой главной группе (2 кресла или два '
+     'дивана) — не ставится (Codex 16–17.08, владелец №181).', gross_m2=25)
+
+card('fireplace_flank', 'Тихая зона fireplace_flank: пара кресел по сторонам камина (Q5)',
+     build_quiet({'кресло 3': _mk('кресло 3', 80, 85), 'кресло 4': _mk('кресло 4', 80, 85)},
+                 variant='fireplace_flank', fireplace=_mk('камин', 120, 42)),
+     'Кресла в вилке дистанции от очага под 45° к камину (fireplace.rules) — только тогда '
+     'подпись «к камину» честна (владелец №183: «2 кресла к камину» за 5 м — не камин). '
+     'Угловой камин (нет места по сторонам) — честный отказ.', gross_m2=25)
+
+card('two_sofa_L_right', 'Два дивана: Г-стык справа (L_right, Q5)',
+     build_block('sofa_loveseat', {'диван': SOFA, 'диван 2': _mk('диван 2', 180, 90),
+                                   'столик': TBL, 'ковёр': RUG}, variant='L_right'),
+     'Зеркальный канон Г-стыка: прежде второй диван вставал только слева (дыра поиска two_sofa, '
+     'Codex 17.08). Столик — по центру ГЛАВНОГО дивана.', gross_m2=30)
 
 card('storage_single', 'ЗОНА ИЗ ОДНОГО: комод у стены',
      build_storage({'комод': _mk('комод', 120, 45)}),
@@ -289,12 +303,6 @@ card('pouf_as_table', 'Крупный пуф ВМЕСТО столика (от 7
      'Веб-канон для тесных и мягких схем: «вместо большого прямоугольного стола — '
      'пуф». Крупный пуф (от 70 см) встаёт по центру зоны как мягкий столик; '
      'мелкий пуф остаётся подставкой для ног перед креслом.', gross_m2=32)
-
-card('pouf_zone', 'Зона пуфа: перед диваном (35–45 см)',
-     build_pouf({'пуф': _mk('пуф', 67, 50)}),
-     'Микро-зона из одного предмета. По своду пуф ставится в 35–45 см от дивана '
-     '(не у стены, как его гнал прежний перебор) и размером около 2/3 ширины '
-     'посадочной части.')
 
 card('storage_wall', 'Стеллаж-стена: хранение в линию + растение (v2.4)',
      build_storage({'стеллаж': _mk('стеллаж', 90, 35), 'комод': _mk('комод', 120, 45),
@@ -407,6 +415,52 @@ tabs_js = '''<script>
   apply('all');
 })();
 </script>'''
+# РЕЕСТР КАНОНОВ ИЗ ПАСПОРТОВ (владелец 17.08: «никаких допусков — если канон не подходит,
+# новый канон; ссылку на обновлённый список канонов»): таблица schemes всех паспортов
+# templates.json — id / когда / почему / статус; удалённые схемы — отдельно
+_TPL = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'services', 'planner-solver', 'rules', 'templates.json'), encoding='utf-8'))
+def _passport_rows():
+    rows = []
+    removed = []
+    def walk(o, path):
+        if isinstance(o, dict):
+            sc = o.get('schemes')
+            if isinstance(sc, list):
+                for x in sc:
+                    if isinstance(x, dict) and x.get('id'):
+                        rows.append((path or o.get('id') or '?', x.get('id'), str(x.get('when', '')), str(x.get('why', '')), str(x.get('status', ''))))
+            for k, v in o.get('_removed_schemes', {}).items() if isinstance(o.get('_removed_schemes'), dict) else []:
+                removed.append((path or o.get('id') or '?', k, v))
+            for k, v in o.items():
+                if k in ('schemes', '_removed_schemes'):
+                    continue
+                walk(v, (o.get('id') if isinstance(o.get('id'), str) else path))
+        elif isinstance(o, list):
+            for v in o:
+                walk(v, path)
+    walk(_TPL, '')
+    return rows, removed
+_rows, _removed = _passport_rows()
+def _st_class(st):
+    return 'ok' if st.startswith('implemented') else ('sleep' if st.startswith('sleeping') else 'rm')
+canon_html = ("<p class='note'>Полный список канонов — из паспортов шаблонов "
+              "(<code>rules/templates.json → schemes</code>): это единственный источник; страница генерируется из него. "
+              "«Допусков» (сдвиг столика, зазоры вне нормы) больше нет — не влез канон, берётся другой канон "
+              "(решение владельца 17.08). Зелёный — реализовано в коде; серый — спит (нет данных/каталога).</p>"
+              "<table class='canon'><tr><th>зона</th><th>канон</th><th>когда</th><th>почему</th><th>статус</th></tr>" +
+              ''.join(f"<tr class='{_st_class(st)}'><td>{html.escape(z)}</td><td><b>{html.escape(i)}</b></td><td>{html.escape(w)}</td><td>{html.escape(y)}</td><td>{html.escape(st[:90])}</td></tr>"
+                      for z, i, w, y, st in _rows) + "</table>" +
+              ("<p class='note'><b>Снятые схемы:</b> " + '; '.join(f"{html.escape(z)}/{html.escape(k)} — {html.escape(v)}" for z, k, v in _removed) + "</p>" if _removed else ''))
+# формы посадочных групп — из zones.json (seating_groups[].shapes): тоже каноны (media_parallel/half/bridge, L_right, u…)
+_ZR = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'services', 'planner-solver', 'rules', 'zones.json'), encoding='utf-8'))
+_groups_html = ("<p class='note'>Формы посадочных групп (<code>rules/zones.json → seating_groups[].shapes</code>): "
+                "состав ступени лестницы и её канонические формы; статус shadow — контрфактуал вне production.</p>"
+                "<table class='canon'><tr><th>группа</th><th>мест</th><th>обязательные роли</th><th>формы (каноны)</th><th>intent</th><th>статус</th></tr>" +
+                ''.join(f"<tr class='{'sleep' if g.get('status')=='shadow_alternative' else 'ok'}'><td><b>{html.escape(g['id'])}</b></td><td>{g.get('seats','')}</td>"
+                        f"<td>{html.escape(', '.join(g['roles'].get('required', [])))}</td><td>{html.escape(', '.join(g.get('shapes', [])))}</td>"
+                        f"<td>{html.escape(str(g.get('intent','')))}</td><td>{html.escape(str(g.get('status','production')))}</td></tr>"
+                        for g in _ZR.get('seating_groups', [])) + "</table>")
+canon_html = canon_html + _groups_html
 queue_html = ''.join(
     f"<h3>{html.escape(zone)}</h3><ul>" +
     ''.join(f"<li><b>{html.escape(t)}</b> — {html.escape(n)}</li>" for t, n in items) +
@@ -433,6 +487,8 @@ background:#fff;padding:10px 0;border-bottom:1px solid #ECEEEA;z-index:5}}
 border-radius:20px;background:#fff;color:#3A423C;cursor:pointer}}
 .tabs button.on{{background:#2E7D4F;border-color:#2E7D4F;color:#fff}}
 #cnt{{color:#5C655E;font-size:14.5px;margin:2px 0 0}}
+table.canon{{border-collapse:collapse;font-size:14px;width:100%}} table.canon td,table.canon th{{border:1px solid #E4E6E2;padding:4px 6px;vertical-align:top}}
+table.canon tr.ok td:last-child{{color:#2E7D4F}} table.canon tr.sleep td{{color:#888}} table.canon tr.rm td{{color:#a33}}
 </style></head><body><div class="wrap">
 <h1>Шаблоны зон — библиотека на согласование</h1>
 <div class="head">АКТИВНЫЕ ПОВЕДЕНИЯ ПОЗИЦИОНИРОВАНИЯ (не блоки, а правила выбора
@@ -456,6 +512,7 @@ border-radius:20px;background:#fff;color:#3A423C;cursor:pointer}}
 {tabs_html}
 <p id="cnt"></p>
 {''.join(items_html)}
+<section data-min="0"><h2>Реестр канонов из паспортов <small>{len(_rows)} схем · {len(_removed)} снято</small></h2>{canon_html}</section>
 <section data-min="0"><h2>Очередь по 6 зонам <small>ЗАКРЫТА 11.08 — библиотека полная</small></h2>{queue_html}</section>
 </div>{tabs_js}</body></html>"""
 open(os.path.join(OUT, 'index.html'), 'w').write(page)

@@ -15,6 +15,8 @@
 """
 from __future__ import annotations
 
+import re
+
 import json
 import os
 from collections import Counter
@@ -1385,6 +1387,35 @@ def lexo_key(hard_count: int, unplaced_required: int, terms: dict) -> tuple:
 # гипотеза №0 (инвариант «не хуже прежнего»). Числа — rules/zones.json → beam.
 # ---------------------------------------------------------------------------
 
+def template_degradation(ps) -> tuple:
+    """Codex 17.08 (владелец №31 set16-base): степень отхода посадочного шаблона от канона —
+    (max_level, count). 0 — канон (столик по центру, номинальный зазор); 1 — допустимый fallback
+    (комфортный неноминальный зазор 36); 2 — сдвиг столика вдоль дивана / крайний зазор 32|48.
+    Читает пометки tpl_variant (`+table_axis_shifted`, `+gapNN`) — ставит template.place_template."""
+    lvl, cnt = 0, 0
+    for p in ps:
+        v = getattr(p, 'tpl_variant', '') or ''
+        if getattr(p, 'tpl_id', '') != 'seating' or not v:
+            continue
+        l = 0
+        if '+table_axis_shifted' in v:
+            l = 2
+        m = re.search(r'\+gap(\d+)', v)
+        if m:
+            g = int(m.group(1))
+            l = max(l, 2 if g in (32, 48) else 1)
+        if l:
+            lvl = max(lvl, l)
+            cnt += 1
+    return (lvl, cnt)
+
+
+def _main_path_violations(lay) -> int:
+    """MAIN_PATH_TIGHT — soft в validate; как ярус ключа ВЫШЕ деградации шаблона: канон не должен
+    побеждать вариант, реально сохраняющий проход 90 см (Codex 17.08)."""
+    return sum(1 for v in getattr(lay, 'violations', []) or [] if getattr(v, 'code', '') == 'MAIN_PATH_TIGHT')
+
+
 def plan_key(room: Room, lay, needs: dict, seat_rank: int = 0) -> tuple:
     """Ключ сравнения ГОТОВОГО плана (меньше — лучше):
     (hard, missing_required, -covered_preferred, circulation, functional, zone_q, aesthetics).
@@ -1416,7 +1447,10 @@ def plan_key(room: Room, lay, needs: dict, seat_rank: int = 0) -> tuple:
     # Класс оси медиа (P1): centered(0) < offset(1) < relaxed/corner(2) — выше
     # circulation-суммы: 128 см сбоку не компенсируется парой см прохода.
     axis_cls = _axis_class(lay)
-    return (hard, missing_req, -covered_pref, -seat_rank, axis_cls) + tuple(lk[1:])
+    # Codex 17.08 (владелец №31): main-path контракт → деградация шаблона (канон важнее допуска)
+    # — ВЫШЕ мягких термов (circulation +1 не должен двигать столик с центра дивана)
+    return (hard, missing_req, -covered_pref, -seat_rank, axis_cls,
+            _main_path_violations(lay), template_degradation(ps)) + tuple(lk[1:])
 
 
 def plan_key_v2(room: Room, lay, needs: dict, reach: dict | None = None) -> tuple:
@@ -1510,7 +1544,7 @@ def plan_key_v2(room: Room, lay, needs: dict, reach: dict | None = None) -> tupl
             missing_pref, frontal_def, seat_def,
             -int(seat.get('sofas', 0) >= 2 or _valid_arm >= 2),   # Codex 16.08: сырой -valid_arm ярусом убран
             -int(seat.get('flex_seats', 0)), -int(seat.get('footrest', 0) > 0),
-            _axis_class(lay)) + tuple(lk[1:])
+            _axis_class(lay), _main_path_violations(lay), template_degradation(ps)) + tuple(lk[1:])
 
 
 def _axis_class(lay) -> int:

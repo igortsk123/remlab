@@ -38,7 +38,7 @@ def test_shift_is_explicit_variant_with_reason():
     """D1: сдвиг возможен только как явный вариант с причиной centered_hard_invalid
     (сдвиговые пробуются в каскаде ПОСЛЕ центрированных — успех со сдвигом
     означает провал всех centered по построению)."""
-    d = {'table': {'shift_cm': 23.4, 'variant': 'default+axis_shifted',
+    d = {'table': {'shift_cm': 23.4, 'variant': 'default+table_axis_shifted',
                    'centered_rejects': 5, 'reason': 'centered_hard_invalid'}}
     assert d['table']['reason'] == 'centered_hard_invalid'
     # семантика клейма проверяется интеграционно экзаменом: сторож ниже по артефактам

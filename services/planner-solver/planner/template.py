@@ -1539,16 +1539,32 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
         # Придуманный размер = мебель, которой нет в каталоге, и неверная смета.
         # Не влезло — берём ДРУГОЙ шаблон (каскад ниже).
     if 'столик' in by_role:
-        for g in (36.0, 32.0, 48.0):
-            tries.append((by_role, g, 0.0))
+        # ВЛАДЕЛЕЦ 17.08 (№31): «никаких допусков — не влез канон, берём другой канон». Каскад
+        # оставляет ТОЛЬКО канонические зазоры внутри нормы distances.sofa_coffee_table [36,46]:
+        # номинал COFFEE_GAP и «компактный» 36 (второй канон, паспорт gap_compact). Зазоры 32/48
+        # (вне нормы) и сдвиг столика вдоль дивана (table_axis_shifted) из перебора УДАЛЕНЫ:
+        # не встало — другая позиция/ступень лестницы, не деградированная схема.
+        _gap_lo = float(_g('coffee_gap_compact_cm', 36.0))
+        if abs(_gap_lo - COFFEE_GAP) > 0.5:
+            tries.append((by_role, _gap_lo, 0.0))
         # (габариты столика НЕ подгоняем — см. правило выше про конверт слота)
-        for sh in (_sh, -_sh):
-            tries.append((by_role, COFFEE_GAP, sh))
         # СХЕМ БЕЗ СТОЛИКА В КАСКАДЕ НЕТ (владелец 13.08: «куда делся столик?»).
         # Столик — клей зоны (glue_rule паспорта); каскад жертвует пуфом, торшером,
         # креслом — но столик и ковёр неприкосновенны. Нет места столику — берётся
         # меньший состав ВОКРУГ него, а не зона без поверхности.
     variants = tries
+    _enum_degraded: set = set()
+
+    def _tol_tag(gap: float, shift: float) -> str:
+        """Пометка допуска схемы (Codex 17.08): сдвиг столика вдоль дивана → +table_axis_shifted;
+        нестандартный зазор → +gapNN. Канон (COFFEE_GAP, без сдвига) — без пометки; поворот ковра
+        деградацией не считается (правило «длинной стороной вдоль дивана»)."""
+        t = ''
+        if shift:
+            t += '+table_axis_shifted'
+        if abs(gap - COFFEE_GAP) > 0.5:
+            t += f'+gap{int(round(gap))}'
+        return t
     # ЭФФЕКТИВНАЯ группа (11.08): выбранная группа может требовать роль, которой в
     # сете нет (sofa_armchair без кресла) — тогда блок не собирался и сцена уходила
     # в поштучный фолбэк. Понижаем группу до реально доступного состава.
@@ -1649,7 +1665,13 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
                       if _topo in {e[0] for e in _enum_topo}:
                           continue
                       _enum_topo.append((_topo,))
-                      _variant0 = shape + ('+axis_shifted' if _shift else '')
+                      _variant0 = shape + _tol_tag(_gap, _shift)
+                      # Codex 17.08 (владелец №31): деградированных вариантов (сдвиг/нестандартный
+                      # зазор) — не более ОДНОГО на форму в перечислении; канон — все топологии
+                      if _tol_tag(_gap, _shift):
+                          if shape in _enum_degraded:
+                              continue
+                          _enum_degraded.add(shape)
                       for _pv in _one:
                           _pv.tpl_variant = _variant0
                       _enum.append(_one)
@@ -1665,7 +1687,7 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
                   # Сдвиговые варианты идут в каскаде ПОСЛЕ центрированных, поэтому
                   # успех со сдвигом = «centered hard-invalid» по построению.
                   global LAST_AXIS_DIAG
-                  _variant = shape + ('+axis_shifted' if _shift else '')
+                  _variant = shape + _tol_tag(_gap, _shift)
                   LAST_AXIS_DIAG = {'table': {
                       'shift_cm': round(_shift, 1), 'variant': _variant,
                       'centered_rejects': _centered_fails,
@@ -1706,7 +1728,7 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
                             if _pss:
                                 _one = _pss if isinstance(_pss[0], Placement) else _pss[0]
                                 for _pv in _one:
-                                    _pv.tpl_variant = shape + ('+axis_shifted' if _shift else '')
+                                    _pv.tpl_variant = shape + _tol_tag(_gap, _shift)
                                 _saved.append(_one)
                                 raise StopIteration
             except StopIteration:

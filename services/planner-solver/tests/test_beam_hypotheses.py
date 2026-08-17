@@ -18,7 +18,7 @@ def _scene():
     items = [Item(role='диван', w_cm=220, d_cm=95, h_cm=85),
              Item(role='кресло', w_cm=80, d_cm=85, h_cm=80),
              Item(role='столик', w_cm=110, d_cm=60, h_cm=45),
-             Item(role='ковёр', w_cm=200, d_cm=140, h_cm=1),
+             Item(role='ковёр', w_cm=240, d_cm=170, h_cm=1),   # 17.08: без допусков (сдвиг столика снят) канон sofa_armchair требует ковёр под всю группу
              Item(role='тв-тумба', w_cm=160, d_cm=45, h_cm=50),
              Item(role='стол обеденный', w_cm=120, d_cm=75, h_cm=75),
              Item(role='стул', w_cm=45, d_cm=50, h_cm=90),
@@ -69,3 +69,27 @@ def test_beam_deterministic():
     pa = [(p.role, round(p.x), round(p.y)) for p in a[0].placements]
     pb = [(p.role, round(p.x), round(p.y)) for p in b[0].placements]
     assert pa == pb
+
+
+def test_plan_key_prefers_canonical_over_tolerated_table():
+    """Codex 17.08 (владелец №31 set16-base): при равных верхних ярусах канон (столик по центру,
+    номинальный зазор) выигрывает у допуска (+table_axis_shifted / +gap32|48) даже при чуть лучшем
+    мягком терме — template_degradation стоит выше lexo-термов в v1 и v2."""
+    from planner.zones import template_degradation
+    from planner.models import Item, Placement
+
+    def _p(role, var, tpl='seating'):
+        p = Placement(role=role, x=0, y=0, rot=0, item=Item(role=role, w_cm=100, d_cm=60, h_cm=45))
+        p.tpl_id = tpl; p.tpl_variant = var
+        return p
+    assert template_degradation([_p('столик', 'default')]) == (0, 0)
+    assert template_degradation([_p('столик', 'default+gap36')]) == (1, 1)
+    assert template_degradation([_p('столик', 'default+table_axis_shifted')]) == (2, 1)
+    assert template_degradation([_p('столик', 'default+gap48'), _p('диван', 'default+gap48')]) == (2, 2)
+    assert template_degradation([_p('кресло', 'quiet_chat+table_axis_shifted', tpl='quiet')]) == (0, 0)  # только seating
+    import inspect
+    from planner import zones as Z
+    src_v1 = inspect.getsource(Z.plan_key); src_v2 = inspect.getsource(Z.plan_key_v2)
+    for src in (src_v1, src_v2):
+        assert 'template_degradation(ps)' in src and 'lk[1:]' in src
+        assert src.index('template_degradation(ps)') < src.index('lk[1:]'), 'деградация — до мягких термов'
