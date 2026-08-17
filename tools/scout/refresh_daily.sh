@@ -17,6 +17,8 @@ LOG=refresh.log
 # Бесплатные шаги (фиды, load3, capabilities, индексы, heal, страницы) идут как прежде.
 OPENAI_OFF=0; [ -f openai.off ] && OPENAI_OFF=1
 paid_step() { if [ "$OPENAI_OFF" = "1" ]; then echo "openai.off: платный шаг «$1» пропущен" >> "$LOG"; else step "$@"; fi; }
+# Дневной лимит $ на все модели — rules/openai_prices.json daily_cap_usd (5.0, владелец 17.08); гейт внутри
+# enrich/judge (openai_budget.allow) перед каждой отправкой; отчёт: `openai_budget.py --report 7`
 STATUS=refresh-status.json
 today=$(date +%F)
 if [ "${1:-}" != "--force" ] && [ -f "$STAMP" ] && [ "$(cat $STAMP)" = "$today" ]; then exit 0; fi

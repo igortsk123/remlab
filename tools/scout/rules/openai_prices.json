@@ -1,9 +1,16 @@
 {
- "_meta": {"why": "Оценка расхода OpenAI по токенам (оптимизация 17.08, решение владельца): цены за 1M токенов; провенанс — страница pricing OpenAI на дату; нет цены → cost_usd=null (счётчик токенов честный, доллары не выдумываем). Обновлять руками при смене тарифов.",
-           "provenance": "TODO владелец/агент: сверить с https://openai.com/api/pricing на дату включения конвейера (openai.off снят); до сверки — null"},
+ "_meta": {
+  "why": "Учёт стоимости OpenAI и дневной лимит (владелец 17.08: «не более $5 в день на все модели, скажу если поднять»). Цены за 1M токенов; Batch API ×0.5. typical_* — типовой размер запроса конвейера (замер 17.08: промпт-схема ≈3.8k токенов + картинка detail:low ≈85; ответ JSON ≈0.7–1.5k с reasoning low) — для оценки партии ДО отправки; fallback_per_request_usd — если модели нет в таблице (консервативно).",
+  "provenance": "external: https://developers.openai.com/api/docs/pricing (прочитано 2026-08-17): gpt-5.6-luna $0.20/$1.20, gpt-5.6-terra $2.00/$12.00, gpt-5-mini $0.25/$2.00, gpt-5-nano $0.05/$0.40, gpt-5.6-sol $5/$30; Batch −50%",
+  "checked_at": "2026-08-17"
+ },
+ "daily_cap_usd": 5.0,
+ "fallback_per_request_usd": 0.10,
  "models": {
-  "gpt-5.6-luna": {"input_per_1m": null, "output_per_1m": null},
-  "gpt-5.6-terra": {"input_per_1m": null, "output_per_1m": null},
-  "gpt-5-mini": {"input_per_1m": null, "output_per_1m": null}
+  "gpt-5.6-luna":  {"input_per_1m": 0.20, "output_per_1m": 1.20, "typical_prompt_tokens": 4000, "typical_output_tokens": 1200},
+  "gpt-5.6-terra": {"input_per_1m": 2.00, "output_per_1m": 12.00, "typical_prompt_tokens": 4000, "typical_output_tokens": 1500},
+  "gpt-5-mini":    {"input_per_1m": 0.25, "output_per_1m": 2.00,  "typical_prompt_tokens": 3000, "typical_output_tokens": 800},
+  "gpt-5-nano":    {"input_per_1m": 0.05, "output_per_1m": 0.40,  "typical_prompt_tokens": 3000, "typical_output_tokens": 800},
+  "gpt-4o-mini":   {"input_per_1m": 0.15, "output_per_1m": 0.60,  "typical_prompt_tokens": 2000, "typical_output_tokens": 500}
  }
 }

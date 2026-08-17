@@ -93,6 +93,9 @@ def ask(s,jpg):
     for _try in range(4):
         try:
             with urllib.request.urlopen(req,timeout=120) as r: out=json.loads(r.read()); break
+    try:
+        from openai_budget import log_spend as _ls; _ls(body.get('model','gpt-5-mini'), out.get('usage'), 1, 'judge sets')
+    except Exception: pass
         except urllib.error.HTTPError as e:
             _body=e.read().decode(errors='replace')[:300]
             if 'insufficient_quota' in _body or 'credit_balance' in _body:
@@ -111,6 +114,9 @@ _ONLY=_tm_only()
 # вердикты параллельно (8 потоков); в тестовом режиме модель зовём ТОЛЬКО для выбранных сетов
 import concurrent.futures as _cf
 _judge_idx=[i for i in range(len(sets)) if _ONLY is None or (i+1) in _ONLY]
+from openai_budget import allow as _budget_allow   # дневной лимит $ (владелец 17.08)
+if not _budget_allow('gpt-5-mini', len(_judge_idx), False, 'judge sets'):
+    raise SystemExit(3)
 with _cf.ThreadPoolExecutor(8) as _ex:
     _vlist=list(_ex.map(lambda i: ask(sets[i],collage(sets[i])), _judge_idx))
 _verdicts={i:v for i,v in zip(_judge_idx,_vlist)}

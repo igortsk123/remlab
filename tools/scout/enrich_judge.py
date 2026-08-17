@@ -54,6 +54,9 @@ def main() -> None:
              if (str(it['mid']), it['eid']) in keys}
     key = _key()
     from enrich import ask
+    from openai_budget import allow as _budget_allow   # дневной лимит $ (владелец 17.08); ask() пишет учёт сам
+    if not _budget_allow(MODEL_STRONG, len(sample) * 2, False, 'enrich_judge drift'):
+        return
     n = {'judged': 0, 'role': 0, 'subtype': 0, 'style': 0, 'fail': 0}
     for mid, eid, payload_s in sample:
         it = items.get((mid, eid))
