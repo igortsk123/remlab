@@ -1264,7 +1264,7 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
     _pool = scored[:TOP_FULL_VALIDATE] + [t for t in scored[TOP_FULL_VALIDATE:]
                                           if t[2] == 'tv_range']
     for _, ps, _topo, _cand0 in _pool:
-        lay = validate(room, base + ps)
+        lay = validate(room, base + ps, fast_hard=True)   # поиск: стоп на первом hard (профиль 17.08)
         hards = [v for v in lay.violations if v.severity is Severity.HARD]
         # СНЯТО 13.08: эвристика «кресло впереди дивана = занимает стену ТВ» рубила
         # ЗАКОННЫЕ схемы визави (кресло напротив через столик — канон face-to-face),
@@ -1317,7 +1317,7 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
                     continue
             ok_combo = False
             for bc in sorted(bcs, key=_aim)[:24]:
-                lay2 = validate(room, base + ps + [bc.placement])
+                lay2 = validate(room, base + ps + [bc.placement], fast_hard=True)
                 if not any(v.severity is Severity.HARD for v in lay2.violations):
                     ok_combo = True
                     break

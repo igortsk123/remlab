@@ -277,8 +277,24 @@ def _wall_strip(room: Room, wall: str, offset: float, width: float, depth: float
     raise ValueError(f"неизвестная стена: {wall}")
 
 
+_SB_CACHE: dict[tuple, list] = {}   # профиль 17.08: static_blockers 348k вызовов на сцену — комната неизменна
+
+
+def _room_key(room: Room) -> tuple:
+    try:
+        return (room.width_cm, room.depth_cm, tuple(map(tuple, room.contour or ())) if getattr(room, 'contour', None) else None,
+                tuple((o.kind, o.wall, o.offset_cm, o.width_cm, getattr(o, 'swing_cm', None), getattr(o, 'sill_cm', None)) for o in room.openings),
+                tuple((getattr(r, 'wall', None), getattr(r, 'offset_cm', None), getattr(r, 'width_cm', None), getattr(r, 'depth_cm', None)) for r in (room.radiators or ())))
+    except Exception:
+        return (id(room),)
+
+
 def static_blockers(room: Room) -> list[Polygon]:
     """Зоны, занятые ДО расстановки: дуги дверей + радиаторы (окна не блокируют пол)."""
+    _k = _room_key(room)
+    _hit = _SB_CACHE.get(_k)
+    if _hit is not None:
+        return list(_hit)
     out: list[Polygon] = []
     for op in room.openings:
         sw = swing_polygon(room, op)
@@ -286,6 +302,9 @@ def static_blockers(room: Room) -> list[Polygon]:
             out.append(sw)
     for rad in room.radiators:
         out.append(radiator_polygon(room, rad))
+    if len(_SB_CACHE) > 64:
+        _SB_CACHE.clear()
+    _SB_CACHE[_k] = list(out)
     return out
 
 

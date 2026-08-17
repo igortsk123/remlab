@@ -688,6 +688,12 @@ for bi,band in enumerate(COMP['bands']):
                 q=QTY.get(role,1)
             top=pick2(role,m2,band['floor'][role],tier,pair,ctx,qty=q) or \
                 pick2(role,m2,band['floor'][role],tier,pair,ctx,soft=True,qty=q)
+            if not top and role in ('столик','ковёр'):
+                # 17.08: ЯДРО ЗОНЫ без замены недопустимо (премиум-сеты 85/103/118 остались без столика:
+                # крупный диван 300+ → пропорция 55–75% и конверт слота убивали ВСЕХ кандидатов; солвер
+                # без столика — 15+ мин и TIMEOUT). Последний рубеж: без пропорции к дивану, soft-тир.
+                top=pick2(role,m2,band['floor'][role],tier,pair,ctx,soft=True,qty=q,no_prop=True)
+                if top: print(f"  ядро зоны: «{role}» взят без пропорции к дивану ({top[0]['name'][:30]})")
             if not top:
                 print(f"  ОТКАЗ: «{role}» — 0 кандидатов даже soft (тир/стиль/размер/пропорции)")
                 continue
@@ -702,7 +708,19 @@ for bi,band in enumerate(COMP['bands']):
             add=(it['fp'] or 0.16)*q
             cap_hi=(OCC['floor_cap_pct'].get(band['band'],[None,COMP['global_floor_cap'][2]])[1]
                     if OCC else COMP['global_floor_cap'][2])  # динамический кап: мал. комнаты до 50%, больш. меньше
-            if floor_fp+add>m2*cap_hi/100: continue
+            if floor_fp+add>m2*cap_hi/100:
+                # 17.08 (TIMEOUT 8 XL-сцен: премиум-сеты 85/103/118 остались БЕЗ главного столика — кап пола
+                # выкинул top[0], а «клей» зоны без замены; солвер без столика мучается 15+ мин):
+                # столик/ковёр — ЯДРО зоны (_CORE_ZONE): при отказе по капу берём МЕНЬШИЙ из кандидатов
+                if role in ('столик','ковёр'):
+                    _fit=[t for t in top if floor_fp+(t['fp'] or 0.16)*q<=m2*cap_hi/100]
+                    if not _fit:
+                        print(f"  кап пола: «{role}» не помещается даже меньшим — ядро зоны без {role}!")
+                        continue
+                    it=min(_fit,key=lambda t:(t['fp'] or 0.16)); add=(it['fp'] or 0.16)*q
+                    print(f"  кап пола: «{role}» — взят меньший ({it['name'][:30]}, {it['fp']:.2f} м²) вместо {top[0]['name'][:30]}")
+                else:
+                    continue
             # кап периметра: три средних пристенных предмета съедали 40% стен, и раскладка
             # переставала собираться (замер провалов 59-61, 76, 99, 108, 115, 117)
             if role in WALL_ROLES:

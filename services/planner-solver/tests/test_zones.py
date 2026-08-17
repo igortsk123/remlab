@@ -406,3 +406,44 @@ def test_armchair_fireplace_corner_allowed():
              if "кресло" in v.roles}
     assert not codes & {"ARMCHAIR_OUT_OF_ZONE", "ARMCHAIR_NOT_FACING_GROUP",
                         "ARMCHAIR_TABLE_DIST"}, codes
+
+
+def test_validate_fast_hard_equivalence():
+    """Ускорение 17.08: fast_hard-путь валидации (поиск) обязан давать тот же ответ «есть hard?»
+    что и полный путь, на валидных и невалидных раскладках; при hard — хотя бы один hard-код
+    из полного набора."""
+    import glob
+    import json
+    import os
+    from planner.models import Item, Opening, Placement, Room
+    from planner.validate import validate
+    from planner.models import Severity
+    SCOUT = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'tools', 'scout')
+    files = sorted(glob.glob(os.path.join(SCOUT, 'v3set*-layout-acc-zoned-*.json')))[:40]
+    if not files:
+        import pytest; pytest.skip('нет артефактов')
+    checked = 0
+    for f in files:
+        a = json.load(open(f, encoding='utf-8'))
+        R = a['_room']
+        room = Room(width_cm=R['w'], depth_cm=R['d'], contour=R.get('contour'),
+                    openings=[Opening(kind=o['kind'], wall=o['wall'], offset_cm=o['offset_cm'], width_cm=o['width_cm'],
+                                      swing_cm=o.get('swing_cm', 90)) for o in R['openings']])
+        ps = []
+        for k, v in a.items():
+            if k.startswith('_') or not isinstance(v, dict) or 'x' not in v:
+                continue
+            ps.append(Placement(role=k, x=v['x'], y=v['z'], rot=v.get('rot', 0),
+                                item=Item(role=k, w_cm=v.get('w') or 50, d_cm=v.get('d') or 50, h_cm=v.get('h') or 80)))
+        # валидная раскладка и заведомо испорченная (сдвиг одного предмета в стену/на диван)
+        variants = [ps]
+        if ps:
+            bad = list(ps); q = bad[-1]
+            bad[-1] = Placement(role=q.role, x=-50, y=q.y, rot=q.rot, item=q.item)   # за стеной → hard
+            variants.append(bad)
+        for v in variants:
+            full = any(x.severity is Severity.HARD for x in validate(room, v).violations)
+            fast = any(x.severity is Severity.HARD for x in validate(room, v, fast_hard=True).violations)
+            assert full == fast, (os.path.basename(f), full, fast)
+            checked += 1
+    assert checked >= 20

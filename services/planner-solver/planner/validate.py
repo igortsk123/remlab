@@ -1503,36 +1503,48 @@ def check_quiet_contract(room: Room, ps: list[Placement]) -> list[Violation]:
     return out
 
 
-def validate(room: Room, placements: list[Placement], *, passage: str = "secondary") -> Layout:
+def validate(room: Room, placements: list[Placement], *, passage: str = "secondary",
+             fast_hard: bool = False) -> Layout:
+    """Полная валидация. `fast_hard=True` — ПУТЬ ПОИСКА (template._best_block): тот же набор проверок,
+    но дешёвые первыми, дорогие (проходы) последними, и выход на ПЕРВОМ hard: поиску нужен только ответ
+    «есть ли hard» (профиль 17.08 set121: 155k validate на сцену, 45% времени — check_passages ×9 млн
+    buffer). Итоговый план всегда проверяется полным путём (fast_hard=False) — эквивалентность по
+    множеству hard-кодов держит тест test_validate_fast_hard_equivalence."""
     _ROOM_BAND[0] = room.band
+    checks = [
+        lambda: check_media_cardinality(placements),
+        lambda: check_boundary(room, placements),
+        lambda: check_collisions(placements),
+        lambda: check_openings(room, placements),
+        lambda: check_radiators(room, placements),
+        lambda: check_access(placements),
+        lambda: check_facing(placements),
+        lambda: check_wall_only(room, placements),
+        lambda: check_sightline(placements),
+        lambda: check_zone(placements),
+        lambda: check_distances(room, placements),
+        lambda: check_behind_sofa(room, placements),
+        lambda: check_seating_access(room, placements),
+        lambda: check_sofa_sliver(room, placements),
+        lambda: check_dead_zone_behind_sofa(room, placements),
+        lambda: check_sofa_aim(room, placements),
+        lambda: check_sofa_pair_geometry(placements),
+        lambda: check_chairs_at_table(room, placements),
+        lambda: check_functional_zones(room, placements),
+        lambda: check_layout_rules(room, placements),
+        lambda: check_floor_cap(room, placements),
+        lambda: check_fireplace_seating(room, placements),
+        lambda: check_window_sofa(room, placements),
+        lambda: check_service_surface(room, placements),
+        lambda: check_decor_anchoring(room, placements),
+        lambda: check_quiet_contract(room, placements),
+        lambda: check_passages(room, placements, passage),   # самая дорогая — последней
+    ]
     vs: list[Violation] = []
-    vs += check_media_cardinality(placements)
-    vs += check_boundary(room, placements)
-    vs += check_collisions(placements)
-    vs += check_openings(room, placements)
-    vs += check_radiators(room, placements)
-    vs += check_access(placements)
-    vs += check_passages(room, placements, passage)
-    vs += check_distances(room, placements)
-    vs += check_facing(placements)
-    vs += check_wall_only(room, placements)
-    vs += check_zone(placements)
-    vs += check_sightline(placements)
-    vs += check_behind_sofa(room, placements)
-    vs += check_seating_access(room, placements)
-    vs += check_sofa_sliver(room, placements)
-    vs += check_dead_zone_behind_sofa(room, placements)
-    vs += check_sofa_aim(room, placements)
-    vs += check_sofa_pair_geometry(placements)
-    vs += check_chairs_at_table(room, placements)
-    vs += check_functional_zones(room, placements)
-    vs += check_layout_rules(room, placements)
-    vs += check_floor_cap(room, placements)
-    vs += check_fireplace_seating(room, placements)
-    vs += check_window_sofa(room, placements)
-    vs += check_service_surface(room, placements)
-    vs += check_decor_anchoring(room, placements)
-    vs += check_quiet_contract(room, placements)
+    for chk in checks:
+        vs += chk()
+        if fast_hard and any(v.severity is Severity.HARD for v in vs):
+            return Layout(room=room, placements=placements, violations=vs, floor_used_pct=0.0)
     from .geometry import floor_used_pct
 
     return Layout(room=room, placements=placements, violations=vs,
