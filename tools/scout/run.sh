@@ -41,6 +41,7 @@ case "${1:-}" in
     exec env ACC_WORKERS=3 ACC_MANIFEST="$HERE/perf-manifest.json" ACC_REPORT_SUFFIX=-perf "$PY" acceptance_run.py zoned ;;
   scenes)
     # точечный реплей: run.sh scenes set16-base,set28-base
+    rm -f acceptance-report-zoned-scenes.jsonl
     exec env ACC_WORKERS="${ACC_WORKERS:-6}" ACC_SCENES="$2" ACC_REPORT_SUFFIX=-scenes "$PY" acceptance_run.py zoned ;;
   render)
     # RENDER-ONLY: перерисовать PNG всех артефактов из JSON без пересчёта (подписи/подача)
