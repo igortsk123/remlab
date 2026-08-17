@@ -43,7 +43,7 @@ for i in $(seq 1 288); do
       bash alert.sh "remlab: обогащение забрано, но потери >10% — см. refresh.log"
     fi
     # хвост цепочки на СВЕЖИХ данных: индекс кандидатов и комплекты (иначе новинки без индекса)
-    $PY candidates.py --build && $PY sets_incremental.py --index
+    $PY capabilities.py --build --export; $PY candidates.py --build && $PY sets_incremental.py --index   # Q6a: caps после забора обогащения
     # А7: судья-сэмпл свежих обогащений (сильная модель), дрифт к бейзлайну, копилка для голдена
     $PY enrich_judge.py || bash alert.sh "remlab: enrich_judge упал — см. refresh.log"
     exit 0

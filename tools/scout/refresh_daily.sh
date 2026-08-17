@@ -96,6 +96,9 @@ fi
 
 # 5. Индекс кандидатов и здоровье комплектов (по текущим данным; после забора батча
 # enrich_wait обновит индекс ещё раз — уже с новинками)
+# 4c. Q6a свода №13: capability-проекция каталога (product_capabilities) — детерминированно из
+# params/габаритов/актуального обогащения; второй пересчёт — в enrich_wait.sh после забора батча
+step capabilities "$PY" capabilities.py --build --export
 step candidates "$PY" candidates.py --build
 step sets_index "$PY" sets_incremental.py --index
 step sets_check "$PY" sets_incremental.py --check

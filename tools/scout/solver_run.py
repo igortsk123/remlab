@@ -1114,12 +1114,24 @@ if _ctr_pts:
         from shapely.geometry import Polygon as _PgC, box as _boxC
         _cp=_PgC([_nrm(x,z) for x,z in _ctr_pts])
         _out=_boxC(0,0,RW,RD).difference(_cp)
+        # владелец 17.08 (№18): «выступ» у окна непонятен — эркер выступает НАРУЖУ. Различаем:
+        # кусок bbox∖contour, касающийся угла bbox при наличии эркера/скоса — это «снаружи
+        # комнаты» (стена рядом с эркером/скошенная стена), иначе — пилон (несущий выступ внутрь)
+        try:
+            from planner.room_map import contour_features as _cfR
+            _has_bay=bool(_cfR(_r4)[0]) if '_r4' in globals() else False
+        except Exception:
+            _has_bay=False
+        _corners=[(0,0),(RW,0),(0,RD),(RW,RD)]
         for _g in (getattr(_out,'geoms',[_out]) if not _out.is_empty else []):
             if _g.area<400: continue
             _pp=[T(x,z) for x,z in _g.exterior.coords]
             dr.polygon(_pp,fill=(225,222,214),outline=(120,120,120))
             _bx=_g.bounds; _sx,_sy=T((_bx[0]+_bx[2])/2,(_bx[1]+_bx[3])/2)
-            _put_label(dr,_sx,_sy,'пилон/выступ',F_TXT,fill=(90,90,90))
+            _touch=any(abs(_bx[0]-cx)<1e-6 or abs(_bx[2]-cx)<1e-6 for cx,_ in _corners) and \
+                   any(abs(_bx[1]-cz)<1e-6 or abs(_bx[3]-cz)<1e-6 for _,cz in _corners)
+            _lblc=('снаружи' if _touch else 'пилон/колонна')
+            globals().setdefault('_CTR_LABELS',[]).append((_sx,_sy,_lblc))   # подпись — ПОВЕРХ предметов (в конце)
     except Exception:
         pass
     dr.polygon([T(*_nrm(x,z)) for x,z in _ctr_pts],outline=(60,60,60),width=3)
@@ -1174,32 +1186,38 @@ for r,v in _order:
     _ITEM_BOXES.append((min(xs),min(ys),max(xs),max(ys)))
 # подписи — вторым проходом, поверх всей мебели и в обход чужих блоков
 def _facing_word(r, v):
-    """P5 свода №12 (владелец №19: «270° — относительно чего? лицом к ТВ или к дивану?»):
-    фасад словами — ближайшая цель в направлении взгляда (ТВ/диван/столик/окно/стена)."""
+    """Подпись ориентации (правило владельца 17.08, №2/№15): писать ТОЛЬКО куда повёрнут предмет —
+    «→ к ТВ» / «→ к дивану» при точном взгляде (≤15°), «под 30° к дивану» при развороте (число
+    градусов до 5°, цель — ближайшая по приоритету в конусе ≤60°); симметричные/пристенные предметы
+    (обеденный стол, столик, хранение) — без подписи. Ничего не повёрнуто — пусто (стрелка есть).
+    Для 3D/LLM истина — rot; подпись — объяснение (export_plans_ai._with_orientation)."""
     import math as _m
     _base=r.split(' ')[0]
-    if _base in ('ковёр','кашпо','торшер','люстра','стол обеденный','стеллаж','витрина','комод','стенка','тв-тумба','камин','столик','приставной','стул','пуф'):
-        # у этих фасад не несёт смысла (столик/пуф) или предмет пристенный
-        return None if _base in ('ковёр','кашпо','люстра','столик','приставной','стул','пуф') else 'вдоль стены'
+    if _base not in ('диван','кресло'):
+        return None
     cx,cz=v[0]; _a=_m.radians(v[1]); fx,fz=_m.sin(_a),_m.cos(_a)
     best=None
+    # цели: для дивана — только фокус (ТВ/камин, без лимита дистанции: «к столику» бессмысленно);
+    # для кресла — фокус, диван, столик (≤250 см)
+    _targets=('тв-тумба','стенка','камин') if _base=='диван' else ('тв-тумба','стенка','камин','диван','столик')
     for r2,v2 in placed.items():
         if r2==r: continue
         b2_=r2.split(' ')[0]
-        if b2_ not in ('тв-тумба','стенка','диван','столик','камин','стол обеденный','кресло'): continue
+        if b2_ not in _targets: continue
         dx,dz=v2[0][0]-cx,v2[0][1]-cz; d=_m.hypot(dx,dz) or 1.0
-        cosang=(fx*dx+fz*dz)/d
-        # приоритет цели для посадки: ФОКУС (ТВ/камин) важнее ближнего столика — иначе
-        # диван всегда «к столику», а вопрос владельца был «лицом к ТВ или нет»
+        cosang=max(-1.0,min(1.0,(fx*dx+fz*dz)/d)); ang=_m.degrees(_m.acos(cosang))
         _pri={'тв-тумба':0,'стенка':0,'камин':1,'диван':2,'кресло':2,'стол обеденный':3,'столик':4}[b2_]
-        # владелец 16.08 (галерея №51/59/183): «к ТВ» при 40–57° и «к камину» за 5 м вводят в
-        # заблуждение — цель засчитывается только ≤30° и ≤250 см; 30–60° — «вполоборота»
-        # Codex 16.08 (контракт позы для 3D/LLM): «к X» — только ≤15° (cos≥0.966), 15–45° — «под углом к X»
-        if d<=250 and cosang>=0.966 and (best is None or (_pri,d)<(best[2],best[0])): best=(d,b2_,_pri,'к')
-        elif d<=250 and cosang>=0.707 and (best is None or (_pri,d)<(best[2],best[0])): best=(d,b2_,_pri,'под углом к')
+        if (_base=='кресло' and d>250) or ang>60: continue
+        # владелец 17.08 (№55): «под углом» — ТОЛЬКО когда сам предмет повёрнут диагонально
+        # (rot не кратен 90°); осевая поза — либо точное «→ к X» (≤15°), либо ничего
+        _diag=(int(round(v[1]))%90)!=0
+        if ang>15 and not _diag: continue
+        _tier=0 if ang<=15 else 1
+        if best is None or (_tier,_pri,d)<(best[0],best[1],best[2]): best=(_tier,_pri,d,b2_,ang)
+    if not best: return None
     _nm={'тв-тумба':'ТВ','стенка':'ТВ','диван':'дивану','столик':'столику','камин':'камину','стол обеденный':'столу','кресло':'креслу'}
-    if best: return f"{best[3]} {_nm[best[1]]}"
-    return 'поперёк' if r.split(' ')[0]=='кресло' else {0:'на север',90:'на восток',180:'на юг',270:'на запад'}.get(int(v[1])%360,'')
+    if best[0]==0: return f"→ к {_nm[best[3]]}"
+    return f"под {int(5*round(best[4]/5))}° к {_nm[best[3]]}"
 
 def _pouf_role(r, v):
     """P5 (владелец №192: «пуф — для ног или что?»): назначение по близости к посадке."""
@@ -1231,10 +1249,12 @@ for r,v in _order:
     _put_label(dr,_tx,_ty-8,_lbl,F_ITEM)
     # стрелка фасада (заметнее): rot 180 = к южной стене
     import math as _m
-    if _fw and _fw!='вдоль стены':
+    if r.split(' ')[0] in ('диван','кресло'):      # стрелка фасада — у направленных всегда (контракт позы)
         _a=_m.radians(v[1]); _fx,_fz=_m.sin(_a),-_m.cos(_a)
         dr.line([_tx,_ty,_tx+_fx*34,_ty+_fz*34],fill=(15,15,15),width=3)
         dr.ellipse([_tx+_fx*34-4,_ty+_fz*34-4,_tx+_fx*34+4,_ty+_fz*34+4],fill=(15,15,15))
+for _sx,_sy,_lblc in (globals().get('_CTR_LABELS') or []):
+    _put_label(dr,_sx,_sy,_lblc,F_TXT,fill=(90,90,90))
 img.save(os.path.join(HERE,f'{TAG}{n}-layout{_sfx}.png'))
 print("placed:",", ".join(f"{r}@({v[0][0]},{v[0][1]})r{v[1]}" for r,v in placed.items()))
 if missing: print("НЕ размещены:",missing)

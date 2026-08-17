@@ -300,6 +300,22 @@ for r in raw:
     pool[k]=dict(mid=int(r[1]),eid=r[2],name=r[3],w=w,d=d,dia=dia,h=h,fp=fp,
                  price=int(r[9]),shop=r[10],img=r[11],url=r[12],**tag(r[3]))
 cat={role:list(p.values()) for role,p in cat.items()}
+# Q6a свода №13: ПЛАНИРОВОЧНЫЙ СЛОТ «банкетка» — не роль каталога (cat_role не меняется), а SKU с
+# capability wall_seat_capable (`capabilities.py --export` → capabilities-index.json: банкетки/кушетки из
+# ролей пуф/диван). В сет такой SKU кладётся НЕ голым алиасом: с source_role/planning_role/caps_used/
+# cap_rules_version (контракт Q6b edge_nook; Codex 17.08). Слот пуст, пока паспорт (Q6b/c) его не требует.
+try:
+    _capidx=json.load(open(os.path.join(HERE,'capabilities-index.json'),encoding='utf-8')).get('roles',{})
+    _by_key={(it['mid'],it['eid']):it for role in ('пуф','диван') for it in cat.get(role,[])}
+    _bench=[]
+    for rec in _capidx.get('банкетка',[]):
+        it=_by_key.get((rec['mid'],rec['eid']))
+        if it is None: continue
+        _bench.append(dict(it,source_role=rec['source_role'],planning_role='банкетка',
+                           caps_used=rec.get('caps_used') or {},cap_rules_version=rec.get('cap_rules_version')))
+    if _bench: cat['банкетка']=_bench
+except Exception as _e:
+    print(f'capabilities-index не прочитан ({_e}) — слот «банкетка» пуст')
 print({k:len(v) for k,v in sorted(cat.items())},flush=True)
 import bisect
 def tier_band(role,tier):
