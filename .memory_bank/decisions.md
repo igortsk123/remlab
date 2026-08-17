@@ -1788,3 +1788,40 @@ House Beautiful).
 **Влияет на.** [[layout]], [[catalog]], zones/template/validate/view_metrics, rules (zones/occupancy/
 templates/severity), compose2/sets_incremental/solver_run/export_plans_ai, тесты (view_metrics,
 scenario_contract, beam_hypotheses, svod13_q1_q3, quiet_zone, bank_coverage, pose_contract).
+
+## ADR-0108 — 17.08: «только каноны» (без допусков), pod-комплекты и лечение, роли по листу категории, бюджет OpenAI, ускорение цикла (2026-08-17)
+**Решения владельца 17.08.**
+1. **Никаких допусков в шаблонах** — «если канон не подходит, создаём новый канон; ссылку на обновлённый
+список канонов». Из каскада `place_template` удалены зазоры 32/48 и сдвиг столика вдоль дивана
+(`table_axis_shifted` снят из паспорта, `_removed_schemes`); второй канон зазора `gap_compact` 36
+(`geometry.coffee_gap_compact_cm`, норма 36–46). Ярус `template_degradation` + `main_path` в plan_key
+v1/v2 (Codex `q5-axis-shift-tier`) оставлен сторожем (в планах 0). Экзамен: 269+3, TIMEOUT 0, 0 допусков
+(было 36; 38 сцен сменили выбор, set28/29 потеряли кресло — цена правила). Реестр канонов генерируется
+из паспортов на `/test/templates/` (`templates_page.py`: schemes + формы групп + карточки quiet_chat/
+fireplace_flank/L_right).
+2. **Подписи плана** — только «куда повёрнут»: «→ к X» ≤15°, «под N° к X» только при диагональной позе;
+симметричные предметы без подписи; вырез контура «пилон/колонна» vs «снаружи».
+3. **Pod-комплекты**: heal заменяет умершего члена живым аналогом (`sets_incremental._heal_pod`,
+fail-closed к broken-фидам, без пуфов), не снимает pod; `feed_guard` держит `mids_quarantine_pending`
+у broken-фида (FEED_OWNER 777e580d=116933); `pod_kit.armchair_exclude_regex` += пуф|банкетк|стул.
+4. **Роли каталога — сначала ЛИСТ категории** (`category_map.classify`): divan.ru «Диваны и кресла /
+Кресла» 335 → кресло (было диван), «Пуфы» 376 → пуф, шкафы распашные → шкаф; правило картин в ALLOW.
+Следствие: компактных кресел divan.ru 215 (было 0), pod-комплекты 72/72 из живых фидов; часть премиум-
+сетов потеряла столик/стеллаж (пул сузился) — 8 XL-сцен ушли в TIMEOUT (>15 мин) — открыто.
+5. **OpenAI**: платные шаги конвейера выключены (`tools/scout/openai.off`; продукт не запущен); новый
+ключ проекта — в scout `.env` и прод `/opt/remlab/.env` (app перезапущен); учёт `openai_budget.py`
+(токены/$ по ценам developers.openai.com, `tools/scout/rules/openai_prices.json`), **дневной лимит $5 на все модели**
+(гейт перед отправкой в enrich/judge/enrich_judge + алерт); дельта ≤200/день, эскалация и судья сетов
+только вручную, дрифт-судья еженедельно. Партия 17.08 (274 luna batch + 53 terra) ≈ $1.5–2 — списание
+$25/день конвейер не объясняет (проверить по проектам в дашборде).
+6. **Ускорение цикла** (Codex `speedup-plan.answer.md`): render-only (`render_plan.py`, `run.sh render`),
+смоук-манифест (`smoke_manifest.py`, `run.sh smoke`), perf-набор, `ACC_MANIFEST/ACC_SCENES/
+ACC_REPORT_SUFFIX`, `duration_s` в отчёте, тяжёлые первыми, **снимок банков** для экзамена
+(`SETS_SNAPSHOT`), `exam.lock` + `flock` (cron не трогает сеты при экзамене), 10 воркеров (RAM 9 ГБ).
+НЕ делать: XL cap 3→2 (сертификаты two_sofa). Далее: кэш артефактов по содержимому, инкрементальный
+compose, профиль солвера (_best_block ×24 validate, повторные полные цепочки, media lookahead).
+7. **Q6a** capability-модель каталога внедрена (`capabilities.py`, `product_capabilities`, слот «банкетка»);
+**Q8 «окно»** — в очереди (нормы владельца записаны в мастер-плане).
+**Влияет на.** [[layout]], [[catalog]], template/zones/validate, templates.json/zones.json, compose2/
+sets_incremental/feed_guard/category_map/capabilities, refresh_daily/enrich/judge/openai_budget, run.sh/
+acceptance_run/render_plan/smoke_manifest, /test/templates, /test/acceptance-plans.

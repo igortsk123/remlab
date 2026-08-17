@@ -36,6 +36,24 @@ nums = [a for a in sys.argv[2:] if a.isdigit()]
 if len(nums) >= 2:
     a, b = int(nums[0]), int(nums[1])
     SCENES = [sc for sc in SCENES if a <= sc['set'] <= b]
+# УСКОРЕНИЕ 17.08 (Codex): ACC_MANIFEST=<json-список id> или ACC_SCENES=id1,id2 — подмножество сцен
+# (смоук/perf/репро); ACC_REPORT_SUFFIX — отчёт не затирает полный (acceptance-report-zoned-smoke.jsonl)
+_man = os.environ.get('ACC_MANIFEST')
+_ids = os.environ.get('ACC_SCENES')
+if _man or _ids:
+    _want = set(json.load(open(_man, encoding='utf-8'))) if _man else set(x.strip() for x in _ids.split(',') if x.strip())
+    SCENES = [sc for sc in SCENES if sc['id'] in _want]
+    print(f'подмножество сцен: {len(SCENES)}', flush=True)
+REPORT_SUFFIX = os.environ.get('ACC_REPORT_SUFFIX', '')
+# СНИМОК БАНКОВ: экзамен читает sets3.json, замороженный на старте (heal/сборка не меняют банки под
+# воркерами — 17.08 утренний heal переписал sets3.json посреди экзамена)
+_SNAP = os.path.join(HERE, 'sets3.snapshot.json')
+try:
+    import shutil as _sh
+    _sh.copyfile(os.path.join(HERE, 'sets3.json'), _SNAP)
+    os.environ['SETS_SNAPSHOT'] = _SNAP
+except Exception as _e:
+    print(f'снимок банков не создан ({_e}) — читаем живой sets3.json', flush=True)
 
 
 def _one(engine, sc):
@@ -53,6 +71,8 @@ def _one(engine, sc):
     # solver_run строит Room из SCENE_OPENINGS (та же ветка, что у артефакта)
     if sc.get('openings'):
         env['SCENE_OPENINGS'] = json.dumps(sc['openings'])
+    import time as _tm
+    _t0 = _tm.time()
     try:
         # W5 (урок 213 + 10.08): при >2 воркерах контеншн замедляет тяжёлые сцены —
         # таймаут 600, чтобы они ДОСЧИТЫВАЛИСЬ, а не падали ложным TIMEOUT
@@ -82,6 +102,7 @@ def _one(engine, sc):
                used_of_bank=([int(mused.group(1)), int(mused.group(2))] if mused else None),
                group=(re.search(r'зонная группа: (\S+)', out) or [None, None])[1],
                topo=(re.search(r'^TOPO (.+)$', out, re.M) or [None, None])[1])
+    rec['duration_s'] = round(_tm.time() - _t0, 1)   # телеметрия времени (ускорение 17.08)
     if r.returncode != 0:   # крэш без FAIL-строк иначе неотличим от «просто не ok»
         rec['rc'] = r.returncode
         rec['err'] = (r.stderr or '').strip()[-400:]
@@ -91,7 +112,7 @@ def _one(engine, sc):
 def run_engine(engine):
     """Параллельно (ACC_WORKERS), с покадровой записью в jsonl: упавший/убитый прогон
     не теряет готовые сцены — при рестарте они читаются из jsonl и не пересчитываются."""
-    jl_path = os.path.join(HERE, f'acceptance-report-{engine}.jsonl')
+    jl_path = os.path.join(HERE, f'acceptance-report-{engine}{REPORT_SUFFIX}.jsonl')
     done = {}
     if os.path.exists(jl_path):
         for line in open(jl_path):
@@ -103,6 +124,14 @@ def run_engine(engine):
             print(f'[{engine}] из jsonl подхвачено готовых: {len(done)}', flush=True)
     _announce_report(engine)
     todo = [sc for sc in SCENES if sc['id'] not in done]
+    # тяжёлые сцены — первыми (по duration_s прошлого полного отчёта): хвост из XL не держит воркеры пустыми
+    _dur = {}
+    try:
+        for line in open(os.path.join(HERE, 'scene-durations.json'), encoding='utf-8'):
+            _dur = json.loads(line); break
+    except Exception:
+        _dur = {}
+    todo.sort(key=lambda sc: -float(_dur.get(sc['id'], 0)))
     lock = threading.Lock()
     jl = open(jl_path, 'a')
     with cf.ThreadPoolExecutor(WORKERS) as ex:
@@ -117,8 +146,18 @@ def run_engine(engine):
                   + f" soft={rec['soft_score']} [{len(done)}/{len(SCENES)}]", flush=True)
     jl.close()
     report = [done[sc['id']] for sc in SCENES if sc['id'] in done]
-    json.dump(report, open(os.path.join(HERE, f'acceptance-report-{engine}.json'), 'w'),
+    json.dump(report, open(os.path.join(HERE, f'acceptance-report-{engine}{REPORT_SUFFIX}.json'), 'w'),
               ensure_ascii=False, indent=1)
+    if not REPORT_SUFFIX:   # длительности — только с полного прогона (для порядка и perf-manifest)
+        try:
+            _prev = {}
+            _dp = os.path.join(HERE, 'scene-durations.json')
+            if os.path.exists(_dp):
+                _prev = json.loads(open(_dp, encoding='utf-8').read() or '{}')
+            _prev.update({r['scene']: r.get('duration_s') for r in report if r.get('duration_s')})
+            json.dump(_prev, open(_dp, 'w', encoding='utf-8'), ensure_ascii=False)
+        except Exception:
+            pass
     return report
 
 

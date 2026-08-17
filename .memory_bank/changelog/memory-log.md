@@ -89,3 +89,4 @@ ADR-0035 (возврат проёмов, откат ADR-0027) уже был в d
 обновлена («проёмы скрыты» устарело), урок 8 в `core/lessons.md` (удаление функциональности —
 только с явного «да» владельца). План → `completed_plans/`. Tier 1 ужаты. Audit чист.
 - 2026-08-17 /memory-check после Q5 (ADR-0107): захват блокнота (23 строки) → decisions/core-layout/core-catalog/lessons 272–277/project-state (снимок переписан, 12→8 KB, старое → project-history)/anti-patterns (267–271); 6 планов in_progress с 02.08 → partial (поглощены сводами); audit чисто.
+- 2026-08-17 (вечер) /memory-check: ADR-0108 (каноны/pod-heal/роли по листу/OpenAI бюджет/ускорение), project-state переписан, lessons 278–282 (272–277 → anti-patterns), core layout/catalog обновлены; блокнот очищен.

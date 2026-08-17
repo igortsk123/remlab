@@ -31,14 +31,13 @@ evidence; 0 битых, +4 610 с шириной. Предохранители T
 **Выбор модели (К3):** голден 256 — luna 92.6/89.8% = model-agreement (эталон terra); человеческий
 эталон `tools/scout/gold_human.py` (400, разметка — владелец); merge text/vision — парные батчи #t/#v.
 
-**Свежесть фидов (16.08, ADR-0107):** конвейер стоял с 11.08 (nonton 404 → BadZipFile) — теперь
-`refresh_daily.sh` проверяет zip, `load3.py` пропускает broken/stale/empty (`_feed_hash`), `feed_guard`
-хранит mids/broken_since (`feed-freshness.json`, вне git); `compose2.py` не берёт broken/stale в новые
-сеты; nonton (116933, 1076 позиций) — карантин отложен, решение владельца. Pod-комплект (кресло 3/4 +
-столик 2, `seating_pods.pod_kit`) — только из живых фидов (fail-closed). Divan.ru «новый» фид bceea2bc =
-тот же магазин 112923 (не грузим). В фидах есть кушетки/банкетки/консоли/раскладные — спрятаны ролями
-и фильтром импорта (Q6a: разметка ролей).
+**Свежесть фидов (ADR-0107):** `refresh_daily.sh` проверяет zip, `load3.py` пропускает broken/stale,
+`feed_guard` хранит mids/quarantine_pending (`feed-freshness.json`); nonton (116933) — карантин ждёт
+владельца; pod-комплекты — только из живых фидов. Divan.ru фид bceea2bc = тот же 112923.
 
+**17.08 (ADR-0108):** роль — по ЛИСТУ категории (`tools/scout/category_map.py`; кресла divan.ru 335,
+пуфы 376 вернулись); capability-модель Q6a (`tools/scout/capabilities.py`); OpenAI: `openai.off`,
+лимит $5/день (`tools/scout/openai_budget.py`).
 **Дыры:** премиум-тир беден у половины ролей; лофт/неокл/джапанди дефицитны (снабжение — владелец).
 
 **Tier 2:** `../domain/catalog-enrichment.md` · `../domain/integrations.md` · `../core/furniture.md`.
