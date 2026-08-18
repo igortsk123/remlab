@@ -1824,7 +1824,9 @@ def solve_zoned_beam(room: Room, items, **kw):
     # детерминированный порядок: ключ, затем стабильный индекс (greedy первым при равенстве)
     # Q4 свода №13: plan_key_v2 (SHADOW) — считаем для всех кандидатов и пишем в trace;
     # выбор по v2 включается данными (beam.plan_key_version == 'v2') только после Q7
-    _pkv = str(cfg.get('plan_key_version', 'v1'))
+    # LAYOUT_PLAN_KEY=v2 — временный переключатель для СЛЕПОЙ ОЦЕНКИ Q7 (пары v1 vs v2);
+    # production-значение остаётся в данных (beam.plan_key_version) и меняется только по итогу Q7
+    _pkv = os.environ.get('LAYOUT_PLAN_KEY') or str(cfg.get('plan_key_version', 'v1'))
     def _valid_arm_of(c):
         try:
             from .view_metrics import valid_connected_armchairs as _vca
