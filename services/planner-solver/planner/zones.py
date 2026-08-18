@@ -1863,6 +1863,15 @@ def solve_zoned_beam(room: Room, items, **kw):
                   (getattr(p, 'tpl_variant', '') or '').split('+')[0] in ('media_parallel', 'media_half', 'media_bridge')
                   for c in cands for p in (c[2][0].placements if c[2] else [])),
               'shadow_hyp': bool(cfg.get('shadow_hypothesis_tiers', False))}
+    # Q9 (тень, Codex 18.08): ключ ПРИОРОВ ПРАКТИКИ по каждой гипотезе — только измерение,
+    # production-выбор не трогаем до слепых пар (включение = отдельное решение владельца)
+    _pp = []
+    for c in cands:
+        try:
+            from .opportunities import practice_prior_key as _ppk
+            _pp.append(_ppk(room, list(c[2][0].placements)) if c[2] else None)
+        except Exception:
+            _pp.append(None)
     _v2 = []
     for c in cands:
         try:
@@ -1880,6 +1889,9 @@ def solve_zoned_beam(room: Room, items, **kw):
              'plan_key_version': _pkv,
              'v2_would_choose': (cands[sorted(range(len(cands)), key=lambda i: (_v2[i], i))[0]][0]
                                  if cands and all(v is not None for v in _v2) else None),
+             'practice_prior_shadow': [list(x) if x is not None else None for x in _pp],
+             'prior_would_choose': (cands[sorted(range(len(cands)), key=lambda i: (_pp[i], i))[0]][0]
+                                    if cands and all(x is not None for x in _pp) else None),
              'chosen': name, 'chosen_key': list(key),
              'greedy_key': list(cands[0][3]) if cands[0][0] == 'greedy' else None,
              'improved': bool(cands[0][0] == 'greedy' and best_i != 0)}

@@ -967,7 +967,11 @@ try:
     _ops4=[_O4(kind=o['kind'],wall=o['wall'],offset_cm=o['offset_cm'],width_cm=o['width_cm'])
            for o in _room_ops]
     _ctr4=json.loads(os.environ['SCENE_CONTOUR']) if os.environ.get('SCENE_CONTOUR') else None
-    _r4=_R4(width_cm=RW,depth_cm=RD,contour=_ctr4,openings=_ops4)
+    from planner.models import Radiator as _Rad4
+    _rads4=[_Rad4(**r) for r in json.loads(os.environ.get('SCENE_RADIATORS') or '[]')] or \
+        ([_Rad4(wall='east', offset_cm=WIN_OFF, width_cm=WIN_W, depth_cm=15)]
+         if not os.environ.get('SCENE_OPENINGS') else [])
+    _r4=_R4(width_cm=RW,depth_cm=RD,contour=_ctr4,openings=_ops4,radiators=_rads4)
     _dims4=dict(FLOOR)
     _ps4=[_P4(role=r,x=v[0][0],y=v[0][1],rot=v[1],
               item=_I4(role=r,w_cm=_dims4.get(r,(60,60))[0] or 60,
@@ -978,6 +982,11 @@ except Exception:
     pass
 out['_set_hash']=hashlib.sha1(json.dumps(items,ensure_ascii=False,sort_keys=True).encode()).hexdigest()[:12]
 out['_room']={'w':RW,'d':RD,'m2':round(RW*RD/10_000,1),'openings':_room_ops,
+              # Q8: радиаторы — часть геометрии полосы за спинкой (зазор меряется от лицевой
+              # грани); без них отчёты по артефактам считали класс полосы неверно (18.08)
+              'radiators':(json.loads(os.environ.get('SCENE_RADIATORS') or '[]')
+                           or ([{'wall':'east','offset_cm':WIN_OFF,'width_cm':WIN_W,'depth_cm':15}]
+                               if not os.environ.get('SCENE_OPENINGS') else [])),
               'contour':(json.loads(os.environ.get('SCENE_CONTOUR')) 
                          if os.environ.get('SCENE_CONTOUR') else None)}
 # L4 (MASTER-layout-v5): топология-сигнатура — семантическая схема раскладки в артефакт и лог
@@ -1045,6 +1054,10 @@ try:
     from judge_layout import build_scene as _bs
     _room_v, _ps_v = _bs(out, n)
     out['_view'] = _vm(_room_v, _ps_v)
+    # Q9 (тень): выбранные исходы по возможностям (окно/центр/угол/главная стена) — отчёт
+    # «практика vs движок»; на выбор плана не влияет до включения после слепых пар
+    from planner.opportunities import opportunities as _opps, practice_prior_key as _ppk
+    out['_opportunities'] = {'items': _opps(_room_v, _ps_v), 'prior_key': list(_ppk(_room_v, _ps_v))}
 except Exception as _e:
     out['_view'] = {'error': repr(_e)[:120]}
 json.dump(out,open(os.path.join(HERE,f'{TAG}{n}-layout{_sfx}.json'),'w'),ensure_ascii=False,indent=1)
