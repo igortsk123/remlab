@@ -210,6 +210,9 @@ class Block:
         self.rel: list[tuple[Item, float, float, float]] = [(anchor, 0.0, 0.0, 0.0)]
         self.tpl_id = ''          # паспорт схемы (rules/templates.json) — ставит _valid
         self.tpl_version = ''
+        self.tpl_variant = ''     # форма схемы: должна попадать в Placement УЖЕ В ПОИСКЕ, иначе
+                                  # контракты формы (уголок/консоль) не проверяются в _best_block
+                                  # и брак всплывает только на финальном плане (18.08, NOOK_PULLOUT)
 
     def add(self, item: Item, x: float, y: float, rot: float) -> None:
         self.rel.append((item, x, y, rot % 360))
@@ -220,7 +223,8 @@ class Block:
             wx, wy = _rt(rx, ry, arot)
             out.append(Placement(role=it.role, x=ax + wx, y=ay + wy,
                                  rot=(rrot + arot) % 360, item=it,
-                                 tpl_id=self.tpl_id, tpl_version=self.tpl_version))
+                                 tpl_id=self.tpl_id, tpl_version=self.tpl_version,
+                                 tpl_variant=self.tpl_variant))
         return out
 
 
@@ -2846,6 +2850,7 @@ def build_edge_nook(by_role: dict[str, Item], variant: str = 'edge_nook_4') -> B
         off = ch.d_cm / 2 + CHAIR_GAP
         dx, dy = _rt(0.0, off, srot)
         b.add(ch, sx - dx, sy - dy, srot)
+    b.tpl_variant = variant          # метка формы — до поиска позиции (контракт в validate)
     NOOK_DIAG.update({'variant': variant, 'bench_seats': seats_b, 'chairs': len(chairs),
                       'total_seats': seats_b + len(chairs), 'gap_cm': gap})
     if seats_b + len(chairs) < int(_nook_rules().get('nook_min_total_seats', 4)):
