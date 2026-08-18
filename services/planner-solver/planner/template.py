@@ -1809,6 +1809,20 @@ def place_dining(room: Room, items: list[Item], free: Polygon, usable_m2: float,
             diag['island_reject'] = 'island_candidates_failed'
         if 'edge' not in classes:
             continue
+        # Q6c свода №13: КАСКАД — island → (round_compact, Q6d) → EDGE_NOOK → голый edge.
+        # Уголок пробуется ДО пристенного стола: банкетка к стене даёт посадку с двух сторон,
+        # а «стол у стены» — вынужденная деградация (владелец: «стол придвинут к стене?»).
+        # Требует комплекта (банкетка с caps ≥2 мест + dining_seat_capable) — иначе пропуск.
+        if by_role.get('банкетка') is not None:
+            _nook = place_edge_nook(room, items, free, fixed=fixed)
+            if _nook is not None:
+                diag['mode_path'] = 'edge_nook'
+                diag['mode'] = 'edge_nook'
+                diag['nook'] = dict(NOOK_DIAG)
+                diag['fallback_reason'] = ('island_infeasible' if not diag['island_feasible']
+                                           else diag['island_reject'] or 'island_place_failed')
+                return _nook
+            diag['nook'] = dict(NOOK_DIAG)      # причина отказа уголка — в сертификат столовой
         b_front = build_dining(by_role, _nch, sides='front')
         if b_front is not None:
             ps = _best_block(room, b_front, free,
@@ -2799,13 +2813,16 @@ def place_edge_nook(room: Room, items: list[Item], free: Polygon,
         if not cands:
             NOOK_DIAG['reject'] = 'no_wall_segment'
             continue
-        ps = _best_block(room, b, free, cands, tv=None, fixed=_fx)
+        _st: dict = {}
+        ps = _best_block(room, b, free, cands, tv=None, fixed=_fx, stats=_st)
         if ps:
             for q in ps:
                 q.tpl_variant = variant
             NOOK_DIAG['placed'] = variant
             return ps
         NOOK_DIAG['reject'] = 'no_valid_position'
+        NOOK_DIAG['search'] = {'cands': len(cands), 'fits': _st.get('fits'),
+                               'top_hard': _st.get('first_hard')}   # объяснимость отказа
     return None
 
 

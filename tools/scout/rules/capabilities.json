@@ -6,31 +6,79 @@
   "provenance": "владелец 16.08 (разметка ролей); Codex каталожная сессия 16–17.08 (`_intake/codex-prompts/q6a-capabilities.answer.md`): tri-state, seat vs overall, dining 43–48 pref / 42–49 hard (U.S. Access Board bench 43–48.5 см; occupancy.json chair_seat_height 43–48), guaranteed_seats = L/60 (templates.json dining 61 см/чел; IKEA ~60 см), fail-closed по категории/подтипу"
  },
  "params_keys": {
-  "seat_length_cm": ["Посадочное место: Длина посадочного места", "Длина посадочного места"],
-  "seat_depth_cm": ["Посадочное место: Глубина посадочного места", "Глубина посадочного места", "Глубина сиденья"],
-  "seat_height_cm": ["Посадочное место: Высота посадочного места", "Высота посадочного места", "Высота сиденья"],
-  "has_arms": ["Наличие подлокотников"],
-  "mechanism": ["Механизм трансформации"],
-  "back": ["Наличие спинки", "Спинка"]
+  "seat_length_cm": [
+   "Посадочное место: Длина посадочного места",
+   "Длина посадочного места"
+  ],
+  "seat_depth_cm": [
+   "Посадочное место: Глубина посадочного места",
+   "Глубина посадочного места",
+   "Глубина сиденья"
+  ],
+  "seat_height_cm": [
+   "Посадочное место: Высота посадочного места",
+   "Высота посадочного места",
+   "Высота сиденья"
+  ],
+  "has_arms": [
+   "Наличие подлокотников"
+  ],
+  "mechanism": [
+   "Механизм трансформации"
+  ],
+  "back": [
+   "Наличие спинки",
+   "Спинка"
+  ]
  },
  "bench": {
-  "_why": "банкетка/скамья: категория «Пуфы и банкетки» + имя/подтип «банкетк|скамь» (не любой пуф: пуф-стол/мешок/хранение — fail-closed); backless ⇒ seat_length≈overall_w (inferred, medium), seat_height≈h (inferred, medium)",
-  "source_categories": ["Пуфы и банкетки"], "name_regex": "банкетк|скамь", "d_max_cm": 45,
-  "usable_seat_length_min_cm": 100
+  "_why": "банкетка/скамья: узкое длинное сиденье без спинки — пристенная посадка (edge_nook Q6b). Категория по РЕГЕКСУ (17.08: у divan.ru лист «Пуфы», у nonton «Пуфы и банкетки» — жёсткий список категорий терял 20 подходящих банкеток) + имя «банкетк|скамь» (fail-closed: пуф-мешок/пуф-стол не банкетка)",
+  "name_regex": "банкетк|скамь",
+  "d_max_cm": 45,
+  "usable_seat_length_min_cm": 100,
+  "category_regex": "пуф|банкетк|скамь"
  },
  "daybed": {
   "_why": "кушетка (роль диван): категория «Кушетки» + имя «кушетк»; overall_d ≤62, usable_seat_length ≥100 (params или inferred от w минус подлокотники) — пристенная посадка; для столовой — только candidate при известных seat height/depth",
-  "source_categories": ["Кушетки"], "name_regex": "кушетк", "d_max_cm": 62, "usable_seat_length_min_cm": 100
+  "name_regex": "кушетк",
+  "d_max_cm": 62,
+  "usable_seat_length_min_cm": 100,
+  "category_regex": "кушетк"
  },
- "seats": {"nominal_per_cm": 55, "guaranteed_per_cm": 60, "_why": "nominal — soft-оценка; guaranteed — hard-сертификат (61 см кромки/чел в dining-контракте)"},
- "dining_seat": {"seat_height_pref_cm": [43, 48], "seat_height_hard_cm": [42, 49], "_why": "только ТОЧНАЯ высота сиденья (params); категориальная «средняя» — seat_height_class, не см"},
+ "seats": {
+  "nominal_per_cm": 55,
+  "guaranteed_per_cm": 60,
+  "_why": "nominal — soft-оценка; guaranteed — hard-сертификат (61 см кромки/чел в dining-контракте)"
+ },
+ "dining_seat": {
+  "seat_height_pref_cm": [
+   43,
+   48
+  ],
+  "seat_height_hard_cm": [
+   42,
+   49
+  ],
+  "_why": "только точная высота сиденья (params); категориальная «средняя» — seat_height_class, не см. ИСКЛЮЧЕНИЕ (Codex 17.08): у backless-банкетки общая высота = высота сиденья — засчитываем inferred с confidence=medium, иначе вся категория банкеток недостижима для уголка",
+  "allow_inferred_for_backless": true
+ },
  "shallow_storage": {
   "_why": "низкое неглубокое хранение (пристенная консоль/за диваном — Q6e): capability = d ≤40, h ≤90 (валидатор: h ≤ спинка+5, w ≥ ⅔ дивана — при расстановке); front_access_kind по роли/имени: комод→drawers, тв-тумба→hinged|open, стеллаж→open; mounting_mode: «подвесн|навесн» → wall_hung; behind_sofa_console_capable — только freestanding с известной глубиной (задняя отделка неизвестна → unknown)",
-  "cat_roles": ["комод", "тв-тумба", "стеллаж"], "d_max_cm": 40, "h_max_cm": 90,
+  "cat_roles": [
+   "комод",
+   "тв-тумба",
+   "стеллаж"
+  ],
+  "d_max_cm": 40,
+  "h_max_cm": 90,
   "wall_hung_regex": "подвесн|навесн"
  },
  "extension_mechanism": {
   "_why": "раскладной/раздвижной обеденный: только флаг наличия механизма (регекс/params «Механизм трансформации»); геометрия closed/open неизвестна → sleeping до state-data (мастер-план Q6a)",
-  "cat_roles": ["стол обеденный"], "name_regex": "раскладн|раздвиж|трансформ|книжк", "status": "sleeping"
+  "cat_roles": [
+   "стол обеденный"
+  ],
+  "name_regex": "раскладн|раздвиж|трансформ|книжк",
+  "status": "sleeping"
  }
 }

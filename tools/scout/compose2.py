@@ -1207,6 +1207,32 @@ for bi,band in enumerate(COMP['bands']):
                 gaps.append('coverage_gap: quiet_pod — нет ' + ('компактной пары кресел' if not _c3 else 'малой поверхности (столик 2)'))
         else:
             _pod_price=0; _pod_fp=0.0
+        # Q6c свода №13: АЛЬТЕРНАТИВНЫЙ КОМПЛЕКТ СТОЛОВОЙ «уголок» (edge_nook) — банкетка к стене
+        # вместо стула с дальней стороны. Кладём только там, где остров тесен (≤ nook_max_m2), при
+        # наличии стола и ≥2 стульев; банкетка — из capability-индекса (dining_seat_capable +
+        # guaranteed_seats ≥2, Q6a), совместимая со столом (0.5–1.2 ширины). Взаимоисключающих
+        # bundle'ов на сет — не больше одного (`dining_bundle`); alt-роль вне капов, как pod.
+        _NOOK_MAX_M2=float((_POD.get('nook_bundle_max_m2') or 25))
+        if m2<=_NOOK_MAX_M2 and 'стол обеденный' in chosen and 'стул' in chosen \
+                and 'банкетка' not in chosen and not chosen.get('dining_bundle'):
+            _tw=float(chosen['стол обеденный'].get('w') or 0)
+            _bench=[b for b in cat.get('банкетка',[])
+                    if (b.get('caps_used') or {}).get('dining_seat_capable')
+                    and ((b.get('caps_used') or {}).get('guaranteed_seats') or 0)>=2
+                    and _tw and 0.5*float(b.get('w') or 0)<=_tw<=1.2*float(b.get('w') or 0)
+                    and int(b.get('mid') or 0) not in _pod_banned_mids]
+            if _bench:
+                # порядок: стиль сета → цветовая совместимость с капсулой → близость к столу
+                # (иначе во всех сетах одна и та же розовая банкетка — разнообразие галереи)
+                _bench.sort(key=lambda b: (0 if b.get('style')==ctx.get('style') else (1 if style_ok(b.get('style'),ctx.get('style')) else 2),
+                                           0 if (b.get('wood') or ctx.get('wood'))==ctx.get('wood') else 1,
+                                           abs(float(b.get('w') or 0)-_tw)))
+                _bb=_bench[0]
+                chosen['банкетка']=dict(_bb,qty=1,alt=True,dining_bundle='edge_nook',
+                                        bundle_provenance='Q6c: alt-состав столовой (уголок) — солвер выбирает уголок только когда остров/круг недостижимы')
+                print(f"  Q6c: уголок — банкетка {_bb['name'][:34]} ({_bb.get('w')}×{_bb.get('d')}, мест {(_bb.get('caps_used') or {}).get('guaranteed_seats')}) к столу {_tw:.0f} см")
+            else:
+                gaps.append('coverage_gap: банкетка (уголок) — нет SKU с посадкой ≥2 и высотой 43–48')
         if m2>=17 and 'диван' in chosen and 'кресло' not in chosen:
             _sh=band['floor'].get('кресло')
             if _sh:

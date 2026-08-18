@@ -150,8 +150,8 @@ def project(row: dict, R: dict) -> tuple[dict, dict, list[str]]:
 
     # ---- bench / daybed → wall_seat_capable, usable_seat_length, seats
     B, D = R['bench'], R['daybed']
-    is_bench = any(c.lower() in cat.lower() for c in B['source_categories']) and re.search(B['name_regex'], name) is not None
-    is_daybed = any(c.lower() in cat.lower() for c in D['source_categories']) and re.search(D['name_regex'], name) is not None
+    is_bench = re.search(B['category_regex'], cat.lower()) is not None and re.search(B['name_regex'], name) is not None
+    is_daybed = re.search(D['category_regex'], cat.lower()) is not None and re.search(D['name_regex'], name) is not None
     caps['subtype'] = ev('банкетка' if is_bench else ('кушетка' if is_daybed else None),
                          'known' if (is_bench or is_daybed) else 'unknown', 'category+name', 'subtype-v1',
                          raw=cat if (is_bench or is_daybed) else None, reason=None if (is_bench or is_daybed) else 'not_bench_or_daybed')
@@ -187,13 +187,19 @@ def project(row: dict, R: dict) -> tuple[dict, dict, list[str]]:
         # dining: только ТОЧНАЯ высота сиденья
         DS = R['dining_seat']
         sh = caps['seat_height_cm']
-        if sh['state'] == 'known' and sh['value'] is not None:
+        # высоту сиденья засчитываем: точную (params) всегда; выведенную из общей высоты —
+        # только для backless-банкетки (Codex 17.08: h≈seat_height, confidence medium)
+        _sh_ok = sh['value'] is not None and (
+            sh['state'] == 'known'
+            or (DS.get('allow_inferred_for_backless') and sh['state'] == 'inferred'
+                and is_bench and caps['has_back']['value'] is False))
+        if _sh_ok:
             lo, hi = DS['seat_height_hard_cm']
             plo, phi = DS['seat_height_pref_cm']
             okh = lo <= sh['value'] <= hi
-            caps['dining_seat_capable'] = ev(bool(okh and caps['wall_seat_capable']['value'] is True), 'known', 'derived', 'dining-seat-v1',
+            caps['dining_seat_capable'] = ev(bool(okh and caps['wall_seat_capable']['value'] is True), sh['state'], 'derived', 'dining-seat-v1',
                                              depends_on=['seat_height_cm', 'wall_seat_capable'],
-                                             confidence='high' if plo <= sh['value'] <= phi else 'medium',
+                                             confidence=('high' if (sh['state'] == 'known' and plo <= sh['value'] <= phi) else 'medium'),
                                              reason=None if okh else f'seat_height {sh["value"]} вне {lo}–{hi}')
         else:
             caps['dining_seat_capable'] = ev(None, 'unknown', 'derived', 'dining-seat-v1', depends_on=['seat_height_cm'],
