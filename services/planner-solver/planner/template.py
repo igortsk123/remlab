@@ -365,12 +365,18 @@ def _add_coffee(b: Block, seat: Item, table: Item | None, gap: float = COFFEE_GA
         role=table.role, w_cm=tw, d_cm=td, h_cm=table.h_cm, name=table.name,
         item_id=table.item_id)
     if seat.corner:
+        # 18.08 (после снятия допусков): столик Г-дивана канонически центрируется на АКТИВНОМ
+        # центре посадки (та же величина, которой TABLE_OFF_AXIS мерит ось — geometry.corner_active_lat),
+        # с обязательным зазором 32 см от плеча. Раньше центр брался от свободной части, ось уезжала
+        # на ~28 см, и это лечил сдвиг-допуск; допусков больше нет — канон обязан попадать сам.
+        from .geometry import corner_active_lat as _cal
         sc = seat.corner_section_cm
         edge = seat.w_cm / 2 - sc            # ближний к плечу край свободной части
+        _target = _cal(seat)
         if seat.corner_left:
-            fx = max(sc / 2, -edge + 32 + tw / 2)
+            fx = max(_target, -edge + 32 + tw / 2)
         else:
-            fx = min(-sc / 2, edge - 32 - tw / 2)
+            fx = min(_target, edge - 32 - tw / 2)
     ty = _front(seat) + gap + tt.d_cm / 2
     b.add(tt, fx, ty, 0.0)
     return ty + tt.d_cm / 2, fx, ty

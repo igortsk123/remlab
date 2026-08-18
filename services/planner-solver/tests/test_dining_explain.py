@@ -98,8 +98,17 @@ def test_no_silent_edge_in_exam_artifacts():
             d = (_j.load(open(f, encoding='utf-8')) or {}).get('_dining') or {}
         except Exception:
             continue
+        # инвариант — «edge не выбирается МОЛЧА»: причина обязана быть записана И подтверждена
+        # счётчиками поиска (сгенерировано > 0, hard-valid = 0). 18.08: island_candidates_failed
+        # с доказательством (top_reject) — это НЕ тихий edge, а честный отказ геометрии
+        _search = (d.get('search') or {})
+        _tried = sum(int((_search.get(k) or {}).get('generated') or 0)
+                     for k in ('full_island', 'compact_island'))
+        _valid = sum(int((_search.get(k) or {}).get('hard_valid') or 0)
+                     for k in ('full_island', 'compact_island'))
+        _documented = bool(d.get('fallback_reason')) and (_tried > 0 and _valid == 0)
         if d.get('island_feasible') and (d.get('mode_path') or d.get('mode')) == 'edge' and \
-                d.get('fallback_reason') != 'island_rejected_by_quality_gate':
+                d.get('fallback_reason') != 'island_rejected_by_quality_gate' and not _documented:
             silent.append(os.path.basename(f))
     assert not silent, f'тихий edge при возможном острове: {silent}'
 

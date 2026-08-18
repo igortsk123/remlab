@@ -115,7 +115,12 @@ def back_gap_context(room: Room, ps: list[Placement]) -> dict | None:
     else:
         klass = 'orphan'
     return {'gap_cm': gap, 'effective_gap_cm': eff, 'class': klass, 'wall': wall,
-            'window_backed': bool(win), 'radiator_gap_cm': rad_gap, 'filled_by': filled_by}
+            'window_backed': bool(win), 'radiator_gap_cm': rad_gap, 'filled_by': filled_by,
+            # Г-диван: «спинка» идёт по ДВУМ направлениям, а полоса считается по габаритному
+            # прямоугольнику — для него класс остаётся диагностикой (жёсткое правило не
+            # применяется; геометрию угла держат CORNER_SOFA_HUG/ADRIFT). 18.08: без этого
+            # правило душило ВСЕ ступени с Г-диваном (set113: 57 м², ни один диван не встал)
+            'corner_sofa': bool(getattr(sofa.item, 'corner', False))}
 
 
 def is_orphan(room: Room, ps: list[Placement]) -> bool:

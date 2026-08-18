@@ -1393,7 +1393,7 @@ def _back_orphan(room: Room, ps) -> bool:
     try:
         from .back_gap import back_gap_context
         ctx = back_gap_context(room, list(ps))
-        return bool(ctx and ctx['class'] == 'orphan')
+        return bool(ctx and ctx['class'] == 'orphan' and not ctx.get('corner_sofa'))
     except Exception:
         return False
 

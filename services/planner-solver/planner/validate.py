@@ -751,8 +751,8 @@ def check_sofa_sliver(room: Room, ps: list[Placement]) -> list[Violation]:
         return []
     from .back_gap import back_gap_context
     ctx = back_gap_context(room, ps)
-    if not ctx or ctx['class'] != 'orphan':
-        return []
+    if not ctx or ctx['class'] != 'orphan' or ctx.get('corner_sofa'):
+        return []      # Г-диван — только диагностика (SOFA_ORPHAN_BACK_GAP), см. back_gap.py
     return [_v("SOFA_SLIVER",
                f"щель за спинкой дивана {ctx['effective_gap_cm']:.0f} см — ни воздух, ни проход",
                ["диван"], round(ctx['effective_gap_cm']),
@@ -781,6 +781,12 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
         from .geometry import corner_active_lat as _cal
         act_lat = _cal(sofa.item)
         act_w = max(sofa.item.w_cm - sofa.item.corner_section_cm, 80.0)
+        # 18.08 (после снятия допусков схемы): у Г-дивана столик физически не может стоять
+        # РОВНО на активной оси — плечо требует зазора 32 см (SOFA_TABLE_DIST), и канон ставит
+        # столик настолько близко к оси, насколько плечо позволяет. Поэтому допуск оси у угловых
+        # считается от ПОЛНОЙ длины посадки (плечо — тоже места), иначе канон невозможен и
+        # ступени с Г-диваном вымирают (set113: 57 м², ни один диван не вставал)
+        act_w = max(act_w, 0.9 * sofa.item.w_cm)
     else:
         act_lat, act_w = 0.0, sofa.item.w_cm
     out = []
