@@ -116,7 +116,9 @@ def test_violations_are_explainable():
 
 
 def test_sofa_sliver_hard():
-    """Щель за спинкой дивана 20–76 см — жёсткий запрет (правило владельца 2026-08-02)."""
+    """Q8 (17.08): щель за спинкой — 31–90 см пустоты (ни воздух 15–30, ни проход ≥91).
+    Прежние пороги «<20 или ≥76» давали обратный эффект: 80 см считались законными, а норма
+    15–30 см перед окном — нарушением (владелец по галерее №3: «диван далеко от окна»)."""
     from tests.rooms import make_room
     room = make_room("31-40")
     sofa_gap_45 = Placement(role="диван", x=room.width_cm / 2, y=45 + 50, rot=0,
@@ -126,9 +128,17 @@ def test_sofa_sliver_hard():
     sofa_tight = Placement(role="диван", x=room.width_cm / 2, y=50, rot=0,
                            item=Item(role="диван", w_cm=220, d_cm=100, h_cm=85))
     assert "SOFA_SLIVER" not in {v.code for v in validate(room, [sofa_tight]).violations}
-    sofa_pass = Placement(role="диван", x=room.width_cm / 2, y=90 + 50, rot=0,
+    sofa_pass = Placement(role="диван", x=room.width_cm / 2, y=95 + 50, rot=0,
                           item=Item(role="диван", w_cm=220, d_cm=100, h_cm=85))
     assert "SOFA_SLIVER" not in {v.code for v in validate(room, [sofa_pass]).violations}
+    # НОВОЕ: «воздух» 15–30 см (норма перед окном) больше не считается щелью
+    sofa_air = Placement(role="диван", x=room.width_cm / 2, y=22 + 50, rot=0,
+                         item=Item(role="диван", w_cm=220, d_cm=100, h_cm=85))
+    assert "SOFA_SLIVER" not in {v.code for v in validate(room, [sofa_air]).violations}
+    # а прежняя «законная» полоса 80 см — теперь щель
+    sofa_orphan = Placement(role="диван", x=room.width_cm / 2, y=80 + 50, rot=0,
+                            item=Item(role="диван", w_cm=220, d_cm=100, h_cm=85))
+    assert "SOFA_SLIVER" in {v.code for v in validate(room, [sofa_orphan]).violations}
     behind = Placement(role="комод", x=room.width_cm / 2, y=20, rot=0,
                        item=Item(role="комод", w_cm=180, d_cm=40, h_cm=80))
     lay_filled = validate(room, [sofa_gap_45, behind])

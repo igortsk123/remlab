@@ -1345,6 +1345,7 @@ LEVELS = ('hard_feasibility', 'circulation', 'functional_relationships', 'zone_q
 _TERM_LEVEL = {
     # circulation: проходы, связность, щели-непроходимости
     'sliver_gap': 'circulation', 'sofa_dead_gap': 'circulation',
+    'sofa_back_context': 'circulation',   # Q8: полоса за спинкой — про проходимость, не эстетику
     'free_space_fragmentation': 'circulation', 'soft_rule_main_path_tight': 'circulation',
     'soft_rule_zone_buffer': 'circulation',
     # functional: связи предметов
@@ -1386,6 +1387,16 @@ def lexo_key(hard_count: int, unplaced_required: int, terms: dict) -> tuple:
 # кирпичами, готовые планы сравниваются ЛЕКСИКОГРАФИЧЕСКИ; старый результат — всегда
 # гипотеза №0 (инвариант «не хуже прежнего»). Числа — rules/zones.json → beam.
 # ---------------------------------------------------------------------------
+
+def _back_orphan(room: Room, ps) -> bool:
+    """Q8: класс полосы за спинкой дивана = orphan (`planner/back_gap.py`)."""
+    try:
+        from .back_gap import back_gap_context
+        ctx = back_gap_context(room, list(ps))
+        return bool(ctx and ctx['class'] == 'orphan')
+    except Exception:
+        return False
+
 
 def template_degradation(ps) -> tuple:
     """Codex 17.08 (владелец №31 set16-base): степень отхода посадочного шаблона от канона —
@@ -1449,8 +1460,12 @@ def plan_key(room: Room, lay, needs: dict, seat_rank: int = 0) -> tuple:
     axis_cls = _axis_class(lay)
     # Codex 17.08 (владелец №31): main-path контракт → деградация шаблона (канон важнее допуска)
     # — ВЫШЕ мягких термов (circulation +1 не должен двигать столик с центра дивана)
+    # Q8 (владелец 17.08 + Codex): БЕСХОЗНАЯ полоса за спинкой (31–90 пусто) — категориальный
+    # ярус ВЫШЕ мягких термов (в т.ч. дистанции ТВ): движок обязан прижать диван в норму
+    # 15–30 или оставить настоящий проход ≥91, если такой вариант вообще достижим
+    _orphan = int(bool(_back_orphan(room, ps)))
     return (hard, missing_req, -covered_pref, -seat_rank, axis_cls,
-            _main_path_violations(lay), template_degradation(ps)) + tuple(lk[1:])
+            _main_path_violations(lay), template_degradation(ps), _orphan) + tuple(lk[1:])
 
 
 def plan_key_v2(room: Room, lay, needs: dict, reach: dict | None = None) -> tuple:
@@ -1544,7 +1559,8 @@ def plan_key_v2(room: Room, lay, needs: dict, reach: dict | None = None) -> tupl
             missing_pref, frontal_def, seat_def,
             -int(seat.get('sofas', 0) >= 2 or _valid_arm >= 2),   # Codex 16.08: сырой -valid_arm ярусом убран
             -int(seat.get('flex_seats', 0)), -int(seat.get('footrest', 0) > 0),
-            _axis_class(lay), _main_path_violations(lay), template_degradation(ps)) + tuple(lk[1:])
+            _axis_class(lay), _main_path_violations(lay), template_degradation(ps),
+            int(bool(_back_orphan(room, ps)))) + tuple(lk[1:])
 
 
 def _axis_class(lay) -> int:

@@ -176,3 +176,57 @@ def test_console_contract_rejects_tall_and_detached():
     far.tpl_variant = 'console_behind_sofa'
     codes = {v.code for v in check_console_contract(room, [sofa, tall, far])}
     assert 'CONSOLE_ABOVE_BACK' in codes and 'CONSOLE_DETACHED' in codes
+
+
+# ---------- Q8: полоса за спинкой дивана ----------
+def _room_win(sill=80):
+    return Room(width_cm=420, depth_cm=460,
+                openings=[Opening(kind='door', wall='south', offset_cm=30, width_cm=90, swing_cm=90),
+                          Opening(kind='window', wall='north', offset_cm=120, width_cm=160, sill_cm=sill)])
+
+
+def _sofa_at(room, gap, w=200, d=90, h=85):
+    """Диван спинкой к северной (оконной) стене с зазором gap."""
+    y = room.depth_cm - gap - d / 2
+    return Placement(role='диван', x=room.width_cm / 2, y=y, rot=180,
+                     item=Item(role='диван', w_cm=w, d_cm=d, h_cm=h))
+
+
+def test_back_gap_classes_match_norm():
+    """Q8 (владелец 17.08, нормы Livingetc/Ideal Home): прижат <15 | воздух 15–30 |
+    щель 31–90 | проход ≥91; полосу легализует функциональный предмет, но не декор."""
+    from planner.back_gap import back_gap_context
+    room = _room_win()
+    cls = lambda g, extra=(): back_gap_context(room, [_sofa_at(room, g), *extra])['class']
+    assert cls(5) == 'hugged' and cls(20) == 'air' and cls(30) == 'air'
+    assert cls(50) == 'orphan' and cls(80) == 'orphan'
+    assert cls(95) == 'route'
+    # комод в полосе — функция; кашпо — нет (Codex: «не любой предмет»)
+    console = Placement(role='комод', x=room.width_cm / 2, y=room.depth_cm - 20, rot=180,
+                        item=Item(role='комод', w_cm=180, d_cm=38, h_cm=80))
+    pot = Placement(role='кашпо', x=room.width_cm / 2, y=room.depth_cm - 20, rot=0,
+                    item=Item(role='кашпо', w_cm=30, d_cm=30, h_cm=60))
+    assert cls(60, (console,)) == 'functional'
+    assert cls(60, (pot,)) == 'orphan'
+
+
+def test_window_backed_and_radiator_face():
+    from planner.back_gap import back_gap_context
+    from planner.models import Radiator
+    room = _room_win()
+    ctx = back_gap_context(room, [_sofa_at(room, 20)])
+    assert ctx['window_backed'] is True and ctx['wall'] == 'north'
+    room_r = Room(width_cm=420, depth_cm=460, openings=room.openings,
+                  radiators=[Radiator(wall='north', offset_cm=120, width_cm=160, depth_cm=12)])
+    ctx_r = back_gap_context(room_r, [_sofa_at(room_r, 25)])
+    assert ctx_r['radiator_gap_cm'] is not None and ctx_r['radiator_gap_cm'] < 25   # от лицевой грани
+
+
+def test_orphan_tier_in_plan_key_beats_soft_terms():
+    """Ярус orphan стоит выше мягких термов: план с прижатым диваном выигрывает у плана
+    с бесхозной полосой, даже если мягкий счёт последнего лучше."""
+    import inspect
+    from planner import zones as Z
+    for src in (inspect.getsource(Z.plan_key), inspect.getsource(Z.plan_key_v2)):
+        assert '_back_orphan(room, ps)' in src
+        assert src.index('_back_orphan(room, ps)') < src.index('lk[1:]')

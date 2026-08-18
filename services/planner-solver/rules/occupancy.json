@@ -624,7 +624,18 @@
    "sources": [
     "https://www.divan.ru/idei-i-trendy/sofa-by-the-window",
     "https://www.domfront.ru/2025/08/divan-vozle-okna-v-gostinoj/"
-   ]
+   ],
+   "back_gap_policy": {
+    "air_cm": [
+     15,
+     30
+    ],
+    "route_min_cm": 91,
+    "window_overlap_min_cm": 30,
+    "_why": "Q8 свода №13 (владелец 17.08 по галерее №3 + Codex): за спинкой дивана допустимы ТОЛЬКО осмысленные состояния — прижат к глухой стене (<15), «воздух» 15–30 см (перед окном — норма), настоящий проход ≥91, либо полоса ЗАНЯТА блоком зоны (консоль/скамья/чтение/столовая, перекрытие ≥50% проекции). Промежуточные 31–90 без наполнения — «orphan»: ни воздух, ни проход",
+    "_provenance": "external: Livingetc is-it-okay-to-put-a-sofa-in-front-of-a-window (6–8″ ≈15–20 см; 3 ft ≈91 см при проходе), Ideal Home living-room-advice (~12″ ≈30 см воздуха), H&G perfect-living-room-layout; запрет orphan — продуктовое правило владельца на основе практики (Codex 17.08: публичные источники границы поддерживают, но универсального запрета 31–90 не доказывают)",
+    "radiator_face_measure": true
+   }
   },
   "door_swing": {
    "leaf_width_cm": [

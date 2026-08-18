@@ -736,42 +736,32 @@ SOFA_SLIVER_MIN_CM = 20.0
 
 
 def check_sofa_sliver(room: Room, ps: list[Placement]) -> list[Violation]:
-    """Щель за спинкой дивана 20–76 см запрещена ЖЁСТКО: или вплотную (<20), или проход ≥76.
+    """Q8 свода №13 (владелец 17.08 по галерее №3 + Codex): полоса за спинкой дивана — только
+    осмысленные состояния (`planner/back_gap.py`, данные `occupancy.window_sofa.back_gap_policy`):
+    прижат (<15) | «воздух» 15–30 (норма ПЕРЕД ОКНОМ: Livingetc 6–8", Ideal Home ~12") |
+    настоящий проход ≥91 | полоса ЗАНЯТА блоком зоны. Промежуточное 31–90 пусто — щель.
 
-    Правило владельца 2026-08-02 («промежуточная щель — запрещена»); раньше жило только мягким
-    штрафом sofa_dead_gap, и валидная раскладка могла выйти с непроходимой щелью (А5).
-    Щель, заполненная хранением/консолью, щелью не считается (диван «по центру» с хранением сзади).
+    До Q8 порог был «<20 или ≥76», и это давало обратный эффект: 80 см (бесхозная полоса)
+    считались законными, а норма 15–30 см перед окном — ЗАПРЕЩЁННОЙ; отсюда «диван далеко
+    от окна» на 79 сценах экзамена. Диагностика/калибровка: NO_SOFA_SLIVER=1.
     """
     import os as _os
 
-    from shapely.geometry import box as _box
-
-    if _os.environ.get("NO_SOFA_SLIVER") == "1":   # диагностика/калибровка
+    if _os.environ.get("NO_SOFA_SLIVER") == "1":
         return []
-    by = _by_base(ps)
-    sofa = by.get("диван")
-    if sofa is None or sofa.item is None:
+    from .back_gap import back_gap_context
+    ctx = back_gap_context(room, ps)
+    if not ctx or ctx['class'] != 'orphan':
         return []
-    fx, fy = facing_vector(sofa.rot)
-    x0, y0, x1, y1 = footprint(sofa).bounds
-    if abs(fy) > abs(fx):
-        d = y0 if fy > 0 else room.depth_cm - y1
-        strip = _box(x0, 0, x1, y0) if fy > 0 else _box(x0, y1, x1, room.depth_cm)
-    else:
-        d = x0 if fx > 0 else room.width_cm - x1
-        strip = _box(0, y0, x0, y1) if fx > 0 else _box(x1, y0, room.width_cm, y1)
-    passage = float(distances().get("sofa_to_wall_passage", 76))
-    if SOFA_SLIVER_MIN_CM <= d < passage:
-        filled = any(footprint(p).intersection(strip).area > 400 for p in ps if p is not sofa)
-        if not filled:
-            return [_v("SOFA_SLIVER", f"щель за спинкой дивана {d:.0f} см — ни вплотную, ни проход",
-                       ["диван"], round(d), f"<{SOFA_SLIVER_MIN_CM:.0f} см или ≥{passage:.0f} см")]
-    return []
+    return [_v("SOFA_SLIVER",
+               f"щель за спинкой дивана {ctx['effective_gap_cm']:.0f} см — ни воздух, ни проход",
+               ["диван"], round(ctx['effective_gap_cm']),
+               "<15 см (вплотную), 15–30 см (воздух у окна) или ≥91 см (проход); "
+               "иначе полосу занимает консоль/скамья/зона")]
 
 
 _ROOM_BAND = [None]      # текущий бэнд; ставится в beam.solve (T6: лениво в validate —
                          # заражение следующей сцены процесса, урок 206) и дублируется в validate()
-
 
 def check_zone(ps: list[Placement]) -> list[Violation]:
     """Разговорная зона — не набор «где-то рядом»: столик перед диваном, кресло в зоне.
@@ -1328,6 +1318,22 @@ def check_fireplace_seating(room: Room, ps: list[Placement]) -> list[Violation]:
                ["камин"], None, "primary- или secondary-focal зона")]
 
 
+def check_sofa_back_gap(room: Room, ps: list[Placement]) -> list[Violation]:
+    """Q8 свода №13 (владелец: «почему диван далеко от окна»): полоса за спинкой обязана быть
+    осмысленной — прижат / «воздух» 15–30 / настоящий проход ≥91 / полоса занята блоком зоны.
+    Промежуточное (31–90 пусто) = orphan: S1 (measured) — в hard превращается ТОЛЬКО когда
+    доказано, что нормальный вариант достижим (сертификат beam), см. plan_key.orphan-ярус."""
+    from .back_gap import back_gap_context
+    ctx = back_gap_context(room, ps)
+    if not ctx or ctx['class'] != 'orphan':
+        return []
+    where = 'к окну' if ctx['window_backed'] else 'к стене'
+    return [_v("SOFA_ORPHAN_BACK_GAP",
+               f"за спинкой дивана {ctx['effective_gap_cm']:.0f} см пустоты ({where}) — "
+               f"ни воздух (15–30), ни проход (≥91)", ["диван"], ctx['effective_gap_cm'],
+               "прижать (15–30 см) либо оставить проход ≥91 см и наполнить полосу", Severity.SOFT)]
+
+
 def check_window_sofa(room: Room, ps: list[Placement]) -> list[Violation]:
     """Вердикт владельца 08.08 (set91: диван вплотную к окну) + рефери Q7 — раздельно:
     доступ/радиатор уже H0 (WINDOW_BLOCKED/RADIATOR); здесь мягкое — зазор спинка↔окно S1
@@ -1661,6 +1667,7 @@ def validate(room: Room, placements: list[Placement], *, passage: str = "seconda
         lambda: check_floor_cap(room, placements),
         lambda: check_fireplace_seating(room, placements),
         lambda: check_window_sofa(room, placements),
+        lambda: check_sofa_back_gap(room, placements),
         lambda: check_service_surface(room, placements),
         lambda: check_decor_anchoring(room, placements),
         lambda: check_quiet_contract(room, placements),

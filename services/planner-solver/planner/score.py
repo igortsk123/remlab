@@ -199,15 +199,16 @@ def score_layout(room: Room, ps: list[Placement], *, fast: bool = False) -> Scor
         if p.role in ("шкаф", "комод", "стенка", "витрина", "стеллаж", "тв-тумба", "камин"):
             s.add("wall_hug", hinge(d, 0, 15, scale=50.0), w["wall_hug"])
         if p.role == "диван":
-            # «диван по центру» допустим, но тогда стена ЗА ним не должна пустовать
-            # (вердикт владельца 2026-08-02): либо диван к стене, либо за ним хранение/консоль
-            if d > 60 and not _storage_behind(room, p, ps):
-                s.add("empty_wall_behind_sofa", min(d - 60, 200) / 100.0, w["empty_wall_behind_sofa"])
-            # диван либо ВПЛОТНУЮ к стене, либо «отплыл» с проходом за спинкой (≥76 см);
-            # промежуточное положение — щель, в которую не пройти (наш narrow_room-свод)
-            pass_behind = distances().get("sofa_to_wall_passage", 70)
-            if 15 < d < pass_behind:
-                s.add("sofa_dead_gap", min(d - 15, pass_behind - d) / 20.0, w["wall_hug"])
+            # Q8 (17.08, Codex): ЕДИНЫЙ контекст полосы за спинкой вместо двух пересекающихся термов
+            # (`empty_wall_behind_sofa` мерил ближайшую стену, `sofa_dead_gap` — старый порог 76).
+            # Класс считает planner/back_gap.py по данным occupancy.window_sofa.back_gap_policy.
+            from .back_gap import back_gap_context as _bgc
+            _ctx = _bgc(room, ps)
+            if _ctx and _ctx['class'] == 'orphan':
+                # чем ближе к середине «мёртвой» вилки, тем хуже: и не воздух, и не проход
+                _lo, _hi = 30.0, 91.0
+                _g = float(_ctx['effective_gap_cm'])
+                s.add("sofa_back_context", min(_g - _lo, _hi - _g) / 20.0, w["empty_wall_behind_sofa"])
         if p.role == "стол обеденный":
             s.add("dining_off_wall", hinge(d, 60, 10_000, scale=50.0), w["dining_off_wall"])
         s.add("axis_alignment", wall_alignment_penalty(room, p), w["axis_alignment"])
