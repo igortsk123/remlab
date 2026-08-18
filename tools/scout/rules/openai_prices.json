@@ -5,12 +5,43 @@
   "checked_at": "2026-08-17"
  },
  "daily_cap_usd": 5.0,
- "fallback_per_request_usd": 0.10,
+ "fallback_per_request_usd": 0.1,
  "models": {
-  "gpt-5.6-luna":  {"input_per_1m": 0.20, "output_per_1m": 1.20, "typical_prompt_tokens": 4000, "typical_output_tokens": 1200},
-  "gpt-5.6-terra": {"input_per_1m": 2.00, "output_per_1m": 12.00, "typical_prompt_tokens": 4000, "typical_output_tokens": 1500},
-  "gpt-5-mini":    {"input_per_1m": 0.25, "output_per_1m": 2.00,  "typical_prompt_tokens": 3000, "typical_output_tokens": 800},
-  "gpt-5-nano":    {"input_per_1m": 0.05, "output_per_1m": 0.40,  "typical_prompt_tokens": 3000, "typical_output_tokens": 800},
-  "gpt-4o-mini":   {"input_per_1m": 0.15, "output_per_1m": 0.60,  "typical_prompt_tokens": 2000, "typical_output_tokens": 500}
- }
+  "gpt-5.6-luna": {
+   "input_per_1m": 0.2,
+   "output_per_1m": 1.2,
+   "typical_prompt_tokens": 4000,
+   "typical_output_tokens": 1200,
+   "_why": "официальная цена модели (input/output за 1M токенов) + типовой размер запроса нашего конвейера — замер 17.08; provenance файла в _meta"
+  },
+  "gpt-5.6-terra": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 12.0,
+   "typical_prompt_tokens": 4000,
+   "typical_output_tokens": 1500,
+   "_why": "официальная цена модели (input/output за 1M токенов) + типовой размер запроса нашего конвейера — замер 17.08; provenance файла в _meta"
+  },
+  "gpt-5-mini": {
+   "input_per_1m": 0.25,
+   "output_per_1m": 2.0,
+   "typical_prompt_tokens": 3000,
+   "typical_output_tokens": 800,
+   "_why": "официальная цена модели (input/output за 1M токенов) + типовой размер запроса нашего конвейера — замер 17.08; provenance файла в _meta"
+  },
+  "gpt-5-nano": {
+   "input_per_1m": 0.05,
+   "output_per_1m": 0.4,
+   "typical_prompt_tokens": 3000,
+   "typical_output_tokens": 800,
+   "_why": "официальная цена модели (input/output за 1M токенов) + типовой размер запроса нашего конвейера — замер 17.08; provenance файла в _meta"
+  },
+  "gpt-4o-mini": {
+   "input_per_1m": 0.15,
+   "output_per_1m": 0.6,
+   "typical_prompt_tokens": 2000,
+   "typical_output_tokens": 500,
+   "_why": "официальная цена модели (input/output за 1M токенов) + типовой размер запроса нашего конвейера — замер 17.08; provenance файла в _meta"
+  }
+ },
+ "_why": "Цены за 1M токенов для учёта расхода и дневного лимита (openai_budget.py). Источник и дата — в _meta.provenance/checked_at"
 }

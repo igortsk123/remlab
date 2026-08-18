@@ -14,7 +14,10 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RULES = [os.path.join(HERE, '..', '..', 'services', 'planner-solver', 'rules', f)
-         for f in ('zones.json', 'templates.json', 'occupancy.json')]
+         for f in ('zones.json', 'templates.json', 'occupancy.json')] + [
+    # Q6a/Q9: правила-данные конвейера каталога и приоры практики — тот же гейт провенанса
+    os.path.join(HERE, 'rules', f) for f in ('capabilities.json', 'practice_priors.json',
+                                             'openai_prices.json')]
 PROOF_KEYS = ('why', '_why', 'source', '_source', 'proof', '_note', 'note', '_purpose')
 
 
