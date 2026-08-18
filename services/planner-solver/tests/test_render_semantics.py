@@ -5,10 +5,13 @@
 import os
 
 SCOUT = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'tools', 'scout')
+RENDER = os.path.join(SCOUT, 'render_plan.py')   # 17.08: рендер вынесен из solver_run (render-only)
 
 
 def test_render_labels_are_semantic():
-    src = open(os.path.join(SCOUT, 'solver_run.py'), encoding='utf-8').read()
+    src = open(RENDER, encoding='utf-8').read()
+    assert 'render_plan' in open(os.path.join(SCOUT, 'solver_run.py'), encoding='utf-8').read(), \
+        'solver_run обязан рисовать через render_plan (единый рендер, render-only без пересчёта)'
     assert 'def _facing_word' in src and 'def _pouf_role' in src
     body = src.split('def _facing_word')[1].split('def _pouf_role')[0]
     assert "if _base not in ('диван','кресло'):" in body and 'return None' in body, \

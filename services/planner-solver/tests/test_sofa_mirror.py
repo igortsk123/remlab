@@ -85,7 +85,25 @@ def test_mirror_quality_pick_beats_first_clean():
     st = (lays[0].meta or {}).get('mirror') or {}
     assert st.get('left', {}).get('hard_valid') == 1
     assert st.get('right', {}).get('hard_valid') == 1
-    assert st.get('winner') == 'left', st
+    # 17.08: проверяем МЕХАНИЗМ, а не сторону: победитель — с минимальным quality-ключом.
+    # Прежнее «побеждает LEFT» перестало быть верным после снятия допусков схемы (владелец:
+    # «только каноны»): обе стороны канонические и в этой сцене дают РАВНЫЙ ключ, победа
+    # решается стабильным порядком перебора. Жёсткая сторона в тесте фиксировала артефакт
+    # старой геометрии, а не контракт.
+    from planner.score import score_layout
+    from planner.template import place_template
+    from planner.zones import lexo_key, usable_polygon
+    items = _set21_items()
+    sofa = next(i for i in items if i.role == 'диван')
+    keys = {}
+    for cl in (False, True):
+        it2 = [i if i.role != 'диван' else sofa.model_copy(
+            update={'corner_left': cl, 'corner_side_fixed': True}) for i in items]
+        ps = place_template(room, 'sofa_armchair', it2, usable_polygon(room))
+        if ps:
+            keys['left' if cl else 'right'] = tuple(lexo_key(0, 0, score_layout(room, ps).terms))
+    best = min(keys.values())
+    assert keys[st['winner']] == best, (st, keys)
 
 
 def test_corner_active_lat_signed():
