@@ -45,11 +45,19 @@ def test_pouf_without_bench_name_is_not_bench_even_if_dims_fit():
     assert pr == []
 
 
-def test_bench_without_params_is_inferred_not_known_and_dining_unknown():
+def test_bench_without_params_is_inferred_not_known():
+    """17.08 (Q6b): у BACKLESS-банкетки общая высота = высота сиденья — dining_seat_capable
+    выводится как `inferred` (confidence medium), иначе вся категория банкеток недостижима
+    для уголка (0 годных SKU при 20 подходящих в каталоге). Для НЕ-банкеток и при неизвестной
+    спинке остаётся unknown ≠ false."""
     caps, _, pr = C.project(_row(category_path='Пуфы и банкетки', name='Банкетка Норд', w=110, d=38, h=46), R)
     assert caps['wall_seat_capable']['value'] is True and caps['wall_seat_capable']['state'] == 'inferred'
     assert caps['seat_length_cm']['state'] == 'inferred' and caps['seat_length_cm']['confidence'] == 'medium'
-    assert caps['dining_seat_capable']['state'] == 'unknown' and caps['dining_seat_capable']['value'] is None   # unknown ≠ false
+    assert caps['dining_seat_capable']['state'] == 'inferred' and caps['dining_seat_capable']['value'] is True
+    assert caps['dining_seat_capable']['confidence'] == 'medium'
+    # сиденье вне вилки 42–49 → доказанное «нет», не unknown
+    high, _, _ = C.project(_row(category_path='Пуфы и банкетки', name='Банкетка Барная', w=130, d=38, h=62), R)
+    assert high['dining_seat_capable']['value'] is False
 
 
 def test_daybed_missing_depth_is_unknown_not_false():

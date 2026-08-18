@@ -409,7 +409,8 @@
     0.75
    ],
    "route_after_console_required": true,
-   "_source": "external:BHG what-is-a-sofa-table + H&G styling-the-back-of-the-sofa (A3; внедрение — после появления subtype-тегинга комодов)"
+   "_source": "external:BHG what-is-a-sofa-table + H&G styling-the-back-of-the-sofa (A3; внедрение — после появления subtype-тегинга комодов)",
+   "_status": "implemented_as: template.place_console_behind_sofa + validate.check_console_contract (Q6e 17.08); отдельной роли «консоль» в каталоге нет — это СПОСОБНОСТЬ узкого низкого корпуса (комод/тумба/стеллаж d≤40, Q6a shallow_storage_capable)"
   }
  },
  "zones": {
@@ -1071,7 +1072,7 @@
   ],
   "main_path_cm": 90,
   "proof": "Livingetc foyer-in-open-living (runner как визуальный коридор); H&G perfect-living-room-layout (36\" главный маршрут; не «упираться» в спинку); H&G styling-the-back-of-the-sofa (sofa table за диваном)",
-  "_dormant": "runner: каталог ковров-дорожек пуст (0, замер 14.08); bench/console: ролей нет в каталоге — ветки спят до товаров; активная сейчас: empty + низкое хранение ≤90 см (уже легально)"
+  "_dormant": "runner: каталог ковров-дорожек пуст (0, 14.08); bench — Q6b/Q6c (уголок столовой), console — Q6e внедрён (place_console_behind_sofa); активная: empty + низкое хранение ≤90 см"
  },
  "dining_region_m2": {
   "_why": "Свод №7 (14.08): свободный регион под обеденную группу — по ЧИСЛУ МЕСТ, не константа 6 м²: прежний фикс глушил столовую во ВСЕХ сетах 15-20 м² (замер: 0/72). Компакт-столовая на 2 живёт на ~1.5×1.8 м",

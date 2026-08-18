@@ -215,6 +215,11 @@ def check_access(ps: list[Placement]) -> list[Violation]:
                 continue
             if _brole(b.role) in ga:
                 continue
+            # Q6e: консоль за диваном — часть посадочной связки: она стоит вплотную к СПИНКЕ,
+            # подход к дивану остаётся с фасада (H&G/BHG sofa table). Взаимные зоны не блокируют
+            if 'console_behind_sofa' in (getattr(a, 'tpl_variant', ''), getattr(b, 'tpl_variant', '')) \
+                    and {_brole(a.role), _brole(b.role)} & {'диван'}:
+                continue
             bh = (b.item.h_cm if b.item else None)
             if bh is not None and bh <= LOW_ITEM_MAX_H_CM:
                 continue   # низкий предмет (столик/пуф) подход не перекрывает
@@ -406,6 +411,10 @@ def check_wall_only(room: Room, ps: list[Placement]) -> list[Violation]:
     out = []
     wall_only = _wall_only_roles()
     for p in ps:
+        # Q6e: консоль ЗА ДИВАНОМ по определению стоит не у стены (H&G sofa table) —
+        # её геометрию держит собственный контракт check_console_contract
+        if getattr(p, 'tpl_variant', '') == 'console_behind_sofa':
+            continue
         if p.role not in wall_only:
             continue
         x0, y0, x1, y1 = footprint(p).bounds
@@ -1586,6 +1595,40 @@ def check_edge_nook_contract(room: Room, ps: list[Placement]) -> list[Violation]
     return out
 
 
+def check_console_contract(room: Room, ps: list[Placement]) -> list[Violation]:
+    """Q6e свода №13: контракт консоли за диваном (tpl_variant console_behind_sofa) —
+    высота ≤ спинки дивана +5, глубина ≤ max_d_cm, длина в вилке 0.5–1.0 дивана, вплотную
+    к спинке (≤10 см). Данные — `zones.json → subtypes.console` (H&G/BHG sofa table)."""
+    cons = [p for p in ps if getattr(p, 'tpl_variant', '') == 'console_behind_sofa']
+    if not cons:
+        return []
+    from .geometry import base_role
+    from .zones import zone_rules as _zr
+    cfg = (_zr().get('group_scheme') or {}).get('console') or {}
+    max_d = float(cfg.get('max_d_cm', 40))
+    lo = float((cfg.get('length_vs_sofa_soft') or [0.5, 0.75])[0])
+    sofa = next((p for p in ps if base_role(p.role) == 'диван'), None)
+    out: list[Violation] = []
+    for c in cons:
+        if c.item is None or sofa is None or sofa.item is None:
+            continue
+        if c.item.d_cm > max_d:
+            out.append(_v("CONSOLE_TOO_DEEP", f"«{c.role}» глубже {max_d:.0f} см за диваном",
+                          [c.role], c.item.d_cm, f"≤{max_d:.0f} см"))
+        back_h = (sofa.item.h_cm or 85) + 5
+        if (c.item.h_cm or 0) > back_h:
+            out.append(_v("CONSOLE_ABOVE_BACK", f"«{c.role}» выше спинки дивана ({c.item.h_cm:.0f} > {back_h:.0f})",
+                          [c.role, sofa.role], c.item.h_cm, f"≤ спинка+5 ({back_h:.0f} см)"))
+        if c.item.w_cm < lo * sofa.item.w_cm:
+            out.append(_v("CONSOLE_TOO_SHORT", f"«{c.role}» короче {lo:.0%} длины дивана",
+                          [c.role, sofa.role], c.item.w_cm, f"≥{lo * sofa.item.w_cm:.0f} см"))
+        gap = footprint(c).distance(footprint(sofa))
+        if gap > 10:
+            out.append(_v("CONSOLE_DETACHED", f"«{c.role}» в {gap:.0f} см от спинки — не консоль",
+                          [c.role, sofa.role], round(gap), "вплотную к спинке (≤10 см)"))
+    return out
+
+
 def validate(room: Room, placements: list[Placement], *, passage: str = "secondary",
              fast_hard: bool = False) -> Layout:
     """Полная валидация. `fast_hard=True` — ПУТЬ ПОИСКА (template._best_block): тот же набор проверок,
@@ -1622,6 +1665,7 @@ def validate(room: Room, placements: list[Placement], *, passage: str = "seconda
         lambda: check_decor_anchoring(room, placements),
         lambda: check_quiet_contract(room, placements),
         lambda: check_edge_nook_contract(room, placements),
+        lambda: check_console_contract(room, placements),
         lambda: check_passages(room, placements, passage),   # самая дорогая — последней
     ]
     vs: list[Violation] = []

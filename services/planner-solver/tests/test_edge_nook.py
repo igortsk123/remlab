@@ -141,3 +141,38 @@ def test_round_flag_from_sku_in_adapter():
     (в каталоге круглые обеденные приходят как w=d, без dia)."""
     src = open(os.path.join(SCOUT, 'solver_run.py'), encoding='utf-8').read()
     assert 'round_shape=' in src and 'кругл|овальн' in src
+
+
+# ---------- Q6e: консоль за диваном ----------
+def test_console_behind_floating_sofa():
+    """Низкая консоль (узкий комод) встаёт вплотную за спинкой floating-дивана и проходит контракт."""
+    from planner.template import place_console_behind_sofa, CONSOLE_DIAG
+    from planner.validate import check_console_contract
+    from planner.zones import usable_polygon
+    room = Room(width_cm=560, depth_cm=620,
+                openings=[Opening(kind='door', wall='south', offset_cm=40, width_cm=90, swing_cm=90)])
+    sofa = Placement(role='диван', x=280, y=430, rot=180,
+                     item=Item(role='диван', w_cm=220, d_cm=95, h_cm=85))
+    sofa.tpl_id = 'seating'
+    items = [Item(role='комод', w_cm=140, d_cm=38, h_cm=80),
+             Item(role='стеллаж', w_cm=80, d_cm=35, h_cm=190)]
+    ps = place_console_behind_sofa(room, items, usable_polygon(room), fixed=[sofa])
+    assert ps is not None, CONSOLE_DIAG
+    c = ps[0]
+    assert c.tpl_variant == 'console_behind_sofa' and c.item.role == 'комод'
+    assert not check_console_contract(room, [sofa, c])
+
+
+def test_console_contract_rejects_tall_and_detached():
+    from planner.validate import check_console_contract
+    room = Room(width_cm=560, depth_cm=620, openings=[])
+    sofa = Placement(role='диван', x=280, y=430, rot=180,
+                     item=Item(role='диван', w_cm=220, d_cm=95, h_cm=85))
+    tall = Placement(role='стеллаж', x=280, y=497, rot=0,
+                     item=Item(role='стеллаж', w_cm=140, d_cm=38, h_cm=190))
+    tall.tpl_variant = 'console_behind_sofa'
+    far = Placement(role='комод', x=280, y=560, rot=0,
+                    item=Item(role='комод', w_cm=140, d_cm=38, h_cm=80))
+    far.tpl_variant = 'console_behind_sofa'
+    codes = {v.code for v in check_console_contract(room, [sofa, tall, far])}
+    assert 'CONSOLE_ABOVE_BACK' in codes and 'CONSOLE_DETACHED' in codes

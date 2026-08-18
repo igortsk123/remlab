@@ -1909,6 +1909,13 @@ def place_storage(room: Room, items: list[Item], free: Polygon,
         if _behind_decision(room, _seat_fx) == 'passage_plus_shallow_storage':
             _shallow = [t for t in tries if all(v.d_cm <= 40 for v in t.values())]
             tries = _shallow + [t for t in tries if t not in _shallow]
+    # Q6e свода №13: КОНСОЛЬ ЗА ДИВАНОМ — приоритетная постановка неглубокого хранения, когда
+    # диван «плавает» и за спинкой остаётся полоса (машина R: passage_plus_shallow_storage).
+    # Правила — данные `zones.json → subtypes.console` (H&G/BHG: высота ≤ спинки+5, длина 0.5–0.75
+    # дивана, глубина ≤40, после консоли остаётся маршрут). Не встало — обычный путь ниже.
+    _cons = place_console_behind_sofa(room, items, free, fixed=fixed)
+    if _cons is not None:
+        return _cons
     for br in tries:
         b = build_storage(br, max_items=len(br), ceiling_cm=room.ceiling_cm)
         if b is None:
@@ -1920,6 +1927,72 @@ def place_storage(room: Room, items: list[Item], free: Polygon,
             ps = _best_block(room, b, free, cands, tv=None, fixed=fixed)
             if ps is not None:
                 return ps
+    return None
+
+
+CONSOLE_DIAG: dict = {}   # Q6e: почему консоль за диваном (не) встала
+
+
+def _zone_rules_zn() -> dict:
+    from .zones import zone_rules as _zr
+    return _zr()
+
+
+def place_console_behind_sofa(room: Room, items: list[Item], free: Polygon,
+                              fixed: list[Placement] | None = None) -> list[Placement] | None:
+    """Q6e свода №13: низкая консоль ЗА СПИНКОЙ floating-дивана (H&G/BHG «sofa table»):
+    высота ≤ спинки дивана +5, глубина ≤ max_d_cm, длина 0.5–0.75 длины дивана; ставится
+    вплотную к спинке по центру, маршрут за ней проверяет validate (проходы).
+    Кандидат — из имеющегося хранения (комод/тумба/стеллаж): отдельной роли «консоль»
+    в каталоге нет, это СПОСОБНОСТЬ узкого низкого корпуса (Q6a shallow_storage_capable)."""
+    CONSOLE_DIAG.clear()
+    if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
+        return None
+    sofa = next((p for p in (fixed or []) if p.role.split(' ')[0] == 'диван'), None)
+    if sofa is None or sofa.item is None:
+        CONSOLE_DIAG['reject'] = 'no_sofa'
+        return None
+    from .zones import _behind_decision
+    if _behind_decision(room, sofa) != 'passage_plus_shallow_storage':
+        CONSOLE_DIAG['reject'] = 'behind_strip_not_for_storage'
+        return None
+    cfg = (_zone_rules_zn().get('group_scheme') or {}).get('console') or {}
+    max_d = float(cfg.get('max_d_cm', 40))
+    lo, hi = (cfg.get('length_vs_sofa_soft') or [0.5, 0.75])
+    back_h = float(sofa.item.h_cm or 85) + 5.0
+    cands_it = [it for it in items
+                if it.role.split(' ')[0] in ('комод', 'тв-тумба', 'стеллаж', 'столик')
+                and it.d_cm <= max_d and (it.h_cm or 999) <= back_h
+                and lo * sofa.item.w_cm <= it.w_cm <= hi * sofa.item.w_cm * 1.34]   # верх — до 1.0 дивана
+    if not cands_it:
+        CONSOLE_DIAG['reject'] = 'no_console_capable_sku'
+        CONSOLE_DIAG['limits'] = {'max_d_cm': max_d, 'max_h_cm': back_h,
+                                  'w_range': [round(lo * sofa.item.w_cm), round(sofa.item.w_cm)]}
+        return None
+    cands_it.sort(key=lambda it: -it.w_cm)          # длиннее — ближе к канону «≈2/3 дивана»
+    r = math.radians(sofa.rot)
+    for it in cands_it[:3]:
+        # позиция: вплотную за спинкой, по центру дивана (спинка — противоположно фасаду)
+        off = sofa.item.d_cm / 2 + it.d_cm / 2 + 2.0
+        cx = sofa.x - math.sin(r) * off
+        cy = sofa.y - math.cos(r) * off
+        p = Placement(role=it.role, x=cx, y=cy, rot=(sofa.rot + 180) % 360, item=it)
+        p.tpl_id = 'storage'
+        p.tpl_variant = 'console_behind_sofa'
+        if free.intersection(footprint(p)).area < footprint(p).area * 0.97:
+            CONSOLE_DIAG['reject'] = 'no_space_behind'
+            continue
+        if not _inter_zone_ok(room, [p], list(fixed or [])):
+            CONSOLE_DIAG['reject'] = 'inter_zone'
+            continue
+        lay = validate(room, list(fixed or []) + [p])
+        if any(v.severity is Severity.HARD for v in lay.violations):
+            CONSOLE_DIAG['reject'] = 'hard'
+            CONSOLE_DIAG['hard'] = [v.code for v in lay.violations if v.severity is Severity.HARD][:3]
+            continue
+        CONSOLE_DIAG.update({'placed': it.role, 'w': it.w_cm, 'd': it.d_cm, 'h': it.h_cm,
+                             'sofa_w': sofa.item.w_cm, 'share': round(it.w_cm / sofa.item.w_cm, 2)})
+        return [p]
     return None
 
 
