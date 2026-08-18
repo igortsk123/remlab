@@ -1571,7 +1571,31 @@ def _axis_class(lay) -> int:
 
 def solve_zoned_beam(room: Room, items, **kw):
     """P2: драйвер beam. Возвращает (outs, gid) как solve_zoned; в meta лучшего —
-    'beam': {hypotheses, chosen, keys, certificate}. Выключен в данных → solve_zoned."""
+    'beam': {hypotheses, chosen, keys, certificate}. Выключен в данных → solve_zoned.
+
+    Q8 (Codex 18.08): правило отступа за спинкой — жёсткое, но НЕ выше обязательных зон.
+    Если с ним обязательная медиа-зона недостижима (`MEDIA_MISSING` при носителе в банке),
+    прогон повторяется с ослабленным отступом, и в трейс пишется `back_gap_forced` —
+    «нормальный отступ и обязательная зона несовместимы в этой геометрии»."""
+    _outs, _gid = _solve_zoned_beam_inner(room, items, **kw)
+    try:
+        if _outs and _outs[0].placements and os.environ.get('NO_SOFA_SLIVER') != '1' \
+                and any(v.code == 'MEDIA_MISSING' for v in _outs[0].violations):
+            os.environ['NO_SOFA_SLIVER'] = '1'
+            try:
+                _o2, _g2 = _solve_zoned_beam_inner(room, items, **kw)
+            finally:
+                os.environ.pop('NO_SOFA_SLIVER', None)
+            if _o2 and _o2[0].placements and not any(v.code == 'MEDIA_MISSING' for v in _o2[0].violations):
+                _o2[0].meta.setdefault('beam', {})['back_gap_forced'] = \
+                    'orphan_allowed: обязательная медиа-зона недостижима при нормальном отступе'
+                return _o2, _g2
+    except Exception:
+        pass
+    return _outs, _gid
+
+
+def _solve_zoned_beam_inner(room: Room, items, **kw):
     cfg = zone_rules().get('beam', {})
     if not cfg.get('enabled', False) or os.environ.get('LAYOUT_BEAM', '1') == '0':
         return solve_zoned(room, items, **kw)
