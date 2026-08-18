@@ -2686,6 +2686,129 @@ def place_quiet(room: Room, items: list[Item], free: Polygon,
     return ps
 
 
+NOOK_DIAG: dict = {}   # Q6b: почему уголок (не) собрался/встал — читает solve_zoned → `_dining`
+
+
+def _nook_rules() -> dict:
+    return (_zone_rules_tpl().get('zones', {}).get('dining', {}).get('rules') or {})
+
+
+def bench_seats(bench: Item) -> int | None:
+    """Мест на банкетке — ТОЛЬКО из capability-проекции каталога (`caps.guaranteed_seats`, длина/60).
+    Нет caps → None (unknown): считать места из ширины запрещено (Codex Q6a/Q6b — пуф подходящей
+    ширины не обязан быть пригоден для еды)."""
+    v = (getattr(bench, 'caps', None) or {}).get('guaranteed_seats')
+    try:
+        return int(v) if v is not None else None
+    except Exception:
+        return None
+
+
+def build_edge_nook(by_role: dict[str, Item], variant: str = 'edge_nook_4') -> Block | None:
+    """Q6b свода №13: banquette-уголок — банкетка спинкой к ПРЯМОЙ стене + стол кромкой вровень
+    (зазор 0–3 см, `geometry.nook_table_bench_gap_cm`: 2D-модель не знает столешницу/царгу, поэтому
+    вместо нахлёста — минимальный зазор) + стулья со свободной стороны. Минимум 4 места:
+    `caps.guaranteed_seats` ≥2 И ≥2 стула (Codex 17.08). Формы edge_nook_4/5/6 атомарные —
+    торцевые стулья не «молчаливый добор». Локальный фрейм: банкетка (0,0) rot 0 — фасад +y
+    (в комнату), спинка к стене (-y)."""
+    NOOK_DIAG.clear()
+    bench = by_role.get('банкетка')
+    tbl = by_role.get('стол обеденный')
+    chairs = [by_role[r] for r in sorted(by_role) if r == 'стул' or r.startswith('стул ')]
+    if bench is None:
+        NOOK_DIAG['reject'] = 'no_bench'
+        return None
+    seats_b = bench_seats(bench)
+    if seats_b is None:
+        NOOK_DIAG['reject'] = 'bench_capability_unknown'
+        return None
+    if not (getattr(bench, 'caps', None) or {}).get('dining_seat_capable'):
+        NOOK_DIAG['reject'] = 'bench_not_dining_capable'   # высота сиденья не подтверждена как обеденная
+        return None
+    if seats_b < int(_nook_rules().get('nook_bench_min_seats', 2)):
+        NOOK_DIAG['reject'] = 'bench_capacity_lt2'
+        return None
+    if tbl is None:
+        NOOK_DIAG['reject'] = 'no_table'
+        return None
+    need_chairs = {'edge_nook_4': 2, 'edge_nook_5': 3, 'edge_nook_6': 4}.get(variant, 2)
+    if len(chairs) < need_chairs:
+        NOOK_DIAG['reject'] = 'chairs_lt2' if need_chairs == 2 else f'chairs_lt{need_chairs}'
+        return None
+    chairs = chairs[:need_chairs]
+    if not (0.5 * bench.w_cm <= tbl.w_cm <= 1.2 * bench.w_cm):
+        NOOK_DIAG.update({'reject': 'table_bench_mismatch', 'bench_w': bench.w_cm, 'table_w': tbl.w_cm})
+        return None
+    gap = float(_g('nook_table_bench_gap_cm', 2.0))
+    b = Block(bench)
+    ty = bench.d_cm / 2 + gap + tbl.d_cm / 2
+    b.add(tbl, 0.0, ty, 0.0)
+    far = ty + tbl.d_cm / 2                                  # свободная кромка стола
+    cw = max(c.w_cm for c in chairs)
+    _edge = float(_nook_rules().get('edge_per_diner_cm', 61) or 61)
+    pair_ok = tbl.w_cm >= max(2 * cw + 24, 2 * _edge)
+    xs = [-tbl.w_cm / 4, tbl.w_cm / 4] if pair_ok else [0.0]
+    spots = [(x, far, 180.0) for x in xs][:2]
+    if len(spots) < 2:                                        # узкий стол — второй стул на торец
+        spots.append((tbl.w_cm / 2, ty, 270.0))
+    if variant in ('edge_nook_5', 'edge_nook_6'):
+        spots.append((tbl.w_cm / 2, ty, 270.0))
+    if variant == 'edge_nook_6':
+        spots.append((-tbl.w_cm / 2, ty, 90.0))
+    for ch, (sx, sy, srot) in zip(chairs, spots):
+        off = ch.d_cm / 2 + CHAIR_GAP
+        dx, dy = _rt(0.0, off, srot)
+        b.add(ch, sx - dx, sy - dy, srot)
+    NOOK_DIAG.update({'variant': variant, 'bench_seats': seats_b, 'chairs': len(chairs),
+                      'total_seats': seats_b + len(chairs), 'gap_cm': gap})
+    if seats_b + len(chairs) < int(_nook_rules().get('nook_min_total_seats', 4)):
+        NOOK_DIAG['reject'] = 'seats_lt4'
+        return None
+    return _valid(b, 'dining')
+
+
+def _at_window_wall(room: Room, p: Placement) -> bool:
+    """Позиция спинкой к оконной стене (Q6b: запрещено — банкетке нужна глухая опора; окно — Q8)."""
+    from .geometry import opening_polygon
+    fp = footprint(p)
+    for op in room.openings:
+        if op.kind != 'window':
+            continue
+        if fp.distance(opening_polygon(room, op)) < 40:
+            return True
+    return False
+
+
+def place_edge_nook(room: Room, items: list[Item], free: Polygon,
+                    fixed: list[Placement] | None = None) -> list[Placement] | None:
+    """Q6b: постановка уголка — банкетка спиной к ПРЯМОЙ стене (окно исключено: `allow_window_back=false`).
+    Формы от большей к меньшей; валидность (проходы, дуга двери, отодвигание стульев, торец) —
+    validate + `check_edge_nook_contract`."""
+    if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
+        return None
+    by_role: dict[str, Item] = {}
+    for it in items:
+        by_role.setdefault(it.role, it)
+    _fx = list(fixed or [])
+    for variant in ('edge_nook_6', 'edge_nook_5', 'edge_nook_4'):
+        b = build_edge_nook(by_role, variant=variant)
+        if b is None:
+            continue
+        cands = [c for c in wall_candidates(room, b.anchor, free)
+                 if not _at_window_wall(room, c.placement)]
+        if not cands:
+            NOOK_DIAG['reject'] = 'no_wall_segment'
+            continue
+        ps = _best_block(room, b, free, cands, tv=None, fixed=_fx)
+        if ps:
+            for q in ps:
+                q.tpl_variant = variant
+            NOOK_DIAG['placed'] = variant
+            return ps
+        NOOK_DIAG['reject'] = 'no_valid_position'
+    return None
+
+
 def place_decor(room: Room, items: list[Item], free: Polygon,
                 fixed: list[Placement] | None = None) -> list[Placement] | None:
     """ЗОНА ДЕКОРА (последняя по приоритету, правило владельца 11.08): напольная

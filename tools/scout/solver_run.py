@@ -602,6 +602,9 @@ def attempt_beam():
         rd = float(src.get('d') or src.get('dia') or d)
         its.append(_It(role=role, w_cm=rw, d_cm=rd, h_cm=(src.get('h') or None),
                        name=(src.get('name') or None),
+                       # Q6a/Q6b: способности SKU (`caps_used` из capabilities-index через compose2) —
+                       # солвер берёт места банкетки из guaranteed_seats, а не считает из ширины
+                       caps=dict(src.get('caps_used') or {}),
                        corner=(role == 'диван' and CORNER),
                        corner_section_cm=(OCC or {}).get('corner_sofa_section_depth_cm', 95),
                        # LAF/RAF (веб 08.08): сторона угла — свойство SKU; «левый/правый»

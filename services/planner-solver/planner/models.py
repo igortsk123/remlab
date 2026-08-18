@@ -91,6 +91,10 @@ class Item(BaseModel):
     corner_section_cm: float = Field(default=95, gt=0, description="глубина секции Г-дивана")
     corner_left: bool = Field(default=False, description="плечо Г-дивана на левой стороне")
     corner_side_fixed: bool = False   # сторона угла задана SKU — зеркало не пробовать
+    # Q6a/Q6b (Codex 17.08): СПОСОБНОСТИ SKU из capability-проекции каталога (`tools/scout/capabilities.py`)
+    # — не пересчитывать их из габаритов в солвере (места банкетки = guaranteed_seats, а не w/60).
+    # Пусто = данных нет (unknown), НЕ «нет способности»: шаблон, требующий caps, тогда не собирается.
+    caps: dict = Field(default_factory=dict)
 
 
 class Placement(BaseModel):

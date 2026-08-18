@@ -289,7 +289,10 @@
     },
     "edge_per_diner_cm": 61,
     "scale_cascade": "4 мест → 2 места → foldable: масштаб столовой меняется, living не ломается (small-свод §14)",
-    "operational_envelope_cm": 90
+    "operational_envelope_cm": 90,
+    "nook_min_total_seats": 4,
+    "nook_bench_min_seats": 2,
+    "_nook_why": "Q6b (Codex): edge_nook = банкетка (dining_seat_capable, ≥2 места) + стол + ≥2 стула со свободной стороны; минимум 4 места; торцевые стулья — отдельные формы edge_nook_5/6"
    },
    "schemes": [
     {
@@ -318,9 +321,26 @@
      "when": "постоянный стол ломает циркуляцию; в товаре флаг «раскладной»",
      "why": "откидной/раскладной — нормальное дизайнерское решение малых пространств, не деградация (small-свод §12)",
      "status": "sleeping: catalog_gap — складной/пристенный стол в каталоге нет"
+    },
+    {
+     "id": "dining_edge_nook",
+     "order": 3,
+     "when": "остров и компактный круг недостижимы; есть банкетка (dining_seat_capable, ≥2 места), стол и ≥2 стула",
+     "why": "banquette-уголок: банкетка спинкой к ПРЯМОЙ стене, стол кромкой вровень (0–3 см), стулья со свободной стороны; экономит площадь, где остров не влезает (Shelby Williams; IKEA 60 см кромки на едока). Окно вне Q6b (allow_window_back=false) → Q8",
+     "status": "implemented_library/unwired: template.build_edge_nook/place_edge_nook — библиотека готова, в production-каскад подключается в Q6c",
+     "variants": [
+      "edge_nook_4",
+      "edge_nook_5",
+      "edge_nook_6"
+     ],
+     "allow_window_back": false,
+     "allow_L_shape": false
     }
    ],
-   "degradation_level": "B"
+   "degradation_level": "B",
+   "optional": [
+    "банкетка"
+   ]
   },
   "storage": {
    "id": "storage",
@@ -577,7 +597,8 @@
    "стул 3",
    "стул 4",
    "стул 5",
-   "стул 6"
+   "стул 6",
+   "банкетка"
   ],
   "storage": [
    "стеллаж",
@@ -616,6 +637,14 @@
   "coffee_gap_compact_cm": {
    "v": 36.0,
    "why": "ВТОРОЙ КАНОН зазора (владелец 17.08: никаких допусков — только каноны): нижняя граница нормы distances.sofa_coffee_table [36,46]; для тесных комнат/проходов. Прежние 32/48 (вне нормы) и сдвиг столика вдоль дивана удалены из каскада"
+  },
+  "nook_table_bench_gap_cm": {
+   "v": 2.0,
+   "why": "Q6b (Codex 17.08): кромка стола у банкетки — вровень/нахлёст ≤7.6 см (Shelby Williams booth&banquette), щели 10–15 см не бывает; 2D-модель не знает столешницу/царгу → прокси-зазор 0–3 см"
+  },
+  "nook_end_access_cm": {
+   "v": 60.0,
+   "why": "Q6b: подход к ТОРЦУ банкетки (сесть/выйти) — внутренний минимум вторичного прохода, НЕ норма доступности (U.S. Access Board §903)"
   },
   "flank_gap_cm": {
    "v": 32,

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import math
 
-from shapely.geometry import Polygon
+from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
 
 from .clearances import (LOW_ITEM_MAX_H_CM, NEVER_BLOCKING_ROLES, band_scale, distances,
@@ -1503,6 +1503,89 @@ def check_quiet_contract(room: Room, ps: list[Placement]) -> list[Violation]:
     return out
 
 
+def _TEMPLATES_RULES() -> dict:
+    from .invariants import TEMPLATES as _T
+    return _T
+
+
+def check_edge_nook_contract(room: Room, ps: list[Placement]) -> list[Violation]:
+    """Q6b свода №13 (Codex 17.08): контракт banquette-уголка (tpl_variant edge_nook_*):
+    (1) банкетка спинкой к ГЛУХОЙ стене (окно в Q6b запрещено — опоры нет, подоконник/радиатор → Q8);
+    (2) ёмкость ≥4: caps.guaranteed_seats ≥2 И ≥2 стула;
+    (3) стол вровень с банкеткой (зазор ≤3 см; щель 10–15 см — не уголок, до стола не дотянуться);
+    (4) хотя бы один ТОРЕЦ банкетки доступен (≥ nook_end_access_cm) — иначе не сесть/не выйти;
+    (5) за каждым стулом есть место отодвинуть (dining_chair_pullout hard 55 см)."""
+    nook = [p for p in ps if str(getattr(p, 'tpl_variant', '') or '').startswith('edge_nook')]
+    if not nook:
+        return []
+    from .geometry import base_role, opening_polygon, room_polygon
+    out: list[Violation] = []
+    bench = next((p for p in nook if base_role(p.role) == 'банкетка'), None)
+    tbl = next((p for p in nook if base_role(p.role) == 'стол обеденный'), None)
+    chairs = [p for p in nook if base_role(p.role) == 'стул']
+    if bench is None or tbl is None:
+        return [_v("NOOK_COMPOSITION", "уголок без банкетки или стола",
+                   [p.role for p in nook], 0.0, "банкетка + стол + ≥2 стула")]
+    _tr = _TEMPLATES_RULES()
+    _geo = lambda k, d: float(((_tr.get('geometry') or {}).get(k) or {}).get('v', d))
+    _dr = ((_tr.get('zones') or {}).get('dining') or {}).get('rules') or {}
+    seats_b = ((bench.item.caps if bench.item else {}) or {}).get('guaranteed_seats')
+    seats_b = int(seats_b) if seats_b is not None else 0
+    total = seats_b + len(chairs)
+    if seats_b < int(_dr.get('nook_bench_min_seats', 2)) or len(chairs) < 2 \
+            or total < int(_dr.get('nook_min_total_seats', 4)):
+        out.append(_v("NOOK_CAPACITY", f"уголок на {total} мест (банкетка {seats_b} + стулья {len(chairs)})",
+                      [bench.role], float(total), "≥4 места: банкетка ≥2 и ≥2 стула"))
+    r = math.radians(bench.rot)
+    _bd = bench.item.d_cm if bench.item else 40.0
+    _bw = bench.item.w_cm if bench.item else 120.0
+    bx, by = bench.x - math.sin(r) * (_bd / 2 + 6), bench.y - math.cos(r) * (_bd / 2 + 6)
+    rp = room_polygon(room)
+    if rp.contains(Point(bx, by)) and rp.exterior.distance(Point(bx, by)) > 12:
+        out.append(_v("NOOK_WALL_SUPPORT", "банкетка стоит не спинкой к стене",
+                      [bench.role], None, "спинка к глухой стене (опора)"))
+    for op in room.openings:
+        if op.kind == 'window' and footprint(bench).distance(opening_polygon(room, op)) < 40:
+            out.append(_v("NOOK_WINDOW_WALL", "банкетка спинкой к окну (в Q6b запрещено)",
+                          [bench.role], None, "глухая стена; окно — пакет Q8"))
+            break
+    gap = footprint(bench).distance(footprint(tbl))
+    if gap > _geo('nook_table_bench_gap_cm', 2.0) + 1.0:
+        out.append(_v("NOOK_TABLE_GAP", f"стол в {gap:.0f} см от банкетки — не дотянуться",
+                      [tbl.role, bench.role], round(gap), "кромка вровень (0–3 см)"))
+    _need_end = _geo('nook_end_access_cm', 60.0)
+    ends_ok = False
+    for sgn in (-1, 1):
+        # полоса ВОЗЛЕ ТОРЦА в той же глубинной полосе, что и банкетка (ориентированный
+        # прямоугольник, не круг: у стены круг всегда торчит наружу — ложный отказ)
+        ex = bench.x + sgn * math.cos(r) * (_bw / 2 + _need_end / 2)
+        ey = bench.y - sgn * math.sin(r) * (_bw / 2 + _need_end / 2)
+        probe = footprint(Placement(role='_probe', x=ex, y=ey, rot=bench.rot,
+                                    item=Item(role='_probe', w_cm=_need_end, d_cm=_bd, h_cm=1)))
+        if rp.intersection(probe).area < probe.area * 0.9:
+            continue
+        if any(footprint(q).intersects(probe.buffer(-1)) for q in ps
+               if q is not bench and base_role(q.role) != 'ковёр'):
+            continue
+        ends_ok = True
+        break
+    if not ends_ok:
+        out.append(_v("NOOK_END_BLOCKED", f"торцы банкетки заняты — вход в уголок < {_need_end:.0f} см",
+                      [bench.role], _need_end, f"≥{_need_end:.0f} см с одного торца"))
+    pull = float((distances().get("dining_chair_pullout") or [55, 71])[0])
+    for ch in chairs:
+        cr = math.radians(ch.rot)
+        px = ch.x - math.sin(cr) * (pull / 2 + (ch.item.d_cm / 2 if ch.item else 20))
+        py = ch.y - math.cos(cr) * (pull / 2 + (ch.item.d_cm / 2 if ch.item else 20))
+        probe = Point(px, py).buffer(pull / 2 * 0.8)
+        if (not rp.contains(probe)) or any(footprint(q).intersects(probe) for q in ps
+                                           if q is not ch and base_role(q.role) not in ('ковёр', 'стул')):
+            out.append(_v("NOOK_PULLOUT_BLOCKED", f"«{ch.role}» некуда отодвинуть ({pull:.0f} см)",
+                          [ch.role], pull, f"≥{pull:.0f} см за стулом"))
+            break
+    return out
+
+
 def validate(room: Room, placements: list[Placement], *, passage: str = "secondary",
              fast_hard: bool = False) -> Layout:
     """Полная валидация. `fast_hard=True` — ПУТЬ ПОИСКА (template._best_block): тот же набор проверок,
@@ -1538,6 +1621,7 @@ def validate(room: Room, placements: list[Placement], *, passage: str = "seconda
         lambda: check_service_surface(room, placements),
         lambda: check_decor_anchoring(room, placements),
         lambda: check_quiet_contract(room, placements),
+        lambda: check_edge_nook_contract(room, placements),
         lambda: check_passages(room, placements, passage),   # самая дорогая — последней
     ]
     vs: list[Violation] = []
