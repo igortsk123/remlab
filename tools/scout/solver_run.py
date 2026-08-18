@@ -605,6 +605,13 @@ def attempt_beam():
                        # Q6a/Q6b: способности SKU (`caps_used` из capabilities-index через compose2) —
                        # солвер берёт места банкетки из guaranteed_seats, а не считает из ширины
                        caps=dict(src.get('caps_used') or {}),
+                       # Q6d: круглый SKU (в фиде есть dia, ширины нет) — след ОКРУЖНОСТЬ реального
+                       # диаметра, а не bbox: круг Ø110 экономит ~0.26 м² пола и проходит там,
+                       # где квадрат 110×110 не влезал (dining_round_compact был sleeping из-за этого)
+                       round_shape=bool(role.split(' ')[0] in ('стол обеденный', 'столик', 'пуф')
+                                        and ((src.get('dia') and not src.get('w'))
+                                             or (_re.search(r'кругл|овальн', (src.get('name') or '').lower())
+                                                 and abs(float(src.get('w') or 0) - float(src.get('d') or 0)) <= 2))),
                        corner=(role == 'диван' and CORNER),
                        corner_section_cm=(OCC or {}).get('corner_sofa_section_depth_cm', 95),
                        # LAF/RAF (веб 08.08): сторона угла — свойство SKU; «левый/правый»

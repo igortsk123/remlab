@@ -2,6 +2,7 @@
 Синтетические сцены; поправки Codex 17.08: места — из caps (не из ширины), стол вровень (0–3 см),
 минимум 4 места, окно спинкой запрещено (Q8), доступный торец, отодвигание стульев."""
 import math
+import os
 
 import pytest
 
@@ -119,3 +120,24 @@ def test_contract_flags_blocked_end_and_pullout():
           _pl('шкаф', 195, 60, 270, 60, 200, 220, var='')]
     codes = {v.code for v in check_edge_nook_contract(room, ps)}
     assert 'NOOK_END_BLOCKED' in codes
+
+
+# ---------- Q6d: круглый стол — окружность реального диаметра, не bbox ----------
+def test_round_footprint_is_circle_not_bbox():
+    from planner.geometry import footprint
+    R = 'стол обеденный'
+    rnd = Item(role=R, w_cm=110, d_cm=110, h_cm=75, round_shape=True)
+    sq = Item(role=R, w_cm=110, d_cm=110, h_cm=75)
+    area = lambda it: footprint(Placement(role=R, x=200, y=200, rot=0, item=it)).area / 10_000
+    assert abs(area(rnd) - math.pi * 0.55 ** 2) < 0.02          # π·r², Ø110 → 0.95 м²
+    assert area(sq) - area(rnd) > 0.2                            # bbox «съедал» ~0.26 м²
+
+
+SCOUT = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'tools', 'scout')
+
+
+def test_round_flag_from_sku_in_adapter():
+    """Флаг круга ставит адаптер: `dia` без ширины ИЛИ имя «круглый/овальный» при w≈d
+    (в каталоге круглые обеденные приходят как w=d, без dia)."""
+    src = open(os.path.join(SCOUT, 'solver_run.py'), encoding='utf-8').read()
+    assert 'round_shape=' in src and 'кругл|овальн' in src

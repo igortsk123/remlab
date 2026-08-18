@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 
-from shapely.affinity import rotate, translate
+from shapely.affinity import rotate, translate, scale
 from shapely.geometry import Point, Polygon, box
 from shapely.ops import unary_union
 
@@ -48,12 +48,18 @@ def footprint(p: Placement, item: Item | None = None) -> Polygon:
     if it is None:
         raise ValueError(f"footprint({p.role}): нет габаритов (item=None)")
     key = (it.role, it.w_cm, it.d_cm, it.corner, it.corner_section_cm, it.corner_left,
+           getattr(it, 'round_shape', False),
            round(p.x, 2), round(p.y, 2), round(p.rot, 2))
     hit = _FP_CACHE.get(key)
     if hit is not None:
         return hit
     if it.corner:
         poly = _corner_polygon(it)
+    elif getattr(it, 'round_shape', False):
+        # Q6d: круг/овал — эллипс по фактическим осям (для круга w==d это окружность Ø w);
+        # поворот на такой след не влияет, но оставляем общий путь
+        poly = Point(0, 0).buffer(0.5, quad_segs=32)
+        poly = scale(poly, it.w_cm, it.d_cm, origin=(0, 0))
     else:
         poly = box(-it.w_cm / 2, -it.d_cm / 2, it.w_cm / 2, it.d_cm / 2)
     poly = rotate(poly, -p.rot, origin=(0, 0), use_radians=False)
