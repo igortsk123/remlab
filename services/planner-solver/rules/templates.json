@@ -239,6 +239,20 @@
       ],
       "_proof": "wall_min 520: носитель ~160–300 + 2 компаньона ~80 + зазоры 2×40 + запас краёв ≥40 с каждой стороны; gap 40 — тот же, что media+камин side-by-side (build_media_fireplace)"
      }
+    },
+    {
+     "id": "fireplace_side_by_side",
+     "order": 8,
+     "when": "камин и носитель ТВ на одной стене",
+     "why": "камин + ТВ рядом (не ТВ над камином): общий якорь стены, оба видимы с посадки; практика 27% каминов при 35% ТВ",
+     "status": "implemented_as: template.build_media_fireplace / place_media_fireplace"
+    },
+    {
+     "id": "tv_over_fireplace",
+     "order": 99,
+     "when": "—",
+     "why": "ТВ НАД камином: нет вертикальной модели (высота экрана/топки, тепловые зазоры), и канон спорный — источники относят к устаревающим решениям",
+     "status": "sleeping: нужна вертикальная модель высот и тепловых зазоров"
     }
    ],
    "degradation_level": "A"
@@ -265,7 +279,30 @@
      91
     ]
    },
-   "degradation_level": "B"
+   "degradation_level": "B",
+   "schemes": [
+    {
+     "id": "storage_flanks",
+     "order": 1,
+     "when": "по сторонам камина есть место под симметричную пару",
+     "why": "классическая симметрия: камин + два одинаковых корпуса по бокам",
+     "status": "implemented_as: template.build_fireplace (фланги хранения)"
+    },
+    {
+     "id": "plant_flanks",
+     "order": 2,
+     "when": "корпусов нет, есть растения",
+     "why": "мягкая симметрия зеленью, когда хранение занято другой стеной",
+     "status": "implemented_as: template.build_fireplace (фланги-растения)"
+    },
+    {
+     "id": "solo",
+     "order": 3,
+     "when": "фланговать нечем",
+     "why": "камин сам по себе — архитектурный фокус; пустые бока легальны (negative space)",
+     "status": "implemented_as: template.place_fireplace / зона fireplace_solo"
+    }
+   ]
   },
   "dining": {
    "id": "dining",
@@ -386,6 +423,13 @@
      "when": "периметр не дал места; высота ≤150; не на маршруте; не против света",
      "why": "открытый стеллаж как граница living|dining — приём ВТОРОГО приоритета в open-plan (large-свод §9)",
      "status": "sleeping: occupancy layout_rules.room_divider_capable_active=[] (стеллаж-делитель — свод №6, спит до данных)"
+    },
+    {
+     "id": "corner_tower",
+     "order": 4,
+     "when": "узкий стеллаж/витрина в углу",
+     "why": "угол под вертикальное хранение: корпус ВПЛОТНУЮ к одной из стен угла (не по диагонали), фасад доступен",
+     "status": "sleeping: вариант place_storage с corner-фильтром — Q11 шаг 5"
     }
    ],
    "degradation_level": "B",
@@ -458,18 +502,25 @@
    "_proof_ottoman": "E3 (свод №4): вариант «кресло + пуф-оттоманка» — канон reading nook (armchair+ottoman, Houzz/Ideal Home); нужен, когда единственный торшер занят ступенью sofa_lamp",
    "schemes": [
     {
-     "id": "bay",
-     "order": 2,
-     "when": "room_map.bays непуст и кресло проходит по ширине эркера",
-     "why": "свод №5 C5 (Livingetc/H&G bay window ideas): эркер — канонное место компакт-кресла/нука; позиция в центре эркера, спинка к наружной кромке, фронт в комнату; глубокое кресло выступает из ниши в комнату — допустимо, эркер часть помещения",
-     "status": "implemented_as: template.place_bay_armchair (+bay)"
-    },
-    {
      "id": "window_anchor",
      "order": 1,
-     "when": "в комнате есть окно и свободно кресло (не занято главной группой)",
-     "why": "кресло у окна лицом в комнату/к главной группе — самый частый исход практики у окна (28%); свет за плечом, вид из окна",
+     "when": "есть окно и свободное кресло (не занято главной группой)",
+     "why": "кресло у окна лицом в комнату/к фокусу — самый частый исход практики у окна (28%); сильный архитектурный якорь — проём, поэтому допустим singleton",
      "status": "implemented_as: template.place_window_reading (tpl_variant=window_anchor)"
+    },
+    {
+     "id": "bay_anchor",
+     "order": 2,
+     "when": "в комнате есть эркер",
+     "why": "эркер — канонное место нука: кресло внутри ниши, лицом в комнату",
+     "status": "implemented_as: template.place_reading (bay-кандидаты) + place_bay_armchair (алиас, к слиянию)"
+    },
+    {
+     "id": "corner_vignette",
+     "order": 3,
+     "when": "свободный угол вне двери/маршрута; в банке кресло + свет + поверхность",
+     "why": "базовая формула читального угла: кресло + лампа + приставной столик (H&G chair-table-lamp). В обычном углу якоря нет, поэтому свет И поверхность ОБЯЗАТЕЛЬНЫ — иначе кресло читается как забытое",
+     "status": "implemented_as: template.place_reading (variant=corner_vignette, строгий комплект)"
     }
    ],
    "variant_invariants_exempt": {
@@ -477,7 +528,8 @@
      "min_composition"
     ]
    },
-   "_window_anchor_why": "Q10b свода №13 (19.08): у ОКНА кресло — самодостаточная композиция (практика: «кресло/пара кресел у окна» 28% проектов); якорем служит сам проём, поэтому min_composition (зона из одного предмета — не шаблон) для схемы window_anchor не применяется. У произвольной стены правило остаётся: одинокое кресло читается как забытый предмет"
+   "_window_anchor_why": "Q10b свода №13 (19.08): у ОКНА кресло — самодостаточная композиция (практика: «кресло/пара кресел у окна» 28% проектов); якорем служит сам проём, поэтому min_composition (зона из одного предмета — не шаблон) для схемы window_anchor не применяется. У произвольной стены правило остаётся: одинокое кресло читается как забытый предмет",
+   "_anchor_model": "Q11 (Codex 19.08): модель «функция × якорь × форма». reading — ОДНО место для индивидуального занятия; у окна/эркера допустим singleton (архитектурный якорь), в обычном углу нужен полный комплект. Пара кресел — это quiet (quiet_chat), пара у камина — quiet.fireplace_flank; отдельных зон corner/window/bay НЕ заводим"
   },
   "decor": {
    "id": "decor",
@@ -491,7 +543,23 @@
     "gap_cm": 30,
     "why": "напольный декор не жмётся к мебели (замечание владельца 11.08 + датасет ProcTHOR)"
    },
-   "degradation_level": "D"
+   "degradation_level": "D",
+   "schemes": [
+    {
+     "id": "corner_plant",
+     "order": 1,
+     "when": "свободный угол вне двери/маршрута",
+     "why": "угол — место маленькой вторичной функции, крупное растение — самый частый нейтральный исход (практика 20%); свет — предпочтение, не hard",
+     "status": "implemented_as: template.place_decor (угловые кандидаты + бонус света)"
+    },
+    {
+     "id": "bay_plant",
+     "order": 2,
+     "when": "эркер свободен от посадки",
+     "why": "растение в эркере — свет и вид, ниша остаётся проходимой (C5 свода №5)",
+     "status": "implemented_as: template.place_decor (bay-кандидаты, bay_bonus)"
+    }
+   ]
   },
   "fireplace_solo": {
    "id": "fireplace_solo",
@@ -505,7 +573,16 @@
     "sku_dimensions_intact"
    ],
    "why": "камин — не предмет обстановки, а элемент комнаты: если флангов нет, он всё равно обязан стоять. Поэтому min_composition к нему не применяется",
-   "degradation_level": "B"
+   "degradation_level": "B",
+   "schemes": [
+    {
+     "id": "solo",
+     "order": 1,
+     "when": "камин без пары компаньонов",
+     "why": "фокус-стена может быть одиночной: пустые бока — не дефект (ADR-0091 negative space)",
+     "status": "implemented_as: template.place_fireplace (solo-ветка)"
+    }
+   ]
   },
   "media_wall": {
    "id": "media_wall",
@@ -562,7 +639,49 @@
    ],
    "degradation_level": "C",
    "proof": "свод владельца №5 C5 + одобрение 14.08 «новые шаблоны под эркер — ок»; Livingetc/H&G bay window ideas: armchair + side lamp в эркере — канон; замер: 10 bay-сцен держали кресло в банке",
-   "_why_no_min_composition": "зона из одного кресла легальна ИМЕННО здесь: рамку зоны задаёт архитектура (ниша эркера), а не второй предмет — исключение одобрено владельцем 14.08"
+   "_why_no_min_composition": "зона из одного кресла легальна ИМЕННО здесь: рамку зоны задаёт архитектура (ниша эркера), а не второй предмет — исключение одобрено владельцем 14.08",
+   "_deprecated": "Q11: слито с reading.bay_anchor (одна функция — два имени). Код place_bay_armchair сохранён как алиас до объединения; новые каноны заводить только в reading"
+  },
+  "window_seat": {
+   "id": "window_seat",
+   "version": "1.0",
+   "priority": 8,
+   "purpose": "сиденье у окна: банкетка/скамья, конструктивно связанная с проёмом",
+   "required": [
+    "банкетка"
+   ],
+   "optional": [
+    "подушка",
+    "кашпо"
+   ],
+   "invariants": [
+    "no_self_overlap",
+    "sku_dimensions_intact"
+   ],
+   "rules": {
+    "height_vs_sill": "не выше подоконника + 10 см",
+    "front_access_cm": 60,
+    "radiator_policy": "fail_closed: над радиатором НЕ ставим, пока нет высоты/типа батареи и capability radiator_compatible; обычная напольная банкетка — только с hard-зазором от лицевой грани",
+    "_why": "Q11 (Codex 19.08): window seat — самостоятельная атомарная композиция (особый товар: банкетка/скамья window_seat_capable, особая геометрия: спинка к оконной стене, доступ СПЕРЕДИ). Свободное кресло сюда не относится — это reading.window_anchor",
+    "_provenance": "external: AD window-seat-ideas, Livingetc window-seat-ideas (тип устойчив, включая встроенное хранение); конкретные сантиметры — наши правила с собственным provenance"
+   },
+   "schemes": [
+    {
+     "id": "bench_under_window",
+     "order": 1,
+     "when": "есть банкетка window_seat_capable и глухая оконная стена без радиатора под ней",
+     "why": "скамья под окном использует площадь у стены и почти не закрывает свет (практика 17%)",
+     "status": "sleeping: placer в Q10a; над радиатором fail-closed"
+    },
+    {
+     "id": "bay_bench",
+     "order": 2,
+     "when": "эркер достаточной глубины",
+     "why": "скамья в эркере — канонная форма window seat",
+     "status": "sleeping: placer в Q10a"
+    }
+   ],
+   "_capability": "integrated_storage / counts_as_storage — capability товара, а не отдельная схема"
   }
  },
  "removed": {

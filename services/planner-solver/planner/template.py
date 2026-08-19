@@ -2044,6 +2044,24 @@ def place_reading(room: Room, items: list[Item], free: Polygon,
     b = build_reading(by_role)
     if b is None:
         return None
+    # Q11 (Codex 19.08): УГЛОВОЙ канон `corner_vignette` — кресло + СВЕТ + ПОВЕРХНОСТЬ
+    # (H&G chair-table-lamp). В обычном углу архитектурного якоря нет, поэтому комплект
+    # обязателен: одинокое кресло в углу читается как забытый предмет. Пробуем ПЕРВЫМ:
+    # угол — самое частое место вторичной функции в практике (кресло-чтение 31%).
+    _strict = (by_role.get('торшер') is not None or by_role.get('лампа') is not None) and \
+        (by_role.get('приставной') is not None or by_role.get('столик 2') is not None)
+    if _strict:
+        _cb = build_reading(by_role)
+        if _cb is not None:
+            _cb.tpl_variant = 'corner_vignette'
+            _cc = [c for c in corner_snap_candidates(room, _cb.anchor, free)] \
+                if 'corner_snap_candidates' in globals() else []
+            if not _cc:
+                from .candidates import corner_snap_candidates as _csc
+                _cc = list(_csc(room, _cb.anchor, free))
+            _ps = _best_block(room, _cb, free, _cc, tv=None, fixed=fixed)
+            if _ps:
+                return _ps
     cands = list(wall_candidates(room, b.anchor, free))
     # Схема bay (паспорт reading 2.8, свод №5 C5): эркер — канонное место нука.
     # Кандидат в центре каждого эркера, спинка к наружной кромке, фронт в комнату;
