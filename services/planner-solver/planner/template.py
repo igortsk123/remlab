@@ -2054,11 +2054,24 @@ def place_reading(room: Room, items: list[Item], free: Polygon,
         _cb = build_reading(by_role)
         if _cb is not None:
             _cb.tpl_variant = 'corner_vignette'
-            _cc = [c for c in corner_snap_candidates(room, _cb.anchor, free)] \
-                if 'corner_snap_candidates' in globals() else []
-            if not _cc:
-                from .candidates import corner_snap_candidates as _csc
-                _cc = list(_csc(room, _cb.anchor, free))
+            # кандидаты считаем по ГАБАРИТУ ВСЕГО БЛОКА (кресло+торшер+столик), иначе угол
+            # подбирается под одно кресло, а композиция вылезает из комнаты (19.08)
+            _xs, _ys = [], []
+            for _it, _rx, _ry, _rr in _cb.rel:
+                _w, _d = (_it.d_cm, _it.w_cm) if int(_rr) % 180 == 90 else (_it.w_cm, _it.d_cm)
+                _xs += [_rx - _w / 2, _rx + _w / 2]
+                _ys += [_ry - _d / 2, _ry + _d / 2]
+            _bw, _bd = max(_xs) - min(_xs), max(_ys) - min(_ys)
+            _ox, _oy = -(max(_xs) + min(_xs)) / 2, -(max(_ys) + min(_ys)) / 2   # центр bbox → якорь
+            _virt = Item(role=_cb.anchor.role, w_cm=_bw, d_cm=_bd, h_cm=_cb.anchor.h_cm)
+            _cc = []
+            for _c in _corner_candidates(room, _virt, free):
+                # якорь = центр bbox − R(rot)·(смещение bbox в локальных координатах блока)
+                _wx, _wy = _rt(-_ox, -_oy, _c.placement.rot)
+                _cc.append(type(_c)(placement=Placement(role=_cb.anchor.role,
+                                                        x=_c.placement.x - _wx, y=_c.placement.y - _wy,
+                                                        rot=_c.placement.rot, item=_cb.anchor),
+                                    kind='corner', note='угол (по габариту блока)'))
             _ps = _best_block(room, _cb, free, _cc, tv=None, fixed=fixed)
             if _ps:
                 return _ps
@@ -2120,7 +2133,13 @@ def place_window_reading(room: Room, items: list[Item], free: Polygon,
         # отступ от стены: глубина радиатора на ТОЙ ЖЕ стене (+ зазор конвекции) либо минимум
         rd = max((r.depth_cm for r in (room.radiators or []) if r.wall == op.wall), default=0.0)
         rad_depth = max(rad_depth, rd)
-        setback = (rd + 12.0 if rd else 8.0) + b.anchor.d_cm / 2
+        # отступ считаем от ЗАДНЕЙ КРОМКИ ВСЕГО БЛОКА, а не только кресла: торшер/приставной
+        # стоят чуть позади кресла и первыми попадали в зону конвекции радиатора (19.08)
+        _back = max((it.d_cm / 2 - ry) for it, rx, ry, rr in b.rel)
+        # зазор конвекции — ИЗ ПРАВИЛ (clearances.distances.sofa_to_radiator_wall), а не «12 на глаз»
+        from .clearances import distances as _dz
+        _rad_clear = float((_dz().get('sofa_to_radiator_wall') or [15, 20])[0])
+        setback = (rd + _rad_clear + 3.0 if rd else 8.0) + _back
         g = _opg(room, op)
         mid_x, mid_y = g.centroid.x, g.centroid.y
         # три позиции вдоль окна: центр и трети — кресло не обязано стоять ровно по центру проёма
@@ -2451,12 +2470,18 @@ def _corner_candidates(room: Room, item: Item, free: Polygon) -> list:
     from .candidates import Candidate
     out = []
     w, d = item.w_cm, item.d_cm
-    diag = (w / 2) * math.sin(math.radians(45)) + (d / 2) * math.cos(math.radians(45))
+    # отступ от угла — по ПОЛУДИАГОНАЛИ прямоугольника: у вытянутого блока (кресло+торшер+
+    # столик, 180×92) прежняя формула давала слишком малый отступ, и композиция вылезала
+    # за стены — угловые кандидаты молча вымирали (19.08)
+    diag = max((w / 2) * math.sin(math.radians(45)) + (d / 2) * math.cos(math.radians(45)),
+               math.hypot(w, d) / 2)
     for cx, cy, rot in ((0, 0, 45), (room.width_cm, 0, 315),
                         (0, room.depth_cm, 135), (room.width_cm, room.depth_cm, 225)):
         r = math.radians(rot)
-        x = cx + math.sin(r) * (diag + 6)
-        y = cy + math.cos(r) * (diag + 6)
+        # 19.08: отступ 6 см давал перекрытие 95% при пороге 97% (usable_polygon отступает от
+        # стен) — угловые кандидаты вымирали молча; 14 см оставляет предмет целиком внутри
+        x = cx + math.sin(r) * (diag + 14)
+        y = cy + math.cos(r) * (diag + 14)
         p = Placement(role=item.role, x=x, y=y, rot=float(rot), item=item)
         fp = footprint(p)
         if free.intersection(fp).area >= fp.area * 0.97:
