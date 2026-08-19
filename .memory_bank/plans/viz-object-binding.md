@@ -2,9 +2,9 @@
 workstream: furniture
 slug: viz-object-binding
 title: Ф2 — привязка товара к объекту: врисовка по маске вместо «мебели по мотивам»
-status: in_progress
+status: partial
 created: 2026-08-04
-updated: 2026-08-04
+updated: 2026-08-19
 completed:
 ---
 
@@ -158,3 +158,6 @@ completed:
 
 ## Definition of Done — память
 - [ ] ADR по выбранному механизму врисовки; `core/furniture.md` обновлён; `/memory-check` чисто
+
+## Статус 2026-08-19 — `partial`
+Ф2 приостановлена 04.08: приоритет ушёл в ядро расстановки (своды №10–13, Q5–Q11). Возврат — после MASTER-zones-v7, вместе с MASTER-viz-quality.

@@ -1825,3 +1825,86 @@ compose, профиль солвера (_best_block ×24 validate, повтор�
 **Влияет на.** [[layout]], [[catalog]], template/zones/validate, templates.json/zones.json, compose2/
 sets_incremental/feed_guard/category_map/capabilities, refresh_daily/enrich/judge/openai_budget, run.sh/
 acceptance_run/render_plan/smoke_manifest, /test/templates, /test/acceptance-plans.
+
+## ADR-0109 — Визуальная библиотека канонов: референс проходит боевой валидатор, контекст — только по определению схемы (2026-08-19)
+
+**Решение.** Каноны расстановки существуют как ВИЗУАЛЬНЫЕ планы (`/test/canons/`), а не текстовый
+реестр: каждая схема паспорта рисуется тем же кодом, что рабочие планы
+(`tools/scout/canon_gallery.py` → `tools/scout/render_plan.py: render_artifact`), и обязана пройти
+боевой `services/planner-solver/planner/validate.py: validate()` плюс сторож «целиком внутри
+комнаты / мимо дуги двери / без самопересечений». Мягкие нарушения на эталоне печатаются наравне
+с жёсткими; допустимое отклонение оформляется явно в паспорте, а не умолчанием.
+
+**Правило контекста.** Предмет-свидетель (диван напротив, носитель ТВ) допустим на референсе
+ТОЛЬКО если схема определена относительно него: формы посадки — носитель ТВ (по оси ГЛАВНОГО
+дивана, как считает боевой `geometry.seat_axis_origin`), `media_centered` — диван, консоль — диван.
+Во всех прочих канонах запрещён. Контекст рисуется бледной заливкой и пунктиром с подписью
+«контекст» (`_context` в артефакте), но валидируется наравне с самим каноном.
+
+**Почему.** Владелец разбирал галерею по одной схеме (19.08) и находил на «эталоне» то, что мы
+запрещаем в рабочих планах. Причина — эталон собирался руками и проверялся глазами. Машина ловит
+это дешевле и честнее; и, что важнее, отрисовка канонов вскрыла дефекты БОЕВОГО кода: перепутанные
+стороны разворота кресел в `media_bridge` (кресла «к экрану» смотрели в наружные углы), штраф
+`ZONE_BUFFER` на консоль за то, что она стоит вплотную к спинке по своему же паспорту, ошибка
+отступа в `template._corner_candidates` (радиус до угла умножался на sin/cos повторно — блок
+заходил в стены на ~15 см), единственный кандидат в эркере (центроид) вместо позиций вдоль
+пролёта, столик Г-композиции в 75 см от второго дивана при hard-пределе 50 (валидатор мерил
+только главный диван).
+
+**Альтернативы.** (1) Текстовый реестр схем — отвергнут владельцем: «какой в этом смысл».
+(2) Каноны как мини-сцены без валидации — отвергнуто: именно так и появились дефекты.
+(3) Две панели «канон / в контексте» (предложение Codex) — отложено: одна картинка с явно
+помеченным контекстом решает ту же задачу дешевле.
+
+**Влияет на.** `tools/scout/canon_gallery.py`, `tools/scout/render_plan.py`,
+`services/planner-solver/rules/templates.json` (паспорта, allowlist отклонений),
+`core/layout.md`, план `plans/q11-canon-reference-contract.md` (открытые R1–R5, R7, R8).
+
+## ADR-0110 — Q6b–Q10 мастер-плана MASTER-zones-v7: уголок столовой, способности каталога, полоса за диваном, приоры практики, сертификат возможности (2026-08-18/19)
+
+**Решение.** Пять пакетов внедрены в боевое ядро расстановки:
+
+- **Q6b/Q6c уголок столовой** — `services/planner-solver/planner/template.py: build_edge_nook/place_edge_nook`
+  (банкетка спинкой к глухой стене + стол кромкой вровень + ≥2 стула), контракт
+  `planner/validate.py: check_edge_nook_contract` (NOOK_*: опора на стену, ≥4 места, торец ≥60,
+  отодвигание ≥55); места берём из `Item.caps.guaranteed_seats`, не из ширины. Каскад столовой:
+  остров → EDGE_NOOK → голый край.
+- **Q6a способности каталога** — таблица `product_capabilities`, tri-state (known/inferred/unknown/
+  conflict), fail-closed по подтипу; категория по РЕГЕКСУ, а не по листу пути (divan.ru терял 20 SKU);
+  высота сиденья backless-банкетки — inferred. Годных для уголка: 0 → 7.
+- **Q6d круглые формы** — `Item.round_shape`: круглый стол считается окружностью реального диаметра
+  (Ø110 = 0.95 м² вместо bbox 1.21); `dining_round_compact` из sleeping → implemented.
+- **Q6e консоль за диваном** — `template.place_console_behind_sofa` + `validate.check_console_contract`
+  (глубина ≤40, высота ≤ спинки+5, длина ≥половины дивана, вплотную ≤10).
+- **Q8 полоса за спинкой дивана** — `services/planner-solver/planner/back_gap.py`: единый класс полосы
+  (hugged <15 | air 15–30 | route ≥91 | functional | orphan 31–90 пусто), данные
+  `rules/occupancy.json: window_sofa.back_gap_policy`. КОРЕНЬ прежней проблемы «диван далеко от окна»
+  (79 сцен): наше правило SOFA_SLIVER разрешало ровно 80 см и ЗАПРЕЩАЛО норму 15–30. Радиатор мерим
+  по лицевой грани; Г-диван — только диагностика (bbox не описывает две спинки); при MEDIA_MISSING
+  правило ослабляется (retry + `back_gap_forced`) — отступ не выше required-зон.
+- **Q9 приоры практики (ТЕНЬ)** — `tools/scout/rules/practice_priors.json` (status shadow_hypothesis,
+  честный провенанс: источники подтверждают направление, не проценты) + `services/planner-solver/planner/opportunities.py`;
+  приоры — ordinal tie-break между РАВНОЦЕННЫМИ достижимыми исходами, включение только после слепых пар.
+- **Q10 сертификат возможности и фактическая вместимость** — `planner/opportunities.py: certify`
+  (occupied_by_required_zone / forced_empty_inventory / forced_empty_geometry / not_attempted /
+  free_intentional); `place_window_reading` (`tpl_variant=window_anchor`, у окна кресло самодостаточно);
+  `planner/zones.py: realized_capacity` + ярус `primary_sofa_missing` + `plan_key_capacity` — В ТЕНЬ
+  (`capacity_would_choose` в трейсе).
+
+**Почему.** Владелец прислал частоты практики («у окна кресло 28%, диван редко») и спросил, почему у
+нас иначе. Разбор показал две РАЗНЫЕ причины: (1) правило-инверсия в SOFA_SLIVER; (2) ключ сравнения
+считал богатством только номинальную ступень лестницы, поэтому «диван+кресло во фланге» всегда бил
+«диван + кресло у окна» при равном числе мест. Замер по 272 сценам: ключ вместимости изменил бы выбор
+в 108 сценах, из них 9 — в пользу кресла у окна; поэтому он включён В ТЕНЬ до слепых пар.
+
+**Замер после внедрения (272 сцены).** 269 ok + 3 честных MEDIA_MISSING, TIMEOUT 0, p50 ≈34 с;
+полоса за спинкой: 143 проход / 70 прижат / 56 воздух / 3 orphan (было 93 orphan); у окна: диван 73
+(было 87), кресла 43 (было 21). Исходы у окна: not_attempted 0% (было 51%).
+
+**Альтернативы.** Веса/вероятности из частот практики — отвергнуты: недетерминированно и непроверяемо;
+приоры допущены только как ordinal tie-break. Немедленное включение ключа вместимости — отвергнуто:
+сначала слепые пары на 108 расхождениях.
+
+**Влияет на.** `services/planner-solver/planner/back_gap.py`, `services/planner-solver/planner/opportunities.py`, `services/planner-solver/planner/zones.py`,
+`services/planner-solver/planner/template.py`, `services/planner-solver/planner/validate.py`, `services/planner-solver/rules/occupancy.json`, `services/planner-solver/rules/zones.json`,
+`services/planner-solver/rules/templates.json`, `tools/scout/rules/practice_priors.json`; `core/layout.md`, `core/catalog.md`.

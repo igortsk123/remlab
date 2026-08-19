@@ -21,12 +21,13 @@ PY="$HOME/venvs/scout/bin/python"
 
 case "${1:-}" in
   exam)
-    rm -f acceptance-report-zoned.jsonl
     # ЗАМОК (17.08): пока идёт экзамен, конвейер (refresh_daily/enrich_wait) НЕ трогает sets3.json —
     # утренний heal переписал банки под бегущими воркерами (pod-комплекты 72→17), экзамен стал смешанным.
     # flock: второй экзамен/сборка не стартуют параллельно; exam.lock — сигнал для cron
     exec 9>"$HERE/exam.flock"; flock -n 9 || { echo "экзамен уже идёт (exam.flock)"; exit 3; }
     touch "$HERE/exam.lock"; trap 'rm -f "$HERE/exam.lock"' EXIT
+    rm -f acceptance-report-zoned.jsonl     # ТОЛЬКО под замком (19.08): до фикса rm шёл ДО flock,
+    # и вторая попытка старта сносила отчёт УЖЕ ИДУЩЕГО экзамена — 40 минут прогона в никуда
     set +e; env ACC_WORKERS="${ACC_WORKERS:-10}" "$PY" acceptance_run.py zoned; rc=$?; rm -f "$HERE/exam.lock"; exit $rc ;;
   smoke)
     # БЫСТРЫЙ СМОУК (~40 сцен, ≈5 мин): обратная связь по правке, НЕ гейт (полный — exam/ночью)

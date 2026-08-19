@@ -728,14 +728,19 @@ def build_block(group_id: str, by_role: dict[str, Item],
         elif variant == 'media_bridge':
             # Q3 свода №13 (blind: владелец хочет кресла параллельно дивану или ПОЛУОБОРОТОМ
             # к ТВ, не «к дивану»; Wayfair: акцентное кресло рядом с диваном под углом к ТВ):
-            # пара флангами у столика, повёрнута к экрану на 45° (справа 45°, слева 315°) —
-            # зеркально «bridge», который смотрит НАЗАД (135/225). Медиапригодность
+            # пара флангами у столика, повёрнута к экрану на 45° (справа 315°, слева 45° —
+            # взгляд ВНУТРЬ-ВПЕРЁД, на экран; до 19.08 стороны были перепутаны, и кресла
+            # смотрели в наружные углы мимо ТВ) — зеркально «bridge», который смотрит
+            # НАЗАД (135/225). Медиапригодность
             # проверяется на готовом плане (view_metrics.armchair_tv_angles ≤ 45°).
             _thw = (max(table.w_cm, table.d_cm) / 2 if table else None)
+            # 19.08: диагональные кресла сдвигаем на 12 см ЗА линию столика — иначе взгляд под 45°
+            # проходит ровно по кромке (валидатор честно ловит ARMCHAIR_NOT_FACING_GROUP), а
+            # композиция читается как «кресла сами по себе»
             _fx1 = _add_flank(b, sofa, arm1, +1, table_cy, table_half_w=_thw)
-            b.rel[-1] = (arm1, b.rel[-1][1], b.rel[-1][2], 45.0)
+            b.rel[-1] = (arm1, b.rel[-1][1], b.rel[-1][2] + 12.0, 315.0)
             _fx2 = _add_flank(b, sofa, arm2, -1, table_cy, table_half_w=_thw)
-            b.rel[-1] = (arm2, b.rel[-1][1], b.rel[-1][2], 315.0)
+            b.rel[-1] = (arm2, b.rel[-1][1], b.rel[-1][2] + 12.0, 45.0)
             rug_others, rug_others_y, rug_others_x = [arm1, arm2], table_cy, max(_fx1, _fx2)
         elif variant == 'bridge':
             # B1 (v2, веб-свод): диван смотрит на ТВ, одно кресло развёрнуто ПОД
@@ -746,10 +751,10 @@ def build_block(group_id: str, by_role: dict[str, Item],
             _fx1 = _add_flank(b, sofa, arm1, +1, table_cy,
                               table_half_w=(max(table.w_cm, table.d_cm) / 2
                                             if table else None))
-            b.rel[-1] = (arm1, b.rel[-1][1], b.rel[-1][2], 225.0)
+            b.rel[-1] = (arm1, b.rel[-1][1], b.rel[-1][2] + 12.0, 225.0)
             _add_flank(b, sofa, arm2, -1, table_cy,
                        table_half_w=(max(table.w_cm, table.d_cm) / 2 if table else None))
-            b.rel[-1] = (arm2, b.rel[-1][1], b.rel[-1][2], 135.0)   # зеркально
+            b.rel[-1] = (arm2, b.rel[-1][1], b.rel[-1][2] + 12.0, 135.0)   # зеркально
             rug_others, rug_others_y, rug_others_x = [arm1, arm2], table_cy, _fx1
         elif variant == 'facing':
             # кресла ВИЗАВИ прямого дивана (майнинг ProcTHOR 11.08: схема так же
@@ -2812,9 +2817,20 @@ def build_quiet(by_role: dict[str, Item], variant: str = 'quiet_chat',
         _fwd = float((_rules.get('safety_zone_cm') or [61, 91])[0]) + a1.d_cm / 2 + 20
         b.add(a1, -_off, _fwd, 180.0 - _ang)      # слева, к очагу под углом
         b.add(a2, +_off, _fwd, 180.0 + _ang)      # справа, зеркально
-        side = by_role.get('приставной') or by_role.get('столик 2')
-        if side is not None:
-            b.add(side, 0.0, _fwd + a1.d_cm / 2 + 20 + side.d_cm / 2, 0.0)
+        # ПОВЕРХНОСТЬ: одна общая — по центру перед очагом; но при широком портале кресла
+        # разъезжаются шире вытянутой руки (reach 75 см, SERVICE_SURFACE у ОБОИХ кресел), поэтому
+        # если поверхностей две — ставим по одной у внешнего подлокотника каждого кресла
+        sides = [by_role[k] for k in ('приставной', 'столик 2', 'столик') if k in by_role]
+        _sy = _fwd + a1.d_cm / 2 + 20
+        if len(sides) >= 2:
+            _ca = abs(math.cos(math.radians(_ang)))
+            _sa = abs(math.sin(math.radians(_ang)))
+            _e1 = (a1.w_cm * _ca + a1.d_cm * _sa) / 2      # габарит ПОВЁРНУТОГО кресла по оси X
+            _e2 = (a2.w_cm * _ca + a2.d_cm * _sa) / 2
+            b.add(sides[0], -(_off + _e1 + 6 + sides[0].w_cm / 2), _fwd, 0.0)
+            b.add(sides[1], +(_off + _e2 + 6 + sides[1].w_cm / 2), _fwd, 0.0)
+        elif sides:
+            b.add(sides[0], 0.0, _sy + sides[0].d_cm / 2, 0.0)
         return _valid(b, 'quiet')
     side = by_role.get('приставной') or by_role.get('столик 2') or by_role.get('столик')
     if side is None:

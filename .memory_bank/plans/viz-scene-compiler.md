@@ -2,9 +2,9 @@
 workstream: furniture
 slug: viz-scene-compiler
 title: Ф1 — компилятор сцены: управляющие карты из геометрии и базовый кадр по ним
-status: in_progress
+status: partial
 created: 2026-08-04
-updated: 2026-08-04
+updated: 2026-08-19
 completed:
 ---
 
@@ -116,3 +116,6 @@ completed:
 
 ## Definition of Done — память
 - [ ] ADR (карты из своей геометрии вместо Blender, выбор эндпоинта); `/memory-check`; audit «чисто»
+
+## Статус 2026-08-19 — `partial`
+Ф1 приостановлена 04.08 по той же причине: сначала геометрия планов, потом кадры.

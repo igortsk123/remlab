@@ -188,11 +188,34 @@ def render_artifact(out: dict, png_path: str, band: str = '14-16') -> None:
                            outline=(225,190,150))
     cols={'диван':(120,120,190),'тв-тумба':(160,160,160),'кресло':(190,150,140),'столик':(150,120,90),
           'пуф':(170,170,150),'торшер':(60,60,60),'кашпо':(170,140,169)}
+    # КОНТЕКСТ (19.08, замечание владельца «зачем диван на этом каноне»): предметы из `_context`
+    # не входят в состав схемы — они лишь свидетель отношения («ТВ, к которому повёрнута форма»,
+    # «диван, по оси которого центрирован носитель»). Рисуем бледной заливкой и пунктирным
+    # контуром, подписываем «контекст», но валидатор их всё равно проверяет как часть сцены.
+    CTX = set(out.get('_context') or [])
+
+    def _pale(c):
+        return tuple(int(v + (250 - v) * 0.62) for v in c)
+
+    def _dashed(pts, fill, dash=9):
+        import math as _md
+        for i in range(len(pts)):
+            (x1, y1), (x2, y2) = pts[i], pts[(i + 1) % len(pts)]
+            _L = _md.hypot(x2 - x1, y2 - y1) or 1
+            n = max(1, int(_L // dash))
+            for k in range(0, n, 2):
+                t1, t2 = k / n, min(1.0, (k + 1) / n)
+                dr.line([x1 + (x2 - x1) * t1, y1 + (y2 - y1) * t1,
+                         x1 + (x2 - x1) * t2, y1 + (y2 - y1) * t2], fill=fill, width=2)
     # СНАЧАЛА ковёр (подложка), потом мебель — иначе ковёр закрашивает диван
     _order=sorted(placed.items(), key=lambda kv: 0 if kv[0].split(' ')[0]=='ковёр' else 1)
     for r,v in _order:
         pts=[T(x,z) for x,z in v[2]]
-        dr.polygon(pts,outline=(40,40,40),fill=cols.get(r,(200,200,200)))
+        if r in CTX:
+            dr.polygon(pts, fill=_pale(cols.get(r, (200, 200, 200))))
+            _dashed(pts, (130, 130, 130))
+        else:
+            dr.polygon(pts,outline=(40,40,40),fill=cols.get(r,(200,200,200)))
         xs=[p[0] for p in pts]; ys=[p[1] for p in pts]
         _ITEM_BOXES.append((min(xs),min(ys),max(xs),max(ys)))
     # подписи — вторым проходом, поверх всей мебели и в обход чужих блоков
@@ -255,9 +278,10 @@ def render_artifact(out: dict, png_path: str, band: str = '14-16') -> None:
                 _extra+={'reading':' · зона чтения','quiet':' · тихая зона','bay_armchair':' · эркер'}[_zn]
         except Exception:
             pass
-        _lbl=f"{r} {int(_w)}x{int(_d)}" + (f" · {_fw}" if _fw else '') + _extra
+        _lbl=f"{r} {int(_w)}x{int(_d)}" + (f" · {_fw}" if _fw else '') + _extra + (
+            ' · контекст' if r in CTX else '')
         _tx,_ty=T(cx,cz)
-        _put_label(dr,_tx,_ty-8,_lbl,F_ITEM)
+        _put_label(dr,_tx,_ty-8,_lbl,F_ITEM,fill=((120,120,120) if r in CTX else (15,15,15)))
         # стрелка фасада (заметнее): rot 180 = к южной стене
         import math as _m
         if r.split(' ')[0] in ('диван','кресло'):      # стрелка фасада — у направленных всегда (контракт позы)

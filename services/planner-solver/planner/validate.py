@@ -1200,6 +1200,11 @@ def check_layout_rules(room: Room, ps: list[Placement]) -> list[Violation]:
                 continue
             if (p.item.h_cm or 0) <= 60:      # низкий декор зону не ломает
                 continue
+            if getattr(p, 'tpl_variant', '') == 'console_behind_sofa':
+                # 19.08: консоль СТОИТ вплотную к спинке по своему паспорту (place_console_behind_sofa,
+                # контракт check_console_contract) — штрафовать её «вплотную к разговорной зоне»
+                # значит наказывать схему за то, чем она является
+                continue
             if footprint(p).intersection(zone).area > 900:
                 out.append(_v("ZONE_BUFFER", f"«{p.role}» вплотную к разговорной зоне", [p.role],
                               None, f"≥{buf:.0f} см от дивана/столика", Severity.SOFT))
