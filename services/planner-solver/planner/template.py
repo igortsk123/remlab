@@ -251,7 +251,7 @@ def block_self_overlap(b: Block) -> tuple[str, str] | None:
     return None
 
 
-def _valid(b: Block | None, zone: str = 'seating') -> Block | None:
+def _valid(b: Block | None, zone: str = 'seating', variant: str | None = None) -> Block | None:
     """Схема действительна, только если прошла ИНВАРИАНТЫ своего паспорта
     (`rules/templates.json`): нет самопересечений, ножки посадочных на ковре,
     столик в досягаемости, в зоне ≥2 предмета. Не прошла — недействительна,
@@ -261,7 +261,9 @@ def _valid(b: Block | None, zone: str = 'seating') -> Block | None:
     from .invariants import TEMPLATES as _TPL
     b.tpl_id = zone
     b.tpl_version = str((_TPL['zones'].get(zone) or {}).get('version') or '')
-    why = check_block(b.to_world(0.0, 0.0, 0.0), zone)
+    if variant:
+        b.tpl_variant = variant
+    why = check_block(b.to_world(0.0, 0.0, 0.0), zone, variant=variant)
     if why is not None:
         if os.environ.get('ZONES_DEBUG'):
             import sys
@@ -2006,16 +2008,20 @@ def place_console_behind_sofa(room: Room, items: list[Item], free: Polygon,
     return None
 
 
-def build_reading(by_role: dict[str, Item]) -> Block | None:
+def build_reading(by_role: dict[str, Item], allow_solo: bool = False) -> Block | None:
     """v2.6: уголок чтения — кресло + торшер за плечом (30–40 от спинки, сбоку)
-    + приставной у другого подлокотника (≤15)."""
+    + приставной у другого подлокотника (≤15).
+
+    Q10b (19.08): `allow_solo` — У ОКНА кресло самодостаточно («кресло у окна» — узнаваемая
+    композиция практики, 28% проектов); у произвольной стены соло-кресло по-прежнему запрещено
+    (читается как забытый предмет)."""
     arm = by_role.get('кресло 3') or by_role.get('кресло')
     lamp, side = by_role.get('торшер'), by_role.get('приставной')
     ott = by_role.get('пуф')
     # E3 (свод №4, residual 130-180 → nook): аксессуаром нука может быть и пуф-
     # оттоманка перед креслом — торшер в вытянутых малых часто занят посадкой
     # (sofa_lamp), и нук не собирался при живом кресле+пуфе в банке
-    if arm is None or (lamp is None and side is None and ott is None):
+    if arm is None or (not allow_solo and lamp is None and side is None and ott is None):
         return None
     b = Block(arm)
     if lamp is None and side is None and ott is not None:
@@ -2025,7 +2031,7 @@ def build_reading(by_role: dict[str, Item]) -> Block | None:
         b.add(lamp, arm.w_cm / 2 + lamp.w_cm / 2 + 12, -arm.d_cm / 2 + 8, 0.0)
     if side is not None:
         b.add(side, -(arm.w_cm / 2 + side.w_cm / 2 + 8), 5.0, 0.0)
-    return _valid(b, 'reading')
+    return _valid(b, 'reading', variant='window_anchor' if allow_solo and len(b.rel) == 1 else None)
 
 
 def place_reading(room: Room, items: list[Item], free: Polygon,
@@ -2054,6 +2060,87 @@ def place_reading(room: Room, items: list[Item], free: Polygon,
                                         item=b.anchor),
                           kind='wall', note='эркер', topology='bay'))
     return _best_block(room, b, free, cands, tv=None, fixed=fixed)
+
+
+WINDOW_DIAG: dict = {}   # Q10b: почему оконный уголок (не) встал — в артефакт `_opportunities`
+
+
+def place_window_reading(room: Room, items: list[Item], free: Polygon,
+                         fixed: list[Placement] | None = None) -> list[Placement] | None:
+    """Q10b свода №13 (Codex 19.08, «самый быстрый путь к практике»): уголок чтения С ЯКОРЕМ НА ОКНО —
+    кресло (+торшер/приставной/пуф) в полосе у окна, ЛИЦОМ В КОМНАТУ (к центру главной группы, не в
+    стену). Это не новый шаблон, а схема `reading` с `tpl_variant=window_anchor`: тот же атом и тот же
+    контракт, другой генератор позиций. Практика: кресло у окна — самый частый исход (28%), у нас было
+    16% и, главное, «не пробовали» в половине сцен (Q10-0).
+
+    Радиатор: позиция отступает от ЛИЦЕВОЙ грани (общий RADIATOR-чек), подоконник — SOFA_BACK_ABOVE_SILL
+    не применяется (кресло ниже спинки дивана), перекрытие окна проверяет window-скоринг блока.
+    """
+    WINDOW_DIAG.clear()
+    if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
+        return None
+    wins = [op for op in room.openings if op.kind == 'window']
+    if not wins:
+        WINDOW_DIAG['reject'] = 'no_window'
+        return None
+    by_role: dict[str, Item] = {}
+    for it in items:
+        by_role.setdefault(it.role, it)
+    b = build_reading(by_role, allow_solo=True)      # у окна кресло самодостаточно (Q10b)
+    if b is None:
+        WINDOW_DIAG['reject'] = 'no_armchair'
+        WINDOW_DIAG['bank_roles'] = sorted(by_role)
+        return None
+    from .candidates import Candidate as _Cnd
+    from .geometry import opening_polygon as _opg
+    from .models import Placement as _Pl
+    _fx = list(fixed or [])
+    _seat = next((p for p in _fx if p.role.split(' ')[0] == 'диван'), None)
+    rad_depth = 0.0
+    cands = []
+    for op in wins:
+        # отступ от стены: глубина радиатора на ТОЙ ЖЕ стене (+ зазор конвекции) либо минимум
+        rd = max((r.depth_cm for r in (room.radiators or []) if r.wall == op.wall), default=0.0)
+        rad_depth = max(rad_depth, rd)
+        setback = (rd + 12.0 if rd else 8.0) + b.anchor.d_cm / 2
+        g = _opg(room, op)
+        mid_x, mid_y = g.centroid.x, g.centroid.y
+        # три позиции вдоль окна: центр и трети — кресло не обязано стоять ровно по центру проёма
+        # позиции: центр проёма, трети — и ПО БОКАМ окна (кресло у окна не обязано стоять
+        # ровно перед стеклом; практика: кресло рядом с окном, лицом в комнату)
+        _side_off = (op.width_cm / 2 + b.anchor.w_cm / 2 + 10) / max(op.width_cm, 1.0)
+        for t in (0.5, 0.3, 0.7, -_side_off, 1 + _side_off):
+            x0, y0, x1, y1 = g.bounds
+            px = x0 + (x1 - x0) * t if op.wall in ('south', 'north') else mid_x
+            py = y0 + (y1 - y0) * t if op.wall in ('west', 'east') else mid_y
+            if op.wall == 'south':
+                x, y = px, setback
+            elif op.wall == 'north':
+                x, y = px, room.depth_cm - setback
+            elif op.wall == 'west':
+                x, y = setback, py
+            else:
+                x, y = room.width_cm - setback, py
+            # лицо — в комнату; если есть главная посадка, доворачиваем к её центру
+            rot = {'south': 0.0, 'north': 180.0, 'west': 90.0, 'east': 270.0}[op.wall]
+            if _seat is not None:
+                import math as _m
+                _ang = (_m.degrees(_m.atan2(_seat.x - x, _seat.y - y)) + 360) % 360
+                if abs(((_ang - rot + 180) % 360) - 180) <= 60:      # цель в разумном секторе
+                    rot = round(_ang / 15) * 15                       # квант 15° (контракт позы)
+            cands.append(_Cnd(placement=_Pl(role=b.anchor.role, x=x, y=y, rot=rot, item=b.anchor),
+                              kind='wall', note=f'окно {op.wall}', topology='window'))
+    if not cands:
+        WINDOW_DIAG['reject'] = 'no_candidates'
+        return None
+    b.tpl_variant = 'window_anchor'
+    ps = _best_block(room, b, free, cands, tv=None, fixed=_fx)
+    if ps:
+        WINDOW_DIAG.update({'placed': 'window_anchor', 'candidates': len(cands),
+                            'radiator_depth_cm': rad_depth})
+        return ps
+    WINDOW_DIAG.update({'reject': 'no_valid_position', 'candidates': len(cands)})
+    return None
 
 
 def place_bay_armchair(room: Room, items: list[Item], free: Polygon,

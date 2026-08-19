@@ -701,9 +701,13 @@ def attempt_beam():
     # ПРОСЛЕЖИВАЕМОСТЬ ШАБЛОНА (ADR template-integrity): каким паспортом схемы
     # поставлен каждый предмет — в артефакт, отчёт и галерею
     global TPL_BY_ROLE, DINING_DIAG, VIEW_DIST
-    TPL_BY_ROLE = {p.role: (p.tpl_id, p.tpl_version) for p in lay.placements}
+    # Q10b: в экспорт идёт и ФОРМА схемы (variant) — паспорт снимает инварианты именно по форме
+    TPL_BY_ROLE = {p.role: (p.tpl_id, p.tpl_version, getattr(p, 'tpl_variant', '') or None)
+                   for p in lay.placements}
     # пакет B свода №8: диагноз выбора dining (mode/island_feasible/why) — в артефакт
     DINING_DIAG = (lay.meta or {}).get('dining')
+    global WINDOW_NOOK_DIAG
+    WINDOW_NOOK_DIAG = (lay.meta or {}).get('window_nook')
     global MIRROR_STATS, ZONE_IDS, MEDIA_VALIDATION
     MIRROR_STATS = (lay.meta or {}).get('mirror')
     global SEATING_SEARCH
@@ -804,7 +808,7 @@ def attempt_beam():
             VIEW_DIST = float(_fpV(_carV).distance(_PtV(*_saoV(_sofaV))))
     except Exception:
         VIEW_DIST = None
-    _no_tpl = sorted(r for r, (t, _) in TPL_BY_ROLE.items() if not t)
+    _no_tpl = sorted(r for r, (t, *_rest) in TPL_BY_ROLE.items() if not t)
     if _no_tpl and os.environ.get('LAYOUT_ONLY_TEMPLATES', '1') == '1':
         print('NOTPL ' + json.dumps(_no_tpl, ensure_ascii=False), flush=True)
     missing = list(lay.unplaced)
@@ -902,7 +906,8 @@ _room_ops=(json.loads(_ops_env) if (_ops_env and json.loads(_ops_env)) else [
     {'kind':'window','wall':'east','offset_cm':WIN_OFF,'width_cm':WIN_W,'sill_cm':80}])
 # контур комнаты — в артефакт: план обязан рисовать НАСТОЯЩИЕ стены, а не bbox
 # (замечание владельца 12.08: «диван заходит за границы комнаты» — это врал чертёж)
-out['_templates']={r:{'id':t,'version':v} for r,(t,v) in (globals().get('TPL_BY_ROLE') or {}).items()}
+out['_templates']={r:{'id':t,'version':v,'variant':(x[0] if x else None)}
+                   for r,(t,v,*x) in (globals().get('TPL_BY_ROLE') or {}).items()}
 out['_dining']=globals().get('DINING_DIAG')   # объяснимость dining (свод №8 пакет B)
 out['_axes']=globals().get('QUALITY_AXES')    # пакет G: новые оси — только замер, без порогов
 # C-7 свода №11 (Кодекс §5-риски): usable_polygon при MultiPolygon оставляет крупнейший
@@ -1059,7 +1064,8 @@ try:
     from planner.opportunities import certify as _cert_opp, practice_prior_key as _ppk
     # Q10-0: сертификат возможностей — с ролями БАНКА (иначе «пусто» не отличить от «нечего ставить»)
     out['_opportunities'] = {'items': _cert_opp(_room_v, _ps_v, {r.split(' ')[0] for r in RAW_BANK}),
-                             'prior_key': list(_ppk(_room_v, _ps_v))}
+                             'prior_key': list(_ppk(_room_v, _ps_v)),
+                             'window_nook': globals().get('WINDOW_NOOK_DIAG')}
 except Exception as _e:
     out['_view'] = {'error': repr(_e)[:120]}
 json.dump(out,open(os.path.join(HERE,f'{TAG}{n}-layout{_sfx}.json'),'w'),ensure_ascii=False,indent=1)

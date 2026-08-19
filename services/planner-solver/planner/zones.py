@@ -496,6 +496,7 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
     уходят в skipped_optional. Старый solve() нетронут — A/B на перегоне.
 
     Возвращает (layouts, group_id)."""
+    _WR_DIAG: dict = {}      # Q10-0: диагноз оконного уголка (пробовали/нечего/не влезло)
     from collections import Counter
 
     from .beam import solve
@@ -858,7 +859,8 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
         # второго прохода добора, не гейт — свод №8 v2 §1, ADR-0091).
         from .template import (place_decor, place_fireplace, place_media,
                                place_media_fireplace, place_quiet,
-                               place_bay_armchair, place_reading, place_storage)
+                               place_bay_armchair, place_reading, place_storage,
+                               place_window_reading)
         _fp_pol = zone_rules().get('fill_policy', {})
         _lo, _hi = _fp_pol.get('target_pct', [30, 45])
         _half = set(WALL_HUGGING_ROLES)
@@ -896,7 +898,10 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                             # ДО ХРАНЕНИЯ; прежде storage дважды съедал стены и
                             # остаточный регион до place_quiet (одна из причин
                             # «вторая зона не встаёт» из свода №10 J)
-                            (place_quiet, '+qz'), (place_reading, '+rd'),
+                            # Q10b: оконный уголок — ПЕРЕД общим reading (у окна кресло ценнее,
+                            # чем у произвольной стены), но после обязательных зон
+                            (place_quiet, '+qz'), (place_window_reading, '+wr'),
+                            (place_reading, '+rd'),
                             (place_bay_armchair, '+bay'),
                             (place_storage, '+st'),
                             # НЕ БОЛЕЕ ДВУХ зон хранения на гостиную (владелец 12.08)
@@ -944,6 +949,13 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                     print(f'ZDBG зона {tag}: need=off — пропуск', file=_sdo.stderr, flush=True)
                 continue
             extra = placer(room, keep, _free_z, fixed=block)
+            if tag == '+wr':
+                # Q10-0: диагноз оконного уголка (пробовали/нечего/не влезло) — в meta плана
+                try:
+                    _WR_DIAG.update(getattr(_tplmod, 'WINDOW_DIAG', {}) or {})
+                    _WR_DIAG['placed'] = bool(extra)
+                except Exception:
+                    pass
             if extra is None and os.environ.get('ZONES_DEBUG'):
                 import sys as _sdz
                 print(f'ZDBG зона {tag}: placer вернул None (roles в банке: '
@@ -969,6 +981,11 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                               f"{_q_before['circulation']:.0f}→{_q_after['circulation']:.0f} см, "
                               f"щели {_q_before['sliver_m2']:.2f}→{_q_after['sliver_m2']:.2f} м²",
                               file=_s.stderr, flush=True)
+                    if tag == '+wr':
+                        try:                       # Q10-0: «пробовали и не влезло» ≠ «не пробовали»
+                            lay.meta.setdefault('window_nook', {}).update(_tplmod.WINDOW_DIAG)
+                        except Exception:
+                            pass
                     if tag == '+qz':
                         # Q5 (Codex): отказ гейта качества — в QUIET_DIAG, иначе сертификат
                         # second_pod показывал «placed», а зоны в плане нет
@@ -1176,6 +1193,8 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                                          **({'media': _axm} if _axm else {})}
         outs = [lay]
         lay.meta['scenario_needs'] = dict(_needs_eff)   # P0 свода №12 (template-only путь)
+        if _WR_DIAG:
+            lay.meta['window_nook'] = dict(_WR_DIAG)     # Q10-0: диагноз оконного уголка
         if os.environ.get('ZONES_DEBUG'):
             import sys as _s
             print(f'ZDBG только-шаблоны: поставлено {len(block)} из блоков, '
@@ -1336,6 +1355,8 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
         if _bad:
             raise AssertionError('ФАНТОМНЫЕ ГАБАРИТЫ (габарит ≠ SKU): ' + '; '.join(_bad))
         lay.meta['scenario_needs'] = dict(_needs_eff)   # P0 свода №12: вход сценария в артефакте
+        if _WR_DIAG:
+            lay.meta['window_nook'] = dict(_WR_DIAG)     # Q10-0: диагноз оконного уголка
     return outs, group['id'] + tpl_tag
 
 

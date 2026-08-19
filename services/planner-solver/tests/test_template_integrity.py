@@ -152,12 +152,19 @@ def test_no_single_item_zones():
     from planner.invariants import TEMPLATES
     strict = {z for z, cfg in TEMPLATES['zones'].items()
               if 'min_composition' in (cfg.get('invariants') or ())}
+    # Q10b (19.08): паспорт может СНЯТЬ инвариант для конкретной формы — у окна кресло
+    # самодостаточно (`reading.variant_invariants_exempt.window_anchor`), якорь — сам проём
+    _exempt = {(z, var) for z, cfg in TEMPLATES['zones'].items()
+               for var, invs in (cfg.get('variant_invariants_exempt') or {}).items()
+               if 'min_composition' in invs}
     bad = {}
     for scene, lay, _room, _ps in _scenes():
         tpl = lay.get('_templates') or {}
         cnt: dict[str, int] = {}
         for _r, v in tpl.items():
             zid = (v or {}).get('id')
+            if (zid, (v or {}).get('variant')) in _exempt:
+                continue
             if zid in strict:
                 cnt[zid] = cnt.get(zid, 0) + 1
         lonely = sorted(z for z, c in cnt.items() if c < 2)

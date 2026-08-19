@@ -143,9 +143,16 @@ def storage_zones_ok(ps: list[Placement], max_items: int = 2) -> bool:
     return sum(1 for p in ps if _base(p.role) in roles) <= max_items
 
 
-def check_block(ps: list[Placement], zone: str = 'seating') -> str | None:
-    """Все инварианты паспорта зоны на ИНСТАНСЕ схемы. Возвращает причину отказа."""
-    inv = set(TEMPLATES['zones'].get(zone, {}).get('invariants') or ())
+def check_block(ps: list[Placement], zone: str = 'seating', variant: str | None = None) -> str | None:
+    """Все инварианты паспорта зоны на ИНСТАНСЕ схемы. Возвращает причину отказа.
+
+    `variant` — форма схемы: паспорт может снять отдельные инварианты именно для неё
+    (`variant_invariants_exempt`), с обоснованием в данных. Q10b: у окна кресло —
+    самодостаточная композиция, поэтому min_composition для `window_anchor` не применяется."""
+    _z = TEMPLATES['zones'].get(zone, {}) or {}
+    inv = set(_z.get('invariants') or ())
+    if variant:
+        inv -= set((_z.get('variant_invariants_exempt') or {}).get(variant) or ())
     if 'no_self_overlap' in inv:
         ov = self_overlap(ps)
         if ov:
