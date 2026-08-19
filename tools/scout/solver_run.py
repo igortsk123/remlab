@@ -1056,8 +1056,10 @@ try:
     out['_view'] = _vm(_room_v, _ps_v)
     # Q9 (тень): выбранные исходы по возможностям (окно/центр/угол/главная стена) — отчёт
     # «практика vs движок»; на выбор плана не влияет до включения после слепых пар
-    from planner.opportunities import opportunities as _opps, practice_prior_key as _ppk
-    out['_opportunities'] = {'items': _opps(_room_v, _ps_v), 'prior_key': list(_ppk(_room_v, _ps_v))}
+    from planner.opportunities import certify as _cert_opp, practice_prior_key as _ppk
+    # Q10-0: сертификат возможностей — с ролями БАНКА (иначе «пусто» не отличить от «нечего ставить»)
+    out['_opportunities'] = {'items': _cert_opp(_room_v, _ps_v, {r.split(' ')[0] for r in RAW_BANK}),
+                             'prior_key': list(_ppk(_room_v, _ps_v))}
 except Exception as _e:
     out['_view'] = {'error': repr(_e)[:120]}
 json.dump(out,open(os.path.join(HERE,f'{TAG}{n}-layout{_sfx}.json'),'w'),ensure_ascii=False,indent=1)

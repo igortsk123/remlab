@@ -64,6 +64,72 @@ def _band(room: Room, op) -> object:
     return _b(*box).intersection(room_polygon(room))
 
 
+REQUIRED_ROLES = ('диван', 'тв-тумба', 'стенка', 'стол обеденный')   # обязательные/preferred зоны
+# какие роли банка делают исход инвентарно возможным (Q10-0: «нечего ставить» ≠ «решили не ставить»)
+OUTCOME_INVENTORY = {
+    'armchair_or_pair': ('кресло',), 'window_seat_bench': ('банкетка',),
+    'low_console_storage': ('комод', 'тв-тумба', 'стеллаж'), 'plants_decor': ('кашпо', 'растение'),
+    'table_work_or_dining': ('стол обеденный',), 'sofa_or_loveseat': ('диван',),
+    'reading_armchair': ('кресло',), 'plant': ('кашпо', 'растение'), 'floor_lamp': ('торшер',),
+    'side_table_console': ('приставной', 'столик', 'комод'), 'shelving': ('стеллаж',),
+    'coffee_table': ('столик',), 'ottoman_table': ('пуф',),
+}
+
+
+def _blocked_zone(room: Room, box) -> bool:
+    """Место занято конструкцией/маршрутом: дуга двери, радиатор (Q10-0, Codex: счётчик
+    свободных углов был завышен — считал углы, где физически ничего не поставить)."""
+    from .geometry import radiator_polygon, swing_polygon
+    for op in room.openings:
+        if op.kind in ('door', 'balcony'):
+            try:
+                if swing_polygon(room, op).intersection(box).area > 0.25 * box.area:
+                    return True
+            except Exception:
+                pass
+    for rad in (room.radiators or []):
+        try:
+            if radiator_polygon(room, rad).intersects(box):
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def certify(room: Room, ps: list[Placement], bank_roles: set | None = None) -> list[dict]:
+    """Q10-0 (Codex 19.08): ЧЕСТНЫЙ сертификат возможности. Пустота больше не считается
+    «намеренной» по умолчанию: различаем `occupied_by_required_zone` (окно занято обязательной
+    зоной), `forced_empty_inventory` (в банке нечего ставить), `not_attempted` (оконного/углового
+    placer'а ещё нет — Q10b/Q10e), `free_intentional` (валидный вариант БЫЛ и проиграл пустоте).
+    `bank_roles` — роли банка сцены; без них состояние инвентаря = unknown."""
+    out = []
+    for opp in opportunities(room, ps):
+        rec = dict(opp)
+        rec['applicable'] = True
+        sel = opp['selected_outcome']
+        if sel != 'free_intentional' and sel != 'accent_wall_free':
+            rec['state'] = 'selected'
+            rec['selected_by'] = 'zone_placement'
+            # исход занят обязательной зоной — это НЕ «выбор практики»
+            if set(opp.get('roles_present') or []) & set(REQUIRED_ROLES):
+                rec['state'] = 'occupied_by_required_zone'
+        else:
+            elig = None
+            if bank_roles is not None:
+                prio = ((priors().get('opportunities') or {}).get(opp['kind']) or {}).get('outcomes') or []
+                elig = sorted({o['id'] for o in prio
+                               if set(OUTCOME_INVENTORY.get(o['id'], ())) & set(bank_roles)})
+            rec['inventory_eligible'] = elig
+            if elig is not None and not elig:
+                rec['state'] = 'forced_empty_inventory'
+            else:
+                # placer'а для этой возможности ещё нет (окно/угол — Q10b/Q10e): честно «не пробовали»
+                rec['state'] = 'not_attempted'
+            rec['selected_outcome'] = 'empty'
+        out.append(rec)
+    return out
+
+
 def opportunities(room: Room, ps: list[Placement]) -> list[dict]:
     """Список возможностей плана с выбранным исходом и доказательством (роли в зоне)."""
     out: list[dict] = []
@@ -71,10 +137,14 @@ def opportunities(room: Room, ps: list[Placement]) -> list[dict]:
     # --- окна
     for i, op in enumerate(o for o in room.openings if o.kind == 'window'):
         zone = _band(room, op)
-        roles = {base_role(p.role) for p in items if footprint(p).intersects(zone)}
+        inzone = [p for p in items if footprint(p).intersects(zone)]
+        roles = {base_role(p.role) for p in inzone}
         oid = _role_outcome('window', roles) or 'free_intentional'
         out.append({'opportunity_id': f'window:{op.wall}:{i}', 'kind': 'window',
-                    'selected_outcome': oid, 'roles_present': sorted(roles)})
+                    'selected_outcome': oid, 'roles_present': sorted(roles),
+                    # чем предмет привязан к окну: зона+форма (истина) или просто попал в полосу
+                    'anchored_zones': sorted({f"{getattr(p, 'tpl_id', '') or '-'}"
+                                              f"/{getattr(p, 'tpl_variant', '') or '-'}" for p in inzone})})
     # --- центр посадочной группы
     sofa = next((p for p in items if base_role(p.role) == 'диван'), None)
     if sofa is not None and sofa.item is not None:
@@ -111,6 +181,8 @@ def opportunities(room: Room, ps: list[Placement]) -> list[dict]:
         box = box.intersection(room_polygon(room))
         if box.is_empty or box.area < 0.4 * CORNER_BOX_CM ** 2:
             continue                      # угла как места нет (контур/эркер)
+        if _blocked_zone(room, box):
+            continue                      # дуга двери/радиатор — «свободного угла» здесь нет
         roles = {base_role(p.role) for p in items if footprint(p).intersection(box).area > 400}
         if {'диван', 'стенка', 'стол обеденный'} & roles:
             continue                      # угол занят главной зоной — это не «свободный угол»
