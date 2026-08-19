@@ -1489,6 +1489,59 @@ def plan_key(room: Room, lay, needs: dict, seat_rank: int = 0) -> tuple:
             _main_path_violations(lay), template_degradation(ps), _orphan) + tuple(lk[1:])
 
 
+EXTERNAL_SEAT_ZONES = ('quiet', 'reading', 'bay_armchair')   # зоны, где кресло — полноценное место
+
+
+def realized_capacity(lay, gid: str) -> float:
+    """Q10 (Codex 19.08): ФАКТИЧЕСКАЯ вместимость плана = паспортные места выбранной главной
+    группы + валидные места ВНЕ её (кресла атомарных зон quiet/reading/bay_armchair).
+    Чинит системную ошибку «место считается богатством только внутри главной группы»:
+    sofa_lamp(3) + кресло у окна(1) = sofa_armchair(4), а не «беднее на ступень».
+    План уже hard-valid, значит контракты зон (в т.ч. window_anchor) выполнены."""
+    from .geometry import base_role as _br
+    ps = list(lay.placements)
+    seats = 0.0
+    _g0 = (gid or '').split('+')[0]
+    for g in zone_rules().get('seating_groups', []):
+        if g['id'] == _g0:
+            seats = float(g.get('seats') or 0)
+            break
+    ext = sum(1 for p in ps if _br(p.role) == 'кресло'
+              and getattr(p, 'tpl_id', '') in EXTERNAL_SEAT_ZONES)
+    return seats + ext
+
+
+def primary_sofa_missing(lay, items) -> int:
+    """Бинарный контракт LEVEL A для ключа: диван в банке есть, а в плане его нет.
+    Если диван недостижим ни в одной гипотезе — ярус одинаков у всех, и он нейтрален."""
+    from .geometry import base_role as _br
+    if not any(_br(i.role) == 'диван' for i in (items or [])):
+        return 0
+    return 0 if any(_br(p.role) == 'диван' for p in lay.placements) else 1
+
+
+def plan_key_capacity(room: Room, lay, needs: dict, gid: str, items) -> tuple:
+    """ТЕНЬ Q10: тот же ключ, что production-v1, но вместо НОМИНАЛЬНОЙ ступени лестницы
+    (`-seat_rank`) — фактическая вместимость плана, и отдельный ярус «диван поставлен».
+    Порядок по Codex: hard → missing_required → primary_sofa_missing → -covered_pref →
+    -capacity → axis → main_path → degradation → orphan → мягкие термы."""
+    from .models import Severity as _Sev
+    ps = list(lay.placements)
+    hard = sum(1 for v in lay.violations if v.severity is _Sev.HARD)
+    status = (zone_rules().get('zone_priority', {}) or {}).get('status', {})
+    from .geometry import base_role as _br
+    roles = {_br(p.role) for p in ps}
+    have = {'media': bool(roles & {'тв-тумба', 'стенка'}), 'dining': 'стол обеденный' in roles,
+            'seating': bool(roles & {'диван', 'кресло'})}
+    missing_req = sum(1 for z, st in status.items() if st == 'required' and z in have and not have[z])
+    covered_pref = sum(1 for z, st in status.items() if st == 'preferred' and have.get(z))
+    from .score import score_layout as _sl
+    lk = lexo_key(hard, len(getattr(lay, 'unplaced', []) or []), _sl(room, ps).terms)
+    return (hard, missing_req, primary_sofa_missing(lay, items), -covered_pref,
+            -realized_capacity(lay, gid), _axis_class(lay), _main_path_violations(lay),
+            template_degradation(ps), int(bool(_back_orphan(room, ps)))) + tuple(lk[1:])
+
+
 def plan_key_v2(room: Room, lay, needs: dict, reach: dict | None = None) -> tuple:
     """Q4 свода №13 (SHADOW до слепого раунда 2/Q7): ключ ГОТОВОГО плана по ярусам, как
     ранжирует владелец (слепая оценка раунд 1 + Codex). Меньше — лучше. Пороги —
@@ -1917,6 +1970,15 @@ def _solve_zoned_beam_inner(room: Room, items, **kw):
             _pp.append(_ppk(room, list(c[2][0].placements)) if c[2] else None)
         except Exception:
             _pp.append(None)
+    _cap = []
+    for c in cands:
+        try:
+            _cap.append(plan_key_capacity(room, c[2][0], needs, c[1], items) if c[2] else None)
+        except Exception as _e:
+            if os.environ.get('ZONES_DEBUG'):
+                import sys as _sc
+                print(f'ZDBG capacity-ключ не посчитан: {type(_e).__name__}: {_e}', file=_sc.stderr, flush=True)
+            _cap.append(None)
     _v2 = []
     for c in cands:
         try:
@@ -1934,6 +1996,9 @@ def _solve_zoned_beam_inner(room: Room, items, **kw):
              'plan_key_version': _pkv,
              'v2_would_choose': (cands[sorted(range(len(cands)), key=lambda i: (_v2[i], i))[0]][0]
                                  if cands and all(v is not None for v in _v2) else None),
+             'capacity_would_choose': (cands[sorted(range(len(cands)), key=lambda i: (_cap[i], i))[0]][0]
+                                       if cands and all(x is not None for x in _cap) else None),
+             'capacity_keys': [list(x) if x is not None else None for x in _cap],
              'practice_prior_shadow': [list(x) if x is not None else None for x in _pp],
              'prior_would_choose': (cands[sorted(range(len(cands)), key=lambda i: (_pp[i], i))[0]][0]
                                     if cands and all(x is not None for x in _pp) else None),

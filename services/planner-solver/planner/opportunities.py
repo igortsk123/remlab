@@ -96,7 +96,8 @@ def _blocked_zone(room: Room, box) -> bool:
     return False
 
 
-def certify(room: Room, ps: list[Placement], bank_roles: set | None = None) -> list[dict]:
+def certify(room: Room, ps: list[Placement], bank_roles: set | None = None,
+            attempts: dict | None = None) -> list[dict]:
     """Q10-0 (Codex 19.08): ЧЕСТНЫЙ сертификат возможности. Пустота больше не считается
     «намеренной» по умолчанию: различаем `occupied_by_required_zone` (окно занято обязательной
     зоной), `forced_empty_inventory` (в банке нечего ставить), `not_attempted` (оконного/углового
@@ -120,10 +121,22 @@ def certify(room: Room, ps: list[Placement], bank_roles: set | None = None) -> l
                 elig = sorted({o['id'] for o in prio
                                if set(OUTCOME_INVENTORY.get(o['id'], ())) & set(bank_roles)})
             rec['inventory_eligible'] = elig
-            if elig is not None and not elig:
+            # Q10-0: диагноз реальной попытки (placer сообщает, пробовал ли и почему не смог)
+            att = (attempts or {}).get(opp['kind'])
+            if att:
+                rec['attempt'] = att
+                if att.get('placed'):
+                    rec['state'] = 'selected'          # поставили, но исход не распознан по ролям
+                elif att.get('reject') in ('no_armchair', 'no_reading_kit'):
+                    rec['state'] = 'forced_empty_inventory'
+                elif att.get('reject') in ('no_valid_position', 'no_candidates'):
+                    rec['state'] = 'forced_empty_geometry'
+                else:
+                    rec['state'] = 'not_attempted'
+            elif elig is not None and not elig:
                 rec['state'] = 'forced_empty_inventory'
             else:
-                # placer'а для этой возможности ещё нет (окно/угол — Q10b/Q10e): честно «не пробовали»
+                # placer'а для этой возможности ещё нет (угол — Q10e): честно «не пробовали»
                 rec['state'] = 'not_attempted'
             rec['selected_outcome'] = 'empty'
         out.append(rec)

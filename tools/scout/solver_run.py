@@ -1063,9 +1063,11 @@ try:
     # «практика vs движок»; на выбор плана не влияет до включения после слепых пар
     from planner.opportunities import certify as _cert_opp, practice_prior_key as _ppk
     # Q10-0: сертификат возможностей — с ролями БАНКА (иначе «пусто» не отличить от «нечего ставить»)
-    out['_opportunities'] = {'items': _cert_opp(_room_v, _ps_v, {r.split(' ')[0] for r in RAW_BANK}),
+    _wn = globals().get('WINDOW_NOOK_DIAG')
+    out['_opportunities'] = {'items': _cert_opp(_room_v, _ps_v, {r.split(' ')[0] for r in RAW_BANK},
+                                                attempts={'window': _wn} if _wn else None),
                              'prior_key': list(_ppk(_room_v, _ps_v)),
-                             'window_nook': globals().get('WINDOW_NOOK_DIAG')}
+                             'window_nook': _wn}
 except Exception as _e:
     out['_view'] = {'error': repr(_e)[:120]}
 json.dump(out,open(os.path.join(HERE,f'{TAG}{n}-layout{_sfx}.json'),'w'),ensure_ascii=False,indent=1)
