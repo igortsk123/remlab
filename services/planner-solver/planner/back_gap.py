@@ -57,6 +57,31 @@ def back_wall_of(room: Room, sofa: Placement) -> str:
     return ("south" if fy > 0 else "north") if abs(fy) > abs(fx) else ("west" if fx > 0 else "east")
 
 
+def strip_behind_depth(room: Room, sofa: Placement, extra: list[Placement] | None = None) -> float | None:
+    """Глубина СВОБОДНОЙ полосы за спинкой дивана ПОСЛЕ вычета предметов `extra` (консоль).
+    Нужна контракту консоли (R8, 19.08): паспорт обещает маршрут за консолью, и его надо
+    мерить, а не декларировать. None — если диван не у стены или полосы нет."""
+    if sofa.item is None:
+        return None
+    wall = back_wall_of(room, sofa)
+    x0, y0, x1, y1 = footprint(sofa).bounds
+    gap = {"south": y0, "north": room.depth_cm - y1,
+           "west": x0, "east": room.width_cm - x1}[wall]
+    if gap <= 0:
+        return 0.0
+    used = 0.0
+    strip = _back_strip(room, sofa, gap)
+    for p in (extra or []):
+        fp = footprint(p)
+        if not fp.intersects(strip):
+            continue
+        bx0, by0, bx1, by1 = fp.bounds
+        # сколько полосы съел предмет: от кромки дивана до дальней кромки предмета
+        used = max(used, {"south": y0 - by0, "north": by1 - y1,
+                          "west": x0 - bx0, "east": bx1 - x1}[wall])
+    return max(0.0, round(float(gap - used), 1))
+
+
 def back_gap_context(room: Room, ps: list[Placement]) -> dict | None:
     """{gap_cm, class, wall, window_backed, radiator_gap_cm, filled_by} — или None (нет дивана)."""
     sofa = next((p for p in ps if base_role(p.role) == 'диван'), None)

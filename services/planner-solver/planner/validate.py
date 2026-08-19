@@ -372,6 +372,19 @@ def check_distances(room: Room, ps: list[Placement]) -> list[Violation]:
             out.append(_v("SOFA_TABLE_COMFORT", f"диван↔столик {g:.0f} см — вне комфортной вилки",
                           ["диван", "столик"], round(g),
                           f"{t_pref[0]:.0f}–{t_pref[1]:.0f} см", Severity.SOFT))
+        # R1 (19.08, разбор Codex): столик обязан быть достижим с КАЖДОГО дивана группы, а не
+        # только с главного. Прежде правило смотрело один экземпляр `диван`, и в Г-композиции со
+        # второго дивана до столика было 75 см при пределе 50 — «валидно», но рукой не достать.
+        for _s2 in _inst(ps, "диван")[1:]:
+            if _s2.item is None or _s2.item.corner:
+                continue
+            if getattr(_s2, 'tpl_id', '') not in ('', 'seating'):
+                continue                       # диван другой зоны — своя досягаемость
+            _g2 = _zone_gap(_s2, by["столик"])
+            if _g2 > t_hard[1] * 1.0 and footprint(_s2).distance(footprint(by["диван"])) <= 120:
+                out.append(_v("SOFA_TABLE_DIST",
+                              f"{_s2.role}↔столик {_g2:.0f} см — со второго дивана не дотянуться",
+                              [_s2.role, "столик"], round(_g2), f"≤{t_hard[1]:.0f} см"))
     if "диван" in by:
         lim = distances().get("seats_group_max", 200)   # единый порог для обоих движков
         for arm in _inst(ps, "кресло"):
@@ -789,6 +802,26 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
         act_w = max(act_w, 0.9 * sofa.item.w_cm)
     else:
         act_lat, act_w = 0.0, sofa.item.w_cm
+    # Г-КОМПОЗИЦИЯ ИЗ ДВУХ ДИВАНОВ (R1, 19.08): ось группы — не ось главного дивана, а ось
+    # ВНУТРЕННЕЙ ПОЛОСТИ «Г». Столик, канонически сдвинутый к внутреннему углу (чтобы со ВТОРОГО
+    # дивана до него дотягивались), обязан считаться центрированным — иначе правильный канон
+    # ловит COFFEE_TABLE_OFF_CENTER. Смещение допускается ровно на половину вылета второго дивана.
+    _sofa2 = next((p for p in ps if p.role.split(' ')[0] == 'диван' and p is not sofa
+                   and p.item is not None), None)
+    _tbl0 = by.get("столик")
+    if _sofa2 is not None and _tbl0 is not None and _tbl0.item is not None and not sofa.item.corner:
+        _, _lat2 = relative_position(sofa, _sofa2)
+        if abs(_lat2) > sofa.item.w_cm / 2:            # именно Г-стык сбоку, не визави
+            from .invariants import TEMPLATES as _TG
+            _geo = (_TG.get('geometry') or {})
+            _cg = float((_geo.get('coffee_gap_cm') or {}).get('v') or 42.5)
+            _lg = float((_geo.get('l_joint_gap_cm') or {}).get('v') or 20.0)
+            _tl = max(_tbl0.item.w_cm, _tbl0.item.d_cm)
+            # ожидаемая ось Г-композиции = канонический сдвиг столика к внутреннему углу
+            # (тот же расчёт, что в template.build_block: со ВТОРОГО дивана до столика обязан
+            # быть тот же зазор 42.5, иначе с него не дотянуться)
+            act_lat += (1.0 if _lat2 > 0 else -1.0) * max(
+                0.0, sofa.item.w_cm / 2 + _lg - _tl / 2 - _cg)
     out = []
     tbl = by.get("столик")
     if tbl is not None:
@@ -1643,6 +1676,17 @@ def check_console_contract(room: Room, ps: list[Placement]) -> list[Violation]:
         if gap > 10:
             out.append(_v("CONSOLE_DETACHED", f"«{c.role}» в {gap:.0f} см от спинки — не консоль",
                           [c.role, sofa.role], round(gap), "вплотную к спинке (≤10 см)"))
+        # R8 (19.08, разбор Codex): паспорт объявляет `route_after_console_required`, но никто
+        # это не проверял — при остатке 91 и консоли 40 за ней оставалось ~49 см, то есть
+        # обещанного маршрута не было. Полоса ЗА КОНСОЛЬЮ обязана быть настоящим проходом.
+        if bool(cfg.get('route_after_console_required', True)):
+            from .back_gap import strip_behind_depth
+            _left = strip_behind_depth(room, sofa, extra=[c])
+            _rmin = float(((_zr().get('routes') or {}).get('route_min_cm')) or 91)
+            if _left is not None and _left + 0.5 < _rmin:
+                out.append(_v("CONSOLE_ROUTE_BLOCKED",
+                              f"за «{c.role}» остаётся {_left:.0f} см — маршрут не проходит",
+                              [c.role, sofa.role], round(_left), f"≥{_rmin:.0f} см за консолью"))
     return out
 
 

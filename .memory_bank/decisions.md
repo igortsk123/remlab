@@ -1908,3 +1908,46 @@ acceptance_run/render_plan/smoke_manifest, /test/templates, /test/acceptance-pla
 **Влияет на.** `services/planner-solver/planner/back_gap.py`, `services/planner-solver/planner/opportunities.py`, `services/planner-solver/planner/zones.py`,
 `services/planner-solver/planner/template.py`, `services/planner-solver/planner/validate.py`, `services/planner-solver/rules/occupancy.json`, `services/planner-solver/rules/zones.json`,
 `services/planner-solver/rules/templates.json`, `tools/scout/rules/practice_priors.json`; `core/layout.md`, `core/catalog.md`.
+
+## ADR-0111 — Каноны как источник боевых правок: угол/эркер, досягаемость столика в Г-композиции, состав схем не зависит от банка (2026-08-19)
+
+**Решение.** Дефекты, найденные при отрисовке канонов, исправлены в БОЕВОМ коде; витрина
+переведена на те же генераторы, что и солвер:
+
+- **Угол.** `services/planner-solver/planner/template.py: _corner_candidates` считает отступ от
+  полугабарита ПОВЁРНУТОГО предмета по каждой оси (`ex = |cos|·w/2 + |sin|·d/2`), а не от радиуса
+  до угла — прежняя формула заводила блок 180×92 в стены на ~15 см, и угловые кандидаты молча
+  вымирали. Габарит блока считает общий `template.block_bbox` (им же пользуется
+  `tools/scout/canon_gallery.py`). Угловая раскладка reading: торшер в вершину за спинку, кресло
+  вплотную перед ним; кресло СТРОГО в вершине при полном комплекте геометрически невозможно
+  (блок 180 см под 45° занимает 127 см вдоль каждой стены) — записано в паспорте.
+- **Эркер.** Общий генератор `template._bay_candidates` (позиции 50/25/75 % пролёта, спинка
+  кресла-якоря к наружной кромке) вместо единственного кандидата-центроида; каскад состава в нише
+  (полный комплект → кресло+поверхность → соло) и exemption `bay_anchor: min_composition`
+  (в эркере, как и у окна, кресло самодостаточно). Порядок якорей reading: окно → камин → эркер →
+  угол → стена.
+- **Г-композиция.** Столик сдвигается к внутреннему углу так, чтобы ОБА дивана получили
+  канонические 42.5 см (`template.build_block`); ось Г-композиции учитывается в
+  `services/planner-solver/planner/validate.py` (TABLE_OFF_AXIS / COFFEE_TABLE_OFF_CENTER), и добавлена проверка
+  досягаемости столика со ВТОРОГО дивана — прежде правило смотрело только главный, и 75 см
+  считались «валидными».
+- **Камин.** `quiet.fireplace_flank` — ровно два кресла + очаг: состав схемы больше не зависит от
+  того, что лежит в банке (наличие двух поверхностей молча меняло канон). Одно кресло + камин —
+  новая схема `reading.fireplace_anchor` (`template.build_fireplace_anchor`). Нехватка поверхности
+  у пары — `allowed_soft` паспорта, глобальное правило SERVICE_SURFACE не ослаблено.
+- **Медиа.** `media_installation` честно описан как композиция СВОБОДНОСТОЯЩИХ корпусов, зазор
+  40 см помечен `hypothesis` (число было перенесено из схемы «ТВ+камин»); настоящая встройка —
+  отдельная схема `media_builtin` со статусом sleeping до данных о коллекции/корпусах.
+- **Консоль.** Контракт `route_after_console_required` теперь проверяется:
+  `planner/back_gap.py: strip_behind_depth` + `CONSOLE_ROUTE_BLOCKED` (H0) и гейт в плейсере
+  (остаток ≥ зазор + глубина консоли + 91).
+
+**Почему.** Владелец разбирал галерею схема за схемой; каждое замечание оказалось не претензией к
+картинке, а следом дефекта в коде. Независимая сверка — Codex
+(`_intake/codex-prompts/q11-gallery-review-1.answer.md`), его ключевой довод: «витрина со своей
+геометрией маскирует боевые дефекты» — поэтому общие helper'ы, а не копии.
+
+**Влияет на.** `services/planner-solver/planner/template.py`, `services/planner-solver/planner/validate.py`, `services/planner-solver/planner/back_gap.py`,
+`services/planner-solver/rules/templates.json`, `services/planner-solver/rules/severity.json`, `tools/scout/canon_gallery.py`,
+`tools/scout/render_plan.py`; библиотека канонов `/test/canons/` — 51 карточка, покрытие паспорта
+полное (включая карточки «спит»), гейт полноты и `allowed_soft` в паспорте.

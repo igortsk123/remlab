@@ -211,11 +211,13 @@ def render_artifact(out: dict, png_path: str, band: str = '14-16') -> None:
     _order=sorted(placed.items(), key=lambda kv: 0 if kv[0].split(' ')[0]=='ковёр' else 1)
     for r,v in _order:
         pts=[T(x,z) for x,z in v[2]]
+        # цвет — по БАЗОВОЙ роли: «диван 2»/«кресло 2» рисовались серыми как неизвестный предмет
+        _col = cols.get(r) or cols.get(r.split(' ')[0], (200, 200, 200))
         if r in CTX:
-            dr.polygon(pts, fill=_pale(cols.get(r, (200, 200, 200))))
+            dr.polygon(pts, fill=_pale(_col))
             _dashed(pts, (130, 130, 130))
         else:
-            dr.polygon(pts,outline=(40,40,40),fill=cols.get(r,(200,200,200)))
+            dr.polygon(pts, outline=(40, 40, 40), fill=_col)
         xs=[p[0] for p in pts]; ys=[p[1] for p in pts]
         _ITEM_BOXES.append((min(xs),min(ys),max(xs),max(ys)))
     # подписи — вторым проходом, поверх всей мебели и в обход чужих блоков
