@@ -208,6 +208,9 @@ def test_focus_wall_not_empty():
     """Носитель есть в банке — стена напротив дивана не должна пустовать.
     P1 свода №12: считаем только ok-сцены — сцена без носителя при required обязана
     падать MEDIA_MISSING (not ok), «ok без медиа» = ноль без исключений."""
+    if not os.path.exists(REPORT):
+        import pytest
+        pytest.skip('нет отчёта приёмки — тест уровня планов, нужен полный прогон')
     sets = json.load(open(os.path.join(SCOUT, 'sets3.json'), encoding='utf-8'))
     _ok = {json.loads(l)['scene']: json.loads(l).get('ok')
            for l in open(REPORT, encoding='utf-8') if l.strip()}

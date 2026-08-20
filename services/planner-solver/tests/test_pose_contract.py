@@ -19,6 +19,11 @@ def _pairs(limit=60):
     idx_p = os.path.join(EXPORT, 'index.json')
     if not os.path.exists(idx_p):
         return []
+    # контракт позы сверяет артефакты ПОЛНОГО прогона с экспортом; нет отчёта приёмки —
+    # значит прогон не делался или прерван, артефакты и экспорт из разных состояний,
+    # и тест обязан скипаться, а не падать (19.08)
+    if not os.path.exists(os.path.join(SCOUT, 'acceptance-report-zoned.jsonl')):
+        return []
     idx = json.load(open(idx_p, encoding='utf-8'))['plans']
     out = []
     for it in idx[:limit]:

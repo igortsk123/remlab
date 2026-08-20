@@ -20,9 +20,49 @@ from .models import Placement, Room
 
 _PRIORS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             '..', '..', '..', 'tools', 'scout', 'rules', 'practice_priors.json')
-WINDOW_ZONE_DEPTH_CM = 90.0     # полоса «у окна»: глубина, в которой предмет читается как «у окна»
-CORNER_BOX_CM = 130.0           # квадрат угла комнаты
-CENTER_REACH_CM = 120.0         # «центр группы» — перед фронтом дивана
+def _oz(name: str, default: float) -> float:
+    """Пороги зон возможностей — из правил (Q12-1, ADR-0112): раньше числа были зашиты в коде
+    без провенанса, и «ситуация» опиралась на невидимые константы."""
+    try:
+        from .zones import zone_rules as _zr
+        v = ((_zr().get('opportunity_zones') or {}).get(name) or {}).get('v')
+        return float(default if v is None else v)
+    except Exception:
+        return float(default)
+
+
+WINDOW_ZONE_DEPTH_CM = _oz('window_band_depth_cm', 90.0)   # полоса «у окна»
+CORNER_BOX_CM = _oz('corner_box_cm', 130.0)                # квадрат угла комнаты
+CENTER_REACH_CM = _oz('center_reach_cm', 120.0)            # «центр группы» перед фронтом дивана
+PRIMARY_WALL_DEPTH_CM = _oz('primary_wall_depth_cm', 70.0)
+
+# ЯКОРЬ СХЕМЫ → ИСХОД возможности (Q12-1): исход обязан определяться по ТОМУ, ЧТО ПОСТАВИЛА зона
+# (tpl_id/tpl_variant), а не по первой роли, попавшей в полосу. Иначе скамья у окна
+# классифицировалась как edge_nook просто потому, что банкетка встречается в его ролях.
+ANCHOR_OUTCOME = {
+    ('reading', 'window_anchor'): 'armchair_or_pair',
+    ('reading', 'bay_anchor'): 'armchair_or_pair',
+    ('bay_armchair', ''): 'armchair_or_pair',
+    ('window_seat', 'bench_under_window'): 'window_seat_bench',
+    ('window_seat', 'bay_bench'): 'window_seat_bench',
+    ('seating', ''): 'sofa_at_window',
+    ('storage', 'corner_tower'): 'storage_tower',
+    ('reading', 'corner_vignette'): 'reading_corner',
+    ('decor', ''): 'plant',
+}
+
+
+def _anchor_outcome(kind: str, ps_in_zone: list) -> str | None:
+    """Исход по якорю поставленной схемы (приоритетнее ролевого)."""
+    ranks = _rank_map(kind)
+    for p in ps_in_zone:
+        tid = (getattr(p, 'tpl_id', '') or '')
+        tv = (getattr(p, 'tpl_variant', '') or '').split('+')[0]
+        for key in ((tid, tv), (tid, '')):
+            oid = ANCHOR_OUTCOME.get(key)
+            if oid and oid in ranks:
+                return oid
+    return None
 
 
 def priors() -> dict:
@@ -148,12 +188,23 @@ def opportunities(room: Room, ps: list[Placement]) -> list[dict]:
     out: list[dict] = []
     items = [p for p in ps if base_role(p.role) != 'ковёр']
     # --- окна
-    for i, op in enumerate(o for o in room.openings if o.kind == 'window'):
+    for op in sorted((o for o in room.openings if o.kind == 'window'),
+                     key=lambda o: (o.wall, o.offset_cm, o.width_cm)):
         zone = _band(room, op)
         inzone = [p for p in items if footprint(p).intersects(zone)]
         roles = {base_role(p.role) for p in inzone}
-        oid = _role_outcome('window', roles) or 'free_intentional'
-        out.append({'opportunity_id': f'window:{op.wall}:{i}', 'kind': 'window',
+        # Q12-1: исход — сперва по ЯКОРЮ поставленной схемы, роли только как запасной путь
+        oid = _anchor_outcome('window', inzone) or _role_outcome('window', roles) or 'free_intentional'
+        _rad = any(r.wall == op.wall and
+                   r.offset_cm < op.offset_cm + op.width_cm and
+                   op.offset_cm < r.offset_cm + r.width_cm for r in (room.radiators or []))
+        out.append({  # ID — из канонической сигнатуры проёма, не из порядка массива (Q12-1):
+                      # при перестановке openings объяснение обязано остаться тем же
+                    'opportunity_id': f'window:{op.wall}:{int(op.offset_cm)}:{int(op.width_cm)}',
+                    'kind': 'window', 'anchor_type': 'window',
+                    'anchor_ref': f'{op.wall}@{int(op.offset_cm)}+{int(op.width_cm)}',
+                    'qualifiers': sorted(([ 'radiator_under' ] if _rad else [])
+                                         + (['low_sill'] if (getattr(op, 'sill_cm', 0) or 0) < 60 else [])),
                     'selected_outcome': oid, 'roles_present': sorted(roles),
                     # чем предмет привязан к окну: зона+форма (истина) или просто попал в полосу
                     'anchored_zones': sorted({f"{getattr(p, 'tpl_id', '') or '-'}"
@@ -169,12 +220,13 @@ def opportunities(room: Room, ps: list[Placement]) -> list[dict]:
         roles = {base_role(p.role) for p in items if p is not sofa and footprint(p).intersects(zone)}
         oid = _role_outcome('seating_center', roles) or 'free_intentional'
         out.append({'opportunity_id': 'seating_center', 'kind': 'seating_center',
+                    'anchor_type': 'object', 'anchor_ref': 'диван', 'qualifiers': [],
                     'selected_outcome': oid, 'roles_present': sorted(roles)})
         # --- главная стена (та, к которой обращён фронт дивана)
         fx, fy = math.sin(r), math.cos(r)
         wall = ('north' if fy > 0 else 'south') if abs(fy) > abs(fx) else ('east' if fx > 0 else 'west')
         from shapely.geometry import box as _b
-        depth = 70.0
+        depth = PRIMARY_WALL_DEPTH_CM
         strip = {'north': _b(0, room.depth_cm - depth, room.width_cm, room.depth_cm),
                  'south': _b(0, 0, room.width_cm, depth),
                  'east': _b(room.width_cm - depth, 0, room.width_cm, room.depth_cm),
@@ -182,6 +234,7 @@ def opportunities(room: Room, ps: list[Placement]) -> list[dict]:
         roles = {base_role(p.role) for p in items if footprint(p).intersects(strip)}
         oid = _role_outcome('primary_wall', roles) or 'accent_wall_free'
         out.append({'opportunity_id': f'primary_wall:{wall}', 'kind': 'primary_wall',
+                    'anchor_type': 'wall_segment', 'anchor_ref': wall, 'qualifiers': [],
                     'selected_outcome': oid, 'roles_present': sorted(roles)})
     # --- свободные углы
     from shapely.geometry import box as _b
@@ -199,20 +252,47 @@ def opportunities(room: Room, ps: list[Placement]) -> list[dict]:
         roles = {base_role(p.role) for p in items if footprint(p).intersection(box).area > 400}
         if {'диван', 'стенка', 'стол обеденный'} & roles:
             continue                      # угол занят главной зоной — это не «свободный угол»
-        oid = _role_outcome('free_corner', roles) or 'free_intentional'
+        _inbox = [p for p in items if footprint(p).intersection(box).area > 400]
+        oid = _anchor_outcome('free_corner', _inbox) or _role_outcome('free_corner', roles) \
+            or 'free_intentional'
         out.append({'opportunity_id': f'corner:{name}', 'kind': 'free_corner',
+                    'anchor_type': 'corner', 'anchor_ref': name, 'qualifiers': [],
                     'selected_outcome': oid, 'roles_present': sorted(roles)})
     return out
 
 
-def practice_prior_key(room: Room, ps: list[Placement]) -> tuple:
-    """Ключ приоров практики (меньше — ближе к практике): сумма рангов выбранных исходов
-    по возможностям + их количество. ТЕНЬ: в production-ключ не входит до слепых пар."""
-    total, n = 0, 0
+def prior_ranks(room: Room, ps: list[Placement]) -> dict:
+    """{opportunity_id: (kind, selected_outcome, rank)} — ранг исхода в приорах практики.
+    Ранг = ПОРЯДОК распространённости (0 — самый частый), не вероятность и не доля."""
+    out = {}
     for opp in opportunities(room, ps):
         rank = _rank_map(opp['kind']).get(opp['selected_outcome'])
         if rank is None:
             continue
-        total += rank
-        n += 1
-    return (total, -n)
+        out[opp['opportunity_id']] = (opp['kind'], opp['selected_outcome'], rank)
+    return out
+
+
+def prior_prefers(room: Room, a: list[Placement], b: list[Placement]) -> int:
+    """ЛОКАЛЬНОЕ сравнение по приорам (Q12-2, ADR-0112). Возвращает -1 (лучше a), +1 (лучше b)
+    или 0 (приор не высказывается).
+
+    Приор высказывается ТОЛЬКО когда планы различаются исходом РОВНО ОДНОЙ И ТОЙ ЖЕ возможности.
+    Прежний `practice_prior_key` складывал ранги по всем возможностям — это скрытые веса
+    (плохой исход у окна «компенсировался» углом, а комната с четырьмя углами меняла масштаб
+    цели); суммировать ранги запрещено (`anti-patterns.md`)."""
+    ra, rb = prior_ranks(room, a), prior_ranks(room, b)
+    diff = [k for k in (set(ra) & set(rb)) if ra[k][1] != rb[k][1]]
+    if len(diff) != 1:
+        return 0                      # различий нет или их несколько — приор молчит
+    k = diff[0]
+    if ra[k][2] == rb[k][2]:
+        return 0
+    return -1 if ra[k][2] < rb[k][2] else 1
+
+
+def practice_prior_key(room: Room, ps: list[Placement]) -> tuple:
+    """СНЯТО (Q12-2): сумма рангов была скрытой аддитивной системой весов. Оставлено только как
+    диагностика формы «сколько возможностей распознано», без влияния на выбор."""
+    ranks = prior_ranks(room, ps)
+    return (0, -len(ranks))

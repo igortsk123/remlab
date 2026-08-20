@@ -67,6 +67,13 @@ def room_of(kind: str) -> Room:
         # 560×430: широкие формы посадки (медиа-параллель, мостик) помещаются целиком, а дистанция
         # диван↔ТВ остаётся в вилке просмотра — референс не должен уезжать в «просторную» сцену
         return Room(width_cm=560, depth_cm=430, openings=[door])
+    if kind == 'bay_wide':
+        # широкий эркер (ниша 260×110): пара кресел помещается целиком; в узкой нише 200 см
+        # пара честно не собирается — там канон одиночного кресла
+        return Room(width_cm=520, depth_cm=440, openings=[
+            door, Opening(kind='window', wall='north', offset_cm=150, width_cm=220, sill_cm=80)],
+            contour=[[0, 0], [520, 0], [520, 330], [390, 330], [390, 440], [130, 440],
+                     [130, 330], [0, 330]])
     if kind == 'window2':
         # два окна на одной стене — якорь схемы media_between_windows (простенок между проёмами)
         return Room(width_cm=560, depth_cm=430, openings=[
@@ -344,7 +351,10 @@ def canons() -> list[dict]:
                        ('sofa_2armchairs', 'u'), ('sofa_2armchairs', 'bridge'),
                        ('sofa_2armchairs', 'tandem_r'), ('sofa_2armchairs', 'tandem_l'),
                        ('sofa_2armchairs', 'bulky'), ('sofa_armchair', 'media_parallel'),
-                       ('sofa_2armchairs', 'media_bridge'), ('sofa_lamp', 'default'),
+                       ('sofa_2armchairs', 'media_bridge'), ('sofa_armchair', 'media_half'),
+                       ('sofa_lamp', 'default'), ('sofa_2armchairs', 'default'),
+                       ('armchair_pair', 'default'), ('compact_sectional', 'default'),
+                       ('sofa_pouf', 'default'), ('sofa_solo', 'default'),
                        ('sofa_pouf', 'pouf_table')):
         _kit = dict(seat_kit)
         if shape == 'tandem_l':
@@ -352,7 +362,7 @@ def canons() -> list[dict]:
             # не остаётся прохода 46 см (боевой UNREACHABLE). Торшер в этой схеме опционален,
             # канон — про кресла в тандеме, поэтому показываем без него
             _kit.pop('торшер', None)
-        if shape in ('media_parallel', 'bridge', 'media_bridge'):
+        if shape in ('media_parallel', 'media_half', 'bridge', 'media_bridge'):
             _kit.pop('пуф', None)                     # эти формы собираются без пуфа
             _kit['тв-тумба'] = CAT['тв-тумба'].model_copy()   # медиа-формы ориентируются на носитель
             _kit.pop('ковёр', None)   # bridge/media-формы разносят кресла под 45°: ковра-«клея»
@@ -362,7 +372,14 @@ def canons() -> list[dict]:
             b.tpl_variant = shape      # форма должна быть на предметах: контракты судят по ней
         r, ps = block_scene('media' if shape in ('media_parallel', 'media_bridge') else 'plain',
                             b, wall='south')
-        out.append({'zone': 'seating', 'id': shape, 'title': f'посадка: {shape} ({gid})',
+        # ID карточки — (группа, форма): одна и та же форма `default` у РАЗНЫХ групп — это разные
+        # композиции (диван+кресло, диван+торшер, два дивана визави). Раньше карточки писались в
+        # один файл и затирали друг друга (находка аудита Codex 19.08)
+        # passport_id — id КАНОНА (после слияния зеркал и переименований форма ≠ канон)
+        out.append({'zone': 'seating', 'id': f'{gid}.{shape}',
+                    'passport_id': (_GROUP_CANON.get(gid, shape) if shape == 'default'
+                                    else PASSPORT_OF.get(shape) or shape),
+                    'title': f'посадка: {shape} ({gid})',
                     'room': r, 'ps': ps})
     # у двух диванов без кресел вариант `square` геометрически совпадает с `default` (ветка
     # square расставляет только кресла) — честные имена карточек: Г-стык влево / вправо
@@ -372,7 +389,8 @@ def canons() -> list[dict]:
         if b is not None:
             b.tpl_variant = _cid
         r, ps = block_scene('plain', b, wall='south')
-        out.append({'zone': 'seating', 'id': _cid, 'title': _ttl, 'room': r, 'ps': ps})
+        out.append({'zone': 'seating', 'id': _cid, 'passport_id': 'two_sofa_l_joint',
+                    'title': _ttl, 'room': r, 'ps': ps})
 
     # ---------- DINING
     for cid, kit, chairs, sides in (('dining_island', ('стол обеденный', 'стул', 'стул 2', 'стул 3', 'стул 4'), 4, 'all'),
@@ -393,7 +411,9 @@ def canons() -> list[dict]:
     for var, kit in (('quiet_chat', ('кресло 3', 'кресло 4', 'столик 2')), ):
         b = T.build_quiet(by(*kit), variant=var)
         r, ps = block_scene('plain', b, wall='north')
-        out.append({'zone': 'quiet', 'id': var, 'title': 'тихая зона: пара кресел + столик', 'room': r, 'ps': ps})
+        out.append({'zone': 'quiet', 'id': var, 'passport_id': 'paired_conversation',
+                    'title': 'тихая зона: парная беседа (два кресла + общая поверхность)',
+                    'room': r, 'ps': ps})
     # с приставным столиком: пара кресел без поверхности — SERVICE_SURFACE на самом эталоне
     b = T.build_quiet(by('кресло 3', 'кресло 4', 'приставной', 'столик 2'),
                       variant='fireplace_flank', fireplace=CAT['камин'])
@@ -415,6 +435,29 @@ def canons() -> list[dict]:
                 'title': 'чтение: уголок в углу (кресло + свет + столик)', 'room': r, 'ps': ps})
     r, ps = placer_scene('bay', T.place_reading, ['кресло', 'торшер', 'приставной'])
     out.append({'zone': 'reading', 'id': 'bay_anchor', 'title': 'чтение: кресло в эркере', 'room': r, 'ps': ps})
+
+    # ПАРА кресел у окна и в эркере (Q12, аудит Codex: практика знает обе формы)
+    _pair_roles = ['кресло', 'кресло 2', 'приставной']
+    _rw2 = Room(width_cm=520, depth_cm=430, openings=[
+        Opening(kind='door', wall='west', offset_cm=40, width_cm=90, swing_cm=90),
+        Opening(kind='window', wall='north', offset_cm=120, width_cm=200, sill_cm=80)])
+    ps = T.place_window_reading(_rw2, [CAT[r].model_copy() for r in _pair_roles], usable_polygon(_rw2))
+    out.append({'zone': 'reading', 'id': 'window_pair', 'title': 'чтение: пара кресел у окна',
+                'room': _rw2, 'ps': ps})
+    _rb3 = room_of('bay_wide')
+    ps = T.place_reading(_rb3, [CAT[r].model_copy() for r in _pair_roles], usable_polygon(_rb3))
+    out.append({'zone': 'reading', 'id': 'bay_pair', 'title': 'чтение: пара кресел в эркере',
+                'room': _rb3, 'ps': ps})
+    # кресло у СТЕНЫ полным комплектом (бывший скрытый fallback без паспорта)
+    _rw3 = room_of('plain')
+    ps = T.place_reading(_rw3, [CAT[r].model_copy() for r in ('кресло', 'торшер', 'приставной')],
+                         usable_polygon(_rw3))
+    out.append({'zone': 'reading', 'id': 'wall_vignette',
+                'title': 'чтение: кресло у стены (кресло + свет + столик)', 'room': _rw3, 'ps': ps})
+    # растение У ОКНА (сбоку от проёма)
+    r, ps = placer_scene('window', T.place_decor, ['кашпо'])
+    out.append({'zone': 'decor', 'id': 'window_plant', 'title': 'декор: растение у окна',
+                'room': r, 'ps': ps})
 
     # чтение у камина: ОДНО кресло + очаг (владелец 19.08 — отдельный канон, не «пара минус одно»)
     _fp = Placement(role='камин', x=280, y=402, rot=180.0, item=CAT['камин']); _fp.tpl_id = 'fireplace'
@@ -442,7 +485,9 @@ def canons() -> list[dict]:
     if b is not None:
         b.tpl_variant = 'installation'   # корпуса рядом с ТВ — это и есть схема, не «перегрузка стены»
     r, ps = block_scene('big', b, wall='north')
-    out.append({'zone': 'media', 'id': 'media_installation', 'title': 'медиа: инсталляция с корпусами',
+    out.append({'zone': 'media', 'id': 'media_installation',
+                'passport_id': 'freestanding_media_storage_run',
+                'title': 'медиа: носитель + корпуса одним рядом (свободностоящие)',
                 'room': r, 'ps': ps})
     b = T.build_fireplace(by('камин', 'кашпо'))
     r, ps = block_scene('big', b, wall='north')
@@ -468,10 +513,13 @@ def canons() -> list[dict]:
     # НЕГЛУБОКОЕ хранение в полосе за спинкой дивана: комод ≤40 см у стены, высота ≤ спинки
     # (иначе TALL_SOLID_BEHIND_SOFA); диван плавающий, между ним и комодом остаётся маршрут
     _room_sh = room_of('plain')
-    _sf = Placement(role='диван', x=280, y=250, rot=180, item=CAT['диван']); _sf.tpl_id = 'seating'
-    _tb = Placement(role='столик', x=280, y=250 - 47.5 - 42.5 - 30, rot=0.0, item=CAT['столик'])
+    # 19.08 (замечание владельца): между спинкой и корпусом было 80 см — это НАША ЖЕ «сирота»
+    # (31–90 см, Q8), которую спасал только признак «полосу занимает хранение». На эталоне так
+    # нельзя: либо вплотную (это схема консоли), либо настоящий маршрут ≥91 см
+    _sf = Placement(role='диван', x=280, y=228, rot=180, item=CAT['диван']); _sf.tpl_id = 'seating'
+    _tb = Placement(role='столик', x=280, y=228 - 47.5 - 42.5 - 30, rot=0.0, item=CAT['столик'])
     _tb.tpl_id = 'seating'
-    _rg = Placement(role='ковёр', x=280, y=145, rot=0.0, item=I('ковёр', 260, 180, 1)); _rg.tpl_id = 'seating'
+    _rg = Placement(role='ковёр', x=280, y=123, rot=0.0, item=I('ковёр', 260, 180, 1)); _rg.tpl_id = 'seating'
     _st = Placement(role='комод', x=280, y=_room_sh.depth_cm - 12 - 20, rot=180.0,
                     item=I('комод', 120, 40, 80))
     _st.tpl_id = 'storage'; _st.tpl_variant = 'storage_shallow'
@@ -495,18 +543,58 @@ def canons() -> list[dict]:
     out.append({'zone': 'storage', 'id': 'console_behind_sofa',
                 'title': 'хранение: консоль за плавающим диваном', 'room': r, 'ps': ps})
 
+    # ---------- КАНОНЫ, У КОТОРЫХ НЕ БЫЛО ПАСПОРТА (аудит Codex 19.08)
+    # два дивана ВИЗАВИ — классическая разговорная композиция (без ТВ в составе)
+    b = T.build_block('sofa_facing_sofa', by('диван', 'диван 2', 'столик', 'ковёр'), variant='default')
+    if b is not None:
+        b.tpl_variant = 'vis_a_vis_sofas'
+    r, ps = block_scene('big', b, wall='south')
+    out.append({'zone': 'seating', 'id': 'vis_a_vis_sofas',
+                'title': 'посадка: два дивана визави (беседа)', 'room': r, 'ps': ps})
+    # СТЕНКА как носитель: занимает стену целиком, флангов не имеет
+    b = T.build_media(by('стенка'))
+    if b is not None:
+        b.tpl_variant = 'media_wall'
+    r, ps = block_scene('big', b, wall='north')
+    out.append({'zone': 'media', 'id': 'wall_unit_centered',
+                'title': 'медиа: стенка (носитель + хранение одним корпусом)', 'room': r, 'ps': ps})
+
+    # ---------- Q12-4: РАЗБУЖЕННЫЕ СХЕМЫ (скамья у окна / в эркере, угловая башня)
+    _bench = I('банкетка', 130, 42, 46, caps={'guaranteed_seats': 2, 'wall_seat_capable': True,
+                                              'dining_seat_capable': True})
+    r, ps = placer_scene('window', T.place_window_seat, [])
+    if ps is None:
+        _rw = room_of('window')
+        ps = T.place_window_seat(_rw, [_bench.model_copy()], usable_polygon(_rw))
+        r = _rw
+    out.append({'zone': 'window_seat', 'id': 'bench_under_window',
+                'title': 'скамья под окном (без радиатора — иначе схема не собирается)',
+                'room': r, 'ps': ps})
+    _rb2 = room_of('bay')
+    ps = T.place_window_seat(_rb2, [_bench.model_copy()], usable_polygon(_rb2))
+    out.append({'zone': 'window_seat', 'id': 'bay_bench', 'title': 'скамья в эркере (прямая, покупная)',
+                'room': _rb2, 'ps': ps})
+    _rt2 = room_of('plain')
+    ps = T.place_storage(_rt2, [I('стеллаж', 80, 35, 190)], usable_polygon(_rt2))
+    out.append({'zone': 'storage', 'id': 'corner_tower',
+                'title': 'хранение: угловая башня (корпус вдоль стены угла)', 'room': _rt2, 'ps': ps})
+
     # ---------- ОСТАЛЬНЫЕ АКТИВНЫЕ СХЕМЫ ПАСПОРТА (полнота библиотеки, владелец 19.08)
     # square — «кресла столбиком сбоку столика»: без кресел форма совпадает с default,
     # поэтому показываем на группе С КРЕСЛАМИ, где она и отличается
-    # без ковра: у «столбика» кресла стоят вне ковра любой каталожной ширины (ARMCHAIR_OFF_RUG) —
-    # ковёр в этой форме берётся по факту, канон показываем без него
-    b = T.build_block('sofa_loveseat_2armchairs',
-                      by('диван', 'диван 2', 'кресло', 'кресло 2', 'столик'), variant='square')
-    if b is not None:
-        b.tpl_variant = 'square'
-    r, ps = block_scene('big', b, wall='south')
-    out.append({'zone': 'seating', 'id': 'square', 'title': 'посадка: кресла столбиком сбоку столика',
-                'room': r, 'ps': ps})
+    # ковёр возвращён (владелец 19.08 «тут ковра нет, пропал»): прятать предмет, чтобы обойти
+    # мягкое замечание, — это и есть подгон витрины. Берём ковёр, который РЕАЛЬНО накрывает
+    # композицию со столбиком кресел (350×250 — ходовой размер, не выдумка)
+    _sqk = by('диван', 'диван 2', 'кресло', 'кресло 2', 'столик')
+    _sqk['ковёр'] = I('ковёр', 350, 250, 1)
+    for _sqv, _sqt in (('square', 'посадка: трёхсторонняя группа (кресла парой сбоку столика)'),
+                       ('square_r', 'посадка: трёхсторонняя группа зеркально')):
+        b = T.build_block('sofa_loveseat_2armchairs', dict(_sqk), variant=_sqv)
+        if b is not None:
+            b.tpl_variant = _sqv
+        r, ps = block_scene('big', b, wall='south')
+        out.append({'zone': 'seating', 'id': _sqv, 'passport_id': 'three_sided_conversation',
+                    'title': _sqt, 'room': r, 'ps': ps})
     # компактный зазор столика (36 см — нижняя граница нормы) для тесных комнат
     b = T.build_block('sofa_armchair', by('диван', 'кресло', 'столик', 'ковёр'), variant='default',
                       table_gap=float(((TPL.get('geometry') or {}).get('coffee_gap_compact_cm') or {}).get('v') or 36.0))
@@ -539,7 +627,9 @@ def canons() -> list[dict]:
                     item=CAT['тв-тумба']); _fv.tpl_id = 'media'
     for _p in (_fs, _ft, _fv):
         _p.tpl_variant = 'floating_pair'
-    out.append({'zone': 'seating', 'id': 'floating_pair', 'title': 'посадка: плавающая пара диван↔носитель',
+    out.append({'zone': 'seating', 'id': 'floating_pair',
+                'passport_id': 'floating_sofa_opposite_media',
+                'title': 'посадка: диван напротив носителя (плавающая пара)',
                 'room': _fr, 'ps': [_fg, _fs, _ft, _fv]})
     # носитель ПО ДИАГОНАЛИ В УГЛУ — общий генератор углов солвера
     b = T.build_media(by('тв-тумба', 'кашпо'))
@@ -559,6 +649,7 @@ def canons() -> list[dict]:
         b.tpl_variant = 'installation'
     r, ps = block_scene('big', b, wall='north')
     out.append({'zone': 'media', 'id': 'media_storage_combo',
+                'passport_id': 'freestanding_media_storage_run',
                 'title': 'медиа: носитель + хранение одним рядом (= media_installation)', 'room': r, 'ps': ps})
     # зона fireplace_solo (отдельный паспорт): очаг без корпусов
     r, ps = placer_scene('big', T.place_fireplace, ['камин'])
@@ -571,12 +662,27 @@ def canons() -> list[dict]:
 # ОПРЕДЕЛЕНА относительно него и без него нечитаема. Всё остальное — шум на референсе
 # («зачем диван?» — владелец). Формы посадки определены поворотом к экрану → носитель ТВ;
 # media_centered — «по оси дивана» → диван; консоль «за диваном» несёт диван в самой сцене.
+# форма в коде → id канона в паспорте (зеркала и переименования не создают новых канонов)
+PASSPORT_OF = {
+    'default': None, 'tandem_r': 'side_pair', 'tandem_l': 'side_pair',
+    'L_right': 'two_sofa_l_joint', 'square': 'three_sided_conversation',
+    'square_r': 'three_sided_conversation', 'facing': 'armchair_pair_opposite_sofa',
+    'bulky': 'deep_armchairs_opposite', 'floating_pair': 'floating_sofa_opposite_media',
+}
+_GROUP_CANON = {'sofa_armchair': 'sofa_single_flank', 'sectional_armchair': 'sofa_single_flank',
+                'sofa_2armchairs': 'sofa_pair_sides', 'sofa_4armchairs': 'sofa_pair_sides',
+                'armchair_pair': 'armchair_pair_vis_a_vis', 'compact_sectional': 'sectional_solo',
+                'sofa_pouf': 'sofa_pouf_group', 'sofa_lamp': 'sofa_lamp_group',
+                'sofa_solo': 'sofa_solo_group', 'sofa_facing_sofa': 'vis_a_vis_sofas'}
+
 CONTEXT_OF = {
     'seating.default': 'tv_wall', 'seating.u': 'tv_wall', 'seating.bridge': 'tv_wall',
     'seating.tandem_r': 'tv_wall', 'seating.media_parallel': 'tv_wall',
-    'seating.media_bridge': 'tv_wall', 'seating.pouf_table': 'tv_wall',
+    'seating.media_bridge': 'tv_wall', 'seating.media_half': 'tv_wall',
+    'seating.pouf_table': 'tv_wall',
     'seating.L_left': 'tv_wall', 'seating.L_right': 'tv_wall',
     'media.media_centered': 'facing_sofa',
+    'media.wall_unit_centered': 'facing_sofa',
 }
 
 
@@ -650,7 +756,7 @@ def main() -> None:
         png = os.path.join(OUT, name + '.png')
         c['ctx'] = []
         if c.get('sleeping'):
-            p = passport(c['zone'], c['id'])
+            p = passport(c['zone'], c.get('passport_id') or c['id'])
             meta = ''.join(f"<div><b>{k}:</b> {html.escape(str(p[k]))}</div>"
                            for k in ('when', 'why', 'status') if p.get(k))
             cards.append(f"<section class='sleep'><h2>{html.escape(c['title'])} "
@@ -658,7 +764,7 @@ def main() -> None:
                          f"<p class='none'>схема объявлена в паспорте, но НЕ реализована — "
                          f"рисовать нечего</p><div class='meta'>{meta}</div></section>")
             continue
-        _ck = CONTEXT_OF.get(name)
+        _ck = CONTEXT_OF.get(name) or CONTEXT_OF.get(f"{c['zone']}.{c.get('passport_id') or ''}")
         if c['ps'] and _ck:
             c['ps'], c['ctx'] = with_context(c['room'], c['ps'], _ck)
             if not c['ctx']:
@@ -672,7 +778,7 @@ def main() -> None:
         _soft = soft_violations(c['room'], c['ps']) if (c['ps'] and not _bad) else []
         # ДОПУСТИМЫЕ отклонения — явным списком в паспорте схемы (`allowed_soft`), а не молчанием:
         # «чисто» обязано означать «проверено», а не «мы не смотрели» (Codex 19.08)
-        _allow = set((passport(c['zone'], c['id']) or {}).get('allowed_soft') or [])
+        _allow = set((passport(c['zone'], c.get('passport_id') or c['id']) or {}).get('allowed_soft') or [])
         _unexpected = [v for v in _soft if v not in _allow]
         if _unexpected:
             print(f'  ВНИМАНИЕ {name}: неожиданные мягкие: ' + ', '.join(_unexpected[:5]))
@@ -707,7 +813,7 @@ def main() -> None:
             f"<title>Каноны зон — планы</title><style>{style}</style></head><body><div class='wrap'>"
             f"<h1>Каноны зон — визуальная библиотека</h1>{head}{''.join(cards)}</div></body></html>")
     open(os.path.join(OUT, 'index.html'), 'w', encoding='utf-8').write(page)
-    _miss = coverage_gate({f"{c['zone']}.{c['id']}" for c in _all})
+    _miss = coverage_gate({f"{c['zone']}.{c.get('passport_id') or c['id']}" for c in _all})
     if _miss:
         print('  ВНИМАНИЕ полнота библиотеки: активные схемы без карточки — ' + ', '.join(_miss))
     print(f'OK: {len(cards)} канонов → {OUT}'

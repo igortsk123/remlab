@@ -860,7 +860,7 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
         from .template import (place_decor, place_fireplace, place_media,
                                place_media_fireplace, place_quiet,
                                place_bay_armchair, place_reading, place_storage,
-                               place_window_reading)
+                               place_window_reading, place_window_seat)
         _fp_pol = zone_rules().get('fill_policy', {})
         _lo, _hi = _fp_pol.get('target_pct', [30, 45])
         _half = set(WALL_HUGGING_ROLES)
@@ -900,7 +900,11 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                             # «вторая зона не встаёт» из свода №10 J)
                             # Q10b: оконный уголок — ПЕРЕД общим reading (у окна кресло ценнее,
                             # чем у произвольной стены), но после обязательных зон
-                            (place_quiet, '+qz'), (place_window_reading, '+wr'),
+                            # Q12-4: скамья у окна — ПЕРЕД оконным креслом (window seat
+                            # конструктивно связан с проёмом; кресло у окна свободнее в выборе
+                            # места). Fail-closed по радиатору/подоконнику — в самом плейсере.
+                            (place_quiet, '+qz'), (place_window_seat, '+ws'),
+                            (place_window_reading, '+wr'),
                             (place_reading, '+rd'),
                             (place_bay_armchair, '+bay'),
                             (place_storage, '+st'),
@@ -1643,6 +1647,31 @@ def _axis_class(lay) -> int:
     return {'centered': 0, 'offset': 1}.get(c, 2 if c else 1)
 
 
+def _prior_would_choose(room, cands, pp):
+    """Кого выбрал бы приор, если бы его ВКЛЮЧИЛИ по правилам Q12-2: среди гипотез с РАВНЫМ
+    верхним префиксом ключа (тот же лексикографический ключ до эстетики) и различием исхода
+    ровно одной возможности. Иначе — None («приор не высказывается»), а не молчаливый победитель
+    по сумме рангов (прежняя тень моделировала небезопасное включение)."""
+    try:
+        from .opportunities import prior_prefers
+    except Exception:
+        return None
+    if not cands or any(x is None for x in pp):
+        return None
+    best_i = 0
+    for i in range(1, len(cands)):
+        if list(cands[i][3]) != list(cands[best_i][3]):
+            continue                       # верхний префикс различается — приор не вмешивается
+        try:
+            r = prior_prefers(room, list(cands[i][2][0].placements),
+                              list(cands[best_i][2][0].placements))
+        except Exception:
+            r = 0
+        if r < 0:
+            best_i = i
+    return cands[best_i][0] if best_i != 0 else None
+
+
 def solve_zoned_beam(room: Room, items, **kw):
     """P2: драйвер beam. Возвращает (outs, gid) как solve_zoned; в meta лучшего —
     'beam': {hypotheses, chosen, keys, certificate}. Выключен в данных → solve_zoned.
@@ -1963,11 +1992,15 @@ def _solve_zoned_beam_inner(room: Room, items, **kw):
               'shadow_hyp': bool(cfg.get('shadow_hypothesis_tiers', False))}
     # Q9 (тень, Codex 18.08): ключ ПРИОРОВ ПРАКТИКИ по каждой гипотезе — только измерение,
     # production-выбор не трогаем до слепых пар (включение = отдельное решение владельца)
+    # Q12-2 (ADR-0112): приор — ЛОКАЛЬНЫЙ тайбрейк, а не сумма рангов. В тени считаем:
+    # (а) распознанные исходы по каждой возможности, (б) кого выбрал бы приор СРЕДИ равных по
+    # верхнему префиксу ключа гипотез (различие ровно одной возможности).
     _pp = []
     for c in cands:
         try:
-            from .opportunities import practice_prior_key as _ppk
-            _pp.append(_ppk(room, list(c[2][0].placements)) if c[2] else None)
+            from .opportunities import prior_ranks as _pr
+            _pp.append({k: [v[0], v[1], v[2]] for k, v in _pr(room, list(c[2][0].placements)).items()}
+                       if c[2] else None)
         except Exception:
             _pp.append(None)
     _cap = []
@@ -1999,9 +2032,8 @@ def _solve_zoned_beam_inner(room: Room, items, **kw):
              'capacity_would_choose': (cands[sorted(range(len(cands)), key=lambda i: (_cap[i], i))[0]][0]
                                        if cands and all(x is not None for x in _cap) else None),
              'capacity_keys': [list(x) if x is not None else None for x in _cap],
-             'practice_prior_shadow': [list(x) if x is not None else None for x in _pp],
-             'prior_would_choose': (cands[sorted(range(len(cands)), key=lambda i: (_pp[i], i))[0]][0]
-                                    if cands and all(x is not None for x in _pp) else None),
+             'practice_prior_shadow': _pp,
+             'prior_would_choose': _prior_would_choose(room, cands, _pp),
              'chosen': name, 'chosen_key': list(key),
              'greedy_key': list(cands[0][3]) if cands[0][0] == 'greedy' else None,
              'improved': bool(cands[0][0] == 'greedy' and best_i != 0)}

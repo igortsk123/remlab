@@ -894,10 +894,33 @@
      5,
      10
     ],
-    "source": "https://masdio.com/blogs/news/where-to-put-floor-lamp-in-living-room"
+    "source": "https://masdio.com/blogs/news/where-to-put-floor-lamp-in-living-room",
+    "center_to_seat_cm": [
+     46,
+     90
+    ],
+    "_center_why": "норма расстояния «кресло↔торшер» по источникам расходится: BenQ и профильные гайды дают sweet spot 18–24″ (46–61 см) от центра посадки, другие — 2–3 фута (60–90 см). Держим вилку 46–90 как проверяемый диапазон, точку внутри — hypothesis; свет ставим ЗА ПЛЕЧОМ (не за спинкой), низ абажура на уровне глаз сидящего 107–120 см",
+    "shade_bottom_cm": [
+     107,
+     120
+    ],
+    "_provenance": "external: BenQ floor-lamp placement guide; Homebaa floor lamp height guide (19.08.2026)"
    },
    "dining_rug_overhang_min_cm": 61,
-   "dining_rug_source": "https://www.rugs-direct.com/dining-room-rug-size"
+   "dining_rug_source": "https://www.rugs-direct.com/dining-room-rug-size",
+   "side_table": {
+    "gap_from_chair_cm": [
+     5,
+     10
+    ],
+    "height_vs_armrest_cm": [
+     -5,
+     5
+    ],
+    "align": "front_half_of_armrest",
+    "_why": "приставной столик у кресла: зазор 2–4″ (5–10 см) от кресла, поверхность на уровне подлокотника ±2″; ставится у ПЕРЕДНЕЙ половины подлокотника — туда ложится рука, иначе «поставить нечего» (замечание владельца 20.08)",
+    "_provenance": "external: Kouboo side/end table height guide; Wayfair end-table height; Eureka Ergonomic armrest rule (19.08.2026)"
+   }
   },
   "corner_sofa_section_depth_cm": 95,
   "judge_style_thr": 6
@@ -1072,5 +1095,8 @@
  "rug_rules": {
   "anchor": "front_legs_all_seating",
   "_note_anchor": "ковёр — якорь ГРУППЫ: передние ножки всей посадки (West Elm/H&G, свод 07.08), не только дивана"
+ },
+ "_mirrors": {
+  "distances_cm.sofa_to_radiator_wall": "зеркало dynamic.radiator.hard_min_clearance_cm (19.08, Codex: порог радиатора жил в двух ключах). Источник истины — dynamic.radiator (там же provenance и комфортная вилка); значения обязаны совпадать, сторож — tests/test_rules_no_dup.py"
  }
 }

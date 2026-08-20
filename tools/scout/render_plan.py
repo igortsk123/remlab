@@ -245,15 +245,59 @@ def render_artifact(out: dict, png_path: str, band: str = '14-16') -> None:
             _pri={'тв-тумба':0,'стенка':0,'камин':1,'диван':2,'кресло':2,'стол обеденный':3,'столик':4}[b2_]
             if (_base=='кресло' and d>250) or ang>60: continue
             # владелец 17.08 (№55): «под углом» — ТОЛЬКО когда сам предмет повёрнут диагонально
-            # (rot не кратен 90°); осевая поза — либо точное «→ к X» (≤15°), либо ничего
+            # (rot не кратен 90°). 19.08 (владелец: «не ясно, куда кресло смотрит»): осевая поза
+            # с целью в конусе 15–45° больше не остаётся БЕЗ подписи — пишем «в сторону X (43°)»:
+            # предмет не развёрнут, но читателю видно, куда направлен взгляд и насколько мимо.
             _diag=(int(round(v[1]))%90)!=0
-            if ang>15 and not _diag: continue
+            if ang>45 and not _diag: continue
             _tier=0 if ang<=15 else 1
             if best is None or (_tier,_pri,d)<(best[0],best[1],best[2]): best=(_tier,_pri,d,b2_,ang)
         if not best: return None
         _nm={'тв-тумба':'ТВ','стенка':'ТВ','диван':'дивану','столик':'столику','камин':'камину','стол обеденный':'столу','кресло':'креслу'}
+        _to={'тв-тумба':'ТВ','стенка':'ТВ','диван':'дивана','столик':'столика','камин':'камина','стол обеденный':'стола','кресло':'кресла'}
         if best[0]==0: return f"→ к {_nm[best[3]]}"
-        return f"под {int(5*round(best[4]/5))}° к {_nm[best[3]]}"
+        _dg=(int(round(v[1]))%90)!=0
+        if _dg: return f"под {int(5*round(best[4]/5))}° к {_nm[best[3]]}"
+        return f"→ в сторону {_to[best[3]]} ({int(round(best[4]))}°)"
+
+    def _anchor_word(r, v):
+        """Отношение посадочного к АРХИТЕКТУРНОМУ ЯКОРЮ (владелец 20.08: «не ясно, кресло спинкой
+        к окну или как»). Раньше подписывались только предметные цели (ТВ/диван/столик), и планы
+        у окна/в эркере читались как «кресло непонятно куда»."""
+        import math as _m
+        if r.split(' ')[0] not in ('диван', 'кресло', 'банкетка'):
+            return None
+        wins = [o for o in out['_room'].get('openings', []) if o.get('kind') == 'window']
+        if not wins:
+            return None
+        cx, cz = v[0]
+        _a = _m.radians(v[1]); fx, fz = _m.sin(_a), _m.cos(_a)
+        # СРАВНИВАЕМ С НОРМАЛЬЮ ОКОННОЙ СТЕНЫ, а не с направлением на центр проёма: предмет,
+        # смещённый вдоль стены, «спиной к окну» стоит ровно так же, как центрированный
+        # (иначе пара кресел у окна подписывалась «боком») — 20.08
+        best = None
+        for o in wins:
+            (ax, az), (bx, bz) = _wall_seg(o)
+            wx, wz = _nrm((ax + bx) / 2, (az + bz) / 2)
+            # внутренняя нормаль стены в НОРМАЛИЗОВАННЫХ осях: от центра проёма к центру комнаты
+            rcx, rcz = _nrm(RWO / 2, RDO / 2)
+            nx, nz = rcx - wx, rcz - wz
+            nn = _m.hypot(nx, nz) or 1.0
+            nx, nz = nx / nn, nz / nn
+            d = abs((cx - wx) * nx + (cz - wz) * nz)      # расстояние по нормали до стены
+            lat = abs(-(cx - wx) * nz + (cz - wz) * nx)   # смещение вдоль стены
+            if d > 230 or lat > 260 or (best is not None and d >= best[0]):
+                continue
+            best = (d, nx, nz)
+        if best is None:
+            return None
+        _, nx, nz = best
+        cosf = fx * nx + fz * nz
+        if cosf >= _m.cos(_m.radians(40)):
+            return 'лицом в комнату (спинкой к окну)'
+        if cosf <= -_m.cos(_m.radians(40)):
+            return 'лицом к окну'
+        return 'боком к окну'
 
     def _pouf_role(r, v):
         """P5 (владелец №192: «пуф — для ног или что?»): назначение по близости к посадке."""
@@ -280,6 +324,8 @@ def render_artifact(out: dict, png_path: str, band: str = '14-16') -> None:
                 _extra+={'reading':' · зона чтения','quiet':' · тихая зона','bay_armchair':' · эркер'}[_zn]
         except Exception:
             pass
+        _aw=_anchor_word(r,v)
+        if _aw: _extra += f' · {_aw}'
         _lbl=f"{r} {int(_w)}x{int(_d)}" + (f" · {_fw}" if _fw else '') + _extra + (
             ' · контекст' if r in CTX else '')
         _tx,_ty=T(cx,cz)

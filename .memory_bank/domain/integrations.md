@@ -180,6 +180,9 @@ PNG 512 от владельца (Drive `1l2j65g8…`) → `public/icons/`; вс�
 | РФ-прокси | ✅ ADR-0031 | фолбэк parse-link; квота 1 ГБ | `PARSE_PROXY_URLS`; креды — VPN `_secrets/` | `lib/calc/fetch-page.ts` |
 
 ## Codex (OpenAI CLI) — постоянная сессия-советник (16.08.2026)
+> **Скоуп правила (20.08.2026):** владелец убрал правило из глобального `~/.claude/CLAUDE.md` —
+> оно действует ТОЛЬКО в remlab и sup2, полный текст в `CLAUDE.md` каждого проекта (§ Codex).
+> Два `resume` одной сессии параллельно не запускать: вызовы конфликтуют.
 - **Сессия проекта:** `01a00a62-33e2-7051-93c6-37bff5c6937e` (онбординг 16.08: прочитал CLAUDE.md, INDEX, ADR-0099…0106,
   MASTER-zones-v7, свои аудиты, карту кода; конспект — `_intake/codex-onboarding-notes.md`).
 - **Как звать:** `codex exec --sandbox read-only -C /home/pakar/igor/remlab -o answer.md resume 01a00a62-33e2-7051-93c6-37bff5c6937e - < prompt.md   (флаги — ДО resume)`

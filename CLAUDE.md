@@ -22,12 +22,7 @@ next steps, содержимое `_intake/session-scratch.md`.
 - **Конец задачи = `/memory-check`.** План не `completed`, пока durable сессии не в `.memory_bank/` и audit не «чисто».
 - **План first, code second** — `.claude/rules/agent-workflow.md`. Без явного «деплой» код не пишем.
 - **Гипотезы, не аксиомы:** спека — набор гипотез; отклонился обоснованно → запиши в `docs/DECISIONS.md`.
-- **Сложное/неоднозначное/рискованное решение:** сначала свой вывод, потом скилл `ask-codex` (независимое второе мнение) — и только затем финализируй.
-- **Не ломать VPN-ноду на exit-fi** (`89.167.127.0` делит хост с боевым внутренним VPN): бэкап+rollback перед правками сервера, изолированная docker-сеть `remlab-net`, лимиты памяти.
-- **Секреты только в `.env` на сервере**, не в git и не в Memory Bank.
-- **Не реализуй юридическую логику** (ПДн/лицензии) — ставь TODO, не блокируйся.
-- Конфликты — `source-of-truth.md`; живые факты: прод wins → обновить память.
-- **Память — только в `.memory_bank/`** (в git). Меняется архитектура/контракты → фиксируй сразу (`.claude/rules/memory-discipline.md`; автоматика — `guides/memory-automation.md`).
+- **Сложное/неоднозначное/рискованное решение:** сначала свой вывод, потом скилл `ask-codex` (независимое второе мнение) — и только затем финализируй. Полное правило — `.claude/rules/codex-adviser.md`.
 
 ## Команды
 `pnpm test` · `pnpm e2e` · `pnpm typecheck` · `pnpm lint` · `pnpm db:migrate` · `pnpm build` · `./deploy.sh`
@@ -37,4 +32,5 @@ next steps, содержимое `_intake/session-scratch.md`.
 
 ## Path-scoped правила (.claude/rules/)
 `agent-workflow` (план→деплой, всегда) · `memory-discipline` (память, всегда) ·
+`codex-adviser` (когда обязателен независимый разбор Codex, всегда) ·
 `code-standards` (ts/tsx) · `ui-rules` (app/components tsx) · `pipeline-tracing` (ADR-0013).

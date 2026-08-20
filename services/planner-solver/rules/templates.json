@@ -78,81 +78,312 @@
    ],
    "schemes": [
     {
-     "id": "default",
-     "order": 1,
-     "why": "канон: столик по центру фронта посадки",
-     "status": "implemented_as: template.build_block (variant=default)"
-    },
-    {
-     "id": "bulky",
+     "id": "deep_armchairs_opposite",
      "order": 2,
      "when": "кресло глубже 100 см",
-     "why": "крупные кресла вторым рядом (замечание владельца 11.08)",
-     "status": "implemented_as: template.build_block (variant=bulky)"
+     "why": "крупные кресла вторым рядом (замечание владельца 11.08) | 19.08 переименование: точное имя: глубокие кресла напротив (в коде вариант остался `bulky`)",
+     "status": "situational_fallback; implemented_as: template.build_block (variant=bulky)",
+     "anchor": "runtime",
+     "form": "bulky",
+     "anchor_note": "object:primary_sofa",
+     "runtime_variants": [
+      "bulky"
+     ],
+     "requires_certificate": "обычные фланговые формы недостижимы, кресла глубокие"
     },
     {
-     "id": "facing",
+     "id": "armchair_pair_opposite_sofa",
      "order": 3,
      "when": "есть диван 2 либо 2 кресла",
-     "why": "визави face-to-face 183-305 см (KB)",
-     "status": "implemented_as: template.build_block (variant=facing)"
+     "why": "визави face-to-face 183-305 см (KB) | 19.08 переименование: точное имя композиции (в коде вариант остался `facing`)",
+     "status": "implemented_as: template.build_block (variant=facing)",
+     "anchor": "runtime",
+     "form": "armchairs_vis_a_vis",
+     "anchor_note": "object:primary_sofa",
+     "runtime_variants": [
+      "facing"
+     ]
     },
     {
      "id": "bridge",
      "order": 4,
      "why": "кресло-мостик между диваном и фокусом",
-     "status": "implemented_as: template.build_block (variant=bridge)"
-    },
-    {
-     "id": "tandem_r",
-     "order": 5,
-     "status": "implemented_as: template.build_block (variant=tandem_r)"
-    },
-    {
-     "id": "tandem_l",
-     "order": 5,
-     "status": "implemented_as: template.build_block (variant=tandem_l)"
+     "status": "situational_fallback; implemented_as: template.build_block (variant=bridge)",
+     "anchor": "runtime",
+     "form": "diagonal_bridge",
+     "anchor_note": "object:primary_sofa",
+     "when": "диагональная пара кресел «мостиком» между медиа и камином",
+     "requires_certificate": "предпочтительные формы недостижимы; это НЕ media-вариант"
     },
     {
      "id": "u",
      "order": 6,
      "when": "площадь > 25 м²",
      "why": "П-композиция вместо Г (замечание владельца)",
-     "status": "implemented_as: template.build_block (variant=u; P3: и sofa_2armchairs — паспорт zones.seating_groups.shapes)"
-    },
-    {
-     "id": "square",
-     "order": 6,
-     "when": "два дивана",
-     "status": "implemented_as: template.build_block (variant=square)"
+     "status": "implemented_as: template.build_block (variant=u; P3: и sofa_2armchairs — паспорт zones.seating_groups.shapes)",
+     "anchor": "runtime",
+     "form": "u_shape",
+     "anchor_note": "object:primary_sofa"
     },
     {
      "id": "pouf_table",
      "order": 99,
      "when": "пуф ≥ 60% длины дивана И ≥ 70 см",
      "why": "ottoman as coffee table — канон ТОЛЬКО для крупного пуфа ~2/3 длины дивана с подносом (HORNE, Decorating Den, Stahl). Порог «от 70 см» без привязки к дивану был ошибкой: 104 сцены остались без столика (12.08)",
-     "status": "implemented_as: template.build_block (variant=pouf_table)"
+     "status": "implemented_as: template.build_block (variant=pouf_table)",
+     "anchor": "runtime",
+     "form": "pouf_as_table",
+     "anchor_note": "object:primary_sofa"
     },
     {
-     "id": "floating_pair",
+     "id": "floating_sofa_opposite_media",
      "order": 2,
      "when": "глубокая комната (>430 см) и носитель в банке",
-     "why": "floating-посадка на ТВ-вилке — деление на 2 зоны, за спинкой столовая (свод §5/§11, H&G open-plan). Бывшие tv_range-кандидаты кода становятся схемой паспорта",
-     "status": "implemented_as: template._pair_sofa_candidates / tv_sofa.generate_pairs (scheme floating_pair)"
+     "why": "floating-посадка на ТВ-вилке — деление на 2 зоны, за спинкой столовая (свод §5/§11, H&G open-plan). Бывшие tv_range-кандидаты кода становятся схемой паспорта | 19.08 переименование: имя врало: это отношение дивана к носителю, а не «пара» (в коде вариант остался `floating_pair`)",
+     "status": "implemented_as: template._pair_sofa_candidates / tv_sofa.generate_pairs (scheme floating_pair)",
+     "anchor": "object:media_bearer",
+     "form": "floating_pair",
+     "anchor_note": "relation:opposite_at_viewing_distance",
+     "runtime_variants": [
+      "floating_pair"
+     ]
     },
     {
      "id": "gap_compact",
      "order": 3,
      "when": "канонический зазор 42.5 не оставляет проход/зону; зазор 36 — нижняя граница нормы 36–46",
      "why": "второй канон вместо допуска (владелец 17.08); H&G/KB: 14–18\" (36–46 см) от дивана до столика",
-     "status": "implemented_as: template.place_template каскад (geometry.coffee_gap_compact_cm, tpl_variant +gap36)"
+     "status": "implemented_as: template.place_template каскад (geometry.coffee_gap_compact_cm, tpl_variant +gap36)",
+     "anchor": "runtime",
+     "form": "compact_table_gap",
+     "anchor_note": "object:primary_sofa"
     },
     {
      "id": "window_back",
      "order": 4,
      "when": "спинка ≤ подоконник+10; зазор к радиатору; доступ к шторам ≥40; окно перекрыто ≤50%",
      "why": "диван у окна — allowed with checks, не forbidden (свод §17): расширяет варианты в комнатах с одной пригодной стеной",
-     "status": "implemented_as: template._window_back_candidates (П4: спинкой к окну)"
+     "status": "implemented_as: template._window_back_candidates (П4: спинкой к окну)",
+     "anchor": "window",
+     "form": "sofa_back_to_window",
+     "anchor_note": "object:primary_sofa"
+    },
+    {
+     "id": "media_parallel",
+     "anchor": "runtime",
+     "form": "armchair_parallel_to_sofa",
+     "anchor_note": "object:primary_sofa",
+     "when": "sofa_armchair/sectional_armchair в media-сценарии: одиночное кресло флангом у столика, ПАРАЛЛЕЛЬНО дивану (0°)",
+     "why": "вердикт владельца по слепой паре: «кресла должны быть обращены параллельно дивану — к столику/ТВ, либо полуоборотом к телевизору». Форма законна, пока экран остаётся в конусе кресла; при большом отклонении канон — media_half",
+     "status": "implemented_as: template.build_block (variant=media_parallel)",
+     "order": 12
+    },
+    {
+     "id": "media_half",
+     "anchor": "runtime",
+     "form": "armchair_half_turn_to_screen",
+     "anchor_note": "object:media_bearer",
+     "when": "та же посадка, но кресло развёрнуто ПОЛУОБОРОТОМ к экрану (45°/315° в сторону центра)",
+     "why": "вторая половина вердикта владельца: полуоборот к телевизору — канон, когда параллельная поза уводит взгляд от экрана",
+     "status": "implemented_as: template.build_block (variant=media_half)",
+     "order": 13
+    },
+    {
+     "id": "media_bridge",
+     "anchor": "runtime",
+     "form": "diagonal_pair_to_screen",
+     "anchor_note": "object:media_bearer",
+     "when": "sofa_2armchairs в media-сценарии: пара кресел флангами у столика, развёрнута к экрану на 45° (справа 315°, слева 45°)",
+     "why": "зеркальная media-форма «мостика»: пара смотрит на экран полуоборотом, а не назад к дивану; медиапригодность проверяется на готовом плане (armchair_tv_angles ≤45°)",
+     "status": "implemented_as: template.build_block (variant=media_bridge)",
+     "order": 14
+    },
+    {
+     "id": "vis_a_vis_sofas",
+     "anchor": "runtime",
+     "form": "two_sofas_face_to_face",
+     "anchor_note": "object:primary_sofa",
+     "when": "группа sofa_facing_sofa: два дивана ЛИЦОМ ДРУГ К ДРУГУ через общий столик; в составе НЕТ носителя ТВ (визави несовместимо с прицелом на экран)",
+     "why": "классическая разговорная композиция практики (Ballard, H&G): две посадки смотрят в общий центр, столик связывает их, фокус — беседа или камин. Схема исполнялась движком (build_block, ветка sofa_facing_sofa), но в паспорте её не было — аудит канонов 19.08",
+     "status": "implemented_as: template.build_block (group_id=sofa_facing_sofa)",
+     "order": 18
+    },
+    {
+     "id": "side_pair",
+     "anchor": "runtime",
+     "form": "side_pair",
+     "anchor_note": "object:primary_sofa",
+     "mirrors": {
+      "right": "tandem_r",
+      "left": "tandem_l"
+     },
+     "runtime_variants": [
+      "tandem_r",
+      "tandem_l"
+     ],
+     "when": "sofa_2armchairs; два кресла образуют одинаковую либо явно согласованную пару; предпочтительные двухсторонние формы (pair_sides/u/facing/media_bridge) недостижимы по полезной поперечной ширине, проёму или маршруту; пара на одном фланге hard-valid, а противоположный фланг сохраняет маршрут 76/91 см. В media-сценарии хотя бы одно кресло держит угол к носителю ≤45°",
+     "why": "СИТУАЦИОННАЯ асимметричная L-композиция (Codex 19.08, источники Ballard Designs / AD / H&G): два парных кресла стоят плечом к плечу на одном боку зоны и освобождают второй бок для входа/маршрута. Практика подтверждает парные кресла как единый элемент и допускает их перенос ради дверей и движения, но БАЗОВЫМИ остаются пара напротив дивана и зеркальные фланги — поэтому это fallback после сертификата недостижимости предпочтительных форм, а не «канон узкой комнаты». Имя tandem историческое: кресла стоят плечом к плечу, а не одно за другим | 19.08: два зеркала — ОДИН канон (mirror), а не две схемы",
+     "status": "situational_fallback; implemented_as: template.build_block (variant=tandem_r|tandem_l)",
+     "requires_certificate": "предпочтительные двухсторонние формы (pair_sides/u/facing/media_bridge) недостижимы",
+     "order": 5
+    },
+    {
+     "id": "two_sofa_l_joint",
+     "anchor": "runtime",
+     "form": "l_joint",
+     "anchor_note": "object:primary_sofa",
+     "mirrors": {
+      "left": "default (двухдиванные группы)",
+      "right": "L_right"
+     },
+     "runtime_variants": [
+      "default",
+      "L_right"
+     ],
+     "when": "две диванные группы (sofa_loveseat / sofa_loveseat_2armchairs / two_sofas_2armchairs): Г-стык ЗЕРКАЛЬНО (второй диван справа)",
+     "why": "Q5 (Codex 16.08): до этого второй диван ставился только слева — дыра поиска two_sofa. Столик Г-композиции сдвигается к внутреннему углу, чтобы ОБА дивана имели канонический зазор 42.5 (R1, 19.08) | 19.08: левый и правый Г-стык — один канон с зеркалом",
+     "status": "implemented_as: template.build_block (variant=default|L_right для двухдиванных групп)",
+     "order": 15
+    },
+    {
+     "id": "three_sided_conversation",
+     "anchor": "runtime",
+     "form": "three_sided_pair",
+     "anchor_note": "object:primary_sofa",
+     "mirrors": {
+      "left": "square",
+      "right": "square_r"
+     },
+     "runtime_variants": [
+      "square",
+      "square_r"
+     ],
+     "when": "sofa_loveseat_2armchairs / two_sofas_2armchairs: два дивана образуют Г, два одинаковых кресла встают парой на третьей стороне столика; вариант с креслами напротив главного дивана недостижим по глубине, но поперечная сторона hard-valid; четвёртая сторона остаётся открытой для входа",
+     "why": "каноническая ТРЁХСТОРОННЯЯ разговорная группа (H&G: два дивана по двум сторонам, пара кресел на третьей, открытая сторона — маршрут). Экономит глубину ценой поперечной ширины, поэтому это depth-constrained fallback, а не форма для любых двух диванов | 19.08: зеркала — варианты одного канона",
+     "status": "situational_fallback; implemented_as: template.build_block (variant=square|square_r)",
+     "requires_certificate": "форма с креслами напротив главного дивана недостижима по глубине",
+     "order": 6
+    },
+    {
+     "id": "armchair_pair_vis_a_vis",
+     "anchor": "runtime",
+     "form": "armchair_pair_vis_a_vis",
+     "anchor_note": "object:primary_sofa",
+     "groups": [
+      "armchair_pair"
+     ],
+     "runtime_variants": [
+      "default"
+     ],
+     "title": "пара кресел визави",
+     "when": "группы armchair_pair, форма по умолчанию (variant=default)",
+     "why": "два кресла друг напротив друга через общую поверхность — самостоятельная разговорная композиция малых комнат, когда дивана нет или он не влезает | 19.08 (аудит Codex): общий технический id `default` скрывал РАЗНЫЕ композиции — расщеплён по группам",
+     "status": "implemented_as: template.build_block (variant=default)",
+     "order": 1
+    },
+    {
+     "id": "sofa_single_flank",
+     "anchor": "runtime",
+     "form": "sofa_single_flank",
+     "anchor_note": "object:primary_sofa",
+     "groups": [
+      "sofa_armchair",
+      "sectional_armchair"
+     ],
+     "runtime_variants": [
+      "default"
+     ],
+     "title": "диван + кресло во фланге",
+     "when": "группы sofa_armchair, sectional_armchair, форма по умолчанию (variant=default)",
+     "why": "самая частая композиция гостиной: кресло у торца дивана, столик по оси посадки — базовый канон, от которого пляшут медиа-формы (parallel/half) | 19.08 (аудит Codex): общий технический id `default` скрывал РАЗНЫЕ композиции — расщеплён по группам",
+     "status": "implemented_as: template.build_block (variant=default)",
+     "order": 2
+    },
+    {
+     "id": "sofa_pair_sides",
+     "anchor": "runtime",
+     "form": "sofa_pair_sides",
+     "anchor_note": "object:primary_sofa",
+     "groups": [
+      "sofa_2armchairs",
+      "sofa_4armchairs"
+     ],
+     "runtime_variants": [
+      "default"
+     ],
+     "title": "диван + кресла по сторонам",
+     "when": "группы sofa_2armchairs, sofa_4armchairs, форма по умолчанию (variant=default)",
+     "why": "симметричная пара кресел по обе стороны от оси дивана: канон разговорной группы, предпочтительный перед асимметричными fallback-формами (side_pair) | 19.08 (аудит Codex): общий технический id `default` скрывал РАЗНЫЕ композиции — расщеплён по группам",
+     "status": "implemented_as: template.build_block (variant=default)",
+     "order": 3
+    },
+    {
+     "id": "sectional_solo",
+     "anchor": "runtime",
+     "form": "sectional_solo",
+     "anchor_note": "object:primary_sofa",
+     "groups": [
+      "compact_sectional"
+     ],
+     "runtime_variants": [
+      "default"
+     ],
+     "title": "Г-диван как самостоятельная группа",
+     "when": "группы compact_sectional, форма по умолчанию (variant=default)",
+     "why": "угловой диван сам образует две стороны беседы; спутники добавляются только если не ломают активную ось | 19.08 (аудит Codex): общий технический id `default` скрывал РАЗНЫЕ композиции — расщеплён по группам",
+     "status": "implemented_as: template.build_block (variant=default)",
+     "order": 4
+    },
+    {
+     "id": "sofa_pouf_group",
+     "anchor": "runtime",
+     "form": "sofa_pouf_group",
+     "anchor_note": "object:primary_sofa",
+     "groups": [
+      "sofa_pouf"
+     ],
+     "runtime_variants": [
+      "default"
+     ],
+     "title": "диван + пуф вместо кресла",
+     "when": "группы sofa_pouf, форма по умолчанию (variant=default)",
+     "why": "ступень между «диван+кресло» и «диван соло»: крупный пуф работает мягким компаньоном/подставкой (веб-свод) | 19.08 (аудит Codex): общий технический id `default` скрывал РАЗНЫЕ композиции — расщеплён по группам",
+     "status": "implemented_as: template.build_block (variant=default)",
+     "order": 5
+    },
+    {
+     "id": "sofa_lamp_group",
+     "anchor": "runtime",
+     "form": "sofa_lamp_group",
+     "anchor_note": "object:primary_sofa",
+     "groups": [
+      "sofa_lamp"
+     ],
+     "runtime_variants": [
+      "default"
+     ],
+     "title": "диван + торшер",
+     "when": "группы sofa_lamp, форма по умолчанию (variant=default)",
+     "why": "минимальная композиция с источником света у посадки: канон малых комнат, где кресло уже не встаёт | 19.08 (аудит Codex): общий технический id `default` скрывал РАЗНЫЕ композиции — расщеплён по группам",
+     "status": "implemented_as: template.build_block (variant=default)",
+     "order": 6
+    },
+    {
+     "id": "sofa_solo_group",
+     "anchor": "runtime",
+     "form": "sofa_solo_group",
+     "anchor_note": "object:primary_sofa",
+     "groups": [
+      "sofa_solo"
+     ],
+     "runtime_variants": [
+      "default"
+     ],
+     "title": "диван соло",
+     "when": "группы sofa_solo, форма по умолчанию (variant=default)",
+     "why": "нижняя ступень лестницы: диван + столик/ковёр без спутников; канон, а не деградация — в малых комнатах это норма | 19.08 (аудит Codex): общий технический id `default` скрывал РАЗНЫЕ композиции — расщеплён по группам",
+     "status": "implemented_as: template.build_block (variant=default)",
+     "order": 7
     }
    ],
    "degradation_level": "A",
@@ -185,28 +416,40 @@
     {
      "id": "media_centered",
      "order": 1,
-     "why": "носитель по оси взгляда с дивана — база",
-     "status": "implemented_as: template.place_media class=centered (V4-D2)"
-    },
-    {
-     "id": "media_mirror",
-     "order": 1,
-     "why": "акцент с другой стороны носителя (владелец 12.08, set1-base): выбирается тот, где носитель ровнее к дивану",
-     "status": "implemented_as: template.place_media flanks mirror (best by axis)"
+     "why": "носитель по оси взгляда с дивана — база | 19.08: media_mirror — не отдельный канон, а зеркальная сторона акцента",
+     "status": "implemented_as: template.place_media class=centered (V4-D2)",
+     "anchor": "wall_segment",
+     "form": "centered",
+     "anchor_note": "relation:aligned_to:object:primary_sofa",
+     "when": "носитель по оси взгляда главного дивана (не по центру стены)",
+     "variants": {
+      "mirrored_accent": "акцент у носителя зеркально (бывшая media_mirror)"
+     },
+     "runtime_variants": [
+      "centered",
+      "mirror"
+     ]
     },
     {
      "id": "media_at_jamb",
      "order": 2,
      "when": "прямая стена занята, а у косяка есть место",
      "why": "тумба вплотную к косяку двери даёт более прямой угол взгляда с дивана; допустимо при сохранении прохода 76 см и вне дуги (владелец 12.08 + weekand.com)",
-     "status": "implemented_as: template._jamb_candidates → class corner_jamb_window"
+     "status": "situational_fallback; implemented_as: template._jamb_candidates → class corner_jamb_window",
+     "anchor": "opening",
+     "form": "at_jamb",
+     "anchor_note": "qualifier:adjacent_to_opening",
+     "requires_certificate": "чистый участок стены недоступен; дверь и маршрут сохранены"
     },
     {
      "id": "media_corner",
      "order": 3,
      "when": "свободных прямых стен нет",
      "why": "диагональ в углу (auton.com)",
-     "status": "implemented_as: template._corner_candidates → class corner_jamb_window"
+     "status": "situational_fallback; implemented_as: template._corner_candidates → class corner_jamb_window",
+     "anchor": "corner",
+     "form": "diagonal",
+     "requires_certificate": "прямая стена под носитель сертифицированно недоступна"
     },
     {
      "id": "media_between_windows",
@@ -217,48 +460,29 @@
      "allowed_soft": [
       "TV_ON_WINDOW_WALL"
      ],
-     "_allowed_soft_why": "схема ПО ОПРЕДЕЛЕНИЮ ставит носитель на оконную стену — в простенок между проёмами; общее предупреждение «ТВ на оконной стене» здесь ожидаемо и разрешено явно (глобальное правило не ослабляем)"
-    },
-    {
-     "id": "media_storage_combo",
-     "order": 4,
-     "when": "small-режим и дефицит стен",
-     "why": "стеллажи по бокам носителя — media+storage одним блоком вместо двух конкурирующих композиций (small-свод §17)",
-     "status": "implemented_as: media_installation (P3 свода №12)"
-    },
-    {
-     "id": "media_installation",
-     "order": 0,
-     "when": "large-режим И стена носителя ≥ wall_min_cm; в банке ≥1 роль хранения (витрина/стеллаж/комод)",
-     "why": "владелец №172 (35 м², стена 7.8 м: «зачем тумба, когда можно стенку + витрину, серию зон хранения»); практика (H&G living-room storage / large wall): встроенное хранение вокруг ТВ оформляет длинную стену, но не заполняет её целиком и не спорит с камином. Атомарный блок: носитель по оси + до 2 компаньонов симметрично с зазором gap_cm; при провале — обычная медиа-зона. | 19.08 (Codex): это композиция ОТДЕЛЬНЫХ корпусов у одной стены, а не встроенная система: у встройки общая фасадная плоскость и заводской шов. Слово «симметрия» корректно только для пары одинаковых компаньонов; один или разные по ширине — сбалансированная, но не симметричная композиция.",
-     "status": "implemented",
-     "params": {
-      "wall_min_cm": 520,
-      "gap_cm": 40,
-      "max_companions": 2,
-      "companion_roles": [
-       "витрина",
-       "стеллаж",
-       "комод"
-      ],
-      "_proof": "gap 40 см — ГИПОТЕЗА (status hypothesis): число перенесено из схемы «ТВ+камин side-by-side» (build_media_fireplace) и отдельным источником для медиа-корпусов не подтверждено. wall_min 520: носитель ~160–300 + 2 компаньона ~80 + зазоры 2×40 + запас краёв ≥40 с каждой стороны.",
-      "gap_cm_status": "hypothesis"
-     },
-     "title": "корпуса по бокам носителя (СВОБОДНОСТОЯЩИЕ, не встройка)"
+     "_allowed_soft_why": "схема ПО ОПРЕДЕЛЕНИЮ ставит носитель на оконную стену — в простенок между проёмами; общее предупреждение «ТВ на оконной стене» здесь ожидаемо и разрешено явно (глобальное правило не ослабляем)",
+     "anchor": "wall_segment",
+     "form": "between_windows",
+     "anchor_note": "qualifier:between_windows"
     },
     {
      "id": "fireplace_side_by_side",
      "order": 8,
      "when": "камин и носитель ТВ на одной стене",
-     "why": "камин + ТВ рядом (не ТВ над камином): общий якорь стены, оба видимы с посадки; практика 27% каминов при 35% ТВ",
-     "status": "implemented_as: template.build_media_fireplace / place_media_fireplace"
+     "why": "камин + ТВ рядом (не ТВ над камином): общий якорь стены, оба видимы с посадки; практика 27% каминов при 35% ТВ | 20.08 (замечание владельца «огонь будет отвлекать» + источники): мерцание камина действительно конкурирует с экраном, но опасна композиция «камин НАПРОТИВ ТВ» — там пламя отражается в картинке. Side-by-side на одной стене — как раз рекомендуемая раскладка: огонь в поле зрения, но не в отражении. Отражение ловит правило FIRE_REFLECTION_ON_TV (S2)",
+     "status": "implemented_as: template.build_media_fireplace / place_media_fireplace",
+     "anchor": "wall_segment",
+     "form": "side_by_side",
+     "_provenance_glare": "external: Livingetc (TV over fireplace debate), Belleze/Direct Fireplaces (раскладки ТВ+камин), 20.08.2026"
     },
     {
      "id": "tv_over_fireplace",
      "order": 99,
      "when": "—",
      "why": "ТВ НАД камином: нет вертикальной модели (высота экрана/топки, тепловые зазоры), и канон спорный — источники относят к устаревающим решениям",
-     "status": "sleeping: нужна вертикальная модель высот и тепловых зазоров"
+     "status": "sleeping: нужна вертикальная модель высот и тепловых зазоров",
+     "anchor": "object:fireplace",
+     "form": "above"
     },
     {
      "id": "media_builtin",
@@ -272,7 +496,44 @@
       ],
       "optional": []
      },
-     "status": "sleeping: нет данных о коллекции/корпусах (единая серия, глубина, фасад) — до них схема не собирается"
+     "status": "sleeping: нет данных о коллекции/корпусах (единая серия, глубина, фасад) — до них схема не собирается",
+     "anchor": "wall_segment",
+     "form": "builtin_run"
+    },
+    {
+     "id": "wall_unit_centered",
+     "anchor": "wall_segment",
+     "form": "wall_unit",
+     "anchor_note": "relation:aligned_to:object:primary_sofa",
+     "when": "носитель — СТЕНКА (корпусная композиция 2.5–4 м): она сама несёт экран и хранение, фланги ей не добавляются",
+     "why": "владелец 12.08: «стенка = медиазона». Отдельная форма носителя: занимает целую стену, уже содержит хранение (counts_as_storage), поэтому вторая зона хранения при ней не добирается. Исполнялась как tpl_variant media_wall без паспорта — аудит 19.08",
+     "status": "implemented_as: template.build_media (bearer=стенка → tpl_variant=media_wall)",
+     "order": 10
+    },
+    {
+     "id": "freestanding_media_storage_run",
+     "anchor": "wall_segment",
+     "form": "row_with_companions",
+     "runtime_variants": [
+      "installation"
+     ],
+     "when": "large-режим И стена носителя ≥ wall_min_cm; в банке ≥1 роль хранения (витрина/стеллаж/комод)",
+     "why": "владелец №172 (35 м², стена 7.8 м: «зачем тумба, когда можно стенку + витрину, серию зон хранения»); практика (H&G living-room storage / large wall): встроенное хранение вокруг ТВ оформляет длинную стену, но не заполняет её целиком и не спорит с камином. Атомарный блок: носитель по оси + до 2 компаньонов симметрично с зазором gap_cm; при провале — обычная медиа-зона. | 19.08 (Codex): это композиция ОТДЕЛЬНЫХ корпусов у одной стены, а не встроенная система: у встройки общая фасадная плоскость и заводской шов. Слово «симметрия» корректно только для пары одинаковых компаньонов; один или разные по ширине — сбалансированная, но не симметричная композиция. | 19.08: media_storage_combo — та же композиция, слито в один канон",
+     "params": {
+      "wall_min_cm": 520,
+      "gap_cm": 40,
+      "max_companions": 2,
+      "companion_roles": [
+       "витрина",
+       "стеллаж",
+       "комод"
+      ],
+      "_proof": "gap 40 см — ГИПОТЕЗА (status hypothesis): число перенесено из схемы «ТВ+камин side-by-side» (build_media_fireplace) и отдельным источником для медиа-корпусов не подтверждено. wall_min 520: носитель ~160–300 + 2 компаньона ~80 + зазоры 2×40 + запас краёв ≥40 с каждой стороны.",
+      "gap_cm_status": "hypothesis"
+     },
+     "allowed_soft": null,
+     "status": "implemented_as: template.build_media_installation / place_media_installation",
+     "order": 0
     }
    ],
    "degradation_level": "A"
@@ -306,21 +567,27 @@
      "order": 1,
      "when": "по сторонам камина есть место под симметричную пару",
      "why": "классическая симметрия: камин + два одинаковых корпуса по бокам",
-     "status": "implemented_as: template.build_fireplace (фланги хранения)"
+     "status": "implemented_as: template.build_fireplace (фланги хранения)",
+     "anchor": "object:fireplace",
+     "form": "storage_flanks"
     },
     {
      "id": "plant_flanks",
      "order": 2,
      "when": "корпусов нет, есть растения",
      "why": "мягкая симметрия зеленью, когда хранение занято другой стеной",
-     "status": "implemented_as: template.build_fireplace (фланги-растения)"
+     "status": "implemented_as: template.build_fireplace (фланги-растения)",
+     "anchor": "object:fireplace",
+     "form": "plant_flanks"
     },
     {
      "id": "solo",
      "order": 3,
      "when": "фланговать нечем",
      "why": "камин сам по себе — архитектурный фокус; пустые бока легальны (negative space)",
-     "status": "implemented_as: template.place_fireplace / зона fireplace_solo"
+     "status": "implemented_as: template.place_fireplace / зона fireplace_solo",
+     "anchor": "wall_segment",
+     "form": "solo"
     }
    ]
   },
@@ -357,41 +624,53 @@
      "order": 1,
      "when": "large/transitional и есть простор — стулья вокруг",
      "why": "классический остров; эксплуатационная зона: стол + 90 см со стороны посадок (R&B)",
-     "status": "implemented_as: template.place_dining classes=island (каскад island→edge)"
+     "status": "implemented_as: template.place_dining classes=island (каскад island→edge)",
+     "anchor": "free_region",
+     "form": "island"
     },
     {
      "id": "dining_against_wall",
      "order": 2,
      "why": "стол одной стороной к стене — сторона без прохода; сильный compact-приём (H&G узкие столы у стены; small-свод §10)",
-     "status": "implemented_as: template.place_dining classes=edge (после island)"
+     "status": "implemented_as: template.place_dining classes=edge (после island)",
+     "anchor": "wall_segment",
+     "form": "edge",
+     "when": "стол кромкой к стене: посадка с трёх сторон, четвёртая — стена"
     },
     {
      "id": "dining_round_compact",
      "order": 3,
      "when": "прямоугольный создаёт конфликты проходов",
      "why": "круглый/овальный Ø80–100 на 2–4 места — нет углов, движение эффективнее (small-свод §11) | Q6d (17.08): раньше круглый стол считался квадратом bbox — Ø110 «съедал» 1.21 м² вместо 0.95, и компактная схема не проходила по проходам",
-     "status": "implemented_as: template.build_dining (w==d → стул с каждой стороны) + Item.round_shape (Q6d: след — окружность реального диаметра, не bbox)"
+     "status": "implemented_as: template.build_dining (w==d → стул с каждой стороны) + Item.round_shape (Q6d: след — окружность реального диаметра, не bbox)",
+     "anchor": "free_region",
+     "form": "round_compact"
     },
     {
      "id": "dining_foldable",
      "order": 4,
      "when": "постоянный стол ломает циркуляцию; в товаре флаг «раскладной»",
      "why": "откидной/раскладной — нормальное дизайнерское решение малых пространств, не деградация (small-свод §12)",
-     "status": "sleeping: catalog_gap — складной/пристенный стол в каталоге нет"
+     "status": "sleeping: catalog_gap — складной/пристенный стол в каталоге нет",
+     "anchor": "unresolved",
+     "form": "foldable",
+     "anchor_note": "нужно разделить: раскладной freestanding → free_region, откидной пристенный → wall_segment"
     },
     {
      "id": "dining_edge_nook",
      "order": 3,
      "when": "остров и компактный круг недостижимы; есть банкетка (dining_seat_capable, ≥2 места), стол и ≥2 стула",
      "why": "banquette-уголок: банкетка спинкой к ПРЯМОЙ стене, стол кромкой вровень (0–3 см), стулья со свободной стороны; экономит площадь, где остров не влезает (Shelby Williams; IKEA 60 см кромки на едока). Окно вне Q6b (allow_window_back=false) → Q8",
-     "status": "implemented_library/unwired: template.build_edge_nook/place_edge_nook — библиотека готова, в production-каскад подключается в Q6c",
+     "status": "implemented_as: template.build_edge_nook/place_edge_nook — ПОДКЛЮЧЕНО в каскад столовой (Q6c); прежняя пометка «unwired» устарела",
      "variants": [
       "edge_nook_4",
       "edge_nook_5",
       "edge_nook_6"
      ],
      "allow_window_back": false,
-     "allow_L_shape": false
+     "allow_L_shape": false,
+     "anchor": "wall_segment",
+     "form": "edge_nook"
     }
    ],
    "degradation_level": "B",
@@ -428,28 +707,47 @@
      "id": "storage_perimeter",
      "order": 1,
      "why": "свободная стена по периметру — база (свод §14)",
-     "status": "implemented_as: template.place_storage (пристенные, ≤2 предмета, ≤2 зоны)"
+     "status": "implemented_as: template.place_storage (пристенные, ≤2 предмета, ≤2 зоны)",
+     "anchor": "wall_segment",
+     "form": "row",
+     "when": "пристенный ряд хранения (≤2 предметов, ≤2 зон на комнату)"
     },
     {
      "id": "storage_shallow",
      "order": 2,
      "when": "остаток за спинкой 120-150 см (машина R)",
      "why": "проход 80-90 + стеллаж глубиной 30-40 у стены — использование остатка без второй зоны (large-свод §5)",
-     "status": "implemented_as: template.place_storage + validate TALL_SOLID_BEHIND_SOFA"
+     "status": "implemented_as: template.place_storage + validate TALL_SOLID_BEHIND_SOFA",
+     "anchor": "wall_segment",
+     "form": "shallow",
+     "anchor_note": "relation:behind:object:sofa"
     },
     {
      "id": "storage_zone_divider",
      "order": 3,
      "when": "периметр не дал места; высота ≤150; не на маршруте; не против света",
      "why": "открытый стеллаж как граница living|dining — приём ВТОРОГО приоритета в open-plan (large-свод §9)",
-     "status": "sleeping: occupancy layout_rules.room_divider_capable_active=[] (стеллаж-делитель — свод №6, спит до данных)"
+     "status": "sleeping: occupancy layout_rules.room_divider_capable_active=[] (стеллаж-делитель — свод №6, спит до данных)",
+     "anchor": "zone_boundary",
+     "form": "divider"
     },
     {
      "id": "corner_tower",
      "order": 4,
      "when": "узкий стеллаж/витрина в углу",
-     "why": "угол под вертикальное хранение: корпус ВПЛОТНУЮ к одной из стен угла (не по диагонали), фасад доступен",
-     "status": "sleeping: вариант place_storage с corner-фильтром — Q11 шаг 5"
+     "why": "угол под вертикальное хранение: корпус ВПЛОТНУЮ к одной из стен угла (не по диагонали), фасад доступен | 19.08: высокая мебель требует крепления к стене (CPSC Anchor It) — планировщик обязан донести это как требование монтажа, а не решать геометрией",
+     "status": "implemented_as: template.place_storage → _corner_tower_candidates (корпус ВДОЛЬ стены угла, не по диагонали; высокому — installation_requirement=wall_anchor)",
+     "anchor": "corner",
+     "form": "tower_along_wall"
+    },
+    {
+     "id": "console_behind_sofa",
+     "anchor": "object:sofa",
+     "form": "back_console_centered",
+     "when": "диван «плавает» (не у стены), за спинкой остаётся полоса, в банке есть узкий низкий корпус (глубина ≤40, высота ≤ спинки+5, длина ≥половины дивана)",
+     "why": "sofa table за спинкой плавающего дивана — признанный приём (H&G/BHG): полка работает со стороны прохода и «закрывает спину» островной группе. Схема реализована (place_console_behind_sofa + check_console_contract), но в паспорте отсутствовала — аудит 19.08. Маршрут ЗА консолью обязан оставаться ≥91 см (CONSOLE_ROUTE_BLOCKED)",
+     "status": "implemented_as: template.place_console_behind_sofa + validate.check_console_contract",
+     "order": 4
     }
    ],
    "degradation_level": "B",
@@ -478,10 +776,10 @@
    ],
    "schemes": [
     {
-     "id": "quiet_chat",
+     "id": "paired_conversation",
      "status": "implemented_as: template.build_quiet(variant=quiet_chat)",
      "order": 2,
-     "why": "пара кресел + малая поверхность между/рядом, кресла повёрнуты 30–45° к общему центру (не 0/180 «интервью»); AD reading-nook: лампа и маленький приставной стол; владелец №181: пара визави без стола — «что это и зачем»",
+     "why": "пара кресел + малая поверхность между/рядом, кресла повёрнуты 30–45° к общему центру (не 0/180 «интервью»); AD reading-nook: лампа и маленький приставной стол; владелец №181: пара визави без стола — «что это и зачем» | 19.08 переименование: функция — парная беседа, не «чат» (в коде вариант остался `quiet_chat`)",
      "roles": {
       "required": []
      },
@@ -490,7 +788,14 @@
       "столик 2",
       "столик"
      ],
-     "_surface_why": "обязательная поверхность — признак ИМЕННО quiet_chat (пара визави без стола «ни о чём»), у fireplace_flank обязателен камин"
+     "_surface_why": "обязательная поверхность — признак ИМЕННО quiet_chat (пара визави без стола «ни о чём»), у fireplace_flank обязателен камин",
+     "anchor": "wall_segment|free_region",
+     "form": "pair_vis_a_vis",
+     "anchor_note": "object:surface",
+     "when": "пара кресел 3/4 визави с обязательной малой поверхностью между ними",
+     "runtime_variants": [
+      "quiet_chat"
+     ]
     },
     {
      "id": "fireplace_flank",
@@ -508,7 +813,10 @@
      "allowed_soft": [
       "SERVICE_SURFACE"
      ],
-     "_allowed_soft_why": "якорь схемы — очаг, а не поверхность: при широком портале кресла расходятся шире вытянутой руки (reach 75), и общий столик недостижим. Отклонение задокументировано ЯВНО, глобальное правило SERVICE_SURFACE не ослабляем"
+     "_allowed_soft_why": "якорь схемы — очаг, а не поверхность: при широком портале кресла расходятся шире вытянутой руки (reach 75), и общий столик недостижим. Отклонение задокументировано ЯВНО, глобальное правило SERVICE_SURFACE не ослабляем",
+     "anchor": "object:fireplace",
+     "form": "flanking_pair",
+     "when": "пара кресел по сторонам камина под углом к очагу"
     }
    ],
    "skip_when": {
@@ -547,21 +855,27 @@
      "order": 1,
      "when": "есть окно и свободное кресло (не занято главной группой)",
      "why": "кресло у окна лицом в комнату/к фокусу — самый частый исход практики у окна (28%); сильный архитектурный якорь — проём, поэтому допустим singleton",
-     "status": "implemented_as: template.place_window_reading (tpl_variant=window_anchor)"
+     "status": "implemented_as: template.place_window_reading (tpl_variant=window_anchor)",
+     "anchor": "window",
+     "form": "single_armchair"
     },
     {
      "id": "bay_anchor",
      "order": 2,
      "when": "в комнате есть эркер",
      "why": "эркер — канонное место нука: кресло внутри ниши, лицом в комнату",
-     "status": "implemented_as: template.place_reading (bay-кандидаты) + place_bay_armchair (алиас, к слиянию)"
+     "status": "implemented_as: template.place_reading (bay-кандидаты) + place_bay_armchair (алиас, к слиянию)",
+     "anchor": "bay",
+     "form": "single_armchair"
     },
     {
      "id": "corner_vignette",
      "order": 3,
      "when": "свободный угол вне двери/маршрута; в банке кресло + свет + поверхность",
      "why": "базовая формула читального угла: кресло + лампа + приставной столик (H&G chair-table-lamp). В обычном углу якоря нет, поэтому свет И поверхность ОБЯЗАТЕЛЬНЫ — иначе кресло читается как забытое",
-     "status": "implemented_as: template.place_reading (variant=corner_vignette, строгий комплект)"
+     "status": "implemented_as: template.place_reading (variant=corner_vignette, строгий комплект)",
+     "anchor": "corner",
+     "form": "chair_lamp_table"
     },
     {
      "id": "fireplace_anchor",
@@ -579,7 +893,42 @@
        "торшер"
       ]
      },
-     "status": "implemented_as: template.build_fireplace_anchor + place_reading (ветка якоря «камин»)"
+     "status": "implemented_as: template.build_fireplace_anchor + place_reading (ветка якоря «камин»)",
+     "anchor": "object:fireplace",
+     "form": "single_armchair"
+    },
+    {
+     "id": "window_pair",
+     "anchor": "window",
+     "form": "armchair_pair",
+     "runtime_variants": [
+      "window_pair"
+     ],
+     "when": "у окна есть место под ДВЕ посадки и в остатке банка пара кресел (одинаковых/согласованных) + малая поверхность между ними",
+     "why": "практика знает у окна обе формы — одиночное кресло И пару кресел (частоты владельца объединяют их в 28%). Пара богаче по местам, поэтому пробуется первой; не влезла — честный откат на одиночный канон",
+     "status": "implemented_as: template.build_reading_pair + place_window_reading (variant=window_pair)",
+     "order": 4
+    },
+    {
+     "id": "bay_pair",
+     "anchor": "bay",
+     "form": "armchair_pair",
+     "runtime_variants": [
+      "bay_pair"
+     ],
+     "when": "эркер достаточной ширины и в банке пара кресел + поверхность",
+     "why": "в крупном эркере практика ставит пару кресел (H&G reading nooks); у нас была только одиночная посадка",
+     "status": "implemented_as: template.build_reading_pair + place_reading (bay-ветка, variant=bay_pair)",
+     "order": 5
+    },
+    {
+     "id": "wall_vignette",
+     "anchor": "wall_segment",
+     "form": "chair_lamp_table",
+     "when": "архитектурного якоря (окно/эркер/угол/камин) нет, но есть свободный участок стены и ПОЛНЫЙ комплект: кресло + свет + поверхность",
+     "why": "скрытый fallback place_reading существовал в коде БЕЗ паспорта (аудит Codex 19.08): кресло у произвольной стены — законная композиция, но только полным комплектом, иначе читается как забытый предмет",
+     "status": "implemented_as: template.place_reading (wall-кандидаты, финальная ветка)",
+     "order": 6
     }
    ],
    "variant_invariants_exempt": {
@@ -617,14 +966,30 @@
      "order": 1,
      "when": "свободный угол вне двери/маршрута",
      "why": "угол — место маленькой вторичной функции, крупное растение — самый частый нейтральный исход (практика 20%); свет — предпочтение, не hard",
-     "status": "implemented_as: template.place_decor (угловые кандидаты + бонус света)"
+     "status": "implemented_as: template.place_decor (угловые кандидаты + бонус света)",
+     "anchor": "corner",
+     "form": "plant"
     },
     {
      "id": "bay_plant",
      "order": 2,
      "when": "эркер свободен от посадки",
      "why": "растение в эркере — свет и вид, ниша остаётся проходимой (C5 свода №5)",
-     "status": "implemented_as: template.place_decor (bay-кандидаты, bay_bonus)"
+     "status": "implemented_as: template.place_decor (bay-кандидаты, bay_bonus)",
+     "anchor": "bay",
+     "form": "plant"
+    },
+    {
+     "id": "window_plant",
+     "anchor": "window",
+     "form": "plant",
+     "runtime_variants": [
+      "window_plant"
+     ],
+     "when": "есть окно, позиция СБОКУ от проёма (не перед створкой), радиатор не загорожен, до мебели ≥60 см",
+     "why": "растения у окна — 17% практики по частотам владельца; свету рады все, но позиция должна быть сбоку от проёма: перед створкой растение мешает открыванию и затеняет комнату",
+     "status": "implemented_as: template.place_decor (window-кандидаты, variant=window_plant)",
+     "order": 2
     }
    ]
   },
@@ -647,7 +1012,10 @@
      "order": 1,
      "when": "камин без пары компаньонов",
      "why": "фокус-стена может быть одиночной: пустые бока — не дефект (ADR-0091 negative space)",
-     "status": "implemented_as: template.place_fireplace (solo-ветка)"
+     "status": "alias: канон один — fireplace.solo; отдельная зона fireplace_solo осталась как runtime-идентичность, каноном не считается",
+     "anchor": "wall_segment",
+     "form": "alias_of:fireplace.solo",
+     "anchor_note": "alias_of:fireplace.solo"
     }
    ]
   },
@@ -730,7 +1098,12 @@
     "front_access_cm": 60,
     "radiator_policy": "fail_closed: над радиатором НЕ ставим, пока нет высоты/типа батареи и capability radiator_compatible; обычная напольная банкетка — только с hard-зазором от лицевой грани",
     "_why": "Q11 (Codex 19.08): window seat — самостоятельная атомарная композиция (особый товар: банкетка/скамья window_seat_capable, особая геометрия: спинка к оконной стене, доступ СПЕРЕДИ). Свободное кресло сюда не относится — это reading.window_anchor",
-    "_provenance": "external: AD window-seat-ideas, Livingetc window-seat-ideas (тип устойчив, включая встроенное хранение); конкретные сантиметры — наши правила с собственным provenance"
+    "_provenance": "external: AD window-seat-ideas, Livingetc window-seat-ideas (тип устойчив, включая встроенное хранение); конкретные сантиметры — наши правила с собственным provenance",
+    "depth_cm": [
+     38,
+     60
+    ],
+    "_depth_why": "глубина посадочной скамьи у окна: 38–60 см. Ориентир — доступная скамья 51–61 см и обычная банкетка от 38; конкретное число — наш продуктовый порог (hypothesis, Codex 19.08)"
    },
    "schemes": [
     {
@@ -738,14 +1111,18 @@
      "order": 1,
      "when": "есть банкетка window_seat_capable и глухая оконная стена без радиатора под ней",
      "why": "скамья под окном использует площадь у стены и почти не закрывает свет (практика 17%)",
-     "status": "sleeping: placer в Q10a; над радиатором fail-closed"
+     "status": "implemented_as: template.place_window_seat (fail-closed: радиатор под окном / неизвестный подоконник → не ставим)",
+     "anchor": "window",
+     "form": "straight_bench"
     },
     {
      "id": "bay_bench",
      "order": 2,
      "when": "эркер достаточной глубины",
      "why": "скамья в эркере — канонная форма window seat",
-     "status": "sleeping: placer в Q10a"
+     "status": "implemented_as: template.place_window_seat (variant=bay_bench; ПРЯМАЯ покупная скамья целиком в нише; встроенная по контуру — столярка, отдельная схема)",
+     "anchor": "bay",
+     "form": "straight_bench"
     }
    ],
    "_capability": "integrated_storage / counts_as_storage — capability товара, а не отдельная схема"
@@ -869,8 +1246,9 @@
    "why": "задвинутый стул вплотную к кромке — норма; место для отодвигания проверяет validate"
   },
   "rug_tuck_cm": {
-   "v": 15,
-   "why": "заход ковра под передние ножки посадки (веб: 6-12 дюймов)"
+   "v": 25,
+   "why": "СНЯТ КАК ДУБЛЬ (19.08, Codex): источник истины — occupancy.dynamic.rug_rules.front_legs_on_rug_cm (25 см). Здесь лежал второй разошедшийся экземпляр (15), из-за чего builder и правила расходились. Значение синхронизировано; код читает occupancy.",
+   "status": "mirror_of:occupancy.dynamic.rug_rules.front_legs_on_rug_cm"
   },
   "pouf_as_table_min_w_cm": {
    "v": 70,
@@ -1075,6 +1453,28 @@
    "свод №5: колонна = граница кластера/зоны; колонна ВНУТРИ группы беседы/просмотра — разрыв (штраф пары); >1.5 м² — не колонна, а вырез формы (L/ступени)",
    "свод №5 (H&G square living rooms): квадрат (стороны ~равны, до 1.10) — приоритет симметричных ЦЕНТРАЛЬНЫХ схем (facing/square/u/bridge) перед асимметричными",
    "значения бонусов/штрафов — в масштабе WallScore (fits_media=20): колонна в коридоре пары ощутима (12), эркер-бонус для декора сопоставим со светом (25 против 150-dist)"
+  ]
+ },
+ "anchor_registry": {
+  "types": [
+   "window",
+   "bay",
+   "corner",
+   "wall_segment",
+   "opening",
+   "free_region",
+   "zone_boundary",
+   "object",
+   "runtime"
+  ],
+  "why": "ADR-0112 + разбор Codex 19.08: тип ЯКОРЯ схемы. `runtime` — форма блока, чей якорь определяется на поиске (Candidate.topology: стена/окно/середина); `free_region` — крупный свободный регион (остров столовой), НЕ синоним центра комнаты; `zone_boundary` — граница двух зон (стеллаж-делитель); `opening` — простенок/косяк проёма; `object` — предметный якорь (камин, диван, носитель), возникающий ПОСЛЕ постановки предмета.",
+  "qualifiers": [
+   "radiator_under",
+   "low_sill",
+   "between_windows",
+   "adjacent_to_opening",
+   "door_adjacent",
+   "behind_sofa"
   ]
  }
 }

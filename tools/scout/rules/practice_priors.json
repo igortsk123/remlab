@@ -10,63 +10,301 @@
   "collected_at": "2026-08-18",
   "source": "owner_research",
   "_honesty": "Проценты предоставил владелец как сводку практики. Публичные статьи (BHG «не ставить диван прямо перед окном», H&G «приоритет естественному свету», Livingetc «столик ≤45 см от посадки», AD «диван+кресла+столик — одна композиция», H&G «awkward corners → reading nook/хранение/рабочее место») подтверждают НАПРАВЛЕНИЕ, но не являются provenance конкретных чисел. Поэтому status=shadow_hypothesis: включение в production — только после слепых пар (Q7/Q9d).",
-  "audit": "подключить к tools/scout/rules_audit.py (RULE-NO-PROOF)"
+  "audit": "подключить к tools/scout/rules_audit.py (RULE-NO-PROOF)",
+  "updated": "2026-08-19",
+  "_prior_use": "ADR-0112: приор — ЛОКАЛЬНЫЙ тайбрейк между планами, различающимися исходом ОДНОЙ возможности при равном верхнем ключе. Сумма рангов по возможностям ЗАПРЕЩЕНА (скрытые веса); частоты — порядок распространённости, не квота."
  },
  "opportunities": {
   "window": {
    "_why": "зона у окна: приоритет естественному свету — низкое и визуально лёгкое; диван перед окном допустим, но это последний выбор из посадочных (BHG/H&G)",
    "outcomes": [
-    {"id": "armchair_or_pair", "observed_share_pct": 28, "roles": ["кресло"], "zones": ["reading", "bay_armchair", "quiet"]},
-    {"id": "free_intentional", "observed_share_pct": 19, "roles": [], "zones": []},
-    {"id": "window_seat_bench", "observed_share_pct": 17, "roles": ["банкетка"], "zones": ["edge_nook"]},
-    {"id": "sofa_or_loveseat", "observed_share_pct": 16, "roles": ["диван"], "zones": ["seating"]},
-    {"id": "table_work_or_dining", "observed_share_pct": 9, "roles": ["стол обеденный"], "zones": ["dining"]},
-    {"id": "plants_decor", "observed_share_pct": 7, "roles": ["кашпо", "растение"], "zones": ["decor"]},
-    {"id": "low_console_storage", "observed_share_pct": 4, "roles": ["комод", "тв-тумба"], "zones": ["storage"]}
-   ]
+    {
+     "id": "armchair_or_pair",
+     "observed_share_pct": 28,
+     "roles": [
+      "кресло"
+     ],
+     "zones": [
+      "reading",
+      "bay_armchair",
+      "quiet"
+     ]
+    },
+    {
+     "id": "window_seat_bench",
+     "observed_share_pct": 19,
+     "roles": [
+      "банкетка"
+     ],
+     "zones": [
+      "window_seat"
+     ],
+     "_zones_why": "Q12-1: исход определяется по ЯКОРЮ схемы (tpl_id=window_seat), а не по роли «банкетка» в полосе — прежняя привязка к edge_nook классифицировала уголок столовой как скамью у окна"
+    },
+    {
+     "id": "free_intentional",
+     "observed_share_pct": 17,
+     "roles": [],
+     "zones": []
+    },
+    {
+     "id": "plants_decor",
+     "observed_share_pct": 17,
+     "roles": [
+      "кашпо",
+      "растение"
+     ],
+     "zones": [
+      "decor"
+     ]
+    },
+    {
+     "id": "table_work_or_dining",
+     "observed_share_pct": 10,
+     "roles": [
+      "стол обеденный"
+     ],
+     "zones": [
+      "dining"
+     ]
+    },
+    {
+     "id": "sofa_or_loveseat",
+     "observed_share_pct": 9,
+     "roles": [
+      "диван"
+     ],
+     "zones": [
+      "seating"
+     ]
+    },
+    {
+     "id": "low_console_storage",
+     "observed_share_pct": 4,
+     "roles": [
+      "комод",
+      "тв-тумба"
+     ],
+     "zones": [
+      "storage"
+     ]
+    }
+   ],
+   "_data_version": "2026-08-19 (уточнённые частоты владельца: кресло 28 / скамья 19 / растения 17 / пусто 17 / стол 10 / диван 9)"
   },
   "seating_center": {
    "_why": "центр посадочной группы почти всегда якорится столиком и ковром (AD: диван+кресла+столик — одна композиция; Livingetc: столик ≤45 см от посадки)",
    "outcomes": [
-    {"id": "coffee_table", "observed_share_pct": 58, "roles": ["столик"], "zones": ["seating"]},
-    {"id": "ottoman_table", "observed_share_pct": 15, "roles": ["пуф"], "zones": ["seating"]},
-    {"id": "nesting_small_tables", "observed_share_pct": 10, "roles": ["столик", "приставной"], "zones": ["seating"]},
-    {"id": "free_intentional", "observed_share_pct": 8, "roles": [], "zones": []},
-    {"id": "extra_armchair_pouf", "observed_share_pct": 5, "roles": ["кресло", "пуф"], "zones": ["seating"]},
-    {"id": "statement_object", "observed_share_pct": 4, "roles": [], "zones": []}
+    {
+     "id": "coffee_table",
+     "observed_share_pct": 58,
+     "roles": [
+      "столик"
+     ],
+     "zones": [
+      "seating"
+     ]
+    },
+    {
+     "id": "ottoman_table",
+     "observed_share_pct": 15,
+     "roles": [
+      "пуф"
+     ],
+     "zones": [
+      "seating"
+     ]
+    },
+    {
+     "id": "nesting_small_tables",
+     "observed_share_pct": 10,
+     "roles": [
+      "столик",
+      "приставной"
+     ],
+     "zones": [
+      "seating"
+     ]
+    },
+    {
+     "id": "free_intentional",
+     "observed_share_pct": 8,
+     "roles": [],
+     "zones": []
+    },
+    {
+     "id": "extra_armchair_pouf",
+     "observed_share_pct": 5,
+     "roles": [
+      "кресло",
+      "пуф"
+     ],
+     "zones": [
+      "seating"
+     ]
+    },
+    {
+     "id": "statement_object",
+     "observed_share_pct": 4,
+     "roles": [],
+     "zones": []
+    }
    ]
   },
   "free_corner": {
    "_why": "угол — маленькая вторичная функция, а не место для крупной мебели (H&G: awkward corners → reading nook / встроенное хранение / рабочее место)",
    "outcomes": [
-    {"id": "reading_armchair", "observed_share_pct": 31, "roles": ["кресло"], "zones": ["reading", "quiet"]},
-    {"id": "plant", "observed_share_pct": 20, "roles": ["кашпо", "растение"], "zones": ["decor"]},
-    {"id": "floor_lamp", "observed_share_pct": 17, "roles": ["торшер"], "zones": ["reading", "decor"]},
-    {"id": "side_table_console", "observed_share_pct": 11, "roles": ["приставной", "комод"], "zones": ["storage"]},
-    {"id": "shelving", "observed_share_pct": 10, "roles": ["стеллаж"], "zones": ["storage"]},
-    {"id": "desk", "observed_share_pct": 7, "roles": [], "zones": []},
-    {"id": "free_intentional", "observed_share_pct": 4, "roles": [], "zones": []}
+    {
+     "id": "reading_armchair",
+     "observed_share_pct": 31,
+     "roles": [
+      "кресло"
+     ],
+     "zones": [
+      "reading",
+      "quiet"
+     ]
+    },
+    {
+     "id": "plant",
+     "observed_share_pct": 20,
+     "roles": [
+      "кашпо",
+      "растение"
+     ],
+     "zones": [
+      "decor"
+     ]
+    },
+    {
+     "id": "floor_lamp",
+     "observed_share_pct": 17,
+     "roles": [
+      "торшер"
+     ],
+     "zones": [
+      "reading",
+      "decor"
+     ]
+    },
+    {
+     "id": "side_table_console",
+     "observed_share_pct": 11,
+     "roles": [
+      "приставной",
+      "комод"
+     ],
+     "zones": [
+      "storage"
+     ]
+    },
+    {
+     "id": "shelving",
+     "observed_share_pct": 10,
+     "roles": [
+      "стеллаж"
+     ],
+     "zones": [
+      "storage"
+     ]
+    },
+    {
+     "id": "desk",
+     "observed_share_pct": 7,
+     "roles": [],
+     "zones": []
+    },
+    {
+     "id": "free_intentional",
+     "observed_share_pct": 4,
+     "roles": [],
+     "zones": []
+    }
    ]
   },
   "primary_wall": {
    "_why": "главная стена напротив дивана; ПРИМЕНИМО ТОЛЬКО когда сценарий допускает выбор (media_need off/preferred): при media_need=required носитель обязателен по кардинальности — приоры на это не влияют. Категории не взаимоисключающи: ТВ+камин (place_media_fireplace), стенка = медиа+хранение",
    "applies_when": "scenario_needs.media_need in (off, preferred)",
    "outcomes": [
-    {"id": "tv_media", "observed_share_pct": 35, "roles": ["тв-тумба", "стенка"], "zones": ["media"]},
-    {"id": "fireplace", "observed_share_pct": 27, "roles": ["камин"], "zones": ["fireplace"]},
-    {"id": "art_gallery", "observed_share_pct": 16, "roles": ["картина"], "zones": ["decor"]},
-    {"id": "library_shelving", "observed_share_pct": 14, "roles": ["стеллаж", "витрина"], "zones": ["storage"]},
-    {"id": "accent_wall_free", "observed_share_pct": 8, "roles": [], "zones": []}
+    {
+     "id": "tv_media",
+     "observed_share_pct": 35,
+     "roles": [
+      "тв-тумба",
+      "стенка"
+     ],
+     "zones": [
+      "media"
+     ]
+    },
+    {
+     "id": "fireplace",
+     "observed_share_pct": 27,
+     "roles": [
+      "камин"
+     ],
+     "zones": [
+      "fireplace"
+     ]
+    },
+    {
+     "id": "art_gallery",
+     "observed_share_pct": 16,
+     "roles": [
+      "картина"
+     ],
+     "zones": [
+      "decor"
+     ]
+    },
+    {
+     "id": "library_shelving",
+     "observed_share_pct": 14,
+     "roles": [
+      "стеллаж",
+      "витрина"
+     ],
+     "zones": [
+      "storage"
+     ]
+    },
+    {
+     "id": "accent_wall_free",
+     "observed_share_pct": 8,
+     "roles": [],
+     "zones": []
+    }
    ]
   }
  },
  "item_presence_pct": {
   "_why": "частота присутствия предмета в гостиной — ПРИОР СОСТАВА БАНКА (композитор: что добирать и в каком порядке), НЕ квота для солвера. fill_pct остаётся диагностикой и верхним предохранителем; target_occurrence в солвере не заводим (Codex 18.08)",
   "_scenario_note": "ТВ 47% — практика; у нас media_need=required по сценарию продукта (пользователь просит гостиную с ТВ), это осознанное отличие, а не расхождение с данными",
-  "диван": 96, "столик": 83, "ковёр": 81, "кресло": 73, "приставной": 64, "шторы": 62,
-  "картина": 58, "торшер": 55, "тв-тумба": 47, "кашпо": 44, "стеллаж": 39, "камин": 35,
-  "книжный шкаф": 32, "пуф": 32, "консоль": 29, "подушка": 28, "зеркало": 24, "плед": 23,
-  "стол обеденный": 21, "ваза": 20, "банкетка": 15, "витрина": 13, "полка": 13,
-  "скульптура": 11, "рабочий стол": 9, "бар": 7
+  "диван": 96,
+  "столик": 83,
+  "ковёр": 81,
+  "кресло": 73,
+  "приставной": 64,
+  "шторы": 62,
+  "картина": 58,
+  "торшер": 55,
+  "тв-тумба": 47,
+  "кашпо": 44,
+  "стеллаж": 39,
+  "камин": 35,
+  "книжный шкаф": 32,
+  "пуф": 32,
+  "консоль": 29,
+  "подушка": 28,
+  "зеркало": 24,
+  "плед": 23,
+  "стол обеденный": 21,
+  "ваза": 20,
+  "банкетка": 15,
+  "витрина": 13,
+  "полка": 13,
+  "скульптура": 11,
+  "рабочий стол": 9,
+  "бар": 7
  }
 }

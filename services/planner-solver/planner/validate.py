@@ -870,6 +870,16 @@ def check_zone(ps: list[Placement]) -> list[Violation]:
                 max(rg.item.w_cm, rg.item.d_cm) >= 1.2 * min(rg.item.w_cm, rg.item.d_cm):
             long_ok = (rg.item.w_cm >= rg.item.d_cm) == \
                 (int(rg.rot) % 180 == int(sofa.rot) % 180)
+            # 19.08: правило «длинной стороной параллельно фронту дивана» написано для
+            # КЛАССИЧЕСКОЙ фронтальной посадки (диван + визави). У ТРЁХСТОРОННЕЙ группы
+            # (два дивана Г-стыком + пара кресел на третьей стороне) ковёр кладётся по
+            # ВНУТРЕННЕМУ КОНТУРУ зоны — только так ножки всех сторон стоят на нём одинаково,
+            # ради чего ковёр и лежит. Признак трёхсторонней композиции — посадочные смотрят
+            # в ТРИ и более различных направления; для неё правило оси не применяем.
+            _dirs = {int(p.rot) % 360 for p in ps
+                     if p.item is not None and p.role.split(' ')[0] in ("диван", "кресло")}
+            if not long_ok and len(_dirs) >= 3:
+                long_ok = True
             if not long_ok:
                 out.append(_v("RUG_ORIENTATION",
                               "ковёр короткой стороной к дивану — развернуть длинной",
@@ -1315,6 +1325,37 @@ def check_service_surface(room: Room, ps: list[Placement]) -> list[Violation]:
     return out
 
 
+def check_fire_reflection_on_tv(room: Room, ps: list[Placement]) -> list[Violation]:
+    """20.08 (замечание владельца + источники): ОГОНЬ НАПРОТИВ ЭКРАНА — блики и мерцание на
+    картинке. Дизайнерские гайды прямо пишут: если камин стоит НАПРОТИВ телевизора, отражение
+    пламени и портала попадает в экран; безопасная композиция — камин и ТВ на ОДНОЙ стене
+    (side-by-side), где огонь в поле зрения зрителя, но не в отражении.
+    Провенанс: Livingetc «Should you put a TV over a fireplace», Belleze/Direct Fireplaces —
+    раскладки ТВ+камин (external, 20.08.2026). Это SOFT: физику (перегрев) правило не трогает."""
+    import math as _m
+
+    by = _by_base(ps)
+    tv = by.get("тв-тумба") or by.get("стенка")
+    fp = by.get("камин")
+    if tv is None or fp is None or tv.item is None or fp.item is None:
+        return []
+    fx, fy = facing_vector(tv.rot)
+    c = footprint(tv).centroid
+    fc = footprint(fp).centroid
+    vx, vy = fc.x - c.x, fc.y - c.y
+    d = _m.hypot(vx, vy) or 1.0
+    ang = _m.degrees(_m.acos(max(-1.0, min(1.0, (vx * fx + vy * fy) / d))))
+    # камин В СЕКТОРЕ ПЕРЕД экраном и лицом к нему — отражение пламени в картинке
+    if ang <= 35 and d <= 700:
+        ffx, ffy = facing_vector(fp.rot)
+        if (ffx * -fx + ffy * -fy) > 0.3:      # очаг обращён к экрану
+            return [_v("FIRE_REFLECTION_ON_TV",
+                       f"камин напротив экрана ({ang:.0f}°, {d:.0f} см) — отражение пламени в картинке",
+                       ["камин", tv.role], round(d),
+                       "камин и ТВ на одной стене либо очаг вне сектора экрана", Severity.SOFT)]
+    return []
+
+
 def check_fireplace_seating(room: Room, ps: list[Placement]) -> list[Violation]:
     """P0.7 (рефери 08.08, финальный свод): камин — focal-элемент, не filler; H1.
     Разрешён, только если он в focal-зоне ХОТЬ ОДНОЙ посадки: (A) primary — главный диван
@@ -1721,6 +1762,7 @@ def validate(room: Room, placements: list[Placement], *, passage: str = "seconda
         lambda: check_layout_rules(room, placements),
         lambda: check_floor_cap(room, placements),
         lambda: check_fireplace_seating(room, placements),
+        lambda: check_fire_reflection_on_tv(room, placements),
         lambda: check_window_sofa(room, placements),
         lambda: check_sofa_back_gap(room, placements),
         lambda: check_service_surface(room, placements),

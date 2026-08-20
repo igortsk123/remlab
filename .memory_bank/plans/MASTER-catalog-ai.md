@@ -2,9 +2,9 @@
 workstream: catalog
 slug: MASTER-catalog-ai
 title: МАСТЕР — каталог и комплекты на ИИ (К0–К6)
-status: in_progress
+status: partial
 created: 2026-08-05
-updated: 2026-08-05
+updated: 2026-08-20
 completed:
 ---
 
@@ -119,3 +119,8 @@ completed:
 ## Связанные
 [[catalog-enrichment-pipeline]] (детализация К1–К4, была первой редакцией), [[sets-feasibility-first]]
 (К5), [[viz-pipeline]].
+
+## Статус 2026-08-20 — `partial`
+Мастер-план каталога приостановлен 05.08: работа ушла в ядро расстановки (своды №10–13, Q5–Q12 —
+мастер `MASTER-zones-v7.md`). Возврат — под данные для спящих схем: состояния раскладного стола,
+capability «делитель зоны» по SKU, совместимость модулей встроенной медиа-системы.

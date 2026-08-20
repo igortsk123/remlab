@@ -33,7 +33,7 @@ import os
 from shapely.geometry import Point, Polygon
 
 from .candidates import middle_candidates, wall_candidates
-from .geometry import footprint, room_polygon
+from .geometry import footprint, room_polygon, opening_polygon, radiator_polygon
 from .models import Item, Placement, Room, Severity
 from .invariants import check_block
 from .validate import validate
@@ -384,7 +384,26 @@ def _add_coffee(b: Block, seat: Item, table: Item | None, gap: float = COFFEE_GA
     return ty + tt.d_cm / 2, fx, ty
 
 
-RUG_TUCK = float(_g('rug_tuck_cm', 15.0))        # заход ковра под ножки посадки
+def _oc(path: str, default):
+    """Значение из occupancy.json по пути 'a/b/c' — ЕДИНЫЙ источник истины для чисел, которые
+    раньше дублировались в двух файлах (ковёр, радиатор): дубль всегда расходится (Codex 19.08)."""
+    try:
+        from .clearances import rules as _rules
+        _O = _rules()
+    except Exception:
+        return default
+    cur = _O
+    for k in path.split('/'):
+        cur = (cur or {}).get(k) if isinstance(cur, dict) else None
+    return default if cur is None else cur
+
+
+# ЗАХОД КОВРА под передние ножки: источник истины — occupancy.rug_rules.front_legs_on_rug_cm
+# (в templates.geometry лежал ВТОРОЙ, разошедшийся экземпляр числа: 15 против 25)
+RUG_TUCK = float(_oc('dynamic/rug_rules/front_legs_on_rug_cm', _g('rug_tuck_cm', 15.0)))
+# зазор торшера от подлокотника — из правил (dynamic.extras.floor_lamp.from_armrest_cm),
+# в коде стояло «+12», вне вилки 15–30
+LAMP_GAP = float((_oc('dynamic/extras/floor_lamp/from_armrest_cm', [15, 30]) or [15, 30])[0])
 
 
 def _add_rug(b: Block, seat: Item, rug: Item | None, far_y: float,
@@ -589,7 +608,7 @@ def build_block(group_id: str, by_role: dict[str, Item],
     # Сдвиг ровно такой, чтобы второй диван получил тот же канонический зазор 42.5.
     if group_id in ('sofa_loveseat', 'sofa_loveseat_2armchairs', 'two_sofas_2armchairs') \
             and sofa2 is not None and table is not None and not table_shift:
-        _side_L = +1 if variant == 'L_right' else -1
+        _side_L = +1 if variant in ('L_right', 'square_r') else -1
         _tl = max(table.w_cm, table.d_cm)
         table_shift = _side_L * max(0.0, sofa.w_cm / 2 + L_GAP - _tl / 2 - COFFEE_GAP)
     far, table_x, table_cy = _add_coffee(b, sofa, table, table_gap, table_shift)
@@ -620,17 +639,26 @@ def build_block(group_id: str, by_role: dict[str, Item],
         # (SOFA_TABLE_DIST в validate привязан только к главному — проверено)
         if not sofa2 or sofa.corner or sofa2.corner:
             return None
-        _add_L(b, sofa, sofa2, side=(+1 if variant == 'L_right' else -1))
+        # 19.08 (Codex): у `square` не было ЗЕРКАЛА — второй диван всегда слева, кресла всегда
+        # справа. Поворот блока зеркало не заменяет: композиция трёхсторонняя, и сторона входа
+        # в группу задаётся именно отражением. Вводим `square_r`.
+        _Lside = +1 if variant in ('L_right', 'square_r') else -1
+        _add_L(b, sofa, sofa2, side=_Lside)
         rug_min_left = -(sofa.w_cm / 2 + L_GAP) + 6.0   # правый край дивана 2 + зазор
-        if variant == 'square':
-            # фолбэк для тесных канонических комнат: кресла столбиком сбоку столика
+        if variant in ('square', 'square_r'):
+            # ТРЁХСТОРОННЯЯ группа (H&G): два дивана по двум сторонам, ПАРА кресел на третьей,
+            # четвёртая открыта под вход. Кресла — на стороне, ПРОТИВОПОЛОЖНОЙ второму дивану.
             tw_half = (max(table.w_cm, table.d_cm) / 2) if table else 40.0
-            ax = table_x + tw_half + FLANK_GAP + (arm1.d_cm / 2 if arm1 else 0)
+            _cs = -_Lside                      # сторона кресел
+            _rot_c = 270.0 if _cs > 0 else 90.0
             if arm1:
-                b.add(arm1, ax, table_cy, 270.0)
+                # 19.08: центр каждого кресла считаем по ЕГО глубине (раньше оба брали глубину
+                # первого — при разных креслах зазоры фактически расходились)
+                b.add(arm1, table_x + _cs * (tw_half + FLANK_GAP + arm1.d_cm / 2),
+                      table_cy, _rot_c)
                 if arm2 and group_id != 'sofa_loveseat':
-                    b.add(arm2, ax,
-                          table_cy + arm1.w_cm / 2 + arm2.w_cm / 2 + 12, 270.0)
+                    b.add(arm2, table_x + _cs * (tw_half + FLANK_GAP + arm2.d_cm / 2),
+                          table_cy + arm1.w_cm / 2 + arm2.w_cm / 2 + 12, _rot_c)
         elif arm1:
             # П-композиция (владелец 11.08): кресла — на ДЛИННОЙ стороне столика
             # НАПРОТИВ главного дивана, лицом к нему; открытая сторона П — к экрану.
@@ -1946,6 +1974,22 @@ def place_storage(room: Room, items: list[Item], free: Polygon,
         b = build_storage(br, max_items=len(br), ceiling_cm=room.ceiling_cm)
         if b is None:
             continue
+        # Q12-4: УГЛОВАЯ БАШНЯ (`storage.corner_tower`) — узкий высокий корпус ВПЛОТНУЮ К ОДНОЙ
+        # ИЗ СТЕН угла (не по диагонали: так требует паспорт и практика — фасад остаётся
+        # доступен). Пробуем первой для одиночного узкого корпуса: угол — «мёртвая» площадь,
+        # которую периметр обычно не берёт.
+        if len(br) == 1:
+            _tw = next(iter(br.values()))
+            _ct = _corner_tower_candidates(room, b.anchor, free)
+            if _ct:
+                ps = _best_block(room, b, free, _ct, tv=None, fixed=fixed)
+                if ps is not None:
+                    for _p in ps:
+                        _p.tpl_variant = 'corner_tower'
+                        if (_p.item.h_cm or 0) >= float(_TALL_ANCHOR_H_CM):
+                            # высокая мебель у стены — требование монтажа, а не геометрии
+                            _p.installation_requirement = 'wall_anchor'
+                    return ps
         for _avoid in ((True, False) if _busy else (False,)):
             cands = wall_candidates(room, b.anchor, free)
             if _avoid:                    # сперва ищем СВОБОДНУЮ стену
@@ -1954,6 +1998,35 @@ def place_storage(room: Room, items: list[Item], free: Polygon,
             if ps is not None:
                 return ps
     return None
+
+
+_TALL_ANCHOR_H_CM = 150.0   # выше — крепление к стене обязательно (CPSC Anchor It: опрокидывание)
+
+
+def _corner_tower_candidates(room: Room, item: Item, free: Polygon) -> list:
+    """Кандидаты «угловая башня» (Q12-4, паспорт storage.corner_tower): корпус СТОИТ ВДОЛЬ одной
+    из стен угла, прижатый к смежной — не по диагонали. Фасад смотрит в комнату, доступ спереди
+    проверит `_best_block`/validate. Диагональную постановку сюда не берём: паспорт и практика
+    требуют корпус вдоль стены (Codex 19.08)."""
+    from .candidates import Candidate
+    out = []
+    W, D = room.width_cm, room.depth_cm
+    w, d = item.w_cm, item.d_cm
+    pad = 5.0
+    for cx, cy in ((0, 0), (W, 0), (0, D), (W, D)):
+        for wall, rot in ((('south', 0.0) if cy == 0 else ('north', 180.0)),
+                          (('west', 90.0) if cx == 0 else ('east', 270.0))):
+            if wall in ('south', 'north'):          # корпус вдоль горизонтальной стены угла
+                x = (pad + w / 2) if cx == 0 else (W - pad - w / 2)
+                y = (pad + d / 2) if cy == 0 else (D - pad - d / 2)
+            else:                                    # вдоль вертикальной стены угла
+                x = (pad + d / 2) if cx == 0 else (W - pad - d / 2)
+                y = (pad + w / 2) if cy == 0 else (D - pad - w / 2)
+            p = Placement(role=item.role, x=x, y=y, rot=rot, item=item)
+            fp = footprint(p)
+            if free.intersection(fp).area >= fp.area * 0.97:
+                out.append(Candidate(p, 'corner', 'угловая башня'))
+    return out
 
 
 CONSOLE_DIAG: dict = {}   # Q6e: почему консоль за диваном (не) встала
@@ -2032,6 +2105,25 @@ def place_console_behind_sofa(room: Room, items: list[Item], free: Polygon,
     return None
 
 
+def build_reading_pair(by_role: dict[str, Item]) -> Block | None:
+    """Q12 (аудит канонов 19.08): ПАРА кресел у архитектурного якоря (окно/эркер) с общей
+    поверхностью между ними. Практика («кресло ИЛИ ПАРА кресел у окна» — 28%) знает обе формы,
+    у нас была только одиночная. Кресла — рядом, лицом в комнату; поверхность между ними
+    в пределах вытянутой руки (иначе SERVICE_SURFACE у обоих)."""
+    a1 = by_role.get('кресло') or by_role.get('кресло 3')
+    a2 = by_role.get('кресло 2') or by_role.get('кресло 4')
+    if a1 is None or a2 is None:
+        return None
+    surf = by_role.get('приставной') or by_role.get('столик 2')
+    b = Block(a1)
+    gap = (surf.w_cm + 2 * 10.0) if surf is not None else 24.0
+    dx = a1.w_cm / 2 + gap + a2.w_cm / 2
+    b.add(a2, dx, 0.0, 0.0)
+    if surf is not None:
+        b.add(surf, dx / 2, 0.0, 0.0)
+    return _valid(b, 'reading', variant='pair_anchor')
+
+
 def build_reading(by_role: dict[str, Item], allow_solo: bool = False,
                   corner: bool = False) -> Block | None:
     """v2.6: уголок чтения — кресло + торшер за плечом (30–40 от спинки, сбоку)
@@ -2059,10 +2151,16 @@ def build_reading(by_role: dict[str, Item], allow_solo: bool = False,
             # (прежняя раскладка) кресло неизбежно оказывалось в середине 180-см блока.
             b.add(lamp, 0.0, -(arm.d_cm / 2 + lamp.d_cm / 2 + 2), 0.0)
         else:
-            # сбоку и чуть сзади — свет через плечо (веб-свод 11.08 подтвердил)
-            b.add(lamp, arm.w_cm / 2 + lamp.w_cm / 2 + 12, -arm.d_cm / 2 + 8, 0.0)
+            # свет ЗА ПЛЕЧОМ, а не за спинкой (нормы 20.08: BenQ/Homebaa — источник за плечом,
+            # 46–90 см от центра посадки, низ абажура на уровне глаз сидящего). Раньше торшер
+            # уезжал на полглубины кресла назад и читался как предмет «за креслом»
+            b.add(lamp, arm.w_cm / 2 + lamp.w_cm / 2 + LAMP_GAP, -arm.d_cm / 4, 0.0)
     if side is not None:
-        b.add(side, -(arm.w_cm / 2 + side.w_cm / 2 + 8), 5.0, 0.0)
+        # приставной — у ПЕРЕДНЕЙ половины подлокотника (туда ложится рука), зазор 5–10 см;
+        # раньше столик стоял по центру кресла и читался как «поставить некуда» (владелец 20.08)
+        _sg = float((_oc('dynamic/extras/side_table/gap_from_chair_cm', [5, 10]) or [5, 10])[1])
+        b.add(side, -(arm.w_cm / 2 + side.w_cm / 2 + _sg),
+              arm.d_cm / 2 - side.d_cm / 2 - 4.0, 0.0)
     return _valid(b, 'reading', variant='window_anchor' if allow_solo and len(b.rel) == 1 else None)
 
 
@@ -2128,6 +2226,16 @@ def place_reading(room: Room, items: list[Item], free: Polygon,
     # и у окна, кресло самодостаточно — архитектурный якорь заменяет комплект (паспорт reading).
     _bay = _bay_candidates(room, b.anchor, free)
     if _bay:
+        # ПАРА кресел в эркере (Q12): ниша достаточной ширины держит две посадки — практика
+        # знает и одиночное кресло, и пару; пробуем пару первой, она богаче по местам
+        _pb = build_reading_pair(by_role)
+        if _pb is not None:
+            _bay_pair = _bay_candidates(room, _pb.anchor, free, block_ref=_pb)
+            _ps = _best_block(room, _pb, free, _bay_pair or _bay, tv=None, fixed=fixed)
+            if _ps:
+                for _p in _ps:
+                    _p.tpl_variant = 'bay_pair'
+                return _ps
         # КАСКАД СОСТАВА в нише: полный комплект → кресло+поверхность → соло. Ниша мелкая,
         # и торшер за спинкой упирается в наружную кромку; кресло в эркере самодостаточно.
         _kits = [dict(by_role),
@@ -2179,6 +2287,103 @@ def place_reading(room: Room, items: list[Item], free: Polygon,
     return _best_block(room, b, free, cands, tv=None, fixed=fixed)
 
 
+WINDOW_SEAT_DIAG: dict = {}   # Q12-4: почему скамья у окна (не) встала
+
+
+def _ws_rules() -> dict:
+    return (_zone_rules_tpl().get('zones', {}).get('window_seat', {}).get('rules') or {})
+
+
+def place_window_seat(room: Room, items: list[Item], free: Polygon,
+                      fixed: list[Placement] | None = None) -> list[Placement] | None:
+    """Q12-4 (ADR-0112): СКАМЬЯ У ОКНА — `window_seat.bench_under_window` и `bay_bench`.
+
+    FAIL-CLOSED (паспорт `zones.window_seat.rules.radiator_policy` + разбор Codex 19.08):
+    - радиатор в проекции окна → НЕ ставим (у нас нет высоты/типа батареи и capability
+      `radiator_compatible`, а закрывать прибор произвольной лавкой нельзя);
+    - неизвестна высота подоконника (`sill_cm` = 0) → НЕ ставим: правило «не выше подоконника
+      +10» проверить нечем;
+    - скамья обязана иметь способность сиденья у стены (`caps.wall_seat_capable`), глубину в
+      вилке паспорта и свободный фронт `front_access_cm`.
+    Эркер: прямая скамья ЦЕЛИКОМ внутри ниши, лицом в комнату (встроенная по контуру — столярка,
+    это отдельная спящая схема)."""
+    WINDOW_SEAT_DIAG.clear()
+    if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
+        return None
+    rules = _ws_rules()
+    front = float(rules.get('front_access_cm', 60))
+    dmin, dmax = (rules.get('depth_cm') or [38, 60])
+    bench = next((it for it in items
+                  if it.role.split(' ')[0] in ('банкетка', 'скамья')
+                  and bool((it.caps or {}).get('wall_seat_capable'))
+                  and float(dmin) <= it.d_cm <= float(dmax)), None)
+    if bench is None:
+        WINDOW_SEAT_DIAG['reject'] = 'no_window_seat_capable_bench'
+        return None
+    from .room_map import contour_features
+    bays = contour_features(room)[0]
+    wins = [o for o in room.openings if o.kind == 'window']
+    if not wins:
+        WINDOW_SEAT_DIAG['reject'] = 'no_window'
+        return None
+    for op in sorted(wins, key=lambda o: (o.wall, o.offset_cm)):
+        sill = float(getattr(op, 'sill_cm', 0) or 0)
+        if sill <= 0:
+            WINDOW_SEAT_DIAG['reject'] = 'sill_unknown'
+            continue
+        if (bench.h_cm or 0) > sill + 10:
+            WINDOW_SEAT_DIAG['reject'] = 'bench_above_sill'
+            continue
+        if any(r.wall == op.wall and r.offset_cm < op.offset_cm + op.width_cm
+               and op.offset_cm < r.offset_cm + r.width_cm for r in (room.radiators or [])):
+            WINDOW_SEAT_DIAG['reject'] = 'radiator_under_window'
+            continue
+        # позиция: по центру проёма, спинкой к оконной стене
+        cx, cy, rot = _wall_seat_pose(room, op, bench)
+        variant = 'bench_under_window'
+        for bay in bays:                       # окно в эркере → скамья внутрь ниши
+            if bay.buffer(1.0).contains(_opening_point(room, op)):
+                variant = 'bay_bench'
+                break
+        p = Placement(role=bench.role, x=cx, y=cy, rot=rot, item=bench)
+        p.tpl_id = 'window_seat'
+        p.tpl_variant = variant
+        fp = footprint(p)
+        if free.intersection(fp).area < fp.area * 0.97:
+            WINDOW_SEAT_DIAG['reject'] = 'no_space'
+            continue
+        # свободный фронт: перед сиденьем обязан быть проход front_access_cm
+        from shapely.affinity import translate as _tr
+        fx, fy = math.sin(math.radians(rot)), math.cos(math.radians(rot))
+        probe = _tr(fp, xoff=fx * front, yoff=fy * front)
+        if free.intersection(probe).area < probe.area * 0.9:
+            WINDOW_SEAT_DIAG['reject'] = 'no_front_access'
+            continue
+        WINDOW_SEAT_DIAG['placed'] = variant
+        return [p]
+    return None
+
+
+def _opening_point(room: Room, op):
+    from shapely.geometry import Point
+    g = opening_polygon(room, op)
+    return Point(g.centroid.x, g.centroid.y)
+
+
+def _wall_seat_pose(room: Room, op, bench: Item) -> tuple[float, float, float]:
+    """Центр и поворот скамьи: спинкой к оконной стене, по центру проёма, фронт в комнату."""
+    g = opening_polygon(room, op)
+    cx, cy = g.centroid.x, g.centroid.y
+    half = bench.d_cm / 2 + 5.0
+    if op.wall == 'south':
+        return cx, half, 0.0
+    if op.wall == 'north':
+        return cx, room.depth_cm - half, 180.0
+    if op.wall == 'west':
+        return half, cy, 90.0
+    return room.width_cm - half, cy, 270.0
+
+
 WINDOW_DIAG: dict = {}   # Q10b: почему оконный уголок (не) встал — в артефакт `_opportunities`
 
 
@@ -2203,11 +2408,16 @@ def place_window_reading(room: Room, items: list[Item], free: Polygon,
     by_role: dict[str, Item] = {}
     for it in items:
         by_role.setdefault(it.role, it)
-    b = build_reading(by_role, allow_solo=True)      # у окна кресло самодостаточно (Q10b)
+    # Q12 (аудит канонов): у окна практика знает ДВЕ формы — одиночное кресло и ПАРУ кресел
+    # с общей поверхностью. Пара богаче по местам, поэтому пробуется первой; не собралась
+    # (нет второго кресла) — обычный одиночный канон, у окна кресло самодостаточно (Q10b).
+    _pair = build_reading_pair(by_role)
+    b = _pair or build_reading(by_role, allow_solo=True)
     if b is None:
         WINDOW_DIAG['reject'] = 'no_armchair'
         WINDOW_DIAG['bank_roles'] = sorted(by_role)
         return None
+    _wr_variant = 'window_pair' if _pair is not None else 'window_anchor'
     from .candidates import Candidate as _Cnd
     from .geometry import opening_polygon as _opg
     from .models import Placement as _Pl
@@ -2225,7 +2435,14 @@ def place_window_reading(room: Room, items: list[Item], free: Polygon,
         # зазор конвекции — ИЗ ПРАВИЛ (clearances.distances.sofa_to_radiator_wall), а не «12 на глаз»
         from .clearances import distances as _dz
         _rad_clear = float((_dz().get('sofa_to_radiator_wall') or [15, 20])[0])
-        setback = (rd + _rad_clear + 3.0 if rd else 8.0) + _back
+        # без радиатора отступ = НИЖНЯЯ ГРАНИЦА «воздуха» из нашей же политики полосы
+        # (occupancy.window_sofa.back_gap_policy: 15–30 см). 8 см читались как «вплотную»
+        # и не оставляли места шторе (замечание владельца 20.08)
+        _air = float(((_zone_rules_zn().get('window_sofa') or {}).get('back_gap_policy') or {})
+                     .get('air_cm', [15, 30])[0] if isinstance(
+                         ((_zone_rules_zn().get('window_sofa') or {}).get('back_gap_policy') or {})
+                         .get('air_cm'), list) else 15.0)
+        setback = (rd + _rad_clear + 3.0 if rd else _air) + _back
         g = _opg(room, op)
         mid_x, mid_y = g.centroid.x, g.centroid.y
         # три позиции вдоль окна: центр и трети — кресло не обязано стоять ровно по центру проёма
@@ -2251,17 +2468,39 @@ def place_window_reading(room: Room, items: list[Item], free: Polygon,
                 _ang = (_m.degrees(_m.atan2(_seat.x - x, _seat.y - y)) + 360) % 360
                 if abs(((_ang - rot + 180) % 360) - 180) <= 60:      # цель в разумном секторе
                     rot = round(_ang / 15) * 15                       # квант 15° (контракт позы)
+            # ЦЕНТРИРУЕМ БЛОК, А НЕ ЯКОРЬ: у пары кресел якорь — левое кресло, и позиция
+            # «по центру проёма» уводила композицию вбок (замечание владельца 20.08)
+            _bw0, _bd0, _cx0b, _cy0b = block_bbox(b, 0.0)
+            _wx0, _wy0 = _rt(_cx0b, _cy0b, rot)      # смещение центра bbox В МИРОВЫХ осях
+            if op.wall in ('south', 'north'):
+                x -= _wx0
+            else:
+                y -= _wy0
             cands.append(_Cnd(placement=_Pl(role=b.anchor.role, x=x, y=y, rot=rot, item=b.anchor),
                               kind='wall', note=f'окно {op.wall}', topology='window'))
     if not cands:
         WINDOW_DIAG['reject'] = 'no_candidates'
         return None
-    b.tpl_variant = 'window_anchor'
+    b.tpl_variant = _wr_variant
     ps = _best_block(room, b, free, cands, tv=None, fixed=_fx)
     if ps:
-        WINDOW_DIAG.update({'placed': 'window_anchor', 'candidates': len(cands),
+        for _p in ps:
+            _p.tpl_variant = _wr_variant
+        WINDOW_DIAG.update({'placed': _wr_variant, 'candidates': len(cands),
                             'radiator_depth_cm': rad_depth})
         return ps
+    if _pair is not None:
+        # пара не влезла у окна — честно откатываемся на одиночный канон
+        _solo = build_reading(by_role, allow_solo=True)
+        if _solo is not None:
+            _solo.tpl_variant = 'window_anchor'
+            ps = _best_block(room, _solo, free, cands, tv=None, fixed=_fx)
+            if ps:
+                for _p in ps:
+                    _p.tpl_variant = 'window_anchor'
+                WINDOW_DIAG.update({'placed': 'window_anchor', 'pair_rejected': True,
+                                    'candidates': len(cands), 'radiator_depth_cm': rad_depth})
+                return ps
     WINDOW_DIAG.update({'reject': 'no_valid_position', 'candidates': len(cands)})
     return None
 
@@ -2289,7 +2528,7 @@ def place_bay_armchair(room: Room, items: list[Item], free: Polygon,
     b = Block(arm)
     lamp = by_role.get('торшер')
     if lamp is not None:
-        b.add(lamp, arm.w_cm / 2 + lamp.w_cm / 2 + 12, -arm.d_cm / 2 + 8, 0.0)
+        b.add(lamp, arm.w_cm / 2 + lamp.w_cm / 2 + LAMP_GAP, -arm.d_cm / 2 + 8, 0.0)
     b = _valid(b, 'bay_armchair')
     if b is None:
         return None
@@ -2593,7 +2832,8 @@ def _corner_candidates(room: Room, item: Item, free: Polygon) -> list:
     return out
 
 
-def _bay_candidates(room: Room, item: Item, free: Polygon, back_d_cm: float | None = None) -> list:
+def _bay_candidates(room: Room, item: Item, free: Polygon, back_d_cm: float | None = None,
+                    block_ref=None) -> list:
     """ОБЩИЙ генератор позиций в эркере (Codex 19.08: у reading был ОДИН кандидат — центроид
     ниши, из-за чего «кресло в эркере» уезжало к обычной стене). Позиции вдоль пролёта
     (`geometry.bay_positions_pct`), спинка ЯКОРЯ прижата к наружной кромке
@@ -2626,6 +2866,16 @@ def _bay_candidates(room: Room, item: Item, free: Polygon, back_d_cm: float | No
             p = Placement(role=item.role, x=x, y=y, rot=rot, item=item)
             if free.intersection(footprint(p)).area >= footprint(p).area * 0.97:
                 out.append(Candidate(p, 'wall', 'эркер', topology='bay'))
+    if block_ref is not None and out:
+        # ЦЕНТРИРОВКА БЛОКА в нише (пара кресел): позиции считаются для якоря, а композиция
+        # шире его — иначе вторая посадка уезжает к краю эркера (владелец 20.08)
+        _bw, _bd, _cxb, _cyb = block_bbox(block_ref, 0.0)
+        for c in out:
+            _wx, _wy = _rt(_cxb, _cyb, c.placement.rot)
+            if int(c.placement.rot) % 180 == 0:
+                c.placement.x -= _wx
+            else:
+                c.placement.y -= _wy
     return out
 
 
@@ -3220,11 +3470,38 @@ def place_decor(room: Room, items: list[Item], free: Polygon,
                 _bay_cands.append(Placement(role=pl.role, x=_bx, y=_by,
                                             rot=180 if _by > room.depth_cm / 2 else 0,
                                             item=pl))
-        for c in list(wall_candidates(room, pl, free)) + _bay_cands:
-            _in_bay = isinstance(c, Placement)
-            if not _in_bay and c.kind != 'corner':
-                continue                      # только углы (свод: зелень в угол)
-            p = c if _in_bay else c.placement
+        # Q12 (аудит канонов): РАСТЕНИЕ У ОКНА — самостоятельный канон (17% практики по частотам
+        # владельца). Кандидаты СБОКУ от проёма (не перед створкой), мимо радиатора: у угла бонус
+        # света уже был, но самой позиции «у окна вне угла» не существовало.
+        _win_cands = []
+        for _op in [o for o in room.openings if o.kind == 'window']:
+            _g = opening_polygon(room, _op)
+            _wx0, _wy0, _wx1, _wy1 = _g.bounds
+            _horiz = _op.wall in ('north', 'south')
+            _off = (pl.w_cm / 2 + 12.0)
+            _depth = pl.d_cm / 2 + 8.0
+            for _sgn in (-1, +1):
+                if _horiz:
+                    _px = (_wx0 - _off) if _sgn < 0 else (_wx1 + _off)
+                    _py = (room.depth_cm - _depth) if _op.wall == 'north' else _depth
+                else:
+                    _py = (_wy0 - _off) if _sgn < 0 else (_wy1 + _off)
+                    _px = (room.width_cm - _depth) if _op.wall == 'east' else _depth
+                _pp = Placement(role=pl.role, x=_px, y=_py,
+                                rot=(180.0 if _op.wall == 'north' else 0.0) if _horiz
+                                    else (270.0 if _op.wall == 'east' else 90.0), item=pl)
+                if any(radiator_polygon(room, _r).intersects(footprint(_pp))
+                       for _r in (room.radiators or [])):
+                    continue                       # прибор не загораживаем
+                _win_cands.append(_pp)
+        for c in list(wall_candidates(room, pl, free)) + _bay_cands + _win_cands:
+            _in_bay = isinstance(c, Placement) and c not in _win_cands
+            _at_win = c in _win_cands
+            if not _in_bay and not _at_win and c.kind != 'corner':
+                continue                      # иначе — только углы (свод: зелень в угол)
+            p = c if (_in_bay or _at_win) else c.placement
+            if _at_win and not free.contains(footprint(p)):
+                continue
             if _in_bay and not (free.contains(footprint(p)) or
                                 any(_bg.buffer(1.0).contains(footprint(p))
                                     for _bg in _bays)):
@@ -3249,11 +3526,13 @@ def place_decor(room: Room, items: list[Item], free: Polygon,
                 _dw = min(footprint(p).distance(_opw(room, o)) for o in _wins)
                 _light_bonus = max(0.0, 150.0 - _dw)      # ≤1.5 м от окна — бонус
             _bb = _bay_bonus if _in_bay else 0.0   # C5: растение в эркере
+            _var = 'bay_plant' if _in_bay else ('window_plant' if _at_win else 'corner_plant')
             if d + _light_bonus + _bb > best_d:
-                best, best_d = p, d + _light_bonus + _bb
+                best, best_d, _best_var = p, d + _light_bonus + _bb, _var
         if best is not None:
-            # прослеживаемость: декор — тоже шаблон (паспорт decor)
-            out.append(best.model_copy(update={'tpl_id': 'decor', 'tpl_version': '1.0'}))
+            # прослеживаемость: декор — тоже шаблон (паспорт decor), с формой канона
+            out.append(best.model_copy(update={'tpl_id': 'decor', 'tpl_version': '1.0',
+                                               'tpl_variant': _best_var}))
     return out or None
 
 # ЗОНА ПУФА УДАЛЕНА 12.08 (владелец: «зачем шаблон из одного пуфа?»). Одиночный

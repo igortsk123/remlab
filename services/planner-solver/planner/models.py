@@ -117,6 +117,9 @@ class Placement(BaseModel):
     # V3-H свода №9 (PACKAGE I): точная схема/вариант блока (default/u/facing/…),
     # для identity зоны в экспорте; пусто у зон без вариантов
     tpl_variant: str = ""
+    # Q12-4 (ADR-0112, CPSC Anchor It): требование МОНТАЖА, а не геометрии — высокий корпус
+    # обязан крепиться к стене. Планировщик его не решает, но обязан донести до сборки/сметы.
+    installation_requirement: str = ""
 
     @model_validator(mode="after")
     def _role_matches(self) -> "Placement":

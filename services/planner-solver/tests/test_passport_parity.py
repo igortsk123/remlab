@@ -22,7 +22,10 @@ def test_every_scheme_has_status():
     for zname, z in _tpl()['zones'].items():
         for s in z.get('schemes') or []:
             st = str(s.get('status', ''))
-            if not (st.startswith('implemented') or st.startswith('sleeping')):
+            # 19.08 (аудит канонов): `alias:` — легальный статус runtime-идентичности,
+            # у которой канон один (fireplace_solo.solo → fireplace.solo)
+            if not (st.startswith('implemented') or st.startswith('sleeping')
+                    or st.startswith('alias') or 'implemented_as' in st):
                 bad.append(f'{zname}/{s["id"]}')
     assert not bad, f'схемы без статуса implemented_as/sleeping: {bad}'
 
@@ -39,7 +42,7 @@ def test_shapes_live_in_passport_and_u_for_two_armchairs():
 
 def test_media_installation_passport_and_code():
     schemes = {s['id']: s for s in _tpl()['zones']['media']['schemes']}
-    mi = schemes['media_installation']
+    mi = schemes.get('media_installation') or schemes['freestanding_media_storage_run']
     p = mi['params']
     assert p['wall_min_cm'] >= 400 and p['gap_cm'] > 0 and p['max_companions'] >= 1
     src = open(os.path.join(PLANNER, 'template.py'), encoding='utf-8').read()
