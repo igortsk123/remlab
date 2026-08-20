@@ -1325,6 +1325,21 @@ def check_service_surface(room: Room, ps: list[Placement]) -> list[Violation]:
     return out
 
 
+def check_circulation_floor(room: Room, ps: list[Placement], route_cm: float) -> list[Violation]:
+    """ФИНАЛЬНЫЙ ПОЛ ЦИРКУЛЯЦИИ (20.08, разбор Codex): главный маршрут ниже аварийного пола
+    (`zones.json → main_route.acceptance_floor_cm`) — терминальный исход, а не мягкое замечание.
+    Живёт ОТДЕЛЬНО от `check_passages`: та проверяет достижимость предметов и вызывается на
+    промежуточных блоках; этот пол применяется к ГОТОВОМУ плану (как MEDIA_MISSING)."""
+    from .zones import zone_rules
+    cfg = (zone_rules().get('main_route') or {})
+    floor = float(cfg.get('acceptance_floor_cm', 70))
+    if route_cm + 0.01 >= floor:
+        return []
+    return [_v("CIRCULATION_MISSING",
+               f"главный маршрут {route_cm:.0f} см — ниже аварийного пола {floor:.0f} см",
+               [], round(route_cm, 1), f"≥{floor:.0f} см")]
+
+
 def check_fire_reflection_on_tv(room: Room, ps: list[Placement]) -> list[Violation]:
     """20.08 (замечание владельца + источники): ОГОНЬ НАПРОТИВ ЭКРАНА — блики и мерцание на
     картинке. Дизайнерские гайды прямо пишут: если камин стоит НАПРОТИВ телевизора, отражение

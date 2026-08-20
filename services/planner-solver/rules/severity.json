@@ -97,7 +97,8 @@
   "CONSOLE_DETACHED": "H0",
   "SOFA_ORPHAN_BACK_GAP": "S1",
   "CONSOLE_ROUTE_BLOCKED": "H0",
-  "FIRE_REFLECTION_ON_TV": "S2"
+  "FIRE_REFLECTION_ON_TV": "S2",
+  "CIRCULATION_MISSING": "H0"
  },
  "_notes": {
   "SOFA_BLOCKS_SOFA": "W2 kb-rules-merge 10.08: пара диванов легальна лицом-к-лицу или Г-стыком торец-к-торцу; фронт в бок/спинку соседа — блокировка",
@@ -116,6 +117,7 @@
  },
  "_why": {
   "CONSOLE_ROUTE_BLOCKED": "R8 (19.08, Codex): паспорт консоли объявлял route_after_console_required, но проверки не было — при остатке 91 и консоли 40 за ней оставалось ~49 см",
-  "FIRE_REFLECTION_ON_TV": "20.08: камин НАПРОТИВ экрана даёт отражение пламени и мерцание в картинке (Livingetc/Belleze). Безопасная композиция — ТВ и камин на одной стене; правило мягкое, потому что зависит от глянца экрана и штор"
+  "FIRE_REFLECTION_ON_TV": "20.08: камин НАПРОТИВ экрана даёт отражение пламени и мерцание в картинке (Livingetc/Belleze). Безопасная композиция — ТВ и камин на одной стене; правило мягкое, потому что зависит от глянца экрана и штор",
+  "CIRCULATION_MISSING": "20.08 (Codex): главный маршрут ниже аварийного пола main_route.acceptance_floor_cm — терминальный исход, а не мягкое замечание; ставится на ГОТОВОМ плане (как MEDIA_MISSING), в meta пишется сертификат best_achievable_cm"
  }
 }

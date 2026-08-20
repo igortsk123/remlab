@@ -202,6 +202,29 @@ def solve_zoned(room: Room, items, **kw):
     блоки посадки до шага медиа)."""
     outs, gid = _solve_zoned_impl(room, items, **kw)
     from . import validate as _valF
+    # ФИНАЛЬНЫЙ ПОЛ ЦИРКУЛЯЦИИ (20.08, разбор Codex): главный маршрут ниже аварийного пола —
+    # план не «успешный с мягким замечанием», а НЕДОСТИЖИМАЯ циркуляция. Проверяем на ГОТОВОМ
+    # кандидате (внутри check_passages нельзя: правило било бы промежуточные блоки поиска).
+    _rt = (zone_rules().get('main_route') or {})
+    _floor = float(_rt.get('acceptance_floor_cm', 70))
+    for _l in outs or []:
+        try:
+            from .quality import route_width_cm as _rw
+            _w = float(_rw(room, list(_l.placements)))
+        except Exception:
+            _w = _floor
+        if isinstance(getattr(_l, 'meta', None), dict):
+            _l.meta['route_cm'] = round(_w, 1)
+        _circ = _valF.check_circulation_floor(room, list(_l.placements), _w)
+        if _circ:
+            _l.violations = list(_l.violations) + _circ
+            if isinstance(getattr(_l, 'meta', None), dict):
+                _l.meta['infeasible_reason'] = {
+                    'code': 'CIRCULATION_MISSING', 'zone': 'circulation',
+                    'required_floor_cm': _floor,
+                    'quality_target_cm': float(_rt.get('quality_min_cm', 75)),
+                    'best_achievable_cm': round(_w, 1),
+                    'why': 'ни один полный кандидат не оставил главный проход от двери'}
     for _l in outs or []:
         _miss = _valF.check_media_required_final(_l.placements)
         if _miss:
@@ -1446,6 +1469,42 @@ def template_degradation(ps) -> tuple:
     return (lvl, cnt)
 
 
+_ROUTE_CACHE: dict = {}
+
+
+def main_route_tier(room: Room, lay) -> int:
+    """ЯРУС ГЛАВНОГО МАРШРУТА (20.08, разбор Codex): 0 — маршрут ≥ quality_min (75 см),
+    1 — 70–74 (допустимый сертифицированный fallback), 2 — ниже аварийного пола 70.
+
+    Меряем ТОЙ ЖЕ функцией, что и сторож регресс-сети (`planner/quality.py: route_width_cm`):
+    прежний ярус `_main_path_violations` считает достижимость конкретных предметов через
+    `check_passages` (порог вторичного прохода), это ДРУГОЙ контракт — из-за подмены метрик
+    план с маршрутом 60 см выигрывал у варианта с полноценным проходом (set5-trapezoid).
+    Числа — `rules/zones.json → main_route` (единый авторитетный блок)."""
+    from .quality import route_width_cm
+    cfg = (zone_rules().get('main_route') or {})
+    qmin = float(cfg.get('quality_min_cm', 75))
+    floor = float(cfg.get('acceptance_floor_cm', 70))
+    ps = list(getattr(lay, 'placements', []) or [])
+    key = (id(room), tuple(sorted((p.role, round(p.x, 1), round(p.y, 1), round(p.rot, 1))
+                                  for p in ps)))
+    w = _ROUTE_CACHE.get(key)
+    if w is None:
+        try:
+            w = float(route_width_cm(room, ps))
+        except Exception:
+            w = qmin                      # метрика не посчиталась — ярусом не наказываем
+        if len(_ROUTE_CACHE) > 4000:
+            _ROUTE_CACHE.clear()
+        _ROUTE_CACHE[key] = w
+    try:
+        if isinstance(getattr(lay, 'meta', None), dict):
+            lay.meta['route_cm'] = round(w, 1)
+    except Exception:
+        pass
+    return 0 if w >= qmin else (1 if w >= floor else 2)
+
+
 def _main_path_violations(lay) -> int:
     """MAIN_PATH_TIGHT — soft в validate; как ярус ключа ВЫШЕ деградации шаблона: канон не должен
     побеждать вариант, реально сохраняющий проход 90 см (Codex 17.08)."""
@@ -1489,7 +1548,10 @@ def plan_key(room: Room, lay, needs: dict, seat_rank: int = 0) -> tuple:
     # ярус ВЫШЕ мягких термов (в т.ч. дистанции ТВ): движок обязан прижать диван в норму
     # 15–30 или оставить настоящий проход ≥91, если такой вариант вообще достижим
     _orphan = int(bool(_back_orphan(room, ps)))
-    return (hard, missing_req, -covered_pref, -seat_rank, axis_cls,
+    # ЦИРКУЛЯЦИЯ ВЫШЕ БОГАТСТВА (20.08): маршрут — не «лишний предмет», а условие пользования
+    # комнатой; ярус стоит до -covered_pref/-seat_rank, иначе более богатая ступень выигрывает
+    # у варианта с настоящим проходом (set5-trapezoid: 60 см против ≥75)
+    return (hard, missing_req, main_route_tier(room, lay), -covered_pref, -seat_rank, axis_cls,
             _main_path_violations(lay), template_degradation(ps), _orphan) + tuple(lk[1:])
 
 
@@ -1541,8 +1603,11 @@ def plan_key_capacity(room: Room, lay, needs: dict, gid: str, items) -> tuple:
     covered_pref = sum(1 for z, st in status.items() if st == 'preferred' and have.get(z))
     from .score import score_layout as _sl
     lk = lexo_key(hard, len(getattr(lay, 'unplaced', []) or []), _sl(room, ps).terms)
-    return (hard, missing_req, primary_sofa_missing(lay, items), -covered_pref,
-            -realized_capacity(lay, gid), _axis_class(lay), _main_path_violations(lay),
+    # маршрут — сразу после LEVEL A «диван обязателен» (20.08, Codex): циркуляция выше
+    # богатства состава, но ниже обязательного дивана
+    return (hard, missing_req, primary_sofa_missing(lay, items), main_route_tier(room, lay),
+            -covered_pref, -realized_capacity(lay, gid), _axis_class(lay),
+            _main_path_violations(lay),
             template_degradation(ps), int(bool(_back_orphan(room, ps)))) + tuple(lk[1:])
 
 
@@ -1632,7 +1697,9 @@ def plan_key_v2(room: Room, lay, needs: dict, reach: dict | None = None) -> tupl
     _reach_enrich = reach.get('enrichment_reachable')
     seat_def = int(_need_enrich and not _enriched and (_reach_enrich is None or bool(_reach_enrich)))
     lk = lexo_key(hard, unplaced, score_layout(room, ps).terms)
-    return (hard, missing_req, unplaced,
+    # тот же инвариант, что в v1 (20.08): маршрут сразу после hard/missing/unplaced,
+    # иначе один и тот же проектный контракт имел бы РАЗНЫЙ приоритет в v1 и v2
+    return (hard, missing_req, unplaced, main_route_tier(room, lay),
             entry_viol, media_seat_viol, dining_cone_viol, corner_viol,
             missing_pref, frontal_def, seat_def,
             -int(seat.get('sofas', 0) >= 2 or _valid_arm >= 2),   # Codex 16.08: сырой -valid_arm ярусом убран

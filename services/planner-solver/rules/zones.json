@@ -1391,5 +1391,14 @@
    "status": "hypothesis"
   },
   "_why": "Q12-1 (ADR-0112, Codex 19.08): пороги возможностей были зашиты в planner/opportunities.py без провенанса; числа продуктовые — держим в правилах с честным статусом"
+ },
+ "main_route": {
+  "target_cm": 91,
+  "quality_min_cm": 75,
+  "acceptance_floor_cm": 70,
+  "secondary_fallback_cm": 60,
+  "_why": "ЕДИНЫЙ авторитетный блок ширины ГЛАВНОГО маршрута (20.08, разбор Codex): 91 — рекомендуемая цель практики (H&G: ~36″ для главного прохода; IRC R311.6 требует 914 мм для жилого коридора — бенчмарк, не норма для прохода между мебелью); 75 — продуктовый минимум (наш quality_gate); 70 — АВАРИЙНЫЙ regression floor проекта, ниже него план не принимается; 60 — нормальный ВТОРИЧНЫЙ зазор между предметами, для главного пути от двери мало",
+  "_provenance": "external: Homes & Gardens (living-room layout), ICC IRC R311.6, US Access Board §403.5.1 (20.08.2026)",
+  "_metric": "planner/quality.py: route_width_cm — та же функция, которой меряет сторож tests/test_template_integrity.py"
  }
 }
