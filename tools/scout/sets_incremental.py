@@ -337,9 +337,34 @@ def heal(apply: bool = False) -> None:
             if apply:
                 for r in _members:
                     s['items'].pop(r, None)
+                # СНЯЛИ КОМПЛЕКТ — ОБЯЗАНЫ ЗАПИСАТЬ ПРОБЕЛ (20.08): контракт банка требует либо
+                # pod-комплект с 25 м², либо ЯВНЫЙ gap. Молча снятый pod выглядел как «в сете
+                # просто нет второй зоны», и сторож банка падал (сеты 66/83/84/101/102/119/120)
+                _g = s.setdefault('gaps', [])
+                _msg = 'coverage_gap: pod-комплект (кресло 3/4 + столик 2) — член выбыл, замены нет'
+                if _msg not in _g:
+                    _g.append(_msg)
         for role, it in list(s['items'].items()):
             k = key(it['mid'], it['eid'])
             if k not in dead:
+                continue
+            # Q5-КОНТРАКТ ПАРЫ (20.08): «кресло 2» — ВТОРОЙ ЭКЗЕМПЛЯР основного кресла, а не
+            # самостоятельный SKU. Общее лечение подбирало ему замену по роли и ломало контракт
+            # (сеты 59/63/65/69/70/73/78 после ночной пересборки: mid у кресла и кресла 2 разные).
+            # Живое основное кресло — берём его копию; основное тоже мертво — снимаем экземпляр.
+            if role == 'кресло 2':
+                _main = s['items'].get('кресло')
+                if _main and key(_main['mid'], _main['eid']) in alive:
+                    _cl = dict(_main, qty=1, alt=True,
+                               pair_key=key(_main['mid'], _main['eid']), pair_provenance='exact_sku')
+                    healed += 1
+                    print(f'  комплект {n}: кресло 2 → экземпляр основного «{_main["name"][:32]}» (контракт пары)')
+                    if apply:
+                        s['items'][role] = _cl
+                else:
+                    hopeless.append((n, role, it['name'][:38], 'основное кресло тоже мертво'))
+                    if apply:
+                        s['items'].pop(role, None)
                 continue
             spares = [a for a in ((s.get('alternates') or {}).get(role) or [])
                       if key(a['mid'], a['eid']) in alive]
