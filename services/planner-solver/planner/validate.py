@@ -1701,6 +1701,173 @@ def check_edge_nook_contract(room: Room, ps: list[Placement]) -> list[Violation]
     return out
 
 
+def check_anchor_semantics(room: Room, ps: list[Placement]) -> list[Violation]:
+    """Q12-3 v2 — ГЕЙТ СЕМАНТИКИ ЯКОРЯ (доктрина ADR-0117 + уточнение Codex: источник
+    семантики — ПАСПОРТ схемы, гейт проверяет фактическую геометрию якоря).
+
+    v2 после оценки Codex (`_intake/answer-doctrine-0117.md`): реальные СЕГМЕНТЫ стен
+    (Г/П-контуры: равный rot ≠ одна стена), вершины контура вместо фикс-порога 220 см,
+    «центр + задняя кромка в нише» вместо 60% площади, tv_over запрещает только
+    МЕДИА-носитель (tpl_id='media'), диагональность — допуском ±15° к {45,135,225,315}.
+    Плюс контракты `media_between_windows` (по topology кандидата), `window_anchor` и
+    `media_at_jamb`/`corner_tower`."""
+    import math as _m
+
+    from shapely.geometry import LineString, Point
+
+    from .geometry import room_edges, room_polygon
+
+    out: list[Violation] = []
+    _var = lambda p: str(getattr(p, "tpl_variant", "") or "")
+    _topo = lambda p: str(getattr(p, "cand_topology", "") or "")
+    _base = lambda p: p.role.split(" ")[0]
+    edges = room_edges(room)
+    verts = [tuple(c) for c in room_polygon(room).exterior.coords[:-1]]
+
+    def _back_pt(p):
+        fx, fy = _m.sin(_m.radians(p.rot)), _m.cos(_m.radians(p.rot))
+        d2 = (p.item.d_cm / 2) if p.item is not None else 25.0
+        return Point(p.x - fx * d2, p.y - fy * d2)
+
+    def _edge_of(p):
+        bp = _back_pt(p)
+        bi, bd = None, None
+        for i, (a, b2) in enumerate(edges):
+            dd = LineString([a, b2]).distance(bp)
+            if bd is None or dd < bd:
+                bi, bd = i, dd
+        return bi, (bd if bd is not None else 1e9)
+
+    # --- tv_over_fireplace: экран НАД камином ⇒ в сцене нет ДРУГОГО МЕДИА-носителя
+    if any(_var(p) == "tv_over_fireplace" and _base(p) == "камин" for p in ps):
+        if any(_base(p) in ("тв-тумба", "стенка")
+               and str(getattr(p, "tpl_id", "") or "") == "media" for p in ps):
+            out.append(_v("ANCHOR_SEMANTICS",
+                          "tv_over_fireplace при живом МЕДИА-носителе в сцене",
+                          ["камин"], None, "экран над камином = медиа-носитель не ставится"))
+    # --- камин+ТВ: одна стена = ОДИН сегмент контура; смежные = сегменты с общей вершиной
+    _fp = next((p for p in ps if _base(p) == "камин"), None)
+    _br_ = next((p for p in ps if _base(p) in ("тв-тумба", "стенка")), None)
+    if _fp is not None and _br_ is not None and _fp.item is not None and _br_.item is not None:
+        _e1, _d1 = _edge_of(_fp)
+        _e2, _d2 = _edge_of(_br_)
+        _at_wall = _d1 <= 25.0 and _d2 <= 25.0
+        if _var(_fp) == "fireplace_side_by_side" and not (_at_wall and _e1 == _e2):
+            out.append(_v("ANCHOR_SEMANTICS",
+                          "fireplace_side_by_side: камин и носитель не на ОДНОМ сегменте стены",
+                          ["камин"], None, "один сегмент контура, оба пристенные"))
+        if _var(_fp) == "fireplace_tv_adjacent_walls":
+            _sh = _e1 is not None and _e2 is not None and _e1 != _e2 and \
+                bool({tuple(round(v, 1) for v in a) for a in edges[_e1]}
+                     & {tuple(round(v, 1) for v in a) for a in edges[_e2]})
+            if not (_at_wall and _sh):
+                out.append(_v("ANCHOR_SEMANTICS",
+                              "fireplace_tv_adjacent_walls: сегменты стен без общей вершины",
+                              ["камин"], None, "смежные (перпендикулярные) стены одного угла"))
+    # --- эркер: центр И задняя кромка якорной посадки в нише (банкетка — 90% площади)
+    _bays = None
+    for p in ps:
+        if _var(p) in ("bay_anchor", "bay_pair") and _base(p) in ("кресло", "банкетка"):
+            if _bays is None:
+                from .room_map import contour_features
+                _bays = contour_features(room)[0]
+            if not _bays:
+                out.append(_v("ANCHOR_SEMANTICS", f"«{p.role}»: схема эркера без эркера",
+                              [p.role], None, "эркер в контуре комнаты"))
+                break
+            fpp = footprint(p)
+            if _base(p) == "банкетка":
+                _inb = max((fpp.intersection(b).area for b in _bays), default=0.0)
+                if _inb < fpp.area * 0.9:
+                    out.append(_v("ANCHOR_SEMANTICS",
+                                  f"«{p.role}»: банкетка эркера не в нише",
+                                  [p.role], round(_inb / fpp.area, 2), "≥90% площади в нише"))
+                continue
+            _c = Point(p.x, p.y)
+            _bp = _back_pt(p)
+            if not any(b.contains(_c) and b.contains(_bp) for b in _bays):
+                out.append(_v("ANCHOR_SEMANTICS",
+                              f"«{p.role}»: якорь схемы эркера вне ниши "
+                              f"(центр/спинка должны быть внутри)",
+                              [p.role], None, "центр и задняя кромка в нише"))
+    # --- угол: у ФАКТИЧЕСКОЙ вершины контура, поза диагональная (±15° к 45+90k)
+    for p in ps:
+        if _var(p) == "corner_vignette" and _base(p) == "кресло" and p.item is not None:
+            _thr = _m.hypot(p.item.w_cm, p.item.d_cm) / 2 + 70.0
+            _dmin = min(_m.hypot(p.x - vx, p.y - vy) for vx, vy in verts)
+            _dev = abs((p.rot % 90.0) - 45.0)
+            if _dmin > _thr or _dev > 15.0:
+                out.append(_v("ANCHOR_SEMANTICS",
+                              f"«{p.role}»: corner_vignette не у вершины угла "
+                              f"(до вершины {_dmin:.0f} при пороге {_thr:.0f}, "
+                              f"откл. от диагонали {_dev:.0f}°)",
+                              [p.role], _dmin, "диагональ у вершины контура"))
+    # --- между окон: носитель, выигравший topology between_windows, обязан стоять в простенке
+    for p in ps:
+        if _base(p) in ("тв-тумба", "стенка") and p.item is not None and (
+                _topo(p) == "between_windows" or _var(p) == "media_between_windows"):
+            _rot2wall = {180: "north", 0: "south", 90: "west", 270: "east"}
+            _w = _rot2wall.get(int(round(p.rot)) % 360)
+            wins = sorted([o for o in room.openings
+                           if o.kind == "window" and o.wall == _w],
+                          key=lambda o: o.offset_cm)
+            _axis = p.x if _w in ("north", "south") else p.y
+            _half = p.item.w_cm / 2
+            _ok = False
+            for a, b2 in zip(wins, wins[1:]):
+                lo, hi = a.offset_cm + a.width_cm, b2.offset_cm
+                if lo - 2 <= _axis - _half and _axis + _half <= hi + 2:
+                    _ok = True
+                    break
+            if not _ok:
+                out.append(_v("ANCHOR_SEMANTICS",
+                              f"«{p.role}»: between_windows вне простенка (или шире его)",
+                              [p.role], None, "целиком между двумя окнами одной стены"))
+    # --- окно: кресло схемы window_anchor/window_pair обязано стоять У ОКНА
+    for p in ps:
+        if _var(p) in ("window_anchor", "window_pair") and _base(p) == "кресло":
+            wins = [o for o in room.openings if o.kind == "window"]
+            if not wins:
+                out.append(_v("ANCHOR_SEMANTICS", f"«{p.role}»: схема окна без окна",
+                              [p.role], None, "окно на стене якоря"))
+                continue
+            fpp = footprint(p)
+            _dw = min(fpp.distance(opening_polygon(room, o)) for o in wins)
+            if _dw > 160.0:
+                out.append(_v("ANCHOR_SEMANTICS",
+                              f"«{p.role}»: window_anchor далеко от окна ({_dw:.0f} см)",
+                              [p.role], _dw, "≤160 см от проёма"))
+    # --- косяк: носитель topology door_jamb — вплотную к краю дверного проёма
+    for p in ps:
+        if _base(p) in ("тв-тумба", "стенка") and _topo(p) == "door_jamb" and p.item is not None:
+            _doors = [o for o in room.openings if o.kind == "door"]
+            _gap = None
+            for o in _doors:
+                g = opening_polygon(room, o)
+                _gap = min(_gap, footprint(p).distance(g)) if _gap is not None \
+                    else footprint(p).distance(g)
+            if _gap is None or _gap > 35.0:
+                out.append(_v("ANCHOR_SEMANTICS",
+                              f"«{p.role}»: media_at_jamb не у косяка "
+                              f"(до проёма {(_gap or 1e9):.0f} см)",
+                              [p.role], _gap, "торцом к косяку двери (≤35 см)"))
+    # --- угловая башня: пристенная поза у вершины контура
+    for p in ps:
+        if _var(p) == "corner_tower" and p.item is not None:
+            if int(round(p.rot)) % 90 != 0:
+                out.append(_v("ANCHOR_SEMANTICS",
+                              f"«{p.role}»: corner_tower не пристенная (rot {p.rot:.0f})",
+                              [p.role], p.rot, "вдоль стены угла (rot кратен 90)"))
+                continue
+            fpp = footprint(p)
+            _dv = min(fpp.distance(Point(vx, vy)) for vx, vy in verts)
+            if _dv > 60.0:
+                out.append(_v("ANCHOR_SEMANTICS",
+                              f"«{p.role}»: corner_tower далеко от угла ({_dv:.0f} см)",
+                              [p.role], _dv, "торец ≤60 см от вершины контура"))
+    return out
+
+
 def check_console_contract(room: Room, ps: list[Placement]) -> list[Violation]:
     """Q6e свода №13: контракт консоли за диваном (tpl_variant console_behind_sofa) —
     высота ≤ спинки дивана +5, глубина ≤ max_d_cm, длина в вилке 0.5–1.0 дивана, вплотную
@@ -1785,6 +1952,7 @@ def validate(room: Room, placements: list[Placement], *, passage: str = "seconda
         lambda: check_quiet_contract(room, placements),
         lambda: check_edge_nook_contract(room, placements),
         lambda: check_console_contract(room, placements),
+        lambda: check_anchor_semantics(room, placements),
         lambda: check_passages(room, placements, passage),   # самая дорогая — последней
     ]
     vs: list[Violation] = []

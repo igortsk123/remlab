@@ -69,8 +69,19 @@ def repair_unplaced(room: Room, layout: Layout, items: list) -> Layout:
         for i, p in enumerate(placed):
             if p.role not in MOVABLE_FOR_REPAIR or done:
                 continue
+            # СТОРОЖ ЯКОРНЫХ СХЕМ (Codex 21.08, оценка ADR-0117): члены зонных блоков
+            # нерушимы и здесь тоже (repair раньше игнорировал LOCKED и мог утащить
+            # камин/носитель якорной схемы с якоря)
+            if p.role in LOCKED:
+                continue
             others = [q for j, q in enumerate(placed) if j != i]
             for alt in generate(room, p.item, others)[:6]:
+                # перенос предмета сохраняет его схемные атрибуты — иначе tpl_variant
+                # терялся и гейт семантики якоря слеп (ложный negative)
+                for _attr in ('tpl_id', 'tpl_variant', 'cand_topology'):
+                    _val = getattr(p, _attr, None)
+                    if _val:
+                        setattr(alt.placement, _attr, _val)
                 base = others + [alt.placement]
                 for c in generate(room, item, base)[:12]:
                     trial = validate(room, base + [c.placement])

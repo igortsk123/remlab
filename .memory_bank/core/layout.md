@@ -12,8 +12,7 @@ status: working
 # Расстановка — Tier 1
 
 **Правила**: `../domain/occupancy-rules.md` → `services/planner-solver/rules/occupancy.json`.
-**Прод-ядро** (ADR-0052): Python+shapely, БЕЗ ML; кандидаты → hard → beam → скоринг → top-K;
-детерминизм ([[layout-engine-gaps]]).
+**Прод-ядро** (ADR-0052): Python+shapely, БЕЗ ML; детерминизм ([[layout-engine-gaps]]).
 
 **Зонный — боевой дефолт (ADR-0074…0078):** `services/planner-solver/planner/zones.py`.
 **Шаблоны/модификаторы (ADR-0088…0094):** паспорт+инварианты
@@ -32,10 +31,10 @@ status: working
 Остаток — Q12-3, Q12-5…7 (`plans/q12-situational-canon.md`). **Заморозка (владелец 19.08):**
 планы/экзамен/экспорт не пересобираем, пока каноны не отработаны.
 
-**Аудит Юли 21.08 (ADR-0115):** 13/15 принято, №13/№35 отклонены с пруфом. Камин+ТВ — каскад
-side_by_side → смежные стены → ТВ над камином (разбужена); «между окон» — честная реализация
-(ось простенка); свет чтения за плечом всегда; консоль ≥⅔ дивана; sectional только угловой.
-ТВ-референс на носителях. Якоря кода и детали — ADR-0115, `../domain/occupancy-rules.md`
-(раунд 4); гейт — `services/planner-solver/tests/test_audit_julia_2108.py`.
+**Аудит Юли 21.08 (ADR-0115/0116):** 13/15 принято, №13/№35 отклонены с пруфом; консоль —
+только стол-консоль (в фиде нет → схема спит). **Доктрина чтения канонов — ADR-0117**
+(не-центр = обязательный якорь), внедрение — ADR-0118: `_media_min` (совместный камин+ТВ в
+лестнице) + гейт `ANCHOR_SEMANTICS` (Q12-3). Детали — `../domain/occupancy-rules.md` (раунд 4);
+гейты — `services/planner-solver/tests/test_audit_julia_2108.py` и `services/planner-solver/tests/test_anchor_semantics.py`.
 
 **Tier 2:** `../domain/occupancy-rules.md` · `../guides/layout-engine-spec.md`

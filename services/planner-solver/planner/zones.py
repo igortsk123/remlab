@@ -493,6 +493,57 @@ def _media_lookahead(room, keep, blk, occ0, m0, pm, needs, usable_poly):
     return m0
 
 
+def _media_min(room, items, free, fixed=None, top: int = 1, relaxed: bool = False):
+    """Медиа-минимум лестницы (Codex-план 21.08, ADR-0115/0117): в банке есть И носитель,
+    И камин → сначала СОВМЕСТНАЯ схема (`place_media_fireplace`: side_by_side → смежные
+    стены), иначе прежний одиночный `place_media`. Интерфейс повторяет place_media —
+    lookahead столовой зовёт top=K и получает прежний одиночный путь (Codex: иначе
+    TypeError тихо отключал защиту столовой).
+
+    Гейты (Codex: «совместный камин опционален и не вправе ухудшать обязательные зоны»):
+      1) ось носителя joint не хуже одиночной (+1 см допуска);
+      2) если одиночный вариант оставляет место столовой — joint обязан тоже.
+    Не прошли → одиночный носитель, камин пойдёт отдельной зоной ('+fp' / '+tvfp')."""
+    from .template import place_media as _pm
+    if top != 1 or relaxed:
+        return _pm(room, items, free, fixed=fixed, top=top, relaxed=relaxed)
+    roles = {i.role.split(' ')[0] for i in items}
+    if 'камин' not in roles or not ({'тв-тумба', 'стенка'} & roles):
+        return _pm(room, items, free, fixed=fixed)
+    from .template import _axis_off as _axoff
+    from .template import place_media_fireplace as _pmf
+    joint = _pmf(room, items, free, fixed=fixed)
+    if not joint:
+        return _pm(room, items, free, fixed=fixed)
+    single = _pm(room, items, free, fixed=fixed)
+    if not single:
+        return joint
+    seat = next((p for p in (fixed or []) if p.role.split(' ')[0] == 'диван'), None)
+    if _axoff(list(joint), seat) > _axoff(list(single), seat) + 1.0:
+        return single
+    if any(i.role == 'стол обеденный' for i in items):
+        from .geometry import footprint as _fpm
+        from .template import place_dining as _pdm
+        um2 = usable_m2(room)
+
+        def _dining_ok(mm) -> bool:
+            occ = _uu0([_fpm(p) for p in list(fixed or []) + list(mm)
+                        if p.role.split(' ')[0] != 'ковёр'])
+            rest = [i for i in items if i.role not in {p.role for p in mm}]
+            try:
+                return bool(_pdm(room, rest, usable_polygon(room).difference(occ), um2,
+                                 fixed=list(fixed or []) + list(mm)))
+            except Exception:
+                return False
+        if _dining_ok(single) and not _dining_ok(joint):
+            return single
+    if os.environ.get('ZONES_DEBUG'):
+        import sys as _sl
+        print('ZDBG медиа-минимум: совместная схема камин+ТВ принята '
+              f'({joint[0].tpl_variant if joint else ""})', file=_sl.stderr, flush=True)
+    return joint
+
+
 def _axis_diag_update(media, blk, *, chosen_rank: int, tried: int) -> None:
     """P1: offset_cm в диагностике оси — от ФАКТИЧЕСКИ выбранного носителя (при top>1
     place_media его не пишет) + след lookahead (какой по рангу вариант взят)."""
@@ -663,7 +714,7 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                 if not _blk:
                     continue
                 if _has_bearer0:
-                    from .template import place_media as _pm0
+                    _pm0 = _media_min       # Codex-план 21.08: совместный камин+ТВ первым
                     _occ0 = _uu0([_fp0(p) for p in _blk if p.role.split(' ')[0] != 'ковёр'])
                     _m0 = _pm0(room, keep,
                                usable_polygon(room).difference(_occ0), fixed=_blk)
@@ -728,7 +779,7 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                         _blk = place_template(room, _g['id'], _keep2, usable_polygon(room))
                         if not _blk:
                             continue
-                        from .template import place_media as _pm1
+                        _pm1 = _media_min   # Codex-план 21.08
                         _occ1 = _uu0([_fp0(p) for p in _blk
                                       if p.role.split(' ')[0] != 'ковёр'])
                         _m1 = _pm1(room, _keep2,
@@ -757,7 +808,7 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                         'LAYOUT_SCREEN_WINDOW_WAIVER', '1') != '0':
                     from . import validate as _valmodW
                     _valmodW.SCREEN_WINDOW_WAIVED[0] = True
-                    from .template import place_media as _pmw
+                    _pmw = _media_min   # Codex-план 21.08
                     _occw = _uu0([_fp0(p) for p in block
                                   if p.role.split(' ')[0] != 'ковёр'])
                     _mw = _pmw(room, keep,
@@ -799,9 +850,9 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                             break
                         _occ_a = _uu0([_fp0(p) for p in _blk_a
                                        if p.role.split(' ')[0] != 'ковёр'])
-                        _m_a = place_media(room, keep,
-                                           usable_polygon(room).difference(_occ_a),
-                                           fixed=_blk_a)
+                        _m_a = _media_min(room, keep,
+                                          usable_polygon(room).difference(_occ_a),
+                                          fixed=_blk_a)
                         if _m_a:
                             block = list(_blk_a) + list(_m_a)
                             keep = [it for it in keep
@@ -1075,6 +1126,11 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                 keep = [it for it in keep if it.role not in roles2]
                 block = block + extra
                 _refine_mod.LOCKED |= roles2
+                if tag == '+tvfp':
+                    # явная форма совместной схемы в теге (Codex 21.08): side | adjacent
+                    _v0 = next((getattr(p, 'tpl_variant', '') for p in extra
+                                if getattr(p, 'tpl_variant', '')), '')
+                    tag = '+tvfp:adjacent' if 'adjacent' in _v0 else '+tvfp:side'
                 tpl_tag += tag
         # ПОСЛЕДНЯЯ ПОПЫТКА ДЛЯ НОСИТЕЛЯ (правило владельца 12.08: «либо тумба, либо
         # стенка должна быть везде»). Если после всей цепочки фокус-стена пуста, а
@@ -1539,7 +1595,11 @@ def plan_key(room: Room, lay, needs: dict, seat_rank: int = 0) -> tuple:
     status['dining'] = needs.get('dining', status.get('dining'))
     from .geometry import base_role as _br
     roles = {_br(p.role) for p in ps}
-    have = {'media': bool(roles & {'тв-тумба', 'стенка'}),
+    # tv_over_fireplace (ADR-0115/0116, Codex: медиа-контракт): экран НАД камином закрывает
+    # медиа-функцию плана — камин с этим вариантом считается носителем
+    _tv_over = any(getattr(p, 'tpl_variant', '') == 'tv_over_fireplace'
+                   and _br(p.role) == 'камин' for p in ps)
+    have = {'media': bool(roles & {'тв-тумба', 'стенка'}) or _tv_over,
             'dining': 'стол обеденный' in roles,
             'seating': bool(roles & {'диван', 'кресло'})}
     missing_req = sum(1 for z, st in status.items()
@@ -1611,7 +1671,11 @@ def plan_key_capacity(room: Room, lay, needs: dict, gid: str, items) -> tuple:
     status = (zone_rules().get('zone_priority', {}) or {}).get('status', {})
     from .geometry import base_role as _br
     roles = {_br(p.role) for p in ps}
-    have = {'media': bool(roles & {'тв-тумба', 'стенка'}), 'dining': 'стол обеденный' in roles,
+    # tv_over_fireplace (ADR-0115/0116, Codex: медиа-контракт): экран НАД камином закрывает
+    # медиа-функцию плана — камин с этим вариантом считается носителем
+    _tv_over = any(getattr(p, 'tpl_variant', '') == 'tv_over_fireplace'
+                   and _br(p.role) == 'камин' for p in ps)
+    have = {'media': bool(roles & {'тв-тумба', 'стенка'}) or _tv_over, 'dining': 'стол обеденный' in roles,
             'seating': bool(roles & {'диван', 'кресло'})}
     missing_req = sum(1 for z, st in status.items() if st == 'required' and z in have and not have[z])
     covered_pref = sum(1 for z, st in status.items() if st == 'preferred' and have.get(z))
@@ -1652,7 +1716,11 @@ def plan_key_v2(room: Room, lay, needs: dict, reach: dict | None = None) -> tupl
     roles = {_br(p.role) for p in ps}
     m = _vm(room, ps)
     seat = m.get('seating') or {}
-    have = {'media': bool(roles & {'тв-тумба', 'стенка'}), 'dining': 'стол обеденный' in roles,
+    # tv_over_fireplace (ADR-0115/0116, Codex: медиа-контракт): экран НАД камином закрывает
+    # медиа-функцию плана — камин с этим вариантом считается носителем
+    _tv_over = any(getattr(p, 'tpl_variant', '') == 'tv_over_fireplace'
+                   and _br(p.role) == 'камин' for p in ps)
+    have = {'media': bool(roles & {'тв-тумба', 'стенка'}) or _tv_over, 'dining': 'стол обеденный' in roles,
             'seating': bool(roles & {'диван', 'кресло'}),
             'storage': bool(roles & {'стеллаж', 'витрина', 'комод', 'шкаф', 'стенка'})}
     missing_req = sum(1 for z, st in status.items() if st == 'required' and z in have and not have[z])

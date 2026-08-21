@@ -1393,12 +1393,18 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
                 # места носителю, ставим лучшую из них, а медиа-зона честно
                 # пропускается («не влезло — значит места нет»).
                 terms_nb = score_layout(room, base + ps).terms
+                for _pv in ps:
+                    _pv.cand_topology = _topo    # Q12-3 v2: топология и на no-bearer ветке
                 nb_variants.append((lexo_key(0, 0, terms_nb), ps))
                 if first_hard is None:
                     first_hard = [('NO_ROOM_FOR_BEARER', [require_bearer.role], None)]
                 continue
         if not hards:
             terms = score_layout(room, base + ps).terms
+            for _pv in ps:
+                # Q12-3 v2: топология выигравшего кандидата — на предметах, гейт
+                # семантики якоря судит по ней (between_windows, door_jamb, …)
+                _pv.cand_topology = _topo
             ok_variants.append((lexo_key(0, 0, terms), ps))
             continue
         if first_hard is None:
@@ -2735,17 +2741,29 @@ def place_media_fireplace(room: Room, items: list[Item], free: Polygon,
     fp = by_role.get('камин')
     if bearer is None or fp is None:
         return None
-    # 1) одна стена, оба зеркала
+    # 1) одна стена: оба зеркала СРАВНИВАЮТСЯ по (ось носителя, lexo-термы), а не
+    #    first-valid (Codex 21.08); тумбе доступны и аналитические позиции «ровно на ось»
+    #    (_axis_candidates) — иначе joint систематически проигрывал одиночной медиа по оси
+    _best1 = None
     for _mir in (False, True):
         b = build_media_fireplace(by_role, mirror=_mir)
         if b is None:
             break
-        ps = _best_block(room, b, free, wall_candidates(room, b.anchor, free),
-                         tv=None, fixed=fixed, axis_seat=seat)
-        if ps:
-            for p in ps:
-                p.tpl_variant = 'fireplace_side_by_side'
-            return ps
+        _cands1 = list(wall_candidates(room, b.anchor, free))
+        if os.environ.get('LAYOUT_AXIS_CANDS', '1') != '0':
+            _cands1 += _axis_candidates(room, b.anchor, free, seat, _cands1)
+        ps = _best_block(room, b, free, _cands1, tv=None, fixed=fixed, axis_seat=seat)
+        if not ps:
+            continue
+        from .score import score_layout as _slj
+        _key1 = (_axis_off(list(ps), seat),
+                 tuple(_slj(room, list(fixed or []) + list(ps)).terms))
+        if _best1 is None or _key1 < _best1[0]:
+            _best1 = (_key1, ps)
+    if _best1:
+        for p in _best1[1]:
+            p.tpl_variant = 'fireplace_side_by_side'
+        return _best1[1]
     # 2) смежные стены: носитель — ПОЛНОЙ медиа-логикой (дистанция/прицел/ось, как у
     #    отдельной зоны), камин — на перпендикулярной стене в угле обзора посадки.
     #    Камин не встал перпендикулярно → возвращаем None: раздельные зоны разберутся
@@ -2761,10 +2779,11 @@ def place_media_fireplace(room: Room, items: list[Item], free: Polygon,
         fb = _valid(Block(fp), 'fireplace_solo')
         _cands = [c for c in wall_candidates(room, fb.anchor, _free2)
                   if int(c.placement.rot - _r0) % 180 == 90]      # только смежные стены
-        _inview = _view_filter(_cands, seat,
-                               max_deg=float(_g('fireplace_view_max_deg', 60.0)),
-                               min_dist_cm=float(_g('fireplace_min_dist_cm', 90.0)))
-        fps = _best_block(room, fb, _free2, _inview or _cands, tv=None,
+        _inview = _fireplace_dist_filter(_view_filter(
+            _cands, seat, max_deg=_fireplace_sector_deg(seat),
+            min_dist_cm=float(_g('fireplace_min_dist_cm', 90.0))), seat)
+        # только сектор+вилка: нефильтрованный фолбэк плодил кандидатов-зомби
+        fps = _best_block(room, fb, _free2, _inview or [], tv=None,
                           fixed=list(fixed or []) + mps)
         if fps:
             for p in list(mps) + list(fps):
@@ -2773,6 +2792,49 @@ def place_media_fireplace(room: Room, items: list[Item], free: Polygon,
     # side-by-side и смежные не сложились — раздельные зоны в общем порядке; вариант
     # «экран над камином» (tv_over_fireplace) включается ПОСЛЕДНИМ резервом в place_media
     return None
+
+
+def _fireplace_dist_range() -> tuple[float, float]:
+    """Вилка «камин↔посадка» — единый источник zones.json (Codex 21.08: генератор фильтровал
+    только ≥90 см по центрам, validate требует 200–450 по футпринтам — кандидаты-зомби)."""
+    try:
+        from .zones import zone_rules
+        lo, hi = zone_rules()['zones']['seating_media']['fireplace']['distance_to_seating_cm']
+        return float(lo), float(hi)
+    except Exception:
+        return 200.0, 450.0
+
+
+def _fireplace_dist_filter(cands, seat):
+    """Кандидаты камина в вилке дистанции ДО посадки (по футпринтам, допуск ±10 см)."""
+    if seat is None:
+        return list(cands)
+    lo, hi = _fireplace_dist_range()
+    _sf = footprint(seat)
+    out = []
+    for c in cands:
+        d = footprint(c.placement).distance(_sf)
+        if lo - 10.0 <= d <= hi + 10.0:
+            out.append(c)
+    return out
+
+
+def _fireplace_sector_deg(seat: Placement | None) -> float:
+    """Канон угла «камин↔посадка» — ЕДИНЫЙ источник `zones.json seating_media.fireplace
+    .primary_sector_deg` (диван 35°, прочая посадка 45°): его читает validate
+    (FIREPLACE_FAR_FROM_SEATING). Разбор Codex 21.08 (проверка «каноны учитываются в планах»):
+    генератор пускал кандидатов до 60° (`fireplace_view_max_deg` — теперь deprecated-фолбэк),
+    validate резал по 35°/45° — в узких сценах ВСЕ кандидаты камина были «зомби»
+    (candidate_generated>0, hard_valid=0) и камин молча выпадал."""
+    try:
+        from .zones import zone_rules
+        sec = (zone_rules()['zones']['seating_media']['fireplace']
+               .get('primary_sector_deg') or {})
+        if seat is not None and seat.role.split(' ')[0] == 'диван':
+            return float(sec.get('диван', 35))
+        return float(sec.get('прочая_посадка', 45))
+    except Exception:
+        return float(_g('fireplace_view_max_deg', 60.0))
 
 
 def _view_filter(cands, seat: Placement | None, max_deg: float = 60.0,
@@ -2825,8 +2887,9 @@ def place_fireplace(room: Room, items: list[Item], free: Polygon,
             continue
         _cands = list(wall_candidates(room, b.anchor, free)) \
             + list(_corner_candidates(room, b.anchor, free))
-        _inview = _view_filter(_cands, seat, max_deg=float(_g('fireplace_view_max_deg', 60.0)),
-                               min_dist_cm=float(_g('fireplace_min_dist_cm', 90.0)))
+        _inview = _fireplace_dist_filter(_view_filter(
+            _cands, seat, max_deg=_fireplace_sector_deg(seat),
+            min_dist_cm=float(_g('fireplace_min_dist_cm', 90.0))), seat)
         ps = _best_block(room, b, free, _inview or [],
                          tv=None, fixed=fixed, axis_seat=seat)
         if ps is not None:

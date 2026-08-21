@@ -1279,7 +1279,7 @@
   },
   "fireplace_view_max_deg": {
    "v": 60,
-   "why": "камин обязан быть в углу обзора с посадки: дальше человек выворачивает корпус (веб-канон + правило владельца 12.08)"
+   "why": "DEPRECATED (Codex 21.08): второй источник угла расходился с каноном zones.json seating_media.fireplace.primary_sector_deg (35°/45°), который читает validate — генератор плодил кандидатов-зомби. Оставлен только как аварийный фолбэк _fireplace_sector_deg"
   },
   "fireplace_min_dist_cm": {
    "v": 90,

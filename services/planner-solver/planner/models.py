@@ -117,6 +117,9 @@ class Placement(BaseModel):
     # V3-H свода №9 (PACKAGE I): точная схема/вариант блока (default/u/facing/…),
     # для identity зоны в экспорте; пусто у зон без вариантов
     tpl_variant: str = ""
+    # Q12-3 v2 (ADR-0117/0118): топология выигравшего КАНДИДАТА (between_windows, door_jamb,
+    # bay, …) — по ней гейт семантики якоря судит ситуационные схемы без своего tpl_variant
+    cand_topology: str = ""
     # Q12-4 (ADR-0112, CPSC Anchor It): требование МОНТАЖА, а не геометрии — высокий корпус
     # обязан крепиться к стене. Планировщик его не решает, но обязан донести до сборки/сметы.
     installation_requirement: str = ""
