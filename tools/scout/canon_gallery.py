@@ -46,10 +46,6 @@ CAT = {
     'камин': I('камин', 120, 40, 100), 'комод': I('комод', 120, 40, 80),
     'стеллаж': I('стеллаж', 80, 35, 190), 'витрина': I('витрина', 80, 40, 190),
     'стол обеденный': I('стол обеденный', 140, 80, 75),
-    # «консоль» — НЕ новая роль каталога, а способность узкого низкого комода
-    # (group_scheme.console: d≤40, h≤спинки, длина ≥2/3 дивана — аудит Юли №46/Codex:
-    # прежний комод 120×40×80 при диване 220 давал 55% длины и читался чужим)
-    'консоль': I('комод', 150, 35, 75),
     'стул': I('стул', 45, 52, 90), 'стул 2': I('стул 2', 45, 52, 90),
     'стул 3': I('стул 3', 45, 52, 90), 'стул 4': I('стул 4', 45, 52, 90),
     'банкетка': I('банкетка', 130, 42, 46, caps={'guaranteed_seats': 2, 'dining_seat_capable': True,
@@ -502,24 +498,31 @@ def canons() -> list[dict]:
             # зеркальный тандем — в дверной ситуации, где кресла на стороне ОТ входа
             r, ps = door_side_scene(_sk, b, wall='south')
         elif gid == 'compact_sectional' and b is not None:
-            # угловой диван живёт В УГЛУ (CORNER_SOFA_ADRIFT): блок прижимаем к юго-западному
-            # углу; зеркало Г-секции выбираем то, которое чек не считает «отбившимся»
+            # угловой диван живёт В УГЛУ (CORNER_SOFA_ADRIFT): сначала ЮГО-ВОСТОЧНЫЙ угол
+            # (дальний от двери — контекст-носитель по оси дивана не лезет в проход),
+            # зеркало Г-секции подбирается под угол
             r, ps = None, None
+            _rc2 = room_of('plain')
+            _blocks = []
             for _cl in (True, False):
-                b = T.build_block(gid, {**_kit, 'диван': I('диван', 240, 160, 85, corner=True,
-                                                          corner_section_cm=90, corner_left=_cl)},
-                                  variant=shape)
-                if b is None:
-                    continue
-                b.tpl_variant = shape
-                _rc2 = room_of('plain')
-                _bw2, _bd2, _ox2, _oy2 = _bbox(b, 0.0)
-                _try = b.to_world(14 + _bw2 / 2 - _ox2, 14 + _bd2 / 2 - _oy2, 0.0)
-                if check_render(_rc2, _try) or hard_violations(_rc2, _try) \
-                        or 'CORNER_SOFA_ADRIFT' in soft_violations(_rc2, _try):
-                    continue
-                r, ps = _rc2, _try
-                break
+                _b2 = T.build_block(gid, {**_kit, 'диван': I('диван', 240, 160, 85, corner=True,
+                                                            corner_section_cm=90, corner_left=_cl)},
+                                    variant=shape)
+                if _b2 is not None:
+                    _b2.tpl_variant = shape
+                    _blocks.append(_b2)
+            for _cxx_i in (0, 1):        # 0 — юго-восток, 1 — юго-запад
+                for _b2 in _blocks:
+                    _bw2, _bd2, _ox2, _oy2 = _bbox(_b2, 0.0)
+                    _cxx = (_rc2.width_cm - 14 - _bw2 / 2) if _cxx_i == 0 else (14 + _bw2 / 2)
+                    _try = _b2.to_world(_cxx - _ox2, 14 + _bd2 / 2 - _oy2, 0.0)
+                    if check_render(_rc2, _try) or hard_violations(_rc2, _try) \
+                            or 'CORNER_SOFA_ADRIFT' in soft_violations(_rc2, _try):
+                        continue
+                    r, ps = _rc2, _try
+                    break
+                if ps:
+                    break
         else:
             r, ps = block_scene(_sk, b, wall='south')
         # ID карточки — (группа, форма): одна и та же форма `default` у РАЗНЫХ групп — это разные
@@ -683,26 +686,9 @@ def canons() -> list[dict]:
     _st.tpl_id = 'storage'; _st.tpl_variant = 'storage_shallow'
     out.append({'zone': 'storage', 'id': 'storage_shallow', 'title': 'хранение: неглубокое за диваном',
                 'room': _room_sh, 'ps': [_rg, _sf, _tb, _st]})
-    # диван плавающий (в этом и смысл консоли), но полоса ЗА консолью обязана быть настоящим
-    # маршрутом: при y=250 за консолью оставалось 90 см — ровно на кромке route_min=91 (Q8)
-    # x=310: дверь мини-сцены теперь у северного конца западной стены, и резерв входного
-    # коридора (зона `entry` солвера, ~треть ширины) накрывал прежнюю позицию x=220
-    _sofa = Placement(role='диван', x=310, y=240, rot=180, item=CAT['диван']); _sofa.tpl_id = 'seating'
-    # у плавающего дивана есть свой столик — иначе эталон ловит SERVICE_SURFACE (и сцена
-    # перестаёт быть похожей на жизнь: диван посреди комнаты без поверхности не бывает)
-    _tbl = Placement(role='столик', x=310, y=240 - (95 / 2 + 40 + 30), rot=0.0, item=CAT['столик'])
-    _tbl.tpl_id = 'seating'
-    # КОВЁР (замечание владельца 19.08 «а тут ковёр где потерян»): у плавающей группы ковёр —
-    # не декор, а то, что делает остров островом; кладём под передние ножки дивана и столик,
-    # НЕ под консоль (она работает со стороны прохода)
-    _rug = Placement(role='ковёр', x=310, y=240 - (95 / 2 + 40 + 30) + 10, rot=0.0,
-                     item=I('ковёр', 260, 180, 1))
-    _rug.tpl_id = 'seating'
-    r, ps = placer_scene('plain', T.place_console_behind_sofa, ['консоль'],
-                         fixed_ps=[_rug, _sofa, _tbl])
-    out.append({'zone': 'storage', 'id': 'console_behind_sofa',
-                'title': 'хранение: консоль за плавающим диваном (узкий низкий комод ≥⅔ дивана)',
-                'room': r, 'ps': ps})
+    # console_behind_sofa: активной карточки НЕТ — схема спит (решение владельца 21.08,
+    # аудит Юли №46 раунд 2: корпус с ящиками за диваном — не консоль, а настоящего
+    # стола-консоли в фиде нет). Заглушку «СПИТ» добавит sleeping_schemes() из паспорта.
 
     # ---------- КАНОНЫ, У КОТОРЫХ НЕ БЫЛО ПАСПОРТА (аудит Codex 19.08)
     # два дивана ВИЗАВИ — классическая разговорная композиция (без ТВ в составе)
@@ -888,6 +874,11 @@ CONTEXT_OF = {
     'media.media_centered': 'facing_sofa',
     'media.wall_unit_centered': 'facing_sofa',
     'media.tv_over_fireplace': 'facing_sofa',
+    # владелец 21.08 (раунд 2): у одиночных ступеней посадки (интент media_primary)
+    # показывать носитель с ТВ как референс — иначе карточки «немые»
+    'seating.compact_sectional.default': 'tv_wall',
+    'seating.sofa_pouf.default': 'tv_wall',
+    'seating.sofa_solo.default': 'tv_wall',
     # adjacent_walls — БЕЗ контекст-дивана: в мини-сцене продиктованная витриной посадка
     # не попадает камину в focal-сектор 75° (FIREPLACE_FAR_FROM_SEATING); в бою угол
     # обзора обеспечивает place_media_fireplace (перпендикулярные кандидаты + _view_filter)

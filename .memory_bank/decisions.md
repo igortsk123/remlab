@@ -2135,3 +2135,22 @@ Wayfair, Eureka, BenQ) + разборы Codex в `_intake/codex-prompts/`.
 **Влияет на:** `services/planner-solver/planner/template.py`, `services/planner-solver/planner/zones.py`, `services/planner-solver/planner/validate.py`,
 `services/planner-solver/planner/back_gap.py`, `services/planner-solver/rules/templates.json`, `services/planner-solver/rules/zones.json`, `tools/scout/canon_gallery.py`,
 `tools/scout/render_plan.py`; галерея — 65 карточек (спящих 3).
+
+## ADR-0116 — Аудит Юли, раунд 2: консоль — только настоящий стол-консоль (схема спит), ТВ-референс на ступенях посадки (2026-08-21)
+
+**Решение владельца.** (1) Корпус с ящиками за диваном — «это не консоль»: `console_behind_sofa`
+принимает ТОЛЬКО предметы с `caps.sofa_console_capable` (открытый стол-консоль); проверка фида
+(`tools/scout/candidates-index.json`, 28490 позиций): настоящих столов-консолей по нормам НЕТ
+(«Стол-консоль М94» 120×50×88 — глубина 50 > 40, длина 0.55 дивана; «консольные тумбы Норд»
+h=22 подвесные; 191 «геометрически подходящий» — всё комоды/стеллажи с ящиками). Схема переведена
+в `sleeping` (паспорт `storage.console_behind_sofa`), активная карточка галереи снята — оживёт
+сама при появлении товара с capability. Плейсер — `services/planner-solver/planner/template.py`
+(place_console_behind_sofa, фильтр по caps). (2) На карточках одиночных ступеней посадки
+(№14 sectional / №15 sofa_pouf / №16 sofa_solo) — контекст «носитель + ТВ-референс» (`tv_wall`);
+секционал в углу, ДАЛЬНЕМ от двери (контекст-носитель по оси дивана не лезет в проход).
+
+**Нумерация галереи сдвинулась** (карточка консоли снята из середины): «ТВ и камин на смежных
+стенах» — №60, «ТВ над камином» — №61, спящие — №62–65 (консоль — №65).
+
+**Влияет на:** template.py, rules/templates.json, canon_gallery.py, тесты
+(test_audit_julia_2108, test_edge_nook — контракт caps).

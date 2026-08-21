@@ -2073,8 +2073,13 @@ def place_console_behind_sofa(room: Room, items: list[Item], free: Polygon,
     max_d = float(cfg.get('max_d_cm', 40))
     lo, hi = (cfg.get('length_vs_sofa_soft') or [0.5, 0.75])
     back_h = float(sofa.item.h_cm or 85) + 5.0
+    # ТОЛЬКО НАСТОЯЩИЙ СТОЛ-КОНСОЛЬ (решение владельца 21.08, аудит Юли №46 раунд 2):
+    # корпус с ящиками/створками (комод/тумба/стеллаж) за диваном отклонён — «это не
+    # консоль». Признак — способность `sofa_console_capable` (тегинг каталога);
+    # предметов с ней в фиде пока нет → схема спит (паспорт storage.console_behind_sofa)
+    # и оживёт сама с появлением товара.
     cands_it = [it for it in items
-                if it.role.split(' ')[0] in ('комод', 'тв-тумба', 'стеллаж', 'столик')
+                if bool((it.caps or {}).get('sofa_console_capable'))
                 and it.d_cm <= max_d and (it.h_cm or 999) <= back_h
                 and lo * sofa.item.w_cm <= it.w_cm <= hi * sofa.item.w_cm * 1.34]   # верх — до 1.0 дивана
     if not cands_it:

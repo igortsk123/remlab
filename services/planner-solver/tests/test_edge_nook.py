@@ -154,8 +154,15 @@ def test_console_behind_floating_sofa():
     sofa = Placement(role='диван', x=280, y=430, rot=180,
                      item=Item(role='диван', w_cm=220, d_cm=95, h_cm=85))
     sofa.tpl_id = 'seating'
+    # раунд 2 аудита Юли №46 (21.08): комод с ящиками БЕЗ caps.sofa_console_capable —
+    # больше НЕ консоль (решение владельца), плейсер обязан его отклонить
     items = [Item(role='комод', w_cm=140, d_cm=38, h_cm=80),
              Item(role='стеллаж', w_cm=80, d_cm=35, h_cm=190)]
+    assert place_console_behind_sofa(room, items, usable_polygon(room), fixed=[sofa]) is None
+    assert CONSOLE_DIAG.get('reject') == 'no_console_capable_sku'
+    # настоящий стол-консоль (caps) проходит контракт
+    items = [Item(role='комод', w_cm=140, d_cm=38, h_cm=80,
+                  caps={'sofa_console_capable': True})]
     ps = place_console_behind_sofa(room, items, usable_polygon(room), fixed=[sofa])
     assert ps is not None, CONSOLE_DIAG
     c = ps[0]

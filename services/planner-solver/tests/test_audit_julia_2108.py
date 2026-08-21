@@ -76,8 +76,14 @@ def test_console_short_is_tagged_degraded():
                      item=Item(role='диван', w_cm=220, d_cm=95, h_cm=85))
     free = usable_polygon(room).difference(
         __import__('planner.geometry', fromlist=['footprint']).footprint(sofa))
+    # раунд 2 (владелец 21.08): корпус с ящиками БЕЗ caps.sofa_console_capable — не консоль
+    it_dresser = Item(role='комод', w_cm=150, d_cm=35, h_cm=75)
+    assert T.place_console_behind_sofa(room, [it_dresser], free, fixed=[sofa]) is None
+    assert T.CONSOLE_DIAG.get('reject') == 'no_console_capable_sku'
+    # настоящий стол-консоль (caps) работает; короче 2/3 — явная деградация +short
     for w, short in ((150, False), (120, True)):
-        it = Item(role='комод', w_cm=w, d_cm=35, h_cm=75)
+        it = Item(role='комод', w_cm=w, d_cm=35, h_cm=75,
+                  caps={'sofa_console_capable': True})
         ps = T.place_console_behind_sofa(room, [it], free, fixed=[sofa])
         assert ps, f'консоль {w} не встала: {T.CONSOLE_DIAG}'
         v = ps[0].tpl_variant
