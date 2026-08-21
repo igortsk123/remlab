@@ -254,7 +254,22 @@ def test_seating_matches_ladder_step():
         if not seat_roles:
             continue
         n = int(scene.split('-')[0].replace('set', ''))
-        bank = {k.split(' ')[0] for k in (sets[n - 1].get('items') or {})}
+        _items = sets[n - 1].get('items') or {}
+        bank = {k.split(' ')[0] for k in _items}
+        # 21.08 (ADR-0120): непригодный зонный ковёр банка выкидывает eligibility ДО лестницы —
+        # состав без ковра при таком банке ЗАКОНЕН, убираем его из ожидания
+        _rugB = _items.get('ковёр'); _sofaB = _items.get('диван')
+        if isinstance(_rugB, dict) and isinstance(_sofaB, dict):
+            from planner.models import Item as _ItB
+            from planner.template import _rug_zone_eligible as _elig
+            _nmB = str(_sofaB.get('name') or '').lower()
+            _sofa_it = _ItB(role='диван', w_cm=float(_sofaB.get('w') or 1),
+                            d_cm=float(_sofaB.get('d') or 95), h_cm=85,
+                            corner=('углов' in _nmB and 'прям' not in _nmB))
+            _rug_it = _ItB(role='ковёр', w_cm=float(_rugB.get('w') or 1),
+                           d_cm=float(_rugB.get('d') or 1), h_cm=1)
+            if not _elig(_rug_it, _sofa_it)[0]:
+                bank -= {'ковёр'}
         # required-роль, которой нет в БАНКЕ сета, со ступени не спрашивается
         ok = any((req & bank) <= seat_roles and seat_roles <= (req | opt)
                  for req, opt in steps.values())

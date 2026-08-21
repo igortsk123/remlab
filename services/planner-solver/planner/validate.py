@@ -1701,6 +1701,71 @@ def check_edge_nook_contract(room: Room, ps: list[Placement]) -> list[Violation]
     return out
 
 
+def check_dresser_in_sofa_view(room: Room, ps: list[Placement]) -> list[Violation]:
+    """DRESSER_IN_SOFA_VIEW (правило владельца 21.08 + Codex, H1): самостоятельный комод не
+    стоит в основном конусе взгляда главного дивана (±half_angle от фактической оси, >cap%
+    футпринта — нарушение). Исключения: компаньон медиа-инсталляции (атомарная фокус-стена)
+    и консоль за диваном (свой контракт). Числа — zones.json group_scheme.dresser_out_of_sofa_view."""
+    from .zones import zone_rules as _zr
+    cfg = (_zr().get("group_scheme") or {}).get("dresser_out_of_sofa_view") or {}
+    by = _by_base(ps)
+    sofa = by.get("диван")
+    if sofa is None or sofa.item is None:
+        return []
+    from .template import _sofa_view_cone
+    cone = _sofa_view_cone(room, sofa)
+    cap = float(cfg.get("max_footprint_overlap_pct", 5)) / 100.0
+    out: list[Violation] = []
+    for p in ps:
+        if p.role.split(" ")[0] not in ("комод",) or p.item is None:
+            continue
+        _var = str(getattr(p, "tpl_variant", "") or "")
+        # медиа-исключение СНЯТО (владелец 21.08 «чтоб было едино»): комод в медиа-ряду
+        # больше не появляется — компаньоны носителя только витрина/стеллаж
+        if _var.startswith("console_behind_sofa"):
+            continue
+        fpp = footprint(p)
+        ov = fpp.intersection(cone).area / max(fpp.area, 1e-6)
+        if ov > cap:
+            out.append(_v("DRESSER_IN_SOFA_VIEW",
+                          f"«{p.role}» в конусе взгляда дивана ({ov*100:.0f}% футпринта)",
+                          [p.role], round(ov * 100, 1),
+                          f"вне конуса ±{cfg.get('half_angle_deg', 60)}° (допуск {cfg.get('max_footprint_overlap_pct', 5)}%)"))
+    return out
+
+
+def check_rug_zone_size(room: Room, ps: list[Placement]) -> list[Violation]:
+    """RUG_ZONE_UNDERSIZED (аудит владельца 21.08 — «ковёр 80×50, такого канона нет»; Codex):
+    ковёр, работающий зонным у разговорной группы (лежит в полосе перед диваном), обязан быть
+    соразмерен группе: длинная сторона ≥ рабочей ширины дивана + канонный выступ (допуск −5),
+    короткая ≥ порога. Числа — occupancy.json dynamic.rug_rules.main_seating_rug_min.
+    Сторож ПОСЛЕДНЕЙ линии: штатно недомерок выкидывает eligibility в build_block."""
+    from .clearances import rules as _rl
+    by = _by_base(ps)
+    sofa = by.get("диван")
+    if sofa is None or sofa.item is None:
+        return []
+    cfg = ((_rl().get("dynamic") or {}).get("rug_rules") or {}).get("main_seating_rug_min") or {}
+    out: list[Violation] = []
+    _front = footprint(sofa).buffer(140.0)          # полоса разговорной зоны у дивана
+    for p in ps:
+        if p.role.split(" ")[0] != "ковёр" or p.item is None:
+            continue
+        if not footprint(p).intersects(_front):
+            continue                                 # ковёр другой зоны — не наш случай
+        long_s = max(p.item.w_cm, p.item.d_cm)
+        short_s = min(p.item.w_cm, p.item.d_cm)
+        work_w = sofa.item.w_cm - (95.0 if getattr(sofa.item, "corner", False) else 0.0)
+        need = work_w + float(cfg.get("long_vs_sofa_work_w_plus_cm", 30)) - 5.0
+        smin = float(cfg.get("short_min_cm", 140)) - 5.0
+        if long_s < need or short_s < smin:
+            out.append(_v("RUG_ZONE_UNDERSIZED",
+                          f"«{p.role}» {long_s:.0f}×{short_s:.0f} мал для зоны "
+                          f"(нужно ≥{need:.0f} по длинной и ≥{smin:.0f} по короткой)",
+                          [p.role], long_s, "зонный ковёр соразмерен группе"))
+    return out
+
+
 def check_anchor_semantics(room: Room, ps: list[Placement]) -> list[Violation]:
     """Q12-3 v2 — ГЕЙТ СЕМАНТИКИ ЯКОРЯ (доктрина ADR-0117 + уточнение Codex: источник
     семантики — ПАСПОРТ схемы, гейт проверяет фактическую геометрию якоря).
@@ -1953,6 +2018,8 @@ def validate(room: Room, placements: list[Placement], *, passage: str = "seconda
         lambda: check_edge_nook_contract(room, placements),
         lambda: check_console_contract(room, placements),
         lambda: check_anchor_semantics(room, placements),
+        lambda: check_rug_zone_size(room, placements),
+        lambda: check_dresser_in_sofa_view(room, placements),
         lambda: check_passages(room, placements, passage),   # самая дорогая — последней
     ]
     vs: list[Violation] = []

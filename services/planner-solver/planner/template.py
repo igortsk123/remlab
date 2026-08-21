@@ -548,6 +548,28 @@ _FOCUS_LEVEL = 2
 POUF_AS_TABLE_MIN_W = float(_g('pouf_as_table_min_w_cm', 70.0))
 
 
+RUG_DIAG: dict = {}    # аудит 21.08: почему зонный ковёр выброшен из сборки
+
+
+def _rug_zone_eligible(rug: Item, sofa: Item) -> tuple[bool, str]:
+    """Пригодность ковра как ЗОННОГО ковра разговорной группы (аудит владельца 21.08:
+    накидка 80×50 и прикроватные 180×120 стелились в зону; Codex: недомерок не «хуже»,
+    он ХОРОНИТ зону). Числа — occupancy.json dynamic.rug_rules.main_seating_rug_min."""
+    from .clearances import rules as _rl
+    cfg = ((_rl().get('dynamic') or {}).get('rug_rules') or {}).get('main_seating_rug_min') or {}
+    long_s = max(rug.w_cm, rug.d_cm)
+    short_s = min(rug.w_cm, rug.d_cm)
+    if abs(rug.w_cm - rug.d_cm) < 1.0 and long_s <= float(cfg.get('round_max_as_zone_cm', 200)):
+        return False, f'круглый Ø{long_s:.0f} — не зонный ковёр'
+    if short_s < float(cfg.get('short_min_cm', 140)):
+        return False, f'короткая сторона {short_s:.0f} < {cfg.get("short_min_cm", 140)}'
+    work_w = sofa.w_cm - (95.0 if getattr(sofa, 'corner', False) else 0.0)
+    need = work_w + float(cfg.get('long_vs_sofa_work_w_plus_cm', 30))
+    if long_s < need:
+        return False, f'длинная {long_s:.0f} < рабочая ширина дивана+{cfg.get("long_vs_sofa_work_w_plus_cm",30)} ({need:.0f})'
+    return True, ''
+
+
 def build_block(group_id: str, by_role: dict[str, Item],
                 variant: str = 'default', table_gap: float = COFFEE_GAP,
                 table_shift: float = 0.0) -> Block | None:
@@ -563,6 +585,16 @@ def build_block(group_id: str, by_role: dict[str, Item],
     arm1, arm2 = by_role.get('кресло'), by_role.get('кресло 2')
     sofa2 = by_role.get('диван 2')
     table, rug = by_role.get('столик'), by_role.get('ковёр')
+    # ЗОННЫЙ КОВЁР — ELIGIBILITY (аудит владельца 21.08, Codex): недомерок выкидываем ДО
+    # сборки — клей зоны остаётся столиком, ковёр уходит в «не использовано» с диагнозом;
+    # сторож RUG_ZONE_UNDERSIZED в validate ловит обходные пути и старые банки
+    if rug is not None and sofa is not None:
+        _ok_rug, _why_rug = _rug_zone_eligible(rug, sofa)
+        if not _ok_rug:
+            RUG_DIAG.update({'rug_ineligible': _why_rug,
+                             'rug_wd': [rug.w_cm, rug.d_cm], 'sofa_w': sofa.w_cm})
+            by_role = {k: v for k, v in by_role.items() if k != 'ковёр'}
+            rug = None
     # ПУФ ВМЕСТО СТОЛИКА (веб-свод 12.08: «use a compact round table or an ottoman
     # instead of a large rectangular table»): крупный пуф (от 70 см) — мягкий столик
     # по центру зоны, а не подставка для ног сбоку.
@@ -1914,7 +1946,9 @@ def place_dining(room: Room, items: list[Item], free: Polygon, usable_m2: float,
     return None
 
 
-STORAGE_ROLES = ('шкаф', 'стеллаж', 'стеллаж 2', 'витрина', 'комод')
+# «комод 2» — АЛЬТЕРНАТИВНЫЙ кандидат той же функции (Codex 21.08: роль лежала в банках
+# мёртвой — не входила в список и никогда не ставилась); в плане НЕ более одного комода
+STORAGE_ROLES = ('шкаф', 'стеллаж', 'стеллаж 2', 'витрина', 'комод', 'комод 2')
 
 
 def build_storage(by_role: dict[str, Item], max_items: int = 3,
@@ -1953,6 +1987,29 @@ def build_storage(by_role: dict[str, Item], max_items: int = 3,
     return _valid(b, 'storage')
 
 
+def _sofa_view_cone(room: Room, sofa: Placement):
+    """Основной конус взгляда главного дивана (правило владельца 21.08 «комод — за
+    видимостью», Codex): вершина — seat_axis_origin, ось — фактический facing_vector
+    (НЕ направление на ТВ), полуугол — из zones.json group_scheme.dresser_out_of_sofa_view."""
+    import math as _m
+
+    from shapely.geometry import Polygon as _Pg
+
+    from .geometry import facing_vector, seat_axis_origin
+    cfg = (_zone_rules_zn().get('group_scheme') or {}).get('dresser_out_of_sofa_view') or {}
+    half = _m.radians(float(cfg.get('half_angle_deg', 60)))
+    ox, oy = seat_axis_origin(sofa)
+    fx, fy = facing_vector(sofa.rot)
+    base = _m.atan2(fy, fx)
+    R = _m.hypot(room.width_cm, room.depth_cm) + 50.0
+    pts = [(ox, oy)]
+    steps = 12
+    for i in range(steps + 1):
+        a = base - half + (2 * half) * i / steps
+        pts.append((ox + R * _m.cos(a), oy + R * _m.sin(a)))
+    return _Pg(pts)
+
+
 def place_storage(room: Room, items: list[Item], free: Polygon,
                   fixed: list[Placement] | None = None) -> list[Placement] | None:
     """ЗОНА ХРАНЕНИЯ — правила владельца (12.08, замечание по set4-base):
@@ -1973,7 +2030,11 @@ def place_storage(room: Room, items: list[Item], free: Polygon,
     tries: list[dict[str, Item]] = []
     if len(have) >= 2:
         for i in range(len(have) - 1):
-            tries.append({r: by_role[r] for r in have[i:i + 2]})
+            _pair = {r: by_role[r] for r in have[i:i + 2]}
+            # не более ОДНОГО комода в зоне (Codex 21.08: «комод 2» — альтернатива, не вторая единица)
+            if sum(1 for r in _pair if r.split(' ')[0] == 'комод') > 1:
+                continue
+            tries.append(_pair)
     tries += [{r: by_role[r]} for r in have]         # одиночные — последним шансом
     # L5 (large-room): узкая полоса за спинкой (машина R: passage_plus_shallow_storage)
     # предпочитает НЕГЛУБОКОЕ хранение — глубже 40 см туда не ставим
@@ -2010,15 +2071,38 @@ def place_storage(room: Room, items: list[Item], free: Polygon,
                             # высокая мебель у стены — требование монтажа, а не геометрии
                             _p.installation_requirement = 'wall_anchor'
                     return ps
+        # КОМОД — ВНЕ КОНУСА ВЗГЛЯДА ДИВАНА (правило владельца 21.08, Codex: фильтр ДО
+        # _best_block, иначе кандидаты-зомби; легального места нет → комод unused)
+        _has_dresser = any(k.split(' ')[0] == 'комод' for k in br)
+        _cone = _sofa_view_cone(room, _seat_fx) if (_has_dresser and _seat_fx is not None) else None
+
+        def _cone_ok(c) -> bool:
+            if _cone is None:
+                return True
+            _wps = b.to_world(c.placement.x, c.placement.y, c.placement.rot)
+            _cfgD = (_zone_rules_zn().get('group_scheme') or {}).get('dresser_out_of_sofa_view') or {}
+            _capD = float(_cfgD.get('max_footprint_overlap_pct', 5)) / 100.0
+            for _wp in _wps:
+                if _wp.role.split(' ')[0] != 'комод':
+                    continue
+                _fpD = footprint(_wp)
+                if _fpD.intersection(_cone).area > _fpD.area * _capD:
+                    return False
+            return True
         for _avoid in ((True, False) if _busy else (False,)):
             cands = wall_candidates(room, b.anchor, free)
             if _avoid:                    # сперва ищем СВОБОДНУЮ стену
                 cands = [c for c in cands if _wall_of(room, c.placement) not in _busy]
+            cands = [c for c in cands if _cone_ok(c)]
             ps = _best_block(room, b, free, cands, tv=None, fixed=fixed)
             if ps is not None:
                 return ps
+    if any(r.split(' ')[0] == 'комод' for r in have) and _seat_fx is not None:
+        STORAGE_DIAG['dresser_reject'] = 'outside_primary_view_infeasible'
     return None
 
+
+STORAGE_DIAG: dict = {}   # правило комода 21.08: причина отказа
 
 _TALL_ANCHOR_H_CM = 150.0   # выше — крепление к стене обязательно (CPSC Anchor It: опрокидывание)
 
@@ -2672,7 +2756,9 @@ def build_media_installation(by_role: dict[str, Item], wall_len_cm: float,
     if bearer is None:
         return None
     gap = float(params.get('gap_cm', 40))
-    roles = list(params.get('companion_roles', ['витрина', 'стеллаж', 'комод']))
+    # дефолт БЕЗ комода (владелец 21.08: рядом с ТВ — дисплей/витрина, комод нелегален
+    # в видимости дивана без исключений)
+    roles = list(params.get('companion_roles', ['витрина', 'стеллаж']))
     comps = [by_role[r] for r in roles if r in by_role][: int(params.get('max_companions', 2))]
     if not comps:
         return None
@@ -3024,12 +3110,17 @@ def _bay_candidates(room: Room, item: Item, free: Polygon, back_d_cm: float | No
 
 
 def _axis_off(ps: list[Placement], seat: Placement | None) -> float:
-    """Насколько носитель ТВ смещён с оси взгляда дивана (см). Меньше — лучше."""
+    """Насколько носитель ТВ смещён с оси взгляда дивана (см). Меньше — лучше.
+    Ось — от `seat_axis_origin` (у Г-дивана это центр ГЛАВНОЙ секции, как во всём движке):
+    расчёт от центра placement давал угловым систематическую ошибку ~section/2 — после
+    corner-фикса 21.08 (угловых стало много) медиана оси носителя уехала до 19 см."""
     if seat is None or not ps:
         return 0.0
+    from .geometry import seat_axis_origin as _sao
     bearer = next((p for p in ps if _base_role(p.role) in ('тв-тумба', 'стенка')), ps[0])
+    _ox, _oy = _sao(seat)
     r = math.radians(seat.rot)
-    vx, vy = bearer.x - seat.x, bearer.y - seat.y
+    vx, vy = bearer.x - _ox, bearer.y - _oy
     return abs(math.cos(r) * vx - math.sin(r) * vy)      # поперечное смещение от оси
 
 

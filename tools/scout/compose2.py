@@ -842,6 +842,14 @@ for bi,band in enumerate(COMP['bands']):
                 if not overlap_ok(emb_key(it['mid'],it['eid']),style_name,chosen,role='ковёр',tier=tier): continue
                 rw=max(it.get('w') or 0, it.get('d') or 0) or None  # длинная сторона ковра
                 _too_big = bool(_rug_cap and rw and rw>_rug_cap)
+                _msr=((OCC or {}).get('rug_rules',{}) or {}).get('main_seating_rug_min',{}) \
+                    or (OCC or {}).get('dynamic',{}).get('rug_rules',{}).get('main_seating_rug_min',{})
+                _rshort=min(it.get('w') or 0, it.get('d') or 0)
+                _rlong=max(it.get('w') or 0, it.get('d') or 0)
+                if _rshort and _rshort < float(_msr.get('short_min_cm', 140)):
+                    continue        # короткая сторона не держит зону (аудит 21.08)
+                if _rlong==_rshort and _rlong <= float(_msr.get('round_max_as_zone_cm', 200)):
+                    continue        # круглый коврик — не зонный ковёр (форма не решается)
                 if sofa_w and rw:
                     _ov=(OCC or {}).get('rug_rules',{}).get('verified_r2',{}).get('front_legs_scheme_side_overhang_each_cm',[25,35])
                     tgt=min(sofa_w+2*sum(_ov)/2, _rug_cap or 1e9)  # диван + выступ, но в габарит комнаты
@@ -883,15 +891,17 @@ for bi,band in enumerate(COMP['bands']):
                         if not overlap_ok(emb_key(it2['mid'],it2['eid']),style_name,chosen,role='ковёр',tier=tier): continue
                         l2=max(it2.get('w') or 0, it2.get('d') or 0)
                         if _tl and _rlo<=l2/_tl<=_rhi: _cands.append((l2,it2))
-                    if _cands:
-                        best=max(_cands,key=lambda x:x[0])[1]; _scheme='table_only'
-                    else:
-                        print(f"  дыра каталога: ковра нет ни под диван (нужен от "
-                              f"{int(_work_w+30)} см — от РАБОЧЕЙ ширины), ни под столик "
-                              f"— сет без ковра",flush=True)
-                        best=None
-            if best is None and _best_any is not None:
-                best=_best_any      # в каталоге нет ковра под площадь — берём ближайший
+                    # АУДИТ ВЛАДЕЛЬЦА 21.08 + Codex: схема table_only НЕ исполняется солвером
+                    # (rug_scheme не доезжает, паспорта seating-формы нет) — по доктрине
+                    # ADR-0113 исполняемое без паспорта запрещено. 78 планов стелили
+                    # 180×120 «под столик» как обычный зонный ковёр. До появления паспорта
+                    # и реализации: либо front_legs, либо честная дыра состава.
+                    print(f"  дыра каталога: ковра нет под диван (нужен от "
+                          f"{int(_work_w+30)} см — от РАБОЧЕЙ ширины) — сет без ковра "
+                          f"(table_only отключена: нет паспорта/исполнителя)",flush=True)
+                    best=None
+            # фолбэк «ближайший неправильный» (_best_any) УДАЛЁН (Codex 21.08): именно он
+            # клал накидку 80×50 и прикроватные форматы в разговорную зону
             if best: chosen['ковёр']=dict(best,qty=1,rug_scheme=_scheme)
         # люстра: диаметр по метражу + металл капсулы
         _f=(OCC or {}).get('chandelier_size',{}).get('diameter_cm_formula','')
@@ -1006,7 +1016,9 @@ for bi,band in enumerate(COMP['bands']):
         # в сете нет ядра посадочной зоны — ковра и журнального столика. Экзамен
         # показал: добор комода 2/витрины/кресел 3-4 вытеснял ковёр (26 сцен) и
         # столик (17) — вещи, которые и делают зону зоной.
-        _CORE_ZONE=('столик','ковёр')
+        # ковёр исключён из ядра (аудит 21.08): без валидного SKU он — честная дыра
+        # состава (inventory_gap), а не повод замораживать обогащение; клей зоны — столик
+        _CORE_ZONE=('столик',)
         if not all(chosen.get(_c) for _c in _CORE_ZONE):
             _ENRICH=[]
         for _r,_q in _ENRICH:

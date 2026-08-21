@@ -99,7 +99,9 @@
   "CONSOLE_ROUTE_BLOCKED": "H0",
   "FIRE_REFLECTION_ON_TV": "S2",
   "CIRCULATION_MISSING": "H0",
-  "ANCHOR_SEMANTICS": "H1"
+  "ANCHOR_SEMANTICS": "H1",
+  "RUG_ZONE_UNDERSIZED": "H1",
+  "DRESSER_IN_SOFA_VIEW": "H1"
  },
  "_notes": {
   "SOFA_BLOCKS_SOFA": "W2 kb-rules-merge 10.08: пара диванов легальна лицом-к-лицу или Г-стыком торец-к-торцу; фронт в бок/спинку соседа — блокировка",

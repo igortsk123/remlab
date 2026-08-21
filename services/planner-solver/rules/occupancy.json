@@ -599,7 +599,21 @@
     ],
     "source": "https://kovroteka.com/blog/partnerstvo/kak-ne-oshibitsya-s-masshtabom/"
    },
-   "wall_source": "https://www.tut-news.ru/dizayn-i-interer/pochemu-kovyor-v-gostinoy-dolzhen-byt-menshe-chem-kazhetsya-pravilo-30-santimetrov"
+   "wall_source": "https://www.tut-news.ru/dizayn-i-interer/pochemu-kovyor-v-gostinoy-dolzhen-byt-menshe-chem-kazhetsya-pravilo-30-santimetrov",
+   "main_seating_rug_min": {
+    "long_vs_sofa_work_w_plus_cm": 0,
+    "short_min_cm": 140,
+    "abs_min_cm": [
+     230,
+     150
+    ],
+    "round_max_as_zone_cm": 200,
+    "_why": "аудит владельца 21.08 (ковёр 80×50/180×120 в планах) + Codex: зонный ковёр разговорной группы — HARD-низ: long >= РАБОЧЕЙ ширины дивана (Codex 21.08: «не короче рабочей ширины, без допусков»); выступ +15–30 с каждой стороны — PREFERRED, не hard (иначе прямой диван 282 оставался без максимального ковра фида 300×200), короткая >= 140 (гипотеза; PB/WE минимум 5×8ft=152×244 для малой гостиной), абсолютный ориентир 230×150 (product hypothesis); круглые до Ø200 зонным ковром не считаем (форма не решается в солвере). Читают ОБА: compose2 (подбор) и planner (eligibility+RUG_ZONE_UNDERSIZED).",
+    "preferred_overhang_each_cm": [
+     15,
+     30
+    ]
+   }
   },
   "window_tv_glare": {
    "tv_screen_opposite_window": false,

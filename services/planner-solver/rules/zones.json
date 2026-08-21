@@ -416,6 +416,18 @@
    "route_after_console_required": true,
    "_source": "external:BHG what-is-a-sofa-table + H&G styling-the-back-of-the-sofa (A3; внедрение — после появления subtype-тегинга комодов)",
    "_status": "implemented_as: template.place_console_behind_sofa + validate.check_console_contract (Q6e 17.08); отдельной роли «консоль» в каталоге нет — это СПОСОБНОСТЬ узкого низкого корпуса (комод/тумба/стеллаж d≤40, Q6a shallow_storage_capable)"
+  },
+  "dresser_out_of_sofa_view": {
+   "half_angle_deg": 60,
+   "max_footprint_overlap_pct": 5,
+   "applies_to": [
+    "комод",
+    "комод 2"
+   ],
+   "exempt": "console_behind_sofa (за спиной, отдельный контракт); media-исключение СНЯТО решением владельца 21.08 — компаньоны носителя только витрина/стеллаж",
+   "fallback": "легального места нет → комод unused (outside_primary_view_infeasible), деградация «в видимости» запрещена",
+   "provenance": "owner_product_doctrine 2026-08-21 + Codex (конус от seat_axis_origin по facing_vector дивана, НЕ на ТВ; H&G visual clutter — поддержка направления, не запрет)",
+   "_why": "комод — утилитарное хранение: не в основном конусе взгляда с главного дивана"
   }
  },
  "zones": {

@@ -88,3 +88,85 @@ def test_console_short_is_tagged_degraded():
         assert ps, f'консоль {w} не встала: {T.CONSOLE_DIAG}'
         v = ps[0].tpl_variant
         assert v.endswith('+short') == short, f'w={w}: variant={v}'
+
+
+def test_rug_zone_eligibility_and_guard():
+    """Аудит владельца 21.08 («ковёр 80×50 — такого канона нет»): недомерок выкидывается
+    из сборки ДО блока (клей зоны — столик), а сторож RUG_ZONE_UNDERSIZED ловит обходные пути."""
+    from planner.validate import Severity, validate
+    sofa = Item(role='диван', w_cm=220, d_cm=95, h_cm=85)
+    ok_rug, why = T._rug_zone_eligible(Item(role='ковёр', w_cm=290, d_cm=200, h_cm=1), sofa)
+    assert ok_rug, why
+    for w, d in ((80, 50), (180, 120), (120, 120)):
+        bad, why = T._rug_zone_eligible(Item(role='ковёр', w_cm=w, d_cm=d, h_cm=1), sofa)
+        assert not bad, f'{w}x{d} прошёл как зонный'
+    # build_block: недомерок уходит в ничто, блок собирается со столиком-клеем
+    by = {'диван': sofa, 'столик': Item(role='столик', w_cm=110, d_cm=60, h_cm=45),
+          'ковёр': Item(role='ковёр', w_cm=80, d_cm=50, h_cm=1)}
+    b = T.build_block('sofa_solo', by, variant='default')
+    assert b is not None
+    assert all(it.role != 'ковёр' for it, *_ in b.rel), 'накидка 80×50 вошла в блок'
+    assert 'rug_ineligible' in T.RUG_DIAG
+    # сторож: ковёр-недомерок прямо в зоне (обходной путь) — HARD
+    room = Room(width_cm=560, depth_cm=430,
+                openings=[Opening(kind='door', wall='west', offset_cm=300,
+                                  width_cm=90, swing_cm=90)])
+    sp = Placement(role='диван', x=280, y=60, rot=0, item=sofa)
+    rp = Placement(role='ковёр', x=280, y=200, rot=0,
+                   item=Item(role='ковёр', w_cm=180, d_cm=120, h_cm=1))
+    codes = {v.code for v in validate(room, [sp, rp]).violations
+             if v.severity is Severity.HARD}
+    assert 'RUG_ZONE_UNDERSIZED' in codes
+    # соразмерный ковёр — чист
+    rp2 = Placement(role='ковёр', x=280, y=200, rot=0,
+                    item=Item(role='ковёр', w_cm=290, d_cm=200, h_cm=1))
+    codes2 = {v.code for v in validate(room, [sp, rp2]).violations
+              if v.severity is Severity.HARD}
+    assert 'RUG_ZONE_UNDERSIZED' not in codes2
+
+
+def test_dresser_out_of_sofa_view():
+    """Правило владельца 21.08: комод — только вне конуса взгляда дивана (±60°, >5% — HARD);
+    исключение — компаньон медиа-инсталляции; фильтр кандидатов не даёт видимых позиций."""
+    from planner.validate import Severity, validate
+    room = Room(width_cm=560, depth_cm=430,
+                openings=[Opening(kind='door', wall='west', offset_cm=300,
+                                  width_cm=90, swing_cm=90)])
+    sofa = Placement(role='диван', x=280, y=60, rot=0,
+                     item=Item(role='диван', w_cm=220, d_cm=95, h_cm=85))
+    dresser_front = Placement(role='комод', x=280, y=410, rot=180,
+                              item=Item(role='комод', w_cm=120, d_cm=40, h_cm=80))
+    codes = {v.code for v in validate(room, [sofa, dresser_front]).violations
+             if v.severity is Severity.HARD}
+    assert 'DRESSER_IN_SOFA_VIEW' in codes, 'комод прямо перед диваном не пойман'
+    # комод ЗА спиной дивана — легален
+    dresser_back = Placement(role='комод', x=100, y=20, rot=0,
+                             item=Item(role='комод', w_cm=120, d_cm=40, h_cm=80))
+    codes2 = {v.code for v in validate(room, [sofa, dresser_back]).violations
+              if v.severity is Severity.HARD}
+    assert 'DRESSER_IN_SOFA_VIEW' not in codes2
+    # медиа-исключение СНЯТО (владелец 21.08): комод у ТВ нелегален даже как компаньон
+    dresser_media = Placement(role='комод', x=430, y=410, rot=180,
+                              item=Item(role='комод', w_cm=120, d_cm=40, h_cm=80))
+    dresser_media.tpl_id = 'media'
+    dresser_media.tpl_variant = 'installation'
+    codes3 = {v.code for v in validate(room, [sofa, dresser_media]).violations
+              if v.severity is Severity.HARD}
+    assert 'DRESSER_IN_SOFA_VIEW' in codes3
+    # а витрина-компаньон («дисплей») — легальна: правило только про комод
+    vitr = Placement(role='витрина', x=430, y=410, rot=180,
+                     item=Item(role='витрина', w_cm=80, d_cm=40, h_cm=190))
+    vitr.tpl_id = 'media'; vitr.tpl_variant = 'installation'
+    codes3b = {v.code for v in validate(room, [sofa, vitr]).violations
+               if v.severity is Severity.HARD}
+    assert 'DRESSER_IN_SOFA_VIEW' not in codes3b
+    # place_storage: с диваном в fixed комод не получает видимых позиций (уходит в сторону/зад)
+    from planner.zones import usable_polygon
+    from planner.geometry import footprint as _fp
+    free = usable_polygon(room).difference(_fp(sofa))
+    ps = T.place_storage(room, [Item(role='комод', w_cm=120, d_cm=40, h_cm=80)],
+                         free, fixed=[sofa])
+    if ps:
+        codes4 = {v.code for v in validate(room, [sofa] + list(ps)).violations
+                  if v.severity is Severity.HARD}
+        assert 'DRESSER_IN_SOFA_VIEW' not in codes4, 'фильтр кандидатов пропустил видимую позицию'

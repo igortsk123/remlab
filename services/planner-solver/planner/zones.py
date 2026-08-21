@@ -583,6 +583,18 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
     _tplmod.LAST_SEATING_SEARCH = None   # V4-B2: трейс лестницы — per solve
     _needs_eff = scenario_needs(**{k: v for k, v in kw.items()
                                     if k in ('media_need', 'dining_need')})  # P0 свода №12
+    # ЗОННЫЙ КОВЁР — ELIGIBILITY НА ВХОДЕ (аудит владельца 21.08, перенос из build_block:
+    # фильтр на сборке рождал «самодельные составы» — ступень требовала ковёр по паспорту,
+    # а блок собирался без него). Непригодный SKU выкидываем ДО лестницы: ступени честно
+    # выбираются «без ковра», паспорт и факт совпадают; сторож RUG_ZONE_UNDERSIZED остаётся.
+    _sofa_it = next((i for i in items if i.role == 'диван'), None)
+    _rug_it = next((i for i in items if i.role.split(' ')[0] == 'ковёр'), None)
+    if _sofa_it is not None and _rug_it is not None:
+        _ok_r, _why_r = _tplmod._rug_zone_eligible(_rug_it, _sofa_it)
+        if not _ok_r:
+            _tplmod.RUG_DIAG.update({'rug_ineligible': _why_r,
+                                     'rug_wd': [_rug_it.w_cm, _rug_it.d_cm]})
+            items = [i for i in items if i.role.split(' ')[0] != 'ковёр']
     from . import validate as _valmodN
     _valmodN.MEDIA_NEED[0] = _needs_eff['media']
     _valmodN.MEDIA_BANK_HAS_CARRIER[0] = any(

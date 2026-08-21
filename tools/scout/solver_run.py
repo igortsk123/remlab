@@ -156,9 +156,13 @@ import re as _re
 # (диваны 285×95 помечались угловыми по имени, ковёр «центрировался» по несуществующему
 # плечу на +47 см). Г = глубина >150 ИЛИ (имя + глубина ≥140).
 _dv=(items.get('диван') or {})
-CORNER=bool(_dv) and (
-    ((_dv.get('d') or 0)>150)
-    or (bool(_re.search(r'углов',(_dv.get('name') or '').lower())) and (_dv.get('d') or 0)>=140))
+# УГЛОВОСТЬ: ИМЯ — первичный сигнал, глубина — вторичный (аудит 21.08: фид потерял d у
+# угловых («Угловой Босс ХЛ» 285×None → считался прямым, ковёр 300 выбрасывался eligibility),
+# а «Диван прямой Мисл» 163×160 из-за d>150 трактовался угловым и не вставал — LEVEL A)
+_dv_nm=(_dv.get('name') or '').lower() if _dv else ''
+CORNER=bool(_dv) and not _re.search(r'прям', _dv_nm) and (
+    bool(_re.search(r'углов', _dv_nm))
+    or ((_dv.get('d') or 0)>150))
 room=Polygon([(0,0),(RW,0),(RW,RD),(0,RD)])
 # Дверь (юг) и окно (восток) — ВАРИАТИВНЫЕ от номера сета (А5, аудит 06.08): раньше проёмы были
 # одни на все сеты, и «логичность» тестировалась на нереальной комнате. Детерминированно
@@ -600,6 +604,9 @@ def attempt_beam():
         # уезжал на 58–59 см при вилке 33–47, и 41 сет падал (перегон 2026-08-07)
         rw = float(src.get('w') or src.get('dia') or w)
         rd = float(src.get('d') or src.get('dia') or d)
+        if role == 'диван' and CORNER and not src.get('d'):
+            # фид потерял глубину углового (21.08): честный минимум Г-габарита, не типовая 95
+            rd = max(rd, 150.0)
         its.append(_It(role=role, w_cm=rw, d_cm=rd, h_cm=(src.get('h') or None),
                        name=(src.get('name') or None),
                        # Q6a/Q6b: способности SKU (`caps_used` из capabilities-index через compose2) —
@@ -702,7 +709,8 @@ def attempt_beam():
     # поставлен каждый предмет — в артефакт, отчёт и галерею
     global TPL_BY_ROLE, DINING_DIAG, VIEW_DIST
     # Q10b: в экспорт идёт и ФОРМА схемы (variant) — паспорт снимает инварианты именно по форме
-    TPL_BY_ROLE = {p.role: (p.tpl_id, p.tpl_version, getattr(p, 'tpl_variant', '') or None)
+    TPL_BY_ROLE = {p.role: (p.tpl_id, p.tpl_version, getattr(p, 'tpl_variant', '') or None,
+                            getattr(p, 'cand_topology', '') or None)
                    for p in lay.placements}
     # пакет B свода №8: диагноз выбора dining (mode/island_feasible/why) — в артефакт
     DINING_DIAG = (lay.meta or {}).get('dining')
@@ -906,7 +914,8 @@ _room_ops=(json.loads(_ops_env) if (_ops_env and json.loads(_ops_env)) else [
     {'kind':'window','wall':'east','offset_cm':WIN_OFF,'width_cm':WIN_W,'sill_cm':80}])
 # контур комнаты — в артефакт: план обязан рисовать НАСТОЯЩИЕ стены, а не bbox
 # (замечание владельца 12.08: «диван заходит за границы комнаты» — это врал чертёж)
-out['_templates']={r:{'id':t,'version':v,'variant':(x[0] if x else None)}
+out['_templates']={r:{'id':t,'version':v,'variant':(x[0] if x else None),
+                      'cand_topology':(x[1] if len(x)>1 else None)}
                    for r,(t,v,*x) in (globals().get('TPL_BY_ROLE') or {}).items()}
 out['_dining']=globals().get('DINING_DIAG')   # объяснимость dining (свод №8 пакет B)
 out['_axes']=globals().get('QUALITY_AXES')    # пакет G: новые оси — только замер, без порогов
