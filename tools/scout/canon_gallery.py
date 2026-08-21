@@ -759,7 +759,8 @@ def main() -> None:
             p = passport(c['zone'], c.get('passport_id') or c['id'])
             meta = ''.join(f"<div><b>{k}:</b> {html.escape(str(p[k]))}</div>"
                            for k in ('when', 'why', 'status') if p.get(k))
-            cards.append(f"<section class='sleep'><h2>{html.escape(c['title'])} "
+            cards.append(f"<section class='sleep'><h2><span class='num'>#{len(cards) + 1}</span> "
+                         f"{html.escape(c['title'])} "
                          f"<small>{html.escape(name)}</small></h2>"
                          f"<p class='none'>схема объявлена в паспорте, но НЕ реализована — "
                          f"рисовать нечего</p><div class='meta'>{meta}</div></section>")
@@ -794,12 +795,14 @@ def main() -> None:
         p = passport(c['zone'], c['id'])
         meta = ''.join(f"<div><b>{k}:</b> {html.escape(str(p[k]))}</div>"
                        for k in ('when', 'why', 'status') if p.get(k))
-        cards.append(f"<section><h2>{html.escape(c['title'])} <small>{html.escape(name)}</small></h2>"
+        cards.append(f"<section><h2><span class='num'>#{len(cards) + 1}</span> "
+                     f"{html.escape(c['title'])} <small>{html.escape(name)}</small></h2>"
                      f"{img}<div class='meta'>{meta or '<i>паспорт не найден</i>'}</div></section>")
     style = ("body{margin:0;background:#fff;color:#1A1F1C;font:17px/1.5 system-ui}"
              ".wrap{max-width:1050px;margin:0 auto;padding:20px 14px 60px}h1{font-size:23px}"
              "section{border-top:1px solid #E4E6E2;padding:18px 0}h2{font-size:19px;margin:0 0 10px}"
              "h2 small{color:#5C655E;font-weight:400;font-size:14px}"
+             "h2 .num{color:#3B76A2;font-weight:600}"
              "img{max-width:100%;border:1px solid #ECEEEA;border-radius:4px}"
              ".meta{font-size:15px;color:#3A423C;margin-top:8px}.meta div{margin:3px 0}"
              ".none{color:#a33}.head{margin:10px 0;padding:10px 12px;border-left:3px solid #3B76A2;"

@@ -1997,3 +1997,91 @@ acceptance_run/render_plan/smoke_manifest, /test/templates, /test/acceptance-pla
 `services/planner-solver/planner/zones.py` (локальный приор-тайбрейк вместо суммы), `services/planner-solver/rules/templates.json` (anchor/form у
 каждой схемы), `tools/scout/rules/practice_priors.json`, галерея канонов и её гейты;
 план `plans/q12-situational-canon.md`; `core/layout.md`, `source-of-truth.md`, `anti-patterns.md`.
+
+## ADR-0113 — Библиотека канонов: карточка = (группа, форма), зеркала слиты, паспорт обязателен для исполняемой схемы (2026-08-19)
+
+**Контекст.** Аудит библиотеки канонов вместе с Codex
+(`_intake/codex-prompts/q12-canon-audit.answer.md`) вскрыл три структурных дефекта: галерея писала
+ДВЕ карточки под одним id `seating.default` (разные группы затирали файл друг друга); три схемы
+исполнялись боевым кодом БЕЗ паспорта (`sofa_facing_sofa`, `console_behind_sofa`, `media_wall`);
+зеркальные варианты одной композиции жили как отдельные «каноны» (`tandem_r/l`, `L_left/right`,
+`square/square_r`), раздувая реестр без смысловой разницы.
+
+**Решение (владелец 19.08 «согласен, делай»).**
+- **Единица учёта — ПАРА (группа, форма)**, не id схемы: имя карточки галереи `<зона>.<форма>`
+  (`tools/scout/canon_gallery.py`), гейт `test_group_shape_pairs_are_covered`
+  (`services/planner-solver/tests/test_passport_situational.py`); формы из `zones.json`
+  покрываются id схемы ИЛИ её `runtime_variants`.
+- **Зеркала — один канон:** `side_pair` ← `tandem_r/l`, `two_sofa_l_joint` ← `default/L_right`,
+  `three_sided_conversation` ← `square/square_r`; медиа-слияния
+  `freestanding_media_storage_run` ← `media_installation` + `media_storage_combo`,
+  `media_mirror` внутрь `media_centered`. Старые имена остаются в коде как `runtime_variants` —
+  переименование не ломает боевые ветки.
+- **Переименования по смыслу:** `floating_pair` → `floating_sofa_opposite_media`,
+  `facing` → `armchair_pair_opposite_sofa`, `bulky` → `deep_armchairs_opposite`,
+  `quiet_chat` → `paired_conversation`.
+- **Общий `seating.default` РАСЩЕПЛЁН по группам** на 7 канонов: `armchair_pair_vis_a_vis`,
+  `sofa_single_flank`, `sofa_pair_sides`, `sectional_solo`, `sofa_pouf_group`, `sofa_lamp_group`,
+  `sofa_solo_group` — «дефолт» не был ситуацией и прятал разные композиции под одним именем.
+- **Статус `situational_fallback` + `requires_certificate`** у схем, которые НЕ каноны, а запасные
+  исходы: `side_pair`, `deep_armchairs_opposite`, `bridge`, `media_corner`, `media_at_jamb`. Норма
+  (Codex, источники): `tandem` — не канон узкой комнаты, а «пара кресел плечом к плечу на одном
+  фланге», законный только после сертификата недостижимости `pair_sides/u/facing`.
+- **Исполняемая схема без паспорта запрещена:** три безпаспортные заведены, `dining_edge_nook`
+  снят с устаревшего статуса `unwired`, `fireplace_solo.solo` помечена алиасом.
+- **Все схемы приведены к ADR-0112:** у каждой есть `anchor` + `form`; реестр типов якорей —
+  `templates.anchor_registry` (window | bay | corner | wall_segment | opening | free_region |
+  zone_boundary | object | runtime), гейт — `test_passport_situational.py`.
+
+**Новые каноны (код + паспорт + карточка):** `reading.window_pair` и `reading.bay_pair`
+(`template.build_reading_pair` — пара кресел с общей поверхностью; у окна пробуется ПЕРЕД
+одиночным, при неудаче честный откат), `decor.window_plant` (кандидаты сбоку от проёма, мимо
+радиатора), `reading.wall_vignette` — легализованный скрытый fallback «кресло у стены полным
+комплектом».
+
+**Состояние.** Паспорт — 12 зон / 59 схем, библиотека `/test/canons/` — 64 карточки, покрытие
+паспорта полное; спящих осталось 4 (`tv_over_fireplace`, `media_builtin`, `dining_foldable`,
+`storage_zone_divider`) — блокеры данных каталога и вертикальной инженерии (пакеты Q12-5…7).
+
+**Влияет на:** `services/planner-solver/rules/templates.json`, `services/planner-solver/planner/template.py`,
+`tools/scout/canon_gallery.py`, гейты `services/planner-solver/tests/test_passport_situational.py`. Отложено к решению
+владельца: перевод в fallback ещё части схем и новые каноны `dining.window_table`,
+`seating.open_center` (список — в `_intake/codex-prompts/q12-canon-audit.answer.md`).
+
+## ADR-0114 — Нормы 19–20.08: ориентация у окна, отражение огня в ТВ, эргономика столика и торшера, отступ спинки (2026-08-20)
+
+**Ориентация кресла у окна (Codex + источники, `q11-window-chair-orientation.answer.md`).** Кресло
+для ЧТЕНИЯ ставят спиной или боком к окну (эксперимент NTNU, 29 участников); лицом в окно — это
+сценарий «вид/кофе», яркий проём в поле зрения даёт дискомфортный контраст (IES). **Нормативного
+угла диагонали НЕТ** — ±30° остаётся гипотезой. Наша осевая постановка верна, базу не меняем.
+
+**Камин и ТВ.** Замечание владельца «огонь отвлекает» подтвердилось лишь частично: опасна
+композиция КАМИН НАПРОТИВ ТВ (отражение пламени в экране), а side-by-side на одной стене —
+как раз рекомендуемая. Заведено мягкое правило `FIRE_REFLECTION_ON_TV` (S2,
+`planner/validate.py:check_fire_reflection_on_tv`), провенанс — в паспорте
+`media.fireplace_side_by_side`.
+
+**Эргономика (проверка по замечаниям владельца, источники Kouboo/Wayfair/Eureka, BenQ).**
+Приставной столик у кресла: зазор 5–10 см, поверхность на уровне подлокотника ±5 см, у ПЕРЕДНЕЙ
+половины подлокотника. Торшер для чтения: за плечом, 46–90 см от центра посадки, низ абажура
+107–120 см (уровень глаз сидящего). Числа — в `rules/occupancy.json → dynamic.extras.{side_table,
+floor_lamp}` с провенансом; геометрия `template.build_reading` приведена к нормам.
+
+**Постановка у окна.** Отступ спинки поднят с 8 см до нижней границы «воздуха» 15 см (наша же
+`back_gap_policy`): 8 см читались как «вплотную», штора не помещалась. Блок ЦЕНТРИРУЕТСЯ по
+проёму, а не по якорю (пара кресел уезжала вбок); то же для эркера (`block_ref` в
+`_bay_candidates`).
+
+**Подписи.** У дивана/кресла/банкетки подпись содержит отношение к ЯКОРЮ — «лицом в комнату
+(спинкой к окну)» / «лицом к окну» / «боком к окну», считается по нормали оконной стены (по
+вектору на центр проёма смещённая вдоль стены пара подписывалась «боком»).
+
+**Одно число — один источник.** Устранены дубли: заход ковра 25 см (`occupancy.dynamic.rug_rules`)
+вместо 15 в templates; зазор торшера 15 см из правил вместо «+12» в коде; порог радиатора помечен
+зеркалом. Сторож — `services/planner-solver/tests/test_rules_no_dup.py`. Правило
+`RUG_ORIENTATION` уточнено: у ТРЁХСТОРОННЕЙ группы (посадочные смотрят в ≥3 направления) ковёр
+кладётся по внутреннему контуру зоны, правило оси не применяется.
+
+**Влияет на:** `services/planner-solver/rules/occupancy.json`, `services/planner-solver/rules/templates.json`, `services/planner-solver/planner/template.py`,
+`services/planner-solver/planner/validate.py`, подписи рендера. Источник — `source: external:web` (NTNU, IES, Kouboo,
+Wayfair, Eureka, BenQ) + разборы Codex в `_intake/codex-prompts/`.

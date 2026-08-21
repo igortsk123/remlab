@@ -2,9 +2,9 @@
 workstream: catalog
 slug: catalog-freshness-chain
 title: К7 — цепочка свежести: фид → база → обогащение → комплекты
-status: in_progress
+status: partial
 created: 2026-08-05
-updated: 2026-08-06
+updated: 2026-08-21
 completed:
 ---
 
@@ -64,3 +64,4 @@ completed:
   vision-обогащение дельты с автозабором, candidates/sets_incremental), e2e зелёный.
   ОСТАЛОСЬ из скоупа: п.3 «замена выбывших из alternates» (`sets_incremental --heal`) и
   п.4 страница `/test/health.html` для владельца. План остаётся in_progress ради этих двух.
+- 2026-08-21 — **пауза → `partial`** (аудит PLAN-STUCK): движения с 06.08 нет, остаток прежний — п.3 замена выбывших из alternates (`sets_incremental --heal`) и п.4 `/test/health.html`. Причина — фокус на каноны расстановки ([[q12-situational-canon]]).
