@@ -121,7 +121,7 @@ def back_gap_context(room: Room, ps: list[Placement]) -> dict | None:
             if p is sofa or base_role(p.role) == 'ковёр':
                 continue
             if getattr(p, 'tpl_id', '') not in FUNCTIONAL_ZONES \
-                    and getattr(p, 'tpl_variant', '') != 'console_behind_sofa' \
+                    and not str(getattr(p, 'tpl_variant', '')).startswith('console_behind_sofa') \
                     and base_role(p.role) not in FUNCTIONAL_ROLES:
                 continue
             if footprint(p).intersection(strip).area / area >= MIN_STRIP_COVER:

@@ -850,7 +850,9 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
         # минимальную схему «диван соло», а если и она не встала — сцена честно
         # остаётся без раскладки и попадает в список «нужен новый шаблон».
         from .template import place_template as _pt
-        block = _pt(room, 'compact_sectional', keep, usable_polygon(room))
+        # ярлык честный: «диван соло» и есть sofa_solo (Codex 21.08, аудит Юли №14–16;
+        # раньше фолбэк шёл через compact_sectional и рисовал «секционал» прямым диваном)
+        block = _pt(room, 'sofa_solo', keep, usable_polygon(room))
         _min_used = bool(block)
         if not block:
             from .validate import validate as _val0
@@ -1108,6 +1110,18 @@ def _solve_zoned_core(room: Room, items, _ladder_skip: int = 0, **kw):
                     block = block + _extra
                     _refine_mod.LOCKED |= roles3
                     tpl_tag += '+tvw'
+            if not _extra:
+                # TV_OVER_FIREPLACE — ПОСЛЕДНИЙ РЕЗЕРВ (21.08, аудит Юли №35 + решение
+                # владельца; паспорт media.tv_over_fireplace): носитель не встал НИГДЕ
+                # даже с вейвером, а камин уже стоит — экран переезжает НАД камин.
+                # Тумба в этой схеме не нужна (честно в «не использовано»); экран —
+                # служебная часть шаблона (§14), пола не занимает: placement не
+                # добавляем, камин помечается носителем, тег зоны — явный +tvof.
+                _fp3 = next((p for p in block if p.role.split(' ')[0] == 'камин'
+                             and p.item is not None), None)
+                if _fp3 is not None and not getattr(_fp3, 'tpl_variant', ''):
+                    _fp3.tpl_variant = 'tv_over_fireplace'
+                    tpl_tag += '+tvof'
                 else:
                     from . import validate as _valmodB
                     _valmodB.SCREEN_WINDOW_WAIVED[0] = False

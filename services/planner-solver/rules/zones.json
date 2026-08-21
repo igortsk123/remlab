@@ -402,6 +402,8 @@
   "console": {
    "subtype_of": "комод",
    "max_d_cm": 40,
+   "length_vs_sofa_preferred_min": 0.67,
+   "_preferred_why": "канон H&G — консоль ≥2/3 длины дивана; 0.5–0.67 — ЯВНО деградированный вариант (+short), не тихая норма (аудит Юли №46 / Codex 21.08)",
    "placement_modes": [
     "behind_floating_sofa",
     "wall_console"

@@ -456,7 +456,7 @@
      "order": 2,
      "when": "на стене два окна с простенком ≥ W_media",
      "why": "экран между двух окон обрамлён светом, а не засвечен (coohom, свод §4)",
-     "status": "implemented_as: template._window_candidates (тумба; стенке нельзя)",
+     "status": "implemented_as: template._between_windows_candidates (тумба; стенке нельзя). До 21.08 паспорт ссылался на _window_candidates, который центрирует ПО ОКНУ (схема «перед окном») — «между окон» не имела реализации (прод-дыра, аудит Юли №41/Codex)",
      "allowed_soft": [
       "TV_ON_WINDOW_WALL"
      ],
@@ -470,19 +470,30 @@
      "order": 8,
      "when": "камин и носитель ТВ на одной стене",
      "why": "камин + ТВ рядом (не ТВ над камином): общий якорь стены, оба видимы с посадки; практика 27% каминов при 35% ТВ | 20.08 (замечание владельца «огонь будет отвлекать» + источники): мерцание камина действительно конкурирует с экраном, но опасна композиция «камин НАПРОТИВ ТВ» — там пламя отражается в картинке. Side-by-side на одной стене — как раз рекомендуемая раскладка: огонь в поле зрения, но не в отражении. Отражение ловит правило FIRE_REFLECTION_ON_TV (S2)",
-     "status": "implemented_as: template.build_media_fireplace / place_media_fireplace",
+     "status": "implemented_as: template.build_media_fireplace / place_media_fireplace (первая ступень каскада side_by_side → adjacent_walls → tv_over; одна стена — НЕ обязаловка, 21.08)",
      "anchor": "wall_segment",
      "form": "side_by_side",
      "_provenance_glare": "external: Livingetc (TV over fireplace debate), Belleze/Direct Fireplaces (раскладки ТВ+камин), 20.08.2026"
     },
     {
      "id": "tv_over_fireplace",
-     "order": 99,
-     "when": "—",
-     "why": "ТВ НАД камином: нет вертикальной модели (высота экрана/топки, тепловые зазоры), и канон спорный — источники относят к устаревающим решениям",
-     "status": "sleeping: нужна вертикальная модель высот и тепловых зазоров",
+     "order": 10,
+     "when": "в сете есть и камин, и носитель ТВ, но носителю не нашлось места нигде (даже relaxed/вейвер): экран переезжает НАД камин, отдельная тумба не ставится — решение владельца 21.08 (аудит Юли №35)",
+     "why": "камин становится носителем экрана; экран — служебная часть шаблона (свод №8 v2 §14), пола не занимает. Классическая оговорка остаётся в силе: желательны низкая топка/закрытый очаг и наклонный кронштейн (высота экрана выше эргономичной)",
+     "status": "implemented_as: zones (+tvof: камин помечается tpl_variant=tv_over_fireplace после провала обоих relaxed-ретраев носителя); карточка — canon_gallery (экран-оверлей по clamp доли ширины камина, tv.py)",
      "anchor": "object:fireplace",
-     "form": "above"
+     "form": "above",
+     "_provenance": "external: Houzz 7-ways-tv-fireplace, Homes&Gardens tv-less-dominant, 21.08.2026"
+    },
+    {
+     "id": "fireplace_tv_adjacent_walls",
+     "order": 9,
+     "when": "камин и носитель ТВ на СМЕЖНЫХ (перпендикулярных) стенах: side-by-side на одну стену не встал, посадка видит оба фокуса в угле обзора ≤60°",
+     "why": "оба фокуса видимы без выворачивания корпуса, огонь не отражается в экране (в отличие от «напротив»); вторая ступень каскада side_by_side → adjacent → tv_over (решение владельца 21.08, аудит Юли №35)",
+     "status": "implemented_as: template.place_media_fireplace (носитель полной медиа-логикой, камин на перпендикулярной стене в угле обзора)",
+     "anchor": "wall_segment",
+     "form": "adjacent_walls",
+     "_provenance": "external: Houzz 7-ways-tv-fireplace, Homes&Gardens tv-layout-tricks, 21.08.2026"
     },
     {
      "id": "media_builtin",

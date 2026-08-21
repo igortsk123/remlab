@@ -46,6 +46,10 @@ CAT = {
     'камин': I('камин', 120, 40, 100), 'комод': I('комод', 120, 40, 80),
     'стеллаж': I('стеллаж', 80, 35, 190), 'витрина': I('витрина', 80, 40, 190),
     'стол обеденный': I('стол обеденный', 140, 80, 75),
+    # «консоль» — НЕ новая роль каталога, а способность узкого низкого комода
+    # (group_scheme.console: d≤40, h≤спинки, длина ≥2/3 дивана — аудит Юли №46/Codex:
+    # прежний комод 120×40×80 при диване 220 давал 55% длины и читался чужим)
+    'консоль': I('комод', 150, 35, 75),
     'стул': I('стул', 45, 52, 90), 'стул 2': I('стул 2', 45, 52, 90),
     'стул 3': I('стул 3', 45, 52, 90), 'стул 4': I('стул 4', 45, 52, 90),
     'банкетка': I('банкетка', 130, 42, 46, caps={'guaranteed_seats': 2, 'dining_seat_capable': True,
@@ -58,15 +62,28 @@ BAY_RECT = (120.0, 300.0, 320.0, 420.0)     # ниша эркера в room_of('
 
 
 def room_of(kind: str) -> Room:
-    """Мини-сцена под якорь канона."""
+    """Мини-сцена под якорь канона. Суффикс `_de` — та же комната, но дверь на ВОСТОЧНОЙ
+    стене: зеркальные формы показываются в той дверной ситуации, где они уместны
+    (аудит Юли №6/№18/№52 — вторая посадка не должна вставать спинками ко входу)."""
     door = Opening(kind='door', wall='west', offset_cm=40, width_cm=90, swing_cm=90)
     win = Opening(kind='window', wall='north', offset_cm=140, width_cm=160, sill_cm=80)
+    if kind.endswith('_de'):
+        kind = kind[:-3]
+        if kind == 'plain':
+            return Room(width_cm=560, depth_cm=430, openings=[
+                Opening(kind='door', wall='east', offset_cm=300, width_cm=90, swing_cm=90)])
+        if kind == 'big':
+            return Room(width_cm=620, depth_cm=560, openings=[
+                Opening(kind='door', wall='east', offset_cm=430, width_cm=90, swing_cm=90)])
     if kind == 'window':
         return Room(width_cm=440, depth_cm=420, openings=[door, win])
     if kind == 'plain':
         # 560×430: широкие формы посадки (медиа-параллель, мостик) помещаются целиком, а дистанция
-        # диван↔ТВ остаётся в вилке просмотра — референс не должен уезжать в «просторную» сцену
-        return Room(width_cm=560, depth_cm=430, openings=[door])
+        # диван↔ТВ остаётся в вилке просмотра — референс не должен уезжать в «просторную» сцену.
+        # Дверь — у ДАЛЬНЕГО (северного) конца стены (аудит Юли №1/№3: проём вплотную к
+        # композиции у южной стены зажимал вход; в мини-сцене вход обязан быть свободным)
+        return Room(width_cm=560, depth_cm=430, openings=[
+            Opening(kind='door', wall='west', offset_cm=300, width_cm=90, swing_cm=90)])
     if kind == 'bay_wide':
         # широкий эркер (ниша 260×110): пара кресел помещается целиком; в узкой нише 200 см
         # пара честно не собирается — там канон одиночного кресла
@@ -82,13 +99,26 @@ def room_of(kind: str) -> Room:
     if kind == 'media':
         # 560×370: медиа-формы (кресло к экрану) нужен носитель в вилке просмотра 150–320 см —
         # в 430-глубокой комнате ТВ у дальней стены уезжает за 320 и контекст пропадал,
-        # а канон «кресло к ТВ» без ТВ нелегален по определению
+        # а канон «кресло к ТВ» без ТВ нелегален по определению. Дверь остаётся у южного
+        # конца: с дверью у северного торшер медиа-форм терял подход (UNREACHABLE)
         return Room(width_cm=560, depth_cm=370, openings=[door])
     if kind == 'window_rad':
         return Room(width_cm=440, depth_cm=420, openings=[door, win],
                     radiators=[Radiator(wall='north', offset_cm=140, width_cm=160, depth_cm=15)])
     if kind == 'big':
-        return Room(width_cm=620, depth_cm=560, openings=[door])
+        # дверь — у дальнего (северного) конца западной стены (№1/№3)
+        return Room(width_cm=620, depth_cm=560, openings=[
+            Opening(kind='door', wall='west', offset_cm=430, width_cm=90, swing_cm=90)])
+    if kind == 'chamfer':
+        # комната со СКОСАМИ всех углов (реальный случай: трапеции/скосы, set5-trapezoid):
+        # угловые кандидаты гибнут, и боевой place_reading честно доходит до «кресло у
+        # стены» — сцена для wall_vignette (аудит Юли №31: карточка была пиксельным
+        # дублем corner_vignette, потому что в пустом прямоугольнике угол всегда выигрывал)
+        _ch, _W, _D = 160.0, 560.0, 430.0
+        return Room(width_cm=560, depth_cm=430, openings=[
+            Opening(kind='door', wall='west', offset_cm=175, width_cm=90, swing_cm=90)],
+            contour=[[_ch, 0], [_W - _ch, 0], [_W, _ch], [_W, _D - _ch], [_W - _ch, _D],
+                     [_ch, _D], [0, _D - _ch], [0, _ch]])
     if kind == 'bay':
         return Room(width_cm=440, depth_cm=420, openings=[door, win],
                     contour=[[0, 0], [440, 0], [440, 300], [320, 300], [320, 420], [120, 420],
@@ -111,6 +141,12 @@ def artifact(room: Room, ps: list[Placement], ctx: list[str] | None = None) -> d
                        'w': p.item.w_cm if p.item else 50, 'd': p.item.d_cm if p.item else 50,
                        'h': (p.item.h_cm if p.item else 80),
                        'tpl_id': getattr(p, 'tpl_id', ''), 'tpl_variant': getattr(p, 'tpl_variant', '')}
+        if p.item is not None and getattr(p.item, 'corner', False):
+            # Г-диван: без этих полей рендер восстановит прямоугольник, и столик в вырезе
+            # будет читаться как наложение (аудит Юли №14, sectional)
+            out[p.role].update({'corner': True,
+                                'corner_section_cm': p.item.corner_section_cm,
+                                'corner_left': bool(getattr(p.item, 'corner_left', False))})
     return out
 
 
@@ -120,10 +156,42 @@ def _bbox(block, rot: float):
     return T.block_bbox(block, rot)
 
 
-def block_scene(kind: str, block, wall: str = 'north', rot: float | None = None, margin: float = 12.0):
+ROUTE_TARGET_CM = 91.0     # главный проход: NKBA 36" (Homes&Gardens; Q8 route_min=91)
+ROUTE_MIN_CM = 75.0        # продовый минимум качества маршрута (zones.py: quality_min)
+
+
+def _door_corridor(room):
+    """Входной коридор двери: проём + дуга + глоток маршрута вглубь комнаты. Блок,
+    зажимающий этот коридор ближе ROUTE_MIN, зажимает и главный маршрут (аудит Юли №1/№3:
+    «у двери должно быть пространство»; Codex 21.08 — мерить фактический проход, а не
+    дистанцию до проёма)."""
+    from shapely.geometry import box as _bx
+    door = next((o for o in room.openings if o.kind == 'door'), None)
+    if door is None:
+        return None
+    depth = float(getattr(door, 'swing_cm', 90) or 90) + 30.0
+    o, w = door.offset_cm, door.width_cm
+    W, D = room.width_cm, room.depth_cm
+    if door.wall == 'west':
+        return _bx(0, o, depth, o + w)
+    if door.wall == 'east':
+        return _bx(W - depth, o, W, o + w)
+    if door.wall == 'south':
+        return _bx(o, 0, o + w, depth)
+    return _bx(o, D - depth, o + w, D)
+
+
+def block_scene(kind: str, block, wall: str = 'north', rot: float | None = None,
+                margin: float = 12.0, center: str = 'bbox'):
     """Поставить канон ТАК, КАК ЭТО СТОИТ В РЕАЛЬНОСТИ (замечание владельца 19.08): спиной к
     стене (или в центре для острова), по центру стены, ЦЕЛИКОМ внутри комнаты и мимо дуги двери.
-    Референс не имеет права нарушать то, что мы требуем от рабочих планов."""
+    Референс не имеет права нарушать то, что мы требуем от рабочих планов.
+
+    21.08 (аудит Юли №1/№3): блок дополнительно уступает ДВЕРИ — из допустимых сдвигов вдоль
+    стены выбирается ближайший к центру, дающий зазор до входного коридора ≥91 см (цель) или
+    хотя бы ≥75 (минимум качества маршрута); раньше проверялась только дуга.
+    21.08 (№41/№57): `center='anchor'` — на ось стены центрируется ЯКОРЬ блока (носитель),
+    а не общий габарит: кашпо-спутник больше не стаскивает тумбу с оси простенка."""
     from planner.geometry import room_polygon, swing_polygon
     room = room_of(kind)
     if block is None:
@@ -143,25 +211,68 @@ def block_scene(kind: str, block, wall: str = 'north', rot: float | None = None,
         cx, cy = W - margin - bw / 2, D / 2
     else:
         cx, cy = W / 2, D / 2
+    if center == 'anchor':
+        # ось держит ЯКОРЬ: смещаем цель bbox так, чтобы на cx/cy лёг центр якоря
+        if wall in ('north', 'south', 'center'):
+            cx += ox
+        else:
+            cy += oy
     rp, sw = room_polygon(room), None
     try:
         sw = swing_polygon(room, next(o for o in room.openings if o.kind == 'door'))
     except Exception:
         sw = None
-    # сдвиг вдоль стены, если попали в дугу двери; проверяем полное вхождение в комнату
+    corr = _door_corridor(room)
+    # сдвиг вдоль стены: полное вхождение КАЖДОГО предмета (bbox блока недооценивает
+    # кресла под 45° — block_bbox не расширяет их диагональ), мимо дуги, и лучший
+    # достижимый зазор к коридору двери (ярус 91 → 75 → «хотя бы легально»);
+    # внутри яруса побеждает минимальный сдвиг (композиция остаётся у центра стены)
     from shapely.geometry import box as _bx
+    from shapely.ops import unary_union as _uu
     best = None
-    for shift in (0, 40, -40, 80, -80, 120, -120):
+    for shift in (0, 40, -40, 80, -80, 120, -120, 160, -160, 200, -200):
         tx, ty = (cx + shift, cy) if wall in ('north', 'south', 'center') else (cx, cy + shift)
-        rect = _bx(tx - bw / 2, ty - bd / 2, tx + bw / 2, ty + bd / 2)
-        if rp.contains(rect) and (sw is None or not rect.intersects(sw)):
-            best = (tx, ty); break
+        _ps_try = block.to_world(tx - ox, ty - oy, rot)
+        _fps = [footprint(p) for p in _ps_try]
+        _rp_in = rp.buffer(0.5)
+        if any(not _rp_in.contains(f) for f in _fps):   # строго, как validate OUT_OF_ROOM
+            continue
+        if sw is not None and any(f.intersects(sw) for p, f in zip(_ps_try, _fps)
+                                  if p.role.split(' ')[0] != 'ковёр'):
+            continue
+        _hull = _uu([f for p, f in zip(_ps_try, _fps) if p.role.split(' ')[0] != 'ковёр'])
+        _clear = _hull.distance(corr) if corr is not None else 1e9
+        _tier = 0 if _clear >= ROUTE_TARGET_CM else (1 if _clear >= ROUTE_MIN_CM else 2)
+        _key = (_tier, abs(shift))
+        if best is None or _key < best[0]:
+            best = (_key, (tx, ty))
     if best is None:
-        if kind != 'big':            # композиция шире мини-сцены — берём просторную комнату
-            return block_scene('big', block, wall=wall, rot=rot, margin=margin)
+        if kind not in ('big', 'big_de'):   # композиция шире мини-сцены — просторная комната
+            _big = 'big_de' if kind.endswith('_de') else 'big'
+            return block_scene(_big, block, wall=wall, rot=rot, margin=margin, center=center)
         return room, None            # честно: канон не помещается даже в просторной
-    tx, ty = best
+    tx, ty = best[1]
     return room, block.to_world(tx - ox, ty - oy, rot)
+
+
+def door_side_scene(kind: str, block, wall: str = 'south'):
+    """Сцена для ЗЕРКАЛЬНОЙ формы: из комнат «дверь запад / дверь восток» берётся та, где
+    вторичные посадки (кресла, второй диван) дальше от входного коридора — сторона зеркала
+    определяется маршрутом, а не жёстким правилом (аудит Юли №6/№18/№52; в бою то же
+    решают гипотезы зеркал + ярус главного маршрута, zones.py)."""
+    best = None
+    for k in (kind, kind + '_de'):
+        r, ps = block_scene(k, block, wall=wall)
+        if not ps:
+            continue
+        corr = _door_corridor(r)
+        sec = [p for p in ps if p.role in ('кресло', 'кресло 2', 'кресло 3', 'кресло 4',
+                                           'диван 2')]
+        d = min((footprint(p).distance(corr) for p in sec), default=0.0) \
+            if corr is not None else 0.0
+        if best is None or d > best[0]:
+            best = (d, r, ps)
+    return (best[1], best[2]) if best else (room_of(kind), None)
 
 
 def corner_scene(kind: str, block, corner: str = 'NW', rot: float = 135.0, margin: float = 10.0):
@@ -357,6 +468,22 @@ def canons() -> list[dict]:
                        ('sofa_pouf', 'default'), ('sofa_solo', 'default'),
                        ('sofa_pouf', 'pouf_table')):
         _kit = dict(seat_kit)
+        # СОСТАВ ПО ПАСПОРТУ ГРУППЫ (аудит Юли №14/15/16: карточки solo/pouf/sectional были
+        # неразличимы — один kit на все группы; zones.json roles.required): у solo нет
+        # спутников, у pouf пуф обязателен, у lamp свет вместо кресел, у пары кресел —
+        # паспортный ПРИСТАВНОЙ (решение владельца 21.08 по №13), sectional — УГЛОВОЙ
+        # диван (паспорт sofa_subtype «углов», признак Item.corner)
+        _GROUP_KIT = {
+            'sofa_solo': ('диван', 'столик', 'ковёр'),
+            'sofa_pouf': ('диван', 'пуф', 'столик', 'ковёр'),
+            'sofa_lamp': ('диван', 'торшер', 'столик', 'ковёр'),
+            'armchair_pair': ('кресло', 'кресло 2', 'приставной', 'ковёр'),
+        }
+        if gid in _GROUP_KIT:
+            _kit = by(*_GROUP_KIT[gid])
+        elif gid == 'compact_sectional':
+            _kit = {'диван': I('диван', 240, 160, 85, corner=True, corner_section_cm=90),
+                    'столик': CAT['столик'].model_copy(), 'ковёр': CAT['ковёр'].model_copy()}
         if shape == 'tandem_l':
             # зеркальный тандем сажает торшер в карман между диваном и креслами — к нему
             # не остаётся прохода 46 см (боевой UNREACHABLE). Торшер в этой схеме опционален,
@@ -370,8 +497,31 @@ def canons() -> list[dict]:
         b = T.build_block(gid, _kit, variant=shape)
         if b is not None:
             b.tpl_variant = shape      # форма должна быть на предметах: контракты судят по ней
-        r, ps = block_scene('media' if shape in ('media_parallel', 'media_bridge') else 'plain',
-                            b, wall='south')
+        _sk = 'media' if shape in ('media_parallel', 'media_bridge') else 'plain'
+        if shape in ('tandem_r', 'tandem_l'):
+            # зеркальный тандем — в дверной ситуации, где кресла на стороне ОТ входа
+            r, ps = door_side_scene(_sk, b, wall='south')
+        elif gid == 'compact_sectional' and b is not None:
+            # угловой диван живёт В УГЛУ (CORNER_SOFA_ADRIFT): блок прижимаем к юго-западному
+            # углу; зеркало Г-секции выбираем то, которое чек не считает «отбившимся»
+            r, ps = None, None
+            for _cl in (True, False):
+                b = T.build_block(gid, {**_kit, 'диван': I('диван', 240, 160, 85, corner=True,
+                                                          corner_section_cm=90, corner_left=_cl)},
+                                  variant=shape)
+                if b is None:
+                    continue
+                b.tpl_variant = shape
+                _rc2 = room_of('plain')
+                _bw2, _bd2, _ox2, _oy2 = _bbox(b, 0.0)
+                _try = b.to_world(14 + _bw2 / 2 - _ox2, 14 + _bd2 / 2 - _oy2, 0.0)
+                if check_render(_rc2, _try) or hard_violations(_rc2, _try) \
+                        or 'CORNER_SOFA_ADRIFT' in soft_violations(_rc2, _try):
+                    continue
+                r, ps = _rc2, _try
+                break
+        else:
+            r, ps = block_scene(_sk, b, wall='south')
         # ID карточки — (группа, форма): одна и та же форма `default` у РАЗНЫХ групп — это разные
         # композиции (диван+кресло, диван+торшер, два дивана визави). Раньше карточки писались в
         # один файл и затирали друг друга (находка аудита Codex 19.08)
@@ -379,7 +529,9 @@ def canons() -> list[dict]:
         out.append({'zone': 'seating', 'id': f'{gid}.{shape}',
                     'passport_id': (_GROUP_CANON.get(gid, shape) if shape == 'default'
                                     else PASSPORT_OF.get(shape) or shape),
-                    'title': f'посадка: {shape} ({gid})',
+                    'title': f'посадка: {shape} ({gid})' + (
+                        ' · сторона — по маршруту от двери'
+                        if shape in ('tandem_r', 'tandem_l') else ''),
                     'room': r, 'ps': ps})
     # у двух диванов без кресел вариант `square` геометрически совпадает с `default` (ветка
     # square расставляет только кресла) — честные имена карточек: Г-стык влево / вправо
@@ -388,9 +540,10 @@ def canons() -> list[dict]:
         b = T.build_block('sofa_loveseat', by('диван', 'диван 2', 'столик', 'ковёр'), variant=_var)
         if b is not None:
             b.tpl_variant = _cid
-        r, ps = block_scene('plain', b, wall='south')
+        # сцена — по двери (аудит Юли №18: второй диван вставал спинкой ко входу)
+        r, ps = door_side_scene('plain', b, wall='south')
         out.append({'zone': 'seating', 'id': _cid, 'passport_id': 'two_sofa_l_joint',
-                    'title': _ttl, 'room': r, 'ps': ps})
+                    'title': _ttl + ' · сторона — по маршруту от двери', 'room': r, 'ps': ps})
 
     # ---------- DINING
     for cid, kit, chairs, sides in (('dining_island', ('стол обеденный', 'стул', 'стул 2', 'стул 3', 'стул 4'), 4, 'all'),
@@ -448,12 +601,15 @@ def canons() -> list[dict]:
     ps = T.place_reading(_rb3, [CAT[r].model_copy() for r in _pair_roles], usable_polygon(_rb3))
     out.append({'zone': 'reading', 'id': 'bay_pair', 'title': 'чтение: пара кресел в эркере',
                 'room': _rb3, 'ps': ps})
-    # кресло у СТЕНЫ полным комплектом (бывший скрытый fallback без паспорта)
-    _rw3 = room_of('plain')
+    # кресло у СТЕНЫ полным комплектом (бывший скрытый fallback без паспорта).
+    # Сцена — комната со скосами: в пустом прямоугольнике боевой плейсер всегда берёт
+    # угол, и карточка выходила дублем corner_vignette (аудит Юли №31)
+    _rw3 = room_of('chamfer')
     ps = T.place_reading(_rw3, [CAT[r].model_copy() for r in ('кресло', 'торшер', 'приставной')],
                          usable_polygon(_rw3))
     out.append({'zone': 'reading', 'id': 'wall_vignette',
-                'title': 'чтение: кресло у стены (кресло + свет + столик)', 'room': _rw3, 'ps': ps})
+                'title': 'чтение: кресло у стены (углы комнаты со скосами — заняты)',
+                'room': _rw3, 'ps': ps})
     # растение У ОКНА (сбоку от проёма)
     r, ps = placer_scene('window', T.place_decor, ['кашпо'])
     out.append({'zone': 'decor', 'id': 'window_plant', 'title': 'декор: растение у окна',
@@ -500,7 +656,9 @@ def canons() -> list[dict]:
     # якорь схемы — ПРОСТЕНОК между двумя окнами (комната window2: проёмы 60–180 и 380–500,
     # простенок 180–380); носитель встаёт по его центру
     b = T.build_media(by('тв-тумба', 'кашпо'))
-    r, ps = block_scene('window2', b, wall='north')
+    # ЦЕНТР ПРОСТЕНКА держит ЯКОРЬ-тумба, кашпо в центрировании не участвует
+    # (аудит Юли №41: спутник в bbox стаскивал тумбу с оси)
+    r, ps = block_scene('window2', b, wall='north', center='anchor')
     out.append({'zone': 'media', 'id': 'media_between_windows', 'title': 'медиа: носитель между окон',
                 'room': r, 'ps': ps})
     b = T.build_storage(by('комод', 'стеллаж'), max_items=2)
@@ -527,21 +685,24 @@ def canons() -> list[dict]:
                 'room': _room_sh, 'ps': [_rg, _sf, _tb, _st]})
     # диван плавающий (в этом и смысл консоли), но полоса ЗА консолью обязана быть настоящим
     # маршрутом: при y=250 за консолью оставалось 90 см — ровно на кромке route_min=91 (Q8)
-    _sofa = Placement(role='диван', x=220, y=240, rot=180, item=CAT['диван']); _sofa.tpl_id = 'seating'
+    # x=310: дверь мини-сцены теперь у северного конца западной стены, и резерв входного
+    # коридора (зона `entry` солвера, ~треть ширины) накрывал прежнюю позицию x=220
+    _sofa = Placement(role='диван', x=310, y=240, rot=180, item=CAT['диван']); _sofa.tpl_id = 'seating'
     # у плавающего дивана есть свой столик — иначе эталон ловит SERVICE_SURFACE (и сцена
     # перестаёт быть похожей на жизнь: диван посреди комнаты без поверхности не бывает)
-    _tbl = Placement(role='столик', x=220, y=240 - (95 / 2 + 40 + 30), rot=0.0, item=CAT['столик'])
+    _tbl = Placement(role='столик', x=310, y=240 - (95 / 2 + 40 + 30), rot=0.0, item=CAT['столик'])
     _tbl.tpl_id = 'seating'
     # КОВЁР (замечание владельца 19.08 «а тут ковёр где потерян»): у плавающей группы ковёр —
     # не декор, а то, что делает остров островом; кладём под передние ножки дивана и столик,
     # НЕ под консоль (она работает со стороны прохода)
-    _rug = Placement(role='ковёр', x=220, y=240 - (95 / 2 + 40 + 30) + 10, rot=0.0,
+    _rug = Placement(role='ковёр', x=310, y=240 - (95 / 2 + 40 + 30) + 10, rot=0.0,
                      item=I('ковёр', 260, 180, 1))
     _rug.tpl_id = 'seating'
-    r, ps = placer_scene('plain', T.place_console_behind_sofa, ['комод'],
+    r, ps = placer_scene('plain', T.place_console_behind_sofa, ['консоль'],
                          fixed_ps=[_rug, _sofa, _tbl])
     out.append({'zone': 'storage', 'id': 'console_behind_sofa',
-                'title': 'хранение: консоль за плавающим диваном', 'room': r, 'ps': ps})
+                'title': 'хранение: консоль за плавающим диваном (узкий низкий комод ≥⅔ дивана)',
+                'room': r, 'ps': ps})
 
     # ---------- КАНОНЫ, У КОТОРЫХ НЕ БЫЛО ПАСПОРТА (аудит Codex 19.08)
     # два дивана ВИЗАВИ — классическая разговорная композиция (без ТВ в составе)
@@ -592,9 +753,10 @@ def canons() -> list[dict]:
         b = T.build_block('sofa_loveseat_2armchairs', dict(_sqk), variant=_sqv)
         if b is not None:
             b.tpl_variant = _sqv
-        r, ps = block_scene('big', b, wall='south')
+        # сцена — по двери (аудит Юли №52: второй диван закрывал вход спинкой)
+        r, ps = door_side_scene('big', b, wall='south')
         out.append({'zone': 'seating', 'id': _sqv, 'passport_id': 'three_sided_conversation',
-                    'title': _sqt, 'room': r, 'ps': ps})
+                    'title': _sqt + ' · сторона — по маршруту от двери', 'room': r, 'ps': ps})
     # компактный зазор столика (36 см — нижняя граница нормы) для тесных комнат
     b = T.build_block('sofa_armchair', by('диван', 'кресло', 'столик', 'ковёр'), variant='default',
                       table_gap=float(((TPL.get('geometry') or {}).get('coffee_gap_compact_cm') or {}).get('v') or 36.0))
@@ -631,11 +793,32 @@ def canons() -> list[dict]:
                 'passport_id': 'floating_sofa_opposite_media',
                 'title': 'посадка: диван напротив носителя (плавающая пара)',
                 'room': _fr, 'ps': [_fg, _fs, _ft, _fv]})
-    # носитель ПО ДИАГОНАЛИ В УГЛУ — общий генератор углов солвера
-    b = T.build_media(by('тв-тумба', 'кашпо'))
-    r, ps = corner_scene('plain', b, corner='NE', rot=225.0)
-    out.append({'zone': 'media', 'id': 'media_corner', 'title': 'медиа: носитель по диагонали в углу',
-                'room': r, 'ps': ps})
+    # носитель ПО ДИАГОНАЛИ В УГЛУ — якорь ставит БОЕВОЙ генератор углов
+    # (`_corner_candidates`), зеркало выбираем так, чтобы кашпо ушло на ОТКРЫТУЮ
+    # сторону комнаты, а не на диагональную ось за тумбой (аудит Юли №57)
+    _rc = room_of('plain')
+    _freec = usable_polygon(_rc)
+    _psc = None
+    _ccn = next((c for c in T._corner_candidates(_rc, CAT['тв-тумба'], _freec)
+                 if int(c.placement.rot) == 225), None)     # тот же угол, что раньше (NE)
+    if _ccn is not None:
+        _tvc = Placement(role='тв-тумба', x=_ccn.placement.x, y=_ccn.placement.y,
+                         rot=225.0, item=CAT['тв-тумба'].model_copy())
+        _tvc.tpl_id = 'media'
+        # кашпо — СБОКУ у одной из стен угла, НЕ на диагональной оси за тумбой
+        # (аудит Юли №57): вдоль северной стены левее тумбы или вдоль восточной ниже
+        for _kx, _ky in ((_tvc.x - 150, _rc.depth_cm - 14 - 17.5),
+                         (_rc.width_cm - 14 - 17.5, _tvc.y - 150)):
+            _kpc = Placement(role='кашпо', x=_kx, y=_ky, rot=0.0,
+                             item=CAT['кашпо'].model_copy())
+            _kpc.tpl_id = 'media'
+            if not check_render(_rc, [_tvc, _kpc]):
+                _psc = [_tvc, _kpc]
+                break
+        _psc = _psc or [_tvc]
+    out.append({'zone': 'media', 'id': 'media_corner',
+                'title': 'медиа: носитель по диагонали в углу (кашпо сбоку, не на оси)',
+                'room': _rc, 'ps': _psc})
     # носитель у КОСЯКА проёма (простенок рядом с дверью/окном)
     b = T.build_media(by('тв-тумба', 'кашпо'))
     r, ps = block_scene('window', b, wall='south')
@@ -655,6 +838,27 @@ def canons() -> list[dict]:
     r, ps = placer_scene('big', T.place_fireplace, ['камин'])
     out.append({'zone': 'fireplace_solo', 'id': 'solo', 'title': 'камин: соло (отдельная зона)',
                 'room': r, 'ps': ps})
+
+    # ---------- НОВЫЕ СХЕМЫ 21.08 (решение владельца по аудиту Юли №35)
+    # камин и ТВ на СМЕЖНЫХ (перпендикулярных) стенах: оба фокуса в одном угле обзора,
+    # огонь не отражается в экране (Houzz «7 ways», Homes&Gardens)
+    b = T.build_media(by('тв-тумба'))
+    r, ps = block_scene('big', b, wall='north', center='anchor')
+    _fbA = T._valid(T.Block(CAT['камин'].model_copy()), 'fireplace_solo')
+    _r2A, _fpsA = block_scene('big', _fbA, wall='east')
+    ps = (list(ps) + list(_fpsA)) if (ps and _fpsA) else None
+    for _p in (ps or []):
+        _p.tpl_variant = 'fireplace_tv_adjacent_walls'
+    out.append({'zone': 'media', 'id': 'fireplace_tv_adjacent_walls',
+                'title': 'медиа: ТВ и камин на смежных стенах', 'room': r, 'ps': ps})
+    # ТВ НАД КАМИНОМ без тумбы (разбужена по решению владельца 21.08): камин — носитель
+    # экрана; сам экран — служебная часть шаблона (§14), рисуется оверлеем
+    _fbB = T._valid(T.Block(CAT['камин'].model_copy()), 'fireplace_solo')
+    r, ps = block_scene('big', _fbB, wall='north')
+    for _p in (ps or []):
+        _p.tpl_variant = 'tv_over_fireplace'
+    out.append({'zone': 'media', 'id': 'tv_over_fireplace',
+                'title': 'медиа: ТВ над камином (тумба не нужна)', 'room': r, 'ps': ps})
     return out
 
 
@@ -683,7 +887,51 @@ CONTEXT_OF = {
     'seating.L_left': 'tv_wall', 'seating.L_right': 'tv_wall',
     'media.media_centered': 'facing_sofa',
     'media.wall_unit_centered': 'facing_sofa',
+    'media.tv_over_fireplace': 'facing_sofa',
+    # adjacent_walls — БЕЗ контекст-дивана: в мини-сцене продиктованная витриной посадка
+    # не попадает камину в focal-сектор 75° (FIREPLACE_FAR_FROM_SEATING); в бою угол
+    # обзора обеспечивает place_media_fireplace (перпендикулярные кандидаты + _view_filter)
 }
+
+
+def add_tv_overlay(art: dict, ps, card_id: str) -> None:
+    """ТЕЛЕВИЗОР-РЕФЕРЕНС (решение владельца 21.08): на каждом носителе рисуем экран
+    подходящего размера. Экран — СЛУЖЕБНАЯ часть шаблона (свод №8 v2 §14, `planner/tv.py`):
+    отдельным предметом в сцену НЕ входит, в ps и в валидацию не попадает — только
+    пунктирный оверлей поверх носителя. Диагональ: дистанция до ближайшего дивана / 1.6
+    (RTINGS) с clamp долей ширины носителя; без посадки в сцене — середина clamp.
+    Для `tv_over_fireplace` носителем экрана выступает КАМИН (та же доля ширины)."""
+    import math as _mm
+
+    from planner import tv as TV
+    _bearers = ('камин',) if card_id == 'tv_over_fireplace' else ('тв-тумба', 'стенка')
+    sofas = [p for p in ps if p.role.split(' ')[0] == 'диван' and p.item is not None]
+    for p in ps:
+        base = p.role.split(' ')[0]
+        if base not in _bearers or p.item is None:
+            continue
+        if base == 'стенка':
+            w_lo = TV.screen_width_cm(p.item.w_cm, 'стенка', 'min')
+            w_hi = TV.screen_width_cm(p.item.w_cm, 'стенка', 'max')
+            d_lo, d_hi = w_lo / TV.ASPECT_W, w_hi / TV.ASPECT_W
+        else:
+            d_lo, d_hi = TV.diag_from_stand(p.item.w_cm)
+        diag = (d_lo + d_hi) / 2
+        if sofas:
+            # дистанция просмотра — как её меряет валидатор: между габаритами
+            _s = min(sofas, key=lambda q: footprint(q).distance(footprint(p)))
+            dist = footprint(_s).distance(footprint(p))
+            if dist > 0:
+                diag = min(max(dist / 1.6, d_lo), d_hi)
+        w = diag * TV.ASPECT_W
+        _r = _mm.radians(p.rot)
+        fx, fy = _mm.sin(_r), _mm.cos(_r)             # фасад носителя
+        role = f'тв {int(round(diag / 2.54))}″'
+        art[role] = {'x': p.x - fx * (p.item.d_cm / 2 - 4.0),
+                     'z': p.y - fy * (p.item.d_cm / 2 - 4.0),
+                     'rot': p.rot, 'w': w, 'd': 8, 'h': 120,
+                     'tpl_id': 'media', 'tpl_variant': 'screen_ref'}
+        art['_context'] = list(art.get('_context') or []) + [role]
 
 
 def soft_violations(room, ps) -> list[str]:
@@ -788,7 +1036,9 @@ def main() -> None:
         if _bad:
             print(f'  ВНИМАНИЕ {name}: {_bad}')
         if c['ps'] and not _bad:
-            render_artifact(artifact(c['room'], c['ps'], c.get('ctx')), png, band='31-40')
+            _art = artifact(c['room'], c['ps'], c.get('ctx'))
+            add_tv_overlay(_art, c['ps'], c['id'])   # телевизор-референс (владелец 21.08)
+            render_artifact(_art, png, band='31-40')
             img = f"<img src='{name}.png' alt='{html.escape(name)}'>"
         else:
             img = f"<p class='none'>референс не показан: {html.escape(_bad or 'схема не собралась')}</p>"

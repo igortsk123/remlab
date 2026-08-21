@@ -555,6 +555,11 @@ def build_block(group_id: str, by_role: dict[str, Item],
     вариант на группу (вариативность даёт позиция/поворот блока); диван соло без
     спутников блоком не считаем (нечего запекать)."""
     sofa = by_role.get('диван')
+    # СЕКЦИОНАЛ ТОЛЬКО УГЛОВОЙ (Codex 21.08, аудит Юли №14): паспорт compact_sectional
+    # объявляет sofa_subtype «углов», фактический признак — `Item.corner`. Прямой диван
+    # в этой группе — честный sofa_solo (геометрия та же, ярлык перестаёт врать).
+    if group_id == 'compact_sectional' and sofa is not None and not sofa.corner:
+        group_id = 'sofa_solo'
     arm1, arm2 = by_role.get('кресло'), by_role.get('кресло 2')
     sofa2 = by_role.get('диван 2')
     table, rug = by_role.get('столик'), by_role.get('ковёр')
@@ -580,7 +585,12 @@ def build_block(group_id: str, by_role: dict[str, Item],
         # СИММЕТРИЯ (замечание владельца 11.08): оба кресла на РАВНОМ зазоре от
         # столика (книжный face-to-face 183 давал разные плечи при мелком столике)
         b = Block(arm1)
-        far, _fx, tcy = _add_coffee(b, arm1, table or by_role.get('приставной'),
+        # ПАСПОРТ ПЕРВЫМ (аудит Юли №13 + решение владельца 21.08): armchair_pair по
+        # zones.json требует «приставной» — крупный журнальный стол между креслами
+        # превращал схему в «через стол» и читался как ошибка. Общий столик — фолбэк,
+        # когда паспортной поверхности в сете нет.
+        far, _fx, tcy = _add_coffee(b, arm1, by_role.get('приставной')
+                                    or by_role.get('столик 2') or table,
                                     table_gap, table_shift)
         b.add(arm2, 0.0, far + COFFEE_GAP + arm2.d_cm / 2, 180.0)
         if rug is not None:
@@ -1345,6 +1355,7 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
                 + list(_corner_candidates(room, require_bearer, free2))
             if require_bearer.role == 'тв-тумба':
                 bcs += _window_candidates(room, require_bearer, free2)
+                bcs += _between_windows_candidates(room, require_bearer, free2)
             # C-3 свода №11: у парного кандидата — СНАЧАЛА позиция носителя из Pair
             _pm_xy = getattr(_cand0, 'pair_media', None)
             if _pm_xy is not None:
@@ -1627,11 +1638,14 @@ def place_template(room: Room, group_id: str, items: list[Item], free: Polygon,
         group_id = 'sofa_armchair'
     if group_id in ('sofa_armchair', 'sectional_armchair') and 'кресло' not in _av \
             and 'пуф' not in _av:
-        group_id = 'compact_sectional'
+        # Codex 21.08 (аудит Юли №14–16): прямой диван без компаньонов — это
+        # sofa_solo, а НЕ compact_sectional: sectional по паспорту «углов», и
+        # понижение сюда рисовало «секционал» прямым диваном
+        group_id = 'sofa_solo'
     if group_id in ('sofa_facing_sofa', 'sofa_loveseat', 'sofa_loveseat_2armchairs',
                     'two_sofas_2armchairs') and 'диван 2' not in _av:
         group_id = 'sofa_2armchairs' if 'кресло 2' in _av else (
-            'sofa_armchair' if 'кресло' in _av else 'compact_sectional')
+            'sofa_armchair' if 'кресло' in _av else 'sofa_solo')
     # P3 свода №12: формы посадки — ИЗ ПАСПОРТА (rules/zones.json seating_groups[].shapes),
     # словарь в коде был второй истиной («паспорта богаче runtime», Кодекс §2 п.3)
     shapes = {g['id']: list(g.get('shapes') or ['default'])
@@ -2077,7 +2091,11 @@ def place_console_behind_sofa(room: Room, items: list[Item], free: Polygon,
         cy = sofa.y - math.cos(r) * off
         p = Placement(role=it.role, x=cx, y=cy, rot=(sofa.rot + 180) % 360, item=it)
         p.tpl_id = 'storage'
-        p.tpl_variant = 'console_behind_sofa'
+        # ПРОПОРЦИЯ (Codex 21.08, аудит Юли №46): канон — консоль ≥2/3 длины дивана (H&G);
+        # 0.5–0.67 остаётся ЯВНО деградированным вариантом (+short), не тихой нормой
+        _pref = float(cfg.get('length_vs_sofa_preferred_min', 2 / 3))
+        p.tpl_variant = 'console_behind_sofa' + \
+            ('' if it.w_cm >= _pref * sofa.item.w_cm else '+short')
         if free.intersection(footprint(p)).area < footprint(p).area * 0.97:
             CONSOLE_DIAG['reject'] = 'no_space_behind'
             continue
@@ -2125,7 +2143,8 @@ def build_reading_pair(by_role: dict[str, Item]) -> Block | None:
 
 
 def build_reading(by_role: dict[str, Item], allow_solo: bool = False,
-                  corner: bool = False) -> Block | None:
+                  corner: bool = False, lamp_side: int = +1,
+                  lamp_forward: bool = False) -> Block | None:
     """v2.6: уголок чтения — кресло + торшер за плечом (30–40 от спинки, сбоку)
     + приставной у другого подлокотника (≤15).
 
@@ -2143,23 +2162,23 @@ def build_reading(by_role: dict[str, Item], allow_solo: bool = False,
     b = Block(arm)
     if lamp is None and side is None and ott is not None:
         b.add(ott, 0.0, arm.d_cm / 2 + ott.d_cm / 2 + 10, 0.0)
+    _ls = +1 if lamp_side >= 0 else -1
     if lamp is not None:
-        if corner:
-            # УГЛОВАЯ раскладка (владелец 19.08 «кресло в угол загонять сильнее»): торшер
-            # уходит В ВЕРШИНУ за спинку кресла — так самым глубоким в углу оказывается
-            # компактный светильник, а кресло встаёт вплотную к вершине. Вдоль ширины
-            # (прежняя раскладка) кресло неизбежно оказывалось в середине 180-см блока.
-            b.add(lamp, 0.0, -(arm.d_cm / 2 + lamp.d_cm / 2 + 2), 0.0)
-        else:
-            # свет ЗА ПЛЕЧОМ, а не за спинкой (нормы 20.08: BenQ/Homebaa — источник за плечом,
-            # 46–90 см от центра посадки, низ абажура на уровне глаз сидящего). Раньше торшер
-            # уезжал на полглубины кресла назад и читался как предмет «за креслом»
-            b.add(lamp, arm.w_cm / 2 + lamp.w_cm / 2 + LAMP_GAP, -arm.d_cm / 4, 0.0)
+        # свет ЗА ПЛЕЧОМ, а не за спинкой — ВЕЗДЕ, включая угол (нормы 20.08 BenQ/Homebaa
+        # + аудит Юли №27/№31 и LRC RPI: источник сбоку-чуть-сзади, свет через плечо на
+        # страницу; 46–90 см от центра посадки). Прежняя угловая раскладка нарочно ставила
+        # торшер В ВЕРШИНУ строго за спинкой — читалось «торшер за креслом» и не светило.
+        # `lamp_side` — у какого плеча (зеркала перебирает плейсер), `lamp_forward` —
+        # эркер: свет уходит к УСТЬЮ ниши (сбоку-впереди), иначе упирается в окно
+        # наружной кромки (WINDOW_BLOCKED — разбор 21.08).
+        _ly = (arm.d_cm / 4) if lamp_forward else (-arm.d_cm / 4)
+        b.add(lamp, _ls * (arm.w_cm / 2 + lamp.w_cm / 2 + LAMP_GAP), _ly, 0.0)
     if side is not None:
         # приставной — у ПЕРЕДНЕЙ половины подлокотника (туда ложится рука), зазор 5–10 см;
-        # раньше столик стоял по центру кресла и читался как «поставить некуда» (владелец 20.08)
+        # раньше столик стоял по центру кресла и читался как «поставить некуда» (владелец 20.08).
+        # Сторона — противоположная торшеру (оба у одного подлокотника пересекаются).
         _sg = float((_oc('dynamic/extras/side_table/gap_from_chair_cm', [5, 10]) or [5, 10])[1])
-        b.add(side, -(arm.w_cm / 2 + side.w_cm / 2 + _sg),
+        b.add(side, -_ls * (arm.w_cm / 2 + side.w_cm / 2 + _sg),
               arm.d_cm / 2 - side.d_cm / 2 - 4.0, 0.0)
     return _valid(b, 'reading', variant='window_anchor' if allow_solo and len(b.rel) == 1 else None)
 
@@ -2236,28 +2255,34 @@ def place_reading(room: Room, items: list[Item], free: Polygon,
                 for _p in _ps:
                     _p.tpl_variant = 'bay_pair'
                 return _ps
-        # КАСКАД СОСТАВА в нише: полный комплект → кресло+поверхность → соло. Ниша мелкая,
-        # и торшер за спинкой упирается в наружную кромку; кресло в эркере самодостаточно.
-        _kits = [dict(by_role),
-                 {k: v for k, v in by_role.items() if k not in ('торшер', 'лампа')},
-                 {k: v for k, v in by_role.items() if k in ('кресло', 'кресло 3')}]
-        for _kit in _kits:
-            _bb = build_reading(_kit, allow_solo=True)
-            if _bb is None:
-                continue
-            _bb.tpl_variant = 'bay_anchor'
-            _ps = _best_block(room, _bb, free, _bay, tv=None, fixed=fixed)
-            if _ps:
-                for _p in _ps:
-                    _p.tpl_variant = 'bay_anchor'
-                return _ps
+        # КАСКАД СОСТАВА в нише: полный комплект (свет к УСТЬЮ) → полный (свет назад) →
+        # кресло+поверхность → соло. Свет-вперёд первым (аудит Юли №28, разбор 21.08):
+        # торшер «за плечом» в мелкой нише упирается в окно наружной кромки
+        # (WINDOW_BLOCKED в 6 см от проёма) и весь комплект молча худел до кресла.
+        _kits = [(dict(by_role), True), (dict(by_role), False),
+                 ({k: v for k, v in by_role.items() if k not in ('торшер', 'лампа')}, False),
+                 ({k: v for k, v in by_role.items() if k in ('кресло', 'кресло 3')}, False)]
+        for _kit, _fwd in _kits:
+            for _ls in (+1, -1):
+                _bb = build_reading(_kit, allow_solo=True, lamp_side=_ls, lamp_forward=_fwd)
+                if _bb is None:
+                    break                       # состав не собрался — зеркало не поможет
+                _bb.tpl_variant = 'bay_anchor'
+                _ps = _best_block(room, _bb, free, _bay, tv=None, fixed=fixed)
+                if _ps:
+                    for _p in _ps:
+                        _p.tpl_variant = 'bay_anchor'
+                    return _ps
     # УГЛОВОЙ канон `corner_vignette` — кресло + СВЕТ + ПОВЕРХНОСТЬ (H&G chair-table-lamp).
     # В обычном углу архитектурного якоря нет, поэтому комплект обязателен: одинокое кресло
     # в углу читается как забытый предмет.
     _strict = (by_role.get('торшер') is not None or by_role.get('лампа') is not None) and \
         (by_role.get('приставной') is not None or by_role.get('столик 2') is not None)
     if _strict:
-        _cb = build_reading(by_role, corner=True)
+      # зеркала света (аудит Юли №27): торшер за ЛЮБЫМ из плеч — какой стороной блок
+      # встанет в угол, решает перебор; строго за спинкой не ставим никогда
+      for _ls in (+1, -1):
+        _cb = build_reading(by_role, corner=True, lamp_side=_ls)
         if _cb is not None:
             _cb.tpl_variant = 'corner_vignette'
             # ЯКОРНЫЙ КОНТРАКТ КРЕСЛА (владелец 19.08 «кресло надо в угол загонять сильнее»,
@@ -2608,7 +2633,7 @@ def build_fireplace(by_role: dict[str, Item]) -> Block | None:
     return _valid(b, 'fireplace')
 
 
-def build_media_fireplace(by_role: dict[str, Item]) -> Block | None:
+def build_media_fireplace(by_role: dict[str, Item], mirror: bool = False) -> Block | None:
     """ЗОНА «МЕДИА + КАМИН НА ОДНОЙ СТЕНЕ» (заявка владельца 11.08, веб-свод
     подтвердил: side-by-side на широкой стене — рабочая схема, «TV ниже, камин
     остаётся виден на той же фасадной стене»). Носитель по центру взгляда, камин
@@ -2620,8 +2645,10 @@ def build_media_fireplace(by_role: dict[str, Item]) -> Block | None:
         return None
     b = Block(bearer)
     # ВЫРАВНИВАНИЕ ПО СПИНКЕ (обе вещи пристенные): камин у той же стены, иначе
-    # он «отходит» от неё на разницу глубин и ловит NOT_AT_WALL
-    b.add(fp, bearer.w_cm / 2 + 40 + fp.w_cm / 2, -(bearer.d_cm - fp.d_cm) / 2, 0.0)
+    # он «отходит» от неё на разницу глубин и ловит NOT_AT_WALL.
+    # `mirror` — камин слева от носителя (оба зеркала пробует place_media_fireplace)
+    _sgn = -1.0 if mirror else 1.0
+    b.add(fp, _sgn * (bearer.w_cm / 2 + 40 + fp.w_cm / 2), -(bearer.d_cm - fp.d_cm) / 2, 0.0)
     return _valid(b, 'fireplace')
 
 
@@ -2680,19 +2707,67 @@ def place_media_installation(room: Room, items: list[Item], free: Polygon,
 
 def place_media_fireplace(room: Room, items: list[Item], free: Polygon,
                           fixed: list[Placement] | None = None) -> list[Placement] | None:
-    """Ставится ДО отдельных медиа/каминной зон: когда в комплекте есть и носитель,
-    и камин, они должны делить одну фасадную стену, а не конкурировать за стены."""
+    """Совместная постановка «носитель ТВ + камин» — ставится ДО отдельных медиа/каминной зон.
+
+    КАСКАД СХЕМ (21.08, аудит Юли №35 + решение владельца; Houzz «7 ways TV+fireplace»,
+    Homes&Gardens): side-by-side — рабочая схема, но НЕ обязаловка «должны делить стену»:
+      1. `fireplace_side_by_side` — одна фасадная стена (единый фокус, огонь не в отражении);
+         оба зеркала (камин справа/слева от носителя);
+      2. `fireplace_tv_adjacent_walls` — СМЕЖНЫЕ (перпендикулярные) стены: оба фокуса в
+         угле обзора посадки, огонь по-прежнему не отражается в экране;
+      3. `tv_over_fireplace` — стенам тесно: ЭКРАН НАД КАМИНОМ, отдельный носитель не
+         ставится (в этой схеме тумба не нужна — решение владельца 21.08); экран —
+         служебная часть шаблона (свод №8 v2 §14), место под мебель не занимает.
+    «Камин НАПРОТИВ ТВ» сознательно не предлагаем: пламя отражается в экране
+    (FIRE_REFLECTION_ON_TV) и фокусы конкурируют."""
     if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
         return None
     by_role: dict[str, Item] = {}
     for it in items:
         by_role.setdefault(it.role, it)
     seat = next((p for p in (fixed or []) if p.role == 'диван'), None)
-    b = build_media_fireplace(by_role)
-    if b is None:
+    bearer = by_role.get('стенка') or by_role.get('тв-тумба')
+    fp = by_role.get('камин')
+    if bearer is None or fp is None:
         return None
-    return _best_block(room, b, free, wall_candidates(room, b.anchor, free),
-                       tv=None, fixed=fixed, axis_seat=seat)
+    # 1) одна стена, оба зеркала
+    for _mir in (False, True):
+        b = build_media_fireplace(by_role, mirror=_mir)
+        if b is None:
+            break
+        ps = _best_block(room, b, free, wall_candidates(room, b.anchor, free),
+                         tv=None, fixed=fixed, axis_seat=seat)
+        if ps:
+            for p in ps:
+                p.tpl_variant = 'fireplace_side_by_side'
+            return ps
+    # 2) смежные стены: носитель — ПОЛНОЙ медиа-логикой (дистанция/прицел/ось, как у
+    #    отдельной зоны), камин — на перпендикулярной стене в угле обзора посадки.
+    #    Камин не встал перпендикулярно → возвращаем None: раздельные зоны разберутся
+    #    сами (прежнее поведение), а найденную медиа-позицию не навязываем.
+    mps = place_media(room, [it for it in items if it.role.split(' ')[0] != 'камин'],
+                      free, fixed=fixed)
+    if mps:
+        from shapely.ops import unary_union as _uu_mf
+        _r0 = int(next((p.rot for p in mps
+                        if p.role.split(' ')[0] in ('тв-тумба', 'стенка')), 0))
+        _free2 = free.difference(_uu_mf([footprint(p) for p in mps
+                                         if p.role.split(' ')[0] != 'ковёр']))
+        fb = _valid(Block(fp), 'fireplace_solo')
+        _cands = [c for c in wall_candidates(room, fb.anchor, _free2)
+                  if int(c.placement.rot - _r0) % 180 == 90]      # только смежные стены
+        _inview = _view_filter(_cands, seat,
+                               max_deg=float(_g('fireplace_view_max_deg', 60.0)),
+                               min_dist_cm=float(_g('fireplace_min_dist_cm', 90.0)))
+        fps = _best_block(room, fb, _free2, _inview or _cands, tv=None,
+                          fixed=list(fixed or []) + mps)
+        if fps:
+            for p in list(mps) + list(fps):
+                p.tpl_variant = 'fireplace_tv_adjacent_walls'
+            return list(mps) + list(fps)
+    # side-by-side и смежные не сложились — раздельные зоны в общем порядке; вариант
+    # «экран над камином» (tv_over_fireplace) включается ПОСЛЕДНИМ резервом в place_media
+    return None
 
 
 def _view_filter(cands, seat: Placement | None, max_deg: float = 60.0,
@@ -2958,6 +3033,46 @@ def _window_candidates(room: Room, item: Item, free: Polygon) -> list:
     return out
 
 
+def _between_windows_candidates(room: Room, item: Item, free: Polygon) -> list:
+    """Схема `media_between_windows` (паспорт: «на стене два окна с простенком ≥ W_media»).
+
+    ПРОД-ДЫРА до 21.08 (аудит Юли №41 → разбор Codex): паспорт объявлял
+    `implemented_as: _window_candidates`, но тот центрирует носитель ПО ОКНУ (схема
+    «перед окном»), а не по ПРОСТЕНКУ между двумя проёмами — «между окон» не имела
+    реализации вовсе. Здесь носитель встаёт спинкой к стене, ЦЕНТР — на оси простенка
+    между соседними окнами одной стены; допуск TV_ON_WINDOW_WALL объявлен в паспорте."""
+    from .candidates import WALL_FACING_ROT, Candidate
+    out = []
+    by_wall: dict[str, list] = {}
+    for op in room.openings:
+        if op.kind == 'window':
+            by_wall.setdefault(op.wall, []).append(op)
+    for wall, wins in by_wall.items():
+        if len(wins) < 2:
+            continue
+        rot = WALL_FACING_ROT.get(wall)
+        if rot is None:
+            continue
+        w, d = item.w_cm, item.d_cm
+        wins = sorted(wins, key=lambda o: o.offset_cm)
+        for a, bnext in zip(wins, wins[1:]):
+            lo, hi = a.offset_cm + a.width_cm, bnext.offset_cm
+            if hi - lo < w:              # простенок уже носителя — схема не для этой стены
+                continue
+            mid = (lo + hi) / 2
+            if wall in ('south', 'north'):
+                x, y = mid, (d / 2 if wall == 'south' else room.depth_cm - d / 2)
+            else:
+                y, x = mid, (d / 2 if wall == 'west' else room.width_cm - d / 2)
+            p = Placement(role=item.role, x=x, y=y, rot=float(rot), item=item)
+            fp = footprint(p)
+            if free.intersection(fp).area < fp.area * 0.97:
+                continue
+            out.append(Candidate(placement=p, kind='wall', note='простенок между окон',
+                                 topology='between_windows'))
+    return out
+
+
 def _axis_candidates(room, item, free, seat, cands):
     """P1 свода №12: клоны пристенных кандидатов, сдвинутые ВДОЛЬ СТЕНЫ так, чтобы центр
     носителя лёг точно на ось взгляда посадки. Только там, где клон целиком в free
@@ -3022,6 +3137,11 @@ def place_media(room: Room, items: list[Item], free: Polygon,
     """Медиа-зона блоком; позиция — по межзонной связи (соосность с главным
     посадочным из fixed, дистанция/прицел проверит validate)."""
     if os.environ.get('LAYOUT_TEMPLATES', '1') == '0':
+        return None
+    # ЭКРАН УЖЕ НАД КАМИНОМ (схема tv_over_fireplace, 21.08): медиа-функцию несёт
+    # камин — отдельный носитель НЕ ставим, тумба честно уходит в «не использовано»
+    if any(getattr(p, 'tpl_variant', '') == 'tv_over_fireplace'
+           and p.role.split(' ')[0] == 'камин' for p in (fixed or [])):
         return None
     by_role: dict[str, Item] = {}
     for it in items:
@@ -3099,6 +3219,9 @@ def _place_media_core(room: Room, items: list[Item], free: Polygon,
                         # TV_ON_WINDOW_WALL — выигрывают только когда больше некуда.
                         # Стенке к окну нельзя (перекроет свет).
                         _cands += _window_candidates(room, b.anchor, free)
+                        # ПРОСТЕНОК между двух окон — своя схема media_between_windows
+                        # (реализация 21.08, аудит Юли №41): центр — на оси простенка
+                        _cands += _between_windows_candidates(room, b.anchor, free)
                     # P1 свода №12 (владелец №1/№2): АНАЛИТИЧЕСКИЕ кандидаты «ровно на
                     # оси дивана» — решётка ~25 см точки на оси не гарантирует, и лучший
                     # достижимый offset оставался 13–16 см при свободной стене. Для каждой

@@ -28,7 +28,13 @@ def _placed_from_artifact(art: dict) -> tuple[dict, dict]:
         if k.startswith('_') or not isinstance(v, dict) or 'x' not in v:
             continue
         w, d = float(v.get('w') or 0), float(v.get('d') or 0)
-        it = Item(role=k, w_cm=w or 1.0, d_cm=d or 1.0, h_cm=float(v.get('h') or 80))
+        _kw = {}
+        if v.get('corner'):
+            # Г-диван: восстановить L-футпринт (иначе рисуется прямоугольник, и предмет
+            # в вырезе читается как наложение — аудит Юли №14)
+            _kw = {'corner': True, 'corner_section_cm': v.get('corner_section_cm'),
+                   'corner_left': bool(v.get('corner_left', False))}
+        it = Item(role=k, w_cm=w or 1.0, d_cm=d or 1.0, h_cm=float(v.get('h') or 80), **_kw)
         p = Placement(role=k, x=float(v['x']), y=float(v.get('z', v.get('y', 0))), rot=float(v.get('rot', 0)), item=it)
         placed[k] = ((p.x, p.y), int(p.rot) % 360, tuple(_fp(p).exterior.coords[:]), 1)
         dims[k] = (w, d)

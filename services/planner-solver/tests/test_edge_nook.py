@@ -159,7 +159,9 @@ def test_console_behind_floating_sofa():
     ps = place_console_behind_sofa(room, items, usable_polygon(room), fixed=[sofa])
     assert ps is not None, CONSOLE_DIAG
     c = ps[0]
-    assert c.tpl_variant == 'console_behind_sofa' and c.item.role == 'комод'
+    # 21.08 (ADR-0115): консоль короче 2/3 дивана несёт ЯВНЫЙ маркер деградации '+short'
+    # (140/220 = 0.64 < 0.67) — контракт сопоставления вариантов стал префиксным
+    assert c.tpl_variant.startswith('console_behind_sofa') and c.item.role == 'комод'
     assert not check_console_contract(room, [sofa, c])
 
 

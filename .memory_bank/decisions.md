@@ -2085,3 +2085,53 @@ floor_lamp}` с провенансом; геометрия `template.build_readi
 **Влияет на:** `services/planner-solver/rules/occupancy.json`, `services/planner-solver/rules/templates.json`, `services/planner-solver/planner/template.py`,
 `services/planner-solver/planner/validate.py`, подписи рендера. Источник — `source: external:web` (NTNU, IES, Kouboo,
 Wayfair, Eureka, BenQ) + разборы Codex в `_intake/codex-prompts/`.
+
+## ADR-0115 — Аудит Юли по галерее канонов: 13/15 принято, каскад «камин+ТВ», прод-дыры закрыты (2026-08-21)
+
+**Контекст.** Внешний рефери (Юля) разобрала 16 карточек `/test/canons/` (№1,3,6,13,14–16,18,
+27,28,31,35,41,46,52,57). Каждое замечание перепроверено по коду, вебу и Codex
+(`_intake/answer-audit-julia.md`); план — `completed_plans/canons-audit-julia.md`.
+
+**Принято (симптомы подтверждены):**
+- **Вход свободен** (№1/№3): в мини-сценах витрины дверь перенесена на дальний конец стены;
+  `block_scene` выбирает сдвиг по фактическому зазору к входному коридору (ярус 91 → 75 см) и
+  проверяет вхождение КАЖДОГО футпринта (bbox недооценивал кресла под 45°) — `tools/scout/canon_gallery.py`.
+- **Зеркала — по маршруту** (№6/№18/№52): карточка зеркальной формы рисуется в дверной ситуации,
+  где вторичная посадка дальше от входа (`door_side_scene`); в бою зеркала и так гипотезы beam.
+- **Свет за плечом ВЕЗДЕ** (№27/№31): угловая ветка `build_reading(corner=True)` больше не ставит
+  торшер на ось спинки — за любым из плеч (зеркала перебирает плейсер), приставной — с другой
+  стороны; `template.py`. `wall_vignette` рисуется в комнате со скосами углов (иначе боевой
+  плейсер всегда берёт угол и карточка — дубль corner_vignette).
+- **Эркер не выбрасывает свет** (№28): каскад пробует вариант «торшер сбоку у УСТЬЯ ниши»
+  (`lamp_forward`) до похудения состава — прежде свет молча упирался в окно (WINDOW_BLOCKED в 6 см).
+- **№14–16 различимы**: kit карточки — required-роли паспорта группы; `compact_sectional` —
+  только угловой диван (`Item.corner`); понижения «прямой диван без компаньонов» идут в
+  `sofa_solo`, НЕ в sectional (`template.py`, `zones.py`); Г-футпринт прокинут в рендер.
+- **№41**: «между окон» не имела реализации — паспорт ссылался на `_window_candidates`
+  (центрирует ПО ОКНУ). Заведён `_between_windows_candidates` (ось ПРОСТЕНКА), паспорт исправлен.
+- **№41/№57 спутники вне оси**: витрина центрирует ЯКОРЬ (center='anchor'), кашпо не участвует
+  и не стоит на диагональной оси за тумбой.
+- **№46**: консоль за диваном — предмет консольных пропорций (150×35, ≥⅔ дивана);
+  короче ⅔ — ЯВНАЯ деградация `console_behind_sofa+short` (`length_vs_sofa_preferred_min: 0.67`,
+  zones.json). Сравнения `tpl_variant` переведены на prefix-match (суффикс ломал исключения).
+- **ТВ-референс** (решение владельца): на каждом носителе рисуется экран-оверлей
+  (`add_tv_overlay`, диагональ = дистанция/1.6 с clamp доли тумбы, `services/planner-solver/planner/tv.py`); экран —
+  служебная часть шаблона (§14), в ps/валидацию не входит.
+
+**Отклонено с пруфом (решение владельца после ответа):**
+- **№13** — face-to-face пара кресел легитимна (AD, дистанция 145 см в вилке 4–8 ft); «рядом под
+  углом» уже есть (#24 quiet_chat). Исправлен только столик: паспортный приставной
+  (`build_block(armchair_pair)` предпочитает `приставной` — прежде брал общий столик 110×60).
+- **№35** — «камин и ТВ только на разных стенах» неверно; принят КАСКАД `place_media_fireplace`:
+  `side_by_side` (одна стена, оба зеркала) → `fireplace_tv_adjacent_walls` (смежные
+  перпендикулярные, камин в угле обзора; НОВАЯ схема) → `tv_over_fireplace` (РАЗБУЖЕНА:
+  экран над камином, тумба не ставится; включается в zones как последний резерв `+tvof`, когда
+  носитель не встал даже с вейвером). «Напротив» не предлагаем (FIRE_REFLECTION_ON_TV).
+
+**Гейт:** `services/planner-solver/tests/test_audit_julia_2108.py` (5 контрактов). Известные падения
+`test_mirror_quality_pick_beats_first_clean` и `test_no_phantom_dimensions` — НЕ отсюда:
+данные `sets3.json` вне git перезаписаны кроном 10:52 (см. урок).
+
+**Влияет на:** `services/planner-solver/planner/template.py`, `services/planner-solver/planner/zones.py`, `services/planner-solver/planner/validate.py`,
+`services/planner-solver/planner/back_gap.py`, `services/planner-solver/rules/templates.json`, `services/planner-solver/rules/zones.json`, `tools/scout/canon_gallery.py`,
+`tools/scout/render_plan.py`; галерея — 65 карточек (спящих 3).

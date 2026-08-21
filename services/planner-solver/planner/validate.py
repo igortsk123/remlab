@@ -217,7 +217,7 @@ def check_access(ps: list[Placement]) -> list[Violation]:
                 continue
             # Q6e: консоль за диваном — часть посадочной связки: она стоит вплотную к СПИНКЕ,
             # подход к дивану остаётся с фасада (H&G/BHG sofa table). Взаимные зоны не блокируют
-            if 'console_behind_sofa' in (getattr(a, 'tpl_variant', ''), getattr(b, 'tpl_variant', '')) \
+            if any(str(v).startswith('console_behind_sofa') for v in (getattr(a, 'tpl_variant', ''), getattr(b, 'tpl_variant', ''))) \
                     and {_brole(a.role), _brole(b.role)} & {'диван'}:
                 continue
             bh = (b.item.h_cm if b.item else None)
@@ -426,7 +426,7 @@ def check_wall_only(room: Room, ps: list[Placement]) -> list[Violation]:
     for p in ps:
         # Q6e: консоль ЗА ДИВАНОМ по определению стоит не у стены (H&G sofa table) —
         # её геометрию держит собственный контракт check_console_contract
-        if getattr(p, 'tpl_variant', '') == 'console_behind_sofa':
+        if str(getattr(p, 'tpl_variant', '')).startswith('console_behind_sofa'):
             continue
         if p.role not in wall_only:
             continue
@@ -1243,7 +1243,7 @@ def check_layout_rules(room: Room, ps: list[Placement]) -> list[Violation]:
                 continue
             if (p.item.h_cm or 0) <= 60:      # низкий декор зону не ломает
                 continue
-            if getattr(p, 'tpl_variant', '') == 'console_behind_sofa':
+            if str(getattr(p, 'tpl_variant', '')).startswith('console_behind_sofa'):
                 # 19.08: консоль СТОИТ вплотную к спинке по своему паспорту (place_console_behind_sofa,
                 # контракт check_console_contract) — штрафовать её «вплотную к разговорной зоне»
                 # значит наказывать схему за то, чем она является
@@ -1705,7 +1705,7 @@ def check_console_contract(room: Room, ps: list[Placement]) -> list[Violation]:
     """Q6e свода №13: контракт консоли за диваном (tpl_variant console_behind_sofa) —
     высота ≤ спинки дивана +5, глубина ≤ max_d_cm, длина в вилке 0.5–1.0 дивана, вплотную
     к спинке (≤10 см). Данные — `zones.json → subtypes.console` (H&G/BHG sofa table)."""
-    cons = [p for p in ps if getattr(p, 'tpl_variant', '') == 'console_behind_sofa']
+    cons = [p for p in ps if str(getattr(p, 'tpl_variant', '')).startswith('console_behind_sofa')]
     if not cons:
         return []
     from .geometry import base_role
