@@ -2,10 +2,12 @@
 workstream: furniture
 slug: layout-rules-v2
 title: МАСТЕР — система правил расстановки v2: функциональные зоны + priors из 18 804 сцен
-status: in_progress
+status: partial
 created: 2026-08-07
-updated: 2026-08-07
+updated: 2026-08-22
 ---
+
+> 2026-08-22, memory-check: без движения с 07.08 — переведён в partial (вытеснен работой по MASTER-layout-v5). Возобновить или отменить — решение при следующем заходе в workstream.
 
 ## Цель
 Полный пересмотр системы правил расстановки на основе снятых дизайнерских priors

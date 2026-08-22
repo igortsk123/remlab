@@ -26,6 +26,7 @@ draft → in_progress → completed → перенос в completed_plans/
 
 | slug | Название | status | created | updated |
 |------|----------|--------|---------|---------|
+| exam-hardening-2208 | Фиксы по ночному экзамену 22.08 — heal-ворота, шедулер, перф-профиль, ковёр Г-дивана | in_progress | 2026-08-22 | 2026-08-22 |
 | q12-situational-canon | Q12 — ситуационный канон (функция × якорь × форма) и честное включение приоров практики | in_progress | 2026-08-19 | 2026-08-21 |
 | MASTER-zones-v7 | МЕТАПЛАН — свод №13 (слепая оценка раунд 1 + каталог nook): ключ по глазу владельца, кресла к ТВ, фронтальная зона, банк→солвер, nook/консоль из фида | in_progress | 2026-08-16 | 2026-08-16 |
 | entry-low-storage | Низкое хранение для входной полосы — состав малых сетов + постановка в entry | draft | 2026-08-14 | 2026-08-14 |
@@ -37,12 +38,12 @@ draft → in_progress → completed → перенос в completed_plans/
 | MASTER-layout-v5 | Мета-план по рекомендации V5: retention группы, пары кресел, дрифт правил, условный AI | in_progress | 2026-08-09 | 2026-08-09 |
 | layout-composition-deep | Глубокие причины 6 замечаний владельца по десятке (столик/кресла/носитель ТВ/пустые 50+) | in_progress | 2026-08-08 | 2026-08-08 |
 | MASTER-truth-first | Мастер: truth-first — итог аудита рефери v2 (данные → eval → реальные комнаты → SKU) | in_progress | 2026-08-08 | 2026-08-08 |
-| referee-hardening | Правки по арбитражу рефери (Q1–Q7 + 5 доп. находок) | in_progress | 2026-08-07 | 2026-08-07 |
-| layout-rules-v2 | МАСТЕР — система правил расстановки v2: функциональные зоны + priors из 18 804 сцен | in_progress | 2026-08-07 | 2026-08-07 |
-| layout-priors-from-datasets | Дизайнерские priors из датасетов (M3DLayout/3D-FRONT) → скоринг beam, ML только как ranker | in_progress | 2026-08-07 | 2026-08-07 |
+| referee-hardening | Правки по арбитражу рефери (Q1–Q7 + 5 доп. находок) | partial | 2026-08-07 | 2026-08-22 |
+| layout-rules-v2 | МАСТЕР — система правил расстановки v2: функциональные зоны + priors из 18 804 сцен | partial | 2026-08-07 | 2026-08-22 |
+| layout-priors-from-datasets | Дизайнерские priors из датасетов (M3DLayout/3D-FRONT) → скоринг beam, ML только как ranker | partial | 2026-08-07 | 2026-08-22 |
 | layout-polygon-rooms | Э8 — нестандартные планировки: полигональный контур, открытые кухни-гостиные, эркеры | draft | 2026-08-07 | 2026-08-07 |
-| inventory-additions | Новые роли гостиной по исследованию рефери (side table / консоль / wall art / bench) | in_progress | 2026-08-07 | 2026-08-07 |
-| MASTER-zones-first | МАСТЕР — движок «зоны-first» (Z0–Z6): focal point, маршруты, посадочные группы, inventory-prior | in_progress | 2026-08-07 | 2026-08-07 |
+| inventory-additions | Новые роли гостиной по исследованию рефери (side table / консоль / wall art / bench) | partial | 2026-08-07 | 2026-08-22 |
+| MASTER-zones-first | МАСТЕР — движок «зоны-first» (Z0–Z6): focal point, маршруты, посадочные группы, inventory-prior | partial | 2026-08-07 | 2026-08-22 |
 | MASTER-pipeline-hardening | МАСТЕР — усиление пайплайна по аудиту 06.08 (А0–А7) | partial | 2026-08-06 | 2026-08-21 |
 | sets-feasibility-first | Подбор сетов «сперва допустимость, потом красота» — геометрия в ограничения, оценка комплекта целиком | partial | 2026-08-05 | 2026-08-20 |
 | catalog-freshness-chain | К7 — цепочка свежести: фид → база → обогащение → комплекты | partial | 2026-08-05 | 2026-08-21 |

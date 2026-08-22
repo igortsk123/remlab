@@ -2,10 +2,12 @@
 workstream: furniture
 slug: layout-priors-from-datasets
 title: Дизайнерские priors из датасетов (M3DLayout/3D-FRONT) → скоринг beam, ML только как ranker
-status: in_progress
+status: partial
 created: 2026-08-07
-updated: 2026-08-07
+updated: 2026-08-22
 ---
+
+> 2026-08-22, memory-check: без движения с 07.08 — переведён в partial (вытеснен работой по MASTER-layout-v5). Возобновить или отменить — решение при следующем заходе в workstream.
 
 ## Цель
 Не обучать модель расставлять мебель — извлечь из больших датасетов профессиональных планировок

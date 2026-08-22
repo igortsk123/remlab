@@ -2,11 +2,13 @@
 workstream: layout
 slug: inventory-additions
 title: Новые роли гостиной по исследованию рефери (side table / консоль / wall art / bench)
-status: in_progress
+status: partial
 created: 2026-08-07
-updated: 2026-08-07
+updated: 2026-08-22
 completed:
 ---
+
+> 2026-08-22, memory-check: без движения с 07.08 — переведён в partial (вытеснен работой по MASTER-layout-v5). Возобновить или отменить — решение при следующем заходе в workstream.
 
 ## Цель
 Внедрить 4 структурных дополнения модели гостиной из исследования рефери 08.08 (service-surface
