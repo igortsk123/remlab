@@ -786,7 +786,21 @@ function payload(){
 // ——— хранилище кадров: НИЧЕГО НЕ УДАЛЯЕМ (владелец 26.08), переживает перезагрузку страницы
 function loadShots(){
   try{shots=JSON.parse(localStorage.getItem('flat215-shots')||'[]');}catch(e){shots=[];}
-  shots.forEach(s=>s.pick=false);
+  // ЧИНИМ СТАРЫЕ КАДРЫ ОДИН РАЗ: снимок без привязки (сделан до её появления) или с чужим id
+  // после пересборки демо привязываем по названию варианта, иначе — к первому варианту. Так он
+  // не теряется и при этом не всплывает во всех вариантах сразу.
+  const list=allVariants(), byTitle={};
+  list.forEach(v=>{byTitle[v.title||'']=v.id;});
+  const ids=new Set(list.map(v=>v.id));
+  let fixed=0;
+  shots.forEach(s=>{
+    s.pick=false;
+    if(!s.vid||!ids.has(s.vid)){
+      s.vid=byTitle[s.variant||'']||(list[0]||{}).id||'v0';
+      fixed++;
+    }
+  });
+  if(fixed)saveShots();
   drawFeed();
 }
 function saveShots(){
@@ -806,10 +820,10 @@ function shotLabel(s){
 }
 function curVid(){ const v=allVariants()[cur]||{}; return v.id||('v'+cur); }
 function myShots(){
-  // КАДР БЕЗ ПРИВЯЗКИ — ТОЖЕ НАШ (26.08): снимки, сделанные до появления привязки к варианту,
-  // и снимки варианта, чей id изменился при пересборке демо, иначе просто исчезали из ленты.
-  const v=curVid(), t=(allVariants()[cur]||{}).title||'';
-  return shots.filter(s=>!s.vid||s.vid===v||(t&&s.variant===t));
+  // СТРОГО ПО ВАРИАНТУ (владелец 26.08: «фотка варианта 1 не должна попадать в вариант 2»).
+  // Кадры без привязки чинятся один раз при загрузке (см. loadShots), а не показываются везде.
+  const v=curVid();
+  return shots.filter(s=>s.vid===v);
 }
 function drawFeed(){                    // КАРУСЕЛЬ СРЕДНИХ КАРТОЧЕК со стрелками (26.08)
   const f=document.getElementById('feed'); if(!f)return;
