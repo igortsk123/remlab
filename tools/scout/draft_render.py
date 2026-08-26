@@ -564,6 +564,20 @@ def _publish_sources(stamp: str, imgs: dict, prompt: str, legend: list, meta: di
     return (PUBLIC_BASE + SRC_URL + '/' + stamp + '/') if PUBLIC_BASE else d
 
 
+STYLE_HINT = {
+    'сканди': 'Scandinavian: light oak floor, white and warm-grey walls, soft daylight, matte '
+              'natural textures, minimal decor, one or two live plants',
+    'лофт': 'Loft: exposed brick or concrete accent wall, dark metal, aged wood, warm industrial '
+            'lighting, no glossy surfaces',
+    'минимализм': 'Minimalism: neutral monochrome palette, clean lines, no visible clutter, '
+                  'hidden storage, calm even lighting',
+    'неоклассика': 'Neoclassic: light wall panelling and mouldings, symmetric composition, warm '
+                   'brass details, textile with subtle sheen',
+    'джапанди': 'Japandi: pale wood and warm beige, low furniture, natural linen, paper-diffused '
+                'light, very restrained decor',
+    'современный': 'Contemporary: warm neutral palette, mixed wood and matte black details, '
+                   'layered lighting, uncluttered surfaces',
+}
 VISION_MODEL = os.environ.get('VISION_MODEL', 'openai/gpt-4.1-mini')
 CHAT_URL = 'https://ai-gateway.vercel.sh/v1/chat/completions'
 
@@ -632,7 +646,8 @@ def refine_anchors(img: Image.Image, an: list, all_skus: dict | None = None) -> 
 
 
 def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dict,
-               model: str, quality: str = 'medium', refine: bool = True) -> list:
+               model: str, quality: str = 'medium', refine: bool = True,
+               style: str = '') -> list:
     # `refine` оставлен для отладки: якоря уточняются всегда — владелец 26.08 «надо их точнее
     # расставлять» (цифра стула висела на журнальном столике, у ковра якоря не было вовсе)
     """Полный рецепт трека А: коллажи → номера → эталоны → один запрос → разрез по полосе."""
@@ -693,6 +708,7 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
            'wall textures; lighting and materials identical in both views.\n' if two else
            '- Natural daylight from the window, soft contact shadows, realistic wood floor and '
            'wall textures.\n')
+        + (f'- Interior style: {style}. {STYLE_HINT.get(style, "")}\n' if style else '')
         + 'Objects:\n'
         + json.dumps(legend, ensure_ascii=False))
     imgs = [sheet, sheet_marks] + ([ident] if ident is not None else [])
@@ -703,7 +719,7 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
                                        '2-с-номерами': sheet_marks,
                                        '3-эталоны-товаров': ident}, prompt, legend,
                                {'модель': model, 'размер': size, 'качество': quality,
-                                'видов': len(cams)})
+                                'видов': len(cams), 'стиль': style or '—'})
     out = gpt_edit(imgs, prompt, size=size, quality=quality, model=model.split('gateway:')[-1])
     out.save(prefix + '-final.jpg', quality=94)
     pieces = _split_pair(out) if len(cams) > 1 else [out]
@@ -751,7 +767,7 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
     if model.startswith('openai/'):
         # трек А работает и на одном ракурсе: тот же рецепт, просто лист без второй половины
         shots = _sheet_gpt(room, placements, photos, want, prefix, side, skus, model, gq,
-                           refine=(quality == 'realistic'))
+                           style=str((layout or {}).get('style') or ''))
     elif len(want) > 1:
         shots = _sheet(room, placements, photos, want, prefix, model, side, skus)
     else:

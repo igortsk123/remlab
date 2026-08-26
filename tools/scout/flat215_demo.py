@@ -134,8 +134,10 @@ def build() -> dict:
                          'corner': bool(v.get('corner')),
                          'corner_left': bool(v.get('corner_left')),
                          'section': v.get('section') or v.get('corner_section_cm')})
-        variants.append({'id': f'set{n}', 'title': style, 'fill_pct': art.get('_fill_pct'),
-                         'items': objs})
+        # СТИЛЬ ВАРИАНТА (владелец 26.08: «каждый вариант надо добавлять какой это стиль и в
+        # промпт стиля добавляй»): берём стиль банка, из которого собран этот вариант.
+        variants.append({'id': f'set{n}', 'title': style, 'style': sets[n - 1].get('style'),
+                         'fill_pct': art.get('_fill_pct'), 'items': objs})
     # ЛЕНТЫ ТОВАРОВ ПО РОЛЯМ (владелец 26.08: «чтоб фотки можно было назначать»): для каждой роли
     # собираем живые SKU с фото; границы — конверт слота той же комнаты, чтобы примерка не
     # предлагала заведомо негодный габарит (диван 260 см в 14 м²).

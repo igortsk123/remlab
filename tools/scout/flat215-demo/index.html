@@ -388,7 +388,7 @@ function drawVariants(){
     b.className='vtab'+(i===cur?' on':'');
     const p=variantPrice(v);
     b.innerHTML=`<b>${v.title||('Вариант '+(i+1))}</b>`+
-      `<span>${p?Math.round(p/1000)+' т.р.':'без товаров'}</span>`;
+      `<span>${[v.style||'', p?Math.round(p/1000)+' т.р.':''].filter(Boolean).join(' · ')||'без товаров'}</span>`;
     b.onclick=()=>{cur=i;load();drawVariants();};
     vb.appendChild(b);
   });
@@ -774,7 +774,9 @@ function revision(){
 }
 function payload(){
   const base=location.origin+location.pathname.replace(/[^/]*$/,'');
-  return {room:D.room, items:items.map(it=>({role:it.role,x:it.x,y:it.y,rot:it.rot,
+  const v=allVariants()[cur]||{};
+  return {room:D.room, style:v.style||'', variant:v.title||'',
+    items:items.map(it=>({role:it.role,x:it.x,y:it.y,rot:it.rot,
     w:it.w,d:it.d,h:it.h,corner:it.corner,section:it.section,
     name:(it.sku&&it.sku.name)||null,
     price:(it.sku&&it.sku.price)||null, url:(it.sku&&it.sku.url)||null,
@@ -803,7 +805,12 @@ function shotLabel(s){
   return `${s.variant||''} · ${q}${cam?' · '+cam:''} · ${t.getHours()}:${String(t.getMinutes()).padStart(2,'0')}`;
 }
 function curVid(){ const v=allVariants()[cur]||{}; return v.id||('v'+cur); }
-function myShots(){ const v=curVid(); return shots.filter(s=>(s.vid||'')===v); }
+function myShots(){
+  // КАДР БЕЗ ПРИВЯЗКИ — ТОЖЕ НАШ (26.08): снимки, сделанные до появления привязки к варианту,
+  // и снимки варианта, чей id изменился при пересборке демо, иначе просто исчезали из ленты.
+  const v=curVid(), t=(allVariants()[cur]||{}).title||'';
+  return shots.filter(s=>!s.vid||s.vid===v||(t&&s.variant===t));
+}
 function drawFeed(){                    // КАРУСЕЛЬ СРЕДНИХ КАРТОЧЕК со стрелками (26.08)
   const f=document.getElementById('feed'); if(!f)return;
   const rev=(D&&items.length)?revision():'';
@@ -1020,6 +1027,12 @@ stage.addEventListener('pointerdown',e=>{const pt=loc(e);
   const rank=it=>it.role.startsWith('ковёр')?1:0;
   under.sort((a,b)=>rank(a)-rank(b)||(a.w*a.d)-(b.w*b.d));
   const hit=under[0];
+  if(!hit){                         // клик мимо мебели — снимаем выделение
+    if(sel){sel=null;draw();
+      const s=document.getElementById('sel');
+      if(s)s.textContent='Перетаскивайте предмет, чтобы двигать. Товар выбирается по значку на предмете.';}
+    return;
+  }
   if(hit){sel=hit;drag={dx:pt.x-hit.x,dy:pt.y-hit.y,t:Date.now(),moved:false};stage.setPointerCapture(e.pointerId);
     document.getElementById('sel').textContent=`Выбрано: ${hit.role} ${Math.round(hit.w)}×${Math.round(hit.d)} см`+(hit.sku&&hit.sku.name?` · ${hit.sku.name}`:'');
     warmUp();draw();showTip(hit);}});
