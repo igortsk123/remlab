@@ -1,0 +1,373 @@
+<!doctype html><html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="robots" content="noindex"><meta http-equiv="cache-control" content="no-store">
+<title>Квартира 215 — гостиная (демо)</title>
+<style>
+:root{--bg:#fff;--ink:#1A1F1C;--line:#E4E6E2;--accent:#3B76A2;--warn:#B4552B;--ok:#2F7D4F}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto}
+.wrap{max-width:1100px;margin:0 auto;padding:12px 12px 40px}
+h1{font-size:20px;margin:6px 0 2px}.sub{color:#5C655E;font-size:14px;margin-bottom:10px}
+.bar{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 14px;font-size:14px;cursor:pointer}
+.chip.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:10px 14px;font-size:14px;cursor:pointer}
+.btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+#stage{width:100%;border:1px solid var(--line);border-radius:8px;background:#FAF8F3;touch-action:none;display:block}
+.panel{margin-top:10px;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:14px}
+.panel h3{margin:0 0 6px;font-size:15px}
+.issue{padding:4px 0;border-top:1px dashed var(--line)}.issue:first-of-type{border-top:0}
+.issue b{color:var(--warn)}.clean{color:var(--ok)}
+#feed{display:none;gap:8px;overflow-x:auto;padding:8px 0;margin-top:8px}
+#feed.show{display:flex}
+.card{min-width:150px;max-width:150px;border:1px solid var(--line);border-radius:8px;padding:6px;cursor:pointer;background:#fff}
+.card img{width:100%;height:96px;object-fit:contain;background:#F6F4F0;border-radius:4px}
+.card .nm{font-size:12px;line-height:1.25;height:44px;overflow:hidden;margin-top:4px}
+.card .pr{font-size:13px;font-weight:600;margin-top:2px}
+.card .dim{font-size:11px;color:#5C655E}
+.sel{font-size:13px;color:#3A423C;margin-top:6px}
+.acts{display:flex;gap:4px;margin-top:5px}
+.mini{flex:1;text-align:center;border:1px solid var(--line);background:#fff;border-radius:6px;
+ padding:5px 4px;font-size:11.5px;cursor:pointer;text-decoration:none;color:var(--ink)}
+.mini.link{color:var(--accent);border-color:#CBDCE9}
+#basket{margin-top:10px}
+.row{display:flex;gap:10px;align-items:center;padding:7px 0;border-top:1px dashed var(--line)}
+.row img{width:54px;height:44px;object-fit:contain;background:#F6F4F0;border-radius:4px;flex:0 0 54px}
+.row .t{flex:1;min-width:0}.row .t b{font-size:13.5px;font-weight:600;display:block;
+ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .t span{font-size:12px;color:#5C655E}
+.row .p{font-size:13.5px;font-weight:600;white-space:nowrap}
+.row a{font-size:12px;color:var(--accent);white-space:nowrap}
+.total{display:flex;justify-content:space-between;padding-top:8px;font-weight:600}
+.hint{font-size:13px;color:#5C655E;margin-top:6px}
+</style></head><body><div class="wrap">
+<h1>Квартира №215 — гостиная</h1>
+<div class="sub" id="sub">загрузка…</div>
+
+<div class="bar" id="variants"></div>
+<div class="bar" id="kits"></div>
+<div class="bar">
+  <button class="btn" id="reset">Сбросить до стандарта</button>
+  <button class="btn" id="rotate">Повернуть на 90°</button>
+  <button class="btn" id="tryon">Подобрать товар</button>
+  <button class="btn primary" id="render">Отправить на рендер</button>
+</div>
+<div id="feed"></div>
+<div class="sel" id="sel">Предмет не выбран — коснитесь мебели на плане.</div>
+
+<svg id="stage" xmlns="http://www.w3.org/2000/svg"></svg>
+
+<div class="panel" id="basket"><h3>Товары в комнате</h3><div id="blist">—</div></div>
+<div class="panel" id="advisor"><h3>Проверка по стандартам</h3><div id="issues">—</div>
+<div class="hint">Двигать пальцем или мышью. Мы ничего не переставляем за вас: показываем, что расходится со стандартом, и вы решаете сами.</div></div>
+<div class="panel"><h3>Как это устроено</h3>
+<b>Расстановка</b> и <b>комплект товаров</b> — независимы: любой комплект накладывается на любой вариант расстановки,
+а отдельный предмет можно заменить товаром из любого другого комплекта — смешивать можно как угодно.
+Расстановки <b>предпосчитаны офлайн</b> нашим движком; страница ничего не считает. Числа стандартов — из тех же правил, что у движка.</div>
+</div>
+<script>
+const COL={'диван':'#7B7BC0','диван 2':'#8f8fd0','кресло':'#C09A90','кресло 2':'#c9a79d','столик':'#96795A',
+ 'ковёр':'#C9C4BA','тв-тумба':'#9E9E9E','стенка':'#9E9E9E','торшер':'#4A4A4A','пуф':'#AAAA96',
+ 'стеллаж':'#B0A48F','комод':'#B0A48F','витрина':'#B7AFA0','кашпо':'#AA8CA9','камин':'#8C6A5A',
+ 'стол обеденный':'#A08867','стул':'#BDBDBD','стул 2':'#BDBDBD','приставной':'#B9B3A8','банкетка':'#B5AE9E'};
+let D=null, cur=0, items=[], sel=null, S=1, PAD=18;
+const stage=document.getElementById('stage'), NS='http://www.w3.org/2000/svg';
+const el=(t,a)=>{const n=document.createElementNS(NS,t);for(const k in a)n.setAttribute(k,a[k]);return n;};
+const clone=o=>JSON.parse(JSON.stringify(o));
+
+fetch('demo-data.json?v='+Date.now()).then(r=>r.json()).then(d=>{D=d;init();});
+
+function init(){
+  document.getElementById('sub').textContent=`${D.room.title} · ${D.room.w}×${D.room.d} см · габариты сняты с чертежа, точные — от застройщика`;
+  const vb=document.getElementById('variants');
+  const lab=document.createElement('span');lab.className='hint';lab.style.marginRight='4px';
+  lab.textContent='Расстановка:';vb.appendChild(lab);
+  D.variants.forEach((v,i)=>{const b=document.createElement('button');b.className='chip'+(i===0?' on':'');
+    b.textContent=v.title||('Вариант '+(i+1));
+    b.onclick=()=>{cur=i;load();[...vb.querySelectorAll('.chip')].forEach((c,j)=>c.classList.toggle('on',j===i));};
+    vb.appendChild(b);});
+  const kb=document.getElementById('kits');
+  const lab2=document.createElement('span');lab2.className='hint';lab2.style.marginRight='4px';
+  lab2.textContent='Комплект товаров:';kb.appendChild(lab2);
+  (D.sets||[]).forEach((k,i)=>{const b=document.createElement('button');b.className='chip';
+    b.textContent=k.title+(k.sum?` · ${Math.round(k.sum/1000)} тыс ₽`:'');
+    b.onclick=()=>{applyKit(k);[...kb.querySelectorAll('.chip')].forEach((c,j)=>c.classList.toggle('on',j===i));};
+    kb.appendChild(b);});
+  document.getElementById('reset').onclick=load;
+  document.getElementById('rotate').onclick=()=>{if(!sel)return;sel.rot=(sel.rot+90)%360;draw();};
+  document.getElementById('tryon').onclick=()=>{const f=document.getElementById('feed');
+    f.classList.toggle('show');if(f.classList.contains('show'))feed();};
+  document.getElementById('render').onclick=()=>{alert('Рендер двух ракурсов подключается следующим шагом: сцена уже собрана — '+items.length+' предметов, из них товаров с фото '+items.filter(i=>i.sku&&i.sku.img).length+'.');};
+  load();
+}
+function applyKit(kit){            // комплект накладывается на ЛЮБУЮ расстановку; предметы,
+  let n=0;                          // которых в комплекте нет, остаются как были (можно смешивать)
+  items.forEach(it=>{const p=kit.roles[it.role]||kit.roles[it.role.split(' ')[0]];
+    if(!p)return;it.w=p.w;it.d=p.d;it.h=p.h;
+    it.sku={name:p.name,price:p.price,img:p.img,url:p.url,shop:p.shop};n++;});
+  document.getElementById('sel').innerHTML=`Применён <b>${kit.title}</b>: товаров ${n}`+
+    (kit.sum?` · сумма ${kit.sum.toLocaleString('ru-RU')} ₽`:'')+
+    ` · любой предмет можно заменить своим — выберите его и нажмите «Подобрать товар»`;
+  draw();}
+function load(){items=clone(D.variants[cur].items);sel=null;document.getElementById('sel').textContent='Предмет не выбран — коснитесь мебели на плане, затем «Подобрать товар».';draw();}
+
+function size(){const w=stage.clientWidth||stage.parentNode.clientWidth;S=(w-2*PAD)/D.room.w;stage.setAttribute('height',Math.round(D.room.d*S+2*PAD));}
+const X=x=>PAD+x*S, Y=y=>PAD+y*S;
+function box(it){const sw=(it.rot%180===90)?it.d:it.w, sd=(it.rot%180===90)?it.w:it.d;
+  return {x0:it.x-sw/2,y0:it.y-sd/2,x1:it.x+sw/2,y1:it.y+sd/2,w:sw,d:sd};}
+
+function draw(){
+  size();while(stage.firstChild)stage.removeChild(stage.firstChild);
+  stage.appendChild(el('rect',{x:X(0),y:Y(0),width:D.room.w*S,height:D.room.d*S,fill:'#FAF8F3',stroke:'#3A3A3A','stroke-width':3}));
+  D.room.radiators.forEach(r=>{const p=wallSeg(r.wall,r.offset_cm,r.width_cm);
+    stage.appendChild(el('line',{x1:X(p.x1),y1:Y(p.y1),x2:X(p.x2),y2:Y(p.y2),stroke:'#C8622F','stroke-width':7,opacity:.5}));});
+  D.room.openings.forEach(o=>{const p=wallSeg(o.wall,o.offset_cm,o.width_cm);
+    stage.appendChild(el('line',{x1:X(p.x1),y1:Y(p.y1),x2:X(p.x2),y2:Y(p.y2),
+      stroke:o.kind==='door'?'#C8783C':'#5A9BD4','stroke-width':8}));
+    if(o.kind==='door'){const sw=swing(o);stage.appendChild(el('path',{d:sw,fill:'none',stroke:'#E0B389','stroke-width':1.5}));}
+    const m=wallMid(o);stage.appendChild(txt(m.x,m.y,o.kind==='door'?'дверь':'окно',11,o.kind==='door'?'#B4652B':'#3E7BB0'));});
+  items.slice().sort((a,b)=>(a.role.startsWith('ковёр')?0:1)-(b.role.startsWith('ковёр')?0:1)).forEach(it=>{
+    stage.appendChild(shape(it));
+    const b=box(it);
+    stage.appendChild(txt((b.x0+b.x1)/2,b.y1+9,`${it.role} ${Math.round(it.w)}×${Math.round(it.d)}`,10.5,'#2A2F2C'));});
+  check();basket();
+}
+function basket(){                    // мини-каталог собранной комнаты: что стоит, размеры, цена, ссылка
+  const withSku=items.filter(i=>i.sku&&i.sku.name);
+  const box=document.getElementById('blist');
+  if(!withSku.length){box.innerHTML='<div class="hint">Товары ещё не назначены: выберите комплект или подберите предмет вручную.</div>';return;}
+  let sum=0;
+  box.innerHTML=withSku.map(i=>{const p=i.sku;sum+=p.price||0;
+    const dims=`${Math.round(i.w)}×${Math.round(i.d)}${i.h?'×'+Math.round(i.h):''} см`;
+    return `<div class="row">${p.img?`<img src="${p.img}" loading="lazy" alt="">`:'<div style="width:54px"></div>'}`+
+      `<div class="t"><b>${p.name||i.role}</b><span>${i.role} · ${dims}${p.shop?' · '+p.shop:''}</span></div>`+
+      `<div class="p">${(p.price||0).toLocaleString('ru-RU')} ₽</div>`+
+      (p.url?`<a href="${p.url}" target="_blank" rel="noopener">Подробнее</a>`:'')+`</div>`;}).join('')
+    +`<div class="total"><span>Итого ${withSku.length} товаров</span><span>${sum.toLocaleString('ru-RU')} ₽</span></div>`;
+}
+let UID=0;
+function kind(it){                       // модель выбирается ПОД ТОВАР, а не по одной болванке
+  const n=((it.sku&&it.sku.name)||'').toLowerCase(), base=it.role.split(' ')[0];
+  if(base==='диван'){
+    if(it.corner||/углов|шезлонг|дельфин\s*углов/.test(n))return 'sofa_corner';
+    if(/прямой|еврокниж|клик|аккордеон|книжк/.test(n)&&it.w<170)return 'sofa_2';
+    return it.w>=200?'sofa_3':'sofa_2';
+  }
+  if(base==='столик'||base==='стол'||base==='приставной'){
+    if(/кругл|овальн/.test(n)||Math.abs(it.w-it.d)<=3)return 'table_round';
+    return 'table_rect';
+  }
+  if(base==='пуф')return /кругл/.test(n)||Math.abs(it.w-it.d)<=3?'pouf_round':'pouf_sq';
+  return base;
+}
+function shape(it){
+  const base=it.role.split(' ')[0], w=it.w*S, d=it.d*S, g=el('g',{}), K=kind(it);
+  g.setAttribute('transform',`translate(${X(it.x)},${Y(it.y)}) rotate(${-it.rot})`);
+  const col=COL[base]||'#C8C8C8', line=sel===it?'#111':'#3A3A3A', sw=sel===it?2.5:1.1;
+  const R=(x,y,ww,hh,rx,f,st,o)=>el('rect',{x:x,y:y,width:Math.max(ww,1),height:Math.max(hh,1),rx:rx||2,
+      fill:f||col,stroke:st||line,'stroke-width':sw,opacity:o===undefined?1:o});
+  const C=(cx,cy,r,f,st)=>el('circle',{cx:cx,cy:cy,r:Math.max(r,1),fill:f||col,stroke:st||line,'stroke-width':sw});
+  const L=(x1,y1,x2,y2,o)=>el('line',{x1:x1,y1:y1,x2:x2,y2:y2,stroke:'#00000055','stroke-width':1,opacity:o||.55});
+  // локальные координаты: центр 0,0; фронт предмета — вниз по экрану (+y)
+  if(K==='sofa_corner'){                                                // Г-диван: корпус + шезлонг
+    const sec=Math.max((it.section||95)*S,w*0.28), arm=Math.min(w*0.10,14), backT=Math.max(d*0.20,8);
+    const left=!!it.corner_left;
+    g.appendChild(R(-w/2,-d/2,w,d,7));                                  // общий габарит
+    g.appendChild(R(left?-w/2:w/2-sec,-d/2,sec,d,7,shade(col,-6)));     // плечо
+    g.appendChild(R(-w/2,-d/2,w,backT,4,shade(col,-20)));               // спинка
+    g.appendChild(R(left?-w/2:w/2-arm,-d/2,arm,d,4,shade(col,-12)));    // внешний подлокотник
+    const n=Math.max(2,Math.round(it.w/95));
+    for(let i=1;i<n;i++){const x=-w/2+w*i/n;g.appendChild(L(x,-d/2+backT,x,d/2-3));}
+  } else if(base==='диван'||base==='банкетка'){
+    const arm=Math.min(w*0.12,16), backT=Math.max(d*0.22,8), pad=3;
+    g.appendChild(R(-w/2,-d/2,w,d,8));                                  // корпус
+    g.appendChild(R(-w/2,-d/2,w,backT,5,shade(col,-20)));               // спинка (у стены)
+    g.appendChild(R(-w/2,-d/2,arm,d,5,shade(col,-12)));                 // подлокотники
+    g.appendChild(R(w/2-arm,-d/2,arm,d,5,shade(col,-12)));
+    const seats=K==='sofa_3'?3:2, iw=(w-2*arm-pad*(seats+1))/seats;
+    for(let i=0;i<seats;i++){                                            // подушки сиденья
+      g.appendChild(R(-w/2+arm+pad+i*(iw+pad),-d/2+backT+pad,iw,d-backT-2*pad,4,shade(col,8),'#00000022'));}
+  } else if(base==='кресло'){
+    const arm=Math.min(w*0.16,12), backT=Math.max(d*0.24,7);
+    g.appendChild(R(-w/2,-d/2,w,d,7));
+    g.appendChild(R(-w/2,-d/2,w,backT,4,shade(col,-18)));
+    g.appendChild(R(-w/2,-d/2,arm,d,4,shade(col,-10)));
+    g.appendChild(R(w/2-arm,-d/2,arm,d,4,shade(col,-10)));
+  } else if(base==='ковёр'){
+    g.appendChild(R(-w/2,-d/2,w,d,3,col,'#9A958B'));
+    g.appendChild(R(-w/2+5,-d/2+5,w-10,d-10,2,'none','#00000030'));
+  } else if(base==='тв-тумба'||base==='стенка'){
+    g.appendChild(R(-w/2,-d/2,w,d,3));
+    g.appendChild(R(-w*0.34,-d/2-4,w*0.68,4,1,'#2B2B2B','#2B2B2B'));    // экран на стене
+    g.appendChild(L(-w/2+4,0,w/2-4,0));
+  } else if(base==='торшер'){
+    g.appendChild(C(0,0,Math.min(w,d)/2,'#3A3A3A'));
+    g.appendChild(C(0,0,Math.min(w,d)/4,'#EDE7D8'));
+  } else if(base==='кашпо'){
+    g.appendChild(C(0,0,Math.min(w,d)/2,'#8E6E52'));
+    for(let i=0;i<5;i++){const a=i*72*Math.PI/180,r=Math.min(w,d)/2;
+      g.appendChild(el('ellipse',{cx:Math.cos(a)*r*0.45,cy:Math.sin(a)*r*0.45,rx:r*0.42,ry:r*0.26,
+        fill:'#6E9E63',opacity:.9,transform:`rotate(${i*72})`}));}
+  } else if(base==='пуф'){
+    if(K==='pouf_round'){g.appendChild(C(0,0,Math.min(w,d)/2));g.appendChild(C(0,0,Math.min(w,d)/4,'none','#00000030'));}
+    else {g.appendChild(R(-w/2,-d/2,w,d,Math.min(w,d)/4));g.appendChild(R(-w/2+4,-d/2+4,w-8,d-8,4,'none','#00000022'));}
+  } else if(base==='стеллаж'||base==='комод'||base==='витрина'){
+    g.appendChild(R(-w/2,-d/2,w,d,2));
+    const n=Math.max(2,Math.round(it.w/45));
+    for(let i=1;i<n;i++){const x=-w/2+w*i/n;g.appendChild(L(x,-d/2+2,x,d/2-2));}
+  } else if(K==='table_round'){
+    g.appendChild(C(0,0,Math.min(w,d)/2,col));
+    g.appendChild(C(0,0,Math.min(w,d)/2-4,'none','#00000022'));
+  } else if(base==='столик'||base==='приставной'||base==='стол'){
+    g.appendChild(R(-w/2,-d/2,w,d,Math.min(w,d)/4));
+    g.appendChild(R(-w/2+4,-d/2+4,w-8,d-8,Math.min(w,d)/5,'none','#00000022'));
+  } else if(base==='стул'){
+    g.appendChild(R(-w/2,-d/2,w,d,3));g.appendChild(R(-w/2,-d/2,w,Math.max(d*0.2,3),2,shade(col,-15)));
+  } else if(base==='камин'){
+    g.appendChild(R(-w/2,-d/2,w,d,2));g.appendChild(R(-w*0.3,-d/2+2,w*0.6,d-4,2,'#3A2A22'));
+  } else {
+    g.appendChild(R(-w/2,-d/2,w,d,3));
+  }
+  // фото товара в план НЕ вставляем (владелец 26.08: «не надо фотки кидать, надо модели красивые»):
+  // фото живёт в ленте подбора и в строке выбора, а на плане — аккуратная модель сверху
+  return g;
+}
+function shade(hex,amt){const n=parseInt(hex.slice(1),16);
+  const r=Math.max(0,Math.min(255,(n>>16)+amt)),g2=Math.max(0,Math.min(255,((n>>8)&255)+amt)),
+        b2=Math.max(0,Math.min(255,(n&255)+amt));
+  return '#'+((r<<16)|(g2<<8)|b2).toString(16).padStart(6,'0');}
+function txt(x,y,s,sz,c){const t=el('text',{x:X(x),y:Y(y),'text-anchor':'middle','font-size':sz,fill:c,
+  'paint-order':'stroke',stroke:'#fff','stroke-width':3,'stroke-linejoin':'round','pointer-events':'none'});t.textContent=s;return t;}
+function wallSeg(w,off,len){const W=D.room.w,H=D.room.d;
+  if(w==='south')return{x1:off,y1:0,x2:off+len,y2:0};if(w==='north')return{x1:off,y1:H,x2:off+len,y2:H};
+  if(w==='west')return{x1:0,y1:off,x2:0,y2:off+len};return{x1:W,y1:off,x2:W,y2:off+len};}
+function wallMid(o){const p=wallSeg(o.wall,o.offset_cm,o.width_cm);const cx=(p.x1+p.x2)/2,cy=(p.y1+p.y2)/2;
+  const dx=(D.room.w/2-cx),dy=(D.room.d/2-cy),n=Math.hypot(dx,dy)||1;return{x:cx+dx/n*22,y:cy+dy/n*22};}
+function swing(o){const p=wallSeg(o.wall,o.offset_cm,o.width_cm),r=o.swing_cm||o.width_cm;
+  const hx=p.x1,hy=p.y1;const inx=(o.wall==='west')?1:(o.wall==='east')?-1:0, iny=(o.wall==='south')?1:(o.wall==='north')?-1:0;
+  const ax=hx+(o.wall==='west'||o.wall==='east'?0:r), ay=hy+(o.wall==='west'||o.wall==='east'?r:0);
+  return `M ${X(hx)} ${Y(hy)} L ${X(hx+inx*r)} ${Y(hy+iny*r)} A ${r*S} ${r*S} 0 0 1 ${X(ax)} ${Y(ay)} Z`;}
+
+// ——— перетаскивание (мышь и палец)
+let drag=null;
+stage.addEventListener('pointerdown',e=>{const pt=loc(e);const hit=items.slice().reverse().find(it=>{const b=box(it);
+  return pt.x>=b.x0&&pt.x<=b.x1&&pt.y>=b.y0&&pt.y<=b.y1;});
+  if(hit){sel=hit;drag={dx:pt.x-hit.x,dy:pt.y-hit.y};stage.setPointerCapture(e.pointerId);
+    document.getElementById('sel').textContent=`Выбрано: ${hit.role} ${Math.round(hit.w)}×${Math.round(hit.d)} см`+(hit.sku&&hit.sku.name?` · ${hit.sku.name}`:'');
+    draw();}});
+stage.addEventListener('pointermove',e=>{if(!drag||!sel)return;const pt=loc(e);
+  let nx=pt.x-drag.dx, ny=pt.y-drag.dy;const b=box(sel);
+  nx=Math.max(b.w/2,Math.min(D.room.w-b.w/2,nx));ny=Math.max(b.d/2,Math.min(D.room.d-b.d/2,ny));
+  nx=Math.round(nx/5)*5;ny=Math.round(ny/5)*5;                       // сетка 5 см
+  if(Math.abs(nx-b.w/2)<12)nx=b.w/2; if(Math.abs(D.room.w-nx-b.w/2)<12)nx=D.room.w-b.w/2;  // прилипание к стенам
+  if(Math.abs(ny-b.d/2)<12)ny=b.d/2; if(Math.abs(D.room.d-ny-b.d/2)<12)ny=D.room.d-b.d/2;
+  // ПРЕДМЕТЫ НЕ НАЕЗЖАЮТ ДРУГ НА ДРУГА (владелец 26.08: «чтоб на диван торшер не надвигался»):
+  // пробуем полную позицию, потом только по X, потом только по Y — предмет скользит вдоль
+  // препятствия вместо того, чтобы застревать
+  const ox=sel.x, oy=sel.y;
+  const tryPos=(x,y)=>{sel.x=x;sel.y=y;const ok=!hits(sel);if(!ok){sel.x=ox;sel.y=oy;}return ok;};
+  if(!tryPos(nx,ny)&&!tryPos(nx,oy)&&!tryPos(ox,ny)){/* некуда — остаёмся на месте */}
+  draw();});
+function hits(me){                       // наложение с другими «твёрдыми» предметами (ковёр — подложка)
+  if(me.role.startsWith('ковёр'))return false;
+  const a=box(me);
+  return items.some(o=>{
+    if(o===me||o.role.startsWith('ковёр'))return false;
+    const b=box(o);
+    const ov=Math.max(0,Math.min(a.x1,b.x1)-Math.max(a.x0,b.x0))*Math.max(0,Math.min(a.y1,b.y1)-Math.max(a.y0,b.y0));
+    return ov>200;                       // 2 дм² — допуск на касание кромок
+  });}
+stage.addEventListener('pointerup',()=>{drag=null;});
+function loc(e){const r=stage.getBoundingClientRect();return{x:(e.clientX-r.left-PAD)/S,y:(e.clientY-r.top-PAD)/S};}
+
+// ——— лента диванов
+function feed(){const f=document.getElementById('feed');f.innerHTML='';
+  // лента — ПОД ВЫБРАННЫЙ ПРЕДМЕТ (нет выбора — диваны): фото можно назначить любой роли
+  const base=sel?sel.role.split(' ')[0]:'диван';
+  const list=(D.feeds&&D.feeds[base])||D.sofa_feed||[];
+  if(!list.length){f.innerHTML=`<div class="hint">Для роли «${base}» товаров с фото в этом банке нет.</div>`;return;}
+  list.forEach(p=>{const c=document.createElement('div');c.className='card';
+    const dims=`${Math.round(p.w)}×${Math.round(p.d)}${p.h?'×'+Math.round(p.h):''} см`;
+    c.innerHTML=`<img src="${p.img}" loading="lazy" alt=""><div class="nm">${p.name||''}</div>`+
+      `<div class="pr">${(p.price||0).toLocaleString('ru-RU')} ₽</div>`+
+      `<div class="dim">${dims}<br>${p.shop||''}</div>`+
+      `<div class="acts"><button class="mini">Примерить</button>`+
+      `<a class="mini link" href="${p.url}" target="_blank" rel="noopener">Подробнее</a></div>`;
+    c.querySelector('.mini').onclick=e=>{e.stopPropagation();tryOn(p);};
+    c.querySelector('.link').onclick=e=>e.stopPropagation();
+    c.onclick=()=>tryOn(p);f.appendChild(c);});}
+function tryOn(p){const s=sel||items.find(i=>i.role==='диван');
+  if(!s){alert('Сначала коснитесь предмета на плане');return;}
+  s.w=p.w;s.d=p.d;s.h=p.h;s.sku={name:p.name,price:p.price,img:p.img,url:p.url,shop:p.shop};sel=s;
+  document.getElementById('sel').innerHTML=`Примерено: <b>${p.name}</b> · ${Math.round(p.w)}×${Math.round(p.d)} см · ${(p.price||0).toLocaleString('ru-RU')} ₽ · <a href="${p.url}" target="_blank" rel="noopener">открыть в магазине</a>`;
+  draw();}
+
+// ——— советчик по стандартам (лёгкое подмножество боевого валидатора)
+function check(){
+  const R=D.rules, out=[];
+  const get=r=>items.find(i=>i.role===r), sofa=get('диван'), tbl=get('столик'), rug=get('ковёр'),
+        tv=get('тв-тумба')||get('стенка');
+  const solid=items.filter(i=>!i.role.startsWith('ковёр'));
+  for(let i=0;i<solid.length;i++)for(let j=i+1;j<solid.length;j++){
+    const a=box(solid[i]),b=box(solid[j]);const ov=Math.max(0,Math.min(a.x1,b.x1)-Math.max(a.x0,b.x0))*Math.max(0,Math.min(a.y1,b.y1)-Math.max(a.y0,b.y0));
+    if(ov>400)out.push(`<b>${solid[i].role}</b> и <b>${solid[j].role}</b> накладываются друг на друга (${Math.round(ov/100)} дм²)`);}
+  const door=D.room.openings.find(o=>o.kind==='door');
+  if(door){const sw=doorBox(door);solid.forEach(it=>{const b=box(it);
+    const ov=Math.max(0,Math.min(b.x1,sw.x1)-Math.max(b.x0,sw.x0))*Math.max(0,Math.min(b.y1,sw.y1)-Math.max(b.y0,sw.y0));
+    if(ov>900)out.push(`<b>${it.role}</b> стоит в зоне открывания двери`);});}
+  if(sofa&&tbl){const g=gap(box(sofa),box(tbl));let [lo,hi]=R.sofa_table_hard;const [plo,phi]=R.sofa_table_pref;
+    if(sofa.corner)lo=R.corner_sofa_table_min_cm;      // у Г-дивана столик стоит вплотную к плечу
+    if(g<lo||g>hi)out.push(`диван↔столик <b>${Math.round(g)} см</b> — вне допустимого ${lo}–${hi} (норма ${plo}–${phi})`);
+    else if(!sofa.corner&&(g<plo||g>phi))out.push(`диван↔столик ${Math.round(g)} см — за пределами комфортных ${plo}–${phi}`);}
+  if(sofa&&tv){const g=gap(box(sofa),box(tv));let [lo,hi]=R.sofa_tv_cm;
+    if(sofa.corner)lo=R.corner_sofa_tv_min_cm;         // угловой смотрит по диагонали
+    if(g<lo||g>hi)out.push(`диван↔ТВ <b>${Math.round(g)} см</b> — вне вилки просмотра ${lo}–${hi}`);}
+  if(sofa&&rug){const rl=Math.max(rug.w,rug.d);
+    if(rl<sofa.w)out.push(`ковёр короче дивана (${Math.round(rl)} против ${Math.round(sofa.w)} см) — зона не читается`);
+    const a=box(sofa),b=box(rug);const ovd=Math.max(0,Math.min(a.y1,b.y1)-Math.max(a.y0,b.y0));
+    const cross=Math.max(0,Math.min(a.x1,b.x1)-Math.max(a.x0,b.x0));
+    if(cross>50&&ovd<10)out.push(`передние ножки дивана не заходят на ковёр (норма ${R.rug_front_legs_cm} см)`);}
+  const rad=D.room.radiators[0];
+  if(rad){const rb=radBox(rad);solid.forEach(it=>{const b=box(it);const g=gap(b,rb);
+    const near=Math.max(0,Math.min(b.x1,rb.x1)-Math.max(b.x0,rb.x0))>20||Math.max(0,Math.min(b.y1,rb.y1)-Math.max(b.y0,rb.y0))>20;
+    if(near&&g<R.radiator_min_cm)out.push(`<b>${it.role}</b> ближе ${R.radiator_min_cm} см к радиатору (${Math.round(g)} см)`);});}
+  const route=routeWidth();
+  if(route<R.main_route.acceptance_floor_cm)out.push(`главный проход <b>${route} см</b> — ниже нашего порога ${R.main_route.acceptance_floor_cm}`);
+  else if(route<R.main_route.quality_min_cm)out.push(`главный проход ${route} см — меньше цели ${R.main_route.quality_min_cm} (рекомендация практики ${R.main_route.target_cm})`);
+  const box_=document.getElementById('issues');
+  box_.innerHTML=out.length?out.map(t=>`<div class="issue">${t}</div>`).join('')
+    :`<div class="issue clean">Всё по стандарту: проходы, зазоры и ковёр в норме. Главный проход ${route} см.</div>`;
+}
+function gap(a,b){const dx=Math.max(0,Math.max(a.x0-b.x1,b.x0-a.x1)),dy=Math.max(0,Math.max(a.y0-b.y1,b.y0-a.y1));return Math.hypot(dx,dy);}
+function doorBox(o){const p=wallSeg(o.wall,o.offset_cm,o.width_cm),r=o.swing_cm||90;
+  if(o.wall==='south')return{x0:p.x1,y0:0,x1:p.x2,y1:r};if(o.wall==='north')return{x0:p.x1,y0:D.room.d-r,x1:p.x2,y1:D.room.d};
+  if(o.wall==='west')return{x0:0,y0:p.y1,x1:r,y1:p.y2};return{x0:D.room.w-r,y0:p.y1,x1:D.room.w,y1:p.y2};}
+function radBox(r){const p=wallSeg(r.wall,r.offset_cm,r.width_cm),dep=r.depth_cm||12;
+  if(r.wall==='south')return{x0:p.x1,y0:0,x1:p.x2,y1:dep};if(r.wall==='north')return{x0:p.x1,y0:D.room.d-dep,x1:p.x2,y1:D.room.d};
+  if(r.wall==='west')return{x0:0,y0:p.y1,x1:dep,y1:p.y2};return{x0:D.room.w-dep,y0:p.y1,x1:D.room.w,y1:p.y2};}
+function routeWidth(){                       // ширина коридора от двери вглубь комнаты (сетка 10 см)
+  const step=10,W=Math.ceil(D.room.w/step),H=Math.ceil(D.room.d/step);
+  const blocked=[];for(let i=0;i<W;i++){blocked[i]=[];for(let j=0;j<H;j++){const x=i*step+step/2,y=j*step+step/2;
+    blocked[i][j]=items.some(it=>{if(it.role.startsWith('ковёр'))return false;const b=box(it);
+      return x>=b.x0&&x<=b.x1&&y>=b.y0&&y<=b.y1;});}}
+  const dist=[];for(let i=0;i<W;i++){dist[i]=[];for(let j=0;j<H;j++)dist[i][j]=blocked[i][j]?0:Infinity;}
+  for(let i=0;i<W;i++)for(let j=0;j<H;j++){if(blocked[i][j])continue;
+    let d=Math.min(i+1,j+1,W-i,H-j)*step;                                   // до стен
+    dist[i][j]=d;}
+  for(let it=0;it<3;it++){for(let i=0;i<W;i++)for(let j=0;j<H;j++){if(blocked[i][j]){dist[i][j]=0;continue;}
+    const n=[[i-1,j],[i+1,j],[i,j-1],[i,j+1]];n.forEach(([a,b])=>{if(a<0||b<0||a>=W||b>=H)return;
+      dist[i][j]=Math.min(dist[i][j],dist[a][b]+step);});}}
+  const door=D.room.openings.find(o=>o.kind==='door');if(!door)return 0;
+  const db=doorBox(door),si=Math.min(W-1,Math.max(0,Math.floor(((db.x0+db.x1)/2)/step))),
+        sj=Math.min(H-1,Math.max(0,Math.floor(((db.y0+db.y1)/2)/step)));
+  const ci=Math.floor(W/2),cj=Math.floor(H/2);
+  let best=0;
+  for(const r of [120,100,91,80,75,70,60,50,40]){                            // проходит ли коридор шириной r
+    const ok=[];for(let i=0;i<W;i++){ok[i]=[];for(let j=0;j<H;j++)ok[i][j]=dist[i][j]>=r/2;}
+    if(!ok[si][sj])continue;const seen=new Set([si+','+sj]),q=[[si,sj]];let reach=false;
+    while(q.length){const [i,j]=q.pop();if(Math.abs(i-ci)<=1&&Math.abs(j-cj)<=1){reach=true;break;}
+      [[i-1,j],[i+1,j],[i,j-1],[i,j+1]].forEach(([a,b])=>{if(a<0||b<0||a>=W||b>=H)return;
+        if(!ok[a][b]||seen.has(a+','+b))return;seen.add(a+','+b);q.push([a,b]);});}
+    if(reach){best=r;break;}}
+  return best;}
+window.addEventListener('resize',()=>{if(D)draw();});
+</script></body></html>

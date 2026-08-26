@@ -39,6 +39,11 @@ tools/scout/*
 !tools/scout/README.md
 !tools/scout/pages/
 !tools/scout/pages/**
+# Демо-страница интерактивного планировщика — ИСХОДНИК, а не данные: без неё демо
+# невоспроизводимо (26.08, демо квартиры 215)
+!tools/scout/flat215-demo/
+!tools/scout/flat215-demo/**
+!tools/scout/flat215.json
 # Q6a: правила capability-модели каталога — данные-код с provenance (как rules солвера)
 !tools/scout/rules/
 !tools/scout/rules/*.json
