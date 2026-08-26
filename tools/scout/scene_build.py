@@ -39,6 +39,10 @@ def load_scene(n: int) -> tuple[Room, list[Placement]]:
                 openings=room_spec.get('openings', []))
     placements = []
     for role, p in L.items():
+        # служебные ключи артефакта (`_templates`, `_zones`, `_beam`…) — не предметы (26.08):
+        # раньше их отсекал только `pop('_room')`, и добавление любой диагностики роняло сборку
+        if role.startswith('_') or not isinstance(p, dict) or 'w' not in p or 'x' not in p:
+            continue
         it = Item(role=role, w_cm=p['w'], d_cm=p['d'], h_cm=heights.get(role) or 60,
                   corner=bool(p.get('corner')),
                   corner_section_cm=float(p.get('section') or 95),

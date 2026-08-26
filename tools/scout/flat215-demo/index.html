@@ -88,6 +88,20 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
  font-size:clamp(14px,1.9vw,15.5px);box-shadow:0 4px 14px #00000030;max-width:92vw;overflow:hidden;
  text-overflow:ellipsis}
 #tip.ok{background:#2F7D4F}#tip.warn{background:#B4552B}
+/* ОКНО ЧЕРНОВОГО РЕНДЕРА (26.08): кадр считается на сервере (~15 с), поэтому показываем и
+   ожидание, и время — человеку должно быть видно, что процесс идёт, а не завис. */
+#shot{position:fixed;inset:0;z-index:60;background:#0B0D0Ccc;display:none;align-items:center;
+ justify-content:center;padding:16px}
+#shot.on{display:flex}
+#shot .box{background:#fff;border-radius:14px;max-width:min(1100px,96vw);max-height:92vh;
+ overflow:auto;padding:14px}
+#shot img{width:100%;border-radius:10px;display:block}
+#shot .cap{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px;
+ font-size:clamp(14px,1.9vw,16px);color:#3A423C}
+#shot .wait{padding:40px 20px;text-align:center;font-size:clamp(16px,2.2vw,18px);color:#3A423C}
+.spin{width:26px;height:26px;border:3px solid #E4E6E2;border-top-color:var(--accent);
+ border-radius:50%;margin:0 auto 12px;animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
 </style></head><body><div class="wrap">
 <h1>Обустрой свой будущий дом!</h1>
 <div class="lead">Выберите комнату на плане и обустройте её под себя: расставляйте и перемещайте
@@ -100,7 +114,8 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
   <button class="btn" id="reset">Сбросить до стандарта</button>
   <button class="btn" id="rotate">Повернуть на 90°</button>
   <button class="btn" id="tryon">Подобрать товар</button>
-  <button class="btn primary" id="render">Отправить на рендер</button>
+  <button class="btn primary" id="draft">Черновой рендер</button>
+  <button class="btn" id="render">Отправить на рендер</button>
 </div>
 
 <div class="sel" id="sel">Предмет не выбран — коснитесь мебели на плане.</div>
@@ -111,7 +126,10 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
 <div class="panel" id="basket"><h3>Товары в комнате</h3><div id="blist">—</div></div>
 
 </div>
-<div id="scrim"></div><div id="peek"></div>
+<div id="scrim"></div>
+<div id="shot"><div class="box"><div id="shotbody"></div>
+  <div class="cap"><span id="shotcap"></span><button class="btn" id="shotclose">Закрыть</button></div>
+</div></div><div id="peek"></div>
 <div id="sheet"><div class="grab"></div>
   <header><div class="h"><b id="sh-title">Подбор товара</b><span id="sh-sub"></span></div>
   <button class="close" id="sh-close">Готово</button></header>
@@ -145,6 +163,9 @@ function init(){
     b.onclick=()=>{applyKit(k);[...kb.querySelectorAll('.chip')].forEach((c,j)=>c.classList.toggle('on',j===i));};
     kb.appendChild(b);});
   document.getElementById('reset').onclick=load;
+  document.getElementById('draft').onclick=()=>{warmUp();draftRender();};
+  document.getElementById('shotclose').onclick=()=>document.getElementById('shot').classList.remove('on');
+  document.getElementById('shot').onclick=e=>{if(e.target.id==='shot')e.currentTarget.classList.remove('on');};
   document.getElementById('rotate').onclick=()=>{if(!sel)return;sel.rot=((sel.rot||0)+90)%360;draw();};
   document.getElementById('tryon').onclick=()=>{if(!sel)sel=items.find(i=>i.role==='диван')||items[0];
     if(sel)openPicker(sel);};
@@ -321,9 +342,9 @@ function shape(it){
   return g;
 }
 
-// РУЧКИ ВЫДЕЛЕННОГО ПРЕДМЕТА (владелец 26.08): по углам — вращение на ЛЮБОЙ угол (не только 90°),
-// по сторонам — подсказка «двигаю перетаскиванием». Ручки рисуются в мировых координатах и сами
-// не поворачиваются, иначе стрелка «вращать» оказывалась вверх ногами.
+// РУЧКИ ВЫДЕЛЕННОГО ПРЕДМЕТА (владелец 26.08): по углам — вращение на ЛЮБОЙ угол (не только 90°).
+// Ручки рисуются в мировых координатах и сами не поворачиваются, иначе стрелка «вращать»
+// оказывалась вверх ногами. Растягивать предмет нельзя — размер берётся у реального товара.
 const ROT_SNAP = 5;              // шаг вращения, градусы
 const ROT_MAGNET = 7;            // притяжение к 0/90/180/270
 function handles(it){
@@ -340,13 +361,9 @@ function handles(it){
       'stroke-linecap':'round'}));
     h.appendChild(el('path',{d:'M 3 6 l -1 -5 l 6 2 z',fill:'#2A2F2C'}));
     return h;};
-  const side=(cx,cy,vert)=>{                          // двусторонняя стрелка — «двигать»
-    const h=el('g',{transform:`translate(${cx},${cy})${vert?' rotate(90)':''}`});
-    h.appendChild(el('path',{d:'M -8 0 l 5 -4 l 0 8 z M 8 0 l -5 -4 l 0 8 z',fill:'#2A2F2C'}));
-    return h;};
   [[x0,y0,[1,1]],[x1,y0,[-1,1]],[x0,y1,[1,-1]],[x1,y1,[-1,-1]]].forEach(c=>g.appendChild(corner(c[0],c[1],c[2])));
-  g.appendChild(side((x0+x1)/2,y0,true)); g.appendChild(side((x0+x1)/2,y1,true));
-  g.appendChild(side(x0,(y0+y1)/2,false)); g.appendChild(side(x1,(y0+y1)/2,false));
+  // БОКОВЫХ РУЧЕК НЕТ (владелец 26.08): они читались как «растянуть предмет», а мебель у нас
+  // реальная — габарит задаёт товар, менять его нельзя. Двигают предмет перетаскиванием.
   const deg=Math.round(it.rot||0)%360;
   if(deg)g.appendChild(txt((b.x0+b.x1)/2,b.y0-14,`${deg}°`,11,'#B4552B'));
   return g;
@@ -354,8 +371,13 @@ function handles(it){
 function badgeFor(it){
   // ЗНАЧОК ВСЕГДА НЕ ПОВЁРНУТ (владелец 26.08: «чтоб не было перевёрнутых миниатюр»): рисуем его
   // отдельной группой в МИРОВЫХ координатах, а не внутри повёрнутой группы предмета.
-  const b=box(it), r=Math.max(10,Math.min(Math.min(b.w,b.d)*S*0.20,17));
-  const cx=X(b.x1)-r-3, cy=Y(b.y0)+r+3;
+  // ЗНАЧОК ДЕРЖИТСЯ ЗА УГОЛ САМОГО ПРЕДМЕТА, А НЕ ЗА ОПИСАННЫЙ ПРЯМОУГОЛЬНИК (владелец 26.08:
+  // «миниатюра при повороте отделяется»): у наклонённого предмета описанный прямоугольник шире
+  // его самого, и значок уезжал в пустоту. Считаем повёрнутый угол в мировых координатах.
+  const r=Math.max(10,Math.min(Math.min(it.w,it.d)*S*0.20,17));
+  const _a=-(it.rot||0)*Math.PI/180, _co=Math.cos(_a), _si=Math.sin(_a);
+  const _lx=it.w/2-(r+3)/S, _ly=-(it.d/2-(r+3)/S);          // локальный «правый верхний» угол
+  const cx=X(it.x+_lx*_co-_ly*_si), cy=Y(it.y+_lx*_si+_ly*_co);
   const g=el('g',{}); g.style.cursor='pointer';
   g.appendChild(el('circle',{cx:cx,cy:cy,r:r+2,fill:'#fff',stroke:'#2F6D96','stroke-width':1.6}));
   if(it.sku&&it.sku.img){
@@ -397,6 +419,45 @@ function swing(o){const p=wallSeg(o.wall,o.offset_cm,o.width_cm),r=o.swing_cm||o
   return `M ${X(hx)} ${Y(hy)} L ${X(hx+inx*r)} ${Y(hy+iny*r)} A ${r*S} ${r*S} 0 0 1 ${X(ax)} ${Y(ay)} Z`;}
 
 // ——— перетаскивание (мышь и палец)
+// ЧЕРНОВОЙ РЕНДЕР (26.08). Ключ модели живёт на сервере, поэтому страница шлёт СВОЮ расстановку
+// (габариты комнаты, проёмы, где что стоит и фотография каждого товара), а сервер собирает
+// коллаж и делает один вызов. Прогрев зовём, как только человек начал двигать мебель: у модели
+// холодный старт около минуты, прогретая отвечает ~12 с.
+let warmed=false;
+function warmUp(){ if(warmed)return; warmed=true;
+  fetch('/api/warm',{method:'POST',headers:{'content-type':'application/json'},body:'{}'})
+    .catch(()=>{}); }
+function payload(){
+  const base=location.origin+location.pathname.replace(/[^/]*$/,'');
+  return {room:D.room, items:items.map(it=>({role:it.role,x:it.x,y:it.y,rot:it.rot,
+    w:it.w,d:it.d,h:it.h,corner:it.corner,section:it.section,
+    name:(it.sku&&it.sku.name)||null,
+    img:(it.sku&&it.sku.img)?(/^https?:/.test(it.sku.img)?it.sku.img:base+it.sku.img):null}))};
+}
+function shotOpen(html,cap){document.getElementById('shotbody').innerHTML=html;
+  document.getElementById('shotcap').textContent=cap||'';
+  document.getElementById('shot').classList.add('on');}
+async function draftRender(){
+  const t0=Date.now();
+  shotOpen('<div class="wait"><div class="spin"></div>Собираем кадр по вашей расстановке…<br>'+
+           '<span id="el">0</span> с</div>','обычно 12–18 секунд');
+  const tick=setInterval(()=>{const e=document.getElementById('el');
+    if(e)e.textContent=Math.round((Date.now()-t0)/1000);},500);
+  try{
+    const r=await fetch('/api/draft',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify(payload())});
+    const j=await r.json();
+    clearInterval(tick);
+    if(!j.url)throw new Error(j.error||'пустой ответ');
+    const miss=(j.diag&&j.diag['вне кадра']||[]).length;
+    shotOpen(`<img src="${j.url}" alt="черновой рендер">`,
+      `черновик за ${j.sec} с${miss?` · вне кадра: ${j.diag['вне кадра'].join(', ')}`:''}`);
+  }catch(err){
+    clearInterval(tick);
+    shotOpen('<div class="wait">Не получилось собрать кадр.<br>'+
+      String(err.message||err).slice(0,140)+'</div>','попробуйте ещё раз');
+  }
+}
 let drag=null, rotDrag=null;
 stage.addEventListener('pointerdown',e=>{const pt=loc(e);
   // ВРАЩЕНИЕ ЗА УГЛОВУЮ РУЧКУ (26.08): угол считаем от центра предмета, шаг 5°, с притяжением
@@ -415,7 +476,7 @@ stage.addEventListener('pointerdown',e=>{const pt=loc(e);
   const hit=under[0];
   if(hit){sel=hit;drag={dx:pt.x-hit.x,dy:pt.y-hit.y,t:Date.now(),moved:false};stage.setPointerCapture(e.pointerId);
     document.getElementById('sel').textContent=`Выбрано: ${hit.role} ${Math.round(hit.w)}×${Math.round(hit.d)} см`+(hit.sku&&hit.sku.name?` · ${hit.sku.name}`:'');
-    draw();showTip(hit);}});
+    warmUp();draw();showTip(hit);}});
 stage.addEventListener('pointermove',e=>{
   if(rotDrag&&sel){const pt=loc(e);
     const a=Math.atan2(pt.y-sel.y,pt.x-sel.x)*180/Math.PI;
