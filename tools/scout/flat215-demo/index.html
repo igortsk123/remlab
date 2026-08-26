@@ -102,28 +102,92 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
 .spin{width:26px;height:26px;border:3px solid #E4E6E2;border-top-color:var(--accent);
  border-radius:50%;margin:0 auto 12px;animation:sp 1s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
+/* ВКЛАДКИ (26.08): маршрут «квартира → комната», состояние в адресе (#plan/#room) */
+.tabs{display:flex;gap:8px;border-bottom:1px solid var(--line);margin:14px 0 4px}
+.tab{border:0;background:none;padding:10px 4px;margin-right:14px;cursor:pointer;color:#5C655E;
+ font-size:clamp(16px,2.2vw,18px);border-bottom:3px solid transparent}
+.tab.on{color:var(--ink);border-bottom-color:var(--accent);font-weight:600}
+/* СХЕМА КОМНАТ: площади разные, поэтому плитки масштабируются по площади — но это схема, а не план */
+#flatRooms{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+.rm{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#FAF8F3;
+ min-width:120px;display:flex;flex-direction:column;justify-content:flex-end;cursor:default}
+.rm.go{cursor:pointer;border-color:var(--accent);background:#fff;box-shadow:0 1px 8px #3B76A21f}
+.rm .nm{font-weight:600;font-size:clamp(15px,2vw,17px)}
+.rm .m2{color:#5C655E;font-size:clamp(13px,1.7vw,15px)}
+.rm .st{margin-top:6px;font-size:12.5px;color:#8A8F89}
+.rm.go .st{color:var(--accent);font-weight:600}
+/* БЛОК ФОТОГРАФИЙ НАД ПЛАНОМ: либо кадры этой расстановки, либо «расстановка изменилась» */
+#photos .shots{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px}
+#photos .shots img{height:180px;border-radius:10px;cursor:pointer;flex:0 0 auto}
+#photos .acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+/* ЛЕНТА: новые кадры добавляются СПРАВА и ничего не удаляется (владелец 26.08) */
+#feed{display:flex;gap:10px;overflow-x:auto;padding:6px 2px 10px;scroll-behavior:smooth}
+#feed:empty::after{content:'Пока пусто — сделайте первое фото своей расстановки.';color:#8A8F89;
+ font-size:14px}
+.shot-card{flex:0 0 auto;width:180px;border:1px solid var(--line);border-radius:10px;padding:6px;
+ background:#fff;cursor:pointer;position:relative}
+.shot-card img{width:100%;height:120px;object-fit:cover;border-radius:7px;background:#F2F0EB}
+.shot-card .t{font-size:12.5px;color:#5C655E;margin-top:5px;line-height:1.3}
+.shot-card.pick{border-color:var(--accent);box-shadow:0 0 0 2px #3B76A233}
+.shot-card .mark{position:absolute;top:10px;left:10px;width:20px;height:20px;border-radius:5px;
+ background:#fff;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;
+ font-size:13px;color:#fff}
+.shot-card.pick .mark{background:var(--accent);border-color:var(--accent)}
+#shot .grid2{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+#shot .grid2 img{width:100%;border-radius:8px}
+.chan{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.linkbox{display:flex;gap:8px;margin-top:10px;align-items:center}
+.linkbox input{flex:1;min-width:0;padding:9px 11px;border:1px solid var(--line);border-radius:8px;
+ font-size:14px;background:#FAF8F3}
 </style></head><body><div class="wrap">
 <h1>Обустрой свой будущий дом!</h1>
 <div class="lead">Выберите комнату на плане и обустройте её под себя: расставляйте и перемещайте
 мебель, подбирайте реальные товары и вдохновляйтесь реалистичными изображениями будущего дома.</div>
 <div class="sub" id="sub">загрузка…</div>
 
-<div class="bar" id="variants"></div>
-<div class="bar" id="kits"></div>
-<div class="bar">
-  <button class="btn" id="reset">Сбросить до стандарта</button>
-  <button class="btn" id="rotate">Повернуть на 90°</button>
-  <button class="btn" id="tryon">Подобрать товар</button>
-  <button class="btn primary" id="draft">Черновой рендер</button>
-  <button class="btn" id="render">Отправить на рендер</button>
+<div class="tabs" role="tablist">
+  <button class="tab on" id="tab-plan" role="tab">План квартиры</button>
+  <button class="tab" id="tab-room" role="tab">Расстановка комнаты</button>
 </div>
 
-<div class="sel" id="sel">Предмет не выбран — коснитесь мебели на плане.</div>
+<section id="screen-plan">
+  <div class="panel">
+    <h3 id="flatTitle">План квартиры</h3>
+    <div class="hint">Схема комнат по площадям из паспорта квартиры — не чертёж. Выберите комнату,
+    чтобы обустроить её.</div>
+    <div id="flatRooms"></div>
+  </div>
+</section>
 
-<div id="canvasWrap"><svg id="stage" xmlns="http://www.w3.org/2000/svg"></svg>
-<div id="tip"></div></div>
+<section id="screen-room" hidden>
+  <div class="panel" id="photos"></div>
 
-<div class="panel" id="basket"><h3>Товары в комнате</h3><div id="blist">—</div></div>
+  <div class="bar" id="variants"></div>
+  <div class="bar" id="kits"></div>
+  <div class="bar">
+    <button class="btn" id="reset">Сбросить до стандарта</button>
+    <button class="btn" id="rotate">Повернуть на 90°</button>
+    <button class="btn" id="tryon">Подобрать товар</button>
+  </div>
+
+  <div class="sel" id="sel">Предмет не выбран — коснитесь мебели на плане.</div>
+
+  <div id="canvasWrap"><svg id="stage" xmlns="http://www.w3.org/2000/svg"></svg>
+  <div id="tip"></div></div>
+
+  <div class="panel" id="feedPanel">
+    <h3>Ваши фотографии</h3>
+    <div class="hint" id="feedHint">Здесь копятся все снимки: готовые и созданные вами. Ничего не
+    пропадает — новые добавляются справа.</div>
+    <div id="feed"></div>
+    <div class="bar" id="feedBar" hidden>
+      <button class="btn" id="feedAll">Выбрать все</button>
+      <button class="btn primary" id="feedShare">Отправить подборку себе</button>
+    </div>
+  </div>
+
+  <div class="panel" id="basket"><h3>Товары в комнате</h3><div id="blist">—</div></div>
+</section>
 
 </div>
 <div id="scrim"></div>
@@ -163,7 +227,6 @@ function init(){
     b.onclick=()=>{applyKit(k);[...kb.querySelectorAll('.chip')].forEach((c,j)=>c.classList.toggle('on',j===i));};
     kb.appendChild(b);});
   document.getElementById('reset').onclick=load;
-  document.getElementById('draft').onclick=()=>{warmUp();draftRender();};
   document.getElementById('shotclose').onclick=()=>document.getElementById('shot').classList.remove('on');
   document.getElementById('shot').onclick=e=>{if(e.target.id==='shot')e.currentTarget.classList.remove('on');};
   document.getElementById('rotate').onclick=()=>{if(!sel)return;sel.rot=((sel.rot||0)+90)%360;draw();};
@@ -171,8 +234,44 @@ function init(){
     if(sel)openPicker(sel);};
   document.getElementById('sh-close').onclick=closePicker;
   document.getElementById('scrim').onclick=closePicker;
-  document.getElementById('render').onclick=()=>{alert('Рендер двух ракурсов подключается следующим шагом: сцена уже собрана — '+items.length+' предметов, из них товаров с фото '+items.filter(i=>i.sku&&i.sku.img).length+'.');};
+  document.getElementById('feedAll').onclick=()=>{const all=shots.every(s=>s.pick);
+    shots.forEach(s=>s.pick=!all);drawFeed();};
+  document.getElementById('feedShare').onclick=()=>shareOpen(shots.filter(s=>s.pick));
+  document.getElementById('tab-plan').onclick=()=>showTab('plan');
+  document.getElementById('tab-room').onclick=()=>showTab('room');
+  window.addEventListener('hashchange',()=>showTab(location.hash==='#room'?'room':'plan'));
+  flatPlan();
+  loadShots();
   load();
+  showTab(location.hash==='#room'?'room':'plan');
+}
+// ——— вкладки и схема квартиры
+function showTab(which){
+  const room=which==='room';
+  document.getElementById('screen-plan').hidden=room;
+  document.getElementById('screen-room').hidden=!room;
+  document.getElementById('tab-plan').classList.toggle('on',!room);
+  document.getElementById('tab-room').classList.toggle('on',room);
+  if(location.hash!=='#'+which)history.replaceState(null,'','#'+which);
+  if(room)draw();
+}
+function flatPlan(){
+  document.getElementById('flatTitle').textContent=D.flat_title||'План квартиры';
+  const box=document.getElementById('flatRooms');box.innerHTML='';
+  // ПЛИТКА ПРОПОРЦИОНАЛЬНА ПЛОЩАДИ, но это честно названо схемой: чертежа всей квартиры у нас нет,
+  // с плана застройщика сняты только габариты гостиной (26.08).
+  (D.rooms||[]).forEach(r=>{
+    const el=document.createElement('div');
+    el.className='rm'+(r.ready?' go':'');
+    const h=Math.max(74,Math.min(150,54+(r.m2||6)*4));
+    el.style.height=h+'px';
+    el.style.flex=`1 1 ${Math.max(120,Math.min(260,90+(r.m2||6)*7))}px`;
+    el.innerHTML=`<div class="nm">${r.title}</div>`+
+      `<div class="m2">${r.m2?r.m2.toFixed(1).replace('.',',')+' м²':''}</div>`+
+      `<div class="st">${r.ready?'Обустроить →':'скоро'}</div>`;
+    if(r.ready)el.onclick=()=>showTab('room');
+    box.appendChild(el);
+  });
 }
 function applyKit(kit){            // комплект накладывается на ЛЮБУЮ расстановку; предметы,
   let n=0;                          // которых в комплекте нет, остаются как были (можно смешивать)
@@ -212,6 +311,7 @@ function draw(){
   if(sel)stage.appendChild(handles(sel));               // ручки выделенного — под значками
   items.forEach(it=>stage.appendChild(badgeFor(it)));   // значки — последним слоем и БЕЗ поворота
   basket();
+  drawPhotos();          // блок над планом знает, снята ли ТЕКУЩАЯ расстановка (26.08)
 }
 function basket(){                    // мини-каталог собранной комнаты: что стоит, размеры, цена, ссылка
   const withSku=items.filter(i=>i.sku&&i.sku.name);
@@ -419,14 +519,20 @@ function swing(o){const p=wallSeg(o.wall,o.offset_cm,o.width_cm),r=o.swing_cm||o
   return `M ${X(hx)} ${Y(hy)} L ${X(hx+inx*r)} ${Y(hy+iny*r)} A ${r*S} ${r*S} 0 0 1 ${X(ax)} ${Y(ay)} Z`;}
 
 // ——— перетаскивание (мышь и палец)
-// ЧЕРНОВОЙ РЕНДЕР (26.08). Ключ модели живёт на сервере, поэтому страница шлёт СВОЮ расстановку
-// (габариты комнаты, проёмы, где что стоит и фотография каждого товара), а сервер собирает
-// коллаж и делает один вызов. Прогрев зовём, как только человек начал двигать мебель: у модели
-// холодный старт около минуты, прогретая отвечает ~12 с.
-let warmed=false;
+// ФОТОГРАФИИ РАССТАНОВКИ (26.08). Ключ модели живёт на сервере, поэтому страница шлёт СВОЮ
+// расстановку (комната, проёмы, где что стоит, фото каждого товара), а сервер собирает коллаж и
+// делает один вызов модели. Прогрев зовём, как только человек начал двигать мебель: у модели
+// холодный старт до минуты, прогретая отвечает своё время.
+let warmed=false, shots=[], busy=false;
 function warmUp(){ if(warmed)return; warmed=true;
   fetch('/api/warm',{method:'POST',headers:{'content-type':'application/json'},body:'{}'})
     .catch(()=>{}); }
+// РЕВИЗИЯ РАССТАНОВКИ — что именно снято на фотографии. Совпала с текущей — показываем кадры,
+// разошлась — предлагаем сделать новый снимок. Считается по местам предметов и назначенным товарам.
+function revision(){
+  return items.map(it=>`${it.role}|${Math.round(it.x)}|${Math.round(it.y)}|${Math.round(it.rot||0)}|`
+    +((it.sku&&(it.sku.mid+':'+it.sku.eid))||(it.sku&&it.sku.name)||'-')).sort().join(';');
+}
 function payload(){
   const base=location.origin+location.pathname.replace(/[^/]*$/,'');
   return {room:D.room, items:items.map(it=>({role:it.role,x:it.x,y:it.y,rot:it.rot,
@@ -434,28 +540,132 @@ function payload(){
     name:(it.sku&&it.sku.name)||null,
     img:(it.sku&&it.sku.img)?(/^https?:/.test(it.sku.img)?it.sku.img:base+it.sku.img):null}))};
 }
+// ——— хранилище кадров: НИЧЕГО НЕ УДАЛЯЕМ (владелец 26.08), переживает перезагрузку страницы
+function loadShots(){
+  try{shots=JSON.parse(localStorage.getItem('flat215-shots')||'[]');}catch(e){shots=[];}
+  shots.forEach(s=>s.pick=false);
+  drawFeed();
+}
+function saveShots(){
+  try{localStorage.setItem('flat215-shots',JSON.stringify(
+    shots.map(({pick,...s})=>s).slice(-60)));}catch(e){}
+}
+function addShot(rec){ shots.push(rec); saveShots(); drawFeed(); drawPhotos();
+  const f=document.getElementById('feed'); if(f)f.scrollLeft=f.scrollWidth; }
+function shotLabel(s){
+  const q={draft:'черновое',realistic:'реалистичное',preset:'готовое'}[s.quality]||s.quality;
+  const cam={C1:'от окна',C2:'от входа'}[s.camera]||'';
+  const t=new Date(s.ts||Date.now());
+  return `${s.variant||''} · ${q}${cam?' · '+cam:''} · ${t.getHours()}:${String(t.getMinutes()).padStart(2,'0')}`;
+}
+function drawFeed(){
+  const f=document.getElementById('feed'); if(!f)return;
+  f.innerHTML='';
+  shots.forEach((s,i)=>{
+    const c=document.createElement('div');
+    c.className='shot-card'+(s.pick?' pick':'');
+    c.innerHTML=`<div class="mark">${s.pick?'✓':''}</div>`+
+      `<img src="${s.url}" alt="${shotLabel(s)}" loading="lazy">`+
+      `<div class="t">${shotLabel(s)}</div>`;
+    c.querySelector('.mark').onclick=e=>{e.stopPropagation();s.pick=!s.pick;drawFeed();};
+    c.onclick=()=>viewShot(i);
+    f.appendChild(c);
+  });
+  document.getElementById('feedBar').hidden=shots.length===0;
+  const n=shots.filter(s=>s.pick).length;
+  document.getElementById('feedShare').textContent=n?`Отправить себе (${n})`:'Отправить подборку себе';
+}
+// ——— блок над планом: либо кадры этой расстановки, либо «расстановка изменилась»
+function drawPhotos(){
+  const box=document.getElementById('photos'); if(!box||!D)return;
+  const rev=revision();
+  const mine=shots.filter(s=>s.revision===rev);
+  if(mine.length){
+    box.innerHTML=`<h3>Фотографии этой расстановки</h3>`+
+      `<div class="shots">${mine.map((s,i)=>`<img data-i="${shots.indexOf(s)}" src="${s.url}" alt="${shotLabel(s)}">`).join('')}</div>`+
+      `<div class="hint">Все снимки сохраняются в ленте ниже — они не пропадут, даже если вы
+       переставите мебель.</div>`;
+    box.querySelectorAll('.shots img').forEach(im=>im.onclick=()=>viewShot(+im.dataset.i));
+    return;
+  }
+  box.innerHTML=`<h3>${shots.length?'Расстановка изменилась':'Фотография вашей комнаты'}</h3>`+
+    `<div class="hint">${shots.length
+      ? 'Прежние снимки сохранены в ленте. Сделайте новый — он покажет комнату так, как вы её расставили.'
+      : 'Соберите комнату по вкусу и посмотрите, как она будет выглядеть.'}</div>`+
+    `<div class="acts">
+       <button class="btn primary" id="mkDraft">Сделать черновое фото · ~15 сек</button>
+       <button class="btn" id="mkReal">Сделать реалистичное фото · ~40 сек</button>
+     </div>`;
+  document.getElementById('mkDraft').onclick=()=>makePhoto('draft');
+  document.getElementById('mkReal').onclick=()=>makePhoto('realistic');
+}
 function shotOpen(html,cap){document.getElementById('shotbody').innerHTML=html;
-  document.getElementById('shotcap').textContent=cap||'';
+  document.getElementById('shotcap').innerHTML=cap||'';
   document.getElementById('shot').classList.add('on');}
-async function draftRender(){
-  const t0=Date.now();
-  shotOpen('<div class="wait"><div class="spin"></div>Собираем кадр по вашей расстановке…<br>'+
-           '<span id="el">0</span> с</div>','обычно 12–18 секунд');
+async function makePhoto(quality){
+  if(busy){shotOpen('<div class="wait">Один кадр уже считается — дождитесь его.</div>','');return;}
+  busy=true; warmUp();
+  const t0=Date.now(), rev=revision();
+  const est=quality==='realistic'?'обычно 30–60 секунд':'обычно 12–18 секунд';
+  shotOpen('<div class="wait"><div class="spin"></div>'+
+    (quality==='realistic'?'Собираем реалистичное фото':'Собираем черновое фото')+
+    ' по вашей расстановке…<br><span id="el">0</span> с</div>',est);
   const tick=setInterval(()=>{const e=document.getElementById('el');
     if(e)e.textContent=Math.round((Date.now()-t0)/1000);},500);
   try{
-    const r=await fetch('/api/draft',{method:'POST',headers:{'content-type':'application/json'},
-      body:JSON.stringify(payload())});
+    const r=await fetch('/api/render',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify(Object.assign(payload(),{quality:quality}))});
     const j=await r.json();
-    clearInterval(tick);
-    if(!j.url)throw new Error(j.error||'пустой ответ');
-    const miss=(j.diag&&j.diag['вне кадра']||[]).length;
-    shotOpen(`<img src="${j.url}" alt="черновой рендер">`,
-      `черновик за ${j.sec} с${miss?` · вне кадра: ${j.diag['вне кадра'].join(', ')}`:''}`);
+    clearInterval(tick); busy=false;
+    if(!(j.shots&&j.shots.length))throw new Error(j.error||'пустой ответ');
+    j.shots.forEach(sh=>addShot({url:sh.url,camera:sh.camera||'C1',quality:quality,
+      variant:(D.variants[cur]||{}).title||'',revision:rev,ts:Date.now(),model:j.model||''}));
+    viewShot(shots.length-1);
   }catch(err){
-    clearInterval(tick);
+    clearInterval(tick); busy=false;
     shotOpen('<div class="wait">Не получилось собрать кадр.<br>'+
-      String(err.message||err).slice(0,140)+'</div>','попробуйте ещё раз');
+      String(err.message||err).slice(0,160)+'</div>','попробуйте ещё раз');
+  }
+}
+// ——— просмотр кадра: увеличить, скачать, отправить себе
+function viewShot(i){
+  const s=shots[i]; if(!s)return;
+  shotOpen(`<img src="${s.url}" alt="${shotLabel(s)}">`,
+    `<span>${shotLabel(s)}${s.model?' · '+s.model:''}</span>`+
+    `<span><a class="btn" href="${s.url}" download target="_blank" rel="noopener">Скачать</a>
+     <button class="btn primary" id="shShare">Отправить себе</button></span>`);
+  document.getElementById('shShare').onclick=()=>shareOpen([s]);
+}
+// ——— отправка себе: ссылка на подборку + мессенджеры
+async function shareOpen(list){
+  const sel=(list&&list.length)?list:shots;
+  if(!sel.length){shotOpen('<div class="wait">Сначала сделайте хотя бы одно фото.</div>','');return;}
+  shotOpen('<div class="wait"><div class="spin"></div>Готовим подборку…</div>','');
+  try{
+    const r=await fetch('/api/share',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({title:D.flat_title||'',shots:sel.map(s=>({url:s.url,
+        label:shotLabel(s)}))})});
+    const j=await r.json();
+    if(!j.url)throw new Error(j.error||'не удалось сохранить подборку');
+    const tg=j.telegram?`<a class="btn primary" href="${j.telegram}" target="_blank" rel="noopener">Отправить в Telegram</a>`
+      :`<button class="btn" disabled title="нужен токен бота">Telegram — подключим по вашему токену</button>`;
+    const mx=j.max?`<a class="btn primary" href="${j.max}" target="_blank" rel="noopener">Отправить в MAX</a>`
+      :`<button class="btn" disabled title="нужен токен бота">MAX — подключим по вашему токену</button>`;
+    shotOpen(
+      `<div class="grid2">${sel.map(s=>`<img src="${s.url}" alt="${shotLabel(s)}">`).join('')}</div>`+
+      `<div class="chan">${tg}${mx}</div>`+
+      `<div class="linkbox"><input id="shLink" value="${j.url}" readonly>
+        <button class="btn" id="shCopy">Скопировать</button></div>`+
+      `<div class="hint">Ссылка на подборку работает сразу — её можно открыть на телефоне или
+       переслать себе куда угодно.</div>`,
+      `в подборке кадров: ${sel.length}`);
+    document.getElementById('shCopy').onclick=()=>{
+      const f=document.getElementById('shLink');f.select();
+      try{navigator.clipboard.writeText(f.value);}catch(e){document.execCommand('copy');}
+      document.getElementById('shCopy').textContent='Скопировано';};
+  }catch(err){
+    shotOpen('<div class="wait">Подборка не сохранилась.<br>'+String(err.message||err).slice(0,160)+
+      '</div>','попробуйте ещё раз');
   }
 }
 let drag=null, rotDrag=null;

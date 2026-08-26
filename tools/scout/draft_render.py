@@ -40,6 +40,11 @@ CACHE = os.path.join(OUT, 'draft-photos')
 # nano-banana/edit — 12.5 с и единственная, кто превращает наши вклейки в мебель, сохраняя места.
 # Для чернового берём её и прогреваем заранее.
 MODEL = 'fal-ai/nano-banana/edit'
+# РЕАЛИСТИЧНЫЙ РЕЖИМ (26.08, владелец: «та модель, что уже в проекте»). Трек А плейбука точности —
+# `gpt-image-2 medium` у OpenAI (13–14/14 точных предметов), но на ключе сейчас insufficient_quota,
+# поэтому по умолчанию берём наш же проверенный дубль на fal (в A/B 10/10, $0.067/кадр).
+# Переключение — переменной REALISTIC_MODEL, без правки кода.
+REALISTIC_MODEL = os.environ.get('REALISTIC_MODEL', 'fal-ai/nano-banana-pro/edit')
 # МЯГКОЕ (плед, подушки, шторы) НЕ ВКЛЕИВАЕМ: у них нет своей формы, и плоское фото ткани в маске
 # читается как флаг на стене — модель честно рисует флаг. Их дорисовывает промпт.
 SKIP_PASTE = ('плед', 'подушка', 'штора', 'тюль', 'картина')
@@ -197,8 +202,34 @@ def scene_from_request(payload: dict) -> tuple:
     return room, placements, photos
 
 
+def _one_camera(room, placements, photos, cam, prefix: str, model: str, side: int) -> dict:
+    """Один ракурс: коллаж → один вызов модели → ссылка на кадр."""
+    coll, _dmap, diag = collage(room, placements, cam, photos)
+    coll.save(f'{prefix}-{cam.name}-collage.jpg', quality=92)
+    w = side
+    h = max(2, int(round(side * coll.height / coll.width)))
+    res = fal_run(model, {'prompt': build_prompt(diag), 'num_images': 1,
+                          'image_urls': [uri_from_image(coll.resize((w, h)))]},
+                  fal_key(), timeout=240)
+    url = ((res.get('images') or [{}])[0] or {}).get('url', '')
+    if url:
+        try:
+            with urllib.request.urlopen(url, timeout=60) as f:
+                open(f'{prefix}-{cam.name}.jpg', 'wb').write(f.read())
+        except Exception:
+            pass
+    return {'camera': cam.name, 'url': url, 'diag': diag}
+
+
 def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1',
-           save_prefix: str | None = None) -> dict:
+           save_prefix: str | None = None, quality: str = 'draft') -> dict:
+    """Кадр(ы) комнаты. `draft` — один ракурс и быстрая модель, `realistic` — два ракурса
+    (от окна и от входа), модель точности и больший размер коллажа.
+
+    Модель реалистичного режима задаётся `REALISTIC_MODEL`. По плейбуку точности трек А — это
+    `gpt-image-2 medium` у OpenAI, но на ключе 26.08 `insufficient_quota`, поэтому по умолчанию
+    работает проверенный нами дубль на fal (`nano-banana-2/edit`, в A/B 10/10 точных предметов).
+    """
     t0 = time.time()
     if layout is not None:
         room, placements, photos = scene_from_request(layout)
@@ -208,26 +239,27 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         sets = json.load(open(os.path.join(HERE, 'sets3.json'), encoding='utf-8'))
         items = sets[n - 1]['items']
         photos = {r: photo((items.get(r) or {}).get('img')) for r in items}
-    cams = [c for c in cameras_for(room, placements) if c.name == cam_name] or \
-           cameras_for(room, placements)[:1]
-    cam = cams[0]
-    coll, dmap, diag = collage(room, placements, cam, photos)
-    t_coll = time.time() - t0
-    prefix = save_prefix or os.path.join(OUT, f'draft{n}-{cam.name}')
-    coll.save(prefix + '-collage.jpg', quality=90)
-    t1 = time.time()
-    res = fal_run(MODEL, {'prompt': build_prompt(diag), 'num_images': 1,
-                          'image_urls': [uri_from_image(coll.resize((1024, 683)))]},
-                  fal_key(), timeout=120)
-    url = ((res.get('images') or [{}])[0] or {}).get('url', '')
-    t_ai = time.time() - t1
-    if url:
-        with urllib.request.urlopen(url, timeout=60) as f:
-            open(prefix + '.jpg', 'wb').write(f.read())
-    print(f'коллаж {t_coll:.1f} с, модель {t_ai:.1f} с, итого {time.time() - t0:.1f} с')
-    print('  ' + json.dumps(diag, ensure_ascii=False))
-    print('  ' + prefix + '.jpg')
-    return {'file': prefix + '.jpg', 'url': url, 'sec': round(time.time() - t0, 1), 'diag': diag}
+    all_cams = cameras_for(room, placements)
+    if quality == 'realistic':
+        want = [c for c in all_cams if c.name in ('C1', 'C2')] or all_cams[:2]
+        model, side = REALISTIC_MODEL, 1536
+    else:
+        want = [c for c in all_cams if c.name == cam_name] or all_cams[:1]
+        model, side = MODEL, 1024
+    prefix = save_prefix or os.path.join(OUT, f'draft{n}')
+    from concurrent.futures import ThreadPoolExecutor      # два ракурса считаем параллельно
+    with ThreadPoolExecutor(max_workers=len(want)) as ex:
+        shots = list(ex.map(lambda c: _one_camera(room, placements, photos, c, prefix, model, side),
+                            want))
+    sec = round(time.time() - t0, 1)
+    print(f'{quality}: кадров {len([s for s in shots if s["url"]])} из {len(want)}, {sec} с, модель {model}')
+    for s in shots:
+        print('  ' + s['camera'] + ' ' + json.dumps(s['diag'], ensure_ascii=False))
+    first = shots[0] if shots else {'url': '', 'diag': {}}
+    return {'shots': [{'camera': s['camera'], 'url': s['url']} for s in shots if s['url']],
+            'model': model, 'quality': quality, 'sec': sec,
+            'file': f'{prefix}-{first.get("camera", "C1")}.jpg',
+            'url': first.get('url', ''), 'diag': first.get('diag', {})}
 
 
 def warm() -> float:

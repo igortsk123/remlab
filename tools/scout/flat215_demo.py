@@ -11,6 +11,7 @@
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -190,8 +191,21 @@ def build() -> dict:
             product_sets.append({'id': f'kit{n}', 'title': f'Комплект {BANKS.index(n) + 1}',
                                  'roles': roles,
                                  'sum': sum((v.get('price') or 0) for v in roles.values())})
+    # СПИСОК КОМНАТ КВАРТИРЫ (26.08) — для вкладки «План квартиры». Геометрии всей квартиры у нас
+    # нет (с чертежа сняты только габариты гостиной), поэтому отдаём честный состав: название,
+    # площадь и признак заглушки. Схему страница рисует из площадей и подписывает как схему.
+    rooms = []
+    for r in flat['rooms']:
+        title = r.get('title') or r.get('id')
+        m2 = None
+        m = re.search(r'([\d.,]+)\s*(?:\([\d.,]+\)\s*)?м²', title)   # «Лоджия 1.3 (2.6) м²» тоже
+        if m:
+            m2 = float(m.group(1).replace(',', '.'))
+        rooms.append({'id': r.get('id'), 'title': re.sub(r'\s*[\d.,()\s]+м²', '', title).strip(),
+                      'm2': m2, 'ready': not r.get('stub')})
     return {'room': {'w': liv['w'], 'd': liv['d'], 'title': liv['title'],
                      'openings': liv['openings'], 'radiators': liv.get('radiators') or []},
+            'rooms': rooms, 'flat_title': 'Квартира №215 · 73,7 м²',
             'variants': variants, 'sets': product_sets, 'sofa_feed': feed, 'feeds': feeds,
             'rules': _rules(),
             '_note': flat.get('_scale_note')}
