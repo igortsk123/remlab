@@ -76,9 +76,13 @@ def build_prompt(diag: dict) -> str:
         p += ('The plain grey untextured blocks are furniture that must be rendered as realistic '
               'pieces of these kinds: ' + ', '.join(dict.fromkeys(make))
               + ' — same size and position, neutral modern style matching the room. ')
-    p += ('The dark rectangle on the wall is a switched-off flat TV. '
-          'Add natural daylight from the window, soft contact shadows, realistic wood floor and '
-          'wall textures, and dress the sofa with a few matching cushions and a throw.')
+    # ЦВЕТА СЛУЖЕБНОГО РЕНДЕРА — ЭТО НЕ ПРЕДМЕТЫ (26.08): синий прямоугольник на стене я по ошибке
+    # называл телевизором, а это ОКНО (палитра clay: window = 108,166,208), и модель рисовала синюю
+    # панель вместо окна. Коричневый прямоугольник — дверь.
+    p += ('In the layout image a blue rectangle on a wall is a WINDOW: render it as a real window '
+          'with glass, frame and daylight outside, never as a panel or picture. A brown rectangle '
+          'is a DOOR. Add natural daylight from the window, soft contact shadows, realistic wood '
+          'floor and wall textures, and dress the sofa with a few matching cushions and a throw.')
     return p
 
 
@@ -578,6 +582,17 @@ STYLE_HINT = {
     'современный': 'Contemporary: warm neutral palette, mixed wood and matte black details, '
                    'layered lighting, uncluttered surfaces',
 }
+# КОРОТКОЕ ОПИСАНИЕ РОЛИ ДЛЯ ЗРЯЧЕЙ МОДЕЛИ (26.08): без него она путала журнальный столик с
+# обеденным и стеллаж с тумбой — проверено на кадре «от входа». С описанием попадает.
+ROLE_HINT = {
+    'диван': 'большой мягкий диван', 'диван 2': 'второй диван', 'кресло': 'кресло',
+    'столик': 'низкий журнальный столик перед диваном', 'ковёр': 'ковёр на полу',
+    'тв-тумба': 'низкая тумба под телевизором', 'тв': 'телевизор на стене',
+    'стеллаж': 'высокий открытый стеллаж/шкаф с полками', 'комод': 'комод',
+    'витрина': 'витрина со стеклом', 'торшер': 'напольный светильник на ножке',
+    'пуф': 'пуф', 'кашпо': 'растение в горшке', 'стул': 'обеденный стул',
+    'стол обеденный': 'обеденный стол', 'банкетка': 'банкетка', 'приставной': 'приставной столик',
+}
 VISION_MODEL = os.environ.get('VISION_MODEL', 'openai/gpt-4.1-mini')
 CHAT_URL = 'https://ai-gateway.vercel.sh/v1/chat/completions'
 
@@ -645,6 +660,126 @@ def refine_anchors(img: Image.Image, an: list, all_skus: dict | None = None) -> 
     return out
 
 
+def _b64(img, q: int = 78) -> str:
+    import base64
+    buf = io.BytesIO()
+    img.convert('RGB').save(buf, 'JPEG', quality=q)
+    return 'data:image/jpeg;base64,' + base64.b64encode(buf.getvalue()).decode()
+
+
+def _ask(content: list, max_tokens: int = 900) -> str:
+    body = {'model': VISION_MODEL, 'max_tokens': max_tokens,
+            'messages': [{'role': 'user', 'content': content}]}
+    req = urllib.request.Request(CHAT_URL, data=json.dumps(body).encode(),
+                                 headers={'Authorization': f'Bearer {gw_key()}',
+                                          'Content-Type': 'application/json'})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        return json.loads(r.read())['choices'][0]['message']['content'] or ''
+
+
+def refine_pair(pieces: list, per_cam: list, skus: dict, marks: list) -> list:
+    """ЯКОРЯ: РАМКА + ПРОВЕРКА ВЫРЕЗКОЙ (26.08, владелец: «надписи не соответствуют на обоих фото»).
+
+    Одной точки мало: модель уверенно называет координату «где-то там», и значок садится на чужой
+    предмет. Поэтому два шага. Первый — просим РАМКУ каждого предмета (рамку модель ставит точнее
+    точки). Второй — вырезаем эти рамки и спрашиваем по каждой: что на ней? Совпало — значок
+    остаётся, не совпало — значка не будет вовсе. Лучше меньше значков, чем неверные.
+    """
+    names, order = {}, []
+    for an in per_cam:
+        for a in an:
+            if a.get('name') and a['role'] not in names:
+                names[a['role']] = a['name']
+                order.append(a['role'])
+    if not names:
+        return per_cam
+    listing = '; '.join(f'{r} — {ROLE_HINT.get(r.split(" ")[0], r)}' for r in order)
+    content = [{'type': 'text', 'text':
+                f'Ниже {len(pieces)} фотографии одной комнаты с разных точек. Предметы: {listing}.\n'
+                'Для КАЖДОЙ фотографии верни рамки найденных предметов. Ответ — СТРОГО JSON '
+                '{"1":[{"role":"диван","box":[x0,y0,x1,y1]}],"2":[...]}, координаты — доли ширины '
+                'и высоты этой фотографии, 0..1. Предмет не виден — пропусти его. Не путай '
+                'журнальный столик с обеденным столом и стеллаж с тумбой.'}]
+    content += [{'type': 'image_url', 'image_url': {'url': _b64(p)}} for p in pieces]
+    try:
+        m = re.search(r'\{.*\}', _ask(content), re.S)
+        data = json.loads(m.group(0)) if m else {}
+    except Exception:
+        return per_cam
+
+    # ——— шаг 2: вырезаем предложенные рамки и просим модель назвать, что на каждой
+    crops, meta = [], []
+    for i, piece in enumerate(pieces, 1):
+        for d in (data.get(str(i)) or []):
+            b = d.get('box') if isinstance(d, dict) else None
+            if not (isinstance(b, list) and len(b) == 4):
+                continue
+            try:
+                x0, y0, x1, y1 = [float(v) for v in b]
+            except Exception:
+                continue
+            if not (0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1):
+                continue
+            if (x1 - x0) * (y1 - y0) > 0.75:
+                continue
+            W, H = piece.size
+            pad = 0.02
+            box = (int(max(0, x0 - pad) * W), int(max(0, y0 - pad) * H),
+                   int(min(1, x1 + pad) * W), int(min(1, y1 + pad) * H))
+            crop = piece.crop(box)
+            crop.thumbnail((320, 320))
+            crops.append(crop)
+            meta.append({'view': i, 'role': d.get('role'),
+                         'x': round((x0 + x1) / 2, 4), 'y': round((y0 + y1) / 2, 4)})
+    ok = set()
+    if crops:
+        vc = [{'type': 'text', 'text':
+               f'Ниже {len(crops)} вырезок из фотографий интерьера. Для каждой вырезки назови, '
+               'что на ней изображено, выбрав ОДИН вариант из списка: '
+               + ', '.join(order) + ', ничего из перечисленного. Ответ — СТРОГО JSON-массив строк '
+               'по числу вырезок, по порядку.'}]
+        vc += [{'type': 'image_url', 'image_url': {'url': _b64(c, 70)}} for c in crops]
+        try:
+            m2 = re.search(r'\[.*\]', _ask(vc, 400), re.S)
+            said = json.loads(m2.group(0)) if m2 else []
+            for k, val in enumerate(said[:len(meta)]):
+                base = str(meta[k]['role'] or '').split(' ')[0]
+                if base and base in str(val):
+                    ok.add(k)
+        except Exception:
+            ok = set(range(len(meta)))          # проверка не удалась — доверяем первому шагу
+    else:
+        return per_cam
+
+    out = []
+    for i, an in enumerate(per_cam, 1):
+        found = {meta[k]['role']: meta[k] for k in ok if meta[k]['view'] == i}
+        res, seen, n = [], set(), 0
+        for a in an:
+            b = dict(a)
+            d = found.get(a['role'])
+            if d:
+                b['x'], b['y'], b['refined'] = d['x'], d['y'], True
+                res.append(b)
+            elif a.get('name'):
+                b['unverified'] = True          # не подтверждено — значка не будет
+                res.append(b)
+            else:
+                res.append(b)
+            seen.add(a['role'])
+            n = max(n, b.get('n') or 0)
+        for role, d in found.items():
+            if role in seen:
+                continue
+            sku = (skus or {}).get(role) or {}
+            n += 1
+            res.append({'role': role, 'x': d['x'], 'y': d['y'], 'n': n, 'name': names.get(role),
+                        'price': sku.get('price'), 'url': sku.get('url'), 'img': sku.get('img'),
+                        'shop': sku.get('shop'), 'refined': True, 'added': True})
+        out.append(res)
+    return out
+
+
 def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dict,
                model: str, quality: str = 'medium', refine: bool = True,
                style: str = '') -> list:
@@ -702,8 +837,12 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
         'The reference photo shows the product from a catalogue angle — do not copy that angle, '
         'turn the product to match the volume in the room.\n'
         '- Do not add, remove or move furniture. Do not draw the red numbers or captions.\n'
+        '- Exactly one rug, lying flat on the floor. Never put a rug, carpet or any textile on a '
+        'wall, and never duplicate an object that appears once in the layout.\n'
         '- Items marked "фото нет" have no reference: render a plain, neutral piece of that exact '
         'type and size.\n'
+        '- In the layout a blue rectangle on a wall is a WINDOW (render real glass, frame and '
+        'daylight outside, never a blue panel or picture); a brown rectangle is a DOOR.\n'
         + ('- Natural daylight from the window, soft contact shadows, realistic wood floor and '
            'wall textures; lighting and materials identical in both views.\n' if two else
            '- Natural daylight from the window, soft contact shadows, realistic wood floor and '
@@ -723,13 +862,18 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
     out = gpt_edit(imgs, prompt, size=size, quality=quality, model=model.split('gateway:')[-1])
     out.save(prefix + '-final.jpg', quality=94)
     pieces = _split_pair(out) if len(cams) > 1 else [out]
-    shots = []
+    # УТОЧНЕНИЕ ЯКОРЕЙ ПО ОБОИМ КАДРАМ ПАРАЛЛЕЛЬНО: два последовательных зрячих вызова добавляли
+    # к черновику ~8 с, параллельно — вдвое меньше.
+    prepared = []
     for cam, piece, diag, an in zip(cams, pieces, diags, per_cam):
         piece = _trim_band(piece)
         piece.save(f'{prefix}-{cam.name}.jpg', quality=92)
+        prepared.append((cam, piece, diag, an))
+    refined = refine_pair([t[1] for t in prepared], [t[3] for t in prepared], skus, [sheet_marks])
+    shots = []
+    for (cam, piece, diag, _an), an2 in zip(prepared, refined):
         shots.append({'camera': cam.name, 'url': _publish_frame(piece, f'{stamp}-{cam.name}.jpg'),
-                      'diag': diag, 'sources': src_url,
-                      'anchors': refine_anchors(piece, an, skus)})
+                      'diag': diag, 'sources': src_url, 'anchors': an2})
     return shots
 
 
@@ -760,7 +904,10 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         want = [c for c in all_cams if c.name in ('C1', 'C2')] or all_cams[:2]
         model, side, gq = REALISTIC_MODEL, 1536, os.environ.get('GPT_IMAGE_QUALITY', 'medium')
     else:
-        want = [c for c in all_cams if c.name == cam_name] or all_cams[:1]
+        # ДВА ВИДА И В ЧЕРНОВИКЕ (владелец 26.08: «мы же генерируем одну фотографию и режем на два
+        # вида — где у тебя два вида?»). Скорость держим не числом ракурсов, а качеством и
+        # размером листа: low + 1024 против medium + 1536 у реалистичного.
+        want = [c for c in all_cams if c.name in ('C1', 'C2')] or all_cams[:2]
         model, side, gq = MODEL, 1024, DRAFT_QUALITY
     prefix = save_prefix or os.path.join(OUT, f'draft{n}')
     skus = {it['role']: it for it in (layout or {}).get('items', []) if it.get('role')}

@@ -114,6 +114,7 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
  font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;
  box-shadow:0 2px 8px #00000030}
 .pin:hover{background:var(--accent);color:#fff}
+.srcrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px}
 .pinlist{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
 .ptrack{display:flex;gap:10px;overflow-x:auto;padding:8px 2px 4px;scrollbar-width:thin}
 .ptrack::-webkit-scrollbar{height:6px}
@@ -948,7 +949,7 @@ function pinCard(a,el){
 
 function viewShot(i){
   const s=shots[i]; if(!s)return;
-  const an=(s.anchors||[]).filter(a=>a.name);
+  const an=(s.anchors||[]).filter(a=>a.name&&!a.unverified);
   // ЯКОРЯ ставим по координатам, посчитанным сервером из масок сцены: клик ведёт в магазин
   const pins=an.map((a,k)=>`<button class="pin" style="left:${(a.x*100).toFixed(1)}%;top:${(a.y*100).toFixed(1)}%"
       data-k="${k}" title="${(a.name||'').replace(/"/g,'&quot;')}">${k+1}</button>`).join('');
@@ -964,7 +965,11 @@ function viewShot(i){
         `<div class="pr2">${money(a.price)}</div>`+
         `<div class="ps2">${a.role}${a.shop?' · '+a.shop:''}</div></a>`).join('')+
       `</div></div>`:'';
-  shotOpen(`<div class="shotwrap"><img src="${s.url}" alt="${shotLabel(s)}">${pins}</div>${list}`,
+  const srcRow=s.sources
+    ? `<div class="srcrow"><a class="btn srcbtn" href="${s.sources}" target="_blank" rel="noopener">Исходники запроса →</a>`+
+      `<span class="hint">что именно ушло в модель: макет, номера, эталоны товаров и промпт</span></div>`
+    : '';
+  shotOpen(`<div class="shotwrap"><img src="${s.url}" alt="${shotLabel(s)}">${pins}</div>${srcRow}${list}`,
     `<span>${shotLabel(s)}${s.model?' · '+s.model:''}`+
     (s.sources?`<a class="srcln" href="${s.sources}" target="_blank" rel="noopener">исходники</a>`:'')+
     `</span>`+
