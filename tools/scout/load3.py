@@ -60,16 +60,7 @@ if not _CATROLE:
 print(f'карта категорий: {len(_CATROLE)} нужных категорий', flush=True)
 from category_map import is_kids  # noqa: E402 — детское ловим по названию и в ежедневном пути
 
-SPA_CUT=re.compile(r'/!.*$')  # mnogomebeli/divanboss: вариант после /! — серверу неизвестен
-def direct(url):
-    m=re.search(r'goto=(.+)$',url or '')
-    u=urllib.parse.unquote(m.group(1)) if m else (url or '')
-    u=u.replace(':443/','/')
-    host=urllib.parse.urlparse(u).netloc.lower()
-    if 'mnogomebeli' in host or 'divanboss' in host:
-        u=SPA_CUT.sub('/',u)
-        u=re.sub(r'/[^/]+/$','/',u)  # карточка 404 → родитель (серия) жив
-    return u
+from reflink import SPA_CUT, direct   # общий модуль: тем же способом ссылку строит catalog_media
 
 total=0; per={}
 rows=[]; erows=[]; mids=set(); _dropped={}

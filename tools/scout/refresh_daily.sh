@@ -34,8 +34,8 @@ finish() {                     # статус пишем ВСЕГДА, даже 
     parts="$parts\"$k\":\"${RES[$k]}\","
     [ "${RES[$k]}" = FAIL ] && fails="$fails $k"
   done
-  printf '{"date":"%s","finished":"%s","feeds_ok":%s,%s"products":%s}\n' \
-    "$today" "$(date '+%F %T')" "${ok:-0}" "$parts" "$(products_count)" > "$STATUS"
+  printf '{"date":"%s","finished":"%s","feeds_ok":%s,"feeds_downloaded":%s,"feeds_total":%s,"feeds_dead":"%s",%s"products":%s}\n' \
+    "$today" "$(date '+%F %T')" "${ok:-0}" "${dl_ok:-0}" "${dl_total:-0}" "${dead# }" "$parts" "$(products_count)" > "$STATUS"
   echo "=== $(date '+%F %T') готово (фиды ok=${ok:-0}) ===" >> "$LOG"
   # сбой не должен ждать, пока его случайно заметят (урок: load3 FAIL 05.08 нашли вечером)
   [ -n "$fails" ] && bash alert.sh "remlab: refresh_daily FAIL:$fails (см. refresh.log)"
@@ -65,18 +65,47 @@ RES[db]=ok
 # 1. Фиды (постоянные ссылки). Не скачался — работаем на прежнем файле, но помечаем.
 mkdir -p feeds2
 FEEDS="f7633bdd943d41c718c12dc88e7a61f2b88b55c6 c0021e3fe460caf057f3d7823043b14adf6acb0c a5906abd53d7d2efaff63c5021bd1cd4fb337a45 a5bb9dc9178031fc6c3b165c3df9c20bfcc55e18 bb618f0e32cb08ab8d5a247cd15d494516ba3523 777e580d462f92086d4875cf39500375e2a113f6 4255a3608faf6a4bd3b7007f2f0a9977b1f0c89c ec02cfec770831e51450542cf9e6fc0ee53657e4 1b9f77d20e11b89864c73ac9551ff57be0bff818 e2fccbea464497bf6273f6a714ceada976dd4cfe"
-ok=1
+ok=1; dl_ok=0; dl_total=0; dead=""
 for h in $FEEDS; do
+  dl_total=$((dl_total+1)); got=0
   for try in 1 2; do
     # ответ обязан быть zip (magic PK): 16.08 Гдеслон отдал 404-HTML по 777e580d, curl сохранил его как
     # .xml.zip поверх прежнего архива → load3 упал на BadZipFile и ВЕСЬ конвейер остановился (урок).
     curl -sfL --max-time 300 -o "feeds2/$h.xml.zip.new" "https://export.gdeslon.ru/uploads/exports/$h.xml.zip" \
       && [ -s "feeds2/$h.xml.zip.new" ] && "$PY" -c "import zipfile,sys;sys.exit(0 if zipfile.is_zipfile('feeds2/$h.xml.zip.new') and zipfile.ZipFile('feeds2/$h.xml.zip.new').testzip() is None else 1)" \
-      && mv "feeds2/$h.xml.zip.new" "feeds2/$h.xml.zip" && break
+      && mv "feeds2/$h.xml.zip.new" "feeds2/$h.xml.zip" && got=1 && break
     rm -f "feeds2/$h.xml.zip.new"
     [ "$try" = 2 ] && { echo "фид $h НЕ скачался — оставлен прежний" >> "$LOG"; ok=0; } || sleep 20
   done
+  # ССЫЛКА ВЫГРУЗКИ МОЖЕТ ПРОСТО УМЕРЕТЬ (26.08: nonton 404 с 11.08 — 11 595 товаров, треть
+  # каталога, замерли на две недели и никто не заметил). Ведём журнал по каждой ссылке и
+  # поднимаем тревогу, если она не отдаётся 2 дня подряд.
+  if [ "$got" = 1 ]; then dl_ok=$((dl_ok+1)); "$PY" - "$h" <<'PYEOF' || true
+import json,os,sys,datetime
+p='feed-links.json'; d=json.load(open(p)) if os.path.exists(p) else {}
+d.setdefault(sys.argv[1],{})['last_ok']=datetime.date.today().isoformat()
+d[sys.argv[1]]['fails']=0
+json.dump(d,open(p,'w'),ensure_ascii=False,indent=1)
+PYEOF
+  else
+    dead="$dead $h"
+    "$PY" - "$h" <<'PYEOF' || true
+import json,os,sys,datetime
+p='feed-links.json'; d=json.load(open(p)) if os.path.exists(p) else {}
+r=d.setdefault(sys.argv[1],{}); r['fails']=int(r.get('fails') or 0)+1
+r['last_fail']=datetime.date.today().isoformat()
+json.dump(d,open(p,'w'),ensure_ascii=False,indent=1)
+print(f"ССЫЛКА ВЫГРУЗКИ МЕРТВА {sys.argv[1][:12]}: неудач подряд {r['fails']}, последний успех {r.get('last_ok','неизвестно')}")
+PYEOF
+  fi
 done
+echo "фиды: скачано $dl_ok из $dl_total; мёртвые ссылки:${dead:- нет}" >> "$LOG"
+# 2 дня подряд без выгрузки — это не «моргнуло», это ссылка сменилась в кабинете партнёрки
+STALE_LINKS=$("$PY" -c "
+import json,os
+d=json.load(open('feed-links.json')) if os.path.exists('feed-links.json') else {}
+print(' '.join(k[:12] for k,v in d.items() if int(v.get('fails') or 0)>=2))" 2>/dev/null)
+[ -n "$STALE_LINKS" ] && bash alert.sh "remlab: ссылки выгрузок не отдаются 2+ дня:$STALE_LINKS — нужна новая ссылка в кабинете Гдеслона"
 
 # 1b. Предохранитель фидов (T0 truth-first): пустой исторически-непустой фид и протухший
 # yml_date алертятся ДО загрузки — «скачался успешно» не значит «данные живые» (урок 203)
@@ -121,7 +150,15 @@ step metrics "$PY" sync_metrics.py
 # без замены — комплект честно помечается. Бэкап sets3.json пишет сам heal.
 # ЗАМОК экзамена (17.08): банки под бегущими воркерами не менять — heal/refresh/сборка отложены до завтра
 if [ -f exam.lock ]; then echo "exam.lock: идёт экзамен — sets_heal/sets_refresh пропущены" >> "$LOG"; else
+# 5b-0. МЕДИА БАНКА = КАТАЛОГ (26.08). Фото и ссылка — производные данные: держать их в банке
+# замороженными означает показывать чужую картинку и мёртвую реф-ссылку (найдено 1490 позиций
+# с фото ДРУГОГО товара). Сверяем перед лечением, чтобы лечение решало по актуальным данным.
+step bank_media "$PY" catalog_media.py --apply
 step sets_heal "$PY" sets_incremental.py --heal --apply
+# 5b-1. КОНТРАКТ СЛОТА И ЖИВОЕ ФОТО (владелец 26.08: «товар без фото не должен участвовать —
+# пересчитывать надо на этапе сетов»): позиция вне конверта слота или с мёртвой картинкой
+# ЗАМЕНЯЕТСЯ, и только если замены нет — снимается с записью coverage_gap.
+step sets_contracts "$PY" sets_incremental.py --enforce-contracts --apply
 fi
 # W5: после замен индекс обязан сойтись с sets3 СЕГОДНЯ, а не завтра
 step sets_reindex "$PY" sets_incremental.py --index

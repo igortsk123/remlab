@@ -126,6 +126,15 @@ def _slot_ok(role: str, cand: dict, s: dict, chosen: dict | None = None) -> bool
         return True
     m2 = float(s.get('m2') or 0)
     items = chosen if chosen is not None else (s.get('items') or {})
+    # ФОТО — УСЛОВИЕ ПОДБОРА (владелец 26.08: «товар без фото не должен участвовать; пересчитывать
+    # надо на этапе сетов»). Витрина без картинки — пустая карточка, поэтому позиция без живого
+    # фото в банк не попадает вовсе. Кэш живости — `img_alive.py` (проверка раз в 14 дней).
+    try:
+        from img_alive import alive_now as _img_alive
+        if not _img_alive(cand.get('img')):
+            return False
+    except Exception:
+        pass
     w = cand.get('w') or 0
     d = cand.get('d') or 0
     if role == 'ковёр':
@@ -177,6 +186,51 @@ def _slot_ok(role: str, cand: dict, s: dict, chosen: dict | None = None) -> bool
     return True
 
 
+# ——— АТОМАРНАЯ ЗАМЕНА ТОВАРА ————————————————————————————————————————————————————————
+# КОРЕНЬ дефекта «миниатюра не от того товара» (26.08, разбор Codex подтверждён данными):
+# лечение/обновление/контракты меняли у позиции ЛИЧНОСТЬ товара (mid/eid/name/price/габариты)
+# через `dict(старый)` + `update(белый список полей)`, а `img`, `url`, `shop` и цветовые
+# признаки оставались от ПРЕДЫДУЩЕГО товара слота. Отсюда 1490 позиций из 3086 с чужой
+# картинкой и 785 слотов, сменивших (mid,eid) без смены фото между снимками банка.
+# Правило: заменённая позиция собирается ЦЕЛИКОМ из нового товара; от слота переносится
+# только слотовая метаинформация (кол-во, обоснование выбора, парность), а визуальные
+# признаки (cls/rgb) НЕ переносятся — их пересчитает composer по новой картинке.
+_SLOT_META = ('qty', 'why', 'score', 'pair_key', 'pair_provenance', '_replaced')
+
+
+def _card(cand: dict, old: dict) -> dict:
+    """Карточка позиции целиком из нового товара; медиа — из каталога, а не из старой позиции."""
+    import math
+    w, d, dia = cand.get('w'), cand.get('d'), cand.get('dia')
+    fp = (w * d / 10000) if (w and d) else (math.pi * (dia / 200) ** 2 if dia else None)
+    m = {}
+    try:
+        from catalog_media import media as _media
+        m = _media(cand.get('mid'), cand.get('eid')) or {}
+    except Exception:
+        pass
+    new = {'mid': cand.get('mid'), 'eid': cand.get('eid'),
+           'name': m.get('name') or cand.get('name'),
+           'price': m.get('price') or cand.get('price'),
+           'w': w, 'd': d, 'h': cand.get('h'), 'dia': dia,
+           'fp': round(fp, 2) if fp else None,
+           'shop': cand.get('shop'), 'subtype': cand.get('subtype'),
+           'img': m.get('img') if m else cand.get('img'),
+           'url': m.get('url') if m else cand.get('url')}
+    try:
+        from style_tags import tag as _tag
+        new.update({k: v for k, v in _tag(new['name']).items()})   # style/wood/metal/fabric
+    except Exception:
+        pass
+    for k in _SLOT_META:
+        if k in old:
+            new[k] = old[k]
+    for k in ('caps_used',):                      # техполя нового товара, если пришли
+        if cand.get(k) is not None:
+            new[k] = cand[k]
+    return {k: v for k, v in new.items() if v is not None or k in ('dia', 'img', 'url')}
+
+
 def _live_candidates(role: str, cur: dict, style: str | None, alive: set,
                      exclude: set, limit: int = 10) -> list[dict]:
     """Кандидаты из живого candidates-index.json: роль та же, в наличии, ±30% цены,
@@ -199,7 +253,11 @@ def _live_candidates(role: str, cur: dict, style: str | None, alive: set,
                                                  'name': item['name'], 'price': pr,
                                                  'w': item.get('w'), 'd': item.get('d'),
                                                  'h': item.get('h'), 'dia': item.get('dia'),
-                                                 'shop': item.get('shop'), 'subtype': item.get('subtype')}))
+                                                 'shop': item.get('shop'), 'subtype': item.get('subtype'),
+                                                 # 26.08: фото и ссылка ОБЯЗАТЕЛЬНЫ в кандидате —
+                                                 # без них контракт «товар с живым фото» отвергал
+                                                 # любую замену, и починка только снимала роли
+                                                 'img': item.get('img'), 'url': item.get('url')}))
     out.sort(key=lambda t: (-t[0], t[1]))
     return [x[2] for x in out[:limit]]
 
@@ -248,11 +306,7 @@ def refresh(apply: bool = False, max_swaps_per_set: int = 2) -> None:
                                      .get('styles') or {}).get(style, 'нет')), 0)
                 if cst < 3 or cst <= cur_step:
                     continue                 # замена только на СТРОГО лучшую, до «высокой»
-                trial = dict(it)
-                # та же дыра, что в heal (22.08): без габаритов нового товара prop_check слеп
-                trial.update({k2: cand[k2] for k2 in ('mid', 'eid', 'name', 'price', 'w', 'd',
-                                                      'h', 'dia', 'fp', 'subtype', 'caps_used')
-                              if k2 in cand and cand[k2] is not None})
+                trial = _card(cand, it)      # позиция целиком из нового товара (26.08)
                 ctx = {'chosen': {r: v for r, v in s['items'].items() if r != role}, 'wall': None,
                        'corner_sofa': 'углов' in str((s['items'].get('диван') or {}).get('name', '')).lower()}
                 ok, _b, _no = prop_check(role, trial, ctx, _sub(role, trial))
@@ -449,14 +503,9 @@ def heal(apply: bool = False) -> None:
             for a in spares:
                 if not (0.7 * it['price'] <= a.get('price', 0) <= 1.3 * it['price']):
                     continue
-                cand = dict(it)
-                # ГАБАРИТЫ НОВОГО ТОВАРА ОБЯЗАТЕЛЬНЫ (аудит 22.08, ночной экзамен: heal 21.08
-                # вставил диван 350/тумбу 234 в band 14-16 и это жило сутки): прежний update
-                # копировал только mid/eid/name/price — ворота пропорций проверяли СТАРЫЕ
-                # размеры, реальные подтягивал индекс позже. Замена без своих габаритов — брак.
-                cand.update({kk: a[kk] for kk in ('mid', 'eid', 'name', 'price', 'w', 'd', 'h',
-                                                  'dia', 'fp', 'subtype', 'caps_used')
-                             if kk in a and a[kk] is not None})
+                # ГАБАРИТЫ И МЕДИА НОВОГО ТОВАРА ОБЯЗАТЕЛЬНЫ (аудит 22.08 — heal вставлял диван
+                # 350 см в band 14-16; 26.08 — сохранял чужое фото). Карточку собираем целиком.
+                cand = _card(a, it)
                 ctx = {'chosen': {r: v for r, v in s['items'].items() if r != role},
                        'wall': None,
                        'corner_sofa': 'углов' in str((s['items'].get('диван') or {}).get('name', '')).lower()}
@@ -545,9 +594,7 @@ def enforce_contracts(apply: bool = False, roles: tuple = ()) -> None:
             for c in _cands:
                 if not _slot_ok(role, c, s):
                     continue
-                cand = dict(it)
-                cand.update({k: c[k] for k in ('mid', 'eid', 'name', 'price', 'w', 'd', 'h',
-                                               'dia', 'subtype') if k in c and c[k] is not None})
+                cand = _card(c, it)          # позиция целиком из нового товара (26.08)
                 ctx = {'chosen': {r: v for r, v in items.items() if r != role}, 'wall': None,
                        'corner_sofa': 'углов' in str((items.get('диван') or {}).get('name', '')).lower()}
                 ok, _b, _no = prop_check(role, cand, ctx, _sub(role, cand))
@@ -559,12 +606,15 @@ def enforce_contracts(apply: bool = False, roles: tuple = ()) -> None:
                 print(f'  сет {n}: {role} {it.get("w")}x{it.get("d")} «{it["name"][:28]}» → '
                       f'{repl.get("w")}x{repl.get("d")} «{repl["name"][:28]}»')
                 if apply:
+                    if (repl.get('w'), repl.get('d')) != (it.get('w'), it.get('d')):
+                        s['_dims_changed'] = True
                     items[role] = repl
             else:
                 dropped += 1
                 print(f'  сет {n}: {role} {it.get("w")}x{it.get("d")} вне контракта, замены нет → снят')
                 if apply:
                     items.pop(role, None)
+                    s['_dims_changed'] = True
                     g = s.setdefault('gaps', [])
                     msg = f'coverage_gap: {role} — нет живого SKU в конверте слота'
                     if msg not in g:
@@ -590,6 +640,19 @@ def enforce_contracts(apply: bool = False, roles: tuple = ()) -> None:
                     items[inst] = _new
     if synced:
         print(f'синхронизировано экземпляров пары: {synced}')
+    # АГРЕГАТЫ СЕТА ПОСЛЕ ЗАМЕН (26.08, замечание Codex): замена товара меняет и сумму комплекта,
+    # и его площадь. Раньше `total` оставался от прежнего состава — витрина показывала цену,
+    # которой уже нет. Габариты влияют на расстановку, поэтому сет с изменившимся размером
+    # помечается `_relayout_pending`: пересчёт раскладки — дело солвера, а не этой починки.
+    for s in sets:
+        items = s.get('items') or {}
+        if not items:
+            continue
+        tot = sum(int(v.get('price') or 0) * int(v.get('qty') or 1) for v in items.values())
+        if tot and tot != s.get('total'):
+            s['total'] = tot
+        if s.pop('_dims_changed', False):
+            s['_relayout_pending'] = True
     print(f'\nвне контракта: заменено {fixed}, снято {dropped}')
     if apply and (fixed or dropped):
         shutil.copy(SETS, SETS + '.bak-contracts')

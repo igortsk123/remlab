@@ -52,6 +52,7 @@ def build() -> dict:
     data = rows(f"""
       select e.shop_mid, e.external_id, p.name, p.price_rub, p.shop,
              coalesce(p.w_cm,0), coalesce(p.d_cm,0), coalesce(p.h_cm,0), coalesce(p.dia_cm,0),
+             p.image_url, coalesce(p.direct_url, p.url),
              e.payload->'model'->>'role', e.payload->'model'->>'functional_subtype',
              e.payload->'model'->>'primary_color', e.payload->'model'->>'materials',
              e.payload->'model'->>'styles', e.payload->'model'->>'style_strength',
@@ -66,15 +67,18 @@ def build() -> dict:
     for r in data:
         w, d, h, dia = (float(x) for x in r[5:9])
         long_cm = max(w, d, dia) or None
-        role, sub = r[9], r[10]
+        img, purl = r[9], r[10]                     # 26.08: фото и ПРЯМАЯ ссылка (не редирект
+                                                    # партнёрки) — иначе замена ломает контракт ссылки
+        role, sub = r[11], r[12]                    # без них лечение не может проверить контракт
         key = f'{role}|{sub}|{band_of(long_cm)}'
         pid = f'{r[0]}:{r[1]}'
         items[pid] = dict(mid=int(r[0]), eid=r[1], name=r[2], price=int(r[3]), shop=r[4],
                           w=w or None, d=d or None, h=h or None, dia=dia or None,
-                          role=role, subtype=sub, colour=r[11],
-                          materials=json.loads(r[12]) if r[12] else [],
-                          styles=json.loads(r[13]) if r[13] else {},
-                          strength=r[14], mass=r[15], warmth=r[16], quality=float(r[17]))
+                          role=role, subtype=sub, colour=r[13],
+                          img=img, url=purl,
+                          materials=json.loads(r[14]) if r[14] else [],
+                          styles=json.loads(r[15]) if r[15] else {},
+                          strength=r[16], mass=r[17], warmth=r[18], quality=float(r[19]))
         idx.setdefault(key, []).append(pid)
     # ценовые ступени считаем ВНУТРИ роли: «комфортный» торшер и «комфортный» диван — разные деньги
     tiers: dict[str, dict] = {}

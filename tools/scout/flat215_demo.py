@@ -112,13 +112,18 @@ def build() -> dict:
             side = max(it.get('w') or 0, it.get('d') or 0) if base == 'ковёр' else (it.get('w') or 0)
             if not (lo <= side <= hi):
                 continue
+            try:
+                from img_alive import alive_now as _alive
+                if not _alive(it.get('img')):
+                    continue          # фото мертво — товар в выборку не попадает вовсе
+            except Exception:
+                pass
             seen.add(key)
             feeds.setdefault(base, []).append(
                 {'name': it.get('name'), 'w': it.get('w'), 'd': it.get('d'), 'h': it.get('h'),
                  'price': it.get('price'), 'img': it.get('img'), 'url': it.get('url'),
                  'shop': it.get('shop'), 'style': s.get('style')})
-    # кап ставим ПОСЛЕ проверки фото (владелец 26.08: «нет фото — товар не участвует в выборке»),
-    # поэтому здесь берём широкий пул: половина ссылок фида мертва, и обрезать до фильтра нельзя
+    # кап ставим ПОСЛЕ проверки фото (владелец 26.08: «нет фото — товар не участвует в выборке»)
     for k in feeds:
         feeds[k].sort(key=lambda x: x['price'] or 0)
         feeds[k] = feeds[k][:60]
@@ -219,10 +224,24 @@ def cache_images(data: dict) -> dict:
         if not data['feeds'][role]:
             data['feeds'].pop(role)
     data['sofa_feed'] = data.get('feeds', {}).get('диван', [])
+    swapped = 0
     for kit in (data.get('sets') or []):
-        kit['roles'] = {r: p for r, p in kit['roles'].items() if p.get('img')}
+        fixed = {}
+        for r, p in kit['roles'].items():
+            if p.get('img'):
+                fixed[r] = p
+                continue
+            pool = (data.get('feeds') or {}).get(r.split(' ')[0]) or []
+            side = p.get('w') or 0
+            best = min(pool, key=lambda c: abs((c.get('w') or 0) - side)) if pool else None
+            if best:                       # роль сохраняем, товар подменяем ближайшим по размеру
+                fixed[r] = dict(best)
+                swapped += 1
+        kit['roles'] = fixed
         kit['sum'] = sum((p.get('price') or 0) for p in kit['roles'].values())
     data['sets'] = [k for k in (data.get('sets') or []) if k['roles']]
+    if swapped:
+        print(f'в комплектах заменено товаров без фото: {swapped}')
     print(f'из выборки убрано без фото: {dropped}; осталось по ролям: '
           + ', '.join(f"{k} {len(v)}" for k, v in sorted(data['feeds'].items())))
     data['_img_cached'] = {'ok': ok, 'total': len(urls), 'dropped_no_photo': dropped}

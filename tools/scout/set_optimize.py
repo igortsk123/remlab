@@ -37,8 +37,8 @@ def fetch_products(keys: set[tuple]) -> dict:
         return {}
     cond = ','.join(f"({m},'{e}')" for m, e in keys)
     out = subprocess.run(PSQL, input=f"""
-        select shop_mid, external_id, name, shop, coalesce(url,''),
-               w_cm, d_cm, dia_cm, h_cm, price_rub, in_stock::int
+        select shop_mid, external_id, name, shop, coalesce(direct_url, url, ''),
+               w_cm, d_cm, dia_cm, h_cm, price_rub, in_stock::int, coalesce(image_url,'')
           from products where (shop_mid, external_id) in ({cond});
     """, capture_output=True, text=True).stdout
     res = {}
@@ -53,7 +53,10 @@ def fetch_products(keys: set[tuple]) -> dict:
                 'mid': int(f[0]), 'eid': f[1], 'name': f[2], 'shop': f[3], 'url': f[4],
                 'w': w, 'd': d, 'dia': dia, 'h': num(f[8]),
                 'fp': round(fp, 3) if fp else None,
-                'price': int(f[9]) if f[9] else None, 'in_stock': f[10] == '1'}
+                # ФОТО БЕРЁМ ВМЕСТЕ С ТОВАРОМ (26.08): раньше строка каталога не несла картинку,
+                # и слияние `{**cur, **row}` оставляло позиции фото ПРЕДЫДУЩЕГО товара.
+                'price': int(f[9]) if f[9] else None, 'in_stock': f[10] == '1',
+                'img': (f[11] or None) if len(f) > 11 else None}
     return res
 
 
@@ -102,7 +105,11 @@ def optimize(sets: list, only: set[int] | None) -> dict:
                         continue
                     trial = list(sets)
                     trial[i] = copy.deepcopy(sets[i])
-                    trial[i]['items'][role] = {**cur, **row}
+                    # позиция собирается ЦЕЛИКОМ из нового товара; от слота переносим только
+                    # слотовую метаинформацию, визуальные признаки старой картинки не тащим
+                    trial[i]['items'][role] = dict(
+                        row, **{k: cur[k] for k in ('qty', 'why', 'score', 'pair_key',
+                                                    'pair_provenance') if k in cur})
                     if len(proportion_check.check(i + 1, trial)) > base_viol:
                         continue
                     nj = J(i, trial)
