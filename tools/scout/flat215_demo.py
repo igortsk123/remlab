@@ -106,6 +106,9 @@ def build() -> dict:
             if key in seen:
                 continue
             lo, hi = ENV[base]
+            # без ОБОИХ габаритов товар примерять нечестно: объект пришлось бы «додумать»
+            if not (it.get('w') and it.get('d')):
+                continue
             side = max(it.get('w') or 0, it.get('d') or 0) if base == 'ковёр' else (it.get('w') or 0)
             if not (lo <= side <= hi):
                 continue

@@ -17,13 +17,36 @@ h1{font-size:20px;margin:6px 0 2px}.sub{color:#5C655E;font-size:14px;margin-bott
 .panel h3{margin:0 0 6px;font-size:15px}
 .issue{padding:4px 0;border-top:1px dashed var(--line)}.issue:first-of-type{border-top:0}
 .issue b{color:var(--warn)}.clean{color:var(--ok)}
-#feed{display:none;gap:8px;overflow-x:auto;padding:8px 0;margin-top:8px}
-#feed.show{display:flex}
-.card{min-width:150px;max-width:150px;border:1px solid var(--line);border-radius:8px;padding:6px;cursor:pointer;background:#fff}
-.card img{width:100%;height:96px;object-fit:contain;background:#F6F4F0;border-radius:4px}
-.card .nm{font-size:12px;line-height:1.25;height:44px;overflow:hidden;margin-top:4px}
-.card .pr{font-size:13px;font-weight:600;margin-top:2px}
-.card .dim{font-size:11px;color:#5C655E}
+/* ЛИСТ ПОДБОРА: снизу на телефоне, широкая панель на десктопе */
+#sheet{position:fixed;left:0;right:0;bottom:0;max-height:82vh;background:#fff;z-index:40;
+ border-radius:16px 16px 0 0;box-shadow:0 -8px 30px #0000002e;transform:translateY(102%);
+ transition:transform .22s ease;display:flex;flex-direction:column}
+#sheet.open{transform:translateY(0)}
+#sheet .grab{width:44px;height:4px;background:#D8D5CE;border-radius:3px;margin:8px auto 4px}
+#sheet header{display:flex;align-items:center;gap:10px;padding:4px 14px 8px;border-bottom:1px solid var(--line)}
+#sheet header .h{flex:1;min-width:0}
+#sheet header b{font-size:16px;display:block}
+#sheet header span{font-size:12.5px;color:#5C655E}
+#sheet .close{border:0;background:#F1EFEA;border-radius:8px;padding:8px 14px;font-size:14px;cursor:pointer}
+#filters{display:flex;gap:6px;overflow-x:auto;padding:8px 14px;border-bottom:1px solid var(--line)}
+#filters .chip{padding:6px 12px;font-size:13px;white-space:nowrap}
+#grid{overflow-y:auto;padding:12px 14px 24px;display:grid;gap:12px;
+ grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+@media(min-width:700px){#sheet{left:auto;right:0;top:0;bottom:0;width:460px;max-height:none;
+ border-radius:0;transform:translateX(102%);box-shadow:-8px 0 30px #00000024}
+ #sheet.open{transform:translateX(0)}}
+.card{border:1px solid var(--line);border-radius:12px;padding:8px;cursor:pointer;background:#fff;
+ display:flex;flex-direction:column;gap:4px;transition:box-shadow .15s,border-color .15s}
+.card:active{box-shadow:0 3px 14px #00000018}
+.card.cur{border-color:var(--accent);box-shadow:0 0 0 2px #3B76A233}
+.card img{width:100%;aspect-ratio:4/3;object-fit:contain;background:#F7F5F1;border-radius:8px}
+.card .nm{font-size:13px;line-height:1.3;max-height:34px;overflow:hidden}
+.card .pr{font-size:16px;font-weight:700}
+.card .dim{font-size:12px;color:#5C655E}
+.badge{display:inline-block;font-size:11.5px;padding:2px 8px;border-radius:999px;align-self:flex-start}
+.b-ok{background:#E7F3EC;color:#2F7D4F}.b-tight{background:#FBF0E2;color:#96601F}.b-no{background:#FBE9E6;color:#A93B27}
+#scrim{position:fixed;inset:0;background:#0006;z-index:39;opacity:0;pointer-events:none;transition:opacity .2s}
+#scrim.on{opacity:1;pointer-events:auto}
 .sel{font-size:13px;color:#3A423C;margin-top:6px}
 .acts{display:flex;gap:4px;margin-top:5px}
 .mini{flex:1;text-align:center;border:1px solid var(--line);background:#fff;border-radius:6px;
@@ -51,7 +74,7 @@ h1{font-size:20px;margin:6px 0 2px}.sub{color:#5C655E;font-size:14px;margin-bott
   <button class="btn" id="tryon">Подобрать товар</button>
   <button class="btn primary" id="render">Отправить на рендер</button>
 </div>
-<div id="feed"></div>
+
 <div class="sel" id="sel">Предмет не выбран — коснитесь мебели на плане.</div>
 
 <svg id="stage" xmlns="http://www.w3.org/2000/svg"></svg>
@@ -64,6 +87,11 @@ h1{font-size:20px;margin:6px 0 2px}.sub{color:#5C655E;font-size:14px;margin-bott
 а отдельный предмет можно заменить товаром из любого другого комплекта — смешивать можно как угодно.
 Расстановки <b>предпосчитаны офлайн</b> нашим движком; страница ничего не считает. Числа стандартов — из тех же правил, что у движка.</div>
 </div>
+<div id="scrim"></div>
+<div id="sheet"><div class="grab"></div>
+  <header><div class="h"><b id="sh-title">Подбор товара</b><span id="sh-sub"></span></div>
+  <button class="close" id="sh-close">Готово</button></header>
+  <div id="filters"></div><div id="grid"></div></div>
 <script>
 const COL={'диван':'#7B7BC0','диван 2':'#8f8fd0','кресло':'#C09A90','кресло 2':'#c9a79d','столик':'#96795A',
  'ковёр':'#C9C4BA','тв-тумба':'#9E9E9E','стенка':'#9E9E9E','торшер':'#4A4A4A','пуф':'#AAAA96',
@@ -94,8 +122,10 @@ function init(){
     kb.appendChild(b);});
   document.getElementById('reset').onclick=load;
   document.getElementById('rotate').onclick=()=>{if(!sel)return;sel.rot=(sel.rot+90)%360;draw();};
-  document.getElementById('tryon').onclick=()=>{const f=document.getElementById('feed');
-    f.classList.toggle('show');if(f.classList.contains('show'))feed();};
+  document.getElementById('tryon').onclick=()=>{if(!sel)sel=items.find(i=>i.role==='диван')||items[0];
+    if(sel)openPicker(sel);};
+  document.getElementById('sh-close').onclick=closePicker;
+  document.getElementById('scrim').onclick=closePicker;
   document.getElementById('render').onclick=()=>{alert('Рендер двух ракурсов подключается следующим шагом: сцена уже собрана — '+items.length+' предметов, из них товаров с фото '+items.filter(i=>i.sku&&i.sku.img).length+'.');};
   load();
 }
@@ -108,7 +138,7 @@ function applyKit(kit){            // комплект накладываетс�
     (kit.sum?` · сумма ${kit.sum.toLocaleString('ru-RU')} ₽`:'')+
     ` · любой предмет можно заменить своим — выберите его и нажмите «Подобрать товар»`;
   draw();}
-function load(){items=clone(D.variants[cur].items);sel=null;document.getElementById('sel').textContent='Предмет не выбран — коснитесь мебели на плане, затем «Подобрать товар».';draw();}
+function load(){items=clone(D.variants[cur].items);sel=null;document.getElementById('sel').textContent='Коснитесь предмета на плане — откроется подбор товара. Перетаскивайте, чтобы двигать.';draw();}
 
 function size(){const w=stage.clientWidth||stage.parentNode.clientWidth;S=(w-2*PAD)/D.room.w;stage.setAttribute('height',Math.round(D.room.d*S+2*PAD));}
 const X=x=>PAD+x*S, Y=y=>PAD+y*S;
@@ -251,7 +281,7 @@ function swing(o){const p=wallSeg(o.wall,o.offset_cm,o.width_cm),r=o.swing_cm||o
 let drag=null;
 stage.addEventListener('pointerdown',e=>{const pt=loc(e);const hit=items.slice().reverse().find(it=>{const b=box(it);
   return pt.x>=b.x0&&pt.x<=b.x1&&pt.y>=b.y0&&pt.y<=b.y1;});
-  if(hit){sel=hit;drag={dx:pt.x-hit.x,dy:pt.y-hit.y};stage.setPointerCapture(e.pointerId);
+  if(hit){sel=hit;drag={dx:pt.x-hit.x,dy:pt.y-hit.y,t:Date.now(),moved:false};stage.setPointerCapture(e.pointerId);
     document.getElementById('sel').textContent=`Выбрано: ${hit.role} ${Math.round(hit.w)}×${Math.round(hit.d)} см`+(hit.sku&&hit.sku.name?` · ${hit.sku.name}`:'');
     draw();}});
 stage.addEventListener('pointermove',e=>{if(!drag||!sel)return;const pt=loc(e);
@@ -263,6 +293,7 @@ stage.addEventListener('pointermove',e=>{if(!drag||!sel)return;const pt=loc(e);
   // ПРЕДМЕТЫ НЕ НАЕЗЖАЮТ ДРУГ НА ДРУГА (владелец 26.08: «чтоб на диван торшер не надвигался»):
   // пробуем полную позицию, потом только по X, потом только по Y — предмет скользит вдоль
   // препятствия вместо того, чтобы застревать
+  if(Math.abs(nx-sel.x)>2||Math.abs(ny-sel.y)>2)drag.moved=true;
   const ox=sel.x, oy=sel.y;
   const tryPos=(x,y)=>{sel.x=x;sel.y=y;const ok=!hits(sel);if(!ok){sel.x=ox;sel.y=oy;}return ok;};
   if(!tryPos(nx,ny)&&!tryPos(nx,oy)&&!tryPos(ox,ny)){/* некуда — остаёмся на месте */}
@@ -276,28 +307,97 @@ function hits(me){                       // наложение с другими
     const ov=Math.max(0,Math.min(a.x1,b.x1)-Math.max(a.x0,b.x0))*Math.max(0,Math.min(a.y1,b.y1)-Math.max(a.y0,b.y0));
     return ov>200;                       // 2 дм² — допуск на касание кромок
   });}
-stage.addEventListener('pointerup',()=>{drag=null;});
+stage.addEventListener('pointerup',e=>{
+  // короткий тап без сдвига = «хочу выбрать товар для этого предмета» (владелец 26.08)
+  if(drag&&sel&&drag.t&&Date.now()-drag.t<400&&!drag.moved)openPicker(sel);
+  drag=null;});
 function loc(e){const r=stage.getBoundingClientRect();return{x:(e.clientX-r.left-PAD)/S,y:(e.clientY-r.top-PAD)/S};}
 
 // ——— лента диванов
-function feed(){const f=document.getElementById('feed');f.innerHTML='';
-  // лента — ПОД ВЫБРАННЫЙ ПРЕДМЕТ (нет выбора — диваны): фото можно назначить любой роли
+// ——— СВОБОДНОЕ МЕСТО ПОД ПРЕДМЕТ: насколько его можно расширить, не задев соседей и стены.
+// Нужно, чтобы честно писать «влезает / плотно / шире на N см» ДО примерки (владелец 26.08).
+function freeSpan(me){
+  const b=box(me), others=items.filter(o=>o!==me&&!o.role.startsWith('ковёр')).map(box);
+  const lim=(dir)=>{                                    // сколько см можно прирастить в сторону dir
+    let room_=dir==='x'?D.room.w:D.room.d, edge0=dir==='x'?b.x0:b.y0, edge1=dir==='x'?b.x1:b.y1;
+    let lo=0, hi=room_;
+    others.forEach(o=>{
+      const cross=(dir==='x')?!(o.y1<=b.y0||o.y0>=b.y1):!(o.x1<=b.x0||o.x0>=b.x1);
+      if(!cross)return;
+      const o0=dir==='x'?o.x0:o.y0, o1=dir==='x'?o.x1:o.y1;
+      if(o1<=edge0)lo=Math.max(lo,o1); else if(o0>=edge1)hi=Math.min(hi,o0);});
+    return hi-lo;};
+  return {along:lim('x'), across:lim('y')};             // в мировых осях
+}
+function fitBadge(me,p){
+  if(!p.w||!p.d)return {cls:'b-tight', txt:'габарит не указан'};
+  const sp=freeSpan(me), rot=me.rot%180===90;
+  const needAlong=rot?p.d:p.w, needAcross=rot?p.w:p.d;
+  const dx=sp.along-needAlong, dy=sp.across-needAcross;
+  const m=Math.min(dx,dy);
+  if(m<0)return {cls:'b-no', txt:`шире места на ${Math.round(-m)} см`};
+  if(m<15)return {cls:'b-tight', txt:'встанет впритык'};
+  return {cls:'b-ok', txt:'влезает'};
+}
+
+// ——— ЛИСТ ПОДБОРА
+let F={price:null, fitOnly:false, sort:'fit'};
+function openPicker(it){
+  sel=it; const base=it.role.split(' ')[0];
+  const list=(D.feeds&&D.feeds[base])||[];
+  document.getElementById('sh-title').textContent=`Выбрать: ${it.role}`;
+  document.getElementById('sh-sub').textContent=list.length
+    ? `${list.length} товаров · сейчас ${Math.round(it.w)}×${Math.round(it.d)} см`
+    : 'товаров с фото для этой роли в банке нет';
+  document.getElementById('sheet').classList.add('open');
+  document.getElementById('scrim').classList.add('on');
+  filters(); grid();
+}
+function closePicker(){document.getElementById('sheet').classList.remove('open');
+  document.getElementById('scrim').classList.remove('on');}
+function filters(){
+  const f=document.getElementById('filters');f.innerHTML='';
+  const add=(txt,on,fn)=>{const b=document.createElement('button');b.className='chip'+(on?' on':'');
+    b.textContent=txt;b.onclick=()=>{fn();filters();grid();};f.appendChild(b);};
+  add('только те, что влезают',F.fitOnly,()=>F.fitOnly=!F.fitOnly);
+  add('до 30 тыс',F.price==='lo',()=>F.price=F.price==='lo'?null:'lo');
+  add('30–60 тыс',F.price==='mid',()=>F.price=F.price==='mid'?null:'mid');
+  add('60+ тыс',F.price==='hi',()=>F.price=F.price==='hi'?null:'hi');
+  add('дешевле сначала',F.sort==='price',()=>F.sort=F.sort==='price'?'fit':'price');
+}
+function grid(){
+  const g=document.getElementById('grid');g.innerHTML='';
   const base=sel?sel.role.split(' ')[0]:'диван';
-  const list=(D.feeds&&D.feeds[base])||D.sofa_feed||[];
-  if(!list.length){f.innerHTML=`<div class="hint">Для роли «${base}» товаров с фото в этом банке нет.</div>`;return;}
+  let list=((D.feeds&&D.feeds[base])||[]).slice();
+  if(!list.length){g.innerHTML='<div class="hint">Для этой роли товаров с фото в банке пока нет — каталог узкий, не логика.</div>';return;}
+  list=list.filter(p=>{
+    const pr=p.price||0;
+    if(F.price==='lo'&&pr>=30000)return false;
+    if(F.price==='mid'&&(pr<30000||pr>60000))return false;
+    if(F.price==='hi'&&pr<60000)return false;
+    if(F.fitOnly&&fitBadge(sel,p).cls==='b-no')return false;
+    return true;});
+  const rank=p=>({'b-ok':0,'b-tight':1,'b-no':2})[fitBadge(sel,p).cls];
+  list.sort((a,b)=>F.sort==='price'?((a.price||0)-(b.price||0)):(rank(a)-rank(b)||(a.price||0)-(b.price||0)));
+  if(!list.length){g.innerHTML='<div class="hint">Под фильтры ничего не подошло — снимите ограничения.</div>';return;}
   list.forEach(p=>{const c=document.createElement('div');c.className='card';
     const dims=`${Math.round(p.w)}×${Math.round(p.d)}${p.h?'×'+Math.round(p.h):''} см`;
-    c.innerHTML=`<img src="${p.img}" loading="lazy" alt=""><div class="nm">${p.name||''}</div>`+
+    const bg=fitBadge(sel,p), cur=sel.sku&&sel.sku.name===p.name;
+    if(cur)c.classList.add('cur');
+    c.innerHTML=`<img src="${p.img}" loading="lazy" alt="">`+
+      `<span class="badge ${bg.cls}">${bg.txt}</span>`+
+      `<div class="nm">${p.name||''}</div>`+
       `<div class="pr">${(p.price||0).toLocaleString('ru-RU')} ₽</div>`+
-      `<div class="dim">${dims}<br>${p.shop||''}</div>`+
-      `<div class="acts"><button class="mini">Примерить</button>`+
+      `<div class="dim">${dims}${p.shop?' · '+p.shop:''}</div>`+
+      `<div class="acts"><button class="mini">${cur?'Выбрано':'Примерить'}</button>`+
       `<a class="mini link" href="${p.url}" target="_blank" rel="noopener">Подробнее</a></div>`;
-    c.querySelector('.mini').onclick=e=>{e.stopPropagation();tryOn(p);};
+    c.querySelector('.mini').onclick=e=>{e.stopPropagation();tryOn(p);grid();};
     c.querySelector('.link').onclick=e=>e.stopPropagation();
-    c.onclick=()=>tryOn(p);f.appendChild(c);});}
+    c.onclick=()=>{tryOn(p);grid();};g.appendChild(c);});}
 function tryOn(p){const s=sel||items.find(i=>i.role==='диван');
   if(!s){alert('Сначала коснитесь предмета на плане');return;}
-  s.w=p.w;s.d=p.d;s.h=p.h;s.sku={name:p.name,price:p.price,img:p.img,url:p.url,shop:p.shop};sel=s;
+  if(!p.w||!p.d){alert('У этого товара в фиде нет габаритов — примерка была бы выдумкой');return;}
+  s.w=p.w;s.d=p.d;s.h=p.h||s.h;s.sku={name:p.name,price:p.price,img:p.img,url:p.url,shop:p.shop};sel=s;
   document.getElementById('sel').innerHTML=`Примерено: <b>${p.name}</b> · ${Math.round(p.w)}×${Math.round(p.d)} см · ${(p.price||0).toLocaleString('ru-RU')} ₽ · <a href="${p.url}" target="_blank" rel="noopener">открыть в магазине</a>`;
   draw();}
 
