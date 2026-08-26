@@ -22,9 +22,23 @@ OUT = os.path.expanduser('~/scout-scenes/flat215-demo')
 # сеты; люди могут смешать разные товары из разных стилей». Поэтому: вариант = геометрия
 # расстановки, комплект = набор товаров, который на неё накладывается; отдельный предмет можно
 # заменить товаром из любого комплекта.
-VARIANTS = [(1, 'Вариант 1'), (4, 'Вариант 2'), (7, 'Вариант 3'),
-            (10, 'Вариант 4'), (13, 'Вариант 5'), (16, 'Вариант 6')]
-SET_BANKS = [1, 4, 7, 10, 13, 16]        # комплекты товаров (по одному на стиль банка)
+# СЕТЫ ДЛЯ ДЕМО ВЫБИРАЮТСЯ ПО СОСТАВУ, А НЕ ПО НОМЕРУ (26.08). Жёсткий список [1,4,7,…] сломался,
+# как только контракт снял из банков позиции закрывшегося магазина: два сета остались без дивана,
+# и движок честно вернул пустую комнату. Берём банки нужного метража, где есть диван и больше
+# всего расставляемых ролей.
+PLACEABLE = {'диван', 'кресло', 'столик', 'ковёр', 'тв-тумба', 'стеллаж', 'комод', 'витрина',
+             'торшер', 'пуф', 'кашпо', 'стул', 'банкетка', 'стол обеденный', 'камин', 'стенка'}
+
+
+def pick_banks(sets: list, band: str = '14-16', n: int = 6) -> list:
+    rated = []
+    for i, st in enumerate(sets, 1):
+        if st.get('band') != band or 'диван' not in (st.get('items') or {}):
+            continue
+        rated.append((sum(1 for r in st['items'] if r.split(' ')[0] in PLACEABLE),
+                      -len(st.get('gaps') or []), i))
+    rated.sort(reverse=True)
+    return [i for _, _, i in rated[:n]]
 SHOW_ROLES = ('диван', 'диван 2', 'кресло', 'кресло 2', 'столик', 'ковёр', 'тв-тумба', 'стенка',
               'торшер', 'пуф', 'стеллаж', 'комод', 'витрина', 'кашпо', 'камин', 'банкетка',
               'стол обеденный', 'стул', 'стул 2', 'приставной')
@@ -61,6 +75,9 @@ def _sku(items: dict, role: str) -> dict | None:
             'w': it.get('w'), 'd': it.get('d'), 'h': it.get('h')}
 
 
+BANKS: list = []          # заполняется в build(): выбранные банки демо
+
+
 def solve_layouts(flat: dict) -> None:
     """РАСКЛАДКИ СЧИТАЕМ ПОД ЭТУ КОМНАТУ (26.08). Артефакт `v3set{n}-layout.json` по умолчанию
     считается для условного прямоугольника из метража сета (например 360×415) — если взять
@@ -73,7 +90,7 @@ def solve_layouts(flat: dict) -> None:
                SCENE_RADIATORS=json.dumps([{k: v for k, v in r.items() if not k.startswith('_')}
                                            for r in (liv.get('radiators') or [])], ensure_ascii=False))
     py = os.path.expanduser('~/venvs/scout/bin/python')
-    for n, _ in VARIANTS:
+    for n in BANKS:
         art = os.path.join(HERE, f'v3set{n}-layout.json')
         fresh = (os.path.exists(art)
                  and (json.load(open(art, encoding='utf-8')).get('_room') or {}).get('w') == liv['w']
@@ -87,11 +104,15 @@ def solve_layouts(flat: dict) -> None:
 
 def build() -> dict:
     flat = json.load(open(os.path.join(HERE, 'flat215.json'), encoding='utf-8'))
+    sets = json.load(open(os.path.join(HERE, 'sets3.json'), encoding='utf-8'))
+    global BANKS
+    BANKS = pick_banks(sets)
+    print('банки демо:', BANKS)
     solve_layouts(flat)                 # раскладки — под реальную комнату, а не под метраж сета
     liv = flat['rooms'][0]
-    sets = json.load(open(os.path.join(HERE, 'sets3.json'), encoding='utf-8'))
     variants = []
-    for n, style in VARIANTS:
+    for k, n in enumerate(BANKS, 1):
+        style = f'Вариант {k}'
         fs = glob.glob(os.path.join(HERE, f'v3set{n}-layout.json'))
         if not fs:
             continue
@@ -155,7 +176,7 @@ def build() -> dict:
     feed = feeds.get('диван', [])
     # КОМПЛЕКТЫ: набор товаров по ролям, который накладывается на ЛЮБОЙ вариант расстановки
     product_sets = []
-    for n in SET_BANKS:
+    for n in BANKS:
         items = (sets[n - 1].get('items') or {})
         roles = {}
         for role, it in items.items():
@@ -166,7 +187,7 @@ def build() -> dict:
                            'h': it.get('h'), 'price': it.get('price'), 'img': it.get('img'),
                            'url': it.get('url'), 'shop': it.get('shop')}
         if roles:
-            product_sets.append({'id': f'kit{n}', 'title': f'Комплект {SET_BANKS.index(n) + 1}',
+            product_sets.append({'id': f'kit{n}', 'title': f'Комплект {BANKS.index(n) + 1}',
                                  'roles': roles,
                                  'sum': sum((v.get('price') or 0) for v in roles.values())})
     return {'room': {'w': liv['w'], 'd': liv['d'], 'title': liv['title'],

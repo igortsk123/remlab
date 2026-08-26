@@ -52,18 +52,27 @@ def _load() -> dict:
         return _CACHE
     q = ("select shop_mid||'\x1f'||external_id||'\x1f'||coalesce(image_url,'')||'\x1f'"
          "||coalesce(direct_url,url,'')||'\x1f'||coalesce(price_rub,0)||'\x1f'||name"
-         "||'\x1f'||coalesce(status,'active')||'\x1f'||coalesce(in_stock::int,0) from products")
+         "||'\x1f'||coalesce(status,'active')||'\x1f'||coalesce(in_stock::int,0)"
+         "||'\x1f'||shop||'\x1f'||coalesce(w_cm,0)||'\x1f'||coalesce(d_cm,0)"
+         "||'\x1f'||coalesce(h_cm,0)||'\x1f'||coalesce(dia_cm,0) from products")
     out = subprocess.run(PSQL + [q], capture_output=True, text=True).stdout
     m = {}
     for line in out.splitlines():
         p = line.split('\x1f')
         if len(p) >= 8:
             mid = str(p[0])
-            state = ('unknown' if int(mid) in _QUARANTINE else
-                     'available' if (p[6] == 'active' and p[7] == '1') else 'gone')
+            # КАРАНТИН ИСТОЧНИКА ЗАЩИЩАЕТ ТОЛЬКО ЖИВОЙ ТОВАР (26.08): если магазин закрыт
+            # (программы нет в кабинете Гдеслона) и товар уже архивный — «не проверить» не
+            # оправдание, это именно «ушёл».
+            active = (p[6] == 'active' and p[7] == '1')
+            state = ('available' if active else
+                     'unknown' if (int(mid) in _QUARANTINE and p[6] == 'active') else 'gone')
+            num = lambda v: (float(v) or None) if v else None   # noqa: E731
             m[(mid, str(p[1]))] = {'img': p[2] or None,
                                    'url': _direct(p[3]) if p[3] else None,
-                                   'price': int(p[4] or 0), 'name': p[5], 'state': state}
+                                   'price': int(p[4] or 0), 'name': p[5], 'state': state,
+                                   'shop': p[8], 'w': num(p[9]), 'd': num(p[10]),
+                                   'h': num(p[11]), 'dia': num(p[12])}
     _CACHE = m
     return m
 
@@ -77,7 +86,8 @@ def sync_bank(path: str = 'sets3.json', apply: bool = False) -> dict:
     """Привести медиа банка к каталогу. Позиции, которых нет в фиде, помечаются `_gone: true` —
     решение о замене принимает лечение (`sets_incremental.py`), не этот модуль."""
     sets = json.load(open(path, encoding='utf-8'))
-    stat = {'ok': 0, 'fixed_img': 0, 'fixed_url': 0, 'gone': 0, 'unknown': 0}
+    stat = {'ok': 0, 'fixed_img': 0, 'fixed_url': 0, 'gone': 0, 'unknown': 0,
+            'fixed_shop': 0, 'fixed_dims': 0, 'dims_unknown': 0}
     for st in sets:
         for role, it in (st.get('items') or {}).items():
             if not it or not it.get('eid'):
@@ -99,6 +109,25 @@ def sync_bank(path: str = 'sets3.json', apply: bool = False) -> dict:
             if (it.get('url') or '') != (m['url'] or ''):
                 stat['fixed_url'] += 1
                 it['url'] = m['url']
+            # ГАБАРИТЫ И МАГАЗИН — ТОЖЕ ИЗ КАТАЛОГА (26.08, находка владельца: коврик 90 см
+            # стоял в банке как 230×160 и с чужим магазином — размеры остались от предыдущего
+            # товара слота). Размер решает, влезет ли предмет в комнату: хранить его отдельно
+            # от товара нельзя. Каталог не знает размера — позицию нельзя проверить, помечаем
+            # `_dims_unknown`, и контракт слота её заменит. Частичное знание (фид даёт ширину и
+            # высоту, но не глубину) — норма: правим то, что каталог знает, остальное оставляем.
+            if m.get('shop') and it.get('shop') != m['shop']:
+                stat['fixed_shop'] += 1
+                it['shop'] = m['shop']
+            if not any(m.get(f) for f in ('w', 'd', 'h', 'dia')):
+                stat['dims_unknown'] += 1
+                it['_dims_unknown'] = True
+            else:
+                it.pop('_dims_unknown', None)
+                for f in ('w', 'd', 'h', 'dia'):
+                    if m.get(f) and it.get(f) != m[f]:
+                        stat['fixed_dims'] += 1
+                        it[f] = m[f]
+                        it['_dims_changed'] = True
             stat['ok'] += 1
     if apply:
         bak = path + '.bak-media'
@@ -113,6 +142,7 @@ if __name__ == '__main__':
     import sys
     st = sync_bank(apply='--apply' in sys.argv)
     print(f"медиа банка: сверено {st['ok']}, фото исправлено {st['fixed_img']}, "
-          f"ссылок исправлено {st['fixed_url']}, ушли из каталога {st['gone']}, "
-          f"магазин в карантине (не проверить) {st['unknown']}"
+          f"ссылок исправлено {st['fixed_url']}, габаритов {st['fixed_dims']}, "
+          f"магазин исправлен {st['fixed_shop']}, размер неизвестен каталогу {st['dims_unknown']}, "
+          f"ушли из каталога {st['gone']}, магазин в карантине {st['unknown']}"
           + ('' if '--apply' in sys.argv else '  (сухой прогон, --apply чтобы записать)'))

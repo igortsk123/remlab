@@ -135,6 +135,19 @@ def _slot_ok(role: str, cand: dict, s: dict, chosen: dict | None = None) -> bool
             return False
     except Exception:
         pass
+    # ТОВАР ДОЛЖЕН БЫТЬ В ПРОДАЖЕ И С ИЗВЕСТНЫМ РАЗМЕРОМ (26.08). Программа магазина закрыта или
+    # товар архивный — его нельзя ни показать, ни продать. Каталог не знает НИ ОДНОГО габарита —
+    # предмет нельзя расставить честно: размер тогда берётся «по памяти слота», а это и был
+    # коврик 90 см, стоявший в банке как 230×160 (находка владельца).
+    try:
+        from catalog_media import media as _media
+        _m = _media(cand.get('mid'), cand.get('eid'))
+        if not _m or _m['state'] != 'available':
+            return False
+        if not any(_m.get(f) for f in ('w', 'd', 'h', 'dia')):
+            return False
+    except Exception:
+        pass
     w = cand.get('w') or 0
     d = cand.get('d') or 0
     if role == 'ковёр':
