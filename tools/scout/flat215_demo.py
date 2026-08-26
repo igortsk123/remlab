@@ -17,8 +17,14 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 RULES = os.path.join(HERE, '..', '..', 'services', 'planner-solver', 'rules')
 OUT = os.path.expanduser('~/scout-scenes/flat215-demo')
-VARIANTS = [(1, 'сканди'), (4, 'современный'), (7, 'минимализм'),
-            (10, 'лофт'), (13, 'неоклассика'), (16, 'джапанди')]
+# ВАРИАНТЫ РАССТАНОВКИ и КОМПЛЕКТЫ ТОВАРОВ — РАЗНЫЕ СУЩНОСТИ (владелец 26.08):
+# «шаблоны не называть стилями, а просто варианты; далее под любой из шаблонов показываем наши
+# сеты; люди могут смешать разные товары из разных стилей». Поэтому: вариант = геометрия
+# расстановки, комплект = набор товаров, который на неё накладывается; отдельный предмет можно
+# заменить товаром из любого комплекта.
+VARIANTS = [(1, 'Вариант 1'), (4, 'Вариант 2'), (7, 'Вариант 3'),
+            (10, 'Вариант 4'), (13, 'Вариант 5'), (16, 'Вариант 6')]
+SET_BANKS = [1, 4, 7, 10, 13, 16]        # комплекты товаров (по одному на стиль банка)
 SHOW_ROLES = ('диван', 'диван 2', 'кресло', 'кресло 2', 'столик', 'ковёр', 'тв-тумба', 'стенка',
               'торшер', 'пуф', 'стеллаж', 'комод', 'витрина', 'кашпо', 'камин', 'банкетка',
               'стол обеденный', 'стул', 'стул 2', 'приставной')
@@ -79,8 +85,9 @@ def build() -> dict:
                          # ТВ ближе — 150 см), иначе советчик выдаёт ложные предупреждения на
                          # плане, который движок считает валидным (26.08)
                          'corner': bool(v.get('corner')),
+                         'corner_left': bool(v.get('corner_left')),
                          'section': v.get('section') or v.get('corner_section_cm')})
-        variants.append({'id': f'set{n}', 'style': style, 'fill_pct': art.get('_fill_pct'),
+        variants.append({'id': f'set{n}', 'title': style, 'fill_pct': art.get('_fill_pct'),
                          'items': objs})
     # ЛЕНТЫ ТОВАРОВ ПО РОЛЯМ (владелец 26.08: «чтоб фотки можно было назначать»): для каждой роли
     # собираем живые SKU с фото; границы — конверт слота той же комнаты, чтобы примерка не
@@ -111,9 +118,26 @@ def build() -> dict:
         feeds[k].sort(key=lambda x: x['price'] or 0)
         feeds[k] = feeds[k][:24]
     feed = feeds.get('диван', [])
+    # КОМПЛЕКТЫ: набор товаров по ролям, который накладывается на ЛЮБОЙ вариант расстановки
+    product_sets = []
+    for n in SET_BANKS:
+        items = (sets[n - 1].get('items') or {})
+        roles = {}
+        for role, it in items.items():
+            base = role.split(' ')[0]
+            if base not in ENV or not it or not it.get('img'):
+                continue
+            roles[role] = {'name': it.get('name'), 'w': it.get('w'), 'd': it.get('d'),
+                           'h': it.get('h'), 'price': it.get('price'), 'img': it.get('img'),
+                           'url': it.get('url'), 'shop': it.get('shop')}
+        if roles:
+            product_sets.append({'id': f'kit{n}', 'title': f'Комплект {SET_BANKS.index(n) + 1}',
+                                 'roles': roles,
+                                 'sum': sum((v.get('price') or 0) for v in roles.values())})
     return {'room': {'w': liv['w'], 'd': liv['d'], 'title': liv['title'],
                      'openings': liv['openings'], 'radiators': liv.get('radiators') or []},
-            'variants': variants, 'sofa_feed': feed, 'feeds': feeds, 'rules': _rules(),
+            'variants': variants, 'sets': product_sets, 'sofa_feed': feed, 'feeds': feeds,
+            'rules': _rules(),
             '_note': flat.get('_scale_note')}
 
 
@@ -123,7 +147,8 @@ def main() -> None:
     json.dump(data, open(os.path.join(OUT, 'demo-data.json'), 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)
     print(f"OK: вариантов {len(data['variants'])}; ленты: "
-          + ', '.join(f"{k} {len(v)}" for k, v in sorted(data['feeds'].items())))
+          + ', '.join(f"{k} {len(v)}" for k, v in sorted(data['feeds'].items()))
+          + f"; комплектов {len(data['sets'])}")
     if '--publish' in sys.argv:
         subprocess.run(f"cd {os.path.dirname(OUT)} && tar czf /tmp/f215demo.tgz flat215-demo && "
                        "scp -q -P 22222 /tmp/f215demo.tgz root@89.167.127.0:/tmp/ && "
