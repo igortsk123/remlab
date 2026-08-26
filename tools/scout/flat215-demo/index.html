@@ -145,7 +145,7 @@ function init(){
     b.onclick=()=>{applyKit(k);[...kb.querySelectorAll('.chip')].forEach((c,j)=>c.classList.toggle('on',j===i));};
     kb.appendChild(b);});
   document.getElementById('reset').onclick=load;
-  document.getElementById('rotate').onclick=()=>{if(!sel)return;sel.rot=(sel.rot+90)%360;draw();};
+  document.getElementById('rotate').onclick=()=>{if(!sel)return;sel.rot=((sel.rot||0)+90)%360;draw();};
   document.getElementById('tryon').onclick=()=>{if(!sel)sel=items.find(i=>i.role==='диван')||items[0];
     if(sel)openPicker(sel);};
   document.getElementById('sh-close').onclick=closePicker;
@@ -166,7 +166,12 @@ function load(){items=clone(D.variants[cur].items);sel=null;document.getElementB
 
 function size(){const w=stage.clientWidth||stage.parentNode.clientWidth;S=(w-2*PAD)/D.room.w;stage.setAttribute('height',Math.round(D.room.d*S+2*PAD));}
 const X=x=>PAD+x*S, Y=y=>PAD+y*S;
-function box(it){const sw=(it.rot%180===90)?it.d:it.w, sd=(it.rot%180===90)?it.w:it.d;
+// ГАБАРИТ ПОВЁРНУТОГО ПРЕДМЕТА (26.08): предметы вращаются на ЛЮБОЙ угол, поэтому прежняя
+// формула «rot кратен 90 — меняем стороны местами» больше не годится: для 30° она давала
+// габарит меньше реального, и предметы «слипались». Берём описанный прямоугольник.
+function box(it){
+  const a=(it.rot||0)*Math.PI/180, c=Math.abs(Math.cos(a)), s2=Math.abs(Math.sin(a));
+  const sw=it.w*c+it.d*s2, sd=it.w*s2+it.d*c;
   return {x0:it.x-sw/2,y0:it.y-sd/2,x1:it.x+sw/2,y1:it.y+sd/2,w:sw,d:sd};}
 
 function draw(){
@@ -183,6 +188,7 @@ function draw(){
     stage.appendChild(shape(it));
     const b=box(it);
     stage.appendChild(txt((b.x0+b.x1)/2,b.y1+9,`${it.role} ${Math.round(it.w)}×${Math.round(it.d)}`,10.5,'#2A2F2C'));});
+  if(sel)stage.appendChild(handles(sel));               // ручки выделенного — под значками
   items.forEach(it=>stage.appendChild(badgeFor(it)));   // значки — последним слоем и БЕЗ поворота
   basket();
 }
@@ -315,6 +321,36 @@ function shape(it){
   return g;
 }
 
+// РУЧКИ ВЫДЕЛЕННОГО ПРЕДМЕТА (владелец 26.08): по углам — вращение на ЛЮБОЙ угол (не только 90°),
+// по сторонам — подсказка «двигаю перетаскиванием». Ручки рисуются в мировых координатах и сами
+// не поворачиваются, иначе стрелка «вращать» оказывалась вверх ногами.
+const ROT_SNAP = 5;              // шаг вращения, градусы
+const ROT_MAGNET = 7;            // притяжение к 0/90/180/270
+function handles(it){
+  const b=box(it), g=el('g',{});
+  const pad=9;
+  const x0=X(b.x0)-pad, y0=Y(b.y0)-pad, x1=X(b.x1)+pad, y1=Y(b.y1)+pad;
+  g.appendChild(el('rect',{x:x0,y:y0,width:x1-x0,height:y1-y0,fill:'none',
+    stroke:'#E08A2E','stroke-width':1.4,'stroke-dasharray':'5 4',rx:4}));
+  const corner=(cx,cy,flip)=>{                       // дуга со стрелкой — «вращать»
+    const h=el('g',{transform:`translate(${cx},${cy}) scale(${flip[0]},${flip[1]})`});
+    h.setAttribute('data-rot','1'); h.style.cursor='grab';
+    h.appendChild(el('circle',{cx:0,cy:0,r:13,fill:'#fff',opacity:.01}));   // зона касания
+    h.appendChild(el('path',{d:'M -6 3 A 7 7 0 1 1 3 6',fill:'none',stroke:'#2A2F2C','stroke-width':2.4,
+      'stroke-linecap':'round'}));
+    h.appendChild(el('path',{d:'M 3 6 l -1 -5 l 6 2 z',fill:'#2A2F2C'}));
+    return h;};
+  const side=(cx,cy,vert)=>{                          // двусторонняя стрелка — «двигать»
+    const h=el('g',{transform:`translate(${cx},${cy})${vert?' rotate(90)':''}`});
+    h.appendChild(el('path',{d:'M -8 0 l 5 -4 l 0 8 z M 8 0 l -5 -4 l 0 8 z',fill:'#2A2F2C'}));
+    return h;};
+  [[x0,y0,[1,1]],[x1,y0,[-1,1]],[x0,y1,[1,-1]],[x1,y1,[-1,-1]]].forEach(c=>g.appendChild(corner(c[0],c[1],c[2])));
+  g.appendChild(side((x0+x1)/2,y0,true)); g.appendChild(side((x0+x1)/2,y1,true));
+  g.appendChild(side(x0,(y0+y1)/2,false)); g.appendChild(side(x1,(y0+y1)/2,false));
+  const deg=Math.round(it.rot||0)%360;
+  if(deg)g.appendChild(txt((b.x0+b.x1)/2,b.y0-14,`${deg}°`,11,'#B4552B'));
+  return g;
+}
 function badgeFor(it){
   // ЗНАЧОК ВСЕГДА НЕ ПОВЁРНУТ (владелец 26.08: «чтоб не было перевёрнутых миниатюр»): рисуем его
   // отдельной группой в МИРОВЫХ координатах, а не внутри повёрнутой группы предмета.
@@ -361,8 +397,15 @@ function swing(o){const p=wallSeg(o.wall,o.offset_cm,o.width_cm),r=o.swing_cm||o
   return `M ${X(hx)} ${Y(hy)} L ${X(hx+inx*r)} ${Y(hy+iny*r)} A ${r*S} ${r*S} 0 0 1 ${X(ax)} ${Y(ay)} Z`;}
 
 // ——— перетаскивание (мышь и палец)
-let drag=null;
+let drag=null, rotDrag=null;
 stage.addEventListener('pointerdown',e=>{const pt=loc(e);
+  // ВРАЩЕНИЕ ЗА УГЛОВУЮ РУЧКУ (26.08): угол считаем от центра предмета, шаг 5°, с притяжением
+  // к 0/90/180/270 — чтобы «ровно вдоль стены» ставилось само, а любой угол оставался доступен.
+  const rotH=e.target.closest?e.target.closest('[data-rot]'):null;
+  if(rotH&&sel){
+    const a0=Math.atan2(pt.y-sel.y,pt.x-sel.x)*180/Math.PI;
+    rotDrag={start:a0,base:sel.rot||0};
+    stage.setPointerCapture(e.pointerId);e.preventDefault();return;}
   // ПОПАДАНИЕ ПО САМОМУ МЕЛКОМУ предмету под пальцем, ковёр — в последнюю очередь (26.08:
   // «нажимаю на столик, а двигается ковёр» — прежний порядок брал последний в массиве)
   const under=items.filter(it=>{const b=box(it);
@@ -373,7 +416,16 @@ stage.addEventListener('pointerdown',e=>{const pt=loc(e);
   if(hit){sel=hit;drag={dx:pt.x-hit.x,dy:pt.y-hit.y,t:Date.now(),moved:false};stage.setPointerCapture(e.pointerId);
     document.getElementById('sel').textContent=`Выбрано: ${hit.role} ${Math.round(hit.w)}×${Math.round(hit.d)} см`+(hit.sku&&hit.sku.name?` · ${hit.sku.name}`:'');
     draw();showTip(hit);}});
-stage.addEventListener('pointermove',e=>{if(!drag||!sel)return;const pt=loc(e);
+stage.addEventListener('pointermove',e=>{
+  if(rotDrag&&sel){const pt=loc(e);
+    const a=Math.atan2(pt.y-sel.y,pt.x-sel.x)*180/Math.PI;
+    let ang=rotDrag.base-(a-rotDrag.start);   // на сцене предмет повёрнут на -rot
+    ang=Math.round(ang/ROT_SNAP)*ROT_SNAP;
+    [0,90,180,270,360].forEach(k=>{if(Math.abs(((ang%360)+360)%360-k)<=ROT_MAGNET)ang=k%360;});
+    const prev=sel.rot; sel.rot=((ang%360)+360)%360;
+    if(hits(sel)||box(sel).x0<0||box(sel).y0<0||box(sel).x1>D.room.w||box(sel).y1>D.room.d)sel.rot=prev;
+    draw();showTip(sel);return;}
+  if(!drag||!sel)return;const pt=loc(e);
   let nx=pt.x-drag.dx, ny=pt.y-drag.dy;const b=box(sel);
   nx=Math.max(b.w/2,Math.min(D.room.w-b.w/2,nx));ny=Math.max(b.d/2,Math.min(D.room.d-b.d/2,ny));
   nx=Math.round(nx/5)*5;ny=Math.round(ny/5)*5;                       // сетка 5 см
@@ -396,8 +448,8 @@ function hits(me){                       // наложение с другими
     const ov=Math.max(0,Math.min(a.x1,b.x1)-Math.max(a.x0,b.x0))*Math.max(0,Math.min(a.y1,b.y1)-Math.max(a.y0,b.y0));
     return ov>200;                       // 2 дм² — допуск на касание кромок
   });}
-stage.addEventListener('pointerup',()=>{drag=null;showTip(null);});  // предмет только двигаем; товар — по значку
-window.addEventListener('pointercancel',()=>{drag=null;showTip(null);});
+stage.addEventListener('pointerup',()=>{drag=null;rotDrag=null;showTip(null);});  // предмет только двигаем; товар — по значку
+window.addEventListener('pointercancel',()=>{drag=null;rotDrag=null;showTip(null);});
 function loc(e){const r=stage.getBoundingClientRect();return{x:(e.clientX-r.left-PAD)/S,y:(e.clientY-r.top-PAD)/S};}
 
 // ——— лента диванов
@@ -418,8 +470,10 @@ function freeSpan(me){
 }
 function fitBadge(me,p){
   if(!p.w||!p.d)return {cls:'b-tight', txt:'габарит не указан'};
-  const sp=freeSpan(me), rot=me.rot%180===90;
-  const needAlong=rot?p.d:p.w, needAcross=rot?p.w:p.d;
+  // ПРИ ЛЮБОМ УГЛЕ место считаем по описанному прямоугольнику товара (26.08): «повёрнут на 90°»
+  // перестало быть единственным вариантом, а «влезает» должно оставаться честным.
+  const sp=freeSpan(me), a=(me.rot||0)*Math.PI/180, c=Math.abs(Math.cos(a)), s2=Math.abs(Math.sin(a));
+  const needAlong=p.w*c+p.d*s2, needAcross=p.w*s2+p.d*c;
   const dx=sp.along-needAlong, dy=sp.across-needAcross;
   const m=Math.min(dx,dy);
   if(m<0)return {cls:'b-no', txt:`шире места на ${Math.round(-m)} см`};
