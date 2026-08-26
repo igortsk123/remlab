@@ -273,24 +273,27 @@ fetch('demo-data.json?v='+Date.now()).then(r=>r.json()).then(d=>{D=d;init();})
   .catch(e=>{const b=document.getElementById('sub');
     if(b)b.textContent='Не удалось загрузить данные: '+String(e.message||e).slice(0,140);});
 
+function on(id, ev, fn){                     // узла может не быть — интерфейс меняется чаще кода
+  const n=document.getElementById(id);
+  if(n)n[ev]=fn;
+}
 function init(){
   document.getElementById('sub').textContent=`${D.room.title} · ${D.room.w}×${D.room.d} см · габариты сняты с чертежа, точные — от застройщика`;
   // ВАРИАНТ = РАССТАНОВКА + ЕЁ КОМПЛЕКТ ТОВАРОВ, ОДНОЙ КНОПКОЙ С ЦЕНОЙ (владелец 26.08:
   // «убери кнопки „Комплект 1 · 103 тыс“, просто подпиши Вариант 1 · 103 т.р.»). Вариантов не
   // больше четырёх плюс сохранённый человеком.
   drawVariants();
-  document.getElementById('shotclose').onclick=()=>document.getElementById('shot').classList.remove('on');
-  document.getElementById('shot').onclick=e=>{if(e.target.id==='shot')e.currentTarget.classList.remove('on');};
-  document.getElementById('rotate').onclick=()=>{if(!sel)return;sel.rot=((sel.rot||0)+90)%360;draw();};
-  document.getElementById('tryon').onclick=()=>{if(!sel)sel=items.find(i=>i.role==='диван')||items[0];
-    if(sel)openPicker(sel);};
-  document.getElementById('sh-close').onclick=closePicker;
-  document.getElementById('scrim').onclick=closePicker;
-  document.getElementById('feedAll').onclick=()=>{const all=shots.every(s=>s.pick);
-    shots.forEach(s=>s.pick=!all);drawFeed();};
-  document.getElementById('feedShare').onclick=()=>shareOpen(shots.filter(s=>s.pick));
-  document.getElementById('tab-plan').onclick=()=>showTab('plan');
-  document.getElementById('tab-room').onclick=()=>showTab('room');
+  on('shotclose','onclick',()=>document.getElementById('shot').classList.remove('on'));
+  on('shot','onclick',e=>{if(e.target.id==='shot')e.currentTarget.classList.remove('on');});
+  // кнопок «повернуть» и «подобрать товар» больше нет: поворот — за угловые ручки предмета,
+  // товар — по значку на предмете или строке в списке справа (владелец 26.08)
+  on('sh-close','onclick',closePicker);
+  on('scrim','onclick',closePicker);
+  on('feedAll','onclick',()=>{const all=shots.every(s=>s.pick);
+    shots.forEach(s=>s.pick=!all);drawFeed();});
+  on('feedShare','onclick',()=>shareOpen(shots.filter(s=>s.pick)));
+  on('tab-plan','onclick',()=>showTab('plan'));
+  on('tab-room','onclick',()=>showTab('room'));
   window.addEventListener('hashchange',()=>showTab(location.hash==='#room'?'room':'plan'));
   flatPlan();
   loadShots();
@@ -476,6 +479,7 @@ function draw(){
   items.forEach(it=>stage.appendChild(badgeFor(it)));   // значки — последним слоем и БЕЗ поворота
   basket();
   drawPhotos();          // блок над планом знает, снята ли ТЕКУЩАЯ расстановка (26.08)
+  drawFeed();            // и лента: если кадра этой расстановки нет — впереди карточка «＋»
   drawVariants();
   const st=document.getElementById('layoutState');
   if(st){const changed=baseRev&&revision()!==baseRev;
@@ -765,7 +769,8 @@ function drawFeed(){
   });
   document.getElementById('feedBar').hidden=shots.length===0;
   const n=shots.filter(s=>s.pick).length;
-  document.getElementById('feedShare').textContent=n?`Отправить себе (${n})`:'Отправить подборку себе';
+  const fsBtn=document.getElementById('feedShare');
+  if(fsBtn)fsBtn.textContent=n?`Отправить себе (${n})`:'Отправить подборку себе';
 }
 // ——— блок над планом: либо кадры этой расстановки, либо «расстановка изменилась»
 function drawPhotos(){
