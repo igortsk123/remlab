@@ -48,10 +48,13 @@ h1{font-size:20px;margin:6px 0 2px}.sub{color:#5C655E;font-size:14px;margin-bott
 .noimg{width:100%;aspect-ratio:4/3;background:#F2F0EB;border-radius:8px;display:flex;
  flex-direction:column;align-items:center;justify-content:center;font-size:12px;color:#8A8F89;text-align:center}
 .noimg span{font-size:11px;color:#A6ABA4}
-#peek{position:fixed;z-index:45;background:#fff;border:1px solid var(--line);border-radius:10px;
- padding:6px;box-shadow:0 10px 30px #00000026;display:none}
-#peek img{width:220px;height:170px;object-fit:contain;background:#F7F5F1;border-radius:6px;display:block}
-#peek b{display:block;font-size:12.5px;margin-top:4px;max-width:220px}
+#peek{position:fixed;z-index:45;background:#fff;border:1px solid var(--line);border-radius:12px;
+ padding:8px;box-shadow:0 12px 34px #00000026;display:none;width:240px;cursor:pointer}
+#peek img{width:224px;height:168px;object-fit:contain;background:#F7F5F1;border-radius:8px;display:block}
+#peek .pn{font-size:13px;line-height:1.3;margin-top:6px;max-height:34px;overflow:hidden}
+#peek .pp{font-size:17px;font-weight:700;margin-top:3px}
+#peek .pd{font-size:12px;color:#5C655E}
+#peek .pgo{margin-top:6px;font-size:12.5px;color:var(--accent);font-weight:600}
 #scrim{position:fixed;inset:0;background:#0006;z-index:39;opacity:0;pointer-events:none;transition:opacity .2s}
 #scrim.on{opacity:1;pointer-events:auto}
 .sel{font-size:13px;color:#3A423C;margin-top:6px}
@@ -88,7 +91,7 @@ h1{font-size:20px;margin:6px 0 2px}.sub{color:#5C655E;font-size:14px;margin-bott
 
 <div class="panel" id="basket"><h3>Товары в комнате</h3><div id="blist">—</div></div>
 <div class="panel" id="advisor"><h3>Проверка по стандартам</h3><div id="issues">—</div>
-<div class="hint">Двигать пальцем или мышью. Мы ничего не переставляем за вас: показываем, что расходится со стандартом, и вы решаете сами.</div></div>
+<div class="hint">Предмет — двигаем перетаскиванием; товар выбираем кликом по значку на предмете. Мы ничего не переставляем за вас: показываем, что расходится со стандартом, а решаете вы.</div></div>
 <div class="panel"><h3>Как это устроено</h3>
 <b>Расстановка</b> и <b>комплект товаров</b> — независимы: любой комплект накладывается на любой вариант расстановки,
 а отдельный предмет можно заменить товаром из любого другого комплекта — смешивать можно как угодно.
@@ -145,7 +148,7 @@ function applyKit(kit){            // комплект накладываетс�
     (kit.sum?` · сумма ${kit.sum.toLocaleString('ru-RU')} ₽`:'')+
     ` · любой предмет можно заменить своим — выберите его и нажмите «Подобрать товар»`;
   draw();}
-function load(){items=clone(D.variants[cur].items);sel=null;document.getElementById('sel').textContent='Коснитесь предмета на плане — откроется подбор товара. Перетаскивайте, чтобы двигать.';draw();}
+function load(){items=clone(D.variants[cur].items);sel=null;document.getElementById('sel').textContent='Перетаскивайте предмет, чтобы двигать. Товар выбирается по значку на предмете.';draw();}
 
 function size(){const w=stage.clientWidth||stage.parentNode.clientWidth;S=(w-2*PAD)/D.room.w;stage.setAttribute('height',Math.round(D.room.d*S+2*PAD));}
 const X=x=>PAD+x*S, Y=y=>PAD+y*S;
@@ -166,6 +169,7 @@ function draw(){
     stage.appendChild(shape(it));
     const b=box(it);
     stage.appendChild(txt((b.x0+b.x1)/2,b.y1+9,`${it.role} ${Math.round(it.w)}×${Math.round(it.d)}`,10.5,'#2A2F2C'));});
+  items.forEach(it=>stage.appendChild(badgeFor(it)));   // значки — последним слоем и БЕЗ поворота
   check();basket();
 }
 function basket(){                    // мини-каталог собранной комнаты: что стоит, размеры, цена, ссылка
@@ -182,14 +186,22 @@ function basket(){                    // мини-каталог собранн�
     +`<div class="total"><span>Итого ${withSku.length} товаров</span><span>${sum.toLocaleString('ru-RU')} ₽</span></div>`;
 }
 let UID=0;
-function peek(e,it){const p=document.getElementById('peek');
-  p.innerHTML=`<img src="${it.sku.img}" alt=""><b>${it.sku.name||''}</b>`+
-    `<b style="font-weight:400;color:#5C655E">${Math.round(it.w)}×${Math.round(it.d)} см · ${(it.sku.price||0).toLocaleString('ru-RU')} ₽</b>`;
+let peekTimer=null;
+function peek(e,it){const p=document.getElementById('peek');const s=it.sku||{};
+  clearTimeout(peekTimer);
+  p.innerHTML=`<img src="${s.img}" alt="">`+
+    `<div class="pn">${s.name||it.role}</div>`+
+    `<div class="pp">${(s.price||0).toLocaleString('ru-RU')} ₽</div>`+
+    `<div class="pd">${Math.round(it.w)}×${Math.round(it.d)}${it.h?'×'+Math.round(it.h):''} см${s.shop?' · '+s.shop:''}</div>`+
+    `<div class="pgo">Перейти к товару →</div>`;
   p.style.display='block';
+  p.onclick=()=>{if(s.url)window.open(s.url,'_blank','noopener');};
+  p.onpointerenter=()=>clearTimeout(peekTimer);
+  p.onpointerleave=()=>hidePeek();
   const r=p.getBoundingClientRect();
   p.style.left=Math.max(8,Math.min(window.innerWidth-r.width-8,e.clientX-r.width/2))+'px';
-  p.style.top=Math.max(8,e.clientY-r.height-14)+'px';}
-function hidePeek(){document.getElementById('peek').style.display='none';}
+  p.style.top=Math.max(8,e.clientY-r.height-16)+'px';}
+function hidePeek(){peekTimer=setTimeout(()=>{document.getElementById('peek').style.display='none';},220);}
 function kind(it){                       // модель выбирается ПОД ТОВАР, а не по одной болванке
   const n=((it.sku&&it.sku.name)||'').toLowerCase(), base=it.role.split(' ')[0];
   if(base==='диван'){
@@ -272,23 +284,35 @@ function shape(it){
   } else {
     g.appendChild(R(-w/2,-d/2,w,d,3));
   }
-  // ЧТО ИМЕННО ВЫБРАНО — видно на модели (владелец 26.08): маленькая миниатюра в углу предмета,
-  // по наведению/долгому тапу разворачивается в увеличенный предпросмотр. Сам план остаётся
-  // чертежом: фото не заливает предмет целиком.
+  // значок подбора рисуется ОТДЕЛЬНО (badgeFor) — вне поворота, чтобы миниатюры не переворачивались
+  return g;
+}
+
+function badgeFor(it){
+  // ЗНАЧОК ВСЕГДА НЕ ПОВЁРНУТ (владелец 26.08: «чтоб не было перевёрнутых миниатюр»): рисуем его
+  // отдельной группой в МИРОВЫХ координатах, а не внутри повёрнутой группы предмета.
+  const b=box(it), r=Math.max(10,Math.min(Math.min(b.w,b.d)*S*0.20,17));
+  const cx=X(b.x1)-r-3, cy=Y(b.y0)+r+3;
+  const g=el('g',{}); g.style.cursor='pointer';
+  g.appendChild(el('circle',{cx:cx,cy:cy,r:r+2,fill:'#fff',stroke:'#2F6D96','stroke-width':1.6}));
   if(it.sku&&it.sku.img){
-    const r=Math.max(9,Math.min(w,d)*0.19), cx=w/2-r-2, cy=-d/2+r+2, id='cp'+(++UID);
+    const id='cp'+(++UID);
     const cp=el('clipPath',{id:id});cp.appendChild(el('circle',{cx:cx,cy:cy,r:r}));
     g.appendChild(cp);
-    g.appendChild(el('circle',{cx:cx,cy:cy,r:r+1.5,fill:'#fff',stroke:'#3A3A3A','stroke-width':1}));
-    const im=el('image',{href:it.sku.img,x:cx-r,y:cy-r,width:2*r,height:2*r,
-      preserveAspectRatio:'xMidYMid slice','clip-path':`url(#${id})`});
-    im.style.cursor='zoom-in';
-    im.addEventListener('pointerenter',e=>peek(e,it));
-    im.addEventListener('pointerleave',()=>hidePeek());
-    im.addEventListener('pointerdown',e=>{e.stopPropagation();peek(e,it);setTimeout(hidePeek,2500);});
-    g.appendChild(im);
+    g.appendChild(el('image',{href:it.sku.img,x:cx-r,y:cy-r,width:2*r,height:2*r,
+      preserveAspectRatio:'xMidYMid slice','clip-path':`url(#${id})`}));
+    g.addEventListener('pointerenter',e=>peek(e,it));
+    g.addEventListener('pointerleave',()=>hidePeek());
+    g.addEventListener('pointerdown',e=>{if(e.pointerType==='touch'){e.stopPropagation();peek(e,it);}});
+  } else {
+    g.appendChild(el('circle',{cx:cx,cy:cy,r:r,fill:'#2F6D96'}));
+    g.appendChild(el('rect',{x:cx-r*0.52,y:cy-r*0.34,width:r*1.04,height:r*0.72,rx:r*0.18,
+      fill:'none',stroke:'#fff','stroke-width':1.4}));
+    g.appendChild(el('circle',{cx:cx,cy:cy+r*0.02,r:r*0.22,fill:'none',stroke:'#fff','stroke-width':1.4}));
   }
+  g.addEventListener('pointerup',e=>{e.stopPropagation();hidePeek();openPicker(it);});
   return g;
+
 }
 function shade(hex,amt){const n=parseInt(hex.slice(1),16);
   const r=Math.max(0,Math.min(255,(n>>16)+amt)),g2=Math.max(0,Math.min(255,((n>>8)&255)+amt)),
@@ -336,10 +360,7 @@ function hits(me){                       // наложение с другими
     const ov=Math.max(0,Math.min(a.x1,b.x1)-Math.max(a.x0,b.x0))*Math.max(0,Math.min(a.y1,b.y1)-Math.max(a.y0,b.y0));
     return ov>200;                       // 2 дм² — допуск на касание кромок
   });}
-stage.addEventListener('pointerup',e=>{
-  // короткий тап без сдвига = «хочу выбрать товар для этого предмета» (владелец 26.08)
-  if(drag&&sel&&drag.t&&Date.now()-drag.t<400&&!drag.moved)openPicker(sel);
-  drag=null;});
+stage.addEventListener('pointerup',()=>{drag=null;});   // предмет только двигаем; товар — по значку
 function loc(e){const r=stage.getBoundingClientRect();return{x:(e.clientX-r.left-PAD)/S,y:(e.clientY-r.top-PAD)/S};}
 
 // ——— лента диванов
@@ -407,17 +428,15 @@ function grid(){
     if(F.fitOnly&&fitBadge(sel,p).cls==='b-no')return false;
     return true;});
   const rank=p=>({'b-ok':0,'b-tight':1,'b-no':2})[fitBadge(sel,p).cls];
-  const pic=p=>p.img?0:1;                       // товары с фото — выше: половина ссылок фида мертва
-  list.sort((a,b)=>F.sort==='price'
-    ?(pic(a)-pic(b)||(a.price||0)-(b.price||0))
-    :(pic(a)-pic(b)||rank(a)-rank(b)||(a.price||0)-(b.price||0)));
+  // товаров без фото в выборке уже нет — их отсекает сборка данных (владелец 26.08)
+  list.sort((a,b)=>F.sort==='price'?((a.price||0)-(b.price||0))
+                                   :(rank(a)-rank(b)||(a.price||0)-(b.price||0)));
   if(!list.length){g.innerHTML='<div class="hint">Под фильтры ничего не подошло — снимите ограничения.</div>';return;}
   list.forEach(p=>{const c=document.createElement('div');c.className='card';
     const dims=`${Math.round(p.w)}×${Math.round(p.d)}${p.h?'×'+Math.round(p.h):''} см`;
     const bg=fitBadge(sel,p), cur=sel.sku&&sel.sku.name===p.name;
     if(cur)c.classList.add('cur');
-    c.innerHTML=(p.img?`<img src="${p.img}" loading="lazy" alt="">`
-      :`<div class="noimg">фото недоступно<br><span>ссылка фида устарела</span></div>`)+
+    c.innerHTML=`<img src="${p.img}" loading="lazy" alt="">`+
       `<span class="badge ${bg.cls}">${bg.txt}</span>`+
       `<div class="nm">${p.name||''}</div>`+
       `<div class="pr">${(p.price||0).toLocaleString('ru-RU')} ₽</div>`+

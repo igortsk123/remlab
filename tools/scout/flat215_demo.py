@@ -117,9 +117,11 @@ def build() -> dict:
                 {'name': it.get('name'), 'w': it.get('w'), 'd': it.get('d'), 'h': it.get('h'),
                  'price': it.get('price'), 'img': it.get('img'), 'url': it.get('url'),
                  'shop': it.get('shop'), 'style': s.get('style')})
+    # кап ставим ПОСЛЕ проверки фото (владелец 26.08: «нет фото — товар не участвует в выборке»),
+    # поэтому здесь берём широкий пул: половина ссылок фида мертва, и обрезать до фильтра нельзя
     for k in feeds:
         feeds[k].sort(key=lambda x: x['price'] or 0)
-        feeds[k] = feeds[k][:24]
+        feeds[k] = feeds[k][:60]
     feed = feeds.get('диван', [])
     # КОМПЛЕКТЫ: набор товаров по ролям, который накладывается на ЛЮБОЙ вариант расстановки
     product_sets = []
@@ -207,7 +209,23 @@ def cache_images(data: dict) -> dict:
     for v in data.get('variants') or []:
         for it in v['items']:
             fix(it.get('sku'))
-    data['_img_cached'] = {'ok': ok, 'total': len(urls)}
+    # ТОВАР БЕЗ ФОТО В ВЫБОРКЕ НЕ УЧАСТВУЕТ (владелец 26.08): выборку пересчитываем ПОСЛЕ
+    # проверки картинок, иначе половина ленты — пустые карточки.
+    dropped = 0
+    for role, lst in list((data.get('feeds') or {}).items()):
+        live = [p for p in lst if p.get('img')]
+        dropped += len(lst) - len(live)
+        data['feeds'][role] = live[:24]
+        if not data['feeds'][role]:
+            data['feeds'].pop(role)
+    data['sofa_feed'] = data.get('feeds', {}).get('диван', [])
+    for kit in (data.get('sets') or []):
+        kit['roles'] = {r: p for r, p in kit['roles'].items() if p.get('img')}
+        kit['sum'] = sum((p.get('price') or 0) for p in kit['roles'].values())
+    data['sets'] = [k for k in (data.get('sets') or []) if k['roles']]
+    print(f'из выборки убрано без фото: {dropped}; осталось по ролям: '
+          + ', '.join(f"{k} {len(v)}" for k, v in sorted(data['feeds'].items())))
+    data['_img_cached'] = {'ok': ok, 'total': len(urls), 'dropped_no_photo': dropped}
     return data
 
 
