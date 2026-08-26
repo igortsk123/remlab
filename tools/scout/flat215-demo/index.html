@@ -1148,8 +1148,12 @@ function hintFor(it){
   }
   return null;
 }
+// ПОДСКАЗКИ ДИЗАЙНЕРА ВРЕМЕННО ВЫКЛЮЧЕНЫ (владелец 26.08: «пока не в попад»). Правила и расчёт
+// оставлены целиком — включаются одним флагом, когда доведём формулировки и пороги.
+const HINTS_ON=false;
 let tipTimer=null, tipWasBad=false, tipLast=0;
 function showTip(it,force){
+  if(!HINTS_ON){const t=document.getElementById('tip'); if(t)t.style.display='none'; return;}
   const t=document.getElementById('tip');
   if(!it){clearTimeout(tipTimer);tipTimer=null;t.style.display='none';tipWasBad=false;return;}
   const now=Date.now();
