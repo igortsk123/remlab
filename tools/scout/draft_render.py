@@ -23,7 +23,7 @@ import time
 import urllib.request
 
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 sys.path.insert(0, '/home/pakar/igor/remlab/services/planner-solver')
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -44,7 +44,7 @@ MODEL = 'fal-ai/nano-banana/edit'
 # `gpt-image-2 medium` у OpenAI (13–14/14 точных предметов), но на ключе сейчас insufficient_quota,
 # поэтому по умолчанию берём наш же проверенный дубль на fal (в A/B 10/10, $0.067/кадр).
 # Переключение — переменной REALISTIC_MODEL, без правки кода.
-REALISTIC_MODEL = os.environ.get('REALISTIC_MODEL', 'fal-ai/nano-banana-pro/edit')
+REALISTIC_MODEL = os.environ.get('REALISTIC_MODEL', 'openai/gpt-image-2')  # через шлюз Vercel
 # МЯГКОЕ (плед, подушки, шторы) НЕ ВКЛЕИВАЕМ: у них нет своей формы, и плоское фото ткани в маске
 # читается как флаг на стене — модель честно рисует флаг. Их дорисовывает промпт.
 SKIP_PASTE = ('плед', 'подушка', 'штора', 'тюль', 'картина')
@@ -128,8 +128,16 @@ def _cutout(img: Image.Image, thr: int = 238) -> tuple[Image.Image, Image.Image]
     return img.crop(box), Image.fromarray((obj * 255).astype(np.uint8)).crop(box)
 
 
-def collage(room, placements, cam, photos: dict) -> tuple[Image.Image, Image.Image, dict]:
-    """→ (коллаж, карта глубины для контроля, диагностика)."""
+def collage(room, placements, cam, photos: dict,
+            paste: bool = True) -> tuple[Image.Image, Image.Image, dict]:
+    """→ (кадр, карта глубины для контроля, диагностика).
+
+    `paste=True` — черновик: фотографии товаров вклеиваются в маски предметов (быстро и сразу
+    видно состав). `paste=False` — трек А: отдаём модели ЧИСТЫЙ объёмный рендер комнаты, а товары
+    показываем отдельным листом эталонов. Так решено ещё 05.08 (ADR-0062/0063): плоская вклейка
+    врёт про РАЗВОРОТ — стул, снятый в фас, при виде сбоку выглядит повёрнутым не туда, и модель
+    считает это намеренным; а всё, чего нет в листе эталонов, она выдумывает по названию.
+    """
     sc = compile_scene(room, placements, cam)
     depth, inst, ids = sc['depth'], sc['instances'], sc['ids']
     H, W = inst.shape
@@ -154,7 +162,7 @@ def collage(room, placements, cam, photos: dict) -> tuple[Image.Image, Image.Ima
                                      Image.fromarray((m * 255).astype(np.uint8)))
             put.append(role)
             continue
-        ph = None if role.split(' ')[0] in SKIP_PASTE else photos.get(role)
+        ph = None if (not paste or role.split(' ')[0] in SKIP_PASTE) else photos.get(role)
         if ph is None:
             miss.append(role)
             continue
@@ -181,8 +189,11 @@ def collage(room, placements, cam, photos: dict) -> tuple[Image.Image, Image.Ima
         canvas = Image.composite(tile, canvas, alpha)
         put.append(role)
     dmap = Image.fromarray(((1.0 - dn) * 255).astype(np.uint8)).convert('RGB')
-    return canvas, dmap, {'вклеено': put, 'без фото': miss, 'ракурс не тот': skewed,
-                          'вне кадра': sc['behind']}
+    if paste:
+        diag = {'вклеено': put, 'без фото': miss, 'ракурс не тот': skewed, 'вне кадра': sc['behind']}
+    else:                       # трек А: в кадр ничего не клеим, товары — отдельным листом
+        diag = {'в кадре': sorted(set(miss + put + skewed)), 'вне кадра': sc['behind']}
+    return canvas, dmap, diag
 
 
 def scene_from_request(payload: dict) -> tuple:
@@ -340,6 +351,223 @@ def _sheet(room, placements, photos, cams, prefix: str, model: str, side: int, s
     return shots
 
 
+# ——— ТРЕК А: ГЛАВНЫЙ КАДР ЧЕРЕЗ GPT-IMAGE (владелец 26.08: «мы отправляли модель с подписанными
+# элементами и референсы всех фотографий одним листом, промпт делал одну картинку в двух видах»).
+# Восстановлен рецепт `viz_final.py`: модель получает ЧЕТЫРЕ вещи —
+#   1) лист из двух ракурсов (коллаж), разделённых маджента-полосой;
+#   2) тот же лист с НОМЕРАМИ предметов;
+#   3) лист эталонов: фотография каждого товара с подписью «#N роль»;
+#   4) список предметов JSON: номер, товар, роль, габариты, где стоит, в каком виде виден.
+# Модель дорисовывает свет и материалы, но не выдумывает состав: всё названо и показано.
+GATEWAY = 'https://ai-gateway.vercel.sh/v1/images/edits'
+
+
+def gw_key() -> str:
+    k = os.environ.get('VERCEL_AI_GATEWAY_KEY')
+    if k:
+        return k.strip()
+    for p in (os.path.join(HERE, '.env'), os.path.join(HERE, '..', '..', '.env')):
+        try:
+            for line in open(p, encoding='utf-8'):
+                if line.startswith('VERCEL_AI_GATEWAY_KEY='):
+                    return line.split('=', 1)[1].strip().strip('"\'')
+        except OSError:
+            continue
+    raise SystemExit('нет VERCEL_AI_GATEWAY_KEY — см. .memory_bank/_secrets/ACCESS.md')
+
+
+def _font(size: int):
+    for p in ('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+              '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'):
+        if os.path.exists(p):
+            return ImageFont.truetype(p, size)
+    return ImageFont.load_default()
+
+
+def _marked(img: Image.Image, anchors: list, skus: dict) -> Image.Image:
+    """Кадр с НОМЕРОМ, НАЗВАНИЕМ И РАЗМЕРОМ каждого предмета (владелец 26.08: «подписывали размеры
+    каждого элемента и что это — стол, стул, а потом с номерами»). Номер связывает предмет в кадре
+    с его эталонной фотографией на отдельном листе, подпись говорит модели, что это и какого оно
+    размера, — тогда она не превращает тумбу в комод и не меняет пропорции."""
+    out = img.copy()
+    d = ImageDraw.Draw(out)
+    r = max(16, img.width // 42)
+    f = _font(int(r * 1.25))
+    fc = _font(max(13, int(r * 0.78)))
+    for a in anchors:
+        cx, cy = a['x'] * out.width, a['y'] * out.height
+        sku = skus.get(a['role']) or {}
+        dim = ''
+        if sku.get('w') and sku.get('d'):
+            dim = f" {round(sku['w'])}×{round(sku['d'])}" + (f"×{round(sku['h'])}" if sku.get('h') else '')
+        cap = f"{a['n']}. {a['role']}{dim} см" if dim else f"{a['n']}. {a['role']}"
+        bb = d.textbbox((0, 0), cap, font=fc)
+        w, h = bb[2] - bb[0] + 10, bb[3] - bb[1] + 8
+        bx, by = min(max(cx - w / 2, 2), out.width - w - 2), min(cy + r + 4, out.height - h - 2)
+        d.rectangle([bx, by, bx + w, by + h], fill=(255, 255, 255))
+        d.text((bx + 5, by + 4), cap, fill=(200, 30, 30), font=fc)
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(255, 255, 255), outline=(200, 30, 30),
+                  width=max(2, r // 7))
+        d.text((cx, cy), str(a['n']), fill=(200, 30, 30), anchor='mm', font=f)
+    return out
+
+
+def _identity(anchors_all: list, photos: dict, skus: dict | None = None) -> Image.Image | None:
+    """Лист эталонов: фото КАЖДОГО товара с подписью «#N роль» — по нему модель узнаёт материал."""
+    seen, cells = set(), []
+    for a in anchors_all:
+        if a['role'] in seen:
+            continue
+        seen.add(a['role'])
+        # ЛИСТ ЭТАЛОНОВ ПОКРЫВАЕТ ВСЕ ПОЗИЦИИ КАДРА (ADR-0063, опыт «б» 05.08): всё, чего модель
+        # не увидела фотографией, она выдумывает по названию. Нет фото — кладём пустую карточку
+        # с подписью, чтобы предмет всё равно был назван.
+        cells.append((a['n'], a['role'], photos.get(a['role']), a.get('name') or ''))
+    if not cells:
+        return None
+    cells.sort(key=lambda c: c[0])
+    cols = min(3, len(cells))
+    rows = (len(cells) + cols - 1) // cols
+    cw, ch = 520, 500
+    sheet = Image.new('RGB', (cols * cw, rows * ch), (255, 255, 255))
+    d = ImageDraw.Draw(sheet)
+    f = _font(34)
+    fs = _font(24)
+    for i, (num, role, im, name) in enumerate(cells):
+        x, y = (i % cols) * cw, (i // cols) * ch
+        if im is not None:
+            im = im.copy()
+            im.thumbnail((cw - 40, ch - 120))
+            sheet.paste(im, (x + (cw - im.width) // 2, y + 24))
+        else:
+            d.rectangle([x + 30, y + 30, x + cw - 30, y + ch - 130], outline=(200, 200, 200), width=3)
+            d.text((x + cw // 2, y + (ch - 100) // 2), 'фото нет', fill=(150, 150, 150),
+                   anchor='mm', font=_font(28))
+        sku = (skus or {}).get(role) or {}
+        dim = (f"{round(sku['w'])}×{round(sku['d'])}" + (f"×{round(sku['h'])}" if sku.get('h') else '') + ' см'
+               if sku.get('w') and sku.get('d') else '')
+        d.text((x + 20, y + ch - 86), f'#{num} {role}', fill=(200, 30, 30), font=f)
+        d.text((x + 20, y + ch - 46), (name[:38] + (' · ' + dim if dim else '')), fill=(90, 90, 90), font=fs)
+    return sheet
+
+
+def _legend(per_cam: list, skus: dict) -> list:
+    """Список предметов для модели: номер, товар, роль, габариты и в каком виде он виден."""
+    merged = {}
+    for idx, anchors in enumerate(per_cam):
+        for a in anchors:
+            it = merged.setdefault(a['n'], {
+                'id': a['n'], 'type': a['role'],
+                'product': a.get('name') or '—',
+                'size_cm': None, 'in_view_1': 'absent', 'in_view_2': 'absent'})
+            sku = skus.get(a['role']) or {}
+            if sku.get('w'):
+                it['size_cm'] = f"{round(sku['w'])}x{round(sku.get('d') or 0)}" + \
+                                (f"x{round(sku['h'])}" if sku.get('h') else '')
+            it['in_view_1' if idx == 0 else 'in_view_2'] = 'visible'
+    return [merged[k] for k in sorted(merged)]
+
+
+def gpt_edit(images: list, prompt: str, size: str = '1024x1536',
+             quality: str = 'medium', model: str = 'openai/gpt-image-2') -> Image.Image:
+    """Один запрос в gpt-image через шлюз Vercel: несколько картинок + текст → один лист."""
+    import uuid
+    bnd = '----rl' + uuid.uuid4().hex[:16]
+    body = b''
+
+    def part(name: str, val: str) -> bytes:
+        return (f'--{bnd}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{val}\r\n').encode()
+
+    body += part('model', model) + part('prompt', prompt) + part('size', size) + part('quality', quality)
+    for i, im in enumerate(images):
+        buf = io.BytesIO()
+        im.convert('RGB').save(buf, 'JPEG', quality=92)
+        body += (f'--{bnd}\r\nContent-Disposition: form-data; name="image[]"; '
+                 f'filename="i{i}.jpg"\r\nContent-Type: image/jpeg\r\n\r\n').encode()
+        body += buf.getvalue() + b'\r\n'
+    body += f'--{bnd}--\r\n'.encode()
+    req = urllib.request.Request(GATEWAY, data=body, headers={
+        'Authorization': f'Bearer {gw_key()}',
+        'Content-Type': f'multipart/form-data; boundary={bnd}'})
+    with urllib.request.urlopen(req, timeout=900) as r:
+        j = json.loads(r.read())
+    b64 = (j.get('data') or [{}])[0].get('b64_json')
+    if not b64:
+        raise SystemExit(f'шлюз не вернул картинку: {json.dumps(j)[:300]}')
+    import base64
+    return Image.open(io.BytesIO(base64.b64decode(b64))).convert('RGB')
+
+
+def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dict,
+               model: str) -> list:
+    """Полный рецепт трека А: коллажи → номера → эталоны → один запрос → разрез по полосе."""
+    import hashlib
+    parts, marks, diags, per_cam = [], [], [], []
+    numbering: dict = {}
+    for cam in cams:
+        coll, _d, diag = collage(room, placements, cam, photos, paste=False)
+        h = max(2, int(round(side * coll.height / coll.width)))
+        coll = coll.resize((side, h))
+        an = anchors(room, placements, cam, skus)
+        for a in an:                                   # сквозная нумерация по всем видам
+            a['n'] = numbering.setdefault(a['role'], len(numbering) + 1)
+        parts.append(coll)
+        marks.append(_marked(coll, an, skus))
+        diags.append(diag)
+        per_cam.append(an)
+    def stack(imgs):
+        total = sum(p.height for p in imgs) + BAND_PX * (len(imgs) - 1)
+        sh = Image.new('RGB', (side, total), BAND_RGB)
+        y = 0
+        for p in imgs:
+            sh.paste(p, (0, y))
+            y += p.height + BAND_PX
+        return sh
+    sheet, sheet_marks = stack(parts), stack(marks)
+    sheet.save(prefix + '-sheet.jpg', quality=92)
+    sheet_marks.save(prefix + '-marked.jpg', quality=92)
+    ident = _identity([a for an in per_cam for a in an], photos, skus)
+    if ident is not None:
+        ident.save(prefix + '-identity.jpg', quality=92)
+    legend = _legend(per_cam, skus)
+    prompt = (
+        'You are given: (1) a sheet with TWO views of the SAME room stacked vertically and split by '
+        'a magenta band — this is OUR 3D layout: every piece of furniture is a plain grey volume in '
+        'its exact place, size and orientation; (2) the same sheet with red numbers and captions '
+        '(number, type of furniture and its size in cm); (3) a reference sheet with the real product '
+        'photo of every numbered item.\n'
+        'Return ONE image of the same proportions: both views rendered as photorealistic interior '
+        'photographs, with the magenta band kept exactly where it is.\n'
+        'Rules:\n'
+        '- Replace each numbered grey volume with the product that carries the SAME number on the '
+        'reference sheet: same model, colour, material and proportions.\n'
+        '- Keep the position, footprint and ORIENTATION of every volume exactly as in the layout. '
+        'The reference photo shows the product from a catalogue angle — do not copy that angle, turn '
+        'the product to match the volume in the room.\n'
+        '- Do not add, remove or move furniture. Do not draw the red numbers or captions.\n'
+        '- Items marked "фото нет" have no reference: render a plain, neutral piece of that exact '
+        'type and size.\n'
+        '- Natural daylight from the window, soft contact shadows, realistic wood floor and wall '
+        'textures; lighting and materials identical in both views.\n'
+        'Objects:\n'
+        + json.dumps(legend, ensure_ascii=False))
+    imgs = [sheet, sheet_marks] + ([ident] if ident is not None else [])
+    w, h = sheet.size
+    out = gpt_edit(imgs, prompt, size=('1024x1536' if h > w else '1536x1024'),
+                   quality=os.environ.get('GPT_IMAGE_QUALITY', 'medium'),
+                   model=model.split('gateway:')[-1])
+    out.save(prefix + '-final.jpg', quality=94)
+    pieces = _split_pair(out)
+    stamp = hashlib.md5((prefix + str(time.time())).encode()).hexdigest()[:10]
+    shots = []
+    for cam, piece, diag, an in zip(cams, pieces, diags, per_cam):
+        piece = _trim_band(piece)
+        piece.save(f'{prefix}-{cam.name}.jpg', quality=92)
+        shots.append({'camera': cam.name, 'url': _publish_frame(piece, f'{stamp}-{cam.name}.jpg'),
+                      'diag': diag, 'anchors': an})
+    return shots
+
+
 def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1',
            save_prefix: str | None = None, quality: str = 'draft') -> dict:
     """Кадр(ы) комнаты. `draft` — один ракурс и быстрая модель, `realistic` — два ракурса
@@ -368,7 +596,10 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
     prefix = save_prefix or os.path.join(OUT, f'draft{n}')
     skus = {it['role']: it for it in (layout or {}).get('items', []) if it.get('role')}
     if len(want) > 1:
-        shots = _sheet(room, placements, photos, want, prefix, model, side, skus)
+        # gpt-image идёт по полному рецепту трека А (номера + эталоны + список), fal — коротким
+        shots = (_sheet_gpt(room, placements, photos, want, prefix, side, skus, model)
+                 if model.startswith('openai/')
+                 else _sheet(room, placements, photos, want, prefix, model, side, skus))
     else:
         shots = [_one_camera(room, placements, photos, want[0], prefix, model, side, skus)]
     sec = round(time.time() - t0, 1)
