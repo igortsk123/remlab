@@ -32,7 +32,11 @@ def _placed_from_artifact(art: dict) -> tuple[dict, dict]:
         if v.get('corner'):
             # Г-диван: восстановить L-футпринт (иначе рисуется прямоугольник, и предмет
             # в вырезе читается как наложение — аудит Юли №14)
-            _kw = {'corner': True, 'corner_section_cm': v.get('corner_section_cm'),
+            # ключ в артефакте называется `section` (solver_run), а в модели —
+            # `corner_section_cm`: читаем оба, иначе рендер валится на реальных планах (26.08)
+            _kw = {'corner': True,
+                   'corner_section_cm': float(v.get('corner_section_cm')
+                                              or v.get('section') or 95),
                    'corner_left': bool(v.get('corner_left', False))}
         it = Item(role=k, w_cm=w or 1.0, d_cm=d or 1.0, h_cm=float(v.get('h') or 80), **_kw)
         p = Placement(role=k, x=float(v['x']), y=float(v.get('z', v.get('y', 0))), rot=float(v.get('rot', 0)), item=it)
