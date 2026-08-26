@@ -245,6 +245,11 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
       </div>
       <div id="canvasWrap"><svg id="stage" xmlns="http://www.w3.org/2000/svg"></svg>
       <div id="tip"></div></div>
+      <!-- КНОПКА ПОД ПЛАНОМ (владелец 26.08): снять расстановку можно прямо здесь, не поднимаясь
+           к ленте -->
+      <div class="bar" style="margin-top:10px">
+        <button class="btn primary" id="shotNow">Посмотреть на фото · ~25 сек</button>
+      </div>
     </div>
     <div class="panel" id="basket"><h3>Товары этой расстановки</h3><div id="blist">—</div></div>
   </div>
@@ -297,6 +302,7 @@ function init(){
   // товар — по значку на предмете или строке в списке справа (владелец 26.08)
   on('sh-close','onclick',closePicker);
   on('scrim','onclick',closePicker);
+  on('shotNow','onclick',()=>makePhoto('draft'));
   on('feedAll','onclick',()=>{const all=shots.every(s=>s.pick);
     shots.forEach(s=>s.pick=!all);drawFeed();});
   on('feedShare','onclick',()=>shareOpen(shots.filter(s=>s.pick)));
@@ -749,8 +755,8 @@ function saveShots(){
 function addShot(rec){ shots.push(rec); saveShots();
   try{if(rec.sources)localStorage.setItem('flat215-src',rec.sources);}catch(e){}
   drawFeed(); drawPhotos();
-  const tr=document.querySelector('#feed .track');   // новый кадр — в конце, подкручиваем к нему
-  if(tr)tr.scrollLeft=tr.scrollWidth; }
+  const tr=document.querySelector('#feed .track');   // новый кадр стоит первым — показываем начало
+  if(tr)tr.scrollLeft=0; }
 function shotLabel(s){
   const q={draft:'черновое',realistic:'реалистичное',preset:'готовое'}[s.quality]||s.quality;
   const cam={C1:'от окна',C2:'от входа'}[s.camera]||'';
@@ -781,7 +787,7 @@ function drawFeed(){                    // КАРУСЕЛЬ СРЕДНИХ КА�
     `<div class="track">`+
       (addFirst?`<div class="add"><div class="plus">＋</div><b>Посмотреть изменения на фото</b>
         <span>черновое фото · ~25 сек</span></div>`:'')+
-      shots.map((s,i)=>card(s,i)).join('')+
+      shots.map((s,i)=>[s,i]).reverse().map(([s,i])=>card(s,i)).join('')+   // новые кадры первыми
     `</div>`+
     `<button class="nav next" aria-label="Вперёд">›</button>`+
     (shots.length?`<div class="meta">снимков: ${shots.length} · листайте стрелками, клик по фото — крупно</div>`:'');
