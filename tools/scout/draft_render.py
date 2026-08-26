@@ -18,6 +18,7 @@
 import io
 import json
 import os
+import re
 import sys
 import time
 import urllib.request
@@ -563,6 +564,54 @@ def _publish_sources(stamp: str, imgs: dict, prompt: str, legend: list, meta: di
     return (PUBLIC_BASE + SRC_URL + '/' + stamp + '/') if PUBLIC_BASE else d
 
 
+VISION_MODEL = os.environ.get('VISION_MODEL', 'openai/gpt-4.1-mini')
+CHAT_URL = 'https://ai-gateway.vercel.sh/v1/chat/completions'
+
+
+def refine_anchors(img: Image.Image, an: list) -> list:
+    """УТОЧНЯЕМ ЯКОРЯ ПО ГОТОВОМУ КАДРУ (владелец 26.08: «цифры все неверно обозначены»).
+
+    Наши координаты точны для НАШЕЙ сцены, но модель перерисовывает комнату и мелкие предметы
+    (торшер, тумба, стеллаж) сдвигает — значок повисал не на том предмете. Поэтому спрашиваем
+    зрячую модель, где предмет на ИТОГОВОМ кадре, и берём её точку, только если она недалеко от
+    нашей: так уходит грубая ошибка, но не появляется выдумка на пустом месте.
+    """
+    roles = [a['role'] for a in an if a.get('name')]
+    if not roles:
+        return an
+    import base64
+    buf = io.BytesIO()
+    img.convert('RGB').save(buf, 'JPEG', quality=80)
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    body = {'model': VISION_MODEL, 'max_tokens': 700, 'messages': [{'role': 'user', 'content': [
+        {'type': 'text', 'text': 'Найди на этом фото интерьера предметы: ' + ', '.join(roles) +
+         '. Ответь ТОЛЬКО JSON-массивом [{"role":"диван","x":0.31,"y":0.65}] — x и y это доли '
+         'ширины и высоты кадра, точка в центре видимой части предмета. Предмет не виден — не '
+         'включай его в ответ.'},
+        {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + b64}}]}]}
+    try:
+        req = urllib.request.Request(CHAT_URL, data=json.dumps(body).encode(),
+                                     headers={'Authorization': f'Bearer {gw_key()}',
+                                              'Content-Type': 'application/json'})
+        with urllib.request.urlopen(req, timeout=90) as r:
+            txt = json.loads(r.read())['choices'][0]['message']['content'] or ''
+        m = re.search(r'\[.*\]', txt, re.S)
+        found = {d.get('role'): d for d in json.loads(m.group(0))} if m else {}
+    except Exception:
+        return an
+    out = []
+    for a in an:
+        d = found.get(a['role'])
+        b = dict(a)
+        if d and isinstance(d.get('x'), (int, float)) and isinstance(d.get('y'), (int, float)):
+            dx, dy = float(d['x']) - a['x'], float(d['y']) - a['y']
+            if 0 <= float(d['x']) <= 1 and 0 <= float(d['y']) <= 1 and (dx * dx + dy * dy) ** 0.5 < 0.28:
+                b['x'], b['y'] = round(float(d['x']), 4), round(float(d['y']), 4)
+                b['refined'] = True
+        out.append(b)
+    return out
+
+
 def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dict,
                model: str, quality: str = 'medium') -> list:
     """Полный рецепт трека А: коллажи → номера → эталоны → один запрос → разрез по полосе."""
@@ -632,7 +681,7 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
         piece = _trim_band(piece)
         piece.save(f'{prefix}-{cam.name}.jpg', quality=92)
         shots.append({'camera': cam.name, 'url': _publish_frame(piece, f'{stamp}-{cam.name}.jpg'),
-                      'diag': diag, 'anchors': an, 'sources': src_url})
+                      'diag': diag, 'anchors': refine_anchors(piece, an), 'sources': src_url})
     return shots
 
 
