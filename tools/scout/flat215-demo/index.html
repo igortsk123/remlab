@@ -8,18 +8,18 @@
    h2 = clamp(22,4vw,28), базовая строка 1.5. Демо жило на фиксированных 13–16 px и на телефоне
    читалось мелко; переводим на те же clamp-ступени, чтобы размер рос вместе с экраном. */
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);
- font:clamp(16px,2.1vw,18px)/1.5 system-ui,-apple-system,Segoe UI,Roboto}
+ font:clamp(16px,1.15vw,19px)/1.5 system-ui,-apple-system,Segoe UI,Roboto}
 .wrap{max-width:1100px;margin:0 auto;padding:14px 14px 40px}
 h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
 .sub{color:#5C655E;font-size:clamp(15px,2vw,17px);margin-bottom:12px}
 .bar{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
-.chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:9px 16px;font-size:clamp(15px,1.9vw,16px);cursor:pointer}
+.chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:10px 18px;font-size:clamp(15px,1.05vw,17px);cursor:pointer}
 .chip.on{background:var(--accent);color:#fff;border-color:var(--accent)}
-.btn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:11px 16px;font-size:clamp(15px,1.9vw,16px);cursor:pointer}
+.btn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:11px 18px;font-size:clamp(15px,1.05vw,17px);cursor:pointer}
 .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
 #stage{width:100%;border:1px solid var(--line);border-radius:8px;background:#FAF8F3;touch-action:none;display:block}
-.panel{margin-top:12px;border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:clamp(15px,1.9vw,17px)}
-.panel h3{margin:0 0 8px;font-size:clamp(18px,2.6vw,21px)}
+.panel{margin-top:12px;border:1px solid var(--line);border-radius:8px;padding:14px 16px;font-size:clamp(15px,1.05vw,17.5px)}
+.panel h3{margin:0 0 10px;font-size:clamp(18px,1.4vw,23px)}
 .issue{padding:4px 0;border-top:1px dashed var(--line)}.issue:first-of-type{border-top:0}
 .issue b{color:var(--warn)}.clean{color:var(--ok)}
 /* ЛИСТ ПОДБОРА: снизу на телефоне, широкая панель на десктопе */
@@ -78,9 +78,9 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
 .state{border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:13px;
  background:#F4F2ED;color:#3A423C;white-space:nowrap}
 .state.changed{background:#FBF0E2;border-color:#E4C79A;color:#8A5A1E}
-.lnk{border:0;background:none;padding:0;color:var(--accent);font:inherit;font-size:12px;
+.lnk{border:0;background:none;padding:0;color:var(--accent);font:inherit;font-size:clamp(13.5px,0.95vw,15.5px);
  cursor:pointer;text-decoration:underline}
-.noimg-sm{width:54px;height:44px;flex:0 0 54px;border-radius:4px;background:#F2F0EB;color:#A6ABA4;
+.noimg-sm{width:64px;height:52px;flex:0 0 64px;border-radius:4px;background:#F2F0EB;color:#A6ABA4;
  font-size:10.5px;display:flex;align-items:center;justify-content:center;text-align:center}
 .row{display:flex;gap:10px;align-items:center;padding:7px 0;border-top:1px dashed var(--line);
  cursor:pointer}
@@ -92,6 +92,10 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
  flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#8A8F89;
  font-size:13.5px;text-align:center;padding:10px}
 .ph b{color:#5C655E;font-size:14.5px}
+/* СЛУЖЕБНАЯ ССЫЛКА «исходники» (владелец 26.08): по ней видно ровно то, что ушло в модель —
+   картинки запроса, промпт и список предметов. Мелко и не мешает. */
+.srcln{font-size:12px;color:#8A8F89;text-decoration:underline;margin-left:8px}
+.srcln:hover{color:var(--accent)}
 /* ЯКОРЯ НА ФОТО (владелец 26.08): точки на мебели со ссылкой на конкретный товар. Координаты —
    из масок нашей же сцены, а не «на глаз» и не из ответа модели. */
 .shotwrap{position:relative;display:inline-block;width:100%}
@@ -104,13 +108,14 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
 .pinlist{margin-top:12px;border-top:1px solid var(--line);padding-top:8px}
 .pinlist .row{cursor:default}
 .pinlist .row:hover{background:none}
-.row img{width:54px;height:44px;object-fit:contain;background:#F6F4F0;border-radius:4px;flex:0 0 54px}
-.row .t{flex:1;min-width:0}.row .t b{font-size:13.5px;font-weight:600;display:block;
+.row img{width:64px;height:52px;object-fit:contain;background:#F6F4F0;border-radius:5px;flex:0 0 64px}
+.row .t{flex:1;min-width:0}.row .t b{font-size:clamp(15px,1.05vw,17px);font-weight:600;display:block;
  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.row .t span{font-size:12px;color:#5C655E}
-.row .p{font-size:13.5px;font-weight:600;white-space:nowrap}
-.row a{font-size:12px;color:var(--accent);white-space:nowrap}
-.total{display:flex;justify-content:space-between;padding-top:8px;font-weight:600}
+.row .t span{font-size:clamp(13.5px,0.95vw,15.5px);color:#5C655E}
+.row .p{font-size:clamp(15px,1.05vw,17px);font-weight:600;white-space:nowrap}
+.row a{font-size:clamp(13.5px,0.95vw,15.5px);color:var(--accent);white-space:nowrap}
+.total{display:flex;justify-content:space-between;padding-top:10px;font-weight:700;
+ font-size:clamp(16px,1.15vw,18px)}
 .hint{font-size:clamp(14px,1.8vw,15px);color:#5C655E;margin-top:8px}
 /* ВВОДНЫЙ БЛОК — НАВЕРХУ (владелец 26.08): человек должен сразу понять, что тут можно делать,
    а не искать объяснение под планом. */
@@ -142,6 +147,17 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
 .tab{border:0;background:none;padding:10px 4px;margin-right:14px;cursor:pointer;color:#5C655E;
  font-size:clamp(16px,2.2vw,18px);border-bottom:3px solid transparent}
 .tab.on{color:var(--ink);border-bottom-color:var(--accent);font-weight:600}
+/* ПОДРАЗДЕЛЫ «Вариант N · цена» (26.08): второй уровень навигации сразу под вкладками */
+.subtabs{display:flex;gap:8px;overflow-x:auto;padding:12px 2px 4px;margin-bottom:2px}
+.vtab{flex:0 0 auto;border:1px solid var(--line);background:#fff;border-radius:12px;
+ padding:10px 16px;cursor:pointer;text-align:left;line-height:1.25;color:#3A423C;
+ font-size:clamp(15px,1.05vw,17px);transition:border-color .15s,box-shadow .15s}
+.vtab:hover{border-color:#C9D6E0}
+.vtab.on{border-color:var(--accent);box-shadow:0 0 0 2px #3B76A226;background:#F7FBFD}
+.vtab b{display:block;font-weight:600}
+.vtab span{font-size:clamp(13px,0.9vw,14.5px);color:#5C655E}
+.vtab.on span{color:var(--accent)}
+.vtab.add{border-style:dashed;color:var(--accent)}
 /* СХЕМА КОМНАТ: площади разные, поэтому плитки масштабируются по площади — но это схема, а не план */
 #flatRooms{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
 .rm{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#FAF8F3;
@@ -162,12 +178,18 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
 .shot-card{flex:0 0 auto;width:180px;border:1px solid var(--line);border-radius:10px;padding:6px;
  background:#fff;cursor:pointer;position:relative}
 .shot-card img{width:100%;height:120px;object-fit:cover;border-radius:7px;background:#F2F0EB}
-.shot-card .t{font-size:12.5px;color:#5C655E;margin-top:5px;line-height:1.3}
+.shot-card .t{font-size:clamp(13.5px,0.95vw,15px);color:#5C655E;margin-top:6px;line-height:1.32}
 .shot-card.pick{border-color:var(--accent);box-shadow:0 0 0 2px #3B76A233}
 .shot-card .mark{position:absolute;top:10px;left:10px;width:20px;height:20px;border-radius:5px;
  background:#fff;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;
  font-size:13px;color:#fff}
 .shot-card.pick .mark{background:var(--accent);border-color:var(--accent)}
+.shot-card.add{display:flex;flex-direction:column;align-items:center;justify-content:center;
+ gap:8px;height:186px;border-style:dashed;border-color:var(--accent);background:#F7FAFC}
+.shot-card.add .plus{font-size:30px;color:var(--accent);line-height:1}
+.shot-card.add .t{text-align:center;color:#3A423C}
+.shot-card.add .t span{color:#8A8F89;font-size:12px}
+.shot-card .up{width:100%;margin-top:6px;padding:7px 8px;font-size:13px}
 #shot .grid2{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
 #shot .grid2 img{width:100%;border-radius:8px}
 .chan{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
@@ -195,17 +217,8 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
 </section>
 
 <section id="screen-room" hidden>
+  <div class="subtabs" id="variants" role="tablist"></div>
   <div class="panel" id="photos"></div>
-
-  <div class="bar" id="variants"></div>
-  <div class="bar" id="kits"></div>
-  <div class="bar">
-    <button class="btn" id="reset">Сбросить до стандарта</button>
-    <button class="btn" id="rotate">Повернуть на 90°</button>
-    <button class="btn" id="tryon">Подобрать товар</button>
-    <button class="btn" id="mkDraftBar">Черновое фото · ~15 сек</button>
-    <button class="btn primary" id="render">Отправить на рендер · ~45 сек</button>
-  </div>
 
   <div class="work">
     <div>
@@ -255,21 +268,10 @@ fetch('demo-data.json?v='+Date.now()).then(r=>r.json()).then(d=>{D=d;init();});
 
 function init(){
   document.getElementById('sub').textContent=`${D.room.title} · ${D.room.w}×${D.room.d} см · габариты сняты с чертежа, точные — от застройщика`;
-  const vb=document.getElementById('variants');
-  const lab=document.createElement('span');lab.className='hint';lab.style.marginRight='4px';
-  lab.textContent='Расстановка:';vb.appendChild(lab);
-  D.variants.forEach((v,i)=>{const b=document.createElement('button');b.className='chip'+(i===0?' on':'');
-    b.textContent=v.title||('Вариант '+(i+1));
-    b.onclick=()=>{cur=i;load();[...vb.querySelectorAll('.chip')].forEach((c,j)=>c.classList.toggle('on',j===i));};
-    vb.appendChild(b);});
-  const kb=document.getElementById('kits');
-  const lab2=document.createElement('span');lab2.className='hint';lab2.style.marginRight='4px';
-  lab2.textContent='Комплект товаров:';kb.appendChild(lab2);
-  (D.sets||[]).forEach((k,i)=>{const b=document.createElement('button');b.className='chip';
-    b.textContent=k.title+(k.sum?` · ${Math.round(k.sum/1000)} тыс ₽`:'');
-    b.onclick=()=>{applyKit(k);[...kb.querySelectorAll('.chip')].forEach((c,j)=>c.classList.toggle('on',j===i));};
-    kb.appendChild(b);});
-  document.getElementById('reset').onclick=load;
+  // ВАРИАНТ = РАССТАНОВКА + ЕЁ КОМПЛЕКТ ТОВАРОВ, ОДНОЙ КНОПКОЙ С ЦЕНОЙ (владелец 26.08:
+  // «убери кнопки „Комплект 1 · 103 тыс“, просто подпиши Вариант 1 · 103 т.р.»). Вариантов не
+  // больше четырёх плюс сохранённый человеком.
+  drawVariants();
   document.getElementById('shotclose').onclick=()=>document.getElementById('shot').classList.remove('on');
   document.getElementById('shot').onclick=e=>{if(e.target.id==='shot')e.currentTarget.classList.remove('on');};
   document.getElementById('rotate').onclick=()=>{if(!sel)return;sel.rot=((sel.rot||0)+90)%360;draw();};
@@ -277,9 +279,6 @@ function init(){
     if(sel)openPicker(sel);};
   document.getElementById('sh-close').onclick=closePicker;
   document.getElementById('scrim').onclick=closePicker;
-  // кнопки съёмки продублированы в панели действий: владелец ищет их там, а не в блоке фото
-  document.getElementById('render').onclick=()=>makePhoto('realistic');
-  document.getElementById('mkDraftBar').onclick=()=>makePhoto('draft');
   document.getElementById('feedAll').onclick=()=>{const all=shots.every(s=>s.pick);
     shots.forEach(s=>s.pick=!all);drawFeed();};
   document.getElementById('feedShare').onclick=()=>shareOpen(shots.filter(s=>s.pick));
@@ -291,6 +290,61 @@ function init(){
   load();
   showTab(location.hash==='#room'?'room':'plan');
 }
+// ——— ВАРИАНТЫ: расстановка вместе со своим комплектом, ценой и сохранением своего
+const MAXV=4;
+function variantPrice(v){                       // цена = сумма комплекта, привязанного к варианту
+  const kit=(D.sets||[]).find(k=>k.id==='kit'+String(v.id||'').replace('set',''));
+  if(kit&&kit.sum)return kit.sum;
+  return (v.items||[]).reduce((t,it)=>t+((it.sku&&it.sku.price)||0),0);
+}
+function myVariants(){
+  try{return JSON.parse(localStorage.getItem('flat215-mine')||'[]');}catch(e){return [];}
+}
+// СВОЙ ВАРИАНТ СОХРАНЯЕТСЯ С ИМЕНЕМ и встаёт в один ряд с остальными (владелец 26.08)
+function saveMine(){
+  const list=myVariants();
+  const def='Мой вариант '+(list.length+1);
+  shotOpen(`<div class="wait" style="padding:26px 18px">Как назвать эту расстановку?
+      <div class="linkbox" style="max-width:420px;margin:14px auto 0">
+        <input id="vname" value="${def}" maxlength="40">
+        <button class="btn primary" id="vsave">Сохранить</button>
+      </div></div>`,'вариант появится рядом с остальными');
+  const inp=document.getElementById('vname'); inp.focus(); inp.select();
+  const go=()=>{
+    const name=(inp.value||def).trim().slice(0,40);
+    list.push({id:'my'+Date.now(),title:name,items:JSON.parse(JSON.stringify(items))});
+    try{localStorage.setItem('flat215-mine',JSON.stringify(list.slice(-4)));}catch(e){}
+    document.getElementById('shot').classList.remove('on');
+    cur=Math.min(MAXV,(D.variants||[]).length)+myVariants().length-1;   // выбираем сохранённый
+    drawVariants();load();
+  };
+  document.getElementById('vsave').onclick=go;
+  inp.onkeydown=e=>{if(e.key==='Enter')go();};
+}
+function allVariants(){ return (D.variants||[]).slice(0,MAXV).concat(myVariants()); }
+function drawVariants(){
+  const vb=document.getElementById('variants'); if(!vb)return;
+  vb.innerHTML='';
+  const list=allVariants();
+  list.forEach((v,i)=>{
+    const b=document.createElement('button');
+    b.className='vtab'+(i===cur?' on':'');
+    const p=variantPrice(v);
+    b.innerHTML=`<b>${v.title||('Вариант '+(i+1))}</b>`+
+      `<span>${p?Math.round(p/1000)+' т.р.':'без товаров'}</span>`;
+    b.onclick=()=>{cur=i;load();drawVariants();};
+    vb.appendChild(b);
+  });
+  // кнопка появляется, когда человек что-то изменил — сохранять нетронутый вариант незачем
+  if(baseRev&&items.length&&revision()!==baseRev){
+    const save=document.createElement('button');
+    save.className='vtab add';save.id='saveMine';
+    save.innerHTML='<b>＋ Сохранить</b><span>как свой вариант</span>';
+    save.onclick=saveMine;
+    vb.appendChild(save);
+  }
+}
+
 // ——— вкладки и схема квартиры
 function showTab(which){
   const room=which==='room';
@@ -374,7 +428,7 @@ function applyKit(kit){            // комплект накладываетс�
     ` · любой предмет можно заменить своим — выберите его и нажмите «Подобрать товар»`;
   draw();}
 let baseRev='';                       // ревизия «как отдал движок» — по ней видно, правил ли человек
-function load(){items=clone(D.variants[cur].items);sel=null;
+function load(){const v=allVariants()[cur]||D.variants[0];items=clone(v.items);sel=null;
   document.getElementById('sel').textContent='Перетаскивайте предмет, чтобы двигать. Товар выбирается по значку на предмете.';
   baseRev=revision();draw();}
 
@@ -406,6 +460,7 @@ function draw(){
   items.forEach(it=>stage.appendChild(badgeFor(it)));   // значки — последним слоем и БЕЗ поворота
   basket();
   drawPhotos();          // блок над планом знает, снята ли ТЕКУЩАЯ расстановка (26.08)
+  drawVariants();
   const st=document.getElementById('layoutState');
   if(st){const changed=baseRev&&revision()!==baseRev;
     st.textContent=changed?'Изменено вами':'Готовая расстановка';
@@ -667,13 +722,28 @@ function shotLabel(s){
 function drawFeed(){
   const f=document.getElementById('feed'); if(!f)return;
   f.innerHTML='';
+  // КАРТОЧКА-ПЛЮС: расстановка изменилась и такого кадра ещё нет — предлагаем снять (владелец 26.08)
+  const rev=(D&&items.length)?revision():'';
+  const has=rev&&shots.some(s=>s.revision===rev);
+  if(rev&&!has){
+    const c=document.createElement('div');
+    c.className='shot-card add';
+    c.innerHTML='<div class="plus">＋</div><div class="t">Посмотреть изменения на фото<br><span>черновое · ~25 сек</span></div>';
+    c.onclick=()=>makePhoto('draft');
+    f.appendChild(c);
+  }
   shots.forEach((s,i)=>{
     const c=document.createElement('div');
     c.className='shot-card'+(s.pick?' pick':'');
+    // на ЧЕРНОВИКЕ текущей расстановки предлагаем «улучшить фото» — реалистичный проход
+    const better=(s.quality==='draft'&&s.revision===rev&&!shots.some(x=>x.quality==='realistic'&&x.revision===rev));
     c.innerHTML=`<div class="mark">${s.pick?'✓':''}</div>`+
       `<img src="${s.url}" alt="${shotLabel(s)}" loading="lazy">`+
-      `<div class="t">${shotLabel(s)}</div>`;
+      `<div class="t">${shotLabel(s)}</div>`+
+      (better?'<button class="btn up">Улучшить фото</button>':'');
     c.querySelector('.mark').onclick=e=>{e.stopPropagation();s.pick=!s.pick;drawFeed();};
+    const up=c.querySelector('.up');
+    if(up)up.onclick=e=>{e.stopPropagation();makePhoto('realistic');};
     c.onclick=()=>viewShot(i);
     f.appendChild(c);
   });
@@ -687,7 +757,9 @@ function drawPhotos(){
   const rev=revision();
   const mine=shots.filter(s=>s.revision===rev);
   if(mine.length){
-    box.innerHTML=`<h3>Фотографии этой расстановки</h3>`+
+    const src=(mine.find(x=>x.sources)||{}).sources;
+    box.innerHTML=`<h3>Фотографии этой расстановки`+
+      (src?` <a class="srcln" href="${src}" target="_blank" rel="noopener">исходники</a>`:'')+`</h3>`+
       `<div class="shots">${mine.map((s,i)=>`<img data-i="${shots.indexOf(s)}" src="${s.url}" alt="${shotLabel(s)}">`).join('')}</div>`+
       `<div class="hint">Все снимки сохраняются в ленте ниже — они не пропадут, даже если вы
        переставите мебель.</div>`;
@@ -757,7 +829,9 @@ function viewShot(i){
       (a.url?`<a href="${a.url}" target="_blank" rel="noopener">В магазин</a>`:'')+`</div>`).join('')+
       `<div class="total"><span>Итого ${an.length} товаров на фото</span><span>${money(sum)}</span></div></div>`:'';
   shotOpen(`<div class="shotwrap"><img src="${s.url}" alt="${shotLabel(s)}">${pins}</div>${list}`,
-    `<span>${shotLabel(s)}${s.model?' · '+s.model:''}</span>`+
+    `<span>${shotLabel(s)}${s.model?' · '+s.model:''}`+
+    (s.sources?`<a class="srcln" href="${s.sources}" target="_blank" rel="noopener">исходники</a>`:'')+
+    `</span>`+
     `<span><a class="btn" href="${s.url}" download target="_blank" rel="noopener">Скачать</a>
      <button class="btn primary" id="shShare">Отправить себе</button></span>`);
   document.getElementById('shShare').onclick=()=>shareOpen([s]);
@@ -765,37 +839,48 @@ function viewShot(i){
     const a=an[+b.dataset.k];
     if(a&&a.url)window.open(a.url,'_blank','noopener');});
 }
-// ——— отправка себе: ссылка на подборку + мессенджеры
-async function shareOpen(list){
+// ——— ОТПРАВКА СЕБЕ: ТОЛЬКО ПО КОНТАКТУ (владелец 26.08: «ссылку нигде не показывай; человек
+// должен оставить телеграм, MAX или номер телефона — тогда пришлём»). Ссылка на подборку
+// создаётся, но остаётся служебной: её видит только доставка, а не экран.
+const CHAN=[{id:'telegram',t:'Telegram',ph:'@username или +7…'},
+            {id:'max',t:'MAX',ph:'@username или +7…'},
+            {id:'sms',t:'СМС',ph:'+7 999 123-45-67'}];
+function shareOpen(list){
   const sel=(list&&list.length)?list:shots;
   if(!sel.length){shotOpen('<div class="wait">Сначала сделайте хотя бы одно фото.</div>','');return;}
-  shotOpen('<div class="wait"><div class="spin"></div>Готовим подборку…</div>','');
-  try{
-    const r=await fetch('/api/share',{method:'POST',headers:{'content-type':'application/json'},
-      body:JSON.stringify({title:D.flat_title||'',shots:sel.map(s=>({url:s.url,
-        label:shotLabel(s)}))})});
-    const j=await r.json();
-    if(!j.url)throw new Error(j.error||'не удалось сохранить подборку');
-    const tg=j.telegram?`<a class="btn primary" href="${j.telegram}" target="_blank" rel="noopener">Отправить в Telegram</a>`
-      :`<button class="btn" disabled title="нужен токен бота">Telegram — подключим по вашему токену</button>`;
-    const mx=j.max?`<a class="btn primary" href="${j.max}" target="_blank" rel="noopener">Отправить в MAX</a>`
-      :`<button class="btn" disabled title="нужен токен бота">MAX — подключим по вашему токену</button>`;
+  let chan='telegram';
+  const draw=()=>{
     shotOpen(
       `<div class="grid2">${sel.map(s=>`<img src="${s.url}" alt="${shotLabel(s)}">`).join('')}</div>`+
-      `<div class="chan">${tg}${mx}</div>`+
-      `<div class="linkbox"><input id="shLink" value="${j.url}" readonly>
-        <button class="btn" id="shCopy">Скопировать</button></div>`+
-      `<div class="hint">Ссылка на подборку работает сразу — её можно открыть на телефоне или
-       переслать себе куда угодно.</div>`,
-      `в подборке кадров: ${sel.length}`);
-    document.getElementById('shCopy').onclick=()=>{
-      const f=document.getElementById('shLink');f.select();
-      try{navigator.clipboard.writeText(f.value);}catch(e){document.execCommand('copy');}
-      document.getElementById('shCopy').textContent='Скопировано';};
-  }catch(err){
-    shotOpen('<div class="wait">Подборка не сохранилась.<br>'+String(err.message||err).slice(0,160)+
-      '</div>','попробуйте ещё раз');
-  }
+      `<div class="chan">${CHAN.map(c=>`<button class="chip${c.id===chan?' on':''}" data-c="${c.id}">${c.t}</button>`).join('')}</div>`+
+      `<div class="linkbox"><input id="shTo" placeholder="${(CHAN.find(c=>c.id===chan)||{}).ph}">
+        <button class="btn primary" id="shGo">Отправить</button></div>`+
+      `<div class="hint">Пришлём подборку в ${(CHAN.find(c=>c.id===chan)||{}).t}. Контакт нужен
+       только для доставки фотографий.</div>`,
+      `фотографий в подборке: ${sel.length}`);
+    document.querySelectorAll('#shotbody .chan .chip').forEach(b=>b.onclick=()=>{chan=b.dataset.c;draw();});
+    document.getElementById('shGo').onclick=send;
+  };
+  const send=async()=>{
+    const to=(document.getElementById('shTo').value||'').trim();
+    if(to.length<4){document.getElementById('shTo').focus();return;}
+    shotOpen('<div class="wait"><div class="spin"></div>Отправляем…</div>','');
+    try{
+      const r=await fetch('/api/share',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({title:D.flat_title||'',channel:chan,contact:to,
+          shots:sel.map(s=>({url:s.url,label:shotLabel(s)}))})});
+      const j=await r.json();
+      if(j.error)throw new Error(j.error);
+      const name=(CHAN.find(c=>c.id===chan)||{}).t;
+      shotOpen(`<div class="wait">Готово: подборка уйдёт в ${name} на <b>${to}</b>.<br>
+        <span style="font-size:14px;color:#5C655E">${j.pending?'Канал подключаем — доставим, как только он заработает.':'Обычно приходит в течение минуты.'}</span></div>`,
+        `фотографий: ${sel.length}`);
+    }catch(err){
+      shotOpen('<div class="wait">Не получилось отправить.<br>'+String(err.message||err).slice(0,160)+
+        '</div>','попробуйте ещё раз');
+    }
+  };
+  draw();
 }
 let drag=null, rotDrag=null;
 stage.addEventListener('pointerdown',e=>{const pt=loc(e);

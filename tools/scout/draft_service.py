@@ -31,6 +31,7 @@ SHARE_DIR = os.environ.get('SHARE_DIR', os.path.join(HERE, 'share'))
 PUBLIC_BASE = os.environ.get('PUBLIC_BASE', 'https://remont-lab.online')
 TG_BOT = os.environ.get('SHARE_TG_BOT', '')        # имя бота без @; пусто — канал не подключён
 MAX_BOT = os.environ.get('SHARE_MAX_BOT', '')
+SMS_GATE = os.environ.get('SHARE_SMS_GATE', '')   # шлюз СМС; пусто — канал не подключён
 esc = html.escape
 SHARE_PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -125,6 +126,7 @@ class H(BaseHTTPRequestHandler):
             res = DR.render(layout=payload, quality=quality,
                             save_prefix=os.path.join(DR.OUT, 'draft-web'))
             self._send(200, {'shots': res['shots'], 'url': res['url'], 'model': res['model'],
+                             'sources': res.get('sources'),
                              'quality': quality, 'sec': round(time.time() - t, 1),
                              'diag': res['diag']})
         except Exception as e:                       # noqa: BLE001 — наружу отдаём короткую причину
@@ -155,9 +157,23 @@ class H(BaseHTTPRequestHandler):
         except Exception as e:                       # noqa: BLE001
             return self._send(500, {'error': f'не удалось сохранить подборку: {str(e)[:120]}'})
         url = f'{PUBLIC_BASE}/test/share/{sid}/'
-        tg = f'https://t.me/{TG_BOT}?start=share_{sid}' if TG_BOT else None
-        mx = f'https://max.ru/{MAX_BOT}?start=share_{sid}' if MAX_BOT else None
-        self._send(200, {'id': sid, 'url': url, 'telegram': tg, 'max': mx, 'count': len(shots)})
+        # КОНТАКТ ВМЕСТО ССЫЛКИ (владелец 26.08): ссылку на подборку наружу не отдаём — человек
+        # оставляет Telegram, MAX или телефон, и доставка идёт туда. Пока каналы не подключены
+        # (нет токенов ботов и SMS-шлюза), запрос честно помечается как ожидающий отправки.
+        chan = str(payload.get('channel') or '').lower()
+        contact = str(payload.get('contact') or '').strip()[:120]
+        ready = {'telegram': bool(TG_BOT), 'max': bool(MAX_BOT), 'sms': bool(SMS_GATE)}.get(chan, False)
+        if contact:
+            try:
+                os.makedirs(os.path.join(SHARE_DIR, '_queue'), exist_ok=True)
+                open(os.path.join(SHARE_DIR, '_queue', f'{sid}.json'), 'w', encoding='utf-8').write(
+                    json.dumps({'id': sid, 'url': url, 'channel': chan, 'contact': contact,
+                                'count': len(shots), 'ts': int(time.time()),
+                                'delivered': False}, ensure_ascii=False))
+            except Exception:
+                pass
+        self._send(200, {'id': sid, 'count': len(shots), 'channel': chan,
+                         'pending': not ready})
 
     def log_message(self, fmt, *a):                  # noqa: A003 — тише в логе
         sys.stderr.write('%s %s\n' % (self.address_string(), fmt % a))

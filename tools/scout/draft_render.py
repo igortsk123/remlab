@@ -28,7 +28,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 sys.path.insert(0, '/home/pakar/igor/remlab/services/planner-solver')
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from planner.scene import cameras_for, clay_render, compile_scene  # noqa: E402
+from planner.scene import Camera, cameras_for, clay_render, compile_scene  # noqa: E402
 
 from falmini import fal_key, fal_run, uri_from_image  # noqa: E402  (лёгкий клиент fal)
 
@@ -39,7 +39,9 @@ CACHE = os.path.join(OUT, 'draft-photos')
 # товары «вообще»; lightning img2img по коллажу — 5.5 с, но коллаж так и остаётся коллажем;
 # nano-banana/edit — 12.5 с и единственная, кто превращает наши вклейки в мебель, сохраняя места.
 # Для чернового берём её и прогреваем заранее.
-MODEL = 'fal-ai/nano-banana/edit'
+MODEL = os.environ.get('DRAFT_MODEL', 'openai/gpt-image-2')      # черновик: тот же трек А
+DRAFT_QUALITY = os.environ.get('DRAFT_QUALITY', 'low')            # low ≈ 20 с, medium ≈ 34 с
+FAST_FALLBACK = 'fal-ai/nano-banana/edit'                         # если шлюз недоступен
 # РЕАЛИСТИЧНЫЙ РЕЖИМ (26.08, владелец: «та модель, что уже в проекте»). Трек А плейбука точности —
 # `gpt-image-2 medium` у OpenAI (13–14/14 точных предметов), но на ключе сейчас insufficient_quota,
 # поэтому по умолчанию берём наш же проверенный дубль на fal (в A/B 10/10, $0.067/кадр).
@@ -221,6 +223,26 @@ def scene_from_request(payload: dict) -> tuple:
     return room, placements, photos
 
 
+def demo_cams(room) -> list:
+    """ДВЕ КАМЕРЫ ИЗ УГЛОВ КОМНАТЫ (26.08, владелец: «мебель хреново расставляется»). Разбор
+    исходников показал, что расстановка верная, а виновата съёмка: штатные камеры конвейера
+    стоят вплотную к дивану и ТВ (они задуманы для витрины одного предмета), поэтому диван
+    вылезал за край кадра, а половину картинки занимала пустая стена. Для планировщика нужен
+    обзор ВСЕЙ комнаты: встаём в два противоположных угла на высоте глаз и смотрим в центр.
+    """
+    W, D = room.width_cm, room.depth_cm
+    eye_h, tgt_h, off = 165.0, 105.0, 25.0
+    cx, cy = W / 2, D / 2
+    # ОСИ СЦЕНЫ: точка задаётся как (x, ВЫСОТА, глубина) — вверх смотрит Y, а не Z. Перепутал
+    # порядок — и камера уезжает в стену: первый заход показал 1 предмет из 9 (26.08).
+    return [
+        Camera(name='C1', eye=(W - off, eye_h, D - off), target=(off, tgt_h, off), fov_deg=80.0,
+               width=1344, height=896),
+        Camera(name='C2', eye=(off, eye_h, D - off), target=(W - off, tgt_h, off), fov_deg=80.0,
+               width=1344, height=896),
+    ]
+
+
 def anchors(room, placements, cam, skus: dict) -> list:
     """ЯКОРЯ ТОВАРОВ НА КАДРЕ (владелец 26.08: «на фотографиях размещать якоря на мебель»).
 
@@ -272,6 +294,8 @@ def _one_camera(room, placements, photos, cam, prefix: str, model: str, side: in
 BAND_RGB, BAND_PX = (255, 0, 255), 94      # маркерная полоса между видами: маджента в интерьере
 FRAMES_DIR = os.environ.get('FRAMES_DIR', os.path.join(OUT, 'frames'))   # не встречается, шов виден
 FRAMES_URL = os.environ.get('FRAMES_URL', '/test/share/frames')
+SRC_DIR = os.environ.get('SRC_DIR', os.path.join(OUT, 'src'))     # «исходники»: что ушло в модель
+SRC_URL = os.environ.get('SRC_URL', '/test/share/src')
 PUBLIC_BASE = os.environ.get('PUBLIC_BASE', '')
 
 
@@ -498,8 +522,49 @@ def gpt_edit(images: list, prompt: str, size: str = '1024x1536',
     return Image.open(io.BytesIO(base64.b64decode(b64))).convert('RGB')
 
 
+def _publish_sources(stamp: str, imgs: dict, prompt: str, legend: list, meta: dict) -> str:
+    """СЛУЖЕБНАЯ СТРАНИЦА «ИСХОДНИКИ» (владелец 26.08: «покажи полностью, что отправляешь в GPT и
+    в каком виде и какой промпт — результат пока плохой»). Кладём РОВНО то, что ушло в модель:
+    каждую картинку запроса, текст промпта и список предметов. Проверяемость важнее аккуратности:
+    если кадр плохой, по этой странице видно, виноват вход или модель."""
+    d = os.path.join(SRC_DIR, stamp)
+    os.makedirs(d, exist_ok=True)
+    tiles = []
+    for name, im in imgs.items():
+        if im is None:
+            continue
+        im.save(os.path.join(d, f'{name}.jpg'), quality=88)
+        tiles.append(f'<figure><a href="{name}.jpg" target="_blank"><img src="{name}.jpg" '
+                     f'alt="{name}"></a><figcaption>{name} · {im.width}×{im.height}</figcaption></figure>')
+    open(os.path.join(d, 'prompt.txt'), 'w', encoding='utf-8').write(prompt)
+    open(os.path.join(d, 'legend.json'), 'w', encoding='utf-8').write(
+        json.dumps(legend, ensure_ascii=False, indent=1))
+    import html as _h
+    page = (
+        '<!doctype html><html lang="ru"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<meta name="robots" content="noindex"><title>Исходники запроса</title><style>'
+        'body{margin:0;background:#fff;color:#1A1F1C;font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto}'
+        '.w{max-width:1200px;margin:0 auto;padding:16px}'
+        'h1{font-size:22px;margin:4px 0 2px}.m{color:#5C655E;font-size:14px;margin-bottom:14px}'
+        '.g{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}'
+        'figure{margin:0}img{width:100%;border:1px solid #E4E6E2;border-radius:8px;display:block}'
+        'figcaption{font-size:13px;color:#5C655E;margin-top:5px}'
+        'pre{white-space:pre-wrap;background:#FAF8F3;border:1px solid #E4E6E2;border-radius:8px;'
+        'padding:12px;font-size:13px;overflow:auto;max-height:60vh}'
+        'h2{font-size:17px;margin:22px 0 8px}</style></head><body><div class="w">'
+        f'<h1>Что уходит в модель</h1><div class="m">{_h.escape(json.dumps(meta, ensure_ascii=False))}</div>'
+        f'<div class="g">{"".join(tiles)}</div>'
+        f'<h2>Промпт</h2><pre>{_h.escape(prompt)}</pre>'
+        f'<h2>Список предметов (уходит в промпт)</h2>'
+        f'<pre>{_h.escape(json.dumps(legend, ensure_ascii=False, indent=1))}</pre>'
+        '</div></body></html>')
+    open(os.path.join(d, 'index.html'), 'w', encoding='utf-8').write(page)
+    return (PUBLIC_BASE + SRC_URL + '/' + stamp + '/') if PUBLIC_BASE else d
+
+
 def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dict,
-               model: str) -> list:
+               model: str, quality: str = 'medium') -> list:
     """Полный рецепт трека А: коллажи → номера → эталоны → один запрос → разрез по полосе."""
     import hashlib
     parts, marks, diags, per_cam = [], [], [], []
@@ -553,18 +618,21 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
         + json.dumps(legend, ensure_ascii=False))
     imgs = [sheet, sheet_marks] + ([ident] if ident is not None else [])
     w, h = sheet.size
-    out = gpt_edit(imgs, prompt, size=('1024x1536' if h > w else '1536x1024'),
-                   quality=os.environ.get('GPT_IMAGE_QUALITY', 'medium'),
-                   model=model.split('gateway:')[-1])
+    size = '1024x1536' if h > w else '1536x1024'
+    stamp = hashlib.md5((prefix + str(time.time())).encode()).hexdigest()[:10]
+    src_url = _publish_sources(stamp, {'1-комната-два-вида': sheet, '2-с-номерами': sheet_marks,
+                                       '3-эталоны-товаров': ident}, prompt, legend,
+                               {'модель': model, 'размер': size, 'качество': quality,
+                                'видов': len(cams)})
+    out = gpt_edit(imgs, prompt, size=size, quality=quality, model=model.split('gateway:')[-1])
     out.save(prefix + '-final.jpg', quality=94)
     pieces = _split_pair(out)
-    stamp = hashlib.md5((prefix + str(time.time())).encode()).hexdigest()[:10]
     shots = []
     for cam, piece, diag, an in zip(cams, pieces, diags, per_cam):
         piece = _trim_band(piece)
         piece.save(f'{prefix}-{cam.name}.jpg', quality=92)
         shots.append({'camera': cam.name, 'url': _publish_frame(piece, f'{stamp}-{cam.name}.jpg'),
-                      'diag': diag, 'anchors': an})
+                      'diag': diag, 'anchors': an, 'sources': src_url})
     return shots
 
 
@@ -586,18 +654,19 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         sets = json.load(open(os.path.join(HERE, 'sets3.json'), encoding='utf-8'))
         items = sets[n - 1]['items']
         photos = {r: photo((items.get(r) or {}).get('img')) for r in items}
-    all_cams = cameras_for(room, placements)
+    all_cams = demo_cams(room) if os.environ.get('DEMO_CAMS', '1') != '0' \
+        else cameras_for(room, placements)
     if quality == 'realistic':
         want = [c for c in all_cams if c.name in ('C1', 'C2')] or all_cams[:2]
-        model, side = REALISTIC_MODEL, 1536
+        model, side, gq = REALISTIC_MODEL, 1536, os.environ.get('GPT_IMAGE_QUALITY', 'medium')
     else:
-        want = [c for c in all_cams if c.name == cam_name] or all_cams[:1]
-        model, side = MODEL, 1024
+        want = [c for c in all_cams if c.name in ('C1', 'C2')] or all_cams[:2]
+        model, side, gq = MODEL, 1024, DRAFT_QUALITY
     prefix = save_prefix or os.path.join(OUT, f'draft{n}')
     skus = {it['role']: it for it in (layout or {}).get('items', []) if it.get('role')}
     if len(want) > 1:
         # gpt-image идёт по полному рецепту трека А (номера + эталоны + список), fal — коротким
-        shots = (_sheet_gpt(room, placements, photos, want, prefix, side, skus, model)
+        shots = (_sheet_gpt(room, placements, photos, want, prefix, side, skus, model, gq)
                  if model.startswith('openai/')
                  else _sheet(room, placements, photos, want, prefix, model, side, skus))
     else:
@@ -607,8 +676,9 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
     for s in shots:
         print('  ' + s['camera'] + ' ' + json.dumps(s['diag'], ensure_ascii=False))
     first = shots[0] if shots else {'url': '', 'diag': {}}
-    return {'shots': [{'camera': s['camera'], 'url': s['url'], 'anchors': s.get('anchors') or []}
-                      for s in shots if s['url']],
+    return {'shots': [{'camera': s['camera'], 'url': s['url'], 'anchors': s.get('anchors') or [],
+                       'sources': s.get('sources')} for s in shots if s['url']],
+            'sources': next((s.get('sources') for s in shots if s.get('sources')), None),
             'model': model, 'quality': quality, 'sec': sec,
             'file': f'{prefix}-{first.get("camera", "C1")}.jpg',
             'url': first.get('url', ''), 'diag': first.get('diag', {})}
