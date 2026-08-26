@@ -2,9 +2,9 @@
 workstream: layout
 slug: solver-speed
 title: "Ускорение солвера на больших комнатах: адаптивный шаг, TOPO-дедуп, ранняя отбраковка"
-status: in_progress
+status: partial
 created: 2026-08-10
-updated: 2026-08-10
+updated: 2026-08-22
 completed:
 ---
 
@@ -225,3 +225,6 @@ bbox-префильтр в `check_access` 45→41 с — суммарно **−2
   set112: 8 ролей в skipped). Оба исправлены; pytest 99 passed. Смок set112: группа
   sofa_2armchairs+tpl, кресла живы. Запущена полная приёмка 252 (baseline
   `acceptance-report-zoned-pre-templates.jsonl`).
+
+## Статус 2026-08-22 — `partial`
+Приостановлен 10.08 и частично закрыт по факту: ускорение сделано в других заходах — смоук-манифест, параллельные воркеры, кэш `largest_free_rectangles` по WKB-хэшу (set45 9 м → 39 с, 22.08). Остаток — p95 по тяжёлым сценам; вернуться, когда каноны будут закрыты.

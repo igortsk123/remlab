@@ -181,7 +181,10 @@ def refresh(apply: bool = False, max_swaps_per_set: int = 2) -> None:
                 if cst < 3 or cst <= cur_step:
                     continue                 # замена только на СТРОГО лучшую, до «высокой»
                 trial = dict(it)
-                trial.update({k2: cand[k2] for k2 in ('mid', 'eid', 'name', 'price') if k2 in cand})
+                # та же дыра, что в heal (22.08): без габаритов нового товара prop_check слеп
+                trial.update({k2: cand[k2] for k2 in ('mid', 'eid', 'name', 'price', 'w', 'd',
+                                                      'h', 'dia', 'fp', 'subtype', 'caps_used')
+                              if k2 in cand and cand[k2] is not None})
                 ctx = {'chosen': {r: v for r, v in s['items'].items() if r != role}, 'wall': None,
                        'corner_sofa': 'углов' in str((s['items'].get('диван') or {}).get('name', '')).lower()}
                 ok, _b, _no = prop_check(role, trial, ctx, _sub(role, trial))
@@ -377,14 +380,35 @@ def heal(apply: bool = False) -> None:
                 if not (0.7 * it['price'] <= a.get('price', 0) <= 1.3 * it['price']):
                     continue
                 cand = dict(it)
-                cand.update({kk: a[kk] for kk in ('mid', 'eid', 'name', 'price') if kk in a})
+                # ГАБАРИТЫ НОВОГО ТОВАРА ОБЯЗАТЕЛЬНЫ (аудит 22.08, ночной экзамен: heal 21.08
+                # вставил диван 350/тумбу 234 в band 14-16 и это жило сутки): прежний update
+                # копировал только mid/eid/name/price — ворота пропорций проверяли СТАРЫЕ
+                # размеры, реальные подтягивал индекс позже. Замена без своих габаритов — брак.
+                cand.update({kk: a[kk] for kk in ('mid', 'eid', 'name', 'price', 'w', 'd', 'h',
+                                                  'dia', 'fp', 'subtype', 'caps_used')
+                             if kk in a and a[kk] is not None})
                 ctx = {'chosen': {r: v for r, v in s['items'].items() if r != role},
                        'wall': None,
                        'corner_sofa': 'углов' in str((s['items'].get('диван') or {}).get('name', '')).lower()}
                 ok, _b, _no = prop_check(role, cand, ctx, _sub(role, cand))
-                if ok:
-                    picked = cand
-                    break
+                if not ok:
+                    continue
+                # КОНВЕРТ БАНДА ДЛЯ ЯКОРНЫХ РОЛЕЙ (22.08): длинная сторона замены обязана
+                # влезать в стену комнаты банда с канонной долей (2/3-правило occupancy,
+                # допуск до share): иначе честная дыра лучше негабарита
+                _ANCHOR_SHARE = {'диван': 0.78, 'тв-тумба': 0.62, 'стенка': 0.88,
+                                 'стол обеденный': 0.62}
+                if role in _ANCHOR_SHARE:
+                    try:
+                        _m2 = float(str(s.get('band', '14-16')).split('-')[0])
+                        _wall = (_m2 * 10000 * 1.15) ** 0.5
+                        _long = max(float(cand.get('w') or 0), float(cand.get('d') or 0))
+                        if _long > _wall * _ANCHOR_SHARE[role]:
+                            continue
+                    except Exception:
+                        pass
+                picked = cand
+                break
             if picked:
                 healed += 1
                 print(f'  комплект {n}: {role} «{it["name"][:32]}» ({dead[k]}) → «{picked["name"][:32]}»')

@@ -127,8 +127,7 @@ def run_engine(engine):
     # тяжёлые сцены — первыми (по duration_s прошлого полного отчёта): хвост из XL не держит воркеры пустыми
     _dur = {}
     try:
-        for line in open(os.path.join(HERE, 'scene-durations.json'), encoding='utf-8'):
-            _dur = json.loads(line); break
+        _dur = json.load(open(os.path.join(HERE, 'scene-durations.json'), encoding='utf-8'))
     except Exception:
         _dur = {}
     todo.sort(key=lambda sc: -float(_dur.get(sc['id'], 0)))
@@ -146,16 +145,29 @@ def run_engine(engine):
                   + f" soft={rec['soft_score']} [{len(done)}/{len(SCENES)}]", flush=True)
     jl.close()
     report = [done[sc['id']] for sc in SCENES if sc['id'] in done]
+    # ТЕЛЕМЕТРИЯ ДЛЯ ШЕДУЛЕРА (22.08): длительности сцен — в scene-durations.json;
+    # сортировка «тяжёлые первыми» выше читает именно его (файл прежде никем не писался —
+    # сортировка была мёртвой, и XL-хвост ловил TIMEOUT при пустеющем пуле воркеров)
+    try:
+        _prev_d = {}
+        _dp0 = os.path.join(HERE, 'scene-durations.json')
+        if os.path.exists(_dp0):
+            _prev_d = json.load(open(_dp0, encoding='utf-8'))
+        for rec0 in report:
+            if rec0.get('duration_s'):
+                _prev_d[rec0['scene']] = rec0['duration_s']
+            elif 'TIMEOUT' in str(rec0.get('fails')):
+                _prev_d[rec0['scene']] = 1800.0      # таймаут = максимальный приоритет
+        json.dump(_prev_d, open(_dp0, 'w', encoding='utf-8'), ensure_ascii=False)
+    except Exception:
+        pass
     json.dump(report, open(os.path.join(HERE, f'acceptance-report-{engine}{REPORT_SUFFIX}.json'), 'w'),
               ensure_ascii=False, indent=1)
     if not REPORT_SUFFIX:   # длительности — только с полного прогона (для порядка и perf-manifest)
         try:
             _prev = {}
-            _dp = os.path.join(HERE, 'scene-durations.json')
-            if os.path.exists(_dp):
-                _prev = json.loads(open(_dp, encoding='utf-8').read() or '{}')
-            _prev.update({r['scene']: r.get('duration_s') for r in report if r.get('duration_s')})
-            json.dump(_prev, open(_dp, 'w', encoding='utf-8'), ensure_ascii=False)
+            pass          # 22.08: телеметрия длительностей пишется выше (единый writer,
+                          # TIMEOUT=1800 приоритет); прежний дубль удалён
         except Exception:
             pass
     return report

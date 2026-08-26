@@ -3,7 +3,7 @@ tier: 1
 topic: regression-net
 scope: Регресс-защита — тесты, CI, гардрейлы
 tier2: "../../docs/tech-spec-ts-stack.md"
-updated: 2026-08-08
+updated: 2026-08-22
 importance: high
 source: manual
 status: working
@@ -42,8 +42,7 @@ review_after: ""
 **DoD (цель-чеклист):** typecheck/lint/тесты ✓; e2e +≥1 путь ошибки; UX всех ошибок; события
 эмитятся; env задокументированы; отклонения → DECISIONS.
 
-**Бенчи мебельного трека (08.08):** 252 синтетики + real-бенч `tools/scout/acceptance_real.py`
-+ фаззинг + constraint-CI + SKU-бенч (CLIP AUC 0.547 — ворот нет). Числа подписывать
-commit'ом. Детали — ADR-0079/0080.
+**Бенчи мебельного трека (08.08):** 252 синтетики + real-бенч, фаззинг, constraint-CI,
+SKU-бенч (CLIP AUC 0.547 — ворот нет). Детали и числа — ADR-0079/0080.
 
 **Tier 2:** `../../docs/tech-spec-ts-stack.md` §12 (регресс-защита), §8 (самопроверка моделей).

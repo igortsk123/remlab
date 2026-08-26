@@ -2,9 +2,9 @@
 workstream: layout+catalog+viz
 slug: MASTER-truth-first
 title: "Мастер: truth-first — итог аудита рефери v2 (данные → eval → реальные комнаты → SKU)"
-status: in_progress
+status: partial
 created: 2026-08-08
-updated: 2026-08-08
+updated: 2026-08-22
 completed:
 ---
 
@@ -216,3 +216,6 @@ completed:
 ## Follow-up work
 - [ ] W7 Constraint-IR (после T6) · P2: persona/activity-сценарии, deterministic shell,
       слой регулярности LEGO-Net (очередь MASTER-zones-first).
+
+## Статус 2026-08-22 — `partial`
+Приостановлен 08.08: линия «правда о данных» частично реализована другими пакетами (свежесть фидов ADR-0107, capability-модель Q6a, сертификаты возможностей Q10/Q12-1, провенанс у чисел правил). Остаток — единый реестр утверждений с провенансом; вернуться после стабилизации канонов.

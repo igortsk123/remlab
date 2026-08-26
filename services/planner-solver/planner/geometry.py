@@ -346,15 +346,26 @@ def floor_used_pct(room: Room, placements: list[Placement]) -> float:
     return 100.0 * used / (room.width_cm * room.depth_cm)
 
 
+_LFR_CACHE: dict = {}     # перф 22.08 (cProfile set45: 91% времени — 1217 пересчётов на
+                          # ~одном полигоне); ключ — WKB-хэш геометрии, живёт процесс сцены
+
+
 def largest_free_rectangles(poly: Polygon, min_side_cm: float = 50.0, limit: int = 24) -> list[Polygon]:
     """Максимальные осевые прямоугольники внутри свободного полигона (кандидат-ген Э2).
 
     Приближение решётками: координаты рёбер полигона задают сетку; для каждой пары
     вертикальных линий берём максимальную непрерывную полосу по вертикали. Достаточно
     для прямоугольных комнат с прямоугольными вырезами (наш случай Э1/Э2).
+    ПЕРФ (22.08): результат зависит только от полигона и параметров — кэш по WKB-хэшу.
     """
     if poly.is_empty:
         return []
+    try:
+        _key = (hash(poly.wkb), round(min_side_cm, 1), int(limit))
+    except Exception:
+        _key = None
+    if _key is not None and _key in _LFR_CACHE:
+        return list(_LFR_CACHE[_key])
     geoms = [poly] if poly.geom_type == "Polygon" else list(poly.geoms)
     xs, ys = set(), set()
     for g in geoms:
@@ -387,4 +398,8 @@ def largest_free_rectangles(poly: Polygon, min_side_cm: float = 50.0, limit: int
             out.append(r)
         if len(out) >= limit:
             break
+    if _key is not None:
+        if len(_LFR_CACHE) > 512:
+            _LFR_CACHE.clear()
+        _LFR_CACHE[_key] = list(out)
     return out

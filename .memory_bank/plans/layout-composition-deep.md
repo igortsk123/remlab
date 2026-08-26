@@ -2,9 +2,9 @@
 workstream: layout
 slug: layout-composition-deep
 title: Глубокие причины 6 замечаний владельца по десятке (столик/кресла/носитель ТВ/пустые 50+)
-status: in_progress
+status: partial
 created: 2026-08-08
-updated: 2026-08-08
+updated: 2026-08-22
 ---
 
 ## Цель
@@ -232,3 +232,6 @@ luluandgeorgia.com rug-rules · kevinfrancisdesign.com area-rug-placement ·
 stylebyemilyhenderson.com choosing-the-right-rug-size · thebrainandthebrawn.com 7-rules ·
 rugs-direct.com coffee-table-rug-size · 2modern.com rug-size-under-coffee-table ·
 vbufurniture.com coffee-tables-and-area-rugs
+
+## Статус 2026-08-22 — `partial`
+Приостановлен 08.08: композиционная линия ушла в `MASTER-zones-v7` (Q3 формы, Q5 второй pod, Q11–Q12 ситуационные каноны). Файл держим как источник идей, отдельного исполнения по нему нет.
