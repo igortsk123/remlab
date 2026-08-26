@@ -7,6 +7,9 @@
 /* ТИПОГРАФИКА — ТА ЖЕ ШКАЛА, ЧТО НА САЙТЕ (26.08): у remont-lab.online h1 = clamp(28,5vw,40),
    h2 = clamp(22,4vw,28), базовая строка 1.5. Демо жило на фиксированных 13–16 px и на телефоне
    читалось мелко; переводим на те же clamp-ступени, чтобы размер рос вместе с экраном. */
+/* АТРИБУТ hidden ПРОИГРЫВАЕТ ЛЮБОМУ display (26.08, владелец: «кнопку вижу, хотя изменений не
+   делал»): у .bar стоит display:flex, и скрытая панель всё равно рисовалась. */
+[hidden]{display:none !important}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);
  font:clamp(16px,1.15vw,19px)/1.5 system-ui,-apple-system,Segoe UI,Roboto}
 .wrap{max-width:1100px;margin:0 auto;padding:14px 14px 40px}
@@ -95,6 +98,12 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
 /* СЛУЖЕБНАЯ ССЫЛКА «исходники» (владелец 26.08): по ней видно ровно то, что ушло в модель —
    картинки запроса, промпт и список предметов. Мелко и не мешает. */
 .srcln{font-size:12px;color:#8A8F89;text-decoration:underline;margin-left:8px}
+.headrow{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+.headrow h3{margin-bottom:4px}
+.srcbtn{white-space:nowrap;padding:8px 14px;font-size:clamp(13.5px,0.95vw,15px);
+ border-style:dashed;color:#5C655E;text-decoration:none;display:inline-block}
+.srcbtn.off{opacity:.55;cursor:default}
+a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .srcln:hover{color:var(--accent)}
 /* ЯКОРЯ НА ФОТО (владелец 26.08): точки на мебели со ссылкой на конкретный товар. Координаты —
    из масок нашей же сцены, а не «на глаз» и не из ответа модели. */
@@ -830,7 +839,15 @@ function drawPhotos(){                 // ЗАГОЛОВОК БЛОКА: что 
   const t=mine.length?'Листайте стрелками. Снимки не пропадают — прежние остаются в ленте.'
         :(shots.length?'Прежние снимки сохранены. Нажмите «＋», чтобы снять новую расстановку.'
                       :'Соберите комнату по вкусу и нажмите «＋» — увидите, как она будет выглядеть.');
-  box.innerHTML=`<h3>${h}</h3><div class="hint">${t}</div>`;
+  // СЛУЖЕБНАЯ КНОПКА (владелец 26.08: «всё ещё не вижу служебную кнопку»): раньше это была
+  // серая подпись мелким шрифтом в строке над планом — её не замечали. Теперь это видимая
+  // кнопка в шапке блока фотографий, всегда на месте.
+  let last=''; try{last=localStorage.getItem('flat215-src')||'';}catch(e){}
+  const srcBtn=last
+    ? `<a class="btn srcbtn" href="${last}" target="_blank" rel="noopener">Исходники запроса →</a>`
+    : `<span class="btn srcbtn off" title="появится после первой съёмки">Исходники запроса</span>`;
+  box.innerHTML=`<div class="headrow"><div><h3>${h}</h3><div class="hint">${t}</div></div>`+
+    `<div>${srcBtn}</div></div>`;
 }
 function shotOpen(html,cap){document.getElementById('shotbody').innerHTML=html;
   document.getElementById('shotcap').innerHTML=cap||'';
