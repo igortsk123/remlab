@@ -45,6 +45,13 @@ h1{font-size:20px;margin:6px 0 2px}.sub{color:#5C655E;font-size:14px;margin-bott
 .card .dim{font-size:12px;color:#5C655E}
 .badge{display:inline-block;font-size:11.5px;padding:2px 8px;border-radius:999px;align-self:flex-start}
 .b-ok{background:#E7F3EC;color:#2F7D4F}.b-tight{background:#FBF0E2;color:#96601F}.b-no{background:#FBE9E6;color:#A93B27}
+.noimg{width:100%;aspect-ratio:4/3;background:#F2F0EB;border-radius:8px;display:flex;
+ flex-direction:column;align-items:center;justify-content:center;font-size:12px;color:#8A8F89;text-align:center}
+.noimg span{font-size:11px;color:#A6ABA4}
+#peek{position:fixed;z-index:45;background:#fff;border:1px solid var(--line);border-radius:10px;
+ padding:6px;box-shadow:0 10px 30px #00000026;display:none}
+#peek img{width:220px;height:170px;object-fit:contain;background:#F7F5F1;border-radius:6px;display:block}
+#peek b{display:block;font-size:12.5px;margin-top:4px;max-width:220px}
 #scrim{position:fixed;inset:0;background:#0006;z-index:39;opacity:0;pointer-events:none;transition:opacity .2s}
 #scrim.on{opacity:1;pointer-events:auto}
 .sel{font-size:13px;color:#3A423C;margin-top:6px}
@@ -87,7 +94,7 @@ h1{font-size:20px;margin:6px 0 2px}.sub{color:#5C655E;font-size:14px;margin-bott
 а отдельный предмет можно заменить товаром из любого другого комплекта — смешивать можно как угодно.
 Расстановки <b>предпосчитаны офлайн</b> нашим движком; страница ничего не считает. Числа стандартов — из тех же правил, что у движка.</div>
 </div>
-<div id="scrim"></div>
+<div id="scrim"></div><div id="peek"></div>
 <div id="sheet"><div class="grab"></div>
   <header><div class="h"><b id="sh-title">Подбор товара</b><span id="sh-sub"></span></div>
   <button class="close" id="sh-close">Готово</button></header>
@@ -175,6 +182,14 @@ function basket(){                    // мини-каталог собранн�
     +`<div class="total"><span>Итого ${withSku.length} товаров</span><span>${sum.toLocaleString('ru-RU')} ₽</span></div>`;
 }
 let UID=0;
+function peek(e,it){const p=document.getElementById('peek');
+  p.innerHTML=`<img src="${it.sku.img}" alt=""><b>${it.sku.name||''}</b>`+
+    `<b style="font-weight:400;color:#5C655E">${Math.round(it.w)}×${Math.round(it.d)} см · ${(it.sku.price||0).toLocaleString('ru-RU')} ₽</b>`;
+  p.style.display='block';
+  const r=p.getBoundingClientRect();
+  p.style.left=Math.max(8,Math.min(window.innerWidth-r.width-8,e.clientX-r.width/2))+'px';
+  p.style.top=Math.max(8,e.clientY-r.height-14)+'px';}
+function hidePeek(){document.getElementById('peek').style.display='none';}
 function kind(it){                       // модель выбирается ПОД ТОВАР, а не по одной болванке
   const n=((it.sku&&it.sku.name)||'').toLowerCase(), base=it.role.split(' ')[0];
   if(base==='диван'){
@@ -257,8 +272,22 @@ function shape(it){
   } else {
     g.appendChild(R(-w/2,-d/2,w,d,3));
   }
-  // фото товара в план НЕ вставляем (владелец 26.08: «не надо фотки кидать, надо модели красивые»):
-  // фото живёт в ленте подбора и в строке выбора, а на плане — аккуратная модель сверху
+  // ЧТО ИМЕННО ВЫБРАНО — видно на модели (владелец 26.08): маленькая миниатюра в углу предмета,
+  // по наведению/долгому тапу разворачивается в увеличенный предпросмотр. Сам план остаётся
+  // чертежом: фото не заливает предмет целиком.
+  if(it.sku&&it.sku.img){
+    const r=Math.max(9,Math.min(w,d)*0.19), cx=w/2-r-2, cy=-d/2+r+2, id='cp'+(++UID);
+    const cp=el('clipPath',{id:id});cp.appendChild(el('circle',{cx:cx,cy:cy,r:r}));
+    g.appendChild(cp);
+    g.appendChild(el('circle',{cx:cx,cy:cy,r:r+1.5,fill:'#fff',stroke:'#3A3A3A','stroke-width':1}));
+    const im=el('image',{href:it.sku.img,x:cx-r,y:cy-r,width:2*r,height:2*r,
+      preserveAspectRatio:'xMidYMid slice','clip-path':`url(#${id})`});
+    im.style.cursor='zoom-in';
+    im.addEventListener('pointerenter',e=>peek(e,it));
+    im.addEventListener('pointerleave',()=>hidePeek());
+    im.addEventListener('pointerdown',e=>{e.stopPropagation();peek(e,it);setTimeout(hidePeek,2500);});
+    g.appendChild(im);
+  }
   return g;
 }
 function shade(hex,amt){const n=parseInt(hex.slice(1),16);
@@ -378,13 +407,17 @@ function grid(){
     if(F.fitOnly&&fitBadge(sel,p).cls==='b-no')return false;
     return true;});
   const rank=p=>({'b-ok':0,'b-tight':1,'b-no':2})[fitBadge(sel,p).cls];
-  list.sort((a,b)=>F.sort==='price'?((a.price||0)-(b.price||0)):(rank(a)-rank(b)||(a.price||0)-(b.price||0)));
+  const pic=p=>p.img?0:1;                       // товары с фото — выше: половина ссылок фида мертва
+  list.sort((a,b)=>F.sort==='price'
+    ?(pic(a)-pic(b)||(a.price||0)-(b.price||0))
+    :(pic(a)-pic(b)||rank(a)-rank(b)||(a.price||0)-(b.price||0)));
   if(!list.length){g.innerHTML='<div class="hint">Под фильтры ничего не подошло — снимите ограничения.</div>';return;}
   list.forEach(p=>{const c=document.createElement('div');c.className='card';
     const dims=`${Math.round(p.w)}×${Math.round(p.d)}${p.h?'×'+Math.round(p.h):''} см`;
     const bg=fitBadge(sel,p), cur=sel.sku&&sel.sku.name===p.name;
     if(cur)c.classList.add('cur');
-    c.innerHTML=`<img src="${p.img}" loading="lazy" alt="">`+
+    c.innerHTML=(p.img?`<img src="${p.img}" loading="lazy" alt="">`
+      :`<div class="noimg">фото недоступно<br><span>ссылка фида устарела</span></div>`)+
       `<span class="badge ${bg.cls}">${bg.txt}</span>`+
       `<div class="nm">${p.name||''}</div>`+
       `<div class="pr">${(p.price||0).toLocaleString('ru-RU')} ₽</div>`+

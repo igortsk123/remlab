@@ -144,6 +144,73 @@ def build() -> dict:
             '_note': flat.get('_scale_note')}
 
 
+def cache_images(data: dict) -> dict:
+    """ФОТО КЛАДЁМ К СЕБЕ (владелец 26.08: «фотки не все прогружаются»). Причина — в фиде
+    протокол-относительные ссылки на CDN Гдеслона, и примерно половина отдаёт 404: карточки
+    приходили пустыми. Качаем один раз, ужимаем до 400 px и раздаём со своего домена; у товара
+    с мёртвой ссылкой `img=null` — карточка честно показывает «фото недоступно», а сам товар
+    (габариты, цена, ссылка в магазин) остаётся рабочим."""
+    from concurrent.futures import ThreadPoolExecutor
+    import hashlib
+    import io
+    import urllib.request
+    from PIL import Image
+    imgdir = os.path.join(OUT, 'img')
+    os.makedirs(imgdir, exist_ok=True)
+    urls = set()
+    for lst in (data.get('feeds') or {}).values():
+        for p in lst:
+            if p.get('img'):
+                urls.add(p['img'])
+    for kit in (data.get('sets') or []):
+        for p in kit['roles'].values():
+            if p.get('img'):
+                urls.add(p['img'])
+    for v in data.get('variants') or []:
+        for it in v['items']:
+            if (it.get('sku') or {}).get('img'):
+                urls.add(it['sku']['img'])
+
+    def grab(u: str):
+        name = hashlib.md5(u.encode()).hexdigest()[:16] + '.jpg'
+        dst = os.path.join(imgdir, name)
+        if os.path.exists(dst):
+            return u, 'img/' + name
+        full = ('https:' + u) if u.startswith('//') else u
+        try:
+            req = urllib.request.Request(full, headers={'User-Agent': 'Mozilla/5.0',
+                                                        'Referer': 'https://remont-lab.online/'})
+            with urllib.request.urlopen(req, timeout=15) as f:
+                raw = f.read()
+            im = Image.open(io.BytesIO(raw)).convert('RGB')
+            im.thumbnail((400, 400))
+            im.save(dst, 'JPEG', quality=82)
+            return u, 'img/' + name
+        except Exception:
+            return u, None
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        got = dict(ex.map(grab, sorted(urls)))
+    ok = sum(1 for v in got.values() if v)
+    print(f'фото: скачано {ok} из {len(urls)} (остальные — битые ссылки фида)')
+
+    def fix(p):
+        if p and p.get('img'):
+            p['img'] = got.get(p['img'])
+    for lst in (data.get('feeds') or {}).values():
+        for p in lst:
+            fix(p)
+    data['sofa_feed'] = data.get('feeds', {}).get('диван', [])
+    for kit in (data.get('sets') or []):
+        for p in kit['roles'].values():
+            fix(p)
+    for v in data.get('variants') or []:
+        for it in v['items']:
+            fix(it.get('sku'))
+    data['_img_cached'] = {'ok': ok, 'total': len(urls)}
+    return data
+
+
 def main() -> None:
     os.makedirs(OUT, exist_ok=True)
     # ИСХОДНИК СТРАНИЦЫ ЖИВЁТ В РЕПО (26.08): до этого index.html лежал только в ~/scout-scenes и
@@ -152,7 +219,7 @@ def main() -> None:
     src = os.path.join(HERE, 'flat215-demo', 'index.html')
     if os.path.exists(src):
         shutil.copy(src, os.path.join(OUT, 'index.html'))
-    data = build()
+    data = cache_images(build())
     json.dump(data, open(os.path.join(OUT, 'demo-data.json'), 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)
     print(f"OK: вариантов {len(data['variants'])}; ленты: "
