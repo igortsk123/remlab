@@ -109,6 +109,74 @@ def why(mid: str, eid: str) -> None:
 _CAND_CACHE: dict = {}
 
 
+def _slot_ok(role: str, cand: dict, s: dict, chosen: dict | None = None) -> bool:
+    """КОНТРАКТЫ ПОДБОРА при лечении (22.08→25.08, разбор владельца по галерее): замена обязана
+    проходить ТЕ ЖЕ ворота, что и первичная сборка. Иначе ночное лечение тихо подменяет товар
+    на негодный: 20.08 в сете 7 стоял диван 187 и ковёр 230×160, после лечения — диван 110 и
+    ковёр 160×160; ковёр меньше «диван+30» солвер честно роняет по канону передних ножек, а
+    маленький диван роняет заполняемость (планы владельца №10/13: 15 % и 14 %).
+
+    Проверяем: (1) конверт слота роли по площади (`template_slot_envelopes`, тот же
+    `compose2.slot_ideal` и допуск −20/+10); (2) привязку ковра к дивану — длинная сторона
+    ≥ диван + 2×нижняя граница выступа (`occupancy.rug_rules...front_legs_scheme_side_overhang_each_cm`).
+    """
+    try:
+        from compose2 import slot_ideal, _SLOT_ENV
+    except Exception:
+        return True
+    m2 = float(s.get('m2') or 0)
+    items = chosen if chosen is not None else (s.get('items') or {})
+    w = cand.get('w') or 0
+    d = cand.get('d') or 0
+    if role == 'ковёр':
+        long_side, short_side = max(w, d), min(w, d)
+        sofa = (items.get('диван') or {}).get('w') or 0
+        # ВЕРХНЯЯ граница — конверт слота комнаты (+10 %): иначе «починка» кладёт ковёр 300×200
+        # в комнату 15 м², и он снова не находит места
+        _cap = (slot_ideal('ковёр', m2) or 0) * 1.10 if m2 else 0
+        if _cap and long_side > _cap:
+            return False
+        # HARD-контракт зонного ковра (ADR-0120): короткая сторона ≥140, длинная ≥ ширины дивана;
+        # «+15–30 см с каждой стороны» — предпочтение, не запрет
+        if short_side and short_side < 140:
+            return False
+        if sofa and long_side and long_side < sofa:
+            return False
+        if sofa and long_side:
+            try:
+                import json as _j
+                _occ = _j.load(open(os.path.join(HERE, '..', '..', 'services', 'planner-solver',
+                                                 'rules', 'occupancy.json'), encoding='utf-8'))
+                _ov = ((_occ.get('dynamic') or {}).get('rug_rules') or {}).get(
+                    'verified_r2', {}).get('front_legs_scheme_side_overhang_each_cm', [25, 35])
+            except Exception:
+                _ov = [25, 35]
+            _pref = sofa + 2 * float(_ov[0])
+            if long_side < sofa:      # hard: короче ширины дивана — зона не читается
+                return False
+            _ = _pref                 # предпочтение (диван+2×15) учитывается ранжированием, не запретом
+    # Конверт применяем ТОЛЬКО там, где сборка держит его жёстко. У части ролей compose2
+    # сознательно допускает фолбэк при бедном каталоге (ковёр `_best_any`, «ядро зоны» берёт
+    # меньший кандидат) — там банк законно выходит за идеал, и лечение это не чинит.
+    _HARD_ENVELOPE = ('диван', 'диван 2', 'тв-тумба', 'стенка', 'стол обеденный', 'кресло', 'кресло 3')
+    # АБСОЛЮТНЫЙ минимум ширины (26.08): детский/подростковый диван в общую категорию попадает
+    # по имени без слова «детский» — ловим размером (zones.json → slots.диван.abs_min_cm)
+    if role in ('диван', 'диван 2') and w:
+        try:
+            _abs = float(((_SLOT_ENV.get('slots') or {}).get('диван') or {}).get('abs_min_cm') or 0)
+        except Exception:
+            _abs = 0.0
+        if _abs and w < _abs:
+            return False
+    _id = slot_ideal(role, m2) if (m2 and role in _HARD_ENVELOPE) else None
+    if _id and (w or d):
+        lo, hi = _SLOT_ENV.get('tolerance', [0.80, 1.10])
+        _len = max(w, d) if role == 'ковёр' else w
+        if _len and not (_id * lo <= _len <= _id * hi):
+            return False
+    return True
+
+
 def _live_candidates(role: str, cur: dict, style: str | None, alive: set,
                      exclude: set, limit: int = 10) -> list[dict]:
     """Кандидаты из живого candidates-index.json: роль та же, в наличии, ±30% цены,
@@ -188,8 +256,8 @@ def refresh(apply: bool = False, max_swaps_per_set: int = 2) -> None:
                 ctx = {'chosen': {r: v for r, v in s['items'].items() if r != role}, 'wall': None,
                        'corner_sofa': 'углов' in str((s['items'].get('диван') or {}).get('name', '')).lower()}
                 ok, _b, _no = prop_check(role, trial, ctx, _sub(role, trial))
-                if not ok:
-                    continue
+                if not ok or not _slot_ok(role, trial, s):
+                    continue          # 25.08: ворота подбора и при освежении, не только при сборке
                 print(f'  сет {n} [{style}]: {role} «{it["name"][:30]}» (ступень {cur_step}) '
                       f'→ «{cand["name"][:30]}» (высокая)')
                 if apply:
@@ -247,6 +315,8 @@ def _heal_pod(s: dict, members: list[str], dead: dict, alive: set, apply: bool =
             if int(c['mid']) in banned or key(c['mid'], c['eid']) == main_key:
                 continue
             if (c.get('w') or 999) > hard[0] or (c.get('d') or 999) > hard[1] or bad.search(c.get('name') or ''):
+                continue
+            if not _slot_ok('кресло 3', c, s):
                 continue
             if 'пуф' in (c.get('name') or '').lower() or str(c.get('subtype') or '').startswith('пуф'):
                 continue                                   # роль «кресло» с именем «пуф» — не кресло pod
@@ -393,6 +463,11 @@ def heal(apply: bool = False) -> None:
                 ok, _b, _no = prop_check(role, cand, ctx, _sub(role, cand))
                 if not ok:
                     continue
+                if not _slot_ok(role, cand, s):
+                    continue          # 25.08: те же ворота подбора, что при сборке —
+                    # конверт слота роли и привязка ковра к дивану. Без них ночное лечение
+                    # ставило диван 110 в 15 м² и ковёр 120×120 под диван 195 (симптомы:
+                    # «ковра нет нигде», заполняемость 14–15 %)
                 # КОНВЕРТ БАНДА ДЛЯ ЯКОРНЫХ РОЛЕЙ (22.08): длинная сторона замены обязана
                 # влезать в стену комнаты банда с канонной долей (2/3-правило occupancy,
                 # допуск до share): иначе честная дыра лучше негабарита
@@ -427,8 +502,108 @@ def heal(apply: bool = False) -> None:
         print('\nэто был показ без изменений; применить — ключом --apply')
 
 
+def enforce_contracts(apply: bool = False, roles: tuple = ()) -> None:
+    """ПОЧИНКА БАНКА ПОД КОНТРАКТЫ ПОДБОРА (25.08). Лечение месяцами подменяло товары мимо ворот
+    сборки, и банк накопил негодные позиции: диван 110 см в комнате 15 м² (конверт слота 144–198),
+    ковёр 120×120 под диван 195 (канон передних ножек требует ≥ диван+30). Симптомы в галерее —
+    «ковра нет нигде» и заполняемость 14–15 % против 28 %.
+
+    Проходим банк, для каждой роли со слотом проверяем `_slot_ok`; нарушение — ищем живую замену
+    (`_live_candidates`), проходящую ворота; не нашли — снимаем роль и пишем явный `coverage_gap`
+    (честная дыра лучше негодного товара)."""
+    import shutil
+    from proportions import check as prop_check
+    from item_function import subtype as _sub
+    sets = json.load(open(SETS))
+    alive = {key(r[0], r[1]) for r in _rows(
+        "select e.shop_mid, e.external_id from product_enrichment e "
+        "join products p using (shop_mid, external_id) "
+        "where e.status='active' and p.in_stock") if len(r) >= 2}
+    fixed = dropped = 0
+    for n, s in enumerate(sets, 1):
+        items = s.get('items') or {}
+        for role in list(items):
+            if roles and role not in roles:
+                continue
+            it = items[role]
+            if _slot_ok(role, it, s):
+                continue
+            repl = None
+            # кандидатов сортируем по БЛИЗОСТИ К ИДЕАЛУ СЛОТА, а не по стилю/цене: замена «первым
+            # подошедшим» ставила в 15 м² угловой диван 235 см, и носитель ТВ переставал влезать
+            # (8 сцен MEDIA_MISSING на первом прогоне 26.08)
+            try:
+                from compose2 import slot_ideal as _si
+                _ideal = _si(role, float(s.get('m2') or 0)) or 0
+            except Exception:
+                _ideal = 0
+            _cands = _live_candidates(role, it, s.get('style'), alive,
+                                      exclude={key(it['mid'], it['eid'])}, limit=60)
+            if _ideal:
+                _cands.sort(key=lambda c: abs((max(c.get('w') or 0, c.get('d') or 0)
+                                               if role == 'ковёр' else (c.get('w') or 0)) - _ideal))
+            for c in _cands:
+                if not _slot_ok(role, c, s):
+                    continue
+                cand = dict(it)
+                cand.update({k: c[k] for k in ('mid', 'eid', 'name', 'price', 'w', 'd', 'h',
+                                               'dia', 'subtype') if k in c and c[k] is not None})
+                ctx = {'chosen': {r: v for r, v in items.items() if r != role}, 'wall': None,
+                       'corner_sofa': 'углов' in str((items.get('диван') or {}).get('name', '')).lower()}
+                ok, _b, _no = prop_check(role, cand, ctx, _sub(role, cand))
+                if ok:
+                    repl = cand
+                    break
+            if repl:
+                fixed += 1
+                print(f'  сет {n}: {role} {it.get("w")}x{it.get("d")} «{it["name"][:28]}» → '
+                      f'{repl.get("w")}x{repl.get("d")} «{repl["name"][:28]}»')
+                if apply:
+                    items[role] = repl
+            else:
+                dropped += 1
+                print(f'  сет {n}: {role} {it.get("w")}x{it.get("d")} вне контракта, замены нет → снят')
+                if apply:
+                    items.pop(role, None)
+                    g = s.setdefault('gaps', [])
+                    msg = f'coverage_gap: {role} — нет живого SKU в конверте слота'
+                    if msg not in g:
+                        g.append(msg)
+    # ПОСЛЕ ЗАМЕН — синхронизация ЭКЗЕМПЛЯРОВ (26.08): «кресло 2» это второй экземпляр основного
+    # кресла, «кресло 4» — пара к «креслу 3». Замена одного из них в одиночку ломает контракт
+    # комплекта (сторож test_second_pod_pair_is_one_sku_from_25m2)
+    synced = 0
+    for s in sets:
+        items = s.get('items') or {}
+        for inst, main in (('кресло 2', 'кресло'), ('кресло 4', 'кресло 3')):
+            a_, b_ = items.get(inst), items.get(main)
+            if not a_ or not b_:
+                continue
+            if (a_.get('mid'), a_.get('eid')) != (b_.get('mid'), b_.get('eid')):
+                synced += 1
+                if apply:
+                    _new = dict(b_, qty=1, alt=a_.get('alt', True),
+                                pair_key=f"{b_.get('mid')}:{b_.get('eid')}",
+                                pair_provenance='exact_sku')
+                    if 'pod_key' in b_:
+                        _new['pod_key'] = b_['pod_key']
+                    items[inst] = _new
+    if synced:
+        print(f'синхронизировано экземпляров пары: {synced}')
+    print(f'\nвне контракта: заменено {fixed}, снято {dropped}')
+    if apply and (fixed or dropped):
+        shutil.copy(SETS, SETS + '.bak-contracts')
+        json.dump(sets, open(SETS, 'w'), ensure_ascii=False)
+        print('sets3.json обновлён (бэкап .bak-contracts)')
+
+
 def main() -> None:
-    if '--refresh' in sys.argv:
+    if '--enforce-contracts' in sys.argv:
+        _r = ()
+        if '--roles' in sys.argv:
+            _r = tuple(sys.argv[sys.argv.index('--roles') + 1].split(','))
+        enforce_contracts('--apply' in sys.argv, roles=_r)
+    elif '--refresh' in sys.argv:
         refresh('--apply' in sys.argv)
     elif '--heal' in sys.argv:
         heal('--apply' in sys.argv)

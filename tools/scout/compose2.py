@@ -388,6 +388,14 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3,pr
             # 12.08). Допуск −20/+10 применяется ЗДЕСЬ, при подборе товара в сет, и
             # больше нигде: солверу менять габарит SKU запрещено. Мягкого бонуса в
             # скоринге не хватало — в 15 м² попадал ковёр 290x200 (39% пола).
+            # АБСОЛЮТНЫЙ минимум главного дивана (26.08, Codex): детская/подростковая мягкая
+            # мебель просачивается в общую категорию по имени без слова «детский» (диван «Умка»
+            # 110 см в комнате 15 м²). Ловим размером — zones.json → slots.диван.abs_min_cm
+            if role in ('диван','диван 2'):
+                _abs=float(((_SLOT_ENV.get('slots') or {}).get('диван') or {}).get('abs_min_cm') or 0)
+                if _abs and (it.get('w') or 0) < _abs:
+                    _SLOT_MISS.setdefault(role,0); _SLOT_MISS[role]+=1
+                    continue
             _id=None if no_envelope else slot_ideal(role,m2)   # Q5: pod-слоты (столик 2) — вне конверта главного слота
             if _id:
                 _tol=_SLOT_ENV.get('tolerance',[0.80,1.10])
