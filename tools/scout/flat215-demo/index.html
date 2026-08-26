@@ -53,7 +53,7 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
 .noimg{width:100%;aspect-ratio:4/3;background:#F2F0EB;border-radius:8px;display:flex;
  flex-direction:column;align-items:center;justify-content:center;font-size:12px;color:#8A8F89;text-align:center}
 .noimg span{font-size:11px;color:#A6ABA4}
-#peek{position:fixed;z-index:45;background:#fff;border:1px solid var(--line);border-radius:12px;
+#peek{position:fixed;z-index:70;background:#fff;border:1px solid var(--line);border-radius:12px;
  padding:8px;box-shadow:0 12px 34px #00000026;display:none;width:240px;cursor:pointer}
 #peek img{width:224px;height:168px;object-fit:contain;background:#F7F5F1;border-radius:8px;display:block}
 #peek .pn{font-size:14.5px;line-height:1.3;margin-top:6px;max-height:38px;overflow:hidden}
@@ -247,8 +247,8 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
       <div id="tip"></div></div>
       <!-- КНОПКА ПОД ПЛАНОМ (владелец 26.08): снять расстановку можно прямо здесь, не поднимаясь
            к ленте -->
-      <div class="bar" style="margin-top:10px">
-        <button class="btn primary" id="shotNow">Посмотреть на фото · ~25 сек</button>
+      <div class="bar" id="shotNowBar" style="margin-top:10px" hidden>
+        <button class="btn primary" id="shotNow">Посмотреть изменения на фото · ~25 сек</button>
       </div>
     </div>
     <div class="panel" id="basket"><h3>Товары этой расстановки</h3><div id="blist">—</div></div>
@@ -495,6 +495,10 @@ function draw(){
   drawPhotos();          // блок над планом знает, снята ли ТЕКУЩАЯ расстановка (26.08)
   drawFeed();            // и лента: если кадра этой расстановки нет — впереди карточка «＋»
   drawVariants();
+  // КНОПКА ПОД ПЛАНОМ — ТОЛЬКО ПОСЛЕ ПРАВКИ (владелец 26.08): на нетронутом варианте предлагать
+  // «посмотреть изменения» нечего.
+  const snb=document.getElementById('shotNowBar');
+  if(snb)snb.hidden=!(baseRev&&items.length&&revision()!==baseRev);
   const sl=document.getElementById('srcLink');
   if(sl){
     let last=''; try{last=localStorage.getItem('flat215-src')||'';}catch(e){}
@@ -740,6 +744,8 @@ function payload(){
   return {room:D.room, items:items.map(it=>({role:it.role,x:it.x,y:it.y,rot:it.rot,
     w:it.w,d:it.d,h:it.h,corner:it.corner,section:it.section,
     name:(it.sku&&it.sku.name)||null,
+    price:(it.sku&&it.sku.price)||null, url:(it.sku&&it.sku.url)||null,
+    shop:(it.sku&&it.sku.shop)||null,
     img:(it.sku&&it.sku.img)?(/^https?:/.test(it.sku.img)?it.sku.img:base+it.sku.img):null}))};
 }
 // ——— хранилище кадров: НИЧЕГО НЕ УДАЛЯЕМ (владелец 26.08), переживает перезагрузку страницы
@@ -878,9 +884,12 @@ function viewShot(i){
     `<span><a class="btn" href="${s.url}" download target="_blank" rel="noopener">Скачать</a>
      <button class="btn primary" id="shShare">Отправить себе</button></span>`);
   document.getElementById('shShare').onclick=()=>shareOpen([s]);
-  document.querySelectorAll('#shotbody .pin').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#shotbody .pin').forEach(b=>{
     const a=an[+b.dataset.k];
-    if(a&&a.url)window.open(a.url,'_blank','noopener');});
+    b.onclick=()=>{if(a&&a.url)window.open(a.url,'_blank','noopener');};
+    b.onmouseenter=()=>pinCard(a,b);
+    b.onmouseleave=()=>{const p=document.getElementById('peek');if(p)p.style.display='none';};
+  });
 }
 // ——— ОТПРАВКА СЕБЕ: ТОЛЬКО ПО КОНТАКТУ (владелец 26.08: «ссылку нигде не показывай; человек
 // должен оставить телеграм, MAX или номер телефона — тогда пришлём»). Ссылка на подборку
