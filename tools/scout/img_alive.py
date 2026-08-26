@@ -103,8 +103,9 @@ def alive_now(url: str | None) -> bool:
 
 def scan(urls: list[str], workers: int = 8) -> tuple[int, int]:
     mem = _load()
+    force = '--force' in sys.argv          # ежедневный прогон банка: TTL не ждём
     todo = [u for u in dict.fromkeys(urls)
-            if u and (u not in mem or time.time() - mem[u].get('ts', 0) > TTL_DAYS * 86400
+            if u and (force or u not in mem or time.time() - mem[u].get('ts', 0) > TTL_DAYS * 86400
                       or mem[u].get('v', 1) < PROBE_V)]
     if todo:
         with ThreadPoolExecutor(max_workers=workers) as ex:
