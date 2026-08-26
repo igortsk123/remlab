@@ -61,8 +61,33 @@ def _sku(items: dict, role: str) -> dict | None:
             'w': it.get('w'), 'd': it.get('d'), 'h': it.get('h')}
 
 
+def solve_layouts(flat: dict) -> None:
+    """РАСКЛАДКИ СЧИТАЕМ ПОД ЭТУ КОМНАТУ (26.08). Артефакт `v3set{n}-layout.json` по умолчанию
+    считается для условного прямоугольника из метража сета (например 360×415) — если взять
+    такой артефакт для комнаты 439×325, мебель окажется за стеной. Поэтому демо само вызывает
+    солвер с реальными габаритами и проёмами квартиры, а не надеется на ранее посчитанный файл."""
+    liv = flat['rooms'][0]
+    env = dict(os.environ,
+               SCENE_OPENINGS=json.dumps([{k: v for k, v in o.items() if not k.startswith('_')}
+                                          for o in liv['openings']], ensure_ascii=False),
+               SCENE_RADIATORS=json.dumps([{k: v for k, v in r.items() if not k.startswith('_')}
+                                           for r in (liv.get('radiators') or [])], ensure_ascii=False))
+    py = os.path.expanduser('~/venvs/scout/bin/python')
+    for n, _ in VARIANTS:
+        art = os.path.join(HERE, f'v3set{n}-layout.json')
+        fresh = (os.path.exists(art)
+                 and (json.load(open(art, encoding='utf-8')).get('_room') or {}).get('w') == liv['w']
+                 and os.path.getmtime(art) > os.path.getmtime(os.path.join(HERE, 'sets3.json')))
+        if fresh:
+            continue
+        r = subprocess.run([py, 'solver_run.py', str(n), '--v3', str(liv['w']), str(liv['d'])],
+                           cwd=HERE, env=env, capture_output=True, text=True)
+        print(f'  раскладка сета {n}: ' + ('пересчитана' if r.returncode == 0 else f'ОШИБКА\n{r.stderr[-400:]}'))
+
+
 def build() -> dict:
     flat = json.load(open(os.path.join(HERE, 'flat215.json'), encoding='utf-8'))
+    solve_layouts(flat)                 # раскладки — под реальную комнату, а не под метраж сета
     liv = flat['rooms'][0]
     sets = json.load(open(os.path.join(HERE, 'sets3.json'), encoding='utf-8'))
     variants = []
