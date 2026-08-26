@@ -171,25 +171,31 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
 #photos .shots{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px}
 #photos .shots img{height:180px;border-radius:10px;cursor:pointer;flex:0 0 auto}
 #photos .acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
-/* ЛЕНТА: новые кадры добавляются СПРАВА и ничего не удаляется (владелец 26.08) */
-#feed{display:flex;gap:10px;overflow-x:auto;padding:6px 2px 10px;scroll-behavior:smooth}
-#feed:empty::after{content:'Пока пусто — сделайте первое фото своей расстановки.';color:#8A8F89;
- font-size:14px}
-.shot-card{flex:0 0 auto;width:180px;border:1px solid var(--line);border-radius:10px;padding:6px;
- background:#fff;cursor:pointer;position:relative}
-.shot-card img{width:100%;height:120px;object-fit:cover;border-radius:7px;background:#F2F0EB}
-.shot-card .t{font-size:clamp(13.5px,0.95vw,15px);color:#5C655E;margin-top:6px;line-height:1.32}
-.shot-card.pick{border-color:var(--accent);box-shadow:0 0 0 2px #3B76A233}
-.shot-card .mark{position:absolute;top:10px;left:10px;width:20px;height:20px;border-radius:5px;
- background:#fff;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;
- font-size:13px;color:#fff}
-.shot-card.pick .mark{background:var(--accent);border-color:var(--accent)}
-.shot-card.add{display:flex;flex-direction:column;align-items:center;justify-content:center;
- gap:8px;height:186px;border-style:dashed;border-color:var(--accent);background:#F7FAFC}
-.shot-card.add .plus{font-size:30px;color:var(--accent);line-height:1}
-.shot-card.add .t{text-align:center;color:#3A423C}
-.shot-card.add .t span{color:#8A8F89;font-size:12px}
-.shot-card .up{width:100%;margin-top:6px;padding:7px 8px;font-size:13px}
+/* КАРУСЕЛЬ КАДРОВ (26.08): один крупный снимок, стрелки вперёд-назад, счётчик. Мелкие превью
+   убраны — они дублировали то же самое. Новые кадры встают в конец, ничего не удаляется. */
+.car{position:relative;margin-top:10px}
+.car .frame{position:relative;border-radius:12px;overflow:hidden;background:#F4F2ED;
+ aspect-ratio:3/2;display:flex;align-items:center;justify-content:center}
+.car .frame img{width:100%;height:100%;object-fit:cover;cursor:zoom-in;display:block}
+.car .add{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+ width:100%;height:100%;border:1px dashed var(--accent);border-radius:12px;background:#F7FBFD;
+ cursor:pointer;color:#3A423C;text-align:center;padding:18px}
+.car .add .plus{font-size:38px;color:var(--accent);line-height:1}
+.car .add b{font-size:clamp(16px,1.15vw,19px)}
+.car .add span{color:#5C655E;font-size:clamp(13.5px,0.95vw,15px)}
+.car .nav{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:44px;
+ border-radius:50%;border:0;background:#ffffffe8;box-shadow:0 2px 10px #00000026;cursor:pointer;
+ font-size:20px;color:#2A2F2C;display:flex;align-items:center;justify-content:center}
+.car .nav:hover{background:#fff}
+.car .prev{left:10px}.car .next{right:10px}
+.car .nav[disabled]{opacity:.35;cursor:default}
+.car .bar2{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;
+ margin-top:10px}
+.car .meta{font-size:clamp(13.5px,0.95vw,15.5px);color:#5C655E}
+.car .dots{display:flex;gap:6px;justify-content:center;margin-top:8px}
+.car .dot{width:8px;height:8px;border-radius:50%;background:#D8D5CE;border:0;padding:0;cursor:pointer}
+.car .dot.on{background:var(--accent);width:22px;border-radius:5px}
+.car .pickbtn.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 #shot .grid2{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
 #shot .grid2 img{width:100%;border-radius:8px}
 .chan{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
@@ -231,7 +237,8 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
     <div>
       <div class="canvasbar">
         <span id="sel">Тяните предмет, чтобы двигать. Товар выбирается по значку на предмете.</span>
-        <span class="state" id="layoutState">Готовая расстановка</span>
+        <span><span id="srcLink"></span>
+        <span class="state" id="layoutState">Готовая расстановка</span></span>
       </div>
       <div id="canvasWrap"><svg id="stage" xmlns="http://www.w3.org/2000/svg"></svg>
       <div id="tip"></div></div>
@@ -479,6 +486,13 @@ function draw(){
   drawPhotos();          // блок над планом знает, снята ли ТЕКУЩАЯ расстановка (26.08)
   drawFeed();            // и лента: если кадра этой расстановки нет — впереди карточка «＋»
   drawVariants();
+  const sl=document.getElementById('srcLink');
+  if(sl){
+    let last=''; try{last=localStorage.getItem('flat215-src')||'';}catch(e){}
+    sl.innerHTML=last
+      ? `<a class="srcln" href="${last}" target="_blank" rel="noopener">исходники последнего фото</a>`
+      : '<span class="srcln" style="text-decoration:none">исходники появятся после первого фото</span>';
+  }
   const st=document.getElementById('layoutState');
   if(st){const changed=baseRev&&revision()!==baseRev;
     st.textContent=changed?'Изменено вами':'Готовая расстановка';
@@ -729,78 +743,73 @@ function saveShots(){
   try{localStorage.setItem('flat215-shots',JSON.stringify(
     shots.map(({pick,...s})=>s).slice(-60)));}catch(e){}
 }
-function addShot(rec){ shots.push(rec); saveShots(); drawFeed(); drawPhotos();
-  const f=document.getElementById('feed'); if(f)f.scrollLeft=f.scrollWidth; }
+function addShot(rec){ shots.push(rec); saveShots();
+  try{if(rec.sources)localStorage.setItem('flat215-src',rec.sources);}catch(e){}
+  slide=shots.length-1+(0);          // показываем только что снятый кадр
+  drawFeed(); drawPhotos(); }
 function shotLabel(s){
   const q={draft:'черновое',realistic:'реалистичное',preset:'готовое'}[s.quality]||s.quality;
   const cam={C1:'от окна',C2:'от входа'}[s.camera]||'';
   const t=new Date(s.ts||Date.now());
   return `${s.variant||''} · ${q}${cam?' · '+cam:''} · ${t.getHours()}:${String(t.getMinutes()).padStart(2,'0')}`;
 }
-function drawFeed(){
+let slide=0;
+function drawFeed(){                    // КАРУСЕЛЬ: один крупный кадр, стрелки, счётчик, точки
   const f=document.getElementById('feed'); if(!f)return;
-  f.innerHTML='';
-  // КАРТОЧКА-ПЛЮС: расстановка изменилась и такого кадра ещё нет — предлагаем снять (владелец 26.08)
   const rev=(D&&items.length)?revision():'';
   const has=rev&&shots.some(s=>s.revision===rev);
-  if(rev&&!has){
-    const c=document.createElement('div');
-    c.className='shot-card add';
-    c.innerHTML='<div class="plus">＋</div><div class="t">Посмотреть изменения на фото<br><span>черновое · ~25 сек</span></div>';
-    c.onclick=()=>makePhoto('draft');
-    f.appendChild(c);
-  }
-  shots.forEach((s,i)=>{
-    const c=document.createElement('div');
-    c.className='shot-card'+(s.pick?' pick':'');
-    // на ЧЕРНОВИКЕ текущей расстановки предлагаем «улучшить фото» — реалистичный проход
-    const better=(s.quality==='draft'&&s.revision===rev&&!shots.some(x=>x.quality==='realistic'&&x.revision===rev));
-    c.innerHTML=`<div class="mark">${s.pick?'✓':''}</div>`+
-      `<img src="${s.url}" alt="${shotLabel(s)}" loading="lazy">`+
-      `<div class="t">${shotLabel(s)}</div>`+
-      (better?'<button class="btn up">Улучшить фото</button>':'');
-    c.querySelector('.mark').onclick=e=>{e.stopPropagation();s.pick=!s.pick;drawFeed();};
-    const up=c.querySelector('.up');
-    if(up)up.onclick=e=>{e.stopPropagation();makePhoto('realistic');};
-    c.onclick=()=>viewShot(i);
-    f.appendChild(c);
-  });
-  document.getElementById('feedBar').hidden=shots.length===0;
-  const n=shots.filter(s=>s.pick).length;
+  const slides=shots.slice();
+  const addFirst=rev&&!has;                       // нет кадра этой расстановки — первым «＋»
+  const total=slides.length+(addFirst?1:0);
+  if(!total){f.innerHTML='';document.getElementById('feedBar').hidden=true;return;}
+  slide=Math.max(0,Math.min(slide,total-1));
+  const at=addFirst?slide-1:slide;                // индекс в shots (или -1 для карточки «＋»)
+  const s=at>=0?slides[at]:null;
+  const better=s&&s.quality==='draft'&&s.revision===rev&&
+    !shots.some(x=>x.quality==='realistic'&&x.revision===rev);
+  f.className='car';
+  f.innerHTML=
+    `<div class="frame">`+
+      (s?`<img src="${s.url}" alt="${shotLabel(s)}">`
+        :`<div class="add"><div class="plus">＋</div><b>Посмотреть изменения на фото</b>
+          <span>черновое фото · ~25 сек</span></div>`)+
+      `<button class="nav prev" ${slide===0?'disabled':''} aria-label="Назад">‹</button>`+
+      `<button class="nav next" ${slide>=total-1?'disabled':''} aria-label="Вперёд">›</button>`+
+    `</div>`+
+    `<div class="bar2"><span class="meta">${s?shotLabel(s):'новая расстановка'} · ${slide+1} из ${total}`+
+      (s&&s.sources?` · <a class="srcln" href="${s.sources}" target="_blank" rel="noopener">исходники</a>`:'')+
+      `</span>`+
+      `<span>`+
+        (better?'<button class="btn up">Улучшить фото</button> ':'')+
+        (s?`<button class="btn pickbtn${s.pick?' on':''}">${s.pick?'✓ в подборке':'В подборку'}</button>`:'')+
+      `</span></div>`+
+    (total>1?`<div class="dots">${Array.from({length:total},(_,k)=>
+        `<button class="dot${k===slide?' on':''}" data-k="${k}"></button>`).join('')}</div>`:'');
+  const go=n=>{slide=Math.max(0,Math.min(n,total-1));drawFeed();};
+  f.querySelector('.prev').onclick=()=>go(slide-1);
+  f.querySelector('.next').onclick=()=>go(slide+1);
+  f.querySelectorAll('.dot').forEach(d=>d.onclick=()=>go(+d.dataset.k));
+  const add=f.querySelector('.add'); if(add)add.onclick=()=>makePhoto('draft');
+  const img=f.querySelector('.frame img'); if(img&&s)img.onclick=()=>viewShot(shots.indexOf(s));
+  const up=f.querySelector('.up'); if(up)up.onclick=()=>makePhoto('realistic');
+  const pb=f.querySelector('.pickbtn'); if(pb&&s)pb.onclick=()=>{s.pick=!s.pick;drawFeed();};
+  const bar=document.getElementById('feedBar');
+  bar.hidden=shots.length===0;
+  const n=shots.filter(x=>x.pick).length;
   const fsBtn=document.getElementById('feedShare');
   if(fsBtn)fsBtn.textContent=n?`Отправить себе (${n})`:'Отправить подборку себе';
 }
 // ——— блок над планом: либо кадры этой расстановки, либо «расстановка изменилась»
-function drawPhotos(){
+function drawPhotos(){                 // ЗАГОЛОВОК БЛОКА: что сейчас со снимками этой расстановки
   const box=document.getElementById('photosHead'); if(!box||!D)return;
   const rev=revision();
   const mine=shots.filter(s=>s.revision===rev);
-  if(mine.length){
-    const src=(mine.find(x=>x.sources)||{}).sources;
-    box.innerHTML=`<h3>Фотографии этой расстановки`+
-      (src?` <a class="srcln" href="${src}" target="_blank" rel="noopener">исходники</a>`:'')+`</h3>`+
-      `<div class="shots">${mine.map((s,i)=>`<img data-i="${shots.indexOf(s)}" src="${s.url}" alt="${shotLabel(s)}">`).join('')}</div>`+
-      `<div class="hint">Все снимки остаются в ленте ниже — они не пропадут, даже если вы
-       переставите мебель.</div>`;
-    box.querySelectorAll('.shots img').forEach(im=>im.onclick=()=>viewShot(+im.dataset.i));
-    return;
-  }
-  // ЗАГЛУШКИ ВМЕСТО ФОТО (владелец 26.08): пустое место не объясняет, что тут будет, поэтому
-  // показываем два «кадра» с подписями ракурсов — от окна и от входа.
-  box.innerHTML=`<h3>${shots.length?'Расстановка изменилась':'Фотография вашей комнаты'}</h3>`+
-    `<div class="hint">${shots.length
-      ? 'Прежние снимки сохранены в ленте. Сделайте новый — он покажет комнату так, как вы её расставили.'
-      : 'Соберите комнату по вкусу и посмотрите, как она будет выглядеть.'}</div>`+
-    (shots.length?'':`<div class="shots" style="margin-top:10px">
-       <div class="ph"><b>Вид от окна</b><span>фотография появится здесь</span></div>
-       <div class="ph"><b>Вид от входа</b><span>фотография появится здесь</span></div>
-     </div>`)+
-    `<div class="acts">
-       <button class="btn primary" id="mkDraft">Сделать черновое фото · ~15 сек</button>
-       <button class="btn" id="mkReal">Сделать реалистичное фото · ~40 сек</button>
-     </div>`;
-  document.getElementById('mkDraft').onclick=()=>makePhoto('draft');
-  document.getElementById('mkReal').onclick=()=>makePhoto('realistic');
+  const h=mine.length?'Фотографии этой расстановки'
+        :(shots.length?'Расстановка изменилась':'Фотография вашей комнаты');
+  const t=mine.length?'Листайте стрелками. Снимки не пропадают — прежние остаются в ленте.'
+        :(shots.length?'Прежние снимки сохранены. Нажмите «＋», чтобы снять новую расстановку.'
+                      :'Соберите комнату по вкусу и нажмите «＋» — увидите, как она будет выглядеть.');
+  box.innerHTML=`<h3>${h}</h3><div class="hint">${t}</div>`;
 }
 function shotOpen(html,cap){document.getElementById('shotbody').innerHTML=html;
   document.getElementById('shotcap').innerHTML=cap||'';
