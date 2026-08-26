@@ -22,6 +22,11 @@ def direct(url):
         u = u.replace('&', '?', 1)
     host = urllib.parse.urlparse(u).netloc.lower()
     if 'mnogomebeli' in host or 'divanboss' in host:
-        u = SPA_CUT.sub('/', u)
-        u = re.sub(r'/[^/]+/$', '/', u)  # карточка 404 → родитель (серия) жив
+        # РЕФЕРАЛЬНУЮ МЕТКУ НЕ ТЕРЯЕМ ПРИ ОБРЕЗКЕ (26.08): у этих магазинов SPA-карточка отдаёт
+        # 404, поэтому режем до живого уровня — но `?erid=…` стоит ПОСЛЕ обрезаемой части, и
+        # вместе с ней исчезал заработок: 2103 ссылки из 19 982 уходили в магазин без метки.
+        path, _, query = u.partition('?')
+        path = SPA_CUT.sub('/', path)
+        path = re.sub(r'/[^/]+/$', '/', path)   # карточка 404 → родитель (серия) жив
+        u = f'{path}?{query}' if query else path
     return u

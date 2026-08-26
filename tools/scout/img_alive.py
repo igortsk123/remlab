@@ -7,8 +7,13 @@
 как конверт слота: проверяется ОДИН РАЗ и кэшируется (`img-alive.json`, TTL 14 дней), а сборка,
 лечение и починка банка спрашивают кэш.
 
-  img_alive.py --scan            # проверить фото всех товаров в sets3.json и обновить кэш
+  img_alive.py --scan            # фото банка sets3.json (быстро, ~600 ссылок)
+  img_alive.py --pool            # фото ВСЕГО пула подбора, с бюджетом времени (по умолчанию 25 мин)
+  img_alive.py --all             # фото всех товаров каталога (~32 тыс., ≈45 мин при 16 потоках)
   img_alive.py --stats           # что в кэше
+
+Обход идёт от САМЫХ ДАВНО НЕ ПРОВЕРЕННЫХ: если бюджет времени кончился, завтрашний прогон
+продолжит с того места, и за 2–3 дня пул обходится целиком даже при жёстком лимите.
 """
 from __future__ import annotations
 
@@ -127,11 +132,63 @@ def _bank_urls() -> list[str]:
     return out
 
 
+def _pool_urls(all_products: bool = False) -> list:
+    """Ссылки на фото: весь каталог (--all) или пул подбора (`candidates-index.json`)."""
+    if all_products:
+        import subprocess
+        out = subprocess.run(['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab',
+                              '-d', 'remlab', '-tAc',
+                              "select image_url from products where in_stock and image_url is not null"],
+                             capture_output=True, text=True).stdout
+        return [u.strip() for u in out.splitlines() if u.strip()]
+    p = os.path.join(HERE, 'candidates-index.json')
+    if not os.path.exists(p):
+        return []
+    c = json.load(open(p, encoding='utf-8'))
+    return [v['img'] for v in c['items'].values() if v.get('img')]
+
+
+def sweep(urls: list, minutes: float = 25.0, workers: int = 16) -> tuple:
+    """Обойти ссылки от самых давно проверенных, уложившись в бюджет времени."""
+    mem = _load()
+    uniq = list(dict.fromkeys(u for u in urls if u))
+    uniq.sort(key=lambda u: (mem.get(u, {}).get('v', 0) >= PROBE_V,
+                             mem.get(u, {}).get('ts', 0)))       # непроверенные и старые — первыми
+    deadline = time.time() + minutes * 60
+    done = 0
+    step = workers * 8
+    for i in range(0, len(uniq), step):
+        if time.time() > deadline:
+            break
+        batch = uniq[i:i + step]
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            for u, ok in zip(batch, ex.map(_probe, batch)):
+                mem[u] = {'ok': bool(ok), 'ts': int(time.time()), 'v': PROBE_V}
+        done += len(batch)
+        _save()
+    live = sum(1 for u in uniq if mem.get(u, {}).get('ok'))
+    known = sum(1 for u in uniq if u in mem and mem[u].get('v', 1) >= PROBE_V)
+    return done, live, known, len(uniq)
+
+
+def _cli_pool(all_products: bool) -> None:
+    mins = 25.0
+    if '--minutes' in sys.argv:
+        mins = float(sys.argv[sys.argv.index('--minutes') + 1])
+    urls = _pool_urls(all_products)
+    done, live, known, total = sweep(urls, minutes=mins)
+    scope = 'каталога' if all_products else 'пула подбора'
+    print(f'фото {scope}: всего {total}, проверено за прогон {done}, известно {known}, '
+          f'живых {live} ({live * 100 // max(known, 1)}% от проверенных)')
+
+
 if __name__ == '__main__':
     if '--scan' in sys.argv:
         urls = _bank_urls()
         ok, tot = scan(urls)
         print(f'фото в банке: {tot} ссылок, живых {ok} ({100 * ok / max(tot, 1):.0f} %)')
+    elif '--pool' in sys.argv or '--all' in sys.argv:
+        _cli_pool('--all' in sys.argv)
     elif '--stats' in sys.argv:
         mem = _load()
         ok = sum(1 for v in mem.values() if v.get('ok'))

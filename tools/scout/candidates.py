@@ -48,6 +48,14 @@ def rows(q: str) -> list[list[str]]:
     return [l.split('\x1f') for l in r.stdout.strip().split('\n') if l]
 
 
+def _photo_ok(url) -> bool:
+    try:
+        from img_alive import alive as _a
+        return _a(url, unknown=True)
+    except Exception:
+        return True
+
+
 def build() -> dict:
     data = rows(f"""
       select e.shop_mid, e.external_id, p.name, p.price_rub, p.shop,
@@ -64,12 +72,19 @@ def build() -> dict:
     """)
     idx: dict[str, list] = {}
     items: dict[str, dict] = {}
+    dead_photo = 0
     for r in data:
         w, d, h, dia = (float(x) for x in r[5:9])
         long_cm = max(w, d, dia) or None
         img, purl = r[9], r[10]                     # 26.08: фото и ПРЯМАЯ ссылка (не редирект
                                                     # партнёрки) — иначе замена ломает контракт ссылки
         role, sub = r[11], r[12]                    # без них лечение не может проверить контракт
+        # ФОТО, КОТОРОЕ УЖЕ ПРИЗНАНО МЁРТВЫМ, ВЫБРАСЫВАЕТ ТОВАР ИЗ ПУЛА (владелец 26.08: «товар
+        # без фото не должен участвовать в выборке»). Непроверенное пропускаем: обход всего пула
+        # идёт ежедневно с бюджетом времени (`img_alive.py --pool`), и решение уточняется само.
+        if not _photo_ok(img):
+            dead_photo += 1
+            continue
         key = f'{role}|{sub}|{band_of(long_cm)}'
         pid = f'{r[0]}:{r[1]}'
         items[pid] = dict(mid=int(r[0]), eid=r[1], name=r[2], price=int(r[3]), shop=r[4],
@@ -81,6 +96,8 @@ def build() -> dict:
                           strength=r[16], mass=r[17], warmth=r[18], quality=float(r[19]))
         idx.setdefault(key, []).append(pid)
     # ценовые ступени считаем ВНУТРИ роли: «комфортный» торшер и «комфортный» диван — разные деньги
+    if dead_photo:
+        print(f'выброшено из пула по мёртвому фото: {dead_photo}')
     tiers: dict[str, dict] = {}
     for role in {it['role'] for it in items.values()}:
         ps = sorted(it['price'] for it in items.values() if it['role'] == role)

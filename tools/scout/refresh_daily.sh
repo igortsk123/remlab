@@ -144,6 +144,14 @@ fi
 # 4c. Q6a свода №13: capability-проекция каталога (product_capabilities) — детерминированно из
 # params/габаритов/актуального обогащения; второй пересчёт — в enrich_wait.sh после забора батча
 step capabilities "$PY" capabilities.py --build --export
+# 5a. ФОТО ВСЕГО ПУЛА — обход по кругу с бюджетом времени (владелец 26.08: «чтоб всегда были
+# актуальные ссылки и фотки», речь про все 30 тыс. товаров). 16 потоков ≈ 14 ссылок/с, весь пул
+# ~20 мин; товар с мёртвым фото в пул подбора не попадает вовсе.
+step pool_photos "$PY" img_alive.py --pool --minutes "${PHOTO_SWEEP_MIN:-25}"
+# 5a-1. ССЫЛКИ: форма — по ВСЕМУ каталогу (секунды), живость — выборкой по кругу (магазины
+# отвечают капчей на массовые заходы, поэтому 404 считаем, антибот — нет).
+step link_shape "$PY" linkcheck.py --shape
+step link_probe "$PY" linkcheck.py --probe --limit "${LINK_PROBE:-400}"
 step candidates "$PY" candidates.py --build
 step sets_index "$PY" sets_incremental.py --index
 step sets_check "$PY" sets_incremental.py --check
