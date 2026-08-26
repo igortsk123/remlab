@@ -475,7 +475,10 @@ def _identity(anchors_all: list, photos: dict, skus: dict | None = None) -> Imag
         sku = (skus or {}).get(role) or {}
         dim = (f"{round(sku['w'])}×{round(sku['d'])}" + (f"×{round(sku['h'])}" if sku.get('h') else '') + ' см'
                if sku.get('w') and sku.get('d') else '')
-        d.text((x + 20, y + ch - 86), f'#{num} {role}', fill=(200, 30, 30), font=f)
+        cap = f'#{num} {role}'
+        if role.split(' ')[0] == 'ковёр':
+            cap += ' — НА ПОЛ (вид сверху)'      # иначе модель вешает ковёр на стену как картину
+        d.text((x + 20, y + ch - 86), cap, fill=(200, 30, 30), font=f)
         d.text((x + 20, y + ch - 46), (name[:38] + (' · ' + dim if dim else '')), fill=(90, 90, 90), font=fs)
     return sheet
 
@@ -837,8 +840,12 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
         'The reference photo shows the product from a catalogue angle — do not copy that angle, '
         'turn the product to match the volume in the room.\n'
         '- Do not add, remove or move furniture. Do not draw the red numbers or captions.\n'
-        '- Exactly one rug, lying flat on the floor. Never put a rug, carpet or any textile on a '
-        'wall, and never duplicate an object that appears once in the layout.\n'
+        '- The reference sheet shows products as flat catalogue photos. A RUG (ковёр) is '
+        'photographed from above: render it as a rug LYING FLAT ON THE FLOOR with exactly that '
+        'pattern and colours. Never hang a rug, carpet, textile or any reference image on a wall, '
+        'and never invent a second rug of another colour.\n'
+        '- Do not add wall art, posters, mirrors or decor that is not in the object list.\n'
+        '- Never duplicate an object that appears once in the layout.\n'
         '- Items marked "фото нет" have no reference: render a plain, neutral piece of that exact '
         'type and size.\n'
         '- In the layout a blue rectangle on a wall is a WINDOW (render real glass, frame and '
