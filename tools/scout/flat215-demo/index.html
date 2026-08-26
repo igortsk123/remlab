@@ -218,7 +218,14 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
 
 <section id="screen-room" hidden>
   <div class="subtabs" id="variants" role="tablist"></div>
-  <div class="panel" id="photos"></div>
+  <div class="panel" id="photos">
+    <div id="photosHead"></div>
+    <div id="feed"></div>
+    <div class="bar" id="feedBar" hidden>
+      <button class="btn" id="feedAll">Выбрать все</button>
+      <button class="btn primary" id="feedShare">Отправить подборку себе</button>
+    </div>
+  </div>
 
   <div class="work">
     <div>
@@ -232,16 +239,7 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
     <div class="panel" id="basket"><h3>Товары этой расстановки</h3><div id="blist">—</div></div>
   </div>
 
-  <div class="panel" id="feedPanel">
-    <h3>Ваши фотографии</h3>
-    <div class="hint" id="feedHint">Здесь копятся все снимки: готовые и созданные вами. Ничего не
-    пропадает — новые добавляются справа.</div>
-    <div id="feed"></div>
-    <div class="bar" id="feedBar" hidden>
-      <button class="btn" id="feedAll">Выбрать все</button>
-      <button class="btn primary" id="feedShare">Отправить подборку себе</button>
-    </div>
-  </div>
+  
 
 </section>
 
@@ -774,7 +772,7 @@ function drawFeed(){
 }
 // ——— блок над планом: либо кадры этой расстановки, либо «расстановка изменилась»
 function drawPhotos(){
-  const box=document.getElementById('photos'); if(!box||!D)return;
+  const box=document.getElementById('photosHead'); if(!box||!D)return;
   const rev=revision();
   const mine=shots.filter(s=>s.revision===rev);
   if(mine.length){
@@ -782,7 +780,7 @@ function drawPhotos(){
     box.innerHTML=`<h3>Фотографии этой расстановки`+
       (src?` <a class="srcln" href="${src}" target="_blank" rel="noopener">исходники</a>`:'')+`</h3>`+
       `<div class="shots">${mine.map((s,i)=>`<img data-i="${shots.indexOf(s)}" src="${s.url}" alt="${shotLabel(s)}">`).join('')}</div>`+
-      `<div class="hint">Все снимки сохраняются в ленте ниже — они не пропадут, даже если вы
+      `<div class="hint">Все снимки остаются в ленте ниже — они не пропадут, даже если вы
        переставите мебель.</div>`;
     box.querySelectorAll('.shots img').forEach(im=>im.onclick=()=>viewShot(+im.dataset.i));
     return;
@@ -793,10 +791,10 @@ function drawPhotos(){
     `<div class="hint">${shots.length
       ? 'Прежние снимки сохранены в ленте. Сделайте новый — он покажет комнату так, как вы её расставили.'
       : 'Соберите комнату по вкусу и посмотрите, как она будет выглядеть.'}</div>`+
-    `<div class="shots" style="margin-top:10px">
+    (shots.length?'':`<div class="shots" style="margin-top:10px">
        <div class="ph"><b>Вид от окна</b><span>фотография появится здесь</span></div>
        <div class="ph"><b>Вид от входа</b><span>фотография появится здесь</span></div>
-     </div>`+
+     </div>`)+
     `<div class="acts">
        <button class="btn primary" id="mkDraft">Сделать черновое фото · ~15 сек</button>
        <button class="btn" id="mkReal">Сделать реалистичное фото · ~40 сек</button>
