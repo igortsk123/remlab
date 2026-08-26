@@ -264,7 +264,14 @@ const stage=document.getElementById('stage'), NS='http://www.w3.org/2000/svg';
 const el=(t,a)=>{const n=document.createElementNS(NS,t);for(const k in a)n.setAttribute(k,a[k]);return n;};
 const clone=o=>JSON.parse(JSON.stringify(o));
 
-fetch('demo-data.json?v='+Date.now()).then(r=>r.json()).then(d=>{D=d;init();});
+window.addEventListener('error',e=>{                 // пустая страница не объясняет, что сломалось
+  const b=document.getElementById('sub');
+  if(b)b.innerHTML='<b style="color:#B4552B">Ошибка на странице:</b> '+
+    String((e.error&&e.error.message)||e.message||'').slice(0,180);
+});
+fetch('demo-data.json?v='+Date.now()).then(r=>r.json()).then(d=>{D=d;init();})
+  .catch(e=>{const b=document.getElementById('sub');
+    if(b)b.textContent='Не удалось загрузить данные: '+String(e.message||e).slice(0,140);});
 
 function init(){
   document.getElementById('sub').textContent=`${D.room.title} · ${D.room.w}×${D.room.d} см · габариты сняты с чертежа, точные — от застройщика`;
@@ -432,7 +439,15 @@ function load(){const v=allVariants()[cur]||D.variants[0];items=clone(v.items);s
   document.getElementById('sel').textContent='Перетаскивайте предмет, чтобы двигать. Товар выбирается по значку на предмете.';
   baseRev=revision();draw();}
 
-function size(){const w=stage.clientWidth||stage.parentNode.clientWidth;S=(w-2*PAD)/D.room.w;stage.setAttribute('height',Math.round(D.room.d*S+2*PAD));}
+// РАЗМЕР ХОЛСТА (26.08): вкладка «Расстановка» стартует СКРЫТОЙ, и ширина элемента там 0 —
+// масштаб уходил в бесконечность, а SVG получал height=NaN и страница оставалась пустой.
+// Поэтому подстраховываемся шириной обёртки, окна и разумным минимумом.
+function size(){
+  const w=stage.clientWidth||(stage.parentNode&&stage.parentNode.clientWidth)
+          ||Math.min(window.innerWidth-28,1100)||900;
+  S=(Math.max(w,320)-2*PAD)/D.room.w;
+  stage.setAttribute('height',Math.round(D.room.d*S+2*PAD));
+}
 const X=x=>PAD+x*S, Y=y=>PAD+y*S;
 // ГАБАРИТ ПОВЁРНУТОГО ПРЕДМЕТА (26.08): предметы вращаются на ЛЮБОЙ угол, поэтому прежняя
 // формула «rot кратен 90 — меняем стороны местами» больше не годится: для 30° она давала
@@ -443,6 +458,7 @@ function box(it){
   return {x0:it.x-sw/2,y0:it.y-sd/2,x1:it.x+sw/2,y1:it.y+sd/2,w:sw,d:sd};}
 
 function draw(){
+  if(!D||!D.room)return;
   size();while(stage.firstChild)stage.removeChild(stage.firstChild);
   stage.appendChild(el('rect',{x:X(0),y:Y(0),width:D.room.w*S,height:D.room.d*S,fill:'#FAF8F3',stroke:'#3A3A3A','stroke-width':3}));
   D.room.radiators.forEach(r=>{const p=wallSeg(r.wall,r.offset_cm,r.width_cm);
