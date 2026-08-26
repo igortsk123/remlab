@@ -43,10 +43,35 @@ MODEL = 'fal-ai/nano-banana/edit'
 # МЯГКОЕ (плед, подушки, шторы) НЕ ВКЛЕИВАЕМ: у них нет своей формы, и плоское фото ткани в маске
 # читается как флаг на стене — модель честно рисует флаг. Их дорисовывает промпт.
 SKIP_PASTE = ('плед', 'подушка', 'штора', 'тюль', 'картина')
-PROMPT = ('Make this collage a photorealistic interior photograph. Keep every object exactly '
-          'where it is, with the same shape, colour and material. Do not add or remove furniture '
-          'and do not change the room geometry. Add natural daylight, soft contact shadows, '
-          'realistic textures, and dress the sofa with a few matching cushions and a throw.')
+# СЛОВАРЬ РОЛЕЙ ДЛЯ ПРОМПТА: модель должна знать, ЧТО за серый блок стоит в кадре, иначе она
+# честно оставляет его серым блоком (владелец 26.08: «бред делает»).
+RU_EN = {'диван': 'sofa', 'диван 2': 'second sofa', 'кресло': 'armchair', 'столик': 'coffee table',
+         'ковёр': 'rug', 'тв-тумба': 'TV console', 'тв': 'wall-mounted flat TV, screen off',
+         'стенка': 'media wall unit', 'стеллаж': 'open bookshelf', 'комод': 'chest of drawers',
+         'витрина': 'display cabinet', 'торшер': 'floor lamp', 'пуф': 'pouf', 'кашпо': 'potted plant',
+         'стул': 'dining chair', 'стол обеденный': 'dining table', 'банкетка': 'bench',
+         'люстра': 'ceiling light', 'приставной': 'side table', 'камин': 'fireplace'}
+
+
+def build_prompt(diag: dict) -> str:
+    """Что вклеено — «оставь как есть»; что не вклеено — «это такой-то предмет, нарисуй его»."""
+    keep = [RU_EN.get(r.split(' ')[0], r) for r in diag.get('вклеено', [])]
+    make = [RU_EN.get(r.split(' ')[0], r) for r in
+            (diag.get('ракурс не тот', []) + diag.get('без фото', []))]
+    p = ('Turn this collage into a photorealistic interior photograph. '
+         'Keep the room geometry, the camera and the position of every object exactly as they are. '
+         'Do not add or remove any furniture. ')
+    if keep:
+        p += ('The objects that already show a real product photo (' + ', '.join(dict.fromkeys(keep))
+              + ') must keep their exact shape, colour and material. ')
+    if make:
+        p += ('The plain grey untextured blocks are furniture that must be rendered as realistic '
+              'pieces of these kinds: ' + ', '.join(dict.fromkeys(make))
+              + ' — same size and position, neutral modern style matching the room. ')
+    p += ('The blue rectangle on the wall is a switched-off flat TV. '
+          'Add natural daylight from the window, soft contact shadows, realistic wood floor and '
+          'wall textures, and dress the sofa with a few matching cushions and a throw.')
+    return p
 
 
 def photo(url: str) -> Image.Image | None:
@@ -70,14 +95,32 @@ def photo(url: str) -> Image.Image | None:
     return img
 
 
-def _trim_white(img: Image.Image, thr: int = 243) -> Image.Image:
-    """Обрезать белые поля карточки: иначе в маску предмета вклеивается воздух вокруг товара."""
+def _cutout(img: Image.Image, thr: int = 238) -> tuple[Image.Image, Image.Image]:
+    """Фото товара → (обрезанное фото, маска товара). Фон карточки — белый, и раньше он попадал
+    в маску предмета сплошной плитой: модель честно рисовала белую плиту вместо стеллажа
+    (владелец 26.08: «текущий рендер бред делает»). Фон отсекаем заливкой от краёв — так белый
+    ВНУТРИ товара (белый шкаф) остаётся товаром."""
     a = np.asarray(img.convert('RGB')).astype(np.int16)
-    mask = (a.min(axis=2) < thr)
-    if not mask.any():
-        return img
-    ys, xs = np.where(mask)
-    return img.crop((int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1))
+    h, w = a.shape[:2]
+    light = a.min(axis=2) >= thr                      # почти белое
+    seen = np.zeros((h, w), bool)
+    stack = [(0, x) for x in range(w) if light[0, x]] + [(h - 1, x) for x in range(w) if light[h - 1, x]]
+    stack += [(y, 0) for y in range(h) if light[y, 0]] + [(y, w - 1) for y in range(h) if light[y, w - 1]]
+    for p0 in stack:
+        seen[p0] = True
+    while stack:
+        y, x = stack.pop()
+        for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            ny, nx = y + dy, x + dx
+            if 0 <= ny < h and 0 <= nx < w and light[ny, nx] and not seen[ny, nx]:
+                seen[ny, nx] = True
+                stack.append((ny, nx))
+    obj = ~seen
+    if obj.sum() < 50:
+        return img, Image.new('L', img.size, 255)
+    ys, xs = np.where(obj)
+    box = (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
+    return img.crop(box), Image.fromarray((obj * 255).astype(np.uint8)).crop(box)
 
 
 def collage(room, placements, cam, photos: dict) -> tuple[Image.Image, Image.Image, dict]:
@@ -91,7 +134,7 @@ def collage(room, placements, cam, photos: dict) -> tuple[Image.Image, Image.Ima
     d[~np.isfinite(d)] = np.nanmax(d[np.isfinite(d)]) if np.isfinite(d).any() else 1.0
     dn = (d - d.min()) / max(d.max() - d.min(), 1e-6)
     canvas = Image.fromarray(clay_render(sc)).convert('RGB')
-    put, miss = [], []
+    put, miss, skewed = [], [], []
     order = sorted(ids.items(), key=lambda kv: -float(np.median(depth[inst == kv[0]]))
                    if (inst == kv[0]).any() else 0)          # дальние вклеиваем первыми
     for i, role in order:
@@ -104,14 +147,29 @@ def collage(room, placements, cam, photos: dict) -> tuple[Image.Image, Image.Ima
             continue
         ys, xs = np.where(m)
         x0, x1, y0, y1 = int(xs.min()), int(xs.max()) + 1, int(ys.min()), int(ys.max()) + 1
-        src = _trim_white(ph).resize((max(x1 - x0, 2), max(y1 - y0, 2)), Image.LANCZOS)
+        bw, bh = max(x1 - x0, 2), max(y1 - y0, 2)
+        src, smask = _cutout(ph)
+        # СИЛЬНОЕ НЕСОВПАДЕНИЕ ПРОПОРЦИЙ = предмет виден с другой стороны, чем снят на фото
+        # (стеллаж с торца, тумба сбоку). Растянутое фото в такой силуэт превращается в мазок,
+        # поэтому лучше оставить clay: модель нарисует мебель по форме, чем мы — кашу.
+        if src.width and src.height and bw and bh:
+            if max((src.width / src.height) / (bw / bh), (bw / bh) / (src.width / src.height)) > 2.6:
+                skewed.append(role)
+                continue
+        src = src.resize((bw, bh), Image.LANCZOS)
+        smask = smask.resize((bw, bh), Image.LANCZOS)
         tile = Image.new('RGB', (W, H), (255, 255, 255))
         tile.paste(src, (x0, y0))
-        alpha = Image.fromarray((m * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(0.6))
+        # альфа = маска предмета в кадре И маска самого товара на фото (без белого фона карточки)
+        full = Image.new('L', (W, H), 0)
+        full.paste(smask, (x0, y0))
+        alpha = Image.fromarray(((m * (np.asarray(full) > 128)) * 255).astype(np.uint8)) \
+            .filter(ImageFilter.GaussianBlur(0.6))
         canvas = Image.composite(tile, canvas, alpha)
         put.append(role)
     dmap = Image.fromarray(((1.0 - dn) * 255).astype(np.uint8)).convert('RGB')
-    return canvas, dmap, {'вклеено': put, 'без фото': miss, 'вне кадра': sc['behind']}
+    return canvas, dmap, {'вклеено': put, 'без фото': miss, 'ракурс не тот': skewed,
+                          'вне кадра': sc['behind']}
 
 
 def scene_from_request(payload: dict) -> tuple:
@@ -158,7 +216,7 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
     prefix = save_prefix or os.path.join(OUT, f'draft{n}-{cam.name}')
     coll.save(prefix + '-collage.jpg', quality=90)
     t1 = time.time()
-    res = fal_run(MODEL, {'prompt': PROMPT, 'num_images': 1,
+    res = fal_run(MODEL, {'prompt': build_prompt(diag), 'num_images': 1,
                           'image_urls': [uri_from_image(coll.resize((1024, 683)))]},
                   fal_key(), timeout=120)
     url = ((res.get('images') or [{}])[0] or {}).get('url', '')
