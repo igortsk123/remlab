@@ -143,6 +143,12 @@ def build() -> dict:
 
 def main() -> None:
     os.makedirs(OUT, exist_ok=True)
+    # ИСХОДНИК СТРАНИЦЫ ЖИВЁТ В РЕПО (26.08): до этого index.html лежал только в ~/scout-scenes и
+    # не попадал в git — демо было невоспроизводимо и терялось при чистке
+    import shutil
+    src = os.path.join(HERE, 'flat215-demo', 'index.html')
+    if os.path.exists(src):
+        shutil.copy(src, os.path.join(OUT, 'index.html'))
     data = build()
     json.dump(data, open(os.path.join(OUT, 'demo-data.json'), 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)
