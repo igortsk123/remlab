@@ -42,14 +42,26 @@ body{margin:0;background:#fff;color:#1A1F1C;font:17px/1.5 system-ui,-apple-syste
 .wrap{max-width:1100px;margin:0 auto;padding:18px 16px 48px}
 h1{font-size:clamp(24px,4.4vw,32px);margin:6px 0 4px}
 .sub{color:#5C655E;font-size:16px;margin-bottom:16px}
-.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+.grid{display:grid;gap:26px;grid-template-columns:1fr}
+@media(min-width:900px){.grid{grid-template-columns:1fr 1fr}}
+.sum{display:flex;justify-content:space-between;font-weight:700;margin:10px 0 6px;font-size:16px}
+.ps-grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.p{border:1px solid #E4E6E2;border-radius:10px;padding:8px;text-decoration:none;color:inherit;
+ display:block;background:#fff}
+.p:hover{border-color:#3B76A2}
+.p img,.p .noimg{width:100%;aspect-ratio:4/3;object-fit:contain;background:#F7F5F1;border-radius:7px}
+.p .noimg{display:flex;align-items:center;justify-content:center;color:#A6ABA4;font-size:12px}
+.p .pn{font-size:13.5px;line-height:1.3;margin-top:6px;max-height:36px;overflow:hidden}
+.p .pp{font-size:15px;font-weight:700;margin-top:3px}
+.p .ps{font-size:12px;color:#5C655E}
 figure{margin:0}
 img{width:100%;border-radius:12px;display:block;background:#F2F0EB}
 figcaption{font-size:14px;color:#5C655E;margin-top:6px}
 .foot{margin-top:28px;font-size:14px;color:#8A8F89}
 </style></head><body><div class="wrap">
 <h1>{{TITLE}}</h1>
-<div class="sub">Ваша подборка · фотографий: {{COUNT}}. Ссылку можно сохранить или переслать себе.</div>
+<div class="sub">Ваша коллекция · фотографий: {{COUNT}}. Под каждым кадром — товары с ценами и
+ссылками в магазин.</div>
 <div class="grid">{{CARDS}}</div>
 <div class="foot">Сделано в планировщике remont-lab.online. Фотографии сгенерированы по вашей
 расстановке; товары — из каталогов магазинов-партнёров.</div>
@@ -147,9 +159,29 @@ class H(BaseHTTPRequestHandler):
         d = os.path.join(SHARE_DIR, sid)
         try:
             os.makedirs(d, exist_ok=True)
-            cards = '\n'.join(
-                f'<figure><img src="{esc(s["url"])}" alt="{esc(s.get("label") or "")}" loading="lazy">'
-                f'<figcaption>{esc(s.get("label") or "")}</figcaption></figure>' for s in shots)
+            # КОЛЛЕКЦИЯ = ФОТО + ТОВАРЫ СО ССЫЛКАМИ (владелец 26.08: «человек должен получать
+            # коллекции»): под каждым кадром — что на нём стоит, почём и где купить.
+            def prod(p):
+                pic = (f'<img src="{esc(p.get("img") or "")}" alt="" loading="lazy">'
+                       if p.get('img') else '<div class="noimg">фото нет</div>')
+                price = f'{int(p.get("price") or 0):,}'.replace(',', ' ') + ' \u20bd'
+                inner = (pic + f'<div class="pn">{esc(p.get("name") or "")}</div>'
+                         f'<div class="pp">{price}</div>'
+                         f'<div class="ps">{esc(p.get("role") or "")}'
+                         + (f' \u00b7 {esc(p.get("shop"))}' if p.get('shop') else '') + '</div>')
+                return (f'<a class="p" href="{esc(p["url"])}" target="_blank" rel="noopener">{inner}</a>'
+                        if p.get('url') else f'<div class="p">{inner}</div>')
+
+            def block(sh):
+                items = [p for p in (sh.get('items') or []) if isinstance(p, dict) and p.get('name')]
+                total = sum(int(p.get('price') or 0) for p in items)
+                head = (f'<div class="sum"><span>Товары на фото \u00b7 {len(items)}</span>'
+                        f'<span>{f"{total:,}".replace(",", " ")} \u20bd</span></div>' if items else '')
+                grid = ('<div class="ps-grid">' + ''.join(prod(p) for p in items) + '</div>') if items else ''
+                return (f'<figure><img src="{esc(sh["url"])}" alt="{esc(sh.get("label") or "")}" '
+                        f'loading="lazy"><figcaption>{esc(sh.get("label") or "")}</figcaption>'
+                        f'{head}{grid}</figure>')
+            cards = '\n'.join(block(sh) for sh in shots)
             open(os.path.join(d, 'index.html'), 'w', encoding='utf-8').write(
                 SHARE_PAGE.replace('{{TITLE}}', esc(payload.get('title') or 'Ваша комната'))
                           .replace('{{CARDS}}', cards)

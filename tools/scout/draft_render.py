@@ -568,7 +568,7 @@ VISION_MODEL = os.environ.get('VISION_MODEL', 'openai/gpt-4.1-mini')
 CHAT_URL = 'https://ai-gateway.vercel.sh/v1/chat/completions'
 
 
-def refine_anchors(img: Image.Image, an: list) -> list:
+def refine_anchors(img: Image.Image, an: list, all_skus: dict | None = None) -> list:
     """УТОЧНЯЕМ ЯКОРЯ ПО ГОТОВОМУ КАДРУ (владелец 26.08: «цифры все неверно обозначены»).
 
     Наши координаты точны для НАШЕЙ сцены, но модель перерисовывает комнату и мелкие предметы
@@ -579,12 +579,15 @@ def refine_anchors(img: Image.Image, an: list) -> list:
     roles = [a['role'] for a in an if a.get('name')]
     if not roles:
         return an
+    extra = [r for r in (all_skus or {}) if r not in roles and (all_skus[r] or {}).get('name')]
+    ask = roles + extra          # спрашиваем и про то, чего наша сцена в кадре не видит:
+                                 # модель дорисовывает ковёр и мелочь, а якоря им взяться неоткуда
     import base64
     buf = io.BytesIO()
     img.convert('RGB').save(buf, 'JPEG', quality=80)
     b64 = base64.b64encode(buf.getvalue()).decode()
     body = {'model': VISION_MODEL, 'max_tokens': 700, 'messages': [{'role': 'user', 'content': [
-        {'type': 'text', 'text': 'Найди на этом фото интерьера предметы: ' + ', '.join(roles) +
+        {'type': 'text', 'text': 'Найди на этом фото интерьера предметы: ' + ', '.join(ask) +
          '. Ответь ТОЛЬКО JSON-массивом [{"role":"диван","x":0.31,"y":0.65}] — x и y это доли '
          'ширины и высоты кадра, точка в центре видимой части предмета. Предмет не виден — не '
          'включай его в ответ.'},
@@ -599,21 +602,39 @@ def refine_anchors(img: Image.Image, an: list) -> list:
         found = {d.get('role'): d for d in json.loads(m.group(0))} if m else {}
     except Exception:
         return an
+    def ok(d):
+        return (isinstance(d.get('x'), (int, float)) and isinstance(d.get('y'), (int, float))
+                and 0 <= float(d['x']) <= 1 and 0 <= float(d['y']) <= 1)
     out = []
     for a in an:
         d = found.get(a['role'])
         b = dict(a)
-        if d and isinstance(d.get('x'), (int, float)) and isinstance(d.get('y'), (int, float)):
+        if d and ok(d):
             dx, dy = float(d['x']) - a['x'], float(d['y']) - a['y']
-            if 0 <= float(d['x']) <= 1 and 0 <= float(d['y']) <= 1 and (dx * dx + dy * dy) ** 0.5 < 0.28:
+            if (dx * dx + dy * dy) ** 0.5 < 0.28:
                 b['x'], b['y'] = round(float(d['x']), 4), round(float(d['y']), 4)
                 b['refined'] = True
         out.append(b)
+    # предмет, которого наша сцена в кадре не видела, а модель нарисовала (частый случай — ковёр)
+    have = {a['role'] for a in an}
+    n = max([a.get('n') or 0 for a in an] or [0])
+    for role in extra:
+        d = found.get(role)
+        if not d or not ok(d):
+            continue
+        sku = (all_skus or {}).get(role) or {}
+        n += 1
+        out.append({'role': role, 'x': round(float(d['x']), 4), 'y': round(float(d['y']), 4),
+                    'n': n, 'name': sku.get('name'), 'price': sku.get('price'),
+                    'url': sku.get('url'), 'img': sku.get('img'), 'shop': sku.get('shop'),
+                    'refined': True, 'added': True})
     return out
 
 
 def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dict,
-               model: str, quality: str = 'medium') -> list:
+               model: str, quality: str = 'medium', refine: bool = True) -> list:
+    # `refine` оставлен для отладки: якоря уточняются всегда — владелец 26.08 «надо их точнее
+    # расставлять» (цифра стула висела на журнальном столике, у ковра якоря не было вовсе)
     """Полный рецепт трека А: коллажи → номера → эталоны → один запрос → разрез по полосе."""
     import hashlib
     parts, marks, diags, per_cam = [], [], [], []
@@ -630,6 +651,8 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
         diags.append(diag)
         per_cam.append(an)
     def stack(imgs):
+        if len(imgs) == 1:
+            return imgs[0]
         total = sum(p.height for p in imgs) + BAND_PX * (len(imgs) - 1)
         sh = Image.new('RGB', (side, total), BAND_RGB)
         y = 0
@@ -644,44 +667,53 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
     if ident is not None:
         ident.save(prefix + '-identity.jpg', quality=92)
     legend = _legend(per_cam, skus)
+    two = len(cams) > 1
+    head = ('You are given: (1) a sheet with TWO views of the SAME room stacked vertically and '
+            'split by a magenta band' if two else
+            'You are given: (1) our 3D layout of a room')
     prompt = (
-        'You are given: (1) a sheet with TWO views of the SAME room stacked vertically and split by '
-        'a magenta band — this is OUR 3D layout: every piece of furniture is a plain grey volume in '
-        'its exact place, size and orientation; (2) the same sheet with red numbers and captions '
-        '(number, type of furniture and its size in cm); (3) a reference sheet with the real product '
-        'photo of every numbered item.\n'
-        'Return ONE image of the same proportions: both views rendered as photorealistic interior '
-        'photographs, with the magenta band kept exactly where it is.\n'
-        'Rules:\n'
+        head + ' — this is OUR 3D layout: every piece of furniture is a plain grey volume in its '
+        'exact place, size and orientation; (2) the same image with red numbers and captions '
+        '(number, type of furniture and its size in cm); (3) a reference sheet with the real '
+        'product photo of every numbered item.\n'
+        + ('Return ONE image of the same proportions: both views rendered as photorealistic '
+           'interior photographs, with the magenta band kept exactly where it is.\n' if two else
+           'Return ONE image of the same proportions: this view rendered as a photorealistic '
+           'interior photograph.\n')
+        + 'Rules:\n'
         '- Replace each numbered grey volume with the product that carries the SAME number on the '
         'reference sheet: same model, colour, material and proportions.\n'
         '- Keep the position, footprint and ORIENTATION of every volume exactly as in the layout. '
-        'The reference photo shows the product from a catalogue angle — do not copy that angle, turn '
-        'the product to match the volume in the room.\n'
+        'The reference photo shows the product from a catalogue angle — do not copy that angle, '
+        'turn the product to match the volume in the room.\n'
         '- Do not add, remove or move furniture. Do not draw the red numbers or captions.\n'
         '- Items marked "фото нет" have no reference: render a plain, neutral piece of that exact '
         'type and size.\n'
-        '- Natural daylight from the window, soft contact shadows, realistic wood floor and wall '
-        'textures; lighting and materials identical in both views.\n'
-        'Objects:\n'
+        + ('- Natural daylight from the window, soft contact shadows, realistic wood floor and '
+           'wall textures; lighting and materials identical in both views.\n' if two else
+           '- Natural daylight from the window, soft contact shadows, realistic wood floor and '
+           'wall textures.\n')
+        + 'Objects:\n'
         + json.dumps(legend, ensure_ascii=False))
     imgs = [sheet, sheet_marks] + ([ident] if ident is not None else [])
     w, h = sheet.size
     size = '1024x1536' if h > w else '1536x1024'
     stamp = hashlib.md5((prefix + str(time.time())).encode()).hexdigest()[:10]
-    src_url = _publish_sources(stamp, {'1-комната-два-вида': sheet, '2-с-номерами': sheet_marks,
+    src_url = _publish_sources(stamp, {('1-комната-два-вида' if two else '1-комната'): sheet,
+                                       '2-с-номерами': sheet_marks,
                                        '3-эталоны-товаров': ident}, prompt, legend,
                                {'модель': model, 'размер': size, 'качество': quality,
                                 'видов': len(cams)})
     out = gpt_edit(imgs, prompt, size=size, quality=quality, model=model.split('gateway:')[-1])
     out.save(prefix + '-final.jpg', quality=94)
-    pieces = _split_pair(out)
+    pieces = _split_pair(out) if len(cams) > 1 else [out]
     shots = []
     for cam, piece, diag, an in zip(cams, pieces, diags, per_cam):
         piece = _trim_band(piece)
         piece.save(f'{prefix}-{cam.name}.jpg', quality=92)
         shots.append({'camera': cam.name, 'url': _publish_frame(piece, f'{stamp}-{cam.name}.jpg'),
-                      'diag': diag, 'anchors': refine_anchors(piece, an), 'sources': src_url})
+                      'diag': diag, 'sources': src_url,
+                      'anchors': refine_anchors(piece, an, skus)})
     return shots
 
 
@@ -705,19 +737,23 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         photos = {r: photo((items.get(r) or {}).get('img')) for r in items}
     all_cams = demo_cams(room) if os.environ.get('DEMO_CAMS', '1') != '0' \
         else cameras_for(room, placements)
+    # ЧЕРНОВИК ДОЛЖЕН БЫТЬ БЫСТРЫМ (владелец 26.08: «уже 40 сек жду»): один ракурс вместо двух,
+    # меньший лист и без уточнения якорей зрячей моделью — это ещё +8 с. Реалистичный режим
+    # остаётся полным: два вида одним листом и уточнённые якоря.
     if quality == 'realistic':
         want = [c for c in all_cams if c.name in ('C1', 'C2')] or all_cams[:2]
         model, side, gq = REALISTIC_MODEL, 1536, os.environ.get('GPT_IMAGE_QUALITY', 'medium')
     else:
-        want = [c for c in all_cams if c.name in ('C1', 'C2')] or all_cams[:2]
+        want = [c for c in all_cams if c.name == cam_name] or all_cams[:1]
         model, side, gq = MODEL, 1024, DRAFT_QUALITY
     prefix = save_prefix or os.path.join(OUT, f'draft{n}')
     skus = {it['role']: it for it in (layout or {}).get('items', []) if it.get('role')}
-    if len(want) > 1:
-        # gpt-image идёт по полному рецепту трека А (номера + эталоны + список), fal — коротким
-        shots = (_sheet_gpt(room, placements, photos, want, prefix, side, skus, model, gq)
-                 if model.startswith('openai/')
-                 else _sheet(room, placements, photos, want, prefix, model, side, skus))
+    if model.startswith('openai/'):
+        # трек А работает и на одном ракурсе: тот же рецепт, просто лист без второй половины
+        shots = _sheet_gpt(room, placements, photos, want, prefix, side, skus, model, gq,
+                           refine=(quality == 'realistic'))
+    elif len(want) > 1:
+        shots = _sheet(room, placements, photos, want, prefix, model, side, skus)
     else:
         shots = [_one_camera(room, placements, photos, want[0], prefix, model, side, skus)]
     sec = round(time.time() - t0, 1)

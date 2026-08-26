@@ -986,7 +986,11 @@ function shareOpen(list){
     try{
       const r=await fetch('/api/share',{method:'POST',headers:{'content-type':'application/json'},
         body:JSON.stringify({title:D.flat_title||'',channel:chan,contact:to,
-          shots:sel.map(s=>({url:s.url,label:shotLabel(s)}))})});
+          // В ПОДБОРКУ ИДУТ И ТОВАРЫ СО ССЫЛКАМИ (владелец 26.08: «человек должен получать
+          // коллекции»): под каждым кадром — что на нём стоит, почём и где купить
+          shots:sel.map(s=>({url:s.url,label:shotLabel(s),
+            items:(s.anchors||[]).filter(a=>a.name).map(a=>({name:a.name,price:a.price,
+              url:a.url,img:a.img,shop:a.shop,role:a.role}))}))})});
       const j=await r.json();
       if(j.error)throw new Error(j.error);
       const name=(CHAN.find(c=>c.id===chan)||{}).t;
