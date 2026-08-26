@@ -773,7 +773,7 @@ function drawFeed(){                    // КАРУСЕЛЬ СРЕДНИХ КА�
       `</div>`+
       `<div class="acts2">`+
         (better?'<button class="btn up">Улучшить фото</button>':'')+
-        `<button class="btn pickbtn${s.pick?' on':''}">${s.pick?'✓ в подборке':'В подборку'}</button>`+
+        `<button class="btn pickbtn${s.pick?' on':''}">${s.pick?'Удалить из подборки':'В подборку'}</button>`+
       `</div></div>`;
   };
   f.className='car';
@@ -804,6 +804,8 @@ function drawFeed(){                    // КАРУСЕЛЬ СРЕДНИХ КА�
   const bar=document.getElementById('feedBar');
   bar.hidden=shots.length===0;
   const n=shots.filter(x=>x.pick).length;
+  const allBtn=document.getElementById('feedAll');
+  if(allBtn)allBtn.textContent=(n===shots.length&&shots.length)?'Снять выделение':'Выбрать все';
   const fsBtn=document.getElementById('feedShare');
   if(fsBtn)fsBtn.textContent=n?`Отправить себе (${n})`:'Отправить подборку себе';
 }
