@@ -122,7 +122,21 @@ def generate_pairs(room: Room, rmap: RoomMap, media: Item, sofa: Item,
             if depth_off >= far - 10:
                 continue
             sx, sy = _to_xy(room, wall, mid, depth_off)
-            dist, ang = _pair_metrics(room, wall, mx, my, sx, sy, s_rot)
+            # Г-ДИВАН: носитель ставим на ОСЬ ГЛАВНОЙ СЕКЦИИ, а не на центр bbox (26.08).
+            # Пара генерировалась с одним `mid` для дивана и носителя, поэтому у углового
+            # экран систематически уезжал на ~section/2 (~47 см) — это и был остаток дефекта
+            # «ТВ не по оси дивана»: класс оси отчитывался «centered», метрика качества
+            # показывала 47 см. Ось считаем той же функцией, что и весь движок.
+            _mx, _my = mx, my
+            if getattr(sofa, 'corner', False):
+                from .geometry import seat_axis_origin as _sao
+                from .models import Placement as _Pl
+                _ox, _oy = _sao(_Pl(role='диван', x=sx, y=sy, rot=s_rot, item=sofa))
+                if wall in ('south', 'north'):
+                    _mx = min(max(_ox, media.w_cm / 2 + 5), room.width_cm - media.w_cm / 2 - 5)
+                else:
+                    _my = min(max(_oy, media.w_cm / 2 + 5), room.depth_cm - media.w_cm / 2 - 5)
+            dist, ang = _pair_metrics(room, wall, _mx, _my, sx, sy, s_rot)
             # C-2 свода №11 (Кодекс §Q-C): цель сравнивается с ФРОНТ-зазором
             # (та же величина, что меряет validate), а не с центр-центр —
             # прежний замер был смещён на полусумму глубин (~60-70 см)
@@ -163,7 +177,7 @@ def generate_pairs(room: Room, rmap: RoomMap, media: Item, sofa: Item,
                 score += float(_WS.get('sofa_opposite', 15))
             elif ang <= _ANGLE.get('ok', 30):
                 score += float(_WS.get('sofa_opposite', 15)) * 0.5
-            if not _route_cuts_pair(rmap, mx, my, sx, sy):
+            if not _route_cuts_pair(rmap, _mx, _my, sx, sy):
                 score += float(_WS.get('route_not_cutting', 15))
             opp_wins = rmap.walls[opp].windows
             if not seg.has_window_behind and not opp_wins:
@@ -184,12 +198,12 @@ def generate_pairs(room: Room, rmap: RoomMap, media: Item, sofa: Item,
             if rmap.columns:
                 from shapely.geometry import box as _cbox
                 _pad = max(media.w_cm, sofa.w_cm) / 2
-                _corr = _cbox(min(mx, sx) - _pad, min(my, sy) - _pad,
-                              max(mx, sx) + _pad, max(my, sy) + _pad)
+                _corr = _cbox(min(_mx, sx) - _pad, min(_my, sy) - _pad,
+                              max(_mx, sx) + _pad, max(_my, sy) + _pad)
                 if any(c.buffer(15.0).intersects(_corr) for c in rmap.columns):
                     score -= float(TEMPLATES.get('contour_features', {})
                                    .get('column_pair_penalty', 12))
-            out.append(Pair(media_wall=wall, media_x=mx, media_y=my, media_rot=m_rot,
+            out.append(Pair(media_wall=wall, media_x=_mx, media_y=_my, media_rot=m_rot,
                             sofa_x=sx, sofa_y=sy, sofa_rot=s_rot, sofa_scheme=scheme,
                             score=round(score, 1), dist_cm=round(dist),
                             angle_deg=round(ang)))

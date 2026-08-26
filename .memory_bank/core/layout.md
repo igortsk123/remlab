@@ -3,7 +3,7 @@ tier: 1
 topic: layout
 scope: Расстановка: правила, зоны, прод-ядро
 tier2: ../domain/occupancy-rules.md
-updated: 2026-08-21
+updated: 2026-08-26
 importance: high
 source: manual
 status: working
@@ -36,5 +36,12 @@ status: working
 (не-центр = обязательный якорь), внедрение — ADR-0118: `_media_min` (совместный камин+ТВ в
 лестнице) + гейт `ANCHOR_SEMANTICS` (Q12-3). Детали — `../domain/occupancy-rules.md` (раунд 4);
 гейты — `services/planner-solver/tests/test_audit_julia_2108.py` и `services/planner-solver/tests/test_anchor_semantics.py`.
+
+**26.08 (корневые правки по разбору владельца):** ось «диван → носитель» считается ОТ ГЛАВНОЙ
+СЕКЦИИ (`geometry.seat_axis_origin`) во всех местах, включая фильтр центрированных позиций
+(ADR-0122; медиана смещения 17 → 0 см); ярус ГЛАВНОГО МАРШРУТА (`zones.main_route_tier` по
+`quality.route_width_cm`) стоит ВЫШЕ богатства состава, ниже пола 70 см — терминальный
+`CIRCULATION_MISSING` с сертификатом; контракты подбора банка (конверт слота, ковёр↔диван,
+экземпляры пары) применяются и при лечении данных, а не только при сборке (ADR-0121).
 
 **Tier 2:** `../domain/occupancy-rules.md` · `../guides/layout-engine-spec.md`

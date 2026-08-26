@@ -1397,9 +1397,11 @@ def _best_block(room: Room, b: Block, free: Polygon, cands, *, tv: Item | None,
                     rot=_pm_xy[2], item=require_bearer), kind='wall',
                     note='joint-пара'))
             seat = ps[0]
+            from .geometry import seat_axis_origin as _sao_aim
+            _aim_ox, _aim_oy = _sao_aim(seat)     # у Г-дивана — центр ГЛАВНОЙ секции (26.08)
             def _aim(c):
                 r = math.radians(seat.rot)
-                vx, vy = c.placement.x - seat.x, c.placement.y - seat.y
+                vx, vy = c.placement.x - _aim_ox, c.placement.y - _aim_oy
                 n = math.hypot(vx, vy) or 1.0
                 return -((math.sin(r) * vx + math.cos(r) * vy) / n)
             # ЦЕНТР ПРОВЕРЯЕМ ЗАРАНЕЕ (свод владельца 12.08): в круге «фокус обязателен»
@@ -2849,6 +2851,12 @@ def place_media_fireplace(room: Room, items: list[Item], free: Polygon,
     if _best1:
         for p in _best1[1]:
             p.tpl_variant = 'fireplace_side_by_side'
+        # ЗАМЕЧАНИЕ (26.08, к следующему заходу): контракт оси для совместной схемы «ТВ+камин»
+        # сюда не пишется — `_axis_contract.media` заполняет ГЛОБАЛ, который перетирает
+        # последний вызов `place_media` в прогоне. Из-за этого план с носителем от каминной
+        # схемы отчитывается «centered» с чужим числом, хотя у Г-дивана носитель может стоять
+        # ~47 см от активной оси. Чинить надо не здесь, а плумбингом диагностики: писать ось
+        # в meta ПОБЕДИВШЕЙ гипотезы, а не в глобал.
         return _best1[1]
     # 2) смежные стены: носитель — ПОЛНОЙ медиа-логикой (дистанция/прицел/ось, как у
     #    отдельной зоны), камин — на перпендикулярной стене в угле обзора посадки.
@@ -3277,14 +3285,22 @@ def _axis_candidates(room, item, free, seat, cands):
 
 
 def _axis_filter(cands, seat: Placement | None):
-    """Кандидаты, стоящие В ОСИ ВЗГЛЯДА посадки (поперечное смещение ≤ порога)."""
+    """Кандидаты, стоящие В ОСИ ВЗГЛЯДА посадки (поперечное смещение ≤ порога).
+
+    26.08: ось меряется от `seat_axis_origin`, как в `_axis_off`, `_axis_candidates` и метрике
+    качества. Раньше здесь стоял ЦЕНТР placement — у Г-дивана это ошибка ~section/2 (≈47 см):
+    фильтр объявлял «центрированными» кандидаты, смещённые почти на полметра от активной оси
+    посадки, план получал класс `centered`, а носитель фактически стоял мимо. Симптом владельца
+    «ТВ не по оси дивана» и красный сторож focus_is_centered (медиана 17 см при пороге 5)."""
     if seat is None:
         return []
+    from .geometry import seat_axis_origin as _sao
     from .quality import FOCUS_OFFSET_MAX_CM
+    ox, oy = _sao(seat)
     r = math.radians(seat.rot)
     out = []
     for c in cands:
-        vx, vy = c.placement.x - seat.x, c.placement.y - seat.y
+        vx, vy = c.placement.x - ox, c.placement.y - oy
         if abs(math.cos(r) * vx - math.sin(r) * vy) <= FOCUS_OFFSET_MAX_CM:
             out.append(c)
     return out
