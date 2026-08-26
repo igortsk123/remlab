@@ -255,23 +255,69 @@ function showTab(which){
   if(location.hash!=='#'+which)history.replaceState(null,'','#'+which);
   if(room)draw();
 }
+// ПЛАН КВАРТИРЫ — ПРИМЕР КОМПОНОВКИ (владелец 26.08: «нарисуй произвольный пример, где наша
+// комната вписывается так же»). Чертежа всей квартиры у нас нет: с плана застройщика сняты только
+// габариты гостиной. Поэтому комнаты раскладываются рядами по своим ПЛОЩАДЯМ из паспорта, а
+// гостиная рисуется в НАСТОЯЩИХ пропорциях 4,39 × 3,25 м — от неё и пляшет масштаб всего плана.
+// Клик по комнате прямо на плане открывает её расстановку.
+const PLAN_ROWS=[['bedroom_17','bedroom_9','bath_44'],['living','kitchen','bath_39'],['hall','loggia']];
 function flatPlan(){
   document.getElementById('flatTitle').textContent=D.flat_title||'План квартиры';
   const box=document.getElementById('flatRooms');box.innerHTML='';
-  // ПЛИТКА ПРОПОРЦИОНАЛЬНА ПЛОЩАДИ, но это честно названо схемой: чертежа всей квартиры у нас нет,
-  // с плана застройщика сняты только габариты гостиной (26.08).
-  (D.rooms||[]).forEach(r=>{
-    const el=document.createElement('div');
-    el.className='rm'+(r.ready?' go':'');
-    const h=Math.max(74,Math.min(150,54+(r.m2||6)*4));
-    el.style.height=h+'px';
-    el.style.flex=`1 1 ${Math.max(120,Math.min(260,90+(r.m2||6)*7))}px`;
-    el.innerHTML=`<div class="nm">${r.title}</div>`+
-      `<div class="m2">${r.m2?r.m2.toFixed(1).replace('.',',')+' м²':''}</div>`+
-      `<div class="st">${r.ready?'Обустроить →':'скоро'}</div>`;
-    if(r.ready)el.onclick=()=>showTab('room');
-    box.appendChild(el);
+  const by={}; (D.rooms||[]).forEach(r=>by[r.id]=r);
+  const rows=PLAN_ROWS.map(ids=>ids.map(i=>by[i]).filter(Boolean)).filter(r=>r.length);
+  const rest=(D.rooms||[]).filter(r=>!PLAN_ROWS.flat().includes(r.id));
+  if(rest.length)rows.push(rest);
+  const liv=by.living, LW=(D.room&&D.room.w/100)||4.39, LD=(D.room&&D.room.d/100)||3.25;
+  // ширина квартиры = ширина ряда с гостиной при её настоящей глубине
+  const livRow=rows.find(r=>r.some(x=>x.id==='living'))||rows[0];
+  const W=livRow.reduce((s,r)=>s+((r.id==='living')?LW:(r.m2||6)/LD),0);
+  let y=0;const cells=[];
+  rows.forEach(row=>{
+    const area=row.reduce((s,r)=>s+(r.m2||6),0);
+    const h=(row===livRow)?LD:area/W;
+    let x=0;
+    row.forEach(r=>{
+      const w=(r.id==='living')?LW:(r.m2||6)/h;
+      cells.push({r:r,x:x,y:y,w:w,h:h});x+=w;});
+    y+=h;});
+  const H=y, PAD=0.35, S=1;                         // единицы — метры, масштаб задаёт viewBox
+  const ns='http://www.w3.org/2000/svg';
+  const svg=document.createElementNS(ns,'svg');
+  svg.setAttribute('viewBox',`${-PAD} ${-PAD} ${W+PAD*2} ${H+PAD*2}`);
+  svg.setAttribute('width','100%');svg.style.maxHeight='62vh';svg.style.display='block';
+  const add=(t,a)=>{const e=document.createElementNS(ns,t);
+    for(const k in a)e.setAttribute(k,a[k]);svg.appendChild(e);return e;};
+  add('rect',{x:0,y:0,width:W,height:H,fill:'#FAF8F3',stroke:'#2A2F2C','stroke-width':0.09,
+    'stroke-linejoin':'round'});
+  cells.forEach(c=>{
+    const go=!!c.r.ready;
+    const g=document.createElementNS(ns,'g');g.style.cursor=go?'pointer':'default';
+    const put=(t,a,txt)=>{const e=document.createElementNS(ns,t);
+      for(const k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;g.appendChild(e);return e;};
+    put('rect',{x:c.x,y:c.y,width:c.w,height:c.h,fill:go?'#EAF1F7':'#F4F2ED',
+      stroke:go?'#3B76A2':'#B9BDB6','stroke-width':go?0.06:0.04});
+    if(go){                                        // окно и дверь гостиной — как в реальных данных
+      put('line',{x1:c.x,y1:c.y+c.h*0.2,x2:c.x,y2:c.y+c.h*0.75,stroke:'#5A9BD4','stroke-width':0.1});
+      put('line',{x1:c.x+c.w,y1:c.y+c.h*0.55,x2:c.x+c.w,y2:c.y+c.h*0.85,stroke:'#C8783C','stroke-width':0.1});
+    }
+    const fs=Math.max(0.17,Math.min(0.3,c.w/9));
+    put('text',{x:c.x+c.w/2,y:c.y+c.h/2-fs*0.15,'text-anchor':'middle','font-size':fs,
+      fill:'#2A2F2C','font-weight':go?'600':'500'},c.r.title);
+    put('text',{x:c.x+c.w/2,y:c.y+c.h/2+fs*1.05,'text-anchor':'middle','font-size':fs*0.85,
+      fill:'#5C655E'},c.r.m2?c.r.m2.toFixed(1).replace('.',',')+' м²':'');
+    put('text',{x:c.x+c.w/2,y:c.y+c.h/2+fs*2.2,'text-anchor':'middle','font-size':fs*0.8,
+      fill:go?'#3B76A2':'#9AA098','font-weight':go?'600':'400'},
+      go?'Обустроить →':'скоро');
+    if(go)g.onclick=()=>showTab('room');           // переход по клику на КОМНАТУ, не по вкладке
+    svg.appendChild(g);
   });
+  box.appendChild(svg);
+  const note=document.createElement('div');note.className='hint';
+  note.textContent=`Гостиная показана в настоящих пропорциях ${LW.toFixed(2).replace('.',',')} × `
+    +`${LD.toFixed(2).replace('.',',')} м — по ним и построен масштаб. Остальные комнаты — по `
+    +`площадям из паспорта: это пример компоновки, а не чертёж.`;
+  box.appendChild(note);
 }
 function applyKit(kit){            // комплект накладывается на ЛЮБУЮ расстановку; предметы,
   let n=0;                          // которых в комплекте нет, остаются как были (можно смешивать)
