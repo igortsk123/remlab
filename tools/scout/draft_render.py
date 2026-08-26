@@ -73,7 +73,7 @@ def build_prompt(diag: dict) -> str:
         p += ('The plain grey untextured blocks are furniture that must be rendered as realistic '
               'pieces of these kinds: ' + ', '.join(dict.fromkeys(make))
               + ' — same size and position, neutral modern style matching the room. ')
-    p += ('The blue rectangle on the wall is a switched-off flat TV. '
+    p += ('The dark rectangle on the wall is a switched-off flat TV. '
           'Add natural daylight from the window, soft contact shadows, realistic wood floor and '
           'wall textures, and dress the sofa with a few matching cushions and a throw.')
     return p
@@ -146,6 +146,14 @@ def collage(room, placements, cam, photos: dict) -> tuple[Image.Image, Image.Ima
         m = (inst == i)
         if m.sum() < 400:
             continue
+        if role.split(' ')[0] == 'тв':
+            # ЭКРАН — ТЁМНЫЙ, А НЕ СИНИЙ (26.08): на clay-рендере ТВ синий, и модель честно
+            # возвращала ярко-синюю панель на стене. Тёмная заливка читается как выключенный экран.
+            dark = Image.new('RGB', (W, H), (24, 24, 26))
+            canvas = Image.composite(dark, canvas,
+                                     Image.fromarray((m * 255).astype(np.uint8)))
+            put.append(role)
+            continue
         ph = None if role.split(' ')[0] in SKIP_PASTE else photos.get(role)
         if ph is None:
             miss.append(role)
@@ -202,8 +210,36 @@ def scene_from_request(payload: dict) -> tuple:
     return room, placements, photos
 
 
-def _one_camera(room, placements, photos, cam, prefix: str, model: str, side: int) -> dict:
-    """Один ракурс: коллаж → один вызов модели → ссылка на кадр."""
+def anchors(room, placements, cam, skus: dict) -> list:
+    """ЯКОРЯ ТОВАРОВ НА КАДРЕ (владелец 26.08: «на фотографиях размещать якоря на мебель»).
+
+    Координаты НЕ спрашиваем у модели: сцену считаем мы, и маска каждого предмета в этом ракурсе
+    уже есть (`compile_scene`). Берём точку внутри маски — она и есть место значка, в долях кадра.
+    Это дешевле, детерминированно и не врёт: модель могла бы назвать чужие координаты.
+    """
+    sc = compile_scene(room, placements, cam)
+    inst, ids = sc['instances'], sc['ids']
+    H, W = inst.shape
+    out = []
+    for i, role in ids.items():
+        m = (inst == i)
+        if m.sum() < 400:
+            continue
+        ys, xs = np.where(m)
+        cx, cy = float(xs.mean()), float(ys.mean())
+        if not m[int(round(cy)), int(round(cx))]:          # центр масс вне маски (Г-образный предмет)
+            k = int(np.argmin((xs - cx) ** 2 + (ys - cy) ** 2))
+            cx, cy = float(xs[k]), float(ys[k])
+        sku = skus.get(role) or {}
+        out.append({'role': role, 'x': round(cx / W, 4), 'y': round(cy / H, 4),
+                    'name': sku.get('name'), 'price': sku.get('price'),
+                    'url': sku.get('url'), 'img': sku.get('img'), 'shop': sku.get('shop')})
+    return out
+
+
+def _one_camera(room, placements, photos, cam, prefix: str, model: str, side: int,
+                skus: dict | None = None) -> dict:
+    """Один ракурс: коллаж → один вызов модели → ссылка на кадр и якоря товаров."""
     coll, _dmap, diag = collage(room, placements, cam, photos)
     coll.save(f'{prefix}-{cam.name}-collage.jpg', quality=92)
     w = side
@@ -218,7 +254,90 @@ def _one_camera(room, placements, photos, cam, prefix: str, model: str, side: in
                 open(f'{prefix}-{cam.name}.jpg', 'wb').write(f.read())
         except Exception:
             pass
-    return {'camera': cam.name, 'url': url, 'diag': diag}
+    return {'camera': cam.name, 'url': url, 'diag': diag,
+            'anchors': anchors(room, placements, cam, skus or {})}
+
+
+BAND_RGB, BAND_PX = (255, 0, 255), 94      # маркерная полоса между видами: маджента в интерьере
+FRAMES_DIR = os.environ.get('FRAMES_DIR', os.path.join(OUT, 'frames'))   # не встречается, шов виден
+FRAMES_URL = os.environ.get('FRAMES_URL', '/test/share/frames')
+PUBLIC_BASE = os.environ.get('PUBLIC_BASE', '')
+
+
+def _split_pair(sheet: Image.Image) -> list:
+    """Режем ответ модели по маркерной полосе; полосы нет — делим пополам (как `viz_final`)."""
+    a = np.asarray(sheet.convert('RGB')).astype(int)
+    mask = (a[..., 0] > 170) & (a[..., 2] > 170) & (a[..., 1] < 110)
+    rows = np.where(mask.mean(axis=1) > 0.5)[0]
+    if len(rows) < 8:
+        half = sheet.height // 2
+        return [sheet.crop((0, 0, sheet.width, half)),
+                sheet.crop((0, half, sheet.width, sheet.height))]
+    y0, y1 = int(rows.min()), int(rows.max())
+    return [sheet.crop((0, 0, sheet.width, y0)),
+            sheet.crop((0, y1 + 1, sheet.width, sheet.height))]
+
+
+def _trim_band(img: Image.Image) -> Image.Image:
+    """Срезать остатки маркерной полосы по краям куска: пара строк маджента портит кадр."""
+    a = np.asarray(img.convert('RGB')).astype(int)
+    bad = ((a[..., 0] > 140) & (a[..., 2] > 140) & (a[..., 1] < 150)).mean(axis=1) > 0.12
+    ys = np.where(~bad)[0]
+    if not len(ys):
+        return img
+    return img.crop((0, int(ys.min()), img.width, int(ys.max()) + 1))
+
+
+def _publish_frame(img: Image.Image, name: str) -> str:
+    """Кадр из разрезанного листа кладём в раздаваемую папку и отдаём ссылку на него."""
+    os.makedirs(FRAMES_DIR, exist_ok=True)
+    img.save(os.path.join(FRAMES_DIR, name), quality=92)
+    return (PUBLIC_BASE + FRAMES_URL + '/' + name) if PUBLIC_BASE else os.path.join(FRAMES_DIR, name)
+
+
+def _sheet(room, placements, photos, cams, prefix: str, model: str, side: int, skus: dict) -> list:
+    """ДВА ВИДА ОДНИМ ЛИСТОМ (владелец 26.08: «генерили как единую фотографию и резали по полосе»).
+
+    Так свет, материалы и стиль у обоих ракурсов совпадают ПО ПОСТРОЕНИЮ, а не по удаче двух
+    независимых вызовов, и это один запрос вместо двух.
+    """
+    import hashlib
+    parts, diags = [], []
+    for cam in cams:
+        coll, _d, diag = collage(room, placements, cam, photos)
+        h = max(2, int(round(side * coll.height / coll.width)))
+        parts.append(coll.resize((side, h)))
+        diags.append(diag)
+    total_h = sum(p.height for p in parts) + BAND_PX * (len(parts) - 1)
+    sheet = Image.new('RGB', (side, total_h), BAND_RGB)
+    y = 0
+    for p in parts:
+        sheet.paste(p, (0, y))
+        y += p.height + BAND_PX
+    sheet.save(prefix + '-sheet.jpg', quality=92)
+    merged = {k: sum([d.get(k, []) for d in diags], []) for k in
+              ('вклеено', 'без фото', 'ракурс не тот', 'вне кадра')}
+    prompt = (build_prompt(merged) +
+              ' The image is a single sheet with two views of the SAME room stacked vertically and '
+              'separated by a magenta band. Render both views, keep the magenta band exactly where '
+              'it is, and make lighting and materials identical in both.')
+    res = fal_run(model, {'prompt': prompt, 'num_images': 1,
+                          'image_urls': [uri_from_image(sheet)]}, fal_key(), timeout=300)
+    url = ((res.get('images') or [{}])[0] or {}).get('url', '')
+    if not url:
+        return []
+    with urllib.request.urlopen(url, timeout=120) as f:
+        raw = f.read()
+    out_sheet = Image.open(io.BytesIO(raw)).convert('RGB')
+    pieces = _split_pair(out_sheet)
+    stamp = hashlib.md5((prefix + str(time.time())).encode()).hexdigest()[:10]
+    shots = []
+    for cam, piece, diag in zip(cams, pieces, diags):
+        piece = _trim_band(piece)
+        piece.save(f'{prefix}-{cam.name}.jpg', quality=92)
+        shots.append({'camera': cam.name, 'url': _publish_frame(piece, f'{stamp}-{cam.name}.jpg'),
+                      'diag': diag, 'anchors': anchors(room, placements, cam, skus)})
+    return shots
 
 
 def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1',
@@ -247,16 +366,18 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         want = [c for c in all_cams if c.name == cam_name] or all_cams[:1]
         model, side = MODEL, 1024
     prefix = save_prefix or os.path.join(OUT, f'draft{n}')
-    from concurrent.futures import ThreadPoolExecutor      # два ракурса считаем параллельно
-    with ThreadPoolExecutor(max_workers=len(want)) as ex:
-        shots = list(ex.map(lambda c: _one_camera(room, placements, photos, c, prefix, model, side),
-                            want))
+    skus = {it['role']: it for it in (layout or {}).get('items', []) if it.get('role')}
+    if len(want) > 1:
+        shots = _sheet(room, placements, photos, want, prefix, model, side, skus)
+    else:
+        shots = [_one_camera(room, placements, photos, want[0], prefix, model, side, skus)]
     sec = round(time.time() - t0, 1)
     print(f'{quality}: кадров {len([s for s in shots if s["url"]])} из {len(want)}, {sec} с, модель {model}')
     for s in shots:
         print('  ' + s['camera'] + ' ' + json.dumps(s['diag'], ensure_ascii=False))
     first = shots[0] if shots else {'url': '', 'diag': {}}
-    return {'shots': [{'camera': s['camera'], 'url': s['url']} for s in shots if s['url']],
+    return {'shots': [{'camera': s['camera'], 'url': s['url'], 'anchors': s.get('anchors') or []}
+                      for s in shots if s['url']],
             'model': model, 'quality': quality, 'sec': sec,
             'file': f'{prefix}-{first.get("camera", "C1")}.jpg',
             'url': first.get('url', ''), 'diag': first.get('diag', {})}

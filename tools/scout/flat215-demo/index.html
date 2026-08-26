@@ -68,7 +68,42 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
  padding:5px 4px;font-size:11.5px;cursor:pointer;text-decoration:none;color:var(--ink)}
 .mini.link{color:var(--accent);border-color:#CBDCE9}
 #basket{margin-top:10px}
-.row{display:flex;gap:10px;align-items:center;padding:7px 0;border-top:1px dashed var(--line)}
+/* РАБОЧАЯ ОБЛАСТЬ (26.08, структура референса): план слева, список товаров справа; на телефоне —
+   один столбец, список уезжает под план. */
+.work{display:grid;gap:14px;align-items:start;grid-template-columns:1fr}
+@media(min-width:1000px){.work{grid-template-columns:minmax(0,1fr) 360px}
+  .work #basket{margin-top:0;position:sticky;top:12px;max-height:calc(100vh - 30px);overflow:auto}}
+.canvasbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;
+ margin:2px 0 8px;font-size:clamp(13.5px,1.8vw,15px);color:#5C655E}
+.state{border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:13px;
+ background:#F4F2ED;color:#3A423C;white-space:nowrap}
+.state.changed{background:#FBF0E2;border-color:#E4C79A;color:#8A5A1E}
+.lnk{border:0;background:none;padding:0;color:var(--accent);font:inherit;font-size:12px;
+ cursor:pointer;text-decoration:underline}
+.noimg-sm{width:54px;height:44px;flex:0 0 54px;border-radius:4px;background:#F2F0EB;color:#A6ABA4;
+ font-size:10.5px;display:flex;align-items:center;justify-content:center;text-align:center}
+.row{display:flex;gap:10px;align-items:center;padding:7px 0;border-top:1px dashed var(--line);
+ cursor:pointer}
+.row:hover{background:#FAF8F3}
+.row .t .acts{display:block;margin-top:2px}
+/* ЗАГЛУШКИ ФОТО (26.08): пока кадра нет, показываем «плёнку» с подписью ракурса, а не пустоту */
+.ph{flex:0 0 auto;width:240px;height:170px;border-radius:10px;border:1px dashed var(--line);
+ background:repeating-linear-gradient(135deg,#F7F5F1 0 12px,#F2F0EB 12px 24px);display:flex;
+ flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#8A8F89;
+ font-size:13.5px;text-align:center;padding:10px}
+.ph b{color:#5C655E;font-size:14.5px}
+/* ЯКОРЯ НА ФОТО (владелец 26.08): точки на мебели со ссылкой на конкретный товар. Координаты —
+   из масок нашей же сцены, а не «на глаз» и не из ответа модели. */
+.shotwrap{position:relative;display:inline-block;width:100%}
+.shotwrap img{width:100%;border-radius:10px;display:block}
+.pin{position:absolute;transform:translate(-50%,-50%);width:26px;height:26px;border-radius:50%;
+ background:#fffffff2;border:2px solid var(--accent);color:var(--accent);font-size:14px;
+ font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;
+ box-shadow:0 2px 8px #00000030}
+.pin:hover{background:var(--accent);color:#fff}
+.pinlist{margin-top:12px;border-top:1px solid var(--line);padding-top:8px}
+.pinlist .row{cursor:default}
+.pinlist .row:hover{background:none}
 .row img{width:54px;height:44px;object-fit:contain;background:#F6F4F0;border-radius:4px;flex:0 0 54px}
 .row .t{flex:1;min-width:0}.row .t b{font-size:13.5px;font-weight:600;display:block;
  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -170,10 +205,17 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
     <button class="btn" id="tryon">Подобрать товар</button>
   </div>
 
-  <div class="sel" id="sel">Предмет не выбран — коснитесь мебели на плане.</div>
-
-  <div id="canvasWrap"><svg id="stage" xmlns="http://www.w3.org/2000/svg"></svg>
-  <div id="tip"></div></div>
+  <div class="work">
+    <div>
+      <div class="canvasbar">
+        <span id="sel">Тяните предмет, чтобы двигать. Товар выбирается по значку на предмете.</span>
+        <span class="state" id="layoutState">Готовая расстановка</span>
+      </div>
+      <div id="canvasWrap"><svg id="stage" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div id="tip"></div></div>
+    </div>
+    <div class="panel" id="basket"><h3>Товары этой расстановки</h3><div id="blist">—</div></div>
+  </div>
 
   <div class="panel" id="feedPanel">
     <h3>Ваши фотографии</h3>
@@ -186,7 +228,6 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
     </div>
   </div>
 
-  <div class="panel" id="basket"><h3>Товары в комнате</h3><div id="blist">—</div></div>
 </section>
 
 </div>
@@ -328,7 +369,10 @@ function applyKit(kit){            // комплект накладываетс�
     (kit.sum?` · сумма ${kit.sum.toLocaleString('ru-RU')} ₽`:'')+
     ` · любой предмет можно заменить своим — выберите его и нажмите «Подобрать товар»`;
   draw();}
-function load(){items=clone(D.variants[cur].items);sel=null;document.getElementById('sel').textContent='Перетаскивайте предмет, чтобы двигать. Товар выбирается по значку на предмете.';draw();}
+let baseRev='';                       // ревизия «как отдал движок» — по ней видно, правил ли человек
+function load(){items=clone(D.variants[cur].items);sel=null;
+  document.getElementById('sel').textContent='Перетаскивайте предмет, чтобы двигать. Товар выбирается по значку на предмете.';
+  baseRev=revision();draw();}
 
 function size(){const w=stage.clientWidth||stage.parentNode.clientWidth;S=(w-2*PAD)/D.room.w;stage.setAttribute('height',Math.round(D.room.d*S+2*PAD));}
 const X=x=>PAD+x*S, Y=y=>PAD+y*S;
@@ -358,19 +402,31 @@ function draw(){
   items.forEach(it=>stage.appendChild(badgeFor(it)));   // значки — последним слоем и БЕЗ поворота
   basket();
   drawPhotos();          // блок над планом знает, снята ли ТЕКУЩАЯ расстановка (26.08)
+  const st=document.getElementById('layoutState');
+  if(st){const changed=baseRev&&revision()!==baseRev;
+    st.textContent=changed?'Изменено вами':'Готовая расстановка';
+    st.classList.toggle('changed',!!changed);}
 }
-function basket(){                    // мини-каталог собранной комнаты: что стоит, размеры, цена, ссылка
-  const withSku=items.filter(i=>i.sku&&i.sku.name);
-  const box=document.getElementById('blist');
+function basket(){                    // СПИСОК ТОВАРОВ КОМНАТЫ — справа от плана (структура референса,
+  const withSku=items.filter(i=>i.sku&&i.sku.name);   // 26.08): строка = миниатюра, название, магазин,
+  const box=document.getElementById('blist');         // цена, «Заменить» и ссылка в магазин; снизу итог
   if(!withSku.length){box.innerHTML='<div class="hint">Товары ещё не назначены: выберите комплект или подберите предмет вручную.</div>';return;}
   let sum=0;
-  box.innerHTML=withSku.map(i=>{const p=i.sku;sum+=p.price||0;
+  box.innerHTML=withSku.map((i,k)=>{const p=i.sku;sum+=p.price||0;
     const dims=`${Math.round(i.w)}×${Math.round(i.d)}${i.h?'×'+Math.round(i.h):''} см`;
-    return `<div class="row">${p.img?`<img src="${p.img}" loading="lazy" alt="">`:'<div style="width:54px"></div>'}`+
-      `<div class="t"><b>${p.name||i.role}</b><span>${i.role} · ${dims}${p.shop?' · '+p.shop:''}</span></div>`+
-      `<div class="p">${(p.price||0).toLocaleString('ru-RU')} ₽</div>`+
-      (p.url?`<a href="${p.url}" target="_blank" rel="noopener">Подробнее</a>`:'')+`</div>`;}).join('')
+    return `<div class="row" data-i="${items.indexOf(i)}">`+
+      (p.img?`<img src="${p.img}" loading="lazy" alt="">`:'<div class="noimg-sm">нет фото</div>')+
+      `<div class="t"><b>${p.name||i.role}</b><span>${i.role} · ${dims}${p.shop?' · '+p.shop:''}</span>`+
+      `<span class="acts"><button class="lnk swap">Заменить</button>`+
+      (p.url?` · <a href="${p.url}" target="_blank" rel="noopener">Подробнее</a>`:'')+`</span></div>`+
+      `<div class="p">${(p.price||0).toLocaleString('ru-RU')} ₽</div></div>`;}).join('')
     +`<div class="total"><span>Итого ${withSku.length} товаров</span><span>${sum.toLocaleString('ru-RU')} ₽</span></div>`;
+  // клик по строке или «Заменить» открывает тот же каталог замены, что и значок на предмете
+  box.querySelectorAll('.row').forEach(r=>{
+    const it=items[+r.dataset.i];
+    r.onclick=()=>{if(it){sel=it;draw();openPicker(it);}};
+    const a=r.querySelector('a'); if(a)a.onclick=e=>e.stopPropagation();
+  });
 }
 let UID=0;
 let peekTimer=null;
@@ -634,10 +690,16 @@ function drawPhotos(){
     box.querySelectorAll('.shots img').forEach(im=>im.onclick=()=>viewShot(+im.dataset.i));
     return;
   }
+  // ЗАГЛУШКИ ВМЕСТО ФОТО (владелец 26.08): пустое место не объясняет, что тут будет, поэтому
+  // показываем два «кадра» с подписями ракурсов — от окна и от входа.
   box.innerHTML=`<h3>${shots.length?'Расстановка изменилась':'Фотография вашей комнаты'}</h3>`+
     `<div class="hint">${shots.length
       ? 'Прежние снимки сохранены в ленте. Сделайте новый — он покажет комнату так, как вы её расставили.'
       : 'Соберите комнату по вкусу и посмотрите, как она будет выглядеть.'}</div>`+
+    `<div class="shots" style="margin-top:10px">
+       <div class="ph"><b>Вид от окна</b><span>фотография появится здесь</span></div>
+       <div class="ph"><b>Вид от входа</b><span>фотография появится здесь</span></div>
+     </div>`+
     `<div class="acts">
        <button class="btn primary" id="mkDraft">Сделать черновое фото · ~15 сек</button>
        <button class="btn" id="mkReal">Сделать реалистичное фото · ~40 сек</button>
@@ -665,7 +727,8 @@ async function makePhoto(quality){
     clearInterval(tick); busy=false;
     if(!(j.shots&&j.shots.length))throw new Error(j.error||'пустой ответ');
     j.shots.forEach(sh=>addShot({url:sh.url,camera:sh.camera||'C1',quality:quality,
-      variant:(D.variants[cur]||{}).title||'',revision:rev,ts:Date.now(),model:j.model||''}));
+      anchors:sh.anchors||[],variant:(D.variants[cur]||{}).title||'',revision:rev,
+      ts:Date.now(),model:j.model||''}));
     viewShot(shots.length-1);
   }catch(err){
     clearInterval(tick); busy=false;
@@ -673,14 +736,30 @@ async function makePhoto(quality){
       String(err.message||err).slice(0,160)+'</div>','попробуйте ещё раз');
   }
 }
-// ——— просмотр кадра: увеличить, скачать, отправить себе
+// ——— просмотр кадра: якоря на мебели, список товаров с итогом, скачать, отправить себе
+function money(v){return (v||0).toLocaleString('ru-RU')+' ₽';}
 function viewShot(i){
   const s=shots[i]; if(!s)return;
-  shotOpen(`<img src="${s.url}" alt="${shotLabel(s)}">`,
+  const an=(s.anchors||[]).filter(a=>a.name);
+  // ЯКОРЯ ставим по координатам, посчитанным сервером из масок сцены: клик ведёт в магазин
+  const pins=an.map((a,k)=>`<button class="pin" style="left:${(a.x*100).toFixed(1)}%;top:${(a.y*100).toFixed(1)}%"
+      data-k="${k}" title="${(a.name||'').replace(/"/g,'&quot;')}">${k+1}</button>`).join('');
+  // ПОД ФОТО — ВСЕ ТОВАРЫ С ЦЕНАМИ И ИТОГОМ (владелец 26.08)
+  const sum=an.reduce((t,a)=>t+(a.price||0),0);
+  const list=an.length?`<div class="pinlist">`+an.map((a,k)=>
+      `<div class="row">${a.img?`<img src="${a.img}" loading="lazy" alt="">`:'<div class="noimg-sm">нет фото</div>'}`+
+      `<div class="t"><b>${k+1}. ${a.name}</b><span>${a.role}${a.shop?' · '+a.shop:''}</span></div>`+
+      `<div class="p">${money(a.price)}</div>`+
+      (a.url?`<a href="${a.url}" target="_blank" rel="noopener">В магазин</a>`:'')+`</div>`).join('')+
+      `<div class="total"><span>Итого ${an.length} товаров на фото</span><span>${money(sum)}</span></div></div>`:'';
+  shotOpen(`<div class="shotwrap"><img src="${s.url}" alt="${shotLabel(s)}">${pins}</div>${list}`,
     `<span>${shotLabel(s)}${s.model?' · '+s.model:''}</span>`+
     `<span><a class="btn" href="${s.url}" download target="_blank" rel="noopener">Скачать</a>
      <button class="btn primary" id="shShare">Отправить себе</button></span>`);
   document.getElementById('shShare').onclick=()=>shareOpen([s]);
+  document.querySelectorAll('#shotbody .pin').forEach(b=>b.onclick=()=>{
+    const a=an[+b.dataset.k];
+    if(a&&a.url)window.open(a.url,'_blank','noopener');});
 }
 // ——— отправка себе: ссылка на подборку + мессенджеры
 async function shareOpen(list){
