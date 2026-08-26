@@ -203,9 +203,10 @@ def build() -> dict:
             m2 = float(m.group(1).replace(',', '.'))
         rooms.append({'id': r.get('id'), 'title': re.sub(r'\s*[\d.,()\s]+м²', '', title).strip(),
                       'm2': m2, 'ready': not r.get('stub')})
+    plan = flat.get('plan_example') or {}
     return {'room': {'w': liv['w'], 'd': liv['d'], 'title': liv['title'],
                      'openings': liv['openings'], 'radiators': liv.get('radiators') or []},
-            'rooms': rooms, 'flat_title': 'Квартира №215 · 73,7 м²',
+            'rooms': rooms, 'flat_title': 'Квартира №215 · 73,7 м²', 'plan': plan,
             'variants': variants, 'sets': product_sets, 'sofa_feed': feed, 'feeds': feeds,
             'rules': _rules(),
             '_note': flat.get('_scale_note')}
