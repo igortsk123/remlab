@@ -303,14 +303,17 @@ function badgeFor(it){
       preserveAspectRatio:'xMidYMid slice','clip-path':`url(#${id})`}));
     g.addEventListener('pointerenter',e=>peek(e,it));
     g.addEventListener('pointerleave',()=>hidePeek());
-    g.addEventListener('pointerdown',e=>{if(e.pointerType==='touch'){e.stopPropagation();peek(e,it);}});
   } else {
     g.appendChild(el('circle',{cx:cx,cy:cy,r:r,fill:'#2F6D96'}));
     g.appendChild(el('rect',{x:cx-r*0.52,y:cy-r*0.34,width:r*1.04,height:r*0.72,rx:r*0.18,
       fill:'none',stroke:'#fff','stroke-width':1.4}));
     g.appendChild(el('circle',{cx:cx,cy:cy+r*0.02,r:r*0.22,fill:'none',stroke:'#fff','stroke-width':1.4}));
   }
-  g.addEventListener('pointerup',e=>{e.stopPropagation();hidePeek();openPicker(it);});
+  // pointerdown гасим, иначе холст перехватывает указатель (setPointerCapture) и click по значку
+  // до нас не доходит — модалка не открывалась (26.08)
+  g.addEventListener('pointerdown',e=>{e.stopPropagation();
+    if(e.pointerType==='touch'&&it.sku&&it.sku.img)peek(e,it);});
+  g.addEventListener('click',e=>{e.stopPropagation();hidePeek();openPicker(it);});
   return g;
 
 }
@@ -332,8 +335,14 @@ function swing(o){const p=wallSeg(o.wall,o.offset_cm,o.width_cm),r=o.swing_cm||o
 
 // ——— перетаскивание (мышь и палец)
 let drag=null;
-stage.addEventListener('pointerdown',e=>{const pt=loc(e);const hit=items.slice().reverse().find(it=>{const b=box(it);
-  return pt.x>=b.x0&&pt.x<=b.x1&&pt.y>=b.y0&&pt.y<=b.y1;});
+stage.addEventListener('pointerdown',e=>{const pt=loc(e);
+  // ПОПАДАНИЕ ПО САМОМУ МЕЛКОМУ предмету под пальцем, ковёр — в последнюю очередь (26.08:
+  // «нажимаю на столик, а двигается ковёр» — прежний порядок брал последний в массиве)
+  const under=items.filter(it=>{const b=box(it);
+    return pt.x>=b.x0&&pt.x<=b.x1&&pt.y>=b.y0&&pt.y<=b.y1;});
+  const rank=it=>it.role.startsWith('ковёр')?1:0;
+  under.sort((a,b)=>rank(a)-rank(b)||(a.w*a.d)-(b.w*b.d));
+  const hit=under[0];
   if(hit){sel=hit;drag={dx:pt.x-hit.x,dy:pt.y-hit.y,t:Date.now(),moved:false};stage.setPointerCapture(e.pointerId);
     document.getElementById('sel').textContent=`Выбрано: ${hit.role} ${Math.round(hit.w)}×${Math.round(hit.d)} см`+(hit.sku&&hit.sku.name?` · ${hit.sku.name}`:'');
     draw();}});
