@@ -171,31 +171,34 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
 #photos .shots{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px}
 #photos .shots img{height:180px;border-radius:10px;cursor:pointer;flex:0 0 auto}
 #photos .acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
-/* КАРУСЕЛЬ КАДРОВ (26.08): один крупный снимок, стрелки вперёд-назад, счётчик. Мелкие превью
-   убраны — они дублировали то же самое. Новые кадры встают в конец, ничего не удаляется. */
+/* КАРУСЕЛЬ КАДРОВ — СРЕДНИЙ РАЗМЕР (владелец 26.08: «ты сделал большими фото, я просил средние»):
+   в ряд помещается несколько карточек ~300 px, лишние листаются стрелками. Крупно кадр
+   открывается по клику. */
 .car{position:relative;margin-top:10px}
-.car .frame{position:relative;border-radius:12px;overflow:hidden;background:#F4F2ED;
- aspect-ratio:3/2;display:flex;align-items:center;justify-content:center}
-.car .frame img{width:100%;height:100%;object-fit:cover;cursor:zoom-in;display:block}
-.car .add{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
- width:100%;height:100%;border:1px dashed var(--accent);border-radius:12px;background:#F7FBFD;
- cursor:pointer;color:#3A423C;text-align:center;padding:18px}
-.car .add .plus{font-size:38px;color:var(--accent);line-height:1}
-.car .add b{font-size:clamp(16px,1.15vw,19px)}
-.car .add span{color:#5C655E;font-size:clamp(13.5px,0.95vw,15px)}
-.car .nav{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:44px;
- border-radius:50%;border:0;background:#ffffffe8;box-shadow:0 2px 10px #00000026;cursor:pointer;
- font-size:20px;color:#2A2F2C;display:flex;align-items:center;justify-content:center}
-.car .nav:hover{background:#fff}
-.car .prev{left:10px}.car .next{right:10px}
-.car .nav[disabled]{opacity:.35;cursor:default}
-.car .bar2{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;
- margin-top:10px}
-.car .meta{font-size:clamp(13.5px,0.95vw,15.5px);color:#5C655E}
-.car .dots{display:flex;gap:6px;justify-content:center;margin-top:8px}
-.car .dot{width:8px;height:8px;border-radius:50%;background:#D8D5CE;border:0;padding:0;cursor:pointer}
-.car .dot.on{background:var(--accent);width:22px;border-radius:5px}
-.car .pickbtn.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.car .track{display:flex;gap:12px;overflow-x:auto;scroll-behavior:smooth;padding:2px 2px 8px;
+ scrollbar-width:thin}
+.car .track::-webkit-scrollbar{height:6px}
+.car .track::-webkit-scrollbar-thumb{background:#DCD9D2;border-radius:3px}
+.car .card{flex:0 0 300px;max-width:78vw;border:1px solid var(--line);border-radius:12px;
+ background:#fff;overflow:hidden;display:flex;flex-direction:column}
+.car .card img{width:100%;aspect-ratio:3/2;object-fit:cover;display:block;cursor:zoom-in;
+ background:#F4F2ED}
+.car .card .cap{padding:8px 10px;font-size:clamp(13px,0.92vw,14.5px);color:#5C655E;line-height:1.35}
+.car .card .acts2{display:flex;gap:6px;padding:0 10px 10px;flex-wrap:wrap}
+.car .card .acts2 .btn{padding:7px 12px;font-size:clamp(13px,0.92vw,14.5px)}
+.car .card .btn.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.car .add{flex:0 0 300px;max-width:78vw;border:1px dashed var(--accent);border-radius:12px;
+ background:#F7FBFD;cursor:pointer;display:flex;flex-direction:column;align-items:center;
+ justify-content:center;gap:8px;padding:20px;text-align:center;color:#3A423C;min-height:232px}
+.car .add .plus{font-size:34px;color:var(--accent);line-height:1}
+.car .add b{font-size:clamp(15px,1.05vw,17px)}
+.car .add span{color:#5C655E;font-size:clamp(13px,0.9vw,14.5px)}
+.car .nav{position:absolute;top:88px;width:40px;height:40px;border-radius:50%;border:0;
+ background:#ffffffee;box-shadow:0 2px 10px #00000026;cursor:pointer;font-size:19px;color:#2A2F2C;
+ display:flex;align-items:center;justify-content:center;z-index:2}
+.car .prev{left:-6px}.car .next{right:-6px}
+.car .nav[disabled]{display:none}
+.car .meta{font-size:clamp(13px,0.92vw,14.5px);color:#8A8F89;margin-top:2px}
 #shot .grid2{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
 #shot .grid2 img{width:100%;border-radius:8px}
 .chan{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
@@ -745,61 +748,65 @@ function saveShots(){
 }
 function addShot(rec){ shots.push(rec); saveShots();
   try{if(rec.sources)localStorage.setItem('flat215-src',rec.sources);}catch(e){}
-  slide=shots.length-1+(0);          // показываем только что снятый кадр
-  drawFeed(); drawPhotos(); }
+  drawFeed(); drawPhotos();
+  const tr=document.querySelector('#feed .track');   // новый кадр — в конце, подкручиваем к нему
+  if(tr)tr.scrollLeft=tr.scrollWidth; }
 function shotLabel(s){
   const q={draft:'черновое',realistic:'реалистичное',preset:'готовое'}[s.quality]||s.quality;
   const cam={C1:'от окна',C2:'от входа'}[s.camera]||'';
   const t=new Date(s.ts||Date.now());
   return `${s.variant||''} · ${q}${cam?' · '+cam:''} · ${t.getHours()}:${String(t.getMinutes()).padStart(2,'0')}`;
 }
-let slide=0;
-function drawFeed(){                    // КАРУСЕЛЬ: один крупный кадр, стрелки, счётчик, точки
+function drawFeed(){                    // КАРУСЕЛЬ СРЕДНИХ КАРТОЧЕК со стрелками (26.08)
   const f=document.getElementById('feed'); if(!f)return;
   const rev=(D&&items.length)?revision():'';
   const has=rev&&shots.some(s=>s.revision===rev);
-  const slides=shots.slice();
-  const addFirst=rev&&!has;                       // нет кадра этой расстановки — первым «＋»
-  const total=slides.length+(addFirst?1:0);
-  if(!total){f.innerHTML='';document.getElementById('feedBar').hidden=true;return;}
-  slide=Math.max(0,Math.min(slide,total-1));
-  const at=addFirst?slide-1:slide;                // индекс в shots (или -1 для карточки «＋»)
-  const s=at>=0?slides[at]:null;
-  const better=s&&s.quality==='draft'&&s.revision===rev&&
-    !shots.some(x=>x.quality==='realistic'&&x.revision===rev);
+  const addFirst=rev&&!has;
+  if(!shots.length&&!addFirst){f.innerHTML='';f.className='';document.getElementById('feedBar').hidden=true;return;}
+  const card=(s,i)=>{
+    const better=s.quality==='draft'&&s.revision===rev&&
+      !shots.some(x=>x.quality==='realistic'&&x.revision===rev);
+    return `<div class="card" data-i="${i}">`+
+      `<img src="${s.url}" alt="${shotLabel(s)}" loading="lazy">`+
+      `<div class="cap">${shotLabel(s)}`+
+        (s.sources?` · <a class="srcln" href="${s.sources}" target="_blank" rel="noopener">исходники</a>`:'')+
+      `</div>`+
+      `<div class="acts2">`+
+        (better?'<button class="btn up">Улучшить фото</button>':'')+
+        `<button class="btn pickbtn${s.pick?' on':''}">${s.pick?'✓ в подборке':'В подборку'}</button>`+
+      `</div></div>`;
+  };
   f.className='car';
-  f.innerHTML=
-    `<div class="frame">`+
-      (s?`<img src="${s.url}" alt="${shotLabel(s)}">`
-        :`<div class="add"><div class="plus">＋</div><b>Посмотреть изменения на фото</b>
-          <span>черновое фото · ~25 сек</span></div>`)+
-      `<button class="nav prev" ${slide===0?'disabled':''} aria-label="Назад">‹</button>`+
-      `<button class="nav next" ${slide>=total-1?'disabled':''} aria-label="Вперёд">›</button>`+
+  f.innerHTML=`<button class="nav prev" aria-label="Назад">‹</button>`+
+    `<div class="track">`+
+      (addFirst?`<div class="add"><div class="plus">＋</div><b>Посмотреть изменения на фото</b>
+        <span>черновое фото · ~25 сек</span></div>`:'')+
+      shots.map((s,i)=>card(s,i)).join('')+
     `</div>`+
-    `<div class="bar2"><span class="meta">${s?shotLabel(s):'новая расстановка'} · ${slide+1} из ${total}`+
-      (s&&s.sources?` · <a class="srcln" href="${s.sources}" target="_blank" rel="noopener">исходники</a>`:'')+
-      `</span>`+
-      `<span>`+
-        (better?'<button class="btn up">Улучшить фото</button> ':'')+
-        (s?`<button class="btn pickbtn${s.pick?' on':''}">${s.pick?'✓ в подборке':'В подборку'}</button>`:'')+
-      `</span></div>`+
-    (total>1?`<div class="dots">${Array.from({length:total},(_,k)=>
-        `<button class="dot${k===slide?' on':''}" data-k="${k}"></button>`).join('')}</div>`:'');
-  const go=n=>{slide=Math.max(0,Math.min(n,total-1));drawFeed();};
-  f.querySelector('.prev').onclick=()=>go(slide-1);
-  f.querySelector('.next').onclick=()=>go(slide+1);
-  f.querySelectorAll('.dot').forEach(d=>d.onclick=()=>go(+d.dataset.k));
+    `<button class="nav next" aria-label="Вперёд">›</button>`+
+    (shots.length?`<div class="meta">снимков: ${shots.length} · листайте стрелками, клик по фото — крупно</div>`:'');
+  const tr=f.querySelector('.track');
+  const step=()=>Math.max(240,tr.clientWidth*0.8);
+  const sync=()=>{
+    f.querySelector('.prev').disabled=tr.scrollLeft<8;
+    f.querySelector('.next').disabled=tr.scrollLeft+tr.clientWidth>=tr.scrollWidth-8;
+  };
+  f.querySelector('.prev').onclick=()=>{tr.scrollLeft-=step();setTimeout(sync,320);};
+  f.querySelector('.next').onclick=()=>{tr.scrollLeft+=step();setTimeout(sync,320);};
+  tr.onscroll=sync; setTimeout(sync,0);
   const add=f.querySelector('.add'); if(add)add.onclick=()=>makePhoto('draft');
-  const img=f.querySelector('.frame img'); if(img&&s)img.onclick=()=>viewShot(shots.indexOf(s));
-  const up=f.querySelector('.up'); if(up)up.onclick=()=>makePhoto('realistic');
-  const pb=f.querySelector('.pickbtn'); if(pb&&s)pb.onclick=()=>{s.pick=!s.pick;drawFeed();};
+  f.querySelectorAll('.card').forEach(c=>{
+    const s=shots[+c.dataset.i];
+    c.querySelector('img').onclick=()=>viewShot(+c.dataset.i);
+    const up=c.querySelector('.up'); if(up)up.onclick=()=>makePhoto('realistic');
+    c.querySelector('.pickbtn').onclick=()=>{s.pick=!s.pick;drawFeed();};
+  });
   const bar=document.getElementById('feedBar');
   bar.hidden=shots.length===0;
   const n=shots.filter(x=>x.pick).length;
   const fsBtn=document.getElementById('feedShare');
   if(fsBtn)fsBtn.textContent=n?`Отправить себе (${n})`:'Отправить подборку себе';
 }
-// ——— блок над планом: либо кадры этой расстановки, либо «расстановка изменилась»
 function drawPhotos(){                 // ЗАГОЛОВОК БЛОКА: что сейчас со снимками этой расстановки
   const box=document.getElementById('photosHead'); if(!box||!D)return;
   const rev=revision();
