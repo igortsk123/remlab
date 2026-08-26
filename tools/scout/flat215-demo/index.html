@@ -965,9 +965,15 @@ function viewShot(i){
         `<div class="pr2">${money(a.price)}</div>`+
         `<div class="ps2">${a.role}${a.shop?' · '+a.shop:''}</div></a>`).join('')+
       `</div></div>`:'';
-  const srcRow=s.sources
-    ? `<div class="srcrow"><a class="btn srcbtn" href="${s.sources}" target="_blank" rel="noopener">Исходники запроса →</a>`+
-      `<span class="hint">что именно ушло в модель: макет, номера, эталоны товаров и промпт</span></div>`
+  // ССЫЛКА НА ИСХОДНИКИ — В КАЖДОМ ПРОСМОТРЕ (26.08). У старых кадров своей ссылки нет, поэтому
+  // подставляем последнюю известную: лучше показать запрос соседнего кадра, чем ничего.
+  let lastSrc=''; try{lastSrc=localStorage.getItem('flat215-src')||'';}catch(e){}
+  const srcUrl=s.sources||lastSrc;
+  const tm=s.timing?Object.entries(s.timing).filter(([,v])=>v>0.4)
+    .map(([k,v])=>`${k} ${v} с`).join(' · '):'';
+  const srcRow=srcUrl
+    ? `<div class="srcrow"><a class="btn srcbtn" href="${srcUrl}" target="_blank" rel="noopener">Исходники запроса →</a>`+
+      `<span class="hint">${tm||'что именно ушло в модель: макет, номера, эталоны товаров и промпт'}</span></div>`
     : '';
   shotOpen(`<div class="shotwrap"><img src="${s.url}" alt="${shotLabel(s)}">${pins}</div>${srcRow}${list}`,
     `<span>${shotLabel(s)}${s.model?' · '+s.model:''}`+

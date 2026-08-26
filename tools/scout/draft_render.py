@@ -680,7 +680,8 @@ def _ask(content: list, max_tokens: int = 900) -> str:
         return json.loads(r.read())['choices'][0]['message']['content'] or ''
 
 
-def refine_pair(pieces: list, per_cam: list, skus: dict, marks: list) -> list:
+def refine_pair(pieces: list, per_cam: list, skus: dict, marks: list,
+                verify: bool = True) -> list:
     """ЯКОРЯ: РАМКА + ПРОВЕРКА ВЫРЕЗКОЙ (26.08, владелец: «надписи не соответствуют на обоих фото»).
 
     Одной точки мало: модель уверенно называет координату «где-то там», и значок садится на чужой
@@ -735,7 +736,9 @@ def refine_pair(pieces: list, per_cam: list, skus: dict, marks: list) -> list:
             meta.append({'view': i, 'role': d.get('role'),
                          'x': round((x0 + x1) / 2, 4), 'y': round((y0 + y1) / 2, 4)})
     ok = set()
-    if crops:
+    if crops and not verify:
+        ok = set(range(len(meta)))
+    elif crops:
         vc = [{'type': 'text', 'text':
                f'Ниже {len(crops)} вырезок из фотографий интерьера. Для каждой вырезки назови, '
                'что на ней изображено, выбрав ОДИН вариант из списка: '
@@ -783,9 +786,13 @@ def refine_pair(pieces: list, per_cam: list, skus: dict, marks: list) -> list:
     return out
 
 
+_T0 = [0.0]
+
+
 def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dict,
                model: str, quality: str = 'medium', refine: bool = True,
                style: str = '') -> list:
+    _T0[0] = time.time()
     # `refine` оставлен для отладки: якоря уточняются всегда — владелец 26.08 «надо их точнее
     # расставлять» (цифра стула висела на журнальном столике, у ковра якоря не было вовсе)
     """Полный рецепт трека А: коллажи → номера → эталоны → один запрос → разрез по полосе."""
@@ -820,6 +827,7 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
     if ident is not None:
         ident.save(prefix + '-identity.jpg', quality=92)
     legend = _legend(per_cam, skus)
+    t_coll = round(time.time() - _T0[0], 1)      # сцена + коллажи + листы
     two = len(cams) > 1
     head = ('You are given: (1) a sheet with TWO views of the SAME room stacked vertically and '
             'split by a magenta band' if two else
@@ -866,7 +874,9 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
                                        '3-эталоны-товаров': ident}, prompt, legend,
                                {'модель': model, 'размер': size, 'качество': quality,
                                 'видов': len(cams), 'стиль': style or '—'})
+    _t = time.time()
     out = gpt_edit(imgs, prompt, size=size, quality=quality, model=model.split('gateway:')[-1])
+    t_model = round(time.time() - _t, 1)
     out.save(prefix + '-final.jpg', quality=94)
     pieces = _split_pair(out) if len(cams) > 1 else [out]
     # УТОЧНЕНИЕ ЯКОРЕЙ ПО ОБОИМ КАДРАМ ПАРАЛЛЕЛЬНО: два последовательных зрячих вызова добавляли
@@ -876,11 +886,17 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
         piece = _trim_band(piece)
         piece.save(f'{prefix}-{cam.name}.jpg', quality=92)
         prepared.append((cam, piece, diag, an))
-    refined = refine_pair([t[1] for t in prepared], [t[3] for t in prepared], skus, [sheet_marks])
+    _t = time.time()
+    refined = refine_pair([t[1] for t in prepared], [t[3] for t in prepared], skus, [sheet_marks],
+                          verify=(quality != 'low'))
+    t_vis = round(time.time() - _t, 1)
     shots = []
+    timing = {'сцена и коллажи': t_coll, 'генерация кадра': t_model, 'проверка значков': t_vis,
+              'публикация': round(time.time() - _T0[0] - t_coll - t_model - t_vis, 1)}
     for (cam, piece, diag, _an), an2 in zip(prepared, refined):
         shots.append({'camera': cam.name, 'url': _publish_frame(piece, f'{stamp}-{cam.name}.jpg'),
-                      'diag': diag, 'sources': src_url, 'anchors': an2})
+                      'diag': diag, 'sources': src_url, 'anchors': an2, 'timing': timing})
+    print('  время: ' + ', '.join(f'{k} {v} с' for k, v in timing.items()))
     return shots
 
 
@@ -934,6 +950,7 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
     return {'shots': [{'camera': s['camera'], 'url': s['url'], 'anchors': s.get('anchors') or [],
                        'sources': s.get('sources')} for s in shots if s['url']],
             'sources': next((s.get('sources') for s in shots if s.get('sources')), None),
+            'timing': next((s.get('timing') for s in shots if s.get('timing')), None),
             'model': model, 'quality': quality, 'sec': sec,
             'file': f'{prefix}-{first.get("camera", "C1")}.jpg',
             'url': first.get('url', ''), 'diag': first.get('diag', {})}

@@ -138,7 +138,7 @@ class H(BaseHTTPRequestHandler):
             res = DR.render(layout=payload, quality=quality,
                             save_prefix=os.path.join(DR.OUT, 'draft-web'))
             self._send(200, {'shots': res['shots'], 'url': res['url'], 'model': res['model'],
-                             'sources': res.get('sources'),
+                             'sources': res.get('sources'), 'timing': res.get('timing'),
                              'quality': quality, 'sec': round(time.time() - t, 1),
                              'diag': res['diag']})
         except Exception as e:                       # noqa: BLE001 — наружу отдаём короткую причину
