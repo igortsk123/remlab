@@ -225,6 +225,9 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
  background:#fff;overflow:hidden;display:flex;flex-direction:column}
 .car .card img{width:100%;aspect-ratio:3/2;object-fit:cover;display:block;cursor:zoom-in;
  background:#F4F2ED}
+.car .card{position:relative}
+.car .card .views{position:absolute;top:14px;right:14px;background:#000000a8;color:#fff;
+ border-radius:999px;padding:4px 10px;font-size:12.5px}
 .car .card .cap{padding:8px 10px;font-size:clamp(13px,0.92vw,14.5px);color:#5C655E;line-height:1.35}
 .car .card .acts2{display:flex;gap:6px;padding:0 10px 10px;flex-wrap:wrap}
 .car .card .acts2 .btn{padding:7px 12px;font-size:clamp(13px,0.92vw,14.5px)}
@@ -864,7 +867,7 @@ function addShot(rec){ shots.push(rec); saveShots();
   if(tr)tr.scrollLeft=0; }
 function shotLabel(s){
   const q={draft:'черновое',realistic:'улучшенное',preset:'готовое'}[s.quality]||s.quality;
-  const cam={C1:'от окна',C2:'от входа'}[s.camera]||'';
+  const cam='';           // ракурс не пишем: виды листаются внутри просмотра (27.08)
   const t=new Date(s.ts||Date.now());
   return `${s.variant||''} · ${q}${cam?' · '+cam:''} · ${t.getHours()}:${String(t.getMinutes()).padStart(2,'0')}`;
 }
@@ -882,11 +885,23 @@ function drawFeed(){                    // КАРУСЕЛЬ СРЕДНИХ КА�
   const has=rev&&mine.some(s=>s.revision===rev);
   const addFirst=rev&&!has;
   if(!mine.length&&!addFirst){f.innerHTML='';f.className='';document.getElementById('feedBar').hidden=true;return;}
-  const card=(s,i)=>{
+  // ОДНА СЪЁМКА — ОДНА КАРТОЧКА (владелец 27.08): два вида одной генерации не должны занимать в
+  // ленте два места; в карточке показывается первый вид, второй листается стрелкой в просмотре.
+  const groups=(list)=>{
+    const by=new Map();
+    list.forEach(s=>{
+      const k=s.batch||(s.revision+'|'+s.quality+'|'+s.vid);
+      if(!by.has(k))by.set(k,[]);
+      by.get(k).push(s);
+    });
+    return [...by.values()];
+  };
+  const card=(s,i,views)=>{
     const better=s.quality==='draft'&&s.revision===rev&&
       !mine.some(x=>x.quality==='realistic'&&x.revision===rev);
     return `<div class="card" data-i="${i}">`+
       `<img src="${s.url}" alt="${shotLabel(s)}" loading="lazy">`+
+      (views>1?`<div class="views">${views} вида</div>`:'')+
       `<div class="cap">${shotLabel(s)}`+
         (s.sources?` · <a class="srcln" href="${s.sources}" target="_blank" rel="noopener">исходники</a>`:'')+
       `</div>`+
@@ -900,7 +915,8 @@ function drawFeed(){                    // КАРУСЕЛЬ СРЕДНИХ КА�
     `<div class="track">`+
       (addFirst?`<div class="add"><div class="plus">＋</div><b>Посмотреть изменения на фото</b>
         <span>черновое фото · ~25 сек</span></div>`:'')+
-      mine.map(s=>[s,shots.indexOf(s)]).reverse().map(([s,i])=>card(s,i)).join('')+  // новые первыми
+      groups(mine).map(g=>[g[0],shots.indexOf(g[0]),g.length]).reverse()
+        .map(([s,i,n])=>card(s,i,n)).join('')+                                    // новые первыми
     `</div>`+
     `<button class="nav next" aria-label="Вперёд">›</button>`+
     '';

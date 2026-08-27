@@ -306,6 +306,7 @@ def anchors(room, placements, cam, skus: dict) -> list:
                 cx, cy = float(xs[k]), float(ys[k])
         sku = skus.get(role) or {}
         out.append({'role': role, 'x': round(cx / W, 4), 'y': round(cy / H, 4),
+                    'top': round(float(ys.min()) / H, 4), 'cx': round(float(xs.mean()) / W, 4),
                     'name': sku.get('name'), 'price': sku.get('price'),
                     'url': sku.get('url'), 'img': sku.get('img'), 'shop': sku.get('shop')})
     return out
@@ -490,15 +491,33 @@ def _label(text: str) -> str:
 
 
 def _marked(img: Image.Image, anchors: list, skus: dict) -> Image.Image:
-    """Кадр с НОМЕРОМ, НАЗВАНИЕМ И РАЗМЕРОМ каждого предмета (владелец 26.08: «подписывали размеры
-    каждого элемента и что это — стол, стул, а потом с номерами»). Номер связывает предмет в кадре
-    с его эталонной фотографией на отдельном листе, подпись говорит модели, что это и какого оно
-    размера, — тогда она не превращает тумбу в комод и не меняет пропорции."""
+    """Кадр с НОМЕРАМИ НА ВЫНОСКАХ (27.08, владелец: «подписи находят одна на другую — для этого
+    мы делали сноски-выноски»). Приём взят из нашего же `viz_marks.py`: номер ставится НАД
+    предметом и соединяется линией с точкой внутри него, а место под кружок и подпись
+    подбирается с проверкой, что оно не занято соседями. Раньше подпись рисовалась прямо в точке
+    предмета, и у близких вещей надписи наезжали друг на друга."""
     out = img.copy()
     d = ImageDraw.Draw(out)
-    r = max(16, img.width // 42)
-    f = _font(int(r * 1.25))
-    fc = _font(max(13, int(r * 0.78)))
+    W, H = out.size
+    r = max(15, W // 46)
+    f = _font(int(r * 1.3))
+    fc = _font(max(13, int(r * 0.8)))
+    placed: list = []                       # занятые кружки: (x, y, r)
+    boxes: list = []                        # занятые подписи: (x0, y0, x1, y1)
+
+    def free(px, py, w, h):
+        if px < 2 or py < 2 or px + w > W - 2 or py + h > H - 2:
+            return False
+        for bx0, by0, bx1, by1 in boxes:
+            if not (px + w < bx0 - 4 or px > bx1 + 4 or py + h < by0 - 3 or py > by1 + 3):
+                return False
+        for ux, uy, ur in placed:
+            if (px + w / 2 - ux) ** 2 + (py + h / 2 - uy) ** 2 < (ur + max(w, h) / 2) ** 2:
+                return False
+        return True
+
+    # ПРОЁМЫ ПОДПИСЫВАЕМ ПЕРВЫМИ и запоминаем их места: иначе номер предмета садится поверх
+    # подписи «ОКНО»/«ДВЕРЬ» (27.08)
     import numpy as _np
     arr = _np.asarray(out.convert('RGB')).astype(int)
     for rgb, cap in (((108, 166, 208), 'ОКНО'), ((176, 136, 84), 'ДВЕРЬ')):
@@ -507,29 +526,52 @@ def _marked(img: Image.Image, anchors: list, skus: dict) -> Image.Image:
         if m.sum() < 400:
             continue
         ys, xs = _np.where(m)
-        cx, cy = float(xs.mean()), float(ys.mean())
         t = _label(cap)
         bb = d.textbbox((0, 0), t, font=fc)
         w, h = bb[2] - bb[0] + 10, bb[3] - bb[1] + 8
-        bx = min(max(cx - w / 2, 2), out.width - w - 2)
-        by = min(max(cy - h / 2, 2), out.height - h - 2)
-        d.rectangle([bx, by, bx + w, by + h], fill=(255, 255, 255))
-        d.text((bx + 5, by + 4), t, fill=(30, 90, 160) if cap == 'ОКНО' else (150, 90, 40), font=fc)
+        px, py = float(xs.mean()) - w / 2, float(ys.mean()) - h / 2
+        px = min(max(px, 2), W - w - 2)
+        py = min(max(py, 2), H - h - 2)
+        d.rectangle([px, py, px + w, py + h], fill=(255, 255, 255))
+        d.text((px + 5, py + 4), t, fill=(30, 90, 160) if cap == 'ОКНО' else (150, 90, 40), font=fc)
+        boxes.append((px, py, px + w, py + h))
+
     for a in anchors:
-        cx, cy = a['x'] * out.width, a['y'] * out.height
+        ax, ay = a['x'] * W, a['y'] * H                    # точка внутри предмета
+        top = (a.get('top', a['y'])) * H
+        cx = (a.get('cx', a['x'])) * W
         sku = skus.get(a['role']) or {}
         dim = ''
         if sku.get('w') and sku.get('d'):
             dim = f" {round(sku['w'])}×{round(sku['d'])}" + (f"×{round(sku['h'])}" if sku.get('h') else '')
         cap = _label(f"{a['n']}. {a['role']}{dim} см" if dim else f"{a['n']}. {a['role']}")
         bb = d.textbbox((0, 0), cap, font=fc)
-        w, h = bb[2] - bb[0] + 10, bb[3] - bb[1] + 8
-        bx, by = min(max(cx - w / 2, 2), out.width - w - 2), min(cy + r + 4, out.height - h - 2)
-        d.rectangle([bx, by, bx + w, by + h], fill=(255, 255, 255))
-        d.text((bx + 5, by + 4), cap, fill=(200, 30, 30), font=fc)
-        d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(255, 255, 255), outline=(200, 30, 30),
-                  width=max(2, r // 7))
-        d.text((cx, cy), str(a['n']), fill=(200, 30, 30), anchor='mm', font=f)
+        tw, th = bb[2] - bb[0] + 10, bb[3] - bb[1] + 8
+        # ищем место: над предметом, потом вбок и выше — как в viz_marks
+        spot = None
+        for dy in (0, 1, 2, 3, 4):
+            for dx in (0, -1, 1, -2, 2, -3, 3):
+                mx = cx + dx * (tw * 0.55)
+                my = top - r - 12 - dy * (r * 1.9)
+                if free(mx - tw / 2, my - r - th - 6, tw, th + r * 2 + 8):
+                    spot = (mx, my)
+                    break
+            if spot:
+                break
+        if spot is None:
+            spot = (min(max(cx, tw / 2 + 4), W - tw / 2 - 4), max(top - r - 12, r + th + 12))
+        mx, my = spot
+        tx0, ty0 = mx - tw / 2, my - r - th - 6
+        boxes.append((tx0, ty0, tx0 + tw, ty0 + th))
+        placed.append((mx, my, r))
+        d.line([mx, my + r, ax, ay], fill=(200, 30, 30), width=2)          # выноска в предмет
+        d.ellipse([ax - 5, ay - 5, ax + 5, ay + 5], fill=(200, 30, 30))
+        d.rectangle([tx0, ty0, tx0 + tw, ty0 + th], fill=(255, 255, 255))
+        d.text((tx0 + 5, ty0 + 4), cap, fill=(200, 30, 30), font=fc)
+        d.ellipse([mx - r, my - r, mx + r, my + r], fill=(255, 255, 255),
+                  outline=(200, 30, 30), width=max(2, r // 7))
+        d.text((mx, my), str(a['n']), fill=(200, 30, 30), anchor='mm', font=f)
+
     return out
 
 
