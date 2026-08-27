@@ -603,7 +603,7 @@ function basket(){                    // СПИСОК ТОВАРОВ КОМНА�
 }
 let UID=0;
 let peekTimer=null;
-function peek(e,it){const p=document.getElementById('peek');const s=it.sku||{};
+function peek(e,it){const p=document.getElementById('peek');const s=skuOf(it)||{};
   clearTimeout(peekTimer);
   p.innerHTML=`<img src="${s.img}" alt="">`+
     `<div class="pn">${s.name||it.role}</div>`+
@@ -754,12 +754,13 @@ function badgeFor(it){
   const _lx=it.w/2-(r+3)/S, _ly=-(it.d/2-(r+3)/S);          // локальный «правый верхний» угол
   const cx=X(it.x+_lx*_co-_ly*_si), cy=Y(it.y+_lx*_si+_ly*_co);
   const g=el('g',{}); g.style.cursor='pointer';
+  const _s=skuOf(it);
   g.appendChild(el('circle',{cx:cx,cy:cy,r:r+2,fill:'#fff',stroke:'#2F6D96','stroke-width':1.6}));
-  if(it.sku&&it.sku.img){
+  if(_s&&_s.img){
     const id='cp'+(++UID);
     const cp=el('clipPath',{id:id});cp.appendChild(el('circle',{cx:cx,cy:cy,r:r}));
     g.appendChild(cp);
-    g.appendChild(el('image',{href:it.sku.img,x:cx-r,y:cy-r,width:2*r,height:2*r,
+    g.appendChild(el('image',{href:_s.img,x:cx-r,y:cy-r,width:2*r,height:2*r,
       preserveAspectRatio:'xMidYMid slice','clip-path':`url(#${id})`}));
     g.addEventListener('pointerenter',e=>peek(e,it));
     g.addEventListener('pointerleave',()=>hidePeek());
@@ -772,11 +773,19 @@ function badgeFor(it){
   // pointerdown гасим, иначе холст перехватывает указатель (setPointerCapture) и click по значку
   // до нас не доходит — модалка не открывалась (26.08)
   g.addEventListener('pointerdown',e=>{e.stopPropagation();
-    if(e.pointerType==='touch'&&it.sku&&it.sku.img)peek(e,it);});
+    if(e.pointerType==='touch'&&_s&&_s.img)peek(e,it);});
   g.addEventListener('click',e=>{e.stopPropagation();hidePeek();openPicker(it);});
   return g;
 
 }
+// КОМПЛЕКТ ИЗ ДВУХ ШТУК (27.08): «стул 2» — вторая штука товара «стул», своей карточки у неё нет.
+// Для показа берём товар базовой роли, а в списках товар считаем ОДИН раз (дедуп по ссылке).
+function baseRole(r){return String(r||'').replace(/\s+\d+$/,'');}
+function skuOf(it){if(it.sku&&it.sku.name)return it.sku;
+  const b=items.find(o=>o!==it&&o.role===baseRole(it.role)&&o.sku&&o.sku.name);
+  return b?b.sku:(it.sku||null);}
+function uniqProducts(list){const seen=new Set();return list.filter(a=>{
+  const k=(a.url||'')+'|'+(a.name||''); if(seen.has(k))return false; seen.add(k); return true;});}
 function shade(hex,amt){const n=parseInt(hex.slice(1),16);
   const r=Math.max(0,Math.min(255,(n>>16)+amt)),g2=Math.max(0,Math.min(255,((n>>8)&255)+amt)),
         b2=Math.max(0,Math.min(255,(n&255)+amt));
@@ -1021,7 +1030,7 @@ function viewShot(i){
   const s=shots[i]; if(!s)return;
   // ЗНАЧКИ — ТОЛЬКО ПОДТВЕРЖДЁННЫЕ, А СПИСОК ТОВАРОВ — ВЕСЬ (владелец 27.08: «исчезли товары при
   // открытии фото»): строгая проверка якорей не должна прятать сами товары этого кадра.
-  const all=(s.anchors||[]).filter(a=>a.name);
+  const all=uniqProducts((s.anchors||[]).filter(a=>a.name));
   const an=all.filter(a=>!a.unverified);
   // ЯКОРЯ ставим по координатам, посчитанным сервером из масок сцены: клик ведёт в магазин
   const pins='';           // ЗНАЧКОВ НА ФОТО НЕТ (владелец 27.08): товары — лентой под кадром
@@ -1103,7 +1112,7 @@ function shareOpen(list){
           // В ПОДБОРКУ ИДУТ И ТОВАРЫ СО ССЫЛКАМИ (владелец 26.08: «человек должен получать
           // коллекции»): под каждым кадром — что на нём стоит, почём и где купить
           shots:sel.map(s=>({url:s.url,label:shotLabel(s),
-            items:(s.anchors||[]).filter(a=>a.name).map(a=>({name:a.name,price:a.price,
+            items:uniqProducts((s.anchors||[]).filter(a=>a.name)).map(a=>({name:a.name,price:a.price,
               url:a.url,img:a.img,shop:a.shop,role:a.role}))}))})});
       const j=await r.json();
       if(j.error)throw new Error(j.error);

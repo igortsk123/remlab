@@ -577,18 +577,29 @@ def _marked(img: Image.Image, anchors: list, skus: dict) -> Image.Image:
 
 def _identity(anchors_all: list, photos: dict, skus: dict | None = None) -> Image.Image | None:
     """Лист эталонов: фото КАЖДОГО товара с подписью «#N роль» — по нему модель узнаёт материал."""
-    seen, cells = set(), []
+    # ОДИН ТОВАР — ОДНА КАРТОЧКА (27.08): «стул» и «стул 2» это комплект из двух штук, показывать
+    # его дважды незачем — вместо этого перечисляем оба номера на одной карточке.
+    seen, cells, by_sku = set(), [], {}
     for a in anchors_all:
         if a['role'] in seen:
             continue
         seen.add(a['role'])
+        key = ((a.get('name') or _base_sku(a['role'], skus or {}).get('name') or '')
+               + '|' + _base_role(a['role']))
+        if not key.startswith('|') and key in by_sku:
+            by_sku[key].append(a['n'])
+            continue
+        by_sku.setdefault(key, [a['n']])
         # ЛИСТ ЭТАЛОНОВ ПОКРЫВАЕТ ВСЕ ПОЗИЦИИ КАДРА (ADR-0063, опыт «б» 05.08): всё, чего модель
         # не увидела фотографией, она выдумывает по названию. Нет фото — кладём пустую карточку
         # с подписью, чтобы предмет всё равно был назван.
-        cells.append((a['n'], a['role'], photos.get(a['role']), a.get('name') or ''))
+        cells.append([key, _base_role(a['role']), photos.get(a['role']),
+                      a.get('name') or _base_sku(a['role'], skus or {}).get('name') or ''])
     if not cells:
         return None
-    cells.sort(key=lambda c: c[0])
+    for c in cells:                       # подставляем список номеров этого товара
+        c[0] = by_sku.get(c[0], [0])
+    cells.sort(key=lambda c: c[0][0])
     cols = min(3, len(cells))
     rows = (len(cells) + cols - 1) // cols
     cw, ch = 520, 500
@@ -596,7 +607,8 @@ def _identity(anchors_all: list, photos: dict, skus: dict | None = None) -> Imag
     d = ImageDraw.Draw(sheet)
     f = _font(34)
     fs = _font(24)
-    for i, (num, role, im, name) in enumerate(cells):
+    for i, (nums_, role, im, name) in enumerate(cells):
+        num = ', '.join('#' + str(n) for n in nums_)
         x, y = (i % cols) * cw, (i // cols) * ch
         if im is not None:
             im = im.copy()
@@ -606,21 +618,39 @@ def _identity(anchors_all: list, photos: dict, skus: dict | None = None) -> Imag
             d.rectangle([x + 30, y + 30, x + cw - 30, y + ch - 130], outline=(200, 200, 200), width=3)
             d.text((x + cw // 2, y + (ch - 100) // 2), 'фото нет', fill=(150, 150, 150),
                    anchor='mm', font=_font(28))
-        sku = (skus or {}).get(role) or {}
+        sku = _base_sku(role, skus or {})
         dim = (f"{round(sku['w'])}×{round(sku['d'])}" + (f"×{round(sku['h'])}" if sku.get('h') else '') + ' см'
                if sku.get('w') and sku.get('d') else '')
-        cap = f'#{num} {role}'
-        if role.split(' ')[0] == 'ковёр':
-            cap += ' — НА ПОЛ (вид сверху)'      # иначе модель вешает ковёр на стену как картину
+        cap = f'{num} {role}'
+        note = 'НА ПОЛ (вид сверху)' if role == 'ковёр' else ''   # иначе модель вешает ковёр на стену
         def fit(txt, font, limit):
             t = _label(txt)
             while t and d.textlength(t, font=font) > limit:
                 t = t[:-1]
             return t
-        d.text((x + 20, y + ch - 86), fit(cap, f, cw - 40), fill=(200, 30, 30), font=f)
-        d.text((x + 20, y + ch - 46), fit(name[:60] + (' · ' + dim if dim else ''), fs, cw - 40),
+        d.text((x + 20, y + ch - 118), fit(cap, f, cw - 40), fill=(200, 30, 30), font=f)
+        if note:
+            d.text((x + 20, y + ch - 78), fit(note, fs, cw - 40), fill=(200, 30, 30), font=fs)
+        d.text((x + 20, y + ch - 44), fit(name[:60] + (' · ' + dim if dim else ''), fs, cw - 40),
                fill=(90, 90, 90), font=fs)
     return sheet
+
+
+def _base_role(role: str) -> str:
+    """Роль без номера экземпляра: «стул 2» → «стул»; «стол обеденный» остаётся как есть."""
+    return re.sub(r'\s+\d+$', '', role or '').strip()
+
+
+def _base_sku(role: str, skus: dict) -> dict:
+    """Товар экземпляра, добитый товаром базовой роли: «стул 2» — вторая штука из комплекта
+    «стул», своей карточки у неё нет (name/img/url приходят пустыми) — берём их у базы."""
+    inst = skus.get(role) or {}
+    base = skus.get(_base_role(role)) or {}
+    if not base or base is inst:
+        return inst
+    out = dict(base)
+    out.update({k: v for k, v in inst.items() if v not in (None, '')})
+    return out
 
 
 def _legend(per_cam: list, skus: dict) -> list:
@@ -628,16 +658,25 @@ def _legend(per_cam: list, skus: dict) -> list:
     merged = {}
     for idx, anchors in enumerate(per_cam):
         for a in anchors:
+            sku = _base_sku(a['role'], skus)
             it = merged.setdefault(a['n'], {
                 'id': a['n'], 'type': a['role'],
-                'product': a.get('name') or '—',
+                'product': a.get('name') or sku.get('name') or '—',
                 'size_cm': None, 'in_view_1': 'absent', 'in_view_2': 'absent'})
-            sku = skus.get(a['role']) or {}
             if sku.get('w'):
                 it['size_cm'] = f"{round(sku['w'])}x{round(sku.get('d') or 0)}" + \
                                 (f"x{round(sku['h'])}" if sku.get('h') else '')
             it['in_view_1' if idx == 0 else 'in_view_2'] = 'visible'
-    return [merged[k] for k in sorted(merged)]
+    out, first = [], {}
+    for k in sorted(merged):
+        it = merged[k]
+        key = it['product']
+        if key != '—' and key in first:
+            it['same_product_as'] = first[key]      # «стул 2» = вторая штука комплекта «стул»
+        else:
+            first[key] = it['id']
+        out.append(it)
+    return out
 
 
 def gpt_edit(images: list, prompt: str, size: str = '1024x1536',
@@ -938,7 +977,7 @@ def refine_pair(pieces: list, per_cam: list, skus: dict, marks: list,
         for role, d in found.items():
             if role in seen:
                 continue
-            sku = (skus or {}).get(role) or {}
+            sku = _base_sku(role, skus or {})
             n += 1
             res.append({'role': role, 'x': d['x'], 'y': d['y'], 'n': n, 'name': names.get(role),
                         'price': sku.get('price'), 'url': sku.get('url'), 'img': sku.get('img'),
@@ -1023,6 +1062,9 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
             'wall, and never invent a second rug of another colour.\n'
             '- Do not add wall art, posters, mirrors or decor that is not in the object list.\n'
             '- Never duplicate an object that appears once in the layout.\n'
+            '- Some numbers share ONE product (a set of two chairs, for example): such an item has '
+            '"same_product_as": N in the object list and one shared card on the reference sheet '
+            'captioned with both numbers. Render both volumes as the SAME product.\n'
             '- Items marked "фото нет" have no reference: render a plain, neutral piece of that '
             'exact type and size.\n'
             '- In the layout a blue rectangle on a wall is a WINDOW (render real glass, frame and '
