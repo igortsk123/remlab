@@ -166,7 +166,7 @@ def collage(room, placements, cam, photos: dict,
                    if (inst == kv[0]).any() else 0)          # дальние вклеиваем первыми
     for i, role in order:
         m = (inst == i)
-        if m.sum() < 400:
+        if m.sum() < 20:
             continue
         if role.split(' ')[0] == 'тв':
             # ЭКРАН — ТЁМНЫЙ, А НЕ СИНИЙ (26.08): на clay-рендере ТВ синий, и модель честно
@@ -372,7 +372,7 @@ def anchors(room, placements, cam, skus: dict, sc: dict | None = None) -> list:
     out = []
     for i, role in ids.items():
         m = (inst == i)
-        if m.sum() < 80:            # совсем крошка (< 80 px) — распознать нечего
+        if m.sum() < 20:            # ниже — шум растеризации, предмета в кадре реально нет
             continue
         ys, xs = np.where(m)
         cx, cy = float(xs.mean()), float(ys.mean())
@@ -395,7 +395,8 @@ def anchors(room, placements, cam, skus: dict, sc: dict | None = None) -> list:
                     'depth_cm': round(float(dep.mean()), 1) if dep.size else None,
                     'x0': round(float(xs.min()) / W, 4), 'x1': round(float(xs.max()) / W, 4),
                     'bot': round(float(ys.max()) / H, 4), 'area': int(m.sum()),
-                    'tiny': bool(m.sum() < 400),   # подпись такому предмету ставим выноской
+                    'tiny': bool(m.sum() < 400),         # метка — только выноской
+                    'recognizable': bool(m.sum() >= 400),  # хватает пикселей для проверки SKU
                     'cut': bool(xs.min() <= 1 or xs.max() >= W - 2
                                 or ys.min() <= 1 or ys.max() >= H - 2),
                     'name': sku.get('name'), 'price': sku.get('price'),
