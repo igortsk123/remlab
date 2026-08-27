@@ -245,6 +245,13 @@ def scene_from_request(payload: dict) -> tuple:
                                     elev_cm=float(it.get('elev') or 0)))
         if it.get('img'):
             photos[role] = photo(it['img'])
+    for role in list(photos):                    # экземпляры пары («стул 2») наследуют фото роли
+        pass
+    for it in payload.get('items') or []:
+        role = it['role']
+        base = role.split(' ')[0]
+        if photos.get(role) is None and photos.get(base) is not None:
+            photos[role] = photos[base]
     return room, placements, photos
 
 
@@ -260,10 +267,12 @@ def demo_cams(room) -> list:
     cx, cy = W / 2, D / 2
     # ОСИ СЦЕНЫ: точка задаётся как (x, ВЫСОТА, глубина) — вверх смотрит Y, а не Z. Перепутал
     # порядок — и камера уезжает в стену: первый заход показал 1 предмет из 9 (26.08).
+    # Камеры стоят В ПРОТИВОПОЛОЖНЫХ углах и смотрят друг на друга через центр: так второй кадр
+    # действительно «с другой стороны», а не соседний ракурс той же стены (владелец 27.08).
     return [
         Camera(name='C1', eye=(W - off, eye_h, D - off), target=(off, tgt_h, off), fov_deg=80.0,
                width=1344, height=896),
-        Camera(name='C2', eye=(off, eye_h, D - off), target=(W - off, tgt_h, off), fov_deg=80.0,
+        Camera(name='C2', eye=(off, eye_h, off), target=(W - off, tgt_h, D - off), fov_deg=80.0,
                width=1344, height=896),
     ]
 
@@ -561,8 +570,13 @@ def _identity(anchors_all: list, photos: dict, skus: dict | None = None) -> Imag
         cap = f'#{num} {role}'
         if role.split(' ')[0] == 'ковёр':
             cap += ' — НА ПОЛ (вид сверху)'      # иначе модель вешает ковёр на стену как картину
-        d.text((x + 20, y + ch - 86), _label(cap), fill=(200, 30, 30), font=f)
-        d.text((x + 20, y + ch - 46), _label(name[:38] + (' · ' + dim if dim else '')),
+        def fit(txt, font, limit):
+            t = _label(txt)
+            while t and d.textlength(t, font=font) > limit:
+                t = t[:-1]
+            return t
+        d.text((x + 20, y + ch - 86), fit(cap, f, cw - 40), fill=(200, 30, 30), font=f)
+        d.text((x + 20, y + ch - 46), fit(name[:60] + (' · ' + dim if dim else ''), fs, cw - 40),
                fill=(90, 90, 90), font=fs)
     return sheet
 
@@ -1005,7 +1019,8 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
         size_hint = f'about {max(90, int(tv_w * 0.85))} cm wide' if tv_w else 'wall-sized to the console'
         tv_note = (f'- Above object #{tv_num} (TV console) hang a modern flat TV on the wall, '
                    f'{size_hint}, screen off (dark matte), centred over the console at about '
-                   '110–120 cm from the floor to the screen centre.\n')
+                   '110–120 cm from the floor to the screen centre. The TV must appear in EVERY '
+                   'view where the console is visible.\n')
     # ВСЕ ПРОНУМЕРОВАННЫЕ ПРЕДМЕТЫ ОБЯЗАНЫ БЫТЬ В КАДРЕ (27.08): модель роняла диван на одном из
     # видов, и кадр приходил «пустым» по составу.
     nums = sorted({a['n'] for an in per_cam for a in an if a.get('n')})
