@@ -312,6 +312,7 @@ def anchors(room, placements, cam, skus: dict) -> list:
                     # для метаданных кадра: глубина от камеры, ширина пятна и обрез рамкой
                     'depth_cm': round(float(dep.mean()), 1) if dep.size else None,
                     'x0': round(float(xs.min()) / W, 4), 'x1': round(float(xs.max()) / W, 4),
+                    'bot': round(float(ys.max()) / H, 4), 'area': int(m.sum()),
                     'cut': bool(xs.min() <= 1 or xs.max() >= W - 2
                                 or ys.min() <= 1 or ys.max() >= H - 2),
                     'name': sku.get('name'), 'price': sku.get('price'),
@@ -715,41 +716,72 @@ def _marked(img: Image.Image, anchors: list, skus: dict, caps: dict | None = Non
                else (150, 90, 40), font=fc)
         boxes.append((px, py, px + w, py + h))
 
-    for a in anchors:
+    # ПОДПИСЬ — НА САМОМ ПРЕДМЕТЕ (27.08, владелец: «если нет перекрытия — писать прямо на самом
+    # предмете, чтобы ИИ видел, что стол стоит точно тут; выноски делать, только если подписи
+    # перекрываются»). Прежняя схема ставила кружок в свободное место НАД предметом и тянула
+    # выноску через полкадра: модель читала номер на чужом объекте — стеллаж уезжал к окну,
+    # стулья к тв-тумбе (кадр 09e08ea71d). Порядок: сперва мелкие предметы, у них выбора меньше.
+    for a in sorted(anchors, key=lambda z: z.get('area') or 0):
         ax, ay = a['x'] * W, a['y'] * H                    # точка внутри предмета
-        top = (a.get('top', a['y'])) * H
+        top, bot = (a.get('top', a['y'])) * H, (a.get('bot', a['y'])) * H
+        ox0, ox1 = (a.get('x0', a['x'])) * W, (a.get('x1', a['x'])) * W
         cx = (a.get('cx', a['x'])) * W
-        sku = skus.get(a['role']) or {}
+        sku = _base_sku(a['role'], skus)
         dim = ''
         if sku.get('w') and sku.get('d'):
-            dim = f" {round(sku['w'])}×{round(sku['d'])}" + (f"×{round(sku['h'])}" if sku.get('h') else '')
-        cap = _label(f"{a['n']}. {a['role']}{dim} см" if dim else f"{a['n']}. {a['role']}")
-        bb = d.textbbox((0, 0), cap, font=fc)
-        tw, th = bb[2] - bb[0] + 10, bb[3] - bb[1] + 8
-        # ищем место: над предметом, потом вбок и выше — как в viz_marks
+            dim = f"{round(sku['w'])}×{round(sku['d'])}" + \
+                  (f"×{round(sku['h'])}" if sku.get('h') else '') + ' см'
+        l1 = _label(f"{a['n']}. {a['role']}")
+        l2 = _label(dim)
+
+        def block(font):
+            b1 = d.textbbox((0, 0), l1, font=font)
+            b2 = d.textbbox((0, 0), l2, font=font) if l2 else (0, 0, 0, 0)
+            w = max(b1[2] - b1[0], b2[2] - b2[0]) + 12
+            lh = (b1[3] - b1[1]) + 6
+            h = lh * (2 if l2 else 1) + 8
+            return w, h, lh
+
+        def draw_block(x0, y0, font, w, h, lh, on_item: bool):
+            d.rectangle([x0, y0, x0 + w, y0 + h],
+                        fill=(255, 255, 255), outline=(200, 30, 30) if on_item else None,
+                        width=2 if on_item else 0)
+            d.text((x0 + 6, y0 + 4), l1, fill=(200, 30, 30), font=font)
+            if l2:
+                d.text((x0 + 6, y0 + 4 + lh), l2, fill=(200, 30, 30), font=font)
+            boxes.append((x0, y0, x0 + w, y0 + h))
+
+        # 1) ПРЯМО НА ПРЕДМЕТЕ: подпись целиком лежит внутри его пятна и никому не мешает
+        done = False
+        for k, font in enumerate((fc, _font(max(11, int(r * 0.66))), _font(max(10, int(r * 0.55))))):
+            w, h, lh = block(font)
+            x0, y0 = ax - w / 2, ay - h / 2
+            inside = (x0 >= ox0 + 2 and x0 + w <= ox1 - 2 and y0 >= top + 2 and y0 + h <= bot - 2)
+            if inside and free(x0, y0, w, h):
+                draw_block(x0, y0, font, w, h, lh, True)
+                done = True
+                break
+        if done:
+            continue
+
+        # 2) ВЫНОСКА — только когда на предмете места нет: ищем ближайшее свободное место над ним
+        w, h, lh = block(fc)
         spot = None
         for dy in (0, 1, 2, 3, 4):
-            for dx in (0, -1, 1, -2, 2, -3, 3):
-                mx = cx + dx * (tw * 0.55)
-                my = top - r - 12 - dy * (r * 1.9)
-                if free(mx - tw / 2, my - r - th - 6, tw, th + r * 2 + 8):
-                    spot = (mx, my)
+            for dx in (0, -1, 1, -2, 2):
+                mx = cx + dx * (w * 0.6)
+                my = top - 10 - dy * (h + 6)
+                if free(mx - w / 2, my - h, w, h):
+                    spot = (mx - w / 2, my - h)
                     break
             if spot:
                 break
         if spot is None:
-            spot = (min(max(cx, tw / 2 + 4), W - tw / 2 - 4), max(top - r - 12, r + th + 12))
-        mx, my = spot
-        tx0, ty0 = mx - tw / 2, my - r - th - 6
-        boxes.append((tx0, ty0, tx0 + tw, ty0 + th))
-        placed.append((mx, my, r))
-        d.line([mx, my + r, ax, ay], fill=(200, 30, 30), width=2)          # выноска в предмет
+            spot = (min(max(cx - w / 2, 4), W - w - 4), max(top - h - 10, 4))
+        x0, y0 = spot
+        d.line([x0 + w / 2, y0 + h, ax, ay], fill=(200, 30, 30), width=2)
         d.ellipse([ax - 5, ay - 5, ax + 5, ay + 5], fill=(200, 30, 30))
-        d.rectangle([tx0, ty0, tx0 + tw, ty0 + th], fill=(255, 255, 255))
-        d.text((tx0 + 5, ty0 + 4), cap, fill=(200, 30, 30), font=fc)
-        d.ellipse([mx - r, my - r, mx + r, my + r], fill=(255, 255, 255),
-                  outline=(200, 30, 30), width=max(2, r // 7))
-        d.text((mx, my), str(a['n']), fill=(200, 30, 30), anchor='mm', font=f)
+        draw_block(x0, y0, fc, w, h, lh, False)
 
     return out
 
@@ -1294,7 +1326,13 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
     # промпт модель читала как пожелание и переставляла мебель «покрасивее».
     def frame_brief(k: int, label: str) -> str:
         corner, ops = _cam_geom(room, cams[k])
-        return f'{label}: {ops} In this frame {corner}.\n'
+        # ЧЕГО В КАДРЕ НЕТ — СПИСКОМ (27.08): «absent» в карточке предмета модель читала как
+        # необязательное, и дорисовывала диван, стоящий за спиной камеры.
+        here = {a['n'] for a in per_cam[k] if a.get('n')}
+        gone = sorted({a['n'] for an in per_cam for a in an if a.get('n')} - here)
+        miss = (' The following numbered items are NOT in this frame and must not appear in it: '
+                + ', '.join('#' + str(n) for n in gone) + '.') if gone else ''
+        return f'{label}: {ops} In this frame {corner}.{miss}\n'
 
     def build_full_prompt(two_views: bool, only: int | None = None) -> str:
         deliver = ('two photographs on one sheet: TOP is view 1, BOTTOM is view 2, with the '
@@ -1359,8 +1397,11 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
             'flooring, ceiling, skirting, frames and dressing of the given openings. Natural '
             'daylight, soft contact shadows, correct wall-to-floor junctions, vertical lines '
             'vertical' + (', lighting and materials identical in both frames' if two_views else '')
-            + '. Framed wall art may be added; no tabletop, shelf, floor or freestanding decor of '
-            'your own. Every planter and vase from the list must hold a live plant sized to it.\n\n'
+            + '. Wall colour and finish, floor material and tone, ceiling and skirting are yours '
+            'to choose in the style below; curtains or blinds on the given windows and framed wall '
+            'art are welcome when they match that style and the colours of the walls and the floor. '
+            'No tabletop, shelf, floor or freestanding decor of your own. Every planter and vase '
+            'from the list must hold a live plant sized to it.\n\n'
 
             'ITEM RULES.\n'
             '- A RUG (ковёр) is photographed from above: render it LYING FLAT ON THE FLOOR with '
