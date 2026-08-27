@@ -146,15 +146,16 @@ def calibrate(glb_path: str, photo: Image.Image, tiebreak=None) -> dict:
                 used_judge = True
         except Exception:  # noqa: BLE001 — судья упал: остаёмся на цвете
             pass
-    if mesh_symmetric(parts) and col_flat and not used_judge:
-        status = 'symmetric'                     # неразличим И силуэтом, И цветом, И без судьи
+    if mesh_symmetric(parts) and col_flat:
+        status = 'symmetric'
     elif top1['iou'] < 0.45:
         status = 'unobservable'
-    elif used_judge or margin >= 0.06:
+    elif margin >= 0.06:
         status = 'confident'
     else:
-        status = 'unobservable'
-    return {'front_yaw': top1['yaw'], 'status': status, 'top1': top1, 'judge': used_judge,
+        status = 'unobservable'      # ТЕНЕВОЙ судья (q23): выбор пишем, confident НЕ даём
+    return {'front_yaw': top1['yaw'], 'status': status, 'top1': top1,
+            'judge_shadow': used_judge,
             'margin': round(margin, 3), 'scored': scored, 'version': ORIENT_VERSION}
 
 

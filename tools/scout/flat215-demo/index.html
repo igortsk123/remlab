@@ -714,6 +714,19 @@ function shape(it){
     g.appendChild(R(-w/2,-d/2,w,d,3));
   }
   // значок подбора рисуется ОТДЕЛЬНО (badgeFor) — вне поворота, чтобы миниатюры не переворачивались
+  // ВИД СВЕРХУ ИЗ 3D-МОДЕЛИ (28.08, владелец: «модели есть — показываем их сверху, человек
+  // двигает, а перед/зад мы уже знаем»): спрайт рендерится из GLB (фронт — вниз, как и у
+  // стилизованных форм) и кладётся ПОВЕРХ формы; 404 — остаётся форма, ничего не ломается.
+  if(it.sku&&it.sku.img){
+    const sp=String(it.sku.img).replace(/^img\//,'sprites/').replace(/\.jpe?g$/i,'.png');
+    if(!/^https?:/.test(sp)){
+      const im=el('image',{href:sp,x:-w/2,y:-d/2,width:w,height:d,
+        preserveAspectRatio:'none',opacity:0.98});
+      im.addEventListener('error',()=>im.remove());
+      g.appendChild(im);
+    }
+  }
+
   return g;
 }
 
