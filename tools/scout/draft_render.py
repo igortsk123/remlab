@@ -252,6 +252,18 @@ def scene_from_request(payload: dict) -> tuple:
         base = role.split(' ')[0]
         if photos.get(role) is None and photos.get(base) is not None:
             photos[role] = photos[base]
+    # ТЕЛЕВИЗОР — ОБЪЁМ В СЦЕНЕ, А НЕ ПРОСЬБА В ТЕКСТЕ (27.08, владелец: «телевизор напротив
+    # дивана, а в присланных вариантах он где угодно»). Пока ТВ существовал только фразой в
+    # промпте, модель вешала его на любую понравившуюся стену. Теперь это пронумерованная панель
+    # на стене над тумбой: у неё есть место, размер и разворот, как у любого другого предмета.
+    stand = next((p for p in placements if _base_role(p.role) == 'тв-тумба'), None)
+    if stand is not None and not any(_base_role(p.role) == 'тв' for p in placements):
+        w = max(90.0, float(stand.item.w_cm) * 0.9)
+        placements.append(Placement(role='тв', x=stand.x, y=stand.y, rot=stand.rot,
+                                    elev_cm=max(85.0, float(stand.item.h_cm or 45) + 35.0),
+                                    item=Item(role='тв', w_cm=w, d_cm=8.0,
+                                              h_cm=round(w * 0.58, 1),
+                                              name='телевизор (по ширине тумбы)')))
     return room, placements, photos
 
 
@@ -738,34 +750,52 @@ def _opening_caps(room) -> dict:
     return caps
 
 
+# ЦВЕТ ПРЕДМЕТА — ТОЛЬКО НА СЛУЖЕБНОМ ЛИСТЕ (27.08, идея владельца): полупрозрачная заливка
+# каждого предмета своим цветом плюс КРУПНЫЙ номер прямо на нём. Чистый макет остаётся серым,
+# иначе цвета протекут в материалы товаров (предупреждение Codex).
+MARK_COLOURS = [((230, 25, 75), 'красный'), ((60, 180, 75), 'зелёный'), ((0, 130, 200), 'синий'),
+                ((245, 130, 48), 'оранжевый'), ((145, 30, 180), 'фиолетовый'),
+                ((0, 158, 158), 'бирюзовый'), ((240, 50, 230), 'розовый'),
+                ((160, 160, 20), 'оливковый'), ((170, 110, 40), 'коричневый'),
+                ((70, 100, 240), 'васильковый'), ((250, 100, 100), 'коралловый'),
+                ((20, 120, 60), 'изумрудный')]
+
+
+def mark_colour(n: int) -> tuple:
+    return MARK_COLOURS[(int(n) - 1) % len(MARK_COLOURS)]
+
+
 def _marked(img: Image.Image, anchors: list, skus: dict, caps: dict | None = None,
             inst=None, ids: dict | None = None) -> Image.Image:
-    """Кадр с НОМЕРАМИ НА ВЫНОСКАХ (27.08, владелец: «подписи находят одна на другую — для этого
-    мы делали сноски-выноски»). Приём взят из нашего же `viz_marks.py`: номер ставится НАД
-    предметом и соединяется линией с точкой внутри него, а место под кружок и подпись
-    подбирается с проверкой, что оно не занято соседями. Раньше подпись рисовалась прямо в точке
-    предмета, и у близких вещей надписи наезжали друг на друга."""
-    out = img.copy()
-    d = ImageDraw.Draw(out)
-    W, H = out.size
-    r = max(15, W // 46)
-    f = _font(int(r * 1.3))
-    fc = _font(max(13, int(r * 0.8)))
-    placed: list = []                       # занятые кружки: (x, y, r)
-    boxes: list = []                        # занятые подписи: (x0, y0, x1, y1)
+    """Служебный лист: заливка предмета своим цветом, КРУПНЫЙ номер на предмете и подпись над ним.
 
-    def mask_ok(role, px, py, w, h) -> bool:
-        """Подпись «на предмете» законна, только если под ней РЕАЛЬНО его пятно: у ковра между
-        ножками стола и у Г-образных предметов прямоугольник обманывает (разбор Codex 27.08)."""
-        if inst is None or not ids:
-            return True
-        i = next((k for k, v in ids.items() if v == role), None)
-        if i is None:
-            return True
+    Владелец 27.08: «крупную цифру жирную по возможности на сам объект и подпись над ней; сноски
+    наверх ТОЛЬКО когда идёт перекрытие соседних надписей». Прежняя схема ставила плашку в
+    свободное место над предметом и тянула выноску через полкадра — модель читала номер на чужом
+    объекте (стеллаж уезжал к окну, стулья к тв-тумбе).
+    """
+    out = img.copy()
+    W, H = out.size
+    # 1) ЗАЛИВКА: каждый предмет своим цветом, слабой прозрачностью — форма и тени остаются видны
+    if inst is not None and ids:
+        import numpy as _np
+        base = _np.asarray(out.convert('RGB')).astype(float)
         ih, iw = inst.shape
-        sx, sy = iw / W, ih / H
-        sub = inst[int(py * sy):int((py + h) * sy), int(px * sx):int((px + w) * sx)]
-        return bool(sub.size) and float((sub == i).mean()) > 0.75
+        big = _np.asarray(Image.fromarray(inst.astype(_np.int32), 'I').resize((W, H), Image.NEAREST))
+        for a in anchors:
+            i = next((k for k, v in ids.items() if v == a['role']), None)
+            if i is None:
+                continue
+            m = big == i
+            if not m.any():
+                continue
+            rgb, _ = mark_colour(a['n'])
+            base[m] = base[m] * 0.68 + _np.array(rgb, float) * 0.32
+        out = Image.fromarray(base.clip(0, 255).astype('uint8'))
+    d = ImageDraw.Draw(out)
+    r = max(15, W // 46)
+    fc = _font(max(13, int(r * 0.8)))
+    boxes: list = []
 
     def free(px, py, w, h):
         if px < 2 or py < 2 or px + w > W - 2 or py + h > H - 2:
@@ -773,15 +803,11 @@ def _marked(img: Image.Image, anchors: list, skus: dict, caps: dict | None = Non
         for bx0, by0, bx1, by1 in boxes:
             if not (px + w < bx0 - 4 or px > bx1 + 4 or py + h < by0 - 3 or py > by1 + 3):
                 return False
-        for ux, uy, ur in placed:
-            if (px + w / 2 - ux) ** 2 + (py + h / 2 - uy) ** 2 < (ur + max(w, h) / 2) ** 2:
-                return False
         return True
 
-    # ПРОЁМЫ ПОДПИСЫВАЕМ ПЕРВЫМИ и запоминаем их места: иначе номер предмета садится поверх
-    # подписи «ОКНО»/«ДВЕРЬ» (27.08)
+    # ПРОЁМЫ ПОДПИСЫВАЕМ ПЕРВЫМИ и запоминаем их места
     import numpy as _np
-    arr = _np.asarray(out.convert('RGB')).astype(int)
+    arr = _np.asarray(img.convert('RGB')).astype(int)
     for rgb, cap in (((108, 166, 208), 'ОКНО'), ((176, 136, 84), 'ДВЕРЬ')):
         cap = (caps or {}).get(cap, cap)
         m = ((abs(arr[..., 0] - rgb[0]) < 26) & (abs(arr[..., 1] - rgb[1]) < 26)
@@ -792,80 +818,65 @@ def _marked(img: Image.Image, anchors: list, skus: dict, caps: dict | None = Non
         t = _label(cap)
         bb = d.textbbox((0, 0), t, font=fc)
         w, h = bb[2] - bb[0] + 10, bb[3] - bb[1] + 8
-        px, py = float(xs.mean()) - w / 2, float(ys.mean()) - h / 2
-        px = min(max(px, 2), W - w - 2)
-        py = min(max(py, 2), H - h - 2)
+        px = min(max(float(xs.mean()) - w / 2, 2), W - w - 2)
+        py = min(max(float(ys.mean()) - h / 2, 2), H - h - 2)
         d.rectangle([px, py, px + w, py + h], fill=(255, 255, 255))
         d.text((px + 5, py + 4), t, fill=(30, 90, 160) if t.startswith(_label('ОКНО'))
                else (150, 90, 40), font=fc)
         boxes.append((px, py, px + w, py + h))
 
-    # ПОДПИСЬ — НА САМОМ ПРЕДМЕТЕ (27.08, владелец: «если нет перекрытия — писать прямо на самом
-    # предмете, чтобы ИИ видел, что стол стоит точно тут; выноски делать, только если подписи
-    # перекрываются»). Прежняя схема ставила кружок в свободное место НАД предметом и тянула
-    # выноску через полкадра: модель читала номер на чужом объекте — стеллаж уезжал к окну,
-    # стулья к тв-тумбе (кадр 09e08ea71d). Порядок: сперва мелкие предметы, у них выбора меньше.
+    # 2) НОМЕР И ПОДПИСЬ: сперва мелкие предметы — у них меньше выбора
     for a in sorted(anchors, key=lambda z: z.get('area') or 0):
-        ax, ay = a['x'] * W, a['y'] * H                    # точка внутри предмета
-        top, bot = (a.get('top', a['y'])) * H, (a.get('bot', a['y'])) * H
+        ax, ay = a['x'] * W, a['y'] * H
+        top = (a.get('top', a['y'])) * H
         ox0, ox1 = (a.get('x0', a['x'])) * W, (a.get('x1', a['x'])) * W
-        cx = (a.get('cx', a['x'])) * W
+        rgb, _cname = mark_colour(a['n'])
         sku = _base_sku(a['role'], skus)
         dim = ''
         if sku.get('w') and sku.get('d'):
             dim = f"{round(sku['w'])}×{round(sku['d'])}" + \
                   (f"×{round(sku['h'])}" if sku.get('h') else '') + ' см'
-        l1 = _label(f"{a['n']}. {a['role']}")
-        l2 = _label(dim)
-
-        def block(font):
-            b1 = d.textbbox((0, 0), l1, font=font)
-            b2 = d.textbbox((0, 0), l2, font=font) if l2 else (0, 0, 0, 0)
-            w = max(b1[2] - b1[0], b2[2] - b2[0]) + 12
-            lh = (b1[3] - b1[1]) + 6
-            h = lh * (2 if l2 else 1) + 8
-            return w, h, lh
-
-        def draw_block(x0, y0, font, w, h, lh, on_item: bool):
-            d.rectangle([x0, y0, x0 + w, y0 + h],
-                        fill=(255, 255, 255), outline=(200, 30, 30) if on_item else None,
-                        width=2 if on_item else 0)
-            d.text((x0 + 6, y0 + 4), l1, fill=(200, 30, 30), font=font)
-            if l2:
-                d.text((x0 + 6, y0 + 4 + lh), l2, fill=(200, 30, 30), font=font)
-            boxes.append((x0, y0, x0 + w, y0 + h))
-
-        # 1) ПРЯМО НА ПРЕДМЕТЕ: подпись целиком лежит внутри его пятна и никому не мешает
-        done = False
-        for k, font in enumerate((fc, _font(max(11, int(r * 0.66))), _font(max(10, int(r * 0.55))))):
-            w, h, lh = block(font)
-            x0, y0 = ax - w / 2, ay - h / 2
-            inside = (x0 >= ox0 + 2 and x0 + w <= ox1 - 2 and y0 >= top + 2 and y0 + h <= bot - 2)
-            if inside and mask_ok(a['role'], x0, y0, w, h) and free(x0, y0, w, h):
-                draw_block(x0, y0, font, w, h, lh, True)
-                done = True
-                break
-        if done:
-            continue
-
-        # 2) ВЫНОСКА — только когда на предмете места нет: ищем ближайшее свободное место над ним
-        w, h, lh = block(fc)
-        spot = None
-        for dy in (0, 1, 2, 3, 4):
-            for dx in (0, -1, 1, -2, 2):
-                mx = cx + dx * (w * 0.6)
-                my = top - 10 - dy * (h + 6)
-                if free(mx - w / 2, my - h, w, h):
-                    spot = (mx - w / 2, my - h)
+        cap = _label(f"{a['role']} {dim}".strip())
+        # размер цифры — по размеру пятна предмета, но не мельче читаемого
+        span = max(24.0, min(ox1 - ox0, (a.get('bot', a['y']) * H) - top))
+        fnum = _font(int(max(30, min(96, span * 0.55))))
+        nb = d.textbbox((0, 0), str(a['n']), font=fnum)
+        nw, nh = nb[2] - nb[0], nb[3] - nb[1]
+        nx, ny = ax - nw / 2, ay - nh / 2
+        boxes.append((nx - 4, ny - 4, nx + nw + 4, ny + nh + 4))   # цифра занимает место сразу
+        cb = d.textbbox((0, 0), cap, font=fc)
+        cw, ch = cb[2] - cb[0] + 10, cb[3] - cb[1] + 8
+        cx0, cy0 = ax - cw / 2, ny - ch - 6            # подпись НАД цифрой
+        if not free(cx0, cy0, cw, ch):                 # 3) выноска — только при перекрытии
+            spot = None
+            for dy in (1, 2, 3, 4):
+                for dx in (0, -1, 1, -2, 2):
+                    px, py = ax + dx * (cw * 0.6) - cw / 2, top - 10 - dy * (ch + 6)
+                    if free(px, py, cw, ch):
+                        spot = (px, py)
+                        break
+                if spot:
                     break
-            if spot:
-                break
-        if spot is None:
-            spot = (min(max(cx - w / 2, 4), W - w - 4), max(top - h - 10, 4))
-        x0, y0 = spot
-        d.line([x0 + w / 2, y0 + h, ax, ay], fill=(200, 30, 30), width=2)
-        d.ellipse([ax - 5, ay - 5, ax + 5, ay + 5], fill=(200, 30, 30))
-        draw_block(x0, y0, fc, w, h, lh, False)
+            if spot is None:      # места рядом нет — ищем ближайшее свободное по всему кадру
+                best = None
+                for gy in range(4, int(H - ch - 4), max(12, int(ch / 2))):
+                    for gx in range(4, int(W - cw - 4), max(16, int(cw / 3))):
+                        if not free(gx, gy, cw, ch):
+                            continue
+                        dist = (gx + cw / 2 - ax) ** 2 + (gy + ch / 2 - ay) ** 2
+                        if best is None or dist < best[0]:
+                            best = (dist, gx, gy)
+                spot = (best[1], best[2]) if best else (min(max(ax - cw / 2, 4), W - cw - 4),
+                                                        max(top - ch - 10, 4))
+            cx0, cy0 = spot
+            d.line([cx0 + cw / 2, cy0 + ch, ax, ny], fill=rgb, width=3)
+        d.rectangle([cx0, cy0, cx0 + cw, cy0 + ch], fill=(255, 255, 255), outline=rgb, width=2)
+        d.text((cx0 + 5, cy0 + 4), cap, fill=rgb, font=fc)
+        boxes.append((cx0, cy0, cx0 + cw, cy0 + ch))
+        # цифра — жирная, с белой обводкой, чтобы читалась на любом фоне
+        for ddx, ddy in ((-2, 0), (2, 0), (0, -2), (0, 2), (-2, -2), (2, 2), (-2, 2), (2, -2)):
+            d.text((nx + ddx, ny + ddy - nb[1]), str(a['n']), fill=(255, 255, 255), font=fnum)
+        d.text((nx, ny - nb[1]), str(a['n']), fill=rgb, font=fnum)
 
     return out
 
@@ -1501,7 +1512,9 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
             'read the product itself and ignore the background, the logo and any lettering; never '
             'copy them into the room.\n\n'
 
-            'READ THE ITEM LIST BEFORE YOU DRAW ANYTHING. "product" is the exact retail name; '
+            'READ THE ITEM LIST BEFORE YOU DRAW ANYTHING. "mark_colour" is the tint of that '
+            'item on image 2 (service mark only, never a material); "product" is the exact '
+            'retail name; '
             '"size_cm" is width x depth x height in centimetres, measured; "appearance" carries the '
             'colour from the retail name and "colour_hex", the average tone measured off the shop '
             'photo; "position_cm" and "rotation_deg" are the coordinates of the item on the floor '
@@ -1577,10 +1590,10 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
     if tv_num:
         tv_w = int((skus.get('тв-тумба') or {}).get('w') or 0)
         size_hint = f'about {max(90, int(tv_w * 0.85))} cm wide' if tv_w else 'wall-sized to the console'
-        tv_note = (f'- Above object #{tv_num} (TV console) hang a modern flat TV on the wall, '
-                   f'{size_hint}, screen off (dark matte), centred over the console at about '
-                   '110–120 cm from the floor to the screen centre. The TV must appear in EVERY '
-                   'view where the console is visible.\n')
+        tv_note = (f'- Object of type «тв» is the TELEVISION: a modern flat TV hanging on the '
+                   f'wall right above console #{tv_num}, {size_hint}, screen off (dark matte). It '
+                   'has no product photo on the reference sheet — draw a plain modern TV of that '
+                   'size in exactly the place its volume occupies, and nowhere else.\n')
     # ВСЕ ПРОНУМЕРОВАННЫЕ ПРЕДМЕТЫ ОБЯЗАНЫ БЫТЬ В КАДРЕ (27.08): модель роняла диван на одном из
     # видов, и кадр приходил «пустым» по составу.
     def all_note_for(k: int | None) -> str:
@@ -1595,9 +1608,12 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
     w, h = sheet.size
     size = '1024x1536' if h > w else '1536x1024'
     stamp = hashlib.md5((prefix + str(time.time())).encode()).hexdigest()[:10]
-    src_url = _publish_sources(stamp, {'1-макет-чистый': sheet,
-                                       '2-макет-с-номерами': sheet_marks,
-                                       '3-эталоны-товаров': ident}, prompt, legend,
+    src_imgs = {}
+    for i, (cl, mk) in enumerate(zip(parts, marks), start=1):
+        src_imgs[f'{i}-вид-{i}-макет-чистый'] = cl
+        src_imgs[f'{i}-вид-{i}-макет-с-номерами'] = mk
+    src_imgs['9-эталоны-товаров'] = ident
+    src_url = _publish_sources(stamp, src_imgs, prompt, legend,
                                {'модель': model, 'размер': size, 'качество': quality,
                                 'видов': len(cams), 'стиль': style or '—'})
     _t = time.time()
