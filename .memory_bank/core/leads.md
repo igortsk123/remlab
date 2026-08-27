@@ -3,7 +3,7 @@ tier: 1
 topic: leads
 scope: Лид-канал — заявка, TG-бот
 tier2: ""
-updated: 2026-07-28
+updated: 2026-08-28
 importance: high
 source: manual
 status: working
@@ -36,3 +36,5 @@ review_after: ""
 `LEADS_TG_WEBHOOK_SECRET`, `LEADS_MAX_TOKEN`, `LEADS_SMTP_USER/PASS` (palmarius.ru@yandex.ru временно;
 доступ — sup2 `_secrets/ACCESS.md`) + setWebhook обоих ботов на `/api/leads/tg-{admin,client}`.
 Без токенов всё деградирует (заявки пишутся, карточки/ответы — нет). ПДн — TODO (юрист).
+
+> Сверено 2026-08-28: изменений в лид-канале нет; новое — очередь отправки подборок демо (`/opt/remlab/test/share/_queue`) ждёт те же токены ботов (`LEADS_CLIENT_TG_TOKEN`, MAX).

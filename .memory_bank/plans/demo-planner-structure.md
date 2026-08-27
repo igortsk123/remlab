@@ -2,8 +2,8 @@
 tier: 2
 topic: demo-planner-structure
 scope: Демо интерактивного планировщика — вкладки, лента фотографий, отправка себе
-updated: 2026-08-26
-status: in_progress
+updated: 2026-08-28
+status: partial
 importance: high
 source: manual
 ---
@@ -52,3 +52,5 @@ UX-референс (архив `remlab-visual-reference`) со своими п�
 Токены ботов (`LEADS_CLIENT_TG_TOKEN`, `LEADS_MAX_TOKEN`) на проде отсутствуют — нужны от владельца.
 
 Полный план: `~/.claude/plans/agile-napping-bonbon.md`.
+
+**Partial (2026-08-28):** структура демо реализована и в проде (вкладки, варианты, лента «одна съёмка — одна карточка», отправка по контакту, исходники запроса) — см. `core/demo-planner.md` и ADR-0125..0127. Не закрыто: токены ботов TG/MAX/SMS на проде (очередь `_queue` копится), реалистичный режим меняется планом `viz-regional-masks.md`.

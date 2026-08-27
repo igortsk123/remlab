@@ -2,9 +2,9 @@
 workstream: layout
 slug: template-integrity
 title: Целостность шаблонов — механические гарантии вместо дисциплины
-status: in_progress
+status: partial
 created: 2026-08-12
-updated: 2026-08-12
+updated: 2026-08-28
 completed:
 ---
 
@@ -121,3 +121,5 @@ completed:
 - [ ] ADR в `decisions.md`: «шаблон = паспорт + инварианты; конверт применяется при подборе»
 - [ ] Уроки в `core/lessons.md` (фантомные габариты; приоритет схем в коде; правило без пруфа)
 - [ ] `/memory-check`, audit «чисто»
+
+**Partial (2026-08-28):** без движения с 2026-08-12 (>14д, PLAN-STUCK) — заморожен до возврата к треку шаблонов; наработки в файле актуальны.

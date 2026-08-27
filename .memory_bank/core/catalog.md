@@ -3,7 +3,7 @@ tier: 1
 topic: catalog
 scope: Каталог — состав, свежесть, дельта
 tier2: "../domain/catalog-enrichment.md"
-updated: 2026-08-22
+updated: 2026-08-28
 importance: high
 source: manual
 status: working
@@ -17,22 +17,23 @@ last_verified: 2026-08-08
 `remlab-devdb`; pgvector нет. Загрузка `load3.py`, cron 09:40 `refresh_daily.sh`
 (feed_guard → load3 → phash → обогащение дельты → индексы/heal → health; алерты alert.sh).
 
+**Медиа — производные данные (26.08, ADR-0124):** фото/ссылка/цена/габариты резолвятся из
+`products` (`catalog_media.py`), не хранятся в банке; слот требует живое фото + available +
+габарит. Ежедневно: программы Гдеслона (`gdeslon_api.py`; nonton retired) и катящийся
+`linkcheck.py` по ~20 тыс. ссылок. Детали — ADR-0124, Tier 2.
+
 **Роль товара — из дерева категорий фида** (`category_map.py` → `products.cat_role`, ADR-0078).
 
-**Обогащение:** active-пул (`gpt-5.6-luna`); стиль — признаки+ранги (ADR-0071); батчи ADR-0073;
-судья terra ежедневно (`enrich-drift.jsonl`); phash 99.7%. Перед платным прогоном — `--sample 0` (дельта).
-
-**Дельта (К1, ADR-0068):** `product_enrichment` переживает пропажу из фида; статусы в `load3.py`;
-контракт `delta_check.py`.
+**Обогащение и дельта:** active-пул (`gpt-5.6-luna`), phash 99.7%, судья terra ежедневно;
+`product_enrichment` переживает пропажу из фида (ADR-0068/0071/0073, `delta_check.py`).
 
 **Размеры (ADR-0079):** evidence-резолвер `tools/scout/dim_resolver.py`, провенанс dims_source/
 evidence; 0 битых, +4 610 с шириной. Предохранители T0 — `feed_guard.py`. Детали — Tier 2.
 
-**Выбор модели (К3):** голден 256 — luna 92.6/89.8% = model-agreement (эталон terra); человеческий
-эталон `tools/scout/gold_human.py` (400, разметка — владелец); merge text/vision — парные батчи #t/#v.
+**Выбор модели (К3):** голден 256 — luna 92.6/89.8%; человеческий эталон `gold_human.py` (400).
 
-**Свежесть фидов (ADR-0107):** `refresh_daily.sh` + `feed_guard` (`feed-freshness.json`);
-nonton (116933) — карантин ждёт владельца; pod-комплекты только из живых фидов.
+**Свежесть фидов (ADR-0107):** `feed_guard` → `feed-freshness.json`; pod — только из живых
+фидов; nonton retired (26.08).
 
 **17.08 (ADR-0108):** роль — по ЛИСТУ категории (`tools/scout/category_map.py`; кресла divan.ru 335,
 пуфы 376 вернулись); capability-модель Q6a (`tools/scout/capabilities.py`); OpenAI: `openai.off`,

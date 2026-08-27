@@ -3,7 +3,7 @@ tier: 1
 topic: access-and-integrations
 scope: Интеграции/доступы — ключи, клиенты
 tier2: "../domain/integrations.md"
-updated: 2026-08-06
+updated: 2026-08-28
 importance: high
 source: manual
 status: working
@@ -15,12 +15,6 @@ review_after: ""
 # Access & Integrations — Tier 1 сводка
 
 > Секретов тут НЕТ — только где они. Детали — Tier 2.
-
-## fal.ai (2026-08-05) — картинки и image-to-3D
-`FAL_KEY` (значение — `_secrets/ACCESS.md`); баланс $9.03 на 2026-08-04. Цены и применение —
-`../domain/integrations.md`. Используется в `services/room-measure/run_viz.py`.
-Фото → 3D: `fal-ai/trellis` (GLB, ~56 с, ≈$0.02) и `fal-ai/hunyuan3d/v2` (~30 с). Рендера меша
-на fal НЕТ — крутим сами (`tools/scout/mesh_render.py`, ADR-0060).
 
 ## Чужие ключи на машине
 Соседние проекты (sib, sing, sup2) держат свои ключи в своих `.env` — НЕ наши, не трогать.
@@ -40,3 +34,18 @@ review_after: ""
 **Детали разделов: Реестр → `../domain/integrations.md`**
 
 **Codex-советник (постоянная сессия, resume-режим, песочница):** `../domain/integrations.md` § Codex.
+
+## Vercel AI Gateway (26.08)
+`https://ai-gateway.vercel.sh/v1`: `/images/edits` (`image[]`, `mask`) для `openai/gpt-image-*`;
+`/chat/completions` + `modalities:['image']` для Google-картинок — `draft_render._chat_edit`.
+Ключ `VERCEL_AI_GATEWAY_KEY`: `_secrets/ACCESS.md` и `/opt/remlab/.env`; клиент `gw_key()`.
+Прямые ключи OpenAI без кредитов — рабочий путь только шлюз.
+
+## fal.ai (2026-08-05 → 28.08)
+Клиент `tools/scout/falmini.py`. Без масок: `nano-banana/edit`, `bytedance/seedream/v5/pro/edit`
+(точный, ~2 мин), `flux-2/klein/4b/edit` (~7 с). Маски/ControlNet — только
+`flux-general/inpainting` (нужны `path`/`image_encoder_path`; регион-маски под вопросом).
+
+## Гдеслон API (26.08)
+Программы: shops.xml по api_token (ежедневный `--check`); XML-поиск — только хост
+api.gdeslon.ru (www теряет параметры); API выгрузок нет.
