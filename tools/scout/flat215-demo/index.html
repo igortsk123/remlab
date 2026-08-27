@@ -261,8 +261,7 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 <section id="screen-plan">
   <div class="panel">
     <h3 id="flatTitle">План квартиры</h3>
-    <div class="hint">Схема комнат по площадям из паспорта квартиры — не чертёж. Выберите комнату,
-    чтобы обустроить её.</div>
+
     <div id="flatRooms"></div>
   </div>
 </section>
@@ -336,7 +335,7 @@ function on(id, ev, fn){                     // узла может не быт�
   if(n)n[ev]=fn;
 }
 function init(){
-  document.getElementById('sub').textContent=`${D.room.title} · ${D.room.w}×${D.room.d} см · габариты сняты с чертежа, точные — от застройщика`;
+  document.getElementById('sub').textContent=`${D.room.title} · ${D.room.w}×${D.room.d} см`;
   // ВАРИАНТ = РАССТАНОВКА + ЕЁ КОМПЛЕКТ ТОВАРОВ, ОДНОЙ КНОПКОЙ С ЦЕНОЙ (владелец 26.08:
   // «убери кнопки „Комплект 1 · 103 тыс“, просто подпиши Вариант 1 · 103 т.р.»). Вариантов не
   // больше четырёх плюс сохранённый человеком.
@@ -501,10 +500,7 @@ function flatPlan(){
     el('line',{x1:ax,y1:ay,x2:v?ax:ax+d.r,y2:v?ay+d.r:ay,stroke:'#C8783C','stroke-width':0.05});
   });
   box.appendChild(svg);
-  const note=document.createElement('div');note.className='hint';
-  note.textContent='План снят с чертежа застройщика. Готова гостиная — открывайте её; '
-    +'расстановка считается по замеренным габаритам 4,39 × 3,25 м.';
-  box.appendChild(note);
+
 }
 function applyKit(kit){            // комплект накладывается на ЛЮБУЮ расстановку; предметы,
   let n=0;                          // которых в комплекте нет, остаются как были (можно смешивать)
@@ -1007,10 +1003,9 @@ function viewShot(i){
   const all=(s.anchors||[]).filter(a=>a.name);
   const an=all.filter(a=>!a.unverified);
   // ЯКОРЯ ставим по координатам, посчитанным сервером из масок сцены: клик ведёт в магазин
-  const pins=an.map((a,k)=>`<button class="pin" style="left:${(a.x*100).toFixed(1)}%;top:${(a.y*100).toFixed(1)}%"
-      data-k="${k}" title="${(a.name||'').replace(/"/g,'&quot;')}">${k+1}</button>`).join('');
+  const pins='';           // ЗНАЧКОВ НА ФОТО НЕТ (владелец 27.08): товары — лентой под кадром
   // ПОД ФОТО — ВСЕ ТОВАРЫ С ЦЕНАМИ И ИТОГОМ (владелец 26.08)
-  const numOf=new Map(an.map((a,k)=>[a,k+1]));
+  const numOf=new Map();   // без значков номера на карточках не нужны
   const sum=all.reduce((t,a)=>t+(a.price||0),0);
   const list=all.length?`<div class="pinlist">`+
       `<div class="total"><span>Товары на фото · ${all.length}</span><span>${money(sum)}</span></div>`+
@@ -1049,12 +1044,7 @@ function viewShot(i){
   const pv=document.getElementById('shotPrev'), nx=document.getElementById('shotNext');
   if(pv)pv.onclick=()=>viewShot(shots.indexOf(seq[at-1]));
   if(nx)nx.onclick=()=>viewShot(shots.indexOf(seq[at+1]));
-  document.querySelectorAll('#shotbody .pin').forEach(b=>{
-    const a=an[+b.dataset.k];
-    b.onclick=()=>{if(a&&a.url)window.open(a.url,'_blank','noopener');};
-    b.onmouseenter=()=>pinCard(a,b);
-    b.onmouseleave=()=>{const p=document.getElementById('peek');if(p)p.style.display='none';};
-  });
+
 }
 // ——— ОТПРАВКА СЕБЕ: ТОЛЬКО ПО КОНТАКТУ (владелец 26.08: «ссылку нигде не показывай; человек
 // должен оставить телеграм, MAX или номер телефона — тогда пришлём»). Ссылка на подборку

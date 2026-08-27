@@ -44,7 +44,10 @@ CACHE = os.path.join(OUT, 'draft-photos')
 # простую gpt-модель, которая прорисовывает может не полностью все детали»). Замер на одном и том
 # же листе: gpt-image-1-mini 13.7 с, gpt-image-1 15.8 с, gpt-image-2 19.2 с. Товары у mini —
 # приближение, но комната, расстановка, окно и ковёр на полу читаются верно.
-MODEL = os.environ.get('DRAFT_MODEL', 'openai/gpt-image-1-mini')  # черновик: тот же трек А
+# ЧЕРНОВИК — ТА ЖЕ gpt-image-2, НО НА МИНИМАЛКАХ (владелец 27.08: «gpt-image-2 ставь, но на
+# минималках — там качество же можно менять»). quality=low + лист 1024: ~19–22 с против 38–45 у
+# medium. У mini время то же, но она теряет товары и маджента-полосу, поэтому вернулись к -2.
+MODEL = os.environ.get('DRAFT_MODEL', 'openai/gpt-image-2')       # черновик: тот же трек А
 DRAFT_QUALITY = os.environ.get('DRAFT_QUALITY', 'low')            # low ≈ 20 с, medium ≈ 34 с
 FAST_FALLBACK = 'fal-ai/nano-banana/edit'                         # если шлюз недоступен
 # РЕАЛИСТИЧНЫЙ РЕЖИМ (26.08, владелец: «та модель, что уже в проекте»). Трек А плейбука точности —
@@ -952,9 +955,16 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
         piece = _trim_band(piece)
         piece.save(f'{prefix}-{cam.name}.jpg', quality=92)
         prepared.append((cam, piece, diag, an))
+    # ЗНАЧКОВ НА ФОТО БОЛЬШЕ НЕТ (владелец 27.08: «убери значки все с фото, просто ленту с
+    # товарами внизу»), поэтому и зрячая проверка координат не нужна — это снимает с черновика
+    # самый дорогой шаг после самой генерации (6–17 с). Список товаров кадра остаётся: он берётся
+    # из состава сцены, а не из координат. Вернуть значки — `ANCHORS=1`.
     _t = time.time()
-    refined = refine_pair([t[1] for t in prepared], [t[3] for t in prepared], skus, [sheet_marks],
-                          verify=True, photos_by_role=photos)
+    if os.environ.get('ANCHORS', '0') == '1':
+        refined = refine_pair([t[1] for t in prepared], [t[3] for t in prepared], skus,
+                              [sheet_marks], verify=True, photos_by_role=photos)
+    else:
+        refined = [[dict(a, unverified=True) for a in t[3]] for t in prepared]
     t_vis = round(time.time() - _t, 1)
     shots = []
     timing = {'сцена и коллажи': t_coll, 'генерация кадра': t_model, 'проверка значков': t_vis,
