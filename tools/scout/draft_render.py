@@ -304,9 +304,16 @@ def anchors(room, placements, cam, skus: dict) -> list:
             except Exception:
                 k = int(np.argmin((xs - cx) ** 2 + (ys - cy) ** 2))
                 cx, cy = float(xs[k]), float(ys[k])
-        sku = skus.get(role) or {}
+        sku = _base_sku(role, skus)
+        dep = sc['depth'][m]
+        dep = dep[np.isfinite(dep)]
         out.append({'role': role, 'x': round(cx / W, 4), 'y': round(cy / H, 4),
                     'top': round(float(ys.min()) / H, 4), 'cx': round(float(xs.mean()) / W, 4),
+                    # для метаданных кадра: глубина от камеры, ширина пятна и обрез рамкой
+                    'depth_cm': round(float(dep.mean()), 1) if dep.size else None,
+                    'x0': round(float(xs.min()) / W, 4), 'x1': round(float(xs.max()) / W, 4),
+                    'cut': bool(xs.min() <= 1 or xs.max() >= W - 2
+                                or ys.min() <= 1 or ys.max() >= H - 2),
                     'name': sku.get('name'), 'price': sku.get('price'),
                     'url': sku.get('url'), 'img': sku.get('img'), 'shop': sku.get('shop')})
     return out
@@ -490,7 +497,177 @@ def _label(text: str) -> str:
     return ''.join(out)
 
 
-def _marked(img: Image.Image, anchors: list, skus: dict) -> Image.Image:
+_COLOUR_WORDS = ('белый', 'бежевый', 'серый', 'графит', 'чёрный', 'черный', 'коричневый', 'дуб',
+                 'орех', 'венге', 'терракот', 'шоколад', 'молочный', 'кремовый', 'крем', 'синий',
+                 'зелёный', 'зеленый', 'оливков', 'голубой', 'песочный', 'сонома', 'вотан',
+                 'капучино', 'антрацит', 'латте', 'бургунди', 'розов', 'жёлт', 'желт')
+_FRONTED = ('диван', 'кресло', 'стул', 'тв-тумба', 'комод', 'стеллаж', 'витрина', 'банкетка',
+            'камин', 'кровать', 'стол')
+
+
+def _colour_from_name(name: str) -> str | None:
+    """Цвет в русских карточках пишут ХВОСТОМ названия («…Рогожка Мальмо шоколад»)."""
+    low = (name or '').lower()
+    hit = [w for w in _COLOUR_WORDS if w in low]
+    if not hit:
+        return None
+    words = [w for w in (name or '').split()[-3:]
+             if '.' not in w and not any(c.isdigit() for c in w)]
+    tail = ' '.join(words)
+    return tail if any(w in tail.lower() for w in hit) else hit[0]
+
+
+def _photo_hex(im) -> str | None:
+    """Средний цвет товара по его фотографии — без фона. Материал и цвет словами есть не всегда,
+    а модель без них красит ткань кожей (урок 05.08); измеренный тон дешевле любых догадок."""
+    try:
+        import numpy as _np
+        a = _np.asarray(im.convert('RGB').resize((64, 64)))
+        m = a.sum(axis=2) < 720                      # белый фон карточки отбрасываем
+        if m.sum() < 40:
+            return None
+        r, g, b = (a[..., i][m].mean() for i in range(3))
+        return f'#{int(r):02X}{int(g):02X}{int(b):02X}'
+    except Exception:
+        return None
+
+
+def _cam_geom(room, cam) -> tuple:
+    """Углы комнаты и проёмы В ЭТОМ КАДРЕ — числами (рецепт 05.08, `viz_final.corner_brief`).
+
+    Словесного «не трогай стены» мало: угол уезжал на пятую часть ширины кадра, а модель
+    дорисовывала окно там, где стена глухая. Состав проёмов считаем мы, а не модель.
+    """
+    import math
+    eye, fwd, right, up = cam.basis()
+    W, H = cam.width, cam.height
+    focal = (W / 2) / math.tan(math.radians(cam.fov_deg) / 2)
+
+    def px(pt):
+        rel = np.array(pt, float) - eye
+        z = float(rel @ fwd)
+        if z <= 1e-3:
+            return None, None
+        return (W / 2 + focal * float(rel @ right) / z,
+                H / 2 - focal * float(rel @ up) / z + getattr(cam, 'shift_y', 0.0) * H)
+
+    cor = []
+    for x, y in ((0, 0), (room.width_cm, 0), (room.width_cm, room.depth_cm), (0, room.depth_cm)):
+        u, _ = px([x, 150.0, y])
+        if u is not None and 0 < u < W:
+            cor.append(round(u / W * 100))
+    cor = sorted(cor)
+    if not cor:
+        corner = 'no vertical wall corner is visible in this frame'
+    elif len(cor) == 1:
+        corner = (f'the vertical corner where two walls meet is at {cor[0]}% of the frame width — '
+                  'keep it exactly there')
+    else:
+        corner = (f'there are {len(cor)} vertical wall corners, at '
+                  + ', '.join(f'{v}%' for v in cor)
+                  + ' of the frame width — keep each of them exactly there')
+
+    found = {'window': [], 'door': []}
+    for op in (getattr(room, 'openings', []) or []):
+        o0, o1 = op.offset_cm, op.offset_cm + op.width_cm
+        ends = {'south': [(o0, 0), (o1, 0)], 'north': [(o0, room.depth_cm), (o1, room.depth_cm)],
+                'west': [(0, o0), (0, o1)],
+                'east': [(room.width_cm, o0), (room.width_cm, o1)]}[op.wall]
+        pts = [px([x, 120, y]) for x, y in ends]
+        inside = [q for q in pts if q[0] is not None and 0 <= q[0] < W]
+        if not inside:
+            continue
+        side = 'left-hand' if float(np.mean([q[0] for q in inside])) < W / 2 else 'right-hand'
+        found['window' if op.kind == 'window' else 'door'].append(
+            (side, len(inside) == 2, int(op.width_cm), int(getattr(op, 'sill_cm', 0) or 90)))
+
+    def phrase(kind, items):
+        out = []
+        for side, whole, w, sill in items:
+            state = ('fully visible' if whole else 'only PARTLY in frame — draw only the part '
+                     'that is inside the frame, do not complete it')
+            extra = f', sill {sill} cm above the floor, {max(0, 210 - sill)} cm tall' \
+                if kind == 'window' else ', 205 cm tall'
+            out.append(f'one {kind} on the {side} wall, {w} cm wide{extra}, {state}')
+        return '; '.join(out)
+
+    win, door = found['window'], found['door']
+    if not win and not door:
+        ops = ('There is NO window and NO door in this frame — every wall in view is blank. '
+               'Do not put an opening anywhere.')
+    elif win and not door:
+        ops = (f'The only opening in this frame is {phrase("window", win)}. '
+               'There is NO door in this frame.')
+    elif door and not win:
+        ops = (f'The only opening in this frame is {phrase("door", door)}. '
+               'There is NO window in this frame.')
+    else:
+        ops = (f'Openings in this frame: {phrase("window", win)}; and {phrase("door", door)}. '
+               'There are no other openings.')
+    return corner, ops
+
+
+def _room_meta(room, placements) -> dict:
+    """Что где стоит: у какой стены, вплотную или с зазором, на чём стоит, с кем рядом
+    (владелец 27.08: «все метаданные по товарам тоже надо отправлять и что где стоит за чем»).
+    Считаем по нашей геометрии — модель ничего не додумывает."""
+    W, D = room.width_cm, room.depth_cm
+    by = {}
+    for p in placements:
+        it = p.item
+        w, d = float(it.w_cm), float(it.d_cm)
+        if int(round(p.rot)) % 180 == 90:
+            w, d = d, w
+        x0, x1, y0, y1 = p.x - w / 2, p.x + w / 2, p.y - d / 2, p.y + d / 2
+        gaps = {'west': x0, 'east': W - x1, 'north': D - y1, 'south': y0}
+        wall, gap = min(gaps.items(), key=lambda kv: kv[1])
+        by[p.role] = {'x': round(p.x), 'y': round(p.y), 'rot': int(round(p.rot)) % 360,
+                      'box': (x0, x1, y0, y1), 'wall': wall, 'gap': max(0, round(gap)),
+                      'elev': float(getattr(p, 'elev_cm', 0) or 0)}
+    for role, m in by.items():
+        x0, x1, y0, y1 = m['box']
+        near = []
+        for other, o in by.items():
+            if other == role:
+                continue
+            ox0, ox1, oy0, oy1 = o['box']
+            dx = max(ox0 - x1, x0 - ox1, 0)
+            dy = max(oy0 - y1, y0 - oy1, 0)
+            dist = (dx * dx + dy * dy) ** 0.5
+            if dist < 90:
+                near.append((round(dist), other))
+        m['near'] = [f'{r} ({d} см)' for d, r in sorted(near)[:3]]
+        if m['elev'] > 1:
+            host = min(((abs(o['x'] - m['x']) + abs(o['y'] - m['y']), r)
+                        for r, o in by.items() if r != role and o['elev'] <= 1), default=(0, ''))[1]
+            m['on'] = host
+    for m in by.values():                       # «коробки» нужны были только для соседства
+        m.pop('box', None)
+    return by
+
+
+def _opening_caps(room) -> dict:
+    """Подписи проёмов С РАЗМЕРАМИ (владелец 27.08: «у окна подписывай размер всегда», «размер
+    двери тоже пиши»). Числа берём те же, что рисует clay: окно от подоконника до 210 см,
+    дверь 0–205 см. Разные окна одной комнаты с разной шириной — подписываем без числа."""
+    caps = {}
+    for kind, key in (('window', 'ОКНО'), ('door', 'ДВЕРЬ')):
+        ops = [o for o in (getattr(room, 'openings', []) or []) if getattr(o, 'kind', '') == kind]
+        if not ops:
+            continue
+        wid = {int(getattr(o, 'width_cm', 0) or 0) for o in ops}
+        if len(wid) != 1 or not min(wid):
+            continue
+        w = wid.pop()
+        if kind == 'window':
+            sill = int(getattr(ops[0], 'sill_cm', 0) or 90)
+            caps[key] = f'ОКНО {w}×{max(0, 210 - sill)} см, подоконник {sill} см'
+        else:
+            caps[key] = f'ДВЕРЬ {w}×205 см'
+    return caps
+
+
+def _marked(img: Image.Image, anchors: list, skus: dict, caps: dict | None = None) -> Image.Image:
     """Кадр с НОМЕРАМИ НА ВЫНОСКАХ (27.08, владелец: «подписи находят одна на другую — для этого
     мы делали сноски-выноски»). Приём взят из нашего же `viz_marks.py`: номер ставится НАД
     предметом и соединяется линией с точкой внутри него, а место под кружок и подпись
@@ -521,6 +698,7 @@ def _marked(img: Image.Image, anchors: list, skus: dict) -> Image.Image:
     import numpy as _np
     arr = _np.asarray(out.convert('RGB')).astype(int)
     for rgb, cap in (((108, 166, 208), 'ОКНО'), ((176, 136, 84), 'ДВЕРЬ')):
+        cap = (caps or {}).get(cap, cap)
         m = ((abs(arr[..., 0] - rgb[0]) < 26) & (abs(arr[..., 1] - rgb[1]) < 26)
              & (abs(arr[..., 2] - rgb[2]) < 26))
         if m.sum() < 400:
@@ -533,7 +711,8 @@ def _marked(img: Image.Image, anchors: list, skus: dict) -> Image.Image:
         px = min(max(px, 2), W - w - 2)
         py = min(max(py, 2), H - h - 2)
         d.rectangle([px, py, px + w, py + h], fill=(255, 255, 255))
-        d.text((px + 5, py + 4), t, fill=(30, 90, 160) if cap == 'ОКНО' else (150, 90, 40), font=fc)
+        d.text((px + 5, py + 4), t, fill=(30, 90, 160) if t.startswith(_label('ОКНО'))
+               else (150, 90, 40), font=fc)
         boxes.append((px, py, px + w, py + h))
 
     for a in anchors:
@@ -611,7 +790,7 @@ def _identity(anchors_all: list, photos: dict, skus: dict | None = None) -> Imag
         num = ', '.join('#' + str(n) for n in nums_)
         x, y = (i % cols) * cw, (i // cols) * ch
         if im is not None:
-            im = im.copy()
+            im = _one_of_set(im.copy(), _set_qty(name))   # «2 шт.» на фото → в эталон одна штука
             im.thumbnail((cw - 40, ch - 120))
             sheet.paste(im, (x + (cw - im.width) // 2, y + 24))
         else:
@@ -623,6 +802,8 @@ def _identity(anchors_all: list, photos: dict, skus: dict | None = None) -> Imag
                if sku.get('w') and sku.get('d') else '')
         cap = f'{num} {role}'
         note = 'НА ПОЛ (вид сверху)' if role == 'ковёр' else ''   # иначе модель вешает ковёр на стену
+        if len(nums_) > 1:                     # комплект: одно фото, количество — словами
+            note = f'в комнате {len(nums_)} шт.'
         def fit(txt, font, limit):
             t = _label(txt)
             while t and d.textlength(t, font=font) > limit:
@@ -634,6 +815,50 @@ def _identity(anchors_all: list, photos: dict, skus: dict | None = None) -> Imag
         d.text((x + 20, y + ch - 44), fit(name[:60] + (' · ' + dim if dim else ''), fs, cw - 40),
                fill=(90, 90, 90), font=fs)
     return sheet
+
+
+_SET_QTY = re.compile(r'(\d+)\s*шт', re.I)
+
+
+def _set_qty(name: str) -> int:
+    """«Стул АСТИ 2 шт.» → 2. Комплект продаётся коробкой, но в комнате это отдельные предметы."""
+    m = _SET_QTY.search(name or '')
+    n = int(m.group(1)) if m else 1
+    return n if 1 < n <= 8 else 1
+
+
+def _one_of_set(im: Image.Image, qty: int) -> Image.Image:
+    """ОДНА ШТУКА ИЗ КОМПЛЕКТА (27.08, владелец: «на каждом фото по 2 стула — модель думает, что
+    стульев 4»). Фото товара «2 шт.» показывает пару; для эталона режем его на предметы по
+    белым промежуткам и оставляем ОДИН. Не получилось разделить — отдаём фото как есть."""
+    if qty < 2:
+        return im
+    try:
+        import numpy as _np
+        a = _np.asarray(im.convert('L'))
+        ink = (a < 240).sum(axis=0)
+        thr = max(1, int(a.shape[0] * 0.01))
+        cols = ink > thr
+        segs, st = [], None
+        for i, v in enumerate(cols):
+            if v and st is None:
+                st = i
+            elif not v and st is not None:
+                if i - st > a.shape[1] * 0.05:
+                    segs.append((st, i))
+                st = None
+        if st is not None and len(cols) - st > a.shape[1] * 0.05:
+            segs.append((st, len(cols)))
+        if len(segs) < 2:
+            return im
+        x0, x1 = max(segs, key=lambda s: s[1] - s[0])      # берём самый крупный предмет
+        pad = int((x1 - x0) * 0.06)
+        rows = _np.where((a < 240).sum(axis=1) > max(1, int(a.shape[1] * 0.01)))[0]
+        y0, y1 = (int(rows.min()), int(rows.max()) + 1) if len(rows) else (0, a.shape[0])
+        return im.crop((max(0, x0 - pad), max(0, y0 - pad),
+                        min(a.shape[1], x1 + pad), min(a.shape[0], y1 + pad)))
+    except Exception:
+        return im
 
 
 def _base_role(role: str) -> str:
@@ -653,26 +878,56 @@ def _base_sku(role: str, skus: dict) -> dict:
     return out
 
 
-def _legend(per_cam: list, skus: dict) -> list:
-    """Список предметов для модели: номер, товар, роль, габариты и в каком виде он виден."""
+def _legend(per_cam: list, skus: dict, meta: dict | None = None,
+            photos: dict | None = None) -> list:
+    """КАРТОЧКА ПРЕДМЕТА ДЛЯ МОДЕЛИ (27.08, владелец: «все метаданные по товарам тоже надо
+    отправлять и что где стоит за чем»). Кроме номера и товара идут: измеренные габариты,
+    цвет из названия и средний тон, снятый с фотографии товара, координаты и разворот в
+    сантиметрах, у какой стены и с каким зазором стоит предмет, на чём он стоит и что рядом,
+    и как он виден в каждом кадре — целиком или обрезанным рамкой кадра."""
     merged = {}
+    meta = meta or {}
     for idx, anchors in enumerate(per_cam):
         for a in anchors:
-            sku = _base_sku(a['role'], skus)
+            role = a['role']
+            sku = _base_sku(role, skus)
+            m = meta.get(role) or {}
             it = merged.setdefault(a['n'], {
-                'id': a['n'], 'type': a['role'],
+                'id': a['n'], 'type': role,
                 'product': a.get('name') or sku.get('name') or '—',
                 'size_cm': None, 'in_view_1': 'absent', 'in_view_2': 'absent'})
             if sku.get('w'):
                 it['size_cm'] = f"{round(sku['w'])}x{round(sku.get('d') or 0)}" + \
                                 (f"x{round(sku['h'])}" if sku.get('h') else '')
-            it['in_view_1' if idx == 0 else 'in_view_2'] = 'visible'
+            if 'position_cm' not in it and m:
+                ap = {}
+                col = _colour_from_name(it['product'])
+                if col:
+                    ap['colour_name'] = col
+                ph = (photos or {}).get(role)
+                hx = _photo_hex(ph) if ph is not None else None
+                if hx:
+                    ap['colour_hex'] = hx
+                if ap:
+                    it['appearance'] = ap
+                it['position_cm'] = [m['x'], m['y']]
+                it['rotation_deg'] = m['rot']
+                it['stands'] = (f"вплотную к стене ({m['wall']}), зазор {m['gap']} см"
+                                if m['gap'] <= 15 else
+                                f"в {m['gap']} см от ближайшей стены ({m['wall']})")
+                if m.get('on'):
+                    it['support'] = f"стоит на предмете «{m['on']}»"
+                if m.get('near'):
+                    it['next_to'] = m['near']
+            it['in_view_1' if idx == 0 else 'in_view_2'] = 'part' if a.get('cut') else 'whole'
     out, first = [], {}
     for k in sorted(merged):
         it = merged[k]
         key = it['product']
         if key != '—' and key in first:
             it['same_product_as'] = first[key]      # «стул 2» = вторая штука комплекта «стул»
+            base = next(x for x in out if x['id'] == first[key])
+            base['quantity_in_room'] = base.get('quantity_in_room', 1) + 1
         else:
             first[key] = it['id']
         out.append(it)
@@ -1007,7 +1262,7 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
         for a in an:                                   # сквозная нумерация по всем видам
             a['n'] = numbering.setdefault(a['role'], len(numbering) + 1)
         parts.append(coll)
-        marks.append(_marked(coll, an, skus))
+        marks.append(_marked(coll, an, skus, _opening_caps(room)))
         diags.append(diag)
         per_cam.append(an)
     def stack(imgs):
@@ -1031,67 +1286,109 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
     ident = _identity([a for an in per_cam for a in an], photos, skus)
     if ident is not None:
         ident.save(prefix + '-identity.jpg', quality=92)
-    legend = _legend(per_cam, skus)
+    legend = _legend(per_cam, skus, _room_meta(room, placements), photos)
     t_coll = round(time.time() - _T0[0], 1)      # сцена + коллажи + листы
-    def build_full_prompt(two_views: bool) -> str:
-        head = ('You are given: (1) a sheet with TWO views of the SAME room stacked vertically and '
-                'split by a magenta band' if two_views else
-                'You are given: (1) our 3D layout of a room')
-        return (
-            head + ' — this is OUR 3D layout: every piece of furniture is a plain grey volume in '
-            'its exact place, size and orientation, each marked with a red number and a caption '
-            '(number, type of furniture, size in cm); openings are captioned ОКНО (window) and '
-            'ДВЕРЬ (door); (2) a reference sheet with the real product photo of every numbered '
-            'item.\n'
-            + ('Return ONE image of the same proportions: both views rendered as photorealistic '
-               'interior photographs, with the magenta band kept exactly where it is.\n'
-               if two_views else
-               'Return ONE image of the same proportions: this single view rendered as a '
-               'photorealistic interior photograph. Do NOT add a second view, a split screen or '
-               'any magenta band.\n')
-            + 'Rules:\n'
-            '- Replace each numbered grey volume with the product that carries the SAME number on '
-            'the reference sheet: same model, colour, material and proportions.\n'
-            '- Keep the position, footprint and ORIENTATION of every volume exactly as in the '
-            'layout. The reference photo shows the product from a catalogue angle — do not copy '
-            'that angle, turn the product to match the volume in the room.\n'
-            '- Do not add, remove or move furniture. Do not draw the red numbers or captions.\n'
-            '- The reference sheet shows products as flat catalogue photos. A RUG (ковёр) is '
-            'photographed from above: render it as a rug LYING FLAT ON THE FLOOR with exactly that '
-            'pattern and colours. Never hang a rug, carpet, textile or any reference image on a '
-            'wall, and never invent a second rug of another colour.\n'
-            '- Do not add wall art, posters, mirrors or decor that is not in the object list.\n'
-            '- Never duplicate an object that appears once in the layout.\n'
-            '- Some numbers share ONE product (a set of two chairs, for example): such an item has '
-            '"same_product_as": N in the object list and one shared card on the reference sheet '
-            'captioned with both numbers. Render both volumes as the SAME product.\n'
-            '- Items marked "фото нет" have no reference: render a plain, neutral piece of that '
-            'exact type and size.\n'
-            '- In the layout a blue rectangle on a wall is a WINDOW (render real glass, frame and '
-            'daylight outside, never a blue panel or picture); a brown rectangle is a DOOR.\n'
-            + ('- Natural daylight from the window, soft contact shadows, realistic wood floor and '
-               'wall textures; lighting and materials identical in both views.\n' if two_views else
-               '- Natural daylight from the window, soft contact shadows, realistic wood floor and '
-               'wall textures.\n')
-            + (f'- Interior style: {style}. {STYLE_HINT.get(style, "")}\n' if style else '')
-            + (win_note or '')
-            + (tv_note or '')
-            + all_note
-            + 'Objects:\n'
-            + json.dumps(legend, ensure_ascii=False))
+    # ПОЛНЫЙ РЕЦЕПТ ЗАПРОСА (27.08, владелец прислал прежнюю версию промпта): роль «дизайнер и
+    # фотограф», комната зафиксирована, состав проёмов и положение углов — числом на кадр,
+    # приоритет источников геометрии, метаданные товара и список запрещённых исходов. Короткий
+    # промпт модель читала как пожелание и переставляла мебель «покрасивее».
+    def frame_brief(k: int, label: str) -> str:
+        corner, ops = _cam_geom(room, cams[k])
+        return f'{label}: {ops} In this frame {corner}.\n'
 
-    # РАЗМЕР ОКНА — ЦИФРАМИ (владелец 27.08: «более реалистичные размеры окна»): без этого модель
-    # рисует остекление во всю стену независимо от проёма на макете.
-    win_note = ''
-    for o in getattr(room, 'openings', []) or []:
-        if getattr(o, 'kind', '') == 'window':
-            w_cm = int(getattr(o, 'width_cm', 0) or 0)
-            sill = int(getattr(o, 'sill_cm', 0) or 0)
-            if w_cm:
-                win_note = (f'- The window opening is {w_cm} cm wide with a sill {sill} cm above '
-                            'the floor and about 150 cm tall: a normal residential window, NOT a '
-                            'full-wall glazing. Keep the wall around it.\n')
-            break
+    def build_full_prompt(two_views: bool, only: int | None = None) -> str:
+        deliver = ('two photographs on one sheet: TOP is view 1, BOTTOM is view 2, with the '
+                   'magenta band between them kept exactly as in the input (same position, height '
+                   'and colour, nothing drawn on it)' if two_views else
+                   'ONE photograph of the same proportions as the input, with no second view, no '
+                   'split screen and no magenta band')
+        if two_views:
+            frames = frame_brief(0, 'TOP frame') + frame_brief(1, 'BOTTOM frame')
+        else:
+            frames = frame_brief(only or 0, 'This frame')
+        return (
+            'TASK. You are an interior designer and photographer. The furniture is already bought '
+            'by the customer and cannot be changed. Design the room AROUND these exact products — '
+            f'finishes, light, colour — and deliver {deliver}.\n\n'
+
+            'THE ROOM ITSELF IS FIXED. Image 1 is OUR 3D layout and a locked composition and '
+            'perspective guide: every piece of furniture is a plain grey volume standing in its '
+            'exact place, at its exact size and rotation; dark outlines separate the volumes from '
+            'one another and lighter volumes stand closer to the camera than darker ones. The wall '
+            'planes and the vertical corners where walls meet stay at the same place and angle, '
+            'the ceiling line and the floor line stay at the same height, the room keeps its '
+            'proportions and the camera does not move. You repaint and light the room, you do not '
+            'rebuild it.\n\n'
+
+            'INPUT IMAGES. 1 — the layout with a red number on every item and a caption (number, '
+            'type of furniture, size in cm); openings are captioned ОКНО (window) and ДВЕРЬ (door) '
+            'with their size in cm. 2 — the reference sheet: the real shop photo of every numbered '
+            'item, labelled with its number. Some shop photos sit on a branded background or carry '
+            'a logo or watermark — read the product itself and ignore the background, the logo and '
+            'any lettering; never copy them into the room.\n\n'
+
+            'READ THE ITEM LIST BEFORE YOU DRAW ANYTHING. "product" is the exact retail name; '
+            '"size_cm" is width x depth x height in centimetres, measured; "appearance" carries the '
+            'colour from the retail name and "colour_hex", the average tone measured off the shop '
+            'photo; "position_cm" and "rotation_deg" are the coordinates of the item on the floor '
+            'plan (origin in a room corner, X across the room, Y into the room) and its rotation; '
+            '"stands", "support" and "next_to" say against which wall the item stands and with what '
+            'gap, what it stands on, and what stands next to it; "in_view_1" and "in_view_2" say '
+            'how the item appears in each frame: whole = draw it fully, part = it is cut by the '
+            'edge of the frame, draw only the visible part and never complete it, absent = it is '
+            'not in that frame. Scale every item to its own size_cm relative to the room and to the '
+            'other items. Mismatched material, colour or scale is a defect.\n\n'
+
+            'GEOMETRY PRIORITY (highest first): the grey volume in image 1 → the item list '
+            '(size_cm, position_cm, rotation_deg, stands, next_to) → the shop photo. If they '
+            'disagree, the higher source wins.\n\n'
+
+            'GREY VOLUMES. A grey block is a placeholder: its size, place and rotation are exact, '
+            'its surface is not. Draw the real product from image 2 and the item list standing '
+            'exactly on that volume — same footprint, same rotation, same distance to the walls '
+            'and to its neighbours. The shop photo shows the product from a catalogue angle: do '
+            'not copy that angle, turn the product to match the volume.\n\n'
+
+            'IMMUTABLE. Products: no replacing, recolouring, restyling, resizing, moving, rotating '
+            'or duplicating; the layout is a strict blueprint, not an inspiration, and an '
+            'arrangement that looks unusual is intentional. Room shell: walls, floor, ceiling and '
+            'camera stay as they are. Openings: exactly as listed here — never invent, move, add '
+            'or remove a window or a door.\n' + frames + '\n'
+
+            'ALLOWED EDITS. Renovate the room in the style below: wall finish and colour, '
+            'flooring, ceiling, skirting, frames and dressing of the given openings. Natural '
+            'daylight, soft contact shadows, correct wall-to-floor junctions, vertical lines '
+            'vertical' + (', lighting and materials identical in both frames' if two_views else '')
+            + '. Framed wall art may be added; no tabletop, shelf, floor or freestanding decor of '
+            'your own. Every planter and vase from the list must hold a live plant sized to it.\n\n'
+
+            'ITEM RULES.\n'
+            '- A RUG (ковёр) is photographed from above: render it LYING FLAT ON THE FLOOR with '
+            'exactly that pattern and colours. Never hang a rug, carpet, textile or any reference '
+            'image on a wall, and never invent a second rug.\n'
+            '- Some numbers share ONE product (a set of two chairs, for example): such an item has '
+            '"same_product_as": N in the list, the base item says "quantity_in_room": N, and the '
+            'reference sheet holds ONE card captioned with all its numbers. Draw exactly ONE piece '
+            'per number — that many pieces in total, never a pair per number.\n'
+            '- An item marked "фото нет" on the reference sheet has no photo: render a plain, '
+            'neutral piece of exactly that type and size.\n'
+            '- In the layout a blue rectangle on a wall is a WINDOW (render real glass, a frame '
+            'and daylight outside, never a blue panel or a picture); a brown rectangle is a DOOR.\n'
+            + (tv_note or '') + all_note + '\n'
+            + (f'STYLE — {style}: {STYLE_HINT.get(style, "")} It sets finishes, colour, light and '
+               'mood only; it never adds or removes objects.\n\n' if style else '')
+
+            + 'ITEMS (JSON; id = the red number in image 1):\n'
+            + json.dumps(legend, ensure_ascii=False) + '\n\n'
+
+            'INVALID OUTPUT — redo if any of this happens: an item stands anywhere other than on '
+            'its grey volume, or is bigger or smaller than it; an item is replaced, recoloured, '
+            'restyled or rotated; an object that is not in the list appears; an item shows up in '
+            'the wrong frame; a window or a door appears where the list says there is none; the '
+            'room shell, the wall corners or the camera move; '
+            + ('the magenta band is missing, moved or painted over; ' if two_views else '')
+            + 'red numbers, captions or any markup are drawn in the photograph.')
+
     # ТЕЛЕВИЗОР РИСУЕТ МОДЕЛЬ — ПО ТУМБЕ (владелец 27.08: «где должен быть телевизор в зависимости
     # от тв-тумбы, пусть ИИ рисует»). Своего объекта «тв» в расстановке нет: вешаем экран над
     # тумбой, размер — по её ширине.
@@ -1126,7 +1423,7 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
         def one(k):
             sub = [marks[k]] + ([ident] if ident is not None else [])
             w2, h2 = parts[k].size
-            return gpt_edit(sub, build_full_prompt(False),
+            return gpt_edit(sub, build_full_prompt(False, k),
                             size=('1024x1536' if h2 > w2 else '1536x1024'),
                             quality=quality, model=model.split('gateway:')[-1])
         with ThreadPoolExecutor(max_workers=len(parts)) as ex:

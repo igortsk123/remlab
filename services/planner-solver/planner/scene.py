@@ -458,7 +458,10 @@ def compile_scene(room: Room, placements: list[Placement], cam: Camera) -> dict:
                     SEMANTIC["ceiling"])
     for op in room.openings:
         sem_id = SEMANTIC["window"] if op.kind == "window" else SEMANTIC["door"]
-        hi, lo = (210.0, 90.0) if op.kind == "window" else (205.0, 0.0)
+        # ПОДОКОННИК — ИЗ ПРОЁМА (27.08): рисовали окно фиксированно 90–210 см, а в промпт уходила
+        # своя высота подоконника — макет и текст противоречили друг другу.
+        hi, lo = ((210.0, float(getattr(op, "sill_cm", 0) or 90.0)) if op.kind == "window"
+                  else (205.0, 0.0))
         o0, o1 = op.offset_cm, op.offset_cm + op.width_cm
         # Проём рисуем НА САНТИМЕТР ВНУТРЬ комнаты, а не вглубь стены: утопленный проём
         # проигрывал стене по глубине и просто не появлялся в кадре — окно и дверь пропадали
@@ -557,15 +560,36 @@ def clay_render(out: dict) -> np.ndarray:
         shade = 1.18 - 0.42 * np.clip((d - lo) / max(hi - lo, 1e-6), 0, 1)   # ближе — светлее
         shade[~fin] = 1.0
         img *= shade[..., None]
-    rng = np.random.default_rng(11)                 # предметы чуть отличаются тоном друг от друга
+    # ПРЕДМЕТЫ НЕ ДОЛЖНЫ СЛИВАТЬСЯ (27.08, владелец: «модель должна чётко видеть предметы, как
+    # человек»). Случайный разброс тона ±10 % давал соседние объёмы почти одного цвета: стул у
+    # стола, столик у дивана читались одним пятном. Теперь тон назначается ПО ГЛУБИНЕ: предметы
+    # сортируются от камеры вглубь и получают чередующиеся ступени светлее/темнее, поэтому у
+    # любых двух соседей по дальности тон заведомо разный. Отдельную карту глубины в модель не
+    # шлём — у gpt-image нет управляющего входа, она уйдёт как ещё один референс (разбор 27.08).
+    ids_d = []
     for i in np.unique(inst):
         if i == 0:
             continue
-        img[inst == i] *= rng.uniform(0.88, 1.10)
-    edge = np.zeros(inst.shape, bool)               # контуры предметов — читаемость форм
+        m = inst == i
+        dm = d[m & fin] if fin.any() else np.array([])
+        ids_d.append((float(dm.mean()) if dm.size else 1e9, int(i)))
+    ids_d.sort()
+    steps = (0.74, 1.16, 0.88, 1.04, 0.80, 1.10)
+    for k, (_, i) in enumerate(ids_d):
+        img[inst == i] *= steps[k % len(steps)]
+    # КОНТУР — ТОЛСТЫЙ И ТЁМНЫЙ: тонкая линия в 1 px пропадает при сжатии листа до 1536 px, и
+    # границы предметов исчезали именно там, где важнее всего (ножки, спинки, углы).
+    edge = np.zeros(inst.shape, bool)
     edge[:, 1:] |= inst[:, 1:] != inst[:, :-1]
     edge[1:, :] |= inst[1:, :] != inst[:-1, :]
-    img[edge] *= 0.72
+    thick = max(1, int(round(min(inst.shape) / 320)))
+    grow = edge.copy()
+    for _ in range(thick):
+        g = np.zeros_like(grow)
+        g[:, 1:] |= grow[:, :-1]; g[:, :-1] |= grow[:, 1:]
+        g[1:, :] |= grow[:-1, :]; g[:-1, :] |= grow[1:, :]
+        grow |= g
+    img[grow] *= 0.42
     return np.clip(img, 0, 255).astype(np.uint8)
 
 
