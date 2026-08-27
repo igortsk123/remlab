@@ -864,6 +864,11 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
             sh.paste(p, (0, y))
             y += p.height + BAND_PX
         return sh
+    # ДВА ВИДА — ДВА ЗАПРОСА, КОГДА МОДЕЛЬ ТЕРЯЕТ ПОЛОСУ (27.08). У быстрой mini маджента-полоса
+    # часто пропадает, разрез уходит наугад, и сверху второго кадра остаётся полоска первого
+    # (владелец: «не вижу второго вида»). Для таких моделей считаем каждый ракурс отдельным
+    # запросом параллельно — артефакта шва нет, а по времени даже быстрее.
+    split_calls = len(cams) > 1 and os.environ.get('SPLIT_VIEWS', '1') == '1' and 'mini' in model
     sheet, sheet_marks = stack(parts), stack(marks)
     sheet.save(prefix + '-sheet.jpg', quality=92)
     sheet_marks.save(prefix + '-marked.jpg', quality=92)
@@ -872,43 +877,48 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
         ident.save(prefix + '-identity.jpg', quality=92)
     legend = _legend(per_cam, skus)
     t_coll = round(time.time() - _T0[0], 1)      # сцена + коллажи + листы
+    def build_full_prompt(two_views: bool) -> str:
+        head = ('You are given: (1) a sheet with TWO views of the SAME room stacked vertically and '
+                'split by a magenta band' if two_views else
+                'You are given: (1) our 3D layout of a room')
+        return (
+            head + ' — this is OUR 3D layout: every piece of furniture is a plain grey volume in '
+            'its exact place, size and orientation; (2) the same image with red numbers and '
+            'captions (number, type of furniture and its size in cm); (3) a reference sheet with '
+            'the real product photo of every numbered item.\n'
+            + ('Return ONE image of the same proportions: both views rendered as photorealistic '
+               'interior photographs, with the magenta band kept exactly where it is.\n'
+               if two_views else
+               'Return ONE image of the same proportions: this single view rendered as a '
+               'photorealistic interior photograph. Do NOT add a second view, a split screen or '
+               'any magenta band.\n')
+            + 'Rules:\n'
+            '- Replace each numbered grey volume with the product that carries the SAME number on '
+            'the reference sheet: same model, colour, material and proportions.\n'
+            '- Keep the position, footprint and ORIENTATION of every volume exactly as in the '
+            'layout. The reference photo shows the product from a catalogue angle — do not copy '
+            'that angle, turn the product to match the volume in the room.\n'
+            '- Do not add, remove or move furniture. Do not draw the red numbers or captions.\n'
+            '- The reference sheet shows products as flat catalogue photos. A RUG (ковёр) is '
+            'photographed from above: render it as a rug LYING FLAT ON THE FLOOR with exactly that '
+            'pattern and colours. Never hang a rug, carpet, textile or any reference image on a '
+            'wall, and never invent a second rug of another colour.\n'
+            '- Do not add wall art, posters, mirrors or decor that is not in the object list.\n'
+            '- Never duplicate an object that appears once in the layout.\n'
+            '- Items marked "фото нет" have no reference: render a plain, neutral piece of that '
+            'exact type and size.\n'
+            '- In the layout a blue rectangle on a wall is a WINDOW (render real glass, frame and '
+            'daylight outside, never a blue panel or picture); a brown rectangle is a DOOR.\n'
+            + ('- Natural daylight from the window, soft contact shadows, realistic wood floor and '
+               'wall textures; lighting and materials identical in both views.\n' if two_views else
+               '- Natural daylight from the window, soft contact shadows, realistic wood floor and '
+               'wall textures.\n')
+            + (f'- Interior style: {style}. {STYLE_HINT.get(style, "")}\n' if style else '')
+            + 'Objects:\n'
+            + json.dumps(legend, ensure_ascii=False))
+
     two = len(cams) > 1
-    head = ('You are given: (1) a sheet with TWO views of the SAME room stacked vertically and '
-            'split by a magenta band' if two else
-            'You are given: (1) our 3D layout of a room')
-    prompt = (
-        head + ' — this is OUR 3D layout: every piece of furniture is a plain grey volume in its '
-        'exact place, size and orientation; (2) the same image with red numbers and captions '
-        '(number, type of furniture and its size in cm); (3) a reference sheet with the real '
-        'product photo of every numbered item.\n'
-        + ('Return ONE image of the same proportions: both views rendered as photorealistic '
-           'interior photographs, with the magenta band kept exactly where it is.\n' if two else
-           'Return ONE image of the same proportions: this view rendered as a photorealistic '
-           'interior photograph.\n')
-        + 'Rules:\n'
-        '- Replace each numbered grey volume with the product that carries the SAME number on the '
-        'reference sheet: same model, colour, material and proportions.\n'
-        '- Keep the position, footprint and ORIENTATION of every volume exactly as in the layout. '
-        'The reference photo shows the product from a catalogue angle — do not copy that angle, '
-        'turn the product to match the volume in the room.\n'
-        '- Do not add, remove or move furniture. Do not draw the red numbers or captions.\n'
-        '- The reference sheet shows products as flat catalogue photos. A RUG (ковёр) is '
-        'photographed from above: render it as a rug LYING FLAT ON THE FLOOR with exactly that '
-        'pattern and colours. Never hang a rug, carpet, textile or any reference image on a wall, '
-        'and never invent a second rug of another colour.\n'
-        '- Do not add wall art, posters, mirrors or decor that is not in the object list.\n'
-        '- Never duplicate an object that appears once in the layout.\n'
-        '- Items marked "фото нет" have no reference: render a plain, neutral piece of that exact '
-        'type and size.\n'
-        '- In the layout a blue rectangle on a wall is a WINDOW (render real glass, frame and '
-        'daylight outside, never a blue panel or picture); a brown rectangle is a DOOR.\n'
-        + ('- Natural daylight from the window, soft contact shadows, realistic wood floor and '
-           'wall textures; lighting and materials identical in both views.\n' if two else
-           '- Natural daylight from the window, soft contact shadows, realistic wood floor and '
-           'wall textures.\n')
-        + (f'- Interior style: {style}. {STYLE_HINT.get(style, "")}\n' if style else '')
-        + 'Objects:\n'
-        + json.dumps(legend, ensure_ascii=False))
+    prompt = build_full_prompt(two and not split_calls)
     imgs = [sheet, sheet_marks] + ([ident] if ident is not None else [])
     w, h = sheet.size
     size = '1024x1536' if h > w else '1536x1024'
@@ -919,10 +929,22 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
                                {'модель': model, 'размер': size, 'качество': quality,
                                 'видов': len(cams), 'стиль': style or '—'})
     _t = time.time()
-    out = gpt_edit(imgs, prompt, size=size, quality=quality, model=model.split('gateway:')[-1])
+    if split_calls:
+        from concurrent.futures import ThreadPoolExecutor
+        def one(k):
+            sub = [parts[k], marks[k]] + ([ident] if ident is not None else [])
+            w2, h2 = parts[k].size
+            return gpt_edit(sub, build_full_prompt(False),
+                            size=('1024x1536' if h2 > w2 else '1536x1024'),
+                            quality=quality, model=model.split('gateway:')[-1])
+        with ThreadPoolExecutor(max_workers=len(parts)) as ex:
+            outs = list(ex.map(one, range(len(parts))))
+        out = outs[0]
+    else:
+        out = gpt_edit(imgs, prompt, size=size, quality=quality, model=model.split('gateway:')[-1])
     t_model = round(time.time() - _t, 1)
     out.save(prefix + '-final.jpg', quality=94)
-    pieces = _split_pair(out) if len(cams) > 1 else [out]
+    pieces = outs if split_calls else (_split_pair(out) if len(cams) > 1 else [out])
     # УТОЧНЕНИЕ ЯКОРЕЙ ПО ОБОИМ КАДРАМ ПАРАЛЛЕЛЬНО: два последовательных зрячих вызова добавляли
     # к черновику ~8 с, параллельно — вдвое меньше.
     prepared = []

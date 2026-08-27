@@ -966,9 +966,13 @@ async function makePhoto(quality){
     const j=await r.json();
     clearInterval(tick); busy=false;
     if(!(j.shots&&j.shots.length))throw new Error(j.error||'пустой ответ');
+    // ВСЁ, ЧТО НУЖНО КАДРУ, КЛАДЁМ СРАЗУ (27.08): привязку к варианту (`vid`), ссылку на исходники
+    // и раскладку времени. Без `vid` свежий снимок не проходил фильтр ленты и «пропадал» до
+    // перезагрузки страницы — ровно то, что видел владелец.
+    const vv=allVariants()[cur]||{};
     j.shots.forEach(sh=>addShot({url:sh.url,camera:sh.camera||'C1',quality:quality,
-      anchors:sh.anchors||[],variant:(D.variants[cur]||{}).title||'',revision:rev,
-      ts:Date.now(),model:j.model||''}));
+      anchors:sh.anchors||[],variant:vv.title||'',vid:vv.id||('v'+cur),revision:rev,
+      ts:Date.now(),model:j.model||'',sources:sh.sources||j.sources||'',timing:j.timing||null}));
     viewShot(shots.length-1);
   }catch(err){
     clearInterval(tick); busy=false;
