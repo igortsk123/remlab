@@ -836,42 +836,43 @@ def _marked(img: Image.Image, anchors: list, skus: dict, caps: dict | None = Non
         if sku.get('w') and sku.get('d'):
             dim = f"{round(sku['w'])}×{round(sku['d'])}" + \
                   (f"×{round(sku['h'])}" if sku.get('h') else '') + ' см'
-        cap = _label(f"{a['role']} {dim}".strip())
-        # размер цифры — по размеру пятна предмета, но не мельче читаемого
-        span = max(24.0, min(ox1 - ox0, (a.get('bot', a['y']) * H) - top))
-        fnum = _font(int(max(30, min(96, span * 0.55))))
+        l1, l2 = _label(a['role']), _label(dim)
+        fnum = _font(max(34, W // 26))      # у всех предметов цифра ОДНОГО размера, средняя жирная
         nb = d.textbbox((0, 0), str(a['n']), font=fnum)
         nw, nh = nb[2] - nb[0], nb[3] - nb[1]
         nx, ny = ax - nw / 2, ay - nh / 2
         boxes.append((nx - 4, ny - 4, nx + nw + 4, ny + nh + 4))   # цифра занимает место сразу
-        cb = d.textbbox((0, 0), cap, font=fc)
-        cw, ch = cb[2] - cb[0] + 10, cb[3] - cb[1] + 8
+        b1 = d.textbbox((0, 0), l1, font=fc)
+        b2_ = d.textbbox((0, 0), l2, font=fc) if l2 else (0, 0, 0, 0)
+        lh = (b1[3] - b1[1]) + 6
+        cw = max(b1[2] - b1[0], b2_[2] - b2_[0]) + 12
+        ch = lh * (2 if l2 else 1) + 8
         cx0, cy0 = ax - cw / 2, ny - ch - 6            # подпись НАД цифрой
-        if not free(cx0, cy0, cw, ch):                 # 3) выноска — только при перекрытии
+        if not free(cx0, cy0, cw, ch):     # 3) ВЫНОСКА ТОЛЬКО ВВЕРХ и только при перекрытии
             spot = None
-            for dy in (1, 2, 3, 4):
-                for dx in (0, -1, 1, -2, 2):
-                    px, py = ax + dx * (cw * 0.6) - cw / 2, top - 10 - dy * (ch + 6)
-                    if free(px, py, cw, ch):
-                        spot = (px, py)
-                        break
-                if spot:
+            px = min(max(ax - cw / 2, 4), W - cw - 4)      # x не меняем: линия строго вертикальная
+            py = cy0 - 6
+            while py > 4:
+                if free(px, py, cw, ch):
+                    spot = (px, py)
                     break
-            if spot is None:      # места рядом нет — ищем ближайшее свободное по всему кадру
+                py -= max(8, ch // 2)
+            if spot is None:                 # столбец занят целиком — ближайшее свободное выше
                 best = None
-                for gy in range(4, int(H - ch - 4), max(12, int(ch / 2))):
+                for gy in range(4, int(max(6, cy0)), max(10, ch // 2)):
                     for gx in range(4, int(W - cw - 4), max(16, int(cw / 3))):
                         if not free(gx, gy, cw, ch):
                             continue
                         dist = (gx + cw / 2 - ax) ** 2 + (gy + ch / 2 - ay) ** 2
                         if best is None or dist < best[0]:
                             best = (dist, gx, gy)
-                spot = (best[1], best[2]) if best else (min(max(ax - cw / 2, 4), W - cw - 4),
-                                                        max(top - ch - 10, 4))
+                spot = (best[1], best[2]) if best else (px, max(4.0, cy0))
             cx0, cy0 = spot
-            d.line([cx0 + cw / 2, cy0 + ch, ax, ny], fill=rgb, width=3)
+            d.line([ax, cy0 + ch, ax, ny], fill=rgb, width=3)   # выноска — вертикаль вверх
         d.rectangle([cx0, cy0, cx0 + cw, cy0 + ch], fill=(255, 255, 255), outline=rgb, width=2)
-        d.text((cx0 + 5, cy0 + 4), cap, fill=rgb, font=fc)
+        d.text((cx0 + 6, cy0 + 4), l1, fill=rgb, font=fc)
+        if l2:
+            d.text((cx0 + 6, cy0 + 4 + lh), l2, fill=rgb, font=fc)
         boxes.append((cx0, cy0, cx0 + cw, cy0 + ch))
         # цифра — жирная, с белой обводкой, чтобы читалась на любом фоне
         for ddx, ddy in ((-2, 0), (2, 0), (0, -2), (0, 2), (-2, -2), (2, 2), (-2, 2), (2, -2)):
@@ -915,7 +916,9 @@ def _identity(anchors_all: list, photos: dict, skus: dict | None = None) -> Imag
     fs = _font(24)
     for i, (nums_, role, im, name) in enumerate(cells):
         num = ', '.join('#' + str(n) for n in nums_)
+        rgb = mark_colour(nums_[0])[0]        # тот же цвет, что у предмета на служебном листе
         x, y = (i % cols) * cw, (i // cols) * ch
+        d.rectangle([x + 6, y + 6, x + cw - 6, y + ch - 6], outline=rgb, width=4)
         if im is not None:
             im = _one_of_set(im.copy(), _set_qty(name))   # «2 шт.» на фото → в эталон одна штука
             im.thumbnail((cw - 40, ch - 120))
@@ -936,9 +939,9 @@ def _identity(anchors_all: list, photos: dict, skus: dict | None = None) -> Imag
             while t and d.textlength(t, font=font) > limit:
                 t = t[:-1]
             return t
-        d.text((x + 20, y + ch - 118), fit(cap, f, cw - 40), fill=(200, 30, 30), font=f)
+        d.text((x + 20, y + ch - 118), fit(cap, f, cw - 40), fill=rgb, font=f)
         if note:
-            d.text((x + 20, y + ch - 78), fit(note, fs, cw - 40), fill=(200, 30, 30), font=fs)
+            d.text((x + 20, y + ch - 78), fit(note, fs, cw - 40), fill=rgb, font=fs)
         d.text((x + 20, y + ch - 44), fit(name[:60] + (' · ' + dim if dim else ''), fs, cw - 40),
                fill=(90, 90, 90), font=fs)
     return sheet
