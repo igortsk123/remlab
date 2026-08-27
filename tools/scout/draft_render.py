@@ -255,36 +255,106 @@ def scene_from_request(payload: dict) -> tuple:
     return room, placements, photos
 
 
-def demo_cams(room) -> list:
-    """ДВЕ КАМЕРЫ ИЗ УГЛОВ КОМНАТЫ (26.08, владелец: «мебель хреново расставляется»). Разбор
-    исходников показал, что расстановка верная, а виновата съёмка: штатные камеры конвейера
-    стоят вплотную к дивану и ТВ (они задуманы для витрины одного предмета), поэтому диван
-    вылезал за край кадра, а половину картинки занимала пустая стена. Для планировщика нужен
-    обзор ВСЕЙ комнаты: встаём в два противоположных угла на высоте глаз и смотрим в центр.
+def _cam_score(room, placements, cam) -> dict:
+    """Насколько кадр ГОДЕН: сколько предметов видно, сколько обрезано рамкой, не заслоняет ли
+    один предмет полкадра. Считаем по уменьшенной сцене — дёшево и детерминированно."""
+    small = Camera(name=cam.name, eye=cam.eye, target=cam.target, fov_deg=cam.fov_deg,
+                   width=336, height=224)
+    sc = compile_scene(room, placements, small)
+    inst, ids = sc['instances'], sc['ids']
+    H, W = inst.shape
+    seen, cut, hog = set(), set(), 0.0
+    for i, role in ids.items():
+        m = (inst == i)
+        n = int(m.sum())
+        if n < 60:                                  # предмет практически не виден
+            continue
+        seen.add(role)
+        ys, xs = np.where(m)
+        if xs.min() <= 0 or xs.max() >= W - 1 or ys.min() <= 0 or ys.max() >= H - 1:
+            cut.add(role)
+        hog = max(hog, n / (W * H))
+    empty = float((sc['semantic'] == 0).mean())     # сколько кадра «мимо комнаты»
+    fur = (inst > 0)
+    area = float(fur.mean())                        # доля кадра, занятая мебелью
+    cy = float(np.where(fur)[0].mean() / H) if fur.any() else 0.5
+    # кадр должен выглядеть как фотография комнаты: мебель занимает около трети кадра и стоит
+    # примерно по центру по высоте, а не жмётся к нижнему краю под пустым потолком
+    return {'seen': seen, 'cut': cut, 'hog': hog, 'area': round(area, 3), 'cy': round(cy, 3),
+            'empty': round(empty, 3),
+            'score': (len(seen) - 0.6 * len(cut) - (2.0 if hog > 0.34 else 0.0)
+                      - 4.0 * abs(area - 0.33) - 3.0 * abs(cy - 0.58)
+                      - 6.0 * max(0.0, empty - 0.10))}
+
+
+def demo_cams(room, placements=None) -> list:
+    """ДВА РАКУРСА ВЫБИРАЮТСЯ ЗАМЕРОМ, А НЕ ДОКТРИНОЙ (27.08, разбор Codex + жалоба владельца
+    «стул виден, а ИИ ставит туда стеллаж»): камера в углу в 25 см от стен давала кадр, где диван
+    закрывает полкадра, половина предметов обрезана рамкой, и модель достраивала комнату по
+    своему разумению. Теперь перебираем углы (в т.ч. вынесенные ЗА стену — стена ближе камеры
+    не рисуется) и берём пару кадров, которая показывает больше предметов целиком.
+
+    Без расстановки (старый вызов) остаётся прежнее поведение: два противоположных угла.
     """
     W, D = room.width_cm, room.depth_cm
-    eye_h, tgt_h, off = 165.0, 105.0, 25.0
+    eye_h, tgt_h = 165.0, 105.0
+    def cam(name, ex, ey, tx, ty, fov):
+        return Camera(name=name, eye=(ex, eye_h, ey), target=(tx, tgt_h, ty), fov_deg=fov,
+                      width=1344, height=896)
+    if not placements:
+        off = 25.0
+        return [cam('C1', W - off, D - off, off, off, 80.0),
+                cam('C2', off, off, W - off, D - off, 80.0)]
     cx, cy = W / 2, D / 2
-    # ОСИ СЦЕНЫ: точка задаётся как (x, ВЫСОТА, глубина) — вверх смотрит Y, а не Z. Перепутал
-    # порядок — и камера уезжает в стену: первый заход показал 1 предмет из 9 (26.08).
-    # Камеры стоят В ПРОТИВОПОЛОЖНЫХ углах и смотрят друг на друга через центр: так второй кадр
-    # действительно «с другой стороны», а не соседний ракурс той же стены (владелец 27.08).
-    return [
-        Camera(name='C1', eye=(W - off, eye_h, D - off), target=(off, tgt_h, off), fov_deg=80.0,
-               width=1344, height=896),
-        Camera(name='C2', eye=(off, eye_h, off), target=(W - off, tgt_h, D - off), fov_deg=80.0,
-               width=1344, height=896),
-    ]
+    fx = sum(p.x for p in placements) / len(placements)
+    fy = sum(p.y for p in placements) / len(placements)
+    cands = []
+    for k, (ex, ey) in enumerate(((W, D), (0, 0), (W, 0), (0, D))):
+        for off in (25.0, -60.0, -130.0):          # изнутри угла и «сквозь стену» (cutaway)
+            sx = -1 if ex > 0 else 1
+            sy = -1 if ey > 0 else 1
+            px, py = ex + sx * off, ey + sy * off
+            for tx, ty in ((cx, cy), (fx, fy)):
+                for fov in (72.0, 82.0):
+                    cands.append(cam(f'K{len(cands)}', px, py, tx, ty, fov))
+    scored = []
+    for c in cands:
+        try:
+            scored.append((_cam_score(room, placements, c), c))
+        except Exception:
+            continue
+    if not scored:
+        off = 25.0
+        return [cam('C1', W - off, D - off, off, off, 80.0),
+                cam('C2', off, off, W - off, D - off, 80.0)]
+    scored.sort(key=lambda z: -z[0]['score'])
+    best_s, best = scored[0]
+    # второй кадр — тот, что ДОБАВЛЯЕТ предметы, а не повторяет первый
+    second, best_gain = None, -1e9
+    for s, c in scored[1:]:
+        g = (len(s['seen'] - best_s['seen']) * 1.6 + s['score'] * 0.4
+             - (1.5 if _cam_close(c, best) else 0.0))
+        if g > best_gain:
+            second, best_gain = c, g
+    out = [best, second or scored[-1][1]]
+    for i, c in enumerate(out):
+        c.name = f'C{i + 1}'
+    return out
 
 
-def anchors(room, placements, cam, skus: dict) -> list:
+def _cam_close(a, b) -> bool:
+    """Два ракурса из почти одной точки — это один и тот же кадр."""
+    return ((a.eye[0] - b.eye[0]) ** 2 + (a.eye[2] - b.eye[2]) ** 2) ** 0.5 < 120
+
+
+def anchors(room, placements, cam, skus: dict, sc: dict | None = None) -> list:
     """ЯКОРЯ ТОВАРОВ НА КАДРЕ (владелец 26.08: «на фотографиях размещать якоря на мебель»).
 
     Координаты НЕ спрашиваем у модели: сцену считаем мы, и маска каждого предмета в этом ракурсе
     уже есть (`compile_scene`). Берём точку внутри маски — она и есть место значка, в долях кадра.
     Это дешевле, детерминированно и не врёт: модель могла бы назвать чужие координаты.
     """
-    sc = compile_scene(room, placements, cam)
+    sc = sc or compile_scene(room, placements, cam)
     inst, ids = sc['instances'], sc['ids']
     H, W = inst.shape
     out = []
@@ -668,7 +738,8 @@ def _opening_caps(room) -> dict:
     return caps
 
 
-def _marked(img: Image.Image, anchors: list, skus: dict, caps: dict | None = None) -> Image.Image:
+def _marked(img: Image.Image, anchors: list, skus: dict, caps: dict | None = None,
+            inst=None, ids: dict | None = None) -> Image.Image:
     """Кадр с НОМЕРАМИ НА ВЫНОСКАХ (27.08, владелец: «подписи находят одна на другую — для этого
     мы делали сноски-выноски»). Приём взят из нашего же `viz_marks.py`: номер ставится НАД
     предметом и соединяется линией с точкой внутри него, а место под кружок и подпись
@@ -682,6 +753,19 @@ def _marked(img: Image.Image, anchors: list, skus: dict, caps: dict | None = Non
     fc = _font(max(13, int(r * 0.8)))
     placed: list = []                       # занятые кружки: (x, y, r)
     boxes: list = []                        # занятые подписи: (x0, y0, x1, y1)
+
+    def mask_ok(role, px, py, w, h) -> bool:
+        """Подпись «на предмете» законна, только если под ней РЕАЛЬНО его пятно: у ковра между
+        ножками стола и у Г-образных предметов прямоугольник обманывает (разбор Codex 27.08)."""
+        if inst is None or not ids:
+            return True
+        i = next((k for k, v in ids.items() if v == role), None)
+        if i is None:
+            return True
+        ih, iw = inst.shape
+        sx, sy = iw / W, ih / H
+        sub = inst[int(py * sy):int((py + h) * sy), int(px * sx):int((px + w) * sx)]
+        return bool(sub.size) and float((sub == i).mean()) > 0.75
 
     def free(px, py, w, h):
         if px < 2 or py < 2 or px + w > W - 2 or py + h > H - 2:
@@ -757,7 +841,7 @@ def _marked(img: Image.Image, anchors: list, skus: dict, caps: dict | None = Non
             w, h, lh = block(font)
             x0, y0 = ax - w / 2, ay - h / 2
             inside = (x0 >= ox0 + 2 and x0 + w <= ox1 - 2 and y0 >= top + 2 and y0 + h <= bot - 2)
-            if inside and free(x0, y0, w, h):
+            if inside and mask_ok(a['role'], x0, y0, w, h) and free(x0, y0, w, h):
                 draw_block(x0, y0, font, w, h, lh, True)
                 done = True
                 break
@@ -966,9 +1050,37 @@ def _legend(per_cam: list, skus: dict, meta: dict | None = None,
     return out
 
 
+def _chat_edit(images: list, prompt: str, model: str) -> Image.Image:
+    """Google-модели картинок живут на шлюзе не в /images/edits, а в /chat/completions: картинки
+    уходят частями сообщения, ответ приходит с полем images. Нужно, чтобы сравнивать модели на
+    ОДНОМ и том же макете (владелец 27.08: «может, другую модель пробовать»)."""
+    import base64
+    parts = [{'type': 'text', 'text': prompt}]
+    for im in images:
+        buf = io.BytesIO()
+        im.convert('RGB').save(buf, 'JPEG', quality=92)
+        parts.append({'type': 'image_url', 'image_url': {
+            'url': 'data:image/jpeg;base64,' + base64.b64encode(buf.getvalue()).decode()}})
+    body = {'model': model, 'messages': [{'role': 'user', 'content': parts}],
+            'modalities': ['image', 'text']}
+    req = urllib.request.Request(CHAT_URL, json.dumps(body).encode(),
+                                 {'Authorization': 'Bearer ' + gw_key(),
+                                  'Content-Type': 'application/json'})
+    with urllib.request.urlopen(req, timeout=900) as r:
+        j = json.loads(r.read())
+    msg = (j.get('choices') or [{}])[0].get('message') or {}
+    for im in (msg.get('images') or []):
+        u = (im.get('image_url') or {}).get('url', '') if isinstance(im, dict) else ''
+        if u.startswith('data:'):
+            return Image.open(io.BytesIO(base64.b64decode(u.split(',', 1)[1]))).convert('RGB')
+    raise SystemExit(f'шлюз не вернул картинку: {json.dumps(j)[:300]}')
+
+
 def gpt_edit(images: list, prompt: str, size: str = '1024x1536',
              quality: str = 'medium', model: str = 'openai/gpt-image-2') -> Image.Image:
-    """Один запрос в gpt-image через шлюз Vercel: несколько картинок + текст → один лист."""
+    """Один запрос в модель картинок через шлюз Vercel: несколько картинок + текст → один лист."""
+    if not model.startswith('openai/'):
+        return _chat_edit(images, prompt, model)
     import uuid
     bnd = '----rl' + uuid.uuid4().hex[:16]
     body = b''
@@ -979,9 +1091,9 @@ def gpt_edit(images: list, prompt: str, size: str = '1024x1536',
     body += part('model', model) + part('prompt', prompt) + part('size', size) + part('quality', quality)
     for i, im in enumerate(images):
         buf = io.BytesIO()
-        im.convert('RGB').save(buf, 'JPEG', quality=92)
+        im.convert('RGB').save(buf, 'PNG')     # PNG: JPEG мылит тонкие линии и мелкие цифры
         body += (f'--{bnd}\r\nContent-Disposition: form-data; name="image[]"; '
-                 f'filename="i{i}.jpg"\r\nContent-Type: image/jpeg\r\n\r\n').encode()
+                 f'filename="i{i}.png"\r\nContent-Type: image/png\r\n\r\n').encode()
         body += buf.getvalue() + b'\r\n'
     body += f'--{bnd}--\r\n'.encode()
     req = urllib.request.Request(GATEWAY, data=body, headers={
@@ -1290,11 +1402,12 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
         coll, _d, diag = collage(room, placements, cam, photos, paste=False)
         h = max(2, int(round(side * coll.height / coll.width)))
         coll = coll.resize((side, h))
-        an = anchors(room, placements, cam, skus)
+        sc = compile_scene(room, placements, cam)
+        an = anchors(room, placements, cam, skus, sc)
         for a in an:                                   # сквозная нумерация по всем видам
             a['n'] = numbering.setdefault(a['role'], len(numbering) + 1)
         parts.append(coll)
-        marks.append(_marked(coll, an, skus, _opening_caps(room)))
+        marks.append(_marked(coll, an, skus, _opening_caps(room), sc['instances'], sc['ids']))
         diags.append(diag)
         per_cam.append(an)
     def stack(imgs):
@@ -1311,7 +1424,10 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
     # часто пропадает, разрез уходит наугад, и сверху второго кадра остаётся полоска первого
     # (владелец: «не вижу второго вида»). Для таких моделей считаем каждый ракурс отдельным
     # запросом параллельно — артефакта шва нет, а по времени даже быстрее.
-    split_calls = len(cams) > 1 and os.environ.get('SPLIT_VIEWS', '1') == '1' and 'mini' in model
+    # ОДИН ВИД — ОДИН ЗАПРОС (27.08, разбор Codex): на общем листе модель решала две перспективы
+    # разом, маджента-полоса для неё не граница, а рисунок, и каждый вид получал половину
+    # запрошенного разрешения. Раздельные вызовы идут параллельно, по времени не дороже.
+    split_calls = len(cams) > 1 and os.environ.get('SPLIT_VIEWS', '1') == '1'
     sheet, sheet_marks = stack(parts), stack(marks)
     sheet.save(prefix + '-sheet.jpg', quality=92)
     sheet_marks.save(prefix + '-marked.jpg', quality=92)
@@ -1334,6 +1450,21 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
                 + ', '.join('#' + str(n) for n in gone) + '.') if gone else ''
         return f'{label}: {ops} In this frame {corner}.{miss}\n'
 
+    def legend_for(k: int | None) -> list:
+        if k is None:
+            return legend
+        here = {a['n'] for a in per_cam[k] if a.get('n')}
+        out = []
+        for it in legend:
+            if it['id'] not in here:
+                continue
+            it = dict(it)
+            it['visibility'] = it.get(f'in_view_{k + 1}', 'whole')
+            for f in ('in_view_1', 'in_view_2'):
+                it.pop(f, None)
+            out.append(it)
+        return out
+
     def build_full_prompt(two_views: bool, only: int | None = None) -> str:
         deliver = ('two photographs on one sheet: TOP is view 1, BOTTOM is view 2, with the '
                    'magenta band between them kept exactly as in the input (same position, height '
@@ -1345,9 +1476,11 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
         else:
             frames = frame_brief(only or 0, 'This frame')
         return (
-            'TASK. You are an interior designer and photographer. The furniture is already bought '
-            'by the customer and cannot be changed. Design the room AROUND these exact products — '
-            f'finishes, light, colour — and deliver {deliver}.\n\n'
+            'TASK. You are a photographic materialization renderer, not a designer: you turn OUR '
+            '3D layout into a photograph. The furniture is already bought and its arrangement is '
+            'decided — you may not redesign it. Replace every grey volume by its real product, '
+            'renovate the surfaces of the room around them, and deliver '
+            f'{deliver}.\n\n'
 
             'THE ROOM ITSELF IS FIXED. Image 1 is OUR 3D layout and a locked composition and '
             'perspective guide: every piece of furniture is a plain grey volume standing in its '
@@ -1358,12 +1491,15 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
             'proportions and the camera does not move. You repaint and light the room, you do not '
             'rebuild it.\n\n'
 
-            'INPUT IMAGES. 1 — the layout with a red number on every item and a caption (number, '
-            'type of furniture, size in cm); openings are captioned ОКНО (window) and ДВЕРЬ (door) '
-            'with their size in cm. 2 — the reference sheet: the real shop photo of every numbered '
-            'item, labelled with its number. Some shop photos sit on a branded background or carry '
-            'a logo or watermark — read the product itself and ignore the background, the logo and '
-            'any lettering; never copy them into the room.\n\n'
+            'INPUT IMAGES. Image 1 — OUR CLEAN 3D LAYOUT: the geometry you must follow, grey '
+            'volumes without any markup; this is the picture you repaint. Image 2 — the SAME frame '
+            'with service markup: a red number on every item plus its type and size in cm, and the '
+            'openings captioned ОКНО (window) and ДВЕРЬ (door) with their size; use it only to '
+            'learn WHICH number sits on WHICH volume, and never draw any of that markup. Image 3 — '
+            'the reference sheet: the real shop photo of every numbered item, labelled with its '
+            'number. Some shop photos sit on a branded background or carry a logo or watermark — '
+            'read the product itself and ignore the background, the logo and any lettering; never '
+            'copy them into the room.\n\n'
 
             'READ THE ITEM LIST BEFORE YOU DRAW ANYTHING. "product" is the exact retail name; '
             '"size_cm" is width x depth x height in centimetres, measured; "appearance" carries the '
@@ -1415,12 +1551,14 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
             'neutral piece of exactly that type and size.\n'
             '- In the layout a blue rectangle on a wall is a WINDOW (render real glass, a frame '
             'and daylight outside, never a blue panel or a picture); a brown rectangle is a DOOR.\n'
-            + (tv_note or '') + all_note + '\n'
+            + (tv_note or '') + all_note_for(None if two_views else (only or 0)) + '\n'
             + (f'STYLE — {style}: {STYLE_HINT.get(style, "")} It sets finishes, colour, light and '
                'mood only; it never adds or removes objects.\n\n' if style else '')
 
-            + 'ITEMS (JSON; id = the red number in image 1):\n'
-            + json.dumps(legend, ensure_ascii=False) + '\n\n'
+            + 'ITEMS (JSON; id = the red number in image 2; every item on this list is in '
+            'this frame and no other item exists):\n'
+            + json.dumps(legend_for(None if two_views else (only or 0)), ensure_ascii=False)
+            + '\n\n'
 
             'INVALID OUTPUT — redo if any of this happens: an item stands anywhere other than on '
             'its grey volume, or is bigger or smaller than it; an item is replaced, recoloured, '
@@ -1445,24 +1583,28 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
                    'view where the console is visible.\n')
     # ВСЕ ПРОНУМЕРОВАННЫЕ ПРЕДМЕТЫ ОБЯЗАНЫ БЫТЬ В КАДРЕ (27.08): модель роняла диван на одном из
     # видов, и кадр приходил «пустым» по составу.
-    nums = sorted({a['n'] for an in per_cam for a in an if a.get('n')})
-    all_note = (f'- The photo must contain ALL numbered objects: {", ".join("#" + str(n) for n in nums)}. '
-                'Do not omit any of them.\n' if nums else '')
+    def all_note_for(k: int | None) -> str:
+        src = per_cam if k is None else [per_cam[k]]
+        ns = sorted({a['n'] for an in src for a in an if a.get('n')})
+        return (f'- The photo must contain ALL numbered objects of this frame: '
+                f'{", ".join("#" + str(n) for n in ns)}. Do not omit any of them, and draw nothing '
+                'else.\n' if ns else '')
     two = len(cams) > 1
     prompt = build_full_prompt(two and not split_calls)
-    imgs = [sheet_marks] + ([ident] if ident is not None else [])
+    imgs = [sheet, sheet_marks] + ([ident] if ident is not None else [])
     w, h = sheet.size
     size = '1024x1536' if h > w else '1536x1024'
     stamp = hashlib.md5((prefix + str(time.time())).encode()).hexdigest()[:10]
-    src_url = _publish_sources(stamp, {'1-макет-с-номерами': sheet_marks,
-                                       '2-эталоны-товаров': ident}, prompt, legend,
+    src_url = _publish_sources(stamp, {'1-макет-чистый': sheet,
+                                       '2-макет-с-номерами': sheet_marks,
+                                       '3-эталоны-товаров': ident}, prompt, legend,
                                {'модель': model, 'размер': size, 'качество': quality,
                                 'видов': len(cams), 'стиль': style or '—'})
     _t = time.time()
     if split_calls:
         from concurrent.futures import ThreadPoolExecutor
         def one(k):
-            sub = [marks[k]] + ([ident] if ident is not None else [])
+            sub = [parts[k], marks[k]] + ([ident] if ident is not None else [])
             w2, h2 = parts[k].size
             return gpt_edit(sub, build_full_prompt(False, k),
                             size=('1024x1536' if h2 > w2 else '1536x1024'),
@@ -1521,7 +1663,7 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         sets = json.load(open(os.path.join(HERE, 'sets3.json'), encoding='utf-8'))
         items = sets[n - 1]['items']
         photos = {r: photo((items.get(r) or {}).get('img')) for r in items}
-    all_cams = demo_cams(room) if os.environ.get('DEMO_CAMS', '1') != '0' \
+    all_cams = demo_cams(room, placements) if os.environ.get('DEMO_CAMS', '1') != '0' \
         else cameras_for(room, placements)
     # ЧЕРНОВИК ДОЛЖЕН БЫТЬ БЫСТРЫМ (владелец 26.08: «уже 40 сек жду»): один ракурс вместо двух,
     # меньший лист и без уточнения якорей зрячей моделью — это ещё +8 с. Реалистичный режим
