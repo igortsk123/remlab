@@ -269,9 +269,16 @@ def anchors(room, placements, cam, skus: dict) -> list:
             continue
         ys, xs = np.where(m)
         cx, cy = float(xs.mean()), float(ys.mean())
-        if not m[int(round(cy)), int(round(cx))]:          # центр масс вне маски (Г-образный предмет)
-            k = int(np.argmin((xs - cx) ** 2 + (ys - cy) ** 2))
-            cx, cy = float(xs[k]), float(ys[k])
+        if not m[int(round(cy)), int(round(cx))]:
+            # центр масс вне маски (Г-образный предмет): берём самую «глубокую» точку внутри —
+            # центр наибольшей вписанной окружности, чтобы значок не сел на кромку
+            try:
+                from scipy.ndimage import distance_transform_edt   # noqa: PLC0415
+                dt = distance_transform_edt(m)
+                cy, cx = [float(v) for v in np.unravel_index(int(np.argmax(dt)), dt.shape)]
+            except Exception:
+                k = int(np.argmin((xs - cx) ** 2 + (ys - cy) ** 2))
+                cx, cy = float(xs[k]), float(ys[k])
         sku = skus.get(role) or {}
         out.append({'role': role, 'x': round(cx / W, 4), 'y': round(cy / H, 4),
                     'name': sku.get('name'), 'price': sku.get('price'),
@@ -685,7 +692,7 @@ def _ask(content: list, max_tokens: int = 900) -> str:
 
 
 def refine_pair(pieces: list, per_cam: list, skus: dict, marks: list,
-                verify: bool = True) -> list:
+                verify: bool = True, photos_by_role: dict | None = None) -> list:
     """ЯКОРЯ: РАМКА + ПРОВЕРКА ВЫРЕЗКОЙ (26.08, владелец: «надписи не соответствуют на обоих фото»).
 
     Одной точки мало: модель уверенно называет координату «где-то там», и значок садится на чужой
@@ -709,11 +716,21 @@ def refine_pair(pieces: list, per_cam: list, skus: dict, marks: list,
                 'и высоты этой фотографии, 0..1. Предмет не виден — пропусти его. Не путай '
                 'журнальный столик с обеденным столом и стеллаж с тумбой.'}]
     content += [{'type': 'image_url', 'image_url': {'url': _b64(p)}} for p in pieces]
+    def _hide(cams_anchors):
+        # НЕ СМОГЛИ ПОДТВЕРДИТЬ — ЗНАЧКА НЕТ (разбор Codex 27.08: раньше при сбое проверки
+        # показывались сырые координаты нашей сцены, и значок садился на чужой предмет).
+        out = []
+        for an in cams_anchors:
+            out.append([dict(a, unverified=True) if a.get('name') else dict(a) for a in an])
+        return out
+
     try:
         m = re.search(r'\{.*\}', _ask(content), re.S)
         data = json.loads(m.group(0)) if m else {}
+        if not data:
+            return _hide(per_cam)
     except Exception:
-        return per_cam
+        return _hide(per_cam)
 
     # ——— шаг 2: вырезаем предложенные рамки и просим модель назвать, что на каждой
     crops, meta = [], []
@@ -743,23 +760,34 @@ def refine_pair(pieces: list, per_cam: list, skus: dict, marks: list,
     if crops and not verify:
         ok = set(range(len(meta)))
     elif crops:
+        # пары «вырезка из кадра + эталонное фото товара»: спрашиваем не класс, а тот ли это товар
+        pairs, order_idx = [], []
+        for k, c in enumerate(crops):
+            ph = photos_by_role.get(meta[k]['role']) if photos_by_role else None
+            pairs.append((c, ph))
+            order_idx.append(k)
         vc = [{'type': 'text', 'text':
-               f'Ниже {len(crops)} вырезок из фотографий интерьера. Для каждой вырезки назови, '
-               'что на ней изображено, выбрав ОДИН вариант из списка: '
-               + ', '.join(order) + ', ничего из перечисленного. Ответ — СТРОГО JSON-массив строк '
-               'по числу вырезок, по порядку.'}]
-        vc += [{'type': 'image_url', 'image_url': {'url': _b64(c, 70)}} for c in crops]
+               f'Ниже {len(pairs)} пар изображений. В каждой паре: (1) вырезка из фотографии '
+               'интерьера, (2) фотография товара из каталога (если есть). Ответь для каждой пары '
+               'одним словом: "да" — на вырезке тот же предмет того же типа, цвета и формы, что на '
+               'фотографии товара; "нет" — другой предмет, другой цвет или это вообще не мебель. '
+               'Ответ — СТРОГО JSON-массив строк по числу пар, по порядку.'}]
+        for c, ph in pairs:
+            vc.append({'type': 'image_url', 'image_url': {'url': _b64(c, 70)}})
+            if ph is not None:
+                vc.append({'type': 'image_url', 'image_url': {'url': _b64(ph, 70)}})
         try:
             m2 = re.search(r'\[.*\]', _ask(vc, 400), re.S)
             said = json.loads(m2.group(0)) if m2 else []
+            if not said:
+                return _hide(per_cam)
             for k, val in enumerate(said[:len(meta)]):
-                base = str(meta[k]['role'] or '').split(' ')[0]
-                if base and base in str(val):
+                if str(val).strip().lower().startswith('да'):
                     ok.add(k)
         except Exception:
-            ok = set(range(len(meta)))          # проверка не удалась — доверяем первому шагу
+            return _hide(per_cam)               # проверка не удалась — значков не показываем
     else:
-        return per_cam
+        return _hide(per_cam)
 
     out = []
     for i, an in enumerate(per_cam, 1):
@@ -892,7 +920,7 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
         prepared.append((cam, piece, diag, an))
     _t = time.time()
     refined = refine_pair([t[1] for t in prepared], [t[3] for t in prepared], skus, [sheet_marks],
-                          verify=(quality != 'low'))
+                          verify=True, photos_by_role=photos)
     t_vis = round(time.time() - _t, 1)
     shots = []
     timing = {'сцена и коллажи': t_coll, 'генерация кадра': t_model, 'проверка значков': t_vis,
