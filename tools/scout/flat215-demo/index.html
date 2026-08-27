@@ -538,11 +538,12 @@ function draw(){
     let last=''; try{last=localStorage.getItem('flat215-src')||'';}catch(e){}
     sl.innerHTML=last
       ? `<a class="srcln" href="${last}" target="_blank" rel="noopener">исходники последнего фото</a>`
-      : '<span class="srcln" style="text-decoration:none">исходники появятся после первого фото</span>';
+      : '';
   }
   const st=document.getElementById('layoutState');
-  if(st){const changed=baseRev&&revision()!==baseRev;
-    st.textContent=changed?'Изменено вами':'Готовая расстановка';
+  if(st){const changed=baseRev&&revision()!==baseRev;   // «готовая расстановка» и так очевидна
+    st.textContent=changed?'Изменено вами':'';
+    st.style.display=changed?'':'none';
     st.classList.toggle('changed',!!changed);}
 }
 function basket(){                    // СПИСОК ТОВАРОВ КОМНАТЫ — справа от плана (структура референса,
@@ -814,7 +815,7 @@ function addShot(rec){ shots.push(rec); saveShots();
   const tr=document.querySelector('#feed .track');   // новый кадр стоит первым — показываем начало
   if(tr)tr.scrollLeft=0; }
 function shotLabel(s){
-  const q={draft:'черновое',realistic:'реалистичное',preset:'готовое'}[s.quality]||s.quality;
+  const q={draft:'черновое',realistic:'улучшенное',preset:'готовое'}[s.quality]||s.quality;
   const cam={C1:'от окна',C2:'от входа'}[s.camera]||'';
   const t=new Date(s.ts||Date.now());
   return `${s.variant||''} · ${q}${cam?' · '+cam:''} · ${t.getHours()}:${String(t.getMinutes()).padStart(2,'0')}`;
@@ -854,7 +855,7 @@ function drawFeed(){                    // КАРУСЕЛЬ СРЕДНИХ КА�
       mine.map(s=>[s,shots.indexOf(s)]).reverse().map(([s,i])=>card(s,i)).join('')+  // новые первыми
     `</div>`+
     `<button class="nav next" aria-label="Вперёд">›</button>`+
-    (shots.length?`<div class="meta">снимков: ${shots.length} · листайте стрелками, клик по фото — крупно</div>`:'');
+    '';
   const tr=f.querySelector('.track');
   const step=()=>Math.max(240,tr.clientWidth*0.8);
   const sync=()=>{
@@ -892,9 +893,9 @@ function drawPhotos(){                 // ЗАГОЛОВОК БЛОКА: что 
   // серая подпись мелким шрифтом в строке над планом — её не замечали. Теперь это видимая
   // кнопка в шапке блока фотографий, всегда на месте.
   let last=''; try{last=localStorage.getItem('flat215-src')||'';}catch(e){}
-  const srcBtn=last
+  const srcBtn=last                                  // до первой съёмки кнопки просто нет
     ? `<a class="btn srcbtn" href="${last}" target="_blank" rel="noopener">Исходники запроса →</a>`
-    : `<span class="btn srcbtn off" title="появится после первой съёмки">Исходники запроса</span>`;
+    : '';
   box.innerHTML=`<div class="headrow"><div><h3>${h}</h3><div class="hint">${t}</div></div>`+
     `<div>${srcBtn}</div></div>`;
 }
@@ -905,9 +906,9 @@ async function makePhoto(quality){
   if(busy){shotOpen('<div class="wait">Один кадр уже считается — дождитесь его.</div>','');return;}
   busy=true; warmUp();
   const t0=Date.now(), rev=revision();
-  const est=quality==='realistic'?'обычно 30–60 секунд':'обычно 12–18 секунд';
+  const est=quality==='realistic'?'обычно 45–60 секунд':'обычно 20–25 секунд';
   shotOpen('<div class="wait"><div class="spin"></div>'+
-    (quality==='realistic'?'Собираем реалистичное фото':'Собираем черновое фото')+
+    (quality==='realistic'?'Собираем улучшенное фото':'Собираем черновое фото')+
     ' по вашей расстановке…<br><span id="el">0</span> с</div>',est);
   const tick=setInterval(()=>{const e=document.getElementById('el');
     if(e)e.textContent=Math.round((Date.now()-t0)/1000);},500);
