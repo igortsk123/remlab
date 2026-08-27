@@ -372,7 +372,7 @@ def anchors(room, placements, cam, skus: dict, sc: dict | None = None) -> list:
     out = []
     for i, role in ids.items():
         m = (inst == i)
-        if m.sum() < 400:
+        if m.sum() < 80:            # совсем крошка (< 80 px) — распознать нечего
             continue
         ys, xs = np.where(m)
         cx, cy = float(xs.mean()), float(ys.mean())
@@ -395,6 +395,7 @@ def anchors(room, placements, cam, skus: dict, sc: dict | None = None) -> list:
                     'depth_cm': round(float(dep.mean()), 1) if dep.size else None,
                     'x0': round(float(xs.min()) / W, 4), 'x1': round(float(xs.max()) / W, 4),
                     'bot': round(float(ys.max()) / H, 4), 'area': int(m.sum()),
+                    'tiny': bool(m.sum() < 400),   # подпись такому предмету ставим выноской
                     'cut': bool(xs.min() <= 1 or xs.max() >= W - 2
                                 or ys.min() <= 1 or ys.max() >= H - 2),
                     'name': sku.get('name'), 'price': sku.get('price'),
@@ -1593,7 +1594,7 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
             'same position, same footprint, same rotation. Never draw the outlines themselves.\n\n'
 
             'GREY VOLUMES. A grey block is a placeholder: its size, place and rotation are exact, '
-            'its surface is not. Draw the real product from image 2 and the item list standing '
+            'its surface is not. Draw the real product from image 3 and the item list standing '
             'exactly on that volume — same footprint, same rotation, same distance to the walls '
             'and to its neighbours. The shop photo shows the product from a catalogue angle: do '
             'not copy that angle, turn the product to match the volume.\n\n'
@@ -1630,7 +1631,8 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
             + (f'STYLE — {style}: {STYLE_HINT.get(style, "")} It sets finishes, colour, light and '
                'mood only; it never adds or removes objects.\n\n' if style else '')
 
-            + 'ITEMS (JSON; id = the red number in image 2; every item on this list is in '
+            + 'ITEMS (JSON; id = the number drawn on the object in image 2; every item on this '
+            'list is in '
             'this frame and no other item exists):\n'
             + json.dumps(legend_for(None if two_views else (only or 0)), ensure_ascii=False)
             + '\n\n'
