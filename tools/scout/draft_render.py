@@ -322,7 +322,8 @@ def demo_cams(room, placements=None) -> list:
     fy = sum(p.y for p in placements) / len(placements)
     cands = []
     for k, (ex, ey) in enumerate(((W, D), (0, 0), (W, 0), (0, D))):
-        for off in (25.0, -60.0, -130.0):          # изнутри угла и «сквозь стену» (cutaway)
+        offs = (25.0,) if os.environ.get('INSIDE_CAMS') else (25.0, -60.0, -130.0)
+        for off in offs:                           # изнутри угла и «сквозь стену» (cutaway)
             sx = -1 if ex > 0 else 1
             sy = -1 if ey > 0 else 1
             px, py = ex + sx * off, ey + sy * off
