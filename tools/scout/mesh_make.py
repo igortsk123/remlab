@@ -46,6 +46,10 @@ def mesh_trusted(path: str, photo: str, min_iou: float = 0.6) -> bool:
     from PIL import Image
 
     verdict = os.path.splitext(path)[0] + '-check.json'
+    # ВЕРДИКТ НЕ ПЕРЕЖИВАЕТ ЗАМЕНУ МОДЕЛИ (q21/q22, 28.08): Hunyuan-фолбэк копировался поверх
+    # GLB, а старый отрицательный check.json оставался — mesh_trusted() вечно возвращал false.
+    if os.path.exists(verdict) and os.path.getmtime(verdict) < os.path.getmtime(path):
+        os.remove(verdict)
     if os.path.exists(verdict):
         try:
             return bool(json.load(open(verdict))['ok'])

@@ -135,6 +135,17 @@ def _slot_ok(role: str, cand: dict, s: dict, chosen: dict | None = None) -> bool
             return False
     except Exception:
         pass
+    # ГОДНЫЙ МЕШ — 4-е условие контракта визуализируемых ролей (решение владельца 28.08,
+    # план viz-mesh-orientation): блокирует ТОЛЬКО явный вердикт «replace_product» после
+    # двойного брака (Trellis и Hunyuan) в реестре мешей; отсутствие меша не блокирует.
+    try:
+        from mesh_gate import verdict_for_photo
+        import os as _os
+        if verdict_for_photo(cand.get('img') or '', _os.path.expanduser(
+                '~/scout-scenes/meshes')) == 'replace_product':
+            return False
+    except Exception:
+        pass
     # ТОВАР ДОЛЖЕН БЫТЬ В ПРОДАЖЕ И С ИЗВЕСТНЫМ РАЗМЕРОМ (26.08). Программа магазина закрыта или
     # товар архивный — его нельзя ни показать, ни продать. Каталог не знает НИ ОДНОГО габарита —
     # предмет нельзя расставить честно: размер тогда берётся «по памяти слота», а это и был

@@ -209,3 +209,28 @@ if [ "$(date +%u)" = "1" ]; then
 fi
 
 echo "$today" > "$STAMP"
+
+# --- Меши товаров (план viz-mesh-orientation): ТОЛЬКО очередь уникальных SKU, генерации нет.
+# Включается MESH_QUEUE=1; сам прогон очереди — отдельный процесс с дневным лимитом денег.
+if [ "${MESH_QUEUE:-0}" = "1" ]; then
+  "$VENV/python" - <<'PYQ' || echo "[refresh] очередь мешей: ошибка (не блокирует конвейер)"
+import json, hashlib, os
+sets = json.load(open(os.path.join(os.path.dirname(os.path.abspath('tools/scout/sets3.json')),
+                                   'tools/scout/sets3.json')))
+seen, queue = set(), []
+FLOOR = ('диван','кресло','стул','столик','стол обеденный','тв-тумба','стеллаж','комод',
+         'пуф','банкетка','витрина','стенка')
+for st in sets:
+    for role, it in (st.get('items') or {}).items():
+        base = role.split(' ')[0]
+        img = (it or {}).get('img') or ''
+        if not img or base not in FLOOR or img in seen:
+            continue
+        seen.add(img)
+        queue.append({'img': img, 'role': base, 'key': hashlib.md5(img.encode()).hexdigest()[:16]})
+out = os.path.expanduser('~/scout-scenes/meshes/queue.json')
+os.makedirs(os.path.dirname(out), exist_ok=True)
+json.dump(queue, open(out, 'w'), ensure_ascii=False, indent=1)
+print(f'[refresh] очередь мешей: {len(queue)} уникальных SKU → {out}')
+PYQ
+fi
