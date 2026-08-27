@@ -214,6 +214,7 @@ def _opening(o: dict) -> dict:
     """Проём из запроса страницы → поля модели планировщика (лишнее отбрасываем)."""
     out = {k: v for k, v in o.items()
            if k in ('kind', 'wall', 'offset_cm', 'width_cm', 'swing_cm', 'sill_cm')}
+    # `height_cm` модель планировщика не знает — размер окна уходит отдельно в промпт
     if o.get('hinge') in ('start', 'left'):
         out['hinge'] = 'left'
     elif o.get('hinge') in ('end', 'right'):
@@ -431,12 +432,52 @@ def gw_key() -> str:
     raise SystemExit('нет VERCEL_AI_GATEWAY_KEY — см. .memory_bank/_secrets/ACCESS.md')
 
 
+_FONT_CACHE: dict = {}
+
+
 def _font(size: int):
-    for p in ('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-              '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'):
-        if os.path.exists(p):
-            return ImageFont.truetype(p, size)
-    return ImageFont.load_default()
+    """Шрифт С КИРИЛЛИЦЕЙ (27.08, владелец: «подписи передаются некорректно»). В контейнере
+    сервиса не было ни одного ttf, PIL брал встроенный битмап без кириллицы, и в модель уходили
+    подписи из квадратиков — модель не понимала, что это за предмет. Ищем шире и проверяем, что
+    глиф для «А» действительно есть."""
+    if size in _FONT_CACHE:
+        return _FONT_CACHE[size]
+    import glob
+    cands = ['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+             '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf']
+    cands += sorted(glob.glob('/usr/share/fonts/**/*.ttf', recursive=True))
+    cands += sorted(glob.glob(os.path.join(HERE, 'fonts', '*.ttf')))
+    for c in cands:
+        try:
+            f = ImageFont.truetype(c, size)
+            if f.getbbox('А')[2] > 0:          # кириллица в шрифте есть
+                _FONT_CACHE[size] = f
+                return f
+        except Exception:
+            continue
+    _FONT_CACHE[size] = ImageFont.load_default()
+    return _FONT_CACHE[size]
+
+
+def _label(text: str) -> str:
+    """Если кириллического шрифта в системе нет — латиницей, но НИКОГДА квадратиками."""
+    f = _font(20)
+    try:
+        if f.getbbox('А')[2] > 0:
+            return text
+    except Exception:
+        pass
+    table = {'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'e', 'ж': 'zh',
+             'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm', 'н': 'n', 'о': 'o',
+             'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u', 'ф': 'f', 'х': 'h', 'ц': 'c',
+             'ч': 'ch', 'ш': 'sh', 'щ': 'sch', 'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu',
+             'я': 'ya'}
+    out = []
+    for ch in text:
+        low = ch.lower()
+        rep = table.get(low)
+        out.append(ch if rep is None else (rep.upper() if ch.isupper() else rep))
+    return ''.join(out)
 
 
 def _marked(img: Image.Image, anchors: list, skus: dict) -> Image.Image:
@@ -449,13 +490,29 @@ def _marked(img: Image.Image, anchors: list, skus: dict) -> Image.Image:
     r = max(16, img.width // 42)
     f = _font(int(r * 1.25))
     fc = _font(max(13, int(r * 0.78)))
+    import numpy as _np
+    arr = _np.asarray(out.convert('RGB')).astype(int)
+    for rgb, cap in (((108, 166, 208), 'ОКНО'), ((176, 136, 84), 'ДВЕРЬ')):
+        m = ((abs(arr[..., 0] - rgb[0]) < 26) & (abs(arr[..., 1] - rgb[1]) < 26)
+             & (abs(arr[..., 2] - rgb[2]) < 26))
+        if m.sum() < 400:
+            continue
+        ys, xs = _np.where(m)
+        cx, cy = float(xs.mean()), float(ys.mean())
+        t = _label(cap)
+        bb = d.textbbox((0, 0), t, font=fc)
+        w, h = bb[2] - bb[0] + 10, bb[3] - bb[1] + 8
+        bx = min(max(cx - w / 2, 2), out.width - w - 2)
+        by = min(max(cy - h / 2, 2), out.height - h - 2)
+        d.rectangle([bx, by, bx + w, by + h], fill=(255, 255, 255))
+        d.text((bx + 5, by + 4), t, fill=(30, 90, 160) if cap == 'ОКНО' else (150, 90, 40), font=fc)
     for a in anchors:
         cx, cy = a['x'] * out.width, a['y'] * out.height
         sku = skus.get(a['role']) or {}
         dim = ''
         if sku.get('w') and sku.get('d'):
             dim = f" {round(sku['w'])}×{round(sku['d'])}" + (f"×{round(sku['h'])}" if sku.get('h') else '')
-        cap = f"{a['n']}. {a['role']}{dim} см" if dim else f"{a['n']}. {a['role']}"
+        cap = _label(f"{a['n']}. {a['role']}{dim} см" if dim else f"{a['n']}. {a['role']}")
         bb = d.textbbox((0, 0), cap, font=fc)
         w, h = bb[2] - bb[0] + 10, bb[3] - bb[1] + 8
         bx, by = min(max(cx - w / 2, 2), out.width - w - 2), min(cy + r + 4, out.height - h - 2)
@@ -504,8 +561,9 @@ def _identity(anchors_all: list, photos: dict, skus: dict | None = None) -> Imag
         cap = f'#{num} {role}'
         if role.split(' ')[0] == 'ковёр':
             cap += ' — НА ПОЛ (вид сверху)'      # иначе модель вешает ковёр на стену как картину
-        d.text((x + 20, y + ch - 86), cap, fill=(200, 30, 30), font=f)
-        d.text((x + 20, y + ch - 46), (name[:38] + (' · ' + dim if dim else '')), fill=(90, 90, 90), font=fs)
+        d.text((x + 20, y + ch - 86), _label(cap), fill=(200, 30, 30), font=f)
+        d.text((x + 20, y + ch - 46), _label(name[:38] + (' · ' + dim if dim else '')),
+               fill=(90, 90, 90), font=fs)
     return sheet
 
 
@@ -886,9 +944,10 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
                 'You are given: (1) our 3D layout of a room')
         return (
             head + ' — this is OUR 3D layout: every piece of furniture is a plain grey volume in '
-            'its exact place, size and orientation; (2) the same image with red numbers and '
-            'captions (number, type of furniture and its size in cm); (3) a reference sheet with '
-            'the real product photo of every numbered item.\n'
+            'its exact place, size and orientation, each marked with a red number and a caption '
+            '(number, type of furniture, size in cm); openings are captioned ОКНО (window) and '
+            'ДВЕРЬ (door); (2) a reference sheet with the real product photo of every numbered '
+            'item.\n'
             + ('Return ONE image of the same proportions: both views rendered as photorealistic '
                'interior photographs, with the magenta band kept exactly where it is.\n'
                if two_views else
@@ -917,25 +976,37 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
                '- Natural daylight from the window, soft contact shadows, realistic wood floor and '
                'wall textures.\n')
             + (f'- Interior style: {style}. {STYLE_HINT.get(style, "")}\n' if style else '')
+            + (win_note or '')
             + 'Objects:\n'
             + json.dumps(legend, ensure_ascii=False))
 
+    # РАЗМЕР ОКНА — ЦИФРАМИ (владелец 27.08: «более реалистичные размеры окна»): без этого модель
+    # рисует остекление во всю стену независимо от проёма на макете.
+    win_note = ''
+    for o in getattr(room, 'openings', []) or []:
+        if getattr(o, 'kind', '') == 'window':
+            w_cm = int(getattr(o, 'width_cm', 0) or 0)
+            sill = int(getattr(o, 'sill_cm', 0) or 0)
+            if w_cm:
+                win_note = (f'- The window opening is {w_cm} cm wide with a sill {sill} cm above '
+                            'the floor and about 150 cm tall: a normal residential window, NOT a '
+                            'full-wall glazing. Keep the wall around it.\n')
+            break
     two = len(cams) > 1
     prompt = build_full_prompt(two and not split_calls)
-    imgs = [sheet, sheet_marks] + ([ident] if ident is not None else [])
+    imgs = [sheet_marks] + ([ident] if ident is not None else [])
     w, h = sheet.size
     size = '1024x1536' if h > w else '1536x1024'
     stamp = hashlib.md5((prefix + str(time.time())).encode()).hexdigest()[:10]
-    src_url = _publish_sources(stamp, {('1-комната-два-вида' if two else '1-комната'): sheet,
-                                       '2-с-номерами': sheet_marks,
-                                       '3-эталоны-товаров': ident}, prompt, legend,
+    src_url = _publish_sources(stamp, {'1-макет-с-номерами': sheet_marks,
+                                       '2-эталоны-товаров': ident}, prompt, legend,
                                {'модель': model, 'размер': size, 'качество': quality,
                                 'видов': len(cams), 'стиль': style or '—'})
     _t = time.time()
     if split_calls:
         from concurrent.futures import ThreadPoolExecutor
         def one(k):
-            sub = [parts[k], marks[k]] + ([ident] if ident is not None else [])
+            sub = [marks[k]] + ([ident] if ident is not None else [])
             w2, h2 = parts[k].size
             return gpt_edit(sub, build_full_prompt(False),
                             size=('1024x1536' if h2 > w2 else '1536x1024'),
