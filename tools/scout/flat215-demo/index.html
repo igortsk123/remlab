@@ -81,6 +81,12 @@ h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
 .state{border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:13px;
  background:#F4F2ED;color:#3A423C;white-space:nowrap}
 .state.changed{background:#FBF0E2;border-color:#E4C79A;color:#8A5A1E}
+/* ПЕРЕКЛЮЧАТЕЛИ ДВЕРИ (27.08): сторона петель и куда открывается */
+.doorctl{display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap}
+.doorctl b{font-weight:600;color:#3A423C}
+.doorctl button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 12px;
+ font-size:clamp(13px,0.92vw,14.5px);cursor:pointer;color:#3A423C}
+.doorctl button:hover{border-color:var(--accent);color:var(--accent)}
 .lnk{border:0;background:none;padding:0;color:var(--accent);font:inherit;font-size:clamp(13.5px,0.95vw,15.5px);
  cursor:pointer;text-decoration:underline}
 .noimg-sm{width:64px;height:52px;flex:0 0 64px;border-radius:4px;background:#F2F0EB;color:#A6ABA4;
@@ -108,6 +114,13 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 /* ЯКОРЯ НА ФОТО (владелец 26.08): точки на мебели со ссылкой на конкретный товар. Координаты —
    из масок нашей же сцены, а не «на глаз» и не из ответа модели. */
 .shotwrap{position:relative;display:inline-block;width:100%}
+.shotwrap .nav{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:44px;
+ border-radius:50%;border:0;background:#ffffffe8;box-shadow:0 2px 10px #00000033;cursor:pointer;
+ font-size:22px;color:#2A2F2C;display:flex;align-items:center;justify-content:center;z-index:2}
+.shotwrap .prev{left:12px}.shotwrap .next{right:12px}
+.shotwrap .nav[disabled]{display:none}
+.shotwrap .viewno{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);
+ background:#000000a8;color:#fff;border-radius:999px;padding:5px 12px;font-size:13.5px}
 .shotwrap img{width:100%;border-radius:10px;display:block}
 .pin{position:absolute;transform:translate(-50%,-50%);width:26px;height:26px;border-radius:50%;
  background:#fffffff2;border:2px solid var(--accent);color:var(--accent);font-size:14px;
@@ -269,8 +282,9 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
     <div>
       <div class="canvasbar">
         <span id="sel">Тяните предмет, чтобы двигать. Товар выбирается по значку на предмете.</span>
+        <span class="doorctl" id="doorCtl"></span>
         <span><span id="srcLink"></span>
-        <span class="state" id="layoutState">Готовая расстановка</span></span>
+        <span class="state" id="layoutState"></span></span>
       </div>
       <div id="canvasWrap"><svg id="stage" xmlns="http://www.w3.org/2000/svg"></svg>
       <div id="tip"></div></div>
@@ -403,6 +417,22 @@ function drawVariants(){
   }
 }
 
+// ——— УПРАВЛЕНИЕ ДВЕРЬЮ: сторона петель и направление открывания (владелец 27.08)
+function theDoor(){ return (D.room.openings||[]).find(o=>o.kind==='door'); }
+function drawDoorCtl(){
+  const box=document.getElementById('doorCtl'); if(!box)return;
+  const o=theDoor(); if(!o){box.innerHTML='';return;}
+  if(o.hinge===undefined)o.hinge='start';
+  if(o.into===undefined)o.into=true;
+  const horiz=(o.wall==='north'||o.wall==='south');
+  const sideName=o.hinge==='start'?(horiz?'слева':'сверху'):(horiz?'справа':'снизу');
+  box.innerHTML=`<b>Дверь:</b>`+
+    `<button id="dHinge">петли ${sideName}</button>`+
+    `<button id="dInto">${o.into?'внутрь комнаты':'наружу'}</button>`;
+  document.getElementById('dHinge').onclick=()=>{o.hinge=(o.hinge==='start')?'end':'start';draw();};
+  document.getElementById('dInto').onclick=()=>{o.into=!o.into;draw();};
+}
+
 // ——— вкладки и схема квартиры
 function showTab(which){
   const room=which==='room';
@@ -533,6 +563,7 @@ function draw(){
   // «посмотреть изменения» нечего.
   const snb=document.getElementById('shotNowBar');
   if(snb)snb.hidden=!(baseRev&&items.length&&revision()!==baseRev);
+  drawDoorCtl();
   const sl=document.getElementById('srcLink');
   if(sl){
     let last=''; try{last=localStorage.getItem('flat215-src')||'';}catch(e){}
@@ -754,10 +785,27 @@ function wallSeg(w,off,len){const W=D.room.w,H=D.room.d;
   if(w==='west')return{x1:0,y1:off,x2:0,y2:off+len};return{x1:W,y1:off,x2:W,y2:off+len};}
 function wallMid(o){const p=wallSeg(o.wall,o.offset_cm,o.width_cm);const cx=(p.x1+p.x2)/2,cy=(p.y1+p.y2)/2;
   const dx=(D.room.w/2-cx),dy=(D.room.d/2-cy),n=Math.hypot(dx,dy)||1;return{x:cx+dx/n*22,y:cy+dy/n*22};}
-function swing(o){const p=wallSeg(o.wall,o.offset_cm,o.width_cm),r=o.swing_cm||o.width_cm;
-  const hx=p.x1,hy=p.y1;const inx=(o.wall==='west')?1:(o.wall==='east')?-1:0, iny=(o.wall==='south')?1:(o.wall==='north')?-1:0;
-  const ax=hx+(o.wall==='west'||o.wall==='east'?0:r), ay=hy+(o.wall==='west'||o.wall==='east'?r:0);
-  return `M ${X(hx)} ${Y(hy)} L ${X(hx+inx*r)} ${Y(hy+iny*r)} A ${r*S} ${r*S} 0 0 1 ${X(ax)} ${Y(ay)} Z`;}
+// ДВЕРЬ ОТКРЫВАЕТСЯ ТУДА, КУДА СКАЖУТ (владелец 27.08): у проёма два переключателя — сторона
+// петель вдоль стены (`hinge`: 'start' | 'end') и направление створки (`into`: в комнату или из
+// неё). Дуга, зона открывания и подсказки считаются по ним, а не по одному жёсткому варианту.
+function doorGeom(o){
+  const p=wallSeg(o.wall,o.offset_cm,o.width_cm), r=o.swing_cm||o.width_cm;
+  const horiz=(o.wall==='north'||o.wall==='south');
+  const hinge=(o.hinge==='end')?{x:p.x2,y:p.y2}:{x:p.x1,y:p.y1};   // точка петель
+  const along={x:horiz?((o.hinge==='end')?-1:1):0, y:horiz?0:((o.hinge==='end')?-1:1)};
+  const inward={x:(o.wall==='west')?1:(o.wall==='east')?-1:0,
+                y:(o.wall==='south')?1:(o.wall==='north')?-1:0};
+  const dir=(o.into===false)?-1:1;                                  // наружу — зеркалим
+  return {p:p, r:r, hinge:hinge, along:along,
+          open:{x:inward.x*dir, y:inward.y*dir}};
+}
+function swing(o){
+  const g=doorGeom(o), r=g.r, hx=g.hinge.x, hy=g.hinge.y;
+  const ex=hx+g.open.x*r, ey=hy+g.open.y*r;          // конец створки в открытом положении
+  const ax=hx+g.along.x*r, ay=hy+g.along.y*r;        // конец створки в закрытом положении
+  const cross=g.along.x*g.open.y-g.along.y*g.open.x; // куда закручивать дугу
+  return `M ${X(hx)} ${Y(hy)} L ${X(ex)} ${Y(ey)} A ${r*S} ${r*S} 0 0 ${cross>0?1:0} ${X(ax)} ${Y(ay)} Z`;
+}
 
 // ——— перетаскивание (мышь и палец)
 // ФОТОГРАФИИ РАССТАНОВКИ (26.08). Ключ модели живёт на сервере, поэтому страница шлёт СВОЮ
@@ -950,18 +998,22 @@ function pinCard(a,el){
 
 function viewShot(i){
   const s=shots[i]; if(!s)return;
-  const an=(s.anchors||[]).filter(a=>a.name&&!a.unverified);
+  // ЗНАЧКИ — ТОЛЬКО ПОДТВЕРЖДЁННЫЕ, А СПИСОК ТОВАРОВ — ВЕСЬ (владелец 27.08: «исчезли товары при
+  // открытии фото»): строгая проверка якорей не должна прятать сами товары этого кадра.
+  const all=(s.anchors||[]).filter(a=>a.name);
+  const an=all.filter(a=>!a.unverified);
   // ЯКОРЯ ставим по координатам, посчитанным сервером из масок сцены: клик ведёт в магазин
   const pins=an.map((a,k)=>`<button class="pin" style="left:${(a.x*100).toFixed(1)}%;top:${(a.y*100).toFixed(1)}%"
       data-k="${k}" title="${(a.name||'').replace(/"/g,'&quot;')}">${k+1}</button>`).join('');
   // ПОД ФОТО — ВСЕ ТОВАРЫ С ЦЕНАМИ И ИТОГОМ (владелец 26.08)
-  const sum=an.reduce((t,a)=>t+(a.price||0),0);
-  const list=an.length?`<div class="pinlist">`+
-      `<div class="total"><span>Товары на фото · ${an.length}</span><span>${money(sum)}</span></div>`+
-      `<div class="ptrack">`+an.map((a,k)=>
-        `<a class="pcard" ${a.url?`href="${a.url}" target="_blank" rel="noopener"`:''} data-k="${k}">`+
+  const numOf=new Map(an.map((a,k)=>[a,k+1]));
+  const sum=all.reduce((t,a)=>t+(a.price||0),0);
+  const list=all.length?`<div class="pinlist">`+
+      `<div class="total"><span>Товары на фото · ${all.length}</span><span>${money(sum)}</span></div>`+
+      `<div class="ptrack">`+all.map(a=>
+        `<a class="pcard" ${a.url?`href="${a.url}" target="_blank" rel="noopener"`:''}>`+
         (a.img?`<img src="${a.img}" loading="lazy" alt="">`:'<div class="pnoimg">нет фото</div>')+
-        `<div class="num">${k+1}</div>`+
+        (numOf.has(a)?`<div class="num">${numOf.get(a)}</div>`:'')+
         `<div class="pn2">${a.name}</div>`+
         `<div class="pr2">${money(a.price)}</div>`+
         `<div class="ps2">${a.role}${a.shop?' · '+a.shop:''}</div></a>`).join('')+
@@ -976,13 +1028,23 @@ function viewShot(i){
     ? `<div class="srcrow"><a class="btn srcbtn" href="${srcUrl}" target="_blank" rel="noopener">Исходники запроса →</a>`+
       `<span class="hint">${tm||'что именно ушло в модель: макет, номера, эталоны товаров и промпт'}</span></div>`
     : '';
-  shotOpen(`<div class="shotwrap"><img src="${s.url}" alt="${shotLabel(s)}">${pins}</div>${srcRow}${list}`,
+  const seq=myShots();                         // соседние кадры этого же варианта
+  const at=seq.indexOf(s);
+  const navs=(seq.length>1&&at>=0)
+    ? `<button class="nav prev" id="shotPrev" ${at===0?'disabled':''} aria-label="Предыдущий вид">‹</button>`+
+      `<button class="nav next" id="shotNext" ${at===seq.length-1?'disabled':''} aria-label="Следующий вид">›</button>`+
+      `<div class="viewno">${at+1} из ${seq.length}</div>`
+    : '';
+  shotOpen(`<div class="shotwrap"><img src="${s.url}" alt="${shotLabel(s)}">${pins}${navs}</div>${srcRow}${list}`,
     `<span>${shotLabel(s)}${s.model?' · '+s.model:''}`+
     (s.sources?`<a class="srcln" href="${s.sources}" target="_blank" rel="noopener">исходники</a>`:'')+
     `</span>`+
     `<span><a class="btn" href="${s.url}" download target="_blank" rel="noopener">Скачать</a>
      <button class="btn primary" id="shShare">Отправить себе</button></span>`);
   document.getElementById('shShare').onclick=()=>shareOpen([s]);
+  const pv=document.getElementById('shotPrev'), nx=document.getElementById('shotNext');
+  if(pv)pv.onclick=()=>viewShot(shots.indexOf(seq[at-1]));
+  if(nx)nx.onclick=()=>viewShot(shots.indexOf(seq[at+1]));
   document.querySelectorAll('#shotbody .pin').forEach(b=>{
     const a=an[+b.dataset.k];
     b.onclick=()=>{if(a&&a.url)window.open(a.url,'_blank','noopener');};
@@ -1296,9 +1358,11 @@ function showTip(it,force){
   if(!tipTimer)t.style.display='none';          // всё в порядке — молчим
 }
 function gap(a,b){const dx=Math.max(0,Math.max(a.x0-b.x1,b.x0-a.x1)),dy=Math.max(0,Math.max(a.y0-b.y1,b.y0-a.y1));return Math.hypot(dx,dy);}
-function doorBox(o){const p=wallSeg(o.wall,o.offset_cm,o.width_cm),r=o.swing_cm||90;
-  if(o.wall==='south')return{x0:p.x1,y0:0,x1:p.x2,y1:r};if(o.wall==='north')return{x0:p.x1,y0:D.room.d-r,x1:p.x2,y1:D.room.d};
-  if(o.wall==='west')return{x0:0,y0:p.y1,x1:r,y1:p.y2};return{x0:D.room.w-r,y0:p.y1,x1:D.room.w,y1:p.y2};}
+function doorBox(o){                       // прямоугольник, который створка заметает В КОМНАТЕ
+  const g=doorGeom(o), r=g.r, h=g.hinge;
+  if(g.open.x===0&&g.open.y===0)return{x0:h.x,y0:h.y,x1:h.x,y1:h.y};
+  const xs=[h.x, h.x+g.along.x*r, h.x+g.open.x*r], ys=[h.y, h.y+g.along.y*r, h.y+g.open.y*r];
+  return {x0:Math.min(...xs), y0:Math.min(...ys), x1:Math.max(...xs), y1:Math.max(...ys)};}
 function radBox(r){const p=wallSeg(r.wall,r.offset_cm,r.width_cm),dep=r.depth_cm||12;
   if(r.wall==='south')return{x0:p.x1,y0:0,x1:p.x2,y1:dep};if(r.wall==='north')return{x0:p.x1,y0:D.room.d-dep,x1:p.x2,y1:D.room.d};
   if(r.wall==='west')return{x0:0,y0:p.y1,x1:dep,y1:p.y2};return{x0:D.room.w-dep,y0:p.y1,x1:D.room.w,y1:p.y2};}

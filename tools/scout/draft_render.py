@@ -207,14 +207,26 @@ def collage(room, placements, cam, photos: dict,
     return canvas, dmap, diag
 
 
+def _opening(o: dict) -> dict:
+    """Проём из запроса страницы → поля модели планировщика (лишнее отбрасываем)."""
+    out = {k: v for k, v in o.items()
+           if k in ('kind', 'wall', 'offset_cm', 'width_cm', 'swing_cm', 'sill_cm')}
+    if o.get('hinge') in ('start', 'left'):
+        out['hinge'] = 'left'
+    elif o.get('hinge') in ('end', 'right'):
+        out['hinge'] = 'right'
+    if o.get('into') is False:
+        out['swing_cm'] = 0        # открывается наружу — внутри комнаты место не занимает
+    return out
+
+
 def scene_from_request(payload: dict) -> tuple:
     """Комната и расстановка ИЗ ЗАПРОСА СТРАНИЦЫ (26.08): человек двигает мебель у себя, поэтому
     черновик обязан считаться по ТОЙ расстановке, что на экране, а не по банковскому артефакту."""
     from planner.models import Item, Opening, Placement, Radiator, Room
     r = payload['room']
     room = Room(width_cm=r['w'], depth_cm=r['d'],
-                openings=[Opening(**{k: v for k, v in o.items() if not k.startswith('_')})
-                          for o in (r.get('openings') or [])],
+                openings=[Opening(**_opening(o)) for o in (r.get('openings') or [])],
                 radiators=[Radiator(**{k: v for k, v in x.items() if not k.startswith('_')})
                            for x in (r.get('radiators') or [])])
     placements, photos = [], {}
