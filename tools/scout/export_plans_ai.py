@@ -187,7 +187,18 @@ def _with_orientation(items: dict, art: dict) -> dict:
         orient = {'yaw_deg': round(rot, 1),
                   'front_vector_world': {'x': round(fx, 3), 'z': round(fz, 3)},
                   'intent': intent, 'zone_instance': zone,
-                  'facing_target': None, 'relation': 'none', 'validated': True}
+                  'facing_target': None, 'relation': 'none', 'validated': False}
+        # АВТОРСКАЯ связь из шаблона (q23): приоритетнее эвристики «ближайший предмет»
+        aft = v.get('facing_target') if isinstance(v, dict) else None
+        if aft and aft.get('type') == 'seat_anchor':
+            err0 = abs((rot - float(aft.get('expected_yaw_deg', rot)) + 180) % 360 - 180)
+            orient['facing_target'] = {**aft, 'angular_error_deg': round(err0, 1)}
+            orient['relation'] = 'faces' if err0 <= float(aft.get('max_error_deg', 5)) \
+                else 'angled_toward'
+            orient['validated'] = err0 <= float(aft.get('max_error_deg', 5))
+            d['orientation'] = orient
+            out[role] = d
+            continue
         if best:
             _, r2, tx, tz, dist, bearing, err = best
             orient['facing_target'] = {'type': 'item', 'role': r2,

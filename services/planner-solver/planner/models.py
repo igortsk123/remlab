@@ -123,6 +123,10 @@ class Placement(BaseModel):
     # Q12-4 (ADR-0112, CPSC Anchor It): требование МОНТАЖА, а не геометрии — высокий корпус
     # обязан крепиться к стене. Планировщик его не решает, но обязан донести до сборки/сметы.
     installation_requirement: str = ""
+    # SEAT ANCHOR (q23/схема владельца 28.08): АВТОРСКАЯ связь позы «этот стул смотрит на свой
+    # стол перпендикулярно СВОЕЙ кромке» — пишется шаблоном (build_dining), а не восстанавливается
+    # эвристикой. rot остаётся истиной; facing_target объясняет и валидирует её.
+    facing_target: dict | None = None
 
     @model_validator(mode="after")
     def _role_matches(self) -> "Placement":

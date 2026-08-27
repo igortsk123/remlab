@@ -208,6 +208,7 @@ class Block:
     def __init__(self, anchor: Item):
         self.anchor = anchor
         self.rel: list[tuple[Item, float, float, float]] = [(anchor, 0.0, 0.0, 0.0)]
+        self.facing: dict[int, dict] = {}      # индекс в rel → авторская связь позы (q23)
         self.tpl_id = ''          # паспорт схемы (rules/templates.json) — ставит _valid
         self.tpl_version = ''
         self.tpl_variant = ''     # форма схемы: должна попадать в Placement УЖЕ В ПОИСКЕ, иначе
@@ -219,12 +220,20 @@ class Block:
 
     def to_world(self, ax: float, ay: float, arot: float) -> list[Placement]:
         out = []
-        for it, rx, ry, rrot in self.rel:
+        for i, (it, rx, ry, rrot) in enumerate(self.rel):
             wx, wy = _rt(rx, ry, arot)
+            ft = self.facing.get(i)
+            if ft is not None:
+                ep = ft.get('edge_point_local') or {}
+                ex, ey = _rt(float(ep.get('x', 0)), float(ep.get('y', 0)), arot)
+                ft = {**ft, 'expected_yaw_deg': (float(ft['expected_yaw_local']) + arot) % 360,
+                      'edge_point_cm': {'x': round(ax + ex, 1), 'y': round(ay + ey, 1)}}
+                ft.pop('expected_yaw_local', None)
+                ft.pop('edge_point_local', None)
             out.append(Placement(role=it.role, x=ax + wx, y=ay + wy,
                                  rot=(rrot + arot) % 360, item=it,
                                  tpl_id=self.tpl_id, tpl_version=self.tpl_version,
-                                 tpl_variant=self.tpl_variant))
+                                 tpl_variant=self.tpl_variant, facing_target=ft))
         return out
 
 
@@ -1036,6 +1045,12 @@ def build_dining(by_role: dict[str, Item], max_chairs: int,
         off = ch.d_cm / 2 + CHAIR_GAP
         dx, dy = _rt(0.0, off, srot)               # сдвиг наружу вдоль взгляда стула
         b.add(ch, sx - dx, sy - dy, srot)
+        # SEAT ANCHOR (q23): авторская связь — перпендикуляр к СВОЕЙ кромке стола, локальный
+        # ожидаемый yaw = srot; в мир его повернёт to_world вместе с rot
+        b.facing[len(b.rel) - 1] = {'type': 'seat_anchor', 'owner_role': tbl.role,
+                                    'edge_point_local': {'x': round(sx, 1), 'y': round(sy, 1)},
+                                    'expected_yaw_local': srot, 'max_error_deg': 5,
+                                    'source': 'template:dining', 'validated': True}
     return _valid(b, 'dining')
 
 

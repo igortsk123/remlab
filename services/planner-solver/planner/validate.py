@@ -176,6 +176,24 @@ def check_openings(room: Room, ps: list[Placement]) -> list[Violation]:
     return out
 
 
+def check_seat_facing(ps: list[Placement]) -> list[Violation]:
+    """SEAT ANCHOR (q23/схема владельца 28.08): rot стула обязан совпадать с авторским
+    facing_target из шаблона (перпендикуляр к своей кромке стола, допуск max_error_deg).
+    SOFT на вводе: сперва наблюдаем частоту, потом ужесточаем."""
+    out = []
+    for p in ps:
+        ft = getattr(p, 'facing_target', None)
+        if not ft or ft.get('type') != 'seat_anchor':
+            continue
+        exp = float(ft.get('expected_yaw_deg', p.rot))
+        err = abs((p.rot - exp + 180) % 360 - 180)
+        if err > float(ft.get('max_error_deg', 5)):
+            out.append(_v('SEAT_NOT_FACING_ANCHOR',
+                          f'«{p.role}» смотрит {p.rot:.0f}°, кромка требует {exp:.0f}°',
+                          [p.role], err, f'≤{ft.get("max_error_deg", 5)}°', Severity.SOFT))
+    return out
+
+
 def check_radiators(room: Room, ps: list[Placement]) -> list[Violation]:
     hard = distances().get("sofa_to_radiator_wall", [15, 20])[0]
     out = []
@@ -1991,6 +2009,7 @@ def validate(room: Room, placements: list[Placement], *, passage: str = "seconda
         lambda: check_boundary(room, placements),
         lambda: check_collisions(placements),
         lambda: check_openings(room, placements),
+        lambda: check_seat_facing(placements),
         lambda: check_radiators(room, placements),
         lambda: check_access(placements),
         lambda: check_facing(placements),
