@@ -970,7 +970,8 @@ async function makePhoto(quality){
     // и раскладку времени. Без `vid` свежий снимок не проходил фильтр ленты и «пропадал» до
     // перезагрузки страницы — ровно то, что видел владелец.
     const vv=allVariants()[cur]||{};
-    j.shots.forEach(sh=>addShot({url:sh.url,camera:sh.camera||'C1',quality:quality,
+    const batch='b'+Date.now();          // оба ракурса одной съёмки — одна «пачка» (27.08)
+    j.shots.forEach(sh=>addShot({url:sh.url,camera:sh.camera||'C1',quality:quality,batch:batch,
       anchors:sh.anchors||[],variant:vv.title||'',vid:vv.id||('v'+cur),revision:rev,
       ts:Date.now(),model:j.model||'',sources:sh.sources||j.sources||'',timing:j.timing||null}));
     viewShot(shots.length-1);
@@ -1031,7 +1032,11 @@ function viewShot(i){
     ? `<div class="srcrow"><a class="btn srcbtn" href="${srcUrl}" target="_blank" rel="noopener">Исходники запроса →</a>`+
       `<span class="hint">${tm||'что именно ушло в модель: макет, номера, эталоны товаров и промпт'}</span></div>`
     : '';
-  const seq=myShots();                         // соседние кадры этого же варианта
+  // СТРЕЛКИ ЛИСТАЮТ ТОЛЬКО ВИДЫ ЭТОЙ СЪЁМКИ (владелец 27.08: «стрелочки вперёд-назад по только
+  // этим 2 видам»), а не всю накопленную ленту варианта.
+  const seq=s.batch
+    ? shots.filter(x=>x.batch===s.batch)
+    : shots.filter(x=>x.revision===s.revision&&x.quality===s.quality&&x.vid===s.vid);
   const at=seq.indexOf(s);
   const navs=(seq.length>1&&at>=0)
     ? `<button class="nav prev" id="shotPrev" ${at===0?'disabled':''} aria-label="Предыдущий вид">‹</button>`+
