@@ -977,6 +977,8 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
                'wall textures.\n')
             + (f'- Interior style: {style}. {STYLE_HINT.get(style, "")}\n' if style else '')
             + (win_note or '')
+            + (tv_note or '')
+            + all_note
             + 'Objects:\n'
             + json.dumps(legend, ensure_ascii=False))
 
@@ -992,6 +994,23 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
                             'the floor and about 150 cm tall: a normal residential window, NOT a '
                             'full-wall glazing. Keep the wall around it.\n')
             break
+    # ТЕЛЕВИЗОР РИСУЕТ МОДЕЛЬ — ПО ТУМБЕ (владелец 27.08: «где должен быть телевизор в зависимости
+    # от тв-тумбы, пусть ИИ рисует»). Своего объекта «тв» в расстановке нет: вешаем экран над
+    # тумбой, размер — по её ширине.
+    tv_note = ''
+    tv_num = next((a['n'] for an in per_cam for a in an
+                   if a['role'].split(' ')[0] == 'тв-тумба' and a.get('n')), None)
+    if tv_num:
+        tv_w = int((skus.get('тв-тумба') or {}).get('w') or 0)
+        size_hint = f'about {max(90, int(tv_w * 0.85))} cm wide' if tv_w else 'wall-sized to the console'
+        tv_note = (f'- Above object #{tv_num} (TV console) hang a modern flat TV on the wall, '
+                   f'{size_hint}, screen off (dark matte), centred over the console at about '
+                   '110–120 cm from the floor to the screen centre.\n')
+    # ВСЕ ПРОНУМЕРОВАННЫЕ ПРЕДМЕТЫ ОБЯЗАНЫ БЫТЬ В КАДРЕ (27.08): модель роняла диван на одном из
+    # видов, и кадр приходил «пустым» по составу.
+    nums = sorted({a['n'] for an in per_cam for a in an if a.get('n')})
+    all_note = (f'- The photo must contain ALL numbered objects: {", ".join("#" + str(n) for n in nums)}. '
+                'Do not omit any of them.\n' if nums else '')
     two = len(cams) > 1
     prompt = build_full_prompt(two and not split_calls)
     imgs = [sheet_marks] + ([ident] if ident is not None else [])
