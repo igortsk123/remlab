@@ -423,11 +423,15 @@ function drawDoorCtl(){
   const o=theDoor(); if(!o){box.innerHTML='';return;}
   if(o.hinge===undefined)o.hinge='start';
   if(o.into===undefined)o.into=true;
-  const horiz=(o.wall==='north'||o.wall==='south');
-  const sideName=o.hinge==='start'?(horiz?'слева':'сверху'):(horiz?'справа':'снизу');
+  // ПЕТЛИ БЫВАЮТ СЛЕВА ИЛИ СПРАВА (владелец 27.08), а не «сверху/снизу»: сторону называем так,
+  // как её видит человек, стоящий В КОМНАТЕ лицом к двери. На плане у каждой стены свой порядок
+  // координат, поэтому переводим один раз здесь.
+  const leftIsStart={south:false, north:true, west:true, east:false}[o.wall];
+  const startIsLeft=!!leftIsStart;
+  const sideName=(o.hinge==='start')===startIsLeft?'слева':'справа';
   box.innerHTML=`<b>Дверь:</b>`+
     `<button id="dHinge">петли ${sideName}</button>`+
-    `<button id="dInto">${o.into?'внутрь комнаты':'наружу'}</button>`;
+    `<button id="dInto">${o.into?'открывается внутрь':'открывается наружу'}</button>`;
   document.getElementById('dHinge').onclick=()=>{o.hinge=(o.hinge==='start')?'end':'start';draw();};
   document.getElementById('dInto').onclick=()=>{o.into=!o.into;draw();};
 }
