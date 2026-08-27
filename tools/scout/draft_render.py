@@ -1143,8 +1143,13 @@ def _chat_edit(images: list, prompt: str, model: str) -> Image.Image:
 
 
 def gpt_edit(images: list, prompt: str, size: str = '1024x1536',
-             quality: str = 'medium', model: str = 'openai/gpt-image-2') -> Image.Image:
-    """Один запрос в модель картинок через шлюз Vercel: несколько картинок + текст → один лист."""
+             quality: str = 'medium', model: str = 'openai/gpt-image-2',
+             mask: Image.Image | None = None) -> Image.Image:
+    """Один запрос в модель картинок через шлюз Vercel: несколько картинок + текст → один лист.
+
+    `mask` — для ЛОКАЛЬНОГО РЕМОНТА (28.08): PNG с альфой, ПРОЗРАЧНОЕ = можно перерисовывать.
+    По докам OpenAI маска — отдельное multipart-поле и применяется к ПЕРВОМУ изображению;
+    это guidance, не пиксельная гарантия — жёсткую фиксацию вне маски делает код (`viz_repair`)."""
     if not model.startswith('openai/'):
         return _chat_edit(images, prompt, model)
     import uuid
@@ -1161,6 +1166,12 @@ def gpt_edit(images: list, prompt: str, size: str = '1024x1536',
         body += (f'--{bnd}\r\nContent-Disposition: form-data; name="image[]"; '
                  f'filename="i{i}.png"\r\nContent-Type: image/png\r\n\r\n').encode()
         body += buf.getvalue() + b'\r\n'
+    if mask is not None:
+        mb = io.BytesIO()
+        mask.save(mb, 'PNG')                     # обязателен PNG с альфа-каналом
+        body += (f'--{bnd}\r\nContent-Disposition: form-data; name="mask"; '
+                 f'filename="mask.png"\r\nContent-Type: image/png\r\n\r\n').encode()
+        body += mb.getvalue() + b'\r\n'
     body += f'--{bnd}--\r\n'.encode()
     req = urllib.request.Request(GATEWAY, data=body, headers={
         'Authorization': f'Bearer {gw_key()}',
