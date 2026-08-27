@@ -761,12 +761,58 @@ MARK_COLOURS = [((230, 25, 75), 'красный'), ((60, 180, 75), 'зелёны
                 ((20, 120, 60), 'изумрудный')]
 
 
-def mark_colour(n: int) -> tuple:
+def mark_colour(n: int, role: str = '', photos: dict | None = None) -> tuple:
+    """ЦВЕТ МЕТКИ — ЦВЕТ САМОГО ТОВАРА (27.08, владелец: «я предлагал красить цветом самого
+    товара, а ты красишь произвольно»). Берём средний тон с фотографии товара: два экземпляра
+    одного изделия («стул» и «стул 2») получают ОДИН цвет, а не разные, как было с палитрой.
+    Фото нет — падаем на палитру, чтобы предмет всё равно отличался от соседа."""
+    im = (photos or {}).get(role) if role else None
+    hx = _photo_hex(im) if im is not None else None
+    if hx:
+        rgb = tuple(int(hx[i:i + 2], 16) for i in (1, 3, 5))
+        return rgb, hx
     return MARK_COLOURS[(int(n) - 1) % len(MARK_COLOURS)]
 
 
+def _footprints(img: Image.Image, room, placements, cam) -> Image.Image:
+    """СЛЕД ПРЕДМЕТА НА ПОЛУ (27.08, владелец: «торшер она всё равно переставила»). Мелкий предмет
+    занимает десяток пикселей, и модель ставит его «куда логично». Контур следа на полу говорит
+    буквально: предмет стоит ВОТ ЗДЕСЬ. Приём наш же — `viz_paste`, работал в треке А."""
+    import math
+    out = img.copy()
+    d = ImageDraw.Draw(out, 'RGBA')
+    W, H = out.size
+    try:
+        from planner.geometry import footprint as _fp
+    except Exception:
+        return out
+    eye, fwd, right, up = cam.basis()
+    focal = (cam.width / 2) / math.tan(math.radians(cam.fov_deg) / 2)
+    sx, sy = W / cam.width, H / cam.height
+    for p in placements:
+        if p.item is None or float(getattr(p, 'elev_cm', 0) or 0) > 1.0:
+            continue                       # ТВ на стене следа на полу не имеет
+        try:
+            xs, ys = _fp(p, p.item).exterior.coords.xy
+        except Exception:
+            continue
+        pts, ok = [], True
+        for x, y in zip(xs, ys):
+            rel = np.array([float(x), 0.0, float(y)]) - eye
+            z = float(rel @ fwd)
+            if z <= 1e-3:
+                ok = False
+                break
+            pts.append(((cam.width / 2 + focal * float(rel @ right) / z) * sx,
+                        (cam.height / 2 - focal * float(rel @ up) / z
+                         + getattr(cam, 'shift_y', 0.0) * cam.height) * sy))
+        if ok and len(pts) > 2:
+            d.line(pts + [pts[0]], fill=(40, 40, 44, 210), width=max(2, W // 480))
+    return out
+
+
 def _marked(img: Image.Image, anchors: list, skus: dict, caps: dict | None = None,
-            inst=None, ids: dict | None = None) -> Image.Image:
+            inst=None, ids: dict | None = None, photos: dict | None = None) -> Image.Image:
     """Служебный лист: заливка предмета своим цветом, КРУПНЫЙ номер на предмете и подпись над ним.
 
     Владелец 27.08: «крупную цифру жирную по возможности на сам объект и подпись над ней; сноски
@@ -789,8 +835,8 @@ def _marked(img: Image.Image, anchors: list, skus: dict, caps: dict | None = Non
             m = big == i
             if not m.any():
                 continue
-            rgb, _ = mark_colour(a['n'])
-            base[m] = base[m] * 0.68 + _np.array(rgb, float) * 0.32
+            rgb, _ = mark_colour(a['n'], a['role'], photos)
+            base[m] = base[m] * 0.42 + _np.array(rgb, float) * 0.58
         out = Image.fromarray(base.clip(0, 255).astype('uint8'))
     d = ImageDraw.Draw(out)
     r = max(15, W // 46)
@@ -830,7 +876,9 @@ def _marked(img: Image.Image, anchors: list, skus: dict, caps: dict | None = Non
         ax, ay = a['x'] * W, a['y'] * H
         top = (a.get('top', a['y'])) * H
         ox0, ox1 = (a.get('x0', a['x'])) * W, (a.get('x1', a['x'])) * W
-        rgb, _cname = mark_colour(a['n'])
+        rgb, _cname = mark_colour(a['n'], a['role'], photos)
+        if sum(rgb) > 430:                    # светлый товар: для текста берём тон потемнее
+            rgb = tuple(int(v * 0.45) for v in rgb)
         sku = _base_sku(a['role'], skus)
         dim = ''
         if sku.get('w') and sku.get('d'):
@@ -916,7 +964,9 @@ def _identity(anchors_all: list, photos: dict, skus: dict | None = None) -> Imag
     fs = _font(24)
     for i, (nums_, role, im, name) in enumerate(cells):
         num = ', '.join('#' + str(n) for n in nums_)
-        rgb = mark_colour(nums_[0])[0]        # тот же цвет, что у предмета на служебном листе
+        rgb = mark_colour(nums_[0], role, photos)[0]   # тот же цвет, что у предмета на макете
+        if sum(rgb) > 560:
+            rgb = tuple(int(v * 0.55) for v in rgb)
         x, y = (i % cols) * cw, (i // cols) * ch
         d.rectangle([x + 6, y + 6, x + cw - 6, y + ch - 6], outline=rgb, width=4)
         if im is not None:
@@ -1050,6 +1100,7 @@ def _legend(per_cam: list, skus: dict, meta: dict | None = None,
                 if m.get('near'):
                     it['next_to'] = m['near']
             it['in_view_1' if idx == 0 else 'in_view_2'] = 'part' if a.get('cut') else 'whole'
+            it[f'in_frame_{idx + 1}'] = {'x_pct': round(a['x'] * 100), 'y_pct': round(a['y'] * 100)}
     out, first = [], {}
     for k in sorted(merged):
         it = merged[k]
@@ -1416,12 +1467,14 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
         coll, _d, diag = collage(room, placements, cam, photos, paste=False)
         h = max(2, int(round(side * coll.height / coll.width)))
         coll = coll.resize((side, h))
+        coll = _footprints(coll, room, placements, cam)
         sc = compile_scene(room, placements, cam)
         an = anchors(room, placements, cam, skus, sc)
         for a in an:                                   # сквозная нумерация по всем видам
             a['n'] = numbering.setdefault(a['role'], len(numbering) + 1)
         parts.append(coll)
-        marks.append(_marked(coll, an, skus, _opening_caps(room), sc['instances'], sc['ids']))
+        marks.append(_marked(coll, an, skus, _opening_caps(room), sc['instances'], sc['ids'],
+                             photos))
         diags.append(diag)
         per_cam.append(an)
     def stack(imgs):
@@ -1515,13 +1568,15 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
             'read the product itself and ignore the background, the logo and any lettering; never '
             'copy them into the room.\n\n'
 
-            'READ THE ITEM LIST BEFORE YOU DRAW ANYTHING. "mark_colour" is the tint of that '
-            'item on image 2 (service mark only, never a material); "product" is the exact '
-            'retail name; '
+            'READ THE ITEM LIST BEFORE YOU DRAW ANYTHING. "mark_tint" is the average colour of '
+            'that product, and the volume on image 2 is tinted with exactly it; "product" is the '
+            'exact retail name; '
             '"size_cm" is width x depth x height in centimetres, measured; "appearance" carries the '
             'colour from the retail name and "colour_hex", the average tone measured off the shop '
             'photo; "position_cm" and "rotation_deg" are the coordinates of the item on the floor '
-            'plan (origin in a room corner, X across the room, Y into the room) and its rotation; '
+            'plan (origin in a room corner, X across the room, Y into the room) and its rotation, '
+            'while "in_frame_N" gives where the centre of that object sits IN FRAME N as percent '
+            'of the frame width and height — check your drawing against those percentages; '
             '"stands", "support" and "next_to" say against which wall the item stands and with what '
             'gap, what it stands on, and what stands next to it; "in_view_1" and "in_view_2" say '
             'how the item appears in each frame: whole = draw it fully, part = it is cut by the '
@@ -1532,6 +1587,10 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
             'GEOMETRY PRIORITY (highest first): the grey volume in image 1 → the item list '
             '(size_cm, position_cm, rotation_deg, stands, next_to) → the shop photo. If they '
             'disagree, the higher source wins.\n\n'
+
+            'FOOTPRINTS. On image 1 a thin dark outline is drawn on the floor around the base of '
+            'every object that stands on the floor. The product must fill exactly that outline — '
+            'same position, same footprint, same rotation. Never draw the outlines themselves.\n\n'
 
             'GREY VOLUMES. A grey block is a placeholder: its size, place and rotation are exact, '
             'its surface is not. Draw the real product from image 2 and the item list standing '
@@ -1602,9 +1661,21 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
     def all_note_for(k: int | None) -> str:
         src = per_cam if k is None else [per_cam[k]]
         ns = sorted({a['n'] for an in src for a in an if a.get('n')})
-        return (f'- The photo must contain ALL numbered objects of this frame: '
+        note = (f'- The photo must contain ALL numbered objects of this frame: '
                 f'{", ".join("#" + str(n) for n in ns)}. Do not omit any of them, and draw nothing '
                 'else.\n' if ns else '')
+        if k is not None:
+            # ПОРЯДОК СЛЕВА НАПРАВО И ПО ГЛУБИНЕ — то, что модель может сверить глазами: мировые
+            # сантиметры она игнорирует, а «стоит третьим слева» проверяется прямо по картинке.
+            lr = sorted(per_cam[k], key=lambda a: a['x'])
+            nf = sorted([a for a in per_cam[k] if a.get('depth_cm')], key=lambda a: a['depth_cm'])
+            note += ('- Left to right in this frame the objects stand in this order: '
+                     + ', '.join(f"#{a['n']} ({a['role']}, centre at {round(a['x'] * 100)}% of the "
+                                 f"frame width)" for a in lr) + '.\n')
+            if nf:
+                note += ('- From nearest to the camera to farthest: '
+                         + ', '.join('#' + str(a['n']) for a in nf) + '.\n')
+        return note
     two = len(cams) > 1
     prompt = build_full_prompt(two and not split_calls)
     imgs = [sheet, sheet_marks] + ([ident] if ident is not None else [])
