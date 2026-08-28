@@ -48,6 +48,11 @@ tools/scout/*
 # генерацию мешей не воспроизвести (28.08, уход с fal). Веса и результаты в git не едут.
 !tools/scout/salad/
 !tools/scout/salad/**
+# Бенч вырезальщиков фона — ИСХОДНИК замера, на котором принято решение о гибриде
+# (28.08): без него вердикт «гибрид против четырёх сетей» невоспроизводим. Картинки
+# прогона (~6 МБ) остаются вне git, в /home/pakar/igor/_bench-mask.
+!tools/scout/mask_bench/
+!tools/scout/mask_bench/**
 # Q6a: правила capability-модели каталога — данные-код с provenance (как rules солвера)
 !tools/scout/rules/
 !tools/scout/rules/*.json

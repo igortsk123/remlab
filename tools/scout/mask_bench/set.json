@@ -1,0 +1,362 @@
+[
+ {
+  "id": "00-стул-16455749",
+  "role": "стул",
+  "subtype": "дополнительное_сиденье",
+  "name": "Стул divan.ru Торвалль Велюр Серый/Натуральный",
+  "shop": "divan.ru",
+  "img": "//imgng.gdeslon.ru/commodities/489714946/pictures/2592264cbaec8a96f7c44bb70d69534c/big.jpg",
+  "w": 450,
+  "h": 338
+ },
+ {
+  "id": "01-стул-81418156",
+  "role": "стул",
+  "subtype": "дополнительное_сиденье",
+  "name": "Стул divan.ru Харвин-2 Рогожка Серый/Черный",
+  "shop": "divan.ru",
+  "img": "//imgng.gdeslon.ru/commodities/534056217/pictures/4e16b63789a9d9fa64edd7af212dca66/big.jpg",
+  "w": 450,
+  "h": 338
+ },
+ {
+  "id": "02-стул-11585241",
+  "role": "стул",
+  "subtype": "дополнительное_сиденье",
+  "name": "Стул ТС Wishbone темный орех 57х50,5х79,5 см",
+  "shop": "tvoydom.ru",
+  "img": "//imgng.gdeslon.ru/commodities/363667269/pictures/38697ce56405ee658c8aab54204f5213/big.jpg",
+  "w": 450,
+  "h": 450
+ },
+ {
+  "id": "03-стул-45857563",
+  "role": "стул",
+  "subtype": "дополнительное_сиденье",
+  "name": "Стул барный ТС Barber экокожа и хром белый с черным 43х50х92-103 см",
+  "shop": "tvoydom.ru",
+  "img": "//imgng.gdeslon.ru/commodities/353813381/pictures/240f5d25fbc53c01fb8b9790397d6606/big.jpg",
+  "w": 450,
+  "h": 450
+ },
+ {
+  "id": "04-стул-14079407",
+  "role": "стул",
+  "subtype": "дополнительное_сиденье",
+  "name": "Стул АСТИ 2 шт. велюр Монолит серый К., черный",
+  "shop": "mnogomebeli.com",
+  "img": "//imgng.gdeslon.ru/commodities/440382382/pictures/930b33047858a07921664c903e8c2dee/big.jpg",
+  "w": 450,
+  "h": 209
+ },
+ {
+  "id": "05-стул-15989522",
+  "role": "стул",
+  "subtype": "дополнительное_сиденье",
+  "name": "Стул ОРИЕНТ Велутто серый, черный",
+  "shop": "mnogomebeli.com",
+  "img": "//imgng.gdeslon.ru/commodities/440382296/pictures/898c9d94f68edfdb3275e1a6a160c0d5/big.jpg",
+  "w": 450,
+  "h": 209
+ },
+ {
+  "id": "06-стул-52731062",
+  "role": "стул",
+  "subtype": "дополнительное_сиденье",
+  "name": "Стул Турин Велутто Синий, черный",
+  "shop": "divanboss.ru",
+  "img": "//imgng.gdeslon.ru/commodities/464053503/pictures/58c5ee8bec58785ef281b6b30c499552/big.jpg",
+  "w": 450,
+  "h": 209
+ },
+ {
+  "id": "07-стул-24727282",
+  "role": "стул",
+  "subtype": "дополнительное_сиденье",
+  "name": "Стул АСТИ 2 шт. велюр Роял агат",
+  "shop": "divanboss.ru",
+  "img": "//imgng.gdeslon.ru/commodities/464053232/pictures/a5d9cde6103482801fbf09e320d507ea/big.jpg",
+  "w": 450,
+  "h": 209
+ },
+ {
+  "id": "08-столик-87751447",
+  "role": "столик",
+  "subtype": "журнальный_стол",
+  "name": "Журнальный стол divan.ru Хостер Светло-бежевая керамика/Ясень натураль",
+  "shop": "divan.ru",
+  "img": "//imgng.gdeslon.ru/commodities/535373975/pictures/22c2357d4993f841f463ddd0809b06e3/big.jpg",
+  "w": 450,
+  "h": 338
+ },
+ {
+  "id": "09-столик-15220974",
+  "role": "столик",
+  "subtype": "журнальный_стол",
+  "name": "Журнальный стол divan.ru Алисма Золотистый",
+  "shop": "divan.ru",
+  "img": "//imgng.gdeslon.ru/commodities/417844761/pictures/85713bb5902f57b281763711350ffcf2/big.jpg",
+  "w": 450,
+  "h": 338
+ },
+ {
+  "id": "10-столик-16345667",
+  "role": "столик",
+  "subtype": "журнальный_стол",
+  "name": "Журнальный стол divan.ru Альбано Белый",
+  "shop": "divan.ru",
+  "img": "//imgng.gdeslon.ru/commodities/417848533/pictures/c18991e86a016be8e4c8aa4570d5ff37/big.jpg",
+  "w": 450,
+  "h": 338
+ },
+ {
+  "id": "11-столик-89461425",
+  "role": "столик",
+  "subtype": "журнальный_стол",
+  "name": "Журнальный стол divan.ru Лейтон Орех",
+  "shop": "divan.ru",
+  "img": "//imgng.gdeslon.ru/commodities/535003130/pictures/4865164495977de726819bdbb6876933/big.jpg",
+  "w": 450,
+  "h": 338
+ },
+ {
+  "id": "12-столик-39399571",
+  "role": "столик",
+  "subtype": "журнальный_стол",
+  "name": "Журнальный стол divan.ru Нордик Белый/Натуральный",
+  "shop": "divan.ru",
+  "img": "//imgng.gdeslon.ru/commodities/417844534/pictures/64c3dc0f8cd6f99f2b22b31da2c72318/big.jpg",
+  "w": 450,
+  "h": 338
+ },
+ {
+  "id": "13-столик-18590222",
+  "role": "столик",
+  "subtype": "журнальный_стол",
+  "name": "Журнальный стол divan.ru Вегар-2 Белый/Натуральный",
+  "shop": "divan.ru",
+  "img": "//imgng.gdeslon.ru/commodities/445343352/pictures/1d9233bff2a6c3171887ee833ed18159/big.jpg",
+  "w": 450,
+  "h": 338
+ },
+ {
+  "id": "14-комод-11733765",
+  "role": "комод",
+  "subtype": "комод_хранение",
+  "name": "Тумба divan.ru Монблан 93x76 Ритм Латте",
+  "shop": "divan.ru",
+  "img": "//imgng.gdeslon.ru/commodities/505860359/pictures/04db7709a875d9a693e97b6e42d797e0/big.jpg",
+  "w": 450,
+  "h": 338
+ },
+ {
+  "id": "15-комод-22928544",
+  "role": "комод",
+  "subtype": "комод_хранение",
+  "name": "Тумба divan.ru Монблан 93x76 Грань Латте",
+  "shop": "divan.ru",
+  "img": "//imgng.gdeslon.ru/commodities/505860413/pictures/b909cf4741fecccf1603c39b3134497e/big.jpg",
+  "w": 450,
+  "h": 338
+ },
+ {
+  "id": "16-комод-13729667",
+  "role": "комод",
+  "subtype": "комод_хранение",
+  "name": "Тумба divan.ru Теджонс 139x85 Деко Белый",
+  "shop": "divan.ru",
+  "img": "//imgng.gdeslon.ru/commodities/506242070/pictures/8cc7992a4f29d9df6e51650877188c2a/big.jpg",
+  "w": 450,
+  "h": 338
+ },
+ {
+  "id": "17-комод-34043934",
+  "role": "комод",
+  "subtype": "комод_хранение",
+  "name": "Тумба divan.ru Леванте 87x86 Белый",
+  "shop": "divan.ru",
+  "img": "//imgng.gdeslon.ru/commodities/417846353/pictures/16db9abdcc55e6e4ebc68e739920286a/big.jpg",
+  "w": 450,
+  "h": 338
+ },
+ {
+  "id": "18-комод-12301451",
+  "role": "комод",
+  "subtype": "комод_хранение",
+  "name": "Тумба divan.ru Стелла 110x93 Дуб Барбера",
+  "shop": "divan.ru",
+  "img": "//imgng.gdeslon.ru/commodities/463448303/pictures/82d0c6679ae704e304a63d2d6e883320/big.jpg",
+  "w": 450,
+  "h": 338
+ },
+ {
+  "id": "19-стеллаж-10323928",
+  "role": "стеллаж",
+  "subtype": "книжный_стеллаж",
+  "name": "Стеллаж divan.ru Олав 2 152x178 Белый",
+  "shop": "divan.ru",
+  "img": "//imgng.gdeslon.ru/commodities/441491845/pictures/b0fc49c80a3323a8eae898a6ddbd7484/big.jpg",
+  "w": 450,
+  "h": 338
+ },
+ {
+  "id": "20-стеллаж-17194919",
+  "role": "стеллаж",
+  "subtype": "книжный_стеллаж",
+  "name": "Стеллаж divan.ru Селтик 105x90 Черный",
+  "shop": "divan.ru",
+  "img": "//imgng.gdeslon.ru/commodities/417844467/pictures/d39428be003e733957936f562adbc60c/big.jpg",
+  "w": 450,
+  "h": 338
+ },
+ {
+  "id": "21-стеллаж-13273818",
+  "role": "стеллаж",
+  "subtype": "книжный_стеллаж",
+  "name": "Стеллаж divan.ru Байрон 100x170 Белый",
+  "shop": "divan.ru",
+  "img": "//imgng.gdeslon.ru/commodities/417848152/pictures/ccd49621f83b0012d99649f167031fac/big.jpg",
+  "w": 450,
+  "h": 338
+ },
+ {
+  "id": "22-стеллаж-90675019",
+  "role": "стеллаж",
+  "subtype": "книжный_стеллаж",
+  "name": "Стеллаж divan.ru Эрвин 75x114 Черный",
+  "shop": "divan.ru",
+  "img": "//imgng.gdeslon.ru/commodities/417847227/pictures/1976ffa777d2d55c588500e5401e3884/big.jpg",
+  "w": 450,
+  "h": 338
+ },
+ {
+  "id": "23-стеллаж-16306395",
+  "role": "стеллаж",
+  "subtype": "книжный_стеллаж",
+  "name": "Стеллаж divan.ru Олав 4 152x102 Белый",
+  "shop": "divan.ru",
+  "img": "//imgng.gdeslon.ru/commodities/444532570/pictures/249e88e33934af2e3657631cac990762/big.jpg",
+  "w": 450,
+  "h": 338
+ },
+ {
+  "id": "24-кресло-14366190",
+  "role": "кресло",
+  "subtype": "мягкая_мебель",
+  "name": "Босс Слип кресло-кровать велюр Алькантара серый",
+  "shop": "divanboss.ru",
+  "img": "//imgng.gdeslon.ru/commodities/464053051/pictures/1d5caa75f32553ac2c7c638a2aade793/big.jpg",
+  "w": 450,
+  "h": 209
+ },
+ {
+  "id": "25-кресло-11245073",
+  "role": "кресло",
+  "subtype": "мягкая_мебель",
+  "name": "Босс Лофт кресло-кровать\tВелюр Монолит латте",
+  "shop": "mnogomebeli.com",
+  "img": "//imgng.gdeslon.ru/commodities/440381651/pictures/7796ce2dae443c17cb2eec3249064a64/big.jpg",
+  "w": 450,
+  "h": 209
+ },
+ {
+  "id": "26-кресло-73408854",
+  "role": "кресло",
+  "subtype": "мягкая_мебель",
+  "name": "Босс Слип кресло-кровать\tВелюр Алькантара серый",
+  "shop": "mnogomebeli.com",
+  "img": "//imgng.gdeslon.ru/commodities/440381716/pictures/1cdb3b90a269ab855b88b22933ab3a5c/big.jpg",
+  "w": 450,
+  "h": 209
+ },
+ {
+  "id": "27-кресло-44813733",
+  "role": "кресло",
+  "subtype": "мягкая_мебель",
+  "name": "Босс кресло-кровать велюр Алькантара пепел",
+  "shop": "divanboss.ru",
+  "img": "//imgng.gdeslon.ru/commodities/464053220/pictures/a0e1d0b01586e5805d7a85ebaebed431/big.jpg",
+  "w": 450,
+  "h": 209
+ },
+ {
+  "id": "28-тв-тумба-13968686",
+  "role": "тв-тумба",
+  "subtype": "тумба_под_тв",
+  "name": "ТВ-тумба divan.ru Листел 120x55 Черный",
+  "shop": "divan.ru",
+  "img": "//imgng.gdeslon.ru/commodities/417843479/pictures/e0346e7f47a204c5c18e6115c431bf1c/big.jpg",
+  "w": 450,
+  "h": 338
+ },
+ {
+  "id": "29-тв-тумба-14637619",
+  "role": "тв-тумба",
+  "subtype": "тумба_под_тв",
+  "name": "ТВ-тумба divan.ru Модерн 140x65 Белый",
+  "shop": "divan.ru",
+  "img": "//imgng.gdeslon.ru/commodities/417847486/pictures/2f614387b7fe791a247c694febce1130/big.jpg",
+  "w": 450,
+  "h": 338
+ },
+ {
+  "id": "30-тв-тумба-10638170",
+  "role": "тв-тумба",
+  "subtype": "тумба_под_тв",
+  "name": "ТВ-тумба divan.ru Имин 2-180x51 Оливковый",
+  "shop": "divan.ru",
+  "img": "//imgng.gdeslon.ru/commodities/422072127/pictures/3120bdc732920973c32b259f2b026225/big.jpg",
+  "w": 450,
+  "h": 338
+ },
+ {
+  "id": "31-торшер-12907158",
+  "role": "торшер",
+  "subtype": "напольный_светильник",
+  "name": "Торшер Artelamp Pinoccio A5700PN-1WH",
+  "shop": "tvoydom.ru",
+  "img": "//imgng.gdeslon.ru/commodities/189011229/pictures/8f122392c4e471b23e938b9036554271/big.jpg",
+  "w": 450,
+  "h": 450
+ },
+ {
+  "id": "32-торшер-61076007",
+  "role": "торшер",
+  "subtype": "напольный_светильник",
+  "name": "Торшер Citilux Оскар (CL127921)",
+  "shop": "tvoydom.ru",
+  "img": "//imgng.gdeslon.ru/commodities/422691039/pictures/d3eb85f8a20cd838a3754ca8fa00e157/big.jpg",
+  "w": 450,
+  "h": 450
+ },
+ {
+  "id": "33-торшер-80556330",
+  "role": "торшер",
+  "subtype": "напольный_светильник",
+  "name": "Светильник Maytoni MOD152FL-L1BK",
+  "shop": "tvoydom.ru",
+  "img": "//imgng.gdeslon.ru/commodities/334404412/pictures/60827524145d3312738989efc2078cad/big.jpg",
+  "w": 450,
+  "h": 450
+ },
+ {
+  "id": "34-стол_обеденный-18292266",
+  "role": "стол обеденный",
+  "subtype": "обеденный_стол",
+  "name": "Стол TC мрамор белый ЛДСП, HPL 130+30х75х75 см",
+  "shop": "tvoydom.ru",
+  "img": "//imgng.gdeslon.ru/commodities/494976949/pictures/a1587d40f355fd2723d9c80c6f4af548/big.jpg",
+  "w": 450,
+  "h": 450
+ },
+ {
+  "id": "35-стол_обеденный-18391641",
+  "role": "стол обеденный",
+  "subtype": "обеденный_стол",
+  "name": "Стол TC обеденный раздвижной 120(150)х80х75 см",
+  "shop": "tvoydom.ru",
+  "img": "//imgng.gdeslon.ru/commodities/182318148/pictures/fdf4a6b0d818b0a57a9b354ef19c32a8/big.jpg",
+  "w": 450,
+  "h": 450
+ }
+]
