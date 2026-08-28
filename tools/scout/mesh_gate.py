@@ -24,10 +24,15 @@ from PIL import Image, ImageFilter
 import mesh_render as MR
 from mesh_orient import photo_mask, render_sil, _fit
 
-GATE_VERSION = 2
+GATE_VERSION = 3
 PROFILE_MAX = 1.8          # профиль/фронт не толще ожидаемого более чем в 1.8 раза
+# ...И НЕ ТОНЬШЕ. Верхняя граница ловит паразитную массу (внутренняя плита), но без нижней
+# проходит обратный брак: генератор «сплющил» вещь, и вместо шкафа получилась декорация —
+# фронт правильный, глубины нет. На фото такой меш выглядит нормально, в сцене — картонкой.
+PROFILE_MIN = 0.45
 EXTRA_MAX = 0.30           # доля меша вне (дилатированного) силуэта фото
 MISSING_MAX = 0.45         # доля фото, не покрытая мешем
+DEGENERATE_MAX = 0.02      # доля вырожденных треугольников (нулевая площадь)
 
 
 def _sha(path: str) -> str:
@@ -42,8 +47,24 @@ def manifest_path(glb_path: str) -> str:
     return glb_path[:-4] + '.manifest.json'
 
 
-def load_manifest(glb_path: str) -> dict | None:
-    """Манифест валиден, только если совпали hash модели и версия gate — иначе пересчёт."""
+def context_sha(photo: Image.Image, w_cm: float, d_cm: float, h_cm: float,
+                generator: str, front_yaw: int) -> str:
+    """Отпечаток УСЛОВИЙ приёмки, а не только файла модели.
+
+    Вердикт зависит не от одного GLB: другое фото товара, уточнённые габариты (их правит
+    `dim_resolver`), другой генератор или другой опорный ракурс дают другой ответ на тех же
+    вершинах. Раньше ключ состоял из хеша GLB и версии гейта — и отрицательный вердикт
+    переживал смену фото и правку габаритов, тихо отправляя годный товар в брак.
+    """
+    h = hashlib.sha256()
+    h.update(f'{photo.size}|{photo.mode}|'.encode())
+    h.update(photo.convert('RGB').resize((64, 64)).tobytes())
+    h.update(f'|{w_cm}|{d_cm}|{h_cm}|{generator}|{front_yaw}'.encode())
+    return h.hexdigest()[:16]
+
+
+def load_manifest(glb_path: str, ctx: str | None = None) -> dict | None:
+    """Манифест валиден, только если совпали hash модели, версия gate И условия приёмки."""
     mp = manifest_path(glb_path)
     if not os.path.exists(mp):
         return None
@@ -53,21 +74,27 @@ def load_manifest(glb_path: str) -> dict | None:
         return None
     if m.get('gate_version') != GATE_VERSION or m.get('glb_sha') != _sha(glb_path):
         return None
+    if ctx is not None and m.get('context_sha') != ctx:
+        return None
     return m
 
 
-def save_manifest(glb_path: str, data: dict) -> None:
+def save_manifest(glb_path: str, data: dict, ctx: str | None = None) -> None:
     mp = manifest_path(glb_path)
-    data = {**data, 'gate_version': GATE_VERSION, 'glb_sha': _sha(glb_path)}
+    data = {**data, 'gate_version': GATE_VERSION, 'glb_sha': _sha(glb_path),
+            'context_sha': ctx}
     tmp = mp + '.tmp'
     json.dump(data, open(tmp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     os.replace(tmp, mp)
 
 
 def geometry_layer(glb_path: str) -> dict:
-    import trimesh
-    scene = trimesh.load(glb_path, force='scene')
-    meshes = list(scene.geometry.values()) if hasattr(scene, 'geometry') else [scene]
+    # Геометрию берём ТЕМ ЖЕ загрузчиком, что и видовой слой (`mesh_render.load_parts`):
+    # он применяет трансформы узлов сцены. Прежний `scene.geometry.values()` их игнорировал,
+    # и два слоя приёмки судили о разных телах — у меша, где генератор развёл части
+    # трансформами, геометрический слой видел их слипшимися в начале координат, а видовой —
+    # разнесёнными. Расхождение молча гасило признак «плавающего» компонента.
+    meshes = MR.load_parts(glb_path)
     comps = []
     for m in meshes:
         try:
@@ -93,7 +120,24 @@ def geometry_layer(glb_path: str) -> dict:
         if flat and (c is not main) and (ar / total > 0.18 or overhang > 0.15):
             flags.append({'flat_component': round(ar / total, 2),
                           'overhang': round(overhang, 2)})
-    return {'ok': bool(not flags), 'components': len(comps), 'flags': flags}
+
+    # Вырожденные треугольники были заявлены в docstring, но не проверялись. Нулевая площадь
+    # грани — не косметика: такие грани ломают расчёт нормалей и UV, и меш, прошедший все
+    # силуэтные проверки, в канвасе даёт чёрные пятна на месте «плоских» полигонов.
+    faces = deg = 0
+    for c in comps:
+        try:
+            a = np.asarray(c.area_faces, dtype=np.float64)
+        except Exception:  # noqa: BLE001 — часть без граней просто пропускаем
+            continue
+        faces += a.size
+        deg += int((a <= 1e-12).sum())
+    deg_share = deg / faces if faces else 0.0
+    if deg_share > DEGENERATE_MAX:
+        flags.append({'degenerate_faces': round(deg_share, 3)})
+
+    return {'ok': bool(not flags), 'components': len(comps), 'flags': flags,
+            'faces': faces, 'degenerate_share': round(deg_share, 4)}
 
 
 def view_layer(glb_path: str, photo: Image.Image, w_cm: float, d_cm: float,
@@ -116,7 +160,8 @@ def view_layer(glb_path: str, photo: Image.Image, w_cm: float, d_cm: float,
     af, ap = (a0, a90) if axis == 0 else (a90, a0)
     exp_ratio = (d_cm / h_cm) / max(w_cm / h_cm, 1e-6)
     ratio = ap / max(af, 1e-6)
-    profile_ok = ratio <= exp_ratio * PROFILE_MAX
+    # Двусторонний допуск: сверху — паразитная масса, снизу — потерянная глубина (см. PROFILE_MIN)
+    profile_ok = exp_ratio * PROFILE_MIN <= ratio <= exp_ratio * PROFILE_MAX
     pm, pc = photo_mask(photo)
     extra = missing = None
     if pm is not None:
@@ -142,7 +187,8 @@ def view_layer(glb_path: str, photo: Image.Image, w_cm: float, d_cm: float,
 
 def gate(glb_path: str, photo: Image.Image, w_cm: float, d_cm: float, h_cm: float,
          front_yaw: int = 0, generator: str = 'trellis') -> dict:
-    cached = load_manifest(glb_path)
+    ctx = context_sha(photo, w_cm, d_cm, h_cm, generator, front_yaw)
+    cached = load_manifest(glb_path, ctx)
     if cached is not None:
         return cached
     geo = geometry_layer(glb_path)
@@ -156,7 +202,7 @@ def gate(glb_path: str, photo: Image.Image, w_cm: float, d_cm: float, h_cm: floa
     data = {'status': status, 'generator': generator, 'front_yaw': front_yaw,
             'geometry': geo, 'view': view,
             'dims': {'w': w_cm, 'd': d_cm, 'h': h_cm}}
-    save_manifest(glb_path, data)
+    save_manifest(glb_path, data, ctx)
     return data
 
 
