@@ -93,8 +93,14 @@ def _unload(name: str):
     _free()
 
 
-def generate(image, out_dir: str, seed: int = 0, params: dict | None = None) -> dict:
-    """Одно задание: картинка → GLB с PBR-картами. Возвращает пути, времена и пики памяти."""
+def generate(image, out_dir: str, seed: int = 0, params: dict | None = None,
+             paint_image=None) -> dict:
+    """Одно задание: картинка → GLB с PBR-картами. Возвращает пути, времена и пики памяти.
+
+    `image` — RGBA на полном холсте: альфа и есть маска товара, `ImageProcessorV2` сам кропает
+    её по bbox и добавляет поле. `paint_image` — та же вырезка, но уже кропнутая: покраска вход
+    не центрирует, только ужимает до 512, и без кропа половина её разрешения уходит на пустоту.
+    """
     p = {'octree_resolution': 380, 'num_inference_steps': 50, 'guidance_scale': 5.0}
     p.update(params or {})
     os.makedirs(out_dir, exist_ok=True)
@@ -118,7 +124,7 @@ def generate(image, out_dir: str, seed: int = 0, params: dict | None = None) -> 
         _unload('shape')          # ← ради этой строки вся конструкция и затевалась
 
     t1 = time.time()
-    painted = paint_pipeline()(mesh_path=raw_glb, image_path=image)
+    painted = paint_pipeline()(mesh_path=raw_glb, image_path=paint_image or image)
     timings['paint'] = round(time.time() - t1, 1)
     peaks['paint_gb'] = _peak_gb()
 

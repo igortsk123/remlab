@@ -54,6 +54,7 @@ create table if not exists mesh_demand (
   status text not null default 'wanted',   -- wanted|not_required|superseded
   image_url text,
   source_sha text,                  -- SHA-256 байтов фото; null = ingest ещё не был
+  sha_at timestamptz,               -- когда хеш посчитан (для периодической перепроверки)
   dims jsonb,
   name text,
   first_seen timestamptz default now(),
@@ -86,6 +87,9 @@ create table if not exists orientation_state (
   resolution jsonb,                 -- raw_to_canonical quaternion + версии + evidence
   updated timestamptz default now()
 );
+-- Догоняющие правки: таблицы создаются через `if not exists`, поэтому новые колонки на живой
+-- базе появляются только так. Каждая строка идемпотентна — блок гоняется каждым запуском.
+alter table mesh_demand add column if not exists sha_at timestamptz;
 """
 
 
@@ -180,11 +184,21 @@ def demand_reserve() -> dict[str, dict]:
 
 # ---------------------------------------------------------------- ingest и постановка
 
+SHA_MAX_AGE_DAYS = int(os.environ.get('MESH_SHA_MAX_AGE_DAYS', '30'))
+
+
 def ingest(limit: int) -> int:
-    """SHA-256 байтов фото для demand-строк без него. Байты выбрасываем — хеш остаётся."""
+    """SHA-256 байтов фото для demand-строк без него. Байты выбрасываем — хеш остаётся.
+
+    Перехешируем не только новые строки, но и те, чей хеш старше `SHA_MAX_AGE_DAYS`: магазин
+    может подменить картинку под ТЕМ ЖЕ адресом, и тогда смену не поймать ни по URL, ни по
+    расписанию фида. Без этого меш от старого фото молча числится свежим.
+    """
     rows = db("select sku, image_url from mesh_demand "
-              "where status='wanted' and source_sha is null and image_url is not null "
-              f"order by priority, sku limit {limit}")
+              "where status='wanted' and image_url is not null "
+              "  and (source_sha is null "
+              f"       or sha_at is null or sha_at < now() - interval '{SHA_MAX_AGE_DAYS} days') "
+              f"order by (source_sha is not null), priority, sku limit {limit}")
     n = 0
     for sku, url in rows:
         try:
@@ -192,7 +206,7 @@ def ingest(limit: int) -> int:
                 url = 'https:' + url          # фид отдаёт протокол-относительные URL
             with urllib.request.urlopen(url, timeout=30) as r:
                 sha = hashlib.sha256(r.read()).hexdigest()
-            db(f"update mesh_demand set source_sha={q(sha)} where sku={q(sku)}")
+            db(f"update mesh_demand set source_sha={q(sha)}, sha_at=now() where sku={q(sku)}")
             n += 1
         except Exception as e:  # noqa: BLE001 — мёртвое фото не валит прогон, строка ждёт
             print(f'  ingest {sku}: {str(e)[:80]}', flush=True)
@@ -240,8 +254,17 @@ def run() -> None:
         db(f"""insert into mesh_demand (sku, role, priority, image_url, dims, name)
                values ({q(sku)}, {q(v['role'])}, {v['priority']}, {q(v['image_url'])},
                        {q(json.dumps(v['dims'], ensure_ascii=False))}::jsonb, {q(v['name'])})
-               on conflict (sku) do update set priority=least(mesh_demand.priority, excluded.priority),
+               on conflict (sku) do update set
+                 -- Приоритет ПЕРЕСЧИТЫВАЕТСЯ, а не берётся минимумом: least() делал его липким,
+                 -- и товар, однажды побывавший в сете, навсегда оставался приоритетом 1 даже
+                 -- уйдя в резерв — очередь генерации выстраивалась по прошлому, а не по спросу.
+                 priority=excluded.priority,
                  image_url=excluded.image_url, last_seen=now(),
+                 -- Смена картинки под тем же URL обязана сбросить хеш: `ingest()` считает его
+                 -- только там, где он null, поэтому без сброса новые байты остаются незамеченными
+                 -- и меш от старого фото продолжает числиться свежим.
+                 source_sha=case when mesh_demand.image_url is distinct from excluded.image_url
+                                 then null else mesh_demand.source_sha end,
                  status=case when mesh_demand.status='not_required' then 'wanted'
                              else mesh_demand.status end""")
     # выпавшие из спроса (нет в сетах/кандидатах/резерве) — не гоняем, но и не трогаем сделанное

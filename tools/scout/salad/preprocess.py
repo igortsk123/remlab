@@ -16,6 +16,8 @@ import numpy as np
 import torch
 from PIL import Image
 
+import collage
+import components
 import hybrid_mask
 
 _MODEL = None
@@ -125,8 +127,38 @@ class BadCutout(Exception):
     """Вырезка непригодна — генерацию не запускаем, деньги не тратим."""
 
 
-def prepare(image_url: str) -> tuple[Image.Image, Image.Image, str, dict]:
-    """Фото → (RGB на белом для Hunyuan, вырезка RGBA, хеш входа, отчёт о вырезке).
+def _paint_crop(rgba: Image.Image, margin: float = 0.18) -> Image.Image:
+    """Кроп по товару с полем — для стадии ПОКРАСКИ.
+
+    Форма и покраска ведут себя по-разному: `ImageProcessorV2.recenter()` перед формой сам
+    кропает по альфе и добавляет поле, а `hy3dpaint` вход только ужимает до 512 и не центрирует.
+    Значит покраске нужен уже кропнутый кадр, иначе половина её разрешения уходит на пустоту.
+    """
+    a = np.asarray(rgba)[..., 3]
+    ys, xs = np.where(a > 8)
+    if not len(ys):
+        return rgba
+    h, w = a.shape
+    pad = int(max(ys.max() - ys.min(), xs.max() - xs.min()) * margin)
+    box = (max(0, int(xs.min()) - pad), max(0, int(ys.min()) - pad),
+           min(w, int(xs.max()) + pad + 1), min(h, int(ys.max()) + pad + 1))
+    return rgba.crop(box)
+
+
+def prepare(image_url: str) -> tuple[Image.Image, Image.Image, Image.Image, str, dict]:
+    """Фото → (RGBA для формы, RGBA для покраски, вырезка на просмотр, хеш входа, отчёт).
+
+    **Контракт входа Hunyuan — RGBA, а не RGB на белом (ADR-0133).** Апстрим
+    `hy3dshape/preprocessors.py::ImageProcessorV2.recenter()` берёт альфу как маску товара, а при
+    RGB строит СИНТЕТИЧЕСКУЮ маску из одних 255: генератор считает объектом весь кадр, не
+    центрирует товар и тратит mask-канал кондишенинга на пустое поле. Композит на белое здесь
+    ровно и уничтожал маску; апстрим сам делает `αF+(1−α)white`, сохраняя альфу отдельно.
+    Урок 149 («вход только на белом») касался `convert('RGB')`, из-за которого прозрачность
+    становилась ЧЁРНОЙ и запекалась в текстуру, — честный RGBA этому не противоречит.
+
+    `trim_alpha` для формы НЕ применяем: кроп и поле делает сам `recenter`, а наша обрезка по
+    слабой альфе могла срезать проволоку, после чего апстрим кропал уже испорченный кадр второй
+    раз (двойной кроп). Обрезанная копия остаётся только для просмотра человеком.
 
     Вырезку с альфой возвращаем ИЗ ЭТОГО ЖЕ прохода, а не режем повторно: второй проход стоил
     бы ещё одного прогона сети и мог бы дать другую маску — тогда владелец смотрел бы не на то,
@@ -148,11 +180,28 @@ def prepare(image_url: str) -> tuple[Image.Image, Image.Image, str, dict]:
         refined, mask_info = hybrid_mask.refine(src, net)
     except Exception as e:  # noqa: BLE001 — гибрид не должен ронять задание; факт отказа виден
         refined, mask_info = net, {'hybrid_error': f'{type(e).__name__}: {str(e)[:120]}'}
-    cut = trim_alpha(defringe(refined))
+
+    # Обрывок фона (плашка баннера, ватермарка) для картинки — косметика, для генератора —
+    # геометрия из ниоткуда: он честно строит по маске. Поймано владельцем на стуле Wishbone.
+    a = np.asarray(refined)[..., 3].astype(np.float32) / 255.0
+    cleaned, comp = components.clean(a)
+    mask_info['components'] = comp
+    refined = Image.fromarray(
+        np.dstack([np.asarray(refined)[..., :3],
+                   (np.clip(cleaned, 0, 1) * 255).astype(np.uint8)]), 'RGBA')
+
+    # Коллаж вычисткой не лечится: в кадре плашка, свойства текстом, интерьерная сцена и нередко
+    # ВТОРАЯ копия товара. Проверяем только здесь — детектору нужна настоящая маска, без неё
+    # фактура самого товара читается как текст.
+    is_col, why, feats = collage.is_collage(np.asarray(src).astype(np.float32), cleaned)
+    mask_info['collage'] = {'verdict': bool(is_col), 'why': why, 'features': feats}
+
+    shape_img = defringe(refined)            # полный холст: кроп и поле сделает recenter
+    cut = trim_alpha(shape_img)              # обрезанная копия — человеку на просмотр
     mask_info.update(mask_verdict(cut))
+    if is_col:
+        mask_info.update(verdict='bad', reason='фото-коллаж: ' + ', '.join(why))
     if mask_info['verdict'] == 'bad':
         # Останавливаемся ДО генерации: мусорный вход даёт мусорный меш, а платим одинаково.
         raise BadCutout(mask_info['reason'])
-    white = Image.new('RGBA', cut.size, (255, 255, 255, 255))
-    white.alpha_composite(cut)
-    return white.convert('RGB'), cut, input_hash, mask_info
+    return shape_img, _paint_crop(shape_img), cut, input_hash, mask_info

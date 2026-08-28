@@ -24,18 +24,29 @@ _CACHE: dict[str, bool] | None = None
 
 
 def _load() -> dict[str, bool]:
-    """SKU → готов ли: принятая ревизия (Salad, не legacy) + решённая ориентация."""
+    """SKU → готов ли: принятая ревизия ТЕКУЩЕГО фото (Salad, не legacy) + решённая ориентация.
+
+    Сверка с `mesh_demand.source_sha` обязательна. Без неё меш, сделанный по СТАРОЙ картинке,
+    продолжает считаться готовым после того, как магазин заменил фото, — и «заменитель с готовым
+    мешом» оказывается мешом другого на вид товара. Ключ ревизии — `sku|source_sha|pipeline`,
+    поэтому сверяем среднюю часть: `split_part(revision_key, '|', 2)`.
+    """
     global _CACHE
     if _CACHE is not None:
         return _CACHE
-    ready = {r[0] for r in db(
-        "select distinct sku from asset_revisions "
-        "where status='accepted' and origin <> 'legacy-local'") if r and r[0]}
-    oriented = {r[0] for r in db(
-        "select distinct sku from orientation_state "
-        "where status in ('auto_resolved','human_resolved') "
-        "and coalesce(resolution->>'unusable','') <> 'true'") if r and r[0]}
-    _CACHE = {sku: (sku in oriented) for sku in ready}
+    rows = db(
+        "select r.sku from asset_revisions r "
+        "join mesh_demand d on d.sku = r.sku "
+        "join orientation_state o on o.revision_key = r.revision_key "
+        "where r.status='accepted' and r.origin <> 'legacy-local' "
+        "  and d.source_sha is not null "
+        "  and split_part(r.revision_key, '|', 2) = d.source_sha "
+        "  and o.status in ('auto_resolved','human_resolved') "
+        "  and coalesce(o.resolution->>'unusable','') <> 'true' "
+        "group by r.sku")
+    # Ориентация сверяется по ТОЙ ЖЕ revision_key, а не «есть ли у SKU хоть какая-то решённая»:
+    # иначе вердикт для старой ревизии подтверждал бы новую, которую никто не смотрел.
+    _CACHE = {r[0]: True for r in rows if r and r[0]}
     return _CACHE
 
 

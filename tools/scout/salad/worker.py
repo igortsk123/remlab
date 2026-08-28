@@ -77,7 +77,7 @@ def generate(job: dict):
     t0 = time.time()
 
     try:
-        image, cut_rgba, input_hash, mask_info = PRE.prepare(job['image_url'])
+        shape_img, paint_img, cut_rgba, input_hash, mask_info = PRE.prepare(job['image_url'])
     except PRE.BadCutout as e:
         # Отдельный статус: это не сбой ноды и не мёртвое фото, а брак ВЫРЕЗКИ. Такие товары
         # надо видеть списком — они лечатся другой вырезкой, а не повтором генерации.
@@ -97,9 +97,10 @@ def generate(job: dict):
 
     work = tempfile.mkdtemp(prefix='mesh-')
     try:
-        image.save(os.path.join(work, 'input.png'))            # что видит генератор
-        cut_rgba.save(os.path.join(work, 'cutout.png'))         # вырезка с альфой — на просмотр
-        res = P.generate(image, work, seed=seed, params=params)
+        # PNG держит альфу — именно она и есть маска товара для генератора (ADR-0133).
+        shape_img.save(os.path.join(work, 'input.png'))          # что видит стадия формы
+        cut_rgba.save(os.path.join(work, 'cutout.png'))          # вырезка с альфой — на просмотр
+        res = P.generate(shape_img, work, seed=seed, params=params, paint_image=paint_img)
 
         files = {'model.glb': res['glb']}
         for name in ('albedo.png', 'orm.png', 'normal.png', 'shape.glb', 'cutout.png'):
