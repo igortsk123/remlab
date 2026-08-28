@@ -29,6 +29,7 @@ draft → in_progress → completed → перенос в completed_plans/
 | viz-track-a-restore | — | partial | — | 2026-08-28 |
 | demo-planner-structure | — | partial | — | 2026-08-28 |
 | viz-mesh-orientation | Система ориентаций и приёмки 3D-мешей — масштабирование «правильных поворотов» на каталог | in_progress | 2026-08-28 | 2026-08-28 |
+| mesh-sets-substitution-pipeline | Конвейер «сеты ↔ меши ↔ замена»: пригодность фото, управляемый резерв, точечная пересборка | draft | 2026-08-28 | 2026-08-28 |
 | mesh-queue-orientation | Конвейер «отбор → меши → ориентация → сеты»: автоочередь, правило мешей в сетах, каскад фронта, страница人-проверки | in_progress | 2026-08-28 | 2026-08-28 |
 | mesh-bulk-salad-hunyuan | PBR-меши товаров — свой образ Hunyuan3D 2.1 на SaladCloud, пилот 500 товаров | in_progress | 2026-08-28 | 2026-08-28 |
 | mask-quality-rgba-contract | Качество вырезки фона → качество мешей: контракт RGBA, гибридная маска, гейт маски | draft | 2026-08-28 | 2026-08-28 |

@@ -14,32 +14,31 @@ last_verified: 2026-08-28
 # Конвейер 3D-мешей — Tier 1 сводка
 
 **Зачем:** интерактивный планировщик (юзер крутит товар) и сборка 3D-квартир.
+**Генератор — только свой Hunyuan3D 2.1 на SaladCloud** (ADR-0131; fal и Trellis выведены —
+запекают свет съёмки в текстуру, и $0.375/шт против ≈$0.006). Код — `tools/scout/salad/`.
 
-**Генератор — только свой Hunyuan3D 2.1 на SaladCloud** (ADR-0131). fal и Trellis выведены:
-они запекают освещение съёмки в текстуру, в сцене со своим светом объект не пересвечивается;
-на fal PBR-эндпоинт $0.375/шт против ≈$0.006 на своей карте. Код — `tools/scout/salad/`.
+**Отбор (ADR-0131):** роли слотов × ворота подбора → ≈4 900 направленных SKU из 11 631 живых.
+Пилот — по сетам, 481 товар / 126 сетов (`tools/scout/mesh_pilot.py`).
 
-**Отбор (ADR-0131):** роли слотов сетов × ворота пригодности подбора (in_stock + живое фото +
-`enrich_bridge.MIN_QUALITY` 0.65) → направленные роли ≈4 900 SKU. Воронка каталога 28.08:
-32 347 → in_stock 19 529 → +обогащение/фото/цена 16 245 → −мёртвое фото 11 631
-(`candidates-index.json`); напольных ролей 4 182.
+**Приёмка:** `generated` → `geometry_valid` (`tools/scout/mesh_gate.py`) → `scene_ready`
+(`tools/scout/mesh_gate_pbr.py`) → `web_ready`. **Ориентация (ADR-0129/0131):** orienter+flipper →
+`tools/scout/mesh_front.py` → VLM qwen3-vl → человек (финален); кэш за (SKU, glb_hash).
 
-**Пилот** (план `mesh-bulk-salad-hunyuan`): выборка ПО СЕТАМ полными комплектами — 481 товар,
-531 генерация, 126 сетов из 126 целиком (`tools/scout/mesh_pilot.py`). Отвечает на «соберётся
-ли живая комната», а не на «процент годных по ролям»; доля годных выйдет оптимистичнее пула.
+**Готовность и спрос:** `tools/scout/mesh_ready.py` — предикат «есть годный меш» + гейт
+`MESH_GATE_PHASE`; спрос — `tools/scout/mesh_queue.py` (1 в сетах / 2 кандидат / 3 резерв).
+⚠️ Предикат НЕ сверяется с текущим `source_sha` — меш от старого фото считается готовым
+(план `mesh-sets-substitution-pipeline`).
 
-**Приёмка — четыре ступени:** `generated` → `geometry_valid` (`tools/scout/mesh_gate.py`) →
-`scene_ready` (`tools/scout/mesh_gate_pbr.py`: карты не пустые и не константные, нет запечённого
-света в albedo, transmission у стекла и emissive у светильников по роли) → `web_ready` (бюджет
-канваса). Пороги стартовые, калибруются на пилоте.
+**Вырезка фона = вход генератора (ADR-0133).** Что срезано — того не будет в меше; что прилипло
+от фона — станет геометрией. `tools/scout/salad/hybrid_mask.py` держит 95% деталей 1–2 px против
+79% у чистой сети; `tools/scout/salad/components.py` снимает обрывки фона,
+`tools/scout/salad/collage.py` отсеивает баннеры. Замер — `tools/scout/mask_bench/`, `/test/cutout-bench/`.
+⚠️ **Открыто:** `tools/scout/salad/preprocess.py` отдаёт Hunyuan RGB на белом, а апстрим при RGB
+строит маску из одних 255 — альфа гибнет перед моделью (план `mask-quality-rgba-contract`).
+⚠️ Фото фида — 450 px; оригиналы только у divan.ru (22% пула).
 
-**Ориентация (ADR-0129/0131):** каскад orienter+flipper → `mesh_front` → VLM qwen3-vl →
-человек; вердикт человека финален, кэш за (SKU, glb_hash), GLB не перезаписывается.
-
-**Стоимость** (Salad batch, сверено по API 28.08): 4090 $0.16/ч · 5090 $0.25 · 3090 $0.09 ·
-A5000 $0.09. Квота 10 реплик, лимит образа 35 ГБ сжатыми. Пул 11 631 ≈ $31–105, пилот ≈ $2–4.
-
-**Грабли сборки — ADR-0132** и [[lessons]].
+**Стоимость и грабли сборки — ADR-0132** (цены Salad, квоты, лимит образа) и [[lessons]].
 
 **Tier 2:** `../domain/viz-fidelity-playbook.md` · планы `mesh-bulk-salad-hunyuan`,
-`mesh-queue-orientation` · ADR-0129…0132.
+`mesh-queue-orientation`, `mask-quality-rgba-contract`, `mesh-sets-substitution-pipeline` ·
+ADR-0129…0133.

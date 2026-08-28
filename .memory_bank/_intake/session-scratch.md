@@ -14,26 +14,3 @@
 
 <!-- SCRATCH START — /memory-check переносит обработанное в банк и усекает до этой метки -->
 - 26.08 ОТКРЫТО (к следующему заходу): (1) плумбинг диагностики оси — `_axis_contract.media` пишет глобал, перетираемый последним вызовом place_media; (2) расхождение артефакт↔экспорт 4 см по ковру (`test_pose_hash_round_trip`, set10); (3) вердикт владельца по плану №210: set105-pylons собирает `two_sofas_2armchairs` — нужен пересмотр сторожа; (4) лесенка состава + сертификат низкого заполнения (Codex q13).
-- Деплой mesh-queue-orientation (c073d1a): control plane в dev-БД (mesh_demand/mesh_jobs/asset_revisions/orientation_state — `mesh_queue.py`, схему создаёт сам); спрос = сеты + top-5 корзин candidates-index + резерв 30/роль по воротам; ingest = SHA-256 байтов фото (протокол-относительные URL фида чинить https:); идемпотентность доказана (повторный --run = 0 заданий, 1084 в очереди); экспорт батча совместим с salad/submit.py. Legacy Trellis-меши = superseded (не закрывают спрос — только Hunyuan/Salad).
-- Каскад ориентации: `orient_infer.py` (venv orienter, матрица Кабшем resid=0, quat w≥0) + `orient_worker.py` (flock, каскад: символ по подтипу → up_tilt>15°=review → сиденье-авторитет → VLM qwen как второй свидетель, авто-разворот запрещён). Прогон 37 локальных: 30 auto, 7 review. `mesh_front.infer_seat_front(has_back=)` — банкетка со спинкой направлена.
-- Страница /lab/mesh-review (прод): кука HMAC HttpOnly+SameSite=Strict, machine Bearer, fail-closed без env; таблицы mesh_review_tasks/decisions (007-mesh-review.sql в ОБА пути деплоя + migrate.mjs); DEV-мост `mesh_review_sync.py` (--push задачи с 4 ракурсами data-URL, --pull курсором после применения). Секреты MESH_REVIEW_* — сервер .env (бэкап .env.bak-meshreview), ~/.config/remlab/env, _secrets/ACCESS.md.
-- Правило «сеты только с мешами»: единый предикат `mesh_ready.py` (accepted не-legacy ревизия + решённая ориентация), фазы off/shadow/hard_new/rolling/full через MESH_GATE_PHASE; hard fail-closed в _slot_ok; shadow-отчёт покрытия в refresh_daily (сейчас 0/126 — Salad-ассетов ещё нет). CI: job scout-orient (orient_selftest на процедурной фикстуре).
-
-## 2026-08-28 — вырезка фона и качество мешей (план mask-quality-rgba-contract)
-- **Находка дня (пруф по исходникам апстрима):** Hunyuan3D 2.1 НЕ вызывает rembg сам.
-  `hy3dshape/preprocessors.py::ImageProcessorV2.recenter()`: RGBA → альфа = маска;
-  **RGB → синтетическая маска из одних 255**. Наш `salad/preprocess.py:99-102` композитит на белое
-  и отдаёт RGB → в mask-канал кондишенинга уходит «весь кадр — объект», recenter/border_ratio
-  не работает. Хорошая альфа BiRefNet выбрасывается ровно перед моделью. → ADR при деплое.
-- Двойной кроп: наш `trim_alpha(pad=8)` + апстримовский recenter.
-- Замер (47 белых карточек, `tools/scout/refs/*-cut.png` от fal birefnet/v2 с дефолтами):
-  медиана потерь пикселей объекта 1.34%, у 34% карточек >2%, худшие 63/31/17.5/14.4/13.8/8.9%.
-  18.8% всех потерянных пикселей — тонкие детали (полутолщина ≤3 px).
-- 630 из 955 фото в кэше `refs/` (66%) — карточки с белыми углами → фон известен, аналитическая
-  матировка применима как rescue (но не как истина: белую ножку не отличит, тянет контактную тень).
-- Codex (сессия 01a00a62): ранжирование причин RGB-контракт ≫ кроп/stretch-resize > нет гейта ≫ FP16;
-  defringe при α=0.02 усиливает шум до 50×, фон надо мерить по всей пограничной полосе, не по 4 углам;
-  контактную тень резать (иначе плоская геометрия); `paint_pipeline(image_path=PIL)` — не баг,
-  апстрим принимает и str, и Image; RMBG-2.0 — веса не под свободной коммерческой лицензией.
-- Решения владельца 28.08: fal — только эталон в бенче (в прод не ставим, ADR-0131 не трогаем);
-  объём захода — mesh-трек + гейт маски, виз-трек (`viz_paste.cutout`, кэш `refs/*-cut.png`) позже.
