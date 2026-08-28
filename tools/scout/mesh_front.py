@@ -18,8 +18,12 @@ import sys
 
 import numpy as np
 
-FRONT_VERSION = 1
+FRONT_VERSION = 2
 SEAT_ROLES = ('стул', 'кресло', 'диван', 'банкетка', 'кресло-качалка')
+# РОЛИ БЕЗ ЯВНОГО ПЕРЕДА (владелец 28.08): у пуфа направления нет вообще, у банкетки перед и
+# зад эквивалентны (важна только ось «вдоль») — им фронт не ищем и в фоллбэк не шлём.
+NONDIRECTIONAL = {'пуф': [0, 90, 180, 270], 'банкетка': [0, 180], 'кашпо': [0, 90, 180, 270],
+                  'торшер': [0, 90, 180, 270]}
 
 
 def _faces_world(parts):
@@ -40,6 +44,9 @@ def _faces_world(parts):
 
 def infer_seat_front(parts, role: str = 'стул') -> dict:
     """→ {status, front_yaw, equivalence, seat_h, scores, version}."""
+    if role in NONDIRECTIONAL:
+        return {'status': 'symmetric_by_role', 'front_yaw': 0,
+                'front_equivalence': NONDIRECTIONAL[role], 'version': FRONT_VERSION}
     C, N, A = _faces_world(parts)
     y0, y1 = C[:, 1].min(), C[:, 1].max()
     H = max(y1 - y0, 1e-6)
