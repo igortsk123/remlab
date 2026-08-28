@@ -22,9 +22,15 @@ def _band(rgb, frac=0.04):
                            rgb[:, :b].reshape(-1, 3), rgb[:, -b:].reshape(-1, 3)])
 
 
-def features(rgb):
+def features(rgb, alpha=None):
+    """alpha (0..1) — маска товара после вырезки. Если она есть, признаки баннера считаются
+    ТОЛЬКО вне товара: иначе фактура самого предмета уходит в «текст». Мозаичная ваза и
+    рельефное кашпо на чистой белой карточке ловились как коллажи именно из-за этого."""
     rgb = rgb.astype(np.float32)
     h, w = rgb.shape[:2]
+    outside = None
+    if alpha is not None:
+        outside = ~ndimage.binary_dilation(alpha > 0.5, np.ones((3, 3)), iterations=4)
     band = _band(rgb)
     med = np.median(band, axis=0)
     # Не квантиль расстояния, а ДОЛЯ пограничных пикселей, непохожих на фон. Квантиль ловит
@@ -37,6 +43,8 @@ def features(rgb):
     # карточке давала «плашку 0.32» и уезжала в коллажи.
     mx, mn = rgb.max(axis=2), rgb.min(axis=2)
     sat = (mx - mn) > 45
+    if outside is not None:
+        sat &= outside
     plate = 0.0
     if sat.any():
         lab, n = ndimage.label(sat)
@@ -54,6 +62,8 @@ def features(rgb):
     # текст: мелкие тёмные пятна, собранные в строки
     grey = rgb.mean(axis=2)
     dark = grey < (float(np.median(grey)) - 35)
+    if outside is not None:
+        dark &= outside
     lab, n = ndimage.label(dark)
     rows = 0.0
     if n:
@@ -66,16 +76,21 @@ def features(rgb):
 
     # плотность краёв — насколько «занят» весь кадр
     gy, gx = np.gradient(grey)
-    edges = float((np.hypot(gx, gy) > 22).mean())
+    strong = np.hypot(gx, gy) > 22
+    edges = float(strong[outside].mean()) if outside is not None and outside.any() \
+        else float(strong.mean())
 
     return {'bg_spread': round(p99, 4), 'plate': round(plate, 4),
             'text_rows': rows, 'edges': round(edges, 4)}
 
 
-def is_collage(rgb):
+def is_collage(rgb, alpha=None):
     """→ (вердикт, причины, признаки). Порог намеренно консервативный: лучше пропустить
-    сомнительный коллаж в очередь, где его поймает гейт маски, чем выбросить живую карточку."""
-    f = features(rgb)
+    сомнительный коллаж в очередь, где его поймает гейт маски, чем выбросить живую карточку.
+
+    Вызывать ПОСЛЕ вырезки, передавая маску: без неё фактура товара даёт ложные срабатывания
+    (проверено на выборке 400 — 2 ложных из 8 просмотренных)."""
+    f = features(rgb, alpha)
     if f['bg_spread'] <= 0.12:
         return False, [], f     # ровный фон — это карточка, дальше можно не смотреть
     why = ['фон не ровный']
