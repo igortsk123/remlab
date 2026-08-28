@@ -44,6 +44,10 @@ tools/scout/*
 !tools/scout/flat215-demo/
 !tools/scout/flat215-demo/**
 !tools/scout/flat215.json
+# Образ Hunyuan3D 2.1 для Salad — ИСХОДНИК инфраструктуры, а не данные: без него массовую
+# генерацию мешей не воспроизвести (28.08, уход с fal). Веса и результаты в git не едут.
+!tools/scout/salad/
+!tools/scout/salad/**
 # Q6a: правила capability-модели каталога — данные-код с provenance (как rules солвера)
 !tools/scout/rules/
 !tools/scout/rules/*.json
