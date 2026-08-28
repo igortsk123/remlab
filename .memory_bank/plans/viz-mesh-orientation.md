@@ -165,3 +165,26 @@ completed:
    к пересэмплингу → VLM (qwen-протокол с признаками) → человек последним (десятки-сотни).
    3. Наш mesh_front становится одним из «двух методов» в согласовании. Спорное — автоматически
    по confidence, не глазами.
+
+## Спайк 3d-orienter выполнен (28.08, день) — итоги и контракт
+Схема владельца (GLB→OBJ→two_stage_inference→rotation в БД) прогнана на всех 35 годных мешах
+сета; Codex q24 (`_intake/codex-prompts/q24-orienter.answer.md`) дал правки — приняты.
+
+- Стенд: клон `~/igor/3d-orienter` + venv `~/venvs/orienter` (torch CPU; патч cuda→cpu в
+  `DGCNN{Orienter,Flipper}.py`); драйвер извлекает transform у модели (не сравнением OBJ):
+  orient(num_candidates=20) → flipper softmax → top flip + p + prediction set (кумулятив 0.5).
+  ~5 с/меш на CPU DEV-VM. Скрипты — scratchpad `orienter_run.py`/`orienter_compare.py`.
+- Сверка без глаз: на канонизированных мешах запущен наш `mesh_front` — канонический фронт
+  оказался ровно нашим yaw=180 у 10/11 уверенных сидячих → два независимых метода согласны.
+  1 конфликт 90° (стул TC Diamante, p=0.84) — ровно кейс для очереди арбитра.
+  Корпусные/столики: orienter p≈0.2–0.6 (set 2–4), наш no_seat/ambiguous — ОБЕ системы честно
+  пасуют; для симметричных большой prediction set — норма, не подозрение (q24).
+  Лист: `/test/share/orienter/`.
+- Роли в проде (q24, принято): сидячие — авторитет фронта `mesh_front`, orienter — второй
+  свидетель + источник up; корпусные — orienter+фото-сверка, конфликт → очередь (VLM только
+  предложение, авто-180° запрещён); GLB не перезаписывается.
+- Контракт хранения (вместо «canonicalRotation» из схемы): `raw_to_canonical` quaternion
+  (det=+1) + versions (orienter commit/ckpt sha, FRONT_VERSION) + status + equivalent_rotations;
+  legacy `front_yaw=θ` ↔ `raw_to_canonical=ry(−θ)`, рендер применяет ровно одно из двух.
+- Масштаб: 30k на DEV-VM нерационально (~500 ч) → перенос на Salad (там уже наш Hunyuan);
+  лицензия GPL-3.0 — внутреннее использование ок, распространение контейнера — юр. проверка (TODO).
