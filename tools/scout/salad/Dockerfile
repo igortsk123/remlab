@@ -73,6 +73,13 @@ RUN git clone https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git /opt/hunyuan 
 # Зависимости ставим ДВУМЯ слоями, а не одним: пакетов под сотню, и обрыв закачки на
 # последнем (ловили 28.08: «Response ended prematurely» на safetensors) заставлял бы
 # переставлять всё заново. Разделение делает повтор дешёвым.
+# Blender (`bpy==4.0`) из requirements апстрима убираем ДО установки: этой версии на PyPI
+# больше нет, колёс под python3.10 не осталось ни у одной (проверено 28.08), и официальная
+# сборка Tencent сегодня падает здесь же. На нашем пути bpy нужен ровно для OBJ→GLB —
+# заменяется чистым trimesh+pygltflib из этого же репозитория. Детали — patch_bpy.py.
+COPY patch_bpy.py /tmp/patch_bpy.py
+RUN python /tmp/patch_bpy.py && rm -f /tmp/patch_bpy.py
+
 RUN pip install -r /opt/hunyuan/requirements.txt
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install -r /tmp/requirements.txt && rm -f /tmp/requirements.txt
