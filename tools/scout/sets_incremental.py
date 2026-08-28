@@ -137,6 +137,14 @@ def _slot_ok(role: str, cand: dict, s: dict, chosen: dict | None = None) -> bool
     """
     if not _mesh_gate_ok(cand):
         return False
+    # Тот же предикат пригодности фото, что и у первичной сборки (`slot_contract`) — иначе
+    # два пути расходятся и лечение возвращает в сет то, что сборка бы не взяла.
+    try:
+        from slot_contract import photo_ok as _photo_ok
+        if not _photo_ok(f"{cand.get('mid')}:{cand.get('eid')}", context='published'):
+            return False
+    except Exception:  # noqa: BLE001 — модуль недоступен: ведём себя как раньше
+        pass
     try:
         from compose2 import slot_ideal, _SLOT_ENV
     except Exception:

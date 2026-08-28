@@ -400,6 +400,17 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3,pr
                     continue
             except Exception:
                 pass
+            # ПРИГОДНОСТЬ ФОТО — здесь, а не только при ночном лечении. Раньше первичная сборка
+            # шла мимо ворот `_slot_ok`, и любое новое правило («коллажи в сеты не пускать»)
+            # срабатывало задним числом: товар сперва вставал в сет, потом его выносило лечение.
+            # Владелец 28.08: «на этапе выбора сетов проверку добавь».
+            try:
+                from slot_contract import photo_ok as _photo_ok
+                if not _photo_ok(f"{it['mid']}:{it['eid']}", context='new'):
+                    _SLOT_MISS.setdefault(role,0); _SLOT_MISS[role]+=1
+                    continue
+            except Exception:
+                pass
             # АБСОЛЮТНЫЙ минимум главного дивана (26.08, Codex): детская/подростковая мягкая
             # мебель просачивается в общую категорию по имени без слова «детский» (диван «Умка»
             # 110 см в комнате 15 м²). Ловим размером — zones.json → slots.диван.abs_min_cm
