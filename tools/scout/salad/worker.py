@@ -77,7 +77,7 @@ def generate(job: dict):
     t0 = time.time()
 
     try:
-        image, input_hash = PRE.prepare(job['image_url'])
+        image, input_hash, mask_info = PRE.prepare(job['image_url'])
     except Exception as e:  # noqa: BLE001 — мёртвое фото не должно ронять ноду
         STATE['failed'] += 1
         return {'sku': sku, 'status': 'input_failed', 'error': str(e)[:300]}
@@ -104,6 +104,8 @@ def generate(job: dict):
 
         man = M.asset_manifest({**job, 'seed': seed, 'params': params}, jid, input_hash,
                                res['timings'], res['gpu'])
+        man['mask'] = mask_info      # отчёт вырезки в паспорт: по нему видно, сработал ли
+                                     # гибрид и сколько тонких деталей он вернул
         mp = os.path.join(work, 'manifest.json')
         json.dump(man, open(mp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         files['manifest.json'] = mp

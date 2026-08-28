@@ -5,47 +5,37 @@
 недоступна, поэтому сервер работает ТРАНЗИТОМ: принял → отдал по запросу → `drain.sh` утащил
 на дев-машину и освободил место.
 
-ПОЧЕМУ ЭТО НЕ ПРОСТО «PUT В ПАПКУ»:
-  * exit-fi делит хост с боевой VPN-нодой, и забить ему диск нельзя. Отсюда жёсткий лимит
-    `MAX_DIR_GB`: превышен — приёмник отвечает 507 и ноды получают честную ошибку вместо
-    молчаливой потери результата.
-  * оборванная закачка не должна выглядеть готовым результатом. Файлы падают в `.staging`,
-    и только POST /complete переносит комплект в постоянное место, последним записывая
-    `complete.json`.
-  * повторное задание после прерывания ноды обязано узнать, что работа уже сделана, иначе
-    GPU сожжётся второй раз. Отсюда GET /complete/<prefix>.
+ТОЛЬКО СТАНДАРТНАЯ БИБЛИОТЕКА — намеренно. На exit-fi рядом живёт боевая VPN-нода, и ставить
+туда pip с FastAPI ради приёмника файлов — лишний риск и лишние зависимости на машине, которую
+нельзя ронять. `http.server` здесь достаточно: нагрузка — десяток параллельных нод.
 
-  Запуск:  MESH_SINK_TOKEN=... MESH_ROOT=/opt/remlab/meshes python3 receiver.py
+ПОЧЕМУ ЭТО НЕ ПРОСТО «PUT В ПАПКУ»:
+  * exit-fi нельзя забить: превышен `MESH_MAX_DIR_GB` или мало свободного — отвечаем 507,
+    нода получает честную ошибку, задание возвращается в очередь;
+  * оборванная закачка не должна выглядеть готовым результатом: файлы падают в `.staging`,
+    и только POST /complete переносит комплект и последним пишет `complete.json`;
+  * повтор задания после прерывания ноды обязан узнать, что работа сделана, иначе GPU
+    сожжётся второй раз — GET /complete/<prefix>.
+
+  Запуск: MESH_SINK_TOKEN=... MESH_ROOT=/opt/remlab/meshes python3 receiver.py
 """
 import json
 import os
 import shutil
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from fastapi import FastAPI, HTTPException, Request, Response
-
-ROOT = os.environ.get('MESH_ROOT', '/opt/remlab/meshes')
+ROOT = os.path.abspath(os.environ.get('MESH_ROOT', '/opt/remlab/meshes'))
 TOKEN = os.environ.get('MESH_SINK_TOKEN', '')
-MAX_DIR_GB = float(os.environ.get('MESH_MAX_DIR_GB', '8'))     # потолок на каталог
-MIN_FREE_GB = float(os.environ.get('MESH_MIN_FREE_GB', '5'))   # неприкосновенный запас диска
+MAX_DIR_GB = float(os.environ.get('MESH_MAX_DIR_GB', '8'))
+MIN_FREE_GB = float(os.environ.get('MESH_MIN_FREE_GB', '5'))
 MAX_FILE_MB = float(os.environ.get('MESH_MAX_FILE_MB', '80'))
+PORT = int(os.environ.get('MESH_SINK_PORT', '8770'))
 
-app = FastAPI()
-
-
-def _auth(request: Request) -> None:
-    if not TOKEN or request.headers.get('authorization') != f'Bearer {TOKEN}':
-        raise HTTPException(status_code=401, detail='нет токена')
+_lock = threading.Lock()
 
 
-def _safe(prefix: str, name: str = '') -> str:
-    """Путь строго внутри ROOT: префикс приходит снаружи, `..` в нём быть не должно."""
-    p = os.path.normpath(os.path.join(ROOT, prefix, name))
-    if not p.startswith(os.path.abspath(ROOT) + os.sep):
-        raise HTTPException(status_code=400, detail='плохой путь')
-    return p
-
-
-def _dir_gb() -> float:
+def dir_gb() -> float:
     total = 0
     for dirpath, _, files in os.walk(ROOT):
         for f in files:
@@ -56,104 +46,157 @@ def _dir_gb() -> float:
     return total / 2 ** 30
 
 
-def _free_gb() -> float:
+def free_gb() -> float:
     st = os.statvfs(ROOT)
     return st.f_bavail * st.f_frsize / 2 ** 30
 
 
-@app.get('/health')
-def health():
-    return {'ok': True, 'dir_gb': round(_dir_gb(), 2), 'free_gb': round(_free_gb(), 2),
-            'max_dir_gb': MAX_DIR_GB}
+def safe(prefix: str, name: str = '') -> str:
+    """Путь строго внутри ROOT: префикс приходит снаружи, `..` в нём быть не должно."""
+    p = os.path.normpath(os.path.join(ROOT, prefix.strip('/'), name))
+    if p != ROOT and not p.startswith(ROOT + os.sep):
+        raise ValueError('плохой путь')
+    return p
 
 
-@app.get('/complete/{prefix:path}')
-def get_complete(prefix: str, request: Request):
-    _auth(request)
-    p = _safe(prefix, 'complete.json')
-    if not os.path.exists(p):
-        raise HTTPException(status_code=404, detail='не готово')
-    return json.load(open(p, encoding='utf-8'))
+class Handler(BaseHTTPRequestHandler):
+    server_version = 'remlab-mesh-sink'
 
+    def log_message(self, fmt, *args):     # тише журнала systemd
+        pass
 
-@app.put('/staging/{prefix:path}/{name}')
-async def put_file(prefix: str, name: str, request: Request):
-    _auth(request)
-    if os.sep in name or name.startswith('.'):
-        raise HTTPException(status_code=400, detail='плохое имя файла')
-    if _dir_gb() > MAX_DIR_GB or _free_gb() < MIN_FREE_GB:
-        # 507 вместо тихого падения: нода увидит отказ, задание вернётся в очередь, а мы
-        # поймём по логу, что пора запускать drain. Забить диск exit-fi нельзя — там VPN.
-        raise HTTPException(status_code=507,
-                            detail=f'нет места: каталог {_dir_gb():.1f} ГБ, '
-                                   f'свободно {_free_gb():.1f} ГБ — запусти drain.sh')
-    body = await request.body()
-    if len(body) > MAX_FILE_MB * 2 ** 20:
-        raise HTTPException(status_code=413, detail='файл слишком большой')
-    if not body:
-        raise HTTPException(status_code=400, detail='пустое тело')
-    d = _safe(prefix, '.staging')
-    os.makedirs(d, exist_ok=True)
-    tmp = os.path.join(d, name + '.part')
-    with open(tmp, 'wb') as f:
-        f.write(body)
-    os.replace(tmp, os.path.join(d, name))
-    return {'ok': True, 'bytes': len(body)}
+    def _send(self, code: int, obj=None):
+        body = json.dumps(obj if obj is not None else {}, ensure_ascii=False).encode()
+        self.send_response(code)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
+    def _auth(self) -> bool:
+        if TOKEN and self.headers.get('Authorization') == f'Bearer {TOKEN}':
+            return True
+        self._send(401, {'detail': 'нет токена'})
+        return False
 
-@app.post('/complete/{prefix:path}')
-async def post_complete(prefix: str, request: Request):
-    _auth(request)
-    meta = json.loads(await request.body())
-    staging = _safe(prefix, '.staging')
-    dest = _safe(prefix)
-    if not os.path.isdir(staging):
-        raise HTTPException(status_code=400, detail='нет загруженных файлов')
+    # ---------------------------------------------------------------- GET
+    def do_GET(self):
+        path = self.path.split('?')[0]
+        if path == '/health':
+            return self._send(200, {'ok': True, 'dir_gb': round(dir_gb(), 2),
+                                    'free_gb': round(free_gb(), 2), 'max_dir_gb': MAX_DIR_GB})
+        if not self._auth():
+            return
+        if path == '/list':
+            out = [os.path.relpath(d, ROOT) for d, _, fs in os.walk(ROOT)
+                   if 'complete.json' in fs]
+            return self._send(200, {'count': len(out), 'prefixes': sorted(out),
+                                    'dir_gb': round(dir_gb(), 2)})
+        if path.startswith('/complete/'):
+            try:
+                p = safe(path[len('/complete/'):], 'complete.json')
+            except ValueError:
+                return self._send(400, {'detail': 'плохой путь'})
+            if not os.path.exists(p):
+                return self._send(404, {'detail': 'не готово'})
+            return self._send(200, json.load(open(p, encoding='utf-8')))
+        self._send(404, {'detail': 'нет такого'})
 
-    have = set(os.listdir(staging))
-    need = set((meta.get('files') or {}).keys())
-    if not need <= have:
-        raise HTTPException(status_code=400, detail=f'не хватает файлов: {sorted(need - have)}')
-    for name, size in (meta.get('files') or {}).items():
-        actual = os.path.getsize(os.path.join(staging, name))
-        if actual != size:
-            raise HTTPException(status_code=400,
-                                detail=f'{name}: пришло {actual}, заявлено {size}')
+    # ---------------------------------------------------------------- PUT
+    def do_PUT(self):
+        if not self._auth():
+            return
+        path = self.path.split('?')[0]
+        if not path.startswith('/staging/'):
+            return self._send(404, {'detail': 'нет такого'})
+        rel = path[len('/staging/'):]
+        prefix, _, name = rel.rpartition('/')
+        if not name or name.startswith('.') or os.sep in name:
+            return self._send(400, {'detail': 'плохое имя файла'})
+        # Место проверяем ДО чтения тела: незачем принимать 60 МБ, чтобы потом их выбросить
+        with _lock:
+            if dir_gb() > MAX_DIR_GB or free_gb() < MIN_FREE_GB:
+                return self._send(507, {'detail': f'нет места: каталог {dir_gb():.1f} ГБ, '
+                                                  f'свободно {free_gb():.1f} ГБ — нужен drain'})
+        n = int(self.headers.get('Content-Length') or 0)
+        if n <= 0:
+            return self._send(400, {'detail': 'пустое тело'})
+        if n > MAX_FILE_MB * 2 ** 20:
+            return self._send(413, {'detail': 'файл слишком большой'})
+        try:
+            d = safe(prefix, '.staging')
+        except ValueError:
+            return self._send(400, {'detail': 'плохой путь'})
+        os.makedirs(d, exist_ok=True)
+        tmp = os.path.join(d, name + '.part')
+        got = 0
+        with open(tmp, 'wb') as f:
+            while got < n:
+                chunk = self.rfile.read(min(1 << 20, n - got))
+                if not chunk:
+                    break
+                f.write(chunk)
+                got += len(chunk)
+        if got != n:
+            os.remove(tmp)
+            return self._send(400, {'detail': f'тело оборвано: {got} из {n}'})
+        os.replace(tmp, os.path.join(d, name))
+        self._send(200, {'ok': True, 'bytes': got})
 
-    for name in have:
-        os.replace(os.path.join(staging, name), os.path.join(dest, name))
-    shutil.rmtree(staging, ignore_errors=True)
-    # МАРКЕР — СТРОГО ПОСЛЕДНИМ: до этой строки комплект «не существует» для повторных попыток
-    with open(os.path.join(dest, 'complete.json'), 'w', encoding='utf-8') as f:
-        json.dump(meta, f, ensure_ascii=False)
-    return {'ok': True, 'files': len(have)}
+    # ---------------------------------------------------------------- POST / DELETE
+    def do_POST(self):
+        if not self._auth():
+            return
+        path = self.path.split('?')[0]
+        if not path.startswith('/complete/'):
+            return self._send(404, {'detail': 'нет такого'})
+        n = int(self.headers.get('Content-Length') or 0)
+        try:
+            meta = json.loads(self.rfile.read(n) or b'{}')
+            prefix = path[len('/complete/'):]
+            staging, dest = safe(prefix, '.staging'), safe(prefix)
+        except (ValueError, json.JSONDecodeError):
+            return self._send(400, {'detail': 'плохой запрос'})
+        if not os.path.isdir(staging):
+            return self._send(400, {'detail': 'нет загруженных файлов'})
 
+        have = set(os.listdir(staging))
+        need = set((meta.get('files') or {}).keys())
+        if not need <= have:
+            return self._send(400, {'detail': f'не хватает: {sorted(need - have)}'})
+        for name, size in (meta.get('files') or {}).items():
+            actual = os.path.getsize(os.path.join(staging, name))
+            if actual != size:
+                return self._send(400, {'detail': f'{name}: пришло {actual}, заявлено {size}'})
 
-@app.get('/list')
-def list_done(request: Request):
-    """Что уже принято — для drain.sh и для учёта прогресса пилота."""
-    _auth(request)
-    out = []
-    for dirpath, _, files in os.walk(ROOT):
-        if 'complete.json' in files:
-            out.append(os.path.relpath(dirpath, ROOT))
-    return {'count': len(out), 'prefixes': sorted(out), 'dir_gb': round(_dir_gb(), 2)}
+        for name in have:
+            os.replace(os.path.join(staging, name), os.path.join(dest, name))
+        shutil.rmtree(staging, ignore_errors=True)
+        # МАРКЕР — СТРОГО ПОСЛЕДНИМ: до этой строки комплекта «не существует» для повторов
+        with open(os.path.join(dest, 'complete.json'), 'w', encoding='utf-8') as f:
+            json.dump(meta, f, ensure_ascii=False)
+        self._send(200, {'ok': True, 'files': len(have)})
 
-
-@app.delete('/prefix/{prefix:path}')
-def drop(prefix: str, request: Request):
-    """Удаление ПОСЛЕ откачки на дев-машину. Транзит не должен копить."""
-    _auth(request)
-    p = _safe(prefix)
-    if not os.path.isdir(p):
-        raise HTTPException(status_code=404, detail='нет такого')
-    shutil.rmtree(p, ignore_errors=True)
-    return Response(status_code=204)
+    def do_DELETE(self):
+        """Удаление ПОСЛЕ откачки на дев-машину. Транзит не должен копить."""
+        if not self._auth():
+            return
+        path = self.path.split('?')[0]
+        if not path.startswith('/prefix/'):
+            return self._send(404, {'detail': 'нет такого'})
+        try:
+            p = safe(path[len('/prefix/'):])
+        except ValueError:
+            return self._send(400, {'detail': 'плохой путь'})
+        if not os.path.isdir(p):
+            return self._send(404, {'detail': 'нет такого'})
+        shutil.rmtree(p, ignore_errors=True)
+        self._send(204)
 
 
 if __name__ == '__main__':
-    import uvicorn
-    os.makedirs(ROOT, exist_ok=True)
     if not TOKEN:
         raise SystemExit('нет MESH_SINK_TOKEN — приёмник без токена не поднимаю')
-    uvicorn.run(app, host='127.0.0.1', port=int(os.environ.get('MESH_SINK_PORT', 877)))
+    os.makedirs(ROOT, exist_ok=True)
+    print(f'приёмник на 127.0.0.1:{PORT}, корень {ROOT}', flush=True)
+    ThreadingHTTPServer(('127.0.0.1', PORT), Handler).serve_forever()

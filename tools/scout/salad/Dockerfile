@@ -135,7 +135,7 @@ d('ZhengPeng7/BiRefNet', local_dir='/opt/weights/birefnet')" && rm -rf /opt/hf; 
 # WORKDIR — корень репозитория: относительные пути в конфигах апстрима считаются от него.
 WORKDIR /opt/hunyuan
 ENV PYTHONPATH=/opt/hunyuan:/opt/hunyuan/hy3dshape:/opt/hunyuan/hy3dpaint:/app
-COPY manifest.py preprocess.py pipeline.py storage.py worker.py fetch_weights.py /app/
+COPY manifest.py preprocess.py hybrid_mask.py pipeline.py storage.py worker.py fetch_weights.py /app/
 EXPOSE 8000
 
 # Прогрев (загрузка весов, компиляция ядер) занимает минуты, поэтому start-period щедрый:
