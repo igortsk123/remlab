@@ -29,9 +29,11 @@ PROJECT = os.environ.get('SALAD_PROJECT', '')
 QUEUE = os.environ.get('SALAD_QUEUE', 'mesh-hunyuan')
 API = 'https://api.salad.com/api/public'
 
-# Тарифы для учёта. Сверить в портале перед стартом: в открытых сводках встречаются и другие
-# цифры (для 5090 попадается $0.45 — вероятно, high priority, а не batch).
-RATE_PER_HOUR = {'RTX 4090': 0.16, 'RTX 5090': 0.25}
+# Тарифы batch-приоритета, сверены по API 28.08 (`GET /organizations/<org>/gpu-classes`).
+# ВАЖНО для бенча: сравнивать карты можно только на ОДНОМ приоритете — на high те же 4090
+# стоят $0.30, и «карта дороже» окажется артефактом тарифа, а не железа.
+RATE_PER_HOUR = {'RTX 4090': 0.16, 'RTX 5090': 0.25, 'RTX 3090': 0.09,
+                 'RTX A5000': 0.09, 'RTX 5090 Laptop': 0.10, 'RTX 3090 Ti': 0.10}
 
 
 def _req(method: str, url: str, body: dict | None = None) -> dict:
