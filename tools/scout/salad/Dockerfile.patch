@@ -8,4 +8,7 @@
 #   docker build -f Dockerfile.patch -t ghcr.io/igortsk123/mesh-hunyuan:cu124 .
 ARG BASE=remlab/mesh-hunyuan:cu124-noweights
 FROM ${BASE}
-COPY manifest.py preprocess.py hybrid_mask.py pipeline.py storage.py worker.py fetch_weights.py /app/
+# Копируем ВСЕ модули воркера, а не список руками: соседняя сессия добавила collage.py и
+# components.py, preprocess их импортирует — с ручным перечислением образ упал бы на старте.
+# receiver.py и submit.py в контейнере не нужны (они наши, хостовые), но и не мешают.
+COPY *.py /app/
