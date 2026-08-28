@@ -35,6 +35,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
+    PIP_RETRIES=10 \
+    PIP_DEFAULT_TIMEOUT=90 \
     CUDA_HOME=/usr/local/cuda \
     PYOPENGL_PLATFORM=egl \
     TORCH_CUDA_ARCH_LIST=${TORCH_ARCH} \
@@ -68,9 +70,12 @@ RUN git clone https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git /opt/hunyuan 
     cd /opt/hunyuan && git checkout ${HY_COMMIT} && \
     git rev-parse HEAD > /opt/hunyuan/.pinned_commit && rm -rf /opt/hunyuan/.git
 
+# Зависимости ставим ДВУМЯ слоями, а не одним: пакетов под сотню, и обрыв закачки на
+# последнем (ловили 28.08: «Response ended prematurely» на safetensors) заставлял бы
+# переставлять всё заново. Разделение делает повтор дешёвым.
+RUN pip install -r /opt/hunyuan/requirements.txt
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install -r /opt/hunyuan/requirements.txt && \
-    pip install -r /tmp/requirements.txt && rm -f /tmp/requirements.txt
+RUN pip install -r /tmp/requirements.txt && rm -f /tmp/requirements.txt
 
 # Кастомный растеризатор: editable-режим и -allow-unsupported-compiler — как у апстрима.
 # Без флага nvcc отказывается работать со свежим gcc из ubuntu22.04.
