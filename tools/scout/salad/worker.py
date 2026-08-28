@@ -46,6 +46,13 @@ def health():
     return {'ok': True, 'uptime_s': round(time.time() - STARTED), **STATE}
 
 
+# Режим ноды. mask_only — оценка пригодности фото БЕЗ генерации: Hunyuan не грузится вообще,
+# в памяти только BiRefNet (~1 ГБ), задание считается доли секунды. Так мы узнаём, стоит ли
+# тратить генерацию, не потратив её (ADR-0133, решение владельца 28.08: preflight на своей карте,
+# а не на fal — ноль внешних зависимостей и ноль денег).
+MASK_ONLY = os.environ.get('MODE', '') == 'mask_only'
+
+
 @app.on_event('startup')
 def warmup():
     """Один прогревочный прогон на синтетической картинке: компиляция ядер и загрузка весов
@@ -55,6 +62,12 @@ def warmup():
         STATE['weights'] = fetch_weights.ensure()   # пусто, если веса вшиты в образ
     except Exception:  # noqa: BLE001 — причину видно в логе ноды
         STATE['weights_error'] = traceback.format_exc()[-500:]
+    STATE['mode'] = 'mask_only' if MASK_ONLY else 'generate'
+    if MASK_ONLY:
+        # Прогрев генератора здесь был бы прямым вредом: он поднял бы Hunyuan в VRAM ради
+        # режима, в котором тот не нужен, и съел бы весь смысл дешёвого прохода.
+        STATE['warm'] = True
+        return
     try:
         t0 = time.time()
         img = Image.new('RGB', (512, 512), (200, 200, 200))
@@ -65,6 +78,26 @@ def warmup():
     except Exception:  # noqa: BLE001 — прогрев не удался: причину видно в логе ноды
         STATE['warmup_error'] = traceback.format_exc()[-800:]
     STATE['warm'] = True
+
+
+@app.post('/assess')
+def assess(job: dict):
+    """Оценка пригодности фото: вырезка, измерения, вердикт. Меш не генерируется.
+
+    Отдаём измерения ЦЕЛИКОМ, а не только вердикт: пороги пригодности ещё калибруются по ролям,
+    и при их смене не хочется заново считать маски всему пулу.
+    """
+    if not job.get('image_url'):
+        raise HTTPException(status_code=400, detail='нет image_url')
+    t0 = time.time()
+    try:
+        input_hash, info = PRE.assess(job['image_url'])
+    except Exception as e:  # noqa: BLE001 — мёртвое фото не должно ронять ноду
+        return {'sku': job.get('sku'), 'status': 'input_failed', 'error': str(e)[:300]}
+    STATE['assessed'] = STATE.get('assessed', 0) + 1
+    return {'sku': job.get('sku'), 'status': 'assessed', 'source_sha': input_hash,
+            'assessor_version': PRE.ASSESSOR_VERSION, 'metrics': info,
+            'secs': round(time.time() - t0, 2)}
 
 
 @app.post('/generate')

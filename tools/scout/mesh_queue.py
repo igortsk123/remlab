@@ -87,6 +87,23 @@ create table if not exists orientation_state (
   resolution jsonb,                 -- raw_to_canonical quaternion + версии + evidence
   updated timestamptz default now()
 );
+create table if not exists product_photo_current (
+  sku text primary key,
+  image_url text,
+  source_sha text,
+  observed_at timestamptz default now()
+);
+-- Измерения фото кэшируются по БАЙТАМ, а не по SKU: одна и та же картинка может стоять у
+-- нескольких товаров, а у неизменных байтов срока годности нет. Версия оценщика в ключе —
+-- смена алгоритма не переписывает историю, а заводит новый замер рядом.
+create table if not exists photo_assessment (
+  source_sha text not null,
+  assessor_version text not null,
+  metrics jsonb,                    -- ВСЕ измерения, не только вердикт: пороги ещё калибруются
+  verdict text,                     -- ok|collage|tiny_object|bad_cutout|unknown
+  created timestamptz default now(),
+  primary key (source_sha, assessor_version)
+);
 -- Догоняющие правки: таблицы создаются через `if not exists`, поэтому новые колонки на живой
 -- базе появляются только так. Каждая строка идемпотентна — блок гоняется каждым запуском.
 alter table mesh_demand add column if not exists sha_at timestamptz;

@@ -20,6 +20,10 @@ import collage
 import components
 import hybrid_mask
 
+# Версия оценщика: измерения кэшируются по (байты фото, версия). Меняешь цепочку вырезки или
+# набор метрик — поднимай, иначе старые замеры выдадут себя за новые.
+ASSESSOR_VERSION = 'a1'
+
 _MODEL = None
 _TF = None
 
@@ -145,8 +149,12 @@ def _paint_crop(rgba: Image.Image, margin: float = 0.18) -> Image.Image:
     return rgba.crop(box)
 
 
-def prepare(image_url: str) -> tuple[Image.Image, Image.Image, Image.Image, str, dict]:
-    """Фото → (RGBA для формы, RGBA для покраски, вырезка на просмотр, хеш входа, отчёт).
+def _cut_chain(image_url: str) -> tuple[Image.Image, Image.Image, str, dict]:
+    """Общая часть: фото → (RGBA на полном холсте, обрезанная копия, хеш входа, отчёт).
+
+    Вынесено из `prepare`, чтобы ТУ ЖЕ цепочку можно было прогнать в режиме оценки фото
+    (`assess`) без генерации меша. Иначе, чтобы узнать «стоит ли делать меш», пришлось бы
+    сначала оплатить меш — а именно этого мы и избегаем.
 
     **Контракт входа Hunyuan — RGBA, а не RGB на белом (ADR-0133).** Апстрим
     `hy3dshape/preprocessors.py::ImageProcessorV2.recenter()` берёт альфу как маску товара, а при
@@ -176,6 +184,7 @@ def prepare(image_url: str) -> tuple[Image.Image, Image.Image, Image.Image, str,
     input_hash = hashlib.sha256(raw).hexdigest()[:16]
     src = Image.open(io.BytesIO(raw)).convert('RGB')
     net = cutout(src)
+    full_wh = list(src.size)
     try:
         refined, mask_info = hybrid_mask.refine(src, net)
     except Exception as e:  # noqa: BLE001 — гибрид не должен ронять задание; факт отказа виден
@@ -201,6 +210,31 @@ def prepare(image_url: str) -> tuple[Image.Image, Image.Image, Image.Image, str,
     mask_info.update(mask_verdict(cut))
     if is_col:
         mask_info.update(verdict='bad', reason='фото-коллаж: ' + ', '.join(why))
+    # Размеры нужны политике пригодности: жёсткие ворота по ширине кадра выкосили бы весь пул
+    # (все фото фида 450 px), а вот КАКУЮ ДОЛЮ кадра занимает товар — различает карточку и баннер.
+    mask_info['photo'] = {
+        'frame_wh': full_wh, 'object_wh': list(cut.size),
+        'object_share': round(float(cut.size[0] * cut.size[1]) / max(full_wh[0] * full_wh[1], 1), 4),
+        # Длинная сторона относительно длинной стороны кадра. Короткая сторона мерой быть не
+        # может: у торшера и стеллажа она мала по природе предмета, а не из-за плохого кадра.
+        'object_rel_side': round(float(max(cut.size)) / max(max(full_wh), 1), 3),
+        'object_min_side': int(min(cut.size)),
+    }
+    return shape_img, cut, input_hash, mask_info
+
+
+def assess(image_url: str) -> tuple[str, dict]:
+    """Оценка пригодности фото БЕЗ генерации: хеш входа + все измерения и вердикт.
+
+    Не бросает на браке — брак и есть результат оценки.
+    """
+    _, _, input_hash, info = _cut_chain(image_url)
+    return input_hash, info
+
+
+def prepare(image_url: str) -> tuple[Image.Image, Image.Image, Image.Image, str, dict]:
+    """Фото → (RGBA для формы, RGBA для покраски, вырезка на просмотр, хеш входа, отчёт)."""
+    shape_img, cut, input_hash, mask_info = _cut_chain(image_url)
     if mask_info['verdict'] == 'bad':
         # Останавливаемся ДО генерации: мусорный вход даёт мусорный меш, а платим одинаково.
         raise BadCutout(mask_info['reason'])
