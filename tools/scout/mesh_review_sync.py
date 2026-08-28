@@ -152,6 +152,8 @@ def apply_decision(rk: str, choice: str) -> None:
         y = int(choice.split('_')[1])
         # фронт оказался на ракурсе y → докрутить канон, чтобы фронт встал на 180
         extra = (180 - y) % 360
+        if not res.get('R') and res.get('raw_to_canonical_quat_wxyz'):
+            res['R'] = _quat_to_R(res['raw_to_canonical_quat_wxyz'])
         if res.get('R'):
             res['R'] = _matmul(_ry(extra), res['R'])
             from orient_infer import quat_wxyz  # noqa: PLC0415 — лёгкий импорт без torch

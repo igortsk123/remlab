@@ -49,11 +49,14 @@ def directed_role(role: str, name: str = '', subtype: str = '') -> bool:
 
 def front_yaw_from_R(R: list[list[float]]) -> tuple[int, float]:
     """Легаси front_yaw из матрицы: raw_front = Rᵀ·f_canon; f_canon = ry(180)·Z = (0,0,-1).
-    Возвращает (yaw°, наклон° от горизонтали — диагностика кривого up)."""
+    Наклон — ХУДШИЙ из двух: перед от горизонтали И верх от вертикали. Проверка только
+    переда пропускала крен «на бок» (комоды владельца 28.08): перед горизонтален, а
+    предмет лежит."""
     fx = -R[2][0]; fy = -R[2][1]; fz = -R[2][2]       # Rᵀ @ (0,0,-1)
     yaw = round(math.degrees(math.atan2(fx, fz))) % 360
-    tilt = abs(math.degrees(math.asin(max(-1.0, min(1.0, fy)))))
-    return yaw, round(tilt, 1)
+    t_front = abs(math.degrees(math.asin(max(-1.0, min(1.0, fy)))))
+    t_up = math.degrees(math.acos(max(-1.0, min(1.0, R[1][1]))))   # up_raw·ŷ = R[1][1]
+    return yaw, round(max(t_front, t_up), 1)
 
 
 def sku_from_path(p: str) -> str | None:
@@ -143,7 +146,7 @@ def decide(sku: str, glb: str, inf: dict, use_vlm: bool) -> dict:
     yaw, tilt = front_yaw_from_R(inf['R'])
     res = {'contract': CONTRACT, 'sku': sku, 'glb': os.path.basename(glb),
            'glb_sha': hashlib.sha256(open(glb, 'rb').read()).hexdigest(),
-           'raw_to_canonical_quat_wxyz': inf['quat_wxyz'],
+           'raw_to_canonical_quat_wxyz': inf['quat_wxyz'], 'R': inf['R'],
            'canonical_axes': {'front': 'MR-yaw 180', 'up': '+Y'},
            'legacy_front_yaw': yaw, 'up_tilt_deg': tilt, 'role': role,
            'versions': {'orienter': 'cscarv/3d-orienter@main', 'front': 2,
