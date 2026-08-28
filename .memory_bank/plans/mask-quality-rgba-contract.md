@@ -2,7 +2,7 @@
 workstream: mesh-pipeline
 slug: mask-quality-rgba-contract
 title: Качество вырезки фона → качество мешей: контракт RGBA, гибридная маска, гейт маски
-status: draft
+status: in_progress
 created: 2026-08-28
 updated: 2026-08-28
 completed:

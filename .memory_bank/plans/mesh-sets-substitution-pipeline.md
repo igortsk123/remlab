@@ -2,7 +2,7 @@
 workstream: mesh-pipeline
 slug: mesh-sets-substitution-pipeline
 title: Конвейер «сеты ↔ меши ↔ замена»: пригодность фото, управляемый резерв, точечная пересборка
-status: draft
+status: in_progress
 created: 2026-08-28
 updated: 2026-08-28
 completed:
