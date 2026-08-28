@@ -2,7 +2,7 @@
 // session_id вынесен колонкой для выборок workspace. Расширение на нормальные таблицы — позже.
 // Трейсинг пайплайна (ADR-0013): runs/steps/assets — подробный лог каждого вызова LLM.
 
-import { pgTable, text, jsonb, timestamp, integer, bigint, doublePrecision, boolean, index } from "drizzle-orm/pg-core";
+import { pgTable, text, jsonb, timestamp, integer, bigint, doublePrecision, boolean, index, serial } from "drizzle-orm/pg-core";
 import type { Project } from "@/contracts/project";
 import type { Estimate } from "@/contracts/estimate";
 
@@ -162,4 +162,34 @@ export const leadMessages = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("lead_messages_lead_idx").on(t.leadId), index("lead_messages_admin_msg_idx").on(t.adminTgMessageId)],
+);
+
+// Проверка ориентации 3D-мешей человеком (ADR-0131, /lab/mesh-review): задачи ставит
+// DEV-конвейер, решения append-only забираются курсором after_id (mesh_review_sync.py).
+export const meshReviewTasks = pgTable(
+  "mesh_review_tasks",
+  {
+    id: serial("id").primaryKey(),
+    taskKey: text("task_key").notNull().unique(), // revision_key: sku|glb_sha|contract
+    sku: text("sku").notNull(),
+    role: text("role"),
+    contract: text("contract").notNull(),
+    payload: jsonb("payload").notNull(), // рендеры (data-URL), варианты кнопок, evidence
+    status: text("status").notNull().default("open"), // open | decided | superseded
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("mesh_review_tasks_status_idx").on(t.status)],
+);
+
+export const meshReviewDecisions = pgTable(
+  "mesh_review_decisions",
+  {
+    id: serial("id").primaryKey(),
+    taskId: integer("task_id").notNull(),
+    choice: text("choice").notNull(), // front_0|front_90|front_180|front_270|symmetric|bad_up|bad_mesh|skip
+    reviewer: text("reviewer").notNull().default("owner"),
+    idemKey: text("idem_key").notNull().unique(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("mesh_review_decisions_task_idx").on(t.taskId)],
 );

@@ -50,3 +50,15 @@ jobs:
           python-version: "3.12"
       - run: pip install -r services/planner-solver/requirements.txt
       - run: python -m pytest services/planner-solver/tests/ -q
+
+  scout-orient:
+    # Контракт ориентаций мешей (ADR-0129/0131): процедурная фикстура, знаки замером —
+    # регресс конвенции ловится до мерджа, а не на кривой сцене.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install numpy trimesh pillow
+      - run: python tools/scout/orient_selftest.py

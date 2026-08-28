@@ -34,6 +34,7 @@ scp db/init/003-traces.sql "$SERVER:$REMOTE_DIR/db/init/003-traces.sql"
 scp db/init/004-estimates.sql "$SERVER:$REMOTE_DIR/db/init/004-estimates.sql"
 scp db/init/005-leads.sql "$SERVER:$REMOTE_DIR/db/init/005-leads.sql"
 scp db/init/006-style-results.sql "$SERVER:$REMOTE_DIR/db/init/006-style-results.sql"
+scp db/init/007-mesh-review.sql "$SERVER:$REMOTE_DIR/db/init/007-mesh-review.sql"
 ssh "$SERVER" "test -f $REMOTE_DIR/.env || { echo 'FATAL: нет $REMOTE_DIR/.env (скопируй из .env.example и задай POSTGRES_PASSWORD)'; exit 1; }"
 ssh "$SERVER" "grep -q '^GEMINI_API_KEY=' $REMOTE_DIR/.env || { echo 'FATAL: в $REMOTE_DIR/.env нет GEMINI_API_KEY'; exit 1; }"
 

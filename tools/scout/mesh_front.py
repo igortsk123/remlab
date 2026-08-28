@@ -42,9 +42,13 @@ def _faces_world(parts):
     return np.vstack(C), np.vstack(N), np.concatenate(A)
 
 
-def infer_seat_front(parts, role: str = 'стул') -> dict:
-    """→ {status, front_yaw, equivalence, seat_h, scores, version}."""
-    if role in NONDIRECTIONAL:
+def infer_seat_front(parts, role: str = 'стул', has_back: bool | None = None) -> dict:
+    """→ {status, front_yaw, equivalence, seat_h, scores, version}.
+
+    `has_back` — знание вызывающего о ПРИЗНАКЕ спинки (q25: банкетка со спинкой направлена,
+    без — нет; решает подтип/название, а не роль целиком). True — искать фронт даже у роли
+    из NONDIRECTIONAL; None/False — прежнее правило роли."""
+    if role in NONDIRECTIONAL and not has_back:
         return {'status': 'symmetric_by_role', 'front_yaw': 0,
                 'front_equivalence': NONDIRECTIONAL[role], 'version': FRONT_VERSION}
     C, N, A = _faces_world(parts)

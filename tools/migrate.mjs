@@ -118,6 +118,30 @@ try {
       updated_at timestamptz not null default now()
     )`;
 
+  // Проверка ориентации 3D-мешей человеком (ADR-0131, /lab/mesh-review).
+  await sql`
+    create table if not exists mesh_review_tasks (
+      id serial primary key,
+      task_key text not null unique,
+      sku text not null,
+      role text,
+      contract text not null,
+      payload jsonb not null,
+      status text not null default 'open',
+      created_at timestamptz not null default now()
+    )`;
+  await sql`
+    create table if not exists mesh_review_decisions (
+      id serial primary key,
+      task_id integer not null references mesh_review_tasks(id),
+      choice text not null,
+      reviewer text not null default 'owner',
+      idem_key text not null unique,
+      created_at timestamptz not null default now()
+    )`;
+  await sql`create index if not exists mesh_review_tasks_status_idx on mesh_review_tasks (status)`;
+  await sql`create index if not exists mesh_review_decisions_task_idx on mesh_review_decisions (task_id)`;
+
   console.log("migrate: ok");
 } finally {
   await sql.end();

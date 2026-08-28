@@ -75,6 +75,9 @@ services:
       - TRACE_RETENTION_DAYS=${TRACE_RETENTION_DAYS:-90}
       # Базовый URL для абсолютных (подписанных) ссылок на ассеты в разборе /trace.
       - TRACE_PUBLIC_BASE_URL=${TRACE_PUBLIC_BASE_URL:-https://remont-lab.online}
+      # Проверка ориентации 3D-мешей (/lab/mesh-review, ADR-0131); пусто → страница закрыта (503).
+      - MESH_REVIEW_SECRET=${MESH_REVIEW_SECRET:-}
+      - MESH_REVIEW_MACHINE_TOKEN=${MESH_REVIEW_MACHINE_TOKEN:-}
     volumes:
       - remlab-traces:/app/data/traces
     networks: [remlab-net]

@@ -109,6 +109,19 @@ def why(mid: str, eid: str) -> None:
 _CAND_CACHE: dict = {}
 
 
+def _mesh_gate_ok(cand: dict) -> bool:
+    """Фаза hard правила «сеты только с мешами» (ADR-0131): включается MESH_GATE_PHASE.
+    off/shadow — не режет (отчёт покрытия делает mesh_ready.py --coverage в refresh_daily)."""
+    try:
+        from mesh_ready import gate_active, mesh_ready
+        if not gate_active():
+            return True
+        return mesh_ready(f"{cand.get('mid')}:{cand.get('eid')}")
+    except Exception:  # noqa: BLE001 — в hard-фазе сбой предиката закрывает слот (fail-closed)
+        import os
+        return os.environ.get('MESH_GATE_PHASE', 'off') in ('off', 'shadow')
+
+
 def _slot_ok(role: str, cand: dict, s: dict, chosen: dict | None = None) -> bool:
     """КОНТРАКТЫ ПОДБОРА при лечении (22.08→25.08, разбор владельца по галерее): замена обязана
     проходить ТЕ ЖЕ ворота, что и первичная сборка. Иначе ночное лечение тихо подменяет товар
@@ -120,6 +133,8 @@ def _slot_ok(role: str, cand: dict, s: dict, chosen: dict | None = None) -> bool
     `compose2.slot_ideal` и допуск −20/+10); (2) привязку ковра к дивану — длинная сторона
     ≥ диван + 2×нижняя граница выступа (`occupancy.rug_rules...front_legs_scheme_side_overhang_each_cm`).
     """
+    if not _mesh_gate_ok(cand):
+        return False
     try:
         from compose2 import slot_ideal, _SLOT_ENV
     except Exception:
