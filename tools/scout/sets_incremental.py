@@ -19,6 +19,38 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from set_identity import ensure_ids as _ensure_ids  # noqa: E402
+
+
+def _substitute_ok(sku: str) -> bool:
+    try:
+        from slot_contract import substitute_ok
+        return substitute_ok(sku)
+    except Exception:  # noqa: BLE001 — модуля нет: ведём себя как раньше
+        return True
+
+
+def _quarantined(sku: str) -> bool:
+    try:
+        from heal_policy import quarantined
+        return quarantined(sku)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _budget_left(set_id) -> bool:
+    try:
+        from heal_policy import budget_left
+        return budget_left(set_id)
+    except Exception:  # noqa: BLE001
+        return True
+
+
+def _record_change(set_id, slot, old_sku, new_sku, reason) -> None:
+    try:
+        from heal_policy import record
+        record(set_id, slot, old_sku, new_sku, reason)
+    except Exception:  # noqa: BLE001
+        pass
 SETS = os.path.join(HERE, 'sets3.json')
 INDEX = os.path.join(HERE, 'sets-index.json')
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
@@ -581,13 +613,31 @@ def heal(apply: bool = False) -> None:
                             continue
                     except Exception:
                         pass
+                # ЗАМЕНА ОБЯЗАНА ИМЕТЬ ГОТОВЫЙ МЕШ (владелец 28.08): смысл запаса — «подменить
+                # на то, что уже можно показать». Кандидат без меша даёт дыру в визуализации
+                # вместо починки, и лучше честно оставить пробел.
+                _cand_sku = f"{cand.get('mid')}:{cand.get('eid')}"
+                if not _substitute_ok(_cand_sku):
+                    continue
+                # Карантин: недавно вынесенный товар обратно не берём, иначе сет качает
+                # туда-обратно вслед за миганием наличия.
+                if _quarantined(_cand_sku):
+                    continue
                 picked = cand
                 break
             if picked:
+                # Суточный лимит на комплект: одна ночь не должна переписывать сет целиком —
+                # человек тогда не поймёт, что именно изменилось.
+                if not _budget_left(s.get('set_id')):
+                    hopeless.append((n, role, it['name'][:38], 'лимит замен на сегодня'))
+                    continue
                 healed += 1
                 print(f'  комплект {n}: {role} «{it["name"][:32]}» ({dead[k]}) → «{picked["name"][:32]}»')
                 if apply:
                     s['items'][role] = picked
+                    _record_change(s.get('set_id'), role, k,
+                                   f"{picked.get('mid')}:{picked.get('eid')}",
+                                   'out_of_stock' if 'наличи' in str(dead[k]) else 'dead_photo')
             else:
                 hopeless.append((n, role, it['name'][:38], dead[k]))
     print(f'\nвылечено ролей: {healed}; без замены: {len(hopeless)}')

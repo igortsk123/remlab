@@ -199,6 +199,50 @@ def demand_reserve() -> dict[str, dict]:
     return out
 
 
+def demand_from_reserve_deficit() -> dict[str, dict]:
+    """Запасные ОПУБЛИКОВАННЫХ слотов, которым не хватает меша до норматива резерва.
+
+    Это точнее, чем top-K корзин: `alternates` уже прошли те же ворота, что и основной товар
+    слота, то есть их совместимость доказана сборкой. Приоритет 2 — сразу после товаров,
+    стоящих в сетах: пока у слота нет годной подмены, автозамена по нему невозможна.
+    """
+    try:
+        import reserve
+        need = set(reserve.deficit())
+    except Exception as e:  # noqa: BLE001 — резерв не должен ронять расчёт спроса
+        print(f'резерв не посчитан: {type(e).__name__}: {str(e)[:80]}')
+        return {}
+    # В `alternates` компоновщик кладёт только опознание и скоринг (mid/eid/name/price/score) —
+    # ссылки на фото там нет. Берём её из индекса кандидатов, а чего нет и там — из БД.
+    try:
+        cand_items = json.load(open(CAND)).get('items', {})
+    except Exception:  # noqa: BLE001
+        cand_items = {}
+    out, no_img = {}, []
+    for s in json.load(open(SETS)):
+        for slot, alts in (s.get('alternates') or {}).items():
+            role = base_role(slot)
+            if role in MESH_EXCLUDE:
+                continue
+            for a in alts:
+                sku = f"{a.get('mid')}:{a.get('eid')}"
+                if sku not in need or sku in out:
+                    continue
+                img = (cand_items.get(sku) or {}).get('img')
+                out[sku] = {'role': role, 'priority': 2, 'image_url': img,
+                            'name': a.get('name'), 'dims': None}
+                if not img:
+                    no_img.append(sku)
+    if no_img:
+        rows = db("select p.shop_mid||':'||p.external_id, p.image_url from products p "
+                  "where p.shop_mid||':'||p.external_id in ("
+                  + ','.join(q(x) for x in no_img) + ") and p.image_url is not null")
+        for r in rows:
+            if len(r) == 2 and r[0] in out:
+                out[r[0]]['image_url'] = r[1]
+    return {k: v for k, v in out.items() if v['image_url']}
+
+
 # ---------------------------------------------------------------- ingest и постановка
 
 SHA_MAX_AGE_DAYS = int(os.environ.get('MESH_SHA_MAX_AGE_DAYS', '30'))
@@ -262,6 +306,10 @@ def reconcile_legacy() -> int:
 def run() -> None:
     db(SCHEMA)
     want = demand_from_sets()
+    # Дефицит резерва идёт ПЕРЕД корзинами: пока у занятого слота нет годной подмены,
+    # автозамена по нему невозможна — а это ровно то, ради чего резерв и заводится.
+    for sku, v in demand_from_reserve_deficit().items():
+        want.setdefault(sku, v)
     for sku, v in demand_from_candidates().items():
         want.setdefault(sku, v)
     for sku, v in demand_reserve().items():
