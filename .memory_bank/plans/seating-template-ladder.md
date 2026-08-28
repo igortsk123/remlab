@@ -2,9 +2,9 @@
 workstream: layout
 slug: seating-template-ladder
 title: Лестница шаблонов посадки — подбирается ШАБЛОН, а не выкидываются предметы из большого
-status: in_progress
+status: partial
 created: 2026-08-13
-updated: 2026-08-13
+updated: 2026-08-28
 completed:
 ---
 
@@ -95,3 +95,5 @@ pick_group → ЛЕСТНИЦА групп по убыванию (для band и
 ## Definition of Done — память
 - [ ] ADR «лестница шаблонов вместо каскада дропов»
 - [ ] `core/layout.md`; уроки; `/memory-check`, audit «чисто»
+
+**Partial (2026-08-28):** без движения с 13.08 (PLAN-STUCK) — заморожен до возврата к треку состава посадочных групп.
