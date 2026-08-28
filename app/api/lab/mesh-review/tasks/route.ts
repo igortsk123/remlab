@@ -29,7 +29,12 @@ const TaskIn = z.object({
   contract: z.string().min(1),
   payload: z.unknown(),
 });
-const TasksBody = z.object({ tasks: z.array(TaskIn).min(1).max(100) });
+const TasksBody = z.object({
+  tasks: z.array(TaskIn).max(100),
+  // полный список АКТУАЛЬНЫХ спорных ключей: открытые задачи вне списка конвейер снимает
+  // (пересчёт каскада мог решить их без человека)
+  activeKeys: z.array(z.string()).max(1000).optional(),
+});
 
 // POST — DEV-конвейер идемпотентно ставит задачи (upsert по task_key; supersede старой
 // задачи того же SKU с другим glb_sha делает сам конвейер отдельным статусом).
@@ -37,6 +42,15 @@ export async function POST(req: Request): Promise<Response> {
   if (!(await machineOk())) return NextResponse.json({ error: "нет доступа" }, { status: 401 });
   const parsed = TasksBody.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "неверный запрос" }, { status: 400 });
+  if (parsed.data.activeKeys) {
+    const keep = parsed.data.activeKeys;
+    const open = await db().select().from(meshReviewTasks).where(eq(meshReviewTasks.status, "open"));
+    for (const t of open) {
+      if (!keep.includes(t.taskKey)) {
+        await db().update(meshReviewTasks).set({ status: "superseded" }).where(eq(meshReviewTasks.id, t.id));
+      }
+    }
+  }
   let put = 0;
   for (const t of parsed.data.tasks) {
     await db()

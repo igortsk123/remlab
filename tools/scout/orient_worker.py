@@ -155,8 +155,13 @@ def decide(sku: str, glb: str, inf: dict, use_vlm: bool) -> dict:
                    equivalence=NONDIRECTIONAL.get(role, [0, 90, 180, 270]))
         return res
     if tilt > 15:
-        res.update(status='review_pending', source='up_suspect')   # кривой «верх» — человеку
-        return res
+        # Orienter завалил «верх» (владелец 28.08: комоды на спине). Генераторы отдают мебель
+        # СТОЙМЯ — up из сырого GLB надёжнее нейросети. Её наклон отбрасываем целиком: меш
+        # остаётся стоять, а перед решают следующие слои (сиденье/VLM) уже на сыром меше.
+        res['evidence']['orienter']['up_rejected'] = True
+        inf = dict(inf, R=[[1, 0, 0], [0, 1, 0], [0, 0, 1]], quat_wxyz=[1.0, 0.0, 0.0, 0.0])
+        res['raw_to_canonical_quat_wxyz'] = inf['quat_wxyz']
+        res['legacy_front_yaw'], res['up_tilt_deg'] = 180, 0.0
 
     parts = canonical_parts(glb, inf['R'])
     if role in SEAT_ROLES:

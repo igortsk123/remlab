@@ -119,11 +119,10 @@ def push(limit: int = 30) -> None:
             payload['renders'] = _renders(glb, _quat_to_R(res['raw_to_canonical_quat_wxyz']))
         tasks.append({'taskKey': rk, 'sku': sku, 'role': res.get('role'),
                       'contract': res.get('contract', 'orient-v1'), 'payload': payload})
-    if not tasks:
-        print('[review] спорных нет', flush=True)
-        return
-    r = _api('POST', '/api/lab/mesh-review/tasks', {'tasks': tasks})
-    print(f"[review] отправлено задач: {r.get('put')}", flush=True)
+    active = [r0[0] for r0 in db("select revision_key from orientation_state "
+                                 "where status='review_pending'") if r0 and r0[0]]
+    r = _api('POST', '/api/lab/mesh-review/tasks', {'tasks': tasks, 'activeKeys': active})
+    print(f"[review] отправлено задач: {r.get('put')}, актуальных ключей: {len(active)}", flush=True)
 
 
 def _quat_to_R(qw: list[float]) -> list[list[float]]:
