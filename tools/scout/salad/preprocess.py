@@ -88,8 +88,49 @@ def trim_alpha(img: Image.Image, pad: int = 8) -> Image.Image:
     return img.crop((x0, y0, x1, y1))
 
 
-def prepare(image_url: str) -> tuple[Image.Image, str, dict]:
-    """Фото товара → RGB на белом, готовое для Hunyuan; плюс хеш входа и отчёт о вырезке.
+def mask_verdict(cut: Image.Image) -> dict:
+    """Проверка КАЖДОЙ вырезки перед тратой GPU.
+
+    «Режем заново» не значит «режем хорошо»: сеть иногда не отделяет фон вовсе (тогда карточка
+    целиком станет геометрией — коробка вместо стула) или, наоборот, стирает товар. Оба случая
+    молча дают мусорный меш, и узнать об этом на приёмке — значит заплатить за генерацию зря.
+
+    Меряем три вещи, каждая ловит свой отказ:
+      * покрытие — доля непрозрачного. ~100% = фон не отделён, ~0% = товар стёрт;
+      * касание рамки — доля непрозрачных пикселей по краю кадра. У вырезанного товара край
+        пустой; заполненный край означает, что маска накрыла всю карточку;
+      * средняя альфа полупрозрачных — если почти вся маска «мягкая», сеть не уверена нигде.
+    """
+    a = np.asarray(cut)[..., 3].astype(np.float32) / 255.0
+    solid = a >= 0.5
+    coverage = float(solid.mean())
+    border = np.concatenate([solid[0], solid[-1], solid[:, 0], solid[:, -1]])
+    border_share = float(border.mean())
+    soft_share = float(((a > 0.05) & (a < 0.95)).sum()) / max(float((a > 0.05).sum()), 1.0)
+
+    info = {'coverage': round(coverage, 3), 'border': round(border_share, 3),
+            'soft_share': round(soft_share, 3), 'verdict': 'ok', 'reason': None}
+    if coverage < 0.02:
+        info.update(verdict='bad', reason='товар стёрт: непрозрачного почти нет')
+    elif coverage > 0.97 or border_share > 0.6:
+        info.update(verdict='bad', reason='фон не отделён: маска накрыла карточку целиком')
+    elif border_share > 0.25:
+        info.update(verdict='suspect', reason='маска заметно касается рамки кадра')
+    elif soft_share > 0.5:
+        info.update(verdict='suspect', reason='маска почти вся полупрозрачная')
+    return info
+
+
+class BadCutout(Exception):
+    """Вырезка непригодна — генерацию не запускаем, деньги не тратим."""
+
+
+def prepare(image_url: str) -> tuple[Image.Image, Image.Image, str, dict]:
+    """Фото → (RGB на белом для Hunyuan, вырезка RGBA, хеш входа, отчёт о вырезке).
+
+    Вырезку с альфой возвращаем ИЗ ЭТОГО ЖЕ прохода, а не режем повторно: второй проход стоил
+    бы ещё одного прогона сети и мог бы дать другую маску — тогда владелец смотрел бы не на то,
+    что реально ушло в генератор.
 
     Хеш считается по ИСХОДНЫМ байтам, а не по результату вырезки: вырезка детерминирована при
     фиксированных весах, а исходник — то, что реально задаёт задание.
@@ -108,6 +149,10 @@ def prepare(image_url: str) -> tuple[Image.Image, str, dict]:
     except Exception as e:  # noqa: BLE001 — гибрид не должен ронять задание; факт отказа виден
         refined, mask_info = net, {'hybrid_error': f'{type(e).__name__}: {str(e)[:120]}'}
     cut = trim_alpha(defringe(refined))
+    mask_info.update(mask_verdict(cut))
+    if mask_info['verdict'] == 'bad':
+        # Останавливаемся ДО генерации: мусорный вход даёт мусорный меш, а платим одинаково.
+        raise BadCutout(mask_info['reason'])
     white = Image.new('RGBA', cut.size, (255, 255, 255, 255))
     white.alpha_composite(cut)
-    return white.convert('RGB'), input_hash, mask_info
+    return white.convert('RGB'), cut, input_hash, mask_info

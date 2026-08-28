@@ -31,6 +31,10 @@ MAX_DIR_GB = float(os.environ.get('MESH_MAX_DIR_GB', '8'))
 MIN_FREE_GB = float(os.environ.get('MESH_MIN_FREE_GB', '5'))
 MAX_FILE_MB = float(os.environ.get('MESH_MAX_FILE_MB', '80'))
 PORT = int(os.environ.get('MESH_SINK_PORT', '8770'))
+# Слушаем ШЛЮЗ docker-сети, а не 0.0.0.0: так приёмник доступен контейнеру Caddy (он и
+# терминирует TLS для нод), но НЕ поднимается на публичном интерфейсе сервера. Разница
+# существенна: рядом живёт боевая VPN-нода, лишний открытый порт там не нужен.
+BIND = os.environ.get('MESH_SINK_BIND', '127.0.0.1')
 
 _lock = threading.Lock()
 
@@ -198,5 +202,5 @@ if __name__ == '__main__':
     if not TOKEN:
         raise SystemExit('нет MESH_SINK_TOKEN — приёмник без токена не поднимаю')
     os.makedirs(ROOT, exist_ok=True)
-    print(f'приёмник на 127.0.0.1:{PORT}, корень {ROOT}', flush=True)
-    ThreadingHTTPServer(('127.0.0.1', PORT), Handler).serve_forever()
+    print(f'приёмник на {BIND}:{PORT}, корень {ROOT}', flush=True)
+    ThreadingHTTPServer((BIND, PORT), Handler).serve_forever()

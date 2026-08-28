@@ -1,0 +1,11 @@
+# Наращивание нашего кода поверх уже собранного образа.
+#
+# Зачем отдельный файл: базовый образ собирается час (CUDA-расширения, полсотни зависимостей
+# Hunyuan), а наш код меняется по многу раз в день. Пересобирать всё ради трёх .py — потеря
+# часа, и она уже случалась дважды: buildkit чистит свой кэш сам при нехватке диска, и тогда
+# «инкрементальная» пересборка молча превращается в полную.
+#
+#   docker build -f Dockerfile.patch -t ghcr.io/igortsk123/mesh-hunyuan:cu124 .
+ARG BASE=remlab/mesh-hunyuan:cu124-noweights
+FROM ${BASE}
+COPY manifest.py preprocess.py hybrid_mask.py pipeline.py storage.py worker.py fetch_weights.py /app/

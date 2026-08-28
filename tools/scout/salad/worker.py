@@ -77,7 +77,12 @@ def generate(job: dict):
     t0 = time.time()
 
     try:
-        image, input_hash, mask_info = PRE.prepare(job['image_url'])
+        image, cut_rgba, input_hash, mask_info = PRE.prepare(job['image_url'])
+    except PRE.BadCutout as e:
+        # Отдельный статус: это не сбой ноды и не мёртвое фото, а брак ВЫРЕЗКИ. Такие товары
+        # надо видеть списком — они лечатся другой вырезкой, а не повтором генерации.
+        STATE['bad_cutout'] = STATE.get('bad_cutout', 0) + 1
+        return {'sku': sku, 'status': 'bad_cutout', 'error': str(e)[:300]}
     except Exception as e:  # noqa: BLE001 — мёртвое фото не должно ронять ноду
         STATE['failed'] += 1
         return {'sku': sku, 'status': 'input_failed', 'error': str(e)[:300]}
@@ -92,11 +97,12 @@ def generate(job: dict):
 
     work = tempfile.mkdtemp(prefix='mesh-')
     try:
-        image.save(os.path.join(work, 'input.png'))
+        image.save(os.path.join(work, 'input.png'))            # что видит генератор
+        cut_rgba.save(os.path.join(work, 'cutout.png'))         # вырезка с альфой — на просмотр
         res = P.generate(image, work, seed=seed, params=params)
 
         files = {'model.glb': res['glb']}
-        for name in ('albedo.png', 'orm.png', 'normal.png', 'shape.glb'):
+        for name in ('albedo.png', 'orm.png', 'normal.png', 'shape.glb', 'cutout.png'):
             p = os.path.join(work, name)
             if os.path.exists(p):
                 files[name] = p
