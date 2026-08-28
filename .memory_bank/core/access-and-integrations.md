@@ -28,12 +28,8 @@ review_after: ""
   `../domain/catalog-enrichment.md`; `gpt-4o-mini` под картинки НЕ брать.
 - **Яндекс:** Метрика `110599064`; чужую кампанию `708745261` не трогать. [[marketing-acquisition]].
 
-**Tier 2:** `../domain/integrations.md` (эндпоинты, форматы, env, фиды/наличие). Решения — ADR-0007/0011/0012/0013/0045.
-
-
-**Детали разделов: Реестр → `../domain/integrations.md`**
-
-**Codex-советник (постоянная сессия, resume-режим, песочница):** `../domain/integrations.md` § Codex.
+**Tier 2:** `../domain/integrations.md` — эндпоинты, форматы, env, фиды, § Codex (постоянная
+сессия советника). Решения — ADR-0007/0011/0012/0013/0045.
 
 ## Vercel AI Gateway (26.08)
 `https://ai-gateway.vercel.sh/v1`: `/images/edits` (`image[]`, `mask`) для `openai/gpt-image-*`;
@@ -42,9 +38,12 @@ review_after: ""
 Прямые ключи OpenAI без кредитов — рабочий путь только шлюз.
 
 ## fal.ai (2026-08-05 → 28.08)
-Клиент `tools/scout/falmini.py`. Без масок: `nano-banana/edit`, `bytedance/seedream/v5/pro/edit`
-(точный, ~2 мин), `flux-2/klein/4b/edit` (~7 с). Маски/ControlNet — только
-`flux-general/inpainting` (нужны `path`/`image_encoder_path`; регион-маски под вопросом).
+Клиент `tools/scout/falmini.py`; только картинки — на треке мешей заменён Salad (ADR-0131).
+Модели редактирования и ограничения масок — `../domain/integrations.md` §fal.
+
+## SaladCloud + GHCR (28.08) — GPU под меши, вместо fal
+Орг `prodstore`, проект `dmodel`, очередь `mesh-hunyuan`, заголовок `Salad-Api-Key`; ключи и
+цены — `_secrets/ACCESS.md`. Образ `ghcr.io/igortsk123/mesh-hunyuan`. Детали — [[mesh-pipeline]].
 
 ## Гдеслон API (26.08)
 Программы: shops.xml по api_token (ежедневный `--check`); XML-поиск — только хост

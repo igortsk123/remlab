@@ -27,6 +27,7 @@
 | `lr-composition.md` | lr-composition | Композиция гостиной — доли | `../domain/lr-composition-guide.md` | 2026-08-01 |
 | `market.md` | market | Рынок RU/UK — спрос, монетизация | `../domain/market-research.md` | 2026-08-13 |
 | `marketing-acquisition.md` | marketing-acquisition | Реклама — Яндекс, семантика | `../domain/wordstat-semantics.md` | 2026-08-13 |
+| `mesh-pipeline.md` | mesh-pipeline | 3D-меши товаров — генерация, приёмка, ориентация | `../domain/viz-fidelity-playbook.md` | 2026-08-28 |
 | `observability-tracing.md` | observability-tracing | Трейсинг AI-пайплайна — лог, разбор | `../domain/observability.md` | 2026-08-06 |
 | `regression-net.md` | regression-net | Регресс-защита — тесты, CI, гардрейлы | `../../docs/tech-spec-ts-stack.md` | 2026-08-22 |
 | `room-measurement.md` | room-measurement | Замер комнаты по фото — что готово и чем меряем | `../domain/room-measurement.md` | 2026-08-04 |
