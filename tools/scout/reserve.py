@@ -28,6 +28,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 SETS = os.path.join(HERE, 'sets3.json')
 
+# Мягкий декор мешей не получает по замыслу (`mesh_queue.MESH_EXCLUDE`) — считать его слоты
+# «без готовой подмены» значит врать в отчёте: там подмена и не должна быть с мешом.
+try:
+    from mesh_queue import MESH_EXCLUDE
+except Exception:  # noqa: BLE001
+    MESH_EXCLUDE = {'подушка', 'плед', 'ковёр', 'шторы', 'картина', 'зеркало', 'часы', 'полка'}
+
 ANCHOR = {'диван', 'тв-тумба', 'стенка', 'стол обеденный'}
 OPTIONAL = {'пуф', 'банкетка', 'торшер', 'растение', 'ваза', 'статуэтка', 'кашпо'}
 
@@ -57,6 +64,8 @@ def coverage() -> dict:
         sid = s.get('set_id') or '—'
         for slot, alts in (s.get('alternates') or {}).items():
             role = base_role(slot)
+            if role in MESH_EXCLUDE:
+                continue
             ready = [a for a in alts if mesh_ready(f"{a.get('mid')}:{a.get('eid')}")]
             shops = {a.get('mid') for a in ready}
             rows.append({'set_id': sid, 'slot': slot, 'role': role,
