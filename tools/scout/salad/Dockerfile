@@ -86,9 +86,27 @@ RUN pip install -r /tmp/requirements.txt && rm -f /tmp/requirements.txt
 
 # Кастомный растеризатор: editable-режим и -allow-unsupported-compiler — как у апстрима.
 # Без флага nvcc отказывается работать со свежим gcc из ubuntu22.04.
+# --no-build-isolation ОБЯЗАТЕЛЕН: `setup.py` растеризатора импортирует torch на верхнем
+# уровне (он строит CUDAExtension), а изолированное окружение сборки его не видит —
+# «ModuleNotFoundError: No module named 'torch'». У апстрима это не всплывает, потому что
+# conda тянет старый pip без жёсткой изоляции; мы ставим свежий и обязаны сказать явно.
+# Ставим ОБЫЧНОЙ установкой, не editable. Апстрим берёт `-e` по привычке разработчика, но с
+# `--no-build-isolation` это ломается: их build-backend не умеет PEP 660 (`build_editable`).
+# Нам editable и не нужен — мы растеризатор не правим, а в контейнере он только мешает.
 RUN cd /opt/hunyuan/hy3dpaint/custom_rasterizer && \
-    CUDA_NVCC_FLAGS="-allow-unsupported-compiler" pip install -e .
-RUN cd /opt/hunyuan/hy3dpaint/DifferentiableRenderer && bash compile_mesh_painter.sh
+    CUDA_NVCC_FLAGS="-allow-unsupported-compiler" pip install . --no-build-isolation
+# Проверка — ОТДЕЛЬНЫМ шагом и ИЗ ДРУГОГО каталога, с torch ПЕРВЫМ импортом. Иначе она врёт
+# дважды: стоя в исходной папке, Python берёт локальный `custom_rasterizer/` вместо
+# установленного пакета, а без torch расширение не находит `libc10.so` — оно слинковано с
+# библиотеками torch, и подгружает их именно импорт torch (поймано 28.08: сборка прошла,
+# проверка упала).
+RUN cd / && python -c "import torch, custom_rasterizer; print('растеризатор импортируется')"
+# Скрипт рендерера — обычный c++ с `python -m pybind11 --includes` и `python3-config`:
+# без pybind11 в окружении команда развернётся в пустоту и соберёт нерабочий .so МОЛЧА.
+# Поэтому проверяем результат явно, а не доверяем нулевому коду возврата.
+RUN cd /opt/hunyuan/hy3dpaint/DifferentiableRenderer && \
+    bash compile_mesh_painter.sh && \
+    ls mesh_inpaint_processor*.so
 
 # RealESRGAN — апскейл текстур в PBR-стадии. Пропустить нельзя: пайштейн падает при загрузке.
 RUN mkdir -p /opt/hunyuan/hy3dpaint/ckpt && \
