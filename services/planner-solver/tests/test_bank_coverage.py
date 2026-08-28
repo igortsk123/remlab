@@ -4,6 +4,15 @@ import os
 
 SCOUT = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'tools', 'scout')
 
+import pytest
+
+# sets3.json — дневной артефакт каталога, намеренно вне git (.gitignore): в CI его нет.
+# Тесты по нему — локальные сторожа данных; отсутствие файла = окружение без каталога, скип.
+pytestmark = pytest.mark.skipif(
+    not os.path.exists(os.path.join(SCOUT, 'sets3.json')),
+    reason='нет tools/scout/sets3.json (артефакт дневного прогона, вне git)')
+
+
 
 def test_sofa_banks_have_armchair_alternative():
     """Сет с диваном от 17 м² содержит кресло (или явный coverage_gap)."""

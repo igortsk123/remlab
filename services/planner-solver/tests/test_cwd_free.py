@@ -10,6 +10,12 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 PY = os.path.expanduser('~/venvs/scout/bin/python')
+
+import pytest
+
+# Тесты гоняют скрипты scout-venv'ом DEV-VM; в CI такого интерпретатора нет — скип честный.
+pytestmark = pytest.mark.skipif(not os.path.exists(PY),
+                                reason='нет ~/venvs/scout (локальное окружение DEV-VM)')
 SCOUT = os.path.join(ROOT, 'tools', 'scout')
 
 

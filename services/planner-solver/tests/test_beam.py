@@ -1,6 +1,7 @@
 """Приёмка Э2–Э5: beam search даёт валидные РАЗНЫЕ раскладки быстро, с объяснениями."""
 from __future__ import annotations
 
+import os
 import time
 
 import pytest
@@ -55,7 +56,8 @@ def test_solve_returns_valid_diverse_layouts(idx):
     dt = time.time() - t
     assert outs, "движок обязан вернуть хотя бы один вариант"
     assert outs[0].ok, f"лучший вариант забракован: {why_not(outs[0])}"
-    assert dt < 9.0, f"слишком долго: {dt:.1f} с"   # правил стало больше; порог продукта — «секунды»
+    limit = 15.0 if os.environ.get('CI') else 9.0   # CI-раннер разделяемый: перф-порог с запасом
+    assert dt < limit, f"слишком долго: {dt:.1f} с"   # правил стало больше; порог продукта — «секунды»
 
 
 def test_unsolvable_room_gets_explicit_reason():

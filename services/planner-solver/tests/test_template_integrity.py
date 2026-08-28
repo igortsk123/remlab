@@ -63,6 +63,12 @@ def test_no_items_outside_templates():
     assert not bad, f'предметы вне шаблонов: {dict(list(bad.items())[:5])}'
 
 
+_needs_sets3 = pytest.mark.skipif(
+    not os.path.exists(os.path.join(SCOUT, 'sets3.json')),
+    reason='нет tools/scout/sets3.json (артефакт дневного прогона, вне git)')
+
+
+@_needs_sets3
 def test_no_phantom_dimensions():
     """Габарит поставленного == габарит SKU: солвер не подгоняет размер товара.
 
@@ -232,6 +238,7 @@ def test_focus_wall_not_empty():
         f'сцен с пустой фокус-стеной {len(empty)} > {MAX_EMPTY_FOCUS_SCENES}: {empty[:6]}')
 
 
+@_needs_sets3
 def test_seating_matches_ladder_step():
     """Состав посадки == состав одной из ступеней лестницы (план seating-template-ladder).
 
@@ -359,6 +366,7 @@ def test_all_floor_roles_have_slots():
     assert not missing, f'роли без слота: {sorted(missing)}'
 
 
+@_needs_sets3
 def test_level_a_never_degrades():
     """П9/S6: LEVEL A (диван, медиа) не деградирует — если они в банке, они стоят.
 

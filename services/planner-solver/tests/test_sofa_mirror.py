@@ -4,6 +4,10 @@
 (зеркало перебирал только поштучный candidates.py). Сцена: 280×430, дверь на
 востоке — влезает ТОЛЬКО corner_left=False.
 """
+import os
+
+import pytest
+
 from planner.models import Item, Opening, Room
 from planner.template import place_template
 from planner.zones import usable_polygon
@@ -71,6 +75,11 @@ def _set21_items(fixed_cl=None):
     return out
 
 
+_SETS3 = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'tools', 'scout', 'sets3.json')
+
+
+@pytest.mark.skipif(not os.path.exists(_SETS3),
+                    reason='нет tools/scout/sets3.json (артефакт дневного прогона, вне git)')
 def test_mirror_quality_pick_beats_first_clean():
     """V3-H (поправка рефери №3): оба зеркала hard-valid — победитель выбирается
     по существующему quality-ключу, а не first-clean. Сцена №272: побеждает LEFT,
