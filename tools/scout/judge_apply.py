@@ -38,6 +38,9 @@ for r in report:
     s['total']=sum(it['price']*it.get('qty',1) for it in s['items'].values())
     if r['swaps']: swapped+=1; r['policy']='swapped (style_grade<THR)'
     else: r['policy']='no-alt'
+import sys as _sys; _sys.path.insert(0,HERE)
+from set_identity import ensure_ids as _ensure_ids  # стабильный id не теряем при применении вердиктов
+_ensure_ids(pre)
 json.dump(pre,open(os.path.join(HERE,'sets3.json'),'w'),ensure_ascii=False,indent=1)
 json.dump(report,open(os.path.join(HERE,'judge-report3.json'),'w'),ensure_ascii=False,indent=1)
 gr=[r.get('style_grade') for r in report if r.get('style_grade') is not None]

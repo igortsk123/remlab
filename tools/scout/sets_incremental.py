@@ -17,6 +17,8 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from set_identity import ensure_ids as _ensure_ids  # noqa: E402
 SETS = os.path.join(HERE, 'sets3.json')
 INDEX = os.path.join(HERE, 'sets-index.json')
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
@@ -361,6 +363,7 @@ def refresh(apply: bool = False, max_swaps_per_set: int = 2) -> None:
     print(f'освежено позиций: {swapped}' + ('' if apply else ' (показ; применить — --apply)'))
     if apply and swapped:
         shutil.copy(SETS, SETS + '.bak')
+        _ensure_ids(sets)          # новый сет обязан получить стабильный id сразу
         json.dump(sets, open(SETS, 'w'), ensure_ascii=False)
         print('sets3.json обновлён (бэкап .bak)')
 
@@ -584,6 +587,7 @@ def heal(apply: bool = False) -> None:
         print(f'  комплект {n}: {role} «{name}» — {st}, запаса нет → комплект скрывается')
     if apply and healed:
         shutil.copy(SETS, SETS + '.bak')
+        _ensure_ids(sets)          # новый сет обязан получить стабильный id сразу
         json.dump(sets, open(SETS, 'w'), ensure_ascii=False)
         print('\nsets3.json обновлён (бэкап рядом, .bak)')
     elif not apply:
@@ -695,6 +699,7 @@ def enforce_contracts(apply: bool = False, roles: tuple = ()) -> None:
     print(f'\nвне контракта: заменено {fixed}, снято {dropped}')
     if apply and (fixed or dropped):
         shutil.copy(SETS, SETS + '.bak-contracts')
+        _ensure_ids(sets)          # новый сет обязан получить стабильный id сразу
         json.dump(sets, open(SETS, 'w'), ensure_ascii=False)
         print('sets3.json обновлён (бэкап .bak-contracts)')
 

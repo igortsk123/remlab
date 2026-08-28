@@ -1289,6 +1289,14 @@ for bi,band in enumerate(COMP['bands']):
               f"капсула {ctx['style']}/{ctx['wood']}/{ctx['metal']}/{ctx['temp']}, пол {fill}%"
               +(f", стиль-фит {sfit_agg}" if sfit_agg else "")+f", {total:,} ₽".replace(',',' '),flush=True)
 OUT_SETS='sets3.json' if STYLE_MODE else 'sets2.json'
+# Стабильный set_id: сцены и отчёты живут на НОМЕРАХ сетов, и любая перестановка массива молча
+# переадресует их на соседние комплекты. id детерминирован по полям замысла (площадь/ярус/стиль/
+# капсула), поэтому пересборка с нуля выдаёт те же id — а замена товара в слоте их не меняет.
+try:
+    from set_identity import ensure_ids as _ensure_ids
+    _ensure_ids(sets)
+except Exception as _e:   # noqa: BLE001 — идентичность не должна ронять сборку сетов
+    print(f'set_id не проставлен: {type(_e).__name__}: {_e}',flush=True)
 # АТОМАРНАЯ запись (инцидент 08.08: падение посреди json.dump оставило файл на 18/126 сетов):
 # пишем во временный и переименовываем — rename на одной ФС атомарен
 _tmp=os.path.join(HERE,OUT_SETS+'.tmp')
