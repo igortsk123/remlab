@@ -12,7 +12,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 VARIANT="${1:-cu124}"
-REPO="${MESH_IMAGE_REPO:-remlab/mesh-hunyuan}"
+REPO="${MESH_IMAGE_REPO:-ghcr.io/igortsk123/mesh-hunyuan}"
 HY_COMMIT="${HY_COMMIT:-main}"
 LIMIT_GB=28
 
@@ -37,7 +37,11 @@ docker build \
   --build-arg "BAKE_WEIGHTS=${BAKE_WEIGHTS:-1}" \
   -t "$TAG" .
 
-echo "== публикация (гейт размера считается по реестру, до запуска на Salad)"
+# GHCR — реестр владельца, вход тем же токеном, что и gh CLI (write:packages).
+# Образ приватный: Salad получает отдельный read-токен в настройках container group.
+echo "== публикация в $REPO (гейт размера считается по реестру, до запуска на Salad)"
+docker login ghcr.io -u igortsk123 -p "$(gh auth token)" >/dev/null 2>&1 || \
+  echo "!! вход в ghcr не удался — проверь право write:packages у токена gh"
 docker push "$TAG"
 
 COMPRESSED=$(docker manifest inspect "$TAG" \
