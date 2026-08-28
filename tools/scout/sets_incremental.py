@@ -21,10 +21,10 @@ sys.path.insert(0, HERE)
 from set_identity import ensure_ids as _ensure_ids  # noqa: E402
 
 
-def _substitute_ok(sku: str) -> bool:
+def _substitute_ok(sku: str, strict: bool | None = None) -> bool:
     try:
         from slot_contract import substitute_ok
-        return substitute_ok(sku)
+        return substitute_ok(sku, strict=strict)
     except Exception:  # noqa: BLE001 — модуля нет: ведём себя как раньше
         return True
 
@@ -581,50 +581,60 @@ def heal(apply: bool = False) -> None:
             # индекса кандидатов той же роли, лучшие по силе стиля сета и близости цены
             spares = spares + _live_candidates(role, it, s.get('style'), alive,
                                                exclude={key(a['mid'], a['eid']) for a in spares})
+            # Два прохода по одному и тому же списку: сперва ищем замену С ГОТОВЫМ МЕШОМ
+            # (ради этого резерв и заводится), и только если такой нет — берём обычную.
+            # Одним проходом это не выразить: лучший по скорингу кандидат без меша иначе
+            # выигрывал бы у годного, стоящего ниже.
             picked = None
-            for a in spares:
-                if not (0.7 * it['price'] <= a.get('price', 0) <= 1.3 * it['price']):
-                    continue
-                # ГАБАРИТЫ И МЕДИА НОВОГО ТОВАРА ОБЯЗАТЕЛЬНЫ (аудит 22.08 — heal вставлял диван
-                # 350 см в band 14-16; 26.08 — сохранял чужое фото). Карточку собираем целиком.
-                cand = _card(a, it)
-                ctx = {'chosen': {r: v for r, v in s['items'].items() if r != role},
-                       'wall': None,
-                       'corner_sofa': 'углов' in str((s['items'].get('диван') or {}).get('name', '')).lower()}
-                ok, _b, _no = prop_check(role, cand, ctx, _sub(role, cand))
-                if not ok:
-                    continue
-                if not _slot_ok(role, cand, s):
-                    continue          # 25.08: те же ворота подбора, что при сборке —
-                    # конверт слота роли и привязка ковра к дивану. Без них ночное лечение
-                    # ставило диван 110 в 15 м² и ковёр 120×120 под диван 195 (симптомы:
-                    # «ковра нет нигде», заполняемость 14–15 %)
-                # КОНВЕРТ БАНДА ДЛЯ ЯКОРНЫХ РОЛЕЙ (22.08): длинная сторона замены обязана
-                # влезать в стену комнаты банда с канонной долей (2/3-правило occupancy,
-                # допуск до share): иначе честная дыра лучше негабарита
-                _ANCHOR_SHARE = {'диван': 0.78, 'тв-тумба': 0.62, 'стенка': 0.88,
-                                 'стол обеденный': 0.62}
-                if role in _ANCHOR_SHARE:
-                    try:
-                        _m2 = float(str(s.get('band', '14-16')).split('-')[0])
-                        _wall = (_m2 * 10000 * 1.15) ** 0.5
-                        _long = max(float(cand.get('w') or 0), float(cand.get('d') or 0))
-                        if _long > _wall * _ANCHOR_SHARE[role]:
-                            continue
-                    except Exception:
-                        pass
-                # ЗАМЕНА ОБЯЗАНА ИМЕТЬ ГОТОВЫЙ МЕШ (владелец 28.08): смысл запаса — «подменить
-                # на то, что уже можно показать». Кандидат без меша даёт дыру в визуализации
-                # вместо починки, и лучше честно оставить пробел.
-                _cand_sku = f"{cand.get('mid')}:{cand.get('eid')}"
-                if not _substitute_ok(_cand_sku):
-                    continue
-                # Карантин: недавно вынесенный товар обратно не берём, иначе сет качает
-                # туда-обратно вслед за миганием наличия.
-                if _quarantined(_cand_sku):
-                    continue
-                picked = cand
-                break
+            for _strict_pass in (True, False):
+                if picked:
+                    break
+                for a in spares:
+                    if not (0.7 * it['price'] <= a.get('price', 0) <= 1.3 * it['price']):
+                        continue
+                    # ГАБАРИТЫ И МЕДИА НОВОГО ТОВАРА ОБЯЗАТЕЛЬНЫ (аудит 22.08 — heal вставлял диван
+                    # 350 см в band 14-16; 26.08 — сохранял чужое фото). Карточку собираем целиком.
+                    cand = _card(a, it)
+                    ctx = {'chosen': {r: v for r, v in s['items'].items() if r != role},
+                           'wall': None,
+                           'corner_sofa': 'углов' in str((s['items'].get('диван') or {}).get('name', '')).lower()}
+                    ok, _b, _no = prop_check(role, cand, ctx, _sub(role, cand))
+                    if not ok:
+                        continue
+                    if not _slot_ok(role, cand, s):
+                        continue          # 25.08: те же ворота подбора, что при сборке —
+                        # конверт слота роли и привязка ковра к дивану. Без них ночное лечение
+                        # ставило диван 110 в 15 м² и ковёр 120×120 под диван 195 (симптомы:
+                        # «ковра нет нигде», заполняемость 14–15 %)
+                    # КОНВЕРТ БАНДА ДЛЯ ЯКОРНЫХ РОЛЕЙ (22.08): длинная сторона замены обязана
+                    # влезать в стену комнаты банда с канонной долей (2/3-правило occupancy,
+                    # допуск до share): иначе честная дыра лучше негабарита
+                    _ANCHOR_SHARE = {'диван': 0.78, 'тв-тумба': 0.62, 'стенка': 0.88,
+                                     'стол обеденный': 0.62}
+                    if role in _ANCHOR_SHARE:
+                        try:
+                            _m2 = float(str(s.get('band', '14-16')).split('-')[0])
+                            _wall = (_m2 * 10000 * 1.15) ** 0.5
+                            _long = max(float(cand.get('w') or 0), float(cand.get('d') or 0))
+                            if _long > _wall * _ANCHOR_SHARE[role]:
+                                continue
+                        except Exception:
+                            pass
+                    # ЗАМЕНА ОБЯЗАНА ИМЕТЬ ГОТОВЫЙ МЕШ (владелец 28.08): смысл запаса — «подменить
+                    # на то, что уже можно показать». Кандидат без меша даёт дыру в визуализации
+                    # вместо починки, и лучше честно оставить пробел.
+                    _cand_sku = f"{cand.get('mid')}:{cand.get('eid')}"
+                    # Два прохода: сперва только кандидаты с готовым мешом, и лишь если таких нет —
+                    # обычные. Жёсткое требование с ходу остановило бы лечение целиком, пока
+                    # покрытие резерва нулевое (см. slot_contract.HEAL_MESH_MODE).
+                    if not _substitute_ok(_cand_sku, strict=_strict_pass):
+                        continue
+                    # Карантин: недавно вынесенный товар обратно не берём, иначе сет качает
+                    # туда-обратно вслед за миганием наличия.
+                    if _quarantined(_cand_sku):
+                        continue
+                    picked = cand
+                    break
             if picked:
                 # Суточный лимит на комплект: одна ночь не должна переписывать сет целиком —
                 # человек тогда не поймёт, что именно изменилось.

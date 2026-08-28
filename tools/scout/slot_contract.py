@@ -61,11 +61,25 @@ def mesh_ok(sku: str) -> bool:
         return os.environ.get('MESH_GATE_PHASE', 'off') in ('off', 'shadow')
 
 
-def substitute_ok(sku: str) -> bool:
-    """Кандидат на ЗАМЕНУ. Требования строже обычных: замена обязана иметь готовый меш,
+# Требование меша к ЗАМЕНЕ вводится этапно — как и всё остальное. Сегодня покрытие резерва 0%
+# (Salad-мешей ещё нет), и жёсткое `require` молча остановило бы лечение целиком: каждый
+# выбывший товар оставлял бы дыру. Поэтому по умолчанию `prefer` — сперва ищем кандидата с
+# мешом, и только если такого нет, берём обычного. `require` включать, когда покрытие вырастет.
+HEAL_MESH_MODE = os.environ.get('HEAL_REQUIRE_MESH', 'prefer')   # prefer|require
+
+
+def substitute_ok(sku: str, *, strict: bool | None = None) -> bool:
+    """Кандидат на ЗАМЕНУ. Требования строже обычных: у замены должен быть готовый меш,
     иначе смысл «заменителя с готовым мешом» теряется — подменим товар и получим дыру
-    в визуализации вместо починки."""
-    return photo_ok(sku, context='new') and _mesh_ready_strict(sku)
+    в визуализации вместо починки.
+
+    `strict=True` — первый проход лечения (ищем именно с мешом); `strict=False` — второй,
+    запасной. Без аргумента режим берётся из `HEAL_REQUIRE_MESH`.
+    """
+    if not photo_ok(sku, context='new'):
+        return False
+    want_mesh = (HEAL_MESH_MODE == 'require') if strict is None else strict
+    return _mesh_ready_strict(sku) if want_mesh else True
 
 
 def _mesh_ready_strict(sku: str) -> bool:
