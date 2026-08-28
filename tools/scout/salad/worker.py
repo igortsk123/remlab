@@ -51,6 +51,11 @@ def warmup():
     """Один прогревочный прогон на синтетической картинке: компиляция ядер и загрузка весов
     не должны попасть в замер первого настоящего задания."""
     try:
+        import fetch_weights
+        STATE['weights'] = fetch_weights.ensure()   # пусто, если веса вшиты в образ
+    except Exception:  # noqa: BLE001 — причину видно в логе ноды
+        STATE['weights_error'] = traceback.format_exc()[-500:]
+    try:
         t0 = time.time()
         img = Image.new('RGB', (512, 512), (200, 200, 200))
         with tempfile.TemporaryDirectory() as d:
