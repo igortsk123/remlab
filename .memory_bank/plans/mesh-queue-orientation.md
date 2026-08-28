@@ -123,3 +123,21 @@ Resolution в R2 (`analysis/orientation/<contract>/resolution/`): asset id, GLB 
 3. Orient-worker + resolution в R2 + CI-тесты.
 4. Review-страница + API + пилотная партия спорных.
 5. Shadow-метрики сетов → отчёт владельцу → решение о фазе B.
+
+## Ход деплоя (28.08) — сделано
+- [x] Control plane в dev-БД + `mesh_queue.py` (спрос 1084, идемпотентность: повтор = 0 заданий).
+- [x] Шаг MESH_QUEUE в refresh_daily переписан (+ coverage, orient_worker, review push/pull).
+- [x] `orient_infer.py`/`orient_worker.py`: каскад прогнан по 37 локальным мешам — 30 авто, 8 review.
+- [x] `mesh_ready.py` — единый предикат + фазы (MESH_GATE_PHASE, сейчас off; shadow-отчёт в cron);
+      hard-гейт в `_slot_ok` fail-closed. Coverage честный: 0/126 (Salad-ассетов ещё нет).
+- [x] `/lab/mesh-review` на проде (деплой ce02a9a): auth fail-closed, задачи=8 (с 4 ракурсами),
+      pull-мост проверен. Секреты — сервер `.env` + `~/.config/remlab/env` + `_secrets/ACCESS.md`.
+- [x] CI: job scout-orient зелёный; починен красный с утра planner-джоб (skip локальных
+      data-тестов вне DEV) — деплой прода был заблокирован им у всех.
+- [x] `mesh_front.infer_seat_front(has_back=)` — банкетка по признаку спинки.
+
+## Осталось (по решениям/данным, не по коду)
+- [ ] Salad-ассеты соседнего плана → ревизии accepted → фронт-каскад на них; сверка формата
+      манифеста при первом приёме.
+- [ ] Вердикты владельца по первым 8 задачам → замер доли review («десятки, не сотни»).
+- [ ] Фазы B–D правила сетов — включает владелец по цифрам coverage.

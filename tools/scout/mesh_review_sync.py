@@ -75,6 +75,10 @@ def _photo(sku: str) -> str | None:
     from PIL import Image
     rows = db(f"select image_url from mesh_demand where sku={q(sku)} and image_url is not null")
     url = rows[0][0] if rows and rows[0][0] else None
+    if not url:   # SKU вне текущего спроса (старый кэш) — фото из каталога
+        rows = db(f"""select image_url from products
+                      where shop_mid||':'||external_id={q(sku)} and image_url is not null""")
+        url = rows[0][0] if rows and rows[0][0] else None
     if not url:
         return None
     if url.startswith('//'):
