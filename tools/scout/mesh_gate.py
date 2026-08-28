@@ -95,31 +95,49 @@ def geometry_layer(glb_path: str) -> dict:
     # трансформами, геометрический слой видел их слипшимися в начале координат, а видовой —
     # разнесёнными. Расхождение молча гасило признак «плавающего» компонента.
     meshes = MR.load_parts(glb_path)
-    comps = []
-    for m in meshes:
-        try:
-            comps += m.split(only_watertight=False)
-        except Exception:  # noqa: BLE001
-            comps.append(m)
-    if not comps:
-        return {'ok': False, 'reason': 'нет геометрии'}
-    areas = np.array([float(c.area) for c in comps])
-    total = float(areas.sum()) or 1.0
+    total_faces = sum(len(getattr(m, 'faces', [])) for m in meshes)
+    if total_faces > 80000:
+        # split на плотном меше (Hunyuan, сотни тыс. граней) виснет/жрёт память (28.08) —
+        # геометрический слой пропускаем, брак ловит профильный замер видового слоя
+        return {'ok': True, 'skipped_dense': int(total_faces)}
+    # КОМПОНЕНТЫ БЕЗ trimesh.split (28.08: на «губчатом» Hunyuan-меше из десятков тысяч
+    # осколков split строит объект на каждый и висит часами). Метки связности — одним вызовом,
+    # агрегаты (площадь/габариты) — numpy по меткам, объекты не создаются.
+    import trimesh
     flags = []
-    main = comps[int(areas.argmax())]
-    mb = main.bounds
-    for c, ar in zip(comps, areas):
+    comp_stats = []          # (area, bounds(3,2), extents)
+    for m in meshes:
+        F = np.asarray(m.faces)
+        V = np.asarray(m.vertices)
+        try:
+            labels = trimesh.graph.connected_component_labels(m.face_adjacency,
+                                                              node_count=len(F))
+        except Exception:  # noqa: BLE001
+            labels = np.zeros(len(F), int)
+        af = np.asarray(m.area_faces, np.float64)
+        for lab in np.unique(labels):
+            sel = labels == lab
+            ar = float(af[sel].sum())
+            pts = V[F[sel].ravel()]
+            lo, hi = pts.min(axis=0), pts.max(axis=0)
+            comp_stats.append((ar, lo, hi, hi - lo))
+    if not comp_stats:
+        return {'ok': False, 'reason': 'нет геометрии'}
+    areas = np.array([c[0] for c in comp_stats])
+    total = float(areas.sum()) or 1.0
+    mi = int(areas.argmax())
+    mlo, mhi = comp_stats[mi][1], comp_stats[mi][2]
+    mext = float((mhi - mlo).max())
+    for i, (ar, lo, hi, ext) in enumerate(comp_stats):
         if ar / total < 0.08:
             continue
-        ext = np.sort(c.extents)
-        flat = ext[0] / max(ext[2], 1e-6) < 0.03          # тонкая плита
-        b = c.bounds
-        # «плавает»/выпирает из тела основного компонента более чем на 15% габарита
-        overhang = float(np.maximum(mb[0] - b[0], b[1] - mb[1]).max()
-                         / max(main.extents.max(), 1e-6))
-        if flat and (c is not main) and (ar / total > 0.18 or overhang > 0.15):
+        exts = np.sort(ext)
+        flat = exts[0] / max(exts[2], 1e-6) < 0.03        # тонкая плита
+        overhang = float(np.maximum(mlo - lo, hi - mhi).max() / max(mext, 1e-6))
+        if flat and i != mi and (ar / total > 0.18 or overhang > 0.15):
             flags.append({'flat_component': round(ar / total, 2),
                           'overhang': round(overhang, 2)})
+    comps = meshes           # для деген-подсчёта ниже — по исходным частям
 
     # Вырожденные треугольники были заявлены в docstring, но не проверялись. Нулевая площадь
     # грани — не косметика: такие грани ломают расчёт нормалей и UV, и меш, прошедший все
@@ -136,7 +154,7 @@ def geometry_layer(glb_path: str) -> dict:
     if deg_share > DEGENERATE_MAX:
         flags.append({'degenerate_faces': round(deg_share, 3)})
 
-    return {'ok': bool(not flags), 'components': len(comps), 'flags': flags,
+    return {'ok': bool(not flags), 'components': len(comp_stats), 'flags': flags,
             'faces': faces, 'degenerate_share': round(deg_share, 4)}
 
 

@@ -74,8 +74,27 @@ def _grid_sim(m1, c1, m2, c2, cells=4) -> float:
     return max(0.0, 1.0 - (ds / n) / 120.0)
 
 
+def _thin(parts, max_faces=50000):
+    """Прореживание для КОНТРОЛЬНЫХ рендеров: у Hunyuan-мешей сотни тысяч граней, питон-
+    растеризатор жуёт их часами (зависание 28.08). Силуэту/аспекту хватает подвыборки —
+    bbox-метрики к дыркам нечувствительны."""
+    import numpy as _np
+    import trimesh as _tm
+    total = sum(len(m.faces) for m in parts)
+    if total <= max_faces:
+        return parts
+    out = []
+    for m in parts:
+        k = max(1, int(len(m.faces) * max_faces / total))
+        idx = _np.random.default_rng(7).choice(len(m.faces), size=min(k, len(m.faces)),
+                                               replace=False)
+        out.append(_tm.Trimesh(vertices=m.vertices, faces=_np.asarray(m.faces)[idx],
+                               process=False))
+    return out
+
+
 def render_sil(parts, yaw, size=420):
-    r = MR.render(parts, yaw_deg=yaw, pitch_deg=8.0, size=(size, size))
+    r = MR.render(_thin(parts), yaw_deg=yaw, pitch_deg=8.0, size=(size, size))
     a = np.asarray(r)
     m = a[..., 3] > 0
     ys, xs = np.where(m)
