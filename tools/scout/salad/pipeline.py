@@ -34,21 +34,50 @@ def _free():
     torch.cuda.reset_peak_memory_stats()
 
 
+HY_ROOT = os.environ.get('HY_ROOT', '/opt/hunyuan')
+
+
+def _fix_torchvision():
+    """Апстрим кладёт рядом `torchvision_fix` и просит применить его до импортов — иначе
+    на свежих torchvision ломается загрузка их трансформов. Молча пропустить нельзя:
+    падение будет далеко от причины."""
+    try:
+        from torchvision_fix import apply_fix
+        apply_fix()
+    except Exception:  # noqa: BLE001 — модуля нет: работаем как есть, как и в их demo.py
+        pass
+
+
 def shape_pipeline():
+    """Импорты и вызовы — как в `demo.py` апстрима, не по догадке.
+
+    `from_pretrained` принимает путь к КОРНЮ набора весов и сам находит подпапку
+    `hunyuan3d-dit-v2-1`; передача subfolder вручную ломается на их загрузчике.
+    """
     global _SHAPE
     if _SHAPE is None:
+        _fix_torchvision()
         from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
-        _SHAPE = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
-            MODEL_PATH, subfolder='hunyuan3d-dit-v2-1')
+        _SHAPE = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(MODEL_PATH)
     return _SHAPE
 
 
 def paint_pipeline():
+    """`textureGenPipeline` лежит в корне hy3dpaint и импортируется верхним уровнем
+    (hy3dpaint в PYTHONPATH), а не как `hy3dpaint.textureGenPipeline`.
+
+    Пути конфигов задаются явно и абсолютно: апстрим пишет их относительно корня
+    репозитория, и при запуске из другого каталога пайплайн не находит ни ppbr-конфиг,
+    ни чекпойнт RealESRGAN.
+    """
     global _PAINT
     if _PAINT is None:
-        from hy3dpaint.textureGenPipeline import Hunyuan3DPaintConfig, Hunyuan3DPaintPipeline
-        cfg = Hunyuan3DPaintConfig(max_num_view=6, resolution=512)
-        cfg.multiview_pretrained_path = os.path.join(MODEL_PATH, 'hunyuan3d-paintpbr-v2-1')
+        from textureGenPipeline import Hunyuan3DPaintConfig, Hunyuan3DPaintPipeline
+        cfg = Hunyuan3DPaintConfig(int(os.environ.get('MAX_NUM_VIEW', 6)),
+                                   int(os.environ.get('PAINT_RESOLUTION', 512)))
+        cfg.realesrgan_ckpt_path = os.path.join(HY_ROOT, 'hy3dpaint/ckpt/RealESRGAN_x4plus.pth')
+        cfg.multiview_cfg_path = os.path.join(HY_ROOT, 'hy3dpaint/cfgs/hunyuan-paint-pbr.yaml')
+        cfg.custom_pipeline = os.path.join(HY_ROOT, 'hy3dpaint/hunyuanpaintpbr')
         _PAINT = Hunyuan3DPaintPipeline(cfg)
     return _PAINT
 

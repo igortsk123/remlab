@@ -6,29 +6,35 @@
 # увидит платформа: сумму сжатых слоёв в реестре через `docker manifest inspect`.
 # Порог 28 ГБ — с запасом: если упрёмся, веса переезжают в R2 отдельным бандлом.
 #
-#   ./build.sh cu121   # 4090 (Ada)
+#   ./build.sh cu124   # 3090 (Ampere) и 4090 (Ada) — связка, проверенная апстримом
 #   ./build.sh cu128   # 5090 (Blackwell) — отдельный образ, на 4090 не запустится
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VARIANT="${1:-cu121}"
+VARIANT="${1:-cu124}"
 REPO="${MESH_IMAGE_REPO:-remlab/mesh-hunyuan}"
 HY_COMMIT="${HY_COMMIT:-main}"
 LIMIT_GB=28
 
+# cu124 — комбинация, проверенная апстримом (их docker/Dockerfile). Покрывает 3090 (8.6)
+# и 4090 (8.9) одним образом. cu128 нужен только Blackwell, апстримом НЕ проверен.
 case "$VARIANT" in
-  cu121) CUDA_TAG=12.1.1; TORCH_INDEX=cu121; TORCH_ARCH=8.9 ;;
-  cu128) CUDA_TAG=12.8.1; TORCH_INDEX=cu128; TORCH_ARCH=12.0 ;;
-  *) echo "неизвестный вариант: $VARIANT (cu121|cu128)"; exit 1 ;;
+  cu124) CUDA_TAG=12.4.1; TORCH_INDEX=cu124; TORCH_ARCH="8.6;8.9"
+         TORCH_SPEC="torch==2.5.1 torchvision==0.20.1" ;;
+  cu128) CUDA_TAG=12.8.1; TORCH_INDEX=cu128; TORCH_ARCH="12.0"
+         TORCH_SPEC="torch torchvision" ;;
+  *) echo "неизвестный вариант: $VARIANT (cu124|cu128)"; exit 1 ;;
 esac
 
 TAG="$REPO:$VARIANT"
-echo "== сборка $TAG (CUDA $CUDA_TAG, arch $TORCH_ARCH, Hunyuan @ $HY_COMMIT)"
+echo "== сборка $TAG (CUDA $CUDA_TAG, arch $TORCH_ARCH, torch: $TORCH_SPEC, Hunyuan @ $HY_COMMIT)"
 docker build \
   --build-arg "CUDA_TAG=$CUDA_TAG" \
   --build-arg "TORCH_INDEX=$TORCH_INDEX" \
   --build-arg "TORCH_ARCH=$TORCH_ARCH" \
+  --build-arg "TORCH_SPEC=$TORCH_SPEC" \
   --build-arg "HY_COMMIT=$HY_COMMIT" \
+  --build-arg "BAKE_WEIGHTS=${BAKE_WEIGHTS:-1}" \
   -t "$TAG" .
 
 echo "== публикация (гейт размера считается по реестру, до запуска на Salad)"
