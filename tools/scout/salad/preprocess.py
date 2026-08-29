@@ -149,7 +149,7 @@ def _paint_crop(rgba: Image.Image, margin: float = 0.18) -> Image.Image:
     return rgba.crop(box)
 
 
-def _cut_chain(image_url: str) -> tuple[Image.Image, Image.Image, str, dict]:
+def _cut_chain(image_url: str, role: str | None = None) -> tuple[Image.Image, Image.Image, str, dict]:
     """Общая часть: фото → (RGBA на полном холсте, обрезанная копия, хеш входа, отчёт).
 
     Вынесено из `prepare`, чтобы ТУ ЖЕ цепочку можно было прогнать в режиме оценки фото
@@ -186,7 +186,7 @@ def _cut_chain(image_url: str) -> tuple[Image.Image, Image.Image, str, dict]:
     net = cutout(src)
     full_wh = list(src.size)
     try:
-        refined, mask_info = hybrid_mask.refine(src, net)
+        refined, mask_info = hybrid_mask.refine(src, net, role=role)
     except Exception as e:  # noqa: BLE001 — гибрид не должен ронять задание; факт отказа виден
         refined, mask_info = net, {'hybrid_error': f'{type(e).__name__}: {str(e)[:120]}'}
 
@@ -194,6 +194,8 @@ def _cut_chain(image_url: str) -> tuple[Image.Image, Image.Image, str, dict]:
     # геометрия из ниоткуда: он честно строит по маске. Поймано владельцем на стуле Wishbone.
     a = np.asarray(refined)[..., 3].astype(np.float32) / 255.0
     cleaned, comp = components.clean(a)
+    cleaned, holes = components.fill_holes_unlike_bg(cleaned, np.asarray(src), role=role)
+    comp.update(holes)
     mask_info['components'] = comp
     refined = Image.fromarray(
         np.dstack([np.asarray(refined)[..., :3],
@@ -223,18 +225,18 @@ def _cut_chain(image_url: str) -> tuple[Image.Image, Image.Image, str, dict]:
     return shape_img, cut, input_hash, mask_info
 
 
-def assess(image_url: str) -> tuple[str, dict]:
+def assess(image_url: str, role: str | None = None) -> tuple[str, dict]:
     """Оценка пригодности фото БЕЗ генерации: хеш входа + все измерения и вердикт.
 
     Не бросает на браке — брак и есть результат оценки.
     """
-    _, _, input_hash, info = _cut_chain(image_url)
+    _, _, input_hash, info = _cut_chain(image_url, role=role)
     return input_hash, info
 
 
-def prepare(image_url: str) -> tuple[Image.Image, Image.Image, Image.Image, str, dict]:
+def prepare(image_url: str, role: str | None = None) -> tuple[Image.Image, Image.Image, Image.Image, str, dict]:
     """Фото → (RGBA для формы, RGBA для покраски, вырезка на просмотр, хеш входа, отчёт)."""
-    shape_img, cut, input_hash, mask_info = _cut_chain(image_url)
+    shape_img, cut, input_hash, mask_info = _cut_chain(image_url, role=role)
     if mask_info['verdict'] == 'bad':
         # Останавливаемся ДО генерации: мусорный вход даёт мусорный меш, а платим одинаково.
         raise BadCutout(mask_info['reason'])

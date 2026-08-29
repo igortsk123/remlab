@@ -115,7 +115,11 @@ def generate(job: dict):
     t0 = time.time()
 
     try:
-        shape_img, paint_img, cut_rgba, input_hash, mask_info = PRE.prepare(job['image_url'])
+        # Роль из задания включает точечные правки цепочки (ковёр — рост маски,
+        # ваза/кашпо/статуэтка — силуэт вместо прозрачности). Без неё нода режет «вообще»,
+        # и результат разойдётся с тем, что мы проверили на дев-машине.
+        shape_img, paint_img, cut_rgba, input_hash, mask_info = PRE.prepare(
+            job['image_url'], role=job.get('role'))
     except PRE.BadCutout as e:
         # Отдельный статус: это не сбой ноды и не мёртвое фото, а брак ВЫРЕЗКИ. Такие товары
         # надо видеть списком — они лечатся другой вырезкой, а не повтором генерации.

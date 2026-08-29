@@ -153,6 +153,12 @@ step pool_photos "$PY" img_alive.py --pool --minutes "${PHOTO_SWEEP_MIN:-25}"
 step link_shape "$PY" linkcheck.py --shape
 step link_probe "$PY" linkcheck.py --probe --limit "${LINK_PROBE:-400}"
 step candidates "$PY" candidates.py --build
+# ЭТАП ОБРЕЗКИ ФОТО (порядок владельца 29.08). Стоит ПОСЛЕ отбора и ДО очереди мешей:
+# отобрали товар по воротам (в наличии, живое фото, цена, обогащение, quality>=0.65) —
+# режем ему фон, и уже по результату решаем, годится ли он дальше. Внутри этапа работают
+# точечные правки по ролям: ковры (рост маски), ваза/кашпо/статуэтка (силуэт вместо
+# прозрачности), коллажи и обрывки фона отсеиваются. Дневной предел — CUTOUT_DAILY_MAX.
+step cutout "$PY" cutout_sync.py
 step sets_index "$PY" sets_incremental.py --index
 step sets_check "$PY" sets_incremental.py --check
 # 6→5b. W5 (аудит 10.08): ЖИВОСТЬ КАРТОЧЕК ДО ЛЕЧЕНИЯ — иначе мёртвое, найденное сегодня,

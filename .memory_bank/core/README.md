@@ -29,6 +29,7 @@
 | `marketing-acquisition.md` | marketing-acquisition | Реклама — Яндекс, семантика | `../domain/wordstat-semantics.md` | 2026-08-13 |
 | `mesh-pipeline.md` | mesh-pipeline | 3D-меши товаров — генерация, приёмка, ориентация | `../domain/viz-fidelity-playbook.md` | 2026-08-28 |
 | `observability-tracing.md` | observability-tracing | Трейсинг AI-пайплайна — лог, разбор | `../domain/observability.md` | 2026-08-06 |
+| `pipeline-order.md` | pipeline-order | Канонический порядок конвейера — от фида до расстановки в планировке | `../domain/pipeline-order-details.md` | 2026-08-29 |
 | `regression-net.md` | regression-net | Регресс-защита — тесты, CI, гардрейлы | `../../docs/tech-spec-ts-stack.md` | 2026-08-22 |
 | `room-measurement.md` | room-measurement | Замер комнаты по фото — что готово и чем меряем | `../domain/room-measurement.md` | 2026-08-04 |
 | `styles.md` | styles | Стили — паспорта, скоринг, сеты | `../domain/interior-styles.md` | 2026-08-02 |

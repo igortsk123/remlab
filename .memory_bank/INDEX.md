@@ -30,6 +30,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт ремонта/м�
 | Реклама — Яндекс, семантика | `core/marketing-acquisition.md` | `../domain/wordstat-semantics.md` |
 | 3D-меши товаров — генерация, приёмка, ориентация | `core/mesh-pipeline.md` | `../domain/viz-fidelity-playbook.md` |
 | Трейсинг AI-пайплайна — лог, разбор | `core/observability-tracing.md` | `../domain/observability.md` |
+| Канонический порядок конвейера — от фида до расстановки в планировке | `core/pipeline-order.md` | `../domain/pipeline-order-details.md` |
 | Бизнес-контекст; v0.4 «Смета-first» | `product_brief.md` | `domain/brief-details.md` |
 | Регресс-защита — тесты, CI, гардрейлы | `core/regression-net.md` | `../../docs/tech-spec-ts-stack.md` |
 | Замер комнаты по фото — что готово и чем меряем | `core/room-measurement.md` | `../domain/room-measurement.md` |

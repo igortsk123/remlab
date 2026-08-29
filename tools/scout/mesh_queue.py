@@ -45,6 +45,12 @@ TOP_K_PER_BUCKET = int(os.environ.get('MESH_TOPK', '5'))
 RESERVE_PER_ROLE = int(os.environ.get('MESH_RESERVE', '30'))
 INGEST_MAX = int(os.environ.get('MESH_INGEST_MAX', '200'))   # скачиваний фото за прогон
 PIPELINE_VERSION = os.environ.get('PIPELINE_VERSION', 'v1')
+# Версия цепочки вырезки — держим рядом, чтобы спрос не читал чужие вердикты (критика Codex 29.08)
+try:
+    sys.path.insert(0, os.path.join(HERE, 'salad'))
+    from preprocess import ASSESSOR_VERSION           # noqa: E402
+except Exception:                                     # noqa: BLE001 — вне образа зависимостей нет
+    ASSESSOR_VERSION = os.environ.get('ASSESSOR_VERSION', 'a1')
 
 SCHEMA = """
 create table if not exists mesh_demand (
@@ -199,6 +205,39 @@ def demand_reserve() -> dict[str, dict]:
     return out
 
 
+def demand_from_cut_pool() -> dict[str, dict]:
+    """Товары, ПРОШЕДШИЕ ОТБОР И ОБРЕЗКУ, — основной источник спроса (порядок владельца 29.08).
+
+    Прежде спрос считался от готовых сетов, и получалась петля: сеты ждут меши, а меши
+    считаются от сетов. Правильный порядок другой и петли не имеет:
+        отбор → обрезка фото → очередь мешей → (меши) → сборка сетов по стилям.
+    То есть на меши встаёт всё, что мы уже признали годным и чью маску посчитали. Кто из
+    очереди реально пойдёт в генерацию — решает отдельный джоб по приоритету и бюджету.
+
+    Мягкий декор (`MESH_EXCLUDE`) сюда не попадает: плед и штора рисуются плоско по фото,
+    меш им ничего не добавит. Вырезка им при этом нужна — она делается на шаге раньше.
+    """
+    ex = ','.join(q(r) for r in sorted(MESH_EXCLUDE))
+    rows = db(
+        "select c.sku, p.cat_role, c.image_url, c.source_sha, "
+        "       regexp_replace(coalesce(p.name,''), E'[\n\r\x1f]', ' ', 'g') "
+        "  from product_photo_current c "
+        "  join products p on p.shop_mid||':'||p.external_id = c.sku "
+        "  join photo_assessment a on a.source_sha = c.source_sha "
+        # Версия оценщика ОБЯЗАТЕЛЬНА в ключе: без неё сюда попадают вердикты, вынесенные
+        # прежней цепочкой вырезки, и мы отправляем на меш то, что сегодня забраковали бы.
+        f"   and a.assessor_version = {q(ASSESSOR_VERSION)} "
+        f" where a.verdict = 'ok' and p.cat_role not in ({ex}) "
+        "   and p.in_stock and p.status='active'")
+    out = {}
+    for r in rows:
+        if len(r) != 5:
+            continue
+        sku, role, img, sha, name = r
+        out[sku] = {'role': role, 'priority': 2, 'image_url': img, 'name': name, 'dims': None}
+    return out
+
+
 def demand_from_reserve_deficit() -> dict[str, dict]:
     """Запасные ОПУБЛИКОВАННЫХ слотов, которым не хватает меша до норматива резерва.
 
@@ -305,11 +344,18 @@ def reconcile_legacy() -> int:
 
 def run() -> None:
     db(SCHEMA)
+    # Приоритет 1 — то, что уже стоит в комплектах: их видно на витрине сегодня.
     want = demand_from_sets()
-    # Дефицит резерва идёт ПЕРЕД корзинами: пока у занятого слота нет годной подмены,
+    # Дефицит резерва идёт ПЕРЕД общим пулом: пока у занятого слота нет годной подмены,
     # автозамена по нему невозможна — а это ровно то, ради чего резерв и заводится.
     for sku, v in demand_from_reserve_deficit().items():
         want.setdefault(sku, v)
+    # Основной источник — прошедшие отбор и обрезку. Именно он делает порядок «отбор →
+    # обрезка → меши → сеты» настоящим, а не декларативным.
+    for sku, v in demand_from_cut_pool().items():
+        want.setdefault(sku, v)
+    # Хвосты прежних источников: пока обрезка не догнала весь пул, они держат очередь
+    # непустой. Когда `photo_assessment` покроет пул, они перестанут что-либо добавлять.
     for sku, v in demand_from_candidates().items():
         want.setdefault(sku, v)
     for sku, v in demand_reserve().items():
@@ -357,15 +403,36 @@ def run() -> None:
 
 
 def export(path: str) -> None:
-    rows = db("""select j.job_key, d.sku, d.role, d.image_url, d.dims, d.name
-                   from mesh_jobs j join mesh_demand d using (sku)
+    """Батч заданий для Salad.
+
+    ВЕРДИКТ ВЫРЕЗКИ ЕДЕТ В ЗАДАНИИ (критика Codex 29.08). Раньше уходил один `image_url`, и нода
+    резала исходник заново — то есть наша вырезка была справкой рядом с конвейером, а не его
+    входом. Теперь в задании: `assessor_version` (какой цепочкой считали), `photo_verdict`
+    (что решили) и `role` (по ней включаются точечные правки — ковёр, ваза/кашпо/статуэтка).
+    Нода прогоняет ТУ ЖЕ цепочку `preprocess.prepare`, поэтому маска воспроизводима; расхождение
+    вердикта с нашим — сигнал, что версии разъехались, и его видно в манифесте.
+    """
+    rows = db("""select j.job_key, d.sku, d.role, d.image_url, d.dims, d.name,
+                        coalesce(a.verdict, 'unknown'), coalesce(a.assessor_version, '')
+                   from mesh_jobs j
+                   join mesh_demand d using (sku)
+                   left join product_photo_current c on c.sku = d.sku
+                   left join photo_assessment a on a.source_sha = c.source_sha
+                        and a.assessor_version = """ + q(ASSESSOR_VERSION) + """
                   where j.status='queued' order by d.priority, d.sku""")
     jobs = []
-    for jk, sku, role, img, dims, name in rows:
+    for r in rows:
+        if len(r) != 8:
+            continue
+        jk, sku, role, img, dims, name, verdict, av = r
+        if verdict not in ('ok', 'unknown'):
+            continue          # забракованное на обрезке на карту не отправляем
         jobs.append({'sku': sku, 'mid': int(sku.split(':')[0]), 'eid': sku.split(':')[1],
                      'role': role, 'name': name, 'image_url': img,
                      'dims_cm': json.loads(dims) if dims and dims != '\\N' else None,
-                     'source_sha': jk.split('|')[1], 'seeds': [0]})
+                     'source_sha': jk.split('|')[1],
+                     'photo_verdict': verdict, 'assessor_version': av or ASSESSOR_VERSION,
+                     'seeds': [0]})
     json.dump({'source': 'mesh_queue', 'pipeline': PIPELINE_VERSION,
                'skus': len(jobs), 'jobs': jobs},
               open(path, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)

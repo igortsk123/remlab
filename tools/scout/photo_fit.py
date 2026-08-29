@@ -29,6 +29,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(HERE, 'salad'))
 
 POLICY_VERSION = 'p1'
 
@@ -78,9 +79,17 @@ def _load() -> dict[str, str]:
         return _CACHE
     out: dict[str, str] = {}
     try:
-        rows = _db("select d.sku, d.role, a.metrics from mesh_demand d "
-                   "join photo_assessment a on a.source_sha = d.source_sha "
-                   "where d.source_sha is not null")
+        # Источник текущего фото — `product_photo_current`, а не `mesh_demand`: спрос мешей уже,
+        # чем пул отбора, и через него часть товаров была невидима. Вердикт НЕ берём из таблицы,
+        # а считаем из измерений текущей политикой: иначе смена порогов оставит старые решения
+        # (критика Codex 29.08).
+        from preprocess import ASSESSOR_VERSION
+        rows = _db("select c.sku, p.cat_role, a.metrics "
+                   "  from product_photo_current c "
+                   "  join products p on p.shop_mid||':'||p.external_id = c.sku "
+                   "  join photo_assessment a on a.source_sha = c.source_sha "
+                   f"   and a.assessor_version = '{ASSESSOR_VERSION}' "
+                   " where c.source_sha is not null")
     except Exception:  # noqa: BLE001 — без БД предикат обязан молчать, а не врать «годно»
         _CACHE = {}
         return _CACHE
