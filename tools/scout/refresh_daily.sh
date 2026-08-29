@@ -64,7 +64,9 @@ RES[db]=ok
 
 # 1. Фиды (постоянные ссылки). Не скачался — работаем на прежнем файле, но помечаем.
 mkdir -p feeds2
-FEEDS="f7633bdd943d41c718c12dc88e7a61f2b88b55c6 c0021e3fe460caf057f3d7823043b14adf6acb0c a5906abd53d7d2efaff63c5021bd1cd4fb337a45 a5bb9dc9178031fc6c3b165c3df9c20bfcc55e18 bb618f0e32cb08ab8d5a247cd15d494516ba3523 777e580d462f92086d4875cf39500375e2a113f6 4255a3608faf6a4bd3b7007f2f0a9977b1f0c89c ec02cfec770831e51450542cf9e6fc0ee53657e4 1b9f77d20e11b89864c73ac9551ff57be0bff818 e2fccbea464497bf6273f6a714ceada976dd4cfe"
+# 777e580d удалён (29.08): это выгрузка nonton — магазин закрыл партнёрку, товары удалены
+# из каталога (бэкап graveyard_nonton_*). Вернётся программа — ссылка будет НОВАЯ из кабинета.
+FEEDS="f7633bdd943d41c718c12dc88e7a61f2b88b55c6 c0021e3fe460caf057f3d7823043b14adf6acb0c a5906abd53d7d2efaff63c5021bd1cd4fb337a45 a5bb9dc9178031fc6c3b165c3df9c20bfcc55e18 bb618f0e32cb08ab8d5a247cd15d494516ba3523 4255a3608faf6a4bd3b7007f2f0a9977b1f0c89c ec02cfec770831e51450542cf9e6fc0ee53657e4 1b9f77d20e11b89864c73ac9551ff57be0bff818 e2fccbea464497bf6273f6a714ceada976dd4cfe"
 ok=1; dl_ok=0; dl_total=0; dead=""
 for h in $FEEDS; do
   dl_total=$((dl_total+1)); got=0
