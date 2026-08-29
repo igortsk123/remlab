@@ -36,7 +36,7 @@ MAX_JOBS = 600            # предохранитель: пилот не дол
 API = 'https://api.salad.com/api/public'
 ORG = os.environ.get('SALAD_ORG', 'prodstore')
 PROJECT = os.environ.get('SALAD_PROJECT', 'dmodel')
-GROUP = os.environ.get('SALAD_GROUP', 'mesh-pool4')
+GROUP = os.environ.get('SALAD_GROUP', 'mesh-pool5')
 
 # Тарифы batch-приоритета, сверены по API 28.08 (`GET /organizations/<org>/gpu-classes`).
 # Сравнивать карты можно только на ОДНОМ приоритете: на high те же 4090 стоят $0.30, и
@@ -55,7 +55,7 @@ def key() -> str:
 
 def api(path: str) -> dict:
     req = urllib.request.Request(f'{API}/organizations/{ORG}/projects/{PROJECT}/{path}',
-                                 headers={'Salad-Api-Key': key()})
+                                 headers={'Salad-Api-Key': key(), 'User-Agent': 'remlab-mesh/1.0'})
     with urllib.request.urlopen(req, timeout=40) as r:
         return json.loads(r.read() or b'{}')
 
@@ -70,7 +70,7 @@ def stop_group() -> None:
     """
     req = urllib.request.Request(
         f'{API}/organizations/{ORG}/projects/{PROJECT}/containers/{GROUP}/stop',
-        data=b'', method='POST', headers={'Salad-Api-Key': key()})
+        data=b'', method='POST', headers={'Salad-Api-Key': key(), 'User-Agent': 'remlab-mesh/1.0'})
     try:
         with urllib.request.urlopen(req, timeout=60) as r:
             r.read()
@@ -95,7 +95,7 @@ def warm_ready(base: str) -> tuple[bool, dict]:
     бюджетом (задержка максимум 1200с), а старт занимает ~35 минут. Инстанс при живом
     сервисе навсегда остаётся "неготовым". Тело /health говорит правду.
     """
-    req = urllib.request.Request(f'{base}/health', headers={'Salad-Api-Key': key()})
+    req = urllib.request.Request(f'{base}/health', headers={'Salad-Api-Key': key(), 'User-Agent': 'remlab-mesh/1.0'})
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             d = json.loads(r.read() or b'{}')
@@ -126,7 +126,7 @@ def send(base: str, job: dict, attempts: int = 3) -> dict:
     for n in range(1, attempts + 1):
         t0 = time.time()
         req = urllib.request.Request(f'{base}/generate', data=body, method='POST',
-                                     headers={'Salad-Api-Key': key(),
+                                     headers={'Salad-Api-Key': key(), 'User-Agent': 'remlab-mesh/1.0',
                                               'Content-Type': 'application/json'})
         try:
             with urllib.request.urlopen(req, timeout=1200) as r:

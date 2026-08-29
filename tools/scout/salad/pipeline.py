@@ -130,7 +130,16 @@ def generate(image, out_dir: str, seed: int = 0, params: dict | None = None,
 
     t2 = time.time()
     final_glb = os.path.join(out_dir, 'model.glb')
-    if isinstance(painted, str):
+    if isinstance(painted, str) and painted.lower().endswith('.obj'):
+        # Покраска возвращает OBJ + mtl + карты РЯДОМ ОТДЕЛЬНЫМИ ФАЙЛАМИ. Переименовать его
+        # в .glb — потерять материалы: первая десятка 29.08 уехала к нам геометрией без
+        # текстур именно так. Конвертация обязана собрать САМОДОСТАТОЧНЫЙ GLB с PBR-картами —
+        # это наш bpy-free convert_obj_to_glb (pygltflib, карты внутри base64).
+        from DifferentiableRenderer.mesh_utils import convert_obj_to_glb
+        ok = convert_obj_to_glb(painted, final_glb)
+        if not ok or not os.path.exists(final_glb) or os.path.getsize(final_glb) == 0:
+            raise RuntimeError('OBJ→GLB конвертация не удалась')
+    elif isinstance(painted, str):
         os.replace(painted, final_glb)
     else:
         painted.export(final_glb)
