@@ -60,6 +60,26 @@ def api(path: str) -> dict:
         return json.loads(r.read() or b'{}')
 
 
+def stop_group() -> None:
+    """Гасим группу СРАЗУ после прогона.
+
+    Тарификация посекундная и по состоянию инстанса, а не по загрузке карты: пока нода в
+    `running`, счёт идёт, даже если заданий нет. Забытая нода 28.08 простояла 15 часов и
+    съела ~$2.4, не сделав ни одной генерации. Остановка счёт прекращает полностью;
+    образ остаётся в кэше сети (до 30 дней), поэтому следующий запуск быстрый.
+    """
+    req = urllib.request.Request(
+        f'{API}/organizations/{ORG}/projects/{PROJECT}/containers/{GROUP}/stop',
+        data=b'', method='POST', headers={'Salad-Api-Key': key()})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            r.read()
+        print(f'группа {GROUP} остановлена — счёт больше не идёт')
+    except Exception as e:  # noqa: BLE001 — не смогли: СКАЖИ ГРОМКО, это деньги
+        print(f'!! ГРУППУ НЕ ОСТАНОВИТЬ ({type(e).__name__}: {str(e)[:120]}) — '
+              f'останови вручную в портале, иначе она тарифицируется', flush=True)
+
+
 def endpoint() -> str:
     g = api(f'containers/{GROUP}')
     dns = (g.get('networking') or {}).get('dns')
@@ -163,6 +183,8 @@ def run(limit: int | None, workers: int) -> None:
              'results': results}
     json.dump(state, open(RESULTS, 'w'), ensure_ascii=False, indent=1)
     report(state)
+    if '--keep-alive' not in sys.argv:
+        stop_group()   # по умолчанию гасим: забыть выключенное нельзя, забыть включённое — легко
 
 
 def report(state: dict | None = None) -> None:
