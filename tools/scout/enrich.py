@@ -206,6 +206,21 @@ def log_spend(model, usage, n_req=1, note='', batch=False):
 
 
 def ask(it: dict, key: str, model: str = MODEL, vision: bool = False) -> dict | None:
+    # Синхронный путь — через канал по умолчанию (Vercel, ADR-0135): прямые кредиты OpenAI
+    # кончились молча, и дельта новинок встала бы вместе с ними. Batch-путь остаётся на прямом
+    # OpenAI: /v1/batches на шлюзе нет, а с живыми кредитами он вдвое дешевле.
+    try:
+        from llm_gateway import chat as _gw_chat
+        body = body_for(it, model, vision)
+        r = _gw_chat(body['model'], body['messages'],
+                     **{k: v for k, v in body.items() if k not in ('model', 'messages')})
+        log_spend(model, r.get('usage'), 1, 'ask' + ('+vision' if vision else ''))
+        msg = r['choices'][0]['message']
+        if msg.get('refusal'):
+            return None
+        return json.loads(msg['content'])
+    except Exception:  # noqa: BLE001 — шлюз недоступен: старый прямой путь ниже
+        pass
     req = urllib.request.Request(f'{API}/chat/completions',
                                  data=json.dumps(body_for(it, model, vision)).encode(),
                                  headers={'Authorization': f'Bearer {key}',
