@@ -27,6 +27,12 @@ sys.path.insert(0, HERE)
 
 QUARANTINE_DAYS = int(os.environ.get('HEAL_QUARANTINE_DAYS', '14'))
 MAX_PER_SET_PER_DAY = int(os.environ.get('HEAL_MAX_PER_SET', '1'))
+# Предохранитель на ПРОГОН, а не только на сет (инцидент 29.08, урок 323). Лимит «одна замена
+# на комплект» ущерб ограничил, но не предотвратил: сломанная проба живости выбросила по товару
+# из ВСЕХ 126 комплектов — 126 из 126 это не лечение, а авария. Если за прогон предлагается
+# заменить больше этой доли комплектов, лечение останавливается целиком и зовёт человека:
+# массовость почти всегда означает сломанный предикат, а не массовое выбытие товаров.
+MAX_SETS_SHARE = float(os.environ.get('HEAL_MAX_SETS_SHARE', '0.25'))
 CONTRACT_VERSION = 'c1'
 
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
@@ -111,6 +117,15 @@ def record(set_id: str | None, slot: str, old_sku: str | None, new_sku: str | No
             _QUARANTINE.add(old_sku)
     except Exception as e:  # noqa: BLE001 — журнал не должен ронять лечение, но молчать не должен
         print(f'  журнал замен недоступен: {type(e).__name__}: {str(e)[:80]}')
+
+
+def run_allowed(planned_sets: int, total_sets: int) -> tuple[bool, str]:
+    """Можно ли применять лечение этим прогоном. Вызывать ПЕРЕД записью изменений."""
+    if total_sets and planned_sets > MAX_SETS_SHARE * total_sets:
+        return False, (f'лечение затронуло бы {planned_sets} комплектов из {total_sets} '
+                       f'(предел {MAX_SETS_SHARE:.0%}) — это похоже на сломанный предикат, '
+                       f'а не на массовое выбытие товаров; прогон остановлен')
+    return True, ''
 
 
 def affected_sets(since_hours: int = 24) -> list[str]:

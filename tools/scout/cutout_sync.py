@@ -218,8 +218,14 @@ def sync_photos(limit: int) -> int:
     Держим отдельно от `mesh_demand.source_sha`: спрос мешей узок, а резать надо весь пул.
     Перехеширование раз в `SHA_MAX_AGE_DAYS` — магазин подменяет картинку под тем же адресом.
     """
+    # КРУПНОЕ ФОТО В ПРИОРИТЕТЕ (29.08). `image_url_hd` — картинка с CDN магазина, 800×600
+    # против 450×338 в фиде. На 450 px проволочная ножка занимает 1–2 пикселя физически, и
+    # никакой вырезальщик её не восстановит; вдвое больше по стороне — это вчетверо больше
+    # информации ровно там, где мы теряем детали. Хеш считается по ТЕМ байтам, которые режем,
+    # поэтому появление HD у товара автоматически ставит его на перерезку.
     rows = db(
-        "select p.shop_mid||':'||p.external_id, p.image_url " + (POOL_SQL % MIN_QUALITY) +
+        "select p.shop_mid||':'||p.external_id, coalesce(p.image_url_hd, p.image_url) "
+        + (POOL_SQL % MIN_QUALITY) +
         "   and not exists (select 1 from product_photo_current c "
         "        where c.sku = p.shop_mid||':'||p.external_id and c.image_url = p.image_url "
         f"          and c.observed_at > now() - interval '{os.environ.get('SHA_MAX_AGE_DAYS', '30')} days') "

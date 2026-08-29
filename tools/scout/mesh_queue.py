@@ -219,7 +219,7 @@ def demand_from_cut_pool() -> dict[str, dict]:
     """
     ex = ','.join(q(r) for r in sorted(MESH_EXCLUDE))
     rows = db(
-        "select c.sku, p.cat_role, c.image_url, c.source_sha, "
+        "select c.sku, p.cat_role, coalesce(p.image_url_hd, c.image_url), c.source_sha, "
         "       regexp_replace(coalesce(p.name,''), E'[\n\r\x1f]', ' ', 'g') "
         "  from product_photo_current c "
         "  join products p on p.shop_mid||':'||p.external_id = c.sku "

@@ -524,7 +524,7 @@ def heal(apply: bool = False) -> None:
         "join products p using (shop_mid, external_id) "
         "where e.status='active' and p.in_stock") if len(r) >= 2}
 
-    healed, hopeless = 0, []
+    healed, hopeless, _touched, _pending = 0, [], set(), []
     for n, s in enumerate(sets, 1):
         # Q5 свода №13 (Codex): pod-комплект (pod_key: кресло 3/4 одного SKU + столик 2) лечится
         # ЦЕЛИКОМ — независимая замена роли рвёт exact-SKU пару. Выбыл любой член → весь pod
@@ -642,18 +642,40 @@ def heal(apply: bool = False) -> None:
                     hopeless.append((n, role, it['name'][:38], 'лимит замен на сегодня'))
                     continue
                 healed += 1
+                _touched.add(n)
                 print(f'  комплект {n}: {role} «{it["name"][:32]}» ({dead[k]}) → «{picked["name"][:32]}»')
                 if apply:
                     s['items'][role] = picked
-                    _record_change(s.get('set_id'), role, k,
-                                   f"{picked.get('mid')}:{picked.get('eid')}",
-                                   'out_of_stock' if 'наличи' in str(dead[k]) else 'dead_photo')
+                    _pending.append((s.get('set_id'), role, k,
+                                     f"{picked.get('mid')}:{picked.get('eid')}",
+                                     'out_of_stock' if 'наличи' in str(dead[k]) else 'dead_photo'))
             else:
                 hopeless.append((n, role, it['name'][:38], dead[k]))
     print(f'\nвылечено ролей: {healed}; без замены: {len(hopeless)}')
     for n, role, name, st in hopeless[:10]:
         print(f'  комплект {n}: {role} «{name}» — {st}, запаса нет → комплект скрывается')
+    # ПРЕДОХРАНИТЕЛЬ НА ПРОГОН (урок 323). 29.08 сломанная проба живости выбросила по товару
+    # из ВСЕХ 126 комплектов: лимит «одна замена на сет» ущерб ограничил, но не предотвратил.
+    # Массовость почти всегда означает сломанный предикат, а не массовое выбытие товаров,
+    # поэтому проверяем ДО записи: ни файл, ни журнал не трогаем.
+    try:
+        from heal_policy import run_allowed
+        ok_run, why = run_allowed(len(_touched), len(sets))
+    except Exception:  # noqa: BLE001 — модуля нет: ведём себя как раньше
+        ok_run, why = True, ''
+    if not ok_run:
+        print(f'\n⚠ {why}')
+        try:
+            import alert_local  # noqa: F401
+        except Exception:  # noqa: BLE001
+            pass
+        subprocess.run(['bash', os.path.join(HERE, 'alert.sh'),
+                        f'remlab: лечение сетов остановлено предохранителем — {why}'],
+                       check=False)
+        return
     if apply and healed:
+        for rec in _pending:
+            _record_change(*rec)
         shutil.copy(SETS, SETS + '.bak')
         _ensure_ids(sets)          # новый сет обязан получить стабильный id сразу
         json.dump(sets, open(SETS, 'w'), ensure_ascii=False)
