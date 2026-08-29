@@ -11,4 +11,7 @@ FROM ${BASE}
 # Копируем ВСЕ модули воркера, а не список руками: соседняя сессия добавила collage.py и
 # components.py, preprocess их импортирует — с ручным перечислением образ упал бы на старте.
 # receiver.py и submit.py в контейнере не нужны (они наши, хостовые), но и не мешают.
+# kornia нужен remote-коду BiRefNet (вырезка), у апстрима Hunyuan его нет. Ставим БЕЗ
+# зависимостей: обычная установка потянула бы другой torch и молча сломала бы пайплайн.
+RUN pip install --no-deps kornia==0.7.4 kornia_rs==0.1.8 &&     python -c "import kornia, torch; assert torch.__version__.startswith('2.5.1'), torch.__version__; print('kornia', kornia.__version__, '| torch не тронут')"
 COPY *.py /app/

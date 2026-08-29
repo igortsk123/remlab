@@ -1,6 +1,6 @@
 {
- "name": "mesh-pool",
- "display_name": "mesh-pool",
+ "name": "mesh-pool4",
+ "display_name": "mesh-pool4",
  "container": {
   "image": "ghcr.io/igortsk123/mesh-hunyuan:cu124",
   "resources": {
@@ -30,19 +30,6 @@
  "restart_policy": "always",
  "replicas": 5,
  "country_codes": [],
- "readiness_probe": {
-  "http": {
-   "path": "/health",
-   "port": 8000,
-   "scheme": "http",
-   "headers": []
-  },
-  "initial_delay_seconds": 120,
-  "period_seconds": 30,
-  "timeout_seconds": 10,
-  "success_threshold": 1,
-  "failure_threshold": 10
- },
  "networking": {
   "protocol": "http",
   "port": 8000,
