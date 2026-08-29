@@ -32,6 +32,11 @@ import storage as S
 
 app = FastAPI()
 STARTED = time.time()
+# Режим ноды: mask_only — только оценка фото (/assess), Hunyuan в VRAM не поднимается.
+# Определение ПОТЕРЯЛОСЬ при слиянии 29.08: поток прогрева умирал на NameError между двумя
+# try, молча — нода вечно `warm=false` при живом порте. Отсюда же правило ниже: тело прогрева
+# обёрнуто целиком, а warm ставится в finally.
+MASK_ONLY = os.environ.get('MASK_ONLY', '0') == '1'
 STATE = {'warm': False, 'done': 0, 'failed': 0, 'skipped': 0, 'gpu_seconds': 0.0}
 
 
@@ -69,23 +74,24 @@ def start_warmup():
 
 def warmup():
     """Один прогревочный прогон на синтетической картинке: компиляция ядер и загрузка весов
-    не должны попасть в замер первого настоящего задания."""
+    не должны попасть в замер первого настоящего задания.
+
+    ВСЁ тело — в одном try, warm ставится в finally. Урок 29.08: одна строка между двумя
+    try (NameError на потерянном имени) убила поток молча, и нода вечно осталась «греющейся»
+    при живом порте. Теперь любой сбой прогрева виден в warmup_error, а нода всё равно
+    открывается: настоящие задания упадут ГРОМКО и покажут причину, это лучше вечного 503.
+    """
     try:
         import fetch_weights
         STATE['weights'] = fetch_weights.ensure()   # пусто, если веса вшиты в образ
-    except Exception:  # noqa: BLE001 — причину видно в логе ноды
-        STATE['weights_error'] = traceback.format_exc()[-500:]
-    STATE['mode'] = 'mask_only' if MASK_ONLY else 'generate'
-    if MASK_ONLY:
-        # Прогрев генератора здесь был бы прямым вредом: он поднял бы Hunyuan в VRAM ради
-        # режима, в котором тот не нужен, и съел бы весь смысл дешёвого прохода.
-        STATE['warm'] = True
-        return
-    try:
+        STATE['mode'] = 'mask_only' if MASK_ONLY else 'generate'
+        if MASK_ONLY:
+            # Прогрев генератора здесь был бы прямым вредом: он поднял бы Hunyuan в VRAM ради
+            # режима, в котором тот не нужен, и съел бы весь смысл дешёвого прохода.
+            return
         t0 = time.time()
         # RGBA, а не RGB: контракт входа — альфа И ЕСТЬ маска товара. На сером RGB форма
-        # возвращает None, и прогрев падает (поймано на живой ноде 28.08) — то есть не
-        # прогревает, и компиляцию ядер оплачивает первое настоящее задание.
+        # возвращает None, и прогрев падает — компиляцию ядер оплатило бы первое задание.
         img = Image.new('RGBA', (512, 512), (0, 0, 0, 0))
         from PIL import ImageDraw
         ImageDraw.Draw(img).ellipse((128, 128, 384, 384), fill=(200, 180, 160, 255))
@@ -93,9 +99,10 @@ def warmup():
             P.generate(img, d, seed=0, params={'num_inference_steps': 5,
                                                'octree_resolution': 128})
         STATE['warmup_s'] = round(time.time() - t0, 1)
-    except Exception:  # noqa: BLE001 — прогрев не удался: причину видно в логе ноды
+    except Exception:  # noqa: BLE001 — причина в warmup_error, нода всё равно открывается
         STATE['warmup_error'] = traceback.format_exc()[-800:]
-    STATE['warm'] = True
+    finally:
+        STATE['warm'] = True
 
 
 @app.post('/assess')
