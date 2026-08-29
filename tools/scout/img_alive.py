@@ -21,6 +21,7 @@ import json
 import os
 import sys
 import time
+import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
@@ -46,16 +47,32 @@ def _save() -> None:
 
 
 _MAGIC = (b'\xff\xd8\xff', b'\x89PNG', b'GIF8', b'RIFF', b'<svg', b'\x00\x00\x00 ftypavif')
-PROBE_V = 2          # версия проверки: записи старой версии перепроверяются
+# 3 (29.08): проба стала трёхзначной — «не смог проверить» больше не равно «мертво».
+# Подъём версии обязателен: он заставляет перепроверить 12 632 записи, из которых, по замеру
+# на 150 ссылках, ~81% были ложными приговорами от троттлинга CDN.
+PROBE_V = 3          # версия проверки: записи старой версии перепроверяются
 
 
-def _probe(url: str) -> bool:
-    """Живо ли изображение. ОДНОГО HEAD НЕДОСТАТОЧНО (разбор Codex 26.08): часть CDN отвечает
-    403/405 на HEAD и 200 на GET (ложные «мёртвые»), а часть отдаёт 200 с HTML-заглушкой вместо
-    картинки (ложные «живые»). Поэтому: HEAD ради дешёвого положительного ответа с картинкой,
-    иначе — GET первых байт и проверка сигнатуры файла."""
+def _probe(url: str):
+    """Живо ли изображение → True / False / **None**.
+
+    ОДНОГО HEAD НЕДОСТАТОЧНО (разбор Codex 26.08): часть CDN отвечает 403/405 на HEAD и 200 на
+    GET (ложные «мёртвые»), а часть отдаёт 200 с HTML-заглушкой вместо картинки (ложные «живые»).
+    Поэтому: HEAD ради дешёвого положительного ответа с картинкой, иначе — GET первых байт и
+    проверка сигнатуры файла.
+
+    **None = «не смог проверить», и это НЕ «мертво» (поймано 29.08).** Прежняя версия возвращала
+    False на любом исключении: таймаут, обрыв, троттлинг CDN. При ночном обходе `imgng.gdeslon.ru`
+    режет темп — и живые товары получали приговор на 14 дней. Перепроверка 150 «мёртвых» ссылок
+    в спокойном режиме: живы 122 из 150, то есть 81% вердиктов были ложными. А `_slot_ok`
+    спрашивает `alive_now`, значит живой товар молча выбрасывался из сетов.
+
+    Приговор выносим ТОЛЬКО по явному ответу сервера: 404/410 (нет ресурса) или 200 с содержимым,
+    не похожим на картинку. Всё остальное — «не знаю», и в кэш это не пишется.
+    """
     full = ('https:' + url) if url.startswith('//') else url
     hdr = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://remont-lab.online/'}
+    gone = False
     try:
         req = urllib.request.Request(full, method='HEAD', headers=hdr)
         with urllib.request.urlopen(req, timeout=12) as f:
@@ -63,18 +80,26 @@ def _probe(url: str) -> bool:
             ln = int(f.headers.get('Content-Length') or 0)
             if 200 <= f.status < 300 and ct.startswith('image/') and ln != 0:
                 return True
+    except urllib.error.HTTPError as e:
+        gone = e.code in (404, 410)          # ресурса нет — это ответ, а не сбой
     except Exception:
-        pass
+        pass                                 # сеть/таймаут — решать по добору
     try:                                     # добор: первые байты и сигнатура файла
         req = urllib.request.Request(full, headers=dict(hdr, Range='bytes=0-2047'))
         with urllib.request.urlopen(req, timeout=15) as f:
             if not (200 <= f.status < 300):
-                return False
+                return None
             head = f.read(2048)
-        return bool(head) and (head[:4] in [m[:4] for m in _MAGIC]
-                               or any(head.startswith(m) for m in _MAGIC))
+        if not head:
+            return None
+        return bool(head[:4] in [m[:4] for m in _MAGIC]
+                    or any(head.startswith(m) for m in _MAGIC))
+    except urllib.error.HTTPError as e:
+        if e.code in (404, 410):
+            return False                     # подтверждённо мертво
+        return False if gone else None       # 403/429/5xx — троттлинг, а не приговор
     except Exception:
-        return False
+        return False if gone else None       # таймаут/обрыв — «не знаю»
 
 
 def alive(url: str | None, unknown: bool = True) -> bool:
@@ -101,9 +126,13 @@ def alive_now(url: str | None) -> bool:
     if rec and rec.get('v', 1) >= PROBE_V and time.time() - rec.get('ts', 0) <= TTL_DAYS * 86400:
         return bool(rec.get('ok'))
     ok = _probe(url)
+    if ok is None:
+        # Не смогли проверить — вердикт не выносим и в кэш не пишем: иначе троттлинг CDN
+        # похоронит живой товар на 14 дней. До выяснения считаем живым, как и непроверенное.
+        return True
     mem[url] = {'ok': bool(ok), 'ts': int(time.time()), 'v': PROBE_V}
     _save()
-    return ok
+    return bool(ok)
 
 
 def scan(urls: list[str], workers: int = 8) -> tuple[int, int]:
@@ -114,8 +143,14 @@ def scan(urls: list[str], workers: int = 8) -> tuple[int, int]:
                       or mem[u].get('v', 1) < PROBE_V)]
     if todo:
         with ThreadPoolExecutor(max_workers=workers) as ex:
+            unknown = 0
             for u, ok in zip(todo, ex.map(_probe, todo)):
+                if ok is None:               # не проверилось — оставляем как было, не хороним
+                    unknown += 1
+                    continue
                 mem[u] = {'ok': bool(ok), 'ts': int(time.time()), 'v': PROBE_V}
+            if unknown:
+                print(f'не удалось проверить: {unknown} ссылок (вердикт не вынесен)', flush=True)
         _save()
     uniq = list(dict.fromkeys(u for u in urls if u))
     ok = sum(1 for u in uniq if mem.get(u, {}).get('ok'))

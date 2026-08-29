@@ -25,19 +25,34 @@
      заклеивает просветы проволочного основания и реечных спинок.
   5. Контактную тень режем: она не форма, а освещение — генератор превращает её в плоскость.
 """
+import os
+
 import numpy as np
 from PIL import Image
 
 
 def bg_stats(rgb: np.ndarray, frac: float = 0.04):
-    """Фон и его разброс по пограничной полосе кадра."""
+    """Фон, доля чужого в полосе и устойчивая оценка шума.
+
+    КВАНТИЛЬ РАССТОЯНИЯ МЕРОЙ БЫТЬ НЕ МОЖЕТ (поймано владельцем 29.08 на ковре «Я не молчалив»):
+    широкий товар залезает в пограничную полосу, и на ЧИСТОЙ белой карточке `p99` улетает до
+    268–370. Гибрид считал такой фон неровным и молча самоустранялся — то есть ровно там, где
+    он нужнее всего, его и не было. Тот же дефект вчера чинили в `collage.py` (урок 310).
+
+    Меряем две разные вещи:
+      * `alien` — ДОЛЯ пикселей полосы, непохожих на её медиану. Товар занимает малую часть
+        полосы даже когда лезет в неё, поэтому доля устойчива: 0.00-0.11 на карточках;
+      * `noise` — разброс СРЕДИ САМОГО ФОНА: квантиль 60% отсекает вторгшийся товар целиком.
+    """
     h, w = rgb.shape[:2]
     b = max(2, int(min(h, w) * frac))
     band = np.concatenate([rgb[:b].reshape(-1, 3), rgb[-b:].reshape(-1, 3),
                            rgb[:, :b].reshape(-1, 3), rgb[:, -b:].reshape(-1, 3)])
     med = np.median(band, axis=0)
     dist = np.linalg.norm(band - med, axis=1)
-    return med, float(np.percentile(dist, 99)), float(np.median(dist))
+    alien = float((dist > 25).mean())
+    noise = float(np.percentile(dist, 60))
+    return med, alien, noise
 
 
 def analytic(rgb: np.ndarray, med: np.ndarray, noise: float) -> np.ndarray:
@@ -48,8 +63,20 @@ def analytic(rgb: np.ndarray, med: np.ndarray, noise: float) -> np.ndarray:
     return np.clip((d - t0) / (t1 - t0), 0, 1)
 
 
-def refine(src: Image.Image, cut: Image.Image) -> tuple[Image.Image, dict]:
-    """src — исходное фото (RGB), cut — вырезка сети (RGBA). Возвращает уточнённую RGBA."""
+# Рост по связности — ТОЛЬКО для плоского текстиля (решение владельца 29.08).
+# У ковра отказ системный: сеть держит тёмные линии узора и теряет светлое поле, потому что
+# поле низкоконтрастно к белой карточке. У мебели такого класса отказов нет, а рост там цепляет
+# мягкую тень и подложку — владелец увидел это на контрольных снимках. Роль знает вызывающий,
+# и передать её дешевле, чем угадывать «плоский ли предмет» по картинке.
+GROW_ROLES = {'ковёр'}          # решение владельца 29.08: только ковры, точечно
+
+
+def refine(src: Image.Image, cut: Image.Image, role: str | None = None) -> tuple[Image.Image, dict]:
+    """src — исходное фото (RGB), cut — вырезка сети (RGBA). Возвращает уточнённую RGBA.
+
+    `role` — роль товара; рост по связности включается только для `GROW_ROLES`. Без роли
+    ведём себя консервативно: только полоса, как было до 29.08.
+    """
     from scipy import ndimage
 
     src = src.convert('RGB')
@@ -59,21 +86,45 @@ def refine(src: Image.Image, cut: Image.Image) -> tuple[Image.Image, dict]:
     rgb = np.asarray(src).astype(np.float32)
     N = np.asarray(cut)[..., 3].astype(np.float32) / 255.0
 
-    med, p99, noise = bg_stats(rgb)
-    uniform = p99 < 30 and float(np.linalg.norm(med - 255)) < 60   # белая ровная карточка
-    info = {'uniform_bg': bool(uniform), 'bg_noise': round(noise, 2), 'bg_p99': round(p99, 2),
+    med, alien, noise = bg_stats(rgb)
+    # Порог 0.35 по доле, а не по квантилю: на карточке чужого в полосе мало даже когда товар
+    # в неё лезет; на сценовом фото «чужое» — это весь интерьер, и доля сразу велика.
+    uniform = alien < 0.35 and float(np.linalg.norm(med - 255)) < 60
+    info = {'uniform_bg': bool(uniform), 'bg_noise': round(noise, 2), 'bg_alien': round(alien, 3),
             'restored_px': 0}
     if not uniform:
         return cut, info                        # сценовое фото — аналитике верить нельзя
 
-    A = analytic(rgb, med, p99)
+    A = analytic(rgb, med, noise)
     support = N >= 0.15
     if not support.any():
         return cut, info
 
-    # полоса поиска: рядом с тем, что сеть уже держит за товар
+    # Область поиска. Полосы в 6 px мало: у серого ковра сеть держит только тёмные линии узора,
+    # а само поле теряет — полоса нарастит вокруг линий каёмку и на этом остановится (поймано
+    # владельцем 29.08 на ковре «Я не молчалив»). Поэтому растём ПО СВЯЗНОСТИ: от того, что сеть
+    # уже считает товаром, сквозь пиксели «не фон». У ковра поле не-фон и примыкает к линиям —
+    # оно заходит целиком; у проволочного основания просвет ЕСТЬ фон, и рост туда не идёт.
+    # Полоса остаётся как страховка: она добирает мягкий край, где аналитика ниже 0.5.
+    solid_a = A >= 0.5
+    # Рубильник (`HYBRID_GROW=0`) оставлен и поверх роли: нужен для честного A/B и на случай,
+    # если на проде вскроется класс отказов, которого мы не предвидели.
+    grow_on = (role in GROW_ROLES) and os.environ.get('HYBRID_GROW', '1') != '0'
+    info_grow = {'grow_role': bool(grow_on)}
+    grown = (ndimage.binary_propagation(support & solid_a, mask=solid_a) & ~support
+             if grow_on else np.zeros_like(support))
     band = ndimage.binary_dilation(support, np.ones((3, 3)), iterations=6) & ~support
-    cand = band & (A >= 0.5)
+    cand = (band & solid_a) | grown
+    # Предохранитель НЕ по отношению к размеру сетевой маски: у ковра сеть держит только линии
+    # узора, и законный рост в 20 раз больше «опоры» — отношение тут ничего не значит.
+    # Утечка в фон невозможна по построению (растём внутри «не фон»); реальный риск — что
+    # «товаром» окажется вся карточка. Его и ловим: доля кадра и упор в рамку.
+    grown_all = support | grown
+    edge = np.zeros(grown_all.shape, bool)
+    edge[0], edge[-1], edge[:, 0], edge[:, -1] = 1, 1, 1, 1
+    if grown_all.mean() > 0.90 or float((grown_all & edge).sum() / max(edge.sum(), 1)) > 0.6:
+        cand = band & solid_a
+        info['grow_rejected'] = True
 
     # Контактная тень лежит НА ПОЛУ, то есть ниже самой нижней точки товара в своём столбце.
     # Порог по «целиком ниже всего предмета» не работает: тень примыкает к ножкам вплотную,
@@ -92,6 +143,7 @@ def refine(src: Image.Image, cut: Image.Image) -> tuple[Image.Image, dict]:
     keep &= ~ndimage.binary_dilation(shadowish, np.ones((3, 3)))   # не цеплять кайму тени
     out = np.maximum(N, np.where(keep, A, 0.0))
     info['restored_px'] = int(keep.sum())
+    info.update(info_grow)
 
     a8 = (np.clip(out, 0, 1) * 255).astype(np.uint8)
     return Image.fromarray(np.dstack([np.asarray(src), a8]), 'RGBA'), info
