@@ -36,7 +36,7 @@ MAX_JOBS = 600            # предохранитель: пилот не дол
 API = 'https://api.salad.com/api/public'
 ORG = os.environ.get('SALAD_ORG', 'prodstore')
 PROJECT = os.environ.get('SALAD_PROJECT', 'dmodel')
-GROUP = os.environ.get('SALAD_GROUP', 'mesh-4090')
+GROUP = os.environ.get('SALAD_GROUP', 'mesh-4090-b')
 
 # Тарифы batch-приоритета, сверены по API 28.08 (`GET /organizations/<org>/gpu-classes`).
 # Сравнивать карты можно только на ОДНОМ приоритете: на high те же 4090 стоят $0.30, и
@@ -68,9 +68,20 @@ def endpoint() -> str:
     return f'https://{dns}'
 
 
-def ready_count() -> int:
-    s = (api(f'containers/{GROUP}').get('current_state') or {})
-    return int((s.get('instance_status_counts') or {}).get('running_count', 0))
+def warm_ready(base: str) -> tuple[bool, dict]:
+    """Прогрет ли воркер — спрашиваем ЕГО, а не платформу.
+
+    Флаг готовности Salad оказался ненадёжен: он выставляется по пробе с ограниченным
+    бюджетом (задержка максимум 1200с), а старт занимает ~35 минут. Инстанс при живом
+    сервисе навсегда остаётся "неготовым". Тело /health говорит правду.
+    """
+    req = urllib.request.Request(f'{base}/health', headers={'Salad-Api-Key': key()})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            d = json.loads(r.read() or b'{}')
+        return bool(d.get('warm')), d
+    except Exception as e:  # noqa: BLE001
+        return False, {'error': f'{type(e).__name__}: {str(e)[:150]}'}
 
 
 def jobs_from_sample(limit: int | None = None) -> list[dict]:
@@ -115,10 +126,10 @@ def send(base: str, job: dict, attempts: int = 3) -> dict:
 
 def run(limit: int | None, workers: int) -> None:
     base = endpoint()
-    ready = ready_count()
-    print(f'адрес: {base} | готовых инстансов: {ready}')
-    if ready < 1:
-        sys.exit('нет готовых инстансов — нода ещё греется, повтори позже')
+    warm, h = warm_ready(base)
+    print(f'адрес: {base} | прогрет: {warm} | {json.dumps(h, ensure_ascii=False)[:220]}')
+    if not warm:
+        sys.exit('воркер ещё греется (веса ~32 мин + прогон) — повтори позже')
     jobs = jobs_from_sample(limit)
     print(f'заданий: {len(jobs)} в {workers} поток(ов)')
 
