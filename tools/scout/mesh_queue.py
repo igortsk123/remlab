@@ -386,18 +386,11 @@ def run() -> None:
     got = ingest(INGEST_MAX)
     legacy = reconcile_legacy()
 
-    # постановка: спрос с хешом, ещё не сгенерированный этим ключом и без активного задания
-    new = db(f"""
-      insert into mesh_jobs (job_key, sku)
-      select d.sku||'|'||d.source_sha||'|'||{q(PIPELINE_VERSION)}, d.sku
-        from mesh_demand d
-       where d.status='wanted' and d.source_sha is not null
-         and not exists (select 1 from asset_revisions r
-                          where r.sku=d.sku and r.status='accepted')
-         and not exists (select 1 from mesh_jobs j
-                          where j.job_key = d.sku||'|'||d.source_sha||'|'||{q(PIPELINE_VERSION)})
-      on conflict (job_key) do nothing
-      returning job_key""")
+    # ЗАДАНИЯ ЗДЕСЬ БОЛЬШЕ НЕ СОЗДАЮТСЯ. Раньше `run()` ставил их на весь спрос, и при
+    # десятке генераций в день очередь превращалась в список на годы, где порядок задавался
+    # алфавитом SKU. Кого генерить сегодня — решает `mesh_scheduler.py` по приросту ГОТОВЫХ
+    # СЕТОВ (критика Codex 29.08). Здесь остаётся только учёт спроса и хешей.
+    new = []
     print(f'[mesh_queue] спрос {len(want)} | ingest +{got} | legacy-ревизий {legacy} | '
           f'новых заданий {len(new)}', flush=True)
 

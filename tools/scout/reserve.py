@@ -53,9 +53,14 @@ def base_role(slot: str) -> str:
 
 
 def coverage() -> dict:
-    """По каждому (комплект, слот): сколько запасных всего и сколько из них с готовым мешом."""
+    """По каждому (комплект, слот): сколько запасных всего и сколько из них ГОТОВЫ.
+
+    Готовность — по способу отрисовки (`render_strategy.asset_ready`), а не по одному мешу:
+    у пледа и шторы меша не будет никогда, и мерить их этим значит вечно числить слот
+    непокрытым и врать покрытием вниз (критика Codex 29.08).
+    """
     try:
-        from mesh_ready import mesh_ready
+        from render_strategy import asset_ready as mesh_ready
     except Exception:  # noqa: BLE001 — без предиката отчёт бессмыслен, честнее упасть
         raise
     sets = json.load(open(SETS))
@@ -64,8 +69,8 @@ def coverage() -> dict:
         sid = s.get('set_id') or '—'
         for slot, alts in (s.get('alternates') or {}).items():
             role = base_role(slot)
-            if role in MESH_EXCLUDE:
-                continue
+            # Мягкий декор больше не пропускаем: у него своя стратегия готовности, и слот
+            # с пледом теперь честно считается покрытым, если фото живо и габариты известны.
             ready = [a for a in alts if mesh_ready(f"{a.get('mid')}:{a.get('eid')}")]
             shops = {a.get('mid') for a in ready}
             rows.append({'set_id': sid, 'slot': slot, 'role': role,

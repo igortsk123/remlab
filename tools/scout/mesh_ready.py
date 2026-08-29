@@ -50,6 +50,11 @@ def _load() -> dict[str, bool]:
     return _CACHE
 
 
+def mesh_ready_raw() -> set:
+    """Множество SKU с готовым мешом — нужно `render_strategy`, чтобы не дублировать запрос."""
+    return set(_load())
+
+
 def mesh_ready(sku: str) -> bool:
     """Готов = принятый меш И решённая ориентация. Единственная точка истины предиката."""
     return _load().get(sku, False)

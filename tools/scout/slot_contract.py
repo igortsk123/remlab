@@ -83,10 +83,14 @@ def substitute_ok(sku: str, *, strict: bool | None = None) -> bool:
 
 
 def _mesh_ready_strict(sku: str) -> bool:
-    """Готовность меша БЕЗ оглядки на фазу гейта: для замен она обязательна всегда."""
+    """Готовность БЕЗ оглядки на фазу гейта: для замен она обязательна всегда.
+
+    Меряем по способу отрисовки: подменяя плед, требовать от него меш бессмысленно — нужно,
+    чтобы у замены было готовое ПРЕДСТАВЛЕНИЕ, а какое именно, решает роль.
+    """
     try:
-        from mesh_ready import mesh_ready
-        return mesh_ready(sku)
+        from render_strategy import asset_ready
+        return asset_ready(sku)
     except Exception:  # noqa: BLE001
         return False
 

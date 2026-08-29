@@ -235,10 +235,16 @@ echo "$today" > "$STAMP"
 # относительно уже выполненного cd, «стол обеденный» резался в «стол».
 if [ "${MESH_QUEUE:-0}" = "1" ]; then
   { step mesh_queue "$PY" mesh_queue.py --run &&
+    # ПЛАНИРОВЩИК: задания создаются только на дневную партию, отобранную по приросту готовых
+    # комплектов. Без него очередь в 13 000 бралась по алфавиту SKU, и меши появлялись
+    # равномерно по каталогу — ни один сет не становился показываемым (критика Codex 29.08).
+    step mesh_schedule "$PY" mesh_scheduler.py &&
     step mesh_queue_export "$PY" mesh_queue.py --export mesh-queue-batch.json
   } || echo "[refresh] очередь мешей: ошибка (не блокирует конвейер)"
   # shadow-отчёт правила «сеты только с мешами» (фазы A..D — ADR-0131)
   step mesh_coverage "$PY" mesh_ready.py --coverage || true
+  # Метрики конвейера: мерим ГОТОВЫЕ КОМПЛЕКТЫ и покрытие ячеек, а не число мешей.
+  step pipeline_metrics "$PY" pipeline_metrics.py || true
   # каскад ориентации новых мешей + мост со страницей проверки (не блокируют конвейер)
   step orient_worker "$PY" orient_worker.py --run --limit 100 --vlm || true
   { step review_push "$PY" mesh_review_sync.py --push &&
