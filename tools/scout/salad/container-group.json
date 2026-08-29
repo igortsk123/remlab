@@ -1,11 +1,11 @@
 {
- "name": "mesh-4090-c",
- "display_name": "mesh-4090-c",
+ "name": "mesh-pool",
+ "display_name": "mesh-pool",
  "container": {
   "image": "ghcr.io/igortsk123/mesh-hunyuan:cu124",
   "resources": {
    "cpu": 4,
-   "memory": 30720,
+   "memory": 16384,
    "gpu_classes": [
     "ed563892-aacd-40f5-80b7-90c9be6c759b"
    ],
@@ -28,7 +28,7 @@
  },
  "autostart_policy": true,
  "restart_policy": "always",
- "replicas": 1,
+ "replicas": 5,
  "country_codes": [],
  "readiness_probe": {
   "http": {
