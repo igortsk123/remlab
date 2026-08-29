@@ -226,25 +226,36 @@ def sync_photos(limit: int) -> int:
     rows = db(
         "select p.shop_mid||':'||p.external_id, coalesce(p.image_url_hd, p.image_url) "
         + (POOL_SQL % MIN_QUALITY) +
+        # Сравнивать надо с ТЕМ адресом, который мы реально качаем (HD в приоритете): иначе
+        # каждый прогон заново хеширует все товары с HD-фото — c.image_url хранит HD-адрес,
+        # а p.image_url остаётся фидовым, и проверка свежести вечно промахивается.
         "   and not exists (select 1 from product_photo_current c "
-        "        where c.sku = p.shop_mid||':'||p.external_id and c.image_url = p.image_url "
+        "        where c.sku = p.shop_mid||':'||p.external_id "
+        "          and c.image_url = coalesce(p.image_url_hd, p.image_url) "
         f"          and c.observed_at > now() - interval '{os.environ.get('SHA_MAX_AGE_DAYS', '30')} days') "
         f" order by p.shop_mid, p.external_id limit {limit}")
-    n = 0
-    for r in rows:
+    def one_hash(r):
         if len(r) != 2:
-            continue
+            return None
         sku, url = r
         try:
-            sha = hashlib.sha256(fetch(url)).hexdigest()
+            return sku, url, hashlib.sha256(fetch(url)).hexdigest()
         except Exception as e:  # noqa: BLE001 — мёртвое фото не валит прогон
             print(f'  хеш {sku}: {type(e).__name__}: {str(e)[:70]}', flush=True)
-            continue
-        db("insert into product_photo_current (sku, image_url, source_sha, observed_at) "
-           f"values ({q(sku)}, {q(url)}, {q(sha)}, now()) "
-           "on conflict (sku) do update set image_url=excluded.image_url, "
-           "source_sha=excluded.source_sha, observed_at=now()")
-        n += 1
+            return None
+    n = 0
+    # Скачивание параллельно (CDN магазинов держат 8 потоков), ЗАПИСЬ — последовательно:
+    # psql через docker exec не любит одновременных клиентов из тредов.
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for res in ex.map(one_hash, rows):
+            if not res:
+                continue
+            sku, url, sha = res
+            db("insert into product_photo_current (sku, image_url, source_sha, observed_at) "
+               f"values ({q(sku)}, {q(url)}, {q(sha)}, now()) "
+               "on conflict (sku) do update set image_url=excluded.image_url, "
+               "source_sha=excluded.source_sha, observed_at=now()")
+            n += 1
     return n
 
 

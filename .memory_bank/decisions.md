@@ -2633,3 +2633,21 @@ resolve_affected,set_changes_page}.py`, `mesh_ready.py`, `mesh_queue.py`, `sets_
    приёмника `complete.json` и GPU не тратит).
 
 **Влияет на:** `tools/scout/salad/{worker.py,submit.py}`, план `mesh-bulk-salad-hunyuan`.
+
+## [2026-08-29] LLM-канал по умолчанию — Vercel AI Gateway; стиль-скоринг на luna — ADR-0135
+**Решение владельца.** «Vercel — канал по умолчанию, там все модели; альтернативный канал —
+OpenAI». Единая точка — `tools/scout/llm_gateway.py::chat()`: шлюз `ai-gateway.vercel.sh`
+(модель с префиксом `openai/…`), фолбэк на прямой OpenAI только при недоступности КАНАЛА
+(401/403), не на 429 — лимит темпа лечится паузой, а не сменой биллинга. Повтор на 429/5xx
+встроен. Переключены: `style_score.py`, `style_model_bench.py`. `enrich.py` остаётся на прямом
+OpenAI: он работает через Batch API (−50% цены), которого на шлюзе нет — переключать его значит
+удвоить цену обогащения.
+**Повод.** Прямые кредиты OpenAI кончились молча («no credits remaining»), добивка стилей
+встала — при живых $16 на шлюзе. Плюс два тихих отказа один за другим: ключ из мёртвого файла
+(401 → 375 записей посчитаны без LLM и легли как готовые), затем 429 без повтора (то же).
+**Стиль-скоринг — `gpt-5.6-luna`** (было gpt-5-mini): бенч на комплекте №1 (13 товаров, три
+модели, `style_model_bench.py` + проверка глазами) — ответы в пределах ~1 балла, на спорной
+лампе luna точнее terra, цена вызова в 2.6 раза ниже. terra ($0.0064/батч) преимущества не
+показала. Переопределение — `STYLE_MODEL`.
+**Влияет на:** `tools/scout/{llm_gateway,style_score,style_model_bench}.py`,
+`refresh_daily.sh` (шаг style_score), `core/access-and-integrations.md`.

@@ -8,7 +8,7 @@
 Кэш: повторный прогон скорит только новые товары (детерминизм и ноль лишних трат).
 Запуск (venv!): ~/venvs/scout/bin/python style_score.py [--report] [--limit N]
 """
-import subprocess, sys, os, re, json, urllib.request
+import subprocess, sys, os, re, json, urllib.error, urllib.request
 import numpy as np
 from style_tags import tag
 
@@ -17,10 +17,10 @@ STYLES=json.load(open(os.path.join(HERE,'styles.json')))['styles']
 SNAMES=list(STYLES)  # порядок фиксирован
 OUT=os.path.join(HERE,'style-scores.json')
 cache=json.load(open(OUT)) if os.path.exists(OUT) else {}
-OAI=None
-for line in open('/home/pakar/igor/v0-health-card/backend/.env'):
-    m=re.match(r'OPENAI_API_KEY=(.+)',line.strip())
-    if m: OAI=m.group(1).strip().strip('"')
+# Ключ — общим резолвером (свой .env первым): жёсткий путь в чужой проект умер молча,
+# и добивка 29.08 прошла с 401 — записи легли «правила+CLIP» без LLM вообще.
+from golden_label import _key as _oai_key
+OAI=_oai_key()
 
 PSQL=["docker","exec","-i","remlab-devdb","psql","-U","remlab","-d","remlab","-q","-v","ON_ERROR_STOP=1","-t","-A","-F","\x1f"]
 def rows(q):
@@ -126,10 +126,17 @@ def llm_batch(batch):
      f"{len(batch)} элементов.\nТовары:\n"+"\n".join(lines))
     # reasoning low: длинные рассуждения не нужны для тегирования, выходные токены ×3-4 дешевле
     # (замер 2026-08-02: с дефолтным reasoning 3200 из 4014 токенов ответа — «думающие»)
-    body={"model":"gpt-5-mini","reasoning_effort":"low","messages":[{"role":"user","content":txt}]}
-    req=urllib.request.Request("https://api.openai.com/v1/chat/completions",data=json.dumps(body).encode(),
-        headers={"Authorization":f"Bearer {OAI}","Content-Type":"application/json"})
-    with urllib.request.urlopen(req,timeout=180) as r: out=json.loads(r.read())
+    # luna вместо mini — бенч 29.08 на комплекте №1 (13 товаров, style_model_bench.py):
+    # ответы совпадают в пределах ~1 балла, на спорной лампе luna точнее terra (та увидела
+    # неоклассику в плетёной керамике), а стоит вызов в 2.6 раза дешевле ($0.0010 против $0.0026).
+    body={"model":os.environ.get("STYLE_MODEL","gpt-5.6-luna"),"reasoning_effort":"low",
+          "messages":[{"role":"user","content":txt}]}
+    # Канал по умолчанию — Vercel AI Gateway, фолбэк — OpenAI (правило владельца 29.08,
+    # ADR-0135): прямые кредиты OpenAI кончились молча, и добивка стилей встала при живых
+    # кредитах на шлюзе. Повтор на 429 внутри chat() — молчаливая деградация до
+    # «правила+CLIP» уже портила кэш.
+    from llm_gateway import chat as _chat
+    out=_chat(body["model"], body["messages"], reasoning_effort=body.get("reasoning_effort","low"))
     m=re.search(r'\{.*\}',out['choices'][0]['message']['content'],re.S)
     items=json.loads(m.group(0))['items']
     res={}
