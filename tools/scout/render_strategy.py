@@ -22,6 +22,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(HERE, 'salad'))   # preprocess.ASSESSOR_VERSION живёт там
 
 MESH = {'диван', 'кресло', 'стул', 'комод', 'тв-тумба', 'стеллаж', 'стенка', 'витрина',
         'камин', 'столик', 'стол обеденный', 'шкаф', 'пуф', 'банкетка'}
@@ -73,7 +74,10 @@ def _load() -> dict[str, bool]:
         roles = {r[0]: r[1] for r in db(
             "select shop_mid||':'||external_id, cat_role from products "
             "where cat_role is not null") if len(r) == 2}
-    except Exception:  # noqa: BLE001 — без БД предикат молчит, а не выдаёт «готово» за факт
+    except Exception as e:  # noqa: BLE001 — без БД предикат молчит, но НЕ молча (Codex P0-3):
+        # тихий провал здесь делал ВСЕ ассеты неготовыми, и резерв/метрики врали нулями.
+        print(f'[render_strategy] предикат не загрузился: {type(e).__name__}: {str(e)[:120]}',
+              flush=True)
         _CACHE = {}
         return _CACHE
     for sku, role in roles.items():

@@ -685,6 +685,8 @@ def heal(apply: bool = False) -> None:
 
 
 def enforce_contracts(apply: bool = False, roles: tuple = ()) -> None:
+    _c_touched: set = set()
+    _c_journal: list = []
     """ПОЧИНКА БАНКА ПОД КОНТРАКТЫ ПОДБОРА (25.08). Лечение месяцами подменяло товары мимо ворот
     сборки, и банк накопил негодные позиции: диван 110 см в комнате 15 м² (конверт слота 144–198),
     ковёр 120×120 под диван 195 (канон передних ножек требует ≥ диван+30). Симптомы в галерее —
@@ -742,12 +744,19 @@ def enforce_contracts(apply: bool = False, roles: tuple = ()) -> None:
                     if (repl.get('w'), repl.get('d')) != (it.get('w'), it.get('d')):
                         s['_dims_changed'] = True
                     items[role] = repl
+                    _c_touched.add(s.get('set_id') or n)
+                    _c_journal.append((s.get('set_id'), role,
+                                       f"{it.get('mid')}:{it.get('eid')}",
+                                       f"{repl.get('mid')}:{repl.get('eid')}"))
             else:
                 dropped += 1
                 print(f'  сет {n}: {role} {it.get("w")}x{it.get("d")} вне контракта, замены нет → снят')
                 if apply:
                     items.pop(role, None)
                     s['_dims_changed'] = True
+                    _c_touched.add(s.get('set_id') or n)
+                    _c_journal.append((s.get('set_id'), role,
+                                       f"{it.get('mid')}:{it.get('eid')}", None))
                     g = s.setdefault('gaps', [])
                     msg = f'coverage_gap: {role} — нет живого SKU в конверте слота'
                     if msg not in g:
@@ -790,6 +799,20 @@ def enforce_contracts(apply: bool = False, roles: tuple = ()) -> None:
     if apply and (fixed or dropped):
         shutil.copy(SETS, SETS + '.bak-contracts')
         _ensure_ids(sets)          # новый сет обязан получить стабильный id сразу
+        # Предохранитель на прогон и журнал (Codex P1-8): contracts умел молча переписать
+        # ВСЕ 126 сетов — без записи в set_changes точечная пересборка не узнала бы об этом,
+        # и сцены остались бы от старых составов.
+        try:
+            from heal_policy import record as _rec, run_allowed as _ra
+            ok_run, why = _ra(len(_c_touched), len(sets))
+        except Exception:  # noqa: BLE001
+            ok_run, why, _rec = True, '', None
+        if not ok_run:
+            print(f'⚠ {why} — contracts НЕ применены')
+            return
+        if _rec:
+            for sid, slot, old_sku, new_sku in _c_journal:
+                _rec(sid, slot, old_sku, new_sku, 'contract_fail')
         json.dump(sets, open(SETS, 'w'), ensure_ascii=False)
         print('sets3.json обновлён (бэкап .bak-contracts)')
 

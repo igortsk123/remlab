@@ -19,11 +19,17 @@ def fetch(u,limit=1500000):
 
 MARK=re.compile(r'нет в наличии|не в наличии|товар не найден|снят с продаж|распродан|товара нет',re.I)
 def alive(shop,du,name):
-    """→ (bool|None, причина)"""
+    """→ (bool|None, причина). None = «не смог проверить» — это НЕ приговор (урок 320/326).
+
+    Прежняя версия убила 119 товаров divan.ru за одну ночь: фраза «Нет в наличии» есть в
+    ШАБЛОНЕ каждой страницы divan.ru (переключатель вариантов), и маркер OOS срабатывал на
+    живых товарах с кнопкой «В корзину». Проверка на пяти заведомо живых: маркер соврал 5/5.
+    Правило: положительный признак (корзина/qty) сильнее любого текстового маркера.
+    """
     try:
         st,txt=fetch(du)
     except Exception as e:
-        return False, f"HTTP {str(e)[:40]}"
+        return None, f"не проверилось: HTTP {str(e)[:40]}"
     if 'tvoydom' in shop:
         qs=[int(x) for x in re.findall(r'"quantity"\s*:\s*(\d+)',txt)]
         if qs and max(qs)>0: return True,'qty>0'
@@ -57,7 +63,7 @@ for i,((mid,eid),info) in enumerate(list(todo.items())[:limit]):
     status[(mid,eid)]=(ok,why)
     print(f"[{i+1}/{min(len(todo),limit)}] {'OK ' if ok else 'DEAD'} {shop:16s} {info['name'][:44]} — {why}",flush=True)
     time.sleep(2.2)
-dead=[k for k,(ok,_) in status.items() if not ok]
+dead=[k for k,(ok,_) in status.items() if ok is False]   # None = «не знаю», наличие не трогаем
 if dead:
     vals=",".join(f"({m},'{e}')" for m,e in dead)
     subprocess.run(PSQL,input=f"update products set in_stock=false where (shop_mid,external_id) in ({vals});",

@@ -405,8 +405,13 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3,pr
             # срабатывало задним числом: товар сперва вставал в сет, потом его выносило лечение.
             # Владелец 28.08: «на этапе выбора сетов проверку добавь».
             try:
-                from slot_contract import photo_ok as _photo_ok
+                from slot_contract import mesh_ok as _mesh_ok, photo_ok as _photo_ok
                 if not _photo_ok(f"{it['mid']}:{it['eid']}", context='new'):
+                    _SLOT_MISS.setdefault(role,0); _SLOT_MISS[role]+=1
+                    continue
+                # Готовность представления (Codex P0-4): без этой проверки MESH_GATE_PHASE=hard_new
+                # ничего не делал в ПЕРВИЧНОЙ сборке — гейт жил только в лечении.
+                if not _mesh_ok(f"{it['mid']}:{it['eid']}"):
                     _SLOT_MISS.setdefault(role,0); _SLOT_MISS[role]+=1
                     continue
             except Exception:

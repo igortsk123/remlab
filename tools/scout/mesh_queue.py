@@ -217,7 +217,13 @@ def demand_from_cut_pool() -> dict[str, dict]:
     Мягкий декор (`MESH_EXCLUDE`) сюда не попадает: плед и штора рисуются плоско по фото,
     меш им ничего не добавит. Вырезка им при этом нужна — она делается на шаге раньше.
     """
-    ex = ','.join(q(r) for r in sorted(MESH_EXCLUDE))
+    # Спрос — только ролям со стратегией mesh (Codex P2-12): люстра/бра/ваза рисуются
+    # вырезкой, спрос на их меши копился бы вечно, а планировщик их законно не брал.
+    try:
+        from render_strategy import CUTOUT as _CUT_ROLES
+    except Exception:  # noqa: BLE001
+        _CUT_ROLES = set()
+    ex = ','.join(q(r) for r in sorted(MESH_EXCLUDE | _CUT_ROLES))
     rows = db(
         "select c.sku, p.cat_role, coalesce(p.image_url_hd, c.image_url), c.source_sha, "
         "       regexp_replace(coalesce(p.name,''), E'[\n\r\x1f]', ' ', 'g') "
@@ -383,6 +389,13 @@ def run() -> None:
     db(f"update mesh_demand set status='not_required' "
        f"where status='wanted' and sku not in ({skus})")
 
+    # ЕДИНАЯ ИСТИНА ФОТО (Codex P1-5): спрос из сетов несёт фидовый url, а хеши считаются по
+    # HD — без нормализации в задании могли разъехаться url, вердикт и sha (три разных снимка).
+    db("""update mesh_demand d set image_url = c.image_url, source_sha = c.source_sha,
+              sha_at = c.observed_at
+         from product_photo_current c where c.sku = d.sku
+          and (d.source_sha is distinct from c.source_sha
+               or d.image_url is distinct from c.image_url)""")
     got = ingest(INGEST_MAX)
     legacy = reconcile_legacy()
 
@@ -418,8 +431,9 @@ def export(path: str) -> None:
         if len(r) != 8:
             continue
         jk, sku, role, img, dims, name, verdict, av = r
-        if verdict not in ('ok', 'unknown'):
-            continue          # забракованное на обрезке на карту не отправляем
+        if verdict != 'ok':
+            continue          # на карту — ТОЛЬКО прошедшее обрезку (Codex P2-11): «unknown»
+            # в задании обходил бы весь этап; неоценённое остаётся спросом и ждёт маску
         jobs.append({'sku': sku, 'mid': int(sku.split(':')[0]), 'eid': sku.split(':')[1],
                      'role': role, 'name': name, 'image_url': img,
                      'dims_cm': json.loads(dims) if dims and dims != '\\N' else None,

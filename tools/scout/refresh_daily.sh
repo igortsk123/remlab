@@ -119,17 +119,19 @@ step feed_guard "$PY" feed_guard.py
 # программ снимаются с продажи, дальше их заменяет контракт слота.
 step shops_check "$PY" gdeslon_api.py --retire
 
-# 1c. КАТАЛОГ ЧЕРЕЗ API (29.08). Ссылки выгрузок умирают молча — 777e580d не отдалась ни разу,
-# до неё nonton 404-ил две недели. API от статичных ссылок не зависит и даёт то, чего в фиде
-# нет вовсе: `original_picture` (CDN магазина, 800×600 против 450×338 — прямо снимает потолок
-# по тонким деталям) и `description`. Цену и наличие не переписываем: за них отвечает load3,
-# два писателя одного поля дают расхождение, которого никто не заметит.
-# Идентификаторы API испорчены округлением, связь с каталогом — по картинке и названию.
-step catalog_api "$PY" catalog_api_sync.py
 
 # 2. База: upsert, хеши дельты, статусы жизненного цикла (ADR-0068)
 step load3 "$PY" load3.py
 [ "${RES[load3]}" = ok ] || { echo "загрузка упала — дальше по цепочке не идём" >> "$LOG"; exit 1; }
+# 2b. КАТАЛОГ ЧЕРЕЗ API (29.08). Ссылки выгрузок умирают молча — 777e580d не отдалась ни разу,
+# до неё nonton 404-ил две недели. API от статичных ссылок не зависит и даёт то, чего в фиде
+# нет вовсе: `original_picture` (CDN магазина, 800×600 против 450×338 — прямо снимает потолок
+# по тонким деталям) и `description`. Цену и наличие не переписываем: за них отвечает load3,
+# два писателя одного поля дают расхождение, которого никто не заметит.
+# ПОСЛЕ load3 (Codex P2-13): раньше API писал HD-фото ДО загрузки фидов — новинки этой ночи
+# оставались без HD до завтра, а описание затиралось upsert-ом load3. Идентификаторы API испорчены округлением, связь с каталогом — по картинке и названию.
+step catalog_api "$PY" catalog_api_sync.py
+
 
 # 3. Отпечатки картинок по кэшу — бесплатно, ловит «URL сменился, картинка та же»
 step phash "$PY" phash.py --from-cache
@@ -195,11 +197,17 @@ step bank_media "$PY" catalog_media.py --apply
 # ФОТО ПРОВЕРЯЕМ КАЖДЫЙ ДЕНЬ, А НЕ РАЗ В 14 ДНЕЙ (владелец 26.08: «чтоб всегда были актуальные
 # ссылки и фотки»): ссылок в банке ~750, это минуты; TTL кэша остаётся для пула замен.
 step bank_photos "$PY" img_alive.py --scan --force
+# Лечение и контракты — только на СВЕЖИХ данных (Codex P1-9): при упавших candidates или
+# sets_index они правили бы банк по вчерашнему снимку.
+if [ "${RES[candidates]:-FAIL}" = ok ] && [ "${RES[sets_index]:-FAIL}" = ok ]; then
 step sets_heal "$PY" sets_incremental.py --heal --apply
 # 5b-1. КОНТРАКТ СЛОТА И ЖИВОЕ ФОТО (владелец 26.08: «товар без фото не должен участвовать —
 # пересчитывать надо на этапе сетов»): позиция вне конверта слота или с мёртвой картинкой
 # ЗАМЕНЯЕТСЯ, и только если замены нет — снимается с записью coverage_gap.
 step sets_contracts "$PY" sets_incremental.py --enforce-contracts --apply
+else
+  echo "candidates/sets_index не прошли — heal и contracts пропущены" >> "$LOG"
+fi
 # после замен индекс и медиа обязаны сойтись с банком СЕГОДНЯ
 step bank_media2 "$PY" catalog_media.py --apply
 fi
@@ -245,7 +253,8 @@ if [ "$(date +%u)" = "1" ]; then
   step db_backup bash -c 'mkdir -p ~/backups && docker exec remlab-devdb pg_dump -U remlab remlab | gzip > ~/backups/remlab-devdb-$(date +%Y%m%d).sql.gz && ls -t ~/backups/remlab-devdb-*.sql.gz | tail -n +5 | xargs -r rm'
 fi
 
-echo "$today" > "$STAMP"
+# метка дня писалась ДО мешевого блока (Codex P1-9): его падение не давало перезапуститься
+# в тот же день. Теперь — в самом конце.
 
 # --- Меши товаров (план mesh-queue-orientation, ADR-0131): control plane в dev-Postgres,
 # файл — только экспорт батча для Salad. Включается MESH_QUEUE=1; генераций здесь нет.
@@ -272,3 +281,5 @@ if [ "${MESH_QUEUE:-1}" = "1" ]; then
     step review_pull "$PY" mesh_review_sync.py --pull
   } || echo "[refresh] мост review: нет токена или прод недоступен (не блокирует)"
 fi
+
+echo "$today" > "$STAMP"

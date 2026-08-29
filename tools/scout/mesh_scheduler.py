@@ -8,15 +8,13 @@
 можно показать.
 
 Поэтому дневная партия набирается по приросту ГОТОВЫХ СЕТОВ, ярусами:
-  1 — предметы опубликованных сетов, которым не хватает готовности: они замыкают то, что уже
-      показано владельцу;
-  2 — дефицит готовых заменителей у занятых слотов: без него автозамена не работает, и
-      выбытие товара оставляет дыру;
-  3 — минимальный набор, замыкающий СЛЕДУЮЩИЙ полный сет: берём сет, которому осталось меньше
-      всего, и добиваем именно его, а не размазываем усилие;
-  4 — проблемные роли по вердиктам обрезки: их надо проверить на пилоте раньше, чем строить
-      на них планы;
-  5 — хвост.
+  1 — комплекты В ПОРЯДКЕ БЛИЗОСТИ К ГОТОВНОСТИ, каждый добивается целиком. Прежняя схема
+      «сначала все предметы всех сетов подряд, потом отдельный ярус замыкания» была мертва
+      по построению (Codex P2-10): первый ярус помечал всё как seen, и замыкание не получало
+      ни одного товара — при партии 10 мы месяцами гнали бы первые сеты по порядку номеров;
+  2 — дефицит готовых заменителей у занятых слотов: без него автозамена не работает;
+  3 — проблемные роли по вердиктам обрезки: их надо проверить пилотом раньше планов;
+  4 — хвост.
 
 Задания (`mesh_jobs`) создаются ТОЛЬКО на выбранную партию. Всё остальное остаётся спросом.
 
@@ -45,13 +43,17 @@ def _needs_mesh(sku: str, role: str) -> bool:
 
 def _queue() -> dict[str, str]:
     """SKU → роль: спрос с посчитанным хешом фото, ещё без принятого меша."""
+    # Сверка по ТОЧНОМУ ключу (sku|sha|pipeline), не по SKU (Codex P1-6): иначе меш от
+    # старого фото навсегда закрывает дорогу новому — сменилась картинка, а SKU «уже готов».
     rows = db(
         "select d.sku, d.role from mesh_demand d "
         " where d.status='wanted' and d.source_sha is not null "
         "   and not exists (select 1 from asset_revisions r "
-        "                    where r.sku=d.sku and r.status='accepted') "
-        "   and not exists (select 1 from mesh_jobs j where j.sku=d.sku "
-        "                    and j.status in ('queued','submitted','running'))")
+        "        where r.revision_key = d.sku||'|'||d.source_sha||'|'||" + q(PIPELINE_VERSION) + " "
+        "          and r.status='accepted') "
+        "   and not exists (select 1 from mesh_jobs j "
+        "        where j.job_key = d.sku||'|'||d.source_sha||'|'||" + q(PIPELINE_VERSION) + " "
+        "          and j.status in ('queued','submitted','running'))")
     return {r[0]: r[1] for r in rows if len(r) == 2}
 
 
@@ -66,14 +68,17 @@ def tiers() -> list[tuple[int, str, str]]:
             seen.add(sku)
             out.append((tier, sku, why))
 
-    # 1 — предметы опубликованных сетов
+    # 1 — комплекты в порядке близости к готовности, каждый добивается ЦЕЛИКОМ
+    short = []
     for n, s in enumerate(sets, 1):
-        for slot, it in (s.get('items') or {}).items():
-            if not it or not it.get('mid'):
-                continue
-            sku, role = f"{it['mid']}:{it['eid']}", base_role(slot)
-            if _needs_mesh(sku, role):
-                take(1, sku, f'стоит в комплекте №{n}')
+        need = [f"{it['mid']}:{it['eid']}"
+                for slot, it in (s.get('items') or {}).items()
+                if it and it.get('mid') and _needs_mesh(f"{it['mid']}:{it['eid']}", base_role(slot))]
+        if need:
+            short.append((len(need), n, need))
+    for missing, n, need in sorted(short):
+        for sku in need:
+            take(1, sku, f'комплект №{n} (до готовности {missing})')
 
     # 2 — дефицит готовых заменителей
     try:
@@ -86,34 +91,20 @@ def tiers() -> list[tuple[int, str, str]]:
     except Exception as e:  # noqa: BLE001 — резерв не должен ронять планировщик
         print(f'резерв не посчитан: {type(e).__name__}: {str(e)[:80]}')
 
-    # 3 — сет, которому осталось меньше всего: добиваем его целиком
-    short = []
-    for n, s in enumerate(sets, 1):
-        need = [f"{it['mid']}:{it['eid']}"
-                for slot, it in (s.get('items') or {}).items()
-                if it and it.get('mid') and _needs_mesh(f"{it['mid']}:{it['eid']}", base_role(slot))]
-        if need:
-            short.append((len(need), n, need))
-    for _, n, need in sorted(short):
-        for sku in need:
-            take(3, sku, f'замыкает комплект №{n}')
-
-    # 4 — проблемные роли: где обрезка чаще бракует, там раньше нужен пилот
-    bad = collections.Counter()
-    for r in db("select p.cat_role, count(*) from photo_assessment a "
-                "join product_photo_current c on c.source_sha=a.source_sha "
-                "join products p on p.shop_mid||':'||p.external_id=c.sku "
-                "where a.verdict <> 'ok' group by 1 order by 2 desc limit 6"):
-        if len(r) == 2:
-            bad[r[0]] = int(r[1])
+    # 3 — проблемные роли: где обрезка чаще бракует, там раньше нужен пилот
+    bad = {r[0] for r in db(
+        "select p.cat_role from photo_assessment a "
+        "join product_photo_current c on c.source_sha=a.source_sha "
+        "join products p on p.shop_mid||':'||p.external_id=c.sku "
+        "where a.verdict <> 'ok' group by p.cat_role order by count(*) desc limit 6") if r}
     for sku, role in q_.items():
         if role in bad and _needs_mesh(sku, role):
-            take(4, sku, f'проблемная роль «{role}»')
+            take(3, sku, f'проблемная роль «{role}»')
 
-    # 5 — хвост
+    # 4 — хвост
     for sku, role in sorted(q_.items()):
         if _needs_mesh(sku, role):
-            take(5, sku, 'общая очередь')
+            take(4, sku, 'общая очередь')
     return out
 
 
