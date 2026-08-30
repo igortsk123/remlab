@@ -181,31 +181,33 @@ def crop_beyond_passport(glb_path: str, dims: dict | None, role: str | None = No
         # процентный потолок её щадит (и 60% щадил — потому резак «молчал»). Тело защищают
         # три предохранителя: обязательный переход толщины, рамка паспорта с допуском,
         # бэкап shape.generated.glb до ножей.
-        # ФАЗА 2 (правило владельца 30.08): резать только ВНЕ КОНТУРА ТЕЛА. Под самим
-        # диваном плиту не трогаем — она и есть его дно; крышки не нужны. Контур тела —
-        # сетка занятости XZ по геометрии ВЫШЕ границы, слегка расширенная.
+        # ФАЗА 2 — КАРТА ВЫСОТ (способ владельца, 30.08: «скачок толщины со всех сторон —
+        # это начало объекта»). Сверху вниз: в каждой ячейке плана — максимум высоты
+        # геометрии. Столб высокий → тело; столб на уровне плиты → снаружи. Прежний контур
+        # по ВЕРШИНАМ дырявил тело на больших плоских гранях (вершины редкие) — «полдна
+        # нет»; карта высот строится сэмплами ПО ГРАНЯМ, дыр не оставляет.
         body_prof = prof[int(band_frac * bins):int(band_frac * bins) + 6]
         body_med = float(np.median(body_prof[body_prof > 0])) if (body_prof > 0).any() else 0
         if body_med > 0 and prof[0] > 1.3 * body_med:
             G = 256
-            gx = np.clip(((above[:, 0] - lo[0]) / ext[0] * (G - 1)).astype(int), 0, G - 1)
-            gz = np.clip(((above[:, 2] - lo[2]) / ext[2] * (G - 1)).astype(int), 0, G - 1)
-            occ = np.zeros((G, G), np.float32)
-            occ[gx, gz] = 1.0
+            # сэмплы на гранях: вершины + центры + середины сторон — плотно и быстро
+            pts = np.concatenate([fv.reshape(-1, 3), fv.mean(axis=1),
+                                  ((fv[:, 0] + fv[:, 1]) / 2), ((fv[:, 1] + fv[:, 2]) / 2),
+                                  ((fv[:, 0] + fv[:, 2]) / 2)])
+            px = np.clip(((pts[:, 0] - lo[0]) / ext[0] * (G - 1)).astype(int), 0, G - 1)
+            pz = np.clip(((pts[:, 2] - lo[2]) / ext[2] * (G - 1)).astype(int), 0, G - 1)
+            hm = np.full((G, G), lo[1], np.float32)
+            np.maximum.at(hm, (px, pz), pts[:, 1].astype(np.float32))
+            thr = lo[1] + min(max(2.5 * band_frac, 0.12), 0.20) * ext[1]
             from scipy import ndimage as _ndi
-            occ = _ndi.binary_fill_holes(_ndi.binary_closing(occ > 0, np.ones((7, 7))))
-            # ГЛАДКИЙ контур (владелец: дно было рваным): размытие поля и порог вместо
-            # зубчатой бинарной сетки
-            occ = _ndi.gaussian_filter(occ.astype(np.float32), 2.5) > 0.45
-            cen = fv.mean(axis=1)
-            cgx = np.clip(((cen[:, 0] - lo[0]) / ext[0] * (G - 1)).astype(int), 0, G - 1)
-            cgz = np.clip(((cen[:, 2] - lo[2]) / ext[2] * (G - 1)).astype(int), 0, G - 1)
-            outside_body = ~occ[cgx, cgz]
-            # края плиты задраны ВЫШЕ границы (кольцо-рамка на виде снизу): вне контура
-            # режем с запасом по высоте — до 2.5 границ, потолок 15% высоты
-            tall_band = fv[:, :, 1].max(axis=1) < lo[1] + min(2.5 * band_frac, 0.15) * ext[1]
-            in_band = in_band | (tall_band & outside_body)
-            drop = in_band & (beyond | outside_body)
+            body = _ndi.binary_fill_holes(_ndi.binary_closing(hm > thr, np.ones((5, 5))))
+            body = _ndi.gaussian_filter(body.astype(np.float32), 2.0) > 0.5
+            vgx = np.clip(((fv[:, :, 0] - lo[0]) / ext[0] * (G - 1)).astype(int), 0, G - 1)
+            vgz = np.clip(((fv[:, :, 2] - lo[2]) / ext[2] * (G - 1)).astype(int), 0, G - 1)
+            vin = body[vgx, vgz]                       # (nF,3) — вершина в теле?
+            all_outside = ~vin.any(axis=1)             # зубьев нет: режем только целиком чужое
+            low = fv[:, :, 1].max(axis=1) < thr
+            drop = drop | (all_outside & low)
         if drop.any() and not drop.all():
             m.update_faces(~drop)
             m.remove_unreferenced_vertices()
