@@ -20,10 +20,22 @@ def despeckle_glb(glb_path: str) -> int:
     g = GLTF2().load(glb_path)
     if not g.images:
         return 0
+    # ТОЛЬКО baseColor (Codex q26): проход по всем картинкам портил normal и metallic —
+    # inpaint по карте нормалей это геометрический брак, хоть и невидимый в списке файлов.
+    base_idx = set()
+    for mat in g.materials or []:
+        pmr = getattr(mat, 'pbrMetallicRoughness', None)
+        bct = getattr(pmr, 'baseColorTexture', None) if pmr else None
+        if bct is not None and bct.index is not None:
+            src = g.textures[bct.index].source
+            if src is not None:
+                base_idx.add(src)
     blob = g.binary_blob()
     total = 0
     new_chunks = {}
     for idx, img in enumerate(g.images):
+        if idx not in base_idx:
+            continue
         if img.bufferView is None:
             continue
         bv = g.bufferViews[img.bufferView]
@@ -48,7 +60,20 @@ def despeckle_glb(glb_path: str) -> int:
         mask = np.zeros((h, w), np.uint8)
         cap = 0.001 * h * w                        # пятно крупнее 0.1% кадра не трогаем
         for i in range(1, n):
-            if stats[i, cv2.CC_STAT_AREA] <= cap:
+            if stats[i, cv2.CC_STAT_AREA] > cap:
+                continue
+            # кольцо вокруг пятна должно быть ОДНОРОДНЫМ и в палитре: иначе это стык
+            # UV-островов или легальная белая деталь — не трогаем (Codex q26)
+            x, y, ww, hh = stats[i, cv2.CC_STAT_LEFT], stats[i, cv2.CC_STAT_TOP], stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]
+            pad2 = 4
+            y0, y1 = max(0, y - pad2), min(h, y + hh + pad2)
+            x0, x1 = max(0, x - pad2), min(w, x + ww + pad2)
+            ring = a[y0:y1, x0:x1][~(lab[y0:y1, x0:x1] == i)]
+            if len(ring) < 8:
+                continue
+            ring_std = float(ring.std(axis=0).max())
+            ring_dist = float(np.linalg.norm(np.median(ring, axis=0) - dom))
+            if ring_std < 35 and ring_dist < 70:
                 mask[lab == i] = 255
         if not mask.any():
             continue

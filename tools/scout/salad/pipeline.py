@@ -97,7 +97,36 @@ def _unload(name: str):
 # артефакт. У стеллажей/тумб/кашпо плита неотличима от нижней полки или днища (пробный
 # прогон 30.08 отрезал бы куски у двух товаров) — там резак выключен, брак ловит приёмка
 # и лечит повтор с другим seed.
-SLAB_ROLES = {'кресло', 'стул', 'диван', 'кровать', 'банкетка', 'стол', 'стол обеденный'}
+# ТОЛЬКО кресло/стул (Codex q26): у диванов/кроватей/банкеток бывают законные цоколи и
+# коробчатые основания — там плиту не отличить, лечит перегон.
+SLAB_ROLES = {'кресло', 'стул'}
+
+
+class FlatShape(Exception):
+    """Форма — плоская доска: покраску не запускаем, деньги на неё не тратим."""
+
+
+def flat_shape(glb_path: str, params: dict) -> str | None:
+    """Дешёвый гейт до покраски: bbox формы против паспортной глубины (Codex q26, кейс D —
+    кашпо-доска). Паспорт кладёт воркер в params['_dims']; d пустая у симметричных ролей
+    подставляется = w. Нет паспорта — молчим (гейт не гадает)."""
+    dims = params.get('_dims') or {}
+    w = dims.get('w') or dims.get('dia')
+    d = dims.get('d') or (w if params.get('_square_role') else None)
+    if not (w and d):
+        return None
+    try:
+        import numpy as np
+        import trimesh
+        m = trimesh.load(glb_path, force='mesh')
+        ext = np.sort(np.asarray(m.extents))          # тонкая, средняя, длинная стороны
+        got = float(ext[0] / max(ext[2], 1e-6))
+        want = float(min(w, d) / max(max(w, d), 1e-6))
+        if got < want * 0.45:
+            return f'плоская форма: тонкая/длинная {got:.2f} при паспортных {want:.2f}'
+    except Exception:  # noqa: BLE001 — гейт не должен ронять задание
+        return None
+    return None
 
 
 def cut_alien_debris(glb_path: str) -> None:
@@ -148,10 +177,17 @@ def cut_alien_debris(glb_path: str) -> None:
             if low and alien:
                 drop |= sel
         if drop.any() and not drop.all():
-            mesh.update_faces(~drop)
-            mesh.remove_unreferenced_vertices()
-            mesh.export(glb_path)
-            print(f'срезаны обломки не в палитре: {int(drop.sum())} граней', flush=True)
+            if os.environ.get('ALIEN_CUT', '0') == '1':
+                mesh.update_faces(~drop)
+                mesh.remove_unreferenced_vertices()
+                mesh.export(glb_path)
+                print(f'срезаны обломки не в палитре: {int(drop.sum())} граней', flush=True)
+            else:
+                # Codex q26: признаки пока небезопасны (доля граней ≠ площадь, зона ловит
+                # ножки, одна доминанта врёт на двухцветном) — до размеченного бенча только
+                # ПОМЕТКА; лечит перегон другим seed.
+                open(glb_path + '.alien_suspect', 'w').write(str(int(drop.sum())))
+                print(f'обломок-подозрение: {int(drop.sum())} граней (пометка, не срез)', flush=True)
     except Exception as e:  # noqa: BLE001 — ремонт не должен ронять задание
         print(f'cut_alien_debris пропущен: {type(e).__name__} {str(e)[:80]}', flush=True)
 
@@ -182,6 +218,8 @@ def cut_base_slab(glb_path: str, role: str | None = None) -> None:
         lo, hi = V.min(axis=0), V.max(axis=0)
         ext = np.maximum(hi - lo, 1e-6)
         drop = np.zeros(len(F), bool)
+        up = 1                       # каноническая ось GLB — Y; перебор осей срезал бы
+        others = [0, 2]              # заднюю/боковую панель как «пол» (Codex q26)
         for lab in np.unique(labels):
             sel = labels == lab
             if sel.all():
@@ -189,30 +227,24 @@ def cut_base_slab(glb_path: str, role: str | None = None) -> None:
             pts = V[F[sel].ravel()]
             b0, b1 = pts.min(axis=0), pts.max(axis=0)
             frac = (b1 - b0) / ext
-            for up in range(3):
-                others = [a for a in range(3) if a != up]
-                thin = frac[up] < 0.05
-                at_edge = (b0[up] - lo[up]) / ext[up] < 0.07   # плита о двух слоях: верхний чуть выше
-                wide = frac[others[0]] > 0.8 and frac[others[1]] > 0.8
-                if thin and at_edge and wide:
-                    drop |= sel
-                    break
+            thin = frac[up] < 0.05
+            at_edge = (b0[up] - lo[up]) / ext[up] < 0.07   # плита о двух слоях: верхний чуть выше
+            wide = frac[others[0]] > 0.8 and frac[others[1]] > 0.8
+            if thin and at_edge and wide:
+                drop |= sel
         # второй проход: крошка от плиты — мелкие компоненты, ЦЕЛИКОМ лежащие в нижних 6%
         # (ножки не задевает: их компонент тянется вверх и в зону целиком не попадает)
         if drop.any():
-            keep_lo = lo.copy()
-            for up in range(3):
-                zone = lo[up] + 0.06 * ext[up]
-                for lab in np.unique(labels):
-                    sel = labels == lab
-                    if sel.all() or drop[sel].all():
-                        continue
-                    pts = V[F[sel].ravel()]
-                    if pts[:, up].max() < zone and (pts[:, up].min() - lo[up]) / ext[up] < 0.04:
-                        span_frac = (pts.max(axis=0) - pts.min(axis=0)) / ext
-                        others = [a for a in range(3) if a != up]
-                        if span_frac[others[0]] < 0.5 and span_frac[others[1]] < 0.5:
-                            drop |= sel
+            zone = lo[up] + 0.06 * ext[up]
+            for lab in np.unique(labels):
+                sel = labels == lab
+                if sel.all() or drop[sel].all():
+                    continue
+                pts = V[F[sel].ravel()]
+                if pts[:, up].max() < zone and (pts[:, up].min() - lo[up]) / ext[up] < 0.04:
+                    span_frac = (pts.max(axis=0) - pts.min(axis=0)) / ext
+                    if span_frac[others[0]] < 0.5 and span_frac[others[1]] < 0.5:
+                        drop |= sel
         if drop.any() and not drop.all():
             m.update_faces(~drop)
             m.remove_unreferenced_vertices()
@@ -248,6 +280,12 @@ def generate(image, out_dir: str, seed: int = 0, params: dict | None = None,
 
     raw_glb = os.path.join(out_dir, 'shape.glb')
     mesh.export(raw_glb)
+    # РЕМОНТ И ГЕЙТЫ ДО ПОКРАСКИ (Codex q26): плита режется на форме — краска ляжет на
+    # чистую геометрию, а брак формы не тратит paint-стадию (это половина времени задания).
+    cut_base_slab(raw_glb, role)
+    flat = flat_shape(raw_glb, params or {})
+    if flat:
+        raise FlatShape(flat)
 
     if STAGED:
         _unload('shape')          # ← ради этой строки вся конструкция и затевалась
@@ -268,8 +306,7 @@ def generate(image, out_dir: str, seed: int = 0, params: dict | None = None,
         ok = convert_obj_to_glb(painted, final_glb)
         if not ok or not os.path.exists(final_glb) or os.path.getsize(final_glb) == 0:
             raise RuntimeError('OBJ→GLB конвертация не удалась')
-        cut_base_slab(final_glb, role)
-        cut_alien_debris(final_glb)
+        cut_alien_debris(final_glb)   # только пометка suspect (автосрез под флагом)
     elif isinstance(painted, str):
         os.replace(painted, final_glb)
     else:

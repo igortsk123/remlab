@@ -68,6 +68,10 @@ def main() -> None:
             continue
         man = json.load(open(mp, encoding='utf-8'))
         role = man.get('role')
+        gen = os.path.join(d, 'model.generated.glb')
+        if not os.path.exists(gen):
+            import shutil
+            shutil.copy(glb, gen)          # неизменяемый «до ремонта» — для отката и сверки
         before = os.path.getsize(glb)
         P.cut_base_slab(glb, role)
         P.cut_alien_debris(glb)
@@ -82,6 +86,9 @@ def main() -> None:
             print(f'  despeckle пропущен: {str(e)[:80]}')
         if os.path.getsize(glb) != before:
             fixed += 1
+            json.dump({'ops': ['slab', 'despeckle'], 'bytes_before': before,
+                       'bytes_after': os.path.getsize(glb)},
+                      open(os.path.join(d, 'repair.json'), 'w'))
             print(f'  починен: {os.path.basename(os.path.dirname(d))} ({role})')
         status = accept(d, man)
         verdicts[man['sku']] = status

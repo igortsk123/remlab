@@ -143,6 +143,11 @@ def generate(job: dict):
         # и результат разойдётся с тем, что мы проверили на дев-машине.
         shape_img, paint_img, cut_rgba, input_hash, mask_info = PRE.prepare(
             job['image_url'], role=job.get('role'))
+    except P.FlatShape as e:
+        # Форма — доска: покраска НЕ запускалась, оплачена только дешёвая стадия формы.
+        # Лечится другим seed (внешняя волна), дважды доска → фото без глубины, товар на замену.
+        STATE['flat_shape'] = STATE.get('flat_shape', 0) + 1
+        return {'sku': sku, 'status': 'flat_shape', 'error': str(e)[:200]}
     except PRE.BadCutout as e:
         # Отдельный статус: это не сбой ноды и не мёртвое фото, а брак ВЫРЕЗКИ. Такие товары
         # надо видеть списком — они лечатся другой вырезкой, а не повтором генерации.
@@ -165,6 +170,8 @@ def generate(job: dict):
         # PNG держит альфу — именно она и есть маска товара для генератора (ADR-0133).
         shape_img.save(os.path.join(work, 'input.png'))          # что видит стадия формы
         cut_rgba.save(os.path.join(work, 'cutout.png'))          # вырезка с альфой — на просмотр
+        params['_dims'] = job.get('dims_cm') or {}
+        params['_square_role'] = job.get('role') in ('кашпо', 'ваза', 'торшер', 'лампа', 'пуф')
         res = P.generate(shape_img, work, seed=seed, params=params, paint_image=paint_img,
                          role=job.get('role'))
 
