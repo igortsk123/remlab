@@ -101,10 +101,10 @@ def main() -> None:
                 os.remove(rep)                        # нечего чинить — копию не плодим
         status = accept(d, man)
         verdicts[man['sku']] = status
+        seed = int(man.get('seed') or 0)
         json.dump({'status': status,
                    'manual_repair_candidate': bool(status in ('generated', 'geometry_valid') and seed >= 1)},
                   open(os.path.join(d, 'verdict.json'), 'w'))
-        seed = int(man.get('seed') or 0)
         # Codex q27: один reseed; повторилась та же сигнатура — вручную/замена, второй
         # перегон жжёт GPU без шансов (seed-стабильные дефекты: пара на фото, плита у цоколя).
         if status in ('generated', 'geometry_valid') and seed < 1:
