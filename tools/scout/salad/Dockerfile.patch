@@ -14,4 +14,9 @@ FROM ${BASE}
 # kornia нужен remote-коду BiRefNet (вырезка), у апстрима Hunyuan его нет. Ставим БЕЗ
 # зависимостей: обычная установка потянула бы другой torch и молча сломала бы пайплайн.
 RUN pip install --no-deps kornia==0.7.4 kornia_rs==0.1.8 &&     python -c "import kornia, torch; assert torch.__version__.startswith('2.5.1'), torch.__version__; print('kornia', kornia.__version__, '| torch не тронут')"
+# Ускоритель закачки весов: платная фаза прогрева (веса на running-ноде) сжимается с
+# 10–30 мин до ~3–5 (владелец 30.08: «сократить прогревы»). Полный BAKE_WEIGHTS=1
+# требует ~60 ГБ диска на сборочной машине — отложен до расширения диска.
+RUN pip install --no-deps hf_transfer==0.1.8 &&     python -c "import hf_transfer; print('hf_transfer ok')"
+ENV HF_HUB_ENABLE_HF_TRANSFER=1
 COPY *.py /app/
