@@ -146,7 +146,18 @@ def _paint_crop(rgba: Image.Image, margin: float = 0.18) -> Image.Image:
     pad = int(max(ys.max() - ys.min(), xs.max() - xs.min()) * margin)
     box = (max(0, int(xs.min()) - pad), max(0, int(ys.min()) - pad),
            min(w, int(xs.max()) + pad + 1), min(h, int(ys.max()) + pad + 1))
-    return rgba.crop(box)
+    crop = rgba.crop(box)
+    # ПОДЛОЖКА — ДОМИНАНТНЫЙ ЦВЕТ ТОВАРА, не белая. Покраска не достаёт до складок и стыков
+    # развёртки, и недокрашенные текселя остаются цвета подложки: на белой это крапинки
+    # (диван 114667, владелец 30.08), на доминантной — сливаются с обивкой. Швы UV подтекают
+    # тем же цветом. Профилактика причины; чистка текстуры остаётся страховкой.
+    arr = np.asarray(crop).astype(np.float32)
+    al = arr[..., 3:4] / 255.0
+    opaque = arr[al[..., 0] > 0.6]
+    dom = tuple(int(x) for x in np.median(opaque[:, :3], axis=0)) if len(opaque) else (255, 255, 255)
+    bg = Image.new('RGBA', crop.size, dom + (255,))
+    bg.alpha_composite(crop)
+    return bg
 
 
 def _cut_chain(image_url: str, role: str | None = None) -> tuple[Image.Image, Image.Image, str, dict]:

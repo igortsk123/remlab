@@ -71,6 +71,15 @@ def main() -> None:
         before = os.path.getsize(glb)
         P.cut_base_slab(glb, role)
         P.cut_alien_debris(glb)
+        try:
+            import importlib.util as _il
+            _sp = _il.spec_from_file_location('tf', os.path.join(HERE, 'texture_fix.py'))
+            _tf = _il.module_from_spec(_sp); _sp.loader.exec_module(_tf)
+            n = _tf.despeckle_glb(glb)
+            if n:
+                print(f'  текстура: закрашено {n} px крапинок')
+        except Exception as e:  # noqa: BLE001 — страховка не должна валить конвейер
+            print(f'  despeckle пропущен: {str(e)[:80]}')
         if os.path.getsize(glb) != before:
             fixed += 1
             print(f'  починен: {os.path.basename(os.path.dirname(d))} ({role})')
