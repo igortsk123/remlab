@@ -69,6 +69,8 @@ def main():
         sku = j['sku'].replace(':', '_')
         if sku in seen or j.get('strata', {}).get('source') == 'fixphoto':
             continue
+        if j.get('role') != 'стул':   # ТОЛЬКО стулья — просьба владельца; люстра-коллаж 30.08 попала самовольно
+            continue
         seen.add(sku)
         try:
             img = fetch(j['image_url'])
