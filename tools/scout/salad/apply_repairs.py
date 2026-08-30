@@ -169,6 +169,16 @@ def main() -> None:
                 stale = (json.load(open(rj)).get('repair_version') or 0) < REPAIR_VERSION
             except Exception:  # noqa: BLE001
                 stale = True
+        vj = os.path.join(d, 'verdict.json')
+        if not stale and os.path.exists(vj) and \
+                os.path.getmtime(vj) >= os.path.getmtime(rep if os.path.exists(rep) else glb):
+            # приёмка кэширована: ремонт актуален и вердикт свежее меша — цикл не жуёт
+            # старое заново (45-минутные Terminated на 44 каталогах, 30.08)
+            try:
+                verdicts[man['sku']] = json.load(open(vj)).get('status') or 'generated'
+                continue
+            except Exception:  # noqa: BLE001
+                pass
         if stale:
             import shutil
             shutil.copy(glb, rep)                     # ремонт — только над копией
