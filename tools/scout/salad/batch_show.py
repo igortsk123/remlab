@@ -82,7 +82,7 @@ def main():
                           ('ремонт', f'{PY} {HERE}/apply_repairs.py'),
                           ('галерея', f'GALLERY_SRC=$HOME/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2 {PY} {HERE}/gallery_build.py'),
                           ('публикую', f'scp -P 22222 -o BatchMode=yes -r $HOME/scout-scenes/mesh-pilot-gallery/* root@89.167.127.0:/opt/remlab/test/mesh-pilot10/')):
-            c, o = sh(cmd, timeout=900)
+            c, o = sh(cmd, timeout=2700)
             print(f'  {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
         print(f'== показано {done}/{total} — страница обновлена ==', flush=True)
 
@@ -101,7 +101,7 @@ def main():
                               ('ремонт', f'{PY} {HERE}/apply_repairs.py'),
                               ('галерея', f'GALLERY_SRC=$HOME/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2 {PY} {HERE}/gallery_build.py'),
                               ('публикую', f'scp -P 22222 -o BatchMode=yes -r $HOME/scout-scenes/mesh-pilot-gallery/* root@89.167.127.0:/opt/remlab/test/mesh-pilot10/')):
-                c, o = sh(cmd, timeout=900)
+                c, o = sh(cmd, timeout=2700)
                 print(f'  {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
 
     # сервер чистим ОДИН раз в конце: в цикле drain --keep, иначе умирает кэш «уже сделано»
