@@ -35,7 +35,13 @@ def main():
     done = json.load(open(DONE))['done'] if os.path.exists(DONE) else 0
     print(f'план {total}, уже пройдено {done}, пачка {batch}', flush=True)
 
+    PAUSE = os.path.expanduser('~/scout-scenes/mesh-batch.PAUSE')
     while done < total:
+        if os.path.exists(PAUSE):
+            # Пауза владельца: глушим группу (деньги!) и выходим. Продолжение — удалить файл
+            # и перезапустить: сделанное вернётся как cached, перегона не будет.
+            print('ПАУЗА (файл mesh-batch.PAUSE) — гашу группу и выхожу', flush=True)
+            break
         n = min(batch, total - done)
         # ssh_run сам берёт первые limit заданий; сделанные вернутся как cached мгновенно —
         # поэтому просто наращиваем limit, а не режем список (проще и идемпотентно)

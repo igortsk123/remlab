@@ -62,17 +62,9 @@ def build() -> str:
         cards.append(f"""
 <div class="card">
   <h3>{html.escape(m.get('role') or '?')} <span class="sku">{r['sku']}</span></h3>
-  <div class="tri">
-    <figure><img src="{r['sku']}/input.png" loading="lazy"><figcaption>вход генератора</figcaption></figure>
-    <figure class="checker"><img src="{r['sku']}/cutout.png" loading="lazy"><figcaption>вырезка (гибрид)</figcaption></figure>
-    <figure><model-viewer src="{r['sku']}/model.glb" camera-controls auto-rotate shadow-intensity="1"
-      style="width:100%;height:280px;background:#f4f4f2"></model-viewer>
-      <figcaption>меш — крутится мышью</figcaption></figure>
-  </div>
-  <p class="meta">форма {t.get('shape')}с · покраска {t.get('paint')}с · всего {t.get('total')}с ·
-     VRAM пик {(m.get('gpu') or {}).get('paint_gb')} ГБ ·
-     маска: возвращено {mask.get('restored_px')} px, фон {'ровный' if mask.get('uniform_bg') else 'сцена'} ·
-     приёмка: <b>{p['status']}</b> · трис {p.get('tris')} · {p.get('size_mb')} МБ</p>
+  <model-viewer src="{r['sku']}/model.glb" camera-controls auto-rotate shadow-intensity="1"
+    style="width:100%;height:340px;background:#f4f4f2;border-radius:6px"></model-viewer>
+  <p class="meta">{t.get('total')}с · приёмка: <b>{p['status']}</b> · {p.get('tris')} трис · {p.get('size_mb')} МБ</p>
   {f'<ul class="probs">{probs}</ul>' if probs else ''}
 </div>""")
 
@@ -84,17 +76,14 @@ def build() -> str:
  body{{font:15px/1.5 system-ui;margin:24px;background:#fafaf8;color:#1c1c1a}}
  h1{{font-size:22px}} .card{{background:#fff;border:1px solid #e5e5e0;border-radius:10px;
  padding:16px;margin:18px 0;max-width:1180px}}
- .tri{{display:grid;grid-template-columns:1fr 1fr 1.2fr;gap:14px;align-items:start}}
- figure{{margin:0}} img{{max-width:100%;border-radius:6px}}
- .checker img{{background:url({CHECKER});background-size:16px 16px}}
- figcaption{{font-size:12px;color:#666;margin-top:4px}}
+ .card{{display:inline-block;width:360px;vertical-align:top;margin:9px}}
  .sku{{font-size:12px;color:#999;font-weight:400}} .meta{{font-size:13px;color:#444}}
  .probs{{font-size:13px;color:#a33;margin:4px 0 0 18px}}
  @media(max-width:900px){{.tri{{grid-template-columns:1fr}}}}
 </style></head><body>
 <h1>Пилот 3D-мешей: Hunyuan3D 2.1 на Salad — 10 товаров</h1>
 <p>Вырезка — наш гибрид поверх BiRefNet (клетка = прозрачность). Меш вертится мышью;
-автоповорот выключается кликом. Свежие пачки — СВЕРХУ. Правки говорите в чат по ходу — параметры меняются между пачками.</p>
+автоповорот выключается кликом. Только 3D-модели, свежие пачки СВЕРХУ, страница пополняется по 5. Нашли баг — скажите «пауза»: прогон встаёт, чиню, «продолжай» — едем дальше с места, готовое не пересчитывается.</p>
 {''.join(cards)}
 </body></html>"""
     os.makedirs(OUT, exist_ok=True)
