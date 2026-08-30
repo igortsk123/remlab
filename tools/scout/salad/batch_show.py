@@ -27,7 +27,26 @@ def sh(cmd, timeout=3600):
     return r.returncode, (r.stdout + r.stderr)[-1500:]
 
 
+def ensure_group_started():
+    """Группа на Salad может СОЗДАТЬСЯ остановленной (ловили дважды: pool5, mesh-run3) —
+    и ожидание тёплой ноды у выключенной группы длится вечно. Стартуем явно; 400 = уже
+    стартует, это не ошибка."""
+    import urllib.request
+    grp = os.environ.get('SALAD_GROUP', 'mesh-run3')
+    try:
+        req = urllib.request.Request(
+            f"https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers/{grp}/start",
+            data=b'', method='POST',
+            headers={'Salad-Api-Key': os.environ['SALAD_API_KEY'],
+                     'User-Agent': 'remlab-mesh/1.0'})
+        urllib.request.urlopen(req, timeout=60).read()
+        print(f'группа {grp}: start отправлен', flush=True)
+    except Exception as e:  # noqa: BLE001 — 400 «уже идёт» и сеть не должны валить конвейер
+        print(f'группа {grp}: start → {str(e)[:80]} (обычно уже запущена)', flush=True)
+
+
 def main():
+    ensure_group_started()
     batch = int(sys.argv[sys.argv.index('--batch') + 1]) if '--batch' in sys.argv else 5
     mx = int(sys.argv[sys.argv.index('--max') + 1]) if '--max' in sys.argv else None
     jobs = json.load(open(SAMPLE, encoding='utf-8'))['jobs']
