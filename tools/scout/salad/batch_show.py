@@ -53,6 +53,7 @@ def main():
         done += n
         json.dump({'done': done, 'at': time.time()}, open(DONE, 'w'))
         for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh'),
+                          ('ремонт', f'{PY} {HERE}/apply_repairs.py'),
                           ('галерея', f'GALLERY_SRC=$HOME/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2 {PY} {HERE}/gallery_build.py'),
                           ('публикую', f'scp -P 22222 -o BatchMode=yes -r $HOME/scout-scenes/mesh-pilot-gallery/* root@89.167.127.0:/opt/remlab/test/mesh-pilot10/')):
             c, o = sh(cmd, timeout=900)

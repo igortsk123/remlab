@@ -100,6 +100,62 @@ def _unload(name: str):
 SLAB_ROLES = {'кресло', 'стул', 'диван', 'кровать', 'банкетка', 'стол', 'стол обеденный'}
 
 
+def cut_alien_debris(glb_path: str) -> None:
+    """Срезает галлюцинации-обломки: кусок не в палитре товара, висящий у пола.
+
+    Диван 114667 (владелец 30.08): вырезка чистая, а у ножек белый мятый ком от генератора.
+    Уроки первой версии фильтра: (1) у texture-визуала нет цветов вершин — их надо ЗАПЕЧЬ
+    из текстуры по UV (`visual.to_color()`); (2) меш раздроблен на сотни кусков, «крупнейшее
+    тело» — не палитра: доминанту берём по ВСЕЙ поверхности, взвешенно по площади граней;
+    (3) ком бывает до ~7% граней — порог размера 8%, отбор делает цвет.
+    Обломок = кусок ≤8% граней, целиком в нижних 40% высоты, цвет дальше 90 от доминанты.
+    Тёмные ножки при тёмном корпусе — в палитре; белая мебель — доминанта белая, фильтр молчит.
+    """
+    import numpy as np
+    import trimesh
+    try:
+        sc = trimesh.load(glb_path)
+        mesh = sc.to_mesh() if hasattr(sc, 'to_mesh') else sc
+        if mesh.faces is None or len(mesh.faces) < 1000:
+            return
+        vis = getattr(mesh, 'visual', None)
+        if vis is None or getattr(vis, 'kind', None) != 'texture':
+            return
+        colored = vis.to_color()                     # запечь текстуру в цвета вершин по UV
+        vc = np.asarray(colored.vertex_colors)[:, :3].astype(np.float32)
+        V, F = np.asarray(mesh.vertices), np.asarray(mesh.faces)
+        labels = trimesh.graph.connected_component_labels(mesh.face_adjacency,
+                                                          node_count=len(F))
+        if labels.max() == 0:
+            return
+        area = np.asarray(mesh.area_faces, np.float64)
+        fcol = vc[F].mean(axis=1)                    # цвет грани = среднее по её вершинам
+        dominant = (fcol * area[:, None]).sum(axis=0) / max(area.sum(), 1e-9)
+        lo, hi = V.min(axis=0), V.max(axis=0)
+        up = 1                                        # GLB: вверх — Y
+        drop = np.zeros(len(F), bool)
+        import collections
+        counts = collections.Counter(labels.tolist())
+        main_lab = counts.most_common(1)[0][0]
+        for lab, cnt in counts.items():
+            if lab == main_lab or cnt / len(F) > 0.08:
+                continue
+            sel = labels == lab
+            pts = V[F[sel].ravel()]
+            low = (pts[:, up].max() - lo[up]) / max(hi[up] - lo[up], 1e-6) < 0.40
+            col = (fcol[sel] * area[sel, None]).sum(axis=0) / max(area[sel].sum(), 1e-9)
+            alien = float(np.linalg.norm(col - dominant)) > 90
+            if low and alien:
+                drop |= sel
+        if drop.any() and not drop.all():
+            mesh.update_faces(~drop)
+            mesh.remove_unreferenced_vertices()
+            mesh.export(glb_path)
+            print(f'срезаны обломки не в палитре: {int(drop.sum())} граней', flush=True)
+    except Exception as e:  # noqa: BLE001 — ремонт не должен ронять задание
+        print(f'cut_alien_debris пропущен: {type(e).__name__} {str(e)[:80]}', flush=True)
+
+
 def cut_base_slab(glb_path: str, role: str | None = None) -> None:
     """Срезает «пол», который генератор дорисовывает под предметом.
 
@@ -213,6 +269,7 @@ def generate(image, out_dir: str, seed: int = 0, params: dict | None = None,
         if not ok or not os.path.exists(final_glb) or os.path.getsize(final_glb) == 0:
             raise RuntimeError('OBJ→GLB конвертация не удалась')
         cut_base_slab(final_glb, role)
+        cut_alien_debris(final_glb)
     elif isinstance(painted, str):
         os.replace(painted, final_glb)
     else:
