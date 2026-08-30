@@ -153,11 +153,6 @@ def generate(job: dict):
         # и результат разойдётся с тем, что мы проверили на дев-машине.
         shape_img, paint_img, cut_rgba, input_hash, mask_info = PRE.prepare(
             job['image_url'], role=job.get('role'))
-    except P.FlatShape as e:
-        # Форма — доска: покраска НЕ запускалась, оплачена только дешёвая стадия формы.
-        # Лечится другим seed (внешняя волна), дважды доска → фото без глубины, товар на замену.
-        STATE['flat_shape'] = STATE.get('flat_shape', 0) + 1
-        return {'sku': sku, 'status': 'flat_shape', 'error': str(e)[:200]}
     except PRE.BadCutout as e:
         # Отдельный статус: это не сбой ноды и не мёртвое фото, а брак ВЫРЕЗКИ. Такие товары
         # надо видеть списком — они лечатся другой вырезкой, а не повтором генерации.
@@ -182,8 +177,29 @@ def generate(job: dict):
         cut_rgba.save(os.path.join(work, 'cutout.png'))          # вырезка с альфой — на просмотр
         params['_dims'] = job.get('dims_cm') or {}
         params['_square_role'] = job.get('role') in ('кашпо', 'ваза', 'торшер', 'лампа', 'пуф')
-        res = P.generate(shape_img, work, seed=seed, params=params, paint_image=paint_img,
-                         role=job.get('role'))
+        try:
+            res = P.generate(shape_img, work, seed=seed, params=params, paint_image=paint_img,
+                             role=job.get('role'))
+        except (P.FlatShape, P.SlabSuspect) as e:
+            # Codex q28: paint не тратим; shape-диагностика УЕЗЖАЕТ на приёмник до очистки
+            # каталога — иначе разбирать нечего. Дальше решает волна лечения (1 reseed).
+            status = 'flat_shape' if isinstance(e, P.FlatShape) else 'slab_suspect'
+            STATE[status] = STATE.get(status, 0) + 1
+            files = {'manifest.json': None}
+            man = M.asset_manifest({**job, 'seed': seed, 'params': params}, jid, input_hash,
+                                   {'shape_only': True}, {'gate': status})
+            man['gate_reason'] = str(e)[:200]
+            mp = os.path.join(work, 'manifest.json')
+            json.dump(man, open(mp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+            fs = {'manifest.json': mp}
+            sg = os.path.join(work, 'shape.glb')
+            if os.path.exists(sg):
+                fs['shape.glb'] = sg
+            try:
+                S.publish(prefix, fs, {'sku': sku, 'job_id': jid, 'status': status})
+            except Exception:  # noqa: BLE001 — диагностика вторична, статус важнее
+                pass
+            return {'sku': sku, 'status': status, 'job_id': jid, 'error': str(e)[:200]}
 
         files = {'model.glb': res['glb']}
         for name in ('albedo.png', 'orm.png', 'normal.png', 'shape.glb', 'cutout.png'):

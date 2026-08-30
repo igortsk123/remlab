@@ -73,6 +73,20 @@ def main() -> None:
         d = os.path.dirname(mp)
         glb = os.path.join(d, 'model.glb')
         if not os.path.exists(glb):
+            # suspect/flat: model нет, есть shape-диагностика — решаем перегон здесь же
+            man = json.load(open(mp, encoding='utf-8'))
+            st = (man.get('gpu') or {}).get('gate') or 'generated'
+            seed = int(man.get('seed') or 0)
+            verdicts[man['sku']] = st
+            if seed < 1:
+                key = (man['sku'], seed + 1)
+                if key not in seen:
+                    seen.add(key)
+                    inp = man.get('input') or {}
+                    reseed.append({'sku': man['sku'], 'role': man.get('role'),
+                                   'image_url': inp.get('image_url'),
+                                   'dims_cm': inp.get('dims_cm'), 'seed': seed + 1,
+                                   'params': {}})
             continue
         man = json.load(open(mp, encoding='utf-8'))
         role = man.get('role')

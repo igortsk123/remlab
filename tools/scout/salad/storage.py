@@ -23,7 +23,7 @@ import urllib.request
 BACKEND = os.environ.get('STORAGE_BACKEND', 'http')
 
 # Комплект ассета. Отсутствие любого из обязательных = задание НЕ выполнено.
-REQUIRED = ('model.glb', 'manifest.json')
+REQUIRED = ('manifest.json',)   # suspect-комплекты едут без model.glb (shape-диагностика)
 OPTIONAL = ('albedo.png', 'orm.png', 'normal.png', 'shape.glb', 'input.png')
 
 

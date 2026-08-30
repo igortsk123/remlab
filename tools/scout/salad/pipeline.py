@@ -106,6 +106,43 @@ class FlatShape(Exception):
     """Форма — плоская доска: покраску не запускаем, деньги на неё не тратим."""
 
 
+class SlabSuspect(Exception):
+    """Плита-«пол» у НЕсрезаемой роли (тумба/диван): покраску не тратим, решает перегон.
+
+    Codex q28: у тумб плита в 3/3 генераций, автосрез запрещён (цоколь неотличим) —
+    единственная экономия это не красить брак: paint — половина стоимости задания."""
+
+
+def slab_suspect(glb_path: str) -> str | None:
+    """Сигнатура плиты на shape.glb: отдельный компонент у низа по Y, тонкий и почти во весь
+    план. Только ДИАГНОЗ — ничего не режем."""
+    try:
+        import numpy as np
+        import trimesh
+        m = trimesh.load(glb_path, force='mesh')
+        if m.faces is None or len(m.faces) < 500:
+            return None
+        labels = trimesh.graph.connected_component_labels(m.face_adjacency,
+                                                          node_count=len(m.faces))
+        if labels.max() == 0:
+            return None
+        V, F = np.asarray(m.vertices), np.asarray(m.faces)
+        lo, hi = V.min(axis=0), V.max(axis=0)
+        ext = np.maximum(hi - lo, 1e-6)
+        for lab in np.unique(labels):
+            sel = labels == lab
+            if sel.all():
+                continue
+            pts = V[F[sel].ravel()]
+            b0, b1 = pts.min(axis=0), pts.max(axis=0)
+            fr = (b1 - b0) / ext
+            if fr[1] < 0.06 and (b0[1] - lo[1]) / ext[1] < 0.07 and fr[0] > 0.75 and fr[2] > 0.75:
+                return f'плита: {int(sel.sum())} граней, {fr[0]:.2f}x{fr[2]:.2f} плана'
+        return None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def flat_shape(glb_path: str, params: dict) -> str | None:
     """Дешёвый гейт до покраски: bbox формы против паспортной глубины (Codex q26, кейс D —
     кашпо-доска). Паспорт кладёт воркер в params['_dims']; d пустая у симметричных ролей
@@ -270,11 +307,14 @@ def generate(image, out_dir: str, seed: int = 0, params: dict | None = None,
 
     _free()
     t0 = time.time()
+    extra = {}
+    if p.get('mc_level') is not None:
+        extra['mc_level'] = float(p['mc_level'])      # A/B q28: изоуровень marching cubes
     mesh = shape_pipeline()(
         image=image, generator=generator,
         octree_resolution=p['octree_resolution'],
         num_inference_steps=p['num_inference_steps'],
-        guidance_scale=p['guidance_scale'])[0]
+        guidance_scale=p['guidance_scale'], **extra)[0]
     timings['shape'] = round(time.time() - t0, 1)
     peaks['shape_gb'] = _peak_gb()
 
@@ -286,6 +326,10 @@ def generate(image, out_dir: str, seed: int = 0, params: dict | None = None,
     flat = flat_shape(raw_glb, params or {})
     if flat:
         raise FlatShape(flat)
+    if role not in SLAB_ROLES:
+        sus = slab_suspect(raw_glb)
+        if sus:
+            raise SlabSuspect(sus)
 
     if STAGED:
         _unload('shape')          # ← ради этой строки вся конструкция и затевалась
