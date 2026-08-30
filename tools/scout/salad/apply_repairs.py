@@ -28,6 +28,42 @@ RESEED = os.path.join(HERE, '..', 'mesh-reseed.json')
 SQUARE_ROLES = {'кашпо', 'ваза', 'торшер', 'лампа', 'стол', 'пуф'}
 
 
+def slab_excess(glb: str, dims: dict | None, role: str | None) -> float | None:
+    """Идентификация лишней подложки метрикой владельца (30.08): footprint модели
+    против паспортного W×D. Возвращает коэффициент превышения (>1 — модель шире
+    товара) или None, когда паспорта/высоты нет и сравнивать не с чем.
+
+    Конвейер владельца: превышение >15% → статус не выше generated → переделка
+    (reseed); повторный брак → срез-кандидат + отметка на проверку человеком,
+    оригинал и обрезанный вариант сохраняются оба."""
+    d0 = dims or {}
+    w = d0.get('w') or d0.get('dia')
+    dd = d0.get('d') or (w if role in SQUARE_ROLES else None)
+    h = d0.get('h')
+    if not (w and h):
+        return None
+    try:
+        import numpy as np
+        import trimesh
+        m = trimesh.load(glb, force='mesh')
+        V = np.asarray(m.vertices)
+        lo, hi = V.min(axis=0), V.max(axis=0)
+        ext = np.maximum(hi - lo, 1e-6)
+        low = V[V[:, 1] < lo[1] + 0.10 * ext[1]]
+        if len(low) < 8:
+            return None
+        scale = float(ext[1]) / float(h)              # юниты меша на сантиметр
+        mx = float(np.ptp(low[:, 0])) / scale
+        mz = float(np.ptp(low[:, 2])) / scale
+        big, small = max(mx, mz), min(mx, mz)
+        ratios = [big / float(max(w, dd or w))]
+        if dd:
+            ratios.append(small / float(min(w, dd)))
+        return round(max(ratios), 3)
+    except Exception:  # noqa: BLE001 — метрика не должна ронять приёмку
+        return None
+
+
 def accept(d: str, man: dict) -> str:
     """Приёмка одного меша: геометрия + профиль по паспорту + PBR. Возвращает статус."""
     import mesh_gate as G
@@ -129,9 +165,14 @@ def main() -> None:
             else:
                 os.remove(rep)                        # нечего чинить — копию не плодим
         status = accept(d, man)
+        # метрика владельца: модель шире паспорта >15% — лишняя подложка, статус капится
+        excess = slab_excess(glb, (man.get('input') or {}).get('dims_cm'), role)
+        if excess and excess > 1.15 and status not in ('generated',):
+            status = 'generated'
+            print(f'  подложка сверх паспорта ×{excess}: {man["sku"]} → на переделку')
         verdicts[man['sku']] = status
         seed = int(man.get('seed') or 0)
-        json.dump({'status': status,
+        json.dump({'status': status, 'slab_excess': excess,
                    'manual_repair_candidate': bool(status in ('generated', 'geometry_valid') and seed >= 1)},
                   open(os.path.join(d, 'verdict.json'), 'w'))
         # Codex q27: один reseed; повторилась та же сигнатура — вручную/замена, второй
