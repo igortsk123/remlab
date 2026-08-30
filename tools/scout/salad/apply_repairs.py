@@ -147,12 +147,23 @@ def main() -> None:
                             print(f'  кромка закрашена: {npx} px')
                     except Exception as e:  # noqa: BLE001
                         print(f'  закраска кромки пропущена: {str(e)[:80]}')
+            if int(man.get('seed') or 0) >= 1:
+                # конвейер владельца (30.08): повторный брак → обрезку обломков включаем,
+                # кандидат идёт на согласование человеку (оригинал сохранён)
+                os.environ['ALIEN_CUT'] = '1'
             P.cut_alien_debris(rep)
+            os.environ.pop('ALIEN_CUT', None)
             try:
                 import importlib.util as _il
                 _sp = _il.spec_from_file_location('tf', os.path.join(HERE, 'texture_fix.py'))
                 _tf = _il.module_from_spec(_sp); _sp.loader.exec_module(_tf)
                 _tf.despeckle_glb(rep)
+                # цвет к фото (владелец 30.08) — по вырезке этой же версии
+                cut_p = os.path.join(d, 'cutout.png')
+                if os.path.exists(cut_p):
+                    de = _tf.match_photo_color(rep, cut_p)
+                    if de:
+                        print(f'  цвет к фото: ΔE {de}')
             except Exception as e:  # noqa: BLE001
                 print(f'  despeckle пропущен: {str(e)[:80]}')
             changed = os.path.getsize(rep) != before

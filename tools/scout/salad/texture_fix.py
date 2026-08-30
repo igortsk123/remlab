@@ -187,3 +187,96 @@ def repaint_cut_edge(glb_path: str, seam_frac: float = 0.08) -> int:
     g.set_binary_blob(bytes(blob))
     g.save(glb_path)
     return total
+
+
+def match_photo_color(glb_path: str, cutout_png: str) -> float:
+    """Цвет меша к цвету фото (владелец 30.08: «модель искажает цвета — сделай, если можно»).
+
+    Покраска Hunyuan уводит тон (синее→фиолетовое, матовое→глянцевый блик). Классический
+    перенос статистики Рейнхарда в LAB: хром (a, b) текстуры приводится к хрому вырезки
+    полностью, светлота — только средним и вполсилы (запечённые тени/блики не трогаем).
+    Сдвиг каждого канала ограничен, при малом расхождении (ΔE<6) не делаем ничего.
+    Возвращает применённый средний сдвиг ΔE (0 — не трогали)."""
+    import cv2
+    from pygltflib import GLTF2
+    cut = np.asarray(Image.open(cutout_png).convert('RGBA')).astype(np.float32)
+    m = cut[..., 3] > 150
+    if m.sum() < 500:
+        return 0.0
+    photo_lab = cv2.cvtColor(cut[..., :3].astype(np.uint8), cv2.COLOR_RGB2LAB).astype(np.float32)
+    pm, ps = photo_lab[m].mean(axis=0), photo_lab[m].std(axis=0) + 1e-3
+    g = GLTF2().load(glb_path)
+    base_idx = set()
+    for mat in g.materials or []:
+        pmr = getattr(mat, 'pbrMetallicRoughness', None)
+        bct = getattr(pmr, 'baseColorTexture', None) if pmr else None
+        if bct is not None and bct.index is not None:
+            src = g.textures[bct.index].source
+            if src is not None:
+                base_idx.add(src)
+    import base64
+    blob = g.binary_blob()
+    new_chunks = {}
+    data_uris = {}
+    applied = 0.0
+    for idx, img in enumerate(g.images):
+        if idx not in base_idx:
+            continue
+        # конвертер покраски кладёт карты как data:URI, ножи (trimesh) — как bufferView;
+        # поддерживаем оба, иначе фикc молча пропускает свежие модели
+        raw = None
+        if img.bufferView is not None:
+            bv = g.bufferViews[img.bufferView]
+            raw = blob[bv.byteOffset:bv.byteOffset + bv.byteLength]
+        elif (img.uri or '').startswith('data:image'):
+            raw = base64.b64decode(img.uri.split(',', 1)[1])
+        if raw is None:
+            continue
+        try:
+            pil = Image.open(io.BytesIO(raw)).convert('RGB')
+        except Exception:  # noqa: BLE001
+            continue
+        a = np.asarray(pil).astype(np.uint8)
+        lab = cv2.cvtColor(a, cv2.COLOR_RGB2LAB).astype(np.float32)
+        tm = a.max(axis=2) > 15                          # пустоту развёртки не считаем
+        if tm.sum() < 500:
+            continue
+        tmean, tstd = lab[tm].mean(axis=0), lab[tm].std(axis=0) + 1e-3
+        de = float(np.linalg.norm(tmean - pm))
+        if de < 6:
+            continue
+        out = lab.copy()
+        for c, (w, cap, scale_std) in enumerate(((0.5, 18, False), (1.0, 22, True), (1.0, 22, True))):
+            shift = np.clip((pm[c] - tmean[c]) * w, -cap, cap)
+            ch = lab[..., c]
+            if scale_std:
+                k = float(np.clip(ps[c] / tstd[c], 0.6, 1.6))
+                out[..., c] = (ch - tmean[c]) * k + tmean[c] + shift
+            else:
+                out[..., c] = ch + shift
+        fixed = cv2.cvtColor(np.clip(out, 0, 255).astype(np.uint8), cv2.COLOR_LAB2RGB)
+        fixed = np.where(tm[..., None], fixed, a)
+        applied = de
+        buf = io.BytesIO()
+        Image.fromarray(fixed).save(buf, format='PNG')
+        if g.images[idx].bufferView is not None:
+            new_chunks[idx] = buf.getvalue()
+        else:
+            data_uris[idx] = buf.getvalue()
+    if not new_chunks and not data_uris:
+        return 0.0
+    for idx, data in data_uris.items():
+        g.images[idx].uri = 'data:image/png;base64,' + base64.b64encode(data).decode()
+    if new_chunks:
+        blob = bytearray(blob)
+        for idx, data in new_chunks.items():
+            bv = g.bufferViews[g.images[idx].bufferView]
+            blob.extend(b'\x00' * ((4 - len(blob) % 4) % 4))
+            off = len(blob)
+            blob.extend(data)
+            bv.byteOffset, bv.byteLength = off, len(data)
+            g.images[idx].mimeType = 'image/png'
+        g.buffers[0].byteLength = len(blob)
+        g.set_binary_blob(bytes(blob))
+    g.save(glb_path)
+    return round(applied, 1)

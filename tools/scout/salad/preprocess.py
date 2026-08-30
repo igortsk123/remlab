@@ -243,6 +243,10 @@ def _cut_chain(image_url: str, role: str | None = None) -> tuple[Image.Image, Im
     cleaned, comp = components.clean(a)
     cleaned, holes = components.fill_holes_unlike_bg(cleaned, np.asarray(src), role=role)
     comp.update(holes)
+    # хвосты, прилипшие тонкой перемычкой (артефакт у пола → обломок-призрак в меше);
+    # внутри белый список массивных ролей и нижняя зона — люстры/тонкое не трогаются
+    cleaned, att = components.prune_attached(cleaned, role=role)
+    comp.update(att)
     mask_info['components'] = comp
     refined = Image.fromarray(
         np.dstack([np.asarray(refined)[..., :3],

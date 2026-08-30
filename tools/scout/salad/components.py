@@ -118,3 +118,68 @@ def clean(alpha, thr=0.5):
     rep['dropped_share'] = round(float(dropped / max(fg.sum(), 1)), 4)
     rep['suspect'] = rep['dropped_share'] > SUSPECT_SHARE
     return out, rep
+
+
+# Роли для среза прилипших хвостов: массивные мягкие, у которых тонкая структура — не
+# природа предмета. Люстры/торшеры/стеллажи/столы НЕ включать (владелец 30.08: «не
+# почикай тонкие элементы, лучше не делать, если риск»): у люстры потолочный диск на
+# тонкой штанге при открытии уцелел бы отдельным куском и был бы отрезан.
+ATTACHED_PRUNE_ROLES = {'диван', 'кровать', 'кресло', 'банкетка', 'пуф'}
+
+
+def prune_attached(alpha, role=None, thr=0.5, bridge_px=4,
+                   max_cut_share=0.08, min_open_share=0.60):
+    """Хвосты, ПРИЛИПШИЕ к товару тонкой перемычкой (тень/артефакт у пола) — `clean`
+    их не видит: компонент один. Подтверждено владельцем 30.08: артефакт у ножки на
+    фото дивана 114667_514… дал белый обломок-призрак в меше.
+
+    Механика: морфологическое открытие рвёт перемычки тоньше bridge_px; каждый пиксель
+    маски приписывается к БЛИЖАЙШЕМУ уцелевшему куску — тонкие детали товара (ножки),
+    стёртые открытием, приписываются обратно к телу (они к нему ближе всего). Куски,
+    приписанные не к главному телу, отрезаются.
+
+    Пояса безопасности (владелец: «если риск — лучше не делать»):
+    1) только роли из ATTACHED_PRUNE_ROLES (белый список массивных);
+    2) срезается только кусок ЦЕЛИКОМ в нижних 40% bbox маски (артефакты пола/тени);
+    3) открытая маска <60% исходной (весь предмет тонкий) — не трогаем ничего;
+    4) суммарный срез >8% маски — не трогаем ничего.
+    """
+    import numpy as np
+    from scipy import ndimage
+    base = (role or '').split()[0] if role else ''
+    if base not in ATTACHED_PRUNE_ROLES:
+        return alpha, {}
+    fg = alpha > thr
+    if fg.sum() < 400:
+        return alpha, {}
+    k = np.ones((3, 3), bool)
+    opened = ndimage.binary_erosion(fg, k, iterations=bridge_px)
+    opened = ndimage.binary_dilation(opened, k, iterations=bridge_px) & fg
+    if opened.sum() < min_open_share * fg.sum():
+        return alpha, {'attached_skip': 'open_share'}
+    lab, n = ndimage.label(opened)
+    if n < 2:
+        return alpha, {}
+    sizes = np.bincount(lab.ravel())[1:]
+    main_i = int(np.argmax(sizes)) + 1
+    _, (ni, nj) = ndimage.distance_transform_edt(lab == 0, return_indices=True)
+    owner = lab[ni, nj]
+    ys, xs = np.where(fg)
+    y_lo = ys.min() + 0.60 * (ys.max() - ys.min())     # нижние 40% bbox маски
+    cut = np.zeros_like(fg)
+    pruned = 0
+    for i in range(1, n + 1):
+        if i == main_i:
+            continue
+        piece = fg & (owner == i)
+        if not piece.any():
+            continue
+        if np.where(piece)[0].min() < y_lo:            # выше нижней зоны — не трогаем
+            continue
+        cut |= piece
+        pruned += 1
+    share = float(cut.sum()) / float(fg.sum())
+    if not cut.any() or share > max_cut_share:
+        return alpha, {'attached_skip': 'cut_share', 'attached_share': round(share, 4)}
+    return np.where(cut, 0.0, alpha), {'attached_pruned': pruned,
+                                       'attached_share': round(share, 4)}
