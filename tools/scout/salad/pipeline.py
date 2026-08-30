@@ -113,9 +113,93 @@ class SlabSuspect(Exception):
     единственная экономия это не красить брак: paint — половина стоимости задания."""
 
 
+def crop_beyond_passport(glb_path: str, dims: dict | None, role: str | None = None) -> int:
+    """Срез нижнего слоя ЗА ПАСПОРТНЫМ ГАБАРИТОМ. Идея владельца (30.08): размеры мебели
+    известны — всё, что в приполе торчит за w×d, артефакт по определению.
+
+    Почему это надёжнее компонентных эвристик: у дивана 112923:2709998655179041129 плита
+    слита с телом и сама задаёт bbox — «выступов относительно тела» ноль, а относительно
+    паспорта они есть. Дно тумбы лежит ВНУТРИ габарита — не тронется (3/3 годных по
+    владельцу). Масштаб берём по высоте (Y меша ↔ паспортная h), центр плана — по геометрии
+    ВЫШЕ припола (иначе плита сама сдвинет центр). Режем только нижние 8% высоты и только
+    грани, целиком вылезшие за габарит с допуском 7%.
+    """
+    d0 = dims or {}
+    w, d, h = d0.get('w') or d0.get('dia'), d0.get('d') or d0.get('dia'), d0.get('h')
+    if not (w and d and h):
+        return 0
+    try:
+        import numpy as np
+        import trimesh
+        m = trimesh.load(glb_path, force='mesh')
+        if m.faces is None or len(m.faces) < 500:
+            return 0
+        V, F = np.asarray(m.vertices), np.asarray(m.faces)
+        lo, hi = V.min(axis=0), V.max(axis=0)
+        ext = np.maximum(hi - lo, 1e-6)
+        # ГРАНИЦА ПЛИТЫ — ПО СКАЧКУ ТОЛЩИНЫ (владелец 30.08): плита — тонкий широкий слой,
+        # над ним сечение резко сужается к телу; этот переход и есть верх плиты. Профиль —
+        # площадь XZ-обвода по 40 срезам высоты; ищем в нижних 20% максимальный спад ≥1.6х.
+        # Не нашли перехода — консервативный потолок 8%. Паспорт дальше — перепроверка.
+        centers = fv0 = None
+        bins = 40
+        ys = (V[:, 1] - lo[1]) / ext[1]
+        prof = np.zeros(bins)
+        for i in range(bins):
+            sel = (ys >= i / bins) & (ys < (i + 1) / bins)
+            if sel.sum() >= 8:
+                pts2 = V[sel]
+                prof[i] = float((pts2[:, 0].max() - pts2[:, 0].min()) *
+                                (pts2[:, 2].max() - pts2[:, 2].min()))
+        band_frac = None                      # владелец: паспорт сам по себе — не нож.
+        limit = max(2, int(bins * 0.20))      # Нет явного перехода толщины — НЕ РЕЖЕМ вовсе:
+        for i in range(limit):                # лучше плита в перегон, чем задетый диван.
+            a, b = prof[i], prof[i + 1] if i + 1 < bins else 0
+            if a > 0 and b > 0 and a / b >= 1.6:
+                band_frac = (i + 1) / bins
+                break
+        if band_frac is None:
+            return 0
+        scale = ext[1] / float(h)
+        half = {0: float(max(w, d)) * scale / 2 * 1.07,
+                2: float(min(w, d)) * scale / 2 * 1.07}
+        # какая ось меша длиннее — той и отдаём большую паспортную сторону
+        if ext[2] > ext[0]:
+            half = {0: half[2], 2: half[0]}
+        band = lo[1] + band_frac * ext[1]
+        above = V[F[(V[F][:, :, 1].min(axis=1) > band)].ravel()]
+        if not len(above):
+            return 0
+        cx, cz = float(np.median(above[:, 0])), float(np.median(above[:, 2]))
+        fv = V[F]                                    # (nF,3,3)
+        in_band = fv[:, :, 1].max(axis=1) < band
+        out_x = np.minimum(np.abs(fv[:, :, 0] - cx).min(axis=1), 1e9) > half[0]
+        out_z = np.minimum(np.abs(fv[:, :, 2] - cz).min(axis=1), 1e9) > half[2]
+        beyond = (np.abs(fv[:, :, 0] - cx) > half[0]).all(axis=1) |                  (np.abs(fv[:, :, 2] - cz) > half[2]).all(axis=1)
+        drop = in_band & beyond
+        af = np.asarray(m.area_faces, np.float64)
+        # потолок — по ПЛОЩАДИ, не по числу граней: тонкая плита тесселирована плотно и по
+        # граням «весит» больше, чем по поверхности (диван 2709: 42% граней, но плита)
+        if af[drop].sum() > 0.60 * af.sum():   # плита двуслойная и огромная — до 60% поверхности
+            return 0
+        if drop.any() and not drop.all():
+            m.update_faces(~drop)
+            m.remove_unreferenced_vertices()
+            m.export(glb_path)
+            return int(drop.sum())
+        return 0
+    except Exception:  # noqa: BLE001 — ремонт не должен ронять задание
+        return 0
+
+
 def slab_suspect(glb_path: str) -> str | None:
-    """Сигнатура плиты на shape.glb: отдельный компонент у низа по Y, тонкий и почти во весь
-    план. Только ДИАГНОЗ — ничего не режем."""
+    """Плита-АРТЕФАКТ на shape.glb: отдельный нижний компонент, ВЫХОДЯЩИЙ ЗА ГАБАРИТ тела.
+
+    Разделитель дал владелец (30.08), и он же спас от массового ложного гейта: у тумбы
+    «плита» — это аккуратное ДНО и лежит ВНУТРИ габарита корпуса (3/3 тумбы годные!);
+    артефакт у дивана ТОРЧИТ за границы. Меряем выступ компонента за footprint остальной
+    геометрии по X/Z: выступает заметно хотя бы с двух сторон — подозрение. Только диагноз.
+    """
     try:
         import numpy as np
         import trimesh
@@ -136,34 +220,19 @@ def slab_suspect(glb_path: str) -> str | None:
             pts = V[F[sel].ravel()]
             b0, b1 = pts.min(axis=0), pts.max(axis=0)
             fr = (b1 - b0) / ext
-            if fr[1] < 0.06 and (b0[1] - lo[1]) / ext[1] < 0.07 and fr[0] > 0.75 and fr[2] > 0.75:
-                return f'плита: {int(sel.sum())} граней, {fr[0]:.2f}x{fr[2]:.2f} плана'
+            thin_low = fr[1] < 0.06 and (b0[1] - lo[1]) / ext[1] < 0.07
+            if not (thin_low and fr[0] > 0.6 and fr[2] > 0.6):
+                continue
+            rest = V[F[~sel].ravel()]
+            r0, r1 = rest.min(axis=0), rest.max(axis=0)
+            over = [max(0.0, float(r0[a] - b0[a])) / ext[a] for a in (0, 2)] +                    [max(0.0, float(b1[a] - r1[a])) / ext[a] for a in (0, 2)]
+            sides = sum(1 for o in over if o > 0.025)
+            if sides >= 2:
+                return (f'плита торчит за габарит: выступы '
+                        f'{[round(o, 3) for o in over]}, граней {int(sel.sum())}')
         return None
     except Exception:  # noqa: BLE001
         return None
-
-
-def flat_shape(glb_path: str, params: dict) -> str | None:
-    """Дешёвый гейт до покраски: bbox формы против паспортной глубины (Codex q26, кейс D —
-    кашпо-доска). Паспорт кладёт воркер в params['_dims']; d пустая у симметричных ролей
-    подставляется = w. Нет паспорта — молчим (гейт не гадает)."""
-    dims = params.get('_dims') or {}
-    w = dims.get('w') or dims.get('dia')
-    d = dims.get('d') or (w if params.get('_square_role') else None)
-    if not (w and d):
-        return None
-    try:
-        import numpy as np
-        import trimesh
-        m = trimesh.load(glb_path, force='mesh')
-        ext = np.sort(np.asarray(m.extents))          # тонкая, средняя, длинная стороны
-        got = float(ext[0] / max(ext[2], 1e-6))
-        want = float(min(w, d) / max(max(w, d), 1e-6))
-        if got < want * 0.45:
-            return f'плоская форма: тонкая/длинная {got:.2f} при паспортных {want:.2f}'
-    except Exception:  # noqa: BLE001 — гейт не должен ронять задание
-        return None
-    return None
 
 
 def cut_alien_debris(glb_path: str) -> None:
@@ -320,13 +389,22 @@ def generate(image, out_dir: str, seed: int = 0, params: dict | None = None,
 
     raw_glb = os.path.join(out_dir, 'shape.glb')
     mesh.export(raw_glb)
+    import shutil
+    shutil.copy(raw_glb, os.path.join(out_dir, 'shape.generated.glb'))  # бэкап ДО ножей
     # РЕМОНТ И ГЕЙТЫ ДО ПОКРАСКИ (Codex q26): плита режется на форме — краска ляжет на
     # чистую геометрию, а брак формы не тратит paint-стадию (это половина времени задания).
     cut_base_slab(raw_glb, role)
+    # ТОЛЬКО диваны/кровати (владелец 30.08: тумбы годные, их дно резак ЗАДЕВАЛ на тесте —
+    # генератор строит корпус чуть шире паспорта, и кромка законного дна попадала «за габарит»)
+    if role in ('диван', 'кровать', 'банкетка'):
+        ncut = crop_beyond_passport(raw_glb, (params or {}).get('_dims'), role)
+        if ncut:
+            print(f'припол за паспортом срезан: {ncut} граней', flush=True)
     flat = flat_shape(raw_glb, params or {})
     if flat:
         raise FlatShape(flat)
-    if role not in SLAB_ROLES:
+    if role not in SLAB_ROLES and not ((params or {}).get('_dims') or {}).get('d'):
+        # страховка только когда паспорта нет — с паспортом лишнее уже срезано по габариту
         sus = slab_suspect(raw_glb)
         if sus:
             raise SlabSuspect(sus)
