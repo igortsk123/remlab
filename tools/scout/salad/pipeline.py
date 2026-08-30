@@ -113,48 +113,64 @@ class SlabSuspect(Exception):
     единственная экономия это не красить брак: paint — половина стоимости задания."""
 
 
-def _smooth_cut_edge(m, body, lo, ext, G, seam) -> None:
+def _smooth_cut_edge(m, seam) -> None:
     """Причесать кромку среза (владелец 30.08: «края рваные — сглаживать зону обрезки»).
 
-    Срез по целым граням оставляет зубцы: грани с частью вершин внутри контура выживают,
-    их внешние вершины торчат бахромой. Лечение в три шага, тело не трогаем: двигаем
-    ТОЛЬКО вершины вне контура и ниже шва, и только по XZ (высоту не меняем):
-    1) осиротевшую вершину притянуть к ближайшей клетке контура тела (EDT с индексами);
-    2) два прохода сглаживания кромки — среднее с соседями по рёбрам;
-    3) схлопнувшиеся (вырожденные) треугольники удалить.
+    После среза граней кромка — открытая граница меша (рёбра с одной гранью). Берём её
+    вершины ниже шва и делаем три прохода сглаживания по соседям (только XZ, высоту не
+    меняем). Тело не трогаем: выше шва вершин кромки нет по построению ножа.
     """
     import numpy as np
-    from scipy import ndimage
     V = np.asarray(m.vertices).copy()
-    gx = np.clip(((V[:, 0] - lo[0]) / ext[0] * (G - 1)).astype(int), 0, G - 1)
-    gz = np.clip(((V[:, 2] - lo[2]) / ext[2] * (G - 1)).astype(int), 0, G - 1)
-    stray = (~body[gx, gz]) & (V[:, 1] < seam)
-    if not stray.any():
+    edges = np.sort(np.asarray(m.edges_sorted), axis=1)
+    uniq, cnt = np.unique(edges, axis=0, return_counts=True)
+    open_edges = uniq[cnt == 1]
+    if not len(open_edges):
         return
-    _, (ni, nj) = ndimage.distance_transform_edt(~body, return_indices=True)
-    ti, tj = ni[gx[stray], gz[stray]], nj[gx[stray], gz[stray]]
-    V[stray, 0] = lo[0] + ti / (G - 1) * ext[0]
-    V[stray, 2] = lo[2] + tj / (G - 1) * ext[2]
-    idx = np.where(stray)[0]
-    sset = set(idx.tolist())
-    nbr = {i: set() for i in idx}
-    for a, b in m.edges_unique:
-        if a in sset:
+    bnd = np.unique(open_edges)
+    bnd = bnd[V[bnd, 1] < seam]
+    if not len(bnd):
+        return
+    bset = set(bnd.tolist())
+    nbr = {i: set() for i in bset}
+    for a, b in np.asarray(m.edges_unique):
+        if a in bset:
             nbr[a].add(b)
-        if b in sset:
+        if b in bset:
             nbr[b].add(a)
-    for _ in range(2):
+    for _ in range(3):
         upd = {i: 0.5 * V[i, [0, 2]] + 0.5 * V[list(ns)][:, [0, 2]].mean(axis=0)
                for i, ns in nbr.items() if ns}
         for i, xz in upd.items():
             V[i, 0], V[i, 2] = xz
     m.vertices = V
-    F = np.asarray(m.faces)
-    fv2 = V[F]
-    area2 = np.linalg.norm(np.cross(fv2[:, 1] - fv2[:, 0], fv2[:, 2] - fv2[:, 0]), axis=1)
-    if (area2 <= 1e-12).any():
-        m.update_faces(area2 > 1e-12)
-        m.remove_unreferenced_vertices()
+
+
+def flat_shape(glb_path: str, params: dict) -> str | None:
+    """Дешёвый гейт до покраски: bbox формы против паспортной глубины (Codex q26, кейс D —
+    кашпо-доска). Паспорт кладёт воркер в params['_dims']; d пустая у симметричных ролей
+    подставляется = w. Нет паспорта — молчим (гейт не гадает).
+
+    30.08 определение потерялось при скриптовой правке файла (замена диапазона строк) —
+    вызов остался, и свежие ноды падали бы NameError после shape-стадии. Урок: диапазонные
+    replace по файлу — только с последующим pyflakes, он ловит осиротевшие имена."""
+    dims = params.get('_dims') or {}
+    w = dims.get('w') or dims.get('dia')
+    d = dims.get('d') or (w if params.get('_square_role') else None)
+    if not (w and d):
+        return None
+    try:
+        import numpy as np
+        import trimesh
+        m = trimesh.load(glb_path, force='mesh')
+        ext = np.sort(np.asarray(m.extents))          # тонкая, средняя, длинная стороны
+        got = float(ext[0] / max(ext[2], 1e-6))
+        want = float(min(w, d) / max(max(w, d), 1e-6))
+        if got < want * 0.45:
+            return f'плоская форма: тонкая/длинная {got:.2f} при паспортных {want:.2f}'
+    except Exception:  # noqa: BLE001 — гейт не должен ронять задание
+        return None
+    return None
 
 
 def crop_beyond_passport(glb_path: str, dims: dict | None, role: str | None = None) -> int:
@@ -167,12 +183,9 @@ def crop_beyond_passport(glb_path: str, dims: dict | None, role: str | None = No
     Контур: карта максимальных высот сверху (сэмплы по ГРАНЯМ — по вершинам дырявила тело),
     порог тело/плита из скачка профиля толщины, сглаживание гауссом.
     """
-    d0 = dims or {}
-    w, d, h = d0.get('w') or d0.get('dia'), d0.get('d') or d0.get('dia'), d0.get('h')
     try:
         import numpy as np
         import trimesh
-        from scipy import ndimage as _ndi
         m = trimesh.load(glb_path, force='mesh')
         if m.faces is None or len(m.faces) < 500:
             return 0
@@ -238,11 +251,14 @@ def crop_beyond_passport(glb_path: str, dims: dict | None, role: str | None = No
         # нож не трогает по определению: бока неуязвимы при любой погрешности маски.
         seam = lo[1] + band_frac * 1.3 * ext[1]     # запас 30% на шум изолинии шва
         rooted_in_slab = fv[:, :, 1].min(axis=1) < seam
-        drop = (~vin.any(axis=1)) & rooted_in_slab
+        # в слое плиты грань уходит, если ХОТЬ ОДНА вершина вне контура (владелец 30.08:
+        # клэмп зубцов давал отделённую полоску вдоль кромки — не сплющивать, а удалять);
+        # выше шва нож по-прежнему не касается ничего
+        drop = (~vin.all(axis=1)) & rooted_in_slab
         if drop.any() and not drop.all():
             m.update_faces(~drop)
             m.remove_unreferenced_vertices()
-            _smooth_cut_edge(m, body, lo, ext, G, seam)
+            _smooth_cut_edge(m, seam)
             m.export(glb_path)
             return int(drop.sum())
         return 0

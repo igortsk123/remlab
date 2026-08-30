@@ -255,6 +255,13 @@ def _cut_chain(image_url: str, role: str | None = None) -> tuple[Image.Image, Im
     mask_info['collage'] = {'verdict': bool(is_col), 'why': why, 'features': feats}
 
     shape_img = defringe(refined)            # полный холст: кроп и поле сделает recenter
+    # Пары «два предмета в кадре»: срез второго одобрен владельцем ТОЛЬКО для стульев
+    # (30.08, после проверки /test/pair-fix/); прочим ролям детектор не доверяем
+    # (самовольный кроп люстры). До 30.08 здесь была NameError: вызов детектора потерялся
+    # при коммите, и свежие ноды валили КАЖДОЕ задание в input_failed.
+    dual = {}
+    if (role or '').split()[0:1] == ['стул']:
+        shape_img, dual = _pick_main_object(shape_img)
     cut = trim_alpha(shape_img)              # обрезанная копия — человеку на просмотр
     mask_info.update(dual)
     mask_info.update(mask_verdict(cut))
