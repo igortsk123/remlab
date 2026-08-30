@@ -1,0 +1,7 @@
+# Веса, вшитые в образ (BAKE): прогрев ноды = бесплатная фаза скачивания образа,
+# платной остаётся только загрузка в VRAM (~1-2 мин). Три слоя — пуш ретраится кусками.
+FROM ghcr.io/igortsk123/mesh-hunyuan@sha256:b6a746751c8c5194e16464b75df927fa067edfcd3ae5688dd914aef4112b82cd
+ENV HF_HUB_ENABLE_HF_TRANSFER=1
+RUN python -c "from huggingface_hub import snapshot_download; snapshot_download('tencent/Hunyuan3D-2.1', local_dir='/opt/weights/hunyuan3d-2.1', allow_patterns=['hunyuan3d-dit-v2-1/*'], max_workers=8)"
+RUN python -c "from huggingface_hub import snapshot_download; snapshot_download('tencent/Hunyuan3D-2.1', local_dir='/opt/weights/hunyuan3d-2.1', allow_patterns=['hunyuan3d-paintpbr-v2-1/*'], max_workers=8)"
+RUN python -c "from huggingface_hub import snapshot_download; snapshot_download('ZhengPeng7/BiRefNet', local_dir='/opt/weights/birefnet', max_workers=8)" && rm -f /opt/weights/.lazy && echo baked > /opt/weights/.ready && rm -rf /root/.cache/huggingface /opt/weights/*/.cache 2>/dev/null || true
