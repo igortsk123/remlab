@@ -96,6 +96,11 @@ def main() -> None:
             shutil.copy(glb, rep)                     # ремонт — только над копией
             before = os.path.getsize(rep)
             P.cut_base_slab(rep, role)
+            if role in ('диван', 'кровать', 'банкетка'):
+                man_dims = (man.get('input') or {}).get('dims_cm')
+                n = P.crop_beyond_passport(rep, man_dims, role)
+                if n:
+                    print(f'  плита по паспорту: −{n} граней')
             P.cut_alien_debris(rep)
             try:
                 import importlib.util as _il

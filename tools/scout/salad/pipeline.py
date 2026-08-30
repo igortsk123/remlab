@@ -191,6 +191,33 @@ def crop_beyond_passport(glb_path: str, dims: dict | None, role: str | None = No
         if drop.any() and not drop.all():
             m.update_faces(~drop)
             m.remove_unreferenced_vertices()
+            # ЗАКРЫТЬ ДНО (владелец 30.08: «под самим объектом дно вырезал — не надо»):
+            # срез слоя уносит и родную нижнюю поверхность — затягиваем дыру крышкой.
+            # fill_holes для плоской дыры на band-уровне обычно достаточно; не закрылось —
+            # веерная крышка по крупнейшей граничной петле руками.
+            try:
+                import trimesh as _t
+                _t.repair.fill_holes(m)
+                edges = m.edges_sorted
+                import numpy as _np
+                uniq, cnt = _np.unique(edges, axis=0, return_counts=True)
+                open_edges = int((cnt == 1).sum())
+                if open_edges > 30:
+                    loops = m.outline()
+                    if loops is not None and len(loops.entities):
+                        pts = _np.asarray(loops.vertices)
+                        ent = max(loops.entities, key=lambda e: len(e.points))
+                        ring = pts[ent.points]
+                        centre = ring.mean(axis=0)
+                        base = len(m.vertices)
+                        newV = _np.vstack([m.vertices, ring, centre[None, :]])
+                        n = len(ring)
+                        fan = [[base + i, base + (i + 1) % n, base + n] for i in range(n)]
+                        m = _t.Trimesh(vertices=newV,
+                                       faces=_np.vstack([m.faces, _np.array(fan)]),
+                                       process=False)
+            except Exception:  # noqa: BLE001 — крышка вторична, срез важнее
+                pass
             m.export(glb_path)
             return int(drop.sum())
         return 0
