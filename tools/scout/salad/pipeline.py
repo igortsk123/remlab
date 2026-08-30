@@ -114,100 +114,79 @@ class SlabSuspect(Exception):
 
 
 def crop_beyond_passport(glb_path: str, dims: dict | None, role: str | None = None) -> int:
-    """Срез нижнего слоя ЗА ПАСПОРТНЫМ ГАБАРИТОМ. Идея владельца (30.08): размеры мебели
-    известны — всё, что в приполе торчит за w×d, артефакт по определению.
+    """Нож по формуле владельца (30.08, финал): «скачок толщины со всех сторон — начало
+    объекта». Всё, что ЦЕЛИКОМ вне контура тела — артефакт, режется на любой высоте
+    (кольцо-обод плиты доходило до 0.76 высоты и выживало под порогом). Внутри контура не
+    трогаем НИЧЕГО — дно родное (прошлая версия паспортной рамкой срезала 79% дна: рамка
+    оказалась уже тела). Паспорт — только проверка масштаба, не нож.
 
-    Почему это надёжнее компонентных эвристик: у дивана 112923:2709998655179041129 плита
-    слита с телом и сама задаёт bbox — «выступов относительно тела» ноль, а относительно
-    паспорта они есть. Дно тумбы лежит ВНУТРИ габарита — не тронется (3/3 годных по
-    владельцу). Масштаб берём по высоте (Y меша ↔ паспортная h), центр плана — по геометрии
-    ВЫШЕ припола (иначе плита сама сдвинет центр). Режем только нижние 8% высоты и только
-    грани, целиком вылезшие за габарит с допуском 7%.
+    Контур: карта максимальных высот сверху (сэмплы по ГРАНЯМ — по вершинам дырявила тело),
+    порог тело/плита из скачка профиля толщины, сглаживание гауссом.
     """
     d0 = dims or {}
     w, d, h = d0.get('w') or d0.get('dia'), d0.get('d') or d0.get('dia'), d0.get('h')
-    if not (w and d and h):
-        return 0
     try:
         import numpy as np
         import trimesh
+        from scipy import ndimage as _ndi
         m = trimesh.load(glb_path, force='mesh')
         if m.faces is None or len(m.faces) < 500:
             return 0
         V, F = np.asarray(m.vertices), np.asarray(m.faces)
         lo, hi = V.min(axis=0), V.max(axis=0)
         ext = np.maximum(hi - lo, 1e-6)
-        # ГРАНИЦА ПЛИТЫ — ПО СКАЧКУ ТОЛЩИНЫ (владелец 30.08): плита — тонкий широкий слой,
-        # над ним сечение резко сужается к телу; этот переход и есть верх плиты. Профиль —
-        # площадь XZ-обвода по 40 срезам высоты; ищем в нижних 20% максимальный спад ≥1.6х.
-        # Не нашли перехода — консервативный потолок 8%. Паспорт дальше — перепроверка.
-        centers = fv0 = None
+        fv = V[F]
+        # профиль толщины: есть ли вообще плита (переход ≥1.6х в нижних 20%)
         bins = 40
         ys = (V[:, 1] - lo[1]) / ext[1]
         prof = np.zeros(bins)
         for i in range(bins):
             sel = (ys >= i / bins) & (ys < (i + 1) / bins)
             if sel.sum() >= 8:
-                pts2 = V[sel]
-                prof[i] = float((pts2[:, 0].max() - pts2[:, 0].min()) *
-                                (pts2[:, 2].max() - pts2[:, 2].min()))
-        band_frac = None                      # владелец: паспорт сам по себе — не нож.
-        limit = max(2, int(bins * 0.20))      # Нет явного перехода толщины — НЕ РЕЖЕМ вовсе:
-        for i in range(limit):                # лучше плита в перегон, чем задетый диван.
-            a, b = prof[i], prof[i + 1] if i + 1 < bins else 0
-            if a > 0 and b > 0 and a / b >= 1.6:
+                p2 = V[sel]
+                prof[i] = float((p2[:, 0].max() - p2[:, 0].min()) *
+                                (p2[:, 2].max() - p2[:, 2].min()))
+        band_frac = None
+        for i in range(max(2, int(bins * 0.20))):
+            a2, b2 = prof[i], prof[i + 1] if i + 1 < bins else 0
+            if a2 > 0 and b2 > 0 and a2 / b2 >= 1.6:
                 band_frac = (i + 1) / bins
                 break
         if band_frac is None:
+            return 0                                   # перехода нет — плиты нет, не режем
+        # КОНТУР ТЕЛА — РАСТЕРИЗАЦИЕЙ ТРЕУГОЛЬНИКОВ (не сэмплами: у крупных плоских
+        # граней точек мало, маска дырявела и нож резал тело — упало 78%→36% дна).
+        # Растеризуем в маску все грани, чей верх выше порога тело/плита.
+        G = 256
+        thr = lo[1] + min(max(2.0 * band_frac, 0.10), 0.20) * ext[1]
+        high = fv[:, :, 1].max(axis=1) > thr
+        body = np.zeros((G, G), bool)
+        tx = (fv[high][:, :, 0] - lo[0]) / ext[0] * (G - 1)
+        tz = (fv[high][:, :, 2] - lo[2]) / ext[2] * (G - 1)
+        for t2x, t2z in zip(tx, tz):
+            x0, x1 = int(t2x.min()), int(np.ceil(t2x.max()))
+            z0, z1 = int(t2z.min()), int(np.ceil(t2z.max()))
+            if x1 - x0 <= 1 and z1 - z0 <= 1:
+                body[max(0, x0):x1 + 1, max(0, z0):z1 + 1] = True
+                continue
+            gx, gz = np.meshgrid(np.arange(x0, x1 + 1), np.arange(z0, z1 + 1), indexing='ij')
+            # барицентрический тест принадлежности точки треугольнику
+            x2, z2 = gx + 0.5, gz + 0.5
+            d1 = (t2x[1] - t2x[0]) * (z2 - t2z[0]) - (t2z[1] - t2z[0]) * (x2 - t2x[0])
+            d2 = (t2x[2] - t2x[1]) * (z2 - t2z[1]) - (t2z[2] - t2z[1]) * (x2 - t2x[1])
+            d3 = (t2x[0] - t2x[2]) * (z2 - t2z[2]) - (t2z[0] - t2z[2]) * (x2 - t2x[2])
+            inside = ((d1 >= 0) & (d2 >= 0) & (d3 >= 0)) | ((d1 <= 0) & (d2 <= 0) & (d3 <= 0))
+            xs, zs = np.clip(gx[inside], 0, G - 1), np.clip(gz[inside], 0, G - 1)
+            body[xs, zs] = True
+        from scipy import ndimage as _ndi
+        body = _ndi.binary_fill_holes(_ndi.binary_closing(body, np.ones((3, 3))))
+        body = _ndi.binary_dilation(body, np.ones((2, 2)))
+        if body.mean() < 0.08:
             return 0
-        scale = ext[1] / float(h)
-        half = {0: float(max(w, d)) * scale / 2 * 1.07,
-                2: float(min(w, d)) * scale / 2 * 1.07}
-        # какая ось меша длиннее — той и отдаём большую паспортную сторону
-        if ext[2] > ext[0]:
-            half = {0: half[2], 2: half[0]}
-        band = lo[1] + band_frac * ext[1]
-        above = V[F[(V[F][:, :, 1].min(axis=1) > band)].ravel()]
-        if not len(above):
-            return 0
-        cx, cz = float(np.median(above[:, 0])), float(np.median(above[:, 2]))
-        fv = V[F]                                    # (nF,3,3)
-        in_band = fv[:, :, 1].max(axis=1) < band
-        out_x = np.minimum(np.abs(fv[:, :, 0] - cx).min(axis=1), 1e9) > half[0]
-        out_z = np.minimum(np.abs(fv[:, :, 2] - cz).min(axis=1), 1e9) > half[2]
-        beyond = (np.abs(fv[:, :, 0] - cx) > half[0]).all(axis=1) |                  (np.abs(fv[:, :, 2] - cz) > half[2]).all(axis=1)
-        drop = in_band & beyond
-        # Потолка объёма нет НАМЕРЕННО: у дивана 2709 плита в 4 раза шире тела, любой
-        # процентный потолок её щадит (и 60% щадил — потому резак «молчал»). Тело защищают
-        # три предохранителя: обязательный переход толщины, рамка паспорта с допуском,
-        # бэкап shape.generated.glb до ножей.
-        # ФАЗА 2 — КАРТА ВЫСОТ (способ владельца, 30.08: «скачок толщины со всех сторон —
-        # это начало объекта»). Сверху вниз: в каждой ячейке плана — максимум высоты
-        # геометрии. Столб высокий → тело; столб на уровне плиты → снаружи. Прежний контур
-        # по ВЕРШИНАМ дырявил тело на больших плоских гранях (вершины редкие) — «полдна
-        # нет»; карта высот строится сэмплами ПО ГРАНЯМ, дыр не оставляет.
-        body_prof = prof[int(band_frac * bins):int(band_frac * bins) + 6]
-        body_med = float(np.median(body_prof[body_prof > 0])) if (body_prof > 0).any() else 0
-        if body_med > 0 and prof[0] > 1.3 * body_med:
-            G = 256
-            # сэмплы на гранях: вершины + центры + середины сторон — плотно и быстро
-            pts = np.concatenate([fv.reshape(-1, 3), fv.mean(axis=1),
-                                  ((fv[:, 0] + fv[:, 1]) / 2), ((fv[:, 1] + fv[:, 2]) / 2),
-                                  ((fv[:, 0] + fv[:, 2]) / 2)])
-            px = np.clip(((pts[:, 0] - lo[0]) / ext[0] * (G - 1)).astype(int), 0, G - 1)
-            pz = np.clip(((pts[:, 2] - lo[2]) / ext[2] * (G - 1)).astype(int), 0, G - 1)
-            hm = np.full((G, G), lo[1], np.float32)
-            np.maximum.at(hm, (px, pz), pts[:, 1].astype(np.float32))
-            thr = lo[1] + min(max(2.5 * band_frac, 0.12), 0.20) * ext[1]
-            from scipy import ndimage as _ndi
-            body = _ndi.binary_fill_holes(_ndi.binary_closing(hm > thr, np.ones((5, 5))))
-            body = _ndi.gaussian_filter(body.astype(np.float32), 2.0) > 0.5
-            vgx = np.clip(((fv[:, :, 0] - lo[0]) / ext[0] * (G - 1)).astype(int), 0, G - 1)
-            vgz = np.clip(((fv[:, :, 2] - lo[2]) / ext[2] * (G - 1)).astype(int), 0, G - 1)
-            vin = body[vgx, vgz]                       # (nF,3) — вершина в теле?
-            all_outside = ~vin.any(axis=1)             # зубьев нет: режем только целиком чужое
-            low = fv[:, :, 1].max(axis=1) < thr
-            drop = drop | (all_outside & low)
+        vgx = np.clip(((fv[:, :, 0] - lo[0]) / ext[0] * (G - 1)).astype(int), 0, G - 1)
+        vgz = np.clip(((fv[:, :, 2] - lo[2]) / ext[2] * (G - 1)).astype(int), 0, G - 1)
+        vin = body[vgx, vgz]
+        drop = ~vin.any(axis=1)                        # целиком вне контура — на любой высоте
         if drop.any() and not drop.all():
             m.update_faces(~drop)
             m.remove_unreferenced_vertices()

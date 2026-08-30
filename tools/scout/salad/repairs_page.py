@@ -4,6 +4,9 @@ import glob
 import html
 import json
 import os
+import time
+
+VER = int(time.time())
 
 SRC = os.path.expanduser('~/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2')
 OUT = os.path.expanduser('~/scout-scenes/mesh-repairs')
@@ -24,8 +27,8 @@ for mp in sorted(glob.glob(os.path.join(SRC, '*/*/manifest.json'))):
     cards.append(f"""
 <div class="c"><h3>{html.escape(man.get('role') or '?')} <span>{sku}</span></h3>
  <div class="row">
-  <figure><model-viewer src="{sku}/orig.glb" camera-controls style="width:100%;height:300px;background:#f4f4f2"></model-viewer><figcaption>до</figcaption></figure>
-  <figure><model-viewer src="{sku}/fixed.glb" camera-controls style="width:100%;height:300px;background:#eef4ee"></model-viewer><figcaption>после ножей</figcaption></figure>
+  <figure><model-viewer src="{sku}/orig.glb?v={VER}" camera-controls style="width:100%;height:300px;background:#f4f4f2"></model-viewer><figcaption>до</figcaption></figure>
+  <figure><model-viewer src="{sku}/fixed.glb?v={VER}" camera-controls style="width:100%;height:300px;background:#eef4ee"></model-viewer><figcaption>после ножей</figcaption></figure>
  </div></div>""")
 open(os.path.join(OUT, 'index.html'), 'w', encoding='utf-8').write(f"""<!doctype html><meta charset=utf-8>
 <title>Ремонт мешей — до/после</title>
