@@ -187,19 +187,24 @@ def crop_beyond_passport(glb_path: str, dims: dict | None, role: str | None = No
         body_prof = prof[int(band_frac * bins):int(band_frac * bins) + 6]
         body_med = float(np.median(body_prof[body_prof > 0])) if (body_prof > 0).any() else 0
         if body_med > 0 and prof[0] > 1.3 * body_med:
-            G = 128
+            G = 256
             gx = np.clip(((above[:, 0] - lo[0]) / ext[0] * (G - 1)).astype(int), 0, G - 1)
             gz = np.clip(((above[:, 2] - lo[2]) / ext[2] * (G - 1)).astype(int), 0, G - 1)
-            occ = np.zeros((G, G), bool)
-            occ[gx, gz] = True
+            occ = np.zeros((G, G), np.float32)
+            occ[gx, gz] = 1.0
             from scipy import ndimage as _ndi
-            occ = _ndi.binary_closing(occ, np.ones((5, 5)))
-            occ = _ndi.binary_fill_holes(occ)
-            occ = _ndi.binary_dilation(occ, np.ones((3, 3)))
+            occ = _ndi.binary_fill_holes(_ndi.binary_closing(occ > 0, np.ones((7, 7))))
+            # ГЛАДКИЙ контур (владелец: дно было рваным): размытие поля и порог вместо
+            # зубчатой бинарной сетки
+            occ = _ndi.gaussian_filter(occ.astype(np.float32), 2.5) > 0.45
             cen = fv.mean(axis=1)
             cgx = np.clip(((cen[:, 0] - lo[0]) / ext[0] * (G - 1)).astype(int), 0, G - 1)
             cgz = np.clip(((cen[:, 2] - lo[2]) / ext[2] * (G - 1)).astype(int), 0, G - 1)
             outside_body = ~occ[cgx, cgz]
+            # края плиты задраны ВЫШЕ границы (кольцо-рамка на виде снизу): вне контура
+            # режем с запасом по высоте — до 2.5 границ, потолок 15% высоты
+            tall_band = fv[:, :, 1].max(axis=1) < lo[1] + min(2.5 * band_frac, 0.15) * ext[1]
+            in_band = in_band | (tall_band & outside_body)
             drop = in_band & (beyond | outside_body)
         if drop.any() and not drop.all():
             m.update_faces(~drop)
