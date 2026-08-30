@@ -38,7 +38,12 @@ def alive(shop,du,name):
     if 'mnogomebeli' in shop or 'divanboss' in shop:
         key=' '.join(re.sub(r'[^а-яa-z0-9 ]',' ',name.lower()).split()[1:4])
         return (key and key in txt.lower()), f"модель на серии: {key!r}"
-    if MARK.search(txt): return False,'маркер OOS'
+    low=txt.lower()
+    if 'в корзину' in low or 'addtocart' in low or 'add-to-cart' in low:
+        return True,'есть корзина'
+    if re.search(r'<h1[^>]*>.{0,600}?(нет в наличии|распродан|снят с продаж)', low, re.S):
+        return False,'sold-out у заголовка'
+    if MARK.search(txt): return None,'маркер есть, но корзины нет — вручную'
     return True,'200 без маркера'
 
 sets2=json.load(open(os.path.join(HERE,'sets2.json')))
