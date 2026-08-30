@@ -60,6 +60,23 @@ def main():
             print(f'  {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
         print(f'== показано {done}/{total} — страница обновлена ==', flush=True)
 
+    # ВОЛНА ЛЕЧЕНИЯ: перегон другим seed того, что приёмка завернула (слой 4 системы).
+    RESEED = os.path.join(HERE, '..', 'mesh-reseed.json')
+    if done >= total and os.path.exists(RESEED) and not os.path.exists(PAUSE):
+        rs = json.load(open(RESEED, encoding='utf-8'))
+        todo = [r for r in rs]
+        if todo:
+            print(f'== волна лечения: {len(todo)} перегонов ==', flush=True)
+            c, o = sh(f'{PY} {HERE}/ssh_run.py --jobs-file {RESEED} --keep-alive',
+                      timeout=len(todo) * 420 + 600)
+            print(o, flush=True)
+            for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh'),
+                              ('ремонт', f'{PY} {HERE}/apply_repairs.py'),
+                              ('галерея', f'GALLERY_SRC=$HOME/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2 {PY} {HERE}/gallery_build.py'),
+                              ('публикую', f'scp -P 22222 -o BatchMode=yes -r $HOME/scout-scenes/mesh-pilot-gallery/* root@89.167.127.0:/opt/remlab/test/mesh-pilot10/')):
+                c, o = sh(cmd, timeout=900)
+                print(f'  {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
+
     # конец или падение — группу гасим В ЛЮБОМ СЛУЧАЕ (деньги)
     c, o = sh(f'{PY} - <<P\nimport sys; sys.path.insert(0,"{HERE}")\nimport ssh_run; ssh_run.stop_group()\nP', timeout=120)
     print(o, flush=True)

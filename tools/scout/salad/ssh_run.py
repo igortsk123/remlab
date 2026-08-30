@@ -145,6 +145,14 @@ def stop_group() -> None:
               f'останови вручную в портале', flush=True)
 
 
+def jobs_from_file(path: str) -> list[dict]:
+    """Очередь лечения: задания перегона из файла (apply_repairs собирает их по вердиктам)."""
+    js = json.load(open(path, encoding='utf-8'))
+    if len(js) > MAX_JOBS:
+        sys.exit(f'ПРЕДОХРАНИТЕЛЬ: {len(js)} > {MAX_JOBS}')
+    return js
+
+
 def jobs_from_sample(limit: int | None) -> list[dict]:
     s = json.load(open(SAMPLE, encoding='utf-8'))
     out = []
@@ -157,12 +165,12 @@ def jobs_from_sample(limit: int | None) -> list[dict]:
     return out[:limit] if limit else out
 
 
-def run(limit: int | None, keep_alive: bool) -> None:
+def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None) -> None:
     ports = warm_ports()
     print(f'тёплых нод: {len(ports)} {ports}')
     if not ports:
         sys.exit('нет прогретых нод')
-    jobs = jobs_from_sample(limit)
+    jobs = jobs_from_file(jobs_file) if jobs_file else jobs_from_sample(limit)
     print(f'заданий: {len(jobs)} на {len(ports)} нод(ы)')
 
     q: queue.Queue = queue.Queue()
@@ -222,7 +230,8 @@ def main() -> None:
         report()
         return
     lim = int(sys.argv[sys.argv.index('--limit') + 1]) if '--limit' in sys.argv else None
-    run(lim, '--keep-alive' in sys.argv)
+    jf = sys.argv[sys.argv.index('--jobs-file') + 1] if '--jobs-file' in sys.argv else None
+    run(lim, '--keep-alive' in sys.argv, jf)
 
 
 if __name__ == '__main__':

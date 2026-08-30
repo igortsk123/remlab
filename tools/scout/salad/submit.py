@@ -36,7 +36,7 @@ MAX_JOBS = 600            # предохранитель: пилот не дол
 API = 'https://api.salad.com/api/public'
 ORG = os.environ.get('SALAD_ORG', 'prodstore')
 PROJECT = os.environ.get('SALAD_PROJECT', 'dmodel')
-GROUP = os.environ.get('SALAD_GROUP', 'mesh-pool5')
+GROUP = os.environ.get('SALAD_GROUP', 'mesh-run')
 
 # Тарифы batch-приоритета, сверены по API 28.08 (`GET /organizations/<org>/gpu-classes`).
 # Сравнивать карты можно только на ОДНОМ приоритете: на high те же 4090 стоят $0.30, и

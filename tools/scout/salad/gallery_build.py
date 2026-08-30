@@ -29,11 +29,15 @@ CHECKER = ('data:image/png;base64,' + base64.b64encode(bytes.fromhex(
 
 def build() -> str:
     rows = []
+    best = {}                     # на SKU показываем ОДИН меш — самый свежий (перегон затирает брак)
     for d in sorted(glob.glob(os.path.join(SRC, '*/*/')), key=lambda p: -os.path.getmtime(os.path.join(p,'manifest.json')) if os.path.exists(os.path.join(p,'manifest.json')) else 0):
         man_p = os.path.join(d, 'manifest.json')
         if not os.path.exists(man_p):
             continue
         man = json.load(open(man_p, encoding='utf-8'))
+        if man['sku'] in best:
+            continue
+        best[man['sku']] = True
         sku = man['sku'].replace(':', '_')
         item_dir = os.path.join(OUT, sku)
         os.makedirs(item_dir, exist_ok=True)
