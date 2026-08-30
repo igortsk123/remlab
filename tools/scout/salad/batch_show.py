@@ -76,6 +76,8 @@ def main():
     print(f'план {total}, уже пройдено {done}, пачка {batch}', flush=True)
 
     PAUSE = os.path.expanduser('~/scout-scenes/mesh-batch.PAUSE')
+    if os.environ.get('WAVE_FIRST') == '1':
+        heal_wave(PAUSE)
     while done < total:
         if os.path.exists(PAUSE):
             # Пауза владельца: глушим группу (деньги!) и выходим. Продолжение — удалить файл
@@ -112,16 +114,29 @@ def main():
             print(f'  {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
         print(f'== показано {done}/{total} — страница обновлена ==', flush=True)
 
-    # ВОЛНА ЛЕЧЕНИЯ: перегон другим seed того, что приёмка завернула (слой 4 системы).
+    heal_wave(PAUSE, guard_done=(done >= total))
+    finale()
+
+
+def heal_wave(PAUSE: str, guard_done: bool = True) -> None:
+    """ВОЛНА ЛЕЧЕНИЯ: перегон того, что приёмка завернула (слой 4 системы).
+    При WAVE_FIRST=1 конвейер зовёт её ДО основной очереди (владелец 30.08: тестовый
+    сет — приоритет), с ожиданием тёплых нод, как у пачек."""
     RESEED = os.path.join(HERE, '..', 'mesh-reseed.json')
-    if done >= total and os.path.exists(RESEED) and not os.path.exists(PAUSE):
+    if guard_done and os.path.exists(RESEED) and not os.path.exists(PAUSE):
         rs = json.load(open(RESEED, encoding='utf-8'))
         todo = [r for r in rs]
         if todo:
             print(f'== волна лечения: {len(todo)} перегонов ==', flush=True)
-            c, o = sh(f'{PY} {HERE}/ssh_run.py --jobs-file {RESEED} --keep-alive',
-                      timeout=len(todo) * 420 + 600)
-            print(o, flush=True)
+            for _try in range(40):
+                c, o = sh(f'{PY} {HERE}/ssh_run.py --jobs-file {RESEED} --keep-alive',
+                          timeout=len(todo) * 420 + 600)
+                print(o, flush=True)
+                if c == 0 or 'нет прогретых' not in o:
+                    break
+                print('волна: нет тёплых нод — жду 3 мин', flush=True)
+                ensure_group_started()
+                time.sleep(180)
             for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh --keep'),
                           ('реестр', f'{PY} {HERE}/ingest_registry.py'),
                               ('ремонт', f'{PY} {HERE}/apply_repairs.py'),
@@ -130,6 +145,9 @@ def main():
                 c, o = sh(cmd, timeout=2700)
                 print(f'  {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
 
+
+def finale() -> None:
+    """Финал прогона — НЕ часть волны: чистка кэша и гашение групп только в самом конце."""
     # сервер чистим ОДИН раз в конце: в цикле drain --keep, иначе умирает кэш «уже сделано»
     sh(f'bash {HERE}/drain.sh', timeout=1200)
     # конец или падение — группу гасим В ЛЮБОМ СЛУЧАЕ (деньги)
