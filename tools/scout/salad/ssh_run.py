@@ -30,7 +30,10 @@ SSH_KEY = os.path.expanduser('~/.ssh/salad_mesh_ed25519')
 SSH_HOST = 'root@195.181.163.241'
 API = 'https://api.salad.com/api/public'
 ORG, PROJECT = 'prodstore', 'dmodel'
-GROUP = os.environ.get('SALAD_GROUP', 'mesh-run3')
+# Несколько групп через запятую (владелец 30.08: параллельная группа на baked-образе).
+# Порты собираются со ВСЕХ, стоп гасит ВСЕ — иначе вторая группа жгла бы деньги после финала.
+GROUPS = [g.strip() for g in os.environ.get('SALAD_GROUP', 'mesh-run3').split(',') if g.strip()]
+GROUP = GROUPS[0]
 RATE = 0.16                     # 4090 batch $/ч — сверено по API 28.08
 MAX_JOBS = 700   # 481 сетовых + 78 из демо flat215 + повторы seed
 _lock = threading.Lock()
@@ -60,7 +63,13 @@ def warm_ports() -> list[int]:
     """SSH-порты нод, у которых воркер прогрет. Спрашиваем каждую ноду ЛИЧНО через её
     терминал — флагам платформы после этих двух дней веры нет."""
     out = []
-    for i in api(f'containers/{GROUP}/instances').get('instances') or []:
+    insts = []
+    for g in GROUPS:
+        try:
+            insts += api(f'containers/{g}/instances').get('instances') or []
+        except Exception:  # noqa: BLE001 — одна группа недоступна: работаем с остальными
+            pass
+    for i in insts:
         if not i.get('started'):
             continue
         p = i.get('ssh_port')
@@ -132,17 +141,18 @@ def run_job(port: int, job: dict) -> dict:
 
 
 def stop_group() -> None:
-    """Гасим группу сразу после прогона: тарифицируется состояние, а не работа (ADR-0135)."""
-    try:
-        req = urllib.request.Request(
-            f'{API}/organizations/{ORG}/projects/{PROJECT}/containers/{GROUP}/stop',
-            data=b'', method='POST', headers={'Salad-Api-Key': key(), 'User-Agent': 'remlab-mesh/1.0'})
-        with urllib.request.urlopen(req, timeout=60) as r:
-            r.read()
-        print(f'группа {GROUP} остановлена — счёт больше не идёт')
-    except Exception as e:  # noqa: BLE001 — это деньги, говорим громко
-        print(f'!! ГРУППУ НЕ ОСТАНОВИТЬ ({type(e).__name__}: {str(e)[:120]}) — '
-              f'останови вручную в портале', flush=True)
+    """Гасим ВСЕ группы сразу после прогона: тарифицируется состояние, а не работа (ADR-0135)."""
+    for g in GROUPS:
+        try:
+            req = urllib.request.Request(
+                f'{API}/organizations/{ORG}/projects/{PROJECT}/containers/{g}/stop',
+                data=b'', method='POST', headers={'Salad-Api-Key': key(), 'User-Agent': 'remlab-mesh/1.0'})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                r.read()
+            print(f'группа {g} остановлена — счёт больше не идёт')
+        except Exception as e:  # noqa: BLE001 — это деньги, говорим громко
+            print(f'!! ГРУППУ {g} НЕ ОСТАНОВИТЬ ({type(e).__name__}: {str(e)[:120]}) — '
+                  f'останови вручную в портале', flush=True)
 
 
 # Канон стратегий — ЕДИНСТВЕННЫЙ источник (rules/asset-strategies.json, Codex q27).

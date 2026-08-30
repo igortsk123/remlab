@@ -28,16 +28,21 @@ def sh(cmd, timeout=3600):
 
 
 def group_status() -> str | None:
+    """'stopped' только если ВСЕ группы остановлены (мультигруппы через запятую)."""
     import json as _j
     import urllib.request as _u
-    grp = os.environ.get('SALAD_GROUP', 'mesh-run3')
-    try:
-        req = _u.Request(f'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers/{grp}',
-                         headers={'Salad-Api-Key': os.environ['SALAD_API_KEY']})
-        with _u.urlopen(req, timeout=30) as r:
-            return (_j.load(r).get('current_state') or {}).get('status')
-    except Exception:  # noqa: BLE001
-        return None
+    sts = []
+    for grp in [g.strip() for g in os.environ.get('SALAD_GROUP', 'mesh-run3').split(',') if g.strip()]:
+        try:
+            req = _u.Request(f'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers/{grp}',
+                             headers={'Salad-Api-Key': os.environ['SALAD_API_KEY']})
+            with _u.urlopen(req, timeout=30) as r:
+                sts.append((_j.load(r).get('current_state') or {}).get('status'))
+        except Exception:  # noqa: BLE001
+            sts.append(None)
+    if sts and all(s == 'stopped' for s in sts):
+        return 'stopped'
+    return sts[0] if sts else None
 
 
 def ensure_group_started():
@@ -45,8 +50,9 @@ def ensure_group_started():
     и ожидание тёплой ноды у выключенной группы длится вечно. Стартуем явно; 400 = уже
     стартует, это не ошибка."""
     import urllib.request
-    grp = os.environ.get('SALAD_GROUP', 'mesh-run3')
-    try:
+    ok = False
+    for grp in [g.strip() for g in os.environ.get('SALAD_GROUP', 'mesh-run3').split(',') if g.strip()]:
+      try:
         req = urllib.request.Request(
             f"https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers/{grp}/start",
             data=b'', method='POST',
@@ -54,9 +60,10 @@ def ensure_group_started():
                      'User-Agent': 'remlab-mesh/1.0'})
         urllib.request.urlopen(req, timeout=60).read()
         print(f'группа {grp}: start отправлен', flush=True)
-        return True
-    except Exception as e:  # noqa: BLE001 — 400 «уже идёт» и сеть не должны валить конвейер
+        ok = True
+      except Exception as e:  # noqa: BLE001 — 400 «уже идёт» и сеть не должны валить конвейер
         print(f'группа {grp}: start → {str(e)[:80]} (обычно уже запущена)', flush=True)
+    return ok
 
 
 def main():
