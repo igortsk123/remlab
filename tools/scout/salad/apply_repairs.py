@@ -136,7 +136,15 @@ def main() -> None:
     verdicts = {}
     reseed = json.load(open(RESEED, encoding='utf-8')) if os.path.exists(RESEED) else []
     seen = {(r['sku'], r.get('seed')) for r in reseed}
-    for mp in sorted(glob.glob(os.path.join(SRC, '*/*/manifest.json'))):
+    # Чанкование пересборки: цикл конвейера обязан влезать в таймаут шага. Не больше
+    # REBUILD_CAP тяжёлых пересборок за прогон; порядок перемешан, чтобы один тяжёлый
+    # каталог не блокировал раскатку остальным (Terminated на 45-й минуте, 30.08).
+    import random
+    REBUILD_CAP = 6
+    rebuilt = 0
+    mans = sorted(glob.glob(os.path.join(SRC, '*/*/manifest.json')))
+    random.Random(os.getpid()).shuffle(mans)
+    for mp in mans:
         d = os.path.dirname(mp)
         glb = os.path.join(d, 'model.glb')
         if not os.path.exists(glb):
@@ -179,7 +187,14 @@ def main() -> None:
                 continue
             except Exception:  # noqa: BLE001
                 pass
+        if stale and rebuilt >= REBUILD_CAP:
+            try:                              # лимит цикла исчерпан — вердикт из кэша, если был
+                verdicts[man['sku']] = json.load(open(vj)).get('status') or 'generated'
+            except Exception:  # noqa: BLE001
+                pass
+            continue
         if stale:
+            rebuilt += 1
             import shutil
             shutil.copy(glb, rep)                     # ремонт — только над копией
             before = os.path.getsize(rep)
