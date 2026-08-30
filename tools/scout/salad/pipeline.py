@@ -186,7 +186,15 @@ def crop_beyond_passport(glb_path: str, dims: dict | None, role: str | None = No
         vgx = np.clip(((fv[:, :, 0] - lo[0]) / ext[0] * (G - 1)).astype(int), 0, G - 1)
         vgz = np.clip(((fv[:, :, 2] - lo[2]) / ext[2] * (G - 1)).astype(int), 0, G - 1)
         vin = body[vgx, vgz]
-        drop = ~vin.any(axis=1)                        # целиком вне контура — на любой высоте
+        # ОТ ВЕРХНЕЙ ГРАНИЦЫ ПЛИТЫ — ТОЛЬКО ВНИЗ (владелец 30.08). Прежний «на любой
+        # высоте» дырявил выпуклые бока: маска на краю на пару клеток уже тела, и грани
+        # бока считались «наружей». Теперь грань уходит, лишь если она вне контура тела
+        # И растёт из слоя плиты (её НИЗ ниже верхней границы плиты) — так задранный
+        # край кольца уходит целиком вместе с плитой, а всё, что начинается выше шва,
+        # нож не трогает по определению: бока неуязвимы при любой погрешности маски.
+        seam = lo[1] + band_frac * 1.3 * ext[1]     # запас 30% на шум изолинии шва
+        rooted_in_slab = fv[:, :, 1].min(axis=1) < seam
+        drop = (~vin.any(axis=1)) & rooted_in_slab
         if drop.any() and not drop.all():
             m.update_faces(~drop)
             m.remove_unreferenced_vertices()
