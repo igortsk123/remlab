@@ -64,6 +64,37 @@ def slab_excess(glb: str, dims: dict | None, role: str | None) -> float | None:
         return None
 
 
+def color_mismatch(glb: str, cutout_png: str) -> float | None:
+    """Идентификация «покрашено не в цвет фото» (тв-тумба 112923_813…: серая тумба
+    покрашена в чёрный; средние сходятся из-за компенсации бежевыми пятнами, поэтому
+    сравниваем ХВОСТ распределения). Возвращает долю текселей темнее самого тёмного
+    5% фото с запасом — такие цвета на фото вообще отсутствуют. >0.12 — брак покраски,
+    лечится перегоном, не косметикой."""
+    try:
+        import cv2
+        import trimesh
+        import numpy as np
+        from PIL import Image
+        cut = np.asarray(Image.open(cutout_png).convert('RGBA')).astype(np.float32)
+        msk = cut[..., 3] > 150
+        if msk.sum() < 500:
+            return None
+        pl = cv2.cvtColor(cut[..., :3].astype(np.uint8), cv2.COLOR_RGB2LAB).astype(np.float32)
+        p05 = float(np.percentile(pl[..., 0][msk], 5))
+        m = trimesh.load(glb, force='mesh')
+        tex = getattr(getattr(m.visual, 'material', None), 'baseColorTexture', None)
+        if tex is None:
+            return None
+        t = np.asarray(tex.convert('RGB'))
+        tl = cv2.cvtColor(t, cv2.COLOR_RGB2LAB).astype(np.float32)
+        tm = t.max(axis=2) > 15
+        if tm.sum() < 500:
+            return None
+        return round(float((tl[..., 0][tm] < p05 - 15).mean()), 3)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def accept(d: str, man: dict) -> str:
     """Приёмка одного меша: геометрия + профиль по паспорту + PBR. Возвращает статус."""
     import mesh_gate as G
@@ -127,7 +158,18 @@ def main() -> None:
         man = json.load(open(mp, encoding='utf-8'))
         role = man.get('role')
         rep = os.path.join(d, 'model.repaired.glb')
-        if not os.path.exists(os.path.join(d, 'repair.json')):
+        # Версия цепочки ремонта: repair.json от старой версии не считается сделанным —
+        # иначе апгрейд (цветокор, лифт теней) доехал бы только до вручную сброшенных
+        # (тумба 112923_813… показывалась без цветокора именно поэтому).
+        REPAIR_VERSION = 3
+        rj = os.path.join(d, 'repair.json')
+        stale = True
+        if os.path.exists(rj):
+            try:
+                stale = (json.load(open(rj)).get('repair_version') or 0) < REPAIR_VERSION
+            except Exception:  # noqa: BLE001
+                stale = True
+        if stale:
             import shutil
             shutil.copy(glb, rep)                     # ремонт — только над копией
             before = os.path.getsize(rep)
@@ -167,7 +209,8 @@ def main() -> None:
             except Exception as e:  # noqa: BLE001
                 print(f'  despeckle пропущен: {str(e)[:80]}')
             changed = os.path.getsize(rep) != before
-            json.dump({'changed': changed, 'bytes_orig': os.path.getsize(glb),
+            json.dump({'changed': changed, 'repair_version': REPAIR_VERSION,
+                       'bytes_orig': os.path.getsize(glb),
                        'bytes_repaired': os.path.getsize(rep)},
                       open(os.path.join(d, 'repair.json'), 'w'))
             if changed:
@@ -181,9 +224,16 @@ def main() -> None:
         if excess and excess > 1.15 and status not in ('generated',):
             status = 'generated'
             print(f'  подложка сверх паспорта ×{excess}: {man["sku"]} → на переделку')
+        # цвет не как на фото (хвост распределения): брак покраски → на переделку
+        cmis = color_mismatch(rep if os.path.exists(rep) else glb,
+                              os.path.join(d, 'cutout.png')) \
+            if os.path.exists(os.path.join(d, 'cutout.png')) else None
+        if cmis and cmis > 0.12 and status not in ('generated',):
+            status = 'generated'
+            print(f'  покрашено не в цвет фото ({int(cmis * 100)}% чужих тонов): {man["sku"]} → на переделку')
         verdicts[man['sku']] = status
         seed = int(man.get('seed') or 0)
-        json.dump({'status': status, 'slab_excess': excess,
+        json.dump({'status': status, 'slab_excess': excess, 'color_mismatch': cmis,
                    'manual_repair_candidate': bool(status in ('generated', 'geometry_valid') and seed >= 1)},
                   open(os.path.join(d, 'verdict.json'), 'w'))
         # Codex q27: один reseed; повторилась та же сигнатура — вручную/замена, второй

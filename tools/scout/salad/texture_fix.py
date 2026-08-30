@@ -241,19 +241,27 @@ def match_photo_color(glb_path: str, cutout_png: str) -> float:
         tm = a.max(axis=2) > 15                          # пустоту развёртки не считаем
         if tm.sum() < 500:
             continue
+        # СВЕТЛОТА — гистограммным сведением к фото (тумба 112923_813…, владелец 30.08:
+        # «сильно тёмное»): сдвиг среднего не лечит запечённые тени — их ДОЛЯ больше, чем
+        # на фото. Квантильное отображение переносит весь профиль света (тени, средние,
+        # света) на фотографический; предел ±35 L на тексель защищает блики и глубокие
+        # складки от переворота.
+        q = np.linspace(0, 1, 256)
+        src_q = np.quantile(lab[tm][:, 0], q)
+        ph_q = np.quantile(photo_lab[m][:, 0], q)
+        l0 = lab[..., 0]
+        lab[..., 0] = np.clip(np.interp(l0, src_q, ph_q), l0 - 50, l0 + 50)
+        lshift = float(np.abs(lab[tm][:, 0] - l0[tm]).mean())
         tmean, tstd = lab[tm].mean(axis=0), lab[tm].std(axis=0) + 1e-3
         de = float(np.linalg.norm(tmean - pm))
-        if de < 6:
+        if de < 6 and lshift < 3:            # и хром, и свет уже совпадают — не трогаем
             continue
         out = lab.copy()
-        for c, (w, cap, scale_std) in enumerate(((0.5, 18, False), (1.0, 22, True), (1.0, 22, True))):
+        # хром (a, b) — перенос статистики Рейнхарда; светлота уже сведена выше
+        for c, (w, cap) in ((1, (1.0, 22)), (2, (1.0, 22))):
             shift = np.clip((pm[c] - tmean[c]) * w, -cap, cap)
-            ch = lab[..., c]
-            if scale_std:
-                k = float(np.clip(ps[c] / tstd[c], 0.6, 1.6))
-                out[..., c] = (ch - tmean[c]) * k + tmean[c] + shift
-            else:
-                out[..., c] = ch + shift
+            k = float(np.clip(ps[c] / tstd[c], 0.6, 1.6))
+            out[..., c] = (lab[..., c] - tmean[c]) * k + tmean[c] + shift
         fixed = cv2.cvtColor(np.clip(out, 0, 255).astype(np.uint8), cv2.COLOR_LAB2RGB)
         fixed = np.where(tm[..., None], fixed, a)
         applied = de
