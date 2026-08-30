@@ -1,6 +1,6 @@
 {
- "name": "mesh-pool4",
- "display_name": "mesh-pool4",
+ "name": "mesh-pool5",
+ "display_name": "mesh-pool5",
  "container": {
   "image": "ghcr.io/igortsk123/mesh-hunyuan:cu124",
   "resources": {
@@ -16,7 +16,7 @@
    "MESH_SINK_URL": "https://remont-lab.online/mesh-sink",
    "MESH_SINK_TOKEN": "<MESH_SINK_TOKEN>",
    "STAGED": "1",
-   "PIPELINE_VERSION": "v1"
+   "PIPELINE_VERSION": "v2"
   },
   "registry_authentication": {
    "basic": {
@@ -38,5 +38,6 @@
   "single_connection_limit": false,
   "client_request_timeout": 1200,
   "server_response_timeout": 1200
- }
+ },
+ "priority": "batch"
 }
