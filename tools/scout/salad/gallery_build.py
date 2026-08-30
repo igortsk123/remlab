@@ -42,15 +42,18 @@ def build() -> str:
         import asset_strategy as AS
         if AS.strategy(man.get('role')) != 'hunyuan3d':
             continue
-        best[man['sku']] = True
-        sku = man['sku'].replace(':', '_')
-        item_dir = os.path.join(OUT, sku)
-        os.makedirs(item_dir, exist_ok=True)
         # Показ: ремонт-кандидат ЗАМЕЩАЕТ оригинал в галерее (владелец 30.08: «заменяй
         # вместо текущего оригинал этим»). Оригинал model.glb в источнике не трогаем —
         # правило «модель на живую не правь»; до/после остаётся на /test/mesh-repairs/.
         rep = os.path.join(d, 'model.repaired.glb')
         model_src = rep if os.path.exists(rep) else os.path.join(d, 'model.glb')
+        if not os.path.exists(model_src):
+            continue                  # suspect-комплект (одна диагностика): SKU не занимаем,
+            # пусть показывается предыдущая версия с мешом
+        best[man['sku']] = True
+        sku = man['sku'].replace(':', '_')
+        item_dir = os.path.join(OUT, sku)
+        os.makedirs(item_dir, exist_ok=True)
         open(os.path.join(item_dir, 'model.glb'), 'wb').write(open(model_src, 'rb').read())
         for f in ('cutout.png', 'input.png'):
             s = os.path.join(d, f)
