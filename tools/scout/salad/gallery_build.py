@@ -35,6 +35,8 @@ def build() -> str:
         if not os.path.exists(man_p):
             continue
         man = json.load(open(man_p, encoding='utf-8'))
+        if os.path.exists(os.path.join(d, 'owner_reject.json')):
+            continue                  # забракован владельцем — не показываем, ждёт перегона
         if man['sku'] in best:
             continue
         import asset_strategy as AS
@@ -78,6 +80,8 @@ def build() -> str:
   <h3>{html.escape(m.get('role') or '?')} <span class="sku">{r['sku']}</span></h3>
   <model-viewer src="{r['sku']}/model.glb?v={r['ver']}" camera-controls auto-rotate shadow-intensity="1"
     style="width:100%;height:340px;background:#f4f4f2;border-radius:6px"></model-viewer>
+  <img class="cut" src="{r['sku']}/cutout.png?v={r['ver']}" loading="lazy"
+    alt="вырезка, ушедшая в генератор">
 </div>""")
 
     page = f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
@@ -90,6 +94,8 @@ def build() -> str:
  padding:16px;margin:18px 0;max-width:1180px}}
  .card{{display:inline-block;width:360px;vertical-align:top;margin:9px}}
  .sku{{font-size:12px;color:#999;font-weight:400}} .meta{{font-size:13px;color:#444}}
+ .cut{{max-width:100%;max-height:170px;margin-top:8px;border-radius:6px;
+   background:url('{CHECKER}') repeat;image-rendering:auto;display:block}}
  .probs{{font-size:13px;color:#a33;margin:4px 0 0 18px}}
  @media(max-width:900px){{.tri{{grid-template-columns:1fr}}}}
 </style></head><body>

@@ -101,6 +101,16 @@ def main() -> None:
                 n = P.crop_beyond_passport(rep, man_dims, role)
                 if n:
                     print(f'  плита по паспорту: −{n} граней')
+                    # срез открыл кромку с текселями подложки — закрасить (владелец 30.08)
+                    try:
+                        import importlib.util as _il2
+                        _sp2 = _il2.spec_from_file_location('tf2', os.path.join(HERE, 'texture_fix.py'))
+                        _tf2 = _il2.module_from_spec(_sp2); _sp2.loader.exec_module(_tf2)
+                        npx = _tf2.repaint_cut_edge(rep)
+                        if npx:
+                            print(f'  кромка закрашена: {npx} px')
+                    except Exception as e:  # noqa: BLE001
+                        print(f'  закраска кромки пропущена: {str(e)[:80]}')
             P.cut_alien_debris(rep)
             try:
                 import importlib.util as _il

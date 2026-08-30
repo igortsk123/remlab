@@ -175,6 +175,14 @@ def generate(job: dict):
         # PNG держит альфу — именно она и есть маска товара для генератора (ADR-0133).
         shape_img.save(os.path.join(work, 'input.png'))          # что видит стадия формы
         cut_rgba.save(os.path.join(work, 'cutout.png'))          # вырезка с альфой — на просмотр
+        # Исходник ДО обрезки — в комплект каждой версии (владелец 30.08: «связка
+        # фотка-меш», прослеживать баги вырезки). Best-effort: CDN уже отвечал секунду
+        # назад, но его недоступность не должна валить задание.
+        try:
+            with open(os.path.join(work, 'source.jpg'), 'wb') as _f:
+                _f.write(PRE.fetch(job['image_url']))
+        except Exception:  # noqa: BLE001
+            pass
         params['_dims'] = job.get('dims_cm') or {}
         params['_square_role'] = job.get('role') in ('кашпо', 'ваза', 'торшер', 'лампа', 'пуф')
         try:
@@ -202,7 +210,7 @@ def generate(job: dict):
             return {'sku': sku, 'status': status, 'job_id': jid, 'error': str(e)[:200]}
 
         files = {'model.glb': res['glb']}
-        for name in ('albedo.png', 'orm.png', 'normal.png', 'shape.glb', 'cutout.png'):
+        for name in ('albedo.png', 'orm.png', 'normal.png', 'shape.glb', 'cutout.png', 'source.jpg'):
             p = os.path.join(work, name)
             if os.path.exists(p):
                 files[name] = p

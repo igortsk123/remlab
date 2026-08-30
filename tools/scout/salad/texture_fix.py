@@ -99,3 +99,91 @@ def despeckle_glb(glb_path: str) -> int:
     g.set_binary_blob(bytes(blob))
     g.save(glb_path)
     return total
+
+
+def repaint_cut_edge(glb_path: str, seam_frac: float = 0.08) -> int:
+    """Закраска кромки среза (владелец 30.08: «сгладить, закрасить поровнее»).
+
+    Срез плиты открывает грани, чья развёртка попала в белую подложку покраски или в
+    тень — по низу модели идёт рваная светлая полоса с чёрными пятнами. Берём UV-текселя
+    граней нижней зоны (низ < seam_frac высоты), считаем медианный цвет обивки по валидным
+    текселям зоны и перекрашиваем ВЫБРОСЫ (сильно светлее/темнее/дальше от медианы) в эту
+    медиану, затем лёгкое сглаживание внутри зоны. Выше зоны не трогаем ни пикселя.
+    Возвращает число перекрашенных пикселей."""
+    import cv2
+    import trimesh
+    from pygltflib import GLTF2
+    m = trimesh.load(glb_path, force='mesh')
+    uv = getattr(m.visual, 'uv', None)
+    if uv is None or not len(uv):
+        return 0
+    V, F = np.asarray(m.vertices), np.asarray(m.faces)
+    lo, hi = V.min(axis=0), V.max(axis=0)
+    ext = max(float(hi[1] - lo[1]), 1e-6)
+    low = F[V[F][:, :, 1].max(axis=1) < lo[1] + seam_frac * ext]
+    if not len(low):
+        return 0
+    g = GLTF2().load(glb_path)
+    base_idx = set()
+    for mat in g.materials or []:
+        pmr = getattr(mat, 'pbrMetallicRoughness', None)
+        bct = getattr(pmr, 'baseColorTexture', None) if pmr else None
+        if bct is not None and bct.index is not None:
+            src = g.textures[bct.index].source
+            if src is not None:
+                base_idx.add(src)
+    blob = g.binary_blob()
+    total = 0
+    new_chunks = {}
+    for idx, img in enumerate(g.images):
+        if idx not in base_idx or img.bufferView is None:
+            continue
+        bv = g.bufferViews[img.bufferView]
+        raw = blob[bv.byteOffset:bv.byteOffset + bv.byteLength]
+        try:
+            pil = Image.open(io.BytesIO(raw)).convert('RGB')
+        except Exception:  # noqa: BLE001
+            continue
+        a = np.asarray(pil).astype(np.float32)
+        h, w = a.shape[:2]
+        px = np.stack([np.clip(np.asarray(uv)[:, 0] % 1.0 * (w - 1), 0, w - 1),
+                       np.clip(np.asarray(uv)[:, 1] % 1.0 * (h - 1), 0, h - 1)], axis=1)
+        zone = np.zeros((h, w), np.uint8)
+        tris = px[low].astype(np.int32)          # (nF,3,2) в пикселях текстуры
+        cv2.fillPoly(zone, list(tris), 1)
+        zone = cv2.dilate(zone, np.ones((3, 3), np.uint8))
+        zm = zone.astype(bool)
+        if not zm.any():
+            continue
+        zone_px = a[zm]
+        dom = np.median(a.reshape(-1, 3), axis=0)
+        dist_dom = np.linalg.norm(zone_px - dom, axis=1)
+        valid = zone_px[dist_dom < 80]
+        med = np.median(valid, axis=0) if len(valid) > 50 else dom
+        if float(np.linalg.norm(med - 255)) < 60:
+            continue                              # белая мебель: «выбросы» и есть её цвет
+        dist = np.linalg.norm(a - med, axis=2)
+        outlier = zm & ((dist > 85) | (a.min(axis=2) > 205) | (a.max(axis=2) < 45))
+        if outlier.any():
+            a[outlier] = med
+            total += int(outlier.sum())
+        sm = cv2.GaussianBlur(a, (5, 5), 0)
+        a[zm] = sm[zm]                            # приглаживаем только зону кромки
+        buf = io.BytesIO()
+        Image.fromarray(a.astype(np.uint8)).save(buf, format='PNG')
+        new_chunks[idx] = buf.getvalue()
+    if not new_chunks:
+        return 0
+    blob = bytearray(blob)
+    for idx, data in new_chunks.items():
+        bv = g.bufferViews[g.images[idx].bufferView]
+        pad = (4 - len(blob) % 4) % 4
+        blob.extend(b'\x00' * pad)
+        off = len(blob)
+        blob.extend(data)
+        bv.byteOffset, bv.byteLength = off, len(data)
+        g.images[idx].mimeType = 'image/png'
+    g.buffers[0].byteLength = len(blob)
+    g.set_binary_blob(bytes(blob))
+    g.save(glb_path)
+    return total
