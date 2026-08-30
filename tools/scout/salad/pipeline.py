@@ -177,11 +177,17 @@ def crop_beyond_passport(glb_path: str, dims: dict | None, role: str | None = No
         out_z = np.minimum(np.abs(fv[:, :, 2] - cz).min(axis=1), 1e9) > half[2]
         beyond = (np.abs(fv[:, :, 0] - cx) > half[0]).all(axis=1) |                  (np.abs(fv[:, :, 2] - cz) > half[2]).all(axis=1)
         drop = in_band & beyond
-        af = np.asarray(m.area_faces, np.float64)
-        # потолок — по ПЛОЩАДИ, не по числу граней: тонкая плита тесселирована плотно и по
-        # граням «весит» больше, чем по поверхности (диван 2709: 42% граней, но плита)
-        if af[drop].sum() > 0.60 * af.sum():   # плита двуслойная и огромная — до 60% поверхности
-            return 0
+        # Потолка объёма нет НАМЕРЕННО: у дивана 2709 плита в 4 раза шире тела, любой
+        # процентный потолок её щадит (и 60% щадил — потому резак «молчал»). Тело защищают
+        # три предохранителя: обязательный переход толщины, рамка паспорта с допуском,
+        # бэкап shape.generated.glb до ножей.
+        # ФАЗА 2: остаток плиты ВНУТРИ рамки. Раз переход найден и сечение под ним ощутимо
+        # шире тела (плита доминирует в слое), тела ниже границы нет — снимаем слой целиком,
+        # не только кольцо. Диван на «подиуме в размер себя» — тоже артефакт (тот же 2709).
+        body_prof = prof[int(band_frac * bins):int(band_frac * bins) + 6]
+        body_med = float(np.median(body_prof[body_prof > 0])) if (body_prof > 0).any() else 0
+        if body_med > 0 and prof[0] > 1.3 * body_med:
+            drop = drop | in_band
         if drop.any() and not drop.all():
             m.update_faces(~drop)
             m.remove_unreferenced_vertices()
