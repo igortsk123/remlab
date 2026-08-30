@@ -113,6 +113,50 @@ class SlabSuspect(Exception):
     единственная экономия это не красить брак: paint — половина стоимости задания."""
 
 
+def _smooth_cut_edge(m, body, lo, ext, G, seam) -> None:
+    """Причесать кромку среза (владелец 30.08: «края рваные — сглаживать зону обрезки»).
+
+    Срез по целым граням оставляет зубцы: грани с частью вершин внутри контура выживают,
+    их внешние вершины торчат бахромой. Лечение в три шага, тело не трогаем: двигаем
+    ТОЛЬКО вершины вне контура и ниже шва, и только по XZ (высоту не меняем):
+    1) осиротевшую вершину притянуть к ближайшей клетке контура тела (EDT с индексами);
+    2) два прохода сглаживания кромки — среднее с соседями по рёбрам;
+    3) схлопнувшиеся (вырожденные) треугольники удалить.
+    """
+    import numpy as np
+    from scipy import ndimage
+    V = np.asarray(m.vertices).copy()
+    gx = np.clip(((V[:, 0] - lo[0]) / ext[0] * (G - 1)).astype(int), 0, G - 1)
+    gz = np.clip(((V[:, 2] - lo[2]) / ext[2] * (G - 1)).astype(int), 0, G - 1)
+    stray = (~body[gx, gz]) & (V[:, 1] < seam)
+    if not stray.any():
+        return
+    _, (ni, nj) = ndimage.distance_transform_edt(~body, return_indices=True)
+    ti, tj = ni[gx[stray], gz[stray]], nj[gx[stray], gz[stray]]
+    V[stray, 0] = lo[0] + ti / (G - 1) * ext[0]
+    V[stray, 2] = lo[2] + tj / (G - 1) * ext[2]
+    idx = np.where(stray)[0]
+    sset = set(idx.tolist())
+    nbr = {i: set() for i in idx}
+    for a, b in m.edges_unique:
+        if a in sset:
+            nbr[a].add(b)
+        if b in sset:
+            nbr[b].add(a)
+    for _ in range(2):
+        upd = {i: 0.5 * V[i, [0, 2]] + 0.5 * V[list(ns)][:, [0, 2]].mean(axis=0)
+               for i, ns in nbr.items() if ns}
+        for i, xz in upd.items():
+            V[i, 0], V[i, 2] = xz
+    m.vertices = V
+    F = np.asarray(m.faces)
+    fv2 = V[F]
+    area2 = np.linalg.norm(np.cross(fv2[:, 1] - fv2[:, 0], fv2[:, 2] - fv2[:, 0]), axis=1)
+    if (area2 <= 1e-12).any():
+        m.update_faces(area2 > 1e-12)
+        m.remove_unreferenced_vertices()
+
+
 def crop_beyond_passport(glb_path: str, dims: dict | None, role: str | None = None) -> int:
     """Нож по формуле владельца (30.08, финал): «скачок толщины со всех сторон — начало
     объекта». Всё, что ЦЕЛИКОМ вне контура тела — артефакт, режется на любой высоте
@@ -198,6 +242,7 @@ def crop_beyond_passport(glb_path: str, dims: dict | None, role: str | None = No
         if drop.any() and not drop.all():
             m.update_faces(~drop)
             m.remove_unreferenced_vertices()
+            _smooth_cut_edge(m, body, lo, ext, G, seam)
             m.export(glb_path)
             return int(drop.sum())
         return 0
