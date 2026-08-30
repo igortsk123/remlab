@@ -79,14 +79,27 @@ def build() -> str:
 <div class="card">
   <h3>{html.escape(m.get('role') or '?')} <span class="sku">{r['sku']}</span></h3>
   <model-viewer src="{r['sku']}/model.glb?v={r['ver']}" camera-controls auto-rotate shadow-intensity="1"
+    loading="lazy" reveal="auto"
     style="width:100%;height:340px;background:#f4f4f2;border-radius:6px"></model-viewer>
   <img class="cut" src="{r['sku']}/cutout.png?v={r['ver']}" loading="lazy"
     alt="вырезка, ушедшая в генератор">
 </div>""")
 
-    page = f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
+    # Страницы по PER_PAGE карточек (владелец 30.08: «тяжёлые, грузятся 10 сек — размещай
+    # по страницам»). Свежие всегда на первой; model-viewer грузит GLB лениво (loading=lazy).
+    PER_PAGE = 10
+    os.makedirs(OUT, exist_ok=True)
+    npages = max(1, (len(cards) + PER_PAGE - 1) // PER_PAGE)
+    for pi in range(npages):
+        chunk = cards[pi * PER_PAGE:(pi + 1) * PER_PAGE]
+        nav = ' '.join(
+            f'<b>{i + 1}</b>' if i == pi else
+            f'<a href="{"index.html" if i == 0 else f"page{i + 1}.html"}">{i + 1}</a>'
+            for i in range(npages))
+        nav = f'<p class="nav">Страницы: {nav} <span class="sku">(свежие — на первой)</span></p>'
+        page = f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Пилот мешей — 10 товаров</title>
+<title>Пилот мешей — стр. {pi + 1}/{npages}</title>
 <script type="module" src="https://unpkg.com/@google/model-viewer@3.5.0/dist/model-viewer.min.js"></script>
 <style>
  body{{font:15px/1.5 system-ui;margin:24px;background:#fafaf8;color:#1c1c1a}}
@@ -94,17 +107,20 @@ def build() -> str:
  padding:16px;margin:18px 0;max-width:1180px}}
  .card{{display:inline-block;width:360px;vertical-align:top;margin:9px}}
  .sku{{font-size:12px;color:#999;font-weight:400}} .meta{{font-size:13px;color:#444}}
+ .nav{{font-size:15px}} .nav a{{margin:0 3px}} .nav b{{margin:0 3px}}
  .cut{{max-width:100%;max-height:170px;margin-top:8px;border-radius:6px;
    background:url('{CHECKER}') repeat;image-rendering:auto;display:block}}
  .probs{{font-size:13px;color:#a33;margin:4px 0 0 18px}}
  @media(max-width:900px){{.tri{{grid-template-columns:1fr}}}}
 </style></head><body>
 <h1>Меши</h1>
-{''.join(cards)}
+{nav}
+{''.join(chunk)}
+{nav}
 </body></html>"""
-    os.makedirs(OUT, exist_ok=True)
-    open(os.path.join(OUT, 'index.html'), 'w', encoding='utf-8').write(page)
-    print(f'карточек: {len(rows)} → {OUT}/index.html')
+        name = 'index.html' if pi == 0 else f'page{pi + 1}.html'
+        open(os.path.join(OUT, name), 'w', encoding='utf-8').write(page)
+    print(f'карточек: {len(rows)} на {npages} стр. → {OUT}/index.html')
     for r in rows:
         print(f"  {r['man'].get('role'):14s} приёмка={r['pbr']['status']:12s} "
               f"{(r['pbr']['problems'] or ['—'])[0][:60]}")
