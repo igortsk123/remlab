@@ -44,21 +44,28 @@ def build() -> str:
         sku = man['sku'].replace(':', '_')
         item_dir = os.path.join(OUT, sku)
         os.makedirs(item_dir, exist_ok=True)
-        for f in ('model.glb', 'cutout.png', 'input.png'):
+        # Показ: ремонт-кандидат ЗАМЕЩАЕТ оригинал в галерее (владелец 30.08: «заменяй
+        # вместо текущего оригинал этим»). Оригинал model.glb в источнике не трогаем —
+        # правило «модель на живую не правь»; до/после остаётся на /test/mesh-repairs/.
+        rep = os.path.join(d, 'model.repaired.glb')
+        model_src = rep if os.path.exists(rep) else os.path.join(d, 'model.glb')
+        open(os.path.join(item_dir, 'model.glb'), 'wb').write(open(model_src, 'rb').read())
+        for f in ('cutout.png', 'input.png'):
             s = os.path.join(d, f)
             if os.path.exists(s):
                 open(os.path.join(item_dir, f), 'wb').write(open(s, 'rb').read())
-        # PBR-приёмка — на месте, по свежему GLB
+        # PBR-приёмка — на месте, по показанному GLB
         try:
             import mesh_gate_pbr as PBR
-            st = PBR.status(os.path.join(d, 'model.glb'), role=man.get('role'))
+            st = PBR.status(model_src, role=man.get('role'))
             pbr = {'status': st['status'],
                    'problems': (st.get('pbr') or {}).get('problems', []),
                    'tris': (st.get('runtime') or {}).get('triangles'),
                    'size_mb': (st.get('runtime') or {}).get('size_mb')}
         except Exception as e:  # noqa: BLE001 — приёмка не должна валить галерею
             pbr = {'status': 'gate_error', 'problems': [str(e)[:100]]}
-        rows.append({'sku': sku, 'man': man, 'pbr': pbr})
+        rows.append({'sku': sku, 'man': man, 'pbr': pbr,
+                     'ver': int(os.path.getmtime(model_src))})
 
     cards = []
     for r in rows:
@@ -69,7 +76,7 @@ def build() -> str:
         cards.append(f"""
 <div class="card">
   <h3>{html.escape(m.get('role') or '?')} <span class="sku">{r['sku']}</span></h3>
-  <model-viewer src="{r['sku']}/model.glb" camera-controls auto-rotate shadow-intensity="1"
+  <model-viewer src="{r['sku']}/model.glb?v={r['ver']}" camera-controls auto-rotate shadow-intensity="1"
     style="width:100%;height:340px;background:#f4f4f2;border-radius:6px"></model-viewer>
 </div>""")
 

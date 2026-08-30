@@ -206,7 +206,17 @@ def crop_beyond_passport(glb_path: str, dims: dict | None, role: str | None = No
         band_frac = None
         for i in range(max(2, int(bins * 0.20))):
             a2, b2 = prof[i], prof[i + 1] if i + 1 < bins else 0
-            if a2 > 0 and b2 > 0 and a2 / b2 >= 1.6:
+            if not (a2 > 0 and b2 > 0):
+                continue
+            r = a2 / b2
+            # Вторая ветка (диван 114667_770…, владелец 30.08): тонкая подложка даёт шаг
+            # всего ~1.4×, но над ней профиль тела — идеально ровное плато. Скромный шаг
+            # засчитываем ТОЛЬКО в самых нижних слоях (band ≤ 7.5% высоты) и только при
+            # спокойном плато сверху: постепенный рост выпуклого низа так не выглядит.
+            plateau = prof[i + 1:i + 6]
+            plateau = plateau[plateau > 0]
+            calm = len(plateau) >= 4 and float(plateau.max() / plateau.min()) < 1.06
+            if r >= 1.6 or (r >= 1.28 and calm and i < 3):
                 band_frac = (i + 1) / bins
                 break
         if band_frac is None:
