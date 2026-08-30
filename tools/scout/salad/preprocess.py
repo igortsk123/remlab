@@ -131,6 +131,37 @@ class BadCutout(Exception):
     """Вырезка непригодна — генерацию не запускаем, деньги не тратим."""
 
 
+def _pick_main_object(cut: Image.Image) -> tuple[Image.Image, dict]:
+    """Карточки часто показывают ПАРУ одинаковых предметов (стулья). Меш нужен ОДНОМУ.
+
+    Признак пары: два крупных компонента маски сопоставимой площади (меньший ≥40% большего),
+    их bbox-ы почти не пересекаются по X. Оставляем БОЛЬШИЙ (обычно передний). Порог
+    сознательно строгий: диван из-за просветов не должен резаться пополам — его куски
+    пересекаются по X или сильно различаются площадью.
+    """
+    from scipy import ndimage
+    a = np.asarray(cut)[..., 3] > 40
+    lab, n = ndimage.label(a)
+    if n < 2:
+        return cut, {}
+    sizes = ndimage.sum(a, lab, range(1, n + 1))
+    order = np.argsort(sizes)[::-1]
+    if len(order) < 2 or sizes[order[1]] < 0.40 * sizes[order[0]]:
+        return cut, {}
+    boxes = ndimage.find_objects(lab)
+    b1, b2 = boxes[order[0]], boxes[order[1]]
+    x1a, x1b = b1[1].start, b1[1].stop
+    x2a, x2b = b2[1].start, b2[1].stop
+    overlap = max(0, min(x1b, x2b) - max(x1a, x2a)) / max(1, min(x1b - x1a, x2b - x2a))
+    if overlap > 0.25:
+        return cut, {}
+    keep = int(order[0]) + 1
+    arr = np.asarray(cut).copy()
+    arr[..., 3] = np.where(lab == keep, arr[..., 3], 0)
+    return Image.fromarray(arr, 'RGBA'), {'dual_object_trimmed': True,
+                                          'second_share': round(float(sizes[order[1]] / sizes[order[0]]), 2)}
+
+
 def _paint_crop(rgba: Image.Image, margin: float = 0.18) -> Image.Image:
     """Кроп по товару с полем — для стадии ПОКРАСКИ.
 
@@ -225,6 +256,7 @@ def _cut_chain(image_url: str, role: str | None = None) -> tuple[Image.Image, Im
 
     shape_img = defringe(refined)            # полный холст: кроп и поле сделает recenter
     cut = trim_alpha(shape_img)              # обрезанная копия — человеку на просмотр
+    mask_info.update(dual)
     mask_info.update(mask_verdict(cut))
     if is_col:
         mask_info.update(verdict='bad', reason='фото-коллаж: ' + ', '.join(why))

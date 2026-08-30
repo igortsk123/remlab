@@ -145,12 +145,24 @@ def stop_group() -> None:
               f'останови вручную в портале', flush=True)
 
 
+# Канон стратегий — ЕДИНСТВЕННЫЙ источник (rules/asset-strategies.json, Codex q27).
+sys.path.insert(0, os.path.join(HERE, '..'))
+import asset_strategy as AS  # noqa: E402
+
+
+def _mesh_eligible(jobs: list[dict]) -> list[dict]:
+    out = [j for j in jobs if AS.strategy(j.get('role')) == 'hunyuan3d']
+    if len(out) != len(jobs):
+        print(f'не-мешевых по канону: {len(jobs) - len(out)}', flush=True)
+    return out
+
+
 def jobs_from_file(path: str) -> list[dict]:
     """Очередь лечения: задания перегона из файла (apply_repairs собирает их по вердиктам)."""
     js = json.load(open(path, encoding='utf-8'))
     if len(js) > MAX_JOBS:
         sys.exit(f'ПРЕДОХРАНИТЕЛЬ: {len(js)} > {MAX_JOBS}')
-    return js
+    return _mesh_eligible(js)
 
 
 def jobs_from_sample(limit: int | None) -> list[dict]:
@@ -162,15 +174,20 @@ def jobs_from_sample(limit: int | None) -> list[dict]:
                         'dims_cm': j['dims_cm'], 'seed': seed, 'params': {}})
     if len(out) > MAX_JOBS:
         sys.exit(f'ПРЕДОХРАНИТЕЛЬ: {len(out)} > {MAX_JOBS}')
+    out = _mesh_eligible(out)
     return out[:limit] if limit else out
 
 
-def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None) -> None:
+def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
+        skip: int = 0) -> None:
     ports = warm_ports()
     print(f'тёплых нод: {len(ports)} {ports}')
     if not ports:
         sys.exit('нет прогретых нод')
-    jobs = jobs_from_file(jobs_file) if jobs_file else jobs_from_sample(limit)
+    jobs = jobs_from_file(jobs_file) if jobs_file else jobs_from_sample(None)[skip:(skip + limit) if limit else None]
+    # --skip вместо растущего --limit: кэш «уже сделано» живёт на приёмнике и умирает при
+    # drain — растущий префикс перегенерировал ВСЁ предыдущее каждой пачкой (поймано 30.08:
+    # конвейер стал квадратичным, страница стояла).
     print(f'заданий: {len(jobs)} на {len(ports)} нод(ы)')
 
     q: queue.Queue = queue.Queue()
@@ -230,8 +247,9 @@ def main() -> None:
         report()
         return
     lim = int(sys.argv[sys.argv.index('--limit') + 1]) if '--limit' in sys.argv else None
+    skip = int(sys.argv[sys.argv.index('--skip') + 1]) if '--skip' in sys.argv else 0
     jf = sys.argv[sys.argv.index('--jobs-file') + 1] if '--jobs-file' in sys.argv else None
-    run(lim, '--keep-alive' in sys.argv, jf)
+    run(lim, '--keep-alive' in sys.argv, jf, skip)
 
 
 if __name__ == '__main__':

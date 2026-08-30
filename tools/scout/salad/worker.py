@@ -133,6 +133,16 @@ def generate(job: dict):
     sku = job.get('sku')
     if not sku or not job.get('image_url'):
         raise HTTPException(status_code=400, detail='нет sku или image_url')
+    # СТРАХОВКА КАНОНА (Codex q27): воркер пересчитывает стратегию сам и отклоняет чужое
+    # ДО вырезки и GPU — новый источник заданий не сможет обойти реестр.
+    try:
+        import asset_strategy as AS
+        if AS.strategy(job.get('role')) != 'hunyuan3d':
+            return {'sku': sku, 'status': 'not_generator_eligible',
+                    'strategy': AS.strategy(job.get('role')),
+                    'policy_version': AS.policy_version()}
+    except Exception:  # noqa: BLE001 — нет реестра в образе: работаем, фильтр у отправителя
+        pass
     seed = int(job.get('seed', 0))
     params = job.get('params') or {}
     t0 = time.time()

@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+"""Единственный загрузчик канона стратегий ассета (rules/asset-strategies.json).
+
+Дыра 30.08: правило «ковёр без меша» жило в трёх разошедшихся списках, и flat215-источник
+его обошёл — ковёр уехал в Hunyuan. Теперь канон один; каждый потребитель импортирует
+ЭТОТ модуль, а воркер дополнительно пересчитывает стратегию сам (страховка до траты GPU).
+"""
+import json
+import os
+import re
+
+_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rules',
+                     'asset-strategies.json')
+_CACHE = None
+
+
+def _load() -> dict:
+    global _CACHE
+    if _CACHE is None:
+        _CACHE = json.load(open(_PATH, encoding='utf-8'))
+    return _CACHE
+
+
+def base_role(role: str | None) -> str:
+    """«кресло 3» → «кресло», но «стол обеденный» ОСТАЁТСЯ собой: срезается только
+    ЧИСЛОВОЙ суффикс (Codex q27: split-по-пробелу ломал составные роли)."""
+    return re.sub(r'\s+\d+$', '', (role or '').strip())
+
+
+def strategy(role: str | None) -> str:
+    r = _load()['roles']
+    return r.get(base_role(role), r.get('_default', 'hunyuan3d'))
+
+
+def policy_version() -> int:
+    return int(_load().get('policy_version', 0))

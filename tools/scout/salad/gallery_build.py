@@ -37,6 +37,9 @@ def build() -> str:
         man = json.load(open(man_p, encoding='utf-8'))
         if man['sku'] in best:
             continue
+        import asset_strategy as AS
+        if AS.strategy(man.get('role')) != 'hunyuan3d':
+            continue
         best[man['sku']] = True
         sku = man['sku'].replace(':', '_')
         item_dir = os.path.join(OUT, sku)

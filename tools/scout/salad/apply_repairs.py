@@ -57,6 +57,14 @@ def accept(d: str, man: dict) -> str:
 
 
 def main() -> None:
+    """ПРАВИЛО ВЛАДЕЛЬЦА (30.08, после изрезанного дивана): МОДЕЛЬ НА ЖИВУЮ НЕ ПРАВИТЬ.
+
+    `model.glb` — неприкосновенный оригинал генератора. Ремонт пишется ТОЛЬКО в копию
+    `model.repaired.glb`, и она становится кандидатом, а не заменой: показывается и
+    используется лишь после доказательства «гейт до/после не ухудшил». Вторая причина
+    прошлой аварии — конвейер прогонял ремонт по ВСЕМ мешам на каждой пачке, срезы
+    накапливались в живом файле; теперь повторный проход видит repair.json и молчит.
+    """
     fixed = 0
     verdicts = {}
     reseed = json.load(open(RESEED, encoding='utf-8')) if os.path.exists(RESEED) else []
@@ -68,34 +76,38 @@ def main() -> None:
             continue
         man = json.load(open(mp, encoding='utf-8'))
         role = man.get('role')
-        gen = os.path.join(d, 'model.generated.glb')
-        if not os.path.exists(gen):
+        rep = os.path.join(d, 'model.repaired.glb')
+        if not os.path.exists(os.path.join(d, 'repair.json')):
             import shutil
-            shutil.copy(glb, gen)          # неизменяемый «до ремонта» — для отката и сверки
-        before = os.path.getsize(glb)
-        P.cut_base_slab(glb, role)
-        P.cut_alien_debris(glb)
-        try:
-            import importlib.util as _il
-            _sp = _il.spec_from_file_location('tf', os.path.join(HERE, 'texture_fix.py'))
-            _tf = _il.module_from_spec(_sp); _sp.loader.exec_module(_tf)
-            n = _tf.despeckle_glb(glb)
-            if n:
-                print(f'  текстура: закрашено {n} px крапинок')
-        except Exception as e:  # noqa: BLE001 — страховка не должна валить конвейер
-            print(f'  despeckle пропущен: {str(e)[:80]}')
-        if os.path.getsize(glb) != before:
-            fixed += 1
-            json.dump({'ops': ['slab', 'despeckle'], 'bytes_before': before,
-                       'bytes_after': os.path.getsize(glb)},
+            shutil.copy(glb, rep)                     # ремонт — только над копией
+            before = os.path.getsize(rep)
+            P.cut_base_slab(rep, role)
+            P.cut_alien_debris(rep)
+            try:
+                import importlib.util as _il
+                _sp = _il.spec_from_file_location('tf', os.path.join(HERE, 'texture_fix.py'))
+                _tf = _il.module_from_spec(_sp); _sp.loader.exec_module(_tf)
+                _tf.despeckle_glb(rep)
+            except Exception as e:  # noqa: BLE001
+                print(f'  despeckle пропущен: {str(e)[:80]}')
+            changed = os.path.getsize(rep) != before
+            json.dump({'changed': changed, 'bytes_orig': os.path.getsize(glb),
+                       'bytes_repaired': os.path.getsize(rep)},
                       open(os.path.join(d, 'repair.json'), 'w'))
-            print(f'  починен: {os.path.basename(os.path.dirname(d))} ({role})')
+            if changed:
+                fixed += 1
+                print(f'  кандидат-ремонт: {os.path.basename(os.path.dirname(d))} ({role})')
+            else:
+                os.remove(rep)                        # нечего чинить — копию не плодим
         status = accept(d, man)
         verdicts[man['sku']] = status
-        json.dump({'status': status}, open(os.path.join(d, 'verdict.json'), 'w'))
-        # СЛОЙ ЛЕЧЕНИЯ: не дотянул до scene_ready → перегон другим seed, максимум два захода
+        json.dump({'status': status,
+                   'manual_repair_candidate': bool(status in ('generated', 'geometry_valid') and seed >= 1)},
+                  open(os.path.join(d, 'verdict.json'), 'w'))
         seed = int(man.get('seed') or 0)
-        if status in ('generated', 'geometry_valid') and seed < 2:
+        # Codex q27: один reseed; повторилась та же сигнатура — вручную/замена, второй
+        # перегон жжёт GPU без шансов (seed-стабильные дефекты: пара на фото, плита у цоколя).
+        if status in ('generated', 'geometry_valid') and seed < 1:
             key = (man['sku'], seed + 1)
             if key not in seen:
                 seen.add(key)
@@ -105,7 +117,7 @@ def main() -> None:
                                'dims_cm': inp.get('dims_cm'), 'seed': seed + 1, 'params': {}})
     json.dump(reseed, open(RESEED, 'w'), ensure_ascii=False, indent=1)
     import collections
-    print(f'ремонт: изменено {fixed} | приёмка: {dict(collections.Counter(verdicts.values()))} '
+    print(f'ремонт-кандидатов: {fixed} | приёмка: {dict(collections.Counter(verdicts.values()))} '
           f'| на перегон: {len(reseed)}')
 
 if __name__ == '__main__':

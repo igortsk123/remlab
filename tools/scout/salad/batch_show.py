@@ -45,14 +45,14 @@ def main():
         n = min(batch, total - done)
         # ssh_run сам берёт первые limit заданий; сделанные вернутся как cached мгновенно —
         # поэтому просто наращиваем limit, а не режем список (проще и идемпотентно)
-        code, out = sh(f'{PY} {HERE}/ssh_run.py --limit {done + n} --keep-alive', timeout=n * 420 + 600)
+        code, out = sh(f'{PY} {HERE}/ssh_run.py --skip {done} --limit {n} --keep-alive', timeout=n * 420 + 600)
         print(out, flush=True)
         if code != 0:
             print(f'!! пачка упала (код {code}) — стоп, разбор руками', flush=True)
             break
         done += n
         json.dump({'done': done, 'at': time.time()}, open(DONE, 'w'))
-        for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh'),
+        for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh --keep'),
                           ('ремонт', f'{PY} {HERE}/apply_repairs.py'),
                           ('галерея', f'GALLERY_SRC=$HOME/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2 {PY} {HERE}/gallery_build.py'),
                           ('публикую', f'scp -P 22222 -o BatchMode=yes -r $HOME/scout-scenes/mesh-pilot-gallery/* root@89.167.127.0:/opt/remlab/test/mesh-pilot10/')):
@@ -70,13 +70,15 @@ def main():
             c, o = sh(f'{PY} {HERE}/ssh_run.py --jobs-file {RESEED} --keep-alive',
                       timeout=len(todo) * 420 + 600)
             print(o, flush=True)
-            for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh'),
+            for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh --keep'),
                               ('ремонт', f'{PY} {HERE}/apply_repairs.py'),
                               ('галерея', f'GALLERY_SRC=$HOME/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2 {PY} {HERE}/gallery_build.py'),
                               ('публикую', f'scp -P 22222 -o BatchMode=yes -r $HOME/scout-scenes/mesh-pilot-gallery/* root@89.167.127.0:/opt/remlab/test/mesh-pilot10/')):
                 c, o = sh(cmd, timeout=900)
                 print(f'  {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
 
+    # сервер чистим ОДИН раз в конце: в цикле drain --keep, иначе умирает кэш «уже сделано»
+    sh(f'bash {HERE}/drain.sh', timeout=1200)
     # конец или падение — группу гасим В ЛЮБОМ СЛУЧАЕ (деньги)
     c, o = sh(f'{PY} - <<P\nimport sys; sys.path.insert(0,"{HERE}")\nimport ssh_run; ssh_run.stop_group()\nP', timeout=120)
     print(o, flush=True)
