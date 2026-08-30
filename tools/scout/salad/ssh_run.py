@@ -30,13 +30,16 @@ SSH_KEY = os.path.expanduser('~/.ssh/salad_mesh_ed25519')
 SSH_HOST = 'root@195.181.163.241'
 API = 'https://api.salad.com/api/public'
 ORG, PROJECT = 'prodstore', 'dmodel'
-GROUP = os.environ.get('SALAD_GROUP', 'mesh-pool5')
+GROUP = os.environ.get('SALAD_GROUP', 'mesh-run')
 RATE = 0.16                     # 4090 batch $/ч — сверено по API 28.08
 MAX_JOBS = 700   # 481 сетовых + 78 из демо flat215 + повторы seed
 _lock = threading.Lock()
-# ОДНА ssh-сессия на весь аккаунт: шлюз Salad при параллельных сессиях отдаёт второй пустоту
-# (батч 29.08: у заданий с «нет маркера» вывод пуст целиком). Сериализуем все ssh глобально.
+# Параллельные сессии к РАЗНЫМ нодам допустимы, если не открывать их залпом: сбой 29.08
+# («нет маркера», пустой вывод) случался при одновременном старте. Поэтому: разнос стартов
+# по нодам + случайный джиттер перед каждой сессией + ОДИН повтор при пустом ответе.
+# Глобальный замок остаётся только на короткие пробы warm_ports.
 _ssh_gate = threading.Lock()
+import random
 
 
 def key() -> str:
@@ -101,13 +104,19 @@ def run_job(port: int, job: dict) -> dict:
         "exit\n")
     t0 = time.time()
     try:
-        with _ssh_gate:
+        for attempt in (1, 2):
+            time.sleep(random.uniform(0.5, 4.0))
             r = subprocess.run(
                 ['ssh', '-i', SSH_KEY, '-tt', '-o', 'StrictHostKeyChecking=no',
                  '-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=30',
                  '-p', str(port), SSH_HOST],
                 input=script, capture_output=True, text=True, timeout=1150)
-        m = re.search(r'RLBEG(\{.*?\})RLEND', r.stdout, re.S)
+            m = re.search(r'RLBEG(\{.*?\})RLEND', r.stdout, re.S)
+            if m:
+                break
+            if attempt == 1 and len((r.stdout or '').strip()) < 40:
+                time.sleep(8)          # пустой вывод = коллизия сессий, второй заход
+                continue
         if not m:
             return {'sku': job['sku'], 'status': 'transport_failed', 'node_port': port,
                     'error': ('нет маркера в выводе: ' + r.stdout[-180:]).strip()}
@@ -177,7 +186,9 @@ def run(limit: int | None, keep_alive: bool) -> None:
             q.task_done()
 
     ts = [threading.Thread(target=worker, args=(p,), daemon=True) for p in ports]
-    [t.start() for t in ts]
+    for i, t in enumerate(ts):
+        t.start()
+        time.sleep(6 * min(i, 1) + (0 if i == 0 else 2))   # разнос стартов сессий
     [t.join() for t in ts]
 
     state = {'transport': 'ssh', 'ports': ports, 'at': time.time(),
