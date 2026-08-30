@@ -64,8 +64,6 @@ def build() -> str:
   <h3>{html.escape(m.get('role') or '?')} <span class="sku">{r['sku']}</span></h3>
   <model-viewer src="{r['sku']}/model.glb" camera-controls auto-rotate shadow-intensity="1"
     style="width:100%;height:340px;background:#f4f4f2;border-radius:6px"></model-viewer>
-  <p class="meta">{t.get('total')}с · приёмка: <b>{p['status']}</b> · {p.get('tris')} трис · {p.get('size_mb')} МБ</p>
-  {f'<ul class="probs">{probs}</ul>' if probs else ''}
 </div>""")
 
     page = f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
@@ -81,9 +79,7 @@ def build() -> str:
  .probs{{font-size:13px;color:#a33;margin:4px 0 0 18px}}
  @media(max-width:900px){{.tri{{grid-template-columns:1fr}}}}
 </style></head><body>
-<h1>Пилот 3D-мешей: Hunyuan3D 2.1 на Salad — 10 товаров</h1>
-<p>Вырезка — наш гибрид поверх BiRefNet (клетка = прозрачность). Меш вертится мышью;
-автоповорот выключается кликом. Только 3D-модели, свежие пачки СВЕРХУ, страница пополняется по 5. Нашли баг — скажите «пауза»: прогон встаёт, чиню, «продолжай» — едем дальше с места, готовое не пересчитывается.</p>
+<h1>Меши</h1>
 {''.join(cards)}
 </body></html>"""
     os.makedirs(OUT, exist_ok=True)
