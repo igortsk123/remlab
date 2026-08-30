@@ -29,7 +29,7 @@ CHECKER = ('data:image/png;base64,' + base64.b64encode(bytes.fromhex(
 
 def build() -> str:
     rows = []
-    for d in sorted(glob.glob(os.path.join(SRC, '*/*/'))):
+    for d in sorted(glob.glob(os.path.join(SRC, '*/*/')), key=lambda p: -os.path.getmtime(os.path.join(p,'manifest.json')) if os.path.exists(os.path.join(p,'manifest.json')) else 0):
         man_p = os.path.join(d, 'manifest.json')
         if not os.path.exists(man_p):
             continue
@@ -94,7 +94,7 @@ def build() -> str:
 </style></head><body>
 <h1>Пилот 3D-мешей: Hunyuan3D 2.1 на Salad — 10 товаров</h1>
 <p>Вырезка — наш гибрид поверх BiRefNet (клетка = прозрачность). Меш вертится мышью;
-автоповорот выключается кликом. Партия v1: меши пока БЕЗ текстур (баг конвертации, починен) — оцениваются вырезка и форма; текстурные модели придут после пополнения Salad и перегона v2.</p>
+автоповорот выключается кликом. Свежие пачки — СВЕРХУ. Правки говорите в чат по ходу — параметры меняются между пачками.</p>
 {''.join(cards)}
 </body></html>"""
     os.makedirs(OUT, exist_ok=True)

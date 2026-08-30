@@ -93,8 +93,81 @@ def _unload(name: str):
     _free()
 
 
+# Роли, у которых у пола НЕ бывает родных горизонтальных плоскостей: тут плита — всегда
+# артефакт. У стеллажей/тумб/кашпо плита неотличима от нижней полки или днища (пробный
+# прогон 30.08 отрезал бы куски у двух товаров) — там резак выключен, брак ловит приёмка
+# и лечит повтор с другим seed.
+SLAB_ROLES = {'кресло', 'стул', 'диван', 'кровать', 'банкетка', 'стол', 'стол обеденный'}
+
+
+def cut_base_slab(glb_path: str, role: str | None = None) -> None:
+    """Срезает «пол», который генератор дорисовывает под предметом.
+
+    Пилот 29.08, кресло 112923: плита на всю ширину. Геометрия после конвертации слита в
+    один меш → режем по связным компонентам граней (метки связности, не `split` — тот висит
+    на плотных мешах, урок 28.08). ОСЬ «ВВЕРХ» НЕ УГАДЫВАЕМ: в GLB это обычно Y, у рендеров
+    бывает Z — первый вариант резака искал плиту в XY и не нашёл её вовсе (проверено на том
+    самом кресле). Теперь примеряем каждую ось: плита — тонкая (<5%) вдоль оси, лежит на её
+    краю (<2%) и накрывает ≥80% по двум другим. Сомнительное не трогаем.
+    """
+    import numpy as np
+    import trimesh
+    if role is not None and role not in SLAB_ROLES:
+        return
+    try:
+        m = trimesh.load(glb_path, force='mesh')
+        if m.faces is None or not len(m.faces):
+            return
+        labels = trimesh.graph.connected_component_labels(m.face_adjacency,
+                                                          node_count=len(m.faces))
+        if labels.max() == 0:
+            return
+        V, F = np.asarray(m.vertices), np.asarray(m.faces)
+        lo, hi = V.min(axis=0), V.max(axis=0)
+        ext = np.maximum(hi - lo, 1e-6)
+        drop = np.zeros(len(F), bool)
+        for lab in np.unique(labels):
+            sel = labels == lab
+            if sel.all():
+                continue
+            pts = V[F[sel].ravel()]
+            b0, b1 = pts.min(axis=0), pts.max(axis=0)
+            frac = (b1 - b0) / ext
+            for up in range(3):
+                others = [a for a in range(3) if a != up]
+                thin = frac[up] < 0.05
+                at_edge = (b0[up] - lo[up]) / ext[up] < 0.07   # плита о двух слоях: верхний чуть выше
+                wide = frac[others[0]] > 0.8 and frac[others[1]] > 0.8
+                if thin and at_edge and wide:
+                    drop |= sel
+                    break
+        # второй проход: крошка от плиты — мелкие компоненты, ЦЕЛИКОМ лежащие в нижних 6%
+        # (ножки не задевает: их компонент тянется вверх и в зону целиком не попадает)
+        if drop.any():
+            keep_lo = lo.copy()
+            for up in range(3):
+                zone = lo[up] + 0.06 * ext[up]
+                for lab in np.unique(labels):
+                    sel = labels == lab
+                    if sel.all() or drop[sel].all():
+                        continue
+                    pts = V[F[sel].ravel()]
+                    if pts[:, up].max() < zone and (pts[:, up].min() - lo[up]) / ext[up] < 0.04:
+                        span_frac = (pts.max(axis=0) - pts.min(axis=0)) / ext
+                        others = [a for a in range(3) if a != up]
+                        if span_frac[others[0]] < 0.5 and span_frac[others[1]] < 0.5:
+                            drop |= sel
+        if drop.any() and not drop.all():
+            m.update_faces(~drop)
+            m.remove_unreferenced_vertices()
+            m.export(glb_path)
+            print(f'срезан дорисованный пол: {int(drop.sum())} граней', flush=True)
+    except Exception as e:  # noqa: BLE001 — ремонт не должен ронять задание
+        print(f'cut_base_slab пропущен: {type(e).__name__} {str(e)[:80]}', flush=True)
+
+
 def generate(image, out_dir: str, seed: int = 0, params: dict | None = None,
-             paint_image=None) -> dict:
+             paint_image=None, role: str | None = None) -> dict:
     """Одно задание: картинка → GLB с PBR-картами. Возвращает пути, времена и пики памяти.
 
     `image` — RGBA на полном холсте: альфа и есть маска товара, `ImageProcessorV2` сам кропает
@@ -139,6 +212,7 @@ def generate(image, out_dir: str, seed: int = 0, params: dict | None = None,
         ok = convert_obj_to_glb(painted, final_glb)
         if not ok or not os.path.exists(final_glb) or os.path.getsize(final_glb) == 0:
             raise RuntimeError('OBJ→GLB конвертация не удалась')
+        cut_base_slab(final_glb, role)
     elif isinstance(painted, str):
         os.replace(painted, final_glb)
     else:

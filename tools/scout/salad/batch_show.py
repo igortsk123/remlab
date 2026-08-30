@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""Конвейер показа: генерим пачками по N, после каждой — свежая галерея владельцу.
+
+Просьба владельца 30.08: «показывай пачками по 5, я проверяю и говорю правки по ходу —
+тогда сразу берём все 500». Поэтому цикл: 5 заданий → стащить с exit-fi → пересобрать
+галерею (свежие СВЕРХУ) → опубликовать на тот же адрес. Владелец просто обновляет страницу.
+Правки между пачками — меняем параметры/код и продолжаем с места: сделанное не перегоняется
+(идемпотентность по complete.json).
+
+  SALAD_API_KEY=... ~/venvs/scout/bin/python batch_show.py --batch 5          # весь план
+  SALAD_API_KEY=... ~/venvs/scout/bin/python batch_show.py --batch 5 --max 50 # первые 50
+"""
+import json
+import os
+import subprocess
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+SAMPLE = os.path.join(HERE, '..', 'mesh-pilot-sample.json')
+DONE = os.path.join(HERE, '..', 'mesh-batch-progress.json')
+PY = os.path.expanduser('~/venvs/scout/bin/python')
+
+
+def sh(cmd, timeout=3600):
+    r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+    return r.returncode, (r.stdout + r.stderr)[-1500:]
+
+
+def main():
+    batch = int(sys.argv[sys.argv.index('--batch') + 1]) if '--batch' in sys.argv else 5
+    mx = int(sys.argv[sys.argv.index('--max') + 1]) if '--max' in sys.argv else None
+    jobs = json.load(open(SAMPLE, encoding='utf-8'))['jobs']
+    total = len(jobs) if mx is None else min(mx, len(jobs))
+    done = json.load(open(DONE))['done'] if os.path.exists(DONE) else 0
+    print(f'план {total}, уже пройдено {done}, пачка {batch}', flush=True)
+
+    while done < total:
+        n = min(batch, total - done)
+        # ssh_run сам берёт первые limit заданий; сделанные вернутся как cached мгновенно —
+        # поэтому просто наращиваем limit, а не режем список (проще и идемпотентно)
+        code, out = sh(f'{PY} {HERE}/ssh_run.py --limit {done + n} --keep-alive', timeout=n * 420 + 600)
+        print(out, flush=True)
+        if code != 0:
+            print(f'!! пачка упала (код {code}) — стоп, разбор руками', flush=True)
+            break
+        done += n
+        json.dump({'done': done, 'at': time.time()}, open(DONE, 'w'))
+        for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh'),
+                          ('галерея', f'GALLERY_SRC=$HOME/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2 {PY} {HERE}/gallery_build.py'),
+                          ('публикую', f'scp -P 22222 -o BatchMode=yes -r $HOME/scout-scenes/mesh-pilot-gallery/* root@89.167.127.0:/opt/remlab/test/mesh-pilot10/')):
+            c, o = sh(cmd, timeout=900)
+            print(f'  {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
+        print(f'== показано {done}/{total} — страница обновлена ==', flush=True)
+
+    # конец или падение — группу гасим В ЛЮБОМ СЛУЧАЕ (деньги)
+    c, o = sh(f'{PY} - <<P\nimport sys; sys.path.insert(0,"{HERE}")\nimport ssh_run; ssh_run.stop_group()\nP', timeout=120)
+    print(o, flush=True)
+
+
+if __name__ == '__main__':
+    main()

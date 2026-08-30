@@ -165,7 +165,8 @@ def generate(job: dict):
         # PNG держит альфу — именно она и есть маска товара для генератора (ADR-0133).
         shape_img.save(os.path.join(work, 'input.png'))          # что видит стадия формы
         cut_rgba.save(os.path.join(work, 'cutout.png'))          # вырезка с альфой — на просмотр
-        res = P.generate(shape_img, work, seed=seed, params=params, paint_image=paint_img)
+        res = P.generate(shape_img, work, seed=seed, params=params, paint_image=paint_img,
+                         role=job.get('role'))
 
         files = {'model.glb': res['glb']}
         for name in ('albedo.png', 'orm.png', 'normal.png', 'shape.glb', 'cutout.png'):

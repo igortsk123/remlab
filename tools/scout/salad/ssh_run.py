@@ -32,7 +32,7 @@ API = 'https://api.salad.com/api/public'
 ORG, PROJECT = 'prodstore', 'dmodel'
 GROUP = os.environ.get('SALAD_GROUP', 'mesh-pool5')
 RATE = 0.16                     # 4090 batch $/ч — сверено по API 28.08
-MAX_JOBS = 600
+MAX_JOBS = 700   # 481 сетовых + 78 из демо flat215 + повторы seed
 _lock = threading.Lock()
 # ОДНА ssh-сессия на весь аккаунт: шлюз Salad при параллельных сессиях отдаёт второй пустоту
 # (батч 29.08: у заданий с «нет маркера» вывод пуст целиком). Сериализуем все ssh глобально.
