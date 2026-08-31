@@ -1538,8 +1538,12 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
 (function(){
   var orig=window.makePhoto;
   window.__callOrigPhoto=function(){return orig('draft');};
+  // 3D-сцена юзеру НЕ показывается (владелец 31.08: «тебе надо фото показывать, а 3д сам
+  // собираешь»): кнопки снова генерят фото напрямую; сцена — служебный режим ?scene3d=1
   window.makePhoto=function(q){
-    if(q==='draft'&&window.__openScene3d){window.__openScene3d();return;}
+    if(q==='draft'&&window.__openScene3d&&/[?&]scene3d=1/.test(location.search)){
+      window.__openScene3d();return;
+    }
     return orig(q);
   };
 })();
