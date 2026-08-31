@@ -109,9 +109,16 @@ def probe_warm(port: int) -> bool:
     """Прогрет ли воркер ноды. Спрашиваем ноду ЛИЧНО через её терминал — флагам платформы
     после тех двух дней веры нет. Проба дорогая (до 50 с), поэтому зовём её только для
     НОВЫХ и остывших нод, а не по кругу для всех."""
-    r = ssh_text(port, 'python -c "import urllib.request;'
-                       'print(urllib.request.urlopen(\'http://127.0.0.1:8000/health\','
-                       'timeout=5).read().decode())"', timeout=50)
+    try:
+        r = ssh_text(port, 'python -c "import urllib.request;'
+                           'print(urllib.request.urlopen(\'http://127.0.0.1:8000/health\','
+                           'timeout=5).read().decode())"', timeout=50)
+    except Exception as e:  # noqa: BLE001 — ЗАВИСШИЙ SSH НЕ ВАЛИТ ПРОГОН (31.08: нода
+        # перестала отвечать, TimeoutExpired вылетел из пробы и убил всю пачку —
+        # «пачка без итога (код 1) — стоп, разбор руками», группа погашена в разгар волны)
+        print(f'  порт {port}: проба не удалась ({type(e).__name__}) — считаю ноду холодной',
+              flush=True)
+        return False
     m = re.search(r'\{.*\}', r or '')
     if m:
         try:
