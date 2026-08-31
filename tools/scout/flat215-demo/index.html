@@ -1526,15 +1526,22 @@ async function openScene(){
   }
   (function tick(){raf=requestAnimationFrame(tick);controls.update();renderer.render(scene,camera);})();
 }
-const origMakePhoto=window.makePhoto;
-window.makePhoto=function(q){
-  if(q==='draft'){openScene();return;}
-  return origMakePhoto(q);
-};
+window.__openScene3d=openScene;
 document.getElementById('sc3back').onclick=stopScene;
-document.getElementById('sc3go').onclick=()=>{stopScene();origMakePhoto('draft');};
+document.getElementById('sc3go').onclick=()=>{stopScene();window.__callOrigPhoto();};
 addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHeight);
   camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}});
 </script>
-
+<script>
+/* Перехват ВНЕ модуля: срабатывает даже если 3D-библиотеки не загрузились (тогда честный
+   фолбэк в старую генерацию). */
+(function(){
+  var orig=window.makePhoto;
+  window.__callOrigPhoto=function(){return orig('draft');};
+  window.makePhoto=function(q){
+    if(q==='draft'&&window.__openScene3d){window.__openScene3d();return;}
+    return orig(q);
+  };
+})();
+</script>
 </body></html>
