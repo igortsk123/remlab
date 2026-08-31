@@ -34,9 +34,6 @@ review_after: ""
   вне git (`tools/*` в .gitignore). drizzle-kit нет; **down-миграций нет**.
 - БД — контейнер pgvector/pg17 (ADR-0002).
 
-## Цель (спека §4) — НЕ реализовано
-Нормализованная модель (users→properties→rooms→room_projects→result_versions; каталог products / embeddings `vector(768)` / price_snapshots; Cost Engine; payments; RLS+hnsw) — пока jsonb или отсутствует.
-
 **Tier 2:** `../../docs/tech-spec-ts-stack.md` §4 (целевые таблицы — имена) + `../../docs/cjm-ux-v0.2.md` §13.
 
 
