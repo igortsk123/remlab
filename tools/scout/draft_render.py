@@ -1826,10 +1826,11 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict) -> tuple[Image.Image
             parts = MR.load_parts(glb)
             yaw = float((orient.get(sid) or {}).get('yaw') or 0)
             # КОНВЕНЦИЯ ПЛАННЕРА И ДЕМО (сверено по geometry.footprint и SVG демо 31.08):
-            # (x,y) — ЦЕНТР предмета, поворот со знаком МИНУС (planner: rotate(−rot)).
+            # (x,y) — ЦЕНТР предмета; знак rot — ПЛЮС (сверено с планом владельца 31.08:
+            # кресло rot=315 сиденьем к тв-тумбе; scene_mesh сам согласован с −rot планнера).
             # Прежний «центр-фикс» +w/2,+d/2 был ошибкой и смещал меши от clay.
             from planner.models import Placement as _P
-            pc = _P(role=place.role, x=place.x, y=place.y, rot=-float(place.rot or 0),
+            pc = _P(role=place.role, x=place.x, y=place.y, rot=float(place.rot or 0),
                     item=place.item, elev_cm=getattr(place, 'elev_cm', 0) or 0)
             SM.raster_mesh(canvas, zbuf, parts, pc, cam, W, H, yaw)
             used.append(place.role)
