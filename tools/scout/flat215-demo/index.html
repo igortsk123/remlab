@@ -1449,10 +1449,10 @@ window.addEventListener('resize',()=>{if(D)draw();});
 #sc3hint{position:absolute;top:10px;left:0;right:0;text-align:center;color:#9aa;font:13px system-ui}
 </style>
 <div id="scene3d">
- <div id="sc3hint">Сцена с нашими 3D-моделями · вращайте мышью, колесо — масштаб · серые блоки — модель ещё не готова</div>
+ <div id="sc3hint">Комната с вашей расстановкой: наши 3D-модели · вращайте мышью, колесо — масштаб · серые блоки — модель готовится</div>
  <div id="sc3bar">
   <button class="btn" id="sc3back">← Назад к плану</button>
-  <button class="btn" id="sc3go">Сделать фото · ~25 сек</button>
+  <button class="btn" id="sc3go" hidden>Сделать фото · ~25 сек</button>
  </div>
 </div>
 <script type="importmap">{"imports":{"three":"./lib/three.module.min.js"}}</script>
@@ -1548,16 +1548,15 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
   // ГЕНЕРАЦИЯ ОТКЛЮЧЕНА (владелец 31.08: «ГЕНЕРАЦИЮ НЕ ДЕЛАТЬ»): старый коллажный
   // конвейер выключен до готовности нового (сервер сам собирает 3D-сцену из мешей и
   // генерит фото из неё). Служебная 3D-сцена — ?scene3d=1 (для наладки).
+  // По кнопке — 3D-КОМНАТА с расставленными моделями (владелец 31.08, финально).
+  // Генерация фото отключена до нового конвейера.
   window.makePhoto=function(q){
-    if(window.__openScene3d&&/[?&]scene3d=1/.test(location.search)){
-      window.__openScene3d();return;
-    }
+    if(window.__openScene3d){window.__openScene3d();return;}
     try{
       var n=document.createElement('div');
       n.style.cssText='position:fixed;left:50%;top:18px;transform:translateX(-50%);z-index:500;'+
-        'background:#2a2d33;color:#fff;font:14px system-ui;padding:12px 18px;border-radius:10px;'+
-        'box-shadow:0 6px 24px rgba(0,0,0,.25)';
-      n.textContent='Фото временно отключено: собираем новый конвейер (3D-сцена из моделей → фото)';
+        'background:#2a2d33;color:#fff;font:14px system-ui;padding:12px 18px;border-radius:10px';
+      n.textContent='3D-вид не загрузился — обновите страницу';
       document.body.appendChild(n);
       setTimeout(function(){n.remove();},4000);
     }catch(e){}
