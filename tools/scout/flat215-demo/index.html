@@ -1215,10 +1215,14 @@ stage.addEventListener('pointermove',e=>{
     let ang=rotDrag.base-(a-rotDrag.start);   // на сцене предмет повёрнут на -rot
     ang=Math.round(ang/ROT_SNAP)*ROT_SNAP;
     [0,90,180,270,360].forEach(k=>{if(Math.abs(((ang%360)+360)%360-k)<=ROT_MAGNET)ang=k%360;});
-    const prev=sel.rot; sel.rot=((ang%360)+360)%360;
-    // наезд на мебель при повороте РАЗРЕШЁН (владелец 31.08: иначе крупные вещи —
-    // диван — не повернуть рядом с другой мебелью); за стены по-прежнему нельзя
-    if(box(sel).x0<0||box(sel).y0<0||box(sel).x1>D.room.w||box(sel).y1>D.room.d)sel.rot=prev;
+    const prev=sel.rot, px=sel.x, py=sel.y; sel.rot=((ang%360)+360)%360;
+    // наезд на мебель при повороте РАЗРЕШЁН (владелец 31.08); у стены не запрещаем,
+    // а заводим внутрь комнаты — как у стрелок ±90
+    let bb=box(sel);
+    sel.x=Math.max(bb.w/2,Math.min(D.room.w-bb.w/2,sel.x));
+    sel.y=Math.max(bb.d/2,Math.min(D.room.d-bb.d/2,sel.y));
+    bb=box(sel);
+    if(bb.x0<-0.5||bb.y0<-0.5||bb.x1>D.room.w+0.5||bb.y1>D.room.d+0.5){sel.rot=prev;sel.x=px;sel.y=py;}
     draw();showTip(sel);return;}
   if(!drag||!sel)return;const pt=loc(e);
   let nx=pt.x-drag.dx, ny=pt.y-drag.dy;const b=box(sel);
