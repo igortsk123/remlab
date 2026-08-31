@@ -1235,9 +1235,22 @@ stage.addEventListener('pointermove',e=>{
   // препятствия вместо того, чтобы застревать
   if(Math.abs(nx-sel.x)>2||Math.abs(ny-sel.y)>2)drag.moved=true;
   const ox=sel.x, oy=sel.y;
-  const tryPos=(x,y)=>{sel.x=x;sel.y=y;const ok=!hits(sel);if(!ok){sel.x=ox;sel.y=oy;}return ok;};
+  // ИЗ НАЕЗДА МОЖНО ВЫБРАТЬСЯ (владелец 31.08: «диван заехал под столик — столик не
+  // двигается»): позиция годится, если пересечение НЕ БОЛЬШЕ текущего — вытащить можно
+  // всегда, вдавить глубже нельзя
+  const cur=ovArea(sel);
+  const tryPos=(x,y)=>{sel.x=x;sel.y=y;const ok=ovArea(sel)<=Math.max(200,cur+1);
+    if(!ok){sel.x=ox;sel.y=oy;}return ok;};
   if(!tryPos(nx,ny)&&!tryPos(nx,oy)&&!tryPos(ox,ny)){/* некуда — остаёмся на месте */}
   draw();showTip(sel);});
+function ovArea(me){                     // суммарная площадь наезда на «твёрдых» соседей
+  if(me.role.startsWith('ковёр'))return 0;
+  const a=box(me);let t=0;
+  items.forEach(o=>{
+    if(o===me||o.role.startsWith('ковёр'))return;
+    const b=box(o);
+    t+=Math.max(0,Math.min(a.x1,b.x1)-Math.max(a.x0,b.x0))*Math.max(0,Math.min(a.y1,b.y1)-Math.max(a.y0,b.y0));
+  });return t;}
 function hits(me){                       // наложение с другими «твёрдыми» предметами (ковёр — подложка)
   if(me.role.startsWith('ковёр'))return false;
   const a=box(me);
