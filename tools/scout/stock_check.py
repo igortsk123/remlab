@@ -23,6 +23,7 @@
   stock_check.py --shop divanboss.ru  # только один магазин
   stock_check.py --dry-run            # проверить и показать, ничего не применяя
   stock_check.py --reapply [run_id]   # применить уже собранные наблюдения заново, без запросов
+  stock_check.py --max-minutes 90     # ограничить время обхода (по умолчанию 150)
 """
 import datetime as dt
 import json
@@ -51,6 +52,7 @@ CHUNK = 65_536
 HOST_PAUSE = (2.0, 5.0)        # пауза между запросами к одному домену
 BLOCK_STREAK = 5               # подряд «нас не пустили» → домен заморожен до следующего прогона
 DEFAULT_LIMIT = 3500
+DEFAULT_MAX_MINUTES = 150      # потолок времени обхода; остаток уезжает в следующий прогон
 SHARE_CONFIRM, SHARE_SETS = 0.15, 0.20
 
 # Как часто перепроверять — по состоянию. TTL сам по себе НИЧЕГО не снимает: он только решает,
@@ -146,13 +148,41 @@ def candidates(limit: int, only_shop: str = '') -> list:
         lst.sort(key=lambda x: -x[5])                # дольше всех не проверялся — первым
     n_conf = min(len(confirm), int(limit * SHARE_CONFIRM))
     n_sets = min(len(in_sets), int(limit * SHARE_SETS))
-    picked = confirm[:n_conf] + in_sets[:n_sets]
-    picked += tail[:max(0, limit - len(picked))]
-    if len(picked) < limit:                          # бюджет не выбран — доливаем из очередей
-        rest = confirm[n_conf:] + in_sets[n_sets:]
-        picked += rest[:limit - len(picked)]
-    print(f'к проверке: {len(picked)} (подтверждений {n_conf}, сеты {n_sets}, '
-          f'хвост {len(picked) - n_conf - n_sets}); кандидатов всего {len(rows)}', flush=True)
+    queue = confirm[:n_conf] + in_sets[:n_sets] + tail + confirm[n_conf:] + in_sets[n_sets:]
+
+    # БЮДЖЕТ ДЕЛИМ ПО МАГАЗИНАМ ПРОПОРЦИОНАЛЬНО ИХ РАЗМЕРУ. Сплошная выборка по «давности»
+    # отдала бы весь бюджет самому большому магазину (пока каталог не проверен, давность у всех
+    # одинаковая): tvoydom с его 11 580 карточками забирал бы 3500/сутки четыре дня подряд, а
+    # gipfel на 89 позиций ждал бы неделями. Поровну — тоже неверно: тогда круг у большого
+    # магазина растягивается втрое против маленького. Пропорция даёт ОДИНАКОВЫЙ круг для всех,
+    # а остаток бюджета разбирается по кругу — так ничей хвост не простаивает.
+    by_shop: dict = {}
+    for item in queue:
+        by_shop.setdefault(item[2], []).append(item)
+    total = sum(len(v) for v in by_shop.values()) or 1
+    picked = []
+    for shop, items in by_shop.items():
+        quota = max(1, round(limit * len(items) / total))
+        picked += items[:quota]
+        by_shop[shop] = items[quota:]
+    picked = picked[:limit]
+    shops = sorted(by_shop, key=lambda s: -len(by_shop[s]))
+    while len(picked) < limit and any(by_shop.values()):
+        for shop in shops:
+            if len(picked) >= limit:
+                break
+            if by_shop[shop]:
+                picked.append(by_shop[shop].pop(0))
+    got_conf = sum(1 for x in picked if x[4] == 'suspect')
+    got_sets = sum(1 for x in picked if x in in_sets[:n_sets])
+    print(f'к проверке: {len(picked)} (подтверждений {got_conf}, сеты {got_sets}, '
+          f'хвост {len(picked) - got_conf - got_sets}); кандидатов всего {len(rows)}', flush=True)
+    per = {}
+    for x in picked:
+        per[x[2]] = per.get(x[2], 0) + 1
+    print('  по магазинам: ' + ', '.join(f'{k} {v}' for k, v in sorted(per.items(),
+                                                                      key=lambda i: -i[1])),
+          flush=True)
     return picked
 
 
@@ -164,16 +194,24 @@ class Domain:
         self.host, self.items, self.blocked_streak, self.frozen = host, [], 0, False
 
 
-def crawl(picked: list, run_id: str, verbose: bool = True) -> list:
+def crawl(picked: list, run_id: str, verbose: bool = True, max_minutes: int = 0) -> list:
     domains = {}
     for it in picked:
         host = urllib.parse.urlsplit(it[3]).hostname or it[2]
         domains.setdefault(host, Domain(host)).items.append(it)
     obs, lock = [], threading.Lock()
+    # Внутри домена запросы строго последовательны с паузой 2–5 с, поэтому большой магазин
+    # растягивает прогон: 3000 карточек = свыше трёх часов. Ночному циклу это мешает, а
+    # недобранное просто уедет в завтрашний прогон — очередь и так по давности.
+    deadline = time.time() + max_minutes * 60 if max_minutes else None
 
     def work(d: Domain):
         for mid, eid, shop, url, state, _age in d.items:
             if d.frozen:
+                break
+            if deadline and time.time() > deadline:
+                print(f'{d.host}: время прогона вышло, осталось непроверенным — уедет в следующий',
+                      flush=True)
                 break
             code, body, err, final = fetch(url)
             verdict, reason = classify(shop, code, body, err, final, url)
@@ -323,13 +361,15 @@ def main() -> int:
     dry = '--dry-run' in sys.argv
     wait = int(sys.argv[sys.argv.index('--confirm-wait') + 1]) if '--confirm-wait' in sys.argv \
         else CONFIRM_GAP_MIN * 60
+    max_min = int(sys.argv[sys.argv.index('--max-minutes') + 1]) if '--max-minutes' in sys.argv \
+        else DEFAULT_MAX_MINUTES
     db(open(os.path.join(HERE, '003-stock-truth.sql'), encoding='utf-8').read())
     run_id = dt.datetime.now().strftime('%Y%m%d-%H%M%S')
     picked = candidates(limit, only)
     if not picked:
         print('проверять нечего')
         return 0
-    obs = crawl(picked, run_id)
+    obs = crawl(picked, run_id, max_minutes=max_min)
     save_observations(obs, run_id)
     report = apply_run(obs, run_id, dry)
 
@@ -341,7 +381,7 @@ def main() -> int:
         time.sleep(wait)
         run2 = run_id + '-confirm'
         picked2 = [(o['mid'], o['eid'], o['shop'], o['url'], 'suspect', 99) for o in fresh]
-        obs2 = crawl(picked2, run2)
+        obs2 = crawl(picked2, run2, max_minutes=max(30, max_min // 3))
         save_observations(obs2, run2)
         report = apply_run(obs2, run2, dry)
 
