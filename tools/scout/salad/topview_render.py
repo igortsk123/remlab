@@ -9,6 +9,7 @@ confident → его yaw, symmetric/unobservable → 0. Рендер ортог�
 import glob
 import json
 import os
+import time
 import subprocess
 import sys
 
@@ -208,6 +209,12 @@ def main() -> None:
     n = 0
     skip = int(os.environ.get('TOPVIEW_SKIP', 0))
     lim = int(os.environ.get('TOPVIEW_LIMIT', 0)) or None
+    # БЮДЖЕТ ВРЕМЕНИ (31.08: шаг конвейера убивало по таймауту 45 мин на растущем пилоте —
+    # «топ-вью: СБОЙ Terminated», манифест не записывался и работа цикла пропадала).
+    # Рендер попиксельный ~30с/модель, кэш по mtime — за несколько циклов догоняем всё.
+    budget = float(os.environ.get('TOPVIEW_BUDGET_S', 1800))
+    t0 = time.time()
+    stopped_early = False
     seen_i = 0
     for mp in sorted(glob.glob(os.path.join(SRC, '*/*/manifest.json'))):
         d = os.path.dirname(mp)
@@ -274,6 +281,10 @@ def main() -> None:
                     or not os.path.exists(png)
                     or os.path.getmtime(png) < os.path.getmtime(glb))
             if need:
+                if time.time() - t0 > budget:
+                    stopped_early = True
+                    print(f'бюджет {budget:.0f}с исчерпан — остальное в следующем цикле', flush=True)
+                    break
                 render_top(glb, yaw, png)
                 render_front(glb, yaw, fpng)
         except Exception as e:  # noqa: BLE001 — один битый меш не валит страницу
@@ -284,13 +295,15 @@ def main() -> None:
                          'role': man.get('role'), 'w': dims.get('w'), 'd': dims.get('d')}
         n += 1
     mpth = os.path.join(OUT, 'topview.json')
-    if os.path.exists(mpth) and (skip or lim):
+    # частичный прогон (skip/limit ИЛИ выход по бюджету) ДОПОЛНЯЕТ манифест, а не затирает:
+    # иначе ранний break стёр бы записи предыдущих циклов
+    if os.path.exists(mpth) and (skip or lim or stopped_early):
         base = json.load(open(mpth, encoding='utf-8'))
         base.update(manifest)
         manifest = base
     json.dump(manifest, open(mpth, 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)
-    print(f'видов сверху: {n} → {OUT}')
+    print(f'видов сверху: {n}{" (частично, бюджет)" if stopped_early else ""} → {OUT}')
 
 
 if __name__ == '__main__':
