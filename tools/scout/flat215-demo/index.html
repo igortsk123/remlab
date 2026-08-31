@@ -184,9 +184,9 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .spin{width:26px;height:26px;border:3px solid #E4E6E2;border-top-color:var(--accent);
  border-radius:50%;margin:0 auto 12px;animation:sp 1s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
-.rotbtn{position:fixed;width:56px;height:56px;border-radius:50%;background:rgba(28,28,26,.92);
- color:#fff;font-size:30px;line-height:56px;text-align:center;z-index:40;user-select:none;
- -webkit-user-select:none;touch-action:none;box-shadow:0 2px 10px rgba(0,0,0,.35);cursor:pointer}
+.rotbtn{position:fixed;width:40px;height:40px;border-radius:50%;background:rgba(28,28,26,.88);
+ color:#fff;font-size:22px;line-height:40px;text-align:center;z-index:40;user-select:none;
+ -webkit-user-select:none;touch-action:none;box-shadow:0 2px 8px rgba(0,0,0,.35);cursor:pointer}
 .rotbtn:active{background:#000}
 /* ВКЛАДКИ (26.08): маршрут «квартира → комната», состояние в адресе (#plan/#room) */
 .tabs{display:flex;gap:8px;border-bottom:1px solid var(--line);margin:14px 0 4px}
@@ -1163,11 +1163,11 @@ function rotate90(dir){if(!sel)return;
   if(b.x0<-0.5||b.y0<-0.5||b.x1>D.room.w+0.5||b.y1>D.room.d+0.5){sel.rot=prev;sel.x=px;sel.y=py;}
   draw();showTip(sel);updateRotOvl();}
 function updateRotOvl(){if(!rotBtns||!sel){return;}
-  const r=stage.getBoundingClientRect(), b=box(sel);
-  const cx=r.left+PAD+sel.x*S, ty=r.top+PAD+b.y0*S-64;
-  const top=Math.max(8,ty);
-  rotBtns[0].style.left=(cx-70)+'px'; rotBtns[0].style.top=top+'px';
-  rotBtns[1].style.left=(cx+14)+'px'; rotBtns[1].style.top=top+'px';}
+  // стрелки НА самом предмете, по центру (владелец 31.08), поменьше
+  const r=stage.getBoundingClientRect();
+  const cx=r.left+PAD+sel.x*S, cy=r.top+PAD+sel.y*S;
+  rotBtns[0].style.left=(cx-46)+'px'; rotBtns[0].style.top=(cy-20)+'px';
+  rotBtns[1].style.left=(cx+6)+'px';  rotBtns[1].style.top=(cy-20)+'px';}
 function showRotOvl(){hideRotOvl();if(!sel)return;
   rotBtns=[['\u21ba',1],['\u21bb',-1]].map(([ch,dir])=>{
     const b=document.createElement('div');b.className='rotbtn';b.textContent=ch;
