@@ -32,12 +32,9 @@ last_verified: 2026-08-31
 идентификация (`slab_excess` ×1.15, `color_mismatch`) → reseed → срез-кандидат → человек
 (`/test/mesh-repairs/`); нож плиты v9 + закраска кромки + цвет к фото — `tools/scout/salad/
 pipeline.py`, `texture_fix.py`, `apply_repairs.py` (REPAIR_VERSION, чанки ≤6, кэш приёмки).
-Показ: `/test/mesh-pilot10/` (страницы по 10, lazy GLB, вырезка в карточке, кандидат замещает
-оригинал). Образы — только digest, боевой `cu124-baked` (веса внутри, ADR-0137); конвейер
-`batch_show.py`: мультигруппы SALAD_GROUP через запятую, WAVE_FIRST=1 (волна лечения до
-основной очереди), детект «кончился баланс». Провенанс: source.jpg+input.png+cutout.png в
-комплекте каждой версии. Вид сверху из мешей для планировщика — план `topview-from-mesh`
-(`orient_run.py` → orientation_state, `topview_render.py`, тест `/test/topview-test/`).
+Показ: `/test/mesh-pilot10/`. Образы — digest, боевой `cu124-baked` (ADR-0137); конвейер
+`batch_show.py` (мультигруппы, WAVE_FIRST, детект баланса). Вид сверху для планировщика —
+план `topview-from-mesh` (`topview_render.py`, тест `/test/topview-test/`).
 
 **Цены Salad, квоты, грабли сборки — ADR-0132/0137** и [[lessons]].
 

@@ -41,5 +41,4 @@ review_after: ""
 
 
 ## Мешевые таблицы devdb (31.08)
-`asset_revisions`, `orientation_state`, `product_photo_current`, `products.image_url_hd`
-(ADR-0136), `mesh_jobs`/`mesh_demand`.
+`asset_revisions`, `orientation_state`, `product_photo_current`, `image_url_hd` (ADR-0136).
