@@ -107,8 +107,15 @@ def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
         shade = (0.62 + 0.45 * lam)[:, None]
         # порядок не нужен — z-буфер решает сам; задние грани (нормаль от камеры)
         # отбрасываем сразу: −40..50% работы (ускорение сцены, владелец 31.08)
-        facing = (n @ np.array(fwd, np.float32)) < 0.15
-        for idx in np.where(facing | (lam > 0.97))[0]:
+        # отсев «задних» граней — только в быстром режиме: у Hunyuan нормали местами
+        # перевёрнуты, и culling пробивал ДЫРКИ в спинке дивана (владелец 31.08);
+        # в качественном режиме рисуем всё — перекрытия разруливает z-буфер
+        if os.environ.get('SCENE3D_QUALITY') == 'full':
+            keep = np.arange(len(f))
+        else:
+            facing = (n @ np.array(fwd, np.float32)) < 0.15
+            keep = np.where(facing | (lam > 0.97))[0]
+        for idx in keep:
             a, b, c = f[idx]
             if z[a] <= 5 or z[b] <= 5 or z[c] <= 5:
                 continue

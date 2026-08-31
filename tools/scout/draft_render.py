@@ -1800,8 +1800,12 @@ def _scene3d_parts(glb: str):
     if hit is not None:
         return hit
     parts = MR.load_parts(glb)
-    # ДЕКИМАЦИЯ для сцены (сервер — 2 слабых ядра, 40k граней жуются 25с): до ~9k граней
-    # на предмет, в кадре 1344px неотличимо; текстурные UV сохраняются позиционно
+    # SCENE3D_QUALITY=full — БЕЗ декимации, с полными текстурами (владелец 31.08: кадр
+    # должен быть качественным для человека и GPT — «дырки»/цвет не должны читаться как
+    # свойства товара); по умолчанию — декимация под 2 слабых ядра прода
+    if os.environ.get('SCENE3D_QUALITY') == 'full':
+        _S3_PARTS[glb] = parts
+        return parts
     try:
         import fast_simplification as _fs
         import numpy as _n
