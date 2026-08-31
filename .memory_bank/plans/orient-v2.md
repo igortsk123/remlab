@@ -2,7 +2,7 @@
 workstream: mesh-pipeline
 slug: orient-v2
 title: Ориентация мешей v2 — единый контур upright+front, DINO shadow, gold-бенч
-status: draft
+status: in_progress
 created: 2026-08-31
 updated: 2026-08-31
 completed:

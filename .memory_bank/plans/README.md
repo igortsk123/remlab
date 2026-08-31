@@ -29,7 +29,7 @@ draft → in_progress → completed → перенос в completed_plans/
 | viz-track-a-restore | — | partial | — | 2026-08-28 |
 | topview-from-mesh | — | in_progress | — | 2026-08-31 |
 | demo-planner-structure | — | partial | — | 2026-08-28 |
-| orient-v2 | Ориентация мешей v2 — единый контур upright+front, DINO shadow, gold-бенч | draft | 2026-08-31 | 2026-08-31 |
+| orient-v2 | Ориентация мешей v2 — единый контур upright+front, DINO shadow, gold-бенч | in_progress | 2026-08-31 | 2026-08-31 |
 | viz-mesh-orientation | Система ориентаций и приёмки 3D-мешей — масштабирование «правильных поворотов» на каталог | in_progress | 2026-08-28 | 2026-08-28 |
 | mesh-queue-orientation | Конвейер «отбор → меши → ориентация → сеты»: автоочередь, правило мешей в сетах, каскад фронта, страница人-проверки | in_progress | 2026-08-28 | 2026-08-28 |
 | mesh-bulk-salad-hunyuan | PBR-меши товаров — свой образ Hunyuan3D 2.1 на SaladCloud, пилот 500 товаров | in_progress | 2026-08-28 | 2026-08-28 |

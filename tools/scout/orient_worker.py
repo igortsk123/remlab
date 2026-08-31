@@ -195,8 +195,12 @@ def pending_meshes(limit: int) -> list[tuple[str, str, str]]:
     out = []
     have = {r[0] for r in db('select revision_key from orientation_state') if r and r[0]}
     for glb in sorted(glob.glob(os.path.join(SCENE_DIR, 'meshes', '*.glb'))
-                      + glob.glob(os.path.join(SCENE_DIR, 'salad-assets', '*', 'model.glb'))):
-        sku = sku_from_path(glb) or sku_from_path(os.path.basename(os.path.dirname(glb))) or '?'
+                      + glob.glob(os.path.join(SCENE_DIR, 'salad-assets', '*', 'model.glb'))
+                      # пилот Hunyuan (план orient-v2): sku на два уровня выше model.glb
+                      + glob.glob(os.path.join(SCENE_DIR, 'meshes-hunyuan', 'meshes',
+                                               'hunyuan21', 'v2', '*', '*', 'model.glb'))):
+        sku = (sku_from_path(glb) or sku_from_path(os.path.basename(os.path.dirname(glb)))
+               or sku_from_path(os.path.basename(os.path.dirname(os.path.dirname(glb)))) or '?')
         sha = hashlib.sha256(open(glb, 'rb').read()).hexdigest()[:16]
         rk = f'{sku}|{sha}|{CONTRACT}'
         if rk not in have:
