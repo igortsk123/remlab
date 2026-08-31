@@ -105,7 +105,10 @@ def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
         n = np.asarray(mesh.face_normals, np.float32) @ Ra.T @ R.T
         lam = np.clip(np.abs(n @ light), 0, 1)
         shade = (0.62 + 0.45 * lam)[:, None]
-        for idx in np.argsort(-z[f].mean(axis=1)):
+        # порядок не нужен — z-буфер решает сам; задние грани (нормаль от камеры)
+        # отбрасываем сразу: −40..50% работы (ускорение сцены, владелец 31.08)
+        facing = (n @ np.array(fwd, np.float32)) < 0.15
+        for idx in np.where(facing | (lam > 0.97))[0]:
             a, b, c = f[idx]
             if z[a] <= 5 or z[b] <= 5 or z[c] <= 5:
                 continue

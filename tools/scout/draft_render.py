@@ -1790,6 +1790,22 @@ def _scene3d_glb(sid: str) -> str | None:
         return None
 
 
+_S3_PARTS: dict = {}
+
+
+def _scene3d_parts(glb: str):
+    """Кэш РАЗОБРАННЫХ мешей в памяти сервиса: декод GLB на каждый клик съедал секунды."""
+    import mesh_render as MR
+    hit = _S3_PARTS.get(glb)
+    if hit is not None:
+        return hit
+    parts = MR.load_parts(glb)
+    if len(_S3_PARTS) > 60:
+        _S3_PARTS.clear()
+    _S3_PARTS[glb] = parts
+    return parts
+
+
 def scene3d_frame(room, placements, cam, sid_by_role: dict) -> tuple[Image.Image, dict]:
     """КАДР СЦЕНЫ ИЗ МЕШЕЙ (владелец 31.08: «по кнопке — фотография собранной 3D-сцены,
     в GPT пока не отправляем»): clay-комната + реальные меши в перспективе, общий z-буфер
@@ -1823,8 +1839,15 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict) -> tuple[Image.Image
     used, missing = [], [p.role for p, _, _ in clay_places]
     for place, sid, glb in mesh_places:
         try:
-            parts = MR.load_parts(glb)
-            yaw = float((orient.get(sid) or {}).get('yaw') or 0)
+            parts = _scene3d_parts(glb)
+            oinfo = orient.get(sid) or {}
+            osrc = str(oinfo.get('orient') or '')
+            # ПРАВИЛО ДЛЯ ВСЕХ МОДЕЛЕЙ (владелец 31.08): канонический разворот применяем
+            # ТОЛЬКО при уверенном фронте; симметричным и спорным — 0 (стол «вставал криво»
+            # от ненужного разворота симметрика)
+            sure = any(k in osrc for k in ('seat_agree', 'vlm_agree', 'cabinet_', 'confident',
+                                           'human'))
+            yaw = float(oinfo.get('yaw') or 0) if sure else 0.0
             # КОНВЕНЦИЯ ПЛАННЕРА И ДЕМО (сверено по geometry.footprint и SVG демо 31.08):
             # (x,y) — ЦЕНТР предмета; знак rot — ПЛЮС (сверено с планом владельца 31.08:
             # кресло rot=315 сиденьем к тв-тумбе; scene_mesh сам согласован с −rot планнера).
@@ -1834,9 +1857,6 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict) -> tuple[Image.Image
                     item=place.item, elev_cm=getattr(place, 'elev_cm', 0) or 0)
             SM.raster_mesh(canvas, zbuf, parts, pc, cam, W, H, yaw)
             used.append(place.role)
-            del parts
-            import gc
-            gc.collect()                     # пик памяти: лимит контейнера draft всего 1.5GB
         except Exception as e:  # noqa: BLE001 — один битый меш не валит кадр
             print(f'  scene3d: {place.role} пропущен ({str(e)[:60]})')
             missing.append(place.role)
