@@ -38,7 +38,7 @@ review_after: ""
 Прямые ключи OpenAI без кредитов — рабочий путь только шлюз.
 
 ## fal.ai (2026-08-05 → 28.08)
-Клиент `tools/scout/falmini.py`; только картинки — на треке мешей заменён Salad (ADR-0131).
+Клиент `tools/scout/falmini.py`; на треке мешей заменён Salad (ADR-0131).
 Модели редактирования и ограничения масок — `../domain/integrations.md` §fal.
 
 ## SaladCloud + GHCR (31.08) — GPU под меши, вместо fal

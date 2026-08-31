@@ -17,15 +17,13 @@ last_verified: 2026-08-31
 **Генератор — только свой Hunyuan3D 2.1 на SaladCloud** (ADR-0131; fal и Trellis выведены —
 запекают свет съёмки в текстуру, $0.375/шт против ≈$0.006). Код — `tools/scout/salad/`.
 
-**Отбор (ADR-0131):** роли слотов × ворота подбора → ≈4 900 SKU из 11 631 живых; пилот 481
-(`tools/scout/mesh_pilot.py`). **Приёмка:** `geometry_valid` (`tools/scout/mesh_gate.py`) →
-`scene_ready` (`tools/scout/mesh_gate_pbr.py`) → `web_ready`. **Ориентация (ADR-0129):** orienter →
-`tools/scout/mesh_front.py` → VLM → человек (финален).
+**Отбор — ADR-0131** (≈4 900 SKU из 11 631; `tools/scout/mesh_pilot.py`). **Приёмка:**
+`mesh_gate.py` → `mesh_gate_pbr.py` → `web_ready`. **Ориентация:** ADR-0129 → план orient-v2.
 
 **Готовность/резерв/замена — ADR-0134** (`mesh_ready.py`, `reserve.py`, `heal_policy.py`,
 `/test/set-changes/`); покрытие резерва 28.08 — 0%, дефицит 803.
 
-**Вырезка = вход генератора (ADR-0133):** гибрид `salad/hybrid_mask.py` (95% деталей 1–2px
+**Вырезка = вход генератора (ADR-0133):** гибрид `tools/scout/salad/hybrid_mask.py` (95% деталей 1–2px
 против 79% у сети), `components.py`/`collage.py` чистят фон и баннеры; вход Hunyuan — **RGBA**.
 Замер — `tools/scout/mask_bench/`.
 Фото: HD у 12 649 из ~19 700 (`products.image_url_hd`, XML API Гдеслона); у остальных потолок — 450 px фида.
