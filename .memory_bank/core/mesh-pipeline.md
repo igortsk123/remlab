@@ -13,9 +13,8 @@ last_verified: 2026-08-31
 
 # Конвейер 3D-мешей — Tier 1 сводка
 
-**Зачем:** интерактивный планировщик и сборка 3D-квартир.
-**Генератор — только свой Hunyuan3D 2.1 на SaladCloud** (ADR-0131; fal и Trellis выведены —
-запекают свет съёмки в текстуру, $0.375/шт против ≈$0.006). Код — `tools/scout/salad/`.
+**Зачем:** планировщик и 3D-квартиры. **Генератор — свой Hunyuan3D 2.1 на SaladCloud**
+(ADR-0131; fal/Trellis выведены). Код — `tools/scout/salad/`.
 
 **Отбор — ADR-0131** (≈4 900 SKU из 11 631; `tools/scout/mesh_pilot.py`). **Приёмка:**
 `mesh_gate.py` → `mesh_gate_pbr.py` → `web_ready`. **Ориентация:** ADR-0129 → план orient-v2.

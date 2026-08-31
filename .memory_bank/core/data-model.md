@@ -40,6 +40,6 @@ review_after: ""
 **Tier 2:** `../../docs/tech-spec-ts-stack.md` §4 (целевые таблицы — имена) + `../../docs/cjm-ux-v0.2.md` §13.
 
 
-## Мешевые таблицы devdb (31.08, сверено по работе пилота)
-`asset_revisions`, `orientation_state`, `product_photo_current` (контракт смены фото),
-`products.image_url_hd` (ADR-0136), `mesh_jobs`/`mesh_demand`.
+## Мешевые таблицы devdb (31.08)
+`asset_revisions`, `orientation_state`, `product_photo_current`, `products.image_url_hd`
+(ADR-0136), `mesh_jobs`/`mesh_demand`.
