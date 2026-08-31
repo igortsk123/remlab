@@ -3,12 +3,12 @@ tier: 1
 topic: mesh-pipeline
 scope: 3D-меши товаров — генерация, приёмка, ориентация
 tier2: "../domain/viz-fidelity-playbook.md"
-updated: 2026-08-28
+updated: 2026-08-31
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-08-28
+last_verified: 2026-08-31
 ---
 
 # Конвейер 3D-мешей — Tier 1 сводка
@@ -22,22 +22,27 @@ last_verified: 2026-08-28
 `scene_ready` (`tools/scout/mesh_gate_pbr.py`) → `web_ready`. **Ориентация (ADR-0129):** orienter →
 `tools/scout/mesh_front.py` → VLM → человек (финален).
 
-**Готовность, резерв, замена (ADR-0134):** готов = принятая ревизия ТЕКУЩЕГО фото + решённая
-ориентация той же ревизии (`tools/scout/mesh_ready.py`). Резерв — покрытие занятых слотов по
-`alternates` (`tools/scout/reserve.py`, 2/3/1), дефицит → очередь. Замена — по жёсткой причине,
-карантин 14д, лимит 1/сет/сутки, журнал (`tools/scout/heal_policy.py`); пересчёт сцен точечный
-(`tools/scout/resolve_affected.py`), изменения — `/test/set-changes/`. Пригодность фото —
-`tools/scout/photo_fit.py`; ворота общие для сборки и лечения (`tools/scout/slot_contract.py`).
-Покрытие резерва 28.08 — 0%, дефицит 803.
+**Готовность/резерв/замена — ADR-0134** (`mesh_ready.py`, `reserve.py`, `heal_policy.py`,
+`/test/set-changes/`); покрытие резерва 28.08 — 0%, дефицит 803.
 
-**Вырезка = вход генератора (ADR-0133).** Что срезано — того не будет в меше; что прилипло от
-фона — станет геометрией. `tools/scout/salad/hybrid_mask.py` держит 95% деталей 1–2 px против 79%
-у чистой сети; `tools/scout/salad/components.py` снимает обрывки фона,
-`tools/scout/salad/collage.py` отсеивает баннеры. Вход Hunyuan — **RGBA**, не RGB на белом
-(апстрим при RGB строит маску из одних 255). Замер — `tools/scout/mask_bench/`, `/test/cutout-bench/`.
-⚠️ Фото фида — 450 px; оригиналы только у divan.ru (22% пула).
+**Вырезка = вход генератора (ADR-0133):** гибрид `salad/hybrid_mask.py` (95% деталей 1–2px
+против 79% у сети), `components.py`/`collage.py` чистят фон и баннеры; вход Hunyuan — **RGBA**.
+Замер — `tools/scout/mask_bench/`.
+Фото: HD у 12 649 из ~19 700 (`products.image_url_hd`, XML API Гдеслона); у остальных потолок — 450 px фида.
 
-**Цены Salad, квоты, грабли сборки — ADR-0132** и [[lessons]].
+**Пилот 30–31.08 (560 заданий, HD):** вход — `coalesce(image_url_hd, image_url)` (ADR-0136,
+эксперименты 2/2: хвосты/плиты — от бедного 450px). Ремонт-конвейер брака — ADR-0138:
+идентификация (`slab_excess` ×1.15, `color_mismatch`) → reseed → срез-кандидат → человек
+(`/test/mesh-repairs/`); нож плиты v9 + закраска кромки + цвет к фото — `tools/scout/salad/
+pipeline.py`, `texture_fix.py`, `apply_repairs.py` (REPAIR_VERSION, чанки ≤6, кэш приёмки).
+Показ: `/test/mesh-pilot10/` (страницы по 10, lazy GLB, вырезка в карточке, кандидат замещает
+оригинал). Образы — только digest, боевой `cu124-baked` (веса внутри, ADR-0137); конвейер
+`batch_show.py`: мультигруппы SALAD_GROUP через запятую, WAVE_FIRST=1 (волна лечения до
+основной очереди), детект «кончился баланс». Провенанс: source.jpg+input.png+cutout.png в
+комплекте каждой версии. Вид сверху из мешей для планировщика — план `topview-from-mesh`
+(`orient_run.py` → orientation_state, `topview_render.py`, тест `/test/topview-test/`).
+
+**Цены Salad, квоты, грабли сборки — ADR-0132/0137** и [[lessons]].
 
 **Tier 2:** `../domain/viz-fidelity-playbook.md` · планы `mesh-bulk-salad-hunyuan`,
 `mask-quality-rgba-contract` · ADR-0129…0134.

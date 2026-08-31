@@ -2,7 +2,7 @@
 workstream: layout
 slug: MASTER-zones-v7
 title: МЕТАПЛАН — свод №13 (слепая оценка раунд 1 + каталог nook): ключ по глазу владельца, кресла к ТВ, фронтальная зона, банк→солвер, nook/консоль из фида
-status: in_progress
+status: partial
 created: 2026-08-16
 updated: 2026-08-16
 completed:

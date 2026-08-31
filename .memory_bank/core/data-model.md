@@ -3,7 +3,7 @@ tier: 1
 topic: data-model
 scope: Схема БД, миграции, pgvector
 tier2: "../../docs/tech-spec-ts-stack.md"
-updated: 2026-07-31
+updated: 2026-08-31
 importance: high
 source: manual
 status: working
@@ -38,3 +38,10 @@ review_after: ""
 Нормализованная модель (users→properties→rooms→room_projects→result_versions; каталог products / embeddings `vector(768)` / price_snapshots; Cost Engine; payments; RLS+hnsw) — пока jsonb или отсутствует.
 
 **Tier 2:** `../../docs/tech-spec-ts-stack.md` §4 (целевые таблицы — имена) + `../../docs/cjm-ux-v0.2.md` §13.
+
+
+## Мешевые таблицы devdb (31.08, сверено по работе пилота)
+`asset_revisions` (sku|source_sha|v1, glb_sha, status, manifest jsonb, origin salad-pilot),
+`orientation_state` (revision_key, status confident|symmetric|unobservable, resolution jsonb),
+`product_photo_current` (sku→image_url+source_sha, контракт смены фото),
+`products.image_url_hd` (12 649, ADR-0136), `mesh_jobs`/`mesh_demand` — очередь и спрос.

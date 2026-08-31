@@ -2689,3 +2689,36 @@ OpenAI: он работает через Batch API (−50% цены), котор
 **Влияет на:** `catalog_api_sync.py`, `cutout_sync.py`, `mesh_queue.py`, `mesh_scheduler.py`,
 `render_strategy.py`, `sets_incremental.py`, `health.py`, `refresh_daily.sh`,
 `pipeline_funnel.py`, ADR-0133/0134/0135.
+
+## ADR-0136 — 2026-08-31 — HD-фото как вход генерации мешей
+**Решение:** вход генерации — `coalesce(products.image_url_hd, image_url)`; волна лечения и остаток
+пилота переведены на HD, боевые прогоны — только HD. **Почему:** подтверждено 2/2 экспериментами
+владельца: обломок-призрак (114667_514…) и плита-«пол» (112923_270…) на HD не воспроизводятся —
+главный источник хвостов/подставок был бедный 450px-вход. HD есть у 12 649 из ~19 700
+(XML API Гдеслона `original_picture`, `tools/scout/catalog_api_sync.py`). Ножи остаются страховкой
+для товаров без HD. Смена фото сама инвалидирует меши (input_hash в job_id).
+**Альтернативы:** скрейп страниц магазинов (не нужен — API отдаёт), апскейл (не пробовали).
+**Влияет на:** `mesh-reseed.json`, `mesh-pilot-sample.json`, боевой экспорт очереди.
+
+## ADR-0137 — 2026-08-31 — Образы Salad: только digest; веса вшиты (baked)
+**Решение:** группы Salad создаются ТОЛЬКО на `image@sha256:…` (тег запрещён — кэш Salad
+подсовывает старые слои: input_failed «dual» после пуша фикса); боевой образ —
+`ghcr.io/igortsk123/mesh-hunyuan:cu124-baked` (веса Hunyuan+BiRefNet внутри, 54GB raw /
+20.7GB compressed при лимите 35): прогрев = бесплатная фаза скачивания, платно только ~1-2 мин
+загрузки в VRAM. `Dockerfile.weights`; storage группы ≥60GB (образ распаковывается в storage —
+на 50GB группа падает «Error pulling image»). Registry auth (ghcr basic) обязателен при digest;
+GET спеки маскирует auth и priority. PATCH image/priority на живой группе молчит; PATCH replicas
+работает только на running; квота считает и остановленные группы. API — только curl (WAF режет
+python-UA). **Влияет на:** `tools/scout/salad/Dockerfile.patch|weights`, спека
+`_secrets/salad-group-create-body.json`, `ssh_run.py` (мультигруппы), `batch_show.py`.
+
+## ADR-0138 — 2026-08-31 — Конвейер брака мешей (правило владельца) и цвет
+**Решение:** идентификация → переделка (reseed) → срез-кандидат при повторе → согласование
+человеком (`/test/mesh-repairs/`, хранятся оригинал И кандидат; оригинал неприкосновенен).
+Идентификация: `slab_excess` (footprint низа vs паспорт, порог ×1.15 — ловит и пары стульев ×2.7)
+и `color_mismatch` (доля текселей темнее p05 фото −15 >12% — «покрашено не в цвет», чёрное вместо
+серого статистикой не лечится). Косметика: нож плиты v9 (вниз от шва, any-вне, сглаживание кромки),
+закраска кромки, цвет к фото (квантильное сведение L ±50 + Рейнхард a/b, гейт ΔE<6),
+`REPAIR_VERSION` раскатывает апгрейды цепочки на старые меши; ремонт чанками ≤6/цикл + кэш
+приёмки по verdict.json. Показ: кандидат замещает оригинал в галерее; owner_reject скрывает.
+**Влияет на:** `apply_repairs.py`, `texture_fix.py`, `pipeline.py`, `gallery_build.py`.

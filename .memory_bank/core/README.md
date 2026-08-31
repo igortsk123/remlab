@@ -15,7 +15,7 @@
 | `access-and-integrations.md` | access-and-integrations | Интеграции/доступы — ключи, клиенты | `../domain/integrations.md` | 2026-08-28 |
 | `architecture.md` | architecture | Стек, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-08-06 |
 | `catalog.md` | catalog | Каталог — состав, свежесть, дельта | `../domain/catalog-enrichment.md` | 2026-08-29 |
-| `data-model.md` | data-model | Схема БД, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-07-31 |
+| `data-model.md` | data-model | Схема БД, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-08-31 |
 | `demo-planner.md` | demo-planner | Демо-планировщик для партнёра — интерактивная расстановка и AI-фото | `../domain/viz-fidelity-playbook.md` | 2026-08-28 |
 | `estimate.md` | estimate | Смета — калькуляторы, /go/ реф | `../domain/pricing-works-ru.md` | 2026-08-06 |
 | `furniture.md` | furniture | Мебель — сеты, визуализация | `../domain/viz-fidelity-playbook.md` | 2026-08-28 |
@@ -27,7 +27,7 @@
 | `lr-composition.md` | lr-composition | Композиция гостиной — доли | `../domain/lr-composition-guide.md` | 2026-08-01 |
 | `market.md` | market | Рынок RU/UK — спрос, монетизация | `../domain/market-research.md` | 2026-08-13 |
 | `marketing-acquisition.md` | marketing-acquisition | Реклама — Яндекс, семантика | `../domain/wordstat-semantics.md` | 2026-08-13 |
-| `mesh-pipeline.md` | mesh-pipeline | 3D-меши товаров — генерация, приёмка, ориентация | `../domain/viz-fidelity-playbook.md` | 2026-08-28 |
+| `mesh-pipeline.md` | mesh-pipeline | 3D-меши товаров — генерация, приёмка, ориентация | `../domain/viz-fidelity-playbook.md` | 2026-08-31 |
 | `observability-tracing.md` | observability-tracing | Трейсинг AI-пайплайна — лог, разбор | `../domain/observability.md` | 2026-08-06 |
 | `pipeline-order.md` | pipeline-order | Канонический порядок конвейера — от фида до расстановки в планировке | `../domain/pipeline-order-details.md` | 2026-08-29 |
 | `regression-net.md` | regression-net | Регресс-защита — тесты, CI, гардрейлы | `../../docs/tech-spec-ts-stack.md` | 2026-08-22 |

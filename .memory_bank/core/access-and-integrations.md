@@ -41,9 +41,10 @@ review_after: ""
 Клиент `tools/scout/falmini.py`; только картинки — на треке мешей заменён Salad (ADR-0131).
 Модели редактирования и ограничения масок — `../domain/integrations.md` §fal.
 
-## SaladCloud + GHCR (28.08) — GPU под меши, вместо fal
-Орг `prodstore`, проект `dmodel`, очередь `mesh-hunyuan`, заголовок `Salad-Api-Key`; ключи и
-цены — `_secrets/ACCESS.md`. Образ `ghcr.io/igortsk123/mesh-hunyuan`. Детали — [[mesh-pipeline]].
+## SaladCloud + GHCR (31.08) — GPU под меши, вместо fal
+Орг `prodstore`/`dmodel`; ключи, цены, спека группы — `_secrets/ACCESS.md`, `_secrets/salad-group-create-body.json`.
+Образ ТОЛЬКО digest'ом; боевой `…mesh-hunyuan:cu124-baked` (веса внутри). Все API-грабли
+(curl-only/WAF, PATCH-молчание, квоты, reallocate) — ADR-0137; детали — [[mesh-pipeline]].
 
 ## Гдеслон API (26.08)
 Программы: shops.xml по api_token (ежедневный `--check`); XML-поиск — только хост
