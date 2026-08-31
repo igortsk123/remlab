@@ -215,4 +215,4 @@ class H(BaseHTTPRequestHandler):
 if __name__ == '__main__':
     port = int(os.environ.get('DRAFT_PORT', 8099))
     print(f'черновой рендер слушает :{port}', flush=True)
-    ThreadingHTTPServer(('127.0.0.1', port), H).serve_forever()
+    ThreadingHTTPServer((os.environ.get('DRAFT_HOST', '0.0.0.0'), port), H).serve_forever()
