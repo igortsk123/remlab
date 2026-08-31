@@ -263,6 +263,7 @@ class Jobs:
                        'tried': set(), 'result': None} for j in jobs]
         self.cv = threading.Condition()
         self.inflight = 0
+        self.stalled = False      # остаток закрыт не потому, что задания плохи, а потому что нод нет
 
     def _all_done(self) -> bool:
         return all(it['result'] is not None for it in self.items)
@@ -318,6 +319,7 @@ class Jobs:
                         if it['result'] is None:
                             it['result'] = {'sku': it['job']['sku'], 'status': 'transport_failed',
                                             'error': f'нет живых нод {int(STALL_S)}с'}
+                    self.stalled = True
                     print(f'!! нет живых нод {int(STALL_S / 60)} мин — закрываю остаток', flush=True)
                     break
 
@@ -431,6 +433,10 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
     print('RUN_SUMMARY ' + json.dumps(s), flush=True)
     if not keep_alive:
         stop_group()
+    if js.stalled:
+        # Ноды кончились посреди прогона — это ожидание ёмкости, а не брак заданий: конвейер
+        # должен подождать и повторить, а не считать волну проваленной и уйти дальше.
+        return EXIT_NO_CAPACITY
     return 0 if s['unresolved'] == 0 else 1
 
 

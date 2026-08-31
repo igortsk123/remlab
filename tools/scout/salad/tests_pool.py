@@ -126,6 +126,24 @@ def case_prefix() -> None:
     print('  ✓ курсор двигается только до первой дырки')
 
 
+def case_stall_is_capacity() -> None:
+    """Ноды кончились посреди прогона — это ожидание ёмкости (75), а не провал волны:
+    иначе конвейер бросает недоделанную волну и уходит в основную очередь."""
+    nodes = [{'id': 'A' * 8, 'port': 1, 'group': 'g', 'state': 'running'}]
+    S.STALL_S, S.NODE_COOLDOWN_S = 1.5, 10_000     # нода выбывает и не возвращается
+
+    def job_fn(port, job):
+        return {'sku': job['sku'], 'status': 'transport_failed', 'error': 'нода исчезла'}
+
+    patch.jobs = jobs(3)
+    patch(nodes, job_fn)
+    code = S.run(None, True, jobs_file='x')
+    st = json.load(open(S.RESULTS, encoding='utf-8'))['summary']
+    assert code == S.EXIT_NO_CAPACITY, code
+    assert st['unresolved'] == 3, st
+    print('  ✓ прогон без нод → код 75 (ждём ёмкость), а не «волна провалена»')
+
+
 def case_no_capacity() -> None:
     """Нет прогретых нод — это ожидание (75), а не авария."""
     S.instances = lambda: []
@@ -145,7 +163,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         setup(tmp)
         for fn in (case_late_node, case_bad_node, case_unresolved, case_prefix,
-                   case_no_capacity, case_checkpoint):
+                   case_stall_is_capacity, case_no_capacity, case_checkpoint):
             setup(tmp) if fn is not case_checkpoint else None
             fn()
     print('стенд пула: ВСЁ ЗЕЛЁНОЕ')
