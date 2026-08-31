@@ -184,6 +184,10 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .spin{width:26px;height:26px;border:3px solid #E4E6E2;border-top-color:var(--accent);
  border-radius:50%;margin:0 auto 12px;animation:sp 1s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
+.rotbtn{position:fixed;width:56px;height:56px;border-radius:50%;background:rgba(28,28,26,.92);
+ color:#fff;font-size:30px;line-height:56px;text-align:center;z-index:40;user-select:none;
+ -webkit-user-select:none;touch-action:none;box-shadow:0 2px 10px rgba(0,0,0,.35);cursor:pointer}
+.rotbtn:active{background:#000}
 /* ВКЛАДКИ (26.08): маршрут «квартира → комната», состояние в адресе (#plan/#room) */
 .tabs{display:flex;gap:8px;border-bottom:1px solid var(--line);margin:14px 0 4px}
 .tab{border:0;background:none;padding:10px 4px;margin-right:14px;cursor:pointer;color:#5C655E;
@@ -1143,6 +1147,27 @@ function shareOpen(list){
   draw();
 }
 let drag=null, rotDrag=null;
+// МОБИЛЬНЫЙ РЕЖИМ (владелец 31.08): короткий тап по предмету — крупные стрелки поворота
+// ±90° оверлеем; долгий тап (~450мс без движения) — перетаскивание. Мышь — как раньше.
+let touchTimer=null, touchStart=null, rotBtns=null;
+function hideRotOvl(){if(rotBtns){rotBtns.forEach(b=>b.remove());rotBtns=null;}}
+function rotate90(dir){if(!sel)return;
+  const prev=sel.rot; sel.rot=(((sel.rot||0)+dir*90)%360+360)%360;
+  if(box(sel).x0<0||box(sel).y0<0||box(sel).x1>D.room.w||box(sel).y1>D.room.d)sel.rot=prev;
+  draw();showTip(sel);updateRotOvl();}
+function updateRotOvl(){if(!rotBtns||!sel){return;}
+  const r=stage.getBoundingClientRect(), b=box(sel);
+  const cx=r.left+PAD+sel.x*S, ty=r.top+PAD+b.y0*S-64;
+  const top=Math.max(8,ty);
+  rotBtns[0].style.left=(cx-70)+'px'; rotBtns[0].style.top=top+'px';
+  rotBtns[1].style.left=(cx+14)+'px'; rotBtns[1].style.top=top+'px';}
+function showRotOvl(){hideRotOvl();if(!sel)return;
+  rotBtns=[['\u21ba',1],['\u21bb',-1]].map(([ch,dir])=>{
+    const b=document.createElement('div');b.className='rotbtn';b.textContent=ch;
+    b.addEventListener('pointerdown',ev=>{ev.stopPropagation();ev.preventDefault();rotate90(dir);});
+    document.body.appendChild(b);return b;});
+  updateRotOvl();}
+window.addEventListener('scroll',updateRotOvl,{passive:true});
 stage.addEventListener('pointerdown',e=>{const pt=loc(e);
   // ВРАЩЕНИЕ ЗА УГЛОВУЮ РУЧКУ (26.08): угол считаем от центра предмета, шаг 5°, с притяжением
   // к 0/90/180/270 — чтобы «ровно вдоль стены» ставилось само, а любой угол оставался доступен.
@@ -1159,15 +1184,25 @@ stage.addEventListener('pointerdown',e=>{const pt=loc(e);
   under.sort((a,b)=>rank(a)-rank(b)||(a.w*a.d)-(b.w*b.d));
   const hit=under[0];
   if(!hit){                         // клик мимо мебели — снимаем выделение
+    hideRotOvl();
     if(sel){sel=null;draw();
       const s=document.getElementById('sel');
       if(s)s.textContent='Перетаскивайте предмет, чтобы двигать. Товар выбирается по значку на предмете.';}
     return;
   }
-  if(hit){sel=hit;drag={dx:pt.x-hit.x,dy:pt.y-hit.y,t:Date.now(),moved:false};stage.setPointerCapture(e.pointerId);
+  if(hit){sel=hit;stage.setPointerCapture(e.pointerId);
+    if(e.pointerType==='touch'){
+      drag=null;touchStart={x:e.clientX,y:e.clientY,pt,hit};
+      clearTimeout(touchTimer);
+      touchTimer=setTimeout(()=>{touchTimer=null;hideRotOvl();
+        drag={dx:touchStart.pt.x-hit.x,dy:touchStart.pt.y-hit.y,t:Date.now(),moved:false};
+        if(navigator.vibrate)navigator.vibrate(30);},450);
+    }else{hideRotOvl();drag={dx:pt.x-hit.x,dy:pt.y-hit.y,t:Date.now(),moved:false};}
     document.getElementById('sel').textContent=`Выбрано: ${hit.role} ${Math.round(hit.w)}×${Math.round(hit.d)} см`+(hit.sku&&hit.sku.name?` · ${hit.sku.name}`:'');
     warmUp();draw();showTip(hit);}});
 stage.addEventListener('pointermove',e=>{
+  if(touchTimer&&touchStart&&Math.hypot(e.clientX-touchStart.x,e.clientY-touchStart.y)>10){
+    clearTimeout(touchTimer);touchTimer=null;}
   if(rotDrag&&sel){const pt=loc(e);
     const a=Math.atan2(pt.y-sel.y,pt.x-sel.x)*180/Math.PI;
     let ang=rotDrag.base-(a-rotDrag.start);   // на сцене предмет повёрнут на -rot
@@ -1201,8 +1236,12 @@ function hits(me){                       // наложение с другими
     const ov=Math.max(0,Math.min(a.x1,b.x1)-Math.max(a.x0,b.x0))*Math.max(0,Math.min(a.y1,b.y1)-Math.max(a.y0,b.y0));
     return ov>200;                       // 2 дм² — допуск на касание кромок
   });}
-stage.addEventListener('pointerup',()=>{drag=null;rotDrag=null;showTip(null);});  // предмет только двигаем; товар — по значку
-window.addEventListener('pointercancel',()=>{drag=null;rotDrag=null;showTip(null);});
+stage.addEventListener('pointerup',e=>{
+  if(touchTimer){clearTimeout(touchTimer);touchTimer=null;
+    if(sel&&e.pointerType==='touch')showRotOvl();}   // короткий тап — стрелки поворота
+  else if(sel&&drag&&!drag.moved&&!rotDrag)showRotOvl();  // и на компе: клик без движения (владелец 31.08)
+  drag=null;rotDrag=null;touchStart=null;showTip(null);});  // предмет только двигаем; товар — по значку
+window.addEventListener('pointercancel',()=>{clearTimeout(touchTimer);touchTimer=null;drag=null;rotDrag=null;touchStart=null;showTip(null);});
 function loc(e){const r=stage.getBoundingClientRect();return{x:(e.clientX-r.left-PAD)/S,y:(e.clientY-r.top-PAD)/S};}
 
 // ——— лента диванов
