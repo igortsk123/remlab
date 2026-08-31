@@ -38,44 +38,20 @@ def yaw_for(key: str) -> tuple[float, str]:
 
 
 def render_top(glb: str, yaw_deg: float, out_png: str) -> None:
-    import cv2
-    import trimesh
+    """Честный попиксельный рендер (z-buffer + UV) из mesh_render — камера строго сверху.
+    Прежний центроидный сэмплинг давал «кляксы» цвета (владелец 31.08)."""
+    import mesh_render as MR
+    import numpy as np
     from PIL import Image
-    m = trimesh.load(glb, force='mesh')
-    V = np.asarray(m.vertices, float).copy()
-    F = np.asarray(m.faces)
-    uv = np.asarray(m.visual.uv)
-    tex = np.asarray(m.visual.material.baseColorTexture.convert('RGB'))
-    th, tw = tex.shape[:2]
-    V -= V.mean(axis=0)
-    a = np.deg2rad(yaw_deg)
-    Ry = np.array([[np.cos(a), 0, np.sin(a)], [0, 1, 0], [-np.sin(a), 0, np.cos(a)]])
-    V = V @ Ry.T
-    # план: X→экранный x, Z→экранный y (фронт калибратора yaw=0 смотрит на -Z → низ экрана)
-    S = 2
-    ptx, ptz = np.ptp(V[:, 0]), np.ptp(V[:, 2])
-    big = max(ptx, ptz) + 1e-9
-    W = int(round(PX * S * ptx / big)) + 8
-    H = int(round(PX * S * ptz / big)) + 8
-    sc = (PX * S) / big
-    px = np.stack([(V[:, 0] - V[:, 0].min()) * sc + 4,
-                   (V[:, 2] - V[:, 2].min()) * sc + 4], axis=1).astype(np.int32)
-    fy = V[F][:, :, 1].mean(axis=1)                 # выше — ближе к камере сверху
-    fuv = np.clip(uv[F], 0, 1)
-    tx = (fuv[..., 0].mean(axis=1) % 1.0 * (tw - 1)).astype(int)
-    ty = (fuv[..., 1].mean(axis=1) % 1.0 * (th - 1)).astype(int)
-    cols = tex[ty, tx].astype(float)
-    e1 = V[F][:, 1] - V[F][:, 0]
-    e2 = V[F][:, 2] - V[F][:, 0]
-    nrm = np.cross(e1, e2)
-    nrm /= (np.linalg.norm(nrm, axis=1, keepdims=True) + 1e-9)
-    cols = (cols * (0.62 + 0.38 * np.abs(nrm[:, 1]))[:, None]).clip(0, 255).astype(np.uint8)
-    img = np.zeros((H, W, 4), np.uint8)
-    for i in np.argsort(fy):                        # снизу вверх: верхние грани поверх
-        c = cols[i]
-        cv2.fillPoly(img, [px[F[i]]], (int(c[0]), int(c[1]), int(c[2]), 255))
-    out = Image.fromarray(img, 'RGBA').resize((max(1, W // S), max(1, H // S)), Image.LANCZOS)
-    out.save(out_png)
+    img = MR.render(MR.load_parts(glb), yaw_deg=yaw_deg, pitch_deg=90.0, size=(900, 900))
+    a = np.asarray(img)
+    ys, xs = np.where(a[..., 3] > 8)
+    if len(ys):
+        img = img.crop((int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1))
+    w, h = img.size
+    k = PX / max(w, h)
+    img = img.resize((max(1, int(w * k)), max(1, int(h * k))), Image.LANCZOS)
+    img.save(out_png)
 
 
 def main() -> None:
