@@ -73,6 +73,8 @@ def _sku(items: dict, role: str) -> dict | None:
         return None
     return {'name': it.get('name'), 'price': it.get('price'), 'img': it.get('img'),
             'url': it.get('url'), 'shop': it.get('shop'),
+            # sid — ключ каталога мешей (/test/mesh-pilot10/<sid>/model.glb): 3D-сцена демо
+            'sid': (f"{it.get('mid')}_{it.get('eid')}" if it.get('mid') and it.get('eid') else None),
             'w': it.get('w'), 'd': it.get('d'), 'h': it.get('h')}
 
 

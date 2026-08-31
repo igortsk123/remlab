@@ -717,15 +717,9 @@ function shape(it){
   // ВИД СВЕРХУ ИЗ 3D-МОДЕЛИ (28.08, владелец: «модели есть — показываем их сверху, человек
   // двигает, а перед/зад мы уже знаем»): спрайт рендерится из GLB (фронт — вниз, как и у
   // стилизованных форм) и кладётся ПОВЕРХ формы; 404 — остаётся форма, ничего не ломается.
-  if(it.sku&&it.sku.img){
-    const sp=String(it.sku.img).replace(/^img\//,'sprites/').replace(/\.jpe?g$/i,'.png');
-    if(!/^https?:/.test(sp)){
-      const im=el('image',{href:sp,x:-w/2,y:-d/2,width:w,height:d,
-        preserveAspectRatio:'none',opacity:0.98});
-      im.addEventListener('error',()=>im.remove());
-      g.appendChild(im);
-    }
-  }
+  // ОВЕРЛЕЙ «вид сверху из 3D» ОТКЛЮЧЁН (владелец 31.08: фото/спрайты растягивались на
+  // всю форму у стула/стола/торшера; фото товара живёт ТОЛЬКО в круглой иконке-бейдже,
+  // план остаётся схематичным — его решение от 31.08 «пусть будет как есть»).
 
   return g;
 }
@@ -1435,4 +1429,112 @@ function routeWidth(skip){                   // ширина коридора о
     if(reach){best=r;break;}}
   return best;}
 window.addEventListener('resize',()=>{if(D)draw();});
-</script></body></html>
+</script>
+<!-- ===== 3D-СЦЕНА ПЕРЕД ФОТО (владелец 31.08): наши модели по расстановке; где меша нет — заглушка ===== -->
+<style>
+#scene3d{position:fixed;inset:0;background:#0e0f12;z-index:400;display:none}
+#scene3d.on{display:block}
+#scene3d canvas{display:block}
+#sc3bar{position:absolute;left:0;right:0;bottom:0;padding:12px;display:flex;gap:10px;justify-content:center;
+ background:linear-gradient(transparent,rgba(0,0,0,.55))}
+#sc3bar .btn{font:600 15px/1 system-ui;padding:12px 18px;border-radius:10px;border:0;cursor:pointer}
+#sc3go{background:#4f7cff;color:#fff}#sc3back{background:#2a2d33;color:#ddd}
+#sc3hint{position:absolute;top:10px;left:0;right:0;text-align:center;color:#9aa;font:13px system-ui}
+</style>
+<div id="scene3d">
+ <div id="sc3hint">Сцена с нашими 3D-моделями · вращайте мышью, колесо — масштаб · серые блоки — модель ещё не готова</div>
+ <div id="sc3bar">
+  <button class="btn" id="sc3back">← Назад к плану</button>
+  <button class="btn" id="sc3go">Сделать фото · ~25 сек</button>
+ </div>
+</div>
+<script type="importmap">{"imports":{"three":"./lib/three.module.min.js"}}</script>
+<script type="module">
+import * as THREE from './lib/three.module.min.js';
+import {GLTFLoader} from './lib/GLTFLoader.js';
+import {OrbitControls} from './lib/OrbitControls.js';
+const MESH_BASE='/test/mesh-pilot10/';
+let meshIndex=null, orientIdx=null, renderer=null, scene=null, camera=null, controls=null, raf=0;
+async function idx(){
+  if(meshIndex) return;
+  try{meshIndex=await (await fetch(MESH_BASE+'mesh-index.json')).json();}catch(e){meshIndex={};}
+  try{orientIdx=await (await fetch(MESH_BASE+'orient.json')).json();}catch(e){orientIdx={};}
+}
+function stopScene(){
+  document.getElementById('scene3d').classList.remove('on');
+  cancelAnimationFrame(raf);
+  if(renderer){renderer.dispose();renderer.domElement.remove();renderer=null;}
+  scene=null;camera=null;controls=null;
+}
+async function openScene(){
+  await idx();
+  const box=document.getElementById('scene3d');
+  box.classList.add('on');
+  renderer=new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(innerWidth,innerHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  box.prepend(renderer.domElement);
+  scene=new THREE.Scene();
+  scene.background=new THREE.Color(0xeceae6);
+  const rw=(D.room.w||400)/100, rd=(D.room.d||300)/100;
+  camera=new THREE.PerspectiveCamera(52,innerWidth/innerHeight,0.05,100);
+  camera.position.set(rw/2, Math.max(rw,rd)*0.95, rd*1.55);
+  controls=new OrbitControls(camera,renderer.domElement);
+  controls.target.set(rw/2,0.4,rd/2);
+  scene.add(new THREE.HemisphereLight(0xffffff,0xb9b4aa,1.05));
+  const sun=new THREE.DirectionalLight(0xffffff,1.4); sun.position.set(rw,3,rd*0.2); scene.add(sun);
+  const floor=new THREE.Mesh(new THREE.PlaneGeometry(rw,rd),
+    new THREE.MeshStandardMaterial({color:0xd7cfc2,roughness:0.95}));
+  floor.rotation.x=-Math.PI/2; floor.position.set(rw/2,0,rd/2); scene.add(floor);
+  const wallM=new THREE.MeshStandardMaterial({color:0xf1efe9,roughness:1});
+  const wh=1.15;
+  for(const [x,z,len,rotY] of [[rw/2,0,rw,0],[rw/2,rd,rw,0],[0,rd/2,rd,Math.PI/2],[rw,rd/2,rd,Math.PI/2]]){
+    const w=new THREE.Mesh(new THREE.BoxGeometry(len,wh,0.04),wallM);
+    w.position.set(x,wh/2,z); w.rotation.y=rotY; scene.add(w);
+  }
+  const loader=new GLTFLoader();
+  for(const it of (items||[])){
+    const w=(it.w||60)/100,d=(it.d||60)/100,h=(it.h||75)/100;
+    const cx=((it.x||0)+ (it.w||0)/2)/100, cz=((it.y||0)+(it.d||0)/2)/100;
+    const rot=-((it.rot||0)*Math.PI/180);
+    const sid=it.sku&&it.sku.sid;
+    const info=sid&&meshIndex&&meshIndex[sid];
+    if(info){
+      loader.load(MESH_BASE+sid+'/model.glb?v='+(info.ver||1),(g)=>{
+        const obj=g.scene;
+        const bb=new THREE.Box3().setFromObject(obj);
+        const size=new THREE.Vector3(); bb.getSize(size);
+        const scale=Math.max(w,d)/Math.max(size.x,size.z,1e-4);
+        obj.scale.setScalar(scale);
+        const bb2=new THREE.Box3().setFromObject(obj);
+        const c=new THREE.Vector3(); bb2.getCenter(c);
+        // фронт из нашего каталога ориентаций: канонический yaw, затем поворот расстановки
+        const oy=((orientIdx&&orientIdx[sid]&&orientIdx[sid].yaw)||0)*Math.PI/180;
+        obj.rotation.y=rot-oy;
+        obj.position.set(cx-c.x, -bb2.min.y, cz-c.z);
+        scene.add(obj);
+      },undefined,()=>addStub());
+    } else addStub();
+    function addStub(){
+      const g=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),
+        new THREE.MeshStandardMaterial({color:0xb9bcc4,transparent:true,opacity:0.55,roughness:0.9}));
+      g.position.set(cx,h/2,cz); g.rotation.y=rot; scene.add(g);
+      const e=new THREE.LineSegments(new THREE.EdgesGeometry(g.geometry),
+        new THREE.LineBasicMaterial({color:0x8a8f99}));
+      e.position.copy(g.position); e.rotation.copy(g.rotation); scene.add(e);
+    }
+  }
+  (function tick(){raf=requestAnimationFrame(tick);controls.update();renderer.render(scene,camera);})();
+}
+const origMakePhoto=window.makePhoto;
+window.makePhoto=function(q){
+  if(q==='draft'){openScene();return;}
+  return origMakePhoto(q);
+};
+document.getElementById('sc3back').onclick=stopScene;
+document.getElementById('sc3go').onclick=()=>{stopScene();origMakePhoto('draft');};
+addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHeight);
+  camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}});
+</script>
+
+</body></html>
