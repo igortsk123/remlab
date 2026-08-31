@@ -146,8 +146,11 @@ def heal_wave(PAUSE: str, guard_done: bool = True) -> None:
             for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh --keep'),
                           ('реестр', f'{PY} {HERE}/ingest_registry.py'),
                               ('ремонт', f'{PY} {HERE}/apply_repairs.py'),
+                              ('ориентация', f'{PY} {os.path.join(HERE, "..", "orient_worker.py")} --run --limit 200 --vlm'),
+                              ('топ-вью', f'{PY} {HERE}/topview_render.py'),
                               ('галерея', f'GALLERY_SRC=$HOME/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2 {PY} {HERE}/gallery_build.py'),
-                              ('публикую', f'scp -P 22222 -o BatchMode=yes -r $HOME/scout-scenes/mesh-pilot-gallery/* root@89.167.127.0:/opt/remlab/test/mesh-pilot10/')):
+                              ('публикую', f'scp -P 22222 -o BatchMode=yes -r $HOME/scout-scenes/mesh-pilot-gallery/* root@89.167.127.0:/opt/remlab/test/mesh-pilot10/'),
+                              ('ориент-паблиш', f'scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/topview.json root@89.167.127.0:/opt/remlab/test/mesh-pilot10/orient.json && scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/*.png root@89.167.127.0:/opt/remlab/test/flat215-demo/topsprites/ 2>/dev/null || true')):
                 c, o = sh(cmd, timeout=2700)
                 print(f'  {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
 
