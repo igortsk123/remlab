@@ -1962,6 +1962,73 @@ def _s3_cam_job(i):
     return want[i].name, buf.getvalue(), diag
 
 
+def _push_from_supports(mesh_places, others, room):
+    """СТУЛ НЕ ВРЕЗАЕТСЯ В НОЖКИ СТОЛА (владелец 31.08 «ножки протыкают абстрактный стул»;
+    разбор с Codex: НЕ общий 2D-pushout — под столешницу заезжать можно, в ОПОРЫ нельзя).
+    Маска опор: вершины меша стола ниже 55 см → 2D-сетка 2 см с дилатацией; тело стула
+    в занятых клетках → стул отъезжает от центра стола шагами 2 см (максимум 20 см).
+    Двигается КОПИЯ позы для кадра — план пользователя не меняется; сдвиг пишется в diag."""
+    import math
+    import scene_mesh as SM
+    from planner.models import Placement as _P
+    notes = []
+    tables = [(pl, glb) for pl, _sid, glb in mesh_places
+              if pl.role.split(' ')[0] in ('стол', 'столик')]
+    for tpl, glb in tables:
+        try:
+            parts = _scene3d_parts(glb)
+            out, *_rest = SM.world_vertices(parts, tpl, 0.0)
+            import numpy as _n
+            allv = _n.vstack(out)
+            low = allv[allv[:, 1] < 55.0]
+            if not len(low):
+                continue
+            cell = 2.0
+            occ = set()
+            for x, z in zip(low[:, 0], low[:, 2]):
+                cx, cz = int(x // cell), int(z // cell)
+                for dx in (-1, 0, 1):
+                    for dz in (-1, 0, 1):
+                        occ.add((cx + dx, cz + dz))
+        except Exception:  # noqa: BLE001 — нет маски, значит не разводим
+            continue
+
+        def _hits(pl) -> bool:
+            it = pl.item
+            hw, hd = float(it.w_cm) / 2, float(it.d_cm) / 2
+            a = math.radians(float(pl.rot or 0)); ca, sa = math.cos(a), math.sin(a)
+            for gx in range(-3, 4):
+                for gz in range(-3, 4):
+                    dx, dz = hw * gx / 3.0, hd * gz / 3.0
+                    wx = pl.x + dx * ca + dz * sa
+                    wz = pl.y - dx * sa + dz * ca
+                    if (int(wx // 2.0), int(wz // 2.0)) in occ:
+                        return True
+            return False
+        for i, entry in enumerate(others):
+            pl = entry[0]
+            if pl.role.split(' ')[0] not in ('стул', 'кресло', 'табурет') or pl is tpl:
+                continue
+            if not _hits(pl):
+                continue
+            vx, vz = pl.x - tpl.x, pl.y - tpl.y
+            L = math.hypot(vx, vz) or 1.0
+            vx, vz = vx / L, vz / L
+            moved = 0.0
+            cand = pl
+            while moved < 20.0 and _hits(cand):
+                moved += cell
+                cand = _P(role=pl.role, x=pl.x + vx * moved, y=pl.y + vz * moved,
+                          rot=pl.rot, item=pl.item,
+                          elev_cm=getattr(pl, 'elev_cm', 0) or 0)
+            if moved and not _hits(cand):
+                others[i] = (cand,) + tuple(entry[1:])
+                notes.append(f'{pl.role}: отодвинут на {moved:.0f} см от ножек ({tpl.role})')
+            elif moved:
+                notes.append(f'{pl.role}: коллизия с опорами ({tpl.role}) не разведена за 20 см')
+    return notes
+
+
 def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict | None = None) -> tuple[Image.Image, dict]:
     """КАДР СЦЕНЫ ИЗ МЕШЕЙ (владелец 31.08: «по кнопке — фотография собранной 3D-сцены,
     в GPT пока не отправляем»): clay-комната + реальные меши в перспективе, общий z-буфер
@@ -1991,6 +2058,8 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict
             sid = None
         glb = _scene3d_glb(sid) if sid else None
         (mesh_places if glb else clay_places).append((place, sid, glb))
+    coll_notes = _push_from_supports(mesh_places, clay_places, room)
+    coll_notes += _push_from_supports(mesh_places, mesh_places, room)
     sc = compile_scene(room, [p for p, _, _ in clay_places], cam)
     depth = sc['depth']
     H, W = depth.shape
@@ -2028,7 +2097,10 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict
             print(f'  scene3d: {place.role} пропущен ({str(e)[:60]})')
             missing.append(place.role)
     img = Image.fromarray(np.clip(canvas, 0, 255).astype(np.uint8), 'RGB')
-    return img, {'мешей': used, 'clay': missing}
+    diag = {'мешей': used, 'clay': missing}
+    if coll_notes:
+        diag['развод коллизий'] = coll_notes
+    return img, diag
 
 
 def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1',
