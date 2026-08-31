@@ -34,7 +34,7 @@ ORG, PROJECT = 'prodstore', 'dmodel'
 GROUPS = [g.strip() for g in os.environ.get('SALAD_GROUP', 'mesh-run3').split(',') if g.strip()]
 GROUP = GROUPS[0]
 RATE = 0.16                     # 4090 batch $/ч — сверено по API 28.08
-MAX_JOBS = 700   # 481 сетовых + 78 из демо flat215 + повторы seed
+MAX_JOBS = 2000  # владелец 31.08: очередь до 2000 (481 сетовых + демо + добор по mesh_demand)
 _lock = threading.Lock()
 import random
 

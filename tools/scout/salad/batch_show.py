@@ -23,6 +23,15 @@ DONE = os.path.join(HERE, '..', 'mesh-batch-progress.json')
 PY = os.path.expanduser('~/venvs/scout/bin/python')
 NO_CAPACITY = 75   # код ssh_run «нет тёплых нод» — ждём и повторяем, это не авария
 
+# Сборка и публикация галереи — по флагу (владелец 31.08: ночью не нужна, соберу утром руками).
+# Данные при этом копятся как обычно: стаскивание, реестр, ремонт, ориентация, топ-вью работают.
+SHOW_GALLERY = os.environ.get('MESH_SHOW_GALLERY', '0') == '1'
+SHOW_STEPS = ((
+    ('галерея', f'GALLERY_SRC=$HOME/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2 {PY} {HERE}/gallery_build.py'),
+    ('публикую', 'scp -P 22222 -o BatchMode=yes -r $HOME/scout-scenes/mesh-pilot-gallery/* '
+                 'root@89.167.127.0:/opt/remlab/test/mesh-pilot10/'),
+) if SHOW_GALLERY else ())
+
 
 def sh(cmd, timeout=3600):
     """Таймаут не должен ронять конвейер исключением: иначе finale() не отработает и группа
@@ -285,8 +294,7 @@ def _main():
                           # сверху (кэш — быстро) и публикация orient.json для 3D-сцены
                           ('ориентация', f'{PY} {os.path.join(HERE, "..", "orient_worker.py")} --run --limit 200 --vlm'),
                           ('топ-вью', f'{PY} {HERE}/topview_render.py'),
-                          ('галерея', f'GALLERY_SRC=$HOME/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2 {PY} {HERE}/gallery_build.py'),
-                          ('публикую', f'scp -P 22222 -o BatchMode=yes -r $HOME/scout-scenes/mesh-pilot-gallery/* root@89.167.127.0:/opt/remlab/test/mesh-pilot10/'),
+                          *SHOW_STEPS,
                           ('ориент-паблиш', f'scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/topview.json root@89.167.127.0:/opt/remlab/test/mesh-pilot10/orient.json && scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/*.png root@89.167.127.0:/opt/remlab/test/flat215-demo/topsprites/ 2>/dev/null || true')):
             c, o = sh(cmd, timeout=2700)
             print(f'  {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
@@ -328,8 +336,7 @@ def heal_wave(PAUSE: str, guard_done: bool = True) -> None:
                               ('ремонт', f'{PY} {HERE}/apply_repairs.py'),
                               ('ориентация', f'{PY} {os.path.join(HERE, "..", "orient_worker.py")} --run --limit 200 --vlm'),
                               ('топ-вью', f'{PY} {HERE}/topview_render.py'),
-                              ('галерея', f'GALLERY_SRC=$HOME/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2 {PY} {HERE}/gallery_build.py'),
-                              ('публикую', f'scp -P 22222 -o BatchMode=yes -r $HOME/scout-scenes/mesh-pilot-gallery/* root@89.167.127.0:/opt/remlab/test/mesh-pilot10/'),
+                              *SHOW_STEPS,
                               ('ориент-паблиш', f'scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/topview.json root@89.167.127.0:/opt/remlab/test/mesh-pilot10/orient.json && scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/*.png root@89.167.127.0:/opt/remlab/test/flat215-demo/topsprites/ 2>/dev/null || true')):
                 c, o = sh(cmd, timeout=2700)
                 print(f'  {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
