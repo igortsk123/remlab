@@ -312,6 +312,32 @@ def _card(cand: dict, old: dict) -> dict:
     return {k: v for k, v in new.items() if v is not None or k in ('dia', 'img', 'url')}
 
 
+def style_step_of(cand: dict, style: str | None) -> int | None:
+    """Ступень стиля кандидата (0..3) — своя у live-кандидата, для снапшот-запасных берём из
+    индекса кандидатов. None = неизвестно, тогда тай-брейкер по стилю не судит."""
+    if cand.get('_style_step') is not None:
+        return cand['_style_step']
+    if not style or not _CAND_CACHE:
+        return None
+    item = (_CAND_CACHE.get('items') or {}).get(key(cand.get('mid'), cand.get('eid')))
+    if not item:
+        return None
+    return {'нет': 0, 'низкая': 1, 'средняя': 2, 'высокая': 3}.get(
+        str((item.get('styles') or {}).get(style, 'нет')), 0)
+
+
+def mesh_tiebreak_ok(step: int | None, best_step: int | None, strict: bool) -> bool:
+    """Пускать ли кандидата в проход «сперва с мешом».
+
+    Меш — тай-брейкер, а не критерий: на первом проходе участвуют только кандидаты не хуже
+    лучшей доступной ступени стиля. Неизвестная ступень (снапшот-запасной вне индекса) не
+    штрафуется — он подбирался при сборке сета и по стилю уже согласован.
+    """
+    if not strict or best_step is None or step is None:
+        return True
+    return step >= best_step
+
+
 def _live_candidates(role: str, cur: dict, style: str | None, alive: set,
                      exclude: set, limit: int = 10) -> list[dict]:
     """Кандидаты из живого candidates-index.json: роль та же, в наличии, ±30% цены,
@@ -331,6 +357,9 @@ def _live_candidates(role: str, cur: dict, style: str | None, alive: set,
             continue
         st = steps.get(str((item.get('styles') or {}).get(style or '', 'нет')), 0)
         out.append((st, abs(pr - cur['price']), {'mid': item['mid'], 'eid': item['eid'],
+                                                 # ступень стиля едет с кандидатом: лечение
+                                                 # сравнивает по ней «прочие равные» (31.08)
+                                                 '_style_step': st,
                                                  'name': item['name'], 'price': pr,
                                                  'w': item.get('w'), 'd': item.get('d'),
                                                  'h': item.get('h'), 'dia': item.get('dia'),
@@ -581,10 +610,17 @@ def heal(apply: bool = False) -> None:
             # индекса кандидатов той же роли, лучшие по силе стиля сета и близости цены
             spares = spares + _live_candidates(role, it, s.get('style'), alive,
                                                exclude={key(a['mid'], a['eid']) for a in spares})
-            # Два прохода по одному и тому же списку: сперва ищем замену С ГОТОВЫМ МЕШОМ
-            # (ради этого резерв и заводится), и только если такой нет — берём обычную.
-            # Одним проходом это не выразить: лучший по скорингу кандидат без меша иначе
-            # выигрывал бы у годного, стоящего ниже.
+            # МЕШ РЕШАЕТ ТОЛЬКО ПРИ ПРОЧИХ РАВНЫХ (владелец 31.08). Два прохода по одному
+            # списку: сперва замена С ГОТОВЫМ ПРЕДСТАВЛЕНИЕМ (ради этого резерв и заводится),
+            # потом любая годная. Но первый проход НЕ имеет права ухудшать подбор: кандидат
+            # с мешом участвует в нём, только если его ступень стиля равна лучшей доступной.
+            # Иначе «починка» меняла бы диван в стиле сета на чужой по стилю просто потому,
+            # что у второго есть 3D-модель — визуализация выиграла бы, комплект проиграл.
+            # Цена и габариты уже отфильтрованы (±30%, пропорции, конверт слота и банда),
+            # поэтому «прочие равные» здесь = равная ступень стиля.
+            _steps = [style_step_of(a, s.get('style')) for a in spares]
+            _known = [x for x in _steps if x is not None]
+            _best_step = max(_known) if _known else None
             picked = None
             for _strict_pass in (True, False):
                 if picked:
@@ -592,6 +628,9 @@ def heal(apply: bool = False) -> None:
                 for a in spares:
                     if not (0.7 * it['price'] <= a.get('price', 0) <= 1.3 * it['price']):
                         continue
+                    if not mesh_tiebreak_ok(style_step_of(a, s.get('style')), _best_step,
+                                            _strict_pass):
+                        continue      # с мешом, но хуже по стилю — это не «прочие равные»
                     # ГАБАРИТЫ И МЕДИА НОВОГО ТОВАРА ОБЯЗАТЕЛЬНЫ (аудит 22.08 — heal вставлял диван
                     # 350 см в band 14-16; 26.08 — сохранял чужое фото). Карточку собираем целиком.
                     cand = _card(a, it)
@@ -838,5 +877,27 @@ def main() -> None:
         print(__doc__)
 
 
+def _selftest() -> int:
+    """Тай-брейкер меша: проверяем, что он не ухудшает подбор по стилю."""
+    cases = [
+        ('обычный проход пускает всех', (0, 3, False), True),
+        ('строгий проход: равен лучшему — пускаем', (3, 3, True), True),
+        ('строгий проход: хуже лучшего — не пускаем', (1, 3, True), False),
+        ('строгий проход: лучше лучшего (не бывает, но безопасно)', (3, 2, True), True),
+        ('ступень кандидата неизвестна — не штрафуем', (None, 3, True), True),
+        ('лучшая ступень неизвестна — судить нечем', (1, None, True), True),
+    ]
+    bad = 0
+    for title, (step, best, strict), want in cases:
+        got = mesh_tiebreak_ok(step, best, strict)
+        if got is not want:
+            bad += 1
+            print(f'  FAIL {title}: получили {got}, ждали {want}')
+    print(f'sets_incremental selftest: случаев {len(cases)}, ошибок {bad}')
+    return 1 if bad else 0
+
+
 if __name__ == '__main__':
+    if '--selftest' in sys.argv:
+        sys.exit(_selftest())
     main()
