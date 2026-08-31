@@ -1500,13 +1500,21 @@ async function openScene(){
     w.position.set(x,wh/2,z); w.rotation.y=rotY; scene.add(w);
   }
   const loader=new GLTFLoader();
-  for(const it of (items||[])){
+  // расстановка: живая с плана; пуста (сцену открыли до применения варианта) — берём
+  // items ТЕКУЩЕГО варианта из данных
+  let list=(typeof items!=='undefined'&&items&&items.length)?items:[];
+  if(!list.length){
+    try{list=(D.variants[(typeof cur!=='undefined'?cur:0)]||D.variants[0]).items||[];}catch(e){list=[];}
+  }
+  let nMesh=0,nStub=0;
+  for(const it of list){
     const w=(it.w||60)/100,d=(it.d||60)/100,h=(it.h||75)/100;
     const cx=((it.x||0)+ (it.w||0)/2)/100, cz=((it.y||0)+(it.d||0)/2)/100;
     const rot=-((it.rot||0)*Math.PI/180);
     const sid=it.sku&&it.sku.sid;
     const info=sid&&meshIndex&&meshIndex[sid];
     if(info){
+      nMesh++;
       loader.load(MESH_BASE+sid+'/model.glb?v='+(info.ver||1),(g)=>{
         const obj=g.scene;
         const bb=new THREE.Box3().setFromObject(obj);
@@ -1521,7 +1529,7 @@ async function openScene(){
         obj.position.set(cx-c.x, -bb2.min.y, cz-c.z);
         scene.add(obj);
       },undefined,()=>addStub());
-    } else addStub();
+    } else {nStub++;addStub();}
     function addStub(){
       const g=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),
         new THREE.MeshStandardMaterial({color:0xb9bcc4,transparent:true,opacity:0.55,roughness:0.9}));
@@ -1531,6 +1539,8 @@ async function openScene(){
       e.position.copy(g.position); e.rotation.copy(g.rotation); scene.add(e);
     }
   }
+  document.getElementById('sc3hint').textContent=
+    `Комната с расстановкой: моделей ${nMesh}, заглушек ${nStub} (модели готовятся) · вращайте мышью`;
   (function tick(){raf=requestAnimationFrame(tick);controls.update();renderer.render(scene,camera);})();
 }
 window.__openScene3d=openScene;
