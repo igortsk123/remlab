@@ -203,6 +203,14 @@ def render_top(glb: str, yaw_deg: float, out_png: str, R=None, flip=False) -> No
     img.save(out_png)
 
 
+def _render_pair(job) -> str:
+    """Одна модель для пула процессов: вид сверху + вид спереди."""
+    glb, yaw, png, fpng, sku = job
+    render_top(glb, yaw, png)
+    render_front(glb, yaw, fpng)
+    return sku
+
+
 def main() -> None:
     os.makedirs(OUT, exist_ok=True)
     manifest = {}
@@ -215,6 +223,7 @@ def main() -> None:
     budget = float(os.environ.get('TOPVIEW_BUDGET_S', 1800))
     t0 = time.time()
     stopped_early = False
+    todo: list = []
     seen_i = 0
     for mp in sorted(glob.glob(os.path.join(SRC, '*/*/manifest.json'))):
         d = os.path.dirname(mp)
@@ -281,12 +290,10 @@ def main() -> None:
                     or not os.path.exists(png)
                     or os.path.getmtime(png) < os.path.getmtime(glb))
             if need:
-                if time.time() - t0 > budget:
-                    stopped_early = True
-                    print(f'бюджет {budget:.0f}с исчерпан — остальное в следующем цикле', flush=True)
-                    break
-                render_top(glb, yaw, png)
-                render_front(glb, yaw, fpng)
+                # РЕНДЕР КОПИМ И ГОНИМ ПАРАЛЛЕЛЬНО (владелец 31.08 «не проще ли на ноду
+                # Salad?» — замер показал: узкое место не мощность, а один занятый поток
+                # из 12; ~6с/модель × 200 = 20 мин в один поток против ~2 мин на пуле)
+                todo.append((glb, yaw, png, fpng, sku))
         except Exception as e:  # noqa: BLE001 — один битый меш не валит страницу
             print(f'  сбой {sku}: {str(e)[:80]}')
             continue
@@ -294,6 +301,31 @@ def main() -> None:
         manifest[sku] = {'png': f'{sku}.png', 'yaw': yaw, 'orient': st,
                          'role': man.get('role'), 'w': dims.get('w'), 'd': dims.get('d')}
         n += 1
+    if todo:
+        workers = int(os.environ.get('TOPVIEW_WORKERS', 0)) or max(1, (os.cpu_count() or 4) - 2)
+        print(f'рендер: {len(todo)} моделей на {workers} процессах', flush=True)
+        import concurrent.futures as _cf2
+        done_ok = 0
+        with _cf2.ProcessPoolExecutor(max_workers=workers) as ex:
+            futs = {}
+            for job in todo:
+                if time.time() - t0 > budget:
+                    stopped_early = True
+                    break
+                futs[ex.submit(_render_pair, job)] = job[4]
+            for f in _cf2.as_completed(futs):
+                sku_j = futs[f]
+                try:
+                    f.result()
+                    done_ok += 1
+                except Exception as e:  # noqa: BLE001 — битый меш не валит остальные
+                    print(f'  сбой {sku_j}: {str(e)[:80]}', flush=True)
+                    manifest.pop(sku_j, None)
+        if stopped_early:
+            print(f'бюджет {budget:.0f}с исчерпан — остальное в следующем цикле', flush=True)
+        print(f'отрендерено {done_ok} из {len(futs)}', flush=True)
+        for job in todo[len(futs):]:      # не поставленные в очередь — не в манифест
+            manifest.pop(job[4], None)
     mpth = os.path.join(OUT, 'topview.json')
     # частичный прогон (skip/limit ИЛИ выход по бюджету) ДОПОЛНЯЕТ манифест, а не затирает:
     # иначе ранний break стёр бы записи предыдущих циклов
