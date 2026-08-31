@@ -87,6 +87,10 @@ def ensure_group_started():
 
 
 _PULL_HIST: dict = {}
+# Правило владельца 31.08: не набрала 15% образа за 5 минут — снимаем ноду (было 10% за 15 мин).
+# Наблюдение ведётся по ОДНОМУ инстансу; история живёт в процессе и обнуляется при перезапуске.
+PULL_WINDOW_S = float(os.environ.get('MESH_PULL_WINDOW_S', '300'))
+PULL_MIN = float(os.environ.get('MESH_PULL_MIN', '0.15'))
 
 
 def cull_slow_pulls() -> None:
@@ -115,17 +119,17 @@ def cull_slow_pulls() -> None:
             seen.add(iid)
             prog = float(i.get('pulling_progress') or 0)
             t0, p0 = _PULL_HIST.setdefault(iid, (now, prog))
-            if now - t0 < 900:
+            if now - t0 < PULL_WINDOW_S:
                 continue
-            rate15 = (prog - p0) * 900.0 / (now - t0)
-            if rate15 < 0.10:
+            rate = (prog - p0) * PULL_WINDOW_S / (now - t0)
+            if rate < PULL_MIN:
                 try:
                     req = _u.Request(f'{base}/instances/{iid}/reallocate', data=b'', method='POST',
                                      headers={'Salad-Api-Key': os.environ['SALAD_API_KEY'],
                                               'User-Agent': 'remlab-mesh/1.0'})
                     _u.urlopen(req, timeout=30).read()
-                    print(f'нода {iid[:8]} ({grp}): качает {prog:.0%}, '
-                          f'скорость {rate15:.0%}/15мин — ПЕРЕСАЖИВАЮ (reallocate)', flush=True)
+                    print(f'нода {iid[:8]} ({grp}): качает {prog:.0%}, скорость {rate:.0%} '
+                          f'за {int(PULL_WINDOW_S / 60)} мин — ПЕРЕСАЖИВАЮ (reallocate)', flush=True)
                 except Exception as e:  # noqa: BLE001
                     print(f'нода {iid[:8]}: reallocate → {str(e)[:80]}', flush=True)
                 _PULL_HIST.pop(iid, None)
