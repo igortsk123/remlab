@@ -58,6 +58,25 @@ for fname in ('sets.json','sets2.json','sets3.json'):  # W5: sets3 раньше 
         if floor and s.get('m2'):
             s['fill_pct']=round(sum(x['fp']*x.get('qty',1) for x in floor)/s['m2']*100,1)
     json.dump(sets,open(path,'w'),ensure_ascii=False,indent=1)
+# ПОКРЫТИЕ ПРОВЕРКОЙ КАРТОЧЕК (31.08). Дыру наличия было не видно именно потому, что никто не
+# мерил, какая доля каталога вообще проверена и сколько снятий дошло до конца. Теперь — в отчёте.
+cov=rows("""select
+  count(*) filter (where ps.checked_at > now() - interval '8 days'),
+  count(*),
+  count(*) filter (where ps.state='gone'), count(*) filter (where ps.state='oos'),
+  count(*) filter (where ps.state='suspect'), count(*) filter (where ps.state='alive'),
+  count(*) filter (where ps.state='unknown')
+ from products p left join product_page_status ps
+   on ps.shop_mid=p.shop_mid and ps.external_id=p.external_id
+ where coalesce(p.status,'active')='active'""")
+if cov and len(cov[0])>=7:
+    c=[int(x or 0) for x in cov[0]]
+    report['stock_check']={'проверено за 8 дней':c[0],'товаров активных':c[1],
+                           'покрытие_%':round(c[0]*100/max(c[1],1),1),
+                           'снято gone':c[2],'снято oos':c[3],'ждут подтверждения':c[4],
+                           'подтверждено живых':c[5],'неизвестно':c[6]}
+    print(f"покрытие проверкой карточек за 8 дней: {report['stock_check']['покрытие_%']}% "
+          f"({c[0]}/{c[1]}) | снято: gone {c[2]}, oos {c[3]} | ждут второго голоса: {c[4]}")
 json.dump(report,open(os.path.join(HERE,'metrics-report.json'),'w'),ensure_ascii=False,indent=1)
 print(f"обновлено позиций: {report['updated']} | цен изменилось: {len(report['price_changes'])} | "
       f"тир-выбросов: {len(report['tier_outliers'])} | не найдено: {len(report['missing'])}")

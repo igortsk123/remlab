@@ -2,8 +2,11 @@
 """Ф1 catalog-freshness: свежие фиды (feeds2/*.zip) → upsert в products.
 - direct_url: полноценный unquote goto= (бага %21 закрыта);
   mnogomebeli/divanboss: SPA-карточки 404 → режем до живого уровня (серия).
-- Товары магазинов свежих фидов, ИСЧЕЗНУВШИЕ из фида → in_stock=false (снят с продажи).
-- Магазины без свежего фида (nonton, h-f-l) не трогаем — наличие проверит health-цикл.
+- Товары, ИСЧЕЗНУВШИЕ из свежего фида → `product_enrichment.status` missing → archived.
+- Магазины без свежего фида не трогаем (карантин источника).
+- НАЛИЧИЕ ЗДЕСЬ НЕ РЕШАЕТСЯ (31.08): `products.in_stock` — производное от фида, статуса
+  программы магазина и свидетельства о карточке; считает его `stock_truth.reconcile()`,
+  который вызывается в конце прогона. Прямые записи `in_stock` из скриптов запрещены.
 Запуск: python3 load3.py"""
 import json, zipfile, glob, os, re, sys, subprocess, urllib.parse, hashlib
 import xml.etree.ElementTree as ET
@@ -60,7 +63,7 @@ if not _CATROLE:
 print(f'карта категорий: {len(_CATROLE)} нужных категорий', flush=True)
 from category_map import is_kids  # noqa: E402 — детское ловим по названию и в ежедневном пути
 
-from reflink import SPA_CUT, direct   # общий модуль: тем же способом ссылку строит catalog_media
+from reflink import direct   # общий модуль: тем же способом ссылку строит catalog_media
 
 total=0; per={}
 rows=[]; erows=[]; mids=set(); _dropped={}
@@ -158,11 +161,13 @@ cols=("shop_mid,external_id,shop,category_id,category_path,name,brand,url,image_
       "description,cat_role,dims_evidence")
 sql(None, f"copy products_new({cols}) from stdin;\n"+"\n".join(rows)+"\n\\.\n")
 mlist=",".join(map(str,sorted(mids)))
+# НАЛИЧИЕ ЗДЕСЬ БОЛЬШЕ НЕ РЕШАЕТСЯ (31.08, ADR наличия). Раньше загрузчик ставил `in_stock=true`
+# каждому товару из фида и `false` — исчезнувшим, стирая вердикты проверок карточек: товар,
+# которого нет в продаже, воскресал в 09:40 каждый день. Теперь load3 отвечает только за факт
+# «есть в фиде» (`product_enrichment.status` ниже), а `products.in_stock` материализует
+# `stock_truth.reconcile()` из трёх источников — и вызывается он в конце этого же прогона.
 out=sql(f"""
 begin;
-update products p set in_stock=false
- where p.shop_mid in ({mlist})
-   and not exists (select 1 from products_new n where n.shop_mid=p.shop_mid and n.external_id=p.external_id);
 insert into products as p (shop_mid,external_id,shop,category_id,category_path,name,brand,url,image_url,
   price_rub,old_price_rub,charge_rub,in_stock,w_cm,d_cm,h_cm,len_cm,dia_cm,dims_source,params,direct_url,description,cat_role,dims_evidence,last_seen)
 select shop_mid,external_id,shop,category_id,category_path,name,brand,url,image_url,
@@ -170,7 +175,7 @@ select shop_mid,external_id,shop,category_id,category_path,name,brand,url,image_
 from products_new
 on conflict (shop_mid,external_id) do update set
   name=excluded.name,url=excluded.url,image_url=excluded.image_url,price_rub=excluded.price_rub,
-  old_price_rub=excluded.old_price_rub,in_stock=true,direct_url=excluded.direct_url,last_seen=current_date,
+  old_price_rub=excluded.old_price_rub,direct_url=excluded.direct_url,last_seen=current_date,
   -- T1: authority сильнее свежести (правка рефери) — scrape/manual фид НЕ затирает,
   -- остальное resolver обновляет каждый прогон (так лечатся и жертвы старого «>400 → /10»,
   -- и жившее вечно coalesce, из-за которого фиксы фида не доезжали)
@@ -186,7 +191,7 @@ on conflict (shop_mid,external_id) do update set
   category_id=excluded.category_id,category_path=excluded.category_path;
 drop table products_new;
 commit;
-select 'снято с наличия: '||count(*) from products where shop_mid in ({mlist}) and not in_stock;
+select 'вне наличия сейчас: '||count(*) from products where shop_mid in ({mlist}) and not in_stock;
 """)
 print(out.strip())
 print(sql("select shop, count(*) filter (where in_stock) live, count(*) filter (where not in_stock) dead from products group by 1 order by 2 desc;"))
@@ -239,13 +244,20 @@ update product_enrichment e set missing_runs=e.missing_runs+1,
  where e.shop_mid in ({mlist})
    and not exists (select 1 from enrich_new n
                    where n.shop_mid=e.shop_mid and n.external_id=e.external_id);
--- products.status — копия для совместимости: скрипты смотрят на in_stock, ломать их незачем
-update products p set status=e.status, in_stock=(e.status='active')
+-- products.status — копия статуса фида для совместимости. `in_stock` здесь НЕ трогаем:
+-- это производное от трёх источников, его считает stock_truth.reconcile() ниже.
+update products p set status=e.status
   from product_enrichment e
  where p.shop_mid=e.shop_mid and p.external_id=e.external_id and p.shop_mid in ({mlist})
-   and (p.status is distinct from e.status or p.in_stock is distinct from (e.status='active'));
+   and p.status is distinct from e.status;
 drop table enrich_new;
 commit;
 """)
 print('СТАТУСЫ', sql("select status||': '||count(*) from product_enrichment"
                      " group by status order by count(*) desc;").strip())
+
+# ---------- наличие: одно место, где оно вычисляется ------------------------------------------
+from stock_truth import audit as stock_audit, reconcile as stock_reconcile  # noqa: E402
+stock_reconcile()
+if stock_audit():
+    print('ВНИМАНИЕ: наличие расходится с формулой — см. stock_truth.py --audit', flush=True)

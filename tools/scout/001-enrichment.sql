@@ -42,6 +42,7 @@ create index if not exists idx_enrich_version on product_enrichment (enrichment_
 
 -- products.status — производное поле: два десятка скриптов смотрят на in_stock, и ломать их
 -- ради красоты нельзя. Истина о жизненном цикле — в product_enrichment.status; здесь копия
--- для быстрых выборок и совместимости (in_stock = status='active').
+-- для быстрых выборок и совместимости. С 31.08 (ADR-0141) `in_stock` — НЕ копия статуса фида,
+-- а производное трёх источников (фид + программа магазина + карточка), см. 003-stock-truth.sql.
 alter table products add column if not exists status text not null default 'active';
 create index if not exists idx_products_status on products (status);

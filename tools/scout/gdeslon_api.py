@@ -8,7 +8,7 @@
 ни продать, ни монетизировать, и в банке им не место.
 
   gdeslon_api.py --check            # какие магазины каталога больше не доступны (только отчёт)
-  gdeslon_api.py --retire           # снять с продажи товары недоступных магазинов
+  gdeslon_api.py --retire           # состояние программ → shop_status (наличие пересчитает reconcile)
   gdeslon_api.py --search 112923 диван 20   # запасной источник: товары магазина через XML-поиск
 
 Ключ — `GDESLON_API_TOKEN` в `.env.local` (значение в памяти не хранится).
@@ -63,10 +63,12 @@ def _sql(q: str) -> str:
     return subprocess.run(PSQL + [q], capture_output=True, text=True).stdout.strip()
 
 
-def check() -> list:
-    live = shops()
+def check(live: dict = None) -> list:
+    live = shops() if live is None else live
+    # Считаем по ВСЕМ товарам магазина, а не только по `in_stock`: иначе магазин, чьи товары уже
+    # сняты проверкой карточек, исчезает из отчёта и его закрытую программу никто не заметит.
     rows = _sql("select shop_mid||'~'||shop||'~'||cnt from (select shop_mid, shop, count(*) cnt "
-                "from products where in_stock group by 1,2 order by 3 desc) t").splitlines()
+                "from products group by 1,2 order by 3 desc) t").splitlines()
     gone = []
     for r in rows:
         p = r.split('~')
@@ -82,14 +84,31 @@ def check() -> list:
 
 
 def retire() -> None:
-    gone = check()
-    if not gone:
-        print('снимать нечего')
-        return
+    """Состояние программы магазина → `shop_status`; наличие пересчитает reconcile.
+
+    Раньше здесь стоял прямой `update products set in_stock=false, status='archived'` — и его
+    стирал следующий `load3`, если фид магазина ещё скачивался (шаг идёт ДО загрузки фидов,
+    `refresh_daily.sh`). Товары закрытой программы воскресали; nonton спасло лишь то, что его
+    выгрузка перестала отдаваться. Теперь состояние живёт отдельно и в формулу входит явно.
+    """
+    import stock_truth                                   # локальный импорт: клиент API без БД
+    live = shops()                                       # один запрос на оба решения
+    gone = check(live)
     for mid, shop, cnt in gone:
-        _sql(f"update products set in_stock=false, status='archived' where shop_mid={mid}")
-        print(f'снято с продажи: {shop} (mid {mid}) — {cnt} товаров')
-    print('дальше замену сделает контракт слота: sets_incremental.py --enforce-contracts --apply')
+        stock_truth.set_shop_state(mid, shop, 'retired', 'нет в списке рекламодателей')
+        print(f'программа закрыта: {shop} (mid {mid}) — {cnt} товаров вне продажи')
+    back = []
+    for r in _sql("select shop_mid||'~'||coalesce(shop,'') from shop_status "
+                  "where program_state='retired'").splitlines():
+        p = r.split('~')
+        if p and p[0].isdigit() and int(p[0]) in live:
+            stock_truth.set_shop_state(int(p[0]), p[1], 'active', 'программа снова доступна')
+            back.append(p[1] or p[0])
+    if back:
+        print('программа вернулась:', ', '.join(back))
+    if not gone and not back:
+        print('состояние программ не менялось')
+    stock_truth.reconcile()
 
 
 def search(mid: int, q: str, limit: int = 100, page: int = 1) -> list:

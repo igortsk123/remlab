@@ -8,7 +8,7 @@ image_url уникален для каждого из 32343 товаров. Зн
 «товар исчез из фида» ловятся автоматически, без ручных чисток.
 
 ДОСТУПНОСТЬ ≠ «НЕТ В ТАБЛИЦЕ» (26.08, разбор Codex): `load3` строки не удаляет — исчезнувший
-товар получает `in_stock=false`, затем `missing → archived`. Плюс источник с битым фидом стоит
+товар уходит в `missing → archived`, и наличие пересчитывает `stock_truth`. Плюс источник с битым фидом стоит
 в карантине (`feed-freshness.json`), и про его товары нельзя утверждать НИЧЕГО: их просто никто
 не проверял. Поэтому `media()` отдаёт запись со статусом: `available` (жив в свежем прогоне),
 `gone` (подтверждённо ушёл) и `unknown` (магазин в карантине).
@@ -50,11 +50,13 @@ def _load() -> dict:
     global _CACHE
     if _CACHE is not None:
         return _CACHE
-    q = ("select shop_mid||'\x1f'||external_id||'\x1f'||coalesce(image_url,'')||'\x1f'"
-         "||coalesce(direct_url,url,'')||'\x1f'||coalesce(price_rub,0)||'\x1f'||name"
-         "||'\x1f'||coalesce(status,'active')||'\x1f'||coalesce(in_stock::int,0)"
-         "||'\x1f'||shop||'\x1f'||coalesce(w_cm,0)||'\x1f'||coalesce(d_cm,0)"
-         "||'\x1f'||coalesce(h_cm,0)||'\x1f'||coalesce(dia_cm,0) from products")
+    q = ("select p.shop_mid||'\x1f'||p.external_id||'\x1f'||coalesce(p.image_url,'')||'\x1f'"
+         "||coalesce(p.direct_url,p.url,'')||'\x1f'||coalesce(p.price_rub,0)||'\x1f'||p.name"
+         "||'\x1f'||coalesce(p.status,'active')||'\x1f'||coalesce(p.in_stock::int,0)"
+         "||'\x1f'||p.shop||'\x1f'||coalesce(p.w_cm,0)||'\x1f'||coalesce(p.d_cm,0)"
+         "||'\x1f'||coalesce(p.h_cm,0)||'\x1f'||coalesce(p.dia_cm,0)"
+         "||'\x1f'||coalesce(ps.state,'') from products p left join product_page_status ps"
+         " on ps.shop_mid=p.shop_mid and ps.external_id=p.external_id")
     out = subprocess.run(PSQL + [q], capture_output=True, text=True).stdout
     m = {}
     for line in out.splitlines():
@@ -65,7 +67,10 @@ def _load() -> dict:
             # (программы нет в кабинете Гдеслона) и товар уже архивный — «не проверить» не
             # оправдание, это именно «ушёл».
             active = (p[6] == 'active' and p[7] == '1')
-            state = ('available' if active else
+            # ПОДТВЕРЖДЁННО МЁРТВАЯ КАРТОЧКА СИЛЬНЕЕ КАРАНТИНА ФИДА (31.08): «фид не приехал» —
+            # это «не знаю про фид», но про товар мы знаем точно — его страницы нет.
+            page_dead = len(p) > 13 and p[13] in ('gone', 'oos')
+            state = ('available' if active else 'gone' if page_dead else
                      'unknown' if (int(mid) in _QUARANTINE and p[6] == 'active') else 'gone')
             num = lambda v: (float(v) or None) if v else None   # noqa: E731
             m[(mid, str(p[1]))] = {'img': p[2] or None,
