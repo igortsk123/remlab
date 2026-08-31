@@ -1174,7 +1174,9 @@ stage.addEventListener('pointermove',e=>{
     ang=Math.round(ang/ROT_SNAP)*ROT_SNAP;
     [0,90,180,270,360].forEach(k=>{if(Math.abs(((ang%360)+360)%360-k)<=ROT_MAGNET)ang=k%360;});
     const prev=sel.rot; sel.rot=((ang%360)+360)%360;
-    if(hits(sel)||box(sel).x0<0||box(sel).y0<0||box(sel).x1>D.room.w||box(sel).y1>D.room.d)sel.rot=prev;
+    // наезд на мебель при повороте РАЗРЕШЁН (владелец 31.08: иначе крупные вещи —
+    // диван — не повернуть рядом с другой мебелью); за стены по-прежнему нельзя
+    if(box(sel).x0<0||box(sel).y0<0||box(sel).x1>D.room.w||box(sel).y1>D.room.d)sel.rot=prev;
     draw();showTip(sel);return;}
   if(!drag||!sel)return;const pt=loc(e);
   let nx=pt.x-drag.dx, ny=pt.y-drag.dy;const b=box(sel);
