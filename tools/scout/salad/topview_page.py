@@ -25,21 +25,40 @@ def main() -> None:
     import glob as g
     for sku, info in sorted(man.items(), key=lambda kv: (kv[1].get('role') or '', kv[0])):
         shutil.copy(os.path.join(SRC, info['png']), os.path.join(OUT, info['png']))
+        fp = os.path.join(SRC, f'{sku}.front.png')
+        if os.path.exists(fp):
+            shutil.copy(fp, os.path.join(OUT, f'{sku}.front.png'))
         cut = ''
         hits = sorted(g.glob(os.path.join(V2, sku, '*', 'cutout.png')), key=os.path.getmtime)
         if hits:
             shutil.copy(hits[-1], os.path.join(OUT, f'{sku}.photo.png'))
             cut = f'<img class="ph" src="{sku}.photo.png" loading="lazy">'
-        badge = {'confident': '✓ фронт по фото', 'symmetric': '⊙ симметричен',
-                 }.get(info.get('orient'), '? фронт не определён')
+        ver = int(os.path.getmtime(os.path.join(SRC, info['png'])))
+        o = info.get('orient') or ''
+        if 'cabinet_agree' in o or 'cabinet_edge' in o:
+            badge = '✓ фронт по деталям фасада'
+        elif 'cabinet_unsure' in o:
+            badge = '⚠ фронт не определён — на разметку'
+        elif 'upright_unsure' in o:
+            badge = '⚠ верх не определён — на разметку'
+        elif 'symmetric_by_role' in o or o == 'symmetric':
+            badge = '⊙ симметричен — фронт не нужен'
+        elif 'seat_agree' in o or 'vlm_agree' in o or o == 'confident':
+            badge = '✓ фронт определён (каскад)'
+        elif 'review_pending' in o:
+            badge = '⚠ спорный — на вашу разметку'
+        else:
+            badge = '? фронт не определён'
         wd = f"{info.get('w') or '?'}×{info.get('d') or '?'} см"
         cards.append(f"""
 <div class="card">
  <h3>{html.escape(info.get('role') or '?')} <span class="sku">{sku}</span></h3>
  <div class="pair">
   <div><div class="lbl">вид сверху из модели · {wd} · {badge}</div>
-   <img class="top" src="{info['png']}" loading="lazy"></div>
-  <div><div class="lbl">фото товара</div>{cut}</div>
+   <img class="top" src="{info['png']}?v={ver}" loading="lazy"></div>
+  <div><div class="lbl">фронт по вердикту (взгляд спереди)</div>
+   <img class="fr" src="{sku}.front.png?v={ver}" loading="lazy" onerror="this.style.display='none'"></div>
+  <div><div class="lbl">фото товара (каталожный ракурс, часто 3/4)</div>{cut}</div>
  </div>
 </div>""")
     page = f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
@@ -49,6 +68,7 @@ body{{font:15px/1.5 system-ui;margin:24px;background:#fafaf8;color:#1c1c1a}}
 .card{{background:#fff;border:1px solid #e5e5e0;border-radius:10px;padding:14px;margin:12px 0;max-width:900px}}
 .sku{{font-size:12px;color:#999;font-weight:400}} .lbl{{font-size:12px;color:#666;margin-bottom:4px}}
 .pair{{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}}
+.fr{{max-width:230px;max-height:230px;border-radius:6px}}
 .top,.ph{{max-width:340px;max-height:260px;border-radius:6px;background:url('{CHECKER}') repeat}}
 </style></head><body>
 <h1>Вид сверху из наших 3D-моделей</h1>
