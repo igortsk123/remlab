@@ -1538,13 +1538,22 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
 (function(){
   var orig=window.makePhoto;
   window.__callOrigPhoto=function(){return orig('draft');};
-  // 3D-сцена юзеру НЕ показывается (владелец 31.08: «тебе надо фото показывать, а 3д сам
-  // собираешь»): кнопки снова генерят фото напрямую; сцена — служебный режим ?scene3d=1
+  // ГЕНЕРАЦИЯ ОТКЛЮЧЕНА (владелец 31.08: «ГЕНЕРАЦИЮ НЕ ДЕЛАТЬ»): старый коллажный
+  // конвейер выключен до готовности нового (сервер сам собирает 3D-сцену из мешей и
+  // генерит фото из неё). Служебная 3D-сцена — ?scene3d=1 (для наладки).
   window.makePhoto=function(q){
-    if(q==='draft'&&window.__openScene3d&&/[?&]scene3d=1/.test(location.search)){
+    if(window.__openScene3d&&/[?&]scene3d=1/.test(location.search)){
       window.__openScene3d();return;
     }
-    return orig(q);
+    try{
+      var n=document.createElement('div');
+      n.style.cssText='position:fixed;left:50%;top:18px;transform:translateX(-50%);z-index:500;'+
+        'background:#2a2d33;color:#fff;font:14px system-ui;padding:12px 18px;border-radius:10px;'+
+        'box-shadow:0 6px 24px rgba(0,0,0,.25)';
+      n.textContent='Фото временно отключено: собираем новый конвейер (3D-сцена из моделей → фото)';
+      document.body.appendChild(n);
+      setTimeout(function(){n.remove();},4000);
+    }catch(e){}
   };
 })();
 </script>
