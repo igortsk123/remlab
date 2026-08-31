@@ -1750,6 +1750,77 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
     return shots
 
 
+SCENE3D_CACHE = '/tmp/mesh3d-cache'
+
+
+def _scene3d_orient() -> dict:
+    """Карта sid → канонический yaw (фронт), собранная пилотом (orient.json галереи)."""
+    import urllib.request
+    global _S3_ORIENT
+    try:
+        return _S3_ORIENT
+    except NameError:
+        pass
+    base = os.environ.get('MESH_HTTP', 'https://remont-lab.online/test/mesh-pilot10')
+    try:
+        _S3_ORIENT = json.loads(urllib.request.urlopen(base + '/orient.json', timeout=20).read())
+    except Exception:  # noqa: BLE001
+        _S3_ORIENT = {}
+    return _S3_ORIENT
+
+
+def _scene3d_glb(sid: str) -> str | None:
+    """GLB меша по sid: скачивается с нашей галереи в кэш (контейнер draft без томов мешей)."""
+    import urllib.request
+    os.makedirs(SCENE3D_CACHE, exist_ok=True)
+    dst = os.path.join(SCENE3D_CACHE, sid + '.glb')
+    if os.path.exists(dst) and os.path.getsize(dst) > 1000:
+        return dst
+    base = os.environ.get('MESH_HTTP', 'https://remont-lab.online/test/mesh-pilot10')
+    try:
+        data = urllib.request.urlopen(f'{base}/{sid}/model.glb', timeout=60).read()
+        open(dst, 'wb').write(data)
+        return dst
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def scene3d_frame(room, placements, cam, sid_by_role: dict) -> tuple[Image.Image, dict]:
+    """КАДР СЦЕНЫ ИЗ МЕШЕЙ (владелец 31.08: «по кнопке — фотография собранной 3D-сцены,
+    в GPT пока не отправляем»): clay-комната + реальные меши в перспективе, общий z-буфер
+    (правильные перекрытия). Нет меша — предмет остаётся clay-формой."""
+    import mesh_render as MR
+    import scene_mesh as SM
+    sc = compile_scene(room, placements, cam)
+    depth = sc['depth']
+    H, W = depth.shape
+    canvas = np.asarray(clay_render(sc)).astype(np.float32).copy()
+    zbuf = depth.astype(np.float32).copy()
+    zbuf[~np.isfinite(zbuf)] = 1e9
+    orient = _scene3d_orient()
+    used, missing = [], []
+    for place in placements:
+        sid = sid_by_role.get(place.role)
+        base = place.role.split(' ')[0]
+        if not sid:
+            missing.append(place.role)
+            continue
+        glb = _scene3d_glb(sid)
+        if not glb:
+            missing.append(place.role)
+            continue
+        try:
+            parts = MR.load_parts(glb)
+            yaw = float((orient.get(sid) or {}).get('yaw') or 0)
+            SM.raster_mesh(canvas, zbuf, parts, place, cam, W, H, yaw)
+            used.append(place.role)
+        except Exception as e:  # noqa: BLE001 — один битый меш не валит кадр
+            print(f'  scene3d: {place.role} пропущен ({str(e)[:60]})')
+            missing.append(place.role)
+    img = Image.fromarray(np.clip(canvas, 0, 255).astype(np.uint8), 'RGB')
+    return img, {'мешей': used, 'clay': missing}
+
+
 def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1',
            save_prefix: str | None = None, quality: str = 'draft') -> dict:
     """Кадр(ы) комнаты. `draft` — один ракурс и быстрая модель, `realistic` — два ракурса
@@ -1784,6 +1855,22 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         model, side, gq = MODEL, 1024, DRAFT_QUALITY
     prefix = save_prefix or os.path.join(OUT, f'draft{n}')
     skus = {it['role']: it for it in (layout or {}).get('items', []) if it.get('role')}
+    if quality == 'draft' and os.environ.get('SCENE3D', '1') == '1':
+        # РЕЖИМ ПРОВЕРКИ (владелец 31.08): сырой кадр 3D-сцены без модели и без GPT
+        sid_by_role = {it['role']: it.get('sid') for it in (layout or {}).get('items', [])
+                       if it.get('role')}
+        shots = []
+        for cam in want:
+            img, diag = scene3d_frame(room, placements, cam, sid_by_role)
+            stamp = time.strftime('%H%M%S')
+            url = _publish_frame(img, f'scene3d-{stamp}-{cam.name}.jpg')
+            shots.append({'camera': cam.name, 'url': url, 'diag': diag, 'anchors': []})
+        sec = round(time.time() - t0, 1)
+        print(f'scene3d: кадров {len(shots)}, {sec} с (без модели)')
+        first = shots[0] if shots else {'url': '', 'diag': {}}
+        return {'shots': shots, 'sources': None, 'timing': None,
+                'model': 'scene3d-raw', 'quality': quality, 'sec': sec,
+                'file': '', 'url': first.get('url', ''), 'diag': first.get('diag', {})}
     if model.startswith('openai/'):
         # трек А работает и на одном ракурсе: тот же рецепт, просто лист без второй половины
         shots = _sheet_gpt(room, placements, photos, want, prefix, side, skus, model, gq,

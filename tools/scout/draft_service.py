@@ -117,7 +117,8 @@ class H(BaseHTTPRequestHandler):
             if time.time() - _LAST_WARM[0] < 240:
                 return self._send(200, {'sec': 0, 'skipped': 'уже прогрето'})
             _LAST_WARM[0] = time.time()
-            threading.Thread(target=DR.warm, daemon=True).start()
+            if os.environ.get('SCENE3D', '1') != '1':
+                threading.Thread(target=DR.warm, daemon=True).start()
             return self._send(200, {'sec': 0, 'started': True})
         if self.route.startswith('/share'):
             return self._share(payload)

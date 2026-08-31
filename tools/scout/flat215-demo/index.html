@@ -854,6 +854,7 @@ function payload(){
   return {room:D.room, style:v.style||'', variant:v.title||'',
     items:items.map(it=>({role:it.role,x:it.x,y:it.y,rot:it.rot,
     w:it.w,d:it.d,h:it.h,corner:it.corner,section:it.section,
+    sid:(it.sku&&it.sku.sid)||null,
     name:(it.sku&&it.sku.name)||null,
     price:(it.sku&&it.sku.price)||null, url:(it.sku&&it.sku.url)||null,
     shop:(it.sku&&it.sku.shop)||null,
@@ -995,7 +996,7 @@ async function makePhoto(quality){
   const t0=Date.now(), rev=revision();
   const est=quality==='realistic'?'обычно 45–60 секунд':'обычно 20–25 секунд';
   shotOpen('<div class="wait"><div class="spin"></div>'+
-    (quality==='realistic'?'Собираем улучшенное фото':'Собираем черновое фото')+
+    (quality==='realistic'?'Собираем улучшенное фото':'Собираем кадр 3D-сцены (наши модели, без ИИ)')+
     ' по вашей расстановке…<br><span id="el">0</span> с</div>',est);
   const tick=setInterval(()=>{const e=document.getElementById('el');
     if(e)e.textContent=Math.round((Date.now()-t0)/1000);},500);
@@ -1558,18 +1559,14 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
   // ГЕНЕРАЦИЯ ОТКЛЮЧЕНА (владелец 31.08: «ГЕНЕРАЦИЮ НЕ ДЕЛАТЬ»): старый коллажный
   // конвейер выключен до готовности нового (сервер сам собирает 3D-сцену из мешей и
   // генерит фото из неё). Служебная 3D-сцена — ?scene3d=1 (для наладки).
-  // По кнопке — 3D-КОМНАТА с расставленными моделями (владелец 31.08, финально).
-  // Генерация фото отключена до нового конвейера.
+  // ФИНАЛ (владелец 31.08): юзеру — ФОТО под камерой, как изначально; 3D — серверный
+  // этап подложки для GPT (план naполняется реальными мешами). Интерактивная комната —
+  // служебный режим ?scene3d=1 для наладки.
   window.makePhoto=function(q){
-    if(window.__openScene3d){window.__openScene3d();return;}
-    try{
-      var n=document.createElement('div');
-      n.style.cssText='position:fixed;left:50%;top:18px;transform:translateX(-50%);z-index:500;'+
-        'background:#2a2d33;color:#fff;font:14px system-ui;padding:12px 18px;border-radius:10px';
-      n.textContent='3D-вид не загрузился — обновите страницу';
-      document.body.appendChild(n);
-      setTimeout(function(){n.remove();},4000);
-    }catch(e){}
+    if(window.__openScene3d&&/[?&]scene3d=1/.test(location.search)){
+      window.__openScene3d();return;
+    }
+    return orig(q);
   };
 })();
 </script>
