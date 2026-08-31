@@ -10,6 +10,7 @@
   SALAD_API_KEY=... ~/venvs/scout/bin/python batch_show.py --batch 5          # весь план
   SALAD_API_KEY=... ~/venvs/scout/bin/python batch_show.py --batch 5 --max 50 # первые 50
 """
+import datetime
 import json
 import os
 import subprocess
@@ -94,28 +95,63 @@ _CULL_LOG: list = []      # моменты наших пересадок: пре
 # брала базовую точку один раз и не обновляла её, поэтому средняя скорость с ростом возраста
 # падала и правило снимало ноды на 83% и 90% — замена начинала с нуля (поймано 31.08).
 # Здоровая машина забирает наш образ за 25–35 мин, отсюда ступени.
-DEADMAN_AGE_S = float(os.environ.get('MESH_DEADMAN_AGE_S', '600'))    # 10 мин
-DEADMAN_MIN = float(os.environ.get('MESH_DEADMAN_MIN', '0.05'))       # …и меньше 5%
-STAGES = [(1200.0, 0.25), (2100.0, 0.60)]   # 20 мин → 25%, 35 мин → 60%
-STALL_S = float(os.environ.get('MESH_PULL_STALL_S', '600'))           # без движения 10 мин
+# Пороги ужаты вдвое (владелец 31.08: «зарежь вдвое все эти минуты»).
+STAGES = [(300.0, 0.05), (600.0, 0.25), (1200.0, 0.60)]   # 5 мин→5%, 10 мин→25%, 20 мин→60%
+STALL_S = float(os.environ.get('MESH_PULL_STALL_S', '300'))           # без движения 5 мин
 STALL_MIN = float(os.environ.get('MESH_PULL_STALL_MIN', '0.01'))      # прирост <1% = стоит
-FINISH_GUARD = float(os.environ.get('MESH_FINISH_GUARD', '0.80'))     # выше — не трогаем
+FINISH_GUARD = float(os.environ.get('MESH_FINISH_GUARD', '0.80'))     # выше — судим по ОСТАТКУ
+# В зоне финиша не «терпим бесконечно», а требуем уложиться в бюджет, пропорциональный
+# остатку (владелец: «терпение к скорости повысить, динамически смотря сколько осталось»).
+# Ступени задают норму ~3%/мин; у почти доехавшей требуем хотя бы половину этого темпа.
+FINISH_RATE_MIN = float(os.environ.get('MESH_FINISH_RATE', '0.015'))  # доля образа в минуту
 MAX_CULL_PER_TICK = int(os.environ.get('MESH_MAX_CULL_TICK', '2'))
 MAX_CULL_PER_HOUR = int(os.environ.get('MESH_MAX_CULL_HOUR', '6'))
 CULL_FREEZE_S = float(os.environ.get('MESH_CULL_FREEZE_S', '1800'))   # пауза после чехарды
 
 
-def cull_verdict(age_s: float, progress: float, since_move_s: float) -> str | None:
+def iso_age_s(ts: str | None, now: float) -> float | None:
+    """Возраст состояния по часам платформы (`update_time` инстанса).
+
+    Нужен потому, что наш собственный отсчёт обнуляется при каждом перезапуске конвейера:
+    31.08 нода качала 22 минуты на 4%, а правило считало её «только что увиденной» и ждало
+    свою десятую минуту заново. Часы Salad переживают наши перезапуски."""
+    if not ts:
+        return None
+    try:
+        head, tz = (ts[:-6], ts[-6:]) if ('+' in ts[10:] or ts.endswith('Z')) else (ts, '')
+        head = head[:26]                      # у Salad 7 знаков после точки — datetime берёт 6
+        age = now - datetime.datetime.fromisoformat(
+            head + ('+00:00' if tz in ('', 'Z') else tz)).timestamp()
+    except Exception:  # noqa: BLE001 — формат времени не должен ломать конвейер
+        return None
+    return age if 0 <= age < 86400 else None
+
+
+def _rate_per_min(obs: list) -> float | None:
+    """Скорость закачки по наблюдениям последних минут (доля образа в минуту).
+
+    Меньше трёх минут наблюдений — None: судить не по чему, ноду не трогаем."""
+    if len(obs) < 2:
+        return None
+    (t0, p0), (t1, p1) = obs[0], obs[-1]
+    return (p1 - p0) / ((t1 - t0) / 60) if t1 - t0 >= 180 else None
+
+
+def cull_verdict(age_s: float, progress: float, since_move_s: float,
+                 rate_per_min: float | None = None) -> str | None:
     """Снимать ли ноду. Чистая функция — её и проверяет стенд.
 
-    Возвращает причину (для лога) или None, если ноду оставляем."""
-    if progress >= FINISH_GUARD:
-        # Почти доехала: даже ползком быстрее, чем замена с нуля. Снимаем только если ВСТАЛА.
-        return 'застой у финиша' if since_move_s >= STALL_S * 2 else None
+    `rate_per_min` — измеренная скорость закачки (доля образа в минуту); нужна только в зоне
+    финиша, где решает не возраст, а успеет ли нода доехать. Возвращает причину или None."""
     if since_move_s >= STALL_S:
         return f'нет движения {int(since_move_s / 60)} мин'
-    if age_s >= DEADMAN_AGE_S and progress < DEADMAN_MIN:
-        return f'мертвяк: {progress:.0%} за {int(age_s / 60)} мин'
+    if progress >= FINISH_GUARD:
+        # Осталось немного: считаем ETA по факту. Замена стартует с нуля, поэтому терпим,
+        # пока нода держит хотя бы половину нормального темпа.
+        if rate_per_min is not None and 0 <= rate_per_min < FINISH_RATE_MIN:
+            eta = (1 - progress) / rate_per_min if rate_per_min > 0 else 999
+            return f'{progress:.0%}, темп {rate_per_min:.1%}/мин → ещё {min(eta, 999):.0f} мин'
+        return None
     for stage_s, need in STAGES:
         if age_s >= stage_s and progress < need:
             return f'{progress:.0%} к {int(stage_s / 60)}-й минуте (норма {need:.0%})'
@@ -153,12 +189,16 @@ def cull_slow_pulls() -> None:
                 continue             # прогресс неизвестен — не судим
             seen.add(iid)
             prog = float(raw)
-            h = _PULL_HIST.setdefault(iid, {'first': now, 'best': prog, 'moved': now})
+            h = _PULL_HIST.setdefault(iid, {'first': now, 'best': prog, 'moved': now,
+                                            'obs': [(now, prog)]})
             if prog < h['best'] - 0.10:          # откат >10 п.п. = загрузка началась заново
-                h.update(first=now, best=prog, moved=now)
-            elif prog > h['best'] + STALL_MIN:
-                h.update(best=prog, moved=now)
-            why = cull_verdict(now - h['first'], h['best'], now - h['moved'])
+                h.update(first=now, best=prog, moved=now, obs=[(now, prog)])
+            else:
+                if prog > h['best'] + STALL_MIN:
+                    h.update(best=prog, moved=now)
+                h['obs'] = [(t, p) for t, p in h['obs'] + [(now, prog)] if now - t <= 900]
+            age = max(now - h['first'], iso_age_s(i.get('update_time'), now) or 0)
+            why = cull_verdict(age, h['best'], now - h['moved'], _rate_per_min(h['obs']))
             if why:
                 cands.append((h['best'], iid, why))
         for prog, iid, why in sorted(cands)[:budget]:   # сперва самые безнадёжные

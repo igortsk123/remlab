@@ -40,7 +40,7 @@ import random
 
 # Динамический пул (план mesh-dynamic-node-pool): ноды приходят и уходят посреди прогона.
 POLL_S = float(os.environ.get('MESH_POLL_S', '45'))        # как часто ищем НОВЫЕ ноды
-CULL_S = float(os.environ.get('MESH_CULL_S', '300'))       # как часто пересаживаем зависшие
+CULL_S = float(os.environ.get('MESH_CULL_S', '150'))       # как часто пересаживаем зависшие
 STALL_S = float(os.environ.get('MESH_STALL_S', '1800'))    # без живых нод и движения — выходим
 RETRY_GRACE_S = float(os.environ.get('MESH_RETRY_GRACE_S', '300'))
 MAX_ATTEMPTS = int(os.environ.get('MESH_MAX_ATTEMPTS', '3'))
