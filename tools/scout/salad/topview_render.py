@@ -222,6 +222,16 @@ def main() -> None:
     # Рендер попиксельный ~30с/модель, кэш по mtime — за несколько циклов догоняем всё.
     budget = float(os.environ.get('TOPVIEW_BUDGET_S', 1800))
     t0 = time.time()
+    # КЭШ ГОТОВЫХ ЗАПИСЕЙ (31.08, второй «СБОЙ Terminated»): цикл заново грузил геометрию и
+    # считал карты глубины для КАЖДОЙ модели, даже с готовым png — на ~170 моделях лимит
+    # шага выгорал ещё до рендера. Готовая пара png+запись берётся из прошлого манифеста.
+    prev_man = {}
+    try:
+        _mp = os.path.join(OUT, 'topview.json')
+        if os.path.exists(_mp):
+            prev_man = json.load(open(_mp, encoding='utf-8'))
+    except Exception:  # noqa: BLE001
+        prev_man = {}
     stopped_early = False
     todo: list = []
     seen_i = 0
@@ -243,6 +253,23 @@ def main() -> None:
             continue
         seen_i += 1
         if seen_i <= skip or (lim and seen_i > skip + lim):
+            continue
+        # БЮДЖЕТ ПРОВЕРЯЕМ В НАЧАЛЕ ЦИКЛА, а не только у рендера: анализ (загрузка меша +
+        # карты глубины для фасада) сам по себе тяжёлый, и шаг успевали убить снаружи
+        # раньше, чем он печатал хоть строку
+        if time.time() - t0 > budget:
+            stopped_early = True
+            print(f'бюджет {budget:.0f}с исчерпан на анализе — остальное в следующем цикле',
+                  flush=True)
+            break
+        if seen_i % 20 == 0:
+            print(f'  ...просмотрено {seen_i}, к рендеру {len(todo)}, {time.time() - t0:.0f}с',
+                  flush=True)
+        png_c = os.path.join(OUT, f'{sku}.png')
+        if (os.environ.get('TOPVIEW_FORCE') != '1' and sku in prev_man
+                and os.path.exists(png_c) and os.path.getmtime(png_c) >= os.path.getmtime(glb)):
+            manifest[sku] = prev_man[sku]        # готово с прошлого цикла — не пересчитываем
+            n += 1
             continue
         key = f"{man['sku']}|{(man.get('input') or {}).get('sha') or man.get('source_sha') or ''}|v1"
         res1 = orient_v1_for(man['sku'])
