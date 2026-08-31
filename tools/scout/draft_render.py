@@ -1856,6 +1856,9 @@ def _paste_rug(canvas, zbuf, place, cam, W, H, ph) -> bool:
     srcimg, smask = _cutout(ph)                # белый фон карточки — не часть ковра
     src = np.asarray(srcimg.convert('RGB'), np.float32)
     msk = np.asarray(smask, np.uint8)
+    cover = float((msk > 128).mean())
+    if cover < 0.30:                           # светлый ковёр: порог съел всё — берём фото
+        msk = np.full(msk.shape, 255, np.uint8)
     sh, sw = src.shape[:2]
     it = place.item
     hw, hd = float(it.w_cm) / 2, float(it.d_cm) / 2
@@ -1896,10 +1899,13 @@ def _paste_rug(canvas, zbuf, place, cam, W, H, ph) -> bool:
         tx = np.clip((uu * (sw - 1)), 0, sw - 1).astype(int)
         ty = np.clip((vv * (sh - 1)), 0, sh - 1).astype(int)
         sub = zbuf[y0:y1, x0:x1]
-        upd = inside & (zt < sub) & (msk[ty, tx] > 128)
+        # глубина clay-пола систематически ~18 см «ближе» честного луча (разные пути
+        # растеризации) — ковёр сравниваем с допуском: он по определению ЛЕЖИТ на полу,
+        # а мебель ближе на десятки см и допуском не пройдёт
+        upd = inside & (zt < sub + 25.0) & (msk[ty, tx] > 128)
         if not upd.any():
             continue
-        sub[upd] = zt[upd]
+        sub[upd] = sub[upd] - 0.1              # сценную глубину чуть поднять: меши поверх
         canvas[y0:y1, x0:x1][upd] = src[ty, tx][upd]
     return True
 
