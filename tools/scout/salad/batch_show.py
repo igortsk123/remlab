@@ -20,11 +20,31 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SAMPLE = os.path.join(HERE, '..', 'mesh-pilot-sample.json')
 DONE = os.path.join(HERE, '..', 'mesh-batch-progress.json')
 PY = os.path.expanduser('~/venvs/scout/bin/python')
+NO_CAPACITY = 75   # код ssh_run «нет тёплых нод» — ждём и повторяем, это не авария
 
 
 def sh(cmd, timeout=3600):
-    r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+    """Таймаут не должен ронять конвейер исключением: иначе finale() не отработает и группа
+    останется тарифицироваться (деньги)."""
+    try:
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return 124, f'ТАЙМАУТ {timeout}с: {cmd[:120]}'
     return r.returncode, (r.stdout + r.stderr)[-1500:]
+
+
+def run_summary(out: str) -> dict | None:
+    """Машинно-читаемый итог прогона (ssh_run печатает RUN_SUMMARY {...}).
+
+    По нему двигаем курсор `done`. Раньше он рос на ВЕСЬ размер пачки независимо от того,
+    сколько заданий реально закрыто, — провалившиеся терялись молча (31.08)."""
+    for line in reversed(out.splitlines()):
+        if line.startswith('RUN_SUMMARY '):
+            try:
+                return json.loads(line[len('RUN_SUMMARY '):])
+            except json.JSONDecodeError:
+                return None
+    return None
 
 
 def group_status() -> str | None:
@@ -114,6 +134,15 @@ def cull_slow_pulls() -> None:
 
 
 def main():
+    """Конвейер показа. finale() (гашение групп) — в finally: любая ошибка внутри цикла
+    раньше оставляла ноды включёнными, а тарифицируется состояние, а не работа."""
+    try:
+        _main()
+    finally:
+        finale()
+
+
+def _main():
     ensure_group_started()
     batch = int(sys.argv[sys.argv.index('--batch') + 1]) if '--batch' in sys.argv else 5
     mx = int(sys.argv[sys.argv.index('--max') + 1]) if '--max' in sys.argv else None
@@ -136,22 +165,33 @@ def main():
         # поэтому просто наращиваем limit, а не режем список (проще и идемпотентно)
         code, out = sh(f'{PY} {HERE}/ssh_run.py --skip {done} --limit {n} --keep-alive', timeout=n * 420 + 600)
         print(out, flush=True)
-        if code != 0:
-            if 'нет прогретых' in out:
-                # ноды переезжают (бытовые ПК) — это не авария: ждём и пробуем снова.
-                # НО: группа stopped + отказ старта = похоже, КОНЧИЛСЯ БАЛАНС (30.08 владелец
-                # заметил раньше конвейера) — говорим прямо, монитор донесёт.
-                st = group_status()
-                if st == 'stopped' and not ensure_group_started():
-                    print('группа остановлена и не стартует — ПОХОЖЕ, КОНЧИЛСЯ БАЛАНС Salad, нужно пополнение', flush=True)
-                else:
-                    print('нет тёплых нод — жду 3 мин и пробую снова', flush=True)
-                cull_slow_pulls()
-                time.sleep(180)
-                continue
-            print(f'!! пачка упала (код {code}) — стоп, разбор руками', flush=True)
+        if code == NO_CAPACITY or (code != 0 and 'нет прогретых' in out):
+            # ноды переезжают (бытовые ПК) — это не авария: ждём и пробуем снова.
+            # НО: группа stopped + отказ старта = похоже, КОНЧИЛСЯ БАЛАНС (30.08 владелец
+            # заметил раньше конвейера) — говорим прямо, монитор донесёт.
+            st = group_status()
+            if st == 'stopped' and not ensure_group_started():
+                print('группа остановлена и не стартует — ПОХОЖЕ, КОНЧИЛСЯ БАЛАНС Salad, нужно пополнение', flush=True)
+            else:
+                print('нет тёплых нод — жду 3 мин и пробую снова', flush=True)
+            cull_slow_pulls()
+            time.sleep(180)
+            continue
+        s = run_summary(out)
+        if s is None:
+            print(f'!! пачка без итога (код {code}) — стоп, разбор руками', flush=True)
             break
-        done += n
+        # Курсор двигаем ТОЛЬКО на подряд закрытые задания: дырка от транспортного сбоя
+        # останется в начале следующей пачки и будет перегенерирована, а не потеряна.
+        step_done = s.get('terminal_prefix', 0)
+        if s.get('unresolved'):
+            print(f'   нерешённых по транспорту: {s["unresolved"]} — курсор двигаю на {step_done} из {n}', flush=True)
+        if step_done == 0:
+            print('   ни одного закрытого задания — жду 3 мин и пробую снова', flush=True)
+            cull_slow_pulls()
+            time.sleep(180)
+            continue
+        done += step_done
         json.dump({'done': done, 'at': time.time()}, open(DONE, 'w'))
         for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh --keep'),
                           ('реестр', f'{PY} {HERE}/ingest_registry.py'),
@@ -169,7 +209,6 @@ def main():
         print(f'== показано {done}/{total} — страница обновлена ==', flush=True)
 
     heal_wave(PAUSE, guard_done=(done >= total))
-    finale()
 
 
 def heal_wave(PAUSE: str, guard_done: bool = True) -> None:
@@ -186,12 +225,20 @@ def heal_wave(PAUSE: str, guard_done: bool = True) -> None:
                 c, o = sh(f'{PY} {HERE}/ssh_run.py --jobs-file {RESEED} --keep-alive',
                           timeout=len(todo) * 420 + 600)
                 print(o, flush=True)
-                if c == 0 or 'нет прогретых' not in o:
-                    break
-                print('волна: нет тёплых нод — жду 3 мин', flush=True)
-                ensure_group_started()
-                cull_slow_pulls()
-                time.sleep(180)
+                if c == NO_CAPACITY or (c != 0 and 'нет прогретых' in o):
+                    print('волна: нет тёплых нод — жду 3 мин', flush=True)
+                    ensure_group_started()
+                    cull_slow_pulls()
+                    time.sleep(180)
+                    continue
+                if c != 0:
+                    # Нерешённые по транспорту остаются в mesh-reseed.json и уйдут в следующую
+                    # волну — но молчать об этом нельзя (раньше волна просто «заканчивалась»).
+                    s = run_summary(o) or {}
+                    print(f'!! волна закончилась с кодом {c}: закрыто '
+                          f'{s.get("terminal", "?")}/{s.get("requested", len(todo))}, '
+                          f'нерешённых {s.get("unresolved", "?")}', flush=True)
+                break
             for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh --keep'),
                           ('реестр', f'{PY} {HERE}/ingest_registry.py'),
                               ('ремонт', f'{PY} {HERE}/apply_repairs.py'),

@@ -8,7 +8,7 @@ importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-07-31
+last_verified: 2026-08-31
 review_after: ""
 ---
 
@@ -19,23 +19,23 @@ review_after: ""
 ## Реализовано (основные таблицы)
 - **projects** (ADR-0008) — проект комнаты одним jsonb `data` + колонка `session_id` (индекс).
 - **generation_runs / steps / assets** (ADR-0013) — трейсинг: прогон (seq, status, latency/cost) → шаг = LLM-вызов (модель/промпт/params) → ассеты (storage_key под TRACE_DIR). `generation_seq` = «номер генерации».
-- **estimates / link_clicks / link_routes** (ADR-0016, М1) — смета одним jsonb + лог кликов `/go/` (приоритет реф-регистраций) + маршруты реф (домен→шаблон, late-binding, пусто→прямая).
+- **estimates / link_clicks / link_routes** (ADR-0016, М1) — смета одним jsonb + лог кликов `/go/` + маршруты реф (домен→шаблон, late-binding, пусто→прямая).
 - **leads** (К6) — лиды «найти дешевле» (email/channel/url/kind/session_id); email пишем только по согласию, ПДн — TODO.
 - **style_results** (ADR-0038) — итог игры «узнай свой вкус»: `session_id` PK → `style`, upsert; карточка «Мой стиль» в `/lab`.
+- **lead_messages** — переписка по лиду (in|out, `admin_tg_message_id`) для TG-бота.
+- **mesh_review_tasks / mesh_review_decisions** (ADR-0131, `/lab/mesh-review`) — ручная проверка ориентации мешей: задачи от DEV-конвейера (`task_key` = `sku|glb_sha|contract`), решения append-only по курсору `after_id` (`mesh_review_sync.py`).
 
 ## Изоляция и доступ
 - **RLS НЕТ** (одна роль remlab). Изоляция — фильтр `session_id` в приложении (`listBySession`).
 - **Известный риск:** `PgRepository.get(id)` (`modules/store/pg-repository.ts`) читает по UUID БЕЗ проверки сессии — знание id даёт чужой проект.
 
 ## Расширения и миграции
-- pgvector **установлен, но не используется** (`001-extensions.sql`: vector + pg_trgm; vector-колонок в схеме нет).
-- Миграции = идемпотентный raw SQL `db/init/*.sql`; **авто-деплой прогоняет их ВСЕ psql-ом** —
-  новую таблицу добавлять туда (+ зашитый список в `deploy.sh`). `tools/migrate.mjs` — локальный,
-  вне git (`tools/*` в .gitignore). drizzle-kit нет; **down-миграций нет**.
+- pgvector **установлен, но не используется** (`001-extensions.sql`; vector-колонок в схеме нет).
+- Миграции = идемпотентный raw SQL `db/init/*.sql`, авто-деплой прогоняет их ВСЕ psql-ом (новую
+  таблицу добавлять туда + в список в `deploy.sh`); drizzle-kit и down-миграций НЕТ.
 - БД — контейнер pgvector/pg17 (ADR-0002).
-
-**Tier 2:** `../../docs/tech-spec-ts-stack.md` §4 (целевые таблицы — имена) + `../../docs/cjm-ux-v0.2.md` §13.
-
 
 ## Мешевые таблицы devdb (31.08)
 `asset_revisions`, `orientation_state`, `product_photo_current`, `image_url_hd` (ADR-0136).
+
+**Tier 2:** `../../docs/tech-spec-ts-stack.md` §4 + `../../docs/cjm-ux-v0.2.md` §13.
