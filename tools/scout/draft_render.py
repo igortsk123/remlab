@@ -1814,6 +1814,9 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict) -> tuple[Image.Image
             yaw = float((orient.get(sid) or {}).get('yaw') or 0)
             SM.raster_mesh(canvas, zbuf, parts, place, cam, W, H, yaw)
             used.append(place.role)
+            del parts
+            import gc
+            gc.collect()                     # пик памяти: лимит контейнера draft всего 1.5GB
         except Exception as e:  # noqa: BLE001 — один битый меш не валит кадр
             print(f'  scene3d: {place.role} пропущен ({str(e)[:60]})')
             missing.append(place.role)
