@@ -126,6 +126,34 @@ class H(BaseHTTPRequestHandler):
             return self._send(404, {'error': 'нет такого пути'})
         if not (payload.get('room') and payload.get('items')):
             return self._send(400, {'error': 'нужны room и items'})
+        # ВРЕМЕННЫЙ КОСТЫЛЬ ДЛЯ ДЕМО (владелец 31.08): полный кадр рендерит DEV-машина
+        # через ssh-туннель; конфиг кладётся файлом в share (env контейнера не пересоздать).
+        # DEV молчит/упала → фолбэк на локальный (декимированный) рендер, кнопка живёт
+        prx = os.environ.get('RENDER_PROXY') or ''
+        if not prx:
+            try:
+                cf = os.path.join(os.path.dirname(DR.FRAMES_DIR), 'render-proxy.conf')
+                prx = open(cf, encoding='utf-8').read().strip() if os.path.exists(cf) else ''
+            except Exception:  # noqa: BLE001
+                prx = ''
+        if prx and not payload.get('no_proxy'):
+            try:
+                import urllib.request as _u
+                req = _u.Request(prx, data=raw, method='POST',
+                                 headers={'Content-Type': 'application/json'})
+                with _u.urlopen(req, timeout=120) as r:
+                    out = json.loads(r.read())
+                for nm, b64 in (out.pop('frames', None) or {}).items():
+                    # кадры пришли в теле — кладём в раздаваемую папку, ссылки уже прод-URL
+                    import base64 as _b64
+                    if '/' in nm or '..' in nm:
+                        continue
+                    os.makedirs(DR.FRAMES_DIR, exist_ok=True)
+                    open(os.path.join(DR.FRAMES_DIR, nm), 'wb').write(_b64.b64decode(b64))
+                out['backend'] = 'dev'
+                return self._send(200, out)
+            except Exception as e:  # noqa: BLE001
+                print(f'DEV-бэкенд молчит ({str(e)[:80]}) — рендерю локально', flush=True)
         now = time.time()
         _HITS[:] = [t for t in _HITS if now - t < 3600]
         if len(_HITS) >= HOURLY_CAP:
@@ -138,10 +166,21 @@ class H(BaseHTTPRequestHandler):
             quality = 'realistic' if payload.get('quality') == 'realistic' else 'draft'
             res = DR.render(layout=payload, quality=quality,
                             save_prefix=os.path.join(DR.OUT, 'draft-web'))
+            if os.environ.get('FRAME_INLINE') == '1':
+                # DEV-бэкенд: кадры уезжают в теле ответа (2 scp-рукопожатия стоили ~5с)
+                import base64 as _b64
+                fr = {}
+                for sh in res.get('shots') or []:
+                    nm = (sh.get('url') or '').rsplit('/', 1)[-1]
+                    fp = os.path.join(DR.FRAMES_DIR, nm)
+                    if nm and os.path.exists(fp):
+                        fr[nm] = _b64.b64encode(open(fp, 'rb').read()).decode()
+                if fr:
+                    res['frames'] = fr
             self._send(200, {'shots': res['shots'], 'url': res['url'], 'model': res['model'],
                              'sources': res.get('sources'), 'timing': res.get('timing'),
                              'quality': quality, 'sec': round(time.time() - t, 1),
-                             'diag': res['diag']})
+                             'frames': res.get('frames'), 'diag': res['diag']})
         except Exception as e:                       # noqa: BLE001 — наружу отдаём короткую причину
             self._send(502, {'error': f'рендер не удался: {str(e)[:200]}'})
         finally:

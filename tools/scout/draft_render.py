@@ -466,8 +466,13 @@ def _trim_band(img: Image.Image) -> Image.Image:
 def _publish_frame(img: Image.Image, name: str) -> str:
     """Кадр из разрезанного листа кладём в раздаваемую папку и отдаём ссылку на него."""
     os.makedirs(FRAMES_DIR, exist_ok=True)
-    img.save(os.path.join(FRAMES_DIR, name), quality=92)
-    return (PUBLIC_BASE + FRAMES_URL + '/' + name) if PUBLIC_BASE else os.path.join(FRAMES_DIR, name)
+    fp = os.path.join(FRAMES_DIR, name)
+    img.save(fp, quality=92)
+    push = os.environ.get('FRAME_PUSH')
+    if push:  # DEV-рендер для прода: кадр доставляется на сервер, ссылка остаётся прод-URL
+        import subprocess as _sp
+        _sp.run(['scp', '-q', '-o', 'BatchMode=yes', fp, push], timeout=60, check=False)
+    return (PUBLIC_BASE + FRAMES_URL + '/' + name) if PUBLIC_BASE else fp
 
 
 def _sheet(room, placements, photos, cams, prefix: str, model: str, side: int, skus: dict) -> list:
@@ -1945,6 +1950,18 @@ def _paste_rug(canvas, zbuf, place, cam, W, H, ph) -> bool:
     return True
 
 
+_S3_JOB = None
+
+
+def _s3_cam_job(i):
+    """Воркер fork-пула scene3d: рендер одной камеры из унаследованного _S3_JOB."""
+    import io as _io
+    room, placements, want, sid_by_role, photos = _S3_JOB
+    img, diag = scene3d_frame(room, placements, want[i], sid_by_role, photos)
+    buf = _io.BytesIO(); img.save(buf, format='JPEG', quality=92)
+    return want[i].name, buf.getvalue(), diag
+
+
 def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict | None = None) -> tuple[Image.Image, dict]:
     """КАДР СЦЕНЫ ИЗ МЕШЕЙ (владелец 31.08: «по кнопке — фотография собранной 3D-сцены,
     в GPT пока не отправляем»): clay-комната + реальные меши в перспективе, общий z-буфер
@@ -2064,12 +2081,33 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
             return Camera(name=cam.name, eye=(nx, ey, nz), target=cam.target,
                           fov_deg=cam.fov_deg, width=cam.width, height=cam.height)
         want = [_inside(c) for c in want]
-        shots = []
-        for cam in want:
+        # обе камеры ПАРАЛЛЕЛЬНО (владелец 31.08 «это же параллелить можно»): numpy
+        # отпускает GIL, ядер на DEV хватает; кадр и scp-доставка каждой камеры — свой тред
+        stamp = time.strftime('%H%M%S')
+
+        def _one_cam(cam):
             img, diag = scene3d_frame(room, placements, cam, sid_by_role, photos)
-            stamp = time.strftime('%H%M%S')
             url = _publish_frame(img, f'scene3d-{stamp}-{cam.name}.jpg')
-            shots.append({'camera': cam.name, 'url': url, 'diag': diag, 'anchors': []})
+            return {'camera': cam.name, 'url': url, 'diag': diag, 'anchors': []}
+        if os.environ.get('SCENE3D_PROCS') == '1' and len(want) > 1:
+            # ДВА ПРОЦЕССА через fork (DEV, 12 ядер): треды упирались в GIL питон-цикла
+            # растеризации. Pool пиклит callable по имени — воркер модульный, аргументы
+            # наследуются форком через глобал _S3_JOB, назад едут JPEG-байты
+            import multiprocessing as _mp
+            global _S3_JOB
+            _S3_JOB = (room, placements, want, sid_by_role, photos)
+            with _mp.get_context('fork').Pool(2) as pool:
+                got = pool.map(_s3_cam_job, range(len(want)))
+            shots = []
+            for name, data, diag in got:
+                import io as _io
+                url = _publish_frame(Image.open(_io.BytesIO(data)).convert('RGB'),
+                                     f'scene3d-{stamp}-{name}.jpg')
+                shots.append({'camera': name, 'url': url, 'diag': diag, 'anchors': []})
+        else:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=2) as ex:
+                shots = list(ex.map(_one_cam, want))
         sec = round(time.time() - t0, 1)
         print(f'scene3d: кадров {len(shots)}, {sec} с (без модели)')
         first = shots[0] if shots else {'url': '', 'diag': {}}
