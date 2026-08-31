@@ -1800,13 +1800,111 @@ def _scene3d_parts(glb: str):
     if hit is not None:
         return hit
     parts = MR.load_parts(glb)
+    # ДЕКИМАЦИЯ для сцены (сервер — 2 слабых ядра, 40k граней жуются 25с): до ~9k граней
+    # на предмет, в кадре 1344px неотличимо; текстурные UV сохраняются позиционно
+    try:
+        import fast_simplification as _fs
+        import numpy as _n
+        slim = []
+        for m in parts:
+            f = _n.asarray(m.faces)
+            if len(f) > 12000:
+                target = 9000 / len(f)
+                pts, fcs, coll = _fs.simplify(_n.asarray(m.vertices, _n.float32), f.astype(_n.int32),
+                                              target_reduction=1 - target, return_collapses=True)
+                import trimesh as _t
+                m2 = _t.Trimesh(vertices=pts, faces=fcs, process=False)
+                try:
+                    # цвет вершин — от БЛИЖАЙШЕЙ исходной вершины (KD-tree): грубее
+                    # текстуры, но без грязи кривых UV; в кадре сцены неотличимо
+                    from scipy.spatial import cKDTree
+                    import mesh_render as _MR2
+                    tex, uvm = _MR2.texture_of(m)
+                    V0 = _n.asarray(m.vertices, _n.float32)
+                    if tex is not None and uvm is not None:
+                        th_, tw_ = tex.shape[:2]
+                        tx = _n.clip((uvm[:, 0] % 1.0) * (tw_ - 1), 0, tw_ - 1).astype(int)
+                        ty = _n.clip((1.0 - (uvm[:, 1] % 1.0)) * (th_ - 1), 0, th_ - 1).astype(int)
+                        vcol = tex[ty, tx]
+                    else:
+                        vcol = _n.tile(_MR2.flat_colors(m).mean(axis=0), (len(V0), 1))
+                    idx = cKDTree(V0).query(pts, k=1)[1]
+                    rgba = _n.c_[vcol[idx], _n.full(len(pts), 255)].astype(_n.uint8)
+                    m2.visual = _t.visual.color.ColorVisuals(mesh=m2, vertex_colors=rgba)
+                except Exception:  # noqa: BLE001 — цвет не перенёсся: серый, но кадр живёт
+                    pass
+                slim.append(m2)
+            else:
+                slim.append(m)
+        parts = slim
+    except Exception:  # noqa: BLE001 — нет декиматора: рендерим полный меш
+        pass
     if len(_S3_PARTS) > 60:
         _S3_PARTS.clear()
     _S3_PARTS[glb] = parts
     return parts
 
 
-def scene3d_frame(room, placements, cam, sid_by_role: dict) -> tuple[Image.Image, dict]:
+def _paste_rug(canvas, zbuf, place, cam, W, H, ph) -> bool:
+    """КОВЁР — ФОТО НА ПОЛУ (владелец 31.08: «ковры просто вклеиваем, они сняты сверху»):
+    прямоугольник ковра проецируется в кадр, фото натягивается перспективно, глубина пола
+    пишется в z-буфер — мебель поверх перекрывает ковёр честно."""
+    import math
+    import scene_mesh as SM
+    if ph is None:
+        return False
+    srcimg, smask = _cutout(ph)                # белый фон карточки — не часть ковра
+    src = np.asarray(srcimg.convert('RGB'), np.float32)
+    msk = np.asarray(smask, np.uint8)
+    sh, sw = src.shape[:2]
+    it = place.item
+    hw, hd = float(it.w_cm) / 2, float(it.d_cm) / 2
+    a = math.radians(float(place.rot or 0))
+    ca, sa = math.cos(a), math.sin(a)
+    corners = []
+    for dx, dz, u, v in ((-hw, -hd, 0, 0), (hw, -hd, 1, 0), (hw, hd, 1, 1), (-hw, hd, 0, 1)):
+        wx = place.x + dx * ca + dz * sa
+        wz = place.y - dx * sa + dz * ca
+        corners.append((wx, 1.0, wz, u, v))
+    pts = SM.project_pts(cam, [(c[0], c[1], c[2]) for c in corners], W, H)
+    if pts is None:
+        return False
+    eye, fwd, _, _ = cam.basis()
+    zs = [float((np.array([c[0], c[1], c[2]], np.float32) - np.array(eye, np.float32))
+                @ np.array(fwd, np.float32)) for c in corners]
+    P = [(float(p[0]), float(p[1])) for p in pts]
+    UV = [(c[3], c[4]) for c in corners]
+    for tri in ((0, 1, 2), (0, 2, 3)):
+        xs = np.array([P[i][0] for i in tri]); ys = np.array([P[i][1] for i in tri])
+        x0, x1 = int(max(0, xs.min())), int(min(W - 1, xs.max()) + 1)
+        y0, y1 = int(max(0, ys.min())), int(min(H - 1, ys.max()) + 1)
+        if x1 <= x0 or y1 <= y0:
+            continue
+        det = (ys[1] - ys[2]) * (xs[0] - xs[2]) + (xs[2] - xs[1]) * (ys[0] - ys[2])
+        if abs(det) < 1e-9:
+            continue
+        gy, gx = np.mgrid[y0:y1, x0:x1]
+        w0 = ((ys[1] - ys[2]) * (gx - xs[2]) + (xs[2] - xs[1]) * (gy - ys[2])) / det
+        w1 = ((ys[2] - ys[0]) * (gx - xs[2]) + (xs[0] - xs[2]) * (gy - ys[2])) / det
+        w2 = 1 - w0 - w1
+        inside = (w0 >= -0.002) & (w1 >= -0.002) & (w2 >= -0.002)
+        if not inside.any():
+            continue
+        zt = w0 * zs[tri[0]] + w1 * zs[tri[1]] + w2 * zs[tri[2]]
+        uu = w0 * UV[tri[0]][0] + w1 * UV[tri[1]][0] + w2 * UV[tri[2]][0]
+        vv = w0 * UV[tri[0]][1] + w1 * UV[tri[1]][1] + w2 * UV[tri[2]][1]
+        tx = np.clip((uu * (sw - 1)), 0, sw - 1).astype(int)
+        ty = np.clip((vv * (sh - 1)), 0, sh - 1).astype(int)
+        sub = zbuf[y0:y1, x0:x1]
+        upd = inside & (zt < sub) & (msk[ty, tx] > 128)
+        if not upd.any():
+            continue
+        sub[upd] = zt[upd]
+        canvas[y0:y1, x0:x1][upd] = src[ty, tx][upd]
+    return True
+
+
+def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict | None = None) -> tuple[Image.Image, dict]:
     """КАДР СЦЕНЫ ИЗ МЕШЕЙ (владелец 31.08: «по кнопке — фотография собранной 3D-сцены,
     в GPT пока не отправляем»): clay-комната + реальные меши в перспективе, общий z-буфер
     (правильные перекрытия). Нет меша — предмет остаётся clay-формой."""
@@ -1821,12 +1919,17 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict) -> tuple[Image.Image
         import asset_strategy as AS
     except Exception:  # noqa: BLE001
         AS = None
+    rug_places = []
     for place in placements:
         sid = sid_by_role.get(place.role)
         base = place.role.split(' ')[0]
-        # канон стратегий: ковёр/картина и прочие не-hunyuan НЕ ставятся мешом (ковёр
-        # всплывал «саблей в воздухе» — его меш вообще не должен существовать в сцене)
-        if AS is not None and sid and AS.strategy(base) != 'hunyuan3d':
+        if base == 'ковёр':
+            rug_places.append(place)           # фото на пол, не clay и не меш
+            continue
+        # канон стратегий: не-hunyuan НЕ ставятся мешом; нет файла канона (контейнер!) —
+        # жёсткий фолбэк по ролям, чтобы ковёр НИКОГДА не оказался мешом
+        if sid and ((AS is not None and AS.strategy(base) != 'hunyuan3d')
+                    or base in ('картина', 'зеркало', 'плед', 'шторы')):
             sid = None
         glb = _scene3d_glb(sid) if sid else None
         (mesh_places if glb else clay_places).append((place, sid, glb))
@@ -1837,6 +1940,12 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict) -> tuple[Image.Image
     zbuf = depth.astype(np.float32).copy()
     zbuf[~np.isfinite(zbuf)] = 1e9
     used, missing = [], [p.role for p, _, _ in clay_places]
+    for place in rug_places:
+        ph = photos_by_role.get(place.role) if photos_by_role else None
+        if _paste_rug(canvas, zbuf, place, cam, W, H, ph):
+            used.append(place.role + ' (фото-ковёр)')
+        else:
+            missing.append(place.role)
     for place, sid, glb in mesh_places:
         try:
             parts = _scene3d_parts(glb)
@@ -1904,7 +2013,7 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
                        if it.get('role')}
         shots = []
         for cam in want:
-            img, diag = scene3d_frame(room, placements, cam, sid_by_role)
+            img, diag = scene3d_frame(room, placements, cam, sid_by_role, photos)
             stamp = time.strftime('%H%M%S')
             url = _publish_frame(img, f'scene3d-{stamp}-{cam.name}.jpg')
             shots.append({'camera': cam.name, 'url': url, 'diag': diag, 'anchors': []})
