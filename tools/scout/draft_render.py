@@ -1853,13 +1853,25 @@ def _paste_rug(canvas, zbuf, place, cam, W, H, ph) -> bool:
     import scene_mesh as SM
     if ph is None:
         return False
-    srcimg, smask = _cutout(ph)                # белый фон карточки — не часть ковра
-    src = np.asarray(srcimg.convert('RGB'), np.float32)
-    msk = np.asarray(smask, np.uint8)
-    cover = float((msk > 128).mean())
-    if cover < 0.30:                           # светлый ковёр: порог съел всё — берём фото
-        msk = np.full(msk.shape, 255, np.uint8)
+    # маска ковра — АДАПТИВНО по цвету углов фото (владелец 31.08: кремовый фон карточки
+    # оставался «вторым ковриком» вокруг настоящего при белом пороге)
+    src = np.asarray(ph.convert('RGB'), np.float32)
     sh, sw = src.shape[:2]
+    corn = np.concatenate([src[:6, :6].reshape(-1, 3), src[:6, -6:].reshape(-1, 3),
+                           src[-6:, :6].reshape(-1, 3), src[-6:, -6:].reshape(-1, 3)])
+    bg = np.median(corn, axis=0)
+    dist = np.linalg.norm(src - bg, axis=2)
+    msk = (dist > 22).astype(np.uint8) * 255
+    from scipy import ndimage as _ndi
+    msk = (_ndi.binary_closing(msk > 0, iterations=3)).astype(np.uint8) * 255
+    lab, n = _ndi.label(msk > 0)
+    if n:
+        sizes = np.bincount(lab.ravel())[1:]
+        msk = ((lab == (int(np.argmax(sizes)) + 1)) * 255).astype(np.uint8)
+        msk = (_ndi.binary_fill_holes(msk > 0)).astype(np.uint8) * 255
+    cover = float((msk > 128).mean())
+    if cover < 0.30:                           # маска подозрительно мала — берём всё фото
+        msk = np.full(msk.shape, 255, np.uint8)
     it = place.item
     hw, hd = float(it.w_cm) / 2, float(it.d_cm) / 2
     a = math.radians(float(place.rot or 0))
@@ -1872,41 +1884,50 @@ def _paste_rug(canvas, zbuf, place, cam, W, H, ph) -> bool:
     pts = SM.project_pts(cam, [(c[0], c[1], c[2]) for c in corners], W, H)
     if pts is None:
         return False
-    eye, fwd, _, _ = cam.basis()
-    zs = [float((np.array([c[0], c[1], c[2]], np.float32) - np.array(eye, np.float32))
-                @ np.array(fwd, np.float32)) for c in corners]
     P = [(float(p[0]), float(p[1])) for p in pts]
-    UV = [(c[3], c[4]) for c in corners]
-    for tri in ((0, 1, 2), (0, 2, 3)):
-        xs = np.array([P[i][0] for i in tri]); ys = np.array([P[i][1] for i in tri])
-        x0, x1 = int(max(0, xs.min())), int(min(W - 1, xs.max()) + 1)
-        y0, y1 = int(max(0, ys.min())), int(min(H - 1, ys.max()) + 1)
-        if x1 <= x0 or y1 <= y0:
-            continue
-        det = (ys[1] - ys[2]) * (xs[0] - xs[2]) + (xs[2] - xs[1]) * (ys[0] - ys[2])
-        if abs(det) < 1e-9:
-            continue
-        gy, gx = np.mgrid[y0:y1, x0:x1]
-        w0 = ((ys[1] - ys[2]) * (gx - xs[2]) + (xs[2] - xs[1]) * (gy - ys[2])) / det
-        w1 = ((ys[2] - ys[0]) * (gx - xs[2]) + (xs[0] - xs[2]) * (gy - ys[2])) / det
-        w2 = 1 - w0 - w1
-        inside = (w0 >= -0.002) & (w1 >= -0.002) & (w2 >= -0.002)
-        if not inside.any():
-            continue
-        zt = w0 * zs[tri[0]] + w1 * zs[tri[1]] + w2 * zs[tri[2]]
-        uu = w0 * UV[tri[0]][0] + w1 * UV[tri[1]][0] + w2 * UV[tri[2]][0]
-        vv = w0 * UV[tri[0]][1] + w1 * UV[tri[1]][1] + w2 * UV[tri[2]][1]
-        tx = np.clip((uu * (sw - 1)), 0, sw - 1).astype(int)
-        ty = np.clip((vv * (sh - 1)), 0, sh - 1).astype(int)
-        sub = zbuf[y0:y1, x0:x1]
-        # глубина clay-пола систематически ~18 см «ближе» честного луча (разные пути
-        # растеризации) — ковёр сравниваем с допуском: он по определению ЛЕЖИТ на полу,
-        # а мебель ближе на десятки см и допуском не пройдёт
-        upd = inside & (zt < sub + 25.0) & (msk[ty, tx] > 128)
-        if not upd.any():
-            continue
-        sub[upd] = sub[upd] - 0.1              # сценную глубину чуть поднять: меши поверх
-        canvas[y0:y1, x0:x1][upd] = src[ty, tx][upd]
+    # ГОМОГРАФИЯ экран→(u,v): два аффинных треугольника ломали перспективу по диагонали —
+    # шахматный узор шёл «бугром» (владелец 31.08); проективное натяжение излом убирает
+    A, B = [], []
+    for (x, y), (u, v) in zip(P, ((0, 0), (1, 0), (1, 1), (0, 1))):
+        A.append([x, y, 1, 0, 0, 0, -u * x, -u * y]); B.append(u)
+        A.append([0, 0, 0, x, y, 1, -v * x, -v * y]); B.append(v)
+    try:
+        hcf = np.linalg.solve(np.array(A, np.float64), np.array(B, np.float64))
+    except np.linalg.LinAlgError:
+        return False
+    x0 = int(max(0, min(p[0] for p in P))); x1 = int(min(W - 1, max(p[0] for p in P)) + 1)
+    y0 = int(max(0, min(p[1] for p in P))); y1 = int(min(H - 1, max(p[1] for p in P)) + 1)
+    if x1 <= x0 or y1 <= y0:
+        return False
+    gy, gx = np.mgrid[y0:y1, x0:x1]
+    den = hcf[6] * gx + hcf[7] * gy + 1.0
+    den[np.abs(den) < 1e-9] = 1e-9
+    uu = (hcf[0] * gx + hcf[1] * gy + hcf[2]) / den
+    vv = (hcf[3] * gx + hcf[4] * gy + hcf[5]) / den
+    inside = (uu >= -0.002) & (uu <= 1.002) & (vv >= -0.002) & (vv <= 1.002)
+    if not inside.any():
+        return False
+    # честная глубина плоскости ковра в точке (u,v)
+    eye, fwd, _, _ = cam.basis()
+    C = np.array([[c[0], c[1], c[2]] for c in corners], np.float32)
+    Pw = (C[0][None, None, :] + uu[..., None] * (C[1] - C[0])[None, None, :]
+          + vv[..., None] * (C[3] - C[0])[None, None, :])
+    zt = ((Pw - np.array(eye, np.float32)) @ np.array(fwd, np.float32)).astype(np.float32)
+    sub = zbuf[y0:y1, x0:x1]
+    # КОВЁР — НАЛОЖЕНИЕ НА СЛОЙ ПОЛА (владелец 31.08): закрашиваем ТОЛЬКО полосу пола.
+    # Глубина clay-пола систематически смещена от честного луча (разные растеризаторы) —
+    # сдвиг калибруем медианой по пикселям ковра, а не фиксированным допуском: прежний
+    # допуск +25 см закрашивал низ мебели, и ковёр «шёл бугром» на кресле
+    fin = inside & np.isfinite(sub) & (np.abs(zt - sub) < 45.0)
+    shift = float(np.median((zt - sub)[fin])) if fin.sum() > 200 else 18.0
+    ztc = zt - shift
+    tx = np.clip(uu * (sw - 1), 0, sw - 1).astype(int)
+    ty = np.clip(vv * (sh - 1), 0, sh - 1).astype(int)
+    upd = inside & (sub > ztc - 8.0) & (msk[ty, tx] > 128)
+    if not upd.any():
+        return False
+    sub[upd] = ztc[upd] - 0.1                  # глубина пола: мебель и меши лягут поверх
+    canvas[y0:y1, x0:x1][upd] = src[ty, tx][upd]
     return True
 
 
@@ -2017,6 +2038,18 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         # РЕЖИМ ПРОВЕРКИ (владелец 31.08): сырой кадр 3D-сцены без модели и без GPT
         sid_by_role = {it['role']: it.get('sid') for it in (layout or {}).get('items', [])
                        if it.get('role')}
+        # КАМЕРА ВСЕГДА ВНУТРИ ПЕРИМЕТРА (владелец 31.08: «сквозь стену смотреть нельзя
+        # ни в каких сценах»): глаз клэмпится внутрь комнаты с отступом от стен
+        def _inside(cam):
+            ex, ey, ez = (float(v) for v in cam.eye)
+            pad = 25.0
+            nx = min(max(ex, pad), room.width_cm - pad)
+            nz = min(max(ez, pad), room.depth_cm - pad)
+            if nx == ex and nz == ez:
+                return cam
+            return Camera(name=cam.name, eye=(nx, ey, nz), target=cam.target,
+                          fov_deg=cam.fov_deg, width=cam.width, height=cam.height)
+        want = [_inside(c) for c in want]
         shots = []
         for cam in want:
             img, diag = scene3d_frame(room, placements, cam, sid_by_role, photos)
