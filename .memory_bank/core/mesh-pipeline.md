@@ -22,23 +22,25 @@ last_verified: 2026-08-31
 **Готовность/резерв/замена — ADR-0134** (`mesh_ready.py`, `reserve.py`, `heal_policy.py`,
 `/test/set-changes/`); покрытие резерва 28.08 — 0%, дефицит 803.
 
-**Вырезка = вход генератора (ADR-0133):** гибрид `tools/scout/salad/hybrid_mask.py` (95% деталей 1–2px
-против 79% у сети), `components.py`/`collage.py` чистят фон и баннеры; вход Hunyuan — **RGBA**.
-Замер — `tools/scout/mask_bench/`.
-Фото: HD у 12 649 из ~19 700 (`products.image_url_hd`, XML API Гдеслона); у остальных потолок — 450 px фида.
+**Вырезка = вход генератора (ADR-0133):** гибрид `tools/scout/salad/hybrid_mask.py` (95% деталей
+1–2px против 79% у сети), `components.py`/`collage.py` чистят фон; вход Hunyuan — **RGBA**.
+Фото: HD у 12 649 из ~19 700 (`products.image_url_hd`); у остальных потолок — 450 px фида.
 
-**Пилот 30–31.08 (560 заданий, HD):** вход — `coalesce(image_url_hd, image_url)` (ADR-0136,
-эксперименты 2/2: хвосты/плиты — от бедного 450px). Ремонт-конвейер брака — ADR-0138:
-идентификация (`slab_excess` ×1.15, `color_mismatch`) → reseed → срез-кандидат → человек
-(`/test/mesh-repairs/`); нож плиты v9 + закраска кромки + цвет к фото — `tools/scout/salad/
-pipeline.py`, `texture_fix.py`, `apply_repairs.py` (REPAIR_VERSION, чанки ≤6, кэш приёмки).
+**Пилот 30–31.08 (560 заданий, HD):** вход — `coalesce(image_url_hd, image_url)` (ADR-0136).
+Ремонт-конвейер брака — ADR-0138: идентификация (`slab_excess`, `color_mismatch`) → reseed →
+человек (`/test/mesh-repairs/`); нож плиты + цвет к фото — `tools/scout/salad/pipeline.py`,
+`texture_fix.py`, `apply_repairs.py`.
 Показ: `/test/mesh-pilot10/`. Образы — digest, боевой `cu124-baked` (ADR-0137); конвейер
-`batch_show.py` (мультигруппы, WAVE_FIRST, детект баланса, `cull_slow_pulls` — авто-reallocate
-нод <10%/15мин; в цикле — «ориентация»+«топ-вью»+паблиш). Грабля: `ssh_run.py` берёт тёплые
-порты раз на старте — поздние машины мимо (кандидат: добор). Вид сверху для планировщика —
-план `topview-from-mesh` (`topview_render.py`, тест `/test/topview-test/`).
+`batch_show.py` (мультигруппы, WAVE_FIRST, детект баланса, `cull_slow_pulls`; в цикле —
+«ориентация»+«топ-вью»+паблиш). Вид сверху — план `topview-from-mesh` (`topview_render.py`).
 
-**Цены Salad, квоты, грабли сборки — ADR-0132/0137** и [[lessons]].
+**Пул нод и учёт заданий — ADR-0142** (`ssh_run.py`): супервизор добирает прогретые ноды по ходу
+прогона (id инстанса, не порт), обрыв возвращает задание в очередь, курсор двигается на подряд
+закрытые (`RUN_SUMMARY`), прогресс — `tools/scout/mesh-run-progress.jsonl`, стенд `tests_pool.py`.
+31.08 приоритет волны — 34 товара демо flat215 (ленты замен в `demo-data.json` идут БЕЗ `sid`,
+поэтому не прогоняются — задача генератору демо).
+
+**Цены Salad, квоты, грабли сборки — ADR-0132/0137/0142** и [[lessons]].
 
 **Tier 2:** `../domain/viz-fidelity-playbook.md` · планы `mesh-bulk-salad-hunyuan`,
 `mask-quality-rgba-contract` · ADR-0129…0134.
