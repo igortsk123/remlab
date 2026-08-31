@@ -1825,12 +1825,12 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict) -> tuple[Image.Image
         try:
             parts = MR.load_parts(glb)
             yaw = float((orient.get(sid) or {}).get('yaw') or 0)
-            # конвенции: план хранит (x,y) как УГОЛ, world_vertices ждёт ЦЕНТР — сдвиг
-            # на полразмера (проверено замером 31.08: все меши плавали ровно на w/2,d/2)
+            # КОНВЕНЦИЯ ПЛАННЕРА И ДЕМО (сверено по geometry.footprint и SVG демо 31.08):
+            # (x,y) — ЦЕНТР предмета, поворот со знаком МИНУС (planner: rotate(−rot)).
+            # Прежний «центр-фикс» +w/2,+d/2 был ошибкой и смещал меши от clay.
             from planner.models import Placement as _P
-            pc = _P(role=place.role, x=place.x + place.item.w_cm / 2,
-                    y=place.y + place.item.d_cm / 2, rot=place.rot, item=place.item,
-                    elev_cm=getattr(place, 'elev_cm', 0) or 0)
+            pc = _P(role=place.role, x=place.x, y=place.y, rot=-float(place.rot or 0),
+                    item=place.item, elev_cm=getattr(place, 'elev_cm', 0) or 0)
             SM.raster_mesh(canvas, zbuf, parts, pc, cam, W, H, yaw)
             used.append(place.role)
             del parts
