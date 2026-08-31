@@ -259,8 +259,13 @@ def scene_from_request(payload: dict) -> tuple:
     stand = next((p for p in placements if _base_role(p.role) == 'тв-тумба'), None)
     if stand is not None and not any(_base_role(p.role) == 'тв' for p in placements):
         w = max(90.0, float(stand.item.w_cm) * 0.9)
+        # ПРАВИЛО ВЛАДЕЛЬЦА (31.08): смотрим ВЫСОТУ тумбы — низкая (≤55 см) → ТВ СТОИТ
+        # на ней (низ = её высота), повыше → над ней с малым зазором. Прежний фикс 85+35
+        # вешал ТВ «в воздухе» без связи с реальной тумбой.
+        sh = float(stand.item.h_cm or 45)
+        elev = sh if sh <= 55 else sh + 12.0
         placements.append(Placement(role='тв', x=stand.x, y=stand.y, rot=stand.rot,
-                                    elev_cm=max(85.0, float(stand.item.h_cm or 45) + 35.0),
+                                    elev_cm=elev,
                                     item=Item(role='тв', w_cm=w, d_cm=8.0,
                                               h_cm=round(w * 0.58, 1),
                                               name='телевизор (по ширине тумбы)')))
@@ -1796,8 +1801,17 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict) -> tuple[Image.Image
     # clay-сцену БЕЗ них; глубины обеих половин делят один z-буфер — перекрытия честные
     orient = _scene3d_orient()
     mesh_places, clay_places = [], []
+    try:
+        import asset_strategy as AS
+    except Exception:  # noqa: BLE001
+        AS = None
     for place in placements:
         sid = sid_by_role.get(place.role)
+        base = place.role.split(' ')[0]
+        # канон стратегий: ковёр/картина и прочие не-hunyuan НЕ ставятся мешом (ковёр
+        # всплывал «саблей в воздухе» — его меш вообще не должен существовать в сцене)
+        if AS is not None and sid and AS.strategy(base) != 'hunyuan3d':
+            sid = None
         glb = _scene3d_glb(sid) if sid else None
         (mesh_places if glb else clay_places).append((place, sid, glb))
     sc = compile_scene(room, [p for p, _, _ in clay_places], cam)
