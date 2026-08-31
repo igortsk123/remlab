@@ -1876,6 +1876,14 @@ def _paste_rug(canvas, zbuf, place, cam, W, H, ph) -> bool:
     cover = float((msk > 128).mean())
     if cover < 0.30:                           # маска подозрительно мала — берём всё фото
         msk = np.full(msk.shape, 255, np.uint8)
+    # СИСТЕМНО ДЛЯ ВСЕХ КОВРОВ (владелец 31.08, «ковёр опять с косяком»): на габарит
+    # натягиваем ПРЯМОУГОЛЬНИК САМОГО КОВРА (bbox маски), а не всё фото — белые поля
+    # карточки смещали узор и давали белёсые рваные края; ориентации не совпали
+    # (портрет/альбом) — поворот текстуры на 90°
+    ys_, xs_ = np.where(msk > 128)
+    bx0, bx1 = (int(xs_.min()), int(xs_.max())) if len(xs_) else (0, sw - 1)
+    by0, by1 = (int(ys_.min()), int(ys_.max())) if len(ys_) else (0, sh - 1)
+    bw_, bh_ = bx1 - bx0 + 1, by1 - by0 + 1
     it = place.item
     hw, hd = float(it.w_cm) / 2, float(it.d_cm) / 2
     a = math.radians(float(place.rot or 0))
@@ -1925,8 +1933,10 @@ def _paste_rug(canvas, zbuf, place, cam, W, H, ph) -> bool:
     fin = inside & np.isfinite(sub) & (np.abs(zt - sub) < 45.0)
     shift = float(np.median((zt - sub)[fin])) if fin.sum() > 200 else 18.0
     ztc = zt - shift
-    tx = np.clip(uu * (sw - 1), 0, sw - 1).astype(int)
-    ty = np.clip(vv * (sh - 1), 0, sh - 1).astype(int)
+    rot90 = (bw_ >= bh_) != (float(it.w_cm) >= float(it.d_cm))
+    ua, va = (vv, 1.0 - uu) if rot90 else (uu, vv)
+    tx = np.clip(bx0 + ua * (bw_ - 1), 0, sw - 1).astype(int)
+    ty = np.clip(by0 + va * (bh_ - 1), 0, sh - 1).astype(int)
     upd = inside & (sub > ztc - 8.0) & (msk[ty, tx] > 128)
     if not upd.any():
         return False
