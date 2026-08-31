@@ -22,6 +22,25 @@ OUT = os.path.expanduser('~/scout-scenes/mesh-topview')
 PX = 420          # длинная сторона итогового спрайта
 
 
+def orient_v1_for(sku: str):
+    """Вердикт БОЕВОГО каскада (contract orient-v1): полная матрица R (up+front) для меша.
+    Есть R → применяем её и рендерим в канонике (фронт = MR-yaw 180); нет — фолбэк на yaw
+    пилотного калибратора. Ваза 99272_180… (перевёрнутый меш) чинится именно этим."""
+    import subprocess as sp
+    r = sp.run(['docker', 'exec', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
+                '-t', '-A', '-c',
+                "SELECT resolution FROM orientation_state WHERE sku='" + sku + "' AND "
+                "revision_key LIKE '%|orient-v1' ORDER BY updated DESC LIMIT 1"],
+               capture_output=True, text=True).stdout.strip()
+    if not r:
+        return None
+    try:
+        res = json.loads(r)
+        return res if res.get('R') else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def yaw_for(key: str) -> tuple[float, str]:
     r = subprocess.run(['docker', 'exec', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
                         '-t', '-A', '-c',
@@ -37,13 +56,19 @@ def yaw_for(key: str) -> tuple[float, str]:
     return (yaw if st == 'confident' else 0.0), st
 
 
-def render_top(glb: str, yaw_deg: float, out_png: str) -> None:
+def render_top(glb: str, yaw_deg: float, out_png: str, R=None) -> None:
     """Честный попиксельный рендер (z-buffer + UV) из mesh_render — камера строго сверху.
     Прежний центроидный сэмплинг давал «кляксы» цвета (владелец 31.08)."""
     import mesh_render as MR
     import numpy as np
     from PIL import Image
-    img = MR.render(MR.load_parts(glb), yaw_deg=yaw_deg, pitch_deg=90.0, size=(900, 900))
+    parts = MR.load_parts(glb)
+    if R is not None:
+        Rm = np.asarray(R, np.float32)
+        for m in parts:
+            m.vertices = np.asarray(m.vertices, np.float32) @ Rm.T
+        yaw_deg = 180.0                      # канон фронта боевого контура (MR-yaw 180)
+    img = MR.render(parts, yaw_deg=yaw_deg, pitch_deg=90.0, size=(900, 900))
     a = np.asarray(img)
     ys, xs = np.where(a[..., 3] > 8)
     if len(ys):
@@ -69,11 +94,25 @@ def main() -> None:
         sku = man['sku'].replace(':', '_')
         if sku in manifest:                          # свежайший каталог уже обработан
             continue
+        # канон стратегий: ковры и прочие не-hunyuan виду сверху из МЕША не подлежат —
+        # их фото и есть вид сверху (владелец 31.08), спрайт берётся из фото плоскостью
+        import asset_strategy as AS
+        if AS.strategy(man.get('role')) != 'hunyuan3d':
+            continue
         key = f"{man['sku']}|{(man.get('input') or {}).get('sha') or man.get('source_sha') or ''}|v1"
-        yaw, st = yaw_for(key)
+        res1 = orient_v1_for(man['sku'])
+        if res1 is not None:
+            yaw, st = 180.0, f"orient-v1:{res1.get('status', '')}"
+        else:
+            yaw, st = yaw_for(key)
         png = os.path.join(OUT, f'{sku}.png')
         try:
-            render_top(glb, yaw, png)
+            # кэш: рендер заново, если png отсутствует/старее меша или TOPVIEW_FORCE=1
+            need = (os.environ.get('TOPVIEW_FORCE') == '1'
+                    or not os.path.exists(png)
+                    or os.path.getmtime(png) < os.path.getmtime(glb))
+            if need:
+                render_top(glb, yaw, png, R=(res1 or {}).get('R'))
         except Exception as e:  # noqa: BLE001
             print(f'  сбой {sku}: {str(e)[:80]}')
             continue
