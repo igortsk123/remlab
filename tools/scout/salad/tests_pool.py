@@ -39,6 +39,7 @@ def jobs(n: int) -> list[dict]:
 
 def patch(nodes: list[dict], job_fn) -> None:
     S.instances = lambda: list(nodes)
+    S.ssh_text = lambda port, cmd, timeout=60: 'NVIDIA GeForce RTX 3090'   # фоновый опрос карты
     S.probe_warm = lambda port: True
     S.run_job = job_fn
     S.jobs_from_file = lambda path: patch.jobs           # noqa: B010 — стенд

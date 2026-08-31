@@ -359,6 +359,16 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
     js, t0 = Jobs(jobs), time.time()
     stop = threading.Event()
     nodes: dict = {}          # instance_id → {'thread', 'port', 'until'}: реестр пула
+    gpu_of: dict = {}         # instance_id → модель видеокарты (для сравнения скорости)
+
+    def ask_gpu(node_id: str, port: int):
+        try:
+            m = re.search(r'(?:NVIDIA|AMD)[^\r\n]*',
+                          ssh_text(port, 'nvidia-smi --query-gpu=name --format=csv,noheader',
+                                   timeout=40) or '')
+            gpu_of[node_id] = m.group(0).strip()[:40] if m else '?'
+        except Exception:  # noqa: BLE001 — диагностика не должна мешать работе
+            gpu_of[node_id] = '?'
     nodes_lock = threading.Lock()
     closed = [0]
 
@@ -374,6 +384,9 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
             checkpoint({'sku': it['job'].get('sku'), 'role': it['job'].get('role'),
                         'status': r.get('status'), 'attempt': it['attempts'],
                         'node': node_id[:8], 'prefix': r.get('prefix'),
+                        # секунды генерации и модель карты — чтобы сравнивать 4090 с 3090/A5000
+                        'sec': (r.get('timings_s') or {}).get('total'),
+                        'gpu': gpu_of.get(node_id),
                         'error': str(r.get('error') or '')[:120], 'at': round(time.time())})
             with _lock:
                 closed[0] += 1
@@ -391,6 +404,11 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
                 return
 
     def spawn(node_id: str, port: int):
+        if node_id not in gpu_of:
+            # Модель карты спрашиваем ОДИН раз на ноду и ФОНОМ: нужна для сравнения
+            # 4090 с 3090/3090 Ti/A5000, но задерживать из-за неё первое задание нельзя.
+            gpu_of[node_id] = None
+            threading.Thread(target=ask_gpu, args=(node_id, port), daemon=True).start()
         t = threading.Thread(target=worker, args=(node_id, port), daemon=True)
         with nodes_lock:
             nodes[node_id] = {'thread': t, 'port': port, 'until': 0.0}
