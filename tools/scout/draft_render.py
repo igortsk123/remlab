@@ -1791,24 +1791,23 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict) -> tuple[Image.Image
     (правильные перекрытия). Нет меша — предмет остаётся clay-формой."""
     import mesh_render as MR
     import scene_mesh as SM
-    sc = compile_scene(room, placements, cam)
+    # предмет либо МОДЕЛЬЮ, либо clay-формой — не оба (владелец 31.08: «если ставишь
+    # реальную модель, абстрактную убирай»): сначала выясняем, у кого есть меш, и строим
+    # clay-сцену БЕЗ них; глубины обеих половин делят один z-буфер — перекрытия честные
+    orient = _scene3d_orient()
+    mesh_places, clay_places = [], []
+    for place in placements:
+        sid = sid_by_role.get(place.role)
+        glb = _scene3d_glb(sid) if sid else None
+        (mesh_places if glb else clay_places).append((place, sid, glb))
+    sc = compile_scene(room, [p for p, _, _ in clay_places], cam)
     depth = sc['depth']
     H, W = depth.shape
     canvas = np.asarray(clay_render(sc)).astype(np.float32).copy()
     zbuf = depth.astype(np.float32).copy()
     zbuf[~np.isfinite(zbuf)] = 1e9
-    orient = _scene3d_orient()
-    used, missing = [], []
-    for place in placements:
-        sid = sid_by_role.get(place.role)
-        base = place.role.split(' ')[0]
-        if not sid:
-            missing.append(place.role)
-            continue
-        glb = _scene3d_glb(sid)
-        if not glb:
-            missing.append(place.role)
-            continue
+    used, missing = [], [p.role for p, _, _ in clay_places]
+    for place, sid, glb in mesh_places:
         try:
             parts = MR.load_parts(glb)
             yaw = float((orient.get(sid) or {}).get('yaw') or 0)
