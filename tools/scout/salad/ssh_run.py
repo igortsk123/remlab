@@ -71,6 +71,9 @@ def warm_ports() -> list[int]:
             pass
     for i in insts:
         if not i.get('started'):
+            st = i.get('state')
+            if st in ('running', 'starting'):  # нода вроде жива, а started=False — видно в логе
+                print(f"  инстанс {str(i.get('machine_id'))[:8]}: state={st}, started=False — пропущен")
             continue
         p = i.get('ssh_port')
         r = ssh_text(p, 'python -c "import urllib.request;'
