@@ -30,3 +30,21 @@ relative-rotation режима — «фото товара + рендер меш
 A) silhouette+RGB4×4 (baseline), B) OA V2 соло, C) silhouette-префильтр + OA V2 relative.
 Метрика — 180° front/back error rate (не generic angular). C ≥97–98% на мебели → RGB-сетку
 из прода убрать. Codex-ревью запущено до этой поправки — дослать follow-up при ответе.
+
+## Вердикт Codex (31.08, полный — _intake/codex-prompts/orient-v2.answer.md)
+Схема — challenger, не готовая v2. Ключевое: 1) DINO/OA-relative дают РАКУРС КАМЕРЫ, а не
+функциональный «перед» (кресло = сиденье, тумба = фасады); 2) НАСТОЯЩИЙ прод-baseline — ночной
+контур `orient_worker.py` (3d-orienter→`mesh_front.py`→VLM), а не mesh_orient (4-ракурсный);
+сравнивать 4 системы; 3) веса 0.35/0.55/0.10 не обоснованы (коррелированные признаки) → после
+gold-set калиброванная логистическая/лексикографический каскад; silhouette top-4 не нужен
+(DINO всех 12 почти бесплатен: ViT-S/14, 0.5с/12 рендеров на CPU; узкое место — рендер 25с);
+4) рендер: mesh_render.py УЖЕ попиксельный; чинить `_thin()` (ломает visual/дыры), 2 elevation,
+ветки neutral vs textured (textured может «подсматривать» исходное фото); 5) ⚠ ЛИЦЕНЗИЯ:
+OA V2 = CC-BY-4.0, но включает VGGT — у Meta коммерческий только спец-чекпойнт
+VGGT-1B-Commercial, provenance весов OA неясен → до выяснения НЕ prod-зависимость; FoundPose
+код CC-BY-NC (только идея); апстрим OA на CPU не стартует (безусловный cuda-вызов) → отдельный
+GPU-контейнер на Salad; 6) метрики: CI-граница 180°-ошибки среди CONFIDENT ≤1% (нужно ~300
+confident-примеров), risk-coverage/AURC, срезы по ролям, false-SYMMETRIC; гейт «97–98% вообще» слаб;
+7) SYMMETRIC — только из независимой проверки симметрии, не из малого margin.
+Итог: объединить ДВА существующих контура ориентации, DINO — shadow evidence с кэшем
+(glb_sha, renderer_version, camera, yaw, checkpoint), gold-бенч → потом судьба RGB4×4 и OA.
