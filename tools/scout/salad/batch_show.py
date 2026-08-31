@@ -66,6 +66,53 @@ def ensure_group_started():
     return ok
 
 
+_PULL_HIST: dict = {}
+
+
+def cull_slow_pulls() -> None:
+    """АВТО-ПЕРЕСАДКА МЕДЛЕННЫХ НОД (владелец 31.08: «автоматом отрубай машины, если
+    скорость оч низкая»): нода в downloading с приростом <10% за 15 мин (ETA >2.5 ч —
+    ловили 13%/5ч) или застрявшая — reallocate, Salad выделит другую. Нормальная машина
+    качает образ за 10–20 мин и порога не касается."""
+    import json as _j
+    import urllib.request as _u
+    now = time.time()
+    seen = set()
+    for grp in [g.strip() for g in os.environ.get('SALAD_GROUP', 'mesh-run3').split(',') if g.strip()]:
+        base = f'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers/{grp}'
+        try:
+            req = _u.Request(base + '/instances',
+                             headers={'Salad-Api-Key': os.environ['SALAD_API_KEY'],
+                                      'User-Agent': 'remlab-mesh/1.0'})
+            with _u.urlopen(req, timeout=30) as r:
+                ins = _j.load(r).get('instances') or []
+        except Exception:  # noqa: BLE001 — сеть не валит конвейер
+            continue
+        for i in ins:
+            iid = i.get('id')
+            if not iid or i.get('state') != 'downloading':
+                continue
+            seen.add(iid)
+            prog = float(i.get('pulling_progress') or 0)
+            t0, p0 = _PULL_HIST.setdefault(iid, (now, prog))
+            if now - t0 < 900:
+                continue
+            rate15 = (prog - p0) * 900.0 / (now - t0)
+            if rate15 < 0.10:
+                try:
+                    req = _u.Request(f'{base}/instances/{iid}/reallocate', data=b'', method='POST',
+                                     headers={'Salad-Api-Key': os.environ['SALAD_API_KEY'],
+                                              'User-Agent': 'remlab-mesh/1.0'})
+                    _u.urlopen(req, timeout=30).read()
+                    print(f'нода {iid[:8]} ({grp}): качает {prog:.0%}, '
+                          f'скорость {rate15:.0%}/15мин — ПЕРЕСАЖИВАЮ (reallocate)', flush=True)
+                except Exception as e:  # noqa: BLE001
+                    print(f'нода {iid[:8]}: reallocate → {str(e)[:80]}', flush=True)
+                _PULL_HIST.pop(iid, None)
+    for iid in [k for k in _PULL_HIST if k not in seen]:
+        _PULL_HIST.pop(iid, None)
+
+
 def main():
     ensure_group_started()
     batch = int(sys.argv[sys.argv.index('--batch') + 1]) if '--batch' in sys.argv else 5
@@ -99,6 +146,7 @@ def main():
                     print('группа остановлена и не стартует — ПОХОЖЕ, КОНЧИЛСЯ БАЛАНС Salad, нужно пополнение', flush=True)
                 else:
                     print('нет тёплых нод — жду 3 мин и пробую снова', flush=True)
+                cull_slow_pulls()
                 time.sleep(180)
                 continue
             print(f'!! пачка упала (код {code}) — стоп, разбор руками', flush=True)
@@ -142,6 +190,7 @@ def heal_wave(PAUSE: str, guard_done: bool = True) -> None:
                     break
                 print('волна: нет тёплых нод — жду 3 мин', flush=True)
                 ensure_group_started()
+                cull_slow_pulls()
                 time.sleep(180)
             for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh --keep'),
                           ('реестр', f'{PY} {HERE}/ingest_registry.py'),
