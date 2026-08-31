@@ -26,6 +26,10 @@ create table if not exists product_page_observation (
   run_id       text not null,
   observed_at  timestamptz not null default now()
 );
+-- РАЗВЕДКА И ПОДТВЕРЖДЕНИЕ — РАЗНЫЕ ВЫБОРКИ. Проход подтверждений состоит ИЗ ОДНИХ подозреваемых,
+-- поэтому 100% отрицательных в нём — норма, а не поломка магазина. Гейт обязан считать долю
+-- только по разведочной части, иначе он карантинит именно те прогоны, ради которых заведён.
+alter table product_page_observation add column if not exists probe_kind text not null default 'explore';
 create index if not exists idx_ppo_sku  on product_page_observation (shop_mid, external_id, observed_at desc);
 create index if not exists idx_ppo_run  on product_page_observation (run_id);
 

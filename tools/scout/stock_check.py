@@ -216,9 +216,16 @@ def crawl(picked: list, run_id: str, verbose: bool = True, max_minutes: int = 0)
             code, body, err, final = fetch(url)
             verdict, reason = classify(shop, code, body, err, final, url)
             with lock:
+                # ВРЕМЯ НАБЛЮДЕНИЯ — МОМЕНТ ЗАПРОСА, а не момент записи: наблюдения сохраняются
+                # пачкой в конце обхода, и `default now()` ставил всем проверкам прогона ОДИН
+                # timestamp — правило «два голоса с разрывом ≥15 мин» опиралось бы на время
+                # записи в БД. `kind` отделяет разведку от целевой перепроверки подозреваемого:
+                # в проходе подтверждений 100% отрицательных ожидаемы, и гейту их считать нельзя.
                 obs.append({'mid': mid, 'eid': eid, 'shop': shop, 'url': url, 'code': code,
                             'final': final, 'verdict': verdict, 'reason': reason,
-                            'url_hash': url_key(url), 'prev': state})
+                            'url_hash': url_key(url), 'prev': state,
+                            'kind': 'confirm' if state == 'suspect' else 'explore',
+                            'at': dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
             if verdict == 'unknown' and ('не пустили' in reason or 'антибот' in reason):
                 d.blocked_streak += 1
                 if d.blocked_streak >= BLOCK_STREAK:
@@ -246,9 +253,12 @@ def save_observations(obs: list, run_id: str) -> None:
     vals = ','.join(
         f"({o['mid']}, {q(o['eid'])}, {q(o['url_hash'])}, {q(o['url'][:900])}, "
         f"{o['code'] if isinstance(o['code'], int) else 'null'}, {q((o['final'] or '')[:900])}, "
-        f"{q(o['verdict'])}, {q(o['reason'])}, {PROBE_VERSION}, {q(run_id)})" for o in obs)
+        f"{q(o['verdict'])}, {q(o['reason'])}, {PROBE_VERSION}, {q(run_id)}, "
+        f"{q(o['at']) + '::timestamptz' if o.get('at') else 'now()'}, "
+        f"{q(o.get('kind') or 'explore')})" for o in obs)
     db('insert into product_page_observation (shop_mid, external_id, url_hash, url, http_code, '
-       f'final_url, verdict, reason, probe_version, run_id) values {vals};')
+       'final_url, verdict, reason, probe_version, run_id, observed_at, probe_kind) '
+       f'values {vals};')
 
 
 # --- применение -----------------------------------------------------------------------------------
@@ -266,8 +276,13 @@ def history_shares(run_id: str) -> dict:
 
 def apply_run(obs: list, run_id: str, dry: bool = False) -> dict:
     """Гейты → свёртка истории → статусы → reconcile. Возвращает отчёт."""
+    # Гейт судит ТОЛЬКО по разведочной части выборки. Проход подтверждений — это целевая
+    # перепроверка уже известных подозреваемых, в нём 100% отрицательных ожидаемы; считая их,
+    # гейт карантинил бы ровно те прогоны, ради которых он и заведён (поймано 31.08 на divanboss).
     per_shop = {}
     for o in obs:
+        if (o.get('kind') or 'explore') != 'explore':
+            continue
         n, neg = per_shop.get(o['mid'], (0, 0))
         per_shop[o['mid']] = (n + 1, neg + (1 if o['verdict'] in ('gone', 'oos') else 0))
     quarantine, why = gate(per_shop, history_shares(run_id))
@@ -329,13 +344,15 @@ def observations_of_run(run_id: str) -> list:
     """
     rows = db(f"""
     select o.shop_mid, o.external_id, p.shop, o.url, coalesce(o.http_code::text, ''),
-           coalesce(o.final_url, ''), o.verdict, coalesce(o.reason, ''), o.url_hash
+           coalesce(o.final_url, ''), o.verdict, coalesce(o.reason, ''), o.url_hash,
+           to_char(o.observed_at, 'YYYY-MM-DD HH24:MI:SS'), coalesce(o.probe_kind, 'explore')
       from product_page_observation o
       join products p on p.shop_mid = o.shop_mid and p.external_id = o.external_id
      where o.run_id = {q(run_id)};""")
     return [{'mid': int(r[0]), 'eid': r[1], 'shop': r[2], 'url': r[3],
              'code': int(r[4]) if r[4].isdigit() else None, 'final': r[5], 'verdict': r[6],
-             'reason': r[7], 'url_hash': r[8], 'prev': ''} for r in rows]
+             'reason': r[7], 'url_hash': r[8], 'prev': '', 'at': r[9], 'kind': r[10]}
+            for r in rows]
 
 
 def last_run_id() -> str:
