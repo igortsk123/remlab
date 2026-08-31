@@ -86,22 +86,55 @@ def ensure_group_started():
     return ok
 
 
-_PULL_HIST: dict = {}
-# Правило владельца 31.08: не набрала 15% образа за 5 минут — снимаем ноду (было 10% за 15 мин).
-# Наблюдение ведётся по ОДНОМУ инстансу; история живёт в процессе и обнуляется при перезапуске.
-PULL_WINDOW_S = float(os.environ.get('MESH_PULL_WINDOW_S', '300'))
-PULL_MIN = float(os.environ.get('MESH_PULL_MIN', '0.15'))
+_PULL_HIST: dict = {}     # instance_id → наблюдения за закачкой образа
+_CULL_LOG: list = []      # моменты наших пересадок: предохранитель от чехарды
+
+# ПРАВИЛО СНЯТИЯ МЕДЛЕННОЙ НОДЫ (владелец 31.08, переформулировано после разбора).
+# Считаем не «скорость за окно», а ВОЗРАСТ и ОСТАТОК. Прошлая формула («<15% за 5 мин»)
+# брала базовую точку один раз и не обновляла её, поэтому средняя скорость с ростом возраста
+# падала и правило снимало ноды на 83% и 90% — замена начинала с нуля (поймано 31.08).
+# Здоровая машина забирает наш образ за 25–35 мин, отсюда ступени.
+DEADMAN_AGE_S = float(os.environ.get('MESH_DEADMAN_AGE_S', '600'))    # 10 мин
+DEADMAN_MIN = float(os.environ.get('MESH_DEADMAN_MIN', '0.05'))       # …и меньше 5%
+STAGES = [(1200.0, 0.25), (2100.0, 0.60)]   # 20 мин → 25%, 35 мин → 60%
+STALL_S = float(os.environ.get('MESH_PULL_STALL_S', '600'))           # без движения 10 мин
+STALL_MIN = float(os.environ.get('MESH_PULL_STALL_MIN', '0.01'))      # прирост <1% = стоит
+FINISH_GUARD = float(os.environ.get('MESH_FINISH_GUARD', '0.80'))     # выше — не трогаем
+MAX_CULL_PER_TICK = int(os.environ.get('MESH_MAX_CULL_TICK', '2'))
+MAX_CULL_PER_HOUR = int(os.environ.get('MESH_MAX_CULL_HOUR', '6'))
+CULL_FREEZE_S = float(os.environ.get('MESH_CULL_FREEZE_S', '1800'))   # пауза после чехарды
+
+
+def cull_verdict(age_s: float, progress: float, since_move_s: float) -> str | None:
+    """Снимать ли ноду. Чистая функция — её и проверяет стенд.
+
+    Возвращает причину (для лога) или None, если ноду оставляем."""
+    if progress >= FINISH_GUARD:
+        # Почти доехала: даже ползком быстрее, чем замена с нуля. Снимаем только если ВСТАЛА.
+        return 'застой у финиша' if since_move_s >= STALL_S * 2 else None
+    if since_move_s >= STALL_S:
+        return f'нет движения {int(since_move_s / 60)} мин'
+    if age_s >= DEADMAN_AGE_S and progress < DEADMAN_MIN:
+        return f'мертвяк: {progress:.0%} за {int(age_s / 60)} мин'
+    for stage_s, need in STAGES:
+        if age_s >= stage_s and progress < need:
+            return f'{progress:.0%} к {int(stage_s / 60)}-й минуте (норма {need:.0%})'
+    return None
 
 
 def cull_slow_pulls() -> None:
     """АВТО-ПЕРЕСАДКА МЕДЛЕННЫХ НОД (владелец 31.08: «автоматом отрубай машины, если
-    скорость оч низкая»): нода в downloading с приростом <10% за 15 мин (ETA >2.5 ч —
-    ловили 13%/5ч) или застрявшая — reallocate, Salad выделит другую. Нормальная машина
-    качает образ за 10–20 мин и порога не касается."""
+    скорость оч низкая»). Решение — `cull_verdict`; здесь опрос API, история наблюдений
+    и предохранители от бесконечной чехарды."""
     import json as _j
     import urllib.request as _u
     now = time.time()
-    seen = set()
+    _CULL_LOG[:] = [t for t in _CULL_LOG if now - t < 3600]
+    if len(_CULL_LOG) >= 3 and now - _CULL_LOG[-1] < CULL_FREEZE_S and len(_CULL_LOG) >= MAX_CULL_PER_HOUR:
+        return                       # медленная вся сеть — менять шило на мыло бессмысленно
+    seen, budget = set(), min(MAX_CULL_PER_TICK, MAX_CULL_PER_HOUR - len(_CULL_LOG))
+    if budget <= 0:
+        return
     for grp in [g.strip() for g in os.environ.get('SALAD_GROUP', 'mesh-run3').split(',') if g.strip()]:
         base = f'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers/{grp}'
         try:
@@ -110,29 +143,36 @@ def cull_slow_pulls() -> None:
                                       'User-Agent': 'remlab-mesh/1.0'})
             with _u.urlopen(req, timeout=30) as r:
                 ins = _j.load(r).get('instances') or []
-        except Exception:  # noqa: BLE001 — сеть не валит конвейер
-            continue
+        except Exception:  # noqa: BLE001 — сеть не валит конвейер И не стирает историю
+            return
+        cands = []
         for i in ins:
             iid = i.get('id')
-            if not iid or i.get('state') != 'downloading':
-                continue
+            raw = i.get('pulling_progress')
+            if not iid or i.get('state') != 'downloading' or raw is None:
+                continue             # прогресс неизвестен — не судим
             seen.add(iid)
-            prog = float(i.get('pulling_progress') or 0)
-            t0, p0 = _PULL_HIST.setdefault(iid, (now, prog))
-            if now - t0 < PULL_WINDOW_S:
-                continue
-            rate = (prog - p0) * PULL_WINDOW_S / (now - t0)
-            if rate < PULL_MIN:
-                try:
-                    req = _u.Request(f'{base}/instances/{iid}/reallocate', data=b'', method='POST',
-                                     headers={'Salad-Api-Key': os.environ['SALAD_API_KEY'],
-                                              'User-Agent': 'remlab-mesh/1.0'})
-                    _u.urlopen(req, timeout=30).read()
-                    print(f'нода {iid[:8]} ({grp}): качает {prog:.0%}, скорость {rate:.0%} '
-                          f'за {int(PULL_WINDOW_S / 60)} мин — ПЕРЕСАЖИВАЮ (reallocate)', flush=True)
-                except Exception as e:  # noqa: BLE001
-                    print(f'нода {iid[:8]}: reallocate → {str(e)[:80]}', flush=True)
-                _PULL_HIST.pop(iid, None)
+            prog = float(raw)
+            h = _PULL_HIST.setdefault(iid, {'first': now, 'best': prog, 'moved': now})
+            if prog < h['best'] - 0.10:          # откат >10 п.п. = загрузка началась заново
+                h.update(first=now, best=prog, moved=now)
+            elif prog > h['best'] + STALL_MIN:
+                h.update(best=prog, moved=now)
+            why = cull_verdict(now - h['first'], h['best'], now - h['moved'])
+            if why:
+                cands.append((h['best'], iid, why))
+        for prog, iid, why in sorted(cands)[:budget]:   # сперва самые безнадёжные
+            try:
+                req = _u.Request(f'{base}/instances/{iid}/reallocate', data=b'', method='POST',
+                                 headers={'Salad-Api-Key': os.environ['SALAD_API_KEY'],
+                                          'User-Agent': 'remlab-mesh/1.0'})
+                _u.urlopen(req, timeout=30).read()
+                print(f'нода {iid[:8]} ({grp}): {why} — ПЕРЕСАЖИВАЮ (reallocate)', flush=True)
+                _CULL_LOG.append(now)
+                budget -= 1
+            except Exception as e:  # noqa: BLE001
+                print(f'нода {iid[:8]}: reallocate → {str(e)[:80]}', flush=True)
+            _PULL_HIST.pop(iid, None)
     for iid in [k for k in _PULL_HIST if k not in seen]:
         _PULL_HIST.pop(iid, None)
 

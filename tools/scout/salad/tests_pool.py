@@ -153,6 +153,30 @@ def case_no_capacity() -> None:
     print('  ✓ нет тёплых нод → код 75')
 
 
+def case_cull_rule() -> None:
+    """Правило снятия медленных нод: возраст и остаток, а не «скорость за окно».
+    Прошлая формула снимала ноды на 83–90% — замена начинала с нуля."""
+    import batch_show as B  # noqa: PLC0415 — стенду нужен только чистый вердикт
+    M = 60.0
+    cases = [
+        # (возраст, скачано, без движения) → ждём снятия?
+        ((9 * M, 0.0177, 60), False, 'на 9-й минуте ещё рано'),
+        ((10 * M, 0.0177, 60), True, 'мертвяк: <5% к 10-й минуте'),
+        ((21 * M, 0.20, 60), True, '<25% к 20-й минуте'),
+        ((21 * M, 0.40, 60), False, '40% к 20-й — в норме'),
+        ((36 * M, 0.50, 60), True, '<60% к 35-й минуте'),
+        ((35 * M, 0.90, 60), False, 'почти доехала — не трогаем'),
+        ((40 * M, 0.98, 60), False, '98% — тем более'),
+        ((30 * M, 0.70, 11 * M), True, 'встала на 10+ минут'),
+        ((40 * M, 0.90, 11 * M), False, 'у финиша застой терпим дольше'),
+        ((40 * M, 0.90, 21 * M), True, 'но не бесконечно'),
+    ]
+    for (age, prog, still), want, note in cases:
+        got = B.cull_verdict(age, prog, still) is not None
+        assert got == want, f'{note}: возраст {age / 60:.0f}м, {prog:.0%}, стоит {still / 60:.0f}м → {got}'
+    print(f'  ✓ правило снятия нод: {len(cases)} случаев (включая 1,77%/9мин и 90%/35мин)')
+
+
 def case_checkpoint() -> None:
     """Падение процесса не должно стирать знание о сделанном."""
     lines = [json.loads(x) for x in open(S.PROGRESS, encoding='utf-8').read().splitlines() if x]
@@ -164,8 +188,9 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         setup(tmp)
         for fn in (case_late_node, case_bad_node, case_unresolved, case_prefix,
-                   case_stall_is_capacity, case_no_capacity, case_checkpoint):
-            setup(tmp) if fn is not case_checkpoint else None
+                   case_stall_is_capacity, case_no_capacity, case_cull_rule, case_checkpoint):
+            if fn not in (case_checkpoint, case_cull_rule):
+                setup(tmp)
             fn()
     print('стенд пула: ВСЁ ЗЕЛЁНОЕ')
 
