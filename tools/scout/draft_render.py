@@ -1812,7 +1812,13 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict) -> tuple[Image.Image
         try:
             parts = MR.load_parts(glb)
             yaw = float((orient.get(sid) or {}).get('yaw') or 0)
-            SM.raster_mesh(canvas, zbuf, parts, place, cam, W, H, yaw)
+            # конвенции: план хранит (x,y) как УГОЛ, world_vertices ждёт ЦЕНТР — сдвиг
+            # на полразмера (проверено замером 31.08: все меши плавали ровно на w/2,d/2)
+            from planner.models import Placement as _P
+            pc = _P(role=place.role, x=place.x + place.item.w_cm / 2,
+                    y=place.y + place.item.d_cm / 2, rot=place.rot, item=place.item,
+                    elev_cm=getattr(place, 'elev_cm', 0) or 0)
+            SM.raster_mesh(canvas, zbuf, parts, pc, cam, W, H, yaw)
             used.append(place.role)
             del parts
             import gc
