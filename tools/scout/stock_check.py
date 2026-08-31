@@ -293,8 +293,13 @@ def apply_run(obs: list, run_id: str, dry: bool = False) -> dict:
             state, negs, reason = fold(history)
             changes[state] = changes.get(state, 0) + 1
             dead = "current_date" if state in ('gone', 'oos') else 'null'
+            # checked_at — время ПОСЛЕДНЕГО НАБЛЮДЕНИЯ, а не время применения. Иначе `--reapply`
+            # (запросов не делает вовсе) объявлял бы все карточки «только что проверенными»:
+            # очередь подтверждения пустела на 15 минут, TTL съезжал, а покрытие в метриках
+            # показывало работу, которой не было.
+            seen_at = history[-1][2].strftime('%Y-%m-%d %H:%M:%S')
             ups.append(f"({mid}, {q(eid)}, {q(state)}, {q(reason)}, {q(history[-1][1])}, {negs}, "
-                       f"now(), now(), {dead})")
+                       f"{q(seen_at)}::timestamptz, now(), {dead})")
         for i in range(0, len(ups), 500):
             db('insert into product_page_status (shop_mid, external_id, state, reason, url_hash, '
                'negatives, checked_at, applied_at, dead_since) values '
