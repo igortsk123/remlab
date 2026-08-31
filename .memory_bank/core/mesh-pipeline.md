@@ -33,7 +33,9 @@ last_verified: 2026-08-31
 (`/test/mesh-repairs/`); нож плиты v9 + закраска кромки + цвет к фото — `tools/scout/salad/
 pipeline.py`, `texture_fix.py`, `apply_repairs.py` (REPAIR_VERSION, чанки ≤6, кэш приёмки).
 Показ: `/test/mesh-pilot10/`. Образы — digest, боевой `cu124-baked` (ADR-0137); конвейер
-`batch_show.py` (мультигруппы, WAVE_FIRST, детект баланса). Вид сверху для планировщика —
+`batch_show.py` (мультигруппы, WAVE_FIRST, детект баланса, `cull_slow_pulls` — авто-reallocate
+нод <10%/15мин; в цикле — «ориентация»+«топ-вью»+паблиш). Грабля: `ssh_run.py` берёт тёплые
+порты раз на старте — поздние машины мимо (кандидат: добор). Вид сверху для планировщика —
 план `topview-from-mesh` (`topview_render.py`, тест `/test/topview-test/`).
 
 **Цены Salad, квоты, грабли сборки — ADR-0132/0137** и [[lessons]].
