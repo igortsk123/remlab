@@ -1152,8 +1152,15 @@ let drag=null, rotDrag=null;
 let touchTimer=null, touchStart=null, rotBtns=null;
 function hideRotOvl(){if(rotBtns){rotBtns.forEach(b=>b.remove());rotBtns=null;}}
 function rotate90(dir){if(!sel)return;
-  const prev=sel.rot; sel.rot=(((sel.rot||0)+dir*90)%360+360)%360;
-  if(box(sel).x0<0||box(sel).y0<0||box(sel).x1>D.room.w||box(sel).y1>D.room.d)sel.rot=prev;
+  // у стены не запрещаем, а ЗАВОДИМ внутрь комнаты (владелец 31.08: «у стены стрелками
+  // не поворачивается»): повернули → центр клэмпится по новому габариту
+  const prev=sel.rot, px=sel.x, py=sel.y;
+  sel.rot=(((sel.rot||0)+dir*90)%360+360)%360;
+  let b=box(sel);
+  sel.x=Math.max(b.w/2,Math.min(D.room.w-b.w/2,sel.x));
+  sel.y=Math.max(b.d/2,Math.min(D.room.d-b.d/2,sel.y));
+  b=box(sel);
+  if(b.x0<-0.5||b.y0<-0.5||b.x1>D.room.w+0.5||b.y1>D.room.d+0.5){sel.rot=prev;sel.x=px;sel.y=py;}
   draw();showTip(sel);updateRotOvl();}
 function updateRotOvl(){if(!rotBtns||!sel){return;}
   const r=stage.getBoundingClientRect(), b=box(sel);
