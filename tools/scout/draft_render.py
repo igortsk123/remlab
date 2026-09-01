@@ -224,6 +224,38 @@ def _opening(o: dict) -> dict:
     return out
 
 
+def cams_from_request(room, placements, layout):
+    """ЕДИНСТВЕННОЕ МЕСТО, ГДЕ РЕШАЕТСЯ РАКУРС — и черновика, и платного улучшения.
+
+    Владелец 01.09: «я камеры развернул как хочу, на черновике вижу верно, а при генерации ГПТ
+    уходят другие виды». Так и было: черновик читал `cams` из запроса, а режим улучшения звал
+    автоподбор `demo_cams` заново. Два потребителя одного решения — гарантированное расхождение,
+    поэтому выбор ракурса теперь ОДИН на всех, а не копия в каждом режиме.
+
+    Пришёл `cams` — берём его; нет — работает автоподбор (человек ничего не двигал).
+    Точка всё равно клэмпится внутрь комнаты: правило «сквозь стену не смотрим» не отменяется
+    ничьим перетаскиванием. Отступ 3 см — ТОТ ЖЕ, что на плане, иначе человек ставит камеру
+    в угол, а кадр приходит из другой точки, и план с фотографией расходятся молча.
+    """
+    user_cams = (layout or {}).get('cams') if layout else None
+    if not user_cams:
+        return demo_cams(room, placements) if os.environ.get('DEMO_CAMS', '1') != '0' \
+            else cameras_for(room, placements)
+    import math as _m
+    _pad = 3.0
+    out = []
+    for i, c in enumerate(user_cams[:2], start=1):
+        ex = min(max(float(c.get('x') or 0), _pad), room.width_cm - _pad)
+        ez = min(max(float(c.get('y') or 0), _pad), room.depth_cm - _pad)
+        a = _m.radians(float(c.get('rot') or 0))
+        tx, tz = ex + 400 * _m.sin(a), ez - 400 * _m.cos(a)
+        out.append(Camera(name=c.get('name') or f'C{i}', eye=(ex, 165.0, ez),
+                          target=(tx, 105.0, tz), fov_deg=float(c.get('fov') or 72.0),
+                          width=1344, height=896))
+    print(f'ракурс задан человеком: {len(out)} камер', flush=True)
+    return out
+
+
 def scene_from_request(payload: dict) -> tuple:
     """Комната и расстановка ИЗ ЗАПРОСА СТРАНИЦЫ (26.08): человек двигает мебель у себя, поэтому
     черновик обязан считаться по ТОЙ расстановке, что на экране, а не по банковскому артефакту."""
@@ -374,7 +406,7 @@ def demo_cams(room, placements=None) -> list:
     # тем, который выиграл. Заодно это делало бессмысленным «вынос за стену» как способ
     # расширить охват: единственный оставшийся рычаг — угол объектива.
     def _clamp(x, z):
-        pad = 25.0
+        pad = 3.0
         return (min(max(x, pad), W - pad), min(max(z, pad), D - pad))
 
     cands = []
@@ -2218,8 +2250,11 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         sets = json.load(open(os.path.join(HERE, 'sets3.json'), encoding='utf-8'))
         items = sets[n - 1]['items']
         photos = {r: photo((items.get(r) or {}).get('img')) for r in items}
-    all_cams = demo_cams(room, placements) if os.environ.get('DEMO_CAMS', '1') != '0' \
-        else cameras_for(room, placements)
+    # РАКУРС МОЖЕТ ЗАДАТЬ ЧЕЛОВЕК (владелец 01.09: «чтоб на плане можно было двигать точку
+    # съёмки под углом, и от этого считывался кадр»). Пришёл `cams` — берём его, автоподбор не
+    # трогаем: он остаётся, когда человек ничего не двигал. Точка всё равно клэмпится внутрь
+    # комнаты — правило «сквозь стену не смотрим» не отменяется ничьим перетаскиванием.
+    all_cams = cams_from_request(room, placements, layout)
     # ЧЕРНОВИК ДОЛЖЕН БЫТЬ БЫСТРЫМ (владелец 26.08: «уже 40 сек жду»): один ракурс вместо двух,
     # меньший лист и без уточнения якорей зрячей моделью — это ещё +8 с. Реалистичный режим
     # остаётся полным: два вида одним листом и уточнённые якоря.
@@ -2285,7 +2320,7 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         # ни в каких сценах»): глаз клэмпится внутрь комнаты с отступом от стен
         def _inside(cam):
             ex, ey, ez = (float(v) for v in cam.eye)
-            pad = 25.0
+            pad = 3.0
             nx = min(max(ex, pad), room.width_cm - pad)
             nz = min(max(ez, pad), room.depth_cm - pad)
             if nx == ex and nz == ez:
@@ -2335,12 +2370,16 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
                 import improve_mode as IM
                 src_url = IM.publish_from_views([_views[c.name] for c in want if c.name in _views],
                                                 layout or {}, stamp)
+                # ракурс, которым сняли кадр, возвращаем странице: она хранит его у снимка и
+                # шлёт обратно при «улучшить», чтобы улучшался ИМЕННО показанный вид
         except Exception as e:  # noqa: BLE001 — исходник не собрался: кадры всё равно показываем
             print(f'  исходник запроса не собран: {str(e)[:90]}')
         sec = round(time.time() - t0, 1)
         print(f'scene3d: кадров {len(shots)}, {sec} с (без модели)')
         first = shots[0] if shots else {'url': '', 'diag': {}}
         return {'shots': shots, 'sources': src_url, 'timing': None,
+                'cams': [{'name': c.name, 'x': round(c.eye[0], 1), 'y': round(c.eye[2], 1),
+                          'fov': c.fov_deg} for c in want],
                 'model': 'scene3d-raw', 'quality': quality, 'sec': sec,
                 'file': '', 'url': first.get('url', ''), 'diag': first.get('diag', {})}
     if model.startswith('openai/'):

@@ -67,7 +67,7 @@ def style_block(style: str | None) -> tuple[str, str, dict]:
     return (st if rec else ''), (rec.get('render_guide') or ''), (db.get('_decor_policy') or {})
 
 
-def prompt_for(style: str | None) -> str:
+def prompt_for(style: str | None, decor: list | None = None) -> str:
     """Промпт режима ремонта. СТРУКТУРА ВЛАДЕЛЬЦА (01.09): статические правила отдельно,
     STYLE GUIDE — единственный переменный блок, и он СОВЕТУЮЩИЙ, а не список обязательного.
 
@@ -85,6 +85,10 @@ def prompt_for(style: str | None) -> str:
         '* IMAGE 1: one sheet containing TWO rendered views of the SAME furnished room, stacked '
         'vertically and separated by a magenta band.',
         '* IMAGE 2: catalogue references for all real products already placed in the room.',
+    ] + ([
+        '* IMAGE 3: decor items that are part of this set but are NOT yet in the render. They are '
+        'bought goods and MUST appear in the result.',
+    ] if decor else []) + [
         '',
         'TASK: turn IMAGE 1 into two photorealistic views of a renovated room. Preserve the room, '
         'cameras and furniture; change only finishes, product materials and service placeholders.',
@@ -113,6 +117,16 @@ def prompt_for(style: str | None) -> str:
         'placeholder to redesign: keep its position and silhouette and correct only its materials '
         'from IMAGE 2.',
         '',
+    ] + ([
+        'DECOR FROM IMAGE 3 — MUST BE PLACED:',
+        '',
+        'Every item on IMAGE 3 has to appear in the room, standing ON an existing horizontal '
+        'surface: the TV console, the coffee table or the dining table. Choose the surface that '
+        'suits it, keep it small and natural in scale, and do not let it hide, touch or move any '
+        'existing product. Place each item ONCE and show it in both views if that surface is '
+        'visible in both. Nothing else may be added.',
+        '',
+    ] if decor else []) + [
         'SERVICE PLACEHOLDERS',
         '',
         'Turn these schematic elements into realistic objects while preserving their exact outer '
@@ -204,7 +218,7 @@ def variant_payload(title: str) -> tuple[dict, str]:
         if src:
             for k in ('sid', 'name', 'img'):
                 it[k] = src.get(k)
-    return {'room': d['room'], 'items': items}, (v.get('style') or '')
+    return {'room': d['room'], 'items': items, 'decor': v.get('decor') or []}, (v.get('style') or '')
 
 
 def build(payload: dict, style: str | None) -> dict:
@@ -216,7 +230,11 @@ def build(payload: dict, style: str | None) -> dict:
     os.environ.setdefault('SCENE3D_QUALITY', 'full')
     import draft_render as DR
     room, placements, photos = DR.scene_from_request(payload)
-    cams = DR.demo_cams(room, placements)[:2]
+    # РАКУРС — ТОТ ЖЕ, ЧТО НА ЧЕРНОВИКЕ (владелец 01.09: «развернул камеры как хочу, на
+    # черновике вижу верно, а при генерации ГПТ уходят другие виды»). Здесь стоял прямой
+    # вызов автоподбора `demo_cams` — он не знал ни про перетаскивание, ни про поворот,
+    # и платная генерация уходила с чужих точек. Решение о ракурсе теперь одно на всех.
+    cams = DR.cams_from_request(room, placements, payload)[:2]
     # РАЗРЕШЕНИЕ ЛИСТА (владелец 01.09 «разрешение больше»). Камеры демо считают кадр 1344×896 —
     # для платной генерации это мало: модель получила бы вход хуже собственного выхода.
     # Пересобираем ТЕ ЖЕ камеры под большую ширину: точка, цель и угол не меняются, растёт
@@ -262,13 +280,26 @@ def build(payload: dict, style: str | None) -> dict:
         ident = DR._identity(anchors_all, photos, skus)
     except Exception as e:  # noqa: BLE001 — без эталонов запрос всё равно осмыслен
         print(f'  лист эталонов не собрался: {str(e)[:80]}')
-    prompt = prompt_for(style)
+    # ТРЕТИЙ ЛИСТ — ДЕКОР НА МЕБЕЛЬ (владелец 01.09). Вазы куплены и лежат в комплекте, но на
+    # плане их нет: они стоят на тумбе или столе, а не на полу. Отдаём отдельным изображением с
+    # прямым указанием, что это НАДО разместить, — иначе оплаченный товар в кадр не попадёт.
+    decor = payload.get('decor') or []
+    dsheet = None
+    if decor:
+        try:
+            an = [{'role': x['role'], 'n': i + 1} for i, x in enumerate(decor)]
+            ph = {x['role']: DR.photo((x.get('sku') or {}).get('img')) for x in decor}
+            dsheet = DR._identity(an, ph, {x['role']: x.get('sku') or {} for x in decor})
+        except Exception as e:  # noqa: BLE001
+            print(f'  лист декора не собрался: {str(e)[:70]}')
+    prompt = prompt_for(style, decor)
     stamp = f'improve-{time.strftime("%H%M%S")}'
     out_w, out_h = (int(x) for x in SIZE.split('x'))
     per_view_h = (out_h - DR.BAND_PX) // 2
     url = DR._publish_sources(
         stamp, {'1-ОТПРАВЛЯЕМ-лист-двух-видов': sheet,
-                '2-ОТПРАВЛЯЕМ-эталоны-товаров': ident}, prompt, [],
+                '2-ОТПРАВЛЯЕМ-эталоны-товаров': ident,
+                '3-ОТПРАВЛЯЕМ-декор-разместить': dsheet}, prompt, [],
         {'режим': 'улучшить фото — только ремонт',
          'стиль': style or '—',
          'ОТПРАВЛЕНО В МОДЕЛЬ': 'НЕТ, это сборка исходника',

@@ -1,113 +1,287 @@
 <!doctype html><html lang="ru"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta charset="utf-8"><!-- ЗУМ РАЗРЕШЁН (аудит 01.09, Б1): запрет масштабирования на странице с планом и мелкими
+     подписями — прямой вред. Жесты на самом плане изолированы `touch-action:none` у #stage,
+     поэтому перетаскивание предметов от зума страницы не страдает. -->
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex"><meta http-equiv="cache-control" content="no-store">
 <title>Квартира 215 — гостиная (демо)</title>
 <style>
-:root{--bg:#fff;--ink:#1A1F1C;--line:#E4E6E2;--accent:#3B76A2;--warn:#B4552B;--ok:#2F7D4F}
+/* ПАЛИТРА — ИЗ ДИЗАЙН-СИСТЕМЫ САЙТА (владелец 01.09: «у нас же дизайн-система есть»).
+   Значения повторяют `styles/brand.css` (терракота-бренд, stone-нейтраль, кремовые фоны) и
+   `app/globals.css` (радиусы 16/10, тень). Демо — отдельный статический файл и импортировать
+   Tailwind-токены не может, поэтому значения продублированы ЗДЕСЬ И ТОЛЬКО ЗДЕСЬ: меняется
+   бренд — правится один блок, а не сто мест. */
+:root{
+  --bg:rgb(251 248 243);            /* --color-bg-primary  — кремовый фон сайта */
+  --surface:#fff;                    /* карточки и панели поверх фона */
+  --ink:rgb(41 37 36);               /* --color-text-primary (neutral-800) */
+  --muted:rgb(120 113 108);          /* neutral-500 — вторичный текст */
+  --faint:rgb(122 116 112);          /* neutral-400 был 2,4:1 на белом — поднят до ~4,6:1 (Д3) */
+  --line:rgb(231 229 228);           /* neutral-200 — границы */
+  --accent:rgb(176 106 74);          /* --color-brand-500 — терракота */
+  --accent-dark:rgb(154 90 61);      /* brand-600 — наведение */
+  --accent-soft:rgb(250 243 239);    /* brand-50 — мягкая подложка */
+  --warn:var(--warn);--ok:var(--ok-ink);
+  --radius:16px;--radius-sm:10px;
+  --shadow:0 1px 2px rgba(28,25,23,.04), 0 6px 16px rgba(28,25,23,.05);
+  /* ДОБАВЛЕНО ПО АУДИТУ 01.09 (В2): всё, что оставалось сырым в теле стилей, названо здесь.
+     Правило простое — цвет в CSS ниже этого блока считается ошибкой. */
+  --wash:rgb(247 245 241);           /* подложка миниатюр и пустых мест */
+  --wash-2:rgb(242 240 235);         /* она же чуть темнее — заглушки без фото */
+  --wash-3:rgb(244 242 237);         /* плашки состояния */
+  --grip:rgb(216 213 206);           /* ручка листа, ползунки */
+  --ink-strong:rgb(42 47 44);        /* всплывающая подсказка и стрелки поверх фото */
+  --ok-bg:rgb(231 243 236);--ok-ink:rgb(47 125 79);
+  --warn-bg:rgb(251 240 226);--warn-ink:rgb(150 96 31);--warn-line:rgb(228 199 154);
+  --bad-bg:rgb(251 233 230);--bad-ink:rgb(169 59 39);
+  --scrim:rgba(11,13,12,.80);        /* затемнение под модалкой */
+  --scrim-soft:rgba(0,0,0,.40);
+  --veil:rgba(0,0,0,.66);            /* плашки поверх фотографии */
+  --sh-1:0 2px 8px rgba(0,0,0,.19);
+  --sh-2:0 3px 14px rgba(0,0,0,.09);
+  --sh-3:0 12px 34px rgba(0,0,0,.15);
+  --sh-4:0 -8px 30px rgba(0,0,0,.18);
+  --sh-5:-8px 0 30px rgba(0,0,0,.14);
+}
 /* ТИПОГРАФИКА — ТА ЖЕ ШКАЛА, ЧТО НА САЙТЕ (26.08): у remont-lab.online h1 = clamp(28,5vw,40),
    h2 = clamp(22,4vw,28), базовая строка 1.5. Демо жило на фиксированных 13–16 px и на телефоне
    читалось мелко; переводим на те же clamp-ступени, чтобы размер рос вместе с экраном. */
 /* АТРИБУТ hidden ПРОИГРЫВАЕТ ЛЮБОМУ display (26.08, владелец: «кнопку вижу, хотя изменений не
    делал»): у .bar стоит display:flex, и скрытая панель всё равно рисовалась. */
 [hidden]{display:none !important}
+/* ВИДИМЫЙ ФОКУС (аудит 01.09, Д1): с клавиатуры по странице было не сориентироваться —
+   ни у кнопок, ни у вкладок не было никакой отметки. Только :focus-visible, чтобы обводка
+   не вспыхивала на каждый клик мышью. */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+/* ПРОКРУТКА — ТОНКАЯ И СОВРЕМЕННАЯ (владелец 01.09: «прокрутка страшная, сделай современно»).
+   Под лентой вариантов рисовалась системная полоса со стрелками — она из другой эпохи и ломает
+   вид. Задаём один стиль на все прокручиваемые области: тонкая скруглённая полоска без стрелок,
+   дорожка прозрачная. Полосу НЕ прячем совсем: без неё не видно, что ряд листается. */
+*{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+*::-webkit-scrollbar{height:8px;width:8px}
+*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{background:var(--line);border-radius:999px}
+*::-webkit-scrollbar-thumb:hover{background:var(--faint)}
+*::-webkit-scrollbar-button{display:none;width:0;height:0}
+*::-webkit-scrollbar-corner{background:transparent}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);
- font:clamp(16px,1.15vw,19px)/1.5 system-ui,-apple-system,Segoe UI,Roboto}
+ font:clamp(17px,1.25vw,20px)/1.5 system-ui,-apple-system,Segoe UI,Roboto}
 .wrap{max-width:1100px;margin:0 auto;padding:14px 14px 40px}
-h1{font-size:clamp(24px,4.4vw,32px);margin:8px 0 4px;line-height:1.2}
-.sub{color:#5C655E;font-size:clamp(15px,2vw,17px);margin-bottom:12px}
+h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
+.sub{color:var(--muted);font-size:clamp(15px,2vw,17px);margin-bottom:12px}
 .bar{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
-.chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:10px 18px;font-size:clamp(15px,1.05vw,17px);cursor:pointer}
-.chip.on{background:var(--accent);color:#fff;border-color:var(--accent)}
-.btn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:11px 18px;font-size:clamp(15px,1.05vw,17px);cursor:pointer}
-.btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
-#stage{width:100%;border:1px solid var(--line);border-radius:8px;background:#FAF8F3;touch-action:none;display:block}
-.panel{margin-top:12px;border:1px solid var(--line);border-radius:8px;padding:14px 16px;font-size:clamp(15px,1.05vw,17.5px)}
-.panel h3{margin:0 0 10px;font-size:clamp(18px,1.4vw,23px)}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:11px 20px;font-size:clamp(16px,1.15vw,18.5px);cursor:pointer}
+.chip.on{background:var(--accent);color:var(--surface);border-color:var(--accent)}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:var(--radius-sm);padding:12px 20px;font-size:clamp(16px,1.15vw,18.5px);cursor:pointer}
+.btn.primary{background:var(--accent);color:var(--surface);border-color:var(--accent)}
+/* ПЕРЕТАСКИВАНИЕ НЕ ДОЛЖНО ВЫДЕЛЯТЬ ТЕКСТ (владелец 01.09: «начинаю двигать торшер — выделяется текст всех подписей»). На плане десятки подписей, и браузер по умолчанию считает движение с зажатой кнопкой выделением текста: план синеет целиком. Подписи —
+   часть чертежа, выделять их незачем ни на мыши, ни на пальце. */
+#stage{width:100%;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);touch-action:none;display:block;user-select:none;-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none}
+#stage text{user-select:none;-webkit-user-select:none}
+.panel{margin-top:12px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow);padding:16px 18px;font-size:clamp(16px,1.15vw,18.5px)}
+/* ЦВЕТ И ШРИФТ — НАШИ (владелец 01.09: «ты красный цвет перенёс, адаптируй под наш стиль,
+   шрифты подгони, а то мелко»). От образца берём КОМПОНОВКУ, а не палитру: акцент — наш синий,
+   вторичный текст — наш серый, шкала кегля одна на всю страницу. */
+/* ——— ШАПКА КВАРТИРЫ И КАРТОЧКА СТОИМОСТИ (владелец 01.09 прислал образец страницы застройщика
+   и попросил встроить по аналогии). Демо показывается партнёру-застройщику, поэтому блок должен
+   читаться как родной для его страницы: тип квартиры и площадь, цена, условия покупки, оговорка
+   про 3D — и наша часть: стоимость обстановки со ссылкой на список. Числа демонстрационные. */
+/* ПАСПОРТ КВАРТИРЫ — ОДНОЙ ПОЛОСОЙ (владелец 01.09: «справа выглядит не по закону, не
+   органично»). Две колонки не сходились по весу: слева две короткие строки, справа высокий
+   столбец из цены и двух кнопок — под текстом оставалась дыра. Теперь это ОДИН объект во всю
+   ширину: слева название и дом, справа цена, кнопки — строкой под ними. Высота маленькая,
+   ничего не перевешивает. */
+.flathead{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:16px 20px;margin:8px 0 16px}
+.flathead .fh-top{display:flex;flex-wrap:wrap;gap:8px 24px;align-items:flex-start;
+  justify-content:space-between}
+.flathead .fm{margin-top:4px}
+.flathead .fh-price{text-align:right;white-space:nowrap}
+/* ПОЯСНЕНИЕ К ЦЕНЕ (владелец 01.09): «Оплата 100%» само по себе ничего не говорит. Значок «i»
+   рядом с подписью, по нажатию — строка под ценой. Не `title`: на телефоне подсказка по
+   наведению не существует, а объяснение нужно именно там. */
+.flathead .fh-price .l{color:var(--muted);font-size:.92em;display:flex;align-items:center;gap:6px;
+  justify-content:flex-end}
+.ihint{width:20px;height:20px;flex:0 0 20px;border-radius:50%;border:1px solid var(--line);
+  background:var(--surface);color:var(--muted);font-size:12px;font-weight:700;line-height:1;
+  cursor:pointer;padding:0;display:inline-flex;align-items:center;justify-content:center}
+.ihint:hover{border-color:var(--accent);color:var(--accent)}
+.ihint-txt{color:var(--muted);font-size:.82em;line-height:1.35;margin-top:6px;max-width:280px;
+  white-space:normal;margin-left:auto}
+.flathead .fh-price .v{font-size:clamp(22px,2.3vw,29px);font-weight:700;line-height:1.25}
+.flathead .fh-acts{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;justify-content:flex-end}
+@media(max-width:700px){
+  .flathead .fh-price{text-align:left}
+  .flathead .fh-price .l{justify-content:flex-start}
+  .ihint-txt{margin-left:0}
+  /* КНОПКИ ЗАСТРОЙЩИКА НЕ ЗАНИМАЮТ ДВА РЯДА (аудит 01.09, Б4). Растянутые на всю ширину, они
+     перевешивали главное действие продукта — собрать фото. Теперь это один ряд из двух узких. */
+  .flathead .fh-acts{justify-content:flex-start;gap:8px}
+  .flathead .fh-acts .btn{flex:1 1 0;min-width:0;padding:12px 10px;font-size:15px;
+    white-space:normal;line-height:1.25}
+  /* ПОЛЯ (Б5): на 360 px прежние 14+18+22 px съедали ширину контента */
+  .wrap{padding:12px 12px 32px}
+  .flathead{padding:14px}
+  #mlist{padding:10px}
+  #mlist .mbody{padding:14px;gap:14px}
+  #mlist .mcard{padding:14px}
+  /* ПОЛОСА НАД ПЛАНОМ — ОДИН РЯД (Б2). Длинная подсказка «Перетаскивайте предмет…» дублирует
+     всплывающую подсказку под пальцем и на телефоне разворачивалась в лишние две строки. */
+  #sel{display:none}
+  .canvasbar{gap:6px}
+  /* ЦЕЛИ КАСАНИЯ (Б3): всё, что нажимается, — не ниже 44 px */
+  .doorctl button,.mini,.btn,.chip,.vtab,.lnk{min-height:44px}
+  .mini{font-size:14px;padding:0 8px}
+  .doorctl button{font-size:15px;padding:0 14px}
+  .tab{padding:12px 6px}
+}
+.flathead .fk{font-size:clamp(21px,2.2vw,27px);font-weight:700}
+.flathead .fm{color:var(--muted);font-size:clamp(15px,1.2vw,17px)}
+
+.pricecard{margin-top:0}
+/* стиль .pc-price удалён 01.09: цена переехала в шапку, блок больше не рисуется */
+.btn.wide{display:block;width:100%;text-align:center;margin-top:10px}
+.btn.round{border-radius:999px}
+.btn.cta{background:var(--accent);border-color:var(--accent);color:var(--surface);font-weight:600}
+.btn.cta:hover,.btn.primary:hover{background:var(--accent-dark);border-color:var(--accent-dark)}
+.btn.ghost{color:var(--muted)}
+.pc-note{color:var(--muted);font-size:.9em;line-height:1.45;margin:14px 0 12px}
+.pc-furn{color:var(--muted);font-size:.96em}
+.pc-sum{font-size:clamp(21px,2vw,26px);font-weight:700;margin:2px 0 4px}
+/* ——— СТРАНИЦА СПИСКА (аналог «Сохранить список мебели и техники») ——— */
+#mlist{position:fixed;inset:0;background:rgba(20,24,21,.55);display:none;z-index:60;
+  overflow:auto;padding:18px}
+#mlist.on{display:block}
+#mlist .sheetbox{max-width:1040px;margin:0 auto;background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+#mlist .mhead{display:flex;align-items:center;justify-content:space-between;padding:16px 22px}
+#mlist .mhead b{font-size:clamp(19px,1.8vw,24px)}
+#mlist .mbody{display:grid;gap:22px;grid-template-columns:1fr;background:var(--bg);padding:22px}
+@media(min-width:900px){#mlist .mbody{grid-template-columns:minmax(0,340px) minmax(0,1fr)}}
+#mlist h2{margin:0 0 10px;font-size:clamp(22px,2.2vw,29px)}
+#mlist .mlead{color:var(--muted);font-size:.98em;margin-bottom:16px}
+/* СВОЙ КЛАСС, А НЕ ОБЩИЙ `.card` (владелец 01.09: «в списке разметка плывёт»). Каталог
+   товаров тоже использует `.card`, и его правило `max-height:44px; overflow:hidden` обрезало
+   название на второй строке, а `cursor:pointer` делал весь лист «нажимаемым». Третье
+   столкновение имён за сегодня — в этом файле общие короткие классы опасны. */
+#mlist .mcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px}
+#mlist .mark{width:46px;height:46px;border-radius:50%;background:var(--accent);color:var(--surface);
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px}
+#mlist .planbox{border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px;margin:14px 0}
+#mlist .srow{display:flex;justify-content:space-between;gap:12px;padding:7px 0}
+#mlist .srow.on{font-weight:700}
+#mlist .srow .c{color:var(--muted);font-weight:400}
+#mlist .sumbox{background:var(--bg);border-radius:var(--radius-sm);padding:14px 16px;margin-top:14px}
+#mlist .sumbox .tt{font-weight:700;font-size:1.05em;margin-bottom:6px}
+#mlist .grand{display:flex;justify-content:space-between;border-top:1px solid var(--line);
+  margin-top:8px;padding-top:10px;font-weight:700;font-size:1.08em}
+#mlist .prow{display:flex;gap:14px;align-items:center;padding:12px 0;border-top:1px solid var(--line)}
+#mlist .prow img{width:72px;height:72px;object-fit:contain;border-radius:var(--radius-sm);background:var(--bg)}
+#mlist .prow .pi b{display:block;font-size:1.05em}
+#mlist .prow .pi span{color:var(--muted);font-size:.92em}
+#mlist .prow .pi{min-width:0}
+#mlist .prow .pi .pname{color:var(--ink);font-size:.98em;font-weight:400;line-height:1.35}
+#mlist .shop{margin-left:auto;color:var(--muted);font-size:.9em;white-space:nowrap}
+@media print{
+  body>*{display:none !important}
+  #mlist{position:static;display:block !important;background:var(--surface);padding:0;overflow:visible}
+  #mlist .mhead,#mlist .mleft{display:none !important}
+  #mlist .mbody{display:block;background:var(--surface);padding:0}
+  #mlist .mcard{padding:0}
+}
+.panel h3{margin:0 0 10px;font-size:clamp(19px,1.5vw,24px)}
 .issue{padding:4px 0;border-top:1px dashed var(--line)}.issue:first-of-type{border-top:0}
 .issue b{color:var(--warn)}.clean{color:var(--ok)}
 /* ЛИСТ ПОДБОРА: снизу на телефоне, широкая панель на десктопе */
-#sheet{position:fixed;left:0;right:0;bottom:0;max-height:82vh;background:#fff;z-index:40;
- border-radius:16px 16px 0 0;box-shadow:0 -8px 30px #0000002e;transform:translateY(102%);
+#sheet{position:fixed;left:0;right:0;bottom:0;max-height:82vh;background:var(--surface);z-index:40;
+ border-radius:var(--radius) var(--radius) 0 0;box-shadow:var(--sh-4);transform:translateY(102%);
  transition:transform .22s ease;display:flex;flex-direction:column}
 #sheet.open{transform:translateY(0)}
-#sheet .grab{width:44px;height:4px;background:#D8D5CE;border-radius:3px;margin:8px auto 4px}
+#sheet .grab{width:44px;height:4px;background:var(--grip);border-radius:999px;margin:8px auto 4px}
 #sheet header{display:flex;align-items:center;gap:10px;padding:4px 14px 8px;border-bottom:1px solid var(--line)}
 #sheet header .h{flex:1;min-width:0}
-#sheet header b{font-size:clamp(17px,2.4vw,19px);display:block}
-#sheet header span{font-size:clamp(13px,1.8vw,15px);color:#5C655E}
-#sheet .close{border:0;background:#F1EFEA;border-radius:8px;padding:9px 16px;font-size:clamp(15px,1.9vw,16px);cursor:pointer}
+#sheet header b{font-size:clamp(18px,2.5vw,21px);display:block}
+#sheet header span{font-size:clamp(14.5px,1.9vw,16.5px);color:var(--muted)}
+#sheet .close{border:0;background:var(--wash-2);border-radius:var(--radius-sm);padding:9px 16px;font-size:clamp(15px,1.9vw,16px);cursor:pointer}
 #filters{display:flex;gap:6px;overflow-x:auto;padding:8px 14px;border-bottom:1px solid var(--line)}
-#filters .chip{padding:7px 14px;font-size:clamp(14px,1.8vw,15px);white-space:nowrap}
+#filters .chip{padding:8px 16px;font-size:clamp(15px,1.9vw,16.5px);white-space:nowrap}
 #grid{overflow-y:auto;padding:12px 14px 24px;display:grid;gap:12px;
  grid-template-columns:repeat(auto-fill,minmax(168px,1fr))}
 @media(min-width:700px){#sheet{left:auto;right:0;top:0;bottom:0;width:460px;max-height:none;
- border-radius:0;transform:translateX(102%);box-shadow:-8px 0 30px #00000024}
+ border-radius:0;transform:translateX(102%);box-shadow:var(--sh-5)}
  #sheet.open{transform:translateX(0)}}
-.card{border:1px solid var(--line);border-radius:12px;padding:8px;cursor:pointer;background:#fff;
+.card{border:1px solid var(--line);border-radius:var(--radius-sm);padding:8px;cursor:pointer;background:var(--surface);
  display:flex;flex-direction:column;gap:4px;transition:box-shadow .15s,border-color .15s}
-.card:active{box-shadow:0 3px 14px #00000018}
-.card.cur{border-color:var(--accent);box-shadow:0 0 0 2px #3B76A233}
-.card img{width:100%;aspect-ratio:4/3;object-fit:contain;background:#F7F5F1;border-radius:8px}
-.card .nm{font-size:clamp(14px,1.8vw,15px);line-height:1.32;max-height:40px;overflow:hidden}
-.card .pr{font-size:clamp(17px,2.3vw,19px);font-weight:700}
-.card .dim{font-size:clamp(13px,1.7vw,14px);color:#5C655E}
+.card:active{box-shadow:var(--sh-2)}
+.card.cur{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent)}
+.card img{width:100%;aspect-ratio:4/3;object-fit:contain;background:var(--wash);border-radius:var(--radius-sm)}
+.card .nm{font-size:clamp(15px,1.9vw,16.5px);line-height:1.32;max-height:44px;overflow:hidden}
+.card .pr{font-size:clamp(18px,2.4vw,21px);font-weight:700}
+.card .dim{font-size:clamp(14px,1.8vw,15.5px);color:var(--muted)}
 .badge{display:inline-block;font-size:clamp(12.5px,1.6vw,13.5px);padding:3px 9px;border-radius:999px;align-self:flex-start}
-.b-ok{background:#E7F3EC;color:#2F7D4F}.b-tight{background:#FBF0E2;color:#96601F}.b-no{background:#FBE9E6;color:#A93B27}
-.noimg{width:100%;aspect-ratio:4/3;background:#F2F0EB;border-radius:8px;display:flex;
- flex-direction:column;align-items:center;justify-content:center;font-size:12px;color:#8A8F89;text-align:center}
-.noimg span{font-size:11px;color:#A6ABA4}
-#peek{position:fixed;z-index:70;background:#fff;border:1px solid var(--line);border-radius:12px;
- padding:8px;box-shadow:0 12px 34px #00000026;display:none;width:240px;cursor:pointer}
-#peek img{width:224px;height:168px;object-fit:contain;background:#F7F5F1;border-radius:8px;display:block}
+.b-ok{background:var(--ok-bg);color:var(--ok-ink)}.b-tight{background:var(--warn-bg);color:var(--warn-ink)}.b-no{background:var(--bad-bg);color:var(--bad-ink)}
+.noimg{width:100%;aspect-ratio:4/3;background:var(--wash-2);border-radius:var(--radius-sm);display:flex;
+ flex-direction:column;align-items:center;justify-content:center;font-size:12px;color:var(--faint);text-align:center}
+.noimg span{font-size:11px;color:var(--faint)}
+#peek{position:fixed;z-index:70;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);
+ padding:8px;box-shadow:var(--sh-3);display:none;width:240px;cursor:pointer}
+#peek img{width:224px;height:168px;object-fit:contain;background:var(--wash);border-radius:var(--radius-sm);display:block}
 #peek .pn{font-size:14.5px;line-height:1.3;margin-top:6px;max-height:38px;overflow:hidden}
 #peek .pp{font-size:19px;font-weight:700;margin-top:3px}
-#peek .pd{font-size:13.5px;color:#5C655E}
+#peek .pd{font-size:13.5px;color:var(--muted)}
 #peek .pgo{margin-top:6px;font-size:14px;color:var(--accent);font-weight:600}
-#scrim{position:fixed;inset:0;background:#0006;z-index:39;opacity:0;pointer-events:none;transition:opacity .2s}
+#scrim{position:fixed;inset:0;background:var(--scrim-soft);z-index:39;opacity:0;pointer-events:none;transition:opacity .2s}
 #scrim.on{opacity:1;pointer-events:auto}
-.sel{font-size:clamp(15px,1.9vw,16px);color:#3A423C;margin-top:8px}
+.sel{font-size:clamp(16px,2vw,17.5px);color:var(--ink);margin-top:8px}
 .acts{display:flex;gap:4px;margin-top:5px}
-.mini{flex:1;text-align:center;border:1px solid var(--line);background:#fff;border-radius:6px;
+.mini{flex:1;text-align:center;border:1px solid var(--line);background:var(--surface);border-radius:6px;
  padding:5px 4px;font-size:11.5px;cursor:pointer;text-decoration:none;color:var(--ink)}
-.mini.link{color:var(--accent);border-color:#CBDCE9}
+.mini.link{color:var(--accent);border-color:var(--accent-soft)}
 #basket{margin-top:10px}
 /* РАБОЧАЯ ОБЛАСТЬ (26.08, структура референса): план слева, список товаров справа; на телефоне —
    один столбец, список уезжает под план. */
+#screen-room{display:flex;flex-direction:column}
+#screen-room .subtabs{order:1}
+#screen-room .work{order:2}
+#screen-room #photos{order:3}
+@media(min-width:1000px){#screen-room #photos{order:2}#screen-room .work{order:3}}
 .work{display:grid;gap:14px;align-items:start;grid-template-columns:1fr}
 @media(min-width:1000px){.work{grid-template-columns:minmax(0,1fr) 360px}
-  .work #basket{margin-top:0;position:sticky;top:12px;max-height:calc(100vh - 30px);overflow:auto}}
+  /* Правая колонка теперь содержит ДВА блока — карточку стоимости и корзину, — поэтому липнет
+     сама колонка, а не корзина внутри неё: иначе sticky считается от короткой обёртки. */
+  .work>div:last-child{position:sticky;top:12px;max-height:calc(100vh - 30px);overflow:auto}
+  .work #basket{margin-top:12px;position:static;max-height:none;overflow:visible}}
 .canvasbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;
- margin:2px 0 8px;font-size:clamp(13.5px,1.8vw,15px);color:#5C655E}
+ margin:2px 0 8px;font-size:clamp(15px,1.9vw,16.5px);color:var(--muted)}
 .state{border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:13px;
- background:#F4F2ED;color:#3A423C;white-space:nowrap}
-.state.changed{background:#FBF0E2;border-color:#E4C79A;color:#8A5A1E}
+ background:var(--wash-3);color:var(--ink);white-space:nowrap}
+.state.changed{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn-ink)}
 /* ПЕРЕКЛЮЧАТЕЛИ ДВЕРИ (27.08): сторона петель и куда открывается */
 .doorctl{display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap}
-.doorctl b{font-weight:600;color:#3A423C}
-.doorctl button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 12px;
- font-size:clamp(13px,0.92vw,14.5px);cursor:pointer;color:#3A423C}
+.doorctl b{font-weight:600;color:var(--ink)}
+.doorctl button{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 12px;
+ font-size:clamp(13px,0.92vw,14.5px);cursor:pointer;color:var(--ink)}
 .doorctl button:hover{border-color:var(--accent);color:var(--accent)}
-.lnk{border:0;background:none;padding:0;color:var(--accent);font:inherit;font-size:clamp(13.5px,0.95vw,15.5px);
+.lnk{border:0;background:none;padding:0;color:var(--accent);font:inherit;font-size:clamp(15px,1.05vw,17px);
  cursor:pointer;text-decoration:underline}
-.noimg-sm{width:64px;height:52px;flex:0 0 64px;border-radius:4px;background:#F2F0EB;color:#A6ABA4;
+.noimg-sm{width:64px;height:52px;flex:0 0 64px;border-radius:6px;background:var(--wash-2);color:var(--faint);
  font-size:10.5px;display:flex;align-items:center;justify-content:center;text-align:center}
 .row{display:flex;gap:10px;align-items:center;padding:7px 0;border-top:1px dashed var(--line);
  cursor:pointer}
-.row:hover{background:#FAF8F3}
+.row:hover{background:var(--wash)}
 .row .t .acts{display:block;margin-top:2px}
 /* ЗАГЛУШКИ ФОТО (26.08): пока кадра нет, показываем «плёнку» с подписью ракурса, а не пустоту */
-.ph{flex:0 0 auto;width:240px;height:170px;border-radius:10px;border:1px dashed var(--line);
- background:repeating-linear-gradient(135deg,#F7F5F1 0 12px,#F2F0EB 12px 24px);display:flex;
- flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#8A8F89;
+.ph{flex:0 0 auto;width:240px;height:170px;border-radius:var(--radius-sm);border:1px dashed var(--line);
+ background:repeating-linear-gradient(135deg,var(--wash) 0 12px,var(--wash-2) 12px 24px);display:flex;
+ flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--faint);
  font-size:13.5px;text-align:center;padding:10px}
-.ph b{color:#5C655E;font-size:14.5px}
+.ph b{color:var(--muted);font-size:14.5px}
 /* СЛУЖЕБНАЯ ССЫЛКА «исходники» (владелец 26.08): по ней видно ровно то, что ушло в модель —
    картинки запроса, промпт и список предметов. Мелко и не мешает. */
-.srcln{font-size:12px;color:#8A8F89;text-decoration:underline;margin-left:8px}
+.srcln{font-size:12px;color:var(--faint);text-decoration:underline;margin-left:8px}
 .headrow{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
 .headrow h3{margin-bottom:4px}
 .srcbtn{white-space:nowrap;padding:8px 14px;font-size:clamp(13.5px,0.95vw,15px);
- border-style:dashed;color:#5C655E;text-decoration:none;display:inline-block}
+ border-style:dashed;color:var(--muted);text-decoration:none;display:inline-block}
 .srcbtn.off{opacity:.55;cursor:default}
 a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .srcln:hover{color:var(--accent)}
@@ -115,110 +289,111 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
    из масок нашей же сцены, а не «на глаз» и не из ответа модели. */
 .shotwrap{position:relative;display:inline-block;width:100%}
 .shotwrap .nav{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:44px;
- border-radius:50%;border:0;background:#ffffffe8;box-shadow:0 2px 10px #00000033;cursor:pointer;
- font-size:22px;color:#2A2F2C;display:flex;align-items:center;justify-content:center;z-index:2}
+ border-radius:50%;border:0;background:rgba(255,255,255,.91);box-shadow:var(--sh-1);cursor:pointer;
+ font-size:22px;color:var(--ink-strong);display:flex;align-items:center;justify-content:center;z-index:2}
 .shotwrap .prev{left:12px}.shotwrap .next{right:12px}
 .shotwrap .nav[disabled]{display:none}
 .shotwrap .viewno{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);
- background:#000000a8;color:#fff;border-radius:999px;padding:5px 12px;font-size:13.5px}
-.shotwrap img{width:100%;border-radius:10px;display:block}
+ background:var(--veil);color:var(--surface);border-radius:999px;padding:5px 12px;font-size:13.5px}
+.shotwrap img{width:100%;border-radius:var(--radius-sm);display:block}
 .pin{position:absolute;transform:translate(-50%,-50%);width:26px;height:26px;border-radius:50%;
- background:#fffffff2;border:2px solid var(--accent);color:var(--accent);font-size:14px;
+ background:rgba(255,255,255,.95);border:2px solid var(--accent);color:var(--accent);font-size:14px;
  font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;
- box-shadow:0 2px 8px #00000030}
-.pin:hover{background:var(--accent);color:#fff}
+ box-shadow:var(--sh-1)}
+.pin:hover{background:var(--accent);color:var(--surface)}
 .srcrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px}
 .pinlist{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
 .ptrack{display:flex;gap:10px;overflow-x:auto;padding:8px 2px 4px;scrollbar-width:thin}
 .ptrack::-webkit-scrollbar{height:6px}
-.ptrack::-webkit-scrollbar-thumb{background:#DCD9D2;border-radius:3px}
-.pcard{position:relative;flex:0 0 170px;border:1px solid var(--line);border-radius:10px;padding:8px;
- background:#fff;text-decoration:none;color:inherit;display:block}
-.pcard:hover{border-color:var(--accent);box-shadow:0 2px 12px #3b76a21f}
-.pcard img,.pcard .pnoimg{width:100%;aspect-ratio:4/3;object-fit:contain;background:#F7F5F1;
- border-radius:7px;display:block}
-.pcard .pnoimg{display:flex;align-items:center;justify-content:center;color:#A6ABA4;font-size:12px}
+.ptrack::-webkit-scrollbar-thumb{background:var(--grip);border-radius:999px}
+.pcard{position:relative;flex:0 0 170px;border:1px solid var(--line);border-radius:var(--radius-sm);padding:8px;
+ background:var(--surface);text-decoration:none;color:inherit;display:block}
+.pcard:hover{border-color:var(--accent);box-shadow:0 2px 12px color-mix(in srgb, var(--accent) 14%, transparent)}
+.pcard img,.pcard .pnoimg{width:100%;aspect-ratio:4/3;object-fit:contain;background:var(--wash);
+ border-radius:6px;display:block}
+.pcard .pnoimg{display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:12px}
 .pcard .num{position:absolute;top:12px;left:12px;width:22px;height:22px;border-radius:50%;
- background:#fff;border:2px solid #C8302F;color:#C8302F;font-size:12.5px;font-weight:700;
+ background:var(--surface);border:2px solid var(--accent);color:var(--accent);font-size:12.5px;font-weight:700;
  display:flex;align-items:center;justify-content:center}
 .pcard .pn2{font-size:13.5px;line-height:1.3;margin-top:6px;max-height:36px;overflow:hidden}
 .pcard .pr2{font-size:15.5px;font-weight:700;margin-top:3px}
-.pcard .ps2{font-size:12px;color:#5C655E}
+.pcard .ps2{font-size:12px;color:var(--muted)}
 .pinlist .row{cursor:default}
 .pinlist .row:hover{background:none}
-.row img{width:64px;height:52px;object-fit:contain;background:#F6F4F0;border-radius:5px;flex:0 0 64px}
-.row .t{flex:1;min-width:0}.row .t b{font-size:clamp(15px,1.05vw,17px);font-weight:600;display:block;
+.row img{width:64px;height:52px;object-fit:contain;background:var(--wash);border-radius:6px;flex:0 0 64px}
+.row .t{flex:1;min-width:0}.row .t b{font-size:clamp(16px,1.15vw,18.5px);font-weight:600;display:block;
  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.row .t span{font-size:clamp(13.5px,0.95vw,15.5px);color:#5C655E}
-.row .p{font-size:clamp(15px,1.05vw,17px);font-weight:600;white-space:nowrap}
+.row .t span{font-size:clamp(15px,1.05vw,17px);color:var(--muted)}
+.row .p{font-size:clamp(16px,1.15vw,18.5px);font-weight:600;white-space:nowrap}
 .row a{font-size:clamp(13.5px,0.95vw,15.5px);color:var(--accent);white-space:nowrap}
 .total{display:flex;justify-content:space-between;padding-top:10px;font-weight:700;
  font-size:clamp(16px,1.15vw,18px)}
-.hint{font-size:clamp(14px,1.8vw,15px);color:#5C655E;margin-top:8px}
+.hint{font-size:clamp(14px,1.8vw,15px);color:var(--muted);margin-top:8px}
 /* ВВОДНЫЙ БЛОК — НАВЕРХУ (владелец 26.08): человек должен сразу понять, что тут можно делать,
    а не искать объяснение под планом. */
-.lead{font-size:clamp(17px,2.3vw,20px);line-height:1.45;color:#3A423C;margin:0 0 12px;max-width:62ch}
+.lead{font-size:clamp(17px,2.3vw,20px);line-height:1.45;color:var(--ink);margin:0 0 12px;max-width:62ch}
 /* ПОДСКАЗКА ПОД ПРЕДМЕТОМ (26.08): одно короткое предложение прямо под тем, что тянут; исчезает,
    как только палец отпущен. Заменяет прежний список внизу страницы. */
 #canvasWrap{position:relative}
 #tip{position:absolute;z-index:20;transform:translate(-50%,0);pointer-events:none;display:none;
- background:#2A2F2C;color:#fff;border-radius:9px;padding:6px 11px;white-space:nowrap;
- font-size:clamp(14px,1.9vw,15.5px);box-shadow:0 4px 14px #00000030;max-width:92vw;overflow:hidden;
+ background:var(--ink-strong);color:var(--surface);border-radius:var(--radius-sm);padding:6px 11px;white-space:nowrap;
+ font-size:clamp(14px,1.9vw,15.5px);box-shadow:var(--sh-1);max-width:92vw;overflow:hidden;
  text-overflow:ellipsis}
-#tip.ok{background:#2F7D4F}#tip.warn{background:#B4552B}
+#tip.ok{background:var(--ok-ink)}#tip.warn{background:var(--warn)}
 /* ОКНО ЧЕРНОВОГО РЕНДЕРА (26.08): кадр считается на сервере (~15 с), поэтому показываем и
    ожидание, и время — человеку должно быть видно, что процесс идёт, а не завис. */
-#shot{position:fixed;inset:0;z-index:60;background:#0B0D0Ccc;display:none;align-items:center;
+#shot{position:fixed;inset:0;z-index:60;background:var(--scrim);display:none;align-items:center;
  justify-content:center;padding:16px}
 #shot.on{display:flex}
-#shot .box{position:relative;background:#fff;border-radius:14px;max-width:min(1100px,96vw);
+#shot .box{position:relative;background:var(--surface);border-radius:var(--radius);max-width:min(1100px,96vw);
  max-height:92vh;overflow:auto;padding:14px}
 .xclose{position:sticky;float:right;top:0;margin:-4px -4px 0 8px;width:38px;height:38px;
- border-radius:50%;border:1px solid var(--line);background:#fff;font-size:22px;line-height:1;
- color:#3A423C;cursor:pointer;z-index:3}
-.xclose:hover{background:#F1EFEA}
-#shot img{width:100%;border-radius:10px;display:block}
+ border-radius:50%;border:1px solid var(--line);background:var(--surface);font-size:22px;line-height:1;
+ color:var(--ink);cursor:pointer;z-index:3}
+.xclose:hover{background:var(--wash-2)}
+#shot img{width:100%;border-radius:var(--radius-sm);display:block}
 #shot .cap{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px;
- font-size:clamp(14px,1.9vw,16px);color:#3A423C}
-#shot .wait{padding:40px 20px;text-align:center;font-size:clamp(16px,2.2vw,18px);color:#3A423C}
-.spin{width:26px;height:26px;border:3px solid #E4E6E2;border-top-color:var(--accent);
+ flex-wrap:wrap;   /* Б6: длинная подпись «неоклассика · Стоимость комплекта…» ужимала кнопку */
+ font-size:clamp(14px,1.9vw,16px);color:var(--ink)}
+#shot .wait{padding:40px 20px;text-align:center;font-size:clamp(16px,2.2vw,18px);color:var(--ink)}
+.spin{width:26px;height:26px;border:3px solid var(--line);border-top-color:var(--accent);
  border-radius:50%;margin:0 auto 12px;animation:sp 1s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
 .rotbtn{position:fixed;width:40px;height:40px;border-radius:50%;background:rgba(28,28,26,.88);
- color:#fff;font-size:22px;line-height:40px;text-align:center;z-index:40;user-select:none;
+ color:var(--surface);font-size:22px;line-height:40px;text-align:center;z-index:40;user-select:none;
  -webkit-user-select:none;touch-action:none;box-shadow:0 2px 8px rgba(0,0,0,.35);cursor:pointer}
-.rotbtn:active{background:#000}
+.rotbtn:active{background:var(--ink-strong)}
 /* ВКЛАДКИ (26.08): маршрут «квартира → комната», состояние в адресе (#plan/#room) */
 .tabs{display:flex;gap:8px;border-bottom:1px solid var(--line);margin:14px 0 4px}
-.tab{border:0;background:none;padding:10px 4px;margin-right:14px;cursor:pointer;color:#5C655E;
+.tab{border:0;background:none;padding:10px 4px;margin-right:14px;cursor:pointer;color:var(--muted);
  font-size:clamp(16px,2.2vw,18px);border-bottom:3px solid transparent}
 .tab.on{color:var(--ink);border-bottom-color:var(--accent);font-weight:600}
 /* НЕАКТИВНЫЕ ПОМЕЩЕНИЯ (владелец 01.09: «серым, чтоб нажать было нельзя»): гасим и цвет,
    и курсор, и события мыши — иначе на телефоне вкладка всё равно «нажимается» и мигает. */
-.tab.soon{color:#AFB5B0;cursor:default;pointer-events:none}
+.tab.soon{color:var(--faint);cursor:default;pointer-events:none}
 /* ПОДРАЗДЕЛЫ «Вариант N · цена» (26.08): второй уровень навигации сразу под вкладками */
 .subtabs{display:flex;gap:8px;overflow-x:auto;padding:12px 2px 4px;margin-bottom:2px}
-.vtab{flex:0 0 auto;border:1px solid var(--line);background:#fff;border-radius:12px;
- padding:10px 16px;cursor:pointer;text-align:left;line-height:1.25;color:#3A423C;
+.vtab{flex:0 0 auto;border:1px solid var(--line);background:var(--surface);border-radius:var(--radius-sm);
+ padding:10px 16px;cursor:pointer;text-align:left;line-height:1.25;color:var(--ink);
  font-size:clamp(15px,1.05vw,17px);transition:border-color .15s,box-shadow .15s}
-.vtab:hover{border-color:#C9D6E0}
-.vtab.on{border-color:var(--accent);box-shadow:0 0 0 2px #3B76A226;background:#F7FBFD}
+.vtab:hover{border-color:var(--accent)}
+.vtab.on{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);background:var(--accent-soft)}
 .vtab b{display:block;font-weight:600}
-.vtab span{font-size:clamp(13px,0.9vw,14.5px);color:#5C655E}
+.vtab span{font-size:clamp(13px,0.9vw,14.5px);color:var(--muted)}
 .vtab.on span{color:var(--accent)}
 .vtab.add{border-style:dashed;color:var(--accent)}
 /* СХЕМА КОМНАТ: площади разные, поэтому плитки масштабируются по площади — но это схема, а не план */
 #flatRooms{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
-.rm{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#FAF8F3;
+.rm{border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px 12px;background:var(--wash);
  min-width:120px;display:flex;flex-direction:column;justify-content:flex-end;cursor:default}
-.rm.go{cursor:pointer;border-color:var(--accent);background:#fff;box-shadow:0 1px 8px #3B76A21f}
+.rm.go{cursor:pointer;border-color:var(--accent);background:var(--surface);box-shadow:0 1px 8px color-mix(in srgb, var(--accent) 14%, transparent)}
 .rm .nm{font-weight:600;font-size:clamp(15px,2vw,17px)}
-.rm .m2{color:#5C655E;font-size:clamp(13px,1.7vw,15px)}
-.rm .st{margin-top:6px;font-size:12.5px;color:#8A8F89}
+.rm .m2{color:var(--muted);font-size:clamp(13px,1.7vw,15px)}
+.rm .st{margin-top:6px;font-size:12.5px;color:var(--faint)}
 .rm.go .st{color:var(--accent);font-weight:600}
 /* БЛОК ФОТОГРАФИЙ НАД ПЛАНОМ: либо кадры этой расстановки, либо «расстановка изменилась» */
 #photos .shots{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px}
-#photos .shots img{height:180px;border-radius:10px;cursor:pointer;flex:0 0 auto}
+#photos .shots img{height:180px;border-radius:var(--radius-sm);cursor:pointer;flex:0 0 auto}
 #photos .acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 /* КАРУСЕЛЬ КАДРОВ — СРЕДНИЙ РАЗМЕР (владелец 26.08: «ты сделал большими фото, я просил средние»):
    в ряд помещается несколько карточек ~300 px, лишние листаются стрелками. Крупно кадр
@@ -227,51 +402,70 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .car .track{display:flex;gap:12px;overflow-x:auto;scroll-behavior:smooth;padding:2px 2px 8px;
  scrollbar-width:thin}
 .car .track::-webkit-scrollbar{height:6px}
-.car .track::-webkit-scrollbar-thumb{background:#DCD9D2;border-radius:3px}
-.car .card{flex:0 0 300px;max-width:78vw;border:1px solid var(--line);border-radius:12px;
- background:#fff;overflow:hidden;display:flex;flex-direction:column}
+.car .track::-webkit-scrollbar-thumb{background:var(--grip);border-radius:999px}
+.car .card{flex:0 0 300px;max-width:78vw;border:1px solid var(--line);border-radius:var(--radius-sm);
+ background:var(--surface);overflow:hidden;display:flex;flex-direction:column}
 .car .card img{width:100%;aspect-ratio:3/2;object-fit:cover;display:block;cursor:zoom-in;
- background:#F4F2ED}
+ background:var(--wash-3)}
 .car .card{position:relative}
-.car .card .views{position:absolute;top:14px;right:14px;background:#000000a8;color:#fff;
+.car .card .views{position:absolute;top:14px;right:14px;background:var(--veil);color:var(--surface);
  border-radius:999px;padding:4px 10px;font-size:12.5px}
-.car .card .cap{padding:8px 10px;font-size:clamp(13px,0.92vw,14.5px);color:#5C655E;line-height:1.35}
+.car .card .cap{padding:8px 10px;font-size:clamp(13px,0.92vw,14.5px);color:var(--muted);line-height:1.35}
 .car .card .acts2{display:flex;gap:6px;padding:0 10px 10px;flex-wrap:wrap}
 .car .card .acts2 .btn{padding:7px 12px;font-size:clamp(13px,0.92vw,14.5px)}
-.car .card .btn.on{background:var(--accent);color:#fff;border-color:var(--accent)}
-.car .add{flex:0 0 300px;max-width:78vw;border:1px dashed var(--accent);border-radius:12px;
- background:#F7FBFD;cursor:pointer;display:flex;flex-direction:column;align-items:center;
- justify-content:center;gap:8px;padding:20px;text-align:center;color:#3A423C;min-height:232px}
+.car .card .btn.on{background:var(--accent);color:var(--surface);border-color:var(--accent)}
+.car .add{flex:0 0 300px;max-width:78vw;border:1px dashed var(--accent);border-radius:var(--radius-sm);
+ background:var(--accent-soft);cursor:pointer;display:flex;flex-direction:column;align-items:center;
+ justify-content:center;gap:8px;padding:20px;text-align:center;color:var(--ink);min-height:232px}
 .car .add .plus{font-size:34px;color:var(--accent);line-height:1}
 .car .add b{font-size:clamp(15px,1.05vw,17px)}
-.car .add span{color:#5C655E;font-size:clamp(13px,0.9vw,14.5px)}
+.car .add span{color:var(--muted);font-size:clamp(13px,0.9vw,14.5px)}
 .car .nav{position:absolute;top:88px;width:40px;height:40px;border-radius:50%;border:0;
- background:#ffffffee;box-shadow:0 2px 10px #00000026;cursor:pointer;font-size:19px;color:#2A2F2C;
+ background:rgba(255,255,255,.93);box-shadow:var(--sh-1);cursor:pointer;font-size:19px;color:var(--ink-strong);
  display:flex;align-items:center;justify-content:center;z-index:2}
 .car .prev{left:-6px}.car .next{right:-6px}
 .car .nav[disabled]{display:none}
-.car .meta{font-size:clamp(13px,0.92vw,14.5px);color:#8A8F89;margin-top:2px}
+.car .meta{font-size:clamp(13px,0.92vw,14.5px);color:var(--faint);margin-top:2px}
 #shot .grid2{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
-#shot .grid2 img{width:100%;border-radius:8px}
+#shot .grid2 img{width:100%;border-radius:var(--radius-sm)}
 .chan{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .linkbox{display:flex;gap:8px;margin-top:10px;align-items:center}
-.linkbox input{flex:1;min-width:0;padding:9px 11px;border:1px solid var(--line);border-radius:8px;
- font-size:14px;background:#FAF8F3}
+.linkbox input{flex:1;min-width:0;padding:9px 11px;border:1px solid var(--line);border-radius:var(--radius-sm);
+ font-size:14px;background:var(--wash)}
 </style></head><body><div class="wrap">
-<h1>Обустрой свой будущий дом!</h1>
-<div class="lead">Выберите комнату на плане и обустройте её под себя: расставляйте и перемещайте
-мебель, подбирайте реальные товары и вдохновляйтесь реалистичными изображениями будущего дома.</div>
-<div class="sub" id="sub">загрузка…</div>
+<h1>Обустрой свой будущий дом</h1>
+<div class="lead">Выбирайте любую мебель и технику для своей новой квартиры. Все предметы можно
+двигать, сохранять коллекции и делиться с близкими. Сделайте дизайн своей новой квартиры сами!</div>
+<!-- ШАПКА КАК У ЗАСТРОЙЩИКА: тип квартиры и площадь крупно, под ними — дом, срок, этаж.
+     Площадь наша, из плана (73,7 м²); адрес и срок — демонстрационные, реального ЖК не называем. -->
+<!-- ЦЕНА И УСЛОВИЯ ПОКУПКИ — В ШАПКЕ, РЯДОМ С НАЗВАНИЕМ (владелец 01.09: «этот блок поставь
+     вверх, это логично: слева трёхкомнатная, справа все детали»). Комнату в шапке не пишем —
+     она и так выбрана вкладками ниже. -->
+<div class="flathead" id="flatPrice">
+  <div class="fh-top">
+    <div><div class="fk" id="flatKind">Трёхкомнатная 73,7 м²</div>
+      <div class="fm" id="flatMeta">ЖК «Ольховый квартал» · 2 кв. 2029 · эт. 6 из 17 · корп. 3</div></div>
+    <div class="fh-price"><div class="l">Оплата 100%
+      <button class="ihint" id="payInfo" aria-label="Что значит оплата 100%">i</button></div>
+      <div class="v" id="flatSum">—</div>
+      <div class="ihint-txt" id="payInfoTxt" hidden>Сумма при условии оплаты наличными,
+        без ипотеки и рассрочки</div></div>
+  </div>
+  <div class="fh-acts">
+    <button class="btn round" id="pcMort">Выбрать условия ипотеки или рассрочки</button>
+    <button class="btn cta round" id="pcCons">Получить консультацию</button>
+  </div>
+</div>
 
 <div class="tabs" role="tablist">
-  <button class="tab on" id="tab-plan" role="tab">План квартиры</button>
+  <button class="tab on" id="tab-plan" role="tab" aria-selected="true">План квартиры</button>
   <!-- ПОМЕЩЕНИЯ КВАРТИРЫ ВКЛАДКАМИ (владелец 01.09): видно, что демо — про всю квартиру, а не
        про одну комнату. Работает пока только гостиная, остальные серые и не нажимаются:
        обещать переход туда, где ничего нет, нельзя. Санузлы, холл и лоджию не показываем. -->
-  <button class="tab" id="tab-room" role="tab">Гостиная</button>
-  <button class="tab soon" role="tab" disabled aria-disabled="true" title="скоро">Кухня</button>
-  <button class="tab soon" role="tab" disabled aria-disabled="true" title="скоро">Спальня 1</button>
-  <button class="tab soon" role="tab" disabled aria-disabled="true" title="скоро">Спальня 2</button>
+  <button class="tab" id="tab-room" role="tab" aria-selected="false">Гостиная</button>
+  <!-- ТРИ НЕРАБОТАЮЩИЕ ВКЛАДКИ СВЁРНУТЫ В ОДНУ ПОДПИСЬ (аудит 01.09, A3): раньше «Кухня»,
+       «Спальня 1» и «Спальня 2» занимали больше половины верхнего ряда и никуда не вели. -->
+  <span class="tab soon" aria-hidden="true">Кухня и спальни — скоро</span>
 </div>
 
 <section id="screen-plan">
@@ -282,6 +476,10 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
   </div>
 </section>
 
+<!-- ПОРЯДОК НА ТЕЛЕФОНЕ: ПЛАН ВЫШЕ ЛЕНТЫ (аудит 01.09, A1). В разметке блок фотографий идёт
+     первым — так исторически сложилось, и на узком экране главный инструмент оказывался под
+     галереей. Сначала расставь, потом смотри: на телефоне рабочая область поднимается, на
+     десктопе порядок прежний (там они рядом, а не друг под другом). -->
 <section id="screen-room" hidden>
   <div class="subtabs" id="variants" role="tablist"></div>
   <div class="panel" id="photos">
@@ -309,7 +507,10 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
         <button class="btn primary" id="shotNow">Посмотреть изменения на фото · ~25 сек</button>
       </div>
     </div>
-    <div class="panel" id="basket"><h3>Товары этой расстановки</h3><div id="blist">—</div></div>
+    <div>
+      <div class="panel pricecard" id="priceCard"></div>
+      <div class="panel" id="basket"><h3>Товары этой расстановки</h3><div id="blist">—</div></div>
+    </div>
   </div>
 
   
@@ -323,6 +524,23 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
   <div id="shotbody"></div>
   <div class="cap"><span id="shotcap"></span><button class="btn" id="shotclose">Закрыть</button></div>
 </div></div><div id="peek"></div>
+<!-- СТРАНИЦА СПИСКА МЕБЕЛИ (владелец 01.09: «сделай у нас по аналогии, но адаптируй — у нас
+     подборка зависит от стиля»). У застройщика список разбит по КОМНАТАМ; у нас комплект
+     целиком определяется выбранным стилем, поэтому сводка — по стилям, а подробный список —
+     по тому стилю, который человек сейчас смотрит. -->
+<div id="mlist"><div class="sheetbox">
+  <div class="mhead"><b id="mlTitle">Мебель и техника</b>
+    <button class="xclose" id="mlx" aria-label="Закрыть">×</button></div>
+  <div class="mbody">
+    <div class="mleft">
+      <h2>Мебель и техника</h2>
+      <div class="mlead" id="mlLead"></div>
+      <button class="btn cta round wide" id="mlPdf">Загрузить список в PDF</button>
+      <button class="btn round wide ghost" id="mlJpg" disabled>Загрузить список в JPG</button>
+    </div>
+    <div class="mcard" id="mlCard"></div>
+  </div>
+</div></div>
 <div id="sheet"><div class="grab"></div>
   <header><div class="h"><b id="sh-title">Подбор товара</b><span id="sh-sub"></span></div>
   <button class="close" id="sh-close">Готово</button></header>
@@ -351,12 +569,25 @@ function on(id, ev, fn){                     // узла может не быт�
   if(n)n[ev]=fn;
 }
 function init(){
-  document.getElementById('sub').textContent=`${D.room.title} · ${D.room.w}×${D.room.d} см`;
+  // строки «Гостиная 14,4 м² · 439×325 см» в шапке больше нет — комната видна во вкладках
+  const sb=document.getElementById('sub');
+  if(sb)sb.textContent=`${D.room.title} · ${D.room.w}×${D.room.d} см`;
+  // тип квартиры и площадь — из данных плана, а не из строки в разметке
+  const fk=document.getElementById('flatKind');
+  if(fk)fk.textContent=`Трёхкомнатная ${String(FLAT_M2).replace('.',',')} м²`;
   // ВАРИАНТ = РАССТАНОВКА + ЕЁ КОМПЛЕКТ ТОВАРОВ, ОДНОЙ КНОПКОЙ С ЦЕНОЙ (владелец 26.08:
   // «убери кнопки „Комплект 1 · 103 тыс“, просто подпиши Вариант 1 · 103 т.р.»). Вариантов не
   // больше четырёх плюс сохранённый человеком.
   drawVariants();
   const closeShot=()=>document.getElementById('shot').classList.remove('on');
+  // СТРАНИЦА СПИСКА: закрытие и сохранение. «PDF» делаем печатью браузера — он сам предлагает
+  // «Сохранить как PDF», и это работает везде без сторонней библиотеки. Печатная вёрстка
+  // оставляет только карточку списка (см. @media print).
+  const ml=document.getElementById('mlist');
+  const mlx=document.getElementById('mlx'); if(mlx)mlx.onclick=()=>ml.classList.remove('on');
+  if(ml)ml.onclick=e=>{if(e.target===ml)ml.classList.remove('on');};
+  const mlPdf=document.getElementById('mlPdf'); if(mlPdf)mlPdf.onclick=()=>window.print();
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')ml.classList.remove('on');});
   on('shotclose','onclick',closeShot);
   on('shotx','onclick',closeShot);
   window.addEventListener('keydown',e=>{if(e.key==='Escape')closeShot();});
@@ -422,8 +653,11 @@ function drawVariants(){
     const b=document.createElement('button');
     b.className='vtab'+(i===cur?' on':'');
     const p=variantPrice(v);
-    b.innerHTML=`<b>${v.title||('Вариант '+(i+1))}</b>`+
-      `<span>${[v.style||'', p?Math.round(p/1000)+' т.р.':''].filter(Boolean).join(' · ')||'без товаров'}</span>`;
+    // НА КНОПКЕ — СТИЛЬ, А НЕ «ВАРИАНТ N» (владелец 01.09: «вместо кнопок вариант 1…4 пиши
+    // лофт, минимализм, современный, неоклассика, а внизу — Стоимость комплекта и цена»).
+    // Номер варианта человеку ничего не говорит; стиль — говорит всё.
+    b.innerHTML=`<b>${v.style||v.title||('Вариант '+(i+1))}</b>`+
+      `<span>${p?'Стоимость комплекта: '+money(p):'без товаров'}</span>`;
     b.onclick=()=>{cur=i;load();drawVariants();};
     vb.appendChild(b);
   });
@@ -452,7 +686,9 @@ function drawDoorCtl(){
   const sideName=(o.hinge==='start')===startIsLeft?'слева':'справа';
   box.innerHTML=`<b>Дверь:</b>`+
     `<button id="dHinge">петли ${sideName}</button>`+
-    `<button id="dInto">${o.into?'открывается внутрь':'открывается наружу'}</button>`;
+    `<button id="dInto">${o.into?'открывается внутрь':'открывается наружу'}</button>`+
+    `<button id="camNext" title="переставить точки съёмки в следующие углы">поменять ракурс</button>`;
+  document.getElementById('camNext').onclick=()=>{cycleCams();};
   document.getElementById('dHinge').onclick=()=>{o.hinge=(o.hinge==='start')?'end':'start';draw();};
   document.getElementById('dInto').onclick=()=>{o.into=!o.into;draw();};
 }
@@ -462,8 +698,11 @@ function showTab(which){
   const room=which==='room';
   document.getElementById('screen-plan').hidden=room;
   document.getElementById('screen-room').hidden=!room;
-  document.getElementById('tab-plan').classList.toggle('on',!room);
-  document.getElementById('tab-room').classList.toggle('on',room);
+  // СОСТОЯНИЕ ВКЛАДКИ ОБЪЯВЛЯЕТСЯ, А НЕ ТОЛЬКО КРАСИТСЯ (аудит 01.09, Д2): без aria-selected
+  // экранный диктор не знает, какая вкладка открыта — цвет ему недоступен.
+  const tp=document.getElementById('tab-plan'), tr2=document.getElementById('tab-room');
+  tp.classList.toggle('on',!room); tp.setAttribute('aria-selected',String(!room));
+  tr2.classList.toggle('on',room); tr2.setAttribute('aria-selected',String(room));
   if(location.hash!=='#'+which)history.replaceState(null,'','#'+which);
   if(room)draw();
 }
@@ -559,9 +798,202 @@ function box(it){
   const sw=it.w*c+it.d*s2, sd=it.w*s2+it.d*c;
   return {x0:it.x-sw/2,y0:it.y-sd/2,x1:it.x+sw/2,y1:it.y+sd/2,w:sw,d:sd};}
 
+// ——— ТОЧКА СЪЁМКИ НА ПЛАНЕ (владелец 01.09: «чтоб на плане можно было двигать точку съёмки
+// под углом, и от этого считывался кадр»). Две камеры — по числу видов, которые уходят одним
+// листом. Значок таскается за корпус и крутится за ручку-конус; кадр считается ИЗ НЕЁ, а не из
+// угла, выбранного автоматикой. Точка всегда остаётся внутри комнаты: смотреть сквозь стену
+// нельзя ни в каких сценах (правило владельца 31.08), и перетаскивание его не отменяет.
+let cams=null, camDrag=null, camSel=-1;
+// «ДОЕЗЖАЕТ ДО СТЕНЫ И ПРИСЛОНЯЕТСЯ, НЕ БОЛЕЕ» (владелец 01.09). Отступ считается от РАЗМЕРА
+// ЗНАЧКА, а не берётся числом: кружок радиусом 11 px при масштабе S занимает 11/S сантиметров,
+// и при жёстких 3 см он половиной залезал на стену — со стороны выглядело, будто камера стоит
+// в стене и смотрит наружу. Теперь значок касается стены изнутри и не пересекает её.
+// Сервер клэмпит камеру жёстче (3 см), то есть этот отступ всегда внутри допустимого.
+// ТОЧКА СЪЁМКИ И ЕЁ ЗНАЧОК — РАЗНЫЕ ВЕЩИ (владелец 01.09: «камеры можешь не отступать 10 см,
+// а прям в угол ставить»). Раньше отступ считался по размеру кружка, и камера физически стояла
+// в ~10 см от стены — чем ближе к углу, тем больше комнаты в кадре, так что эти 10 см отъедали
+// обзор. Теперь В УГОЛ идёт САМА КАМЕРА (3 см — ровно столько же клэмпит сервер, план и кадр
+// совпадают), а кружок со стрелками рисуется сдвинутым внутрь, чтобы не залезть на стену.
+function camPad(){ return 3; }
+// Насколько нужно отодвинуть НАРИСОВАННЫЙ значок: круг 11 px + обводка 1.25 + половина линии
+// стены 1.5 + 1 px запаса. В сантиметрах зависит от масштаба плана.
+function camIconR(){ return (11 + 1.25 + 1.5 + 1) / (S || 1); }
+function camIcon(c){
+  const r = camIconR();
+  return {x: Math.min(Math.max(c.x, r), D.room.w - r),
+          y: Math.min(Math.max(c.y, r), D.room.d - r)};
+}
+function defaultCams(){
+  // ПО УМОЛЧАНИЮ — ДВА ПРОТИВОПОЛОЖНЫХ УГЛА, как ставит автоподбор: правый нижний и левый
+  // верхний, оба смотрят в центр комнаты. Диагональ обязательна — два соседних угла показали бы
+  // комнату дважды почти с одной стороны (ADR-0149).
+  const W=D.room.w, H=D.room.d, p=camPad();
+  const aim=(x,y)=>Math.round(Math.atan2(W/2-x, y-H/2)*180/Math.PI);
+  return [{name:'C1',x:W-p,y:H-p,rot:aim(W-p,H-p),fov:72},
+          {name:'C2',x:p,y:p,rot:aim(p,p),fov:72}];
+}
+// СМЕНА РАКУРСА ПО КРУГУ (владелец 01.09). Обе камеры переезжают в следующую пару углов по
+// часовой стрелке, сохраняя диагональ: съёмка двумя видами имеет смысл, только когда они с
+// противоположных сторон — иначе половина комнаты не попадёт ни в один кадр.
+function cornerList(){
+  // В САМЫЙ УГОЛ (владелец 01.09: «камеры должны прям в углы заходить»). Отступ — только чтобы
+  // глаз не оказался внутри стены; чем ближе к углу, тем БОЛЬШЕ комнаты попадает в кадр, а из
+  // комнаты мы выйти не можем. Значение должно совпадать с клэмпом на сервере (CAM_PAD_CM).
+  const W=D.room.w, H=D.room.d, p=camPad();
+  return [{x:p,y:p},{x:W-p,y:p},{x:W-p,y:H-p},{x:p,y:H-p}];   // по часовой с левого верхнего
+}
+function aimAtCentre(x,y){
+  return Math.round(Math.atan2(D.room.w/2-x, y-D.room.d/2)*180/Math.PI);
+}
+function clampCams(){
+  // КАМЕРА НЕ ВЫХОДИТ ЗА ПРЕДЕЛЫ КОМНАТЫ (владелец 01.09) — проверяем при КАЖДОЙ отрисовке,
+  // а не только при перетаскивании: положение хранится в браузере и могло быть записано, когда
+  // в варианте была другая комната или другой отступ.
+  if(!cams||!D||!D.room)return;
+  cams.forEach(c=>{
+    const p=camPad();
+    c.x=Math.min(Math.max(c.x,p),D.room.w-p);
+    c.y=Math.min(Math.max(c.y,p),D.room.d-p);
+  });
+}
+function cycleCams(){
+  if(!cams)cams=loadCams();
+  const cs=cornerList();
+  const near=p=>{let bi=0,bd=1e9;cs.forEach((c,i)=>{const d=Math.hypot(c.x-p.x,c.y-p.y);
+    if(d<bd){bd=d;bi=i;}});return bi;};
+  // Пара углов ВСЕГДА противоположна: второй индекс отличается на два из четырёх. Камеры
+  // смотрят в центр комнаты, а он лежит на диагонали — значит они смотрят и друг на друга.
+  const i0=(near(cams[0])+1)%4;                 // следующий угол по часовой
+  const i1=(i0+2)%4;                            // второй — строго напротив
+  [[i0,0],[i1,1]].forEach(([ci,k])=>{
+    cams[k].x=cs[ci].x; cams[k].y=cs[ci].y; cams[k].rot=aimAtCentre(cs[ci].x,cs[ci].y);
+  });
+  saveCams();draw();
+}
+// В КЛЮЧЕ — ВЕРСИЯ РАССТАНОВКИ КАМЕР. Положения лежат в браузере, и при смене правил старые
+// значения продолжали бы жить: после перевода камер вплотную в угол сохранённые с прежним
+// отступом так и стояли бы в 10 см от стены. Меняем правило — меняем версию, и каждый
+// получает новые углы по умолчанию (владелец 01.09).
+const CAMS_VER='v2-corner';
+function camsKey(){const v=allVariants()[cur]||{};return 'flat215-cams-'+CAMS_VER+'-'+(v.id||cur);}
+function loadCams(){
+  try{const r=JSON.parse(localStorage.getItem(camsKey())||'null'); if(r&&r.length===2)return r;}catch(e){}
+  return defaultCams();
+}
+function saveCams(){try{localStorage.setItem(camsKey(),JSON.stringify(cams));}catch(e){}}
+function drawCams(){
+  if(!cams)cams=loadCams();
+  clampCams();
+  cams.forEach((c,i)=>{
+    const g=el('g',{'data-cam':i,style:'cursor:pointer'});
+    const a=(c.rot||0)*Math.PI/180, half=(c.fov||72)/2*Math.PI/180, L=95;
+    const ic=camIcon(c), px=X(ic.x), py=Y(ic.y);   // кружок внутри, конус — из угла
+    // конус обзора: видно, что попадёт в кадр
+    const p1x=px+Math.sin(a-half)*L*S/ (S||1)*S, p1y=py-Math.cos(a-half)*L*S;
+    const p2x=px+Math.sin(a+half)*L*S, p2y=py-Math.cos(a+half)*L*S;
+    const tri=camCone(c);
+    // КОНУС НЕ ВЫЛЕЗАЕТ ЗА СТЕНЫ (владелец 01.09, повторно). Точка съёмки клэмпится, но сам
+    // сектор обзора рисовался поверх плана и уходил за периметр — камера выглядела стоящей
+    // снаружи. Режем сектор по прямоугольнику комнаты.
+    g.appendChild(el('path',{d:`M${X(tri[0].x)},${Y(tri[0].y)} L${X(tri[1].x)},${Y(tri[1].y)} `+
+      `L${X(tri[2].x)},${Y(tri[2].y)} Z`,
+      fill:'#2F6FB5',opacity:camSel===i?.2:.13,stroke:'#2F6FB5','stroke-width':1,
+      'clip-path':'url(#roomClip)'}));
+    const on=false;                       // камеры не выделяем: управление — стрелками
+    g.appendChild(el('circle',{cx:px,cy:py,r:on?13:11,fill:'#fff',
+      stroke:on?'#111':'#2F6FB5','stroke-width':on?3:2.5}));
+    const t=el('text',{x:px,y:py+4,'text-anchor':'middle','font-size':10,fill:'#2F6FB5',
+      'font-weight':'700','pointer-events':'none'}); t.textContent=String(i+1);
+    g.appendChild(t);
+    // ПОДПИСЬ НА КОНУСЕ (владелец 01.09): без неё голубой треугольник читается как что угодно —
+    // тень, зона, подсветка. Текст НЕ поворачиваем вместе с конусом: подписи на плане всегда
+    // горизонтальны, иначе их не прочесть при развороте.
+    // ПОДПИСЬ ТОЖЕ НЕ ВЫХОДИТ ЗА СТЕНЫ (владелец 01.09: «камера всё равно за стены уходит,
+    // сама голубая метка»). Сектор режется по комнате, а текст рисовался в центре ПОЛНОГО
+    // треугольника — а он у камеры в углу наполовину снаружи, и надпись уезжала на поле.
+    // Считаем центр по вершинам, ЗАГНАННЫМ в комнату, и держим текст целиком внутри:
+    // половина слова ~42 px, строка ~11 px — в сантиметрах это зависит от масштаба.
+    const cl=tri.map(t=>({x:Math.min(Math.max(t.x,0),D.room.w),
+                          y:Math.min(Math.max(t.y,0),D.room.d)}));
+    const mx=42/(S||1), my=9/(S||1);
+    const mid={x:Math.min(Math.max((cl[0].x+cl[1].x+cl[2].x)/3, mx), D.room.w-mx),
+               y:Math.min(Math.max((cl[0].y+cl[1].y+cl[2].y)/3, my), D.room.d-my)};
+    const lab=el('text',{x:X(mid.x),y:Y(mid.y),'text-anchor':'middle','font-size':11,
+      fill:'#2F6FB5','font-weight':'600','pointer-events':'none',opacity:.85});
+    lab.textContent='Камера ' + (i + 1);
+    g.appendChild(lab);
+    // ручка поворота на конце оси
+    stage.appendChild(g);
+    // РУЧКИ ПОВОРОТА — ТЕ ЖЕ, ЧТО У МЕБЕЛИ (владелец 01.09: «поворачиваться тоже как мебель,
+    // и убери полоску и шайбу на конце»). Прежняя ось с кружком на конце была отдельным,
+    // ни на что не похожим приёмом. Теперь у выбранной камеры по углам её конуса — те же дуги
+    // со стрелкой, что у предметов, и рамка пунктиром.
+    if(on){
+      const xs=tri.map(t=>X(t.x)), ys=tri.map(t=>Y(t.y)), pad=9;
+      const x0=Math.min(...xs)-pad, y0=Math.min(...ys)-pad;
+      const x1=Math.max(...xs)+pad, y1=Math.max(...ys)+pad;
+      const hg=el('g',{});
+      hg.appendChild(el('rect',{x:x0,y:y0,width:x1-x0,height:y1-y0,fill:'none',
+        stroke:'#E08A2E','stroke-width':1.4,'stroke-dasharray':'5 4',rx:4}));
+      const corner=(cx,cy,flip)=>{
+        const h=el('g',{transform:`translate(${cx},${cy}) scale(${flip[0]},${flip[1]})`});
+        h.setAttribute('data-camrot',String(i)); h.style.cursor='grab';
+        h.appendChild(el('circle',{cx:0,cy:0,r:13,fill:'#fff',opacity:.01}));
+        h.appendChild(el('path',{d:'M -6 3 A 7 7 0 1 1 3 6',fill:'none',stroke:'#2A2F2C',
+          'stroke-width':2.4,'stroke-linecap':'round'}));
+        h.appendChild(el('path',{d:'M 3 6 l -1 -5 l 6 2 z',fill:'#2A2F2C'}));
+        return h;};
+      [[x0,y0,[1,1]],[x1,y0,[-1,1]],[x0,y1,[1,-1]],[x1,y1,[-1,-1]]]
+        .forEach(cc=>hg.appendChild(corner(cc[0],cc[1],cc[2])));
+      const deg=Math.round(c.rot||0)%360;
+      if(deg)hg.appendChild(txt((tri[1].x+tri[2].x)/2,Math.min(tri[1].y,tri[2].y)-6,
+                                `${deg}°`,11,'#B4552B'));
+      stage.appendChild(hg);
+    }
+  });
+}
+// ХВАТАТЬ МОЖНО ЗА ВЕСЬ КОНУС, а не за кружок (владелец 01.09: «то есть за любую часть этой
+// области»). У предметов на плане область захвата — весь корпус, и камера не должна быть
+// исключением: маленькая мишень в 16 см плохо ловится и на мыши, и на пальце.
+function camCone(c){
+  const a=(c.rot||0)*Math.PI/180, half=(c.fov||72)/2*Math.PI/180, L=95;
+  return [{x:c.x,y:c.y},
+          {x:c.x+Math.sin(a-half)*L, y:c.y-Math.cos(a-half)*L},
+          {x:c.x+Math.sin(a+half)*L, y:c.y-Math.cos(a+half)*L}];
+}
+function inRoom(p){
+  return p.x>=0&&p.y>=0&&p.x<=D.room.w&&p.y<=D.room.d;
+}
+function inTri(p,t){
+  const s=(t[1].y-t[2].y)*(t[0].x-t[2].x)+(t[2].x-t[1].x)*(t[0].y-t[2].y);
+  if(Math.abs(s)<1e-9)return false;
+  const w0=((t[1].y-t[2].y)*(p.x-t[2].x)+(t[2].x-t[1].x)*(p.y-t[2].y))/s;
+  const w1=((t[2].y-t[0].y)*(p.x-t[2].x)+(t[0].x-t[2].x)*(p.y-t[2].y))/s;
+  return w0>=0&&w1>=0&&(1-w0-w1)>=0;
+}
+function camDot(pt){                 // только сам значок камеры — он кликабелен всегда
+  if(!cams)return -1;
+  for(let i=0;i<cams.length;i++){
+    const ic=camIcon(cams[i]);
+    if(Math.hypot(pt.x-ic.x,pt.y-ic.y)<=16)return i;
+  }
+  return -1;
+}
+function camAt(pt){
+  if(!cams)return -1;
+  const dot=camDot(pt); if(dot>=0)return dot;
+  if(!inRoom(pt))return -1;          // за стеной ловить нечего — конус там не рисуется
+  for(let i=0;i<cams.length;i++){
+    if(inTri(pt,camCone(cams[i])))return i;
+  }
+  return -1;
+}
 function draw(){
   if(!D||!D.room)return;
   size();while(stage.firstChild)stage.removeChild(stage.firstChild);
+  const defs=el('defs',{}), cp=el('clipPath',{id:'roomClip'});
+  cp.appendChild(el('rect',{x:X(0),y:Y(0),width:D.room.w*S,height:D.room.d*S}));
+  defs.appendChild(cp); stage.appendChild(defs);
   stage.appendChild(el('rect',{x:X(0),y:Y(0),width:D.room.w*S,height:D.room.d*S,fill:'#FAF8F3',stroke:'#3A3A3A','stroke-width':3}));
   D.room.radiators.forEach(r=>{const p=wallSeg(r.wall,r.offset_cm,r.width_cm);
     stage.appendChild(el('line',{x1:X(p.x1),y1:Y(p.y1),x2:X(p.x2),y2:Y(p.y2),stroke:'#C8622F','stroke-width':7,opacity:.5}));});
@@ -575,6 +1007,7 @@ function draw(){
     const b=box(it);
     stage.appendChild(txt((b.x0+b.x1)/2,b.y1+9,`${it.role} ${Math.round(it.w)}×${Math.round(it.d)}`,10.5,'#2A2F2C'));});
   if(sel)stage.appendChild(handles(sel));               // ручки выделенного — под значками
+  drawCams();                                          // точка съёмки — над предметами
   items.forEach(it=>stage.appendChild(badgeFor(it)));   // значки — последним слоем и БЕЗ поворота
   basket();
   drawPhotos();          // блок над планом знает, снята ли ТЕКУЩАЯ расстановка (26.08)
@@ -583,15 +1016,14 @@ function draw(){
   // КНОПКА ПОД ПЛАНОМ — ТОЛЬКО ПОСЛЕ ПРАВКИ (владелец 26.08): на нетронутом варианте предлагать
   // «посмотреть изменения» нечего.
   const snb=document.getElementById('shotNowBar');
-  if(snb)snb.hidden=!(baseRev&&items.length&&revision()!==baseRev);
+  // кнопка видна всегда, пока в комнате есть что снимать — это единственный вход в съёмку
+  if(snb)snb.hidden=!items.length;
   drawDoorCtl();
+  // ТРЕТИЙ ВХОД В ИСХОДНИКИ — ТОЖЕ СКРЫТ (владелец 01.09). Служебные ссылки были в трёх местах:
+  // в шапке блока фотографий, в просмотре кадра и здесь, над планом. Сами исходники продолжают
+  // собираться на каждый кадр и лежат по своему адресу — с экрана убран только вход.
   const sl=document.getElementById('srcLink');
-  if(sl){
-    let last=''; try{last=localStorage.getItem('flat215-src')||'';}catch(e){}
-    sl.innerHTML=last
-      ? `<a class="srcln" href="${last}" target="_blank" rel="noopener">исходники последнего фото</a>`
-      : '';
-  }
+  if(sl)sl.innerHTML='';
   const st=document.getElementById('layoutState');
   if(st){const changed=baseRev&&revision()!==baseRev;   // «готовая расстановка» и так очевидна
     st.textContent=changed?'Изменено вами':'';
@@ -615,7 +1047,7 @@ function groupBySku(list){                                   // слоты од�
 function basket(){                    // СПИСОК ТОВАРОВ КОМНАТЫ — справа от плана (структура референса,
   const withSku=items.filter(i=>i.sku&&i.sku.name);   // 26.08): строка = миниатюра, название, магазин,
   const box=document.getElementById('blist');         // цена, «Заменить» и ссылка в магазин; снизу итог
-  if(!withSku.length){box.innerHTML='<div class="hint">Товары ещё не назначены: выберите комплект или подберите предмет вручную.</div>';return;}
+  if(!withSku.length){box.innerHTML='<div class="hint">Товары ещё не назначены: выберите комплект или подберите предмет вручную.</div>';priceCard(0,0);return;}
   const groups=groupBySku(withSku);
   let sum=0;
   box.innerHTML=groups.map(gr=>{const p=gr.sku, i=gr.first;
@@ -631,12 +1063,84 @@ function basket(){                    // СПИСОК ТОВАРОВ КОМНА�
       (p.url?` · <a href="${p.url}" target="_blank" rel="noopener">Подробнее</a>`:'')+`</span></div>`+
       `<div class="p">${((p.price||0)*n).toLocaleString('ru-RU')} ₽</div></div>`;}).join('')
     +`<div class="total"><span>Итого ${groups.length} товаров</span><span>${sum.toLocaleString('ru-RU')} ₽</span></div>`;
+  priceCard(sum, groups.length);
   // клик по строке или «Заменить» открывает тот же каталог замены, что и значок на предмете
   box.querySelectorAll('.row').forEach(r=>{
     const it=items[+r.dataset.i];
     r.onclick=()=>{if(it){sel=it;draw();openPicker(it);}};
     const a=r.querySelector('a'); if(a)a.onclick=e=>e.stopPropagation();
   });
+}
+// ЦЕНА КВАРТИРЫ — ЭКСТРАПОЛЯЦИЯ, А НЕ ВЫДУМКА (владелец 01.09 «цену экстраполируй»): у образца
+// 74,06 м² стоили 9 624 990 ₽, это 129 962 ₽ за метр; наши 73,7 м² по той же ставке — 9 578 200 ₽.
+// Число демонстрационное и подписано как таковое: реальную квартиру мы не продаём.
+const FLAT_M2=73.7, FLAT_RATE=9624990/74.06;
+const FLAT_PRICE=Math.round(FLAT_M2*FLAT_RATE/100)*100;
+let LAST_SUM=0, LAST_CNT=0;
+function priceCard(sum, cnt){
+  LAST_SUM=sum||0; LAST_CNT=cnt||0;
+  // ЦЕНА КВАРТИРЫ — В ШАПКЕ, ОБСТАНОВКА — В БОКОВОЙ КАРТОЧКЕ: это разные вещи. Первая
+  // относится ко всей квартире и не меняется, вторая пересчитывается на каждую перестановку,
+  // поэтому и живут они в разных местах. Шапку рисуем один раз.
+  const fs=document.getElementById('flatSum');
+  if(fs)fs.textContent=money(FLAT_PRICE);
+  const box=document.getElementById('priceCard'); if(!box)return;
+  // СНАЧАЛА ЧИСЛО И ДЕЙСТВИЕ, ПОТОМ ОГОВОРКА (аудит 01.09, Г3). Дисклеймер стоял НАД суммой:
+  // человек упирался в юридический текст раньше, чем видел цену.
+  box.innerHTML=
+    `<div class="pc-furn">Стоимость представленной мебели и техники:</div>`+
+    `<div class="pc-sum">${money(LAST_SUM)}</div>`+
+    `<button class="btn round wide" id="pcSave">Сохранить список мебели и техники</button>`+
+    `<div class="pc-note">3D-модель носит ознакомительный характер и может отличаться от
+      фактических характеристик. Точные характеристики вашей будущей квартиры можно узнать
+      у нашего менеджера. Цена и данные о доме — демонстрационные.</div>`;
+  // У КАЖДОЙ КНОПКИ — СВОЯ ПОДПИСЬ (владелец 01.09). Обе вели один и тот же общий текст про
+  // «демонстрацию блока»; человеку важно, КУДА ведёт именно эта кнопка.
+  const say=t=>()=>shotOpen('<div class="wait">'+t+'</div>','');
+  const inf=document.getElementById('payInfo'), inft=document.getElementById('payInfoTxt');
+  if(inf&&inft)inf.onclick=()=>{inft.hidden=!inft.hidden;};
+  const mort=document.getElementById('pcMort'), cons=document.getElementById('pcCons');
+  if(mort)mort.onclick=say('Эта ссылка ведет на условия ипотеки по квартире');
+  if(cons)cons.onclick=say('Эта ссылка ведет на форму консультации застройщика');
+  box.querySelector('#pcSave').onclick=openList;
+}
+// ——— СТРАНИЦА СПИСКА: сводка ПО СТИЛЯМ (у нас комплект зависит от стиля, а не от комнаты)
+function openList(){
+  const cardEl=document.getElementById('mlCard'); if(!cardEl)return;
+  const v=allVariants()[cur]||{}, st=v.style||v.title||'';
+  const room=(D.room&&D.room.title)||'Гостиная';
+  document.getElementById('mlTitle').textContent=`Трёхкомнатная ${String(FLAT_M2).replace('.',',')} м²`;
+  document.getElementById('mlLead').innerHTML=
+    'Список мебели из вашей расстановки в стиле <b>'+st+'</b>. Сохраните его себе: по ссылкам '+
+    'из списка товары можно купить в магазинах-партнёрах.';
+  // сводка по стилям: каждый стиль — свой комплект и своя цена
+  const rows=allVariants().map((x,i)=>{
+    const pr=variantPrice(x)||0, n=(x.items||[]).filter(it=>it.sku&&it.sku.name).length;
+    return `<div class="srow${i===cur?' on':''}"><span>${x.style||x.title||''}`+
+      (n?` <span class="c">(${n})</span>`:'')+`</span><span>${money(pr)}</span></div>`;
+  }).join('');
+  const withSku=items.filter(i=>i.sku&&i.sku.name);
+  const groups=groupBySku(withSku);
+  const list=groups.map(gr=>{const p=gr.sku, n=buys(gr.slots.length,p);
+    return `<div class="prow">`+
+      (p.img?`<img src="${p.img}" loading="lazy" alt="">`:'<div class="pnoimg">нет фото</div>')+
+      `<div class="pi"><b>${money((p.price||0)*n)}</b>`+
+      `<span>${n} × ${money(p.price||0)}</span>`+
+      `<div class="pname">${p.name||gr.first.role}</div></div>`+
+      (p.shop?`<div class="shop">${p.shop}</div>`:'')+`</div>`;}).join('');
+  const plan=document.querySelector('#flatRooms svg');
+  cardEl.innerHTML=
+    `<div class="mark">215</div>`+
+    `<h2 style="margin-top:12px">Трёхкомнатная ${String(FLAT_M2).replace('.',',')} м²</h2>`+
+    `<div class="fm" style="color:var(--muted)">ЖК «Ольховый квартал» · 2 кв. 2029 · эт. 6 из 17 · корп. 3</div>`+
+    (plan?`<div class="planbox">${plan.outerHTML}</div>`:'')+
+    `<div class="sumbox"><div class="tt">Комплекты по стилям</div>${rows}`+
+      `<div class="grand"><span>Ваш выбор: ${st} · ${room}</span><span>${money(LAST_SUM)}</span></div>`+
+    `</div>`+
+    `<h3 style="margin:18px 0 0">${room} <span style="color:var(--muted);font-weight:400">(${LAST_CNT})</span></h3>`+
+    (list||'<div class="hint">Товары ещё не назначены.</div>');
+  document.getElementById('mlist').classList.add('on');
+  const mx=document.getElementById('mlx'); if(mx)mx.focus();
 }
 let UID=0;
 let peekTimer=null;
@@ -895,6 +1399,8 @@ function payload(){
   const base=location.origin+location.pathname.replace(/[^/]*$/,'');
   const v=allVariants()[cur]||{};
   return {room:D.room, style:v.style||'', variant:v.title||'',
+    cams:(cams||loadCams()).map(c=>({name:c.name,x:Math.round(c.x),y:Math.round(c.y),
+      rot:Math.round(c.rot||0),fov:c.fov||72})),
     items:items.map(it=>({role:it.role,x:it.x,y:it.y,rot:it.rot,
     w:it.w,d:it.d,h:it.h,corner:it.corner,section:it.section,
     // sid — через skuOf: вторая штука комплекта («стул 2») без него уезжала на сервер
@@ -940,11 +1446,24 @@ function dropDeadShot(img){
   shots=shots.filter(s=>s.url!==url);
   if(shots.length!==before){ saveShots(); drawFeed(); drawPhotos(); }
 }
+// СТИЛЬ СНИМКА. Номера вариантов с экрана убраны (владелец 01.09), а у старых кадров в
+// хранилище лежит только название «Вариант 2» — достаём стиль по привязке к варианту.
+function styleOf(s){
+  if(s&&s.style)return s.style;
+  const v=(allVariants()||[]).find(x=>((x.id||'')===(s&&s.vid))||((x.title||'')===(s&&s.variant)));
+  return (v&&v.style)||(s&&s.variant)||'';
+}
+function variantOf(s){
+  return (allVariants()||[]).find(x=>((x.id||'')===(s&&s.vid))||((x.title||'')===(s&&s.variant)))
+         ||allVariants()[cur]||{};
+}
 function shotLabel(s){
-  const q={draft:'черновое',realistic:'улучшенное',preset:'готовое'}[s.quality]||s.quality;
+  // СЛОВА ПОКУПАТЕЛЯ, А НЕ НАШИ (аудит 01.09, Г1): «черновое/улучшенное» — внутренние термины
+  // конвейера; человеку важно, эскиз перед ним или фотография.
+  const q={draft:'эскиз',realistic:'фотореалистично',preset:'готовое'}[s.quality]||s.quality;
   const cam='';           // ракурс не пишем: виды листаются внутри просмотра (27.08)
   const t=new Date(s.ts||Date.now());
-  return `${s.variant||''} · ${q}${cam?' · '+cam:''} · ${t.getHours()}:${String(t.getMinutes()).padStart(2,'0')}`;
+  return `${styleOf(s)} · ${q}${cam?' · '+cam:''} · ${t.getHours()}:${String(t.getMinutes()).padStart(2,'0')}`;
 }
 function curVid(){ const v=allVariants()[cur]||{}; return v.id||('v'+cur); }
 function myShots(){
@@ -972,8 +1491,11 @@ function drawFeed(){                    // КАРУСЕЛЬ СРЕДНИХ КА�
     return [...by.values()];
   };
   const card=(s,i,views)=>{
-    const better=s.quality==='draft'&&s.revision===rev&&
-      !mine.some(x=>x.quality==='realistic'&&x.revision===rev);
+    // КНОПКА «УЛУЧШИТЬ ФОТО» — НА КАЖДОМ НАШЕМ КАДРЕ (владелец 01.09: «на самих превью всегда
+    // оставляй кнопку улучшить фото, если это наша модель»). Прежнее условие прятало её, как
+    // только для этой расстановки появлялось хоть одно улучшенное фото, — и повторить улучшение
+    // было нечем.
+    const better=s.quality==='draft';
     return `<div class="card" data-i="${i}">`+
       // СНИМОК, ФАЙЛА КОТОРОГО БОЛЬШЕ НЕТ, — МЁРТВАЯ КАРТОЧКА (01.09). Кадры живут на сервере,
       // а список — в браузере, и после чистки сервера в галерее оставались битые превью с
@@ -981,9 +1503,9 @@ function drawFeed(){                    // КАРУСЕЛЬ СРЕДНИХ КА�
       // показывать ссылку на него не на что. Убираем такую запись из хранилища и перерисовываем.
       `<img src="${s.url}" alt="${shotLabel(s)}" loading="lazy" data-url="${s.url}" onerror="dropDeadShot(this)">`+
       (views>1?`<div class="views">${views} вида</div>`:'')+
-      `<div class="cap">${shotLabel(s)}`+
-        (s.sources?` · <a class="srcln" href="${s.sources}" target="_blank" rel="noopener">исходники</a>`:'')+
-      `</div>`+
+      // Служебная ссылка на исходники с карточки убрана (владелец 01.09): сама страница
+      // исходников продолжает собираться и лежит по своему адресу, с экрана убран только вход.
+      `<div class="cap">${shotLabel(s)}</div>`+
       `<div class="acts2">`+
         (better?'<button class="btn up">Улучшить фото</button>':'')+
         `<button class="btn pickbtn${s.pick?' on':''}">${s.pick?'Удалить из подборки':'В подборку'}</button>`+
@@ -992,8 +1514,10 @@ function drawFeed(){                    // КАРУСЕЛЬ СРЕДНИХ КА�
   f.className='car';
   f.innerHTML=`<button class="nav prev" aria-label="Назад">‹</button>`+
     `<div class="track">`+
-      (addFirst?`<div class="add"><div class="plus">＋</div><b>Посмотреть изменения на фото</b>
-        <span>черновое фото · ~25 сек</span></div>`:'')+
+      // ВХОД В СЪЁМКУ ТОЛЬКО ОДИН — КНОПКА ПОД ПЛАНОМ (аудит 01.09, A2). Раньше их было два:
+      // карточка «＋» в ленте и кнопка под планом, причём вторая появлялась лишь после правки
+      // расстановки. Человек не понимал, почему кнопка то есть, то нет.
+      ''+
       groups(mine).map(g=>[g[0],shots.indexOf(g[0]),g.length]).reverse()
         .map(([s,i,n])=>card(s,i,n)).join('')+                                    // новые первыми
     `</div>`+
@@ -1016,7 +1540,10 @@ function drawFeed(){                    // КАРУСЕЛЬ СРЕДНИХ КА�
     // сервер берёт готовый лист и не пересобирает сцену (01.09: минута лишнего ожидания и
     // риск отправить не то, что человек видит).
     const up=c.querySelector('.up');
-    if(up)up.onclick=()=>makePhoto('realistic', srcIdOf(s));
+    // УЛУЧШЕННОЕ ФОТО ВСТАЁТ НА МЕСТО ЧЕРНОВОГО (владелец 01.09: «не создавай новую фотографию
+    // в подборке, а заменяй текущую — черновая модель возникает, а после улучшения она
+    // фотореалистичная»). Передаём пачку заменяемого кадра третьим аргументом.
+    if(up)up.onclick=()=>makePhoto('realistic', srcIdOf(s), s.batch||'');
     c.querySelector('.pickbtn').onclick=()=>{s.pick=!s.pick;drawFeed();};
   });
   const bar=document.getElementById('feedBar');
@@ -1031,29 +1558,38 @@ function drawPhotos(){                 // ЗАГОЛОВОК БЛОКА: что 
   const box=document.getElementById('photosHead'); if(!box||!D)return;
   const rev=revision(), vshots=myShots();
   const mine=vshots.filter(s=>s.revision===rev);
-  const h=mine.length?'Фотографии этой расстановки'
-        :(vshots.length?'Расстановка изменилась':'Фотография вашей комнаты');
-  const t=mine.length?'Листайте стрелками. Снимки этого варианта не пропадают.'
-        :(vshots.length?'Прежние снимки варианта сохранены. Нажмите «＋», чтобы снять новую расстановку.'
-                      :'Соберите комнату по вкусу и нажмите «＋» — увидите, как она будет выглядеть.');
+  // ЗАГОЛОВОК ОДИН НА ВСЕ СТИЛИ (владелец 01.09: «в лофте так, а в других иначе — сделай
+  // одинаково»). Он менялся от того, есть ли уже снимки: «Фотография вашей комнаты» →
+  // «Расстановка изменилась» → «Фотографии этой расстановки». Переключаясь между стилями,
+  // человек видел три разных названия одного и того же блока и думал, что попал в другой раздел.
+  const h='Фотографии этой расстановки';
+  // ПОДСКАЗКА — ТОЛЬКО КОГДА ЕСТЬ ЧТО ПОДСКАЗАТЬ (владелец 01.09: «фразу „листайте стрелками,
+  // снимки не пропадают“ удали, место лишнее, и под ней пустоты не оставляй»). Когда снимки уже
+  // есть, человеку не нужно объяснять карусель — он её видит. Пустой блок ниже не рисуем вовсе.
+  // ОДНА ПОДСКАЗКА, И ТОЛЬКО КОГДА СНИМКОВ НЕТ (аудит 01.09, Г4). Ссылка на «＋» устарела:
+  // вход в съёмку теперь один — кнопка под планом.
+  const t=mine.length?''
+        :'Расставьте мебель и нажмите «Посмотреть изменения на фото» под планом.';
   // СЛУЖЕБНАЯ КНОПКА (владелец 26.08: «всё ещё не вижу служебную кнопку»): раньше это была
   // серая подпись мелким шрифтом в строке над планом — её не замечали. Теперь это видимая
   // кнопка в шапке блока фотографий, всегда на месте.
-  let last=''; try{last=localStorage.getItem('flat215-src')||'';}catch(e){}
-  const srcBtn=last                                  // до первой съёмки кнопки просто нет
-    ? `<a class="btn srcbtn" href="${last}" target="_blank" rel="noopener">Исходники запроса →</a>`
-    : '';
-  box.innerHTML=`<div class="headrow"><div><h3>${h}</h3><div class="hint">${t}</div></div>`+
-    `<div>${srcBtn}</div></div>`;
+  // КНОПКА «ИСХОДНИКИ ЗАПРОСА» СКРЫТА С ЭКРАНА (владелец 01.09: «скрой эту кнопку, но саму
+  // сущность убирать не надо»). Страница исходников по-прежнему собирается на каждый кадр и
+  // лежит по своему адресу — она нужна для разбора; просто перестала занимать место в шапке.
+  box.innerHTML=`<div class="headrow"><div><h3>${h}</h3>`+
+    (t?`<div class="hint">${t}</div>`:'')+`</div></div>`;
 }
 function shotOpen(html,cap){document.getElementById('shotbody').innerHTML=html;
   document.getElementById('shotcap').innerHTML=cap||'';
-  document.getElementById('shot').classList.add('on');}
+  document.getElementById('shot').classList.add('on');
+  // ФОКУС ПЕРЕХОДИТ В ОКНО (аудит 01.09, Д4): иначе с клавиатуры он остаётся на странице под
+  // модалкой, и следующий Tab уводит «сквозь» открытое окно.
+  const x=document.getElementById('shotx'); if(x)x.focus();}
 function srcIdOf(s){
   const m=String((s&&s.sources)||'').match(/\/src\/([^/]+)\/?$/);
   return m?m[1]:'';
 }
-async function makePhoto(quality, srcId){
+async function makePhoto(quality, srcId, replaceBatch){
   if(busy){shotOpen('<div class="wait">Один кадр уже считается — дождитесь его.</div>','');return;}
   busy=true; warmUp();
   const t0=Date.now(), rev=revision();
@@ -1075,9 +1611,12 @@ async function makePhoto(quality, srcId){
     // перезагрузки страницы — ровно то, что видел владелец.
     const vv=allVariants()[cur]||{};
     const batch='b'+Date.now();          // оба ракурса одной съёмки — одна «пачка» (27.08)
+    // Улучшённый кадр ЗАМЕНЯЕТ черновой: убираем пачку, на которой нажали «улучшить».
+    if(replaceBatch){ shots=shots.filter(x=>x.batch!==replaceBatch); saveShots(); }
     j.shots.forEach(sh=>addShot({url:sh.url,camera:sh.camera||'C1',quality:quality,batch:batch,
-      anchors:sh.anchors||[],variant:vv.title||'',vid:vv.id||('v'+cur),revision:rev,
-      ts:Date.now(),model:j.model||'',sources:sh.sources||j.sources||'',timing:j.timing||null}));
+      anchors:sh.anchors||[],variant:vv.title||'',style:vv.style||'',vid:vv.id||('v'+cur),
+      revision:rev,ts:Date.now(),model:j.model||'',sources:sh.sources||j.sources||'',
+      timing:j.timing||null}));
     viewShot(shots.length-1);
   }catch(err){
     clearInterval(tick); busy=false;
@@ -1132,10 +1671,9 @@ function viewShot(i){
   const srcUrl=s.sources||lastSrc;
   const tm=s.timing?Object.entries(s.timing).filter(([,v])=>v>0.4)
     .map(([k,v])=>`${k} ${v} с`).join(' · '):'';
-  const srcRow=srcUrl
-    ? `<div class="srcrow"><a class="btn srcbtn" href="${srcUrl}" target="_blank" rel="noopener">Исходники запроса →</a>`+
-      `<span class="hint">${tm||'что именно ушло в модель: макет, номера, эталоны товаров и промпт'}</span></div>`
-    : '';
+  // В ПРОСМОТРЕ НЕТ НИ КНОПКИ ИСХОДНИКОВ, НИ ОБЪЯСНЕНИЯ, ЧТО УШЛО В МОДЕЛЬ (владелец 01.09).
+  // Это служебные вещи: они остаются на сервере, но человеку в крупном кадре не нужны.
+  const srcRow='';
   // СТРЕЛКИ ЛИСТАЮТ ТОЛЬКО ВИДЫ ЭТОЙ СЪЁМКИ (владелец 27.08: «стрелочки вперёд-назад по только
   // этим 2 видам»), а не всю накопленную ленту варианта.
   const seq=s.batch
@@ -1147,13 +1685,15 @@ function viewShot(i){
       `<button class="nav next" id="shotNext" ${at===seq.length-1?'disabled':''} aria-label="Следующий вид">›</button>`+
       `<div class="viewno">${at+1} из ${seq.length}</div>`
     : '';
-  shotOpen(`<div class="shotwrap"><img src="${s.url}" alt="${shotLabel(s)}">${pins}${navs}</div>${srcRow}${list}`,
-    `<span>${shotLabel(s)}${s.model?' · '+s.model:''}`+
-    (s.sources?`<a class="srcln" href="${s.sources}" target="_blank" rel="noopener">исходники</a>`:'')+
-    `</span>`+
-    `<span><a class="btn" href="${s.url}" download target="_blank" rel="noopener">Скачать</a>
-     <button class="btn primary" id="shShare">Отправить себе</button></span>`);
-  document.getElementById('shShare').onclick=()=>shareOpen([s]);
+  // ПОДПИСЬ КРУПНОГО КАДРА — СТИЛЬ И СТОИМОСТЬ КОМПЛЕКТА, как на кнопке варианта
+  // (владелец 01.09: «оставь только подпись стиля, как по кнопке, и стоимость»).
+  const vp=variantPrice(variantOf(s));
+  shotOpen(`<div class="shotwrap"><img src="${s.url}" alt="${styleOf(s)}">${pins}${navs}</div>${srcRow}${list}`,
+    `<span><b>${styleOf(s)}</b>${vp?' · Стоимость комплекта: '+money(vp):''}</span>`+
+    `<span><button class="btn primary" id="shPick">${s.pick?'Удалить из подборки':'Добавить в подборку'}</button></span>`);
+  const pk=document.getElementById('shPick');
+  if(pk)pk.onclick=()=>{s.pick=!s.pick;saveShots();drawFeed();
+    pk.textContent=s.pick?'Удалить из подборки':'Добавить в подборку';};
   const pv=document.getElementById('shotPrev'), nx=document.getElementById('shotNext');
   if(pv)pv.onclick=()=>viewShot(shots.indexOf(seq[at-1]));
   if(nx)nx.onclick=()=>viewShot(shots.indexOf(seq[at+1]));
@@ -1228,6 +1768,38 @@ function updateRotOvl(){if(!rotBtns||!sel){return;}
   const cx=r.left+PAD+sel.x*S, cy=r.top+PAD+sel.y*S;
   rotBtns[0].style.left=(cx-46)+'px'; rotBtns[0].style.top=(cy-20)+'px';
   rotBtns[1].style.left=(cx+6)+'px';  rotBtns[1].style.top=(cy-20)+'px';}
+// СТРЕЛКИ ПОВОРОТА КАМЕРЫ (владелец 01.09: «как мебель стрелочками чёрными переключалось, но
+// сами камеры не выделялись»). Тот же элемент, что у предметов, только шаг 45°: камера стоит
+// в углу и смотрит по диагонали, у неё осмысленных направлений больше, чем четыре.
+let camOvl=null, camOvlI=-1;
+function hideCamOvl(){if(camOvl){camOvl.forEach(b=>b.remove());camOvl=null;camOvlI=-1;}}
+function updateCamOvl(){
+  if(!camOvl||camOvlI<0||!cams)return;
+  const r=stage.getBoundingClientRect(), c=cams[camOvlI];
+  const ic=camIcon(c), cx=r.left+PAD+ic.x*S, cy=r.top+PAD+ic.y*S;
+  camOvl[0].style.left=(cx-46)+'px'; camOvl[0].style.top=(cy-20)+'px';
+  camOvl[1].style.left=(cx+6)+'px';  camOvl[1].style.top=(cy-20)+'px';
+}
+function showCamOvl(i){
+  hideCamOvl(); hideRotOvl();
+  camOvlI=i;
+  // ДВЕ КОНВЕНЦИИ УГЛА В ФАЙЛЕ ПРОТИВОПОЛОЖНЫ — их нельзя сводить по числу, только по
+  // картинке на экране. Мебель рисуется через `rotate(-it.rot)`, поэтому у неё ПЛЮС = против
+  // часовой. Конус камеры строится напрямую из (sin a, -cos a) при оси Y ВНИЗ, поэтому у
+  // камеры ПЛЮС = ПО часовой. Значит одна и та же стрелка \u21ba (против часовой) требует
+  // у мебели +1, а у камеры -15. Попытка «выровнять знаки» ломает поворот (владелец 01.09).
+  // МЕСТАМИ ПОМЕНЯНЫ ЦЕЛИКОМ — значок вместе с действием (владелец 01.09: «если сами стрелки
+  // вместе с их назначением местами поменяешь, будет ок»). Физически прежний вариант был
+  // верен «от лица камеры» (левая = панорама влево, и в кадре слева появляется новое), но
+  // владелец судит по плану: куда поехал кончик сектора. Решает владелец.
+  camOvl=[['\u21bb',15],['\u21ba',-15]].map(([ch,step])=>{
+    const b=document.createElement('div');b.className='rotbtn';b.textContent=ch;
+    b.addEventListener('pointerdown',ev=>{ev.stopPropagation();ev.preventDefault();
+      const c=cams[camOvlI]; c.rot=(((c.rot||0)+step)%360+360)%360; saveCams(); draw(); updateCamOvl();});
+    document.body.appendChild(b);return b;});
+  updateCamOvl();
+}
+window.addEventListener('scroll',updateCamOvl,{passive:true});
 function showRotOvl(){hideRotOvl();if(!sel)return;
   rotBtns=[['\u21ba',1],['\u21bb',-1]].map(([ch,dir])=>{
     const b=document.createElement('div');b.className='rotbtn';b.textContent=ch;
@@ -1236,6 +1808,16 @@ function showRotOvl(){hideRotOvl();if(!sel)return;
   updateRotOvl();}
 window.addEventListener('scroll',updateRotOvl,{passive:true});
 stage.addEventListener('pointerdown',e=>{const pt=loc(e);
+  // камера имеет приоритет над предметами: её значок мелкий и лежит поверх
+  const rotCam=e.target.closest?e.target.closest('[data-camrot]'):null;
+  if(rotCam){const i=+rotCam.getAttribute('data-camrot');
+    camDrag={i:i,mode:'rot'};stage.setPointerCapture(e.pointerId);e.preventDefault();return;}
+  // МЕБЕЛЬ ГЛАВНЕЕ КОНУСА (владелец 01.09: «выделил камеру — теперь торшер рядом не могу
+  // двигать»). Конус занимает пол-комнаты и перехватывал клики по предметам под ним. Здесь
+  // ловим только САМ ЗНАЧОК камеры; по конусу выбираем ниже — если под пальцем нет предмета.
+  // Перетаскивание камеры отключено (её место задаёт кнопка «поменять ракурс»).
+  const cd=camDot(pt);
+  if(cd>=0){sel=null; showCamOvl(cd); draw(); e.preventDefault(); return;}
   // ВРАЩЕНИЕ ЗА УГЛОВУЮ РУЧКУ (26.08): угол считаем от центра предмета, шаг 5°, с притяжением
   // к 0/90/180/270 — чтобы «ровно вдоль стены» ставилось само, а любой угол оставался доступен.
   const rotH=e.target.closest?e.target.closest('[data-rot]'):null;
@@ -1252,12 +1834,15 @@ stage.addEventListener('pointerdown',e=>{const pt=loc(e);
   const hit=under[0];
   if(!hit){                         // клик мимо мебели — снимаем выделение
     hideRotOvl();
+    const ci=camAt(pt);             // предметов под пальцем нет — тогда это может быть конус
+    if(ci>=0){sel=null; showCamOvl(ci); draw(); e.preventDefault(); return;}
+    hideCamOvl();
     if(sel){sel=null;draw();
       const s=document.getElementById('sel');
       if(s)s.textContent='Перетаскивайте предмет, чтобы двигать. Товар выбирается по значку на предмете.';}
     return;
   }
-  if(hit){sel=hit;stage.setPointerCapture(e.pointerId);
+  if(hit){sel=hit;hideCamOvl();stage.setPointerCapture(e.pointerId);
     if(e.pointerType==='touch'){
       drag=null;touchStart={x:e.clientX,y:e.clientY,pt,hit};
       clearTimeout(touchTimer);
@@ -1270,6 +1855,20 @@ stage.addEventListener('pointerdown',e=>{const pt=loc(e);
 stage.addEventListener('pointermove',e=>{
   if(touchTimer&&touchStart&&Math.hypot(e.clientX-touchStart.x,e.clientY-touchStart.y)>10){
     clearTimeout(touchTimer);touchTimer=null;}
+  if(camDrag&&cams){
+    const pt=loc(e), c=cams[camDrag.i], pad=camPad();
+    if(camDrag.mode==='move'){
+      /* перемещение отключено — место задаётся кнопкой «поменять ракурс» */
+    }else{
+      // ПОВОРОТ — КАК У МЕБЕЛИ (владелец 01.09: «сделай, чтоб камера двигалась по аналогии»):
+      // тот же шаг ROT_SNAP и то же притяжение к 0/90/180/270, что у предметов. Иначе камера
+      // ведёт себя иначе, чем всё остальное на плане, и «ровно вдоль стены» не поставить.
+      let ang=Math.atan2(pt.x-c.x,c.y-pt.y)*180/Math.PI;
+      ang=Math.round(ang/ROT_SNAP)*ROT_SNAP;
+      [0,90,180,270,360].forEach(k=>{if(Math.abs(((ang%360)+360)%360-k)<=ROT_MAGNET)ang=k%360;});
+      c.rot=((ang%360)+360)%360;
+    }
+    saveCams();draw();e.preventDefault();return;}
   if(rotDrag&&sel){const pt=loc(e);
     const a=Math.atan2(pt.y-sel.y,pt.x-sel.x)*180/Math.PI;
     let ang=rotDrag.base-(a-rotDrag.start);   // на сцене предмет повёрнут на -rot
@@ -1324,7 +1923,7 @@ stage.addEventListener('pointerup',e=>{
   if(touchTimer){clearTimeout(touchTimer);touchTimer=null;
     if(sel&&e.pointerType==='touch')showRotOvl();}   // короткий тап — стрелки поворота
   else if(sel&&drag&&!drag.moved&&!rotDrag)showRotOvl();  // и на компе: клик без движения (владелец 31.08)
-  drag=null;rotDrag=null;touchStart=null;showTip(null);});  // предмет только двигаем; товар — по значку
+  drag=null;rotDrag=null;camDrag=null;touchStart=null;showTip(null);});  // предмет только двигаем; товар — по значку
 window.addEventListener('pointercancel',()=>{clearTimeout(touchTimer);touchTimer=null;drag=null;rotDrag=null;touchStart=null;showTip(null);});
 function loc(e){const r=stage.getBoundingClientRect();return{x:(e.clientX-r.left-PAD)/S,y:(e.clientY-r.top-PAD)/S};}
 
@@ -1642,18 +2241,29 @@ async function openScene(){
     if(info){
       nMesh++;
       loader.load(MESH_BASE+sid+'/model.glb?v='+(info.ver||1),(g)=>{
-        const obj=g.scene;
-        const bb=new THREE.Box3().setFromObject(obj);
-        const size=new THREE.Vector3(); bb.getSize(size);
-        const scale=Math.max(w,d)/Math.max(size.x,size.z,1e-4);
-        obj.scale.setScalar(scale);
-        const bb2=new THREE.Box3().setFromObject(obj);
-        const c=new THREE.Vector3(); bb2.getCenter(c);
-        // фронт из нашего каталога ориентаций: канонический yaw, затем поворот расстановки
+        // СТРОГО ПО ПАСПОРТУ, ПО КАЖДОЙ ОСИ (владелец 01.09: «все меши должны на сцене строго
+        // по размеру вставать»). Раньше здесь стоял РАВНОМЕРНЫЙ масштаб по большей стороне
+        // основания — ширина и глубина попадали, а ВЫСОТА получалась какой придётся: торшер
+        // 160 см мог встать вдвое ниже. Серверный кадр всегда считал по трём осям
+        // (`scene_mesh.world_vertices`), браузерная сцена расходилась с ним.
+        //
+        // Порядок как на сервере: сперва канонический разворот меша (фронт), в этой системе
+        // тянем по осям, и только потом поворот расстановки. Поэтому масштаб живёт на обёртке,
+        // а разворот фронта — на самом объекте: матрица обёртки даёт R·S, а не S·R (иначе
+        // непропорциональный масштаб перекосил бы повёрнутый предмет).
+        const obj=g.scene, wrap=new THREE.Group();
         const oy=((orientIdx&&orientIdx[sid]&&orientIdx[sid].yaw)||0)*Math.PI/180;
-        obj.rotation.y=rot-oy;
-        obj.position.set(cx-c.x, -bb2.min.y, cz-c.z);
-        scene.add(obj);
+        obj.rotation.y=-oy;
+        wrap.add(obj);
+        const bb=new THREE.Box3().setFromObject(wrap);
+        const size=new THREE.Vector3(); bb.getSize(size);
+        wrap.scale.set(w/Math.max(size.x,1e-4), h/Math.max(size.y,1e-4), d/Math.max(size.z,1e-4));
+        wrap.rotation.y=rot;
+        wrap.updateMatrixWorld(true);
+        const bb2=new THREE.Box3().setFromObject(wrap);
+        const c=new THREE.Vector3(); bb2.getCenter(c);
+        wrap.position.set(cx-c.x, -bb2.min.y, cz-c.z);
+        scene.add(wrap);
       },undefined,()=>addStub());
     } else {nStub++;addStub();}
     function addStub(){
@@ -1687,11 +2297,16 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
   // ФИНАЛ (владелец 31.08): юзеру — ФОТО под камерой, как изначально; 3D — серверный
   // этап подложки для GPT (план naполняется реальными мешами). Интерактивная комната —
   // служебный режим ?scene3d=1 для наладки.
-  window.makePhoto=function(q){
+  // ПРОБРАСЫВАЕМ ВСЕ АРГУМЕНТЫ. Обёртка объявляла один параметр и вызывала orig(q), молча
+  // теряя второй — id уже выложенного исходника. Из-за этого «улучшить фото» каждый раз
+  // приходило на сервер БЕЗ src_id, тот пересобирал сцену заново (лишние ~30 с) и брал
+  // АВТОПОДБОР ракурсов вместо выставленных человеком (владелец 01.09: «камеры развернул
+  // как хочу, на черновике верно, а при генерации уходят другие виды»).
+  window.makePhoto=function(){
     if(window.__openScene3d&&/[?&]scene3d=1/.test(location.search)){
       window.__openScene3d();return;
     }
-    return orig(q);
+    return orig.apply(this, arguments);
   };
 })();
 </script>
