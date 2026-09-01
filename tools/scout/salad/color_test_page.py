@@ -102,7 +102,7 @@ def main() -> None:
  <div class="row">
   <div><div class="lbl">фото как есть</div><img src="{key}.was.png" loading="lazy"></div>
   <div><div class="lbl">фото со сдвинутой экспозицией: {stops:+.2f} ступени
-   (треть от замера, не больше 0.45)</div>
+   (сколько показал замер, но не больше 0.45)</div>
    <img src="{key}.now.png" loading="lazy"></div>
   <div><div class="lbl">модель (пока со старого фото)</div>
    <model-viewer src="{glb}?v={ver}" camera-controls auto-rotate shadow-intensity="1"
