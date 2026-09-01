@@ -215,6 +215,13 @@ def main() -> None:
     os.makedirs(OUT, exist_ok=True)
     manifest = {}
     n = 0
+    # АДРЕСНЫЙ ПРОГОН (01.09): TOPVIEW_ONLY="mid_eid mid_eid …" рендерит только
+    # перечисленные SKU. Нужен, когда витрина ждёт вид сверху для конкретных предметов,
+    # а обычный обход идёт по всему каталогу с бюджетом времени и до них не доходит.
+    only = {x.strip().replace(':', '_') for x in
+            os.environ.get('TOPVIEW_ONLY', '').replace(',', ' ').split() if x.strip()}
+    if only:
+        print(f'адресный прогон: {len(only)} SKU', flush=True)
     skip = int(os.environ.get('TOPVIEW_SKIP', 0))
     lim = int(os.environ.get('TOPVIEW_LIMIT', 0)) or None
     # БЮДЖЕТ ВРЕМЕНИ (31.08: шаг конвейера убивало по таймауту 45 мин на растущем пилоте —
@@ -242,6 +249,8 @@ def main() -> None:
             continue
         man = json.load(open(mp, encoding='utf-8'))
         sku = man['sku'].replace(':', '_')
+        if only and sku not in only:
+            continue
         if sku in manifest:                          # свежайший каталог уже обработан
             continue
         # канон стратегий: ковры и прочие не-hunyuan виду сверху из МЕША не подлежат —
