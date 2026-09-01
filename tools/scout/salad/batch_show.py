@@ -69,17 +69,24 @@ def run_summary(out: str) -> dict | None:
 
 
 def group_status() -> str | None:
-    """'stopped' только если ВСЕ группы остановлены (мультигруппы через запятую)."""
+    """'stopped' только если ВСЕ группы остановлены (мультигруппы через запятую).
+
+    ЧЕРЕЗ CURL, А НЕ urllib: WAF Salad режет python-UA, и запрос молча падал в None
+    (ADR-0137). На этом сегодня погорела проверка состояния после старта — она показала
+    «состояние None» у живой группы. А ещё от неё зависит распознавание «кончился баланс»,
+    то есть молчание тут стоит денег.
+    """
     import json as _j
-    import urllib.request as _u
     sts = []
     for grp in [g.strip() for g in os.environ.get('SALAD_GROUP', 'mesh-run3').split(',') if g.strip()]:
         try:
-            req = _u.Request(f'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers/{grp}',
-                             headers={'Salad-Api-Key': os.environ['SALAD_API_KEY']})
-            with _u.urlopen(req, timeout=30) as r:
-                sts.append((_j.load(r).get('current_state') or {}).get('status'))
-        except Exception:  # noqa: BLE001
+            r = subprocess.run(
+                ['curl', '-s', '--max-time', '30', '-H', f'Salad-Api-Key: {os.environ["SALAD_API_KEY"]}',
+                 f'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers/{grp}'],
+                capture_output=True, text=True, timeout=45)
+            sts.append((_j.loads(r.stdout).get('current_state') or {}).get('status'))
+        except Exception as e:  # noqa: BLE001 — но НЕ молча: None здесь маскирует и «нет денег»
+            print(f'группа {grp}: состояние не узнать ({type(e).__name__})', flush=True)
             sts.append(None)
     if sts and all(s == 'stopped' for s in sts):
         return 'stopped'
