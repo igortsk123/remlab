@@ -256,6 +256,20 @@ def case_streak_survives_restart() -> None:
     print('  ✓ серия сбоев переживает перезапуск процесса между пачками')
 
 
+def case_retire_is_temporary() -> None:
+    """Снятие — НЕ навсегда. Болезнь ноды бывает плавающей: 01.09 `35b10e39` весь день валила
+    задания по сети, а потом отработала одно за 272с (наблюдение соседней сессии). Значит
+    запись о снятии обязана истекать, иначе исправившаяся машина навсегда выпадает из пула."""
+    key = 'g/nodeT'
+    NH.retire(key)
+    assert NH.is_retired(key), 'снятие не записалось'
+    # «прошло больше RETIRED_TTL_S»: сдвигаем отметку в прошлое, как это увидит следующий запуск
+    with NH._State() as st:
+        st['nodes'][key]['retired_at'] -= NH.RETIRED_TTL_S + 60
+    assert not NH.is_retired(key), 'снятая нода не вернулась в пул после истечения срока'
+    print(f'  ✓ снятие истекает за {NH.RETIRED_TTL_S / 3600:.0f}ч — нода не выбывает навсегда')
+
+
 def case_fleet_wide_guard() -> None:
     """Одна и та же болезнь у многих нод — это общая сеть: пул выкашивать нельзя."""
     for i in range(NH.FLEET_MIN_NODES):
@@ -432,7 +446,7 @@ def main() -> None:
         for fn in (case_late_node, case_bad_node, case_unresolved, case_prefix,
                    case_stall_is_capacity, case_no_capacity, case_cull_rule, case_checkpoint,
                    case_fault_classes, case_streak_rules, case_streak_survives_restart,
-                   case_fleet_wide_guard, case_cull_budget_shared, case_node_breaker_run,
+                   case_retire_is_temporary, case_fleet_wide_guard, case_cull_budget_shared, case_node_breaker_run,
                    case_dead_photo_keeps_node, case_spool_keeps_reason,
                    case_post_background, case_flat_plan):
             if fn not in pure:
