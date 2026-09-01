@@ -20,6 +20,18 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))
 CAP = float(os.environ.get('EV_CAP', 0.7))
+# Решение владельца 01.09: полный вычисленный сдвиг слишком груб — даём ТРЕТЬ от него.
+# Осторожный шаг лучше: если покраска на экспозицию реагирует, это будет видно и на трети,
+# а испортить вход маленьким сдвигом нельзя.
+SCALE = float(os.environ.get('EV_SCALE', 1 / 3))
+# И жёсткий потолок владельца (01.09): «0.4–0.5 максимум». Даже когда замер просит ступени,
+# входу больше не даём: цель первого опыта — понять, реагирует ли покраска вообще, а не
+# вылечить всё сразу. Аккуратный шаг ничего не ломает, грубый — ломает вход.
+HARD = float(os.environ.get('EV_MAX', 0.45))
+
+
+def _final(x: float) -> float:
+    return round(float(min(max(x * SCALE, -HARD), HARD)), 2)
 
 
 def one(args):
@@ -37,7 +49,7 @@ def one(args):
     if y_model <= 1e-5 or y_photo <= 1e-5:
         # чёрный коллапс: log2 не берётся, но это и есть самый тяжёлый случай — просим потолок
         return {'sku': sku, 'dir': d, 'y_photo': y_photo, 'y_model': y_model,
-                'stops_raw': None, 'stops': CAP if y_model <= y_photo else -CAP,
+                'stops_raw': None, 'stops': _final(CAP if y_model <= y_photo else -CAP),
                 'note': 'коллапс в чёрное' if y_model <= 1e-5 else 'фото пустое'}
     raw = float(np.log2(y_photo / y_model))
     return {'sku': sku, 'dir': d, 'y_photo': round(y_photo, 4), 'y_model': round(y_model, 4),
@@ -56,7 +68,7 @@ def safe_stops(d: str, raw: float) -> float:
     from PIL import Image
     import photo_color as PC
     if raw <= 0:
-        return round(float(max(raw, -2.0)), 2)
+        return _final(max(raw, -2.0))
     img = Image.open(os.path.join(d, 'cutout.png'))
     best = 0.0
     for s in np.arange(0.2, min(raw, 2.0) + 1e-6, 0.2):
@@ -64,7 +76,7 @@ def safe_stops(d: str, raw: float) -> float:
         if rep['в_колене'] > 0.03:
             break
         best = float(s)
-    return round(best, 2)
+    return _final(best)
 
 
 def main() -> None:

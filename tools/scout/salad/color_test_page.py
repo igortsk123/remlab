@@ -65,7 +65,9 @@ def main() -> None:
     os.makedirs(OUT, exist_ok=True)
     best = newest_dirs()
     order = {'redo': 0, 'dark': 1, 'light': 2, '': 3}
-    items = [(s, v) for s, v in best.items() if not marks or s in marks]
+    redo = [s for s, v in marks.items() if v == 'redo']
+    items = [(s, v) for s, v in best.items()
+             if (not marks or s in marks) and marks.get(s) != 'redo']
     items.sort(key=lambda x: (order[marks.get(x[0], '')], x[1][1].get('role') or ''))
     cards, reports = [], {}
     for sku, (d, man) in items:
@@ -99,7 +101,8 @@ def main() -> None:
   <span class="badge">{badge}</span></h3>
  <div class="row">
   <div><div class="lbl">фото как есть</div><img src="{key}.was.png" loading="lazy"></div>
-  <div><div class="lbl">фото со сдвинутой экспозицией: {stops:+.2f} ступени</div>
+  <div><div class="lbl">фото со сдвинутой экспозицией: {stops:+.2f} ступени
+   (треть от замера, не больше 0.45)</div>
    <img src="{key}.now.png" loading="lazy"></div>
   <div><div class="lbl">модель (пока со старого фото)</div>
    <model-viewer src="{glb}?v={ver}" camera-controls auto-rotate shadow-intensity="1"
@@ -135,6 +138,8 @@ def main() -> None:
 {MARKS_PANEL_CSS}
 </style></head><body>
 <h1>Экспозиция входа — проверка на {len(cards)} товарах</h1>
+<p class="sub">Отмеченные «переделать» ({len(redo)} шт.) сюда НЕ попали: там брак формы —
+приросшая плита, а не цвет. Они идут отдельной очередью на перегенерацию.</p>
 <p class="sub">Слева фото, как оно уходит в генератор сейчас. В середине — то же фото со
 сдвинутой экспозицией: это то, что мы предлагаем подать на перепокраску. Справа — сегодняшняя
 модель, сделанная со старого фото, для сравнения.</p>
