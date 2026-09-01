@@ -2,7 +2,7 @@
 workstream: demo-planner
 slug: demo-collection-flow
 title: Демо — два уровня: быстрый подбор на странице и конструктор на весь экран
-status: draft
+status: in_progress
 created: 2026-09-01
 updated: 2026-09-01
 completed:
