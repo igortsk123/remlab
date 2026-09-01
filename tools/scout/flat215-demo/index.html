@@ -193,6 +193,9 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .tab{border:0;background:none;padding:10px 4px;margin-right:14px;cursor:pointer;color:#5C655E;
  font-size:clamp(16px,2.2vw,18px);border-bottom:3px solid transparent}
 .tab.on{color:var(--ink);border-bottom-color:var(--accent);font-weight:600}
+/* НЕАКТИВНЫЕ ПОМЕЩЕНИЯ (владелец 01.09: «серым, чтоб нажать было нельзя»): гасим и цвет,
+   и курсор, и события мыши — иначе на телефоне вкладка всё равно «нажимается» и мигает. */
+.tab.soon{color:#AFB5B0;cursor:default;pointer-events:none}
 /* ПОДРАЗДЕЛЫ «Вариант N · цена» (26.08): второй уровень навигации сразу под вкладками */
 .subtabs{display:flex;gap:8px;overflow-x:auto;padding:12px 2px 4px;margin-bottom:2px}
 .vtab{flex:0 0 auto;border:1px solid var(--line);background:#fff;border-radius:12px;
@@ -262,7 +265,13 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 
 <div class="tabs" role="tablist">
   <button class="tab on" id="tab-plan" role="tab">План квартиры</button>
-  <button class="tab" id="tab-room" role="tab">Расстановка комнаты</button>
+  <!-- ПОМЕЩЕНИЯ КВАРТИРЫ ВКЛАДКАМИ (владелец 01.09): видно, что демо — про всю квартиру, а не
+       про одну комнату. Работает пока только гостиная, остальные серые и не нажимаются:
+       обещать переход туда, где ничего нет, нельзя. Санузлы, холл и лоджию не показываем. -->
+  <button class="tab" id="tab-room" role="tab">Гостиная</button>
+  <button class="tab soon" role="tab" disabled aria-disabled="true" title="скоро">Кухня</button>
+  <button class="tab soon" role="tab" disabled aria-disabled="true" title="скоро">Спальня 1</button>
+  <button class="tab soon" role="tab" disabled aria-disabled="true" title="скоро">Спальня 2</button>
 </div>
 
 <section id="screen-plan">
