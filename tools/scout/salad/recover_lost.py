@@ -30,12 +30,18 @@ LOSS_STATUSES = ('input_failed', 'transport_failed', 'failed')
 
 
 def has_asset(sku: str) -> bool:
-    """Есть ли у товара хоть один готовый комплект на диске."""
+    """Есть ли у товара НАСТОЯЩАЯ модель на диске.
+
+    Признак — `model.glb`, а НЕ `manifest.json`. Забракованная гейтом форма публикуется
+    комплектом из манифеста и `shape.glb`, без модели: это «гейт ответил», а не «меш готов».
+    По манифесту таких на диске 55 комплектов у 25 SKU — они выглядели бы обеспеченными и
+    никогда бы не вернулись в очередь (нашла соседняя сессия на своей волне 01.09).
+    """
     d = os.path.join(MESH_ROOT, sku.replace(':', '_'))
     if not os.path.isdir(d):
         return False
     for sub in os.listdir(d):
-        if os.path.exists(os.path.join(d, sub, 'manifest.json')):
+        if os.path.exists(os.path.join(d, sub, 'model.glb')):
             return True
     return False
 
