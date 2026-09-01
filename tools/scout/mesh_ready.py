@@ -18,7 +18,8 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from mesh_queue import MESH_EXCLUDE, db  # noqa: E402
+from asset_strategy import non_mesh_roles  # noqa: E402
+from mesh_queue import db  # noqa: E402
 
 _CACHE: dict[str, bool] | None = None
 
@@ -70,7 +71,7 @@ def coverage() -> None:
     for n, s in enumerate(sets, 1):
         items = {slot: v for slot, v in (s.get('items') or {}).items()
                  if (slot.split(' ')[0] if slot.split(' ')[-1].isdigit() else slot)
-                 not in MESH_EXCLUDE}          # мягкому декору и плоскому меш не нужен
+                 not in non_mesh_roles()}      # мягкому декору и плоскому меш не нужен
         skus = {f"{v.get('mid')}:{v.get('eid')}" for v in items.values()
                 if v and v.get('mid') is not None}
         ok = {p for p in skus if mesh_ready(p)}

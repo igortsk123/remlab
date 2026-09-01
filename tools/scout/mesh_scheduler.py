@@ -29,7 +29,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from mesh_queue import MESH_EXCLUDE, PIPELINE_VERSION, db, q  # noqa: E402
+from mesh_queue import PIPELINE_VERSION, db, q  # noqa: E402
 from render_strategy import asset_ready, base_role, strategy  # noqa: E402
 
 SETS = os.path.join(HERE, 'sets3.json')
@@ -38,7 +38,9 @@ DAILY = int(os.environ.get('MESH_DAILY_BATCH', '10'))
 
 def _needs_mesh(sku: str, role: str) -> bool:
     """Нужен ли товару меш вообще. Мягкому декору — нет, и в партию он не попадает."""
-    return strategy(role) == 'mesh' and role not in MESH_EXCLUDE and not asset_ready(sku)
+    # `render_strategy.strategy()` уже переводит канон ролей: второй список исключений
+    # здесь был бы третьей истиной — ровно из-за неё и сломались импорты.
+    return strategy(role) == 'mesh' and not asset_ready(sku)
 
 
 def _queue() -> dict[str, str]:

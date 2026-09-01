@@ -13,17 +13,20 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
+# ПОРЯДОК ВАЖЕН: `asset_strategy.py` существует в ДВУХ копиях — здесь и в `salad/` (вторая
+# нужна внутри docker-образа воркера). Если salad идёт первым, канон берётся из копии образа.
 sys.path.insert(0, os.path.join(HERE, 'salad'))
+sys.path.insert(0, HERE)
 
-from mesh_queue import MESH_EXCLUDE, db, q  # noqa: E402
+from asset_strategy import non_mesh_roles  # noqa: E402
+from mesh_queue import db, q  # noqa: E402
 from preprocess import ASSESSOR_VERSION     # noqa: E402
 
 POOL = ("from products p join product_enrichment e using (shop_mid, external_id) "
         "where p.cat_role is not null and p.status='active' and p.in_stock "
         "and p.image_url is not null and p.price_rub is not null "
         "and e.status='active' and e.payload is not null and e.quality>=0.65")
-EX = ','.join(q(r) for r in sorted(MESH_EXCLUDE))
+EX = ','.join(q(r) for r in sorted(non_mesh_roles()))
 
 
 def n(sql: str) -> int:
