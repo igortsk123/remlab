@@ -11,6 +11,7 @@
   ~/venvs/scout/bin/python mesh_render.py model.glb --yaw 155 --out t.png
 """
 import math
+import os
 import sys
 
 import numpy as np
@@ -106,7 +107,10 @@ def render(parts, yaw_deg: float, pitch_deg: float = 18.0,
         n = np.asarray(mesh.face_normals, np.float32) @ rot
         lam = np.clip(np.abs(n @ key), 0.0, 1.0)
         fill = np.clip(np.abs(n[:, 2]), 0.0, 1.0)
-        shade = (0.55 + 0.5 * lam + 0.2 * fill)[:, None]
+        # UNLIT=1 — рендер БЕЗ света: на экран идёт чистый baseColor. Нужен для замера цвета
+        # (Codex 01.09): со светом мерка меряет наш же ламберт, а не то, чем модель покрашена.
+        shade = (np.ones_like(lam) if os.environ.get('UNLIT') == '1'
+                 else (0.55 + 0.5 * lam + 0.2 * fill))[:, None]
 
         for idx in np.argsort(depth[f].mean(axis=1)):
             a, b, c = f[idx]

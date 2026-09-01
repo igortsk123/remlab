@@ -138,6 +138,49 @@ def set_exposure(rgb: np.ndarray, mask: np.ndarray,
     return _rgb(lab).astype(np.float32), {'exposure': {'было': round(med, 1), 'k': round(k, 3)}}
 
 
+def srgb_to_lin(x: np.ndarray) -> np.ndarray:
+    return np.where(x <= 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
+
+
+def lin_to_srgb(y: np.ndarray) -> np.ndarray:
+    return np.where(y <= 0.0031308, y * 12.92, 1.055 * np.maximum(y, 0) ** (1 / 2.4) - 0.055)
+
+
+def luminance(img: Image.Image) -> float:
+    """Медианная ЛИНЕЙНАЯ яркость товара (по альфе). В стопах разница читается как log2."""
+    a = np.asarray(img.convert('RGBA')).astype(np.float32)
+    m = a[..., 3] > 128
+    if m.sum() < 50:
+        return 0.0
+    lin = srgb_to_lin(a[..., :3][m] / 255.0)
+    y = lin @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+    return float(np.median(y))
+
+
+def shift_exposure(img: Image.Image, stops: float) -> tuple[Image.Image, dict]:
+    """Сдвиг экспозиции входного фото на `stops` ступеней — в ЛИНЕЙНОМ RGB.
+
+    Codex 01.09: множить яркость в sRGB или Lab — это не экспозиция; физически честно
+    только в линейном пространстве. Света уводим мягким коленом, а не срезом: срезанное
+    в белое обратно уже не достанешь, а именно светлые товары мы и просим темнее.
+
+    Цель сдвига — НЕ сделать фото красивее. Фото намеренно уезжает от натурального вида,
+    чтобы скомпенсировать systematic промах покраски; судить его надо по тому, не сломалось
+    ли оно (нет выжженных пятен и увода цвета), а не по красоте.
+    """
+    a = np.asarray(img.convert('RGBA')).astype(np.float32)
+    rgb, alpha = a[..., :3] / 255.0, a[..., 3:4]
+    lin = srgb_to_lin(rgb) * (2.0 ** stops)
+    knee = 0.8
+    hi = lin > knee
+    lin = np.where(hi, knee + (1 - knee) * np.tanh((lin - knee) / (1 - knee)), lin)
+    out = np.clip(lin_to_srgb(lin), 0, 1) * 255.0
+    m = alpha[..., 0] > 128
+    return (Image.fromarray(np.dstack([out, alpha]).astype(np.uint8), 'RGBA'),
+            {'stops': round(float(stops), 2),
+             'в_колене': round(float(hi.any(axis=2)[m].mean()) if m.any() else 0.0, 3)})
+
+
 def fix(img: Image.Image, source: Image.Image | None = None,
         expose: bool | None = None) -> tuple[Image.Image, dict]:
     """RGBA-вырезка → RGBA с подготовленным цветом + отчёт по шагам.

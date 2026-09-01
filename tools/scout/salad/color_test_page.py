@@ -60,6 +60,8 @@ def main() -> None:
     import photo_color
     from PIL import Image
     marks = read_marks(sys.argv[1] if len(sys.argv) > 1 else None)
+    ev_p = os.path.join(HERE, 'exposure_plan.json')
+    EV = json.load(open(ev_p, encoding='utf-8')) if os.path.exists(ev_p) else {}
     os.makedirs(OUT, exist_ok=True)
     best = newest_dirs()
     order = {'redo': 0, 'dark': 1, 'light': 2, '': 3}
@@ -71,12 +73,13 @@ def main() -> None:
         if not os.path.exists(cut_p):
             continue
         key = sku.replace(':', '_')
-        src_p = os.path.join(d, 'source.jpg')
-        src = Image.open(src_p) if os.path.exists(src_p) else None
-        fixed, rep = photo_color.fix(Image.open(cut_p), src)
+        plan = EV.get(sku) or {}
+        stops = float(plan.get('stops') or 0.0)
+        shifted, rep = photo_color.shift_exposure(Image.open(cut_p), stops)
+        rep.update({k: plan.get(k) for k in ('stops_raw', 'y_photo', 'y_model', 'note')})
         reports[sku] = rep
         Image.open(cut_p).save(os.path.join(OUT, f'{key}.was.png'))
-        fixed.save(os.path.join(OUT, f'{key}.now.png'))
+        shifted.save(os.path.join(OUT, f'{key}.now.png'))
         glb_src = os.path.join(d, 'model.glb')
         glb = f'{key}.glb'
         if not os.path.exists(os.path.join(OUT, glb)) or \
@@ -86,15 +89,18 @@ def main() -> None:
         mark = marks.get(sku, '')
         badge = {'light': 'вы отметили: светлее', 'dark': 'вы отметили: темнее',
                  'redo': 'вы отметили: переделать'}.get(mark, '')
-        note = ' · '.join(
-            f'{k}: {v}' for k, v in rep.items() if k in ('wb', 'spec', 'delight') and v)
+        note = (f"замер: покраска промахнулась на {plan.get('stops_raw')} ступени "
+                f"(яркость фото {plan.get('y_photo')} против модели {plan.get('y_model')}); "
+                f"входу даём {stops:+.2f} — дальше упирается в засветы"
+                if plan else 'замер не сделан')
         cards.append(f"""
 <div class="card" data-sku="{html.escape(sku)}">
  <h3>{html.escape(man.get('role') or '?')} <span class="sku">{key}</span>
   <span class="badge">{badge}</span></h3>
  <div class="row">
   <div><div class="lbl">фото как есть</div><img src="{key}.was.png" loading="lazy"></div>
-  <div><div class="lbl">фото после подготовки</div><img src="{key}.now.png" loading="lazy"></div>
+  <div><div class="lbl">фото со сдвинутой экспозицией: {stops:+.2f} ступени</div>
+   <img src="{key}.now.png" loading="lazy"></div>
   <div><div class="lbl">модель (пока со старого фото)</div>
    <model-viewer src="{glb}?v={ver}" camera-controls auto-rotate shadow-intensity="1"
      loading="lazy" style="width:290px;height:250px;background:#f4f4f2;border-radius:6px"></model-viewer>
@@ -128,15 +134,18 @@ def main() -> None:
  .tech{{font-size:11px;color:#999;margin-top:6px}}
 {MARKS_PANEL_CSS}
 </style></head><body>
-<h1>Проверка цвета — {len(cards)} товаров</h1>
-<p class="sub">Слева фото, как оно уходит в генератор сейчас. В середине — то же фото после
-подготовки: баланс белого по фону, гашение бликов, снятие перепада освещения. Справа —
-модель, пока ещё сделанная со старого фото.</p>
-<p class="sub"><b>Смотрите на первые две колонки: разница почти нулевая — и это ответ.</b>
-Фон в каталоге уже чисто белый (коэффициенты баланса белого вышли ровно 1.00), свет по товару
-уже ровный (перепад 2–13 единиц из 255 при допуске в десятки). То есть снимать с фотографии
-нечего — она и так «плоская». Значит промах по светлоте у моделей рождается не из освещения
-фото, и такой подготовкой он не лечится. Цифры по каждому товару — серой строкой под карточкой.</p>
+<h1>Экспозиция входа — проверка на {len(cards)} товарах</h1>
+<p class="sub">Слева фото, как оно уходит в генератор сейчас. В середине — то же фото со
+сдвинутой экспозицией: это то, что мы предлагаем подать на перепокраску. Справа — сегодняшняя
+модель, сделанная со старого фото, для сравнения.</p>
+<p class="sub"><b>Второе фото намеренно НЕ выглядит правильным.</b> Это не улучшение картинки,
+а компенсация: покраска систематически промахивается по светлоте, и мы двигаем экспозицию входа
+в обратную сторону ровно на столько ступеней, на сколько она промахнулась. Судить это фото надо
+не по красоте, а по тому, не сломалось ли оно: нет ли выжженных белых пятен, не уехал ли оттенок,
+видна ли ещё фактура. Величина сдвига и замер — серой строкой под карточкой.</p>
+<p class="sub">Сдвиг считается по рендеру модели БЕЗ света (только собственный цвет покраски)
+против фото, в линейной яркости, разница в ступенях. В тёмную сторону предел мягкий, в светлую —
+ровно до появления засветов, поэтому у части товаров сдвиг меньше нужного.</p>
 {''.join(cards)}
 {MARKS_PANEL_HTML}
 <script>{MARKS_PANEL_JS}</script>
