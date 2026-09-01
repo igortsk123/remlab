@@ -320,21 +320,32 @@ def demo_cams(room, placements=None) -> list:
                       width=1344, height=896)
     if not placements:
         off = 25.0
-        return [cam('C1', W - off, D - off, off, off, 80.0),
-                cam('C2', off, off, W - off, D - off, 80.0)]
+        return [cam('C1', W - off, D - off, off, off, 72.0),
+                cam('C2', off, off, W - off, D - off, 72.0)]
     cx, cy = W / 2, D / 2
     fx = sum(p.x for p in placements) / len(placements)
     fy = sum(p.y for p in placements) / len(placements)
+    # УГОЛ ОБЗОРА: потолок 72° по горизонтали (владелец 01.09 — «максимально широкий, но без
+    # искажений»). 72° при кадре 3:2 это ≈24 мм в плёночном эквиваленте — общепринятая граница
+    # интерьерной съёмки: шире начинается растяжение по краям, круглое становится овальным, а
+    # предмет у рамки выглядит крупнее и шире, чем он есть. Прежние 82° (≈20 мм) эту границу
+    # переходили. Охват не теряем: камеру и так выносим за стену (cutaway ниже), что даёт тот же
+    # обзор без искажения.
     cands = []
-    for k, (ex, ey) in enumerate(((W, D), (0, 0), (W, 0), (0, D))):
+    CORNERS = ((W, D), (0, 0), (W, 0), (0, D))
+    DIAG = {0: 1, 1: 0, 2: 3, 3: 2}                # диагональная пара углов
+    corner_of = {}
+    for k, (ex, ey) in enumerate(CORNERS):
         offs = (25.0,) if os.environ.get('INSIDE_CAMS') else (25.0, -60.0, -130.0)
         for off in offs:                           # изнутри угла и «сквозь стену» (cutaway)
             sx = -1 if ex > 0 else 1
             sy = -1 if ey > 0 else 1
             px, py = ex + sx * off, ey + sy * off
             for tx, ty in ((cx, cy), (fx, fy)):
-                for fov in (72.0, 82.0):
-                    cands.append(cam(f'K{len(cands)}', px, py, tx, ty, fov))
+                for fov in (65.0, 72.0):
+                    c = cam(f'K{len(cands)}', px, py, tx, ty, fov)
+                    corner_of[c.name] = k
+                    cands.append(c)
     scored = []
     for c in cands:
         try:
@@ -343,17 +354,28 @@ def demo_cams(room, placements=None) -> list:
             continue
     if not scored:
         off = 25.0
-        return [cam('C1', W - off, D - off, off, off, 80.0),
-                cam('C2', off, off, W - off, D - off, 80.0)]
+        return [cam('C1', W - off, D - off, off, off, 72.0),
+                cam('C2', off, off, W - off, D - off, 72.0)]
     scored.sort(key=lambda z: -z[0]['score'])
     best_s, best = scored[0]
-    # второй кадр — тот, что ДОБАВЛЯЕТ предметы, а не повторяет первый
+    # ВТОРОЙ КАДР — ИЗ ПРОТИВОПОЛОЖНОГО УГЛА (владелец 01.09: «должно быть 2 точки обзора
+    # комнаты по диагонали»). Прежний отбор брал «тот, что добавляет предметов», и лучшими по
+    # баллу нередко оказывались два СОСЕДНИХ угла: комната показывалась дважды почти с одной
+    # стороны, а противоположная стена не попадала ни в один кадр. Диагональ гарантирует, что
+    # две съёмки together покрывают все четыре стены. Внутри диагонального угла по-прежнему
+    # выбираем лучший кадр по тому же баллу и приросту предметов.
+    want_corner = DIAG.get(corner_of.get(best.name))
+    diag = [(sc, c) for sc, c in scored[1:] if corner_of.get(c.name) == want_corner]
+    pool = diag or scored[1:]                      # диагонали не нашлось — прежнее поведение
     second, best_gain = None, -1e9
-    for s, c in scored[1:]:
-        g = (len(s['seen'] - best_s['seen']) * 1.6 + s['score'] * 0.4
+    for sc, c in pool:
+        g = (len(sc['seen'] - best_s['seen']) * 1.6 + sc['score'] * 0.4
              - (1.5 if _cam_close(c, best) else 0.0))
         if g > best_gain:
             second, best_gain = c, g
+    if not diag:
+        print('[cams] диагонального угла среди кандидатов нет — второй кадр выбран по баллу',
+              flush=True)
     out = [best, second or scored[-1][1]]
     for i, c in enumerate(out):
         c.name = f'C{i + 1}'
