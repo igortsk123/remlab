@@ -33,8 +33,8 @@ sys.path.insert(0, os.path.join(HERE, '..', '..', 'services', 'planner-solver'))
 
 from PIL import Image  # noqa: E402
 
-DEMO_URL = 'https://remont-lab.online/test/flat215-demo/demo-data.json'
-IMG_BASE = 'https://remont-lab.online/test/flat215-demo/'
+DEMO_URL = 'https://remont-lab.online/test/buildup/demo-data.json'
+IMG_BASE = 'https://remont-lab.online/test/buildup/'
 SIZE = os.environ.get('IMPROVE_SIZE', '2048x3072')     # замер: принимается шлюзом
 PROMPT_VERSION = 'improve-v1'
 

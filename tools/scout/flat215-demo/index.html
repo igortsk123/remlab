@@ -114,11 +114,12 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
   .flathead .fh-price{text-align:left}
   .flathead .fh-price .l{justify-content:flex-start}
   .ihint-txt{margin-left:0}
-  /* КНОПКИ ЗАСТРОЙЩИКА НЕ ЗАНИМАЮТ ДВА РЯДА (аудит 01.09, Б4). Растянутые на всю ширину, они
-     перевешивали главное действие продукта — собрать фото. Теперь это один ряд из двух узких. */
-  .flathead .fh-acts{justify-content:flex-start;gap:8px}
-  .flathead .fh-acts .btn{flex:1 1 0;min-width:0;padding:12px 10px;font-size:15px;
-    white-space:normal;line-height:1.25}
+  /* КНОПКИ ЗАСТРОЙЩИКА — ДРУГ ПОД ДРУГОМ (владелец 01.09). В один ряд они не помещались:
+     каждая переносилась в три строки и превращалась в высокую «таблетку». Столбиком текст
+     ложится в одну-две строки, и кнопки одинаковой высоты. */
+  .flathead .fh-acts{flex-direction:column;align-items:stretch;gap:8px}
+  .flathead .fh-acts .btn{width:100%;padding:13px 16px;font-size:16px;
+    white-space:normal;line-height:1.3}
   /* ПОЛЯ (Б5): на 360 px прежние 14+18+22 px съедали ширину контента */
   .wrap{padding:12px 12px 32px}
   .flathead{padding:14px}
@@ -134,6 +135,12 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
   .mini{font-size:14px;padding:0 8px}
   .doorctl button{font-size:15px;padding:0 14px}
   .tab{padding:12px 6px}
+  /* на телефоне окно кадра — во весь экран: полей вокруг не остаётся, фото и список крупнее */
+  #shot{padding:0;align-items:stretch}
+  #shot .box{width:100%;max-height:100%;height:100%;border-radius:0}
+  #shot .cap{padding:12px 14px}
+  #shot .cap .btn{flex:1 1 100%}
+  #shotbody{padding:12px 14px 4px}
 }
 .flathead .fk{font-size:clamp(21px,2.2vw,27px);font-weight:700}
 .flathead .fm{color:var(--muted);font-size:clamp(15px,1.2vw,17px)}
@@ -202,8 +209,14 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 #sheet header b{font-size:clamp(18px,2.5vw,21px);display:block}
 #sheet header span{font-size:clamp(14.5px,1.9vw,16.5px);color:var(--muted)}
 #sheet .close{border:0;background:var(--wash-2);border-radius:var(--radius-sm);padding:9px 16px;font-size:clamp(15px,1.9vw,16px);cursor:pointer}
-#filters{display:flex;gap:6px;overflow-x:auto;padding:8px 14px;border-bottom:1px solid var(--line)}
-#filters .chip{padding:8px 16px;font-size:clamp(15px,1.9vw,16.5px);white-space:nowrap}
+/* ФИЛЬТРЫ — ОБЫЧНЫЙ ПЕРЕНОСЯЩИЙСЯ РЯД (владелец 01.09: «фильтры корявые, прокрутка некрасиво,
+   сделай как обычно делают»). Горизонтальная прокрутка прятала половину кнопок за краем и
+   требовала бокового жеста внутри и без того прокручиваемого листа. Теперь они просто
+   переносятся на вторую строку и все видны сразу. */
+#filters{display:flex;flex-wrap:wrap;gap:8px;padding:10px 14px 12px;border-bottom:1px solid var(--line)}
+#filters .chip{padding:9px 15px;font-size:clamp(14.5px,1.7vw,16px);white-space:nowrap;
+ line-height:1.15;min-height:0}
+#filters .chip.on{box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent)}
 #grid{overflow-y:auto;padding:12px 14px 24px;display:grid;gap:12px;
  grid-template-columns:repeat(auto-fill,minmax(168px,1fr))}
 @media(min-width:700px){#sheet{left:auto;right:0;top:0;bottom:0;width:460px;max-height:none;
@@ -303,12 +316,16 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
  box-shadow:var(--sh-1)}
 .pin:hover{background:var(--accent);color:var(--surface)}
 .srcrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px}
-.pinlist{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
-.ptrack{display:flex;gap:10px;overflow-x:auto;padding:8px 2px 4px;scrollbar-width:thin}
-.ptrack::-webkit-scrollbar{height:6px}
-.ptrack::-webkit-scrollbar-thumb{background:var(--grip);border-radius:999px}
-.pcard{position:relative;flex:0 0 170px;border:1px solid var(--line);border-radius:var(--radius-sm);padding:8px;
- background:var(--surface);text-decoration:none;color:inherit;display:block}
+/* СПИСОК ТОВАРОВ — СЕТКА, А НЕ ГОРИЗОНТАЛЬНАЯ ЛЕНТА (владелец 01.09: «пересмотри дизайн
+   модалки, современный надо»). Лента прятала половину товаров за краем экрана и требовала
+   второго, поперечного жеста прокрутки внутри уже прокручиваемого окна. Сетка показывает всё
+   сразу и переносится сама. */
+.pinlist{margin-top:16px;padding-top:4px}
+.ptrack{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));
+ padding:10px 0 6px}
+.pcard{position:relative;border:1px solid var(--line);border-radius:var(--radius-sm);padding:8px;
+ background:var(--surface);text-decoration:none;color:inherit;display:block;
+ transition:border-color .15s,box-shadow .15s}
 .pcard:hover{border-color:var(--accent);box-shadow:0 2px 12px color-mix(in srgb, var(--accent) 14%, transparent)}
 .pcard img,.pcard .pnoimg{width:100%;aspect-ratio:4/3;object-fit:contain;background:var(--wash);
  border-radius:6px;display:block}
@@ -316,9 +333,9 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .pcard .num{position:absolute;top:12px;left:12px;width:22px;height:22px;border-radius:50%;
  background:var(--surface);border:2px solid var(--accent);color:var(--accent);font-size:12.5px;font-weight:700;
  display:flex;align-items:center;justify-content:center}
-.pcard .pn2{font-size:13.5px;line-height:1.3;margin-top:6px;max-height:36px;overflow:hidden}
-.pcard .pr2{font-size:15.5px;font-weight:700;margin-top:3px}
-.pcard .ps2{font-size:12px;color:var(--muted)}
+.pcard .pn2{font-size:14px;line-height:1.35;margin-top:8px;max-height:38px;overflow:hidden}
+.pcard .pr2{font-size:17px;font-weight:700;margin-top:4px}
+.pcard .ps2{font-size:12.5px;color:var(--muted);margin-top:2px}
 .pinlist .row{cursor:default}
 .pinlist .row:hover{background:none}
 .row img{width:64px;height:52px;object-fit:contain;background:var(--wash);border-radius:6px;flex:0 0 64px}
@@ -327,8 +344,10 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .row .t span{font-size:clamp(15px,1.05vw,17px);color:var(--muted)}
 .row .p{font-size:clamp(16px,1.15vw,18.5px);font-weight:600;white-space:nowrap}
 .row a{font-size:clamp(13.5px,0.95vw,15.5px);color:var(--accent);white-space:nowrap}
-.total{display:flex;justify-content:space-between;padding-top:10px;font-weight:700;
- font-size:clamp(16px,1.15vw,18px)}
+.total{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+ padding:10px 0 0;font-weight:700;font-size:clamp(16px,1.15vw,18px);
+ position:sticky;top:-4px;background:var(--surface);z-index:2;
+ border-bottom:1px solid var(--line);padding-bottom:8px}
 .hint{font-size:clamp(14px,1.8vw,15px);color:var(--muted);margin-top:8px}
 /* ВВОДНЫЙ БЛОК — НАВЕРХУ (владелец 26.08): человек должен сразу понять, что тут можно делать,
    а не искать объяснение под планом. */
@@ -346,14 +365,26 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 #shot{position:fixed;inset:0;z-index:60;background:var(--scrim);display:none;align-items:center;
  justify-content:center;padding:16px}
 #shot.on{display:flex}
-#shot .box{position:relative;background:var(--surface);border-radius:var(--radius);max-width:min(1100px,96vw);
- max-height:92vh;overflow:auto;padding:14px}
-.xclose{position:sticky;float:right;top:0;margin:-4px -4px 0 8px;width:38px;height:38px;
- border-radius:50%;border:1px solid var(--line);background:var(--surface);font-size:22px;line-height:1;
- color:var(--ink);cursor:pointer;z-index:3}
+/* МОДАЛКА КАДРА: ШАПКА И НИЗ ЗАКРЕПЛЕНЫ, ПРОКРУЧИВАЕТСЯ ТОЛЬКО СЕРЕДИНА (владелец 01.09:
+   «не видно низ товаров, прокрутка не очень, кнопки внизу должны быть видны»). Раньше вся
+   коробка была одним прокручиваемым блоком, и строка с ценой и кнопкой лежала В КОНЦЕ
+   содержимого — до неё надо было домотать. Теперь это колонка: фиксированный низ, живая
+   середина. На телефоне окно занимает весь экран — так больше места фотографии и списку. */
+#shot .box{position:relative;background:var(--surface);border-radius:var(--radius);
+ width:min(1100px,96vw);max-height:92vh;display:flex;flex-direction:column;overflow:hidden;
+ box-shadow:0 24px 60px rgba(0,0,0,.35)}
+#shotbody{flex:1 1 auto;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+ padding:14px 16px 4px}
+.xclose{position:absolute;top:12px;right:12px;width:40px;height:40px;
+ border-radius:50%;border:1px solid var(--line);background:rgba(255,255,255,.92);
+ backdrop-filter:blur(6px);font-size:22px;line-height:1;
+ color:var(--ink);cursor:pointer;z-index:5;display:flex;align-items:center;justify-content:center}
 .xclose:hover{background:var(--wash-2)}
-#shot img{width:100%;border-radius:var(--radius-sm);display:block}
-#shot .cap{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px;
+/* Фотография не должна съедать весь экран: ниже сразу видно, что под ней есть товары. */
+#shot img{width:100%;border-radius:var(--radius);display:block;max-height:56vh;object-fit:cover;
+ background:var(--wash)}
+#shot .cap{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0;
+ flex:0 0 auto;border-top:1px solid var(--line);background:var(--surface);padding:12px 16px;
  flex-wrap:wrap;   /* Б6: длинная подпись «неоклассика · Стоимость комплекта…» ужимала кнопку */
  font-size:clamp(14px,1.9vw,16px);color:var(--ink)}
 #shot .wait{padding:40px 20px;text-align:center;font-size:clamp(16px,2.2vw,18px);color:var(--ink)}
@@ -433,10 +464,56 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .linkbox{display:flex;gap:8px;margin-top:10px;align-items:center}
 .linkbox input{flex:1;min-width:0;padding:9px 11px;border:1px solid var(--line);border-radius:var(--radius-sm);
  font-size:14px;background:var(--wash)}
+
+/* ——— ВИТРИНА: коллекция расстановок (план demo-collection-flow) ——— */
+.sechead{margin:22px 0 0}
+.sechead h2{margin:0;font-size:clamp(22px,2.2vw,29px)}
+.sechead p{margin:4px 0 0;color:var(--muted)}
+.budget{background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 25%,transparent);
+ border-radius:var(--radius);padding:18px 20px;margin:14px 0 4px;display:flex;flex-wrap:wrap;
+ gap:14px 24px;align-items:center;justify-content:space-between}
+.budget b{display:block;font-size:clamp(18px,1.7vw,22px);margin-bottom:4px}
+.budget p{margin:0;color:var(--muted);font-size:.95em;max-width:56ch}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));margin-top:16px}
+.lay{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+ box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;cursor:pointer}
+.lay.on{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 18%,transparent)}
+.lay .pv{width:100%;aspect-ratio:3/2;object-fit:cover;display:block;background:var(--wash)}
+.lay .nopv{width:100%;aspect-ratio:3/2;background:var(--wash);display:flex;align-items:center;
+ justify-content:center;color:var(--faint);font-size:.88em;text-align:center;padding:14px}
+.lay .body{padding:14px 16px 16px;display:flex;flex-direction:column;gap:10px;flex:1}
+.lay .nm{font-size:clamp(19px,1.6vw,23px);font-weight:700;text-transform:capitalize}
+.lay .pr{color:var(--muted);font-size:.95em}
+.lay .pr b{color:var(--ink);font-size:1.15em}
+.lay .acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:auto}
+.lay .acts .btn{flex:1 1 auto;padding:10px 12px;font-size:.92em}
+.lay .badge2{position:absolute;top:12px;right:12px;background:var(--veil);color:#fff;
+ border-radius:999px;padding:4px 12px;font-size:.8em}
+.lay .wrapimg{position:relative}
+.newlay{border:2px dashed color-mix(in srgb,var(--accent) 45%,transparent);background:var(--surface);
+ border-radius:var(--radius);display:flex;flex-direction:column;align-items:center;justify-content:center;
+ gap:8px;padding:30px 20px;cursor:pointer;text-align:center;min-height:230px}
+.newlay .plus{width:56px;height:56px;border-radius:50%;background:var(--accent-soft);color:var(--accent);
+ font-size:30px;display:flex;align-items:center;justify-content:center}
+.newlay b{font-size:clamp(18px,1.5vw,21px)}
+.newlay span{color:var(--muted);font-size:.9em;max-width:26ch}
+#swapBox{margin-top:16px}
+#basket .sub{color:var(--muted);font-size:.92em;margin:-4px 0 8px}
+.swapfoot{display:flex;justify-content:flex-end;margin-top:12px}
+/* ——— КОНСТРУКТОР НА ВЕСЬ ЭКРАН ——— */
+#cons{position:fixed;inset:0;background:var(--bg);z-index:60;display:none;flex-direction:column}
+#cons.on{display:flex}
+#cons .top{display:flex;align-items:center;justify-content:space-between;gap:12px;
+ padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--line)}
+#cons .top b{font-size:clamp(17px,1.5vw,21px)}
+#cons .body{flex:1;overflow:auto;padding:14px 16px}
+#cons .bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;
+ padding:12px 16px;background:var(--surface);border-top:1px solid var(--line);margin:0}
+#cons .bar .sum{font-weight:700;font-size:clamp(17px,1.4vw,20px)}
+#cons .work{display:block}
 </style></head><body><div class="wrap">
-<h1>Обустрой свой будущий дом</h1>
-<div class="lead">Выбирайте любую мебель и технику для своей новой квартиры. Все предметы можно
-двигать, сохранять коллекции и делиться с близкими. Сделайте дизайн своей новой квартиры сами!</div>
+<!-- ЗАГОЛОВОК И ЛИД УБРАНЫ (владелец 01.09): они повторяли то, что теперь говорит блок
+     сертификата, и отодвигали паспорт квартиры вниз. Первым идёт сама квартира. -->
 <!-- ШАПКА КАК У ЗАСТРОЙЩИКА: тип квартиры и площадь крупно, под ними — дом, срок, этаж.
      Площадь наша, из плана (73,7 м²); адрес и срок — демонстрационные, реального ЖК не называем. -->
 <!-- ЦЕНА И УСЛОВИЯ ПОКУПКИ — В ШАПКЕ, РЯДОМ С НАЗВАНИЕМ (владелец 01.09: «этот блок поставь
@@ -477,22 +554,38 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
   </div>
 </section>
 
-<!-- ПОРЯДОК НА ТЕЛЕФОНЕ: ПЛАН ВЫШЕ ЛЕНТЫ (аудит 01.09, A1). В разметке блок фотографий идёт
-     первым — так исторически сложилось, и на узком экране главный инструмент оказывался под
-     галереей. Сначала расставь, потом смотри: на телефоне рабочая область поднимается, на
-     десктопе порядок прежний (там они рядом, а не друг под другом). -->
+<!-- ДВА УРОВНЯ (план demo-collection-flow, владелец 01.09). ВИТРИНА: бюджет на обустройство,
+     коллекция готовых расстановок по стилям, замена мебели прямо здесь. КОНСТРУКТОР: план,
+     перестановка, двери, ракурсы — только на весь экран, по кнопке «Добавить новую расстановку».
+     Плана на витрине нет вовсе, ни на телефоне, ни на десктопе. -->
 <section id="screen-room" hidden>
-  <div class="subtabs" id="variants" role="tablist"></div>
-  <div class="panel" id="photos">
-    <div id="photosHead"></div>
-    <div id="feed"></div>
-    <div class="bar" id="feedBar" hidden>
-      <button class="btn" id="feedAll">Выбрать все</button>
-      <button class="btn primary" id="feedShare">Отправить подборку себе</button>
-    </div>
+  <div class="budget" id="budget" hidden></div>
+
+  <div class="sechead">
+    <h2>Коллекция расстановок</h2>
+    <p>Выберите готовый вариант или создайте свой</p>
+  </div>
+  <div class="grid" id="coll"></div>
+  <div class="bar" id="feedBar" hidden>
+    <button class="btn" id="feedAll">Выбрать все</button>
+    <button class="btn primary" id="feedShare">Отправить подборку себе</button>
   </div>
 
-  <div class="work">
+  <!-- разворот «Заменить мебель»: список предметов выбранного варианта прямо на витрине -->
+  <div id="swapBox" hidden>
+    <div class="panel" id="basket"><h3 id="basketHead">Мебель этого варианта</h3>
+      <div class="sub" id="basketSub">Меняйте предметы прямо здесь — план открывать не нужно.</div>
+      <div id="blist">—</div>
+      <div class="swapfoot" id="swapFoot" hidden>
+        <button class="btn primary round" id="swapShot">Посмотреть фото с изменениями</button>
+      </div>
+    </div>
+    <div class="panel pricecard" id="priceCard"></div>
+  </div>
+
+  <!-- РАБОЧАЯ ОБЛАСТЬ ЖИВЁТ ЗДЕСЬ, А ПОКАЗЫВАЕТСЯ В КОНСТРУКТОРЕ. Узел не пересоздаём, а
+       переносим в оверлей и обратно: пересоздание потеряло бы обработчики и состояние. -->
+  <div class="work" id="work" hidden>
     <div>
       <div class="canvasbar">
         <span id="sel">Тяните предмет, чтобы двигать. Товар выбирается по значку на предмете.</span>
@@ -502,21 +595,21 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
       </div>
       <div id="canvasWrap"><svg id="stage" xmlns="http://www.w3.org/2000/svg"></svg>
       <div id="tip"></div></div>
-      <!-- КНОПКА ПОД ПЛАНОМ (владелец 26.08): снять расстановку можно прямо здесь, не поднимаясь
-           к ленте -->
-      <div class="bar" id="shotNowBar" style="margin-top:10px" hidden>
+      <div class="bar" id="shotNowBar" hidden>
         <button class="btn primary" id="shotNow">Посмотреть изменения на фото · ~25 сек</button>
       </div>
     </div>
-    <div>
-      <div class="panel pricecard" id="priceCard"></div>
-      <div class="panel" id="basket"><h3>Товары этой расстановки</h3><div id="blist">—</div></div>
-    </div>
   </div>
-
-  
-
 </section>
+
+<!-- КОНСТРУКТОР НА ВЕСЬ ЭКРАН -->
+<div id="cons">
+  <div class="top"><b>Новая расстановка · <span id="consStyle">—</span></b>
+    <button class="btn" id="consDone">Готово</button></div>
+  <div class="body" id="consBody"></div>
+  <div class="bar"><span class="sum" id="consSum">Комплект: —</span>
+    <button class="btn primary round" id="consShot" hidden>Посмотреть фото с изменениями</button></div>
+</div>
 
 </div>
 <div id="scrim"></div>
@@ -598,9 +691,19 @@ function init(){
   on('sh-close','onclick',closePicker);
   on('scrim','onclick',closePicker);
   on('shotNow','onclick',()=>makePhoto('draft'));
-  on('feedAll','onclick',()=>{const mine=myShots();const all=mine.every(s=>s.pick);
-    mine.forEach(s=>s.pick=!all);drawFeed();});
-  on('feedShare','onclick',()=>shareOpen(myShots().filter(s=>s.pick)));
+  on('consDone','onclick',closeCons);
+  on('consShot','onclick',()=>makePhoto('draft'));
+  on('swapShot','onclick',()=>makePhoto('draft'));
+  document.addEventListener('keydown',e=>{
+    if(e.key==='Escape'&&document.getElementById('cons').classList.contains('on'))closeCons();});
+  // ВЫДЕЛЕНИЕ — ПО ВИДИМЫМ КАРТОЧКАМ. В коллекции одна карточка на вариант, а в хранилище
+  // кадров больше; «выбрать все» по хранилищу молча набирало то, чего на экране нет.
+  on('feedAll','onclick',()=>{const vis=allVariants().map(bestShot).filter(Boolean);
+    const all=vis.every(s=>s.pick);
+    const vids=new Set(vis.map(s=>s.vid));
+    shots.forEach(x=>{if(vids.has(x.vid))x.pick=!all;});
+    saveShots(); drawColl();});
+  on('feedShare','onclick',()=>shareOpen(allVariants().map(bestShot).filter(s=>s&&s.pick)));
   on('tab-plan','onclick',()=>showTab('plan'));
   on('tab-room','onclick',()=>showTab('room'));
   window.addEventListener('hashchange',()=>showTab(location.hash==='#room'?'room':'plan'));
@@ -625,54 +728,30 @@ function myVariants(){
   try{return JSON.parse(localStorage.getItem('flat215-mine')||'[]');}catch(e){return [];}
 }
 // СВОЙ ВАРИАНТ СОХРАНЯЕТСЯ С ИМЕНЕМ и встаёт в один ряд с остальными (владелец 26.08)
-function saveMine(){
-  const list=myVariants();
-  const def='Мой вариант '+(list.length+1);
-  shotOpen(`<div class="wait" style="padding:26px 18px">Как назвать эту расстановку?
-      <div class="linkbox" style="max-width:420px;margin:14px auto 0">
-        <input id="vname" value="${def}" maxlength="40">
-        <button class="btn primary" id="vsave">Сохранить</button>
-      </div></div>`,'вариант появится рядом с остальными');
-  const inp=document.getElementById('vname'); inp.focus(); inp.select();
-  const go=()=>{
-    const name=(inp.value||def).trim().slice(0,40);
-    list.push({id:'my'+Date.now(),title:name,items:JSON.parse(JSON.stringify(items))});
-    try{localStorage.setItem('flat215-mine',JSON.stringify(list.slice(-4)));}catch(e){}
-    document.getElementById('shot').classList.remove('on');
-    cur=Math.min(MAXV,(D.variants||[]).length)+myVariants().length-1;   // выбираем сохранённый
-    drawVariants();load();
-  };
-  document.getElementById('vsave').onclick=go;
-  inp.onkeydown=e=>{if(e.key==='Enter')go();};
-}
-function allVariants(){ return (D.variants||[]).slice(0,MAXV).concat(myVariants()); }
+/* «сохранить как свой вариант» удалён 01.09 — свою расстановку делают через
+   «Добавить новую расстановку»; `myVariants()` оставлен, чтобы прежние записи в браузере
+   не мешали и могли быть прочитаны при разборе */
+function allVariants(){ return (D.variants||[]).slice(0,MAXV); }
 function drawVariants(){
-  const vb=document.getElementById('variants'); if(!vb)return;
-  vb.innerHTML='';
-  const list=allVariants();
-  list.forEach((v,i)=>{
-    const b=document.createElement('button');
-    b.className='vtab'+(i===cur?' on':'');
-    const p=variantPrice(v);
-    // НА КНОПКЕ — СТИЛЬ, А НЕ «ВАРИАНТ N» (владелец 01.09: «вместо кнопок вариант 1…4 пиши
-    // лофт, минимализм, современный, неоклассика, а внизу — Стоимость комплекта и цена»).
-    // Номер варианта человеку ничего не говорит; стиль — говорит всё.
-    b.innerHTML=`<b>${v.style||v.title||('Вариант '+(i+1))}</b>`+
-      `<span>${p?'Стоимость комплекта: '+money(p):'без товаров'}</span>`;
-    b.onclick=()=>{cur=i;load();drawVariants();};
-    vb.appendChild(b);
-  });
-  // кнопка появляется, когда человек что-то изменил — сохранять нетронутый вариант незачем
-  if(baseRev&&items.length&&revision()!==baseRev){
-    const save=document.createElement('button');
-    save.className='vtab add';save.id='saveMine';
-    save.innerHTML='<b>＋ Сохранить</b><span>как свой вариант</span>';
-    save.onclick=saveMine;
-    vb.appendChild(save);
-  }
+  // ВКЛАДОК ВАРИАНТОВ БОЛЬШЕ НЕТ — их роль взяли карточки коллекции (план demo-collection-flow).
+  // Здесь остался блок про бюджет на обустройство: текст берём из данных, чтобы никакие суммы
+  // и условия не были зашиты в вёрстку (владелец 01.09: формулировку не выдумывать).
+  const b=document.getElementById('budget'); if(!b)return;
+  const t=(D&&D.budget)||{};
+  // СУММУ И ФОРМУЛИРОВКУ ЗАДАЛ ВЛАДЕЛЕЦ (01.09). Я предлагал не называть конкретный лимит,
+  // потому что это утверждение о финансовом продукте; владелец переформулировал в сертификат
+  // и назвал сумму — решение его. Значения остаются параметром данных (`demo-data.json`
+  // → `budget`), чтобы партнёр мог подставить свои, не трогая вёрстку.
+  const title=t.title||'Сертификат на мебель и технику на сумму до 800 000 руб.';
+  const text=t.text||'Выбирайте любую мебель и технику для своей новой квартиры. '+
+             'Все предметы можно двигать, сохранять коллекции и делиться с близкими.';
+  b.hidden=false;
+  b.innerHTML=`<div><b>${title}</b><p>${text}</p></div>`+
+    `<button class="btn primary round" id="budgetGo">Посмотреть варианты обустройства</button>`;
+  const go=b.querySelector('#budgetGo');
+  if(go)go.onclick=()=>document.getElementById('coll').scrollIntoView({behavior:'smooth'});
+  drawColl();
 }
-
-// ——— УПРАВЛЕНИЕ ДВЕРЬЮ: сторона петель и направление открывания (владелец 27.08)
 function theDoor(){ return (D.room.openings||[]).find(o=>o.kind==='door'); }
 function drawDoorCtl(){
   const box=document.getElementById('doorCtl'); if(!box)return;
@@ -713,7 +792,11 @@ function showTab(which){
 // (`plan_example`), гостиная в НАСТОЯЩИХ габаритах 4,39 × 3,25 м. Клик по комнате открывает её.
 function flatPlan(){
   const P=D.plan||{}, R=P.rooms||[], by={};
-  document.getElementById('flatTitle').textContent=P.title||D.flat_title||'План квартиры';
+  // ОДНА КВАРТИРА — ОДНО ЧИСЛО (владелец 01.09: «проверь, что этот блок чётко»). В шапке
+  // стояло 73,7 м² (сумма наших комнат), а на вкладке плана — 76,5 м² из ЧЕРТЕЖА-ИСТОЧНИКА
+  // №180, по которому снималась геометрия. На одной странице два разных числа про одну
+  // квартиру. Канон — `flat_title` (№215, 73,7 м²), он же считается из списка комнат.
+  document.getElementById('flatTitle').textContent=D.flat_title||P.title||'План квартиры';
   const box=document.getElementById('flatRooms');box.innerHTML='';
   (D.rooms||[]).forEach(r=>by[r.id]=r);
   if(!R.length){box.innerHTML='<div class="hint">План не загружен.</div>';return;}
@@ -778,6 +861,11 @@ function applyKit(kit){            // комплект накладываетс�
   draw();}
 let baseRev='';                       // ревизия «как отдал движок» — по ней видно, правил ли человек
 function load(){const v=allVariants()[cur]||D.variants[0];items=clone(v.items);sel=null;
+  // КАМЕРЫ ПРИНАДЛЕЖАТ ВАРИАНТУ (01.09). Положения хранятся под ключом варианта
+  // (`camsKey()`), но глобальная `cams` заполнялась ОДИН раз и при переключении варианта
+  // оставалась прежней — снимок нового варианта уходил бы с ракурсов старого. Сбрасываем:
+  // следующая отрисовка прочитает камеры уже этого варианта.
+  cams=null; camSel=-1; hideCamOvl();
   document.getElementById('sel').textContent='Перетаскивайте предмет, чтобы двигать. Товар выбирается по значку на предмете.';
   baseRev=revision();draw();}
 
@@ -1016,9 +1104,12 @@ function draw(){
   drawVariants();
   // КНОПКА ПОД ПЛАНОМ — ТОЛЬКО ПОСЛЕ ПРАВКИ (владелец 26.08): на нетронутом варианте предлагать
   // «посмотреть изменения» нечего.
+  // СЪЁМКА — ТОЛЬКО ПОСЛЕ ПРАВКИ И ТОЛЬКО В КОНСТРУКТОРЕ (владелец 01.09: «когда человек
+  // двигает что-то в этой схеме или меняет мебель — сразу показывать кнопку»). Нижняя панель
+  // конструктора её и показывает, поэтому дубль под планом больше не нужен.
   const snb=document.getElementById('shotNowBar');
-  // кнопка видна всегда, пока в комнате есть что снимать — это единственный вход в съёмку
-  if(snb)snb.hidden=!items.length;
+  if(snb)snb.hidden=true;
+  updateConsShot();
   drawDoorCtl();
   // ТРЕТИЙ ВХОД В ИСХОДНИКИ — ТОЖЕ СКРЫТ (владелец 01.09). Служебные ссылки были в трёх местах:
   // в шапке блока фотографий, в просмотре кадра и здесь, над планом. Сами исходники продолжают
@@ -1418,16 +1509,22 @@ function loadShots(){
   // ЧИНИМ СТАРЫЕ КАДРЫ ОДИН РАЗ: снимок без привязки (сделан до её появления) или с чужим id
   // после пересборки демо привязываем по названию варианта, иначе — к первому варианту. Так он
   // не теряется и при этом не всплывает во всех вариантах сразу.
-  const list=allVariants(), byTitle={};
-  list.forEach(v=>{byTitle[v.title||'']=v.id;});
+  // ЧУЖОЙ КАДР НЕЛЬЗЯ СВАЛИВАТЬ В ПЕРВЫЙ ВАРИАНТ (владелец 01.09: «в лофте отображается другой
+  // стиль»). Прежнее правило «не нашли вариант — отдадим первому» задумывалось как спасение
+  // потерянных кадров, но после того как из коллекции убрали сохранённые «Мои варианты», ВСЕ их
+  // снимки разом переехали в лофт — и карточка лофта показывала чужую расстановку.
+  // Привязываем по стилю, потом по названию; не опознали — кадр не показываем (данные не трём).
+  const list=allVariants(), byTitle={}, byStyle={};
+  list.forEach(v=>{byTitle[v.title||'']=v.id; if(v.style)byStyle[v.style]=v.id;});
   const ids=new Set(list.map(v=>v.id));
   let fixed=0;
   shots.forEach(s=>{
     s.pick=false;
     if(!s.vid||!ids.has(s.vid)){
-      s.vid=byTitle[s.variant||'']||(list[0]||{}).id||'v0';
+      const guess=byStyle[s.style||'']||byTitle[s.variant||''];
+      if(guess){s.vid=guess;} else {s.orphan=true;}
       fixed++;
-    }
+    } else { s.orphan=false; }
   });
   if(fixed)saveShots();
   drawFeed();
@@ -1435,6 +1532,24 @@ function loadShots(){
 function saveShots(){
   try{localStorage.setItem('flat215-shots',JSON.stringify(
     shots.map(({pick,...s})=>s).slice(-60)));}catch(e){}
+}
+// ТОВАРЫ ЕДУТ ВМЕСТЕ С КАДРОМ (01.09). Сервер в режиме 3D-сцены возвращает `anchors: []`
+// (`draft_render.py:2341`), поэтому под фотографией не было списка товаров, а в подборку
+// уходили голые картинки без цен и ссылок — то есть без того, ради чего подборка и нужна.
+// Список строим на странице: она точно знает, что стоит в комнате.
+function productsOf(list){
+  const withSku=(list||[]).filter(i=>(i.sku||{}).name);
+  return groupBySku(withSku).map(gr=>{const p=gr.sku, n=buys(gr.slots.length,p);
+    return {name:p.name,price:p.price,url:p.url,img:p.img,shop:p.shop,
+            role:gr.first.role,qty:n};});
+}
+// у старых кадров списка нет — достаём из варианта, к которому кадр привязан
+function shotProducts(s){
+  const an=uniqProducts(((s&&s.anchors)||[]).filter(a=>a.name));
+  if(an.length)return an;
+  if(s&&s.products&&s.products.length)return s.products;
+  const v=variantOf(s)||{};
+  return productsOf(v.items||[]);
 }
 function addShot(rec){ shots.push(rec); saveShots();
   try{if(rec.sources)localStorage.setItem('flat215-src',rec.sources);}catch(e){}
@@ -1473,113 +1588,132 @@ function myShots(){
   const v=curVid();
   return shots.filter(s=>s.vid===v);
 }
-function drawFeed(){                    // КАРУСЕЛЬ СРЕДНИХ КАРТОЧЕК со стрелками (26.08)
-  const f=document.getElementById('feed'); if(!f)return;
-  const rev=(D&&items.length)?revision():'';
-  const mine=myShots();                 // лента показывает снимки ТОЛЬКО текущего варианта
-  const has=rev&&mine.some(s=>s.revision===rev);
-  const addFirst=rev&&!has;
-  if(!mine.length&&!addFirst){f.innerHTML='';f.className='';document.getElementById('feedBar').hidden=true;return;}
-  // ОДНА СЪЁМКА — ОДНА КАРТОЧКА (владелец 27.08): два вида одной генерации не должны занимать в
-  // ленте два места; в карточке показывается первый вид, второй листается стрелкой в просмотре.
-  const groups=(list)=>{
-    const by=new Map();
-    list.forEach(s=>{
-      const k=s.batch||(s.revision+'|'+s.quality+'|'+s.vid);
-      if(!by.has(k))by.set(k,[]);
-      by.get(k).push(s);
-    });
-    return [...by.values()];
-  };
-  const card=(s,i,views)=>{
-    // КНОПКА «УЛУЧШИТЬ ФОТО» — НА КАЖДОМ НАШЕМ КАДРЕ (владелец 01.09: «на самих превью всегда
-    // оставляй кнопку улучшить фото, если это наша модель»). Прежнее условие прятало её, как
-    // только для этой расстановки появлялось хоть одно улучшенное фото, — и повторить улучшение
-    // было нечем.
-    const better=s.quality==='draft';
-    return `<div class="card" data-i="${i}">`+
-      // СНИМОК, ФАЙЛА КОТОРОГО БОЛЬШЕ НЕТ, — МЁРТВАЯ КАРТОЧКА (01.09). Кадры живут на сервере,
-      // а список — в браузере, и после чистки сервера в галерее оставались битые превью с
-      // кнопками. Это не отмена правила «снимки не пропадают» (26.08): исчез сам файл, и
-      // показывать ссылку на него не на что. Убираем такую запись из хранилища и перерисовываем.
-      `<img src="${s.url}" alt="${shotLabel(s)}" loading="lazy" data-url="${s.url}" onerror="dropDeadShot(this)">`+
-      (views>1?`<div class="views">${views} вида</div>`:'')+
-      // Служебная ссылка на исходники с карточки убрана (владелец 01.09): сама страница
-      // исходников продолжает собираться и лежит по своему адресу, с экрана убран только вход.
-      `<div class="cap">${shotLabel(s)}</div>`+
-      `<div class="acts2">`+
-        (better?'<button class="btn up">Улучшить фото</button>':'')+
-        `<button class="btn pickbtn${s.pick?' on':''}">${s.pick?'Удалить из подборки':'В подборку'}</button>`+
+function bestShot(v){
+  // превью карточки — последний кадр этого варианта; фотореалистичный важнее эскиза
+  const vid=v.id||('v'+allVariants().indexOf(v));
+  const mine=shots.filter(x=>x.vid===vid&&!x.orphan);
+  const real=mine.filter(x=>x.quality==='realistic');
+  const pool=real.length?real:mine;
+  return pool.length?pool[pool.length-1]:null;
+}
+// КОЛЛЕКЦИЯ РАССТАНОВОК — первый уровень (план demo-collection-flow). Одна карточка на стиль,
+// плюс сохранённые расстановки человека, плюс карточка «Добавить новую». Плана здесь нет:
+// он живёт только в конструкторе.
+function drawColl(){
+  const box=document.getElementById('coll'); if(!box)return;
+  box.innerHTML='';
+  const list=allVariants();
+  list.forEach((v,i)=>{
+    const sh=bestShot(v), p=variantPrice(v);
+    const n=(v.items||[]).filter(it=>(it.sku||{}).name).length;
+    const el=document.createElement('div');
+    el.className='lay'+(i===cur?' on':'');
+    const views=sh?shots.filter(x=>x.batch&&x.batch===sh.batch).length:0;
+    el.innerHTML=
+      `<div class="wrapimg">`+
+      (sh?`<img class="pv" src="${sh.url}" alt="${styleOf(sh)}" loading="lazy" data-url="${sh.url}" onerror="dropDeadShot(this)">`
+         :`<div class="nopv">фото появится после съёмки</div>`)+
+      (views>1?`<div class="badge2">${views} вида</div>`:'')+
+      `</div>`+
+      `<div class="body"><div class="nm">${v.style||v.title||('вариант '+(i+1))}</div>`+
+      `<div class="pr">${n} предметов · <b>${money(p)}</b></div>`+
+      `<div class="acts">`+
+        `<button class="btn" data-swap="${i}">Заменить мебель</button>`+
+        // ПУСТАЯ КАРТОЧКА ДОЛЖНА ПРЕДЛАГАТЬ СНЯТЬ (владелец 01.09: «когда фото чернового нет,
+        // пиши кнопки „Заменить мебель“ и „Создать фото“»). Иначе вариант без кадра — тупик:
+        // человек видит цену комплекта и не понимает, как получить картинку.
+        (sh?'':`<button class="btn primary" data-shot="${i}">Создать фото</button>`)+
+        (sh&&sh.quality==='draft'?`<button class="btn" data-up="${i}">Улучшить фото</button>`:'')+
+        (sh?`<button class="btn pickbtn${sh.pick?' on':''}" data-pick="${i}">${sh.pick?'Убрать':'В подборку'}</button>`:'')+
       `</div></div>`;
-  };
-  f.className='car';
-  f.innerHTML=`<button class="nav prev" aria-label="Назад">‹</button>`+
-    `<div class="track">`+
-      // ВХОД В СЪЁМКУ ТОЛЬКО ОДИН — КНОПКА ПОД ПЛАНОМ (аудит 01.09, A2). Раньше их было два:
-      // карточка «＋» в ленте и кнопка под планом, причём вторая появлялась лишь после правки
-      // расстановки. Человек не понимал, почему кнопка то есть, то нет.
-      ''+
-      groups(mine).map(g=>[g[0],shots.indexOf(g[0]),g.length]).reverse()
-        .map(([s,i,n])=>card(s,i,n)).join('')+                                    // новые первыми
-    `</div>`+
-    `<button class="nav next" aria-label="Вперёд">›</button>`+
-    '';
-  const tr=f.querySelector('.track');
-  const step=()=>Math.max(240,tr.clientWidth*0.8);
-  const sync=()=>{
-    f.querySelector('.prev').disabled=tr.scrollLeft<8;
-    f.querySelector('.next').disabled=tr.scrollLeft+tr.clientWidth>=tr.scrollWidth-8;
-  };
-  f.querySelector('.prev').onclick=()=>{tr.scrollLeft-=step();setTimeout(sync,320);};
-  f.querySelector('.next').onclick=()=>{tr.scrollLeft+=step();setTimeout(sync,320);};
-  tr.onscroll=sync; setTimeout(sync,0);
-  const add=f.querySelector('.add'); if(add)add.onclick=()=>makePhoto('draft');
-  f.querySelectorAll('.card').forEach(c=>{
-    const s=shots[+c.dataset.i];
-    c.querySelector('img').onclick=()=>viewShot(+c.dataset.i);
-    // «Улучшить фото» шлёт id ИМЕННО ТОГО исходника, что собран для показанного кадра —
-    // сервер берёт готовый лист и не пересобирает сцену (01.09: минута лишнего ожидания и
-    // риск отправить не то, что человек видит).
-    const up=c.querySelector('.up');
-    // УЛУЧШЕННОЕ ФОТО ВСТАЁТ НА МЕСТО ЧЕРНОВОГО (владелец 01.09: «не создавай новую фотографию
-    // в подборке, а заменяй текущую — черновая модель возникает, а после улучшения она
-    // фотореалистичная»). Передаём пачку заменяемого кадра третьим аргументом.
-    if(up)up.onclick=()=>makePhoto('realistic', srcIdOf(s), s.batch||'');
-    c.querySelector('.pickbtn').onclick=()=>{s.pick=!s.pick;drawFeed();};
+    box.appendChild(el);
+    el.onclick=e=>{ if(e.target.closest('button'))return;
+      if(e.target.closest('.pv')&&sh){viewShot(shots.indexOf(sh));return;}
+      pickVariant(i); };
   });
+  const add=document.createElement('div');
+  add.className='newlay'; add.onclick=()=>openCons();
+  add.innerHTML='<div class="plus">＋</div><b>Добавить новую расстановку</b>'+
+    '<span>план комнаты, перестановка мебели, свои размеры</span>';
+  box.appendChild(add);
+  box.querySelectorAll('[data-swap]').forEach(b=>b.onclick=()=>toggleSwap(+b.dataset.swap));
+  showSwap();   // список выбранного варианта рисуется вместе с коллекцией, не отдельным событием
+  box.querySelectorAll('[data-shot]').forEach(b=>b.onclick=()=>{
+    // вариант сперва загружаем: съёмка идёт по ТЕКУЩЕЙ расстановке, а не по той, что была открыта
+    pickVariant(+b.dataset.shot); makePhoto('draft');});
+  box.querySelectorAll('[data-up]').forEach(b=>b.onclick=()=>{
+    const sh=bestShot(allVariants()[+b.dataset.up]);
+    if(sh)makePhoto('realistic', srcIdOf(sh), sh.batch||'');});
+  // ОТМЕТКА СТАВИТСЯ НА ВАРИАНТ, А НЕ НА ОТДЕЛЬНЫЙ КАДР. Иначе так: человек добавил карточку
+  // в подборку, потом снял по этому же стилю новое фото — превью сменилось на неотмеченное,
+  // и карточка молча «выпала» из подборки.
+  box.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{
+    const v=allVariants()[+b.dataset.pick]||{};
+    const vid=v.id||('v'+(+b.dataset.pick));
+    const sh=bestShot(v); if(!sh)return;
+    const on=!sh.pick;
+    shots.forEach(x=>{if(x.vid===vid)x.pick=on;});
+    saveShots(); drawColl();});
   const bar=document.getElementById('feedBar');
-  bar.hidden=mine.length===0;
-  const n=mine.filter(x=>x.pick).length;
-  const allBtn=document.getElementById('feedAll');
-  if(allBtn)allBtn.textContent=(n===mine.length&&mine.length)?'Снять выделение':'Выбрать все';
-  const fsBtn=document.getElementById('feedShare');
-  if(fsBtn)fsBtn.textContent=n?`Отправить себе (${n})`:'Отправить подборку себе';
+  if(bar){
+    const vis=allVariants().map(bestShot).filter(Boolean);
+    const picked=vis.filter(x=>x.pick).length;
+    bar.hidden=!vis.length;
+    const all=document.getElementById('feedAll');
+    if(all)all.textContent=(picked===vis.length&&vis.length)?'Снять выделение':'Выбрать все';
+    const fs2=document.getElementById('feedShare');
+    if(fs2)fs2.textContent=picked?`Отправить себе (${picked})`:'Отправить подборку себе';
+  }
 }
-function drawPhotos(){                 // ЗАГОЛОВОК БЛОКА: что сейчас со снимками этой расстановки
-  const box=document.getElementById('photosHead'); if(!box||!D)return;
-  const rev=revision(), vshots=myShots();
-  const mine=vshots.filter(s=>s.revision===rev);
-  // ЗАГОЛОВОК ОДИН НА ВСЕ СТИЛИ (владелец 01.09: «в лофте так, а в других иначе — сделай
-  // одинаково»). Он менялся от того, есть ли уже снимки: «Фотография вашей комнаты» →
-  // «Расстановка изменилась» → «Фотографии этой расстановки». Переключаясь между стилями,
-  // человек видел три разных названия одного и того же блока и думал, что попал в другой раздел.
-  const h='Фотографии этой расстановки';
-  // ПОДСКАЗКА — ТОЛЬКО КОГДА ЕСТЬ ЧТО ПОДСКАЗАТЬ (владелец 01.09: «фразу „листайте стрелками,
-  // снимки не пропадают“ удали, место лишнее, и под ней пустоты не оставляй»). Когда снимки уже
-  // есть, человеку не нужно объяснять карусель — он её видит. Пустой блок ниже не рисуем вовсе.
-  // ОДНА ПОДСКАЗКА, И ТОЛЬКО КОГДА СНИМКОВ НЕТ (аудит 01.09, Г4). Ссылка на «＋» устарела:
-  // вход в съёмку теперь один — кнопка под планом.
-  const t=mine.length?''
-        :'Расставьте мебель и нажмите «Посмотреть изменения на фото» под планом.';
-  // СЛУЖЕБНАЯ КНОПКА (владелец 26.08: «всё ещё не вижу служебную кнопку»): раньше это была
-  // серая подпись мелким шрифтом в строке над планом — её не замечали. Теперь это видимая
-  // кнопка в шапке блока фотографий, всегда на месте.
-  // КНОПКА «ИСХОДНИКИ ЗАПРОСА» СКРЫТА С ЭКРАНА (владелец 01.09: «скрой эту кнопку, но саму
-  // сущность убирать не надо»). Страница исходников по-прежнему собирается на каждый кадр и
-  // лежит по своему адресу — она нужна для разбора; просто перестала занимать место в шапке.
-  box.innerHTML=`<div class="headrow"><div><h3>${h}</h3>`+
-    (t?`<div class="hint">${t}</div>`:'')+`</div></div>`;
+// СПИСОК МЕБЕЛИ ВСЕГДА ПОКАЗАН ДЛЯ ВЫБРАННОЙ РАССТАНОВКИ (владелец 01.09: «нажимаю на
+// расстановку, а списка нет внизу»; и он пропадал после закрытия модалки). Раньше панель
+// открывалась только кнопкой и жила отдельным состоянием, которое сбрасывалось при любой
+// перерисовке. Состояния больше нет: выбран вариант — виден его список.
+function pickVariant(i){ if(i===cur){showSwap();return;} cur=i; load(); showSwap(); drawColl(); }
+function showSwap(){
+  const box=document.getElementById('swapBox'); if(!box)return;
+  const v=allVariants()[cur]||{};
+  const head=document.getElementById('basketHead');
+  if(head)head.textContent='Мебель варианта «'+(v.style||v.title||'')+'»';
+  box.hidden=false; basket();
+  const f=document.getElementById('swapFoot');
+  if(f)f.hidden=!(baseRev&&items.length&&revision()!==baseRev);
 }
+function toggleSwap(i){   // кнопка «Заменить мебель» — выбрать вариант и подвести к списку
+  pickVariant(i);
+  const box=document.getElementById('swapBox');
+  if(box)box.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+// ——— КОНСТРУКТОР: узел плана переносим в оверлей и обратно, не пересоздавая
+let consHome=null;
+function openCons(){
+  const work=document.getElementById('work'), body=document.getElementById('consBody');
+  if(!work||!body)return;
+  if(!consHome)consHome=work.parentNode;
+  const v=allVariants()[cur]||{};
+  document.getElementById('consStyle').textContent=v.style||v.title||'';
+  document.getElementById('consSum').textContent='Комплект: '+money(variantPrice(v));
+  work.hidden=false; body.appendChild(work);
+  document.getElementById('cons').classList.add('on');
+  document.body.style.overflow='hidden';
+  requestAnimationFrame(()=>{draw();updateConsShot();});
+}
+function closeCons(){
+  const work=document.getElementById('work');
+  document.getElementById('cons').classList.remove('on');
+  document.body.style.overflow='';
+  if(work&&consHome){consHome.appendChild(work);work.hidden=true;}
+  drawColl(); showSwap();
+}
+function updateConsShot(){
+  const b=document.getElementById('consShot');
+  if(b)b.hidden=!(baseRev&&items.length&&revision()!==baseRev);
+  const f=document.getElementById('swapFoot');
+  if(f)f.hidden=!(baseRev&&items.length&&revision()!==baseRev);
+}
+function drawFeed(){ drawColl(); updateConsShot(); }
+
+function drawPhotos(){ /* заголовок коллекции статичен в разметке (план demo-collection-flow) */ }
 function shotOpen(html,cap){document.getElementById('shotbody').innerHTML=html;
   document.getElementById('shotcap').innerHTML=cap||'';
   document.getElementById('shot').classList.add('on');
@@ -1615,9 +1749,12 @@ async function makePhoto(quality, srcId, replaceBatch){
     // Улучшённый кадр ЗАМЕНЯЕТ черновой: убираем пачку, на которой нажали «улучшить».
     if(replaceBatch){ shots=shots.filter(x=>x.batch!==replaceBatch); saveShots(); }
     j.shots.forEach(sh=>addShot({url:sh.url,camera:sh.camera||'C1',quality:quality,batch:batch,
-      anchors:sh.anchors||[],variant:vv.title||'',style:vv.style||'',vid:vv.id||('v'+cur),
+      anchors:sh.anchors||[],products:productsOf(items),
+      variant:vv.title||'',style:vv.style||'',vid:vv.id||('v'+cur),
       revision:rev,ts:Date.now(),model:j.model||'',sources:sh.sources||j.sources||'',
       timing:j.timing||null}));
+    // ПО СЪЁМКЕ КОНСТРУКТОР ЗАКРЫВАЕТСЯ, КАДР ВСТАЁТ В КОЛЛЕКЦИЮ (план demo-collection-flow)
+    if(document.getElementById('cons').classList.contains('on'))closeCons();
     viewShot(shots.length-1);
   }catch(err){
     clearInterval(tick); busy=false;
@@ -1649,7 +1786,7 @@ function viewShot(i){
   const s=shots[i]; if(!s)return;
   // ЗНАЧКИ — ТОЛЬКО ПОДТВЕРЖДЁННЫЕ, А СПИСОК ТОВАРОВ — ВЕСЬ (владелец 27.08: «исчезли товары при
   // открытии фото»): строгая проверка якорей не должна прятать сами товары этого кадра.
-  const all=uniqProducts((s.anchors||[]).filter(a=>a.name));
+  const all=shotProducts(s);
   const an=all.filter(a=>!a.unverified);
   // ЯКОРЯ ставим по координатам, посчитанным сервером из масок сцены: клик ведёт в магазин
   const pins='';           // ЗНАЧКОВ НА ФОТО НЕТ (владелец 27.08): товары — лентой под кадром
@@ -1706,8 +1843,12 @@ function viewShot(i){
 const CHAN=[{id:'telegram',t:'Telegram',ph:'@username или +7…'},
             {id:'max',t:'MAX',ph:'@username или +7…'},
             {id:'sms',t:'СМС',ph:'+7 999 123-45-67'}];
+// В ПОДБОРКУ УХОДИТ РОВНО ТО, ЧТО ВИДНО В КОЛЛЕКЦИИ (владелец 01.09). Прежний фолбэк
+// «ничего не выбрано — берём ВСЕ кадры из хранилища» отправлял и чужие стили, и осиротевшие
+// снимки, которых на экране нет вовсе. Теперь запасной вариант — карточки коллекции.
+function collShots(){ return allVariants().map(bestShot).filter(Boolean); }
 function shareOpen(list){
-  const sel=(list&&list.length)?list:shots;
+  const sel=(list&&list.length)?list:collShots();
   if(!sel.length){shotOpen('<div class="wait">Сначала сделайте хотя бы одно фото.</div>','');return;}
   let chan='telegram';
   const draw=()=>{
@@ -1732,8 +1873,8 @@ function shareOpen(list){
           // В ПОДБОРКУ ИДУТ И ТОВАРЫ СО ССЫЛКАМИ (владелец 26.08: «человек должен получать
           // коллекции»): под каждым кадром — что на нём стоит, почём и где купить
           shots:sel.map(s=>({url:s.url,label:shotLabel(s),
-            items:uniqProducts((s.anchors||[]).filter(a=>a.name)).map(a=>({name:a.name,price:a.price,
-              url:a.url,img:a.img,shop:a.shop,role:a.role}))}))})});
+            items:shotProducts(s).map(a=>({name:a.name,price:a.price,
+              url:a.url,img:a.img,shop:a.shop,role:a.role,qty:a.qty||1}))}))})});
       const j=await r.json();
       if(j.error)throw new Error(j.error);
       const name=(CHAN.find(c=>c.id===chan)||{}).t;
@@ -1952,15 +2093,18 @@ function fitBadge(me,p){
   const needAlong=p.w*c+p.d*s2, needAcross=p.w*s2+p.d*c;
   const dx=sp.along-needAlong, dy=sp.across-needAcross;
   const m=Math.min(dx,dy);
-  if(m<0)return {cls:'b-no', txt:`шире места на ${Math.round(-m)} см`};
-  if(m<15)return {cls:'b-tight', txt:'встанет впритык'};
-  return {cls:'b-ok', txt:'влезает'};
+  // СЛОВА ПОКУПАТЕЛЯ (владелец 01.09: «„влезает“ везде убери»). Смысл тот же — сообщить,
+  // встанет ли предмет на своё место, — но без нашего жаргона.
+  if(m<0)return {cls:'b-no', txt:`больше места на ${Math.round(-m)} см`};
+  if(m<15)return {cls:'b-tight', txt:'впритык'};
+  return {cls:'b-ok', txt:'по размеру'};
 }
 
 // ——— ЛИСТ ПОДБОРА
 let F={price:null, fitOnly:false, sort:'fit'};
 function openPicker(it){
-  sel=it; const base=it.role.split(' ')[0];
+  // ключ ленты — роль без хвостового номера; «первое слово» ломало «стол обеденный» (01.09)
+  sel=it; const base=it.role.replace(/\s+\d+$/,'');
   const list=(D.feeds&&D.feeds[base])||[];
   document.getElementById('sh-title').textContent=`Выбрать: ${it.role}`;
   document.getElementById('sh-sub').textContent=list.length
@@ -1976,7 +2120,7 @@ function filters(){
   const f=document.getElementById('filters');f.innerHTML='';
   const add=(txt,on,fn)=>{const b=document.createElement('button');b.className='chip'+(on?' on':'');
     b.textContent=txt;b.onclick=()=>{fn();filters();grid();};f.appendChild(b);};
-  add('только те, что влезают',F.fitOnly,()=>F.fitOnly=!F.fitOnly);
+  add('подходящие по размеру',F.fitOnly,()=>F.fitOnly=!F.fitOnly);
   add('до 30 тыс',F.price==='lo',()=>F.price=F.price==='lo'?null:'lo');
   add('30–60 тыс',F.price==='mid',()=>F.price=F.price==='mid'?null:'mid');
   add('60+ тыс',F.price==='hi',()=>F.price=F.price==='hi'?null:'hi');
@@ -1984,7 +2128,7 @@ function filters(){
 }
 function grid(){
   const g=document.getElementById('grid');g.innerHTML='';
-  const base=sel?sel.role.split(' ')[0]:'диван';
+  const base=sel?sel.role.replace(/\s+\d+$/,''):'диван';
   let list=((D.feeds&&D.feeds[base])||[]).slice();
   if(!list.length){g.innerHTML='<div class="hint">Для этой роли товаров с фото в банке пока нет — каталог узкий, не логика.</div>';return;}
   list=list.filter(p=>{

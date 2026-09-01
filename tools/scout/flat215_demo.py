@@ -6,7 +6,7 @@
 а страница только показывает и даёт двигать. Правила для советчика берутся из ТЕХ ЖЕ файлов,
 что читает движок, чтобы подсказки не разошлись с каноном.
 
-  ~/venvs/scout/bin/python flat215_demo.py [--publish]      # → /test/flat215-demo/
+  ~/venvs/scout/bin/python flat215_demo.py [--publish]      # → /test/buildup/
 """
 import glob
 import json
@@ -397,7 +397,12 @@ def build() -> dict:
     feeds, seen = {}, set()
     for s in sets:
         for role, it in (s.get('items') or {}).items():
-            base = role.split(' ')[0]
+            # КЛЮЧ РОЛИ — БЕЗ ХВОСТОВОГО НОМЕРА, А НЕ «ПЕРВОЕ СЛОВО» (владелец 01.09: «стол
+            # косячный, просил заменить, а он до сих пор в модели»). `split(' ')[0]` резал
+            # «стол обеденный» до «стол», такого ключа в ENV нет — и обеденные столы не
+            # попадали в ленту замены ВООБЩЕ: лист подбора открывался пустым, заменить было
+            # нечем. Номер экземпляра («стул 2») по-прежнему отбрасываем.
+            base = re.sub(r'\s+\d+$', '', role)
             if base not in ENV or not it or not it.get('img'):
                 continue
             key = (base, it.get('mid'), it.get('eid'))
@@ -469,6 +474,12 @@ def build() -> dict:
             'rooms': rooms, 'flat_title': 'Квартира №215 · 73,7 м²', 'plan': plan,
             'variants': variants, 'sets': product_sets, 'sofa_feed': feed, 'feeds': feeds,
             'rules': _rules(),
+            # ТЕКСТ ПРО СЕРТИФИКАТ — ПАРАМЕТР ДАННЫХ, А НЕ КОНСТАНТА В ВЁРСТКЕ (владелец 01.09).
+            # Партнёр подставляет свою сумму и формулировку, не трогая страницу.
+            'budget': {'title': 'Сертификат на мебель и технику на сумму до 800 000 руб.',
+                       'text': 'Выбирайте любую мебель и технику для своей новой квартиры. '
+                               'Все предметы можно двигать, сохранять коллекции и делиться '
+                               'с близкими.'},
             '_note': flat.get('_scale_note')}
 
 
@@ -587,10 +598,10 @@ def main() -> None:
         subprocess.run(f"cd {os.path.dirname(OUT)} && tar czf /tmp/f215demo.tgz flat215-demo && "
                        "scp -q -P 22222 /tmp/f215demo.tgz root@89.167.127.0:/tmp/ && "
                        "ssh -p 22222 root@89.167.127.0 'cd /tmp && rm -rf flat215-demo && "
-                       "tar xzf f215demo.tgz && rm -rf /opt/remlab/test/flat215-demo && "
-                       "mv flat215-demo /opt/remlab/test/flat215-demo && rm f215demo.tgz' && "
+                       "tar xzf f215demo.tgz && rm -rf /opt/remlab/test/buildup && "
+                       "mv flat215-demo /opt/remlab/test/buildup && rm f215demo.tgz' && "
                        "rm -f /tmp/f215demo.tgz", shell=True, check=True)
-        print('опубликовано: /test/flat215-demo/')
+        print('опубликовано: /test/buildup/')
 
 
 if __name__ == '__main__':

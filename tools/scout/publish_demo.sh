@@ -17,13 +17,13 @@ scp -P 22222 -o StrictHostKeyChecking=no "$TGZ" root@89.167.127.0:/tmp/demo.tgz
 # спрайты объединением — свежая версия побеждает, старые не теряются.
 ssh -p 22222 root@89.167.127.0 "set -e; cd /opt/remlab/test
   rm -rf .topsprites-keep
-  [ -d flat215-demo/topsprites ] && mv flat215-demo/topsprites .topsprites-keep || mkdir -p .topsprites-keep
-  rm -rf flat215-demo && tar xzf /tmp/demo.tgz
-  mkdir -p flat215-demo/topsprites
-  cp -n .topsprites-keep/*.png flat215-demo/topsprites/ 2>/dev/null || true
+  [ -d buildup/topsprites ] && mv buildup/topsprites .topsprites-keep || mkdir -p .topsprites-keep
+  rm -rf buildup && tar xzf /tmp/demo.tgz && mv flat215-demo buildup
+  mkdir -p buildup/topsprites
+  cp -n .topsprites-keep/*.png buildup/topsprites/ 2>/dev/null || true
   rm -rf .topsprites-keep
-  chown -R 1000:1000 flat215-demo && rm -f /tmp/demo.tgz"
+  chown -R 1000:1000 buildup && rm -f /tmp/demo.tgz"
 rm -f "$TGZ"
-code=$(curl -s -o /dev/null -m 25 -w '%{http_code}' "https://remont-lab.online/test/flat215-demo/?v=$(date +%s)")
+code=$(curl -s -o /dev/null -m 25 -w '%{http_code}' "https://remont-lab.online/test/buildup/?v=$(date +%s)")
 [ "$code" = 200 ] || { echo "публикация не подтвердилась: HTTP $code"; exit 1; }
-echo "демо опубликовано: https://remont-lab.online/test/flat215-demo/"
+echo "демо опубликовано: https://remont-lab.online/test/buildup/"
