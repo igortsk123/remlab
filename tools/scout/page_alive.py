@@ -138,6 +138,15 @@ def classify(shop: str, http_code, body: str = '', error: str = '', final_url: s
     c = contract(shop)
     if error:
         return 'unknown', f'не проверилось: {error[:60]}'
+    # АНТИБОТ ПРОВЕРЯЕМ ПЕРВЫМ, ДО ЛЮБОГО КОДА (правило владельца 01.09: «если сразу видишь, что
+    # это бот, снимать не надо — значит проверить не можем, верим Гдеслону»). Раньше ветка
+    # 404/410 стояла ВЫШЕ и возвращала `gone`, не заглядывая в тело: WAF вправе отдавать любой
+    # код 4xx, и магазин, закрывшийся от нашего бота ответом 404, читался как «товара нет».
+    # Цена ошибки тут не «один товар из тысячи», а весь магазин разом — и повторный заход её
+    # не ловит: закрытая дверь закрыта и через 15 минут, и через 6 часов.
+    if _BLOCKED_URL_RE.search(final_url or '') or \
+            (len(body or '') < CHALLENGE_MAX_BYTES and _CHALLENGE_RE.search(body or '')):
+        return 'unknown', 'антибот/капча'
     if http_code in (404, 410):
         return 'gone', f'http {http_code}'
     if http_code in (401, 403, 429) or (isinstance(http_code, int) and http_code >= 500):
@@ -146,9 +155,6 @@ def classify(shop: str, http_code, body: str = '', error: str = '', final_url: s
         return 'unknown', f'http {http_code} (редирект без страницы)'
     if http_code != 200:
         return 'unknown', f'http {http_code}'
-    if _BLOCKED_URL_RE.search(final_url or '') or \
-            (len(body or '') < CHALLENGE_MAX_BYTES and _CHALLENGE_RE.search(body or '')):
-        return 'unknown', 'антибот/капча'
     # Редирект со страницы товара на каталог/главную — товара нет, но доказательства слабее 404:
     # магазины так маскируют и временные проблемы. Поэтому unknown, а не gone.
     if final_url and url and url_key(final_url) != url_key(url):
@@ -193,6 +199,16 @@ def _selftest() -> int:
         ('divan.ru',     429, '', '', '', '', 'unknown'),
         ('divan.ru',     503, '', '', '', '', 'unknown'),
         ('divan.ru',     None, '', 'timed out', '', '', 'unknown'),
+        # WAF ВПРАВЕ ОТДАТЬ ЛЮБОЙ КОД 4xx, в том числе 404 (01.09). Пока ветка 404 стояла выше
+        # проверки антибота, магазин, закрывшийся от нашего бота, читался как «товара нет» —
+        # и снялся бы ВЕСЬ. Теперь тело и адрес осматриваются первыми.
+        ('divanboss.ru', 404, '<html><body>Checking your browser…</body></html>', '', '', '',
+         'unknown'),
+        ('gipfel.ru',    404, '<html>DDoS-Guard</html>', '', '', '', 'unknown'),
+        ('mdm-complect.ru', 404, '', '', 'https://www.mdm-complect.ru/tmgrdfrend/showcaptchafast?d=1',
+         '', 'unknown'),
+        # но обычный 404 без признаков антибота по-прежнему снимает товар
+        ('divanboss.ru', 404, '<html><body>Страница не найдена</body></html>', '', '', '', 'gone'),
         # карточка варианта mnogomebeli читается как у всех — по schema (ADR-0144, 01.09)
         ('mnogomebeli.com', 200, JSONLD_IN, '', '', '', 'alive'),
         ('mnogomebeli.com', 200, JSONLD_OUT, '', '', '', 'oos'),
