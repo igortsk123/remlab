@@ -43,14 +43,26 @@ def read_marks(path: str | None) -> dict:
     return out
 
 
-def newest_dirs() -> dict:
-    """sku → каталог самой свежей генерации с моделью."""
+EV_MARK = '/mesh-color/ev/'
+
+
+def newest_dirs(ev: bool = False) -> dict:
+    """sku → каталог самой свежей генерации с моделью.
+
+    `ev=False` — генерации со СТАРОГО фото (то, что было до опыта); `ev=True` — сделанные
+    со сдвинутой экспозицией (их вход опубликован на нашем сайте, отсюда и признак —
+    `image_url` с `/mesh-color/ev/`). Две выборки нужны, чтобы на странице остались ОБЕ
+    модели: без «до» сравнивать не с чем, а перезапись затирала бы прошлую версию.
+    """
     best = {}
     for mp in sorted(glob.glob(os.path.join(SRC, '*/*/manifest.json')),
                      key=lambda p: -os.path.getmtime(p)):
         d = os.path.dirname(mp)
         man = json.load(open(mp, encoding='utf-8'))
         if man['sku'] in best or not os.path.exists(os.path.join(d, 'model.glb')):
+            continue
+        is_ev = EV_MARK in ((man.get('input') or {}).get('image_url') or '')
+        if is_ev != ev:
             continue
         best[man['sku']] = (d, man)
     return best
@@ -64,6 +76,7 @@ def main() -> None:
     EV = json.load(open(ev_p, encoding='utf-8')) if os.path.exists(ev_p) else {}
     os.makedirs(OUT, exist_ok=True)
     best = newest_dirs()
+    after = newest_dirs(ev=True)          # модели, сделанные со сдвинутым фото
     order = {'redo': 0, 'dark': 1, 'light': 2, '': 3}
     redo = [s for s, v in marks.items() if v == 'redo']
     items = [(s, v) for s, v in best.items()
@@ -88,6 +101,17 @@ def main() -> None:
                 os.path.getmtime(os.path.join(OUT, glb)) < os.path.getmtime(glb_src):
             open(os.path.join(OUT, glb), 'wb').write(open(glb_src, 'rb').read())
         ver = int(os.path.getmtime(glb_src))
+        col_after = '<i style="color:#999;font-size:12px">ждёт прогона</i>'
+        if sku in after:
+            a_src = os.path.join(after[sku][0], 'model.glb')
+            a_glb = f'{key}.after.glb'
+            if not os.path.exists(os.path.join(OUT, a_glb)) or \
+                    os.path.getmtime(os.path.join(OUT, a_glb)) < os.path.getmtime(a_src):
+                open(os.path.join(OUT, a_glb), 'wb').write(open(a_src, 'rb').read())
+            col_after = (f'<model-viewer src="{a_glb}?v={int(os.path.getmtime(a_src))}" '
+                         'camera-controls auto-rotate shadow-intensity="1" loading="lazy" '
+                         'style="width:290px;height:250px;background:#eef3ee;border-radius:6px">'
+                         '</model-viewer>')
         mark = marks.get(sku, '')
         badge = {'light': 'вы отметили: светлее', 'dark': 'вы отметили: темнее',
                  'redo': 'вы отметили: переделать'}.get(mark, '')
@@ -104,10 +128,11 @@ def main() -> None:
   <div><div class="lbl">фото со сдвинутой экспозицией: {stops:+.2f} ступени
    (сколько показал замер, но не больше 0.45)</div>
    <img src="{key}.now.png" loading="lazy"></div>
-  <div><div class="lbl">модель (пока со старого фото)</div>
+  <div><div class="lbl">модель со СТАРОГО фото</div>
    <model-viewer src="{glb}?v={ver}" camera-controls auto-rotate shadow-intensity="1"
      loading="lazy" style="width:290px;height:250px;background:#f4f4f2;border-radius:6px"></model-viewer>
   </div>
+  <div><div class="lbl">модель с НОВОГО фото</div>{col_after}</div>
  </div>
  <div class="marks">
    <button class="mk" data-m="ok">ок, помогло</button>
@@ -123,7 +148,7 @@ def main() -> None:
 <style>
  body{{font:15px/1.5 system-ui;margin:22px;background:#fafaf8;color:#1c1c1a}}
  h1{{font-size:20px}} .sub{{color:#555;max-width:900px}}
- .card{{background:#fff;border:1px solid #e5e5e0;border-radius:10px;padding:14px;margin:12px 0;max-width:1000px}}
+ .card{{background:#fff;border:1px solid #e5e5e0;border-radius:10px;padding:14px;margin:12px 0;max-width:1320px}}
  h3{{font-size:15px;margin:0 0 8px}} .sku{{font-size:11px;color:#999;font-weight:400}}
  .badge{{font-size:11px;color:#8a6d00;background:#fdf3d5;border-radius:4px;padding:2px 6px;font-weight:400}}
  .lbl{{font-size:12px;color:#666;margin-bottom:4px}}

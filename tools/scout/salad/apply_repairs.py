@@ -139,7 +139,14 @@ def main() -> None:
     # ACCEPT_CAP тяжёлых приёмок за прогон; порядок перемешан, чтобы один тяжёлый
     # каталог не блокировал раскатку остальным (Terminated на 45-й минуте, 30.08).
     import random
-    ACCEPT_CAP = 40
+    import time as _t
+    # 01.09: замер показал 29с на ОДНУ приёмку (загрузка модели + метрики) — 40 штук это
+    # 20 минут, и под работающим конвейером шаг не укладывался в таймаут («ремонт: СБОЙ
+    # Terminated»), а пока он висел, ноды Salad оплачивались вхолостую. Ограничиваем и
+    # числом, и временем: остаток догоняется следующим циклом, вердикты кэшируются.
+    ACCEPT_CAP = int(os.environ.get('ACCEPT_CAP', 20))
+    ACCEPT_BUDGET_S = float(os.environ.get('ACCEPT_BUDGET_S', 600))
+    _t0 = _t.time()
     checked = 0
     mans = sorted(glob.glob(os.path.join(SRC, '*/*/manifest.json')))
     random.Random(os.getpid()).shuffle(mans)
@@ -173,7 +180,7 @@ def main() -> None:
                 continue
             except Exception:  # noqa: BLE001
                 pass
-        if checked >= ACCEPT_CAP:
+        if checked >= ACCEPT_CAP or _t.time() - _t0 > ACCEPT_BUDGET_S:
             try:                              # лимит цикла исчерпан — вердикт из кэша, если был
                 verdicts[man['sku']] = json.load(open(vj)).get('status') or 'generated'
             except Exception:  # noqa: BLE001

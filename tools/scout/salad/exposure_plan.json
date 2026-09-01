@@ -1,0 +1,347 @@
+{
+ "99272:12426625808946692788": {
+  "sku": "99272:12426625808946692788",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/99272_12426625808946692788/03bda7e71b43d8c7",
+  "y_photo": 0.6159,
+  "y_model": 0.6574,
+  "stops_raw": -0.09,
+  "stops": -0.09
+ },
+ "112923:13770518444507910426": {
+  "sku": "112923:13770518444507910426",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_13770518444507910426/ca2205cd36921afa",
+  "y_photo": 0.1677,
+  "y_model": 0.0382,
+  "stops_raw": 2.13,
+  "stops": 0.45
+ },
+ "114082:9472349712521978519": {
+  "sku": "114082:9472349712521978519",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/114082_9472349712521978519/cd21fdf5408b1ddc",
+  "y_photo": 0.0674,
+  "y_model": 0.0488,
+  "stops_raw": 0.47,
+  "stops": 0.4
+ },
+ "114082:16699428719348842527": {
+  "sku": "114082:16699428719348842527",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/114082_16699428719348842527/27a8e44ed95c71e8",
+  "y_photo": 0.0648,
+  "y_model": 0.0432,
+  "stops_raw": 0.58,
+  "stops": 0.4
+ },
+ "99272:11343474977352921188": {
+  "sku": "99272:11343474977352921188",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/99272_11343474977352921188/ed00eddb3c184171",
+  "y_photo": 0.8082,
+  "y_model": 0.4525,
+  "stops_raw": 0.84,
+  "stops": 0.0
+ },
+ "112923:4922194797449750070": {
+  "sku": "112923:4922194797449750070",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_4922194797449750070/9c4d8db60ece1a8b",
+  "y_photo": 0.0856,
+  "y_model": 0.0014,
+  "stops_raw": 5.97,
+  "stops": 0.45
+ },
+ "112923:14759284176112957695": {
+  "sku": "112923:14759284176112957695",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_14759284176112957695/8ddf2e320ccf6501",
+  "y_photo": 0.0464,
+  "y_model": 0.005,
+  "stops_raw": 3.2,
+  "stops": 0.45
+ },
+ "114667:9948616701316495443": {
+  "sku": "114667:9948616701316495443",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/114667_9948616701316495443/4a7dd07c0b28820b",
+  "y_photo": 0.0603,
+  "y_model": 0.0394,
+  "stops_raw": 0.61,
+  "stops": 0.45
+ },
+ "112923:6065800578703142835": {
+  "sku": "112923:6065800578703142835",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_6065800578703142835/2ad77cf324823790",
+  "y_photo": 0.6928,
+  "y_model": 0.3898,
+  "stops_raw": 0.83,
+  "stops": 0.0
+ },
+ "112923:3299868370155266208": {
+  "sku": "112923:3299868370155266208",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_3299868370155266208/0f0ec99ff22b06ae",
+  "y_photo": 0.1018,
+  "y_model": 0.0222,
+  "stops_raw": 2.2,
+  "stops": 0.4
+ },
+ "112923:757208011010797019": {
+  "sku": "112923:757208011010797019",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_757208011010797019/c4a20e5052dc4670",
+  "y_photo": 0.1215,
+  "y_model": 0.01,
+  "stops_raw": 3.61,
+  "stops": 0.45
+ },
+ "99272:16609360981420260541": {
+  "sku": "99272:16609360981420260541",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/99272_16609360981420260541/4ebe7b1b7a8ad78d",
+  "y_photo": 0.5812,
+  "y_model": 0.4632,
+  "stops_raw": 0.33,
+  "stops": 0.0
+ },
+ "112923:8333856700583988605": {
+  "sku": "112923:8333856700583988605",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_8333856700583988605/6bd499af5b8f5643",
+  "y_photo": 0.02406749688088894,
+  "y_model": 0.0,
+  "stops_raw": null,
+  "stops": 0.45,
+  "note": "коллапс в чёрное"
+ },
+ "112923:8137064999918124227": {
+  "sku": "112923:8137064999918124227",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_8137064999918124227/39d7cea46e0dfc42",
+  "y_photo": 0.1443,
+  "y_model": 0.0008,
+  "stops_raw": 7.57,
+  "stops": 0.45
+ },
+ "112923:3315463912586577709": {
+  "sku": "112923:3315463912586577709",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_3315463912586577709/31e0915ee130ff5b",
+  "y_photo": 0.1439,
+  "y_model": 0.4324,
+  "stops_raw": -1.59,
+  "stops": -0.45
+ },
+ "112923:13931987124109513842": {
+  "sku": "112923:13931987124109513842",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_13931987124109513842/b3d90d424d2db76f",
+  "y_photo": 0.0824,
+  "y_model": 0.0101,
+  "stops_raw": 3.02,
+  "stops": 0.45
+ },
+ "112923:4592092539610194796": {
+  "sku": "112923:4592092539610194796",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_4592092539610194796/53783e48732edd8b",
+  "y_photo": 0.1339,
+  "y_model": 0.2422,
+  "stops_raw": -0.86,
+  "stops": -0.45
+ },
+ "112923:6243202751863390846": {
+  "sku": "112923:6243202751863390846",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_6243202751863390846/79571329198726e1",
+  "y_photo": 0.2882,
+  "y_model": 0.5242,
+  "stops_raw": -0.86,
+  "stops": -0.45
+ },
+ "112923:321183910010607839": {
+  "sku": "112923:321183910010607839",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_321183910010607839/3a031bbe7514d9ab",
+  "y_photo": 0.1561,
+  "y_model": 0.6033,
+  "stops_raw": -1.95,
+  "stops": -0.45
+ },
+ "112923:12912291157796746973": {
+  "sku": "112923:12912291157796746973",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_12912291157796746973/a93e8d3845ad7940",
+  "y_photo": 0.2188,
+  "y_model": 0.4552,
+  "stops_raw": -1.06,
+  "stops": -0.45
+ },
+ "114667:10596921455139979627": {
+  "sku": "114667:10596921455139979627",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/114667_10596921455139979627/cad22392e575662f",
+  "y_photo": 0.1513,
+  "y_model": 0.4026,
+  "stops_raw": -1.41,
+  "stops": -0.45
+ },
+ "114667:14079407750541273258": {
+  "sku": "114667:14079407750541273258",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/114667_14079407750541273258/a72ccd4525581e62",
+  "y_photo": 0.0499,
+  "y_model": 0.1651,
+  "stops_raw": -1.73,
+  "stops": -0.45
+ },
+ "112923:3227140503560877065": {
+  "sku": "112923:3227140503560877065",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_3227140503560877065/c478f5740d0fe941",
+  "y_photo": 0.3068,
+  "y_model": 0.5089,
+  "stops_raw": -0.73,
+  "stops": -0.45
+ },
+ "112923:3018366005275636862": {
+  "sku": "112923:3018366005275636862",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_3018366005275636862/2416e0f5dfdd9247",
+  "y_photo": 0.0717,
+  "y_model": 0.3192,
+  "stops_raw": -2.15,
+  "stops": -0.45
+ },
+ "112923:6715526235026347852": {
+  "sku": "112923:6715526235026347852",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_6715526235026347852/7b0e698dfa826ac1",
+  "y_photo": 0.3838,
+  "y_model": 0.4522,
+  "stops_raw": -0.24,
+  "stops": -0.24
+ },
+ "114082:1890154000933796487": {
+  "sku": "114082:1890154000933796487",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/114082_1890154000933796487/76fcc6b763ed3f3a",
+  "y_photo": 0.063,
+  "y_model": 0.106,
+  "stops_raw": -0.75,
+  "stops": -0.45
+ },
+ "112923:1600068498526658767": {
+  "sku": "112923:1600068498526658767",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_1600068498526658767/5e4879f0bbb53dcc",
+  "y_photo": 0.1038,
+  "y_model": 0.3225,
+  "stops_raw": -1.64,
+  "stops": -0.45
+ },
+ "114667:4096657741673852259": {
+  "sku": "114667:4096657741673852259",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/114667_4096657741673852259/6be070f5a2919a8e",
+  "y_photo": 0.1388,
+  "y_model": 0.4621,
+  "stops_raw": -1.73,
+  "stops": -0.45
+ },
+ "112923:5177956365797043847": {
+  "sku": "112923:5177956365797043847",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_5177956365797043847/3c40e6c7eeec6c86",
+  "y_photo": 0.1641,
+  "y_model": 0.2255,
+  "stops_raw": -0.46,
+  "stops": -0.45
+ },
+ "112923:16125083650918720213": {
+  "sku": "112923:16125083650918720213",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_16125083650918720213/9873c3ca70cc12bb",
+  "y_photo": 0.3578,
+  "y_model": 0.3941,
+  "stops_raw": -0.14,
+  "stops": -0.14
+ },
+ "112923:8352505356576107753": {
+  "sku": "112923:8352505356576107753",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_8352505356576107753/dd3436b8889c05df",
+  "y_photo": 0.1607,
+  "y_model": 0.5137,
+  "stops_raw": -1.68,
+  "stops": -0.45
+ },
+ "114082:18155926792485192206": {
+  "sku": "114082:18155926792485192206",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/114082_18155926792485192206/edd34723d868f756",
+  "y_photo": 0.1963,
+  "y_model": 0.3014,
+  "stops_raw": -0.62,
+  "stops": -0.45
+ },
+ "112923:7736279736350607941": {
+  "sku": "112923:7736279736350607941",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_7736279736350607941/12af3dc1d5a5040b",
+  "y_photo": 0.1504,
+  "y_model": 0.3204,
+  "stops_raw": -1.09,
+  "stops": -0.45
+ },
+ "112923:1992550028572009146": {
+  "sku": "112923:1992550028572009146",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_1992550028572009146/8cb48177c7706149",
+  "y_photo": 0.1467,
+  "y_model": 0.129,
+  "stops_raw": 0.19,
+  "stops": 0.0
+ },
+ "112923:9134166643537246405": {
+  "sku": "112923:9134166643537246405",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_9134166643537246405/a240fd9541ce0ff3",
+  "y_photo": 0.0327,
+  "y_model": 0.1011,
+  "stops_raw": -1.63,
+  "stops": -0.45
+ },
+ "112923:2058239722176115234": {
+  "sku": "112923:2058239722176115234",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_2058239722176115234/511211a95a8b3849",
+  "y_photo": 0.1443,
+  "y_model": 0.2902,
+  "stops_raw": -1.01,
+  "stops": -0.45
+ },
+ "112923:5969868554069204915": {
+  "sku": "112923:5969868554069204915",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_5969868554069204915/d6d0dd0357e93b67",
+  "y_photo": 0.1592,
+  "y_model": 0.3519,
+  "stops_raw": -1.14,
+  "stops": -0.45
+ },
+ "112923:4636684076232506964": {
+  "sku": "112923:4636684076232506964",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_4636684076232506964/71b64865ad5637f1",
+  "y_photo": 0.2329,
+  "y_model": 0.2141,
+  "stops_raw": 0.12,
+  "stops": 0.0
+ },
+ "99272:3719064523856795605": {
+  "sku": "99272:3719064523856795605",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/99272_3719064523856795605/f0b605128b307fe3",
+  "y_photo": 0.7158,
+  "y_model": 0.2251,
+  "stops_raw": 1.67,
+  "stops": 0.0
+ },
+ "99272:16320868079897527293": {
+  "sku": "99272:16320868079897527293",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/99272_16320868079897527293/a295dc6be74b5630",
+  "y_photo": 0.1857,
+  "y_model": 0.2195,
+  "stops_raw": -0.24,
+  "stops": -0.24
+ },
+ "114667:11864182952171003524": {
+  "sku": "114667:11864182952171003524",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/114667_11864182952171003524/882c74c9a14d7d1a",
+  "y_photo": 0.0226,
+  "y_model": 0.0507,
+  "stops_raw": -1.16,
+  "stops": -0.45
+ },
+ "112923:16297980409380774009": {
+  "sku": "112923:16297980409380774009",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_16297980409380774009/99369e8e0b80380d",
+  "y_photo": 0.3469,
+  "y_model": 0.6661,
+  "stops_raw": -0.94,
+  "stops": -0.45
+ },
+ "112923:12454728843222733973": {
+  "sku": "112923:12454728843222733973",
+  "dir": "/home/pakar/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2/112923_12454728843222733973/c2d99dd9d365bcc2",
+  "y_photo": 0.2852,
+  "y_model": 0.2175,
+  "stops_raw": 0.39,
+  "stops": 0.0
+ }
+}

@@ -49,10 +49,20 @@ def q(v) -> str:
     return "'" + str(v).replace("'", "''") + "'"
 
 
-def slug_hit(name: str, url: str) -> bool:
-    """Есть ли в адресе след названия товара. Достаточно ДВУХ значимых слов: магазины
-    переставляют и сокращают слова, но не выдумывают их с нуля."""
-    path = translit(urllib.parse.unquote(urllib.parse.urlsplit(url).path)).replace('-', ' ')
+def slug_hit(name: str, url: str):
+    """Есть ли в адресе след названия товара → True / False / None («по слагу не судить»).
+
+    Достаточно ДВУХ значимых слов: магазины переставляют и сокращают слова, но не выдумывают
+    их с нуля. НО адрес бывает и по числовому ID (`tvoydom.ru/catalog/1002738503/`,
+    `gipfel.ru/catalog/43161/`, mdm) — там слага нет вовсе, и «не совпало» означало бы
+    «непонятно», а не «чужая ссылка». Такие адреса честно отдаём как None: проверка слагом
+    к ним неприменима (иначе канарейка кричит на 100% каталога трёх магазинов — поймано 01.09).
+    """
+    path_raw = urllib.parse.unquote(urllib.parse.urlsplit(url).path)
+    segs = [s for s in path_raw.split('/') if s]
+    if segs and re.fullmatch(r'\d{3,}', segs[-1]):
+        return None
+    path = translit(path_raw).replace('-', ' ')
     words = [translit(w) for w in re.findall(r'[а-яёa-z0-9]{4,}', (name or '').lower())]
     return sum(1 for w in words if w[:5] in path) >= 2
 
@@ -91,14 +101,16 @@ def main() -> int:
         sample = [r for r in rows if r[0] == verdict][:n]
         if not sample:
             continue
-        miss = [r for r in sample if not slug_hit(r[1], r[2])]
+        checked = [r for r in sample if slug_hit(r[1], r[2]) is not None]
+        by_id = len(sample) - len(checked)
+        miss = [r for r in checked if slug_hit(r[1], r[2]) is False]
         host_bad = [r for r in sample
                     if (urllib.parse.urlsplit(r[2]).hostname or '').replace('www.', '') != r[3]]
-        print(f'  {verdict}: выборка {len(sample)}, адрес не похож на карточку товара {len(miss)}, '
-              f'чужой хост {len(host_bad)}')
+        print(f'  {verdict}: выборка {len(sample)} (адрес по ID, слагом не судим: {by_id}), '
+              f'не похож на карточку товара {len(miss)}, чужой хост {len(host_bad)}')
         for r in miss[:3]:
             print(f'     ? {r[1][:50]} → {r[2][:95]}')
-        if len(miss) > len(sample) * SLUG_MISS_LIMIT or host_bad:
+        if (checked and len(miss) > len(checked) * SLUG_MISS_LIMIT) or host_bad:
             bad += 1
     if neg / total > ALARM_NEGATIVE_SHARE:
         print('ТРЕВОГА: отрицательных больше порога — это похоже на поломку схемы ссылок, '
