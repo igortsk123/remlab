@@ -1786,7 +1786,14 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
     w, h = sheet.size
     size = '1024x1536' if h > w else '1536x1024'
     stamp = hashlib.md5((prefix + str(time.time())).encode()).hexdigest()[:10]
+    # НА СТРАНИЦЕ ИСХОДНИКОВ — РОВНО ТО, ЧТО УШЛО В МОДЕЛЬ (владелец 01.09: «в исходнике
+    # запроса для GPT я всё увидеть должен»). Раньше выкладывались ПОКАДРОВЫЕ макеты, а в модель
+    # уходил СКЛЕЕННЫЙ лист (`imgs = [sheet, sheet_marks, ident]`) — то есть страница показывала
+    # похожее, но не то же самое, и по ней нельзя было судить о входе. Теперь первыми идут
+    # именно отправленные листы, а покадровые части остаются ниже как разбор.
     src_imgs = {}
+    for j, im in enumerate(imgs, start=1):
+        src_imgs[f'0-ОТПРАВЛЕНО-в-модель-{j}'] = im
     for i, (cl, mk) in enumerate(zip(parts, marks), start=1):
         src_imgs[f'{i}-вид-{i}-макет-чистый'] = cl
         src_imgs[f'{i}-вид-{i}-макет-с-номерами'] = mk
