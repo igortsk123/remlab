@@ -258,19 +258,56 @@ def scene_from_request(payload: dict) -> tuple:
     # на стене над тумбой: у неё есть место, размер и разворот, как у любого другого предмета.
     stand = next((p for p in placements if _base_role(p.role) == 'тв-тумба'), None)
     if stand is not None and not any(_base_role(p.role) == 'тв' for p in placements):
-        w = max(90.0, float(stand.item.w_cm) * 0.9)
-        # ПРАВИЛО ВЛАДЕЛЬЦА (31.08): смотрим ВЫСОТУ тумбы — низкая (≤55 см) → ТВ СТОИТ
-        # на ней (низ = её высота), повыше → над ней с малым зазором. Прежний фикс 85+35
-        # вешал ТВ «в воздухе» без связи с реальной тумбой.
-        sh = float(stand.item.h_cm or 45)
-        elev = sh if sh <= 55 else sh + 12.0
+        seat = next((p for p in placements if _base_role(p.role) == 'диван'), None) \
+            or next((p for p in placements if _base_role(p.role) == 'кресло'), None)
+        dist = (((seat.x - stand.x) ** 2 + (seat.y - stand.y) ** 2) ** 0.5
+                if seat is not None else 300.0)   # math импортируется локально по файлу
+        inch, w, h, elev, how = tv_spec(dist, float(stand.item.w_cm),
+                                        float(stand.item.h_cm or 45))
         placements.append(Placement(role='тв', x=stand.x, y=stand.y, rot=stand.rot,
                                     elev_cm=elev,
-                                    item=Item(role='тв', w_cm=w, d_cm=8.0,
-                                              h_cm=round(w * 0.58, 1),
-                                              name='телевизор (по ширине тумбы)')))
+                                    item=Item(role='тв', w_cm=w, d_cm=8.0, h_cm=h,
+                                              name=f'телевизор {inch}″ ({how})')))
     return room, placements, photos
 
+
+
+# --- телевизор: размер по расстоянию, подвес по высоте тумбы ------------------------------------
+# Таблица владельца (01.09). Расстояние до экрана → рекомендуемая диагональ. Это ходовая норма
+# для 4K: смотреть с 1.5 м на 85″ невозможно, а с 4 м на 43″ ничего не видно.
+TV_BY_DIST_CM = ((150, 43), (200, 50), (250, 55), (300, 65), (350, 75), (10 ** 9, 85))
+TV_SEAT_EYE_CM = 105.0     # центр экрана на уровне глаз сидящего — норма установки
+TV_MAX_CENTER_CM = 125.0   # выше этого шею уже задирают: значит вешаем, а не ставим
+
+
+def tv_spec(dist_cm: float, stand_w_cm: float, stand_h_cm: float):
+    """→ (дюймы, ширина см, высота см, отметка низа см, как поставлен).
+
+    Диагональ — по таблице расстояний, но НЕ шире тумбы (правило владельца 01.09: «не более
+    длины тв тумбы»). Прежний код брал 90% ширины тумбы и растягивал экран на всю её длину
+    независимо от того, с какого расстояния на него смотрят.
+
+    Подвес: если, стоя на тумбе, центр экрана оказывается не выше TV_MAX_CENTER_CM — ТВ СТОИТ
+    на тумбе. Иначе вешаем на стену и опускаем центр к уровню глаз сидящего, но не ниже
+    верха тумбы — сквозь мебель экран не вешают.
+    """
+    inch = next(v for lim, v in TV_BY_DIST_CM if dist_cm < lim)
+    diag = inch * 2.54
+    w = diag * 16 / (16 ** 2 + 9 ** 2) ** 0.5          # 16:9
+    h = diag * 9 / (16 ** 2 + 9 ** 2) ** 0.5
+    # ПОТОЛОК — ТУМБА, И С ЗАПАСОМ. Владелец 01.09 просил и «не более длины тв-тумбы», и «чтоб
+    # не растягивался на всю длину»: экран ровно в длину тумбы читается как растянутый, поэтому
+    # оставляем поля. Доля настраивается (TV_MAX_STAND_FRAC), по умолчанию 0.9 — обычная норма
+    # установки: тумба шире экрана, а не вровень.
+    cap = stand_w_cm * float(os.environ.get('TV_MAX_STAND_FRAC', 0.9))
+    if cap > 0 and w > cap:
+        k = cap / w
+        w, h = w * k, h * k
+        inch = round((w ** 2 + h ** 2) ** 0.5 / 2.54)
+    if stand_h_cm + h / 2 <= TV_MAX_CENTER_CM:
+        return inch, round(w, 1), round(h, 1), round(stand_h_cm, 1), 'на тумбе'
+    elev = max(stand_h_cm + 10.0, TV_SEAT_EYE_CM - h / 2)
+    return inch, round(w, 1), round(h, 1), round(elev, 1), 'на стене'
 
 def _cam_score(room, placements, cam) -> dict:
     """Насколько кадр ГОДЕН: сколько предметов видно, сколько обрезано рамкой, не заслоняет ли
@@ -2248,7 +2285,40 @@ def warm() -> float:
     return round(time.time() - t, 1)
 
 
+def tv_selftest() -> int:
+    """Таблица случаев на правило телевизора: размер по расстоянию, потолок по тумбе, подвес."""
+    cases = [
+        # (расстояние, ширина тумбы, высота тумбы) → (дюймы, как поставлен)
+        ((120, 200, 45), (43, 'на тумбе')),      # близко — маленький, тумба не мешает
+        ((180, 200, 45), (50, 'на тумбе')),
+        ((230, 200, 45), (55, 'на тумбе')),
+        ((280, 200, 45), (65, 'на тумбе')),
+        ((330, 200, 45), (75, 'на тумбе')),
+        ((400, 230, 45), (85, 'на тумбе')),      # далеко — крупный (тумба 230 не режет)
+        ((400, 200, 45), (81, 'на тумбе')),      # та же даль, тумба 200 → потолок 180 см
+        ((400, 120, 45), (49, 'на тумбе')),      # узкая тумба режет 85″ до 49″
+        ((280, 139, 90), (57, 'на стене')),      # высокая тумба → вешаем
+    ]
+    bad = 0
+    for (dist, sw, sh), (want_inch, want_how) in cases:
+        inch, w, h, elev, how = tv_spec(dist, sw, sh)
+        if (inch, how) != (want_inch, want_how):
+            bad += 1
+            print(f'  FAIL {dist}см тумба {sw}x{sh}: получили {inch}″ {how}, '
+                  f'ждали {want_inch}″ {want_how}')
+        if w > sw:
+            bad += 1
+            print(f'  FAIL экран {w:.1f} шире тумбы {sw}')
+        if abs(w / h - 16 / 9) > 0.02:
+            bad += 1
+            print(f'  FAIL пропорции не 16:9: {w:.1f}x{h:.1f}')
+    print(f'tv_spec selftest: случаев {len(cases)}, ошибок {bad}')
+    return 1 if bad else 0
+
+
 if __name__ == '__main__':
+    if '--tv-selftest' in sys.argv:
+        sys.exit(tv_selftest())
     if '--warm' in sys.argv:
         print(f'прогрев: {warm()} с')
     elif '--layout' in sys.argv:
