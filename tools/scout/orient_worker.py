@@ -190,6 +190,46 @@ def decide(sku: str, glb: str, inf: dict, use_vlm: bool) -> dict:
     return res
 
 
+_SHA_CACHE = os.path.expanduser('~/scout-scenes/orientation/sha-cache.json')
+
+
+def _sha16(path: str) -> str:
+    """sha16 файла с кэшем по (mtime, size): шаг заново читал ВСЕ модели (>1 ГБ на круг)
+    и не укладывался в таймаут конвейера — «ориентация: СБОЙ Terminated» (01.09)."""
+    try:
+        st = os.stat(path)
+        key = f'{path}'
+        cache = _sha16.cache
+        if cache is None:
+            cache = {}
+            if os.path.exists(_SHA_CACHE):
+                try:
+                    cache = json.load(open(_SHA_CACHE, encoding='utf-8'))
+                except Exception:  # noqa: BLE001
+                    cache = {}
+            _sha16.cache = cache
+        hit = cache.get(key)
+        if hit and hit[0] == int(st.st_mtime) and hit[1] == st.st_size:
+            return hit[2]
+        sha = hashlib.sha256(open(path, 'rb').read()).hexdigest()[:16]
+        cache[key] = [int(st.st_mtime), st.st_size, sha]
+        _sha16.dirty = True
+        return sha
+    except Exception:  # noqa: BLE001
+        return hashlib.sha256(open(path, 'rb').read()).hexdigest()[:16]
+
+
+_sha16.cache = None
+_sha16.dirty = False
+
+
+def _sha_flush() -> None:
+    if _sha16.dirty and _sha16.cache is not None:
+        os.makedirs(os.path.dirname(_SHA_CACHE), exist_ok=True)
+        json.dump(_sha16.cache, open(_SHA_CACHE, 'w', encoding='utf-8'))
+        _sha16.dirty = False
+
+
 def pending_meshes(limit: int) -> list[tuple[str, str, str]]:
     """(rev_key, sku, glb) без записи в orientation_state по текущему контракту."""
     out = []
@@ -201,12 +241,13 @@ def pending_meshes(limit: int) -> list[tuple[str, str, str]]:
                                                'hunyuan21', 'v2', '*', '*', 'model.glb'))):
         sku = (sku_from_path(glb) or sku_from_path(os.path.basename(os.path.dirname(glb)))
                or sku_from_path(os.path.basename(os.path.dirname(os.path.dirname(glb)))) or '?')
-        sha = hashlib.sha256(open(glb, 'rb').read()).hexdigest()[:16]
+        sha = _sha16(glb)
         rk = f'{sku}|{sha}|{CONTRACT}'
         if rk not in have:
             out.append((rk, sku, glb))
         if len(out) >= limit:
             break
+    _sha_flush()
     return out
 
 
