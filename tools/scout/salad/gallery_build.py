@@ -53,21 +53,25 @@ def build() -> str:
         sku = man['sku'].replace(':', '_')
         item_dir = os.path.join(OUT, sku)
         os.makedirs(item_dir, exist_ok=True)
-        open(os.path.join(item_dir, 'model.glb'), 'wb').write(open(model_src, 'rb').read())
-        for f in ('cutout.png', 'input.png'):
+        # Копируем только изменившееся: сборка галереи идёт КАЖДЫЙ цикл конвейера, а
+        # перекладывать 200 неизменных GLB по 30 МБ — это минуты дискового ввода впустую.
+        for f in ('model.glb', 'cutout.png', 'input.png'):
             s = os.path.join(d, f)
-            if os.path.exists(s):
-                open(os.path.join(item_dir, f), 'wb').write(open(s, 'rb').read())
-        # PBR-приёмка — на месте, по показанному GLB
+            if not os.path.exists(s):
+                continue
+            t = os.path.join(item_dir, f)
+            if os.path.exists(t) and os.path.getmtime(t) >= os.path.getmtime(s) \
+                    and os.path.getsize(t) == os.path.getsize(s):
+                continue
+            open(t, 'wb').write(open(s, 'rb').read())
+        # Статус — из `verdict.json` шага приёмки, а НЕ пересчётом PBR-гейта здесь: гейт
+        # грузит каждый GLB заново (~40 с на модель, 2+ часа на каталог), а на странице
+        # не показывается вовсе — только в консольной сводке.
         try:
-            import mesh_gate_pbr as PBR
-            st = PBR.status(model_src, role=man.get('role'))
-            pbr = {'status': st['status'],
-                   'problems': (st.get('pbr') or {}).get('problems', []),
-                   'tris': (st.get('runtime') or {}).get('triangles'),
-                   'size_mb': (st.get('runtime') or {}).get('size_mb')}
-        except Exception as e:  # noqa: BLE001 — приёмка не должна валить галерею
-            pbr = {'status': 'gate_error', 'problems': [str(e)[:100]]}
+            v = json.load(open(os.path.join(d, 'verdict.json'), encoding='utf-8'))
+            pbr = {'status': v.get('status') or '—', 'problems': []}
+        except Exception:  # noqa: BLE001 — приёмки ещё не было: страница важнее статуса
+            pbr = {'status': 'не принят', 'problems': []}
         rows.append({'sku': sku, 'man': man, 'pbr': pbr,
                      'ver': int(os.path.getmtime(model_src))})
 
