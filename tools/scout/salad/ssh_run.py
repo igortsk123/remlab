@@ -37,7 +37,11 @@ ORG, PROJECT = 'prodstore', 'dmodel'
 GROUPS = [g.strip() for g in os.environ.get('SALAD_GROUP', 'mesh-run3').split(',') if g.strip()]
 GROUP = GROUPS[0]
 RATE = 0.16                     # 4090 batch $/ч — сверено по API 28.08
-MAX_JOBS = 2000  # владелец 31.08: очередь до 2000 (481 сетовых + демо + добор по mesh_demand)
+# Предохранитель от разросшейся очереди. Владелец 31.08 ставил 2000 (481 сетовых + демо +
+# добор), но 01.09 очередь стала полной по каталогу — 11 704 задания в порядке регламента
+# (`rules/mesh-priority.json`). Держим переопределяемым: молчаливое усечение хуже явного
+# отказа, а зашитая цифра однажды уже уронила конвейер при живых нодах.
+MAX_JOBS = int(os.environ.get('MESH_MAX_JOBS', '2000'))
 _lock = threading.Lock()
 import random
 

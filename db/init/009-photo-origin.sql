@@ -10,11 +10,12 @@
 
 alter table products add column if not exists photo_bg text;          -- white|scene|unknown
 alter table products add column if not exists photo_bg_score real;    -- доля белого по рамке
-alter table products add column if not exists photo_collage boolean;  -- похоже на коллаж
+-- НЕ вердикт «это коллаж», а метка «фон не белый → на проверку человеком»
+alter table products add column if not exists photo_collage boolean;
 alter table products add column if not exists photo_bg_at timestamptz;
 
--- Меш, сделанный из такого фото. Ставится вместе с привязкой модели: сам меш может быть и
--- хорошим, но знать о грязном входе нужно, не переоткрывая это каждый раз заново.
+-- Меш, сделанный из фото с небелым фоном. Сам меш может быть и хорошим — метка нужна,
+-- чтобы такие модели можно было отобрать и просмотреть, а не открывать это заново.
 alter table products add column if not exists mesh_from_collage boolean;
 
 create index if not exists products_photo_collage_idx on products (photo_collage)
