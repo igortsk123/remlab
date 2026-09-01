@@ -27,6 +27,86 @@ CHECKER = ('data:image/png;base64,' + base64.b64encode(bytes.fromhex(
     'b7ac7e9c0000000049454e44ae426082')).decode()).replace('\n', '')
 
 
+# Отметки владельца прямо на карточке (просьба 01.09): «светлее / темнее / переделать»,
+# как табы — нажал/отжал, можно переключить, если промахнулся. Хранятся в браузере
+# (localStorage, один ключ на весь сайт), поэтому переживают переход между страницами и
+# пересборку галереи конвейером. Итог владелец копирует одной кнопкой и присылает.
+# Обычные строки, НЕ f-строки: скобки CSS/JS не надо экранировать.
+MARKS_CSS = """
+ .marks{display:flex;gap:6px;margin-top:8px}
+ .mk{flex:1;padding:7px 4px;font:13px system-ui;cursor:pointer;border:1px solid #d5d5cf;
+   border-radius:6px;background:#fff;color:#333}
+ .mk:hover{background:#f2f2ee}
+ .mk.on{border-color:#1c1c1a;background:#1c1c1a;color:#fff;font-weight:600}
+ .card[data-mark="light"]{box-shadow:0 0 0 2px #e0a53a}
+ .card[data-mark="dark"]{box-shadow:0 0 0 2px #4a6fb5}
+ .card[data-mark="redo"]{box-shadow:0 0 0 2px #c04a3e}
+ .seed{font-size:11px;color:#888;font-weight:400}
+ #panel{position:fixed;right:14px;bottom:14px;z-index:9;background:#fff;border:1px solid #d5d5cf;
+   border-radius:10px;padding:10px 12px;font:13px system-ui;box-shadow:0 3px 14px #0002;max-width:330px}
+ #panel button{font:12px system-ui;padding:5px 8px;margin:6px 4px 0 0;border:1px solid #d5d5cf;
+   border-radius:6px;background:#fff;cursor:pointer}
+ #out{display:none;width:305px;height:150px;margin-top:8px;font:11px/1.35 monospace}
+"""
+
+MARKS_JS = """
+(function(){
+  var KEY='meshMarks', NAMES={light:'светлее',dark:'темнее',redo:'переделать'};
+  function load(){try{return JSON.parse(localStorage.getItem(KEY)||'{}')}catch(e){return {}}}
+  function save(m){try{localStorage.setItem(KEY,JSON.stringify(m))}catch(e){alert('Браузер не даёт сохранить отметки')}}
+  function paint(){
+    var m=load(), cnt={light:0,dark:0,redo:0};
+    for(var k in m){if(cnt[m[k]]!==undefined)cnt[m[k]]++;}
+    document.querySelectorAll('.card').forEach(function(c){
+      var v=m[c.dataset.sku]||'';
+      if(v){c.dataset.mark=v;}else{c.removeAttribute('data-mark');}
+      c.querySelectorAll('.mk').forEach(function(b){b.classList.toggle('on',b.dataset.m===v);});
+    });
+    document.getElementById('cnt').textContent='светлее '+cnt.light+' · темнее '+cnt.dark+
+      ' · переделать '+cnt.redo;
+  }
+  function text(){
+    var m=load(), by={light:[],dark:[],redo:[]};
+    for(var k in m){if(by[m[k]])by[m[k]].push(k);}
+    var s='';
+    ['light','dark','redo'].forEach(function(t){
+      s+=NAMES[t]+' ('+by[t].length+'):\\n'+(by[t].join('\\n')||'—')+'\\n\\n';
+    });
+    return s.trim();
+  }
+  document.addEventListener('click',function(e){
+    var b=e.target.closest('.mk');
+    if(b){var c=b.closest('.card'), s=c.dataset.sku, m=load();
+      if(m[s]===b.dataset.m){delete m[s];}else{m[s]=b.dataset.m;}
+      save(m); paint(); return;}
+    if(e.target.id==='copy'){
+      var t=text(), ta=document.getElementById('out');
+      ta.style.display='block'; ta.value=t; ta.select();
+      if(navigator.clipboard){navigator.clipboard.writeText(t).then(function(){
+        document.getElementById('copy').textContent='скопировано';
+        setTimeout(function(){document.getElementById('copy').textContent='скопировать отметки';},1500);
+      });}else{document.execCommand('copy');}
+    }
+    if(e.target.id==='clr'){
+      if(confirm('Стереть ВСЕ отметки?')){save({});paint();document.getElementById('out').style.display='none';}
+    }
+  });
+  document.addEventListener('DOMContentLoaded',paint);
+})();
+"""
+
+PANEL_HTML = """
+<div id="panel">
+  <div><b>Мои отметки</b></div>
+  <div id="cnt">светлее 0 · темнее 0 · переделать 0</div>
+  <button id="copy">скопировать отметки</button><button id="clr">стереть всё</button>
+  <textarea id="out" readonly></textarea>
+  <div style="color:#888;font-size:11px;margin-top:6px">Отметки живут в этом браузере и
+   сохраняются при переходе между страницами.</div>
+</div>
+"""
+
+
 def build() -> str:
     rows = []
     best = {}                     # на SKU показываем ОДИН меш — самый свежий (перегон затирает брак)
@@ -77,16 +157,20 @@ def build() -> str:
 
     cards = []
     for r in rows:
-        m, p = r['man'], r['pbr']
-        t = m.get('timings_s') or {}
-        mask = m.get('mask') or {}
-        probs = ''.join(f'<li>{html.escape(x)}</li>' for x in p['problems'][:4])
+        m = r['man']
+        seed = int(m.get('seed') or 0)
+        gen = f'<span class="seed">перегон #{seed}</span>' if seed else ''
         cards.append(f"""
-<div class="card">
-  <h3>{html.escape(m.get('role') or '?')} <span class="sku">{r['sku']}</span></h3>
+<div class="card" data-sku="{html.escape(m['sku'])}">
+  <h3>{html.escape(m.get('role') or '?')} <span class="sku">{r['sku']}</span> {gen}</h3>
   <model-viewer src="{r['sku']}/model.glb?v={r['ver']}" camera-controls auto-rotate shadow-intensity="1"
     loading="lazy" reveal="auto"
     style="width:100%;height:340px;background:#f4f4f2;border-radius:6px"></model-viewer>
+  <div class="marks">
+    <button class="mk" data-m="light">светлее</button>
+    <button class="mk" data-m="dark">темнее</button>
+    <button class="mk" data-m="redo">переделать</button>
+  </div>
   <img class="cut" src="{r['sku']}/cutout.png?v={r['ver']}" loading="lazy"
     alt="вырезка, ушедшая в генератор">
 </div>""")
@@ -121,11 +205,14 @@ def build() -> str:
    background:url('{CHECKER}') repeat;image-rendering:auto;display:block}}
  .probs{{font-size:13px;color:#a33;margin:4px 0 0 18px}}
  @media(max-width:900px){{.tri{{grid-template-columns:1fr}}}}
+{MARKS_CSS}
 </style></head><body>
-<h1>Меши</h1>
+<h1>Меши — {len(rows)} шт., по одной модели на товар (самая свежая версия)</h1>
 {nav}
 {''.join(chunk)}
 {nav}
+{PANEL_HTML}
+<script>{MARKS_JS}</script>
 </body></html>"""
         name = 'index.html' if pi == 0 else f'page{pi + 1}.html'
         open(os.path.join(OUT, name), 'w', encoding='utf-8').write(page)
