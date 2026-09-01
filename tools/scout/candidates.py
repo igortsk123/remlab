@@ -64,7 +64,8 @@ def build() -> dict:
              e.payload->'model'->>'role', e.payload->'model'->>'functional_subtype',
              e.payload->'model'->>'primary_color', e.payload->'model'->>'materials',
              e.payload->'model'->>'styles', e.payload->'model'->>'style_strength',
-             e.payload->'model'->>'visual_mass', e.payload->'model'->>'warmth', e.quality
+             e.payload->'model'->>'visual_mass', e.payload->'model'->>'warmth', e.quality,
+             p.url
         from product_enrichment e join products p using (shop_mid, external_id)
        where e.payload is not null and e.status='active' and e.quality >= {MIN_QUALITY}
          and p.price_rub is not null and p.image_url is not null
@@ -76,8 +77,10 @@ def build() -> dict:
     for r in data:
         w, d, h, dia = (float(x) for x in r[5:9])
         long_cm = max(w, d, dia) or None
-        img, purl = r[9], r[10]                     # 26.08: фото и ПРЯМАЯ ссылка (не редирект
-                                                    # партнёрки) — иначе замена ломает контракт ссылки
+        img, purl = r[9], r[10]                     # 26.08: фото и ПРЯМАЯ ссылка — она СЛУЖЕБНАЯ:
+                                                    # по ней ходит скрейп фото и проверка карточки.
+                                                    # Человеку показываем `aff_url` (партнёрскую):
+                                                    # прямая ссылка = клик мимо партнёрки (ADR-0144).
         role, sub = r[11], r[12]                    # без них лечение не может проверить контракт
         # ФОТО, КОТОРОЕ УЖЕ ПРИЗНАНО МЁРТВЫМ, ВЫБРАСЫВАЕТ ТОВАР ИЗ ПУЛА (владелец 26.08: «товар
         # без фото не должен участвовать в выборке»). Непроверенное пропускаем: обход всего пула
@@ -90,7 +93,7 @@ def build() -> dict:
         items[pid] = dict(mid=int(r[0]), eid=r[1], name=r[2], price=int(r[3]), shop=r[4],
                           w=w or None, d=d or None, h=h or None, dia=dia or None,
                           role=role, subtype=sub, colour=r[13],
-                          img=img, url=purl,
+                          img=img, url=purl, aff_url=r[20] or purl,
                           materials=json.loads(r[14]) if r[14] else [],
                           styles=json.loads(r[15]) if r[15] else {},
                           strength=r[16], mass=r[17], warmth=r[18], quality=float(r[19]))

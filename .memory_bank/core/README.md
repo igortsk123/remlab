@@ -14,9 +14,9 @@
 |------|-------|----------------------|--------|---------|
 | `access-and-integrations.md` | access-and-integrations | Интеграции/доступы — ключи, клиенты | `../domain/integrations.md` | 2026-08-28 |
 | `architecture.md` | architecture | Стек, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-08-06 |
-| `catalog.md` | catalog | Каталог — состав, свежесть, дельта | `../domain/catalog-enrichment.md` | 2026-08-31 |
+| `catalog.md` | catalog | Каталог — состав, свежесть, дельта | `../domain/catalog-enrichment.md` | 2026-09-01 |
 | `data-model.md` | data-model | Схема БД, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-08-31 |
-| `demo-planner.md` | demo-planner | Демо-планировщик для партнёра — интерактивная расстановка и AI-фото | `../domain/viz-fidelity-playbook.md` | 2026-08-31 |
+| `demo-planner.md` | demo-planner | Демо-планировщик для партнёра — интерактивная расстановка и AI-фото | `../domain/viz-fidelity-playbook.md` | 2026-09-01 |
 | `estimate.md` | estimate | Смета — калькуляторы, /go/ реф | `../domain/pricing-works-ru.md` | 2026-08-06 |
 | `furniture.md` | furniture | Мебель — сеты, визуализация | `../domain/viz-fidelity-playbook.md` | 2026-08-28 |
 | `goals.md` | goals-furnish-fit | Цели — v0.4 «Смета-first» | `../goals-one-photo-furnish-fit.md` | 2026-08-09 |

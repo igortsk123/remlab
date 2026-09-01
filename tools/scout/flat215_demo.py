@@ -105,9 +105,34 @@ def solve_layouts(flat: dict) -> None:
         print(f'  раскладка сета {n}: ' + ('пересчитана' if r.returncode == 0 else f'ОШИБКА\n{r.stderr[-400:]}'))
 
 
+def drop_unavailable(sets: list) -> int:
+    """Снять из банка позиции, которых уже нет в продаже. → сколько снято.
+
+    ВТОРОЙ РУБЕЖ, А НЕ ДУБЛИРОВАНИЕ (01.09). Наличие лечит конвейер (`sets_incremental --heal`),
+    но между «наличие снято» и «банк вылечен» проходит до суток, и всё это время страница честно
+    показывает партнёру мёртвый товар — ровно это и нашёл владелец 01.09 (диван с карточкой 404).
+    Страница не считает наличие сама: спрашивает каталог, единственный источник (ADR-0141).
+    `unknown` (фид магазина не приехал) НЕ снимаем — «не знаю про фид» это не «товара нет».
+    """
+    from catalog_media import media as _media
+    n = 0
+    for st in sets:
+        items = st.get('items') or {}
+        for role, it in list(items.items()):
+            if not it or not it.get('mid'):
+                continue
+            m = _media(it.get('mid'), it.get('eid'))
+            if m is None or m.get('state') == 'gone':
+                items.pop(role)
+                n += 1
+    return n
+
+
 def build() -> dict:
     flat = json.load(open(os.path.join(HERE, 'flat215.json'), encoding='utf-8'))
     sets = json.load(open(os.path.join(HERE, 'sets3.json'), encoding='utf-8'))
+    gone = drop_unavailable(sets)
+    print(f'снято позиций не в продаже: {gone}')
     global BANKS
     BANKS = pick_banks(sets)
     print('банки демо:', BANKS)

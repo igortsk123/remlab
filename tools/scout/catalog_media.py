@@ -55,7 +55,8 @@ def _load() -> dict:
          "||'\x1f'||coalesce(p.status,'active')||'\x1f'||coalesce(p.in_stock::int,0)"
          "||'\x1f'||p.shop||'\x1f'||coalesce(p.w_cm,0)||'\x1f'||coalesce(p.d_cm,0)"
          "||'\x1f'||coalesce(p.h_cm,0)||'\x1f'||coalesce(p.dia_cm,0)"
-         "||'\x1f'||coalesce(ps.state,'') from products p left join product_page_status ps"
+         "||'\x1f'||coalesce(ps.state,'')||'\x1f'||coalesce(p.url,'')"
+         " from products p left join product_page_status ps"
          " on ps.shop_mid=p.shop_mid and ps.external_id=p.external_id")
     out = subprocess.run(PSQL + [q], capture_output=True, text=True).stdout
     m = {}
@@ -73,8 +74,20 @@ def _load() -> dict:
             state = ('available' if active else 'gone' if page_dead else
                      'unknown' if (int(mid) in _QUARANTINE and p[6] == 'active') else 'gone')
             num = lambda v: (float(v) or None) if v else None   # noqa: E731
+            # ДВЕ РАЗНЫЕ ССЫЛКИ, И ПУТАТЬ ИХ НЕЛЬЗЯ (01.09, разбор Codex + замер):
+            #   url       — ПАРТНЁРСКАЯ (`xf.gdeslon.ru/...goto=...`), её и показываем человеку:
+            #               атрибуция клика живёт в редиректе партнёрки (он сам добавляет
+            #               `gsaid`/`_gs_ref`/`utm_source=gdeslon` и приводит на ту же карточку).
+            #               Прямая ссылка с одним `erid` — это МАРКИРОВКА РЕКЛАМЫ, а не засчитанный
+            #               клик: до 01.09 банк хранил именно её, то есть переходы уходили в
+            #               магазин мимо партнёрки и комиссия не начислялась (ADR-0016 требует
+            #               обратного: внешний переход ВСЕГДА через реф).
+            #   probe_url — прямая карточка, СЛУЖЕБНАЯ: проверка наличия и скрейп фото. Стучаться
+            #               ботом в партнёрскую ссылку нельзя — это накрутка кликов.
+            aff = (p[14] if len(p) > 14 else '') or None
             m[(mid, str(p[1]))] = {'img': p[2] or None,
-                                   'url': _direct(p[3]) if p[3] else None,
+                                   'url': aff or (_direct(p[3]) if p[3] else None),
+                                   'probe_url': _direct(p[3]) if p[3] else None,
                                    'price': int(p[4] or 0), 'name': p[5], 'state': state,
                                    'shop': p[8], 'w': num(p[9]), 'd': num(p[10]),
                                    'h': num(p[11]), 'dia': num(p[12])}
@@ -83,7 +96,10 @@ def _load() -> dict:
 
 
 def media(mid, eid):
-    """Текущие фото/ссылка/цена товара; None — товара в каталоге больше нет (ушёл из фида)."""
+    """Текущие фото/ссылки/цена товара; None — товара в каталоге больше нет (ушёл из фида).
+
+    `url` — партнёрская (человеку), `probe_url` — прямая карточка (машине). См. `_load()`.
+    """
     return _load().get((str(mid), str(eid)))
 
 

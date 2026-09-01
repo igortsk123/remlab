@@ -14,9 +14,11 @@
 по фразе «Нет в наличии» из ШАБЛОНА страницы). Снятие требует подтверждения — `stock_truth.py`.
 
 КОНТРАКТ МАГАЗИНА ВАЖНЕЕ HTTP-КОДА. Ссылка ведёт либо на карточку конкретного варианта (`sku`),
-либо на страницу серии (`series`, mnogomebeli: `reflink.direct` намеренно режет мёртвую
-SPA-карточку до живого уровня). Страница серии физически не может доказать наличие конкретного
+либо на страницу серии (`series`). Страница серии физически не может доказать наличие конкретного
 цвета — для неё HTTP 200 это `unknown`, и никакие слова из названия этого не меняют.
+`series` сейчас не назначен никому: 01.09 выяснилось, что у mnogomebeli мы сами обрезали ссылку
+до раздела (`reflink.py`, ADR-0144) и потом честно записали «доказать ничего нельзя». Ставить
+магазину `series` можно, только если ТАК ОТДАЁТ ПАРТНЁРКА, а не мы так обрезали.
 
 ЧЕМ ЧИТАЕТСЯ НАЛИЧИЕ (замеры 31.08 на живых и снятых карточках):
   divan.ru      JSON-LD `schema.org/InStock` у живого, `OutOfStock` у снятого (страница жива, 200);
@@ -26,7 +28,10 @@ SPA-карточку до живого уровня). Страница сери�
   tvoydom.ru    микроразметка `itemprop="availability" content="InStock|backorder|OutOfStock"`;
                 снятый товар — 404. Прежнее правило health по `"quantity":N` УСТАРЕЛО: этого поля
                 на страницах больше нет (31.08), оно молча превращало проверку в «по маркеру»;
-  mnogomebeli   только страница серии → 200 никогда не доказывает вариант;
+  mnogomebeli   JSON-LD `schema.org/InStock` на карточке варианта (`/!вариант/`); снятый вариант
+                отдаёт 404, а вот его РОДИТЕЛЬ (путь без `/!`) 404 отдаёт всегда — по нему и
+                ошиблись 26.08, когда решили резать ссылку до раздела (замеры 01.09: 19 живых
+                и 11 мёртвых карточек из 30, обрезанные разделы — 30 из 30 «живы»);
   mdm-complect  антибот: 307-цикл на `?_ycch=` → unknown;
   gipfel.ru     антибот: 403 DDoS-guard → unknown.
 """
@@ -46,7 +51,7 @@ SHOP_EVIDENCE = {
     'mdm-complect.ru': {'evidence': 'sku',    'signals': ('schema',)},
     'gipfel.ru':       {'evidence': 'sku',    'signals': ('schema',)},
     'h-f-l.ru':        {'evidence': 'sku',    'signals': ('schema',)},
-    'mnogomebeli.com': {'evidence': 'series', 'signals': ()},
+    'mnogomebeli.com': {'evidence': 'sku',    'signals': ('schema',)},
 }
 DEFAULT_CONTRACT = {'evidence': 'sku', 'signals': ('schema',)}   # незнакомый магазин — без эвристик
 
@@ -87,7 +92,16 @@ def url_key(url: str) -> str:
     u = (url or '').strip()
     p = urllib.parse.urlsplit(u)
     host = (p.hostname or '').lower()
-    path = p.path or '/'
+    # ОДНА И ТА ЖЕ КАРТОЧКА В ДВУХ КОДИРОВКАХ — ОДИН КЛЮЧ (01.09, замечание Codex): у mnogomebeli
+    # вариант отделяется символом `!`, и `/!divan-…/` против `/%21divan-…/` — это один адрес
+    # (обе формы отдают 200). Без нормализации смена кодировки в загрузчике молча обнулила бы
+    # накопленные отрицательные свидетельства по всему магазину: `fold()` считает голоса только
+    # по ТЕКУЩЕМУ url_hash.
+    raw = p.path or '/'
+    # `%2F` внутри сегмента — часть имени, а не разделитель пути: раскодировав, мы склеили бы
+    # разные адреса в один. Такие пути (у нас их единицы) оставляем как есть.
+    path = raw if '%2f' in raw.lower() else \
+        urllib.parse.quote(urllib.parse.unquote(raw), safe="/-._~!$&'()*+,;=:@")
     q = [(k, v) for k, v in urllib.parse.parse_qsl(p.query, keep_blank_values=True)
          if not _TRACKING.match(k)]
     norm = urllib.parse.urlunsplit((p.scheme.lower() or 'https', host, path,
@@ -172,8 +186,11 @@ def _selftest() -> int:
         ('divan.ru',     429, '', '', '', '', 'unknown'),
         ('divan.ru',     503, '', '', '', '', 'unknown'),
         ('divan.ru',     None, '', 'timed out', '', '', 'unknown'),
-        ('mnogomebeli.com', 200, JSONLD_IN, '', '', '', 'unknown'),      # серия не доказывает вариант
+        # карточка варианта mnogomebeli читается как у всех — по schema (ADR-0144, 01.09)
+        ('mnogomebeli.com', 200, JSONLD_IN, '', '', '', 'alive'),
+        ('mnogomebeli.com', 200, JSONLD_OUT, '', '', '', 'oos'),
         ('mnogomebeli.com', 404, '', '', '', '', 'gone'),
+        ('mnogomebeli.com', 200, 'страница без разметки', '', '', '', 'unknown'),
         ('divan.ru', 200, JSONLD_IN, '', 'https://www.divan.ru/category/divany',
          'https://www.divan.ru/product/x', 'unknown'),                   # увели с карточки
         ('shop-unknown.ru', 200, 'что угодно', '', '', '', 'unknown'),   # незнакомый магазин
@@ -185,17 +202,34 @@ def _selftest() -> int:
         if got != want:
             bad += 1
             print(f'  FAIL {shop} http={code} → {got} ({why}), ожидалось {want}')
+    # Ветка `series` сейчас никому не назначена, но она рабочая и должна остаться рабочей:
+    # проверяем на временно зарегистрированном магазине, а не на боевом контракте.
+    SHOP_EVIDENCE['series-only.test'] = {'evidence': 'series', 'signals': ('schema',)}
+    try:
+        if classify('series-only.test', 200, JSONLD_IN)[0] != 'unknown':
+            bad += 1
+            print('  FAIL страница серии с InStock обязана оставаться unknown')
+        if classify('series-only.test', 404, '')[0] != 'gone':
+            bad += 1
+            print('  FAIL 404 на серии — это всё равно gone')
+    finally:
+        SHOP_EVIDENCE.pop('series-only.test', None)
     # ключ ссылки: рекламный хвост и регистр хоста не меняют идентичность
     pairs = [
         ('https://DIVANBOSS.RU/a/b/?erid=X', 'https://divanboss.ru/a/b/', True),
         ('https://www.divan.ru/product/x?utm_source=1&erid=2', 'https://www.divan.ru/product/x', True),
         ('https://divanboss.ru/a/b/', 'https://divanboss.ru/a/c/', False),
+        # `!` и `%21` — одна карточка (иначе смена кодировки обнулит все голоса магазина)
+        ('https://mnogomebeli.com/divany/boss/x/!divan-a/',
+         'https://mnogomebeli.com/divany/boss/x/%21divan-a/', True),
+        ('https://mnogomebeli.com/divany/boss/x/!divan-a/',
+         'https://mnogomebeli.com/divany/boss/x/!divan-b/', False),
     ]
     for a, b, same in pairs:
         if (url_key(a) == url_key(b)) is not same:
             bad += 1
             print(f'  FAIL url_key: {a} vs {b} — ожидалось {"совпадение" if same else "различие"}')
-    print(f'page_alive selftest: случаев {len(cases) + len(pairs)}, ошибок {bad}')
+    print(f'page_alive selftest: случаев {len(cases) + len(pairs) + 2}, ошибок {bad}')
     return 1 if bad else 0
 
 

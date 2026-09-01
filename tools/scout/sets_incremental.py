@@ -297,7 +297,8 @@ def _card(cand: dict, old: dict) -> dict:
            'fp': round(fp, 2) if fp else None,
            'shop': cand.get('shop'), 'subtype': cand.get('subtype'),
            'img': m.get('img') if m else cand.get('img'),
-           'url': m.get('url') if m else cand.get('url')}
+           # в банк кладём ПАРТНЁРСКУЮ ссылку (ADR-0144): прямая ведёт в магазин мимо партнёрки
+           'url': m.get('url') if m else (cand.get('aff_url') or cand.get('url'))}
     try:
         from style_tags import tag as _tag
         new.update({k: v for k, v in _tag(new['name']).items()})   # style/wood/metal/fabric

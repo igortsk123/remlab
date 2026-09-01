@@ -30,8 +30,11 @@ for fname in ('sets.json','sets2.json','sets3.json'):  # W5: sets3 раньше 
     sets=json.load(open(path))
     for si,s in enumerate(sets):
         for role,it in s['items'].items():
+            # ССЫЛКА ДЛЯ ЧЕЛОВЕКА — ПАРТНЁРСКАЯ (01.09): здесь второй писатель поля `url` в банке,
+            # и он писал прямую ссылку в магазин — то есть затирал бы правку `catalog_media`
+            # уже следующей ночью, а клики уходили бы мимо партнёрки (ADR-0144).
             r=rows(f"""select price_rub, w_cm, d_cm, dia_cm, h_cm, len_cm, in_stock,
-                coalesce(direct_url,url) from products
+                coalesce(url, direct_url) from products
                 where shop_mid={it['mid']} and external_id='{it["eid"]}'""")
             if not r:
                 report['missing'].append(f"{fname}:сет{si+1}:{role}"); continue
