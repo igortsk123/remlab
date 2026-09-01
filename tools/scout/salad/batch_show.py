@@ -32,7 +32,11 @@ BUSY = 75
 SHOW_GALLERY = os.environ.get('MESH_SHOW_GALLERY', '0') == '1'
 SHOW_STEPS = ((
     ('галерея', f'GALLERY_SRC=$HOME/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2 {PY} {HERE}/gallery_build.py'),
-    ('публикую', 'scp -P 22222 -o BatchMode=yes -r $HOME/scout-scenes/mesh-pilot-gallery/* '
+    # ПУБЛИКУЕМ ТОЛЬКО НОВОЕ (01.09). `scp -r ...gallery/*` гнал ВЕСЬ каталог заново — 1.6 ГБ и
+    # многие минуты на каждую пачку, при том что меняются единицы моделей. rsync есть на обеих
+    # машинах; он сверяет размер и время и льёт только изменившееся.
+    ('публикую', 'rsync -a --info=stats1 -e "ssh -p 22222 -o BatchMode=yes" '
+                 '$HOME/scout-scenes/mesh-pilot-gallery/ '
                  'root@89.167.127.0:/opt/remlab/test/mesh-pilot10/'),
     # каталог мешей — НАКОПИТЕЛЬНЫЙ: scp выше уже положил локальный index поверх
     # прода, поэтому сразу за ним доливаем то, что там было (см. publish_merge.py).
@@ -159,6 +163,7 @@ ORIENT_CMD = (f'for i in $(seq {ORIENT_PASSES}); do '
 # а в самом обходе дерева — geometry каждой модели грузится в ОДИН процесс, и с ростом
 # каталога он неизбежно упирается. Режем по TOPVIEW_LIMIT со сдвигом: каждая пачка —
 # отдельный процесс, память возвращается ОС между ними.
+POST_EVERY_S = float(os.environ.get('MESH_POST_EVERY_S', '900'))   # разбор каждые 15 мин
 TOPVIEW_LIMIT = int(os.environ.get('MESH_TOPVIEW_LIMIT', '120'))
 TOPVIEW_PASSES = int(os.environ.get('MESH_TOPVIEW_PASSES', '6'))
 TOPVIEW_CMD = (f'for i in $(seq 0 {TOPVIEW_PASSES - 1}); do '
@@ -296,7 +301,7 @@ def post_steps() -> tuple:
 _post: dict = {'thread': None}
 
 
-def _run_post(tag: int) -> None:
+def _run_post(tag) -> None:
     t0 = time.time()
     for step, cmd in post_steps():
         c, o = sh(cmd, timeout=2700)
@@ -310,7 +315,7 @@ def _run_post(tag: int) -> None:
     print(f'== разбор {tag} закончен за {(time.time() - t0) / 60:.0f} мин ==', flush=True)
 
 
-def start_post(tag: int) -> None:
+def start_post(tag) -> None:
     """Запустить разбор фоном. Одновременно — НЕ БОЛЬШЕ ОДНОГО.
 
     Если предыдущий ещё идёт, новый не ставим и в очередь не копим: шаги работают от
@@ -324,6 +329,19 @@ def start_post(tag: int) -> None:
     th = threading.Thread(target=_run_post, args=(tag,), daemon=True)
     _post['thread'] = th
     th.start()
+
+
+def post_ticker(stop: threading.Event, every_s: float) -> None:
+    """Разбор ПО ТАЙМЕРУ, а не на границах пачек.
+
+    Раньше он запускался только когда пачка закрыта целиком, поэтому размер пачки был
+    компромиссом: маленькая — частые простои на ожидании последнего задания, большая —
+    результат виден поздно. С таймером одно перестало зависеть от другого: задания идут
+    непрерывным потоком, а сделанное разбирается каждые `every_s` независимо от того,
+    где сейчас граница. Шаги работают от состояния, поэтому «поймать полпачки» безопасно.
+    """
+    while not stop.wait(every_s):
+        start_post('по таймеру')
 
 
 def wait_post() -> None:
@@ -401,6 +419,12 @@ def _main():
     except Exception as _e:  # noqa: BLE001 — счётчик не должен мешать прогону
         print(f'потребность не посчитана: {type(_e).__name__}', flush=True)
 
+    # Разбор по таймеру: с ним размер пачки перестаёт быть компромиссом между простоем и
+    # свежестью результата. Замер 01.09: загрузка пула 30%, и основная потеря — ожидание
+    # последнего задания пачки (видели задание на 585 с при медиане 205 с).
+    _post_stop = threading.Event()
+    threading.Thread(target=post_ticker, args=(_post_stop, POST_EVERY_S), daemon=True).start()
+
     PAUSE = os.path.expanduser('~/scout-scenes/mesh-batch.PAUSE')
     if os.environ.get('WAVE_FIRST') == '1':
         heal_wave(PAUSE)
@@ -449,10 +473,12 @@ def _main():
         # Постобработка уходит В ФОН: пока она разбирает эту пачку, следующая уже считается
         # на нодах. Раньше 7 шагов шли последовательно с генерацией, и всё это время ноды
         # были тёплые, оплачиваемые и без заданий — 38 минут × ~9 нод ≈ 5,7 GPU-часов
-        # вхолостую за одну паузу (замер 01.09).
+        # вхолостую за одну паузу (замер 01.09). Плюс таймер (см. post_ticker) разбирает
+        # сделанное и ВНУТРИ длинной пачки, поэтому пачку можно брать большой.
         start_post(done)
         print(f'== {done}/{total} очереди сгенерировано, разбор идёт фоном ==', flush=True)
 
+    _post_stop.set()
     wait_post()          # волна лечения работает по итогам приёмки — она должна доработать
     heal_wave(PAUSE, guard_done=(done >= total))
 
