@@ -243,6 +243,18 @@ def _main():
     total = len(jobs) if mx is None else min(mx, len(jobs))
     done = json.load(open(DONE))['done'] if os.path.exists(DONE) else 0
     print(f'план {total}, уже пройдено {done}, пачка {batch}', flush=True)
+    # ПОТРЕБНОСТЬ СЧИТАЕТСЯ, А НЕ ХРАНИТСЯ (владелец 01.09: «конвейер чётко должен работать,
+    # надо исключалось и помечалось верно»): ковры/пледы/шторы/зеркала/картины идут плоскостью
+    # и в потребность не входят — `mesh_demand.py` берёт это из политики ролей.
+    try:
+        _d = json.loads(subprocess.run([PY, os.path.join(HERE, 'mesh_demand.py'), '--json'],
+                                       capture_output=True, text=True, timeout=180).stdout)
+        print(f"потребность: {_d['need_slot_roles']} мешей в ролях слотов "
+              f"(всего по каталогу {_d['need_with_dims']} с габаритами; "
+              f"исключено плоскостями {_d['excluded_total']}) · готово {_d['have']} · "
+              f"осталось {_d['left_slot_roles']}", flush=True)
+    except Exception as _e:  # noqa: BLE001 — счётчик не должен мешать прогону
+        print(f'потребность не посчитана: {type(_e).__name__}', flush=True)
 
     PAUSE = os.path.expanduser('~/scout-scenes/mesh-batch.PAUSE')
     if os.environ.get('WAVE_FIRST') == '1':
@@ -298,7 +310,7 @@ def _main():
                           ('ориент-паблиш', f'scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/topview.json root@89.167.127.0:/opt/remlab/test/mesh-pilot10/orient.json && scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/*.png root@89.167.127.0:/opt/remlab/test/flat215-demo/topsprites/ 2>/dev/null || true')):
             c, o = sh(cmd, timeout=2700)
             print(f'  {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
-        print(f'== показано {done}/{total} — страница обновлена ==', flush=True)
+        print(f'== показано {done}/{total} очереди — страница обновлена ==', flush=True)
 
     heal_wave(PAUSE, guard_done=(done >= total))
 
