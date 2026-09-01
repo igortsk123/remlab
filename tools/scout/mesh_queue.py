@@ -36,8 +36,14 @@ SCENE_DIR = os.environ.get('SCENE_DIR', os.path.expanduser('~/scout-scenes'))
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
         '-q', '-v', 'ON_ERROR_STOP=1', '-t', '-A', '-F', '\x1f']
 
-# Мягкий декор рисует модель по фото (viz_paste.SOFT), плоское — варп; мешей им не надо.
-MESH_EXCLUDE = {'подушка', 'плед', 'ковёр', 'шторы', 'картина', 'зеркало', 'часы', 'полка'}
+# ИСКЛЮЧЕНИЯ БЕРУТСЯ ИЗ КАНОНА, а не из локального списка (владелец 01.09; разбор Codex):
+# свой MESH_EXCLUDE был третьей истиной и расходился с `rules/asset-strategies.json`.
+def _mesh_needed(role: str | None) -> bool:
+    try:
+        import asset_strategy as _AS
+        return _AS.strategy(role) == 'hunyuan3d'
+    except Exception:  # noqa: BLE001 — канон недоступен: не выдумываем, считаем что нужен
+        return True
 # Направленные роли (фронт обязателен) — ADR-0131; банкетка решается ПРИЗНАКОМ спинки.
 DIRECTED = {'диван', 'кресло', 'стул', 'тв-тумба', 'стеллаж', 'комод', 'стенка',
             'витрина', 'камин'}
@@ -149,7 +155,7 @@ def demand_from_sets() -> dict[str, dict]:
     for s in json.load(open(SETS)):
         for slot, it in (s.get('items') or {}).items():
             role = base_role(slot)
-            if not it or role in MESH_EXCLUDE:
+            if not it or not _mesh_needed(role):
                 continue
             sku = f"{it.get('mid')}:{it.get('eid')}"
             if ':' not in sku or sku.startswith('None'):
@@ -168,7 +174,7 @@ def demand_from_candidates() -> dict[str, dict]:
     items, out = ci.get('items', {}), {}
     for bucket, skus in (ci.get('index') or {}).items():
         role = bucket.split('|')[0]
-        if role in MESH_EXCLUDE:
+        if not _mesh_needed(role):
             continue
         for sku in skus[:TOP_K_PER_BUCKET]:
             it = items.get(sku)
@@ -214,16 +220,17 @@ def demand_from_cut_pool() -> dict[str, dict]:
     То есть на меши встаёт всё, что мы уже признали годным и чью маску посчитали. Кто из
     очереди реально пойдёт в генерацию — решает отдельный джоб по приоритету и бюджету.
 
-    Мягкий декор (`MESH_EXCLUDE`) сюда не попадает: плед и штора рисуются плоско по фото,
-    меш им ничего не добавит. Вырезка им при этом нужна — она делается на шаге раньше.
+    Мягкий декор сюда не попадает: плед и штора рисуются плоско по фото, меш им ничего не
+    добавит. Вырезка им при этом нужна — она делается на шаге раньше.
     """
-    # Спрос — только ролям со стратегией mesh (Codex P2-12): люстра/бра/ваза рисуются
-    # вырезкой, спрос на их меши копился бы вечно, а планировщик их законно не брал.
-    try:
-        from render_strategy import CUTOUT as _CUT_ROLES
-    except Exception:  # noqa: BLE001
-        _CUT_ROLES = set()
-    ex = ','.join(q(r) for r in sorted(MESH_EXCLUDE | _CUT_ROLES))
+    # Исключения — ТОЛЬКО из канона `rules/asset-strategies.json` (владелец 01.09: свет и
+    # вазы входят в сеты, им меши нужны; прежде их держали в cutout два локальных списка).
+    ex_roles = set()
+    for r in db("select distinct coalesce(cat_role,'') from products where cat_role is not null"):
+        role = r[0] if isinstance(r, (list, tuple)) else r
+        if role and not _mesh_needed(role):
+            ex_roles.add(role)
+    ex = ','.join(q(r) for r in sorted(ex_roles)) or "''"
     rows = db(
         "select c.sku, p.cat_role, coalesce(p.image_url_hd, c.image_url), c.source_sha, "
         "       regexp_replace(coalesce(p.name,''), E'[\n\r\x1f]', ' ', 'g') "
@@ -267,7 +274,7 @@ def demand_from_reserve_deficit() -> dict[str, dict]:
     for s in json.load(open(SETS)):
         for slot, alts in (s.get('alternates') or {}).items():
             role = base_role(slot)
-            if role in MESH_EXCLUDE:
+            if not _mesh_needed(role):
                 continue
             for a in alts:
                 sku = f"{a.get('mid')}:{a.get('eid')}"

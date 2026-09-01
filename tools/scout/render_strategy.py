@@ -24,19 +24,19 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, 'salad'))   # preprocess.ASSESSOR_VERSION живёт там
 
-MESH = {'диван', 'кресло', 'стул', 'комод', 'тв-тумба', 'стеллаж', 'стенка', 'витрина',
-        'камин', 'столик', 'стол обеденный', 'шкаф', 'пуф', 'банкетка'}
-CUTOUT = {'ваза', 'кашпо', 'статуэтка', 'растение', 'лампа', 'торшер', 'часы', 'зеркало',
-          'картина', 'люстра', 'бра'}
-FLAT = {'ковёр', 'плед', 'подушка', 'шторы', 'полка', 'покрывало'}
+# ЕДИНСТВЕННЫЙ КАНОН СТРАТЕГИЙ — `rules/asset-strategies.json` (владелец 01.09: свет и вазы
+# входят в сеты, меши им нужны). Здесь только ОТОБРАЖЕНИЕ канона в термины рендера; свои
+# списки ролей были второй истиной и держали люстры/вазы в cutout, из-за чего планировщик
+# заданий не выбрал бы их никогда (разбор Codex 01.09).
+CUTOUT = {'плед', 'покрывало', 'шторы', 'подушка', 'часы', 'полка'}   # для обратной совместимости
+FLAT = {'ковёр', 'ковер', 'картина', 'зеркало'}
+_MAP = {'hunyuan3d': 'mesh', 'procedural_plane': 'flat', 'cutout': 'cutout',
+        'parametric_soft': 'cutout'}
 
 
 def strategy(role: str | None) -> str:
-    if role in FLAT:
-        return 'flat'
-    if role in CUTOUT:
-        return 'cutout'
-    return 'mesh'
+    import asset_strategy as _AS
+    return _MAP.get(_AS.strategy(role), 'mesh')
 
 
 def base_role(slot: str) -> str:

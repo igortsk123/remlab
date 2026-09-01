@@ -1,22 +1,33 @@
 {
-  "_why": "КАНОН стратегий 3D-ассета по роли (Codex q27, 30.08). Один источник для ВСЕХ путей: отправщики заданий, воркер (страховочный гейт до GPU), галерея, mesh_queue, рендер планировщика. Boolean mesh_eligible не годится: ковру нужна плоскость, пледу — драпировка, подушке — объём.",
-  "_strategies": {
-    "hunyuan3d": "генерация меша Hunyuan3D 2.1",
-    "procedural_plane": "процедурная плоскость точного WxD, текстура из вырезки (alpha режет форму), z-offset против мерцания",
-    "parametric_soft": "параметрическая драпировка (пока не реализована - временно cutout)",
-    "cutout": "плоский спрайт из вырезки, без 3D",
-    "none": "в 3D-сцену не попадает"
-  },
-  "roles": {
-    "ковёр": "procedural_plane",
-    "ковер": "procedural_plane",
-    "картина": "procedural_plane",
-    "зеркало": "procedural_plane",
-    "плед": "cutout",
-    "покрывало": "cutout",
-    "шторы": "cutout",
-    "подушка": "cutout",
-    "_default": "hunyuan3d"
-  },
-  "policy_version": 1
+ "_why": "КАНОН стратегий 3D-ассета по роли (Codex q27, 30.08). Один источник для ВСЕХ путей: отправщики заданий, воркер (страховочный гейт до GPU), галерея, mesh_queue, рендер планировщика. Boolean mesh_eligible не годится: ковру нужна плоскость, пледу — драпировка, подушке — объём.",
+ "_strategies": {
+  "hunyuan3d": "генерация меша Hunyuan3D 2.1",
+  "procedural_plane": "процедурная плоскость точного WxD, текстура из вырезки (alpha режет форму), z-offset против мерцания",
+  "parametric_soft": "параметрическая драпировка (пока не реализована - временно cutout)",
+  "cutout": "плоский спрайт из вырезки, без 3D",
+  "none": "в 3D-сцену не попадает"
+ },
+ "roles": {
+  "ковёр": "procedural_plane",
+  "ковер": "procedural_plane",
+  "картина": "procedural_plane",
+  "зеркало": "procedural_plane",
+  "плед": "cutout",
+  "покрывало": "cutout",
+  "шторы": "cutout",
+  "подушка": "cutout",
+  "_default": "hunyuan3d",
+  "люстра": "hunyuan3d",
+  "бра": "hunyuan3d",
+  "ваза": "hunyuan3d",
+  "кашпо": "hunyuan3d",
+  "лампа": "hunyuan3d",
+  "торшер": "hunyuan3d",
+  "статуэтка": "hunyuan3d",
+  "растение": "hunyuan3d",
+  "часы": "cutout",
+  "полка": "cutout"
+ },
+ "policy_version": 2,
+ "_note": "v2 (владелец 01.09): свет (люстра/бра/лампа/торшер) и вазы/кашпо/декор ВХОДЯТ в сеты — им нужны меши. Единственный канон стратегий: этот файл. render_strategy отображает hunyuan3d→mesh, procedural_plane→flat, cutout→cutout; MESH_EXCLUDE в mesh_queue удалён как вторая истина."
 }
