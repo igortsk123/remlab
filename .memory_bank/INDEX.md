@@ -16,7 +16,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт ремонта/м�
 | Стек, модули, генерация, деплой — по коду | `core/architecture.md` | `../../docs/tech-spec-ts-stack.md` |
 | Каталог — состав, свежесть, дельта | `core/catalog.md` | `../domain/catalog-enrichment.md` |
 | Схема БД, миграции, pgvector | `core/data-model.md` | `../../docs/tech-spec-ts-stack.md` |
-| Демо-планировщик для партнёра — интерактивная расстановка и AI-фото | `core/demo-planner.md` | `../domain/viz-fidelity-playbook.md` |
+| Демо-планировщик для партнёра — интерактивная расстановка и AI-фото | `core/demo-planner.md` | `../domain/demo-planner-ui.md` |
 | Деплой/откат/сервер exit-fi — playbook | `deployment.md` | — |
 | Смета — калькуляторы, /go/ реф | `core/estimate.md` | `../domain/pricing-works-ru.md` |
 | Мебель — сеты, визуализация | `core/furniture.md` | `../domain/viz-fidelity-playbook.md` |
