@@ -1310,9 +1310,13 @@ def _publish_sources(stamp: str, imgs: dict, prompt: str, legend: list, meta: di
         f'<h1>Что уходит в модель</h1><div class="m">{_h.escape(json.dumps(meta, ensure_ascii=False))}</div>'
         f'<div class="g">{"".join(tiles)}</div>'
         f'<h2>Промпт</h2><pre>{_h.escape(prompt)}</pre>'
-        f'<h2>Список предметов (уходит в промпт)</h2>'
-        f'<pre>{_h.escape(json.dumps(legend, ensure_ascii=False, indent=1))}</pre>'
-        '</div></body></html>')
+        # Блок списка предметов показываем ТОЛЬКО когда он реально уходит в промпт. В режиме
+        # ремонта (`improve_mode`) списка нет — сцена уже собрана, модели незачем знать
+        # координаты; пустой раздел на странице врал бы про содержимое запроса (владелец 01.09).
+        + (f'<h2>Список предметов (уходит в промпт)</h2>'
+           f'<pre>{_h.escape(json.dumps(legend, ensure_ascii=False, indent=1))}</pre>'
+           if legend else '')
+        + '</div></body></html>')
     open(os.path.join(d, 'index.html'), 'w', encoding='utf-8').write(page)
     return (PUBLIC_BASE + SRC_URL + '/' + stamp + '/') if PUBLIC_BASE else d
 
@@ -2223,6 +2227,31 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         model, side, gq = MODEL, 1024, DRAFT_QUALITY
     prefix = save_prefix or os.path.join(OUT, f'draft{n}')
     skus = {it['role']: it for it in (layout or {}).get('items', []) if it.get('role')}
+    # РЕМОНТ ПОВЕРХ НАШЕГО КАДРА — ЕДИНСТВЕННЫЙ путь для «реалистично» (владелец 01.09:
+    # «надо СИСТЕМНО всё применять»). Прежний путь строил СЕРЫЙ МАКЕТ и просил модель собрать
+    # по нему сцену из товаров; теперь сцена у нас уже есть — из настоящих 3D-моделей, — и от
+    # модели нужен только ремонт. Сборка листа, эталонов и промпта живёт в `improve_mode`, чтобы
+    # страница исходников и боевой запрос не могли разойтись: один код на оба.
+    if quality == 'realistic' and layout is not None and os.environ.get('IMPROVE_MODE', '1') == '1':
+        import improve_mode as IM
+        built = IM.build(layout, (layout or {}).get('style') or '')
+        sheet, ident, prompt = built['sheet'], built.get('ident'), built['prompt']
+        imgs = [sheet] + ([ident] if ident is not None else [])
+        out = gpt_edit(imgs, prompt, size=IM.SIZE, quality=gq, model=REALISTIC_MODEL)
+        # ПОЛОСА — УСЛОВИЕ РЕЗКИ, А НЕ УКРАШЕНИЕ. Пропала — ответ негоден: `_split_pair` в этом
+        # случае молча делит пополам, и оба вида уезжают (найдено в разборе 01.09).
+        import numpy as _np
+        a = _np.asarray(out.convert('RGB')).astype(int)
+        band = ((a[..., 0] > 170) & (a[..., 2] > 170) & (a[..., 1] < 110)).mean(axis=1)
+        if (band > 0.5).sum() < 8:
+            raise SystemExit('модель закрасила разделительную полосу — резать нечем, ответ негоден')
+        pieces = _split_pair(out)
+        stamp = time.strftime('%H%M%S')
+        shots = [{'camera': c.name, 'url': _publish_frame(p_, f'improve-{stamp}-{c.name}.jpg'),
+                  'diag': {}, 'anchors': []}
+                 for c, p_ in zip(want, pieces)]
+        return {'shots': shots, 'url': shots[0]['url'], 'model': f'improve/{REALISTIC_MODEL}',
+                'sources': built['src_url'], 'timing': {}, 'diag': {'clay': built['clay']}}
     if quality == 'draft' and os.environ.get('SCENE3D', '1') == '1':
         # РЕЖИМ ПРОВЕРКИ (владелец 31.08): сырой кадр 3D-сцены без модели и без GPT
         sid_by_role = {it['role']: it.get('sid') for it in (layout or {}).get('items', [])
@@ -2243,8 +2272,11 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         # отпускает GIL, ядер на DEV хватает; кадр и scp-доставка каждой камеры — свой тред
         stamp = time.strftime('%H%M%S')
 
+        _views = {}
+
         def _one_cam(cam):
             img, diag = scene3d_frame(room, placements, cam, sid_by_role, photos)
+            _views[cam.name] = img
             url = _publish_frame(img, f'scene3d-{stamp}-{cam.name}.jpg')
             return {'camera': cam.name, 'url': url, 'diag': diag, 'anchors': []}
         if os.environ.get('SCENE3D_PROCS') == '1' and len(want) > 1:
@@ -2259,17 +2291,31 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
             shots = []
             for name, data, diag in got:
                 import io as _io
-                url = _publish_frame(Image.open(_io.BytesIO(data)).convert('RGB'),
-                                     f'scene3d-{stamp}-{name}.jpg')
+                _img = Image.open(_io.BytesIO(data)).convert('RGB')
+                _views[name] = _img
+                url = _publish_frame(_img, f'scene3d-{stamp}-{name}.jpg')
                 shots.append({'camera': name, 'url': url, 'diag': diag, 'anchors': []})
         else:
             from concurrent.futures import ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=2) as ex:
                 shots = list(ex.map(_one_cam, want))
+        # ЧЕРНОВИК И ЕСТЬ ИСХОДНИК ЗАПРОСА (владелец 01.09: «когда жму — собирается сцена, эта
+        # сцена должна быть в черновике на отправку, с ракурсов с полосой объединяй; она же
+        # должна быть исходником запроса»). Склеиваем ТЕ ЖЕ два кадра, что человек сейчас видит,
+        # и выкладываем страницу запроса. Так «показанное» и «отправляемое» физически одно и то
+        # же изображение — разойтись они не могут.
+        src_url = None
+        try:
+            if len(_views) > 1:
+                import improve_mode as IM
+                src_url = IM.publish_from_views([_views[c.name] for c in want if c.name in _views],
+                                                layout or {}, stamp)
+        except Exception as e:  # noqa: BLE001 — исходник не собрался: кадры всё равно показываем
+            print(f'  исходник запроса не собран: {str(e)[:90]}')
         sec = round(time.time() - t0, 1)
         print(f'scene3d: кадров {len(shots)}, {sec} с (без модели)')
         first = shots[0] if shots else {'url': '', 'diag': {}}
-        return {'shots': shots, 'sources': None, 'timing': None,
+        return {'shots': shots, 'sources': src_url, 'timing': None,
                 'model': 'scene3d-raw', 'quality': quality, 'sec': sec,
                 'file': '', 'url': first.get('url', ''), 'diag': first.get('diag', {})}
     if model.startswith('openai/'):
