@@ -29,7 +29,7 @@ draft → in_progress → completed → перенос в completed_plans/
 | viz-track-a-restore | — | partial | — | 2026-08-28 |
 | topview-from-mesh | — | in_progress | — | 2026-08-31 |
 | demo-planner-structure | — | partial | — | 2026-08-28 |
-| mesh-node-health-breaker | Автоснятие битой ноды по подряд-сбоям + задания не теряются молча | draft | 2026-09-01 | 2026-09-01 |
+| mesh-node-health-breaker | Автоснятие битой ноды по подряд-сбоям + задания не теряются молча | in_progress | 2026-09-01 | 2026-09-01 |
 | stock-truth-page-verdict | Наличие товара — один вычислитель, свидетельство сильнее фида | in_progress | 2026-08-31 | 2026-08-31 |
 | orient-v2 | Ориентация мешей v2 — единый контур upright+front, DINO shadow, gold-бенч | in_progress | 2026-08-31 | 2026-08-31 |
 | mesh-dynamic-node-pool | Динамический пул нод Salad в прогоне мешей + честный учёт заданий | in_progress | 2026-08-31 | 2026-08-31 |
