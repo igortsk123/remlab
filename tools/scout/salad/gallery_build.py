@@ -107,6 +107,75 @@ PANEL_HTML = """
 """
 
 
+COLOR_RE = (r'(латте|графитов\w*|бел\w+|терракотов\w*|оливков\w*|бежев\w*|молочн\w*|син\w+|'
+            r'сер\w+|серо-\w+|чёрн\w+|черн\w+|шоколад\w*|агат|антик|золотист\w*|золотой|хром|'
+            r'дуб \w+|аквамарин|монстера|зелен\w*|тёмно-\w+|темно-\w+|светло-\w+|коричнев\w*|'
+            r'розов\w*|голуб\w*|крем\w*|песочн\w*|капучино|орех|венге|сонома|мокко|табак)')
+FABRIC_RE = (r'(велюр|рогожка|экокожа|букле|ткань|шенилл|микровельвет|монолит|мальмо|роял|'
+             r'плюш|лофти|аляска|савана)')
+
+
+def _product_names(skus: list[str]) -> dict:
+    """sku → название товара из БД. Недоступна — вернём пусто, галерея соберётся как есть."""
+    import re
+    import subprocess
+    try:
+        pairs = [s.split(':') for s in skus if ':' in s]
+        if not pairs:
+            return {}
+        vals = ','.join(f"({m},'{re.sub(chr(39), '', e)}')" for m, e in pairs)
+        q = (f'select shop_mid||\':\'||external_id, name from products '
+             f'where (shop_mid,external_id) in ({vals})')
+        r = subprocess.run(['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab',
+                            '-d', 'remlab', '-q', '-t', '-A', '-F', '\x1f'],
+                           input=q, capture_output=True, text=True, timeout=60)
+        return {l.split('\x1f')[0]: l.split('\x1f')[1]
+                for l in r.stdout.strip().split('\n') if '\x1f' in l}
+    except Exception as e:  # noqa: BLE001
+        print(f'  имена товаров недоступны ({str(e)[:60]}) — группировка вариантов пропущена')
+        return {}
+
+
+def collapse_variants(rows: list) -> list:
+    """Одна карточка на МОДЕЛЬ товара, а не на SKU (владелец 01.09).
+
+    Он поймал повтор, который не ловится ни по SKU, ни по файлу фото: два стула tvoydom
+    (1002717604 и 1002739220) — одна и та же модель в разной обивке, разные SKU и разные
+    снимки. Так же ведут себя серии divan.ru: стеллаж «Кейн» приезжал в галерею 10 раз в
+    десяти цветах. Ключ группировки — название товара без цвета, ткани и размеров;
+    остаётся имя модели («стеллаж divan ru кейн»). Показываем самую свежую генерацию
+    группы, рядом пишем, сколько вариантов свёрнуто. Сами SKU из каталога не пропадают —
+    свёрнут только ПОКАЗ.
+    """
+    import re
+    names = _product_names([r['man']['sku'] for r in rows])
+    if not names:
+        return rows
+    seen, out, extra = {}, [], {}
+    for r in rows:
+        n = names.get(r['man']['sku'])
+        if not n:
+            out.append(r)
+            continue
+        s = n.lower()
+        s = re.sub(r'\d+[.,]?\d*\s*[xх]\s*\d+[.,]?\d*', ' ', s)
+        s = re.sub(r'\b\d+\b', ' ', s)
+        s = re.sub(FABRIC_RE, ' ', s)
+        s = re.sub(COLOR_RE, ' ', s)
+        key = (r['man'].get('role'), re.sub(r'\s+', ' ', re.sub(r'[«»"“”,./\\|()-]', ' ', s)).strip())
+        if key in seen:
+            extra[seen[key]] = extra.get(seen[key], 0) + 1
+            continue
+        seen[key] = len(out)
+        r['name'] = n
+        out.append(r)
+    for i, k in extra.items():
+        out[i]['variants'] = k
+    print(f'  свёрнуто вариантов одного товара: {sum(extra.values())} '
+          f'(карточек {len(rows)} → {len(out)})')
+    return out
+
+
 def build() -> str:
     rows = []
     best = {}                     # на SKU показываем ОДИН меш — самый свежий (перегон затирает брак)
@@ -155,11 +224,15 @@ def build() -> str:
         rows.append({'sku': sku, 'man': man, 'pbr': pbr,
                      'ver': int(os.path.getmtime(model_src))})
 
+    rows = collapse_variants(rows)
     cards = []
     for r in rows:
         m = r['man']
         seed = int(m.get('seed') or 0)
         gen = f'<span class="seed">перегон #{seed}</span>' if seed else ''
+        if r.get('variants'):
+            gen += (f'<span class="seed"> · свёрнуто ещё {r["variants"]} '
+                    f'вариант(ов) этого товара — другой цвет или размер</span>')
         cards.append(f"""
 <div class="card" data-sku="{html.escape(m['sku'])}">
   <h3>{html.escape(m.get('role') or '?')} <span class="sku">{r['sku']}</span> {gen}</h3>
