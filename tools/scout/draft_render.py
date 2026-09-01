@@ -1318,6 +1318,13 @@ def _publish_sources(stamp: str, imgs: dict, prompt: str, legend: list, meta: di
            if legend else '')
         + '</div></body></html>')
     open(os.path.join(d, 'index.html'), 'w', encoding='utf-8').write(page)
+    # ДОСТАВКА НА ПРОД, как у кадров (01.09). DEV-рендер пишет исходники к себе, а ссылку отдаёт
+    # прод-URL — и страница честно возвращала 404: у кадров доставка есть (`FRAME_PUSH`), у
+    # исходников её не было. Ссылка, которая не открывается, хуже отсутствующей.
+    push = os.environ.get('SRC_PUSH')
+    if push:
+        import subprocess as _sp
+        _sp.run(['scp', '-q', '-r', '-o', 'BatchMode=yes', d, push], timeout=180, check=False)
     return (PUBLIC_BASE + SRC_URL + '/' + stamp + '/') if PUBLIC_BASE else d
 
 
@@ -2234,10 +2241,28 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
     # страница исходников и боевой запрос не могли разойтись: один код на оба.
     if quality == 'realistic' and layout is not None and os.environ.get('IMPROVE_MODE', '1') == '1':
         import improve_mode as IM
-        built = IM.build(layout, (layout or {}).get('style') or '')
+        # СЦЕНУ НЕ ПЕРЕСОБИРАЕМ (01.09). Кнопка «улучшить» нажимается на УЖЕ показанном кадре,
+        # и его лист только что выложен как исходник запроса. Пересчёт двух видов в 2048 — это
+        # ещё минута ожидания и, что важнее, риск отправить в модель НЕ ТО, что человек видел:
+        # за это время мог смениться меш, ориентация или код. Берём готовый лист по `src_id`
+        # из запроса; нет его — собираем (прямой вызов API, старый клиент).
+        _t_our = time.time()
+        built = IM.from_sources(layout.get('src_id')) if layout.get('src_id') else None
+        reused = built is not None
+        if built is None:
+            built = IM.build(layout, (layout or {}).get('style') or '')
+        _t_our = time.time() - _t_our
+        print(f'улучшение: наша часть {_t_our:.1f}с '
+              + ('(лист взят из исходника, пересборки нет)' if reused
+                 else '(ИСХОДНИКА НЕ БЫЛО — пересобрал, это потеря)'), flush=True)
         sheet, ident, prompt = built['sheet'], built.get('ident'), built['prompt']
         imgs = [sheet] + ([ident] if ident is not None else [])
+        _t_gpt = time.time()
         out = gpt_edit(imgs, prompt, size=IM.SIZE, quality=gq, model=REALISTIC_MODEL)
+        _t_gpt = time.time() - _t_gpt
+        print(f'улучшение: модель {_t_gpt:.1f}с (размер {IM.SIZE}, качество {gq}); '
+              f'итого {_t_our + _t_gpt:.1f}с, из них наши {100 * _t_our / max(_t_our + _t_gpt, .1):.0f}%',
+              flush=True)
         # ПОЛОСА — УСЛОВИЕ РЕЗКИ, А НЕ УКРАШЕНИЕ. Пропала — ответ негоден: `_split_pair` в этом
         # случае молча делит пополам, и оба вида уезжают (найдено в разборе 01.09).
         import numpy as _np

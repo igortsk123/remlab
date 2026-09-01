@@ -934,6 +934,12 @@ function addShot(rec){ shots.push(rec); saveShots();
   drawFeed(); drawPhotos();
   const tr=document.querySelector('#feed .track');   // новый кадр стоит первым — показываем начало
   if(tr)tr.scrollLeft=0; }
+function dropDeadShot(img){
+  const url=img.getAttribute('data-url')||'';
+  const before=shots.length;
+  shots=shots.filter(s=>s.url!==url);
+  if(shots.length!==before){ saveShots(); drawFeed(); drawPhotos(); }
+}
 function shotLabel(s){
   const q={draft:'черновое',realistic:'улучшенное',preset:'готовое'}[s.quality]||s.quality;
   const cam='';           // ракурс не пишем: виды листаются внутри просмотра (27.08)
@@ -969,7 +975,11 @@ function drawFeed(){                    // КАРУСЕЛЬ СРЕДНИХ КА�
     const better=s.quality==='draft'&&s.revision===rev&&
       !mine.some(x=>x.quality==='realistic'&&x.revision===rev);
     return `<div class="card" data-i="${i}">`+
-      `<img src="${s.url}" alt="${shotLabel(s)}" loading="lazy">`+
+      // СНИМОК, ФАЙЛА КОТОРОГО БОЛЬШЕ НЕТ, — МЁРТВАЯ КАРТОЧКА (01.09). Кадры живут на сервере,
+      // а список — в браузере, и после чистки сервера в галерее оставались битые превью с
+      // кнопками. Это не отмена правила «снимки не пропадают» (26.08): исчез сам файл, и
+      // показывать ссылку на него не на что. Убираем такую запись из хранилища и перерисовываем.
+      `<img src="${s.url}" alt="${shotLabel(s)}" loading="lazy" data-url="${s.url}" onerror="dropDeadShot(this)">`+
       (views>1?`<div class="views">${views} вида</div>`:'')+
       `<div class="cap">${shotLabel(s)}`+
         (s.sources?` · <a class="srcln" href="${s.sources}" target="_blank" rel="noopener">исходники</a>`:'')+
@@ -1002,7 +1012,11 @@ function drawFeed(){                    // КАРУСЕЛЬ СРЕДНИХ КА�
   f.querySelectorAll('.card').forEach(c=>{
     const s=shots[+c.dataset.i];
     c.querySelector('img').onclick=()=>viewShot(+c.dataset.i);
-    const up=c.querySelector('.up'); if(up)up.onclick=()=>makePhoto('realistic');
+    // «Улучшить фото» шлёт id ИМЕННО ТОГО исходника, что собран для показанного кадра —
+    // сервер берёт готовый лист и не пересобирает сцену (01.09: минута лишнего ожидания и
+    // риск отправить не то, что человек видит).
+    const up=c.querySelector('.up');
+    if(up)up.onclick=()=>makePhoto('realistic', srcIdOf(s));
     c.querySelector('.pickbtn').onclick=()=>{s.pick=!s.pick;drawFeed();};
   });
   const bar=document.getElementById('feedBar');
@@ -1035,11 +1049,16 @@ function drawPhotos(){                 // ЗАГОЛОВОК БЛОКА: что 
 function shotOpen(html,cap){document.getElementById('shotbody').innerHTML=html;
   document.getElementById('shotcap').innerHTML=cap||'';
   document.getElementById('shot').classList.add('on');}
-async function makePhoto(quality){
+function srcIdOf(s){
+  const m=String((s&&s.sources)||'').match(/\/src\/([^/]+)\/?$/);
+  return m?m[1]:'';
+}
+async function makePhoto(quality, srcId){
   if(busy){shotOpen('<div class="wait">Один кадр уже считается — дождитесь его.</div>','');return;}
   busy=true; warmUp();
   const t0=Date.now(), rev=revision();
-  const est=quality==='realistic'?'обычно 45–60 секунд':'обычно 20–25 секунд';
+  // честная оценка: генерация листа в 2048 идёт минуты, а не секунды (замер 01.09)
+  const est=quality==='realistic'?'обычно 2–4 минуты':'обычно 20–25 секунд';
   shotOpen('<div class="wait"><div class="spin"></div>'+
     (quality==='realistic'?'Собираем улучшенное фото':'Собираем кадр 3D-сцены (наши модели, без ИИ)')+
     ' по вашей расстановке…<br><span id="el">0</span> с</div>',est);
@@ -1047,7 +1066,7 @@ async function makePhoto(quality){
     if(e)e.textContent=Math.round((Date.now()-t0)/1000);},500);
   try{
     const r=await fetch('/api/render',{method:'POST',headers:{'content-type':'application/json'},
-      body:JSON.stringify(Object.assign(payload(),{quality:quality}))});
+      body:JSON.stringify(Object.assign(payload(),{quality:quality},srcId?{src_id:srcId}:{}))});
     const j=await r.json();
     clearInterval(tick); busy=false;
     if(!(j.shots&&j.shots.length))throw new Error(j.error||'пустой ответ');

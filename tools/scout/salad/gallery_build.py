@@ -20,6 +20,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 
 SRC = os.environ.get('GALLERY_SRC', os.path.expanduser('~/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2'))
 OUT = os.path.expanduser('~/scout-scenes/mesh-pilot-gallery')
+# В ЭТОЙ ПАПКЕ НЕ ДОЛЖНО БЫТЬ ЧУЖИХ РЕЕСТРОВ (01.09). Папка публикуется на прод целиком,
+# и завалявшийся здесь `orient.json` уехал поверх серверного: 185 записей ориентации
+# схлопнулись до 12. Реестры публикуются ТОЛЬКО слиянием (`publish_merge.py`).
+for _stray in ('orient.json',):
+    _p = os.path.join(OUT, _stray)
+    if os.path.exists(_p):
+        os.remove(_p)
+        print(f'убран чужой реестр из папки публикации: {_stray}', flush=True)
 
 CHECKER = ('data:image/png;base64,' + base64.b64encode(bytes.fromhex(
     '89504e470d0a1a0a0000000d494844520000001000000010080200000090916836000000'

@@ -346,3 +346,27 @@ def publish_from_views(views: list, payload: dict, stamp: str) -> str:
          'лист на входе': f'{sheet.width}×{sheet.height}',
          'на вид после резки': f'~{out_w}×{(out_h - DR.BAND_PX) // 2}',
          'версия промпта': PROMPT_VERSION})
+
+
+def from_sources(src_id: str | None):
+    """Взять УЖЕ СОБРАННЫЙ лист и промпт по id страницы исходников.
+
+    Кнопка «улучшить фото» нажимается на кадре, для которого исходник уже выложен: пересобирать
+    его — минута лишнего ожидания и риск отправить не то, что человек видел (за это время могли
+    смениться меш, ориентация или код). Читаем с диска то же самое изображение.
+    """
+    import draft_render as DR
+    if not src_id:
+        return None
+    d = os.path.join(DR.SRC_DIR, str(src_id))
+    sheet_p = os.path.join(d, '1-ОТПРАВЛЯЕМ-лист-двух-видов.jpg')
+    prompt_p = os.path.join(d, 'prompt.txt')
+    if not (os.path.exists(sheet_p) and os.path.exists(prompt_p)):
+        return None
+    ident_p = os.path.join(d, '2-ОТПРАВЛЯЕМ-эталоны-товаров.jpg')
+    return {'sheet': Image.open(sheet_p).convert('RGB'),
+            'ident': Image.open(ident_p).convert('RGB') if os.path.exists(ident_p) else None,
+            'prompt': open(prompt_p, encoding='utf-8').read(),
+            'src_url': (DR.PUBLIC_BASE + DR.SRC_URL + '/' + str(src_id) + '/')
+                       if DR.PUBLIC_BASE else d,
+            'clay': []}

@@ -12,6 +12,7 @@ TLOG=$HOME/scout-scenes/dev-tunnel.log
 if ! pgrep -f "draft_service.py.*DEVBACKEND" >/dev/null 2>&1 && ! curl -s -m 2 http://127.0.0.1:8600/health >/dev/null; then
   SCENE3D=1 SCENE3D_QUALITY=full SCENE3D_PROCS=1 DRAFT_HOST=127.0.0.1 DRAFT_PORT=8600 \
   FRAME_INLINE=1 \
+  SRC_PUSH='root@89.167.127.0:/opt/remlab/test/share/src/' \
   PUBLIC_BASE='https://remont-lab.online' \
   nohup "$PY" -u draft_service.py >>"$LOG" 2>&1 &
   echo "$(date '+%F %T') сервис запущен" >>"$LOG"

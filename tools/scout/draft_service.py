@@ -141,7 +141,11 @@ class H(BaseHTTPRequestHandler):
                 import urllib.request as _u
                 req = _u.Request(prx, data=raw, method='POST',
                                  headers={'Content-Type': 'application/json'})
-                with _u.urlopen(req, timeout=120) as r:
+                # РЕЖИМ РЕМОНТА ЖДЁТ ДОЛЬШЕ (01.09): сборка листа плюс генерация в 2048 —
+                # это минуты. Прежние 120 с роняли запрос в ФОЛБЭК на локальный рендер
+                # прода, то есть человек получал кадр СТАРОГО пути и не знал об этом.
+                _to = 600 if payload.get('quality') == 'realistic' else 120
+                with _u.urlopen(req, timeout=_to) as r:
                     out = json.loads(r.read())
                 for nm, b64 in (out.pop('frames', None) or {}).items():
                     # кадры пришли в теле — кладём в раздаваемую папку, ссылки уже прод-URL
