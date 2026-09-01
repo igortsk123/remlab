@@ -160,6 +160,7 @@ def flat_shape(glb_path: str, params: dict) -> str | None:
     dims = params.get('_dims') or {}
     w = dims.get('w') or dims.get('dia')
     d = dims.get('d') or (w if params.get('_square_role') else None)
+    h = dims.get('h')
     if not (w and d):
         return None
     try:
@@ -168,7 +169,13 @@ def flat_shape(glb_path: str, params: dict) -> str | None:
         m = trimesh.load(glb_path, force='mesh')
         ext = np.sort(np.asarray(m.extents))          # тонкая, средняя, длинная стороны
         got = float(ext[0] / max(ext[2], 1e-6))
-        want = float(min(w, d) / max(max(w, d), 1e-6))
+        # СРАВНИВАЕМ СОПОСТАВИМОЕ (01.09). У модели отношение считается по ТРЁМ измерениям,
+        # значит и у паспорта надо по трём. Прежняя версия брала у паспорта только w и d:
+        # торшер 28×28×179 давал got=0.16 против «паспортных 1.00» и браковался за то, что
+        # он высокий, диван — за то, что низкий. Пересчёт по 63 забракованным формам:
+        # 54 (86%) были ложными — торшеров 22, стеллажей 18, ваз 4, диванов 2.
+        sides = [w, d] + ([h] if h else [])
+        want = float(min(sides) / max(max(sides), 1e-6))
         if got < want * 0.45:
             return f'плоская форма: тонкая/длинная {got:.2f} при паспортных {want:.2f}'
     except Exception:  # noqa: BLE001 — гейт не должен ронять задание
