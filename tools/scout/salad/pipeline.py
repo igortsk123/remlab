@@ -100,6 +100,9 @@ def _unload(name: str):
 # ТОЛЬКО кресло/стул (Codex q26): у диванов/кроватей/банкеток бывают законные цоколи и
 # коробчатые основания — там плиту не отличить, лечит перегон.
 SLAB_ROLES = {'кресло', 'стул'}
+# Гейты формы (flat_shape / slab_suspect) БРАКУЮТ товар до покраски. Владелец 01.09 запретил
+# это решение отдавать скрипту: по умолчанию они только диагностируют. SHAPE_GATES=1 — вернуть.
+SHAPE_GATES = os.environ.get('SHAPE_GATES', '0') == '1'
 
 
 class FlatShape(Exception):
@@ -484,14 +487,25 @@ def generate(image, out_dir: str, seed: int = 0, params: dict | None = None,
         ncut = crop_beyond_passport(raw_glb, (params or {}).get('_dims'), role)
         if ncut:
             print(f'припол за паспортом срезан: {ncut} граней', flush=True)
+    # ГЕЙТЫ ФОРМЫ ВЫКЛЮЧЕНЫ ПО УМОЛЧАНИЮ (решение владельца 01.09: «какого хера генератор
+    # что-то бракует без меня — отключай браки»). Раньше обе проверки БРОСАЛИ исключение, и
+    # задание умирало на стадии формы, не дойдя до покраски: так молча выпали 5 торшеров и
+    # диван из демо — тонкие и высокие предметы дают отношение сторон, которое гейт считает
+    # плитой. Экономия GPU не оправдывает того, что решение «товар негоден» принимает скрипт.
+    # Теперь это ДИАГНОЗ: пишем в лог, модель всё равно красим и отдаём — судит человек.
+    # Вернуть прежнее поведение: SHAPE_GATES=1 в окружении воркера.
     flat = flat_shape(raw_glb, params or {})
     if flat:
-        raise FlatShape(flat)
+        if SHAPE_GATES:
+            raise FlatShape(flat)
+        print(f'диагноз формы (не блокирует): {flat}', flush=True)
     if role not in SLAB_ROLES and not ((params or {}).get('_dims') or {}).get('d'):
         # страховка только когда паспорта нет — с паспортом лишнее уже срезано по габариту
         sus = slab_suspect(raw_glb)
         if sus:
-            raise SlabSuspect(sus)
+            if SHAPE_GATES:
+                raise SlabSuspect(sus)
+            print(f'диагноз плиты (не блокирует): {sus}', flush=True)
 
     if STAGED:
         _unload('shape')          # ← ради этой строки вся конструкция и затевалась

@@ -725,8 +725,12 @@ function shape(it){
   // поверх формы кладётся ЧЕСТНЫЙ вид сверху из нашего меша (topsprites/<sid>.png,
   // фронт — вниз, как у стилизованных форм). Нет файла → остаётся схема. Старые кривые
   // спрайты из фото (растягивались у стула/стола) больше не используются.
-  if(it.sku&&it.sku.sid){
-    const im=el('image',{href:'topsprites/'+it.sku.sid+'.png',x:-w/2,y:-d/2,width:w,height:d,
+  // ВТОРАЯ ШТУКА КОМПЛЕКТА берёт товар базовой роли через skuOf (см. ниже): у «стул 2»
+  // своей карточки нет, и чтение it.sku.sid напрямую оставляло её вечной заглушкой —
+  // хотя меш первого стула лежит рядом (найдено 01.09).
+  const _sk=skuOf(it);
+  if(_sk&&_sk.sid){
+    const im=el('image',{href:'topsprites/'+_sk.sid+'.png',x:-w/2,y:-d/2,width:w,height:d,
       preserveAspectRatio:'none',opacity:0.98});
     im.addEventListener('error',()=>im.remove());
     g.appendChild(im);
@@ -858,7 +862,9 @@ function payload(){
   return {room:D.room, style:v.style||'', variant:v.title||'',
     items:items.map(it=>({role:it.role,x:it.x,y:it.y,rot:it.rot,
     w:it.w,d:it.d,h:it.h,corner:it.corner,section:it.section,
-    sid:(it.sku&&it.sku.sid)||null,
+    // sid — через skuOf: вторая штука комплекта («стул 2») без него уезжала на сервер
+    // пустой и возвращалась серой заглушкой рядом с честно отрисованным первым стулом
+    sid:(skuOf(it)||{}).sid||null,
     name:(it.sku&&it.sku.name)||null,
     price:(it.sku&&it.sku.price)||null, url:(it.sku&&it.sku.url)||null,
     shop:(it.sku&&it.sku.shop)||null,
@@ -1577,7 +1583,7 @@ async function openScene(){
     const w=(it.w||60)/100,d=(it.d||60)/100,h=(it.h||75)/100;
     const cx=((it.x||0)+ (it.w||0)/2)/100, cz=((it.y||0)+(it.d||0)/2)/100;
     const rot=-((it.rot||0)*Math.PI/180);
-    const sid=it.sku&&it.sku.sid;
+    const sid=(skuOf(it)||{}).sid;   // «стул 2» — меш берём у первой штуки комплекта
     const info=sid&&meshIndex&&meshIndex[sid];
     if(info){
       nMesh++;
