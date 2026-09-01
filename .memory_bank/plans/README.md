@@ -31,6 +31,7 @@ draft → in_progress → completed → перенос в completed_plans/
 | demo-planner-structure | — | partial | — | 2026-08-28 |
 | stock-check-weekly-unified | Одно правило проверки наличия — раз в неделю для всех; непроверяемым верим Гдеслону | in_progress | 2026-09-01 | 2026-09-01 |
 | photo-improve-from-mesh | Кнопка «Улучшить фото» — ремонт от ИИ поверх НАШЕГО кадра с мешами | in_progress | 2026-09-01 | 2026-09-01 |
+| demo-collection-flow | Демо — «Коллекция расстановок» и полноэкранный редактор плана | draft | 2026-09-01 | 2026-09-01 |
 | stock-truth-page-verdict | Наличие товара — один вычислитель, свидетельство сильнее фида | in_progress | 2026-08-31 | 2026-08-31 |
 | orient-v2 | Ориентация мешей v2 — единый контур upright+front, DINO shadow, gold-бенч | in_progress | 2026-08-31 | 2026-08-31 |
 | mesh-dynamic-node-pool | Динамический пул нод Salad в прогоне мешей + честный учёт заданий | in_progress | 2026-08-31 | 2026-08-31 |

@@ -239,11 +239,9 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 #basket{margin-top:10px}
 /* РАБОЧАЯ ОБЛАСТЬ (26.08, структура референса): план слева, список товаров справа; на телефоне —
    один столбец, список уезжает под план. */
-#screen-room{display:flex;flex-direction:column}
-#screen-room .subtabs{order:1}
-#screen-room .work{order:2}
-#screen-room #photos{order:3}
-@media(min-width:1000px){#screen-room #photos{order:2}#screen-room .work{order:3}}
+/* ПОРЯДОК БЛОКОВ — КАК В РАЗМЕТКЕ (владелец 01.09 отменил правку A1 аудита). Я поднимал план
+   над лентой фотографий на телефоне, рассуждая «сначала расставь, потом смотри». Владелец
+   вернул как было: лента остаётся сверху. */
 .work{display:grid;gap:14px;align-items:start;grid-template-columns:1fr}
 @media(min-width:1000px){.work{grid-template-columns:minmax(0,1fr) 360px}
   /* Правая колонка теперь содержит ДВА блока — карточку стоимости и корзину, — поэтому липнет
@@ -251,15 +249,18 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
   .work>div:last-child{position:sticky;top:12px;max-height:calc(100vh - 30px);overflow:auto}
   .work #basket{margin-top:12px;position:static;max-height:none;overflow:visible}}
 .canvasbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;
- margin:2px 0 8px;font-size:clamp(15px,1.9vw,16.5px);color:var(--muted)}
+ margin:2px 0 10px;font-size:clamp(15.5px,1.15vw,17.5px);color:var(--muted)}
 .state{border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:13px;
  background:var(--wash-3);color:var(--ink);white-space:nowrap}
 .state.changed{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn-ink)}
 /* ПЕРЕКЛЮЧАТЕЛИ ДВЕРИ (27.08): сторона петель и куда открывается */
 .doorctl{display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap}
 .doorctl b{font-weight:600;color:var(--ink)}
-.doorctl button{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 12px;
- font-size:clamp(13px,0.92vw,14.5px);cursor:pointer;color:var(--ink)}
+/* КНОПКИ ДВЕРИ И РАКУРСА — ТА ЖЕ ШКАЛА, ЧТО У ОСТАЛЬНЫХ КОНТРОЛОВ (владелец 01.09: «проверь
+   шрифты и размер этих элементов»). Они жили на 13–14,5 px, то есть заметно мельче всего
+   вокруг, и читались как служебная мелочь, хотя это обычное управление. */
+.doorctl button{border:1px solid var(--line);background:var(--surface);border-radius:999px;
+ padding:9px 15px;min-height:40px;font-size:clamp(15px,1.05vw,17px);cursor:pointer;color:var(--ink)}
 .doorctl button:hover{border-color:var(--accent);color:var(--accent)}
 .lnk{border:0;background:none;padding:0;color:var(--accent);font:inherit;font-size:clamp(15px,1.05vw,17px);
  cursor:pointer;text-decoration:underline}

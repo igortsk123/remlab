@@ -30,22 +30,15 @@ review_after: ""
 **Tier 2:** `../domain/integrations.md` — эндпоинты, форматы, env, фиды, § Codex (постоянная
 сессия советника). Решения — ADR-0007/0011/0012/0013/0045.
 
-## Vercel AI Gateway (26.08)
-`https://ai-gateway.vercel.sh/v1`: `/images/edits` (`image[]`, `mask`) для `gpt-image-*`;
-`/chat/completions` + `modalities:['image']` для Google-картинок — `draft_render._chat_edit`.
-Ключ `VERCEL_AI_GATEWAY_KEY`: `_secrets/ACCESS.md` и `/opt/remlab/.env`; клиент `gw_key()`.
-Прямые ключи OpenAI без кредитов — рабочий путь только шлюз.
+- **Vercel AI Gateway (26.08):** единственный рабочий путь к платным картинкам (прямые ключи
+  OpenAI без кредитов). Эндпоинты, ключ и клиент — `../domain/integrations.md`.
 
-## fal.ai (2026-08-05 → 28.08)
-Клиент `tools/scout/falmini.py`; на мешах заменён Salad (ADR-0131). Модели и маски —
-`../domain/integrations.md` §fal.
+- **fal.ai:** клиент `tools/scout/falmini.py`; на мешах заменён Salad (ADR-0131).
 
-## SaladCloud + GHCR (31.08) — GPU под меши, вместо fal
-Орг `prodstore`/`dmodel`; ключи, цены, спека группы — `_secrets/ACCESS.md` и
-`_secrets/salad-group-create-body.json`; ключ и группа — `~/scout-scenes/salad.env`
-(`ssh_run.py` подгружает сам). Образ ТОЛЬКО digest'ом, боевой `…mesh-hunyuan:cu124-baked`.
-API-грабли (curl-only/WAF, PATCH-молчание, квоты, reallocate) — ADR-0137, [[mesh-pipeline]].
-
-## Гдеслон API (26.08)
-Программы: shops.xml по api_token (ежедневный `--check`); XML-поиск — только хост
-api.gdeslon.ru (www теряет параметры); API выгрузок нет.
+## Прочие доступы (детали — `../domain/integrations.md`)
+- **SaladCloud + GHCR (31.08):** GPU под меши вместо fal; орг `prodstore`/`dmodel`, ключи в
+  `_secrets/`, образ только digest'ом. Грабли API — ADR-0137, [[mesh-pipeline]].
+- **Гдеслон (26.08):** программы через shops.xml по api_token; XML-поиск только с хоста
+  `api.gdeslon.ru` (www теряет параметры); API выгрузок нет.
+- **Sketchfab (01.09):** модели-заглушки ТВ/окно/дверь отобраны, все CC-BY (нужен кредит).
+  БЛОКЕР: скачивание требует аккаунта, которого у агента нет.
