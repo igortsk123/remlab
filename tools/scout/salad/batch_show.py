@@ -15,6 +15,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -229,6 +230,60 @@ def cull_slow_pulls() -> None:
         _PULL_HIST.pop(iid, None)
 
 
+def post_steps() -> tuple:
+    """Локальный разбор сделанного: стащить, учесть, принять, разметить, показать.
+
+    Все шаги идут ОТ СОСТОЯНИЯ («что ещё не сделано»), а не от списка конкретной пачки —
+    поэтому пропущенный запуск не теряет работу: следующий заберёт и её.
+    """
+    return (('стаскиваю', f'bash {HERE}/drain.sh --keep'),
+            ('реестр', f'{PY} {HERE}/ingest_registry.py'),
+            ('приёмка', f'{PY} {HERE}/apply_repairs.py'),
+            # ОРИЕНТАЦИЯ КАЖДОМУ НОВОМУ МЕШУ (владелец 31.08: «вся разметка должна быть
+            # корректная»): боевой каскад по pending, затем виды сверху и публикация
+            # orient.json для 3D-сцены
+            ('ориентация', ORIENT_CMD),
+            ('топ-вью', f'{PY} {HERE}/topview_render.py'),
+            *SHOW_STEPS,
+            ('ориент-паблиш', f'scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/topview.json root@89.167.127.0:/opt/remlab/test/mesh-pilot10/orient.json && scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/*.png root@89.167.127.0:/opt/remlab/test/flat215-demo/topsprites/ 2>/dev/null || true'))
+
+
+_post: dict = {'thread': None}
+
+
+def _run_post(tag: int) -> None:
+    t0 = time.time()
+    for step, cmd in post_steps():
+        c, o = sh(cmd, timeout=2700)
+        print(f'  [разбор {tag}] {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
+    print(f'== разбор {tag} закончен за {(time.time() - t0) / 60:.0f} мин ==', flush=True)
+
+
+def start_post(tag: int) -> None:
+    """Запустить разбор фоном. Одновременно — НЕ БОЛЬШЕ ОДНОГО.
+
+    Если предыдущий ещё идёт, новый не ставим и в очередь не копим: шаги работают от
+    состояния, поэтому следующий запуск подберёт и эту пачку. Две параллельные постобработки
+    подрались бы за память (их и так убивал OOM) и за ориентационный flock.
+    """
+    th = _post['thread']
+    if th is not None and th.is_alive():
+        print(f'  разбор предыдущей пачки ещё идёт — {tag} подберёт следующий заход', flush=True)
+        return
+    th = threading.Thread(target=_run_post, args=(tag,), daemon=True)
+    _post['thread'] = th
+    th.start()
+
+
+def wait_post() -> None:
+    """Дождаться фонового разбора. Без этого демон-поток умрёт вместе с процессом, и пачка
+    осталась бы стащенной, но не размеченной."""
+    th = _post['thread']
+    if th is not None and th.is_alive():
+        print('жду, пока фоновый разбор доработает', flush=True)
+        th.join()
+
+
 def drain_retry_spool() -> None:
     """Прогнать спул повторов — задания, которые курсор уже пропустил, но которые НЕ виноваты.
 
@@ -302,8 +357,10 @@ def _main():
         if os.path.exists(PAUSE):
             # Пауза владельца: глушим группу (деньги!) и выходим. Продолжение — удалить файл
             # и перезапустить: сделанное вернётся как cached, перегона не будет.
+            # Группу гасит finale(), и гасит ПЕРВЫМ делом — фоновый разбор доделывается уже
+            # без нод, бесплатно. Ждать его здесь значило бы платить за простой.
             print('ПАУЗА (файл mesh-batch.PAUSE) — гашу группу и выхожу', flush=True)
-            break
+            return
         n = min(batch, total - done)
         # ssh_run сам берёт первые limit заданий; сделанные вернутся как cached мгновенно —
         # поэтому просто наращиваем limit, а не режем список (проще и идемпотентно)
@@ -338,20 +395,14 @@ def _main():
         done += step_done
         json.dump({'done': done, 'at': time.time()}, open(DONE, 'w'))
         drain_retry_spool()
-        for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh --keep'),
-                          ('реестр', f'{PY} {HERE}/ingest_registry.py'),
-                          ('приёмка', f'{PY} {HERE}/apply_repairs.py'),
-                          # ОРИЕНТАЦИЯ КАЖДОМУ НОВОМУ МЕШУ (владелец 31.08: «вся разметка
-                          # должна быть корректная»): боевой каскад по pending, затем виды
-                          # сверху (кэш — быстро) и публикация orient.json для 3D-сцены
-                          ('ориентация', ORIENT_CMD),
-                          ('топ-вью', f'{PY} {HERE}/topview_render.py'),
-                          *SHOW_STEPS,
-                          ('ориент-паблиш', f'scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/topview.json root@89.167.127.0:/opt/remlab/test/mesh-pilot10/orient.json && scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/*.png root@89.167.127.0:/opt/remlab/test/flat215-demo/topsprites/ 2>/dev/null || true')):
-            c, o = sh(cmd, timeout=2700)
-            print(f'  {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
-        print(f'== показано {done}/{total} очереди — страница обновлена ==', flush=True)
+        # Постобработка уходит В ФОН: пока она разбирает эту пачку, следующая уже считается
+        # на нодах. Раньше 7 шагов шли последовательно с генерацией, и всё это время ноды
+        # были тёплые, оплачиваемые и без заданий — 38 минут × ~9 нод ≈ 5,7 GPU-часов
+        # вхолостую за одну паузу (замер 01.09).
+        start_post(done)
+        print(f'== {done}/{total} очереди сгенерировано, разбор идёт фоном ==', flush=True)
 
+    wait_post()          # волна лечения работает по итогам приёмки — она должна доработать
     heal_wave(PAUSE, guard_done=(done >= total))
 
 
@@ -383,24 +434,24 @@ def heal_wave(PAUSE: str, guard_done: bool = True) -> None:
                           f'{s.get("terminal", "?")}/{s.get("requested", len(todo))}, '
                           f'нерешённых {s.get("unresolved", "?")}', flush=True)
                 break
-            for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh --keep'),
-                          ('реестр', f'{PY} {HERE}/ingest_registry.py'),
-                              ('приёмка', f'{PY} {HERE}/apply_repairs.py'),
-                              ('ориентация', ORIENT_CMD),
-                              ('топ-вью', f'{PY} {HERE}/topview_render.py'),
-                              *SHOW_STEPS,
-                              ('ориент-паблиш', f'scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/topview.json root@89.167.127.0:/opt/remlab/test/mesh-pilot10/orient.json && scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/*.png root@89.167.127.0:/opt/remlab/test/flat215-demo/topsprites/ 2>/dev/null || true')):
+            # Разбор волны — тот же список шагов, что и у пачек (`post_steps`), одно место.
+            # Здесь он идёт НЕ фоном: после волны прогон заканчивается, ждать всё равно нам.
+            for step, cmd in post_steps():
                 c, o = sh(cmd, timeout=2700)
                 print(f'  {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
 
 
 def finale() -> None:
     """Финал прогона — НЕ часть волны: чистка кэша и гашение групп только в самом конце."""
-    # сервер чистим ОДИН раз в конце: в цикле drain --keep, иначе умирает кэш «уже сделано»
-    sh(f'bash {HERE}/drain.sh', timeout=1200)
-    # конец или падение — группу гасим В ЛЮБОМ СЛУЧАЕ (деньги)
+    # ГРУППУ ГАСИМ ПЕРВЫМ ДЕЛОМ (деньги): тарифицируется состояние, а финальный drain —
+    # работа чисто локальная, комплекты уже лежат на exit-fi. Раньше ноды ждали конца
+    # drain'а и жгли деньги за это время. Гасим и при падении — это `finally` в main().
     c, o = sh(f'{PY} - <<P\nimport sys; sys.path.insert(0,"{HERE}")\nimport ssh_run; ssh_run.stop_group()\nP', timeout=120)
     print(o, flush=True)
+    # Фоновый разбор мог ещё идти — два drain'а разом полезли бы в один каталог.
+    wait_post()
+    # сервер чистим ОДИН раз в конце: в цикле drain --keep, иначе умирает кэш «уже сделано»
+    sh(f'bash {HERE}/drain.sh', timeout=1200)
 
 
 if __name__ == '__main__':

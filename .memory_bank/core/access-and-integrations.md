@@ -3,7 +3,7 @@ tier: 1
 topic: access-and-integrations
 scope: Интеграции/доступы — ключи, клиенты
 tier2: "../domain/integrations.md"
-updated: 2026-08-28
+updated: 2026-09-01
 importance: high
 source: manual
 status: working
@@ -38,11 +38,13 @@ review_after: ""
 Прямые ключи OpenAI без кредитов — рабочий путь только шлюз.
 
 ## fal.ai (2026-08-05 → 28.08)
-Клиент `tools/scout/falmini.py`; на треке мешей заменён Salad (ADR-0131).
+Клиент `tools/scout/falmini.py`; на мешах заменён Salad (ADR-0131).
 Модели редактирования и ограничения масок — `../domain/integrations.md` §fal.
 
 ## SaladCloud + GHCR (31.08) — GPU под меши, вместо fal
-Орг `prodstore`/`dmodel`; ключи, цены, спека группы — `_secrets/ACCESS.md`, `_secrets/salad-group-create-body.json`.
+Орг `prodstore`/`dmodel`; ключи, цены, спека группы — `_secrets/ACCESS.md` и
+`_secrets/salad-group-create-body.json`. Ключ и группа лежат в `~/scout-scenes/salad.env` —
+свой запуск `ssh_run.py` обязан подгрузить его сам.
 Образ ТОЛЬКО digest'ом; боевой `…mesh-hunyuan:cu124-baked` (веса внутри). Все API-грабли
 (curl-only/WAF, PATCH-молчание, квоты, reallocate) — ADR-0137; детали — [[mesh-pipeline]].
 

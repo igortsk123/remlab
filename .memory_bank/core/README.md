@@ -12,7 +12,7 @@
 
 | Файл | topic | Когда читать (scope) | Tier 2 | updated |
 |------|-------|----------------------|--------|---------|
-| `access-and-integrations.md` | access-and-integrations | Интеграции/доступы — ключи, клиенты | `../domain/integrations.md` | 2026-08-28 |
+| `access-and-integrations.md` | access-and-integrations | Интеграции/доступы — ключи, клиенты | `../domain/integrations.md` | 2026-09-01 |
 | `architecture.md` | architecture | Стек, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-08-06 |
 | `catalog.md` | catalog | Каталог — состав, свежесть, дельта | `../domain/catalog-enrichment.md` | 2026-09-01 |
 | `data-model.md` | data-model | Схема БД, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-08-31 |

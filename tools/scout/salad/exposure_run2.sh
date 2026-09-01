@@ -18,6 +18,11 @@ PY=/home/pakar/venvs/scout/bin/python
 PAUSE="$HOME/scout-scenes/mesh-batch.PAUSE"
 MARKS=/home/pakar/igor/remlab/.memory_bank/_intake/owner-marks-mesh-color-0109.txt
 
+# Ключ и группа Salad живут в файле, а не в окружении: без них ssh_run выходит с «нет
+# SALAD_API_KEY», и волна крутит проходы вхолостую (поймано на первом старте 01.09).
+if [ -f "$HOME/scout-scenes/salad.env" ]; then set -a; . "$HOME/scout-scenes/salad.env"; set +a; fi
+[ -n "${SALAD_API_KEY:-}" ] || { echo "НЕТ SALAD_API_KEY — волна не пойдёт"; exit 1; }
+
 echo "[$(date +%H:%M)] ставлю паузу основному конвейеру"
 touch "$PAUSE"
 

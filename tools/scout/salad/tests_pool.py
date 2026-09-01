@@ -356,6 +356,43 @@ def case_spool_keeps_reason() -> None:
     print('  ✓ пропущенное курсором ложится в спул с причиной и не гоняется вечно')
 
 
+def case_post_background() -> None:
+    """Разбор пачки идёт ФОНОМ и не задерживает следующую генерацию; одновременно — не
+    больше одного разбора; конвейер не выходит, пока разбор не доделан."""
+    import batch_show as B  # noqa: PLC0415
+    started, finished = [], []
+    orig = B.post_steps
+
+    def slow_steps():
+        def mark(tag):
+            started.append(tag)
+            time.sleep(0.6)
+            finished.append(tag)
+            return 0, ''
+        return (('стенд', mark),)
+
+    orig_sh = B.sh
+    B.post_steps = slow_steps
+    B.sh = lambda cmd, timeout=3600: cmd(len(started))    # noqa: B010 — стенд
+    B._post['thread'] = None
+    try:
+        t0 = time.time()
+        B.start_post(1)
+        # возврат должен быть мгновенным: генерация следующей пачки не ждёт разбора
+        assert time.time() - t0 < 0.3, 'start_post заблокировал цикл генерации'
+        B.start_post(2)                       # первый ещё идёт — второй ставиться не должен
+        assert len(started) == 1, f'запущено два разбора разом: {started}'
+        B.wait_post()
+        assert finished == [0], f'разбор не доделан к выходу: {finished}'
+        B.start_post(3)                       # предыдущий закончился — этот обязан пойти
+        B.wait_post()
+        assert len(finished) == 2, finished
+    finally:
+        B.post_steps = orig
+        B.sh = orig_sh
+    print('  ✓ разбор идёт фоном, не дублируется и доделывается перед выходом')
+
+
 def case_flat_plan() -> None:
     """`total` супервизора и список прогона — из ОДНОГО источника. Расхождение 1465 против
     1503 оставляло 38 последних заданий незапрошенными (нашёл Codex 01.09)."""
@@ -385,7 +422,8 @@ def main() -> None:
                    case_stall_is_capacity, case_no_capacity, case_cull_rule, case_checkpoint,
                    case_fault_classes, case_streak_rules, case_streak_survives_restart,
                    case_fleet_wide_guard, case_cull_budget_shared, case_node_breaker_run,
-                   case_dead_photo_keeps_node, case_spool_keeps_reason, case_flat_plan):
+                   case_dead_photo_keeps_node, case_spool_keeps_reason,
+                   case_post_background, case_flat_plan):
             if fn not in pure:
                 setup(tmp)
             fn()
