@@ -16,32 +16,28 @@ last_verified: 2026-09-01
 **Зачем:** планировщик и 3D-квартиры. **Генератор — свой Hunyuan3D 2.1 на SaladCloud**
 (ADR-0131; fal/Trellis выведены). Код — `tools/scout/salad/`.
 
-**Объём (владелец 01.09): полный пул — 11 631 товар** (`plans/mesh-bulk-salad-hunyuan.md`);
-≈4 900 — подмножество отбора ADR-0131 (роли слотов сетов), не путать. Очередь — 1465 заданий /
-1461 товар (`mesh-pilot-sample.json`), первыми 78 позиций демо flat215. **Приёмка:** `mesh_gate.py` →
-`mesh_gate_pbr.py` → `web_ready`. **Ориентация:** ADR-0129 → план orient-v2.
+**Объём:** полный пул — 11 631 товар (владелец 01.09, `plans/mesh-bulk-salad-hunyuan.md`);
+≈4 900 — подмножество отбора ADR-0131, не путать. Очередь — **1503 задания** (1465 SKU, seeds
+развёрнуты; счёт один — `ssh_run.plan_jobs`), первыми демо flat215.
+**Приёмка:** `mesh_gate.py` → `mesh_gate_pbr.py` → `web_ready`. **Ориентация:** ADR-0129, orient-v2.
 
-**Готовность/резерв/замена — ADR-0134** (`mesh_ready.py`, `reserve.py`, `heal_policy.py`,
-`/test/set-changes/`); резерв 28.08 — 0%, дефицит 803.
+**Готовность/резерв/замена — ADR-0134** (`mesh_ready.py`, `reserve.py`, `heal_policy.py`).
+**Вход генератора — RGBA-вырезка** (`hybrid_mask.py`, ADR-0133); фото задания —
+`coalesce(image_url_hd, image_url)` (ADR-0136).
+**РЕМОНТ ОТМЕНЁН (ADR-0143):** везде оригинал `model.glb`; `apply_repairs.py` — чистая приёмка
+(вердикт + очередь перегона). **Цвет — [[mesh-color]]** (ADR-0145): рычаг только на входе.
+Показ `/test/mesh-pilot10/`, образ `cu124-baked` (ADR-0137); конвейер `batch_show.py`.
 
-**Вырезка = вход генератора (ADR-0133):** гибрид `hybrid_mask.py` (95% деталей 1–2px против 79%
-у сети), фон чистят `components.py`/`collage.py`; вход Hunyuan — **RGBA**. Фото: HD у 12 649 из
-~19 700 (`products.image_url_hd`), у остальных потолок — 450 px фида.
+**Пул нод — ADR-0142** (`ssh_run.py`): супервизор добирает прогретые ноды на ходу, обрыв
+возвращает задание в очередь. Ленты замен в `demo-data.json` без `sid` не прогоняются.
 
-**Пилот 30–31.08 (560 заданий, HD):** вход — `coalesce(image_url_hd, image_url)` (ADR-0136).
-**РЕМОНТ ОТМЕНЁН (ADR-0143, 01.09):** везде только оригинал `model.glb`; `apply_repairs.py` —
-чистая приёмка (вердикт + очередь перегона), копии в `~/scout-scenes/mesh-repairs-parked/`,
-`color_mismatch` — только диагностика.
-**Цвет и перепокраска — [[mesh-color]]** (ADR-0145): форма сохранена (`shape.glb`), paint = 42%
-задания, рычаг только на входе.
-Показ: `/test/mesh-pilot10/`. Образы — digest, боевой `cu124-baked` (ADR-0137); конвейер
-`batch_show.py` (мультигруппы, WAVE_FIRST, `cull_slow_pulls`; в цикле — ориентация, топ-вью,
-паблиш). Вид сверху — `topview_render.py`.
-
-**Пул нод и учёт заданий — ADR-0142** (`ssh_run.py`): супервизор добирает прогретые ноды на ходу,
-обрыв возвращает задание в очередь. Ленты замен в `demo-data.json` без `sid` не прогоняются.
+**Здоровье нод — ADR-0146** (`node_health.py`): вина по ТЕКСТУ ошибки (сеть ноды → в очередь +
+счётчик; 404/`flat_shape` → терминально, счётчик в ноль; timeout → повтор без обвинения);
+3 подряд по вине ноды → снятие + `reallocate`. Счётчик и бюджет пересадок — в файле под flock
+(пачка = новый процесс). Пропущенное курсором → спул `mesh-retry-queue.jsonl`, потерянное ранее
+возвращает `recover_lost.py`. Постобработка микропачками: её убивал OOM.
 
 Цены/квоты Salad и грабли сборки — ADR-0132/0137/0142, [[lessons]].
 
 **Tier 2:** `../domain/viz-fidelity-playbook.md` · планы `mesh-bulk-salad-hunyuan`,
-`mask-quality-rgba-contract` · ADR-0129…0134.
+`mask-quality-rgba-contract`, `mesh-node-health-breaker` · ADR-0129…0134, 0146.
