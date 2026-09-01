@@ -99,7 +99,26 @@ def ensure_group_started():
         print(f'группа {grp}: start отправлен', flush=True)
         ok = True
       except Exception as e:  # noqa: BLE001 — 400 «уже идёт» и сеть не должны валить конвейер
-        print(f'группа {grp}: start → {str(e)[:80]} (обычно уже запущена)', flush=True)
+        print(f'группа {grp}: start → {str(e)[:80]}', flush=True)
+    # ПРОВЕРЯЕМ, А НЕ ПРЕДПОЛАГАЕМ. Раньше 400 трактовался как «уже запущена», но он же
+    # приходит, когда группа ещё СОЗДАЁТСЯ и стартовать нечего: 01.09 новая группа так и
+    # осталась stopped, конвейер час ждал тёплых нод, а заметил это владелец в портале.
+    st = group_status()
+    if st in ('stopped', 'failed'):
+        print(f'!! группа в состоянии {st} — ПОВТОРЯЮ запуск', flush=True)
+        for grp in [g.strip() for g in os.environ.get('SALAD_GROUP', 'mesh-run3').split(',') if g.strip()]:
+            try:
+                import urllib.request as _u
+                _u.urlopen(_u.Request(
+                    f'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers/{grp}/start',
+                    data=b'', method='POST',
+                    headers={'Salad-Api-Key': os.environ['SALAD_API_KEY'],
+                             'User-Agent': 'remlab-mesh/1.0'}), timeout=60).read()
+                ok = True
+            except Exception as e2:  # noqa: BLE001
+                print(f'группа {grp}: повторный start → {str(e2)[:80]}', flush=True)
+        st = group_status()
+    print(f'группа: состояние {st}', flush=True)
     return ok
 
 
