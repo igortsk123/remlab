@@ -97,7 +97,9 @@ def ensure_group_started():
 
 
 _PULL_HIST: dict = {}     # instance_id → наблюдения за закачкой образа
-_CULL_LOG: list = []      # моменты наших пересадок: предохранитель от чехарды
+# Бюджет пересадок и счётчик сбоев нод переехали в `node_health` — ОДИН файл на все процессы
+# прогона. Раньше журнал жил в памяти, а пересадку зовут двое (этот супервизор и `ssh_run`
+# каждой пачки): два независимых бюджета вдвоём могли выкосить весь пул (Codex 01.09).
 
 # ПРАВИЛО СНЯТИЯ МЕДЛЕННОЙ НОДЫ (владелец 31.08, переформулировано после разбора).
 # Считаем не «скорость за окно», а ВОЗРАСТ и ОСТАТОК. Прошлая формула («<15% за 5 мин»)
@@ -113,9 +115,18 @@ FINISH_GUARD = float(os.environ.get('MESH_FINISH_GUARD', '0.80'))     # выше
 # остатку (владелец: «терпение к скорости повысить, динамически смотря сколько осталось»).
 # Ступени задают норму ~3%/мин; у почти доехавшей требуем хотя бы половину этого темпа.
 FINISH_RATE_MIN = float(os.environ.get('MESH_FINISH_RATE', '0.015'))  # доля образа в минуту
-MAX_CULL_PER_TICK = int(os.environ.get('MESH_MAX_CULL_TICK', '2'))
-MAX_CULL_PER_HOUR = int(os.environ.get('MESH_MAX_CULL_HOUR', '6'))
-CULL_FREEZE_S = float(os.environ.get('MESH_CULL_FREEZE_S', '1800'))   # пауза после чехарды
+sys.path.insert(0, HERE)
+import node_health as NH  # noqa: E402 — общий бюджет пересадок и здоровье нод
+import ssh_run as SR      # noqa: E402 — канонический плоский список заданий (`plan_jobs`)
+
+# ОРИЕНТАЦИЯ МИКРОПАЧКАМИ (01.09). Один заход на `--limit 200` вырастал до 8.6 ГБ и его
+# убивал earlyoom — шаг не «тормозил», а НЕ ДОДЕЛЫВАЛ работу, и пачка оставалась без
+# разметки. Гоняем несколько коротких заходов: память возвращается ОС между процессами.
+ORIENT_LIMIT = int(os.environ.get('MESH_ORIENT_LIMIT', '20'))
+ORIENT_PASSES = int(os.environ.get('MESH_ORIENT_PASSES', '4'))
+ORIENT_CMD = (f'for i in $(seq {ORIENT_PASSES}); do '
+              f'{PY} {os.path.join(HERE, "..", "orient_worker.py")} '
+              f'--run --limit {ORIENT_LIMIT} --vlm || exit $?; done')
 
 
 def iso_age_s(ts: str | None, now: float) -> float | None:
@@ -174,12 +185,7 @@ def cull_slow_pulls() -> None:
     import json as _j
     import urllib.request as _u
     now = time.time()
-    _CULL_LOG[:] = [t for t in _CULL_LOG if now - t < 3600]
-    if len(_CULL_LOG) >= 3 and now - _CULL_LOG[-1] < CULL_FREEZE_S and len(_CULL_LOG) >= MAX_CULL_PER_HOUR:
-        return                       # медленная вся сеть — менять шило на мыло бессмысленно
-    seen, budget = set(), min(MAX_CULL_PER_TICK, MAX_CULL_PER_HOUR - len(_CULL_LOG))
-    if budget <= 0:
-        return
+    seen = set()
     for grp in [g.strip() for g in os.environ.get('SALAD_GROUP', 'mesh-run3').split(',') if g.strip()]:
         base = f'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers/{grp}'
         try:
@@ -210,20 +216,50 @@ def cull_slow_pulls() -> None:
             why = cull_verdict(age, h['best'], now - h['moved'], _rate_per_min(h['obs']))
             if why:
                 cands.append((h['best'], iid, why))
-        for prog, iid, why in sorted(cands)[:budget]:   # сперва самые безнадёжные
-            try:
-                req = _u.Request(f'{base}/instances/{iid}/reallocate', data=b'', method='POST',
-                                 headers={'Salad-Api-Key': os.environ['SALAD_API_KEY'],
-                                          'User-Agent': 'remlab-mesh/1.0'})
-                _u.urlopen(req, timeout=30).read()
-                print(f'нода {iid[:8]} ({grp}): {why} — ПЕРЕСАЖИВАЮ (reallocate)', flush=True)
-                _CULL_LOG.append(now)
-                budget -= 1
-            except Exception as e:  # noqa: BLE001
-                print(f'нода {iid[:8]}: reallocate → {str(e)[:80]}', flush=True)
+        for prog, iid, why in sorted(cands):            # сперва самые безнадёжные
+            # Слот берём ПОШТУЧНО и прямо перед пересадкой: бюджет общий с предохранителем
+            # битой ноды (файл `node_health`), и резервировать его впрок значит отнимать
+            # пересадки у того, кому они нужнее. Пусто — на этом тике больше не пересаживаем.
+            if not NH.take_cull_slot():
+                break
+            print(f'нода {iid[:8]} ({grp}): {why} — ПЕРЕСАЖИВАЮ (reallocate)', flush=True)
+            NH.reallocate(grp, iid, why)
             _PULL_HIST.pop(iid, None)
     for iid in [k for k in _PULL_HIST if k not in seen]:
         _PULL_HIST.pop(iid, None)
+
+
+def drain_retry_spool() -> None:
+    """Прогнать спул повторов — задания, которые курсор уже пропустил, но которые НЕ виноваты.
+
+    Без этого шага спул только копится: курсор ушёл вперёд, и сам по себе эти задания никто
+    не запросит — ровно так 01.09 молча пропали товары с битой ноды. Исчерпавшие попытки
+    `ssh_run.jobs_from_file` отфильтрует сам, GPU на них больше не тратится.
+    """
+    spool = SR.RETRY_SPOOL
+    if not os.path.exists(spool):
+        return
+    try:
+        todo = SR.jobs_from_file(spool)
+    except SystemExit:                       # предохранитель размера — разбираем руками
+        print('!! спул повторов больше предохранителя — не трогаю, нужен разбор', flush=True)
+        return
+    if not todo:
+        return
+    inflight = spool + '.inflight'
+    # Спул забираем целиком: всё, что снова не получится, `ssh_run` допишет заново со
+    # счётчиком +1. Иначе одна и та же запись росла бы в файле бесконечно.
+    os.replace(spool, inflight)
+    print(f'== спул повторов: {len(todo)} заданий ==', flush=True)
+    code, out = sh(f'{PY} {HERE}/ssh_run.py --jobs-file {inflight} --keep-alive',
+                   timeout=len(todo) * 420 + 600)
+    print(out, flush=True)
+    if code == NO_CAPACITY or (code != 0 and 'нет прогретых' in out):
+        # Нод не было — это не ответ по заданиям: возвращаем спул на место, иначе повторы
+        # растворятся в «уже разобранном» файле.
+        if not os.path.exists(spool):
+            os.replace(inflight, spool)
+        print('спул повторов: нет тёплых нод — вернул очередь на место', flush=True)
 
 
 def main():
@@ -239,7 +275,10 @@ def _main():
     ensure_group_started()
     batch = int(sys.argv[sys.argv.index('--batch') + 1]) if '--batch' in sys.argv else 5
     mx = int(sys.argv[sys.argv.index('--max') + 1]) if '--max' in sys.argv else None
-    jobs = json.load(open(SAMPLE, encoding='utf-8'))['jobs']
+    # План — из ТОГО ЖЕ плоского списка, по которому режет пачки `ssh_run`. Раньше здесь
+    # считались SKU из файла (1465), а прогон работал с развёрнутыми seeds без не-мешевых
+    # ролей (1503): конвейер останавливался на 1465 и последние 38 заданий не запрашивал.
+    jobs = SR.plan_jobs()
     total = len(jobs) if mx is None else min(mx, len(jobs))
     done = json.load(open(DONE))['done'] if os.path.exists(DONE) else 0
     print(f'план {total}, уже пройдено {done}, пачка {batch}', flush=True)
@@ -298,13 +337,14 @@ def _main():
             continue
         done += step_done
         json.dump({'done': done, 'at': time.time()}, open(DONE, 'w'))
+        drain_retry_spool()
         for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh --keep'),
                           ('реестр', f'{PY} {HERE}/ingest_registry.py'),
                           ('приёмка', f'{PY} {HERE}/apply_repairs.py'),
                           # ОРИЕНТАЦИЯ КАЖДОМУ НОВОМУ МЕШУ (владелец 31.08: «вся разметка
                           # должна быть корректная»): боевой каскад по pending, затем виды
                           # сверху (кэш — быстро) и публикация orient.json для 3D-сцены
-                          ('ориентация', f'{PY} {os.path.join(HERE, "..", "orient_worker.py")} --run --limit 200 --vlm'),
+                          ('ориентация', ORIENT_CMD),
                           ('топ-вью', f'{PY} {HERE}/topview_render.py'),
                           *SHOW_STEPS,
                           ('ориент-паблиш', f'scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/topview.json root@89.167.127.0:/opt/remlab/test/mesh-pilot10/orient.json && scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/*.png root@89.167.127.0:/opt/remlab/test/flat215-demo/topsprites/ 2>/dev/null || true')):
@@ -346,7 +386,7 @@ def heal_wave(PAUSE: str, guard_done: bool = True) -> None:
             for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh --keep'),
                           ('реестр', f'{PY} {HERE}/ingest_registry.py'),
                               ('приёмка', f'{PY} {HERE}/apply_repairs.py'),
-                              ('ориентация', f'{PY} {os.path.join(HERE, "..", "orient_worker.py")} --run --limit 200 --vlm'),
+                              ('ориентация', ORIENT_CMD),
                               ('топ-вью', f'{PY} {HERE}/topview_render.py'),
                               *SHOW_STEPS,
                               ('ориент-паблиш', f'scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/topview.json root@89.167.127.0:/opt/remlab/test/mesh-pilot10/orient.json && scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/*.png root@89.167.127.0:/opt/remlab/test/flat215-demo/topsprites/ 2>/dev/null || true')):

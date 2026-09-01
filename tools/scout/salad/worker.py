@@ -179,10 +179,18 @@ def generate(job: dict):
         # фотка-меш», прослеживать баги вырезки). Best-effort: CDN уже отвечал секунду
         # назад, но его недоступность не должна валить задание.
         try:
-            with open(os.path.join(work, 'source.jpg'), 'wb') as _f:
-                _f.write(PRE.fetch(job['image_url']))
-        except Exception:  # noqa: BLE001
-            pass
+            # Байты СНАЧАЛА, файл потом. Раньше файл открывался до загрузки, и оборвавшийся
+            # CDN оставлял на диске пустой source.jpg: он попадал в комплект, `storage._check`
+            # заворачивал весь ассет («пустой файл: source.jpg»), и УЖЕ ПОТРАЧЕННАЯ генерация
+            # сгорала со статусом `failed` (01.09: так погибли 4 задания).
+            _src = PRE.fetch(job['image_url'])
+            if _src:
+                with open(os.path.join(work, 'source.jpg'), 'wb') as _f:
+                    _f.write(_src)
+        except Exception:  # noqa: BLE001 — исходник вторичен, задание из-за него не роняем
+            _sp = os.path.join(work, 'source.jpg')
+            if os.path.exists(_sp) and os.path.getsize(_sp) == 0:
+                os.remove(_sp)
         params['_dims'] = job.get('dims_cm') or {}
         params['_square_role'] = job.get('role') in ('кашпо', 'ваза', 'торшер', 'лампа', 'пуф')
         try:
