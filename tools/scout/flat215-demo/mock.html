@@ -1,0 +1,244 @@
+<!doctype html><html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><meta http-equiv="cache-control" content="no-store">
+<title>Макет: два уровня — витрина и конструктор</title>
+<style>
+/* МАКЕТ ДЛЯ ОБСУЖДЕНИЯ (план demo-collection-flow). Отдельный файл, боевую страницу не трогает.
+   Палитра и шкала — те же токены, что в index.html, чтобы решение принималось на реальном виде. */
+:root{
+  --bg:rgb(251 248 243);--surface:#fff;--ink:rgb(41 37 36);--muted:rgb(120 113 108);
+  --faint:rgb(122 116 112);--line:rgb(231 229 228);--accent:rgb(176 106 74);
+  --accent-dark:rgb(154 90 61);--accent-soft:rgb(250 243 239);
+  --radius:16px;--radius-sm:10px;--shadow:0 1px 2px rgba(28,25,23,.04),0 6px 16px rgba(28,25,23,.05);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+ font:clamp(17px,1.25vw,20px)/1.5 system-ui,-apple-system,Segoe UI,Roboto}
+.wrap{max-width:1100px;margin:0 auto;padding:14px 14px 60px}
+@media(max-width:700px){.wrap{padding:12px 12px 60px}}
+h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
+.lead{font-size:clamp(17px,2.3vw,20px);line-height:1.45;margin:0 0 14px;max-width:62ch}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:var(--radius-sm);
+ padding:12px 18px;font-size:clamp(16px,1.15vw,18.5px);cursor:pointer;color:var(--ink)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.btn.primary:hover{background:var(--accent-dark);border-color:var(--accent-dark)}
+.btn.round{border-radius:999px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+*{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+
+/* 1 — паспорт квартиры */
+.flathead{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+ box-shadow:var(--shadow);padding:16px 20px;margin:8px 0 14px}
+.fh-top{display:flex;flex-wrap:wrap;gap:8px 24px;align-items:flex-start;justify-content:space-between}
+.fk{font-size:clamp(21px,2.2vw,27px);font-weight:700}
+.fm{color:var(--muted);font-size:clamp(15px,1.2vw,17px);margin-top:4px}
+.fh-price{text-align:right;white-space:nowrap}
+.fh-price .l{color:var(--muted);font-size:.92em}
+.fh-price .v{font-size:clamp(22px,2.3vw,29px);font-weight:700;line-height:1.25}
+.fh-acts{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;justify-content:flex-end}
+@media(max-width:700px){.fh-price{text-align:left}
+ .fh-acts{justify-content:flex-start}.fh-acts .btn{flex:1 1 0;padding:12px 10px;font-size:15px}}
+
+/* 2 — бюджет на обустройство */
+.budget{background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 25%,transparent);
+ border-radius:var(--radius);padding:18px 20px;margin-bottom:22px;display:flex;flex-wrap:wrap;
+ gap:14px 24px;align-items:center;justify-content:space-between}
+.budget b{display:block;font-size:clamp(18px,1.7vw,22px);margin-bottom:4px}
+.budget p{margin:0;color:var(--muted);font-size:.95em;max-width:56ch}
+.budget .note{color:var(--faint);font-size:.82em;margin-top:6px}
+
+/* 3 — коллекция */
+.sechead{margin:26px 0 4px}
+.sechead h2{margin:0;font-size:clamp(22px,2.2vw,29px)}
+.sechead p{margin:4px 0 0;color:var(--muted)}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));margin-top:16px}
+.lay{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+ box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column}
+.lay.on{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 18%,transparent)}
+.lay img{width:100%;aspect-ratio:3/2;object-fit:cover;display:block;background:var(--line)}
+.lay .body{padding:14px 16px 16px;display:flex;flex-direction:column;gap:10px;flex:1}
+.lay .nm{font-size:clamp(19px,1.6vw,23px);font-weight:700;text-transform:capitalize}
+.lay .pr{color:var(--muted);font-size:.95em}
+.lay .pr b{color:var(--ink);font-size:1.15em}
+.lay .acts{display:flex;flex-direction:column;gap:8px;margin-top:auto}
+.newlay{border:2px dashed color-mix(in srgb,var(--accent) 45%,transparent);background:var(--surface);
+ border-radius:var(--radius);display:flex;flex-direction:column;align-items:center;justify-content:center;
+ gap:8px;padding:30px 20px;cursor:pointer;text-align:center;min-height:240px}
+.newlay .plus{width:56px;height:56px;border-radius:50%;background:var(--accent-soft);color:var(--accent);
+ font-size:30px;display:flex;align-items:center;justify-content:center}
+.newlay b{font-size:clamp(18px,1.5vw,21px)}
+.newlay span{color:var(--muted);font-size:.9em;max-width:26ch}
+
+/* 4 — разворот «заменить мебель» */
+.swap{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+ box-shadow:var(--shadow);padding:16px 18px;margin-top:16px}
+.swap h3{margin:0 0 4px;font-size:clamp(19px,1.5vw,23px)}
+.swap .sub{color:var(--muted);font-size:.92em;margin-bottom:10px}
+.row{display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.row img{width:64px;height:56px;object-fit:contain;background:var(--bg);border-radius:6px;flex:0 0 64px}
+.row .t{flex:1;min-width:0}
+.row .t b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .t span{color:var(--muted);font-size:.88em}
+.row .p{font-weight:600;white-space:nowrap}
+.row .btn{padding:8px 14px;font-size:.9em}
+.swap .foot{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;
+ border-top:2px solid var(--line);margin-top:10px;padding-top:14px}
+.swap .foot .sum{font-size:clamp(19px,1.6vw,23px);font-weight:700}
+
+/* конструктор */
+#cons{position:fixed;inset:0;background:var(--bg);z-index:60;display:none;flex-direction:column}
+#cons.on{display:flex}
+#cons .top{display:flex;align-items:center;justify-content:space-between;gap:12px;
+ padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--line)}
+#cons .top b{font-size:clamp(17px,1.5vw,21px)}
+#cons .body{flex:1;overflow:auto;padding:14px 16px}
+#cons .stage{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);
+ min-height:52vh;display:flex;align-items:center;justify-content:center;color:var(--faint);
+ text-align:center;padding:20px}
+#cons .ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0;color:var(--muted)}
+#cons .ctl button{border:1px solid var(--line);background:var(--surface);border-radius:999px;
+ padding:9px 15px;min-height:40px;font-size:clamp(15px,1.05vw,17px);cursor:pointer;color:var(--ink)}
+#cons .bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;
+ padding:12px 16px;background:var(--surface);border-top:1px solid var(--line)}
+#cons .bar .sum{font-weight:700;font-size:clamp(17px,1.4vw,20px)}
+.tag{display:inline-block;background:var(--accent-soft);color:var(--accent);border-radius:999px;
+ padding:4px 12px;font-size:.8em;font-weight:600;margin-bottom:8px}
+.legend{margin:34px 0 0;padding:16px 18px;border:1px dashed var(--line);border-radius:var(--radius);
+ color:var(--muted);font-size:.9em;background:var(--surface)}
+.legend b{color:var(--ink)}
+</style></head><body>
+<div class="wrap">
+<div class="tag">макет для обсуждения · боевую страницу не меняет</div>
+<h1>Обустрой свой будущий дом</h1>
+<div class="lead">Выбирайте любую мебель и технику для своей новой квартиры. Все предметы можно
+двигать, сохранять коллекции и делиться с близкими.</div>
+
+<!-- 1. Паспорт квартиры -->
+<div class="flathead">
+  <div class="fh-top">
+    <div><div class="fk">Трёхкомнатная 73,7 м²</div>
+      <div class="fm">ЖК «Ольховый квартал» · 2 кв. 2029 · эт. 6 из 17 · корп. 3</div></div>
+    <div class="fh-price"><div class="l">Оплата 100%</div><div class="v">9 578 200 ₽</div></div>
+  </div>
+  <div class="fh-acts">
+    <button class="btn round">Выбрать условия ипотеки или рассрочки</button>
+    <button class="btn primary round">Получить консультацию</button>
+  </div>
+</div>
+
+<!-- 2. Бюджет на обустройство -->
+<div class="budget">
+  <div><b id="budgetTitle">Мебель и технику часто можно включить в ипотеку</b>
+    <p id="budgetText">Обустройте квартиру сразу после покупки — не откладывая на потом.
+      Условия уточняйте у застройщика.</p>
+    <div class="note">Текст и сумма задаются в данных демо; конкретный лимит подставляет партнёр.</div></div>
+  <button class="btn primary round" onclick="document.getElementById('coll').scrollIntoView({behavior:'smooth'})">
+    Посмотреть варианты обустройства</button>
+</div>
+
+<!-- 3. Коллекция расстановок -->
+<div class="sechead" id="coll">
+  <h2>Коллекция расстановок</h2>
+  <p>Выберите готовый вариант или создайте свой</p>
+</div>
+<div class="grid" id="grid"></div>
+<div id="swapBox"></div>
+
+<!-- ПЛАНА НА ВИТРИНЕ НЕТ ВООБЩЕ (владелец 01.09: «план вообще убираем, делаем как в мобиле»).
+     Он живёт только в полноэкранном конструкторе. -->
+<div class="legend">
+  <b>Что показывает макет.</b> Первый уровень — витрина: цена квартиры, бюджет на обустройство,
+  коллекция готовых расстановок по стилям. Вариант выбирается нажатием на карточку;
+  «Заменить мебель» разворачивает список предметов прямо здесь. Плана на витрине нет вовсе —
+  ни на телефоне, ни на десктопе. Второй уровень — «Добавить новую расстановку» открывает
+  конструктор на весь экран: план, перестановка, двери, ракурсы, кнопка съёмки.
+</div>
+</div>
+
+<!-- Конструктор -->
+<div id="cons">
+  <div class="top"><b>Новая расстановка · <span id="consStyle">лофт</span></b>
+    <button class="btn" onclick="closeCons()">Готово</button></div>
+  <div class="body">
+    <div class="stage">интерактивный план комнаты<br><span style="font-size:.85em">перетаскивание, замена товара по значку, камеры</span></div>
+    <div class="ctl"><b style="color:var(--ink)">Дверь:</b>
+      <button>петли справа</button><button>открывается внутрь</button><button>поменять ракурс</button></div>
+  </div>
+  <div class="bar"><span class="sum" id="consSum">Комплект: —</span>
+    <button class="btn primary round" id="consShot" hidden>Посмотреть фото с изменениями</button></div>
+</div>
+
+<script>
+const money=v=>(v||0).toLocaleString('ru-RU')+' ₽';
+const PREV=['mock/p1.jpg','mock/p2.jpg','mock/p3.jpg','mock/p4.jpg'];
+let D=null, open_=-1, cur=0, changed=false;
+
+function price(v){
+  const by=new Map();
+  (v.items||[]).forEach(it=>{const p=it.sku; if(!p||!p.name)return;
+    const k=(p.url||'')+'|'+p.name; if(!by.has(k))by.set(k,{p:p,n:0}); by.get(k).n++;});
+  let t=0; by.forEach(g=>{const pack=(+g.p.pack||1)>0?(+g.p.pack||1):1; t+=(g.p.price||0)*Math.ceil(g.n/pack);});
+  return t;
+}
+function items(v){ return (v.items||[]).filter(i=>(i.sku||{}).name); }
+
+function draw(){
+  const g=document.getElementById('grid'); g.innerHTML='';
+  D.variants.slice(0,4).forEach((v,i)=>{
+    const n=items(v).length, p=price(v);
+    const el=document.createElement('div');
+    el.className='lay'+(i===cur?' on':'');
+    el.innerHTML=`<img src="${PREV[i%PREV.length]}" alt="">`+
+      `<div class="body"><div class="nm">${v.style||v.title}</div>`+
+      `<div class="pr">${n} предметов · <b>${money(p)}</b></div>`+
+      `<div class="acts"><button class="btn primary" data-swap="${i}">Заменить мебель</button></div>`+
+      `</div>`;
+    g.appendChild(el);
+  });
+  const add=document.createElement('div');
+  add.className='newlay'; add.onclick=openCons;
+  add.innerHTML=`<div class="plus">＋</div><b>Добавить новую расстановку</b>`+
+    `<span>план комнаты, перестановка мебели, свои размеры</span>`;
+  g.appendChild(add);
+  g.querySelectorAll('[data-swap]').forEach(b=>b.onclick=()=>{
+    open_=(open_===+b.dataset.swap)?-1:+b.dataset.swap; draw(); drawSwap();
+    if(open_>=0)document.getElementById('swapBox').scrollIntoView({behavior:'smooth',block:'nearest'});
+  });
+  // выбор варианта = нажатие на саму карточку; отдельная кнопка для этого не нужна
+  g.querySelectorAll('.lay').forEach((el,i)=>{el.onclick=e=>{
+    if(e.target.closest('button'))return; open_=-1; cur=i; draw(); drawSwap();};});
+}
+function drawSwap(){
+  const box=document.getElementById('swapBox');
+  if(open_<0){box.innerHTML='';return;}
+  const v=D.variants[open_], its=items(v);
+  box.innerHTML=`<div class="swap"><h3>Мебель варианта «${v.style||v.title}»</h3>`+
+    `<div class="sub">Меняйте предметы прямо здесь — план открывать не нужно.</div>`+
+    its.map((it,k)=>{const s=it.sku;
+      return `<div class="row">`+
+        (s.img?`<img src="${s.img}" loading="lazy" alt="">`:'<div style="width:64px"></div>')+
+        `<div class="t"><b>${s.name}</b><span>${it.role} · ${Math.round(it.w)}×${Math.round(it.d)} см`+
+        (s.shop?' · '+s.shop:'')+`</span></div>`+
+        `<div class="p">${money(s.price)}</div>`+
+        `<button class="btn" data-rep="${k}">Заменить</button></div>`;}).join('')+
+    `<div class="foot"><span class="sum">Комплект: ${money(price(v))}</span>`+
+    (changed?`<button class="btn primary round">Посмотреть фото с изменениями</button>`
+            :`<span style="color:var(--faint);font-size:.88em">замените предмет — появится кнопка «Посмотреть фото с изменениями»</span>`)+
+    `</div></div>`;
+  box.querySelectorAll('[data-rep]').forEach(b=>b.onclick=()=>{changed=true;drawSwap();});
+}
+function openCons(){
+  const v=D.variants[Math.max(open_,0)];
+  document.getElementById('consStyle').textContent=v.style||v.title;
+  document.getElementById('consSum').textContent='Комплект: '+money(price(v));
+  document.getElementById('cons').classList.add('on');
+  setTimeout(()=>{document.getElementById('consShot').hidden=false;},1200); // имитация «человек подвинул»
+}
+function closeCons(){document.getElementById('cons').classList.remove('on');
+  document.getElementById('consShot').hidden=true;}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeCons();});
+
+fetch('demo-data.json').then(r=>r.json()).then(d=>{D=d;draw();})
+  .catch(()=>{document.getElementById('grid').innerHTML='<div class="lay"><div class="body">данные демо не загрузились</div></div>';});
+</script>
+</body></html>
