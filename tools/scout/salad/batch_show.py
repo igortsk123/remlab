@@ -19,7 +19,7 @@ import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SAMPLE = os.path.join(HERE, '..', 'mesh-pilot-sample.json')
+SAMPLE = os.environ.get('MESH_SAMPLE') or os.path.join(HERE, '..', 'mesh-pilot-sample.json')
 DONE = os.path.join(HERE, '..', 'mesh-batch-progress.json')
 PY = os.path.expanduser('~/venvs/scout/bin/python')
 NO_CAPACITY = 75   # код ssh_run «нет тёплых нод» — ждём и повторяем, это не авария
@@ -34,6 +34,9 @@ SHOW_STEPS = ((
     ('галерея', f'GALLERY_SRC=$HOME/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2 {PY} {HERE}/gallery_build.py'),
     ('публикую', 'scp -P 22222 -o BatchMode=yes -r $HOME/scout-scenes/mesh-pilot-gallery/* '
                  'root@89.167.127.0:/opt/remlab/test/mesh-pilot10/'),
+    # каталог мешей — НАКОПИТЕЛЬНЫЙ: scp выше уже положил локальный index поверх
+    # прода, поэтому сразу за ним доливаем то, что там было (см. publish_merge.py).
+    ('индекс-слияние', f'{PY} {HERE}/publish_merge.py $HOME/scout-scenes/mesh-pilot-gallery/mesh-index.json https://remont-lab.online/test/mesh-pilot10/mesh-index.json root@89.167.127.0:/opt/remlab/test/mesh-pilot10/mesh-index.json'),
 ) if SHOW_GALLERY else ())
 
 
@@ -257,7 +260,7 @@ def post_steps() -> tuple:
             ('ориентация', ORIENT_CMD),
             ('топ-вью', f'{PY} {HERE}/topview_render.py'),
             *SHOW_STEPS,
-            ('ориент-паблиш', f'scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/topview.json root@89.167.127.0:/opt/remlab/test/mesh-pilot10/orient.json && scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/*.png root@89.167.127.0:/opt/remlab/test/flat215-demo/topsprites/ 2>/dev/null || true'))
+            ('ориент-паблиш', f'{PY} {HERE}/publish_merge.py $HOME/scout-scenes/mesh-topview/topview.json https://remont-lab.online/test/mesh-pilot10/orient.json root@89.167.127.0:/opt/remlab/test/mesh-pilot10/orient.json && scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/*.png root@89.167.127.0:/opt/remlab/test/flat215-demo/topsprites/ 2>/dev/null || true'))
 
 
 _post: dict = {'thread': None}
