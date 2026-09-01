@@ -327,7 +327,10 @@ def main() -> None:
                          'role': man.get('role'), 'w': dims.get('w'), 'd': dims.get('d')}
         n += 1
     if todo:
-        workers = int(os.environ.get('TOPVIEW_WORKERS', 0)) or max(1, (os.cpu_count() or 4) - 2)
+        # ПАМЯТЬ, А НЕ ЯДРА (01.09): 10 процессов рендера на 8 ГБ машины съедали память, и
+        # шаг убивало через ~70с («топ-вью: СБОЙ» посреди прогресса). Держим 4 и оставляем
+        # запас конвейеру, который работает параллельно
+        workers = int(os.environ.get('TOPVIEW_WORKERS', 0)) or min(4, max(1, (os.cpu_count() or 4) - 2))
         print(f'рендер: {len(todo)} моделей на {workers} процессах', flush=True)
         import concurrent.futures as _cf2
         done_ok = 0
