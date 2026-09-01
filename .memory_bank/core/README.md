@@ -23,11 +23,11 @@
 | `knowledge-db.md` | knowledge-db | Source-KB из книг — спека, KB0–KB9 | `../../remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md` | 2026-08-10 |
 | `layout.md` | layout | Расстановка: правила, зоны, прод-ядро | `../domain/occupancy-rules.md` | 2026-08-26 |
 | `leads.md` | leads | Лид-канал — заявка, TG-бот | — | 2026-08-28 |
-| `lessons.md` | lessons | Уроки перед планированием — что НЕ сработало | `../anti-patterns.md` | 2026-08-31 |
+| `lessons.md` | lessons | Уроки перед планированием — что НЕ сработало | `../anti-patterns.md` | 2026-09-01 |
 | `lr-composition.md` | lr-composition | Композиция гостиной — доли | `../domain/lr-composition-guide.md` | 2026-08-01 |
 | `market.md` | market | Рынок RU/UK — спрос, монетизация | `../domain/market-research.md` | 2026-08-13 |
 | `marketing-acquisition.md` | marketing-acquisition | Реклама — Яндекс, семантика | `../domain/wordstat-semantics.md` | 2026-08-13 |
-| `mesh-pipeline.md` | mesh-pipeline | 3D-меши товаров — генерация, приёмка, ориентация | `../domain/viz-fidelity-playbook.md` | 2026-08-31 |
+| `mesh-pipeline.md` | mesh-pipeline | 3D-меши товаров — генерация, приёмка, ориентация | `../domain/viz-fidelity-playbook.md` | 2026-09-01 |
 | `observability-tracing.md` | observability-tracing | Трейсинг AI-пайплайна — лог, разбор | `../domain/observability.md` | 2026-08-06 |
 | `pipeline-order.md` | pipeline-order | Канонический порядок конвейера — от фида до расстановки в планировке | `../domain/pipeline-order-details.md` | 2026-08-29 |
 | `regression-net.md` | regression-net | Регресс-защита — тесты, CI, гардрейлы | `../../docs/tech-spec-ts-stack.md` | 2026-08-22 |

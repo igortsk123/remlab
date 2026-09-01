@@ -24,3 +24,7 @@ example_solver/
 node_impl/
 annealing.py
 trimesh_geometry.py
+# Файлы АПСТРИМА Hunyuan3D-2.1 (живут в docker-образе /opt/hunyuan, не в нашем репо) —
+# ссылки на них в памяти это цитата чужого кода, а не claim о нашем дереве:
+hy3dpaint/
+hy3dshape/
