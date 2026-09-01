@@ -25,6 +25,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RULES = os.path.join(HERE, 'rules', 'mesh-priority.json')
+PINNED = os.path.join(HERE, 'rules', 'mesh-pinned.json')
 SETS = os.path.join(HERE, 'sets3.json')
 SAMPLE = os.path.join(HERE, 'mesh-pilot-sample.json')
 # ON_ERROR_STOP ОБЯЗАТЕЛЕН: без него psql при ошибке SQL отдаёт код 0 и пустой вывод,
@@ -32,7 +33,7 @@ SAMPLE = os.path.join(HERE, 'mesh-pilot-sample.json')
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
         '-q', '-v', 'ON_ERROR_STOP=1', '-t', '-A', '-F', '\x1f']
 
-TIER_IDS = ('demo_flat215', 'set_closure', 'furniture', 'light_decor')
+TIER_IDS = ('pinned', 'demo_flat215', 'set_closure', 'furniture', 'light_decor')
 
 
 def rules() -> dict:
@@ -90,6 +91,20 @@ def demo_skus() -> set:
     return out
 
 
+def pinned_skus() -> list:
+    """Закреплённые владельцем позиции — идут раньше всех ярусов.
+
+    Нужны потому, что автоматический ярус считается по данным, а данные бывают неполны:
+    01.09 ярус демо выводился из метки в снимке очереди и показывал «закрыто 61 из 61»,
+    тогда как на странице демо владелец нашёл 9 позиций без моделей."""
+    if not os.path.exists(PINNED):
+        return []
+    out = []
+    for grp in json.load(open(PINNED, encoding='utf-8')).get('pinned', []):
+        out.extend(grp.get('skus', []))
+    return out
+
+
 def sets_data() -> tuple[dict, dict]:
     """(набор позиций каждого сета, набор замен) — по опубликованным сетам."""
     if not os.path.exists(SETS):
@@ -111,6 +126,7 @@ def rank() -> list[dict]:
     light, decor = set(r['light_roles']), set(r['decor_roles'])
     prod = products()
     demo = demo_skus()
+    pin = {s: i for i, s in enumerate(pinned_skus())}
     set_items, alts = sets_data()
 
     # СТОИМОСТЬ ДОСТРОЙКИ СЕТА: сколько мешей ему ещё не хватает. Ею и сортируем ярус сетов —
@@ -132,7 +148,10 @@ def rank() -> list[dict]:
     rows = []
     for sku, p in prod.items():
         role = p['role']
-        if sku in demo:
+        if sku in pin:
+            tier, why = 'pinned', 'закреплено владельцем (rules/mesh-pinned.json)'
+            key = (-1, pin[sku], sku)
+        elif sku in demo:
             tier, why = 'demo_flat215', 'показывается на /test/flat215-demo'
             key = (0, sku)
         elif sku in in_set:

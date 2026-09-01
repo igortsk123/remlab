@@ -23,7 +23,10 @@ import time
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SAMPLE = os.path.join(HERE, '..', 'mesh-pilot-sample.json')
+# Файл очереди переопределяется переменной: старый пилотный снимок НЕ переписываем и не
+# удаляем (его курсор --skip осмыслен только для него), а новую очередь в порядке
+# регламента подаём отдельным файлом. Так переключение обратимо.
+SAMPLE = os.environ.get('MESH_SAMPLE') or os.path.join(HERE, '..', 'mesh-pilot-sample.json')
 RESULTS = os.path.join(HERE, '..', 'mesh-pilot-results.json')
 SSH_KEY = os.path.expanduser('~/.ssh/salad_mesh_ed25519')
 SSH_HOST = 'root@195.181.163.241'

@@ -15,11 +15,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mesh_priority as MP  # noqa: E402
 
 
-def fake(prod, demo, sets, alts=None):
+def fake(prod, demo, sets, alts=None, pinned=()):
     """Подменяем ТОЛЬКО источники данных: правило считается настоящим кодом."""
     MP.products = lambda: prod
     MP.demo_skus = lambda: demo
     MP.sets_data = lambda: (sets, alts or {})
+    MP.pinned_skus = lambda: list(pinned)
 
 
 def case_regulation_matches_code() -> None:
@@ -29,6 +30,22 @@ def case_regulation_matches_code() -> None:
     for t in r['tiers']:
         assert t.get('why'), f'ярус {t["id"]} без обоснования — регламент должен объяснять'
     print('  ✓ ярусы регламента и кода совпадают, у каждого есть обоснование')
+
+
+def case_pinned_first() -> None:
+    """Закреплённые владельцем идут раньше всех ярусов и в заданном порядке.
+
+    Нужны потому, что автоматический ярус считается по данным: 01.09 ярус демо по метке
+    показывал «закрыто 61 из 61», а на странице владелец нашёл 9 позиций без моделей."""
+    prod = {'p:1': {'role': 'диван', 'status': 'none'},
+            'p:2': {'role': 'торшер', 'status': 'none'},
+            'd:1': {'role': 'диван', 'status': 'none'}}
+    fake(prod, {'d:1'}, {})
+    MP.pinned_skus = lambda: ['p:2', 'p:1']          # порядок в файле — значимый
+    r = MP.rank()
+    assert [x['sku'] for x in r[:2]] == ['p:2', 'p:1'], [x['sku'] for x in r]
+    assert r[0]['tier'] == 'pinned' and r[2]['tier'] == 'demo_flat215', r
+    print('  ✓ закреплённые владельцем идут первыми, в порядке файла')
 
 
 def case_owner_order() -> None:
@@ -41,6 +58,7 @@ def case_owner_order() -> None:
         'e:5': {'role': 'ваза', 'status': 'none'},       # декор
     }
     fake(prod, {'a:1'}, {'s1': {'b:2'}})
+    MP.pinned_skus = lambda: []
     order = [x['tier'] for x in MP.rank()]
     assert order == ['demo_flat215', 'set_closure', 'furniture', 'light_decor',
                      'light_decor'], order
@@ -113,7 +131,7 @@ def case_every_row_explained() -> None:
 
 
 def main() -> None:
-    for fn in (case_regulation_matches_code, case_owner_order, case_cheapest_set_first,
+    for fn in (case_regulation_matches_code, case_pinned_first, case_owner_order, case_cheapest_set_first,
                case_ready_does_not_block, case_alternates_before_plain_furniture,
                case_light_and_decor_last, case_stable_order, case_every_row_explained):
         fn()
