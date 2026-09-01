@@ -23,6 +23,9 @@ SAMPLE = os.path.join(HERE, '..', 'mesh-pilot-sample.json')
 DONE = os.path.join(HERE, '..', 'mesh-batch-progress.json')
 PY = os.path.expanduser('~/venvs/scout/bin/python')
 NO_CAPACITY = 75   # код ssh_run «нет тёплых нод» — ждём и повторяем, это не авария
+# 75 = EX_TEMPFAIL: «сейчас не смог, повтори позже». Тот же смысл у drain.sh, когда замок
+# занят другим процессом: работа НЕ сделана, но это не поломка (маркер DRAIN_BUSY).
+BUSY = 75
 
 # Сборка и публикация галереи — по флагу (владелец 31.08: ночью не нужна, соберу утром руками).
 # Данные при этом копятся как обычно: стаскивание, реестр, ремонт, ориентация, топ-вью работают.
@@ -255,6 +258,12 @@ def _run_post(tag: int) -> None:
     t0 = time.time()
     for step, cmd in post_steps():
         c, o = sh(cmd, timeout=2700)
+        if c == BUSY:
+            # Не авария и не «сделано»: шаг вообще не начался, потому что его инструмент
+            # занят другим процессом. Следующий заход подберёт — шаги идут от состояния.
+            print(f'  [разбор {tag}] {step}: занято другим процессом, подберу следующим заходом',
+                  flush=True)
+            continue
         print(f'  [разбор {tag}] {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
     print(f'== разбор {tag} закончен за {(time.time() - t0) / 60:.0f} мин ==', flush=True)
 

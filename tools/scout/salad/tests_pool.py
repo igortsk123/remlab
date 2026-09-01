@@ -387,6 +387,17 @@ def case_post_background() -> None:
         B.start_post(3)                       # предыдущий закончился — этот обязан пойти
         B.wait_post()
         assert len(finished) == 2, finished
+
+        # «Занято» (код 75, DRAIN_BUSY у drain.sh) — это НЕ сбой и НЕ успех: шаг не начался.
+        # Он не должен останавливать остальные, работу подберёт следующий заход.
+        seen = []
+        B.post_steps = lambda: (('занятый', 'a'), ('обычный', 'b'))
+        B.sh = lambda cmd, timeout=3600: (seen.append(cmd),
+                                          (B.BUSY, 'DRAIN_BUSY') if cmd == 'a' else (0, ''))[1]
+        B._post['thread'] = None
+        B.start_post(4)
+        B.wait_post()
+        assert seen == ['a', 'b'], f'занятый шаг оборвал разбор: {seen}'
     finally:
         B.post_steps = orig
         B.sh = orig_sh
