@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
-"""Локальный ремонт скачанных мешей перед публикацией: срез пола и обломков.
+"""Приёмка скачанных мешей. РЕМОНТ ОТМЕНЁН (владелец 01.09).
 
-Зачем локально, а не только в образе. Правка резака на нодах требует перевыкатки группы —
-это перекачка весов на каждой машине посреди прогона. Ремонт после drain даёт тот же
-результат немедленно: галерея и дальнейшие потребители видят уже чищеное. В образе те же
-функции тоже живут — свежие ноды после следующей выкатки будут чистить сами, а повторный
-проход здесь безвреден (резакам нечего срезать второй раз).
+Решение владельца после просмотра `/test/mesh-repairs-all/`: «процессом ремонта ты не
+лечишь, а калечишь — отменяй все ремонты, оставляй оригинальные модели». С HD-фото
+генератор даёт чистую геометрию без лишних деталей, чинить нечего; единственный реальный
+дефект — цвет, и статистическая подгонка к фото (`texture_fix.match_photo_color`) делала
+его ХУЖЕ. Цвет решаем отдельно и позже, на входе генератора, а не постобработкой.
+
+Здесь остались только ИЗМЕРЕНИЯ и вердикты: они не трогают модель, а помечают статус и
+собирают очередь перегона. `model.glb` — то, что показывается и используется везде.
+Цепочка ремонта (`pipeline.cut_*`, `texture_fix.*`) не удалена из репозитория, но
+из конвейера не вызывается.
 """
 import glob
-import importlib.util
 import json
 import os
 import sys
 
+# `pipeline.py` (резаки) больше НЕ импортируется: ремонт отменён, а импорт тянул torch
+# в шаг приёмки без нужды.
 HERE = os.path.dirname(os.path.abspath(__file__))
-spec = importlib.util.spec_from_file_location('salad_pipeline', os.path.join(HERE, 'pipeline.py'))
-P = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(P)
 
 SRC = os.environ.get('REPAIR_SRC',
                      os.path.expanduser('~/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2'))
@@ -124,24 +127,20 @@ def accept(d: str, man: dict) -> str:
 
 
 def main() -> None:
-    """ПРАВИЛО ВЛАДЕЛЬЦА (30.08, после изрезанного дивана): МОДЕЛЬ НА ЖИВУЮ НЕ ПРАВИТЬ.
+    """Приёмка без единой правки модели (владелец 01.09, см. docstring модуля).
 
-    `model.glb` — неприкосновенный оригинал генератора. Ремонт пишется ТОЛЬКО в копию
-    `model.repaired.glb`, и она становится кандидатом, а не заменой: показывается и
-    используется лишь после доказательства «гейт до/после не ухудшил». Вторая причина
-    прошлой аварии — конвейер прогонял ремонт по ВСЕМ мешам на каждой пачке, срезы
-    накапливались в живом файле; теперь повторный проход видит repair.json и молчит.
+    Никаких копий `model.repaired.glb` больше не создаётся, существующие — не читаются.
+    Единственный результат прогона: `verdict.json` у каждого меша и очередь перегона.
     """
-    fixed = 0
     verdicts = {}
     reseed = json.load(open(RESEED, encoding='utf-8')) if os.path.exists(RESEED) else []
     seen = {(r['sku'], r.get('seed')) for r in reseed}
-    # Чанкование пересборки: цикл конвейера обязан влезать в таймаут шага. Не больше
-    # REBUILD_CAP тяжёлых пересборок за прогон; порядок перемешан, чтобы один тяжёлый
+    # Чанкование приёмки: цикл конвейера обязан влезать в таймаут шага. Не больше
+    # ACCEPT_CAP тяжёлых приёмок за прогон; порядок перемешан, чтобы один тяжёлый
     # каталог не блокировал раскатку остальным (Terminated на 45-й минуте, 30.08).
     import random
-    REBUILD_CAP = 6
-    rebuilt = 0
+    ACCEPT_CAP = 40
+    checked = 0
     mans = sorted(glob.glob(os.path.join(SRC, '*/*/manifest.json')))
     random.Random(os.getpid()).shuffle(mans)
     for mp in mans:
@@ -165,97 +164,33 @@ def main() -> None:
             continue
         man = json.load(open(mp, encoding='utf-8'))
         role = man.get('role')
-        rep = os.path.join(d, 'model.repaired.glb')
-        # Версия цепочки ремонта: repair.json от старой версии не считается сделанным —
-        # иначе апгрейд (цветокор, лифт теней) доехал бы только до вручную сброшенных
-        # (тумба 112923_813… показывалась без цветокора именно поэтому).
-        REPAIR_VERSION = 3
-        rj = os.path.join(d, 'repair.json')
-        stale = True
-        if os.path.exists(rj):
-            try:
-                stale = (json.load(open(rj)).get('repair_version') or 0) < REPAIR_VERSION
-            except Exception:  # noqa: BLE001
-                stale = True
         vj = os.path.join(d, 'verdict.json')
-        if not stale and os.path.exists(vj) and \
-                os.path.getmtime(vj) >= os.path.getmtime(rep if os.path.exists(rep) else glb):
-            # приёмка кэширована: ремонт актуален и вердикт свежее меша — цикл не жуёт
-            # старое заново (45-минутные Terminated на 44 каталогах, 30.08)
+        if os.path.exists(vj) and os.path.getmtime(vj) >= os.path.getmtime(glb):
+            # приёмка кэширована: вердикт свежее меша — цикл не жуёт старое заново
+            # (45-минутные Terminated на 44 каталогах, 30.08)
             try:
                 verdicts[man['sku']] = json.load(open(vj)).get('status') or 'generated'
                 continue
             except Exception:  # noqa: BLE001
                 pass
-        if stale and rebuilt >= REBUILD_CAP:
+        if checked >= ACCEPT_CAP:
             try:                              # лимит цикла исчерпан — вердикт из кэша, если был
                 verdicts[man['sku']] = json.load(open(vj)).get('status') or 'generated'
             except Exception:  # noqa: BLE001
                 pass
             continue
-        if stale:
-            rebuilt += 1
-            import shutil
-            shutil.copy(glb, rep)                     # ремонт — только над копией
-            before = os.path.getsize(rep)
-            P.cut_base_slab(rep, role)
-            if role in ('диван', 'кровать', 'банкетка'):
-                man_dims = (man.get('input') or {}).get('dims_cm')
-                n = P.crop_beyond_passport(rep, man_dims, role)
-                if n:
-                    print(f'  плита по паспорту: −{n} граней')
-                    # срез открыл кромку с текселями подложки — закрасить (владелец 30.08)
-                    try:
-                        import importlib.util as _il2
-                        _sp2 = _il2.spec_from_file_location('tf2', os.path.join(HERE, 'texture_fix.py'))
-                        _tf2 = _il2.module_from_spec(_sp2); _sp2.loader.exec_module(_tf2)
-                        npx = _tf2.repaint_cut_edge(rep)
-                        if npx:
-                            print(f'  кромка закрашена: {npx} px')
-                    except Exception as e:  # noqa: BLE001
-                        print(f'  закраска кромки пропущена: {str(e)[:80]}')
-            if int(man.get('seed') or 0) >= 1:
-                # конвейер владельца (30.08): повторный брак → обрезку обломков включаем,
-                # кандидат идёт на согласование человеку (оригинал сохранён)
-                os.environ['ALIEN_CUT'] = '1'
-            P.cut_alien_debris(rep)
-            os.environ.pop('ALIEN_CUT', None)
-            try:
-                import importlib.util as _il
-                _sp = _il.spec_from_file_location('tf', os.path.join(HERE, 'texture_fix.py'))
-                _tf = _il.module_from_spec(_sp); _sp.loader.exec_module(_tf)
-                _tf.despeckle_glb(rep)
-                # цвет к фото (владелец 30.08) — по вырезке этой же версии
-                cut_p = os.path.join(d, 'cutout.png')
-                if os.path.exists(cut_p):
-                    de = _tf.match_photo_color(rep, cut_p)
-                    if de:
-                        print(f'  цвет к фото: ΔE {de}')
-            except Exception as e:  # noqa: BLE001
-                print(f'  despeckle пропущен: {str(e)[:80]}')
-            changed = os.path.getsize(rep) != before
-            json.dump({'changed': changed, 'repair_version': REPAIR_VERSION,
-                       'bytes_orig': os.path.getsize(glb),
-                       'bytes_repaired': os.path.getsize(rep)},
-                      open(os.path.join(d, 'repair.json'), 'w'))
-            if changed:
-                fixed += 1
-                print(f'  кандидат-ремонт: {os.path.basename(os.path.dirname(d))} ({role})')
-            else:
-                os.remove(rep)                        # нечего чинить — копию не плодим
+        checked += 1
         status = accept(d, man)
         # метрика владельца: модель шире паспорта >15% — лишняя подложка, статус капится
         excess = slab_excess(glb, (man.get('input') or {}).get('dims_cm'), role)
         if excess and excess > 1.15 and status not in ('generated',):
             status = 'generated'
             print(f'  подложка сверх паспорта ×{excess}: {man["sku"]} → на переделку')
-        # цвет не как на фото (хвост распределения): брак покраски → на переделку
-        cmis = color_mismatch(rep if os.path.exists(rep) else glb,
-                              os.path.join(d, 'cutout.png')) \
+        # Цвет не как на фото — ТОЛЬКО измерение, в статус не бьёт (владелец 01.09).
+        # Перегон с другим seed не лечит систематический увод тона покраской: тратит GPU
+        # и возвращает тот же цвет. Решение по цвету — отдельной задачей, на входе покраски.
+        cmis = color_mismatch(glb, os.path.join(d, 'cutout.png')) \
             if os.path.exists(os.path.join(d, 'cutout.png')) else None
-        if cmis and cmis > 0.12 and status not in ('generated',):
-            status = 'generated'
-            print(f'  покрашено не в цвет фото ({int(cmis * 100)}% чужих тонов): {man["sku"]} → на переделку')
         verdicts[man['sku']] = status
         seed = int(man.get('seed') or 0)
         json.dump({'status': status, 'slab_excess': excess, 'color_mismatch': cmis,
@@ -273,7 +208,7 @@ def main() -> None:
                                'dims_cm': inp.get('dims_cm'), 'seed': seed + 1, 'params': {}})
     json.dump(reseed, open(RESEED, 'w'), ensure_ascii=False, indent=1)
     import collections
-    print(f'ремонт-кандидатов: {fixed} | приёмка: {dict(collections.Counter(verdicts.values()))} '
+    print(f'приёмка (ремонт отменён 01.09): {dict(collections.Counter(verdicts.values()))} '
           f'| на перегон: {len(reseed)}')
 
 if __name__ == '__main__':

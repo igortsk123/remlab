@@ -237,9 +237,7 @@ def main() -> None:
     seen_i = 0
     for mp in sorted(glob.glob(os.path.join(SRC, '*/*/manifest.json'))):
         d = os.path.dirname(mp)
-        glb = os.path.join(d, 'model.repaired.glb')
-        if not os.path.exists(glb):
-            glb = os.path.join(d, 'model.glb')
+        glb = os.path.join(d, 'model.glb')     # только оригинал (ремонт отменён 01.09)
         if not os.path.exists(glb) or os.path.exists(os.path.join(d, 'owner_reject.json')):
             continue
         man = json.load(open(mp, encoding='utf-8'))

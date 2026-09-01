@@ -29,9 +29,7 @@ def main() -> None:
     done = skipped = failed = 0
     for mp in sorted(glob.glob(os.path.join(SRC, '*/*/manifest.json'))):
         d = os.path.dirname(mp)
-        glb = os.path.join(d, 'model.repaired.glb')
-        if not os.path.exists(glb):
-            glb = os.path.join(d, 'model.glb')
+        glb = os.path.join(d, 'model.glb')     # только оригинал (ремонт отменён 01.09)
         cut = os.path.join(d, 'cutout.png')
         if not (os.path.exists(glb) and os.path.exists(cut)):
             continue

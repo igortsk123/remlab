@@ -42,11 +42,10 @@ def build() -> str:
         import asset_strategy as AS
         if AS.strategy(man.get('role')) != 'hunyuan3d':
             continue
-        # Показ: ремонт-кандидат ЗАМЕЩАЕТ оригинал в галерее (владелец 30.08: «заменяй
-        # вместо текущего оригинал этим»). Оригинал model.glb в источнике не трогаем —
-        # правило «модель на живую не правь»; до/после остаётся на /test/mesh-repairs/.
-        rep = os.path.join(d, 'model.repaired.glb')
-        model_src = rep if os.path.exists(rep) else os.path.join(d, 'model.glb')
+        # Показ: ТОЛЬКО оригинал генератора (владелец 01.09 — «ремонт калечит, оставляй
+        # оригинальные модели»). Копии model.repaired.glb выведены из конвейера и не
+        # читаются даже если лежат рядом.
+        model_src = os.path.join(d, 'model.glb')
         if not os.path.exists(model_src):
             continue                  # suspect-комплект (одна диагностика): SKU не занимаем,
             # пусть показывается предыдущая версия с мешом
@@ -92,6 +91,9 @@ def build() -> str:
     # по страницам»). Свежие всегда на первой; model-viewer грузит GLB лениво (loading=lazy).
     PER_PAGE = 10
     os.makedirs(OUT, exist_ok=True)
+    # индекс опубликованных мешей — 3D-сцене демо (какие sid брать моделью, а не заглушкой)
+    json.dump({r['sku']: {'ver': r['ver']} for r in rows},
+              open(os.path.join(OUT, 'mesh-index.json'), 'w'), ensure_ascii=False)
     npages = max(1, (len(cards) + PER_PAGE - 1) // PER_PAGE)
     for pi in range(npages):
         chunk = cards[pi * PER_PAGE:(pi + 1) * PER_PAGE]

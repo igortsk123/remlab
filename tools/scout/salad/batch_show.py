@@ -288,7 +288,7 @@ def _main():
         json.dump({'done': done, 'at': time.time()}, open(DONE, 'w'))
         for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh --keep'),
                           ('реестр', f'{PY} {HERE}/ingest_registry.py'),
-                          ('ремонт', f'{PY} {HERE}/apply_repairs.py'),
+                          ('приёмка', f'{PY} {HERE}/apply_repairs.py'),
                           # ОРИЕНТАЦИЯ КАЖДОМУ НОВОМУ МЕШУ (владелец 31.08: «вся разметка
                           # должна быть корректная»): боевой каскад по pending, затем виды
                           # сверху (кэш — быстро) и публикация orient.json для 3D-сцены
@@ -333,7 +333,7 @@ def heal_wave(PAUSE: str, guard_done: bool = True) -> None:
                 break
             for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh --keep'),
                           ('реестр', f'{PY} {HERE}/ingest_registry.py'),
-                              ('ремонт', f'{PY} {HERE}/apply_repairs.py'),
+                              ('приёмка', f'{PY} {HERE}/apply_repairs.py'),
                               ('ориентация', f'{PY} {os.path.join(HERE, "..", "orient_worker.py")} --run --limit 200 --vlm'),
                               ('топ-вью', f'{PY} {HERE}/topview_render.py'),
                               *SHOW_STEPS,
