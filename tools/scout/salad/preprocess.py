@@ -127,6 +127,11 @@ def mask_verdict(cut: Image.Image) -> dict:
     return info
 
 
+# Гейт вырезки БРАКОВАЛ товар до генерации. Владелец 01.09 запретил отдавать это решение
+# скрипту — по умолчанию только диагностика. CUTOUT_GATE=1 возвращает блокировку.
+CUTOUT_GATE = os.environ.get('CUTOUT_GATE', '0') == '1'
+
+
 class BadCutout(Exception):
     """Вырезка непригодна — генерацию не запускаем, деньги не тратим."""
 
@@ -297,6 +302,11 @@ def prepare(image_url: str, role: str | None = None) -> tuple[Image.Image, Image
     """Фото → (RGBA для формы, RGBA для покраски, вырезка на просмотр, хеш входа, отчёт)."""
     shape_img, cut, input_hash, mask_info = _cut_chain(image_url, role=role)
     if mask_info['verdict'] == 'bad':
-        # Останавливаемся ДО генерации: мусорный вход даёт мусорный меш, а платим одинаково.
-        raise BadCutout(mask_info['reason'])
+        # РЕШЕНИЕ ВЛАДЕЛЬЦА 01.09: не блокируем. Он посмотрел вырезку стола из коллажа
+        # («тут только кусок стола остался — пусть модель делает такое») и постановил
+        # генерировать, а происхождение из коллажа ПОМЕЧАТЬ в базе, чтобы потом отсортировать.
+        # Вернуть прежнее поведение: CUTOUT_GATE=1 в окружении воркера.
+        if CUTOUT_GATE:
+            raise BadCutout(mask_info['reason'])
+        print(f'диагноз вырезки (не блокирует): {mask_info["reason"]}', flush=True)
     return shape_img, _paint_crop(shape_img), cut, input_hash, mask_info
