@@ -70,6 +70,16 @@ def _rules() -> dict:
 _PACK_RE = re.compile(r'(\d+)\s*шт', re.I)
 
 
+def _pack_of(mid, eid, name: str | None) -> int:
+    """Штук в одной покупке. Каталожная разметка сильнее названия: у 906 стульев число в
+    названии нашлось лишь у 16, остальное размечено по фото офлайн (`pack_qty.py`)."""
+    try:
+        from pack_qty import pack_of
+        return pack_of(mid, eid, name)
+    except Exception:  # noqa: BLE001 — нет таблицы/модуля: остаётся разбор названия
+        return pack_size(name)
+
+
 def pack_size(name: str | None) -> int:
     """Сколько штук в ОДНОЙ покупке — из названия товара («Стул АСТИ 2 шт.» → 2).
 
@@ -102,7 +112,9 @@ def _sku(items: dict, role: str) -> dict | None:
             'url': it.get('url'), 'shop': it.get('shop'),
             # sid — ключ каталога мешей (/test/mesh-pilot10/<sid>/model.glb): 3D-сцена демо
             'sid': (f"{it.get('mid')}_{it.get('eid')}" if it.get('mid') and it.get('eid') else None),
-            'pack': pack_size(it.get('name')),
+            # штук в покупке: сперва разметка каталога (`product_pack`, размечает pack_qty.py
+            # по названию/описанию/фото), и только если её нет — разбор названия
+            'pack': _pack_of(it.get('mid'), it.get('eid'), it.get('name')),
             'w': it.get('w'), 'd': it.get('d'), 'h': it.get('h')}
 
 

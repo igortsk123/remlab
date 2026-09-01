@@ -38,7 +38,7 @@ MODEL_STRONG = 'gpt-5.6-terra'    # уровень 3: только спорны�
                                   # с чем работать — размеры она восстановить не может
 ENRICH_VERSION = 'furniture-v1'
 PROMPT_VERSION = 'p3'
-SCHEMA_VERSION = 's5'
+SCHEMA_VERSION = 's6'          # s6 = s5 + pack_qty (штук в одной покупке), 01.09
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
         '-q', '-v', 'ON_ERROR_STOP=1', '-t', '-A', '-F', '\x1f']
 API = 'https://api.openai.com/v1'
@@ -121,6 +121,12 @@ def body_for(it: dict, model: str = MODEL, vision: bool = False) -> dict:
 # негодное описание. Если описания не было или оно было годным, ответ p2 идентичен p3, и платить
 # за перегон незачем (2026-08-05).
 ACCEPT_PROMPTS = ("'p2'", "'p3'")
+# ДОБАВЛЕНИЕ ПОЛЯ НЕ ДОЛЖНО ГНАТЬ ВЕСЬ КАТАЛОГ ЗАНОВО (01.09). `todo()` считает необогащённым
+# всё, что не совпало по версии схемы, — поэтому s5→s6 отправил бы на перегон все 20 452
+# карточки ради одного числа. Схема s5 остаётся годной: у её товаров нет `pack_qty`, и он
+# добирается разовой разметкой (`pack_qty.py`), а новые карточки получают его сразу, в том же
+# ответе и без отдельной оплаты. Тот же приём, что уже применён к версиям промпта выше.
+ACCEPT_SCHEMAS = ("'s5'", "'s6'")
 
 
 def todo(items: list[dict]) -> list[dict]:
@@ -128,7 +134,7 @@ def todo(items: list[dict]) -> list[dict]:
     rows = sql(f"""select shop_mid, external_id from product_enrichment
                  where payload is not null and enrichment_version='{ENRICH_VERSION}'
                    and prompt_version in ({','.join(ACCEPT_PROMPTS)})
-                   and schema_version='{SCHEMA_VERSION}'""")
+                   and schema_version in ({','.join(ACCEPT_SCHEMAS)})""")
     done = {tuple(l.split('\x1f')) for l in rows.strip().split('\n') if l}
     out = [it for it in items if (str(it['mid']), it['eid']) not in done]
     if len(out) < len(items):
@@ -138,7 +144,7 @@ def todo(items: list[dict]) -> list[dict]:
 
 VISION_FIELDS = ('styles', 'style_strength', 'materials', 'primary_color', 'shape',
                  'visual_mass', 'warmth', 'decorativeness', 'base_type', 'image_type', 'photo',
-                 'specific')
+                 'specific', 'pack_qty')       # число предметов видно на фото, а не в тексте
 
 
 def save(rows: list[tuple[dict, dict, dict]], model: str = MODEL, vision: bool = False) -> None:

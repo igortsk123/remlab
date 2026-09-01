@@ -92,9 +92,18 @@ SCHEMA = {
     'type': 'object', 'additionalProperties': False,
     'required': ['role', 'functional_subtype', 'materials', 'primary_color', 'shape', 'base_type',
                  'visual_mass', 'warmth', 'decorativeness', 'styles', 'style_strength', 'flags',
-                 'image_type', 'photo'],
+                 'image_type', 'photo', 'pack_qty'],
     'properties': {
         'role': _enum('роль предмета в гостиной', ROLES),
+        # СКОЛЬКО ПРЕДМЕТОВ В ОДНОЙ ПОКУПКЕ (владелец 01.09). Стулья магазины продают
+        # комплектами по 2/4/6, и в фиде этого нет — только в названии, описании или на фото.
+        # Спрашиваем ЗДЕСЬ, в общем запросе, а не отдельным вызовом: за карточку мы платим один
+        # раз, и лишний вопрос в том же ответе не стоит ничего.
+        'pack_qty': {'type': 'integer', 'minimum': 1, 'maximum': 12,
+                     'description': 'сколько ОДИНАКОВЫХ предметов входит в одну покупку. '
+                                    'Обстановка на фото (стол, посуда, ковёр) не в счёт — её '
+                                    'продают отдельно. Один предмет с разных сторон или в разных '
+                                    'цветах — это 1. Сомневаешься — 1'},
         'functional_subtype': _enum('функция, а не категория', SUBTYPES),
         'materials': {'type': 'array', 'items': _enum('материал', MATERIALS)},
         'primary_color': _enum('основной цвет', COLOURS),
