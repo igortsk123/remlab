@@ -33,7 +33,7 @@ for f in mesh-exposure-jobs.json mesh-redo-jobs.json; do
   [ "$n" = "0" ] && { echo "[$(date +%H:%M)] $f пуст — пропускаю"; continue; }
   echo "[$(date +%H:%M)] волна $f: $n заданий"
   for try in 1 2 3 4 5 6 7 8; do
-    $PY "$HERE/ssh_run.py" --jobs-file "$HERE/../$f" --keep-alive && break
+    $PY "$HERE/ssh_run.wave.py" --jobs-file "$HERE/../$f" --keep-alive && break
     code=$?
     [ "$code" = "75" ] || break        # 75 = нет ёмкости: ждём и пробуем снова
     echo "[$(date +%H:%M)] нет прогретых нод — жду 3 мин (попытка $try)"
