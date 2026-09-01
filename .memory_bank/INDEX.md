@@ -28,6 +28,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт ремонта/м�
 | Композиция гостиной — доли | `core/lr-composition.md` | `../domain/lr-composition-guide.md` |
 | Рынок RU/UK — спрос, монетизация | `core/market.md` | `../domain/market-research.md` |
 | Реклама — Яндекс, семантика | `core/marketing-acquisition.md` | `../domain/wordstat-semantics.md` |
+| Цвет мешей — диагноз промаха покраски, мерка, рычаги | `core/mesh-color.md` | `../domain/viz-fidelity-playbook.md` |
 | 3D-меши товаров — генерация, приёмка, ориентация | `core/mesh-pipeline.md` | `../domain/viz-fidelity-playbook.md` |
 | Трейсинг AI-пайплайна — лог, разбор | `core/observability-tracing.md` | `../domain/observability.md` |
 | Канонический порядок конвейера — от фида до расстановки в планировке | `core/pipeline-order.md` | `../domain/pipeline-order-details.md` |

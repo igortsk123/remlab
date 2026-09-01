@@ -30,8 +30,8 @@ last_verified: 2026-09-01
 **РЕМОНТ ОТМЕНЁН (ADR-0143, 01.09):** везде только оригинал `model.glb`; `apply_repairs.py` —
 чистая приёмка (вердикт + очередь перегона), копии в `~/scout-scenes/mesh-repairs-parked/`,
 `color_mismatch` — только диагностика.
-**Цвет:** промптом покраску не направить (`prompt` в `hy3dpaint/textureGenPipeline.py`
-выбрасывается: `use_learned_text_clip=True`); источник цвета — референс-фото → рычаг на входе.
+**Цвет и перепокраска — [[mesh-color]]** (ADR-0144): форма сохранена (`shape.glb`), paint = 42%
+задания, рычаг только на входе.
 Показ: `/test/mesh-pilot10/`. Образы — digest, боевой `cu124-baked` (ADR-0137); конвейер
 `batch_show.py` (мультигруппы, WAVE_FIRST, `cull_slow_pulls`; в цикле — ориентация, топ-вью,
 паблиш). Вид сверху — `topview_render.py`.

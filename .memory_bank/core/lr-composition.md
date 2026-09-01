@@ -3,12 +3,12 @@ tier: 1
 topic: lr-composition
 scope: Композиция гостиной — доли
 tier2: "../domain/lr-composition-guide.md"
-updated: 2026-08-01
+updated: 2026-09-01
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-08-01
+last_verified: 2026-09-01
 ---
 
 # Композиция гостиной — Tier 1
@@ -19,4 +19,6 @@ last_verified: 2026-08-01
 **Глобальный кап: напольная мебель 28–38%, максимум 40% (ковры не в счёт).**
 
 Применение: автосборка сетов (7 метражей × 3 тира), hard-чек планировщика.
-Полные таблицы — Tier 2; машиночитаемо — `tools/scout/composition.json` (вне git).
+Полные таблицы — Tier 2; машиночитаемо — `tools/scout/composition.json` (вне git; сверено
+01.09: `global_floor_cap` = [28, 38, 40], 7 полос метража). Кап применяет `tools/scout/compose.py`
+и `compose2.py` (`floor_fp + it["fp"] <= m2*0.40`).
