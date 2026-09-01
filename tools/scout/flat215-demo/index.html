@@ -382,7 +382,12 @@ const MAXV=4;
 function variantPrice(v){                       // цена = сумма комплекта, привязанного к варианту
   const kit=(D.sets||[]).find(k=>k.id==='kit'+String(v.id||'').replace('set',''));
   if(kit&&kit.sum)return kit.sum;
-  return (v.items||[]).reduce((t,it)=>t+((it.sku&&it.sku.price)||0),0);
+  // цена варианта считается ТАК ЖЕ, как корзина: слоты одного товара — одна покупка
+  const by=new Map();
+  (v.items||[]).forEach(it=>{const p=it.sku; if(!p||!p.name)return;
+    const k=(p.url||'')+'|'+p.name; if(!by.has(k))by.set(k,{p:p,n:0}); by.get(k).n++;});
+  let t=0; by.forEach(g=>{t+=(g.p.price||0)*Math.ceil(g.n/((+g.p.pack||1)>0?(+g.p.pack||1):1));});
+  return t;
 }
 function myVariants(){
   try{return JSON.parse(localStorage.getItem('flat215-mine')||'[]');}catch(e){return [];}
@@ -593,20 +598,39 @@ function draw(){
     st.style.display=changed?'':'none';
     st.classList.toggle('changed',!!changed);}
 }
+// ОДНА ПОКУПКА — НЕСКОЛЬКО ПРЕДМЕТОВ (владелец 01.09: «мы моделим стул один, а их обычно
+// больше в группе, 2 или 4 бывает часто»). Магазин продаёт стулья комплектом, и число штук
+// написано ТОЛЬКО в названии («Стул АСТИ 2 шт.») — сборка кладёт его в sku.pack. В комнате
+// такой товар занимает несколько слотов («стул», «стул 2»), но в смете это ОДНА покупка,
+// пока слотов не больше, чем штук в комплекте. Иначе стул считался бы дважды.
+function packOf(p){const n=p&&p.pack?+p.pack:1;return n>0?n:1;}
+function buys(slots,p){return Math.ceil(slots/packOf(p));}   // сколько комплектов купить
+function groupBySku(list){                                   // слоты одного товара — в одну строку
+  const by=new Map();
+  list.forEach(i=>{const p=i.sku, k=(p.url||'')+'|'+(p.name||'');
+    if(!by.has(k))by.set(k,{sku:p,slots:[],first:i});
+    by.get(k).slots.push(i);});
+  return [...by.values()];
+}
 function basket(){                    // СПИСОК ТОВАРОВ КОМНАТЫ — справа от плана (структура референса,
   const withSku=items.filter(i=>i.sku&&i.sku.name);   // 26.08): строка = миниатюра, название, магазин,
   const box=document.getElementById('blist');         // цена, «Заменить» и ссылка в магазин; снизу итог
   if(!withSku.length){box.innerHTML='<div class="hint">Товары ещё не назначены: выберите комплект или подберите предмет вручную.</div>';return;}
+  const groups=groupBySku(withSku);
   let sum=0;
-  box.innerHTML=withSku.map((i,k)=>{const p=i.sku;sum+=p.price||0;
+  box.innerHTML=groups.map(gr=>{const p=gr.sku, i=gr.first;
+    const n=buys(gr.slots.length,p); sum+=(p.price||0)*n;
     const dims=`${Math.round(i.w)}×${Math.round(i.d)}${i.h?'×'+Math.round(i.h):''} см`;
+    const roles=[...new Set(gr.slots.map(x=>x.role.replace(/\s+\d+$/,'')))].join(', ');
+    const cnt=gr.slots.length>1?` · ${gr.slots.length} шт. в комнате`:'';
+    const buy=n>1?` · ${n} комплекта`:'';
     return `<div class="row" data-i="${items.indexOf(i)}">`+
       (p.img?`<img src="${p.img}" loading="lazy" alt="">`:'<div class="noimg-sm">нет фото</div>')+
-      `<div class="t"><b>${p.name||i.role}</b><span>${i.role} · ${dims}${p.shop?' · '+p.shop:''}</span>`+
+      `<div class="t"><b>${p.name||i.role}</b><span>${roles} · ${dims}${p.shop?' · '+p.shop:''}${cnt}${buy}</span>`+
       `<span class="acts"><button class="lnk swap">Заменить</button>`+
       (p.url?` · <a href="${p.url}" target="_blank" rel="noopener">Подробнее</a>`:'')+`</span></div>`+
-      `<div class="p">${(p.price||0).toLocaleString('ru-RU')} ₽</div></div>`;}).join('')
-    +`<div class="total"><span>Итого ${withSku.length} товаров</span><span>${sum.toLocaleString('ru-RU')} ₽</span></div>`;
+      `<div class="p">${((p.price||0)*n).toLocaleString('ru-RU')} ₽</div></div>`;}).join('')
+    +`<div class="total"><span>Итого ${groups.length} товаров</span><span>${sum.toLocaleString('ru-RU')} ₽</span></div>`;
   // клик по строке или «Заменить» открывает тот же каталог замены, что и значок на предмете
   box.querySelectorAll('.row').forEach(r=>{
     const it=items[+r.dataset.i];
