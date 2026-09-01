@@ -83,8 +83,15 @@ def world_vertices(parts, place, front_yaw: float, name2h: dict | None = None):
 
 
 def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
-                name2h: dict | None = None) -> dict:
-    """Меш в общий буфер кадра; возвращает диагностику (h_src, aniso)."""
+                name2h: dict | None = None, inst_buf=None, inst_id: int = 0) -> dict:
+    """Меш в общий буфер кадра; возвращает диагностику (h_src, aniso).
+
+    `inst_buf` (H×W int32) и `inst_id` — КАРТА ПРЕДМЕТОВ кадра (план photo-improve-from-mesh):
+    в те же пиксели, куда лёг цвет, пишется номер предмета. Без неё у мебели, нарисованной
+    мешем, масок не существует вовсе — растеризатор вёл только цвет и глубину, а `compile_scene`
+    строит маски лишь для clay-заглушек. На этой карте стоит и «не трогать мебель» при правке
+    кадра моделью, и проверка, что она её не тронула.
+    """
     worlds, Ra, R, h_src, aniso = world_vertices(parts, place, front_yaw, name2h)
     eye, fwd, right, up = cam.basis()
     eye = np.array(eye, np.float32)
@@ -151,6 +158,8 @@ def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
             else:
                 col = np.broadcast_to(cols[idx] * shade[idx], inside.shape + (3,))
             img[y0:y1, x0:x1][upd] = np.clip(col[upd], 0, 255)
+            if inst_buf is not None:
+                inst_buf[y0:y1, x0:x1][upd] = inst_id   # тот же upd — карта не разъедется с цветом
     return {'h_src': h_src, 'aniso': round(float(aniso), 2),
             'suspect': aniso > ANISO_MAX}
 
