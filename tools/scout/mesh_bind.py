@@ -55,13 +55,36 @@ def mark_required() -> tuple[int, int]:
     def lit(xs):
         return ','.join("'" + x.replace("'", "''") + "'" for x in xs) or "''"
     ver = AS.policy_version()
+    # СПОСОБ ПОПАДАНИЯ В СЦЕНУ пишем ВСЕМ (владелец 01.09: «ковры и пледы надо пометить
+    # в базе, что они идут вклейкой вместо меша») — чтобы это было видно в карточке,
+    # а не выводилось каждым потребителем заново.
+    by_strategy = {}
+    for r in roles:
+        by_strategy.setdefault(AS.strategy(r), []).append(r)
+    upd = '\n'.join(
+        f"update products set asset_strategy = '{st}' where cat_role in ({lit(rs)}) "
+        f"and asset_strategy is distinct from '{st}';"
+        for st, rs in by_strategy.items())
+    sql_stdin('begin;\n' + upd + '\ncommit;')
+    # ГЕЙТЫ КАНОНИЧЕСКОГО ПОРЯДКА обязательны (владелец 01.09, дважды): меш нужен только
+    # тому, кто в наличии, с фото, ПРОШЁЛ обогащение и стили и имеет габариты. Пометка
+    # только по роли завышала число (17 379 против настоящих 12 092).
+    GATES = ("p.in_stock and p.image_url is not null and p.w_cm is not null "
+             "and p.h_cm is not null and e.enriched_at is not null "
+             "and e.payload->'model'->'styles' is not null")
+    JOIN = ("from products p join product_enrichment e "
+            "on e.shop_mid = p.shop_mid and e.external_id = p.external_id")
     sql_stdin(f"""begin;
-update products set mesh_required = true, mesh_policy_version = {ver}
- where cat_role in ({lit(need)})
-   and (mesh_required is distinct from true or mesh_policy_version is distinct from {ver});
+-- сначала снимаем пометку со всех, потом ставим прошедшим цепочку: так снятие товара с
+-- продажи или пропавшие габариты сами гасят требование
 update products set mesh_required = false, mesh_policy_version = {ver}
- where (cat_role in ({lit(skip)}) or cat_role is null)
-   and (mesh_required is distinct from false or mesh_policy_version is distinct from {ver});
+ where mesh_required is distinct from false;
+update products p set mesh_required = true, mesh_policy_version = {ver}
+  from product_enrichment e
+ where e.shop_mid = p.shop_mid and e.external_id = p.external_id
+   and p.cat_role in ({lit(need)})
+   and p.in_stock and p.image_url is not null and p.w_cm is not null and p.h_cm is not null
+   and e.enriched_at is not null and e.payload->'model'->'styles' is not null;
 commit;""")
     return len(need), len(skip)
 
