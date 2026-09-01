@@ -154,6 +154,17 @@ ORIENT_CMD = (f'for i in $(seq {ORIENT_PASSES}); do '
               f'{PY} {os.path.join(HERE, "..", "orient_worker.py")} '
               f'--run --limit {ORIENT_LIMIT} --vlm || exit $?; done')
 
+# ТОП-ВЬЮ ТОЖЕ МИКРОПАЧКАМИ (01.09, второй раз за день). Снижение числа процессов рендера
+# 4→2 шаг не спасло: earlyoom убил его снова на 8.4 ГБ, значит память копится не в рендере,
+# а в самом обходе дерева — geometry каждой модели грузится в ОДИН процесс, и с ростом
+# каталога он неизбежно упирается. Режем по TOPVIEW_LIMIT со сдвигом: каждая пачка —
+# отдельный процесс, память возвращается ОС между ними.
+TOPVIEW_LIMIT = int(os.environ.get('MESH_TOPVIEW_LIMIT', '120'))
+TOPVIEW_PASSES = int(os.environ.get('MESH_TOPVIEW_PASSES', '6'))
+TOPVIEW_CMD = (f'for i in $(seq 0 {TOPVIEW_PASSES - 1}); do '
+               f'TOPVIEW_SKIP=$((i * {TOPVIEW_LIMIT})) TOPVIEW_LIMIT={TOPVIEW_LIMIT} '
+               f'TOPVIEW_BUDGET_S=420 {PY} {HERE}/topview_render.py || exit $?; done')
+
 
 def iso_age_s(ts: str | None, now: float) -> float | None:
     """Возраст состояния по часам платформы (`update_time` инстанса).
@@ -277,7 +288,7 @@ def post_steps() -> tuple:
             # корректная»): боевой каскад по pending, затем виды сверху и публикация
             # orient.json для 3D-сцены
             ('ориентация', ORIENT_CMD),
-            ('топ-вью', f'{PY} {HERE}/topview_render.py'),
+            ('топ-вью', TOPVIEW_CMD),
             *SHOW_STEPS,
             ('ориент-паблиш', f'{PY} {HERE}/publish_merge.py $HOME/scout-scenes/mesh-topview/topview.json https://remont-lab.online/test/mesh-pilot10/orient.json root@89.167.127.0:/opt/remlab/test/mesh-pilot10/orient.json && scp -P 22222 -o BatchMode=yes $HOME/scout-scenes/mesh-topview/*.png root@89.167.127.0:/opt/remlab/test/flat215-demo/topsprites/ 2>/dev/null || true'))
 
