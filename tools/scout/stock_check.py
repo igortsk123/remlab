@@ -9,10 +9,18 @@
 отвергнутый вердикт всё равно подхватился бы следующим прогоном (замечание Codex 31.08).
 
 БЮДЖЕТ И ПРИОРИТЕТ. Прежняя проверка брала 400 ссылок/день по кругу в 20 000 — до второго
-захода не доживал никто, и порог «два 404 подряд» не срабатывал НИ РАЗУ. Теперь 3500/день:
-15% — подтверждения (`suspect` ждёт второго голоса), затем товары боевых сетов, у которых
-истёк TTL, и хвост по давности на остаток. Снятые товары тоже проверяются, иначе ошибочное
-снятие необратимо: `linkcheck` выбирал `where in_stock` и воскресить товар не мог.
+захода не доживал никто. Теперь 3500/день, три очереди по убыванию ценности запроса:
+до 15% — ПЕРЕПРОВЕРКА СВЕЖЕСНЯТЫХ (не ошиблись ли мы вчера; берётся ДО деления бюджета по
+магазинам, иначе квота режет приоритет вместе с хвостом), затем товары боевых сетов с истёкшим
+TTL, затем хвост по давности. Снятые товары с живым фидом проверяются и дальше, иначе ошибочное
+снятие стало бы необратимым: `linkcheck` выбирал `where in_stock` и воскресить товар не мог.
+
+СНИМАЕМ С ПЕРВОГО ОТКАЗА (ADR-0148). Прохода подтверждения больше нет: он стоил паузы 900 с и
+повторного обхода всех отрицательных, а из 347 повторов 347 подтвердили первый ответ и ни один
+не отменил. Владелец принял риск («один товар из 1000 — нормально»). Взамен цена ошибки
+ограничена скоростью возврата: свежеснятый перепроверяется через 6 часов и «в продаже»
+возвращает его немедленно. Шесть часов переживают выкатку магазина и жизнь ошибки в кэше CDN,
+чего 15-минутный повтор не переживал. Для ручного разбора инцидента остался `--confirm-wait`.
 
 ОДНО ПРАВИЛО ДЛЯ ВСЕХ — РАЗ В НЕДЕЛЮ (ADR-0147, 01.09). Утром 01.09 у витрины был отдельный
 суточный TTL («определять каждый день»), но выяснилось, чем именно владелец был недоволен:
@@ -89,6 +97,14 @@ TTL_HOURS = {'alive': WEEK_HOURS, 'oos': WEEK_HOURS, 'gone': WEEK_HOURS, 'suspec
              'unknown': WEEK_HOURS, None: 0}
 TTL_SETS_HOURS = WEEK_HOURS    # витрина живёт по общему правилу; её преимущество — место
                                # в очереди (блок `in_sets` идёт перед хвостом), а не частота
+# БЫСТРОЕ ВОСКРЕШЕНИЕ (ADR-0148). Снимаем теперь с первого отказа, поэтому цена ошибки должна
+# быть ограничена не задержкой снятия, а скоростью возврата: свежеснятого перепроверяем через
+# 6 часов, и «в продаже» возвращает его немедленно. Отличить ошибку от настоящей смерти заранее
+# нельзя, поэтому перепроверяются ВСЕ снятые за сутки, а не «подозрительные». Шесть часов
+# выбраны потому, что этот интервал переживает выкатку магазина и срок жизни кэша ошибки в CDN,
+# которые 15-минутный повтор не переживал. После первых суток товар уходит на недельный круг.
+TTL_GONE_FRESH_HOURS = 6
+GONE_FRESH_DAYS = 1            # сколько суток после смерти действует ускоренная перепроверка
 
 
 # --- сеть -------------------------------------------------------------------------------------
@@ -108,11 +124,16 @@ def fetch(url: str):
                     break
                 body.append(chunk)
                 got += len(chunk)
-                # Обрываем только по НАСТОЯЩЕМУ признаку наличия. Первая версия останавливалась
-                # на слове «availability» в любом месте (оно есть и в JS) и отрезала страницу
-                # до самой разметки — живые товары divanboss приезжали как «unknown».
+                # Обрываем только по ПОЛОЖИТЕЛЬНОМУ признаку наличия — и это принципиально.
+                # Первая версия рвала чтение на слове «availability» в любом месте (оно есть и
+                # в JS) и отрезала страницу до разметки. Вторая рвала на ЛЮБОМ признаке, включая
+                # отрицательный, — и этим убивала собственное правило «смешанные сигналы читаем
+                # как положительные» (`page_alive.schema_state`): распроданный аксессуар, чья
+                # разметка лежит выше по странице, останавливал чтение, и «InStock» самого
+                # товара ниже мы уже не видели. Отрицательный признак поводом остановиться быть
+                # не может: положительный ещё может встретиться дальше (найдено 01.09).
                 if len(body) % 4 == 0 and \
-                        schema_state(b''.join(body[-8:]).decode('utf-8', 'ignore')):
+                        schema_state(b''.join(body[-8:]).decode('utf-8', 'ignore')) == 'positive':
                     break
             return f.status, b''.join(body).decode('utf-8', 'ignore'), '', f.geturl()
     except urllib.error.HTTPError as e:
@@ -149,27 +170,44 @@ def candidates(limit: int, only_shop: str = '') -> list:
     Берём и снятые товары (`state in (gone, oos)`): без этого снятие необратимо автоматикой.
     Не берём архивные по фиду — они и так вне продажи, тратить на них запросы незачем.
     """
+    # НЕ ТРАТИМ ЗАПРОСЫ НА ТЕХ, КТО МЁРТВ И ПО ФИДУ (01.09). Прежнее условие добирало снятых
+    # карточкой ДАЖЕ когда фид уже отдал их как archived, а программа партнёрки — как retired:
+    # такой товар не вернётся в продажу, пока не вернётся в фид, и еженедельный стук по его
+    # карточке ничего не решает. Снятые с ЖИВЫМ фидом по-прежнему проверяются (первая ветка
+    # их и берёт) — иначе ошибочное снятие стало бы необратимым.
     rows = db(f"""
     select p.shop_mid, p.external_id, p.shop, coalesce(p.direct_url, p.url),
            coalesce(ps.state, ''), coalesce(to_char(ps.checked_at, 'YYYY-MM-DD HH24:MI:SS'), ''),
-           coalesce(ps.url_hash, '')
+           coalesce(ps.url_hash, ''),
+           coalesce(to_char(ps.dead_since, 'YYYY-MM-DD'), '')
       from products p
       left join product_enrichment e on e.shop_mid = p.shop_mid and e.external_id = p.external_id
       left join product_page_status ps on ps.shop_mid = p.shop_mid and ps.external_id = p.external_id
+      left join shop_status s on s.shop_mid = p.shop_mid
      where coalesce(p.direct_url, p.url) <> ''
-       and (coalesce(e.status, p.status) = 'active' or coalesce(ps.state, '') in ('gone', 'oos'))
+       and coalesce(e.status, p.status) = 'active'
+       and coalesce(s.program_state, 'active') <> 'retired'
        {f"and p.shop = {q(only_shop)}" if only_shop else ''};
     """)
     sets = _sets_skus()
     now = dt.datetime.now()
     confirm, in_sets, tail = [], [], []
-    for mid, eid, shop, url, state, checked, uhash in rows:
+    for mid, eid, shop, url, state, checked, uhash, dead in rows:
         mid = int(mid)
         last = dt.datetime.strptime(checked, '%Y-%m-%d %H:%M:%S') if checked else None
         age_h = (now - last).total_seconds() / 3600 if last else 10 ** 6
         item = (mid, eid, shop, url, state, age_h)
+        # свежеснятый — на ускоренный круг (см. TTL_GONE_FRESH_HOURS)
+        fresh_dead = False
+        if state in ('gone', 'oos') and dead:
+            try:
+                fresh_dead = (now.date() - dt.date.fromisoformat(dead)).days <= GONE_FRESH_DAYS
+            except ValueError:
+                fresh_dead = False
         if state == 'suspect' and age_h >= CONFIRM_GAP_MIN / 60:
             confirm.append(item)                     # ждёт второго голоса — самый ценный запрос
+        elif fresh_dead and age_h >= TTL_GONE_FRESH_HOURS:
+            confirm.append(item)                     # проверка «не ошиблись ли» — так же ценна
         elif (mid, eid) in sets and age_h >= TTL_SETS_HOURS:
             in_sets.append(item)
         elif age_h >= TTL_HOURS.get(state or None, 6):
@@ -181,7 +219,14 @@ def candidates(limit: int, only_shop: str = '') -> list:
     # сам бюджет: если банк когда-нибудь перерастёт прогон, порядок «дольше всех не проверялся»
     # разложит его по дням честно, а не отрежет случайные 36 позиций каждую ночь.
     n_sets = min(len(in_sets), limit)
-    queue = confirm[:n_conf] + in_sets[:n_sets] + tail + confirm[n_conf:] + in_sets[n_sets:]
+    # ПРИОРИТЕТНЫЙ БЛОК ЗАБИРАЕМ ДО ДЕЛЕНИЯ ПО МАГАЗИНАМ (01.09). Иначе «приоритет» был
+    # декларацией: пропорциональная квота резала его вместе с хвостом — на замере из 335
+    # свежеснятых mnogomebeli в прогон проходили 63, остальные ждали суток. Проверка «не
+    # ошиблись ли мы, сняв товар» — самый ценный запрос прогона и по объёму всегда мала
+    # (единицы-десятки в установившемся режиме), поэтому она идёт вне квоты.
+    reserved = confirm[:n_conf]
+    queue = in_sets[:n_sets] + tail + confirm[n_conf:] + in_sets[n_sets:]
+    limit = max(0, limit - len(reserved))
 
     # БЮДЖЕТ ДЕЛИМ ПО МАГАЗИНАМ ПРОПОРЦИОНАЛЬНО ИХ РАЗМЕРУ. Сплошная выборка по «давности»
     # отдала бы весь бюджет самому большому магазину (пока каталог не проверен, давность у всех
@@ -206,10 +251,15 @@ def candidates(limit: int, only_shop: str = '') -> list:
                 break
             if by_shop[shop]:
                 picked.append(by_shop[shop].pop(0))
-    got_conf = sum(1 for x in picked if x[4] == 'suspect')
-    got_sets = sum(1 for x in picked if x in in_sets[:n_sets])
-    print(f'к проверке: {len(picked)} (подтверждений {got_conf}, сеты {got_sets}, '
-          f'хвост {len(picked) - got_conf - got_sets}); кандидатов всего {len(rows)}', flush=True)
+    picked = reserved + picked
+    # Считаем по ФАКТИЧЕСКОМУ составу, а не по признаку `suspect`: с приходом ускоренной
+    # перепроверки (ADR-0148) приоритетный блок состоит из свежеснятых, и прежний счётчик
+    # показывал бы «подтверждений 0» при полном блоке — оператор решил бы, что шаг не работает.
+    in_sets_set = {(x[0], x[1]) for x in in_sets[:n_sets]}
+    got_sets = sum(1 for x in picked if (x[0], x[1]) in in_sets_set)
+    print(f'к проверке: {len(picked)} (перепроверка снятых {len(reserved)}, витрина {got_sets}, '
+          f'хвост {len(picked) - len(reserved) - got_sets}); кандидатов всего {len(rows)}',
+          flush=True)
     per = {}
     for x in picked:
         per[x[2]] = per.get(x[2], 0) + 1
@@ -356,7 +406,13 @@ def apply_run(obs: list, run_id: str, dry: bool = False) -> dict:
                'reason = excluded.reason, url_hash = excluded.url_hash, '
                'negatives = excluded.negatives, checked_at = excluded.checked_at, '
                'applied_at = excluded.applied_at, '
-               'dead_since = coalesce(product_page_status.dead_since, excluded.dead_since);')
+               # ВОСКРЕС — ЗАБЫВАЕМ ДАТУ СМЕРТИ. `coalesce` держал её вечно: товар возвращался
+               # в продажу, но числился умершим такого-то числа, и следующая смерть уже не
+               # считалась свежей — ускоренная перепроверка (TTL_GONE_FRESH_HOURS) для него
+               # больше не включалась бы никогда. Живой товар даты смерти иметь не должен.
+               "dead_since = case when excluded.state in ('gone','oos') "
+               'then coalesce(product_page_status.dead_since, excluded.dead_since) '
+               'else null end;')
     report = {'run_id': run_id, 'checked': len(obs), 'quarantine': sorted(quarantine),
               'quarantine_why': {str(k): v for k, v in why.items()}, 'states': changes,
               'per_shop': {str(k): {'n': v[0], 'negative': v[1]} for k, v in per_shop.items()},
@@ -428,17 +484,23 @@ def main() -> int:
     save_observations(obs, run_id)
     report = apply_run(obs, run_id, dry)
 
-    # ВТОРОЙ ГОЛОС В ТОМ ЖЕ ПРОГОНЕ. Иначе подтверждение приедет только завтра, и товар,
-    # которого нет, ещё сутки будет числиться в продаже. Ждём разрыв и добираем свежих suspect.
-    fresh = [o for o in obs if o['verdict'] in ('gone', 'oos') and o['mid'] not in report['quarantine']]
-    if fresh and wait > 0 and not dry:
-        print(f'подтверждение: пауза {wait} с, затем повтор {len(fresh)} отрицательных', flush=True)
-        time.sleep(wait)
-        run2 = run_id + '-confirm'
-        picked2 = [(o['mid'], o['eid'], o['shop'], o['url'], 'suspect', 99) for o in fresh]
-        obs2 = crawl(picked2, run2, max_minutes=max(30, max_min // 3))
-        save_observations(obs2, run2)
-        report = apply_run(obs2, run2, dry)
+    # ПРОХОДА ПОДТВЕРЖДЕНИЯ БОЛЬШЕ НЕТ (ADR-0148). Он стоил паузы 900 с и повторного обхода всех
+    # отрицательных, а по замеру 347 из 347 повторов подтвердили первый ответ и не отменили ни
+    # одного. Владелец принял риск. Проверка «не ошиблись ли» переехала на 6 часов вперёд и живёт
+    # в `candidates()` (`TTL_GONE_FRESH_HOURS`): свежеснятые попадают в очередь следующего прогона
+    # как самые приоритетные, и «в продаже» возвращает товар. Флаг `--confirm-wait` оставлен для
+    # ручного разбора инцидента: `--confirm-wait 900` повторяет старое поведение одним прогоном.
+    if wait > 0 and '--confirm-wait' in sys.argv and not dry:
+        fresh = [o for o in obs if o['verdict'] in ('gone', 'oos')
+                 and o['mid'] not in report['quarantine']]
+        if fresh:
+            print(f'ручной повтор: пауза {wait} с, затем {len(fresh)} отрицательных', flush=True)
+            time.sleep(wait)
+            run2 = run_id + '-confirm'
+            picked2 = [(o['mid'], o['eid'], o['shop'], o['url'], 'suspect', 99) for o in fresh]
+            obs2 = crawl(picked2, run2, max_minutes=max(30, max_min // 3))
+            save_observations(obs2, run2)
+            report = apply_run(obs2, run2, dry)
 
     bad = report.get('audit_mismatch', 0)
     if bad:
