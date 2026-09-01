@@ -16,7 +16,7 @@ last_verified: 2026-09-01
 **Зачем:** планировщик и 3D-квартиры. **Генератор — свой Hunyuan3D 2.1 на SaladCloud**
 (ADR-0131; fal/Trellis выведены). Код — `tools/scout/salad/`.
 
-**Отбор — ADR-0131** (≈4 900 SKU из 11 631; `mesh_pilot.py`). **Приёмка:** `mesh_gate.py` →
+**Объём (владелец 01.09): полный пул — 11 631 товар** (цель полного прогона, `plans/mesh-bulk-salad-hunyuan.md`); ≈4 900 — лишь подмножество методики отбора ADR-0131 (роли слотов сетов), не путать. Очередь сейчас — 1465 заданий/1461 товар (`mesh-pilot-sample.json`), первыми идут 78 позиций демо flat215. **Приёмка:** `mesh_gate.py` →
 `mesh_gate_pbr.py` → `web_ready`. **Ориентация:** ADR-0129 → план orient-v2.
 
 **Готовность/резерв/замена — ADR-0134** (`mesh_ready.py`, `reserve.py`, `heal_policy.py`,
