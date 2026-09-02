@@ -2056,7 +2056,110 @@ def _scene3d_orient() -> dict:
 # и без обязательной ссылки, `~/scout-scenes/kits/kenney/License.txt`) и выкладываем в ту же
 # галерею мешей — значит достаются обычным `_scene3d_glb`, без второго механизма.
 # Значение: (id в галерее, канонический разворот фронта в градусах).
-FIXTURE_MESH = {'тв': ('kit-tv-modern', 180.0)}   # экран у модели смотрит в −Z, канон — +Z
+FIXTURE_MESH = {
+    'тв': ('kit-tv-modern', 180.0),   # экран у модели смотрит в −Z, канон — +Z
+    'дверь': ('kit-door', 0.0),       # полотно смотрит в +Z — уже канон
+}
+DOOR_H_CM = 205.0     # та же высота, что рисовала clay-плашка двери (`planner.scene`)
+DOOR_D_CM = 12.0      # толщина полотна с коробкой: наружная грань ложится в плоскость стены
+WIN_TOP_CM = 210.0    # верх окна — как у clay-плашки; низ берём из `sill_cm` проёма
+WIN_D_CM = 14.0       # глубина коробки окна
+WIN_BAR_CM = 6.0      # ширина профиля рамы и импоста
+WIN_FRAME_RGB = (238, 240, 242)   # белый ПВХ
+WIN_GLASS_RGB = (188, 212, 230)   # стекло: холодный светлый, не «синяя плашка»
+
+
+def _window_parts(w_cm: float, h_cm: float):
+    """Окно СОБИРАЕМ САМИ (владелец 02.09: «окно нарисуй сам»).
+
+    Готовой модели одной рамы у нас нет: в наборе окно идёт куском стены и поверх нашей стены
+    не ставится. Рама, импост и стёкла считаются по РАЗМЕРУ ПРОЁМА, поэтому профиль остаётся
+    одной ширины при любом окне — статичный меш из галереи тянулся бы по осям и давал рамку
+    разной толщины по горизонтали и вертикали.
+    """
+    import numpy as _np
+    import trimesh as _t
+    bar = min(WIN_BAR_CM, w_cm / 6.0, h_cm / 6.0)
+    d = WIN_D_CM
+    parts = []
+
+    def box(cx, cy, cz, sx, sy, sz, rgb):
+        m = _t.creation.box(extents=(sx, sy, sz))
+        m.apply_translation((cx, cy, cz))
+        m.visual = _t.visual.color.ColorVisuals(
+            mesh=m, face_colors=_np.tile(_np.array([*rgb, 255], _np.uint8), (len(m.faces), 1)))
+        parts.append(m)
+
+    # рама по периметру: низ, верх, левая и правая стойки
+    box(0, -(h_cm - bar) / 2, 0, w_cm, bar, d, WIN_FRAME_RGB)
+    box(0, (h_cm - bar) / 2, 0, w_cm, bar, d, WIN_FRAME_RGB)
+    box(-(w_cm - bar) / 2, 0, 0, bar, h_cm - 2 * bar, d, WIN_FRAME_RGB)
+    box((w_cm - bar) / 2, 0, 0, bar, h_cm - 2 * bar, d, WIN_FRAME_RGB)
+    # импост посередине — окно читается как двустворчатое, а не как дыра
+    box(0, 0, 0, bar * 0.8, h_cm - 2 * bar, d, WIN_FRAME_RGB)
+    # стёкла: тонкие пластины в плоскости коробки, по одной на створку
+    gw = (w_cm - 3 * bar) / 2
+    gh = h_cm - 2 * bar
+    if gw > 1 and gh > 1:
+        for sign in (-1, 1):
+            box(sign * (bar * 0.4 + gw / 2), 0, 0, gw, gh, d * 0.25, WIN_GLASS_RGB)
+    return parts
+
+
+def _fixture_openings(room, orient: dict):
+    """Дверь и окно — МЕШЕМ, а не цветной плашкой (владелец 02.09).
+
+    Оба живут не предметом, а ПРОЁМОМ (`room.openings`), поэтому места в сцене для них не было.
+    Собираем синтетическую расстановку по геометрии проёма и одновременно отдаём копию комнаты
+    БЕЗ этих проёмов: иначе clay нарисует свою плашку там же и будет спорить с мешем за глубину.
+
+    Возвращает `(места, комната_для_clay)`; список пуст — комната отдаётся как есть.
+    """
+    from planner.models import Item, Placement
+    fx = FIXTURE_MESH.get('дверь')
+    door_glb = _scene3d_glb(fx[0]) if fx else None
+    w_room, d_room = float(room.width_cm), float(room.depth_cm)
+    places, rest = [], []
+    for op in (getattr(room, 'openings', []) or []):
+        kind = 'door' if op.kind in ('door', 'balcony') else op.kind
+        if kind == 'door' and not door_glb:
+            rest.append(op)
+            continue
+        if kind not in ('door', 'window'):
+            rest.append(op)
+            continue
+        if kind == 'door':
+            depth, elev, height, key, glb = DOOR_D_CM, 0.0, DOOR_H_CM, fx[0], door_glb
+        else:
+            sill = float(getattr(op, 'sill_cm', 0) or 90.0)
+            height = max(WIN_TOP_CM - sill, 30.0)
+            depth, elev = WIN_D_CM, sill
+            # процедурный меш кладём в тот же кэш разобранных частей и адресуем ключом —
+            # дальше он идёт общим путём, как любой скачанный GLB
+            key = f'win:{round(float(op.width_cm))}x{round(height)}'
+            glb = key
+            if key not in _S3_PARTS:
+                _S3_PARTS[key] = _window_parts(float(op.width_cm), height)
+        half = depth / 2.0
+        c = float(op.offset_cm) + float(op.width_cm) / 2.0
+        # фронт всегда ВНУТРЬ комнаты: front_world(rot) = (sin rot, 0, cos rot)
+        spot = {'south': (c, half, 0.0), 'north': (c, d_room - half, 180.0),
+                'west': (half, c, 90.0), 'east': (w_room - half, c, 270.0)}.get(op.wall)
+        if spot is None:                      # стена не осевая — оставляем плашку
+            rest.append(op)
+            continue
+        x, y, rot = spot
+        role = 'дверь' if kind == 'door' else 'окно'
+        item = Item(role=role, w_cm=float(op.width_cm), d_cm=depth, h_cm=height)
+        places.append((Placement(role=role, x=x, y=y, rot=rot, item=item, elev_cm=elev),
+                       key, glb))
+        # разворот задан нами и точен — иначе общее правило «yaw только при уверенном фронте»
+        # его съест и створки развернутся наружу
+        orient.setdefault(key, {'yaw': FIXTURE_MESH.get(role, ('', 0.0))[1],
+                                'orient': 'kit:human'})
+    if not places:
+        return [], room
+    return places, room.model_copy(update={'openings': rest})
 
 
 def _scene3d_glb(sid: str) -> str | None:
@@ -2318,8 +2421,10 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict
     # предмет либо МОДЕЛЬЮ, либо clay-формой — не оба (владелец 31.08: «если ставишь
     # реальную модель, абстрактную убирай»): сначала выясняем, у кого есть меш, и строим
     # clay-сцену БЕЗ них; глубины обеих половин делят один z-буфер — перекрытия честные
-    orient = _scene3d_orient()
-    mesh_places, clay_places = [], []
+    orient = dict(_scene3d_orient())      # копия: в неё дописываются развороты обстановки
+    # ПРОЁМЫ — МЕШАМИ. `room_clay` без этих проёмов, иначе плашка спорит с мешем за глубину.
+    fixture_places, room_clay = _fixture_openings(room, orient)
+    mesh_places, clay_places = list(fixture_places), []
     try:
         import asset_strategy as AS
     except Exception:  # noqa: BLE001
@@ -2349,7 +2454,7 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict
         (mesh_places if glb else clay_places).append((place, sid, glb))
     coll_notes = _push_from_supports(mesh_places, clay_places, room)
     coll_notes += _push_from_supports(mesh_places, mesh_places, room)
-    sc = compile_scene(room, [p for p, _, _ in clay_places], cam)
+    sc = compile_scene(room_clay, [p for p, _, _ in clay_places], cam)
     depth = sc['depth']
     H, W = depth.shape
     canvas = np.asarray(clay_render(sc)).astype(np.float32).copy()
