@@ -384,6 +384,13 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 /* Итог списка прилипает к верху окна и на телефоне заезжал под круглую кнопку закрытия —
    сумма читалась как «77 7…». Оставляем ей место. */
 #shot .pinlist .total{padding-right:52px}
+/* Полоска «фото отстало» — между итогом и строками товаров: замена видна в списке сразу, а
+   фотография до новой съёмки прежняя, и без объяснения это читается как поломка. */
+.restale{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:10px 0 2px;
+ padding:10px 12px;border-radius:var(--radius-sm);background:var(--wash-3);
+ font-size:clamp(14px,1.8vw,15px);color:var(--muted)}
+.restale span{flex:1 1 auto;min-width:0}
+.restale .btn{flex:0 0 auto;white-space:nowrap;font-size:clamp(14px,1vw,15.5px);padding:9px 16px}
 .hint{font-size:clamp(14px,1.8vw,15px);color:var(--muted);margin-top:8px}
 /* ВВОДНЫЙ БЛОК — НАВЕРХУ (владелец 26.08): человек должен сразу понять, что тут можно делать,
    а не искать объяснение под планом. */
@@ -644,6 +651,8 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
   #shot .cap #shPick,#shot .cap #shotclose{flex:1 1 calc(50% - 5px)}
   #shot .cap #shotclose{margin-left:0}
   #shot .shotwrap img,#shot .grid2 img{max-height:52vh;border-radius:var(--radius-sm)}
+  /* на телефоне кнопка съёмки встаёт под текст на всю ширину, а не жмётся к нему сбоку */
+  .restale .btn{flex:1 1 100%;white-space:normal}
   .xclose{top:10px;right:10px}
   /* лист подбора товара */
   #sheet{inset:0;border-radius:0;max-height:none}
@@ -1680,9 +1689,21 @@ function warmUp(){ if(warmed)return; warmed=true;
     .catch(()=>{}); }
 // РЕВИЗИЯ РАССТАНОВКИ — что именно снято на фотографии. Совпала с текущей — показываем кадры,
 // разошлась — предлагаем сделать новый снимок. Считается по местам предметов и назначенным товарам.
+// КЛЮЧ ТОВАРА В РЕВИЗИИ. Было `it.sku.mid+':'+it.sku.eid` с запасным вариантом по имени — но
+// склейка неопределённых полей даёт СТРОКУ «undefined:undefined», а она истинна, поэтому запасной
+// вариант не срабатывал никогда. В товарах этого демо `mid`/`eid` нет вовсе (есть `name`, `sid`,
+// `pack`…), значит ВСЕ товары получали один и тот же ключ, и ревизия не менялась от замены товара.
+// Последствие было не косметическое: `revision()!==baseRev` — это признак «человек правил
+// расстановку», по нему показываются кнопки «Посмотреть фото с изменениями» (`#consShot`,
+// `#swapFoot`). Заменив диван, человек не получал НИ ОДНОГО способа увидеть новый кадр.
+function skuKey(sk){
+  if(!sk)return '-';
+  if(sk.mid&&sk.eid)return sk.mid+':'+sk.eid;
+  return sk.sid||sk.name||'-';
+}
 function revision(){
   return items.map(it=>`${it.role}|${Math.round(it.x)}|${Math.round(it.y)}|${Math.round(it.rot||0)}|`
-    +((it.sku&&(it.sku.mid+':'+it.sku.eid))||(it.sku&&it.sku.name)||'-')).sort().join(';');
+    +skuKey(it.sku)).sort().join(';');
 }
 function payload(){
   const base=location.origin+location.pathname.replace(/[^/]*$/,'');
@@ -1820,6 +1841,7 @@ function dedupeProducts(list){
   });
 }
 function addShot(rec){ shots.push(rec); saveShots();
+  consBack=-1;   // сняли новый кадр — возвращаться в прежний просмотр незачем, откроется новый
   try{if(rec.sources)localStorage.setItem('flat215-src',rec.sources);}catch(e){}
   drawFeed(); drawPhotos();
   const tr=document.querySelector('#feed .track');   // новый кадр стоит первым — показываем начало
@@ -2001,6 +2023,11 @@ function toggleSwap(i){   // кнопка «Заменить мебель» — 
 }
 // ——— КОНСТРУКТОР: узел плана переносим в оверлей и обратно, не пересоздавая
 let consHome=null;
+// ОТКУДА ВОШЛИ В КОНСТРУКТОР. Если из окна кадра — по «Готово» возвращаем это окно: человек его
+// не закрывал (владелец 02.09, то же правило, что и для листа подбора). Само окно на время
+// приходится закрывать: `#shot` и `#cons` оба z-index 60, и `#shot` ниже в разметке — иначе он
+// перекрыл бы план.
+let consBack=-1;
 function openCons(mode){
   const work=document.getElementById('work'), body=document.getElementById('consBody');
   if(!work||!body)return;
@@ -2023,6 +2050,7 @@ function closeCons(){
   document.body.style.overflow='';
   if(work&&consHome){consHome.appendChild(work);work.hidden=true;}
   drawColl(); showSwap();
+  if(consBack>=0){const k=consBack; consBack=-1; viewShot(k);}
 }
 function updateConsShot(){
   const b=document.getElementById('consShot');
@@ -2145,23 +2173,40 @@ function pinCard(a,el){
   p.onclick=()=>{if(a.url)window.open(a.url,'_blank','noopener');};
 }
 
-function viewShot(i){
-  const s=shots[i]; if(!s)return;
-  // ЗНАЧКИ — ТОЛЬКО ПОДТВЕРЖДЁННЫЕ, А СПИСОК ТОВАРОВ — ВЕСЬ (владелец 27.08: «исчезли товары при
-  // открытии фото»): строгая проверка якорей не должна прятать сами товары этого кадра.
-  const all=shotProducts(s);
-  const an=all.filter(a=>!a.unverified);
-  // ЯКОРЯ ставим по координатам, посчитанным сервером из масок сцены: клик ведёт в магазин
-  const pins='';           // ЗНАЧКОВ НА ФОТО НЕТ (владелец 27.08): товары — лентой под кадром
-  // ПОД ФОТО — ВСЕ ТОВАРЫ С ЦЕНАМИ И ИТОГОМ (владелец 26.08)
-  const numOf=new Map();   // без значков номера на карточках не нужны
+// ——— СПИСОК ТОВАРОВ ПОД ФОТО. Вынесен из `viewShot` отдельно, потому что его нужно
+// ПЕРЕРИСОВЫВАТЬ на месте: после замены товара окно кадра остаётся открытым.
+let shotAt=-1;      // индекс кадра, открытого в окне
+let shotRows=[];    // строки, которыми список нарисован сейчас (по ним работает «Заменить»)
+// ИСТОЧНИК СПИСКА — ЖИВАЯ РАССТАНОВКА, А НЕ СНИМОК КАДРА (владелец 02.09: «в списке не
+// обновляет… и сумма должна меняться»). У кадра есть свой `products`, записанный в момент
+// съёмки; пока список строился из него, замена товара не меняла НИЧЕГО в окне, а вторая замена
+// вообще не срабатывала: строка всё ещё звалась старым именем, а предмет в расстановке — уже
+// новым, и поиск `items.find(...)` не находил ничего и молча выходил.
+// Живой источник берём только когда кадр принадлежит ТЕКУЩЕМУ варианту (`viewShot` для этого
+// сперва делает вариант кадра текущим). Для неопознанного кадра остаётся снимок.
+// Побочно список теперь показывает и декор — он входит в комплект (правило владельца 02.09),
+// а в снимке серверных кадров его не было.
+function shotListSource(s){
+  const vi=allVariants().findIndex(v=>(v.id||'')===((s&&s.vid)||''));
+  if(vi>=0&&vi===cur)return productsOf(items);
+  return shotProducts(s);
+}
+// ТОВАРЫ СПИСКОМ, А НЕ КАРТОЧКАМИ (владелец 02.09). Сетка карточек читалась как каталог и
+// прятала действия; строка показывает всё сразу: миниатюра, название, роль и магазин, цена и
+// две кнопки. «Заменить» ведёт в тот же лист подбора, что и из списка мебели, — но только для
+// товара, который есть в ТЕКУЩЕЙ расстановке: подменять товар на чужом кадре бессмысленно.
+function shotListHtml(s){
+  const all=shotListSource(s);
+  shotRows=all;
+  if(!all.length)return '';
   const sum=all.reduce((t,a)=>t+(a.price||0),0);
-  // ТОВАРЫ СПИСКОМ, А НЕ КАРТОЧКАМИ (владелец 02.09). Сетка карточек читалась как каталог и
-  // прятала действия; строка показывает всё сразу: миниатюра, название, роль и магазин, цена и
-  // две кнопки. «Заменить» ведёт в тот же лист подбора, что и из списка мебели, — но только для
-  // товара, который есть в ТЕКУЩЕЙ расстановке: подменять товар на чужом кадре бессмысленно.
-  const list=all.length?`<div class="pinlist">`+
+  // Правил расстановку — фотография отстала от списка. Говорим об этом прямо, иначе замена
+  // выглядит как поломка: строка сменилась, а на картинке прежний диван.
+  const stale=!!(baseRev&&items.length&&revision()!==baseRev);
+  return `<div class="pinlist">`+
       `<div class="total"><span>Товары на фото · ${all.length}</span><span>${money(sum)}</span></div>`+
+      (stale?`<div class="restale"><span>Фотография пока с прежней расстановкой.</span>`+
+        `<button class="btn primary round" id="shReshoot">Посмотреть фото с изменениями</button></div>`:'')+
       all.map((a,k)=>{
         const own=items.find(i=>(skuOf(i)||{}).name===a.name);
         return `<div class="row" style="cursor:default">`+
@@ -2173,7 +2218,47 @@ function viewShot(i){
             (a.url?`${own?' · ':''}<a href="${a.url}" target="_blank" rel="noopener">В магазин</a>`:'')+
           `</span></div>`+
           `<div class="p">${money(a.price)}</div></div>`;}).join('')+
-      `</div>`:'';
+      `</div>`;
+}
+// «Заменить» из просмотра: находим предмет текущей расстановки по названию товара
+function wireShotList(){
+  document.querySelectorAll('#shotbody [data-rep]').forEach(b=>b.onclick=()=>{
+    const a=shotRows[+b.dataset.rep];
+    const it=a&&items.find(i=>(skuOf(i)||{}).name===a.name);
+    if(!it)return;
+    // окно, из которого пришли, НЕ закрываем (владелец 02.09: «модалка стиля, если не закрыли,
+    // остаётся открытой»). Лист подбора теперь выше по слоям и виден поверх него.
+    sel=it; draw(); openPicker(it);
+  });
+  // СНЯТЬ НОВЫЙ КАДР МОЖНО ПРЯМО ЗДЕСЬ. Кнопка «Посмотреть фото с изменениями» живёт ещё в
+  // панели замены на витрине, но она за открытым окном и человеку не видна: заменив товар, он
+  // остаётся с прежней фотографией и без выхода. Кадр наш, серверный, платного вызова нет.
+  const rs=document.getElementById('shReshoot');
+  if(rs)rs.onclick=()=>makePhoto('draft');
+}
+// Перерисовка списка на месте — вызывается после замены товара, пока окно кадра открыто.
+function refreshShotList(){
+  const sh=shots[shotAt];
+  const box=document.querySelector('#shotbody .pinlist');
+  if(!sh||!box||!document.getElementById('shot').classList.contains('on'))return;
+  const tmp=document.createElement('div'); tmp.innerHTML=shotListHtml(sh);
+  const nu=tmp.firstElementChild;
+  if(!nu){box.remove();return;}
+  box.replaceWith(nu); wireShotList();
+}
+function viewShot(i){
+  const s=shots[i]; if(!s)return;
+  shotAt=i;
+  // ВАРИАНТ КАДРА ДЕЛАЕМ ТЕКУЩИМ. Иначе список под фотографией и кнопка «Заменить» относятся к
+  // расстановке, открытой на витрине, а не к той, что на снимке: у чужого кадра «Заменить» либо
+  // не появлялась вовсе, либо правила ДРУГОЙ вариант. Кадр, снятый только что, привязан к уже
+  // текущему варианту — там переключения не происходит и правки человека не теряются.
+  const vi=allVariants().findIndex(v=>(v.id||'')===(s.vid||''));
+  if(vi>=0&&vi!==cur)pickVariant(vi);
+  // ЯКОРЯ ставим по координатам, посчитанным сервером из масок сцены: клик ведёт в магазин
+  const pins='';           // ЗНАЧКОВ НА ФОТО НЕТ (владелец 27.08): товары — лентой под кадром
+  // ПОД ФОТО — ВСЕ ТОВАРЫ С ЦЕНАМИ И ИТОГОМ (владелец 26.08)
+  const list=shotListHtml(s);
   // ССЫЛКА НА ИСХОДНИКИ — В КАЖДОМ ПРОСМОТРЕ (26.08). У старых кадров своей ссылки нет, поэтому
   // подставляем последнюю известную: лучше показать запрос соседнего кадра, чем ничего.
   let lastSrc=''; try{lastSrc=localStorage.getItem('flat215-src')||'';}catch(e){}
@@ -2200,15 +2285,7 @@ function viewShot(i){
   // нигде — в шапке списка только число товаров и их сумма, а стоимость комплекта видна в
   // конструкторе («Комплект: …»). Вернуть стиль — только по слову владельца.
   shotOpen(`<div class="shotwrap"><img src="${s.url}" alt="${styleOf(s)}">${pins}${navs}</div>${srcRow}${list}`,'');
-  // «Заменить» из просмотра: находим предмет текущей расстановки по названию товара
-  document.querySelectorAll('#shotbody [data-rep]').forEach(b=>b.onclick=()=>{
-    const a=all[+b.dataset.rep];
-    const it=items.find(i=>(skuOf(i)||{}).name===a.name);
-    if(!it)return;
-    // окно, из которого пришли, НЕ закрываем (владелец 02.09: «модалка стиля, если не закрыли,
-    // остаётся открытой»). Лист подбора теперь выше по слоям и виден поверх него.
-    sel=it; draw(); openPicker(it);
-  });
+  wireShotList();
   // ОТМЕТКА СТАВИТСЯ НА ВЕСЬ ВАРИАНТ, КАК СЕРДЕЧКО НА КАРТОЧКЕ (разбор Codex 02.09, проверено
   // по коду). Кнопка в окне помечала ОДИН кадр, а карточка коллекции и отправка смотрят на
   // «лучший кадр» варианта (`bestShot`): отметив в окне второй вид, человек не видел отклика на
@@ -2234,6 +2311,7 @@ function viewShot(i){
     ed.onclick=()=>{
       const vi=allVariants().findIndex(v=>(v.id||'')===(s.vid||''));
       if(vi>=0&&vi!==cur)pickVariant(vi);
+      consBack=i;   // по «Готово» вернёмся сюда же
       document.getElementById('shot').classList.remove('on');
       openCons('edit');
     };}
@@ -2594,7 +2672,10 @@ function grid(){
     // человек не понимал, применилась замена или нет: результат-то виден на плане и в списке,
     // которые закрыты этим же листом. `sid` переносим тоже — иначе в сцене останется меш
     // прежнего товара.
-    const take=()=>{ tryOn(p); grid(); closePicker(); };
+    // СПИСОК В ОТКРЫТОМ ОКНЕ КАДРА ОБНОВЛЯЕМ СРАЗУ (владелец 02.09: «в списке не обновляет…
+    // и сумма должна считаться»). Без этого окно оставалось со старой строкой и старой суммой,
+    // а вторая замена того же предмета вообще не срабатывала — строка искалась по прежнему имени.
+    const take=()=>{ tryOn(p); grid(); closePicker(); refreshShotList(); };
     c.querySelector('.mini').onclick=e=>{e.stopPropagation();take();};
     c.querySelector('.link').onclick=e=>e.stopPropagation();
     c.onclick=take; g.appendChild(c);});}
