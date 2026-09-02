@@ -10,6 +10,7 @@
   SALAD_API_KEY=... ~/venvs/scout/bin/python batch_show.py --batch 5          # весь план
   SALAD_API_KEY=... ~/venvs/scout/bin/python batch_show.py --batch 5 --max 50 # первые 50
 """
+import concurrent.futures as cf
 import datetime
 import json
 import os
@@ -151,7 +152,11 @@ _PULL_HIST: dict = {}     # instance_id → наблюдения за закач
 # имеет 1-5% и объявляется браком — так мы трижды за сутки выкосили пул, в том числе ноду
 # на 70%. Ступени растянуты вчетверо и проверены по наблюдаемой скорости.
 STAGES = [(1200.0, 0.05), (2400.0, 0.25), (4800.0, 0.60)]  # 20 мин→5%, 40 мин→25%, 80 мин→60%
-STALL_S = float(os.environ.get('MESH_PULL_STALL_S', '300'))           # без движения 5 мин
+# БЕЗ ДВИЖЕНИЯ — 15 МИНУТ, НЕ 5 (02.09). Прежние пять минут сняли за час две ноды
+# («нет движения 5 мин», «нет движения 8 мин»), а каждая уносила уже скачанные гигабайты:
+# замена начинала 26 ГБ с нуля, и пул не мог наполниться. `pulling_progress` у Salad
+# приблизителен и на распаковке крупного слоя честно стоит на месте — это не поломка.
+STALL_S = float(os.environ.get('MESH_PULL_STALL_S', '900'))           # без движения 15 мин
 STALL_MIN = float(os.environ.get('MESH_PULL_STALL_MIN', '0.01'))      # прирост <1% = стоит
 FINISH_GUARD = float(os.environ.get('MESH_FINISH_GUARD', '0.80'))     # выше — судим по ОСТАТКУ
 # В зоне финиша не «терпим бесконечно», а требуем уложиться в бюджет, пропорциональный
@@ -306,6 +311,61 @@ def cull_slow_pulls() -> None:
             _PULL_HIST.pop(iid, None)
     for iid in [k for k in _PULL_HIST if k not in seen]:
         _PULL_HIST.pop(iid, None)
+
+
+ZOMBIE_MIN_MIN = float(os.environ.get('MESH_ZOMBIE_MIN_MIN', '10'))
+
+
+def cull_dead_warmups() -> None:
+    """ПЕРЕСАДКА «ЖИВЫХ ЗОМБИ» — нод, которые платно висят с намертво упавшим прогревом.
+
+    ЗАЧЕМ (02.09). Воркер выставляет `warm=true` в `finally`, то есть и после провала прогрева
+    (`worker.py`). Платформа видит такую ноду как Running и держит её часами, мы её справедливо
+    не берём (`ssh_run.probe_warm`) — и слот стоит пустым за наши деньги. В тот день две ноды
+    провисели 279 и 76 минут с `done: 0` и `gpu_seconds: 0.0`; за смену 81 отказ прогрева.
+    Старая пересадка сюда не смотрела: она судила только тех, кто ещё качает образ.
+
+    ПРЕДОХРАНИТЕЛЬ (совет Codex 02.09, принят): одинаковая ошибка на половине пула — это наша
+    беда, а не машин (так было и с DINOv2: пересаживать бесполезно, заменят таким же). Тогда
+    только пишем в лог. Тот же принцип уже стоит на отказах заданий (`node_health.fleet_wide`)
+    и на медленной закачке.
+    """
+    import json as _j
+    import urllib.request as _u
+    for grp in [g.strip() for g in os.environ.get('SALAD_GROUP', 'mesh-run3').split(',') if g.strip()]:
+        base = f'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers/{grp}'
+        try:
+            req = _u.Request(base + '/instances',
+                             headers={'Salad-Api-Key': os.environ['SALAD_API_KEY'],
+                                      'User-Agent': 'remlab-mesh/1.0'})
+            with _u.urlopen(req, timeout=30) as r:
+                ins = _j.load(r).get('instances') or []
+        except Exception:  # noqa: BLE001 — сеть не валит конвейер
+            return
+        now = time.time()
+        live = [i for i in ins if i.get('state') == 'running' and i.get('id') and i.get('ssh_port')
+                # молодую ноду не судим: она может быть в середине прогрева
+                and (iso_age_s(i.get('update_time'), now) or 0) >= ZOMBIE_MIN_MIN * 60]
+        if not live:
+            return
+        ports = [int(i['ssh_port']) for i in live]
+        with cf.ThreadPoolExecutor(max_workers=min(6, len(ports))) as ex:
+            health = dict(zip(ports, ex.map(SR.probe_health, ports)))
+        dead = [(i, SR.warmup_fault(health.get(int(i['ssh_port'])) or {})) for i in live]
+        dead = [(i, why) for i, why in dead if why]
+        if not dead:
+            return
+        kinds = {why for _, why in dead}
+        if len(dead) >= max(2, len(live) * 0.5) and len(kinds) == 1:
+            print(f'  прогрев упал у {len(dead)} из {len(live)} нод одинаково — это наша беда, '
+                  f'не машины: {next(iter(kinds))[:120]}', flush=True)
+            continue
+        for i, why in dead:
+            if not NH.take_cull_slot():
+                break
+            iid = i['id']
+            print(f'нода {iid[:8]} ({grp}): прогрев мёртв — ПЕРЕСАЖИВАЮ: {why[:120]}', flush=True)
+            NH.reallocate(grp, iid, f'warmup: {why[:80]}')
 
 
 def post_steps() -> tuple:
@@ -488,6 +548,7 @@ def _main():
             else:
                 print('нет тёплых нод — жду 3 мин и пробую снова', flush=True)
             cull_slow_pulls()
+            cull_dead_warmups()   # ноды «Running» с мёртвым прогревом — самый дорогой простой
             time.sleep(180)
             continue
         s = run_summary(out)
@@ -502,6 +563,7 @@ def _main():
         if step_done == 0:
             print('   ни одного закрытого задания — жду 3 мин и пробую снова', flush=True)
             cull_slow_pulls()
+            cull_dead_warmups()   # ноды «Running» с мёртвым прогревом — самый дорогой простой
             time.sleep(180)
             continue
         done += step_done

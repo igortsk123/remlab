@@ -13,6 +13,7 @@
   ~/venvs/scout/bin/python ssh_run.py --limit 10        # десятка на всех тёплых нодах
   ~/venvs/scout/bin/python ssh_run.py --report          # сводка из mesh-pilot-results.json
 """
+import concurrent.futures as cf
 import json
 import os
 import re
@@ -122,10 +123,12 @@ def instances() -> list[dict]:
     return out
 
 
-def probe_warm(port: int) -> bool:
-    """Прогрет ли воркер ноды. Спрашиваем ноду ЛИЧНО через её терминал — флагам платформы
-    после тех двух дней веры нет. Проба дорогая (до 50 с), поэтому зовём её только для
-    НОВЫХ и остывших нод, а не по кругу для всех."""
+def probe_health(port: int) -> dict:
+    """Ответ `/health` ноды, спрошенный через её терминал. Пустой словарь — не ответила.
+
+    Отдельно от `probe_warm`, потому что сам ответ нужен не только для «брать/не брать»:
+    по нему пересаживают ноды с намертво упавшим прогревом (`batch_show.cull_dead_warmups`).
+    """
     try:
         r = ssh_text(port, 'python -c "import urllib.request;'
                            'print(urllib.request.urlopen(\'http://127.0.0.1:8000/health\','
@@ -135,35 +138,62 @@ def probe_warm(port: int) -> bool:
         # «пачка без итога (код 1) — стоп, разбор руками», группа погашена в разгар волны)
         print(f'  порт {port}: проба не удалась ({type(e).__name__}) — считаю ноду холодной',
               flush=True)
-        return False
+        return {}
     m = re.search(r'\{.*\}', r or '')
-    if m:
-        try:
-            h = json.loads(m.group(0))
-        except json.JSONDecodeError:
-            h = {}
-        if h.get('warm'):
-            # `warm` воркер ставит в `finally` — то есть и после упавшего прогрева
-            # (`worker.py`). Такая нода отвечает «готова», берёт задания и валит их.
-            # Правку самого воркера видно только после пересборки образа, поэтому гейт
-            # ставим здесь: у нас эта информация уже есть, она едет в /health.
-            if h.get('warmup_error'):
-                # ТЕКСТ ОШИБКИ ОБЯЗАТЕЛЕН (02.09): три часа пул простаивал с сообщением
-                # «прогрев упал», и причину — недостающую DINOv2 и таймаут CDN HuggingFace —
-                # пришлось доставать из ноды руками. Отказ без причины в логе не отличим от
-                # любого другого отказа, и разбор начинается заново каждый раз.
-                why = (h.get('warmup_error') or '').strip().splitlines()
-                tail = why[-1][:160] if why else 'без текста'
-                print(f'  порт {port}: прогрев упал — ноду не беру: {tail}', flush=True)
-                return False
-            return True
+    if not m:
+        return {}
+    try:
+        return json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return {}
+
+
+def warmup_fault(h: dict) -> str:
+    """Короткая причина упавшего прогрева, пригодная для группировки. Пусто — прогрев цел."""
+    why = (h.get('warmup_error') or '').strip().splitlines()
+    return why[-1][:160] if why else ''
+
+
+def probe_warm(port: int) -> bool:
+    """Прогрет ли воркер ноды. Спрашиваем ноду ЛИЧНО через её терминал — флагам платформы
+    после тех двух дней веры нет. Проба дорогая (до 50 с), поэтому зовём её только для
+    НОВЫХ и остывших нод, а не по кругу для всех."""
+    h = probe_health(port)
+    if h.get('warm'):
+        # `warm` воркер ставит в `finally` — то есть и после упавшего прогрева
+        # (`worker.py`). Такая нода отвечает «готова», берёт задания и валит их.
+        # Правку самого воркера видно только после пересборки образа, поэтому гейт
+        # ставим здесь: у нас эта информация уже есть, она едет в /health.
+        fault = warmup_fault(h)
+        if fault:
+            # ТЕКСТ ОШИБКИ ОБЯЗАТЕЛЕН (02.09): три часа пул простаивал с сообщением
+            # «прогрев упал», и причину — недостающую DINOv2 и таймаут CDN HuggingFace —
+            # пришлось доставать из ноды руками. Отказ без причины в логе не отличим от
+            # любого другого отказа, и разбор начинается заново каждый раз.
+            print(f'  порт {port}: прогрев упал — ноду не беру: {fault}', flush=True)
+            return False
+        return True
     print(f'  порт {port}: воркер не прогрет или не отвечает', flush=True)
     return False
 
 
+PROBE_WORKERS = int(os.environ.get('MESH_PROBE_WORKERS', '6'))
+
+
 def warm_ports() -> list[int]:
-    """SSH-порты прогретых нод — стартовый снимок; дальше состав пула ведёт супервизор."""
-    return [i['port'] for i in instances() if probe_warm(i['port'])]
+    """SSH-порты прогретых нод — стартовый снимок; дальше состав пула ведёт супервизор.
+
+    ПРОБЫ ИДУТ ПАРАЛЛЕЛЬНО (02.09). Раньше здесь был последовательный обход, а одна проба
+    стоит до 50 с: девять неготовых нод задерживали запуск ЕДИНСТВЕННОЙ готовой на 7.5 минуты,
+    и так на каждой пачке. Ноды в это время оплачивались и простаивали. Порядок портов в ответе
+    сохраняем — от него зависит раздача заданий.
+    """
+    ports = [i['port'] for i in instances()]
+    if not ports:
+        return []
+    with cf.ThreadPoolExecutor(max_workers=min(PROBE_WORKERS, len(ports))) as ex:
+        verdicts = dict(zip(ports, ex.map(probe_warm, ports)))
+    return [p for p in ports if verdicts.get(p)]
 
 
 def ssh_text(port: int, cmd: str, timeout: int = 60) -> str:

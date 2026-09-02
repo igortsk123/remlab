@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""СТОРОЖ ДЕНЕГ: гасит группу Salad, если работающие ноды долго ничего не выдают.
+
+ЗАЧЕМ (владелец 02.09, перед сном: «главное сделай так чтобы деньги просто так не
+откручивали»). За сутки 02.09 пул выдал 22 меша, простояв девять часов из пятнадцати: ноды
+докладывали `Running`, платились по тарифу и не считали ничего (`gpu_seconds: 0.0` при uptime
+279 минут). Конвейер такую ситуацию переживал молча — он ждал тёплых нод, а счётчик тикал.
+
+ПРАВИЛО — В НОДО-МИНУТАХ, А НЕ В ЧАСАХ НА СТЕНЕ. Платим мы за время в состоянии `running`
+(закачка образа у Salad не тарифицируется), поэтому и терпение считаем в нём: сколько
+оплаченных нодо-минут прошло с последнего успешного меша. Здоровая нода отдаёт меш за ~3.5
+минуты, так что бюджет в 120 нодо-минут молчания — это уже не «не повезло», а поломка.
+
+Сторож ЖИВЁТ ОТДЕЛЬНО от конвейера: если конвейер упадёт или зависнет, ноды всё равно не
+будут крутиться до утра впустую. Он только ГАСИТ группу (`/stop`), никогда не удаляет её и
+не трогает задания — разбор утром по логу.
+"""
+from __future__ import annotations
+
+import json
+import os
+import sys
+import time
+import urllib.request
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+JOURNAL = os.path.join(HERE, '..', 'mesh-run-progress.jsonl')
+STATE = os.path.expanduser('~/scout-scenes/mesh-money-guard.json')
+
+# Сколько ОПЛАЧЕННЫХ нодо-минут молчания терпим. 120 ≈ 35 мешей, которые здоровый пул успел бы
+# сделать за это время: если их нет, дело не в невезении.
+BUDGET_NODE_MIN = float(os.environ.get('MESH_GUARD_NODE_MIN', '120'))
+TICK_S = float(os.environ.get('MESH_GUARD_TICK_S', '300'))
+API = 'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers'
+
+
+def _api(path: str, method: str = 'GET') -> dict:
+    req = urllib.request.Request(f'{API}/{path}', method=method,
+                                 headers={'Salad-Api-Key': os.environ['SALAD_API_KEY'],
+                                          'User-Agent': 'remlab-mesh/1.0'})
+    if method == 'POST':
+        req.data = b''
+    with urllib.request.urlopen(req, timeout=30) as r:
+        body = r.read()
+    return json.loads(body) if body else {}
+
+
+def running_count(group: str) -> int:
+    try:
+        ins = _api(f'{group}/instances').get('instances') or []
+    except Exception as e:  # noqa: BLE001 — сеть не должна гасить сторожа
+        print(f'{time.strftime("%H:%M")} опрос не удался ({type(e).__name__}) — тик пропущен',
+              flush=True)
+        return -1
+    return sum(1 for i in ins if i.get('state') == 'running')
+
+
+def last_mesh_at() -> float:
+    """Время последнего успешного меша по журналу прогона. 0 — мешей вообще нет."""
+    best = 0.0
+    try:
+        with open(JOURNAL, encoding='utf-8') as f:
+            for line in f:
+                if '"ok"' not in line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if r.get('status') == 'ok' and r.get('at', 0) > best:
+                    best = float(r['at'])
+    except FileNotFoundError:
+        pass
+    return best
+
+
+def load() -> dict:
+    try:
+        return json.load(open(STATE, encoding='utf-8'))
+    except Exception:  # noqa: BLE001 — нет состояния или битое: начинаем с чистого
+        return {}
+
+
+def save(d: dict) -> None:
+    tmp = STATE + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(d, f)
+    os.replace(tmp, STATE)
+
+
+def main() -> int:
+    group = os.environ.get('SALAD_GROUP', '').split(',')[0].strip()
+    if not group or not os.environ.get('SALAD_API_KEY'):
+        print('нет SALAD_GROUP или SALAD_API_KEY', flush=True)
+        return 2
+    st = load()
+    if st.get('group') != group:            # сменили группу — терпение считаем заново
+        st = {'group': group, 'idle_node_min': 0.0, 'last_seen_mesh': last_mesh_at()}
+    print(f'сторож денег: группа {group}, бюджет молчания {BUDGET_NODE_MIN:.0f} нодо-минут, '
+          f'тик {TICK_S / 60:.0f} мин', flush=True)
+    while True:
+        n = running_count(group)
+        mesh_at = last_mesh_at()
+        if mesh_at > st.get('last_seen_mesh', 0):
+            # Пошли меши — терпение обнуляем целиком: пул работает, платим за дело.
+            if st['idle_node_min'] > 0:
+                print(f'{time.strftime("%H:%M")} меши пошли — счётчик молчания сброшен '
+                      f'(был {st["idle_node_min"]:.0f} нодо-мин)', flush=True)
+            st['idle_node_min'] = 0.0
+            st['last_seen_mesh'] = mesh_at
+        elif n > 0:
+            st['idle_node_min'] += n * (TICK_S / 60.0)
+            print(f'{time.strftime("%H:%M")} работающих нод {n}, мешей нет: '
+                  f'{st["idle_node_min"]:.0f} из {BUDGET_NODE_MIN:.0f} нодо-минут молчания',
+                  flush=True)
+        elif n == 0:
+            # Никто не работает — деньги не идут, терпение не тратим.
+            print(f'{time.strftime("%H:%M")} работающих нод нет — не платим, жду', flush=True)
+        save(st)
+        if st['idle_node_min'] >= BUDGET_NODE_MIN:
+            print(f'{time.strftime("%H:%M")} !! ПРЕВЫШЕН БЮДЖЕТ МОЛЧАНИЯ '
+                  f'({st["idle_node_min"]:.0f} нодо-минут без единого меша) — ГАШУ ГРУППУ '
+                  f'{group}. Разбор утром: почему ноды не отдавали меши.', flush=True)
+            try:
+                _api(f'{group}/stop', 'POST')
+                print(f'{time.strftime("%H:%M")} группа {group} остановлена, деньги не идут',
+                      flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f'{time.strftime("%H:%M")} !! НЕ СМОГ ПОГАСИТЬ ({type(e).__name__}: {e}) — '
+                      f'нужен человек', flush=True)
+                return 1
+            return 0
+        time.sleep(TICK_S)
+
+
+if __name__ == '__main__':
+    sys.exit(main())

@@ -1,0 +1,39 @@
+# ТОНКИЙ СЛОЙ: модель DINOv2 запекается в образ, чтобы нода не ходила за ней в интернет.
+#
+# ЗАЧЕМ (02.09). Ноды докачивали 20 ГБ образа, вставали в строй как «Running» — и ничего не
+# делали. Опрос нод показал `gpu_seconds: 0.0` при uptime 279 минут, а причину они назвали сами:
+#     OSError: Can't load the model for 'facebook/dinov2-giant'
+#     requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='us.aws.cdn.hf.co', port=443)
+# Стадия покраски строит DINOv2 (`hy3dpaint/hunyuanpaintpbr/unet/modules.py:52`), а кэш моделей
+# в образе весит 32 КБ — пустые папки. Значит КАЖДАЯ нода на прогреве тянула 4.55 ГБ с
+# HuggingFace. За смену 81 отказ прогрева: мы платили за закачку образа и получали простой.
+#
+# ЧТО КАЧАЕМ. Только `model.safetensors` + конфиги. Репозиторий хранит веса ДВАЖДЫ
+# (`model.safetensors` и `pytorch_model.bin`, по 4.55 ГБ) — transformers предпочитает
+# safetensors, второй файл лишний. Итого +4.55 ГБ к образу, а не +9.09.
+#
+# ПОЧЕМУ ЗАПЕКАЕМ, А НЕ ЧИНИМ СЕТЬ. Сеть ноды нам не подчиняется: половина машин не дотягивается
+# до CDN HuggingFace, и узнать это можно только после того, как машина скачала 20 ГБ образа.
+# Файл в образе такой лотереи не оставляет.
+#
+#   docker build -f Dockerfile.dino --build-arg BASE=<образ с mmap> -t <repo>:<tag> .
+ARG BASE
+FROM ${BASE}
+
+# hf_transfer в базовом образе включён переменной, но пакет может отсутствовать — на время
+# закачки выключаем, иначе загрузчик падает на импорте.
+RUN HF_HUB_ENABLE_HF_TRANSFER=0 HF_HOME=/opt/hf python -c "\
+from huggingface_hub import snapshot_download; \
+p = snapshot_download('facebook/dinov2-giant', \
+    allow_patterns=['*.json', '*.safetensors', '*.txt'], max_workers=4); \
+print('скачано в', p)" && \
+    du -sh /opt/hf
+
+# Проверка на месте сборки: молчаливо не скачавшийся слой дал бы образ, неотличимый снаружи от
+# старого, и ноды снова простаивали бы часами. Здесь только резолв кэша без загрузки весов в
+# память — полную проверку `AutoModel.from_pretrained` гоняем отдельным запуском после сборки.
+RUN HF_HUB_OFFLINE=1 HF_HOME=/opt/hf python -c "\
+from transformers import AutoConfig; \
+c = AutoConfig.from_pretrained('facebook/dinov2-giant'); \
+assert c.hidden_size == 1536, c.hidden_size; \
+print('DINOv2 читается из образа без сети, hidden_size =', c.hidden_size)"
