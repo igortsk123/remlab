@@ -221,6 +221,12 @@ Standard, `isDownloadable:false`, платная модель магазина.
 
 
 ## Vercel AI Gateway (26.08)
+> **01.09 — ГРАБЛЯ: у ключа свой лимит расходов.** Отказ приходит как `HTTP 402 Payment Required`
+> с телом «API key budget exceeded. Current spend: $10.04, limit: $10.00», при этом на счету
+> команды деньги ЕСТЬ (`GET /v1/credits` показывал balance $10.63). Лимит снимается в кабинете
+> Vercel (AI Gateway → API Keys → бюджет ключа). Баланс счёта и лимит ключа — РАЗНЫЕ вещи,
+> проверять надо оба. Наш `openai_budget` расходы на картинки не считает, поэтому упор в лимит
+> приходит без предупреждения.
 `https://ai-gateway.vercel.sh/v1`: `/images/edits` (`image[]`, `mask`) для `gpt-image-*`;
 `/chat/completions` + `modalities:['image']` для Google-картинок — `draft_render._chat_edit`.
 Ключ `VERCEL_AI_GATEWAY_KEY`: `_secrets/ACCESS.md` и `/opt/remlab/.env`; клиент `gw_key()`.
