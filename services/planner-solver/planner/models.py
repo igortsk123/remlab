@@ -110,6 +110,12 @@ class Placement(BaseModel):
     rot: float = 0
     item: Item | None = None
     elev_cm: float = Field(default=0, ge=0, description="подъём над полом: ТВ на стене, люстра")
+    # ПОДВЕСНАЯ ТУМБА/ПОЛКА — РАЗМЕТКА ИЗ ДАННЫХ, А НЕ ДОГАДКА ПО НАЗВАНИЮ. Поле объявлено здесь,
+    # потому что `draft_render.scene_from_request` его присваивает (`pl.hung = ...`), а pydantic v2
+    # запрещает запись необъявленных атрибутов: без объявления сборка сцены падала на КАЖДОМ
+    # запросе с товарами (страница шлёт `hung` у каждого предмета). Пусто = разметки нет,
+    # решает разбор названия (`draft_render._hung_stand`).
+    hung: bool | None = Field(default=None, description="предмет крепится на стену (тумба, полка)")
     # ПРОСЛЕЖИВАЕМОСТЬ ШАБЛОНА (ADR template-integrity, 12.08): каким паспортом схемы
     # поставлен предмет. Пусто = вне шаблона; при LAYOUT_ONLY_TEMPLATES=1 это ошибка.
     tpl_id: str = ""

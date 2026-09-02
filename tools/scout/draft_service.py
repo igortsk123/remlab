@@ -302,6 +302,12 @@ class H(BaseHTTPRequestHandler):
             _registry_add(payload, out2)
             self._send(200, out2)
         except Exception as e:                       # noqa: BLE001 — наружу отдаём короткую причину
+            # ПРИЧИНА ОБЯЗАНА ПОПАСТЬ В ЛОГ. Прод при 502 просто уходит в локальный рендер и
+            # пишет у себя «DEV-бэкенд молчит (HTTP Error 502)» — без причины. Так демо
+            # незаметно работало на декимированном запасном пути: качество упало, а в логах
+            # с обеих сторон не было ни одной строки, по которой это видно (02.09).
+            import traceback as _tb
+            print(f'РЕНДЕР НЕ УДАЛСЯ: {e!r}\n{_tb.format_exc()}', flush=True)
             self._send(502, {'error': f'рендер не удался: {str(e)[:200]}'})
         finally:
             _LOCK.release()
