@@ -53,7 +53,14 @@ def load_parts(path: str) -> list:
 # на ближайшую исходную вершину и ОСТАВЛЯЕМ ТОТ ЖЕ материал: он и хранит картинку
 # (`PBRMaterial.baseColorTexture`).
 LITE_FACES = int(os.environ.get('MESH_LITE_FACES', 10000))   # цель по граням на часть
-LITE_MIN = 2500                                              # мельче не трогаем — нечего экономить
+LITE_MIN = 2500
+# ГРАНИЦЫ ОБОЛОЧКИ ПРИ УПРОЩЕНИИ НЕ ТРОГАЕМ (владелец 02.09: «на диване проплешины»).
+# Меши товаров НЕ замкнуты (у дивана 6156 открытых рёбер): упрощатель схлопывал вершины на
+# открытой границе, соседние куски расходились, и в щель было видно стену. Замер на одной сцене:
+# дырок внутри предметов 1425 → 63 (уровень полного меша), время кадра то же (14,1 → 14,2 с),
+# граней столько же (9999 → 10000). Это и есть настоящее лечение «проплешин» — заплатки в кадре
+# после этого добирают единицы пикселей, а не тысячи.
+LITE_BORDER = os.environ.get('MESH_LITE_BORDER', '1') == '1'                                              # мельче не трогаем — нечего экономить
 _LITE_CACHE: dict = {}
 
 
@@ -84,14 +91,15 @@ def lite_parts(path: str, target: int | None = None) -> list:
             # по ней массив UV (дополненный до трёх столбцов) — получаем те же координаты, что
             # и у полного меша, без догадок о близости.
             if uv is not None and mat is not None:
-                vv, ff, coll = _fs.simplify(V, F, target_reduction=red, return_collapses=True)
+                vv, ff, coll = _fs.simplify(V, F, target_reduction=red, return_collapses=True,
+                                            preserve_border=LITE_BORDER)
                 uv3 = np.column_stack([np.asarray(uv, np.float32),
                                        np.zeros(len(uv), np.float32)]).astype(np.float32)
                 uvv = np.asarray(_fs.replay_simplification(uv3, F, coll)[0])[:, :2]
                 nm = trimesh.Trimesh(vertices=np.asarray(vv), faces=np.asarray(ff), process=False)
                 nm.visual = trimesh.visual.TextureVisuals(uv=uvv, material=mat)
             else:                                   # текстуры нет — переносим цвета граней
-                vv, ff = _fs.simplify(V, F, target_reduction=red)
+                vv, ff = _fs.simplify(V, F, target_reduction=red, preserve_border=LITE_BORDER)
                 nm = trimesh.Trimesh(vertices=np.asarray(vv), faces=np.asarray(ff), process=False)
                 try:
                     nm.visual = m.visual.copy()

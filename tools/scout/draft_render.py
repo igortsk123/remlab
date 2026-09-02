@@ -2394,6 +2394,20 @@ def _grow_into(canvas, mask, targets):
         targets[ys, xs] = False
 
 
+def _src_child(lay, style, st):
+    """Собрать исходник платного запроса — в ОТДЕЛЬНОМ процессе (см. вызов).
+
+    Здесь можно свободно ставить `S3_LITE[0] = False`: это копия памяти родителя, черновики
+    родителя от этого не пострадают.
+    """
+    try:
+        os.nice(10)
+    except Exception:  # noqa: BLE001 — не дали понизить: не повод отменять сборку
+        pass
+    import improve_mode as IM
+    IM.build(lay, style, stamp=st)
+
+
 def _fill_pinholes(canvas, inst,
                    gap: int = int(os.environ.get('PINHOLE_GAP', 2)),
                    hole_max: int = int(os.environ.get('PINHOLE_HOLE_MAX', 600)),
@@ -3021,10 +3035,22 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
                     print('scene3d: исходник уже собирается — пропускаю повтор', flush=True)
                     return
                 try:
-                    import improve_mode as IM
-                    IM.build(lay, (lay or {}).get('style') or '', stamp=st)
-                    print(f'scene3d: исходник запроса готов за {time.time()-_t:.1f} с '
-                          f'(фоном, полные меши)', flush=True)
+                    # СБОРКА ИДЁТ ОТДЕЛЬНЫМ ПРОЦЕССОМ, А НЕ ПОТОКОМ (замер 02.09). В потоке она
+                    # ставила ОБЩИЙ флаг `S3_LITE[0] = False` (платному входу нужны полные меши),
+                    # и любой черновик, попавший в это окно, тихо рисовался полными мешами:
+                    # два одинаковых запроса подряд дали 15,1 с и 39,6 с и 19 742 разных пикселя.
+                    # Отдельный процесс не может тронуть флаг родителя, а заодно не отнимает GIL.
+                    import multiprocessing as _mp
+                    pr = _mp.get_context('fork').Process(target=_src_child,
+                                                         args=(lay, (lay or {}).get('style') or '',
+                                                               st), daemon=True)
+                    pr.start()
+                    pr.join()
+                    if pr.exitcode == 0:
+                        print(f'scene3d: исходник запроса готов за {time.time()-_t:.1f} с '
+                              f'(фоном, полные меши)', flush=True)
+                    else:
+                        print(f'  исходник запроса не собран (код {pr.exitcode})', flush=True)
                 except Exception as e:  # noqa: BLE001 — не собрался: кадры уже отданы
                     print(f'  исходник запроса не собран: {str(e)[:90]}', flush=True)
                 finally:

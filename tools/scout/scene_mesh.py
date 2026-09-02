@@ -86,6 +86,14 @@ def world_vertices(parts, place, front_yaw: float, name2h: dict | None = None):
 # Отсечение можно выключить (`SCENE3D_CULL=0`) — нужно, чтобы доказать, что кадр от него
 # не меняется: сравниваются два прогона одного кода, а не разные настройки.
 CULL = os.environ.get('SCENE3D_CULL', '1') == '1'
+# на сколько пикселей расширять треугольник наружу (0 — как было, точная растеризация)
+# ГЛАДКОЕ ЗАТЕНЕНИЕ (владелец 02.09: «сглаживать бы надо чтоб однородный цвет был»). Плоское
+# затенение по граням даёт на упрощённом меше многоугольные пятна на обивке. Гуро их убирает;
+# острые рёбра защищены порогом SMOOTH_COS — у грани коробки нормали вершин расходятся с нормалью
+# грани сильнее порога, и она рисуется плоско (проверено на телевизоре: рёбра остались острыми).
+# Цена замером: два кадра 14,9 → 16,4 с локально (+10 %).
+SMOOTH = os.environ.get('SCENE3D_SMOOTH', '1') == '1'      # гладкое затенение (Гуро)
+SMOOTH_COS = float(os.environ.get('SCENE3D_SMOOTH_COS', '0.85'))   # порог «грань в гладкой области»
 
 
 def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
@@ -132,6 +140,18 @@ def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
         n = np.asarray(mesh.face_normals, np.float32) @ Ra.T @ R.T
         lam = np.clip(np.abs(n @ light), 0, 1)
         shade = (0.62 + 0.45 * lam)[:, None]
+        # ГЛАДКОЕ ЗАТЕНЕНИЕ (Гуро) — по желанию: нормаль в пикселе интерполируется между вершинами,
+        # и грани перестают читаться плоскими пятнами. Только там, где меш действительно гладкий:
+        # у вершины на остром ребре усреднённая нормаль соврала бы и скруглила угол коробки.
+        vn = None
+        if SMOOTH:
+            try:
+                vn = np.asarray(mesh.vertex_normals, np.float32) @ Ra.T @ R.T
+                fv = vn[np.asarray(mesh.faces, np.int32)]              # нормали вершин каждой грани
+                agree = (fv @ np.asarray(n, np.float32)[:, :, None]).squeeze(-1).min(1)
+                smooth_face = agree > SMOOTH_COS                        # грань в гладкой области
+            except Exception:  # noqa: BLE001 — нет нормалей вершин: рисуем плоско
+                vn = None
         # порядок не нужен — z-буфер решает сам; задние грани (нормаль от камеры)
         # отбрасываем сразу: −40..50% работы (ускорение сцены, владелец 31.08)
         # отсев «задних» граней — только в быстром режиме: у Hunyuan нормали местами
@@ -159,6 +179,9 @@ def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
             w0 = ((ys[1] - ys[2]) * (gx - xs[2]) + (xs[2] - xs[1]) * (gy - ys[2])) / det
             w1 = ((ys[2] - ys[0]) * (gx - xs[2]) + (xs[0] - xs[2]) * (gy - ys[2])) / det
             w2 = 1 - w0 - w1
+            # Расширять треугольники на полпикселя (консервативная растеризация) пробовали:
+            # щели закрывались лишь наполовину (1425 → 792) и стоили +44 % времени. Настоящая
+            # причина щелей была в упрощении мешей — см. `mesh_render.LITE_BORDER`.
             inside = (w0 >= 0) & (w1 >= 0) & (w2 >= 0)
             if not inside.any():
                 continue
@@ -168,15 +191,21 @@ def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
             if not upd.any():
                 continue
             sub[upd] = zz[upd]
+            if vn is not None and smooth_face[idx]:
+                nn = (w0[..., None] * vn[a] + w1[..., None] * vn[b] + w2[..., None] * vn[c])
+                nn /= np.maximum(np.linalg.norm(nn, axis=-1, keepdims=True), 1e-6)
+                sh_px = (0.62 + 0.45 * np.clip(np.abs(nn @ light), 0, 1))[..., None]
+            else:
+                sh_px = shade[idx]
             if tex is not None and uvm is not None:
                 th_, tw_ = tex.shape[:2]
                 uu = w0 * uvm[a, 0] + w1 * uvm[b, 0] + w2 * uvm[c, 0]
                 vvv = w0 * uvm[a, 1] + w1 * uvm[b, 1] + w2 * uvm[c, 1]
                 tx = np.clip((uu % 1.0) * (tw_ - 1), 0, tw_ - 1).astype(int)
                 ty = np.clip((1.0 - (vvv % 1.0)) * (th_ - 1), 0, th_ - 1).astype(int)
-                col = tex[ty, tx].astype(np.float32) * shade[idx]
+                col = tex[ty, tx].astype(np.float32) * sh_px
             else:
-                col = np.broadcast_to(cols[idx] * shade[idx], inside.shape + (3,))
+                col = np.broadcast_to(cols[idx], inside.shape + (3,)) * sh_px
             img[y0:y1, x0:x1][upd] = np.clip(col[upd], 0, 255)
             if inst_buf is not None:
                 inst_buf[y0:y1, x0:x1][upd] = inst_id   # тот же upd — карта не разъедется с цветом
