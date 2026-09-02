@@ -16,6 +16,7 @@
 import json
 import math
 import os
+import os
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -82,6 +83,11 @@ def world_vertices(parts, place, front_yaw: float, name2h: dict | None = None):
     return out, Ra, R, h_src, aniso
 
 
+# Отсечение можно выключить (`SCENE3D_CULL=0`) — нужно, чтобы доказать, что кадр от него
+# не меняется: сравниваются два прогона одного кода, а не разные настройки.
+CULL = os.environ.get('SCENE3D_CULL', '1') == '1'
+
+
 def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
                 name2h: dict | None = None, inst_buf=None, inst_id: int = 0) -> dict:
     """Меш в общий буфер кадра; возвращает диагностику (h_src, aniso).
@@ -99,6 +105,7 @@ def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
     kx, ky = W / cam.width, Hpx / cam.height
     light = np.array([0.35, 0.7, 0.55], np.float32)
     light /= np.linalg.norm(light)
+    skipped = 0
     for mesh, world in zip(parts, worlds):
         rel = world - eye
         z = rel @ np.array(fwd, np.float32)
@@ -106,6 +113,19 @@ def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
              / np.maximum(z, 1e-3)) * kx
         vv = (cam.height / 2 - focal * (rel @ np.array(up, np.float32)) / np.maximum(z, 1e-3)
               + getattr(cam, 'shift_y', 0.0) * cam.height) * ky
+        # ЧЕГО НЕТ В КАДРЕ — НЕ РИСУЕМ (владелец 02.09, замер: стеллаж занимал НОЛЬ пикселей и
+        # всё равно проходил полную растеризацию 40 000 граней). Проверяем по проекции всей
+        # части: если она целиком позади камеры или целиком за краем кадра, тратить на неё
+        # время незачем. Порог с запасом в один пиксель — не срезать то, что касается края.
+        if CULL:
+            if z.max() <= 1e-3:
+                skipped += 1
+                continue
+            vis = z > 1e-3
+            if not (vis.any() and (u[vis].max() >= -1) and (u[vis].min() <= W + 1)
+                    and (vv[vis].max() >= -1) and (vv[vis].min() <= Hpx + 1)):
+                skipped += 1
+                continue
         f = np.asarray(mesh.faces, np.int32)
         tex, uvm = MR.texture_of(mesh)
         cols = MR.flat_colors(mesh)
