@@ -2005,7 +2005,14 @@ function drawColl(force){
   add.innerHTML='<div class="plus">＋</div><b>Добавить новую расстановку</b>'+
     '<span>план комнаты, перестановка мебели, свои размеры</span>';
   box.appendChild(add);
-  box.querySelectorAll('[data-swap]').forEach(b=>b.onclick=()=>toggleSwap(+b.dataset.swap));
+  // «ОТКРЫТЬ» = НАЖАТИЕ ПО ФОТОГРАФИИ (владелец 02.09: «открывается модалка без фото, а должна
+  // так же, как по фото»). Кнопка вела в список мебели — окно без кадра; человек нажимал
+  // «Открыть» у карточки со снимком и снимка не видел. Кадра нет — открываем список, как раньше.
+  box.querySelectorAll('[data-swap]').forEach(b=>b.onclick=()=>{
+    const i=+b.dataset.swap, sh=bestShot(allVariants()[i]), k=sh?shots.indexOf(sh):-1;
+    if(k>=0){viewShot(k);return;}
+    toggleSwap(i);
+  });
   showSwap();   // список выбранного варианта рисуется вместе с коллекцией, не отдельным событием
   box.querySelectorAll('[data-shot]').forEach(b=>b.onclick=()=>{
     // вариант сперва загружаем: съёмка идёт по ТЕКУЩЕЙ расстановке, а не по той, что была открыта
@@ -2241,13 +2248,24 @@ function shotListHtml(s){
   shotRows=all;
   if(!all.length)return '';
   const sum=all.reduce((t,a)=>t+(a.price||0),0);
-  // Правил расстановку — фотография отстала от списка. Говорим об этом прямо, иначе замена
-  // выглядит как поломка: строка сменилась, а на картинке прежний диван.
-  const stale=!!(baseRev&&items.length&&revision()!==baseRev);
+  // ПОЛОСКА ВЕДЁТ ЧЕЛОВЕКА ПО ДВУМ ШАГАМ (владелец 02.09). Правил расстановку — фотография
+  // отстала, зовём снять наш кадр. Кадр снят и это ЧЕРНОВИК — зовём сделать его
+  // фотореалистичным. Иначе замена выглядит как поломка (строка сменилась, а картинка прежняя),
+  // а после съёмки человек остаётся с грубым кадром, не зная, что есть ступень лучше.
+  // Сравнивать надо с ревизией САМОГО КАДРА, а не с базовой ревизией варианта: иначе после
+  // нашей съёмки полоска продолжала звать снимать заново — кадр-то уже с этой расстановкой.
+  // У готовых кадров демо своей ревизии нет (`revision:''`), для них признак прежний:
+  // расстановку правили после загрузки.
+  const stale=!!(items.length&&(s.revision
+    ? revision()!==s.revision
+    : (baseRev&&revision()!==baseRev)));
+  const rough=!stale&&s.quality==='draft';
   return `<div class="pinlist">`+
       `<div class="total"><span>Товары на фото · ${all.length}</span><span>${money(sum)}</span></div>`+
       (stale?`<div class="restale"><span>Фотография пока с прежней расстановкой.</span>`+
-        `<button class="btn primary round" id="shReshoot">Посмотреть фото с изменениями</button></div>`:'')+
+        `<button class="btn primary round" id="shReshoot">Посмотреть фото с изменениями</button></div>`
+       :rough?`<div class="restale"><span>Расстановка готова, но можно сделать реалистичнее.</span>`+
+        `<button class="btn primary round" id="shImprove">Улучшить фото</button></div>`:'')+
       all.map((a,k)=>{
         const own=items.find(i=>(skuOf(i)||{}).name===a.name);
         return `<div class="row" style="cursor:default">`+
@@ -2276,6 +2294,10 @@ function wireShotList(){
   // остаётся с прежней фотографией и без выхода. Кадр наш, серверный, платного вызова нет.
   const rs=document.getElementById('shReshoot');
   if(rs)rs.onclick=()=>makePhoto('draft');
+  // «Улучшить фото» — тот же вызов, что и с карточки коллекции: исходником идёт этот черновик,
+  // и новая фотография заменяет его в той же съёмке (`batch`), а не плодит третий кадр.
+  const im=document.getElementById('shImprove');
+  if(im)im.onclick=()=>{const s=shots[shotAt]; if(s)makePhoto('realistic',srcIdOf(s),s.batch||'');};
 }
 // Перерисовка списка на месте — вызывается после замены товара, пока окно кадра открыто.
 function refreshShotList(){
