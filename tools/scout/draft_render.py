@@ -1420,10 +1420,21 @@ def _publish_sources(stamp: str, imgs: dict, prompt: str, legend: list, meta: di
         import subprocess as _sp
         _sp.run(['scp', '-q', '-r', '-o', 'BatchMode=yes', d, push], timeout=180, check=False)
     _src_index()
-    if push:                      # оглавление тоже кладём рядом, иначе список виден только локально
+    if push:
+        # ОГЛАВЛЕНИЕ СЧИТАЕТ ТА МАШИНА, ЧЕЙ КАТАЛОГ ОНО ОПИСЫВАЕТ. Раньше сюда клался список,
+        # собранный DEV-рендером по СВОИМ папкам, и он затирал прод-овый. Но фоновая платная
+        # генерация выполняется прод-сервисом и пишет папку по id задания — такая папка есть
+        # только на проде и из списка пропадала: 02.09 владелец не нашёл на странице свою
+        # оплаченную генерацию, хотя файлы лежали на месте. Теперь прод пересобирает список сам.
         import subprocess as _sp2
+        host, _, remote = push.partition(':')
+        rdir = remote.rstrip('/')
+        script = os.path.dirname(rdir) + '/src_index.py'
         _sp2.run(['scp', '-q', '-o', 'BatchMode=yes',
-                  os.path.join(SRC_DIR, 'index.html'), push], timeout=60, check=False)
+                  os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src_index.py'),
+                  f'{host}:{script}'], timeout=60, check=False)
+        _sp2.run(['ssh', '-o', 'BatchMode=yes', host, f'python3 {script} {rdir}'],
+                 timeout=60, check=False)
     return (PUBLIC_BASE + SRC_URL + '/' + stamp + '/') if PUBLIC_BASE else d
 
 
