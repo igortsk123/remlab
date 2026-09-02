@@ -540,7 +540,19 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
  font-size:30px;display:flex;align-items:center;justify-content:center}
 .newlay b{font-size:clamp(18px,1.5vw,21px)}
 .newlay span{color:var(--muted);font-size:.9em;max-width:26ch}
-#swapBox{margin-top:16px}
+/* СПИСОК МЕБЕЛИ — ТОЛЬКО ОКНОМ (владелец 02.09: «раз список запихали внутрь карточки стиля,
+   внизу он не нужен»). Раньше та же панель висела ещё и под коллекцией: один и тот же список
+   в двух местах, и нижний просто занимал экран. Теперь он существует только как слой поверх
+   страницы — и на телефоне, и на десктопе. */
+#swapBox{display:none}
+#swapBox.on{display:block;position:fixed;inset:0;z-index:55;margin:0;background:var(--scrim);
+ overflow:auto;-webkit-overflow-scrolling:touch;padding:24px 16px}
+#swapBox.on #basket{margin:0 auto;max-width:860px;border-radius:var(--radius);
+ background:var(--surface);box-shadow:var(--sh-3)}
+#swapBox.on .pricecard{margin:14px auto 0;max-width:860px}
+#swapBox.on .swaptop{position:sticky;top:-16px;background:var(--surface);z-index:2;
+ padding:12px 0;border-bottom:1px solid var(--line);margin-bottom:10px}
+#swapBox.on #swapClose{display:inline-block}
 #basket .sub{color:var(--muted);font-size:.92em;margin:-4px 0 8px}
 .swaptop{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .swaptop h3{margin:0}
@@ -550,14 +562,12 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
    человек прокручивал туда-сюда между списком и карточками. Теперь это отдельный слой поверх
    страницы: список занимает весь экран, шапка с «Готово» закреплена сверху. */
 @media(max-width:700px){
-  #swapBox.on{position:fixed;inset:0;z-index:55;margin:0;background:var(--bg);
-    overflow:auto;-webkit-overflow-scrolling:touch;padding:0}
-  #swapBox.on #basket{margin:0;border:0;border-radius:0;box-shadow:none;min-height:100%}
-  #swapBox.on .swaptop{position:sticky;top:0;background:var(--surface);z-index:2;
-    padding:12px 0;border-bottom:1px solid var(--line);margin:-16px -18px 10px;
-    padding-left:18px;padding-right:18px}
-  #swapBox.on #swapClose{display:inline-block}
-  #swapBox.on .pricecard{margin-top:14px}
+  /* на телефоне — во весь экран без полей */
+  #swapBox.on{padding:0;background:var(--bg)}
+  #swapBox.on #basket{margin:0;max-width:none;border:0;border-radius:0;box-shadow:none;
+    min-height:100%}
+  #swapBox.on .swaptop{margin:-16px -18px 10px;padding-left:18px;padding-right:18px;top:0}
+  #swapBox.on .pricecard{margin:14px 0 0;max-width:none}
 }
 .swapfoot{display:flex;justify-content:flex-end;margin-top:12px}
 /* ——— КОНСТРУКТОР НА ВЕСЬ ЭКРАН ——— */
@@ -661,7 +671,7 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
   </div>
 
   <!-- разворот «Заменить мебель»: список предметов выбранного варианта прямо на витрине -->
-  <div id="swapBox" hidden>
+  <div id="swapBox">
     <div class="panel" id="basket">
       <div class="swaptop"><h3 id="basketHead">Мебель этого варианта</h3>
         <button class="btn" id="swapClose">Готово</button></div>
@@ -1925,7 +1935,7 @@ function showSwap(){
   const v=allVariants()[cur]||{};
   const head=document.getElementById('basketHead');
   if(head)head.textContent='Мебель варианта «'+(v.style||v.title||'')+'»';
-  box.hidden=false; basket();
+  basket();
   const f=document.getElementById('swapFoot');
   if(f)f.hidden=!(baseRev&&items.length&&revision()!==baseRev);
 }
@@ -1933,9 +1943,7 @@ function showSwap(){
 function openSwapFull(){
   const box=document.getElementById('swapBox'); if(!box)return;
   showSwap();
-  if(window.matchMedia('(max-width:700px)').matches){
-    box.classList.add('on'); document.body.style.overflow='hidden'; window.scrollTo(0,0);
-  } else { box.scrollIntoView({behavior:'smooth',block:'nearest'}); }
+  box.classList.add('on'); document.body.style.overflow='hidden'; window.scrollTo(0,0);
 }
 function closeSwapFull(){
   const box=document.getElementById('swapBox'); if(!box)return;
