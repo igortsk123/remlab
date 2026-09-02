@@ -42,6 +42,59 @@ def load_parts(path: str) -> list:
     return parts
 
 
+# ЛЁГКИЕ КОПИИ МЕШЕЙ ДЛЯ ЭСКИЗА (план draft-render-speed, 02.09). Замер: в сцене 320 000
+# треугольников (8 предметов по 40 000), растеризация на Python съедает 10 из 11,6 секунд кадра.
+# Для эскиза 960×640 такая плотность бессмысленна. Упрощение до ~10 тыс. даёт ×3 и стоит 0,03 с
+# на меш — дешевле любого железа.
+#
+# ГЛАВНАЯ ЛОВУШКА: наши меши ТЕКСТУРНЫЕ, а `simplify_quadric_decimation` возвращает
+# плоско-серый `ColorVisuals` — цвет теряется целиком (в замере 18 % изменившихся пикселей
+# на ЛЮБОМ уровне упрощения, то есть портилась не форма, а окраска). Поэтому UV переносим сами
+# на ближайшую исходную вершину и ОСТАВЛЯЕМ ТОТ ЖЕ материал: он и хранит картинку
+# (`PBRMaterial.baseColorTexture`).
+LITE_FACES = int(os.environ.get('MESH_LITE_FACES', 10000))   # цель по граням на часть
+LITE_MIN = 2500                                              # мельче не трогаем — нечего экономить
+_LITE_CACHE: dict = {}
+
+
+def lite_parts(path: str, target: int | None = None) -> list:
+    """Части меша, упрощённые под эскиз, с сохранением текстуры."""
+    target = int(target or LITE_FACES)
+    key = (path, target)
+    if key in _LITE_CACHE:
+        return _LITE_CACHE[key]
+    parts = load_parts(path)
+    out = []
+    for m in parts:
+        n = len(m.faces)
+        if n <= max(LITE_MIN, target):
+            out.append(m)
+            continue
+        try:
+            import fast_simplification as _fs
+            from scipy.spatial import cKDTree as _KD
+            V = np.asarray(m.vertices, np.float32)
+            F = np.asarray(m.faces, np.int32)
+            vv, ff = _fs.simplify(V, F, target_reduction=max(0.05, 1.0 - target / n))
+            nm = trimesh.Trimesh(vertices=np.asarray(vv), faces=np.asarray(ff), process=False)
+            uv = getattr(getattr(m, 'visual', None), 'uv', None)
+            mat = getattr(getattr(m, 'visual', None), 'material', None)
+            if uv is not None and mat is not None:
+                _, idx = _KD(V).query(np.asarray(nm.vertices, np.float32))
+                nm.visual = trimesh.visual.TextureVisuals(uv=np.asarray(uv)[idx], material=mat)
+            else:                                   # текстуры нет — переносим цвета граней
+                try:
+                    nm.visual = m.visual.copy()
+                except Exception:  # noqa: BLE001
+                    pass
+            out.append(nm)
+        except Exception as e:  # noqa: BLE001 — не упростили: рисуем как есть, но не молча
+            print(f'  меш не упрощён ({str(e)[:60]}) — рисуем полный')
+            out.append(m)
+    _LITE_CACHE[key] = out
+    return out
+
+
 def texture_of(mesh):
     """Картинка текстуры и UV вершин, если они есть."""
     vis = getattr(mesh, 'visual', None)

@@ -20,6 +20,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -2236,20 +2237,63 @@ def _scene3d_glb(sid: str) -> str | None:
 
 
 _S3_PARTS: dict = {}
+# Режим мешей текущего рендера: True — лёгкие копии (эскиз), False — полные (платный режим).
+# Список, а не переменная, чтобы значение видели вложенные функции без `global`.
+S3_LITE = [False]
+_DRAFT_CACHE: dict = {}
+DRAFT_CACHE_MAX = 24
+
+
+def _draft_cache_key(layout) -> str:
+    """Отпечаток чернового кадра: комната, предметы, камеры, версия кода рендера.
+
+    Версия обязана входить в ключ: иначе после правки растеризатора мы бы отдавали старую
+    картинку и «чинили» то, что уже починено. Считаем от размера и времени файла — дешевле,
+    чем хеш содержимого, и меняется при каждой правке.
+    """
+    import hashlib
+    L = layout or {}
+    items = [[it.get('role'), round(float(it.get('x') or 0), 1), round(float(it.get('y') or 0), 1),
+              int(float(it.get('rot') or 0)), round(float(it.get('w') or 0), 1),
+              round(float(it.get('d') or 0), 1), round(float(it.get('h') or 0), 1),
+              it.get('sid'), bool(it.get('hung'))]
+             for it in (L.get('items') or [])]
+    cams = [[c.get('name'), round(float(c.get('x') or 0), 1), round(float(c.get('y') or 0), 1),
+             int(float(c.get('rot') or 0)), round(float(c.get('fov') or 0), 1)]
+            for c in (L.get('cams') or [])]
+    try:
+        st = os.stat(__file__)
+        ver = f'{st.st_size}:{int(st.st_mtime)}'
+    except OSError:
+        ver = '0'
+    raw = json.dumps({'room': L.get('room'), 'items': sorted(items, key=lambda x: str(x[0])),
+                      'cams': cams, 'lite': bool(S3_LITE[0]), 'ver': ver},
+                     ensure_ascii=False, sort_keys=True)
+    return hashlib.md5(raw.encode()).hexdigest()
 
 
 def _scene3d_parts(glb: str):
     """Кэш РАЗОБРАННЫХ мешей в памяти сервиса: декод GLB на каждый клик съедал секунды."""
     import mesh_render as MR
-    hit = _S3_PARTS.get(glb)
+    key = (glb, bool(S3_LITE[0]))
+    hit = _S3_PARTS.get(key)
     if hit is not None:
         return hit
+    # ЭСКИЗ РИСУЕМ ЛЁГКИМИ КОПИЯМИ (план draft-render-speed, 02.09). Замер: 320 000 треугольников
+    # на сцену, растеризация 10 из 11,6 секунд кадра. Упрощение до ~8 000 граней на часть даёт
+    # ×3 при расхождении в 1 % пикселей — текстура сохраняется, потому что UV переносятся на
+    # упрощённую сетку (`mesh_render.lite_parts`). Платный режим рисуется ПОЛНЫМИ мешами:
+    # там качество дороже секунд.
+    if S3_LITE[0]:
+        parts = MR.lite_parts(glb)
+        _S3_PARTS[key] = parts
+        return parts
     parts = MR.load_parts(glb)
     # SCENE3D_QUALITY=full — БЕЗ декимации, с полными текстурами (владелец 31.08: кадр
     # должен быть качественным для человека и GPT — «дырки»/цвет не должны читаться как
     # свойства товара); по умолчанию — декимация под 2 слабых ядра прода
     if os.environ.get('SCENE3D_QUALITY') == 'full':
-        _S3_PARTS[glb] = parts
+        _S3_PARTS[key] = parts
         return parts
     try:
         import fast_simplification as _fs
@@ -2290,7 +2334,7 @@ def _scene3d_parts(glb: str):
         pass
     if len(_S3_PARTS) > 60:
         _S3_PARTS.clear()
-    _S3_PARTS[glb] = parts
+    _S3_PARTS[key] = parts
     return parts
 
 
@@ -2656,6 +2700,19 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         _improve_cache(layout.get('src_id'), res)      # см. ниже: обрыв связи не стоит генерации
         return res
     if quality == 'draft' and os.environ.get('SCENE3D', '1') == '1':
+        # ЭСКИЗ — ЛЁГКИЕ МЕШИ (план draft-render-speed): 2,8 с на кадр вместо 11,5 при
+        # расхождении ~1 % пикселей. Платный режим ниже рисует полными.
+        S3_LITE[0] = os.environ.get('SCENE3D_LITE', '1') == '1'
+        # КАДР, КОТОРЫЙ УЖЕ РИСОВАЛИ, НЕ РИСУЕМ ЗАНОВО (план draft-render-speed). Самый частый
+        # случай — человек открыл стиль и нажал «Создать фото», ничего не двигая: расстановка
+        # та же, камеры те же, код тот же — значит и кадр будет пиксель в пиксель тот же.
+        # Отпечаток берём от того, что реально влияет на картинку.
+        _ck = _draft_cache_key(layout)
+        _hit = _DRAFT_CACHE.get(_ck)
+        if _hit is not None and all(os.path.exists(os.path.join(FRAMES_DIR, n))
+                                    for n in _hit.get('_files', [])):
+            print(f'scene3d: кадр взят из кэша (расстановка не менялась)', flush=True)
+            return _hit['res']
         # РЕЖИМ ПРОВЕРКИ (владелец 31.08): сырой кадр 3D-сцены без модели и без GPT
         sid_by_role = {it['role']: it.get('sid') for it in (layout or {}).get('items', [])
                        if it.get('role')}
@@ -2682,6 +2739,22 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
             _views[cam.name] = img
             url = _publish_frame(img, f'scene3d-{stamp}-{cam.name}.jpg')
             return {'camera': cam.name, 'url': url, 'diag': diag, 'anchors': []}
+        # МЕШИ РАЗБИРАЕМ ДО ФОРКА (план draft-render-speed, 02.09). Кадры считаются в двух
+        # дочерних процессах, а кэш разобранных мешей жил ТОЛЬКО в них: после ответа дети
+        # умирали, и следующий запрос снова парсил восемь GLB и снова их упрощал — по разу на
+        # каждого ребёнка. Замер: 10,7 с на запрос при 2,8 с самой растеризации. Греем кэш в
+        # родителе: дети получают его копированием при форке и сразу рисуют.
+        _t_warm = time.time()
+        for _sid in {v for v in sid_by_role.values() if v and ':' not in str(v)}:
+            try:
+                _g = _scene3d_glb(_sid)
+                if _g:
+                    _scene3d_parts(_g)
+            except Exception as _e:  # noqa: BLE001 — не разобрался: кадр рисуем, но НЕ молча
+                print(f'  прогрев меша {_sid} не удался: {str(_e)[:70]}', flush=True)
+        _t_warm = time.time() - _t_warm
+        if _t_warm > 0.3:
+            print(f'scene3d: разбор мешей {_t_warm:.1f} с (дальше из памяти)', flush=True)
         if os.environ.get('SCENE3D_PROCS') == '1' and len(want) > 1:
             # ДВА ПРОЦЕССА через fork (DEV, 12 ядер): треды упирались в GIL питон-цикла
             # растеризации. Pool пиклит callable по имени — воркер модульный, аргументы
@@ -2707,24 +2780,44 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         # должна быть исходником запроса»). Склеиваем ТЕ ЖЕ два кадра, что человек сейчас видит,
         # и выкладываем страницу запроса. Так «показанное» и «отправляемое» физически одно и то
         # же изображение — разойтись они не могут.
+        # ИСХОДНИК ЗАПРОСА СОБИРАЕМ В ФОНЕ (план draft-render-speed, 02.09). Замер: склейка листа
+        # двух видов, лист эталонов товаров и доставка на сервер занимают 4,9 с — половину
+        # времени ответа. А нужны они ТОЛЬКО если человек потом нажмёт «Улучшить фото».
+        # Заставлять всех ждать ради этого случая неправильно: отдаём кадры сразу, исходник
+        # доезжает через несколько секунд. Адрес известен заранее (он строится из метки времени),
+        # поэтому страница получает его в том же ответе. Нажали «улучшить» раньше, чем исходник
+        # готов, — режим улучшения просто пересоберёт сцену сам, как делал всегда.
         src_url = None
-        try:
-            if len(_views) > 1:
-                import improve_mode as IM
-                src_url = IM.publish_from_views([_views[c.name] for c in want if c.name in _views],
-                                                layout or {}, stamp)
-                # ракурс, которым сняли кадр, возвращаем странице: она хранит его у снимка и
-                # шлёт обратно при «улучшить», чтобы улучшался ИМЕННО показанный вид
-        except Exception as e:  # noqa: BLE001 — исходник не собрался: кадры всё равно показываем
-            print(f'  исходник запроса не собран: {str(e)[:90]}')
+        if len(_views) > 1:
+            src_url = ((PUBLIC_BASE + SRC_URL + '/improve-' + stamp + '/') if PUBLIC_BASE
+                       else os.path.join(SRC_DIR, 'improve-' + stamp))
+            _vlist = [_views[c.name] for c in want if c.name in _views]
+            _lay = layout or {}
+
+            def _pub_src(views=_vlist, lay=_lay, st=stamp):
+                _t = time.time()
+                try:
+                    import improve_mode as IM
+                    IM.publish_from_views(views, lay, st)
+                    print(f'scene3d: исходник запроса готов за {time.time()-_t:.1f} с (фоном)',
+                          flush=True)
+                except Exception as e:  # noqa: BLE001 — не собрался: кадры уже отданы
+                    print(f'  исходник запроса не собран: {str(e)[:90]}', flush=True)
+            threading.Thread(target=_pub_src, daemon=True).start()
         sec = round(time.time() - t0, 1)
         print(f'scene3d: кадров {len(shots)}, {sec} с (без модели)')
         first = shots[0] if shots else {'url': '', 'diag': {}}
-        return {'shots': shots, 'sources': src_url, 'timing': None,
-                'cams': [{'name': c.name, 'x': round(c.eye[0], 1), 'y': round(c.eye[2], 1),
-                          'fov': c.fov_deg} for c in want],
-                'model': 'scene3d-raw', 'quality': quality, 'sec': sec,
-                'file': '', 'url': first.get('url', ''), 'diag': first.get('diag', {})}
+        res = {'shots': shots, 'sources': src_url, 'timing': None,
+               'cams': [{'name': c.name, 'x': round(c.eye[0], 1), 'y': round(c.eye[2], 1),
+                         'fov': c.fov_deg} for c in want],
+               'model': 'scene3d-raw', 'quality': quality, 'sec': sec,
+               'file': '', 'url': first.get('url', ''), 'diag': first.get('diag', {})}
+        # кладём в кэш вместе со списком файлов: если кадры удалят с диска, запись не сработает
+        if len(_DRAFT_CACHE) > DRAFT_CACHE_MAX:
+            _DRAFT_CACHE.clear()
+        _DRAFT_CACHE[_ck] = {'res': res,
+                             '_files': [(sh.get('url') or '').rsplit('/', 1)[-1] for sh in shots]}
+        return res
     if model.startswith('openai/'):
         # трек А работает и на одном ракурсе: тот же рецепт, просто лист без второй половины
         shots = _sheet_gpt(room, placements, photos, want, prefix, side, skus, model, gq,
