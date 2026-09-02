@@ -2050,6 +2050,15 @@ def _scene3d_orient() -> dict:
     return _S3_ORIENT
 
 
+# ОБСТАНОВКА КОМНАТЫ БЕЗ ТОВАРА: телевизор, окно, дверь. У них нет `sid`, поэтому сцена рисовала
+# их clay-плашками — синий прямоугольник вместо ТВ читался и человеком, и моделью как «панель на
+# стене». Меши берём из набора Kenney (лицензия CC0: коммерческое использование без ограничений
+# и без обязательной ссылки, `~/scout-scenes/kits/kenney/License.txt`) и выкладываем в ту же
+# галерею мешей — значит достаются обычным `_scene3d_glb`, без второго механизма.
+# Значение: (id в галерее, канонический разворот фронта в градусах).
+FIXTURE_MESH = {'тв': ('kit-tv-modern', 180.0)}   # экран у модели смотрит в −Z, канон — +Z
+
+
 def _scene3d_glb(sid: str) -> str | None:
     """GLB меша по sid: скачивается с нашей галереи в кэш (контейнер draft без томов мешей)."""
     import urllib.request
@@ -2328,6 +2337,15 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict
                     or base in ('картина', 'зеркало', 'плед', 'шторы')):
             sid = None
         glb = _scene3d_glb(sid) if sid else None
+        if glb is None:
+            fx = FIXTURE_MESH.get(base)
+            if fx:
+                g2 = _scene3d_glb(fx[0])
+                if g2:
+                    glb, sid = g2, fx[0]
+                    # разворот фронта задан нами и точен — помечаем как выверенный вручную,
+                    # иначе общее правило («применяем yaw только при уверенном фронте») его съест
+                    orient.setdefault(sid, {'yaw': fx[1], 'orient': 'kit:human'})
         (mesh_places if glb else clay_places).append((place, sid, glb))
     coll_notes = _push_from_supports(mesh_places, clay_places, room)
     coll_notes += _push_from_supports(mesh_places, mesh_places, room)
