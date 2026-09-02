@@ -2362,6 +2362,64 @@ def _scene3d_parts(glb: str):
     return parts
 
 
+def _fill_pinholes(canvas, inst,
+                   passes: int = int(os.environ.get('PINHOLE_PASSES', 10)),
+                   need: int = int(os.environ.get('PINHOLE_NEED', 4))):
+    """Закрасить просветы ВНУТРИ предмета цветом того же предмета.
+
+    Просвет — пиксель, в который не лёг ни один меш, а вокруг него пиксели мешей. Считаем именно
+    по карте предметов `inst`, а не по z-буферу: по глубине щель от фона не отличить, там
+    записаны и стены комнаты (первая версия шла по глубине, мазала по краям и сделала хуже).
+
+    Откуда просветы: упрощение мешей расходит соседние треугольники на доли пикселя, и в щель
+    видно стену. На зелёном диване (ракурс C2) их 2528 против единиц у полного меша.
+
+    ПОЧЕМУ ПОРОГ 4, а не 3. Пиксель на ПРЯМОМ крае предмета имеет ровно 3 соседа-меша, поэтому
+    при `need>=4` заплатка физически не может нарастить ровную границу — заполняются только
+    вогнутые места и дырки. При `need=3` предмет раздувается каждым проходом; замер на том же
+    холсте: силуэт +4,6 % за 6 проходов и +7,5 % за 10 (при `need=4` — +2,8 %, и это сами
+    закрытые дырки). Замер просветов на одном и том же кадре:
+    | вариант | просветов | время |
+    | без заливки | 2528 | — |
+    | 6 проходов, need=5 | 1147 | 45 мс |
+    | 6 проходов, need=4 | 203 | 73 мс |
+    | **10 проходов, need=4** | **111** | **123 мс** |
+    | 14 проходов, need=4 | 104 | 168 мс |
+
+    Цвет считаем ТОЛЬКО в самих дырках (их тысячи, а кадр — миллион пикселей): полнокадровая
+    версия того же алгоритма давала тот же результат, но 734 мс вместо 123.
+    """
+    try:
+        import numpy as _np
+        H, W = inst.shape
+        mask = inst > 0
+        inner = _np.zeros_like(mask)
+        inner[1:-1, 1:-1] = True
+        off = [(dy, dx) for dy in (-1, 0, 1) for dx in (-1, 0, 1) if (dy, dx) != (0, 0)]
+        for _ in range(max(1, passes)):
+            pad = _np.zeros((H + 2, W + 2), _np.uint8)
+            pad[1:-1, 1:-1] = mask
+            cnt = (pad[:-2, :-2] + pad[:-2, 1:-1] + pad[:-2, 2:] +
+                   pad[1:-1, :-2] + pad[1:-1, 2:] +
+                   pad[2:, :-2] + pad[2:, 1:-1] + pad[2:, 2:])
+            ys, xs = _np.nonzero((~mask) & inner & (cnt >= need))
+            if not len(ys):
+                break
+            acc = _np.zeros((len(ys), 3), _np.float32)
+            num = _np.zeros(len(ys), _np.float32)
+            for dy, dx in off:
+                yy, xx = ys + dy, xs + dx
+                hit = mask[yy, xx]
+                acc[hit] += canvas[yy[hit], xx[hit]]
+                num += hit
+            canvas[ys, xs] = acc / num[:, None]
+            mask[ys, xs] = True
+        return canvas
+    except Exception as e:  # noqa: BLE001 — заплатка не обязана валить кадр
+        print(f'  заплатка просветов не сработала: {str(e)[:70]}')
+        return canvas
+
+
 def _paste_rug(canvas, zbuf, place, cam, W, H, ph) -> bool:
     """КОВЁР — ФОТО НА ПОЛУ (владелец 31.08: «ковры просто вклеиваем, они сняты сверху»):
     прямоугольник ковра проецируется в кадр, фото натягивается перспективно, глубина пола
@@ -2596,6 +2654,9 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict
     zbuf = depth.astype(np.float32).copy()
     zbuf[~np.isfinite(zbuf)] = 1e9
     used, missing = [], [p.role for p, _, _ in clay_places]
+    # КАРТА ПРЕДМЕТОВ КАДРА: в какие пиксели лёг какой меш. Нужна, чтобы отличить просвет ВНУТРИ
+    # предмета от честного фона — по z-буферу этого не видно, там записаны и стены комнаты.
+    inst = np.zeros(zbuf.shape, np.int32)
     for place in rug_places:
         ph = photos_by_role.get(place.role) if photos_by_role else None
         if _paste_rug(canvas, zbuf, place, cam, W, H, ph):
@@ -2620,11 +2681,19 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict
             from planner.models import Placement as _P
             pc = _P(role=place.role, x=place.x, y=place.y, rot=float(place.rot or 0),
                     item=place.item, elev_cm=getattr(place, 'elev_cm', 0) or 0)
-            SM.raster_mesh(canvas, zbuf, parts, pc, cam, W, H, yaw)
+            SM.raster_mesh(canvas, zbuf, parts, pc, cam, W, H, yaw,
+                           inst_buf=inst, inst_id=len(used) + 1)
             used.append(place.role)
         except Exception as e:  # noqa: BLE001 — один битый меш не валит кадр
             print(f'  scene3d: {place.role} пропущен ({str(e)[:60]})')
             missing.append(place.role)
+    # ЛАТАЕМ МИКРОДЫРКИ ПОСЛЕ УПРОЩЕНИЯ (владелец 02.09: «на диване проплешины»). Замер: у
+    # полного меша сквозь предмет просвечивает 64 пикселя, у упрощённого — 967. Упрощение
+    # расходит соседние треугольники на доли пикселя, и в щели видно стену. Поднимать
+    # детализацию ради этого дорого; дешевле закрасить: пиксель, который НЕ рисовал ни один меш,
+    # но окружён со всех сторон пикселями мешей, заполняем средним из соседей. Работает по
+    # z-буферу, то есть по факту «здесь предмет», а не по цвету, и стоит миллисекунды.
+    canvas = _fill_pinholes(canvas, inst)
     img = Image.fromarray(np.clip(canvas, 0, 255).astype(np.uint8), 'RGB')
     diag = {'мешей': used, 'clay': missing}
     if coll_notes:
