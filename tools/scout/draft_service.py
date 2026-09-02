@@ -290,9 +290,17 @@ class H(BaseHTTPRequestHandler):
                 fr = {}
                 for sh in res.get('shots') or []:
                     nm = (sh.get('url') or '').rsplit('/', 1)[-1]
-                    fp = os.path.join(DR.FRAMES_DIR, nm)
-                    if nm and os.path.exists(fp):
-                        fr[nm] = _b64.b64encode(open(fp, 'rb').read()).decode()
+                    if not nm:
+                        continue
+                    # МИНИАТЮРА ЕДЕТ ВМЕСТЕ С КАДРОМ (владелец 02.09: «грузит 1–2 секунды»).
+                    # Рядом с кадром пишется уменьшенная копия (`_publish_frame`), но в теле
+                    # ответа уезжал только полный кадр — на проде миниатюры не было, страница
+                    # получала 404 и по `onerror` подставляла полноразмерный файл. То есть вся
+                    # экономия на превью не работала ровно для тех кадров, что снимаются сейчас.
+                    for fn in (nm, DR.thumb_name(nm)):
+                        fp = os.path.join(DR.FRAMES_DIR, fn)
+                        if os.path.exists(fp):
+                            fr[fn] = _b64.b64encode(open(fp, 'rb').read()).decode()
                 if fr:
                     res['frames'] = fr
             out2 = {'shots': res['shots'], 'url': res['url'], 'model': res['model'],
