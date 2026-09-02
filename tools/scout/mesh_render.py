@@ -72,17 +72,27 @@ def lite_parts(path: str, target: int | None = None) -> list:
             continue
         try:
             import fast_simplification as _fs
-            from scipy.spatial import cKDTree as _KD
             V = np.asarray(m.vertices, np.float32)
             F = np.asarray(m.faces, np.int32)
-            vv, ff = _fs.simplify(V, F, target_reduction=max(0.05, 1.0 - target / n))
-            nm = trimesh.Trimesh(vertices=np.asarray(vv), faces=np.asarray(ff), process=False)
+            red = max(0.05, 1.0 - target / n)
             uv = getattr(getattr(m, 'visual', None), 'uv', None)
             mat = getattr(getattr(m, 'visual', None), 'material', None)
+            # UV ПЕРЕНОСИМ ТЕМИ ЖЕ СХЛОПЫВАНИЯМИ, что и вершины (владелец 02.09: «на диване
+            # проплешины»). Прежний способ — брать координату у БЛИЖАЙШЕЙ исходной вершины —
+            # местами попадал в соседний кусок текстурного атласа, и на модели появлялись пятна
+            # чужого цвета. Упрощатель умеет вернуть последовательность схлопываний; прогоняем
+            # по ней массив UV (дополненный до трёх столбцов) — получаем те же координаты, что
+            # и у полного меша, без догадок о близости.
             if uv is not None and mat is not None:
-                _, idx = _KD(V).query(np.asarray(nm.vertices, np.float32))
-                nm.visual = trimesh.visual.TextureVisuals(uv=np.asarray(uv)[idx], material=mat)
+                vv, ff, coll = _fs.simplify(V, F, target_reduction=red, return_collapses=True)
+                uv3 = np.column_stack([np.asarray(uv, np.float32),
+                                       np.zeros(len(uv), np.float32)]).astype(np.float32)
+                uvv = np.asarray(_fs.replay_simplification(uv3, F, coll)[0])[:, :2]
+                nm = trimesh.Trimesh(vertices=np.asarray(vv), faces=np.asarray(ff), process=False)
+                nm.visual = trimesh.visual.TextureVisuals(uv=uvv, material=mat)
             else:                                   # текстуры нет — переносим цвета граней
+                vv, ff = _fs.simplify(V, F, target_reduction=red)
+                nm = trimesh.Trimesh(vertices=np.asarray(vv), faces=np.asarray(ff), process=False)
                 try:
                     nm.visual = m.visual.copy()
                 except Exception:  # noqa: BLE001
