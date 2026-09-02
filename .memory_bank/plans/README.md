@@ -29,9 +29,10 @@ draft → in_progress → completed → перенос в completed_plans/
 | viz-track-a-restore | — | partial | — | 2026-08-28 |
 | topview-from-mesh | — | in_progress | — | 2026-08-31 |
 | demo-planner-structure | — | partial | — | 2026-08-28 |
+| mesh-ckpt-mmap | Чекпойнт формы грузится отображением файла — минус 6.5 ГБ из пика памяти | in_progress | 2026-09-02 | 2026-09-02 |
 | stock-check-weekly-unified | Одно правило проверки наличия — раз в неделю для всех; непроверяемым верим Гдеслону | in_progress | 2026-09-01 | 2026-09-01 |
 | photo-improve-from-mesh | Кнопка «Улучшить фото» — ремонт от ИИ поверх НАШЕГО кадра с мешами | in_progress | 2026-09-01 | 2026-09-01 |
-| demo-collection-flow | Демо — два уровня: быстрый подбор на странице и конструктор на весь экран | in_progress | 2026-09-01 | 2026-09-01 |
+| demo-collection-flow | Демо — два уровня: быстрый подбор на странице и конструктор на весь экран | in_progress | 2026-09-01 | 2026-09-02 |
 | stock-truth-page-verdict | Наличие товара — один вычислитель, свидетельство сильнее фида | in_progress | 2026-08-31 | 2026-08-31 |
 | orient-v2 | Ориентация мешей v2 — единый контур upright+front, DINO shadow, gold-бенч | in_progress | 2026-08-31 | 2026-08-31 |
 | mesh-dynamic-node-pool | Динамический пул нод Salad в прогоне мешей + честный учёт заданий | in_progress | 2026-08-31 | 2026-08-31 |
