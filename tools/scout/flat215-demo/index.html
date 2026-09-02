@@ -342,8 +342,14 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .pinlist .row{min-height:80px;align-items:center}
 .pinlist .row .t{display:flex;flex-direction:column;justify-content:center;gap:2px;min-height:64px}
 .pinlist .row .t .acts{min-height:20px;display:block;margin-top:2px}
-.pinlist .row img,.pinlist .row .noimg-sm{width:64px;height:64px;flex:0 0 64px;object-fit:contain;
- padding:5px;box-sizing:border-box}
+/* ПЛИТКА МИНИАТЮРЫ — ЖЁСТКИЙ КВАДРАТ. Размер задаём и минимумом, и максимумом: `width` у
+   элемента в строке-флексе легко перебивается, а `max-width/max-height` не даёт картинке
+   растянуть плитку под свои пропорции. Рамка делает равенство видимым: у большинства товаров
+   фон снимка белый и без неё край плитки не читается. */
+.pinlist .row img,.pinlist .row .noimg-sm{width:64px;height:64px;min-width:64px;max-width:64px;
+ min-height:64px;max-height:64px;flex:0 0 64px;object-fit:contain;
+ padding:5px;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;
+ background:var(--surface)}
 .ptrack{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));
  padding:10px 0 6px}
 .pcard{position:relative;border:1px solid var(--line);border-radius:var(--radius-sm);padding:8px;
@@ -376,6 +382,9 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
  padding:10px 0 0;font-weight:700;font-size:clamp(16px,1.15vw,18px);
  position:sticky;top:-4px;background:var(--surface);z-index:2;
  border-bottom:1px solid var(--line);padding-bottom:8px}
+/* Итог списка прилипает к верху окна и на телефоне заезжал под круглую кнопку закрытия —
+   сумма читалась как «77 7…». Оставляем ей место. */
+#shot .pinlist .total{padding-right:52px}
 .hint{font-size:clamp(14px,1.8vw,15px);color:var(--muted);margin-top:8px}
 /* ВВОДНЫЙ БЛОК — НАВЕРХУ (владелец 26.08): человек должен сразу понять, что тут можно делать,
    а не искать объяснение под планом. */
@@ -409,7 +418,13 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
  color:var(--ink);cursor:pointer;z-index:5;display:flex;align-items:center;justify-content:center}
 .xclose:hover{background:var(--wash-2)}
 /* Фотография не должна съедать весь экран: ниже сразу видно, что под ней есть товары. */
-#shot img{width:100%;border-radius:var(--radius);display:block;max-height:56vh;object-fit:cover;
+/* ПРАВИЛО КРУПНОГО КАДРА — ТОЛЬКО КРУПНОМУ КАДРУ (владелец 02.09: «карточки товаров одного
+   размера одна под другой»). Раньше селектор был `#shot img` и по силе идентификатора бил
+   миниатюры товаров в списке: они получали `width:100%` и `object-fit:cover`, поэтому плитка
+   растягивалась под пропорции фотографии — у дивана шире, у торшера уже, и левый столбец
+   выходил рваным. Теперь правило адресовано самой фотографии и сетке избранного. */
+#shot .shotwrap img,#shot .grid2 img{width:100%;border-radius:var(--radius);display:block;
+ max-height:56vh;object-fit:cover;
  background:var(--wash-2)}   /* тёплая подложка: при смене кадра не вспыхивает белым */
 #shot .cap{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0;
  flex:0 0 auto;border-top:1px solid var(--line);background:var(--surface);padding:12px 16px;
@@ -510,12 +525,21 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
  gap:14px 24px;align-items:center;justify-content:space-between}
 .budget b{display:block;font-size:clamp(18px,1.7vw,22px);margin-bottom:4px}
 .budget p{margin:0;color:var(--muted);font-size:.95em;max-width:56ch}
-.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));margin-top:16px}
+/* КАРТОЧКИ ОДНОГО РОСТА И ОДНОЙ ШИРИНЫ (владелец 02.09: «область фотографий пляшет, некрасиво»).
+   Колонки и раньше были равными, но высота карточек зависела от длины названия стиля и числа
+   кнопок — из-за этого фотографии в соседних рядах стояли на разных уровнях и ряд «плясал».
+   `grid-auto-rows:1fr` уравнивает ряды, карточка растягивается на всю ячейку, а блок кнопок
+   прижат к низу, поэтому все фотографии выстраиваются по одной линии. */
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));
+ grid-auto-rows:1fr;margin-top:16px;align-items:stretch}
+.grid>*{min-width:0}
+.lay{height:100%}
 .lay{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
  box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;cursor:pointer}
 .lay.on{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 18%,transparent)}
-.lay .pv{width:100%;aspect-ratio:3/2;object-fit:cover;display:block;background:var(--wash)}
-.lay .nopv{width:100%;aspect-ratio:3/2;background:var(--wash);display:flex;align-items:center;
+.lay .pv{width:100%;aspect-ratio:3/2;object-fit:cover;display:block;background:var(--wash);
+ flex:0 0 auto}
+.lay .nopv{width:100%;aspect-ratio:3/2;flex:0 0 auto;background:var(--wash);display:flex;align-items:center;
  justify-content:center;color:var(--faint);font-size:.88em;text-align:center;padding:14px}
 .lay .body{padding:14px 16px 16px;display:flex;flex-direction:column;gap:10px;flex:1}
 .lay .nm{font-size:clamp(19px,1.6vw,23px);font-weight:700;text-transform:capitalize}
@@ -535,7 +559,7 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .lay .wrapimg{position:relative}
 .newlay{border:2px dashed color-mix(in srgb,var(--accent) 45%,transparent);background:var(--surface);
  border-radius:var(--radius);display:flex;flex-direction:column;align-items:center;justify-content:center;
- gap:8px;padding:30px 20px;cursor:pointer;text-align:center;min-height:230px}
+ gap:8px;padding:30px 20px;cursor:pointer;text-align:center;min-height:230px;height:100%}
 .newlay .plus{width:56px;height:56px;border-radius:50%;background:var(--accent-soft);color:var(--accent);
  font-size:30px;display:flex;align-items:center;justify-content:center}
 .newlay b{font-size:clamp(18px,1.5vw,21px)}
@@ -593,7 +617,7 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
   #shot .box{width:100%;max-width:100%;height:100%;max-height:100%;border-radius:0;
     box-shadow:none}
   #shot .cap{padding:12px 14px}
-  #shot img{max-height:52vh;border-radius:var(--radius-sm)}
+  #shot .shotwrap img,#shot .grid2 img{max-height:52vh;border-radius:var(--radius-sm)}
   .xclose{top:10px;right:10px}
   /* лист подбора товара */
   #sheet{inset:0;border-radius:0;max-height:none}
@@ -662,12 +686,11 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
     <p>Выберите готовый вариант или создайте свой</p>
   </div>
   <div class="grid" id="coll"></div>
+  <!-- «Выбрать все» и «Очистить коллекцию» убраны (владелец 02.09: «они лишние»). Отметить
+       вариант можно сердечком на самой карточке — отдельная кнопка на всё разом только шумит,
+       а очистка хранилища — служебное действие, человеку тут не нужное. -->
   <div class="bar" id="feedBar" hidden>
-    <button class="btn" id="feedAll">Выбрать все</button>
     <button class="btn primary" id="feedShare">Избранное</button>
-    <!-- У кадров, снятых до 01.09, в записи нет стиля — восстановить их привязку нечем.
-         Кнопка даёт начать с чистого листа, не лазая в настройки браузера. -->
-    <button class="btn" id="feedClear">Очистить коллекцию</button>
   </div>
 
   <!-- разворот «Заменить мебель»: список предметов выбранного варианта прямо на витрине -->
@@ -802,17 +825,7 @@ function init(){
   on('swapShot','onclick',()=>makePhoto('draft'));
   document.addEventListener('keydown',e=>{
     if(e.key==='Escape'&&document.getElementById('cons').classList.contains('on'))closeCons();});
-  // ВЫДЕЛЕНИЕ — ПО ВИДИМЫМ КАРТОЧКАМ. В коллекции одна карточка на вариант, а в хранилище
-  // кадров больше; «выбрать все» по хранилищу молча набирало то, чего на экране нет.
-  on('feedAll','onclick',()=>{const vis=allVariants().map(bestShot).filter(Boolean);
-    const all=vis.every(s=>s.pick);
-    const vids=new Set(vis.map(s=>s.vid));
-    shots.forEach(x=>{if(vids.has(x.vid))x.pick=!all;});
-    saveShots(); drawColl(true);});
   on('feedShare','onclick',()=>shareOpen(allVariants().map(bestShot).filter(s=>s&&s.pick)));
-  on('feedClear','onclick',()=>{
-    if(!confirm('Удалить все снимки коллекции? Расстановки и товары останутся.'))return;
-    shots=[]; saveShots(); drawColl(true);});
   on('tab-plan','onclick',()=>showTab('plan'));
   on('tab-room','onclick',()=>showTab('room'));
   window.addEventListener('hashchange',()=>showTab(location.hash==='#room'?'room':'plan'));
@@ -1919,8 +1932,6 @@ function drawColl(force){
     const vis=allVariants().map(bestShot).filter(Boolean);
     const picked=vis.filter(x=>x.pick).length;
     bar.hidden=!vis.length;
-    const all=document.getElementById('feedAll');
-    if(all)all.textContent=(picked===vis.length&&vis.length)?'Снять выделение':'Выбрать все';
     const fs2=document.getElementById('feedShare');
     if(fs2)fs2.textContent=picked?`Избранное (${picked})`:'Избранное';
   }
