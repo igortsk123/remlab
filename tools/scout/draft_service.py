@@ -74,6 +74,85 @@ HOURLY_CAP = int(os.environ.get('DRAFT_HOURLY_CAP', 60))
 _HITS: list = []
 
 
+# ФОНОВЫЕ ЗАДАНИЯ (владелец 01.09: «периодами пишет ошибку»; на деле мобильный браузер рвёт
+# минутный запрос — сервер досчитывает и отдаёт 200, а человек видит «Load failed»). Держать
+# соединение минуту на телефоне нельзя в принципе. Поэтому: запрос ставится в очередь и сразу
+# возвращает номер, страница потом спокойно спрашивает «готово?». Гаснущий экран, смена сети и
+# закрытая вкладка перестают что-либо ломать.
+_JOBS: dict = {}
+_JOBS_MAX = 40
+_REG_LOCK = threading.Lock()
+
+
+def _group_items(items: list) -> list:
+    """ОДИН ТОВАР — ОДНА СТРОКА (владелец 02.09: «когда стула 2, надо показывать 1 карточку, а в
+    модели просто 2 ставить»). В расстановке два стула — это два СЛОТА одного товара; реестр
+    писал каждый слот отдельной записью, и в списке под фотографией стул задваивался.
+    Количество считаем по упаковке: «Стул АСТИ 2 шт.» при двух слотах — это ОДНА покупка.
+    """
+    import math
+    by: dict = {}
+    for i in items:
+        if not i.get('name'):
+            continue
+        k = (i.get('url') or '') + '|' + (i.get('name') or '')
+        if k not in by:
+            by[k] = {'role': i.get('role'), 'name': i.get('name'), 'price': i.get('price'),
+                     'url': i.get('url'), 'img': i.get('img'),
+                     'pack': i.get('pack') or 1, 'slots': 0}
+        by[k]['slots'] += 1
+    out = []
+    for v in by.values():
+        pack = int(v.pop('pack') or 1) or 1
+        slots = v.pop('slots')
+        v['qty'] = max(1, math.ceil(slots / pack))
+        out.append(v)
+    return out
+
+
+def _registry_add(payload: dict, out: dict) -> None:
+    """РЕЕСТР КАДРОВ ЖИВЁТ НА СЕРВЕРЕ (владелец 01.09: «фото должны храниться на сервере и
+    отдаваться на фронт быстро — это же классика»). Сами картинки и так лежали файлами, но связь
+    «какой кадр к какому стилю» хранилась ТОЛЬКО в браузере: с другого устройства коллекция
+    оказывалась пустой, а предгенерация вообще не имела смысла. Теперь запись делает сервер, а
+    страница её просто читает."""
+    try:
+        path = os.path.join(os.path.dirname(DR.FRAMES_DIR), 'shots.json')
+        rec = {'style': payload.get('style') or '', 'variant': payload.get('variant') or '',
+               'quality': out.get('quality') or payload.get('quality') or 'draft',
+               'model': out.get('model') or '', 'sources': out.get('sources') or '',
+               'ts': int(time.time() * 1000),
+               'shots': [{'camera': sh.get('camera'), 'url': sh.get('url'),
+                          'thumb': DR.thumb_name(sh['url']) if sh.get('url') else None}
+                         for sh in (out.get('shots') or []) if sh.get('url')],
+               'items': _group_items(payload.get('items') or [])}
+        if not rec['shots']:
+            return
+        with _REG_LOCK:
+            try:
+                data = json.load(open(path, encoding='utf-8'))
+            except Exception:  # noqa: BLE001
+                data = []
+            data = [x for x in data if x.get('ts') != rec['ts']]
+            data.append(rec)
+            data = data[-60:]                      # реестр не растёт бесконечно
+            tmp = path + '.tmp'
+            json.dump(data, open(tmp, 'w', encoding='utf-8'), ensure_ascii=False)
+            os.replace(tmp, path)
+    except Exception as e:  # noqa: BLE001 — реестр не должен ронять ответ
+        print(f'  реестр кадров не обновлён: {str(e)[:90]}')
+
+
+def _job_new() -> str:
+    import uuid
+    jid = uuid.uuid4().hex[:12]
+    if len(_JOBS) > _JOBS_MAX:                      # старые задания не копим
+        for k in sorted(_JOBS, key=lambda k: _JOBS[k].get('ts', 0))[:len(_JOBS) - _JOBS_MAX]:
+            _JOBS.pop(k, None)
+    _JOBS[jid] = {'status': 'running', 'ts': time.time()}
+    return jid
+
+
 class H(BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
 
@@ -99,6 +178,17 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):                                        # noqa: N802
         if self.route.startswith(('/health', 'draft/health')) or self.route in ('/draft/health',):
             return self._send(200, {'ok': True})
+        if self.route.startswith('/job'):
+            from urllib.parse import parse_qs, urlparse
+            jid = (parse_qs(urlparse(self.path).query).get('id') or [''])[0]
+            j = _JOBS.get(jid)
+            if not j:
+                return self._send(404, {'error': 'задание не найдено'})
+            if j['status'] == 'running':
+                return self._send(200, {'status': 'running',
+                                        'sec': round(time.time() - j['ts'], 1)})
+            return self._send(200, j.get('result') or {'status': j['status'],
+                                                       'error': j.get('error')})
         self._send(404, {'error': 'нет такого пути'})
 
     def do_POST(self):                                       # noqa: N802
@@ -126,6 +216,29 @@ class H(BaseHTTPRequestHandler):
             return self._send(404, {'error': 'нет такого пути'})
         if not (payload.get('room') and payload.get('items')):
             return self._send(400, {'error': 'нужны room и items'})
+        # ДЛИННЫЙ ЗАПРОС УХОДИТ В ФОН. Клиент присылает `async:1` и получает номер задания.
+        if payload.get('async'):
+            jid = _job_new()
+            body = dict(payload); body.pop('async', None)
+
+            # ФОН ИДЁТ ТЕМ ЖЕ ПУТЁМ, ЧТО И ОБЫЧНЫЙ ЗАПРОС — через себя же, но без ожидания
+            # клиентом. Так задание проходит и через прокси на DEV-рендер, и через локальный
+            # фолбэк: логика маршрутизации остаётся одна, дублировать её нельзя.
+            def _work(jid=jid, body=body):
+                try:
+                    import urllib.request as _u
+                    _port = int(os.environ.get('DRAFT_PORT', 8099))
+                    req = _u.Request(f'http://127.0.0.1:{_port}/render',
+                                     data=json.dumps(body).encode(), method='POST',
+                                     headers={'Content-Type': 'application/json'})
+                    with _u.urlopen(req, timeout=900) as r:
+                        out = json.loads(r.read())
+                    _JOBS[jid] = {'status': 'done', 'ts': _JOBS[jid]['ts'], 'result': out}
+                except Exception as e:  # noqa: BLE001
+                    _JOBS[jid] = {'status': 'error', 'ts': _JOBS[jid]['ts'],
+                                  'error': f'рендер не удался: {str(e)[:200]}'}
+            threading.Thread(target=_work, daemon=True).start()
+            return self._send(200, {'job': jid})
         # ВРЕМЕННЫЙ КОСТЫЛЬ ДЛЯ ДЕМО (владелец 31.08): полный кадр рендерит DEV-машина
         # через ssh-туннель; конфиг кладётся файлом в share (env контейнера не пересоздать).
         # DEV молчит/упала → фолбэк на локальный (декимированный) рендер, кнопка живёт
@@ -155,6 +268,7 @@ class H(BaseHTTPRequestHandler):
                     os.makedirs(DR.FRAMES_DIR, exist_ok=True)
                     open(os.path.join(DR.FRAMES_DIR, nm), 'wb').write(_b64.b64decode(b64))
                 out['backend'] = 'dev'
+                _registry_add(payload, out)
                 return self._send(200, out)
             except Exception as e:  # noqa: BLE001
                 print(f'DEV-бэкенд молчит ({str(e)[:80]}) — рендерю локально', flush=True)
@@ -181,10 +295,12 @@ class H(BaseHTTPRequestHandler):
                         fr[nm] = _b64.b64encode(open(fp, 'rb').read()).decode()
                 if fr:
                     res['frames'] = fr
-            self._send(200, {'shots': res['shots'], 'url': res['url'], 'model': res['model'],
-                             'sources': res.get('sources'), 'timing': res.get('timing'),
-                             'quality': quality, 'sec': round(time.time() - t, 1),
-                             'frames': res.get('frames'), 'diag': res['diag']})
+            out2 = {'shots': res['shots'], 'url': res['url'], 'model': res['model'],
+                    'sources': res.get('sources'), 'timing': res.get('timing'),
+                    'quality': quality, 'sec': round(time.time() - t, 1),
+                    'frames': res.get('frames'), 'diag': res['diag']}
+            _registry_add(payload, out2)
+            self._send(200, out2)
         except Exception as e:                       # noqa: BLE001 — наружу отдаём короткую причину
             self._send(502, {'error': f'рендер не удался: {str(e)[:200]}'})
         finally:

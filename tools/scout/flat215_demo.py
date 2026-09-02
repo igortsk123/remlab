@@ -364,6 +364,9 @@ def build() -> dict:
             # (перекос 2.77 при пороге 2.6). Товар знает свой размер — берём у него.
             _sk = _sku(items, role)
             _dims = _dims_of(v, _sk, role)
+            # признак подвесной тумбы кладём В САМ ТОВАР: рендер не должен разбирать название
+            if _sk and _hung(_sk.get('name')):
+                _sk = dict(_sk); _sk['hung'] = True
             objs.append({'role': role, 'x': round(v['x'], 1), 'y': round(v['z'], 1),
                          'rot': int(v.get('rot') or 0), 'w': _dims['w'], 'd': _dims['d'],
                          'h': _dims['h'], 'dims_src': _dims.get('dims_src'), 'sku': _sk,
@@ -434,7 +437,11 @@ def build() -> dict:
             feeds.setdefault(base, []).append(
                 {'name': it.get('name'), 'w': it.get('w'), 'd': it.get('d'), 'h': it.get('h'),
                  'price': it.get('price'), 'img': it.get('img'), 'url': it.get('url'),
-                 'shop': it.get('shop'), 'style': s.get('style'), 'sid': _sid})
+                 'shop': it.get('shop'), 'style': s.get('style'), 'sid': _sid,
+                 'hung': _hung(it.get('name')),
+                 # ШТУК В ПОКУПКЕ — И В ЛЕНТЕ ЗАМЕНЫ ТОЖЕ (02.09). Без этого после замены товара
+                 # «Стул 2 шт.» два слота считались бы двумя покупками, хотя это одна.
+                 'pack': _pack_of(it.get('mid'), it.get('eid'), it.get('name'))})
     # кап ставим ПОСЛЕ проверки фото (владелец 26.08: «нет фото — товар не участвует в выборке»)
     for k in feeds:
         feeds[k].sort(key=lambda x: x['price'] or 0)
@@ -481,6 +488,21 @@ def build() -> dict:
                                'Все предметы можно двигать, сохранять коллекции и делиться '
                                'с близкими.'},
             '_note': flat.get('_scale_note')}
+
+
+def _hung(name: str | None) -> bool:
+    """Подвесная (навесная) тумба? Размечаем ПО НАЗВАНИЮ ТОВАРА, а не по высоте.
+
+    Владелец 02.09: «посмотри все тв-тумбы на замену и размети навесные». Соблазн был считать
+    низкие тумбы подвесными, но проверка карточки показала обратный пример: «Флавир 140x27» при
+    высоте 27 см — НАПОЛЬНАЯ, на ножках («Расположение: напольное» в характеристиках). Высота
+    признаком не является; название — является.
+
+    Зачем признак: у подвесной тумбы её «высота» — толщина корпуса, а не уровень верхней
+    плоскости, и телевизор на неё не ставят, а вешают над ней (`draft_render.tv_spec`).
+    """
+    n = (name or '').lower()
+    return any(k in n for k in ('подвесн', 'навесн', 'настенн'))
 
 
 def cache_images(data: dict) -> dict:

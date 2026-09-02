@@ -79,6 +79,7 @@ def prompt_for(style: str | None, decor: list | None = None) -> str:
     """
     st, guide, pol = style_block(style)
     deny = list((pol.get('deny_always') or [])) + list((pol.get('deny_now') or {}).keys())
+    allow = list((pol.get('allow_now') or {}).keys())
     return '\n'.join([
         'You are given TWO images:',
         '',
@@ -150,6 +151,14 @@ def prompt_for(style: str | None, decor: list | None = None) -> str:
         'Renovate only exposed walls, ceiling, floor, skirting, trim and other fixed architectural '
         'elements according to the STYLE GUIDE below.',
         '',
+        'You ARE ALLOWED and expected to:',
+        '',
+        '* PAINT OR FINISH THE WALLS in colours and materials that suit the style — plain paint, '
+        'plaster, brick or a single accent wall are all acceptable when the STYLE GUIDE calls for '
+        'them. White walls are not the default; choose what the style needs.',
+        '* DRESS THE WINDOW WITH CURTAINS or blinds that suit the style, hung correctly and '
+        'identical in both views. They must not cover furniture or change the window opening.',
+        '',
         'The two views show the SAME room. Use exactly the same wall colour, floor material and '
         'direction, trim, door finish, window design and light temperature in both views.',
         '',
@@ -177,6 +186,10 @@ def prompt_for(style: str | None, decor: list | None = None) -> str:
         '',
         'Do not add text, labels, logos or watermarks. Do not change the camera, architecture or '
         'furniture arrangement.',
+    ] + ([
+        '',
+        'Explicitly ALLOWED despite the caution above: ' + ', '.join(allow) + '.',
+    ] if allow else []) + [
         '',
         'OUTPUT',
         '',
@@ -240,9 +253,14 @@ def build(payload: dict, style: str | None) -> dict:
     # Пересобираем ТЕ ЖЕ камеры под большую ширину: точка, цель и угол не меняются, растёт
     # только плотность пикселей.
     from planner.scene import Camera as _Cam
-    rw = int(os.environ.get('IMPROVE_RENDER_W', 2048))
+    # ЛИСТ СОБИРАЕМ РОВНО ПОД ЗАПРАШИВАЕМЫЙ РАЗМЕР (владелец 01.09: «минимализм, что за хрень на
+    # втором виде»). Мы отправляли лист 2048×2824, а просили вернуть 2048×3072 — модель тянула
+    # картинку по высоте почти на 9 %, и после резки второй вид приезжал искажённым и смещённым.
+    # Пропорция запроса и пропорция входа обязаны совпадать: считаем высоту вида из `SIZE`.
+    rw, rh_total = (int(x) for x in SIZE.split('x'))
+    per = (rh_total - DR.BAND_PX) // 2
     cams = [_Cam(name=c.name, eye=c.eye, target=c.target, fov_deg=c.fov_deg,
-                 width=rw, height=int(round(rw * c.height / c.width))) for c in cams]
+                 width=rw, height=per) for c in cams]
     # ВСЕ ПРЕДМЕТЫ, А НЕ ТОЛЬКО ТЕ, У КОГО СВОЯ КАРТОЧКА (владелец 01.09 «и все предметы»).
     # Пронумерованный экземпляр («стул 2») своего товара в банке не имеет и приезжал без `sid`,
     # то есть рисовался серой заглушкой рядом с честным первым стулом. Берём меш базовой роли —

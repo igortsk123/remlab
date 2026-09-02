@@ -21,6 +21,7 @@ import os
 import re
 import sys
 import time
+import urllib.error
 import urllib.request
 
 import numpy as np
@@ -272,9 +273,12 @@ def scene_from_request(payload: dict) -> tuple:
                     h_cm=float(it.get('h') or 0) or None, name=it.get('name'),
                     corner=bool(it.get('corner')),
                     corner_section_cm=float(it.get('section') or 95))
-        placements.append(Placement(role=role, x=float(it['x']), y=float(it['y']),
-                                    rot=float(it.get('rot') or 0), item=item,
-                                    elev_cm=float(it.get('elev') or 0)))
+        pl = Placement(role=role, x=float(it['x']), y=float(it['y']),
+                       rot=float(it.get('rot') or 0), item=item,
+                       elev_cm=float(it.get('elev') or 0))
+        if it.get('hung') is not None:
+            pl.hung = bool(it.get('hung'))           # разметка «подвесная» приходит из данных
+        placements.append(pl)
         if it.get('img'):
             photos[role] = photo(it['img'])
     for role in list(photos):                    # экземпляры пары («стул 2») наследуют фото роли
@@ -294,8 +298,16 @@ def scene_from_request(payload: dict) -> tuple:
             or next((p for p in placements if _base_role(p.role) == 'кресло'), None)
         dist = (((seat.x - stand.x) ** 2 + (seat.y - stand.y) ** 2) ** 0.5
                 if seat is not None else 300.0)   # math импортируется локально по файлу
-        inch, w, h, elev, how = tv_spec(dist, float(stand.item.w_cm),
-                                        float(stand.item.h_cm or 45))
+        # ПОДВЕСНАЯ ТУМБА ВИСИТ, И ЕЁ ВЫСОТА — ЭТО ТОЛЩИНА, А НЕ УРОВЕНЬ ВЕРХА (владелец 02.09:
+        # «в современном тумба подвесная, значит телек не на ней, а над ней должен висеть»).
+        # Мы читали 22 см как «верх тумбы на 22 см от пола» и ставили телевизор почти на пол.
+        # У подвесной тумбы от пола до низа — стандартные 40 см, значит верх на 40 + толщина.
+        top = float(stand.item.h_cm or 45)
+        if _hung_stand(stand):
+            base = float(os.environ.get('TV_STAND_HANG_CM', 40))
+            stand.elev_cm = base                     # сама тумба тоже поднимается на стену
+            top = base + top
+        inch, w, h, elev, how = tv_spec(dist, float(stand.item.w_cm), top, hung=_hung_stand(stand))
         placements.append(Placement(role='тв', x=stand.x, y=stand.y, rot=stand.rot,
                                     elev_cm=elev,
                                     item=Item(role='тв', w_cm=w, d_cm=8.0, h_cm=h,
@@ -312,7 +324,19 @@ TV_SEAT_EYE_CM = 105.0     # центр экрана на уровне глаз 
 TV_MAX_CENTER_CM = 125.0   # выше этого шею уже задирают: значит вешаем, а не ставим
 
 
-def tv_spec(dist_cm: float, stand_w_cm: float, stand_h_cm: float):
+def _hung_stand(stand) -> bool:
+    """Тумба подвесная? Смотрим название товара: «подвесная», «навесная», «настенная».
+
+    Это не косметика: у подвесной тумбы её собственная высота — толщина корпуса, а не уровень
+    верхней плоскости, и телевизор на неё не ставят — вешают над ней.
+    """
+    if getattr(stand, 'hung', None) is not None:      # явная разметка из данных важнее разбора
+        return bool(stand.hung)
+    nm = (getattr(stand.item, 'name', '') or '').lower()
+    return any(k in nm for k in ('подвесн', 'навесн', 'настенн'))
+
+
+def tv_spec(dist_cm: float, stand_w_cm: float, stand_h_cm: float, hung: bool = False):
     """→ (дюймы, ширина см, высота см, отметка низа см, как поставлен).
 
     Диагональ — по таблице расстояний, но НЕ шире тумбы (правило владельца 01.09: «не более
@@ -336,7 +360,8 @@ def tv_spec(dist_cm: float, stand_w_cm: float, stand_h_cm: float):
         k = cap / w
         w, h = w * k, h * k
         inch = round((w ** 2 + h ** 2) ** 0.5 / 2.54)
-    if stand_h_cm + h / 2 <= TV_MAX_CENTER_CM:
+    # Над подвесной тумбой телевизор НЕ СТОИТ никогда — только на стене (владелец 02.09).
+    if not hung and stand_h_cm + h / 2 <= TV_MAX_CENTER_CM:
         return inch, round(w, 1), round(h, 1), round(stand_h_cm, 1), 'на тумбе'
     elev = max(stand_h_cm + 10.0, TV_SEAT_EYE_CM - h / 2)
     return inch, round(w, 1), round(h, 1), round(elev, 1), 'на стене'
@@ -574,15 +599,39 @@ def _trim_band(img: Image.Image) -> Image.Image:
     return img.crop((0, int(ys.min()), img.width, int(ys.max()) + 1))
 
 
+THUMB_W = int(os.environ.get('THUMB_W', 640))
+
+
+def thumb_name(name: str) -> str:
+    """Имя миниатюры рядом с кадром: `улучшение-C1.jpg` → `улучшение-C1.t.jpg`."""
+    base, ext = os.path.splitext(name)
+    return f'{base}.t{ext or ".jpg"}'
+
+
 def _publish_frame(img: Image.Image, name: str) -> str:
-    """Кадр из разрезанного листа кладём в раздаваемую папку и отдаём ссылку на него."""
+    """Кадр кладём в раздаваемую папку и отдаём ссылку. Рядом пишем МИНИАТЮРУ.
+
+    Владелец 02.09: «миниатюры фото плохо грузит, сделай чтоб обрезались и быстро грузились».
+    Карточки коллекции показывали полноразмерный кадр 2048 px и под мегабайт весом — на телефоне
+    это секунды ожидания на каждую карточку. Уменьшенная копия весит десятки килобайт, а полный
+    кадр остаётся для просмотра во весь экран.
+    """
     os.makedirs(FRAMES_DIR, exist_ok=True)
     fp = os.path.join(FRAMES_DIR, name)
     img.save(fp, quality=92)
+    tp = os.path.join(FRAMES_DIR, thumb_name(name))
+    try:
+        t = img.copy()
+        t.thumbnail((THUMB_W, THUMB_W * 2))
+        t.save(tp, quality=78, optimize=True, progressive=True)
+    except Exception as e:  # noqa: BLE001 — миниатюра не должна ронять публикацию кадра
+        print(f'  миниатюра не сделана: {str(e)[:70]}')
+        tp = None
     push = os.environ.get('FRAME_PUSH')
     if push:  # DEV-рендер для прода: кадр доставляется на сервер, ссылка остаётся прод-URL
         import subprocess as _sp
-        _sp.run(['scp', '-q', '-o', 'BatchMode=yes', fp, push], timeout=60, check=False)
+        for f in [fp] + ([tp] if tp else []):
+            _sp.run(['scp', '-q', '-o', 'BatchMode=yes', f, push], timeout=60, check=False)
     return (PUBLIC_BASE + FRAMES_URL + '/' + name) if PUBLIC_BASE else fp
 
 
@@ -1299,10 +1348,23 @@ def gpt_edit(images: list, prompt: str, size: str = '1024x1536',
     req = urllib.request.Request(GATEWAY, data=body, headers={
         'Authorization': f'Bearer {gw_key()}',
         'Content-Type': f'multipart/form-data; boundary={bnd}'})
-    with urllib.request.urlopen(req, timeout=900) as r:
-        j = json.loads(r.read())
+    # ПРИЧИНА ОТКАЗА ДОЛЖНА БЫТЬ ВИДНА (01.09: владелец получил «не хватает денег», а в логе —
+    # только код 502). `urlopen` на 4xx/5xx кидает HTTPError и ТЕЛО ответа выбрасывает, а
+    # объяснение шлюза лежит именно в теле. Читаем его и кладём в сообщение и в лог.
+    try:
+        with urllib.request.urlopen(req, timeout=900) as r:
+            j = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        try:
+            body = e.read().decode('utf-8', 'replace')[:600]
+        except Exception:  # noqa: BLE001
+            body = ''
+        print(f'ШЛЮЗ ОТКАЗАЛ: HTTP {e.code} {e.reason} | модель {model}, размер {size}, '
+              f'качество {quality} | ответ: {body}', flush=True)
+        raise SystemExit(f'шлюз отказал (HTTP {e.code}): {body[:300]}') from None
     b64 = (j.get('data') or [{}])[0].get('b64_json')
     if not b64:
+        print(f'ШЛЮЗ БЕЗ КАРТИНКИ: {json.dumps(j)[:400]}', flush=True)
         raise SystemExit(f'шлюз не вернул картинку: {json.dumps(j)[:300]}')
     import base64
     return Image.open(io.BytesIO(base64.b64decode(b64))).convert('RGB')
@@ -1357,7 +1419,87 @@ def _publish_sources(stamp: str, imgs: dict, prompt: str, legend: list, meta: di
     if push:
         import subprocess as _sp
         _sp.run(['scp', '-q', '-r', '-o', 'BatchMode=yes', d, push], timeout=180, check=False)
+    _src_index()
+    if push:                      # оглавление тоже кладём рядом, иначе список виден только локально
+        import subprocess as _sp2
+        _sp2.run(['scp', '-q', '-o', 'BatchMode=yes',
+                  os.path.join(SRC_DIR, 'index.html'), push], timeout=60, check=False)
     return (PUBLIC_BASE + SRC_URL + '/' + stamp + '/') if PUBLIC_BASE else d
+
+
+def _improve_cache(src_id, res: dict | None = None):
+    """Кеш результата улучшения по `src_id`: пишем рядом с исходником запроса.
+
+    Ключ — id исходника: он однозначно описывает, ЧТО ушло в модель (лист, эталоны, промпт).
+    Тот же исходник → тот же ответ; повторный запрос не платит второй раз."""
+    if not src_id:
+        return None
+    path = os.path.join(SRC_DIR, str(src_id), 'result.json')
+    if res is None:
+        try:
+            return json.load(open(path, encoding='utf-8'))
+        except Exception:  # noqa: BLE001
+            return None
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        json.dump(res, open(path, 'w', encoding='utf-8'), ensure_ascii=False)
+        push = os.environ.get('SRC_PUSH')
+        if push:
+            import subprocess as _sp
+            _sp.run(['scp', '-q', '-o', 'BatchMode=yes', path,
+                     push.rstrip('/') + '/' + str(src_id) + '/'], timeout=60, check=False)
+    except Exception as e:  # noqa: BLE001 — кеш не должен ронять ответ
+        print(f'  кеш улучшения не записан: {str(e)[:80]}')
+    return None
+
+
+def _src_index() -> None:
+    """РЕЕСТР ЧЕРНОВИКОВ ДЛЯ РАССЛЕДОВАНИЯ (владелец 01.09: «черновик от пользователя скрываешь,
+    но обязательно сохраняешь; по моей просьбе в любой момент дай ссылку, чтобы я посмотрел,
+    что уходило в модель»). Каждая генерация уже кладёт свою папку с листом, эталонами и
+    промптом; здесь собираем оглавление, чтобы не искать папки руками."""
+    try:
+        rows = []
+        for name in sorted(os.listdir(SRC_DIR), reverse=True):
+            d = os.path.join(SRC_DIR, name)
+            if not os.path.isdir(d):
+                continue
+            # СТИЛЬ БЕРЁМ ИЗ САМОГО ПРОМПТА, А НЕ ИЗ ПОДПИСИ (01.09): в промпте он не «заявлен»,
+            # а фактически отправлен — именно это и надо видеть при разборе «почему все стили
+            # получились одинаковыми».
+            style = ''
+            try:
+                txt = open(os.path.join(d, 'prompt.txt'), encoding='utf-8').read()
+                for k, ru in (('INDUSTRIAL LOFT', 'лофт'), ('SOFT MINIMALIST', 'минимализм'),
+                              ('NEOCLASSICAL', 'неоклассика'), ('CONTEMPORARY', 'современный')):
+                    if k in txt:
+                        style = ru
+                        break
+            except Exception:  # noqa: BLE001
+                pass
+            sheet = os.path.join(d, '1-ОТПРАВЛЯЕМ-лист-двух-видов.jpg')
+            sig = ''
+            if os.path.exists(sheet):
+                import hashlib
+                sig = hashlib.md5(open(sheet, 'rb').read()).hexdigest()[:8]
+            ts = time.strftime('%d.%m %H:%M', time.localtime(os.path.getmtime(d)))
+            rows.append(f'<tr><td><a href="{name}/">{name}</a></td>'
+                        f'<td>{style or "—"}</td><td><code>{sig or "—"}</code></td>'
+                        f'<td>{ts}</td></tr>')
+        html = ('<!doctype html><meta charset=utf-8><title>Черновики запросов</title>'
+                '<style>body{font:15px system-ui;padding:24px;max-width:820px;margin:0 auto}'
+                'table{border-collapse:collapse;width:100%}td,th{padding:8px 10px;'
+                'border-bottom:1px solid #e7e5e4;text-align:left}a{color:#9a5a3d}</style>'
+                '<h1>Черновики запросов к модели</h1>'
+                '<p>Что именно ушло в модель: склеенный лист двух ракурсов, лист эталонов '
+                'товаров и полный текст промпта. Служебная страница, покупателю не показывается.</p>'
+                '<p>Колонка «сцена» — отпечаток отправленного листа. Одинаковый отпечаток у '
+                'разных стилей означал бы, что в модель ушла одна и та же сцена.</p>'
+                '<table><tr><th>Запрос</th><th>Стиль</th><th>Сцена</th><th>Когда</th></tr>'
+                + ''.join(rows) + '</table>')
+        open(os.path.join(SRC_DIR, 'index.html'), 'w', encoding='utf-8').write(html)
+    except Exception as e:  # noqa: BLE001 — оглавление не должно ронять публикацию
+        print(f'  оглавление черновиков не собралось: {str(e)[:80]}')
 
 
 STYLE_HINT = {
@@ -2275,6 +2417,15 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
     # модели нужен только ремонт. Сборка листа, эталонов и промпта живёт в `improve_mode`, чтобы
     # страница исходников и боевой запрос не могли разойтись: один код на оба.
     if quality == 'realistic' and layout is not None and os.environ.get('IMPROVE_MODE', '1') == '1':
+        # ГОТОВЫЙ РЕЗУЛЬТАТ ОТДАЁМ БЕЗ ПОВТОРНОЙ ОПЛАТЫ (владелец 01.09: «Load failed» на телефоне
+        # при том, что на сервере генерация прошла — 55 с и HTTP 200). Связь на мобильном рвётся
+        # на длинных запросах, а картинка уже сделана и оплачена. Повтор с тем же `src_id`
+        # возвращает её с диска: человек нажимает ещё раз и получает своё фото, а не новый счёт.
+        _c = _improve_cache(layout.get('src_id'))
+        if _c:
+            print('улучшение: отдан готовый результат из кеша (повтор после обрыва связи)',
+                  flush=True)
+            return _c
         import improve_mode as IM
         # СЦЕНУ НЕ ПЕРЕСОБИРАЕМ (01.09). Кнопка «улучшить» нажимается на УЖЕ показанном кадре,
         # и его лист только что выложен как исходник запроса. Пересчёт двух видов в 2048 — это
@@ -2310,8 +2461,10 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         shots = [{'camera': c.name, 'url': _publish_frame(p_, f'improve-{stamp}-{c.name}.jpg'),
                   'diag': {}, 'anchors': []}
                  for c, p_ in zip(want, pieces)]
-        return {'shots': shots, 'url': shots[0]['url'], 'model': f'improve/{REALISTIC_MODEL}',
-                'sources': built['src_url'], 'timing': {}, 'diag': {'clay': built['clay']}}
+        res = {'shots': shots, 'url': shots[0]['url'], 'model': f'improve/{REALISTIC_MODEL}',
+               'sources': built['src_url'], 'timing': {}, 'diag': {'clay': built['clay']}}
+        _improve_cache(layout.get('src_id'), res)      # см. ниже: обрыв связи не стоит генерации
+        return res
     if quality == 'draft' and os.environ.get('SCENE3D', '1') == '1':
         # РЕЖИМ ПРОВЕРКИ (владелец 31.08): сырой кадр 3D-сцены без модели и без GPT
         sid_by_role = {it['role']: it.get('sid') for it in (layout or {}).get('items', [])
