@@ -142,7 +142,6 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
   #shot{padding:0;align-items:stretch}
   #shot .box{width:100%;max-height:100%;height:100%;border-radius:0}
   #shot .cap{padding:12px 14px}
-  #shot .cap .btn{flex:1 1 100%}
   #shotbody{padding:12px 14px 4px}
 }
 .flathead .fk{font-size:clamp(21px,2.2vw,27px);font-weight:700}
@@ -426,16 +425,25 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 #shot .shotwrap img,#shot .grid2 img{width:100%;border-radius:var(--radius);display:block;
  max-height:56vh;object-fit:cover;
  background:var(--wash-2)}   /* тёплая подложка: при смене кадра не вспыхивает белым */
-#shot .cap{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0;
+/* НИЖНЯЯ ПОЛОСА — ПАНЕЛЬ ДЕЙСТВИЙ (владелец 02.09). Слева два действия над этой расстановкой,
+   справа выход. Все три ЗАКРЕПЛЕНЫ снизу, а не стоят под фотографией: список товаров на
+   телефоне длиной в несколько экранов, и при кнопках под фото человек, долистав до восьмого
+   товара, остаётся без единого действия. `#shotcap` пуст в просмотре кадра (подпись убрана) и
+   схлопывается; он ещё нужен служебным экранам вроде «в избранном: 8». */
+#shot .cap{display:flex;align-items:center;gap:10px;margin:0;
  flex:0 0 auto;border-top:1px solid var(--line);background:var(--surface);padding:12px 16px;
  flex-wrap:wrap;   /* Б6: длинная подпись «неоклассика · Стоимость комплекта…» ужимала кнопку */
  font-size:clamp(14px,1.9vw,16px);color:var(--ink)}
-/* ПОДПИСЬ И КНОПКА ИЗБРАННОГО НЕ СЛИПАЮТСЯ (владелец 02.09). `gap` у `.cap` разводит только её
-   прямых детей — подпись и «Закрыть»; а стиль со стоимостью и «♡ В избранное» лежат двумя
-   соседними span-ами ВНУТРИ `#shotcap`, и между ними не было даже пробела. Делаем сам `#shotcap`
-   флексом со своим отступом. */
-#shot .cap #shotcap{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;
- flex:1 1 auto;min-width:0}
+#shot .cap #shotcap{flex:0 1 auto;min-width:0}
+#shot .cap #shotcap:empty{display:none}
+/* Кнопки полосы — одного роста: у «♡ В избранное» строчный бокс выше из-за самого знака сердца,
+   и рядом с соседкой она вылезала на 2 px. Флекс-центрирование уравнивает. */
+#shot .cap .btn{white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;
+ min-height:44px;line-height:1.2;text-align:center}
+#shot .cap #shotclose{margin-left:auto}   /* выход всегда у правого края, отдельно от действий */
+/* Состояние избранного несёт сама кнопка: ♥ и акцентная обводка вместо заливки — иначе две
+   залитые кнопки рядом («В избранном» и «Изменить планировку») спорят за главное действие. */
+#shPick.on{border-color:var(--accent);color:var(--accent)}
 #shot .wait{padding:40px 20px;text-align:center;font-size:clamp(16px,2.2vw,18px);color:var(--ink)}
 .spin{width:26px;height:26px;border:3px solid var(--line);border-top-color:var(--accent);
  border-radius:50%;margin:0 auto 12px;animation:sp 1s linear infinite}
@@ -622,7 +630,19 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
   #shot{padding:0;align-items:stretch;justify-content:stretch;background:var(--surface)}
   #shot .box{width:100%;max-width:100%;height:100%;max-height:100%;border-radius:0;
     box-shadow:none}
-  #shot .cap{padding:12px 14px}
+  /* ТЕЛЕФОН: три кнопки в один ряд не влезают (≈205+154+104 px), поэтому строк две. Размер идёт
+     ЗА ИЕРАРХИЕЙ: главное действие «Изменить планировку» занимает всю первую строку, а
+     «В избранное» и «Закрыть» делят вторую пополам. Обратное распределение (замечание Codex
+     02.09) делало самой крупной кнопкой «Закрыть», то есть выход из окна.
+     Порядок задаёт РАЗМЕТКА, `order` не используем — правило файла. `align-items:stretch`
+     держит половинки одного роста, когда длинная надпись переносится.
+     `env(safe-area-inset-bottom)` — чтобы на iPhone полоса не пряталась под домашней чертой. */
+  #shot .cap{padding:12px 14px calc(12px + env(safe-area-inset-bottom,0px));align-items:stretch}
+  /* поля ужаты: с обычными 20 px надписи рвались на две строки в половине ширины */
+  #shot .cap .btn{white-space:normal;line-height:1.25;padding-left:10px;padding-right:10px}
+  #shot .cap #shEdit{flex:1 1 100%}
+  #shot .cap #shPick,#shot .cap #shotclose{flex:1 1 calc(50% - 5px)}
+  #shot .cap #shotclose{margin-left:0}
   #shot .shotwrap img,#shot .grid2 img{max-height:52vh;border-radius:var(--radius-sm)}
   .xclose{top:10px;right:10px}
   /* лист подбора товара */
@@ -734,7 +754,7 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 
 <!-- КОНСТРУКТОР НА ВЕСЬ ЭКРАН -->
 <div id="cons">
-  <div class="top"><b>Новая расстановка · <span id="consStyle">—</span></b>
+  <div class="top"><b><span id="consWhat">Новая расстановка</span> · <span id="consStyle">—</span></b>
     <button class="btn" id="consDone">Готово</button></div>
   <div class="body" id="consBody"></div>
   <div class="bar"><span class="sum" id="consSum">Комплект: —</span>
@@ -743,10 +763,19 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 
 </div>
 <div id="scrim"></div>
-<div id="shot"><div class="box">
+<div id="shot" role="dialog" aria-modal="true" aria-label="Просмотр кадра"><div class="box">
   <button class="xclose" id="shotx" aria-label="Закрыть">×</button>
   <div id="shotbody"></div>
-  <div class="cap"><span id="shotcap"></span><button class="btn" id="shotclose">Закрыть</button></div>
+  <!-- НИЖНЯЯ ПОЛОСА — ТОЛЬКО ДЕЙСТВИЯ (владелец 02.09: «внизу убери подпись, внизу три кнопки»).
+       Кнопки лежат в разметке ПОСТОЯННО, а не впрыскиваются в подпись при каждом открытии: так
+       они не зависят от того, что нарисовано в теле окна, и не слипаются с текстом. Служебные
+       экраны (ожидание, окно отправки) прячут первые две через `hidden`. -->
+  <div class="cap">
+    <span id="shotcap"></span>
+    <button class="btn primary" id="shEdit" hidden>Изменить планировку</button>
+    <button class="btn" id="shPick" hidden aria-pressed="false">♡ В избранное</button>
+    <button class="btn ghost" id="shotclose">Закрыть</button>
+  </div>
 </div></div><div id="peek"></div>
 <!-- СТРАНИЦА СПИСКА МЕБЕЛИ (владелец 01.09: «сделай у нас по аналогии, но адаптируй — у нас
      подборка зависит от стиля»). У застройщика список разбит по КОМНАТАМ; у нас комплект
@@ -1972,11 +2001,15 @@ function toggleSwap(i){   // кнопка «Заменить мебель» — 
 }
 // ——— КОНСТРУКТОР: узел плана переносим в оверлей и обратно, не пересоздавая
 let consHome=null;
-function openCons(){
+function openCons(mode){
   const work=document.getElementById('work'), body=document.getElementById('consBody');
   if(!work||!body)return;
   if(!consHome)consHome=work.parentNode;
   const v=allVariants()[cur]||{};
+  // ЗАГОЛОВОК ГОВОРИТ ПРАВДУ О ТОМ, ЗАЧЕМ ВОШЛИ. Из просмотра кадра человек правит СУЩЕСТВУЮЩУЮ
+  // расстановку, и «Новая расстановка» его дезориентировала бы.
+  const head=document.getElementById('consWhat');
+  if(head)head.textContent=mode==='edit'?'Планировка':'Новая расстановка';
   document.getElementById('consStyle').textContent=v.style||v.title||'';
   document.getElementById('consSum').textContent='Комплект: '+money(variantPrice(v));
   work.hidden=false; body.appendChild(work);
@@ -2000,8 +2033,13 @@ function updateConsShot(){
 function drawFeed(){ drawColl(); updateConsShot(); }
 
 function drawPhotos(){ /* заголовок коллекции статичен в разметке (план demo-collection-flow) */ }
-function shotOpen(html,cap){document.getElementById('shotbody').innerHTML=html;
+function shotOpen(html,cap){const sb=document.getElementById('shotbody');
+  sb.innerHTML=html;
+  sb.scrollTop=0;   // новое содержимое показываем С НАЧАЛА, а не с прокрутки прошлого списка
   document.getElementById('shotcap').innerHTML=cap||'';
+  // Действия просмотра кадра включает только сам просмотр (`viewShot`): на экранах ожидания и
+  // отправки «В избранное»/«Изменить планировку» не к чему применить.
+  ['shPick','shEdit'].forEach(id=>{const b=document.getElementById(id); if(b)b.hidden=true;});
   document.getElementById('shot').classList.add('on');
   // ФОКУС ПЕРЕХОДИТ В ОКНО (аудит 01.09, Д4): иначе с клавиатуры он остаётся на странице под
   // модалкой, и следующий Tab уводит «сквозь» открытое окно.
@@ -2156,12 +2194,12 @@ function viewShot(i){
       `<button class="nav next" id="shotNext" ${at===seq.length-1?'disabled':''} aria-label="Следующий вид">›</button>`+
       `<div class="viewno">${at+1} из ${seq.length}</div>`
     : '';
-  // ПОДПИСЬ КРУПНОГО КАДРА — СТИЛЬ И СТОИМОСТЬ КОМПЛЕКТА, как на кнопке варианта
-  // (владелец 01.09: «оставь только подпись стиля, как по кнопке, и стоимость»).
-  const vp=variantPrice(variantOf(s));
-  shotOpen(`<div class="shotwrap"><img src="${s.url}" alt="${styleOf(s)}">${pins}${navs}</div>${srcRow}${list}`,
-    `<span><b>${styleOf(s)}</b>${vp?' · Стоимость комплекта: '+money(vp):''}</span>`+
-    `<span><button class="btn primary" id="shPick">${s.pick?'♥ В избранном':'♡ В избранное'}</button></span>`);
+  // ПОДПИСИ ВНИЗУ БОЛЬШЕ НЕТ (владелец 02.09: «вообще внизу убери подпись»). Прежняя строка
+  // «лофт · Стоимость комплекта: 94 311 ₽» отменяет решение от 01.09: низ окна — полоса
+  // действий, а не место для текста. ВНИМАНИЕ: названия стиля в самом окне после этого нет
+  // нигде — в шапке списка только число товаров и их сумма, а стоимость комплекта видна в
+  // конструкторе («Комплект: …»). Вернуть стиль — только по слову владельца.
+  shotOpen(`<div class="shotwrap"><img src="${s.url}" alt="${styleOf(s)}">${pins}${navs}</div>${srcRow}${list}`,'');
   // «Заменить» из просмотра: находим предмет текущей расстановки по названию товара
   document.querySelectorAll('#shotbody [data-rep]').forEach(b=>b.onclick=()=>{
     const a=all[+b.dataset.rep];
@@ -2171,9 +2209,34 @@ function viewShot(i){
     // остаётся открытой»). Лист подбора теперь выше по слоям и виден поверх него.
     sel=it; draw(); openPicker(it);
   });
+  // ОТМЕТКА СТАВИТСЯ НА ВЕСЬ ВАРИАНТ, КАК СЕРДЕЧКО НА КАРТОЧКЕ (разбор Codex 02.09, проверено
+  // по коду). Кнопка в окне помечала ОДИН кадр, а карточка коллекции и отправка смотрят на
+  // «лучший кадр» варианта (`bestShot`): отметив в окне второй вид, человек не видел отклика на
+  // карточке, и в подборку кадр не попадал. Правило варианта — одно, задано в `drawColl`.
   const pk=document.getElementById('shPick');
-  if(pk)pk.onclick=()=>{s.pick=!s.pick;saveShots();drawFeed();
-    pk.textContent=s.pick?'♥ В избранном':'♡ В избранное';};
+  if(pk){
+    const mark=()=>{pk.textContent=s.pick?'♥ В избранном':'♡ В избранное';
+      pk.classList.toggle('on',!!s.pick);
+      pk.setAttribute('aria-pressed',s.pick?'true':'false');};
+    pk.hidden=false; mark();
+    pk.onclick=()=>{const on=!s.pick;
+      if(s.vid)shots.forEach(x=>{if(x.vid===s.vid)x.pick=on;}); else s.pick=on;
+      saveShots(); drawFeed(); mark();};
+  }
+  // «ИЗМЕНИТЬ ПЛАНИРОВКУ» — ГЛАВНЫЙ СЛЕДУЮЩИЙ ШАГ (владелец 02.09). Открывает конструктор с
+  // планом, где мебель двигают. Кадр можно открыть с ЛЮБОЙ карточки и из окна избранного,
+  // поэтому сначала делаем вариант ЭТОГО кадра текущим (`pickVariant` ставит `cur` и грузит
+  // расстановку). Вариант ищем по `vid` напрямую, а НЕ через `variantOf`: тот при неопознанном
+  // кадре подставляет текущий вариант и молча открыл бы чужую планировку. Окно кадра закрываем:
+  // `#cons` и `#shot` оба z-index 60, но `#shot` ниже в разметке и перекрыл бы конструктор.
+  const ed=document.getElementById('shEdit');
+  if(ed){ed.hidden=false;
+    ed.onclick=()=>{
+      const vi=allVariants().findIndex(v=>(v.id||'')===(s.vid||''));
+      if(vi>=0&&vi!==cur)pickVariant(vi);
+      document.getElementById('shot').classList.remove('on');
+      openCons('edit');
+    };}
   // ПЕРЕКЛЮЧЕНИЕ ВИДОВ БЕЗ МЕРЦАНИЯ (владелец 02.09: «когда фотки переключаем, мерцает экран»).
   // Раньше стрелка перерисовывала ВСЁ окно: элемент картинки создавался заново, браузер на
   // мгновение показывал пустоту и заново декодировал файл. Теперь меняем только адрес у той же
