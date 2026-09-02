@@ -880,16 +880,47 @@ function init(){
 }
 // ——— ВАРИАНТЫ: расстановка вместе со своим комплектом, ценой и сохранением своего
 const MAXV=4;
+// ОТКРЫТЫЙ ВАРИАНТ СЧИТАЕТСЯ ПО ЖИВОЙ РАССТАНОВКЕ (владелец 02.09: «карточка не обновилась»).
+// Заменив диван, человек видел новую сумму в окне кадра и в панели замены, а карточка коллекции
+// показывала прежнюю: она брала ГОТОВУЮ сумму комплекта из `D.sets`, куда правки не попадают
+// вовсе, и считала предметы по `v.items` — исходным данным варианта, а не по тому, что на плане.
+function variantLive(v){
+  return !!(v&&allVariants()[cur]===v&&typeof items!=='undefined'&&items&&items.length);
+}
+function variantItems(v){ return variantLive(v)?items:((v&&v.items)||[]); }
+function variantDecor(v){ return variantLive(v)?decorList():(((v&&v.decor)||[]).filter(x=>(x.sku||{}).name)); }
+function variantCount(v){ return variantItems(v).filter(it=>(it.sku||{}).name).length; }
 function variantPrice(v){                       // цена = сумма комплекта, привязанного к варианту
   const kit=(D.sets||[]).find(k=>k.id==='kit'+String(v.id||'').replace('set',''));
-  if(kit&&kit.sum)return kit.sum;
+  // КОМПЛЕКТ — ЭТО РОЛИ, А НЕ ТО, ЧТО ПОСТАВЛЕНО В КОМНАТУ. У лофта в комплекте 10 ролей,
+  // включая кресло, пуф и кашпо, которых на плане нет; поэтому подменять сумму комплекта суммой
+  // расставленного нельзя — это разные числа (94 311 против 79 130). Но замену товара она
+  // обязана учитывать (владелец 02.09: «карточка не обновилась»): раньше бралась ГОТОВАЯ
+  // `kit.sum`, и замена дивана на карточке не отражалась вообще. Считаем сумму по ролям,
+  // подставляя товар из живой расстановки там, где человек его заменил. Без правок результат
+  // совпадает с `kit.sum` до рубля.
+  if(kit&&kit.roles&&typeof kit.roles==='object'&&Object.keys(kit.roles).length){
+    const live=variantLive(v);
+    let t=0;
+    Object.keys(kit.roles).forEach(r=>{
+      const p=kit.roles[r]||{};
+      let price=p.price||0;
+      if(live){
+        const it=items.find(x=>String(x.role||'').replace(/\s+\d+$/,'')===r&&(x.sku||{}).name);
+        if(it)price=it.sku.price||0;
+      }
+      t+=price;
+    });
+    return t;
+  }
+  if(!variantLive(v)&&kit&&kit.sum)return kit.sum;
   // цена варианта считается ТАК ЖЕ, как корзина: слоты одного товара — одна покупка
   const by=new Map();
-  (v.items||[]).forEach(it=>{const p=it.sku; if(!p||!p.name)return;
+  variantItems(v).forEach(it=>{const p=it.sku; if(!p||!p.name)return;
     const k=(p.url||'')+'|'+p.name; if(!by.has(k))by.set(k,{p:p,n:0}); by.get(k).n++;});
   let t=0; by.forEach(g=>{t+=(g.p.price||0)*Math.ceil(g.n/((+g.p.pack||1)>0?(+g.p.pack||1):1));});
   // декор входит в стоимость комплекта — он такой же купленный товар (владелец 02.09)
-  (v.decor||[]).forEach(x=>{const p=x.sku||{}; if(p.name)t+=(p.price||0);});
+  variantDecor(v).forEach(x=>{const p=x.sku||{}; if(p.name)t+=(p.price||0);});
   return t;
 }
 function myVariants(){
@@ -1901,9 +1932,19 @@ function bestShot(v){
   // Прятать его целиком оказалось неверно: человек нажимает кнопку и минуты три смотрит в
   // пустоту. Показываем нашу сцену сразу, а фотография от модели встаёт на её место, когда
   // придёт; после этого черновик становится служебным (`svc`) и с экрана уходит.
-  const real=mine.filter(x=>x.quality==='realistic');
-  const pool=real.length?real:mine;
-  return pool.length?pool[pool.length-1]:null;
+  //
+  // ВЫБОР — ВНУТРИ ПОСЛЕДНЕЙ СЪЁМКИ, А НЕ ПО ВСЕМУ ХРАНИЛИЩУ (владелец 02.09: «когда закрыл,
+  // карточка не обновилась»). Раньше фотореалистичный кадр побеждал ВСЕГДА, а все четыре
+  // готовых кадра демо как раз `realistic`. Поэтому свежий черновик, снятый после замены
+  // дивана, не мог попасть на карточку никогда: она оставалась с прежней фотографией, где
+  // стоит прежний диван. Правило «фото важнее черновика» сохраняем, но в пределах ОДНОЙ
+  // расстановки: сравниваем кадры той же ревизии, что и последний снятый.
+  if(!mine.length)return null;
+  const last=mine[mine.length-1];
+  const same=mine.filter(x=>(x.revision||'')===(last.revision||''));
+  const real=same.filter(x=>x.quality==='realistic');
+  const pool=real.length?real:same;
+  return pool[pool.length-1]||null;
 }
 // КОЛЛЕКЦИЯ РАССТАНОВОК — первый уровень (план demo-collection-flow). Одна карточка на стиль,
 // плюс сохранённые расстановки человека, плюс карточка «Добавить новую». Плана здесь нет:
@@ -1915,7 +1956,7 @@ function drawColl(force){
   // а тот срабатывает на любое движение; каждый раз сетка пересобиралась через `innerHTML`,
   // браузер выбрасывал элементы `<img>` и заново их декодировал — отсюда мерцание. Собираем
   // заново, только если реально изменилось то, из чего сетка состоит.
-  const sig=JSON.stringify([cur, allVariants().map(v=>[v.id,v.style,variantPrice(v)]),
+  const sig=JSON.stringify([cur, allVariants().map(v=>[v.id,v.style,variantPrice(v),variantCount(v)]),
     allVariants().map(v=>{const b=bestShot(v);return b?[b.url,b.quality,!!b.pick]:0;})]);
   if(!force&&sig===_collSig)return;
   _collSig=sig;
@@ -1923,7 +1964,7 @@ function drawColl(force){
   const list=allVariants();
   list.forEach((v,i)=>{
     const sh=bestShot(v), p=variantPrice(v);
-    const n=(v.items||[]).filter(it=>(it.sku||{}).name).length;
+    const n=variantCount(v);   // у открытого варианта — по живой расстановке, а не по данным
     const el=document.createElement('div');
     el.className='lay'+(i===cur?' on':'');
     const views=sh?shots.filter(x=>x.batch&&x.batch===sh.batch).length:0;
