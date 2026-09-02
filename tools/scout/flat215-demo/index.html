@@ -2138,7 +2138,7 @@ async function makePhoto(quality, srcId, replaceBatch){
   const est=quality==='realistic'?'обычно 2–4 минуты':'обычно 20–25 секунд';
   shotOpen('<div class="wait"><div class="spin"></div>'+
     (quality==='realistic'?'Рисуем фотографию по вашей расстановке'
-       :'Собираем вашу расстановку — наши модели, без ИИ')+
+       :'Собираем вашу расстановку')+
     ' по вашей расстановке…<br><span id="el">0</span> с</div>',est);
   const tick=setInterval(()=>{const e=document.getElementById('el');
     if(e)e.textContent=Math.round((Date.now()-t0)/1000);},500);

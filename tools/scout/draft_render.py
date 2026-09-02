@@ -2073,12 +2073,10 @@ def _scene3d_orient() -> dict:
 # и без обязательной ссылки, `~/scout-scenes/kits/kenney/License.txt`) и выкладываем в ту же
 # галерею мешей — значит достаются обычным `_scene3d_glb`, без второго механизма.
 # Значение: (id в галерее, канонический разворот фронта в градусах).
+# Телевизора здесь нет намеренно: он собирается по размеру (`_tv_parts`). Готовая модель не
+# подошла — экран утоплен внутрь корпуса, стойка вынесена ВПЕРЁД него и пересекала панель при
+# любом развороте, кадр читался как вид сзади. Разворот это не лечит, «перевернуть» не помогает.
 FIXTURE_MESH = {
-    # Разворот выверен ПОКАЗОМ МОДЕЛИ С ДВУХ СТОРОН, а не нормалью грани и не цветным
-    # тестом: culling в полном качестве отключён, и плоский экран виден насквозь с обеих
-    # сторон — оба этих способа давали неверный ответ. Со стороны −Z чистый экран, со
-    # стороны +Z площадка крепления; фронт модели уже совпадает с каноном, доворот не нужен.
-    'тв': ('kit-tv-modern', 0.0),
     'дверь': ('kit-door', 0.0),       # полотно смотрит в +Z — уже канон
 }
 DOOR_H_CM = 205.0     # та же высота, что рисовала clay-плашка двери (`planner.scene`)
@@ -2124,6 +2122,44 @@ def _window_parts(w_cm: float, h_cm: float):
     if gw > 1 and gh > 1:
         for sign in (-1, 1):
             box(sign * (bar * 0.4 + gw / 2), 0, 0, gw, gh, d * 0.25, WIN_GLASS_RGB)
+    return parts
+
+
+def _tv_parts(w_cm: float, h_cm: float, d_cm: float, hung: bool):
+    """Телевизор СОБИРАЕМ САМИ (владелец 02.09: дважды «стоит задом наперёд»).
+
+    Модель из набора для сцены не годится: экран у неё сделан плоскостью, УТОПЛЕННОЙ внутрь
+    корпуса, а стойка вынесена вперёд этой плоскости — при любом развороте шея пересекала
+    панель, и кадр читался как вид сзади. Разворот тут ни при чём, и «перевернуть» не лечит.
+    Собственная сборка снимает вопрос целиком: лицо задано построением, экран — самая передняя
+    поверхность, стойка живёт СЗАДИ. Фронт = +Z, как требует канон, поэтому доворот не нужен.
+    """
+    import numpy as _np
+    import trimesh as _t
+    SCREEN = (24, 26, 28)      # выключенный экран
+    CASE = (46, 49, 53)        # корпус и рамка
+    STAND = (38, 41, 45)
+    parts = []
+
+    def box(cx, cy, cz, sx, sy, sz, rgb):
+        m = _t.creation.box(extents=(max(sx, .1), max(sy, .1), max(sz, .1)))
+        m.apply_translation((cx, cy, cz))
+        m.visual = _t.visual.color.ColorVisuals(
+            mesh=m, face_colors=_np.tile(_np.array([*rgb, 255], _np.uint8), (len(m.faces), 1)))
+        parts.append(m)
+
+    panel_d = min(6.0, d_cm * 0.45)          # толщина панели
+    bez = min(2.2, w_cm * 0.03)              # рамка
+    # низ телевизора: на тумбе он приподнят подставкой, на стене висит всей высотой
+    foot = 0.0 if hung else min(9.0, h_cm * 0.14)
+    ph = h_cm - foot                          # высота самой панели
+    pcy = foot / 2                            # центр панели относительно центра предмета
+    zf = d_cm / 2 - panel_d / 2               # панель прижата к переднему краю
+    box(0, pcy, zf, w_cm, ph, panel_d, CASE)                       # корпус панели
+    box(0, pcy, zf + panel_d / 2 - .35, w_cm - 2 * bez, ph - 2 * bez, .7, SCREEN)   # экран
+    if not hung:
+        box(0, pcy - ph / 2 - foot / 2 + 1, zf - panel_d, 7.0, foot, d_cm * 0.5, STAND)  # шея
+        box(0, -h_cm / 2 + 1.0, 0, w_cm * 0.34, 2.0, d_cm * 0.9, STAND)                   # опора
     return parts
 
 
@@ -2463,6 +2499,16 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict
                     or base in ('картина', 'зеркало', 'плед', 'шторы')):
             sid = None
         glb = _scene3d_glb(sid) if sid else None
+        if glb is None and base == 'тв':
+            # ТЕЛЕВИЗОР СОБИРАЕМ ПО РАЗМЕРУ, а не берём готовой моделью: у неё стойка вынесена
+            # перед экраном и пересекает панель при любом развороте (см. `_tv_parts`).
+            it = place.item
+            key = f"tv:{round(float(it.w_cm))}x{round(float(it.h_cm or 70))}x{round(float(it.d_cm))}"
+            if key not in _S3_PARTS:
+                _S3_PARTS[key] = _tv_parts(float(it.w_cm), float(it.h_cm or 70),
+                                           float(it.d_cm), float(it.d_cm) < 12)
+            glb, sid = key, key
+            orient.setdefault(key, {'yaw': 0.0, 'orient': 'kit:human'})
         if glb is None:
             fx = FIXTURE_MESH.get(base)
             if fx:

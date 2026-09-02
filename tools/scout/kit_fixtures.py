@@ -38,17 +38,24 @@ SCREEN_OFF = np.array([28, 30, 32, 255], np.uint8)
 # кислотного цвета. Нейтральный металл.
 HANDLE = np.array([176, 180, 184, 255], np.uint8)
 
-# id в галерее → (файл набора, {имя материала: цвет-замена})
+# id в галерее → (файл набора, {имя материала: цвет-замена}, материал-«лицо» или None)
 FIXTURES = {
-    'kit-tv-modern': ('televisionModern', {'metal': SCREEN_OFF}),
+    'kit-tv-modern': ('televisionModern', {'metal': SCREEN_OFF}, 'metal'),
     # Дверь берём как есть: полотно с коробкой, фронт уже +Z (канон), ручка на одной стороне —
     # сторону петель проёма модель не отражает, зеркалить масштабом по осям нельзя.
-    'kit-door': ('doorway', {'metal': HANDLE}),
+    'kit-door': ('doorway', {'metal': HANDLE}, None),
 }
 
 
-def bake(src_name: str, recolor: dict) -> trimesh.Trimesh:
-    """OBJ → одна сетка с цветом материала, запечённым в грани."""
+def bake(src_name: str, recolor: dict, front: str | None = None) -> trimesh.Trimesh:
+    """OBJ → одна сетка с цветом материала, запечённым в грани.
+
+    `front` — имя материала, который обязан быть САМОЙ ПЕРЕДНЕЙ поверхностью. У телевизора
+    экран сделан плоскостью, УТОПЛЕННОЙ внутрь корпуса (z=−0.214 при переде корпуса −0.642),
+    а шея подставки приходится перед ней. В кадре это читалось как вид сзади: сквозь экран
+    проступала стойка, и владелец дважды просил «перевернуть» телевизор, хотя он стоял лицом.
+    Выносим плоскость на передний край корпуса — за ней уже ничего не проступит.
+    """
     path = os.path.join(KIT, src_name + '.obj')
     if not os.path.exists(path):
         raise SystemExit(f'нет модели {path}')
@@ -66,8 +73,13 @@ def bake(src_name: str, recolor: dict) -> trimesh.Trimesh:
                                process=False)
         flat.visual = trimesh.visual.color.ColorVisuals(
             mesh=flat, face_colors=np.tile(col, (len(flat.faces), 1)))
-        parts.append(flat)
-    return trimesh.util.concatenate(parts)
+        parts.append((name, flat))
+    if front is not None:
+        zmin = min(float(m.vertices[:, 2].min()) for _, m in parts)
+        for name, m in parts:
+            if name == front:
+                m.vertices[:, 2] += zmin - float(m.vertices[:, 2].mean()) - 0.01
+    return trimesh.util.concatenate([m for _, m in parts])
 
 
 def main() -> int:
@@ -75,8 +87,8 @@ def main() -> int:
     ap.add_argument('--publish', action='store_true', help='выложить в галерею мешей прода')
     args = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
-    for mid, (src, recolor) in FIXTURES.items():
-        mesh = bake(src, recolor)
+    for mid, (src, recolor, front) in FIXTURES.items():
+        mesh = bake(src, recolor, front)
         d = os.path.join(OUT, mid)
         os.makedirs(d, exist_ok=True)
         dst = os.path.join(d, 'model.glb')
