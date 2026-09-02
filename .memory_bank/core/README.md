@@ -27,7 +27,7 @@
 | `lr-composition.md` | lr-composition | Композиция гостиной — доли | `../domain/lr-composition-guide.md` | 2026-09-01 |
 | `market.md` | market | Рынок RU/UK — спрос, монетизация | `../domain/market-research.md` | 2026-08-13 |
 | `marketing-acquisition.md` | marketing-acquisition | Реклама — Яндекс, семантика | `../domain/wordstat-semantics.md` | 2026-08-13 |
-| `mesh-color.md` | mesh-color | Цвет мешей — диагноз промаха покраски, мерка, рычаги | `../domain/viz-fidelity-playbook.md` | 2026-09-01 |
+| `mesh-color.md` | mesh-color | Цвет мешей — диагноз промаха покраски, мерка, рычаги | `../domain/viz-fidelity-playbook.md` | 2026-09-02 |
 | `mesh-pipeline.md` | mesh-pipeline | 3D-меши товаров — генерация, приёмка, ориентация | `../domain/viz-fidelity-playbook.md` | 2026-09-02 |
 | `observability-tracing.md` | observability-tracing | Трейсинг AI-пайплайна — лог, разбор | `../domain/observability.md` | 2026-08-06 |
 | `pipeline-order.md` | pipeline-order | Канонический порядок конвейера — от фида до расстановки в планировке | `../domain/pipeline-order-details.md` | 2026-08-29 |
