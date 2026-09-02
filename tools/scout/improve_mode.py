@@ -234,7 +234,10 @@ def variant_payload(title: str) -> tuple[dict, str]:
     return {'room': d['room'], 'items': items, 'decor': v.get('decor') or []}, (v.get('style') or '')
 
 
-def build(payload: dict, style: str | None) -> dict:
+_IDENT_CACHE: dict = {}
+
+
+def build(payload: dict, style: str | None, stamp: str | None = None) -> dict:
     # ПОЛНОЕ КАЧЕСТВО ОБЯЗАТЕЛЬНО. В быстром режиме растеризатор отсекает «задние» грани по
     # нормали, а у мешей Hunyuan нормали местами перевёрнуты — и в спинке дивана пробиваются
     # дыры (владелец видел это на первом же листе 01.09; та же грабля отмечена в коде 31.08).
@@ -294,12 +297,22 @@ def build(payload: dict, style: str | None) -> dict:
     # ЛИСТ ЭТАЛОНОВ (владелец 01.09): «бывает, на модели неверный цвет и текстура — пусть GPT
     # смотрит на коллаж из предметов дополнительно». Фото каждого товара с подписью роли; по
     # нему модель правит ЦВЕТ И МАТЕРИАЛ, не трогая форму и место.
+    # ЛИСТ ЭТАЛОНОВ КЭШИРУЕМ ПО СОСТАВУ ТОВАРОВ (план paid-path-speed): он одинаков для всех
+    # кадров одного набора и не зависит ни от ракурса, ни от расстановки. Пересобирать его на
+    # каждый запрос — собирать один и тот же коллаж заново.
     ident = None
     try:
         anchors_all = [{'role': it['role'], 'n': i + 1}
                        for i, it in enumerate(payload.get('items', [])) if it.get('name')]
         skus = {it['role']: it for it in payload.get('items', []) if it.get('role')}
-        ident = DR._identity(anchors_all, photos, skus)
+        _ikey = tuple(sorted((it.get('role'), it.get('name'), it.get('img'))
+                             for it in payload.get('items', []) if it.get('name')))
+        ident = _IDENT_CACHE.get(_ikey)
+        if ident is None:
+            ident = DR._identity(anchors_all, photos, skus)
+            if len(_IDENT_CACHE) > 12:
+                _IDENT_CACHE.clear()
+            _IDENT_CACHE[_ikey] = ident
     except Exception as e:  # noqa: BLE001 — без эталонов запрос всё равно осмыслен
         print(f'  лист эталонов не собрался: {str(e)[:80]}')
     # ТРЕТИЙ ЛИСТ — ДЕКОР НА МЕБЕЛЬ (владелец 01.09). Вазы куплены и лежат в комплекте, но на
@@ -315,7 +328,9 @@ def build(payload: dict, style: str | None) -> dict:
         except Exception as e:  # noqa: BLE001
             print(f'  лист декора не собрался: {str(e)[:70]}')
     prompt = prompt_for(style, decor)
-    stamp = f'improve-{time.strftime("%H%M%S")}'
+    # Метку может задать вызывающий: черновик заранее сообщает странице адрес исходника,
+    # и папка обязана совпасть с этим адресом (иначе «Улучшить фото» не найдёт готовый лист).
+    stamp = f'improve-{stamp}' if stamp else f'improve-{time.strftime("%H%M%S")}'
     out_w, out_h = (int(x) for x in SIZE.split('x'))
     per_view_h = (out_h - DR.BAND_PX) // 2
     url = DR._publish_sources(
@@ -325,6 +340,10 @@ def build(payload: dict, style: str | None) -> dict:
         {'режим': 'улучшить фото — только ремонт',
          'стиль': style or '—',
          'ОТПРАВЛЕНО В МОДЕЛЬ': 'НЕТ, это сборка исходника',
+         # КАЧЕСТВО ВХОДА ФИКСИРУЕМ В САМОЙ ПАПКЕ (план paid-path-speed): платный режим
+         # переиспользует лист ТОЛЬКО если он собран полными мешами. Иначе ускорение
+         # черновика молча протечёт в платный результат, как это уже случилось 02.09.
+         'качество': 'full' if not DR.S3_LITE[0] else 'lite',
          'размер запроса': SIZE,
          'лист на входе': f'{sheet.width}×{sheet.height}',
          'на вид после резки': f'~{out_w}×{per_view_h} (было ~1024×721)',
@@ -416,8 +435,28 @@ def from_sources(src_id: str | None):
     prompt_p = os.path.join(d, 'prompt.txt')
     if not (os.path.exists(sheet_p) and os.path.exists(prompt_p)):
         return None
+    # ЛИСТ ИЗ ЛЁГКИХ МЕШЕЙ НЕ ПЕРЕИСПОЛЬЗУЕМ (план paid-path-speed, 02.09). Черновик рисуется
+    # упрощённой геометрией ради скорости; отправлять её в платную генерацию — платить за
+    # огрублённый вход. Нет пометки «full» — считаем лист негодным и пересобираем.
+    try:
+        _mt = json.load(open(os.path.join(d, 'meta.json'), encoding='utf-8'))
+        _q = _mt.get('качество') if isinstance(_mt, dict) else None
+        if _q and _q != 'full':
+            print(f'улучшение: исходник {src_id} собран в режиме «{_q}» — пересобираю полным',
+                  flush=True)
+            return None
+    except Exception:  # noqa: BLE001 — нет легенды: старая папка, доверяем как раньше
+        pass
+    sh = Image.open(sheet_p).convert('RGB')
+    _w, _h = (int(x) for x in SIZE.split('x'))
+    if abs(sh.width / max(sh.height, 1) - _w / _h) > 0.01:
+        # Пропорция листа обязана совпадать с запрашиваемой: иначе модель растянет вход и
+        # после резки второй вид уедет (дефект 01.09, замер 02.09: 1344×1886 против 2048×3072).
+        print(f'улучшение: исходник {src_id} пропорции {sh.width}×{sh.height} — пересобираю',
+              flush=True)
+        return None
     ident_p = os.path.join(d, '2-ОТПРАВЛЯЕМ-эталоны-товаров.jpg')
-    return {'sheet': Image.open(sheet_p).convert('RGB'),
+    return {'sheet': sh,
             'ident': Image.open(ident_p).convert('RGB') if os.path.exists(ident_p) else None,
             'prompt': open(prompt_p, encoding='utf-8').read(),
             'src_url': (DR.PUBLIC_BASE + DR.SRC_URL + '/' + str(src_id) + '/')

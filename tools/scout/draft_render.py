@@ -1394,6 +1394,11 @@ def _publish_sources(stamp: str, imgs: dict, prompt: str, legend: list, meta: di
     open(os.path.join(d, 'prompt.txt'), 'w', encoding='utf-8').write(prompt)
     open(os.path.join(d, 'legend.json'), 'w', encoding='utf-8').write(
         json.dumps(legend, ensure_ascii=False, indent=1))
+    # МАШИНОЧИТАЕМАЯ СВОДКА ЗАПРОСА (план paid-path-speed). `meta` до сих пор попадала только в
+    # html-страницу — человеку видно, коду нет. А от неё зависит решение: переиспользовать этот
+    # лист в платной генерации или пересобрать (качество мешей, размер, стиль).
+    open(os.path.join(d, 'meta.json'), 'w', encoding='utf-8').write(
+        json.dumps(meta, ensure_ascii=False, indent=1))
     import html as _h
     page = (
         '<!doctype html><html lang="ru"><head><meta charset="utf-8">'
@@ -1486,6 +1491,13 @@ def _src_index() -> None:
             # а фактически отправлен — именно это и надо видеть при разборе «почему все стили
             # получились одинаковыми».
             style = ''
+            try:
+                _m = json.load(open(os.path.join(d, 'meta.json'), encoding='utf-8'))
+                style = (_m.get('стиль') or '') if isinstance(_m, dict) else ''
+                if style == '—':
+                    style = ''
+            except Exception:  # noqa: BLE001 — старая папка без сводки: разбираем промпт
+                pass
             try:
                 txt = open(os.path.join(d, 'prompt.txt'), encoding='utf-8').read()
                 for k, ru in (('INDUSTRIAL LOFT', 'лофт'), ('SOFT MINIMALIST', 'минимализм'),
@@ -2241,6 +2253,8 @@ _S3_PARTS: dict = {}
 # Список, а не переменная, чтобы значение видели вложенные функции без `global`.
 S3_LITE = [False]
 _DRAFT_CACHE: dict = {}
+_SRC_LOCK = threading.Lock()      # исходник для платной модели собирается по одному за раз
+_SRC_PENDING = ['']               # метка последней расстановки: собираем лист только для неё
 DRAFT_CACHE_MAX = 24
 
 
@@ -2794,15 +2808,44 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
             _vlist = [_views[c.name] for c in want if c.name in _views]
             _lay = layout or {}
 
-            def _pub_src(views=_vlist, lay=_lay, st=stamp):
+            def _pub_src(lay=_lay, st=stamp):
+                """Лист для ПЛАТНОЙ модели собираем заново, полными мешами и в её размере.
+
+                Раньше сюда отдавались уже готовые кадры черновика — и это давало двойной изъян
+                (замер 02.09): лист выходил 1344×1886 при запрашиваемых у модели 2048×3072,
+                то есть она растягивала вход на 7 % и второй вид приезжал смещённым; а после
+                ускорения эскиза кадры стали ещё и с УПРОЩЁННЫМИ мешами — мы платили бы за
+                генерацию по огрублённой геометрии. Черновик остаётся быстрым для человека,
+                а вход для модели готовится здесь, в фоне, и потому никого не задерживает.
+                """
+                # ЖДЁМ, ПОКА ЧЕЛОВЕК ЗАКОНЧИТ ДВИГАТЬ (план paid-path-speed). Пока он таскает
+                # мебель, черновики летят один за другим; собирать тяжёлый лист на каждый —
+                # тридцать секунд ядра впустую, да ещё в ущерб следующему черновику. Ждём паузу
+                # и собираем только для ПОСЛЕДНЕЙ расстановки: предыдущие всё равно устарели.
+                _SRC_PENDING[0] = st
+                time.sleep(float(os.environ.get('SRC_DEBOUNCE_S', 8)))
+                if _SRC_PENDING[0] != st:
+                    return
                 _t = time.time()
+                # ФОНОВАЯ СБОРКА НЕ ДОЛЖНА ОТНИМАТЬ ЯДРА У ЧЕЛОВЕКА (замер 02.09: пока она шла,
+                # черновик просел с 4,8 до 9,1 с). Понижаем приоритет потока и держим её в
+                # одиночку: два таких сборщика разом бессмысленны — лист нужен один.
+                try:
+                    os.nice(10)
+                except Exception:  # noqa: BLE001 — не дали понизить: не повод отменять сборку
+                    pass
+                if not _SRC_LOCK.acquire(blocking=False):
+                    print('scene3d: исходник уже собирается — пропускаю повтор', flush=True)
+                    return
                 try:
                     import improve_mode as IM
-                    IM.publish_from_views(views, lay, st)
-                    print(f'scene3d: исходник запроса готов за {time.time()-_t:.1f} с (фоном)',
-                          flush=True)
+                    IM.build(lay, (lay or {}).get('style') or '', stamp=st)
+                    print(f'scene3d: исходник запроса готов за {time.time()-_t:.1f} с '
+                          f'(фоном, полные меши)', flush=True)
                 except Exception as e:  # noqa: BLE001 — не собрался: кадры уже отданы
                     print(f'  исходник запроса не собран: {str(e)[:90]}', flush=True)
+                finally:
+                    _SRC_LOCK.release()
             threading.Thread(target=_pub_src, daemon=True).start()
         sec = round(time.time() - t0, 1)
         print(f'scene3d: кадров {len(shots)}, {sec} с (без модели)')
