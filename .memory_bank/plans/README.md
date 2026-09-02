@@ -27,7 +27,7 @@ draft → in_progress → completed → перенос в completed_plans/
 | slug | Название | status | created | updated |
 |------|----------|--------|---------|---------|
 | viz-track-a-restore | — | partial | — | 2026-08-28 |
-| topview-from-mesh | — | in_progress | — | 2026-08-31 |
+| topview-from-mesh | — | in_progress | — | 2026-09-02 |
 | demo-planner-structure | — | partial | — | 2026-08-28 |
 | mesh-dino-baked | DINOv2 запекается в образ — ноды перестают зависеть от HuggingFace на прогреве | in_progress | 2026-09-02 | 2026-09-02 |
 | stock-check-weekly-unified | Одно правило проверки наличия — раз в неделю для всех; непроверяемым верим Гдеслону | in_progress | 2026-09-01 | 2026-09-01 |
