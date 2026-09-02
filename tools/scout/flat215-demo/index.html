@@ -872,11 +872,15 @@ function init(){
   on('feedShare','onclick',()=>shareOpen(allVariants().map(bestShot).filter(s=>s&&s.pick)));
   on('tab-plan','onclick',()=>showTab('plan'));
   on('tab-room','onclick',()=>showTab('room'));
-  window.addEventListener('hashchange',()=>showTab(location.hash==='#room'?'room':'plan'));
+  // ВКЛАДКА ПО УМОЛЧАНИЮ — ГОСТИНАЯ (владелец 02.09: «страница должна открываться сразу на
+  // вкладке гостиная»). Раньше без якоря открывался «План квартиры», и человек попадал не на
+  // витрину обустройства, ради которой демо и сделано. `#plan` по-прежнему открывает план —
+  // ссылки, где он нужен, остаются рабочими.
+  window.addEventListener('hashchange',()=>showTab(location.hash==='#plan'?'plan':'room'));
   flatPlan();
   loadShots();
   load();
-  showTab(location.hash==='#room'?'room':'plan');
+  showTab(location.hash==='#plan'?'plan':'room');
 }
 // ——— ВАРИАНТЫ: расстановка вместе со своим комплектом, ценой и сохранением своего
 const MAXV=4;
