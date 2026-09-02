@@ -2275,11 +2275,18 @@ def _draft_cache_key(layout) -> str:
     cams = [[c.get('name'), round(float(c.get('x') or 0), 1), round(float(c.get('y') or 0), 1),
              int(float(c.get('rot') or 0)), round(float(c.get('fov') or 0), 1)]
             for c in (L.get('cams') or [])]
-    try:
-        st = os.stat(__file__)
-        ver = f'{st.st_size}:{int(st.st_mtime)}'
-    except OSError:
-        ver = '0'
+    # ВЕРСИЯ — ПО ВСЕМ ТРЁМ ФАЙЛАМ РЕНДЕРА (нашёл Codex 02.09): раньше считалась только по
+    # draft_render.py, и правка растеризатора или упрощения меша не сбрасывала кэш — сервис
+    # отдавал старую картинку и «чинил» уже починенное.
+    import scene_mesh as _SM, mesh_render as _MR
+    ver = []
+    for _m in (__file__, _SM.__file__, _MR.__file__):
+        try:
+            _st = os.stat(_m)
+            ver.append(f'{_st.st_size}:{int(_st.st_mtime)}')
+        except OSError:
+            ver.append('0')
+    ver = '|'.join(ver)
     raw = json.dumps({'room': L.get('room'), 'items': sorted(items, key=lambda x: str(x[0])),
                       'cams': cams, 'lite': bool(S3_LITE[0]), 'ver': ver},
                      ensure_ascii=False, sort_keys=True)

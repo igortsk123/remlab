@@ -60,14 +60,15 @@ LITE_MIN = 2500
 # дырок внутри предметов 1425 → 63 (уровень полного меша), время кадра то же (14,1 → 14,2 с),
 # граней столько же (9999 → 10000). Это и есть настоящее лечение «проплешин» — заплатки в кадре
 # после этого добирают единицы пикселей, а не тысячи.
-LITE_BORDER = os.environ.get('MESH_LITE_BORDER', '1') == '1'                                              # мельче не трогаем — нечего экономить
+LITE_BORDER = os.environ.get('MESH_LITE_BORDER', '1') == '1'
+LITE_CAP = float(os.environ.get('MESH_LITE_CAP', '1.6'))   # во сколько раз выше цели ещё терпим                                              # мельче не трогаем — нечего экономить
 _LITE_CACHE: dict = {}
 
 
 def lite_parts(path: str, target: int | None = None) -> list:
     """Части меша, упрощённые под эскиз, с сохранением текстуры."""
     target = int(target or LITE_FACES)
-    key = (path, target)
+    key = (path, target, LITE_BORDER)   # флаг границы обязан быть в ключе (нашёл Codex 02.09)
     if key in _LITE_CACHE:
         return _LITE_CACHE[key]
     parts = load_parts(path)
@@ -90,16 +91,29 @@ def lite_parts(path: str, target: int | None = None) -> list:
             # чужого цвета. Упрощатель умеет вернуть последовательность схлопываний; прогоняем
             # по ней массив UV (дополненный до трёх столбцов) — получаем те же координаты, что
             # и у полного меша, без догадок о близости.
+            border = LITE_BORDER
+            if border:
+                # ПРЕДОХРАНИТЕЛЬ ПО ВЕСУ (нашёл Codex 02.09). У части моделей граница — это почти
+                # весь меш (до 70 % вершин граничные, сотни отдельных оболочек), и с её
+                # сохранением упрощать нечего: замер по 44 мешам кэша — у четырёх выходило
+                # 18–25 тысяч граней вместо 10 тысяч, и растеризация этого предмета дорожала в
+                # 2,5 раза. Такие меши упрощаем по-старому: щели у них добьёт заплатка кадра,
+                # зато обещание «5 секунд на кадр» остаётся честным.
+                probe = _fs.simplify(V, F, target_reduction=red, preserve_border=True)[1]
+                if len(probe) > LITE_CAP * max(target, 1):
+                    border = False
+                    print(f'  {os.path.basename(path)}: граница не даёт ужать '
+                          f'({len(probe)} граней) — упрощаю без неё')
             if uv is not None and mat is not None:
                 vv, ff, coll = _fs.simplify(V, F, target_reduction=red, return_collapses=True,
-                                            preserve_border=LITE_BORDER)
+                                            preserve_border=border)
                 uv3 = np.column_stack([np.asarray(uv, np.float32),
                                        np.zeros(len(uv), np.float32)]).astype(np.float32)
                 uvv = np.asarray(_fs.replay_simplification(uv3, F, coll)[0])[:, :2]
                 nm = trimesh.Trimesh(vertices=np.asarray(vv), faces=np.asarray(ff), process=False)
                 nm.visual = trimesh.visual.TextureVisuals(uv=uvv, material=mat)
             else:                                   # текстуры нет — переносим цвета граней
-                vv, ff = _fs.simplify(V, F, target_reduction=red, preserve_border=LITE_BORDER)
+                vv, ff = _fs.simplify(V, F, target_reduction=red, preserve_border=border)
                 nm = trimesh.Trimesh(vertices=np.asarray(vv), faces=np.asarray(ff), process=False)
                 try:
                     nm.visual = m.visual.copy()

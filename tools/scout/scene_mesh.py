@@ -80,7 +80,7 @@ def world_vertices(parts, place, front_yaw: float, name2h: dict | None = None):
         v[:, 1] += h / 2
         v = v @ R.T
         out.append(np.stack([place.x + v[:, 0], elev + v[:, 1], place.y + v[:, 2]], 1))
-    return out, Ra, R, h_src, aniso
+    return out, Ra, R, h_src, aniso, np.array([sx, sy, sz], np.float32)
 
 
 # Отсечение можно выключить (`SCENE3D_CULL=0`) — нужно, чтобы доказать, что кадр от него
@@ -94,6 +94,13 @@ CULL = os.environ.get('SCENE3D_CULL', '1') == '1'
 # Цена замером: два кадра 14,9 → 16,4 с локально (+10 %).
 SMOOTH = os.environ.get('SCENE3D_SMOOTH', '1') == '1'      # гладкое затенение (Гуро)
 SMOOTH_COS = float(os.environ.get('SCENE3D_SMOOTH_COS', '0.85'))   # порог «грань в гладкой области»
+# ПОРОГ ОТБРАКОВКИ ЗАДНИХ ГРАНЕЙ. Был 0.15 и пробивал дырки в спинке дивана — тогда отбраковку
+# вовсе выключили (рисовали все грани). После починки упрощения (mesh_render.LITE_BORDER) дырки
+# исчезли, и отбраковку можно вернуть: замер на одной сцене, два кадра —
+#   все грани        16,0 с, дырок 63
+#   порог 0,5        12,8 с, дырок 78   ← берём: минус 20 % времени при тех же дырках
+#   порог 0,15       10,7 с, дырок 346  ← слишком жадно, дырки возвращаются
+BACKFACE = float(os.environ.get('SCENE3D_BACKFACE', '0.5'))
 
 
 def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
@@ -106,7 +113,16 @@ def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
     строит маски лишь для clay-заглушек. На этой карте стоит и «не трогать мебель» при правке
     кадра моделью, и проверка, что она её не тронула.
     """
-    worlds, Ra, R, h_src, aniso = world_vertices(parts, place, front_yaw, name2h)
+    worlds, Ra, R, h_src, aniso, scale = world_vertices(parts, place, front_yaw, name2h)
+    # НОРМАЛИ ПРИ НЕРАВНОМЕРНОМ РАСТЯЖЕНИИ (нашёл Codex 02.09). Меш тянется под габариты товара
+    # РАЗНО по осям (sx, sy, sz), а нормали до сих пор только поворачивались. Для вектора нормали
+    # нужен обратный масштаб: иначе и свет, и решение «грань смотрит от нас» считались по кривому
+    # направлению — а на отбраковке задних граней это прямо пробивает дырки.
+    _inv = (1.0 / np.maximum(scale, 1e-6)).astype(np.float32)
+
+    def _to_world_n(nrm):
+        v = ((np.asarray(nrm, np.float32) @ Ra.T) * _inv) @ R.T
+        return v / np.maximum(np.linalg.norm(v, axis=-1, keepdims=True), 1e-6)
     eye, fwd, right, up = cam.basis()
     eye = np.array(eye, np.float32)
     focal = (cam.width / 2) / math.tan(math.radians(cam.fov_deg) / 2)
@@ -137,21 +153,26 @@ def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
         f = np.asarray(mesh.faces, np.int32)
         tex, uvm = MR.texture_of(mesh)
         cols = MR.flat_colors(mesh)
-        n = np.asarray(mesh.face_normals, np.float32) @ Ra.T @ R.T
+        n = _to_world_n(mesh.face_normals)
         lam = np.clip(np.abs(n @ light), 0, 1)
         shade = (0.62 + 0.45 * lam)[:, None]
         # ГЛАДКОЕ ЗАТЕНЕНИЕ (Гуро) — по желанию: нормаль в пикселе интерполируется между вершинами,
         # и грани перестают читаться плоскими пятнами. Только там, где меш действительно гладкий:
         # у вершины на остром ребре усреднённая нормаль соврала бы и скруглила угол коробки.
-        vn = None
+        vsh = None
         if SMOOTH:
             try:
-                vn = np.asarray(mesh.vertex_normals, np.float32) @ Ra.T @ R.T
-                fv = vn[np.asarray(mesh.faces, np.int32)]              # нормали вершин каждой грани
+                vn = _to_world_n(mesh.vertex_normals)
+                # СВЕТ СЧИТАЕМ В ВЕРШИНАХ (Гуро), в пикселе — только взвешенная сумма трёх чисел.
+                # Первая версия интерполировала вектор нормали и нормализовала его в КАЖДОМ пикселе
+                # (это Фонг): те же картинки, но дороже — Codex замерил +0,10 с на одном диване.
+                vsh = 0.62 + 0.45 * np.clip(np.abs(vn @ light), 0, 1)
+                fv = vn[np.asarray(mesh.faces, np.int32)]
                 agree = (fv @ np.asarray(n, np.float32)[:, :, None]).squeeze(-1).min(1)
-                smooth_face = agree > SMOOTH_COS                        # грань в гладкой области
+                smooth_face = agree > SMOOTH_COS       # грань в гладкой области, а не на ребре
+                fsh = vsh[np.asarray(mesh.faces, np.int32)]
             except Exception:  # noqa: BLE001 — нет нормалей вершин: рисуем плоско
-                vn = None
+                vsh = None
         # порядок не нужен — z-буфер решает сам; задние грани (нормаль от камеры)
         # отбрасываем сразу: −40..50% работы (ускорение сцены, владелец 31.08)
         # отсев «задних» граней — только в быстром режиме: у Hunyuan нормали местами
@@ -160,7 +181,7 @@ def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
         if os.environ.get('SCENE3D_QUALITY') == 'full':
             keep = np.arange(len(f))
         else:
-            facing = (n @ np.array(fwd, np.float32)) < 0.15
+            facing = (n @ np.array(fwd, np.float32)) < BACKFACE
             keep = np.where(facing | (lam > 0.97))[0]
         for idx in keep:
             a, b, c = f[idx]
@@ -191,10 +212,9 @@ def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
             if not upd.any():
                 continue
             sub[upd] = zz[upd]
-            if vn is not None and smooth_face[idx]:
-                nn = (w0[..., None] * vn[a] + w1[..., None] * vn[b] + w2[..., None] * vn[c])
-                nn /= np.maximum(np.linalg.norm(nn, axis=-1, keepdims=True), 1e-6)
-                sh_px = (0.62 + 0.45 * np.clip(np.abs(nn @ light), 0, 1))[..., None]
+            if vsh is not None and smooth_face[idx]:
+                s0, s1, s2 = fsh[idx]
+                sh_px = (w0 * s0 + w1 * s1 + w2 * s2)[..., None]
             else:
                 sh_px = shade[idx]
             if tex is not None and uvm is not None:

@@ -61,7 +61,7 @@ def main():
     # 1+3. фикстура: нос предмета с rot=180 (лицом на юг, к камере с юга) ближе к югу,
     # маркер правой стороны — восточнее центра; низ на полу
     parts = fixture()
-    worlds, Ra, R, h_src, aniso = world_vertices(parts, P(100, 100, 180, 40, 30, 80),
+    worlds, Ra, R, h_src, aniso, _sc = world_vertices(parts, P(100, 100, 180, 40, 30, 80),
                                                  front_yaw=0)
     allw = np.vstack(worlds)
     if allw[:, 1].min() < -0.5 or allw[:, 1].min() > 0.5:
