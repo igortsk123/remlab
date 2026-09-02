@@ -385,7 +385,47 @@ class H(BaseHTTPRequestHandler):
         sys.stderr.write('%s %s\n' % (self.address_string(), fmt % a))
 
 
+def _prewarm_demo() -> None:
+    """Разобрать меши демо ЗАРАНЕЕ, пока никто не ждёт.
+
+    Замер 02.09 (эмуляция запроса со страницы): первый клик после запуска сервиса — 20 с, все
+    следующие — 5 с. Разница целиком в том, что восемь GLB скачиваются, разбираются и
+    упрощаются в момент нажатия. Демо показывают партнёру, и первым кликом будет именно его —
+    ждать двадцать секунд он не должен. Греем в фоне на пониженном приоритете сразу после старта.
+    """
+    try:
+        os.nice(15)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        import json as _j
+        import urllib.request as _u
+        url = os.environ.get('DEMO_DATA_URL',
+                             'https://remont-lab.online/test/buildup/demo-data.json')
+        data = _j.load(_u.urlopen(url, timeout=30))
+        sids = []
+        for v in (data.get('variants') or [])[:4]:
+            for it in v.get('items') or []:
+                sid = (it.get('sku') or {}).get('sid')
+                if sid and ':' not in str(sid):
+                    sids.append(sid)
+        seen, t0 = set(), time.time()
+        DR.S3_LITE[0] = True                      # греем именно то, чем рисуется эскиз
+        for sid in sids:
+            if sid in seen:
+                continue
+            seen.add(sid)
+            g = DR._scene3d_glb(sid)
+            if g:
+                DR._scene3d_parts(g)
+        print(f'прогрев: {len(seen)} мешей демо разобрано за {time.time()-t0:.1f} с', flush=True)
+    except Exception as e:  # noqa: BLE001 — прогрев не критичен, но молчать о нём нельзя
+        print(f'прогрев демо не удался: {str(e)[:90]}', flush=True)
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('DRAFT_PORT', 8099))
     print(f'черновой рендер слушает :{port}', flush=True)
+    if os.environ.get('PREWARM', '1') == '1':
+        threading.Thread(target=_prewarm_demo, daemon=True).start()
     ThreadingHTTPServer((os.environ.get('DRAFT_HOST', '0.0.0.0'), port), H).serve_forever()
