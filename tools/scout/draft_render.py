@@ -2362,58 +2362,162 @@ def _scene3d_parts(glb: str):
     return parts
 
 
+def _grow_into(canvas, mask, targets):
+    """Закрасить пиксели `targets` средним цветом соседей из `mask`, слоями внутрь.
+
+    Общий кирпич всех заплаток кадра. `mask` дополняется закрашенным, чтобы следующий слой
+    опирался на уже сделанное; работает по ссылке, поэтому можно передавать срез кадра.
+    """
+    import numpy as _np
+    H, W = mask.shape
+    inner = _np.zeros_like(mask)
+    inner[1:-1, 1:-1] = True
+    off = [(dy, dx) for dy in (-1, 0, 1) for dx in (-1, 0, 1) if (dy, dx) != (0, 0)]
+    while True:
+        pad = _np.zeros((H + 2, W + 2), _np.uint8)
+        pad[1:-1, 1:-1] = mask
+        cnt = (pad[:-2, :-2] + pad[:-2, 1:-1] + pad[:-2, 2:] +
+               pad[1:-1, :-2] + pad[1:-1, 2:] +
+               pad[2:, :-2] + pad[2:, 1:-1] + pad[2:, 2:])
+        ys, xs = _np.nonzero(targets & inner & (cnt >= 1))
+        if not len(ys):
+            return
+        acc = _np.zeros((len(ys), 3), _np.float32)
+        num = _np.zeros(len(ys), _np.float32)
+        for dy, dx in off:
+            yy, xx = ys + dy, xs + dx
+            hit = mask[yy, xx]
+            acc[hit] += canvas[yy[hit], xx[hit]]
+            num += hit
+        canvas[ys, xs] = acc / num[:, None]
+        mask[ys, xs] = True
+        targets[ys, xs] = False
+
+
 def _fill_pinholes(canvas, inst,
-                   passes: int = int(os.environ.get('PINHOLE_PASSES', 10)),
-                   need: int = int(os.environ.get('PINHOLE_NEED', 4))):
-    """Закрасить просветы ВНУТРИ предмета цветом того же предмета.
+                   gap: int = int(os.environ.get('PINHOLE_GAP', 2)),
+                   hole_max: int = int(os.environ.get('PINHOLE_HOLE_MAX', 600)),
+                   hole_w: int = int(os.environ.get('PINHOLE_HOLE_W', 14)),
+                   speck: float = float(os.environ.get('PINHOLE_SPECK', 35)),
+                   speck_max: int = int(os.environ.get('PINHOLE_SPECK_MAX', 60))):
+    """Убрать из кадра белые крапины упрощённых мешей — три заплатки подряд.
 
-    Просвет — пиксель, в который не лёг ни один меш, а вокруг него пиксели мешей. Считаем именно
-    по карте предметов `inst`, а не по z-буферу: по глубине щель от фона не отличить, там
-    записаны и стены комнаты (первая версия шла по глубине, мазала по краям и сделала хуже).
+    Владелец 02.09: «белые просветы могут потом ЛЛМ восприниматься как пятна и так сгенериться».
+    Кадр — вход платной генерации, поэтому крапина дороже, чем кажется: модель честно нарисует
+    её как пятно на обивке.
 
-    Откуда просветы: упрощение мешей расходит соседние треугольники на доли пикселя, и в щель
-    видно стену. На зелёном диване (ракурс C2) их 2528 против единиц у полного меша.
+    ДВЕ РАЗНЫЕ ПРИЧИНЫ, лечатся по-разному:
+    1. ДЫРКИ — упрощение расходит соседние треугольники на доли пикселя, и в щель видно стену
+       (зелёный диван, ракурс C2: 2528 px против единиц у полного меша).
+    2. БИТЫЕ ТЕКСЕЛИ — меш пиксель нарисовал, но после переноса UV на упрощённую сетку выборка
+       попала в светлое место атласа: пиксель ярче округи на 100+. По карте предметов там всё
+       нарисовано, поэтому заплатка дырок его не видит.
 
-    ПОЧЕМУ ПОРОГ 4, а не 3. Пиксель на ПРЯМОМ крае предмета имеет ровно 3 соседа-меша, поэтому
-    при `need>=4` заплатка физически не может нарастить ровную границу — заполняются только
-    вогнутые места и дырки. При `need=3` предмет раздувается каждым проходом; замер на том же
-    холсте: силуэт +4,6 % за 6 проходов и +7,5 % за 10 (при `need=4` — +2,8 %, и это сами
-    закрытые дырки). Замер просветов на одном и том же кадре:
-    | вариант | просветов | время |
-    | без заливки | 2528 | — |
-    | 6 проходов, need=5 | 1147 | 45 мс |
-    | 6 проходов, need=4 | 203 | 73 мс |
-    | **10 проходов, need=4** | **111** | **123 мс** |
-    | 14 проходов, need=4 | 104 | 168 мс |
+    ШАГ 1 — узкие щели (`gap`): замыкание маски мешей радиусом `gap` минус сама маска, то есть
+    щели уже 2*`gap` пикселей. Берём только те, ВОКРУГ КОТОРЫХ ОДИН предмет (сверяем max и min
+    номер в окне): щель между стойкой торшера и диваном — честный фон, заваривать её нельзя.
 
-    Цвет считаем ТОЛЬКО в самих дырках (их тысячи, а кадр — миллион пикселей): полнокадровая
-    версия того же алгоритма давала тот же результат, но 734 мс вместо 123.
+    ШАГ 2 — замкнутые дыры каждого предмета (`binary_fill_holes` в его габаритах). Добирает
+    широкие каверны, которые замыканию не по зубам. Считаем ПО КАЖДОМУ предмету отдельно —
+    иначе просвет между двумя предметами выглядит замкнутым и его бы залило. Крупные и толстые
+    полости не трогаем (`hole_max` px, толщина `hole_w`): сквозные секции стеллажа тоже замкнуты
+    силуэтом, залить их значит превратить стеллаж в тумбу.
+
+    ШАГ 3 — битые тексели: пиксель предмета ярче среднего по окну 7x7 на `speck` — гасим той же
+    заливкой по соседям. Пятна крупнее `speck_max` не трогаем: это может быть белая подушка или
+    блик, а не дефект.
+
+    ПОЧЕМУ НЕ «ЗАКРАСИТЬ ВСЁ, У ЧЕГО МНОГО СОСЕДЕЙ-МЕШЕЙ» (первая версия, порог 4 из 8). На
+    диване она работала, но у пикселя в вогнутом ПРЯМОМ УГЛУ ровно 5 соседей-мешей — столько же,
+    сколько у настоящей дырки 2x2. Отличить их по числу соседей нельзя, и за 10 проходов стыки
+    полок стеллажа со стойками заросли галтелями: в габаритах стеллажа закрашивалось 2277 px
+    против 150 у нынешней версии. Дырка отличается от вогнутости не количеством соседей, а
+    ТОПОЛОГИЕЙ (замкнута) и ШИРИНОЙ (узкая) — по ним и считаем.
+
+    Замер на одном холсте (зелёный диван, ракурс C2; варианты меряем ТОЛЬКО на снятом кадре —
+    сцена между рендерами не детерминирована, силуэт гуляет на 2 %):
+    | вариант | белых дырок внутри предметов | закрашено у стеллажа | время |
+    | без заплаток | 2528 | — | — |
+    | по числу соседей (>=4 из 8) | 10 | 2277 px ← галтели | 149 мс |
+    | **топология + ширина** | **49, и все — честный фон между предметами** | **150 px** | **~250 мс** |
     """
     try:
         import numpy as _np
+        try:
+            from scipy import ndimage as _nd
+        except ImportError:
+            print('  заплатка просветов пропущена: нет scipy')
+            return canvas
         H, W = inst.shape
         mask = inst > 0
-        inner = _np.zeros_like(mask)
-        inner[1:-1, 1:-1] = True
-        off = [(dy, dx) for dy in (-1, 0, 1) for dx in (-1, 0, 1) if (dy, dx) != (0, 0)]
-        for _ in range(max(1, passes)):
-            pad = _np.zeros((H + 2, W + 2), _np.uint8)
-            pad[1:-1, 1:-1] = mask
-            cnt = (pad[:-2, :-2] + pad[:-2, 1:-1] + pad[:-2, 2:] +
-                   pad[1:-1, :-2] + pad[1:-1, 2:] +
-                   pad[2:, :-2] + pad[2:, 1:-1] + pad[2:, 2:])
-            ys, xs = _np.nonzero((~mask) & inner & (cnt >= need))
-            if not len(ys):
-                break
-            acc = _np.zeros((len(ys), 3), _np.float32)
-            num = _np.zeros(len(ys), _np.float32)
-            for dy, dx in off:
-                yy, xx = ys + dy, xs + dx
-                hit = mask[yy, xx]
-                acc[hit] += canvas[yy[hit], xx[hit]]
-                num += hit
-            canvas[ys, xs] = acc / num[:, None]
-            mask[ys, xs] = True
+        st = _nd.generate_binary_structure(2, 2)
+
+        # ШАГ 1 — узкие щели там, где вокруг один предмет
+        if gap > 0:
+            gaps = _nd.binary_closing(mask, st, iterations=gap) & ~mask
+            if gaps.any():
+                k = 2 * gap + 1
+                hi = _nd.maximum_filter(inst, k)
+                lo = _nd.minimum_filter(_np.where(mask, inst, 10 ** 6), k)
+                lab, n = _nd.label(gaps, st)
+                # компонента годится, только если в её окрестности ровно один номер предмета.
+                # Считаем «от противного» — какие компоненты задел хоть один спорный пиксель:
+                # `ndimage.minimum` по списку меток на том же кадре стоил 61 мс, это — 2 мс.
+                keep = _np.ones(n + 1, bool)
+                keep[0] = False
+                keep[_np.unique(lab[gaps & (hi != lo)])] = False
+                tgt = keep[lab]
+                if tgt.any():
+                    _grow_into(canvas, mask, tgt)
+
+        # ШАГ 2 — замкнутые дыры каждого предмета
+        for oid in _np.unique(inst):
+            if not oid:
+                continue
+            mi = inst == oid
+            ys, xs = _np.nonzero(mi)
+            sl = (slice(max(0, ys.min() - 1), min(H, ys.max() + 2)),
+                  slice(max(0, xs.min() - 1), min(W, xs.max() + 2)))
+            box = mi[sl]
+            hol = _nd.binary_fill_holes(box) & ~box & ~mask[sl]
+            if not hol.any():
+                continue
+            lab, n = _nd.label(hol)
+            # размер и толщина каждой полости: считаем по её пикселям (их сотни), а не по кадру.
+            # Толщина = удвоенное расстояние от середины полости до края.
+            li = lab[hol]
+            dv = _nd.distance_transform_edt(hol)[hol]
+            order = _np.argsort(li, kind='stable')
+            li, dv = li[order], dv[order]
+            beg = _np.searchsorted(li, _np.arange(1, n + 1), 'left')
+            end = _np.searchsorted(li, _np.arange(1, n + 1), 'right')
+            has = end > beg
+            size = end - beg
+            thick = _np.zeros(n)
+            if has.any():
+                thick[has] = 2.0 * _np.maximum.reduceat(dv, beg[has])
+            keep = _np.zeros(n + 1, bool)
+            keep[1:] = has & (size <= hole_max) & (thick <= hole_w)
+            tgt = keep[lab]
+            if tgt.any():
+                _grow_into(canvas[sl], mask[sl], tgt)
+
+        # ШАГ 3 — битые тексели: пиксель предмета ярче округи
+        lum = canvas.mean(2)
+        r = 3
+        p = _np.pad(lum.astype(_np.float64), (r + 1, r), mode='edge')
+        c = p.cumsum(0).cumsum(1)
+        k = 2 * r + 1
+        box7 = (c[k:k + H, k:k + W] - c[0:H, k:k + W] - c[k:k + H, 0:W] + c[0:H, 0:W]) / (k * k)
+        spec = mask & (lum - box7 > speck)
+        if spec.any():
+            lab, n = _nd.label(spec)
+            size = _np.bincount(lab.ravel())
+            spec &= _np.isin(lab, _np.nonzero((size <= speck_max) & (size > 0))[0])
+            spec[0] = spec[-1] = False
+            spec[:, 0] = spec[:, -1] = False
+        if spec.any():
+            _grow_into(canvas, mask & ~spec, spec.copy())
         return canvas
     except Exception as e:  # noqa: BLE001 — заплатка не обязана валить кадр
         print(f'  заплатка просветов не сработала: {str(e)[:70]}')
