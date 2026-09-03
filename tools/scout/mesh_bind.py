@@ -121,6 +121,33 @@ commit;""")
     return len(rows)
 
 
+def enforce_ready_invariant() -> tuple[int, int]:
+    """Инвариант (Codex 03.09, план catalog-load-hardening П2): `mesh_status='ready'` допустим ТОЛЬКО
+    когда у товара есть не-legacy ревизия (accepted|generated) по ТЕКУЩЕМУ фото — хеш фото в ключе
+    ревизии (16 знаков) совпадает с `product_photo_current.source_sha`. Иначе — `stale`: модель есть,
+    но сделана по старой картинке (или фото ещё не захешировано). Раньше `bind_ready()` ставил ready
+    по «самому свежему model.glb на диске», и `mesh_ready()` с `products.mesh_status` спорили.
+    → (стало stale, вернулось в ready)."""
+    out = sql("""begin;
+create temp table _inv on commit drop as
+select p.shop_mid, p.external_id,
+       exists (select 1 from asset_revisions r
+                 join product_photo_current c on c.sku = r.sku
+                where r.sku = p.shop_mid||':'||p.external_id
+                  and r.status in ('accepted','generated') and r.origin <> 'legacy-local'
+                  and c.source_sha like split_part(r.revision_key,'|',2)||'%') as ok
+  from products p where p.mesh_uri is not null;
+update products p set mesh_status = 'stale' from _inv i
+ where p.shop_mid = i.shop_mid and p.external_id = i.external_id and not i.ok and p.mesh_status = 'ready';
+select 'stale '||count(*) from _inv where not ok;
+update products p set mesh_status = 'ready' from _inv i
+ where p.shop_mid = i.shop_mid and p.external_id = i.external_id and i.ok and p.mesh_status is distinct from 'ready';
+select 'ready '||count(*) from _inv where ok;
+commit;""")
+    nums = [int(x.split()[1]) for x in out if x.startswith(('stale ', 'ready '))]
+    return (nums + [0, 0])[:2]
+
+
 def report() -> None:
     r = sql("""select
       count(*) filter (where mesh_required) as нужен,
@@ -144,8 +171,9 @@ def main() -> None:
     if '--report' not in sys.argv:
         n_need, n_skip = mark_required()
         n_bind = bind_ready()
+        n_stale, n_ready = enforce_ready_invariant()
         print(f'пометка по канону: ролей требующих меша {n_need}, не требующих {n_skip}')
-        print(f'привязано моделей: {n_bind}')
+        print(f'привязано моделей: {n_bind}; инвариант «ready = ревизия по текущему фото»: ready {n_ready}, stale {n_stale}')
     report()
 
 
