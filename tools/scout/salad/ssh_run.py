@@ -628,6 +628,7 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
         while not stop.wait(POLL_S):
             if js.pending() == 0:
                 return
+            cands = []
             for inst in instances():
                 with nodes_lock:
                     st = nodes.get(inst['id'])
@@ -635,13 +636,34 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
                 if busy:
                     continue
                 # Снятая за серию сбоев нода не должна вернуться в пул через минуту —
-                # иначе предохранитель бесполезен: она снова наберёт задания и провалит их.
+                # иначе предохранитель бесполезен: она снова наберёт задания и провалит её.
                 if NH.is_retired(f'{inst["group"]}/{inst["id"]}'):
                     continue
-                if not probe_warm(inst['port']):
+                cands.append(inst)
+            if not cands:
+                continue
+            # ПРОБЫ ПАРАЛЛЕЛЬНО (03.09). Здесь был последовательный обход, и каждая немая нода
+            # съедала до 50 с: при двух-трёх молчащих круг супервизора растягивался на минуты,
+            # а прогретая нода всё это время ждала работы. 03.09 из десяти слотов меши делала
+            # ОДНА нода, ещё две стояли прогретыми с `done: 0`. Стартовый снимок (`warm_ports`)
+            # распараллелили раньше — про добор на ходу я тогда забыл, хотя он важнее: пул
+            # наполняется постепенно, и почти каждая нода приходит именно через супервизор.
+            with cf.ThreadPoolExecutor(max_workers=min(PROBE_WORKERS, len(cands))) as ex:
+                warm = list(ex.map(lambda i: probe_warm(i['port']), cands))
+            added = 0
+            for inst, is_warm in zip(cands, warm):
+                if not is_warm:
                     continue
                 print(f'  + нода {inst["id"][:8]} (порт {inst["port"]}) подключена к прогону', flush=True)
                 spawn(inst['id'], inst['port'], inst['group'])
+                added += 1
+            # ПУЛЬС СУПЕРВИЗОРА (03.09). За 2.5 часа одной пачки он не подключил НИ ОДНОЙ ноды,
+            # и понять почему было нечем: сообщение печаталось только при удачном подключении.
+            # Нода 21998 простояла прогретой 169 минут — она опоздала на стартовый снимок пачки
+            # на несколько минут, а супервизор её не подобрал. Молчание — не диагноз, поэтому
+            # печатаем состав КАЖДОГО круга: сколько кандидатов было и сколько из них тёплых.
+            print(f'  [супервизор] кандидатов {len(cands)}, тёплых {sum(warm)}, '
+                  f'подключено {added}, в очереди {js.pending()}', flush=True)
             if time.time() - last_cull > CULL_S:
                 last_cull = time.time()
                 cull_slow()

@@ -54,11 +54,17 @@ def _api(path: str, method: str = 'GET') -> dict:
     return json.loads(body) if body else {}
 
 
+def groups() -> list[str]:
+    """Все группы под охраной. Их бывает несколько: 03.09 владелец поставил рядом две по
+    10 реплик — на тарифах `batch` и `low` — чтобы сравнить их живьём."""
+    return [g.strip() for g in os.environ.get('SALAD_GROUP', '').split(',') if g.strip()]
+
+
 def running_count(group: str) -> int:
     try:
         ins = _api(f'{group}/instances').get('instances') or []
     except Exception as e:  # noqa: BLE001 — сеть не должна гасить сторожа
-        print(f'{time.strftime("%H:%M")} опрос не удался ({type(e).__name__}) — тик пропущен',
+        print(f'{time.strftime("%H:%M")} опрос {group} не удался ({type(e).__name__})',
               flush=True)
         return -1
     return sum(1 for i in ins if i.get('state') == 'running')
@@ -98,18 +104,29 @@ def save(d: dict) -> None:
 
 
 def main() -> int:
-    group = os.environ.get('SALAD_GROUP', '').split(',')[0].strip()
-    if not group or not os.environ.get('SALAD_API_KEY'):
+    gs = groups()
+    if not gs or not os.environ.get('SALAD_API_KEY'):
         print('нет SALAD_GROUP или SALAD_API_KEY', flush=True)
         return 2
+    group = ','.join(gs)
     st = load()
-    if st.get('group') != group:            # сменили группу — терпение считаем заново
+    if st.get('group') != group:            # сменился состав групп — терпение считаем заново
         st = {'group': group, 'idle_node_min': 0.0, 'silent_since': 0.0,
               'last_seen_mesh': last_mesh_at()}
-    print(f'сторож денег: группа {group}, бюджет молчания {BUDGET_NODE_MIN:.0f} нодо-минут, '
-          f'тик {TICK_S / 60:.0f} мин', flush=True)
+    print(f'сторож денег: группы {group}, бюджет молчания {BUDGET_NODE_MIN:.0f} нодо-минут '
+          f'И не меньше {MIN_WALL_MIN:.0f} мин тишины, тик {TICK_S / 60:.0f} мин', flush=True)
     while True:
-        n = running_count(group)
+        counts = {g: running_count(g) for g in gs}
+        n = sum(v for v in counts.values() if v > 0)
+        # ОПЛАЧЕННОЕ ВРЕМЯ, А НЕ ПОЛЕЗНОЕ (владелец 03.09: «за видеокарты мы платим по часам их
+        # работы»). Счёт по секундам генерации занижал цену меша вдвое — 0.0079 против 0.0151,
+        # потому что не видел ни прогрева (7 мин на ноду), ни пауз, ни нод, которые часами стоят
+        # прогретыми без единого задания. Копим здесь, потому что сторож и так опрашивает группы
+        # каждые 5 минут; этот счётчик НИКОГДА не обнуляется — по нему считает `tier_compare`.
+        paid = st.setdefault('paid_node_min', {})
+        for g, c in counts.items():
+            if c > 0:
+                paid[g] = round(paid.get(g, 0.0) + c * (TICK_S / 60.0), 1)
         mesh_at = last_mesh_at()
         if mesh_at > st.get('last_seen_mesh', 0):
             # Пошли меши — терпение обнуляем целиком: пул работает, платим за дело.
@@ -124,7 +141,7 @@ def main() -> int:
             if not st.get('silent_since'):
                 st['silent_since'] = time.time()
             wall = (time.time() - st['silent_since']) / 60.0
-            print(f'{time.strftime("%H:%M")} работающих нод {n}, мешей нет: '
+            print(f'{time.strftime("%H:%M")} работающих нод {n} {counts}, мешей нет: '
                   f'{st["idle_node_min"]:.0f} из {BUDGET_NODE_MIN:.0f} нодо-минут, '
                   f'тишина {wall:.0f} из {MIN_WALL_MIN:.0f} мин', flush=True)
         elif n == 0:
@@ -150,13 +167,14 @@ def main() -> int:
             except Exception as e:  # noqa: BLE001
                 print(f'{time.strftime("%H:%M")} !! не смог записать запрет ({e}) — конвейер '
                       f'может поднять группу обратно', flush=True)
-            try:
-                _api(f'{group}/stop', 'POST')
-                print(f'{time.strftime("%H:%M")} группа {group} остановлена, деньги не идут',
-                      flush=True)
-            except Exception as e:  # noqa: BLE001
-                print(f'{time.strftime("%H:%M")} !! НЕ СМОГ ПОГАСИТЬ ({type(e).__name__}: {e}) — '
-                      f'нужен человек', flush=True)
+            for g in gs:
+                try:
+                    _api(f'{g}/stop', 'POST')
+                    print(f'{time.strftime("%H:%M")} группа {g} остановлена, деньги не идут',
+                          flush=True)
+                except Exception as e:  # noqa: BLE001
+                    print(f'{time.strftime("%H:%M")} !! НЕ СМОГ ПОГАСИТЬ {g} '
+                          f'({type(e).__name__}: {e}) — нужен человек', flush=True)
             # НЕ ВЫХОДИМ. Сторож остаётся на посту: группу могут поднять руками или автостартом,
             # и тогда сторожить снова некому. Счётчик обнуляем — следующий бюджет считается
             # заново, с момента подъёма.

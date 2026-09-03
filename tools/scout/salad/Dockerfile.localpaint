@@ -1,0 +1,67 @@
+# ТОНКИЙ СЛОЙ: веса покраски берутся С ДИСКА, а не качаются с HuggingFace на каждом прогреве.
+#
+# ЗАЧЕМ (03.09). Сравнил кэш живой ноды с тем, что запечено в образе:
+#     на ноде:  /opt/hf/hub/models--tencent--Hunyuan3D-2.1  =  6.5 ГБ
+#     в образе: /opt/hf/hub/models--tencent--Hunyuan3D-2.1  =   12 КБ (пустышка)
+# Размеры скачанных файлов совпадают файл в файл с теми, что УЖЕ лежат в `/opt/weights`:
+# 3.66 ГБ unet, 1.27 ГБ text_encoder, 1.18 ГБ image_encoder, 0.31 ГБ vae. То есть каждая нода
+# тянула по сети 6.4 ГБ того, что у неё есть на диске.
+#
+# ЦЕНА ЭТОГО. Прогрев занимал 7.6 минуты вместо примерно одной, а на плохой сети падал совсем:
+#     RuntimeError: An error occurred while downloading using `hf_transfer`
+# Нода после такого отказа висит «Running», работы не берёт (мы её справедливо не берём) и
+# платится по тарифу. 03.09 одна такая простояла 169 минут.
+#
+# ПРИЧИНА В КОДЕ. `hy3dpaint/utils/multiview_utils.py` зовёт `snapshot_download` БЕЗУСЛОВНО,
+# даже когда путь указывает на существующий каталог. Чиним обе стороны: путь по умолчанию
+# переводим на локальный, а сам вызов делаем условным — если каталог есть, сеть не трогаем.
+#
+# ЗАПЕКАТЬ ВЕСА ЗАНОВО НЕ НАДО: они уже в образе (`/opt/weights/hunyuan3d-2.1`), причём в
+# полной структуре `DiffusionPipeline` с `model_index.json`. Слой добавляет только правку кода —
+# образ не растёт.
+#
+#   docker build -f Dockerfile.localpaint --build-arg BASE=<образ с dino> -t <repo>:<tag> .
+ARG BASE
+FROM ${BASE}
+
+# Патч питоном, а не sed: замена многострочная, и молчаливо не применившийся патч дал бы образ,
+# неотличимый снаружи от старого — мы бы снова искали причину простоя нод несколько часов.
+RUN python - <<'PATCH'
+import pathlib, sys
+
+mv = pathlib.Path('/opt/hunyuan/hy3dpaint/utils/multiview_utils.py')
+src = mv.read_text(encoding='utf-8')
+old = """        model_path = huggingface_hub.snapshot_download(
+            repo_id=config.multiview_pretrained_path,
+            allow_patterns=["hunyuan3d-paintpbr-v2-1/*"],
+        )"""
+new = """        # ЛОКАЛЬНЫЙ КАТАЛОГ — БЕЗ СЕТИ (патч remlab 03.09): веса покраски уже в образе,
+        # а апстрим звал HuggingFace безусловно и тянул 6.4 ГБ дубля на каждом прогреве.
+        if os.path.isdir(config.multiview_pretrained_path):
+            model_path = config.multiview_pretrained_path
+        else:
+            model_path = huggingface_hub.snapshot_download(
+                repo_id=config.multiview_pretrained_path,
+                allow_patterns=["hunyuan3d-paintpbr-v2-1/*"],
+            )"""
+if old not in src:
+    sys.exit('НЕ НАЙДЕН вызов snapshot_download — апстрим изменился, патч НЕ применён')
+mv.write_text(src.replace(old, new), encoding='utf-8')
+
+tg = pathlib.Path('/opt/hunyuan/hy3dpaint/textureGenPipeline.py')
+src = tg.read_text(encoding='utf-8')
+old = 'self.multiview_pretrained_path = "tencent/Hunyuan3D-2.1"'
+new = 'self.multiview_pretrained_path = "/opt/weights/hunyuan3d-2.1"'
+if old not in src:
+    sys.exit('НЕ НАЙДЕН путь multiview_pretrained_path — патч НЕ применён')
+tg.write_text(src.replace(old, new), encoding='utf-8')
+print('патч применён: веса покраски читаются с диска')
+PATCH
+
+# Проверка на месте сборки: путь существует, структура пригодна для DiffusionPipeline, а в коде
+# больше нет безусловного похода в сеть.
+RUN test -f /opt/weights/hunyuan3d-2.1/hunyuan3d-paintpbr-v2-1/model_index.json && \
+    grep -q 'os.path.isdir(config.multiview_pretrained_path)' \
+        /opt/hunyuan/hy3dpaint/utils/multiview_utils.py && \
+    grep -q '"/opt/weights/hunyuan3d-2.1"' /opt/hunyuan/hy3dpaint/textureGenPipeline.py && \
+    echo "проверено: веса покраски на месте, поход в сеть стал условным"
