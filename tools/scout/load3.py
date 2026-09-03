@@ -44,7 +44,7 @@ ROLES_PATH = os.environ.get('SCOUT_ROLES_PATH') or os.path.join(HERE, 'category-
 FRESH_PATH = os.path.join(HERE, 'feed-freshness.json')
 PSQL = shlex.split(os.environ.get('SCOUT_PSQL_CMD') or '') or [
     "docker", "exec", "-i", "remlab-devdb", "psql", "-U", "remlab", "-d", "remlab", "-q", "-v", "ON_ERROR_STOP=1"]
-HASH_VERSION = 3          # 1 — четыре хеша по фидовым полям; 2 — эффективное описание + attrs + hd; 3 — оси размеров по магазину/роли (П3.1)
+HASH_VERSION = 4          # 1 — четыре хеша по фидовым полям; 2 — эффективное описание + attrs + hd; 3 — оси по магазину/роли; 4 — tvoydom оси перевёрнуты по замеру + тройка в названии (03.09)
 SHRINK_RATIO = 0.7
 DESC_MAX = 1500
 
