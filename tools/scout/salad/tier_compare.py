@@ -34,14 +34,17 @@ JOURNAL = os.path.join(HERE, '..', 'mesh-run-progress.jsonl')
 PRICE = {'batch': 0.090, 'low': 0.143, 'medium': 0.197, 'high': 0.250}
 # Какая группа на каком тарифе. Не выводим из имени: имя — не контракт.
 TIER = {'mesh-batch-1': 'batch', 'mesh-batch-2': 'batch',
-        'mesh-low-2': 'low', 'mesh-low-1': 'low'}
+        'mesh-low-2': 'low', 'mesh-low-3': 'low'}
 # ЧИСТАЯ ПАРА ДЛЯ СРАВНЕНИЯ (03.09): `mesh-batch-1` и `mesh-low-2` подняты на ОДНОМ образе
 # `localpaint` (прогрев 116 с вместо 242) и почти одновременно — различаются только тарифом.
 # `mesh-low-1` осталась на старом образе и работает с утра: её числа в сравнение тарифов не
 # берём, иначе возраст нод и медленный прогрев выдадут себя за влияние тарифа.
+# ВЕСЬ ПУЛ НА ОДНОМ ОБРАЗЕ с 03.09 (владелец: «обнови её чтоб все на новой были»): группа
+# на старом образе снесена, `mesh-low-1` заменена на `mesh-low-3`. Теперь тариф — ЕДИНСТВЕННОЕ
+# различие между группами, и сравнение честное без оговорок.
 IMAGE = {'mesh-batch-1': 'localpaint', 'mesh-batch-2': 'localpaint',
-         'mesh-low-2': 'localpaint', 'mesh-low-1': 'dino'}
-FAIR = ('mesh-batch-1', 'mesh-batch-2', 'mesh-low-2')   # один образ, поднялись рядом
+         'mesh-low-2': 'localpaint', 'mesh-low-3': 'localpaint'}
+FAIR = ('mesh-batch-1', 'mesh-batch-2', 'mesh-low-2', 'mesh-low-3')   # все на одном образе
 
 
 def load(hours: float) -> list[dict]:
