@@ -286,6 +286,6 @@ Standard, `isDownloadable:false`, платная модель магазина.
   с фидом; отдаёт `charge` (комиссия ₽) и `available`, который не совпадает с правдой карточек
   (precision 0 % на 1 486 false; 829/829 мёртвых = true). Покрывает 63 % каталога.
 - Служебный Telegram-бот `@remlabservice_bot` (владелец, 03.09): значения — `tools/scout/.env.alert` (DEV,
-  `TG_BOT_TOKEN/TG_CHAT_ID/DIGEST_QUIET_OK`) и `/opt/remlab/catalog-watchdog/.env` (прод); chat_id — после
-  Start владельца (`getUpdates`). Документация Гдеслона: gdeslon.ru/faq/20 и /faq/21 (формат id не описан).
+  `TG_BOT_TOKEN/TG_CHAT_ID/DIGEST_QUIET_OK`) и `/opt/remlab/catalog-watchdog/.env` (прод); chat_id получен 03.09
+  (`getUpdates`), тесты с DEV и прода дошли. Документация Гдеслона: gdeslon.ru/faq/20 и /faq/21 (формат id не описан).
 
