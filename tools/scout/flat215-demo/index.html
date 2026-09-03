@@ -893,6 +893,9 @@ function variantLive(v){
 }
 function variantItems(v){ return variantLive(v)?items:((v&&v.items)||[]); }
 function variantDecor(v){ return variantLive(v)?decorList():(((v&&v.decor)||[]).filter(x=>(x.sku||{}).name)); }
+function dimsText(o){ // размеры показываем только известные; иначе — честно (Р1)
+  if(!o||!o.w||!o.d)return 'размеры не указаны магазином';
+  return `${Math.round(o.w)}×${Math.round(o.d)}${o.h?'×'+Math.round(o.h):''} см`;}
 function variantCount(v){ return variantItems(v).filter(it=>(it.sku||{}).name).length; }
 function variantPrice(v){                       // цена = сумма комплекта, привязанного к варианту
   const kit=(D.sets||[]).find(k=>k.id==='kit'+String(v.id||'').replace('set',''));
@@ -1365,7 +1368,7 @@ function basket(){                    // СПИСОК ТОВАРОВ КОМНА�
   let sum=0;
   box.innerHTML=groups.map(gr=>{const p=gr.sku, i=gr.first;
     const n=buys(gr.slots.length,p); sum+=(p.price||0)*n;
-    const dims=`${Math.round(i.w)}×${Math.round(i.d)}${i.h?'×'+Math.round(i.h):''} см`;
+    const dims=dimsText(i);
     const roles=[...new Set(gr.slots.map(x=>x.role.replace(/\s+\d+$/,'')))].join(', ');
     const cnt=gr.slots.length>1?` · ${gr.slots.length} шт. в комнате`:'';
     const buy=n>1?` · ${n} комплекта`:'';
@@ -1469,7 +1472,7 @@ function peek(e,it){const p=document.getElementById('peek');const s=skuOf(it)||{
   p.innerHTML=`<img src="${s.img}" alt="">`+
     `<div class="pn">${s.name||it.role}</div>`+
     `<div class="pp">${(s.price||0).toLocaleString('ru-RU')} ₽</div>`+
-    `<div class="pd">${Math.round(it.w)}×${Math.round(it.d)}${it.h?'×'+Math.round(it.h):''} см${s.shop?' · '+s.shop:''}</div>`+
+    `<div class="pd">${dimsText(it)}${s.shop?' · '+s.shop:''}</div>`+
     `<div class="pgo">Перейти к товару →</div>`;
   p.style.display='block';
   p.onclick=()=>{if(s.url)window.open(s.url,'_blank','noopener');};
@@ -2727,7 +2730,7 @@ function grid(){
                                    :(rank(a)-rank(b)||(a.price||0)-(b.price||0)));
   if(!list.length){g.innerHTML='<div class="hint">Под фильтры ничего не подошло — снимите ограничения.</div>';return;}
   list.forEach(p=>{const c=document.createElement('div');c.className='card';
-    const dims=`${Math.round(p.w)}×${Math.round(p.d)}${p.h?'×'+Math.round(p.h):''} см`;
+    const dims=dimsText(p);
     const bg=fitBadge(sel,p), cur=sel.sku&&sel.sku.name===p.name;
     if(cur)c.classList.add('cur');
     c.innerHTML=`<img src="${p.img}" loading="lazy" alt="">`+

@@ -97,7 +97,7 @@ def derived(room, placements, items):
         # на ковре — ближний край заходит под фронт дивана на 25 см, ковёр стелется в зону.
         from planner.geometry import facing_vector
         fx, fy = facing_vector(sofa.rot)
-        sd = float(sofa.item.d_cm or 100.0)
+        sd = float(sofa.item.d_cm)              # глубина дивана обязана быть в раскладке (Р1: без дефолта 100)
         fr_x, fr_y = sofa.x + fx * sd / 2, sofa.y + fy * sd / 2   # линия фронта дивана
         depth_along = d_cm if abs(fy) > abs(fx) else w_cm          # размер ковра вдоль взгляда
         rug_x = fr_x + fx * (depth_along / 2 - 25.0)

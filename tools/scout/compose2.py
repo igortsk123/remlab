@@ -227,6 +227,8 @@ def cos(a_key,b_key):
     return float(np.dot(a.astype(np.float32),b.astype(np.float32)))
 
 # ---------- каталог ----------
+import footprint as _fp   # одно правило «размер известен» для сборки/лечения/экспорта/сцены (Р1)
+_no_fp={}
 ROLES=['диван','кресло','пуф','столик','тв-тумба','комод','стеллаж','витрина','стенка',
  'стол обеденный','стул','камин','кашпо','торшер','ковёр','лампа','люстра','ваза','статуэтка',
  'плед','подушка','растение','зеркало','полка','часы','шторы','бра']
@@ -291,20 +293,22 @@ for r in raw:
     k=(r[10],model_key(r[3]))
     pool=cat.setdefault(role,{})
     if k in pool: continue
-    w=float(r[4]) if r[4] else None; d=float(r[5]) if r[5] else (float(r[6]) if r[6] else None)
+    # РАЗМЕР НЕ ПРИДУМЫВАЕМ (владелец 03.09, план stock-and-dims-honesty Р1): глубина — только каталожная
+    # `d_cm` (для tvoydom это переименованная «Длина», см. dim_resolver), диаметр — только `dia_cm`.
+    # Раньше `len_cm` подставлялся вместо глубины, дивану без глубины считалась площадь как при 100 см,
+    # торшеру/кашпо/камину — 0,16 м². Напольный предмет без footprint в пул НЕ попадает (см. ниже).
+    w=float(r[4]) if r[4] else None; d=float(r[5]) if r[5] else None
     dia=float(r[7]) if r[7] else None; h=float(r[8]) if r[8] else None
-    fp=None; d_assumed=False
-    if w and d: fp=w*d/10000
-    elif dia: fp=math.pi*(dia/200)**2
-    elif w and role=='диван':
-        # глубины в каталоге нет — площадь считаем как при 100 см и ПОМЕЧАЕМ (план catalog-load-hardening
-        # П3.3): флаг едет в sets3.json → солвер/экспорт/страницы видят, что размер предположен
-        fp=w*1.0/100; d_assumed=True
-    pool[k]=dict(mid=int(r[1]),eid=r[2],name=r[3],w=w,d=d,dia=dia,h=h,fp=fp,d_assumed=d_assumed,
+    fp=_fp.footprint_m2({'w':w,'d':d,'dia':dia})
+    if fp is None and _fp.is_floor(role):
+        _no_fp[role]=_no_fp.get(role,0)+1
+        continue
+    pool[k]=dict(mid=int(r[1]),eid=r[2],name=r[3],w=w,d=d,dia=dia,h=h,fp=fp,
                  price=int(r[9]),shop=r[10],img=r[11],url=r[12],**tag(r[3]))
 cat={role:list(p.values()) for role,p in cat.items()}
-_na=sum(1 for it in cat.get('диван',[]) if it.get('d_assumed'))
-if _na: print(f'[pool] диванов с ПРЕДПОЛОЖЕННОЙ глубиной (100 см): {_na} из {len(cat.get("диван",[]))}', flush=True)
+if _no_fp:
+    print('[pool] напольные без размера (в расстановку не берём, витрина покажет «размеры не указаны магазином»): '
+          + ', '.join(f'{r} {n}' for r,n in sorted(_no_fp.items(), key=lambda kv:-kv[1])), flush=True)
 # Q6a свода №13: ПЛАНИРОВОЧНЫЙ СЛОТ «банкетка» — не роль каталога (cat_role не меняется), а SKU с
 # capability wall_seat_capable (`capabilities.py --export` → capabilities-index.json: банкетки/кушетки из
 # ролей пуф/диван). В сет такой SKU кладётся НЕ голым алиасом: с source_role/planning_role/caps_used/
@@ -375,12 +379,12 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3,pr
         cs=[]
         for it in cat.get(role,[]):
             if it['fp'] is None:
-                if role in ('торшер','кашпо','камин') and it['h']: it=dict(it,fp=0.16)
+                # напольным без footprint здесь уже не бывает (отсечены при загрузке пула, Р1);
                 # T5 truth-first: шторы — не напольная роль, footprint им не положен вовсе
                 # (WINDOW-слой онтологии). Требования: полотно до пола (h≥250) и ткань
                 # ≥250 см (комплект «2 шт» = 2×w) — покрыть окно 120-180 + сборка.
                 # Раньше отсутствие fp выкидывало ВСЕ шторы → дыра 126/126 (аудит рефери §14).
-                elif role=='шторы' and it['h'] and it['w']:
+                if role=='шторы' and it['h'] and it['w']:
                     cloth=it['w']*(2 if re.search(r'2\s*шт',it['name'],re.I) else 1)
                     if it['h']>=250 and cloth>=250: it=dict(it,fp=0.0)
                     else: continue

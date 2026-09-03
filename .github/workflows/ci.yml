@@ -78,7 +78,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: |
-          for m in dim_resolver reflink stock_truth feed_guard load3 category_map page_alive stock_check; do
+          for m in dim_resolver reflink stock_truth feed_guard load3 category_map page_alive stock_check footprint; do
             echo "== $m --selftest"; python tools/scout/$m.py --selftest || exit 1
           done
       - run: diff -q tools/scout/asset_strategy.py tools/scout/salad/asset_strategy.py

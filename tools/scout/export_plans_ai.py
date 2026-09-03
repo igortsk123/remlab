@@ -48,7 +48,10 @@ def semantic(scene_id, room, items, rep, set_meta):
     sofa = None
     lines.append('')
     lines.append('Расстановка:')
+    import footprint as _fp   # Р1: напольный предмет без размера в экспорт не попадает
     for role, it in items.items():
+        if _fp.is_floor(role) and not _fp.footprint_known(it):
+            raise _fp.DimsUnknown(f'{role}: размер не указан — раскладка/экспорт невозможны без выдумки')
         rot = int(it.get('rot', 0)) % 360
         wall, back = wall_of(w, d, it['x'], it['z'], it.get('w') or 0,
                              it.get('d') or 0, rot)

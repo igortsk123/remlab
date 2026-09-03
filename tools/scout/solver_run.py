@@ -32,9 +32,15 @@ items={}
 for _r, _it in s['items'].items():
     items.setdefault(_r.replace(' 2', ''), _it)
 
+import footprint as _fp   # Р1: размер не придумываем — напольный предмет без footprint = ошибка контракта
+DIMS_STRICT=os.environ.get('DIMS_STRICT','1')!='0'   # DIMS_STRICT=0 — только для разбора старых банков
+
 def dims(role,defw,defd):
     it=items.get(role) or {}
-    w=int(it.get('w') or defw); d=int(it.get('d') or defd)
+    if DIMS_STRICT:
+        w,d=_fp.require(it, role)           # DimsUnknown — вместо типового 190×95
+        return (int(w),int(d))
+    w=int(it.get('w') or it.get('dia') or defw); d=int(it.get('d') or it.get('dia') or defd)
     return (w,d)
 
 # типовые размеры напольных ролей (Ш,Г см) — фолбэк, когда в фиде нет; порядок = приоритет размещения
@@ -53,9 +59,7 @@ if any(r=='стенка' for r,_ in FLOOR) and any(r=='тв-тумба' for r,_ 
     # «стенка → тумба» отрабатывает place_media; здесь тумбу больше не выкидываем.
     print('BEARERS: стенка приоритетна, тв-тумба — запасной носитель (лестница медиа)', flush=True)
 
-# диван без глубины в фиде — типовая 95
-if items.get('диван') and not items['диван'].get('d'):
-    FLOOR[0]=('диван',(FLOOR[0][1][0],95))
+# (диван без глубины: раньше подставлялась типовая 95 — с Р1 такой диван до солвера не доезжает)
 # Z4: солвер обязан видеть ВЕСЬ состав — экземпляры по qty («кресло 2», «стул 2–4») и роль
 # «диван 2» (раньше qty терялся: сет с парой кресел раскладывался с одним)
 # Q1 свода №13 (Кодекс: «банк не доезжает до солвера»): identity-адаптер.
@@ -81,7 +85,7 @@ for _r,(_w,_d) in FLOOR:
 # (Q1 свода №13, найдено при аудите адаптера). Читаем из RAW_BANK; семантика роли не расширяется.
 _d2 = RAW_BANK.get('диван 2') if _IDENTITY else items.get('диван 2')
 if _d2:
-    _extra.insert(0,('диван 2',(int(_d2.get('w') or 190),int(_d2.get('d') or _d2.get('dia') or 95))))
+    _extra.insert(0,('диван 2',tuple(int(x) for x in (_fp.require(_d2,'диван 2') if DIMS_STRICT else (_d2.get('w') or 190,_d2.get('d') or _d2.get('dia') or 95)))))
     items.setdefault('диван 2', _d2)
 if _IDENTITY:
     _SHADOW_ROLES={'стеллаж 2','комод 2'}             # до storage-пакета
@@ -604,9 +608,7 @@ def attempt_beam():
         # уезжал на 58–59 см при вилке 33–47, и 41 сет падал (перегон 2026-08-07)
         rw = float(src.get('w') or src.get('dia') or w)
         rd = float(src.get('d') or src.get('dia') or d)
-        if role == 'диван' and CORNER and not src.get('d'):
-            # фид потерял глубину углового (21.08): честный минимум Г-габарита, не типовая 95
-            rd = max(rd, 150.0)
+        # (угловой без глубины: раньше подставлялся «честный минимум 150» — с Р1 глубина обязана быть в банке)
         its.append(_It(role=role, w_cm=rw, d_cm=rd, h_cm=(src.get('h') or None),
                        name=(src.get('name') or None),
                        # Q6a/Q6b: способности SKU (`caps_used` из capabilities-index через compose2) —

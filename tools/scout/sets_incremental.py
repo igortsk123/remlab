@@ -212,7 +212,13 @@ def _slot_ok(role: str, cand: dict, s: dict, chosen: dict | None = None) -> bool
         _m = _media(cand.get('mid'), cand.get('eid'))
         if not _m or _m['state'] != 'available':
             return False
-        if not any(_m.get(f) for f in ('w', 'd', 'h', 'dia')):
+        # напольному предмету нужен footprint (Ш×Г или диаметр) ИЗ КАТАЛОГА, не «хоть какой-то габарит»
+        # и не размер из карточки сета (Р1, Codex 03.09)
+        import footprint as _fp
+        if _fp.is_floor(role):
+            if not _fp.footprint_known(_m):
+                return False
+        elif not any(_m.get(f) for f in ('w', 'd', 'h', 'dia')):
             return False
     except Exception:
         pass

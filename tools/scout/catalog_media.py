@@ -147,16 +147,20 @@ def sync_bank(path: str = 'sets3.json', apply: bool = False) -> dict:
             if m.get('shop') and it.get('shop') != m['shop']:
                 stat['fixed_shop'] += 1
                 it['shop'] = m['shop']
-            if not any(m.get(f) for f in ('w', 'd', 'h', 'dia')):
+            # РАЗМЕРЫ — РОВНО КАТАЛОЖНЫЕ, ВКЛЮЧАЯ НЕИЗВЕСТНЫЕ ОСИ (Р1, Codex 03.09): раньше правилась
+            # только известная ось, а неизвестная сегодня глубина оставалась в банке от прежнего товара
+            # слота — ровно тот путь, которым чужой размер переживал любую починку каталога.
+            import footprint as _fp
+            for f in ('w', 'd', 'h', 'dia'):
+                if it.get(f) != m.get(f):
+                    stat['fixed_dims'] += 1
+                    it[f] = m.get(f)
+                    it['_dims_changed'] = True
+            if _fp.is_floor(role) and not _fp.footprint_known(m):
                 stat['dims_unknown'] += 1
-                it['_dims_unknown'] = True
+                it['_dims_unknown'] = True       # контракт слота заменит: расставлять нечего
             else:
                 it.pop('_dims_unknown', None)
-                for f in ('w', 'd', 'h', 'dia'):
-                    if m.get(f) and it.get(f) != m[f]:
-                        stat['fixed_dims'] += 1
-                        it[f] = m[f]
-                        it['_dims_changed'] = True
             stat['ok'] += 1
     if apply:
         bak = path + '.bak-media'
