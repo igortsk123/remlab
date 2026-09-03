@@ -94,11 +94,37 @@ def group_status() -> str | None:
     return sts[0] if sts else None
 
 
+HALT = os.path.expanduser('~/scout-scenes/mesh-group-halt.json')
+
+
+def halt_reason() -> str:
+    """Почему группу запрещено поднимать. Пусто — запрета нет.
+
+    СТОП-ФАЙЛ СИЛЬНЕЕ АВТОСТАРТА (03.09). Ночью сторож денег честно погасил группу на 125
+    нодо-минутах молчания — а через минуту `ensure_group_started` поднял её обратно, потому что
+    «остановлена» он трактует как «надо стартовать». Дальше сторож (одноразовый) уже вышел, и
+    семь часов ноды крутились без единого меша за наши деньги. Два процесса с противоположными
+    целями обязаны иметь старшинство: намеренная остановка — это решение, а не сбой.
+    Снимает запрет ЧЕЛОВЕК (удалить файл) — после того, как разобрался, почему не было мешей.
+    """
+    try:
+        with open(HALT, encoding='utf-8') as f:
+            d = json.load(f)
+    except Exception:  # noqa: BLE001 — нет файла или битый: запрета нет
+        return ''
+    return str(d.get('why') or 'без причины')
+
+
 def ensure_group_started():
     """Группа на Salad может СОЗДАТЬСЯ остановленной (ловили дважды: pool5, mesh-run3) —
     и ожидание тёплой ноды у выключенной группы длится вечно. Стартуем явно; 400 = уже
     стартует, это не ошибка."""
     import urllib.request
+    why = halt_reason()
+    if why:
+        print(f'!! группу поднимать ЗАПРЕЩЕНО: {why}\n'
+              f'   снять запрет: rm {HALT} (сперва разберись, почему не было мешей)', flush=True)
+        return False
     ok = False
     for grp in [g.strip() for g in os.environ.get('SALAD_GROUP', 'mesh-run3').split(',') if g.strip()]:
       try:
@@ -351,7 +377,20 @@ def cull_dead_warmups() -> None:
         ports = [int(i['ssh_port']) for i in live]
         with cf.ThreadPoolExecutor(max_workers=min(6, len(ports))) as ex:
             health = dict(zip(ports, ex.map(SR.probe_health, ports)))
-        dead = [(i, SR.warmup_fault(health.get(int(i['ssh_port'])) or {})) for i in live]
+
+        def _fault(inst) -> str:
+            h = health.get(int(inst['ssh_port']))
+            # НЕМАЯ НОДА — ТОЖЕ МЁРТВАЯ (03.09). В ночь на 03.09 одна нода семь часов была
+            # `running` и не отвечала на пробу (`TimeoutExpired`, 51 с): конвейер 71 раз написал
+            # «нет тёплых нод — жду 3 мин», а мы за неё платили. Прежняя проверка ловила только
+            # тех, кто ОТВЕЧАЕТ и признаётся в ошибке прогрева; молчащая проходила мимо.
+            # Ложного срабатывания на молодой ноде нет: uvicorn поднимается ДО прогрева, то есть
+            # исправная нода отвечает на `/health` уже через полминуты после старта.
+            if not h:
+                return 'нет ответа по SSH'
+            return SR.warmup_fault(h)
+
+        dead = [(i, _fault(i)) for i in live]
         dead = [(i, why) for i, why in dead if why]
         if not dead:
             return

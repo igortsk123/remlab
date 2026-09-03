@@ -26,6 +26,9 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 JOURNAL = os.path.join(HERE, '..', 'mesh-run-progress.jsonl')
 STATE = os.path.expanduser('~/scout-scenes/mesh-money-guard.json')
+# Запрет на подъём группы: его читает `batch_show.halt_reason()` и НЕ стартует группу, пока
+# файл на месте. Снимает человек — руками, разобравшись в причине простоя.
+HALT = os.path.expanduser('~/scout-scenes/mesh-group-halt.json')
 
 # Сколько ОПЛАЧЕННЫХ нодо-минут молчания терпим. 120 ≈ 35 мешей, которые здоровый пул успел бы
 # сделать за это время: если их нет, дело не в невезении.
@@ -118,9 +121,22 @@ def main() -> int:
             print(f'{time.strftime("%H:%M")} работающих нод нет — не платим, жду', flush=True)
         save(st)
         if st['idle_node_min'] >= BUDGET_NODE_MIN:
-            print(f'{time.strftime("%H:%M")} !! ПРЕВЫШЕН БЮДЖЕТ МОЛЧАНИЯ '
-                  f'({st["idle_node_min"]:.0f} нодо-минут без единого меша) — ГАШУ ГРУППУ '
-                  f'{group}. Разбор утром: почему ноды не отдавали меши.', flush=True)
+            why = (f'{st["idle_node_min"]:.0f} нодо-минут без единого меша '
+                   f'(остановлено {time.strftime("%d.%m %H:%M")})')
+            print(f'{time.strftime("%H:%M")} !! ПРЕВЫШЕН БЮДЖЕТ МОЛЧАНИЯ ({why}) — ГАШУ ГРУППУ '
+                  f'{group}. Разбор: почему ноды не отдавали меши.', flush=True)
+            # СТОП-ФАЙЛ ПИШЕМ ДО ОСТАНОВКИ. Иначе конвейер успеет поднять группу обратно —
+            # ровно так и вышло в ночь на 03.09: сторож погасил, `ensure_group_started` через
+            # минуту поднял, сторож (тогда одноразовый) вышел, и семь часов ноды крутились
+            # впустую. Снимает запрет человек, разобравшись в причине.
+            try:
+                with open(HALT, 'w', encoding='utf-8') as f:
+                    json.dump({'why': why, 'group': group, 'at': time.time()}, f,
+                              ensure_ascii=False)
+                print(f'{time.strftime("%H:%M")} запрет на подъём записан: {HALT}', flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f'{time.strftime("%H:%M")} !! не смог записать запрет ({e}) — конвейер '
+                      f'может поднять группу обратно', flush=True)
             try:
                 _api(f'{group}/stop', 'POST')
                 print(f'{time.strftime("%H:%M")} группа {group} остановлена, деньги не идут',
@@ -128,8 +144,11 @@ def main() -> int:
             except Exception as e:  # noqa: BLE001
                 print(f'{time.strftime("%H:%M")} !! НЕ СМОГ ПОГАСИТЬ ({type(e).__name__}: {e}) — '
                       f'нужен человек', flush=True)
-                return 1
-            return 0
+            # НЕ ВЫХОДИМ. Сторож остаётся на посту: группу могут поднять руками или автостартом,
+            # и тогда сторожить снова некому. Счётчик обнуляем — следующий бюджет считается
+            # заново, с момента подъёма.
+            st['idle_node_min'] = 0.0
+            save(st)
         time.sleep(TICK_S)
 
 

@@ -446,16 +446,36 @@ def case_checkpoint() -> None:
     print(f'  ✓ чекпойнт: {len(lines)} строк, все разбираются')
 
 
+def case_halt_blocks_start() -> None:
+    """Намеренная остановка сильнее автостарта.
+
+    Ночь на 03.09: сторож денег погасил группу на 125 нодо-минутах молчания, а конвейер через
+    минуту поднял её обратно — «остановлена» он читал как «надо стартовать». Семь часов ноды
+    крутились без единого меша. Стоп-файл делает решение сторожа старше решения конвейера.
+    """
+    import batch_show as B  # noqa: PLC0415
+    assert B.halt_reason() == '', 'без файла запрета быть не должно'
+    try:
+        with open(B.HALT, 'w', encoding='utf-8') as f:
+            json.dump({'why': '125 нодо-минут без единого меша'}, f, ensure_ascii=False)
+        assert B.halt_reason() == '125 нодо-минут без единого меша', B.halt_reason()
+        assert B.ensure_group_started() is False, 'при запрете группа стартовать НЕ должна'
+    finally:
+        os.path.exists(B.HALT) and os.remove(B.HALT)
+    assert B.halt_reason() == '', 'удаление файла снимает запрет'
+    print('  ✓ стоп-файл блокирует подъём группы, снимается только удалением')
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         setup(tmp)
-        pure = (case_checkpoint, case_cull_rule, case_fault_classes)
+        pure = (case_checkpoint, case_cull_rule, case_fault_classes, case_halt_blocks_start)
         for fn in (case_late_node, case_bad_node, case_unresolved, case_prefix,
                    case_stall_is_capacity, case_no_capacity, case_cull_rule, case_checkpoint,
                    case_fault_classes, case_streak_rules, case_streak_survives_restart,
                    case_retire_is_temporary, case_fleet_wide_guard, case_cull_budget_shared, case_node_breaker_run,
                    case_dead_photo_keeps_node, case_spool_keeps_reason,
-                   case_post_background, case_flat_plan):
+                   case_post_background, case_flat_plan, case_halt_blocks_start):
             if fn not in pure:
                 setup(tmp)
             fn()
