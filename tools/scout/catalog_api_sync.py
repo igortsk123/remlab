@@ -55,7 +55,7 @@ create table if not exists api_offers (
   price numeric, oldprice numeric, charge numeric,
   picture text, image_url_hd text,          -- original_picture: CDN магазина, крупнее фида
   vendor text, model text, url text, direct_url text,
-  available boolean, gs_category_id text, article text,
+  available boolean,          -- DEPRECATED (Н4, 03.09): флаг Гдеслона лжёт (precision 0 %), больше не пишется gs_category_id text, article text,
   seen_at timestamptz default now(),
   primary key (shop_mid, external_id)
 );
@@ -83,7 +83,7 @@ def page(mid: int, query: str, p: int, tok: str, limit: int = 100) -> list[dict]
     for o in ET.fromstring(raw).iter('offer'):
         d = {c.tag: (c.text or '').strip() for c in o}
         out.append({
-            'id': o.attrib.get('id'), 'available': o.attrib.get('available') == 'true',
+            'id': o.attrib.get('id'),   # `available` НЕ собираем (Н4, 03.09): precision 0 % против карточек
             'gs_category_id': o.attrib.get('gs_category_id'), 'article': o.attrib.get('article'),
             'name': d.get('name'), 'description': d.get('description'),
             'price': d.get('price'), 'oldprice': d.get('oldprice'), 'charge': d.get('charge'),
@@ -125,13 +125,13 @@ def sync_shop(mid: int, tok: str) -> tuple[int, int, int]:
                  {q(i['oldprice']) if i['oldprice'] else 'null'},
                  {q(i['charge']) if i['charge'] else 'null'},
                  {q(i['picture'])}, {q(i['image_url_hd'])}, {q(i['vendor'])}, {q(i['model'])},
-                 {q(i['url'])}, {q(i['direct_url'])}, {str(i['available']).lower()},
+                 {q(i['url'])}, {q(i['direct_url'])}, null,
                  {q(i['gs_category_id'])}, {q(i['article'])}, now())
                on conflict (shop_mid, external_id) do update set
                  name=excluded.name, description=excluded.description, price=excluded.price,
                  oldprice=excluded.oldprice, charge=excluded.charge, picture=excluded.picture,
                  image_url_hd=excluded.image_url_hd, url=excluded.url,
-                 direct_url=excluded.direct_url, available=excluded.available,
+                 direct_url=excluded.direct_url,
                  seen_at=now()""")
     return len(seen), calls, errors
 

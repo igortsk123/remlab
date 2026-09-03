@@ -1057,7 +1057,7 @@ function applyKit(kit){            // комплект накладываетс�
   let n=0;                          // которых в комплекте нет, остаются как были (можно смешивать)
   items.forEach(it=>{const p=kit.roles[it.role]||kit.roles[it.role.split(' ')[0]];
     if(!p)return;it.w=p.w;it.d=p.d;it.h=p.h;
-    it.sku={name:p.name,price:p.price,img:p.img,url:p.url,shop:p.shop};n++;});
+    it.sku={name:p.name,price:p.price,img:p.img,url:p.url,shop:p.shop,basis:p.basis};n++;});
   document.getElementById('sel').innerHTML=`Применён <b>${kit.title}</b>: товаров ${n}`+
     (kit.sum?` · сумма ${kit.sum.toLocaleString('ru-RU')} ₽`:'')+
     ` · любой предмет можно заменить своим — выберите его и нажмите «Подобрать товар»`;
@@ -1352,7 +1352,7 @@ function decorRows(){
     return `<div class="row" style="cursor:default">`+
       (p.img?`<img src="${p.img}" loading="lazy" alt="">`:'<div class="noimg-sm">нет фото</div>')+
       `<div class="t"><b>${p.name}</b><span>${x.role} · на столе или тумбе`+
-      (p.shop?' · '+p.shop:'')+`</span>`+
+      (p.shop?' · '+p.shop:'')+(p.basis&&p.basis!=='page'?' · <i title="наличие по данным магазина, карточка не проверена">наличие не проверено</i>':'')+`</span>`+
       (p.url?`<span class="acts"><a href="${p.url}" target="_blank" rel="noopener">В магазин</a></span>`:'')+
       `</div><div class="p">${(p.price||0).toLocaleString('ru-RU')} ₽</div></div>`;}).join('');
   return {html:html, n:d.length, sum:sum};
@@ -1371,7 +1371,7 @@ function basket(){                    // СПИСОК ТОВАРОВ КОМНА�
     const buy=n>1?` · ${n} комплекта`:'';
     return `<div class="row" data-i="${items.indexOf(i)}">`+
       (p.img?`<img src="${p.img}" loading="lazy" alt="">`:'<div class="noimg-sm">нет фото</div>')+
-      `<div class="t"><b>${p.name||i.role}</b><span>${roles} · ${dims}${p.shop?' · '+p.shop:''}${cnt}${buy}</span>`+
+      `<div class="t"><b>${p.name||i.role}</b><span>${roles} · ${dims}${p.shop?' · '+p.shop:''}${p.basis&&p.basis!=='page'?' · <i title="наличие по данным магазина, карточка не проверена">наличие не проверено</i>':''}${cnt}${buy}</span>`+
       `<span class="acts"><button class="lnk swap">Заменить</button>`+
       (p.url?` · <a href="${p.url}" target="_blank" rel="noopener">В магазин</a>`:'')+`</span></div>`+
       `<div class="p">${((p.price||0)*n).toLocaleString('ru-RU')} ₽</div></div>`;}).join('')

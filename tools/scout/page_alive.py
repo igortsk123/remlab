@@ -278,6 +278,62 @@ def classify_full(shop: str, http_code, body: str = '', error: str = '', final_u
     return out('unknown', '200 без структурного признака наличия', 'http', 'no_signal')
 
 
+_PRICE_LD_RE = re.compile(r'"price"\s*:\s*"?(\d+(?:[.,]\d+)?)')
+_PRICE_META_RE = re.compile(r'itemprop=["\']price["\'][^>]{0,80}?content=["\'](\d+(?:[.,]\d+)?)', re.I)
+_TITLE_RE = re.compile(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']{3,200})', re.I)
+_TITLE2_RE = re.compile(r'<title>\s*([^<]{3,200}?)\s*</title>', re.I | re.S)
+_CANON_RE = re.compile(r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']([^"\']+)', re.I)
+
+
+def extract_page_facts(body: str) -> dict:
+    """Что ещё дёшево взять со страницы (Н3): цена, имя, канонический адрес — как НАБЛЮДЕНИЯ.
+    Цена: JSON-LD Product.offers.price → microdata itemprop=price → inline `"price":N` (tvoydom).
+    Страница читается до первого положительного признака, поэтому поля могут быть пустыми — это норма."""
+    out = {'price_seen': None, 'name_seen': None, 'canonical_url': None}
+    b = body or ''
+    for m in _LDJSON_RE.finditer(b):
+        try:
+            data = json.loads(m.group(1).strip())
+        except Exception:  # noqa: BLE001
+            continue
+        stack = [data]
+        while stack and out['price_seen'] is None:
+            x = stack.pop()
+            if isinstance(x, list):
+                stack.extend(x); continue
+            if not isinstance(x, dict):
+                continue
+            t = x.get('@type'); types = t if isinstance(t, list) else [t]
+            if any(str(tt).lower() == 'product' for tt in types if tt):
+                offers = x.get('offers')
+                for o in (offers if isinstance(offers, list) else [offers]):
+                    if isinstance(o, dict) and o.get('price') not in (None, ''):
+                        try:
+                            out['price_seen'] = float(str(o['price']).replace(',', '.')); break
+                        except ValueError:
+                            pass
+                if out['name_seen'] is None and x.get('name'):
+                    out['name_seen'] = str(x['name'])[:200]
+            for k in ('@graph', 'mainEntity'):
+                if k in x:
+                    stack.append(x[k])
+    if out['price_seen'] is None:
+        m = _PRICE_META_RE.search(b) or _PRICE_LD_RE.search(b)
+        if m:
+            try:
+                out['price_seen'] = float(m.group(1).replace(',', '.'))
+            except ValueError:
+                pass
+    if out['name_seen'] is None:
+        m = _TITLE_RE.search(b) or _TITLE2_RE.search(b)
+        if m:
+            out['name_seen'] = re.sub(r'\s+', ' ', m.group(1)).strip()[:200]
+    m = _CANON_RE.search(b)
+    if m:
+        out['canonical_url'] = m.group(1).strip()[:900]
+    return out
+
+
 def classify(shop: str, http_code, body: str = '', error: str = '', final_url: str = '',
              url: str = ''):
     """→ (verdict, reason) — совместимая обёртка над classify_full()."""
@@ -401,7 +457,13 @@ def _selftest() -> int:
         if got != want:
             bad += 1
             print(f'  FAIL v2: {got!r} != {want!r}')
-    print(f'page_alive selftest: случаев {len(cases) + len(pairs) + len(kinds) + len(v2) + 2}, ошибок {bad}')
+    facts = extract_page_facts('<title>Диван Босс</title><link rel="canonical" href="https://x.ru/p/1"><script type="application/ld+json">{"@type":"Product","name":"Диван Босс ХО","offers":{"price":"26990.00","availability":"https://schema.org/InStock"}}</script>')
+    if facts != {'price_seen': 26990.0, 'name_seen': 'Диван Босс ХО', 'canonical_url': 'https://x.ru/p/1'}:
+        bad += 1; print('  FAIL facts:', facts)
+    f2 = extract_page_facts('<meta property="og:title" content="Люстра X"> :cards=\'[{"price":5399,"overallStock":4}]\'')
+    if (f2['price_seen'], f2['name_seen']) != (5399.0, 'Люстра X'):
+        bad += 1; print('  FAIL facts inline:', f2)
+    print(f'page_alive selftest: случаев {len(cases) + len(pairs) + len(kinds) + len(v2) + 4}, ошибок {bad}')
     return 1 if bad else 0
 
 

@@ -56,6 +56,8 @@ def _load() -> dict:
          "||'\x1f'||p.shop||'\x1f'||coalesce(p.w_cm,0)||'\x1f'||coalesce(p.d_cm,0)"
          "||'\x1f'||coalesce(p.h_cm,0)||'\x1f'||coalesce(p.dia_cm,0)"
          "||'\x1f'||coalesce(ps.state,'')||'\x1f'||coalesce(p.url,'')"
+         "||'\x1f'||coalesce(p.availability_state,'unknown')||'\x1f'||coalesce(p.page_state,'unknown')"
+         "||'\x1f'||coalesce(p.availability_basis,'feed')||'\x1f'||coalesce(to_char(p.stock_evidence_at,'YYYY-MM-DD'),'')"
          " from products p left join product_page_status ps"
          " on ps.shop_mid=p.shop_mid and ps.external_id=p.external_id")
     out = subprocess.run(PSQL + [q], capture_output=True, text=True).stdout
@@ -90,7 +92,13 @@ def _load() -> dict:
                                    'probe_url': _direct(p[3]) if p[3] else None,
                                    'price': int(p[4] or 0), 'name': p[5], 'state': state,
                                    'shop': p[8], 'w': num(p[9]), 'd': num(p[10]),
-                                   'h': num(p[11]), 'dia': num(p[12])}
+                                   'h': num(p[11]), 'dia': num(p[12]),
+                                   # честная модель (Н2): `state` не трогаем (routing для drop_unavailable),
+                                   # уверенность — отдельными ключами
+                                   'avail': p[15] if len(p) > 15 else 'unknown',
+                                   'page': p[16] if len(p) > 16 else 'unknown',
+                                   'basis': p[17] if len(p) > 17 else 'feed',
+                                   'evidence_at': (p[18] if len(p) > 18 else '') or None}
     _CACHE = m
     return m
 

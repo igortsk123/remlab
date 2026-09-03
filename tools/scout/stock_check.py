@@ -77,7 +77,7 @@ from concurrent.futures import ThreadPoolExecutor
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from page_alive import PARSER_V2, PROBE_VERSION, classify_full, schema_state, url_key   # noqa: E402
+from page_alive import PARSER_V2, PROBE_VERSION, classify_full, extract_page_facts, schema_state, url_key   # noqa: E402
 from stock_truth import (CONFIRM_GAP_MIN, audit, db, fold, gate, q,   # noqa: E402
                          reconcile)
 import stock_canary   # noqa: E402 — канарейка адреса как гейт перед применением
@@ -447,6 +447,7 @@ def crawl(picked: list, run_id: str, verbose: bool = True, max_minutes: int = 0)
             code, body, err, final = fetch(url)
             r = classify_full(shop, code, body, err, final, url)
             verdict, reason = r['verdict'], r['reason']
+            facts = extract_page_facts(body) if code == 200 else {}
             with lock:
                 # ВРЕМЯ НАБЛЮДЕНИЯ — МОМЕНТ ЗАПРОСА, а не момент записи: наблюдения сохраняются
                 # пачкой в конце обхода, и `default now()` ставил всем проверкам прогона ОДИН
@@ -459,6 +460,8 @@ def crawl(picked: list, run_id: str, verbose: bool = True, max_minutes: int = 0)
                             'disposition': 'accepted',
                             'response_kind': r['response_kind'], 'failure_kind': r['failure_kind'],
                             'evidence_kind': r['evidence_kind'],
+                            'price_seen': facts.get('price_seen'), 'name_seen': facts.get('name_seen'),
+                            'canonical_url': facts.get('canonical_url'),
                             'at': dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
             if r['failure_kind'] in ('challenge', 'rate_limit'):
                 d.blocked_streak += 1
@@ -491,10 +494,12 @@ def save_observations(obs: list, run_id: str) -> None:
         f"{q(o['verdict'])}, {q(o['reason'])}, {PROBE_VERSION}, {q(run_id)}, "
         f"{q(o['at']) + '::timestamptz' if o.get('at') else 'now()'}, "
         f"{q(o.get('kind') or 'explore')}, {q(o.get('disposition') or 'accepted')}, "
-        f"{q(o.get('response_kind'))}, {q(o.get('failure_kind'))}, {q(o.get('evidence_kind') or 'none')})" for o in obs)
+        f"{q(o.get('response_kind'))}, {q(o.get('failure_kind'))}, {q(o.get('evidence_kind') or 'none')}, "
+        f"{o['price_seen'] if isinstance(o.get('price_seen'), (int, float)) else 'null'}, "
+        f"{q((o.get('name_seen') or '')[:200] or None)}, {q((o.get('canonical_url') or '')[:900] or None)})" for o in obs)
     db('insert into product_page_observation (shop_mid, external_id, url_hash, url, http_code, '
        'final_url, verdict, reason, probe_version, run_id, observed_at, probe_kind, disposition, '
-       f'response_kind, failure_kind, evidence_kind) values {vals};')
+       f'response_kind, failure_kind, evidence_kind, price_seen, name_seen, canonical_url) values {vals};')
 
 
 # --- применение -----------------------------------------------------------------------------------

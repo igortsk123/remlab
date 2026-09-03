@@ -185,34 +185,76 @@ select p.shop_mid, p.external_id,
 """
 
 
+# Производные поля честной модели (Н2). Негатив/позитив карточки действует только по ТЕКУЩЕЙ ссылке;
+# время свидетельства — последнее РЕШАЮЩЕЕ принятое наблюдение, а не checked_at (тот двигается и на
+# неудачных попытках, см. Codex 03.09).
+DERIVED_SQL = """
+with cur as (
+  select p.shop_mid, p.external_id,
+         (coalesce(e.status, p.status) = 'active') as feed_active,
+         (coalesce(s.program_state, 'active') <> 'retired') as program_ok,
+         case when ps.state in ('alive','oos','gone') and (p.direct_url_hash is null or ps.url_hash is null
+                                                         or ps.url_hash = p.direct_url_hash)
+              then ps.state else 'unknown' end as page_verdict
+    from products p
+    left join product_enrichment e on e.shop_mid = p.shop_mid and e.external_id = p.external_id
+    left join shop_status s on s.shop_mid = p.shop_mid
+    left join product_page_status ps on ps.shop_mid = p.shop_mid and ps.external_id = p.external_id),
+ev as (
+  select o.shop_mid, o.external_id,
+         max(o.observed_at) filter (where o.verdict in ('alive','oos','gone') and o.disposition = 'accepted') as evidence_at,
+         max(o.observed_at) filter (where o.disposition in ('accepted','quarantined')) as probe_at
+    from product_page_observation o group by 1, 2),
+truth as (
+  select c.shop_mid, c.external_id,
+         (c.feed_active and c.program_ok and c.page_verdict not in ('gone','oos')) as want,
+         case when c.page_verdict = 'alive' then 'in_stock'
+              when c.page_verdict = 'oos' then 'out_of_stock'
+              else 'unknown' end as availability_state,
+         case when c.page_verdict in ('alive','oos') then 'alive'
+              when c.page_verdict = 'gone' then 'gone' else 'unknown' end as page_state,
+         case when c.page_verdict in ('alive','oos','gone') then 'page'
+              when c.feed_active and c.program_ok then 'feed' else 'none' end as availability_basis,
+         ev.evidence_at, ev.probe_at
+    from cur c left join ev on ev.shop_mid = c.shop_mid and ev.external_id = c.external_id)
+"""
+
+
 def reconcile(verbose: bool = True) -> int:
-    """Пересчитать `products.in_stock` из трёх источников. → сколько строк изменилось."""
+    """Пересчитать `products.in_stock` и производные поля честной модели. → сколько строк изменилось."""
     out = db(f"""
-    with truth as ({TRUTH_SQL})
-    update products p set in_stock = t.want
+    {DERIVED_SQL}
+    update products p set in_stock = t.want, availability_state = t.availability_state,
+           page_state = t.page_state, availability_basis = t.availability_basis,
+           stock_evidence_at = t.evidence_at, stock_probe_at = t.probe_at
       from truth t
      where p.shop_mid = t.shop_mid and p.external_id = t.external_id
-       and p.in_stock is distinct from t.want
-    returning p.shop, t.want;
+       and (p.in_stock is distinct from t.want or p.availability_state is distinct from t.availability_state
+            or p.page_state is distinct from t.page_state or p.availability_basis is distinct from t.availability_basis
+            or p.stock_evidence_at is distinct from t.evidence_at or p.stock_probe_at is distinct from t.probe_at)
+    returning p.shop, t.want, (p.in_stock is distinct from t.want) as flipped;
     """)
-    on = sum(1 for r in out if r[1] == 't')
-    off = len(out) - on
+    flips = [r for r in out if len(r) >= 3 and r[2] == 't']
+    on = sum(1 for r in flips if r[1] == 't')
+    off = len(flips) - on
     if verbose:
-        print(f'наличие пересчитано: снято {off}, возвращено {on}')
+        print(f'наличие пересчитано: снято {off}, возвращено {on}; производных полей обновлено у {len(out)}')
         per = {}
-        for shop, want in out:
-            k = (shop, 'вернулось' if want == 't' else 'снято')
+        for r in flips:
+            k = (r[0], 'вернулось' if r[1] == 't' else 'снято')
             per[k] = per.get(k, 0) + 1
         for (shop, what), n in sorted(per.items(), key=lambda x: -x[1])[:10]:
             print(f'  {shop}: {what} {n}')
-    return len(out)
+    return len(flips)
 
 
 def audit(verbose: bool = True) -> int:
-    """Сторож: сколько товаров расходятся с формулой. После reconcile обязан быть 0."""
+    """Сторож: сколько товаров расходятся с формулой (in_stock И производные поля). После reconcile — 0."""
     rows = db(f"""
-    with truth as ({TRUTH_SQL})
-    select count(*) from truth where in_stock is distinct from want;
+    {DERIVED_SQL}
+    select count(*) from truth t join products p on p.shop_mid = t.shop_mid and p.external_id = t.external_id
+     where p.in_stock is distinct from t.want or p.availability_state is distinct from t.availability_state
+        or p.page_state is distinct from t.page_state or p.availability_basis is distinct from t.availability_basis;
     """)
     n = int(rows[0][0]) if rows else 0
     if verbose:

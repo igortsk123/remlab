@@ -75,6 +75,27 @@ def main() -> int:
         if key not in seen:
             report['missing_in_db'].append({'mid': key[0], 'eid': key[1],
                                             'name': rec['name'][:60], 'used_in': rec['refs']})
+    # ЧЕСТНОСТЬ НАЛИЧИЯ ПО МАГАЗИНАМ (Н2): на чём держится in_stock и сколько свидетельств устарело.
+    # Это отчёт, не приговор: feed — «верим фиду, не проверяли/не смогли», stale — проверяли давно.
+    rows2 = db("""select p.shop, coalesce(p.availability_basis,'feed'),
+                        count(*), count(*) filter (where p.stock_evidence_at < now() - interval '14 days')
+                   from products p where p.in_stock group by 1, 2 order by 1, 2""")
+    basis = {}
+    for shop, b, n, stale in rows2:
+        rec = basis.setdefault(shop, {})
+        rec[b] = int(n)
+        if b == 'page':
+            rec['page_stale_14d'] = int(stale)
+    report['stock_basis'] = basis
+    # ЦЕНА СО СТРАНИЦЫ ПРОТИВ ФИДА (Н3): расхождение > 5 % — сигнал, что фид отстал; фид остаётся владельцем цены
+    rows3 = db("""select p.shop, count(*), count(*) filter (where abs(f.price_seen - p.price_rub) > 0.05 * p.price_rub)
+                   from product_page_facts f join products p using (shop_mid, external_id)
+                  where f.price_seen is not null and p.price_rub > 0 and f.seen_at > now() - interval '14 days'
+                  group by 1""")
+    report['price_drift'] = {shop: {'compared': int(n), 'drift_over_5pct': int(d)} for shop, n, d in rows3}
+    for shop, rec in report['price_drift'].items():
+        if rec['compared'] >= 20 and rec['drift_over_5pct'] > 0.10 * rec['compared']:
+            print(f"WARN:price_drift: {shop} — цена страницы расходится с фидом у {rec['drift_over_5pct']} из {rec['compared']} (> 10 %)", flush=True)
     json.dump(report, open(REPORT, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     print(f'товаров в комплектах: {len(todo)} | мертвы: {len(report["dead"])} | '
           f'давно не проверялись: '

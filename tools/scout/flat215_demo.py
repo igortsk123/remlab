@@ -110,6 +110,9 @@ def _sku(items: dict, role: str) -> dict | None:
         return None
     return {'name': it.get('name'), 'price': it.get('price'), 'img': it.get('img'),
             'url': it.get('url'), 'shop': it.get('shop'),
+            # ЧЕСТНОЕ НАЛИЧИЕ (Н2): на чём держится «в продаже» — наше свидетельство по карточке (page)
+            # или только фид магазина (feed); витрина показывает пометку, а не молчит
+            'basis': _basis(it.get('mid'), it.get('eid')),
             # sid — ключ каталога мешей (/test/mesh-pilot10/<sid>/model.glb): 3D-сцена демо
             'sid': (f"{it.get('mid')}_{it.get('eid')}" if it.get('mid') and it.get('eid') else None),
             # штук в покупке: сперва разметка каталога (`product_pack`, размечает pack_qty.py
@@ -310,6 +313,15 @@ def solve_layouts(flat: dict) -> None:
         print(f'  раскладка сета {n}: ' + ('пересчитана' if r.returncode == 0 else f'ОШИБКА\n{r.stderr[-400:]}'))
 
 
+def _basis(mid, eid) -> str:
+    """page | feed | none — из каталога (catalog_media), см. stock_truth.DERIVED_SQL."""
+    if not mid or not eid:
+        return 'feed'
+    from catalog_media import media as _media
+    m = _media(mid, eid) or {}
+    return m.get('basis') or 'feed'
+
+
 def drop_unavailable(sets: list) -> int:
     """Снять из банка позиции, которых уже нет в продаже. → сколько снято.
 
@@ -438,6 +450,7 @@ def build() -> dict:
                 {'name': it.get('name'), 'w': it.get('w'), 'd': it.get('d'), 'h': it.get('h'),
                  'price': it.get('price'), 'img': it.get('img'), 'url': it.get('url'),
                  'shop': it.get('shop'), 'style': s.get('style'), 'sid': _sid,
+                 'basis': _basis(it.get('mid'), it.get('eid')),
                  'hung': _hung(it.get('name')),
                  # ШТУК В ПОКУПКЕ — И В ЛЕНТЕ ЗАМЕНЫ ТОЖЕ (02.09). Без этого после замены товара
                  # «Стул 2 шт.» два слота считались бы двумя покупками, хотя это одна.
