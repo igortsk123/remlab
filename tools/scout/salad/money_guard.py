@@ -33,6 +33,12 @@ HALT = os.path.expanduser('~/scout-scenes/mesh-group-halt.json')
 # Сколько ОПЛАЧЕННЫХ нодо-минут молчания терпим. 120 ≈ 35 мешей, которые здоровый пул успел бы
 # сделать за это время: если их нет, дело не в невезении.
 BUDGET_NODE_MIN = float(os.environ.get('MESH_GUARD_NODE_MIN', '120'))
+# ВТОРОЕ УСЛОВИЕ — ВРЕМЯ НА СТЕНЕ (03.09). Одних нодо-минут мало: они копятся тем быстрее, чем
+# больше пул, и при десяти нодах бюджет в 120 выбирается за 12 минут — то есть прямо на прогреве,
+# когда мешей ещё физически не может быть. При пятидесяти это 2.4 минуты. Гасим, только если
+# молчание длится и по-настоящему долго: полный прогрев ноды укладывается в 5–8 минут, генерация
+# меша — ещё 4, так что 40 минут тишины при живых нодах — это уже поломка, а не разогрев.
+MIN_WALL_MIN = float(os.environ.get('MESH_GUARD_WALL_MIN', '40'))
 TICK_S = float(os.environ.get('MESH_GUARD_TICK_S', '300'))
 API = 'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers'
 
@@ -98,7 +104,8 @@ def main() -> int:
         return 2
     st = load()
     if st.get('group') != group:            # сменили группу — терпение считаем заново
-        st = {'group': group, 'idle_node_min': 0.0, 'last_seen_mesh': last_mesh_at()}
+        st = {'group': group, 'idle_node_min': 0.0, 'silent_since': 0.0,
+              'last_seen_mesh': last_mesh_at()}
     print(f'сторож денег: группа {group}, бюджет молчания {BUDGET_NODE_MIN:.0f} нодо-минут, '
           f'тик {TICK_S / 60:.0f} мин', flush=True)
     while True:
@@ -110,19 +117,25 @@ def main() -> int:
                 print(f'{time.strftime("%H:%M")} меши пошли — счётчик молчания сброшен '
                       f'(был {st["idle_node_min"]:.0f} нодо-мин)', flush=True)
             st['idle_node_min'] = 0.0
+            st['silent_since'] = 0.0
             st['last_seen_mesh'] = mesh_at
         elif n > 0:
             st['idle_node_min'] += n * (TICK_S / 60.0)
+            if not st.get('silent_since'):
+                st['silent_since'] = time.time()
+            wall = (time.time() - st['silent_since']) / 60.0
             print(f'{time.strftime("%H:%M")} работающих нод {n}, мешей нет: '
-                  f'{st["idle_node_min"]:.0f} из {BUDGET_NODE_MIN:.0f} нодо-минут молчания',
-                  flush=True)
+                  f'{st["idle_node_min"]:.0f} из {BUDGET_NODE_MIN:.0f} нодо-минут, '
+                  f'тишина {wall:.0f} из {MIN_WALL_MIN:.0f} мин', flush=True)
         elif n == 0:
             # Никто не работает — деньги не идут, терпение не тратим.
             print(f'{time.strftime("%H:%M")} работающих нод нет — не платим, жду', flush=True)
         save(st)
-        if st['idle_node_min'] >= BUDGET_NODE_MIN:
-            why = (f'{st["idle_node_min"]:.0f} нодо-минут без единого меша '
-                   f'(остановлено {time.strftime("%d.%m %H:%M")})')
+        wall_min = (time.time() - st['silent_since']) / 60.0 if st.get('silent_since') else 0.0
+        # ОБА условия сразу: и оплаченные нодо-минуты, и долгая тишина по часам.
+        if st['idle_node_min'] >= BUDGET_NODE_MIN and wall_min >= MIN_WALL_MIN:
+            why = (f'{st["idle_node_min"]:.0f} нодо-минут и {wall_min:.0f} мин тишины без '
+                   f'единого меша (остановлено {time.strftime("%d.%m %H:%M")})')
             print(f'{time.strftime("%H:%M")} !! ПРЕВЫШЕН БЮДЖЕТ МОЛЧАНИЯ ({why}) — ГАШУ ГРУППУ '
                   f'{group}. Разбор: почему ноды не отдавали меши.', flush=True)
             # СТОП-ФАЙЛ ПИШЕМ ДО ОСТАНОВКИ. Иначе конвейер успеет поднять группу обратно —
@@ -148,6 +161,7 @@ def main() -> int:
             # и тогда сторожить снова некому. Счётчик обнуляем — следующий бюджет считается
             # заново, с момента подъёма.
             st['idle_node_min'] = 0.0
+            st['silent_since'] = 0.0
             save(st)
         time.sleep(TICK_S)
 
