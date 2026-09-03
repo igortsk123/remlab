@@ -3,7 +3,7 @@ tier: 1
 topic: access-and-integrations
 scope: Интеграции/доступы — ключи, клиенты
 tier2: "../domain/integrations.md"
-updated: 2026-09-02
+updated: 2026-09-03
 importance: high
 source: manual
 status: working
@@ -39,7 +39,11 @@ review_after: ""
 ## Прочие доступы (детали — `../domain/integrations.md`)
 - **SaladCloud + GHCR (31.08):** GPU под меши вместо fal; орг `prodstore`/`dmodel`, ключи в
   `_secrets/`, образ только digest'ом. Грабли API — ADR-0137, [[mesh-pipeline]].
-- **Гдеслон (26.08):** программы через shops.xml по api_token; XML-поиск только с хоста
-  `api.gdeslon.ru` (www теряет параметры); API выгрузок нет.
+- **Гдеслон (26.08, сверено 03.09):** программы через shops.xml по api_token; XML-поиск только с хоста
+  `api.gdeslon.ru` (www теряет параметры); API выгрузок нет. Фиды (9 постоянных ссылок кабинета) содержат
+  `original_picture` 800×600, `article`, `description` — фид первичен (ADR-0171); в поисковом API `id`
+  округлён до double (связь по `article`), `charge` — комиссия ₽, `available` бесполезен (precision 0 %).
+- **Telegram служебный бот `@remlabservice_bot` (03.09):** токен в `tools/scout/.env.alert` (DEV) и
+  `/opt/remlab/catalog-watchdog/.env` (прод), chat_id — после Start владельца. Значения — только там.
 - **Sketchfab (01.09):** модели-заглушки ТВ/окно/дверь отобраны, все CC-BY (нужен кредит).
   БЛОКЕР: скачивание требует аккаунта, которого у агента нет.

@@ -3,7 +3,7 @@ tier: 1
 topic: deployment
 scope: Деплой/откат/сервер exit-fi — playbook
 tier2: ""
-updated: 2026-08-31
+updated: 2026-09-03
 importance: high
 source: manual
 last_verified: 2026-08-04
@@ -38,6 +38,13 @@ buildx arm64 → `:prev` → save|ssh|load → `compose up -d` (+SQL-мигра�
 ## Откат / smoke
 - Откат: `docker tag remlab-app:prev remlab-app:latest && docker compose up -d`
 - Smoke: `/`=200; `/api/health` ok; VPN цел (remnanode Up).
+
+## Сторож каталога (ADR-0172, 03.09)
+`remlab-catalog-watchdog.timer` 15:30 UTC → `/opt/remlab/scripts/catalog-watchdog.sh`: читает
+`/opt/remlab/test/status/refresh-status.json` (публикует DEV в конце `refresh_daily.sh`); нет статуса за
+сегодня или `overall=FAIL` → Telegram из `/opt/remlab/catalog-watchdog/.env` (`TG_BOT_TOKEN/TG_CHAT_ID`,
+бот `@remlabservice_bot`), лог `watchdog.log`. Kill-switch: `touch /opt/remlab/catalog-watchdog/DISABLED`;
+откат: `systemctl disable --now remlab-catalog-watchdog.timer`. Юниты — `infra/server/systemd/`.
 
 ## Автоочистка (ADR-0005)
 Логи 10m×3; weekly `remlab-cleanup` (+трейсы >90 дн.); ночной `pg_dump` ×7; df-watchdog >80%.

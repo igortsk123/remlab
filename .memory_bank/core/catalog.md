@@ -1,44 +1,41 @@
 ---
 tier: 1
 topic: catalog
-scope: Каталог — состав, свежесть, дельта
+scope: Каталог — состав, загрузка из фидов/API, отпечатки, свежесть, сторожа
 tier2: "../domain/catalog-enrichment.md"
-updated: 2026-09-01
+updated: 2026-09-03
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-09-01
+last_verified: 2026-09-03
 ---
 
 # Каталог — Tier 1 сводка
 
-**Состав:** 20 544 товара (29.08, ADR-0136), дев-БД `remlab-devdb`. Загрузка: фиды `load3.py`
-+ **API Гдеслона** `catalog_api_sync.py` (HD-фото 800×600, описания; ID в API побиты float64 →
-связь по картинке+названию). Ночной цикл — `refresh_daily.sh` (cron 09:40, под `flock`; порядок
-шагов и обоснования — в самом файле), алерты `alert.sh`.
+**Состав (03.09):** 20 588 товаров, in_stock 18 736, 6 магазинов Гдеслона; дев-БД `remlab-devdb` на DEV-VM.
+**Цикл:** crontab `40 10 * * *` UTC (фиды Гдеслона собираются 12:35 МСК) + `@reboot`; `refresh_daily.sh` —
+шаги `ok|warn|FAIL|skipped` по маркеру `WARN:<код>:`, статус на прод, дайджест в Telegram, прод-сторож
+«прогон не состоялся / FAIL» (ADR-0172, [[deployment]]). Аудит с владельцем — `_intake/dialog-catalog-load-0309.md`.
 
-**Медиа (ADR-0124):** резолвятся из `products` (`catalog_media.py`); мёртвая карточка сильнее
-карантина фида. Живость фото трёхзначная: сбой/шаблон — не приговор (`img_alive.py`).
+**Источник истины (ADR-0171, `tools/scout/load3.py`):** ФИД — ключ `(merchant_id, id)`, название, ссылка,
+фото, `original_picture → image_url_hd`, `article`, цена, категория, params, описание (пустое не затирает).
+API (`catalog_api_sync.py`, по понедельникам) — только `charge → charge_rub` (64 % in_stock, ≈5,9 % цены);
+связь по `article` (id в API округлён). Вычисляем: размеры (`dim_resolver.py`, оси по магазину×роли),
+роль (`category_map.py`: лист дерева + `OVERRIDES` + `MIXED`), `in_stock` (`stock_truth.reconcile()`,
+единственный писатель).
 
-**Наличие — производное, ОДИН писатель (ADR-0141/0147):** `in_stock` = фид `active` И программа
-не `retired` И карточка не `gone/oos` (`stock_truth.TRUTH_SQL`); материализует только
-`reconcile()`, сторож `--audit` ночью. Свидетельство — `stock_check.py`; снятие — ДВА
-отрицательных по одной ссылке (≥15 мин). **Перепроверка — 7 суток у всех состояний**
-(`TTL_HOURS`/`TTL_SETS_HOURS`; `suspect` 1 ч — второй голос, не частота); витрина идёт первой,
-бюджет 3500/сут покрывает круг из 18 989. `unknown` не снимает — наличие берём из фида
-(gipfel/mdm — антибот), НЕ «чинить». Tier 2.
+**Дельта (HASH_VERSION=3):** commercial/text/geometry/image/image_hd/attrs → `enrichment_status=stale`
+(payload остаётся), смена контракта → baseline. Исчез → `missing` (in_stock=false в тот же день), 3 дня →
+`archived`; не удаляем. Порог «< 70 %» — по магазину против последнего успеха (`catalog_import_runs`),
+одна транзакция. Карантин фидов — `feed_guard.py` (fresh ≤30 ч, `yml_date` по МСК).
 
-**Ссылки — ДВЕ РАЗНЫЕ (ADR-0144):** человеку — партнёрская `products.url`; машине — прямая
-`direct_url` (ботом в реф не ходим). Обе отдаёт `catalog_media.media()`. Путь НЕ обрезаем,
-`reflink.direct()` идемпотентна (`reflink.py --selftest`).
+**Меши/HD:** `mesh_bind.enforce_ready_invariant()` — `ready` только по текущему фото; `hd_backfill.py`
+перевёл 57 мешовых SKU на HD. **Отрицательно (03.09):** глубина из меша хуже дефолта 100 см (37 % vs 63 %
+в ±10 %) — не включена, дефолт помечен `d_assumed`; `available` из API — precision 0 %.
 
-**Роль товара** — лист дерева категорий фида (ADR-0078/0108, `category_map.py` → `cat_role`).
-**Обогащение:** active-пул (`gpt-5.6-luna`), phash 99.7%; долг — `enriched_at is null` (урок
-325); `openai.off`, лимит $5/день. **Размеры (ADR-0079):** `dim_resolver.py`, провенанс
-dims_source/evidence.
+**Тесты:** `--selftest` (`load3` на фикстуре `tests/fixtures/`, `dim_resolver`, `category_map`, `feed_guard`,
+`reflink`, `stock_truth`) — CI `scout-selftest`. **Дыры:** 155 товаров divan.ru не в экспорте (кабинет);
+пустая выгрузка `e2fccbea`; диванов без глубины 1 012/2 345.
 
-**Свежесть фидов (ADR-0107):** `feed_guard` → `feed-freshness.json`; nonton удалён 29.08.
-**Дыры ассортимента:** премиум и лофт/неокл/джапанди дефицитны — Tier 2.
-
-**Tier 2:** `../domain/catalog-enrichment.md` · `../domain/integrations.md` · `../core/furniture.md`.
+**Tier 2:** `../domain/catalog-enrichment.md` · `../domain/integrations.md` · план `plans/catalog-load-hardening.md`.
