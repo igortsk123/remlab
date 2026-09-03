@@ -190,7 +190,7 @@ select p.shop_mid, p.external_id,
 # неудачных попытках, см. Codex 03.09).
 DERIVED_SQL = """
 with cur as (
-  select p.shop_mid, p.external_id,
+  select p.shop_mid, p.external_id, p.in_stock as had,
          (coalesce(e.status, p.status) = 'active') as feed_active,
          (coalesce(s.program_state, 'active') <> 'retired') as program_ok,
          case when ps.state in ('alive','oos','gone') and (p.direct_url_hash is null or ps.url_hash is null
@@ -206,7 +206,7 @@ ev as (
          max(o.observed_at) filter (where o.disposition in ('accepted','quarantined')) as probe_at
     from product_page_observation o group by 1, 2),
 truth as (
-  select c.shop_mid, c.external_id,
+  select c.shop_mid, c.external_id, c.had,
          (c.feed_active and c.program_ok and c.page_verdict not in ('gone','oos')) as want,
          case when c.page_verdict = 'alive' then 'in_stock'
               when c.page_verdict = 'oos' then 'out_of_stock'
@@ -232,7 +232,7 @@ def reconcile(verbose: bool = True) -> int:
        and (p.in_stock is distinct from t.want or p.availability_state is distinct from t.availability_state
             or p.page_state is distinct from t.page_state or p.availability_basis is distinct from t.availability_basis
             or p.stock_evidence_at is distinct from t.evidence_at or p.stock_probe_at is distinct from t.probe_at)
-    returning p.shop, t.want, (p.in_stock is distinct from t.want) as flipped;
+    returning p.shop, t.want, (t.had is distinct from t.want) as flipped;   -- p.in_stock в returning уже новое
     """)
     flips = [r for r in out if len(r) >= 3 and r[2] == 't']
     on = sum(1 for r in flips if r[1] == 't')

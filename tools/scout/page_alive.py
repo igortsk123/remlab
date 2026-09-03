@@ -53,12 +53,13 @@ import re
 import sys
 import urllib.parse
 
-# ПАРСЕР v2 (план stock-and-dims-honesty, Н0) — ТОЛЬКО В ТЕНИ, пока не пройден gold-замер:
-# snake_case значений (`content="in_stock"` у tvoydom — 3 332 карточки читались как «без признака»),
-# `href=` рядом с `content=` при любом порядке атрибутов (gipfel), JSON-LD только объекта Product,
-# inline-JSON остаток tvoydom (`overallStock`/`availableShops`) как часть ОДНОГО вердикта.
-# Включение: STOCK_PARSER_V2=1 (shadow-прогон); после gold — переключить дефолт и PROBE_VERSION.
-PARSER_V2 = os.environ.get('STOCK_PARSER_V2', '0') == '1'
+# ПАРСЕР v2 (план stock-and-dims-honesty, Н0) — ВКЛЮЧЁН ПО УМОЛЧАНИЮ с 03.09 после gold-замера в тени:
+# tvoydom 760 карточек — 320 прежде живых → 0 ложных негативов, 120 известных снятых пойманы, 320 «неизвестных»
+# → 278 живых + 21 oos (все 21 подтверждены независимым inline-остатком overallStock=0) + 21 неизвестных;
+# gipfel 31 «неизвестных» → 31 живых. Что нового против v1: snake_case значений (`content="in_stock"`),
+# `href=` рядом с `content=` при любом порядке атрибутов, JSON-LD только объекта Product, inline-JSON остаток
+# tvoydom (`overallStock`/`availableShops`) как часть ОДНОГО вердикта. Откат: STOCK_PARSER_V2=0.
+PARSER_V2 = os.environ.get('STOCK_PARSER_V2', '1') == '1'
 PROBE_VERSION = 2 if PARSER_V2 else 1
 
 # evidence: 'sku' — ссылка ведёт на конкретный вариант; 'series' — только на страницу серии.

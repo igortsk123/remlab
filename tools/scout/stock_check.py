@@ -698,8 +698,9 @@ def main() -> int:
             return 1
         print(f'повторное применение прогона {run}: наблюдений {len(obs)}', flush=True)
         if '--dry-run' not in sys.argv:
+            # карантин снимается; тень (v2 после gold) — принимается как обычные наблюдения
             db(f"update product_page_observation set disposition = 'accepted' where run_id = {q(run)} "
-               "and disposition = 'quarantined';")
+               "and disposition in ('quarantined', 'shadow');")
         rep = apply_run(obs, run, '--dry-run' in sys.argv)
         return 1 if rep.get('audit_mismatch', 0) else 0
     limit = int(sys.argv[sys.argv.index('--limit') + 1]) if '--limit' in sys.argv else DEFAULT_LIMIT
