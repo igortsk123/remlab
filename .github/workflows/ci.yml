@@ -62,3 +62,24 @@ jobs:
           python-version: "3.12"
       - run: pip install numpy trimesh pillow
       - run: python tools/scout/orient_selftest.py
+
+  scout-selftest:
+    # Селфтесты загрузки каталога (план catalog-load-hardening П0.4): правила разбора фида, единиц
+    # размеров, реф-ссылок, наличия и свежести закреплены таблицами случаев; данные вне git
+    # подменяются мини-фикстурами из tools/scout/tests/fixtures. Плюс сверка двух копий модуля
+    # стратегий ассетов — их расхождение уже глушило предикат готовности мешей (03.09).
+    runs-on: ubuntu-latest
+    env:
+      SCOUT_PRIORS_PATH: tools/scout/tests/fixtures/unit-priors-mini.json
+      SCOUT_ROLES_PATH: tools/scout/tests/fixtures/category-roles-mini.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          for m in dim_resolver reflink stock_truth feed_guard; do
+            echo "== $m --selftest"; python tools/scout/$m.py --selftest || exit 1
+          done
+      - run: diff -q tools/scout/asset_strategy.py tools/scout/salad/asset_strategy.py
+      - run: diff -q tools/scout/rules/asset-strategies.json tools/scout/salad/asset-strategies.json

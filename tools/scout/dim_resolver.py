@@ -32,7 +32,7 @@ import sys
 import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PRIORS_PATH = os.path.join(HERE, 'unit-priors.json')
+PRIORS_PATH = os.environ.get('SCOUT_PRIORS_PATH') or os.path.join(HERE, 'unit-priors.json')  # env — для селфтестов в CI без данных вне git
 LEARN_MM_SHARE = 0.30   # доля значений >400 в группе, после которой группа считается мм-группой
 LEARN_MIN_N = 8         # меньше наблюдений — приор не строим (шум)
 
