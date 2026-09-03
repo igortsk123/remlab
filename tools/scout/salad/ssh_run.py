@@ -625,6 +625,7 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
         """Ищет НОВЫЕ ноды, пока в очереди есть работа: состав пула больше не заморожен
         на момент старта (грабля 31.08 — волна шла на одной ноде рядом с простаивающими)."""
         last_cull = time.time()
+        warm_logged: set[str] = set()   # чей прогрев уже записан
         while not stop.wait(POLL_S):
             if js.pending() == 0:
                 return
@@ -671,6 +672,16 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
                           f'{why[:90]}', flush=True)
                     NH.reallocate(inst['group'], inst['id'], f'warmup: {why[:80]}')
             warm = [bool(h.get('warm')) and not warmup_fault(h) for h in health]
+            # ЗАМЕР ПРОГРЕВА ПИШЕМ В ЖУРНАЛ (03.09). `warmup_s` живёт только в `/health` живой
+            # ноды: машина исчезла — замер пропал. Из-за этого сравнение образов упиралось в
+            # n=1 и n=2 на группу, и мой прогноз «прогрев вдвое быстрее» нечем было ни
+            # подтвердить, ни опровергнуть. Пишем при подключении — накопится за часы.
+            for inst, h, is_warm in zip(cands, health, warm):
+                if is_warm and h.get('warmup_s') and inst['id'] not in warm_logged:
+                    warm_logged.add(inst['id'])
+                    checkpoint({'at': time.time(), 'kind': 'warmup', 'status': 'warmup', 'node': inst['id'][:8],
+                              'instance': inst['id'], 'group': inst['group'],
+                              'warmup_s': round(float(h['warmup_s']), 1)})
             added = 0
             for inst, is_warm in zip(cands, warm):
                 if not is_warm:

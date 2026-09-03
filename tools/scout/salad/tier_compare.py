@@ -33,13 +33,15 @@ JOURNAL = os.path.join(HERE, '..', 'mesh-run-progress.jsonl')
 # 24 ГБ, приходят в основном RTX 3090 — берём её тариф; 4090 дороже, но встречается реже.
 PRICE = {'batch': 0.090, 'low': 0.143, 'medium': 0.197, 'high': 0.250}
 # Какая группа на каком тарифе. Не выводим из имени: имя — не контракт.
-TIER = {'mesh-batch-1': 'batch', 'mesh-low-2': 'low', 'mesh-low-1': 'low'}
+TIER = {'mesh-batch-1': 'batch', 'mesh-batch-2': 'batch',
+        'mesh-low-2': 'low', 'mesh-low-1': 'low'}
 # ЧИСТАЯ ПАРА ДЛЯ СРАВНЕНИЯ (03.09): `mesh-batch-1` и `mesh-low-2` подняты на ОДНОМ образе
 # `localpaint` (прогрев 116 с вместо 242) и почти одновременно — различаются только тарифом.
 # `mesh-low-1` осталась на старом образе и работает с утра: её числа в сравнение тарифов не
 # берём, иначе возраст нод и медленный прогрев выдадут себя за влияние тарифа.
-IMAGE = {'mesh-batch-1': 'localpaint', 'mesh-low-2': 'localpaint', 'mesh-low-1': 'dino'}
-FAIR = ('mesh-batch-1', 'mesh-low-2')     # только эти две сравнимы напрямую
+IMAGE = {'mesh-batch-1': 'localpaint', 'mesh-batch-2': 'localpaint',
+         'mesh-low-2': 'localpaint', 'mesh-low-1': 'dino'}
+FAIR = ('mesh-batch-1', 'mesh-batch-2', 'mesh-low-2')   # один образ, поднялись рядом
 
 
 def load(hours: float) -> list[dict]:
@@ -71,8 +73,16 @@ def main() -> int:
         return 0
 
     by = collections.defaultdict(list)
+    warm = collections.defaultdict(list)
     for r in rows:
-        by[r.get('group') or '<без группы>'].append(r)
+        g = r.get('group') or '<без группы>'
+        # Строки прогрева — не задания: в счёт мешей и сбоев они попасть НЕ должны
+        # (`kind: warmup`, пишет супервизор `ssh_run` при подключении ноды).
+        if r.get('kind') == 'warmup':
+            if r.get('warmup_s'):
+                warm[g].append(float(r['warmup_s']))
+            continue
+        by[g].append(r)
 
     print(f'=== сравнение тарифов за {hours:.0f} ч ===')
     print(f'{"группа":14s} {"тариф":7s} {"мешей":>6s} {"медиана":>8s} {"нод":>4s} '
@@ -93,13 +103,19 @@ def main() -> int:
               f'{per:8.4f}' if ok else
               f'{grp:14s} {tier:7s} {0:6d} {"—":>8s} {0:4d} {len(bad):6d} {"—":>8s}')
 
+    if warm:
+        print()
+        print('ПРОГРЕВ (замеры с живых нод; образ localpaint читает веса с диска):')
+        for g, v in sorted(warm.items()):
+            print(f'  {g:14s} {IMAGE.get(g, "?"):11s} n={len(v):3d}  медиана {statistics.median(v):5.0f}с  '
+                  f'мин {min(v):.0f}  макс {max(v):.0f}')
     print()
     live = {g: t for g, t in totals.items() if t['ok']}
     if len(live) < 2:
         print('ВЫВОД: пока работает одна группа — сравнивать не с чем. Дай обеим набрать мешей.')
         return 0
     pair = {g: t for g, t in live.items() if g in FAIR}
-    if len(pair) == 2:
+    if len(pair) >= 2:
         print('ЧИСТАЯ ПАРА (один образ, один возраст) — по ней и судим о тарифе:')
         for g, t in sorted(pair.items()):
             print(f'  {g:14s} {t["tier"]:7s} мешей {t["ok"]:4d}, нод считали {t["nodes"]:3d}, '
