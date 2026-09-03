@@ -1,0 +1,6 @@
+[Unit]
+Description=remlab catalog watchdog — утренний прогон каталога состоялся?
+
+[Service]
+Type=oneshot
+ExecStart=/opt/remlab/scripts/catalog-watchdog.sh

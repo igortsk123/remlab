@@ -16,7 +16,7 @@ LOG=refresh.log
 # обогащение/эскалация/судьи отключены). Файл-флаг: `touch openai.off` — выключено; `rm openai.off` — включено.
 # Бесплатные шаги (фиды, load3, capabilities, индексы, heal, страницы) идут как прежде.
 OPENAI_OFF=0; [ -f openai.off ] && OPENAI_OFF=1
-paid_step() { if [ "$OPENAI_OFF" = "1" ]; then echo "openai.off: платный шаг «$1» пропущен" >> "$LOG"; else step "$@"; fi; }
+paid_step() { if [ "$OPENAI_OFF" = "1" ]; then echo "openai.off: платный шаг «$1» пропущен" >> "$LOG"; RES[$1]=skipped; else step "$@"; fi; }
 # Дневной лимит $ на все модели — rules/openai_prices.json daily_cap_usd (5.0, владелец 17.08); гейт внутри
 # enrich/judge (openai_budget.allow) перед каждой отправкой; отчёт: `openai_budget.py --report 7`
 STATUS=refresh-status.json
@@ -28,22 +28,62 @@ if [ "${1:-}" != "--force" ] && [ -f "$STAMP" ] && [ "$(cat $STAMP)" = "$today" 
 exec 9>"$HOME/.remlab-refresh.lock"
 if ! flock -n 9; then echo "$(date '+%F %T') другой прогон уже идёт — выходим" >> "$LOG"; exit 0; fi
 
-declare -A RES
+declare -A RES; declare -A WARNS
+# значения по умолчанию для finish(): при выходе ДО цикла скачивания (например, база не поднялась,
+# шаг 0) переменные фидов ещё не заданы, и `set -u` ронял бы сам finish — статус и тревога терялись
+ok=1; dl_ok=0; dl_total=0; dead=""
+STEP_TMP="$(mktemp -t remlab-step.XXXXXX)"
+# Три состояния шага (план catalog-load-hardening П1.2): ok | warn | FAIL (+ skipped у платных).
+# Конвенция: строка вывода шага, начинающаяся с `WARN:`, — предупреждение; шаг вернул 0, но
+# в дайджест уходит первая такая строка. Вывод шага идёт во временный файл и ДОПИСЫВАЕТСЯ в
+# общий лог: раньше всё шло сразу в $LOG, и «WARN:» одного шага было не отличить от чужого.
 step() {                       # step <имя> <команда...>
   local name="$1"; shift
-  if "$@" >> "$LOG" 2>&1; then RES[$name]=ok; else RES[$name]=FAIL; echo "$name FAIL" >> "$LOG"; fi
+  : > "$STEP_TMP"
+  if "$@" > "$STEP_TMP" 2>&1; then
+    local w; w="$(grep -m1 '^WARN:' "$STEP_TMP" || true)"
+    if [ -n "$w" ]; then RES[$name]=warn; WARNS[$name]="${w#WARN: }"; else RES[$name]=ok; fi
+  else
+    RES[$name]=FAIL; echo "$name FAIL" >> "$STEP_TMP"
+  fi
+  cat "$STEP_TMP" >> "$LOG"
+}
+digest() {                     # одно сообщение в день, ВСЕГДА: его отсутствие — тоже сигнал
+  local fails="$1" warns="$2" skipped="$3"
+  local fresh; fresh="$("$PY" - <<'PY' 2>/dev/null || echo '?'
+import json; d=json.load(open('feed-freshness.json')); print(sum(1 for v in d.values() if v.get('state')=='fresh'), '/', len(d))
+PY
+)"
+  local delta; delta="$(awk -v s="=== $today" '$0 ~ s {f=1} f && /^ДЕЛЬТА/ {d=$0} END {print d}' "$LOG" | sed 's/^ДЕЛЬТА *//' | cut -c1-200)"
+  local msg="remlab каталог $today: прогон $( [ -n "$fails" ] && echo 'С ОШИБКАМИ' || echo 'ок' ), $(date '+%H:%M') UTC
+фиды: скачано ${dl_ok:-0}/${dl_total:-0}, свежих $fresh; товаров в наличии: $(products_count)
+дельта: ${delta:-нет}"
+  [ -n "$fails" ]   && msg="$msg
+FAIL:$fails"
+  [ -n "$warns" ]   && msg="$msg
+WARN:$warns"
+  [ -n "$skipped" ] && msg="$msg
+пропущено (openai.off):$skipped"
+  bash alert.sh "$msg"
 }
 finish() {                     # статус пишем ВСЕГДА, даже если шаг упал
-  local parts="" fails=""
+  local parts="" fails="" warns="" skipped="" wparts=""
   for k in "${!RES[@]}"; do
     parts="$parts\"$k\":\"${RES[$k]}\","
-    [ "${RES[$k]}" = FAIL ] && fails="$fails $k"
+    case "${RES[$k]}" in
+      FAIL) fails="$fails $k" ;;
+      warn) warns="$warns $k(${WARNS[$k]:-})"; wparts="$wparts\"$k\":\"$(printf '%s' "${WARNS[$k]:-}" | tr -d '"\\' | cut -c1-160)\"," ;;
+      skipped) skipped="$skipped $k" ;;
+    esac
   done
-  printf '{"date":"%s","finished":"%s","feeds_ok":%s,"feeds_downloaded":%s,"feeds_total":%s,"feeds_dead":"%s",%s"products":%s}\n' \
-    "$today" "$(date '+%F %T')" "${ok:-0}" "${dl_ok:-0}" "${dl_total:-0}" "${dead# }" "$parts" "$(products_count)" > "$STATUS"
+  printf '{"date":"%s","finished":"%s","feeds_ok":%s,"feeds_downloaded":%s,"feeds_total":%s,"feeds_dead":"%s",%s"warns":{%s},"products":%s}\n' \
+    "$today" "$(date '+%F %T')" "${ok:-0}" "${dl_ok:-0}" "${dl_total:-0}" "${dead:-}" "$parts" "${wparts%,}" "$(products_count)" > "$STATUS"
   echo "=== $(date '+%F %T') готово (фиды ok=${ok:-0}) ===" >> "$LOG"
-  # сбой не должен ждать, пока его случайно заметят (урок: load3 FAIL 05.08 нашли вечером)
-  [ -n "$fails" ] && bash alert.sh "remlab: refresh_daily FAIL:$fails (см. refresh.log)"
+  # статус — на прод, чтобы сторож на ДРУГОЙ машине увидел «прогон не состоялся» (П1.3)
+  timeout 60 scp -q "$STATUS" "${STATUS_PUBLISH:-root@89.167.127.0:/opt/remlab/test/status/refresh-status.json}" >> "$LOG" 2>&1 \
+    || echo "WARN: статус не опубликован на прод" >> "$LOG"
+  digest "$fails" "$warns" "$skipped"
+  rm -f "$STEP_TMP"
 }
 products_count() {
   docker exec -i remlab-devdb psql -U remlab -d remlab -tAc \
