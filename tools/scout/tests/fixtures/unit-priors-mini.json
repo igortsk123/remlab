@@ -1,0 +1,1210 @@
+{
+ "112923:комод:w": {
+  "unit": "cm",
+  "n": 643,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:комод:d": {
+  "unit": "cm",
+  "n": 643,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:комод:h": {
+  "unit": "cm",
+  "n": 643,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:столик:w": {
+  "unit": "cm",
+  "n": 120,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:столик:d": {
+  "unit": "cm",
+  "n": 120,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:столик:h": {
+  "unit": "cm",
+  "n": 120,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:тв-тумба:w": {
+  "unit": "cm",
+  "n": 439,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:тв-тумба:d": {
+  "unit": "cm",
+  "n": 439,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:тв-тумба:h": {
+  "unit": "cm",
+  "n": 439,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:витрина:w": {
+  "unit": "cm",
+  "n": 60,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:витрина:d": {
+  "unit": "cm",
+  "n": 60,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:витрина:h": {
+  "unit": "cm",
+  "n": 60,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:ковёр:w": {
+  "unit": "cm",
+  "n": 185,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 500,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:ковёр:d": {
+  "unit": "cm",
+  "n": 185,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 500,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:диван:w": {
+  "unit": "cm",
+  "n": 1940,
+  "share_implaus_cm": 0.003,
+  "role_max_cm": 470,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:диван:d": {
+  "unit": "cm",
+  "n": 1940,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 470,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:диван:h": {
+  "unit": "cm",
+  "n": 1940,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:стеллаж:w": {
+  "unit": "cm",
+  "n": 1064,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:стеллаж:d": {
+  "unit": "cm",
+  "n": 1064,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:стеллаж:h": {
+  "unit": "cm",
+  "n": 1064,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:зеркало:w": {
+  "unit": "cm",
+  "n": 22,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:зеркало:d": {
+  "unit": "cm",
+  "n": 22,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:зеркало:h": {
+  "unit": "cm",
+  "n": 22,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:стул:w": {
+  "unit": "cm",
+  "n": 459,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:стул:d": {
+  "unit": "cm",
+  "n": 459,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:стул:h": {
+  "unit": "cm",
+  "n": 459,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:картина:w": {
+  "unit": "cm",
+  "n": 67,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:картина:d": {
+  "unit": "cm",
+  "n": 63,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:картина:h": {
+  "unit": "cm",
+  "n": 65,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:подушка:w": {
+  "unit": "cm",
+  "n": 180,
+  "share_implaus_cm": 0.022,
+  "role_max_cm": 100,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:подушка:d": {
+  "unit": "cm",
+  "n": 180,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 100,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:подушка:h": {
+  "unit": "cm",
+  "n": 90,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 80,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:плед:w": {
+  "unit": "cm",
+  "n": 93,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 260,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:плед:d": {
+  "unit": "cm",
+  "n": 93,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 260,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:шкаф:w": {
+  "unit": "cm",
+  "n": 37,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:шкаф:d": {
+  "unit": "cm",
+  "n": 37,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112923:шкаф:h": {
+  "unit": "cm",
+  "n": 37,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114667:диван:w": {
+  "unit": "cm",
+  "n": 861,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 470,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114667:диван:h": {
+  "unit": "cm",
+  "n": 855,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114667:стенка:w": {
+  "unit": "cm",
+  "n": 9,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 430,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114667:стенка:h": {
+  "unit": "cm",
+  "n": 9,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114667:комод:w": {
+  "unit": "cm",
+  "n": 11,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114667:комод:h": {
+  "unit": "cm",
+  "n": 11,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114667:комод:len": {
+  "unit": "cm",
+  "n": 11,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114667:шкаф:w": {
+  "unit": "cm",
+  "n": 110,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114667:шкаф:h": {
+  "unit": "cm",
+  "n": 110,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114667:кресло:w": {
+  "unit": "cm",
+  "n": 64,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114667:кресло:h": {
+  "unit": "cm",
+  "n": 62,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114667:кресло:len": {
+  "unit": "cm",
+  "n": 64,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114667:стеллаж:w": {
+  "unit": "cm",
+  "n": 18,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114667:стеллаж:h": {
+  "unit": "cm",
+  "n": 18,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114667:стул:w": {
+  "unit": "cm",
+  "n": 19,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114667:стул:h": {
+  "unit": "cm",
+  "n": 19,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114667:стул:len": {
+  "unit": "cm",
+  "n": 19,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:люстра:w": {
+  "unit": "cm",
+  "n": 3008,
+  "share_implaus_cm": 0.014,
+  "role_max_cm": 150,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:люстра:h": {
+  "unit": "cm",
+  "n": 4765,
+  "share_implaus_cm": 0.129,
+  "role_max_cm": 150,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:люстра:len": {
+  "unit": "cm",
+  "n": 2821,
+  "share_implaus_cm": 0.032,
+  "role_max_cm": 150,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:бра:w": {
+  "unit": "cm",
+  "n": 1050,
+  "share_implaus_cm": 0.029,
+  "role_max_cm": 70,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:бра:h": {
+  "unit": "cm",
+  "n": 1110,
+  "share_implaus_cm": 0.068,
+  "role_max_cm": 80,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:бра:len": {
+  "unit": "cm",
+  "n": 838,
+  "share_implaus_cm": 0.049,
+  "role_max_cm": 70,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:кашпо:w": {
+  "unit": "cm",
+  "n": 577,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 90,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:кашпо:len": {
+  "unit": "cm",
+  "n": 570,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 90,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:кашпо:dia": {
+  "unit": "cm",
+  "n": 370,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 90,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:лампа:h": {
+  "unit": "cm",
+  "n": 422,
+  "share_implaus_cm": 0.026,
+  "role_max_cm": 100,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:люстра:dia": {
+  "unit": "cm",
+  "n": 3207,
+  "share_implaus_cm": 0.083,
+  "role_max_cm": 150,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:бра:dia": {
+  "unit": "cm",
+  "n": 251,
+  "share_implaus_cm": 0.151,
+  "role_max_cm": 70,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:комод:w": {
+  "unit": "cm",
+  "n": 36,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:комод:h": {
+  "unit": "cm",
+  "n": 36,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:комод:len": {
+  "unit": "cm",
+  "n": 36,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:лампа:w": {
+  "unit": "cm",
+  "n": 289,
+  "share_implaus_cm": 0.01,
+  "role_max_cm": 70,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:лампа:len": {
+  "unit": "cm",
+  "n": 255,
+  "share_implaus_cm": 0.012,
+  "role_max_cm": 70,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:кашпо:h": {
+  "unit": "cm",
+  "n": 511,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 120,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:подушка:w": {
+  "unit": "cm",
+  "n": 158,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 100,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:подушка:len": {
+  "unit": "cm",
+  "n": 158,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 100,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:диван:w": {
+  "unit": "cm",
+  "n": 143,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 470,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:диван:h": {
+  "unit": "cm",
+  "n": 144,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:диван:len": {
+  "unit": "cm",
+  "n": 143,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 470,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:статуэтка:w": {
+  "unit": "cm",
+  "n": 219,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 70,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:статуэтка:h": {
+  "unit": "cm",
+  "n": 247,
+  "share_implaus_cm": 0.008,
+  "role_max_cm": 110,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:статуэтка:len": {
+  "unit": "cm",
+  "n": 226,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 70,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:ваза:h": {
+  "unit": "cm",
+  "n": 629,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 120,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:лампа:dia": {
+  "unit": "cm",
+  "n": 270,
+  "share_implaus_cm": 0.033,
+  "role_max_cm": 70,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:плед:w": {
+  "unit": "cm",
+  "n": 350,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 260,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:плед:len": {
+  "unit": "cm",
+  "n": 350,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 260,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:зеркало:w": {
+  "unit": "cm",
+  "n": 86,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:зеркало:h": {
+  "unit": "cm",
+  "n": 88,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:зеркало:len": {
+  "unit": "cm",
+  "n": 78,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:лампа:d": {
+  "unit": "cm",
+  "n": 14,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 70,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:торшер:h": {
+  "unit": "cm",
+  "n": 221,
+  "share_implaus_cm": 0.027,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:торшер:dia": {
+  "unit": "cm",
+  "n": 160,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:камин:w": {
+  "unit": "cm",
+  "n": 91,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:камин:h": {
+  "unit": "cm",
+  "n": 91,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:камин:len": {
+  "unit": "cm",
+  "n": 91,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:люстра:d": {
+  "unit": "cm",
+  "n": 183,
+  "share_implaus_cm": 0.016,
+  "role_max_cm": 150,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:бра:d": {
+  "unit": "cm",
+  "n": 116,
+  "share_implaus_cm": 0.043,
+  "role_max_cm": 70,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:торшер:w": {
+  "unit": "cm",
+  "n": 115,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:торшер:len": {
+  "unit": "cm",
+  "n": 97,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:столик:w": {
+  "unit": "cm",
+  "n": 172,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:столик:h": {
+  "unit": "cm",
+  "n": 175,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:столик:len": {
+  "unit": "cm",
+  "n": 172,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:ваза:w": {
+  "unit": "cm",
+  "n": 493,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 60,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:ваза:len": {
+  "unit": "cm",
+  "n": 492,
+  "share_implaus_cm": 0.002,
+  "role_max_cm": 60,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:стул:w": {
+  "unit": "cm",
+  "n": 331,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:стул:h": {
+  "unit": "cm",
+  "n": 331,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:стул:len": {
+  "unit": "cm",
+  "n": 321,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:ковёр:len": {
+  "unit": "cm",
+  "n": 26,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 500,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:растение:w": {
+  "unit": "cm",
+  "n": 213,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:растение:h": {
+  "unit": "cm",
+  "n": 348,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:растение:len": {
+  "unit": "cm",
+  "n": 178,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:столик:dia": {
+  "unit": "cm",
+  "n": 56,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:диван:dia": {
+  "unit": "cm",
+  "n": 23,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 470,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:часы:w": {
+  "unit": "cm",
+  "n": 37,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 100,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:часы:h": {
+  "unit": "cm",
+  "n": 39,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 120,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:часы:len": {
+  "unit": "cm",
+  "n": 39,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 100,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:ковёр:w": {
+  "unit": "cm",
+  "n": 23,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 500,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:статуэтка:dia": {
+  "unit": "cm",
+  "n": 21,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 70,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:стеллаж:w": {
+  "unit": "cm",
+  "n": 13,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:стеллаж:h": {
+  "unit": "cm",
+  "n": 13,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:торшер:d": {
+  "unit": "cm",
+  "n": 9,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:зеркало:dia": {
+  "unit": "cm",
+  "n": 9,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:часы:dia": {
+  "unit": "cm",
+  "n": 10,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 100,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "99272:стеллаж:len": {
+  "unit": "cm",
+  "n": 12,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112098:плед:w": {
+  "unit": "mm",
+  "n": 17,
+  "share_implaus_cm": 1.0,
+  "role_max_cm": 260,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112098:плед:h": {
+  "unit": "mm",
+  "n": 17,
+  "share_implaus_cm": 0.647,
+  "role_max_cm": 260,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112098:плед:len": {
+  "unit": "mm",
+  "n": 17,
+  "share_implaus_cm": 1.0,
+  "role_max_cm": 260,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112098:статуэтка:w": {
+  "unit": "mm",
+  "n": 18,
+  "share_implaus_cm": 1.0,
+  "role_max_cm": 70,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112098:статуэтка:h": {
+  "unit": "mm",
+  "n": 18,
+  "share_implaus_cm": 0.944,
+  "role_max_cm": 110,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112098:статуэтка:len": {
+  "unit": "mm",
+  "n": 18,
+  "share_implaus_cm": 1.0,
+  "role_max_cm": 70,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112098:ваза:w": {
+  "unit": "mm",
+  "n": 58,
+  "share_implaus_cm": 1.0,
+  "role_max_cm": 60,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112098:ваза:h": {
+  "unit": "mm",
+  "n": 58,
+  "share_implaus_cm": 0.983,
+  "role_max_cm": 120,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "112098:ваза:len": {
+  "unit": "mm",
+  "n": 58,
+  "share_implaus_cm": 1.0,
+  "role_max_cm": 60,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114082:стенка:w": {
+  "unit": "cm",
+  "n": 9,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 430,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114082:стенка:h": {
+  "unit": "cm",
+  "n": 9,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114082:диван:w": {
+  "unit": "cm",
+  "n": 780,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 470,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114082:диван:h": {
+  "unit": "cm",
+  "n": 774,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114082:шкаф:w": {
+  "unit": "cm",
+  "n": 110,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114082:шкаф:h": {
+  "unit": "cm",
+  "n": 110,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114082:пуф:w": {
+  "unit": "cm",
+  "n": 12,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114082:пуф:h": {
+  "unit": "cm",
+  "n": 12,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114082:пуф:len": {
+  "unit": "cm",
+  "n": 12,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114082:стул:w": {
+  "unit": "cm",
+  "n": 19,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114082:стул:h": {
+  "unit": "cm",
+  "n": 19,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114082:стул:len": {
+  "unit": "cm",
+  "n": 19,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114082:кресло:w": {
+  "unit": "cm",
+  "n": 52,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114082:кресло:h": {
+  "unit": "cm",
+  "n": 50,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114082:кресло:len": {
+  "unit": "cm",
+  "n": 52,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114082:стеллаж:w": {
+  "unit": "cm",
+  "n": 18,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114082:стеллаж:h": {
+  "unit": "cm",
+  "n": 18,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114082:комод:w": {
+  "unit": "cm",
+  "n": 11,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114082:комод:h": {
+  "unit": "cm",
+  "n": 11,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 330.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ },
+ "114082:комод:len": {
+  "unit": "cm",
+  "n": 11,
+  "share_implaus_cm": 0.0,
+  "role_max_cm": 400.0,
+  "version": "v2",
+  "generated_by": "dim_resolver --learn"
+ }
+}

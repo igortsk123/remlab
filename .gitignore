@@ -103,3 +103,6 @@ remlab_knowledge_db_v1/runs/*/07b_applicability_index.jsonl
 remlab_knowledge_db_v1/runs/*/07c_context_closure_index.jsonl
 remlab_knowledge_db_v1/runs/*/embeddings_*.npz
 remlab_knowledge_db_v1/*.log
+
+# Фикстуры селфтестов загрузки каталога — в git (план catalog-load-hardening П0.3)
+!tools/scout/tests/

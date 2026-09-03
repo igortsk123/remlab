@@ -12,7 +12,7 @@
 Алертит через alert.sh; выход всегда 0 (guard не должен ронять конвейер — только кричать).
 Запуск: refresh_daily.sh шаг feed_guard, либо руками: python feed_guard.py
 """
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import glob
 import json
 import os
@@ -26,6 +26,46 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 STATE = os.path.join(HERE, 'feed-freshness.json')
 FRESH_H = 30      # yml_catalog date моложе 30 ч — fresh (фид регенерится ~ежесуточно)
 DEGRADED_H = 54   # 30–54 ч — degraded (одна пропущенная регенерация); старше — stale
+NOT_TODAY_H = 20  # свежий, но старше 20 ч — «фид не сегодняшний» (после крона 10:40 UTC свежий < 2 ч)
+# Гдеслон штампует `yml_catalog date` по МОСКВЕ (03.09: 12:35 при скачивании в 09:40 UTC).
+# Раньше строка читалась как локальное время DEV-машины (UTC) → возраст занижен на 3 ч,
+# сразу после скачивания он был ОТРИЦАТЕЛЬНЫМ (-2.9 ч в feed-freshness.json).
+FEED_TZ = timezone(timedelta(hours=3))
+TAIL = 64         # хвост, переносимый между чанками: атрибут merchant_id="99272" не должен рваться
+
+
+def age_hours(yml_date: str | None, now: float) -> float | None:
+    """Возраст фида в часах по штампу Гдеслона (МСК). None — штампа нет или он нечитаем."""
+    if not yml_date:
+        return None
+    try:
+        ts = datetime.strptime(yml_date, '%Y-%m-%d %H:%M').replace(tzinfo=FEED_TZ).timestamp()
+    except ValueError:
+        return None
+    return round((now - ts) / 3600, 1)
+
+
+def state_for(age_h: float, offers: int) -> str:
+    if offers == 0:
+        return 'empty'
+    return 'fresh' if age_h <= FRESH_H else 'degraded' if age_h <= DEGRADED_H else 'stale'
+
+
+def scan_stream(f, chunk_size: int = 1 << 20) -> tuple[int, set[int]]:
+    """Потоково: число офферов и mid магазинов. Маркер «<offer » (с пробелом), иначе обёртка
+    <offers> считается оффером; на стыке чанков вычитаем счёт хвоста. mid — из атрибута
+    merchant_id (есть у каждого оффера всех 9 выгрузок); хвост TAIL байт переносится в следующий
+    чанк, иначе «merchant_id="99|272"» на стыке давал фантомный mid 99 (03.09)."""
+    mark = b'<offer '
+    offers, mids, buf, tail = 0, set(), b'', b''
+    while chunk := f.read(chunk_size):
+        offers += (buf + chunk).count(mark) - buf.count(mark)
+        if len(mids) < 8:
+            for m in re.finditer(rb'merchant_id="(\d+)"', tail + chunk):
+                mids.add(int(m.group(1)))
+        buf = chunk[-len(mark):]
+        tail = (tail + chunk)[-TAIL:]   # копим хвост, а не берём от одного чанка: чанк может быть короче атрибута
+    return offers, mids
 
 
 def _alert(msg: str) -> None:
@@ -57,20 +97,10 @@ def scan() -> dict:
                         m = re.search(r'yml_catalog date="([^"]+)"', head)
                         if m:
                             yml_date = m.group(1)
-                    mids: set[int] = set()
                     with z.open(name) as f:
-                        # потоковый счёт без разбора дерева; маркер «<offer » (с пробелом),
-                        # иначе тег-обёртка <offers> считается оффером; на стыке чанков
-                        # вычитаем счёт хвоста, чтобы не задвоить маркер. Попутно собираем
-                        # mid магазинов (для freshness-фильтра в compose2).
-                        mark = b'<offer '
-                        buf = b''
-                        while chunk := f.read(1 << 20):
-                            offers += (buf + chunk).count(mark) - buf.count(mark)
-                            if len(mids) < 8:
-                                for m in re.finditer(rb'mid(?:=|%3D)(\d+)', chunk):
-                                    mids.add(int(m.group(1)))
-                            buf = chunk[-len(mark):]
+                        n, m_ids = scan_stream(f)
+                        offers += n
+                        mids: set[int] = m_ids
         except (zipfile.BadZipFile, OSError) as e:
             # mids прежней исправной записи сохраняем: иначе compose2/candidates не узнают, ЧЕЙ
             # источник сломан (777e580d = 116933 nonton.ru, Codex 16.08), и карантин не сработает
@@ -84,18 +114,16 @@ def scan() -> dict:
                       'broken_since': (prev.get(h) or {}).get('broken_since') or datetime.now().strftime('%Y-%m-%d')}
             _alert(f'remlab: фид {h[:12]} не читается ({e}) — работаем на прежних данных БД')
             continue
-        age_h = None
-        if yml_date:
-            try:
-                age_h = round((now - time.mktime(time.strptime(yml_date, '%Y-%m-%d %H:%M'))) / 3600, 1)
-            except ValueError:
-                pass
+        age_h = age_hours(yml_date, now)
         if age_h is None:
             age_h = round((now - os.path.getmtime(zp)) / 3600, 1)
-        state = ('fresh' if age_h <= FRESH_H else 'degraded' if age_h <= DEGRADED_H else 'stale')
+        state = state_for(age_h, offers)
         prev_offers = (prev.get(h) or {}).get('offers', 0)
+        if state == 'fresh' and age_h > NOT_TODAY_H:
+            # не тревога, а WARN в лог шага: Гдеслон опоздал со сборкой, мы взяли вчерашний файл
+            # (маркер `WARN:` читает step() в refresh_daily.sh и кладёт в дайджест)
+            print(f'WARN: фид {h[:12]} не сегодняшний — yml_date {yml_date} ({age_h:.0f} ч)', flush=True)
         if offers == 0:
-            state = 'empty'
             # W5 (аудит 10.08): алертим ЛЮБОЙ переход в empty (в т.ч. первый раз увиденный
             # пустой фид) — раньше «вечно пустой» e2fccbea жил незамеченным месяцами.
             prev_state = (prev.get(h) or {}).get('state')
@@ -112,7 +140,42 @@ def scan() -> dict:
     return out
 
 
+def selftest() -> int:
+    import io
+    bad = 0
+
+    def check(name, got, want):
+        nonlocal bad
+        if got != want:
+            bad += 1
+            print(f'  FAIL {name}: {got!r} != {want!r}')
+
+    # (1) стык чанков: merchant_id рвётся между чанками — фантомного mid быть не должно
+    body = b'<offers>' + b'<offer merchant_id="99272" id="1"><name>x</name></offer>' * 3
+    for size in (8, 13, 17, 1 << 20):
+        n, mids = scan_stream(io.BytesIO(body), chunk_size=size)
+        check(f'offers@{size}', n, 3)
+        check(f'mids@{size}', mids, {99272})
+    # (2) возраст: штамп по МСК; DEV в UTC. 12:35 МСК при now=09:41 UTC → 0.1 ч, не -2.9
+    now = datetime(2026, 9, 3, 9, 41, tzinfo=timezone.utc).timestamp()
+    check('age_msk', age_hours('2026-09-03 12:35', now), 0.1)
+    check('age_yesterday', age_hours('2026-09-02 12:35', now), 24.1)
+    check('age_none', age_hours(None, now), None)
+    check('age_bad', age_hours('вчера', now), None)
+    # (3) состояния
+    check('fresh', state_for(2.0, 100), 'fresh')
+    check('degraded', state_for(40.0, 100), 'degraded')
+    check('stale', state_for(60.0, 100), 'stale')
+    check('empty', state_for(2.0, 0), 'empty')
+    # (4) порог «не сегодняшний» лежит между свежим (<2 ч) и деградированным (30 ч)
+    check('not_today_bounds', 2 < NOT_TODAY_H < FRESH_H, True)
+    print('feed_guard selftest:', 'FAIL' if bad else 'ok')
+    return 1 if bad else 0
+
+
 if __name__ == '__main__':
+    if '--selftest' in sys.argv:
+        sys.exit(selftest())
     res = scan()
     for h, r in res.items():
         print(f"{h[:12]}: {r.get('offers', 0):>6} офферов, {r.get('age_hours', '?')} ч, {r['state']}")
