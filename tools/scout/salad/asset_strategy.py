@@ -42,3 +42,14 @@ def strategy(role: str | None) -> str:
 
 def policy_version() -> int:
     return int(_load().get('policy_version', 0))
+
+
+def non_mesh_roles() -> set:
+    """Роли, которым меш НЕ нужен (вклейка плоскостью и вырезка по контуру).
+
+    Заменяет разошедшийся с каноном локальный список `MESH_EXCLUDE`: он жил в
+    `mesh_queue.py`, был удалён как третья истина, и три модуля (`mesh_ready`,
+    `pipeline_funnel`, `mesh_scheduler`) с тех пор падали на импорте — ночной конвейер
+    молча не строил очередь (найдено разбором Codex 01.09).
+    """
+    return {r for r, s in _load()['roles'].items() if s != 'hunyuan3d'}

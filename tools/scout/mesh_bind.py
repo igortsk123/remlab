@@ -24,8 +24,8 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, 'salad'))
+sys.path.insert(0, HERE)   # корень побеждает salad/ (см. render_strategy.py)
 MESH_DIR = os.path.expanduser('~/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2')
 MESH_HTTP = os.environ.get('MESH_HTTP', 'https://remont-lab.online/test/mesh-pilot10')
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',

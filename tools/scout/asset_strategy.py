@@ -9,15 +9,23 @@ import json
 import os
 import re
 
-_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rules',
-                     'asset-strategies.json')
+_HERE = os.path.dirname(os.path.abspath(__file__))
+# Канон ищем в двух местах: `rules/` (раскладка внутри образа воркера) и плоским файлом рядом
+# с модулем (так он лежит в репозитории). Жёсткий единственный путь ронял ЛЮБОЙ вызов
+# strategy() на дев-машине с FileNotFoundError — а это первый шаг каждого прогона (31.08).
+_PATHS = [os.path.join(_HERE, 'rules', 'asset-strategies.json'),
+          os.path.join(_HERE, 'asset-strategies.json')]
 _CACHE = None
 
 
 def _load() -> dict:
     global _CACHE
     if _CACHE is None:
-        _CACHE = json.load(open(_PATH, encoding='utf-8'))
+        for p in _PATHS:
+            if os.path.exists(p):
+                _CACHE = json.load(open(p, encoding='utf-8'))
+                return _CACHE
+        raise FileNotFoundError(f'канон стратегий не найден: {_PATHS}')
     return _CACHE
 
 
