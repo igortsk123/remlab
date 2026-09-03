@@ -35,6 +35,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт ремонта/м�
 | Бизнес-контекст; v0.4 «Смета-first» | `product_brief.md` | `domain/brief-details.md` |
 | Регресс-защита — тесты, CI, гардрейлы | `core/regression-net.md` | `../../docs/tech-spec-ts-stack.md` |
 | Замер комнаты по фото — что готово и чем меряем | `core/room-measurement.md` | `../domain/room-measurement.md` |
+| Контроль наличия и честность размеров — состояния, парсер, правило footprint | `core/stock-and-dims.md` | `../domain/stock-and-dims.md` |
 | Стили — паспорта, скоринг, сеты | `core/styles.md` | `../domain/interior-styles.md` |
 | Stage 1 UX-flow, аналитика | `core/user-flow.md` | `../domain/user-flow-details.md` |
 | Состав гостиной — роли и пригодность | `core/lr-checklist.md` | `../domain/living-room-checklist.md` |

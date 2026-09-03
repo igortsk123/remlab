@@ -33,6 +33,7 @@
 | `pipeline-order.md` | pipeline-order | Канонический порядок конвейера — от фида до расстановки в планировке | `../domain/pipeline-order-details.md` | 2026-08-29 |
 | `regression-net.md` | regression-net | Регресс-защита — тесты, CI, гардрейлы | `../../docs/tech-spec-ts-stack.md` | 2026-08-22 |
 | `room-measurement.md` | room-measurement | Замер комнаты по фото — что готово и чем меряем | `../domain/room-measurement.md` | 2026-08-04 |
+| `stock-and-dims.md` | stock-and-dims | Контроль наличия и честность размеров — состояния, парсер, правило footprint | `../domain/stock-and-dims.md` | 2026-09-03 |
 | `styles.md` | styles | Стили — паспорта, скоринг, сеты | `../domain/interior-styles.md` | 2026-09-02 |
 | `user-flow.md` | user-flow | Stage 1 UX-flow, аналитика | `../domain/user-flow-details.md` | 2026-08-06 |
 | `lr-checklist.md` | lr-checklist | Состав гостиной — роли и пригодность | `../domain/living-room-checklist.md` | 2026-08-12 |

@@ -30,12 +30,10 @@ API (`catalog_api_sync.py`, по понедельникам) — только `c
 `archived`; не удаляем. Порог «< 70 %» — по магазину против последнего успеха (`catalog_import_runs`),
 одна транзакция. Карантин фидов — `feed_guard.py` (fresh ≤30 ч, `yml_date` по МСК).
 
-**Меши/HD:** `mesh_bind.enforce_ready_invariant()` — `ready` только по текущему фото; `hd_backfill.py`
-перевёл 57 мешовых SKU на HD. **Отрицательно (03.09):** глубина из меша хуже дефолта 100 см (37 % vs 63 %
-в ±10 %) — не включена, дефолт помечен `d_assumed`; `available` из API — precision 0 %.
+**Наличие и размеры честно** — отдельная сводка [[stock-and-dims]] (03.09).
 
-**Тесты:** `--selftest` (`load3` на `tools/scout/tests/fixtures/`, `dim_resolver`, `category_map`, `feed_guard`,
-`reflink`, `stock_truth`) — CI `scout-selftest`. **Дыры:** 155 товаров divan.ru не в экспорте (кабинет);
+**Тесты:** `--selftest` (`load3`, `dim_resolver`, `category_map`, `feed_guard`, `reflink`, `stock_truth`,
+`page_alive`, `stock_check`, `footprint`) — CI `scout-selftest`. **Дыры:** 155 товаров divan.ru не в экспорте (кабинет);
 пустая выгрузка `e2fccbea`; диванов без глубины 1 012/2 345.
 
 **Tier 2:** `../domain/catalog-enrichment.md` · `../domain/integrations.md` · план `plans/catalog-load-hardening.md`.
