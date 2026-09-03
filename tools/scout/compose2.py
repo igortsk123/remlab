@@ -293,13 +293,18 @@ for r in raw:
     if k in pool: continue
     w=float(r[4]) if r[4] else None; d=float(r[5]) if r[5] else (float(r[6]) if r[6] else None)
     dia=float(r[7]) if r[7] else None; h=float(r[8]) if r[8] else None
-    fp=None
+    fp=None; d_assumed=False
     if w and d: fp=w*d/10000
     elif dia: fp=math.pi*(dia/200)**2
-    elif w and role=='диван': fp=w*1.0/100
-    pool[k]=dict(mid=int(r[1]),eid=r[2],name=r[3],w=w,d=d,dia=dia,h=h,fp=fp,
+    elif w and role=='диван':
+        # глубины в каталоге нет — площадь считаем как при 100 см и ПОМЕЧАЕМ (план catalog-load-hardening
+        # П3.3): флаг едет в sets3.json → солвер/экспорт/страницы видят, что размер предположен
+        fp=w*1.0/100; d_assumed=True
+    pool[k]=dict(mid=int(r[1]),eid=r[2],name=r[3],w=w,d=d,dia=dia,h=h,fp=fp,d_assumed=d_assumed,
                  price=int(r[9]),shop=r[10],img=r[11],url=r[12],**tag(r[3]))
 cat={role:list(p.values()) for role,p in cat.items()}
+_na=sum(1 for it in cat.get('диван',[]) if it.get('d_assumed'))
+if _na: print(f'[pool] диванов с ПРЕДПОЛОЖЕННОЙ глубиной (100 см): {_na} из {len(cat.get("диван",[]))}', flush=True)
 # Q6a свода №13: ПЛАНИРОВОЧНЫЙ СЛОТ «банкетка» — не роль каталога (cat_role не меняется), а SKU с
 # capability wall_seat_capable (`capabilities.py --export` → capabilities-index.json: банкетки/кушетки из
 # ролей пуф/диван). В сет такой SKU кладётся НЕ голым алиасом: с source_role/planning_role/caps_used/

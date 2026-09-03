@@ -50,6 +50,81 @@ DIM_KEYS = {
 # приоров. Дефолт 400 (крупная мебель); шире — только роли с реальными >400 см (модульные
 # диваны); УЖЕ — декор и свет: ваза «200» при потолке 60 читается как 200 мм, а не 2 метра
 # (найдено кросс-чеком T1: gipfel шлёт весь декор в мм, и значения ≤400 приор считал см).
+# Оси ПО МАГАЗИНУ И РОЛИ (план catalog-load-hardening П3.1). У tvoydom мебель описана «Ширина / Длина /
+# Высота», где «Длина» — это ГЛУБИНА (стул 53х44х87: Ширина 53, Длина 44 — фронт и глубина), а не длина
+# ковра. Глобальный DIM_KEYS клал «Длина» в len_cm, и глубины не было у 100 % мебели tvoydom (6 178
+# товаров). Один хелпер dim_keys_for() обслуживает и resolve(), и learn(): иначе приоры для
+# «99272:диван:d» не строятся и tvoydom решается ступенью plaus без провенанса.
+FURNITURE_ROLES = frozenset({'диван', 'кресло', 'стул', 'стол', 'стол обеденный', 'столик', 'тумба', 'тв-тумба',
+                             'комод', 'стеллаж', 'шкаф', 'стенка', 'пуф', 'банкетка', 'витрина', 'полка'})
+SHOP_DIM_KEYS = {
+    99272: (FURNITURE_ROLES, {'d': ['Глубина', 'Глубина, см', 'Глубина, мм', 'Длина'], 'len': ['Длина, см', 'Длина, мм']}),
+}
+# Составные поля «две-три цифры в одной строке» → оси, по роли (П3.2). Порядок Д×Ш×В у «Габариты» tvoydom
+# сверен на 5 люстрах/бра: первое число — размах (диаметр/длина), второе — высота; для трёх — Д, Ш, В.
+COMPOSITE_KEYS = {
+    'шторы': [('Размер штор', ('w', 'h'))],
+    '*': [('Габариты (Д*Ш*В)', ('len', 'w', 'h')), ('Габариты (Д×Ш×В)', ('len', 'w', 'h')),
+          ('Габариты (ДхШхВ)', ('len', 'w', 'h')), ('Размер, см', ('w', 'd', 'h'))],
+}
+LIGHT_ROLES = frozenset({'люстра', 'бра', 'лампа', 'торшер', 'светильник', 'подвес', 'спот'})
+
+
+def dim_keys_for(mid: int | None, role: str | None) -> dict[str, list[str]]:
+    """Имена параметров по осям для (магазин, роль): глобальные DIM_KEYS + переопределения магазина."""
+    rule = SHOP_DIM_KEYS.get(mid or 0)
+    if not rule or role not in rule[0]:
+        return DIM_KEYS
+    keys = {k: list(v) for k, v in DIM_KEYS.items()}
+    for dim, names in rule[1].items():
+        keys[dim] = list(names)
+    # ключ, отданный другой оси, из прежней оси убираем — иначе значение ляжет в обе
+    moved = {n for names in rule[1].values() for n in names}
+    for dim in keys:
+        if dim not in rule[1]:
+            keys[dim] = [n for n in keys[dim] if n not in moved]
+    return keys
+
+
+def composite_dims(role: str | None, params: dict) -> dict[str, tuple[float, str]]:
+    """Числа из составных полей («Размер штор» 120Х175, «Габариты (Д*Ш*В)» 80х56 см) → ось → (число, имя поля).
+    Двух чисел для трёхосевого поля: первое — первая ось, второе — ВЫСОТА (так пишут карточки света)."""
+    out: dict[str, tuple[float, str]] = {}
+    for key, axes in COMPOSITE_KEYS.get(role or '', []) + COMPOSITE_KEYS['*']:
+        v = params.get(key)
+        if not v:
+            continue
+        m = _title_triple.search(v)
+        if not m:
+            continue
+        nums = [float(g) for g in m.groups() if g]
+        if len(nums) == 3 and len(axes) == 3:
+            pairs = list(zip(axes, nums))
+        elif len(nums) == 2:
+            pairs = [(axes[0], nums[0]), (axes[-1], nums[1])]
+        else:
+            continue
+        for ax, n in pairs:
+            out.setdefault(ax, (n, key))
+    return out
+
+
+def title_dims(role: str | None, name: str) -> dict[str, float]:
+    """Размеры ТОЛЬКО из названия, когда параметров нет: «53х44х87 см» → Ш×Г×В (конвенция RU-карточек);
+    два числа — по роли: шторы → Ш×В, свет → диаметр×В, остальным не верим."""
+    m = _title_triple.search(name or '')
+    if not m:
+        return {}
+    nums = [float(g) for g in m.groups() if g]
+    if len(nums) == 3:
+        return {'w': nums[0], 'd': nums[1], 'h': nums[2]}
+    if role == 'шторы':
+        return {'w': nums[0], 'h': nums[1]}
+    if role in LIGHT_ROLES:
+        return {'dia': nums[0], 'h': nums[1]}
+    return {}
+
+
 ROLE_MAX_CM = {
     'диван': 470, 'стенка': 430, 'ковёр': 500,
     'ваза': 60, 'статуэтка': 70, 'часы': 100, 'кашпо': 90,
@@ -61,7 +136,7 @@ ROLE_MAX_H_CM = {'ваза': 120, 'статуэтка': 110, 'лампа': 100, 
 MIN_CM = 5.0    # меньше 5 см любая ось мебели/декора неправдоподобна
 
 _num = re.compile(r'\d+(?:[.,]\d+)?')
-_title_triple = re.compile(r'(\d{2,4})\s*[x×х*]\s*(\d{2,4})(?:\s*[x×х*]\s*(\d{2,4}))?')
+_title_triple = re.compile(r'(\d{2,4})\s*[x×хXХ*]\s*(\d{2,4})(?:\s*[x×хXХ*]\s*(\d{2,4}))?')
 
 _PRIORS: dict | None = None
 
@@ -110,7 +185,9 @@ def resolve(mid: int, name: str, params: dict, role: str | None):
     evidence: dict[str, dict] = {}
     counts: dict[str, int] = {}
 
-    for dim, keys in DIM_KEYS.items():
+    comp = composite_dims(role, params)
+    tdims = title_dims(role, name) if not any(params.get(k) for ks in dim_keys_for(mid, role).values() for k in ks) else {}
+    for dim, keys in dim_keys_for(mid, role).items():
         raw, key_used, val_str = None, None, ''
         for k in keys:
             v = params.get(k)
@@ -118,6 +195,15 @@ def resolve(mid: int, name: str, params: dict, role: str | None):
                 raw, key_used, val_str = _numval(v), k, v
                 if raw is not None:
                     break
+        if raw is None and dim in comp:
+            raw, key_used, val_str = comp[dim][0], comp[dim][1], params.get(comp[dim][1], '')
+        if raw is None and dim in tdims:
+            # название — единственный источник; числа в нём считаем сантиметрами (см. title_numbers)
+            dims[dim] = tdims[dim] if MIN_CM <= tdims[dim] <= role_max(role, dim) * 1.15 else None
+            if dims[dim] is not None:
+                evidence[dim] = {'raw': tdims[dim], 'unit': 'cm', 'source': 'title-only'}
+                counts['title-only'] = counts.get('title-only', 0) + 1
+            continue
         if raw is None:
             dims[dim] = None
             continue
@@ -219,7 +305,7 @@ def learn() -> None:
                         if not role:
                             el.clear(); continue
                         params = {p.get('name'): (p.text or '') for p in el.findall('param')}
-                        for dim, keys in DIM_KEYS.items():
+                        for dim, keys in dim_keys_for(mid, role).items():
                             for k in keys:
                                 if 'мм' in k or 'см' in k:
                                     continue      # явная единица — не сырьё для приора
@@ -262,6 +348,17 @@ def selftest() -> None:
         (112923, 'Комод Монблан 185x76', {'Размеры: Длина габаритная': '185см',
          'Размеры: Ширина габаритная': '50см', 'Размеры: Высота габаритная': '76см'},
          'комод', 'w', 185.0, 'param'),
+        # П3.1: tvoydom, мебель — «Длина» это ГЛУБИНА (стул 53х44х87: Ширина 53, Длина 44)
+        (99272, 'Стул TC Breeze 53х44х87 см', {'Ширина': '53', 'Длина': '44', 'Высота': '87'}, 'стул', 'd', 44.0, 'title'),
+        (99272, 'Стул TC Breeze', {'Ширина': '53', 'Длина': '44', 'Высота': '87'}, 'стул', 'len', None, None),
+        # …а у ковра tvoydom «Длина» остаётся длиной
+        (99272, 'Ковёр', {'Ширина': '160', 'Длина': '230'}, 'ковёр', 'len', 230.0, 'prior'),   # для ковра «Длина» остаётся длиной
+        # П3.2: составные поля и название как единственный источник
+        (99272, 'Роллета Уют', {'Размер штор': '120Х175'}, 'шторы', 'w', 120.0, 'plaus'),
+        (99272, 'Люстра', {'Габариты (Д*Ш*В)': '80х56 см'}, 'люстра', 'h', 56.0, 'param'),
+        (99272, 'Кресло Progarden 86х76х86 см', {}, 'кресло', 'd', 76.0, 'title-only'),
+        (99272, 'Светильник трековый 65*20', {}, 'светильник', 'dia', 65.0, 'title-only'),
+        (99272, 'Стол 120x80', {}, 'стол', 'w', None, None),   # два числа без роли-конвенции — не верим
     ]
     bad = 0
     for mid, name, params, role, dim, want, want_src in cases:

@@ -29,6 +29,12 @@ STATE = os.path.expanduser('~/scout-scenes/mesh-money-guard.json')
 # Запрет на подъём группы: его читает `batch_show.halt_reason()` и НЕ стартует группу, пока
 # файл на месте. Снимает человек — руками, разобравшись в причине простоя.
 HALT = os.path.expanduser('~/scout-scenes/mesh-group-halt.json')
+# ПЕРЕПИСЬ ПУЛА: строка на каждый тик по каждой группе. Нужна, чтобы ответить на вопрос
+# владельца «в какие часы на дешёвом тарифе дают машины» цифрами, а не на глаз: 03.09 данных
+# хватило лишь на догадку (лучший час 21:00 измерен ОДИН раз, 42 часа наблюдений на трое
+# суток при разном числе реплик). Сторож и так опрашивает API каждые 5 минут — дописать
+# строку стоит ноль.
+CENSUS = os.path.join(HERE, '..', 'mesh-pool-census.jsonl')
 
 # Сколько ОПЛАЧЕННЫХ нодо-минут молчания терпим. 120 ≈ 35 мешей, которые здоровый пул успел бы
 # сделать за это время: если их нет, дело не в невезении.
@@ -60,14 +66,29 @@ def groups() -> list[str]:
     return [g.strip() for g in os.environ.get('SALAD_GROUP', '').split(',') if g.strip()]
 
 
-def running_count(group: str) -> int:
+def census(group: str) -> dict:
+    """Состав группы по состояниям + запись в перепись. -1 в `running` — опрос не удался."""
     try:
         ins = _api(f'{group}/instances').get('instances') or []
     except Exception as e:  # noqa: BLE001 — сеть не должна гасить сторожа
         print(f'{time.strftime("%H:%M")} опрос {group} не удался ({type(e).__name__})',
               flush=True)
-        return -1
-    return sum(1 for i in ins if i.get('state') == 'running')
+        return {'running': -1}
+    by: dict[str, int] = {}
+    for i in ins:
+        st = str(i.get('state') or '?')
+        by[st] = by.get(st, 0) + 1
+    row = {'at': round(time.time()), 'group': group, 'total': len(ins), **by}
+    try:
+        with open(CENSUS, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(row, ensure_ascii=False) + '\n')
+    except Exception:  # noqa: BLE001 — перепись не должна ронять сторожа
+        pass
+    return by
+
+
+def running_count(group: str) -> int:
+    return census(group).get('running', 0)
 
 
 def last_mesh_at() -> float:

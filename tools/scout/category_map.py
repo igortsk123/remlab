@@ -120,6 +120,28 @@ ALLOW_FIRST = [
 ]
 
 
+# Точечные переопределения ПО КЛЮЧУ категории — сильнее всех регексов (план catalog-load-hardening П3.5).
+# Регекс здесь не годится: правка `шкаф`/`стеллаж` в ALLOW бьёт по всем девяти магазинам. Живут в коде,
+# потому что category-roles.json перезаписывается `--build` целиком и лежит вне git.
+OVERRIDES = {
+    '96431:1476': (None, 'наполнение шкафа (пантографы) — фурнитура, не корпус'),
+    '96431:1482': (None, 'гардеробная система HOME SPACE — сетчатые полки и профиль, не стеллаж'),
+    '96431:3757': (None, 'аксессуары подсветки зеркала — не зеркало'),
+    '96431:1409': (None, 'комплектующие для стекла и зеркал (коннекторы, держатели) — не зеркало'),
+}
+# Смешанные ветки: одна плоская категория, внутри всё подряд (divan.ru «Распродажа мебели и товаров для
+# дома», 775 офферов: кресла и шкафы гостиной рядом с матрасами). Роль — по НАЗВАНИЮ товара теми же
+# правилами (DENY отрабатывает на названии: матрасы/детское не пройдут); оффер без роли load3 отбрасывает.
+MIXED = {'112923:334'}
+
+
+def role_by_name(name: str) -> str | None:
+    """Роль по названию товара (только для MIXED-веток): те же DENY/ALLOW, что для путей категорий."""
+    if is_kids(name):
+        return None
+    return classify(name or '')[0]
+
+
 def classify(path: str) -> tuple[str | None, str]:
     """(роль или None, причина). Запреты сильнее разрешений, кроме точечных ALLOW_FIRST."""
     low = path.lower()
@@ -146,7 +168,9 @@ def build() -> dict:
     cats = json.load(open(TAX))
     out = {}
     for key, c in cats.items():
-        role, why = classify(c['path'])
+        role, why = OVERRIDES.get(key) or classify(c['path'])
+        if key in MIXED:
+            role, why = None, 'смешанная ветка: роль по названию товара (MIXED, load3)'
         out[key] = {'mid': c['mid'], 'id': c['id'], 'path': c['path'],
                     'offers': c['offers'], 'role': role, 'why': why}
     json.dump(out, open(OUT, 'w'), ensure_ascii=False)
@@ -171,8 +195,9 @@ def build() -> dict:
 def review(limit: int = 25) -> None:
     """Крупные категории, оставшиеся без роли — по ним решение ещё не принято."""
     out = json.load(open(OUT)) if os.path.exists(OUT) else build()
+    show_all = '--all' in sys.argv     # и ветки, убитые DENY: ошибочный запрет иначе невидим
     rest = [c for c in out.values()
-            if not c['role'] and c['offers'] > 30 and c['why'] == 'не относится к гостиной']
+            if not c['role'] and c['offers'] > 30 and (show_all or c['why'] == 'не относится к гостиной')]
     rest.sort(key=lambda c: -c['offers'])
     print(f'категорий без решения (товаров > 30): {len(rest)}\n')
     for c in rest[:limit]:
@@ -186,13 +211,26 @@ def apply() -> None:
     kids_sql = ("update products set cat_role=null where cat_role is not null and name ~* "
                 "'детск|для детей|машинк|мультфильм|единорог|русалк|дракош|человек-паук|"
                 "принцесс|микки|лего|барби|смешарик|котят|щенячий|фиксик|подростков';")
-    subprocess.run(PSQL, input=(
+    mixed_sql = ' or '.join(f"(p.shop_mid={k.split(':')[0]} and p.category_id::text='{k.split(':')[1]}')" for k in MIXED) or 'false'
+    before = subprocess.run(PSQL, capture_output=True, text=True,
+                            input="select count(*) from products where cat_role is not null").stdout.strip()
+    # одна транзакция и проверка кода возврата: раньше сброс всех ролей и их восстановление шли
+    # отдельными запросами без проверки, падение посередине оставляло каталог без ролей (Codex 03.09)
+    r = subprocess.run(PSQL, input=(
+        "begin;"
         "alter table products add column if not exists cat_role text;"
         "create index if not exists idx_products_cat_role on products (cat_role);"
-        "update products set cat_role=null where cat_role is not null;"
+        f"update products p set cat_role=null where cat_role is not null and not ({mixed_sql});"
         f"update products p set cat_role=v.role from (values {','.join(vals)}) "
-        "as v(mid, cid, role) where p.shop_mid=v.mid and p.category_id::text=v.cid;" + kids_sql
+        f"as v(mid, cid, role) where p.shop_mid=v.mid and p.category_id::text=v.cid and not ({mixed_sql});"
+        + kids_sql + "commit;"
     ), capture_output=True, text=True)
+    if r.returncode != 0:
+        print('СТОП: --apply откатился, роли не изменены:', r.stderr[:400])
+        sys.exit(1)
+    after = subprocess.run(PSQL, capture_output=True, text=True,
+                           input="select count(*) from products where cat_role is not null").stdout.strip()
+    print(f'товаров с ролью: было {before}, стало {after} (MIXED-ветки не трогаем — их роли ставит load3)')
     r = subprocess.run(PSQL, capture_output=True, text=True, input=
                        "select cat_role, count(*) from products where cat_role is not null "
                        "and in_stock group by 1 order by 2 desc")
@@ -203,7 +241,29 @@ def apply() -> None:
             print(f'  {f[1]:>6}  {f[0]}')
 
 
+def selftest() -> int:
+    bad = 0
+
+    def check(name, cond, got=''):
+        nonlocal bad
+        if not cond:
+            bad += 1
+            print(f'  FAIL {name}: {got}')
+    check('override сильнее регекса', (OVERRIDES.get('96431:1476') or classify('Шкафы / Наполнение / Пантографы'))[0] is None)
+    check('без override пантографы попадали в шкаф', classify('Шкафы. Гардеробные. Двери / Наполнение для шкафов / Пантографы')[0] == 'шкаф')
+    check('mixed: кресло по названию', role_by_name('Кресло divan.ru Боско Экокожа Серый') == 'кресло', role_by_name('Кресло divan.ru Боско'))
+    check('mixed: матрас — DENY по названию', role_by_name('Матрас divan.ru Фрэн 180x200') is None, role_by_name('Матрас divan.ru Фрэн 180x200'))
+    check('mixed: детское — None', role_by_name('Кресло детское Единорог') is None)
+    check('mixed: шкаф по названию', role_by_name('Распашной шкаф divan.ru Изи 2-100x220') == 'шкаф', role_by_name('Распашной шкаф divan.ru Изи'))
+    check('лист сильнее родителя', classify('Диваны и кресла / Кресла')[0] == 'кресло')
+    check('кашпо allow-first, но не уличное', classify('Товары для сада / Кашпо')[0] == 'кашпо' and classify('Товары для сада / Уличные кашпо')[0] is None)
+    print(f'category_map selftest: ошибок {bad}')
+    return 1 if bad else 0
+
+
 def main() -> None:
+    if '--selftest' in sys.argv:
+        sys.exit(selftest())
     if '--build' in sys.argv:
         build()
     elif '--review' in sys.argv:
