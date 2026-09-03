@@ -35,16 +35,16 @@ Push в `main` → CI gate → `Deploy prod` (health.version == HEAD). Ручн�
 - Smoke: `/`=200; `/api/health` ok; VPN цел (remnanode Up).
 
 ## Сторож каталога (ADR-0172)
-`remlab-catalog-watchdog.timer` 15:30 UTC → `/opt/remlab/scripts/catalog-watchdog.sh`: нет статуса за сегодня
-в `/opt/remlab/test/status/refresh-status.json` или `overall=FAIL` → Telegram (`/opt/remlab/catalog-watchdog/.env`).
-Kill-switch `DISABLED` там же; откат `systemctl disable --now`. Юниты — `infra/server/systemd/`.
+`remlab-catalog-watchdog.timer` 15:30 UTC: нет сегодняшнего статуса в `refresh-status.json` или
+`overall=FAIL` → Telegram. Kill-switch `DISABLED`, откат `systemctl disable --now`; юниты —
+`infra/server/systemd/`.
 
 ## Автоочистка (ADR-0005)
 Логи 10m×3; weekly `remlab-cleanup` (+трейсы >90 дн.); ночной `pg_dump` ×7; df-watchdog >80%.
 
-## Правки сервера 31.08 (ADR-0139; откат — бэкапы *.bak-20260831)
-sshd `GatewayPorts clientspecified`; iptables bridge→`172.18.0.1:8601` — туннель DEV-рендера (выключить =
-удалить `/opt/remlab/test/share/render-proxy.conf`). `remlab-draft` правится docker cp (детали — ADR-0139).
+## Правки сервера 31.08
+sshd `GatewayPorts clientspecified`, iptables-туннель DEV-рендера, `remlab-draft` через docker cp —
+детали и откат в ADR-0139 (бэкапы `*.bak-20260831`).
 
 ## Секреты
 `.env` в `/opt/remlab` (вне git): `POSTGRES_PASSWORD`/`GEMINI_API_KEY`/`TRACE_ADMIN_TOKEN`.
