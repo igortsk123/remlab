@@ -47,18 +47,26 @@ failure_kind (почему не смогли проверить), evidence_kind 
   gipfel.ru     антибот: 403 DDoS-guard → unknown.
 """
 import hashlib
+import json
+import os
 import re
 import sys
 import urllib.parse
 
-PROBE_VERSION = 1
+# ПАРСЕР v2 (план stock-and-dims-honesty, Н0) — ТОЛЬКО В ТЕНИ, пока не пройден gold-замер:
+# snake_case значений (`content="in_stock"` у tvoydom — 3 332 карточки читались как «без признака»),
+# `href=` рядом с `content=` при любом порядке атрибутов (gipfel), JSON-LD только объекта Product,
+# inline-JSON остаток tvoydom (`overallStock`/`availableShops`) как часть ОДНОГО вердикта.
+# Включение: STOCK_PARSER_V2=1 (shadow-прогон); после gold — переключить дефолт и PROBE_VERSION.
+PARSER_V2 = os.environ.get('STOCK_PARSER_V2', '0') == '1'
+PROBE_VERSION = 2 if PARSER_V2 else 1
 
 # evidence: 'sku' — ссылка ведёт на конкретный вариант; 'series' — только на страницу серии.
 # signals: какие структурные признаки читаем. Текстовые маркеры не используются нигде.
 SHOP_EVIDENCE = {
     'divan.ru':        {'evidence': 'sku',    'signals': ('schema',)},
     'divanboss.ru':    {'evidence': 'sku',    'signals': ('schema',)},
-    'tvoydom.ru':      {'evidence': 'sku',    'signals': ('schema',)},
+    'tvoydom.ru':      {'evidence': 'sku',    'signals': ('schema', 'inline_stock')},
     'mdm-complect.ru': {'evidence': 'sku',    'signals': ('schema',)},
     'gipfel.ru':       {'evidence': 'sku',    'signals': ('schema',)},
     'h-f-l.ru':        {'evidence': 'sku',    'signals': ('schema',)},
@@ -73,9 +81,22 @@ _SCHEMA_RE = re.compile(
     r'(?:availability["\']?\s*[:=]\s*["\']?(?:https?://schema\.org/)?|itemprop=["\']availability["\'][^>]{0,80}?content=["\'])'
     r'(InStock|InStoreOnly|OnlineOnly|LimitedAvailability|BackOrder|PreOrder|PreSale|SoldOut|OutOfStock|Discontinued)',
     re.I)
+# v2: те же значения в snake_case/с дефисом, форма href=, любой порядок атрибутов в теге
+_AVAIL_VALUE = r'(in[_ -]?stock|in[_ -]?store[_ -]?only|online[_ -]?only|limited[_ -]?availability|back[_ -]?order|pre[_ -]?order|pre[_ -]?sale|sold[_ -]?out|out[_ -]?of[_ -]?stock|discontinued)'
+_SCHEMA_RE_V2 = re.compile(
+    r'(?:availability["\']?\s*[:=]\s*["\']?(?:https?://schema\.org/)?|'
+    r'itemprop=["\']availability["\'][^>]{0,120}?(?:content|href)=["\'](?:https?://schema\.org/)?|'
+    r'(?:content|href)=["\'](?:https?://schema\.org/)?)' + _AVAIL_VALUE, re.I)
+_TAG_AVAIL_RE = re.compile(r'<(?:meta|link)\b[^>]*itemprop=["\']availability["\'][^>]*>', re.I)
 _POSITIVE = {'instock', 'instoreonly', 'onlineonly', 'limitedavailability', 'backorder',
              'preorder', 'presale'}
 _NEGATIVE = {'soldout', 'outofstock', 'discontinued'}
+_INLINE_STOCK_RE = re.compile(r'"overallStock"\s*:\s*(-?\d+)|"availableShops"\s*:\s*(-?\d+)')
+_LDJSON_RE = re.compile(r'<script[^>]+application/ld\+json[^>]*>(.*?)</script>', re.I | re.S)
+
+
+def _norm_avail(v: str) -> str:
+    return re.sub(r'[_ -]', '', (v or '').lower())
 
 # Признаки, что нас не пустили (а не что товара нет). Ловим до любых выводов о наличии.
 # ОСТОРОЖНО С СЛОВОМ «captcha»: на живой карточке divanboss оно встречается 18 раз — это
@@ -120,13 +141,58 @@ def url_key(url: str) -> str:
     return hashlib.sha1(norm.encode('utf-8')).hexdigest()[:16]
 
 
+def _ldjson_product_avail(body: str) -> list:
+    """v2: availability ТОЛЬКО из объектов Product в JSON-LD (не из аксессуаров/списков)."""
+    out = []
+    for m in _LDJSON_RE.finditer(body or ''):
+        try:
+            data = json.loads(m.group(1).strip())
+        except Exception:  # noqa: BLE001 — битый блок JSON-LD не судья
+            continue
+        stack = [data]
+        while stack:
+            x = stack.pop()
+            if isinstance(x, list):
+                stack.extend(x); continue
+            if not isinstance(x, dict):
+                continue
+            t = x.get('@type')
+            types = t if isinstance(t, list) else [t]
+            if any(str(tt).lower() == 'product' for tt in types if tt):
+                offers = x.get('offers')
+                for o in (offers if isinstance(offers, list) else [offers]):
+                    if isinstance(o, dict) and o.get('availability'):
+                        out.append(_norm_avail(str(o['availability']).split('/')[-1]))
+            for k in ('@graph', 'mainEntity', 'itemListElement'):
+                if k in x:
+                    stack.append(x[k])
+    return out
+
+
+def _micro_avail(body: str) -> list:
+    """v2: значения availability из тегов микроразметки, content= или href=, любой порядок атрибутов."""
+    out = []
+    for m in _TAG_AVAIL_RE.finditer(body or ''):
+        tag = m.group(0)
+        v = re.search(r'(?:content|href)=["\']([^"\']+)["\']', tag, re.I)
+        if v:
+            out.append(_norm_avail(v.group(1).split('/')[-1]))
+    return out
+
+
 def schema_state(body: str):
     """→ 'positive' | 'negative' | None. Смешанные сигналы читаем как положительные.
 
     На странице бывает несколько offers (варианты, аксессуары). Пока есть хоть один положительный,
     считать товар отсутствующим нельзя — иначе распродажа аксессуара утащит живой диван.
+    v2: JSON-LD только Product, микроразметка content/href, snake_case; v1 — прежняя регулярка.
     """
-    vals = [m.group(1).lower() for m in _SCHEMA_RE.finditer(body or '')]
+    if PARSER_V2:
+        vals = _ldjson_product_avail(body) + _micro_avail(body)
+        if not vals:
+            vals = [_norm_avail(m.group(1)) for m in _SCHEMA_RE_V2.finditer(body or '')]
+    else:
+        vals = [m.group(1).lower() for m in _SCHEMA_RE.finditer(body or '')]
     if not vals:
         return None
     if any(v in _POSITIVE for v in vals):
@@ -134,6 +200,21 @@ def schema_state(body: str):
     if any(v in _NEGATIVE for v in vals):
         return 'negative'
     return None
+
+
+def inline_stock_state(body: str):
+    """v2, tvoydom: остаток из inline-JSON карточки → 'positive' | 'negative' | None."""
+    stock = shops = None
+    for m in _INLINE_STOCK_RE.finditer(body or ''):
+        if m.group(1) is not None and stock is None:
+            stock = int(m.group(1))
+        if m.group(2) is not None and shops is None:
+            shops = int(m.group(2))
+    if stock is None and shops is None:
+        return None
+    if (stock or 0) > 0 or (shops or 0) > 0:
+        return 'positive'
+    return 'negative'
 
 
 def classify_full(shop: str, http_code, body: str = '', error: str = '', final_url: str = '',
@@ -178,6 +259,18 @@ def classify_full(shop: str, http_code, body: str = '', error: str = '', final_u
         return out('unknown', 'страница серии не доказывает вариант', 'http', 'no_signal')
     if 'schema' in c['signals']:
         st = schema_state(body)
+        if PARSER_V2 and 'inline_stock' in c['signals']:
+            ist = inline_stock_state(body)
+            # один вердикт из двух сигналов одной страницы (Codex): положительный побеждает,
+            # отрицательный — только без положительного, конфликт → unknown
+            if st == 'positive' or ist == 'positive':
+                if (st == 'negative' and ist == 'positive') or (st == 'positive' and ist == 'negative'):
+                    return out('unknown', 'конфликт schema ↔ inline-остаток', 'http', 'no_signal')
+                src = 'schema' if st == 'positive' else 'inline_stock'
+                return out('alive', f'{src}: в продаже', 'http', None, src)
+            if st == 'negative' or ist == 'negative':
+                src = 'schema' if st == 'negative' else 'inline_stock'
+                return out('oos', f'{src}: нет в продаже', 'http', None, src)
         if st == 'positive':
             return out('alive', 'schema: в продаже', 'http', None, 'schema')
         if st == 'negative':
@@ -292,7 +385,23 @@ def _selftest() -> int:
         if got != want:
             bad += 1
             print(f'  FAIL kinds {args[0]} http={args[1]}: {got}, ожидалось {want}')
-    print(f'page_alive selftest: случаев {len(cases) + len(pairs) + len(kinds) + 2}, ошибок {bad}')
+    # v2-разбор (Н0): snake_case, href, любой порядок атрибутов, JSON-LD только Product, inline-остаток
+    v2 = [
+        (_micro_avail('<meta content="in_stock" itemprop="availability">'), ['instock']),
+        (_micro_avail('<link itemprop="availability" href="http://schema.org/InStock">'), ['instock']),
+        (_micro_avail('<meta itemprop="availability" content="out_of_stock"/>'), ['outofstock']),
+        (_ldjson_product_avail('<script type="application/ld+json">{"@type":"Product","offers":{"availability":"https://schema.org/OutOfStock"}}</script>'), ['outofstock']),
+        (_ldjson_product_avail('<script type="application/ld+json">{"@type":"BreadcrumbList","offers":{"availability":"https://schema.org/InStock"}}</script>'), []),
+        (_ldjson_product_avail('<script type="application/ld+json">{"@graph":[{"@type":"Product","offers":[{"availability":"http://schema.org/InStock"},{"availability":"http://schema.org/SoldOut"}]}]}</script>'), ['instock', 'soldout']),
+        (inline_stock_state('"price":5399,"overallStock":4,"availableShops":3'), 'positive'),
+        (inline_stock_state('"overallStock":0,"availableShops":0'), 'negative'),
+        (inline_stock_state('нет таких полей'), None),
+    ]
+    for got, want in v2:
+        if got != want:
+            bad += 1
+            print(f'  FAIL v2: {got!r} != {want!r}')
+    print(f'page_alive selftest: случаев {len(cases) + len(pairs) + len(kinds) + len(v2) + 2}, ошибок {bad}')
     return 1 if bad else 0
 
 

@@ -57,6 +57,9 @@ TTL, затем хвост по давности. Снятые товары с �
   stock_check.py --dry-run            # проверить и показать, ничего не применяя
   stock_check.py --reapply [run_id]   # применить уже собранные наблюдения заново, без запросов
   stock_check.py --max-minutes 90     # ограничить время обхода (по умолчанию 150)
+  STOCK_PARSER_V2=1 stock_check.py --shadow --shop tvoydom.ru [--alive 300 --unknown 300 --neg 100]
+                                      # ТЕНЬ (Н0): парсер v2 пишет наблюдения disposition='shadow',
+                                      # ничего не применяет; отчёт — stock_shadow_report.py
 """
 import datetime as dt
 import json
@@ -74,7 +77,7 @@ from concurrent.futures import ThreadPoolExecutor
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from page_alive import PROBE_VERSION, classify_full, schema_state, url_key   # noqa: E402
+from page_alive import PARSER_V2, PROBE_VERSION, classify_full, schema_state, url_key   # noqa: E402
 from stock_truth import (CONFIRM_GAP_MIN, audit, db, fold, gate, q,   # noqa: E402
                          reconcile)
 import stock_canary   # noqa: E402 — канарейка адреса как гейт перед применением
@@ -82,7 +85,7 @@ import stock_canary   # noqa: E402 — канарейка адреса как г
 REPORT = os.path.join(HERE, 'stock-report.json')
 UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
       'Chrome/126.0.0.0 Safari/537.36')
-MAX_BYTES = 1_200_000          # schema бывает и на 62% страницы (divanboss) — читаем чанками
+MAX_BYTES = 2_500_000 if PARSER_V2 else 1_200_000   # v2: inline-остаток tvoydom лежит глубже 1,2 МБ (страница 4,2 МБ, gzip)
 CHUNK = 65_536
 HOST_PAUSE = (2.0, 5.0)        # пауза между запросами к одному домену
 BLOCK_STREAK = 5               # подряд «нас не пустили» → домен заморожен до следующего прогона
@@ -635,7 +638,51 @@ def alert(text: str) -> None:
         os.system(f'bash {sh} "{text}" || true')
 
 
+def shadow_candidates(shop: str, n_alive: int, n_unknown: int, n_neg: int) -> list:
+    """Выборка для тени: недавно живые (gold: ложных негативов быть не должно), «неизвестные»
+    (что v2 распознаёт) и известные снятые (ловит ли v2 их) — из принятых статусов v1."""
+    out = []
+    for state, n, order in (('alive', n_alive, 'ps.checked_at desc'), ('unknown', n_unknown, 'random()'),
+                            ('gone', n_neg, 'random()'), ('oos', n_neg, 'random()')):
+        if n <= 0:
+            continue
+        rows = db(f"""select p.shop_mid, p.external_id, p.shop, coalesce(p.direct_url, p.url), ps.state
+                       from products p join product_page_status ps using (shop_mid, external_id)
+                       join product_enrichment e using (shop_mid, external_id)
+                      where lower(p.shop) = {q(shop.lower())} and ps.state = {q(state)} and e.status = 'active'
+                        and coalesce(p.direct_url, p.url) <> ''
+                      order by {order} limit {int(n)};""")
+        out += [(int(r[0]), r[1], r[2], r[3], r[4], 0) for r in rows if len(r) == 5]
+    per = {}
+    for it in out:
+        per[it[4]] = per.get(it[4], 0) + 1
+    print(f'тень {shop}: {len(out)} карточек по прежним статусам ' + ', '.join(f'{k} {v}' for k, v in per.items()), flush=True)
+    return out
+
+
 def main() -> int:
+    if '--shadow' in sys.argv:
+        if not PARSER_V2:
+            print('тень имеет смысл только с STOCK_PARSER_V2=1'); return 2
+        shop = sys.argv[sys.argv.index('--shop') + 1] if '--shop' in sys.argv else ''
+        if not shop:
+            print('--shadow требует --shop'); return 2
+        arg = lambda k, d: int(sys.argv[sys.argv.index(k) + 1]) if k in sys.argv else d
+        max_min = arg('--max-minutes', 240)
+        db(open(os.path.join(HERE, '003-stock-truth.sql'), encoding='utf-8').read())
+        db(open(os.path.join(HERE, '004-stock-honesty.sql'), encoding='utf-8').read())
+        run_id = dt.datetime.now().strftime('%Y%m%d-%H%M%S') + '-shadow'
+        picked = shadow_candidates(shop, arg('--alive', 300), arg('--unknown', 300), arg('--neg', 100))
+        if not picked:
+            print('тень: нечего проверять'); return 1
+        obs = crawl(picked, run_id, max_minutes=max_min)
+        for o in obs:
+            if o.get('disposition') != 'anchor':
+                o['disposition'] = 'shadow'
+        save_observations(obs, run_id)
+        print(f'тень записана: run_id={run_id}, наблюдений {len(obs)} (v{PROBE_VERSION}); применение НЕ выполнялось. '
+              f'Отчёт: stock_shadow_report.py --run {run_id}', flush=True)
+        return 0
     if '--reapply' in sys.argv:
         i = sys.argv.index('--reapply')
         run = sys.argv[i + 1] if len(sys.argv) > i + 1 and not sys.argv[i + 1].startswith('-') \
