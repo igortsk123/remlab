@@ -44,7 +44,7 @@ ROLES_PATH = os.environ.get('SCOUT_ROLES_PATH') or os.path.join(HERE, 'category-
 FRESH_PATH = os.path.join(HERE, 'feed-freshness.json')
 PSQL = shlex.split(os.environ.get('SCOUT_PSQL_CMD') or '') or [
     "docker", "exec", "-i", "remlab-devdb", "psql", "-U", "remlab", "-d", "remlab", "-q", "-v", "ON_ERROR_STOP=1"]
-HASH_VERSION = 2          # 1 — четыре хеша по фидовым полям; 2 — эффективное описание + attrs + hd
+HASH_VERSION = 3          # 1 — четыре хеша по фидовым полям; 2 — эффективное описание + attrs + hd; 3 — оси размеров по магазину/роли (П3.1)
 SHRINK_RATIO = 0.7
 DESC_MAX = 1500
 
@@ -452,12 +452,22 @@ on conflict (shop_mid,external_id) do update set
   description=coalesce(nullif(excluded.description,''), p.description),
   -- authority сильнее свежести: scrape/manual фид не затирает; остальное — resolver каждый прогон
   w_cm   =case when p.dims_source in ('scrape','manual') then p.w_cm    else excluded.w_cm    end,
-  d_cm   =case when p.dims_source in ('scrape','manual') then p.d_cm    else excluded.d_cm    end,
+  -- глубина из меша (mesh_dims.py, провенанс dims_evidence.d.source='mesh_ratio') живёт, пока фид не даст
+  -- ИЗМЕРЕННУЮ глубину: измеренное сильнее инференса, инференс сильнее пустоты (authority по оси, П3.4)
+  d_cm   =case when p.dims_source in ('scrape','manual') then p.d_cm
+               when excluded.d_cm is null and p.dims_evidence->'d'->>'source' = 'mesh_ratio' then p.d_cm
+               else excluded.d_cm end,
   h_cm   =case when p.dims_source in ('scrape','manual') then p.h_cm    else excluded.h_cm    end,
   len_cm =case when p.dims_source in ('scrape','manual') then p.len_cm  else excluded.len_cm  end,
   dia_cm =case when p.dims_source in ('scrape','manual') then p.dia_cm  else excluded.dia_cm  end,
-  dims_source  =case when p.dims_source in ('scrape','manual') then p.dims_source   else excluded.dims_source   end,
-  dims_evidence=case when p.dims_source in ('scrape','manual') then p.dims_evidence else excluded.dims_evidence end,
+  dims_source  =case when p.dims_source in ('scrape','manual') then p.dims_source
+                     when excluded.d_cm is null and p.dims_evidence->'d'->>'source' = 'mesh_ratio'
+                       then coalesce(excluded.dims_source,'') || ' mesh:1'
+                     else excluded.dims_source end,
+  dims_evidence=case when p.dims_source in ('scrape','manual') then p.dims_evidence
+                     when excluded.d_cm is null and p.dims_evidence->'d'->>'source' = 'mesh_ratio'
+                       then coalesce(excluded.dims_evidence,'{{}}'::jsonb) || jsonb_build_object('d', p.dims_evidence->'d')
+                     else excluded.dims_evidence end,
   params=excluded.params, cat_role=excluded.cat_role,
   category_id=excluded.category_id, category_path=excluded.category_path;
 insert into product_enrichment as e (shop_mid,external_id,commercial_hash,text_hash,geometry_hash,image_hash,
