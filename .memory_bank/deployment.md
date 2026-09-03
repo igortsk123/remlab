@@ -26,12 +26,9 @@ last_verified: 2026-09-03
 exit-fi 89.167.127.0 (2 vCPU/3.7G/38G), compose v2, `/opt/remlab`, swap 4G, SSH root@ (:22222).
 Соседи НЕ трогать: remnanode, rw-core, nginx :80.
 
-## Деплой — `./deploy.sh <tag>` (всё автоматом)
-buildx arm64 → `:prev` → save|ssh|load → `compose up -d` (+SQL-миграции `db/init/*.sql`
-идемпотентно) → smoke → провал = откат на `:prev`.
-
-**Авто-деплой:** push в `main` → CI gate → `Deploy prod` (health.version == HEAD). Ручной
-`./deploy.sh` — запасной (⚠️ НЕ с DEV-VM: OOM).
+## Деплой
+Push в `main` → CI gate → `Deploy prod` (health.version == HEAD). Ручной `./deploy.sh <tag>` — запасной
+(buildx arm64 → `:prev` → load → `compose up -d` + `db/init/*.sql` → smoke → откат на `:prev`; НЕ с DEV-VM: OOM).
 
 ## Откат / smoke
 - Откат: `docker tag remlab-app:prev remlab-app:latest && docker compose up -d`
