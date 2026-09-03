@@ -56,6 +56,10 @@ def patch(nodes: list[dict], job_fn) -> None:
     S.instances = lambda: list(nodes)
     S.ssh_text = lambda port, cmd, timeout=60: 'NVIDIA GeForce RTX 3090'   # фоновый опрос карты
     S.probe_warm = lambda port: True
+    # Супервизор с 03.09 спрашивает у ноды ВЕСЬ `/health`, а не только «тёплая ли»: по тому же
+    # ответу он снимает зомби с мёртвым прогревом. Стенд подменяет транспорт, поэтому здесь
+    # отдаём здоровый ответ — без `warmup_error`, иначе нода уедет в пересадку.
+    S.probe_health = lambda port: {'ok': True, 'warm': True, 'done': 0, 'gpu_seconds': 0.0}
     S.run_job = job_fn
     S.jobs_from_file = lambda path: patch.jobs           # noqa: B010 — стенд
     S.stop_group = lambda: None

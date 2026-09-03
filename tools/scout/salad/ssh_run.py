@@ -649,7 +649,28 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
             # распараллелили раньше — про добор на ходу я тогда забыл, хотя он важнее: пул
             # наполняется постепенно, и почти каждая нода приходит именно через супервизор.
             with cf.ThreadPoolExecutor(max_workers=min(PROBE_WORKERS, len(cands))) as ex:
-                warm = list(ex.map(lambda i: probe_warm(i['port']), cands))
+                health = list(ex.map(lambda i: probe_health(i['port']), cands))
+            # ЗОМБИ СНИМАЕМ ЗДЕСЬ, А НЕ ТОЛЬКО ПРИ ПУСТОМ ПУЛЕ (03.09). Пересадка нод с мёртвым
+            # прогревом стояла в `batch_show` в ветках «нет тёплых нод» — то есть срабатывала,
+            # лишь когда простаивал ВЕСЬ пул. Пока часть нод работает, ветки не выполняются, и
+            # зомби живёт бесконечно: 03.09 одна такая простояла 225 минут при живом пуле, ещё
+            # одна 73, и средняя занятость упала с 90% до 56%. Супервизор крутится каждые
+            # POLL_S секунд независимо от загрузки — вот его законное место.
+            zombies = [(i, warmup_fault(h)) for i, h in zip(cands, health)
+                       if h.get('warm') and warmup_fault(h)]
+            # Общая беда — не повод менять машины: заменят такой же (тот же принцип, что в
+            # `node_health.fleet_wide` и в пересадке по закачке).
+            if zombies and len({w for _, w in zombies}) == 1 and len(zombies) >= max(2, len(cands) * 0.5):
+                print(f'  [супервизор] прогрев упал одинаково у {len(zombies)} из {len(cands)} — '
+                      f'это наша беда, не машины: {zombies[0][1][:90]}', flush=True)
+            else:
+                for inst, why in zombies:
+                    if not NH.take_cull_slot():
+                        break
+                    print(f'  [супервизор] нода {inst["id"][:8]} прогрев мёртв — ПЕРЕСАЖИВАЮ: '
+                          f'{why[:90]}', flush=True)
+                    NH.reallocate(inst['group'], inst['id'], f'warmup: {why[:80]}')
+            warm = [bool(h.get('warm')) and not warmup_fault(h) for h in health]
             added = 0
             for inst, is_warm in zip(cands, warm):
                 if not is_warm:
