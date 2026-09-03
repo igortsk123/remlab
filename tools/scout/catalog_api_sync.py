@@ -94,10 +94,12 @@ def page(mid: int, query: str, p: int, tok: str, limit: int = 100) -> list[dict]
     return out
 
 
-def sync_shop(mid: int, tok: str) -> tuple[int, int]:
-    """→ (уникальных офферов, запросов). Обход по ролям, страница за страницей до повторов."""
+def sync_shop(mid: int, tok: str) -> tuple[int, int, int]:
+    """→ (уникальных офферов, запросов, отказов сети). Обход по ролям, страница за страницей до повторов.
+    Отказ по слову не валит прогон, но считается: частичный обход не должен выглядеть как полный."""
     seen: dict[str, dict] = {}
     calls = 0
+    errors = 0
     for word in ROLES:
         for p in range(1, MAX_PAGES + 1):
             try:
@@ -105,6 +107,7 @@ def sync_shop(mid: int, tok: str) -> tuple[int, int]:
                 calls += 1
             except Exception as e:  # noqa: BLE001 — сеть моргнула: слово пропускаем, не прогон
                 print(f'  {mid} «{word}» стр {p}: {type(e).__name__}: {str(e)[:60]}', flush=True)
+                errors += 1
                 break
             if not items:
                 break
@@ -130,7 +133,7 @@ def sync_shop(mid: int, tok: str) -> tuple[int, int]:
                  image_url_hd=excluded.image_url_hd, url=excluded.url,
                  direct_url=excluded.direct_url, available=excluded.available,
                  seen_at=now()""")
-    return len(seen), calls
+    return len(seen), calls, errors
 
 
 # СВЯЗЬ С КАТАЛОГОМ — НЕ ПО ID. Идентификаторы в API испорчены округлением: приходят
@@ -143,25 +146,41 @@ JOIN_NAME = ("a.shop_mid = p.shop_mid and p.name = a.name "
              "and p.image_url_hd is null")     # только тем, кому картинка не помогла
 
 
-def merge_into_products() -> tuple[int, int]:
-    """Переносим в каталог только то, чего фид дать не может: крупное фото и описание.
+JOIN_ARTICLE = ("a.shop_mid = p.shop_mid and p.article is not null and a.article = p.article")
 
-    Цену и наличие не трогаем: за них отвечает `load3.py` со своей дельтой и своим контрактом,
-    и два писателя одного поля — верный способ получить расхождение, которого никто не заметит.
+
+def merge_into_products() -> tuple[int, int, int]:
+    """Переносим в каталог то, чего фид дать не может (план catalog-load-hardening П2.7).
+
+    С 03.09 крупное фото и описание читает из фида сам `load3.py` (original_picture есть у 100 % позиций,
+    описание — у 43 %); здесь они только ДОПОЛНЯЮТ пустое. Уникальная ценность API — `charge`
+    (комиссия ₽ за товар) и флаг `available` (гипотеза, П4). Связь — по артикулу магазина (общий ключ
+    фида и API, проверено 100/100), картинка — фолбэк. Цену и наличие не трогаем: за них отвечает
+    `load3.py`, два писателя одного поля — расхождение, которого никто не заметит.
+    → (крупных фото +, описаний +, комиссий обновлено)
     """
     hd = 0
     for cond in (JOIN_PICTURE, JOIN_NAME):
         hd += len(db(f"""update products p set image_url_hd = a.image_url_hd
                            from api_offers a
                           where {cond} and a.image_url_hd is not null
-                            and p.image_url_hd is distinct from a.image_url_hd
+                            and p.image_url_hd is null
                         returning 1"""))
+    charge = 0
+    for cond in (JOIN_ARTICLE, JOIN_PICTURE):
+        # api_offers.charge — numeric (в XML строка, в таблице число); products.charge_rub — real
+        charge += len(db(f"""update products p set charge_rub = a.charge
+                               from api_offers a
+                              where {cond} and a.charge is not null and a.charge > 0
+                                and a.seen_at > now() - interval '14 days'
+                                and p.charge_rub is distinct from a.charge::real
+                            returning 1"""))
     desc = len(db(f"""update products p set description = a.description
                         from api_offers a
                        where {JOIN_PICTURE} and a.description is not null
                          and a.description <> '' and coalesce(p.description, '') = ''
                      returning 1"""))
-    return hd, desc
+    return hd, desc, charge
 
 
 def report() -> None:
@@ -191,13 +210,17 @@ def main() -> int:
             'select distinct shop_mid from products where shop_mid is not null') if r and r[0]]
     t0 = time.time()
     total = 0
+    errors = 0
     for mid in mids:
-        n, calls = sync_shop(mid, tok)
+        n, calls, err = sync_shop(mid, tok)
         total += n
-        print(f'  магазин {mid}: {n} офферов за {calls} запросов', flush=True)
-    hd, desc = merge_into_products()
+        errors += err
+        print(f'  магазин {mid}: {n} офферов за {calls} запросов' + (f', отказов {err}' if err else ''), flush=True)
+    hd, desc, charge = merge_into_products()
     print(f'[api-sync] офферов {total} за {time.time() - t0:.0f} с; '
-          f'в каталог: крупных фото +{hd}, описаний +{desc}')
+          f'в каталог: крупных фото +{hd}, описаний +{desc}, комиссий обновлено {charge}')
+    if errors:
+        print(f'WARN:api_partial: обход API неполный — отказов сети {errors}; комиссии/наличие могут быть частичными', flush=True)
     return 0
 
 
