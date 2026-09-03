@@ -206,6 +206,57 @@ completed:
   источник HD — фид не проверили; тихий ImportError = все меши «не готовы»; готовность привязана к версии входа).
 - `/memory-check`; план → `completed_plans/` только при чистом аудите.
 
+## Критика Codex (П0.2, 03.09) — что меняется в плане
+Ответ советника: `_intake/codex-catalog-load-plan.md` (шесть блокеров). Принято и внесено:
+1. **CI после чистого парсера.** Джоб `scout-selftest` гоняет только существующие чистые селфтесты
+   (`dim_resolver`, `reflink`, `stock_truth`, `feed_guard`) на мини-фикстурах; `load3 --selftest` и
+   `category_map --selftest` добавляются в джоб только после выделения чистых функций (П2.1/П3.6), тестам
+   dev-БД запрещена.
+2. **`step()` возвращает код команды**, вывод шага без pipeline; контракт `WARN:<код>: текст`, счётчик и первая
+   строка на шаг; статус собирает python атомарно (`overall`, `exit_code`, `started_at/finished_at` UTC, `host`,
+   `git_sha`, `steps/warns/fails/skipped`); публикация на прод через временный файл и `mv`; сторож на проде
+   проверяет `overall` и кричит при FAIL; таймер `OnCalendar … UTC`. Дайджест успеха глушится
+   `DIGEST_QUIET_OK=1` (сбои и WARN — всегда). ВЫПОЛНЕНО в П1.
+3. **П2 — порядок внутри пакета:** схема (`article`, `attrs_hash`+версия) → эффективные хеши с baseline →
+   строгая привязка ревизии меша к `source_sha` (`mesh_bind` проверяет SHA, а не «самый свежий glb») →
+   транзакционный импорт `products + product_enrichment + reconcile` в одной транзакции + run-ledger
+   (`catalog_import_runs`: run_id, mid, raw_count, accepted_count, previous_success_count, verdict, forced) →
+   дедуп `(mid, external_id)` до upsert → per-mid shrink по последнему УСПЕШНОМУ baseline (не по числу строк БД),
+   `FORCE_SHRINK=all|<mid,…>` с записью в ledger → и только потом HD-бэкфилл.
+4. **HD-бэкфилл — не двухволновый env-флаг, а явная миграционная очередь:** для 58 SKU с мешом заранее
+   скачать SD и HD, сравнить SHA байтов; идентичные не трогать; остальные — атомарно обновить
+   `product_photo_current`, снять `products.mesh_status/mesh_uri` (инвариант: `ready` только при совпадении
+   текущего SHA с ревизией) и поставить задание; приоритет — SKU опубликованных сетов. Цепочка честно: «новый
+   URL → повторное скачивание → SHA изменился? → да: ревизия не готова». Ночью хешируется ≤1000 источников —
+   массовый бэкфилл растянется на ~12 дней, это нормально.
+5. **`attrs_hash`** — хеш ВСЕГО канонизированного `params` (нормализация ключей/значений, `ё`, `×/x/х`, null≡'',
+   сортировка, алиасы Коллекция/Серия) с `attrs_hash_version`; никаких ручных списков ключей. Stale-состояние
+   обогащения — не `enrichment_version=null`, а `enrichment_status=current|stale|pending` при сохранённом
+   последнем payload: `todo()` берёт stale/pending, `capabilities` продолжает читать payload с provenance `stale`.
+   `text_hash` — от эффективного описания (после coalesce) с отдельным baseline, чтобы значение и отпечаток
+   не расходились; два image-контракта (`image_url` для GPT, `coalesce(hd, image_url)` для вырезки/мешей) —
+   два хеша.
+6. **П3.4 глубина из меша:** гейт не `mesh_ready()`, а `mesh_geometry_eligible`: точное совпадение
+   `asset_revision.glb_sha == orientation_state.resolution.glb_sha`, пройденные geometry/profile gate, без
+   `unusable`/slab/flat_shape; шаг ставится ПОСЛЕ `orient_worker`, затем повторный `capabilities --build`.
+   Authority по каждой оси в `dims_evidence` (`manual/scrape/feed_param > mesh_ratio > role_prior > assumed`),
+   измеренный фид сильнее mesh-инференса; масштаб проверяется по двум известным осям (`s_w` vs `s_h`, при
+   расхождении глубину не выводить). Калибровка: только прямые диваны (угловые/модульные — отдельная страта или
+   исключены), метрики median APE, P90, максимальная недооценка, доля gross error > 20 %; провенанс —
+   `source=mesh_ratio`, ref axis/value, raw extents, glb_sha, revision key, orientation key/version, роль, версия
+   формулы, confidence; при смене меша/ориентации значение stale.
+7. **П3.5 MIXED через загрузчик:** `load3` не отбрасывает оффер категории из `MIXED` до классификации по
+   названию; `category_map --apply` — транзакция с проверкой return code и blast-radius до записи, MIXED не
+   зануляется.
+8. **П4** — только read-only исследование, метрика — precision отрицательного сигнала на стратифицированной
+   выборке, без влияния на `in_stock`; формулировка «API — источник наличия» из ADR убирается.
+9. **API-свежесть:** `catalog_api_sync` глотает сетевые ошибки по словам — при переносе `charge` добавить
+   `seen_at`-порог и WARN при частичном обходе.
+10. Один ADR на пакет (authority/жизненный цикл) + таблица «поле → источник» в `core/catalog.md`.
+
+Отклонено: «ежедневный дайджест успеха = alert fatigue» — оставлен по решению владельца (видимость важнее),
+но выключаем одной строкой.
+
 ## Что переиспользуем
 `alert.sh` (Telegram при наличии `.env.alert`); `feed_guard.py` состояния; `stock_truth.reconcile()` — единственный
 писатель `in_stock`; `dim_resolver.resolve()` лестница единиц + `dims_evidence`; `category_map.classify()` для роли по
@@ -240,6 +291,10 @@ completed:
 кабинет Гдеслона (155 товаров, пустая выгрузка). Остальное не ждёт.
 
 ## Лог выполнения
+- 2026-09-03 — П0.1 (план, хаб, 155 товаров), П0.3 (фикстура), П0.4 (CI scout-selftest на чистых
+  селфтестах), П0.2 (критика Codex — 6 блокеров, внесены), П1.1 (.env.alert, chat_id ждёт Start),
+  П1.2/1.3 (step/дайджест/статус/сторож на проде), П1.4 (feed_guard), П1.5 (asset_strategy/sys.path),
+  П1.6 (крон 10:40 UTC) — сделано; коммиты 83287f3…
 - 2026-09-03 — план собран по итогам диалога-аудита загрузки (`_intake/dialog-catalog-load-0309.md`), прошёл
   внутреннее ревью (16 правок), одобрен владельцем в plan mode → `in_progress`. Критика Codex — П0.2.
 
