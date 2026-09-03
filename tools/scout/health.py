@@ -59,7 +59,7 @@ def main() -> int:
       from products p
       left join product_page_status ps on ps.shop_mid = p.shop_mid and ps.external_id = p.external_id
      where (p.shop_mid, p.external_id) in ({keys});""")
-    report = {'checked': len(rows), 'dead': [], 'suspect': [], 'stale': [], 'missing_in_db': []}
+    report = {'checked': len(rows), 'dead': [], 'stale': [], 'missing_in_db': []}
     seen = set()
     for mid, eid, shop, name, in_stock, state, reason, age_d in rows:
         key = (int(mid), eid)
@@ -69,8 +69,6 @@ def main() -> int:
                 'in_stock': in_stock == 't', 'used_in': todo[key]['refs']}
         if state in ('gone', 'oos'):
             report['dead'].append(item)
-        elif state == 'suspect':
-            report['suspect'].append(item)
         elif int(age_d) < 0 or int(age_d) > STALE_DAYS:
             report['stale'].append(item)
     for key, rec in todo.items():
@@ -79,7 +77,7 @@ def main() -> int:
                                             'name': rec['name'][:60], 'used_in': rec['refs']})
     json.dump(report, open(REPORT, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     print(f'товаров в комплектах: {len(todo)} | мертвы: {len(report["dead"])} | '
-          f'ждут подтверждения: {len(report["suspect"])} | давно не проверялись: '
+          f'давно не проверялись: '
           f'{len(report["stale"])} | нет в каталоге: {len(report["missing_in_db"])}')
     for it in report['dead'][:10]:
         print(f'  МЁРТВ {it["shop"]:16s} {it["name"][:44]:44s} — {it["reason"]} '

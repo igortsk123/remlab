@@ -9,10 +9,11 @@
 (`product_enrichment.status`, `shop_status.program_state`, `product_page_status.state`),
 а `products.in_stock` — производное, которое материализует ТОЛЬКО `reconcile()` отсюда.
 
-ПОЧЕМУ СНЯТИЕ ТРЕБУЕТ ДВУХ НАБЛЮДЕНИЙ. Одиночный 404 бывает у живого товара: выкат магазина,
-WAF, геоблок, испорченная ссылка. А снятие запускает физическую замену состава в боевых сетах,
-поэтому цена ошибки высокая. Первое отрицательное свидетельство даёт `suspect` (наличие не
-трогаем), второе по ТОЙ ЖЕ ссылке и не раньше чем через `CONFIRM_GAP_MIN` — применяет вердикт.
+СНИМАЕМ С ПЕРВОГО ОТКАЗА (ADR-0148), цена ошибки ограничена быстрым воскрешением (6 ч). Защита от
+массового ложного снятия — не второй голос, а: якорь домена и карантин магазина в `stock_check`
+(наблюдения карантина помечаются `disposition='quarantined'` и в свёртку больше не попадают), негатив
+действует только по ТЕКУЩЕЙ ссылке карточки (`products.direct_url_hash`), гейт считает долю по
+РЕШАЮЩИМ ответам с абсолютным пределом при малой выборке (план stock-and-dims-honesty, Н1).
 
   stock_truth.py --reconcile        # пересчитать in_stock из трёх источников
   stock_truth.py --audit            # сторож: расхождений формулы и in_stock должно быть 0
@@ -122,37 +123,49 @@ def fold(observations, gap_min: int = CONFIRM_GAP_MIN):
         last_neg_at, last_reason, last_verdict = at, reason, verdict
     if negs >= CONFIRM_NEEDED:
         return last_verdict, negs, last_reason
-    if negs == 1:
-        return 'suspect', 1, last_reason
     return 'unknown', 0, obs[-1][3]
+
+
+GATE_SMALL_MAX_NEG = 5    # малая выборка (< GATE_MIN_N решающих) не судится долей, но абсолютный
+                          # предел негативов есть: 2 gone среди 998 blocked — норма, 6 gone из 8 решающих — нет
 
 
 def gate(per_shop: dict, history: dict):
     """Какие магазины в карантине (их вердикты не применяются) → (карантин, причины).
 
-    per_shop: mid → (проверено, отрицательных); history: mid → историческая доля отрицательных.
+    per_shop: mid → (attempted, decisive, negative) — сколько пытались, сколько ответов РЕШАЮЩИХ
+    (alive/oos/gone; `unknown` в долю не входит — иначе 40 % неизвестных у tvoydom делали порог вдвое
+    мягче) и сколько отрицательных. Совместимость: пара (n, neg) читается как (n, n, neg).
+    history: mid → историческая доля отрицательных среди решающих (explore + accepted + текущая версия).
     """
     quarantine, why = set(), {}
-    total_n = sum(n for n, _ in per_shop.values())
-    total_neg = sum(neg for _, neg in per_shop.values())
-    for mid, (n, neg) in per_shop.items():
-        if n < GATE_MIN_N:
+    norm = {}
+    for mid, v in per_shop.items():
+        att, dec, neg = (v if len(v) == 3 else (v[0], v[0], v[1]))
+        norm[mid] = (att, dec, neg)
+    total_dec = sum(d for _, d, _ in norm.values())
+    total_neg = sum(neg for _, _, neg in norm.values())
+    for mid, (att, dec, neg) in norm.items():
+        if dec < GATE_MIN_N:
+            if neg > GATE_SMALL_MAX_NEG:
+                quarantine.add(mid)
+                why[mid] = f'{neg} отрицательных при {dec} решающих из {att} — малая выборка, предел {GATE_SMALL_MAX_NEG}'
             continue
-        share, hist = neg / n, history.get(mid)
+        share, hist = neg / dec, history.get(mid)
         limit = gate_limit(hist)
         if share > limit:
             quarantine.add(mid)
-            why[mid] = (f'{neg}/{n} отрицательных ({share:.0%} > {limit:.0%}' +
+            why[mid] = (f'{neg}/{dec} отрицательных ({share:.0%} > {limit:.0%}' +
                         (f', история {hist:.0%})' if hist is not None else ', первый проход)'))
     # Второй уровень — на весь прогон: сбой, задевший несколько магазинов сразу (наша сеть,
     # общий антибот-провайдер, испорченное формирование ссылок).
-    hist_all = [h for h in (history.get(m) for m in per_shop) if h is not None]
+    hist_all = [h for h in (history.get(m) for m in norm) if h is not None]
     limit_all = gate_limit(sum(hist_all) / len(hist_all) if hist_all else None)
-    if total_n >= GATE_MIN_N and total_neg / total_n > limit_all:
-        for mid in per_shop:
+    if total_dec >= GATE_MIN_N and total_neg / total_dec > limit_all:
+        for mid in norm:
             quarantine.add(mid)
-            why.setdefault(mid, f'глобально {total_neg}/{total_n} отрицательных '
-                                f'({total_neg / total_n:.0%} > {limit_all:.0%})')
+            why.setdefault(mid, f'глобально {total_neg}/{total_dec} отрицательных '
+                                f'({total_neg / total_dec:.0%} > {limit_all:.0%})')
     return quarantine, why
 
 
@@ -161,7 +174,9 @@ TRUTH_SQL = """
 select p.shop_mid, p.external_id,
        (coalesce(e.status, p.status) = 'active'
         and coalesce(s.program_state, 'active') <> 'retired'
-        and coalesce(ps.state, 'unknown') not in ('gone', 'oos')) as want,
+        -- негатив действует только по ТЕКУЩЕЙ ссылке карточки: починили ссылку — старый 404 не в счёт
+        and not (coalesce(ps.state, 'unknown') in ('gone', 'oos')
+                 and (p.direct_url_hash is null or ps.url_hash is null or ps.url_hash = p.direct_url_hash))) as want,
        p.in_stock
   from products p
   left join product_enrichment e on e.shop_mid = p.shop_mid and e.external_id = p.external_id
@@ -220,7 +235,7 @@ def _selftest() -> int:
         return T0 + dt.timedelta(minutes=minutes)
     H1, H2 = 'hash-A', 'hash-B'
     cases = [
-        ('один 404 — снимаем сразу (ADR-0148)',
+        ('один 404 — снимаем сразу (ADR-0148); suspect не существует',
          [('gone', H1, t(0), 'http 404')], ('gone', 1)),
         ('два 404 с разрывом — снимаем',
          [('gone', H1, t(0), 'http 404'), ('gone', H1, t(30), 'http 404')], ('gone', 2)),
@@ -257,8 +272,14 @@ def _selftest() -> int:
     gates = [
         ('всплеск у одного магазина не растворяется в общем объёме',
          {1: (100, 45), 2: (3000, 30)}, {1: 0.03, 2: 0.01}, {1}),
-        ('маленькая выборка не судится',
-         {1: (10, 10)}, {}, set()),
+        ('маленькая выборка не судится долей, но 10 негативов из 10 — выше абсолютного предела',
+         {1: (10, 10)}, {}, {1}),
+        ('малая выборка с 3 негативами — применяем',
+         {1: (10, 3)}, {}, set()),
+        ('unknown не входят в долю: 2 gone среди 998 неизвестных — норма',
+         {1: (1000, 2, 2)}, {}, set()),
+        ('решающих мало, негативов много — карантин',
+         {1: (1000, 8, 6)}, {}, {1}),
         ('рост втрое над историей — карантин',
          {1: (200, 30)}, {1: 0.02}, {1}),
         ('норма проходит', {1: (200, 4)}, {1: 0.02}, set()),

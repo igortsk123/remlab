@@ -11,7 +11,11 @@
   gone    — страницы товара больше нет (404/410);
   unknown — доказательств нет: антибот, капча, таймаут, редирект, 200 без сигнала.
 `unknown` НИКОГДА не приговор (уроки 320/326: прежняя версия убила 119 живых товаров divan.ru
-по фразе «Нет в наличии» из ШАБЛОНА страницы). Снятие требует подтверждения — `stock_truth.py`.
+по фразе «Нет в наличии» из ШАБЛОНА страницы). Снятие — с первого отказа (ADR-0148); защита —
+якорь домена и карантин магазина в `stock_check`, негатив только по текущей ссылке (Н1).
+Помимо вердикта `classify_full()` отдаёт СТРУКТУРУ: response_kind (http|transport_error|redirect),
+failure_kind (почему не смогли проверить), evidence_kind (чем доказан вердикт) — доменному автомату
+и полю уверенности нужны именно они, а не текст reason.
 
 ЧТО ЗНАЧИТ `unknown` ДЛЯ НАЛИЧИЯ: ВЕРИМ ФИДУ ГДЕСЛОНА (решение владельца 01.09, ADR-0147).
 Товар, про который мы НЕ СМОГЛИ узнать сами, остаётся ровно в том наличии, какое отдал фид, —
@@ -132,42 +136,60 @@ def schema_state(body: str):
     return None
 
 
-def classify(shop: str, http_code, body: str = '', error: str = '', final_url: str = '',
-             url: str = ''):
-    """→ (verdict, reason). Единственное место, где решается судьба карточки."""
+def classify_full(shop: str, http_code, body: str = '', error: str = '', final_url: str = '',
+                  url: str = '') -> dict:
+    """→ {verdict, reason, response_kind, failure_kind, evidence_kind}. Единственное место, где
+    решается судьба карточки."""
+    def out(verdict, reason, response_kind, failure_kind=None, evidence_kind='none'):
+        return {'verdict': verdict, 'reason': reason, 'response_kind': response_kind,
+                'failure_kind': failure_kind, 'evidence_kind': evidence_kind}
     c = contract(shop)
     if error:
-        return 'unknown', f'не проверилось: {error[:60]}'
+        low = error.lower()
+        kind = ('timeout' if 'timed out' in low or 'timeout' in low else
+                'dns' if 'name or service' in low or 'getaddrinfo' in low or 'nodename' in low else
+                'tls' if 'ssl' in low or 'certificate' in low else 'transport')
+        return out('unknown', f'не проверилось: {error[:60]}', 'transport_error', kind)
     # АНТИБОТ ПРОВЕРЯЕМ ПЕРВЫМ, ДО ЛЮБОГО КОДА (правило владельца 01.09: «если сразу видишь, что
-    # это бот, снимать не надо — значит проверить не можем, верим Гдеслону»). Раньше ветка
-    # 404/410 стояла ВЫШЕ и возвращала `gone`, не заглядывая в тело: WAF вправе отдавать любой
-    # код 4xx, и магазин, закрывшийся от нашего бота ответом 404, читался как «товара нет».
-    # Цена ошибки тут не «один товар из тысячи», а весь магазин разом — и повторный заход её
-    # не ловит: закрытая дверь закрыта и через 15 минут, и через 6 часов.
-    if _BLOCKED_URL_RE.search(final_url or '') or \
-            (len(body or '') < CHALLENGE_MAX_BYTES and _CHALLENGE_RE.search(body or '')):
-        return 'unknown', 'антибот/капча'
+    # это бот, снимать не надо — значит проверить не можем, верим Гдеслону»). WAF вправе отдавать
+    # любой код 4xx, и магазин, закрывшийся от нашего бота ответом 404, читался бы как «товара нет».
+    # Маркеры ищем в ПЕРВЫХ 60 КБ независимо от общей длины тела (Д5: заглушка WAF, обрезанная
+    # чтением на 65 536 байт, была длиннее порога, и проверка не выполнялась вовсе).
+    head = (body or '')[:CHALLENGE_MAX_BYTES]
+    if _BLOCKED_URL_RE.search(final_url or '') or _CHALLENGE_RE.search(head):
+        return out('unknown', 'антибот/капча', 'http', 'challenge')
     if http_code in (404, 410):
-        return 'gone', f'http {http_code}'
-    if http_code in (401, 403, 429) or (isinstance(http_code, int) and http_code >= 500):
-        return 'unknown', f'http {http_code} (нас не пустили)'
+        return out('gone', f'http {http_code}', 'http', None, 'http_gone')
+    if http_code == 429:
+        return out('unknown', 'http 429 (нас ограничили)', 'http', 'rate_limit')
+    if http_code in (401, 403):
+        return out('unknown', f'http {http_code} (нас не пустили)', 'http', 'challenge')
+    if isinstance(http_code, int) and http_code >= 500:
+        return out('unknown', f'http {http_code} (сбой магазина)', 'http', 'server_error')
     if isinstance(http_code, int) and 300 <= http_code < 400:
-        return 'unknown', f'http {http_code} (редирект без страницы)'
+        return out('unknown', f'http {http_code} (редирект без страницы)', 'redirect', 'redirected')
     if http_code != 200:
-        return 'unknown', f'http {http_code}'
+        return out('unknown', f'http {http_code}', 'http', 'http_error')
     # Редирект со страницы товара на каталог/главную — товара нет, но доказательства слабее 404:
     # магазины так маскируют и временные проблемы. Поэтому unknown, а не gone.
     if final_url and url and url_key(final_url) != url_key(url):
-        return 'unknown', 'редирект на другую страницу'
+        return out('unknown', 'редирект на другую страницу', 'redirect', 'redirected')
     if c['evidence'] == 'series':
-        return 'unknown', 'страница серии не доказывает вариант'
+        return out('unknown', 'страница серии не доказывает вариант', 'http', 'no_signal')
     if 'schema' in c['signals']:
         st = schema_state(body)
         if st == 'positive':
-            return 'alive', 'schema: в продаже'
+            return out('alive', 'schema: в продаже', 'http', None, 'schema')
         if st == 'negative':
-            return 'oos', 'schema: нет в продаже'
-    return 'unknown', '200 без структурного признака наличия'
+            return out('oos', 'schema: нет в продаже', 'http', None, 'schema')
+    return out('unknown', '200 без структурного признака наличия', 'http', 'no_signal')
+
+
+def classify(shop: str, http_code, body: str = '', error: str = '', final_url: str = '',
+             url: str = ''):
+    """→ (verdict, reason) — совместимая обёртка над classify_full()."""
+    r = classify_full(shop, http_code, body, error, final_url, url)
+    return r['verdict'], r['reason']
 
 
 # --- селфтест: таблица случаев вместо «проверим на живом каталоге» ---------------------------
@@ -252,7 +274,25 @@ def _selftest() -> int:
         if (url_key(a) == url_key(b)) is not same:
             bad += 1
             print(f'  FAIL url_key: {a} vs {b} — ожидалось {"совпадение" if same else "различие"}')
-    print(f'page_alive selftest: случаев {len(cases) + len(pairs) + 2}, ошибок {bad}')
+    # структура ответа (Н1): виды сбоев и свидетельств
+    kinds = [
+        (('divan.ru', None, '', 'URLError: <urlopen error timed out>', '', ''), ('transport_error', 'timeout', 'none')),
+        (('divan.ru', 404, 'Страница не найдена', '', '', ''), ('http', None, 'http_gone')),
+        (('divan.ru', 429, '', '', '', ''), ('http', 'rate_limit', 'none')),
+        (('divan.ru', 503, '', '', '', ''), ('http', 'server_error', 'none')),
+        (('divan.ru', 200, JSONLD_IN, '', '', ''), ('http', None, 'schema')),
+        (('divan.ru', 200, 'без разметки', '', '', ''), ('http', 'no_signal', 'none')),
+        (('gipfel.ru', 403, 'DDoS-GUARD', '', '', ''), ('http', 'challenge', 'none')),
+        # WAF-заглушка длиннее 60 КБ: маркер в начале тела всё равно найден (Д5)
+        (('divanboss.ru', 404, '<html>Checking your browser…</html>' + 'x' * 70000, '', '', ''), ('http', 'challenge', 'none')),
+    ]
+    for args, want in kinds:
+        r = classify_full(*args)
+        got = (r['response_kind'], r['failure_kind'], r['evidence_kind'])
+        if got != want:
+            bad += 1
+            print(f'  FAIL kinds {args[0]} http={args[1]}: {got}, ожидалось {want}')
+    print(f'page_alive selftest: случаев {len(cases) + len(pairs) + len(kinds) + 2}, ошибок {bad}')
     return 1 if bad else 0
 
 

@@ -67,19 +67,19 @@ cov=rows("""select
   count(*) filter (where ps.checked_at > now() - interval '8 days'),
   count(*),
   count(*) filter (where ps.state='gone'), count(*) filter (where ps.state='oos'),
-  count(*) filter (where ps.state='suspect'), count(*) filter (where ps.state='alive'),
+  count(*) filter (where ps.state='alive'),
   count(*) filter (where ps.state='unknown')
  from products p left join product_page_status ps
    on ps.shop_mid=p.shop_mid and ps.external_id=p.external_id
  where coalesce(p.status,'active')='active'""")
-if cov and len(cov[0])>=7:
+if cov and len(cov[0])>=6:
     c=[int(x or 0) for x in cov[0]]
     report['stock_check']={'проверено за 8 дней':c[0],'товаров активных':c[1],
                            'покрытие_%':round(c[0]*100/max(c[1],1),1),
-                           'снято gone':c[2],'снято oos':c[3],'ждут подтверждения':c[4],
-                           'подтверждено живых':c[5],'неизвестно':c[6]}
+                           'снято gone':c[2],'снято oos':c[3],
+                           'подтверждено живых':c[4],'неизвестно':c[5]}
     print(f"покрытие проверкой карточек за 8 дней: {report['stock_check']['покрытие_%']}% "
-          f"({c[0]}/{c[1]}) | снято: gone {c[2]}, oos {c[3]} | ждут второго голоса: {c[4]}")
+          f"({c[0]}/{c[1]}) | снято: gone {c[2]}, oos {c[3]} | неизвестно: {c[5]}")
 json.dump(report,open(os.path.join(HERE,'metrics-report.json'),'w'),ensure_ascii=False,indent=1)
 print(f"обновлено позиций: {report['updated']} | цен изменилось: {len(report['price_changes'])} | "
       f"тир-выбросов: {len(report['tier_outliers'])} | не найдено: {len(report['missing'])}")

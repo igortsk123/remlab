@@ -50,6 +50,7 @@ DESC_MAX = 1500
 
 from dim_resolver import resolve as resolve_dims  # noqa: E402 — единицы по свидетельствам (T1)
 from reflink import direct  # noqa: E402 — прямая ссылка строится тем же способом, что в catalog_media
+from page_alive import url_key  # noqa: E402 — хеш текущей карточки: негатив проверки действует только по ней (Н1)
 import category_map  # noqa: E402 — is_kids, а после П3.5 — MIXED/role_by_name
 
 
@@ -261,7 +262,7 @@ def dedupe(offers: list[dict]) -> tuple[list[dict], dict]:
 
 # --- строки для COPY -------------------------------------------------------------------------------
 PRODUCT_COLS = ("shop_mid,external_id,shop,category_id,category_path,name,brand,url,image_url,image_url_hd,article,"
-                "price_rub,old_price_rub,in_stock,w_cm,d_cm,h_cm,len_cm,dia_cm,dims_source,params,direct_url,"
+                "price_rub,old_price_rub,in_stock,w_cm,d_cm,h_cm,len_cm,dia_cm,dims_source,params,direct_url,direct_url_hash,"
                 "description,cat_role,dims_evidence")
 ENRICH_COLS = ("shop_mid,external_id,commercial_hash,text_hash,geometry_hash,image_hash,image_hd_hash,attrs_hash,"
                "hash_version,feed_status")
@@ -272,7 +273,7 @@ def product_row(o: dict) -> str:
     return '\t'.join(esc(x) for x in (
         o['mid'], o['eid'], o['shop'], o['cid'], o['cat_path'], o['name'], o['brand'], o['url'], o['pic'], o['pic_hd'],
         o['article'], o['price'], o['oldprice'], 't', d['w'], d['d'], d['h'], d['len'], d['dia'], o['dims_source'],
-        json.dumps(o['params'], ensure_ascii=False), o['direct_url'], o['desc'], o['role'],
+        json.dumps(o['params'], ensure_ascii=False), o['direct_url'], url_key(o['direct_url']), o['desc'], o['role'],
         json.dumps(o['dims_evidence'], ensure_ascii=False) if o['dims_evidence'] else None))
 
 
@@ -294,6 +295,7 @@ alter table products add column if not exists description text;
 alter table products add column if not exists dims_evidence jsonb;
 alter table products add column if not exists image_url_hd text;
 alter table products add column if not exists article text;
+alter table products add column if not exists direct_url_hash text;
 create index if not exists products_article_idx on products (shop_mid, article) where article is not null;
 alter table product_enrichment add column if not exists image_hd_hash text;
 alter table product_enrichment add column if not exists attrs_hash text;
@@ -442,7 +444,7 @@ insert into products as p ({PRODUCT_COLS},last_seen)
 select {PRODUCT_COLS},current_date from products_new
 on conflict (shop_mid,external_id) do update set
   name=excluded.name,url=excluded.url,image_url=excluded.image_url,price_rub=excluded.price_rub,
-  old_price_rub=excluded.old_price_rub,direct_url=excluded.direct_url,last_seen=current_date,
+  old_price_rub=excluded.old_price_rub,direct_url=excluded.direct_url,direct_url_hash=excluded.direct_url_hash,last_seen=current_date,
   article=coalesce(excluded.article,p.article),
   -- HD из фида: новым и тем, у кого HD нет; товар с ревизией меша без HD ведёт hd_backfill.py
   image_url_hd=case when p.image_url_hd is not null then p.image_url_hd

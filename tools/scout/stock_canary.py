@@ -67,35 +67,33 @@ def slug_hit(name: str, url: str):
     return sum(1 for w in words if w[:5] in path) >= 2
 
 
-def main() -> int:
-    shop = sys.argv[sys.argv.index('--shop') + 1] if '--shop' in sys.argv else ''
-    n = int(sys.argv[sys.argv.index('--sample') + 1]) if '--sample' in sys.argv else 20
-    run = sys.argv[sys.argv.index('--run') + 1] if '--run' in sys.argv else ''
+def check(shop: str, run: str = '', n: int = 20, verbose: bool = True) -> bool:
+    """Канарейка одного магазина по прогону → True (чисто) / False (замечания). Сети не трогает."""
+    say = print if verbose else (lambda *a, **k: None)
     if not run:
         r = db(f"""select o.run_id from product_page_observation o join products p
                      on p.shop_mid = o.shop_mid and p.external_id = o.external_id
                     where p.shop = {q(shop)} and o.probe_kind = 'explore'
                     order by o.observed_at desc limit 1;""")
         if not r:
-            print(f'наблюдений по магазину {shop} нет — проверять нечего')
-            return 1
+            say(f'наблюдений по магазину {shop} нет — проверять нечего')
+            return False
         run = r[0][0]
     rows = db(f"""
     select o.verdict, p.name, o.url, p.shop, coalesce(o.reason, '')
       from product_page_observation o join products p
         on p.shop_mid = o.shop_mid and p.external_id = o.external_id
-     where o.run_id = {q(run)} and p.shop = {q(shop)};""")
+     where o.run_id = {q(run)} and p.shop = {q(shop)} and coalesce(o.disposition, 'accepted') <> 'anchor';""")
     if not rows:
-        print(f'в прогоне {run} нет наблюдений магазина {shop}')
-        return 1
+        say(f'в прогоне {run} нет наблюдений магазина {shop}')
+        return False
     per = {}
     for v, *_ in rows:
         per[v] = per.get(v, 0) + 1
-    total = len(rows)
+    decisive = sum(per.get(k, 0) for k in ('alive', 'oos', 'gone')) or 1
     neg = per.get('gone', 0) + per.get('oos', 0)
-    print(f'прогон {run} · {shop}: наблюдений {total} — '
-          + ', '.join(f'{k} {v}' for k, v in sorted(per.items())))
-    print(f'доля отрицательных: {neg / total:.0%} (аварийный порог {ALARM_NEGATIVE_SHARE:.0%})')
+    say(f'прогон {run} · {shop}: наблюдений {len(rows)} — ' + ', '.join(f'{k} {v}' for k, v in sorted(per.items())))
+    say(f'доля отрицательных среди решающих: {neg / decisive:.0%} (аварийный порог {ALARM_NEGATIVE_SHARE:.0%})')
     bad = 0
     for verdict in ('gone', 'oos', 'alive'):
         sample = [r for r in rows if r[0] == verdict][:n]
@@ -105,20 +103,27 @@ def main() -> int:
         by_id = len(sample) - len(checked)
         miss = [r for r in checked if slug_hit(r[1], r[2]) is False]
         host_bad = [r for r in sample
-                    if (urllib.parse.urlsplit(r[2]).hostname or '').replace('www.', '') != r[3]]
-        print(f'  {verdict}: выборка {len(sample)} (адрес по ID, слагом не судим: {by_id}), '
-              f'не похож на карточку товара {len(miss)}, чужой хост {len(host_bad)}')
+                    if (urllib.parse.urlsplit(r[2]).hostname or '').replace('www.', '').lower() != (r[3] or '').lower()]
+        say(f'  {verdict}: выборка {len(sample)} (адрес по ID, слагом не судим: {by_id}), '
+            f'не похож на карточку товара {len(miss)}, чужой хост {len(host_bad)}')
         for r in miss[:3]:
-            print(f'     ? {r[1][:50]} → {r[2][:95]}')
+            say(f'     ? {r[1][:50]} → {r[2][:95]}')
         if (checked and len(miss) > len(checked) * SLUG_MISS_LIMIT) or host_bad:
             bad += 1
-    if neg / total > ALARM_NEGATIVE_SHARE:
-        print('ТРЕВОГА: отрицательных больше порога — это похоже на поломку схемы ссылок, '
-              'а не на ассортимент магазина')
+    if neg / decisive > ALARM_NEGATIVE_SHARE:
+        say('ТРЕВОГА: отрицательных больше порога — это похоже на поломку схемы ссылок, '
+            'а не на ассортимент магазина')
         bad += 1
-    print('канарейка: ' + ('ЧИСТО — применение вердиктов обосновано'
-                           if not bad else 'ЕСТЬ ЗАМЕЧАНИЯ — разобрать ДО применения'))
-    return 1 if bad else 0
+    say('канарейка: ' + ('ЧИСТО — применение вердиктов обосновано'
+                         if not bad else 'ЕСТЬ ЗАМЕЧАНИЯ — разобрать ДО применения'))
+    return not bad
+
+
+def main() -> int:
+    shop = sys.argv[sys.argv.index('--shop') + 1] if '--shop' in sys.argv else ''
+    n = int(sys.argv[sys.argv.index('--sample') + 1]) if '--sample' in sys.argv else 20
+    run = sys.argv[sys.argv.index('--run') + 1] if '--run' in sys.argv else ''
+    return 0 if check(shop, run, n) else 1
 
 
 if __name__ == '__main__':

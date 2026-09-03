@@ -35,17 +35,21 @@ TTL, затем хвост по давности. Снятые товары с �
 первыми и не вытесняются хвостом при делении бюджета по магазинам, а раньше срока не ходят
 никуда. Гарантия «витрина проверена не позже семи дней» держится очередью, а не частотой.
 
-МАГАЗИН НАС НЕ ПУСКАЕТ → ВЕРИМ ГДЕСЛОНУ (решение владельца 01.09: «пока ориентируемся на
-наличие гдеслон по тем товарам где не можем его понять»). Вердикт `unknown` не снимает и не
-возвращает товар — наличие остаётся таким, каким его отдал фид. Это НЕ временная заглушка и
-не недоделка: `reconcile` обязан игнорировать `unknown`, менять это нельзя. Замер 01.09:
-у gipfel.ru 403 DDoS-Guard, у mdm-complect 307-цикл `?_ycch=`, а с куками — Яндекс-капча
-`/tmgrdfrend/showcaptchafast`. Это challenge, а не рейт-лимит, поэтому смена IP сама по себе
-их не откроет (пулы IP владелец отложил отдельной задачей).
+МАГАЗИН НАС НЕ ПУСКАЕТ → ВЕРИМ ГДЕСЛОНУ (решение владельца 01.09; ADR-0147). Вердикт `unknown`
+не снимает и не возвращает товар. Замер 03.09 (план stock-and-dims-honesty, Н1): реальный антибот —
+только mdm-complect (Яндекс SmartCaptcha, 307 → `?_ycch=`); gipfel отдаёт 200 с разметкой в `href=`,
+которую прежняя регулярка не читала. Антибот-домен объявляется явно: `probe_domain_status.policy=
+'disabled'` — карточки не запрашиваются, квота уходит другим; раз в неделю 5 пробных карточек.
 
-ВЕЖЛИВОСТЬ. Один одновременный запрос на домен, пауза 2–5 с с jitter, домены параллельно.
-Поток 403/429/капчи → домен замораживается до следующего прогона: массово «снимать» товары
-магазина, который просто выставил антибота, — худший из возможных исходов.
+ЗАЩИТА ОТ ЛОЖНОГО СНЯТИЯ (Н1, Codex 03.09). (1) ЯКОРЬ ДОМЕНА перед обходом: главная + до 3 недавно
+живых карточек; якорь мёртв/заблокирован → домен `blocked` на сутки, ни один товар магазина в этом
+прогоне не снимается. (2) КАРАНТИН ОКОНЧАТЕЛЕН: наблюдения карантинного прогона получают
+`disposition='quarantined'` и в свёртку/историю больше не попадают (раньше всплывали через 90-дневную
+историю). (3) Гейт считает долю по РЕШАЮЩИМ ответам (alive/oos/gone) с абсолютным пределом при малой
+выборке. (4) История и свёртка — только текущая версия пробника (свидетельство 404 версии не имеет).
+(5) КАНАРЕЙКА (`stock_canary`) при доле отрицательных > 30 % — гейт перед применением.
+
+ВЕЖЛИВОСТЬ. Один одновременный запрос на домен, пауза 2–5 с с jitter, домены параллельно; gzip.
 
   stock_check.py                      # ночной прогон
   stock_check.py --limit 300          # короткий прогон
@@ -64,14 +68,16 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from page_alive import PROBE_VERSION, classify, schema_state, url_key   # noqa: E402
+from page_alive import PROBE_VERSION, classify_full, schema_state, url_key   # noqa: E402
 from stock_truth import (CONFIRM_GAP_MIN, audit, db, fold, gate, q,   # noqa: E402
                          reconcile)
+import stock_canary   # noqa: E402 — канарейка адреса как гейт перед применением
 
 REPORT = os.path.join(HERE, 'stock-report.json')
 UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
@@ -93,8 +99,13 @@ SHARE_CONFIRM = 0.15           # доля бюджета под подтверж
 # `suspect` ждёт ВТОРОГО ГОЛОСА, и час здесь — не «как часто проверяем», а «через сколько
 # считаем второе наблюдение независимым» (сам разрыв задаёт CONFIRM_GAP_MIN).
 WEEK_HOURS = 24 * 7
-TTL_HOURS = {'alive': WEEK_HOURS, 'oos': WEEK_HOURS, 'gone': WEEK_HOURS, 'suspect': 1,
+TTL_HOURS = {'alive': WEEK_HOURS, 'oos': WEEK_HOURS, 'gone': WEEK_HOURS,
              'unknown': WEEK_HOURS, None: 0}
+ANCHOR_CARDS = 3               # недавно живых карточек в якоре домена (плюс главная)
+DOMAIN_BLOCK_HOURS = 24        # на сколько замораживается домен по якорю/серии блокировок
+DISABLED_PROBE_DAYS = 7        # выключенный (антибот) домен пробуем 5 карточками раз в неделю
+DISABLED_PROBE_N = 5
+CANARY_SHARE = 0.30            # доля отрицательных среди решающих, с которой зовём канарейку
 TTL_SETS_HOURS = WEEK_HOURS    # витрина живёт по общему правилу; её преимущество — место
                                # в очереди (блок `in_sets` идёт перед хвостом), а не частота
 # БЫСТРОЕ ВОСКРЕШЕНИЕ (ADR-0148). Снимаем теперь с первого отказа, поэтому цена ошибки должна
@@ -108,42 +119,113 @@ GONE_FRESH_DAYS = 1            # сколько суток после смерт
 
 
 # --- сеть -------------------------------------------------------------------------------------
+def _gunzip_stream():
+    """Потоковый распаковщик gzip/deflate с лимитом распакованных байтов (Codex: urllib сам не даёт
+    безопасного контракта — распаковываем сами и режем по MAX_BYTES)."""
+    return zlib.decompressobj(16 + zlib.MAX_WBITS)
+
+
 def fetch(url: str):
     """→ (http_code, body, error, final_url). Тело читаем чанками и бросаем, как только нашли
-    признак наличия: у divan.ru он на 8% страницы, у tvoydom — на 11% из 4 МБ."""
+    признак наличия: у divan.ru он на 8% страницы, у tvoydom — на 11% из 4 МБ. Сжатие просим
+    явно (`Accept-Encoding: gzip`): страницы tvoydom 4,3 МБ без него съедали дедлайн прогона."""
     req = urllib.request.Request(url, headers={
         'User-Agent': UA,
         'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Encoding': 'gzip',
         'Accept-Language': 'ru-RU,ru;q=0.9'})
     try:
         with urllib.request.urlopen(req, timeout=25) as f:
+            gz = 'gzip' in (f.headers.get('Content-Encoding') or '').lower()
+            dec = _gunzip_stream() if gz else None
             body, got = [], 0
             while got < MAX_BYTES:
                 chunk = f.read(CHUNK)
                 if not chunk:
                     break
+                if dec is not None:
+                    chunk = dec.decompress(chunk, max(0, MAX_BYTES - got) or 1)
+                    if not chunk:
+                        continue
                 body.append(chunk)
                 got += len(chunk)
-                # Обрываем только по ПОЛОЖИТЕЛЬНОМУ признаку наличия — и это принципиально.
-                # Первая версия рвала чтение на слове «availability» в любом месте (оно есть и
-                # в JS) и отрезала страницу до разметки. Вторая рвала на ЛЮБОМ признаке, включая
-                # отрицательный, — и этим убивала собственное правило «смешанные сигналы читаем
-                # как положительные» (`page_alive.schema_state`): распроданный аксессуар, чья
-                # разметка лежит выше по странице, останавливал чтение, и «InStock» самого
-                # товара ниже мы уже не видели. Отрицательный признак поводом остановиться быть
-                # не может: положительный ещё может встретиться дальше (найдено 01.09).
+                # Обрываем только по ПОЛОЖИТЕЛЬНОМУ признаку наличия — и это принципиально
+                # (ADR-0148): распроданный аксессуар, чья разметка лежит выше по странице, не должен
+                # останавливать чтение до «InStock» самого товара.
                 if len(body) % 4 == 0 and \
                         schema_state(b''.join(body[-8:]).decode('utf-8', 'ignore')) == 'positive':
                     break
             return f.status, b''.join(body).decode('utf-8', 'ignore'), '', f.geturl()
     except urllib.error.HTTPError as e:
         try:
-            body = e.read(CHUNK).decode('utf-8', 'ignore')
+            raw = e.read(CHUNK * 2)      # WAF-заглушка бывает длиннее одного чанка (Д5)
+            if 'gzip' in (e.headers.get('Content-Encoding') or '').lower():
+                raw = _gunzip_stream().decompress(raw, CHUNK * 2)
+            body = raw.decode('utf-8', 'ignore')
         except Exception:
             body = ''
         return e.code, body, '', getattr(e, 'url', url)
     except Exception as e:
         return None, '', f'{type(e).__name__}: {e}'[:80], url
+
+
+# --- здоровье доменов --------------------------------------------------------------------------
+def domain_status() -> dict:
+    """host → {policy, state, blocked_until, last_probe_at}."""
+    rows = db("select host, policy, state, coalesce(to_char(blocked_until,'YYYY-MM-DD HH24:MI:SS'),''), "
+              "coalesce(to_char(last_probe_at,'YYYY-MM-DD HH24:MI:SS'),'') from probe_domain_status;")
+    out = {}
+    for h, pol, st, bu, lp in rows:
+        out[h] = {'policy': pol, 'state': st,
+                  'blocked_until': dt.datetime.strptime(bu, '%Y-%m-%d %H:%M:%S') if bu else None,
+                  'last_probe_at': dt.datetime.strptime(lp, '%Y-%m-%d %H:%M:%S') if lp else None}
+    return out
+
+
+def host_of(url: str, shop: str) -> str:
+    return ((urllib.parse.urlsplit(url).hostname or shop or '').lower().replace('www.', ''))
+
+
+def domain_unavailable(info: dict | None, now: dt.datetime) -> bool:
+    """Домен нельзя дёргать: выключен владельцем/антиботом или заморожен до срока."""
+    if not info:
+        return False
+    if info['policy'] == 'disabled':
+        return True
+    return info['state'] == 'blocked' and info['blocked_until'] is not None and info['blocked_until'] > now
+
+
+def set_domain(host: str, state: str, reason: str, block_hours: float | None = None,
+               policy: str | None = None, probed: bool = False) -> None:
+    host = (host or '').lower().replace('www.', '')
+    bu = f"now() + interval '{block_hours} hours'" if block_hours else 'null'
+    db(f"""insert into probe_domain_status (host, probe_version, policy, state, blocked_until, reason, checked_at, last_probe_at)
+           values ({q(host)}, {PROBE_VERSION}, {q(policy or 'auto')}, {q(state)}, {bu}, {q(reason[:200])}, now(),
+                   {'now()' if probed else 'null'})
+           on conflict (host) do update set probe_version = excluded.probe_version,
+             policy = {q(policy) if policy else 'probe_domain_status.policy'},
+             state = excluded.state, blocked_until = excluded.blocked_until, reason = excluded.reason,
+             checked_at = now(),
+             last_probe_at = {'now()' if probed else 'probe_domain_status.last_probe_at'};""")
+
+
+def anchor_verdict(home_ok: bool, card_results: list) -> tuple[bool, str]:
+    """Кворум якоря: главная отвечает И среди якорных карточек есть решающий ответ, и не все они
+    «страницы нет» (все 404 у недавно живых = сломан маршрут карточек, а не ассортимент).
+    card_results: список (verdict, failure_kind)."""
+    if not home_ok:
+        return False, 'главная не отвечает или заблокирована'
+    if not card_results:
+        return True, 'якорных карточек нет — судим по главной'
+    decisive = [v for v, _ in card_results if v in ('alive', 'oos', 'gone')]
+    blocked = [k for _, k in card_results if k in ('challenge', 'rate_limit')]
+    if len(blocked) * 2 >= len(card_results):
+        return False, f'якорные карточки заблокированы {len(blocked)}/{len(card_results)}'
+    if not decisive:
+        return False, f'якорные карточки без решающего ответа ({len(card_results)})'
+    if all(v == 'gone' for v in decisive) and len(decisive) >= 2:
+        return False, f'все якорные карточки ({len(decisive)}) отдают «страницы нет» — маршрут карточек сломан'
+    return True, 'ок'
 
 
 # --- выбор кандидатов --------------------------------------------------------------------------
@@ -191,9 +273,22 @@ def candidates(limit: int, only_shop: str = '') -> list:
     """)
     sets = _sets_skus()
     now = dt.datetime.now()
-    confirm, in_sets, tail = [], [], []
+    dstat = domain_status()
+    confirm, in_sets, tail, probe = [], [], [], []
+    probe_left = {}
     for mid, eid, shop, url, state, checked, uhash, dead in rows:
         mid = int(mid)
+        host = host_of(url, shop)
+        info = dstat.get(host)
+        if domain_unavailable(info, now):
+            # выключенный домен: раз в DISABLED_PROBE_DAYS дней — DISABLED_PROBE_N пробных карточек,
+            # чтобы заметить, что антибот сняли; квота остальных не сгорает
+            if info['policy'] == 'disabled' and (info['last_probe_at'] is None or
+                    (now - info['last_probe_at']).days >= DISABLED_PROBE_DAYS):
+                if probe_left.get(host, DISABLED_PROBE_N) > 0:
+                    probe_left[host] = probe_left.get(host, DISABLED_PROBE_N) - 1
+                    probe.append((mid, eid, shop, url, 'probe', 0))
+            continue
         last = dt.datetime.strptime(checked, '%Y-%m-%d %H:%M:%S') if checked else None
         age_h = (now - last).total_seconds() / 3600 if last else 10 ** 6
         item = (mid, eid, shop, url, state, age_h)
@@ -204,9 +299,7 @@ def candidates(limit: int, only_shop: str = '') -> list:
                 fresh_dead = (now.date() - dt.date.fromisoformat(dead)).days <= GONE_FRESH_DAYS
             except ValueError:
                 fresh_dead = False
-        if state == 'suspect' and age_h >= CONFIRM_GAP_MIN / 60:
-            confirm.append(item)                     # ждёт второго голоса — самый ценный запрос
-        elif fresh_dead and age_h >= TTL_GONE_FRESH_HOURS:
+        if fresh_dead and age_h >= TTL_GONE_FRESH_HOURS:
             confirm.append(item)                     # проверка «не ошиблись ли» — так же ценна
         elif (mid, eid) in sets and age_h >= TTL_SETS_HOURS:
             in_sets.append(item)
@@ -251,7 +344,7 @@ def candidates(limit: int, only_shop: str = '') -> list:
                 break
             if by_shop[shop]:
                 picked.append(by_shop[shop].pop(0))
-    picked = reserved + picked
+    picked = reserved + picked + probe
     # Считаем по ФАКТИЧЕСКОМУ составу, а не по признаку `suspect`: с приходом ускоренной
     # перепроверки (ADR-0148) приоритетный блок состоит из свежеснятых, и прежний счётчик
     # показывал бы «подтверждений 0» при полном блоке — оператор решил бы, что шаг не работает.
@@ -275,12 +368,54 @@ class Domain:
 
     def __init__(self, host):
         self.host, self.items, self.blocked_streak, self.frozen = host, [], 0, False
+        self.anchor_ok, self.anchor_why = True, ''
+
+
+def anchor_cards(host: str) -> list:
+    """Недавно живые карточки домена — якорь «маршрут карточек работает»."""
+    rows = db(f"""select p.shop_mid, p.external_id, p.shop, coalesce(p.direct_url, p.url)
+                 from product_page_status ps join products p using (shop_mid, external_id)
+                where ps.state = 'alive' and ps.checked_at > now() - interval '14 days'
+                  and lower(regexp_replace(split_part(split_part(coalesce(p.direct_url, p.url), '//', 2), '/', 1), '^www\\.', '')) = {q(host)}
+                order by ps.checked_at desc limit {ANCHOR_CARDS};""")
+    return [(int(r[0]), r[1], r[2], r[3]) for r in rows if len(r) == 4]
+
+
+def check_anchor(d: 'Domain', obs: list, lock, run_id: str) -> None:
+    """Главная + до 3 недавно живых карточек. Провал кворума → домен blocked на сутки, товары
+    домена в этом прогоне не проверяются (их checked_at не двигается). Якорные наблюдения пишутся
+    с disposition='anchor' — в свёртку не идут."""
+    shop = d.items[0][2] if d.items else d.host
+    code, body, err, final = fetch(f'https://{d.host}/')
+    home = classify_full(shop, code, body, err, final, f'https://{d.host}/')
+    home_ok = (code == 200 or (isinstance(code, int) and 300 <= code < 400)) and home['failure_kind'] not in ('challenge', 'rate_limit')
+    if home_ok and code == 200 and home['failure_kind'] == 'no_signal':
+        home_ok = True                    # у главной разметки наличия и не должно быть
+    results = []
+    for mid, eid, cshop, url in anchor_cards(d.host):
+        time.sleep(random.uniform(*HOST_PAUSE))
+        c2, b2, e2, f2 = fetch(url)
+        r = classify_full(cshop, c2, b2, e2, f2, url)
+        results.append((r['verdict'], r['failure_kind']))
+        with lock:
+            obs.append({'mid': mid, 'eid': eid, 'shop': cshop, 'url': url, 'code': c2, 'final': f2,
+                        'verdict': r['verdict'], 'reason': 'якорь: ' + r['reason'], 'url_hash': url_key(url),
+                        'prev': 'alive', 'kind': 'explore', 'disposition': 'anchor',
+                        'response_kind': r['response_kind'], 'failure_kind': r['failure_kind'],
+                        'evidence_kind': r['evidence_kind'],
+                        'at': dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
+    d.anchor_ok, d.anchor_why = anchor_verdict(home_ok, results)
+    if d.anchor_ok:
+        set_domain(d.host, 'open', f'якорь ок: главная {code}, карточек {len(results)}')
+    else:
+        set_domain(d.host, 'blocked', f'якорь: {d.anchor_why}', block_hours=DOMAIN_BLOCK_HOURS)
+        print(f'ДОМЕН {d.host} ЗАБЛОКИРОВАН ЯКОРЕМ: {d.anchor_why} — {len(d.items)} проверок отменены', flush=True)
 
 
 def crawl(picked: list, run_id: str, verbose: bool = True, max_minutes: int = 0) -> list:
     domains = {}
     for it in picked:
-        host = urllib.parse.urlsplit(it[3]).hostname or it[2]
+        host = host_of(it[3], it[2])          # без www и в нижнем регистре — тот же ключ, что в probe_domain_status
         domains.setdefault(host, Domain(host)).items.append(it)
     obs, lock = [], threading.Lock()
     # Внутри домена запросы строго последовательны с паузой 2–5 с, поэтому большой магазин
@@ -289,6 +424,16 @@ def crawl(picked: list, run_id: str, verbose: bool = True, max_minutes: int = 0)
     deadline = time.time() + max_minutes * 60 if max_minutes else None
 
     def work(d: Domain):
+        is_probe = all(it[4] == 'probe' for it in d.items)
+        check_anchor(d, obs, lock, run_id)
+        if not d.anchor_ok:
+            if is_probe:
+                set_domain(d.host, 'blocked', f'проба: {d.anchor_why}', block_hours=DOMAIN_BLOCK_HOURS, probed=True)
+            return
+        if is_probe:
+            # антибот сняли — домен снова в работе (policy → auto)
+            set_domain(d.host, 'open', 'проба прошла: якорь ок', policy='auto', probed=True)
+            print(f'ДОМЕН {d.host}: проба прошла, снова проверяем', flush=True)
         for mid, eid, shop, url, state, _age in d.items:
             if d.frozen:
                 break
@@ -297,7 +442,8 @@ def crawl(picked: list, run_id: str, verbose: bool = True, max_minutes: int = 0)
                       flush=True)
                 break
             code, body, err, final = fetch(url)
-            verdict, reason = classify(shop, code, body, err, final, url)
+            r = classify_full(shop, code, body, err, final, url)
+            verdict, reason = r['verdict'], r['reason']
             with lock:
                 # ВРЕМЯ НАБЛЮДЕНИЯ — МОМЕНТ ЗАПРОСА, а не момент записи: наблюдения сохраняются
                 # пачкой в конце обхода, и `default now()` ставил всем проверкам прогона ОДИН
@@ -306,13 +452,16 @@ def crawl(picked: list, run_id: str, verbose: bool = True, max_minutes: int = 0)
                 # в проходе подтверждений 100% отрицательных ожидаемы, и гейту их считать нельзя.
                 obs.append({'mid': mid, 'eid': eid, 'shop': shop, 'url': url, 'code': code,
                             'final': final, 'verdict': verdict, 'reason': reason,
-                            'url_hash': url_key(url), 'prev': state,
-                            'kind': 'confirm' if state == 'suspect' else 'explore',
+                            'url_hash': url_key(url), 'prev': state, 'kind': 'explore',
+                            'disposition': 'accepted',
+                            'response_kind': r['response_kind'], 'failure_kind': r['failure_kind'],
+                            'evidence_kind': r['evidence_kind'],
                             'at': dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
-            if verdict == 'unknown' and ('не пустили' in reason or 'антибот' in reason):
+            if r['failure_kind'] in ('challenge', 'rate_limit'):
                 d.blocked_streak += 1
                 if d.blocked_streak >= BLOCK_STREAK:
                     d.frozen = True
+                    set_domain(d.host, 'blocked', f'{BLOCK_STREAK} блокировок подряд', block_hours=DOMAIN_BLOCK_HOURS)
                     print(f'ДОМЕН ЗАМОРОЖЕН: {d.host} — {BLOCK_STREAK} блокировок подряд, '
                           f'остальные {len(d.items)} проверок отменены', flush=True)
             else:
@@ -338,10 +487,11 @@ def save_observations(obs: list, run_id: str) -> None:
         f"{o['code'] if isinstance(o['code'], int) else 'null'}, {q((o['final'] or '')[:900])}, "
         f"{q(o['verdict'])}, {q(o['reason'])}, {PROBE_VERSION}, {q(run_id)}, "
         f"{q(o['at']) + '::timestamptz' if o.get('at') else 'now()'}, "
-        f"{q(o.get('kind') or 'explore')})" for o in obs)
+        f"{q(o.get('kind') or 'explore')}, {q(o.get('disposition') or 'accepted')}, "
+        f"{q(o.get('response_kind'))}, {q(o.get('failure_kind'))}, {q(o.get('evidence_kind') or 'none')})" for o in obs)
     db('insert into product_page_observation (shop_mid, external_id, url_hash, url, http_code, '
-       'final_url, verdict, reason, probe_version, run_id, observed_at, probe_kind) '
-       f'values {vals};')
+       'final_url, verdict, reason, probe_version, run_id, observed_at, probe_kind, disposition, '
+       f'response_kind, failure_kind, evidence_kind) values {vals};')
 
 
 # --- применение -----------------------------------------------------------------------------------
@@ -349,10 +499,13 @@ def history_shares(run_id: str) -> dict:
     """Историческая доля отрицательных по магазину (прошлые прогоны) — база для гейта ×3."""
     rows = db(f"""
     select p.shop_mid,
-           count(*) filter (where o.verdict in ('gone','oos'))::float / greatest(count(*), 1)
+           count(*) filter (where o.verdict in ('gone','oos'))::float
+             / greatest(count(*) filter (where o.verdict in ('alive','oos','gone')), 1)
       from product_page_observation o
       join products p on p.shop_mid = o.shop_mid and p.external_id = o.external_id
      where o.run_id <> {q(run_id)} and o.observed_at > now() - interval '30 days'
+       and coalesce(o.probe_kind, 'explore') = 'explore' and coalesce(o.disposition, 'accepted') = 'accepted'
+       and (o.probe_version = {PROBE_VERSION} or o.evidence_kind = 'http_gone')
      group by 1;""")
     return {int(r[0]): float(r[1]) for r in rows if r[0]}
 
@@ -363,16 +516,37 @@ def apply_run(obs: list, run_id: str, dry: bool = False) -> dict:
     # перепроверка уже известных подозреваемых, в нём 100% отрицательных ожидаемы; считая их,
     # гейт карантинил бы ровно те прогоны, ради которых он и заведён (поймано 31.08 на divanboss).
     per_shop = {}
+    shop_of = {}
     for o in obs:
-        if (o.get('kind') or 'explore') != 'explore':
+        if (o.get('kind') or 'explore') != 'explore' or (o.get('disposition') or 'accepted') != 'accepted':
             continue
-        n, neg = per_shop.get(o['mid'], (0, 0))
-        per_shop[o['mid']] = (n + 1, neg + (1 if o['verdict'] in ('gone', 'oos') else 0))
+        att, dec, neg = per_shop.get(o['mid'], (0, 0, 0))
+        decisive = o['verdict'] in ('alive', 'oos', 'gone')
+        per_shop[o['mid']] = (att + 1, dec + (1 if decisive else 0), neg + (1 if o['verdict'] in ('gone', 'oos') else 0))
+        shop_of[o['mid']] = o['shop']
     quarantine, why = gate(per_shop, history_shares(run_id))
+    # КАНАРЕЙКА АДРЕСА: при доле отрицательных выше CANARY_SHARE проверяем, что мы стучимся по правильным
+    # ссылкам (испорченная схема ссылок даёт стабильный 404 на весь магазин)
+    for mid, (att, dec, neg) in per_shop.items():
+        if mid in quarantine or dec < 10 or neg / dec <= CANARY_SHARE:
+            continue
+        try:
+            ok = stock_canary.check(shop_of[mid], run_id, verbose=False)
+        except Exception as e:  # noqa: BLE001 — канарейка сама не должна ронять применение
+            ok, e_txt = False, f'{type(e).__name__}: {str(e)[:80]}'
+            why[mid] = f'канарейка не отработала ({e_txt})'
+        if not ok:
+            quarantine.add(mid)
+            why.setdefault(mid, f'канарейка: {neg}/{dec} отрицательных, адреса не похожи на карточки')
     for mid in sorted(quarantine):
         print(f'КАРАНТИН магазина mid={mid}: {why[mid]} — вердикты НЕ применяются', flush=True)
-    touched = [(o['mid'], o['eid']) for o in obs if o['mid'] not in quarantine]
-    changes = {'gone': 0, 'oos': 0, 'alive': 0, 'suspect': 0, 'unknown': 0}
+    if quarantine and not dry:
+        # карантин окончателен: наблюдения прогона больше не участвуют ни в свёртке, ни в истории
+        db(f"update product_page_observation set disposition = 'quarantined' where run_id = {q(run_id)} "
+           f"and shop_mid in ({','.join(str(m) for m in quarantine)}) and disposition = 'accepted';")
+    touched = [(o['mid'], o['eid']) for o in obs
+               if o['mid'] not in quarantine and (o.get('disposition') or 'accepted') == 'accepted']
+    changes = {'gone': 0, 'oos': 0, 'alive': 0, 'unknown': 0}
     if touched and not dry:
         keys = ','.join(f"({m}, {q(e)})" for m, e in touched)
         rows = db(f"""
@@ -381,6 +555,8 @@ def apply_run(obs: list, run_id: str, dry: bool = False) -> dict:
           from product_page_observation o
          where (o.shop_mid, o.external_id) in ({keys})
            and o.observed_at > now() - interval '90 days'
+           and coalesce(o.disposition, 'accepted') = 'accepted'
+           and (o.probe_version = {PROBE_VERSION} or o.evidence_kind = 'http_gone')
          order by o.shop_mid, o.external_id, o.observed_at;""")
         by_sku = {}
         for mid, eid, verdict, uhash, at, reason in rows:
@@ -415,7 +591,7 @@ def apply_run(obs: list, run_id: str, dry: bool = False) -> dict:
                'else null end;')
     report = {'run_id': run_id, 'checked': len(obs), 'quarantine': sorted(quarantine),
               'quarantine_why': {str(k): v for k, v in why.items()}, 'states': changes,
-              'per_shop': {str(k): {'n': v[0], 'negative': v[1]} for k, v in per_shop.items()},
+              'per_shop': {str(k): {'attempted': v[0], 'decisive': v[1], 'negative': v[2]} for k, v in per_shop.items()},
               'dry_run': dry, 'finished': dt.datetime.now().strftime('%F %T')}
     if not dry:
         report['reconciled'] = reconcile()
@@ -434,13 +610,17 @@ def observations_of_run(run_id: str) -> list:
     rows = db(f"""
     select o.shop_mid, o.external_id, p.shop, o.url, coalesce(o.http_code::text, ''),
            coalesce(o.final_url, ''), o.verdict, coalesce(o.reason, ''), o.url_hash,
-           to_char(o.observed_at, 'YYYY-MM-DD HH24:MI:SS'), coalesce(o.probe_kind, 'explore')
+           to_char(o.observed_at, 'YYYY-MM-DD HH24:MI:SS'), coalesce(o.probe_kind, 'explore'),
+           coalesce(o.disposition, 'accepted'), coalesce(o.response_kind, ''), coalesce(o.failure_kind, ''),
+           coalesce(o.evidence_kind, 'none')
       from product_page_observation o
       join products p on p.shop_mid = o.shop_mid and p.external_id = o.external_id
      where o.run_id = {q(run_id)};""")
     return [{'mid': int(r[0]), 'eid': r[1], 'shop': r[2], 'url': r[3],
              'code': int(r[4]) if r[4].isdigit() else None, 'final': r[5], 'verdict': r[6],
-             'reason': r[7], 'url_hash': r[8], 'prev': '', 'at': r[9], 'kind': r[10]}
+             'reason': r[7], 'url_hash': r[8], 'prev': '', 'at': r[9], 'kind': r[10],
+             'disposition': 'anchor' if r[11] == 'anchor' else 'accepted',   # карантин снимается при --reapply
+             'response_kind': r[12] or None, 'failure_kind': r[13] or None, 'evidence_kind': r[14]}
             for r in rows]
 
 
@@ -465,6 +645,9 @@ def main() -> int:
             print(f'нет наблюдений прогона {run!r}')
             return 1
         print(f'повторное применение прогона {run}: наблюдений {len(obs)}', flush=True)
+        if '--dry-run' not in sys.argv:
+            db(f"update product_page_observation set disposition = 'accepted' where run_id = {q(run)} "
+               "and disposition = 'quarantined';")
         rep = apply_run(obs, run, '--dry-run' in sys.argv)
         return 1 if rep.get('audit_mismatch', 0) else 0
     limit = int(sys.argv[sys.argv.index('--limit') + 1]) if '--limit' in sys.argv else DEFAULT_LIMIT
@@ -475,6 +658,7 @@ def main() -> int:
     max_min = int(sys.argv[sys.argv.index('--max-minutes') + 1]) if '--max-minutes' in sys.argv \
         else DEFAULT_MAX_MINUTES
     db(open(os.path.join(HERE, '003-stock-truth.sql'), encoding='utf-8').read())
+    db(open(os.path.join(HERE, '004-stock-honesty.sql'), encoding='utf-8').read())
     run_id = dt.datetime.now().strftime('%Y%m%d-%H%M%S')
     picked = candidates(limit, only)
     if not picked:
@@ -497,7 +681,7 @@ def main() -> int:
             print(f'ручной повтор: пауза {wait} с, затем {len(fresh)} отрицательных', flush=True)
             time.sleep(wait)
             run2 = run_id + '-confirm'
-            picked2 = [(o['mid'], o['eid'], o['shop'], o['url'], 'suspect', 99) for o in fresh]
+            picked2 = [(o['mid'], o['eid'], o['shop'], o['url'], 'gone', 99) for o in fresh]
             obs2 = crawl(picked2, run2, max_minutes=max(30, max_min // 3))
             save_observations(obs2, run2)
             report = apply_run(obs2, run2, dry)
@@ -511,5 +695,41 @@ def main() -> int:
     return 1 if bad else 0
 
 
+def _selftest() -> int:
+    import gzip
+    bad = 0
+    raw = b'<html>' + b'x' * 100000 + b'<meta itemprop="availability" content="InStock">'
+    dec = _gunzip_stream()
+    out = dec.decompress(gzip.compress(raw), len(raw))
+    if out != raw:
+        bad += 1; print('  FAIL gzip: распаковка не совпала')
+    cases = [
+        ((True, []), True), ((False, [('alive', None)]), False),
+        ((True, [('alive', None), ('alive', None), ('gone', None)]), True),
+        ((True, [('gone', None), ('gone', None), ('gone', None)]), False),   # маршрут карточек сломан
+        ((True, [('unknown', 'challenge'), ('unknown', 'challenge'), ('alive', None)]), False),
+        ((True, [('unknown', 'no_signal'), ('unknown', 'timeout')]), False),
+        ((True, [('gone', None)]), True),   # одна карточка могла честно исчезнуть
+    ]
+    for (home, cards), want in cases:
+        got, why = anchor_verdict(home, cards)
+        if got != want:
+            bad += 1; print(f'  FAIL якорь {home} {cards}: {got} ({why}), ожидалось {want}')
+    now = dt.datetime.now()
+    d_cases = [
+        (None, False), ({'policy': 'disabled', 'state': 'blocked', 'blocked_until': None, 'last_probe_at': None}, True),
+        ({'policy': 'auto', 'state': 'blocked', 'blocked_until': now + dt.timedelta(hours=1), 'last_probe_at': None}, True),
+        ({'policy': 'auto', 'state': 'blocked', 'blocked_until': now - dt.timedelta(hours=1), 'last_probe_at': None}, False),
+        ({'policy': 'auto', 'state': 'open', 'blocked_until': None, 'last_probe_at': None}, False),
+    ]
+    for info, want in d_cases:
+        if domain_unavailable(info, now) != want:
+            bad += 1; print(f'  FAIL domain_unavailable {info}: ожидалось {want}')
+    print(f'stock_check selftest: случаев {1 + len(cases) + len(d_cases)}, ошибок {bad}')
+    return 1 if bad else 0
+
+
 if __name__ == '__main__':
+    if '--selftest' in sys.argv:
+        sys.exit(_selftest())
     sys.exit(main())
