@@ -13,10 +13,25 @@ today=$(date -u +%F)
 if [ ! -f "$STATUS" ]; then
   msg="remlab каталог: статуса прогона НЕТ вовсе ($STATUS) — DEV-машина не публикует"
 else
-  d=$(sed -n 's/.*"date":"\([0-9-]*\)".*/\1/p' "$STATUS" | head -1)
-  fin=$(sed -n 's/.*"finished":"\([^"]*\)".*/\1/p' "$STATUS" | head -1)
-  if [ "$d" = "$today" ] && [ -n "$fin" ]; then exit 0; fi
-  msg="remlab каталог: утренний прогон $today НЕ СОСТОЯЛСЯ — последний статус: дата ${d:-?}, финиш ${fin:-?} (DEV-машина выключена или крон не сработал)"
+  # JSON читаем python3 (есть на сервере), а не sed: поля структурированные (overall, fails)
+  read -r d fin overall fails < <(python3 - "$STATUS" <<'PY'
+import json, sys
+try:
+    s = json.load(open(sys.argv[1]))
+except Exception:
+    print('? ? broken -'); sys.exit(0)
+print(s.get('date') or '?', (s.get('finished_at') or s.get('finished') or '?').replace(' ', 'T'),
+      s.get('overall') or ('ok' if s.get('finished') else '?'), ','.join(s.get('fails') or []) or '-')
+PY
+)
+  if [ "$d" = "$today" ] && [ "$overall" = "FAIL" ]; then
+    # локальная тревога с DEV могла не уйти (нет TG, сеть) — сторож дублирует сбой
+    msg="remlab каталог: прогон $today завершился С ОШИБКАМИ — FAIL: ${fails} (см. refresh.log на DEV)"
+  elif [ "$d" = "$today" ] && [ "$fin" != "?" ]; then
+    exit 0
+  else
+    msg="remlab каталог: утренний прогон $today НЕ СОСТОЯЛСЯ — последний статус: дата ${d:-?}, финиш ${fin:-?}, итог ${overall:-?} (DEV-машина выключена или крон не сработал)"
+  fi
 fi
 logger -t remlab-catalog-watchdog "$msg"
 echo "$(date -u '+%F %T') $msg" >> "$DIR/watchdog.log"

@@ -113,6 +113,7 @@ def scan() -> dict:
                       'mids_quarantine_pending': _pend,
                       'broken_since': (prev.get(h) or {}).get('broken_since') or datetime.now().strftime('%Y-%m-%d')}
             _alert(f'remlab: фид {h[:12]} не читается ({e}) — работаем на прежних данных БД')
+            print(f'WARN:feed_broken: фид {h[:12]} не читается ({str(e)[:80]}) — карантин источника', flush=True)
             continue
         age_h = age_hours(yml_date, now)
         if age_h is None:
@@ -122,8 +123,9 @@ def scan() -> dict:
         if state == 'fresh' and age_h > NOT_TODAY_H:
             # не тревога, а WARN в лог шага: Гдеслон опоздал со сборкой, мы взяли вчерашний файл
             # (маркер `WARN:` читает step() в refresh_daily.sh и кладёт в дайджест)
-            print(f'WARN: фид {h[:12]} не сегодняшний — yml_date {yml_date} ({age_h:.0f} ч)', flush=True)
+            print(f'WARN:feed_not_today: фид {h[:12]} не сегодняшний — yml_date {yml_date} ({age_h:.0f} ч)', flush=True)
         if offers == 0:
+            print(f'WARN:feed_empty: фид {h[:12]} отдал 0 офферов — карантин источника', flush=True)
             # W5 (аудит 10.08): алертим ЛЮБОЙ переход в empty (в т.ч. первый раз увиденный
             # пустой фид) — раньше «вечно пустой» e2fccbea жил незамеченным месяцами.
             prev_state = (prev.get(h) or {}).get('state')
@@ -132,6 +134,7 @@ def scan() -> dict:
                        f'{f" (было {prev_offers})" if prev_offers else " (пустой)"} — '
                        f'скачался «успешно», но каталог пуст')
         elif state == 'stale':
+            print(f'WARN:feed_stale: фид {h[:12]} протух — yml_date {yml_date} ({age_h:.0f} ч), карантин источника', flush=True)
             _alert(f'remlab: фид {h[:12]} протух — yml_date {yml_date} ({age_h:.0f} ч), '
                    f'товары едут на старых ценах/наличии')
         out[h] = {'offers': offers, 'prev_offers': prev_offers, 'mids': sorted(mids),

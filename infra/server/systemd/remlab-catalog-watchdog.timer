@@ -2,7 +2,7 @@
 Description=Daily remlab catalog watchdog (15:30 UTC, прогон стартует 10:40 UTC)
 
 [Timer]
-OnCalendar=*-*-* 15:30
+OnCalendar=*-*-* 15:30 UTC
 Persistent=true
 
 [Install]
