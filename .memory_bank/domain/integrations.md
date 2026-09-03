@@ -3,7 +3,7 @@ tier: 2
 topic: integrations-details
 scope: Детали внешних интеграций — эндпоинты, форматы запросов/ответов, env-переменные, конфиги, цены
 tier1: ../core/access-and-integrations.md
-updated: 2026-09-02
+updated: 2026-09-03
 importance: high
 source: manual
 status: working
@@ -275,3 +275,17 @@ Standard, `isDownloadable:false`, платная модель магазина.
 - **Реестр черновиков запросов** — `https://remont-lab.online/test/share/src/` (оглавление
   собирает `draft_render._src_index`): стиль каждого запроса берётся ИЗ ПРОМПТА, рядом отпечаток
   отправленного листа — по нему видно, разные ли сцены ушли в модель.
+
+## Гдеслон — фиды vs API (сверено 03.09, ADR-0171)
+- Фиды (9 постоянных ссылок кабинета; nonton `777e580d` удалён 29.08; `e2fccbea` пуст): у каждого оффера
+  атрибуты `merchant_id`, `id` (точный), `article`, `gs_category_id`; поля `picture` 450×338,
+  `original_picture` 800×600 с CDN магазина (100 %), `description` (43 %), `params`. Гдеслон пересобирает
+  выгрузки ежедневно ≈12:35–12:39 МСК (штамп `yml_catalog date` по МСК).
+- Поисковый API `api.gdeslon.ru/api/search.xml` (≤100/страница, обход по словам-ролям, ≈1100 на запрос):
+  `id` = double(feed id) у 100/100 пар (JS-печать float64), коллизий среди 86 772 id нет; `article` совпадает
+  с фидом; отдаёт `charge` (комиссия ₽) и `available`, который не совпадает с правдой карточек
+  (precision 0 % на 1 486 false; 829/829 мёртвых = true). Покрывает 63 % каталога.
+- Служебный Telegram-бот `@remlabservice_bot` (владелец, 03.09): значения — `tools/scout/.env.alert` (DEV,
+  `TG_BOT_TOKEN/TG_CHAT_ID/DIGEST_QUIET_OK`) и `/opt/remlab/catalog-watchdog/.env` (прод); chat_id — после
+  Start владельца (`getUpdates`). Документация Гдеслона: gdeslon.ru/faq/20 и /faq/21 (формат id не описан).
+

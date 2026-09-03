@@ -13,10 +13,10 @@ last_verified: 2026-09-03
 
 # Каталог — Tier 1 сводка
 
-**Состав (03.09):** 20 588 товаров, in_stock 18 736, 6 магазинов Гдеслона; дев-БД `remlab-devdb` на DEV-VM.
+**Состав (03.09):** 20 588 товаров, in_stock 18 736, 6 магазинов Гдеслона; дев-БД `remlab-devdb` (DEV-VM).
 **Цикл:** crontab `40 10 * * *` UTC (фиды Гдеслона собираются 12:35 МСК) + `@reboot`; `refresh_daily.sh` —
-шаги `ok|warn|FAIL|skipped` по маркеру `WARN:<код>:`, статус на прод, дайджест в Telegram, прод-сторож
-«прогон не состоялся / FAIL» (ADR-0172, [[deployment]]). Аудит с владельцем — `_intake/dialog-catalog-load-0309.md`.
+шаги `ok|warn|FAIL|skipped` (`WARN:<код>:`), статус на прод, дайджест в Telegram, прод-сторож (ADR-0172,
+[[deployment]]). Аудит с владельцем — `_intake/dialog-catalog-load-0309.md`.
 
 **Источник истины (ADR-0171, `tools/scout/load3.py`):** ФИД — ключ `(merchant_id, id)`, название, ссылка,
 фото, `original_picture → image_url_hd`, `article`, цена, категория, params, описание (пустое не затирает).
@@ -34,7 +34,7 @@ API (`catalog_api_sync.py`, по понедельникам) — только `c
 перевёл 57 мешовых SKU на HD. **Отрицательно (03.09):** глубина из меша хуже дефолта 100 см (37 % vs 63 %
 в ±10 %) — не включена, дефолт помечен `d_assumed`; `available` из API — precision 0 %.
 
-**Тесты:** `--selftest` (`load3` на фикстуре `tests/fixtures/`, `dim_resolver`, `category_map`, `feed_guard`,
+**Тесты:** `--selftest` (`load3` на `tools/scout/tests/fixtures/`, `dim_resolver`, `category_map`, `feed_guard`,
 `reflink`, `stock_truth`) — CI `scout-selftest`. **Дыры:** 155 товаров divan.ru не в экспорте (кабинет);
 пустая выгрузка `e2fccbea`; диванов без глубины 1 012/2 345.
 
