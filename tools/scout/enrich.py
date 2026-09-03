@@ -131,8 +131,12 @@ ACCEPT_SCHEMAS = ("'s5'", "'s6'")
 
 def todo(items: list[dict]) -> list[dict]:
     """Кому обогащение реально нужно: новым и тем, у кого поменялся смысл или версия."""
+    # П2 (catalog-load-hardening): смена смысла товара больше не обнуляет enrichment_version —
+    # load3 ставит enrichment_status='stale' (payload остаётся читаемым для capabilities), и
+    # именно stale/pending здесь считаются «не сделано».
     rows = sql(f"""select shop_mid, external_id from product_enrichment
                  where payload is not null and enrichment_version='{ENRICH_VERSION}'
+                   and coalesce(enrichment_status,'current')='current'
                    and prompt_version in ({','.join(ACCEPT_PROMPTS)})
                    and schema_version in ({','.join(ACCEPT_SCHEMAS)})""")
     done = {tuple(l.split('\x1f')) for l in rows.strip().split('\n') if l}
@@ -198,6 +202,7 @@ def save(rows: list[tuple[dict, dict, dict]], model: str = MODEL, vision: bool =
       update product_enrichment e set payload=v.payload, quality=v.q,
              enrichment_version='{ENRICH_VERSION}', model_name='{model}',
              prompt_version='{PROMPT_VERSION}', schema_version='{SCHEMA_VERSION}',
+             enrichment_status='current',
              enriched_at=now(), updated_at=now()
         from (values {','.join(vals)}) as v(mid, eid, payload, q)
        where e.shop_mid=v.mid and e.external_id=v.eid;
