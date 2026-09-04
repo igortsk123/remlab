@@ -558,13 +558,34 @@ def case_transport_class() -> None:
 
 
 def case_window_gate() -> None:
-    """Окно тарифа — одно правило: batch можно только в 09–15 UTC, low — всегда."""
+    """Окно тарифа — одно правило: batch можно только в 09–15 UTC, low — всегда.
+
+    НА ФИКСТУРЕ, А НЕ НА ЖИВОМ ФАЙЛЕ (04.09). Раньше тест читал боевой
+    `rules/salad-groups.json` и развалился, когда состав пула сменился на `mesh-low-4/5` +
+    `mesh-batch-3`: падал не код, а устаревшее имя группы в самом тесте. Стенд обязан
+    проверять ПРАВИЛО, а не сегодняшний состав, иначе каждая миграция групп красит его
+    в красный и приучает не верить стенду.
+    """
     import salad_groups as SG  # noqa: PLC0415
-    hour = lambda h: time.mktime(time.strptime(f'2026-09-04 {h:02d}:30', '%Y-%m-%d %H:%M')) - time.timezone  # noqa: E731
-    assert SG.allowed_now('mesh-batch-1', hour(10)) and not SG.allowed_now('mesh-batch-1', hour(16))
-    assert not SG.allowed_now('mesh-batch-2', hour(8)) and SG.allowed_now('mesh-low-2', hour(3))
-    assert SG.tier('mesh-low-3') == 'low' and SG.price('mesh-batch-1') == 0.09 and SG.tier('нет-такой') == '?'
-    print('  ✓ окно тарифа из rules/salad-groups.json')
+    fixture = {'prices_usd_h': {'batch': 0.09, 'low': 0.143},
+               'usd_rub': 86.89,
+               'groups': {'g-batch': {'tier': 'batch', 'window_utc': [9, 15]},
+                          'g-batch-closed': {'tier': 'batch', 'window_utc': [0, 0]},
+                          'g-low': {'tier': 'low'}}}
+    path = os.path.join(tempfile.gettempdir(), 'tests_pool-salad-groups.json')
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(fixture, f)
+    keep_rules, keep_cache = SG.RULES, SG._CACHE
+    SG.RULES, SG._CACHE = path, None
+    try:
+        hour = lambda h: time.mktime(time.strptime(f'2026-09-04 {h:02d}:30', '%Y-%m-%d %H:%M')) - time.timezone  # noqa: E731
+        assert SG.allowed_now('g-batch', hour(10)) and not SG.allowed_now('g-batch', hour(16))
+        assert not SG.allowed_now('g-batch-closed', hour(8)) and SG.allowed_now('g-low', hour(3))
+        assert SG.tier('g-low') == 'low' and SG.price('g-batch') == 0.09 and SG.tier('нет-такой') == '?'
+    finally:
+        SG.RULES, SG._CACHE = keep_rules, keep_cache
+        os.path.exists(path) and os.remove(path)
+    print('  ✓ окно тарифа — правило на фикстуре, не на живом составе групп')
 
 
 def case_group_status_mixed() -> None:
@@ -578,12 +599,21 @@ def case_group_status_mixed() -> None:
     seq = iter(['stopped', 'running'])
     B.subprocess.run = lambda *a, **k: R(next(seq))
     os.environ['SALAD_GROUP'] = 'mesh-batch-1,mesh-low-2'
+    # Ключ читается ИЗ ОКРУЖЕНИЯ до вызова subprocess, поэтому мока мало: без него KeyError
+    # ловится внутри `group_status`, статус выходит None, и тест падал только на машине без
+    # боевого ключа (04.09). Стенд не должен зависеть от того, что лежит в окружении.
+    keep_key = os.environ.get('SALAD_API_KEY')
+    os.environ['SALAD_API_KEY'] = 'ключ-для-стенда-запросы-замоканы'
     try:
         assert B.group_status() == 'running', 'stopped первой группы выдали за состояние пула'
         seq = iter(['stopped', 'stopped'])
         assert B.group_status() == 'stopped'
     finally:
         B.subprocess.run = real
+        if keep_key is None:
+            os.environ.pop('SALAD_API_KEY', None)
+        else:
+            os.environ['SALAD_API_KEY'] = keep_key
     print('  ✓ group_status: stopped только если ВСЕ, иначе живая часть')
 
 
