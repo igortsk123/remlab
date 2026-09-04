@@ -105,12 +105,16 @@ def canary(size_mb: float = 1.0) -> dict:
     except Exception as e:  # noqa: BLE001
         return {'ok': False, 'why': f'PUT {size_mb:.0f} МБ → {type(e).__name__}: {str(e)[:80]}', 'sec': time.time() - t0}
     sec = time.time() - t0
-    try:   # не удалилось — не страшно: `.staging` старше 6 ч уберёт receiver_purge
-        req = urllib.request.Request(f'{SINK_URL}/{mark}', method='DELETE',
+    # УДАЛЯТЬ НАДО ПО `/prefix/...` (04.09). Раньше слали DELETE на `/{mark}`, а приёмник
+    # принимает удаление только с этим префиксом (`receiver.do_DELETE`) — отвечал 404, ошибка
+    # глушилась, и КАЖДАЯ канарейка оставляла на транзите ~1 МБ. Хуже, чем мусор: байты уже
+    # учтены счётчиком приёмника и без его же DELETE никогда не вычитались.
+    try:
+        req = urllib.request.Request(f'{SINK_URL}/prefix/{mark}', method='DELETE',
                                      headers={'Authorization': f'Bearer {tok}', 'User-Agent': UA})
         urllib.request.urlopen(req, timeout=30).read()
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001 — не удалилось: скажем вслух, молчать здесь дорого
+        print(f'канарейка: не убрала за собой {mark} ({type(e).__name__}: {str(e)[:60]})')
     return {'ok': True, 'why': '', 'sec': sec}
 
 

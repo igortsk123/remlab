@@ -28,6 +28,9 @@ import os
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRV = os.environ.get('MESH_SRV', 'root@89.167.127.0')
@@ -57,6 +60,46 @@ def ssh(cmd: str, timeout: int = 300) -> str:
     if r.returncode != 0:
         raise RuntimeError(f'ssh: {r.stderr[:200]}')
     return r.stdout
+
+
+def sink_delete(prefixes: list) -> tuple[int, int]:
+    """Удаляет префиксы ЧЕРЕЗ API приёмника. Возвращает (удалено, не смогли).
+
+    ПОЧЕМУ НЕ `rm -rf` ПО SSH (04.09, подтверждено замером). Приёмник считает размер каталога
+    инкрементально (`receiver._SIZE`) и вычитает байты ТОЛЬКО в своём `DELETE /prefix/...`.
+    Удаление мимо API освобождает диск, но счётчик не трогает — он умеет только расти. К
+    18:00 04.09 приёмник докладывал 7.37 ГБ при реальных 5.13 ГБ; `sink_health` краснеет уже
+    на 7 ГБ, поэтому сторож погасил пул, хотя места было полно. Лечилось только перезапуском
+    контейнера (счётчик пересчитывается при старте) — то есть вручную.
+    """
+    import sink_health  # noqa: PLC0415 — только ради токена, кругового импорта нет
+    tok = sink_health.sink_token()
+    if not tok:
+        print('нет токена приёмника — удалить через API не могу, НИЧЕГО не удаляю')
+        return 0, len(prefixes)
+    base = sink_health.SINK_URL
+    done, failed = 0, 0
+    for d in prefixes:
+        rel = d.strip('/')
+        req = urllib.request.Request(f'{base}/prefix/{urllib.parse.quote(rel)}', method='DELETE',
+                                     headers={'Authorization': f'Bearer {tok}',
+                                              'User-Agent': 'remlab-purge'})
+        try:
+            urllib.request.urlopen(req, timeout=60).read()
+            done += 1
+        except urllib.error.HTTPError as e:
+            # 404 — уже нет: считаем успехом, счётчику вычитать нечего
+            if e.code == 404:
+                done += 1
+            else:
+                failed += 1
+                if failed <= 3:
+                    print(f'  не удалил {rel}: HTTP {e.code}')
+        except Exception as e:  # noqa: BLE001
+            failed += 1
+            if failed <= 3:
+                print(f'  не удалил {rel}: {type(e).__name__}: {str(e)[:60]}')
+    return done, failed
 
 
 def free_gb() -> float:
@@ -97,9 +140,11 @@ def sweep_staging(apply: bool) -> int:
         print(f'.staging на приёмнике: {len(cur)}, к удалению (не менялись 2 прогона и старше '
               f'{RETAIN_H:.0f} ч): {len(doomed)}')
     if doomed and apply:
-        ssh('cd %s && rm -rf %s && find . -mindepth 1 -type d -empty -delete' % (
-            REMOTE, ' '.join(f"'{d}'" for d in doomed)), timeout=600)
-    return len(doomed) if apply else 0
+        done, failed = sink_delete(doomed)
+        if failed:
+            print(f'.staging: не удалось убрать {failed}')
+        return done
+    return 0
 
 
 def remote_sets() -> list[tuple[str, int, float]]:
@@ -199,11 +244,12 @@ def main() -> None:
     if not apply:
         print('это разбор без действий. Удалить: --apply')
         return
-    # удаляем пачками, чтобы не открывать ssh-сессию на каждый каталог
-    for i in range(0, len(purge), 100):
-        chunk = purge[i:i + 100]
-        ssh('cd %s && rm -rf %s' % (REMOTE, ' '.join(f"'{d}'" for d in chunk)), timeout=600)
-    print(f'удалено комплектов: {len(purge)}; свободно стало {free_gb():.1f} ГБ')
+    done, failed = sink_delete(purge)
+    print(f'удалено комплектов: {done}; не удалось: {failed}; свободно стало {free_gb():.1f} ГБ')
+    if failed:
+        # Молчаливый успех при неудалении — как раз то, из-за чего таймер докладывал бы «ок»,
+        # а приёмник копился. Пусть вызывающий видит отказ.
+        sys.exit(1)
 
 
 if __name__ == '__main__':
