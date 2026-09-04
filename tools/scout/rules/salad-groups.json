@@ -1,11 +1,35 @@
 {
   "_about": "Группы Salad: тариф, цена $/ч (API gpu-classes, RTX 3090, 03.09), окно подъёма по UTC. Имя группы — не контракт: тариф и окно берутся ОТСЮДА, а не из названия. Правила — ADR (план mesh-pool-hardening).",
-  "prices_usd_h": {"batch": 0.090, "low": 0.143, "medium": 0.197, "high": 0.250},
+  "prices_usd_h": {
+    "batch": 0.09,
+    "low": 0.143,
+    "medium": 0.197,
+    "high": 0.25
+  },
   "usd_rub": 86.89,
   "groups": {
-    "mesh-batch-1": {"tier": "batch", "window_utc": [9, 15]},
-    "mesh-batch-2": {"tier": "batch", "window_utc": [9, 15]},
-    "mesh-low-2":   {"tier": "low"},
-    "mesh-low-3":   {"tier": "low"}
+    "mesh-batch-1": {
+      "tier": "batch",
+      "window_utc": [
+        9,
+        15
+      ]
+    },
+    "mesh-batch-2": {
+      "tier": "batch",
+      "window_utc": [
+        9,
+        15
+      ]
+    },
+    "mesh-low-2": {
+      "tier": "low"
+    },
+    "mesh-low-3": {
+      "tier": "low"
+    },
+    "mesh-low-4": {
+      "tier": "low"
+    }
   }
 }
