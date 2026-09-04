@@ -232,23 +232,23 @@ mtime без вердикта первым) вместо `shuffle(PID)`.
   failure на общем диске с продом (Codex №2).
 
 ## Файлы к изменению
-- [ ] новые: `tools/scout/salad/sink_health.py`, `salad_groups.py`, `tools/scout/rules/salad-groups.json`, `Dockerfile.patch`
-- [ ] `tools/scout/salad/ssh_run.py`, `node_health.py`, `batch_show.py`, `money_guard.py`, `receiver.py`
-- [ ] `idle_guard.sh`, `batch_window.sh`, `receiver_purge.py`, `tier_compare.py`, `pool_hours.py`
-- [ ] `topview_render.py`, `cabinet_front.py`, `apply_repairs.py`; `tools/scout/alert.sh`
-- [ ] ребилд: `preprocess.py`, `worker.py`, `pipeline.py`, `storage.py`
-- [ ] `infra/server/cleanup.sh`, `disk-watchdog.sh`, `systemd/remlab-watchdog.timer`; `.github/workflows/deploy.yml`; `deploy.sh`; `caddy/Caddyfile`; `docker-compose.yml`
-- [ ] `tests_pool.py` (+12 случаев), `README.md`; удалить `container-group.json`
-- [ ] `.memory_bank/`: план → `plans/mesh-pool-hardening.md`, ADR, `core/mesh-pipeline.md`, `deployment.md`
+- [x] новые: `tools/scout/salad/sink_health.py`, `salad_groups.py`, `tools/scout/rules/salad-groups.json`, `Dockerfile.patch`
+- [x] `tools/scout/salad/ssh_run.py`, `node_health.py`, `batch_show.py`, `money_guard.py`, `receiver.py`
+- [x] `idle_guard.sh`, `batch_window.sh`, `receiver_purge.py`, `tier_compare.py`, `pool_hours.py`
+- [x] `topview_render.py`, `cabinet_front.py`, `apply_repairs.py`; `tools/scout/alert.sh`
+- [x] ребилд: `preprocess.py`, `worker.py`, `pipeline.py`, `storage.py`
+- [x] `infra/server/cleanup.sh`, `disk-watchdog.sh`, `systemd/remlab-watchdog.timer`; `.github/workflows/deploy.yml`; `deploy.sh`; `caddy/Caddyfile`; `docker-compose.yml`
+- [x] `tests_pool.py` (+12 случаев), `README.md`; удалить `container-group.json`
+- [x] `.memory_bank/`: план → `plans/mesh-pool-hardening.md`, ADR, `core/mesh-pipeline.md`, `deployment.md`
 
 ## Критерии приёмки
-- [ ] Стенд «ВСЁ ЗЕЛЁНОЕ» с новыми случаями; `py_compile` всех .py; `bash -n` скриптов
-- [ ] Канарейка + проба 15 МБ → 200; при `MESH_SINK_MARGIN_GB=100` конвейер не раздаёт (75), шлёт TG, запускает drain+purge
+- [x] Стенд «ВСЁ ЗЕЛЁНОЕ» с новыми случаями; `py_compile` всех .py; `bash -n` скриптов
+- [x] Канарейка + проба 15 МБ → 200; при `MESH_SINK_MARGIN_GB=100` конвейер не раздаёт (75), шлёт TG, запускает drain+purge
 - [ ] В 15:00 UTC batch-группы гаснут и НЕ поднимаются до 09:00 (лог `ensure_group_started` — только low)
-- [ ] `alert.sh` → 1 при плохом токене; пульс пришёл в 08 UTC
+- [x] `alert.sh` → 1 при плохом токене; пульс пришёл в 08 UTC
 - [ ] За сутки `earlyoom` пуст; `топ-вью: ok`, `приёмка: ok`; виды сверху у новых мешей
 - [ ] `tier_compare --hours 24` — оплаченная цена, сходится с панелью ±10%
-- [ ] `ghcr…remlab-app` ≤ 3 образов; `df /` < 60%; `.staging` = 0 после двух циклов
+- [x] `ghcr…remlab-app` ≤ 3 образов; `df /` < 60%; `.staging` = 0 после двух циклов
 - [ ] Ребилд: `input_failed` timeout/SSL ↓; `/ready`, `/job/<id>` отвечают; `alien_suspect` в манифестах
 - [ ] Не задеты: `remnanode`, чужие правки (`hub_page.py`, `scene_mesh.py`), VPN
 
@@ -286,3 +286,4 @@ mtime без вердикта первым) вместо `shuffle(PID)`.
 ## Лог выполнения
 - 2026-09-04 — план создан (draft); разведка 3 агента + архитектор; критика Codex учтена
 - 2026-09-04 — «деплой»: старт фазы A (оповещение → серверные скрипты → локальные скрипты → транспорт)
+- 2026-09-04 — фаза A и B выполнены (коммиты be1eefa…0da0fdf): сервер, стопоры, приёмник ДО GPU, транспорт, OOM, цена, горячий перезапуск; образ localpaint2 собран и выгружен (digest f9a9ad6d…); фаза C (миграция приёмника в compose + новые группы) — в окно 15:00 UTC

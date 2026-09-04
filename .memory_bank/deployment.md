@@ -3,7 +3,7 @@ tier: 1
 topic: deployment
 scope: Деплой/откат/сервер exit-fi — playbook
 tier2: ""
-updated: 2026-09-03
+updated: 2026-09-04
 importance: high
 source: manual
 last_verified: 2026-09-03
@@ -39,12 +39,13 @@ Push в `main` → CI gate → `Deploy prod` (health.version == HEAD). Ручн�
 `overall=FAIL` → Telegram. Kill-switch `DISABLED`, откат `systemctl disable --now`; юниты —
 `infra/server/systemd/`.
 
-## Автоочистка (ADR-0005)
-Логи 10m×3; weekly `remlab-cleanup` (+трейсы >90 дн.); ночной `pg_dump` ×7; df-watchdog >80%.
+## Автоочистка и сторож диска (ADR-0005/0176)
+`remlab-cleanup` weekly + из CI (теги `remlab-app:*` кроме используемых, под flock); `pg_dump` ×7;
+`remlab-watchdog.timer` ежечасно: ≥80% → cleanup → Telegram; рестарты `remlab-app` →
+`backups/app-mem.log`. Скрипты `infra/server/*` кладутся руками. Приёмник — `mesh-receiver` в compose.
 
 ## Правки сервера 31.08
-sshd `GatewayPorts clientspecified`, iptables-туннель DEV-рендера, `remlab-draft` через docker cp —
-детали и откат в ADR-0139 (бэкапы `*.bak-20260831`).
+sshd, iptables-туннель DEV-рендера, `remlab-draft` через docker cp — ADR-0139 (бэкапы `*.bak-20260831`).
 
 ## Секреты
 `.env` в `/opt/remlab` (вне git): `POSTGRES_PASSWORD`/`GEMINI_API_KEY`/`TRACE_ADMIN_TOKEN`.

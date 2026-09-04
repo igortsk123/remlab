@@ -3804,3 +3804,64 @@ JSON-LD только Product, inline-остаток tvoydom одним верд�
 **Влияет на.** `core/stock-and-dims.md`, `domain/stock-and-dims.md`, `core/catalog.md`, `stock_check.py`,
 `page_alive.py`, `stock_truth.py`, `footprint.py`, `compose2.py`, `solver_run.py`, `scene_build.py`,
 `export_plans_ai.py`, `flat215_demo.py`, `catalog_media.py`, `sets_incremental.py`, миграции 004/005.
+
+## ADR-0175 — 2026-09-04 — Приёмник проверяется ДО GPU; три стопора живут по одному своду правил
+
+**Решение.** (1) Перед раздачей пачки `ssh_run.run()` спрашивает приёмник (`sink_health.check()`
+по `/health`/`/ready` с запасом порогов) и делает канарейку — авторизованный PUT 1 МБ + DELETE;
+отказ = код 75 «нет ёмкости», `batch_show` тут же стаскивает и чистит. Во время пачки супервизор
+опрашивает приёмник раз в 45 с, воркеры читают флаг перед каждым заданием; отказ публикации с
+507/EOF — повод перепроверить приёмник, и только красный ответ делает вину «инфра» (`FAULT_INFRA`):
+остаток пачки закрывается, курсор стоит, ноды не винят. (2) Тариф, цена и окно группы записаны
+один раз в `tools/scout/rules/salad-groups.json` (`salad_groups.py`); `SALAD_GROUP` без умолчаний. Правила
+старшинства: стоп-файл сторожа сильнее любого автостарта; окно тарифа сильнее «нет тёплых нод»
+(`ensure_group_started` поднимает только `allowed_now`); `group_status` — `stopped` только если
+все; `batch_window up` — лишь при живом конвейере; `idle_guard` гасит, но стоп-файл не пишет.
+(3) `alert.sh` возвращает 0/1/2 и логирует каждую отправку; сторож шлёт суточный пульс.
+
+**Почему.** 03.09 20:31 приёмник отвечал 507: диск сервера забили 135 тегов `remlab-app:<sha>` от
+CI. Ноды считали меши (GPU оплачен) и роняли отправку — 104 отказа; сторож погасил пул через
+50 мин молча (оповещения не было) — 10 ч простоя; утром проверка ПУСТЫМ файлом (404 = «ок») и
+ещё 385 нодо-минут. Вечером того же дня `group_status()` вернул статус ПЕРВОЙ группы (batch,
+погашенной кроном) → `ensure_group_started` поднял все группы → 57 машин дешёвого тарифа
+прогрелись, 0 мешей, 134 ₽. `idle_guard` не знал ни окна, ни стоп-файла.
+
+**Альтернативы.** Единый control-plane с lease (Codex) — перестройка ради трёх скриптов,
+отвергнута: свод правил + singleton-замок конвейера достаточны. S3/R2 вместо приёмника —
+отклонено владельцем ранее (загрузка внутри `running` оплачивается); записано долгом.
+
+**Влияет на:** `tools/scout/salad/{sink_health,salad_groups,ssh_run,batch_show,money_guard,
+node_health}.py`, `idle_guard.sh`, `batch_window.sh`, `tools/scout/alert.sh`,
+`tools/scout/rules/salad-groups.json`; стенд `tests_pool.py` (+10 случаев).
+
+## ADR-0176 — 2026-09-04 — Транспорт с диагнозом, горячий перезапуск, цена по переписи, сервер и образ
+
+**Решение.** (1) Обрыв SSH классифицируется (`ssh/empty|container_id|set_user|mid_generation|
+timeout` + rc + хвосты stdout/stderr); вторая SSH-попытка — только при пустом выводе (раньше
+всегда → двойной `/generate` после обрыва посреди генерации); после ребилда воркер держит
+`inflight` по `job_id` и отдаёт `GET /job/<id>`. (2) Конвейер — singleton (`flock`), перезапуск
+через флаг `mesh-draining` на границе пачки без гашения групп, новый экземпляр ждёт сирот,
+курсор пишется атомарно. (3) Цена меша — две: нижняя по секундам генерации и ОПЛАЧЕННАЯ по
+переписи сторожа (`Σ running×Δt`, разрыв > 2 тиков = «?»); цены/тарифы из JSON. (4) Сервер:
+`cleanup.sh` снимает теги `ghcr.io/…/remlab-app:*` кроме используемых (по image ID всех
+контейнеров, под flock), зовётся из CI до pull и после smoke; `disk-watchdog` ежечасно →
+cleanup → Telegram + наблюдение `remlab-app` (лимит не трогаем — решение владельца);
+Caddyfile в репо = серверному, в `deploy.sh` предохранитель; `mesh-receiver` в compose.
+Приёмник: размер каталога инкрементально, резерв под активные PUT, `/ready`, при 507 — снос
+`.staging`; `receiver_purge` метёт `.staging` по двум наблюдениям. (5) Образ `localpaint2`
+(один тонкий слой): повторы фото 2/5/10 с без повтора 404/410 и кэш байтов; `phase` +
+`warm=False` при провале прогрева + `/ready`; `SinkError` со стадией; `cut_alien_debris` →
+manifest. (6) OOM dev-VM: анализ SKU в дочерних процессах, 1 воркер рендера со сменой, не
+больше 20 новых мешей на процесс, проходы «пока есть новые» (RSS 465 МБ против 10 ГБ);
+`apply_repairs` 5×4 раунда, порядок детерминирован.
+
+**Почему.** 328 обрывов «нет маркера» без диагноза; `kill -9` конвейера = сирота `ssh_run` и
+двойная раздача (Codex); цена меша по секундам врала вдвое (0.75 ₽ против 1.54–2.45 по
+оплаченному); виды сверху не строились сутки (earlyoom); `remlab-app` — 12 рестартов за неделю.
+
+**Влияет на:** `ssh_run.py`, `node_health.py`, `batch_show.py`, `tier_compare.py`,
+`pool_hours.py`, `topview_render.py`, `cabinet_front.py`, `apply_repairs.py`,
+`receiver_purge.py`, `receiver.py`, `worker.py`, `preprocess.py`, `storage.py`, `pipeline.py`,
+`Dockerfile.patch`, `infra/server/*`, `.github/workflows/deploy.yml`, `deploy.sh`,
+`caddy/Caddyfile`, `docker-compose.yml`.
+
