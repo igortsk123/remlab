@@ -22,29 +22,53 @@ from __future__ import annotations
 import collections
 import json
 import os
+import sys
 import statistics
 import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
 JOURNAL = os.path.join(HERE, '..', 'mesh-run-progress.jsonl')
 
-# Цены Salad за час, взяты из API (`/organizations/<org>/gpu-classes`) 03.09. Карты у нас все на
-# 24 ГБ, приходят в основном RTX 3090 — берём её тариф; 4090 дороже, но встречается реже.
-PRICE = {'batch': 0.090, 'low': 0.143, 'medium': 0.197, 'high': 0.250}
-# Какая группа на каком тарифе. Не выводим из имени: имя — не контракт.
-TIER = {'mesh-batch-1': 'batch', 'mesh-batch-2': 'batch',
-        'mesh-low-2': 'low', 'mesh-low-3': 'low'}
-# ЧИСТАЯ ПАРА ДЛЯ СРАВНЕНИЯ (03.09): `mesh-batch-1` и `mesh-low-2` подняты на ОДНОМ образе
-# `localpaint` (прогрев 116 с вместо 242) и почти одновременно — различаются только тарифом.
-# `mesh-low-1` осталась на старом образе и работает с утра: её числа в сравнение тарифов не
-# берём, иначе возраст нод и медленный прогрев выдадут себя за влияние тарифа.
-# ВЕСЬ ПУЛ НА ОДНОМ ОБРАЗЕ с 03.09 (владелец: «обнови её чтоб все на новой были»): группа
-# на старом образе снесена, `mesh-low-1` заменена на `mesh-low-3`. Теперь тариф — ЕДИНСТВЕННОЕ
-# различие между группами, и сравнение честное без оговорок.
-IMAGE = {'mesh-batch-1': 'localpaint', 'mesh-batch-2': 'localpaint',
-         'mesh-low-2': 'localpaint', 'mesh-low-3': 'localpaint'}
-FAIR = ('mesh-batch-1', 'mesh-batch-2', 'mesh-low-2', 'mesh-low-3')   # все на одном образе
+import salad_groups as SG  # noqa: E402 — тариф/цена группы: ОДИН источник (rules/salad-groups.json)
+CENSUS = os.path.join(HERE, '..', 'mesh-pool-census.jsonl')
+TICK_S = float(os.environ.get('MESH_GUARD_TICK_S', '300'))
+# Образ у групп с 04.09 один (localpaint) — сравнение по тарифу честное без оговорок.
+FAIR = tuple((SG.load().get('groups') or {}).keys())
+
+
+def paid_hours(hours: float) -> dict:
+    """ОПЛАЧЕННЫЕ нодо-часы по группам из переписи сторожа (строка на группу на тик: `running`, `at`).
+    Это ОЦЕНКА, не бухгалтерия (Codex 04.09 №11): интервал = до следующей строки той же группы,
+    но не больше 2×TICK; разрыв длиннее — `unknown`, а не экстраполяция (сторож стоял — сколько
+    работали ноды, мы не знаем). Возвращает {группа: {'h': часы, 'unknown_h': часы_без_данных}}."""
+    now = time.time()
+    rows = collections.defaultdict(list)
+    try:
+        with open(CENSUS, encoding='utf-8') as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if r.get('at', 0) >= now - hours * 3600 and r.get('group'):
+                    rows[r['group']].append((float(r['at']), int(r.get('running') or 0)))
+    except FileNotFoundError:
+        return {}
+    out = {}
+    for g, pts in rows.items():
+        pts.sort()
+        h = unk = 0.0
+        for (a, n), (b, _) in zip(pts, pts[1:] + [(min(now, pts[-1][0] + TICK_S), 0)]):
+            dt = b - a
+            if dt <= 2 * TICK_S:
+                h += n * dt / 3600
+            elif n:
+                unk += n * (dt - TICK_S) / 3600      # что было в разрыве — неизвестно
+                h += n * TICK_S / 3600
+        out[g] = {'h': h, 'unknown_h': unk}
+    return out
 
 
 def load(hours: float) -> list[dict]:
@@ -87,30 +111,37 @@ def main() -> int:
             continue
         by[g].append(r)
 
+    paid = paid_hours(hours)
+    rub = SG.usd_rub()
     print(f'=== сравнение тарифов за {hours:.0f} ч ===')
-    print(f'{"группа":14s} {"тариф":7s} {"мешей":>6s} {"медиана":>8s} {"нод":>4s} '
-          f'{"сбоев":>6s} {"$/меш":>8s}')
+    print(f'{"группа":14s} {"тариф":7s} {"мешей":>6s} {"медиана":>8s} {"нод":>4s} {"сбоев":>6s} '
+          f'{"$/меш низ":>10s} {"опл.ч":>7s} {"$/меш опл":>10s} {"₽/меш":>7s}')
     totals = {}
     for grp, rs in sorted(by.items()):
         ok = [r for r in rs if r.get('status') == 'ok' and r.get('sec')]
-        bad = [r for r in rs if r.get('status') != 'ok']
-        tier = TIER.get(grp, '?')
-        price = PRICE.get(tier)
+        bad = [r for r in rs if r.get('status') not in ('ok', 'cached')]
+        tier = SG.tier(grp)
+        price = SG.price(grp)
         med = statistics.median([r['sec'] for r in ok]) if ok else 0
         nodes = len({r.get('node') for r in ok})
-        # Нодо-часы полезной работы: сумма длительностей генераций.
-        node_h = sum(r['sec'] for r in ok) / 3600
+        node_h = sum(r['sec'] for r in ok) / 3600        # полезные секунды — нижняя граница
         per = (node_h * price / len(ok)) if ok and price else 0
-        totals[grp] = {'ok': len(ok), 'nodes': nodes, 'node_h': node_h, 'tier': tier}
-        print(f'{grp:14s} {tier:7s} {len(ok):6d} {med:7.0f}с {nodes:4d} {len(bad):6d} '
-              f'{per:8.4f}' if ok else
-              f'{grp:14s} {tier:7s} {0:6d} {"—":>8s} {0:4d} {len(bad):6d} {"—":>8s}')
+        ph = paid.get(grp, {}).get('h', 0.0)
+        unk = paid.get(grp, {}).get('unknown_h', 0.0)
+        per_paid = (ph * price / len(ok)) if ok and price and ph else 0
+        totals[grp] = {'ok': len(ok), 'nodes': nodes, 'node_h': node_h, 'tier': tier,
+                       'paid_h': ph, 'per_paid': per_paid}
+        if ok:
+            print(f'{grp:14s} {tier:7s} {len(ok):6d} {med:7.0f}с {nodes:4d} {len(bad):6d} {per:10.4f} '
+                  f'{ph:7.1f} {per_paid:10.4f} {per_paid * rub:7.2f}' + (f'  (?{unk:.1f}ч)' if unk else ''))
+        else:
+            print(f'{grp:14s} {tier:7s} {0:6d} {"—":>8s} {0:4d} {len(bad):6d} {"—":>10s} {ph:7.1f} {"—":>10s} {"—":>7s}')
 
     if warm:
         print()
         print('ПРОГРЕВ (замеры с живых нод; образ localpaint читает веса с диска):')
         for g, v in sorted(warm.items()):
-            print(f'  {g:14s} {IMAGE.get(g, "?"):11s} n={len(v):3d}  медиана {statistics.median(v):5.0f}с  '
+            print(f'  {g:14s} {SG.tier(g):7s} n={len(v):3d}  медиана {statistics.median(v):5.0f}с  '
                   f'мин {min(v):.0f}  макс {max(v):.0f}')
     print()
     live = {g: t for g, t in totals.items() if t['ok']}
@@ -132,7 +163,8 @@ def main() -> int:
     for g, t in sorted(live.items()):
         print(f'  {g:14s} {t["tier"]:7s} нод считали: {t["nodes"]}, полезных нодо-часов: '
               f'{t["node_h"]:.1f}')
-    print('Цена за меш ниже настоящей: простой прогретой ноды в журнал не попадает.')
+    print('«$/меш низ» — по секундам генерации (нижняя граница); «опл» — по оплаченным нодо-часам\n'
+          'из переписи сторожа (оценка; «?» — часы в разрывах переписи, что там было — неизвестно).')
     return 0
 
 

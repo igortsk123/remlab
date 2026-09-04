@@ -632,12 +632,47 @@ def case_notify_reports() -> None:
     print('  ✓ notify(): 0 → доставлено, 1/2 → нет')
 
 
+def case_hot_restart() -> None:
+    """Горячий перезапуск: флаг draining → finale не гасит группы и снимает флаг; второй
+    экземпляр не получает замок и НЕ гасит группы работающего; курсор пишется атомарно."""
+    import batch_show as B  # noqa: PLC0415
+    stopped = []
+    B.sh = lambda cmd, timeout=3600: (stopped.append(cmd), (0, ''))[1]
+    B.wait_post = lambda: None
+    tmp = tempfile.mkdtemp()
+    B.DRAINING, B.LOCK, B.DONE = (os.path.join(tmp, 'draining'), os.path.join(tmp, 'lock'),
+                                  os.path.join(tmp, 'progress.json'))
+    # 1) не стартовал — не гасит
+    B._STARTED = False
+    B.finale()
+    assert not stopped, 'finale без замка погасил группы'
+    # 2) замок + draining → группы целы, флаг снят
+    B.acquire_singleton()
+    open(B.DRAINING, 'w').close()
+    B.finale()
+    assert not stopped and not os.path.exists(B.DRAINING), (stopped, os.path.exists(B.DRAINING))
+    # 3) второй экземпляр — SystemExit, замок не отдан
+    import subprocess as sp
+    r = sp.run([sys.executable, '-c',
+                f"import sys, os; sys.path.insert(0, {os.path.dirname(os.path.abspath(__file__))!r}); "
+                f"os.environ['SALAD_GROUP']='g'; os.environ['SALAD_API_KEY']='x'; import batch_show as B; "
+                f"B.LOCK={B.LOCK!r}; B.acquire_singleton()"], capture_output=True, text=True)
+    assert r.returncode != 0 and 'уже работает' in (r.stderr + r.stdout), (r.returncode, r.stderr[-200:])
+    # 4) обычный финал гасит ровно один раз
+    B.finale()
+    assert len(stopped) == 2 and 'stop_group' in stopped[0], stopped
+    # 5) курсор атомарно
+    B.save_cursor(42)
+    assert json.load(open(B.DONE))['done'] == 42 and not os.path.exists(B.DONE + '.tmp')
+    print('  ✓ горячий перезапуск: draining не гасит, второй экземпляр не проходит, курсор атомарен')
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         setup(tmp)
         pure = (case_checkpoint, case_cull_rule, case_fault_classes, case_halt_blocks_start,
                 case_transport_class, case_window_gate, case_group_status_mixed,
-                case_burst_counts_cached, case_notify_reports)
+                case_burst_counts_cached, case_notify_reports, case_hot_restart)
         for fn in (case_late_node, case_bad_node, case_unresolved, case_prefix,
                    case_stall_is_capacity, case_no_capacity, case_cull_rule, case_checkpoint,
                    case_fault_classes, case_streak_rules, case_streak_survives_restart,
@@ -646,7 +681,7 @@ def main() -> None:
                    case_post_background, case_flat_plan, case_halt_blocks_start,
                    case_preflight_sink_full, case_infra_closes_rest, case_no_double_generate,
                    case_transport_class, case_window_gate, case_group_status_mixed,
-                   case_burst_counts_cached, case_notify_reports):
+                   case_burst_counts_cached, case_notify_reports, case_hot_restart):
             if fn not in pure:
                 setup(tmp)
             fn()

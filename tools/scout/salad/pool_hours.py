@@ -24,9 +24,8 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CENSUS = os.path.join(HERE, '..', 'mesh-pool-census.jsonl')
-# Тариф группы: имя — не контракт, держим явную карту (та же, что в `tier_compare`).
-TIER = {'mesh-batch-1': 'batch', 'mesh-batch-2': 'batch',
-        'mesh-low-2': 'low', 'mesh-low-3': 'low'}
+sys.path.insert(0, HERE)
+import salad_groups as SG  # noqa: E402 — тариф группы: ОДИН источник (rules/salad-groups.json)
 # Ниже этого числа наблюдений час не считаем измеренным — только показываем серым.
 MIN_OBS = int(os.environ.get('MESH_HOURS_MIN_OBS', '3'))
 
@@ -68,7 +67,7 @@ def main() -> int:
     work: dict[tuple[int, str], list[int]] = collections.defaultdict(list)
     slots: dict[tuple[int, str], set] = collections.defaultdict(set)
     for r in rows:
-        tier = TIER.get(r.get('group', ''), '?')
+        tier = SG.tier(r.get('group', ''))
         lt = time.localtime(r['at'])
         key = (lt.tm_hour, tier)
         work[key].append(int(r.get('running') or 0))

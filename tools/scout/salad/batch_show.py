@@ -101,6 +101,55 @@ def group_status() -> str | None:
 
 
 HALT = os.path.expanduser('~/scout-scenes/mesh-group-halt.json')
+# ГОРЯЧИЙ ПЕРЕЗАПУСК (04.09, Codex №3). Любой перезапуск конвейера через finale() гасил группы, а
+# `kill -9` оставлял сироту ssh_run, и новый конвейер раздал бы те же задания второй раз. Теперь:
+# файл DRAINING = «доделай текущую пачку и выйди, группы НЕ гаси»; замок LOCK = конвейер один.
+DRAINING = os.path.expanduser('~/scout-scenes/mesh-draining')
+LOCK = os.path.expanduser('~/scout-scenes/.batch_show.lock')
+_lock_fh = None
+_STARTED = False          # finale() гасит группы только у конвейера, который их реально вёл
+
+
+def acquire_singleton() -> None:
+    """Второй конвейер рядом с первым — двойная раздача одних и тех же заданий. Замок держится
+    до конца процесса; занят — выходим сразу с понятным текстом."""
+    global _lock_fh
+    import fcntl
+    os.makedirs(os.path.dirname(LOCK), exist_ok=True)
+    _lock_fh = open(LOCK, 'w')
+    try:
+        fcntl.flock(_lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        raise SystemExit(f'конвейер уже работает (замок {LOCK}) — для перезапуска: touch {DRAINING}, '
+                         f'дождись выхода старого, запусти новый')
+    _lock_fh.write(str(os.getpid()))
+    _lock_fh.flush()
+    global _STARTED
+    _STARTED = True
+
+
+def wait_orphans(timeout_s: float = 1500) -> None:
+    """Сироты прошлого конвейера (ssh_run, drain, шаги разбора) должны доработать: их результаты
+    лягут в журнал, курсор они не двигают, пачка повторится как `cached`. Ждём, а не убиваем."""
+    pat = r'[s]sh_run\.py|[d]rain\.sh|[t]opview_render|[a]pply_repairs|[o]rient_worker|[r]eceiver_purge'
+    t0 = time.time()
+    while time.time() - t0 < timeout_s:
+        r = subprocess.run(['pgrep', '-fa', pat], capture_output=True, text=True)
+        alive = [ln for ln in r.stdout.splitlines() if str(os.getpid()) not in ln.split()[:1]]
+        if not alive:
+            return
+        print(f'жду сирот прошлого конвейера ({len(alive)}): {alive[0][:90]}', flush=True)
+        time.sleep(30)
+    print('сироты не завершились за отведённое время — продолжаю; повторы вернутся как cached', flush=True)
+
+
+def save_cursor(done: int) -> None:
+    """Курсор пачек — атомарно: прямой `json.dump(open(..., 'w'))` при падении посреди записи
+    оставлял пустой файл, и конвейер начинал с нуля."""
+    tmp = DONE + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump({'done': done, 'at': time.time()}, f)
+    os.replace(tmp, DONE)
 
 
 def halt_reason() -> str:
@@ -554,6 +603,8 @@ def main():
 
 
 def _main():
+    acquire_singleton()
+    wait_orphans()
     ensure_group_started()
     batch = int(sys.argv[sys.argv.index('--batch') + 1]) if '--batch' in sys.argv else 5
     mx = int(sys.argv[sys.argv.index('--max') + 1]) if '--max' in sys.argv else None
@@ -587,6 +638,11 @@ def _main():
     if os.environ.get('WAVE_FIRST') == '1':
         heal_wave(PAUSE)
     while done < total:
+        if os.path.exists(DRAINING):
+            # Горячий перезапуск: пачка закончена, выходим на границе. Группы НЕ гасим (finale
+            # увидит флаг), новый конвейер продолжит с курсора. Флаг снимает finale.
+            print('ПЕРЕЗАПУСК (файл mesh-draining) — выхожу на границе пачки, группы не гашу', flush=True)
+            return
         if os.path.exists(PAUSE):
             # Пауза владельца: глушим группу (деньги!) и выходим. Продолжение — удалить файл
             # и перезапустить: сделанное вернётся как cached, перегона не будет.
@@ -637,7 +693,7 @@ def _main():
             time.sleep(180)
             continue
         done += step_done
-        json.dump({'done': done, 'at': time.time()}, open(DONE, 'w'))
+        save_cursor(done)
         drain_retry_spool()
         # Постобработка уходит В ФОН: пока она разбирает эту пачку, следующая уже считается
         # на нодах. Раньше 7 шагов шли последовательно с генерацией, и всё это время ноды
@@ -689,6 +745,20 @@ def heal_wave(PAUSE: str, guard_done: bool = True) -> None:
 
 def finale() -> None:
     """Финал прогона — НЕ часть волны: чистка кэша и гашение групп только в самом конце."""
+    if not _STARTED:
+        # второй экземпляр, не получивший замок, НЕ должен гасить группы работающего первого
+        print('финал: этот процесс конвейер не вёл — группы не трогаю', flush=True)
+        return
+    if os.path.exists(DRAINING):
+        # горячий перезапуск: группы остаются работать, финальный drain — не наш (новый конвейер
+        # сделает свой); флаг снимаем, чтобы новый не вышел тут же
+        try:
+            os.remove(DRAINING)
+        except OSError:
+            pass
+        print('финал при перезапуске: группы НЕ гашу, флаг mesh-draining снят', flush=True)
+        wait_post()
+        return
     # ГРУППУ ГАСИМ ПЕРВЫМ ДЕЛОМ (деньги): тарифицируется состояние, а финальный drain —
     # работа чисто локальная, комплекты уже лежат на exit-fi. Раньше ноды ждали конца
     # drain'а и жгли деньги за это время. Гасим и при падении — это `finally` в main().
