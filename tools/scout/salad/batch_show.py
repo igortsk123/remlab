@@ -293,7 +293,11 @@ ORIENT_CMD = (f'for i in $(seq {ORIENT_PASSES}); do '
 # общего дедлайна; упавший проход считается, но не останавливает остальные.
 POST_EVERY_S = float(os.environ.get('MESH_POST_EVERY_S', '900'))   # разбор каждые 15 мин
 TOPVIEW_NEW_CAP = int(os.environ.get('MESH_TOPVIEW_NEW_CAP', '20'))
-TOPVIEW_DEADLINE_S = int(os.environ.get('MESH_TOPVIEW_DEADLINE_S', '2400'))
+# Дедлайн ВНУТРЕННЕГО цикла проходов. Держим заметно ниже таймаута шага (2700 с в `_run_post`):
+# 04.09 при 2400 последний проход не успевал завершиться в оставшиеся пять минут, и шаг падал
+# «топ-вью: СБОЙ ТАЙМАУТ 2700с», а весь разбор растягивался на 75 минут. Один проход — до 420 с
+# (TOPVIEW_BUDGET_S), поэтому запас берём с двумя проходами: 1800 + 420 < 2700.
+TOPVIEW_DEADLINE_S = int(os.environ.get('MESH_TOPVIEW_DEADLINE_S', '1800'))
 TOPVIEW_CMD = (f'fails=0; passes=0; t0=$SECONDS; '
                f'while [ $((SECONDS - t0)) -lt {TOPVIEW_DEADLINE_S} ]; do '
                f'  out=$(TOPVIEW_NEW_CAP={TOPVIEW_NEW_CAP} TOPVIEW_BUDGET_S=420 {PY} {HERE}/topview_render.py 2>&1); rc=$?; '
