@@ -557,6 +557,36 @@ def case_transport_class() -> None:
     print('  ✓ классы транспорта и инфры: 8 проверок')
 
 
+def case_silent_node_is_zombie() -> None:
+    """Молчащая нода становится зомби — но не сразу, и с ОДИНАКОВОЙ причиной для группировки.
+
+    04.09: два детектора зомби расходились. `batch_show.cull_dead_warmups` считал пустой
+    `/health` смертью, супервизор `ssh_run` — нет (`warmup_fault({})` пустой). А супервизор
+    крутится всё время, пока идёт пачка, тогда как `batch_show` — только между пачками. Итог:
+    молчащие ноды часами тарифицировались как `running`, и не снимал их никто.
+    """
+    import ssh_run as SR  # noqa: PLC0415
+    SR._SILENT.clear()
+    t0 = 1_000_000.0
+    # ответила — приговора нет и таймер молчания сброшен
+    assert SR.silent_fault('n1', {'warm': True}, t0) == ''
+    # молчит, но недолго — ждём, пересадка стёрла бы скачанный образ (урок 402)
+    assert SR.silent_fault('n1', {}, t0) == ''
+    assert SR.silent_fault('n1', {}, t0 + SR.SILENT_ZOMBIE_S - 1) == ''
+    # молчит дольше порога — приговор
+    why = SR.silent_fault('n1', {}, t0 + SR.SILENT_ZOMBIE_S)
+    assert why == 'нет ответа по SSH', why
+    # причина БЕЗ секунд: иначе одинаковые случаи не схлопнутся и предохранитель
+    # «общая беда — не повод менять машины» перестанет срабатывать
+    assert SR.silent_fault('n2', {}, t0) == ''
+    assert SR.silent_fault('n2', {}, t0 + SR.SILENT_ZOMBIE_S) == why
+    # ожила — таймер сбрасывается, повторное молчание считается заново
+    assert SR.silent_fault('n1', {'warm': False}, t0 + SR.SILENT_ZOMBIE_S + 1) == ''
+    assert SR.silent_fault('n1', {}, t0 + SR.SILENT_ZOMBIE_S + 2) == ''
+    SR._SILENT.clear()
+    print('  ✓ молчащая нода — зомби после порога, причина пригодна для группировки')
+
+
 def case_window_gate() -> None:
     """Окно тарифа — одно правило: batch можно только в 09–15 UTC, low — всегда.
 
@@ -701,6 +731,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         setup(tmp)
         pure = (case_checkpoint, case_cull_rule, case_fault_classes, case_halt_blocks_start,
+                case_silent_node_is_zombie,
                 case_transport_class, case_window_gate, case_group_status_mixed,
                 case_burst_counts_cached, case_notify_reports, case_hot_restart)
         for fn in (case_late_node, case_bad_node, case_unresolved, case_prefix,
@@ -711,6 +742,7 @@ def main() -> None:
                    case_post_background, case_flat_plan, case_halt_blocks_start,
                    case_preflight_sink_full, case_infra_closes_rest, case_no_double_generate,
                    case_transport_class, case_window_gate, case_group_status_mixed,
+                   case_silent_node_is_zombie,
                    case_burst_counts_cached, case_notify_reports, case_hot_restart):
             if fn not in pure:
                 setup(tmp)
