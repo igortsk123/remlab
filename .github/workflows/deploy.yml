@@ -83,6 +83,9 @@ jobs:
         run: |
           scp docker-compose.yml "$SRV:/opt/remlab/docker-compose.yml"
           scp db/init/*.sql "$SRV:/opt/remlab/db/init/"
+          # Место нужно ДО pull (04.09): CI оставлял тег на каждый push, 135 × 308 МБ забили диск,
+          # приёмник мешей ушёл в 507. cleanup.sh scoped и под замком /opt/remlab/.deploy.lock.
+          ssh "$SRV" "[ -x /opt/remlab/scripts/cleanup.sh ] && /opt/remlab/scripts/cleanup.sh || true"
           ssh "$SRV" "cd /opt/remlab && \
             grep -q '^GEMINI_API_KEY=' .env || { echo 'FATAL: нет GEMINI_API_KEY в .env'; exit 1; }; \
             echo '$GHCR_TOKEN' | docker login ghcr.io -u '$ACTOR' --password-stdin && \
@@ -100,7 +103,12 @@ jobs:
         run: |
           for i in $(seq 1 20); do
             code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 https://remont-lab.online/api/health || true)
-            if [ "$code" = "200" ]; then echo "OK: health 200"; exit 0; fi
+            if [ "$code" = "200" ]; then
+              echo "OK: health 200"
+              # после успешного smoke снимаем теги прошлых деплоев (образ prev остаётся)
+              ssh "$SRV" "[ -x /opt/remlab/scripts/cleanup.sh ] && /opt/remlab/scripts/cleanup.sh || true"
+              exit 0
+            fi
             echo "ждём... ($i) code=$code"; sleep 6
           done
           echo "SMOKE FAILED -> откат на remlab-app:prev"

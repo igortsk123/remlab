@@ -10,6 +10,22 @@ remont-lab.online {
 	# служебные страницы проверки (витрина шаблонов, галереи, отчёты) — статик из
 	# /opt/remlab/test. БЫЛО ТОЛЬКО НА СЕРВЕРЕ: репо-версия затирала блок при
 	# деплое (урок 07.08) — сведено 11.08.
+	# Приёмник 3D-мешей с нод SaladCloud (28.08). Ноды одноразовые: результат надо унести
+	# сразу, иначе он умрёт вместе с нодой. Сервис — на хосте, слушает шлюз docker-сети,
+	# контейнера к хосту), портов наружу не публикует; авторизация токеном внутри приёмника.
+	handle_path /mesh-sink/* {
+		reverse_proxy mesh-receiver:8770 {
+			transport http {
+				read_timeout 300s
+				write_timeout 300s
+			}
+		}
+		request_body {
+			max_size 100MB
+		}
+		header X-Robots-Tag "noindex, nofollow"
+	}
+
 	handle_path /test/* {
 		root * /srv/test
 		file_server browse
@@ -18,6 +34,25 @@ remont-lab.online {
 		# иначе он видит прошлую версию (правило владельца 11.08)
 		header Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
 		header Pragma "no-cache"
+	}
+
+	# Черновой рендер комнаты (26.08): ключ fal только на сервере, поэтому страница ходит сюда.
+	# Наружу отдаём лишь два метода; сервис сам держит лимит расхода.
+	handle /api/draft* {
+		reverse_proxy draft:8099
+	}
+	handle /api/warm* {
+		reverse_proxy draft:8099
+	}
+	handle /api/render* {
+		reverse_proxy draft:8099
+	}
+	# опрос фоновых заданий рендера (01.09): длинный запрос больше не держит соединение
+	handle /api/job* {
+		reverse_proxy draft:8099
+	}
+	handle /api/share* {
+		reverse_proxy draft:8099
 	}
 
 	reverse_proxy remlab-app:3000

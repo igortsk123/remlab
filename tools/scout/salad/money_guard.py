@@ -103,14 +103,27 @@ def running_count(group: str) -> int:
     return census(group).get('running', 0)
 
 
-def notify(text: str) -> None:
+def notify(text: str) -> bool:
     """Сообщение владельцу в телеграм. Молчаливая остановка пула стоила 10 часов простоя в
-    ночь на 04.09: сторож честно погасил группы в 21:22, а узнали мы об этом утром."""
+    ночь на 04.09: сторож честно погасил группы в 21:22, а узнали мы об этом утром.
+
+    Возвращает, ДОСТАВЛЕНО ли (04.09): `alert.sh` теперь отдаёт 0 — TG принял, 1 — TG не ответил,
+    2 — TG не настроен (тогда текст лёг в `refresh-alert.log`). Защитное действие сторожа от
+    результата не зависит — гасим всё равно; но в логе должно быть видно, узнает ли человек.
+    """
     try:
-        subprocess.run(['bash', ALERT, text], timeout=30,
-                       capture_output=True, check=False)
+        r = subprocess.run(['bash', ALERT, text], timeout=30, capture_output=True, check=False)
+        rc = r.returncode
     except Exception as e:  # noqa: BLE001 — не доставили: не повод ронять сторожа
         print(f'{time.strftime("%H:%M")} телеграм не отправлен ({type(e).__name__})', flush=True)
+        return False
+    if rc == 0:
+        print(f'{time.strftime("%H:%M")} телеграм: доставлено', flush=True)
+        return True
+    why = 'TG не ответил' if rc == 1 else 'TG не настроен (.env.alert)' if rc == 2 else f'rc={rc}'
+    print(f'{time.strftime("%H:%M")} телеграм: НЕ доставлено — {why}, текст в refresh-alert.log',
+          flush=True)
+    return False
 
 
 def failure_burst() -> tuple[str, int]:

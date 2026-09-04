@@ -107,3 +107,4 @@ remlab_knowledge_db_v1/*.log
 # Фикстуры селфтестов загрузки каталога — в git (план catalog-load-hardening П0.3)
 !tools/scout/tests/
 tools/scout/mesh-pool-census.jsonl
+tools/scout/alert-sent.log

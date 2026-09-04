@@ -22,11 +22,24 @@ echo "==> [2/6] Сохранить предыдущий образ на серв
 ssh "$SERVER" "docker image inspect $IMAGE:latest >/dev/null 2>&1 && docker tag $IMAGE:latest $IMAGE:prev || echo '(prev нет — первый деплой)'"
 
 echo "==> [3/6] Перенос образа на сервер"
+# МЕСТО НУЖНО ДО docker load, а не после smoke (04.09): 135 тегов от CI забили диск до 88%,
+# приёмник мешей ушёл в 507. Cleanup и деплой — под одним замком, чтобы не перечислять образы,
+# которые в этот момент тегируются.
+ssh "$SERVER" "flock -w 600 /opt/remlab/.deploy.lock true && [ -x /opt/remlab/scripts/cleanup.sh ] && /opt/remlab/scripts/cleanup.sh || true"
+ssh "$SERVER" "use=\$(df --output=pcent / | tail -1 | tr -dc 0-9); [ \"\$use\" -lt 85 ] || { echo \"FATAL: диск \$use% — сперва освободи (cleanup не помог)\"; exit 1; }"
 docker save "$IMAGE:$TAG" "$IMAGE:latest" | gzip | ssh "$SERVER" 'gunzip | docker load'
 
 echo "==> [4/6] Синхронизация compose/caddy/db-init/env-check"
 ssh "$SERVER" "mkdir -p $REMOTE_DIR/caddy $REMOTE_DIR/db/init"
 scp docker-compose.yml "$SERVER:$REMOTE_DIR/docker-compose.yml"
+# ПРЕДОХРАНИТЕЛЬ (04.09): на сервере в Caddyfile жили маршруты, которых в репо не было
+# (/mesh-sink приёмника мешей, /api/draft* черновых рендеров) — копирование поверх снесло бы их
+# молча (та же грабля, что с /test/* 07.08). Строка есть на сервере и нет в репо → стоп.
+if comm -23 <(ssh "$SERVER" "cat $REMOTE_DIR/caddy/Caddyfile" | sort -u) <(sort -u caddy/Caddyfile) | grep -q .; then
+  echo "FATAL: в серверном Caddyfile есть строки, которых нет в репо — сперва слей их в caddy/Caddyfile:"
+  comm -23 <(ssh "$SERVER" "cat $REMOTE_DIR/caddy/Caddyfile" | sort -u) <(sort -u caddy/Caddyfile) | head -20
+  exit 1
+fi
 scp caddy/Caddyfile "$SERVER:$REMOTE_DIR/caddy/Caddyfile"
 scp db/init/001-extensions.sql "$SERVER:$REMOTE_DIR/db/init/001-extensions.sql"
 scp db/init/002-projects.sql "$SERVER:$REMOTE_DIR/db/init/002-projects.sql"

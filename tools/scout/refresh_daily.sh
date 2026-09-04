@@ -204,7 +204,7 @@ STALE_LINKS=$("$PY" -c "
 import json,os
 d=json.load(open('feed-links.json')) if os.path.exists('feed-links.json') else {}
 print(' '.join(k[:12] for k,v in d.items() if int(v.get('fails') or 0)>=2))" 2>/dev/null)
-[ -n "$STALE_LINKS" ] && bash alert.sh "remlab: ссылки выгрузок не отдаются 2+ дня:$STALE_LINKS — нужна новая ссылка в кабинете Гдеслона"
+[ -n "$STALE_LINKS" ] && bash alert.sh "remlab: ссылки выгрузок не отдаются 2+ дня:$STALE_LINKS — нужна новая ссылка в кабинете Гдеслона" || true
 
 # 1b. Предохранитель фидов (T0 truth-first): пустой исторически-непустой фид и протухший
 # yml_date алертятся ДО загрузки — «скачался успешно» не значит «данные живые» (урок 203)
