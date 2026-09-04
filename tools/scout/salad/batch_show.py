@@ -170,10 +170,18 @@ def halt_reason() -> str:
     return str(d.get('why') or 'без причины')
 
 
+def _no_credits_alert() -> None:
+    """Одно сообщение в час: пул не поднимется, пока владелец не пополнит баланс."""
+    import sink_health as SH
+    SH.alert_throttled('Меши: на Salad КОНЧИЛСЯ БАЛАНС (no_credits_available) — группы не '
+                       'поднимаются, мешей нет. Пополни баланс; конвейер поднимет группы сам.')
+
+
 def ensure_group_started():
     """Группа на Salad может СОЗДАТЬСЯ остановленной (ловили дважды: pool5, mesh-run3) —
     и ожидание тёплой ноды у выключенной группы длится вечно. Стартуем явно; 400 = уже
     стартует, это не ошибка."""
+    import urllib.error
     import urllib.request
     why = halt_reason()
     if why:
@@ -197,7 +205,17 @@ def ensure_group_started():
         urllib.request.urlopen(req, timeout=60).read()
         print(f'группа {grp}: start отправлен', flush=True)
         ok = True
-      except Exception as e:  # noqa: BLE001 — 400 «уже идёт» и сеть не должны валить конвейер
+      except urllib.error.HTTPError as e:
+        body = e.read()[:300].decode(errors='replace')
+        if 'no_credits_available' in body:
+            # КОНЧИЛСЯ БАЛАНС (04.09): раньше это выглядело как «start → HTTP Error 400» и
+            # догадка «похоже, кончился баланс». Теперь — прямым текстом и в телеграм (раз в час),
+            # потому что без пополнения ничего не поднимется, а конвейер молча ждал бы вечно.
+            print(f'группа {grp}: НЕТ КРЕДИТОВ на Salad (no_credits_available) — нужно пополнение', flush=True)
+            _no_credits_alert()
+        else:
+            print(f'группа {grp}: start → HTTP {e.code} {body[:80]}', flush=True)
+      except Exception as e:  # noqa: BLE001 — сеть не должна валить конвейер
         print(f'группа {grp}: start → {str(e)[:80]}', flush=True)
     # ПРОВЕРЯЕМ, А НЕ ПРЕДПОЛАГАЕМ. Раньше 400 трактовался как «уже запущена», но он же
     # приходит, когда группа ещё СОЗДАЁТСЯ и стартовать нечего: 01.09 новая группа так и
@@ -661,7 +679,7 @@ def _main():
             # заметил раньше конвейера) — говорим прямо, монитор донесёт.
             st = group_status()
             if st == 'stopped' and not ensure_group_started():
-                print('группа остановлена и не стартует — ПОХОЖЕ, КОНЧИЛСЯ БАЛАНС Salad, нужно пополнение', flush=True)
+                print('группа остановлена и не стартует — см. причину выше (кредиты / запрет / окно)', flush=True)
             elif 'ПРИЁМНИК' in out:
                 # 75 от ssh_run из-за приёмника (нет места / канарейка не прошла): не ждём фонового
                 # тика разбора — стаскиваем и чистим СЕЙЧАС, иначе ноды простаивают до 15 минут,
