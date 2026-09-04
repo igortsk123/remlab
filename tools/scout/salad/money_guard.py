@@ -17,8 +17,10 @@
 """
 from __future__ import annotations
 
+import collections
 import json
 import os
+import subprocess
 import sys
 import time
 import urllib.request
@@ -35,6 +37,16 @@ HALT = os.path.expanduser('~/scout-scenes/mesh-group-halt.json')
 # суток при разном числе реплик). Сторож и так опрашивает API каждые 5 минут — дописать
 # строку стоит ноль.
 CENSUS = os.path.join(HERE, '..', 'mesh-pool-census.jsonl')
+ALERT = os.path.join(HERE, '..', 'alert.sh')     # телеграм-бот remlab, ключи в `.env.alert`
+
+# ОБВАЛ СВЯЗИ — ОТДЕЛЬНОЕ ПРАВИЛО (владелец 04.09: «если обрывы то гасить ноды и сообщать»).
+# 03.09 в 20:31 у всех нод разом пошло `URLError: EOF occurred in violation of protocol` —
+# 104 отказа подряд: приёмник на минуту стал недостижим, а машины продолжали считать за наши
+# деньги и сдавать результат в никуда. Правило «40 минут тишины» это поймало, но лишь через
+# 50 минут. Одинаковая ошибка у многих заданий — свидетельство более сильное, чем тишина, и
+# ждать полчаса незачем.
+BURST_N = int(os.environ.get('MESH_GUARD_BURST_N', '25'))      # отказов одного вида
+BURST_MIN = float(os.environ.get('MESH_GUARD_BURST_MIN', '15'))  # за столько минут
 
 # Сколько ОПЛАЧЕННЫХ нодо-минут молчания терпим. 120 ≈ 35 мешей, которые здоровый пул успел бы
 # сделать за это время: если их нет, дело не в невезении.
@@ -89,6 +101,55 @@ def census(group: str) -> dict:
 
 def running_count(group: str) -> int:
     return census(group).get('running', 0)
+
+
+def notify(text: str) -> None:
+    """Сообщение владельцу в телеграм. Молчаливая остановка пула стоила 10 часов простоя в
+    ночь на 04.09: сторож честно погасил группы в 21:22, а узнали мы об этом утром."""
+    try:
+        subprocess.run(['bash', ALERT, text], timeout=30,
+                       capture_output=True, check=False)
+    except Exception as e:  # noqa: BLE001 — не доставили: не повод ронять сторожа
+        print(f'{time.strftime("%H:%M")} телеграм не отправлен ({type(e).__name__})', flush=True)
+
+
+def failure_burst() -> tuple[str, int]:
+    """Одинаковая ошибка у многих заданий за последние BURST_MIN минут. ('', 0) — тихо."""
+    now = time.time()
+    seen: collections.Counter = collections.Counter()
+    good = 0
+    try:
+        with open(JOURNAL, encoding='utf-8') as f:
+            for line in f:
+                if 'warmup' in line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if r.get('at', 0) < now - BURST_MIN * 60:
+                    continue
+                if r.get('status') == 'ok':
+                    good += 1
+                    continue
+                err = str(r.get('error') or '').strip()[:80]
+                if err:
+                    seen[err] += 1
+    except FileNotFoundError:
+        return '', 0
+    if not seen:
+        return '', 0
+    err, n = seen.most_common(1)[0]
+    # ОБВАЛ — ЭТО СООТНОШЕНИЕ, А НЕ ПРОСТО ЧИСЛО ОТКАЗОВ. Сама по себе частая ошибка аварии не
+    # доказывает: «нет маркера в выводе» (обрыв SSH на отобранной ноде) — штатный спутник
+    # дешёвого тарифа, за сутки её набирается три сотни, и пул при этом прекрасно работает
+    # (проверено на журнале: рабочий час — 70 успехов при 23 таких отказах).
+    # Требовать НОЛЬ успехов тоже неверно: в аварию 03.09 20:31 один запоздалый меш всё-таки
+    # доехал, и правило с нулём её бы пропустило. Считаем аварией десятикратный перевес
+    # отказов над успехами: тогда та авария — 78 против 1 — ловится, а рабочие часы нет.
+    if n < BURST_N or good * 10 >= n:
+        return '', 0
+    return err, n
 
 
 def last_mesh_at() -> float:
@@ -170,12 +231,24 @@ def main() -> int:
             print(f'{time.strftime("%H:%M")} работающих нод нет — не платим, жду', flush=True)
         save(st)
         wall_min = (time.time() - st['silent_since']) / 60.0 if st.get('silent_since') else 0.0
-        # ОБА условия сразу: и оплаченные нодо-минуты, и долгая тишина по часам.
-        if st['idle_node_min'] >= BUDGET_NODE_MIN and wall_min >= MIN_WALL_MIN:
-            why = (f'{st["idle_node_min"]:.0f} нодо-минут и {wall_min:.0f} мин тишины без '
-                   f'единого меша (остановлено {time.strftime("%d.%m %H:%M")})')
-            print(f'{time.strftime("%H:%M")} !! ПРЕВЫШЕН БЮДЖЕТ МОЛЧАНИЯ ({why}) — ГАШУ ГРУППУ '
-                  f'{group}. Разбор: почему ноды не отдавали меши.', flush=True)
+        burst_err, burst_n = failure_burst() if n > 0 else ('', 0)
+        # ДВА НЕЗАВИСИМЫХ ПОВОДА ГАСИТЬ:
+        #  1) тишина: оплаченные нодо-минуты И долгий простой по часам (медленный, надёжный);
+        #  2) обвал: одна и та же ошибка у многих заданий (быстрый — ловит сетевые аварии,
+        #     когда ноды считают, но результат сдать не могут).
+        stop_why = ''
+        if burst_n:
+            stop_why = (f'ОБВАЛ СВЯЗИ: {burst_n} отказов подряд с одной ошибкой за '
+                        f'{BURST_MIN:.0f} мин — «{burst_err}»')
+        elif st['idle_node_min'] >= BUDGET_NODE_MIN and wall_min >= MIN_WALL_MIN:
+            stop_why = (f'{st["idle_node_min"]:.0f} нодо-минут и {wall_min:.0f} мин тишины '
+                        f'без единого меша')
+        if stop_why:
+            why = f'{stop_why} (остановлено {time.strftime("%d.%m %H:%M")})'
+            print(f'{time.strftime("%H:%M")} !! ГАШУ ПУЛ: {why} · группы {group}', flush=True)
+            notify(f'Меши: пул ОСТАНОВЛЕН. {why}. Работало нод: {n}. '
+                   f'Поднять: rm ~/scout-scenes/mesh-group-halt.json — но сперва разберись, '
+                   f'почему не было мешей.')
             # СТОП-ФАЙЛ ПИШЕМ ДО ОСТАНОВКИ. Иначе конвейер успеет поднять группу обратно —
             # ровно так и вышло в ночь на 03.09: сторож погасил, `ensure_group_started` через
             # минуту поднял, сторож (тогда одноразовый) вышел, и семь часов ноды крутились
