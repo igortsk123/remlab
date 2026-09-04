@@ -124,3 +124,26 @@ curl -X POST localhost:8000/generate -H 'Content-Type: application/json' \
 запускался** — на дев-машине нет видеокарты и всего 32 ГБ свободного диска. Первый прогон на
 арендованной карте почти наверняка потребует правок в именах классов пайплайна
 (`pipeline.py`) и в форме запроса Job Queue API (`submit.py`) — оба места помечены в коде.
+
+## Стопоры и деньги (04.09, план mesh-pool-hardening)
+
+| Файл | Что делает |
+|---|---|
+| `salad_groups.py` + `../rules/salad-groups.json` | ОДИН источник: тариф, цена $/ч, окно подъёма (UTC) по группе; `SALAD_GROUP` без умолчаний |
+| `sink_health.py` | Приёмник ДО GPU: `check()` (`/health`, лестница порогов), `canary()` (PUT 1 МБ + DELETE), алерт с дросселем |
+| `money_guard.py` | Сторож денег: гасит группы при тишине (120 нодо-мин И 40 мин) или обвале (одна ошибка ×25 без успехов); стоп-файл; перепись пула; пульс в 08 UTC; снимок групп |
+| `idle_guard.sh` (cron */10) | Нет конвейера → гасит всё, стоп-файл не пишет, шлёт TG |
+| `batch_window.sh` (cron 09/15 UTC) | Дешёвый тариф только в окне; поднимает лишь при живом конвейере и без стоп-файла |
+| `tier_compare.py`, `pool_hours.py` | Цена меша по секундам (низ) и по ОПЛАЧЕННЫМ нодо-часам из переписи; карта пула по часам |
+
+**Кто кого старше.** Стоп-файл `~/scout-scenes/mesh-group-halt.json` (пишет сторож) сильнее любого
+автостарта — снимает человек. Окно тарифа сильнее «нет тёплых нод»: `ensure_group_started` поднимает
+только `allowed_now(g)`. `idle_guard` гасит, но не запрещает. Конвейер — singleton (`~/scout-scenes/
+.batch_show.lock`); перезапуск — `touch ~/scout-scenes/mesh-draining` → выход на границе пачки без
+гашения групп → новый экземпляр ждёт сирот и продолжает с курсора.
+
+**Серверные скрипты** (`../../../infra/server/`): `cleanup.sh` (теги ghcr по image ID, flock),
+`disk-watchdog.sh` (ежечасно: cleanup → TG, наблюдение remlab-app) — кладутся руками:
+`scp -P 22222 infra/server/{cleanup,disk-watchdog}.sh root@89.167.127.0:/opt/remlab/scripts/`,
+таймер в `/etc/systemd/system/`, `systemctl daemon-reload`. Приёмник — `mesh-receiver` в
+`docker-compose.yml`, код `receiver.py` → `/opt/remlab/mesh-receiver.py`.

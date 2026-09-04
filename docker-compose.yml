@@ -127,6 +127,28 @@ services:
       timeout: 5s
       retries: 5
 
+  # Приёмник 3D-мешей с нод SaladCloud (28.08; в compose с 04.09 — до этого контейнер жил только
+  # на сервере через `docker run`, и CI-копия compose была миной: `docker compose up -d` о нём
+  # не знал). Слушает внутри remlab-net, наружу — через Caddy `/mesh-sink/*`. Код — копия
+  # tools/scout/salad/receiver.py в /opt/remlab/mesh-receiver.py (кладётся руками, scp).
+  # Токен — MESH_SINK_TOKEN в /opt/remlab/.env; ноды получают его через переменные группы.
+  mesh-receiver:
+    image: python:3.12-slim
+    command: ["python", "-u", "/app/receiver.py"]
+    volumes:
+      - /opt/remlab/mesh-receiver.py:/app/receiver.py:ro
+      - /opt/remlab/meshes:/data
+    environment:
+      MESH_ROOT: /data
+      MESH_SINK_BIND: 0.0.0.0
+      MESH_SINK_PORT: "8770"
+      MESH_MAX_DIR_GB: "8"
+      MESH_MIN_FREE_GB: "5"
+      MESH_SINK_TOKEN: ${MESH_SINK_TOKEN:?нет MESH_SINK_TOKEN в /opt/remlab/.env}
+    restart: unless-stopped
+    networks: [remlab-net]
+    mem_limit: 256m
+
 networks:
   remlab-net:
     external: true
