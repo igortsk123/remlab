@@ -144,12 +144,24 @@ def main() -> None:
     # 20 минут, и под работающим конвейером шаг не укладывался в таймаут («ремонт: СБОЙ
     # Terminated»), а пока он висел, ноды Salad оплачивались вхолостую. Ограничиваем и
     # числом, и временем: остаток догоняется следующим циклом, вердикты кэшируются.
-    ACCEPT_CAP = int(os.environ.get('ACCEPT_CAP', 20))
+    # 04.09: 20 приёмок × 4–5 загрузок GLB в ОДНОМ процессе (trimesh не отдаёт память, урок 391)
+    # — earlyoom снимал шаг дважды за два часа. Теперь по 5 на процесс, а процессов несколько
+    # (самоцикл ниже, ACCEPT_ROUNDS) — та же пропускная способность за цикл, память возвращается
+    # ОС между процессами. Порядок — детерминированный: сперва меши БЕЗ свежего вердикта, старейшие
+    # первыми; прежняя случайная перестановка по PID при ограниченных циклах не гарантировала, что
+    # до какого-то меша очередь дойдёт вообще (Codex 04.09 №9 — голодание хвоста).
+    ACCEPT_CAP = int(os.environ.get('ACCEPT_CAP', 5))
     ACCEPT_BUDGET_S = float(os.environ.get('ACCEPT_BUDGET_S', 600))
     _t0 = _t.time()
     checked = 0
     mans = sorted(glob.glob(os.path.join(SRC, '*/*/manifest.json')))
-    random.Random(os.getpid()).shuffle(mans)
+
+    def _order(mp: str) -> tuple:
+        d = os.path.dirname(mp)
+        glb, vj = os.path.join(d, 'model.glb'), os.path.join(d, 'verdict.json')
+        fresh = os.path.exists(vj) and os.path.exists(glb) and os.path.getmtime(vj) >= os.path.getmtime(glb)
+        return (1 if fresh else 0, os.path.getmtime(mp))
+    mans.sort(key=_order)
     for mp in mans:
         d = os.path.dirname(mp)
         glb = os.path.join(d, 'model.glb')
@@ -216,7 +228,45 @@ def main() -> None:
     json.dump(reseed, open(RESEED, 'w'), ensure_ascii=False, indent=1)
     import collections
     print(f'приёмка (ремонт отменён 01.09): {dict(collections.Counter(verdicts.values()))} '
-          f'| на перегон: {len(reseed)}')
+          f'| на перегон: {len(reseed)} | проверено в этом процессе: {checked}')
+    print(f'ACCEPT_CHECKED {checked}', flush=True)
+
+
+def rounds() -> None:
+    """Самоцикл: родитель БЕЗ trimesh запускает себя ACCEPT_ROUNDS раз по ACCEPT_CAP приёмок,
+    останавливаясь, когда раунд ничего не проверил (всё в кэше) или кончился общий бюджет.
+    Граница памяти так не зависит от того, как шаг вызван из конвейера."""
+    import subprocess
+    import sys
+    import time as _t
+    n_rounds = int(os.environ.get('ACCEPT_ROUNDS', 4))
+    budget = float(os.environ.get('ACCEPT_TOTAL_BUDGET_S', 2400))
+    t0 = _t.time()
+    env = {**os.environ, 'ACCEPT_CHILD': '1'}
+    total = 0
+    for i in range(n_rounds):
+        left = budget - (_t.time() - t0)
+        if left <= 60:
+            print(f'приёмка: общий бюджет {budget:.0f} с исчерпан после {i} раундов', flush=True)
+            break
+        r = subprocess.run([sys.executable, os.path.abspath(__file__)], env=env,
+                           capture_output=True, text=True, timeout=max(60, left))
+        out = (r.stdout or '')
+        print(out.rstrip(), flush=True)
+        if r.returncode != 0:
+            print(f'приёмка: раунд {i + 1} упал (код {r.returncode}): {(r.stderr or "")[-300:]}',
+                  flush=True)
+            break
+        m = [ln for ln in out.splitlines() if ln.startswith('ACCEPT_CHECKED ')]
+        n = int(m[-1].split()[1]) if m else 0
+        total += n
+        if n == 0:
+            break
+    print(f'приёмка: раундов {i + 1 if n_rounds else 0}, проверено всего {total}', flush=True)
+
 
 if __name__ == '__main__':
-    main()
+    if os.environ.get('ACCEPT_CHILD') == '1':
+        main()
+    else:
+        rounds()

@@ -204,17 +204,26 @@ ORIENT_CMD = (f'for i in $(seq {ORIENT_PASSES}); do '
               f'{PY} {os.path.join(HERE, "..", "orient_worker.py")} '
               f'--run --limit {ORIENT_LIMIT} --vlm || exit $?; done')
 
-# ТОП-ВЬЮ ТОЖЕ МИКРОПАЧКАМИ (01.09, второй раз за день). Снижение числа процессов рендера
-# 4→2 шаг не спасло: earlyoom убил его снова на 8.4 ГБ, значит память копится не в рендере,
-# а в самом обходе дерева — geometry каждой модели грузится в ОДИН процесс, и с ростом
-# каталога он неизбежно упирается. Режем по TOPVIEW_LIMIT со сдвигом: каждая пачка —
-# отдельный процесс, память возвращается ОС между ними.
+# ТОП-ВЬЮ — ПРОХОДАМИ «ПОКА ЕСТЬ НОВЫЕ» (04.09). Прежние шесть проходов по TOPVIEW_LIMIT=120
+# со сдвигом считали ПРОСМОТРЕННЫЕ, а память растёт от НОВЫХ: 120 новых в одном процессе — это
+# ~10 ГБ (trimesh +100 МБ/меш) и earlyoom каждый цикл, виды сверху не строились вовсе. К тому же
+# `|| exit $?` обрывал остальные проходы на первом же упавшем, а сдвиг с нуля при каждом запуске
+# не давал очереди дойти до хвоста каталога. Теперь каждый проход — отдельный процесс, берёт не
+# больше TOPVIEW_NEW_CAP новых (печатает `TOPVIEW_NEW N`), обёртка повторяет, пока N>0, до
+# общего дедлайна; упавший проход считается, но не останавливает остальные.
 POST_EVERY_S = float(os.environ.get('MESH_POST_EVERY_S', '900'))   # разбор каждые 15 мин
-TOPVIEW_LIMIT = int(os.environ.get('MESH_TOPVIEW_LIMIT', '120'))
-TOPVIEW_PASSES = int(os.environ.get('MESH_TOPVIEW_PASSES', '6'))
-TOPVIEW_CMD = (f'for i in $(seq 0 {TOPVIEW_PASSES - 1}); do '
-               f'TOPVIEW_SKIP=$((i * {TOPVIEW_LIMIT})) TOPVIEW_LIMIT={TOPVIEW_LIMIT} '
-               f'TOPVIEW_BUDGET_S=420 {PY} {HERE}/topview_render.py || exit $?; done')
+TOPVIEW_NEW_CAP = int(os.environ.get('MESH_TOPVIEW_NEW_CAP', '20'))
+TOPVIEW_DEADLINE_S = int(os.environ.get('MESH_TOPVIEW_DEADLINE_S', '2400'))
+TOPVIEW_CMD = (f'fails=0; passes=0; t0=$SECONDS; '
+               f'while [ $((SECONDS - t0)) -lt {TOPVIEW_DEADLINE_S} ]; do '
+               f'  out=$(TOPVIEW_NEW_CAP={TOPVIEW_NEW_CAP} TOPVIEW_BUDGET_S=420 {PY} {HERE}/topview_render.py 2>&1); rc=$?; '
+               f'  echo "$out" | tail -4; passes=$((passes+1)); '
+               f'  [ $rc -ne 0 ] && fails=$((fails+1)); '
+               f'  n=$(echo "$out" | sed -n "s/^TOPVIEW_NEW //p" | tail -1); '
+               f'  [ "${{n:-0}}" -gt 0 ] || break; '
+               f'  [ $fails -ge 3 ] && break; '
+               f'done; echo "топ-вью: проходов $passes, с ошибкой $fails"; '
+               f'[ $fails -lt $passes ] || [ $passes -eq 0 ]')
 
 
 def iso_age_s(ts: str | None, now: float) -> float | None:

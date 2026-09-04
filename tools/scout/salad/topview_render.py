@@ -224,6 +224,13 @@ def main() -> None:
         print(f'адресный прогон: {len(only)} SKU', flush=True)
     skip = int(os.environ.get('TOPVIEW_SKIP', 0))
     lim = int(os.environ.get('TOPVIEW_LIMIT', 0)) or None
+    # ПРЕДЕЛ НОВЫХ МЕШЕЙ НА ПРОЦЕСС (04.09). Память растёт от НОВЫХ мешей (анализ + рендер), а
+    # не от просмотренных: готовые берутся из кэша за копейки. Прежние `skip/limit` считали
+    # просмотренные, поэтому 120 новых в одном процессе давали ~10 ГБ (trimesh +100 МБ/меш,
+    # урок 391) и earlyoom, а проходы со сдвигом заново начинались с нуля при каждом запуске —
+    # хвост каталога до рендера не доживал. Теперь: проход смотрит ВСЁ, берёт не больше
+    # TOPVIEW_NEW_CAP новых, выходит; обёртка в batch_show повторяет, пока есть новые.
+    new_cap = int(os.environ.get('TOPVIEW_NEW_CAP', 20))
     # БЮДЖЕТ ВРЕМЕНИ (31.08: шаг конвейера убивало по таймауту 45 мин на растущем пилоте —
     # «топ-вью: СБОЙ Terminated», манифест не записывался и работа цикла пропадала).
     # Рендер попиксельный ~30с/модель, кэш по mtime — за несколько циклов догоняем всё.
@@ -294,11 +301,17 @@ def main() -> None:
         base_role = (man.get('role') or '').split()[0] if man.get('role') else ''
         ext_ok = True
         try:
-            import trimesh as _t
-            import numpy as _np
-            _m = _t.load(glb, force='mesh')
-            _e = [float(_np.ptp(_np.asarray(_m.vertices)[:, k])) for k in range(3)]
-            ext_ok = max(_e) / max(min(_e), 1e-6) >= 1.10
+            # ДОЧЕРНИЙ ПРОЦЕСС, не `trimesh.load` здесь (04.09): trimesh на плотных Hunyuan-мешах
+            # не отдаёт память — +100 МБ на каждый меш в родителе, к сотому — 10 ГБ и earlyoom
+            # (урок 391; образец — `mesh_dims.extents`). Дочерний процесс умирает — память возвращается.
+            import subprocess as _sp
+            _r = _sp.run([sys.executable, '-c',
+                          'import sys,json,numpy as np,trimesh;m=trimesh.load(sys.argv[1],force="mesh");'
+                          'V=np.asarray(m.vertices);print(json.dumps([float(np.ptp(V[:,k])) for k in range(3)]))',
+                          glb], capture_output=True, text=True, timeout=300)
+            _e = json.loads(_r.stdout.strip()) if _r.returncode == 0 and _r.stdout.strip() else None
+            if _e:
+                ext_ok = max(_e) / max(min(_e), 1e-6) >= 1.10
         except Exception:  # noqa: BLE001
             pass
         if base_role in VESSEL or not ext_ok:
@@ -307,10 +320,13 @@ def main() -> None:
         # «реальная проблема с тв-тумбами и комодами»; сильнее вердикта каскада
         if base_role in {'комод', 'тв-тумба', 'тумба'}:
             try:
-                import importlib.util as _il
-                _spc = _il.spec_from_file_location('cabf', os.path.join(HERE, 'cabinet_front.py'))
-                _cf = _il.module_from_spec(_spc); _spc.loader.exec_module(_cf)
-                cyaw, csrc, _dbg = _cf.front_by_depth(glb)
+                # тоже дочерним процессом — второй полный load меша + карты глубины (04.09)
+                import subprocess as _sp
+                _r = _sp.run([sys.executable, os.path.join(HERE, 'cabinet_front.py'),
+                              '--front-by-depth', glb], capture_output=True, text=True, timeout=300)
+                if _r.returncode != 0:
+                    raise RuntimeError((_r.stderr or '')[-120:])
+                cyaw, csrc = json.loads(_r.stdout.strip().splitlines()[-1])
                 if cyaw is not None:
                     yaw = cyaw
                     st = f'orient-v1:{csrc}'
@@ -328,6 +344,15 @@ def main() -> None:
                 # Salad?» — замер показал: узкое место не мощность, а один занятый поток
                 # из 12; ~6с/модель × 200 = 20 мин в один поток против ~2 мин на пуле)
                 todo.append((glb, yaw, png, fpng, sku))
+                if new_cap and len(todo) >= new_cap:
+                    stopped_early = True
+                    print(f'предел {new_cap} новых мешей на процесс — остальное следующим проходом',
+                          flush=True)
+                    dims = (man.get('input') or {}).get('dims_cm') or {}
+                    manifest[sku] = {'png': f'{sku}.png', 'yaw': yaw, 'orient': st,
+                                     'role': man.get('role'), 'w': dims.get('w'), 'd': dims.get('d')}
+                    n += 1
+                    break
         except Exception as e:  # noqa: BLE001 — один битый меш не валит страницу
             print(f'  сбой {sku}: {str(e)[:80]}')
             continue
@@ -341,11 +366,14 @@ def main() -> None:
         # 07:13 шаг УБИЛО СНОВА на 8.86 ГБ (earlyoom), то есть 4 всё ещё много: параллельные
         # рендеры форкаются от уже нагруженного родителя. Держим 2 и оставляем запас
         # конвейеру, который работает параллельно.
-        workers = int(os.environ.get('TOPVIEW_WORKERS', 0)) or min(2, max(1, (os.cpu_count() or 4) - 2))
-        print(f'рендер: {len(todo)} моделей на {workers} процессах', flush=True)
+        # 04.09: на 11 ГБ dev-VM держим ОДИН процесс рендера (Codex №8) и меняем его каждые
+        # TOPVIEW_TASKS_PER_CHILD задач — воркер, живущий всю пачку, копит те же +100 МБ/меш.
+        workers = int(os.environ.get('TOPVIEW_WORKERS', 0)) or 1
+        per_child = int(os.environ.get('TOPVIEW_TASKS_PER_CHILD', 4))
+        print(f'рендер: {len(todo)} моделей на {workers} процессах (смена каждые {per_child})', flush=True)
         import concurrent.futures as _cf2
         done_ok = 0
-        with _cf2.ProcessPoolExecutor(max_workers=workers) as ex:
+        with _cf2.ProcessPoolExecutor(max_workers=workers, max_tasks_per_child=per_child) as ex:
             futs = {}
             for job in todo:
                 if time.time() - t0 > budget:
@@ -375,6 +403,7 @@ def main() -> None:
     json.dump(manifest, open(mpth, 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)
     print(f'видов сверху: {n}{" (частично, бюджет)" if stopped_early else ""} → {OUT}')
+    print(f'TOPVIEW_NEW {len(todo)}', flush=True)     # сколько НОВЫХ взял этот проход — читает обёртка
 
 
 if __name__ == '__main__':

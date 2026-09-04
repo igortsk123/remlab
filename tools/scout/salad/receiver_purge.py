@@ -23,6 +23,7 @@
   ~/venvs/scout/bin/python receiver_purge.py            # показать, что удалил бы
   ~/venvs/scout/bin/python receiver_purge.py --apply    # удалить
 """
+import json
 import os
 import subprocess
 import sys
@@ -35,6 +36,17 @@ REMOTE = os.environ.get('MESH_ROOT_REMOTE', '/opt/remlab/meshes')
 LOCAL = os.path.expanduser(os.environ.get('MESH_LOCAL', '~/scout-scenes/meshes-hunyuan'))
 RETAIN_H = float(os.environ.get('MESH_RECV_RETAIN_H', '6'))
 FREE_MIN_GB = float(os.environ.get('MESH_RECV_FREE_MIN_GB', '8'))
+# ПОРОГ ПО ОБЪЁМУ КАТАЛОГА (04.09). Приёмник отказывает (507) при `dir_gb > 8`, а пред-проверка
+# конвейера (`sink_health`) — при `> 7`. При 70–100 мешах в час кэш на 6 часов дорастает до 6 ГБ и
+# упирается в эти пороги при ПУСТОМ диске. Поэтому срок хранения снимаем не только когда мало места
+# на диске, но и когда каталог сам вырос: лестница purge 6 → пред-проверка 7 → приёмник 8.
+DIR_TIGHT_GB = float(os.environ.get('MESH_RECV_DIR_TIGHT_GB', '6'))
+# Остатки `.staging`: приёмник переносит файлы в постоянный каталог по /complete и только тогда
+# сносит staging. Если нода упала посреди комплекта (или приёмник ответил 507 на N-й файл, а первые
+# уже легли), `.staging` остаётся навсегда — ни drain, ни эта чистка его не видели (искали только
+# complete.json). Судим не по mtime каталога (он не движется при долгой записи ОДНОГО файла), а по
+# двум последовательным наблюдениям неизменного размера + возраст ≥ RETAIN_H.
+STAGING_SEEN = os.path.expanduser(os.environ.get('MESH_STAGING_SEEN', '~/scout-scenes/.staging-seen.json'))
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
         '-q', '-t', '-A']
 
@@ -48,8 +60,46 @@ def ssh(cmd: str, timeout: int = 300) -> str:
 
 
 def free_gb() -> float:
+    """Свободно на КОРНЕ сервера — намеренно тот же диск, по которому судит приёмник
+    (`statvfs(ROOT)`): иначе их вердикты разойдутся. Образы докера и прочее на этом же корне чистит
+    серверный watchdog, а не мы — мы освобождаем только меши."""
     out = ssh("df -Pk / | tail -1").split()
     return int(out[3]) / 1024 / 1024
+
+
+def sweep_staging(apply: bool) -> int:
+    """Удаляет `.staging`, которые не менялись между двумя прогонами и старше RETAIN_H. Возвращает,
+    сколько убрано. Состояние — файл `{путь: [размер, когда_впервые_увидели]}`."""
+    out = ssh("cd %s && find . -type d -name .staging -printf '%%p\\t%%T@\\n' 2>/dev/null "
+              "| while IFS=$'\\t' read -r d t; do printf '%%s\\t%%s\\t%%s\\n' \"$d\" \"$t\" "
+              "\"$(du -sb \"$d\" | cut -f1)\"; done" % REMOTE)
+    now = time.time()
+    seen: dict = {}
+    try:
+        seen = json.load(open(STAGING_SEEN, encoding='utf-8'))
+    except Exception:  # noqa: BLE001 — нет файла или битый: начинаем заново
+        seen = {}
+    cur, doomed = {}, []
+    for ln in out.strip().split('\n'):
+        if not ln.strip():
+            continue
+        d, mt, size = ln.split('\t')
+        size = int(size)
+        prev = seen.get(d)
+        first = prev[1] if prev and prev[0] == size else now
+        cur[d] = [size, first]
+        age_h = (now - float(mt)) / 3600
+        if prev and prev[0] == size and age_h >= RETAIN_H and (now - first) >= 900:
+            doomed.append(d)
+    with open(STAGING_SEEN, 'w', encoding='utf-8') as f:
+        json.dump(cur, f)
+    if cur:
+        print(f'.staging на приёмнике: {len(cur)}, к удалению (не менялись 2 прогона и старше '
+              f'{RETAIN_H:.0f} ч): {len(doomed)}')
+    if doomed and apply:
+        ssh('cd %s && rm -rf %s && find . -mindepth 1 -type d -empty -delete' % (
+            REMOTE, ' '.join(f"'{d}'" for d in doomed)), timeout=600)
+    return len(doomed) if apply else 0
 
 
 def remote_sets() -> list[tuple[str, int, float]]:
@@ -110,14 +160,20 @@ def main() -> None:
     except Exception as e:  # noqa: BLE001 — приёмник недоступен: это не авария конвейера
         print(f'приёмник недоступен ({type(e).__name__}: {str(e)[:80]}) — очистку пропускаю')
         return
+    try:
+        sweep_staging(apply)
+    except Exception as e:  # noqa: BLE001 — уборка остатков не должна ломать основную чистку
+        print(f'.staging: не разобрал ({type(e).__name__}: {str(e)[:80]})')
     if not sets:
         print('на приёмнике пусто')
         return
     ready = ready_skus()
     free = free_gb()
-    tight = free < FREE_MIN_GB
-    print(f'на приёмнике комплектов: {len(sets)}; свободно на сервере {free:.1f} ГБ'
-          + (f' — МЕНЬШЕ {FREE_MIN_GB:.0f} ГБ, срок хранения не соблюдаю' if tight else ''))
+    dir_gb = sum(s[1] for s in sets) / 2 ** 30
+    tight = free < FREE_MIN_GB or dir_gb > DIR_TIGHT_GB
+    print(f'на приёмнике комплектов: {len(sets)} ({dir_gb:.1f} ГБ); свободно на сервере {free:.1f} ГБ'
+          + (f' — {"меньше %.0f ГБ" % FREE_MIN_GB if free < FREE_MIN_GB else "каталог больше %.0f ГБ" % DIR_TIGHT_GB}'
+             f', срок хранения не соблюдаю' if tight else ''))
 
     purge, keep = [], {'молодые': 0, 'нет локально': 0, 'объём меньше': 0, 'нет в базе': 0}
     for d, size, age_h in sets:

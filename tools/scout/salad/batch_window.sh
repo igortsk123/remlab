@@ -20,7 +20,12 @@
 #   batch_window.sh down   # погасить их (low не трогаем — они работают круглосуточно)
 set -euo pipefail
 
-GROUPS="${MESH_BATCH_GROUPS:-mesh-batch-1 mesh-batch-2}"
+# Список групп с окном — из ОДНОГО источника (rules/salad-groups.json через salad_groups.py);
+# MESH_BATCH_GROUPS — только переопределение для ручных опытов.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PY="${MESH_PY:-$HOME/venvs/scout/bin/python}"
+GROUPS="${MESH_BATCH_GROUPS:-$("$PY" "$HERE/salad_groups.py" --windowed 2>/dev/null)}"
+[ -n "$GROUPS" ] || { echo "нет групп с окном ни в rules/salad-groups.json, ни в MESH_BATCH_GROUPS" >&2; exit 2; }
 BASE="https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers"
 LOG="${MESH_BATCH_LOG:-$HOME/igor/remlab/.memory_bank/_intake/batch-window.log}"
 HALT="$HOME/scout-scenes/mesh-group-halt.json"
@@ -38,6 +43,14 @@ case "$action" in
     # крутились впустую (ADR-0174).
     if [ -f "$HALT" ]; then
       say "ПОДЪЁМ ОТМЕНЁН: есть запрет сторожа денег ($HALT) — сперва разберись, почему не было мешей"
+      bash "$HERE/../alert.sh" "Меши: окно дешёвого тарифа открылось, но стоит запрет сторожа — batch-группы НЕ подняты. Сними запрет (rm $HALT), разобравшись в причине." || true
+      exit 0
+    fi
+    # ПОДНИМАЕМ ТОЛЬКО ПРИ ЖИВОМ КОНВЕЙЕРЕ (04.09): без него машины прогреются и через 20 минут
+    # их погасит idle_guard — деньги на прогрев впустую, а окно схлопнется до этих 20 минут.
+    if ! pgrep -f "[b]atch_show.py" >/dev/null; then
+      say "ПОДЪЁМ ОТМЕНЁН: конвейера (batch_show.py) нет — поднимать некому раздавать"
+      bash "$HERE/../alert.sh" "Меши: окно дешёвого тарифа открылось, а конвейер не работает — batch-группы НЕ подняты. Запусти конвейер, он поднимет их сам." || true
       exit 0
     fi
     for g in $GROUPS; do
