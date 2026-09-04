@@ -37,9 +37,15 @@ PORT = int(os.environ.get('MESH_SINK_PORT', '8770'))
 BIND = os.environ.get('MESH_SINK_BIND', '127.0.0.1')
 
 _lock = threading.Lock()
+# РАЗМЕР КАТАЛОГА — ИНКРЕМЕНТАЛЬНО (04.09, Codex): раньше каждый /health и каждый PUT обходили
+# весь каталог os.walk'ом; на десятках тысяч комплектов это само стало бы узким местом, а
+# проверку места звали бы раз в 45 с из супервизора конвейера. Считаем один раз при старте,
+# дальше прибавляем принятые байты и вычитаем удалённые. Плюс РЕЗЕРВ под активные PUT:
+# несколько загрузок разом проходили гейт, каждая видела «место есть», и диск переполнялся.
+_SIZE = {'bytes': 0, 'reserved': 0, 'inited': False}
 
 
-def dir_gb() -> float:
+def _walk_bytes() -> int:
     total = 0
     for dirpath, _, files in os.walk(ROOT):
         for f in files:
@@ -47,7 +53,23 @@ def dir_gb() -> float:
                 total += os.path.getsize(os.path.join(dirpath, f))
             except OSError:
                 continue
-    return total / 2 ** 30
+    return total
+
+
+def dir_gb() -> float:
+    if not _SIZE['inited']:
+        _SIZE['bytes'] = _walk_bytes()
+        _SIZE['inited'] = True
+    return (_SIZE['bytes'] + _SIZE['reserved']) / 2 ** 30
+
+
+def _would_refuse(extra_bytes: int = 0) -> str:
+    """Почему PUT на `extra_bytes` получит 507 — или пусто, если место есть."""
+    if dir_gb() + extra_bytes / 2 ** 30 > MAX_DIR_GB:
+        return f'каталог {dir_gb():.1f} ГБ (предел {MAX_DIR_GB}) — нужен drain'
+    if free_gb() - extra_bytes / 2 ** 30 < MIN_FREE_GB:
+        return f'свободно {free_gb():.1f} ГБ (< {MIN_FREE_GB})'
+    return ''
 
 
 def free_gb() -> float:
@@ -88,7 +110,14 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split('?')[0]
         if path == '/health':
             return self._send(200, {'ok': True, 'dir_gb': round(dir_gb(), 2),
-                                    'free_gb': round(free_gb(), 2), 'max_dir_gb': MAX_DIR_GB})
+                                    'free_gb': round(free_gb(), 2), 'max_dir_gb': MAX_DIR_GB,
+                                    'ready': not _would_refuse()})
+        if path == '/ready':
+            # честный ответ «примет ли PUT сейчас» — для пред-проверки конвейера; O(1)
+            why = _would_refuse()
+            return self._send(200 if not why else 507,
+                              {'ok': not why, 'detail': why, 'dir_gb': round(dir_gb(), 2),
+                               'free_gb': round(free_gb(), 2), 'max_dir_gb': MAX_DIR_GB})
         if not self._auth():
             return
         if path == '/list':
@@ -117,11 +146,6 @@ class Handler(BaseHTTPRequestHandler):
         prefix, _, name = rel.rpartition('/')
         if not name or name.startswith('.') or os.sep in name:
             return self._send(400, {'detail': 'плохое имя файла'})
-        # Место проверяем ДО чтения тела: незачем принимать 60 МБ, чтобы потом их выбросить
-        with _lock:
-            if dir_gb() > MAX_DIR_GB or free_gb() < MIN_FREE_GB:
-                return self._send(507, {'detail': f'нет места: каталог {dir_gb():.1f} ГБ, '
-                                                  f'свободно {free_gb():.1f} ГБ — нужен drain'})
         n = int(self.headers.get('Content-Length') or 0)
         if n <= 0:
             return self._send(400, {'detail': 'пустое тело'})
@@ -131,20 +155,36 @@ class Handler(BaseHTTPRequestHandler):
             d = safe(prefix, '.staging')
         except ValueError:
             return self._send(400, {'detail': 'плохой путь'})
+        # Место проверяем ДО чтения тела и РЕЗЕРВИРУЕМ его под этот файл — под одним замком,
+        # чтобы параллельные PUT не прошли гейт все разом (04.09). При отказе сносим staging
+        # этого префикса: первые файлы комплекта уже легли и иначе остались бы навсегда.
+        with _lock:
+            why = _would_refuse(n)
+            if why:
+                shutil.rmtree(d, ignore_errors=True)
+                return self._send(507, {'detail': f'нет места: {why}'})
+            _SIZE['reserved'] += n
         os.makedirs(d, exist_ok=True)
         tmp = os.path.join(d, name + '.part')
         got = 0
-        with open(tmp, 'wb') as f:
-            while got < n:
-                chunk = self.rfile.read(min(1 << 20, n - got))
-                if not chunk:
-                    break
-                f.write(chunk)
-                got += len(chunk)
-        if got != n:
-            os.remove(tmp)
-            return self._send(400, {'detail': f'тело оборвано: {got} из {n}'})
-        os.replace(tmp, os.path.join(d, name))
+        try:
+            with open(tmp, 'wb') as f:
+                while got < n:
+                    chunk = self.rfile.read(min(1 << 20, n - got))
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    got += len(chunk)
+            if got != n:
+                os.remove(tmp)
+                return self._send(400, {'detail': f'тело оборвано: {got} из {n}'})
+            prev = os.path.getsize(os.path.join(d, name)) if os.path.exists(os.path.join(d, name)) else 0
+            os.replace(tmp, os.path.join(d, name))
+            with _lock:
+                _SIZE['bytes'] += got - prev
+        finally:
+            with _lock:
+                _SIZE['reserved'] = max(0, _SIZE['reserved'] - n)
         self._send(200, {'ok': True, 'bytes': got})
 
     # ---------------------------------------------------------------- POST / DELETE
@@ -194,7 +234,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(400, {'detail': 'плохой путь'})
         if not os.path.isdir(p):
             return self._send(404, {'detail': 'нет такого'})
+        freed = 0
+        for dirpath, _, files in os.walk(p):
+            for f in files:
+                try:
+                    freed += os.path.getsize(os.path.join(dirpath, f))
+                except OSError:
+                    pass
         shutil.rmtree(p, ignore_errors=True)
+        with _lock:
+            _SIZE['bytes'] = max(0, _SIZE['bytes'] - freed)
         self._send(204)
 
 

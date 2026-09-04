@@ -37,7 +37,13 @@ STARTED = time.time()
 # try, молча — нода вечно `warm=false` при живом порте. Отсюда же правило ниже: тело прогрева
 # обёрнуто целиком, а warm ставится в finally.
 MASK_ONLY = os.environ.get('MASK_ONLY', '0') == '1'
-STATE = {'warm': False, 'done': 0, 'failed': 0, 'skipped': 0, 'gpu_seconds': 0.0}
+STATE = {'warm': False, 'phase': 'warming', 'done': 0, 'failed': 0, 'skipped': 0, 'gpu_seconds': 0.0}
+# Задания в работе по job_id (04.09, Codex): обрыв SSH посреди генерации оставлял воркер считать,
+# а отправитель, не видя маркера, мог прислать /generate второй раз — двойная оплата GPU.
+# Теперь второй заход спрашивает `GET /job/<id>` и ждёт, а повторный /generate того же id
+# получает 409, пока первый не закончил.
+_INFLIGHT: set = set()
+_INFLIGHT_LOCK = threading.Lock()
 
 
 @app.get('/health')
@@ -54,6 +60,23 @@ def health():
     их штатно повторяет. Раздачей всё равно управляем мы, а не платформа.
     """
     return {'ok': True, 'uptime_s': round(time.time() - STARTED), **STATE}
+
+
+@app.get('/ready')
+def ready():
+    """200 — только когда прогрев ПРОШЁЛ. `/health` остаётся 200 всегда (контракт с платформой,
+    см. выше); а «готов ли брать задания» — отдельный ответ, честный (04.09)."""
+    if STATE.get('phase') == 'ready':
+        return {'ok': True, 'phase': 'ready', 'inflight': len(_INFLIGHT)}
+    raise HTTPException(503, f'phase={STATE.get("phase")}: {(STATE.get("warmup_error") or "")[-200:]}')
+
+
+@app.get('/job/{jid}')
+def job_state(jid: str):
+    """`inflight` — считается сейчас (отправитель ждёт, не шлёт заново); `unknown` — этот воркер
+    о таком не знает (не начиналось или уже сдано — смотри `already_done` на приёмнике)."""
+    with _INFLIGHT_LOCK:
+        return {'job_id': jid, 'state': 'inflight' if jid in _INFLIGHT else 'unknown'}
 
 
 @app.on_event('startup')
@@ -99,10 +122,15 @@ def warmup():
             P.generate(img, d, seed=0, params={'num_inference_steps': 5,
                                                'octree_resolution': 128})
         STATE['warmup_s'] = round(time.time() - t0, 1)
-    except Exception:  # noqa: BLE001 — причина в warmup_error, нода всё равно открывается
-        STATE['warmup_error'] = traceback.format_exc()[-800:]
-    finally:
         STATE['warm'] = True
+        STATE['phase'] = 'ready'
+    except Exception:  # noqa: BLE001 — причина в warmup_error; порт живёт, но задания не берём
+        STATE['warmup_error'] = traceback.format_exc()[-800:]
+        # 04.09: раньше warm ставился в finally и после провала — «тёплая» нода с мёртвыми
+        # моделями часами стояла оплаченной (03.09: 225 и 169 минут). Теперь warm=False и
+        # phase=failed: отправитель видит это в /health и снимает ноду.
+        STATE['warm'] = False
+        STATE['phase'] = 'failed'
 
 
 @app.post('/assess')
@@ -169,6 +197,10 @@ def generate(job: dict):
     if done:                       # ретрай после прерывания — работа уже сделана
         STATE['skipped'] += 1
         return {'sku': sku, 'status': 'cached', 'job_id': jid, 'prefix': prefix}
+    with _INFLIGHT_LOCK:
+        if jid in _INFLIGHT:
+            raise HTTPException(409, f'задание {jid} уже считается на этой ноде')
+        _INFLIGHT.add(jid)
 
     work = tempfile.mkdtemp(prefix='mesh-')
     try:
@@ -238,12 +270,21 @@ def generate(job: dict):
         STATE['gpu_seconds'] += time.time() - t0
         return {'sku': sku, 'status': 'ok', 'job_id': jid, 'prefix': prefix,
                 'timings_s': res['timings'], 'gpu': res['gpu'], 'sizes': sizes}
+    except S.SinkError as e:
+        # Отказ ПРИЁМНИКА, не генерации: стадия и HTTP-код едут отправителю — он спросит
+        # приёмник и закроет пачку как инфра-сбой, а не будет винить ноду (04.09)
+        STATE['failed'] += 1
+        return {'sku': sku, 'status': 'failed', 'job_id': jid, 'stage': e.stage,
+                'http_status': e.http_status, 'host': e.host,
+                'error': f'SinkError {e.stage} HTTP {e.http_status}: {str(e)[:240]}'}
     except Exception as e:  # noqa: BLE001 — задание падает, нода живёт и берёт следующее
         STATE['failed'] += 1
-        return {'sku': sku, 'status': 'failed', 'job_id': jid,
+        return {'sku': sku, 'status': 'failed', 'job_id': jid, 'stage': 'generate',
                 'error': f'{type(e).__name__}: {str(e)[:300]}',
                 'trace': traceback.format_exc()[-1200:]}
     finally:
+        with _INFLIGHT_LOCK:
+            _INFLIGHT.discard(jid)
         shutil.rmtree(work, ignore_errors=True)
 
 

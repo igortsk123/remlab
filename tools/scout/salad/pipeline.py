@@ -329,7 +329,7 @@ def slab_suspect(glb_path: str) -> str | None:
         return None
 
 
-def cut_alien_debris(glb_path: str) -> None:
+def cut_alien_debris(glb_path: str) -> dict:
     """Срезает галлюцинации-обломки: кусок не в палитре товара, висящий у пола.
 
     Диван 114667 (владелец 30.08): вырезка чистая, а у ножек белый мятый ком от генератора.
@@ -339,6 +339,11 @@ def cut_alien_debris(glb_path: str) -> None:
     (3) ком бывает до ~7% граней — порог размера 8%, отбор делает цвет.
     Обломок = кусок ≤8% граней, целиком в нижних 40% высоты, цвет дальше 90 от доминанты.
     Тёмные ножки при тёмном корпусе — в палитре; белая мебель — доминанта белая, фильтр молчит.
+
+    Возвращает {'suspect': граней-подозрений, 'skipped': почему не судили | None, 'error': текст | None}
+    (04.09): раньше функция молча возвращала None и в трёх случаях из трёх («нечего резать»,
+    «Scene без faces», исключение) вызывающий не мог их различить; печать уходила в stdout ноды и
+    пропадала вместе с ней. Итог теперь едет в manifest.json через `gpu.alien`.
     """
     import numpy as np
     import trimesh
@@ -346,17 +351,17 @@ def cut_alien_debris(glb_path: str) -> None:
         sc = trimesh.load(glb_path)
         mesh = sc.to_mesh() if hasattr(sc, 'to_mesh') else sc
         if mesh.faces is None or len(mesh.faces) < 1000:
-            return
+            return {'suspect': 0, 'skipped': 'мало граней', 'error': None}
         vis = getattr(mesh, 'visual', None)
         if vis is None or getattr(vis, 'kind', None) != 'texture':
-            return
+            return {'suspect': 0, 'skipped': 'нет текстуры', 'error': None}
         colored = vis.to_color()                     # запечь текстуру в цвета вершин по UV
         vc = np.asarray(colored.vertex_colors)[:, :3].astype(np.float32)
         V, F = np.asarray(mesh.vertices), np.asarray(mesh.faces)
         labels = trimesh.graph.connected_component_labels(mesh.face_adjacency,
                                                           node_count=len(F))
         if labels.max() == 0:
-            return
+            return {'suspect': 0, 'skipped': 'одно тело', 'error': None}
         area = np.asarray(mesh.area_faces, np.float64)
         fcol = vc[F].mean(axis=1)                    # цвет грани = среднее по её вершинам
         dominant = (fcol * area[:, None]).sum(axis=0) / max(area.sum(), 1e-9)
@@ -388,8 +393,10 @@ def cut_alien_debris(glb_path: str) -> None:
                 # ПОМЕТКА; лечит перегон другим seed.
                 open(glb_path + '.alien_suspect', 'w').write(str(int(drop.sum())))
                 print(f'обломок-подозрение: {int(drop.sum())} граней (пометка, не срез)', flush=True)
+        return {'suspect': int(drop.sum()), 'skipped': None, 'error': None}
     except Exception as e:  # noqa: BLE001 — ремонт не должен ронять задание
         print(f'cut_alien_debris пропущен: {type(e).__name__} {str(e)[:80]}', flush=True)
+        return {'suspect': -1, 'skipped': None, 'error': f'{type(e).__name__}: {str(e)[:80]}'}
 
 
 def cut_base_slab(glb_path: str, role: str | None = None) -> None:
@@ -533,11 +540,13 @@ def generate(image, out_dir: str, seed: int = 0, params: dict | None = None,
         ok = convert_obj_to_glb(painted, final_glb)
         if not ok or not os.path.exists(final_glb) or os.path.getsize(final_glb) == 0:
             raise RuntimeError('OBJ→GLB конвертация не удалась')
-        cut_alien_debris(final_glb)   # только пометка suspect (автосрез под флагом)
     elif isinstance(painted, str):
         os.replace(painted, final_glb)
     else:
         painted.export(final_glb)
+    # Фильтр обломков — для ЛЮБОГО итогового glb, не только после OBJ→GLB (04.09: в других ветках
+    # он не звался вовсе, и это нигде не отмечалось); только пометка, автосрез под флагом
+    alien = cut_alien_debris(final_glb)
     timings['export'] = round(time.time() - t2, 1)
     timings['total'] = round(time.time() - t0, 1)
 
@@ -545,4 +554,4 @@ def generate(image, out_dir: str, seed: int = 0, params: dict | None = None,
         _unload('paint')
 
     return {'glb': final_glb, 'shape_glb': raw_glb, 'timings': timings,
-            'gpu': {'name': torch.cuda.get_device_name(0), 'staged': STAGED, **peaks}}
+            'gpu': {'name': torch.cuda.get_device_name(0), 'staged': STAGED, 'alien': alien, **peaks}}

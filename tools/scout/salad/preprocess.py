@@ -46,13 +46,51 @@ def _birefnet():
     return _MODEL, _TF
 
 
+# Кэш последних ответов по URL (04.09): фото качалось ДВАЖДЫ на задание (`prepare` и
+# `source.jpg` в воркере) — вторая закачка идёт отсюда, без сети, теми же байтами (идентичность
+# входа: sha считается от того, что реально пошло в генератор).
+import collections as _collections
+_FETCHED: "_collections.OrderedDict[str, bytes]" = _collections.OrderedDict()
+_FETCH_CACHE_N = 4
+# Повторы (04.09): за сутки 03.09 — 27 отказов «network unreachable», 10 таймаутов, 6 SSL EOF на
+# ВХОДЕ, и каждый ронял задание без единой повторной попытки. 404/410 НЕ повторяем — сервер
+# ответил, фото мёртвое, повтор только жжёт время ноды.
+FETCH_RETRIES = (2, 5, 10)
+_UA = ('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) '
+       'Chrome/126.0 Safari/537.36')
+
+
 def fetch(url: str, timeout: int = 120) -> bytes:
-    """Схема у ссылок каталога бывает опущена (`//imgng...`) — иначе urlopen падает."""
+    """Схема у ссылок каталога бывает опущена (`//imgng...`) — иначе urlopen падает.
+    Повторы с паузами 2/5/10 с на сетевых сбоях; 404/410 — сразу наверх (вина товара)."""
+    import time as _time
+    import urllib.error as _ue
     if url.startswith('//'):
         url = 'https:' + url
-    req = urllib.request.Request(url, headers={'User-Agent': 'remlab-mesh/1.0'})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read()
+    if url in _FETCHED:
+        _FETCHED.move_to_end(url)
+        return _FETCHED[url]
+    last: Exception | None = None
+    for i, pause in enumerate((0,) + FETCH_RETRIES):
+        if pause:
+            _time.sleep(pause)
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': _UA, 'Accept': 'image/*,*/*;q=0.8'})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                data = r.read()
+            if not data:
+                raise ValueError('пустой ответ')
+            _FETCHED[url] = data
+            while len(_FETCHED) > _FETCH_CACHE_N:
+                _FETCHED.popitem(last=False)
+            return data
+        except _ue.HTTPError as e:
+            if e.code in (404, 410, 403):          # сервер ответил: фото мёртвое/закрыто — не повторяем
+                raise
+            last = e
+        except Exception as e:  # noqa: BLE001 — сеть, TLS, таймаут: повтор
+            last = e
+    raise last  # type: ignore[misc]
 
 
 def cutout(img: Image.Image) -> Image.Image:

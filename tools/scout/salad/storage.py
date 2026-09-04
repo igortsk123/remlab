@@ -38,6 +38,16 @@ def _check(files: dict) -> None:
 
 # ---------------------------------------------------------------- наш сервер (HTTP)
 
+class SinkError(RuntimeError):
+    """Отказ ПРИЁМНИКА (не генерации): стадия, HTTP-код, хост — чтобы отправитель судил по
+    стадии, а не по тексту `EOF` (тот же текст даёт CDN фото и SSH-шлюз; Codex 04.09)."""
+
+    def __init__(self, stage: str, msg: str, http_status: int | None = None):
+        super().__init__(f'{stage}: {msg}')
+        self.stage, self.http_status = stage, http_status
+        self.host = os.environ.get('MESH_SINK_URL', '').split('//')[-1].split('/')[0]
+
+
 def _http_req(method: str, path: str, body: bytes | None = None,
               ctype: str = 'application/octet-stream', timeout: int = 300):
     base = os.environ['MESH_SINK_URL'].rstrip('/')
@@ -61,18 +71,24 @@ def _http_done(prefix: str) -> dict | None:
 
 def _http_publish(prefix: str, files: dict, complete: dict) -> dict:
     sizes = {}
+    def _call(stage: str, *a, **k):
+        try:
+            with _http_req(*a, **k) as r:
+                r.read()
+        except urllib.error.HTTPError as e:
+            raise SinkError(stage, f'HTTP {e.code} {str(e.read()[:120])}', e.code) from e
+        except Exception as e:  # noqa: BLE001 — сеть/TLS до приёмника
+            raise SinkError(stage, f'{type(e).__name__}: {str(e)[:120]}') from e
     for name, path in files.items():
         with open(path, 'rb') as f:
             data = f.read()
         # Файлы уходят во ВРЕМЕННОЕ имя на стороне приёмника; он сам переносит их в
         # постоянное только по сигналу /complete — так оборванная закачка не оставляет
         # полуфабрикат, который выглядит готовым.
-        with _http_req('PUT', f'/staging/{prefix}/{name}', data) as r:
-            r.read()
+        _call('sink_put', 'PUT', f'/staging/{prefix}/{name}', data)
         sizes[name] = len(data)
     body = json.dumps({**complete, 'files': sizes}, ensure_ascii=False).encode()
-    with _http_req('POST', f'/complete/{prefix}', body, 'application/json') as r:
-        r.read()
+    _call('sink_complete', 'POST', f'/complete/{prefix}', body, 'application/json')
     return sizes
 
 

@@ -1,22 +1,24 @@
-# Наращивание нашего кода поверх уже собранного образа.
+# ТОНКИЙ СЛОЙ КОДА поверх боевого образа: только наши файлы из /app, веса и апстрим не трогаем.
 #
-# Зачем отдельный файл: базовый образ собирается час (CUDA-расширения, полсотни зависимостей
-# Hunyuan), а наш код меняется по многу раз в день. Пересобирать всё ради трёх .py — потеря
-# часа, и она уже случалась дважды: buildkit чистит свой кэш сам при нехватке диска, и тогда
-# «инкрементальная» пересборка молча превращается в полную.
+# ЗАЧЕМ (04.09, план mesh-pool-hardening P1-7 — ОДНА пересборка вместо трёх):
+#  - preprocess.fetch: 3 повтора с паузами 2/5/10 с на сетевых сбоях (за сутки 03.09 — 27
+#    отказов сети, 10 таймаутов, 6 SSL EOF на входе, каждый без единой повторной попытки),
+#    404/410 не повторяем; браузерный UA; кэш байтов — фото не качается второй раз ради source.jpg;
+#  - worker: phase warming|ready|failed, warm=False при провале прогрева (раньше в finally
+#    ставился True, и «тёплая» нода с мёртвыми моделями стояла оплаченной часами), GET /ready,
+#    inflight по job_id + GET /job/<id> — защита от двойного /generate после обрыва SSH;
+#  - storage: SinkError со стадией и HTTP-кодом — отправитель судит по стадии, не по тексту EOF;
+#  - pipeline: cut_alien_debris возвращает итог в manifest (gpu.alien), зовётся для любого glb.
 #
-#   docker build -f Dockerfile.patch -t ghcr.io/igortsk123/mesh-hunyuan:cu124 .
-ARG BASE=remlab/mesh-hunyuan:cu124-noweights
+# Смена образа = новая группа (PATCH образа у живой группы молчит, ADR-0154), по одной группе
+# в окно 15:00 UTC — batch и так гаснут кроном.
+#   docker build -f Dockerfile.patch --build-arg BASE=ghcr.io/igortsk123/mesh-hunyuan:cu124-localpaint \
+#                -t ghcr.io/igortsk123/mesh-hunyuan:cu124-localpaint2 .
+ARG BASE
 FROM ${BASE}
-# Копируем ВСЕ модули воркера, а не список руками: соседняя сессия добавила collage.py и
-# components.py, preprocess их импортирует — с ручным перечислением образ упал бы на старте.
-# receiver.py и submit.py в контейнере не нужны (они наши, хостовые), но и не мешают.
-# kornia нужен remote-коду BiRefNet (вырезка), у апстрима Hunyuan его нет. Ставим БЕЗ
-# зависимостей: обычная установка потянула бы другой torch и молча сломала бы пайплайн.
-RUN pip install --no-deps kornia==0.7.4 kornia_rs==0.1.8 &&     python -c "import kornia, torch; assert torch.__version__.startswith('2.5.1'), torch.__version__; print('kornia', kornia.__version__, '| torch не тронут')"
-# Ускоритель закачки весов: платная фаза прогрева (веса на running-ноде) сжимается с
-# 10–30 мин до ~3–5 (владелец 30.08: «сократить прогревы»). Полный BAKE_WEIGHTS=1
-# требует ~60 ГБ диска на сборочной машине — отложен до расширения диска.
-RUN pip install --no-deps hf_transfer==0.1.8 &&     python -c "import hf_transfer; print('hf_transfer ok')"
-ENV HF_HUB_ENABLE_HF_TRANSFER=1
-COPY *.py /app/
+COPY preprocess.py pipeline.py storage.py worker.py /app/
+# Проверка на месте сборки: молчаливо не скопировавшийся файл дал бы образ, неотличимый от старого.
+RUN python -c "import ast,sys; [ast.parse(open(f'/app/{m}.py').read()) for m in ('preprocess','pipeline','storage','worker')]" && \
+    grep -q "def ready" /app/worker.py && grep -q "FETCH_RETRIES" /app/preprocess.py && \
+    grep -q "class SinkError" /app/storage.py && grep -q "'alien': alien" /app/pipeline.py && \
+    echo "слой кода на месте: /ready, повторы фото, SinkError, alien"
