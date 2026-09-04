@@ -41,6 +41,13 @@ FAULT_NONE = 'none'      # нода отработала
 FAULT_NODE = 'node'      # виновата нода — повтор на другой, счётчик растёт
 FAULT_JOB = 'job'        # виноват товар — терминально, счётчик обнуляется
 FAULT_UNKNOWN = 'unknown'  # непонятно — повтор на другой ноде, но ноду не обвиняем
+FAULT_INFRA = 'infra'    # виновата НАША инфраструктура (приёмник полон) — ноду не винить, пул ждёт
+
+# Признаки, что задание упало на ОТПРАВКЕ результата в приёмник. Сами по себе они диагноз НЕ
+# ставят (тот же `EOF` бывает у CDN фото и у SSH-шлюза, Codex 04.09): это повод спросить приёмник
+# (`sink_health.check()`), и только красный ответ делает вину «инфра».
+_INFRA_MARKS = ('http error 507', 'eof occurred in violation of protocol',
+                'remote end closed connection', 'connection reset by peer')
 
 _NODE_MARKS = ('network is unreachable', 'errno 101',
                'no route to host', 'errno 113',
@@ -52,9 +59,42 @@ _JOB_MARKS = ('http error 404', 'http error 410', 'error 404', 'error 410')
 _JOB_STATUSES = ('bad_cutout', 'flat_shape', 'slab_suspect', 'not_generator_eligible')
 
 
-def classify(res: dict) -> str:
-    """Чья вина в этом результате: ноды, задания или непонятно."""
+def infra_suspect(res: dict) -> bool:
+    """Похоже ли на отказ приёмника: статус `failed` (генерация прошла, упала публикация) и текст
+    из _INFRA_MARKS. `input_failed` с тем же текстом — сеть ноды или CDN фото, не приёмник."""
+    if (res or {}).get('status') != 'failed':
+        return False
+    err = str((res or {}).get('error') or '').lower()
+    return any(m in err for m in _INFRA_MARKS)
+
+
+def transport_class(stdout: str, stderr: str, rc) -> str:
+    """Подкласс обрыва SSH — по тому, что успело напечататься (04.09; раньше всё было одной
+    строкой «нет маркера в выводе», 328 штук, и разбор начинался с нуля каждый раз):
+      container_id   — обёртка Salad не нашла контейнер: ноду перевыделили между пробой и заданием
+      set_user       — обёртка не смогла войти в контейнер (снапшот) — тот же класс, шлюз
+      empty          — вывода нет вовсе: сессия не дошла до python; коллизия сессий или обрыв
+      mid_generation — эхо скрипта есть, маркера нет: обрыв ПОСРЕДИ генерации (машину отобрали)
+      other          — что-то ещё, смотреть текст"""
+    out = (stdout or '')
+    err = (stderr or '').lower()
+    if 'failed to lookup container id' in out.lower() or 'failed to lookup container id' in err:
+        return 'container_id'
+    if 'failed to set user in spec' in out.lower() or 'failed to set user in spec' in err:
+        return 'set_user'
+    if len(out.strip()) < 40:
+        return 'empty'
+    if 'RLPY' in out or '/generate' in out:
+        return 'mid_generation'
+    return 'other'
+
+
+def classify(res: dict, sink_ok: bool | None = None) -> str:
+    """Чья вина в этом результате: ноды, задания, инфраструктуры или непонятно.
+    `sink_ok=False` — приёмник в этот момент красный: тогда отказ публикации — вина ИНФРЫ."""
     st = (res or {}).get('status')
+    if sink_ok is False and infra_suspect(res):
+        return FAULT_INFRA
     if st in ('ok', 'cached'):
         return FAULT_NONE
     if st in _JOB_STATUSES:
@@ -81,6 +121,10 @@ def classify(res: dict) -> str:
 def error_class(res: dict) -> str:
     """Грубый класс ошибки — для правила «одно и то же на многих нодах = общая сеть»."""
     err = str((res or {}).get('error') or '').lower()
+    # подклассы транспорта/инфры пишутся префиксом в саму ошибку (`ssh/container_id rc=…`):
+    # три ноды с `container_id` за пять минут — это шлюз Salad, а не три плохие машины
+    if err.startswith('ssh/') or err.startswith('infra/'):
+        return err.split(' ', 1)[0].split(':', 1)[0]
     for m in _NODE_MARKS + _JOB_MARKS:
         if m in err:
             return m

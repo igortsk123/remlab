@@ -72,6 +72,12 @@ def groups_from_env() -> list[str]:
     return gs
 
 
+def groups_or_empty() -> list[str]:
+    """То же, но без отказа: для чтения при импорте модуля (стенд `tests_pool` импортирует
+    `ssh_run` без окружения). Проверка на пустоту — в точке входа `main()`."""
+    return [g.strip() for g in os.environ.get('SALAD_GROUP', '').split(',') if g.strip()]
+
+
 def windowed() -> list[str]:
     """Группы с окном (их поднимает и гасит расписание `batch_window.sh`)."""
     return [g for g, i in (load().get('groups') or {}).items() if i.get('window_utc')]

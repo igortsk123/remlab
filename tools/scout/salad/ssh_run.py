@@ -35,9 +35,13 @@ API = 'https://api.salad.com/api/public'
 ORG, PROJECT = 'prodstore', 'dmodel'
 # Несколько групп через запятую (владелец 30.08: параллельная группа на baked-образе).
 # Порты собираются со ВСЕХ, стоп гасит ВСЕ — иначе вторая группа жгла бы деньги после финала.
-GROUPS = [g.strip() for g in os.environ.get('SALAD_GROUP', 'mesh-run3').split(',') if g.strip()]
-GROUP = GROUPS[0]
-RATE = 0.16                     # 4090 batch $/ч — сверено по API 28.08
+sys.path.insert(0, HERE)
+import salad_groups as SG  # noqa: E402 — тариф/окно/цена группы: ОДИН источник (rules/salad-groups.json)
+import sink_health as SH   # noqa: E402 — здоров ли приёмник: проверка ДО раздачи GPU-времени
+# Без умолчания (04.09): тихий `mesh-run3` из старого кода заставил бы работать с удалённой
+# группой. Пусто допустимо только при импорте (стенд); `main()` откажет.
+GROUPS = SG.groups_or_empty()
+GROUP = GROUPS[0] if GROUPS else ''
 # Предохранитель от разросшейся очереди. Владелец 31.08 ставил 2000 (481 сетовых + демо +
 # добор), но 01.09 очередь стала полной по каталогу — 11 704 задания в порядке регламента
 # (`rules/mesh-priority.json`). Держим переопределяемым: молчаливое усечение хуже явного
@@ -45,6 +49,9 @@ RATE = 0.16                     # 4090 batch $/ч — сверено по API 28
 MAX_JOBS = int(os.environ.get('MESH_MAX_JOBS', '2000'))
 _lock = threading.Lock()
 import random
+# СОСТОЯНИЕ ПРИЁМНИКА — один опрос на процесс (супервизор, раз в POLL_S), воркеры читают флаг без
+# сети перед КАЖДЫМ заданием: красный приёмник = не брать работу, а не узнать о 507 после GPU.
+_SINK = {'ok': True, 'why': '', 'at': 0.0}
 
 # Динамический пул (план mesh-dynamic-node-pool): ноды приходят и уходят посреди прогона.
 POLL_S = float(os.environ.get('MESH_POLL_S', '45'))        # как часто ищем НОВЫЕ ноды
@@ -180,6 +187,40 @@ def probe_warm(port: int) -> bool:
 PROBE_WORKERS = int(os.environ.get('MESH_PROBE_WORKERS', '6'))
 
 
+def sink_poll(force: bool = False) -> bool:
+    """Обновить флаг приёмника. Не чаще POLL_S, кроме `force` (подозрение на 507 у воркера)."""
+    now = time.time()
+    if not force and now - _SINK['at'] < POLL_S * 0.9:
+        return _SINK['ok']
+    h = SH.check()
+    if _SINK['ok'] and not h['ok']:
+        print(f'!! приёмник красный: {h["why"]} — воркеры ждут', flush=True)
+    elif not _SINK['ok'] and h['ok']:
+        print('приёмник снова принимает — продолжаем', flush=True)
+    _SINK.update(ok=h['ok'], why=h['why'], at=now)
+    return h['ok']
+
+
+def sink_preflight() -> bool:
+    """Перед раздачей: место + канарейка. Печатает «ПРИЁМНИК …» — по этому слову `batch_show`
+    запускает drain+purge немедленно, не дожидаясь тика разбора."""
+    h = SH.check()
+    if not h['ok']:
+        print(f'ПРИЁМНИК не принимает: {h["why"]} — задания не раздаю', flush=True)
+        SH.alert_throttled(f'Меши: приёмник не принимает — {h["why"]}. Раздача остановлена, '
+                           f'конвейер стаскивает и чистит.')
+        return False
+    c = SH.canary()
+    if not c['ok']:
+        print(f'ПРИЁМНИК не прошёл канарейку: {c["why"]} — задания не раздаю', flush=True)
+        SH.alert_throttled(f'Меши: приёмник не прошёл проверку записью — {c["why"]}. Раздача остановлена.')
+        return False
+    _SINK.update(ok=True, why='', at=time.time())
+    print(f'приёмник: свободно {h["free_gb"]:.1f} ГБ, каталог {h["dir_gb"]:.1f}/{h["max_dir_gb"]:.0f} ГБ, '
+          f'канарейка {c["sec"]:.1f} с', flush=True)
+    return True
+
+
 def warm_ports() -> list[int]:
     """SSH-порты прогретых нод — стартовый снимок; дальше состав пула ведёт супервизор.
 
@@ -231,18 +272,33 @@ def run_job(port: int, job: dict) -> dict:
             m = re.search(r'RLBEG(\{.*?\})RLEND', r.stdout, re.S)
             if m:
                 break
-            if attempt == 1 and len((r.stdout or '').strip()) < 40:
+            kind = NH.transport_class(r.stdout, r.stderr, r.returncode)
+            # ВТОРОЙ ЗАХОД — ТОЛЬКО ПРИ ПУСТОМ ВЫВОДЕ (04.09). Раньше цикл шёл на вторую попытку
+            # при любом отсутствии маркера, в том числе после обрыва ПОСРЕДИ генерации — и слал
+            # /generate второй раз: двойная оплата GPU за один меш. При `mid_generation` первая
+            # нода, скорее всего, доделает и опубликует (SSH оборвался, воркер — нет): задание
+            # уедет на другую ноду через RETRY_GRACE_S, и `already_done` подхватит результат.
+            # Пустой вывод после принятого /generate тоже возможен — остаточный риск признан;
+            # закроется `inflight`/`GET /job` в воркере после ребилда образа (план P1-7).
+            if attempt == 1 and kind == 'empty':
                 time.sleep(8)          # пустой вывод = коллизия сессий, второй заход
                 continue
+            break
         if not m:
+            kind = NH.transport_class(r.stdout, r.stderr, r.returncode)
+            tail = (r.stdout or '').strip()[-100:].replace('\n', ' ')
+            etail = (r.stderr or '').strip()[-100:].replace('\n', ' ')
             return {'sku': job['sku'], 'status': 'transport_failed', 'node_port': port,
-                    'error': ('нет маркера в выводе: ' + r.stdout[-180:]).strip()}
+                    'error': f'ssh/{kind} rc={r.returncode}: {tail} | err: {etail}'.strip()}
         res = json.loads(m.group(1))
         res['wall_s'] = round(time.time() - t0, 1)
         res['node_port'] = port
         return res
-    except subprocess.TimeoutExpired:
-        return {'sku': job['sku'], 'status': 'transport_failed', 'error': 'ssh timeout'}
+    except subprocess.TimeoutExpired as e:
+        # хвост вывода первой попытки раньше терялся целиком — теперь видно, что успело напечататься
+        out = e.stdout.decode(errors='replace') if isinstance(e.stdout, bytes) else (e.stdout or '')
+        return {'sku': job['sku'], 'status': 'transport_failed', 'node_port': port,
+                'error': f'ssh/timeout: {out.strip()[-100:]}'.replace('\n', ' ').strip()}
     except Exception as e:  # noqa: BLE001 — транспорт не должен ронять весь прогон
         return {'sku': job['sku'], 'status': 'transport_failed',
                 'error': f'{type(e).__name__}: {str(e)[:160]}'}
@@ -445,7 +501,9 @@ class Jobs:
         with self.cv:
             it['busy'] = False
             self.inflight -= 1
-            if transport_ok or it['attempts'] >= MAX_ATTEMPTS:
+            # `stalled` — остаток уже закрыт (приёмник/нет нод): своё задание в работе закрываем
+            # его собственным результатом, повторять его в этой пачке некому
+            if transport_ok or it['attempts'] >= MAX_ATTEMPTS or self.stalled:
                 it['result'] = res
             else:
                 it['not_before'] = time.time() + RETRY_GRACE_S
@@ -474,6 +532,21 @@ class Jobs:
                     self.stalled = True
                     print(f'!! нет живых нод {int(STALL_S / 60)} мин — закрываю остаток', flush=True)
                     break
+
+    def close_rest(self, reason: str) -> int:
+        """Закрыть все ещё открытые задания как транспортный сбой ИНФРЫ (приёмник не принимает):
+        курсор не двигается (`blocking` держит `transport_failed`), задания уйдут в следующую
+        пачку, а ноды за это никто не винит и не пересаживает. Возвращает, сколько закрыто."""
+        n = 0
+        with self.cv:
+            for it in self.items:
+                if it['result'] is None and not it['busy']:   # занятые закроются своим `done()`
+                    it['result'] = {'sku': it['job']['sku'], 'status': 'transport_failed',
+                                    'error': f'infra/sink: {reason}'}
+                    n += 1
+            self.stalled = True
+            self.cv.notify_all()
+        return n
 
     def results(self) -> list[dict]:
         return [{**(it['result'] or {}), 'role': it['job'].get('role'),
@@ -510,6 +583,11 @@ class Jobs:
 def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
         skip: int = 0) -> int:
     """Прогон с ДИНАМИЧЕСКИМ пулом: ноды подключаются и выбывают по ходу дела."""
+    # ПРИЁМНИК — ДО НОД (04.09): свободное место и настоящая запись (канарейка), иначе меш
+    # посчитают за деньги и не смогут сдать. Отказ = «нет ёмкости» (75): конвейер стаскивает,
+    # чистит и повторяет, спул остаётся на месте.
+    if not sink_preflight():
+        return EXIT_NO_CAPACITY
     ports = warm_ports()
     print(f'тёплых нод: {len(ports)} {ports}')
     if not ports:
@@ -540,18 +618,36 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
     def worker(node_id: str, port: int, group: str):
         node_key = f'{group}/{node_id}'
         while not stop.is_set():
+            # красный приёмник — не берём работу, ждём (флаг обновляет супервизор, без сети здесь)
+            while not _SINK['ok'] and not stop.is_set():
+                time.sleep(15)
+            if stop.is_set():
+                return
             it = js.take(node_id)
             if it is None:
                 return
             r = run_job(port, it['job'])
+            # Подозрение на приёмник (генерация прошла, публикация упала с 507/EOF) — это ПОВОД
+            # спросить приёмник, а не диагноз: тот же текст даёт CDN фото и SSH-шлюз (Codex 04.09).
+            # Красный → остаток пачки закрываем как инфра-сбой (75), нод не виним и не пересаживаем.
+            sink_ok = None
+            if NH.infra_suspect(r):
+                sink_ok = sink_poll(force=True)
+                if not sink_ok:
+                    n_closed = js.close_rest(_SINK['why'])
+                    print(f'!! ПРИЁМНИК не принимает ({_SINK["why"]}) — закрываю остаток пачки '
+                          f'({n_closed}) как инфра-сбой, ноды не виноваты', flush=True)
+                    SH.alert_throttled(f'Меши: приёмник не принимает результаты — {_SINK["why"]}. '
+                                       f'Пачка остановлена, конвейер стащит и почистит; ноды не виноваты.')
+                    stop.set()
             # Терминально только то, в чём задание виновато САМО (или отработало). Вина ноды
             # и «непонятно» возвращают задание в очередь: раньше `input_failed` закрывался
             # как ответ генератора, курсор уходил вперёд, и товар терялся молча (01.09).
-            fault = NH.classify(r)
+            fault = NH.classify(r, sink_ok)
             ecls = NH.error_class(r)
             terminal = fault in (NH.FAULT_NONE, NH.FAULT_JOB)
             rec = {**r, 'node': node_id[:8], 'attempt': it['attempts'], 'fault': fault,
-                   'at': round(time.time())}
+                   'group': group, 'at': round(time.time())}
             js.done(it, rec, terminal)
             checkpoint({'sku': it['job'].get('sku'), 'role': it['job'].get('role'),
                         'status': r.get('status'), 'attempt': it['attempts'],
@@ -563,13 +659,15 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
                         # 01.09 именно поэтому нельзя было сказать точно, что пропало.
                         'seed': it['job'].get('seed'), 'instance': node_id, 'group': group,
                         'fault': fault, 'err_class': ecls,
-                        'error': str(r.get('error') or '')[:120], 'at': round(time.time())})
+                        'error': str(r.get('error') or '')[:200], 'at': round(time.time())})
             with _lock:
                 closed[0] += 1
                 t = (r.get('timings_s') or {}).get('total')
                 print(f'  [{closed[0]}/{len(jobs)}] {str(it["job"].get("role")):14s} '
                       f'{r.get("status","?"):16s} {"" if t is None else str(t) + "с"} '
                       f'{node_id[:8]} {str(r.get("error") or "")[:60]}', flush=True)
+            if fault == NH.FAULT_INFRA:
+                return                     # виновата инфра: серию ноды не растим, из пула не выводим
             streak = NH.record(node_key, fault, ecls)
             if terminal:
                 continue
@@ -629,6 +727,7 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
         while not stop.wait(POLL_S):
             if js.pending() == 0:
                 return
+            sink_poll()                      # один опрос приёмника на процесс, флаг читают воркеры
             cands = []
             for inst in instances():
                 with nodes_lock:
@@ -657,8 +756,12 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
             # зомби живёт бесконечно: 03.09 одна такая простояла 225 минут при живом пуле, ещё
             # одна 73, и средняя занятость упала с 90% до 56%. Супервизор крутится каждые
             # POLL_S секунд независимо от загрузки — вот его законное место.
-            zombies = [(i, warmup_fault(h)) for i, h in zip(cands, health)
-                       if h.get('warm') and warmup_fault(h)]
+            # Зомби — по ошибке прогрева или `phase == 'failed'`, НЕЗАВИСИМО от `warm`: после ребилда
+            # воркер перестанет ставить warm=true при провале (план P1-7), и правило «warm и ошибка»
+            # перестало бы ловить их вовсе.
+            zombies = [(i, warmup_fault(h) or ('прогрев провален (phase=failed)' if h.get('phase') == 'failed' else ''))
+                       for i, h in zip(cands, health)]
+            zombies = [(i, w) for i, w in zombies if w]
             # Общая беда — не повод менять машины: заменят такой же (тот же принцип, что в
             # `node_health.fleet_wide` и в пересадке по закачке).
             if zombies and len({w for _, w in zombies}) == 1 and len(zombies) >= max(2, len(cands) * 0.5):
@@ -671,7 +774,7 @@ def run(limit: int | None, keep_alive: bool, jobs_file: str | None = None,
                     print(f'  [супервизор] нода {inst["id"][:8]} прогрев мёртв — ПЕРЕСАЖИВАЮ: '
                           f'{why[:90]}', flush=True)
                     NH.reallocate(inst['group'], inst['id'], f'warmup: {why[:80]}')
-            warm = [bool(h.get('warm')) and not warmup_fault(h) for h in health]
+            warm = [bool(h.get('warm')) and not warmup_fault(h) and h.get('phase') != 'failed' for h in health]
             # ЗАМЕР ПРОГРЕВА ПИШЕМ В ЖУРНАЛ (03.09). `warmup_s` живёт только в `/health` живой
             # ноды: машина исчезла — замер пропал. Из-за этого сравнение образов упиралось в
             # n=1 и n=2 на группу, и мой прогноз «прогрев вдвое быстрее» нечем было ни
@@ -727,9 +830,14 @@ def report(state: dict | None = None) -> None:
     rows = state['results']
     ok = [r for r in rows if r.get('status') in ('ok', 'cached')]
     gpu_s = sum(float((r.get('timings_s') or {}).get('total') or 0) for r in rows)
-    cost = gpu_s / 3600 * RATE
+    # Цена — по тарифу ГРУППЫ каждой строки (rules/salad-groups.json), а не по одному хардкоду;
+    # это НИЖНЯЯ ГРАНИЦА по секундам генерации: прогрев, паузы и простой оплаченных нод сюда
+    # не входят. Оплаченную цену считает `tier_compare` по переписи сторожа.
+    cost = sum(float((r.get('timings_s') or {}).get('total') or 0) / 3600 * (SG.price(r.get('group') or '') or 0)
+               for r in rows)
     print(f'\nзаданий {len(rows)}, готово {len(ok)}, календарь {state.get("wall_s")}с, '
-          f'GPU-секунд {round(gpu_s)}, ≈${cost:.3f} (${cost / max(len(ok), 1):.4f}/меш)')
+          f'GPU-секунд {round(gpu_s)}, ≈${cost:.3f} (${cost / max(len(ok), 1):.4f}/меш — нижняя граница '
+          f'по секундам генерации; оплаченную цену см. tier_compare)')
     st: dict[str, int] = {}
     for r in rows:
         st[r.get('status', '?')] = st.get(r.get('status', '?'), 0) + 1
@@ -746,6 +854,8 @@ def main() -> None:
     if '--report' in sys.argv:
         report()
         return
+    if not GROUPS:
+        sys.exit('нет SALAD_GROUP — задай в ~/scout-scenes/salad.env (через запятую)')
     lim = int(sys.argv[sys.argv.index('--limit') + 1]) if '--limit' in sys.argv else None
     skip = int(sys.argv[sys.argv.index('--skip') + 1]) if '--skip' in sys.argv else 0
     jf = sys.argv[sys.argv.index('--jobs-file') + 1] if '--jobs-file' in sys.argv else None

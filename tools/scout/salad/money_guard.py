@@ -26,7 +26,12 @@ import time
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import salad_groups as SG  # noqa: E402 — тариф/цена группы: ОДИН источник (rules/salad-groups.json)
+import sink_health as SH   # noqa: E402 — приёмник: красный = общая беда, а не вина нод
 JOURNAL = os.path.join(HERE, '..', 'mesh-run-progress.jsonl')
+SNAPSHOT = os.path.expanduser('~/scout-scenes/salad-groups-snapshot.json')
+HEARTBEAT_H = int(os.environ.get('MESH_GUARD_HEARTBEAT_H', '8'))   # UTC
 STATE = os.path.expanduser('~/scout-scenes/mesh-money-guard.json')
 # Запрет на подъём группы: его читает `batch_show.halt_reason()` и НЕ стартует группу, пока
 # файл на месте. Снимает человек — руками, разобравшись в причине простоя.
@@ -73,9 +78,35 @@ def _api(path: str, method: str = 'GET') -> dict:
 
 
 def groups() -> list[str]:
-    """Все группы под охраной. Их бывает несколько: 03.09 владелец поставил рядом две по
-    10 реплик — на тарифах `batch` и `low` — чтобы сравнить их живьём."""
-    return [g.strip() for g in os.environ.get('SALAD_GROUP', '').split(',') if g.strip()]
+    """Все группы под охраной (из SALAD_GROUP, без умолчания). Их бывает несколько: 03.09 владелец
+    поставил рядом две по 10 реплик — на тарифах `batch` и `low` — чтобы сравнить их живьём."""
+    return SG.groups_or_empty()
+
+
+def snapshot_groups(gs: list[str]) -> None:
+    """Снимок живых групп (образ, тариф, реплики, карты) вместо мёртвого container-group.json,
+    который никто не читал и который врал. И сверка: тариф из API ≠ тариф в rules/salad-groups.json
+    → предупреждение — имя группы не контракт, а JSON правит окном и ценой."""
+    snap = {}
+    for g in gs:
+        try:
+            d = _api(g)
+        except Exception as e:  # noqa: BLE001
+            print(f'снимок группы {g}: не получен ({type(e).__name__})', flush=True)
+            continue
+        c = d.get('container') or {}
+        snap[g] = {'image': c.get('image'), 'priority': d.get('priority'), 'replicas': d.get('replicas'),
+                   'memory': (c.get('resources') or {}).get('memory'),
+                   'gpu_classes': len((c.get('resources') or {}).get('gpu_classes') or []),
+                   'at': round(time.time())}
+        if d.get('priority') and SG.tier(g) not in ('?', d.get('priority')):
+            print(f'!! группа {g}: тариф в API «{d.get("priority")}», а в rules/salad-groups.json '
+                  f'«{SG.tier(g)}» — цена и окно считаются НЕВЕРНО, поправь JSON', flush=True)
+    try:
+        with open(SNAPSHOT, 'w', encoding='utf-8') as f:
+            json.dump(snap, f, ensure_ascii=False, indent=1)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def census(group: str) -> dict:
@@ -142,10 +173,15 @@ def failure_burst() -> tuple[str, int]:
                     continue
                 if r.get('at', 0) < now - BURST_MIN * 60:
                     continue
-                if r.get('status') == 'ok':
+                # `cached` — не новый меш, но живой транспорт и живой приёмник: в счёт «успехов»
+                # для правила обвала он идёт (Codex 04.09 №10), а в `last_mesh_at` — нет.
+                if r.get('status') in ('ok', 'cached'):
                     good += 1
                     continue
-                err = str(r.get('error') or '').strip()[:80]
+                ecls = str(r.get('err_class') or '')
+                # подклассы транспорта/инфры группируем по классу, иначе подробные тексты
+                # (`ssh/empty rc=255: …хвост…`) раздробили бы счётчик и обвал бы не собрался
+                err = ecls if ecls.startswith(('ssh/', 'infra/')) else str(r.get('error') or '').strip()[:80]
                 if err:
                     seen[err] += 1
     except FileNotFoundError:
@@ -184,6 +220,44 @@ def last_mesh_at() -> float:
     return best
 
 
+def heartbeat(st: dict, gs: list[str], counts: dict, sink: dict) -> None:
+    """Раз в сутки в HEARTBEAT_H UTC — короткая сводка владельцу. Ловит и «оповещения молча
+    сломаны»: не пришёл пульс — значит сторож или телеграм мертвы."""
+    now = time.gmtime()
+    today = time.strftime('%Y-%m-%d', now)
+    if now.tm_hour != HEARTBEAT_H or st.get('heartbeat_day') == today:
+        return
+    day_ago = time.time() - 86400
+    ok = cached = 0
+    try:
+        with open(JOURNAL, encoding='utf-8') as f:
+            for line in f:
+                if '"ok"' not in line and '"cached"' not in line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if r.get('at', 0) >= day_ago:
+                    ok += r.get('status') == 'ok'
+                    cached += r.get('status') == 'cached'
+    except FileNotFoundError:
+        pass
+    paid = st.get('paid_node_min') or {}
+    usd = sum(paid.get(g, 0) / 60 * (SG.price(g) or 0) for g in paid)
+    rub = usd * SG.usd_rub()
+    halt = ''
+    try:
+        h = json.load(open(HALT, encoding='utf-8'))
+        halt = f' ЗАПРЕТ стоит: {h.get("why")}'
+    except Exception:  # noqa: BLE001
+        pass
+    notify(f'Пульс мешей: за сутки ok {ok}, из кэша {cached}; работает нод {sum(v for v in counts.values() if v > 0)} '
+           f'{counts}; оплачено всего {sum(paid.values()) / 60:.1f} нодо-ч ≈ ${usd:.2f} ({rub:.0f} ₽); '
+           f'приёмник {"ок" if sink["ok"] else "КРАСНЫЙ: " + sink["why"]}, свободно {sink.get("free_gb", 0):.1f} ГБ.{halt}')
+    st['heartbeat_day'] = today
+
+
 def load() -> dict:
     try:
         return json.load(open(STATE, encoding='utf-8'))
@@ -205,14 +279,25 @@ def main() -> int:
         return 2
     group = ','.join(gs)
     st = load()
-    if st.get('group') != group:            # сменился состав групп — терпение считаем заново
+    if st.get('group') != group:            # сменился состав групп — терпение считаем заново,
+        # а ОПЛАЧЕННЫЕ нодо-минуты переживают: это книга расходов, её обнулять нельзя (04.09)
         st = {'group': group, 'idle_node_min': 0.0, 'silent_since': 0.0,
-              'last_seen_mesh': last_mesh_at()}
+              'last_seen_mesh': last_mesh_at(), 'paid_node_min': st.get('paid_node_min') or {}}
+    snapshot_groups(gs)
     print(f'сторож денег: группы {group}, бюджет молчания {BUDGET_NODE_MIN:.0f} нодо-минут '
           f'И не меньше {MIN_WALL_MIN:.0f} мин тишины, тик {TICK_S / 60:.0f} мин', flush=True)
     while True:
         counts = {g: running_count(g) for g in gs}
         n = sum(v for v in counts.values() if v > 0)
+        # ПРИЁМНИК — раз в тик. Красный приёмник — общая беда: оповестить (дроссель — общий с
+        # конвейером), в стоп-файле пометить `shared_infra`, чтобы человек не искал вину в нодах.
+        sink = SH.check()
+        if not sink['ok']:
+            print(f'{time.strftime("%H:%M")} приёмник красный: {sink["why"]}', flush=True)
+            if n > 0:
+                SH.alert_throttled(f'Меши: приёмник не принимает — {sink["why"]}; работает нод {n}. '
+                                   f'Конвейер сам стаскивает и чистит; если не проходит — нужен человек.')
+        heartbeat(st, gs, counts, sink)
         # ОПЛАЧЕННОЕ ВРЕМЯ, А НЕ ПОЛЕЗНОЕ (владелец 03.09: «за видеокарты мы платим по часам их
         # работы»). Счёт по секундам генерации занижал цену меша вдвое — 0.0079 против 0.0151,
         # потому что не видел ни прогрева (7 мин на ноду), ни пауз, ни нод, которые часами стоят
@@ -268,8 +353,9 @@ def main() -> int:
             # впустую. Снимает запрет человек, разобравшись в причине.
             try:
                 with open(HALT, 'w', encoding='utf-8') as f:
-                    json.dump({'why': why, 'group': group, 'at': time.time()}, f,
-                              ensure_ascii=False)
+                    json.dump({'why': why, 'group': group, 'at': time.time(),
+                               'kind': 'shared_infra' if not sink['ok'] else 'silence',
+                               'sink': sink}, f, ensure_ascii=False)
                 print(f'{time.strftime("%H:%M")} запрет на подъём записан: {HALT}', flush=True)
             except Exception as e:  # noqa: BLE001
                 print(f'{time.strftime("%H:%M")} !! не смог записать запрет ({e}) — конвейер '
@@ -277,6 +363,7 @@ def main() -> int:
             for g in gs:
                 try:
                     _api(f'{g}/stop', 'POST')
+                    census(g)            # финальная точка переписи: интервал оплаты закрыт здесь
                     print(f'{time.strftime("%H:%M")} группа {g} остановлена, деньги не идут',
                           flush=True)
                 except Exception as e:  # noqa: BLE001

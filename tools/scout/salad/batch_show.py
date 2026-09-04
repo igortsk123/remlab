@@ -79,7 +79,7 @@ def group_status() -> str | None:
     """
     import json as _j
     sts = []
-    for grp in [g.strip() for g in os.environ.get('SALAD_GROUP', 'mesh-run3').split(',') if g.strip()]:
+    for grp in SG.groups_from_env():
         try:
             r = subprocess.run(
                 ['curl', '-s', '--max-time', '30', '-H', f'Salad-Api-Key: {os.environ["SALAD_API_KEY"]}',
@@ -91,7 +91,13 @@ def group_status() -> str | None:
             sts.append(None)
     if sts and all(s == 'stopped' for s in sts):
         return 'stopped'
-    return sts[0] if sts else None
+    # 04.09: раньше возвращался `sts[0]` — статус ПЕРВОЙ группы. Первой в SALAD_GROUP стояла
+    # mesh-batch-1, которую крон гасит в 15:00 UTC, и любое «нет тёплых нод» после этого читалось
+    # как «пул остановлен» → повторный /start ВСЕМ группам, включая погашенную намеренно. Итог
+    # вечера 03.09: 57 машин дешёвого тарифа прогрелись, 0 мешей, 134 ₽. Смешанное состояние —
+    # это состояние ЖИВОЙ части пула.
+    live = [s for s in sts if s and s != 'stopped']
+    return live[0] if live else (sts[0] if sts else None)
 
 
 HALT = os.path.expanduser('~/scout-scenes/mesh-group-halt.json')
@@ -126,7 +132,13 @@ def ensure_group_started():
               f'   снять запрет: rm {HALT} (сперва разберись, почему не было мешей)', flush=True)
         return False
     ok = False
-    for grp in [g.strip() for g in os.environ.get('SALAD_GROUP', 'mesh-run3').split(',') if g.strip()]:
+    # ГРУППУ ВНЕ ОКНА НЕ ПОДНИМАЕТ НИКТО (04.09, свод правил стопоров). Окно живёт в
+    # rules/salad-groups.json; у low-групп окна нет — они круглосуточные. Пропущенные печатаем,
+    # чтобы в логе было видно, что это решение, а не сбой.
+    skipped = [g for g in SG.groups_from_env() if not SG.allowed_now(g)]
+    if skipped:
+        print(f'группы вне окна, не поднимаю: {", ".join(skipped)}', flush=True)
+    for grp in [g for g in SG.groups_from_env() if SG.allowed_now(g)]:
       try:
         req = urllib.request.Request(
             f"https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers/{grp}/start",
@@ -144,7 +156,7 @@ def ensure_group_started():
     st = group_status()
     if st in ('stopped', 'failed'):
         print(f'!! группа в состоянии {st} — ПОВТОРЯЮ запуск', flush=True)
-        for grp in [g.strip() for g in os.environ.get('SALAD_GROUP', 'mesh-run3').split(',') if g.strip()]:
+        for grp in [g for g in SG.groups_from_env() if SG.allowed_now(g)]:
             try:
                 import urllib.request as _u
                 _u.urlopen(_u.Request(
@@ -194,6 +206,7 @@ MIN_WORKING_TO_CULL = int(os.environ.get('MESH_MIN_WORKING_TO_CULL', '2'))
 sys.path.insert(0, HERE)
 import node_health as NH  # noqa: E402 — общий бюджет пересадок и здоровье нод
 import ssh_run as SR      # noqa: E402 — канонический плоский список заданий (`plan_jobs`)
+import salad_groups as SG  # noqa: E402 — тариф/окно группы: ОДИН источник (rules/salad-groups.json)
 
 # ОРИЕНТАЦИЯ МИКРОПАЧКАМИ (01.09). Один заход на `--limit 200` вырастал до 8.6 ГБ и его
 # убивал earlyoom — шаг не «тормозил», а НЕ ДОДЕЛЫВАЛ работу, и пачка оставалась без
@@ -283,7 +296,7 @@ def cull_slow_pulls() -> None:
     import urllib.request as _u
     now = time.time()
     seen = set()
-    for grp in [g.strip() for g in os.environ.get('SALAD_GROUP', 'mesh-run3').split(',') if g.strip()]:
+    for grp in SG.groups_from_env():
         base = f'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers/{grp}'
         try:
             req = _u.Request(base + '/instances',
@@ -367,7 +380,7 @@ def cull_dead_warmups() -> None:
     """
     import json as _j
     import urllib.request as _u
-    for grp in [g.strip() for g in os.environ.get('SALAD_GROUP', 'mesh-run3').split(',') if g.strip()]:
+    for grp in SG.groups_from_env():
         base = f'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers/{grp}'
         try:
             req = _u.Request(base + '/instances',
@@ -593,6 +606,15 @@ def _main():
             st = group_status()
             if st == 'stopped' and not ensure_group_started():
                 print('группа остановлена и не стартует — ПОХОЖЕ, КОНЧИЛСЯ БАЛАНС Salad, нужно пополнение', flush=True)
+            elif 'ПРИЁМНИК' in out:
+                # 75 от ssh_run из-за приёмника (нет места / канарейка не прошла): не ждём фонового
+                # тика разбора — стаскиваем и чистим СЕЙЧАС, иначе ноды простаивают до 15 минут,
+                # пока место уже можно было освободить (04.09).
+                print('приёмник не принимает — стаскиваю и чищу немедленно', flush=True)
+                for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh --keep'),
+                                  ('чистка приёмника', f'{PY} {HERE}/receiver_purge.py --apply')):
+                    c, o = sh(cmd, timeout=1800)
+                    print(f'  [приёмник] {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
             else:
                 print('нет тёплых нод — жду 3 мин и пробую снова', flush=True)
             cull_slow_pulls()

@@ -45,6 +45,7 @@ def setup(tmp: str) -> None:
 
 culled: list = []               # кого стенд «пересадил» вместо реального вызова Salad
 ORIG_JOBS_FROM_FILE = S.jobs_from_file   # `patch()` его подменяет — держим настоящий
+ORIG_RUN_JOB = S.run_job                 # то же: случаю про двойной /generate нужен настоящий
 
 
 def jobs(n: int) -> list[dict]:
@@ -60,6 +61,10 @@ def patch(nodes: list[dict], job_fn) -> None:
     # ответу он снимает зомби с мёртвым прогревом. Стенд подменяет транспорт, поэтому здесь
     # отдаём здоровый ответ — без `warmup_error`, иначе нода уедет в пересадку.
     S.probe_health = lambda port: {'ok': True, 'warm': True, 'done': 0, 'gpu_seconds': 0.0}
+    # Приёмник (04.09): стенд без сети — считаем его зелёным, отдельные случаи красят сами
+    S.sink_preflight = lambda: True
+    S.sink_poll = lambda force=False: True
+    S._SINK.update(ok=True, why='', at=0.0)
     S.run_job = job_fn
     S.jobs_from_file = lambda path: patch.jobs           # noqa: B010 — стенд
     S.stop_group = lambda: None
@@ -470,16 +475,178 @@ def case_halt_blocks_start() -> None:
     print('  ✓ стоп-файл блокирует подъём группы, снимается только удалением')
 
 
+def case_preflight_sink_full() -> None:
+    """Приёмник не принимает → задания НЕ раздаются, код 75 (нет ёмкости), ни одного /generate."""
+    nodes = [{'id': 'A' * 8, 'port': 1, 'group': 'g', 'state': 'running'}]
+    calls = []
+
+    def job_fn(port, job):
+        calls.append(port)
+        return {'sku': job['sku'], 'status': 'ok', 'timings_s': {'total': 1}}
+
+    patch.jobs = jobs(3)
+    patch(nodes, job_fn)
+    S.sink_preflight = lambda: False          # 507 / канарейка не прошла
+    assert S.run(None, True, jobs_file='x') == S.EXIT_NO_CAPACITY
+    assert not calls, f'при красном приёмнике ушло заданий: {len(calls)}'
+    print('  ✓ красный приёмник → код 75, GPU не тронут')
+
+
+def case_infra_closes_rest() -> None:
+    """Публикация упала (EOF) и приёмник подтвердил беду → остаток закрыт как инфра, нода не виновата."""
+    nodes = [{'id': 'A' * 8, 'port': 1, 'group': 'g', 'state': 'running'}]
+    hits = []
+
+    def job_fn(port, job):
+        hits.append(job['sku'])
+        return {'sku': job['sku'], 'status': 'failed',
+                'error': 'URLError: <urlopen error EOF occurred in violation of protocol (_ssl.c:2437)>'}
+
+    patch.jobs = jobs(5)
+    patch(nodes, job_fn)
+    S.sink_poll = lambda force=False: False    # приёмник красный
+    code = S.run(None, True, jobs_file='x')
+    st = json.load(open(S.RESULTS, encoding='utf-8'))['summary']
+    rows = json.load(open(S.RESULTS, encoding='utf-8'))['results']
+    assert code == S.EXIT_NO_CAPACITY, code
+    assert len(hits) == 1, f'после первого инфра-сбоя ноде дали ещё заданий: {hits}'
+    assert st['terminal_prefix'] == 0 and st['unresolved'] == 5, st
+    assert sum(1 for r in rows if str(r.get('error', '')).startswith('infra/sink')) == 4, rows
+    assert any(r.get('status') == 'failed' for r in rows), 'собственный отказ задания в работе потерян'
+    assert not culled, 'ноду пересадили за чужую беду'
+    print('  ✓ приёмник красный посреди пачки → остаток закрыт как инфра, курсор на месте, нода цела')
+
+
+def case_no_double_generate() -> None:
+    """Обрыв ПОСРЕДИ генерации (эхо скрипта без маркера) → одна попытка, не две."""
+    calls = []
+
+    class R:
+        def __init__(self, out):
+            self.stdout, self.stderr, self.returncode = out, '', 255
+    long_out = 'python - <<RLPY\nimport urllib.request\n' + 'x' * 100 + '\nRLPY\nexit\n> # Traceback'
+    real = S.subprocess.run
+    S.subprocess.run = lambda *a, **k: (calls.append(1), R(long_out))[1]
+    try:
+        S.ssh_slot = lambda: None
+        r = ORIG_RUN_JOB(1, {'sku': 's', 'role': 'r'})
+    finally:
+        S.subprocess.run = real
+    assert len(calls) == 1, f'вызовов ssh: {len(calls)} — вторая попытка = второй /generate'
+    assert r['status'] == 'transport_failed' and r['error'].startswith('ssh/mid_generation'), r
+    calls.clear()
+    S.subprocess.run = lambda *a, **k: (calls.append(1), R(''))[1]
+    try:
+        r = ORIG_RUN_JOB(1, {'sku': 's', 'role': 'r'})
+    finally:
+        S.subprocess.run = real
+    assert len(calls) == 2 and r['error'].startswith('ssh/empty'), (len(calls), r)
+    print('  ✓ обрыв посреди генерации → 1 попытка (ssh/mid_generation); пустой вывод → 2 (ssh/empty)')
+
+
+def case_transport_class() -> None:
+    """Подклассы обрыва SSH по образцам из журнала."""
+    assert NH.transport_class('', '', 255) == 'empty'
+    assert NH.transport_class('Connecting to container abc\nfailed to lookup container ID', '', 1) == 'container_id'
+    assert NH.transport_class('failed to set user in spec: snapshot x' + ' ' * 40, '', 1) == 'set_user'
+    assert NH.transport_class('# python - <<RLPY\nimport urllib\n' + 'x' * 60 + 'RLPY\nexit', '', 1) == 'mid_generation'
+    assert NH.error_class({'error': 'ssh/container_id rc=1: …'}) == 'ssh/container_id'
+    assert NH.classify({'status': 'failed', 'error': 'HTTP Error 507: nope'}, sink_ok=False) == NH.FAULT_INFRA
+    assert NH.classify({'status': 'failed', 'error': 'HTTP Error 507: nope'}, sink_ok=True) == NH.FAULT_UNKNOWN
+    assert NH.classify({'status': 'input_failed', 'error': 'EOF occurred in violation of protocol'}, sink_ok=False) != NH.FAULT_INFRA
+    print('  ✓ классы транспорта и инфры: 8 проверок')
+
+
+def case_window_gate() -> None:
+    """Окно тарифа — одно правило: batch можно только в 09–15 UTC, low — всегда."""
+    import salad_groups as SG  # noqa: PLC0415
+    hour = lambda h: time.mktime(time.strptime(f'2026-09-04 {h:02d}:30', '%Y-%m-%d %H:%M')) - time.timezone  # noqa: E731
+    assert SG.allowed_now('mesh-batch-1', hour(10)) and not SG.allowed_now('mesh-batch-1', hour(16))
+    assert not SG.allowed_now('mesh-batch-2', hour(8)) and SG.allowed_now('mesh-low-2', hour(3))
+    assert SG.tier('mesh-low-3') == 'low' and SG.price('mesh-batch-1') == 0.09 and SG.tier('нет-такой') == '?'
+    print('  ✓ окно тарифа из rules/salad-groups.json')
+
+
+def case_group_status_mixed() -> None:
+    """Смешанное состояние групп — это состояние ЖИВОЙ части, а не первой в списке."""
+    import batch_show as B  # noqa: PLC0415
+    real = B.subprocess.run
+
+    class R:
+        def __init__(self, s):
+            self.stdout = json.dumps({'current_state': {'status': s}})
+    seq = iter(['stopped', 'running'])
+    B.subprocess.run = lambda *a, **k: R(next(seq))
+    os.environ['SALAD_GROUP'] = 'mesh-batch-1,mesh-low-2'
+    try:
+        assert B.group_status() == 'running', 'stopped первой группы выдали за состояние пула'
+        seq = iter(['stopped', 'stopped'])
+        assert B.group_status() == 'stopped'
+    finally:
+        B.subprocess.run = real
+    print('  ✓ group_status: stopped только если ВСЕ, иначе живая часть')
+
+
+def case_burst_counts_cached() -> None:
+    """Обвал не объявляется, если рядом живые cached; последний НОВЫЙ меш — только по ok."""
+    import money_guard as G  # noqa: PLC0415
+    jf = os.path.join(os.path.dirname(S.PROGRESS), 'guard-journal.jsonl')
+    now = time.time()
+    rows = [{'at': now - 60, 'status': 'failed', 'error': 'URLError: EOF occurred in violation of protocol'}] * 30
+    with open(jf, 'w', encoding='utf-8') as f:
+        for r in rows:
+            f.write(json.dumps(r) + '\n')
+        for _ in range(5):
+            f.write(json.dumps({'at': now - 30, 'status': 'cached', 'sku': 'x'}) + '\n')
+        f.write(json.dumps({'at': now - 9999, 'status': 'ok', 'sku': 'old'}) + '\n')
+    real = G.JOURNAL
+    G.JOURNAL = jf
+    try:
+        assert G.failure_burst() == ('', 0), 'обвал при живых cached — ложная тревога'
+        assert abs(G.last_mesh_at() - (now - 9999)) < 1, 'cached посчитан новым мешем'
+        with open(jf, 'a', encoding='utf-8') as f:
+            pass
+        os.replace(jf, jf)     # без cached — обвал
+        with open(jf, 'w', encoding='utf-8') as f:
+            for r in rows:
+                f.write(json.dumps(r) + '\n')
+        err, n = G.failure_burst()
+        assert n == 30 and 'EOF' in err, (err, n)
+    finally:
+        G.JOURNAL = real
+    print('  ✓ сторож: cached — живой транспорт (обвала нет), но не новый меш')
+
+
+def case_notify_reports() -> None:
+    """notify() честно говорит, доставлено ли, и не роняет сторожа при сбое."""
+    import money_guard as G  # noqa: PLC0415
+    real = G.subprocess.run
+
+    class R:
+        def __init__(self, rc):
+            self.returncode = rc
+    for rc, want in ((0, True), (1, False), (2, False)):
+        G.subprocess.run = lambda *a, rc=rc, **k: R(rc)
+        assert G.notify('тест') is want, rc
+    G.subprocess.run = real
+    print('  ✓ notify(): 0 → доставлено, 1/2 → нет')
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         setup(tmp)
-        pure = (case_checkpoint, case_cull_rule, case_fault_classes, case_halt_blocks_start)
+        pure = (case_checkpoint, case_cull_rule, case_fault_classes, case_halt_blocks_start,
+                case_transport_class, case_window_gate, case_group_status_mixed,
+                case_burst_counts_cached, case_notify_reports)
         for fn in (case_late_node, case_bad_node, case_unresolved, case_prefix,
                    case_stall_is_capacity, case_no_capacity, case_cull_rule, case_checkpoint,
                    case_fault_classes, case_streak_rules, case_streak_survives_restart,
                    case_retire_is_temporary, case_fleet_wide_guard, case_cull_budget_shared, case_node_breaker_run,
                    case_dead_photo_keeps_node, case_spool_keeps_reason,
-                   case_post_background, case_flat_plan, case_halt_blocks_start):
+                   case_post_background, case_flat_plan, case_halt_blocks_start,
+                   case_preflight_sink_full, case_infra_closes_rest, case_no_double_generate,
+                   case_transport_class, case_window_gate, case_group_status_mixed,
+                   case_burst_counts_cached, case_notify_reports):
             if fn not in pure:
                 setup(tmp)
             fn()
