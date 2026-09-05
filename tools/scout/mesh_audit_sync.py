@@ -276,15 +276,16 @@ def push() -> int:
     acks = [a for a in rework_acks() if state['acks'].get(a['sku']) != a['reworkStatus']]
     # Карточки, которые раньше отправляли, а теперь не показываем (роль без меша, товар исчез)
     retire = sorted(set(state['items']) - {it['sku'] for it in items})
-    if retire:
-        r = api('POST', '/api/lab/mesh-audit/items', {'retire': retire})
+    for i in range(0, len(retire), 400):        # ручка принимает до 500 за раз
+        chunk = retire[i:i + 400]
+        r = api('POST', '/api/lab/mesh-audit/items', {'retire': chunk})
         # Забываем sku только когда прод ПОДТВЕРДИЛ, что умеет retire (ключ в ответе): старая
         # версия ручки молча отбрасывает неизвестное поле, и карточки остались бы навсегда.
         if 'retired' in r:
-            for sku in retire:
+            for sku in chunk:
                 state['items'].pop(sku, None)
             _atomic_write(PUSH_STATE, json.dumps(state, ensure_ascii=False))
-            print(f'[audit] снято карточек: {r["retired"]} из {len(retire)} (роль без меша / товара нет)', flush=True)
+            print(f'[audit] снято карточек: {r["retired"]} из {len(chunk)} (вариант семейства / роль без меша / товара нет)', flush=True)
     sent = 0
     for i in range(0, len(changed), 300):
         chunk = changed[i:i + 300]

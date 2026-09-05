@@ -61,15 +61,18 @@ export interface BatchReport {
   skus?: string[];
 }
 
-// sku, чьи модели сейчас реально отдаются (активная партия + прежняя на grace).
-export async function servedSkus(state: BatchStateView): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+// sku, чьи модели сейчас реально отдаются (активная партия + прежняя на grace). Партия без
+// списка sku (залита до 05.09) — `legacy`: страница решает по номеру партии, как раньше.
+export async function servedSkus(state: BatchStateView): Promise<{ bySku: Map<string, string>; legacy: Map<number, string> }> {
+  const bySku = new Map<string, string>();
+  const legacy = new Map<number, string>();
   for (const b of [state.retiring, state.active]) {
     if (!b) continue;
     const [row] = await db().select({ skus: meshAuditBatches.skus }).from(meshAuditBatches).where(eq(meshAuditBatches.id, b.id));
-    for (const sku of row?.skus ?? []) out.set(sku, b.token); // активная перекрывает уходящую
+    if (!row?.skus) legacy.set(b.batch, b.token);
+    for (const sku of row?.skus ?? []) bySku.set(sku, b.token); // активная перекрывает уходящую
   }
-  return out;
+  return { bySku, legacy };
 }
 
 // Отчёт публикатора. Переход в active уводит прежнюю активную в retiring (её ещё отдаём —

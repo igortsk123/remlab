@@ -38,7 +38,7 @@ export default async function MeshAuditPage({ searchParams }: { searchParams: Pr
   const served = await servedSkus(batch);
   const views = items.map(toView);
   const modelUrl = (sku: string, modelPath: string): string | null => {
-    const token = served.get(sku);
+    const token = served.bySku.get(sku) ?? served.legacy.get(thisBatch);
     return token ? `/test/mesh-audit/releases/${token}/${modelPath}` : null;
   };
 
