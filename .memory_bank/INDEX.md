@@ -1,12 +1,10 @@
 # Memory Bank — Index (Tier 0)
 
-remlab — «Смета-first» v0.4 (ADR-0016): расчёт ремонта/материалов → реф-смета; мастер —
-`plans/MASTER-cost-first.md`; сейчас первым идёт М5 «мебельный трек» (ADR-0187).
-Инварианты: один факт — в одном месте; банк = канон, авто-память харнесса = per-user, мост — `/memory-check`.
+remlab — «Смета-first» v0.4 (ADR-0016): расчёт → реф-смета; мастер `plans/MASTER-cost-first.md`;
+сейчас первым идёт М5 «мебельный трек» (ADR-0187). Инварианты: один факт — в одном месте;
+банк = канон, авто-память харнесса = per-user, мост — `/memory-check`.
 
-## Decision tree — что читать
-
-**Tier 1 (`core/<тема>.md`, сводки)** → drill-down в Tier 2 (`docs/`, `<area>/`, `guides/`).
+## Decision tree — что читать (Tier 1 `core/*` → Tier 2 по `tier2:`)
 
 <!-- GENERATED:decision-tree START -->
 <!-- Таблицу регенерирует tools/memory-audit.mjs из frontmatter. Не редактируй вручную. -->
@@ -45,8 +43,8 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт ремонта/м�
 <!-- GENERATED:decision-tree END -->
 
 ## Always-on docs (Tier 0/1)
-`source-of-truth.md` (конфликты) · `project-state.md` (снимок) · `decisions.md` (индекс ADR; тексты —
-`decisions/`) · `deployment.md` (деплой) · уроки — `core/lessons.md` → `lessons/`.
+`source-of-truth.md` · `project-state.md` · `decisions.md` (индекс; тексты — `decisions/`) ·
+`deployment.md` · уроки — `core/lessons.md` → `lessons/`.
 
 ## Планы
 Портфель `plans/MASTER-cost-first.md`; треки — `plans/README.md` § «Сейчас в работе»; архив — `archive/plans/`.

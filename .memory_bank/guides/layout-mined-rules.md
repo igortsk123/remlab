@@ -15,6 +15,19 @@ status: working
 
 # Свод добытых правил размещения — 4 джоба, разложено по этапам движка
 
+
+## Содержание
+1. 1. Candidate-gen
+2. 2. Hard-фильтр
+3. 3. Soft-правила (приоры)
+4. 4. Скоринг
+5. 5. Ordering
+6. 6. Repair / локальное уточнение
+7. Чем дополняем наш occupancy (только НОВОЕ против наших правил)
+8. Модули к легальному переносу
+9. Clean-room идеи NC (без кода — LayoutVLM без LICENSE, Holodeck 2.0 без лицензии)
+10. Конфликты с нашими правилами (что НЕ переносим как есть)
+
 Легенда источников: **PT** = allenai/procthor (Apache-2.0) · **IG** = princeton-vl/infinigen (BSD-3-Clause) · **HD** = allenai/Holodeck (Apache-2.0) · **HD2** = Holodeck 2.0 (arXiv 2508.05899, лицензии нет) · **LV** = LayoutVLM (arXiv 2412.02193, код без LICENSE).
 Наш пайплайн: candidate-gen → hard-фильтр → beam search → скоринг → локальное уточнение.
 
