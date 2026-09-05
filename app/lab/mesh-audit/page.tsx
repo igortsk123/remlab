@@ -5,7 +5,7 @@ import { MeshAuditLogin } from "@/components/lab/MeshAuditLogin";
 import { MeshAuditPager } from "@/components/lab/MeshAuditPager";
 import { MeshAuditSeen } from "@/components/lab/MeshAuditSeen";
 import { reviewerOk } from "@/lib/mesh-review/auth";
-import { batchState } from "@/lib/mesh-audit/repo-batches";
+import { batchState, servedSkus } from "@/lib/mesh-audit/repo-batches";
 import { listPage, toView } from "@/lib/mesh-audit/repo-items";
 import { batchCount, batchOfPage, clampPage, PAGE_SIZE, pageCount, pagesOfBatch } from "@/lib/mesh-audit/rules";
 
@@ -33,9 +33,14 @@ export default async function MeshAuditPage({ searchParams }: { searchParams: Pr
   const { items, total, seen } = page === 1 ? first : await listPage(page);
   const batch = await batchState();
   const thisBatch = batchOfPage(page);
-  const servedToken = batch.active?.batch === thisBatch ? batch.active.token : batch.retiring?.batch === thisBatch ? batch.retiring.token : null;
-  const modelBase = servedToken ? `/test/mesh-audit/releases/${servedToken}` : null;
+  // «есть 3D» — по списку моделей, реально лежащих на сервере (sku партии), а не по номеру
+  // страницы: нумерация карточек плывёт при снятии ковров и цветовых вариантов, партия — нет
+  const served = await servedSkus(batch);
   const views = items.map(toView);
+  const modelUrl = (sku: string, modelPath: string): string | null => {
+    const token = served.get(sku);
+    return token ? `/test/mesh-audit/releases/${token}/${modelPath}` : null;
+  };
 
   return (
     <main className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-6">
@@ -53,7 +58,7 @@ export default async function MeshAuditPage({ searchParams }: { searchParams: Pr
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {views.map((it, i) => (
-            <MeshAuditCard key={it.id} item={it} rank={(page - 1) * PAGE_SIZE + i + 1} modelUrl={modelBase ? `${modelBase}/${it.modelPath}` : null} />
+            <MeshAuditCard key={it.id} item={it} rank={(page - 1) * PAGE_SIZE + i + 1} modelUrl={modelUrl(it.sku, it.modelPath)} />
           ))}
         </div>
       )}

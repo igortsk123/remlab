@@ -58,6 +58,18 @@ export interface BatchReport {
   filesDone?: number;
   bytesTotal?: number;
   error?: string;
+  skus?: string[];
+}
+
+// sku, чьи модели сейчас реально отдаются (активная партия + прежняя на grace).
+export async function servedSkus(state: BatchStateView): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (const b of [state.retiring, state.active]) {
+    if (!b) continue;
+    const [row] = await db().select({ skus: meshAuditBatches.skus }).from(meshAuditBatches).where(eq(meshAuditBatches.id, b.id));
+    for (const sku of row?.skus ?? []) out.set(sku, b.token); // активная перекрывает уходящую
+  }
+  return out;
 }
 
 // Отчёт публикатора. Переход в active уводит прежнюю активную в retiring (её ещё отдаём —
@@ -77,6 +89,7 @@ export async function reportBatch(token: string, p: BatchReport): Promise<BatchR
         ...(p.filesTotal !== undefined ? { filesTotal: p.filesTotal } : {}),
         ...(p.filesDone !== undefined ? { filesDone: p.filesDone } : {}),
         ...(p.bytesTotal !== undefined ? { bytesTotal: p.bytesTotal } : {}),
+        ...(p.skus ? { skus: p.skus } : {}),
         error: p.error ?? null,
         ...(p.status === "active" ? { activatedAt: new Date() } : {}),
         ...(p.status === "removed" ? { removedAt: new Date() } : {}),

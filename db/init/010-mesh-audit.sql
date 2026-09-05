@@ -73,3 +73,7 @@ create index if not exists mesh_audit_cancellations_item_idx on mesh_audit_cance
 
 -- Один меш на модель (владелец 05.09): карточка представителя семейства несёт список вариантов.
 alter table mesh_audit_items add column if not exists variants_note text;
+
+-- Состав партии по sku (05.09): «есть 3D» решается по списку моделей на сервере, не по номеру
+-- страницы — нумерация карточек плывёт при снятии (ковры, варианты семейств).
+alter table mesh_audit_batches add column if not exists skus jsonb;

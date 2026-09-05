@@ -212,7 +212,9 @@ def _publish(token: str, batch: int) -> int:
         report(token, status='verifying')
         verify(token, manifest)
         ssh(f'mv -T -- {remote_dir(token, staging=True)} {remote_dir(token)}')
-        report(token, status='active', filesDone=len(manifest), filesTotal=len(manifest))
+        # состав партии по sku: страница решает «есть 3D» по нему, а не по номеру страницы
+        skus = [it['sku'] for it in items if it['modelPath'] in manifest]
+        report(token, status='active', filesDone=len(manifest), filesTotal=len(manifest), skus=skus)
         print(f'партия {batch} активна: {len(manifest)} моделей, {batch_gb:.2f} ГБ, токен {token}', flush=True)
         return 0
     except Exception as e:  # noqa: BLE001 — любая ошибка: прежняя партия остаётся активной

@@ -199,6 +199,7 @@ try {
       updated_at timestamptz not null default now()
     )`;
   await sql`create index if not exists mesh_audit_batches_status_idx on mesh_audit_batches (status)`;
+  await sql`alter table mesh_audit_batches add column if not exists skus jsonb`;
   await sql`
     create table if not exists mesh_audit_cancellations (
       id serial primary key,

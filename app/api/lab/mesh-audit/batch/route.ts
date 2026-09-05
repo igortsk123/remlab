@@ -29,6 +29,7 @@ const Report = z.object({
   filesDone: z.number().int().nonnegative().optional(),
   bytesTotal: z.number().int().nonnegative().optional(),
   error: z.string().optional(),
+  skus: z.array(z.string().min(1)).max(1000).optional(),
 });
 
 // PATCH — публикатор на DEV отчитывается о прогрессе и переключении.

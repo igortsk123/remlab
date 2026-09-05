@@ -29,17 +29,33 @@ if ! flock -n "$LOCK" true 2>/dev/null; then
   exit 75
 fi
 
-# 2. Сироты прошлого прогона обязаны доработать — их результаты ещё не учтены.
+# 1b. Флаг остановки старого конвейера снимаем ДО запуска нового: `batch_show` проверяет его в
+#     начале каждого круга и с ним выйдет сразу (грабля 05.09: старый сняли по PID, флаг остался).
+rm -f "$DRAINING"
+
+# 2. Сироты прошлого прогона обязаны доработать — их результаты ещё не учтены. Исключение —
+#    `topview_render` старше часа: обёртку снял таймаут, потомок живёт с ppid=1 и ничего не делает
+#    (к утру 05.09 их было 20); ждать таких — платить за простой нод.
+ps -eo pid,etimes,args | awk '/[t]opview_render\.py/ && $2>3600 {print $1}' | while read -r p; do kill "$p" 2>/dev/null && say "снят осиротевший topview_render $p"; done
 pat='[s]sh_run\.py|[d]rain\.sh|[t]opview_render|[a]pply_repairs|[o]rient_worker|[r]eceiver_purge|[i]ngest_registry|[m]esh_bind'
 for _ in $(seq 1 60); do
-  if pgrep -f "$pat" >/dev/null; then say "жду сирот прошлого прогона…"; sleep 30; else break; fi
+  if ps -eo args | grep -E "$pat" >/dev/null; then say "жду сирот прошлого прогона…"; sleep 30; else break; fi
 done
-if pgrep -f "$pat" >/dev/null; then say "сироты не завершились за 30 мин — разбери руками"; exit 1; fi
+if ps -eo args | grep -E "$pat" >/dev/null; then say "сироты не завершились за 30 мин — разбери руками"; exit 1; fi
 
 # 3. Сделанное — стащить, учесть, привязать: снимок собирается по ПРИВЯЗАННОМУ состоянию.
 say "стаскиваю с приёмника"; bash "$HERE/salad/drain.sh" --keep || say "drain: код $? (нет новых — нормально)"
 say "реестр поколений";      "$PY" "$HERE/salad/ingest_registry.py"
+say "семейства моделей";     "$PY" "$HERE/mesh_family.py" --fill
 say "привязка к товарам";    "$PY" "$HERE/mesh_bind.py" | head -3
+
+# 3b. Приёмник: очистить и дождаться зелёного — красный приёмник останавливает раздачу заданий
+#     (ADR-0175), и волна встала бы сразу после старта, а ноды тарифицировались бы вхолостую.
+say "чистка приёмника";      "$PY" "$HERE/salad/receiver_purge.py" --apply | tail -2 || true
+for _ in $(seq 1 40); do
+  if "$PY" -c "import sys; sys.path.insert(0,'$HERE/salad'); import sink_health as S; r=S.check(); print(r.get('why') or 'ok:'+str(r.get('dir_gb'))+'/'+str(r.get('free_gb'))); sys.exit(0 if r.get('ok') else 1)"; then break; fi
+  say "приёмник красный — жду минуту"; sleep 60
+done
 
 # 4. Решения владельца — забрать до сборки (тик моста; если модуля ещё нет — пропуск).
 if [ -f "$HERE/mesh_audit_sync.py" ]; then

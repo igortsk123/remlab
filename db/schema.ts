@@ -274,6 +274,9 @@ export const meshAuditBatches = pgTable(
     filesDone: integer("files_done"),
     bytesTotal: bigint("bytes_total", { mode: "number" }),
     error: text("error"),
+    // sku моделей, реально лежащих в партии: страница решает «есть 3D» по ним, а не по номеру
+    // страницы — нумерация плывёт при снятии карточек (ковры, варианты), партия на сервере — нет
+    skus: jsonb("skus").$type<string[]>(),
     requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
     activatedAt: timestamp("activated_at", { withTimezone: true }),
     removedAt: timestamp("removed_at", { withTimezone: true }),
