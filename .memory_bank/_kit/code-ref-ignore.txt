@@ -28,3 +28,9 @@ trimesh_geometry.py
 # ссылки на них в памяти это цитата чужого кода, а не claim о нашем дереве:
 hy3dpaint/
 hy3dshape/
+# Локальные файлы вне git (в CI-checkout их нет): настройки харнесса, секреты, опции кита —
+# ссылки на них в памяти это не claim о дереве репо (гейт block с 05.09, иначе CI краснеет):
+.claude/settings.local.json
+_secrets/
+.memory_bank/_secrets/
+_optional/
