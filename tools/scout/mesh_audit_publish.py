@@ -274,11 +274,16 @@ def main() -> int:
         return _selftest()
     os.makedirs(os.path.dirname(LOCK), exist_ok=True)
     lock = open(LOCK, 'w')
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        print('публикатор уже работает', flush=True)
-        return 75
+    # Замок ждём до двух минут: короткая уборка (`--cleanup`) не должна ронять заливку партии
+    for attempt in range(24):
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except OSError:
+            if attempt == 23:
+                print('публикатор уже работает — не дождался замка', flush=True)
+                return 75
+            time.sleep(5)
     if '--cleanup' in sys.argv:
         cleanup()
         return 0

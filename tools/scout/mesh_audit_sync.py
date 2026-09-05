@@ -311,14 +311,16 @@ def serve_batches() -> None:
     pend = st.get('pending')
     py = sys.executable
     pub = os.path.join(HERE, 'mesh_audit_publish.py')
+    # Сначала уборка (короткая, под тем же замком), потом заливка: иначе только что запущенный
+    # публикатор проигрывал замок уборке и выходил с «уже работает», а партия зависала в requested.
+    if st.get('retiring'):
+        subprocess.run([py, pub, '--cleanup'], capture_output=True, text=True, timeout=600)
     if pend and pend.get('status') == 'requested':
         # публикатор — отдельный процесс со своим замком; тик его не ждёт
         subprocess.Popen([py, pub, '--token', pend['token'], '--batch', str(pend['batch'])],
                          stdout=open(os.path.join(STATE_DIR, 'publish.log'), 'a'), stderr=subprocess.STDOUT,
                          start_new_session=True)
         print(f'[audit] партия {pend["batch"]} отдана публикатору ({pend["token"]})', flush=True)
-    if st.get('retiring'):
-        subprocess.run([py, pub, '--cleanup'], capture_output=True, text=True, timeout=600)
 
 
 def publish_posters() -> None:
