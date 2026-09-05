@@ -142,6 +142,63 @@ try {
   await sql`create index if not exists mesh_review_tasks_status_idx on mesh_review_tasks (status)`;
   await sql`create index if not exists mesh_review_decisions_task_idx on mesh_review_decisions (task_id)`;
 
+  // Ручная приёмка мешей владельцем (план mesh-owner-audit, /lab/mesh-audit).
+  await sql`
+    create table if not exists mesh_audit_items (
+      id serial primary key,
+      sku text not null unique,
+      generation_key text not null,
+      revision_key text,
+      role text,
+      name text,
+      image_url text,
+      poster_url text,
+      model_path text not null,
+      seed integer,
+      attempt integer,
+      generated_at timestamptz,
+      photo_stale boolean not null default false,
+      manual_attempts integer not null default 0,
+      status text not null default 'open',
+      rework_status text,
+      rework_error text,
+      redone_at timestamptz,
+      seen_at timestamptz,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )`;
+  await sql`create index if not exists mesh_audit_items_status_idx on mesh_audit_items (status)`;
+  await sql`
+    create table if not exists mesh_audit_decisions (
+      id serial primary key,
+      item_id integer not null,
+      sku text not null,
+      generation_key text not null,
+      verdict text not null,
+      manual_attempt_no integer not null,
+      reviewer text not null default 'owner',
+      idem_key text not null unique,
+      created_at timestamptz not null default now()
+    )`;
+  await sql`create index if not exists mesh_audit_decisions_item_idx on mesh_audit_decisions (item_id)`;
+  await sql`create unique index if not exists mesh_audit_decisions_sku_attempt_uq on mesh_audit_decisions (sku, manual_attempt_no)`;
+  await sql`
+    create table if not exists mesh_audit_batches (
+      id serial primary key,
+      batch integer not null,
+      token text not null unique,
+      status text not null default 'requested',
+      files_total integer,
+      files_done integer,
+      bytes_total bigint,
+      error text,
+      requested_at timestamptz not null default now(),
+      activated_at timestamptz,
+      removed_at timestamptz,
+      updated_at timestamptz not null default now()
+    )`;
+  await sql`create index if not exists mesh_audit_batches_status_idx on mesh_audit_batches (status)`;
+
   console.log("migrate: ok");
 } finally {
   await sql.end();

@@ -2,7 +2,7 @@
 // session_id вынесен колонкой для выборок workspace. Расширение на нормальные таблицы — позже.
 // Трейсинг пайплайна (ADR-0013): runs/steps/assets — подробный лог каждого вызова LLM.
 
-import { pgTable, text, jsonb, timestamp, integer, bigint, doublePrecision, boolean, index, serial } from "drizzle-orm/pg-core";
+import { pgTable, text, jsonb, timestamp, integer, bigint, doublePrecision, boolean, index, serial, uniqueIndex } from "drizzle-orm/pg-core";
 import type { Project } from "@/contracts/project";
 import type { Estimate } from "@/contracts/estimate";
 
@@ -192,4 +192,74 @@ export const meshReviewDecisions = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("mesh_review_decisions_task_idx").on(t.taskId)],
+);
+
+// Ручная приёмка мешей владельцем (план mesh-owner-audit, /lab/mesh-audit). Истина по мешам живёт
+// на DEV; здесь — read-model «одна строка на товар = его текущий меш» (пушит DEV по Bearer),
+// журнал решений append-only (курсор after_id, как у mesh-review) и партии публикации моделей.
+export const meshAuditItems = pgTable(
+  "mesh_audit_items",
+  {
+    id: serial("id").primaryKey(), // порядок карточек = порядок регистрации: новое всегда в конце
+    sku: text("sku").notNull().unique(),
+    generationKey: text("generation_key").notNull(), // текущее физическое поколение — CAS при клике
+    revisionKey: text("revision_key"),
+    role: text("role"),
+    name: text("name"),
+    imageUrl: text("image_url"), // фото товара (CDN магазина) — эталон для сравнения
+    posterUrl: text("poster_url"), // лёгкий рендер 320px, живёт постоянно
+    modelPath: text("model_path").notNull(), // путь модели внутри каталога партии
+    seed: integer("seed"),
+    attempt: integer("attempt"), // порядковый номер попытки генерации у товара
+    generatedAt: timestamp("generated_at", { withTimezone: true }),
+    photoStale: boolean("photo_stale").notNull().default(false), // меш от старого фото — перегенерится сам
+    manualAttempts: integer("manual_attempts").notNull().default(0), // ручные переделки за всё время (≤2)
+    status: text("status").notNull().default("open"), // open|redo_requested|redo_queued|redo_blocked|replace_needed
+    reworkStatus: text("rework_status"), // ACK с DEV: requested|applied|queued|running|done|blocked
+    reworkError: text("rework_error"),
+    redoneAt: timestamp("redone_at", { withTimezone: true }), // пришло новое поколение после переделки
+    seenAt: timestamp("seen_at", { withTimezone: true }), // владелец открывал страницу с этой карточкой
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("mesh_audit_items_status_idx").on(t.status)],
+);
+
+export const meshAuditDecisions = pgTable(
+  "mesh_audit_decisions",
+  {
+    id: serial("id").primaryKey(),
+    itemId: integer("item_id").notNull(),
+    sku: text("sku").notNull(),
+    generationKey: text("generation_key").notNull(), // какой именно меш забракован
+    verdict: text("verdict").notNull(), // redo | replace_needed
+    manualAttemptNo: integer("manual_attempt_no").notNull(), // 1, 2 — переделки; 3 — «нужна замена»
+    reviewer: text("reviewer").notNull().default("owner"),
+    idemKey: text("idem_key").notNull().unique(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("mesh_audit_decisions_item_idx").on(t.itemId),
+    // две вкладки одновременно не выдадут одному товару две «первые» переделки
+    uniqueIndex("mesh_audit_decisions_sku_attempt_uq").on(t.sku, t.manualAttemptNo),
+  ],
+);
+
+export const meshAuditBatches = pgTable(
+  "mesh_audit_batches",
+  {
+    id: serial("id").primaryKey(),
+    batch: integer("batch").notNull(), // номер партии: страницы (b-1)*10+1 … b*10
+    token: text("token").notNull().unique(), // каталог releases/<token> на проде — непредсказуемый
+    status: text("status").notNull().default("requested"), // requested|uploading|verifying|active|retiring|removed|failed
+    filesTotal: integer("files_total"),
+    filesDone: integer("files_done"),
+    bytesTotal: bigint("bytes_total", { mode: "number" }),
+    error: text("error"),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("mesh_audit_batches_status_idx").on(t.status)],
 );

@@ -26,6 +26,16 @@ remont-lab.online {
 		header X-Robots-Tag "noindex, nofollow"
 	}
 
+	# Модели и постеры для ручной приёмки мешей (/lab/mesh-audit, план mesh-owner-audit):
+	# в отличие от /test/* — С КЭШЕМ. Каталог партии и имя постера содержат хеш/токен, файлы
+	# неизменяемы; без кэша 20 моделей по 7,6 МБ качались бы заново при каждом возврате на страницу.
+	handle_path /test/mesh-audit/* {
+		root * /srv/test/mesh-audit
+		file_server
+		header X-Robots-Tag "noindex, nofollow"
+		header Cache-Control "public, max-age=604800, immutable"
+	}
+
 	handle_path /test/* {
 		root * /srv/test
 		file_server browse
