@@ -83,19 +83,23 @@ def main() -> int:
         old_a = make_gen(A, SHA_A, 0, 'zzz-old', b'OLD-A', 1000.0)
         new_a = make_gen(A, SHA_A, 1, 'aaa-new', b'NEW-A', 2000.0)
         gen_b = make_gen(B, SHA_B, 0, 'job-b', b'B', 1500.0)
+        make_gen('3:300', 'c' * 16, 0, 'job-rug', b'RUG', 1600.0)   # ковёр: меш на диске есть, вклейка
         IR.main()
         rk_a = f'{A}|{SHA_A}|v1'
         key_new_a = f'{A}|{SHA_A}|v1|1|{new_a[:8]}'
         row = db(f"select glb_sha, current_generation_key, status from asset_revisions where revision_key='{rk_a}'")[0]
         check(row[0] == new_a and row[1] == key_new_a, 'текущее поколение — по времени, не по алфавиту')
         check(row[2] == 'generated', 'свежая ревизия — generated')
-        check(int(db("select count(*) from mesh_generations")[0][0]) == 3, 'три физических меша — три строки поколений')
+        check(int(db("select count(*) from mesh_generations")[0][0]) == 4, 'четыре физических меша — четыре строки поколений (ковёр в реестре остаётся)')
 
-        db(f"""insert into products (shop_mid, external_id, cat_role, w_cm, h_cm) values (1,'100','диван',200,90),(2,'200','кресло',80,90);
+        db(f"""insert into products (shop_mid, external_id, cat_role, w_cm, h_cm, asset_strategy)
+               values (1,'100','диван',200,90,'hunyuan3d'),(2,'200','кресло',80,90,'hunyuan3d'),(3,'300','ковёр',160,230,'procedural_plane');
                insert into product_photo_current (sku, source_sha) values ('{A}','{SHA_A + '0' * 48}'),('{B}','{SHA_B + '0' * 48}');
                insert into mesh_demand (sku, role, priority, source_sha) values ('{A}','диван',1,'{SHA_A + '0' * 48}'),('{B}','кресло',1,'{SHA_B + '0' * 48}');""")
         bound, unbound = MB.bind_ready()
         check(bound == 2 and unbound == 0, f'первая привязка: bound={bound}, unbound={unbound}')
+        check(db("select coalesce(mesh_uri,'-') from products where external_id='300'")[0][0] == '-',
+              'ковёр (вклейка по канону) к карточке не привязан, хоть меш и лежит на диске')
         # coalesce обязателен: строку из одних NULL psql печатает как «\x1f», а `str.strip()`
         # считает этот байт пробелом — строка исчезает из вывода `mesh_queue.db`
         st = db("select coalesce(mesh_status,''), coalesce(mesh_generation_key,'') from products where external_id='100'")[0]
@@ -150,7 +154,7 @@ def main() -> int:
         known = {r[1]: {'glb_bytes': r[2], 'glb_mtime': r[3], 'glb_sha': r[4]}
                  for r in db("select generation_key, path, glb_bytes, glb_mtime, glb_sha from mesh_generations")}
         gens, _, unexpl = IR.scan(SRC, known)
-        check(len(gens) == 4 and not unexpl and all(g['path'] in known for g in gens), 'кэш хешей по размеру и mtime')
+        check(len(gens) == 5 and not unexpl and all(g['path'] in known for g in gens), 'кэш хешей по размеру и mtime')
     finally:
         try:
             admin(f"select pg_terminate_backend(pid) from pg_stat_activity where datname='{DBNAME}' and pid <> pg_backend_pid()")

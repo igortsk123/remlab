@@ -158,7 +158,12 @@ def _cursor() -> int:
 # ---------------------------------------------------------------- push: карточки и ACK
 
 def current_items() -> list[dict]:
-    """Одна карточка на товар: текущее поколение + карточка товара + свежесть фото + постер."""
+    """Одна карточка на товар: текущее поколение + карточка товара + свежесть фото + постер.
+
+    Роли, которым меш не положен по канону (`rules/asset-strategies.json`: ковры, пледы, шторы…
+    идут вклейкой), на страницу НЕ попадают — даже если пилотный меш лежит на диске (владелец
+    05.09: «ковры не показывай»). Их sku уходят в `retire`, и прод удаляет карточки."""
+    import asset_strategy as AS
     from mesh_audit_posters import poster_name
     rows = db("""
       with cur as (
@@ -181,6 +186,8 @@ def current_items() -> list[dict]:
         if len(r) != 11:
             continue
         sku, gk, sha16, seed, gen_at, n, _first, role, name, img, fresh = r
+        if AS.strategy(role or None) != 'hunyuan3d':
+            continue
         poster = poster_name(gk)
         item = {'sku': sku, 'generationKey': gk, 'revisionKey': f'{sku}|{sha16}|{PIPELINE_VERSION}',
                 'role': role or None, 'name': name or None, 'imageUrl': img or None,
@@ -207,6 +214,14 @@ def push() -> int:
     items = current_items()
     changed = [it for it in items if state['items'].get(it['sku']) != json.dumps(it, sort_keys=True, ensure_ascii=False)]
     acks = [a for a in rework_acks() if state['acks'].get(a['sku']) != a['reworkStatus']]
+    # Карточки, которые раньше отправляли, а теперь не показываем (роль без меша, товар исчез)
+    retire = sorted(set(state['items']) - {it['sku'] for it in items})
+    if retire:
+        r = api('POST', '/api/lab/mesh-audit/items', {'retire': retire})
+        for sku in retire:
+            state['items'].pop(sku, None)
+        _atomic_write(PUSH_STATE, json.dumps(state, ensure_ascii=False))
+        print(f'[audit] снято карточек: {r.get("retired", 0)} из {len(retire)} (роль без меша / товара нет)', flush=True)
     sent = 0
     for i in range(0, len(changed), 300):
         chunk = changed[i:i + 300]

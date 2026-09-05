@@ -131,13 +131,21 @@ def bind_ready() -> tuple[int, int]:
     out = sql_stdin(f"""begin;
 create temp table _bind(sku text, uri text, at timestamptz, rk text, gk text, rejected boolean) on commit drop;
 insert into _bind values {vals};
+-- ТОЛЬКО роли, которым меш положен по канону (`asset_strategy` ставит mark_required шагом раньше):
+-- пилотные меши ковров (30.08) привязывались к карточкам, хотя ковёр идёт вклейкой (владелец 05.09)
 update products p set mesh_uri = b.uri, mesh_at = b.at, mesh_revision_key = b.rk,
                       mesh_generation_key = b.gk, mesh_status = 'ready'
   from _bind b
  where p.shop_mid || ':' || p.external_id = b.sku and not b.rejected
+   and p.asset_strategy = 'hunyuan3d'
    and (p.mesh_uri is distinct from b.uri or p.mesh_at is distinct from b.at
         or p.mesh_generation_key is distinct from b.gk);
-select 'bound '||count(*) from _bind where not rejected;
+select 'bound '||count(*) from _bind b join products p on p.shop_mid || ':' || p.external_id = b.sku
+ where not b.rejected and p.asset_strategy = 'hunyuan3d';
+update products p set mesh_uri = null, mesh_at = null, mesh_revision_key = null,
+                      mesh_generation_key = null, mesh_status = null
+ where p.asset_strategy is distinct from 'hunyuan3d' and p.mesh_uri is not null;
+select 'unbound_nonmesh '||count(*) from products where asset_strategy is distinct from 'hunyuan3d' and mesh_uri is not null;
 update products p set mesh_uri = null, mesh_at = null, mesh_revision_key = null,
                       mesh_generation_key = null, mesh_status = 'rejected'
   from _bind b
@@ -145,7 +153,7 @@ update products p set mesh_uri = null, mesh_at = null, mesh_revision_key = null,
    and (p.mesh_uri is not null or p.mesh_status is distinct from 'rejected');
 select 'unbound '||count(*) from _bind where rejected;
 commit;""")
-    nums = {x.split()[0]: int(x.split()[1]) for x in out if x.startswith(('bound ', 'unbound '))}
+    nums = {x.split()[0]: int(x.split()[1]) for x in out if x.startswith(('bound ', 'unbound ', 'unbound_nonmesh '))}
     return nums.get('bound', 0), nums.get('unbound', 0)
 
 

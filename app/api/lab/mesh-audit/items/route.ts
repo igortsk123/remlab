@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { machineOk, reviewerOk } from "@/lib/mesh-review/auth";
-import { listPage, toView, upsertItems, applyAcks } from "@/lib/mesh-audit/repo-items";
+import { listPage, toView, upsertItems, applyAcks, retireItems } from "@/lib/mesh-audit/repo-items";
 import { batchState } from "@/lib/mesh-audit/repo-batches";
 import { clampPage, pageCount } from "@/lib/mesh-audit/rules";
 
@@ -35,14 +35,20 @@ const ItemIn = z.object({
   photoStale: z.boolean().optional(),
 });
 const AckIn = z.object({ sku: z.string().min(1), reworkStatus: z.string().min(1), error: z.string().optional() });
-const Body = z.object({ items: z.array(ItemIn).max(500).optional(), acks: z.array(AckIn).max(500).optional() });
+const Body = z.object({
+  items: z.array(ItemIn).max(500).optional(),
+  acks: z.array(AckIn).max(500).optional(),
+  retire: z.array(z.string().min(1)).max(500).optional(), // карточки, которых больше не должно быть
+});
 
-// POST — DEV пушит текущие поколения (upsert по sku, порядок = порядок карточек) и ACK переделок.
+// POST — DEV пушит текущие поколения (upsert по sku, порядок = порядок карточек), ACK переделок
+// и список карточек на снятие (роль без меша по канону, товар исчез).
 export async function POST(req: Request): Promise<Response> {
   if (!(await machineOk())) return NextResponse.json({ error: "нет доступа" }, { status: 401 });
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "неверный запрос" }, { status: 400 });
   const put = parsed.data.items ? await upsertItems(parsed.data.items) : 0;
   const acked = parsed.data.acks ? await applyAcks(parsed.data.acks) : 0;
-  return NextResponse.json({ ok: true, put, acked });
+  const retired = parsed.data.retire ? await retireItems(parsed.data.retire) : 0;
+  return NextResponse.json({ ok: true, put, acked, retired });
 }

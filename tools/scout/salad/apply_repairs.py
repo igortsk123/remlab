@@ -134,6 +134,15 @@ def main() -> None:
     """
     verdicts = {}
     reseed = json.load(open(RESEED, encoding='utf-8')) if os.path.exists(RESEED) else []
+    # РОЛИ БЕЗ МЕША ПО КАНОНУ В ПЕРЕГОН НЕ ИДУТ (владелец 05.09: «ковры мы вклеиваем — почему они
+    # вообще проходят в меши»). Пилотные меши ковров лежали на диске с 30.08, и приёмка каждый
+    # прогон заказывала им seed+1. Список перегона фильтруется здесь же, а не только на входе
+    # `ssh_run._mesh_eligible`: очередь — не место для того, что заведомо не поедет.
+    import asset_strategy as _AS
+    before = len(reseed)
+    reseed = [r for r in reseed if _AS.strategy(r.get('role')) == 'hunyuan3d']
+    if len(reseed) != before:
+        print(f'  из перегона убрано ролей без меша: {before - len(reseed)}', flush=True)
     seen = {(r['sku'], r.get('seed')) for r in reseed}
     # Чанкование приёмки: цикл конвейера обязан влезать в таймаут шага. Не больше
     # ACCEPT_CAP тяжёлых приёмок за прогон; порядок перемешан, чтобы один тяжёлый
@@ -164,6 +173,11 @@ def main() -> None:
     mans.sort(key=_order)
     for mp in mans:
         d = os.path.dirname(mp)
+        try:   # роль без меша по канону — ни приёмки, ни перегона (ковры идут вклейкой)
+            if _AS.strategy(json.load(open(mp, encoding='utf-8')).get('role')) != 'hunyuan3d':
+                continue
+        except Exception:  # noqa: BLE001 — битый манифест разберёт ветка ниже
+            pass
         glb = os.path.join(d, 'model.glb')
         if not os.path.exists(glb):
             # suspect/flat: model нет, есть shape-диагностика — решаем перегон здесь же

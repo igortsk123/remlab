@@ -2,7 +2,7 @@
 
 import { and, asc, count, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { meshAuditItems } from "@/db/schema";
+import { meshAuditDecisions, meshAuditItems } from "@/db/schema";
 import { PAGE_SIZE, reworkToItemStatus } from "./rules";
 import type { AuditItemView } from "./types";
 
@@ -130,6 +130,19 @@ export async function applyAcks(acks: AckIn[]): Promise<number> {
     n += rows.length;
   }
   return n;
+}
+
+// Снятие карточек, которых на странице быть не должно (роль без меша по канону, товар исчез).
+// Карточку с решениями владельца не удаляем — журнал решений ссылается на неё.
+export async function retireItems(skus: string[]): Promise<number> {
+  if (skus.length === 0) return 0;
+  const d = db();
+  const decided = await d.selectDistinct({ sku: meshAuditDecisions.sku }).from(meshAuditDecisions).where(inArray(meshAuditDecisions.sku, skus));
+  const keep = new Set(decided.map((r) => r.sku));
+  const victims = skus.filter((s) => !keep.has(s));
+  if (victims.length === 0) return 0;
+  const rows = await d.delete(meshAuditItems).where(inArray(meshAuditItems.sku, victims)).returning({ id: meshAuditItems.id });
+  return rows.length;
 }
 
 export async function markSeen(ids: number[]): Promise<number> {
