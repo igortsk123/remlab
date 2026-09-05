@@ -2,7 +2,7 @@
 tier: 2
 topic: pricing-works-ru
 scope: Нормативы стоимости ремонтных работ РФ — медианы Москвы + региональные коэффициенты (для входа Б)
-tier1: ../core/marketing-acquisition.md
+tier1: ../core/estimate.md
 updated: 2026-08-06
 importance: medium
 source: manual
