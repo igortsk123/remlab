@@ -742,8 +742,7 @@ def _main():
                 # тика разбора — стаскиваем и чистим СЕЙЧАС, иначе ноды простаивают до 15 минут,
                 # пока место уже можно было освободить (04.09).
                 print('приёмник не принимает — стаскиваю и чищу немедленно', flush=True)
-                for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh --keep'),
-                                  ('чистка приёмника', f'{PY} {HERE}/receiver_purge.py --apply')):
+                for step, cmd in SR.SINK_RELIEF_CHAIN:
                     c, o = sh(cmd, timeout=1800)
                     print(f'  [приёмник] {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
             else:

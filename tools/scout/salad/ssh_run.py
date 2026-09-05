@@ -247,6 +247,20 @@ SINK_YELLOW_GB = float(os.environ.get('MESH_SINK_YELLOW_GB', '6'))
 SINK_RELIEF_COOLDOWN_S = float(os.environ.get('MESH_SINK_RELIEF_COOLDOWN_S', '600'))
 _RELIEF: dict = {'busy': False, 'at': 0.0}
 
+# МИНИМАЛЬНАЯ ЦЕПОЧКА ОСВОБОЖДЕНИЯ ПРИЁМНИКА — не «стащить и почистить» (05.09).
+# `receiver_purge` удаляет комплект, только если его SKU помечен `mesh_status='ready'`
+# (`receiver_purge.ready_skus`), а метку ставит `mesh_bind` после `ingest_registry`. Уборка из
+# двух шагов честно печатала «ok» и удаляла НОЛЬ: 459 комплектов, 7.3 ГБ, «оставляю: нет в базе
+# 459» — то есть и упреждающая уборка (ADR-0199), и аварийная ветка `batch_show` были пустыми,
+# а пул стоял оплаченным на красном приёмнике. `apply_repairs` (приёмка) здесь пропускаем
+# намеренно: она долгая, а для метки не нужна. Полный разбор — `batch_show.post_steps`.
+SINK_RELIEF_CHAIN = (
+    ('стаскиваю', f'bash {HERE}/drain.sh --keep'),
+    ('реестр', f'{PY} {HERE}/ingest_registry.py'),
+    ('пометка в базе', f'{PY} {os.path.join(HERE, "..", "mesh_bind.py")}'),
+    ('чистка', f'{PY} {HERE}/receiver_purge.py --apply'),
+)
+
 
 def sink_relief(dir_gb: float, now: float | None = None) -> bool:
     """Запустить уборку транзита ДО красной черты. True — запустили в этот раз.
@@ -263,8 +277,7 @@ def sink_relief(dir_gb: float, now: float | None = None) -> bool:
 
     def work() -> None:
         try:
-            for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh --keep'),
-                              ('чистка', f'{PY} {HERE}/receiver_purge.py --apply')):
+            for step, cmd in SINK_RELIEF_CHAIN:
                 # ЧЕРЕЗ proc_run, А НЕ subprocess.run: по таймауту тот убил бы только оболочку,
                 # а rsync/purge остались бы сиротами и полезли в тот же каталог со следующим
                 # заходом уборки (тот же дефект, что съел дев-машину 05.09).

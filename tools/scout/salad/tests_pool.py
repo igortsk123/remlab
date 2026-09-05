@@ -580,6 +580,15 @@ def case_sink_relief_before_red() -> None:
     не плодит параллельные заходы, пока предыдущий разбор ещё идёт.
     """
     import ssh_run as SR  # noqa: PLC0415
+    # ЦЕПОЧКА ОБЯЗАНА УМЕТЬ ОСВОБОЖДАТЬ МЕСТО. `receiver_purge` удаляет комплект, только если его
+    # SKU помечен `mesh_status='ready'`, а метку ставит `mesh_bind` после `ingest_registry`.
+    # Уборка «стащить + почистить» печатала «ok» и удаляла НОЛЬ (05.09: 459 комплектов, 7.3 ГБ,
+    # «оставляю: нет в базе 459»), пока пул стоял оплаченным на красном приёмнике.
+    chain = [c for _, c in SR.SINK_RELIEF_CHAIN]
+    order = [i for i, c in enumerate(chain)
+             for m in ('drain.sh', 'ingest_registry', 'mesh_bind', 'receiver_purge') if m in c]
+    assert len(order) == 4, f'в цепочке уборки не хватает шага: {chain}'
+    assert order == sorted(order), f'чистка раньше пометки в базе — удалит ноль: {chain}'
     started = []
     real_thread = SR.threading.Thread
     SR.threading.Thread = lambda target, daemon=None: type(  # noqa: ARG005 — стенд не запускает уборку
