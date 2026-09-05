@@ -51,7 +51,14 @@ export default async function MeshAuditPage({ searchParams }: { searchParams: Pr
           просмотрено {seen} из {total} · страница {page} из {pages}
         </span>
       </header>
-      <MeshAuditBatchBar thisBatch={thisBatch} totalBatches={batchCount(total)} pages={pagesOfBatch(thisBatch)} initial={batch} />
+      <MeshAuditBatchBar
+        thisBatch={thisBatch}
+        totalBatches={batchCount(total)}
+        pages={pagesOfBatch(thisBatch)}
+        initial={batch}
+        servedOnPage={views.filter((v) => modelUrl(v.sku, v.modelPath) !== null).length}
+        cardsOnPage={views.length}
+      />
       <MeshAuditPager page={page} pages={pages} />
       {views.length === 0 ? (
         <p className="py-10 text-sm text-tertiary">Мешей в списке пока нет — конвейер ещё не отдал реестр.</p>

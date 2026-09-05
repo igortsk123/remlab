@@ -15,13 +15,15 @@ interface Props {
   totalBatches: number;
   pages: [number, number];
   initial: BatchStateView;
+  servedOnPage: number; // сколько карточек этой страницы реально с 3D (по sku партии)
+  cardsOnPage: number;
 }
 
 function isServed(state: BatchStateView, batch: number): boolean {
   return state.active?.batch === batch || state.retiring?.batch === batch;
 }
 
-export function MeshAuditBatchBar({ thisBatch, totalBatches, pages, initial }: Props) {
+export function MeshAuditBatchBar({ thisBatch, totalBatches, pages, initial, servedOnPage, cardsOnPage }: Props) {
   const router = useRouter();
   const [state, setState] = useState(initial);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +51,8 @@ export function MeshAuditBatchBar({ thisBatch, totalBatches, pages, initial }: P
   const served = isServed(state, thisBatch);
   const changed = state.active && state.active.token !== initialToken;
   const pending = state.pending;
+  // нумерация сдвинулась (сняты карточки) — часть страницы вне залитой партии
+  const partial = served && cardsOnPage > 0 && servedOnPage < cardsOnPage;
 
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-secondary p-3 text-sm">
@@ -56,7 +60,11 @@ export function MeshAuditBatchBar({ thisBatch, totalBatches, pages, initial }: P
         <span className="font-medium text-primary">
           Партия {thisBatch} из {totalBatches} · страницы {pages[0]}–{pages[1]}
         </span>
-        {served ? (
+        {served && partial ? (
+          <span className="text-warning-primary">
+            3D на этой странице у {servedOnPage} из {cardsOnPage} — нумерация сдвинулась, партию можно перезалить
+          </span>
+        ) : served ? (
           <span className="text-success-primary">3D-модели на сервере — крутите по клику</span>
         ) : (
           <span className="text-tertiary">3D-моделей этой партии на сервере нет — только постеры</span>
@@ -81,6 +89,11 @@ export function MeshAuditBatchBar({ thisBatch, totalBatches, pages, initial }: P
         {!served && !pending && (
           <Button size="sm" color="primary" isDisabled={busy} isLoading={busy} onClick={() => void ask(thisBatch)}>
             Загрузить партию {thisBatch} (~12 минут)
+          </Button>
+        )}
+        {served && partial && !pending && (
+          <Button size="sm" color="primary" isDisabled={busy} isLoading={busy} onClick={() => void ask(thisBatch)}>
+            Перезалить партию {thisBatch} (~6 минут)
           </Button>
         )}
         {served && !pending && thisBatch < totalBatches && (

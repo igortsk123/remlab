@@ -3,9 +3,10 @@
 // отчитывается сюда; страница опрашивает состояние.
 
 import { randomBytes } from "node:crypto";
-import { desc, eq, inArray } from "drizzle-orm";
+import { asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { meshAuditBatches } from "@/db/schema";
+import { meshAuditBatches, meshAuditItems } from "@/db/schema";
+import { BATCH_SIZE } from "./rules";
 import type { BatchStateView, BatchView } from "./types";
 
 type Row = typeof meshAuditBatches.$inferSelect;
@@ -40,10 +41,29 @@ export async function batchState(): Promise<BatchStateView> {
 
 export type BatchResult = { http: 200; body: { ok: true; batch: BatchView } } | { http: 404 | 409; body: { error: string } };
 
+// Доля карточек партии N (по текущей нумерации), чьи модели есть в активной партии. После снятия
+// карточек (ковры, варианты семейств) нумерация плывёт, и «партия 2 на сервере» может покрывать
+// страницы 11–20 лишь частично — тогда ту же партию можно попросить заново.
+async function activeCoverage(batch: number, active: BatchView): Promise<number> {
+  const [row] = await db().select({ skus: meshAuditBatches.skus }).from(meshAuditBatches).where(eq(meshAuditBatches.id, active.id));
+  const served = new Set(row?.skus ?? []);
+  if (served.size === 0) return 0;
+  const page = await db()
+    .select({ sku: meshAuditItems.sku })
+    .from(meshAuditItems)
+    .orderBy(asc(meshAuditItems.id))
+    .limit(BATCH_SIZE)
+    .offset((batch - 1) * BATCH_SIZE);
+  if (page.length === 0) return 1;
+  return page.filter((r) => served.has(r.sku)).length / page.length;
+}
+
 export async function requestBatch(batch: number): Promise<BatchResult> {
   const st = await batchState();
   if (st.pending) return { http: 409, body: { error: `уже готовится партия ${st.pending.batch}` } };
-  if (st.active?.batch === batch) return { http: 409, body: { error: "эта партия уже на сервере" } };
+  if (st.active?.batch === batch && (await activeCoverage(batch, st.active)) >= 0.95) {
+    return { http: 409, body: { error: "эта партия уже на сервере" } };
+  }
   const [row] = await db()
     .insert(meshAuditBatches)
     .values({ batch, token: randomBytes(8).toString("hex") })
