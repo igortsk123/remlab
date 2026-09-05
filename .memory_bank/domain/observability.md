@@ -8,7 +8,7 @@ importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-08-28
+last_verified: 2026-09-05
 ---
 
 # Observability — детали (Tier 2 к [[observability-tracing]])
