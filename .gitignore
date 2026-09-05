@@ -25,7 +25,6 @@ test-results/
 *.log
 
 _optional/
-_intake/_processed/
 
 # tools/ — В git целиком, и скрипты проекта (migrate.mjs, trace-show.mjs, update-cities.mjs),
 # и хуки Memory Bank. Прежнее правило `tools/*` задумывалось против кита, но проглатывало и
