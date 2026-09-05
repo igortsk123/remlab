@@ -33,6 +33,7 @@ const ItemIn = z.object({
   attempt: z.number().int().optional(),
   generatedAt: z.string().optional(),
   photoStale: z.boolean().optional(),
+  variantsNote: z.string().nullable().optional(),
 });
 const AckIn = z.object({ sku: z.string().min(1), reworkStatus: z.string().min(1), error: z.string().optional() });
 const Body = z.object({

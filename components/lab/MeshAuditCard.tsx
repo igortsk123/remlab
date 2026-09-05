@@ -86,8 +86,10 @@ export function MeshAuditCard({ item: initial, rank, modelUrl }: Props) {
           </button>
         )}
         {item.imageUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={item.imageUrl} alt="фото товара" className="absolute top-2 right-2 h-16 w-16 rounded-md bg-primary object-contain ring-1 ring-primary" loading="lazy" />
+          <a href={item.imageUrl} target="_blank" rel="noreferrer" className="absolute top-2 right-2" title="Открыть фото товара в полный размер">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={item.imageUrl} alt="фото товара" className="h-20 w-20 rounded-md bg-primary object-contain ring-1 ring-primary" loading="lazy" />
+          </a>
         )}
       </div>
       <div className="flex flex-col gap-0.5 text-xs text-tertiary">
@@ -97,6 +99,7 @@ export function MeshAuditCard({ item: initial, rank, modelUrl }: Props) {
         <span>
           {item.role ?? "?"} · {item.sku} · {date} · попытка {item.attempt ?? "?"} (seed {item.seed ?? "?"})
         </span>
+        {item.variantsNote && <span className="text-secondary">{item.variantsNote}</span>}
         {item.photoStale && <span className="text-warning-primary">меш от старого фото — перегенерируется сам</span>}
       </div>
       {badge && (

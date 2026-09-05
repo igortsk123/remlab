@@ -13,6 +13,7 @@ export interface AuditItemView {
   attempt: number | null;
   generatedAt: string | null; // ISO
   photoStale: boolean;
+  variantsNote: string | null; // «+4 варианта: …» — карточка представителя семейства моделей
   manualAttempts: number;
   status: string;
   reworkStatus: string | null;

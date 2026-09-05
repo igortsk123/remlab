@@ -22,6 +22,7 @@ export function toView(i: AuditItem): AuditItemView {
     attempt: i.attempt,
     generatedAt: i.generatedAt?.toISOString() ?? null,
     photoStale: i.photoStale,
+    variantsNote: i.variantsNote,
     manualAttempts: i.manualAttempts,
     status: i.status,
     reworkStatus: i.reworkStatus,
@@ -57,6 +58,7 @@ export interface ItemIn {
   attempt?: number;
   generatedAt?: string;
   photoStale?: boolean;
+  variantsNote?: string | null;
 }
 
 // Upsert по sku. Новое поколение (другой generation_key) сбрасывает «просмотрено» и переводит
@@ -81,6 +83,7 @@ export async function upsertItems(items: ItemIn[]): Promise<number> {
           attempt: it.attempt ?? null,
           generatedAt: it.generatedAt ? new Date(it.generatedAt) : null,
           photoStale: it.photoStale ?? false,
+          variantsNote: it.variantsNote ?? null,
         })
         .onConflictDoUpdate({
           target: meshAuditItems.sku,
@@ -95,6 +98,7 @@ export async function upsertItems(items: ItemIn[]): Promise<number> {
             attempt: sql`excluded.attempt`,
             generatedAt: sql`excluded.generated_at`,
             photoStale: sql`excluded.photo_stale`,
+            variantsNote: sql`excluded.variants_note`,
             seenAt: sql`case when ${same} then ${meshAuditItems.seenAt} else null end`,
             redoneAt: sql`case when ${same} or ${meshAuditItems.status} = 'open' then ${meshAuditItems.redoneAt} else now() end`,
             status: sql`case when ${same} then ${meshAuditItems.status} else 'open' end`,

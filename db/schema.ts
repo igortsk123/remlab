@@ -213,6 +213,7 @@ export const meshAuditItems = pgTable(
     attempt: integer("attempt"), // порядковый номер попытки генерации у товара
     generatedAt: timestamp("generated_at", { withTimezone: true }),
     photoStale: boolean("photo_stale").notNull().default(false), // меш от старого фото — перегенерится сам
+    variantsNote: text("variants_note"), // «+4 варианта: Белый · Латте …» — один меш на модель (05.09)
     manualAttempts: integer("manual_attempts").notNull().default(0), // ручные переделки за всё время (≤2)
     status: text("status").notNull().default("open"), // open|redo_requested|redo_queued|redo_blocked|replace_needed
     reworkStatus: text("rework_status"), // ACK с DEV: requested|applied|queued|running|done|blocked

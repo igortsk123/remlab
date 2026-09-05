@@ -196,6 +196,21 @@ def pull_cancellations() -> int:
 
 # ---------------------------------------------------------------- push: карточки и ACK
 
+def variants_note(rep_name: str, variant_names: list[str]) -> str | None:
+    """«+4 варианта: Белый · Латте · Терракотовый · Оливковый» — из имён вариантов остаются
+    слова, которых нет в имени представителя (цвет/ткань)."""
+    if not variant_names:
+        return None
+    base = set((rep_name or '').lower().split())
+    tails = []
+    for vn in variant_names:
+        t = ' '.join(w for w in vn.split() if w.lower() not in base)
+        tails.append(t or vn)
+    n = len(variant_names)
+    word = 'вариант' if n % 10 == 1 and n % 100 != 11 else 'варианта' if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else 'вариантов'
+    return f'+{n} {word}: ' + ' · '.join(tails[:8]) + (' …' if n > 8 else '')
+
+
 def current_items() -> list[dict]:
     """Одна карточка на товар: текущее поколение + карточка товара + свежесть фото + постер.
 
@@ -214,17 +229,22 @@ def current_items() -> list[dict]:
              coalesce(p.cat_role,''), regexp_replace(coalesce(p.name,''), E'[\\n\\r\\x1f]', ' ', 'g'),
              coalesce(p.image_url_hd, p.image_url, ''),
              case when pc.source_sha is null then 'unknown'
-                  when pc.source_sha like c.source_sha||'%' then 'fresh' else 'stale' end
+                  when pc.source_sha like c.source_sha||'%' then 'fresh' else 'stale' end,
+             coalesce((select string_agg(regexp_replace(coalesce(v.name,''), E'[\\n\\r\\x1f]', ' ', 'g'), '\x1e' order by v.name)
+                         from products v where v.mesh_family_rep = c.sku
+                          and v.shop_mid||':'||v.external_id <> c.sku), '')
         from cur c
         join att on att.sku = c.sku
         left join products p on p.shop_mid||':'||p.external_id = c.sku
         left join product_photo_current pc on pc.sku = c.sku
+       -- ОДИН МЕШ НА МОДЕЛЬ (владелец 05.09): на странице только представители семейств
+       where coalesce(p.mesh_family_rep, c.sku) = c.sku
        order by att.first_at, c.sku""")
     out = []
     for r in rows:
-        if len(r) != 11:
+        if len(r) != 12:
             continue
-        sku, gk, sha16, seed, gen_at, n, _first, role, name, img, fresh = r
+        sku, gk, sha16, seed, gen_at, n, _first, role, name, img, fresh, variants = r
         if AS.strategy(role or None) != 'hunyuan3d':
             continue
         poster = poster_name(gk)
@@ -232,7 +252,8 @@ def current_items() -> list[dict]:
                 'role': role or None, 'name': name or None, 'imageUrl': img or None,
                 'posterUrl': f'/test/mesh-audit/posters/{poster}' if os.path.exists(os.path.join(POSTERS, poster)) else None,
                 'modelPath': f'{sku.replace(":", "_", 1)}/model.glb',
-                'seed': int(seed), 'attempt': int(n), 'generatedAt': gen_at, 'photoStale': fresh == 'stale'}
+                'seed': int(seed), 'attempt': int(n), 'generatedAt': gen_at, 'photoStale': fresh == 'stale',
+                'variantsNote': variants_note(name, variants.split('\x1e') if variants else [])}
         # Zod на проде: `optional()` принимает отсутствие ключа, но не null — пустое не отправляем
         out.append({k: v for k, v in item.items() if v is not None})
     return out

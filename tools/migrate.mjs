@@ -168,6 +168,7 @@ try {
       updated_at timestamptz not null default now()
     )`;
   await sql`create index if not exists mesh_audit_items_status_idx on mesh_audit_items (status)`;
+  await sql`alter table mesh_audit_items add column if not exists variants_note text`;
   await sql`
     create table if not exists mesh_audit_decisions (
       id serial primary key,

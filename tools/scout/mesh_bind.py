@@ -26,7 +26,6 @@ sys.path.insert(0, os.path.join(HERE, 'salad'))
 sys.path.insert(0, HERE)   # корень побеждает salad/ (см. render_strategy.py)
 # Источник привязки — реестр поколений `mesh_generations` (05.09), не обход диска: диск читает
 # `salad/ingest_registry.py` шагом раньше, и «текущее поколение» решается в одном месте.
-MESH_HTTP = os.environ.get('MESH_HTTP', 'https://remont-lab.online/test/mesh-pilot10')
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab',
         '-d', os.environ.get('REMLAB_DEVDB_NAME', 'remlab'),   # одноразовая база для --dbtest
         '-q', '-v', 'ON_ERROR_STOP=1', '-t', '-A', '-F', '|']
@@ -96,8 +95,8 @@ def current_generations() -> list[tuple[str, str, str, str, str]]:
     «Текущее» — то же правило, что у реестра: позднее по времени, при равенстве — большее по ключу."""
     # Разделитель — \x1f, а не «|»: ключ поколения сам состоит из «|».
     r = subprocess.run(PSQL[:-1] + ['\x1f', '-c',
-                       "select sku, generation_key, job_id, generated_at, coalesce(owner_verdict,'') "
-                       "from (select distinct on (sku) sku, generation_key, job_id, generated_at, owner_verdict "
+                       "select sku, generation_key, job_id, generated_at, coalesce(owner_verdict,''), path "
+                       "from (select distinct on (sku) sku, generation_key, job_id, generated_at, owner_verdict, path "
                        "        from mesh_generations order by sku, generated_at desc, generation_key desc) t"],
                        capture_output=True, text=True)
     if r.returncode:
@@ -105,7 +104,7 @@ def current_generations() -> list[tuple[str, str, str, str, str]]:
     out = []
     for ln in r.stdout.splitlines():
         parts = ln.split('\x1f')
-        if len(parts) == 5 and parts[0]:
+        if len(parts) == 6 and parts[0]:
             out.append(tuple(parts))
     return out
 
@@ -123,11 +122,15 @@ def bind_ready() -> tuple[int, int]:
     if not rows:
         print('реестр поколений пуст — привязку не трогаю (сначала ingest_registry.py)', flush=True)
         return 0, 0
+    # ССЫЛКА НА МЕШ — ДОЛГОВЕЧНАЯ (владелец 05.09: «в каждый товар ссылку на меш, чтобы не
+    # потеряли»): путь к файлу поколения на DEV, а не URL галереи, которую перестали публиковать
+    # (в `/test/mesh-pilot10/` лежали 332 модели из 1490 — у большинства ссылка была мёртвой).
+    # Плюс `mesh_generation_key` — ключ в реестре `mesh_generations`, по нему путь найдётся всегда.
     vals = ','.join(
         "(" + ','.join(("'" + str(x).replace("'", "''") + "'") for x in
-                       (sku, f'{MESH_HTTP}/{sku.replace(":", "_", 1)}/model.glb', at, f'{sku}|{job}', gk))
+                       (sku, f'file://{path}/model.glb', at, f'{sku}|{job}', gk))
         + f", {'true' if verdict else 'false'})"
-        for sku, gk, job, at, verdict in rows)
+        for sku, gk, job, at, verdict, path in rows)
     out = sql_stdin(f"""begin;
 create temp table _bind(sku text, uri text, at timestamptz, rk text, gk text, rejected boolean) on commit drop;
 insert into _bind values {vals};
@@ -172,7 +175,8 @@ select p.shop_mid, p.external_id,
                 where r.sku = p.shop_mid||':'||p.external_id
                   and r.status in ('accepted','generated') and r.origin <> 'legacy-local'
                   and c.source_sha like split_part(r.revision_key,'|',2)||'%') as ok
-  from products p where p.mesh_uri is not null;
+  from products p where p.mesh_uri is not null
+   and coalesce(p.mesh_family_rep, p.shop_mid||':'||p.external_id) = p.shop_mid||':'||p.external_id;
 update products p set mesh_status = 'stale' from _inv i
  where p.shop_mid = i.shop_mid and p.external_id = i.external_id and not i.ok and p.mesh_status = 'ready';
 select 'stale '||count(*) from _inv where not ok;
@@ -203,14 +207,34 @@ def report() -> None:
         print(f'  пример: {a}  {u}')
 
 
+def propagate_family() -> int:
+    """Варианты семейства получают меш представителя целиком: ссылка, дата, поколение, статус
+    (ready/stale/rejected/null — как у него). Один меш на модель (владелец 05.09, `mesh_family.py`);
+    у варианта с собственным старым мешом тот остаётся в реестре историей, но не в карточке."""
+    out = sql_stdin("""begin;
+update products v set mesh_uri = r.mesh_uri, mesh_at = r.mesh_at, mesh_revision_key = r.mesh_revision_key,
+                      mesh_generation_key = r.mesh_generation_key, mesh_status = r.mesh_status
+  from products r
+ where v.mesh_family_rep is not null and v.mesh_family_rep <> v.shop_mid||':'||v.external_id
+   and r.shop_mid||':'||r.external_id = v.mesh_family_rep
+   and (v.mesh_uri is distinct from r.mesh_uri or v.mesh_status is distinct from r.mesh_status
+        or v.mesh_generation_key is distinct from r.mesh_generation_key or v.mesh_at is distinct from r.mesh_at);
+select 'variants '||count(*) from products v join products r on r.shop_mid||':'||r.external_id = v.mesh_family_rep
+ where v.mesh_family_rep <> v.shop_mid||':'||v.external_id and r.mesh_uri is not null;
+commit;""")
+    return next((int(x.split()[1]) for x in out if x.startswith('variants ')), 0)
+
+
 def main() -> None:
     if '--report' not in sys.argv:
         n_need, n_skip = mark_required()
         n_bind, n_unbind = bind_ready()
         n_stale, n_ready = enforce_ready_invariant()
+        n_var = propagate_family()
         print(f'пометка по канону: ролей требующих меша {n_need}, не требующих {n_skip}')
         print(f'привязано моделей: {n_bind}, отвязано по отказу владельца: {n_unbind}; '
-              f'инвариант «ready = ревизия по текущему фото»: ready {n_ready}, stale {n_stale}')
+              f'инвариант «ready = ревизия по текущему фото»: ready {n_ready}, stale {n_stale}; '
+              f'вариантов с мешом представителя: {n_var}')
     report()
 
 

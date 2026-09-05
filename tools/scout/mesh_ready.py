@@ -65,6 +65,12 @@ def _load() -> dict[str, bool]:
         "  and coalesce(o.resolution->>'unusable','') <> 'true' "
         "group by r.sku")
     _CACHE = {r[0]: True for r in rows if r and r[0]}
+    # ОДИН МЕШ НА МОДЕЛЬ (владелец 05.09): цветовой вариант готов, когда готов представитель
+    # его семейства (`products.mesh_family_rep`, `mesh_family.py`) — своего меша у варианта нет.
+    for r in db("select shop_mid||':'||external_id, mesh_family_rep from products "
+                "where mesh_family_rep is not null and mesh_family_rep <> shop_mid||':'||external_id"):
+        if len(r) == 2 and r[1] in _CACHE:
+            _CACHE[r[0]] = True
     return _CACHE
 
 

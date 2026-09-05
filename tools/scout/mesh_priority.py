@@ -63,14 +63,23 @@ def products() -> dict:
     Вход генератора берём как ADR-0182: HD-фото, иначе обычное. Габариты обязательны —
     без них товар и не получил бы пометку."""
     out = {}
-    for sku, role, status, img, w, d, h in db(
+    variants = 0
+    for sku, role, status, img, w, d, h, rep in db(
             "select shop_mid||':'||external_id, coalesce(cat_role,''), "
             "coalesce(mesh_status,'none'), coalesce(image_url_hd, image_url), "
-            "coalesce(w_cm,0), coalesce(d_cm,0), coalesce(h_cm,0) "
+            "coalesce(w_cm,0), coalesce(d_cm,0), coalesce(h_cm,0), "
+            "coalesce(mesh_family_rep, shop_mid||':'||external_id) "
             "from products where mesh_required;"):
+        # ОДИН МЕШ НА МОДЕЛЬ (владелец 05.09, `mesh_family.py`): цветовой вариант в очередь не
+        # встаёт — его меш и готовность приходят от представителя семейства.
+        if rep != sku:
+            variants += 1
+            continue
         out[sku] = {'role': role, 'status': status, 'image_url': img,
                     'dims_cm': {'w': float(w) or None, 'd': float(d) or None,
                                 'h': float(h) or None}}
+    if variants:
+        print(f'вариантов семейств вне очереди: {variants}', flush=True)
     if not out:
         sys.exit('в products нет ни одного mesh_required — это дефект, а не пустая очередь')
     return out

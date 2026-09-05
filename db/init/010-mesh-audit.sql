@@ -70,3 +70,6 @@ create table if not exists mesh_audit_cancellations (
   created_at timestamptz not null default now()
 );
 create index if not exists mesh_audit_cancellations_item_idx on mesh_audit_cancellations (item_id);
+
+-- Один меш на модель (владелец 05.09): карточка представителя семейства несёт список вариантов.
+alter table mesh_audit_items add column if not exists variants_note text;

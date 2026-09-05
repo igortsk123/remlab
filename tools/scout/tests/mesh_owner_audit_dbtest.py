@@ -72,8 +72,8 @@ def main() -> int:
         db("""create table products (shop_mid int, external_id text, cat_role text, name text,
                 in_stock boolean default true, image_url text, image_url_hd text,
                 w_cm numeric, d_cm numeric, h_cm numeric, status text default 'active',
-                asset_strategy text)""")
-        for f in ('006-mesh-binding.sql', '008-mesh-owner-audit.sql'):
+                asset_strategy text, params jsonb)""")
+        for f in ('006-mesh-binding.sql', '008-mesh-owner-audit.sql', '009-mesh-family.sql'):
             db(open(os.path.join(SCOUT, f), encoding='utf-8').read())
         print('база и миграции готовы', flush=True)
 
@@ -150,11 +150,44 @@ def main() -> int:
         st = db("select coalesce(mesh_status,''), coalesce(mesh_generation_key,'') from products where external_id='100'")[0]
         check(st[0] == 'ready' and st[1] == key_newer_a, 'товар A привязан к перегону')
 
+        # --- семейства: один меш на модель — вариант цвета получает меш представителя
+        import mesh_family as MF
+        db("""insert into products (shop_mid, external_id, cat_role, name, w_cm, d_cm, h_cm, asset_strategy, mesh_required, params)
+               values (1,'101','диван','Диван Тест Велюр Синий',200,90,80,'hunyuan3d',true,'{"Ткань":"Велюр"}'),
+                      (1,'100b','кресло','Кресло Другое',80,80,90,'hunyuan3d',true,'{}');
+               update products set mesh_required=true, params='{"Ткань":"Велюр"}', name='Диван Тест Велюр Белый', d_cm=90, h_cm=80 where external_id='100';
+               update products set mesh_required=true where external_id='200';""")
+        MF.fill()
+        fam = {r[0]: (r[1], r[2]) for r in db("select external_id, coalesce(mesh_family,'-'), coalesce(mesh_family_rep,'-') from products where shop_mid=1")}
+        check(fam['100'][0] == fam['101'][0] and fam['100'][0] != '-', 'варианты цвета — одно семейство')
+        check(fam['100'][1] == '1:100' and fam['101'][1] == '1:100', 'представитель — тот, у кого есть меш (A), вариант указывает на него')
+        check(fam['100b'][1] == '1:100b', 'другая модель — сама себе представитель')
+        MB.bind_ready(); MB.enforce_ready_invariant(); nv = MB.propagate_family()
+        v = db("select coalesce(mesh_status,'-'), coalesce(mesh_generation_key,'-'), coalesce(mesh_uri,'-') from products where external_id='101'")[0]
+        check(nv == 1 and v[1] == key_newer_a and v[2].startswith('file://'), f'вариант получил меш представителя: {v}')
+        MR._CACHE = None
+        check(MR.mesh_ready('1:101') == MR.mesh_ready('1:100') is False, 'без ориентации представителя не готовы оба')
+        db(f"""insert into orientation_state (revision_key, sku, status, resolution)
+               values ('{A}|{newer_a}|orient-v1','{A}','auto_resolved','{{"glb_sha":"{newer_a + 'e' * 48}"}}'::jsonb)""")
+        MR._CACHE = None
+        check(MR.mesh_ready('1:100') and MR.mesh_ready('1:101'), 'вариант готов, когда готов представитель')
+        # представитель липкий: новый меш у варианта не перехватывает семейство
+        make_gen('1:101', 'd' * 16, 0, 'job-var', b'VAR', 4000.0)
+        IR.main(); MF.fill()
+        check(db("select mesh_family_rep from products where external_id='101'")[0][0] == '1:100', 'представитель не меняется от нового меша варианта')
+        # отказ владельца по представителю гасит всё семейство
+        db(f"""update mesh_generations set owner_verdict='redo', owner_decision_id=9 where generation_key='{key_newer_a}';
+               update asset_revisions set status='owner_reject' where current_generation_key='{key_newer_a}';""")
+        MB.bind_ready(); MB.enforce_ready_invariant(); MB.propagate_family()
+        check(db("select coalesce(mesh_status,'-')||'/'||coalesce(mesh_uri,'-') from products where external_id='101'")[0][0] == 'rejected/-',
+              'отказ по представителю: вариант тоже без меша')
+        MR._CACHE = None
+        check(not MR.mesh_ready('1:101'), 'вариант не готов после отказа по представителю')
         # --- хеш из кэша: повторный прогон без изменений файлов ничего не хеширует заново
         known = {r[1]: {'glb_bytes': r[2], 'glb_mtime': r[3], 'glb_sha': r[4]}
                  for r in db("select generation_key, path, glb_bytes, glb_mtime, glb_sha from mesh_generations")}
         gens, _, unexpl = IR.scan(SRC, known)
-        check(len(gens) == 5 and not unexpl and all(g['path'] in known for g in gens), 'кэш хешей по размеру и mtime')
+        check(len(gens) == 6 and not unexpl and all(g['path'] in known for g in gens), 'кэш хешей по размеру и mtime')
     finally:
         try:
             admin(f"select pg_terminate_backend(pid) from pg_stat_activity where datname='{DBNAME}' and pid <> pg_backend_pid()")
