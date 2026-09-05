@@ -744,7 +744,12 @@ def _main():
                 print('приёмник не принимает — стаскиваю и чищу немедленно', flush=True)
                 for step, cmd in SR.SINK_RELIEF_CHAIN:
                     c, o = sh(cmd, timeout=1800)
-                    print(f'  [приёмник] {step}: {"ok" if c == 0 else "СБОЙ " + o[-200:]}', flush=True)
+                    # ПЕЧАТАЕМ ИТОГ ШАГА, А НЕ «ok» (05.09): чистка отвечала `ok`, удаляя НОЛЬ
+                    # комплектов, и по логу это было неотличимо от успешной уборки — пул стоял
+                    # оплаченным, а лог выглядел здоровым. Успех шага уборки — это цифра.
+                    last = (o.strip().splitlines() or [''])[-1][:150]
+                    print(f'  [приёмник] {step}: {"ok " + last if c == 0 else "СБОЙ " + o[-200:]}',
+                          flush=True)
             else:
                 print('нет тёплых нод — жду 3 мин и пробую снова', flush=True)
             cull_slow_pulls()
