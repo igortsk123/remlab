@@ -34,6 +34,11 @@ LINKS = [
          'Смотреть, если непонятно «почему движок так решил».'),
     ]),
     ('Проверки и отчёты', [
+        ('Честность каталога: наличие и размеры (03.09)', 'catalog-plan-0309/honesty.html',
+         'Закрытый план stock-and-dims-honesty: аудит контроля наличия, парсер v2 (тень → gold → включён), '
+         'модель «страница есть / товар в наличии / на чём основано», правило «размер известен» без дефолтов, '
+         'банк комплектов №3 и честные потери. Рядом отчёты тени по tvoydom и gipfel.',
+         'Смотреть цифры «до/после»; пометки «наличие не проверено» и «размеры не указаны магазином» — в демо.'),
         ('План починки загрузки каталога (03.09)', 'catalog-plan-0309',
          'Одобренный план catalog-load-hardening: тревоги в Telegram и сторож «прогон не состоялся», '
          'фид как источник фото/артикула/описания, отпечатки параметров, порог по магазину, размеры и роли '
@@ -93,7 +98,8 @@ def build() -> str:
     for title, rows in LINKS:
         items = ''
         for name, path, desc, how in rows:
-            items += (f"<li><a href='/test/{path}/?v={VER}'>{html.escape(name)}</a>"
+            href = f'/test/{path}?v={VER}' if path.endswith('.html') else f'/test/{path}/?v={VER}'
+            items += (f"<li><a href='{href}'>{html.escape(name)}</a>"
                       f"<div class='d'>{html.escape(desc)}</div>"
                       f"<div class='h'>{html.escape(how)}</div></li>")
         secs += f"<section><h2>{html.escape(title)}</h2><ul>{items}</ul></section>"
