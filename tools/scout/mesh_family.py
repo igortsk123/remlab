@@ -86,6 +86,60 @@ def family_key(shop_mid: int, name: str, params: dict | None, role: str | None, 
     return f"{int(shop_mid or 0)}|{_norm(role or '')}|{base_name(shop_mid, name, params)}|{r(d.get('w'))}x{r(d.get('d'))}x{r(d.get('h'))}"
 
 
+# ---------------------------------------------------------------- одна фотография = одна форма
+
+HAM_SAME = 6   # как в phash.py: ≤6 бит из 128 (dHash+pHash) — та же картинка (пережатие, ресайз)
+
+
+def hamming_clusters(items: list[tuple[str, str]], limit: int = HAM_SAME, compatible=None) -> list[list[str]]:
+    """Кластеры «одна и та же фотография» по перцептивному отпечатку (`product_enrichment.
+    perceptual_hash`, 32 hex = dHash 64 + pHash 64, `phash.py`). Магазины отдают одну фотографию
+    под несколькими артикулами (tvoydom: ваза Glasar 16×16×17 и 15×15×23 — совпадение 99,7 %),
+    и байтовый хеш этого не ловит (разные пережатия). Одна фотография → одна форма → один меш,
+    масштаб по габаритам делает расстановка. Вход: [(sku, hex)] ОДНОЙ роли; выход — кластеры
+    (в т.ч. одиночные). `compatible(sku_a, sku_b)` — дополнительный фильтр пары: у коробчатой
+    мебели (шкафы, тумбы) отпечатки почти одинаковы у РАЗНЫХ моделей, и без него кластеры
+    цепочкой склеивали Беррингтон с Сайрисом (проверка 05.09). Чисто, без БД — для selftest."""
+    import numpy as np
+    good = [(s, h) for s, h in items if h and len(h) == 32]
+    if not good:
+        return []
+    arr = np.array([[int(h[i:i + 2], 16) for i in range(0, 32, 2)] for _s, h in good], dtype=np.uint8)
+    n = len(good)
+    parent = list(range(n))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    step = 512
+    for a in range(0, n, step):
+        x = np.unpackbits(arr[a:a + step, None, :] ^ arr[None, :, :], axis=2).sum(axis=2)
+        for i, j in zip(*np.where(x <= limit)):
+            gi, gj = a + int(i), int(j)
+            if gj > gi and (compatible is None or compatible(good[gi][0], good[gj][0])):
+                ri, rj = find(gi), find(gj)
+                if ri != rj:
+                    parent[rj] = ri
+    groups: dict[int, list[str]] = {}
+    for i, (s, _h) in enumerate(good):
+        groups.setdefault(find(i), []).append(s)
+    return list(groups.values())
+
+
+def _names_alike(a: str, b: str) -> bool:
+    """Имена «одной вещи» с точностью до размера/цвета: пересечение слов ≥ половины (Жаккар)
+    или одно имя — префикс другого. «ваза glasar с ручкой 16х16х17см» ~ «… 15х15х23см» — да;
+    «шкаф-купе беррингтон 2-120x210» ~ «шкаф навесной сайрис 2-98x175» — нет."""
+    ta, tb = set(a.split()), set(b.split())
+    if not ta or not tb:
+        return False
+    if a.startswith(b) or b.startswith(a):
+        return True
+    return len(ta & tb) / len(ta | tb) >= 0.5
+
+
 # ---------------------------------------------------------------- БД
 
 def _db():
@@ -100,6 +154,9 @@ def compute() -> dict:
                         coalesce(p.cat_role,''), coalesce(p.w_cm,0), coalesce(p.d_cm,0), coalesce(p.h_cm,0)
                    from products p where p.mesh_required""")
     fam: dict[str, list[str]] = {}
+    key_of: dict[str, str] = {}
+    role_of: dict[str, str] = {}
+    base_of: dict[str, str] = {}
     for r in rows:
         if len(r) != 8:
             continue
@@ -110,6 +167,45 @@ def compute() -> dict:
             pr = {}
         key = family_key(int(mid), name.replace('\x1f', ' '), pr, role, {'w': w, 'd': d, 'h': h})
         fam.setdefault(key, []).append(sku)
+        key_of[sku] = key
+        role_of[sku] = role
+        base_of[sku] = base_name(int(mid), name.replace('\x1f', ' '), pr)
+    # ОДНА ФОТОГРАФИЯ = ОДНА ФОРМА (владелец 05.09, вазы Glasar): кластеры по перцептивному
+    # отпечатку внутри роли сливают семейства, найденные по имени. Union-find по ключам семейств.
+    parent: dict[str, str] = {k: k for k in fam}
+
+    def find(k: str) -> str:
+        while parent[k] != k:
+            parent[k] = parent[parent[k]]
+            k = parent[k]
+        return k
+    by_role: dict[str, list[tuple[str, str]]] = {}
+    try:
+        hashes = db("""select p.shop_mid||':'||p.external_id, coalesce(p.cat_role,''), e.perceptual_hash
+                         from products p join product_enrichment e using (shop_mid, external_id)
+                        where p.mesh_required and e.perceptual_hash is not null""")
+    except RuntimeError:   # одноразовая база dbtest без обогащения — семейства только по именам
+        hashes = []
+    for r in hashes:
+        if len(r) == 3 and r[0] in key_of:
+            by_role.setdefault(r[1], []).append((r[0], r[2]))
+    photo_merges = 0
+    for role, items in by_role.items():
+        for cluster in hamming_clusters(items, compatible=lambda a, b: _names_alike(base_of.get(a, ''), base_of.get(b, ''))):
+            keys = {key_of[s] for s in cluster}
+            if len(keys) > 1:
+                root = find(min(keys))
+                for k in keys:
+                    rk = find(k)
+                    if rk != root:
+                        parent[rk] = root
+                        photo_merges += 1
+    merged: dict[str, list[str]] = {}
+    for k, skus in fam.items():
+        merged.setdefault(find(k), []).extend(skus)
+    fam = merged
+    if photo_merges:
+        print(f'семейств слито по одной фотографии: {photo_merges}', flush=True)
     decided = {r[0] for r in db("select sku from mesh_rework_requests union select sku from mesh_generations where owner_verdict is not null") if r}
     # Качество меша-кандидата (разбор Codex 05.09): не «самый ранний», а не отвергнутый, с
     # допустимым вердиктом приёмки, по свежему фото, с решённой ориентацией своего файла.
@@ -209,7 +305,19 @@ def _selftest() -> int:
         bad += 1; print('  FAIL не-цветовое слово не снимается')
     if _strip_colors('Стул Келтон Букле Молочный/Красный') != 'Стул Келтон Букле':
         bad += 1; print('  FAIL слэш-пара цветов')
-    print(f'mesh_family selftest: случаев 9, ошибок {bad}')
+    # одна фотография: вазы Glasar (реальные отпечатки, 5 бит из 128) — вместе; далёкий — отдельно
+    cl = hamming_clusters([('a', '4b4d0d17234b7b0ffae2810f6d2d851f'), ('b', '4b4d0d17234b7b17eae2814f6c2d851f'),
+                           ('c', '8f172b2f332b2326bd63f0938327939f'), ('d', '')])
+    if not _names_alike('ваза glasar с ручкой 16х16х17см', 'ваза glasar с ручкой 15х15х23см') or \
+            _names_alike('шкаф-купе divan.ru беррингтон 2-120x210', 'шкаф навесной divan.ru сайрис 2-98x175'):
+        bad += 1; print('  FAIL _names_alike')
+    same = hamming_clusters([('x', '4b4d0d17234b7b0ffae2810f6d2d851f'), ('y', '4b4d0d17234b7b17eae2814f6c2d851f')], compatible=lambda a, b: False)
+    if sorted(len(c) for c in same) != [1, 1]:
+        bad += 1; print('  FAIL предикат пары не применён')
+    cl = sorted(sorted(c) for c in cl)
+    if cl != [['a', 'b'], ['c']]:
+        bad += 1; print(f'  FAIL hamming_clusters: {cl}')
+    print(f'mesh_family selftest: случаев 12, ошибок {bad}')
     return 1 if bad else 0
 
 
