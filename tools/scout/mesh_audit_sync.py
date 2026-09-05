@@ -218,10 +218,13 @@ def push() -> int:
     retire = sorted(set(state['items']) - {it['sku'] for it in items})
     if retire:
         r = api('POST', '/api/lab/mesh-audit/items', {'retire': retire})
-        for sku in retire:
-            state['items'].pop(sku, None)
-        _atomic_write(PUSH_STATE, json.dumps(state, ensure_ascii=False))
-        print(f'[audit] снято карточек: {r.get("retired", 0)} из {len(retire)} (роль без меша / товара нет)', flush=True)
+        # Забываем sku только когда прод ПОДТВЕРДИЛ, что умеет retire (ключ в ответе): старая
+        # версия ручки молча отбрасывает неизвестное поле, и карточки остались бы навсегда.
+        if 'retired' in r:
+            for sku in retire:
+                state['items'].pop(sku, None)
+            _atomic_write(PUSH_STATE, json.dumps(state, ensure_ascii=False))
+            print(f'[audit] снято карточек: {r["retired"]} из {len(retire)} (роль без меша / товара нет)', flush=True)
     sent = 0
     for i in range(0, len(changed), 300):
         chunk = changed[i:i + 300]
