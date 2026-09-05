@@ -1,6 +1,8 @@
 ---
 slug: topview-from-mesh
 status: in_progress
+created: 2026-08-31
+title: Вид сверху из мешей для планировщика (тест /test/topview-test/)
 owner_approved: 2026-08-31 «делай»
 updated: 2026-09-02
 ---

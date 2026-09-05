@@ -52,7 +52,7 @@ last_verified: 2026-08-06
   Merchant ID (mid = `_id` в shops.json): divan.ru 112923, sanok.ru 109882, petrovich.ru 94804,
   ormatek.com 93965, nonton.ru 116933, askona.ru 111950, tvoydom.ru 99272, lemanapro.ru 95644,
   mnogomebeli.com 114667, maxidom.ru 117043, lazurit.com 102708, gipfel.ru 112098,
-  divanboss.ru 114082, h-f-l.ru 110353. План интеграции — [[gdeslon-catalog]].
+  divanboss.ru 114082, h-f-l.ru 110353. План интеграции — `archive/plans/gdeslon-catalog.md`.
 - **Гдеслон API (подтверждено ресёрчем 2026-08-01, доки = FAQ gdeslon.ru/faq/17,20,21,23,24,26):**
   - **Товарные фиды**: создаются владельцем в кабинете `/export_files/` (выбор магазинов/категорий →
     постоянная ссылка; URL содержит ключ = секрет). Формат **YML (Яндекс.Маркет XML) в ZIP** с одним
@@ -161,7 +161,7 @@ PNG 512 от владельца (Drive `1l2j65g8…`) → `public/icons/`; вс�
   кадр «базовый рендер + 6–10 пообъектных врисовок» ≈ $0.03–0.06. Аренда своей GPU
   ($95–409/мес) окупается от ~5000 кадров в месяц — сейчас не нужна.
 - Где применяется: LaMa-стирание в `services/room-measure/run_viz.py`; планируется
-  depth-ControlNet + пообъектный инпейнт для мебельного трека ([[llm-layout-planner]]).
+  depth-ControlNet + пообъектный инпейнт для мебельного трека (`archive/plans/llm-layout-planner.md`).
 
 
 ## Реестр

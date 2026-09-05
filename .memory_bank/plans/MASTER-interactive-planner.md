@@ -3,8 +3,10 @@ workstream: product
 slug: MASTER-interactive-planner
 title: МЕТАПЛАН — интерактивный планировщик комнаты (предпосчёт вариантов → ручные правки → примерка товара → рендер)
 status: draft
+parent_plan: MASTER-cost-first
+plan_kind: track_master
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-09-05
 completed:
 ---
 

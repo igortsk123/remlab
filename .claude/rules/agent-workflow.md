@@ -28,7 +28,8 @@ description: Двухэтапный workflow агента — план пере�
    аудит дал много находок `CODE-DRIFT` и сверять надо доки, а не план.
 4. Обновить Memory Bank (**ОБЯЗАТЕЛЬНО перед `completed`**, `memory-discipline.md`):
    - затронутые `core/*` сводки обновлены (`updated:`); новая крупная область → создана `core/<домен>.md`;
-   - решения → `decisions.md` (ADR); смена этапа → `project-state.md` (снимок ПЕРЕПИСАТЬ,
+   - решения → ADR: текст в текущий том `decisions/adr-*.md` + строка в индекс `decisions.md`;
+     смена этапа → `project-state.md` (снимок ПЕРЕПИСАТЬ,
      историю — в `changelog/project-history.md`);
    - отброшенные подходы / грабли сессии → `core/lessons.md` (инкрементальные bullets) и
      поле «Уроки» в Completion summary плана;

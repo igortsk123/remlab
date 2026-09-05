@@ -12,7 +12,7 @@ status: working
 # Расстановка — Tier 1
 
 **Правила**: `../domain/occupancy-rules.md` → `services/planner-solver/rules/occupancy.json`.
-**Прод-ядро** (ADR-0052): Python+shapely, БЕЗ ML; детерминизм ([[layout-engine-gaps]]).
+**Прод-ядро** (ADR-0052): Python+shapely, БЕЗ ML; детерминизм (`archive/plans/layout-engine-gaps.md`).
 
 **Зонный — боевой дефолт (ADR-0074…0078):** `services/planner-solver/planner/zones.py`.
 **Шаблоны/модификаторы (ADR-0088…0094):** паспорт+инварианты

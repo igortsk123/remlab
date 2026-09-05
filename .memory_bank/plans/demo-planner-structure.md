@@ -2,8 +2,13 @@
 tier: 2
 topic: demo-planner-structure
 scope: Демо интерактивного планировщика — вкладки, лента фотографий, отправка себе
-updated: 2026-08-28
+updated: 2026-09-05
 status: partial
+review_after: 2026-10-05
+resume_trigger: следующий раунд демо-планировщика (MASTER-interactive-planner)
+pause_reason: часть внедрена (ADR-0158/0161), дальнейшая работа ушла в пул мешей и кадр демо
+created: 2026-08-26
+title: Структура демо-планировщика — витрина и конструктор, серверное хранение кадров
 importance: high
 source: manual
 ---

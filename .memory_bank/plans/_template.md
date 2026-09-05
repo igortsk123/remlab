@@ -33,7 +33,7 @@ completed:
 - [ ] Не задеты файлы вне scope
 
 ## Definition of Done — память (без этого `completed` запрещён)
-- [ ] Memory Bank обновлён: затронутые `core/*`, `decisions.md`, `project-state.md` (снимок, не журнал)
+- [ ] Memory Bank обновлён: затронутые `core/*`, ADR (том `decisions/` + строка в `decisions.md`), `project-state.md` (снимок, не журнал)
 - [ ] Фича вводит НОВУЮ функциональную область → заведена `core/<домен>.md`, видна в decision tree (INDEX)
 - [ ] «Уроки» (ниже) заполнены; отброшенные подходы перенесены в `core/lessons.md` (инкрементальные bullets)
 - [ ] `/memory-check` выполнен, audit «чисто»

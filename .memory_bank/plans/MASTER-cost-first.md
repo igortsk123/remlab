@@ -2,9 +2,10 @@
 workstream: master
 slug: MASTER-cost-first
 title: МАСТЕР-ПЛАН v0.4 «Смета-first» — расчёт ремонта/материалов как ядро продукта
-status: active
+status: in_progress
+plan_kind: portfolio_master
 created: 2026-07-11
-updated: 2026-07-11
+updated: 2026-09-05
 completed:
 ---
 

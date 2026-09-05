@@ -3,8 +3,14 @@ workstream: layout
 slug: MASTER-zones-v7
 title: МЕТАПЛАН — свод №13 (слепая оценка раунд 1 + каталог nook): ключ по глазу владельца, кресла к ТВ, фронтальная зона, банк→солвер, nook/консоль из фида
 status: partial
+owner_decision_required: да — возобновление трека расстановки
+review_after: 2026-10-05
+resume_trigger: решение владельца о возобновлении расстановки после пула мешей
+pause_reason: расстановка заморожена владельцем 19.08 (ситуационные каноны, ADR-0112); фокус ушёл в конвейер мешей
+parent_plan: MASTER-cost-first
+plan_kind: track_master
 created: 2026-08-16
-updated: 2026-08-16
+updated: 2026-09-05
 completed:
 ---
 

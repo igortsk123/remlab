@@ -2,9 +2,12 @@
 workstream: layout/pipeline
 slug: exam-hardening-2208
 title: Фиксы по ночному экзамену 22.08 — heal-ворота, шедулер, перф-профиль, ковёр Г-дивана
-status: in_progress
+status: partial
+review_after: 2026-10-05
+resume_trigger: возобновление расстановки (MASTER-zones-v7)
+pause_reason: ночной экзамен расстановки заморожен вместе с канонами (19–22.08), движения нет с 22.08
 created: 2026-08-22
-updated: 2026-08-22
+updated: 2026-09-05
 completed:
 ---
 

@@ -3,6 +3,10 @@ workstream: layout
 slug: q12-situational-canon
 title: Q12 — ситуационный канон (функция × якорь × форма) и честное включение приоров практики
 status: partial
+owner_decision_required: да
+review_after: 2026-10-05
+resume_trigger: решение владельца о возобновлении расстановки
+pause_reason: заморожен владельцем 19.08 вместе с расстановкой (ситуационные каноны)
 created: 2026-08-19
 updated: 2026-09-05
 completed:
