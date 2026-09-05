@@ -21,6 +21,22 @@ export async function sendDecision(item: Pick<AuditItemView, "id" | "generationK
   }
 }
 
+export async function cancelDecision(item: Pick<AuditItemView, "id" | "generationKey">): Promise<DecideOutcome> {
+  try {
+    const r = await fetch("/api/lab/mesh-audit/decisions", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ itemId: item.id, generationKey: item.generationKey }),
+    });
+    if (r.status === 401) return { kind: "login" };
+    const data = (await r.json().catch(() => ({}))) as { item?: AuditItemView; error?: string; code?: string };
+    if (!r.ok || !data.item) return { kind: "error", code: data.code, message: data.error ?? `HTTP ${r.status}` };
+    return { kind: "ok", item: data.item };
+  } catch (e) {
+    return { kind: "error", message: e instanceof Error ? e.message : "нет связи" };
+  }
+}
+
 export async function loadBatchState(): Promise<BatchStateView | null> {
   try {
     const r = await fetch("/api/lab/mesh-audit/batch", { cache: "no-store" });

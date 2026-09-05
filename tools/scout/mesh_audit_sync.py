@@ -148,11 +148,50 @@ def pull() -> int:
     return n
 
 
-def _cursor() -> int:
+def _cursor(path: str = CURSOR) -> int:
     try:
-        return int(open(CURSOR).read().strip() or 0)
+        return int(open(path).read().strip() or 0)
     except (OSError, ValueError):
         return 0
+
+
+CANCEL_CURSOR = os.path.join(STATE_DIR, 'cancellations.cursor')
+
+
+def revert_decision(c: dict) -> None:
+    """Откат случайного клика одной транзакцией: инбокс, вердикт поколения, статус ревизии,
+    привязка товара (переделает `mesh_bind`), sidecar. Ничего не удаляется, кроме нашей же
+    строки инбокса и нашего же sidecar-файла."""
+    gk, sku, did = c['generationKey'], c['sku'], int(c['decisionId'])
+    rows = db(f"select path from mesh_generations where generation_key={q(gk)}")
+    db('\n'.join([
+        'begin;',
+        f"delete from mesh_rework_requests where prod_decision_id={did} and status in ('requested','blocked');",
+        f"update mesh_rework_requests set status='cancelled', updated=now() where prod_decision_id={did} and status<>'done';",
+        f"update mesh_generations set owner_verdict=null, owner_decision_id=null, owner_verdict_at=null, updated=now() "
+        f"where generation_key={q(gk)} and owner_decision_id={did};",
+        f"update asset_revisions set status='generated', rejected_reason=null, updated=now() "
+        f"where sku={q(sku)} and current_generation_key={q(gk)} and status in ('owner_reject','replace_needed');",
+        'commit;']))
+    if rows and rows[0]:
+        try:
+            os.remove(os.path.join(rows[0][0], 'owner_reject.json'))
+        except OSError:
+            pass
+
+
+def pull_cancellations() -> int:
+    r = api('GET', f'/api/lab/mesh-audit/cancellations?after_id={_cursor(CANCEL_CURSOR)}')
+    n = 0
+    for c in r.get('cancellations', []):
+        revert_decision(c)
+        _atomic_write(CANCEL_CURSOR, str(c['id']))
+        n += 1
+    if n:
+        import mesh_bind
+        mesh_bind.bind_ready()          # товар снова привязан к своему мешу
+        print(f'[audit] отменено решений: {n}', flush=True)
+    return n
 
 
 # ---------------------------------------------------------------- push: карточки и ACK
@@ -276,7 +315,7 @@ def tick() -> None:
     """Шаги независимы: упавший pull (например, 502 во время деплоя прода) не должен отменять
     публикацию постеров и обслуживание партии — каждый шаг ловит своё и жалуется в лог."""
     os.makedirs(STATE_DIR, exist_ok=True)
-    for step in (pull, publish_posters, push, serve_batches):
+    for step in (pull, pull_cancellations, publish_posters, push, serve_batches):
         try:
             step()
         except Exception as e:  # noqa: BLE001 — следующий тик повторит; молчать нельзя

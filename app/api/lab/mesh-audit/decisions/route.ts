@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { machineOk, originOk, reviewerOk } from "@/lib/mesh-review/auth";
-import { decide, listDecisions } from "@/lib/mesh-audit/repo-decisions";
+import { cancel, decide, listDecisions } from "@/lib/mesh-audit/repo-decisions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +31,18 @@ export async function POST(req: Request): Promise<Response> {
     }
     throw e;
   }
+}
+
+// DELETE — владелец отменяет случайный клик (пока переделка не ушла в очередь).
+export async function DELETE(req: Request): Promise<Response> {
+  if (!(await reviewerOk())) return NextResponse.json({ error: "нет доступа" }, { status: 401 });
+  if (!(await originOk())) return NextResponse.json({ error: "bad origin" }, { status: 403 });
+  const parsed = z
+    .object({ itemId: z.number().int().positive(), generationKey: z.string().min(1) })
+    .safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: "неверный запрос" }, { status: 400 });
+  const r = await cancel(parsed.data.itemId, parsed.data.generationKey);
+  return NextResponse.json(r.body, { status: r.http });
 }
 
 // GET ?after_id=N — конвейер забирает решения курсором.

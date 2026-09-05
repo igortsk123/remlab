@@ -245,6 +245,23 @@ export const meshAuditDecisions = pgTable(
   ],
 );
 
+// Отмена случайного клика (владелец 05.09): решение удаляется из журнала, а факт отмены
+// остаётся здесь append-only — конвейер забирает курсором и откатывает у себя.
+export const meshAuditCancellations = pgTable(
+  "mesh_audit_cancellations",
+  {
+    id: serial("id").primaryKey(),
+    decisionId: integer("decision_id").notNull(),
+    itemId: integer("item_id").notNull(),
+    sku: text("sku").notNull(),
+    generationKey: text("generation_key").notNull(),
+    verdict: text("verdict").notNull(),
+    manualAttemptNo: integer("manual_attempt_no").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("mesh_audit_cancellations_item_idx").on(t.itemId)],
+);
+
 export const meshAuditBatches = pgTable(
   "mesh_audit_batches",
   {

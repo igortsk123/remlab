@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
-import { sendDecision } from "@/lib/mesh-audit/client";
+import { cancelDecision, sendDecision } from "@/lib/mesh-audit/client";
 import { MAX_MANUAL_REDO, PENDING_STATUSES, type Verdict } from "@/lib/mesh-audit/rules";
 import type { AuditItemView } from "@/lib/mesh-audit/types";
 
@@ -37,18 +37,22 @@ export function MeshAuditCard({ item: initial, rank, modelUrl }: Props) {
   const pending = PENDING_STATUSES.has(item.status);
   const canRedo = !pending && item.status !== "replace_needed" && item.manualAttempts < MAX_MANUAL_REDO;
   const canReplace = !pending && item.status !== "replace_needed" && item.manualAttempts >= MAX_MANUAL_REDO;
+  // случайный клик отменяется, пока переделка не ушла в снимок очереди
+  const canCancel = item.status === "redo_requested" || item.status === "replace_needed";
   const badge = stateBadge(item);
   const date = item.generatedAt ? new Date(item.generatedAt).toLocaleDateString("ru-RU") : "—";
 
-  async function decide(verdict: Verdict) {
+  async function act(run: () => ReturnType<typeof sendDecision>) {
     setBusy(true);
     setError(null);
-    const r = await sendDecision(item, verdict);
+    const r = await run();
     if (r.kind === "ok") setItem(r.item);
     else if (r.kind === "login") setError("сессия истекла — обновите страницу");
     else setError(r.message);
     setBusy(false);
   }
+  const decide = (verdict: Verdict) => act(() => sendDecision(item, verdict));
+  const undo = () => act(() => cancelDecision(item));
 
   return (
     <section className="flex flex-col gap-2 rounded-xl border border-secondary p-3" data-sku={item.sku}>
@@ -111,6 +115,11 @@ export function MeshAuditCard({ item: initial, rank, modelUrl }: Props) {
         {canReplace && (
           <Button size="sm" color="secondary" isDisabled={busy} isLoading={busy} onClick={() => void decide("replace_needed")}>
             Нужна замена товара/фото
+          </Button>
+        )}
+        {canCancel && (
+          <Button size="sm" color="tertiary" isDisabled={busy} isLoading={busy} onClick={() => void undo()}>
+            Отменить (нажал случайно)
           </Button>
         )}
       </div>

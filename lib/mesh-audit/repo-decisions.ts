@@ -2,10 +2,10 @@
 // смена состояния) и курсор для конвейера. Две вкладки разом: строка карточки берётся
 // `for update`, плюс уникальность (sku, manual_attempt_no) в схеме — третьей «первой» не будет.
 
-import { asc, eq, gt } from "drizzle-orm";
+import { asc, desc, eq, gt } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { meshAuditDecisions, meshAuditItems } from "@/db/schema";
-import { checkDecision, type Verdict } from "./rules";
+import { meshAuditCancellations, meshAuditDecisions, meshAuditItems } from "@/db/schema";
+import { checkCancel, checkDecision, type Verdict } from "./rules";
 import { toView } from "./repo-items";
 import type { AuditItemView } from "./types";
 
@@ -37,6 +37,50 @@ export async function decide(itemId: number, generationKey: string, verdict: Ver
     if (!upd) return { http: 404, body: { error: "карточка исчезла во время записи", code: "not_found" } };
     return { http: 200, body: { ok: true, item: toView(upd) } };
   });
+}
+
+// Отмена случайного клика: последнее решение по этому поколению удаляется из журнала, факт
+// отмены пишется append-only (конвейер откатит у себя), карточка возвращается в open и попытка
+// возвращается владельцу. Только пока переделка не ушла в снимок очереди.
+export async function cancel(itemId: number, generationKey: string): Promise<DecideResult> {
+  return db().transaction(async (tx) => {
+    const [item] = await tx.select().from(meshAuditItems).where(eq(meshAuditItems.id, itemId)).for("update");
+    if (!item) return { http: 404, body: { error: "нет карточки", code: "not_found" } };
+    const [last] = await tx
+      .select()
+      .from(meshAuditDecisions)
+      .where(eq(meshAuditDecisions.itemId, item.id))
+      .orderBy(desc(meshAuditDecisions.id))
+      .limit(1);
+    if (!last || last.generationKey !== generationKey) return { http: 409, body: { error: "нечего отменять", code: "not_pending" } };
+    const chk = checkCancel(item, generationKey, last.verdict);
+    if (!chk.ok) return { http: chk.http, body: { error: chk.message, code: chk.code } };
+    await tx.insert(meshAuditCancellations).values({
+      decisionId: last.id,
+      itemId: item.id,
+      sku: item.sku,
+      generationKey,
+      verdict: last.verdict,
+      manualAttemptNo: last.manualAttemptNo,
+    });
+    await tx.delete(meshAuditDecisions).where(eq(meshAuditDecisions.id, last.id));
+    const [upd] = await tx
+      .update(meshAuditItems)
+      .set({ manualAttempts: chk.manualAttempts, status: "open", reworkStatus: null, reworkError: null, updatedAt: new Date() })
+      .where(eq(meshAuditItems.id, item.id))
+      .returning();
+    if (!upd) return { http: 404, body: { error: "карточка исчезла во время записи", code: "not_found" } };
+    return { http: 200, body: { ok: true, item: toView(upd) } };
+  });
+}
+
+export async function listCancellations(afterId: number, limit = 200) {
+  return db()
+    .select()
+    .from(meshAuditCancellations)
+    .where(gt(meshAuditCancellations.id, afterId))
+    .orderBy(asc(meshAuditCancellations.id))
+    .limit(limit);
 }
 
 // Курсор для DEV: решения по возрастанию id после after_id; курсор двигает конвейер у себя и

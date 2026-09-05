@@ -60,6 +60,21 @@ export function checkDecision(item: ItemState, generationKey: string, verdict: V
   return { ok: true, attemptNo: item.manualAttempts + 1, manualAttempts: item.manualAttempts, status: "replace_needed" };
 }
 
+// Отмена случайного клика возможна, пока переделка не ушла в снимок очереди (redo_requested) —
+// или для «нужна замена» (она никуда не едет). Что уже в очереди — не отменяем: задание поедет.
+export type CancelCheck =
+  | { ok: true; manualAttempts: number }
+  | { ok: false; http: 409; code: "not_pending" | "queued"; message: string };
+
+export function checkCancel(item: ItemState, generationKey: string, verdict: string): CancelCheck {
+  if (item.generationKey !== generationKey) return { ok: false, http: 409, code: "not_pending", message: "меш уже заменён — обновите страницу" };
+  if (item.status === "redo_queued") return { ok: false, http: 409, code: "queued", message: "уже в очереди — отменить нельзя" };
+  if (item.status !== "redo_requested" && item.status !== "replace_needed") {
+    return { ok: false, http: 409, code: "not_pending", message: "нечего отменять" };
+  }
+  return { ok: true, manualAttempts: verdict === "redo" ? Math.max(0, item.manualAttempts - 1) : item.manualAttempts };
+}
+
 // ACK конвейера → статус карточки. `done` статус не меняет: новое поколение приедет через push
 // списка и само переведёт карточку в open с пометкой «сделан заново».
 export function reworkToItemStatus(rework: string): ItemStatus | null {

@@ -56,3 +56,17 @@ create table if not exists mesh_audit_batches (
   updated_at timestamptz not null default now()
 );
 create index if not exists mesh_audit_batches_status_idx on mesh_audit_batches (status);
+
+-- Отмена случайного клика (владелец 05.09): решение удаляется, факт отмены — append-only,
+-- конвейер забирает курсором after_id и откатывает у себя.
+create table if not exists mesh_audit_cancellations (
+  id serial primary key,
+  decision_id integer not null,
+  item_id integer not null,
+  sku text not null,
+  generation_key text not null,
+  verdict text not null,
+  manual_attempt_no integer not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists mesh_audit_cancellations_item_idx on mesh_audit_cancellations (item_id);

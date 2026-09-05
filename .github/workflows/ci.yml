@@ -98,7 +98,7 @@ jobs:
           for t in projects generation_runs generation_steps generation_assets estimates \
                    link_clicks link_routes leads lead_messages style_results \
                    mesh_review_tasks mesh_review_decisions \
-                   mesh_audit_items mesh_audit_decisions mesh_audit_batches; do
+                   mesh_audit_items mesh_audit_decisions mesh_audit_batches mesh_audit_cancellations; do
             got=$(psql -h localhost -U remlab -d remlab -tAc "select to_regclass('public.$t')")
             [ "$got" = "$t" ] || { echo "НЕТ таблицы $t после применения db/init"; exit 1; }
           done

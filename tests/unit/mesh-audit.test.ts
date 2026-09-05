@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   batchCount,
   batchOfPage,
+  checkCancel,
   checkDecision,
   clampPage,
   MAX_MANUAL_REDO,
@@ -61,6 +62,15 @@ describe("mesh-audit: решение владельца", () => {
     expect(ok).toEqual({ ok: true, attemptNo: 3, manualAttempts: 2, status: "replace_needed" });
     const again = checkDecision({ ...open, manualAttempts: 2, status: "replace_needed" }, "g1", "replace_needed");
     expect(again.ok).toBe(false);
+  });
+  it("отмена случайного клика: только пока не в очереди; попытка возвращается", () => {
+    expect(checkCancel({ ...open, manualAttempts: 1, status: "redo_requested" }, "g1", "redo")).toEqual({ ok: true, manualAttempts: 0 });
+    expect(checkCancel({ ...open, manualAttempts: 2, status: "replace_needed" }, "g1", "replace_needed")).toEqual({ ok: true, manualAttempts: 2 });
+    const queued = checkCancel({ ...open, manualAttempts: 1, status: "redo_queued" }, "g1", "redo");
+    expect(queued.ok).toBe(false);
+    if (!queued.ok) expect(queued.code).toBe("queued");
+    expect(checkCancel(open, "g1", "redo").ok).toBe(false);
+    expect(checkCancel({ ...open, status: "redo_requested" }, "g0", "redo").ok).toBe(false);
   });
   it("ACK конвейера: queued/running → в очереди, blocked → ошибка, done не трогает статус", () => {
     expect(reworkToItemStatus("queued")).toBe("redo_queued");
