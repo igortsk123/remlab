@@ -21,7 +21,20 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SAMPLE = os.environ.get('MESH_SAMPLE') or os.path.join(HERE, '..', 'mesh-pilot-sample.json')
-DONE = os.path.join(HERE, '..', 'mesh-batch-progress.json')
+# КУРСОР — ПО ИМЕНИ СНИМКА (05.09, план mesh-owner-audit). Позиционный `done` осмыслен только для
+# того файла, по которому шёл: общий `mesh-batch-progress.json` после пересборки очереди указывал
+# бы в другой порядок и повторно гнал бы уже сделанное (регламент rules/mesh-priority.json
+# §identity). Старый общий файл читается один раз — для снимка v1, по которому он и был набит.
+DONE = SAMPLE + '.progress.json'
+LEGACY_DONE = os.path.join(HERE, '..', 'mesh-batch-progress.json')
+
+
+def load_cursor() -> int:
+    if os.path.exists(DONE):
+        return int(json.load(open(DONE)).get('done', 0))
+    if os.path.basename(SAMPLE) == 'mesh-queue-v1.json' and os.path.exists(LEGACY_DONE):
+        return int(json.load(open(LEGACY_DONE)).get('done', 0))
+    return 0
 PY = os.path.expanduser('~/venvs/scout/bin/python')
 NO_CAPACITY = 75   # код ssh_run «нет тёплых нод» — ждём и повторяем, это не авария
 # 75 = EX_TEMPFAIL: «сейчас не смог, повтори позже». Тот же смысл у drain.sh, когда замок
@@ -635,7 +648,7 @@ def _main():
     # ролей (1503): конвейер останавливался на 1465 и последние 38 заданий не запрашивал.
     jobs = SR.plan_jobs()
     total = len(jobs) if mx is None else min(mx, len(jobs))
-    done = json.load(open(DONE))['done'] if os.path.exists(DONE) else 0
+    done = load_cursor()
     print(f'план {total}, уже пройдено {done}, пачка {batch}', flush=True)
     # ПОТРЕБНОСТЬ СЧИТАЕТСЯ, А НЕ ХРАНИТСЯ (владелец 01.09: «конвейер чётко должен работать,
     # надо исключалось и помечалось верно»): ковры/пледы/шторы/зеркала/картины идут плоскостью
