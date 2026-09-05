@@ -31,7 +31,6 @@ draft → in_progress → completed → перенос в completed_plans/
   демо-планировщик (`MASTER-interactive-planner`, `demo-collection-flow`, `topview-from-mesh`,
   `demo-planner-structure` — пауза), каталог (`stock-check-weekly-unified`, `stock-truth-page-verdict`).
 - **На паузе (ждёт владельца):** расстановка — `MASTER-zones-v7`, `q12-situational-canon`, `exam-hardening-2208`.
-- **Память:** `memory-bank-audit-2026-09`.
 
 ## Реестр активных планов
 
@@ -41,7 +40,6 @@ draft → in_progress → completed → перенос в completed_plans/
 | slug | Название | status | created | updated |
 |------|----------|--------|---------|---------|
 | mesh-owner-audit | Ручная приёмка мешей владельцем — страница по 20, кнопка «переделать», честная очередь | in_progress | 2026-09-05 | 2026-09-05 |
-| memory-bank-audit-2026-09 | Аудит Memory Bank 2026-09 — регулярность, дефекты, реструктуризация (ADR-тома, уроки, планы, intake, Tier 0) | draft | 2026-09-05 | 2026-09-05 |
 | health-map-apex-redirect | Апекс health-map.online — 302-редирект на 2mnenie.online (домен перестаёт быть мёртвым) | draft | 2026-09-05 | 2026-09-05 |
 | mesh-pool-hardening | Работа над ошибками пула мешей — приёмник, стопоры, транспорт, OOM, цена | in_progress | 2026-09-04 | 2026-09-04 |
 | stock-check-weekly-unified | Одно правило проверки наличия — раз в неделю для всех; непроверяемым верим Гдеслону | in_progress | 2026-09-01 | 2026-09-01 |
