@@ -22,13 +22,16 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import salad_groups as SG  # noqa: E402 — тариф/цена группы: ОДИН источник (rules/salad-groups.json)
+import proc_run as PR      # noqa: E402 — шаг оболочки без сирот
 import sink_health as SH   # noqa: E402 — приёмник: красный = общая беда, а не вина нод
+import ssh_run as SR       # noqa: E402 — ОДНА цепочка уборки приёмника на всех
 JOURNAL = os.path.join(HERE, '..', 'mesh-run-progress.jsonl')
 SNAPSHOT = os.path.expanduser('~/scout-scenes/salad-groups-snapshot.json')
 HEARTBEAT_H = int(os.environ.get('MESH_GUARD_HEARTBEAT_H', '8'))   # UTC
@@ -63,6 +66,14 @@ BUDGET_NODE_MIN = float(os.environ.get('MESH_GUARD_NODE_MIN', '120'))
 # меша — ещё 4, так что 40 минут тишины при живых нодах — это уже поломка, а не разогрев.
 MIN_WALL_MIN = float(os.environ.get('MESH_GUARD_WALL_MIN', '40'))
 TICK_S = float(os.environ.get('MESH_GUARD_TICK_S', '300'))
+# РАННЯЯ ТРЕВОГА — ЗАДОЛГО ДО ГАШЕНИЯ (05.09, цель владельца «меш не дороже 1.5 ₽»).
+# Порог гашения (120 нодо-минут + 40 мин тишины) — предохранитель от разорения, а не инструмент
+# цены. Пока он ждёт, простой уже сделан: 05.09 пул простоял ~30 минут на переполненном приёмнике
+# и превратил час по 0.8 ₽ за меш в час по 2.4–3.9 ₽. Цену портит НЕ тариф, а остановки: платим
+# за `running` всегда, а мешей в это время нет. Поэтому кричим и пробуем лечить рано — на 40
+# оплаченных нодо-минутах и 8 минутах тишины, то есть примерно втрое раньше гашения.
+ALARM_NODE_MIN = float(os.environ.get('MESH_GUARD_ALARM_NODE_MIN', '40'))
+ALARM_WALL_MIN = float(os.environ.get('MESH_GUARD_ALARM_WALL_MIN', '8'))
 API = 'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers'
 
 
@@ -132,6 +143,28 @@ def census(group: str) -> dict:
 
 def running_count(group: str) -> int:
     return census(group).get('running', 0)
+
+
+def conveyor_alive() -> bool:
+    """Жив ли конвейер. ЧЕРЕЗ `ps -eo args`, А НЕ `pgrep -f`: pgrep -f матчит собственную
+    команду обёртки и убивает сессию агента (урок 399, гард в PreToolUse)."""
+    try:
+        r = subprocess.run(['ps', '-eo', 'args'], capture_output=True, text=True, timeout=20)
+        return any('batch_show.py' in ln for ln in r.stdout.splitlines())
+    except Exception:  # noqa: BLE001 — не смогли посмотреть: не утверждаем, что мёртв
+        return True
+
+
+def relief() -> None:
+    """Попробовать вылечить простой самим: та же цепочка, что у конвейера (стащить → реестр →
+    пометка в базе → чистка). Фоном, чтобы не задерживать тик сторожа; drain защищён своим
+    замком, поэтому наложение на конвейер безопасно."""
+    def work() -> None:
+        for step, cmd in SR.SINK_RELIEF_CHAIN:
+            rc, out = PR.run_step(cmd, timeout=1800)
+            last = (out.strip().splitlines() or [''])[-1][:120]
+            print(f'  [сторож: уборка] {step}: rc={rc} {last}', flush=True)
+    threading.Thread(target=work, daemon=True).start()
 
 
 def notify(text: str) -> bool:
@@ -316,6 +349,7 @@ def main() -> int:
             st['idle_node_min'] = 0.0
             st['silent_since'] = 0.0
             st['last_seen_mesh'] = mesh_at
+            st['alarmed'] = False       # эпизод простоя закончился — тревожить можно снова
         elif n > 0:
             st['idle_node_min'] += n * (TICK_S / 60.0)
             if not st.get('silent_since'):
@@ -338,8 +372,23 @@ def main() -> int:
                 st['silent_since'] = 0.0
             else:
                 print(f'{time.strftime("%H:%M")} работающих нод нет — не платим, жду', flush=True)
-        save(st)
         wall_min = (time.time() - st['silent_since']) / 60.0 if st.get('silent_since') else 0.0
+        # РАННЯЯ ТРЕВОГА: платим и не производим — сказать человеку и попробовать вылечить самим,
+        # не дожидаясь порога гашения. Один раз на эпизод простоя (флаг снимается, когда пошли меши).
+        if (n > 0 and not st.get('alarmed')
+                and st['idle_node_min'] >= ALARM_NODE_MIN and wall_min >= ALARM_WALL_MIN):
+            st['alarmed'] = True
+            alive = conveyor_alive()
+            why = (f'приёмник: {sink["why"]}' if not sink['ok']
+                   else 'конвейер не запущен' if not alive else 'причина неясна')
+            print(f'{time.strftime("%H:%M")} !! ПЛАТИМ И НЕ ПРОИЗВОДИМ: {n} нод, '
+                  f'{st["idle_node_min"]:.0f} нодо-минут, тишина {wall_min:.0f} мин — {why}', flush=True)
+            notify(f'Меши: платим и не производим. Нод {n}, тишина {wall_min:.0f} мин, '
+                   f'{st["idle_node_min"]:.0f} оплаченных нодо-минут без меша. {why.capitalize()}. '
+                   f'Гашение — на {BUDGET_NODE_MIN:.0f} нодо-минутах.')
+            if not sink['ok']:
+                relief()
+        save(st)
         burst_err, burst_n = failure_burst() if n > 0 else ('', 0)
         # ДВА НЕЗАВИСИМЫХ ПОВОДА ГАСИТЬ:
         #  1) тишина: оплаченные нодо-минуты И долгий простой по часам (медленный, надёжный);

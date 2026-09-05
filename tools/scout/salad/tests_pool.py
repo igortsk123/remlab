@@ -849,6 +849,23 @@ def case_burst_counts_cached() -> None:
     print('  ✓ сторож: cached — живой транспорт (обвала нет), но не новый меш')
 
 
+def case_alarm_before_halt() -> None:
+    """Ранняя тревога обязана срабатывать РАНЬШЕ гашения, иначе она бесполезна.
+
+    05.09 (цель владельца «меш не дороже 1.5 ₽»): цену портит не тариф, а остановки — платим за
+    `running` всегда, мешей в это время нет. Порог гашения (120 нодо-минут + 40 мин) — защита от
+    разорения, а не инструмент цены: пока он ждёт, простой уже сделан. Тревога должна кричать
+    втрое раньше; если пороги когда-нибудь сравняются, она просто не успеет.
+    """
+    import money_guard as G  # noqa: PLC0415
+    assert G.ALARM_NODE_MIN < G.BUDGET_NODE_MIN, 'тревога не раньше гашения по нодо-минутам'
+    assert G.ALARM_WALL_MIN < G.MIN_WALL_MIN, 'тревога не раньше гашения по времени тишины'
+    assert G.ALARM_WALL_MIN >= 5, 'слишком рано: прогрев ноды укладывается в 5–8 минут'
+    # состав шагов лечения у сторожа — тот же, что у конвейера (одна цепочка на всех)
+    assert G.SR.SINK_RELIEF_CHAIN and any('mesh_bind' in c for _, c in G.SR.SINK_RELIEF_CHAIN)
+    print('  ✓ тревога сторожа срабатывает раньше гашения и лечит той же цепочкой')
+
+
 def case_notify_reports() -> None:
     """notify() честно говорит, доставлено ли, и не роняет сторожа при сбое."""
     import money_guard as G  # noqa: PLC0415
@@ -906,7 +923,7 @@ def main() -> None:
                 case_silent_node_is_zombie, case_sink_relief_before_red,
                 case_transport_class, case_window_gate, case_group_status_mixed,
                 case_step_timeout_kills_children, case_no_restart_of_running_group,
-                case_burst_counts_cached, case_notify_reports, case_hot_restart)
+                case_burst_counts_cached, case_alarm_before_halt, case_notify_reports, case_hot_restart)
         for fn in (case_late_node, case_bad_node, case_unresolved, case_prefix,
                    case_stall_is_capacity, case_no_capacity, case_cull_rule, case_checkpoint,
                    case_fault_classes, case_streak_rules, case_streak_survives_restart,
@@ -917,7 +934,7 @@ def main() -> None:
                    case_transport_class, case_window_gate, case_group_status_mixed,
                    case_step_timeout_kills_children, case_no_restart_of_running_group,
                    case_silent_node_is_zombie, case_sink_relief_before_red,
-                   case_burst_counts_cached, case_notify_reports, case_hot_restart):
+                   case_burst_counts_cached, case_alarm_before_halt, case_notify_reports, case_hot_restart):
             if fn not in pure:
                 setup(tmp)
             fn()
