@@ -569,6 +569,42 @@ def case_transport_class() -> None:
     print('  ✓ классы транспорта и инфры: 8 проверок')
 
 
+def case_sink_relief_before_red() -> None:
+    """Уборка транзита запускается на ЖЁЛТОМ пороге, до остановки пула.
+
+    05.09: за час одна пауза в 17.6 мин — все воркеры разом встали на красном приёмнике
+    (`while not _SINK['ok']`) и разом пошли, когда уборка по таймеру освободила место.
+    18 минут простоя при ~20 оплаченных машинах = ~7 нодо-часов из 16. Защита сработала верно,
+    но уборка была реактивной. Здесь проверяем, что она стала упреждающей — и что дроссель
+    не плодит параллельные заходы, пока предыдущий разбор ещё идёт.
+    """
+    import ssh_run as SR  # noqa: PLC0415
+    started = []
+    real_thread = SR.threading.Thread
+    SR.threading.Thread = lambda target, daemon=None: type(  # noqa: ARG005 — стенд не запускает уборку
+        'T', (), {'start': lambda _self: started.append(1)})()
+    SR._RELIEF.update(busy=False, at=0.0)
+    t = 1_000_000.0
+    try:
+        # ниже жёлтого порога — не трогаем: кэш «уже сделано» экономит GPU на повторах
+        assert SR.sink_relief(SR.SINK_YELLOW_GB - 0.1, t) is False, 'убрал раньше времени'
+        assert not started
+        # на пороге — запускаем, ДО красной черты (красная = max_dir - 1)
+        assert SR.sink_relief(SR.SINK_YELLOW_GB, t) is True, 'не убрал на жёлтом'
+        assert len(started) == 1
+        # пока предыдущая уборка идёт — второй заход не плодим
+        assert SR.sink_relief(99.0, t + 1) is False, 'запустил вторую уборку поверх идущей'
+        SR._RELIEF['busy'] = False
+        # дроссель: сразу после уборки не повторяем
+        assert SR.sink_relief(99.0, t + 1) is False, 'проигнорировал дроссель'
+        assert SR.sink_relief(99.0, t + SR.SINK_RELIEF_COOLDOWN_S) is True, 'не убрал после дросселя'
+        assert len(started) == 2
+    finally:
+        SR.threading.Thread = real_thread
+        SR._RELIEF.update(busy=False, at=0.0)
+    print('  ✓ уборка транзита идёт на жёлтом пороге, с дросселем и без наложений')
+
+
 def case_silent_node_is_zombie() -> None:
     """Молчащая нода становится зомби — но не сразу, и с ОДИНАКОВОЙ причиной для группировки.
 
@@ -743,7 +779,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         setup(tmp)
         pure = (case_checkpoint, case_cull_rule, case_fault_classes, case_halt_blocks_start,
-                case_silent_node_is_zombie,
+                case_silent_node_is_zombie, case_sink_relief_before_red,
                 case_transport_class, case_window_gate, case_group_status_mixed,
                 case_burst_counts_cached, case_notify_reports, case_hot_restart)
         for fn in (case_late_node, case_bad_node, case_unresolved, case_prefix,
@@ -754,7 +790,7 @@ def main() -> None:
                    case_post_background, case_flat_plan, case_halt_blocks_start,
                    case_preflight_sink_full, case_infra_closes_rest, case_no_double_generate,
                    case_transport_class, case_window_gate, case_group_status_mixed,
-                   case_silent_node_is_zombie,
+                   case_silent_node_is_zombie, case_sink_relief_before_red,
                    case_burst_counts_cached, case_notify_reports, case_hot_restart):
             if fn not in pure:
                 setup(tmp)

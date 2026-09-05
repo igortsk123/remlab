@@ -24,6 +24,8 @@ import time
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# Тот же интерпретатор, что у конвейера: шаги уборки зовутся из venv, а не из системного python.
+PY = os.environ.get('MESH_PY') or os.path.expanduser('~/venvs/scout/bin/python')
 # Файл очереди переопределяется переменной: старый пилотный снимок НЕ переписываем и не
 # удаляем (его курсор --skip осмыслен только для него), а новую очередь в порядке
 # регламента подаём отдельным файлом. Так переключение обратимо.
@@ -225,12 +227,62 @@ def probe_warm(port: int) -> bool:
 PROBE_WORKERS = int(os.environ.get('MESH_PROBE_WORKERS', '6'))
 
 
+# УПРЕЖДАЮЩАЯ УБОРКА ТРАНЗИТА (05.09). Замер: за час 08:15–09:15 была одна пауза в 17.6 минуты —
+# все воркеры разом встали в 08:55 и разом пошли в 09:12. Это цикл `while not _SINK['ok']` ниже:
+# приёмник покраснел, и защита из ADR-0175 честно остановила раздачу, чтобы не жечь GPU на
+# заведомо неудачных отправках. Но 18 минут простоя при двух десятках оплаченных машин — это
+# ~7 нодо-часов из 16, около 30 % стоимости мешей за тот час.
+#
+# Корень не в защите, а в том, что уборка была РЕАКТИВНОЙ: чистка запускалась по таймеру разбора
+# и по факту отказа, то есть уже ПОСЛЕ остановки пула. При 100+ мешах в час приёмник наполняется
+# быстрее (замер: +2.5 ГБ/ч), чем приходит таймер, и упирается в предел 8 ГБ раньше.
+# Теперь супервизор, который и так опрашивает здоровье каждые POLL_S, при пересечении ЖЁЛТОГО
+# порога запускает drain+purge фоном — до того, как приёмник станет красным.
+#
+# Шаги те же, что у аварийной ветки `batch_show` («приёмник не принимает — стаскиваю и чищу
+# СЕЙЧАС»): drain --keep + purge. Гонок нет: у `drain.sh` свой flock (ждёт и возвращает 75), а
+# `receiver_purge` идемпотентен и удаляет только уже скачанное и помеченное в базе.
+SINK_YELLOW_GB = float(os.environ.get('MESH_SINK_YELLOW_GB', '6'))
+SINK_RELIEF_COOLDOWN_S = float(os.environ.get('MESH_SINK_RELIEF_COOLDOWN_S', '600'))
+_RELIEF: dict = {'busy': False, 'at': 0.0}
+
+
+def sink_relief(dir_gb: float, now: float | None = None) -> bool:
+    """Запустить уборку транзита ДО красной черты. True — запустили в этот раз.
+
+    Порог жёлтый, а не красный: на красном пул уже стоит. Дроссель нужен, чтобы при медленной
+    уборке не плодить параллельные заходы — один разбор идёт до 30 минут.
+    """
+    now = now or time.time()
+    if _RELIEF['busy'] or dir_gb < SINK_YELLOW_GB or now - _RELIEF['at'] < SINK_RELIEF_COOLDOWN_S:
+        return False
+    _RELIEF.update(busy=True, at=now)
+    print(f'  приёмник {dir_gb:.1f} ГБ ≥ {SINK_YELLOW_GB:.0f} — упреждающая уборка, пул не '
+          f'останавливаю', flush=True)
+
+    def work() -> None:
+        try:
+            for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh --keep'),
+                              ('чистка', f'{PY} {HERE}/receiver_purge.py --apply')):
+                r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=1800)
+                tail = (r.stdout + r.stderr).strip().splitlines()[-1:] or ['']
+                print(f'  [упреждающая уборка] {step}: rc={r.returncode} {tail[0][:120]}', flush=True)
+        except Exception as e:  # noqa: BLE001 — уборка не должна ронять раздачу
+            print(f'  [упреждающая уборка] сбой: {type(e).__name__}: {str(e)[:80]}', flush=True)
+        finally:
+            _RELIEF['busy'] = False
+
+    threading.Thread(target=work, daemon=True).start()
+    return True
+
+
 def sink_poll(force: bool = False) -> bool:
     """Обновить флаг приёмника. Не чаще POLL_S, кроме `force` (подозрение на 507 у воркера)."""
     now = time.time()
     if not force and now - _SINK['at'] < POLL_S * 0.9:
         return _SINK['ok']
     h = SH.check()
+    sink_relief(float(h.get('dir_gb') or 0), now)
     if _SINK['ok'] and not h['ok']:
         print(f'!! приёмник красный: {h["why"]} — воркеры ждут', flush=True)
     elif not _SINK['ok'] and h['ok']:
