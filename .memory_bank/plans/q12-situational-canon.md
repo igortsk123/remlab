@@ -28,7 +28,7 @@ completed:
 Владелец 19.08: «мы перешли от просто канона как связки предметов зоны к ситуационному канону —
 связке предметов в конкретной ситуации; использовать надо статистические вероятности паттернов;
 прописать стратегически по всей памяти и учесть архитектурно». Разбор Codex —
-`_intake/codex-prompts/q12-situational-canon.answer.md`.
+`_intake/codex/q12-situational-canon.answer.md`.
 
 ## Пакеты (порядок — из разбора Codex)
 - **Q12-0 — термины и ADR.** ADR-0112 записан; онтология зафиксирована; запреты — в `anti-patterns.md`,
@@ -91,7 +91,7 @@ completed:
 - 2026-08-19 (после Q12-1/2/4) — **паспорт приведён к ADR-0112 и библиотека консолидирована**
   (ADR-0113): у всех схем `anchor`+`form` (реестр `templates.anchor_registry`), гейт
   `services/planner-solver/tests/test_passport_situational.py` (в т.ч. «формы из zones.json
-  обязаны быть в паспорте»); аудит с Codex (`_intake/codex-prompts/q12-canon-audit.answer.md`) →
+  обязаны быть в паспорте»); аудит с Codex (`_intake/codex/q12-canon-audit.answer.md`) →
   карточка = (группа, форма), зеркала слиты, `seating.default` расщеплён на 7,
   `situational_fallback`+`requires_certificate` у пяти запасных исходов, три безпаспортные схемы
   заведены; новые каноны `reading.window_pair`/`bay_pair` (`template.build_reading_pair`),
@@ -120,4 +120,4 @@ completed:
   без отчёта, а не падают.
 - **Предложения Codex владельцу (не приняты):** ещё часть схем — в fallback-с-сертификатом; новые
   каноны `dining.window_table` (shadow), `seating.open_center`; список —
-  `_intake/codex-prompts/q12-canon-audit.answer.md`.
+  `_intake/codex/q12-canon-audit.answer.md`.

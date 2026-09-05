@@ -54,7 +54,7 @@
 | Q6a–e | Закрывает catalog/runtime gap: capabilities без смены `cat_role`, атомарный edge nook, round compact, alternative bundles и low-storage/console. Это отдельная каталожная волна и отдельный blind-релиз. |
 | Q7 | Защищает от переобучения на первых десяти парах: 80 новых сравнений + 12 скрытых повторов, партиями по 20; frozen thresholds, Wilson lower bound >0.5 и repeatability ≥10/12 ([MASTER-zones-v7.md](/home/pakar/igor/remlab/.memory_bank/plans/MASTER-zones-v7.md:142)). |
 
-Главный вывод blind round 1: beam как механизм поиска не является корневой проблемой; текущая функция выбора плохо моделирует взгляд владельца. Владелец ставит выше чистый входной маршрут, медиапригодные кресла, отделённую столовую, наполненную ТВ-стену, угловой Г-диван в малой комнате и достаточную посадку в большой ([blind-round1-owner.md](/home/pakar/igor/remlab/.memory_bank/_intake/blind-round1-owner.md:7)).
+Главный вывод blind round 1: beam как механизм поиска не является корневой проблемой; текущая функция выбора плохо моделирует взгляд владельца. Владелец ставит выше чистый входной маршрут, медиапригодные кресла, отделённую столовую, наполненную ТВ-стену, угловой Г-диван в малой комнате и достаточную посадку в большой ([blind-round1-owner.md](/home/pakar/igor/remlab/.memory_bank/_intake/owner/blind-round1-owner.md:7)).
 
 ## D. Что отслеживать дальше
 

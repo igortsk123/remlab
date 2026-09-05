@@ -22,11 +22,12 @@ export async function GET(req: Request): Promise<Response> {
 const ItemIn = z.object({
   sku: z.string().min(1),
   generationKey: z.string().min(1),
-  revisionKey: z.string().optional(),
-  role: z.string().optional(),
-  name: z.string().optional(),
-  imageUrl: z.string().optional(),
-  posterUrl: z.string().optional(),
+  // null равен «нет значения»: DEV отдаёт пустые поля как null, Zod-`optional()` их не принимает
+  revisionKey: z.string().nullable().optional(),
+  role: z.string().nullable().optional(),
+  name: z.string().nullable().optional(),
+  imageUrl: z.string().nullable().optional(),
+  posterUrl: z.string().nullable().optional(),
   modelPath: z.string().min(1),
   seed: z.number().int().optional(),
   attempt: z.number().int().optional(),

@@ -278,7 +278,7 @@ Stop-хук: `--tier0-max-kb 10`; CI/аудит — 8 (кит). Tier 0 = 7.997 �
 - Вторым шагом (после индекса): `codex-prompts/*` и корневые `codex-*/answer-*/prompt-*/*-referee-*`
   → `_intake/codex/`; владельческие `owner-*`, `dialog-*`, `blind-*`, `self-analysis-*`, `*.json`,
   `*.txt` → `_intake/owner/` — **basename не менять**; `sed` по `.memory_bank/**/*.md` для
-  `_intake/codex-prompts/` (21) и `_intake/<имя>` (58); 4 backtick-ссылки на `_intake/*.txt|json` —
+  `_intake/codex/` (21) и `_intake/<имя>` (58); 4 backtick-ссылки на `_intake/*.txt|json` —
   обновить (CODE-REF). Не трогать `session-scratch.md`, `brief/`, `history/` (прошиты в ките).
 - Проверка: `git check-ignore`, grep-счётчики путей до/после, аудит чисто.
 

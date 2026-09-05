@@ -80,7 +80,7 @@ HD/артикула/описания (HD 12 000 → 18 733 in_stock), API — т
 1 534); карта категорий с OVERRIDES и MIXED; инвариант ready-меша по текущему фото (57 SKU на HD);
 тревоги в Telegram, дайджест, прод-сторож «прогон не состоялся», крон 10:40 UTC, CI
 `scout-selftest`. Отрицательно: глубина из меша хуже дефолта (37 % против 63 %), флаг `available`
-API — precision 0 %. Разбор с владельцем — `_intake/dialog-catalog-load-0309.md`.
+API — precision 0 %. Разбор с владельцем — `_intake/owner/dialog-catalog-load-0309.md`.
 **Честность каталога** (план `stock-and-dims-honesty`, ADR-0186): якорь домена, окончательный
 карантин магазина, негатив только по текущей ссылке, парсер v2 после gold-замера (tvoydom
 подтверждённо живых 1 234 → 1 517, 21 снят честно); модель `availability_state/page_state/basis`;

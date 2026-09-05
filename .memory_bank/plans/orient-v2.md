@@ -6,7 +6,7 @@ status: in_progress
 created: 2026-08-31
 updated: 2026-08-31
 completed:
-source: external:советник-владельца(GPT) + Codex-ревью (_intake/codex-prompts/orient-v2.answer.md)
+source: external:советник-владельца(GPT) + Codex-ревью (_intake/codex/orient-v2.answer.md)
 ---
 
 ## Цель

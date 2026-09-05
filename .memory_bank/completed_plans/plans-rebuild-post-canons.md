@@ -21,7 +21,7 @@ completed: 2026-08-21
 - ⚠️ каскад «камин+ТВ» (`place_media_fireplace`) в бою почти не вызывается: лестница забирает
   носитель раньше («медиа-минимум», zones.py ~695/735/765/800); в свободных сценах итог
   случайно совпадает (side-by-side через '+fp'), adjacent/tv_over достижимы только когда
-  лестница прошла без медиа. Разбор Codex — `_intake/answer-cascade-wiring.md`.
+  лестница прошла без медиа. Разбор Codex — `_intake/codex/answer-cascade-wiring.md`.
 - ✅ (исправлено сейчас) рассинхрон порогов камина: генератор пускал кандидатов 60°, validate
   резал 35°/45° (`primary_sector_deg`) — «зомби»-кандидаты; `_fireplace_sector_deg()` читает
   канон zones.json, `fireplace_view_max_deg` — deprecated-фолбэк.
@@ -33,7 +33,7 @@ completed: 2026-08-21
 - [x] Галерея планов опубликована (/test/acceptance-plans), экспорт ИИ пересобран (272)
 - [x] Память/ADR (0117…0119) + push
 
-## Гейт v2 (оценка доктрины Codex, `_intake/answer-doctrine-0117.md`) — после текущего экзамена
+## Гейт v2 (оценка доктрины Codex, `_intake/codex/answer-doctrine-0117.md`) — после текущего экзамена
 - side_by_side/adjacent: проверка по РЕАЛЬНЫМ сегментам стен (один wall_id / общая вершина),
   а не по rot (Г/П-контуры дают ложные зачёты); media_bearer конкретный, не «любая тумба»
   (tv_over сейчас запрещает и тумбу-хранение).

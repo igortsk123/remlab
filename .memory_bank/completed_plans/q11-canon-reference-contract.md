@@ -18,7 +18,7 @@ completed: 2026-08-19
 «зачем диван», «уголок не в углу», «кресло далеко не в эркере», «проверь отступ до столика»,
 «разве у камина два приставных столика?», «в эркере поиск отдельный сделай», «расстояния в
 инсталляции проверь», «а тут ковёр где потерян». Независимая сверка — Codex (постоянная сессия):
-`_intake/codex-prompts/q11-canon-visual-defects.answer.md`, `…/q11-gallery-review-1.answer.md`.
+`_intake/codex/q11-canon-visual-defects.answer.md`, `…/q11-gallery-review-1.answer.md`.
 
 ## Правило контекста (принято 19.08)
 Контекстный предмет на референсе допустим ТОЛЬКО если схема ОПРЕДЕЛЕНА относительно него и без
@@ -59,7 +59,7 @@ completed: 2026-08-19
 7. **R8 Дыры контрактов:** `route_after_console_required` объявлен в `zones.json`, но
    `check_console_contract` его не проверяет.
 
-## Разбор Codex (19.08, `_intake/codex-prompts/q11-gallery-review-1.answer.md`) — принятые решения
+## Разбор Codex (19.08, `_intake/codex/q11-gallery-review-1.answer.md`) — принятые решения
 - **R1 Г-стык — дефект, подтверждён.** Столик канонически сдвигать к внутреннему углу до целевых
   42.5 см: `shift = side × max(0, sofa.w/2 + L_GAP − table_long/2 − 42.5)` (для 220/110 это 32.5 см);
   `check_distances` мерить столик до ВСЕХ диванов блока (preferred 36–46, hard 32–50);

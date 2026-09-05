@@ -17,7 +17,7 @@ review_after: 2026-12-05
 **Состав (03.09):** 20 588 товаров, in_stock 18 736, 6 магазинов Гдеслона; дев-БД `remlab-devdb` (DEV-VM).
 **Цикл:** crontab `40 10 * * *` UTC (фиды Гдеслона собираются 12:35 МСК) + `@reboot`; `refresh_daily.sh` —
 шаги `ok|warn|FAIL|skipped` (`WARN:<код>:`), статус на прод, дайджест в Telegram, прод-сторож (ADR-0172,
-[[deployment]]). Аудит с владельцем — `_intake/dialog-catalog-load-0309.md`.
+[[deployment]]). Аудит с владельцем — `_intake/owner/dialog-catalog-load-0309.md`.
 
 **Источник истины (ADR-0171, `tools/scout/load3.py`):** ФИД — ключ `(merchant_id, id)`, название, ссылка,
 фото, `original_picture → image_url_hd`, `article`, цена, категория, params, описание (пустое не затирает).

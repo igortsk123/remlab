@@ -39,7 +39,7 @@ psql:/docker-entrypoint-initdb.d/008-mesh-binding.sql:14: ERROR: relation "produ
 с 01.09 никто не проверяет, что сайт после выкатки отвечает, и **авто-откат на `:prev` отключён молча**.
 
 ## Разбор Codex (05.09) — что план пропускал
-Полный ответ — `_intake/codex-prompts/q-deploy-db-init-scope.answer.md`. Проверено мной по факту:
+Полный ответ — `_intake/codex/q-deploy-db-init-scope.answer.md`. Проверено мной по факту:
 
 1. **[блокер, подтверждён] `git mv` НЕ починил бы деплой.** На сервере
    `ls /opt/remlab/db/init/` = 001…009: workflow копирует файлы `scp`-ом поверх и применяет глобом

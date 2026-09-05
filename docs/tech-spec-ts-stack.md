@@ -46,7 +46,7 @@
 | CI | **GitHub Actions** (блокирующий гейт) | — |
 | Хостинг | **Vercel** + Inngest | long-running контейнер (Railway/Render) |
 
-> 📌 Наш деплой отличается от дефолта хостинга: **self-host в docker-compose на Hetzner** (Next.js + postgres+pgvector контейнером), Caddy+LE. См. `_intake/history/deploy-and-decisions.md` / `.memory_bank/deployment.md`.
+> 📌 Наш деплой отличается от дефолта хостинга: **self-host в docker-compose на Hetzner** (Next.js + postgres+pgvector контейнером), Caddy+LE. См. `.memory_bank/archive/2026/07/intake-init/deploy-and-decisions.md` / `.memory_bank/deployment.md`.
 
 🧩 **Критический gotcha:** длинный инференс (30–45 с) НЕЛЬЗЯ запускать внутри обычного Next.js route (таймаут). Паттерн: API-route создаёт job-строку → событие в Inngest → возвращает `job_id`; клиент подписывается через Realtime/polling. Тяжёлую работу исполняет Inngest-функция (durable, ретраи).
 

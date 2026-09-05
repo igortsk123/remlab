@@ -23,7 +23,7 @@
 
 - **[блокер] П3.5 не проводит MIXED-категорию через загрузчик.** `load3` отбрасывает оффер до индивидуальной классификации, если категория отсутствует в `_CATROLE`. Если `112923:334` останется с `role=null`, до `classify(name)` товар вообще не дойдёт. Кроме того, нынешний `category_map --apply` сначала зануляет все роли, а пропуск MIXED оставит их пустыми. [load3.py:100](/home/pakar/igor/remlab/tools/scout/load3.py:100), [category_map.py:182](/home/pakar/igor/remlab/tools/scout/category_map.py:182), [План:179](/home/pakar/igor/remlab/.memory_bank/plans/catalog-load-hardening.md:179).
 
-- **[важно] Не закрыта атомарность загрузки.** Товары коммитятся отдельно от `product_enrichment`; падение между транзакциями оставляет новый `products` со вчерашними статусами и хешами. Сам аудит это уже признаёт, но плана исправления нет. [load3.py:169](/home/pakar/igor/remlab/tools/scout/load3.py:169), [load3.py:220](/home/pakar/igor/remlab/tools/scout/load3.py:220), [dialog:269](/home/pakar/igor/remlab/.memory_bank/_intake/dialog-catalog-load-0309.md:269).
+- **[важно] Не закрыта атомарность загрузки.** Товары коммитятся отдельно от `product_enrichment`; падение между транзакциями оставляет новый `products` со вчерашними статусами и хешами. Сам аудит это уже признаёт, но плана исправления нет. [load3.py:169](/home/pakar/igor/remlab/tools/scout/load3.py:169), [load3.py:220](/home/pakar/igor/remlab/tools/scout/load3.py:220), [dialog:269](/home/pakar/igor/remlab/.memory_bank/_intake/owner/dialog-catalog-load-0309.md:269).
 
 Рекомендуемый порядок:
 

@@ -17,7 +17,7 @@ TEMPLATE_GAP, zone-cohesion вместо пустой оси residual_fragmentat
 
 ## Источник задачи
 Свод №9 — аудит ИИ-советника (Google Drive, 14.08) по plans-export 269. Вердикт: «ядро не
-переписывать»; приоритеты §28; вопросы Q1–Q12 (ответы — `_intake/answers-to-referee-q1-12.md`).
+переписывать»; приоритеты §28; вопросы Q1–Q12 (ответы — `_intake/codex/answers-to-referee-q1-12.md`).
 
 ## Критическая оценка (по правилу verify-external-advice)
 **Подтверждаю его находки против СЕБЯ (пруфы в коде сегодняшних пакетов):**

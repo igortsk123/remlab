@@ -191,7 +191,7 @@ status: working
 
 ## Раунд 3 (19–20.08: ситуация у окна, огонь и экран, эргономика чтения) — ADR-0114
 
-Проверка по замечаниям владельца + разборы Codex (`_intake/codex-prompts/`); числа лежат в
+Проверка по замечаниям владельца + разборы Codex (`_intake/codex/`); числа лежат в
 `services/planner-solver/rules/occupancy.json` и проверяются
 `services/planner-solver/tests/test_rules_no_dup.py` (одно число — один источник).
 

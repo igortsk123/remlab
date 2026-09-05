@@ -2,7 +2,7 @@
 
 Практика — это репертуар, не набор обязательных правил. Внешняя база: типы sectional L/U/chaise и консоль за ним — [Room & Board](https://www.roomandboard.com/ideas-advice/design-your-space/living/sectional-ideas); классические парные диваны, sofa+2 chairs, chaise-разделитель — [Houzz](https://www.houzz.com/magazine/lay-out-your-living-room-floor-plan-ideas-for-rooms-small-to-large-stsetivw-vs~11333443); несколько групп в большой комнате — [Homes & Gardens](https://www.homesandgardens.com/interior-design/the-library-how-to-design-the-perfect-living-room-layout) и [Architectural Digest](https://www.architecturaldigest.com/story/how-to-arrange-furniture-in-open-space). Для dining/nook — [IKEA](https://www.ikea.com/sg/en/rooms/dining/3-tips-for-buying-a-dining-table-pubdd7aaa20/) и [Houzz](https://www.houzz.com/magazine/no-room-for-a-dining-area-install-a-banquette-stsetivw-vs~72943424); для делителей — [Wallpaper](https://www.wallpaper.com/design-interiors/furniture/colin-king-audo-crescent-bookcase-design); для TV/fireplace — [Houzz](https://www.houzz.com/magazine/7-ways-to-rock-a-tv-and-fireplace-combo-stsetivw-vs~5176882).
 
-Локальная база сравнения: [seating_groups](/home/pakar/igor/remlab/services/planner-solver/rules/zones.json:8), [паспорта зон](/home/pakar/igor/remlab/services/planner-solver/rules/templates.json:57), [build_block/place_*](/home/pakar/igor/remlab/services/planner-solver/planner/template.py:518), [выгрузка каталога](/home/pakar/igor/remlab/.memory_bank/_intake/catalog-extract-nook.txt:1).
+Локальная база сравнения: [seating_groups](/home/pakar/igor/remlab/services/planner-solver/rules/zones.json:8), [паспорта зон](/home/pakar/igor/remlab/services/planner-solver/rules/templates.json:57), [build_block/place_*](/home/pakar/igor/remlab/services/planner-solver/planner/template.py:518), [выгрузка каталога](/home/pakar/igor/remlab/.memory_bank/_intake/owner/catalog-extract-nook.txt:1).
 
 ## 1. Независимая матрица
 
@@ -100,11 +100,11 @@
 
 Таблица полезна по направлению, но в пяти местах слишком оптимистична:
 
-- `media_bridge` и прочие Q3-формы помечены почти как «есть» ([строка 13](/home/pakar/igor/remlab/.memory_bank/_intake/zones-practice-vs-ours-agent.md:13)). Сегодня их нет; текущий `bridge` разворачивает кресла 135°/225° и не выполняет цель №3.
-- `media_fireplace` объединяет side-by-side и TV-above-fireplace ([строка 32](/home/pakar/igor/remlab/.memory_bank/_intake/zones-practice-vs-ours-agent.md:32)). Реализован только side-by-side.
-- `bay_armchair` назван window seat ([строка 22](/home/pakar/igor/remlab/.memory_bank/_intake/zones-practice-vs-ours-agent.md:22)). Это кресло в нише; встроенная скамья отсутствует.
+- `media_bridge` и прочие Q3-формы помечены почти как «есть» ([строка 13](/home/pakar/igor/remlab/.memory_bank/_intake/owner/zones-practice-vs-ours-agent.md:13)). Сегодня их нет; текущий `bridge` разворачивает кресла 135°/225° и не выполняет цель №3.
+- `media_fireplace` объединяет side-by-side и TV-above-fireplace ([строка 32](/home/pakar/igor/remlab/.memory_bank/_intake/owner/zones-practice-vs-ours-agent.md:32)). Реализован только side-by-side.
+- `bay_armchair` назван window seat ([строка 22](/home/pakar/igor/remlab/.memory_bank/_intake/owner/zones-practice-vs-ours-agent.md:22)). Это кресло в нише; встроенная скамья отсутствует.
 - `media_installation` не гарантирует «одинаковое симметричное хранение»: код может поставить один фланг либо два разных предмета.
-- `fireplace_flank in bridge` ([строка 19](/home/pakar/igor/remlab/.memory_bank/_intake/zones-practice-vs-ours-agent.md:19)) в коде отсутствует: `bridge` — форма основной посадки, а каминные кресла строит отдельно `build_fireplace`.
+- `fireplace_flank in bridge` ([строка 19](/home/pakar/igor/remlab/.memory_bank/_intake/owner/zones-practice-vs-ours-agent.md:19)) в коде отсутствует: `bridge` — форма основной посадки, а каминные кресла строит отдельно `build_fireplace`.
 - `sofa_loveseat` — пока только имя ступени: «диван 2» не имеет подтверждённой семантики loveseat.
 - «Стол за спинкой» не обязательно требует нового build-template: нужен явный topology/candidate для существующего dining-блока.
 

@@ -11,7 +11,7 @@ completed: 2026-09-03
 ## Context
 
 3 сентября 2026 владелец и агент прошли загрузку каталога вопрос за вопросом (запись:
-`.memory_bank/_intake/dialog-catalog-load-0309.md`, https://remont-lab.online/test/catalog-qa-0309/). Каждое
+`.memory_bank/_intake/owner/dialog-catalog-load-0309.md`, https://remont-lab.online/test/catalog-qa-0309/). Каждое
 утверждение сверено с кодом `tools/scout/refresh_daily.sh`, `load3.py`, `catalog_api_sync.py`, `dim_resolver.py`,
 `category_map.py`, `stock_truth.py`, логами и базой `remlab-devdb`. Основа загрузки правильная (upsert по ключу
 «магазин + код», четыре отпечатка, карантин источников, одна функция наличия), но на ней слой заплаток и дыр,
@@ -75,7 +75,7 @@ completed: 2026-09-03
 - П0.1 Плановый файл в `.memory_bank/plans/`, публикация MD+HTML на `/test/catalog-plan-0309/` (как диалог:
   `markdown` → `index.html`, `scp`, запись в `hub_page.py: LINKS`, `--publish`); список 155 названий divan.ru — страница
   `pages/divan-missing-155.html` туда же.
-- П0.2 Критика Codex (постоянная сессия, `-o _intake/codex-catalog-load-plan.md`): порядок пакетов, гейт П2.3, контракт
+- П0.2 Критика Codex (постоянная сессия, `-o _intake/codex/codex-catalog-load-plan.md`): порядок пакетов, гейт П2.3, контракт
   `attrs_hash`, формула глубины из меша с ориентацией. Существенное → владельцу.
 - П0.3 Фикстуры (в git): `tools/scout/tests/fixtures/feed-mini.xml.zip` (≈40 офферов из живых фидов: divan.ru с
   `original_picture`/`article`/описанием и оффером из «Распродажи»; divanboss с `:443` в `original_picture`; tvoydom с
@@ -207,7 +207,7 @@ completed: 2026-09-03
 - `/memory-check`; план → `completed_plans/` только при чистом аудите.
 
 ## Критика Codex (П0.2, 03.09) — что меняется в плане
-Ответ советника: `_intake/codex-catalog-load-plan.md` (шесть блокеров). Принято и внесено:
+Ответ советника: `_intake/codex/codex-catalog-load-plan.md` (шесть блокеров). Принято и внесено:
 1. **CI после чистого парсера.** Джоб `scout-selftest` гоняет только существующие чистые селфтесты
    (`dim_resolver`, `reflink`, `stock_truth`, `feed_guard`) на мини-фикстурах; `load3 --selftest` и
    `category_map --selftest` добавляются в джоб только после выделения чистых функций (П2.1/П3.6), тестам
@@ -302,13 +302,13 @@ completed: 2026-09-03
   (шторы с размером 462/474, без размеров 2 148 → 1 534), `d_assumed` в compose2, OVERRIDES mdm (88 позиций
   фурнитуры вон), MIXED «Распродажа» (466 товаров с ролями), `--apply` в транзакции, `sets_incremental --check`
   чисто. **П3.4 — калибровка НЕ пройдена:** 38 прямых диванов, медиана APE 12,9 %, ±10 % у 37 % (дефолт
-  100 см — 63 %, медиана роли — 53 %) → `mesh_dims.py --apply` заблокирован, `_intake/mesh-dims-calibration-0309.json`.
+  100 см — 63 %, медиана роли — 53 %) → `mesh_dims.py --apply` заблокирован, `_intake/owner/mesh-dims-calibration-0309.json`.
 - 2026-09-03 — П4 (read-only): `available` API против карточек — 1 486 false, 0 мёртвых среди них; 829/829
   мёртвых = true → precision 0 %, гипотеза закрыта отрицательно.
 - 2026-09-03 — П5: `core/catalog.md`, `deployment.md`, `core/access-and-integrations.md`, `core/lessons.md`,
   `project-state.md`, ADR-0171/0172. Ждёт владельца: Start в боте (chat_id), кабинет Гдеслона (155 товаров,
   пустая выгрузка `e2fccbea` — не убрана из FEEDS до решения).
-- 2026-09-03 — план собран по итогам диалога-аудита загрузки (`_intake/dialog-catalog-load-0309.md`), прошёл
+- 2026-09-03 — план собран по итогам диалога-аудита загрузки (`_intake/owner/dialog-catalog-load-0309.md`), прошёл
   внутреннее ревью (16 правок), одобрен владельцем в plan mode → `in_progress`. Критика Codex — П0.2.
 
 ## Completion summary

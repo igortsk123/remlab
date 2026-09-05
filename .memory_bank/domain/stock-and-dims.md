@@ -10,7 +10,7 @@ source: manual
 # Наличие и размеры честно — детали (план `stock-and-dims-honesty`, 03.09.2026)
 
 Сводка — [[catalog]]. Аудит и план — `plans/stock-and-dims-honesty.md`, критика Codex —
-`_intake/codex-stock-honesty-answer.md`.
+`_intake/codex/codex-stock-honesty-answer.md`.
 
 ## Контроль наличия (`tools/scout/stock_check.py`, `page_alive.py`, `stock_truth.py`)
 `stock_check.py` ходит на карточки с якорем домена

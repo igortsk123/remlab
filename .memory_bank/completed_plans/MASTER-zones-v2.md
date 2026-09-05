@@ -16,7 +16,7 @@ dining через каскад классов island→edge с объясним�
 
 ## Источник задачи
 Свод №8 v1 (Google Drive, 14.08) → наш ответ с пруфами
-(`_intake/reply-to-referee-svod8.md`, опубликован `/test/reply-to-referee-svod8.md`) →
+(`_intake/codex/reply-to-referee-svod8.md`, опубликован `/test/reply-to-referee-svod8.md`) →
 **свод №8 v2** (Google Drive, 14.08): рефери принял поправки. По ADR-0077 вердикты рефери
 внедряются по умолчанию.
 

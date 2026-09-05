@@ -1,7 +1,7 @@
 # Запрос критики плана `catalog-load-hardening` (03.09.2026)
 
 Ты — независимый ревьюер. Репозиторий открыт read-only. Прочитай план `.memory_bank/plans/catalog-load-hardening.md`
-целиком и запись аудита `.memory_bank/_intake/dialog-catalog-load-0309.md` (раздел «Вопрос 18» и «Вопросы 19–23»).
+целиком и запись аудита `.memory_bank/_intake/owner/dialog-catalog-load-0309.md` (раздел «Вопрос 18» и «Вопросы 19–23»).
 Проверяй по коду `tools/scout/{refresh_daily.sh,load3.py,catalog_api_sync.py,feed_guard.py,dim_resolver.py,
 category_map.py,mesh_ready.py,mesh_queue.py,cutout_sync.py,render_strategy.py,mesh_bind.py,stock_truth.py}`.
 

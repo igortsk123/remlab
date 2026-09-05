@@ -168,7 +168,7 @@ completed:
 
 ## Спайк 3d-orienter выполнен (28.08, день) — итоги и контракт
 Схема владельца (GLB→OBJ→two_stage_inference→rotation в БД) прогнана на всех 35 годных мешах
-сета; Codex q24 (`_intake/codex-prompts/q24-orienter.answer.md`) дал правки — приняты.
+сета; Codex q24 (`_intake/codex/q24-orienter.answer.md`) дал правки — приняты.
 
 - Стенд: клон `~/igor/3d-orienter` + venv `~/venvs/orienter` (torch CPU; патч cuda→cpu в
   `DGCNN{Orienter,Flipper}.py`); драйвер извлекает transform у модели (не сравнением OBJ):

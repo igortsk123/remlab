@@ -26,10 +26,10 @@ review_after: 2026-12-05
 
 **Мерка.** Рендер БЕЗ света (`UNLIT=1`, `tools/scout/mesh_render.py`) против фото, разница в
 стопах + гейт на коллапс. Сверена с 43 слепыми отметками владельца
-(`_intake/owner-marks-mesh-color-0109.txt`): знак совпал в 89%, «темнее» — 22 из 22.
+(`_intake/owner/owner-marks-mesh-color-0109.txt`): знак совпал в 89%, «темнее» — 22 из 22.
 
 **Опыт 01.09 — проведён, тема ОТЛОЖЕНА владельцем.** 4 «ок», 29 «нет»
-(`_intake/owner-verdict-exposure-0109.txt`): причина «нет» — не рычаг, а ШАГ (0,33 ст., глазу не
+(`_intake/owner/owner-verdict-exposure-0109.txt`): причина «нет» — не рычаг, а ШАГ (0,33 ст., глазу не
 видно). Разбор — Tier 2 § Опыт с экспозицией.
 
 **Найдено 02.09 (ADR-0185).** Часть промаха давал РЕНДЕР: свет умножался на sRGB-байты как на
@@ -42,4 +42,4 @@ review_after: 2026-12-05
 (коэффициент ~0.8 ст. на ступень) — вопрос закрыт опытом, см. выше.
 
 **Tier 2:** `../domain/viz-fidelity-playbook.md` · [[mesh-pipeline]] · ADR-0143/0144 ·
-разбор Codex — `_intake/codex-color-answer.md`.
+разбор Codex — `_intake/codex/codex-color-answer.md`.

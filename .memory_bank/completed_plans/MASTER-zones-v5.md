@@ -16,7 +16,7 @@ completed: 2026-08-15
 композитора «покрытие возможностей».
 
 ## Источник задачи
-Аудит Кодекса (`_intake/codex-audit-v5.md`, /test/codex-audit-v5.md; gpt-5.6 xhigh,
+Аудит Кодекса (`_intake/codex/codex-audit-v5.md`, /test/codex-audit-v5.md; gpt-5.6 xhigh,
 исходники инлайн) + вопросы советника из свода №10 (композитор-политика, вторая зона,
 FAR-large). Команда владельца: «Составь план».
 
