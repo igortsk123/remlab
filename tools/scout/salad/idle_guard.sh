@@ -31,7 +31,9 @@ ENVFILE="${MESH_ENV:-$HOME/scout-scenes/salad.env}"
 
 log() { echo "$(date '+%F %H:%M') $*" >> "$LOG"; }
 
-if pgrep -f "[b]atch_show.py|[s]sh_run.py" > /dev/null; then
+# `mesh_wave_start.sh` — тоже конвейер (05.09): процедура старта волны длится 20+ минут (сироты,
+# drain, реестр, семейства, привязка, приёмник), и без неё в шаблоне сторож гасил бы пул сам себе.
+if pgrep -f "[b]atch_show.py|[s]sh_run.py|[m]esh_wave_start.sh" > /dev/null; then
   rm -f "$STATE"          # конвейер жив — счётчик подозрений сбрасываем
   exit 0
 fi

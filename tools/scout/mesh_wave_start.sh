@@ -19,7 +19,7 @@ LOCK="$HOME/scout-scenes/.batch_show.lock"
 DRAINING="$HOME/scout-scenes/mesh-draining"
 LOG="${MESH_BATCH_LOG:-$HOME/igor/remlab/.memory_bank/_intake/batch-hardened.log}"
 SNAP="$HERE/mesh-queue-$(date -u +%Y%m%dT%H%M%S).json"
-BATCH="${MESH_BATCH:-200}"
+BATCH="${MESH_BATCH:-2000}"   # 2000: замер 05.09 — на пачке 200 треть оплаченного времени уходила на границы пачек (решение владельца «потоком»)
 
 say() { echo "$(date '+%d.%m %H:%M') $*"; }
 

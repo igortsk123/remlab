@@ -28,8 +28,8 @@
 | `market.md` | market | Рынок RU/UK — спрос, монетизация | `../domain/market-research.md` | 2026-08-13 |
 | `marketing-acquisition.md` | marketing-acquisition | Реклама — Яндекс, семантика | `../domain/wordstat-semantics.md` | 2026-09-05 |
 | `mesh-color.md` | mesh-color | Цвет мешей — диагноз, мерка, рычаги | `../domain/viz-fidelity-playbook.md` | 2026-09-05 |
-| `mesh-owner-audit.md` | mesh-owner-audit | Ручная приёмка мешей владельцем — страница /lab/mesh-audit, переделки, партии моделей | `../completed_plans/mesh-owner-audit.md` | 2026-09-05 |
-| `mesh-pipeline.md` | mesh-pipeline | 3D-меши товаров — генерация, учёт поколений, приёмка, ориентация | `../domain/viz-fidelity-playbook.md` | 2026-09-05 |
+| `mesh-owner-audit.md` | mesh-owner-audit | Приёмка мешей владельцем — /lab/mesh-audit | `../completed_plans/mesh-owner-audit.md` | 2026-09-05 |
+| `mesh-pipeline.md` | mesh-pipeline | 3D-меши — генерация, учёт, приёмка | `../domain/viz-fidelity-playbook.md` | 2026-09-05 |
 | `mesh-pool.md` | mesh-pool | Пул нод Salad — группы, тарифы, деньги, стопоры | `../domain/mesh-pool-ops.md` | 2026-09-05 |
 | `observability-tracing.md` | observability-tracing | Трейсинг AI-пайплайна — лог, разбор | `../domain/observability.md` | 2026-08-06 |
 | `pipeline-order.md` | pipeline-order | Порядок конвейера — от фида до расстановки | `../domain/pipeline-order-details.md` | 2026-09-05 |
