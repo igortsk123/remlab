@@ -74,6 +74,7 @@ MAX_SPOOL_RETRIES = int(os.environ.get('MESH_MAX_SPOOL_RETRIES', '3'))
 EXIT_NO_CAPACITY = 75           # «нод нет» — не авария, конвейер ждёт и повторяет
 sys.path.insert(0, HERE)
 import node_health as NH  # noqa: E402
+import proc_run as PR     # noqa: E402 — шаг оболочки без сирот (общий с `batch_show`)
 
 # Параллельные сессии к РАЗНЫМ нодам допустимы, если не открывать их залпом: сбой 29.08
 # («нет маркера», пустой вывод) случался при одновременном старте. Разносим НАЧАЛА всех
@@ -264,9 +265,12 @@ def sink_relief(dir_gb: float, now: float | None = None) -> bool:
         try:
             for step, cmd in (('стаскиваю', f'bash {HERE}/drain.sh --keep'),
                               ('чистка', f'{PY} {HERE}/receiver_purge.py --apply')):
-                r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=1800)
-                tail = (r.stdout + r.stderr).strip().splitlines()[-1:] or ['']
-                print(f'  [упреждающая уборка] {step}: rc={r.returncode} {tail[0][:120]}', flush=True)
+                # ЧЕРЕЗ proc_run, А НЕ subprocess.run: по таймауту тот убил бы только оболочку,
+                # а rsync/purge остались бы сиротами и полезли в тот же каталог со следующим
+                # заходом уборки (тот же дефект, что съел дев-машину 05.09).
+                rc, out = PR.run_step(cmd, timeout=1800)
+                tail = out.strip().splitlines()[-1:] or ['']
+                print(f'  [упреждающая уборка] {step}: rc={rc} {tail[0][:120]}', flush=True)
         except Exception as e:  # noqa: BLE001 — уборка не должна ронять раздачу
             print(f'  [упреждающая уборка] сбой: {type(e).__name__}: {str(e)[:80]}', flush=True)
         finally:

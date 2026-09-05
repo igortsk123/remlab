@@ -59,13 +59,9 @@ SHOW_STEPS = ((
 
 
 def sh(cmd, timeout=3600):
-    """Таймаут не должен ронять конвейер исключением: иначе finale() не отработает и группа
-    останется тарифицироваться (деньги)."""
-    try:
-        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        return 124, f'ТАЙМАУТ {timeout}с: {cmd[:120]}'
-    return r.returncode, (r.stdout + r.stderr)[-1500:]
+    """Шаг оболочки. Таймаут не роняет конвейер исключением (иначе `finale()` не отработает и
+    группа останется тарифицироваться) и НЕ оставляет сирот — вся механика в `proc_run`."""
+    return PR.run_step(cmd, timeout)
 
 
 def run_summary(out: str) -> dict | None:
@@ -82,26 +78,41 @@ def run_summary(out: str) -> dict | None:
     return None
 
 
-def group_status() -> str | None:
-    """'stopped' только если ВСЕ группы остановлены (мультигруппы через запятую).
+# Состояния Salad, при которых группа УЖЕ поднята и /start ей не нужен. Список положительный:
+# наблюдались `running`, `deploying`, `stopped`; остальные взяты из документации Salad. Всё, чего
+# тут нет (включая None «не смогли узнать»), считается поводом попробовать поднять — молча
+# записывать незнакомое состояние в живые нельзя, иначе группу не поднимет никто.
+GROUP_UP = ('running', 'deploying', 'pending', 'allocating', 'starting', 'downloading')
+
+
+def group_states() -> dict:
+    """Состояние КАЖДОЙ группы: {имя: 'running'|'stopped'|...|None}. None — не смогли узнать.
 
     ЧЕРЕЗ CURL, А НЕ urllib: WAF Salad режет python-UA, и запрос молча падал в None
-    (ADR-0137). На этом сегодня погорела проверка состояния после старта — она показала
+    (ADR-0137). На этом 04.09 погорела проверка состояния после старта — она показала
     «состояние None» у живой группы. А ещё от неё зависит распознавание «кончился баланс»,
     то есть молчание тут стоит денег.
     """
     import json as _j
-    sts = []
+    out = {}
     for grp in SG.groups_from_env():
         try:
             r = subprocess.run(
-                ['curl', '-s', '--max-time', '30', '-H', f'Salad-Api-Key: {os.environ["SALAD_API_KEY"]}',
+                ['curl', '-sS', '--max-time', '30', '-H', f'Salad-Api-Key: {os.environ["SALAD_API_KEY"]}',
                  f'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers/{grp}'],
                 capture_output=True, text=True, timeout=45)
-            sts.append((_j.loads(r.stdout).get('current_state') or {}).get('status'))
+            if r.returncode != 0:   # молчаливый curl оставлял состояние None без причины
+                print(f'группа {grp}: curl rc={r.returncode} {r.stderr.strip()[:80]}', flush=True)
+            out[grp] = (_j.loads(r.stdout).get('current_state') or {}).get('status')
         except Exception as e:  # noqa: BLE001 — но НЕ молча: None здесь маскирует и «нет денег»
             print(f'группа {grp}: состояние не узнать ({type(e).__name__})', flush=True)
-            sts.append(None)
+            out[grp] = None
+    return out
+
+
+def group_status(states: dict | None = None) -> str | None:
+    """'stopped' только если ВСЕ группы остановлены (мультигруппы через запятую)."""
+    sts = list((group_states() if states is None else states).values())
     if sts and all(s == 'stopped' for s in sts):
         return 'stopped'
     # 04.09: раньше возвращался `sts[0]` — статус ПЕРВОЙ группы. Первой в SALAD_GROUP стояла
@@ -208,7 +219,27 @@ def ensure_group_started():
     skipped = [g for g in SG.groups_from_env() if not SG.allowed_now(g)]
     if skipped:
         print(f'группы вне окна, не поднимаю: {", ".join(skipped)}', flush=True)
-    for grp in [g for g in SG.groups_from_env() if SG.allowed_now(g)]:
+    # УЖЕ ПОДНЯТУЮ ГРУППУ НЕ СТАРТУЕМ ПОВТОРНО (05.09). Salad на /start живой группы отвечает
+    # `400 replicas_quota_exceeded` (квота 50 реплик уже разобрана ею же). Это не отказ, но в
+    # логе он неотличим от настоящей беды — а `no_credits_available` приходит тем же кодом 400
+    # (урок 404). Спрашиваем состояние и трогаем только то, что реально лежит.
+    # Список УЖЕ ПОДНЯТЫХ — положительный (`GROUP_UP`), а не «всё, кроме stopped/failed»: при
+    # отрицательном списке незнакомое терминальное состояние молча считалось бы живым, и группу
+    # не поднял бы никто (замечание Codex 05.09). Незнакомое и нечитаемое состояние — повод
+    # ПОПРОБОВАТЬ поднять и сказать об этом в лог: пул, стоящий из-за сбоя API, дороже лишней
+    # строки 400 в логе.
+    states = group_states()
+    allowed = [g for g in SG.groups_from_env() if SG.allowed_now(g)]
+    up = [g for g in allowed if states.get(g) in GROUP_UP]
+    odd = [g for g in allowed if g not in up and states.get(g) not in ('stopped', 'failed')]
+    if up:
+        print(f'уже подняты, старт не нужен: {", ".join(f"{g} ({states[g]})" for g in up)}', flush=True)
+        ok = True
+    if odd:
+        print('состояние не пойму, всё равно пробую поднять: '
+              f'{", ".join(f"{g} ({states.get(g)})" for g in odd)}', flush=True)
+    started = []
+    for grp in [g for g in allowed if g not in up]:
       try:
         req = urllib.request.Request(
             f"https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers/{grp}/start",
@@ -217,6 +248,7 @@ def ensure_group_started():
                      'User-Agent': 'remlab-mesh/1.0'})
         urllib.request.urlopen(req, timeout=60).read()
         print(f'группа {grp}: start отправлен', flush=True)
+        started.append(grp)
         ok = True
       except urllib.error.HTTPError as e:
         body = e.read()[:300].decode(errors='replace')
@@ -233,10 +265,17 @@ def ensure_group_started():
     # ПРОВЕРЯЕМ, А НЕ ПРЕДПОЛАГАЕМ. Раньше 400 трактовался как «уже запущена», но он же
     # приходит, когда группа ещё СОЗДАЁТСЯ и стартовать нечего: 01.09 новая группа так и
     # осталась stopped, конвейер час ждал тёплых нод, а заметил это владелец в портале.
-    st = group_status()
+    after = group_states()
+    st = group_status(after)
     if st in ('stopped', 'failed'):
         print(f'!! группа в состоянии {st} — ПОВТОРЯЮ запуск', flush=True)
-        for grp in [g for g in SG.groups_from_env() if SG.allowed_now(g)]:
+        # ПОВТОРЯЕМ ТОЛЬКО ПО ЛЕЖАЩИМ И ТОЛЬКО ПО НЕТРОНУТЫМ. Живой группе повторный /start
+        # вернёт то же `400 replicas_quota_exceeded`; а группа, которой мы только что послали
+        # start, ещё не успела сменить состояние — API согласуется не мгновенно, и повтор здесь
+        # был бы гонкой с самим собой (замечание Codex 05.09).
+        for grp in [g for g in SG.groups_from_env()
+                    if SG.allowed_now(g) and g not in started
+                    and after.get(grp) in ('stopped', 'failed', None)]:
             try:
                 import urllib.request as _u
                 _u.urlopen(_u.Request(
@@ -285,6 +324,7 @@ FINISH_RATE_MIN = float(os.environ.get('MESH_FINISH_RATE', '0.015'))  # доля
 MIN_WORKING_TO_CULL = int(os.environ.get('MESH_MIN_WORKING_TO_CULL', '2'))
 sys.path.insert(0, HERE)
 import node_health as NH  # noqa: E402 — общий бюджет пересадок и здоровье нод
+import proc_run as PR     # noqa: E402 — запуск шага без сирот (ОДИН на batch_show и ssh_run)
 import ssh_run as SR      # noqa: E402 — канонический плоский список заданий (`plan_jobs`)
 import salad_groups as SG  # noqa: E402 — тариф/окно группы: ОДИН источник (rules/salad-groups.json)
 
@@ -797,8 +837,21 @@ def finale() -> None:
     # ГРУППУ ГАСИМ ПЕРВЫМ ДЕЛОМ (деньги): тарифицируется состояние, а финальный drain —
     # работа чисто локальная, комплекты уже лежат на exit-fi. Раньше ноды ждали конца
     # drain'а и жгли деньги за это время. Гасим и при падении — это `finally` в main().
-    c, o = sh(f'{PY} - <<P\nimport sys; sys.path.insert(0,"{HERE}")\nimport ssh_run; ssh_run.stop_group()\nP', timeout=120)
+    stop = f'{PY} - <<P\nimport sys; sys.path.insert(0,"{HERE}")\nimport ssh_run; ssh_run.stop_group()\nP'
+    c, o = sh(stop, timeout=120)
     print(o, flush=True)
+    if c != 0:
+        # НЕУДАЧНОЕ ГАШЕНИЕ — ЭТО ДЕНЬГИ (замечание Codex 05.09): раньше ненулевой код просто
+        # печатался, конвейер шёл дальше и выходил, а группы оставались тарифицироваться до
+        # следующего сторожа. Повторяем один раз и, если снова мимо, кричим в телеграм.
+        print(f'!! группы НЕ погашены (код {c}) — повторяю', flush=True)
+        c, o = sh(stop, timeout=120)
+        print(o, flush=True)
+        if c != 0:
+            print('!! ГРУППЫ ОСТАЛИСЬ ПОДНЯТЫМИ — гасить руками, идёт тарификация', flush=True)
+            subprocess.run(['bash', os.path.join(HERE, '..', 'alert.sh'),
+                            'меши: конвейер завершился, а группы Salad НЕ погашены — '
+                            'идёт оплата, погасите вручную'], check=False, timeout=60)
     # Фоновый разбор мог ещё идти — два drain'а разом полезли бы в один каталог.
     wait_post()
     # сервер чистим ОДИН раз в конце: в цикле drain --keep, иначе умирает кэш «уже сделано»

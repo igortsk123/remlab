@@ -12,6 +12,7 @@
 """
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -674,8 +675,10 @@ def case_group_status_mixed() -> None:
     class R:
         def __init__(self, s):
             self.stdout = json.dumps({'current_state': {'status': s}})
+            self.returncode, self.stderr = 0, ''   # curl теперь проверяется по коду возврата
     seq = iter(['stopped', 'running'])
     B.subprocess.run = lambda *a, **k: R(next(seq))
+    keep_grp = os.environ.get('SALAD_GROUP')   # тест не должен менять состав пула соседям
     os.environ['SALAD_GROUP'] = 'mesh-batch-1,mesh-low-2'
     # Ключ читается ИЗ ОКРУЖЕНИЯ до вызова subprocess, поэтому мока мало: без него KeyError
     # ловится внутри `group_status`, статус выходит None, и тест падал только на машине без
@@ -688,11 +691,115 @@ def case_group_status_mixed() -> None:
         assert B.group_status() == 'stopped'
     finally:
         B.subprocess.run = real
-        if keep_key is None:
-            os.environ.pop('SALAD_API_KEY', None)
-        else:
-            os.environ['SALAD_API_KEY'] = keep_key
+        for k, v in (('SALAD_API_KEY', keep_key), ('SALAD_GROUP', keep_grp)):
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
     print('  ✓ group_status: stopped только если ВСЕ, иначе живая часть')
+
+
+def case_step_timeout_kills_children() -> None:
+    """Таймаут шага снимает ВСЮ группу процессов, а не только `/bin/sh`-обёртку.
+
+    05.09: шаг топ-вью падал по таймауту, `subprocess.run` убивал обёртку
+    `/bin/sh -c 'while ...; do python topview_render.py; done'`, а python оставался жить с
+    `ppid=1`. Пост-разбор идёт каждые MESH_POST_EVERY_S, поэтому сироты копились: к 10:00 их
+    было 20, старейшая работала 21 ч 44 мин. Цена — съеденная память дев-машины (trimesh её не
+    отдаёт, урок 391) и блокировка перезапуска: новый конвейер честно ждёт сирот, а ноды всё
+    это время оплачиваются.
+    """
+    import batch_show as B  # noqa: PLC0415
+
+    def _alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True       # процесс есть, просто чужой — «нет прав» это НЕ «умер»
+        return True
+
+    def _run_case(child: str, note: str) -> None:
+        fd, pidfile = tempfile.mkstemp(prefix='tests_pool-child-', suffix='.pid')
+        os.close(fd)
+        t0 = time.time()
+        rc, out = B.sh(f'{child} & echo $! > {pidfile}; sleep 120', timeout=2)
+        assert rc == 124, f'{note}: ожидали таймаут 124, получили {rc}: {out[:150]}'
+        assert time.time() - t0 < 40, f'{note}: sh() завис вместо того, чтобы добить шаг'
+        pid = int(open(pidfile, encoding='utf-8').read().strip())
+        os.remove(pidfile)
+        for _ in range(150):      # даём ядру дожать сигнал и init — прибрать зомби
+            if not _alive(pid):
+                return
+            time.sleep(0.1)
+        os.kill(pid, 9)           # не оставляем сироту после самого теста
+        raise AssertionError(f'{note}: потомок {pid} пережил таймаут — это и есть утечка сирот')
+
+    _run_case('sleep 120', 'послушный потомок')
+    # УПРЯМЫЙ ПОТОМОК — иначе ветка SIGKILL не проверена вообще. Первая версия правки
+    # эскалировала по смерти ОБОЛОЧКИ: shell честно умирал от SIGTERM, код выходил довольным,
+    # а игнорирующий TERM внук жил дальше — утечка воспроизводилась в самом лекарстве.
+    _run_case("/bin/sh -c \"trap '' TERM; sleep 120\"", 'потомок игнорирует SIGTERM')
+    # СОСЕД НЕ ПОСТРАДАЛ: killpg обязан бить только группу шага
+    neighbour = subprocess.Popen(['sleep', '30'])
+    try:
+        _run_case('sleep 120', 'при живом соседе')
+        assert neighbour.poll() is None, 'killpg задел посторонний процесс — это авария изоляции'
+    finally:
+        neighbour.kill()
+        neighbour.wait()
+    print('  ✓ таймаут шага убивает всю группу (и упрямого потомка), соседей не трогает')
+
+
+def case_no_restart_of_running_group() -> None:
+    """Уже поднятую группу повторно не стартуем.
+
+    05.09: `/start` живой группы Salad отбивает как `400 replicas_quota_exceeded` (квота реплик
+    уже разобрана ею же). Работе не мешает, но в логе неотличим от настоящей беды — тем же
+    кодом 400 приходит `no_credits_available` (урок 404). Лишний шум прячет реальный отказ.
+    """
+    import urllib.request  # noqa: PLC0415
+
+    import batch_show as B  # noqa: PLC0415
+    started, keep_states, keep_open = [], B.group_states, urllib.request.urlopen
+    keep_grp, keep_key, keep_halt = (os.environ.get('SALAD_GROUP'),
+                                     os.environ.get('SALAD_API_KEY'), B.HALT)
+    os.environ['SALAD_GROUP'] = 'g-run,g-down'
+    os.environ['SALAD_API_KEY'] = 'ключ-для-стенда-запросы-замоканы'
+    # HALT ПОДМЕНЯЕМ, А НЕ УДАЛЯЕМ. Первая версия теста делала `os.remove(B.HALT)` по боевому
+    # пути: прогон стенда рядом с работающим конвейером снял бы запрет сторожа и вернул платные
+    # ноды — ровно та беда, от которой этот запрет и стоит (находка Codex 05.09).
+    B.HALT = os.path.join(tempfile.gettempdir(), 'tests_pool-halt-start.json')
+    os.path.exists(B.HALT) and os.remove(B.HALT)
+
+    class _Resp:
+        def read(self):
+            return b''
+
+    def _fake_open(req, timeout=0):
+        started.append(req.full_url.rsplit('/containers/', 1)[-1])
+        return _Resp()
+
+    urllib.request.urlopen = _fake_open
+    try:
+        B.group_states = lambda: {'g-run': 'running', 'g-down': 'stopped'}
+        assert B.ensure_group_started() is True, 'живой пул должен считаться поднятым'
+        assert started == ['g-down/start'], f'тронули лишнее: {started}'
+        # НЕЗНАКОМОЕ И НЕЧИТАЕМОЕ СОСТОЯНИЕ — ПОВОД ПОПРОБОВАТЬ, а не записать в живые: иначе
+        # при сбое API или новом статусе Salad группу не поднимет никто и пул встанет молча.
+        started.clear()
+        B.group_states = lambda: {'g-run': 'чего-то-новое', 'g-down': None}
+        B.ensure_group_started()
+        assert sorted(started) == ['g-down/start', 'g-run/start'], f'не пробовали поднять: {started}'
+        # и НИ ОДНОГО повторного /start той группе, которую только что стартовали (гонка с
+        # согласованием состояния на стороне Salad)
+        started.clear()
+        B.group_states = lambda: {'g-run': 'stopped', 'g-down': 'stopped'}
+        B.ensure_group_started()
+        assert started == ['g-run/start', 'g-down/start'], f'повторный старт: {started}'
+    finally:
+        B.group_states, urllib.request.urlopen, B.HALT = keep_states, keep_open, keep_halt
+        for k, v in (('SALAD_GROUP', keep_grp), ('SALAD_API_KEY', keep_key)):
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+    print('  ✓ /start шлём лежащим и непонятным, живым — нет, повторно — нет')
 
 
 def case_burst_counts_cached() -> None:
@@ -781,6 +888,7 @@ def main() -> None:
         pure = (case_checkpoint, case_cull_rule, case_fault_classes, case_halt_blocks_start,
                 case_silent_node_is_zombie, case_sink_relief_before_red,
                 case_transport_class, case_window_gate, case_group_status_mixed,
+                case_step_timeout_kills_children, case_no_restart_of_running_group,
                 case_burst_counts_cached, case_notify_reports, case_hot_restart)
         for fn in (case_late_node, case_bad_node, case_unresolved, case_prefix,
                    case_stall_is_capacity, case_no_capacity, case_cull_rule, case_checkpoint,
@@ -790,6 +898,7 @@ def main() -> None:
                    case_post_background, case_flat_plan, case_halt_blocks_start,
                    case_preflight_sink_full, case_infra_closes_rest, case_no_double_generate,
                    case_transport_class, case_window_gate, case_group_status_mixed,
+                   case_step_timeout_kills_children, case_no_restart_of_running_group,
                    case_silent_node_is_zombie, case_sink_relief_before_red,
                    case_burst_counts_cached, case_notify_reports, case_hot_restart):
             if fn not in pure:
