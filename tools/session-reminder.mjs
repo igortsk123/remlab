@@ -75,17 +75,35 @@ try {
 }
 if (!changed.length) process.exit(0);
 
-// Блокнот захвата на ходу пуст? (нет строк после метки SCRATCH START)
-function scratchEmpty() {
+// Блокнот захвата на ходу: пуст (нет строк после метки SCRATCH START) ИЛИ — при --scratch-fresh-days N
+// (opt-in, v1.7.0) — протух: все датированные записи `- YYYY-MM-DD …` старше N дней. Одна непустота
+// гейт не держит: старый текст в блокноте гасил проверку навсегда (remlab: 120 строк за 2 дня, свод не
+// запускался). Эвристика по датам не доказывает захват ИМЕННО этой сессии (критика Codex: недатированный
+// текст = вечный false negative, строка «свод выполнен» открывает окно в N дней) — поэтому по умолчанию
+// ВЫКЛЮЧЕНА (0), обкатывается на remlab флагом в команде хука; PreCompact пока проверяет непустоту.
+// Возвращает null (ок) или причину.
+const SCRATCH_FRESH_DAYS = (() => {
+  const i = args.indexOf("--scratch-fresh-days");
+  return i !== -1 && Number.isFinite(Number(args[i + 1])) ? Number(args[i + 1]) : 0;
+})();
+function scratchProblem() {
   const f = join(root, ".memory_bank", "_intake", "session-scratch.md");
-  if (!existsSync(f)) return true;
+  if (!existsSync(f)) return "блокнот _intake/session-scratch.md ПУСТ (файла нет) — захват сессии не сделан";
   try {
     const txt = readFileSync(f, "utf8");
     const i = txt.indexOf("SCRATCH START");
-    const tail = i === -1 ? txt : txt.slice(txt.indexOf("\n", i) + 1);
-    return tail.replace(/<!--[\s\S]*?-->/g, "").trim().length === 0;
+    const tail = (i === -1 ? txt : txt.slice(txt.indexOf("\n", i) + 1)).replace(/<!--[\s\S]*?-->/g, "");
+    if (tail.trim().length === 0) return "блокнот _intake/session-scratch.md ПУСТ — захват сессии не сделан";
+    if (!SCRATCH_FRESH_DAYS) return null; // проверка свежести не включена — достаточно непустоты
+    const dates = [...tail.matchAll(/^- (\d{4}-\d{2}-\d{2})/gm)].map((m) => m[1]);
+    if (!dates.length) return null; // недатированные записи — считаем свежими
+    const newest = dates.sort().pop();
+    const ageDays = Math.round((Date.now() - Date.parse(newest)) / 86400000);
+    if (ageDays > SCRATCH_FRESH_DAYS)
+      return `в блокноте нет записи свежее ${SCRATCH_FRESH_DAYS}д (последняя ${newest}) — захват этой сессии не сделан, старые строки гейт не держат`;
+    return null;
   } catch {
-    return true;
+    return "блокнот _intake/session-scratch.md не читается";
   }
 }
 
@@ -113,12 +131,13 @@ try {
   /* нет .memory_bank / сбой — не считаем грязным */
 }
 const auditDirty = !!(audit && !audit.fatal && !audit.ok);
-const empty = scratchEmpty();
+const scratchWhy = scratchProblem();
+const empty = !!scratchWhy;
 const plan = activePlan();
 
 if (blockMode && plan && (empty || auditDirty)) {
   const why = [];
-  if (empty) why.push("блокнот _intake/session-scratch.md ПУСТ — захват сессии не сделан");
+  if (empty) why.push(scratchWhy);
   if (auditDirty)
     why.push(
       `memory-audit: ${audit.problems.length} наход(ок): ${audit.problems.slice(0, 3).join(" · ")}${audit.problems.length > 3 ? " · …" : ""}`
@@ -140,7 +159,7 @@ console.log(
   `⚠ Похоже, в сессии была содержательная работа (изменено файлов вне .memory_bank/: ${changed.length}).`
 );
 if (empty) {
-  console.log("  Блокнот _intake/session-scratch.md ПУСТ — захват на ходу пропущен.");
+  console.log(`  ${scratchWhy}.`);
   console.log("  Запусти /memory-check (разнесёт решения по .memory_bank/) — иначе факты сессии потеряются.");
 } else {
   console.log("  Перед /clear запусти /memory-check — консолидировать блокнот и захват сессии в .memory_bank/.");

@@ -45,6 +45,21 @@
 //                   или некавыченный глоб в paths — правило может МОЛЧА не загружаться
 //   MEM-INJECT      док с source: external:* содержит императивы к агенту / exec-паттерны —
 //                   ручное ревью (память как канал persistent prompt injection, OWASP ASI06)
+//   ADR-DUP         один номер ADR-NNNN в двух H2-записях (decisions.md + тома decisions/*.md) —
+//                   ссылки на решение неоднозначны (remlab: 7 дублей на 187 записей)
+//   ADR-IN-INDEX    (warning) есть тома decisions/adr-*.md, а в decisions.md (индексе) появилась запись `## ADR-`
+//   ADR-NOT-INDEXED (warning) запись тома без строки с её номером в decisions.md
+//   ADR-INDEX-ORPHAN (warning) строка индекса есть, записи в томах нет
+//   ADR-RANGE       (warning) запись вне диапазона своего тома adr-NNNN-MMMM.md
+//   DECISIONS-BLOAT (warning) decisions.md больше --decisions-max-kb — пора на индекс + тома
+//   PLAN-DRAFT-STALE (warning) draft без движения дольше --draft-stale-days и без будущего review_after
+//   PLAN-PARTIAL-NO-REASON (warning) partial без pause_reason — кладбище планов невидимо
+//   PLAN-STATUS     (warning) статус плана вне словаря (draft/in_progress/partial/completed/cancelled)
+//   PLAN-REVIEW-DUE (warning) review_after плана в прошлом (REVIEW кита планы не смотрит)
+//   CANON-INTAKE-REF (warning) canonical-док ссылается в теле на _intake/ — истина опирается на сырьё,
+//                   которое аудит не проверяет
+//   INTAKE-BLOAT    (warning) _intake/ больше --intake-max-mb — вход, не хранилище (remlab: 22 МБ логов)
+//   INTAKE-LOGS     (warning) *.log внутри _intake/ — логи прогонов не память
 //
 // Использование:
 //   node tools/memory-audit.mjs [projectRoot]           (default: cwd; write-режим — регенерит блоки)
@@ -52,6 +67,7 @@
 //   Флаги порогов: --stale-days N (30) · --ps-max-kb N (12) · --tier1-max-kb N (3)
 //                  --tier0-max-kb N (8) · --plan-stale-days N (14) · --frozen-commits N (12)
 //                  --code-drift-days N (7) · --verified-max-days N (90)
+//                  --decisions-max-kb N (40) · --draft-stale-days N (30) · --intake-max-mb N (10)
 //   --no-git: отключить git-проверки FROZEN-MEMORY и CODE-DRIFT (иначе включаются при наличии
 //             .git и git в PATH). --no-code-drift: отключить только CODE-DRIFT.
 //   --metrics: доп. строка `METRICS ...` (footprint Tier0/корпус + счётчик находок по категориям) —
@@ -187,6 +203,9 @@ export function runChecks(root, opts = {}) {
     frozenCommits: 12,
     codeDriftDays: 7,
     verifiedMaxDays: 90,
+    decisionsMaxKb: 40,
+    draftStaleDays: 30,
+    intakeMaxMb: 10,
     noGit: false,
     noCodeDrift: false,
     today: todayISO(),
@@ -356,14 +375,31 @@ export function runChecks(root, opts = {}) {
       );
   }
   {
+    const indexPath0 = join(mbDir, "INDEX.md");
     let t0 = 0;
     for (const f of [join(root, "CLAUDE.md"), join(mbDir, "INDEX.md")]) {
       if (existsSync(f)) t0 += Buffer.byteLength(readDoc(f), "utf8");
     }
-    if (t0 > o.tier0MaxKb * 1024)
+    if (t0 > o.tier0MaxKb * 1024) {
+      // Decision tree в INDEX генерируется из scope: сводок — длинные scope съедают бюджет Tier 0
+      // незаметно для того, кто правит CLAUDE.md. Подсказываем, что именно ужимать.
+      const longScopes = contentDocs
+        .filter((d) => String(d.fm.tier) === "1" && d.fm.topic && !ALWAYS_ON_TOPICS.has(d.fm.topic) && d.fm.scope)
+        .map((d) => ({ rel: d.rel, len: d.fm.scope.length }))
+        .sort((a, b) => b.len - a.len)
+        .slice(0, 3)
+        .map((x) => `${x.rel} (scope ${x.len} симв.)`);
+      const hint = longScopes.length ? `; самые длинные scope в дереве: ${longScopes.join(", ")}` : "";
+      // Разбивка: что именно весит — CLAUDE.md, ручная часть INDEX или сгенерированное дерево.
+      const claudeB = existsSync(join(root, "CLAUDE.md")) ? Buffer.byteLength(readDoc(join(root, "CLAUDE.md")), "utf8") : 0;
+      const idxTxt = existsSync(indexPath0) ? readDoc(indexPath0) : "";
+      const genB = (idxTxt.match(/<!-- GENERATED:[\s\S]*?END -->/g) || []).reduce((s, m) => s + Buffer.byteLength(m, "utf8"), 0);
+      const manualB = Buffer.byteLength(idxTxt, "utf8") - genB;
+      const kb = (b) => (b / 1024).toFixed(1);
       problems.push(
-        `TIER0-BLOAT CLAUDE.md+INDEX.md — ${(t0 / 1024).toFixed(1)}KB > ${o.tier0MaxKb}KB. Tier 0 всегда в контексте — ужми, детали в Tier 1/2`
+        `TIER0-BLOAT CLAUDE.md+INDEX.md — ${(t0 / 1024).toFixed(1)}KB > ${o.tier0MaxKb}KB (CLAUDE.md ${kb(claudeB)} · INDEX ручная часть ${kb(manualB)} · GENERATED ${kb(genB)}). Tier 0 всегда в контексте — ужми, детали в Tier 1/2${hint}`
       );
+    }
   }
 
   // 9) NO-TIER1 — domain-док без парной Tier 1 сводки
@@ -396,7 +432,11 @@ export function runChecks(root, opts = {}) {
       problems.push(`PLACEHOLDER ${label} — незаполненные {{...}} — заполни (/memory-init) или убери`);
   }
 
-  // 11) Планы: PLAN-STUCK / PLAN-MISPLACED
+  // 11) Планы: PLAN-STUCK / PLAN-MISPLACED (problems) + кладбище планов (warnings):
+  //     PLAN-STUCK видит только in_progress, а лежат и гниют draft/partial (remlab: 61 открытый план,
+  //     из них 33 partial без причины и 18 draft старше месяца; по флоту partial без причины ~90 %).
+  //     Базовая частота высокая → warning, не блок: чинит триаж по манифесту (HEAL.md), не галочка.
+  const PLAN_STATUSES = new Set(["draft", "in_progress", "partial", "completed", "cancelled"]);
   for (const p of planDocs) {
     const st = p.fm.status || "";
     if (st === "completed")
@@ -406,10 +446,110 @@ export function runChecks(root, opts = {}) {
       problems.push(
         `PLAN-STUCK ${p.rel} — in_progress без движения с ${refDate} (> ${o.planStaleDays}д) — доведи, переведи в partial или отмени`
       );
+    if (!PLAN_STATUSES.has(st))
+      warnings.push(
+        `PLAN-STATUS ${p.rel} — status '${st || "—"}' вне словаря (draft/in_progress/partial/completed/cancelled) — реестр и PLAN-STUCK его не видят`
+      );
+    const futureReview = isDate(p.fm.review_after) && p.fm.review_after >= o.today;
+    if (st === "draft" && refDate && daysBetween(refDate, o.today) > o.draftStaleDays && !futureReview)
+      warnings.push(
+        `PLAN-DRAFT-STALE ${p.rel} — draft без движения с ${refDate} (> ${o.draftStaleDays}д) — деплой, review_after или archive/plans/ с archive_reason`
+      );
+    if (st === "partial" && isPlaceholder(p.fm.pause_reason))
+      warnings.push(
+        `PLAN-PARTIAL-NO-REASON ${p.rel} — partial без pause_reason (почему пауза / resume_trigger когда вернуться) — иначе план невидимо гниёт`
+      );
+    // review_after у планов: REVIEW кита смотрит только content-доки, а дата возврата у partial/draft
+    // без этой проверки — мёртвое поле.
+    if (isDate(p.fm.review_after) && p.fm.review_after < o.today && st !== "completed")
+      warnings.push(`PLAN-REVIEW-DUE ${p.rel} — review_after ${p.fm.review_after} прошёл (status ${st || "—"}) — верни в работу, продли дату или архивируй`);
   }
   for (const p of completedDocs) {
     if ((p.fm.status || "") !== "completed")
       problems.push(`PLAN-MISPLACED ${p.rel} — status '${p.fm.status || "—"}' ≠ completed, но лежит в completed_plans/`);
+  }
+
+  // 11b) ADR-лог: decisions.md — единственный tier-1 без бюджета (ALWAYS_ON исключён из TIER1-BLOAT),
+  //      на флоте он растёт в журнал (remlab 474 КБ, sup2 233, sib 115). Конвенция v1.7: при росте —
+  //      decisions.md остаётся ИНДЕКСОМ (строка на решение), полные тексты — тома decisions/adr-NNNN-MMMM.md.
+  //      Id записи: формат B `## ADR-NNNN — …` или формат A `## [дата] Название — ADR-NNNN (…)` —
+  //      берём ПОСЛЕДНИЙ токен в заголовке (первый даёт ложный дубль на «(доп. к ADR-0042)»).
+  {
+    const decIndex = docs.find((d) => d.rel === "decisions.md");
+    const volumes = docs.filter((d) => /^decisions\/(?!README\.md$).+\.md$/.test(d.rel));
+    // Заголовки внутри ```-блоков (пример формата в шаблоне) — не записи.
+    const noFences = (t) => t.replace(/```[\s\S]*?```/g, (m) => m.replace(/[^\n]/g, " "));
+    const adrId = (heading) => {
+      const b = heading.match(/^## ADR-(\d{4})/);
+      if (b) return b[1];
+      // формат A: номер — последний токен ВНЕ скобок («… (доп. к ADR-0042) — ADR-0043»,
+      // «… — ADR-0002 (доп. к ADR-0001)»); скобочные упоминания — ссылки, не номер записи
+      const noParens = heading.replace(/\([^)]*\)/g, "");
+      const all = [...noParens.matchAll(/ADR-(\d{4})/g)];
+      if (all.length) return all[all.length - 1][1];
+      const any = [...heading.matchAll(/ADR-(\d{4})/g)];
+      return any.length ? any[any.length - 1][1] : null;
+    };
+    const records = []; // {id, rel, line, inIndex}
+    for (const d of [decIndex, ...volumes].filter(Boolean)) {
+      noFences(d.text).split(/\r?\n/).forEach((line, i) => {
+        if (!/^## /.test(line)) return;
+        const id = adrId(line);
+        if (id) records.push({ id, rel: d.rel, line: i + 1, inIndex: d === decIndex });
+      });
+    }
+    const withVolumes = volumes.length > 0 && !!decIndex;
+    // При томах записи в индексе уже флагает ADR-IN-INDEX — в подсчёт дублей их не берём
+    // (одна причина — одна диагностика).
+    const dupPool = withVolumes ? records.filter((r) => !r.inIndex) : records;
+    const byId = new Map();
+    for (const r of dupPool) (byId.get(r.id) || byId.set(r.id, []).get(r.id)).push(r);
+    for (const [id, list] of [...byId].sort()) {
+      if (list.length > 1)
+        problems.push(
+          `ADR-DUP ADR-${id} — ${list.length} записи под одним номером: ${list.map((r) => `${r.rel}:${r.line}`).join(", ")} — поздней дай следующий свободный номер (max+1, пометка Legacy), ссылки поправь`
+        );
+    }
+    if (withVolumes) {
+      const inIndex = records.filter((r) => r.inIndex);
+      if (inIndex.length)
+        warnings.push(
+          `ADR-IN-INDEX decisions.md:${inIndex[0].line} — ${inIndex.length} запис(ей) \`## ADR-…\` в индексе при наличии томов decisions/ — текст решения пиши в текущий том, в индекс — строку`
+        );
+      // Строка индекса — структурная (список/таблица с номером), а не любое упоминание в тексте.
+      const indexed = new Set(
+        [...noFences(decIndex.text).matchAll(/^\s*(?:[-*|]|\d+\.)[^\n]*?ADR-(\d{4})/gm)].map((m) => m[1])
+      );
+      const volIds = new Set(records.filter((r) => !r.inIndex).map((r) => r.id));
+      for (const r of records.filter((r) => !r.inIndex)) {
+        if (!indexed.has(r.id))
+          warnings.push(`ADR-NOT-INDEXED ${r.rel}:${r.line} — ADR-${r.id} есть в томе, но строки с ним нет в decisions.md (индекс)`);
+      }
+      for (const id of [...indexed].sort()) {
+        if (!volIds.has(id))
+          warnings.push(`ADR-INDEX-ORPHAN decisions.md — строка **ADR-${id}** есть в индексе, а записи в томах decisions/ нет`);
+      }
+      // Диапазон тома по имени файла adr-NNNN-MMMM.md: запись вне диапазона — в чужом томе (0000 допустим в первом).
+      const ranged = volumes
+        .map((v) => ({ v, m: basename(v.file).match(/^adr-(\d{4})-(\d{4})\.md$/) }))
+        .filter((x) => x.m)
+        .map((x) => ({ rel: x.v.rel, lo: Number(x.m[1]), hi: Number(x.m[2]) }));
+      const firstLo = ranged.length ? Math.min(...ranged.map((x) => x.lo)) : null;
+      for (const r of records.filter((r) => !r.inIndex)) {
+        const vol = ranged.find((x) => x.rel === r.rel);
+        if (!vol) continue;
+        const n = Number(r.id);
+        if ((n === 0 && vol.lo === firstLo) || (n >= vol.lo && n <= vol.hi)) continue;
+        warnings.push(`ADR-RANGE ${r.rel}:${r.line} — ADR-${r.id} вне диапазона тома ${String(vol.lo).padStart(4, "0")}…${String(vol.hi).padStart(4, "0")} — перенеси в свой том`);
+      }
+    }
+    if (decIndex) {
+      const size = Buffer.byteLength(decIndex.text, "utf8");
+      if (size > o.decisionsMaxKb * 1024)
+        warnings.push(
+          `DECISIONS-BLOAT decisions.md — ${(size / 1024).toFixed(0)}KB > ${o.decisionsMaxKb}KB — журнал не читается целиком: оставь здесь индекс (строка на решение, «по темам»), тексты — в тома decisions/adr-NNNN-MMMM.md`
+        );
+    }
   }
 
   // 12) INDEX-REF — пути в ручной части INDEX указывают на несуществующее
@@ -462,11 +602,14 @@ export function runChecks(root, opts = {}) {
     const tier1 = contentDocs
       .filter((d) => String(d.fm.tier) === "1" && d.fm.topic && !ALWAYS_ON_TOPICS.has(d.fm.topic))
       .sort(bySort);
-    const rows = tier1.map((d) => {
-      const task = d.fm.scope || d.fm.topic;
-      const t2 = isPlaceholder(d.fm.tier2) ? "—" : `\`${d.fm.tier2}\``;
-      return `| ${task} | \`${d.rel}\` | ${t2} |`;
-    });
+    // Путь Tier 2 печатаем относительно .memory_bank/ (читатель INDEX стоит в корне банка), а не
+    // копируем tier2: verbatim — тот относителен к папке сводки (`../domain/x.md` из core/ сбивал).
+    const t2Display = (d) => {
+      if (isPlaceholder(d.fm.tier2)) return "—";
+      const abs = resolve(dirname(d.file), d.fm.tier2);
+      return `\`${relative(mbDir, abs).split(sep).join("/")}\``;
+    };
+    const rows = tier1.map((d) => `| ${d.fm.scope || d.fm.topic} | \`${d.rel}\` | ${t2Display(d)} |`);
     regenBlock(
       indexPath,
       "decision-tree",
@@ -637,7 +780,10 @@ export function runChecks(root, opts = {}) {
       // Исключённые по политике (журналы решений, historical) — НЕ «непокрытые»: их не проверяют
       // намеренно. Поэтому они уходят и из числителя, и из знаменателя покрытия.
       const eligible = codeClaims.filter(
-        (c) => !ALWAYS_ON_TOPICS.has(c.d.fm.topic) && c.d.fm.source_of_truth !== "historical"
+        (c) =>
+          !ALWAYS_ON_TOPICS.has(c.d.fm.topic) &&
+          !/^decisions(-|$)/.test(String(c.d.fm.topic || "")) && // тома ADR — журнал, как и decisions.md
+          c.d.fm.source_of_truth !== "historical"
       );
       const tracked = eligible.filter((c) => anchorOf(c.d));
       // Покрытие: сколько доков со ссылками на код проверка вообще ВИДИТ. Без даты-якоря во
@@ -746,7 +892,7 @@ export function runChecks(root, opts = {}) {
       for (const f of ruleFiles) {
         const rel = ".claude/rules/" + relative(rulesDir, f).split(sep).join("/");
         const text = readDoc(f);
-        if (!text.startsWith("---")) continue; // без frontmatter — легальное always-on правило
+        if (!text.startsWith("---")) continue; // без frontmatter — легальное always-on правило (v1.7: warning отклонён критикой — механического эффекта нет)
         const end = text.indexOf("\n---", 3);
         if (end === -1) {
           problems.push(`RULES-FM ${rel} — frontmatter не закрыт (нет парного ---)`);
@@ -812,6 +958,49 @@ export function runChecks(root, opts = {}) {
           `MEM-INJECT ${d.rel}:${lineNo} — императив/exec-паттерн («${hit.frag}») в доке с source: ${d.fm.source} — проверь вручную: инструкции из внешних источников в память не переносятся (memory-discipline)`
         );
       }
+    }
+  }
+
+  // 20) Слепые зоны — честно назвать, что аудит НЕ смотрит. SKIP_DIRS исключены намеренно, но
+  //     «✓ чисто» читалось как «всё проверено»: remlab держал в _intake/ 22 МБ логов, а canonical-доки
+  //     ссылались туда как на истину. Размер исключённого — в вывод; сырьё в каноне и логи — warnings.
+  const excluded = [];
+  {
+    for (const name of ["_intake", "archive", "completed_plans", "changelog"]) {
+      const dir = join(mbDir, name);
+      if (!existsSync(dir)) continue;
+      let files = 0, bytes = 0, logs = 0;
+      const biggest = []; // top-3 по размеру — для INTAKE-BLOAT
+      (function walkAll(d) {
+        for (const n of readdirSync(d)) {
+          const full = join(d, n);
+          let st;
+          try { st = statSync(full); } catch { continue; }
+          if (st.isDirectory()) walkAll(full);
+          else {
+            files++; bytes += st.size; if (n.endsWith(".log")) logs++;
+            biggest.push({ rel: relative(mbDir, full).split(sep).join("/"), size: st.size });
+          }
+        }
+      })(dir);
+      excluded.push({ name, files, bytes, logs });
+      if (name === "_intake") {
+        if (bytes > o.intakeMaxMb * 1048576) {
+          const top = biggest.sort((a, b) => b.size - a.size).slice(0, 3).map((x) => `${x.rel} (${(x.size / 1048576).toFixed(1)} МБ)`);
+          warnings.push(`INTAKE-BLOAT _intake/ — ${(bytes / 1048576).toFixed(1)} МБ > ${o.intakeMaxMb} МБ — это вход, не хранилище: крупнейшие ${top.join(", ")}`);
+        }
+        if (logs)
+          warnings.push(`INTAKE-LOGS _intake/ — ${logs} файл(ов) *.log внутри банка — логи прогонов не память: держи вне .memory_bank/ (например ~/<проект>-logs/)`);
+      }
+    }
+    for (const d of contentDocs) {
+      if (d.fm.source_of_truth !== "canonical") continue;
+      const body = d.text.replace(/^---[\s\S]*?\n---/, "");
+      const hits = [...body.matchAll(/_intake\/(?!session-scratch\.md)[A-Za-z0-9_./-]+/g)].map((m) => m[0]);
+      if (hits.length)
+        warnings.push(
+          `CANON-INTAKE-REF ${d.rel} — canonical ссылается на ${[...new Set(hits)].slice(0, 2).join(", ")}${hits.length > 2 ? " …" : ""} — сырьё вне аудита; факт перенеси в док, провенанс оставь в source:`
+        );
     }
   }
 
@@ -890,6 +1079,7 @@ export function runChecks(root, opts = {}) {
     footprintPct,
     byCategory,
     driftCoverage,
+    excluded,
   };
 }
 
@@ -919,6 +1109,9 @@ if (isMain) {
     frozenCommits: flagVal("--frozen-commits", 12),
     codeDriftDays: flagVal("--code-drift-days", 7),
     verifiedMaxDays: flagVal("--verified-max-days", 90),
+    decisionsMaxKb: flagVal("--decisions-max-kb", 40),
+    draftStaleDays: flagVal("--draft-stale-days", 30),
+    intakeMaxMb: flagVal("--intake-max-mb", 10),
     noGit: args.includes("--no-git"),
     noCodeDrift: args.includes("--no-code-drift"),
   });
@@ -929,6 +1122,10 @@ if (isMain) {
   console.log(`[memory-audit] root=${root}`);
   const regen = res.notes.length ? res.notes.join("; ") : args.includes("--check") ? "GENERATED-блоки (--check: не переписаны)" : "GENERATED-блоки актуальны";
   console.log(`[memory-audit] доков: ${res.docCount}; ${regen}`);
+  if (res.excluded && res.excluded.length) {
+    const fmt = (x) => `${x.name} (${x.files} ф., ${(x.bytes / 1048576).toFixed(1)} МБ${x.logs ? `, .log: ${x.logs}` : ""})`;
+    console.log(`[memory-audit] вне content-scan (намеренно): ${res.excluded.map(fmt).join(" · ")} — «чисто» их не касается (completed_plans — только PLAN-MISPLACED, _secrets — своя проверка)`);
+  }
   if (res.footprintPct !== null)
     console.log(
       `[memory-audit] Tier 0 (всегда в контексте): ${(res.alwaysOnBytes / 1024).toFixed(1)}KB — ${res.footprintPct}% активного корпуса (${(res.corpusBytes / 1024).toFixed(1)}KB)`

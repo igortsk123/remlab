@@ -1,7 +1,7 @@
-493bbe534d21481d2ca565fe75ccf738 tools/memory-audit.mjs
+d25b29568b92895eb1aeaab059291719 tools/memory-audit.mjs
 766169018554f90576a8c27b19ca214b tools/merge-settings.py
 2293ec265856ef0da441755e5230729d tools/merge-settings.ps1
-420516a01ad63377514dcb7b62f0f07a tools/session-reminder.mjs
+6dff104499950a3326f15833524a5057 tools/session-reminder.mjs
 9707030eea488874c898b08916f0b5a6 tools/session-freshness.mjs
 f2c5c5e21bf6fcf32128301d93326d31 tools/precompact-guard.mjs
 cc97ebdb9c40c5eec6f2fa337510a772 tools/read-logger.mjs
@@ -10,7 +10,7 @@ aa9669953511ef85c531843834be89b2 tools/stop-hook.example.json
 1ab668581ff9d90dab027b14d583db72 .claude/agents/verify.md
 024414889b828ff4652fcac129fea2de .github/workflows/memory-audit.yml
 fdcc262c44651fc7d5bef16ba519cb4a .claude/skills/memory-init/SKILL.md
-04c4945c3596b290194ead9436ad9fee .claude/skills/memory-check/SKILL.md
+5ef60ed50822648714f40a07e4bc6ee8 .claude/skills/memory-check/SKILL.md
 b55f7d1546a0064714851e4d07736bc5 .claude/skills/memory-cleanup/SKILL.md
 d8aca0af67c5610a5dc6f33bb15f2e5f .memory_bank/METADATA_SCHEMA.md
 28bd45f6a2d4df4cb9da428eeaa9dcff .memory_bank/CLEANUP_POLICY.md
