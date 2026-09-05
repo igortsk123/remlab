@@ -182,8 +182,19 @@ def verify(token: str, manifest: dict) -> None:
 
 
 def publish(token: str, batch: int) -> int:
+    """Любой сбой ДО заливки (прод отвечает 502 во время деплоя, нет модели, нет места) тоже
+    обязан стать `failed` на проде — иначе партия зависает в `requested`/`uploading`, а владелец
+    не понимает, почему кнопка молчит. После `failed` кнопку можно нажать снова."""
     if not token_ok(token):
         raise SystemExit(f'плохой токен: {token!r}')
+    try:
+        return _publish(token, batch)
+    except Exception as e:  # noqa: BLE001 — отчёт важнее трассы; трасса всё равно в логе
+        report(token, status='failed', error=f'{type(e).__name__}: {str(e)[:160]}')
+        raise
+
+
+def _publish(token: str, batch: int) -> int:
     items = batch_items(batch)
     if not items:
         report(token, status='failed', error='в партии нет карточек')
