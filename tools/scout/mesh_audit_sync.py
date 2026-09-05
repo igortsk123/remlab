@@ -255,11 +255,14 @@ def publish_posters() -> None:
 
 
 def tick() -> None:
+    """Шаги независимы: упавший pull (например, 502 во время деплоя прода) не должен отменять
+    публикацию постеров и обслуживание партии — каждый шаг ловит своё и жалуется в лог."""
     os.makedirs(STATE_DIR, exist_ok=True)
-    pull()
-    publish_posters()
-    push()
-    serve_batches()
+    for step in (pull, publish_posters, push, serve_batches):
+        try:
+            step()
+        except Exception as e:  # noqa: BLE001 — следующий тик повторит; молчать нельзя
+            print(f'[audit] {step.__name__}: {type(e).__name__}: {str(e)[:160]}', flush=True)
 
 
 if __name__ == '__main__':
