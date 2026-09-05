@@ -23,7 +23,7 @@
 | `knowledge-db.md` | knowledge-db | Source-KB из книг — спека, KB0–KB9 | `../../remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md` | 2026-08-10 |
 | `layout.md` | layout | Расстановка: правила, зоны, прод-ядро | `../domain/occupancy-rules.md` | 2026-08-26 |
 | `leads.md` | leads | Лид-канал — заявка, TG-бот | — | 2026-08-28 |
-| `lessons.md` | lessons | Уроки перед планированием — что НЕ сработало | `../anti-patterns.md` | 2026-09-05 |
+| `lessons.md` | lessons | Уроки перед планированием — что НЕ сработало | `../lessons/README.md` | 2026-09-05 |
 | `lr-composition.md` | lr-composition | Композиция гостиной — доли | `../domain/lr-composition-guide.md` | 2026-09-01 |
 | `market.md` | market | Рынок RU/UK — спрос, монетизация | `../domain/market-research.md` | 2026-08-13 |
 | `marketing-acquisition.md` | marketing-acquisition | Реклама — Яндекс, семантика | `../domain/wordstat-semantics.md` | 2026-08-13 |

@@ -1,0 +1,53 @@
+sub-e2-feeds	ARCHIVE	cancelled 01.08 — расходился с прод-кодом /go/; каталог пошёл через API Гдеслона	ADR-0042, ADR-0136
+entry-and-axis	ARCHIVE	cancelled 03.08 — вход и ось решены сводом №6/№8	ADR-0095, ADR-0098
+room-measurement-a4	ARCHIVE	deferred — «сфоткай — посчитаем» отложено до М2 v1.5 (MASTER-cost-first)	
+unified-measurement-pipeline	ARCHIVE	deferred — замер по фото отложен до М2 v1.5 (MASTER-cost-first)	
+sub-ml-sizes	ARCHIVE	deferred — размеры по фото отложены до М2 v1.5; размеры каталога решает ADR-0079/0186	ADR-0079
+ads-autopilot	ARCHIVE	deferred — реклама на полную = ступень М4; текущая автоматизация Директа описана в advertising/autopilot.md	
+sub-e0-stopkran	ARCHIVE	superseded — мастер Э0–Э8 отменён (ADR-0016); стоп-краны реализованы точечно: сторож денег и стоп-файл	ADR-0169, ADR-0174
+sub-e3-foundation	ARCHIVE	superseded — мастер Э0–Э8 отменён (ADR-0016); фундамент построен как М1 (m1-estimate-core)	ADR-0018
+sub-e4-payments	ARCHIVE	deferred — платные ступени = М5 (MASTER-cost-first); цены paid-ступеней — решение владельца	
+sub-e7-growth	ARCHIVE	deferred — рост/SEO = М7 (MASTER-cost-first)	
+calc-materials-roadmap	ARCHIVE	absorbed — К0–К6 выполнены (completed_plans/calc-K*), остаток роадмапа живёт в MASTER-cost-first М2	ADR-0018
+ergonomics-planner	ARCHIVE	superseded — гибрид Gemini+солвер заменён прод-ядром расстановки и движком «зоны-first»	ADR-0052, ADR-0074
+gdeslon-catalog	ARCHIVE	superseded — каталог грузится через API Гдеслона, загрузка переписана (catalog-load-hardening)	ADR-0136, ADR-0171
+living-room-sets	ARCHIVE	superseded — сеты собираются автоматически «как дизайнер», только с мешами	ADR-0044, ADR-0131
+layout-engine-gaps	ARCHIVE	absorbed — пробелы движка закрыты в прод-ядре и сводах №6–№13; расстановка заморожена 19.08	ADR-0052, ADR-0112
+scalability-hardening	ARCHIVE	absorbed — единый источник правил и ворота лечения; аудит правил завершён (rules-consistency-audit)	ADR-0121
+adaptive-sets	ARCHIVE	superseded — сеты ↔ меши ↔ замена: пригодность и точечная пересборка	ADR-0134
+set-quality-fixes	ARCHIVE	superseded — качество сетов решается через меши и приёмку	ADR-0131, ADR-0134
+MASTER-viz-quality	ARCHIVE	superseded — визуализация перестроена на меши: конвейер мешей, кадр демо scene3d без GPT	ADR-0129, ADR-0139
+llm-layout-planner	ARCHIVE	superseded — AI-гипотезы расстановки отклонены, солвер признан достаточным	ADR-0082
+ads-bath-calc	ARCHIVE	deferred — ванная как вход отложена до М2 (MASTER-cost-first)	
+design-order-pipeline	ARCHIVE	absorbed — дизайнерский порядок (фокус важнее позиции) внедрён	ADR-0091
+sets-compose-v2	ARCHIVE	absorbed — сеты v2 «как дизайнер» приняты и внедрены	ADR-0044, ADR-0047
+viz-pipeline	ARCHIVE	superseded — витринные фото сетов заменены конвейером мешей и кадром scene3d	ADR-0131, ADR-0139
+catalog-freshness	ARCHIVE	absorbed — свежесть/наличие: правило по карточкам, дельта-цикл, недельная проверка	ADR-0045, ADR-0147
+layout-quality	ARCHIVE	absorbed — ляпы закрыты сводами и канонами; расстановка заморожена владельцем 19.08 (см. MASTER-zones-v7)	ADR-0112, ADR-0122
+occupancy-rules-research	ARCHIVE	absorbed — свод правил живёт в domain/occupancy-rules.md и Source-KB	ADR-0084, ADR-0086
+prod-layout-engine	ARCHIVE	absorbed — прод-ядро расстановки построено (services/planner-solver); развитие — MASTER-zones-v7	ADR-0052, ADR-0080
+room-size-fit	ARCHIVE	absorbed — ярусы наполнения и «сет под площадь»	ADR-0053, ADR-0092
+sets-style-v3	ARCHIVE	absorbed — паспорта стилей и стиль-скоринг внедрены (style-rules-by-category)	ADR-0047, ADR-0071
+viz-object-binding	ARCHIVE	absorbed — якоря товаров только подтверждённые; товары вклеиваются геометрией	ADR-0057, ADR-0123
+viz-scene-compiler	ARCHIVE	superseded — двухпроходная генерация и кадр scene3d из мешей	ADR-0128, ADR-0139
+MASTER-catalog-ai	ARCHIVE	absorbed — загрузка каталога переписана, честность каталога закрыта (catalog-load-hardening, stock-and-dims-honesty)	ADR-0171, ADR-0186
+catalog-enrichment-pipeline	ARCHIVE	absorbed — обогащение отдельно от товара, фид — источник истины полей	ADR-0068, ADR-0171
+sets-feasibility-first	ARCHIVE	absorbed — геометрия как ограничение, эстетика среди допустимых; сеты только с мешами	ADR-0064, ADR-0131
+MASTER-pipeline-hardening	ARCHIVE	superseded — усиление конвейера идёт планом mesh-pool-hardening (приёмник до GPU, свод стопоров, транспорт)	ADR-0175, ADR-0176
+catalog-freshness-chain	ARCHIVE	superseded — цепочка свежести доводится планом stock-check-weekly-unified (одно недельное правило)	ADR-0147
+MASTER-layout-v5	ARCHIVE	absorbed — вердикт по V5: солвер достаточен, joint-пары под флагом; дальнейшее — MASTER-zones-v7	ADR-0082
+MASTER-truth-first	ARCHIVE	absorbed — детерминизм солвера и единая ТВ-геометрия (T6 truth-first) внедрены	ADR-0080
+MASTER-zones-first	ARCHIVE	superseded — Z0–Z6 выполнены (MASTER-zones-v2…v6 в completed_plans), живой мастер расстановки — MASTER-zones-v7	ADR-0074, ADR-0075
+inventory-additions	ARCHIVE	absorbed — новые роли гостиной по исследованию рефери приняты	ADR-0078
+layout-composition-deep	ARCHIVE	absorbed — корневые причины замечаний закрыты сводами №12–№13; расстановка заморожена 19.08	ADR-0106, ADR-0107
+layout-priors-from-datasets	ARCHIVE	absorbed — датасеты выбраны, приоры практики только локально (ситуационный канон)	ADR-0087, ADR-0112
+layout-rules-v2	ARCHIVE	superseded — система правил v2 поглощена канонами и доктриной чтения; мастер — MASTER-zones-v7	ADR-0112, ADR-0117
+referee-hardening	ARCHIVE	absorbed — арбитраж рефери принят пакетами сводов №8–№11	ADR-0098, ADR-0105
+solver-speed	ARCHIVE	deferred — ускорение солвера на больших комнатах отложено вместе с расстановкой (заморожено 19.08)	
+seating-template-ladder	ARCHIVE	absorbed — шаблон = паспорт + инварианты, сет собирается под шаблоны; расстановка заморожена 19.08	ADR-0088, ADR-0089
+template-integrity	ARCHIVE	absorbed — машинные инварианты шаблонов; расстановка заморожена 19.08	ADR-0088
+viz-track-a-restore	ARCHIVE	superseded — кадр демо рендерится scene3d полного качества без GPT	ADR-0139
+mask-quality-rgba-contract	ARCHIVE	absorbed — вырезка фона как вход генератора (гибрид, отбраковка компонент)	ADR-0133
+entry-low-storage	ARCHIVE	absorbed — входная зона решена сводом №6; расстановка заморожена владельцем 19.08	ADR-0095
+layout-polygon-rooms	ARCHIVE	deferred — непрямоугольные комнаты отложены вместе с расстановкой (заморожено 19.08); мастер — MASTER-zones-v7	
+template-library-v2	ARCHIVE	absorbed — визуальная библиотека канонов и карточки (группа, форма) внедрены	ADR-0109, ADR-0113

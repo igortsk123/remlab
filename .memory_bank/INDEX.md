@@ -23,7 +23,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт → реф-сме�
 | Source-KB из книг — спека, KB0–KB9 | `core/knowledge-db.md` | `../../remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md` |
 | Расстановка: правила, зоны, прод-ядро | `core/layout.md` | `../domain/occupancy-rules.md` |
 | Лид-канал — заявка, TG-бот | `core/leads.md` | — |
-| Уроки перед планированием — что НЕ сработало | `core/lessons.md` | `../anti-patterns.md` |
+| Уроки перед планированием — что НЕ сработало | `core/lessons.md` | `../lessons/README.md` |
 | Композиция гостиной — доли | `core/lr-composition.md` | `../domain/lr-composition-guide.md` |
 | Рынок RU/UK — спрос, монетизация | `core/market.md` | `../domain/market-research.md` |
 | Реклама — Яндекс, семантика | `core/marketing-acquisition.md` | `../domain/wordstat-semantics.md` |

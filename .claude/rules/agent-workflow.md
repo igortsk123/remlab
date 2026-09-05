@@ -11,7 +11,7 @@ description: Двухэтапный workflow агента — план пере�
 **Этап 1 — план** (исследование — в Plan Mode, Shift+Tab; план Plan Mode эфемерен —
 файл в `plans/` обязателен):
 1. Прочитать `CLAUDE.md` + `.memory_bank/INDEX.md` (INDEX импортирован — уже в контексте).
-2. Свериться с `core/lessons.md` и `anti-patterns.md` — НЕ предлагать уже отброшенные подходы.
+2. Свериться с `core/lessons.md` + `lessons/<тема плана>.md` (код-антипаттерны — `anti-patterns.md`) — НЕ предлагать уже отброшенные подходы.
 3. Прочитать файлы по теме (decision tree в INDEX → Tier 1 → Tier 2 при нужде).
 4. Составить план по `.memory_bank/plans/_template.md`.
 5. Сохранить как `.memory_bank/plans/<slug>.md` со статусом `draft`.
@@ -31,7 +31,7 @@ description: Двухэтапный workflow агента — план пере�
    - решения → ADR: текст в текущий том `decisions/adr-*.md` + строка в индекс `decisions.md`;
      смена этапа → `project-state.md` (снимок ПЕРЕПИСАТЬ,
      историю — в `changelog/project-history.md`);
-   - отброшенные подходы / грабли сессии → `core/lessons.md` (инкрементальные bullets) и
+   - отброшенные подходы / грабли сессии → `lessons/<тема>.md` (номер из `lessons/README.md`), живое правило → `core/lessons.md` и
      поле «Уроки» в Completion summary плана;
    - запущен `/memory-check` (захват → уровни → связи+INDEX → чистота); audit «чисто».
 5. Только после этого: `completed` + дата + completion summary → перенести в `completed_plans/`
@@ -45,11 +45,13 @@ description: Двухэтапный workflow агента — план пере�
 |--------|----------|
 | `draft` | Создан, ждёт «деплой» |
 | `in_progress` | Деплой начат |
-| `partial` | Прерван частично — остаётся в `plans/` |
+| `partial` | Прерван — остаётся в `plans/` ТОЛЬКО с `pause_reason` / `resume_trigger` / `review_after` |
 | `completed` | Готов → переносится в `completed_plans/` |
-| `cancelled` | Отменён явно — остаётся в `plans/` |
+| `cancelled` | Отменён явно → после записи уроков в `archive/plans/` |
 
-**Только `completed` переносятся в `completed_plans/`.**
+**Только `completed` переносятся в `completed_plans/`.** Отложенное/поглощённое — `archive/plans/`
+с `archive_reason`/`superseded_by` (обратимо); `draft` старше 30 дней → триаж (проектный аудит).
+Поля `plan_kind`/`parent_plan` — `plans/README.md`.
 
 ## Выкатка после изменений (стандарт — постоянное разрешение владельца, 2026-07-02)
 Любое завершённое изменение кода ВСЕГДА доводится до прода — не оставляем в ветке/локально:
