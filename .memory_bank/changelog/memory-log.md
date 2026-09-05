@@ -21,6 +21,29 @@ Approval: <кто подтвердил / «dry-run, без применения�
 
 ---
 
+## 2026-09-05 — аудит и реструктуризация памяти (план `plans/memory-bank-audit-2026-09.md`)
+Команда: ручной прогон по одобренному плану (фазы 1–7), скрипты в scratchpad; бэкап `~/backups/remlab-membank-2026-09-05.tgz`
+Approval: владелец 05.09 (план в Plan Mode; Фаза 0: фокус A, перенос уроков, манифест архивации, гейт после /memory-check)
+
+- MOVE     _intake/*.log ×77 (22 МБ, gitignored) → ~/scout-logs/2026-09/ — причина: логи — не память; живые batch-hardened.log/money-guard.log остались
+- ARCHIVE  _intake/_processed/ ×4 → archive/2026/07/intake-init/ — причина: были в git и в .gitignore разом, единственная копия
+- MOVE     _intake/salad-ssh-key.txt → infra/keys/salad-mesh.pub — причина: публичный ключ, место — infra, не intake
+- FIX      _intake/README.md — индекс входной папки (tools/intake-index.mjs): 159 файлов, сведено/не сведено
+- SPLIT    decisions.md (474 КБ, 187 записей) → decisions.md (индекс 36 КБ, «по темам») + decisions/adr-0001-0050 … adr-0151-0200 — тексты дословно (хеши 187/187)
+- FIX      дубли номеров ADR: 0028→0180, 0135→0181, 0136→0182, 0158→0183, 0159→0184, 0168→0185, 0173→0186 (+пометка Legacy в теле, ссылки в 8 доках и 5 файлах кода)
+- MOVE     docs/DECISIONS.md: 8 полных ADR → приложение adr-0001-0050.md; копия → archive/2026/09/docs-DECISIONS.md; файл → указатель legacy
+- ARCHIVE  plans/ ×53 → archive/plans/ (поля archived/archive_reason/superseded_by; манифест — scratchpad plans-manifest-all.tsv, копия ниже) — причина: отменённые (2), отложенные ступени М2/М4/М5/М7 (11), заморожено 19.08 / поглощено ADR (40); открытых 21
+- FIX      [[slug]] архивированных планов → `archive/plans/<slug>.md` в 11 контент-доках; partial-планы получили pause_reason/resume_trigger/review_after; мастера — plan_kind/parent_plan
+- ARCHIVE  goals-one-photo-furnish-fit.md → archive/2026/09/ — причина: цели v0.3 перекрыты v0.4 и мебельным треком; core/goals.md, product_brief.md переписаны под v0.4
+- FIX      Tier 0 (CLAUDE.md, INDEX.md), source-of-truth.md, project-state.md (9.5 → 6 КБ) — под решение владельца ADR-0187 (М5 раньше М2–М4); README банка под кит v1.6; docs/README, advertising/README
+- ADD      core/mesh-pool.md ↔ domain/mesh-pool-ops.md — пул Salad: деньги, стопоры, замеры (вынесено из снимка)
+- FIX      review_after у 24 tier-1 доков; frontmatter у .claude/rules/codex-adviser.md; memory-discipline.md ужат до ~55 строк (детали → guides/memory-automation.md)
+- FIX      оглавления в 13 доках >15 КБ (domain/guides/история/тома ADR)
+- ADD      tools/memory-project-audit.mjs + tests (ADR-уникальность/индекс, TTL планов, блокнот, канон→intake, секреты, md5 кита) — в CI и SessionStart-хук
+- (уроки)  anti-patterns.md → lessons/<тема>.md дословно + core/lessons.md как маршрутизатор — см. запись ниже по завершении Фазы 4
+
+Манифест архивации планов (slug — причина): sub-e2-feeds, entry-and-axis (cancelled) · room-measurement-a4, unified-measurement-pipeline, sub-ml-sizes, ads-autopilot, sub-e4-payments, sub-e7-growth, ads-bath-calc, solver-speed, layout-polygon-rooms (deferred) · sub-e0-stopkran, sub-e3-foundation, ergonomics-planner, gdeslon-catalog, living-room-sets, adaptive-sets, set-quality-fixes, MASTER-viz-quality, llm-layout-planner, viz-pipeline, viz-scene-compiler, catalog-freshness-chain, MASTER-pipeline-hardening, MASTER-zones-first, layout-rules-v2, viz-track-a-restore (superseded) · calc-materials-roadmap, layout-engine-gaps, scalability-hardening, design-order-pipeline, sets-compose-v2, catalog-freshness, layout-quality, occupancy-rules-research, prod-layout-engine, room-size-fit, sets-style-v3, viz-object-binding, MASTER-catalog-ai, catalog-enrichment-pipeline, sets-feasibility-first, MASTER-layout-v5, MASTER-truth-first, inventory-additions, layout-composition-deep, layout-priors-from-datasets, referee-hardening, seating-template-ladder, template-integrity, mask-quality-rgba-contract, entry-low-storage, template-library-v2 (absorbed).
+
 ## 2026-08-04 — апгрейд кита v1.4.0 → v1.6.0
 Команда: upgrade.sh
 
