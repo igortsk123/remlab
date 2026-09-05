@@ -3,12 +3,12 @@ tier: 1
 topic: pipeline-order
 scope: Порядок конвейера — от фида до расстановки
 tier2: "../domain/pipeline-order-details.md"
-updated: 2026-08-29
+updated: 2026-09-05
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-08-29
+last_verified: 2026-09-05
 review_after: 2026-12-05
 ---
 
@@ -21,7 +21,7 @@ review_after: 2026-12-05
 |---|---|---|---|
 | 1 | Фиды → каталог | `load3.py` | 32 436 |
 | 2 | Обогащение GPT: роль, функция, **стиль**, качество | `enrich.py`, `enrich_bridge.py` | — |
-| 3 | **Отбор**: наличие, живое фото, цена, обогащение, `quality ≥ 0.65` | `slot_contract.py` | **≈14 700** |
+| 3 | **Отбор**: наличие, живое фото, цена, обогащение, `quality ≥ 0.65` (`enrich_bridge.py`, `candidates.py`) | `slot_contract.py` | **≈14 700** |
 | 4 | **Обрезка фото** | `cutout_sync.py` | вердикт `ok/collage/bad_cutout` |
 | 5 | **Очередь мешей** — годное после обрезки, минус мягкий декор | `mesh_queue.demand_from_cut_pool` | **≈13 200** |
 | 6 | Генерация → приёмка → ориентация → «меш есть» | `salad/*`, `mesh_ready.py` | — |

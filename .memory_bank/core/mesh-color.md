@@ -3,12 +3,12 @@ tier: 1
 topic: mesh-color
 scope: Цвет мешей — диагноз, мерка, рычаги
 tier2: "../domain/viz-fidelity-playbook.md"
-updated: 2026-09-03
+updated: 2026-09-05
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-09-02
+last_verified: 2026-09-05
 review_after: 2026-12-05
 ---
 
@@ -19,7 +19,7 @@ review_after: 2026-12-05
 по однотонным серым.
 
 **Чем НЕЛЬЗЯ** (ADR-0145): промптом; чисткой фото (каталожные снимки уже плоские —
-`photo_color.py`); обратным делением альбедо; перегоном с другим seed.
+`tools/scout/salad/photo_color.py`); обратным делением альбедо; перегоном с другим seed.
 
 **Ключевой факт.** Seed и CFG покраски захардкожены апстримом
 (`hy3dpaint/utils/multiview_utils.py`), наш seed уходит только в форму (основание ADR-0143).
@@ -38,7 +38,7 @@ review_after: 2026-12-05
 
 **Рычаги.** Перепокраска готовой формы (`shape.glb` у 199/199, paint = 42% задания, геометрия
 не меняется) + сдвиг экспозиции входа в линейном RGB (`photo_color.shift_exposure`, план —
-`exposure_plan.py`; вниз до −2 ст., вверх до засветов). Покраска на вход РЕАГИРУЕТ
+`tools/scout/salad/exposure_plan.py`; вниз до −2 ст., вверх до засветов). Покраска на вход РЕАГИРУЕТ
 (коэффициент ~0.8 ст. на ступень) — вопрос закрыт опытом, см. выше.
 
 **Tier 2:** `../domain/viz-fidelity-playbook.md` · [[mesh-pipeline]] · ADR-0143/0144 ·

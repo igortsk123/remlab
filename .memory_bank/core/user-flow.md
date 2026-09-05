@@ -3,12 +3,12 @@ tier: 1
 topic: user-flow
 scope: Stage 1 UX-flow, аналитика
 tier2: ../domain/user-flow-details.md
-updated: 2026-08-06
+updated: 2026-09-05
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-07-31
+last_verified: 2026-09-05
 review_after: 2026-12-05
 ---
 
@@ -37,7 +37,7 @@ review_after: 2026-12-05
 9900 ₽; реф-ссылки везде, paywall-триггер = выбор 2/3. ⚠️ Код-долг: товары seed, вар.2/3 и YooKassa нет.
 
 ## Аналитика
-`lib/analytics.ts` (PostHog, no-op без ключа), сверка 06.08: 22 события объявлено, 12 эмитится
+`lib/analytics.ts` (PostHog, no-op без ключа), сверка 06.08: 18 событий объявлено (`EventName`), 12 эмитится
 (estimate_*, lab_tab, lead_*, quiz_completed, viz_started, project_started, preview_ready…).
 
 **Tier 2:** `../domain/user-flow-details.md`; полный CJM — `../../docs/cjm-ux-v0.2.md`.

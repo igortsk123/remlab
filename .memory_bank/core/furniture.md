@@ -3,12 +3,12 @@ tier: 1
 topic: furniture
 scope: Мебель — сеты, визуализация
 tier2: "../domain/viz-fidelity-playbook.md"
-updated: 2026-09-03
+updated: 2026-09-05
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-08-28
+last_verified: 2026-09-05
 review_after: 2026-12-05
 ---
 
@@ -16,8 +16,8 @@ review_after: 2026-12-05
 
 **Статус:** разведка в `tools/scout/`, прод-код не начат (ADR-0042).
 
-- **Каталог**: 32 347 тов. (БД 28.08), 5 магазинов, dev-БД `remlab-devdb`; фото у 100% офферов;
-  cron 09:40 `refresh_daily.sh`. Состав/дыры — [[catalog]] (`../core/catalog.md`).
+- **Каталог**: 20 588 тов. (03.09), 6 магазинов, dev-БД `remlab-devdb`; фото у 100% офферов;
+  cron 10:40 UTC `refresh_daily.sh`. Состав/дыры — [[catalog]] (`../core/catalog.md`).
 - **Сеты**: v2 «как дизайнер» (ADR-0044/0046). С 08-05 — «сперва допустимость, потом красота»
   (ADR-0064/0065/0066): пропорции и подтип ЖЁСТКО фильтруют до скоринга (`proportions.json`,
   `item_function.py`), ковёр по двум схемам или его нет. Замер 126 сетов: 0 нарушений

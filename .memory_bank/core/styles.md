@@ -4,7 +4,7 @@ topic: styles
 scope: Стили — паспорта, скоринг, сеты
 tier2: ../domain/interior-styles.md
 updated: 2026-09-02
-last_verified: 2026-09-02
+last_verified: 2026-09-05
 importance: high
 source: manual
 status: working

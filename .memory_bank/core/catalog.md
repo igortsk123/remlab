@@ -3,12 +3,12 @@ tier: 1
 topic: catalog
 scope: Каталог — загрузка из фидов/API, свежесть, сторожа
 tier2: "../domain/catalog-enrichment.md"
-updated: 2026-09-03
+updated: 2026-09-05
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-09-03
+last_verified: 2026-09-05
 review_after: 2026-12-05
 ---
 
@@ -26,7 +26,7 @@ API (`catalog_api_sync.py`, по понедельникам) — только `c
 роль (`category_map.py`: лист дерева + `OVERRIDES` + `MIXED`), `in_stock` (`stock_truth.reconcile()`,
 единственный писатель).
 
-**Дельта (HASH_VERSION=3):** commercial/text/geometry/image/image_hd/attrs → `enrichment_status=stale`
+**Дельта (HASH_VERSION=4, `load3.py`):** commercial/text/geometry/image/image_hd/attrs → `enrichment_status=stale`
 (payload остаётся), смена контракта → baseline. Исчез → `missing` (in_stock=false в тот же день), 3 дня →
 `archived`; не удаляем. Порог «< 70 %» — по магазину против последнего успеха (`catalog_import_runs`),
 одна транзакция. Карантин фидов — `feed_guard.py` (fresh ≤30 ч, `yml_date` по МСК).
@@ -34,7 +34,7 @@ API (`catalog_api_sync.py`, по понедельникам) — только `c
 **Наличие и размеры честно** — отдельная сводка [[stock-and-dims]] (03.09).
 
 **Тесты:** `--selftest` (`load3`, `dim_resolver`, `category_map`, `feed_guard`, `reflink`, `stock_truth`,
-`page_alive`, `stock_check`, `footprint`) — CI `scout-selftest`. **Дыры:** 155 товаров divan.ru не в экспорте (кабинет);
+`page_alive`, `stock_check`, `footprint`, `salad/ingest_registry`, `mesh_priority` + сверка копий `asset_strategy`) — CI `scout-selftest`. **Дыры:** 155 товаров divan.ru не в экспорте (кабинет);
 пустая выгрузка `e2fccbea`; диванов без глубины 1 012/2 345.
 
-**Tier 2:** `../domain/catalog-enrichment.md` · `../domain/integrations.md` · план `plans/catalog-load-hardening.md`.
+**Tier 2:** `../domain/catalog-enrichment.md` · `../domain/integrations.md` · `completed_plans/catalog-load-hardening.md`.

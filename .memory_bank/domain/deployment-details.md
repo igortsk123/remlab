@@ -73,3 +73,18 @@ sshd, iptables-туннель DEV-рендера, `remlab-draft` через dock
 ## Секреты
 `.env` в `/opt/remlab` (вне git): `POSTGRES_PASSWORD` / `GEMINI_API_KEY` / `TRACE_ADMIN_TOKEN`.
 Compose передаёт app ЯВНЫЙ `environment:`-список — новый ключ = правка compose.
+
+## Caddy, статик и контейнеры — детали (вынесено из сводки 2026-09-05, сверено с кодом)
+- Лимиты памяти (ADR-0004): app 1G / pg 1G / caddy 128M / imagor 256M / mesh-receiver 256M.
+- `caddy/Caddyfile` проксирует `/api/{draft,warm,render,job,share}*` → `draft:8099` — это
+  `tools/scout/draft_service.py` (DEV-рендер демо через обратный ssh-туннель, ADR-0139), сервис
+  вне compose. Блока `/lab/*` в Caddyfile нет и не было — `/lab/*` отдаёт Next (`remlab-app:3000`).
+- Маршрут `/test/mesh-audit/*` (05.09, ADR-0194): `public, max-age=604800, immutable` для партий
+  моделей и постеров приёмки; каталоги `/opt/remlab/test/mesh-audit/{releases,posters}` создаёт
+  публикатор или руки. Caddyfile на сервер попадает только руками: бэкап
+  `/opt/remlab/caddy/Caddyfile.bak-<дата>` → `caddy validate` → `caddy reload`; `deploy.yml`
+  синхронизирует compose, `db/init`, скрипты — не Caddyfile; `deploy.sh` проверяет паритет.
+- Smoke: `deploy.yml` сверяет `ok=true` и `version == TARGET_SHA` на шаге `!cancelled()`; ручной
+  `deploy.sh:63-70` решает успех по одному HTTP 200, `ok` не проверяет и версию только печатает.
+- Очистка диска: `infra/server/cleanup.sh` + `infra/server/systemd/*.service`; `.timer` в репо нет
+  (на сервере расписание — проверить `systemctl list-timers` при следующей правке).

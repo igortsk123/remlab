@@ -3,12 +3,12 @@ tier: 1
 topic: stock-and-dims
 scope: Наличие и честность размеров — состояния, парсер, footprint
 tier2: "../domain/stock-and-dims.md"
-updated: 2026-09-03
+updated: 2026-09-05
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-09-03
+last_verified: 2026-09-05
 review_after: 2026-12-05
 ---
 
@@ -35,4 +35,4 @@ compose2, `sets_incremental`, `catalog_media`, `solver_run` (`DIMS_STRICT=1`), `
 **Отрицательно (не повторять без новых данных):** глубина из меша по одному фото (`mesh_dims.py`: меш додумывает
 глубину), `available` API как источник наличия.
 
-**Tier 2:** `../domain/stock-and-dims.md` · план `plans/stock-and-dims-honesty.md`.
+**Tier 2:** `../domain/stock-and-dims.md` · `completed_plans/stock-and-dims-honesty.md`.
