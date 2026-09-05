@@ -14,6 +14,7 @@
     "db:migrate": "node tools/migrate.mjs",
     "trace": "node tools/trace-show.mjs",
     "trace:prune": "node tools/trace-prune.mjs",
+    "memory:project-audit": "node tools/memory-project-audit.mjs .",
     "smoke:providers": "node --env-file=.env.local tools/smoke-providers.mjs"
   },
   "dependencies": {
