@@ -30,7 +30,7 @@ draft → in_progress → completed → перенос в completed_plans/
 | topview-from-mesh | — | in_progress | — | 2026-09-02 |
 | demo-planner-structure | — | partial | — | 2026-08-28 |
 | mesh-owner-audit | Страница ручной приёмки мешей владельцем — 20 на страницу, кнопка «переделать» | draft | 2026-09-05 | 2026-09-05 |
-| deploy-db-init-scope-fix | Автодеплой чинится — каталожные миграции убраны из прод-инициализации, smoke снова работает | draft | 2026-09-05 | 2026-09-05 |
+| health-map-apex-redirect | Апекс health-map.online — 302-редирект на 2mnenie.online (домен перестаёт быть мёртвым) | draft | 2026-09-05 | 2026-09-05 |
 | mesh-pool-hardening | Работа над ошибками пула мешей — приёмник, стопоры, транспорт, OOM, цена | in_progress | 2026-09-04 | 2026-09-04 |
 | stock-check-weekly-unified | Одно правило проверки наличия — раз в неделю для всех; непроверяемым верим Гдеслону | in_progress | 2026-09-01 | 2026-09-01 |
 | photo-improve-from-mesh | Кнопка «Улучшить фото» — ремонт от ИИ поверх НАШЕГО кадра с мешами | in_progress | 2026-09-01 | 2026-09-01 |

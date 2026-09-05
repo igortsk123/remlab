@@ -3,7 +3,7 @@ tier: 1
 topic: data-model
 scope: Схема БД, миграции, pgvector
 tier2: "../../docs/tech-spec-ts-stack.md"
-updated: 2026-08-31
+updated: 2026-09-05
 importance: high
 source: manual
 status: working
@@ -31,8 +31,9 @@ review_after: ""
 
 ## Расширения и миграции
 - pgvector **установлен, но не используется** (`001-extensions.sql`; vector-колонок в схеме нет).
-- Миграции = идемпотентный raw SQL `db/init/*.sql`, авто-деплой прогоняет их ВСЕ psql-ом (новую
-  таблицу добавлять туда + в список в `deploy.sh`); drizzle-kit и down-миграций НЕТ.
+- Миграции = идемпотентный raw SQL `db/init/NNN-*.sql`; CI и оба деплоя прогоняют их одним
+  `tools/apply-db-init.sh`. Здесь ТОЛЬКО прод-схема: каталожные — `tools/scout/NNN-*.sql` → дев-БД
+  (ADR-0179). drizzle-kit и down-миграций НЕТ.
 - БД — контейнер pgvector/pg17 (ADR-0002).
 
 ## Мешевые таблицы devdb (31.08)

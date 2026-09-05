@@ -2,10 +2,10 @@
 workstream: infra/deploy
 slug: deploy-db-init-scope-fix
 title: Автодеплой чинится — каталожные миграции убраны из прод-инициализации, smoke снова работает
-status: in_progress
+status: completed
 created: 2026-09-05
 updated: 2026-09-05
-completed:
+completed: 2026-09-05
 ---
 
 ## Цель
@@ -83,49 +83,73 @@ psql:/docker-entrypoint-initdb.d/008-mesh-binding.sql:14: ERROR: relation "produ
 - Доставка `mesh-receiver.py`, `caddy/Caddyfile`, `infra/server/*` деплоем — follow-up.
 
 ## Файлы к изменению
-- [ ] `db/init/008-mesh-binding.sql` → `tools/scout/006-mesh-binding.sql` — каталожная миграция, не прод
-- [ ] `db/init/009-photo-origin.sql` → `tools/scout/007-photo-origin.sql` — каталожная миграция, не прод
-- [ ] `tools/apply-db-init.sh` — НОВЫЙ: единый прогонщик прод-схемы (CI + оба деплоя)
-- [ ] `infra/server/deploy-remote.sh` — НОВЫЙ: серверная часть деплоя под замком, в правильном порядке
-- [ ] `.github/workflows/deploy.yml` — TARGET_SHA, rsync --delete, замок, prev по image ID, smoke по версии
-- [ ] `.github/workflows/ci.yml` — новая job `db-init`
-- [ ] `deploy.sh` — тот же прогонщик и тот же серверный скрипт (устраняет расхождение путей)
-- [ ] `.memory_bank/decisions.md` — ADR: граница «прод-схема vs каталожная схема» + контракт деплоя
-- [ ] `.memory_bank/deployment.md`, `.memory_bank/core/*` — актуализация
-- [ ] `.memory_bank/core/lessons.md`, `.memory_bank/anti-patterns.md` — уроки
+- [x] `db/init/008-mesh-binding.sql` → `tools/scout/006-mesh-binding.sql` — каталожная миграция, не прод
+- [x] `db/init/009-photo-origin.sql` → `tools/scout/007-photo-origin.sql` — каталожная миграция, не прод
+- [x] `tools/apply-db-init.sh` — НОВЫЙ: единый прогонщик прод-схемы (CI + оба деплоя)
+- [x] `infra/server/deploy-remote.sh` — НОВЫЙ: серверная часть деплоя под замком, в правильном порядке
+- [x] `.github/workflows/deploy.yml` — TARGET_SHA, rsync --delete, замок, prev по image ID, smoke по версии
+- [x] `.github/workflows/ci.yml` — новая job `db-init`
+- [x] `deploy.sh` — тот же прогонщик и тот же серверный скрипт (устраняет расхождение путей)
+- [x] `.memory_bank/decisions.md` — ADR: граница «прод-схема vs каталожная схема» + контракт деплоя
+- [x] `.memory_bank/deployment.md`, `.memory_bank/core/*` — актуализация
+- [x] `.memory_bank/core/lessons.md`, `.memory_bank/anti-patterns.md` — уроки
 
 ## Задачи
 - [x] Консультация Codex по плану (правило `codex-adviser`: миграции + новый план)
-- [ ] Перенос файлов, проверка `db_migrate.py` на дев-БД (дважды, идемпотентность)
-- [ ] Прогонщик + серверный скрипт + правки обоих деплоев
-- [ ] CI-job `db-init` (локально проверено на одноразовом контейнере: 001–007 чисто ×2, 008 падает)
-- [ ] `pnpm typecheck && lint && test && build` → коммит → push → дождаться зелёного Deploy prod
-- [ ] Память: ADR, сводки, уроки; `/memory-check`
+- [x] Перенос файлов, проверка `db_migrate.py` на дев-БД (дважды, идемпотентность)
+- [x] Прогонщик + серверный скрипт + правки обоих деплоев
+- [x] CI-job `db-init` (локально проверено на одноразовом контейнере: 001–007 чисто ×2, 008 падает)
+- [x] `pnpm typecheck && lint && test && build` → коммит → push → дождаться зелёного Deploy prod
+- [x] Память: ADR, сводки, уроки; `/memory-check`
 
 ## Критерии приёмки
-- [ ] «Deploy prod» завершается **success**, в логе «OK: health 200, ok=true, version=<TARGET_SHA>»
-- [ ] На сервере `ls /opt/remlab/db/init/` = ровно 001–007 (008/009 удалены)
-- [ ] `remlab-app:prev` на сервере = образ, работавший ДО выката (не июльский)
-- [ ] `db/init/` содержит только прод-схему; каталожные миграции — в `tools/scout/`
-- [ ] CI-job `db-init` красный, если в `db/init/` положить файл с обращением к каталожной таблице
-- [ ] `python tools/scout/db_migrate.py` на дев-БД проходит дважды подряд без ошибок
-- [ ] Прод отвечает 200, версия = HEAD `main`
-- [ ] Lint / build / тесты / типы — зелёные, отладочного вывода нет, файлы вне scope не задеты
+- [x] «Deploy prod» завершается **success**, в логе «OK: health 200, ok=true, version=<TARGET_SHA>»
+- [x] На сервере `ls /opt/remlab/db/init/` = ровно 001–007 (008/009 удалены)
+- [x] `remlab-app:prev` на сервере = образ, работавший ДО выката (не июльский)
+- [x] `db/init/` содержит только прод-схему; каталожные миграции — в `tools/scout/`
+- [x] CI-job `db-init` красный, если в `db/init/` положить файл с обращением к каталожной таблице
+- [x] `python tools/scout/db_migrate.py` на дев-БД проходит дважды подряд без ошибок
+- [x] Прод отвечает 200, версия = HEAD `main`
+- [x] Lint / build / тесты / типы — зелёные, отладочного вывода нет, файлы вне scope не задеты
 
 ## Definition of Done — память (без этого `completed` запрещён)
-- [ ] Memory Bank обновлён: `decisions.md` (ADR), `deployment.md`, затронутые `core/*`
-- [ ] Новой функциональной области нет → отдельная `core/<домен>.md` не нужна
-- [ ] «Уроки» заполнены; перенесены в `core/lessons.md` / `anti-patterns.md`
-- [ ] `/memory-check` выполнен, audit «чисто»
+- [x] Memory Bank обновлён: `decisions.md` (ADR), `deployment.md`, затронутые `core/*`
+- [x] Новой функциональной области нет → отдельная `core/<домен>.md` не нужна
+- [x] «Уроки» заполнены; перенесены в `core/lessons.md` / `anti-patterns.md`
+- [x] `/memory-check` выполнен, audit «чисто»
 
 ## Лог выполнения
 - 2026-09-05 — план создан (draft), диагноз доказан логом прогона и `\dt` на проде
+- 2026-09-05 — разбор Codex: 4 блокера, три план бы пропустил → скоуп расширен, `in_progress`
+- 2026-09-05 08:01 — коммит `23691d6`, «Deploy prod» **success** впервые с 01.09; `completed`
 
 ## Completion summary
-[Заполняется при переводе в completed]
+Автодеплой зелёный (run 33953991524), прод на `23691d6`, в логе
+«OK: health 200, ok=true, version=23691d6…». Проверено на сервере: `/opt/remlab/db/init/` = 001–007
+(лишние удалены `rsync --delete`), `remlab-app:prev` = `sha256:66d009…` — образ, работавший до
+выката (был июльский `sha256:d36362…`), оба скрипта на месте и исполняемы.
+
+Реализовано: каталожные миграции → `tools/scout/006-mesh-binding.sql` / `007-photo-origin.sql`
+(`db_migrate.py` прогнан дважды — чисто, вью `product_mesh_state` цел, 21072 строки);
+`tools/apply-db-init.sh` — один прогонщик для CI и обоих деплоев; `infra/server/deploy-remote.sh`
+под `.deploy.lock` в порядке «prev → образ → БД+миграции → активация»; smoke по
+`ok=true && version==TARGET_SHA` с откатом только при мёртвом сайте; `TARGET_SHA =
+workflow_run.head_sha`; CI-job `db-init` (чистая БД ×2 + проверка таблиц) — локально подтверждено,
+что 001–007 проходят дважды, а прежний 008 падает (код 3).
+
+Упрощено против разбора Codex: control-plane DDL оставлен в `mesh_queue.py` (см. follow-up) —
+рефакторинг конвейера мешей не смешивается с починкой деплоя.
 
 ### Уроки (ОБЯЗАТЕЛЬНО)
-[Заполняется при завершении]
+- **Красный деплой отключает страховку молча.** Падение ПОСЛЕ `compose up -d` выкатывало образ, а
+  шаг smoke+откат GitHub пропускал целиком — 4 суток прод жил без проверки и без авто-отката.
+- **`git mv` не чинит то, что живёт на сервере.** Мой первый план был бы бесполезен: копии 008/009
+  остались бы в `/opt/remlab/db/init` и уронили следующий выкат (нашёл Codex, проверено `ls`).
+- **Страховку надо проверять как код.** `remlab-app:prev` не обновлялся с 22.07 — команда тегирования
+  молча падала в `|| true`. Прежде чем включать откат, убедись, что цель отката настоящая.
+- **Одинаковая работа в трёх местах расходится.** CI применял SQL глобом, `deploy.sh` — списком до
+  006, файлы копировались до 007. Один скрипт — единственный способ, чтобы CI проверял то, что катится.
+→ `core/lessons.md` 409–413, `anti-patterns.md` 409–413.
 
 ## Follow-up work
 - [ ] `mesh_demand` / `asset_revisions` создаются runtime-строкой в `mesh_queue.py`, а не миграцией →

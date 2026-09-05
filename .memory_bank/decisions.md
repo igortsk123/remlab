@@ -3,7 +3,7 @@ tier: 1
 topic: decisions
 scope: ADR-лог — архитектурные решения с обоснованием и влиянием
 tier2: "../docs/DECISIONS.md"
-updated: 2026-09-04
+updated: 2026-09-05
 importance: high
 source: manual
 status: stable
@@ -3209,7 +3209,7 @@ s5→s6 отправил бы на перегон все 20 452 карточки
 **Решение.** Гейт вырезки больше не бракует товар (`CUTOUT_GATE=0` по умолчанию,
 `tools/scout/salad/preprocess.py`) — меш делается всегда. Происхождение фото хранится в карточке:
 `products.photo_bg` (white|scene), `photo_bg_score`, `photo_collage`, `mesh_from_collage`
-(`db/init/009-photo-origin.sql`). Метка ставится по правилу владельца — **фон не белый** — и
+(`tools/scout/007-photo-origin.sql`, до ADR-0179 — `db/init/009-*`). Метка ставится по правилу владельца — **фон не белый** — и
 означает «на проверку человеком», а НЕ вердикт «это коллаж». Считает `tools/scout/photo_bg.py`
 по самому фото (рамка кадра), без нейросети вырезки: значит признак можно гонять по всем
 20 тысячам ночью, не тратя GPU.
@@ -3224,7 +3224,7 @@ s5→s6 отправил бы на перегон все 20 452 карточки
 вырезка показывала бы владельцу не то, что реально уходит в генератор.
 
 **Влияет на:** `tools/scout/photo_bg.py`, `tools/scout/salad/{preprocess,cutout_probe}.py`,
-`db/init/009-photo-origin.sql`, `core/catalog.md`, `core/mesh-pipeline.md`.
+`tools/scout/007-photo-origin.sql`, `core/catalog.md`, `core/mesh-pipeline.md`.
 
 ## ADR-0156 — 2026-09-01 — Демо-планировщик: дизайн-система сайта продублирована в `:root`, цвет в теле стилей запрещён
 
@@ -3934,3 +3934,42 @@ manifest. (6) OOM dev-VM: анализ SKU в дочерних процесса�
 
 **Влияет на:** `tools/scout/salad/receiver_purge.py`, `sink_health.py`, `sink_keeper.sh`,
 `receiver.py`, крон дев-машины, `plans/mesh-pool-hardening.md`.
+
+## ADR-0179 — 2026-09-05 — Граница схем: `db/init` = прод-БД, `tools/scout/NNN` = каталожная дев-БД; деплой мигрирует ДО активации
+
+**Решение.** (1) `db/init/NNN-*.sql` — ТОЛЬКО схема боевой базы; каталожные миграции живут в
+`tools/scout/NNN-*.sql` и применяются `tools/scout/db_migrate.py` к дев-БД `remlab-devdb`.
+(2) Каталог `db/init` на сервере синхронизируется `rsync --delete` — он принадлежит репозиторию
+целиком. (3) Прод-схему применяет ОДИН скрипт `tools/apply-db-init.sh` — из CI, автодеплоя и
+ручного `deploy.sh`. (4) Серверная часть выката — `infra/server/deploy-remote.sh` под замком
+`/opt/remlab/.deploy.lock`, порядок: цель отката → образ → БД и миграции → активация приложения.
+(5) Цель отката `remlab-app:prev` берётся по image ID работающего контейнера. (6) Smoke сверяет
+`ok=true` И `version == TARGET_SHA`; откат — только когда сайт не отвечает. (7) Деплоится
+`workflow_run.head_sha` — ровно тот коммит, что прошёл CI. (8) CI-job `db-init` гоняет прод-схему
+на чистом postgres дважды и проверяет наличие таблиц.
+
+**Почему.** 01.09 в `db/init/` положили каталожные миграции 008/009 (`alter table products`), а на
+проде такой таблицы нет и не должно быть. «Deploy prod» падал 4 суток — ни одного зелёного
+прогона (первое падение 01.09 13:56 UTC). Опаснее самой красноты было то, что падение случалось
+ПОСЛЕ `compose up -d`: образ выкатывался, а шаг «Smoke + откат» GitHub пропускал целиком —
+**авто-откат был выключен молча**. Разбор Codex вскрыл, что одного переноса файлов мало: сервер
+хранит `db/init` у себя, `scp` не удаляет исчезнувшее из репо — старые 008/009 уронили бы
+следующий выкат так же. Отдельно выяснилось, что цель отката протухла: строка
+`docker tag ${IMAGE}:latest remlab-app:prev` не срабатывала никогда (сервер тянет образ по SHA,
+локального `:latest` нет), `remlab-app:prev` = образ от 22.07 — «откат» вернул бы прод на 6 недель
+назад. Поэтому включать smoke на путях с ошибкой можно было только вместе с починкой `prev`.
+
+**Альтернативы.** `continue-on-error` на шаге миграций — отвергнуто: пустило бы приложение на
+неподготовленную схему. Гарда через grep каталожных таблиц в `db/init` — отвергнуто в пользу
+прогона реального SQL на чистой БД: ловит любую поломку, а не список известных имён.
+
+**Отложено (follow-up).** Control-plane DDL (`mesh_demand`, `asset_revisions`…) создаётся строкой
+в `tools/scout/mesh_queue.py`, а не миграцией → на ЧИСТОЙ дев-БД `006-mesh-binding.sql` упадёт.
+Codex требовал чинить сразу; отложено сознательно — это рефакторинг конвейера мешей, мешать его с
+починкой деплоя в один выкат нельзя. Там же: три описания прод-схемы (`db/init`,
+`tools/migrate.mjs`, `db/schema.ts`) и недоставка `mesh-receiver.py` / `caddy/Caddyfile` деплоем.
+
+**Влияет на:** `.github/workflows/deploy.yml`, `.github/workflows/ci.yml` (job `db-init`),
+`deploy.sh`, `tools/apply-db-init.sh`, `infra/server/deploy-remote.sh`, `db/init/*`,
+`tools/scout/006-mesh-binding.sql`, `tools/scout/007-photo-origin.sql`, `deployment.md`,
+`plans/deploy-db-init-scope-fix.md`.

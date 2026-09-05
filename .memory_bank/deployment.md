@@ -1,12 +1,12 @@
 ---
 tier: 1
 topic: deployment
-scope: Деплой/откат/сервер exit-fi — playbook
-tier2: ""
-updated: 2026-09-04
+scope: Деплой/откат/сервер exit-fi
+tier2: "domain/deployment-details.md"
+updated: 2026-09-05
 importance: high
 source: manual
-last_verified: 2026-09-03
+last_verified: 2026-09-05
 ---
 
 # Deployment — playbook
@@ -26,31 +26,25 @@ last_verified: 2026-09-03
 exit-fi 89.167.127.0 (2 vCPU/3.7G/38G), compose v2, `/opt/remlab`, swap 4G, SSH root@ (:22222).
 Соседи НЕ трогать: remnanode, rw-core, nginx :80.
 
-## Деплой
-Push в `main` → CI gate → `Deploy prod` (health.version == HEAD). Ручной `./deploy.sh <tag>` — запасной
-(buildx arm64 → `:prev` → load → `compose up -d` + `db/init/*.sql` → smoke → откат на `:prev`; НЕ с DEV-VM: OOM).
+## Деплой (ADR-0179)
+Push в `main` → CI gate → `Deploy prod`; выкатывается `workflow_run.head_sha` (проверенный коммит,
+не HEAD ветки). Серверная часть одна для CI и ручного пути — `infra/server/deploy-remote.sh` под
+замком `.deploy.lock`: `prev` ← image ID работающего контейнера → образ → БД+миграции → активация.
+Схему применяет один `tools/apply-db-init.sh`; `db/init` синхронизируется `rsync --delete`.
+`db/init` = только прод, каталожные миграции — `tools/scout/NNN-*.sql` → дев-БД.
+Ручной `./deploy.sh <tag>` — запасной (НЕ с DEV-VM: OOM).
 
 ## Откат / smoke
-- Откат: `docker tag remlab-app:prev remlab-app:latest && docker compose up -d`
-- Smoke: `/`=200; `/api/health` ok; VPN цел (remnanode Up).
+- Smoke сверяет `ok=true` И `version == TARGET_SHA` (одного 200 мало: при сорванном выкате сайт
+  отвечает 200 на старой версии). Откат — только если сайт реально не отвечает.
+- Откат: `flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev docker compose up -d`
+- Smoke вручную: `/`=200; `/api/health` ok; VPN цел (remnanode Up).
 
-## Сторож каталога (ADR-0172)
-`remlab-catalog-watchdog.timer` 15:30 UTC: нет сегодняшнего статуса в `refresh-status.json` или
-`overall=FAIL` → Telegram. Kill-switch `DISABLED`, откат `systemctl disable --now`; юниты —
-`infra/server/systemd/`.
-
-## Автоочистка и сторож диска (ADR-0005/0176)
-`remlab-cleanup` weekly + из CI (теги `remlab-app:*` кроме используемых, под flock); `pg_dump` ×7;
-`remlab-watchdog.timer` ежечасно: ≥80% → cleanup → Telegram; рестарты `remlab-app` →
-`backups/app-mem.log`. Скрипты `infra/server/*` кладутся руками. Приёмник — `mesh-receiver` в compose.
-
-## Правки сервера 31.08
-sshd, iptables-туннель DEV-рендера, `remlab-draft` через docker cp — ADR-0139 (бэкапы `*.bak-20260831`).
-
-## Секреты
-`.env` в `/opt/remlab` (вне git): `POSTGRES_PASSWORD`/`GEMINI_API_KEY`/`TRACE_ADMIN_TOKEN`.
-Compose передаёт app ЯВНЫЙ `environment:`-список — новый ключ = правка compose.
+## Сторожа и секреты
+Каталог (ADR-0172), диск/очистка (ADR-0005/0176), `.env` в `/opt/remlab` вне git — подробности и
+история правок сервера в Tier 2.
 
 ## Принципы
 Верифицируй health-версию; правка сервера = бэкап + rollback; VPN не трогать.
 
+**Tier 2:** `domain/deployment-details.md` — конвейер по шагам, две базы и гарда, сторожа, секреты.
