@@ -33,7 +33,10 @@ SETS = os.path.join(HERE, 'sets3.json')
 CAND = os.path.join(HERE, 'candidates-index.json')
 SCENE_DIR = os.environ.get('SCENE_DIR', os.path.expanduser('~/scout-scenes'))
 
-PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
+# Имя базы — из окружения: `--dbtest` модулей учёта мешей гоняет те же функции на одноразовой
+# базе внутри того же контейнера (план mesh-owner-audit); по умолчанию — боевая дев-база.
+PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab',
+        '-d', os.environ.get('REMLAB_DEVDB_NAME', 'remlab'),
         '-q', '-v', 'ON_ERROR_STOP=1', '-t', '-A', '-F', '\x1f']
 
 # ИСКЛЮЧЕНИЯ БЕРУТСЯ ИЗ КАНОНА, а не из локального списка (владелец 01.09; разбор Codex):
