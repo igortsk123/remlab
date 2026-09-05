@@ -40,4 +40,4 @@ review_after: 2026-12-05
 
 **Очередь:** «принято, ждёт сборки очереди» до `--build-queue` ([[mesh-pipeline]] § старт волны).
 
-**Tier 2:** `../plans/mesh-owner-audit.md` (+ два аудита Codex в _intake/codex/).
+**Tier 2:** `../plans/mesh-owner-audit.md` (там же — итоги двух аудитов Codex).
