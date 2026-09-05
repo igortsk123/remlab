@@ -132,7 +132,7 @@ def llm_batch(batch):
     body={"model":os.environ.get("STYLE_MODEL","gpt-5.6-luna"),"reasoning_effort":"low",
           "messages":[{"role":"user","content":txt}]}
     # Канал по умолчанию — Vercel AI Gateway, фолбэк — OpenAI (правило владельца 29.08,
-    # ADR-0135): прямые кредиты OpenAI кончились молча, и добивка стилей встала при живых
+    # ADR-0181): прямые кредиты OpenAI кончились молча, и добивка стилей встала при живых
     # кредитах на шлюзе. Повтор на 429 внутри chat() — молчаливая деградация до
     # «правила+CLIP» уже портила кэш.
     from llm_gateway import chat as _chat

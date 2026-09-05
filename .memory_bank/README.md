@@ -22,7 +22,7 @@ B2C AI-помощник по обновлению квартиры. Memory Bank 
 - `INDEX.md` — decision tree (генерируется аудитом).
 - `source-of-truth.md` — разрешение конфликтов источников.
 - `project-state.md` — снимок состояния.
-- `decisions.md` — ADR-лог.
+- `decisions.md` — индекс ADR (полные тексты — `decisions/adr-*.md`).
 - `product_brief.md` — бизнес-контекст.
 
 ### Tier 1

@@ -217,7 +217,7 @@ def log_spend(model, usage, n_req=1, note='', batch=False):
 
 
 def ask(it: dict, key: str, model: str = MODEL, vision: bool = False) -> dict | None:
-    # Синхронный путь — через канал по умолчанию (Vercel, ADR-0135): прямые кредиты OpenAI
+    # Синхронный путь — через канал по умолчанию (Vercel, ADR-0181): прямые кредиты OpenAI
     # кончились молча, и дельта новинок встала бы вместе с ними. Batch-путь остаётся на прямом
     # OpenAI: /v1/batches на шлюзе нет, а с живыми кредитами он вдвое дешевле.
     try:

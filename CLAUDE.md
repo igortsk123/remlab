@@ -22,7 +22,7 @@ next steps, содержимое `_intake/session-scratch.md`.
 ## Критично
 - **Конец задачи = `/memory-check`.** План не `completed`, пока durable сессии не в `.memory_bank/` и audit не «чисто».
 - **План first, code second** — `.claude/rules/agent-workflow.md`. Без явного «деплой» код не пишем.
-- **Гипотезы, не аксиомы:** спека — набор гипотез; отклонился обоснованно → запиши в `docs/DECISIONS.md`.
+- **Гипотезы, не аксиомы:** спека — набор гипотез; отклонился обоснованно → запиши в `decisions.md`.
 - **Сложное/рискованное решение:** свой вывод → скилл `ask-codex` (второе мнение) → финал. Правило — `.claude/rules/codex-adviser.md`.
 
 ## Команды

@@ -31,7 +31,7 @@ review_after: ""
 2. `project-state.md` — снимок состояния + прод (`https://remont-lab.online`, `docker ps` на exit-fi).
 3. `docs/master-brief-v0.3.md` (бизнес/продукт) + `docs/tech-spec-ts-stack.md` (инженерная спека) — целевой дизайн (гипотезы, не аксиомы).
 4. `core/*` (Tier 1 сводки) и `domain/*` — доменные модели.
-5. `docs/DECISIONS.md` / `decisions.md` — принятые отклонения от спеки.
+5. `decisions.md` (индекс + тома `decisions/`) — принятые отклонения от спеки.
 
 **Живые факты (деплой/сервер) → прод wins**, затем обновить `project-state.md`/`deployment.md`.
 
@@ -43,12 +43,12 @@ review_after: ""
 1. `.claude/rules/agent-workflow.md` + `guides/agent-workflow.md` — протокол план→деплой.
 2. `.memory_bank/plans/` — активные планы.
 3. `guides/code-standards.md`, правила `.claude/rules/`.
-4. `decisions.md` / `docs/DECISIONS.md` — принятые решения.
+4. `decisions.md` (индекс + тома `decisions/`) — принятые решения.
 
 **Важно:** код не отменяет процесс. «Код уже написан иначе» — не основание игнорировать workflow.
 
 ## Как трактовать конфликты
-- Тех-спека — это **гипотезы**, не аксиомы: отклонился обоснованно → новая запись в `docs/DECISIONS.md`.
+- Тех-спека — это **гипотезы**, не аксиомы: отклонился обоснованно → новая запись в `decisions.md`.
 - Спека расходится с прод для живых фактов → прод wins, обновить память.
 - Решение из `decisions.md` устарело → добавить новую ADR-запись, отменяющую старую (не удалять).
 - Модель пропустила planning step → нарушение процесса, а не оптимизация.

@@ -59,7 +59,7 @@ def db(sql: str) -> list[list[str]]:
 def products() -> dict:
     """Множество очереди — `products.mesh_required`, единственный источник.
 
-    Вход генератора берём как ADR-0136: HD-фото, иначе обычное. Габариты обязательны —
+    Вход генератора берём как ADR-0182: HD-фото, иначе обычное. Габариты обязательны —
     без них товар и не получил бы пометку."""
     out = {}
     for sku, role, status, img, w, d, h in db(
@@ -190,19 +190,7 @@ def main() -> None:
         # ТОЛЬКО из недоделанного: готовые 218 не попадают, поэтому перегона не будет и
         # кэш приёмника для этого не нужен (мы его чистим).
         path = sys.argv[sys.argv.index('--build-queue') + 1]
-        prod = products()
-        jobs = []
-        for x in todo:
-            p = prod[x['sku']]
-            mid, eid = x['sku'].split(':', 1)
-            jobs.append({'sku': x['sku'], 'mid': int(mid), 'eid': eid, 'role': x['role'],
-                         'name': '', 'image_url': p['image_url'], 'dims_cm': p['dims_cm'],
-                         'strata': {'tier': x['tier'], 'reason': x['reason']}, 'seeds': [0]})
-        json.dump({'source': 'mesh_priority', 'policy_version': todo[0]['policy_version'],
-                   'built_at': __import__('time').strftime('%Y-%m-%dT%H:%M:%S'),
-                   'jobs': jobs}, open(path, 'w', encoding='utf-8'),
-                  ensure_ascii=False, indent=1)
-        print(f'очередь собрана: {len(jobs)} заданий в порядке приоритета → {path}')
+        build_queue(path, todo, products())
         return
     if '--export' in sys.argv:
         path = sys.argv[sys.argv.index('--export') + 1]

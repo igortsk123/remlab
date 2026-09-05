@@ -45,7 +45,7 @@ last_verified: 2026-09-04
   Anything V2 арбитром) — план orient-v2, на Codex-ревью.
 - Тестовый сет flat215: мешей 27/63 готово, 39 в волне, 12 — плоскостями (ковры).
 
-## Каталог — загрузка и честность (аудит 03.09, ADR-0171/0172/0173)
+## Каталог — загрузка и честность (аудит 03.09, ADR-0171/0172/0186)
 Оба разбора закрыты; что именно сделано и с какими числами — `changelog/project-history.md`
 (2026-09-03), сводки — [[catalog]] и [[stock-and-dims]]. Живое: фид владеет ценой/HD/артикулом,
 API — только комиссия; `footprint.py` без дефолтов (размер не придумывается); наличие по модели
@@ -79,7 +79,7 @@ Bootstrap S1–S4 (`completed_plans/remlab-bootstrap.md`) · Stage 1 M0–M8
 `core/observability-tracing.md`). Хронология — `changelog/project-history.md`.
 
 ## Ключевые решения
-Все ADR — `decisions.md` и `docs/DECISIONS.md` (дублировать список здесь не нужно).
+Все ADR — `decisions.md` (индекс) и тома `decisions/` (дублировать список здесь не нужно).
 Несущие: **0016 пивот v0.4 «Смета-first»**, 0001 self-host compose на exit-fi, 0013 трейсинг.
 Стек: TS strict + Next.js + Drizzle + Zod + Inngest + внешний инференс (спека §1).
 
@@ -96,7 +96,7 @@ UK · кухня как вход (пока).
 - План-first (`.claude/rules/agent-workflow.md`): код только после «деплой».
 - Не ломать VPN-ноду на exit-fi: бэкап+rollback перед правками сервера, изоляция сети/лимиты.
 - Секреты только в `.env` на сервере, не в git/памяти.
-- Гипотезы, не аксиомы: отклонения → `docs/DECISIONS.md`.
+- Гипотезы, не аксиомы: отклонения → `decisions.md`.
 - Migration-ready: приложение = compose + env + volume-dump + образ.
 - **Память: durable — только в `.memory_bank/`.** Конец сессии — `/memory-check` (свод+гигиена);
   концепция — `guides/memory-automation.md`.

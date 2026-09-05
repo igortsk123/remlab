@@ -37,6 +37,6 @@ review_after: ""
 - БД — контейнер pgvector/pg17 (ADR-0002).
 
 ## Мешевые таблицы devdb (31.08)
-`asset_revisions`, `orientation_state`, `product_photo_current`, `image_url_hd` (ADR-0136).
+`asset_revisions`, `orientation_state`, `product_photo_current`, `image_url_hd` (ADR-0182).
 
 **Tier 2:** `../../docs/tech-spec-ts-stack.md` §4 + `../../docs/cjm-ux-v0.2.md` §13.
