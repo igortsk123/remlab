@@ -100,11 +100,9 @@ def hamming_clusters(items: list[tuple[str, str]], limit: int = HAM_SAME, compat
     (в т.ч. одиночные). `compatible(sku_a, sku_b)` — дополнительный фильтр пары: у коробчатой
     мебели (шкафы, тумбы) отпечатки почти одинаковы у РАЗНЫХ моделей, и без него кластеры
     цепочкой склеивали Беррингтон с Сайрисом (проверка 05.09). Чисто, без БД — для selftest."""
-    import numpy as np
     good = [(s, h) for s, h in items if h and len(h) == 32]
     if not good:
         return []
-    arr = np.array([[int(h[i:i + 2], 16) for i in range(0, 32, 2)] for _s, h in good], dtype=np.uint8)
     n = len(good)
     parent = list(range(n))
 
@@ -113,15 +111,31 @@ def hamming_clusters(items: list[tuple[str, str]], limit: int = HAM_SAME, compat
             parent[i] = parent[parent[i]]
             i = parent[i]
         return i
-    step = 512
-    for a in range(0, n, step):
-        x = np.unpackbits(arr[a:a + step, None, :] ^ arr[None, :, :], axis=2).sum(axis=2)
-        for i, j in zip(*np.where(x <= limit)):
-            gi, gj = a + int(i), int(j)
-            if gj > gi and (compatible is None or compatible(good[gi][0], good[gj][0])):
-                ri, rj = find(gi), find(gj)
-                if ri != rj:
-                    parent[rj] = ri
+
+    def union(gi, gj):
+        if compatible is None or compatible(good[gi][0], good[gj][0]):
+            ri, rj = find(gi), find(gj)
+            if ri != rj:
+                parent[rj] = ri
+    try:
+        import numpy as np
+    except ImportError:          # CI-selftest без numpy: чистый Python (на живой базе — numpy)
+        np = None
+    if np is None or os.environ.get('MESH_FAMILY_NO_NUMPY'):
+        ints = [int(h, 16) for _s, h in good]
+        for i in range(n):
+            for j in range(i + 1, n):
+                if (ints[i] ^ ints[j]).bit_count() <= limit:
+                    union(i, j)
+    else:
+        arr = np.array([[int(h[i:i + 2], 16) for i in range(0, 32, 2)] for _s, h in good], dtype=np.uint8)
+        step = 512
+        for a in range(0, n, step):
+            x = np.unpackbits(arr[a:a + step, None, :] ^ arr[None, :, :], axis=2).sum(axis=2)
+            for i, j in zip(*np.where(x <= limit)):
+                gi, gj = a + int(i), int(j)
+                if gj > gi:
+                    union(gi, gj)
     groups: dict[int, list[str]] = {}
     for i, (s, _h) in enumerate(good):
         groups.setdefault(find(i), []).append(s)
