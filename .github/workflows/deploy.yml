@@ -17,6 +17,10 @@ concurrency:
 env:
   DEPLOY_HOST: "89.167.127.0"
   IMAGE: ghcr.io/${{ github.repository_owner }}/remlab-app
+  # Выкатываем РОВНО тот коммит, который прошёл CI. Для события `workflow_run` `github.sha` — это
+  # HEAD ветки по умолчанию на момент запуска, а не SHA проверенного прогона: пока чинился деплой,
+  # успевал прилететь следующий пуш, и на сервер уехал бы непроверенный коммит (находка Codex 05.09).
+  TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
   deploy:
@@ -30,7 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Проверка секрета
         id: gate
@@ -60,8 +64,8 @@ jobs:
           push: true
           provenance: false
           sbom: false
-          build-args: APP_VERSION=${{ github.sha }}
-          tags: ${{ env.IMAGE }}:latest,${{ env.IMAGE }}:${{ github.sha }}
+          build-args: APP_VERSION=${{ env.TARGET_SHA }}
+          tags: ${{ env.IMAGE }}:latest,${{ env.IMAGE }}:${{ env.TARGET_SHA }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -73,44 +77,79 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ env.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Деплой на сервер (pull только изменённых слоёв)
+      - name: Синхронизация файлов сервера (db/init — с удалением лишнего)
         if: steps.gate.outputs.ready == 'true'
         env:
           SRV: root@${{ env.DEPLOY_HOST }}
-          SHA: ${{ github.sha }}
+        run: |
+          command -v rsync >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq rsync; }
+          ssh "$SRV" "mkdir -p /opt/remlab/db/init /opt/remlab/scripts"
+          scp docker-compose.yml "$SRV:/opt/remlab/docker-compose.yml"
+          # `--delete` ОБЯЗАТЕЛЕН, не `scp` (05.09): каталог примонтирован в контейнер БД и
+          # применяется глобом целиком, поэтому файл, удалённый из репозитория, продолжал жить на
+          # сервере и ронять деплой. Так каталожные миграции 008/009 роняли выкат 4 суток.
+          rsync -az --delete --include='*.sql' --exclude='*' db/init/ "$SRV:/opt/remlab/db/init/"
+          scp tools/apply-db-init.sh infra/server/deploy-remote.sh "$SRV:/opt/remlab/scripts/"
+          ssh "$SRV" "chmod +x /opt/remlab/scripts/apply-db-init.sh /opt/remlab/scripts/deploy-remote.sh"
+
+      - name: "Деплой на сервер (под замком: миграции ДО активации)"
+        id: deploy
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          SRV: root@${{ env.DEPLOY_HOST }}
           ACTOR: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          scp docker-compose.yml "$SRV:/opt/remlab/docker-compose.yml"
-          scp db/init/*.sql "$SRV:/opt/remlab/db/init/"
           # Место нужно ДО pull (04.09): CI оставлял тег на каждый push, 135 × 308 МБ забили диск,
-          # приёмник мешей ушёл в 507. cleanup.sh scoped и под замком /opt/remlab/.deploy.lock.
+          # приёмник мешей ушёл в 507. cleanup.sh scoped и берёт замок /opt/remlab/.deploy.lock сам,
+          # поэтому вызывается ДО критической секции, а не внутри неё.
           ssh "$SRV" "[ -x /opt/remlab/scripts/cleanup.sh ] && /opt/remlab/scripts/cleanup.sh || true"
-          ssh "$SRV" "cd /opt/remlab && \
-            grep -q '^GEMINI_API_KEY=' .env || { echo 'FATAL: нет GEMINI_API_KEY в .env'; exit 1; }; \
-            echo '$GHCR_TOKEN' | docker login ghcr.io -u '$ACTOR' --password-stdin && \
-            docker tag ${IMAGE}:latest remlab-app:prev 2>/dev/null || true; \
-            REMLAB_IMAGE=${IMAGE}:$SHA APP_VERSION=$SHA docker compose pull app && \
-            REMLAB_IMAGE=${IMAGE}:$SHA APP_VERSION=$SHA docker compose up -d && \
-            for i in \$(seq 1 20); do docker compose exec -T db pg_isready -U remlab -d remlab >/dev/null 2>&1 && break; sleep 3; done && \
-            docker compose exec -T db sh -c 'for f in /docker-entrypoint-initdb.d/*.sql; do psql -U remlab -d remlab -v ON_ERROR_STOP=1 -f \$f || exit 1; done' && \
-            docker logout ghcr.io"
+          ssh "$SRV" "echo '$GHCR_TOKEN' | docker login ghcr.io -u '$ACTOR' --password-stdin"
+          # Весь выкат — под тем же замком: сторож диска не должен снимать теги между pull и up.
+          ssh "$SRV" "flock -w 900 /opt/remlab/.deploy.lock \
+            env REMLAB_IMAGE='${IMAGE}:${TARGET_SHA}' APP_VERSION='${TARGET_SHA}' \
+            /opt/remlab/scripts/deploy-remote.sh"
 
-      - name: Smoke-тест + откат при провале
-        if: steps.gate.outputs.ready == 'true'
+      - name: Выход из GHCR
+        if: ${{ !cancelled() && steps.gate.outputs.ready == 'true' }}
+        run: ssh "root@${{ env.DEPLOY_HOST }}" "docker logout ghcr.io" || true
+
+      # Страховка выполняется и после провала предыдущего шага: с 01.09 деплой падал на миграциях,
+      # GitHub пропускал этот шаг целиком — прод оставался непроверенным, а авто-откат был выключен
+      # молча. `!cancelled()` (а не `always()`) — чтобы отмена прогона не запускала откат.
+      # Проверяем ИМЕННО целевую версию: одного кода 200 мало — при провале выката сайт отвечает
+      # 200 на старой (или уже подменённой) версии, и smoke «подтверждал» бы чужой успех.
+      - name: Smoke целевой версии + откат при провале
+        if: ${{ !cancelled() && steps.gate.outputs.ready == 'true' }}
         env:
           SRV: root@${{ env.DEPLOY_HOST }}
         run: |
+          want="$TARGET_SHA"
+          code=000; ver=""; ok=""
           for i in $(seq 1 20); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 https://remont-lab.online/api/health || true)
-            if [ "$code" = "200" ]; then
-              echo "OK: health 200"
+            resp=$(curl -s -w '\n%{http_code}' --max-time 8 https://remont-lab.online/api/health || true)
+            code=$(printf '%s' "$resp" | tail -n1)
+            body=$(printf '%s' "$resp" | sed '$d')
+            # Разбор без jq намеренно: отсутствие утилиты дало бы пустую версию, smoke счёл бы
+            # исправный выкат провалом и откатил бы прод.
+            ver=$(printf '%s' "$body" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')
+            ok=$(printf '%s' "$body" | grep -q '"ok":true' && echo true || echo false)
+            if [ "$code" = "200" ] && [ "$ok" = "true" ] && [ "$ver" = "$want" ]; then
+              echo "OK: health 200, ok=true, version=$want"
               # после успешного smoke снимаем теги прошлых деплоев (образ prev остаётся)
               ssh "$SRV" "[ -x /opt/remlab/scripts/cleanup.sh ] && /opt/remlab/scripts/cleanup.sh || true"
               exit 0
             fi
-            echo "ждём... ($i) code=$code"; sleep 6
+            echo "ждём... ($i) code=$code version=${ver:0:12} ok=$ok"; sleep 6
           done
-          echo "SMOKE FAILED -> откат на remlab-app:prev"
-          ssh "$SRV" "cd /opt/remlab && REMLAB_IMAGE=remlab-app:prev docker compose up -d && echo 'откат выполнен' || echo 'prev нет — ручной разбор'"
+          if [ "$code" = "200" ]; then
+            # Сайт жив, но на другой версии: выкат не состоялся. Откатывать нечего — откат здесь
+            # только сменил бы живую версию на ещё более старую.
+            echo "САЙТ ЖИВ на версии ${ver:0:12}, целевая ${want:0:12} не активирована — откат НЕ нужен, нужен разбор."
+            exit 1
+          fi
+          echo "САЙТ НЕ ОТВЕЧАЕТ (code=$code) -> откат на remlab-app:prev"
+          ssh "$SRV" "cd /opt/remlab && flock -w 300 /opt/remlab/.deploy.lock \
+            env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev docker compose up -d \
+            && echo 'откат выполнен' || echo 'откат не удался — ручной разбор'"
           exit 1

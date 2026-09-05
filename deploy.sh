@@ -18,8 +18,9 @@ echo "==> [1/6] Локальная кросс-сборка образа $IMAGE:$
 docker buildx build --builder remlabx --platform "$PLATFORM" --provenance=false --sbom=false \
   --build-arg APP_VERSION="$TAG" -t "$IMAGE:$TAG" -t "$IMAGE:latest" --load .
 
-echo "==> [2/6] Сохранить предыдущий образ на сервере как :prev (для отката)"
-ssh "$SERVER" "docker image inspect $IMAGE:latest >/dev/null 2>&1 && docker tag $IMAGE:latest $IMAGE:prev || echo '(prev нет — первый деплой)'"
+# [2] Цель отката больше не тегируется здесь: её ставит серверный deploy-remote.sh по образу
+# РАБОТАЮЩЕГО контейнера (шаг 5). Прежняя строка `docker tag $IMAGE:latest $IMAGE:prev` брала
+# локальный тег, которого при CI-выкатах на сервере не бывает — `prev` протух на 6 недель.
 
 echo "==> [3/6] Перенос образа на сервер"
 # МЕСТО НУЖНО ДО docker load, а не после smoke (04.09): 135 тегов от CI забили диск до 88%,
@@ -41,21 +42,21 @@ if comm -23 <(ssh "$SERVER" "cat $REMOTE_DIR/caddy/Caddyfile" | sort -u) <(sort 
   exit 1
 fi
 scp caddy/Caddyfile "$SERVER:$REMOTE_DIR/caddy/Caddyfile"
-scp db/init/001-extensions.sql "$SERVER:$REMOTE_DIR/db/init/001-extensions.sql"
-scp db/init/002-projects.sql "$SERVER:$REMOTE_DIR/db/init/002-projects.sql"
-scp db/init/003-traces.sql "$SERVER:$REMOTE_DIR/db/init/003-traces.sql"
-scp db/init/004-estimates.sql "$SERVER:$REMOTE_DIR/db/init/004-estimates.sql"
-scp db/init/005-leads.sql "$SERVER:$REMOTE_DIR/db/init/005-leads.sql"
-scp db/init/006-style-results.sql "$SERVER:$REMOTE_DIR/db/init/006-style-results.sql"
-scp db/init/007-mesh-review.sql "$SERVER:$REMOTE_DIR/db/init/007-mesh-review.sql"
+# Список файлов больше не перечисляем руками (05.09): он отставал — 007-mesh-review копировался,
+# но не применялся, а CI применял всё глобом. Оба пути теперь синхронизируют каталог целиком
+# (`--delete` убирает файлы, удалённые из репозитория) и применяют его одним скриптом.
+rsync -az --delete --include='*.sql' --exclude='*' db/init/ "$SERVER:$REMOTE_DIR/db/init/"
+ssh "$SERVER" "mkdir -p $REMOTE_DIR/scripts"
+scp tools/apply-db-init.sh infra/server/deploy-remote.sh "$SERVER:$REMOTE_DIR/scripts/"
+ssh "$SERVER" "chmod +x $REMOTE_DIR/scripts/apply-db-init.sh $REMOTE_DIR/scripts/deploy-remote.sh"
 ssh "$SERVER" "test -f $REMOTE_DIR/.env || { echo 'FATAL: нет $REMOTE_DIR/.env (скопируй из .env.example и задай POSTGRES_PASSWORD)'; exit 1; }"
 ssh "$SERVER" "grep -q '^GEMINI_API_KEY=' $REMOTE_DIR/.env || { echo 'FATAL: в $REMOTE_DIR/.env нет GEMINI_API_KEY'; exit 1; }"
 
-echo "==> [5/6] Запуск на сервере (APP_VERSION=$TAG)"
-ssh "$SERVER" "cd $REMOTE_DIR && APP_VERSION=$TAG docker compose up -d"
-
-echo "==> [5b] Миграция схемы БД (идемпотентно, дожидаемся healthy)"
-ssh "$SERVER" "cd $REMOTE_DIR && for i in \$(seq 1 20); do docker compose exec -T db pg_isready -U remlab -d remlab >/dev/null 2>&1 && break; sleep 3; done && docker compose exec -T db psql -U remlab -d remlab -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/002-projects.sql && docker compose exec -T db psql -U remlab -d remlab -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/003-traces.sql && docker compose exec -T db psql -U remlab -d remlab -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/004-estimates.sql && docker compose exec -T db psql -U remlab -d remlab -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/005-leads.sql && docker compose exec -T db psql -U remlab -d remlab -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/006-style-results.sql"
+echo "==> [5/6] Запуск на сервере под замком (prev → образ → миграции → активация), APP_VERSION=$TAG"
+# Тот же серверный скрипт, что и у автодеплоя: порядок «миграции ДО переключения приложения» и
+# цель отката по работающему контейнеру не должны существовать в двух разных версиях.
+ssh "$SERVER" "flock -w 900 $REMOTE_DIR/.deploy.lock \
+  env REMLAB_IMAGE=$IMAGE:$TAG APP_VERSION=$TAG $REMOTE_DIR/scripts/deploy-remote.sh"
 
 echo "==> [6/6] Smoke-test https://$DOMAIN"
 ok=0
@@ -71,7 +72,9 @@ if [ "$ok" = "1" ]; then
   ssh "$SERVER" "docker image prune -f >/dev/null 2>&1 || true"
   echo "DEPLOY DONE: $IMAGE:$TAG"
 else
-  echo "SMOKE FAILED -> откат на :prev"
-  ssh "$SERVER" "cd $REMOTE_DIR && docker image inspect $IMAGE:prev >/dev/null 2>&1 && docker tag $IMAGE:prev $IMAGE:latest && APP_VERSION=prev docker compose up -d && echo 'откат выполнен' || echo 'prev нет — ручной разбор'"
+  echo "SMOKE FAILED -> откат на remlab-app:prev"
+  ssh "$SERVER" "cd $REMOTE_DIR && flock -w 300 $REMOTE_DIR/.deploy.lock \
+    env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev docker compose up -d \
+    && echo 'откат выполнен' || echo 'откат не удался — ручной разбор'"
   exit 1
 fi

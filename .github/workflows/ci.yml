@@ -39,6 +39,44 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm e2e
 
+  db-init:
+    # ГАРДА ПРОД-СХЕМЫ (05.09, ADR-0179). `db/init/*.sql` — схема БОЕВОЙ базы, деплой применяет их
+    # целиком на каждом выкате. 01.09 туда попали каталожные миграции (`alter table products`, а на
+    # проде такой таблицы нет) — «Deploy prod» падал 4 суток, и вместе с ним молча отключился
+    # smoke-тест с авто-откатом. Красный CI дешевле красного деплоя.
+    # Прогон тем же скриптом, что и оба деплоя (`tools/apply-db-init.sh`) — иначе проверяли бы
+    # похожий, но не тот путь, которым катится прод.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: remlab
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: remlab
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U remlab" --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    env:
+      PGPASSWORD: test
+      PSQL_CMD: psql -h localhost -U remlab -d remlab -q -v ON_ERROR_STOP=1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Чистая БД — вся прод-схема применяется
+        run: bash tools/apply-db-init.sh
+      - name: Повторное применение (прод делает это на каждом деплое)
+        run: bash tools/apply-db-init.sh
+      - name: Таблицы, которые читает приложение, на месте
+        run: |
+          for t in projects generation_runs generation_steps generation_assets estimates \
+                   link_clicks link_routes leads lead_messages style_results \
+                   mesh_review_tasks mesh_review_decisions; do
+            got=$(psql -h localhost -U remlab -d remlab -tAc "select to_regclass('public.$t')")
+            [ "$got" = "$t" ] || { echo "НЕТ таблицы $t после применения db/init"; exit 1; }
+          done
+          echo "все обязательные таблицы на месте"
+
   planner:
     # Constraint-contract CI солвера (T6 truth-first, ADR-0080): совместная выполнимость
     # правил, satisfiability посадочных групп, детерминизм — ловится ДО мерджа, не на приёмке
