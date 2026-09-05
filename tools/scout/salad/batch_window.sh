@@ -22,10 +22,33 @@ set -euo pipefail
 
 # Список групп с окном — из ОДНОГО источника (rules/salad-groups.json через salad_groups.py);
 # MESH_BATCH_GROUPS — только переопределение для ручных опытов.
+# ИМЯ ПЕРЕМЕННОЙ — НЕ `GROUPS` (05.09). `GROUPS` — СЛУЖЕБНЫЙ массив bash со списком групп ОС
+# пользователя: присваивание в него молча игнорируется, а чтение отдаёт первый элемент —
+# основной gid, у нас 1000. Из-за этого расписание тарифа НИ РАЗУ не сработало: `for g in
+# $GROUPS` крутился по «1000», стоп уходил на несуществующую группу, API отвечал 400, а
+# скрипт это глотал. В логе за день ровно две строки: «старт 1000: HTTP 400» и «стоп 1000:
+# HTTP 400». Проверяется `bash -x`: видно `GROUPS=mesh-batch-3`, а следом `echo <1000>`.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PY="${MESH_PY:-$HOME/venvs/scout/bin/python}"
-GROUPS="${MESH_BATCH_GROUPS:-$("$PY" "$HERE/salad_groups.py" --windowed 2>/dev/null)}"
-[ -n "$GROUPS" ] || { echo "нет групп с окном ни в rules/salad-groups.json, ни в MESH_BATCH_GROUPS" >&2; exit 2; }
+# СПИСОК ГРУПП — ОТДЕЛЬНЫМ ШАГОМ И С ПРОВЕРКОЙ ИМЁН (05.09). Раньше подстановка
+# `${MESH_BATCH_GROUPS:-$(...)}` в одну строку однажды дала `1000` вместо `mesh-batch-3`: стоп
+# в 15:00 ушёл на несуществующую группу, API ответил 400, скрипт это проглотил — batch остался
+# работать вне окна, а в логе была строка «стоп 1000: HTTP 400», которую никто не читал.
+# Теперь: сперва получаем список, потом сверяем каждое имя с ожидаемым видом группы.
+if [ -n "${MESH_BATCH_GROUPS:-}" ]; then
+  WGROUPS="$MESH_BATCH_GROUPS"
+else
+  WGROUPS="$("$PY" "$HERE/salad_groups.py" --windowed 2>/dev/null || true)"
+fi
+[ -n "$WGROUPS" ] || { echo "нет групп с окном ни в rules/salad-groups.json, ни в MESH_BATCH_GROUPS" >&2; exit 2; }
+for g in $WGROUPS; do
+  case "$g" in
+    mesh-*) : ;;
+    *) echo "имя группы «$g» не похоже на группу пула — не трогаю ничего" >&2
+       bash "$HERE/../alert.sh" "Меши: расписание тарифа получило неверный список групп («$g») — окно НЕ применено, batch мог остаться работать вне окна." || true
+       exit 2 ;;
+  esac
+done
 BASE="https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers"
 LOG="${MESH_BATCH_LOG:-$HOME/igor/remlab/.memory_bank/_intake/batch-window.log}"
 HALT="$HOME/scout-scenes/mesh-group-halt.json"
@@ -53,18 +76,28 @@ case "$action" in
       bash "$HERE/../alert.sh" "Меши: окно дешёвого тарифа открылось, а конвейер не работает — batch-группы НЕ подняты. Запусти конвейер, он поднимет их сам." || true
       exit 0
     fi
-    for g in $GROUPS; do
+    for g in $WGROUPS; do
       code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Salad-Api-Key: $SALAD_API_KEY" \
              -d '' "$BASE/$g/start" || echo 000)
       say "старт $g: HTTP $code"      # 400 = уже запущена, это не ошибка
     done
     ;;
   down)
-    for g in $GROUPS; do
+    # ГАШЕНИЕ ОБЯЗАНО СОСТОЯТЬСЯ ИЛИ ЗАКРИЧАТЬ. У `up` код 400 безобиден («уже запущена»), у
+    # `down` он значит, что группа осталась РАБОТАТЬ и тарифицироваться — молчать здесь нельзя
+    # (05.09: стоп ушёл на несуществующую группу, batch крутился вне окна и никто не знал).
+    fail=0
+    for g in $WGROUPS; do
       code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Salad-Api-Key: $SALAD_API_KEY" \
              -d '' "$BASE/$g/stop" || echo 000)
       say "стоп $g: HTTP $code"
+      case "$code" in
+        2*) : ;;
+        *) fail=1
+           bash "$HERE/../alert.sh" "Меши: НЕ УДАЛОСЬ погасить группу $g по расписанию (HTTP $code) — она продолжает работать и тарифицироваться. Нужен человек." || true ;;
+      esac
     done
+    [ "$fail" -eq 0 ] || exit 1
     ;;
   *)
     echo "использование: $0 up|down" >&2
