@@ -182,11 +182,13 @@ def current_items() -> list[dict]:
             continue
         sku, gk, sha16, seed, gen_at, n, _first, role, name, img, fresh = r
         poster = poster_name(gk)
-        out.append({'sku': sku, 'generationKey': gk, 'revisionKey': f'{sku}|{sha16}|{PIPELINE_VERSION}',
-                    'role': role or None, 'name': name or None, 'imageUrl': img or None,
-                    'posterUrl': f'/test/mesh-audit/posters/{poster}' if os.path.exists(os.path.join(POSTERS, poster)) else None,
-                    'modelPath': f'{sku.replace(":", "_", 1)}/model.glb',
-                    'seed': int(seed), 'attempt': int(n), 'generatedAt': gen_at, 'photoStale': fresh == 'stale'})
+        item = {'sku': sku, 'generationKey': gk, 'revisionKey': f'{sku}|{sha16}|{PIPELINE_VERSION}',
+                'role': role or None, 'name': name or None, 'imageUrl': img or None,
+                'posterUrl': f'/test/mesh-audit/posters/{poster}' if os.path.exists(os.path.join(POSTERS, poster)) else None,
+                'modelPath': f'{sku.replace(":", "_", 1)}/model.glb',
+                'seed': int(seed), 'attempt': int(n), 'generatedAt': gen_at, 'photoStale': fresh == 'stale'}
+        # Zod на проде: `optional()` принимает отсутствие ключа, но не null — пустое не отправляем
+        out.append({k: v for k, v in item.items() if v is not None})
     return out
 
 
@@ -240,9 +242,22 @@ def serve_batches() -> None:
         subprocess.run([py, pub, '--cleanup'], capture_output=True, text=True, timeout=600)
 
 
+def publish_posters() -> None:
+    """Инкрементальный rsync постеров (секунда-две, когда нового нет): карточка получает
+    `posterUrl`, как только файл есть локально, — на проде он должен появиться тем же тиком."""
+    if not os.path.isdir(POSTERS):
+        return
+    r = subprocess.run(['rsync', '-aq', '-e', 'ssh -p 22222 -o BatchMode=yes -o ConnectTimeout=20',
+                        POSTERS + '/', 'root@89.167.127.0:/opt/remlab/test/mesh-audit/posters/'],
+                       capture_output=True, text=True, timeout=600)
+    if r.returncode != 0:
+        print(f'[audit] постеры не синхронизированы: {r.stderr.strip()[-160:]}', flush=True)
+
+
 def tick() -> None:
     os.makedirs(STATE_DIR, exist_ok=True)
     pull()
+    publish_posters()
     push()
     serve_batches()
 

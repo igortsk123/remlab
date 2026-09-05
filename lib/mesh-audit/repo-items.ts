@@ -47,11 +47,11 @@ export async function listPage(page: number): Promise<{ items: AuditItem[]; tota
 export interface ItemIn {
   sku: string;
   generationKey: string;
-  revisionKey?: string;
-  role?: string;
-  name?: string;
-  imageUrl?: string;
-  posterUrl?: string;
+  revisionKey?: string | null;
+  role?: string | null;
+  name?: string | null;
+  imageUrl?: string | null;
+  posterUrl?: string | null;
   modelPath: string;
   seed?: number;
   attempt?: number;
