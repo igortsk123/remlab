@@ -2,13 +2,14 @@
 
 B2C-сервис **«Смета-first» (v0.4, ADR-0016)**: расчёт ремонта/материалов → смета-список с
 реф-ссылками (комиссия, в т.ч. с юзерских ссылок) → хвосты: AI-визуализация и мастера-лиды.
-Мастер-план — `.memory_bank/plans/MASTER-cost-first.md` (М0–М7). Рынок РФ (Гдеслон) → UK.
+Мастер-план — `plans/MASTER-cost-first.md` (М0–М7). Рынок РФ (Гдеслон) → UK.
 Стек: TS strict + Next.js (App Router) + Drizzle + Zod + Inngest + self-host postgres/pgvector +
 Gemini (Vertex/fal запас) + YooKassa + PostHog (детали — `core/architecture.md`).
 Стадия: **Stage 1 задеплоен** (`remont-lab.online`), трейсинг, Метрика, Директ (4 кампании
 + автопилот dry-run). ⚠️ Ядро сметы (М1–М3) не построено —
 код-долг v0.4.
 Владелец не пишет код → приоритет самопроверяемости (тесты/CI/observability/гардрейлы).
+**Говорить с владельцем просто:** без терминов, кратко, каждый пункт — с «зачем» (правило 05.09).
 
 ## Память и старт
 Tier 0 = этот файл + импортированный INDEX + `.claude/rules/*.md` (auto); Tier 2 =
@@ -22,7 +23,7 @@ next steps, содержимое `_intake/session-scratch.md`.
 - **Конец задачи = `/memory-check`.** План не `completed`, пока durable сессии не в `.memory_bank/` и audit не «чисто».
 - **План first, code second** — `.claude/rules/agent-workflow.md`. Без явного «деплой» код не пишем.
 - **Гипотезы, не аксиомы:** спека — набор гипотез; отклонился обоснованно → запиши в `docs/DECISIONS.md`.
-- **Сложное/неоднозначное/рискованное решение:** сначала свой вывод, потом скилл `ask-codex` (независимое второе мнение) — и только затем финализируй. Полное правило — `.claude/rules/codex-adviser.md`.
+- **Сложное/рискованное решение:** свой вывод → скилл `ask-codex` (второе мнение) → финал. Правило — `.claude/rules/codex-adviser.md`.
 
 ## Команды
 `pnpm test` · `pnpm e2e` · `pnpm typecheck` · `pnpm lint` · `pnpm db:migrate` · `pnpm build` · `./deploy.sh`
@@ -32,5 +33,5 @@ next steps, содержимое `_intake/session-scratch.md`.
 
 ## Path-scoped правила (.claude/rules/)
 `agent-workflow` (план→деплой, всегда) · `memory-discipline` (память, всегда) ·
-`codex-adviser` (когда обязателен независимый разбор Codex, всегда) ·
+`codex-adviser` (второе мнение Codex, всегда) ·
 `code-standards` (ts/tsx) · `ui-rules` (app/components tsx) · `pipeline-tracing` (ADR-0013).
