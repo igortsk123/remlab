@@ -3,7 +3,7 @@ tier: 2
 topic: integrations-details
 scope: Детали внешних интеграций — эндпоинты, форматы запросов/ответов, env-переменные, конфиги, цены
 tier1: ../core/access-and-integrations.md
-updated: 2026-09-03
+updated: 2026-09-05
 importance: high
 source: manual
 status: working
@@ -310,3 +310,14 @@ Standard, `isDownloadable:false`, платная модель магазина.
   `TG_BOT_TOKEN/TG_CHAT_ID/DIGEST_QUIET_OK`) и `/opt/remlab/catalog-watchdog/.env` (прод); chat_id получен 03.09
   (`getUpdates`), тесты с DEV и прода дошли. Документация Гдеслона: gdeslon.ru/faq/20 и /faq/21 (формат id не описан).
 
+
+## Мост DEV ↔ прод для мешей: `/lab/mesh-review` и `/lab/mesh-audit` (2026-09-05)
+- Два секрета в `/opt/remlab/.env` прода (значения — только `_secrets/ACCESS.md`):
+  `MESH_REVIEW_SECRET` — вход владельца (кука HMAC, закладка `/api/lab/mesh-review/session?key=…`,
+  кука общая для обеих страниц), `MESH_REVIEW_MACHINE_TOKEN` — Bearer конвейера. Fail-closed:
+  нет секрета в env → 503 (`lib/mesh-review/auth.ts`).
+- На DEV токен и URL — `~/.config/remlab/env` (`MESH_REVIEW_MACHINE_TOKEN`, `MESH_REVIEW_URL`);
+  читают `tools/scout/mesh_review_sync.py` и `tools/scout/mesh_audit_sync.py` (крон раз в минуту).
+- Ручки: `/api/lab/mesh-review/{tasks,decisions,session}`, `/api/lab/mesh-audit/{items,decisions,
+  batch,seen}` — решения append-only, конвейер забирает курсором `after_id`. Статика приёмки —
+  `/test/mesh-audit/*` (Caddy, кэш immutable; каталог `/opt/remlab/test/mesh-audit/`).

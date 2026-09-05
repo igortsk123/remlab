@@ -28,7 +28,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт → реф-сме�
 | Рынок RU/UK — спрос, монетизация | `core/market.md` | `../domain/market-research.md` |
 | Реклама — Яндекс, семантика | `core/marketing-acquisition.md` | `../domain/wordstat-semantics.md` |
 | Цвет мешей — диагноз, мерка, рычаги | `core/mesh-color.md` | `../domain/viz-fidelity-playbook.md` |
-| Ручная приёмка мешей владельцем — страница /lab/mesh-audit, переделки, партии моделей | `core/mesh-owner-audit.md` | `../plans/mesh-owner-audit.md` |
+| Ручная приёмка мешей владельцем — страница /lab/mesh-audit, переделки, партии моделей | `core/mesh-owner-audit.md` | `../completed_plans/mesh-owner-audit.md` |
 | 3D-меши товаров — генерация, учёт поколений, приёмка, ориентация | `core/mesh-pipeline.md` | `../domain/viz-fidelity-playbook.md` |
 | Пул нод Salad — группы, тарифы, деньги, стопоры | `core/mesh-pool.md` | `../domain/mesh-pool-ops.md` |
 | Трейсинг AI-пайплайна — лог, разбор | `core/observability-tracing.md` | `../domain/observability.md` |

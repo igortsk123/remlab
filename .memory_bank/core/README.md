@@ -12,7 +12,7 @@
 
 | Файл | topic | Когда читать (scope) | Tier 2 | updated |
 |------|-------|----------------------|--------|---------|
-| `access-and-integrations.md` | access-and-integrations | Интеграции/доступы — ключи, клиенты | `../domain/integrations.md` | 2026-09-03 |
+| `access-and-integrations.md` | access-and-integrations | Интеграции/доступы — ключи, клиенты | `../domain/integrations.md` | 2026-09-05 |
 | `architecture.md` | architecture | Стек, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-09-05 |
 | `catalog.md` | catalog | Каталог — загрузка из фидов/API, свежесть, сторожа | `../domain/catalog-enrichment.md` | 2026-09-05 |
 | `data-model.md` | data-model | Схема БД, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-09-05 |
@@ -28,7 +28,7 @@
 | `market.md` | market | Рынок RU/UK — спрос, монетизация | `../domain/market-research.md` | 2026-08-13 |
 | `marketing-acquisition.md` | marketing-acquisition | Реклама — Яндекс, семантика | `../domain/wordstat-semantics.md` | 2026-09-05 |
 | `mesh-color.md` | mesh-color | Цвет мешей — диагноз, мерка, рычаги | `../domain/viz-fidelity-playbook.md` | 2026-09-05 |
-| `mesh-owner-audit.md` | mesh-owner-audit | Ручная приёмка мешей владельцем — страница /lab/mesh-audit, переделки, партии моделей | `../plans/mesh-owner-audit.md` | 2026-09-05 |
+| `mesh-owner-audit.md` | mesh-owner-audit | Ручная приёмка мешей владельцем — страница /lab/mesh-audit, переделки, партии моделей | `../completed_plans/mesh-owner-audit.md` | 2026-09-05 |
 | `mesh-pipeline.md` | mesh-pipeline | 3D-меши товаров — генерация, учёт поколений, приёмка, ориентация | `../domain/viz-fidelity-playbook.md` | 2026-09-05 |
 | `mesh-pool.md` | mesh-pool | Пул нод Salad — группы, тарифы, деньги, стопоры | `../domain/mesh-pool-ops.md` | 2026-09-05 |
 | `observability-tracing.md` | observability-tracing | Трейсинг AI-пайплайна — лог, разбор | `../domain/observability.md` | 2026-08-06 |

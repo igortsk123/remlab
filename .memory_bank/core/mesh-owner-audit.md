@@ -2,7 +2,7 @@
 tier: 1
 topic: mesh-owner-audit
 scope: Ручная приёмка мешей владельцем — страница /lab/mesh-audit, переделки, партии моделей
-tier2: "../plans/mesh-owner-audit.md"
+tier2: "../completed_plans/mesh-owner-audit.md"
 updated: 2026-09-05
 importance: high
 source: manual
@@ -40,4 +40,4 @@ review_after: 2026-12-05
 
 **Очередь:** «принято, ждёт сборки очереди» до `--build-queue` ([[mesh-pipeline]] § старт волны).
 
-**Tier 2:** `../plans/mesh-owner-audit.md` (там же — итоги двух аудитов Codex).
+**Tier 2:** `../completed_plans/mesh-owner-audit.md` (+ итоги аудитов Codex).
