@@ -6,9 +6,14 @@ tier1: "core/goals.md"
 updated: 2026-07-09
 importance: high
 source: manual
-status: working
 source_of_truth: supporting
 last_verified: 2026-07-09
+archived: 2026-09-05
+archived_by: memory-bank-audit-2026-09
+archive_reason: superseded — цели v0.3 «одно фото → подбор мебели» перекрыты v0.4 (ADR-0016) и мебельным треком на мешах (ADR-0042, 0131)
+superseded_by: core/goals.md, plans/MASTER-cost-first.md
+status: archived
+source_of_truth: historical
 ---
 
 > ⚠️ ADR-0016: **v0.4 «Смета-first»** — `plans/MASTER-cost-first.md`; ниже — v0.3-контекст.

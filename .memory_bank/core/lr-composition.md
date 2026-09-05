@@ -9,6 +9,7 @@ source: manual
 status: working
 source_of_truth: canonical
 last_verified: 2026-09-01
+review_after: 2026-12-05
 ---
 
 # Композиция гостиной — Tier 1

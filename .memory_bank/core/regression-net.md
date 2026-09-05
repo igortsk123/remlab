@@ -9,7 +9,7 @@ source: manual
 status: working
 source_of_truth: supporting
 last_verified: 2026-08-06
-review_after: ""
+review_after: 2026-12-05
 ---
 
 # Regression Net — Tier 1 (сверено 2026-07-11)

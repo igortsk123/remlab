@@ -1,7 +1,8 @@
 # Memory Bank — Index (Tier 0)
 
 remlab — «Смета-first» v0.4 (ADR-0016): расчёт ремонта/материалов → реф-смета; мастер —
-`plans/MASTER-cost-first.md`.
+`plans/MASTER-cost-first.md`; сейчас первым идёт М5 «мебельный трек» (ADR-0187).
+Инварианты: один факт — в одном месте; банк = канон, авто-память харнесса = per-user, мост — `/memory-check`.
 
 ## Decision tree — что читать
 
@@ -14,13 +15,13 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт ремонта/м�
 |----------------|--------|--------|
 | Интеграции/доступы — ключи, клиенты | `core/access-and-integrations.md` | `../domain/integrations.md` |
 | Стек, модули, генерация, деплой — по коду | `core/architecture.md` | `../../docs/tech-spec-ts-stack.md` |
-| Каталог — состав, загрузка из фидов/API, отпечатки, свежесть, сторожа | `core/catalog.md` | `../domain/catalog-enrichment.md` |
+| Каталог — загрузка из фидов/API, свежесть, сторожа | `core/catalog.md` | `../domain/catalog-enrichment.md` |
 | Схема БД, миграции, pgvector | `core/data-model.md` | `../../docs/tech-spec-ts-stack.md` |
-| Демо-планировщик для партнёра — интерактивная расстановка и AI-фото | `core/demo-planner.md` | `../domain/demo-planner-ui.md` |
+| Демо-планировщик для партнёра — расстановка и кадр | `core/demo-planner.md` | `../domain/demo-planner-ui.md` |
 | Деплой/откат/сервер exit-fi | `deployment.md` | `domain/deployment-details.md` |
 | Смета — калькуляторы, /go/ реф | `core/estimate.md` | `../domain/pricing-works-ru.md` |
 | Мебель — сеты, визуализация | `core/furniture.md` | `../domain/viz-fidelity-playbook.md` |
-| Цели — v0.4 «Смета-first» | `core/goals.md` | `../goals-one-photo-furnish-fit.md` |
+| Цели v0.4 — сценарий, монетизация, порядок ступеней | `core/goals.md` | `../plans/MASTER-cost-first.md` |
 | Source-KB из книг — спека, KB0–KB9 | `core/knowledge-db.md` | `../../remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md` |
 | Расстановка: правила, зоны, прод-ядро | `core/layout.md` | `../domain/occupancy-rules.md` |
 | Лид-канал — заявка, TG-бот | `core/leads.md` | — |
@@ -28,29 +29,27 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт ремонта/м�
 | Композиция гостиной — доли | `core/lr-composition.md` | `../domain/lr-composition-guide.md` |
 | Рынок RU/UK — спрос, монетизация | `core/market.md` | `../domain/market-research.md` |
 | Реклама — Яндекс, семантика | `core/marketing-acquisition.md` | `../domain/wordstat-semantics.md` |
-| Цвет мешей — диагноз промаха покраски, мерка, рычаги | `core/mesh-color.md` | `../domain/viz-fidelity-playbook.md` |
-| 3D-меши товаров — генерация, приёмка, ориентация | `core/mesh-pipeline.md` | `../domain/viz-fidelity-playbook.md` |
+| Цвет мешей — диагноз, мерка, рычаги | `core/mesh-color.md` | `../domain/viz-fidelity-playbook.md` |
+| Ручная приёмка мешей владельцем — страница /lab/mesh-audit, переделки, партии моделей | `core/mesh-owner-audit.md` | `../plans/mesh-owner-audit.md` |
+| 3D-меши товаров — генерация, учёт поколений, приёмка, ориентация | `core/mesh-pipeline.md` | `../domain/viz-fidelity-playbook.md` |
+| Пул нод Salad — группы, тарифы, деньги, стопоры | `core/mesh-pool.md` | `../domain/mesh-pool-ops.md` |
 | Трейсинг AI-пайплайна — лог, разбор | `core/observability-tracing.md` | `../domain/observability.md` |
-| Канонический порядок конвейера — от фида до расстановки в планировке | `core/pipeline-order.md` | `../domain/pipeline-order-details.md` |
-| Бизнес-контекст; v0.4 «Смета-first» | `product_brief.md` | `domain/brief-details.md` |
+| Порядок конвейера — от фида до расстановки | `core/pipeline-order.md` | `../domain/pipeline-order-details.md` |
+| Бизнес-контекст — кто, зачем, как зарабатываем | `product_brief.md` | `domain/brief-details.md` |
 | Регресс-защита — тесты, CI, гардрейлы | `core/regression-net.md` | `../../docs/tech-spec-ts-stack.md` |
-| Замер комнаты по фото — что готово и чем меряем | `core/room-measurement.md` | `../domain/room-measurement.md` |
-| Контроль наличия и честность размеров — состояния, парсер, правило footprint | `core/stock-and-dims.md` | `../domain/stock-and-dims.md` |
+| Замер комнаты по фото | `core/room-measurement.md` | `../domain/room-measurement.md` |
+| Наличие и честность размеров — состояния, парсер, footprint | `core/stock-and-dims.md` | `../domain/stock-and-dims.md` |
 | Стили — паспорта, скоринг, сеты | `core/styles.md` | `../domain/interior-styles.md` |
 | Stage 1 UX-flow, аналитика | `core/user-flow.md` | `../domain/user-flow-details.md` |
 | Состав гостиной — роли и пригодность | `core/lr-checklist.md` | `../domain/living-room-checklist.md` |
 <!-- GENERATED:decision-tree END -->
 
 ## Always-on docs (Tier 0/1)
-`source-of-truth.md` (конфликты) · `project-state.md` (снимок) · `decisions.md` (ADR) ·
-`deployment.md` (деплой).
-
-## Ключевые исходники
-`docs/`: tech-spec-ts-stack · DECISIONS · истор.: master-brief-v0.3, cjm-ux-v0.2.
+`source-of-truth.md` (конфликты) · `project-state.md` (снимок) · `decisions.md` (индекс ADR; тексты —
+`decisions/`) · `deployment.md` (деплой) · уроки — `core/lessons.md` → `lessons/`.
 
 ## Планы
-**Мастер: `plans/MASTER-cost-first.md`** (М0–М7; старое — `archive/plans/`). Исполнение —
-`guides/execution-playbook.md`. Цикл: draft → «деплой» → completed → `completed_plans/`.
+Портфель `plans/MASTER-cost-first.md`; треки — `plans/README.md` § «Сейчас в работе»; архив — `archive/plans/`.
 
 ## Обслуживание
-`/memory-check` · `/memory-cleanup` · `METADATA_SCHEMA.md` · лог — `changelog/memory-log.md`.
+`/memory-check` · `/memory-cleanup` · `METADATA_SCHEMA.md` · `changelog/memory-log.md` · `tools/memory-project-audit.mjs`.

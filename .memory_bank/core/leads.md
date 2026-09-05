@@ -9,7 +9,7 @@ source: manual
 status: working
 source_of_truth: canonical
 last_verified: 2026-07-28
-review_after: ""
+review_after: 2026-12-05
 ---
 
 # Лид-коммуникации — Tier 1 (П7, ADR-0180)

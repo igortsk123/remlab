@@ -8,6 +8,7 @@ last_verified: 2026-09-02
 importance: high
 source: manual
 status: working
+review_after: 2026-12-05
 ---
 
 # Стили интерьера — Tier 1

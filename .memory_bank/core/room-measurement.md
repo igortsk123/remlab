@@ -1,13 +1,14 @@
 ---
 tier: 1
 topic: room-measurement
-scope: Замер комнаты по фото — что готово и чем меряем
+scope: Замер комнаты по фото
 tier2: ../domain/room-measurement.md
 updated: 2026-09-04
 importance: high
 source: manual
 status: working
 last_verified: 2026-09-04
+review_after: 2026-12-05
 ---
 
 # Замер комнаты по фото — Tier 1

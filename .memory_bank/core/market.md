@@ -9,6 +9,7 @@ source: manual
 status: working
 source_of_truth: supporting
 last_verified: 2026-07-11
+review_after: 2026-12-05
 ---
 
 # Market — Tier 1 (RU/UK; v0.4, база май 2026)

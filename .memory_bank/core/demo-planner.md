@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: demo-planner
-scope: Демо-планировщик для партнёра — интерактивная расстановка и AI-фото
+scope: Демо-планировщик для партнёра — расстановка и кадр
 tier2: "../domain/demo-planner-ui.md"
 updated: 2026-09-02
 importance: high
@@ -9,6 +9,7 @@ source: manual
 status: working
 source_of_truth: canonical
 last_verified: 2026-09-02
+review_after: 2026-12-05
 ---
 
 # Демо-планировщик — Tier 1 сводка

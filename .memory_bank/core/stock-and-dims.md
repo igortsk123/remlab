@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: stock-and-dims
-scope: Контроль наличия и честность размеров — состояния, парсер, правило footprint
+scope: Наличие и честность размеров — состояния, парсер, footprint
 tier2: "../domain/stock-and-dims.md"
 updated: 2026-09-03
 importance: high
@@ -9,6 +9,7 @@ source: manual
 status: working
 source_of_truth: canonical
 last_verified: 2026-09-03
+review_after: 2026-12-05
 ---
 
 # Наличие и размеры честно — Tier 1 (план `stock-and-dims-honesty`, 03.09)

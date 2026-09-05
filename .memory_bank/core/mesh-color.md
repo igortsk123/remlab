@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: mesh-color
-scope: Цвет мешей — диагноз промаха покраски, мерка, рычаги
+scope: Цвет мешей — диагноз, мерка, рычаги
 tier2: "../domain/viz-fidelity-playbook.md"
 updated: 2026-09-03
 importance: high
@@ -9,6 +9,7 @@ source: manual
 status: working
 source_of_truth: canonical
 last_verified: 2026-09-02
+review_after: 2026-12-05
 ---
 
 # Цвет мешей — Tier 1 сводка

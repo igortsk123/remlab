@@ -9,7 +9,7 @@ source: manual
 status: working
 source_of_truth: canonical
 last_verified: 2026-07-31
-review_after: ""
+review_after: 2026-12-05
 ---
 
 # Смета-лист — Tier 1 (ядро v0.4 «Смета-first», ADR-0016)

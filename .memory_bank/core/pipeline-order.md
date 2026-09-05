@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: pipeline-order
-scope: Канонический порядок конвейера — от фида до расстановки в планировке
+scope: Порядок конвейера — от фида до расстановки
 tier2: "../domain/pipeline-order-details.md"
 updated: 2026-08-29
 importance: high
@@ -9,6 +9,7 @@ source: manual
 status: working
 source_of_truth: canonical
 last_verified: 2026-08-29
+review_after: 2026-12-05
 ---
 
 # Порядок конвейера — Tier 1 сводка

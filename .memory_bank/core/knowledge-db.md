@@ -9,6 +9,7 @@ source: manual
 status: working
 source_of_truth: canonical
 last_verified: 2026-08-10
+review_after: 2026-12-05
 ---
 
 # Knowledge DB — source-база знаний из книг (для правил расстановки)

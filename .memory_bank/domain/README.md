@@ -12,3 +12,5 @@
 | Файл | Сущность |
 |------|----------|
 | _(пусто — добавляется по мере моделирования домена)_ | |
+
+Lifecycle-поля (`status`, `source_of_truth`, `last_verified`, `review_after`) проверяет аудит — заполнять у canonical-доков; `last_verified` двигать только после сверки с кодом (`METADATA_SCHEMA.md`).

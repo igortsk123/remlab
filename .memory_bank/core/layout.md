@@ -7,6 +7,7 @@ updated: 2026-08-26
 importance: high
 source: manual
 status: working
+review_after: 2026-12-05
 ---
 
 # Расстановка — Tier 1

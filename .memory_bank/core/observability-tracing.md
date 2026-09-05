@@ -9,6 +9,7 @@ source: manual
 status: working
 source_of_truth: canonical
 last_verified: 2026-08-28
+review_after: 2026-12-05
 ---
 
 # Observability — Tracing AI-пайплайна (ADR-0013)
