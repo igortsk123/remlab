@@ -900,7 +900,7 @@ function variantDecor(v){ return variantLive(v)?decorList():(((v&&v.decor)||[]).
 function dimsText(o){ // размеры показываем только известные; иначе — честно (Р1)
   if(!o||!o.w||!o.d)return 'размеры не указаны магазином';
   return `${Math.round(o.w)}×${Math.round(o.d)}${o.h?'×'+Math.round(o.h):''} см`;}
-function variantCount(v){ return variantItems(v).filter(it=>(it.sku||{}).name).length; }
+function variantCount(v){ return variantItems(v).filter(it=>(it.sku||{}).name).length+decorN(v); }
 function variantPrice(v){                       // цена = сумма комплекта, привязанного к варианту
   const kit=(D.sets||[]).find(k=>k.id==='kit'+String(v.id||'').replace('set',''));
   // КОМПЛЕКТ — ЭТО РОЛИ, А НЕ ТО, ЧТО ПОСТАВЛЕНО В КОМНАТУ. У лофта в комплекте 10 ролей,
@@ -922,9 +922,9 @@ function variantPrice(v){                       // цена = сумма ком�
       }
       t+=price;
     });
-    return t;
+    return t+decorSum(v);      // декор в комплект входит — эта ветка про него забывала
   }
-  if(!variantLive(v)&&kit&&kit.sum)return kit.sum;
+  if(!variantLive(v)&&kit&&kit.sum)return kit.sum+decorSum(v);
   // цена варианта считается ТАК ЖЕ, как корзина: слоты одного товара — одна покупка
   const by=new Map();
   variantItems(v).forEach(it=>{const p=it.sku; if(!p||!p.name)return;
@@ -1351,6 +1351,7 @@ function draw(){
     stage.appendChild(shape(it));
     const b=box(it);
     stage.appendChild(txt((b.x0+b.x1)/2,b.y1+9,`${it.role} ${Math.round(it.w)}×${Math.round(it.d)}`,10.5,'#2A2F2C'));});
+  drawDecor();                                         // вазы на столешнице — видно, но не двигается
   if(sel)stage.appendChild(handles(sel));               // ручки выделенного — под значками
   drawCams();                                          // точка съёмки — над предметами
   items.forEach(it=>stage.appendChild(badgeFor(it)));   // значки — последним слоем и БЕЗ поворота
@@ -1394,21 +1395,78 @@ function groupBySku(list){                                   // слоты од�
 }
 // СТРОКИ ДЕКОРА для списка мебели: места на плане у него нет, поэтому вместо габаритов пишем,
 // куда предмет ставится. Кнопки «Заменить» нет — замена декора пока не заведена.
+// ИНДЕКС ЗАМЕНЫ — ИСХОДНЫЙ, А НЕ ПО ОТФИЛЬТРОВАННОМУ СПИСКУ (08.09, находка советника). Строки
+// без товара из показа выпадают, и если писать замену по номеру строки, при пустой записи перед
+// вазой заменился бы соседний предмет. Кладём в каждую запись её место в исходном списке (`i`).
 function decorList(){
   const v=allVariants()[cur]||{};
-  return (v.decor||[]).filter(x=>(x.sku||{}).name);
+  return (v.decor||[]).map((x,i)=>Object.assign({i:i},x)).filter(x=>(x.sku||{}).name);
 }
+// цена и число товаров варианта считаются С ДЕКОРОМ (владелец 08.09: «добавлять в список товаров
+// и считать сумму»): он такая же покупка, просто стоит не на полу
+function decorSum(v){ return (variantDecor(v)||[]).reduce((t,x)=>t+((x.sku||{}).price||0),0); }
+function decorN(v){ return (variantDecor(v)||[]).length; }
 function decorRows(){
   const d=decorList();
   let sum=0;
+  // ДЕКОР МЕНЯЕТСЯ ТАК ЖЕ, КАК МЕБЕЛЬ (владелец 08.09: «они добавляются вроде, но не работает
+  // кнопка заменить»). Раньше кнопки не было вовсе — строка была только ценником. Индекс строки
+  // (`data-d`) нужен потому, что декор живёт не в расстановке, а в списке варианта.
   const html=d.map(x=>{const p=x.sku; sum+=(p.price||0);
-    return `<div class="row" style="cursor:default">`+
+    return `<div class="row" data-d="${x.i}">`+
       (p.img?`<img src="${p.img}" loading="lazy" alt="">`:'<div class="noimg-sm">нет фото</div>')+
-      `<div class="t"><b>${p.name}</b><span>${x.role} · на столе или тумбе`+
+      `<div class="t"><b>${p.name}</b><span>${x.role} · ${decorWhere(x)}`+
       (p.shop?' · '+p.shop:'')+(p.basis&&p.basis!=='page'?' · <i title="наличие по данным магазина, карточка не проверена">наличие не проверено</i>':'')+`</span>`+
-      (p.url?`<span class="acts"><a href="${p.url}" target="_blank" rel="noopener">В магазин</a></span>`:'')+
+      `<span class="acts"><button class="lnk swap">Заменить</button>`+
+      (p.url?` · <a href="${p.url}" target="_blank" rel="noopener">В магазин</a>`:'')+`</span>`+
       `</div><div class="p">${(p.price||0).toLocaleString('ru-RU')} ₽</div></div>`;}).join('');
   return {html:html, n:d.length, sum:sum};
+}
+// КУДА СТАВИТСЯ ДЕКОР. Правило одно со сценой (`decorSupport`): журнальный столик, если он есть,
+// иначе обеденный стол, иначе тумба/комод. Двигать декор нельзя — он стоит по центру столешницы
+// (владелец 08.09: «расставлять на журнальный столик или на стол по центру сверху, но двигать не
+// давать»), поэтому в строке пишем место словами, а не координаты.
+// ДЕКОР НА ПЛАНЕ — ВИДЕН, НО НЕ ДВИГАЕТСЯ (владелец 08.09: «расставлять на журнальный столик или
+// на стол по центру сверху, но двигать не давать»). Рисуем кружком по центру столешницы, тем же
+// правилом, по которому его ставит сцена (`draft_render._decor_places`): ряд по длинной оси,
+// центрированный. Значок не ловит указатель — перетащить его нельзя ни мышью, ни пальцем.
+function drawDecor(){
+  const list=decorList().filter(x=>{const p=x.sku||{};return p.w&&p.d&&p.h;});
+  const s=decorSupport();
+  if(!list.length||!s)return;
+  const gap=6, total=list.reduce((t,x)=>t+(x.sku.w||0),0)+gap*(list.length-1);
+  const span=Math.max((s.w||0)-8,1), a=(s.rot||0)*Math.PI/180;
+  let off=-total/2;
+  list.forEach(x=>{
+    const w=x.sku.w||10, k=(total>span)?0:(off+w/2); off+=w+gap;
+    const cx=s.x+k*Math.cos(a), cy=s.y-k*Math.sin(a);
+    const g=el('g',{});
+    g.style.pointerEvents='none';
+    g.appendChild(el('circle',{cx:X(cx),cy:Y(cy),r:Math.max(4,w*S/2),
+      fill:'#EFE3D2',stroke:'#B98A55','stroke-width':1.5}));
+    g.appendChild(txt(cx,cy+w/2+10,x.role,9.5,'#8A6A44'));
+    stage.appendChild(g);
+  });
+}
+function decorSupport(){
+  // ПРАВИЛО ОДНО СО СЦЕНОЙ (`draft_render.decor_layout`): журнальный столик, иначе обеденный
+  // стол — буквально как сказал владелец. Опора без габаритов не годится: на чём стоит ваза и
+  // на какой высоте, мы придумывать не будем (Р1). Не влезло — вернём null, и ваза останется
+  // только в списке товаров.
+  const gap=6, edge=4;
+  const list=decorList().filter(x=>{const p=x.sku||{};return p.w&&p.d&&p.h;});
+  if(!list.length)return null;
+  const need=list.reduce((t,x)=>t+x.sku.w,0)+gap*(list.length-1);
+  const deep=Math.max.apply(null,list.map(x=>x.sku.d));
+  for(const r of ['столик','стол обеденный']){
+    const s2=items.find(i=>i.role.replace(/\s+\d+$/,'')===r&&(i.sku||{}).name&&i.w&&i.d&&i.h);
+    if(s2&&need<=s2.w-2*edge&&deep<=s2.d-2*edge)return s2;
+  }
+  return null;
+}
+function decorWhere(){
+  const s=decorSupport();
+  return s?('на '+s.role.replace(/\s+\d+$/,'')+', по центру'):'в кадр не ставим: не указан размер или не влезает';
 }
 function basket(){                    // СПИСОК ТОВАРОВ КОМНАТЫ — справа от плана (структура референса,
   const withSku=items.filter(i=>i.sku&&i.sku.name);   // 26.08): строка = миниатюра, название, магазин,
@@ -1435,9 +1493,16 @@ function basket(){                    // СПИСОК ТОВАРОВ КОМНА�
     + decorRows().html
     +`<div class="total"><span>Итого ${groups.length+decorRows().n} товаров</span>`+
      `<span>${(sum+decorRows().sum).toLocaleString('ru-RU')} ₽</span></div>`;
-  priceCard(sum, groups.length);
+  priceCard(sum+decorRows().sum, groups.length+decorRows().n);   // карточка цены — с декором
   // клик по строке или «Заменить» открывает тот же каталог замены, что и значок на предмете
   box.querySelectorAll('.row').forEach(r=>{
+    // строка декора адресуется своим индексом: у него нет места в расстановке
+    if(r.dataset.d!==undefined){
+      const k=+r.dataset.d;
+      r.onclick=()=>openPicker(decorSel(k));
+      const a2=r.querySelector('a'); if(a2)a2.onclick=e=>e.stopPropagation();
+      return;
+    }
     const it=items[+r.dataset.i];
     r.onclick=()=>{if(it){sel=it;draw();openPicker(it);}};
     const a=r.querySelector('a'); if(a)a.onclick=e=>e.stopPropagation();
@@ -1790,8 +1855,12 @@ function skuKey(sk){
   return sk.sid||sk.name||'-';
 }
 function revision(){
+  // ДЕКОР ВХОДИТ В РЕВИЗИЮ (08.09). Он теперь стоит в кадре, значит замена вазы — это ДРУГАЯ
+  // расстановка: без неё страница считала кадр со старой вазой актуальным и не предлагала снять
+  // новый (находка советника).
   return items.map(it=>`${it.role}|${Math.round(it.x)}|${Math.round(it.y)}|${Math.round(it.rot||0)}|`
-    +skuKey(it.sku)).sort().join(';');
+    +skuKey(it.sku)).concat(decorList().map(x=>`декор:${x.role}|`+skuKey(x.sku)))
+    .sort().join(';');
 }
 function payload(){
   const base=location.origin+location.pathname.replace(/[^/]*$/,'');
@@ -2311,7 +2380,10 @@ function shotListHtml(s){
        :rough?`<div class="restale"><span>Расстановка готова, но можно сделать реалистичнее.</span>`+
         `<button class="btn primary round" id="shImprove">Улучшить фото</button></div>`:'')+
       all.map((a,k)=>{
-        const own=items.find(i=>(skuOf(i)||{}).name===a.name);
+        // ДЕКОР В ОКНЕ КАДРА ТОЖЕ МЕНЯЕТСЯ (08.09, находка советника): кнопка появлялась
+        // только у того, что нашлось в расстановке, а ваза лежит в отдельном списке.
+        const own=items.find(i=>(skuOf(i)||{}).name===a.name)
+          ||decorList().find(x=>(x.sku||{}).name===a.name);
         return `<div class="row" style="cursor:default">`+
           (a.img?`<img src="${a.img}" loading="lazy" alt="">`:'<div class="noimg-sm">нет фото</div>')+
           `<div class="t"><b>${a.name}</b>`+
@@ -2327,6 +2399,8 @@ function shotListHtml(s){
 function wireShotList(){
   document.querySelectorAll('#shotbody [data-rep]').forEach(b=>b.onclick=()=>{
     const a=shotRows[+b.dataset.rep];
+    const dx=a&&decorList().find(x=>(x.sku||{}).name===a.name);
+    if(dx){ openPicker(decorSel(dx.i)); return; }   // ваза: меняется в своём списке
     const it=a&&items.find(i=>(skuOf(i)||{}).name===a.name);
     if(!it)return;
     // окно, из которого пришли, НЕ закрываем (владелец 02.09: «модалка стиля, если не закрыли,
@@ -2710,6 +2784,9 @@ function freeSpan(me){
   return {along:lim('x'), across:lim('y')};             // в мировых осях
 }
 function fitBadge(me,p){
+  // ДЕКОР МЕРЯЕТСЯ НЕ ПОЛОМ. Он стоит на столешнице, поэтому «сколько места вокруг» к нему не
+  // относится: показываем, куда встанет, а не «влезает ли в комнату».
+  if(me&&me.dec!==undefined)return {cls:'b-ok', txt:decorWhere()};
   if(!p.w||!p.d)return {cls:'b-tight', txt:'габарит не указан'};
   // ПРИ ЛЮБОМ УГЛЕ место считаем по описанному прямоугольнику товара (26.08): «повёрнут на 90°»
   // перестало быть единственным вариантом, а «влезает» должно оставаться честным.
@@ -2737,6 +2814,13 @@ function feedFor(base){
   // у товара стилей может быть несколько (`styles`) — он подходит и неоклассике, и современному
   const mine=all.filter(p=>p.src==='set'||(p.styles?p.styles.indexOf(st)>=0:(!p.style||p.style===st)));
   return mine.length?mine:all;
+}
+// ВЫБРАННЫЙ ДЕКОР — не предмет расстановки, а строка списка варианта. Заворачиваем её в такой же
+// объект, какой ждёт лист подбора, и помечаем `dec` — по нему замена пишется в декор, а не в
+// расстановку, и не считается «влезает ли на пол».
+function decorSel(i){
+  const v=allVariants()[cur]||{}, x=(v.decor||[])[i]||{}, p=x.sku||{};
+  return {role:x.role||'ваза', dec:i, sku:p, w:p.w||0, d:p.d||0, h:p.h||0, x:0, y:0, rot:0};
 }
 function openPicker(it){
   // ключ ленты — роль без хвостового номера; «первое слово» ломало «стол обеденный» (01.09)
@@ -2806,6 +2890,20 @@ function grid(){
 function tryOn(p){const s=sel||items.find(i=>i.role==='диван');
   if(!s){alert('Сначала коснитесь предмета на плане');return;}
   if(!p.w||!p.d){alert('У этого товара в фиде нет габаритов — примерка была бы выдумкой');return;}
+  // ЗАМЕНА ДЕКОРА ПИШЕТСЯ В СПИСОК ВАРИАНТА, А НЕ В РАССТАНОВКУ (08.09): места на полу у вазы
+  // нет, она стоит на столешнице. Список и сумма пересчитываются сразу — это и есть отклик на
+  // кнопку «Заменить», которого раньше не было.
+  if(s.dec!==undefined){
+    const v=allVariants()[cur]||{}, d=(v.decor||[])[s.dec];
+    if(d){
+      d.sku={name:p.name,price:p.price,img:p.img,url:p.url,shop:p.shop,
+             sid:p.sid||null,msid:p.msid||p.sid||null,basis:p.basis||null,
+             w:p.w,d:p.d,h:p.h||null,pack:p.pack||1};
+      sel=decorSel(s.dec);
+      basket(); showSwap(); refreshShotList();
+    }
+    return;
+  }
   // sid и упаковка едут вместе с товаром: по sid рендер берёт 3D-модель, по pack считается
   // количество покупок. Без них замена меняла картинку в списке, но не то, что попадёт в кадр.
   s.w=p.w;s.d=p.d;s.h=p.h||s.h;

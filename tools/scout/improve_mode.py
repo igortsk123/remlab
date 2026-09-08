@@ -282,6 +282,13 @@ def build(payload: dict, style: str | None, stamp: str | None = None) -> dict:
         base = _re.sub(r'\s+\d+$', '', role)
         if base != role and sid_by_role.get(base):
             sid_by_role[role] = sid_by_role[base]
+    # ДЕКОР, КОТОРЫЙ МЫ ПОСТАВИЛИ САМИ, ТОЖЕ ИЩЕТ СВОЮ МОДЕЛЬ (08.09). Черновик добавляет вазу в
+    # карту мешей, а платный режим строил её только по `items` — и на дорогой картинке ваза
+    # оказалась бы серой коробкой (находка советника).
+    for _d in DR.decor_split(payload)[0]:
+        _sk = _d.get('sku') or {}
+        if _d.get('role') and (_sk.get('msid') or _sk.get('sid')):
+            sid_by_role[_d['role']] = _sk.get('msid') or _sk.get('sid')
     views, clay = [], []
     for cam in cams:
         img, diag = DR.scene3d_frame(room, placements, cam, sid_by_role, photos)
@@ -320,7 +327,10 @@ def build(payload: dict, style: str | None, stamp: str | None = None) -> dict:
     # ТРЕТИЙ ЛИСТ — ДЕКОР НА МЕБЕЛЬ (владелец 01.09). Вазы куплены и лежат в комплекте, но на
     # плане их нет: они стоят на тумбе или столе, а не на полу. Отдаём отдельным изображением с
     # прямым указанием, что это НАДО разместить, — иначе оплаченный товар в кадр не попадёт.
-    decor = payload.get('decor') or []
+    # ПРОСИМ ДОРИСОВАТЬ ТОЛЬКО ТО, ЧЕГО В СЦЕНЕ НЕТ (08.09). Вазы теперь стоят на столешнице
+    # физически (`draft_render._decor_places`); если продолжать отдавать их третьим листом с
+    # просьбой «размести», модель нарисует ВТОРУЮ такую же вазу рядом с нашей.
+    decor = DR.decor_split(payload)[1]
     dsheet = None
     if decor:
         try:

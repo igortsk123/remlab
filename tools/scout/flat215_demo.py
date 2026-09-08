@@ -436,6 +436,12 @@ def build() -> dict:
            'тв-тумба': (90, 176), 'стеллаж': (60, 110), 'комод': (80, 140), 'торшер': (20, 60),
            'пуф': (35, 90), 'кашпо': (20, 60), 'витрина': (50, 100), 'банкетка': (90, 150),
            'стол обеденный': (70, 160), 'стул': (35, 60), 'приставной': (30, 70)}
+    # НАСТОЛЬНЫЙ ДЕКОР — СВОЙ КОНВЕРТ (владелец 08.09: «вазы настольные … добавлять в список
+    # товаров и считать сумму»). У него нет слота на полу: граница — «влезает на столешницу»,
+    # поэтому меряем не место в комнате, а сам предмет.
+    ENV_DECOR = {'ваза': (5, 60), 'статуэтка': (5, 45), 'свеча': (3, 30), 'книги': (5, 45),
+                 'поднос': (15, 60), 'шкатулка': (5, 40), 'часы': (5, 50)}
+    ENV_ALL = {**ENV, **ENV_DECOR}
     feeds, seen = {}, set()
     for s in sets:
         for role, it in (s.get('items') or {}).items():
@@ -445,14 +451,19 @@ def build() -> dict:
             # попадали в ленту замены ВООБЩЕ: лист подбора открывался пустым, заменить было
             # нечем. Номер экземпляра («стул 2») по-прежнему отбрасываем.
             base = re.sub(r'\s+\d+$', '', role)
-            if base not in ENV or not it or not it.get('img'):
+            if base not in ENV_ALL or not it or not it.get('img'):
                 continue
             key = (base, it.get('mid'), it.get('eid'))
             if key in seen:
                 continue
-            lo, hi = ENV[base]
+            lo, hi = ENV_ALL[base]
             # без ОБОИХ габаритов товар примерять нечестно: объект пришлось бы «додумать»
             if not (it.get('w') and it.get('d')):
+                continue
+            # У НАСТОЛЬНОГО ДЕКОРА ТРЕБУЕМ И ВЫСОТУ (08.09). Ваза встаёт на столешницу, и без
+            # высоты сцена её поставить не может — предлагать в замену то, что не появится в
+            # кадре, нельзя (пул это условие держит с самого начала, лента — не держала).
+            if base in ENV_DECOR and not it.get('h'):
                 continue
             side = max(it.get('w') or 0, it.get('d') or 0) if base == 'ковёр' else (it.get('w') or 0)
             if not (lo <= side <= hi):
@@ -501,7 +512,7 @@ def build() -> dict:
         import demo_swap_pool
         for p in demo_swap_pool.pool():
             base = p['role']
-            if base not in ENV:
+            if base not in ENV_ALL:
                 continue
             # ОДИН ТОВАР — ОДНА КАРТОЧКА, СТИЛЕЙ У НЕЁ МОЖЕТ БЫТЬ НЕСКОЛЬКО (08.09). Пул
             # перечисляет товар в каждом стиле, которому тот подходит; если складывать это в
@@ -516,7 +527,7 @@ def build() -> dict:
                 continue
             if not p.get('msid') or p['msid'] not in _mesh_index():
                 continue          # модели на сервере нет — предмет стал бы серой коробкой
-            lo, hi = ENV[base]
+            lo, hi = ENV_ALL[base]
             if not (lo <= (p.get('w') or 0) <= hi):
                 off_env += 1
                 continue          # габарит вне конверта слота этой комнаты
@@ -535,6 +546,33 @@ def build() -> dict:
     print(f'пул замены добавил в ленты: {added} товаров (мимо конверта комнаты: {off_env}); '
           'всего по ролям: '
           + ', '.join(f'{k} {len(v)}' for k, v in sorted(feeds.items())))
+    # ДЕКОР, КОТОРЫЙ МОЖНО ПОСТАВИТЬ НА СТОЛ (владелец 08.09: «вазы расставлять на журнальный
+    # столик или на стол по центру сверху»). Ваза встаёт в кадр только если магазин указал ВСЕ
+    # три габарита и есть модель: высоту мы не придумываем (Р1), а без модели это серая коробка.
+    # У ваз из банка высота часто пустая («Ваза-шар Неман 260 мм» — размер только в названии), и
+    # такая ваза осталась бы строкой в списке. Меняем её на ближайшую по ширине вазу того же
+    # стиля из ленты — то же место в наборе, но её видно в комнате. Не нашлось замены — оставляем
+    # как есть: пусть лучше товар будет только в списке, чем подставим чужой стиль.
+    dec_fixed, dec_left = 0, 0
+    for v in variants:
+        for d in (v.get('decor') or []):
+            sk = d.get('sku') or {}
+            if sk.get('w') and sk.get('d') and sk.get('h') and sk.get('msid') in _mesh_index():
+                continue
+            base = re.sub(r'\s+\d+$', '', d.get('role') or '')
+            st = v.get('style') or ''
+            cand = [p for p in feeds.get(base, [])
+                    if p.get('w') and p.get('d') and p.get('h')
+                    and p.get('msid') in _mesh_index()
+                    and (not st or p.get('style') == st or st in (p.get('styles') or []))]
+            if not cand:
+                dec_left += 1
+                continue
+            best = min(cand, key=lambda p: abs((p.get('w') or 0) - (sk.get('w') or 0)))
+            d['sku'] = {k: best.get(k) for k in ('name', 'price', 'img', 'url', 'shop', 'basis',
+                                                 'sid', 'msid', 'pack', 'w', 'd', 'h')}
+            dec_fixed += 1
+    print(f'декор: заменено на показуемое {dec_fixed}, осталось только в списке {dec_left}')
     feed = feeds.get('диван', [])
     # КОМПЛЕКТЫ: набор товаров по ролям, который накладывается на ЛЮБОЙ вариант расстановки
     product_sets = []

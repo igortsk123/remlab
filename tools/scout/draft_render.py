@@ -319,7 +319,85 @@ def scene_from_request(payload: dict) -> tuple:
                                     elev_cm=elev,
                                     item=Item(role='тв', w_cm=w, d_cm=depth, h_cm=h,
                                               name=f'телевизор {inch}″ ({how})')))
+    placements += _decor_places(payload, photos)
     return room, placements, photos
+
+
+# КУДА СТАВИТСЯ НАСТОЛЬНЫЙ ДЕКОР — БУКВАЛЬНО ПО СЛОВАМ ВЛАДЕЛЬЦА (08.09: «вазы расставлять на
+# журнальный столик или на стол»). Тумбу и комод сюда НЕ добавляем: это была бы наша выдумка,
+# а не его решение (замечание советника 08.09).
+DECOR_SUPPORTS = ('столик', 'стол обеденный')
+DECOR_EDGE_CM = 4.0        # отступ от края столешницы
+DECOR_GAP_CM = 6.0         # зазор между предметами в ряду
+
+
+def decor_layout(payload) -> tuple:
+    """Куда встанет настольный декор → (placed, unplaced).
+
+    `placed` — список `{decor, x, y, rot, elev, w, d, h}` в мировых см; `unplaced` — то, что
+    поставить нечестно. ОДНО правило на три стороны: сцена по нему ставит вазы, промпт улучшения
+    по нему просит модель дорисовать ТОЛЬКО оставшееся (иначе на фотографии окажется две вазы —
+    наша и дорисованная), а страница тем же правилом рисует метку на плане.
+
+    Чего здесь принципиально нет: «не влезло — поставим стопкой» (предметы бы взаимно проникали)
+    и «высота опоры неизвестна — возьмём 45 см» (Р1: размер не придумываем). Не влезло или опора
+    без габаритов — предмет остаётся в списке товаров, но не в кадре.
+    """
+    import math
+    items = payload.get('items') or []
+    decor = [d for d in (payload.get('decor') or [])
+             if (d.get('sku') or {}).get('w') and (d.get('sku') or {}).get('d')
+             and (d.get('sku') or {}).get('h')]
+    rest = [d for d in (payload.get('decor') or []) if d not in decor]
+    if not decor:
+        return [], rest
+    for role in DECOR_SUPPORTS:
+        sup = next((it for it in items
+                    if _base_role(it.get('role') or '') == role
+                    and it.get('w') and it.get('d') and it.get('h')), None)
+        if sup is None:
+            continue
+        span = float(sup['w']) - 2 * DECOR_EDGE_CM
+        deep = float(sup['d']) - 2 * DECOR_EDGE_CM
+        total = sum(float(d['sku']['w']) for d in decor) + DECOR_GAP_CM * (len(decor) - 1)
+        if total > span or max(float(d['sku']['d']) for d in decor) > deep:
+            continue                     # на этой столешнице не помещается — пробуем следующую
+        a = math.radians(float(sup.get('rot') or 0))
+        elev = float(sup.get('elev') or 0) + float(sup['h'])
+        out, off = [], -total / 2
+        for d in decor:
+            w, dd, h = float(d['sku']['w']), float(d['sku']['d']), float(d['sku']['h'])
+            k = off + w / 2
+            off += w + DECOR_GAP_CM
+            out.append({'decor': d, 'x': float(sup['x']) + k * math.cos(a),
+                        'y': float(sup['y']) - k * math.sin(a),
+                        'rot': float(sup.get('rot') or 0), 'elev': elev,
+                        'w': w, 'd': dd, 'h': h})
+        return out, rest
+    return [], rest + decor
+
+
+def decor_split(payload) -> tuple:
+    """Тот же расклад, но списками самих товаров: (в сцене, не в сцене)."""
+    placed, rest = decor_layout(payload)
+    return [p['decor'] for p in placed], rest
+
+
+def _decor_places(payload, photos) -> list:
+    """Декор как предметы сцены — по расчёту `decor_layout`. Место и разворот берутся у ОПОРЫ,
+    подъём — её высота; человек их не двигает (владелец 08.09: «двигать не давать»)."""
+    from planner.models import Item, Placement
+    out = []
+    for p in decor_layout(payload)[0]:
+        d = p['decor']
+        role = d.get('role') or 'декор'
+        sk = d.get('sku') or {}
+        out.append(Placement(role=role, x=p['x'], y=p['y'], rot=p['rot'], elev_cm=p['elev'],
+                             item=Item(role=_base_role(role), w_cm=p['w'], d_cm=p['d'],
+                                       h_cm=p['h'], name=sk.get('name'))))
+        if sk.get('img'):
+            photos[role] = photo(sk['img'])
+    return out
 
 
 
@@ -2938,6 +3016,12 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         # только `sid` — для них ничего не меняется.
         sid_by_role = {it['role']: (it.get('msid') or it.get('sid'))
                        for it in (layout or {}).get('items', []) if it.get('role')}
+        # ДЕКОР ТОЖЕ ИЩЕТ СВОЮ МОДЕЛЬ (08.09): он приходит отдельным списком, потому что стоит не
+        # на полу, а на столешнице; без этой строки ваза вставала бы в кадр серой коробкой.
+        for _d in (layout or {}).get('decor', []) or []:
+            _sk = _d.get('sku') or {}
+            if _d.get('role') and (_sk.get('msid') or _sk.get('sid')):
+                sid_by_role[_d['role']] = _sk.get('msid') or _sk.get('sid')
         # КАМЕРА ВСЕГДА ВНУТРИ ПЕРИМЕТРА (владелец 31.08: «сквозь стену смотреть нельзя
         # ни в каких сценах»): глаз клэмпится внутрь комнаты с отступом от стен
         def _inside(cam):
