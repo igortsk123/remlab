@@ -61,3 +61,18 @@ PSQL_CMD='docker compose exec -T db psql -U remlab -d remlab -q -v ON_ERROR_STOP
 # 4. Активация новой версии.
 docker compose up -d
 echo "активирован $REMLAB_IMAGE (APP_VERSION=$APP_VERSION)"
+
+# 5. ЗАКРЕПИТЬ ОБРАЗ В .env (08.09). В compose образ задан как `${REMLAB_IMAGE:-remlab-app:latest}`,
+#    и любой ручной `docker compose up` БЕЗ этой переменной молча откатывал прод на локальный
+#    `latest` шестинедельной давности (поймано на себе: правка тома caddy пересоздала и app).
+#    Теперь боевой образ живёт в `.env` — compose подставит его сам, без переменных в команде.
+umask 077
+TMP_ENV=$(mktemp /opt/remlab/.env.XXXXXX)
+grep -v -E '^REMLAB_IMAGE=|^APP_VERSION=' /opt/remlab/.env > "$TMP_ENV" || true
+{
+  echo "# боевой образ (пишет deploy-remote.sh): ручной compose берёт его отсюда, а не дефолт"
+  echo "REMLAB_IMAGE=$REMLAB_IMAGE"
+  echo "APP_VERSION=$APP_VERSION"
+} >> "$TMP_ENV"
+mv "$TMP_ENV" /opt/remlab/.env
+chmod 600 /opt/remlab/.env

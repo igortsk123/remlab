@@ -162,7 +162,7 @@ def rank() -> list[dict]:
             tier, why = 'pinned', 'закреплено владельцем (rules/mesh-pinned.json)'
             key = (-1, pin[sku], sku)
         elif sku in demo:
-            tier, why = 'demo_flat215', 'показывается на /test/buildup'
+            tier, why = 'demo_flat215', 'показывается на /demo'
             key = (0, sku)
         elif sku in in_set:
             c = cheapest.get(sku, 10 ** 6)

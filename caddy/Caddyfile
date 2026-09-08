@@ -26,6 +26,30 @@ remont-lab.online {
 		header X-Robots-Tag "noindex, nofollow"
 	}
 
+	# ДЕМО ДЛЯ ПАРТНЁРА (08.09, план demo-permalink). Переехало из служебной /test/buildup:
+	# у демо теперь свой адрес и своя папка (`./demo` → /srv/demo), в общем списке /test/ его нет.
+	# Кэш по типам: картинки и спрайты (98 % веса — 74 МБ видов сверху) живут неделю, поэтому со
+	# второго захода демо открывается почти мгновенно; страница, данные и скрипты — БЕЗ кэша,
+	# иначе после публикации у партнёра осталась бы старая вёрстка с новыми данными.
+	redir /demo /demo/ 301
+	handle_path /demo/* {
+		root * /srv/demo
+		@img path *.png *.jpg *.jpeg *.webp *.gif *.svg *.woff2 *.ico
+		header @img Cache-Control "public, max-age=604800"
+		@live not path *.png *.jpg *.jpeg *.webp *.gif *.svg *.woff2 *.ico
+		header @live Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+		file_server
+		header X-Robots-Tag "noindex, nofollow"
+	}
+
+	# Старый служебный адрес демо закрыт наглухо (решение владельца 08.09): ссылка могла разойтись,
+	# нового адреса эта заглушка не показывает. 410 — «страницы больше нет», не временная ошибка.
+	handle /test/buildup* {
+		header Content-Type "text/html; charset=utf-8"
+		header X-Robots-Tag "noindex, nofollow"
+		respond "<!doctype html><meta charset=utf-8><title>Страница закрыта</title><body style=\"font:16px system-ui;padding:40px\">Страница закрыта.</body>" 410
+	}
+
 	# Модели и постеры для ручной приёмки мешей (/lab/mesh-audit, план mesh-owner-audit):
 	# в отличие от /test/* — С КЭШЕМ. Каталог партии и имя постера содержат хеш/токен, файлы
 	# неизменяемы; без кэша 20 моделей по 7,6 МБ качались бы заново при каждом возврате на страницу.

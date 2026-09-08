@@ -3,7 +3,7 @@ tier: 1
 topic: demo-planner
 scope: Демо-планировщик для партнёра — расстановка и кадр
 tier2: "../domain/demo-planner-ui.md"
-updated: 2026-09-02
+updated: 2026-09-08
 importance: high
 source: manual
 status: working
@@ -14,7 +14,7 @@ review_after: 2026-12-05
 
 # Демо-планировщик — Tier 1 сводка
 
-**Что это:** демо `/test/buildup/` (постоянный адрес с 01.09). Квартира №215, 73,7 м².
+**Что это:** демо `/demo` (ADR-0201, 08.09; было `/test/buildup`, закрыто наглухо). Квартира №215, 73,7 м².
 Витрина: сертификат → коллекции по стилям → замена мебели на месте; план — в конструкторе на
 весь экран. `tools/scout/flat215-demo/index.html`, сборка `flat215_demo.py`, публикация
 `publish_demo.sh` (спрайты переживают выкатку — ADR-0150).

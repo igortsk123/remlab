@@ -88,3 +88,12 @@ Compose передаёт app ЯВНЫЙ `environment:`-список — новы
   `deploy.sh:63-70` решает успех по одному HTTP 200, `ok` не проверяет и версию только печатает.
 - Очистка диска: `infra/server/cleanup.sh` + `infra/server/systemd/*.service`; `.timer` в репо нет
   (на сервере расписание — проверить `systemctl list-timers` при следующей правке).
+
+## Откат прода вручную (перенесено из сводки 08.09)
+```
+flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev \
+  docker compose up -d
+```
+Тег `prev` ставит `infra/server/deploy-remote.sh` по image ID работающего контейнера ДО
+переключения. Боевой образ он же пишет в `/opt/remlab/.env` (ADR-0202), поэтому обычный
+`docker compose up -d --no-deps app` возвращает текущую версию без переменных в команде.

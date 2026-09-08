@@ -6,7 +6,7 @@
 а страница только показывает и даёт двигать. Правила для советчика берутся из ТЕХ ЖЕ файлов,
 что читает движок, чтобы подсказки не разошлись с каноном.
 
-  ~/venvs/scout/bin/python flat215_demo.py [--publish]      # → /test/buildup/
+  ~/venvs/scout/bin/python flat215_demo.py [--publish]      # → /demo/
 """
 import glob
 import json
@@ -615,10 +615,10 @@ def main() -> None:
         subprocess.run(f"cd {os.path.dirname(OUT)} && tar czf /tmp/f215demo.tgz flat215-demo && "
                        "scp -q -P 22222 /tmp/f215demo.tgz root@89.167.127.0:/tmp/ && "
                        "ssh -p 22222 root@89.167.127.0 'cd /tmp && rm -rf flat215-demo && "
-                       "tar xzf f215demo.tgz && rm -rf /opt/remlab/test/buildup && "
-                       "mv flat215-demo /opt/remlab/test/buildup && rm f215demo.tgz' && "
+                       "tar xzf f215demo.tgz && rm -rf /opt/remlab/demo && "
+                       "mv flat215-demo /opt/remlab/demo && rm f215demo.tgz' && "
                        "rm -f /tmp/f215demo.tgz", shell=True, check=True)
-        print('опубликовано: /test/buildup/')
+        print('опубликовано: /demo/')
 
 
 if __name__ == '__main__':

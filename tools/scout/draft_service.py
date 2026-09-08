@@ -401,7 +401,7 @@ def _prewarm_demo() -> None:
         import json as _j
         import urllib.request as _u
         url = os.environ.get('DEMO_DATA_URL',
-                             'https://remont-lab.online/test/buildup/demo-data.json')
+                             'https://remont-lab.online/demo/demo-data.json')
         data = _j.load(_u.urlopen(url, timeout=30))
         sids = []
         for v in (data.get('variants') or [])[:4]:
