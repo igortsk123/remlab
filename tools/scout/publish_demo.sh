@@ -15,14 +15,17 @@ scp -P 22222 -o StrictHostKeyChecking=no "$TGZ" root@89.167.127.0:/tmp/demo.tgz
 # частичная локальная копия ложится поверх более полной удалённой. Поэтому спрайты уносим в
 # сторону, каталог обновляем начисто (чтобы удалённые файлы кода не оставались), и возвращаем
 # спрайты объединением — свежая версия побеждает, старые не теряются.
+# КАТАЛОГ ОБНОВЛЯЕМ НА МЕСТЕ, НЕ ПОДМЕНЯЕМ (08.09). `rm -rf demo && mv` менял inode каталога, а он
+# смонтирован в контейнер Caddy (`./demo:/srv/demo:ro`): контейнер продолжал держать УДАЛЁННЫЙ
+# каталог и отдавал 404, пока его не перезапустишь. rsync правит содержимое внутри той же точки
+# монтирования. `--delete` убирает файлы, исчезнувшие из сборки, а `topsprites` исключены: виды
+# сверху приезжают ОТДЕЛЬНО из мешевого конвейера (`salad/batch_show.py`), и локально их меньше.
 ssh -p 22222 root@89.167.127.0 "set -e; cd /opt/remlab
-  rm -rf .topsprites-keep
-  [ -d demo/topsprites ] && mv demo/topsprites .topsprites-keep || mkdir -p .topsprites-keep
-  rm -rf demo && tar xzf /tmp/demo.tgz && mv flat215-demo demo
-  mkdir -p demo/topsprites
-  cp -n .topsprites-keep/*.png demo/topsprites/ 2>/dev/null || true
-  rm -rf .topsprites-keep
-  chown -R 1000:1000 demo && rm -f /tmp/demo.tgz"
+  rm -rf .demo-new && mkdir -p .demo-new demo
+  tar xzf /tmp/demo.tgz -C .demo-new --strip-components=1
+  rsync -a --delete --exclude topsprites/ .demo-new/ demo/
+  rm -rf .demo-new /tmp/demo.tgz
+  chown -R 1000:1000 demo"
 rm -f "$TGZ"
 code=$(curl -s -o /dev/null -m 25 -w '%{http_code}' "https://remont-lab.online/demo/?v=$(date +%s)")
 [ "$code" = 200 ] || { echo "публикация не подтвердилась: HTTP $code"; exit 1; }

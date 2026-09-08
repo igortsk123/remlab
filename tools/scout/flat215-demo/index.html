@@ -1789,58 +1789,29 @@ async function loadServerShots(){
   }catch(e){ return []; }
 }
 function loadShots(){
-  try{shots=JSON.parse(localStorage.getItem('flat215-shots')||'[]');}catch(e){shots=[];}
-  // ЧИНИМ СТАРЫЕ КАДРЫ ОДИН РАЗ: снимок без привязки (сделан до её появления) или с чужим id
-  // после пересборки демо привязываем по названию варианта, иначе — к первому варианту. Так он
-  // не теряется и при этом не всплывает во всех вариантах сразу.
-  // ЧУЖОЙ КАДР НЕЛЬЗЯ СВАЛИВАТЬ В ПЕРВЫЙ ВАРИАНТ (владелец 01.09: «в лофте отображается другой
-  // стиль»). Прежнее правило «не нашли вариант — отдадим первому» задумывалось как спасение
-  // потерянных кадров, но после того как из коллекции убрали сохранённые «Мои варианты», ВСЕ их
-  // снимки разом переехали в лофт — и карточка лофта показывала чужую расстановку.
-  // Привязываем по стилю, потом по названию; не опознали — кадр не показываем (данные не трём).
+  // ИСТОЧНИК ИСТИНЫ — СЕРВЕР (владелец 08.09: «фотки должны загружаться с сервера, а не
+  // сохраняться в кэше; если нет генерации — то и фото нет»). Раньше коллекция жила в
+  // localStorage и лишь ДОПОЛНЯЛАСЬ серверным реестром: с телефона она была пустой, а кадры,
+  // которых на сервере уже нет, продолжали показываться из браузера. Теперь показываем ровно
+  // то, что лежит в реестре `shots.json`; снятое в этой вкладке живёт до перезагрузки, а после
+  // приходит с сервера (реестр пополняет `draft_service._registry_add`).
+  shots=[];
   const list=allVariants(), byTitle={}, byStyle={};
   list.forEach(v=>{byTitle[v.title||'']=v.id; if(v.style)byStyle[v.style]=v.id;});
-  const ids=new Set(list.map(v=>v.id));
-  const styleOfVid={};
-  list.forEach(v=>{styleOfVid[v.id]=v.style||'';});
-  let fixed=0;
-  shots.forEach(s=>{
-    s.pick=false;
-    // ЧИНИМ ПОСЛЕДСТВИЯ СТАРОГО ПРАВИЛА (владелец 01.09: «лофт и минимализм были разные, теперь
-    // одинаковые»). Прежняя версия при неизвестном варианте ПЕРЕПИСЫВАЛА `vid` на первый —
-    // и сохраняла это в браузер. То есть кадры минимализма получили id лофта НАВСЕГДА, и обе
-    // карточки стали показывать одно фото. У кадра есть собственный `style`: если он не
-    // совпадает со стилем варианта, к которому кадр сейчас привязан, — возвращаем на место.
-    if(s.style && ids.has(s.vid) && styleOfVid[s.vid] && styleOfVid[s.vid]!==s.style){
-      const back=byStyle[s.style];
-      if(back){s.vid=back; fixed++;}
-    }
-    if(!s.vid||!ids.has(s.vid)){
-      const guess=byStyle[s.style||'']||byTitle[s.variant||''];
-      if(guess){s.vid=guess;} else {s.orphan=true;}
-      fixed++;
-    } else { s.orphan=false; }
-  });
-  if(fixed)saveShots();
-  if(fixed)console.log('кадров переприязано к своим стилям:', fixed);
-  // серверные кадры подмешиваем ПОСЛЕ починки локальных, привязывая по стилю
   loadServerShots().then(srv=>{
-    if(!srv.length)return;
-    const have=new Set(shots.map(x=>x.url));
-    let add=0;
-    srv.forEach(s2=>{
-      if(have.has(s2.url))return;
-      const vid=byStyle[s2.style||'']; if(!vid)return;
-      s2.vid=vid; shots.push(s2); add++;
+    let skipped=0;
+    shots=srv.filter(s=>{
+      const vid=byStyle[s.style||'']||byTitle[s.variant||''];
+      if(!vid){skipped++; return false;}   // кадр чужого стиля не сваливаем в первый вариант
+      s.vid=vid; s.pick=false; s.orphan=false; return true;
     });
-    if(add){ console.log('кадров с сервера:', add); drawColl(true); showSwap(); }
+    if(skipped)console.log('кадров без своего варианта:', skipped);
+    console.log('кадров с сервера:', shots.length);
+    drawColl(true); showSwap(); drawFeed(); drawPhotos&&drawPhotos();
   });
   drawFeed();
 }
-function saveShots(){
-  try{localStorage.setItem('flat215-shots',JSON.stringify(
-    shots.map(({pick,...s})=>s).slice(-60)));}catch(e){}
-}
+function saveShots(){ /* браузер кадры не хранит: состояние держит сервер (владелец 08.09) */ }
 // ТОВАРЫ ЕДУТ ВМЕСТЕ С КАДРОМ (01.09). Сервер в режиме 3D-сцены возвращает `anchors: []`
 // (`draft_render.py:2341`), поэтому под фотографией не было списка товаров, а в подборку
 // уходили голые картинки без цен и ссылок — то есть без того, ради чего подборка и нужна.
