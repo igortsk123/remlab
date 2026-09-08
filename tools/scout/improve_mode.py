@@ -273,7 +273,9 @@ def build(payload: dict, style: str | None, stamp: str | None = None) -> dict:
     # то есть рисовался серой заглушкой рядом с честным первым стулом. Берём меш базовой роли —
     # это тот же товар, комплект из двух штук.
     import re as _re
-    sid_by_role = {it['role']: it.get('sid') for it in payload.get('items', []) if it.get('role')}
+    # меш ищем по артикулу МОДЕЛИ (`msid`, ADR-0196): у цветового варианта своего файла нет
+    sid_by_role = {it['role']: (it.get('msid') or it.get('sid'))
+                   for it in payload.get('items', []) if it.get('role')}
     for role, sid in list(sid_by_role.items()):
         if sid:
             continue

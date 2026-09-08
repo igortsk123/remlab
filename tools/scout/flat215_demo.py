@@ -113,8 +113,11 @@ def _sku(items: dict, role: str) -> dict | None:
             # ЧЕСТНОЕ НАЛИЧИЕ (Н2): на чём держится «в продаже» — наше свидетельство по карточке (page)
             # или только фид магазина (feed); витрина показывает пометку, а не молчит
             'basis': _basis(it.get('mid'), it.get('eid')),
-            # sid — ключ каталога мешей (/test/mesh-pilot10/<sid>/model.glb): 3D-сцена демо
+            # sid — артикул товара; msid — ключ каталога мешей (/test/mesh-pilot10/<msid>/model.glb),
+            # он же артикул представителя семейства: 3D-сцена демо грузит модель по нему
             'sid': (f"{it.get('mid')}_{it.get('eid')}" if it.get('mid') and it.get('eid') else None),
+            'msid': _msid(f"{it.get('mid')}_{it.get('eid')}"
+                          if it.get('mid') and it.get('eid') else None),
             # штук в покупке: сперва разметка каталога (`product_pack`, размечает pack_qty.py
             # по названию/описанию/фото), и только если её нет — разбор названия
             'pack': _pack_of(it.get('mid'), it.get('eid'), it.get('name')),
@@ -158,16 +161,58 @@ _MESH_IDX = None
 
 
 def _mesh_index() -> set:
-    """SKU, у которых есть опубликованный меш. Читаем каталог галереи — тот же файл, что уедет
-    на прод."""
+    """SKU, у которых меш реально ЛЕЖИТ НА СЕРВЕРЕ (страница грузит GLB только оттуда).
+
+    Спрашиваем каталог прода и объединяем с локальным: локальный отстаёт (модели пула замены
+    выкладывались напрямую), а обещать в ленте товар, модели которого на сервере нет, нельзя —
+    в кадре он станет серой коробкой. Нет сети — остаётся локальный, ленты не режем впустую.
+    """
     global _MESH_IDX
     if _MESH_IDX is None:
+        idx = set()
         p = os.path.expanduser('~/scout-scenes/mesh-pilot-gallery/mesh-index.json')
         try:
-            _MESH_IDX = set(json.load(open(p, encoding='utf-8')))
+            idx |= set(json.load(open(p, encoding='utf-8')))
         except Exception:  # noqa: BLE001 — каталога нет: не режем ленты вовсе
-            _MESH_IDX = set()
+            pass
+        try:
+            import urllib.request
+            with urllib.request.urlopen(
+                    'https://remont-lab.online/test/mesh-pilot10/mesh-index.json', timeout=60) as f:
+                idx |= set(json.load(f))
+        except Exception as e:  # noqa: BLE001 — прод недоступен: работаем по локальному
+            print('каталог мешей прода недоступен:', e)
+        _MESH_IDX = idx
     return _MESH_IDX
+
+
+_MESH_REP: dict | None = None
+
+
+def _mesh_rep() -> dict:
+    """Артикул товара → артикул его МОДЕЛИ (представителя семейства, ADR-0196).
+
+    Один меш на модель: цветовые варианты своего меша не имеют и берут модель «родителя».
+    Раньше демо искало GLB по артикулу самого товара — и рисовало серую коробку, хотя модель
+    формы давно готова. Ключ каталога мешей отдаём отдельным полем `msid`, а `sid` остаётся
+    артикулом самого товара (карточка, ссылка в магазин).
+    """
+    global _MESH_REP
+    if _MESH_REP is None:
+        _MESH_REP = {}
+        try:
+            from mesh_queue import db
+            for r in db("select shop_mid||'_'||external_id, replace(mesh_family_rep,':','_') "
+                        "from products where mesh_family_rep is not null"):
+                if len(r) == 2 and r[1]:
+                    _MESH_REP[r[0]] = r[1]
+        except Exception:  # noqa: BLE001 — нет БД: считаем, что модель у каждого своя
+            _MESH_REP = {}
+    return _MESH_REP
+
+
+def _msid(sid: str | None) -> str | None:
+    return _mesh_rep().get(sid, sid) if sid else None
 
 
 DECOR_ROLES = {'ваза', 'статуэтка', 'свеча', 'книги', 'поднос', 'шкатулка', 'часы'}
@@ -425,22 +470,71 @@ def build() -> dict:
             # по нему берёт модель, а раньше ленты шли вовсе без него.
             _sid = (f"{it.get('mid')}_{it.get('eid')}"
                     if it.get('mid') and it.get('eid') else None)
-            if base not in NOMESH_ROLES and (not _sid or _sid not in _mesh_index()):
+            _msd = _msid(_sid)
+            if base not in NOMESH_ROLES and (not _msd or _msd not in _mesh_index()):
                 continue
             seen.add(key)
             feeds.setdefault(base, []).append(
                 {'name': it.get('name'), 'w': it.get('w'), 'd': it.get('d'), 'h': it.get('h'),
                  'price': it.get('price'), 'img': it.get('img'), 'url': it.get('url'),
-                 'shop': it.get('shop'), 'style': s.get('style'), 'sid': _sid,
+                 'shop': it.get('shop'), 'style': s.get('style'), 'sid': _sid, 'msid': _msd,
+                 'src': 'set',
                  'basis': _basis(it.get('mid'), it.get('eid')),
                  'hung': _hung(it.get('name')),
                  # ШТУК В ПОКУПКЕ — И В ЛЕНТЕ ЗАМЕНЫ ТОЖЕ (02.09). Без этого после замены товара
                  # «Стул 2 шт.» два слота считались бы двумя покупками, хотя это одна.
                  'pack': _pack_of(it.get('mid'), it.get('eid'), it.get('name'))})
-    # кап ставим ПОСЛЕ проверки фото (владелец 26.08: «нет фото — товар не участвует в выборке»)
     for k in feeds:
         feeds[k].sort(key=lambda x: x['price'] or 0)
-        feeds[k] = feeds[k][:60]
+    # ПУЛ ЗАМЕНЫ — ЛЮБАЯ МЕБЕЛЬ СВОЕГО СТИЛЯ, У КОТОРОЙ ЕСТЬ МЕШ (владелец 08.09: «сделай так,
+    # чтоб мебель можно было любую выбирать из тех, что есть меши и соответствует стилю»;
+    # «изначальный набор в сете рекомендуемой мебели остаётся» — поэтому товары сетов идут
+    # первыми и никогда не срезаются капом). Временное ограничение владельца — «по 30 вариантов
+    # товаров каждой подкатегории в каждом стиле»: его держит сам пул (`demo_swap_pool.py`),
+    # здесь мы только приклеиваем результат к лентам и не пускаем дубли.
+    for lst in feeds.values():
+        for p in lst:
+            p['styles'] = [p['style']] if p.get('style') else []
+    have: dict = {(r, p.get('sid')): p for r, lst in feeds.items() for p in lst}
+    added, off_env = 0, 0
+    try:
+        import demo_swap_pool
+        for p in demo_swap_pool.pool():
+            base = p['role']
+            if base not in ENV:
+                continue
+            # ОДИН ТОВАР — ОДНА КАРТОЧКА, СТИЛЕЙ У НЕЁ МОЖЕТ БЫТЬ НЕСКОЛЬКО (08.09). Пул
+            # перечисляет товар в каждом стиле, которому тот подходит; если складывать это в
+            # ленту как разные строки — получаются дубли, а если брать только первый стиль —
+            # товар пропадает из остальных (так из 1186 подходящих в ленту попадали 340).
+            old = have.get((base, p['sid']))
+            if old is not None:
+                if p['style'] not in old['styles']:
+                    old['styles'].append(p['style'])
+                continue
+            if not p.get('img') or not (p.get('w') and p.get('d')):
+                continue
+            if not p.get('msid') or p['msid'] not in _mesh_index():
+                continue          # модели на сервере нет — предмет стал бы серой коробкой
+            lo, hi = ENV[base]
+            if not (lo <= (p.get('w') or 0) <= hi):
+                off_env += 1
+                continue          # габарит вне конверта слота этой комнаты
+            mid, eid = p['sid'].split('_', 1)
+            it = {'name': p['name'], 'w': p['w'], 'd': p['d'], 'h': p['h'], 'price': p['price'],
+                  'img': p['img'], 'url': p['url'], 'shop': p.get('shop'),
+                  'style': p['style'], 'styles': [p['style']],
+                  'sid': p['sid'], 'msid': p['msid'], 'sub': p['sub'], 'src': 'pool',
+                  'basis': _basis(mid, eid), 'hung': _hung(p['name']),
+                  'pack': _pack_of(mid, eid, p['name'])}
+            have[(base, p['sid'])] = it
+            added += 1
+            feeds.setdefault(base, []).append(it)
+    except Exception as e:  # noqa: BLE001 — нет БД/пула: ленты остаются набором сетов
+        print('пул замены не подключён:', e)
+    print(f'пул замены добавил в ленты: {added} товаров (мимо конверта комнаты: {off_env}); '
+          'всего по ролям: '
+          + ', '.join(f'{k} {len(v)}' for k, v in sorted(feeds.items())))
     feed = feeds.get('диван', [])
     # КОМПЛЕКТЫ: набор товаров по ролям, который накладывается на ЛЮБОЙ вариант расстановки
     product_sets = []
@@ -565,11 +659,29 @@ def cache_images(data: dict) -> dict:
             fix(it.get('sku'))
     # ТОВАР БЕЗ ФОТО В ВЫБОРКЕ НЕ УЧАСТВУЕТ (владелец 26.08): выборку пересчитываем ПОСЛЕ
     # проверки картинок, иначе половина ленты — пустые карточки.
-    dropped = 0
+    dropped = capped = 0
     for role, lst in list((data.get('feeds') or {}).items()):
         live = [p for p in lst if p.get('img')]
         dropped += len(lst) - len(live)
-        data['feeds'][role] = live[:24]
+        # КАП — ПО СТИЛЮ И ПОДКАТЕГОРИИ, А НЕ ОДНИМ ЧИСЛОМ НА РОЛЬ (08.09). Прежний `[:24]`
+        # оставлял на всю роль 24 товара — после подключения пула это срезало пять стилей из
+        # шести, и «выбрать любую мебель своего стиля» превращалось в «выбрать из чужих».
+        # Товары рекомендованного сета не срезаются никогда (условие владельца).
+        keep, per = [], {}
+        for p in live:
+            if p.get('src') != 'pool':
+                keep.append(p)
+                continue
+            # товар живёт в нескольких стилях сразу — место считаем в каждом, и оставляем,
+            # пока хоть в одном стиле квота не выбрана (иначе редкий стиль остался бы пустым)
+            ks = [(st, p.get('sub')) for st in (p.get('styles') or [p.get('style')])]
+            if ks and all(per.get(k, 0) >= 30 for k in ks):
+                continue
+            for k in ks:
+                per[k] = per.get(k, 0) + 1
+            keep.append(p)
+        capped += len(live) - len(keep)
+        data['feeds'][role] = keep
         if not data['feeds'][role]:
             data['feeds'].pop(role)
     data['sofa_feed'] = data.get('feeds', {}).get('диван', [])
@@ -591,9 +703,11 @@ def cache_images(data: dict) -> dict:
     data['sets'] = [k for k in (data.get('sets') or []) if k['roles']]
     if swapped:
         print(f'в комплектах заменено товаров без фото: {swapped}')
-    print(f'из выборки убрано без фото: {dropped}; осталось по ролям: '
+    print(f'из выборки убрано без фото: {dropped}; срезано капом 30/подкатегорию×стиль: {capped}; '
+          'осталось по ролям: '
           + ', '.join(f"{k} {len(v)}" for k, v in sorted(data['feeds'].items())))
-    data['_img_cached'] = {'ok': ok, 'total': len(urls), 'dropped_no_photo': dropped}
+    data['_img_cached'] = {'ok': ok, 'total': len(urls), 'dropped_no_photo': dropped,
+                           'capped': capped}
     return data
 
 
@@ -612,13 +726,11 @@ def main() -> None:
           + ', '.join(f"{k} {len(v)}" for k, v in sorted(data['feeds'].items()))
           + f"; комплектов {len(data['sets'])}")
     if '--publish' in sys.argv:
-        subprocess.run(f"cd {os.path.dirname(OUT)} && tar czf /tmp/f215demo.tgz flat215-demo && "
-                       "scp -q -P 22222 /tmp/f215demo.tgz root@89.167.127.0:/tmp/ && "
-                       "ssh -p 22222 root@89.167.127.0 'cd /tmp && rm -rf flat215-demo && "
-                       "tar xzf f215demo.tgz && rm -rf /opt/remlab/demo && "
-                       "mv flat215-demo /opt/remlab/demo && rm f215demo.tgz' && "
-                       "rm -f /tmp/f215demo.tgz", shell=True, check=True)
-        print('опубликовано: /demo/')
+        # ПУБЛИКУЕТ ОДИН СКРИПТ (08.09). Здесь раньше стояла своя копия команд, и она сносила
+        # каталог целиком (`rm -rf /opt/remlab/demo && mv`) — а он примонтирован в контейнер
+        # Caddy: новый каталог получает новый inode, и `/demo` начинает отдавать 404 до
+        # пересоздания контейнера. `publish_demo.sh` обновляет содержимое НА МЕСТЕ (урок 430).
+        subprocess.run([os.path.join(HERE, 'publish_demo.sh')], check=True)
 
 
 if __name__ == '__main__':

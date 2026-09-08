@@ -406,7 +406,9 @@ def _prewarm_demo() -> None:
         sids = []
         for v in (data.get('variants') or [])[:4]:
             for it in v.get('items') or []:
-                sid = (it.get('sku') or {}).get('sid')
+                # греем ровно те файлы, которые попросит сцена, — модели семейств (`msid`)
+                sku = it.get('sku') or {}
+                sid = sku.get('msid') or sku.get('sid')
                 if sid and ':' not in str(sid):
                     sids.append(sid)
         seen, t0 = set(), time.time()

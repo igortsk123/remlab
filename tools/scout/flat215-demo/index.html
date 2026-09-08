@@ -783,6 +783,10 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
     <span id="shotcap"></span>
     <button class="btn primary" id="shEdit" hidden>Изменить планировку</button>
     <button class="btn" id="shPick" hidden aria-pressed="false">♡ В избранное</button>
+    <!-- У КАЖДОГО ВАРИАНТА СВОЙ АДРЕС (владелец 08.09: «сделай, чтоб каждая модалка со ссылкой
+         была, чтоб кидать мог»). Кнопка кладёт в буфер ссылку вида …/demo/#v=set13 — она
+         открывает демо сразу на этом варианте и его фотографии. -->
+    <button class="btn" id="shLink" hidden>Ссылка</button>
     <button class="btn ghost" id="shotclose">Закрыть</button>
   </div>
 </div></div><div id="peek"></div>
@@ -876,11 +880,11 @@ function init(){
   // вкладке гостиная»). Раньше без якоря открывался «План квартиры», и человек попадал не на
   // витрину обустройства, ради которой демо и сделано. `#plan` по-прежнему открывает план —
   // ссылки, где он нужен, остаются рабочими.
-  window.addEventListener('hashchange',()=>showTab(location.hash==='#plan'?'plan':'room'));
+  window.addEventListener('hashchange',applyHash);
   flatPlan();
   loadShots();
   load();
-  showTab(location.hash==='#plan'?'plan':'room');
+  applyHash();
 }
 // ——— ВАРИАНТЫ: расстановка вместе со своим комплектом, ценой и сохранением своего
 const MAXV=4;
@@ -989,8 +993,54 @@ function showTab(which){
   const tp=document.getElementById('tab-plan'), tr2=document.getElementById('tab-room');
   tp.classList.toggle('on',!room); tp.setAttribute('aria-selected',String(!room));
   tr2.classList.toggle('on',room); tr2.setAttribute('aria-selected',String(room));
-  if(location.hash!=='#'+which)history.replaceState(null,'','#'+which);
+  syncHash(which);
   if(room)draw();
+}
+// ——— АДРЕС ВАРИАНТА (владелец 08.09: «чтоб каждая модалка со ссылкой была, чтоб кидать мог»).
+// В адресе живёт открытый вариант: `#v=<id>`. Открыв такую ссылку, человек сразу видит тот же
+// вариант и его фотографию, а не общую витрину. `#plan` (план квартиры) работает как прежде.
+function hashFor(which){
+  if(which==='plan')return '#plan';
+  const vid=curVid();
+  return vid?('#v='+encodeURIComponent(vid)):'#room';
+}
+function syncHash(which){
+  const h=hashFor(which||(document.getElementById('screen-room').hidden?'plan':'room'));
+  if(location.hash!==h)history.replaceState(null,'',h);
+}
+function variantLink(vid){
+  return location.origin+location.pathname+'#v='+encodeURIComponent(vid||curVid());
+}
+function copyLink(vid,btn){
+  const url=variantLink(vid);
+  const say=()=>{ if(!btn)return; const t=btn.textContent; btn.textContent='Ссылка скопирована';
+    setTimeout(()=>{btn.textContent=t;},1600); };
+  // без буфера обмена (старый браузер, страница не по https) показываем ссылку — её можно выделить
+  if(navigator.clipboard&&navigator.clipboard.writeText)
+    navigator.clipboard.writeText(url).then(say,()=>prompt('Ссылка на вариант:',url));
+  else prompt('Ссылка на вариант:',url);
+}
+// АДРЕС → ЭКРАН. Вызывается при старте и при смене адреса (в том числе кнопкой «назад»).
+function applyHash(){
+  const m=String(location.hash||'').match(/^#v=(.+)$/);
+  if(m){
+    const vid=decodeURIComponent(m[1]);
+    const i=allVariants().findIndex(v=>(v.id||'')===vid);
+    if(i>=0&&i!==cur){ cur=i; load(); showSwap(); drawColl(true); }
+    showTab('room');
+    _wantShot=vid; openWantedShot();
+    return;
+  }
+  showTab(location.hash==='#plan'?'plan':'room');
+}
+// КАДРЫ ПРИЕЗЖАЮТ С СЕРВЕРА ПОЗЖЕ, ЧЕМ РАЗБИРАЕТСЯ АДРЕС, поэтому «открыть фотографию варианта»
+// — отложенное намерение: сработает либо сразу, либо когда список кадров дойдёт (`loadShots`).
+let _wantShot='';
+function openWantedShot(){
+  if(!_wantShot)return;
+  const v=allVariants().find(x=>(x.id||'')===_wantShot);
+  const sh=v&&bestShot(v), k=sh?shots.indexOf(sh):-1;
+  if(k>=0){ _wantShot=''; viewShot(k); }
 }
 // ПЛАН КВАРТИРЫ — ПРИМЕР КОМПОНОВКИ (владелец 26.08: «более реалистичную планировку, таких не
 // бывает»). Рисуем как чертёж застройщика: Г-образный контур, несущие стены толщиной, коридор,
@@ -1757,6 +1807,10 @@ function payload(){
     // sid — через skuOf: вторая штука комплекта («стул 2») без него уезжала на сервер
     // пустой и возвращалась серой заглушкой рядом с честно отрисованным первым стулом
     sid:(skuOf(it)||{}).sid||null,
+    // msid — артикул МОДЕЛИ (представитель семейства, ADR-0196). Сервер ищет меш по нему:
+    // у цветового варианта своего меша нет, и по своему артикулу он приезжал СЕРОЙ КОРОБКОЙ —
+    // ровно это владелец увидел 08.09 в неоклассике («стол, диван остался как в модели»).
+    msid:(skuOf(it)||{}).msid||(skuOf(it)||{}).sid||null,
     name:(it.sku&&it.sku.name)||null,
     // подвесная тумба размечена в данных: рендер поднимает её на стену и вешает ТВ над ней
     hung:!!(it.sku&&it.sku.hung),
@@ -1808,6 +1862,7 @@ function loadShots(){
     if(skipped)console.log('кадров без своего варианта:', skipped);
     console.log('кадров с сервера:', shots.length);
     drawColl(true); showSwap(); drawFeed(); drawPhotos&&drawPhotos();
+    openWantedShot();   // пришли по ссылке на вариант — показываем его фотографию
   });
   drawFeed();
 }
@@ -1966,6 +2021,9 @@ function drawColl(force){
         (sh&&sh.quality==='draft'?`<button class="btn" data-up="${i}">Улучшить фото</button>`:'')+
         // СЕРДЕЧКО, КАК В ИНСТАГРАМЕ (владелец 02.09): понятнее и занимает меньше места, чем
         // кнопка со словами. Заполненное — вариант в избранном.
+        // ССЫЛКА ЕСТЬ У КАЖДОГО ВАРИАНТА, ДАЖЕ БЕЗ ФОТОГРАФИИ (владелец 08.09): окно кадра
+        // открывается не всегда, а поделиться расстановкой человек хочет в любом случае.
+        `<button class="btn" data-link="${i}" title="Скопировать ссылку на этот вариант">Ссылка</button>`+
         (sh?`<button class="heart${sh.pick?' on':''}" data-pick="${i}" `+
             `aria-label="${sh.pick?'Убрать из избранного':'В избранное'}" `+
             `title="${sh.pick?'Убрать из избранного':'В избранное'}">${sh.pick?'♥':'♡'}</button>`:'')+
@@ -1994,6 +2052,11 @@ function drawColl(force){
     toggleSwap(i);
   });
   showSwap();   // список выбранного варианта рисуется вместе с коллекцией, не отдельным событием
+  box.querySelectorAll('[data-link]').forEach(b=>b.onclick=e=>{
+    e.stopPropagation();
+    const v=allVariants()[+b.dataset.link]||{};
+    copyLink(v.id||('v'+b.dataset.link), b);
+  });
   box.querySelectorAll('[data-shot]').forEach(b=>b.onclick=()=>{
     // вариант сперва загружаем: съёмка идёт по ТЕКУЩЕЙ расстановке, а не по той, что была открыта
     // ТОЛЬКО НАШ КАДР, БЕЗ МОДЕЛИ (владелец 01.09: «пока кнопку „улучшить фото“ не нажал —
@@ -2025,7 +2088,8 @@ function drawColl(force){
 // расстановку, а списка нет внизу»; и он пропадал после закрытия модалки). Раньше панель
 // открывалась только кнопкой и жила отдельным состоянием, которое сбрасывалось при любой
 // перерисовке. Состояния больше нет: выбран вариант — виден его список.
-function pickVariant(i){ if(i===cur){showSwap();return;} cur=i; load(); showSwap(); drawColl(); }
+function pickVariant(i){ if(i===cur){showSwap();syncHash();return;}
+  cur=i; load(); showSwap(); drawColl(); syncHash(); }
 function showSwap(){
   const box=document.getElementById('swapBox'); if(!box)return;
   const v=allVariants()[cur]||{};
@@ -2095,7 +2159,7 @@ function shotOpen(html,cap){const sb=document.getElementById('shotbody');
   document.getElementById('shotcap').innerHTML=cap||'';
   // Действия просмотра кадра включает только сам просмотр (`viewShot`): на экранах ожидания и
   // отправки «В избранное»/«Изменить планировку» не к чему применить.
-  ['shPick','shEdit'].forEach(id=>{const b=document.getElementById(id); if(b)b.hidden=true;});
+  ['shPick','shEdit','shLink'].forEach(id=>{const b=document.getElementById(id); if(b)b.hidden=true;});
   document.getElementById('shot').classList.add('on');
   // ФОКУС ПЕРЕХОДИТ В ОКНО (аудит 01.09, Д4): иначе с клавиатуры он остаётся на странице под
   // модалкой, и следующий Tab уводит «сквозь» открытое окно.
@@ -2349,6 +2413,9 @@ function viewShot(i){
   // расстановку). Вариант ищем по `vid` напрямую, а НЕ через `variantOf`: тот при неопознанном
   // кадре подставляет текущий вариант и молча открыл бы чужую планировку. Окно кадра закрываем:
   // `#cons` и `#shot` оба z-index 60, но `#shot` ниже в разметке и перекрыл бы конструктор.
+  // ССЫЛКА НА ЭТОТ ВАРИАНТ — прямо в окне (владелец 08.09): адрес открывает демо на нём же.
+  const ln=document.getElementById('shLink');
+  if(ln){ln.hidden=false; ln.onclick=()=>copyLink(s.vid||curVid(),ln);}
   const ed=document.getElementById('shEdit');
   if(ed){ed.hidden=false;
     ed.onclick=()=>{
@@ -2658,11 +2725,23 @@ function fitBadge(me,p){
 }
 
 // ——— ЛИСТ ПОДБОРА
-let F={price:null, fitOnly:false, sort:'fit'};
+let F={price:null, fitOnly:false, sort:'fit', anyStyle:false};
+// ТОВАРЫ СВОЕГО СТИЛЯ (владелец 08.09: «если стиль неоклассика, то всю мебель, где есть меши и
+// относятся к этому стилю, надо выгружать»). Лента общая на роль, стиль у каждого товара свой —
+// поэтому режем её стилем текущего варианта. Товары рекомендованного сета (`src:'set'`) видны
+// всегда: это тот самый «изначальный набор», который остаётся.
+function feedFor(base){
+  const all=(D.feeds&&D.feeds[base])||[];
+  const st=(allVariants()[cur]||{}).style||'';
+  if(F.anyStyle||!st)return all;
+  // у товара стилей может быть несколько (`styles`) — он подходит и неоклассике, и современному
+  const mine=all.filter(p=>p.src==='set'||(p.styles?p.styles.indexOf(st)>=0:(!p.style||p.style===st)));
+  return mine.length?mine:all;
+}
 function openPicker(it){
   // ключ ленты — роль без хвостового номера; «первое слово» ломало «стол обеденный» (01.09)
   sel=it; const base=it.role.replace(/\s+\d+$/,'');
-  const list=(D.feeds&&D.feeds[base])||[];
+  const list=feedFor(base);
   document.getElementById('sh-title').textContent=`Выбрать: ${it.role}`;
   document.getElementById('sh-sub').textContent=list.length
     ? `${list.length} товаров · сейчас ${Math.round(it.w)}×${Math.round(it.d)} см`
@@ -2678,6 +2757,8 @@ function filters(){
   const add=(txt,on,fn)=>{const b=document.createElement('button');b.className='chip'+(on?' on':'');
     b.textContent=txt;b.onclick=()=>{fn();filters();grid();};f.appendChild(b);};
   add('подходящие по размеру',F.fitOnly,()=>F.fitOnly=!F.fitOnly);
+  const st=(allVariants()[cur]||{}).style||'';
+  if(st)add(F.anyStyle?'все стили':'только '+st,!F.anyStyle,()=>F.anyStyle=!F.anyStyle);
   add('до 30 тыс',F.price==='lo',()=>F.price=F.price==='lo'?null:'lo');
   add('30–60 тыс',F.price==='mid',()=>F.price=F.price==='mid'?null:'mid');
   add('60+ тыс',F.price==='hi',()=>F.price=F.price==='hi'?null:'hi');
@@ -2686,7 +2767,7 @@ function filters(){
 function grid(){
   const g=document.getElementById('grid');g.innerHTML='';
   const base=sel?sel.role.replace(/\s+\d+$/,''):'диван';
-  let list=((D.feeds&&D.feeds[base])||[]).slice();
+  let list=feedFor(base).slice();
   if(!list.length){g.innerHTML='<div class="hint">Для этой роли товаров с фото в банке пока нет — каталог узкий, не логика.</div>';return;}
   list=list.filter(p=>{
     const pr=p.price||0;
@@ -2728,8 +2809,10 @@ function tryOn(p){const s=sel||items.find(i=>i.role==='диван');
   // sid и упаковка едут вместе с товаром: по sid рендер берёт 3D-модель, по pack считается
   // количество покупок. Без них замена меняла картинку в списке, но не то, что попадёт в кадр.
   s.w=p.w;s.d=p.d;s.h=p.h||s.h;
+  // msid — артикул МОДЕЛИ (представителя семейства): у цветового варианта своего меша нет, и
+  // без этого поля сцена после замены рисовала серую коробку (08.09, ADR-0196).
   s.sku={name:p.name,price:p.price,img:p.img,url:p.url,shop:p.shop,
-         sid:p.sid||null,pack:p.pack||1,hung:!!p.hung};
+         sid:p.sid||null,msid:p.msid||p.sid||null,pack:p.pack||1,hung:!!p.hung};
   sel=s;
   document.getElementById('sel').innerHTML=`Примерено: <b>${p.name}</b> · ${Math.round(p.w)}×${Math.round(p.d)} см · ${(p.price||0).toLocaleString('ru-RU')} ₽ · <a href="${p.url}" target="_blank" rel="noopener">открыть в магазине</a>`;
   draw();}
@@ -2951,7 +3034,11 @@ async function openScene(){
     const w=(it.w||60)/100,d=(it.d||60)/100,h=(it.h||75)/100;
     const cx=((it.x||0)+ (it.w||0)/2)/100, cz=((it.y||0)+(it.d||0)/2)/100;
     const rot=-((it.rot||0)*Math.PI/180);
-    const sid=(skuOf(it)||{}).sid;   // «стул 2» — меш берём у первой штуки комплекта
+    // МОДЕЛЬ — ОДНА НА СЕМЕЙСТВО (08.09, ADR-0196): у цветового варианта своего меша нет, он
+    // берёт модель «родителя» (`msid`). Без этого вариант рисовался серой коробкой, хотя форма
+    // давно готова — так пропадали диван Полан и ТВ-тумбы в неоклассике.
+    const sku0=skuOf(it)||{};
+    const sid=sku0.msid||sku0.sid;   // «стул 2» — меш берём у первой штуки комплекта
     const info=sid&&meshIndex&&meshIndex[sid];
     if(info){
       nMesh++;
