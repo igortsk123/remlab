@@ -16,13 +16,13 @@ importers:
         version: 0.5.20(tailwindcss@4.3.3)
       '@untitledui/icons':
         specifier: ^0.0.22
-        version: 0.0.22(react@19.1.1)
+        version: 0.0.22(react@19.1.9)
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(postgres@3.4.9)
       next:
-        specifier: 15.5.4
-        version: 15.5.4(@playwright/test@1.51.1)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+        specifier: 15.5.25
+        version: 15.5.25(@playwright/test@1.51.1)(react-dom@19.1.9(react@19.1.9))(react@19.1.9)
       nodemailer:
         specifier: ^9.0.3
         version: 9.0.3
@@ -30,17 +30,17 @@ importers:
         specifier: ^3.4.9
         version: 3.4.9
       react:
-        specifier: 19.1.1
-        version: 19.1.1
+        specifier: 19.1.9
+        version: 19.1.9
       react-aria:
         specifier: ^3.51.0
-        version: 3.51.0(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+        version: 3.51.0(react-dom@19.1.9(react@19.1.9))(react@19.1.9)
       react-aria-components:
         specifier: ^1.20.0
-        version: 1.20.0(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+        version: 1.20.0(react-dom@19.1.9(react@19.1.9))(react@19.1.9)
       react-dom:
-        specifier: 19.1.1
-        version: 19.1.1(react@19.1.1)
+        specifier: 19.1.9
+        version: 19.1.9(react@19.1.9)
       tailwind-merge:
         specifier: ^3.6.0
         version: 3.6.0
@@ -68,7 +68,7 @@ importers:
         version: 1.51.1
       '@react-types/shared':
         specifier: ^3.36.1
-        version: 3.36.1(react@19.1.1)
+        version: 3.36.1(react@19.1.9)
       '@types/node':
         specifier: 22.10.2
         version: 22.10.2
@@ -476,56 +476,56 @@ packages:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
 
-  '@next/env@15.5.4':
-    resolution: {integrity: sha512-27SQhYp5QryzIT5uO8hq99C69eLQ7qkzkDPsk3N+GuS2XgOgoYEeOav7Pf8Tn4drECOVDsDg8oj+/DVy8qQL2A==}
+  '@next/env@15.5.25':
+    resolution: {integrity: sha512-42h1lLr07vl4gawALP1hsgRZjHB1xYa58JfUfHwr0f7jG/zhPakh5GHkADHXOC9ZxUvlQFOPIrp7s6qX4DezPQ==}
 
   '@next/eslint-plugin-next@15.5.4':
     resolution: {integrity: sha512-SR1vhXNNg16T4zffhJ4TS7Xn7eq4NfKfcOsRwea7RIAHrjRpI9ALYbamqIJqkAhowLlERffiwk0FMvTLNdnVtw==}
 
-  '@next/swc-darwin-arm64@15.5.4':
-    resolution: {integrity: sha512-nopqz+Ov6uvorej8ndRX6HlxCYWCO3AHLfKK2TYvxoSB2scETOcfm/HSS3piPqc3A+MUgyHoqE6je4wnkjfrOA==}
+  '@next/swc-darwin-arm64@15.5.25':
+    resolution: {integrity: sha512-w+RR0v/QuApnWEjRGm1z6gcObKwGMb5YPA7V3bzBEVSBpMFUXprer0tS27UxjUcEnqbhL7Zuzohej79B6rYmBg==}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [darwin]
 
-  '@next/swc-darwin-x64@15.5.4':
-    resolution: {integrity: sha512-QOTCFq8b09ghfjRJKfb68kU9k2K+2wsC4A67psOiMn849K9ZXgCSRQr0oVHfmKnoqCbEmQWG1f2h1T2vtJJ9mA==}
+  '@next/swc-darwin-x64@15.5.25':
+    resolution: {integrity: sha512-QiGGBUSakt8S1H4Lt9Ehsh6Ja87axiBnQQgysOObvCbI7iUfJnRGntF1P64S4/ijuHFnSB8KLsEddkY3nN26uw==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [darwin]
 
-  '@next/swc-linux-arm64-gnu@15.5.4':
-    resolution: {integrity: sha512-eRD5zkts6jS3VfE/J0Kt1VxdFqTnMc3QgO5lFE5GKN3KDI/uUpSyK3CjQHmfEkYR4wCOl0R0XrsjpxfWEA++XA==}
+  '@next/swc-linux-arm64-gnu@15.5.25':
+    resolution: {integrity: sha512-ehLos/66zo0d/mJCU5u96a/VDcr01aaUrX0o/i16UdInxz8qPTCDSxGtjk/Lps1sIr1RJFdiX3hxc0fxJo+cPA==}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [linux]
 
-  '@next/swc-linux-arm64-musl@15.5.4':
-    resolution: {integrity: sha512-TOK7iTxmXFc45UrtKqWdZ1shfxuL4tnVAOuuJK4S88rX3oyVV4ZkLjtMT85wQkfBrOOvU55aLty+MV8xmcJR8A==}
+  '@next/swc-linux-arm64-musl@15.5.25':
+    resolution: {integrity: sha512-ZVMrqLiJ7DiChgmbkQwFtdhAnUkSH/4p7tB29QY+giATb0Q/XGHNRSKAb/B8XGDHRUaA67NepOW5W8u3ZRJBAA==}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [linux]
 
-  '@next/swc-linux-x64-gnu@15.5.4':
-    resolution: {integrity: sha512-7HKolaj+481FSW/5lL0BcTkA4Ueam9SPYWyN/ib/WGAFZf0DGAN8frNpNZYFHtM4ZstrHZS3LY3vrwlIQfsiMA==}
+  '@next/swc-linux-x64-gnu@15.5.25':
+    resolution: {integrity: sha512-UOewtDGkTMJTiODrEdeLZ50yGb59xCZSriNpXkfPMxRRgwDkGc7i8mLWqV5076wEdb+Ca/XN7MhJyM3CupyNyQ==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [linux]
 
-  '@next/swc-linux-x64-musl@15.5.4':
-    resolution: {integrity: sha512-nlQQ6nfgN0nCO/KuyEUwwOdwQIGjOs4WNMjEUtpIQJPR2NUfmGpW2wkJln1d4nJ7oUzd1g4GivH5GoEPBgfsdw==}
+  '@next/swc-linux-x64-musl@15.5.25':
+    resolution: {integrity: sha512-UBHwA8AhkCZgtRfU1aJpunuAJe/6gZv6jDESQe4p5MjTb5V0YEeJBWCdNqx15Vj3x+5jmauRfeMJSjfQj9HGFQ==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [linux]
 
-  '@next/swc-win32-arm64-msvc@15.5.4':
-    resolution: {integrity: sha512-PcR2bN7FlM32XM6eumklmyWLLbu2vs+D7nJX8OAIoWy69Kef8mfiN4e8TUv2KohprwifdpFKPzIP1njuCjD0YA==}
+  '@next/swc-win32-arm64-msvc@15.5.25':
+    resolution: {integrity: sha512-QcFcPRr16djk5IqK5+e8O80eZfgWzIvVBXfitIq0tQ/uc+eyfdoZ0NmKc0cnbIJyfVwREapKuG97YcxWA9gcpA==}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [win32]
 
-  '@next/swc-win32-x64-msvc@15.5.4':
-    resolution: {integrity: sha512-1ur2tSHZj8Px/KMAthmuI9FMp/YFusMMGoRNJaRZMOlSkgvLjzosSdQI0cJAKogdHl3qXUQKL9MGaYvKwA7DXg==}
+  '@next/swc-win32-x64-msvc@15.5.25':
+    resolution: {integrity: sha512-zREeykps3ndWr9egJgvJKqVkkDuaw6Zrrg23cYBos0ygydFkAWYU4+PaPVwXzP1eAYQJe53ShSK45iDM529BOg==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [win32]
@@ -1954,10 +1954,9 @@ packages:
   natural-compare@1.4.0:
     resolution: {integrity: sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==}
 
-  next@15.5.4:
-    resolution: {integrity: sha512-xH4Yjhb82sFYQfY3vbkJfgSDgXvBB6a8xPs9i35k6oZJRoQRihZH+4s9Yo2qsWpzBmZ3lPXaJ2KPXLfkvW4LnA==}
+  next@15.5.25:
+    resolution: {integrity: sha512-OMWNulIIqKM2ykvC2qMjIt0IoavB4UB2SCs4iXJ6z6847FvyH8jBmBWcvrF5iuhTu8Przh20Fo/aoszIdqx4PA==}
     engines: {node: ^18.18.0 || ^19.8.0 || >= 20.0.0}
-    deprecated: This version has a security vulnerability. Please upgrade to a patched version. See https://nextjs.org/blog/CVE-2025-66478 for more details.
     hasBin: true
     peerDependencies:
       '@opentelemetry/api': ^1.1.0
@@ -2121,10 +2120,10 @@ packages:
       react: ^16.8.0 || ^17.0.0-rc.1 || ^18.0.0 || ^19.0.0-rc.1
       react-dom: ^16.8.0 || ^17.0.0-rc.1 || ^18.0.0 || ^19.0.0-rc.1
 
-  react-dom@19.1.1:
-    resolution: {integrity: sha512-Dlq/5LAZgF0Gaz6yiqZCf6VCcZs1ghAJyrsu84Q/GT0gV+mCxbfmKNoGRKBYMJ8IEdGPqu49YWXD02GCknEDkw==}
+  react-dom@19.1.9:
+    resolution: {integrity: sha512-uDpATCDcImkLtNYyqOe1RqW8bNn/dNwyD5/4IBFekbqQ9UKz3xs4+W3pVF0TOw2p2tuVlVc0v4uBnpDglT3gig==}
     peerDependencies:
-      react: ^19.1.1
+      react: ^19.1.9
 
   react-is@16.13.1:
     resolution: {integrity: sha512-24e6ynE2H+OKt4kqsOvNd8kBpV65zoxbA4BVsEOB3ARVWQki/DHzaUoC5KuON/BiccDaCCTZBuOcfZs70kR8bQ==}
@@ -2134,8 +2133,8 @@ packages:
     peerDependencies:
       react: ^16.8.0 || ^17.0.0-rc.1 || ^18.0.0 || ^19.0.0-rc.1
 
-  react@19.1.1:
-    resolution: {integrity: sha512-w8nqGImo45dmMIfljjMwOGtbmC/mk4CMYhWIicdSflH91J9TyCyczcPFXJzrZ/ZXcgGRFeP6BU0BEJTw6tZdfQ==}
+  react@19.1.9:
+    resolution: {integrity: sha512-vcH++wcuFsbaGkMBoghOSs7Caq9Xg4KbdGwNEC8hWXye9NbV/ryKpxuElvsQxj6/38TmVUw2BofUb7shrdQogA==}
     engines: {node: '>=0.10.0'}
 
   reflect.getprototypeof@1.0.10:
@@ -2803,34 +2802,34 @@ snapshots:
       '@tybys/wasm-util': 0.10.3
     optional: true
 
-  '@next/env@15.5.4': {}
+  '@next/env@15.5.25': {}
 
   '@next/eslint-plugin-next@15.5.4':
     dependencies:
       fast-glob: 3.3.1
 
-  '@next/swc-darwin-arm64@15.5.4':
+  '@next/swc-darwin-arm64@15.5.25':
     optional: true
 
-  '@next/swc-darwin-x64@15.5.4':
+  '@next/swc-darwin-x64@15.5.25':
     optional: true
 
-  '@next/swc-linux-arm64-gnu@15.5.4':
+  '@next/swc-linux-arm64-gnu@15.5.25':
     optional: true
 
-  '@next/swc-linux-arm64-musl@15.5.4':
+  '@next/swc-linux-arm64-musl@15.5.25':
     optional: true
 
-  '@next/swc-linux-x64-gnu@15.5.4':
+  '@next/swc-linux-x64-gnu@15.5.25':
     optional: true
 
-  '@next/swc-linux-x64-musl@15.5.4':
+  '@next/swc-linux-x64-musl@15.5.25':
     optional: true
 
-  '@next/swc-win32-arm64-msvc@15.5.4':
+  '@next/swc-win32-arm64-msvc@15.5.25':
     optional: true
 
-  '@next/swc-win32-x64-msvc@15.5.4':
+  '@next/swc-win32-x64-msvc@15.5.25':
     optional: true
 
   '@nodelib/fs.scandir@2.1.5':
@@ -2851,9 +2850,9 @@ snapshots:
     dependencies:
       playwright: 1.51.1
 
-  '@react-types/shared@3.36.1(react@19.1.1)':
+  '@react-types/shared@3.36.1(react@19.1.9)':
     dependencies:
-      react: 19.1.1
+      react: 19.1.9
 
   '@rollup/rollup-android-arm-eabi@4.62.2':
     optional: true
@@ -3200,9 +3199,9 @@ snapshots:
   '@unrs/resolver-binding-win32-x64-msvc@1.12.2':
     optional: true
 
-  '@untitledui/icons@0.0.22(react@19.1.1)':
+  '@untitledui/icons@0.0.22(react@19.1.9)':
     dependencies:
-      react: 19.1.1
+      react: 19.1.9
 
   '@vitest/expect@2.1.8':
     dependencies:
@@ -4260,24 +4259,24 @@ snapshots:
 
   natural-compare@1.4.0: {}
 
-  next@15.5.4(@playwright/test@1.51.1)(react-dom@19.1.1(react@19.1.1))(react@19.1.1):
+  next@15.5.25(@playwright/test@1.51.1)(react-dom@19.1.9(react@19.1.9))(react@19.1.9):
     dependencies:
-      '@next/env': 15.5.4
+      '@next/env': 15.5.25
       '@swc/helpers': 0.5.15
       caniuse-lite: 1.0.30001800
       postcss: 8.4.31
-      react: 19.1.1
-      react-dom: 19.1.1(react@19.1.1)
-      styled-jsx: 5.1.6(react@19.1.1)
+      react: 19.1.9
+      react-dom: 19.1.9(react@19.1.9)
+      styled-jsx: 5.1.6(react@19.1.9)
     optionalDependencies:
-      '@next/swc-darwin-arm64': 15.5.4
-      '@next/swc-darwin-x64': 15.5.4
-      '@next/swc-linux-arm64-gnu': 15.5.4
-      '@next/swc-linux-arm64-musl': 15.5.4
-      '@next/swc-linux-x64-gnu': 15.5.4
-      '@next/swc-linux-x64-musl': 15.5.4
-      '@next/swc-win32-arm64-msvc': 15.5.4
-      '@next/swc-win32-x64-msvc': 15.5.4
+      '@next/swc-darwin-arm64': 15.5.25
+      '@next/swc-darwin-x64': 15.5.25
+      '@next/swc-linux-arm64-gnu': 15.5.25
+      '@next/swc-linux-arm64-musl': 15.5.25
+      '@next/swc-linux-x64-gnu': 15.5.25
+      '@next/swc-linux-x64-musl': 15.5.25
+      '@next/swc-win32-arm64-msvc': 15.5.25
+      '@next/swc-win32-x64-msvc': 15.5.25
       '@playwright/test': 1.51.1
       sharp: 0.34.5
     transitivePeerDependencies:
@@ -4419,50 +4418,50 @@ snapshots:
 
   queue-microtask@1.2.3: {}
 
-  react-aria-components@1.20.0(react-dom@19.1.1(react@19.1.1))(react@19.1.1):
+  react-aria-components@1.20.0(react-dom@19.1.9(react@19.1.9))(react@19.1.9):
     dependencies:
       '@internationalized/date': 3.12.3
       '@internationalized/string': 3.2.10
-      '@react-types/shared': 3.36.1(react@19.1.1)
+      '@react-types/shared': 3.36.1(react@19.1.9)
       '@swc/helpers': 0.5.15
       client-only: 0.0.1
-      react: 19.1.1
-      react-aria: 3.51.0(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
-      react-dom: 19.1.1(react@19.1.1)
-      react-stately: 3.49.0(react@19.1.1)
+      react: 19.1.9
+      react-aria: 3.51.0(react-dom@19.1.9(react@19.1.9))(react@19.1.9)
+      react-dom: 19.1.9(react@19.1.9)
+      react-stately: 3.49.0(react@19.1.9)
 
-  react-aria@3.51.0(react-dom@19.1.1(react@19.1.1))(react@19.1.1):
+  react-aria@3.51.0(react-dom@19.1.9(react@19.1.9))(react@19.1.9):
     dependencies:
       '@internationalized/date': 3.12.3
       '@internationalized/number': 3.6.7
       '@internationalized/string': 3.2.10
-      '@react-types/shared': 3.36.1(react@19.1.1)
+      '@react-types/shared': 3.36.1(react@19.1.9)
       '@swc/helpers': 0.5.15
       aria-hidden: 1.2.6
       clsx: 2.1.1
-      react: 19.1.1
-      react-dom: 19.1.1(react@19.1.1)
-      react-stately: 3.49.0(react@19.1.1)
-      use-sync-external-store: 1.6.0(react@19.1.1)
+      react: 19.1.9
+      react-dom: 19.1.9(react@19.1.9)
+      react-stately: 3.49.0(react@19.1.9)
+      use-sync-external-store: 1.6.0(react@19.1.9)
 
-  react-dom@19.1.1(react@19.1.1):
+  react-dom@19.1.9(react@19.1.9):
     dependencies:
-      react: 19.1.1
+      react: 19.1.9
       scheduler: 0.26.0
 
   react-is@16.13.1: {}
 
-  react-stately@3.49.0(react@19.1.1):
+  react-stately@3.49.0(react@19.1.9):
     dependencies:
       '@internationalized/date': 3.12.3
       '@internationalized/number': 3.6.7
       '@internationalized/string': 3.2.10
-      '@react-types/shared': 3.36.1(react@19.1.1)
+      '@react-types/shared': 3.36.1(react@19.1.9)
       '@swc/helpers': 0.5.15
-      react: 19.1.1
-      use-sync-external-store: 1.6.0(react@19.1.1)
+      react: 19.1.9
+      use-sync-external-store: 1.6.0(react@19.1.9)
 
-  react@19.1.1: {}
+  react@19.1.9: {}
 
   reflect.getprototypeof@1.0.10:
     dependencies:
@@ -4717,10 +4716,10 @@ snapshots:
 
   strip-json-comments@3.1.1: {}
 
-  styled-jsx@5.1.6(react@19.1.1):
+  styled-jsx@5.1.6(react@19.1.9):
     dependencies:
       client-only: 0.0.1
-      react: 19.1.1
+      react: 19.1.9
 
   supports-color@7.2.0:
     dependencies:
@@ -4855,9 +4854,9 @@ snapshots:
     dependencies:
       punycode: 2.3.1
 
-  use-sync-external-store@1.6.0(react@19.1.1):
+  use-sync-external-store@1.6.0(react@19.1.9):
     dependencies:
-      react: 19.1.1
+      react: 19.1.9
 
   util-deprecate@1.0.2: {}
 
