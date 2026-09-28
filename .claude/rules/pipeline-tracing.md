@@ -16,8 +16,10 @@ paths:
 
 ## Инварианты (соблюдать при правках в этих путях)
 - **Любой вызов LLM — через `lib/providers` фабрики** (`getImageProvider`/`getVisionProvider`).
-  Они обёрнуты инструментированно → шаг логируется сам. НЕ звать провайдера в обход фабрики,
-  НЕ ходить в сеть к модели напрямую из модуля.
+  Они обёрнуты (`lib/providers/traced.ts`) → шаг логируется сам, но ТОЛЬКО внутри `runWithTrace`
+  (`lib/trace/recorder.ts`): вне прогона вызов проходит без записи (так пред-шаг analyze в `runAnalyze`
+  в лог не попадает). НЕ звать провайдера в обход фабрики, НЕ ходить в сеть к модели напрямую из модуля.
+  Долг: `lib/calc/link-parse-ai.ts` зовёт OpenAI напрямую — без трейса и без цены.
 - **Новый шаг пайплайна** → передавай `meta: { stepName, promptId, promptVersion, params? }`
   в вызов провайдера, чтобы шаг в логе был осмысленным.
 - **Меняешь текст промпта** → бампни `version` в `lib/prompts/registry.ts` (не правь молча:
@@ -26,10 +28,13 @@ paths:
   пайплайна. Новый сценарий = новая запись (не мутируй существующую версию задним числом).
 - **Новая модель/провайдер** (Nano→GPT→ControlNet/SD и т.п.) → реализуй за интерфейсами
   `lib/providers/types.ts` (экспортируй `imageModel`/`textModel` для лога), добавь цену в
-  `lib/pricing.ts`, привяжи в сценарии реестра. Вызывающий код не трогаем.
+  `lib/pricing.ts`, переключи фабрику в `lib/providers/index.ts` (провайдер выбирается там; реестр
+  пайплайнов даёт в лог только метку и версию). Вызывающий код не трогаем.
 - **Новое поле, которое надо видеть в разборе** → добавь в схему (`db/schema.ts` + `tools/migrate.mjs`
-  + `db/init/003-traces.sql`), в запись шага (`lib/providers/traced.ts`) и в вывод (`tools/trace-show.mjs`
-  + `app/api/trace/[seq]`).
+  + `db/init/003-traces.sql`; в существующую таблицу — `alter table … add column if not exists`: прод
+  прогоняет `db/init` на каждом деплое, `create table if not exists` колонку не добавит), в тип
+  (`lib/trace/types.ts`), в запись шага (`lib/providers/traced.ts`; поля прогона — `lib/trace/recorder.ts`
+  и `lib/trace/store.ts`) и в вывод (`tools/trace-show.mjs` + `app/api/trace/[seq]`).
 - **Секреты не логируем** (ключи API в шаги не попадают). Base64 картинок — только на диск (ассеты),
   не в БД.
 
