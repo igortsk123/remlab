@@ -13,3 +13,5 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-09-28	guides/how-to-write-rules.md	drift	12	1	1	целиком; 5 утверждений — поведение Claude Code, кодом не проверяются
 2026-09-28	domain/catalog-enrichment.md	drift	85	23	23	все утверждения о коде; раздел о наличии — пометка «до починки 31.08»; провенанс фото — «не реализовано»
 2026-09-28	guides/execution-playbook.md	drift	17	6	6	целиком (фаза 1.3, 6a83439→ba4d4c0): план plans/<slug>, секреты, стоп-механизмы, выкатка автодеплоем, бэкап ночной
+2026-09-28	core/apartment-configurator.md	code	12	3	3	
+2026-09-28	domain/flat3d-configurator.md	code	9	0	0	

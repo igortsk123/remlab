@@ -44,7 +44,6 @@ draft → in_progress → completed → перенос в completed_plans/
 | test-to-work | Внутренние отчёты переезжают с /test на /work; /test без слэша чинится | draft | 2026-09-28 | 2026-09-28 |
 | memory-kit-v19-migration | Переход памяти remlab на кит v1.9 (механизмы точности из sup2) + уборка банка | in_progress | 2026-09-28 | 2026-09-28 |
 | demo-en-gbp | Демо на английском — переключатель RU/EN, тестовые товары и цены в фунтах | draft | 2026-09-28 | 2026-09-28 |
-| apartment-3d-configurator | Интерактивный 3D-конфигуратор квартиры (Three.js) поверх photo-first конвейера | in_progress | 2026-09-28 | 2026-09-28 |
 | health-map-apex-redirect | Апекс health-map.online — 302-редирект на 2mnenie.online (домен перестаёт быть мёртвым) | draft | 2026-09-05 | 2026-09-05 |
 | mesh-pool-hardening | Работа над ошибками пула мешей — приёмник, стопоры, транспорт, OOM, цена | partial | 2026-09-04 | 2026-09-28 |
 | topview-from-mesh | Вид сверху из мешей для планировщика (тест /test/topview-test/) | partial | 2026-08-31 | 2026-09-28 |

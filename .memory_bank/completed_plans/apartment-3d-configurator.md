@@ -2,10 +2,10 @@
 workstream: 3d-configurator
 slug: apartment-3d-configurator
 title: Интерактивный 3D-конфигуратор квартиры (Three.js) поверх photo-first конвейера
-status: in_progress
+status: completed
 created: 2026-09-28
 updated: 2026-09-28
-completed:
+completed: 2026-09-28
 plan_kind: sub
 parent_plan: MASTER-cost-first
 ---
@@ -111,10 +111,10 @@ https://remont-lab.online/demo/ — вход в 3D должен быть отт�
 - [x] Не задеты файлы чужих фич (единственное касание демо — кнопка входа)
 
 ## Definition of Done — память (без этого `completed` запрещён)
-- [ ] `core/apartment-configurator.md` заведён и виден в decision tree INDEX
-- [ ] ADR-0210…0214 — тексты в `decisions/adr-0201-0250.md` + строки в индекс
-- [ ] `project-state.md` — снимок обновлён
-- [ ] «Уроки» заполнены; `/memory-check` чисто
+- [x] `core/apartment-configurator.md` заведён и виден в decision tree INDEX (детали — `domain/flat3d-configurator.md`)
+- [x] ADR-0210…0214 — тексты в `decisions/adr-0201-0250.md` + строки в индекс
+- [x] `project-state.md` — снимок обновлён
+- [x] «Уроки» заполнены (`lessons/flat3d-configurator.md`, 414–420); `/memory-check` выполнен, оба аудита чисты
 
 ## Лог выполнения
 - 2026-09-28 — аудит тремя субагентами, план создан, стек проверен (Vite отклонён)
