@@ -40,6 +40,7 @@ draft → in_progress → completed → перенос в completed_plans/
 | slug | Название | status | created | updated |
 |------|----------|--------|---------|---------|
 | test-to-work | Внутренние отчёты переезжают с /test на /work; /test без слэша чинится | draft | 2026-09-28 | 2026-09-28 |
+| memory-kit-v19-migration | Переход памяти remlab на кит v1.9 (механизмы точности из sup2) + уборка банка | in_progress | 2026-09-28 | 2026-09-28 |
 | demo-en-gbp | Демо на английском — переключатель RU/EN, тестовые товары и цены в фунтах | draft | 2026-09-28 | 2026-09-28 |
 | health-map-apex-redirect | Апекс health-map.online — 302-редирект на 2mnenie.online (домен перестаёт быть мёртвым) | draft | 2026-09-05 | 2026-09-05 |
 | mesh-pool-hardening | Работа над ошибками пула мешей — приёмник, стопоры, транспорт, OOM, цена | partial | 2026-09-04 | 2026-09-28 |

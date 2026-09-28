@@ -3,7 +3,7 @@ tier: 1
 topic: knowledge-db
 scope: Source-KB из книг — спека, KB0–KB9
 tier2: "../../remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md"
-updated: 2026-08-10
+updated: 2026-09-28
 importance: high
 source: manual
 status: working
@@ -33,13 +33,13 @@ review_after: 2026-12-05
   `source_collection_id=null` — identity predeclared: `RID_MITTON_NYSTUEN_2016_3E`.
 - `remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md` — контракт пайплайна, **v1.1 ПОЛНАЯ**
   (фазы 0–12, инварианты A–G, real-data регрессии, completion gate 21 п.).
-- `remlab_knowledge_db_v1/scratch_profile/` — скрипты профилирования корпуса.
+- `scratch_profile/` — скрипты профилирования корпуса.
 
-**Ключевое о корпусе:** целостность 0 нарушений; ~20 CONFLICTING = опечатки книги;
-IRC в 8+ написаниях; дубли/конфликты размечены только внутрифайлово.
+**Корпус:** целостность 0 нарушений; ~20 CONFLICTING = опечатки книги; IRC в 8+ написаниях;
+дубли/конфликты размечены только внутрифайлово.
 
-**Код:** `services/knowledge-db/` (Python, pydantic + jsonschema + rfc8785, pytest 56 гейтов,
-venv ~/venvs/kdb); артефакты — runs/<run_id> в KB-каталоге; реестры LLM-вердиктов в git
-(реплей без сети, ID-стабильность).
+**Код:** `services/knowledge-db/` (Python, pytest 56 гейтов, venv ~/venvs/kdb); артефакты —
+runs/<run_id>; LLM-вердикты в git (реплей без сети). W0: `services/knowledge-db/kdb/export_rules.py`
+→ `docs/kb-rules-classification.md` (вердикты прод-параметрам; прод не трогает).
 
 Tier 2: спека (`tier2:`) · [[occupancy-rules]] · `guides/layout-mined-rules.md`.

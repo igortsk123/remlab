@@ -3,7 +3,7 @@ tier: 1
 topic: architecture
 scope: Стек, модули, генерация, деплой — по коду
 tier2: "../../docs/tech-spec-ts-stack.md"
-updated: 2026-09-05
+updated: 2026-09-28
 importance: high
 source: manual
 status: working
@@ -25,28 +25,28 @@ Vitest + Playwright. CI: `.github/workflows/{ci,deploy,memory-audit}.yml`.
 бренд ТОЛЬКО в `styles/brand.css`. Правила — `.claude/rules/ui-rules.md`.
 
 ## Структура (факт)
-- `/app`: `page.tsx` (хаб). **Смета (М1–М3):** `/calc` хаб, `/calc/[kind]`, `/calc/remont`, `/e/[id]`,
+- `/app`: `page.tsx` (хаб). **Смета:** `/calc` хаб, `/calc/[kind]`, `/calc/remont`, `/e/[id]`,
   `/estimates`→`/lab` (ADR-0036), `/go/[eid]/[iid]`. Навигация `SiteHeader.tsx` (ADR-0017); `/styles`
-  — квиз (`modules/style/`); `/lab` (+ `/lab/{mesh-review,mesh-audit}` — ручная проверка мешей).
+  — квиз `components/StyleQuiz.tsx` (заглушка); `/lab` (+ `/lab/{mesh-review,mesh-audit}` — приёмка мешей).
   Legacy М5: `/start`, `/p/[id]/*`. `/api`: calc, health, lab, leads, p, pay, trace.
 - `/modules` — store + estimate (memory/pg) + leads + style; generation/ideas — М5.
 - **Смета (v0.4):** `contracts/estimate.ts`; `lib/estimate/*`; `lib/pricing/works`. Наружу ТОЛЬКО
   через `/go/`. **Калькулятор v2 (ADR-0018):** `contracts/calc.ts` + `lib/calc/*` + `components/calc/*`
-  (клиентское состояние, localStorage); v2 — дефолт.
+  (состояние в localStorage); v2 — дефолт.
 - `/db` (init 001–010: 005-leads, 006-style-results, 007-mesh-review, 010-mesh-audit), `/contracts`,
   `/lib` (+ `lib/mesh-review`, `lib/mesh-audit`), `/e2e`, `/docs`.
 - `/tools` — в git, кроме данных scout (ADR-0055); каталог/меши — `tools/scout/` (Python, дев-БД).
 
 ## Генерация AI (legacy, М5)
-СИНХРОННО: `app/api/p/[id]/generate` → `runGenerate`, `maxDuration=60`. Ретраев/квот/Inngest нет.
+СИНХРОННО: `app/api/p/[id]/generate` → `runGenerate`, `maxDuration=60`; ретраев/квот нет.
 
 ## Деплой (self-host, ADR-0001)
 Compose (`remlab-net`): caddy :443 (LE) → app (Next standalone :3000); db pgvector:pg17; imagor;
 traces-init; mesh-receiver. Caddy проксирует `/api/{draft,warm,render,job,share}*` → `draft:8099`
-(`tools/scout/draft_service.py`, вне compose). Детали — `deployment.md`.
+(`tools/scout/draft_service.py`, вне compose; кадр — fal, `draft_render.py`). Детали — `deployment.md`.
 
 ## Цели (НЕ реализовано)
-Inngest · платежи/export · Vertex/fal · YooKassa (скелет `lib/payments/yookassa.ts`, ключей нет) ·
+Inngest · платежи/export · Vertex · YooKassa (скелет `lib/payments/yookassa.ts`, ключей нет) ·
 Sentry · `/eval` · Cost Engine (вход Б = плейсхолдер).
 
 **Tier 2:** `../../docs/tech-spec-ts-stack.md` (§3 контракты, §4 схема, §5 цикл, §8 модели).

@@ -3,7 +3,7 @@ tier: 1
 topic: observability-tracing
 scope: Трейсинг AI-пайплайна — лог, разбор
 tier2: ../domain/observability.md
-updated: 2026-08-06
+updated: 2026-09-28
 importance: high
 source: manual
 status: working
@@ -39,13 +39,13 @@ passthrough. Смена модели/промпта/шага НЕ требует
 input-ассет. Без `IMAGOR_BASE_URL` — исходник.
 
 ## Разбор («генерация N»)
-Скилл `/trace` (дословные промпты/ответы + фото); CLI `pnpm trace <N>`; `GET /api/trace/<N>`,
+Скилл `/trace` (дословно промпты/ответы + фото); CLI `pnpm trace <N>`; `GET /api/trace/<N>`,
 `/api/trace/asset/<id>` за `TRACE_ADMIN_TOKEN`. Ссылки на картинки — подписанные (HMAC, TTL 7д).
 
 ## Хранение/приватность
-Named-том `remlab-traces` (Docker-managed; bind на `/opt/remlab/data/traces` НЕТ): в app —
-`/app/data/traces` = `TRACE_DIR`, локально `./.data/traces`. Ретеншн `TRACE_RETENTION_DAYS` (90) —
+Named-том `remlab-traces` (bind на `/opt/remlab/data/traces` НЕТ): в app —
+`/app/data/traces` = `TRACE_DIR` (локально `./.data/traces`). Ретеншн `TRACE_RETENTION_DAYS` (90) —
 `pnpm trace:prune` ВРУЧНУЮ: таймер `remlab-cleanup` его НЕ вызывает (TODO). Ошибка записи НЕ валит
-пайплайн; секреты не пишем. ⚠️ Гоча прав named-тома + `traces-init` — Tier 2. Фото — ПДн (TODO legal).
+пайплайн, но считается: `traceWriteFailures` в `/api/health` (`lib/trace/failures.ts`); секреты не пишем. Гоча прав тома и `traces-init` — Tier 2. Фото — ПДн (TODO legal).
 
-**Tier 2:** `../domain/observability.md` — env, подписанные URL, imagor, роуты, гочи, файлы.
+**Tier 2:** `../domain/observability.md` — env, подписанные URL, imagor, роуты, гочи.
