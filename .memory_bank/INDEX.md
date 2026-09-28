@@ -16,6 +16,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт → реф-сме�
 | Каталог — загрузка из фидов/API, свежесть, сторожа | `core/catalog.md` | `domain/catalog-enrichment.md` |
 | Схема БД, миграции, pgvector | `core/data-model.md` | `../docs/tech-spec-ts-stack.md` |
 | Демо-планировщик для партнёра — расстановка и кадр | `core/demo-planner.md` | `domain/demo-planner-ui.md` |
+| 3D-конфигуратор квартиры `/flat` — модель, сцена, runtime-ассеты | `core/apartment-configurator.md` | `plans/apartment-3d-configurator.md` |
 | Деплой/откат/сервер exit-fi | `deployment.md` | `domain/deployment-details.md` |
 | Смета — калькуляторы, /go/ реф | `core/estimate.md` | `domain/pricing-works-ru.md` |
 | Мебель — сеты, визуализация | `core/furniture.md` | `domain/viz-fidelity-playbook.md` |

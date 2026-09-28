@@ -104,6 +104,9 @@ export class FlatViewer {
   private keys = new Set<string>();
   private moveTarget: THREE.Vector2 | null = null;
   private currentRoom: string | null = null;
+  /** Последняя разрешённая сцена — по ней догружаем комнату, в которую вошли. */
+  private lastScene: ResolvedScene | null = null;
+  private syncing = false;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -208,10 +211,22 @@ export class FlatViewer {
     }
   }
 
-  /** Обновление предметов: пересобираем только то, что изменилось. */
+  /**
+   * Обновление предметов: пересобираем только изменившееся.
+   *
+   * ЛЕНИВО ПО КОМНАТАМ: в лёгком режиме (телефон) грузим только текущую комнату и её соседей
+   * по списку — требование ТЗ «сначала текущая/ближайшая». На десктопе тянем всё сразу,
+   * порядком «где человек стоит → ближайшие».
+   */
   async syncObjects(resolved: ResolvedScene): Promise<void> {
-    const specs = planObjects(this.apartment, this.catalogue, resolved);
-    const wanted = new Map(specs.map((s) => [s.slotId, s]));
+    this.lastScene = resolved;
+    const all = planObjects(this.apartment, this.catalogue, resolved);
+    const order = this.roomOrder();
+    const allowedRooms = new Set(
+      this.quality.preloadRooms > 0 ? order.slice(0, this.quality.preloadRooms + 1) : order.slice(0, 1),
+    );
+    const specs = all.filter((s) => allowedRooms.has(s.roomId));
+    const wanted = new Map(all.map((s) => [s.slotId, s]));
     this.totalCount = specs.length;
 
     for (const [slotId, p] of [...this.placed]) {
@@ -223,7 +238,6 @@ export class FlatViewer {
       }
     }
 
-    const order = this.roomOrder();
     const sorted = [...specs].sort((a, b) => order.indexOf(a.roomId) - order.indexOf(b.roomId));
     const queue = sorted.filter((s) => !this.placed.has(s.slotId));
     // Грузим ПАРАЛЛЕЛЬНО, но не больше четырёх сразу: последовательная загрузка растягивала
@@ -499,6 +513,13 @@ export class FlatViewer {
     if (id !== this.currentRoom) {
       this.currentRoom = id;
       this.events.onRoomChange?.(id);
+      // вошли в комнату, которую ещё не грузили — догружаем её обстановку
+      if (this.lastScene && !this.syncing) {
+        this.syncing = true;
+        void this.syncObjects(this.lastScene).finally(() => {
+          this.syncing = false;
+        });
+      }
     }
   }
 

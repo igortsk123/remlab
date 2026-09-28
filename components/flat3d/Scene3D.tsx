@@ -37,6 +37,12 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
   const framedRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [hintDone, setHintDone] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setHintDone(true), 7000);
+    return () => clearTimeout(t);
+  }, []);
 
   // создание/уничтожение сцены: зависит только от профиля качества
   useEffect(() => {
@@ -175,7 +181,11 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
         aria-label="3D-вид квартиры"
         role="img"
       />
-      <p className="pointer-events-none absolute inset-x-3 bottom-3 rounded-lg bg-primary/90 px-3 py-2 text-center text-xs text-secondary ring-1 ring-inset ring-secondary">
+      {/* подсказка уходит через 7 секунд: на телефоне она закрывает треть комнаты */}
+      <p
+        hidden={!error && hintDone}
+        className="pointer-events-none absolute inset-x-3 bottom-3 rounded-lg bg-primary/90 px-3 py-2 text-center text-xs text-secondary ring-1 ring-inset ring-secondary"
+      >
         {error ? error : hintText}
       </p>
     </div>

@@ -663,6 +663,9 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
   #swapBox.on{inset:0;padding:0}
   #cons{inset:0}
 }
+.fh-3d{display:inline-flex;align-items:center;text-decoration:none;color:#1A1F1C;
+ border:1px solid #3B76A2;background:#EAF2F8}
+.fh-3d:hover{background:#DCEAF4}
 </style></head><body><div class="wrap">
 <!-- ЗАГОЛОВОК И ЛИД УБРАНЫ (владелец 01.09): они повторяли то, что теперь говорит блок
      сертификата, и отодвигали паспорт квартиры вниз. Первым идёт сама квартира. -->
@@ -684,6 +687,10 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
   <div class="fh-acts">
     <button class="btn round" id="pcMort">Выбрать условия ипотеки или рассрочки</button>
     <button class="btn cta round" id="pcCons">Получить консультацию</button>
+    <!-- ВХОД В 3D-КОНФИГУРАТОР (28.09, план apartment-3d-configurator): отсюда покупатель
+         ходит по квартире и собирает отделку сам. Отдельная страница на общем стеке сайта,
+         демо остаётся как есть. -->
+    <a class="btn round fh-3d" href="/flat" id="pc3d">Пройтись по квартире в 3D →</a>
   </div>
 </div>
 
