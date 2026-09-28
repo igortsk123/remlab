@@ -12,7 +12,7 @@ import runtimeJson from "@/data/flat3d/runtime-meshes.json";
 
 /** Галерея исходников (тяжёлые GLB конвейера мешей) — фолбэк, если runtime-копии нет. */
 export const MESH_BASE = process.env.NEXT_PUBLIC_FLAT3D_MESH_BASE ?? "/test/mesh-pilot10/";
-/** Лёгкие runtime-копии: отдельный immutable-маршрут (ADR-0211). */
+/** Лёгкие runtime-копии: отдельный immutable-маршрут (ADR-0212). */
 export const RUNTIME_BASE = process.env.NEXT_PUBLIC_FLAT3D_RT_BASE ?? "/rt/";
 
 const runtimeMeshes = (runtimeJson as { meshes?: Record<string, { size?: number; "size-lite"?: number }> }).meshes ?? {};

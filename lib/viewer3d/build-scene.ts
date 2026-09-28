@@ -49,7 +49,7 @@ export type ObjectSpec =
       vanityMaterialId?: string;
     }
   | {
-      kind: "bed" | "wardrobe";
+      kind: "bed" | "wardrobe" | "rug";
       slotId: string;
       roomId: string;
       titleRu: string;
@@ -74,7 +74,12 @@ export function surfacesByRoom(scene: ResolvedScene): Map<string, RoomSurfaces> 
  * техника (appliances) и материалы столешницы/фартука — это разные покупки у застройщика,
  * но одна вещь в комнате.
  */
-export function planObjects(a: Apartment, _c: Catalogue, scene: ResolvedScene): ObjectSpec[] {
+export function planObjects(
+  a: Apartment,
+  _c: Catalogue,
+  scene: ResolvedScene,
+  opts: { lite?: boolean } = {},
+): ObjectSpec[] {
   const surfaces = surfacesByRoom(scene);
   const out: ObjectSpec[] = [];
   const kitchenByRoom = new Map<string, ObjectSpec>();
@@ -91,7 +96,7 @@ export function planObjects(a: Apartment, _c: Catalogue, scene: ResolvedScene): 
         roomId: item.roomId,
         titleRu: item.titleRu,
         meshId: asset.meshId,
-        url: meshUrl(asset.meshId, asset.runtimeUrl),
+        url: meshUrl(asset.meshId, asset.runtimeUrl, opts.lite === true),
         yawDeg: asset.yawDeg,
         placement: item.placement,
       });
@@ -141,7 +146,7 @@ export function planObjects(a: Apartment, _c: Catalogue, scene: ResolvedScene): 
     }
 
     out.push({
-      kind: asset.kit === "bed" ? "bed" : "wardrobe",
+      kind: asset.kit === "bed" ? "bed" : asset.kit === "rug" ? "rug" : "wardrobe",
       slotId: item.slotId,
       roomId: item.roomId,
       titleRu: item.titleRu,

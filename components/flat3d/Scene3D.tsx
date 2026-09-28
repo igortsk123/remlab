@@ -27,10 +27,14 @@ export interface Scene3DProps {
   onRoomChange: (roomId: string | null) => void;
   onReady?: () => void;
   hintText: string;
+  loadingText: string;
+  noWebglText: string;
+  retryText: string;
 }
 
 export function Scene3D(props: Scene3DProps): React.ReactElement {
-  const { apartment, catalogue, scene, lite, roomId, onPickSlot, onRoomChange, onReady, hintText } = props;
+  const { apartment, catalogue, scene, lite, roomId, onPickSlot, onRoomChange, onReady } = props;
+  const { hintText, loadingText, noWebglText, retryText } = props;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewerRef = useRef<FlatViewer | null>(null);
   const dragRef = useRef<{ x: number; y: number; moved: number; id: number } | null>(null);
@@ -38,6 +42,7 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [hintDone, setHintDone] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const t = setTimeout(() => setHintDone(true), 7000);
@@ -68,7 +73,10 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
         setReady(true);
         onReady?.();
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : String(e));
+          setReady(false);
+        }
       }
     })();
 
@@ -78,8 +86,8 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
       viewerRef.current = null;
       setReady(false);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- пересоздаём сцену только при смене качества
-  }, [lite, apartment, catalogue]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- пересоздаём сцену при смене качества и по кнопке «повторить»
+  }, [lite, apartment, catalogue, attempt]);
 
   // конфигурация изменилась — обновляем коробку и предметы
   useEffect(() => {
@@ -181,12 +189,34 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
         aria-label="3D-вид квартиры"
         role="img"
       />
+      {/* СОСТОЯНИЯ ЭКРАНА (правило ui-rules): загрузка, отказ WebGL с повтором, готово. */}
+      {!ready && !error ? (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl bg-secondary">
+          <p className="rounded-lg bg-primary px-4 py-2 text-sm text-secondary ring-1 ring-inset ring-secondary">
+            {loadingText}
+          </p>
+        </div>
+      ) : null}
+
+      {error ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-xl bg-secondary p-4 text-center">
+          <p className="max-w-sm text-sm text-secondary">{noWebglText}</p>
+          <button
+            type="button"
+            onClick={() => setAttempt((n) => n + 1)}
+            className="min-h-11 rounded-lg bg-brand-solid px-4 text-sm font-semibold text-white"
+          >
+            {retryText}
+          </button>
+        </div>
+      ) : null}
+
       {/* подсказка уходит через 7 секунд: на телефоне она закрывает треть комнаты */}
       <p
-        hidden={!error && hintDone}
+        hidden={Boolean(error) || hintDone || !ready}
         className="pointer-events-none absolute inset-x-3 bottom-3 rounded-lg bg-primary/90 px-3 py-2 text-center text-xs text-secondary ring-1 ring-inset ring-secondary"
       >
-        {error ? error : hintText}
+        {hintText}
       </p>
     </div>
   );

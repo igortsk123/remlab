@@ -1,4 +1,4 @@
-// Каталог опций застройщика и выбор покупателя (план apartment-3d-configurator, ADR-0210).
+// Каталог опций застройщика и выбор покупателя (план apartment-3d-configurator, ADR-0211).
 //
 // Разделение намеренное: КВАРТИРА (`contracts/apartment.ts`) знает геометрию и слоты,
 // КАТАЛОГ знает, что в эти слоты можно поставить, а КОНФИГУРАЦИЯ — только выбор
@@ -38,7 +38,7 @@ export type Material = z.infer<typeof material>;
 /** Параметрический комплект: кухня/санузел/кровать/шкаф собираются кодом, а не мешем. */
 export const kitAsset = z.object({
   kind: z.literal("kit"),
-  kit: z.enum(["kitchen", "bathroom", "bed", "wardrobe"]),
+  kit: z.enum(["kitchen", "bathroom", "bed", "wardrobe", "rug"]),
   /** Уровень исполнения — им кит решает, что показать (например, встроенную технику). */
   level: z.enum(["base", "practical", "comfort", "premium"]).default("base"),
   materials: z.record(z.string(), z.string()).default({}), // слот кита → id материала

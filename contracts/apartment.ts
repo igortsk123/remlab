@@ -1,4 +1,4 @@
-// Геометрия квартиры для 3D-конфигуратора (план apartment-3d-configurator, ADR-0210).
+// Геометрия квартиры для 3D-конфигуратора (план apartment-3d-configurator, ADR-0211).
 //
 // КАНОН КООРДИНАТ — тот же, что у планировщика и серверного рендера
 // (`services/planner-solver/planner/models.py:1-8`, `tools/scout/scene_mesh.py:61-83`):

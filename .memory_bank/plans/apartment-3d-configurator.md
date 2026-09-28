@@ -45,20 +45,20 @@ https://remont-lab.online/demo/ — вход в 3D должен быть отт�
    мебели, мёртвый `applyKit()`, советчик за `HINTS_ON=false`.
 
 ## Решения (→ ADR)
-- **ADR-0209 Стек рантайма 3D:** Three.js остаётся; **Vite НЕ вводим** — сборка Next.js 15 одна на
+- **ADR-0210 Стек рантайма 3D:** Three.js остаётся; **Vite НЕ вводим** — сборка Next.js 15 одна на
   проект (`output: standalone`, докер, CI); r3f не берём (сцена нужна императивным тестируемым
   слоем). WebGL2 — дефолт three. Babylon.js — нет.
-- **ADR-0210 Единая модель:** apartment → rooms → surfaces/slots → configurable items; каталог
+- **ADR-0211 Единая модель:** apartment → rooms → surfaces/slots → configurable items; каталог
   опций отдельно; `Configuration` = только выбор (slotId → optionId). Три режима (3D, top-down,
   photo) — адаптеры над одним `resolveConfiguration()`.
-- **ADR-0211 Два класса ассетов:** source GLB (тяжёлый, конвейер мешей) ≠ runtime GLB
+- **ADR-0212 Три класса ассетов:** source GLB (тяжёлый, конвейер мешей) ≠ runtime GLB
   (Meshopt + KTX2/уменьшенные текстуры, цель ≤ 500 КБ) ≠ фото-ассет (серверный рендер).
   Runtime-ассеты отдаются с НОВОГО immutable-маршрута `/rt/*` (по образцу `/test/mesh-audit/*`),
   потому что `/test/*` = `no-store`.
-- **ADR-0212 Встроенное — параметрический kit-of-parts в TS** (кухня, техника, санузел, кровать,
+- **ADR-0213 Встроенное — параметрический kit-of-parts в TS** (кухня, техника, санузел, кровать,
   шкаф): мешей на это нет и не будет скоро, а варианты = материалы/уровень техники. Байты ~0,
   переключение мгновенное, тот же код позже даёт Sims-редактор.
-- **ADR-0213 Материалы из фото:** pipeline фото → перспектива → cleanup → tileable → цвет →
+- **ADR-0214 Сохранение подбора без ПДн:** pipeline фото → перспектива → cleanup → tileable → цвет →
   normal/roughness/AO → runtime-текстуры + preview + `material.json` с физическим размером
   плитки. MVP — semi-manual CLI; где фото нет, тот же CLI генерирует процедурный образец.
 
@@ -112,7 +112,7 @@ https://remont-lab.online/demo/ — вход в 3D должен быть отт�
 
 ## Definition of Done — память (без этого `completed` запрещён)
 - [ ] `core/apartment-configurator.md` заведён и виден в decision tree INDEX
-- [ ] ADR-0209…0213 — тексты в `decisions/adr-0201-0250.md` + строки в индекс
+- [ ] ADR-0210…0214 — тексты в `decisions/adr-0201-0250.md` + строки в индекс
 - [ ] `project-state.md` — снимок обновлён
 - [ ] «Уроки» заполнены; `/memory-check` чисто
 

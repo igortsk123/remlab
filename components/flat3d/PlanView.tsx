@@ -48,8 +48,8 @@ export function PlanView({ apartment, scene, activeRoomId, selectedSlotId, onRoo
                 y={room.y}
                 width={room.w}
                 height={room.d}
-                fill={floor?.material.colorHex ?? "#efece7"}
-                stroke={active ? "var(--color-brand-solid, #b4552f)" : "#8a8f89"}
+                fill={floor?.material.colorHex ?? "var(--color-bg-secondary)"}
+                stroke={active ? "var(--color-bg-brand-solid)" : "var(--color-border-secondary)"}
                 strokeWidth={active ? 7 : 3}
               />
               <text
@@ -57,7 +57,7 @@ export function PlanView({ apartment, scene, activeRoomId, selectedSlotId, onRoo
                 y={room.y + 26}
                 textAnchor="middle"
                 fontSize={22}
-                fill="#3d423c"
+                fill="var(--color-text-primary)"
                 style={{ pointerEvents: "none" }}
               >
                 {lang === "en" ? room.titleEn : room.titleRu}
@@ -67,7 +67,7 @@ export function PlanView({ apartment, scene, activeRoomId, selectedSlotId, onRoo
                 y={room.y + 50}
                 textAnchor="middle"
                 fontSize={18}
-                fill="#6b716a"
+                fill="var(--color-text-tertiary)"
                 style={{ pointerEvents: "none" }}
               >
                 {((room.w * room.d) / 10000).toFixed(1)} м²
@@ -80,7 +80,7 @@ export function PlanView({ apartment, scene, activeRoomId, selectedSlotId, onRoo
         {apartment.rooms.flatMap((room) =>
           room.openings.map((o, i) => {
             const t = 8;
-            const fill = o.kind === "window" ? "#9fc6e0" : "#ffffff";
+            const fill = o.kind === "window" ? "var(--color-bg-brand-secondary)" : "var(--color-bg-primary)";
             const key = `${room.id}-${i}`;
             if (o.wall === "south" || o.wall === "north") {
               const y = o.wall === "south" ? room.y - t / 2 : room.y + room.d - t / 2;
@@ -110,13 +110,13 @@ export function PlanView({ apartment, scene, activeRoomId, selectedSlotId, onRoo
                 width={p.wCm}
                 height={p.dCm}
                 rx={6}
-                fill={selected ? "#c9dcc4" : "#ffffff"}
+                fill={selected ? "var(--color-bg-brand-primary)" : "var(--color-bg-primary)"}
                 fillOpacity={0.92}
-                stroke={selected ? "#4d7c4a" : "#7c817b"}
+                stroke={selected ? "var(--color-bg-brand-solid)" : "var(--color-border-secondary)"}
                 strokeWidth={selected ? 5 : 2.5}
               />
               {/* метка «лицо»: короткая черта у передней грани (перёд смотрит в +y) */}
-              <line x1={-p.wCm / 4} y1={p.dCm / 2 - 4} x2={p.wCm / 4} y2={p.dCm / 2 - 4} stroke="#7c817b" strokeWidth={4} />
+              <line x1={-p.wCm / 4} y1={p.dCm / 2 - 4} x2={p.wCm / 4} y2={p.dCm / 2 - 4} stroke="var(--color-border-secondary)" strokeWidth={4} />
             </g>
           );
         })}

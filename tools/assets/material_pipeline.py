@@ -15,7 +15,7 @@
     ~/venvs/scout/bin/python tools/assets/material_pipeline.py photo --src sample.jpg \
         --corners 120,80 980,60 1010,760 90,790 --real-cm 60x60 --id lvt-grey --out public/flat3d/materials
 
-Решения (ADR-0213): выход — WebP (нет toktx/basisu на машине; KTX2 включается флагом --ktx2,
+Решения (ADR-0212, класс runtime-ассетов): выход — WebP (нет toktx/basisu на машине; KTX2 включается флагом --ktx2,
 когда бинарь появится), размер тайла 1024², превью 256². Физический размер обязателен.
 """
 from __future__ import annotations

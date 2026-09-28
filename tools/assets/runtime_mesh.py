@@ -263,7 +263,7 @@ def main() -> int:
             entry = manifest.get(mid, {})
             entry[f"size{a.suffix or ''}"] = size
             entry["source_bytes"] = len(src)
-            entry["texture_px"] = stats["px"]
+            entry[f"texture_px{a.suffix or ''}"] = stats["px"]
             entry["triangles"] = stats["triangles"]
             entry["packed"] = packed
             manifest[mid] = entry

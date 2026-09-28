@@ -2,7 +2,7 @@
 //
 // Это единственный файл, который знает про WebGL. UI (React) им ТОЛЬКО управляет: даёт
 // разрешённую конфигурацию и команды («в эту комнату», «выдели этот слот»), получает события.
-// Императивный класс выбран сознательно (ADR-0209): его можно завести в тесте и в любой
+// Императивный класс выбран сознательно (ADR-0210): его можно завести в тесте и в любой
 // обёртке, он не завязан на реконсилер React.
 //
 // Размер файла оправдан: это движок одной сцены, дробить его на «компоненты по 100 строк»
@@ -18,7 +18,7 @@ import type { ResolvedScene } from "@/lib/configurator/resolve";
 import { type ObjectSpec, planObjects, surfacesByRoom } from "@/lib/viewer3d/build-scene";
 import { buildKitchen } from "@/lib/viewer3d/kits/kitchen";
 import { buildBathroom } from "@/lib/viewer3d/kits/bathroom";
-import { buildBed, buildWardrobe } from "@/lib/viewer3d/kits/bedroom";
+import { buildBed, buildRug, buildWardrobe } from "@/lib/viewer3d/kits/bedroom";
 import type { KitCtx } from "@/lib/viewer3d/kits/common";
 import { createMaterialCtx, disposeMaterialCtx, type MaterialCtx } from "@/lib/viewer3d/materials";
 import { MeshLibrary, disposeObject, placeMesh, stubBox } from "@/lib/viewer3d/meshes";
@@ -220,7 +220,8 @@ export class FlatViewer {
    */
   async syncObjects(resolved: ResolvedScene): Promise<void> {
     this.lastScene = resolved;
-    const all = planObjects(this.apartment, this.catalogue, resolved);
+    const lite = this.quality.name === "lite";
+    const all = planObjects(this.apartment, this.catalogue, resolved, { lite });
     const order = this.roomOrder();
     const allowedRooms = new Set(
       this.quality.preloadRooms > 0 ? order.slice(0, this.quality.preloadRooms + 1) : order.slice(0, 1),
@@ -330,6 +331,13 @@ export class FlatViewer {
         widthCm: p.wCm,
         depthCm: p.dCm,
         vanityMaterialId: spec.vanityMaterialId,
+      });
+    } else if (spec.kind === "rug") {
+      group = buildRug(this.kitCtx, {
+        materialId: spec.materialId,
+        widthCm: p.wCm,
+        depthCm: p.dCm,
+        pile: spec.features.includes("soft") ? "soft" : "flat",
       });
     } else if (spec.kind === "bed") {
       group = buildBed(this.kitCtx, {

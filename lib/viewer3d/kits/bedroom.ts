@@ -93,3 +93,30 @@ export function buildWardrobe(ctx: KitCtx, spec: WardrobeSpec): THREE.Group {
   if (has("internals")) g.add(boxOn(W - 10, 2, D - 8, 0, H * 0.55, -1, GLASS));
   return g;
 }
+
+export interface RugSpec {
+  materialId?: string;
+  widthCm: number;
+  depthCm: number;
+  pile: "flat" | "soft";
+}
+
+/**
+ * Ковёр — намеренно ПРОСТАЯ геометрия плюс текстура (требование ТЗ для почти плоских вещей):
+ * полноценный меш ворса не нужен, а плита 1,5–3 см с честным размером повтора читается верно
+ * и весит ноль. Кайма чуть темнее — без неё ковёр сливается с полом.
+ */
+export function buildRug(ctx: KitCtx, spec: RugSpec): THREE.Group {
+  const g = new THREE.Group();
+  const h = spec.pile === "soft" ? 3 : 1.5;
+  const body = mat(ctx, spec.materialId, [spec.widthCm, spec.depthCm]);
+  g.add(boxOn(spec.widthCm, h, spec.depthCm, 0, 0, 0, body));
+  const edge = new THREE.Mesh(
+    new THREE.BoxGeometry(spec.widthCm * 0.01, 0.004, spec.depthCm * 0.01),
+    new THREE.MeshStandardMaterial({ color: 0x8d8a83, roughness: 1 }),
+  );
+  edge.position.set(0, h * 0.01 + 0.002, 0);
+  edge.scale.set(1.01, 1, 1.01);
+  g.add(edge);
+  return g;
+}

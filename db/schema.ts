@@ -285,7 +285,7 @@ export const meshAuditBatches = pgTable(
   (t) => [index("mesh_audit_batches_status_idx").on(t.status)],
 );
 
-// ── 3D-конфигуратор квартиры (план apartment-3d-configurator, ADR-0210) ─────────────────
+// ── 3D-конфигуратор квартиры (план apartment-3d-configurator, ADR-0214) ─────────────────
 // Сохранённый подбор покупателя: выбор + снимок цены. Контакт отдельным полем и наружу не
 // отдаётся (разбор Codex 28.09) — публичная ссылка показывает только конфигурацию и цену.
 export const flatConfigs = pgTable(

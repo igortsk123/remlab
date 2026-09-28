@@ -22,7 +22,9 @@ review_after: 2026-12-05
   (`docker-compose.yml`, сеть `remlab-net`, лимиты ADR-0004). Вне compose `draft:8099`
   (DEV-рендер демо) — Caddy проксирует `/api/{draft,warm,render,job,share}*`.
 - Статика: `/test/*` → `./test`, `/demo` → `./demo` (ADR-0201), `/test/mesh-audit/*` — immutable
-  (ADR-0194); `/lab/*` — Next. Маршрут без парного `redir /x /x/` = 404 без слэша.
+  (ADR-0194); `/rt/*` → `./test/rt` — модели 3D-конфигуратора, immutable неделя (ADR-0212),
+  выкладывает `tools/assets/publish_rt.sh` (деплой их НЕ возит); `/lab/*` — Next.
+  Маршрут без парного `redir /x /x/` = 404 без слэша.
 - **Caddyfile деплой НЕ синхронизирует** — руками: бэкап → ⚠ `diff` с сервером (он НОВЕЕ репо:
   `log`, `@nextrce`) → `validate` → `reload`. **Один сервис — только `up -d --no-deps`**: иначе
   `app` пересоздаётся на дефолтном образе и прод откатывается (ADR-0202; образ — в `.env`).

@@ -120,6 +120,9 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: 
               onPickSlot={onPickSlot}
               onRoomChange={(id) => id && setRoomId(id)}
               hintText={mobile ? L.walkHintMobile : L.walkHint}
+              loadingText={L.loading}
+              noWebglText={L.noWebgl}
+              retryText={lang === "en" ? "Try again" : "Повторить"}
             />
           ) : mode === "photo" ? (
             <div className="flex h-full flex-col gap-2">
