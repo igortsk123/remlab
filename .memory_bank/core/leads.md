@@ -3,12 +3,12 @@ tier: 1
 topic: leads
 scope: Лид-канал — заявка, TG-бот
 tier2: ""
-updated: 2026-08-28
+updated: 2026-09-28
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-09-05
+last_verified: 2026-09-28
 review_after: 2026-12-05
 ---
 
@@ -38,3 +38,9 @@ review_after: 2026-12-05
 Без токенов всё деградирует (заявки пишутся, карточки/ответы — нет). ПДн — TODO (юрист).
 
 > Сверено 2026-08-28: изменений в лид-канале нет; новое — очередь отправки подборок демо (`/opt/remlab/test/share/_queue`) ждёт те же токены ботов (`LEADS_CLIENT_TG_TOKEN`, MAX).
+
+> Сверено с кодом 2026-09-28 (все утверждения выше подтвердились). Две поправки к «Активации»:
+> нужны ещё `NEXT_PUBLIC_TELEGRAM_BOT` и `NEXT_PUBLIC_MAX_BOT` (`components/calc/LeadModal.tsx:17-18`) —
+> без них кнопки «Подписаться» не отрисуются даже с валидными токенами ботов; а `LEADS_MAX_TOKEN`
+> не читает НИ ОДИН файл кода (`app/api/leads/max/route.ts` — скелет `{ok:true}`), т.е. сам по себе
+> канал MAX не включает.

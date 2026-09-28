@@ -3,7 +3,7 @@ tier: 1
 topic: project-state
 scope: Снимок «где проект сейчас» — точка ресинхронизации при /clear и resume
 tier2: "changelog/project-history.md"
-updated: 2026-09-05
+updated: 2026-09-28
 importance: high
 source: manual
 status: working
@@ -24,18 +24,21 @@ review_after: 2026-10-05
 меняется; после выхода — возврат к М2–М4. Портфель — `plans/MASTER-cost-first.md`; треки —
 `MASTER-interactive-planner` (демо), `MASTER-zones-v7` (расстановка, на паузе с 19.08).
 Открытые планы — `plans/README.md` § «Сейчас в работе».
+**28.09 в работе (draft, ждут «деплой»):** `demo-en-gbp` — демо на английском (переключатель
+RU/EN, тестовые товары, цены в фунтах по курсу 1 £ = 112 ₽); `test-to-work` — служебный хаб
+отчётов переезжает с `/test/` на `/work/`, отложен владельцем. Ссылка для людей — `/demo`.
 
 ## В проде (remont-lab.online)
 - **Ядро сметы v0.4 (М1–М3 построены 11.07):** калькуляторы `/calc/{oboi,plitka,kraska,laminat}`,
   вход Б `/calc/remont`, чек-лист `/e/[id]`, реф-редирект `/go/`, `/lab` — [[estimate]].
 - **Реклама:** Директ, автопилот в режиме DRY-RUN (`advertising/autopilot.md`); кампании —
-  `advertising/campaign_state.md` (снимок 11.07, сверить к 15.09). Трейсинг, PostHog, Метрика —
+  `advertising/campaign_state.md` (снимок 11.07, сверить к 15.12). Трейсинг, PostHog, Метрика —
   [[observability-tracing]].
 - **Демо-планировщик для партнёра** `/demo` (ADR-0201): план → расстановка → кадр scene3d из мешей
   без GPT (полное качество рендерит DEV через ssh-туннель, ADR-0139) → заявка — [[demo-planner]].
 - **Каталог** (дев-БД, утренний крон): фид = истина полей, API Гдеслона = комиссия (ADR-0171);
   честность наличия/размеров (ADR-0186), недельная проверка (ADR-0147), дайджест в Telegram —
-  [[catalog]], [[stock-and-dims]]. Отчёты — хаб `/test/`.
+  [[catalog]], [[stock-and-dims]]. Отчёты — хаб `/test/` (адрес БЕЗ слэша = 404, см. `deployment.md`).
 - **Деплой:** GitHub Actions + `deploy.sh`; 05.09 починен автодеплой — прод-схема `db/init`
   отделена от каталожной `tools/scout/NNN` (ADR-0179), авто-откат снова работает — `deployment.md`.
 

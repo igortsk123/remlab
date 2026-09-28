@@ -3,7 +3,7 @@ tier: 1
 topic: layout
 scope: Расстановка: правила, зоны, прод-ядро
 tier2: ../domain/occupancy-rules.md
-updated: 2026-08-26
+updated: 2026-09-28
 importance: high
 source: manual
 status: working
@@ -14,6 +14,8 @@ review_after: 2026-12-05
 
 **Правила**: `../domain/occupancy-rules.md` → `services/planner-solver/rules/occupancy.json`.
 **Прод-ядро** (ADR-0052): Python+shapely, БЕЗ ML; детерминизм (`archive/plans/layout-engine-gaps.md`).
+«Без ML» — про ДЕФОЛТ (`LAYOUT_ENGINE=zoned`, `tools/scout/solver_run.py:851`); рядом лежит
+опциональный LLM-движок `planner/llm_planner.py`, включаемый `LAYOUT_ENGINE=llm` (`solver_run.py:632`).
 
 **Зонный — боевой дефолт (ADR-0074…0078):** `services/planner-solver/planner/zones.py`.
 **Шаблоны/модификаторы (ADR-0088…0094):** паспорт+инварианты
