@@ -2,10 +2,14 @@
 workstream: catalog
 slug: stock-truth-page-verdict
 title: Наличие товара — один вычислитель, свидетельство сильнее фида
-status: in_progress
+status: partial
 created: 2026-08-31
-updated: 2026-08-31
+updated: 2026-09-28
 completed:
+archived: 2026-09-28
+archived_by: memory-kit-v19-migration
+archive_reason: absorbed — код сделан 31.08 (003-stock-truth.sql, page_alive.py, stock_truth.py, stock_check.py; resurrect.py удалён); правило снятия переопределено ADR-0147/0148, честность каталога — ADR-0186
+superseded_by: ADR-0147, ADR-0148, ADR-0186
 ---
 
 ## Цель
@@ -179,3 +183,8 @@ in_stock = feed_status = 'active'                     -- есть в свеже�
 ## Follow-up work
 - [ ] Проверка живости карточки перед показом сета пользователю (сейчас — только пакетно).
 - [ ] Канареечные карточки на магазин для раннего детекта антибота.
+
+## Триаж 2026-09-28 (переход кита памяти 1.7 → 1.9)
+Поглощён. Код плана в репо (`tools/scout/stock_truth.py`, `page_alive.py`, `stock_check.py`, `003-stock-truth.sql`),
+но правило «одно отрицательное наблюдение не снимает товар» заменено 01.09 на «снимаем с первого отказа, ошибку
+чинит воскрешение» (ADR-0148, план `stock-check-weekly-unified`). Актуальное — ADR-0147/0148/0186, `core/catalog.md`.

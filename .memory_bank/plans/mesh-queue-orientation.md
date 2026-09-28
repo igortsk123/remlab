@@ -2,10 +2,13 @@
 workstream: viz / 3D-ассеты
 slug: mesh-queue-orientation
 title: Конвейер «отбор → меши → ориентация → сеты»: автоочередь, правило мешей в сетах, каскад фронта, страница人-проверки
-status: in_progress
+status: partial
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-09-28
 completed:
+review_after: 2026-10-28
+pause_reason: код сделан 28.08; осталось по данным: вердикты владельца по задачам /lab/mesh-review, фронт-каскад на Salad-меши, фазы B–D правила сетов
+resume_trigger: владелец разобрал задачи /lab/mesh-review или решил включить фазу B по coverage
 ---
 
 ## Цель
@@ -141,3 +144,12 @@ Resolution в R2 (`analysis/orientation/<contract>/resolution/`): asset id, GLB 
       манифеста при первом приёме.
 - [ ] Вердикты владельца по первым 8 задачам → замер доли review («десятки, не сотни»).
 - [ ] Фазы B–D правила сетов — включает владелец по цифрам coverage.
+
+## Триаж 2026-09-28 (переход кита памяти 1.7 → 1.9)
+Сюда слиты `orient-v2` и `viz-mesh-orientation` (оба — в `archive/plans/`). Открытое по трём планам:
+- Здесь: Salad-меши → фронт-каскад; вердикты владельца по задачам → доля review; фазы B–D правила сетов.
+- Из `orient-v2`: upright-фикс (ваза-регресс), gold-set ≥300 кликов владельца, DINO shadow + кэш, бенч с отчётом
+  владельцу, ярус на ноде Salad; граница 180°-ошибки ≤1% среди CONFIDENT.
+- Из `viz-mesh-orientation`: инвалидация манифеста по hash фото и версии алгоритма; обратимый
+  `canonical_transform` рядом с raw GLB; золотой сет спорных ролей (качалка, угловой диван, банкетка) и гейт
+  silent_wrong_front=0; `orient_selftest` в CI и теневой сцен-QA; `facing_target` в payload рендера демо.

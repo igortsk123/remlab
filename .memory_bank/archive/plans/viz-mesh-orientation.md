@@ -2,10 +2,14 @@
 workstream: visualization
 slug: viz-mesh-orientation
 title: Система ориентаций и приёмки 3D-мешей — масштабирование «правильных поворотов» на каталог
-status: in_progress
+status: partial
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-09-28
 completed:
+archived: 2026-09-28
+archived_by: memory-kit-v19-migration
+archive_reason: merged — три плана ориентации мешей сведены в один; открытое перенесено в plans/mesh-queue-orientation.md (раздел «Триаж 2026-09-28»)
+superseded_by: plans/mesh-queue-orientation.md
 ---
 
 ## Цель
@@ -188,3 +192,7 @@ completed:
   legacy `front_yaw=θ` ↔ `raw_to_canonical=ry(−θ)`, рендер применяет ровно одно из двух.
 - Масштаб: 30k на DEV-VM нерационально (~500 ч) → перенос на Salad (там уже наш Hunyuan);
   лицензия GPL-3.0 — внутреннее использование ок, распространение контейнера — юр. проверка (TODO).
+
+## Триаж 2026-09-28 (переход кита памяти 1.7 → 1.9)
+Слит в `plans/mesh-queue-orientation.md`: три плана ориентации мешей вели одну тему. Открытые пункты viz-mesh-orientation (приёмка меша, калибровка фронта, конвенция сцены)
+перенесены туда списком; сделанное — в коммитах плана и `core/mesh-pipeline.md`.

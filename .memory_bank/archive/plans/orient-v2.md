@@ -2,11 +2,15 @@
 workstream: mesh-pipeline
 slug: orient-v2
 title: Ориентация мешей v2 — единый контур upright+front, DINO shadow, gold-бенч
-status: in_progress
+status: partial
 created: 2026-08-31
-updated: 2026-08-31
+updated: 2026-09-28
 completed:
 source: external:советник-владельца(GPT) + Codex-ревью (_intake/codex/orient-v2.answer.md)
+archived: 2026-09-28
+archived_by: memory-kit-v19-migration
+archive_reason: merged — три плана ориентации мешей сведены в один; открытое перенесено в plans/mesh-queue-orientation.md (раздел «Триаж 2026-09-28»)
+superseded_by: plans/mesh-queue-orientation.md
 ---
 
 ## Цель
@@ -73,3 +77,7 @@ mesh→canonical без эталонов) · CanoVerse (320k, база fine-tune
 
 ## Уроки
 - (заполнять по ходу)
+
+## Триаж 2026-09-28 (переход кита памяти 1.7 → 1.9)
+Слит в `plans/mesh-queue-orientation.md`: три плана ориентации мешей вели одну тему. Открытые пункты orient-v2 (единый контур upright+front, DINO shadow, gold-бенч)
+перенесены туда списком; сделанное — в коммитах плана и `core/mesh-pipeline.md`.
