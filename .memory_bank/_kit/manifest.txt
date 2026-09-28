@@ -1,18 +1,33 @@
-d25b29568b92895eb1aeaab059291719 tools/memory-audit.mjs
-766169018554f90576a8c27b19ca214b tools/merge-settings.py
-2293ec265856ef0da441755e5230729d tools/merge-settings.ps1
-6dff104499950a3326f15833524a5057 tools/session-reminder.mjs
+35240e49dfdd8c2c79b19a4c8eed500b tools/memory-audit.mjs
+d98cf82a6df2f3d273a0f98236eac755 tools/code-touch-hint.mjs
+b75213842a5ad628b265be9bfb41ef1d tools/memory-health.mjs
+330624ddaa2589fbbb75936732903968 tools/merge-settings.py
+327b8f7ff25ba66cbd341711b971858f tools/merge-settings.ps1
+ae58e443113e3b8b344de957a1fdec68 tools/session-reminder.mjs
 9707030eea488874c898b08916f0b5a6 tools/session-freshness.mjs
 f2c5c5e21bf6fcf32128301d93326d31 tools/precompact-guard.mjs
 cc97ebdb9c40c5eec6f2fa337510a772 tools/read-logger.mjs
 880afd8987735fe75fe632a33fe23ea1 tools/metrics-append.sh
-aa9669953511ef85c531843834be89b2 tools/stop-hook.example.json
-1ab668581ff9d90dab027b14d583db72 .claude/agents/verify.md
+919b494dc881a931710f9ae679be0a59 tools/stop-hook.example.json
+3ad5eed76cab238001c48d6b46306703 .claude/agents/verify.md
 024414889b828ff4652fcac129fea2de .github/workflows/memory-audit.yml
 fdcc262c44651fc7d5bef16ba519cb4a .claude/skills/memory-init/SKILL.md
-5ef60ed50822648714f40a07e4bc6ee8 .claude/skills/memory-check/SKILL.md
-b55f7d1546a0064714851e4d07736bc5 .claude/skills/memory-cleanup/SKILL.md
-d8aca0af67c5610a5dc6f33bb15f2e5f .memory_bank/METADATA_SCHEMA.md
+df42aba154fb776b4cf4b73098936c3d .claude/skills/memory-check/SKILL.md
+0fdfd695f7bf73f286e9744afbf8d1ae .claude/skills/memory-cleanup/SKILL.md
+7049f949e4d37e9f9e1d75e145b79751 .memory_bank/METADATA_SCHEMA.md
 28bd45f6a2d4df4cb9da428eeaa9dcff .memory_bank/CLEANUP_POLICY.md
-6825a90f012385bf9381c8b288f536b8 .memory_bank/archive/README.md
+646f5268fe98101a7d01e72c1c258c9d .memory_bank/archive/README.md
+094cd72d57e20a577348d569075ec048 .memory_bank/decisions/README.md
 e20732998dbc6816872ce0bc2ad2f301 .memory_bank/_secrets/README.md
+owned 0f6b88d0103a69773b079c214f33ead4 .claude/rules/agent-workflow.md
+owned 706ed1ea2156a462330f899b8f166978 .claude/rules/memory-discipline.md
+owned 55eac7d21515f4c952414c9c3aa2c7f3 .claude/rules/code-standards.md
+owned 75c1819c37283658aee3cc1415d400a7 .claude/rules/ui-rules.md
+owned f259f842adafc386388a567bfb186814 .memory_bank/guides/agent-workflow.md
+owned 0d29f1b5dbc67b9106be1bd75d94b866 .memory_bank/guides/code-standards.md
+owned f06d1c6035fd4f45bf397cc4507468d4 .memory_bank/guides/how-to-write-rules.md
+owned ee9d4d2ba8202a297d456f7428571940 .memory_bank/guides/memory-automation.md
+owned 4a6693c5d7f7a7d7b1f0b05d2971a847 .memory_bank/guides/review-rules.md
+owned 8589ae0966f08cce55328c6857b81c88 .memory_bank/plans/_template.md
+owned 7e78f85efce9bca345a78af04ad8b4fa .memory_bank/plans/README.md
+owned 0a524e6705b00883b056d6a12b4fe75c .memory_bank/core/README.md

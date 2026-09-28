@@ -8,7 +8,8 @@ importance: high
 source: manual
 review_after: 2026-12-05
 status: working
-last_verified: 2026-09-28
+source_of_truth: supporting
+last_verified: 2026-09-05
 ---
 
 # Lessons — маршрутизатор

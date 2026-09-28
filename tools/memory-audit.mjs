@@ -19,7 +19,7 @@
 //   ORPHAN          content-док без frontmatter `topic` (невидим в навигации)
 //   STALE           Tier 1 сводка, чей tier2-док новее (Tier2.updated > Tier1.updated)
 //   BROKEN          указатели tier1/tier2 и [[ссылки]], которые не резолвятся; нет маркеров GENERATED
-//   LAGGING         Tier 1 док отстаёт от project-state.updated более чем на --stale-days (дрейф слоя)
+//   LAGGING         (v1.9: свежесть = более поздняя из updated и last_verified) Tier 1 док отстаёт от project-state.updated более чем на --stale-days (дрейф слоя)
 //   REVIEW          review_after в прошлом — пересмотреть актуальность
 //   UNVERIFIED      source_of_truth: canonical без last_verified
 //   LAST-VERIFIED-OLD (warning) last_verified старше --verified-max-days и review_after не задан
@@ -30,7 +30,10 @@
 //   DUP-TOPIC       два content-дока с одинаковым topic
 //   TIER1-BLOAT     Tier 1 сводка больше --tier1-max-kb (детали должны уйти в Tier 2)
 //   TIER0-BLOAT     CLAUDE.md (корень) + INDEX.md суммарно больше --tier0-max-kb
-//   PLAN-STUCK      план in_progress без движения дольше --plan-stale-days
+//   TIER0-RULES     (warning, v1.9) правила .claude/rules/*.md БЕЗ `paths:` грузятся в каждую сессию — их сумма больше
+//                   --tier0-rules-max-kb (20): реальный Tier 0 = CLAUDE.md + INDEX + эти правила (аудит 1.8 видел только первые два)
+//   PLAN-STUCK      план in_progress без движения дольше --plan-stale-days (мастер-план `plan_kind: portfolio_master|
+//                   track_master` с будущей review_after — не застрявший, v1.9)
 //   PLAN-MISPLACED  completed-план в plans/ или не-completed в completed_plans/
 //   BAD-FM          YAML-массив/вложенность в frontmatter (схема требует плоские строки)
 //   INDEX-REF       путь в ручной части INDEX.md указывает на несуществующий файл
@@ -40,26 +43,44 @@
 //   CODE-REF        backtick-путь к файлу кода в памяти не найден в дереве репозитория (память отстала от кода)
 //   CODE-DRIFT      (warning) код, на который док ссылается, изменён после last_verified/updated дока
 //                   более чем на --code-drift-days — утверждение про этот код никто не пересверял
+//                   (доки банка и правила .claude/rules/*; якоря `путь`, `путь:символ`, уникальное голое имя файла)
+//   NO-ANCHOR       (warning) сводка Tier 1 без единой ссылки на код — CODE-DRIFT её не видит
+//                   (исключения — `_kit/no-anchor-ignore.txt`: путь от корня банка или topic)
 //   FROZEN-MEMORY   код менялся в >N коммитах с момента последнего коммита в .memory_bank/ (замерзание памяти)
 //   RULES-FM        frontmatter правил .claude/rules/: Cursor-поля (alwaysApply/globs), inline-массив
 //                   или некавыченный глоб в paths — правило может МОЛЧА не загружаться
 //   MEM-INJECT      док с source: external:* содержит императивы к агенту / exec-паттерны —
 //                   ручное ревью (память как канал persistent prompt injection, OWASP ASI06)
-//   ADR-DUP         один номер ADR-NNNN в двух H2-записях (decisions.md + тома decisions/*.md) —
-//                   ссылки на решение неоднозначны (remlab: 7 дублей на 187 записей)
-//   ADR-IN-INDEX    (warning) есть тома decisions/adr-*.md, а в decisions.md (индексе) появилась запись `## ADR-`
+//   ADR-DUP         один номер решения в двух H2-записях (decisions.md + тома decisions/*.md) —
+//                   ссылки на решение неоднозначны (remlab: 7 дублей на 187 записей). Префикс номера —
+//                   `_kit/adr-prefix.txt` (по умолчанию `ADR-`; sup2/sib — `D`), сравнение численное
+//   ADR-AMBIGUOUS   (warning) в заголовке записи несколько номеров вне скобок — id не определён
+//                   (sup2: `## [дата] D60: … отменяет D2`); начни заголовок с номера, ссылки — в скобки
+//   ADR-IN-INDEX    (warning) есть тома decisions/<stem>-*.md, а в decisions.md (индексе) появилась запись `## <prefix>`
 //   ADR-NOT-INDEXED (warning) запись тома без строки с её номером в decisions.md
 //   ADR-INDEX-ORPHAN (warning) строка индекса есть, записи в томах нет
-//   ADR-RANGE       (warning) запись вне диапазона своего тома adr-NNNN-MMMM.md
+//   ADR-RANGE       (warning) запись вне диапазона своего тома <stem>-NNNN-MMMM.md
 //   DECISIONS-BLOAT (warning) decisions.md больше --decisions-max-kb — пора на индекс + тома
+//   DOC-FM          (warning) у content-дока нет обязательного базового поля схемы (tier/scope/updated/
+//                   importance/source) или оно пустое; `topic` ловит ORPHAN
+//   DOC-VOCAB       (warning) значение tier/importance/status/source_of_truth вне словаря METADATA_SCHEMA
+//                   (флот: `medium` ×13, `high|med|low` из шаблона ×12 — молча уходили в хвост дерева)
+//   DOC-DATE        (warning) дата (updated/last_verified/review_after; у планов created/updated/completed)
+//                   не в формате YYYY-MM-DD — невалидная дата молча выключает STALE/LAGGING/CODE-DRIFT
 //   PLAN-DRAFT-STALE (warning) draft без движения дольше --draft-stale-days и без будущего review_after
 //   PLAN-PARTIAL-NO-REASON (warning) partial без pause_reason — кладбище планов невидимо
 //   PLAN-STATUS     (warning) статус плана вне словаря (draft/in_progress/partial/completed/cancelled)
 //   PLAN-REVIEW-DUE (warning) review_after плана в прошлом (REVIEW кита планы не смотрит)
+//   PLAN-COMPLETED-NO-DATE (warning) completed-план без даты `completed:` (флот: 33 из 444)
+//   PLAN-CANCELLED-IN-PLANS (warning) cancelled лежит в plans/ — после уроков его место в archive/plans/
 //   CANON-INTAKE-REF (warning) canonical-док ссылается в теле на _intake/ — истина опирается на сырьё,
-//                   которое аудит не проверяет
+//                   которое аудит не проверяет. Allowlist — `_kit/intake-ref-ignore.txt`
 //   INTAKE-BLOAT    (warning) _intake/ больше --intake-max-mb — вход, не хранилище (remlab: 22 МБ логов)
 //   INTAKE-LOGS     (warning) *.log внутри _intake/ — логи прогонов не память
+//   KIT-NEW-PENDING (warning) в проекте лежит <файл>.kit-new — несведённый апгрейд кита (kit-owned конфликт
+//                   или изменённый эталон project-owned файла); сигнал живёт, пока файл не сведён
+//   KIT-CONFIG      (warning) project-owned конфиг `_kit/*.txt` не разобран (неизвестный флаг, не число,
+//                   плохой префикс) — строка пропущена, работают дефолты
 //
 // Использование:
 //   node tools/memory-audit.mjs [projectRoot]           (default: cwd; write-режим — регенерит блоки)
@@ -68,8 +89,14 @@
 //                  --tier0-max-kb N (8) · --plan-stale-days N (14) · --frozen-commits N (12)
 //                  --code-drift-days N (7) · --verified-max-days N (90)
 //                  --decisions-max-kb N (40) · --draft-stale-days N (30) · --intake-max-mb N (10)
+//   Те же флаги можно задать ОДИН раз для всех входов (CLI, CI, Stop, SessionStart) в project-owned
+//   файле `.memory_bank/_kit/audit-flags.txt` (одна строка в CLI-синтаксисе, `#` — комментарий);
+//   приоритет: дефолты < файл < флаги командной строки. Бюджеты размеров — в UTF-8-байтах: грубый
+//   переносимый прокси стоимости контекста (кириллица весит вдвое — так и задумано, не артефакт).
 //   --no-git: отключить git-проверки FROZEN-MEMORY и CODE-DRIFT (иначе включаются при наличии
 //             .git и git в PATH). --no-code-drift: отключить только CODE-DRIFT.
+//   --drift-report: ЭКСПЕРИМЕНТ (v1.9) — дрейф по предковости коммитов (коммит сверки дока → HEAD), отчёт и
+//             строка телеметрии в .memory_bank/changelog/drift-report.log; находки не добавляет.
 //   --metrics: доп. строка `METRICS ...` (footprint Tier0/корпус + счётчик находок по категориям) —
 //              для пассивного сбора эмпирики (tools/metrics-append.sh, CI-summary).
 //
@@ -104,6 +131,35 @@ const stripBom = (s) => (s.charCodeAt(0) === 0xfeff ? s.slice(1) : s);
 const readDoc = (f) => stripBom(readFileSync(f, "utf8"));
 const isPlaceholder = (v) => !v || PH_RE.test(v) || /^<.*>$/.test(v.trim()) || v === "";
 const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v || "");
+/** Все правила `.claude/rules/**\/*.md` (с подпапками — Claude Code грузит и их) → [{rel, full}], по алфавиту. */
+const listRuleFiles = (root) => {
+  const rulesDir = join(root, ".claude", "rules");
+  const out = [];
+  if (!existsSync(rulesDir)) return out;
+  (function walk(dir) {
+    for (const name of readdirSync(dir).sort()) {
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (name.endsWith(".md")) out.push({ full, rel: ".claude/rules/" + relative(rulesDir, full).split(sep).join("/") });
+    }
+  })(rulesDir);
+  return out;
+};
+/** Текст без блоков ``` / ~~~: в правилах там примеры команд и путей, а не утверждения о коде. */
+const stripFences = (s) => {
+  let fence = null;
+  return s
+    .split("\n")
+    .map((l) => {
+      const m = l.match(/^\s*(```|~~~)/);
+      if (m && (!fence || m[1] === fence)) {
+        fence = fence ? null : m[1];
+        return "";
+      }
+      return fence ? "" : l;
+    })
+    .join("\n");
+};
 
 export function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -188,37 +244,186 @@ function findNestedBanks(dir, depth, out, canon) {
   }
 }
 
+// ---------- пороги: один источник для всех входов (v1.8) ----------
+// CLI-флаг → ключ opts. Экспорт — для session-reminder (Stop) и любого другого входа: до v1.8 Stop знал
+// 6 порогов из 11, SessionStart и CI — ни одного, и проект с нестандартным бюджетом правил три
+// kit-owned файла (sup2: конфликт CI-флагов на каждом апгрейде).
+export const THRESHOLD_KEYS = {
+  "--stale-days": "staleDays",
+  "--ps-max-kb": "psMaxKb",
+  "--tier1-max-kb": "tier1MaxKb",
+  "--tier0-max-kb": "tier0MaxKb",
+  "--tier0-rules-max-kb": "tier0RulesMaxKb",
+  "--plan-stale-days": "planStaleDays",
+  "--frozen-commits": "frozenCommits",
+  "--code-drift-days": "codeDriftDays",
+  "--verified-max-days": "verifiedMaxDays",
+  "--decisions-max-kb": "decisionsMaxKb",
+  "--draft-stale-days": "draftStaleDays",
+  "--intake-max-mb": "intakeMaxMb",
+};
+export const DEFAULT_THRESHOLDS = {
+  staleDays: 30,
+  psMaxKb: 12,
+  tier1MaxKb: 3,
+  tier0MaxKb: 8,
+  tier0RulesMaxKb: 20,
+  planStaleDays: 14,
+  frozenCommits: 12,
+  codeDriftDays: 7,
+  verifiedMaxDays: 90,
+  decisionsMaxKb: 40,
+  draftStaleDays: 30,
+  intakeMaxMb: 10,
+};
+// .memory_bank/_kit/audit-flags.txt (project-owned): флаги в CLI-синтаксисе (`--tier1-max-kb 4
+// --stale-days 45`), `#` до конца строки — комментарий. Разрешены ТОЛЬКО числовые пороги: write/noGit/
+// today — поведение запуска, не бюджет проекта. Ошибка → KIT-CONFIG (warning), строка пропущена.
+export function readAuditFlags(mbDir) {
+  const res = { opts: {}, warnings: [] };
+  const f = join(mbDir, "_kit", "audit-flags.txt");
+  if (!existsSync(f)) return res;
+  const rel = "_kit/audit-flags.txt";
+  const toks = readDoc(f)
+    .split(/\r?\n/)
+    .map((l) => l.replace(/#.*$/, "").trim())
+    .filter(Boolean)
+    .join(" ")
+    .split(/\s+/)
+    .filter(Boolean); // файл из одних комментариев → нет токенов, не пустой «флаг»
+  for (let i = 0; i < toks.length; i++) {
+    const flag = toks[i];
+    const key = THRESHOLD_KEYS[flag];
+    const raw = toks[i + 1];
+    const hasValue = raw !== undefined && !raw.startsWith("--");
+    if (!key) {
+      res.warnings.push(`KIT-CONFIG ${rel} — '${flag}' не порог аудита (список — шапка tools/memory-audit.mjs) — пропущен`);
+      if (hasValue) i++;
+      continue;
+    }
+    const n = Number(raw);
+    if (!hasValue || !Number.isFinite(n) || n <= 0) {
+      res.warnings.push(`KIT-CONFIG ${rel} — у '${flag}' нет положительного числа (${hasValue ? raw : "—"}) — пропущен`);
+      if (hasValue) i++;
+      continue;
+    }
+    if (key in res.opts) res.warnings.push(`KIT-CONFIG ${rel} — '${flag}' задан дважды — берётся последний (${n})`);
+    res.opts[key] = n;
+    i++;
+  }
+  return res;
+}
+
+// ЭКСПЕРИМЕНТ `--drift-report` (v1.9, пилот sup2 27.09; НЕ гейт — решение о гейте по телеметрии флота).
+// Дрейф по предковости коммитов: «коммит сверки» дока = последний коммит, где в доке менялась строка
+// `last_verified:`; дрейф = файл-якорь (не папка) изменён между этим коммитом и рабочим деревом. Пометка
+// «символы задеты» — в +/- строках диффа файла есть идентификатор из текста дока (эвристика: есть пропуски, если
+// правка внутри функции, и ложные срабатывания на общих именах). Хрупкость (разбор Codex): дата сверки с точностью
+// до дня, массовый сдвиг дат «отмывает» старые ошибки, squash склеивает код и сверку. Правила не участвуют.
+const DRIFT_STOP = new Set(["true", "false", "null", "undefined", "json", "text", "name", "type", "data", "list", "page", "user", "item", "value", "string", "number"]);
+function buildDriftReport(root, mbDir, eligible) {
+  const git = (args) => {
+    const r = spawnSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 256 * 1024 * 1024 });
+    return !r.error && r.status === 0 ? r.stdout || "" : null;
+  };
+  const shallow = (git(["rev-parse", "--is-shallow-repository"]) || "").trim() === "true";
+  const mbRel = relative(root, mbDir).split(sep).join("/");
+  const lv = new Map(); // путь дока от корня репо -> { sha, date } последнего коммита, менявшего last_verified
+  const log = git(["log", "--relative", "-p", "-U0", "--no-renames", "--format=@@%H %cs", "--", mbRel]);
+  if (log === null) return { error: "git log недоступен" };
+  let sha = null, date = null, file = null;
+  for (const line of log.split("\n")) {
+    if (line.startsWith("@@") && !line.startsWith("@@ ")) {
+      [sha, date] = line.slice(2).split(" ");
+      file = null;
+    } else if (line.startsWith("diff --git ")) {
+      const m = line.match(/ b\/(.+)$/);
+      file = m ? m[1] : null;
+    } else if (file && line.startsWith("+last_verified:") && !lv.has(file)) lv.set(file, { sha, date });
+  }
+  const wtVerified = new Set();
+  let f2 = null;
+  for (const line of (git(["diff", "--relative", "-U0", "HEAD", "--", mbRel]) || "").split("\n")) {
+    if (line.startsWith("diff --git ")) {
+      const m = line.match(/ b\/(.+)$/);
+      f2 = m ? m[1] : null;
+    } else if (f2 && line.startsWith("+last_verified:")) wtVerified.add(f2);
+  }
+  const uncommitted = new Set((git(["diff", "--relative", "--name-only", "HEAD"]) || "").split("\n").filter(Boolean));
+  const changedCache = new Map();
+  const changedSince = (s) => {
+    if (!changedCache.has(s)) {
+      const out = git(["diff", "--relative", "--name-only", s, "HEAD"]);
+      changedCache.set(s, out === null ? null : new Set(out.split("\n").filter(Boolean)));
+    }
+    return changedCache.get(s);
+  };
+  const isAncestor = (s) => spawnSync("git", ["-C", root, "merge-base", "--is-ancestor", s, "HEAD"], { stdio: "ignore" }).status === 0;
+  const byDoc = new Map();
+  for (const c of eligible) {
+    if (c.isDir || c.d.isRule) continue;
+    if (!byDoc.has(c.d.rel)) byDoc.set(c.d.rel, { d: c.d, files: new Set() });
+    byDoc.get(c.d.rel).files.add(c.bare);
+  }
+  const items = [];
+  const unverifiable = [];
+  for (const [docRel, { d, files }] of byDoc) {
+    const repoRel = `${mbRel}/${docRel}`;
+    let base, changed;
+    if (wtVerified.has(repoRel)) {
+      base = { sha: "WORKTREE", date: "не закоммичено" };
+      changed = uncommitted;
+    } else {
+      base = lv.get(repoRel);
+      const c1 = base && isAncestor(base.sha) ? changedSince(base.sha) : null;
+      if (!c1) {
+        unverifiable.push(docRel);
+        continue;
+      }
+      changed = new Set([...c1, ...uncommitted]);
+    }
+    const drifted = [...files].filter((f) => changed.has(f));
+    if (!drifted.length) continue;
+    const ids = new Set();
+    for (const m of d.text.matchAll(/`([A-Za-z_][\w]{3,})`/g)) if (!DRIFT_STOP.has(m[1].toLowerCase())) ids.add(m[1]);
+    for (const m of d.text.matchAll(/`[^`\s]+\.[A-Za-z0-9]+[:#]([A-Za-z_]\w{2,})`/g)) ids.add(m[1]);
+    const hits = drifted.map((f) => {
+      const diff = base.sha === "WORKTREE" ? git(["diff", "-U0", "HEAD", "--", f]) : git(["diff", "-U0", base.sha, "--", f]);
+      const body = (diff || "").split("\n").filter((l) => /^[+-]/.test(l) && !/^(\+\+\+|---)/.test(l)).join("\n");
+      const syms = [...ids].filter((id) => new RegExp(`(^|[^\\w])${id.replace(/[.$]/g, "\\$&")}([^\\w]|$)`, "m").test(body)).slice(0, 5);
+      return { file: f, syms };
+    });
+    items.push({ doc: docRel, base, hits, symHit: hits.some((h) => h.syms.length) });
+  }
+  return { items, unverifiable, docs: byDoc.size, shallow };
+}
+
 // ---------- основной прогон ----------
 // opts: { write, staleDays, psMaxKb, tier1MaxKb, tier0MaxKb, planStaleDays, codeDriftDays, today }
 // Возвращает { ok, fatal?, problems, warnings, notes, docCount, psUpdated, psAgeDays }.
 // ok считается ТОЛЬКО по problems: warnings информируют, но не блокируют (см. шапку файла).
 export function runChecks(root, opts = {}) {
-  const o = {
-    write: false,
-    staleDays: 30,
-    psMaxKb: 12,
-    tier1MaxKb: 3,
-    tier0MaxKb: 8,
-    planStaleDays: 14,
-    frozenCommits: 12,
-    codeDriftDays: 7,
-    verifiedMaxDays: 90,
-    decisionsMaxKb: 40,
-    draftStaleDays: 30,
-    intakeMaxMb: 10,
-    noGit: false,
-    noCodeDrift: false,
-    today: todayISO(),
-    ...opts,
-  };
   root = resolve(root);
   const mbDir = join(root, ".memory_bank");
   if (!existsSync(mbDir)) {
     return { ok: false, fatal: `не найдено .memory_bank в ${root}`, problems: [], warnings: [], notes: [] };
   }
+  // Пороги: дефолты < _kit/audit-flags.txt < явные opts. Вызывающий передаёт ТОЛЬКО заданное явно
+  // (CLI — см. низ файла): если бы CLI слал дефолт за каждый флаг, файл никогда бы не победил.
+  const flagsFile = readAuditFlags(mbDir);
+  const o = {
+    write: false,
+    ...DEFAULT_THRESHOLDS,
+    noGit: false,
+    noCodeDrift: false,
+    driftReport: false,
+    today: todayISO(),
+    ...flagsFile.opts,
+    ...opts,
+  };
 
   const problems = [];
-  const warnings = [];
+  const warnings = [...flagsFile.warnings];
   const notes = [];
 
   // Собрать все доки (кроме SKIP_DIRS)
@@ -281,6 +486,44 @@ export function runChecks(root, opts = {}) {
       );
   }
 
+  // 3b) DOC-FM / DOC-VOCAB / DOC-DATE (warnings, v1.8) — схема METADATA_SCHEMA проверялась только на
+  //     topic (ORPHAN) и массивы (BAD-FM). Замер по 14 банкам: 28 значений importance вне словаря
+  //     (`medium`, плейсхолдер `high|med|low` из шаблона) молча падали в хвост decision tree
+  //     (impRank ?? 3), `tier: plan` ×13; невалидная дата updated выключала STALE/LAGGING/CODE-DRIFT
+  //     через isDate-guard. Скоуп — content-доки; отсутствие НЕобязательных lifecycle-полей не флагаем.
+  const VOCAB = {
+    tier: ["0", "1", "2"],
+    importance: ["high", "med", "low"],
+    status: ["draft", "working", "stable", "stale", "deprecated", "archived"],
+    source_of_truth: ["canonical", "supporting", "derived", "historical"],
+  };
+  const REQUIRED_FM = ["tier", "scope", "updated", "importance", "source"]; // topic — ORPHAN
+  const isSet = (v) => v !== undefined && v !== "" && !PH_RE.test(String(v)); // плейсхолдер — PLACEHOLDER
+  const badDates = (d, fields) => fields.filter((k) => isSet(d.fm[k]) && !isDate(d.fm[k]));
+  for (const d of contentDocs) {
+    if (!d.fm.topic) continue; // ORPHAN уже сказал главное — одна причина, одна диагностика
+    const missing = REQUIRED_FM.filter((k) => d.fm[k] === undefined || d.fm[k] === "");
+    if (missing.length)
+      warnings.push(
+        `DOC-FM ${d.rel} — нет обязательного поля: ${missing.map((k) => `'${k}'`).join(", ")} (METADATA_SCHEMA: tier/topic/scope/updated/importance/source)`
+      );
+    const bad = Object.entries(VOCAB)
+      .filter(([k, vals]) => isSet(d.fm[k]) && !vals.includes(String(d.fm[k])))
+      .map(([k, vals]) => `${k} '${d.fm[k]}' (${vals.join("|")})`);
+    if (bad.length)
+      warnings.push(`DOC-VOCAB ${d.rel} — вне словаря: ${bad.join("; ")} — реестры и сортировка дерева такое значение не понимают`);
+    const dates = badDates(d, ["updated", "last_verified", "review_after"]);
+    if (dates.length)
+      warnings.push(
+        `DOC-DATE ${d.rel} — не дата YYYY-MM-DD: ${dates.map((k) => `${k} '${d.fm[k]}'`).join(", ")} — проверки свежести по доку молчат`
+      );
+  }
+  for (const p of [...planDocs, ...completedDocs]) {
+    const dates = badDates(p, ["created", "updated", "completed", "review_after"]);
+    if (dates.length)
+      warnings.push(`DOC-DATE ${p.rel} — не дата YYYY-MM-DD: ${dates.map((k) => `${k} '${p.fm[k]}'`).join(", ")}`);
+  }
+
   // 4) STALE + BROKEN(tier2) — Tier1 старше своего Tier2
   function resolvePointer(d, ptr) {
     if (isPlaceholder(ptr)) return null;
@@ -327,9 +570,13 @@ export function runChecks(root, opts = {}) {
     for (const d of contentDocs) {
       if (String(d.fm.tier) !== "1") continue;
       if (ALWAYS_ON_TOPICS.has(d.fm.topic)) continue;
-      if (isDate(d.fm.updated) && daysBetween(d.fm.updated, ps.fm.updated) > o.staleDays) {
+      // v1.9: свежесть сводки — более поздняя из `updated` и `last_verified`. Сводку, сверенную с кодом без правки
+      // текста (дата сверки двигается только по `verify`, `updated` — нет), обновление project-state больше не
+      // помечает «отстающей» (remlab 28.09: 4 ложных LAGGING после честного обновления снимка).
+      const fresh = [d.fm.updated, d.fm.last_verified].filter(isDate).sort().pop();
+      if (fresh && daysBetween(fresh, ps.fm.updated) > o.staleDays) {
         problems.push(
-          `LAGGING ${d.rel} (updated ${d.fm.updated}) отстаёт от project-state (${ps.fm.updated}) на >${o.staleDays}д — сверь с реальностью`
+          `LAGGING ${d.rel} (updated ${d.fm.updated || "—"}, сверка ${isDate(d.fm.last_verified) ? d.fm.last_verified : "—"}) отстаёт от project-state (${ps.fm.updated}) на >${o.staleDays}д — сверь с реальностью (verify)`
         );
       }
     }
@@ -368,10 +615,14 @@ export function runChecks(root, opts = {}) {
   }
   for (const d of contentDocs) {
     if (String(d.fm.tier) !== "1" || ALWAYS_ON_TOPICS.has(d.fm.topic)) continue;
-    const size = Buffer.byteLength(d.text, "utf8");
+    // v1.9: меряем тело без шапки — поля жизненного цикла (status, source_of_truth, last_verified, review_after,
+    // tier1/tier2) растут и съедали ~350 байт бюджета содержания (remlab/sup2: сводки стояли на 97–100 %).
+    const fmEnd = d.text.startsWith("---") ? d.text.indexOf("\n---", 3) : -1;
+    const body = fmEnd > 0 ? d.text.slice(d.text.indexOf("\n", fmEnd + 1) + 1) : d.text;
+    const size = Buffer.byteLength(body, "utf8");
     if (size > o.tier1MaxKb * 1024)
       problems.push(
-        `TIER1-BLOAT ${d.rel} — ${(size / 1024).toFixed(1)}KB > ${o.tier1MaxKb}KB. Сводка = вход в тему; детали унеси в Tier 2`
+        `TIER1-BLOAT ${d.rel} — ${(size / 1024).toFixed(1)}KB (тело без шапки) > ${o.tier1MaxKb}KB. Сводка = вход в тему; детали унеси в Tier 2`
       );
   }
   {
@@ -398,6 +649,28 @@ export function runChecks(root, opts = {}) {
       const kb = (b) => (b / 1024).toFixed(1);
       problems.push(
         `TIER0-BLOAT CLAUDE.md+INDEX.md — ${(t0 / 1024).toFixed(1)}KB > ${o.tier0MaxKb}KB (CLAUDE.md ${kb(claudeB)} · INDEX ручная часть ${kb(manualB)} · GENERATED ${kb(genB)}). Tier 0 всегда в контексте — ужми, детали в Tier 1/2${hint}`
+      );
+    }
+  }
+
+  // 8b) TIER0-RULES (v1.9) — правила без `paths:` грузятся в каждую сессию наравне с CLAUDE.md и INDEX, но бюджет
+  //     Tier 0 их не считал: у проектов флота «8 KB Tier 0» на деле было 24–37 KB (замер 28.09).
+  let rulesAlwaysBytes = 0;
+  const rulesAlwaysList = [];
+  {
+    for (const { full, rel } of listRuleFiles(root)) {
+      const f = rel.slice(".claude/rules/".length);
+      const text = readDoc(full);
+      const head = text.startsWith("---") ? text.slice(0, text.indexOf("\n---", 3) + 1) : "";
+      if (/^paths:/m.test(head)) continue;
+      const b = Buffer.byteLength(text, "utf8");
+      rulesAlwaysBytes += b;
+      rulesAlwaysList.push({ f, b });
+    }
+    if (rulesAlwaysBytes > o.tier0RulesMaxKb * 1024) {
+      const top = rulesAlwaysList.sort((a, b) => b.b - a.b).slice(0, 4).map((x) => `${x.f} ${(x.b / 1024).toFixed(1)}`).join(", ");
+      warnings.push(
+        `TIER0-RULES .claude/rules — правила без paths: грузятся в каждую сессию: ${(rulesAlwaysBytes / 1024).toFixed(1)}KB > ${o.tier0RulesMaxKb}KB (${top}) — детали в guides/, узким правилам дай paths:`
       );
     }
   }
@@ -442,15 +715,20 @@ export function runChecks(root, opts = {}) {
     if (st === "completed")
       problems.push(`PLAN-MISPLACED ${p.rel} — status completed, но лежит в plans/ (перенеси в completed_plans/)`);
     const refDate = isDate(p.fm.updated) ? p.fm.updated : isDate(p.fm.created) ? p.fm.created : null;
-    if (st === "in_progress" && refDate && daysBetween(refDate, o.today) > o.planStaleDays)
+    // v1.9: мастер-план (портфель/трек, `plan_kind: portfolio_master|track_master`) живёт долго по природе —
+    // PLAN-STUCK на нём ложный (remlab MASTER-cost-first), НО только при будущей дате пересмотра `review_after`.
+    const isMaster = /^(portfolio_master|track_master)$/.test(String(p.fm.plan_kind || ""));
+    const masterOk = isMaster && isDate(p.fm.review_after) && p.fm.review_after > o.today;
+    if (st === "in_progress" && refDate && daysBetween(refDate, o.today) > o.planStaleDays && !masterOk)
       problems.push(
-        `PLAN-STUCK ${p.rel} — in_progress без движения с ${refDate} (> ${o.planStaleDays}д) — доведи, переведи в partial или отмени`
+        `PLAN-STUCK ${p.rel} — in_progress без движения с ${refDate} (> ${o.planStaleDays}д) — доведи, переведи в partial или отмени` +
+          (isMaster ? " (мастер-план: поставь будущую дату пересмотра review_after — тогда не застрявший)" : "")
       );
     if (!PLAN_STATUSES.has(st))
       warnings.push(
         `PLAN-STATUS ${p.rel} — status '${st || "—"}' вне словаря (draft/in_progress/partial/completed/cancelled) — реестр и PLAN-STUCK его не видят`
       );
-    const futureReview = isDate(p.fm.review_after) && p.fm.review_after >= o.today;
+    const futureReview = isDate(p.fm.review_after) && p.fm.review_after > o.today;
     if (st === "draft" && refDate && daysBetween(refDate, o.today) > o.draftStaleDays && !futureReview)
       warnings.push(
         `PLAN-DRAFT-STALE ${p.rel} — draft без движения с ${refDate} (> ${o.draftStaleDays}д) — деплой, review_after или archive/plans/ с archive_reason`
@@ -463,39 +741,78 @@ export function runChecks(root, opts = {}) {
     // без этой проверки — мёртвое поле.
     if (isDate(p.fm.review_after) && p.fm.review_after < o.today && st !== "completed")
       warnings.push(`PLAN-REVIEW-DUE ${p.rel} — review_after ${p.fm.review_after} прошёл (status ${st || "—"}) — верни в работу, продли дату или архивируй`);
+    // v1.8: cancelled — после записи уроков в archive/plans/ (plans/README.md). Правило v1.7 в
+    // .claude/rules/agent-workflow.md держало его в plans/ — файл project-owned, апгрейд его не меняет
+    // (ручной шаг в CHANGELOG v1.8.0). Флот: julia 2, wt-speed 2.
+    if (st === "cancelled")
+      warnings.push(
+        `PLAN-CANCELLED-IN-PLANS ${p.rel} — cancelled лежит в plans/ — запиши уроки и перенеси в archive/plans/ (archived, archive_reason); правило — plans/README.md`
+      );
   }
   for (const p of completedDocs) {
     if ((p.fm.status || "") !== "completed")
       problems.push(`PLAN-MISPLACED ${p.rel} — status '${p.fm.status || "—"}' ≠ completed, но лежит в completed_plans/`);
+    // completed в plans/ получает только PLAN-MISPLACED; дата есть, но кривая — DOC-DATE (одна причина —
+    // одна диагностика). Флот: 33 из 444.
+    else if (!isSet(p.fm.completed))
+      warnings.push(
+        `PLAN-COMPLETED-NO-DATE ${p.rel} — completed без даты completed: YYYY-MM-DD — реестр сортирует по ней, «когда сделано» неизвестно`
+      );
   }
 
   // 11b) ADR-лог: decisions.md — единственный tier-1 без бюджета (ALWAYS_ON исключён из TIER1-BLOAT),
   //      на флоте он растёт в журнал (remlab 474 КБ, sup2 233, sib 115). Конвенция v1.7: при росте —
-  //      decisions.md остаётся ИНДЕКСОМ (строка на решение), полные тексты — тома decisions/adr-NNNN-MMMM.md.
-  //      Id записи: формат B `## ADR-NNNN — …` или формат A `## [дата] Название — ADR-NNNN (…)` —
-  //      берём ПОСЛЕДНИЙ токен в заголовке (первый даёт ложный дубль на «(доп. к ADR-0042)»).
+  //      decisions.md остаётся ИНДЕКСОМ (строка на решение), полные тексты — тома decisions/<stem>-NNNN-MMMM.md.
+  //      v1.8: префикс номера — `_kit/adr-prefix.txt` (нет файла → `ADR-`; sup2/sib нумеруют `D127`).
+  //      Автодетекта нет: смешанные журналы (sup2, sib, wt-speed) сделали бы его недетерминированным.
+  //      Id записи: (1) якорь `^## <prefix>N`; иначе (2) токены `<prefix>N` вне скобок: ровно один → он,
+  //      ноль → запись безномерная (fallback в скобки убран: `## [дата] … (см. ADR-0042)` считался
+  //      записью 0042), два и больше → ADR-AMBIGUOUS (sup2: `## [дата] D60: … отменяет D2` — правило
+  //      «последний токен» давало ложный дубль D2). Номера сравниваются численно (D1/D01/D001 — один id),
+  //      в выводе — как в заголовке.
   {
     const decIndex = docs.find((d) => d.rel === "decisions.md");
+    let adrPrefix = "ADR-";
+    {
+      const pf = join(mbDir, "_kit", "adr-prefix.txt");
+      if (existsSync(pf)) {
+        const raw = readDoc(pf).split(/\r?\n/).map((l) => l.replace(/#.*$/, "").trim()).find(Boolean) || "";
+        if (/^[A-Za-z][A-Za-z0-9-]{0,7}$/.test(raw)) adrPrefix = raw;
+        else
+          warnings.push(
+            `KIT-CONFIG _kit/adr-prefix.txt — '${raw || "—"}' не префикс (буква, затем до 7 букв/цифр/дефисов) — используется ADR-`
+          );
+      }
+    }
+    const stem = adrPrefix.toLowerCase().replace(/-+$/, ""); // имя тома: adr-0001-0050.md, d-001-050.md
+    const escPrefix = adrPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // Граница слева — не буква/цифра/дефис: иначе `ID12` ловилось бы как D12.
+    const tokenRe = new RegExp(`(?<![\\p{L}\\p{N}-])${escPrefix}(\\d+)`, "gu");
+    const anchorRe = new RegExp(`^## ${escPrefix}(\\d+)`);
     const volumes = docs.filter((d) => /^decisions\/(?!README\.md$).+\.md$/.test(d.rel));
     // Заголовки внутри ```-блоков (пример формата в шаблоне) — не записи.
     const noFences = (t) => t.replace(/```[\s\S]*?```/g, (m) => m.replace(/[^\n]/g, " "));
+    const label = (digits) => `${adrPrefix}${digits}`;
     const adrId = (heading) => {
-      const b = heading.match(/^## ADR-(\d{4})/);
-      if (b) return b[1];
-      // формат A: номер — последний токен ВНЕ скобок («… (доп. к ADR-0042) — ADR-0043»,
-      // «… — ADR-0002 (доп. к ADR-0001)»); скобочные упоминания — ссылки, не номер записи
+      const b = heading.match(anchorRe);
+      if (b) return { id: String(Number(b[1])), label: label(b[1]) };
       const noParens = heading.replace(/\([^)]*\)/g, "");
-      const all = [...noParens.matchAll(/ADR-(\d{4})/g)];
-      if (all.length) return all[all.length - 1][1];
-      const any = [...heading.matchAll(/ADR-(\d{4})/g)];
-      return any.length ? any[any.length - 1][1] : null;
+      const toks = [...noParens.matchAll(tokenRe)].map((m) => m[1]);
+      if (toks.length === 1) return { id: String(Number(toks[0])), label: label(toks[0]) };
+      if (toks.length > 1) return { ambiguous: toks.map(label) };
+      return null;
     };
-    const records = []; // {id, rel, line, inIndex}
+    const records = []; // {id, label, rel, line, inIndex}
     for (const d of [decIndex, ...volumes].filter(Boolean)) {
       noFences(d.text).split(/\r?\n/).forEach((line, i) => {
         if (!/^## /.test(line)) return;
-        const id = adrId(line);
-        if (id) records.push({ id, rel: d.rel, line: i + 1, inIndex: d === decIndex });
+        const r = adrId(line);
+        if (!r) return;
+        if (r.ambiguous)
+          warnings.push(
+            `ADR-AMBIGUOUS ${d.rel}:${i + 1} — в заголовке несколько номеров вне скобок (${r.ambiguous.join(", ")}) — id записи не определён: начни заголовок с номера, ссылки на другие решения — в скобки`
+          );
+        else records.push({ id: r.id, label: r.label, rel: d.rel, line: i + 1, inIndex: d === decIndex });
       });
     }
     const withVolumes = volumes.length > 0 && !!decIndex;
@@ -504,50 +821,53 @@ export function runChecks(root, opts = {}) {
     const dupPool = withVolumes ? records.filter((r) => !r.inIndex) : records;
     const byId = new Map();
     for (const r of dupPool) (byId.get(r.id) || byId.set(r.id, []).get(r.id)).push(r);
-    for (const [id, list] of [...byId].sort()) {
+    for (const [, list] of [...byId].sort((a, b) => Number(a[0]) - Number(b[0]))) {
       if (list.length > 1)
         problems.push(
-          `ADR-DUP ADR-${id} — ${list.length} записи под одним номером: ${list.map((r) => `${r.rel}:${r.line}`).join(", ")} — поздней дай следующий свободный номер (max+1, пометка Legacy), ссылки поправь`
+          `ADR-DUP ${list[0].label} — ${list.length} записи под одним номером: ${list.map((r) => `${r.rel}:${r.line}`).join(", ")} — поздней дай следующий свободный номер (max+1, пометка Legacy), ссылки поправь`
         );
     }
     if (withVolumes) {
       const inIndex = records.filter((r) => r.inIndex);
       if (inIndex.length)
         warnings.push(
-          `ADR-IN-INDEX decisions.md:${inIndex[0].line} — ${inIndex.length} запис(ей) \`## ADR-…\` в индексе при наличии томов decisions/ — текст решения пиши в текущий том, в индекс — строку`
+          `ADR-IN-INDEX decisions.md:${inIndex[0].line} — ${inIndex.length} запис(ей) \`## ${adrPrefix}…\` в индексе при наличии томов decisions/ — текст решения пиши в текущий том, в индекс — строку`
         );
       // Строка индекса — структурная (список/таблица с номером), а не любое упоминание в тексте.
-      const indexed = new Set(
-        [...noFences(decIndex.text).matchAll(/^\s*(?:[-*|]|\d+\.)[^\n]*?ADR-(\d{4})/gm)].map((m) => m[1])
-      );
+      const indexLineRe = new RegExp(`^\\s*(?:[-*|]|\\d+\\.)[^\\n]*?(?<![\\p{L}\\p{N}-])${escPrefix}(\\d+)`, "gmu");
+      const indexed = new Map(); // численный id → метка как в индексе
+      for (const m of noFences(decIndex.text).matchAll(indexLineRe)) {
+        if (!indexed.has(String(Number(m[1])))) indexed.set(String(Number(m[1])), label(m[1]));
+      }
       const volIds = new Set(records.filter((r) => !r.inIndex).map((r) => r.id));
       for (const r of records.filter((r) => !r.inIndex)) {
         if (!indexed.has(r.id))
-          warnings.push(`ADR-NOT-INDEXED ${r.rel}:${r.line} — ADR-${r.id} есть в томе, но строки с ним нет в decisions.md (индекс)`);
+          warnings.push(`ADR-NOT-INDEXED ${r.rel}:${r.line} — ${r.label} есть в томе, но строки с ним нет в decisions.md (индекс)`);
       }
-      for (const id of [...indexed].sort()) {
+      for (const [id, lbl] of [...indexed].sort((a, b) => Number(a[0]) - Number(b[0]))) {
         if (!volIds.has(id))
-          warnings.push(`ADR-INDEX-ORPHAN decisions.md — строка **ADR-${id}** есть в индексе, а записи в томах decisions/ нет`);
+          warnings.push(`ADR-INDEX-ORPHAN decisions.md — строка **${lbl}** есть в индексе, а записи в томах decisions/ нет`);
       }
-      // Диапазон тома по имени файла adr-NNNN-MMMM.md: запись вне диапазона — в чужом томе (0000 допустим в первом).
+      // Диапазон тома по имени файла <stem>-NNNN-MMMM.md: запись вне диапазона — в чужом томе (0 допустим в первом).
+      const volNameRe = new RegExp(`^${stem}-(\\d+)-(\\d+)\\.md$`);
       const ranged = volumes
-        .map((v) => ({ v, m: basename(v.file).match(/^adr-(\d{4})-(\d{4})\.md$/) }))
+        .map((v) => ({ v, m: basename(v.file).match(volNameRe) }))
         .filter((x) => x.m)
-        .map((x) => ({ rel: x.v.rel, lo: Number(x.m[1]), hi: Number(x.m[2]) }));
+        .map((x) => ({ rel: x.v.rel, lo: Number(x.m[1]), hi: Number(x.m[2]), loS: x.m[1], hiS: x.m[2] }));
       const firstLo = ranged.length ? Math.min(...ranged.map((x) => x.lo)) : null;
       for (const r of records.filter((r) => !r.inIndex)) {
         const vol = ranged.find((x) => x.rel === r.rel);
         if (!vol) continue;
         const n = Number(r.id);
         if ((n === 0 && vol.lo === firstLo) || (n >= vol.lo && n <= vol.hi)) continue;
-        warnings.push(`ADR-RANGE ${r.rel}:${r.line} — ADR-${r.id} вне диапазона тома ${String(vol.lo).padStart(4, "0")}…${String(vol.hi).padStart(4, "0")} — перенеси в свой том`);
+        warnings.push(`ADR-RANGE ${r.rel}:${r.line} — ${r.label} вне диапазона тома ${vol.loS}…${vol.hiS} — перенеси в свой том`);
       }
     }
     if (decIndex) {
       const size = Buffer.byteLength(decIndex.text, "utf8");
       if (size > o.decisionsMaxKb * 1024)
         warnings.push(
-          `DECISIONS-BLOAT decisions.md — ${(size / 1024).toFixed(0)}KB > ${o.decisionsMaxKb}KB — журнал не читается целиком: оставь здесь индекс (строка на решение, «по темам»), тексты — в тома decisions/adr-NNNN-MMMM.md`
+          `DECISIONS-BLOAT decisions.md — ${(size / 1024).toFixed(0)}KB > ${o.decisionsMaxKb}KB — журнал не читается целиком: оставь здесь индекс (строка на решение, «по темам»), тексты — в тома decisions/${stem}-NNNN-MMMM.md`
         );
     }
   }
@@ -704,6 +1024,7 @@ export function runChecks(root, opts = {}) {
   }
 
   let driftCoverage = null; // {docsWithRefs, docsCovered} — заполняется в блоке 16, см. там
+  let driftReport = null; // --drift-report (эксперимент B5) — блок 16c
 
   // 16) CODE-REF — backtick-путь к файлу кода в памяти не найден в дереве репо (память ↔ код разъехались).
   //     Консервативно: под-флаг важнее пере-флага. Флагаем ТОЛЬКО inline-code-токены, похожие на
@@ -735,12 +1056,62 @@ export function runChecks(root, opts = {}) {
         if (tok.startsWith("/") || tok.startsWith("~")) return false; // абсолютный/серверный путь/роут — не репо-код
         return true;
       };
+      // Якоря `путь:символ` / `путь#символ` / `путь:123` и голые имена файлов (v1.9; пилот sup2 27.09): раньше
+      // расширение превращалось в `ts:символ`, а `sup2-deploy.sh` без `/` не считался ссылкой — такие утверждения
+      // CODE-DRIFT не видел. Голое имя — ссылка, только если файл с таким именем в репо ровно один.
+      const hasGit = !o.noGit && existsSync(join(root, ".git"));
+      const byBase = new Map();
+      if (hasGit) {
+        try {
+          const r = spawnSync("git", ["-C", root, "ls-files"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024 });
+          if (!r.error && r.status === 0)
+            for (const f of (r.stdout || "").split("\n")) {
+              if (!f) continue;
+              const b = f.slice(f.lastIndexOf("/") + 1);
+              if (!byBase.has(b)) byBase.set(b, []);
+              byBase.get(b).push(f);
+            }
+        } catch {
+          /* нет git — голые имена не резолвим */
+        }
+      }
+      const normTok = (raw) => {
+        let tok = raw.trim().replace(/^\.\//, "");
+        const sfx = tok.match(/^([^\s:#]+\.([A-Za-z0-9]+))[:#]\S*$/);
+        if (sfx && CODE_EXT.has(sfx[2].toLowerCase())) tok = sfx[1];
+        if (!tok.includes("/")) {
+          // Без «/» — только имя файла, уникальное в репо; прочие слова (`sql`, `*-topbar.tsx`) — не ссылки.
+          if (!/^[\w.\-]+\.[A-Za-z0-9]+$/.test(tok)) return null;
+          const hits = CODE_EXT.has(tok.split(".").pop().toLowerCase()) ? byBase.get(tok) : null;
+          if (!hits) return null;
+          if (hits.includes(tok)) return tok; // файл в корне репо (`package.json` при десятке вложенных) — он и имелся в виду
+          return hits.length === 1 ? hits[0] : null;
+        }
+        return tok;
+      };
+      // Правила `.claude/rules/*.md` тоже описывают поведение кода (объяснение автодеплоя в server-access.md
+      // устарело 17.08, и никто не заметил) — сканируем их наравне с доками банка. Дата-якорь правила:
+      // last_verified/updated в шапке, иначе дата последнего коммита файла правила.
+      // Блоки ``` в правилах — примеры команд и путей, не утверждения: из скана якорей вырезаются.
+      const ruleDocs = [];
+      for (const { full, rel } of listRuleFiles(root)) {
+        const raw = readDoc(full);
+        const fm = parseFrontmatter(raw).fm || {};
+        let gitDate = null;
+        if (hasGit) {
+          const r = spawnSync("git", ["-C", root, "log", "-1", "--format=%cs", "--", rel], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+          const s = (r.stdout || "").trim();
+          if (!r.error && r.status === 0 && isDate(s)) gitDate = s;
+        }
+        ruleDocs.push({ rel, text: stripFences(raw), fm, gitDate, isRule: true });
+      }
       const seen = new Set(); // одна находка на (doc, path)
       const codeClaims = []; // живые ссылки на код в репо — вход для CODE-DRIFT (16b)
-      for (const d of contentDocs) {
+      for (const d of contentDocs.concat(ruleDocs)) {
         for (const m of d.text.matchAll(/`([^`\n]+)`/g)) {
-          let tok = m[1].trim().replace(/^\.\//, "");
-          if (!looksLikePath(tok)) continue;
+          const tok = normTok(m[1]);
+          // Без «/» normTok отдаёт только уникальный в репо файл (в т.ч. в корне: `instrumentation.ts`) — это якорь.
+          if (!tok || (tok.includes("/") && !looksLikePath(tok))) continue;
           const isDir = tok.endsWith("/");
           const bare = isDir ? tok.slice(0, -1) : tok;
           if (isDir) {
@@ -760,7 +1131,9 @@ export function runChecks(root, opts = {}) {
           const inRepo = existsSync(join(root, bare));
           const resolved = inRepo ? join(root, bare) : existsSync(join(mbDir, bare)) ? join(mbDir, bare) : null;
           const ok = resolved && (isDir ? statSync(resolved).isDirectory() : true);
-          if (!ok)
+          // Правила кита содержат иллюстративные пути (`lib/auth/jwt.ts` как пример якоря) — для них
+          // несуществующий путь не ошибка: правила идут только в CODE-DRIFT по реальным ссылкам.
+          if (!ok && !d.isRule)
             problems.push(
               `CODE-REF ${d.rel} — \`${tok}\` не найден в дереве репозитория (память отстала от кода? обнови ссылку или добавь в _kit/code-ref-ignore.txt)`
             );
@@ -776,7 +1149,7 @@ export function runChecks(root, opts = {}) {
       //      Исключения: always-on мета-доки (decisions/project-state/source-of-truth — журналы
       //      решений, они и должны быть старше кода) и source_of_truth: historical.
       const anchorOf = (d) =>
-        isDate(d.fm.last_verified) ? d.fm.last_verified : isDate(d.fm.updated) ? d.fm.updated : null;
+        isDate(d.fm.last_verified) ? d.fm.last_verified : isDate(d.fm.updated) ? d.fm.updated : d.gitDate || null;
       // Исключённые по политике (журналы решений, historical) — НЕ «непокрытые»: их не проверяют
       // намеренно. Поэтому они уходят и из числителя, и из знаменателя покрытия.
       const eligible = codeClaims.filter(
@@ -790,9 +1163,29 @@ export function runChecks(root, opts = {}) {
       // frontmatter CODE-DRIFT по доку молчит — а у докитовых банков якорей нет ни у одного дока,
       // и тогда «0 находок» читается как здоровье. Молчание проверки ≠ здоровье, поэтому цифра
       // покрытия идёт в вывод и в METRICS рядом с находками.
+      // Честный знаменатель (27.09): «покрытие 100%» считалось только среди доков, где ссылки уже распознаны, —
+      // сводка без единого якоря в него не попадала и выглядела здоровой. Теперь считаем от всех сводок Tier 1;
+      // сводка без якорей — NO-ANCHOR (warning). Сводки не о коде — в `_kit/no-anchor-ignore.txt` (путь или topic).
+      const naFile = join(mbDir, "_kit", "no-anchor-ignore.txt");
+      const naIgnore = new Set(
+        (existsSync(naFile) ? readDoc(naFile) : "").split(/\r?\n/).map((l) => l.replace(/#.*/, "").trim()).filter(Boolean)
+      );
+      const anchoredRel = new Set(eligible.map((c) => c.d.rel));
+      const tier1 = contentDocs.filter((d) => String(d.fm.tier) === "1" && d.fm.topic && !ALWAYS_ON_TOPICS.has(d.fm.topic));
+      const exempt = tier1.filter((d) => naIgnore.has(d.rel) || naIgnore.has(d.fm.topic));
+      const noAnchor = tier1.filter((d) => !anchoredRel.has(d.rel) && !exempt.includes(d));
+      for (const d of noAnchor)
+        warnings.push(
+          `NO-ANCHOR ${d.rel} — в сводке нет ни одной ссылки на код (\`путь\` или \`путь:символ\`), CODE-DRIFT её не видит — добавь якоря к утверждениям о поведении или впиши в _kit/no-anchor-ignore.txt, если сводка не о коде`
+        );
       driftCoverage = {
         docsWithRefs: new Set(eligible.map((c) => c.d.rel)).size,
         docsCovered: new Set(tracked.map((c) => c.d.rel)).size,
+        tier1Total: tier1.length,
+        tier1Anchored: tier1.filter((d) => anchoredRel.has(d.rel)).length,
+        tier1Exempt: exempt.length,
+        rulesAnchored: ruleDocs.filter((d) => anchoredRel.has(d.rel)).length,
+        rulesTotal: ruleDocs.length,
       };
 
       const gitOk = !o.noGit && !o.noCodeDrift && existsSync(join(root, ".git"));
@@ -806,7 +1199,7 @@ export function runChecks(root, opts = {}) {
               "git",
               // -n: потолок на случай древнего якоря в большом репо. Лог идёт от новых к старым,
               // так что срезаются только СТАРЫЕ касания — а такой банк уже ловит FROZEN-MEMORY.
-              ["-C", root, "log", `--since=${since}`, "-n", "4000", "--format=%cs", "--name-only", "--no-renames"],
+              ["-C", root, "log", "--relative", `--since=${since}`, "-n", "4000", "--format=%cs", "--name-only", "--no-renames"], // --relative: пути от корня проекта, не репо (монорепо)
               { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024 }
             );
             if (!r.error && r.status === 0) {
@@ -848,6 +1241,8 @@ export function runChecks(root, opts = {}) {
           }
         }
       }
+      // 16c) --drift-report — эксперимент B5 (см. buildDriftReport): только отчёт и телеметрия, не находки.
+      if (o.driftReport && hasGit) driftReport = buildDriftReport(root, mbDir, eligible);
     }
   }
 
@@ -880,17 +1275,7 @@ export function runChecks(root, opts = {}) {
   {
     const rulesDir = join(root, ".claude", "rules");
     if (existsSync(rulesDir)) {
-      const ruleFiles = [];
-      (function walkRules(dir) {
-        for (const name of readdirSync(dir).sort()) {
-          const full = join(dir, name);
-          const st = statSync(full);
-          if (st.isDirectory()) walkRules(full);
-          else if (name.endsWith(".md")) ruleFiles.push(full);
-        }
-      })(rulesDir);
-      for (const f of ruleFiles) {
-        const rel = ".claude/rules/" + relative(rulesDir, f).split(sep).join("/");
+      for (const { full: f, rel } of listRuleFiles(root)) {
         const text = readDoc(f);
         if (!text.startsWith("---")) continue; // без frontmatter — легальное always-on правило (v1.7: warning отклонён критикой — механического эффекта нет)
         const end = text.indexOf("\n---", 3);
@@ -993,14 +1378,56 @@ export function runChecks(root, opts = {}) {
           warnings.push(`INTAKE-LOGS _intake/ — ${logs} файл(ов) *.log внутри банка — логи прогонов не память: держи вне .memory_bank/ (например ~/<проект>-logs/)`);
       }
     }
+    // Allowlist _kit/intake-ref-ignore.txt (v1.8): `<док от корня банка> [<путь или префикс/ в _intake/>]  # причина`.
+    // Без второго столбца гасятся ВСЕ ссылки дока — широко, и это осознанно (бриф как канон по решению
+    // владельца); с ним — только эта ссылка (или всё под префиксом с хвостовым `/`).
+    const intakeIgnore = []; // {doc, ref|null}
+    {
+      const f = join(mbDir, "_kit", "intake-ref-ignore.txt");
+      for (const l of (existsSync(f) ? readDoc(f) : "").split(/\r?\n/)) {
+        const t = l.replace(/#.*$/, "").trim();
+        if (!t) continue;
+        const [doc, ref] = t.split(/\s+/).map((s) => s.replace(/\\/g, "/").replace(/^\.\//, ""));
+        if ([doc, ref].some((s) => s && s.split("/").includes(".."))) {
+          warnings.push(`KIT-CONFIG _kit/intake-ref-ignore.txt — '${t}' содержит '..' — строка пропущена`);
+          continue;
+        }
+        intakeIgnore.push({ doc, ref: ref || null });
+      }
+    }
+    const intakeAllowed = (rel, hitRaw) => {
+      const hit = hitRaw.replace(/[.,;:]+$/, ""); // точка в конце предложения — не часть пути
+      return intakeIgnore.some(
+        (e) => e.doc === rel && (!e.ref || hit === e.ref || (e.ref.endsWith("/") && hit.startsWith(e.ref)))
+      );
+    };
     for (const d of contentDocs) {
       if (d.fm.source_of_truth !== "canonical") continue;
       const body = d.text.replace(/^---[\s\S]*?\n---/, "");
-      const hits = [...body.matchAll(/_intake\/(?!session-scratch\.md)[A-Za-z0-9_./-]+/g)].map((m) => m[0]);
+      const hits = [...body.matchAll(/_intake\/(?!session-scratch\.md)[A-Za-z0-9_./-]+/g)]
+        .map((m) => m[0])
+        .filter((h) => !intakeAllowed(d.rel, h));
       if (hits.length)
         warnings.push(
           `CANON-INTAKE-REF ${d.rel} — canonical ссылается на ${[...new Set(hits)].slice(0, 2).join(", ")}${hits.length > 2 ? " …" : ""} — сырьё вне аудита; факт перенеси в док, провенанс оставь в source:`
         );
+    }
+  }
+
+  // 21) KIT-NEW-PENDING (v1.8) — upgrade.sh кладёт новую версию рядом как <файл>.kit-new (kit-owned
+  //     конфликт или изменённый эталон project-owned файла) и никогда не перезаписывает. Без проверки
+  //     .kit-new лежит незамеченным (sup2: гайд и правила отстали на 3 версии молча). Пути — из
+  //     _kit/manifest.txt (строки `<hash> <rel>` kit-owned и `owned <hash> <rel>` эталонов).
+  {
+    const mf = join(mbDir, "_kit", "manifest.txt");
+    if (existsSync(mf)) {
+      for (const l of readDoc(mf).split(/\r?\n/)) {
+        const parts = l.trim().split(/\s+/);
+        const rel = parts[0] === "owned" ? parts[2] : parts[1];
+        if (!rel) continue;
+        if (existsSync(join(root, `${rel}.kit-new`)))
+          warnings.push(`KIT-NEW-PENDING ${rel}.kit-new — несведённый апгрейд кита: сравни с ${rel}, перенеси нужное и удали .kit-new`);
+      }
     }
   }
 
@@ -1075,10 +1502,12 @@ export function runChecks(root, opts = {}) {
     psUpdated: ps && isDate(ps.fm.updated) ? ps.fm.updated : null,
     psAgeDays,
     alwaysOnBytes,
+    rulesAlwaysBytes,
     corpusBytes,
     footprintPct,
     byCategory,
     driftCoverage,
+    driftReport,
     excluded,
   };
 }
@@ -1088,32 +1517,26 @@ const isMain =
   process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   const args = process.argv.slice(2);
-  const flagVal = (name, def) => {
-    const i = args.indexOf(name);
-    if (i === -1 || i + 1 >= args.length) return def;
+  // Передаём ТОЛЬКО явно заданные пороги: дефолты и _kit/audit-flags.txt применяет runChecks
+  // (дефолт за каждый отсутствующий флаг перекрывал бы файл проекта).
+  const explicit = {};
+  for (const [flag, key] of Object.entries(THRESHOLD_KEYS)) {
+    const i = args.indexOf(flag);
+    if (i === -1 || i + 1 >= args.length) continue;
     const n = Number(args[i + 1]);
-    return Number.isFinite(n) ? n : def;
-  };
-  const BOOL_FLAGS = new Set(["--check", "--no-git", "--no-code-drift", "--metrics"]); // не забирают значение → не съедают позиционный root
+    if (Number.isFinite(n)) explicit[key] = n;
+  }
+  const BOOL_FLAGS = new Set(["--check", "--no-git", "--no-code-drift", "--metrics", "--drift-report"]); // не забирают значение → не съедают позиционный root
   const positional = args.filter(
     (a, i) => !a.startsWith("--") && !(i > 0 && args[i - 1].startsWith("--") && !BOOL_FLAGS.has(args[i - 1]))
   );
   const root = resolve(positional[0] ?? process.cwd());
   const res = runChecks(root, {
     write: !args.includes("--check"),
-    staleDays: flagVal("--stale-days", 30),
-    psMaxKb: flagVal("--ps-max-kb", 12),
-    tier1MaxKb: flagVal("--tier1-max-kb", 3),
-    tier0MaxKb: flagVal("--tier0-max-kb", 8),
-    planStaleDays: flagVal("--plan-stale-days", 14),
-    frozenCommits: flagVal("--frozen-commits", 12),
-    codeDriftDays: flagVal("--code-drift-days", 7),
-    verifiedMaxDays: flagVal("--verified-max-days", 90),
-    decisionsMaxKb: flagVal("--decisions-max-kb", 40),
-    draftStaleDays: flagVal("--draft-stale-days", 30),
-    intakeMaxMb: flagVal("--intake-max-mb", 10),
+    ...explicit,
     noGit: args.includes("--no-git"),
     noCodeDrift: args.includes("--no-code-drift"),
+    driftReport: args.includes("--drift-report"),
   });
   if (res.fatal) {
     console.error(`[memory-audit] ${res.fatal}`);
@@ -1128,7 +1551,8 @@ if (isMain) {
   }
   if (res.footprintPct !== null)
     console.log(
-      `[memory-audit] Tier 0 (всегда в контексте): ${(res.alwaysOnBytes / 1024).toFixed(1)}KB — ${res.footprintPct}% активного корпуса (${(res.corpusBytes / 1024).toFixed(1)}KB)`
+      `[memory-audit] Tier 0 (всегда в контексте): ${(res.alwaysOnBytes / 1024).toFixed(1)}KB — ${res.footprintPct}% активного корпуса (${(res.corpusBytes / 1024).toFixed(1)}KB)` +
+        (res.rulesAlwaysBytes ? `; с правилами без paths: — ${((res.alwaysOnBytes + res.rulesAlwaysBytes) / 1024).toFixed(1)}KB` : "")
     );
   if (res.psAgeDays !== null && res.psAgeDays > 14)
     console.log(`[memory-audit] ⚠ project-state обновлялся ${res.psAgeDays}д назад (${res.psUpdated}) — возможно, снимок отстал`);
@@ -1137,13 +1561,41 @@ if (isMain) {
   if (res.driftCoverage && res.driftCoverage.docsWithRefs > 0) {
     const { docsWithRefs, docsCovered } = res.driftCoverage;
     const pct = Math.round((docsCovered / docsWithRefs) * 100);
+    const dc0 = res.driftCoverage;
     console.log(
-      `[memory-audit] сверка память↔код покрывает ${docsCovered} из ${docsWithRefs} доков со ссылками на код (${pct}%)`
+      `[memory-audit] сверка память↔код покрывает ${docsCovered} из ${docsWithRefs} доков со ссылками на код (${pct}%)` +
+        (dc0.tier1Total != null
+          ? `; сводок Tier 1 с якорями — ${dc0.tier1Anchored} из ${dc0.tier1Total}${dc0.tier1Exempt ? ` (не о коде: ${dc0.tier1Exempt})` : ""}; правил с якорями — ${dc0.rulesAnchored} из ${dc0.rulesTotal}`
+          : "")
     );
     if (pct < 50)
       console.log(
         `[memory-audit] ⚠ у ${docsWithRefs - docsCovered} доков нет даты-якоря (updated/last_verified) — CODE-DRIFT по ним слеп, «0 находок» ≠ «чисто». Банк без frontmatter → рехидратация, см. HEAL.md`
       );
+  }
+  // --drift-report (эксперимент B5): отчёт + строка телеметрии в changelog/drift-report.log (локально, .gitignore).
+  if (res.driftReport) {
+    const dr = res.driftReport;
+    if (dr.error) console.log(`[drift-report] ${dr.error}`);
+    else {
+      const sym = dr.items.filter((x) => x.symHit);
+      console.log(
+        `[drift-report] ЭКСПЕРИМЕНТ, не гейт: доков с якорями ${dr.docs}; код изменён после коммита сверки — ${dr.items.length} (символы из текста задеты — ${sym.length}); без точки отсчёта — ${dr.unverifiable.length}${dr.shallow ? "; ⚠ shallow clone — история неполная" : ""}`
+      );
+      for (const x of [...sym, ...dr.items.filter((y) => !y.symHit)])
+        console.log(
+          `  ${x.symHit ? "!" : "·"} ${x.doc} — сверка ${x.base.sha === "WORKTREE" ? "не закоммичена" : `${x.base.sha.slice(0, 7)} (${x.base.date})`}: ` +
+            x.hits.map((h) => `${h.file}${h.syms.length ? ` [${h.syms.join(", ")}]` : ""}`).join("; ")
+        );
+      try {
+        const head = spawnSync("git", ["-C", root, "rev-parse", "--short", "HEAD"], { encoding: "utf8" }).stdout.trim();
+        const line = `${todayISO()} ${head} docs=${dr.docs} drift=${dr.items.length} sym=${sym.length} unverifiable=${dr.unverifiable.length} sym_docs=${sym.map((x) => x.doc).join(",") || "-"}\n`;
+        const logFile = join(root, ".memory_bank", "changelog", "drift-report.log");
+        writeFileSync(logFile, (existsSync(logFile) ? readFileSync(logFile, "utf8") : "") + line);
+      } catch {
+        /* телеметрия не обязательна */
+      }
+    }
   }
   // Машинная строка метрик для пассивного сбора (metrics-append.sh / CI-summary): footprint + частота находок.
   if (args.includes("--metrics")) {

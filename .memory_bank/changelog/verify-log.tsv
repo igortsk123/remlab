@@ -1,0 +1,15 @@
+date	doc	reason	claims	mismatch	fixed	note
+2026-09-28	core/knowledge-db.md	drift	11	0	0	сверка remlab-79 до журнала (5e27b38); 3 непроверяемых кодом
+2026-09-28	core/layout.md	drift	8	1	1	сверка remlab-79 до журнала (5e27b38); LAYOUT_ENGINE=llm дописан; поля last_verified не было — заводим 2026-09-28
+2026-09-28	core/leads.md	drift	9	2	2	сверка remlab-79 до журнала (5e27b38); LEADS_MAX_TOKEN не читается, NEXT_PUBLIC_*_BOT
+2026-09-28	core/observability-tracing.md	drift	7	1	1	сверка remlab-79 до журнала (5e27b38); пробел traceWriteFailures закрыт bb08f4b
+2026-09-28	core/lr-checklist.md	drift	17	7	7	сверка remlab-79 (5e27b38), исправлено bb08f4b; дату не двигали — дрейф в шаге 7
+2026-09-28	domain/market-research.md	drift	4	1	1	ЧАСТИЧНО, внешние источники (только объём и тренд DIY; конкуренты/UK не проверены), remlab-79 30f6e4c; last_verified не двигали
+2026-09-28	domain/viz-fidelity-playbook.md	drift	43	10	10	частично — задетое кодом после 01.08; дату не двигали
+2026-09-28	domain/living-room-checklist.md	drift	13	5	5	частично — задетое compose2 после 02.08; дату не двигали
+2026-09-28	domain/occupancy-rules.md	drift	17	0	0	частично; 1 не про код (заморозка 19.08 vs прогоны 21/26.08) — помечено
+2026-09-28	guides/layout-engine-spec.md	drift	26	4	4	частично — задетое после 14.08; +путь плана в архив
+2026-09-28	core/regression-net.md	drift	30	4	4	целиком; e2e skip, движок работ есть, YooKassa для визуализации, хук Edit|Write
+2026-09-28	guides/how-to-write-rules.md	drift	12	1	1	целиком; 5 утверждений — поведение Claude Code, кодом не проверяются
+2026-09-28	domain/catalog-enrichment.md	drift	85	23	23	все утверждения о коде; раздел о наличии — пометка «до починки 31.08»; провенанс фото — «не реализовано»
+2026-09-28	guides/execution-playbook.md	drift	17	6	6	целиком (фаза 1.3, 6a83439→ba4d4c0): план plans/<slug>, секреты, стоп-механизмы, выкатка автодеплоем, бэкап ночной

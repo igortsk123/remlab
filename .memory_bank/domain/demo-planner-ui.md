@@ -4,7 +4,7 @@ topic: demo-planner-ui
 scope: Демо-планировщик — правила вёрстки и UX одностраничного демо
 tier1: "../core/demo-planner.md"
 updated: 2026-09-28
-importance: medium
+importance: med
 source: manual
 status: working
 last_verified: 2026-09-08

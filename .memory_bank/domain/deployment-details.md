@@ -4,7 +4,7 @@ topic: deployment-details
 scope: Деплой exit-fi — подробности конвейера, сторожа, история правок сервера
 tier1: "../deployment.md"
 updated: 2026-09-28
-importance: medium
+importance: med
 source: manual
 last_verified: 2026-09-05
 ---

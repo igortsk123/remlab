@@ -200,6 +200,56 @@ source: аудит 28.09 из сессии sup2 по просьбе владел
   `salad/ssh_run.py` в `lessons/mesh-salad-pool.md` — неполные пути; разобрать в коммите апгрейда (иначе CI-гейт `block`).
 - Реальный Tier 0 remlab: 7,8 KB + правила без `paths:` = 23,6 KB (порог кита 20).
 
+#### Фаза 4 — подробный план исполнения (28.09, владелец: «переведи на 1.9.0, план, потом деплой»; критика Codex учтена)
+Обкатка на sup2 сокращена по решению владельца. Цель: remlab на 1.9.0, механизмы точности работают, оба аудита —
+0 проблем, прод не ломается (код приложения не меняется), один push remlab.
+Пробный апгрейд на копии: kit-owned — 10 обновлены чисто, +2 новых (`tools/code-touch-hint.mjs`, `tools/memory-health.mjs`);
+конфликт — `decisions/README.md`; 12 проектных эталонов → `.kit-new`. Аудит 1.9 на копии: проблем 2 (CODE-REF), проектный
+аудит и его 26 тестов — чисто.
+1. **Подготовка.** Прод на `a479e98` (CI + Deploy — success); лок памяти у этой сессии (remlab-79 подтвердила); чужие
+   `tools/scout/*` не трогаем; бэкап `settings.local.json` (`.bak-20260928-v19up`, вне git).
+2. **`upgrade.sh`** на рабочей копии — результат должен совпасть с копией, иначе стоп.
+3. **`decisions/README.md`** — версия кита; справку «Legacy: 7 записей 05.09 перенумерованы» — в `decisions.md` (текущий
+   том там уже указан, строку томов не дублировать).
+4. **12 `.kit-new`:** основа — версия remlab, из эталона — только новое: `memory-discipline` (≤ 6 строк: дата только по
+   `verify` целого дока, этап 1.6, якорь `путь:символ`, `--log-verify`); `agent-workflow` (rules: `cancelled` → архив,
+   `verify` по списку доков; «Выкатка» своя); `guides/memory-automation` (механизмы 1.9); `plans/README` (мастер-планы);
+   мелкие (`plans/_template`, `guides/agent-workflow|code-standards|how-to-write-rules|review-rules`) — сверить;
+   `ui-rules` — своя (ADR-0041); `core/README` — реестр аудита. Все `.kit-new` удалить.
+5. **Хук `code-touch-hint`:** `merge_hooks` кита → временный файл → проверка JSON и diff → замена `.claude/settings.json`
+   (без пустого блока `permissions`); гард Bash и `read-logger` целы; повтор — без изменений. `.gitignore` не трогаем
+   (`*.log` уже покрывает журналы).
+6. **Пороги и исключения.** `_kit/audit-flags.txt`: `--tier0-max-kb 10` (из команды Stop-хука), `--tier0-rules-max-kb 26`
+   (правила без `paths:` — 24,1 KB; вместе с CLAUDE.md и INDEX постоянная нагрузка ≈ 32 KB). `_kit/code-ref-ignore.txt`:
+   убрать `tools/` и `services/planner-solver/`; 3 CODE-REF (`tools/scout/proportions.json/.py`, `planner/validate.py`,
+   `salad/ssh_run.py`) — полный путь, если файл есть, иначе точным путём в ignore. `_kit/no-anchor-ignore.txt`:
+   `core/market.md`, `product_brief.md`, `core/lessons.md`.
+7. **Ручное из CHANGELOG 1.8/1.9:** DOC-VOCAB 3, DOC-FM 2, PLAN-COMPLETED-NO-DATE 2; `MASTER-interactive-planner` —
+   будущая `review_after`; `status`/`source_of_truth` у `core/lessons.md`, `anti-patterns.md`, если нет.
+8. **Первая сверка (старт механизма):** 8 доков с CODE-DRIFT → `verify`; исправить; дата — только полностью сверенным;
+   журнал `verify-log.tsv`: эти сверки + 6 сверок remlab-79 28.09 (knowledge-db 11/0/0, layout 8/1/1 — завести
+   `last_verified`, leads 9/2/2, observability-tracing 7/1/1, lr-checklist 17/7/7, market-research 4/1/1 — внешняя).
+9. **Память до проверок:** ADR-0209; ход фазы 4 здесь; `core/regression-net.md` (хук). Затем аудит в режиме записи
+   (`node tools/memory-audit.mjs .`) → просмотр сгенерированного → `--check` обоих аудитов на итоговом состоянии: 0 проблем.
+10. **Проверки:** тесты проектного аудита; хук — stdin JSON с уникальным `session_id` на `tools/scout/compose2.py`;
+    `--docs-for`; `node --check` для `tools/*.mjs` кита; ручной прогон Stop-хука с его флагами (не блокирует ложно).
+11. **Коммит:** явный список путей; `git diff --cached --check`; просмотр полного staged diff; чужих файлов нет.
+    Затем `memory-health` (видит сдвиги дат только после коммита) → push → CI gate + Deploy prod — success.
+12. **После выкатки:** `FLEET.md` кита — отдельным коммитом в репо кита, с реальным SHA. Откат: `git revert` + push,
+    `settings.local.json` — из бэкапа.
+
+**Ход фазы 4 (28.09, исполнено):** `upgrade.sh` совпал с пробным; `decisions/README.md` — версия кита, справка о
+ранних ADR — в `decisions.md`; 12 `.kit-new` разобраны (взято: этап 1.6 и дата по `verify` в `memory-discipline`,
+механизмы 1.9 в `guides/memory-automation`, мастер-планы в `plans/README`, подсказки в `plans/_template`; `ui-rules`,
+`agent-workflow`, 4 гайда — свои версии). Хук `code-touch-hint` — в `.claude/settings.json` (через временный файл,
+повтор слияния — без изменений). Пороги — `_kit/audit-flags.txt`. Исключение `tools/` снято: вместо него точечно
+данные `tools/scout` вне git (проверено на копии только с файлами git, как в CI: CODE-REF 0). Сверка `verify` 7 доков
+(+ 6 сверок remlab-79; всего в журнале 13 сверок): расхождений 59, исправлено 59; `last_verified` сдвинут только у сверенных целиком
+(regression-net, how-to-write-rules, catalog-enrichment, lr-checklist, layout); 4 больших дока расстановки и
+визуализации сверены по задетому — CODE-DRIFT на них остаётся до полной сверки. ADR-0209. Аудиты: 0 проблем.
+Найдено вне памяти (код, для владельца): `tools/scout/salad/exposure_run2.sh` вызывает удалённый `ssh_run.wave.py`;
+устаревшие комментарии «warm ставится в finally» в `worker.py`, `ssh_run.py`, `batch_show.py`.
+
 ### Фаза 5 — Структурная уборка (только решённое владельцем)
 > Вход из сверки `verify` 28.09 (фаза 1.3, `6a83439`): `deployment.md:26` «Caddyfile деплой НЕ синхронизирует» — верно
 > для автодеплоя, но `deploy.sh:44` копирует Caddyfile; `deployment.md:41` «smoke = ok И version» — так только в

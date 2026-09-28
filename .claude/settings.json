@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/session-reminder.mjs ]; then node tools/session-reminder.mjs . --block --tier0-max-kb 10 --scratch-fresh-days 2; elif [ -n \"$(git status --porcelain 2>/dev/null | grep -v '^.. \\.memory_bank/')\" ]; then echo 'Внимание: изменения сессии не зафиксированы в памяти — перед /clear запусти /memory-check (.memory_bank/)'; fi"
+            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/session-reminder.mjs ]; then node tools/session-reminder.mjs . --block --scratch-fresh-days 2; elif [ -n \"$(git status --porcelain 2>/dev/null | grep -v '^.. \\.memory_bank/')\" ]; then echo 'Внимание: изменения сессии не зафиксированы в памяти — перед /clear запусти /memory-check (.memory_bank/)'; fi"
           }
         ]
       }
@@ -53,6 +53,15 @@
           {
             "type": "command",
             "command": "if command -v node >/dev/null 2>&1 && [ -f tools/read-logger.mjs ]; then node tools/read-logger.mjs . || true; fi"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/code-touch-hint.mjs ]; then node tools/code-touch-hint.mjs || true; fi"
           }
         ]
       }

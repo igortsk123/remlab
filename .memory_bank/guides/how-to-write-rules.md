@@ -3,8 +3,8 @@ tier: 2
 topic: how-to-write-rules
 scope: Как писать path-scoped правила .claude/rules/ — формат frontmatter, принципы
 tier1: ""
-last_verified: 2026-09-05
-updated: 2026-08-06
+last_verified: 2026-09-28
+updated: 2026-09-28
 importance: low
 source: manual
 ---
@@ -44,12 +44,14 @@ paths:                       # опусти блок целиком, если п
 - **Императивно:** «делай / не делай», таблицы, чек-листы. Без воды.
 - **Один домен на файл:** код-стандарты, UI, API-контракты, тон, безопасность — раздельно.
 - **paths точечно:** только релевантные маски, иначе правило грузится где не надо.
-- **Регистрируй:** добавь новое правило в перечень в `CLAUDE.md` и (если процессное) в `INDEX.md`.
+- **Регистрируй:** добавь новое правило в перечень в `CLAUDE.md` (INDEX правила не перечисляет).
+- **Вес:** правила без `paths:` грузятся в каждую сессию — аудит считает их сумму (`TIER0-RULES`, порог в
+  `_kit/audit-flags.txt`); inline-массив и глоб без кавычек в `paths` — тоже `RULES-FM`.
 - **Проверяй загрузку:** `/context` показывает загруженные memory-файлы; канарейка — временная
   маркер-инструкция в правиле («упомяни RULE-CANARY в ответе») + касание подходящего файла.
 
 ## Типовые правила, которые стоит завести по мере роста
 - `api-contracts.md` (`services/`, `types/`) — DTO, форматы ошибок, polling.
 - `<домен>-tone.md` — формулировки/тон, если продукт чувствителен к словам.
-- `guardrails.md` — protected-paths (см. `_optional/rules/guardrails.md`).
-- `agent-orchestration.md` — когда параллелить агентов (см. `_optional/rules/`).
+- `guardrails.md` — protected-paths (образец — `_optional/rules/guardrails.md` в ките; в репо `_optional/` нет).
+- `agent-orchestration.md` — когда параллелить агентов (образец — `_optional/rules/` в ките).

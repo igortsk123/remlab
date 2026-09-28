@@ -17,14 +17,17 @@
 #     вообще, значит любая запись в deny — авторская. Вычитание сняло бы жёсткий блок: напр.
 #     `Bash(rm -rf /)` лежит в `ask` пресетов, т.е. является kit-managed, и был бы вычтен из
 #     авторского deny — хардблок молча превратился бы в вопрос. Недопустимо (поймано на sib).
-#   - hooks: если в existing нет своего блока hooks — переносится из пресета целиком;
-#     свои hooks пользователя не трогаются (глубокого merge нет);
+#   - hooks (v1.9 — слияние по событиям): свои hooks пользователя сохраняются как есть; из пресета добавляются
+#     только НЕДОСТАЮЩИЕ. Ключ хука: скрипт кита `tools/<имя>.(mjs|py|sh)` в команде (тогда хук кита с другими
+#     флагами — напр. `--block` — уже считается установленным и не задваивается), иначе — команда целиком.
+#     Добавленный хук идёт отдельной записью {matcher, hooks:[…]} в конец списка события.
 #   - остальные ключи existing не трогаются;
 #   - если результат не отличается от existing — печатается __NOCHANGE__.
 #
 # Usage: merge-settings.py <preset.json> <existing.json>   (результат — в stdout)
 import json
 import os
+import re
 import sys
 
 PRESET_NAMES = ("default", "important", "autopilot", "plan-first")
@@ -70,9 +73,38 @@ def merge(existing, preset, managed=frozenset()):
         # deny — авторский жёсткий блок, вычитать нельзя (см. контракт в шапке).
         kept = cur if k == "deny" else [x for x in cur if x not in managed]
         perm[k] = uniq(kept + list(pp.get(k) or []))
-    if "hooks" in preset and "hooks" not in merged:
-        merged["hooks"] = preset["hooks"]
+    if "hooks" in preset:
+        merge_hooks(merged, preset["hooks"])
     return merged
+
+
+KIT_SCRIPT = re.compile(r"tools[\\/]([\w.-]+\.(?:mjs|py|sh))")  # и `tools\x.mjs` (Windows)
+
+
+def hook_key(cmd):
+    m = KIT_SCRIPT.search(cmd or "")
+    return "kit:" + m.group(1) if m else "cmd:" + (cmd or "")
+
+
+def merge_hooks(merged, preset_hooks):
+    """Слияние hooks по событиям: добавить из пресета только недостающие (см. контракт в шапке)."""
+    if not preset_hooks:
+        return
+    hooks = merged.get("hooks")
+    if not isinstance(hooks, dict):  # нет или `"hooks": null` — как в .ps1: создаём
+        hooks = merged["hooks"] = {}
+    for event, entries in preset_hooks.items():
+        have = hooks.get(event)
+        if not isinstance(have, list):  # `"<событие>": null`
+            have = hooks[event] = []
+        keys = {hook_key(h.get("command")) for e in have if isinstance(e, dict) for h in (e.get("hooks") or []) if isinstance(h, dict)}
+        for e in entries or []:
+            for h in e.get("hooks") or []:
+                k = hook_key(h.get("command"))
+                if k in keys:
+                    continue
+                have.append({"matcher": e.get("matcher", ""), "hooks": [h]})
+                keys.add(k)
 
 
 if __name__ == "__main__":

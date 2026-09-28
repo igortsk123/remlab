@@ -4,6 +4,8 @@ topic: anti-patterns
 scope: Каталог повторяющихся ошибок — чеклист при code-review
 tier1: core/lessons.md
 updated: 2026-09-05
+status: working
+source_of_truth: supporting
 importance: med
 source: manual
 ---

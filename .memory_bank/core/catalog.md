@@ -3,7 +3,7 @@ tier: 1
 topic: catalog
 scope: Каталог — загрузка из фидов/API, свежесть, сторожа
 tier2: "../domain/catalog-enrichment.md"
-updated: 2026-09-05
+updated: 2026-09-28
 importance: high
 source: manual
 status: working
@@ -21,7 +21,7 @@ review_after: 2026-12-05
 
 **Источник истины (ADR-0171, `tools/scout/load3.py`):** ФИД — ключ `(merchant_id, id)`, название, ссылка,
 фото, `original_picture → image_url_hd`, `article`, цена, категория, params, описание (пустое не затирает).
-API (`catalog_api_sync.py`, по понедельникам) — только `charge → charge_rub` (64 % in_stock, ≈5,9 % цены);
+API (`catalog_api_sync.py`, по понедельникам) — `charge → charge_rub` (64 % in_stock, ≈5,9 % цены), пустые HD и описание;
 связь по `article` (id в API округлён). Вычисляем: размеры (`dim_resolver.py`, оси по магазину×роли),
 роль (`category_map.py`: лист дерева + `OVERRIDES` + `MIXED`), `in_stock` (`stock_truth.reconcile()`,
 единственный писатель).

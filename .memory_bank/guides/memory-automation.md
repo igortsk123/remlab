@@ -4,7 +4,7 @@ topic: memory-automation
 scope: Как история проекта попадает в Memory Bank — слои, мост, хуки-напоминания, гейты
 tier1: ""
 last_verified: 2026-09-05
-updated: 2026-09-05
+updated: 2026-09-28
 importance: high
 source: manual
 ---
@@ -25,8 +25,14 @@ source: manual
 ## Цикл сессии (что гарантирует полноту)
 1. **Старт** — SessionStart-hook (`tools/session-freshness.mjs`) печатает баннер, если
    project-state отстал или audit грязный; иначе молчит. Читать: `INDEX.md` → нужные доки.
-2. **В процессе** — durable-факт фиксировать сразу в `.memory_bank/` (no-orphan).
-3. **Конец сессии** — `/memory-check`: захват → мост → уровни → связи+INDEX+реестры → чистота.
+2. **В процессе** — durable-факт фиксировать сразу в `.memory_bank/` (no-orphan). PostToolUse(Read)-hook
+   (`tools/read-logger.mjs`) логирует чтения доков в `changelog/reads.log`. PostToolUse(Edit|Write)-hook
+   (`tools/code-touch-hint.mjs`, кит 1.9) подсказывает агенту, какие доки описывают правленый файл кода
+   (раз на файл за сессию) — описание правится в том же изменении.
+3. **Конец сессии** — `/memory-check`: захват → мост → сверка затронутого (этап 1.6: доки изменённого кода +
+   CODE-DRIFT + ротация одной давней сводки → `verify`; `last_verified` — только по таблице доказательств,
+   каждая сверка — `node tools/memory-health.mjs --log-verify …`) → уровни → связи+INDEX+реестры → чистота.
+   Работает ли механизм — `node tools/memory-health.mjs` (сверки, найдено/исправлено, сдвиги дат без записи).
    Stop-hook (`tools/session-reminder.mjs`) напоминает, если работа была, а захвата не было.
 4. **Завершение плана** — гейт: план не `completed`, пока `/memory-check` не выполнен и audit
    не «чисто» (`agent-workflow.md`, DoD в `plans/_template.md`).

@@ -17,7 +17,8 @@ description: Когда и как извлекать, сохранять и си
    сверь с git/кодом или начни с `/memory-check`.
 2. **В процессе:** принял durable-факт/решение → СРАЗУ 1–2 строки в `_intake/session-scratch.md`
    (append-only); ясное — сразу в канон-док (frontmatter обязателен). Не откладывать.
-3. **Конец сессии / перед `/clear`:** `/memory-check` — захват → мост → уровни → INDEX/связи → чистота.
+3. **Конец сессии / перед `/clear`:** `/memory-check` — захват → мост → сверка затронутого (этап 1.6: доки
+   изменённого кода + CODE-DRIFT + ротация → `verify`) → уровни → INDEX/связи → чистота.
    Stop-hook напоминает; глубокая уборка — `/memory-cleanup`.
 4. **Несколько сессий в одной копии — свод по очереди** (владелец 28.09): в процессе все пишут только в
    блокнот; `/memory-check` и коммиты памяти — одна сессия за раз (договориться через сообщение сессии);
@@ -44,8 +45,11 @@ INDEX → Tier 1 → Tier 2 по `tier2:`/`[[ссылкам]]`, не скани�
 ## Обязательные правила
 - **Sync Tier 1 ↔ Tier 2:** правишь Tier 2 → `updated:` + сверь парную сводку (STALE/LAGGING в audit).
 - **No-orphan:** frontmatter `tier/topic/scope/updated` у каждого дока; реестры и INDEX регенерирует аудит.
-- **Якорь на код:** утверждение «как работает» — с backtick-путём к файлу/тесту (CODE-REF/CODE-DRIFT).
-  `last_verified` двигать ТОЛЬКО после сверки с кодом; правка формулировки двигает только `updated`.
+- **Якорь на код:** утверждение «как работает» — с backtick-путём (`путь` или `путь:символ`) к файлу/тесту
+  (CODE-REF/CODE-DRIFT). `last_verified` — ТОЛЬКО после сверки ВСЕГО дока субагентом `verify` с таблицей
+  «утверждение → `файл:строка`»; сверил часть — дату не двигать; правка формулировки двигает только `updated`.
+  Каждая сверка — строка `node tools/memory-health.mjs --log-verify <док> --claims N --mismatch M --fixed F
+  --reason code|drift|rotation` (сводка «сколько ловим» — `node tools/memory-health.mjs`).
 - **Lifecycle-поля** (`status`, `source_of_truth`, `last_verified`, `review_after`) — у canonical/tier-1.
 - Устаревшее не удаляем — `archive/` + запись в `changelog/memory-log.md`.
 - **Provenance:** `source: manual` | `_intake/...` | `external:<откуда>` (для чужих источников — ОБЯЗАТЕЛЬНО).

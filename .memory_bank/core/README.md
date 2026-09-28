@@ -14,11 +14,11 @@
 |------|-------|----------------------|--------|---------|
 | `access-and-integrations.md` | access-and-integrations | Интеграции/доступы — ключи, клиенты | `../domain/integrations.md` | 2026-09-28 |
 | `architecture.md` | architecture | Стек, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-09-28 |
-| `catalog.md` | catalog | Каталог — загрузка из фидов/API, свежесть, сторожа | `../domain/catalog-enrichment.md` | 2026-09-05 |
+| `catalog.md` | catalog | Каталог — загрузка из фидов/API, свежесть, сторожа | `../domain/catalog-enrichment.md` | 2026-09-28 |
 | `data-model.md` | data-model | Схема БД, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-09-28 |
 | `demo-planner.md` | demo-planner | Демо-планировщик для партнёра — расстановка и кадр | `../domain/demo-planner-ui.md` | 2026-09-28 |
 | `estimate.md` | estimate | Смета — калькуляторы, /go/ реф | `../domain/pricing-works-ru.md` | 2026-09-28 |
-| `furniture.md` | furniture | Мебель — сеты, визуализация | `../domain/viz-fidelity-playbook.md` | 2026-09-05 |
+| `furniture.md` | furniture | Мебель — сеты, визуализация | `../domain/viz-fidelity-playbook.md` | 2026-09-28 |
 | `goals.md` | goals | Цели v0.4 — сценарий, монетизация, порядок ступеней | `../plans/MASTER-cost-first.md` | 2026-09-28 |
 | `knowledge-db.md` | knowledge-db | Source-KB из книг — спека, KB0–KB9 | `../../remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md` | 2026-09-28 |
 | `layout.md` | layout | Расстановка: правила, зоны, прод-ядро | `../domain/occupancy-rules.md` | 2026-09-28 |
@@ -27,7 +27,7 @@
 | `lr-composition.md` | lr-composition | Композиция гостиной — доли | `../domain/lr-composition-guide.md` | 2026-09-01 |
 | `market.md` | market | Рынок RU/UK — спрос, монетизация | `../domain/market-research.md` | 2026-09-28 |
 | `marketing-acquisition.md` | marketing-acquisition | Реклама — Яндекс, семантика | `../domain/wordstat-semantics.md` | 2026-09-05 |
-| `mesh-color.md` | mesh-color | Цвет мешей — диагноз, мерка, рычаги | `../domain/viz-fidelity-playbook.md` | 2026-09-05 |
+| `mesh-color.md` | mesh-color | Цвет мешей — диагноз, мерка, рычаги | `../domain/viz-fidelity-playbook.md` | 2026-09-28 |
 | `mesh-owner-audit.md` | mesh-owner-audit | Приёмка мешей владельцем — /lab/mesh-audit | `../completed_plans/mesh-owner-audit.md` | 2026-09-05 |
 | `mesh-pipeline.md` | mesh-pipeline | 3D-меши — генерация, учёт, приёмка | `../domain/viz-fidelity-playbook.md` | 2026-09-28 |
 | `mesh-pool.md` | mesh-pool | Пул нод Salad — группы, тарифы, деньги, стопоры | `../domain/mesh-pool-ops.md` | 2026-09-05 |

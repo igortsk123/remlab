@@ -6,7 +6,6 @@ status: completed
 completed: 2026-07-11
 created: 2026-07-11
 updated: 2026-07-11
-completed:
 ---
 
 # Доводка ключей и минус-фраз (Этапы 1–4)

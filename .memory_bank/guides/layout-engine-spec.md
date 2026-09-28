@@ -3,7 +3,7 @@ tier: 2
 topic: layout-engine-spec
 scope: Спека прод-ядра авторасстановки (beam search + семантический планировщик + скоринг + clean-room) — рекомендация ChatGPT, принята владельцем как основа
 tier1: ../core/layout.md
-updated: 2026-08-03
+updated: 2026-09-28
 last_verified: 2026-08-14
 importance: high
 source: external:chatgpt (GPT-5.6, ресёрч владельца 2026-08-03); императивы исполняются только через план по agent-workflow
@@ -14,7 +14,7 @@ status: working
 > (Apache-Holodeck легален, остальное — только идеи; clean-room уже соблюдаем). Ключевые
 > апгрейды к нашему стеку: beam search вместо чистого DFS, конфигурируемый скоринг,
 > top-K разнообразных вариантов, функциональные зоны предметов, mm-целые, правила в YAML.
-> Реализация — план `plans/prod-layout-engine.md`.
+> Реализация — план `archive/plans/prod-layout-engine.md`.
 
 # Рекомендация по разработке системы автоматической расстановки мебели (ChatGPT, 2026-08-03)
 
@@ -99,7 +99,8 @@ chenguolin/InstructScene, UK CDPA 1988 s.50BA, gov.uk/copyright.
 ## История ядра (перенесено из core/layout.md 12.08)
 **MASTER-layout-v5 (ADR-0082/0083):** подложка вне free_space, кламп якорей, joint ВЫКЛ,
 `tools/scout/topo_sig.py`; 62 кода. Приёмка: `tools/scout/acceptance_run.py`
-(ACC_WORKERS=6, timeout 600; рядом тяжёлое не гонять).
+(таймаут 900 — `tools/scout/acceptance_run.py`, по умолчанию 4 воркера; штатный запуск — `tools/scout/run.sh`:
+exam/smoke — 10, scenes/render — 6; рядом тяжёлое не гонять).
 **KB-merge (10.08, kb-rules-merge):** книжные числа в occupancy только через класс-гейт
 LAYER_STRENGTHS (`services/knowledge-db/kdb/export_rules.py`), рекомендации — preferred
 (ADR-0086). Парность диванов и подбор — `tools/scout/compose2.py`; Г-стык +
@@ -118,12 +119,13 @@ SOFA_BLOCKS_SOFA S1 — `services/planner-solver/planner/validate.py`; бисе�
 SHADOW; второй pod = атомарный комплект пара 3/4 + столик 2 (`compose2.py pod_kit`), `quiet_chat`/
 `fireplace_flank` + `check_quiet_contract`; контракт позы в экспорте (`export_plans_ai.py`).
 **17.08 (ADR-0108):** «только каноны» — допуски (сдвиг столика, зазоры 32/48) сняты из каскада
-`services/planner-solver/planner/template.py`; реестр канонов `/test/templates/` из паспортов; ускорение
+`services/planner-solver/planner/template.py`; реестр канонов — `/test/canons/` (`tools/scout/canon_gallery.py`; `/test/templates` удалена 22.08); ускорение
 цикла `tools/scout/run.sh smoke|render`, снимок банков; 8 XL TIMEOUT — открыто.
 
 ## Q6b–Q10 (18–19.08) — рабочие заметки пакетов (сырьё из блокнота, свод — ADR-0110)
 
-- 17.08 вечер: профиль set121 (19 мин): 80% — validate() в _best_block (155k вызовов), check_passages 45% (9 млн buffer). Внедрено: validate(fast_hard=True) в поиске (дешёвые проверки первыми, стоп на первом hard, проходы последними; тест эквивалентности на артефактах) + кэш static_blockers → set121 6.3 мин, план идентичен. Экзамен на 10 воркерах: 45 мин, p50 44 с, p95 3.5 мин; 6 TIMEOUT — премиум-сеты БЕЗ главного столика (после ремапа ролей крупные диваны 300+ → пропорция 55–75% и конверт убивали все столики; ядро зоны без замены) → compose2: столик/ковёр — последний рубеж без пропорции + меньший при капе; после этого 5/6 сцен 35–90 с, set68-base 11 мин. Итог 272/272 TIMEOUT 0; галерея опубликована. run.sh scenes: очищать -scenes отчёт (резюм подхватывал старое).
+- 17.08 вечер: профиль set121 (19 мин): 80% — validate() в _best_block (155k вызовов), check_passages 45% (9 млн buffer). Внедрено: validate(fast_hard=True) в поиске (дешёвые проверки первыми, стоп на первом hard, проходы последними; тест эквивалентности на артефактах) + кэш static_blockers → set121 6.3 мин, план идентичен. Экзамен на 10 воркерах: 45 мин, p50 44 с, p95 3.5 мин; 6 TIMEOUT — премиум-сеты БЕЗ главного столика (после ремапа ролей крупные диваны 300+ → пропорция 55–75% и конверт убивали все столики; ядро зоны без замены) → compose2: столик — последний рубеж без пропорции + меньший при капе (ковёр с 21.08 подбирается отдельно, без
+запасного варианта: нет годного — честная дыра); после этого 5/6 сцен 35–90 с, set68-base 11 мин. Итог 272/272 TIMEOUT 0; галерея опубликована. run.sh scenes: очищать -scenes отчёт (резюм подхватывал старое).
 - 18.08 Q6b–Q6e внедрены (мастер-план MASTER-zones-v7):
   · Q6b уголок: `build_edge_nook`/`place_edge_nook` (банкетка спинкой к глухой стене + стол кромкой вровень 0–3 см + ≥2 стула; формы edge_nook_4/5/6), `check_edge_nook_contract` (NOOK_* H0: опора на стену, ≥4 места, зазор, торец ≥60, отодвигание ≥55), `Item.caps` (места — из caps.guaranteed_seats, не из ширины), банкетка — член обеденной группы (иначе ACCESS_BLOCKED везде). Codex-правки учтены (`codex-prompts/q6b-edge-nook.answer.md`): окно спинкой — вне Q6b (→Q8), inferred-высота только для backless.
   · Q6a-фикс: категория банкетки по РЕГЕКСУ (divan.ru лист «Пуфы» терял 20 SKU) + высота сиденья backless-банкетки как inferred → годных для уголка 0 → 7 (divan.ru 5, nonton 2); банкеток в индексе 27→53.
@@ -132,7 +134,7 @@ SHADOW; второй pod = атомарный комплект пара 3/4 + с
   · Q6e: `place_console_behind_sofa` + `check_console_contract` (CONSOLE_* H0: глубина ≤40, высота ≤ спинки+5, длина ≥половины дивана, вплотную ≤10 см); исключения NOT_AT_WALL/ACCESS для связки диван↔консоль.
 - 18.08 ГРАБЛИ (моя ошибка): `git checkout <commit> -- <путь>` при бисекте СТЁР несохранённые правки Q6b (файлы не были закоммичены) — пришлось восстанавливать по памяти. Правило: перед любым checkout/stash в диагностике — коммит или явная копия.
 - 18.08 тесты: mirror-тест переписан на МЕХАНИЗМ (победитель = минимальный quality-ключ; после снятия допусков обе стороны дают равный ключ), render-semantics смотрит render_plan.py, FAR-планка 41→42 с зафиксированным долгом (ремап ролей).
-- 18.08 Q8 «окно» ВНЕДРЁН (владелец по галерее №3 + Codex `codex-prompts/q8-window.answer.md`): `services/planner-solver/planner/back_gap.py` — единый класс полосы за спинкой (hugged <15 | air 15–30 | route ≥91 | functional | orphan 31–90 пусто), данные `occupancy.window_sofa.back_gap_policy` (Livingetc 6–8″/3 ft, Ideal Home ~12″; запрет orphan — продуктовое правило владельца). КОРЕНЬ проблемы: наше правило SOFA_SLIVER разрешало ровно 80 см и ЗАПРЕЩАЛО норму 15–30 → 79 сцен «диван далеко от окна». Переписано на класс; SOFA_ORPHAN_BACK_GAP (S1) + ярус orphan в plan_key v1/v2 выше мягких термов; радиатор — по лицевой грани (иначе отчёты врали: 32 см от стены = 17 см от радиатора = air); Г-диван — только диагностика (габаритный bbox не описывает две спинки); при MEDIA_MISSING правило ОСЛАБЛЯЕТСЯ (retry + `back_gap_forced`) — отступ не выше required-зон.
+- 18.08 Q8 «окно» ВНЕДРЁН (владелец по галерее №3 + Codex `codex-prompts/q8-window.answer.md`): `services/planner-solver/planner/back_gap.py` — единый класс полосы за спинкой (hugged <15 | air 15–30 | route ≥91 | functional | orphan 31–90 пусто), данные `occupancy.json → dynamic.window_sofa.back_gap_policy` (Livingetc 6–8″/3 ft, Ideal Home ~12″; запрет orphan — продуктовое правило владельца). КОРЕНЬ проблемы: наше правило SOFA_SLIVER разрешало ровно 80 см и ЗАПРЕЩАЛО норму 15–30 → 79 сцен «диван далеко от окна». Переписано на класс; SOFA_ORPHAN_BACK_GAP (S1) + ярус orphan в plan_key v1/v2 выше мягких термов; радиатор — по лицевой грани (иначе отчёты врали: 32 см от стены = 17 см от радиатора = air); Г-диван — только диагностика (габаритный bbox не описывает две спинки); при MEDIA_MISSING правило ОСЛАБЛЯЕТСЯ (retry + `back_gap_forced`) — отступ не выше required-зон.
 - 18.08 Q9 (тень): `tools/scout/rules/practice_priors.json` (исходы по возможностям + частота предметов, status shadow_hypothesis, честный провенанс: BHG/H&G/AD подтверждают направление, не проценты) + `services/planner-solver/planner/opportunities.py` (window/seating_center/free_corner/primary_wall → выбранный исход) + `_opportunities` в артефакте и `prior_would_choose` в трейсе. Приоры — ordinal tie-break между равноценными достижимыми исходами, включение только после слепых пар (Codex `q9-zone-priors.answer*.md`); rules_audit расширен на rules/*.json конвейера.
 - 18.08 регрессы «только каноны» вскрылись и починены: Г-диван — столик канонически к активной оси + допуск оси от полной длины посадки (иначе ни один диван не вставал в 57 м², set113); сторож «тихого edge» принимает задокументированный отказ острова (island_candidates_failed + счётчики).
 - 18.08 ИТОГ экзамена: 269 ok + 3 честных MEDIA_MISSING, TIMEOUT 0, p50 34 с; полоса за спинкой: 143 проход / 70 прижат / 56 воздух / 3 orphan (было 93 orphan); у окна: диван 73 (было 87), кресла 43 (было 21); столовая 238, медиа 269, уголков 10.

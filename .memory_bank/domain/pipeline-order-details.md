@@ -4,6 +4,7 @@ topic: pipeline-order-details
 scope: Порядок конвейера — обоснования этапов и незакрытые места
 tier1: "../core/pipeline-order.md"
 updated: 2026-08-29
+importance: med
 source: manual
 ---
 

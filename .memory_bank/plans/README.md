@@ -20,6 +20,8 @@ draft → in_progress → completed → перенос в completed_plans/
 
 Доп. поля (плоские строки): `plan_kind` — `portfolio_master` (один: `MASTER-cost-first`) ·
 `track_master` (мастер трека, `parent_plan: MASTER-cost-first`) · `sub` (по умолчанию).
+**Мастер-планы (кит v1.9):** `portfolio_master`/`track_master` с будущей `review_after` не считаются застрявшими
+(`PLAN-STUCK`); дата пересмотра прошла или не задана — снова находка с подсказкой.
 Отложенное/поглощённое уходит в `archive/plans/` со статусом как есть + `archived`, `archive_reason`,
 `superseded_by` — вернуть можно в любой момент (`git mv` обратно, поля убрать).
 Триаж 2026-09-05: 53 плана ушли в архив (манифест — `changelog/memory-log.md`), открытых ≤ 25.

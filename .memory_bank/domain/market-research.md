@@ -8,7 +8,7 @@ importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-09-28
+last_verified: 2026-07-09
 ---
 
 > ⚠️ ADR-0016: **v0.4 «Смета-first»** — `plans/MASTER-cost-first.md`; ниже — v0.3-контекст.

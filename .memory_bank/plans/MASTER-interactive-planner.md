@@ -5,6 +5,7 @@ title: МЕТАПЛАН — интерактивный планировщик к
 status: draft
 parent_plan: MASTER-cost-first
 plan_kind: track_master
+review_after: 2026-10-28
 created: 2026-08-26
 updated: 2026-09-05
 completed:

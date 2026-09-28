@@ -4,6 +4,7 @@ topic: layout
 scope: Расстановка: правила, зоны, прод-ядро
 tier2: ../domain/occupancy-rules.md
 updated: 2026-09-28
+last_verified: 2026-09-28
 importance: high
 source: manual
 status: working

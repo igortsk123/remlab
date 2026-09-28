@@ -15,20 +15,14 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { runChecks } from "./memory-audit.mjs";
+import { runChecks, THRESHOLD_KEYS } from "./memory-audit.mjs";
 
 const args = process.argv.slice(2);
 const blockMode = args.includes("--block");
-// Пороговые флаги audit пробрасываются в runChecks (проект с нестандартными бюджетами задаёт
-// их в команде хука, напр. `session-reminder.mjs . --block --tier0-max-kb 10`).
-const THRESHOLD_FLAGS = {
-  "--stale-days": "staleDays",
-  "--ps-max-kb": "psMaxKb",
-  "--tier1-max-kb": "tier1MaxKb",
-  "--tier0-max-kb": "tier0MaxKb",
-  "--plan-stale-days": "planStaleDays",
-  "--frozen-commits": "frozenCommits",
-};
+// Пороговые флаги audit пробрасываются в runChecks (все 11 — тот же словарь, что у CLI). Проекту
+// с нестандартными бюджетами флаги в команде хука больше не нужны: runChecks сам читает
+// project-owned `.memory_bank/_kit/audit-flags.txt` (v1.8); флаг в команде — точечное переопределение.
+const THRESHOLD_FLAGS = THRESHOLD_KEYS;
 // CODE-DRIFT — warning: на решение о блоке (оно по problems) не влияет, а стоит лишнего
 // `git log` на КАЖДОМ завершении ответа. Здесь он не нужен: находки показывает SessionStart,
 // --check и CI. Считаем только то, от чего зависит решение.

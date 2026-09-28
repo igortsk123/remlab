@@ -6,6 +6,8 @@ status: draft
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 completed:
+# при partial ОБЯЗАТЕЛЬНО (иначе аудит PLAN-PARTIAL-NO-REASON): pause_reason / resume_trigger / review_after
+# plan_kind: sub | track_master (+ parent_plan) | portfolio_master — только для мастер-планов
 ---
 
 ## Цель
@@ -46,7 +48,8 @@ completed:
 
 ### Уроки (ОБЯЗАТЕЛЬНО; для partial/cancelled — особенно)
 [Что пошло не по плану; какие подходы пробовали и отбросили — и ПОЧЕМУ. Каждый урок →
-инкрементальный bullet в `core/lessons.md`. Если всё по плану — «без отклонений».]
+инкрементальный bullet в `core/lessons.md` («ситуация → пробовали → почему не сработало → правило»).
+Если всё по плану — «без отклонений».]
 
 ## Follow-up work
 - [ ] [TODO, если есть]

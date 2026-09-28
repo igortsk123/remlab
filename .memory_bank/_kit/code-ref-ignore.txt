@@ -3,15 +3,24 @@
 # ИЛИ префикс (строка с хвостовым / гасит всё под ней).
 # Внешняя research-папка ML-экспериментов (вне репо remlab, /home/pakar/mltest) — не репо-код:
 mltest/
-# tools/ намеренно в .gitignore («не часть проекта», кроме memory-audit.mjs для CI) — ссылки на
-# локальные скрипты (migrate/trace/session/metrics) не репо-claim; в CI-checkout их нет. Продуктовый
-# код (app/, lib/, infra/, db/) остаётся под проверкой CODE-REF.
-tools/
+# Кит 1.9 (28.09): широкое исключение `tools/` снято — оно выключало не только CODE-REF, но и якоря и
+# CODE-DRIFT для всего живого кода (каталог, меши, демо). Код `tools/` в git; исключаем ТОЛЬКО данные
+# `tools/scout`, которые по ADR-0055 не в git (.gitignore `tools/scout/*`): локально есть, в CI-checkout нет.
+# Сослался в памяти на новый файл данных scout вне git — впиши его сюда (локальный аудит его не поймает).
+tools/scout/composition.json
+tools/scout/typical-dims.json
+tools/scout/styles.json
+tools/scout/proportions.json
+tools/scout/candidates-index.json
+tools/scout/refs/
+tools/scout/thumbs/
+# Неполные пути в журнале решений (тексты ADR дословные, не переписываем):
+tools/scout/proportions.json/.py
+planner/validate.py
 components/CalcForm.tsx
 # ADR-0042 (мебельный трек): планируемые файлы (код ещё не написан) + внешний URL API Гдеслона:
 db/init/007-products.sql
 db/init/008-sets.sql
-services/planner-solver/
 api.gdeslon.ru/
 data/planner/composition.ts
 # Э0 prod-layout-engine: пути ВНЕШНИХ репо (ProcTHOR/Infinigen/Holodeck) в guides/layout-mined-rules.md —

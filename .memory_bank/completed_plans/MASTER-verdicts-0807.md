@@ -5,6 +5,7 @@ title: МАСТЕР — вердикты владельца 07.08 (В1–В5): �
 status: completed
 created: 2026-08-07
 updated: 2026-08-07
+completed: 2026-08-07
 ---
 
 ## Цель

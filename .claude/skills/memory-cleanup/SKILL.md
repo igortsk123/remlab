@@ -87,7 +87,7 @@ KEEP: N · VERIFY: N · COMPRESS: N · MERGE: N · SPLIT: N · ARCHIVE: N · DEL
 1. **Archive-before-delete.** ARCHIVE/DELETE → сначала перенести оригинал в `archive/YYYY/MM/` с archive-note frontmatter (см. `archive/README.md`). Hard-delete без архивной копии запрещён.
 2. **Canonical под защитой.** `source_of_truth: canonical` (`source-of-truth.md`, `decisions.md`, `project-state.md`, …) не переписывать/не удалять без явного «да» по конкретному доку. `decisions.md`: устаревшее решение не стирать — добавить отменяющую ADR-запись.
 3. **Не трогать** `plans/*` (draft/in_progress), `_intake/*`, `_secrets/*`.
-4. **Перестроить связи:** починить `[[ссылки]]` и `tier1/tier2`, обновить `updated`/`last_verified` у тронутых доков, убедиться, что каждый живой док маршрутизирован из `INDEX` (regen decision tree).
+4. **Перестроить связи:** починить `[[ссылки]]` и `tier1/tier2`, обновить `updated` у тронутых доков (`last_verified` — только по отчёту `verify` с доказательствами, v1.9), убедиться, что каждый живой док маршрутизирован из `INDEX` (regen decision tree).
 5. **Залогировать** каждое действие в `changelog/memory-log.md` (формат — в файле; свежие записи сверху): дата, файл, действие, причина, approval, команда.
 6. **Сверить:** перепрогнать Шаг A — убедиться, что «чисто».
 7. **Отчитаться:** что заархивировано/слито/сжато/починено, путь к лог-записи, как откатить (поднять из `archive/`).

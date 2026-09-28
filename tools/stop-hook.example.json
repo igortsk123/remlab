@@ -43,6 +43,18 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/code-touch-hint.mjs ]; then node tools/code-touch-hint.mjs || true; fi"
+          }
+        ]
+      }
     ]
-  }
+  },
+  "//12": "PostToolUse(Edit|Write) — code-touch-hint (v1.9): агенту в контекст приходит, какие доки памяти описывают правленый файл (hookSpecificOutput.additionalContext), раз на файл за сессию."
 }
