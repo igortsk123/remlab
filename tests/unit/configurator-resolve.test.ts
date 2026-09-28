@@ -129,6 +129,23 @@ describe("конфигуратор: мост в photo-конвейер", () => {
     }
   });
 
+
+  it("угол камеры — в конвенции конвейера: взгляд (sin a, −cos a) смотрит в центр комнаты", () => {
+    const cfg = defaultConfiguration(apartment, catalogue);
+    const scene = resolveScene(apartment, catalogue, cfg);
+    const req = toPhotoRequest(apartment, scene, "living")!;
+    for (const c of req.cams) {
+      const a = (c.rot * Math.PI) / 180;
+      const dir = { x: Math.sin(a), y: -Math.cos(a) };
+      const toCentre = { x: req.room.w / 2 - c.x, y: req.room.d / 2 - c.y };
+      const len = Math.hypot(toCentre.x, toCentre.y) || 1;
+      const cos = (dir.x * toCentre.x + dir.y * toCentre.y) / len;
+      // косинус угла между взглядом и направлением на центр: камера смотрит в комнату,
+      // а не в стену (кадр 28.09 приходил пустым именно из-за перепутанного знака)
+      expect(cos, `камера ${c.name} смотрит мимо центра`).toBeGreaterThan(0.8);
+    }
+  });
+
   it("проёмы уезжают в snake_case, как ждёт конвейер", () => {
     const cfg = defaultConfiguration(apartment, catalogue);
     const scene = resolveScene(apartment, catalogue, cfg);

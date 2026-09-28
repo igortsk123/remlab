@@ -134,10 +134,14 @@ export function camsOf(a: Apartment, room: Room): PhotoCam[] {
     });
   }
   const pad = 3;
+  // У КАМЕР КОНВЕНЦИЯ УГЛА ДРУГАЯ, ЧЕМ У ПРЕДМЕТОВ: конвейер строит взгляд как
+  // (sin a, −cos a) — это `aimAtCentre` демо (`flat215-demo/index.html:1197`) и
+  // `draft_render.cams_from_request`. Поймано пустым кадром 28.09: с «предметной» формулой
+  // камера смотрела ровно в противоположную стену.
   const aim = (x: number, y: number): number => {
     const dx = room.w / 2 - x;
     const dy = room.d / 2 - y;
-    return Math.round(((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360);
+    return Math.round(((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360);
   };
   return [
     { name: "вид 1", x: pad, y: pad, rot: aim(pad, pad), fov: 72 },

@@ -69,12 +69,13 @@
    ]
   }
  ],
+ "_cameras_note": "Углы — в конвенции КАМЕР конвейера: взгляд = (sin a, −cos a), проверено кадром 28.09.",
  "cameras": [
-  { "id": "living-a", "roomId": "living", "titleRu": "Гостиная — от окна", "x": 60, "y": 640, "rot": 145, "fov": 72 },
-  { "id": "living-b", "roomId": "living", "titleRu": "Гостиная — от обеденной", "x": 820, "y": 440, "rot": 305, "fov": 72 },
-  { "id": "kitchen-a", "roomId": "kitchen", "titleRu": "Кухня", "x": 850, "y": 380, "rot": 235, "fov": 75 },
-  { "id": "bedroom-a", "roomId": "bedroom", "titleRu": "Спальня", "x": 40, "y": 370, "rot": 160, "fov": 74 },
-  { "id": "bathroom-a", "roomId": "bathroom", "titleRu": "Ванная", "x": 770, "y": 190, "rot": 215, "fov": 78 }
+  { "id": "living-a", "roomId": "living", "titleRu": "Гостиная — от дивана", "x": 80, "y": 480, "rot": 100, "fov": 72 },
+  { "id": "living-b", "roomId": "living", "titleRu": "Гостиная — от обеденной", "x": 800, "y": 600, "rot": 280, "fov": 72 },
+  { "id": "kitchen-a", "roomId": "kitchen", "titleRu": "Кухня", "x": 840, "y": 370, "rot": 293, "fov": 78 },
+  { "id": "bedroom-a", "roomId": "bedroom", "titleRu": "Спальня", "x": 60, "y": 340, "rot": 27, "fov": 76 },
+  { "id": "bathroom-a", "roomId": "bathroom", "titleRu": "Ванная", "x": 750, "y": 170, "rot": 304, "fov": 82 }
  ],
  "slots": [
   { "id": "living-floor", "roomId": "living", "category": "flooring", "kind": "surface", "surface": "floor",

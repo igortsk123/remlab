@@ -40,8 +40,8 @@ export function PhotoView({ apartment, scene, roomId, lang }: PhotoViewProps) {
     timerRef.current = null;
   }, []);
 
-  const render = useCallback(async () => {
-    const payload = toPhotoRequest(apartment, scene, roomId, { quality: "draft" });
+  const render = useCallback(async (quality: "draft" | "realistic" = "draft") => {
+    const payload = toPhotoRequest(apartment, scene, roomId, { quality });
     if (!payload) return;
     setStatus("running");
     setShots([]);
@@ -101,14 +101,26 @@ export function PhotoView({ apartment, scene, roomId, lang }: PhotoViewProps) {
           {status === "error" ? <p className="mt-3 text-sm text-error-primary">{message}</p> : null}
         </div>
       )}
-      <button
-        type="button"
-        onClick={() => void render()}
-        disabled={status === "running"}
-        className="min-h-11 rounded-lg bg-brand-solid px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
-      >
-        {status === "running" ? L.photoWait : L.photoBtn}
-      </button>
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <button
+          type="button"
+          onClick={() => void render("draft")}
+          disabled={status === "running"}
+          className="min-h-11 rounded-lg bg-brand-solid px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
+        >
+          {status === "running" ? L.photoWait : L.photoBtn}
+        </button>
+        {/* КРАСИВЫЙ КАДР — ПЛАТНЫЙ ШАГ, ТОЛЬКО ПО КНОПКЕ (ADR-0158): черновик бесплатный и
+            быстрый, доводка моделью считается минутами и стоит денег */}
+        <button
+          type="button"
+          onClick={() => void render("realistic")}
+          disabled={status === "running"}
+          className="min-h-11 rounded-lg px-4 py-3 text-sm font-medium text-secondary ring-1 ring-inset ring-secondary disabled:opacity-60"
+        >
+          {L.photoNice}
+        </button>
+      </div>
     </div>
   );
 }
