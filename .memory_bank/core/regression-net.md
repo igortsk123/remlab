@@ -3,7 +3,7 @@ tier: 1
 topic: regression-net
 scope: Регресс-защита — тесты, CI, гардрейлы
 tier2: "../../docs/tech-spec-ts-stack.md"
-updated: 2026-09-05
+updated: 2026-09-28
 importance: high
 source: manual
 status: working
@@ -22,12 +22,12 @@ review_after: 2026-12-05
 - **e2e:** happy path `flow.spec.ts` (через /select) + 5 smoke + `estimate.spec.ts`; error-путей НЕТ.
 - **CI (`ci.yml`):** джобы gate (postgres → typecheck → lint → test → build → e2e + шаг
   memory-project-audit), db-init, planner (pytest солвера), scout-orient, scout-selftest;
-  `memory-audit.yml` — аудит памяти (режим `_kit/gate-mode.txt`). Красный = merge запрещён.
+  `memory-audit.yml` — аудит памяти. Оба аудита памяти — по `_kit/gate-mode.txt`: с 28.09 `warn`
+  (прод из-за памяти не стоит; дисциплина — Stop-хук `--block`).
 - **Observability:** трейс LLM-вызовов (`lib/trace/`; сбои записи — `traceWriteFailures` в
   `/api/health`); PostHog. Sentry НЕ заводим.
-- **Гарантии памяти (ADR-0055):** два аудита + хуки: PreToolUse-гард Bash — в git
-  (`.claude/settings.json`, ADR-0195); SessionStart/Stop/PreCompact/PostToolUse — в
-  `.claude/settings.local.json` (вне git; скрипты `tools/*.mjs` — в git).
+- **Гарантии памяти (ADR-0055):** два аудита + хуки в git (`.claude/settings.json`): гард Bash
+  (ADR-0195) и с 28.09 SessionStart/Stop/PreCompact/PostToolUse; разрешения — `settings.local.json`.
 - **Грабля:** меняешь флоу — правь e2e тем же коммитом; шаг CI и его инструмент — одним
   коммитом (урок 414); после push смотри gate.
 

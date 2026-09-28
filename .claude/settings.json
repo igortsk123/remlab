@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "_about": "Проектные настройки В GIT. Личное и разрешения — в .claude/settings.local.json (он в .gitignore, поэтому гарды держим здесь: иначе защита не переживёт клон репозитория).",
+  "_about": "Проектные настройки В GIT: гард Bash и хуки кита памяти (SessionStart/Stop/PreCompact/PostToolUse) — переживают клон репозитория (решение владельца 28.09). Личное и разрешения — в .claude/settings.local.json (он в .gitignore).",
   "hooks": {
     "PreToolUse": [
       {
@@ -9,6 +9,50 @@
           {
             "type": "command",
             "command": "if command -v node >/dev/null 2>&1 && [ -f tools/hooks/guard-bash.mjs ]; then node tools/hooks/guard-bash.mjs; fi"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/session-freshness.mjs ]; then node tools/session-freshness.mjs . || true; fi; if command -v node >/dev/null 2>&1 && [ -f tools/memory-project-audit.mjs ]; then node tools/memory-project-audit.mjs . --brief || true; fi"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/session-reminder.mjs ]; then node tools/session-reminder.mjs . --block --tier0-max-kb 10 --scratch-fresh-days 2; elif [ -n \"$(git status --porcelain 2>/dev/null | grep -v '^.. \\.memory_bank/')\" ]; then echo 'Внимание: изменения сессии не зафиксированы в памяти — перед /clear запусти /memory-check (.memory_bank/)'; fi"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/precompact-guard.mjs ]; then node tools/precompact-guard.mjs .; fi"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v node >/dev/null 2>&1 && [ -f tools/read-logger.mjs ]; then node tools/read-logger.mjs . || true; fi"
           }
         ]
       }
