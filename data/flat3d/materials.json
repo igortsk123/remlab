@@ -1,0 +1,261 @@
+{
+ "_about": "Материалы покрытий. Собрано tools/assets/material_pipeline.py — руками не править.",
+ "baseUrl": "/flat3d/materials/",
+ "materials": [
+  {
+   "id": "carpet-beige",
+   "titleRu": "Ковролин бежевый",
+   "titleEn": "Beige carpet",
+   "colorHex": "#948877",
+   "roughness": 0.95,
+   "metalness": 0.0,
+   "tileCm": [
+    60.0,
+    60.0
+   ],
+   "baseColorUrl": "carpet-beige.webp",
+   "normalUrl": "carpet-beige-n.webp",
+   "roughnessUrl": "carpet-beige-r.webp",
+   "aoUrl": "carpet-beige-ao.webp",
+   "previewUrl": "carpet-beige-preview.webp"
+  },
+  {
+   "id": "carpet-grey",
+   "titleRu": "Ковролин серый",
+   "titleEn": "Grey carpet",
+   "colorHex": "#6c6a67",
+   "roughness": 0.95,
+   "metalness": 0.0,
+   "tileCm": [
+    60.0,
+    60.0
+   ],
+   "baseColorUrl": "carpet-grey.webp",
+   "normalUrl": "carpet-grey-n.webp",
+   "roughnessUrl": "carpet-grey-r.webp",
+   "aoUrl": "carpet-grey-ao.webp",
+   "previewUrl": "carpet-grey-preview.webp"
+  },
+  {
+   "id": "laminate-oak-top",
+   "titleRu": "Столешница дуб",
+   "titleEn": "Oak worktop",
+   "colorHex": "#c09d73",
+   "roughness": 0.38,
+   "metalness": 0.0,
+   "tileCm": [
+    128.0,
+    128.0
+   ],
+   "baseColorUrl": "laminate-oak-top.webp",
+   "normalUrl": "laminate-oak-top-n.webp",
+   "roughnessUrl": "laminate-oak-top-r.webp",
+   "aoUrl": "laminate-oak-top-ao.webp",
+   "previewUrl": "laminate-oak-top-preview.webp"
+  },
+  {
+   "id": "oak-light",
+   "titleRu": "Дуб светлый (LVT)",
+   "titleEn": "Light oak LVT",
+   "colorHex": "#bc9f7c",
+   "roughness": 0.58,
+   "metalness": 0.0,
+   "tileCm": [
+    120.0,
+    120.0
+   ],
+   "baseColorUrl": "oak-light.webp",
+   "normalUrl": "oak-light-n.webp",
+   "roughnessUrl": "oak-light-r.webp",
+   "aoUrl": "oak-light-ao.webp",
+   "previewUrl": "oak-light-preview.webp"
+  },
+  {
+   "id": "oak-natural",
+   "titleRu": "Дуб натуральный",
+   "titleEn": "Natural oak",
+   "colorHex": "#a17d57",
+   "roughness": 0.52,
+   "metalness": 0.0,
+   "tileCm": [
+    120.0,
+    120.0
+   ],
+   "baseColorUrl": "oak-natural.webp",
+   "normalUrl": "oak-natural-n.webp",
+   "roughnessUrl": "oak-natural-r.webp",
+   "aoUrl": "oak-natural-ao.webp",
+   "previewUrl": "oak-natural-preview.webp"
+  },
+  {
+   "id": "parquet-blocks",
+   "titleRu": "Паркет модульный",
+   "titleEn": "Parquet blocks",
+   "colorHex": "#b7956e",
+   "roughness": 0.5,
+   "metalness": 0.0,
+   "tileCm": [
+    96.0,
+    96.0
+   ],
+   "baseColorUrl": "parquet-blocks.webp",
+   "normalUrl": "parquet-blocks-n.webp",
+   "roughnessUrl": "parquet-blocks-r.webp",
+   "aoUrl": "parquet-blocks-ao.webp",
+   "previewUrl": "parquet-blocks-preview.webp"
+  },
+  {
+   "id": "quartz-white",
+   "titleRu": "Кварц белый",
+   "titleEn": "White quartz",
+   "colorHex": "#e0ded8",
+   "roughness": 0.2,
+   "metalness": 0.0,
+   "tileCm": [
+    120.0,
+    120.0
+   ],
+   "baseColorUrl": "quartz-white.webp",
+   "normalUrl": "quartz-white-n.webp",
+   "roughnessUrl": "quartz-white-r.webp",
+   "aoUrl": "quartz-white-ao.webp",
+   "previewUrl": "quartz-white-preview.webp"
+  },
+  {
+   "id": "splashback-glass",
+   "titleRu": "Стекло фартук",
+   "titleEn": "Glass splashback",
+   "colorHex": "#d8dbd9",
+   "roughness": 0.1,
+   "metalness": 0.0,
+   "tileCm": [
+    120.0,
+    120.0
+   ],
+   "baseColorUrl": "splashback-glass.webp",
+   "normalUrl": "splashback-glass-n.webp",
+   "roughnessUrl": "splashback-glass-r.webp",
+   "aoUrl": "splashback-glass-ao.webp",
+   "previewUrl": "splashback-glass-preview.webp"
+  },
+  {
+   "id": "stone-grey",
+   "titleRu": "Камень серый",
+   "titleEn": "Grey stone",
+   "colorHex": "#8e8e90",
+   "roughness": 0.3,
+   "metalness": 0.0,
+   "tileCm": [
+    120.0,
+    120.0
+   ],
+   "baseColorUrl": "stone-grey.webp",
+   "normalUrl": "stone-grey-n.webp",
+   "roughnessUrl": "stone-grey-r.webp",
+   "aoUrl": "stone-grey-ao.webp",
+   "previewUrl": "stone-grey-preview.webp"
+  },
+  {
+   "id": "tile-graphite",
+   "titleRu": "Керамогранит графит 60×60",
+   "titleEn": "Graphite porcelain 60×60",
+   "colorHex": "#585a5e",
+   "roughness": 0.32,
+   "metalness": 0.0,
+   "tileCm": [
+    120.0,
+    120.0
+   ],
+   "baseColorUrl": "tile-graphite.webp",
+   "normalUrl": "tile-graphite-n.webp",
+   "roughnessUrl": "tile-graphite-r.webp",
+   "aoUrl": "tile-graphite-ao.webp",
+   "previewUrl": "tile-graphite-preview.webp"
+  },
+  {
+   "id": "tile-marble",
+   "titleRu": "Мрамор светлый",
+   "titleEn": "Light marble",
+   "colorHex": "#eeebe5",
+   "roughness": 0.22,
+   "metalness": 0.0,
+   "tileCm": [
+    120.0,
+    120.0
+   ],
+   "baseColorUrl": "tile-marble.webp",
+   "normalUrl": "tile-marble-n.webp",
+   "roughnessUrl": "tile-marble-r.webp",
+   "aoUrl": "tile-marble-ao.webp",
+   "previewUrl": "tile-marble-preview.webp"
+  },
+  {
+   "id": "tile-metro",
+   "titleRu": "Кабанчик белый",
+   "titleEn": "White metro tile",
+   "colorHex": "#eceae6",
+   "roughness": 0.18,
+   "metalness": 0.0,
+   "tileCm": [
+    60.0,
+    60.0
+   ],
+   "baseColorUrl": "tile-metro.webp",
+   "normalUrl": "tile-metro-n.webp",
+   "roughnessUrl": "tile-metro-r.webp",
+   "aoUrl": "tile-metro-ao.webp",
+   "previewUrl": "tile-metro-preview.webp"
+  },
+  {
+   "id": "tile-sand",
+   "titleRu": "Керамика песочная 30×30",
+   "titleEn": "Sand ceramic 30×30",
+   "colorHex": "#cabdaa",
+   "roughness": 0.4,
+   "metalness": 0.0,
+   "tileCm": [
+    90.0,
+    90.0
+   ],
+   "baseColorUrl": "tile-sand.webp",
+   "normalUrl": "tile-sand-n.webp",
+   "roughnessUrl": "tile-sand-r.webp",
+   "aoUrl": "tile-sand-ao.webp",
+   "previewUrl": "tile-sand-preview.webp"
+  },
+  {
+   "id": "tile-stone-grey",
+   "titleRu": "Керамогранит серый 60×60",
+   "titleEn": "Grey porcelain 60×60",
+   "colorHex": "#b0aeaa",
+   "roughness": 0.35,
+   "metalness": 0.0,
+   "tileCm": [
+    120.0,
+    120.0
+   ],
+   "baseColorUrl": "tile-stone-grey.webp",
+   "normalUrl": "tile-stone-grey-n.webp",
+   "roughnessUrl": "tile-stone-grey-r.webp",
+   "aoUrl": "tile-stone-grey-ao.webp",
+   "previewUrl": "tile-stone-grey-preview.webp"
+  },
+  {
+   "id": "walnut-dark",
+   "titleRu": "Орех тёмный",
+   "titleEn": "Dark walnut",
+   "colorHex": "#6b4b35",
+   "roughness": 0.45,
+   "metalness": 0.0,
+   "tileCm": [
+    110.0,
+    110.0
+   ],
+   "baseColorUrl": "walnut-dark.webp",
+   "normalUrl": "walnut-dark-n.webp",
+   "roughnessUrl": "walnut-dark-r.webp",
+   "aoUrl": "walnut-dark-ao.webp",
+   "previewUrl": "walnut-dark-preview.webp"
+  }
+ ]
+}

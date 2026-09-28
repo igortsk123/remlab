@@ -284,3 +284,24 @@ export const meshAuditBatches = pgTable(
   },
   (t) => [index("mesh_audit_batches_status_idx").on(t.status)],
 );
+
+// ── 3D-конфигуратор квартиры (план apartment-3d-configurator, ADR-0210) ─────────────────
+// Сохранённый подбор покупателя: выбор + снимок цены. Контакт отдельным полем и наружу не
+// отдаётся (разбор Codex 28.09) — публичная ссылка показывает только конфигурацию и цену.
+export const flatConfigs = pgTable(
+  "flat_configs",
+  {
+    id: text("id").primaryKey(), // случайный публичный токен, не перебирается
+    apartmentId: text("apartment_id").notNull(),
+    developerId: text("developer_id").notNull(),
+    schemaVersion: integer("schema_version").notNull().default(1),
+    apartmentRevision: text("apartment_revision"),
+    catalogueRevision: text("catalogue_revision"),
+    selections: jsonb("selections").$type<Record<string, string>>().notNull(),
+    quote: jsonb("quote").$type<Record<string, unknown>>().notNull(),
+    contact: jsonb("contact").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("flat_configs_created_idx").on(t.createdAt)],
+);

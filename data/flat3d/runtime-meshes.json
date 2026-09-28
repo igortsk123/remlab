@@ -1,0 +1,326 @@
+{
+ "_about": "Вес runtime-моделей. Собрано tools/assets/runtime_mesh.py.",
+ "baseUrl": "/rt/",
+ "meshes": {
+  "112923_10153166443740156800": {
+   "size": 259092,
+   "source_bytes": 4534080,
+   "texture_px": 512,
+   "size-lite": 139148,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_10204732259256289856": {
+   "size": 364156,
+   "source_bytes": 5146524,
+   "texture_px": 512,
+   "size-lite": 185272,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_10540553294974864923": {
+   "size": 306232,
+   "source_bytes": 3109064,
+   "texture_px": 512,
+   "size-lite": 155820,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_11230353943957833552": {
+   "size": 306240,
+   "source_bytes": 3069212,
+   "texture_px": 512,
+   "size-lite": 162340,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_11320345589351118029": {
+   "size": 274956,
+   "source_bytes": 4424660,
+   "texture_px": 512,
+   "size-lite": 146272,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_11548307369446124696": {
+   "size": 257700,
+   "source_bytes": 3665760,
+   "texture_px": 512,
+   "size-lite": 141796,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_13137908567573856736": {
+   "size": 314348,
+   "source_bytes": 3590940,
+   "texture_px": 512,
+   "size-lite": 173744,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_1608581627908703608": {
+   "size": 230736,
+   "source_bytes": 2955596,
+   "texture_px": 512,
+   "size-lite": 125940,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_1705637857418609384": {
+   "size": 229860,
+   "source_bytes": 3846912,
+   "texture_px": 512,
+   "size-lite": 133916,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_17860622298012701765": {
+   "size": 253552,
+   "source_bytes": 3521724,
+   "texture_px": 512,
+   "size-lite": 133396,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_2264866569496692745": {
+   "size": 260512,
+   "source_bytes": 4264220,
+   "texture_px": 512,
+   "size-lite": 140516,
+   "triangles": 39999,
+   "packed": true
+  },
+  "112923_2519339596698131982": {
+   "size": 302900,
+   "source_bytes": 5199768,
+   "texture_px": 512,
+   "size-lite": 147024,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_3872879830515004489": {
+   "size": 268788,
+   "source_bytes": 3731748,
+   "texture_px": 512,
+   "size-lite": 128212,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_4636684076232506964": {
+   "size": 333452,
+   "source_bytes": 4406924,
+   "texture_px": 512,
+   "size-lite": 178676,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_5327925542491228056": {
+   "size": 242148,
+   "source_bytes": 2797208,
+   "texture_px": 512,
+   "size-lite": 131200,
+   "triangles": 39999,
+   "packed": true
+  },
+  "112923_5379466319529336151": {
+   "size": 296756,
+   "source_bytes": 3627272,
+   "texture_px": 512,
+   "size-lite": 153108,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_6065800578703142835": {
+   "size": 300956,
+   "source_bytes": 4243872,
+   "texture_px": 512,
+   "size-lite": 165144,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_7417951868446675976": {
+   "size": 268924,
+   "source_bytes": 4313764,
+   "texture_px": 512,
+   "size-lite": 138084,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_7426228947101120295": {
+   "size": 241192,
+   "source_bytes": 2563424,
+   "texture_px": 512,
+   "size-lite": 131128,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_7546684772028794150": {
+   "size": 354460,
+   "source_bytes": 4293180,
+   "texture_px": 512,
+   "size-lite": 178440,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_7945540342146322002": {
+   "size": 264892,
+   "source_bytes": 3185336,
+   "texture_px": 512,
+   "size-lite": 138044,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_8137064999918124227": {
+   "size": 286644,
+   "source_bytes": 3044048,
+   "texture_px": 512,
+   "size-lite": 152676,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_8333856700583988605": {
+   "size": 240936,
+   "source_bytes": 3427468,
+   "texture_px": 512,
+   "size-lite": 129948,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_8408526607437134893": {
+   "size": 243208,
+   "source_bytes": 2769976,
+   "texture_px": 512,
+   "size-lite": 132580,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_9044530246550714802": {
+   "size": 383492,
+   "source_bytes": 5240388,
+   "texture_px": 512,
+   "size-lite": 217028,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_9134166643537246405": {
+   "size": 240816,
+   "source_bytes": 3790536,
+   "texture_px": 512,
+   "size-lite": 127008,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_9337348504771615560": {
+   "size": 245616,
+   "source_bytes": 3462180,
+   "texture_px": 512,
+   "size-lite": 132096,
+   "triangles": 40000,
+   "packed": true
+  },
+  "112923_9642187105416752545": {
+   "size": 290544,
+   "source_bytes": 3748192,
+   "texture_px": 512,
+   "size-lite": 151696,
+   "triangles": 40000,
+   "packed": true
+  },
+  "99272_11919257129924697179": {
+   "size": 303132,
+   "source_bytes": 4428012,
+   "texture_px": 512,
+   "size-lite": 162880,
+   "triangles": 40000,
+   "packed": true
+  },
+  "99272_1199455070261500993": {
+   "size": 338484,
+   "source_bytes": 4809792,
+   "texture_px": 512,
+   "size-lite": 170748,
+   "triangles": 40000,
+   "packed": true
+  },
+  "99272_12229111948604557762": {
+   "size": 355700,
+   "source_bytes": 3808936,
+   "texture_px": 512,
+   "size-lite": 180416,
+   "triangles": 40000,
+   "packed": true
+  },
+  "99272_13512826478247200239": {
+   "size": 262600,
+   "source_bytes": 3222388,
+   "texture_px": 512,
+   "size-lite": 145456,
+   "triangles": 40000,
+   "packed": true
+  },
+  "99272_14221201719639999304": {
+   "size": 289928,
+   "source_bytes": 4117608,
+   "texture_px": 512,
+   "size-lite": 157344,
+   "triangles": 40000,
+   "packed": true
+  },
+  "99272_18294100626523447660": {
+   "size": 317348,
+   "source_bytes": 4341284,
+   "texture_px": 512,
+   "size-lite": 171844,
+   "triangles": 40000,
+   "packed": true
+  },
+  "99272_4983412252027465864": {
+   "size": 224624,
+   "source_bytes": 3219488,
+   "texture_px": 512,
+   "size-lite": 124716,
+   "triangles": 40000,
+   "packed": true
+  },
+  "99272_5256875288911330299": {
+   "size": 357852,
+   "source_bytes": 5263600,
+   "texture_px": 512,
+   "size-lite": 177640,
+   "triangles": 40000,
+   "packed": true
+  },
+  "99272_5654964540329990020": {
+   "size": 308552,
+   "source_bytes": 4678648,
+   "texture_px": 512,
+   "size-lite": 170484,
+   "triangles": 40000,
+   "packed": true
+  },
+  "99272_5848359900764199987": {
+   "size": 300084,
+   "source_bytes": 4177060,
+   "texture_px": 512,
+   "size-lite": 158884,
+   "triangles": 40000,
+   "packed": true
+  },
+  "99272_6218699376495884286": {
+   "size": 352572,
+   "source_bytes": 5375532,
+   "texture_px": 512,
+   "size-lite": 195084,
+   "triangles": 37952,
+   "packed": true
+  },
+  "99272_9791048974647036683": {
+   "size": 317760,
+   "source_bytes": 4376660,
+   "texture_px": 512,
+   "size-lite": 176680,
+   "triangles": 40000,
+   "packed": true
+  }
+ }
+}
