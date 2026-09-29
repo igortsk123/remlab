@@ -15,7 +15,13 @@
    "tileCm": [
     100,
     100
-   ]
+   ],
+   "surfaces": [
+    "wall"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "paint-warm",
@@ -27,7 +33,13 @@
    "tileCm": [
     100,
     100
-   ]
+   ],
+   "surfaces": [
+    "wall"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "paint-sage",
@@ -39,7 +51,13 @@
    "tileCm": [
     100,
     100
-   ]
+   ],
+   "surfaces": [
+    "wall"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "paint-clay",
@@ -51,7 +69,13 @@
    "tileCm": [
     100,
     100
-   ]
+   ],
+   "surfaces": [
+    "wall"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "door-white",
@@ -63,7 +87,13 @@
    "tileCm": [
     60,
     60
-   ]
+   ],
+   "surfaces": [
+    "front"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "door-sage",
@@ -75,7 +105,13 @@
    "tileCm": [
     60,
     60
-   ]
+   ],
+   "surfaces": [
+    "front"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "door-graphite",
@@ -87,7 +123,13 @@
    "tileCm": [
     60,
     60
-   ]
+   ],
+   "surfaces": [
+    "front"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "door-oak",
@@ -100,7 +142,13 @@
     60,
     60
    ],
-   "baseColorUrl": "oak-light.webp"
+   "baseColorUrl": "front-oak.webp",
+   "surfaces": [
+    "front"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "steel",
@@ -112,7 +160,13 @@
    "tileCm": [
     60,
     60
-   ]
+   ],
+   "surfaces": [
+    "front"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "chrome",
@@ -124,7 +178,13 @@
    "tileCm": [
     30,
     30
-   ]
+   ],
+   "surfaces": [
+    "front"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "ceramic-white",
@@ -136,7 +196,13 @@
    "tileCm": [
     60,
     60
-   ]
+   ],
+   "surfaces": [
+    "front"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "glass-clear",
@@ -148,7 +214,13 @@
    "tileCm": [
     60,
     60
-   ]
+   ],
+   "surfaces": [
+    "front"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "fabric-grey",
@@ -160,7 +232,13 @@
    "tileCm": [
     40,
     40
-   ]
+   ],
+   "surfaces": [
+    "front"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "fabric-cream",
@@ -172,7 +250,13 @@
    "tileCm": [
     40,
     40
-   ]
+   ],
+   "surfaces": [
+    "front"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "wood-oak",
@@ -185,7 +269,13 @@
     60,
     60
    ],
-   "baseColorUrl": "oak-natural.webp"
+   "baseColorUrl": "front-oak.webp",
+   "surfaces": [
+    "front"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "mirror",
@@ -197,7 +287,13 @@
    "tileCm": [
     60,
     60
-   ]
+   ],
+   "surfaces": [
+    "front"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   }
  ],
  "options": [
@@ -750,7 +846,7 @@
     "kit": "kitchen",
     "level": "base",
     "materials": {
-     "door": "door-white"
+     "door": "front-white"
     },
     "features": []
    }
@@ -772,7 +868,7 @@
     "kit": "kitchen",
     "level": "practical",
     "materials": {
-     "door": "door-oak"
+     "door": "front-oak"
     },
     "features": [
      "uppers"
@@ -821,7 +917,7 @@
     "kit": "kitchen",
     "level": "premium",
     "materials": {
-     "door": "door-graphite"
+     "door": "front-graphite"
     },
     "features": [
      "uppers",
@@ -1050,7 +1146,7 @@
     "kit": "bed",
     "level": "base",
     "materials": {
-     "body": "fabric-grey"
+     "body": "fabric-photo-grey"
     },
     "features": []
    }
@@ -1071,7 +1167,7 @@
     "kit": "bed",
     "level": "practical",
     "materials": {
-     "body": "wood-oak"
+     "body": "front-oak"
     },
     "features": []
    }
@@ -1092,7 +1188,7 @@
     "kit": "bed",
     "level": "comfort",
     "materials": {
-     "body": "fabric-cream"
+     "body": "fabric-photo-cream"
     },
     "features": [
      "tall-headboard"
@@ -1116,7 +1212,7 @@
     "kit": "bed",
     "level": "premium",
     "materials": {
-     "body": "fabric-cream"
+     "body": "fabric-photo-cream"
     },
     "features": [
      "tall-headboard",
@@ -1138,7 +1234,7 @@
     "kit": "wardrobe",
     "level": "base",
     "materials": {
-     "door": "door-white"
+     "door": "front-white"
     },
     "features": []
    }
@@ -1157,7 +1253,7 @@
     "kit": "wardrobe",
     "level": "practical",
     "materials": {
-     "door": "door-oak"
+     "door": "front-oak"
     },
     "features": [
      "sliding"
@@ -1200,7 +1296,7 @@
     "kit": "wardrobe",
     "level": "premium",
     "materials": {
-     "door": "door-graphite"
+     "door": "front-graphite"
     },
     "features": [
      "sliding",
@@ -1293,7 +1389,7 @@
     "kit": "rug",
     "level": "premium",
     "materials": {
-     "body": "fabric-cream"
+     "body": "fabric-photo-weave"
     },
     "features": [
      "soft"

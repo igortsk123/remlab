@@ -51,7 +51,7 @@ export function OptionPicker(props: OptionPickerProps) {
                   : "bg-primary text-secondary ring-1 ring-inset ring-secondary hover:bg-secondary"
               }`}
             >
-              <span className="block text-[11px] uppercase opacity-70">{categoryTitle(s.category, lang)}</span>
+              <span className="block uppercase opacity-70" style={{ fontSize: 11 }}>{categoryTitle(s.category, lang)}</span>
               {lang === "en" ? s.titleEn : s.titleRu}
             </button>
           );
@@ -87,7 +87,7 @@ export function OptionPicker(props: OptionPickerProps) {
                   </span>
                   {o.descRu ? <span className="block truncate text-xs text-tertiary">{o.descRu}</span> : null}
                   {badge ? (
-                    <span className="mt-1 inline-block rounded-full bg-secondary px-2 py-0.5 text-[11px] text-secondary">
+                    <span className="mt-1 inline-block rounded-full bg-secondary px-2 py-0.5 text-secondary" style={{ fontSize: 11 }}>
                       {badge}
                     </span>
                   ) : null}

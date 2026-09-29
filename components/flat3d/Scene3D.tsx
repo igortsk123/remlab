@@ -16,6 +16,8 @@ import type { Apartment } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
 import type { ResolvedScene } from "@/lib/configurator/resolve";
 import type { FlatViewer, QualityProfile } from "@/lib/viewer3d/viewer";
+import { WalkPad } from "@/components/flat3d/WalkPad";
+import { ItemCard, type TrackedPoint } from "@/components/flat3d/ItemCard";
 
 export interface Scene3DProps {
   apartment: Apartment;
@@ -26,6 +28,11 @@ export interface Scene3DProps {
   onPickSlot: (slotId: string | null) => void;
   onRoomChange: (roomId: string | null) => void;
   onReady?: () => void;
+  /** Выбранный предмет: по нему в сцене висит карточка. */
+  selectedSlotId: string | null;
+  selections: Record<string, string>;
+  onChoose: (slotId: string, optionId: string) => void;
+  lang: import("@/lib/configurator/i18n").Lang;
   hintText: string;
   loadingText: string;
   noWebglText: string;
@@ -35,6 +42,7 @@ export interface Scene3DProps {
 export function Scene3D(props: Scene3DProps): React.ReactElement {
   const { apartment, catalogue, scene, lite, roomId, onPickSlot, onRoomChange, onReady } = props;
   const { hintText, loadingText, noWebglText, retryText } = props;
+  const { selectedSlotId, selections, onChoose, lang } = props;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewerRef = useRef<FlatViewer | null>(null);
   const dragRef = useRef<{ x: number; y: number; moved: number; id: number } | null>(null);
@@ -138,6 +146,26 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
     };
   }, []);
 
+  const holdKey = useCallback((code: string, down: boolean) => {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+    if (down) viewer.keyDown(code);
+    else viewer.keyUp(code);
+  }, []);
+
+  const subscribeTracked = useCallback(
+    (cb: (p: TrackedPoint) => void) => {
+      viewerRef.current?.trackSlot(selectedSlotId, cb);
+      return () => viewerRef.current?.trackSlot(null, null);
+    },
+    [selectedSlotId],
+  );
+
+  const turnBy = useCallback((deg: number) => {
+    // `look` принимает сдвиг курсора в пикселях (0.22° на пиксель) — переводим градусы
+    viewerRef.current?.look(deg / 0.22, 0);
+  }, []);
+
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
     dragRef.current = { x: e.clientX, y: e.clientY, moved: 0, id: e.pointerId };
@@ -211,10 +239,28 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
         </div>
       ) : null}
 
+      {ready && !error && selectedSlotId ? (
+        <ItemCard
+          apartment={apartment}
+          catalogue={catalogue}
+          slotId={selectedSlotId}
+          currentOptionId={selections[selectedSlotId] ?? ""}
+          lang={lang}
+          onChoose={onChoose}
+          onClose={() => {
+            onPickSlot(null);
+            viewerRef.current?.highlight(null);
+          }}
+          subscribe={subscribeTracked}
+        />
+      ) : null}
+
+      {ready && !error ? <WalkPad onHold={holdKey} onTurn={turnBy} compact={lite} /> : null}
+
       {/* подсказка уходит через 7 секунд: на телефоне она закрывает треть комнаты */}
       <p
         hidden={Boolean(error) || hintDone || !ready}
-        className="pointer-events-none absolute inset-x-3 bottom-3 rounded-lg bg-primary/90 px-3 py-2 text-center text-xs text-secondary ring-1 ring-inset ring-secondary"
+        className="pointer-events-none absolute inset-x-3 rounded-lg bg-primary/90 px-3 py-2 text-center text-xs text-secondary ring-1 ring-inset ring-secondary" style={{ bottom: 76 }}
       >
         {hintText}
       </p>

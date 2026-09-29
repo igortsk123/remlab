@@ -202,7 +202,9 @@ export class FlatViewer {
       const s = surfaces.get(room.id) ?? {};
       const floorMat = s.floor?.material ?? this.kitCtx.fallback;
       const wallMat = s.wall?.material ?? this.kitCtx.fallback;
-      const { group, floor } = buildRoom(this.matCtx, room, floorMat, wallMat);
+      // прихожая: южная стена — вход в квартиру, там полотно закрыто
+      const entranceWall = room.kind === "hall" ? "south" : undefined;
+      const { group, floor } = buildRoom(this.matCtx, room, floorMat, wallMat, { entranceWall });
       group.userData.roomId = room.id;
       floor.userData.roomId = room.id;
       this.scene.add(group);
@@ -315,6 +317,7 @@ export class FlatViewer {
     }
 
     if (spec.kind === "kitchen") {
+      const kitchenRoom = findRoom(this.apartment, spec.roomId);
       group = buildKitchen(this.kitCtx, {
         level: spec.level,
         features: spec.features,
@@ -323,6 +326,7 @@ export class FlatViewer {
         splashbackMaterialId: spec.splashbackMaterialId,
         widthCm: p.wCm,
         depthCm: p.dCm,
+        roomDepthCm: kitchenRoom ? Math.min(kitchenRoom.w, kitchenRoom.d) : undefined,
       });
     } else if (spec.kind === "bathroom") {
       group = buildBathroom(this.kitCtx, {
@@ -411,6 +415,19 @@ export class FlatViewer {
       { x: room.x + room.w * 0.82, y: room.y + room.d * 0.82 },
       { x: c.x, y: c.y },
     ];
+    // ТЕСНАЯ КОМНАТА — СМОТРИМ ОТ ДВЕРИ. В кухне 3,6×1,8 м из любого угла кадр упирается в
+    // шкаф (кадр 29.09): в жизни такие комнаты и снимают из проёма. Добавляем к кандидатам
+    // точки в дверных проёмах комнаты — стоять там разрешено, и оттуда видно всю комнату.
+    if ((room.w * room.d) / 10_000 < 13) {
+      for (const o of room.openings) {
+        if (o.kind === "window") continue;
+        const mid = o.offsetCm + o.widthCm / 2;
+        if (o.wall === "south") candidates.push({ x: room.x + mid, y: room.y - 25 });
+        else if (o.wall === "north") candidates.push({ x: room.x + mid, y: room.y + room.d + 25 });
+        else if (o.wall === "west") candidates.push({ x: room.x - 25, y: room.y + mid });
+        else candidates.push({ x: room.x + room.w + 25, y: room.y + mid });
+      }
+    }
     // Мебель комнаты: вставать В НЕЁ нельзя — кадр упрётся в спинку дивана или в кровать
     // (поймано кадрами 28.09: в спальне полкадра занимала кровать в упор).
     const obstacles = [...this.placed.values()]
@@ -465,7 +482,11 @@ export class FlatViewer {
     this.camera.fov = areaM2 < 9 ? 82 : areaM2 < 14 ? 72 : this.quality.fov;
     this.camera.updateProjectionMatrix();
     this.moveTarget = null;
-    this.updateRoom();
+    // ВАЖНО: комната остаётся ТОЙ, которую выбрал человек, даже если смотрим из дверного проёма.
+    // Проём физически принадлежит соседней комнате, и авто-определение тут же возвращало выбор
+    // назад — кнопка комнаты не работала вовсе (поймано 29.09). Через `roomChanged`, чтобы
+    // заодно догрузилась обстановка выбранной комнаты.
+    this.roomChanged(roomId);
   }
 
   /** Луч из точки экрана: возвращает slotId предмета или id комнаты по полу. */
@@ -493,7 +514,68 @@ export class FlatViewer {
     return {};
   }
 
+  /** Круг-маркер на полу под выбранным предметом — по нему сразу видно, что выбрано. */
+  private marker: THREE.Mesh | null = null;
+
+  private showMarker(slotId: string | null): void {
+    if (!this.marker) {
+      const geo = new THREE.RingGeometry(0.28, 0.34, 48);
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0x4f7cff,
+        transparent: true,
+        opacity: 0.75,
+        side: THREE.DoubleSide,
+        depthTest: false,
+      });
+      this.marker = new THREE.Mesh(geo, mat);
+      this.marker.rotation.x = -Math.PI / 2;
+      this.marker.renderOrder = 999;
+      this.scene.add(this.marker);
+    }
+    const placed = slotId ? this.placed.get(slotId) : undefined;
+    if (!placed) {
+      this.marker.visible = false;
+      return;
+    }
+    const p = placed.spec.placement;
+    const r = Math.max(p.wCm, p.dCm) / 2 / 100 + 0.12;
+    this.marker.scale.setScalar(r / 0.31);
+    this.marker.position.set(p.x * CM, 0.015, p.y * CM);
+    this.marker.visible = true;
+  }
+
+  /**
+   * Экранные координаты выбранного предмета — чтобы карточка висела рядом с ним, как в игре.
+   * Считается каждый кадр и отдаётся колбэком напрямую (без React-рендера на каждый кадр).
+   */
+  trackSlot(slotId: string | null, cb: ((p: { x: number; y: number; visible: boolean }) => void) | null): void {
+    this.tracked = slotId && cb ? { slotId, cb } : null;
+  }
+
+  private tracked: { slotId: string; cb: (p: { x: number; y: number; visible: boolean }) => void } | null = null;
+
+  private updateTracked(): void {
+    if (!this.tracked) return;
+    const placed = this.placed.get(this.tracked.slotId);
+    if (!placed) {
+      this.tracked.cb({ x: 0, y: 0, visible: false });
+      return;
+    }
+    const bb = new THREE.Box3().setFromObject(placed.group);
+    const anchor = new THREE.Vector3((bb.min.x + bb.max.x) / 2, bb.max.y + 0.08, (bb.min.z + bb.max.z) / 2);
+    const v = anchor.clone().project(this.camera);
+    const rect = this.renderer.domElement;
+    const w = rect.clientWidth || rect.width;
+    const h = rect.clientHeight || rect.height;
+    this.tracked.cb({
+      x: (v.x * 0.5 + 0.5) * w,
+      y: (-v.y * 0.5 + 0.5) * h,
+      visible: v.z < 1 && v.x > -1.25 && v.x < 1.25 && v.y > -1.3 && v.y < 1.3,
+    });
+  }
+
   highlight(slotId: string | null): void {
+    this.showMarker(slotId);
     for (const [id, p] of this.placed) {
       p.group.traverse((o) => {
         const m = o as THREE.Mesh;
@@ -515,20 +597,22 @@ export class FlatViewer {
     }
   }
 
-  private updateRoom(): void {
-    const room = roomAt(this.apartment, this.pos.x, this.pos.y);
-    const id = room?.id ?? null;
-    if (id !== this.currentRoom) {
-      this.currentRoom = id;
-      this.events.onRoomChange?.(id);
-      // вошли в комнату, которую ещё не грузили — догружаем её обстановку
-      if (this.lastScene && !this.syncing) {
-        this.syncing = true;
-        void this.syncObjects(this.lastScene).finally(() => {
-          this.syncing = false;
-        });
-      }
+  /** Комната сменилась: сообщить наружу и догрузить её обстановку (ленивый режим). */
+  private roomChanged(id: string | null): void {
+    if (id === this.currentRoom) return;
+    this.currentRoom = id;
+    this.events.onRoomChange?.(id);
+    if (this.lastScene && !this.syncing) {
+      this.syncing = true;
+      void this.syncObjects(this.lastScene).finally(() => {
+        this.syncing = false;
+      });
     }
+  }
+
+  /** Комната по положению человека — работает при ХОДЬБЕ. */
+  private updateRoom(): void {
+    this.roomChanged(roomAt(this.apartment, this.pos.x, this.pos.y)?.id ?? null);
   }
 
   private tick = (): void => {
@@ -583,6 +667,7 @@ export class FlatViewer {
     );
     this.camera.lookAt(look);
     this.renderer.render(this.scene, this.camera);
+    this.updateTracked();
   };
 
   start(): void {
@@ -601,6 +686,26 @@ export class FlatViewer {
 
   get room(): string | null {
     return this.currentRoom;
+  }
+
+  /**
+   * Экранная точка предмета «здесь и сейчас» — для проверок и для наведения на предмет.
+   * Тот же расчёт, что у карточки, но по запросу.
+   */
+  projectSlot(slotId: string): { x: number; y: number; visible: boolean } | null {
+    const placed = this.placed.get(slotId);
+    if (!placed) return null;
+    const bb = new THREE.Box3().setFromObject(placed.group);
+    const centre = new THREE.Vector3((bb.min.x + bb.max.x) / 2, (bb.min.y + bb.max.y) / 2, (bb.min.z + bb.max.z) / 2);
+    const v = centre.project(this.camera);
+    const el = this.renderer.domElement;
+    const w = el.clientWidth || el.width;
+    const h = el.clientHeight || el.height;
+    return {
+      x: (v.x * 0.5 + 0.5) * w,
+      y: (-v.y * 0.5 + 0.5) * h,
+      visible: v.z < 1 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1,
+    };
   }
 
   /** Состояние сцены для диагностики: что реально добавлено и куда смотрит камера. */
@@ -630,6 +735,7 @@ export class FlatViewer {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     this.raf = 0;
+    if (this.marker) disposeObject(this.marker);
     for (const p of this.placed.values()) disposeObject(p.group);
     this.placed.clear();
     for (const g of this.roomGroups.values()) disposeObject(g);

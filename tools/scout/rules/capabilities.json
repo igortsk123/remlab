@@ -3,7 +3,7 @@
   "version": "1.0",
   "rules_id": "caps-v1",
   "why": "Q6a свода №13 (MASTER-zones-v7): capability-проекция каталога поверх cat_role (cat_role НЕ меняется). Каждый атрибут — с evidence {value,state,source,path,raw,confidence,rule_id}: state known|inferred|unknown|conflict; false = ДОКАЗАННОЕ несоответствие, отсутствие данных = unknown (не false). Capability ≠ конверт слота: верхние пределы (длина банкетки под нук, ширина/высота консоли под диван) решает расстановка (Q6b/Q6e), не каталог. Планировочный слот «банкетка» = wall_seat_capable; «консоль» — capability у комода/тв-тумбы. Кухонные уголки/столы-книжки — вне каталога (владелец 16.08).",
-  "provenance": "владелец 16.08 (разметка ролей); Codex каталожная сессия 16–17.08 (`_intake/codex-prompts/q6a-capabilities.answer.md`): tri-state, seat vs overall, dining 43–48 pref / 42–49 hard (U.S. Access Board bench 43–48.5 см; occupancy.json chair_seat_height 43–48), guaranteed_seats = L/60 (templates.json dining 61 см/чел; IKEA ~60 см), fail-closed по категории/подтипу"
+  "provenance": "владелец 16.08 (разметка ролей); Codex каталожная сессия 16–17.08 (`_intake/codex/q6a-capabilities.answer.md`): tri-state, seat vs overall, dining 43–48 pref / 42–49 hard (U.S. Access Board bench 43–48.5 см; occupancy.json chair_seat_height 43–48), guaranteed_seats = L/60 (templates.json dining 61 см/чел; IKEA ~60 см), fail-closed по категории/подтипу"
  },
  "params_keys": {
   "seat_length_cm": [

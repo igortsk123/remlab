@@ -111,12 +111,13 @@ export function buildRug(ctx: KitCtx, spec: RugSpec): THREE.Group {
   const h = spec.pile === "soft" ? 3 : 1.5;
   const body = mat(ctx, spec.materialId, [spec.widthCm, spec.depthCm]);
   g.add(boxOn(spec.widthCm, h, spec.depthCm, 0, 0, 0, body));
-  const edge = new THREE.Mesh(
-    new THREE.BoxGeometry(spec.widthCm * 0.01, 0.004, spec.depthCm * 0.01),
-    new THREE.MeshStandardMaterial({ color: 0x8d8a83, roughness: 1 }),
-  );
-  edge.position.set(0, h * 0.01 + 0.002, 0);
-  edge.scale.set(1.01, 1, 1.01);
-  g.add(edge);
+  // КАЙМА — ТОЛЬКО РАМКОЙ. Первая версия клала поверх ковра сплошную плиту и полностью
+  // закрывала рисунок: в кадре 29.09 ковёр читался серым прямоугольником.
+  const trim = new THREE.MeshStandardMaterial({ color: 0x9a958c, roughness: 1 });
+  const t = 4;
+  g.add(boxOn(spec.widthCm, h * 0.5, t, 0, h * 0.5, spec.depthCm / 2 - t / 2, trim));
+  g.add(boxOn(spec.widthCm, h * 0.5, t, 0, h * 0.5, -spec.depthCm / 2 + t / 2, trim));
+  g.add(boxOn(t, h * 0.5, spec.depthCm - t * 2, -spec.widthCm / 2 + t / 2, h * 0.5, 0, trim));
+  g.add(boxOn(t, h * 0.5, spec.depthCm - t * 2, spec.widthCm / 2 - t / 2, h * 0.5, 0, trim));
   return g;
 }

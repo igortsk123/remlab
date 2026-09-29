@@ -23,6 +23,8 @@ async function sceneState(page: import("@playwright/test").Page): Promise<DebugS
 }
 
 test("конфигуратор: комнаты, выбор варианта, цена и план", async ({ page }) => {
+  // сцена честно ждёт загрузки моделей (в CI это программный рендер) — 30 с по умолчанию мало
+  test.setTimeout(120_000);
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
 
@@ -93,4 +95,50 @@ test("мобильный экран открывается на «Фото» и 
   await page.goto("/flat");
   await expect(page.getByRole("tab", { name: "Фото" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("button", { name: "Включить 3D Lite" })).toBeVisible();
+});
+
+test("клик по предмету в сцене: карточка с ценой, ссылка в магазин, замена из ленты", async ({ page }) => {
+  // Сценарий владельца («как в Sims»): кликнул предмет — подсветился, рядом карточка,
+  // «Заменить» раскрывает ленту вариантов, выбор применяется сразу.
+  test.setTimeout(120_000);
+  await page.goto("/flat");
+  await page.getByRole("tab", { name: "3D" }).click();
+
+  const canvas = page.locator("canvas");
+  await expect(canvas).toBeVisible();
+  const state = async () =>
+    page.evaluate(() => {
+      const v = (window as unknown as { __flatViewer?: { debugState(): { placed: number } } }).__flatViewer;
+      return v ? v.debugState().placed : 0;
+    });
+  for (let i = 0; i < 25 && (await state()) < 12; i += 1) await page.waitForTimeout(700);
+
+  // Наводимся НА ПРЕДМЕТ по его же проекции: тыкать в угаданные проценты кадра ненадёжно —
+  // кадровка зависит от размера окна (тест падал именно на этом).
+  const box = (await canvas.boundingBox())!;
+  let opened = false;
+  for (const slot of ["living-sofa", "living-armchair", "living-tv", "living-coffee"]) {
+    const pt = await page.evaluate((id) => {
+      const v = (window as unknown as {
+        __flatViewer?: { projectSlot(id: string): { x: number; y: number; visible: boolean } | null };
+      }).__flatViewer;
+      return v ? v.projectSlot(id) : null;
+    }, slot);
+    if (!pt?.visible) continue;
+    await page.mouse.click(box.x + pt.x, box.y + pt.y);
+    await page.waitForTimeout(800);
+    if (await page.getByRole("button", { name: "Заменить" }).count()) {
+      opened = true;
+      break;
+    }
+  }
+  expect(opened, "карточка предмета открылась по клику в сцене").toBe(true);
+
+  await expect(page.getByRole("link", { name: /Смотреть в магазине/ })).toBeVisible();
+  await page.getByRole("button", { name: "Заменить" }).click();
+  const variants = page.locator("ul li button");
+  expect(await variants.count(), "варианты в ленте").toBeGreaterThan(1);
+  await variants.nth(1).click();
+  // выбор применился: итог перестал быть «без апгрейдов»
+  await expect(page.getByRole("region", { name: "Стоимость" })).not.toContainText("Апгрейды · 0");
 });

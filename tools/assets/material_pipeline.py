@@ -506,7 +506,17 @@ def main() -> int:
     p.add_argument("--out", default="public/flat3d/materials")
     p.add_argument("--manifest", default="data/flat3d/materials.json")
 
+    sb = sub.add_parser("outside", help="панорама «вид из окна»")
+    sb.add_argument("--out", default="public/flat3d/env")
+    sb.add_argument("--seed", type=int, default=7)
+
     a = ap.parse_args()
+    if a.cmd == "outside":
+        os.makedirs(os.path.abspath(a.out), exist_ok=True)
+        dst = os.path.join(os.path.abspath(a.out), "outside.webp")
+        gen_outside(a.seed).save(dst, quality=84, method=6)
+        print(f"панорама готова: {dst} ({os.path.getsize(dst)//1024} КБ)")
+        return 0
     out_dir = os.path.abspath(a.out)
     entries: list[dict] = []
 
@@ -548,6 +558,76 @@ def main() -> int:
         fh.write("\n")
     print(f"манифест: {man_path} ({len(existing)} материалов)")
     return 0
+
+
+# ─────────────────────────── панорама «вид из окна» ───────────────────────────
+
+
+def gen_outside(seed: int = 7, width: int = 2048, height: int = 1024) -> Image.Image:
+    """Панорама за окнами: небо, дальний город в дымке, ближние дома, зелень, земля.
+
+    Зачем: в проёме окна человек раньше видел плоскую синюю заливку (владелец 29.09).
+    Рисуем равнопромежуточную (equirect) панораму — она натягивается на сферу вокруг дома,
+    горизонт приходится на середину картинки, и вид честно меняется при повороте головы.
+    """
+    rng = _rng(seed)
+    img = np.zeros((height, width, 3), np.float32)
+    horizon = int(height * 0.5)
+
+    # небо: градиент от насыщенного зенита к светлой дымке у горизонта
+    top = np.array([122, 165, 205], np.float32)
+    bottom = np.array([214, 226, 234], np.float32)
+    for y in range(horizon):
+        t = (y / max(horizon - 1, 1)) ** 0.8
+        img[y, :, :] = top * (1 - t) + bottom * t
+
+    # облака: мягкий шум, только в верхней половине
+    clouds = _fbm((height, width), seed + 3, octaves=5, persistence=0.55)
+    mask = np.clip((clouds - 0.52) * 3.2, 0, 1)
+    fade = np.clip(np.linspace(1.0, 0.0, horizon) ** 0.6, 0, 1)[:, None]
+    img[:horizon] = img[:horizon] * (1 - mask[:horizon, :, None] * fade[..., None] * 0.9) + \
+        np.array([252, 252, 250], np.float32) * mask[:horizon, :, None] * fade[..., None] * 0.9
+
+    # земля под горизонтом: трава с лёгкой неровностью тона
+    grass = _fbm((height, width), seed + 11, octaves=4)
+    base_ground = np.array([126, 138, 108], np.float32)
+    for y in range(horizon, height):
+        t = (y - horizon) / max(height - horizon - 1, 1)
+        shade = 0.82 + 0.35 * t
+        img[y, :, :] = base_ground * shade
+    img[horizon:] *= (0.92 + grass[horizon:, :, None] * 0.18)
+
+    def skyline(y_base: int, max_h: int, colour: np.ndarray, haze: float, step_range: tuple[int, int]) -> None:
+        x = 0
+        while x < width:
+            bw = int(rng.integers(*step_range))
+            bh = int(rng.integers(max_h // 3, max_h))
+            top_y = max(0, y_base - bh)
+            tone = colour * float(rng.uniform(0.88, 1.12))
+            sky_here = img[top_y:y_base, x : min(width, x + bw)]
+            mixed = sky_here * haze + tone * (1 - haze)
+            img[top_y:y_base, x : min(width, x + bw)] = mixed
+            # окна домов — редкие светлые точки, дают масштаб
+            if bh > max_h * 0.5:
+                for wy in range(top_y + 6, y_base - 6, 14):
+                    for wx in range(x + 5, min(width, x + bw) - 5, 12):
+                        if rng.random() < 0.35:
+                            img[wy : wy + 5, wx : wx + 6] = np.clip(mixed.mean(axis=(0, 1)) * 1.35, 0, 255)
+            x += bw
+    # дальний план — сильная дымка, ближний — чётче
+    skyline(horizon + 2, int(height * 0.16), np.array([148, 160, 176], np.float32), 0.55, (40, 110))
+    skyline(horizon + 8, int(height * 0.10), np.array([150, 132, 120], np.float32), 0.25, (60, 160))
+
+    # полоса деревьев у горизонта
+    tree_band = int(height * 0.045)
+    for x in range(0, width, 6):
+        h = int(rng.integers(tree_band // 2, tree_band))
+        y0 = horizon + 4
+        col = np.array([74, 96, 62], np.float32) * float(rng.uniform(0.85, 1.15))
+        img[max(0, y0 - h) : y0 + 3, x : x + 7] = col
+
+    img = np.clip(img, 0, 255).astype(np.uint8)
+    return Image.fromarray(img).filter(ImageFilter.GaussianBlur(0.6))
 
 
 if __name__ == "__main__":

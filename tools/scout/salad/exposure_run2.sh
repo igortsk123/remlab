@@ -16,7 +16,7 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PY=/home/pakar/venvs/scout/bin/python
 PAUSE="$HOME/scout-scenes/mesh-batch.PAUSE"
-MARKS=/home/pakar/igor/remlab/.memory_bank/_intake/owner-marks-mesh-color-0109.txt
+MARKS=/home/pakar/igor/remlab/.memory_bank/_intake/owner/owner-marks-mesh-color-0109.txt
 
 # Ключ и группа Salad живут в файле, а не в окружении: без них ssh_run выходит с «нет
 # SALAD_API_KEY», и волна крутит проходы вхолостую (поймано на первом старте 01.09).

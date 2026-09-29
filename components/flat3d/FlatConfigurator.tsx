@@ -79,10 +79,10 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: 
   }, [config]);
 
   return (
-    <div className="flex min-h-[80vh] flex-col gap-3 lg:h-[calc(100vh-140px)] lg:flex-row">
+    <div className="flex flex-col gap-3 lg:flex-row" style={{ minHeight: "80vh" }}>
       {/* min-w-0 обязателен: без него длинные названия в правой колонке раздувают её
           и сжимают сцену до узкой полоски (поймано кадром 28.09) */}
-      <section className="flex min-h-[46vh] min-w-0 flex-1 flex-col gap-2 lg:min-h-0">
+      <section className="flex min-w-0 flex-1 flex-col gap-2" style={{ minHeight: "46vh" }}>
         <header className="flex flex-wrap items-center gap-2">
           <div className="flex rounded-lg bg-secondary p-1" role="tablist" aria-label={lang === "en" ? "View" : "Режим показа"}>
             {(["3d", "photo", "plan"] as Mode[]).map((m) => (
@@ -109,7 +109,7 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: 
           </span>
         </header>
 
-        <div className="h-[56vh] min-w-0 flex-1 lg:h-auto">
+        <div className="min-w-0 flex-1" style={{ minHeight: "56vh" }}>
           {mode === "3d" ? (
             <Scene3D
               apartment={apartment}
@@ -119,6 +119,10 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: 
               roomId={roomId}
               onPickSlot={onPickSlot}
               onRoomChange={(id) => id && setRoomId(id)}
+              selectedSlotId={slotId}
+              selections={scene.selections}
+              onChoose={choose}
+              lang={lang}
               hintText={mobile ? L.walkHintMobile : L.walkHint}
               loadingText={L.loading}
               noWebglText={L.noWebgl}
@@ -154,7 +158,7 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: 
         </div>
       </section>
 
-      <aside className="flex w-full flex-col gap-3 lg:w-[400px]">
+      <aside className="flex w-full flex-col gap-3 lg:w-96 lg:shrink-0">
         <nav aria-label={L.rooms} className="flex flex-wrap gap-1.5">
           {apartment.rooms.map((r) => (
             <button
@@ -173,7 +177,7 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: 
           ))}
         </nav>
 
-        <div className="min-h-[38vh] flex-1 overflow-hidden rounded-xl bg-secondary p-3 lg:min-h-0">
+        <div className="flex-1 overflow-hidden rounded-xl bg-secondary p-3" style={{ minHeight: "38vh" }}>
           <OptionPicker
             apartment={apartment}
             catalogue={catalogue}

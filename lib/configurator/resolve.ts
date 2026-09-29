@@ -32,7 +32,14 @@ export interface ResolvedSurface {
   priceGbp: number;
 }
 
-export type IssueCode = "unknown_slot" | "unknown_option" | "not_allowed" | "requires" | "excludes" | "no_material";
+export type IssueCode =
+  | "unknown_slot"
+  | "unknown_option"
+  | "not_allowed"
+  | "requires"
+  | "excludes"
+  | "no_material"
+  | "wrong_surface";
 
 export interface Issue {
   code: IssueCode;
@@ -151,6 +158,18 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
       const mat = materialById(c, opt.asset.materialId);
       if (!mat) {
         issues.push({ code: "no_material", slotId: slot.id, optionId: opt.id, messageRu: `нет материала ${opt.asset.materialId}` });
+        continue;
+      }
+      // ПРИМЕНИМОСТЬ МАТЕРИАЛА (владелец 29.09): доску пола нельзя надеть на фасад шкафа,
+      // а плитку — на столешницу дивана. Материал сам объявляет, где он уместен.
+      const wanted = slot.surface ?? "floor";
+      if (mat.surfaces.length > 0 && !mat.surfaces.includes(wanted)) {
+        issues.push({
+          code: "wrong_surface",
+          slotId: slot.id,
+          optionId: opt.id,
+          messageRu: `${mat.titleRu} не для поверхности «${wanted}»`,
+        });
         continue;
       }
       surfaces.push({

@@ -146,6 +146,35 @@ describe("конфигуратор: мост в photo-конвейер", () => {
     }
   });
 
+
+  it("материал применяется только туда, где уместен: пол ≠ фасад, плитка ≠ столешница", () => {
+    // каждый вариант покрытия обязан подходить своей поверхности — иначе в сцене окажется
+    // доска пола на дверце шкафа (замечание владельца 29.09)
+    for (const slot of apartment.slots.filter((s) => s.kind === "surface")) {
+      const wanted = slot.surface ?? "floor";
+      for (const o of optionsForSlot(apartment, catalogue, slot)) {
+        if (o.asset.kind !== "material") continue;
+        const mat = catalogue.materials.find((x) => x.id === (o.asset as { materialId: string }).materialId)!;
+        expect(mat, `${o.id}: материал не найден`).toBeTruthy();
+        expect(
+          mat.surfaces.length === 0 || mat.surfaces.includes(wanted),
+          `${o.titleRu} предлагается на «${wanted}», хотя объявлен для ${mat.surfaces.join("/") || "чего угодно"}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("фактуры фасадов сделаны из фото реальных товаров и несут провенанс", () => {
+    const fronts = catalogue.materials.filter((m) => m.source?.kind === "photo");
+    expect(fronts.length, "фактур из фото").toBeGreaterThanOrEqual(3);
+    for (const m of fronts) {
+      expect(m.surfaces).toContain("front");
+      expect(m.source?.productSid, `${m.id}: нет товара-источника`).toBeTruthy();
+      expect(m.source?.shop, `${m.id}: нет магазина`).toBeTruthy();
+      expect(m.source?.seamError ?? 99, `${m.id}: шов слишком заметен`).toBeLessThanOrEqual(2.0);
+    }
+  });
+
   it("проёмы уезжают в snake_case, как ждёт конвейер", () => {
     const cfg = defaultConfiguration(apartment, catalogue);
     const scene = resolveScene(apartment, catalogue, cfg);

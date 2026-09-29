@@ -34,7 +34,7 @@ export default async function FlatPage({
   return (
     // ширина НЕ через `.container`: он рассчитан на чтение (узкая колонка), а конфигуратору
     // нужна вся ширина экрана под сцену
-    <main className="mx-auto w-full max-w-[1700px] px-3 py-4 sm:px-5">
+    <main className="mx-auto w-full px-3 py-4 sm:px-5" style={{ maxWidth: 1700 }}>
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h1 className="text-xl font-semibold text-primary">
           {lang === "en" ? apartment.titleEn : apartment.titleRu}

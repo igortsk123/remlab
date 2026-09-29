@@ -145,8 +145,8 @@ async function main() {
           hCm: p.h,
         },
         previewUrl: p.img ? DEMO_IMG_BASE + p.img : undefined,
-        sourceUrl: p.url,
-        shop: p.shop,
+        shopUrl: p.url,          // партнёрская ссылка Гдеслона — прямую ставить нельзя (ADR-0016)
+        shopName: p.shop,
         style: p.style,
       });
     });

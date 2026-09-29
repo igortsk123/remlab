@@ -27,6 +27,8 @@ export interface KitchenSpec {
   splashbackMaterialId?: string;
   widthCm: number;
   depthCm: number;
+  /** Свободная глубина комнаты перед линией, см. Остров ставится только если он влезает. */
+  roomDepthCm?: number;
 }
 
 const KICK_H = 10;
@@ -66,11 +68,23 @@ export function buildKitchen(ctx: KitCtx, spec: KitchenSpec): THREE.Group {
   const topMat = mat(ctx, spec.worktopMaterialId, [W, D]);
   const splashMat = mat(ctx, spec.splashbackMaterialId, [W, SPLASH_TOP - (BASE_TOP + WORKTOP_H)]);
 
-  // колонна (шкаф до потолка) занимает край ряда
-  const tall = spec.level === "comfort" || spec.level === "premium" || has("tall-unit");
-  const tallW = tall ? 60 : 0;
-  const runW = W - tallW;
-  const runX0 = -W / 2 + tallW; // ряд правее колонны
+  // СОСТАВ ПО УРОВНЮ: с ценой должна расти ФУНКЦИЯ, а не только цвет фасадов
+  // (владелец 29.09: «кухня когда меняешь на премиум лучше побогаче… по функциональнее»).
+  // Base — короткая линия и открытая полка; Practical — линия почти во всю стену и верхние
+  // шкафы; Comfort — полная линия + колонна до потолка; Premium — две колонны, верх до потолка,
+  // остров с барной стойкой, открытые полки и подсветка рабочей зоны.
+  const LEVEL = {
+    base: { run: 0.62, uppers: 0, columns: 0, island: false, shelves: false, lighting: false },
+    practical: { run: 0.84, uppers: 0.62, columns: 0, island: false, shelves: false, lighting: false },
+    comfort: { run: 1.0, uppers: 1.0, columns: 1, island: false, shelves: true, lighting: true },
+    premium: { run: 1.0, uppers: 1.0, columns: 2, island: true, shelves: true, lighting: true },
+  }[spec.level];
+
+  const columns = has("tall-unit") ? Math.max(1, LEVEL.columns) : LEVEL.columns;
+  const tall = columns > 0;
+  const tallW = columns * 60;
+  const runW = Math.max(120, (W - tallW) * LEVEL.run);
+  const runX0 = -W / 2 + tallW; // ряд правее колонн
 
   // ── нижний ряд ───────────────────────────────────────────────────────────
   g.add(boxOn(runW, KICK_H, D - 6, runX0 + runW / 2, 0, -3, kickMat));
@@ -137,10 +151,11 @@ export function buildKitchen(ctx: KitCtx, spec: KitchenSpec): THREE.Group {
   }
 
   // ── верхние шкафы ───────────────────────────────────────────────────────
-  if (has("uppers") || spec.level !== "base") {
+  if (LEVEL.uppers > 0 || has("uppers")) {
     const upperD = 35;
     const hoodX = hob ? hob.x : 0;
-    for (const s of splitUnitsWithX(runX0, runW)) {
+    const upperW = runW * Math.max(LEVEL.uppers, has("uppers") ? 0.62 : 0);
+    for (const s of splitUnitsWithX(runX0, upperW)) {
       if (has("hood") && Math.abs(s.x - hoodX) < 30) continue; // место под вытяжку
       g.add(boxOn(s.w, UPPER_TOP - UPPER_BOTTOM, upperD, s.x, UPPER_BOTTOM, back + upperD / 2, bodyMat));
       frontPanel(g, doorMat, s.x, UPPER_BOTTOM, UPPER_TOP - UPPER_BOTTOM, s.w, back + upperD + 0.5, true);
@@ -152,30 +167,46 @@ export function buildKitchen(ctx: KitCtx, spec: KitchenSpec): THREE.Group {
   }
 
   // ── колонна: духовой шкаф / холодильник / микроволновка ─────────────────
-  if (tall) {
-    const cx = -W / 2 + tallW / 2;
-    g.add(boxOn(tallW, TALL_TOP, D, cx, 0, 0, bodyMat));
-    if (has("fridge")) {
-      frontPanel(g, doorMat, cx, 0, 122, tallW, front);
-      frontPanel(g, doorMat, cx, 124, 58, tallW, front);
-    } else {
-      frontPanel(g, doorMat, cx, 0, 80, tallW, front);
+  for (let c = 0; c < columns; c += 1) {
+    const cw = 60;
+    const cx = -W / 2 + cw / 2 + c * cw;
+    g.add(boxOn(cw, TALL_TOP, D, cx, 0, 0, bodyMat));
+    // первая колонна — холодильник/кладовая, вторая (Premium) — духовка, СВЧ и винный шкаф
+    if (c === 0) {
+      if (has("fridge")) {
+        frontPanel(g, doorMat, cx, 0, 122, cw, front);
+        frontPanel(g, doorMat, cx, 124, 90, cw, front);
+      } else {
+        frontPanel(g, doorMat, cx, 0, 104, cw, front);
+        frontPanel(g, doorMat, cx, 106, 108, cw, front);
+      }
+      continue;
     }
-    let y = has("fridge") ? 184 : 82;
+    let y = 0;
+    frontPanel(g, doorMat, cx, y, 60, cw, front);
+    y += 62;
     if (has("oven")) {
-      g.add(boxOn(tallW - 2, 58, 2, cx, y, front, DARK_GLASS));
-      g.add(handle(tallW * 0.7, cx, y + 56, front + 1.8, METAL));
+      g.add(boxOn(cw - 2, 58, 2, cx, y, front, DARK_GLASS));
+      g.add(handle(cw * 0.7, cx, y + 56, front + 1.8, METAL));
       y += 60;
     }
-    if (has("microwave") && y + 40 < TALL_TOP) {
-      g.add(boxOn(tallW - 2, 38, 2, cx, y, front, DARK_GLASS));
+    if (has("microwave")) {
+      g.add(boxOn(cw - 2, 38, 2, cx, y, front, DARK_GLASS));
       y += 40;
     }
-    if (y < TALL_TOP) frontPanel(g, doorMat, cx, y, TALL_TOP - y, tallW, front);
+    if (has("wine-cooler") && y + 44 < TALL_TOP) {
+      g.add(boxOn(cw - 2, 42, 2, cx, y, front, DARK_GLASS));
+      y += 44;
+    }
+    if (y < TALL_TOP) frontPanel(g, doorMat, cx, y, TALL_TOP - y, cw, front);
   }
 
   // ── остров (Premium) ────────────────────────────────────────────────────
-  if (has("island")) {
+  // ОСТРОВ ТОЛЬКО ЕСЛИ ВЛЕЗАЕТ. В кухне глубиной 1,8 м он упирался в противоположную стену
+  // (кадр 29.09): между линией и островом нужен проход 100 см плюс сам остров 90 см.
+  const roomDepth = spec.roomDepthCm ?? spec.depthCm * 3;
+  const islandFits = roomDepth >= spec.depthCm + 100 + 90 + 80;
+  if ((LEVEL.island || has("island")) && islandFits) {
     const iw = Math.min(180, W * 0.6);
     const iz = front + 110;
     g.add(boxOn(iw, KICK_H, 84, 0, 0, iz, kickMat));
@@ -183,7 +214,12 @@ export function buildKitchen(ctx: KitCtx, spec: KitchenSpec): THREE.Group {
     for (const s of splitUnitsWithX(-iw / 2, iw)) {
       frontPanel(g, doorMat, s.x, KICK_H, BASE_TOP - KICK_H, s.w, iz - 45);
     }
-    g.add(boxOn(iw + 6, WORKTOP_H, 96, 0, BASE_TOP, iz, mat(ctx, spec.worktopMaterialId, [iw, 96])));
+    // барная стойка: столешница со свесом и два табурета — это «функция», а не декор
+    g.add(boxOn(iw + 6, WORKTOP_H, 128, 0, BASE_TOP, iz + 16, mat(ctx, spec.worktopMaterialId, [iw, 128])));
+    for (const sx of [-iw / 4, iw / 4]) {
+      g.add(cylinder(16, 18, 66, sx, 0, iz + 88, METAL, 12));
+      g.add(boxOn(36, 5, 34, sx, 66, iz + 88, doorMat));
+    }
     g.add(boxOn(iw, 0.6, 3, 0, UPPER_BOTTOM - 20, iz, LIGHT_STRIP));
   }
 
@@ -191,9 +227,25 @@ export function buildKitchen(ctx: KitCtx, spec: KitchenSpec): THREE.Group {
   if (spec.level === "premium") {
     g.add(boxOn(W, 1, 0.6, 0, SPLASH_TOP - 1, back + 1.6, GLASS));
   }
+  if ((LEVEL.island || has("island")) && !islandFits) {
+    // барная стойка вместо острова: столешница со свесом на торце линии и табурет
+    const bx = runX0 + runW - 20;
+    g.add(boxOn(70, WORKTOP_H, D + 34, bx, BASE_TOP, 17, mat(ctx, spec.worktopMaterialId, [70, D + 34])));
+    g.add(cylinder(16, 18, 66, bx, 0, front + 34, METAL, 12));
+    g.add(boxOn(34, 5, 32, bx, 66, front + 34, doorMat));
+  }
   if (spec.level === "base") {
     // база: открытая полка вместо верхних шкафов
     g.add(boxOn(runW * 0.5, 4, 24, runX0 + runW * 0.5, UPPER_BOTTOM, back + 12, WHITE_GLOSS));
+  }
+  if (LEVEL.shelves) {
+    // открытые полки в свободном конце линии
+    const sx = runX0 + runW - 45;
+    for (const y of [152, 186]) g.add(boxOn(86, 3.5, 26, sx, y, back + 13, WHITE_GLOSS));
+  }
+  if (LEVEL.lighting) {
+    // подсветка рабочей зоны под верхними шкафами
+    g.add(boxOn(runW * Math.max(LEVEL.uppers, 0.5) - 6, 1.2, 3, runX0 + runW * 0.5, UPPER_BOTTOM - 2, back + 30, LIGHT_STRIP));
   }
 
   return g;

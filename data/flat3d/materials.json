@@ -1,5 +1,5 @@
 {
- "_about": "Материалы покрытий. Собрано tools/assets/material_pipeline.py — руками не править.",
+ "_about": "Материалы покрытий. Процедурные — tools/assets/material_pipeline.py, фактуры фасадов из фото товаров — tools/assets/material_from_product.py.",
  "baseUrl": "/flat3d/materials/",
  "materials": [
   {
@@ -17,7 +17,14 @@
    "normalUrl": "carpet-beige-n.webp",
    "roughnessUrl": "carpet-beige-r.webp",
    "aoUrl": "carpet-beige-ao.webp",
-   "previewUrl": "carpet-beige-preview.webp"
+   "previewUrl": "carpet-beige-preview.webp",
+   "surfaces": [
+    "floor",
+    "rug"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "carpet-grey",
@@ -34,7 +41,311 @@
    "normalUrl": "carpet-grey-n.webp",
    "roughnessUrl": "carpet-grey-r.webp",
    "aoUrl": "carpet-grey-ao.webp",
-   "previewUrl": "carpet-grey-preview.webp"
+   "previewUrl": "carpet-grey-preview.webp",
+   "surfaces": [
+    "floor",
+    "rug"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
+  },
+  {
+   "id": "fabric-photo-cream",
+   "titleRu": "Фасад «Диван модульный divan.ru Альди 6 Букле»",
+   "titleEn": "Фасад «Диван модульный divan.ru Альди 6 Букле»",
+   "colorHex": "#b6b3ae",
+   "roughness": 0.45,
+   "metalness": 0.0,
+   "tileCm": [
+    40.0,
+    40.0
+   ],
+   "surfaces": [
+    "front",
+    "rug"
+   ],
+   "baseColorUrl": "fabric-photo-cream.webp",
+   "normalUrl": "fabric-photo-cream-n.webp",
+   "roughnessUrl": "fabric-photo-cream-r.webp",
+   "previewUrl": "fabric-photo-cream-preview.webp",
+   "source": {
+    "kind": "photo",
+    "productSid": "112923_16735798463152569388",
+    "productName": "Диван модульный divan.ru Альди 6 Букле Бежевый",
+    "shop": "divan.ru",
+    "productUrl": "https://www.divan.ru/product/divan-modulnyj-aldi-6-bucle-beige?erid=2SDnjeSGLnX",
+    "imageUrl": "https://cdn0.divan.ru/img/v1/yJWhv28cZMaf_p-pSFZlp2e-1F0NbzWjGS7Juc8IoOM/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3ODU3MDUucG5n.jpg",
+    "patch": {
+     "patch_px": 84,
+     "busyness": 5.07,
+     "luma": 179.7,
+     "at": [
+      112,
+      264
+     ],
+     "tried": 1,
+     "blob": 0.018,
+     "quad": 0.004,
+     "chroma": 7.6,
+     "gate": true
+    },
+    "seamError": 0.71
+   }
+  },
+  {
+   "id": "fabric-photo-grey",
+   "titleRu": "Фасад «Диван модульный divan.ru Маиль 6 Букле»",
+   "titleEn": "Фасад «Диван модульный divan.ru Маиль 6 Букле»",
+   "colorHex": "#b6b6b6",
+   "roughness": 0.45,
+   "metalness": 0.0,
+   "tileCm": [
+    40.0,
+    40.0
+   ],
+   "surfaces": [
+    "front",
+    "rug"
+   ],
+   "baseColorUrl": "fabric-photo-grey.webp",
+   "normalUrl": "fabric-photo-grey-n.webp",
+   "roughnessUrl": "fabric-photo-grey-r.webp",
+   "previewUrl": "fabric-photo-grey-preview.webp",
+   "source": {
+    "kind": "photo",
+    "productSid": "112923_7246906673476809464",
+    "productName": "Диван модульный divan.ru Маиль 6 Букле Серый",
+    "shop": "divan.ru",
+    "productUrl": "https://www.divan.ru/product/divan-modulnyj-mail-6-bucle-silver?erid=2SDnjeSGLnX",
+    "imageUrl": "https://cdn0.divan.ru/img/v1/Ry3-7EwNo3kHJ-DpBQnGUb6OK2Z-bEXOECyJuYR6MHI/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU3NjE2MjgucG5n.jpg",
+    "patch": {
+     "patch_px": 84,
+     "busyness": 2.46,
+     "luma": 183.7,
+     "at": [
+      392,
+      352
+     ],
+     "tried": 1,
+     "blob": 0.0,
+     "quad": 0.001,
+     "chroma": 0.0,
+     "gate": true
+    },
+    "seamError": 1.04
+   }
+  },
+  {
+   "id": "fabric-photo-weave",
+   "titleRu": "Фасад «Диван модульный divan.ru Альди 6 Рогож»",
+   "titleEn": "Фасад «Диван модульный divan.ru Альди 6 Рогож»",
+   "colorHex": "#838365",
+   "roughness": 0.45,
+   "metalness": 0.0,
+   "tileCm": [
+    40.0,
+    40.0
+   ],
+   "surfaces": [
+    "front",
+    "rug"
+   ],
+   "baseColorUrl": "fabric-photo-weave.webp",
+   "normalUrl": "fabric-photo-weave-n.webp",
+   "roughnessUrl": "fabric-photo-weave-r.webp",
+   "previewUrl": "fabric-photo-weave-preview.webp",
+   "source": {
+    "kind": "photo",
+    "productSid": "112923_13637284312925088662",
+    "productName": "Диван модульный divan.ru Альди 6 Рогожка Оливковый",
+    "shop": "divan.ru",
+    "productUrl": "https://www.divan.ru/product/divan-modulnyj-aldi-6-rogojka-olivkovyj?erid=2SDnjeSGLnX",
+    "imageUrl": "https://cdn0.divan.ru/img/v1/QVx3JSNupVN5deFvFSoG1IKP8V5fX8POX0LErltnF_w/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU5NDQzNzIucG5n.jpg",
+    "patch": {
+     "patch_px": 84,
+     "busyness": 7.39,
+     "luma": 122.9,
+     "at": [
+      120,
+      264
+     ],
+     "tried": 1,
+     "blob": 0.037,
+     "quad": 0.01,
+     "chroma": 30.2,
+     "gate": true
+    },
+    "seamError": 0.37
+   }
+  },
+  {
+   "id": "front-graphite",
+   "titleRu": "Фасад «Шкаф-купе divan.ru Беррингтон 4.1-307x»",
+   "titleEn": "Фасад «Шкаф-купе divan.ru Беррингтон 4.1-307x»",
+   "colorHex": "#6e6c6b",
+   "roughness": 0.45,
+   "metalness": 0.0,
+   "tileCm": [
+    60.0,
+    60.0
+   ],
+   "surfaces": [
+    "front"
+   ],
+   "baseColorUrl": "front-graphite.webp",
+   "normalUrl": "front-graphite-n.webp",
+   "roughnessUrl": "front-graphite-r.webp",
+   "previewUrl": "front-graphite-preview.webp",
+   "source": {
+    "kind": "photo",
+    "productSid": "112923_13493319521511798022",
+    "productName": "Шкаф-купе divan.ru Беррингтон 4.1-307x240 Графитовый",
+    "shop": "divan.ru",
+    "productUrl": "https://www.divan.ru/product/shkaf-kupe-berrington-4-1-307x240-grafitovyj?erid=2SDnjeSGLnX",
+    "imageUrl": "https://cdn0.divan.ru/img/v1/N4r1mhxabH5CVNRJJmGge31j_c33GV3j-dib-w_xb5o/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU5NDAyNjIucG5n.jpg",
+    "patch": {
+     "patch_px": 84,
+     "busyness": 9.91,
+     "luma": 109.8,
+     "at": [
+      608,
+      440
+     ],
+     "tried": 3,
+     "blob": 0.031,
+     "quad": 0.009,
+     "chroma": 2.2,
+     "gate": true
+    },
+    "seamError": 1.48
+   }
+  },
+  {
+   "id": "front-oak",
+   "titleRu": "Фасад «Шкаф-купе divan.ru Байкал 4-260x240 Ду»",
+   "titleEn": "Фасад «Шкаф-купе divan.ru Байкал 4-260x240 Ду»",
+   "colorHex": "#b1a191",
+   "roughness": 0.45,
+   "metalness": 0.0,
+   "tileCm": [
+    60.0,
+    60.0
+   ],
+   "surfaces": [
+    "front"
+   ],
+   "baseColorUrl": "front-oak.webp",
+   "normalUrl": "front-oak-n.webp",
+   "roughnessUrl": "front-oak-r.webp",
+   "previewUrl": "front-oak-preview.webp",
+   "source": {
+    "kind": "photo",
+    "productSid": "112923_10346317244758815350",
+    "productName": "Шкаф-купе divan.ru Байкал 4-260x240 Дуб Сонома 4 зеркала",
+    "shop": "divan.ru",
+    "productUrl": "https://www.divan.ru/product/shkaf-kupe-bajkal-4-260-240-dub-sonoma-4-zerkala?erid=2SDnjeSGLnX",
+    "imageUrl": "https://cdn0.divan.ru/img/v1/4LIO3C2CW7N7iA2JV9nlCQXloYbGHTCwTJsqPP3dSqM/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzQxODEyNjEucG5n.jpg",
+    "patch": {
+     "patch_px": 84,
+     "busyness": 1.33,
+     "luma": 162.3,
+     "at": [
+      184,
+      24
+     ],
+     "tried": 2,
+     "blob": 0.0,
+     "quad": 0.002,
+     "chroma": 32.2,
+     "gate": true
+    },
+    "seamError": 1.74
+   }
+  },
+  {
+   "id": "front-walnut",
+   "titleRu": "Фасад «Комод divan.ru Дигарс 163x81 Орех Кари»",
+   "titleEn": "Фасад «Комод divan.ru Дигарс 163x81 Орех Кари»",
+   "colorHex": "#6f655e",
+   "roughness": 0.45,
+   "metalness": 0.0,
+   "tileCm": [
+    50.0,
+    50.0
+   ],
+   "surfaces": [
+    "front"
+   ],
+   "baseColorUrl": "front-walnut.webp",
+   "normalUrl": "front-walnut-n.webp",
+   "roughnessUrl": "front-walnut-r.webp",
+   "previewUrl": "front-walnut-preview.webp",
+   "source": {
+    "kind": "photo",
+    "productSid": "112923_8334516228663199537",
+    "productName": "Комод divan.ru Дигарс 163x81 Орех Карини",
+    "shop": "divan.ru",
+    "productUrl": "https://www.divan.ru/product/komod-digars-163x81-oreh-karini?erid=2SDnjeSGLnX",
+    "imageUrl": "https://cdn0.divan.ru/img/v1/u9ZMIwi4HKUQsipSUg4vaIlp3Y55xGJaynMgSNRSh8E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzYxNDMwNzEucG5n.jpg",
+    "patch": {
+     "patch_px": 84,
+     "busyness": 6.1,
+     "luma": 103.2,
+     "at": [
+      32,
+      144
+     ],
+     "tried": 1,
+     "blob": 0.006,
+     "quad": 0.016,
+     "chroma": 17.0,
+     "gate": true
+    },
+    "seamError": 1.2
+   }
+  },
+  {
+   "id": "front-white",
+   "titleRu": "Фасад «Шкаф-купе divan.ru Беррингтон 4.1-307x»",
+   "titleEn": "Фасад «Шкаф-купе divan.ru Беррингтон 4.1-307x»",
+   "colorHex": "#c4c4c5",
+   "roughness": 0.45,
+   "metalness": 0.0,
+   "tileCm": [
+    60.0,
+    60.0
+   ],
+   "surfaces": [
+    "front"
+   ],
+   "baseColorUrl": "front-white.webp",
+   "normalUrl": "front-white-n.webp",
+   "roughnessUrl": "front-white-r.webp",
+   "previewUrl": "front-white-preview.webp",
+   "source": {
+    "kind": "photo",
+    "productSid": "112923_4613663383674929656",
+    "productName": "Шкаф-купе divan.ru Беррингтон 4.1-307x240 Белый",
+    "shop": "divan.ru",
+    "productUrl": "https://www.divan.ru/product/shkaf-kupe-berrington-4-1-307x240-belyj?erid=2SDnjeSGLnX",
+    "imageUrl": "https://cdn0.divan.ru/img/v1/01ksVQtTtTRFPXMtdOc-6ntS4RlRd57gSZUCs0T602I/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU5Mzk1NjUucG5n.jpg",
+    "patch": {
+     "patch_px": 84,
+     "busyness": 8.09,
+     "luma": 197.6,
+     "at": [
+      96,
+      464
+     ],
+     "tried": 1,
+     "blob": 0.009,
+     "quad": 0.002,
+     "chroma": 2.5,
+     "gate": true
+    },
+    "seamError": 1.05
+   }
   },
   {
    "id": "laminate-oak-top",
@@ -51,7 +362,13 @@
    "normalUrl": "laminate-oak-top-n.webp",
    "roughnessUrl": "laminate-oak-top-r.webp",
    "aoUrl": "laminate-oak-top-ao.webp",
-   "previewUrl": "laminate-oak-top-preview.webp"
+   "previewUrl": "laminate-oak-top-preview.webp",
+   "surfaces": [
+    "worktop"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "oak-light",
@@ -68,7 +385,13 @@
    "normalUrl": "oak-light-n.webp",
    "roughnessUrl": "oak-light-r.webp",
    "aoUrl": "oak-light-ao.webp",
-   "previewUrl": "oak-light-preview.webp"
+   "previewUrl": "oak-light-preview.webp",
+   "surfaces": [
+    "floor"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "oak-natural",
@@ -85,7 +408,13 @@
    "normalUrl": "oak-natural-n.webp",
    "roughnessUrl": "oak-natural-r.webp",
    "aoUrl": "oak-natural-ao.webp",
-   "previewUrl": "oak-natural-preview.webp"
+   "previewUrl": "oak-natural-preview.webp",
+   "surfaces": [
+    "floor"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "parquet-blocks",
@@ -102,7 +431,13 @@
    "normalUrl": "parquet-blocks-n.webp",
    "roughnessUrl": "parquet-blocks-r.webp",
    "aoUrl": "parquet-blocks-ao.webp",
-   "previewUrl": "parquet-blocks-preview.webp"
+   "previewUrl": "parquet-blocks-preview.webp",
+   "surfaces": [
+    "floor"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "quartz-white",
@@ -119,7 +454,14 @@
    "normalUrl": "quartz-white-n.webp",
    "roughnessUrl": "quartz-white-r.webp",
    "aoUrl": "quartz-white-ao.webp",
-   "previewUrl": "quartz-white-preview.webp"
+   "previewUrl": "quartz-white-preview.webp",
+   "surfaces": [
+    "worktop",
+    "splashback"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "splashback-glass",
@@ -136,7 +478,14 @@
    "normalUrl": "splashback-glass-n.webp",
    "roughnessUrl": "splashback-glass-r.webp",
    "aoUrl": "splashback-glass-ao.webp",
-   "previewUrl": "splashback-glass-preview.webp"
+   "previewUrl": "splashback-glass-preview.webp",
+   "surfaces": [
+    "splashback",
+    "wall"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "stone-grey",
@@ -153,7 +502,14 @@
    "normalUrl": "stone-grey-n.webp",
    "roughnessUrl": "stone-grey-r.webp",
    "aoUrl": "stone-grey-ao.webp",
-   "previewUrl": "stone-grey-preview.webp"
+   "previewUrl": "stone-grey-preview.webp",
+   "surfaces": [
+    "worktop",
+    "splashback"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "tile-graphite",
@@ -170,7 +526,15 @@
    "normalUrl": "tile-graphite-n.webp",
    "roughnessUrl": "tile-graphite-r.webp",
    "aoUrl": "tile-graphite-ao.webp",
-   "previewUrl": "tile-graphite-preview.webp"
+   "previewUrl": "tile-graphite-preview.webp",
+   "surfaces": [
+    "floor",
+    "wall",
+    "splashback"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "tile-marble",
@@ -187,7 +551,16 @@
    "normalUrl": "tile-marble-n.webp",
    "roughnessUrl": "tile-marble-r.webp",
    "aoUrl": "tile-marble-ao.webp",
-   "previewUrl": "tile-marble-preview.webp"
+   "previewUrl": "tile-marble-preview.webp",
+   "surfaces": [
+    "floor",
+    "wall",
+    "worktop",
+    "splashback"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "tile-metro",
@@ -204,7 +577,14 @@
    "normalUrl": "tile-metro-n.webp",
    "roughnessUrl": "tile-metro-r.webp",
    "aoUrl": "tile-metro-ao.webp",
-   "previewUrl": "tile-metro-preview.webp"
+   "previewUrl": "tile-metro-preview.webp",
+   "surfaces": [
+    "wall",
+    "splashback"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "tile-sand",
@@ -221,7 +601,15 @@
    "normalUrl": "tile-sand-n.webp",
    "roughnessUrl": "tile-sand-r.webp",
    "aoUrl": "tile-sand-ao.webp",
-   "previewUrl": "tile-sand-preview.webp"
+   "previewUrl": "tile-sand-preview.webp",
+   "surfaces": [
+    "floor",
+    "wall",
+    "splashback"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "tile-stone-grey",
@@ -238,7 +626,15 @@
    "normalUrl": "tile-stone-grey-n.webp",
    "roughnessUrl": "tile-stone-grey-r.webp",
    "aoUrl": "tile-stone-grey-ao.webp",
-   "previewUrl": "tile-stone-grey-preview.webp"
+   "previewUrl": "tile-stone-grey-preview.webp",
+   "surfaces": [
+    "floor",
+    "wall",
+    "splashback"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   },
   {
    "id": "walnut-dark",
@@ -255,7 +651,13 @@
    "normalUrl": "walnut-dark-n.webp",
    "roughnessUrl": "walnut-dark-r.webp",
    "aoUrl": "walnut-dark-ao.webp",
-   "previewUrl": "walnut-dark-preview.webp"
+   "previewUrl": "walnut-dark-preview.webp",
+   "surfaces": [
+    "floor"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
   }
  ]
 }

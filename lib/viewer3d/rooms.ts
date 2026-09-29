@@ -14,6 +14,7 @@ import * as THREE from "three";
 import type { Opening, Room, WallSide } from "@/contracts/apartment";
 import type { Material } from "@/contracts/configurator";
 import { type MaterialCtx, tiled } from "@/lib/viewer3d/materials";
+import { buildOpenings } from "@/lib/viewer3d/openings";
 
 const CM = 0.01;
 const INSET_CM = 1;
@@ -94,7 +95,7 @@ export function buildRoom(
   room: Room,
   floorMat: Material,
   wallMat: Material,
-  opts: { ceiling?: boolean } = {},
+  opts: { ceiling?: boolean; entranceWall?: string } = {},
 ): RoomVisual {
   const group = new THREE.Group();
   group.name = `room:${room.id}`;
@@ -109,7 +110,23 @@ export function buildRoom(
 
   for (const side of ["south", "north", "west", "east"] as WallSide[]) {
     const f = frameOf(room, side);
-    const rects = wallRects(f.lengthCm, room.heightCm, openingsOnSide(room, side));
+    const wallOpenings = openingsOnSide(room, side);
+
+    // СТОЛЯРКА ПРОЁМОВ (рама, стекло, подоконник, полотно) строится в локальных осях стены:
+    // группа стоит в начале стены, её X идёт вдоль стены, Z — внутрь комнаты. Это ровно та же
+    // система, в которой заданы `offsetCm`, поэтому размеры пишутся как на чертеже.
+    if (wallOpenings.length > 0) {
+      const joinery = buildOpenings(wallOpenings, side, {
+        heightCm: room.heightCm,
+        entranceWall: opts.entranceWall,
+      });
+      joinery.position.set(f.ox * CM, 0, f.oy * CM);
+      joinery.rotation.y = f.rotY;
+      joinery.name = `joinery:${room.id}:${side}`;
+      group.add(joinery);
+    }
+
+    const rects = wallRects(f.lengthCm, room.heightCm, wallOpenings);
     for (const r of rects) {
       const wCm = r.u1 - r.u0;
       const hCm = r.v1 - r.v0;
@@ -144,8 +161,12 @@ export function buildRoom(
   return { group, floor };
 }
 
-/** Небо за окнами: покупатель не должен видеть чёрную пустоту в проёме. */
-export function buildSurroundings(rooms: Room[]): THREE.Group {
+/**
+ * Что видно за окнами. Плоская синяя заливка читалась как «дырка» (владелец 29.09), поэтому
+ * вокруг дома стоит сфера с панорамой: небо, город в дымке, деревья, земля
+ * (`tools/assets/material_pipeline.py outside`). Панорама — 27 КБ, грузится один раз.
+ */
+export function buildSurroundings(rooms: Room[], panoramaUrl = "/flat3d/env/outside.webp"): THREE.Group {
   const g = new THREE.Group();
   const minX = Math.min(...rooms.map((r) => r.x));
   const maxX = Math.max(...rooms.map((r) => r.x + r.w));
@@ -157,17 +178,32 @@ export function buildSurroundings(rooms: Room[]): THREE.Group {
 
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(size, size),
-    new THREE.MeshStandardMaterial({ color: 0x9aa79b, roughness: 1 }),
+    new THREE.MeshStandardMaterial({ color: 0x7e8a6c, roughness: 1 }),
   );
   ground.rotation.x = -Math.PI / 2;
-  ground.position.set(cx, -0.02, cz);
+  ground.position.set(cx, -0.04, cz);
   g.add(ground);
 
-  const sky = new THREE.Mesh(
-    new THREE.SphereGeometry(size / 2, 24, 16),
-    new THREE.MeshBasicMaterial({ color: 0xbcd4e6, side: THREE.BackSide, fog: false }),
-  );
-  sky.position.set(cx, 0, cz);
+  const skyMat = new THREE.MeshBasicMaterial({ color: 0xc9dae8, side: THREE.BackSide, fog: false });
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(size / 2, 40, 24), skyMat);
+  // горизонт панорамы приходится на середину картинки, поэтому сферу поднимаем на уровень
+  // глаз: иначе город оказывается «под ногами»
+  sky.position.set(cx, 1.6, cz);
   g.add(sky);
+
+  const tex = new THREE.TextureLoader().load(
+    panoramaUrl,
+    () => {
+      skyMat.map = tex;
+      skyMat.color.set(0xffffff);
+      skyMat.needsUpdate = true;
+    },
+    undefined,
+    () => {
+      /* панорамы нет — остаётся ровный светлый цвет, сцена не ломается */
+    },
+  );
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
   return g;
 }

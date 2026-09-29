@@ -9,7 +9,7 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PY=/home/pakar/venvs/scout/bin/python
 PAUSE="$HOME/scout-scenes/mesh-batch.PAUSE"
-MARKS=/home/pakar/igor/remlab/.memory_bank/_intake/owner-marks-mesh-color-0109.txt
+MARKS=/home/pakar/igor/remlab/.memory_bank/_intake/owner/owner-marks-mesh-color-0109.txt
 
 echo "[$(date +%H:%M)] ставлю паузу основному конвейеру"
 touch "$PAUSE"
