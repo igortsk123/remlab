@@ -2,9 +2,9 @@
 workstream: demo-planner
 slug: demo-en-gbp
 title: Демо на английском — переключатель RU/EN, тестовые товары и цены в фунтах
-status: draft
+status: in_progress
 created: 2026-09-28
-updated: 2026-09-28
+updated: 2026-09-29
 completed:
 ---
 

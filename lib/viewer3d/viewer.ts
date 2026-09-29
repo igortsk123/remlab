@@ -26,6 +26,9 @@ import { buildRoom, buildSurroundings } from "@/lib/viewer3d/rooms";
 import { canStand, nearestStandable, stepWithSlide, walkArea, type WalkArea } from "@/lib/viewer3d/walk";
 
 const CM = 0.01;
+// пределы «кукольного дома»: ближе 2,4 м камера влезает в мебель, дальше 30 м квартира — точка
+const TOP_MIN_CM = 240;
+const TOP_MAX_CM = 3000;
 const EYE_CM = 162;
 
 export interface QualityProfile {
@@ -401,6 +404,7 @@ export class FlatViewer {
       // по умолчанию показываем ВСЮ квартиру («кукольный дом»), а выбор комнаты приближает к ней
       this.camera.fov = 48;
       this.camera.updateProjectionMatrix();
+      this.heading = this.bestTopHeading(null);
       this.fitTop(null);
     } else {
       this.camera.fov = this.quality.fov;
@@ -413,34 +417,96 @@ export class FlatViewer {
     return this.viewMode;
   }
 
+  /** Поставить камеру вида сверху по текущим точке интереса, повороту и расстоянию. */
+  private placeTopCamera(): void {
+    const pitchRad = (this.topPitch * Math.PI) / 180;
+    const rad = (this.heading * Math.PI) / 180;
+    const d = this.topDistanceCm * CM;
+    const tx = this.topTarget.x * CM;
+    const tz = this.topTarget.y * CM;
+    this.camera.position.set(
+      tx - Math.sin(rad) * Math.cos(pitchRad) * d,
+      Math.max(1.2, -Math.sin(pitchRad) * d),
+      tz - Math.cos(rad) * Math.cos(pitchRad) * d,
+    );
+    this.camera.lookAt(tx, 0.4, tz);
+    this.camera.updateMatrixWorld();
+  }
+
+  /** Углы коробки (пол + стены) комнаты или всей квартиры — по ним и кадрируем. */
+  private topCorners(roomId: string | null): { corners: THREE.Vector3[]; cx: number; cy: number } {
+    const room = roomId ? findRoom(this.apartment, roomId) : null;
+    const x0 = room ? room.x : Math.min(...this.apartment.rooms.map((r) => r.x));
+    const x1 = room ? room.x + room.w : Math.max(...this.apartment.rooms.map((r) => r.x + r.w));
+    const y0 = room ? room.y : Math.min(...this.apartment.rooms.map((r) => r.y));
+    const y1 = room ? room.y + room.d : Math.max(...this.apartment.rooms.map((r) => r.y + r.d));
+    const top = Math.max(...this.apartment.rooms.map((r) => r.heightCm ?? 250));
+    const corners: THREE.Vector3[] = [];
+    for (const x of [x0, x1]) for (const y of [y0, y1]) for (const h of [0, top]) {
+      corners.push(new THREE.Vector3(x * CM, h * CM, y * CM));
+    }
+    return { corners, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2 };
+  }
+
+  /**
+   * Самое близкое расстояние, при котором все углы ещё в кадре, — ДЕЛЕНИЕМ ОТРЕЗКА ПОПОЛАМ.
+   *
+   * Подгонять «умножением на промах» нельзя: камера наклонная, и при сближении крайний угол
+   * убегает быстрее, чем растёт множитель — подгонка расходилась и упиралась в минимум
+   * (поймано кадром 29.09). Деление пополам монотонно: дальше — всё влезает, ближе — нет.
+   */
+  private fitDistance(corners: THREE.Vector3[]): number {
+    const inside = (d: number): boolean => {
+      this.topDistanceCm = d;
+      this.placeTopCamera();
+      let worst = 0;
+      for (const c of corners) {
+        const ndc = c.clone().project(this.camera);
+        worst = Math.max(worst, Math.abs(ndc.x), Math.abs(ndc.y));
+      }
+      return Number.isFinite(worst) && worst <= 0.97;
+    };
+    let lo = TOP_MIN_CM;
+    let hi = TOP_MAX_CM;
+    if (!inside(hi)) return hi;
+    for (let i = 0; i < 18; i += 1) {
+      const mid = (lo + hi) / 2;
+      if (inside(mid)) hi = mid;
+      else lo = mid;
+    }
+    return hi;
+  }
+
   /** Вписать в кадр комнату (или всю квартиру, если roomId не задан). */
   private fitTop(roomId: string | null): void {
-    const room = roomId ? findRoom(this.apartment, roomId) : null;
-    let cx: number;
-    let cy: number;
-    let span: number;
-    if (room) {
-      const c = roomCentre(room);
-      cx = c.x;
-      cy = c.y;
-      span = Math.max(room.w, room.d);
-    } else {
-      const minX = Math.min(...this.apartment.rooms.map((r) => r.x));
-      const maxX = Math.max(...this.apartment.rooms.map((r) => r.x + r.w));
-      const minY = Math.min(...this.apartment.rooms.map((r) => r.y));
-      const maxY = Math.max(...this.apartment.rooms.map((r) => r.y + r.d));
-      cx = (minX + maxX) / 2;
-      cy = (minY + maxY) / 2;
-      span = Math.max(maxX - minX, maxY - minY);
-    }
+    const { corners, cx, cy } = this.topCorners(roomId);
     this.topTarget.set(cx, cy);
-    // Вписываем И ПО ВЫСОТЕ, И ПО ШИРИНЕ кадра: канвас широкий и невысокий, поэтому расчёт
-    // только по вертикальному углу уводил камеру далеко и квартира была мелкой (кадр 29.09).
-    const half = (span / 2) * 1.12;
-    const fovY = (this.camera.fov * Math.PI) / 180;
-    const aspect = Math.max(0.2, this.camera.aspect || 1);
-    const fovX = 2 * Math.atan(Math.tan(fovY / 2) * aspect);
-    this.topDistanceCm = Math.max(240, Math.max(half / Math.tan(fovY / 2), half / Math.tan(fovX / 2)));
+    this.topDistanceCm = this.fitDistance(corners);
+  }
+
+  /**
+   * Развернуть «кукольный дом» так, чтобы квартира заняла кадр целиком: пробуем четыре стороны
+   * и берём ту, с которой камера подходит ближе всего. Экран широкий, квартира вытянутая —
+   * при неудачном развороте она занимала треть кадра, при удачном в полтора раза крупнее.
+   */
+  private bestTopHeading(roomId: string | null): number {
+    const { corners, cx, cy } = this.topCorners(roomId);
+    this.topTarget.set(cx, cy);
+    const keepHeading = this.heading;
+    const keepDistance = this.topDistanceCm;
+    let best = keepHeading;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const h of [0, 90, 180, 270]) {
+      this.heading = h;
+      const d = this.fitDistance(corners);
+      if (d < bestDistance - 1) {
+        bestDistance = d;
+        best = h;
+      }
+    }
+    this.heading = keepHeading;
+    this.topDistanceCm = keepDistance;
+    return best;
   }
 
   /**
@@ -461,7 +527,7 @@ export class FlatViewer {
   /** Приблизить/отдалить вид сверху (колесо мыши, щипок). */
   zoom(deltaCm: number): void {
     if (this.viewMode !== "top") return;
-    this.topDistanceCm = Math.min(1600, Math.max(220, this.topDistanceCm + deltaCm));
+    this.topDistanceCm = Math.min(TOP_MAX_CM, Math.max(TOP_MIN_CM, this.topDistanceCm + deltaCm));
   }
 
   keyDown(code: string): void {
