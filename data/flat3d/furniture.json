@@ -22,14 +22,15 @@
     "dCm": 90,
     "hCm": 83,
     "tintRgb": [
-     0.793,
-     1.078,
-     1.129
+     0.61,
+     1.097,
+     1.192
     ],
     "tintFrom": {
-     "photoColor": "#536d7e",
-     "meshColor": "#73707b",
-     "photoSat": 39.9
+     "photoColor": "#597080",
+     "meshColor": "#75707b",
+     "photoSat": 39.9,
+     "space": "linear"
     },
     "frontSource": "geometry",
     "frontConf": 0.274
@@ -58,14 +59,15 @@
     "dCm": 86,
     "hCm": 87,
     "tintRgb": [
-     1.361,
-     1.057,
-     0.582
+     1.548,
+     0.91,
+     0.276
     ],
     "tintFrom": {
-     "photoColor": "#bf8e4f",
-     "meshColor": "#938c8e",
-     "photoSat": 100.3
+     "photoColor": "#c09053",
+     "meshColor": "#948d8f",
+     "photoSat": 100.3,
+     "space": "linear"
     },
     "frontSource": "orient"
    },
@@ -93,14 +95,15 @@
     "dCm": 90,
     "hCm": 90,
     "tintRgb": [
-     1.186,
-     1.036,
-     0.777
+     1.277,
+     0.966,
+     0.526
     ],
     "tintFrom": {
-     "photoColor": "#a38f78",
-     "meshColor": "#828393",
-     "photoSat": 36.2
+     "photoColor": "#a5927c",
+     "meshColor": "#858595",
+     "photoSat": 36.2,
+     "space": "linear"
     },
     "frontSource": "orient"
    },
@@ -128,14 +131,15 @@
     "dCm": 100,
     "hCm": 95,
     "tintRgb": [
-     0.555,
-     0.925,
-     1.52
+     0.306,
+     1.069,
+     2.357
     ],
     "tintFrom": {
-     "photoColor": "#743c32",
+     "photoColor": "#79453b",
      "meshColor": "#a83400",
-     "photoSat": 65.0
+     "photoSat": 65.0,
+     "space": "linear"
     },
     "frontSource": "geometry",
     "frontConf": 0.338
@@ -215,14 +219,15 @@
     "dCm": 81,
     "hCm": 87,
     "tintRgb": [
-     1.275,
-     1.004,
-     0.721
+     1.517,
+     0.905,
+     0.416
     ],
     "tintFrom": {
-     "photoColor": "#c59352",
-     "meshColor": "#cac0b5",
-     "photoSat": 103.2
+     "photoColor": "#c69556",
+     "meshColor": "#cac1b7",
+     "photoSat": 103.2,
+     "space": "linear"
     },
     "frontSource": "geometry",
     "frontConf": 0.304
@@ -251,14 +256,15 @@
     "dCm": 79,
     "hCm": 74,
     "tintRgb": [
-     0.991,
-     1.006,
-     1.003
+     0.976,
+     1.008,
+     0.995
     ],
     "tintFrom": {
-     "photoColor": "#bdac92",
-     "meshColor": "#b7a38b",
-     "photoSat": 38.4
+     "photoColor": "#bfae95",
+     "meshColor": "#b7a48d",
+     "photoSat": 38.4,
+     "space": "linear"
     },
     "frontSource": "orient"
    },
@@ -286,14 +292,15 @@
     "dCm": 54,
     "hCm": 42,
     "tintRgb": [
-     1.112,
-     1.012,
-     0.876
+     1.184,
+     0.973,
+     0.721
     ],
     "tintFrom": {
-     "photoColor": "#947f67",
-     "meshColor": "#b5aba1",
-     "photoSat": 21.8
+     "photoColor": "#9b866f",
+     "meshColor": "#b6ada5",
+     "photoSat": 21.8,
+     "space": "linear"
     },
     "frontSource": "orient"
    },
@@ -346,14 +353,15 @@
     "dCm": 52,
     "hCm": 42,
     "tintRgb": [
-     0.967,
-     1.008,
-     1.025
+     0.877,
+     1.024,
+     1.124
     ],
     "tintFrom": {
-     "photoColor": "#a99680",
-     "meshColor": "#7b6958",
-     "photoSat": 21.9
+     "photoColor": "#af9e8c",
+     "meshColor": "#87715f",
+     "photoSat": 21.9,
+     "space": "linear"
     },
     "frontSource": "orient"
    },
@@ -381,14 +389,15 @@
     "dCm": 58,
     "hCm": 38,
     "tintRgb": [
-     0.803,
-     0.96,
-     1.237
+     0.687,
+     1.021,
+     1.711
     ],
     "tintFrom": {
-     "photoColor": "#917a69",
-     "meshColor": "#886040",
-     "photoSat": 35.8
+     "photoColor": "#978171",
+     "meshColor": "#8a6242",
+     "photoSat": 35.8,
+     "space": "linear"
     },
     "frontSource": "symmetric"
    },
@@ -416,14 +425,15 @@
     "dCm": 35,
     "hCm": 61,
     "tintRgb": [
-     0.8,
-     0.967,
-     1.233
+     0.67,
+     1.021,
+     1.761
     ],
     "tintFrom": {
-     "photoColor": "#b8ada1",
-     "meshColor": "#957453",
-     "photoSat": 9.5
+     "photoColor": "#bdb4ab",
+     "meshColor": "#a17e5c",
+     "photoSat": 9.5,
+     "space": "linear"
     },
     "frontSource": "orient"
    },
@@ -451,14 +461,15 @@
     "dCm": 50,
     "hCm": 53,
     "tintRgb": [
-     0.878,
-     0.987,
-     1.135
+     0.786,
+     1.028,
+     1.352
     ],
     "tintFrom": {
-     "photoColor": "#b09f8b",
-     "meshColor": "#b6926f",
-     "photoSat": 27.3
+     "photoColor": "#b2a290",
+     "meshColor": "#b79373",
+     "photoSat": 27.3,
+     "space": "linear"
     },
     "frontSource": "orient"
    },
@@ -486,14 +497,15 @@
     "dCm": 40,
     "hCm": 67,
     "tintRgb": [
-     1.358,
-     0.862,
-     0.78
+     1.971,
+     0.748,
+     0.641
     ],
     "tintFrom": {
-     "photoColor": "#9f644f",
-     "meshColor": "#9f9d8a",
-     "photoSat": 70.7
+     "photoColor": "#a06551",
+     "meshColor": "#a1a08b",
+     "photoSat": 70.7,
+     "space": "linear"
     },
     "frontSource": "geometry",
     "frontConf": 0.128
@@ -522,14 +534,15 @@
     "dCm": 40,
     "hCm": 75,
     "tintRgb": [
-     0.899,
-     0.959,
-     1.142
+     0.814,
+     1.003,
+     1.517
     ],
     "tintFrom": {
-     "photoColor": "#978066",
-     "meshColor": "#ad895c",
-     "photoSat": 40.5
+     "photoColor": "#a28f78",
+     "meshColor": "#b18e62",
+     "photoSat": 40.5,
+     "space": "linear"
     },
     "frontSource": "weak"
    },
@@ -582,14 +595,15 @@
     "dCm": 105,
     "hCm": 74.5,
     "tintRgb": [
-     1.095,
-     0.952,
-     0.952
+     1.264,
+     0.941,
+     0.804
     ],
     "tintFrom": {
-     "photoColor": "#6b594a",
-     "meshColor": "#aaa59f",
-     "photoSat": 27.4
+     "photoColor": "#746155",
+     "meshColor": "#afa9a3",
+     "photoSat": 27.4,
+     "space": "linear"
     },
     "frontSource": "symmetric"
    },
@@ -617,14 +631,15 @@
     "dCm": 100,
     "hCm": 75,
     "tintRgb": [
-     0.961,
-     0.971,
-     1.068
+     1.086,
+     0.982,
+     0.929
     ],
     "tintFrom": {
-     "photoColor": "#805548",
-     "meshColor": "#744d3b",
-     "photoSat": 43.8
+     "photoColor": "#87645d",
+     "meshColor": "#775c57",
+     "photoSat": 43.8,
+     "space": "linear"
     },
     "frontSource": "symmetric"
    },
@@ -677,14 +692,15 @@
     "dCm": 50,
     "hCm": 93,
     "tintRgb": [
-     1.006,
+     0.965,
      1.007,
-     0.987
+     1.04
     ],
     "tintFrom": {
-     "photoColor": "#6b514a",
-     "meshColor": "#6a504c",
-     "photoSat": 29.2
+     "photoColor": "#6d534d",
+     "meshColor": "#73574f",
+     "photoSat": 29.2,
+     "space": "linear"
     },
     "frontSource": "geometry",
     "frontConf": 0.526
@@ -713,14 +729,15 @@
     "dCm": 53,
     "hCm": 97,
     "tintRgb": [
-     1.042,
-     0.98,
-     0.978
+     1.089,
+     0.984,
+     0.899
     ],
     "tintFrom": {
-     "photoColor": "#715e50",
-     "meshColor": "#c1ac9d",
-     "photoSat": 28.0
+     "photoColor": "#7e6b5f",
+     "meshColor": "#c2afa2",
+     "photoSat": 28.0,
+     "space": "linear"
     },
     "frontSource": "geometry",
     "frontConf": 0.531
@@ -749,14 +766,15 @@
     "dCm": 49,
     "hCm": 80,
     "tintRgb": [
-     0.911,
-     0.92,
-     1.169
+     0.895,
+     0.978,
+     1.531
     ],
     "tintFrom": {
-     "photoColor": "#caaa8e",
-     "meshColor": "#9a8054",
-     "photoSat": 34.6
+     "photoColor": "#cdad92",
+     "meshColor": "#a28259",
+     "photoSat": 34.6,
+     "space": "linear"
     },
     "frontSource": "geometry",
     "frontConf": 0.278
@@ -785,14 +803,15 @@
     "dCm": 50,
     "hCm": 100,
     "tintRgb": [
-     0.932,
-     0.993,
-     1.075
+     0.878,
+     1.016,
+     1.205
     ],
     "tintFrom": {
-     "photoColor": "#ccb9a1",
-     "meshColor": "#bba080",
-     "photoSat": 37.9
+     "photoColor": "#cdbba4",
+     "meshColor": "#bca082",
+     "photoSat": 37.9,
+     "space": "linear"
     },
     "frontSource": "geometry",
     "frontConf": 0.58
@@ -846,14 +865,15 @@
     "dCm": 5,
     "hCm": 128.2,
     "tintRgb": [
-     0.933,
-     0.983,
-     1.085
+     0.899,
+     1.007,
+     1.223
     ],
     "tintFrom": {
-     "photoColor": "#cbc4ae",
-     "meshColor": "#c0af8d",
-     "photoSat": 25.7
+     "photoColor": "#d3cbb6",
+     "meshColor": "#c8b796",
+     "photoSat": 25.7,
+     "space": "linear"
     },
     "frontSource": "orient"
    },
@@ -906,14 +926,15 @@
     "dCm": 28,
     "hCm": 156,
     "tintRgb": [
-     0.978,
-     1.002,
-     1.021
+     0.971,
+     1.004,
+     1.052
     ],
     "tintFrom": {
-     "photoColor": "#d4c7b7",
-     "meshColor": "#9b8e81",
-     "photoSat": 15.9
+     "photoColor": "#e0d2c0",
+     "meshColor": "#bcae9c",
+     "photoSat": 15.9,
+     "space": "linear"
     },
     "frontSource": "symmetric"
    },
@@ -940,7 +961,18 @@
     "wCm": 98,
     "dCm": 35,
     "hCm": 25,
-    "frontSource": "orient"
+    "frontSource": "orient",
+    "tintRgb": [
+     0.972,
+     1.022,
+     0.861
+    ],
+    "tintFrom": {
+     "photoColor": "#414040",
+     "meshColor": "#5e5962",
+     "photoSat": 4.5,
+     "space": "linear"
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/1fdde7b5f4196ee8.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-podvesnaya-sajris-2-black&erid=2SDnjeSGLnX",
@@ -992,14 +1024,15 @@
     "dCm": 40,
     "hCm": 84,
     "tintRgb": [
-     1.079,
-     0.994,
-     0.927
+     1.074,
+     0.988,
+     0.904
     ],
     "tintFrom": {
-     "photoColor": "#a0aaac",
-     "meshColor": "#526169",
-     "photoSat": 19.6
+     "photoColor": "#abb0b1",
+     "meshColor": "#666e73",
+     "photoSat": 19.6,
+     "space": "linear"
     },
     "frontSource": "weak"
    },
@@ -1052,14 +1085,15 @@
     "dCm": 35,
     "hCm": 75,
     "tintRgb": [
-     0.805,
-     1.101,
-     1.094
+     0.629,
+     1.116,
+     0.942
     ],
     "tintFrom": {
-     "photoColor": "#c7b188",
-     "meshColor": "#99634d",
-     "photoSat": 55.0
+     "photoColor": "#c8b38b",
+     "meshColor": "#9b6a58",
+     "photoSat": 55.0,
+     "space": "linear"
     },
     "frontSource": "orient"
    },
@@ -1087,14 +1121,15 @@
     "dCm": 35,
     "hCm": 149,
     "tintRgb": [
-     1.28,
-     0.86,
-     0.86
+     1.898,
+     0.768,
+     0.659
     ],
     "tintFrom": {
-     "photoColor": "#704d40",
-     "meshColor": "#89989a",
-     "photoSat": 43.3
+     "photoColor": "#78574b",
+     "meshColor": "#89999b",
+     "photoSat": 43.3,
+     "space": "linear"
     },
     "frontSource": "orient"
    },
@@ -1146,7 +1181,18 @@
     "wCm": 80,
     "dCm": 35,
     "hCm": 205,
-    "frontSource": "orient"
+    "frontSource": "orient",
+    "tintRgb": [
+     0.916,
+     1.01,
+     1.147
+    ],
+    "tintFrom": {
+     "photoColor": "#857c70",
+     "meshColor": "#bba68f",
+     "photoSat": 8.6,
+     "space": "linear"
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/9b06f8012c555329.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fstellaj-morris-1-grafit&erid=2SDnjeSGLnX",
@@ -1172,14 +1218,15 @@
     "dCm": 40,
     "hCm": 30,
     "tintRgb": [
-     0.978,
-     1.02,
-     1.002
+     0.923,
+     1.023,
+     0.994
     ],
     "tintFrom": {
-     "photoColor": "#cdbfaf",
-     "meshColor": "#9d8c82",
-     "photoSat": 23.0
+     "photoColor": "#cec0b1",
+     "meshColor": "#a28f85",
+     "photoSat": 23.0,
+     "space": "linear"
     },
     "frontSource": "orient"
    },
@@ -1207,14 +1254,15 @@
     "dCm": 45,
     "hCm": 45,
     "tintRgb": [
-     1.058,
-     0.994,
-     0.948
+     1.105,
+     0.98,
+     0.889
     ],
     "tintFrom": {
-     "photoColor": "#a38775",
-     "meshColor": "#b49f90",
-     "photoSat": 44.9
+     "photoColor": "#a58a78",
+     "meshColor": "#b6a092",
+     "photoSat": 44.9,
+     "space": "linear"
     },
     "frontSource": "symmetric"
    },
@@ -1242,14 +1290,15 @@
     "dCm": 35,
     "hCm": 38,
     "tintRgb": [
+     1.025,
      1.003,
-     1.026,
-     0.971
+     0.897
     ],
     "tintFrom": {
-     "photoColor": "#7f7c6e",
-     "meshColor": "#c4bbaf",
-     "photoSat": 13.0
+     "photoColor": "#8c8577",
+     "meshColor": "#c5bcb2",
+     "photoSat": 13.0,
+     "space": "linear"
     },
     "frontSource": "orient"
    },
@@ -1277,14 +1326,15 @@
     "dCm": 45,
     "hCm": 45,
     "tintRgb": [
-     0.656,
-     1.409,
-     0.934
+     0.366,
+     1.207,
+     0.813
     ],
     "tintFrom": {
-     "photoColor": "#5d2c31",
-     "meshColor": "#690d27",
-     "photoSat": 48.0
+     "photoColor": "#613236",
+     "meshColor": "#6a0d27",
+     "photoSat": 48.0,
+     "space": "linear"
     },
     "frontSource": "orient"
    },

@@ -134,7 +134,11 @@ export class FlatViewer {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: quality.name === "desktop", powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality.pixelRatio));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    // ТОВАРНЫЙ тонмаппинг (Khronos PBR Neutral), а не кинематографический ACES: ACES уводит
+    // насыщенные тона к белому тем сильнее, чем светлее место — жёлтый диван у окна выцветал
+    // до бежевого (замер 29.09: насыщенность 74 из 255 при цели 151). Здесь человек выбирает
+    // товар по цвету, поэтому цвет важнее «киношной» картинки.
+    this.renderer.toneMapping = THREE.NeutralToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     if (quality.shadows) {
       this.renderer.shadowMap.enabled = true;

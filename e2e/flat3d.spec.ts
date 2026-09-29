@@ -156,3 +156,31 @@ test("клик по предмету в сцене: панель снизу с �
   await page.waitForTimeout(1200);
   await expect(page.locator('[data-flat3d="toolbar"]')).toContainText("£");
 });
+
+test("3D открывается на весь экран, крестик возвращает к «Фото»", async ({ page }) => {
+  // Требование владельца 29.09: по квартире ходят во весь экран, а не подглядывают в окошко.
+  test.setTimeout(120_000);
+  await page.goto("/flat");
+  await page.getByRole("tab", { name: "Фото" }).click();
+  await page.getByRole("tab", { name: "Бродилка" }).click();
+  await page.waitForTimeout(1500);
+
+  // сцена занимает окно целиком: оболочка прижата ко всем краям
+  const fills = await page.evaluate(() => {
+    const shell = document.querySelector('[data-flat3d="toolbar"]')?.parentElement;
+    if (!shell) return null;
+    const r = shell.getBoundingClientRect();
+    return { w: Math.round(r.width), h: Math.round(r.height), okno: [window.innerWidth, window.innerHeight] };
+  });
+  expect(fills, "оболочка 3D найдена").not.toBeNull();
+  expect(fills!.w, "ширина во всё окно").toBeGreaterThanOrEqual(fills!.okno[0]! - 2);
+  expect(fills!.h, "высота во всё окно").toBeGreaterThanOrEqual(fills!.okno[1]! - 2);
+
+  // и панель выбора внутри осталась
+  await expect(page.getByRole("region", { name: "Панель выбора" })).toBeVisible();
+
+  // крестик закрывает 3D и возвращает «Фото»
+  await page.getByRole("button", { name: "Закрыть 3D" }).click();
+  await expect(page.getByRole("tab", { name: "Фото" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("canvas")).toHaveCount(0);
+});

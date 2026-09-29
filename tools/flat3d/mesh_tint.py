@@ -9,6 +9,11 @@
 берём средний цвет текстуры меша и записываем в каталог множитель на канал. В сцене модель
 умножается на этот множитель: светотень и фактура меша остаются, а тон становится товарным.
 
+ПРОСТРАНСТВО ЦВЕТА (важно). Множитель считается и применяется В ЛИНЕЙНОМ свете: `THREE.Color`
+трактует числа как значения рабочего (линейного) пространства. Отношение средних sRGB-значений —
+другое число: замер 29.09 показал, что жёлтый диван при таком счёте выходил вдвое бледнее
+(насыщенность 74 из 255 при цели 151).
+
 Ограничения (осознанные): множитель зажат, чтобы не превращать модель в кислотную; если у меша
 и так верный тон, поправка близка к единице и ничего не портит. Это не замена честной текстуры —
 это способ показать покупателю ТОТ цвет, который он выбрал, пока конвейер мешей не научится
@@ -35,13 +40,28 @@ from runtime_mesh import image_bytes, parse_glb  # noqa: E402
 
 MESH_BASE = "https://remont-lab.online/test/mesh-pilot10/"
 UA = {"User-Agent": "Mozilla/5.0 (compatible; remlab-tint/1.0)"}
-MIN_GAIN, MAX_GAIN = 0.55, 1.9
+# Зажим В ЛИНЕЙНОМ пространстве: прежние 0,55…1,9 были зажимом sRGB-отношения, в линейном это
+# примерно 0,26…3,9. Шире — модель уходит в кислотный цвет, у́же — жёлтый диван остаётся серым.
+MIN_GAIN, MAX_GAIN = 0.26, 3.9
 
 
 def fetch(url: str) -> bytes:
     req = urllib.request.Request(url, headers=UA)
     with urllib.request.urlopen(req, timeout=90) as r:  # noqa: S310 — наш прод и CDN магазина
         return r.read()
+
+
+def to_linear(a: np.ndarray) -> np.ndarray:
+    """sRGB 0…255 → линейный свет 0…1 (точная формула, не гамма 2.2)."""
+    c = np.asarray(a, np.float64) / 255.0
+    return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+
+
+def to_srgb(a: np.ndarray) -> np.ndarray:
+    """Линейный свет 0…1 → sRGB 0…255 (для читаемых пометок в каталоге)."""
+    c = np.clip(np.asarray(a, np.float64), 0.0, 1.0)
+    s = np.where(c <= 0.0031308, c * 12.92, 1.055 * c ** (1 / 2.4) - 0.055)
+    return s * 255.0
 
 
 def product_colour(photo: bytes) -> tuple[np.ndarray, float]:
@@ -57,7 +77,10 @@ def product_colour(photo: bytes) -> tuple[np.ndarray, float]:
     px = a[body]
     # взвешиваем по насыщенности: обивку видно лучше, чем ножки и тени
     sat = (px.max(1) - px.min(1)) + 6.0
-    colour = (px * sat[:, None]).sum(0) / sat.sum()
+    # УСРЕДНЯЕМ В ЛИНЕЙНОМ СВЕТЕ: движок умножает цвета в линейном пространстве, и среднее
+    # sRGB-значений даёт другое число (замер 29.09: подкраска выходила вдвое слабее задуманной)
+    lin = to_linear(px)
+    colour = (lin * sat[:, None]).sum(0) / sat.sum()
     return colour, float((px.max(1) - px.min(1)).mean())
 
 
@@ -82,7 +105,8 @@ def mesh_colour(glb: bytes) -> np.ndarray | None:
     a = np.asarray(im, np.float32).reshape(-1, 3)
     lum = a.mean(1)
     keep = (lum > 25) & (lum < 250)
-    return a[keep].mean(0) if keep.sum() > 100 else a.mean(0)
+    px = a[keep] if keep.sum() > 100 else a
+    return to_linear(px).mean(0)
 
 
 def main() -> int:
@@ -108,9 +132,13 @@ def main() -> int:
                 fail += 1
                 print(f"нет текстуры у меша: {o['id']}", file=sys.stderr)
                 continue
-            gain = np.clip(target / np.maximum(have, 8.0), MIN_GAIN, MAX_GAIN)
-            # нормируем по яркости: правим ТОН, а не общую светлоту (её задаёт свет сцены)
-            gain = gain / max(float(gain.mean()), 1e-3)
+            # ПОЛ у знаменателя: у части мешей канал почти нулевой (напр. синий у терракоты),
+            # без него поправка улетала бы в потолок и держалась только зажимом
+            gain = np.clip(target / np.maximum(have, 0.012), MIN_GAIN, MAX_GAIN)
+            # нормируем по СВЕТЛОТЕ (Rec.709 в линейном): правим ТОН, а не общую яркость —
+            # яркость задаёт свет сцены
+            weights = np.array([0.2126, 0.7152, 0.0722])
+            gain = gain / max(float((gain * weights).sum()), 1e-3)
             gain = np.clip(gain, MIN_GAIN, MAX_GAIN)
             drift = float(np.abs(gain - 1.0).max())
             if sat < a.min_sat and drift < 0.12:
@@ -119,9 +147,10 @@ def main() -> int:
                 continue
             asset["tintRgb"] = [round(float(v), 3) for v in gain]
             asset["tintFrom"] = {
-                "photoColor": "#%02x%02x%02x" % tuple(int(v) for v in np.clip(target, 0, 255)),
-                "meshColor": "#%02x%02x%02x" % tuple(int(v) for v in np.clip(have, 0, 255)),
+                "photoColor": "#%02x%02x%02x" % tuple(int(v) for v in np.clip(to_srgb(target), 0, 255)),
+                "meshColor": "#%02x%02x%02x" % tuple(int(v) for v in np.clip(to_srgb(have), 0, 255)),
                 "photoSat": round(sat, 1),
+                "space": "linear",
             }
             ok += 1
             print(f"{o['id']:16s} {asset['tintFrom']['meshColor']} → {asset['tintFrom']['photoColor']}  ×{asset['tintRgb']}")

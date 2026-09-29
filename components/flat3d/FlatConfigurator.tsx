@@ -8,7 +8,7 @@
 // Режимы показа: бродилка · сверху · фото · план. Первые два — одна и та же 3D-сцена с разной
 // камерой, поэтому переключение мгновенное и ничего не перезагружает.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Apartment } from "@/contracts/apartment";
 import type { Catalogue, Configuration } from "@/contracts/configurator";
@@ -52,6 +52,36 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: 
   const roomTotal = scene.totals.byRoomGbp[room.id] ?? 0;
   const is3d = mode === "walk" || mode === "top";
 
+  // 3D РАЗВОРАЧИВАЕМ НА ВЕСЬ ЭКРАН (владелец 29.09): по квартире ходят, а не подглядывают в
+  // окошко. Просим настоящий полноэкранный режим браузера; если он запрещён (iPhone, политика
+  // страницы) — экран всё равно закрывается нашим слоем на всё окно, поведение одинаковое.
+  const shellRef = useRef<HTMLDivElement>(null);
+  const close3d = useCallback(() => setMode("photo"), []);
+
+  useEffect(() => {
+    const el = shellRef.current;
+    if (!el) return;
+    if (is3d && !document.fullscreenElement) void el.requestFullscreen?.().catch(() => {});
+    if (!is3d && document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
+  }, [is3d]);
+
+  useEffect(() => {
+    if (!is3d) return;
+    // выход из полноэкранного режима (крестик браузера, Escape) = закрыть 3D и вернуться к фото
+    const onFsChange = () => {
+      if (!document.fullscreenElement) close3d();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !document.fullscreenElement) close3d();
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFsChange);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [is3d, close3d]);
+
   const onPickSlot = useCallback(
     (id: string | null) => {
       setSlotId(id);
@@ -94,7 +124,21 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: 
   ];
 
   return (
-    <div className="flex flex-col gap-2">
+    <div
+      ref={shellRef}
+      className="flex flex-col gap-2"
+      style={
+        is3d
+          ? {
+              position: "fixed",
+              inset: 0,
+              zIndex: 60,
+              background: "var(--color-bg-primary)",
+              padding: 8,
+            }
+          : undefined
+      }
+    >
       <header data-flat3d="toolbar" className="flex flex-wrap items-center gap-2">
         <div
           className="flex rounded-lg bg-secondary p-1"
@@ -146,6 +190,16 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: 
           >
             {saveState === "saving" ? L.saving : L.save}
           </button>
+          {is3d ? (
+            <button
+              type="button"
+              onClick={close3d}
+              aria-label={lang === "en" ? "Close 3D" : "Закрыть 3D"}
+              className="min-h-11 min-w-11 rounded-lg text-lg text-secondary ring-1 ring-inset ring-secondary"
+            >
+              ✕
+            </button>
+          ) : null}
         </div>
       </header>
 
@@ -168,9 +222,14 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: 
       <section
         aria-label={lang === "en" ? "Apartment view" : "Вид квартиры"}
         className="flex w-full flex-col gap-2"
-        // высота подобрана так, чтобы панель выбора помещалась на экране без прокрутки страницы:
-        // 250 px — это шапка сайта, заголовок и строка режимов (замерено 29.09), остальное сцене
-        style={{ height: mobile ? "70vh" : "calc(100vh - 250px)", minHeight: 460 }}
+        // В полноэкранном 3D сцена забирает всё, что осталось от строки режимов и панели выбора;
+        // в обычном показе (фото, план) высота считается от окна: 250 px — шапка сайта, заголовок
+        // и строка режимов (замерено 29.09).
+        style={
+          is3d
+            ? { flex: "1 1 auto", minHeight: 0 }
+            : { height: mobile ? "70vh" : "calc(100vh - 250px)", minHeight: 460 }
+        }
       >
         {/* min-height: 0 обязателен, иначе канвас не даёт колонке сжаться и панель уезжает
             за экран; задаём стилем — утилита `min-h-0` в собранном CSS отсутствует */}
