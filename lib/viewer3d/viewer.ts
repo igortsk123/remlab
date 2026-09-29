@@ -569,6 +569,10 @@ export class FlatViewer {
 
   private tracked: { slotId: string; cb: (p: { x: number; y: number; visible: boolean }) => void } | null = null;
 
+  // переиспользуемые объекты: `updateTracked` зовётся каждый кадр, мусорить нельзя
+  private readonly _bb = new THREE.Box3();
+  private readonly _anchor = new THREE.Vector3();
+
   private updateTracked(): void {
     if (!this.tracked) return;
     const placed = this.placed.get(this.tracked.slotId);
@@ -576,9 +580,10 @@ export class FlatViewer {
       this.tracked.cb({ x: 0, y: 0, visible: false });
       return;
     }
-    const bb = new THREE.Box3().setFromObject(placed.group);
-    const anchor = new THREE.Vector3((bb.min.x + bb.max.x) / 2, bb.max.y + 0.08, (bb.min.z + bb.max.z) / 2);
-    const v = anchor.clone().project(this.camera);
+    const bb = this._bb.setFromObject(placed.group);
+    const v = this._anchor
+      .set((bb.min.x + bb.max.x) / 2, bb.max.y + 0.08, (bb.min.z + bb.max.z) / 2)
+      .project(this.camera);
     const rect = this.renderer.domElement;
     const w = rect.clientWidth || rect.width;
     const h = rect.clientHeight || rect.height;
@@ -735,6 +740,7 @@ export class FlatViewer {
       rooms: this.roomGroups.size,
       placed: this.placed.size,
       floors: this.floors.length,
+      tracked: this.tracked?.slotId ?? null,
       camera: this.camera.position.toArray().map((v) => Number(v.toFixed(2))),
       heading: Math.round(this.heading),
       room: this.currentRoom,

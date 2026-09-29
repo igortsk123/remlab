@@ -55,8 +55,11 @@ export function ItemCard(props: ItemCardProps) {
       const x = Math.min(Math.max(p.x, w / 2 + 6), Math.max(w / 2 + 6, W - w / 2 - 6));
       const y = Math.min(Math.max(p.y, h + 10), Math.max(h + 10, H - 12));
       el.style.transform = `translate(-50%, -100%) translate(${Math.round(x)}px, ${Math.round(y)}px)`;
-      el.style.opacity = p.visible ? "1" : "0";
-      el.style.pointerEvents = p.visible ? "auto" : "none";
+      // КАРТОЧКА ВИДНА ВСЕГДА, пока предмет выбран. Прятать её при уходе предмета за край кадра
+      // нельзя: человек нажал на предмет и ждёт карточку, а она молча исчезала (поймано 29.09 —
+      // клик попадал в стул у самой кромки, и карточка оставалась в разметке невидимой).
+      el.style.opacity = "1";
+      el.style.pointerEvents = "auto";
     });
     return un;
   }, [subscribe, slotId]);
@@ -78,8 +81,9 @@ export function ItemCard(props: ItemCardProps) {
   return (
     <div
       ref={boxRef}
-      className="absolute left-0 top-0 z-20 rounded-xl bg-primary p-2.5 shadow-lg ring-1 ring-secondary transition-opacity"
-      style={{ opacity: 0, width: "min(92vw, 320px)" }}
+      className="absolute left-0 top-0 rounded-xl bg-primary p-2.5 shadow-lg ring-1 ring-secondary transition-opacity"
+      // слой задаём стилем, а не классом: утилита `z-*` в сборке может не попасть в CSS
+      style={{ opacity: 1, width: "min(92vw, 320px)", zIndex: 30 }}
     >
       <div className="flex items-start gap-2">
         <span className="size-12 shrink-0 overflow-hidden rounded-lg bg-secondary">
