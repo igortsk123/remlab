@@ -189,6 +189,21 @@ def blob_ratio(tile: np.ndarray) -> float:
     return float((dev > 0.28).mean())
 
 
+def peak_dev(tile: np.ndarray) -> float:
+    """Самое заметное пятно (99-й процентиль отклонения).
+
+    Долей пикселей ручку не поймать: тень от ручки занимает 0,3 % площади и гейт проходит,
+    а в тайле она повторяется в каждом «кирпичике» и сразу бросается в глаза (кадр 29.09).
+    Поэтому смотрим ещё и на СИЛУ самого заметного отклонения.
+    """
+    g = np.asarray(
+        Image.fromarray(tile).convert("L").filter(ImageFilter.GaussianBlur(3)), np.float32
+    )
+    med = float(np.median(g))
+    dev = np.abs(g - med) / max(med, 1.0)
+    return float(np.percentile(dev, 99))
+
+
 def flatten_light(arr: np.ndarray, sigma: int = 60) -> np.ndarray:
     """Снять студийный градиент, СОХРАНИВ цвет.
 
@@ -218,6 +233,7 @@ def seam_error(tile: np.ndarray) -> float:
 MAX_SEAM = 2.0      # шов не должен быть заметнее внутренней фактуры больше чем вдвое
 MAX_BLOB = 0.05     # не больше 5 % «инородных» пикселей (ручки, стыки)
 MAX_QUAD = 0.16     # половинки вырезки не должны отличаться по яркости больше чем на 16 %
+MAX_PEAK = 0.13     # самое заметное пятно (ручка, петля, блик) — не больше 13 % от тона
 
 
 def prepare(patch: Image.Image) -> tuple[np.ndarray, float, float, float]:
@@ -229,7 +245,7 @@ def prepare(patch: Image.Image) -> tuple[np.ndarray, float, float, float]:
     arr = flatten_light(np.asarray(patch.resize((TILE, TILE), Image.LANCZOS), np.float32))
     tile = make_seamless(arr.astype(np.uint8), blend=0.18)
     err = seam_error(np.asarray(Image.fromarray(tile).convert("L")))
-    return tile, err, blob_ratio(tile), quadrant_spread(tile)
+    return tile, err, max(blob_ratio(tile), peak_dev(tile) / (MAX_PEAK / MAX_BLOB)), quadrant_spread(tile)
 
 
 def build(sid: str, name: str, shop: str, url: str, image_url: str, mid: str,

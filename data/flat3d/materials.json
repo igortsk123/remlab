@@ -181,14 +181,14 @@
   },
   {
    "id": "front-graphite",
-   "titleRu": "Фасад «Шкаф-купе divan.ru Беррингтон 4.1-307x»",
-   "titleEn": "Фасад «Шкаф-купе divan.ru Беррингтон 4.1-307x»",
-   "colorHex": "#6e6c6b",
+   "titleRu": "Фасад «Комод divan.ru Квелен 192x89 Графитовы»",
+   "titleEn": "Фасад «Комод divan.ru Квелен 192x89 Графитовы»",
+   "colorHex": "#6e6d6c",
    "roughness": 0.45,
    "metalness": 0.0,
    "tileCm": [
-    60.0,
-    60.0
+    90.0,
+    90.0
    ],
    "surfaces": [
     "front"
@@ -199,26 +199,26 @@
    "previewUrl": "front-graphite-preview.webp",
    "source": {
     "kind": "photo",
-    "productSid": "112923_13493319521511798022",
-    "productName": "Шкаф-купе divan.ru Беррингтон 4.1-307x240 Графитовый",
+    "productSid": "112923_4971947301619920322",
+    "productName": "Комод divan.ru Квелен 192x89 Графитовый",
     "shop": "divan.ru",
-    "productUrl": "https://www.divan.ru/product/shkaf-kupe-berrington-4-1-307x240-grafitovyj?erid=2SDnjeSGLnX",
-    "imageUrl": "https://cdn0.divan.ru/img/v1/N4r1mhxabH5CVNRJJmGge31j_c33GV3j-dib-w_xb5o/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU5NDAyNjIucG5n.jpg",
+    "productUrl": "https://www.divan.ru/product/komod-kvelen-2-grey?erid=2SDnjeSGLnX",
+    "imageUrl": "https://cdn0.divan.ru/img/v1/Qv1DpKYnvS72vapDdnJ1caObzEE-b-d2b8UdMKO-unc/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzUyNjM2MTkucG5n.jpg",
     "patch": {
      "patch_px": 84,
-     "busyness": 9.91,
-     "luma": 109.8,
+     "busyness": 1.26,
+     "luma": 110.8,
      "at": [
-      608,
-      440
+      344,
+      240
      ],
-     "tried": 3,
-     "blob": 0.031,
-     "quad": 0.009,
-     "chroma": 2.2,
+     "tried": 9,
+     "blob": 0.014,
+     "quad": 0.003,
+     "chroma": 2.0,
      "gate": true
     },
-    "seamError": 1.48
+    "seamError": 0.35
    }
   },
   {
@@ -255,7 +255,7 @@
       24
      ],
      "tried": 2,
-     "blob": 0.0,
+     "blob": 0.005,
      "quad": 0.002,
      "chroma": 32.2,
      "gate": true
@@ -267,7 +267,7 @@
    "id": "front-walnut",
    "titleRu": "Фасад «Комод divan.ru Дигарс 163x81 Орех Кари»",
    "titleEn": "Фасад «Комод divan.ru Дигарс 163x81 Орех Кари»",
-   "colorHex": "#6f655e",
+   "colorHex": "#8a7767",
    "roughness": 0.45,
    "metalness": 0.0,
    "tileCm": [
@@ -290,26 +290,26 @@
     "imageUrl": "https://cdn0.divan.ru/img/v1/u9ZMIwi4HKUQsipSUg4vaIlp3Y55xGJaynMgSNRSh8E/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzYxNDMwNzEucG5n.jpg",
     "patch": {
      "patch_px": 84,
-     "busyness": 6.1,
-     "luma": 103.2,
+     "busyness": 7.66,
+     "luma": 121.5,
      "at": [
-      32,
-      144
+      672,
+      120
      ],
-     "tried": 1,
-     "blob": 0.006,
-     "quad": 0.016,
-     "chroma": 17.0,
-     "gate": true
+     "tried": 14,
+     "blob": 0.056,
+     "quad": 0.005,
+     "chroma": 35.6,
+     "gate": false
     },
-    "seamError": 1.2
+    "seamError": 0.9
    }
   },
   {
    "id": "front-white",
    "titleRu": "Фасад «Шкаф-купе divan.ru Беррингтон 4.1-307x»",
    "titleEn": "Фасад «Шкаф-купе divan.ru Беррингтон 4.1-307x»",
-   "colorHex": "#c4c4c5",
+   "colorHex": "#d3d3d3",
    "roughness": 0.45,
    "metalness": 0.0,
    "tileCm": [
@@ -332,19 +332,19 @@
     "imageUrl": "https://cdn0.divan.ru/img/v1/01ksVQtTtTRFPXMtdOc-6ntS4RlRd57gSZUCs0T602I/rs:fit:800:600:1:1:ce:0:0/g:ce:0:0/bg:ffffff/q:85/czM6Ly9kaXZhbi9wcm9kdWN0LzU5Mzk1NjUucG5n.jpg",
     "patch": {
      "patch_px": 84,
-     "busyness": 8.09,
-     "luma": 197.6,
+     "busyness": 8.86,
+     "luma": 212.0,
      "at": [
       96,
-      464
+      136
      ],
-     "tried": 1,
-     "blob": 0.009,
-     "quad": 0.002,
+     "tried": 2,
+     "blob": 0.031,
+     "quad": 0.001,
      "chroma": 2.5,
      "gate": true
     },
-    "seamError": 1.05
+    "seamError": 1.77
    }
   },
   {

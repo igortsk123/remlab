@@ -11,7 +11,7 @@
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
-import type { Apartment } from "@/contracts/apartment";
+import type { Apartment, Placement, Room } from "@/contracts/apartment";
 import { findRoom, roomAt, roomCentre } from "@/contracts/apartment";
 import type { Catalogue, Material } from "@/contracts/configurator";
 import type { ResolvedScene } from "@/lib/configurator/resolve";
@@ -327,6 +327,7 @@ export class FlatViewer {
         widthCm: p.wCm,
         depthCm: p.dCm,
         roomDepthCm: kitchenRoom ? Math.min(kitchenRoom.w, kitchenRoom.d) : undefined,
+        columnsAt: kitchenRoom ? farFromDoor(kitchenRoom, p) : undefined,
       });
     } else if (spec.kind === "bathroom") {
       group = buildBathroom(this.kitCtx, {
@@ -758,6 +759,23 @@ export class FlatViewer {
     disposeMaterialCtx(this.matCtx);
     this.renderer.dispose();
   }
+}
+
+/**
+ * С какой стороны линии ставить колонны: подальше от двери. Дверь переводим в локальную ось
+ * предмета (вдоль линии) и смотрим, к какому её концу она ближе.
+ */
+function farFromDoor(room: Room, p: Placement): "start" | "end" {
+  const door = room.openings.find((o) => o.kind === "door" || o.kind === "opening");
+  if (!door) return "start";
+  const mid = door.offsetCm + door.widthCm / 2;
+  const dx =
+    door.wall === "south" || door.wall === "north" ? room.x + mid - p.x : (door.wall === "west" ? room.x : room.x + room.w) - p.x;
+  const dy =
+    door.wall === "west" || door.wall === "east" ? room.y + mid - p.y : (door.wall === "south" ? room.y : room.y + room.d) - p.y;
+  const a = (-p.rot * Math.PI) / 180;
+  const local = dx * Math.cos(a) - dy * Math.sin(a); // координата двери вдоль линии
+  return local < 0 ? "end" : "start";
 }
 
 function signatureOf(spec: ObjectSpec): string {

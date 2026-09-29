@@ -29,6 +29,11 @@ export interface KitchenSpec {
   depthCm: number;
   /** Свободная глубина комнаты перед линией, см. Остров ставится только если он влезает. */
   roomDepthCm?: number;
+  /**
+   * С какого конца линии ставить колонны до потолка. Их место — ДАЛЬШЕ ОТ ДВЕРИ: у входа
+   * они перекрывают вид на всю кухню (кадр 29.09) и мешают пройти.
+   */
+  columnsAt?: "start" | "end";
 }
 
 const KICK_H = 10;
@@ -83,8 +88,10 @@ export function buildKitchen(ctx: KitCtx, spec: KitchenSpec): THREE.Group {
   const columns = has("tall-unit") ? Math.max(1, LEVEL.columns) : LEVEL.columns;
   const tall = columns > 0;
   const tallW = columns * 60;
+  const atEnd = (spec.columnsAt ?? "start") === "end";
   const runW = Math.max(120, (W - tallW) * LEVEL.run);
-  const runX0 = -W / 2 + tallW; // ряд правее колонн
+  const runX0 = atEnd ? -W / 2 : -W / 2 + tallW; // ряд слева или справа от колонн
+  const colX0 = atEnd ? -W / 2 + runW : -W / 2;  // начало блока колонн
 
   // ── нижний ряд ───────────────────────────────────────────────────────────
   g.add(boxOn(runW, KICK_H, D - 6, runX0 + runW / 2, 0, -3, kickMat));
@@ -169,7 +176,7 @@ export function buildKitchen(ctx: KitCtx, spec: KitchenSpec): THREE.Group {
   // ── колонна: духовой шкаф / холодильник / микроволновка ─────────────────
   for (let c = 0; c < columns; c += 1) {
     const cw = 60;
-    const cx = -W / 2 + cw / 2 + c * cw;
+    const cx = colX0 + cw / 2 + c * cw;
     g.add(boxOn(cw, TALL_TOP, D, cx, 0, 0, bodyMat));
     // первая колонна — холодильник/кладовая, вторая (Premium) — духовка, СВЧ и винный шкаф
     if (c === 0) {
