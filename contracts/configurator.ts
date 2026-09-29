@@ -70,6 +70,13 @@ export const meshAsset = z.object({
   /** Готовый лёгкий GLB; пусто — берём исходный по meshId из галереи. */
   runtimeUrl: z.string().optional(),
   yawDeg: z.number().default(0), // канонический разворот фронта (orient.json)
+  /**
+   * Поправка цвета по фото товара: множитель на канал. У части моделей конвейера текстура
+   * почти серая (замер 29.09: «жёлтое» кресло имело насыщенность 21 из 255), и покупатель
+   * видел не тот цвет, который выбрал. Считает `tools/flat3d/mesh_tint.py`.
+   */
+  tintRgb: z.tuple([z.number(), z.number(), z.number()]).optional(),
+  tintFrom: z.record(z.string(), z.unknown()).optional(),
   wCm: z.number().positive(),
   dCm: z.number().positive(),
   hCm: z.number().positive(),

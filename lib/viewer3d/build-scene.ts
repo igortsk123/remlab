@@ -24,6 +24,7 @@ export type ObjectSpec =
       meshId: string;
       url: string;
       yawDeg: number;
+      tintRgb?: [number, number, number];
       placement: Placement;
     }
   | {
@@ -98,6 +99,7 @@ export function planObjects(
         meshId: asset.meshId,
         url: meshUrl(asset.meshId, asset.runtimeUrl, opts.lite === true),
         yawDeg: asset.yawDeg,
+        tintRgb: asset.tintRgb,
         placement: item.placement,
       });
       continue;

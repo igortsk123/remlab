@@ -21,6 +21,8 @@ import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.j
 const CM = 0.01;
 
 export interface MeshPlacement {
+  /** Поправка цвета по фото товара (множитель на канал) — см. tools/flat3d/mesh_tint.py. */
+  tintRgb?: [number, number, number];
   xCm: number;
   yCm: number;
   rotDeg: number;
@@ -100,10 +102,21 @@ export function placeMesh(source: THREE.Object3D, p: MeshPlacement): THREE.Group
     p.yCm * CM - centre.z,
   );
   wrap.traverse((o) => {
-    if ((o as THREE.Mesh).isMesh) {
-      o.castShadow = true;
-      o.receiveShadow = true;
-    }
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    m.castShadow = true;
+    m.receiveShadow = true;
+    if (!p.tintRgb) return;
+    // ПОДКРАСКА ПОД ТОВАР: материал клонируем, иначе поправка уедет во все копии этой модели
+    const list = Array.isArray(m.material) ? m.material : [m.material];
+    m.material = list.map((src) => {
+      const mat = (src as THREE.MeshStandardMaterial).clone();
+      const c = mat.color ?? new THREE.Color(1, 1, 1);
+      mat.color = c.clone().multiply(new THREE.Color(p.tintRgb![0], p.tintRgb![1], p.tintRgb![2]));
+      return mat;
+    }) as THREE.Material[];
+    if (!Array.isArray(m.material)) return;
+    if (m.material.length === 1) m.material = m.material[0]!;
   });
   return wrap;
 }

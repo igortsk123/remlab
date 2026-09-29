@@ -17,7 +17,6 @@ import type { Catalogue } from "@/contracts/configurator";
 import type { ResolvedScene } from "@/lib/configurator/resolve";
 import type { FlatViewer, QualityProfile } from "@/lib/viewer3d/viewer";
 import { WalkPad } from "@/components/flat3d/WalkPad";
-import { ItemCard, type TrackedPoint } from "@/components/flat3d/ItemCard";
 
 export interface Scene3DProps {
   apartment: Apartment;
@@ -28,11 +27,12 @@ export interface Scene3DProps {
   onPickSlot: (slotId: string | null) => void;
   onRoomChange: (roomId: string | null) => void;
   onReady?: () => void;
-  /** Выбранный предмет: по нему в сцене висит карточка. */
+  /** Выбранный предмет — его обводим контуром. */
   selectedSlotId: string | null;
-  selections: Record<string, string>;
-  onChoose: (slotId: string, optionId: string) => void;
-  lang: import("@/lib/configurator/i18n").Lang;
+  /** Вид сверху под углом вместо прогулки. */
+  topView?: boolean;
+  /** Сколько пикселей снизу занято панелью выбора — на столько поднимаем кнопки ходьбы. */
+  bottomInsetPx?: number;
   hintText: string;
   loadingText: string;
   noWebglText: string;
@@ -42,7 +42,7 @@ export interface Scene3DProps {
 export function Scene3D(props: Scene3DProps): React.ReactElement {
   const { apartment, catalogue, scene, lite, roomId, onPickSlot, onRoomChange, onReady } = props;
   const { hintText, loadingText, noWebglText, retryText } = props;
-  const { selectedSlotId, selections, onChoose, lang } = props;
+  const { selectedSlotId, topView = false, bottomInsetPx = 0 } = props;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewerRef = useRef<FlatViewer | null>(null);
   const dragRef = useRef<{ x: number; y: number; moved: number; id: number } | null>(null);
@@ -116,6 +116,16 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
     if (ready && roomId) viewerRef.current?.goToRoom(roomId);
   }, [roomId, ready]);
 
+  // выделение приходит снаружи (кликом по сцене или выбором в панели)
+  useEffect(() => {
+    if (ready) viewerRef.current?.highlight(selectedSlotId);
+  }, [selectedSlotId, ready]);
+
+  // вид сверху ↔ бродилка
+  useEffect(() => {
+    if (ready) viewerRef.current?.setViewMode(topView ? "top" : "walk");
+  }, [topView, ready]);
+
   // размер канваса
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -152,14 +162,6 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
     if (down) viewer.keyDown(code);
     else viewer.keyUp(code);
   }, []);
-
-  const subscribeTracked = useCallback(
-    (cb: (p: TrackedPoint) => void) => {
-      viewerRef.current?.trackSlot(selectedSlotId, cb);
-      return () => viewerRef.current?.trackSlot(null, null);
-    },
-    [selectedSlotId],
-  );
 
   const turnBy = useCallback((deg: number) => {
     // `look` принимает сдвиг курсора в пикселях (0.22° на пиксель) — переводим градусы
@@ -209,11 +211,13 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
     <div className="relative h-full w-full">
       <canvas
         ref={canvasRef}
-        className="h-full w-full touch-none rounded-xl bg-secondary"
+        className="touch-none rounded-xl bg-secondary"
+        style={{ width: "100%", height: "100%", display: "block" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onWheel={(e) => viewerRef.current?.zoom(e.deltaY * 0.6)}
         aria-label="3D-вид квартиры"
         role="img"
       />
@@ -239,23 +243,9 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
         </div>
       ) : null}
 
-      {ready && !error && selectedSlotId ? (
-        <ItemCard
-          apartment={apartment}
-          catalogue={catalogue}
-          slotId={selectedSlotId}
-          currentOptionId={selections[selectedSlotId] ?? ""}
-          lang={lang}
-          onChoose={onChoose}
-          onClose={() => {
-            onPickSlot(null);
-            viewerRef.current?.highlight(null);
-          }}
-          subscribe={subscribeTracked}
-        />
+      {ready && !error ? (
+        <WalkPad onHold={holdKey} onTurn={turnBy} compact={lite} liftPx={bottomInsetPx} />
       ) : null}
-
-      {ready && !error ? <WalkPad onHold={holdKey} onTurn={turnBy} compact={lite} /> : null}
 
       {/* подсказка уходит через 7 секунд: на телефоне она закрывает треть комнаты */}
       <p

@@ -12,11 +12,13 @@ interface WalkPadProps {
   onHold: (code: string, down: boolean) => void;
   onTurn: (deltaDeg: number) => void;
   compact?: boolean;
+  /** На сколько поднять кнопки, когда снизу открыта панель выбора. */
+  liftPx?: number;
 }
 
 const HOLD_MS = 90;
 
-export function WalkPad({ onHold, onTurn, compact = false }: WalkPadProps) {
+export function WalkPad({ onHold, onTurn, compact = false, liftPx = 0 }: WalkPadProps) {
   const heldRef = useRef<Set<string>>(new Set());
   const turnRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -72,8 +74,8 @@ export function WalkPad({ onHold, onTurn, compact = false }: WalkPadProps) {
   // по «Заменить», когда предмет оказался в нижней части кадра (поймано CI 29.09).
   return (
     <div
-      className="pointer-events-none absolute inset-x-0 bottom-3 flex items-end justify-between px-3"
-      style={{ zIndex: 5 }}
+      className="pointer-events-none absolute inset-x-0 flex items-end justify-between px-3"
+      style={{ zIndex: 5, bottom: 12 + liftPx }}
     >
       <div className="pointer-events-auto grid grid-cols-3 gap-1.5">
         <span />

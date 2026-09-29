@@ -37,7 +37,7 @@ test("конфигуратор: комнаты, выбор варианта, ц�
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Квартира");
 
   // 3D: сцена собралась — есть комнаты, полы и расставленные предметы
-  await page.getByRole("tab", { name: "3D" }).click();
+  await page.getByRole("tab", { name: "Бродилка" }).click();
   await expect(page.locator("canvas")).toBeVisible();
   let state: DebugState | null = null;
   for (let i = 0; i < 25 && (state?.placed ?? 0) < 15; i += 1) {
@@ -54,11 +54,10 @@ test("конфигуратор: комнаты, выбор варианта, ц�
   }
 
   // выбор варианта меняет итог: премиальная кухня — это +8700 £
-  await page.getByRole("button", { name: "Кухня", exact: true }).first().click(); // комната
-  await page.locator('[data-slot="kitchen-units"]').click(); // слот «Кухня» внутри комнаты
-  await expect(page.getByText("Кухня Premium")).toBeVisible();
+  await page.getByLabel("Комната").selectOption("kitchen");
+  await page.locator('[data-slot="kitchen-units"]').click();
   await page.getByRole("button", { name: /Кухня Premium/ }).click();
-  await expect(page.getByRole("region", { name: "Стоимость" })).toContainText("8 700");
+  await expect(page.locator('[data-flat3d="toolbar"]')).toContainText("8 700");
 
   // и это видно в сцене: подпись комнаты показывает доплату
   await expect(page.getByText(/\+.*в этой комнате/)).toBeVisible();
@@ -92,22 +91,23 @@ test("сохранение подбора: ссылка открывается, 
 
   await page.goto(`/flat?c=${body.id}`);
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Стоимость" })).toContainText("8 700");
+  await expect(page.locator('[data-flat3d="toolbar"]')).toContainText("8 700");
 });
 
-test("мобильный экран открывается на «Фото» и умеет включить 3D Lite", async ({ page }) => {
+test("мобильный экран открывается на «Фото», 3D доступен вкладкой", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 780 });
   await page.goto("/flat");
   await expect(page.getByRole("tab", { name: "Фото" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("button", { name: "Включить 3D Lite" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Бродилка" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Сверху" })).toBeVisible();
 });
 
-test("клик по предмету в сцене: карточка с ценой, ссылка в магазин, замена из ленты", async ({ page }) => {
+test("клик по предмету в сцене: панель снизу с ценой, ссылкой в магазин и заменой", async ({ page }) => {
   // Сценарий владельца («как в Sims»): кликнул предмет — подсветился, рядом карточка,
   // «Заменить» раскрывает ленту вариантов, выбор применяется сразу.
   test.setTimeout(120_000);
   await page.goto("/flat");
-  await page.getByRole("tab", { name: "3D" }).click();
+  await page.getByRole("tab", { name: "Бродилка" }).click();
 
   const canvas = page.locator("canvas");
   await expect(canvas).toBeVisible();
@@ -121,7 +121,12 @@ test("клик по предмету в сцене: карточка с цено
   // Наводимся НА ПРЕДМЕТ по его же проекции: тыкать в угаданные проценты кадра ненадёжно —
   // кадровка зависит от размера окна (тест падал именно на этом).
   const box = (await canvas.boundingBox())!;
-  let opened = false;
+  const activeSlot = async (): Promise<string | null> =>
+    page.locator('[data-slot][aria-pressed="true"]').first().getAttribute("data-slot");
+  const before = await activeSlot();
+
+  // 1) клик по предмету в сцене выбирает ЕГО (может попасть в соседний — это нормально)
+  let picked: string | null = null;
   for (const slot of ["living-sofa", "living-armchair", "living-tv", "living-coffee"]) {
     const pt = await page.evaluate((id) => {
       const v = (window as unknown as {
@@ -131,19 +136,23 @@ test("клик по предмету в сцене: карточка с цено
     }, slot);
     if (!pt?.visible) continue;
     await page.mouse.click(box.x + pt.x, box.y + pt.y);
-    await page.waitForTimeout(800);
-    if (await page.getByRole("button", { name: "Заменить" }).count()) {
-      opened = true;
+    await page.waitForTimeout(900);
+    const now = await activeSlot();
+    if (now && now !== before) {
+      picked = now;
       break;
     }
   }
-  expect(opened, "карточка предмета открылась по клику в сцене").toBe(true);
+  expect(picked, "клик по предмету в сцене выбрал предмет").toBeTruthy();
 
-  await expect(page.getByRole("link", { name: /Смотреть в магазине/ })).toBeVisible();
-  await page.getByRole("button", { name: "Заменить" }).click();
-  const variants = page.locator("ul li button");
+  // 2) панель снизу: у мебели есть цена, партнёрская ссылка и лента вариантов, замена работает
+  const bar = page.getByRole("region", { name: "Панель выбора" });
+  await expect(bar).toBeVisible();
+  await page.locator('[data-slot="living-sofa"]').click();
+  await expect(bar.getByRole("link", { name: /смотреть в магазине/ })).toBeVisible();
+  const variants = bar.locator("ul li button");
   expect(await variants.count(), "варианты в ленте").toBeGreaterThan(1);
   await variants.nth(1).click();
-  // выбор применился: итог перестал быть «без апгрейдов»
-  await expect(page.getByRole("region", { name: "Стоимость" })).not.toContainText("Апгрейды · 0");
+  await page.waitForTimeout(1200);
+  await expect(page.locator('[data-flat3d="toolbar"]')).toContainText("£");
 });

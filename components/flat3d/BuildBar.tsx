@@ -1,0 +1,174 @@
+"use client";
+
+// Нижняя панель выбора — как в режиме строительства Sims (владелец 29.09, со скриншотом игры):
+// слева меню (комнаты и что меняем), справа плитки вариантов в два ряда с прокруткой,
+// закрыть — крестиком или кликом по свободному месту сцены.
+//
+// Почему так, а не колонкой справа и не карточкой у предмета: сцена должна занимать весь экран,
+// а выбор — лежать одной полосой снизу и не прыгать за предметом.
+
+import type { Apartment, Slot } from "@/contracts/apartment";
+import type { Catalogue, Option } from "@/contracts/configurator";
+import { optionsForSlot } from "@/lib/configurator/resolve";
+import type { Material } from "@/contracts/configurator";
+import { categoryTitle, formatGbp, type Lang } from "@/lib/configurator/i18n";
+
+interface BuildBarProps {
+  apartment: Apartment;
+  catalogue: Catalogue;
+  roomId: string;
+  slotId: string | null;
+  selections: Record<string, string>;
+  lang: Lang;
+  onRoom: (roomId: string) => void;
+  onSlot: (slotId: string) => void;
+  onChoose: (slotId: string, optionId: string) => void;
+  onClose: () => void;
+}
+
+/** Картинка плитки: у мебели — фото товара, у покрытия — превью материала. */
+function tileImage(c: Catalogue, o: Option): string | undefined {
+  if (o.previewUrl) return o.previewUrl;
+  if (o.asset.kind === "material") {
+    const id = o.asset.materialId;
+    return c.materials.find((m) => m.id === id)?.previewUrl;
+  }
+  if (o.asset.kind === "kit") {
+    const id = o.asset.materials.door ?? o.asset.materials.body;
+    return id ? c.materials.find((m) => m.id === id)?.previewUrl : undefined;
+  }
+  return undefined;
+}
+
+/** Цвет плашки, когда картинки нет. */
+function tileColour(c: Catalogue, o: Option): string | undefined {
+  const byId = (id?: string): Material | undefined => (id ? c.materials.find((m) => m.id === id) : undefined);
+  if (o.asset.kind === "material") return byId(o.asset.materialId)?.colorHex;
+  if (o.asset.kind === "kit") return byId(o.asset.materials.door ?? o.asset.materials.body)?.colorHex;
+  return undefined;
+}
+
+export function BuildBar(props: BuildBarProps) {
+  const { apartment, catalogue, roomId, slotId, selections, lang, onRoom, onSlot, onChoose, onClose } = props;
+  const slots = apartment.slots.filter((s) => s.roomId === roomId);
+  const active: Slot | undefined = slots.find((s) => s.id === slotId) ?? slots[0];
+  const options: Option[] = active ? optionsForSlot(apartment, catalogue, active) : [];
+  const chosenId = active ? selections[active.id] ?? active.defaultOptionId : "";
+  const current = options.find((o) => o.id === chosenId);
+
+  return (
+    <div
+      className="flex shrink-0 gap-2 rounded-xl bg-primary p-2 ring-1 ring-inset ring-secondary"
+      style={{ height: 212 }}
+      role="region"
+      aria-label={lang === "en" ? "Build bar" : "Панель выбора"}
+    >
+      {/* МЕНЮ СЛЕВА: комната, затем что в ней меняем */}
+      <div className="flex shrink-0 flex-col gap-1.5 overflow-y-auto" style={{ width: 210, maxHeight: 196 }}>
+        <select
+          aria-label={lang === "en" ? "Room" : "Комната"}
+          value={roomId}
+          onChange={(e) => onRoom(e.target.value)}
+          className="min-h-11 rounded-lg bg-secondary px-2 text-sm font-medium text-primary"
+        >
+          {apartment.rooms.map((r) => (
+            <option key={r.id} value={r.id}>
+              {lang === "en" ? r.titleEn : r.titleRu}
+            </option>
+          ))}
+        </select>
+        <div className="flex flex-wrap gap-1">
+          {slots.map((s) => {
+            const isActive = s.id === active?.id;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                data-slot={s.id}
+                aria-pressed={isActive}
+                onClick={() => onSlot(s.id)}
+                className={`min-h-11 rounded-lg px-2 text-left leading-tight ${
+                  isActive ? "bg-brand-solid text-white" : "bg-secondary text-secondary"
+                }`}
+                style={{ fontSize: 12, width: 100 }}
+                title={`${categoryTitle(s.category, lang)} · ${lang === "en" ? s.titleEn : s.titleRu}`}
+              >
+                {lang === "en" ? s.titleEn : s.titleRu}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ПЛИТКИ ВАРИАНТОВ: два ряда, прокрутка вбок */}
+      <div className="min-w-0 flex-1">
+        {current ? (
+          <p className="mb-1 truncate text-xs text-tertiary">
+            {lang === "en" ? current.titleEn : current.titleRu}
+            {current.listPriceGbp ? ` · ${formatGbp(current.listPriceGbp, lang)}` : ""}
+            {current.shopUrl ? (
+              <>
+                {" · "}
+                <a href={current.shopUrl} target="_blank" rel="noopener noreferrer nofollow" className="underline">
+                  {lang === "en" ? "view in shop" : "смотреть в магазине"}
+                </a>
+              </>
+            ) : null}
+          </p>
+        ) : null}
+        {/* два ряда плиток, прокрутка вбок; ширина колонки задана жёстко, иначе одна длинная
+            подпись растягивает всю колонку и в ленте появляются дыры */}
+        <ul
+          className="grid grid-flow-col grid-rows-2 gap-1.5 overflow-x-auto pb-1"
+          style={{ height: 172, gridAutoColumns: "96px" }}
+        >
+          {options.map((o) => {
+            const chosen = o.id === chosenId;
+            return (
+              <li key={o.id} style={{ width: 96 }}>
+                <button
+                  type="button"
+                  onClick={() => active && onChoose(active.id, o.id)}
+                  aria-pressed={chosen}
+                  style={{ width: 96 }}
+                  className={`rounded-lg p-1 text-left ring-1 ring-inset ${
+                    chosen ? "bg-brand-primary ring-brand-solid" : "bg-secondary ring-secondary"
+                  }`}
+                >
+                  <span
+                    className="block h-11 w-full overflow-hidden rounded-md bg-primary"
+                    style={{ backgroundColor: tileColour(catalogue, o) }}
+                  >
+                    {tileImage(catalogue, o) ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- превью товара или материала
+                      <img src={tileImage(catalogue, o)} alt="" className="size-full object-cover" loading="lazy" />
+                    ) : null}
+                  </span>
+                  <span className="mt-0.5 block truncate leading-tight text-primary" style={{ fontSize: 11 }}>
+                    {lang === "en" ? o.titleEn : o.titleRu}
+                  </span>
+                  <span className="block font-semibold text-secondary" style={{ fontSize: 11 }}>
+                    {o.tier === "base" || o.priceGbp === 0
+                      ? lang === "en"
+                        ? "included"
+                        : "входит"
+                      : `+${formatGbp(o.priceGbp, lang)}`}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label={lang === "en" ? "Close" : "Закрыть"}
+        className="min-h-11 min-w-11 shrink-0 self-start rounded-lg text-tertiary hover:bg-secondary"
+      >
+        ✕
+      </button>
+    </div>
+  );
+}

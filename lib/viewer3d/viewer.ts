@@ -104,6 +104,14 @@ export class FlatViewer {
   private keys = new Set<string>();
   private moveTarget: THREE.Vector2 | null = null;
   private currentRoom: string | null = null;
+  /**
+   * Режим камеры: прогулка или «кукольный дом» — вид сверху под углом (владелец 29.09).
+   * Сверху удобно понять планировку и расстановку целиком, а ходить — чтобы «пожить» в комнате.
+   */
+  private viewMode: "walk" | "top" = "walk";
+  private topTarget = new THREE.Vector2();   // точка, вокруг которой крутится вид сверху
+  private topDistanceCm = 620;
+  private topPitch = -52;
   /** Последняя разрешённая сцена — по ней догружаем комнату, в которую вошли. */
   private lastScene: ResolvedScene | null = null;
   private syncing = false;
@@ -297,6 +305,7 @@ export class FlatViewer {
           hCm: p.hCm,
           elevCm: p.elevCm,
           yawDeg: spec.yawDeg,
+          tintRgb: spec.tintRgb,
         });
         real.userData = { slotId: spec.slotId, roomId: spec.roomId, title: spec.titleRu };
         const cur = this.placed.get(spec.slotId);
@@ -380,6 +389,77 @@ export class FlatViewer {
     this.camera.updateProjectionMatrix();
   }
 
+  /** Переключение вида: прогулка ↔ сверху. Потолки в виде сверху прячем, иначе видно только их. */
+  setViewMode(mode: "walk" | "top"): void {
+    if (this.viewMode === mode) return;
+    this.viewMode = mode;
+    this.scene.traverse((o) => {
+      if (o.name.startsWith("ceiling:")) o.visible = mode !== "top";
+    });
+    if (mode === "top") {
+      // по умолчанию показываем ВСЮ квартиру («кукольный дом»), а выбор комнаты приближает к ней
+      this.camera.fov = 48;
+      this.camera.updateProjectionMatrix();
+      this.fitTop(null);
+    } else {
+      this.camera.fov = this.quality.fov;
+      this.camera.updateProjectionMatrix();
+      if (this.currentRoom) this.goToRoom(this.currentRoom);
+    }
+  }
+
+  get mode(): "walk" | "top" {
+    return this.viewMode;
+  }
+
+  /** Вписать в кадр комнату (или всю квартиру, если roomId не задан). */
+  private fitTop(roomId: string | null): void {
+    const room = roomId ? findRoom(this.apartment, roomId) : null;
+    let cx: number;
+    let cy: number;
+    let span: number;
+    if (room) {
+      const c = roomCentre(room);
+      cx = c.x;
+      cy = c.y;
+      span = Math.max(room.w, room.d);
+    } else {
+      const minX = Math.min(...this.apartment.rooms.map((r) => r.x));
+      const maxX = Math.max(...this.apartment.rooms.map((r) => r.x + r.w));
+      const minY = Math.min(...this.apartment.rooms.map((r) => r.y));
+      const maxY = Math.max(...this.apartment.rooms.map((r) => r.y + r.d));
+      cx = (minX + maxX) / 2;
+      cy = (minY + maxY) / 2;
+      span = Math.max(maxX - minX, maxY - minY);
+    }
+    this.topTarget.set(cx, cy);
+    // расстояние из угла объектива: половина стороны / tan(fov/2), с запасом на поля
+    const half = (span / 2) * 1.25;
+    const fov = (this.camera.fov * Math.PI) / 180;
+    this.topDistanceCm = Math.max(260, half / Math.tan(fov / 2));
+  }
+
+  /**
+   * Вид сверху не выпускаем за пределы квартиры больше чем на метр: иначе человек «улетает»
+   * в пустое поле и не понимает, что показывать (вопрос владельца 29.09 — решено так).
+   */
+  private clampTopTarget(): void {
+    const minX = Math.min(...this.apartment.rooms.map((r) => r.x)) - 100;
+    const maxX = Math.max(...this.apartment.rooms.map((r) => r.x + r.w)) + 100;
+    const minY = Math.min(...this.apartment.rooms.map((r) => r.y)) - 100;
+    const maxY = Math.max(...this.apartment.rooms.map((r) => r.y + r.d)) + 100;
+    this.topTarget.set(
+      Math.min(Math.max(this.topTarget.x, minX), maxX),
+      Math.min(Math.max(this.topTarget.y, minY), maxY),
+    );
+  }
+
+  /** Приблизить/отдалить вид сверху (колесо мыши, щипок). */
+  zoom(deltaCm: number): void {
+    if (this.viewMode !== "top") return;
+    this.topDistanceCm = Math.min(1600, Math.max(220, this.topDistanceCm + deltaCm));
+  }
+
   keyDown(code: string): void {
     this.keys.add(code);
   }
@@ -389,6 +469,12 @@ export class FlatViewer {
   }
 
   look(dxPx: number, dyPx: number): void {
+    if (this.viewMode === "top") {
+      // сверху мышь крутит сцену вокруг точки и меняет наклон, а не «голову»
+      this.heading = (this.heading + dxPx * 0.25 + 360) % 360;
+      this.topPitch = Math.max(-85, Math.min(-22, this.topPitch - dyPx * 0.2));
+      return;
+    }
     this.heading = (this.heading + dxPx * 0.22 + 360) % 360;
     this.pitch = Math.max(-55, Math.min(45, this.pitch - dyPx * 0.18));
   }
@@ -408,6 +494,11 @@ export class FlatViewer {
   goToRoom(roomId: string): void {
     const room = findRoom(this.apartment, roomId);
     if (!room) return;
+    if (this.viewMode === "top") {
+      this.fitTop(roomId);
+      this.roomChanged(roomId);
+      return;
+    }
     const c = roomCentre(room);
     const candidates = [
       { x: room.x + room.w * 0.18, y: room.y + room.d * 0.18 },
@@ -529,73 +620,43 @@ export class FlatViewer {
     return {};
   }
 
-  /** Круг-маркер на полу под выбранным предметом — по нему сразу видно, что выбрано. */
-  private marker: THREE.Mesh | null = null;
+  /**
+   * Контур вокруг выбранного предмета. Синий круг на полу владелец забраковал (29.09): у
+   * широких вещей вроде кухни он превращался в дугу через весь экран. Контур по габариту
+   * читается сразу и ничего не загораживает.
+   */
+  private outline: THREE.LineSegments | null = null;
+  /** переиспользуемая коробка: контур пересчитывается на каждом выделении */
+  private readonly _bb = new THREE.Box3();
 
-  private showMarker(slotId: string | null): void {
-    if (!this.marker) {
-      const geo = new THREE.RingGeometry(0.28, 0.34, 48);
-      const mat = new THREE.MeshBasicMaterial({
-        color: 0x4f7cff,
+  private showOutline(slotId: string | null): void {
+    if (!this.outline) {
+      const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
+      const mat = new THREE.LineBasicMaterial({
+        color: 0xffffff,
         transparent: true,
-        opacity: 0.75,
-        side: THREE.DoubleSide,
+        opacity: 0.9,
         depthTest: false,
       });
-      this.marker = new THREE.Mesh(geo, mat);
-      this.marker.rotation.x = -Math.PI / 2;
-      this.marker.renderOrder = 999;
-      this.scene.add(this.marker);
+      this.outline = new THREE.LineSegments(geo, mat);
+      this.outline.renderOrder = 999;
+      this.scene.add(this.outline);
     }
     const placed = slotId ? this.placed.get(slotId) : undefined;
     if (!placed) {
-      this.marker.visible = false;
-      return;
-    }
-    const p = placed.spec.placement;
-    const r = Math.max(p.wCm, p.dCm) / 2 / 100 + 0.12;
-    this.marker.scale.setScalar(r / 0.31);
-    this.marker.position.set(p.x * CM, 0.015, p.y * CM);
-    this.marker.visible = true;
-  }
-
-  /**
-   * Экранные координаты выбранного предмета — чтобы карточка висела рядом с ним, как в игре.
-   * Считается каждый кадр и отдаётся колбэком напрямую (без React-рендера на каждый кадр).
-   */
-  trackSlot(slotId: string | null, cb: ((p: { x: number; y: number; visible: boolean }) => void) | null): void {
-    this.tracked = slotId && cb ? { slotId, cb } : null;
-  }
-
-  private tracked: { slotId: string; cb: (p: { x: number; y: number; visible: boolean }) => void } | null = null;
-
-  // переиспользуемые объекты: `updateTracked` зовётся каждый кадр, мусорить нельзя
-  private readonly _bb = new THREE.Box3();
-  private readonly _anchor = new THREE.Vector3();
-
-  private updateTracked(): void {
-    if (!this.tracked) return;
-    const placed = this.placed.get(this.tracked.slotId);
-    if (!placed) {
-      this.tracked.cb({ x: 0, y: 0, visible: false });
+      this.outline.visible = false;
       return;
     }
     const bb = this._bb.setFromObject(placed.group);
-    const v = this._anchor
-      .set((bb.min.x + bb.max.x) / 2, bb.max.y + 0.08, (bb.min.z + bb.max.z) / 2)
-      .project(this.camera);
-    const rect = this.renderer.domElement;
-    const w = rect.clientWidth || rect.width;
-    const h = rect.clientHeight || rect.height;
-    this.tracked.cb({
-      x: (v.x * 0.5 + 0.5) * w,
-      y: (-v.y * 0.5 + 0.5) * h,
-      visible: v.z < 1 && v.x > -1.25 && v.x < 1.25 && v.y > -1.3 && v.y < 1.3,
-    });
+    const size = bb.getSize(new THREE.Vector3());
+    const centre = bb.getCenter(new THREE.Vector3());
+    this.outline.scale.set(Math.max(size.x, 0.05) * 1.04, Math.max(size.y, 0.05) * 1.04, Math.max(size.z, 0.05) * 1.04);
+    this.outline.position.copy(centre);
+    this.outline.visible = true;
   }
 
   highlight(slotId: string | null): void {
-    this.showMarker(slotId);
+    this.showOutline(slotId);
     for (const [id, p] of this.placed) {
       p.group.traverse((o) => {
         const m = o as THREE.Mesh;
@@ -648,7 +709,13 @@ export class FlatViewer {
     if (this.keys.has("KeyA") || this.keys.has("ArrowLeft")) fx -= 1;
     if (this.keys.has("KeyD") || this.keys.has("ArrowRight")) fx += 1;
 
-    if (fx || fy) {
+    if ((fx || fy) && this.viewMode === "top") {
+      const radT = (this.heading * Math.PI) / 180;
+      const step = speed * 1.6;
+      this.topTarget.x += (Math.sin(radT) * fy + Math.cos(radT) * fx) * step;
+      this.topTarget.y += (Math.cos(radT) * fy - Math.sin(radT) * fx) * step;
+      this.clampTopTarget();
+    } else if (fx || fy) {
       this.moveTarget = null;
       const rad = (this.heading * Math.PI) / 180;
       const dirX = Math.sin(rad);
@@ -678,6 +745,21 @@ export class FlatViewer {
     }
 
     const rad = (this.heading * Math.PI) / 180;
+    if (this.viewMode === "top") {
+      // вид сверху: камера на дуге вокруг точки интереса
+      const pitchRad = (this.topPitch * Math.PI) / 180;
+      const d = this.topDistanceCm * CM;
+      const tx = this.topTarget.x * CM;
+      const tz = this.topTarget.y * CM;
+      this.camera.position.set(
+        tx - Math.sin(rad) * Math.cos(pitchRad) * d,
+        Math.max(1.2, -Math.sin(pitchRad) * d),
+        tz - Math.cos(rad) * Math.cos(pitchRad) * d,
+      );
+      this.camera.lookAt(tx, 0.4, tz);
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
     const pitchRad = (this.pitch * Math.PI) / 180;
     this.camera.position.set(this.pos.x * CM, EYE_CM * CM, this.pos.y * CM);
     const look = new THREE.Vector3(
@@ -687,7 +769,6 @@ export class FlatViewer {
     );
     this.camera.lookAt(look);
     this.renderer.render(this.scene, this.camera);
-    this.updateTracked();
   };
 
   start(): void {
@@ -740,7 +821,6 @@ export class FlatViewer {
       rooms: this.roomGroups.size,
       placed: this.placed.size,
       floors: this.floors.length,
-      tracked: this.tracked?.slotId ?? null,
       camera: this.camera.position.toArray().map((v) => Number(v.toFixed(2))),
       heading: Math.round(this.heading),
       room: this.currentRoom,
@@ -756,7 +836,10 @@ export class FlatViewer {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     this.raf = 0;
-    if (this.marker) disposeObject(this.marker);
+    if (this.outline) {
+      this.outline.geometry.dispose();
+      (this.outline.material as THREE.Material).dispose();
+    }
     for (const p of this.placed.values()) disposeObject(p.group);
     this.placed.clear();
     for (const g of this.roomGroups.values()) disposeObject(g);
@@ -787,7 +870,7 @@ function farFromDoor(room: Room, p: Placement): "start" | "end" {
 function signatureOf(spec: ObjectSpec): string {
   const p = spec.placement;
   const geom = `${p.x}|${p.y}|${p.rot}|${p.wCm}|${p.dCm}|${p.hCm}`;
-  if (spec.kind === "mesh") return `mesh|${spec.meshId}|${spec.yawDeg}|${geom}`;
+  if (spec.kind === "mesh") return `mesh|${spec.meshId}|${spec.yawDeg}|${(spec.tintRgb ?? []).join(",")}|${geom}`;
   if (spec.kind === "kitchen") {
     return `kitchen|${spec.level}|${spec.features.join(",")}|${spec.doorMaterialId}|${spec.worktopMaterialId}|${spec.splashbackMaterialId}|${geom}`;
   }

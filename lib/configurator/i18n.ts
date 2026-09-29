@@ -6,7 +6,7 @@ export type Lang = "ru" | "en";
 
 export const UI = {
   ru: {
-    modes: { d3: "3D", photo: "Фото", plan: "План" },
+    modes: { walk: "Бродилка", top: "Сверху", photo: "Фото", plan: "План" },
     rooms: "Комнаты",
     categories: "Что меняем",
     options: "Варианты",
@@ -33,7 +33,7 @@ export const UI = {
     devPhoto: "Фото собирается только на сайте (на этой копии сервис кадров не подключён)",
   },
   en: {
-    modes: { d3: "3D", photo: "Photo", plan: "Plan" },
+    modes: { walk: "Walk", top: "Top view", photo: "Photo", plan: "Plan" },
     rooms: "Rooms",
     categories: "Choose",
     options: "Options",

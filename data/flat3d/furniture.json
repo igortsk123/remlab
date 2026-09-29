@@ -20,7 +20,17 @@
     "yawDeg": 0,
     "wCm": 198,
     "dCm": 90,
-    "hCm": 83
+    "hCm": 83,
+    "tintRgb": [
+     0.793,
+     1.078,
+     1.129
+    ],
+    "tintFrom": {
+     "photoColor": "#536d7e",
+     "meshColor": "#73707b",
+     "photoSat": 39.9
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/598dedd4838422dd.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fdivan-viks-textile-sky&erid=2SDnjeSGLnX",
@@ -44,7 +54,17 @@
     "yawDeg": 0,
     "wCm": 188,
     "dCm": 86,
-    "hCm": 87
+    "hCm": 87,
+    "tintRgb": [
+     1.361,
+     1.057,
+     0.582
+    ],
+    "tintFrom": {
+     "photoColor": "#bf8e4f",
+     "meshColor": "#938c8e",
+     "photoSat": 100.3
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/162a7ef111fea58f.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fdivan-rotterdam-3-velvet-yellow&erid=2SDnjeSGLnX",
@@ -68,7 +88,17 @@
     "yawDeg": 0,
     "wCm": 190,
     "dCm": 90,
-    "hCm": 90
+    "hCm": 90,
+    "tintRgb": [
+     1.186,
+     1.036,
+     0.777
+    ],
+    "tintFrom": {
+     "photoColor": "#a38f78",
+     "meshColor": "#828393",
+     "photoSat": 36.2
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/c6eefbce3d0c4d21.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fdivan-hevit-velvet-beige&erid=2SDnjeSGLnX",
@@ -92,7 +122,17 @@
     "yawDeg": 0,
     "wCm": 198,
     "dCm": 100,
-    "hCm": 95
+    "hCm": 95,
+    "tintRgb": [
+     0.555,
+     0.925,
+     1.52
+    ],
+    "tintFrom": {
+     "photoColor": "#743c32",
+     "meshColor": "#a83400",
+     "photoSat": 65.0
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/632cb79e9af49c31.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fmodulnyj-divan-polan-1-velvet-terra&erid=2SDnjeSGLnX",
@@ -164,7 +204,17 @@
     "yawDeg": 0,
     "wCm": 84,
     "dCm": 81,
-    "hCm": 87
+    "hCm": 87,
+    "tintRgb": [
+     1.275,
+     1.004,
+     0.721
+    ],
+    "tintFrom": {
+     "photoColor": "#c59352",
+     "meshColor": "#cac0b5",
+     "photoSat": 103.2
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/5ccc314eb4273bb2.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkreslo-rotterdam-velvet-yellow-new&erid=2SDnjeSGLnX",
@@ -188,7 +238,17 @@
     "yawDeg": 0,
     "wCm": 93,
     "dCm": 79,
-    "hCm": 74
+    "hCm": 74,
+    "tintRgb": [
+     0.991,
+     1.006,
+     1.003
+    ],
+    "tintFrom": {
+     "photoColor": "#bdac92",
+     "meshColor": "#b7a38b",
+     "photoSat": 38.4
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/fac4b59a3d0eb027.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkreslo-veneto-velvet-beige&erid=2SDnjeSGLnX",
@@ -212,7 +272,17 @@
     "yawDeg": 180,
     "wCm": 79,
     "dCm": 54,
-    "hCm": 42
+    "hCm": 42,
+    "tintRgb": [
+     1.112,
+     1.012,
+     0.876
+    ],
+    "tintFrom": {
+     "photoColor": "#947f67",
+     "meshColor": "#b5aba1",
+     "photoSat": 21.8
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/68aec126fb4e9d62.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fjurnalnyj-stol-vegar-1-grafit&erid=2SDnjeSGLnX",
@@ -260,7 +330,17 @@
     "yawDeg": 90,
     "wCm": 80,
     "dCm": 52,
-    "hCm": 42
+    "hCm": 42,
+    "tintRgb": [
+     0.967,
+     1.008,
+     1.025
+    ],
+    "tintFrom": {
+     "photoColor": "#a99680",
+     "meshColor": "#7b6958",
+     "photoSat": 21.9
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/1d9233bff2a6c317.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fjurnalnyj-stol-vegar-2-milk&erid=2SDnjeSGLnX",
@@ -284,7 +364,17 @@
     "yawDeg": 0,
     "wCm": 120,
     "dCm": 58,
-    "hCm": 38
+    "hCm": 38,
+    "tintRgb": [
+     0.803,
+     0.96,
+     1.237
+    ],
+    "tintFrom": {
+     "photoColor": "#917a69",
+     "meshColor": "#886040",
+     "photoSat": 35.8
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/e9c6ca120e5913c4.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fjurnalnyj-stol-serfing-gretskij-oreh&erid=2SDnjeSGLnX",
@@ -308,7 +398,17 @@
     "yawDeg": 0,
     "wCm": 120,
     "dCm": 35,
-    "hCm": 61
+    "hCm": 61,
+    "tintRgb": [
+     0.8,
+     0.967,
+     1.233
+    ],
+    "tintFrom": {
+     "photoColor": "#b8ada1",
+     "meshColor": "#957453",
+     "photoSat": 9.5
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/9d50e8d5441fa840.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftv-tumba-torvall-1-white&erid=2SDnjeSGLnX",
@@ -332,7 +432,17 @@
     "yawDeg": 0,
     "wCm": 139,
     "dCm": 50,
-    "hCm": 53
+    "hCm": 53,
+    "tintRgb": [
+     0.878,
+     0.987,
+     1.135
+    ],
+    "tintFrom": {
+     "photoColor": "#b09f8b",
+     "meshColor": "#b6926f",
+     "photoSat": 27.3
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/fd7d03a404461979.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftv-tumba-monblan-1-lunge-santiago-oak&erid=2SDnjeSGLnX",
@@ -356,7 +466,17 @@
     "yawDeg": 0,
     "wCm": 158,
     "dCm": 40,
-    "hCm": 67
+    "hCm": 67,
+    "tintRgb": [
+     1.358,
+     0.862,
+     0.78
+    ],
+    "tintFrom": {
+     "photoColor": "#9f644f",
+     "meshColor": "#9f9d8a",
+     "photoSat": 70.7
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/be37f4bf339c55bb.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftv-tumba-shelbi-1-terracotta&erid=2SDnjeSGLnX",
@@ -380,7 +500,17 @@
     "yawDeg": 0,
     "wCm": 90,
     "dCm": 40,
-    "hCm": 75
+    "hCm": 75,
+    "tintRgb": [
+     0.899,
+     0.959,
+     1.142
+    ],
+    "tintFrom": {
+     "photoColor": "#978066",
+     "meshColor": "#ad895c",
+     "photoSat": 40.5
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/cebf04e3532c56ca.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Ftumba-dlya-vinila-yansen-2-latte&erid=2SDnjeSGLnX",
@@ -428,7 +558,17 @@
     "yawDeg": 0,
     "wCm": 105,
     "dCm": 105,
-    "hCm": 74.5
+    "hCm": 74.5,
+    "tintRgb": [
+     1.095,
+     0.952,
+     0.952
+    ],
+    "tintFrom": {
+     "photoColor": "#6b594a",
+     "meshColor": "#aaa59f",
+     "photoSat": 27.4
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/1e230e2e0ad381b3.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=99272&goto=https%3A%2F%2Ftvoydom.ru%2Fcatalog%2F1002739241%2F&erid=Kra24Bdr7",
@@ -452,7 +592,17 @@
     "yawDeg": 0,
     "wCm": 100,
     "dCm": 100,
-    "hCm": 75
+    "hCm": 75,
+    "tintRgb": [
+     0.961,
+     0.971,
+     1.068
+    ],
+    "tintFrom": {
+     "photoColor": "#805548",
+     "meshColor": "#744d3b",
+     "photoSat": 43.8
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/51ded5b87342d10d.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=99272&goto=https%3A%2F%2Ftvoydom.ru%2Fcatalog%2F1002739335%2F&erid=Kra24Bdr7",
@@ -500,7 +650,17 @@
     "yawDeg": 0,
     "wCm": 49,
     "dCm": 50,
-    "hCm": 93
+    "hCm": 93,
+    "tintRgb": [
+     1.006,
+     1.007,
+     0.987
+    ],
+    "tintFrom": {
+     "photoColor": "#6b514a",
+     "meshColor": "#6a504c",
+     "photoSat": 29.2
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/6289a42e65262f01.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=99272&goto=https%3A%2F%2Ftvoydom.ru%2Fcatalog%2F1002778558%2F&erid=Kra24Bdr7",
@@ -524,7 +684,17 @@
     "yawDeg": 0,
     "wCm": 45,
     "dCm": 53,
-    "hCm": 97
+    "hCm": 97,
+    "tintRgb": [
+     1.042,
+     0.98,
+     0.978
+    ],
+    "tintFrom": {
+     "photoColor": "#715e50",
+     "meshColor": "#c1ac9d",
+     "photoSat": 28.0
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/11e1f83ad160454e.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=99272&goto=https%3A%2F%2Ftvoydom.ru%2Fcatalog%2F1002272842%2F&erid=Kra24Bdr7",
@@ -548,7 +718,17 @@
     "yawDeg": 0,
     "wCm": 47,
     "dCm": 49,
-    "hCm": 80
+    "hCm": 80,
+    "tintRgb": [
+     0.911,
+     0.92,
+     1.169
+    ],
+    "tintFrom": {
+     "photoColor": "#caaa8e",
+     "meshColor": "#9a8054",
+     "photoSat": 34.6
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/c0a0a8569c984db6.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fstul-torvall-textile-grey&erid=2SDnjeSGLnX",
@@ -572,7 +752,17 @@
     "yawDeg": 0,
     "wCm": 52,
     "dCm": 50,
-    "hCm": 100
+    "hCm": 100,
+    "tintRgb": [
+     0.932,
+     0.993,
+     1.075
+    ],
+    "tintFrom": {
+     "photoColor": "#ccb9a1",
+     "meshColor": "#bba080",
+     "photoSat": 37.9
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/2e4a8a92077d5e1e.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=99272&goto=https%3A%2F%2Ftvoydom.ru%2Fcatalog%2F1002720241%2F&erid=Kra24Bdr7",
@@ -620,7 +810,17 @@
     "yawDeg": 90,
     "wCm": 20,
     "dCm": 5,
-    "hCm": 128.2
+    "hCm": 128.2,
+    "tintRgb": [
+     0.933,
+     0.983,
+     1.085
+    ],
+    "tintFrom": {
+     "photoColor": "#cbc4ae",
+     "meshColor": "#c0af8d",
+     "photoSat": 25.7
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/ce5cd7932e8c541d.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=99272&goto=https%3A%2F%2Ftvoydom.ru%2Fcatalog%2F1002738688%2F&erid=Kra24Bdr7",
@@ -668,7 +868,17 @@
     "yawDeg": 0,
     "wCm": 22,
     "dCm": 28,
-    "hCm": 156
+    "hCm": 156,
+    "tintRgb": [
+     0.978,
+     1.002,
+     1.021
+    ],
+    "tintFrom": {
+     "photoColor": "#d4c7b7",
+     "meshColor": "#9b8e81",
+     "photoSat": 15.9
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/e0709214b52e9c14.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=99272&goto=https%3A%2F%2Ftvoydom.ru%2Fcatalog%2F1002266441%2F&erid=Kra24Bdr7",
@@ -740,7 +950,17 @@
     "yawDeg": 0,
     "wCm": 100,
     "dCm": 40,
-    "hCm": 84
+    "hCm": 84,
+    "tintRgb": [
+     1.079,
+     0.994,
+     0.927
+    ],
+    "tintFrom": {
+     "photoColor": "#a0aaac",
+     "meshColor": "#526169",
+     "photoSat": 19.6
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/a1cf27e94eac0e2b.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=99272&goto=https%3A%2F%2Ftvoydom.ru%2Fcatalog%2F1002677288%2F&erid=Kra24Bdr7",
@@ -788,7 +1008,17 @@
     "yawDeg": 0,
     "wCm": 75,
     "dCm": 35,
-    "hCm": 75
+    "hCm": 75,
+    "tintRgb": [
+     0.805,
+     1.101,
+     1.094
+    ],
+    "tintFrom": {
+     "photoColor": "#c7b188",
+     "meshColor": "#99634d",
+     "photoSat": 55.0
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/4b98ae3e0ca4903f.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fstellaj-kejn-10-wood&erid=2SDnjeSGLnX",
@@ -812,7 +1042,17 @@
     "yawDeg": 180,
     "wCm": 75,
     "dCm": 35,
-    "hCm": 149
+    "hCm": 149,
+    "tintRgb": [
+     1.28,
+     0.86,
+     0.86
+    ],
+    "tintFrom": {
+     "photoColor": "#704d40",
+     "meshColor": "#89989a",
+     "photoSat": 43.3
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/28cd126fbac46c45.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fstellaj-kejn-4-terra&erid=2SDnjeSGLnX",
@@ -884,7 +1124,17 @@
     "yawDeg": 0,
     "wCm": 60,
     "dCm": 40,
-    "hCm": 30
+    "hCm": 30,
+    "tintRgb": [
+     0.978,
+     1.02,
+     1.002
+    ],
+    "tintFrom": {
+     "photoColor": "#cdbfaf",
+     "meshColor": "#9d8c82",
+     "photoSat": 23.0
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/08216300897e8ba6.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fpuf-nyuberi-velvet-light&erid=2SDnjeSGLnX",
@@ -908,7 +1158,17 @@
     "yawDeg": 0,
     "wCm": 75,
     "dCm": 45,
-    "hCm": 45
+    "hCm": 45,
+    "tintRgb": [
+     1.058,
+     0.994,
+     0.948
+    ],
+    "tintFrom": {
+     "photoColor": "#a38775",
+     "meshColor": "#b49f90",
+     "photoSat": 44.9
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/9fdd045d09c5621b.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fbanketka-hajl-bukle-kremovyj&erid=2SDnjeSGLnX",
@@ -932,7 +1192,17 @@
     "yawDeg": 270,
     "wCm": 35,
     "dCm": 35,
-    "hCm": 38
+    "hCm": 38,
+    "tintRgb": [
+     1.003,
+     1.026,
+     0.971
+    ],
+    "tintFrom": {
+     "photoColor": "#7f7c6e",
+     "meshColor": "#c4bbaf",
+     "photoSat": 13.0
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/d0c9c4c55aa2868d.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fpuf-plidi-velvet-olive&erid=2SDnjeSGLnX",
@@ -956,7 +1226,17 @@
     "yawDeg": 0,
     "wCm": 45,
     "dCm": 45,
-    "hCm": 45
+    "hCm": 45,
+    "tintRgb": [
+     0.656,
+     1.409,
+     0.934
+    ],
+    "tintFrom": {
+     "photoColor": "#5d2c31",
+     "meshColor": "#690d27",
+     "photoSat": 48.0
+    }
    },
    "previewUrl": "https://remont-lab.online/demo/img/2a9552c424ccb534.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fpuf-palsi-velyur-bordovyj&erid=2SDnjeSGLnX",
