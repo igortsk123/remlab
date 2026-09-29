@@ -418,26 +418,38 @@ export class FlatViewer {
     // ТЕСНАЯ КОМНАТА — СМОТРИМ ОТ ДВЕРИ. В кухне 3,6×1,8 м из любого угла кадр упирается в
     // шкаф (кадр 29.09): в жизни такие комнаты и снимают из проёма. Добавляем к кандидатам
     // точки в дверных проёмах комнаты — стоять там разрешено, и оттуда видно всю комнату.
+    const doorSpots: { x: number; y: number }[] = [];
     if ((room.w * room.d) / 10_000 < 13) {
       for (const o of room.openings) {
         if (o.kind === "window") continue;
         const mid = o.offsetCm + o.widthCm / 2;
-        if (o.wall === "south") candidates.push({ x: room.x + mid, y: room.y - 25 });
-        else if (o.wall === "north") candidates.push({ x: room.x + mid, y: room.y + room.d + 25 });
-        else if (o.wall === "west") candidates.push({ x: room.x - 25, y: room.y + mid });
-        else candidates.push({ x: room.x + room.w + 25, y: room.y + mid });
+        if (o.wall === "south") doorSpots.push({ x: room.x + mid, y: room.y - 30 });
+        else if (o.wall === "north") doorSpots.push({ x: room.x + mid, y: room.y + room.d + 30 });
+        else if (o.wall === "west") doorSpots.push({ x: room.x - 30, y: room.y + mid });
+        else doorSpots.push({ x: room.x + room.w + 30, y: room.y + mid });
       }
+      candidates.push(...doorSpots);
     }
+    const isDoorSpot = (p: { x: number; y: number }): boolean =>
+      doorSpots.some((d) => Math.hypot(d.x - p.x, d.y - p.y) < 60);
     // Мебель комнаты: вставать В НЕЁ нельзя — кадр упрётся в спинку дивана или в кровать
     // (поймано кадрами 28.09: в спальне полкадра занимала кровать в упор).
     const obstacles = [...this.placed.values()]
       .filter((p) => p.spec.roomId === roomId)
       .map((p) => p.spec.placement);
+    // Расстояние до ПРЯМОУГОЛЬНИКА предмета, а не до круга вокруг него: кухонная линия
+    // 340×60 «кругом» занимала всю комнату, и любая точка считалась занятой (кадр 29.09).
     const clearance = (x: number, y: number): number => {
       let min = 1e9;
       for (const o of obstacles) {
-        const r = Math.max(o.wCm, o.dCm) / 2;
-        min = Math.min(min, Math.hypot(o.x - x, o.y - y) - r);
+        const a = (-o.rot * Math.PI) / 180;
+        const dx = x - o.x;
+        const dy = y - o.y;
+        const lx = dx * Math.cos(a) - dy * Math.sin(a);
+        const ly = dx * Math.sin(a) + dy * Math.cos(a);
+        const ox = Math.max(Math.abs(lx) - o.wCm / 2, 0);
+        const oy = Math.max(Math.abs(ly) - o.dCm / 2, 0);
+        min = Math.min(min, Math.hypot(ox, oy));
       }
       return min;
     };
@@ -448,9 +460,11 @@ export class FlatViewer {
       const spot = nearestStandable(this.area, cand.x, cand.y, 8, 6);
       if (!spot) continue;
       const free = clearance(spot.x, spot.y);
-      if (free < 45) continue; // стоим вплотную к предмету — кадр будет «в упор»
-      // подальше от центра (видно больше комнаты), но со свободой вокруг
-      const score = Math.hypot(spot.x - c.x, spot.y - c.y) + Math.min(free, 150);
+      const door = isDoorSpot(cand);
+      // от двери можно стоять ближе к мебели: мы смотрим В комнату, а не упираемся в шкаф
+      if (free < (door ? 20 : 45)) continue;
+      // подальше от центра (видно больше комнаты), свобода вокруг, и заметный плюс двери
+      const score = Math.hypot(spot.x - c.x, spot.y - c.y) + Math.min(free, 150) + (door ? 220 : 0);
       if (score > bestScore) {
         bestScore = score;
         best = spot;

@@ -163,7 +163,7 @@
     },
     {
      "kind": "opening",
-     "wall": "north",
+     "wall": "south",
      "offsetCm": 560,
      "widthCm": 200,
      "heightCm": 215

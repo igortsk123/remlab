@@ -175,6 +175,32 @@ describe("конфигуратор: мост в photo-конвейер", () => {
     }
   });
 
+
+  it("каждый внутренний проём парный: дыра есть в обеих комнатах", () => {
+    // Дефект 29.09: проём кухня↔гостиная был пробит в НАРУЖНОЙ стене гостиной — ходить можно,
+    // а в кадре глухая стена. Проверяем совпадение отрезков в мировых координатах.
+    const seg = (r: (typeof apartment.rooms)[number], o: (typeof r.openings)[number]) => {
+      if (o.wall === "south" || o.wall === "north") {
+        const y = o.wall === "south" ? r.y : r.y + r.d;
+        return `h|${y}|${r.x + o.offsetCm}|${r.x + o.offsetCm + o.widthCm}`;
+      }
+      const x = o.wall === "west" ? r.x : r.x + r.w;
+      return `v|${x}|${r.y + o.offsetCm}|${r.y + o.offsetCm + o.widthCm}`;
+    };
+    const all: { room: string; wall: string; key: string }[] = [];
+    for (const r of apartment.rooms) {
+      for (const o of r.openings) {
+        if (o.kind === "window") continue;
+        all.push({ room: r.id, wall: o.wall, key: seg(r, o) });
+      }
+    }
+    for (const it of all) {
+      if (it.room === "hall" && it.wall === "south") continue; // входная дверь наружу
+      const twin = all.some((x) => x.room !== it.room && x.key === it.key);
+      expect(twin, `${it.room}/${it.wall}: нет парного проёма в соседней комнате`).toBe(true);
+    }
+  });
+
   it("проёмы уезжают в snake_case, как ждёт конвейер", () => {
     const cfg = defaultConfiguration(apartment, catalogue);
     const scene = resolveScene(apartment, catalogue, cfg);
