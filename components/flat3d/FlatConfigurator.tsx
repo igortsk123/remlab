@@ -168,8 +168,9 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: 
       <section
         aria-label={lang === "en" ? "Apartment view" : "Вид квартиры"}
         className="flex w-full flex-col gap-2"
-        // высота подобрана так, чтобы панель выбора помещалась на экране без прокрутки страницы
-        style={{ height: mobile ? "70vh" : "calc(100vh - 290px)", minHeight: 460 }}
+        // высота подобрана так, чтобы панель выбора помещалась на экране без прокрутки страницы:
+        // 250 px — это шапка сайта, заголовок и строка режимов (замерено 29.09), остальное сцене
+        style={{ height: mobile ? "70vh" : "calc(100vh - 250px)", minHeight: 460 }}
       >
         {/* min-height: 0 обязателен, иначе канвас не даёт колонке сжаться и панель уезжает
             за экран; задаём стилем — утилита `min-h-0` в собранном CSS отсутствует */}
