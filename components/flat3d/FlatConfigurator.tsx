@@ -56,20 +56,37 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: 
   // окошко. Просим настоящий полноэкранный режим браузера; если он запрещён (iPhone, политика
   // страницы) — экран всё равно закрывается нашим слоем на всё окно, поведение одинаковое.
   const shellRef = useRef<HTMLDivElement>(null);
+  const weWentFullscreen = useRef(false);
   const close3d = useCallback(() => setMode("photo"), []);
 
   useEffect(() => {
     const el = shellRef.current;
     if (!el) return;
-    if (is3d && !document.fullscreenElement) void el.requestFullscreen?.().catch(() => {});
-    if (!is3d && document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
+    if (is3d && !document.fullscreenElement) {
+      void el
+        .requestFullscreen?.()
+        .then(() => {
+          weWentFullscreen.current = true;
+        })
+        .catch(() => {
+          // запрещено (iPhone, политика страницы) — остаётся наш слой на всё окно
+          weWentFullscreen.current = false;
+        });
+    }
+    if (!is3d && document.fullscreenElement) {
+      weWentFullscreen.current = false;
+      void document.exitFullscreen?.().catch(() => {});
+    }
   }, [is3d]);
 
   useEffect(() => {
     if (!is3d) return;
-    // выход из полноэкранного режима (крестик браузера, Escape) = закрыть 3D и вернуться к фото
+    // Закрывают 3D крестик и Escape. Выход из ПОЛНОЭКРАННОГО режима сам по себе НЕ закрывает:
+    // часть браузеров выходит из него молча и сразу, и человека выбрасывало бы в «Фото» сразу
+    // после открытия (ловили на тестах 29.09). Слой на всё окно остаётся — вид не меняется,
+    // а первый Escape гасит полноэкранный режим, второй закрывает 3D.
     const onFsChange = () => {
-      if (!document.fullscreenElement) close3d();
+      if (!document.fullscreenElement) weWentFullscreen.current = false;
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !document.fullscreenElement) close3d();

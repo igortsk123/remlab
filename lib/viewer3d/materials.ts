@@ -6,10 +6,25 @@ import * as THREE from "three";
 
 import type { Material } from "@/contracts/configurator";
 
+type MapSlot = "map" | "normalMap" | "roughnessMap" | "aoMap";
+
 export interface MaterialCtx {
   loader: THREE.TextureLoader;
   cache: Map<string, THREE.Texture>;
   materials: Map<string, THREE.MeshStandardMaterial>;
+  /**
+   * Копии текстур, сделанные ради своего повтора (`tiled`). Держим их, чтобы РАЗДАТЬ картинку,
+   * когда она догрузится: копия, снятая с ещё не загруженной текстуры, картинку уже не получит
+   * и навсегда останется чёрной (дверь шкафа в прихожей — чёрная, 29.09).
+   */
+  copies: Map<string, THREE.Texture[]>;
+  /**
+   * Кто пользуется текстурой. Нужно на случай, когда картинка НЕ пришла (браузер отказал в
+   * запросе — `ERR_INSUFFICIENT_RESOURCES`, сеть отвалилась): тогда карту снимаем и показываем
+   * ровный цвет материала. Пустая карта рисуется ЧЁРНЫМ — это худшее, что можно показать
+   * покупателю (чёрная дверь шкафа, 29.09).
+   */
+  uses: Map<string, { mat: THREE.MeshStandardMaterial; slot: MapSlot; hex?: string }[]>;
   anisotropy: number;
   useMaps: boolean;
   /** Лёгкий режим (телефон): только цветовая карта, без normal/roughness/AO. */
@@ -21,22 +36,86 @@ export function createMaterialCtx(anisotropy: number, useMaps: boolean, extraMap
     loader: new THREE.TextureLoader(),
     cache: new Map(),
     materials: new Map(),
+    copies: new Map(),
+    uses: new Map(),
     anisotropy,
     useMaps,
     extraMaps,
   };
 }
 
+/** Картинка не пришла: снимаем карту у всех, кто её ждал, и возвращаем ровный цвет. */
+function dropTexture(ctx: MaterialCtx, key: string): void {
+  for (const use of ctx.uses.get(key) ?? []) {
+    use.mat[use.slot] = null;
+    if (use.slot === "map" && use.hex) use.mat.color.set(use.hex);
+    use.mat.needsUpdate = true;
+  }
+  ctx.uses.delete(key);
+  ctx.copies.delete(key);
+}
+
 function texture(ctx: MaterialCtx, url: string, srgb: boolean): THREE.Texture {
   const key = `${url}|${srgb ? "srgb" : "lin"}`;
   const hit = ctx.cache.get(key);
   if (hit) return hit;
-  const t = ctx.loader.load(url);
+  // Когда картинка приедет, раздаём её копиям: они снимались с ещё пустой текстуры и сами
+  // обновиться не могут (three не связывает клон с оригиналом).
+  const t = ctx.loader.load(
+    url,
+    (loaded) => {
+      for (const copy of ctx.copies.get(key) ?? []) {
+        copy.image = loaded.image;
+        copy.needsUpdate = true;
+      }
+      ctx.copies.delete(key);
+      ctx.uses.delete(key);
+    },
+    undefined,
+    () => {
+      // Одна попытка повтора, но С ПАУЗОЙ: браузер отказывает в запросах, когда их разом
+      // слишком много (`ERR_INSUFFICIENT_RESOURCES`), и немедленный повтор только добавляет
+      // давления. Через секунду очередь обычно уже разгребли.
+      setTimeout(() => ctx.loader.load(
+        url,
+        (loaded) => {
+          t.image = loaded.image;
+          t.needsUpdate = true;
+          for (const copy of ctx.copies.get(key) ?? []) {
+            copy.image = loaded.image;
+            copy.needsUpdate = true;
+          }
+          ctx.copies.delete(key);
+          ctx.uses.delete(key);
+        },
+        undefined,
+        () => dropTexture(ctx, key),
+      ), 1200);
+    },
+  );
+  t.userData.texKey = key;
   t.wrapS = THREE.RepeatWrapping;
   t.wrapT = THREE.RepeatWrapping;
   t.anisotropy = ctx.anisotropy;
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
   ctx.cache.set(key, t);
+  return t;
+}
+
+/** Текстура + запись «кто её ждёт»: при отказе загрузки материал вернётся к ровному цвету. */
+function attachTexture(
+  ctx: MaterialCtx,
+  mat: THREE.MeshStandardMaterial,
+  slot: MapSlot,
+  url: string,
+  srgb: boolean,
+  hex?: string,
+): THREE.Texture {
+  const t = texture(ctx, url, srgb);
+  const key = t.userData.texKey as string;
+  const list = ctx.uses.get(key);
+  if (list) list.push({ mat, slot, hex });
+  else ctx.uses.set(key, [{ mat, slot, hex }]);
   return t;
 }
 
@@ -54,15 +133,17 @@ export function baseMaterial(ctx: MaterialCtx, m: Material): THREE.MeshStandardM
     metalness: m.metalness,
   });
   if (ctx.useMaps && m.baseColorUrl) {
-    mat.map = texture(ctx, m.baseColorUrl, true);
+    mat.map = attachTexture(ctx, mat, "map", m.baseColorUrl, true, m.colorHex);
     mat.color.set("#ffffff"); // цвет уже в текстуре, иначе двойное умножение
   }
   if (ctx.useMaps && ctx.extraMaps && m.normalUrl) {
-    mat.normalMap = texture(ctx, m.normalUrl, false);
+    mat.normalMap = attachTexture(ctx, mat, "normalMap", m.normalUrl, false);
     mat.normalScale = new THREE.Vector2(0.7, 0.7);
   }
-  if (ctx.useMaps && ctx.extraMaps && m.roughnessUrl) mat.roughnessMap = texture(ctx, m.roughnessUrl, false);
-  if (ctx.useMaps && ctx.extraMaps && m.aoUrl) mat.aoMap = texture(ctx, m.aoUrl, false);
+  if (ctx.useMaps && ctx.extraMaps && m.roughnessUrl) {
+    mat.roughnessMap = attachTexture(ctx, mat, "roughnessMap", m.roughnessUrl, false);
+  }
+  if (ctx.useMaps && ctx.extraMaps && m.aoUrl) mat.aoMap = attachTexture(ctx, mat, "aoMap", m.aoUrl, false);
   ctx.materials.set(m.id, mat);
   return mat;
 }
@@ -88,6 +169,18 @@ export function tiled(
     if (!t) continue;
     const copy = t.clone();
     copy.needsUpdate = true;
+    // копия снята с ещё не загруженной текстуры → запоминаем её, чтобы отдать картинку потом
+    // (и чтобы снять карту, если картинка так и не приедет)
+    const texKey = t.userData.texKey as string | undefined;
+    if (texKey && !t.image) {
+      const list = ctx.copies.get(texKey);
+      if (list) list.push(copy);
+      else ctx.copies.set(texKey, [copy]);
+      const uses = ctx.uses.get(texKey);
+      const use = { mat, slot: key, hex: key === "map" ? m.colorHex : undefined };
+      if (uses) uses.push(use);
+      else ctx.uses.set(texKey, [use]);
+    }
     copy.wrapS = THREE.RepeatWrapping;
     copy.wrapT = THREE.RepeatWrapping;
     copy.repeat.set(rx, ry);
@@ -104,6 +197,9 @@ export function tiled(
 }
 
 export function disposeMaterialCtx(ctx: MaterialCtx): void {
+  for (const list of ctx.copies.values()) for (const t of list) t.dispose();
+  ctx.copies.clear();
+  ctx.uses.clear();
   for (const t of ctx.cache.values()) t.dispose();
   for (const m of ctx.materials.values()) m.dispose();
   ctx.cache.clear();

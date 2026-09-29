@@ -29,6 +29,20 @@ const CM = 0.01;
 // пределы «кукольного дома»: ближе 2,4 м камера влезает в мебель, дальше 30 м квартира — точка
 const TOP_MIN_CM = 240;
 const TOP_MAX_CM = 3000;
+
+/** Рисует ли браузер силами процессора (SwiftShader, llvmpipe, программный ANGLE). */
+function isSoftwareRenderer(renderer: THREE.WebGLRenderer): boolean {
+  try {
+    const gl = renderer.getContext();
+    const ext = gl.getExtension("WEBGL_debug_renderer_info");
+    const name = String(
+      ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
+    );
+    return /swiftshader|llvmpipe|software|microsoft basic/i.test(name);
+  } catch {
+    return false;
+  }
+}
 const EYE_CM = 162;
 
 export interface QualityProfile {
@@ -132,6 +146,13 @@ export class FlatViewer {
     this.events = events;
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: quality.name === "desktop", powerPreference: "high-performance" });
+    // Без видеокарты (виртуалки, старые офисные машины, CI) браузер рисует силами процессора.
+    // Полноэкранная сцена с тенями там не тянет — вкладка падает. Переходим на облегчённый
+    // профиль: человек увидит квартиру, пусть и проще, вместо «страница не отвечает».
+    if (isSoftwareRenderer(this.renderer)) {
+      this.quality = { ...LITE_QUALITY, fov: quality.fov, preloadRooms: quality.preloadRooms };
+      quality = this.quality;
+    }
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality.pixelRatio));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     // ТОВАРНЫЙ тонмаппинг (Khronos PBR Neutral), а не кинематографический ACES: ACES уводит
@@ -391,6 +412,17 @@ export class FlatViewer {
   // ── управление ───────────────────────────────────────────────────────────
 
   setSize(width: number, height: number): void {
+    // Потолок по числу пикселей кадра. На весь экран (тем более 4K и при dpr 2) сцена иначе
+    // рисует до 8 мегапикселей: на слабой видеокарте это провал кадров, а на программном
+    // рендере — падение вкладки (ловили на тестах 29.09). 2,3 Мп хватает для чёткой картинки.
+    const dpr = Math.min(window.devicePixelRatio || 1, this.quality.pixelRatio);
+    const wanted = width * height * dpr * dpr;
+    const cap = 2_300_000;
+    const ratio = wanted > cap ? dpr * Math.sqrt(cap / wanted) : dpr;
+    // менять плотность ТОЛЬКО когда она правда другая: каждый вызов заново выделяет буферы
+    // кадра, а размер приходит потоком от наблюдателя за канвасом — так можно исчерпать память
+    // видеоконтекста (ловили на тестах 29.09: «context lost» вместо картинки)
+    if (Math.abs(this.renderer.getPixelRatio() - ratio) > 0.01) this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / Math.max(1, height);
     this.camera.updateProjectionMatrix();
@@ -884,6 +916,31 @@ export class FlatViewer {
   }
 
   /** Состояние сцены для диагностики: что реально добавлено и куда смотрит камера. */
+  /**
+   * Доля почти чёрных точек кадра — сторож против «дыр» в картинке: незагруженная текстура
+   * рисуется ЧЁРНЫМ (так пропадала дверь шкафа, 29.09).
+   *
+   * Читаем НЕ с экрана, а из отдельного буфера: без `preserveDrawingBuffer` экранный буфер к
+   * моменту чтения уже очищен, а со сглаживанием разные движки браузера отдают его по-разному
+   * (в одном режиме кадр читался, в другом — сплошной ноль).
+   */
+  debugDarkShare(w = 128, h = 80): number {
+    const rt = new THREE.WebGLRenderTarget(w, h);
+    const prev = this.renderer.getRenderTarget();
+    this.renderer.setRenderTarget(rt);
+    this.renderer.render(this.scene, this.camera);
+    const buf = new Uint8Array(w * h * 4);
+    this.renderer.readRenderTargetPixels(rt, 0, 0, w, h, buf);
+    this.renderer.setRenderTarget(prev);
+    rt.dispose();
+    let dark = 0;
+    for (let i = 0; i < w * h; i += 1) {
+      const o = i * 4;
+      if (buf[o]! + buf[o + 1]! + buf[o + 2]! < 12) dark += 1;
+    }
+    return dark / (w * h);
+  }
+
   debugState(): Record<string, unknown> {
     let meshes = 0;
     this.scene.traverse((o) => {
