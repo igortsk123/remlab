@@ -387,6 +387,7 @@ export class FlatViewer {
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / Math.max(1, height);
     this.camera.updateProjectionMatrix();
+    if (this.viewMode === "top") this.fitTop(this.currentRoom);
   }
 
   /** Переключение вида: прогулка ↔ сверху. Потолки в виде сверху прячем, иначе видно только их. */
@@ -433,10 +434,13 @@ export class FlatViewer {
       span = Math.max(maxX - minX, maxY - minY);
     }
     this.topTarget.set(cx, cy);
-    // расстояние из угла объектива: половина стороны / tan(fov/2), с запасом на поля
-    const half = (span / 2) * 1.25;
-    const fov = (this.camera.fov * Math.PI) / 180;
-    this.topDistanceCm = Math.max(260, half / Math.tan(fov / 2));
+    // Вписываем И ПО ВЫСОТЕ, И ПО ШИРИНЕ кадра: канвас широкий и невысокий, поэтому расчёт
+    // только по вертикальному углу уводил камеру далеко и квартира была мелкой (кадр 29.09).
+    const half = (span / 2) * 1.12;
+    const fovY = (this.camera.fov * Math.PI) / 180;
+    const aspect = Math.max(0.2, this.camera.aspect || 1);
+    const fovX = 2 * Math.atan(Math.tan(fovY / 2) * aspect);
+    this.topDistanceCm = Math.max(240, Math.max(half / Math.tan(fovY / 2), half / Math.tan(fovX / 2)));
   }
 
   /**
