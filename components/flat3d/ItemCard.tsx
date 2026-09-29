@@ -78,7 +78,7 @@ export function ItemCard(props: ItemCardProps) {
   return (
     <div
       ref={boxRef}
-      className="absolute left-0 top-0 z-10 rounded-xl bg-primary p-2.5 shadow-lg ring-1 ring-secondary transition-opacity"
+      className="absolute left-0 top-0 z-20 rounded-xl bg-primary p-2.5 shadow-lg ring-1 ring-secondary transition-opacity"
       style={{ opacity: 0, width: "min(92vw, 320px)" }}
     >
       <div className="flex items-start gap-2">

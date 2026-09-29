@@ -68,8 +68,10 @@ export function WalkPad({ onHold, onTurn, compact = false }: WalkPadProps) {
     "backdrop-blur-sm active:bg-brand-solid active:text-white select-none touch-none " +
     (compact ? "size-12 text-lg" : "size-14 text-xl");
 
+  // z-0: карточка предмета (z-20) обязана быть ВЫШЕ — иначе кнопки ходьбы перехватывают клики
+  // по «Заменить», когда предмет оказался в нижней части кадра (поймано CI 29.09).
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-3 flex items-end justify-between px-3">
+    <div className="pointer-events-none absolute inset-x-0 bottom-3 z-0 flex items-end justify-between px-3">
       <div className="pointer-events-auto grid grid-cols-3 gap-1.5">
         <span />
         <button
