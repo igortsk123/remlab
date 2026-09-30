@@ -1395,6 +1395,28 @@
      "soft"
     ]
    }
+  },
+  {
+   "id": "floor-photo-demo",
+   "category": "flooring",
+   "titleRu": "Ламинат «Дуб светлый» (из фото)",
+   "titleEn": "Light oak laminate (from photo)",
+   "descRu": "Текстура сделана из фотографии реального материала — так он и будет выглядеть",
+   "descEn": "Texture built from a photo of the real material",
+   "tier": "standard",
+   "packageName": "Practical",
+   "priceGbp": 0,
+   "roomKinds": [
+    "living",
+    "hall",
+    "bedroom",
+    "kitchen"
+   ],
+   "availability": "available",
+   "asset": {
+    "kind": "material",
+    "materialId": "floor-photo-demo"
+   }
   }
  ]
 }

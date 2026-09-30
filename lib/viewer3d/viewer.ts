@@ -266,7 +266,11 @@ export class FlatViewer {
     );
     const specs = all.filter((s) => allowedRooms.has(s.roomId));
     const wanted = new Map(all.map((s) => [s.slotId, s]));
+    // счётчик считаем ЗАНОВО на каждой синхронизации: раньше он копился между вызовами и
+    // «загружено» обгоняло «всего» — процент прыгал выше 100 (находка советника 30.09)
     this.totalCount = specs.length;
+    this.loadedCount = specs.filter((sp) => this.placed.get(sp.slotId)?.signature === signatureOf(sp)).length;
+    this.events.onProgress?.(Math.min(this.loadedCount, this.totalCount), this.totalCount);
 
     for (const [slotId, p] of [...this.placed]) {
       const next = wanted.get(slotId);
@@ -348,7 +352,7 @@ export class FlatViewer {
       } finally {
         this.pendingUrls.delete(spec.url);
         this.loadedCount += 1;
-        this.events.onProgress?.(this.loadedCount, this.totalCount);
+        this.events.onProgress?.(Math.min(this.loadedCount, this.totalCount), this.totalCount);
       }
       return;
     }
@@ -406,7 +410,7 @@ export class FlatViewer {
     this.scene.add(group);
     this.placed.set(spec.slotId, { spec, group, signature: signatureOf(spec) });
     this.loadedCount += 1;
-    this.events.onProgress?.(this.loadedCount, this.totalCount);
+    this.events.onProgress?.(Math.min(this.loadedCount, this.totalCount), this.totalCount);
   }
 
   // ── управление ───────────────────────────────────────────────────────────

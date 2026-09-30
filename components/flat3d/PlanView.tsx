@@ -17,13 +17,15 @@ interface PlanViewProps {
   activeRoomId: string | null;
   selectedSlotId: string | null;
   onRoom: (roomId: string) => void;
+  /** Войти в комнату в 3D одним действием: выбрать комнату, включить бродилку, подвести камеру. */
+  onEnterRoom: (roomId: string) => void;
   onSlot: (slotId: string) => void;
   lang: Lang;
 }
 
 const PAD = 40;
 
-export function PlanView({ apartment, scene, activeRoomId, selectedSlotId, onRoom, onSlot, lang }: PlanViewProps) {
+export function PlanView({ apartment, scene, activeRoomId, selectedSlotId, onRoom, onEnterRoom, onSlot, lang }: PlanViewProps) {
   const minX = Math.min(...apartment.rooms.map((r) => r.x));
   const minY = Math.min(...apartment.rooms.map((r) => r.y));
   const maxX = Math.max(...apartment.rooms.map((r) => r.x + r.w));
@@ -72,6 +74,34 @@ export function PlanView({ apartment, scene, activeRoomId, selectedSlotId, onRoo
               >
                 {((room.w * room.d) / 10000).toFixed(1)} м²
               </text>
+              {/* Кнопка «войти»: клик по ней ведёт ПРЯМО в комнату в 3D (как у конкурента —
+                  красные кружки на плане). Клик по самой комнате только выбирает её. */}
+              <g
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEnterRoom(room.id);
+                }}
+                style={{ cursor: "pointer" }}
+              >
+                <title>{lang === "en" ? `Walk into ${room.titleEn}` : `Войти: ${room.titleRu}`}</title>
+                <circle
+                  cx={room.x + room.w / 2}
+                  cy={room.y + room.d / 2}
+                  r={34}
+                  fill="var(--color-bg-brand-solid)"
+                  opacity={0.92}
+                />
+                <text
+                  x={room.x + room.w / 2}
+                  y={room.y + room.d / 2 + 9}
+                  textAnchor="middle"
+                  fontSize={26}
+                  fill="#ffffff"
+                  style={{ pointerEvents: "none" }}
+                >
+                  ▸
+                </text>
+              </g>
             </g>
           );
         })}

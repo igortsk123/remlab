@@ -139,16 +139,39 @@ def plank_angle(grey: np.ndarray) -> float:
 
 
 def plank_width_px(tile: np.ndarray) -> float | None:
-    """Ширина доски в пикселях: самый сильный период в профиле поперёк досок."""
+    """Ширина доски в пикселях — по ТЁМНЫМ ЛИНИЯМ ШВОВ, а не по автокорреляции.
+
+    Автокорреляция профиля перепадов цеплялась за рисунок древесины и давала 26 или 102 px там,
+    где доска ~420 px (замеры 30.09), а от этого числа зависит масштаб доски на полу. Швы между
+    досками — это узкие тёмные вертикальные линии: находим их как провалы яркости и берём
+    медианное расстояние между соседними.
+    """
     grey = np.asarray(Image.fromarray(tile).convert("L"), np.float32)
-    prof = np.abs(np.diff(grey, axis=1)).mean(0)  # перепады поперёк (доски идут вертикально)
-    prof = prof - prof.mean()
-    if prof.std() < 1e-3:
-        return None
-    ac = np.correlate(prof, prof, mode="full")[len(prof) - 1 :]
-    ac[: max(8, len(prof) // 40)] = 0  # слишком мелкие периоды — это шум и фаска
-    k = int(np.argmax(ac[: len(prof) // 2]))
-    return float(k) if k > 0 else None
+    col = grey.mean(0)
+    # сглаживаем, чтобы не ловить отдельные тёмные волокна
+    k = max(3, len(col) // 200)
+    sm = np.convolve(col, np.ones(k) / k, mode="same")
+    thr = sm.mean() - 0.8 * sm.std()
+    dark = sm < thr
+    # центры провалов
+    seams: list[int] = []
+    i = 0
+    while i < len(dark):
+        if dark[i]:
+            j = i
+            while j + 1 < len(dark) and dark[j + 1]:
+                j += 1
+            if j - i < len(col) // 12:        # широкая тёмная область — это не шов, а тень
+                seams.append((i + j) // 2)
+            i = j + 1
+        else:
+            i += 1
+    if len(seams) >= 2:
+        gaps = np.diff(seams)
+        gaps = gaps[gaps > len(col) // 20]     # соседние линии одного шва не считаем
+        if gaps.size:
+            return float(np.median(gaps))
+    return None
 
 
 def best_patch(img: Image.Image, top: int = 12) -> list[tuple[Image.Image, dict]]:

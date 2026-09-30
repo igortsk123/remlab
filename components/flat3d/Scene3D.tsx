@@ -49,6 +49,10 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
   const framedRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [progress, setProgress] = useState(0);
+  // первый показ закрываем большим экраном загрузки, дальше — только тонкой подсказкой:
+  // комнаты догружаются на ходу, и накрывать ими всю сцену нельзя
+  const [firstLoadDone, setFirstLoadDone] = useState(false);
   const [hintDone, setHintDone] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
@@ -70,6 +74,14 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
         const quality: QualityProfile = lite ? mod.LITE_QUALITY : mod.DESKTOP_QUALITY;
         const viewer = new mod.FlatViewer(canvas, apartment, catalogue, quality, {
           onRoomChange,
+          // честный процент: человеку на медленном телефоне нужно видеть, что идёт загрузка,
+          // а не пустой экран (референс конкурента, владелец 30.09)
+          onProgress: (loaded, total) => {
+            if (cancelled) return;
+            const p = total > 0 ? Math.min(1, loaded / total) : 1;
+            setProgress(p);
+            if (p >= 1) setFirstLoadDone(true);
+          },
         });
         viewerRef.current = viewer;
         // отладочный доступ: e2e и ручная проверка спрашивают у сцены её состояние
@@ -222,11 +234,26 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
         role="img"
       />
       {/* СОСТОЯНИЯ ЭКРАНА (правило ui-rules): загрузка, отказ WebGL с повтором, готово. */}
-      {!ready && !error ? (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl bg-secondary">
-          <p className="rounded-lg bg-primary px-4 py-2 text-sm text-secondary ring-1 ring-inset ring-secondary">
-            {loadingText}
-          </p>
+      {(!ready || progress < 1) && !firstLoadDone ? (
+        error ? null : (
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-xl bg-secondary">
+            <p className="text-sm text-secondary">{loadingText}</p>
+            <div className="h-1.5 w-56 overflow-hidden rounded-full bg-primary">
+              <div
+                className="h-full rounded-full bg-brand-solid"
+                style={{ width: `${Math.round(progress * 100)}%`, transition: "width 200ms linear" }}
+              />
+            </div>
+            <p className="text-xs text-tertiary" data-flat3d="progress">
+              {Math.round(progress * 100)}%
+            </p>
+          </div>
+        )
+      ) : null}
+
+      {firstLoadDone && progress < 1 && !error ? (
+        <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full bg-primary px-3 py-1 text-xs text-secondary ring-1 ring-inset ring-secondary">
+          {loadingText} · {Math.round(progress * 100)}%
         </div>
       ) : null}
 

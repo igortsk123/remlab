@@ -23,10 +23,18 @@ describe("конфигуратор: данные демо-квартиры", () 
   });
 
   it("в основных категориях ровно «база + 3», и ровно один вариант premium", () => {
+    // Правило «база + 3» — про НАШУ подборку: столько вариантов человек осилит сравнить.
+    // Материалы, сделанные из фотографии застройщика (`photo-material`, ADR-0226), считаются
+    // отдельно: их число диктует застройщик, а не мы, и прятать их ради красивого счёта нельзя.
+    const fromDeveloperPhoto = (o: { asset: { kind: string; materialId?: string } }): boolean => {
+      if (o.asset.kind !== "material") return false;
+      const m = catalogue.materials.find((x) => x.id === o.asset.materialId);
+      return m?.source?.kind === "photo-material";
+    };
     for (const id of ["living-floor", "kitchen-units", "kitchen-appliances", "bathroom-tiles", "bathroom-floor"]) {
       const slot = apartment.slots.find((s) => s.id === id);
       expect(slot, id).toBeTruthy();
-      const opts = optionsForSlot(apartment, catalogue, slot!);
+      const opts = optionsForSlot(apartment, catalogue, slot!).filter((o) => !fromDeveloperPhoto(o));
       expect(opts.length, id).toBe(4);
       expect(opts.filter((o) => o.tier === "base").length, `${id}: база`).toBe(1);
       expect(opts.filter((o) => o.tier === "premium").length, `${id}: premium`).toBe(1);

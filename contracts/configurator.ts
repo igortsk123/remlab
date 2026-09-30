@@ -37,15 +37,26 @@ export const material = z.object({
    * (владелец 29.09: «не все поверхности применимы»). Пусто = ограничений нет.
    */
   surfaces: z.array(z.enum(["floor", "wall", "worktop", "splashback", "front", "rug"])).default([]),
-  /** Откуда фактура: фото товара (с провенансом) или процедурная генерация. */
+  /**
+   * Откуда фактура. Три разных происхождения, и их нельзя путать:
+   * `photo` — снята с карточки ТОВАРА (есть магазин, ссылка, цена);
+   * `photo-material` — снята с фотографии МАТЕРИАЛА, которую дал застройщик (ADR-0226):
+   *   товара за ней нет, зато есть источник фото, лицензия и физический размер;
+   * `procedural` — нарисована программой, фотографии под неё не было.
+   */
   source: z
     .object({
-      kind: z.enum(["photo", "procedural"]),
+      kind: z.enum(["photo", "photo-material", "procedural"]),
       productSid: z.string().optional(),
       productName: z.string().optional(),
       shop: z.string().optional(),
       productUrl: z.string().optional(),
       imageUrl: z.string().optional(),
+      sourceUrl: z.string().optional(),
+      licence: z.string().optional(),
+      note: z.string().optional(),
+      method: z.string().optional(),
+      realCm: z.array(z.number()).optional(),
       seamError: z.number().optional(),
       patch: z.record(z.string(), z.unknown()).optional(),
     })

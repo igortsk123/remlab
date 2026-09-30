@@ -141,20 +141,49 @@ export function buildKitchen(ctx: KitCtx, spec: KitchenSpec): THREE.Group {
   g.add(boxOn(runW + (tall ? tallW : 0), WORKTOP_H, D + 2, -W / 2 + (runW + (tall ? tallW : 0)) / 2, BASE_TOP, 1, topMat));
   g.add(boxOn(W, SPLASH_TOP - (BASE_TOP + WORKTOP_H), 1.5, 0, BASE_TOP + WORKTOP_H, back + 0.5, splashMat));
 
-  // мойка со смесителем
+  // МОЙКА: настоящая чаша, а не пластина. Плоская накладка сливалась со столешницей —
+  // владелец 30.09: «раковину практически не видно». Чашу собираем из стенок и дна:
+  // вырезать отверстие в столешнице нечем (CSG нет), но тёмное углубление читается сразу.
   const sink = slots[sinkIdx];
   if (sink) {
-    g.add(boxOn(Math.min(sink.w - 14, 52), 1.2, 40, sink.x, BASE_TOP + WORKTOP_H - 1.2, 2, METAL));
-    g.add(cylinder(1.6, 1.6, 26, sink.x, BASE_TOP + WORKTOP_H, back + 8, METAL, 10));
-    const spout = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.18), METAL);
-    spout.position.set(sink.x * CM, (BASE_TOP + WORKTOP_H + 25) * CM, (back + 17) * CM);
-    g.add(spout);
+    const top = BASE_TOP + WORKTOP_H;      // уровень столешницы
+    const sw = Math.min(sink.w - 14, 52);  // ширина чаши
+    const sd = 40;                          // глубина чаши по горизонтали
+    const deep = 16;                        // насколько чаша утоплена
+    const wall = 1.2;
+    const bowl = new THREE.MeshStandardMaterial({ color: 0xb9bec3, roughness: 0.3, metalness: 0.85 });
+    const rim = new THREE.MeshStandardMaterial({ color: 0xd2d6da, roughness: 0.2, metalness: 0.9 });
+    // дно и четыре стенки
+    g.add(boxOn(sw, wall, sd, sink.x, top - deep, 2, bowl));
+    g.add(boxOn(wall, deep, sd, sink.x - sw / 2, top - deep, 2, bowl));
+    g.add(boxOn(wall, deep, sd, sink.x + sw / 2, top - deep, 2, bowl));
+    g.add(boxOn(sw, deep, wall, sink.x, top - deep, 2 - sd / 2, bowl));
+    g.add(boxOn(sw, deep, wall, sink.x, top - deep, 2 + sd / 2, bowl));
+    // бортик по периметру — он и даёт «блик», по которому мойку видно издалека
+    const lip = 3;
+    g.add(boxOn(sw + lip * 2, 1.4, lip, sink.x, top - 1.4, 2 - sd / 2 - lip / 2, rim));
+    g.add(boxOn(sw + lip * 2, 1.4, lip, sink.x, top - 1.4, 2 + sd / 2 + lip / 2, rim));
+    g.add(boxOn(lip, 1.4, sd, sink.x - sw / 2 - lip / 2, top - 1.4, 2, rim));
+    g.add(boxOn(lip, 1.4, sd, sink.x + sw / 2 + lip / 2, top - 1.4, 2, rim));
+    // слив
+    g.add(cylinder(4, 4, 0.8, sink.x, top - deep + wall, 2, rim, 14));
+    // смеситель: стойка выше, излив длиннее — иначе теряется на фоне фартука
+    g.add(cylinder(1.8, 2.2, 30, sink.x, top, back + 7, rim, 12));
+    g.add(cylinder(1.4, 1.4, 18, sink.x, top + 29, back + 7, rim, 12).rotateX(Math.PI / 2));
   }
 
-  // варочная панель
+  // ВАРОЧНАЯ ПАНЕЛЬ: стекло плюс четыре конфорки — иначе это просто тёмный прямоугольник
   const hob = slots[hobIdx];
   if (hob && has("hob")) {
-    g.add(boxOn(Math.min(hob.w - 8, 58), 1.4, 50, hob.x, BASE_TOP + WORKTOP_H - 0.6, 1, DARK_GLASS));
+    const top = BASE_TOP + WORKTOP_H;
+    const hw = Math.min(hob.w - 8, 58);
+    g.add(boxOn(hw, 1.4, 50, hob.x, top - 0.6, 1, DARK_GLASS));
+    const ring = new THREE.MeshStandardMaterial({ color: 0x4a4f55, roughness: 0.4, metalness: 0.2 });
+    for (const dx of [-hw / 4, hw / 4]) {
+      for (const dz of [-11, 11]) {
+        g.add(cylinder(8, 8, 0.3, hob.x + dx, top + 0.8, 1 + dz, ring, 20));
+      }
+    }
   }
 
   // ── верхние шкафы ───────────────────────────────────────────────────────

@@ -180,6 +180,50 @@
    }
   },
   {
+   "id": "floor-photo-demo",
+   "titleRu": "Ламинат «Дуб светлый» (фото застройщика)",
+   "titleEn": "Ламинат «Дуб светлый» (фото застройщика)",
+   "colorHex": "#c7bba9",
+   "roughness": 0.5,
+   "metalness": 0.0,
+   "tileCm": [
+    55.0,
+    55.0
+   ],
+   "baseColorUrl": "floor-photo-demo.webp",
+   "normalUrl": "floor-photo-demo-n.webp",
+   "roughnessUrl": "floor-photo-demo-r.webp",
+   "aoUrl": "floor-photo-demo-ao.webp",
+   "previewUrl": "floor-photo-demo-preview.webp",
+   "surfaces": [
+    "floor"
+   ],
+   "source": {
+    "kind": "photo-material",
+    "src": "owner-laminate.jpg",
+    "sourceUrl": "",
+    "licence": "",
+    "plankPx": 354.0,
+    "plankCm": 19.0,
+    "rotatedDeg": 178.0,
+    "patch": {
+     "luma": 189.3,
+     "sharp": 5.8,
+     "at": [
+      528,
+      352
+     ],
+     "win": 532
+    },
+    "seamError": 0.89,
+    "blob": 0.045,
+    "quad": 0.001,
+    "gate": true,
+    "tried": 1,
+    "note": "фотография материала от владельца (ADR-0226): застройщик присылает снимок — покупатель видит именно этот пол"
+   }
+  },
+  {
    "id": "front-graphite",
    "titleRu": "Фасад «Комод divan.ru Квелен 192x89 Графитовы»",
    "titleEn": "Фасад «Комод divan.ru Квелен 192x89 Графитовы»",

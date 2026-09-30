@@ -276,7 +276,8 @@
     "floor-lvt-oak-light",
     "floor-oak-natural",
     "floor-porcelain-grey",
-    "floor-parquet-premium"
+    "floor-parquet-premium",
+    "floor-photo-demo"
    ]
   },
   {
@@ -596,7 +597,8 @@
     "kfloor-porcelain-grey",
     "kfloor-lvt-oak",
     "kfloor-graphite",
-    "kfloor-marble"
+    "kfloor-marble",
+    "floor-photo-demo"
    ]
   },
   {
@@ -747,7 +749,8 @@
     "bed-floor-carpet-beige",
     "bed-floor-carpet-grey",
     "bed-floor-oak",
-    "bed-floor-walnut"
+    "bed-floor-walnut",
+    "floor-photo-demo"
    ]
   },
   {
@@ -851,7 +854,8 @@
     "floor-porcelain-grey",
     "floor-lvt-oak-light",
     "floor-porcelain-graphite",
-    "floor-parquet-premium"
+    "floor-parquet-premium",
+    "floor-photo-demo"
    ]
   },
   {

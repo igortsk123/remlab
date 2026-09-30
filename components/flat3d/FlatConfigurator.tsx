@@ -110,6 +110,14 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: 
     [apartment.slots, roomId],
   );
 
+  // «Войти в комнату» с плана — ОДНИМ действием: выбрать комнату, включить бродилку и подвести
+  // камеру. Раньше клик по плану только менял комнату, и человек оставался на чертеже.
+  const enterRoom = useCallback((id: string) => {
+    setRoomId(id);
+    setSlotId(null);
+    setMode("walk");
+  }, []);
+
   const save = useCallback(async () => {
     setSaveState("saving");
     try {
@@ -276,6 +284,7 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: 
             activeRoomId={roomId}
             selectedSlotId={slotId}
             onRoom={(id) => setRoomId(id)}
+            onEnterRoom={enterRoom}
             onSlot={onPickSlot}
             lang={lang}
           />
