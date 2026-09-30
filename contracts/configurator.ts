@@ -139,15 +139,35 @@ export const catalogue = z.object({
 });
 export type Catalogue = z.infer<typeof catalogue>;
 
-/** Выбор покупателя. Только id — никакой геометрии и цен, они выводятся. */
+/** Куда покупатель передвинул предмет. Габариты сюда НЕ пишем — они у выбранной модели. */
+export const placementOverride = z.object({
+  x: z.number(),
+  y: z.number(),
+  rot: z.number(),
+});
+export type PlacementOverride = z.infer<typeof placementOverride>;
+
+/**
+ * Выбор покупателя: что выбрано и что передвинуто. Цен и габаритов здесь нет — они выводятся.
+ *
+ * Версия 2 добавила `placements`: без них передвинутую мебель некуда сохранять, и 3D разошлось бы
+ * с планом, фото и сохранённой ссылкой (находка советника 30.09). Старые подборы (версия 1)
+ * читаются и поднимаются до версии 2 функцией `upgradeConfiguration`.
+ */
 export const configuration = z.object({
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(2)]),
   apartmentId: z.string(),
   developerId: z.string(),
   selections: z.record(z.string(), z.string()), // slotId → optionId
+  placements: z.record(z.string(), placementOverride).default({}), // slotId → куда передвинули
   updatedAt: z.string().optional(),
 });
 export type Configuration = z.infer<typeof configuration>;
+
+/** Поднять старый подбор до версии 2 — без этого ссылки, выданные до 30.09, перестали бы читаться. */
+export function upgradeConfiguration(cfg: Configuration): Configuration {
+  return cfg.version === 2 ? cfg : { ...cfg, version: 2, placements: cfg.placements ?? {} };
+}
 
 /** Заявка менеджеру: конфигурация + контакт. Контакт валидируем мягко — это демо. */
 export const configSaveIn = z.object({

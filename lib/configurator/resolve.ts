@@ -83,7 +83,7 @@ export function optionsForSlot(a: Apartment, c: Catalogue, slot: Slot): Option[]
 export function defaultConfiguration(a: Apartment, c: Catalogue): Configuration {
   const selections: Record<string, string> = {};
   for (const s of a.slots) selections[s.id] = s.defaultOptionId;
-  return { version: 1, apartmentId: a.id, developerId: c.developerId, selections };
+  return { version: 2, apartmentId: a.id, developerId: c.developerId, selections, placements: {} };
 }
 
 function priceOf(o: Option): number {
@@ -187,7 +187,11 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
     }
 
     if (!slot.placement) continue; // предмет без места не существует (правило Р1 демо)
-    const placement = fitPlacement(slot.placement, opt.asset);
+    // Куда покупатель передвинул/повернул предмет. Габариты берём у ВЫБРАННОЙ модели, а не из
+    // подбора: иначе после замены на предмет другого размера сохранилась бы старая коробка.
+    const moved = config.placements?.[slot.id];
+    const base = moved ? { ...slot.placement, x: moved.x, y: moved.y, rot: moved.rot } : slot.placement;
+    const placement = fitPlacement(base, opt.asset);
     items.push({
       slotId: slot.id,
       roomId: slot.roomId,

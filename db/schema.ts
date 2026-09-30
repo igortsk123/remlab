@@ -298,6 +298,11 @@ export const flatConfigs = pgTable(
     apartmentRevision: text("apartment_revision"),
     catalogueRevision: text("catalogue_revision"),
     selections: jsonb("selections").$type<Record<string, string>>().notNull(),
+    /** Куда покупатель передвинул/повернул предметы: slotId → {x, y, rot} в см и градусах. */
+    placements: jsonb("placements")
+      .$type<Record<string, { x: number; y: number; rot: number }>>()
+      .notNull()
+      .default({}),
     quote: jsonb("quote").$type<Record<string, unknown>>().notNull(),
     contact: jsonb("contact").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

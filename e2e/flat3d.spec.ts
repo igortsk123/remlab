@@ -210,3 +210,74 @@ test("3D открывается на весь экран, крестик воз�
   await expect(page.getByRole("tab", { name: "Фото" })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("canvas")).toHaveCount(0);
 });
+
+test("мебель можно передвинуть и повернуть, и это переживает перезагрузку", async ({ page }) => {
+  // Требование владельца 30.09: «делай перетаскивание» и «поворачивать предметы надо уметь».
+  // Главное здесь — не сам жест, а то, что новое место СОХРАНЯЕТСЯ: иначе 3D разойдётся
+  // с планом, фото и сохранённой ссылкой.
+  test.setTimeout(150_000);
+  await page.goto("/flat");
+  await page.getByRole("tab", { name: "Бродилка" }).click();
+  const canvas = page.locator("canvas");
+  await expect(canvas).toBeVisible();
+  for (let i = 0; i < 25; i += 1) {
+    const placed = await page.evaluate(() => {
+      const v = (window as unknown as { __flatViewer?: { debugState(): { placed: number } } }).__flatViewer;
+      return v ? v.debugState().placed : 0;
+    });
+    if (placed >= 12) break;
+    await page.waitForTimeout(700);
+  }
+
+  await page.locator('[data-slot="living-armchair"]').click();
+  const move = page.getByRole("button", { name: "Передвинуть" });
+  await expect(move).toBeVisible();
+  const before = await page.evaluate(() => {
+    const v = (window as unknown as { __flatViewer?: { projectSlot(id: string): { x: number; y: number; visible: boolean } | null } }).__flatViewer;
+    return v ? v.projectSlot("living-armchair") : null;
+  });
+  await move.click();
+
+  // поворот: кнопки появились и меняют черновик
+  await expect(page.getByRole("button", { name: "Повернуть вправо" })).toBeVisible();
+  const rotBefore = await page.evaluate(() => (window as unknown as { __flatViewer?: { moveDraft(): { rot: number } | null } }).__flatViewer?.moveDraft()?.rot ?? null);
+  await page.getByRole("button", { name: "Повернуть вправо" }).click();
+  const rotAfter = await page.evaluate(() => (window as unknown as { __flatViewer?: { moveDraft(): { rot: number } | null } }).__flatViewer?.moveDraft()?.rot ?? null);
+  expect(rotAfter, "поворот изменил черновик").not.toBe(rotBefore);
+  // возвращаем угол обратно, чтобы предмет остался «ставимым»
+  await page.getByRole("button", { name: "Повернуть влево" }).click();
+
+  // Двигаем предмет и ставим кнопкой. Тянуть мышью по пикселям в тесте ненадёжно (кадровка
+  // зависит от размера окна, предмет может уехать в стену) — сам жест проверен вручную, а тест
+  // стережёт главное: новое место доезжает до подбора и переживает перезагрузку.
+  await page.evaluate(() => {
+    const v = (window as unknown as {
+      __flatViewer?: {
+        moveDraft(): { x: number; y: number; rot: number } | null;
+        moveDraftTo(x: number, y: number, ok: boolean): void;
+      };
+    }).__flatViewer;
+    const d = v?.moveDraft();
+    if (v && d) v.moveDraftTo(d.x - 25, d.y + 25, true);
+  });
+  await page.waitForTimeout(300);
+  const put = page.getByRole("button", { name: "Поставить" });
+  if ((await put.count()) > 0) await put.click();
+  await page.waitForTimeout(700);
+
+  const saved = await page.evaluate(() => {
+    const raw = window.localStorage.getItem("remlab.flat3d.v1.demo-uk-1");
+    return raw ? (JSON.parse(raw) as { placements?: Record<string, unknown> }).placements ?? {} : {};
+  });
+  expect(Object.keys(saved), "новое место записано в подбор").toContain("living-armchair");
+
+  // и переживает перезагрузку
+  await page.reload();
+  await page.getByRole("tab", { name: "Бродилка" }).click();
+  await page.waitForTimeout(2000);
+  const afterReload = await page.evaluate(() => {
+    const raw = window.localStorage.getItem("remlab.flat3d.v1.demo-uk-1");
+    return raw ? (JSON.parse(raw) as { placements?: Record<string, unknown> }).placements ?? {} : {};
+  });
+  expect(Object.keys(afterReload), "после перезагрузки место осталось").toContain("living-armchair");
+});

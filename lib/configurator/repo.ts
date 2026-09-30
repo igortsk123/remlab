@@ -67,10 +67,11 @@ export async function saveConfig(input: SaveInput): Promise<string> {
       id,
       apartmentId: input.configuration.apartmentId,
       developerId: input.configuration.developerId,
-      schemaVersion: 1,
+      schemaVersion: 2,
       apartmentRevision: input.apartmentRevision,
       catalogueRevision: input.catalogueRevision,
       selections: input.configuration.selections,
+      placements: input.configuration.placements ?? {},
       quote: input.quote as unknown as Record<string, unknown>,
       contact: input.contact ?? null,
     });
@@ -85,10 +86,13 @@ export async function readConfig(id: string): Promise<SavedConfig | null> {
   return {
     id: row.id,
     configuration: {
-      version: 1,
+      // старые записи (до 30.09) хранят только выбор — поднимаем до версии 2 с пустыми
+      // перемещениями, иначе выданные раньше ссылки перестали бы открываться
+      version: 2,
       apartmentId: row.apartmentId,
       developerId: row.developerId,
       selections: row.selections,
+      placements: (row.placements as Record<string, { x: number; y: number; rot: number }>) ?? {},
       updatedAt: row.updatedAt.toISOString(),
     },
     quote: row.quote as unknown as Quote,

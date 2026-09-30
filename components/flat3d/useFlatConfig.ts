@@ -17,6 +17,10 @@ export interface FlatConfigState {
   scene: ResolvedScene;
   hydrated: boolean;
   choose: (slotId: string, optionId: string) => void;
+  /** Запомнить, куда покупатель передвинул/повернул предмет (версия подбора 2). */
+  moveSlot: (slotId: string, to: { x: number; y: number; rot: number }) => void;
+  /** Вернуть предмет на место застройщика. */
+  resetSlotPlacement: (slotId: string) => void;
   reset: () => void;
   isDefault: boolean;
 }
@@ -50,12 +54,31 @@ export function useFlatConfig(
     }));
   }, []);
 
+  const moveSlot = useCallback((slotId: string, to: { x: number; y: number; rot: number }) => {
+    setConfig((c) => ({
+      ...c,
+      version: 2,
+      placements: { ...(c.placements ?? {}), [slotId]: { x: to.x, y: to.y, rot: to.rot } },
+      updatedAt: new Date().toISOString(),
+    }));
+  }, []);
+
+  const resetSlotPlacement = useCallback((slotId: string) => {
+    setConfig((c) => {
+      const next = { ...(c.placements ?? {}) };
+      delete next[slotId];
+      return { ...c, placements: next, updatedAt: new Date().toISOString() };
+    });
+  }, []);
+
   const reset = useCallback(() => setConfig(base), [base]);
 
   const isDefault = useMemo(
-    () => Object.entries(base.selections).every(([k, v]) => config.selections[k] === v),
+    () =>
+      Object.entries(base.selections).every(([k, v]) => config.selections[k] === v) &&
+      Object.keys(config.placements ?? {}).length === 0,
     [base, config],
   );
 
-  return { config, scene, hydrated, choose, reset, isDefault };
+  return { config, scene, hydrated, choose, moveSlot, resetSlotPlacement, reset, isDefault };
 }

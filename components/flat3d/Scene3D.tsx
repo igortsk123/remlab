@@ -33,6 +33,14 @@ export interface Scene3DProps {
   topView?: boolean;
   /** Сколько пикселей снизу занято панелью выбора — на столько поднимаем кнопки ходьбы. */
   bottomInsetPx?: number;
+  /** Предмет, который сейчас передвигают. Пока он задан, перетаскивание двигает ЕГО, не камеру. */
+  movingSlotId?: string | null;
+  /** Можно ли поставить предмет в эту точку — решает чистая проверка в `lib/configurator/placement`. */
+  canPlace?: (slotId: string, to: { x: number; y: number; rot: number }) => boolean;
+  /** Предмет отпустили: запомнить новое место. */
+  onMoveCommit?: (slotId: string, to: { x: number; y: number; rot: number }) => void;
+  /** Перемещение отменено (Escape) — вернуть как было. */
+  onMoveCancel?: () => void;
   hintText: string;
   loadingText: string;
   noWebglText: string;
@@ -42,6 +50,10 @@ export interface Scene3DProps {
 export function Scene3D(props: Scene3DProps): React.ReactElement {
   const { apartment, catalogue, scene, lite, roomId, onPickSlot, onRoomChange, onReady } = props;
   const { hintText, loadingText, noWebglText, retryText } = props;
+  const { movingSlotId = null, canPlace, onMoveCommit, onMoveCancel } = props;
+  // можно ли поставить предмет там, где он сейчас: от этого зависит и цвет подсветки,
+  // и доступность кнопки «Поставить» — молча не срабатывающая кнопка выглядит как поломка
+  const [dropOk, setDropOk] = useState(true);
   const { selectedSlotId, topView = false, bottomInsetPx = 0 } = props;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewerRef = useRef<FlatViewer | null>(null);
@@ -180,21 +192,50 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
     viewerRef.current?.look(deg / 0.22, 0);
   }, []);
 
-  const onPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
-    dragRef.current = { x: e.clientX, y: e.clientY, moved: 0, id: e.pointerId };
-  }, []);
+  // РЕЖИМ ПЕРЕМЕЩЕНИЯ. Пока предмет «взят», тот же жест двигает ЕГО, а не камеру — иначе
+  // попытка подвинуть диван разворачивала бы комнату (арбитраж жестов, разбор советника 30.09).
+  const dragItem = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      const viewer = viewerRef.current;
+      if (!viewer || !movingSlotId) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const pt = viewer.floorPoint(e.clientX, e.clientY, rect);
+      if (!pt) return;
+      const draft = viewer.moveDraft();
+      const rot = draft?.rot ?? 0;
+      const ok = canPlace ? canPlace(movingSlotId, { x: pt.x, y: pt.y, rot }) : true;
+      setDropOk(ok);
+      viewer.moveDraftTo(pt.x, pt.y, ok);
+    },
+    [movingSlotId, canPlace],
+  );
 
-  const onPointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    const d = dragRef.current;
-    if (!d || d.id !== e.pointerId) return;
-    const dx = e.clientX - d.x;
-    const dy = e.clientY - d.y;
-    d.x = e.clientX;
-    d.y = e.clientY;
-    d.moved += Math.abs(dx) + Math.abs(dy);
-    viewerRef.current?.look(dx, dy);
-  }, []);
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
+      dragRef.current = { x: e.clientX, y: e.clientY, moved: 0, id: e.pointerId };
+      if (movingSlotId) dragItem(e);
+    },
+    [movingSlotId, dragItem],
+  );
+
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      const d = dragRef.current;
+      if (!d || d.id !== e.pointerId) return;
+      const dx = e.clientX - d.x;
+      const dy = e.clientY - d.y;
+      d.x = e.clientX;
+      d.y = e.clientY;
+      d.moved += Math.abs(dx) + Math.abs(dy);
+      if (movingSlotId) {
+        dragItem(e);
+        return;
+      }
+      viewerRef.current?.look(dx, dy);
+    },
+    [movingSlotId, dragItem],
+  );
 
   const onPointerUp = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -202,6 +243,16 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
       dragRef.current = null;
       const viewer = viewerRef.current;
       if (!d || !viewer) return;
+      if (movingSlotId) {
+        // отпустили предмет: ставим, если место подходит; если нет — остаёмся в режиме,
+        // подсветка красная, человек тянет дальше
+        const draft = viewer.moveDraft();
+        if (draft && (!canPlace || canPlace(movingSlotId, draft))) {
+          const done = viewer.endMove();
+          if (done) onMoveCommit?.(done.slotId, { x: done.x, y: done.y, rot: done.rot });
+        }
+        return;
+      }
       if (d.moved > 12) return; // это был осмотр, а не выбор
       const rect = e.currentTarget.getBoundingClientRect();
       const hit = viewer.pick(e.clientX, e.clientY, rect);
@@ -216,8 +267,27 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
         viewer.highlight(null);
       }
     },
-    [onPickSlot],
+    [onPickSlot, movingSlotId, canPlace, onMoveCommit],
   );
+
+  // вход и выход из режима перемещения + Escape как отмена
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer || !ready) return;
+    if (movingSlotId) {
+      viewer.beginMove(movingSlotId);
+      const d = viewer.moveDraft();
+      setDropOk(d && canPlace ? canPlace(movingSlotId, d) : true);
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && movingSlotId) {
+        viewer.cancelMove();
+        onMoveCancel?.();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [movingSlotId, ready, onMoveCancel, canPlace]);
 
   return (
     <div className="relative h-full w-full">
@@ -249,6 +319,76 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
             </p>
           </div>
         )
+      ) : null}
+
+      {/* Пока предмет «взят»: повернуть, поставить, отменить. Кнопки — обычные HTML-кнопки
+          поверх картинки: их находит тест, они не пляшут при повороте камеры и всегда ≥44 px. */}
+      {movingSlotId ? (
+        <div
+          className="pointer-events-none absolute inset-x-0 flex justify-center"
+          style={{ zIndex: 12, bottom: 12 + (props.bottomInsetPx ?? 0) + 76 }}
+        >
+          <div className="pointer-events-auto flex items-center gap-1.5 rounded-2xl bg-primary/95 p-1.5 shadow-md ring-1 ring-inset ring-secondary backdrop-blur-md">
+            <button
+              type="button"
+              aria-label="Повернуть влево"
+              className="min-h-11 min-w-11 rounded-xl bg-secondary text-lg text-primary"
+              onClick={() => {
+                const v = viewerRef.current;
+                const d = v?.moveDraft();
+                if (!v || !d) return;
+                const next = { ...d, rot: (d.rot - 15 + 360) % 360 };
+                const ok = canPlace ? canPlace(movingSlotId, next) : true;
+                setDropOk(ok);
+                v.rotateDraftBy(-15, ok);
+              }}
+            >
+              ↺
+            </button>
+            <button
+              type="button"
+              aria-label="Повернуть вправо"
+              className="min-h-11 min-w-11 rounded-xl bg-secondary text-lg text-primary"
+              onClick={() => {
+                const v = viewerRef.current;
+                const d = v?.moveDraft();
+                if (!v || !d) return;
+                const next = { ...d, rot: (d.rot + 15) % 360 };
+                const ok = canPlace ? canPlace(movingSlotId, next) : true;
+                setDropOk(ok);
+                v.rotateDraftBy(15, ok);
+              }}
+            >
+              ↻
+            </button>
+            <button
+              type="button"
+              disabled={!dropOk}
+              title={dropOk ? undefined : "Здесь не встанет: место занято или предмет выходит за комнату"}
+              className="min-h-11 rounded-xl bg-brand-solid px-4 text-sm font-semibold text-white disabled:opacity-50"
+              onClick={() => {
+                const v = viewerRef.current;
+                const d = v?.moveDraft();
+                if (!v || !d) return;
+                if (canPlace && !canPlace(movingSlotId, d)) return;
+                const done = v.endMove();
+                if (done) onMoveCommit?.(done.slotId, { x: done.x, y: done.y, rot: done.rot });
+              }}
+            >
+              {dropOk ? "Поставить" : "Не встанет"}
+            </button>
+            <button
+              type="button"
+              className="min-h-11 rounded-xl px-3 text-sm text-secondary"
+              onClick={() => {
+                viewerRef.current?.cancelMove();
+                onMoveCancel?.();
+              }}
+            >
+              Отмена
+            </button>
+          </div>
+        </div>
       ) : null}
 
       {firstLoadDone && progress < 1 && !error ? (

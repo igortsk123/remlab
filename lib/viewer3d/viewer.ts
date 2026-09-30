@@ -730,6 +730,133 @@ export class FlatViewer {
     return {};
   }
 
+  // ── ПЕРЕМЕЩЕНИЕ И ПОВОРОТ ПРЕДМЕТА ──────────────────────────────────────────
+  // Во время перетаскивания React-состояние НЕ трогаем: подпись объекта включает координаты,
+  // и каждое движение пальца пересоздавало бы модель (загрузка GLB заново). Двигаем уже
+  // загруженную группу, а в подбор пишем один раз — на отпускании.
+  private moving: {
+    slotId: string;
+    from: { x: number; y: number; rot: number };
+    now: { x: number; y: number; rot: number };
+    /** Исходное положение группы в сцене — двигаем и вращаем ОТ него, без пересборки объекта. */
+    base: { posX: number; posZ: number; rotY: number };
+  } | null = null;
+  private ghost: THREE.Mesh | null = null;
+
+  /** Начать перемещение предмета. Возвращает исходное место — на случай отмены. */
+  beginMove(slotId: string): { x: number; y: number; rot: number } | null {
+    const p = this.placed.get(slotId);
+    if (!p) return null;
+    const pl = p.spec.placement;
+    const from = { x: pl.x, y: pl.y, rot: pl.rot };
+    const base = { posX: p.group.position.x, posZ: p.group.position.z, rotY: p.group.rotation.y };
+    this.moving = { slotId, from, now: { ...from }, base };
+    this.showOutline(slotId);
+    this.ensureGhost(pl.wCm, pl.dCm);
+    this.applyMove(true);
+    return from;
+  }
+
+  /** Подсветка места под предметом: зелёная — можно ставить, красная — нельзя. */
+  private ensureGhost(wCm: number, dCm: number): void {
+    if (this.ghost) {
+      this.scene.remove(this.ghost);
+      this.ghost.geometry.dispose();
+    }
+    const geo = new THREE.PlaneGeometry(wCm * CM, dCm * CM);
+    const mat = new THREE.MeshBasicMaterial({ color: 0x3aa55c, transparent: true, opacity: 0.35, depthTest: false });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.renderOrder = 998;
+    this.ghost = mesh;
+    this.scene.add(mesh);
+  }
+
+  /** Перенести черновик в новую точку. `ok` решает вызывающая сторона (проверка места). */
+  moveDraftTo(x: number, y: number, ok: boolean): void {
+    if (!this.moving) return;
+    this.moving.now.x = x;
+    this.moving.now.y = y;
+    this.applyMove(ok);
+  }
+
+  /** Повернуть черновик на шаг. */
+  rotateDraftBy(deltaDeg: number, ok: boolean): void {
+    if (!this.moving) return;
+    this.moving.now.rot = (this.moving.now.rot + deltaDeg + 360) % 360;
+    this.applyMove(ok);
+  }
+
+  private applyMove(ok: boolean): void {
+    if (!this.moving) return;
+    const p = this.placed.get(this.moving.slotId);
+    const { x, y, rot } = this.moving.now;
+    const { from, base } = this.moving;
+    if (p) {
+      // сдвиг и поворот СЧИТАЕМ ОТ ИСХОДНОГО положения группы: так отмена возвращает предмет
+      // ровно туда, где он стоял, без накопления ошибки за время перетаскивания
+      p.group.position.x = base.posX + (x - from.x) * CM;
+      p.group.position.z = base.posZ + (y - from.y) * CM;
+      // наш угол растёт по часовой стрелке, в сцене — против: отсюда минус
+      p.group.rotation.y = base.rotY - ((rot - from.rot) * Math.PI) / 180;
+    }
+    if (this.ghost) {
+      this.ghost.position.set(x * CM, 0.02, y * CM);
+      this.ghost.rotation.z = (-rot * Math.PI) / 180;
+      (this.ghost.material as THREE.MeshBasicMaterial).color.set(ok ? 0x3aa55c : 0xc0392b);
+    }
+    // контур обязан ехать вместе с предметом — иначе он «отстаёт» и показывает старое место
+    this.showOutline(this.moving.slotId);
+  }
+
+  /** Текущее положение черновика. */
+  moveDraft(): { x: number; y: number; rot: number } | null {
+    return this.moving ? { ...this.moving.now } : null;
+  }
+
+  /** Завершить перемещение: вернуть куда встало (вызывающая сторона запишет в подбор). */
+  endMove(): { slotId: string; x: number; y: number; rot: number } | null {
+    if (!this.moving) return null;
+    const out = { slotId: this.moving.slotId, ...this.moving.now };
+    this.clearMove();
+    return out;
+  }
+
+  /** Отменить перемещение — предмет возвращается ровно туда, где стоял. */
+  cancelMove(): void {
+    if (!this.moving) return;
+    const { slotId, from } = this.moving;
+    this.moving.now = { ...from };
+    this.applyMove(true);
+    this.clearMove();
+    this.showOutline(slotId);
+  }
+
+  private clearMove(): void {
+    this.moving = null;
+    if (this.ghost) {
+      this.scene.remove(this.ghost);
+      this.ghost.geometry.dispose();
+      (this.ghost.material as THREE.Material).dispose();
+      this.ghost = null;
+    }
+  }
+
+  /** Точка на полу под курсором — куда тянут предмет. */
+  floorPoint(clientX: number, clientY: number, rect: DOMRect): { x: number; y: number } | null {
+    const ndc = new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const hit = this.raycaster.intersectObjects(this.floors, false)[0];
+    if (hit) return { x: hit.point.x / CM, y: hit.point.z / CM };
+    // мимо пола — считаем пересечение с горизонтальной плоскостью на уровне пола
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const pt = new THREE.Vector3();
+    return this.raycaster.ray.intersectPlane(plane, pt) ? { x: pt.x / CM, y: pt.z / CM } : null;
+  }
+
   /**
    * Контур вокруг выбранного предмета. Синий круг на полу владелец забраковал (29.09): у
    * широких вещей вроде кухни он превращался в дугу через весь экран. Контур по габариту

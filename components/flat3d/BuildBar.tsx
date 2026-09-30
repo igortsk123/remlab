@@ -25,6 +25,10 @@ interface BuildBarProps {
   onRoom: (roomId: string) => void;
   onSlot: (slotId: string) => void;
   onChoose: (slotId: string, optionId: string) => void;
+  /** Взять предмет и передвинуть его по комнате (только в 3D). */
+  onMove?: (slotId: string) => void;
+  /** Вернуть предмет на место застройщика — показываем, только если его двигали. */
+  onResetPlacement?: () => void;
   onClose: () => void;
 }
 
@@ -67,6 +71,7 @@ function tileLayout(count: number, width: number): { size: number; rows: 1 | 2 }
 
 export function BuildBar(props: BuildBarProps) {
   const { apartment, catalogue, roomId, slotId, selections, lang, onRoom, onSlot, onChoose, onClose } = props;
+  const { onMove, onResetPlacement } = props;
   const slots = apartment.slots.filter((s) => s.roomId === roomId);
   const active: Slot | undefined = slots.find((s) => s.id === slotId) ?? slots[0];
   const options: Option[] = active ? optionsForSlot(apartment, catalogue, active) : [];
@@ -138,18 +143,44 @@ export function BuildBar(props: BuildBarProps) {
       {/* ПЛИТКИ ВАРИАНТОВ: два ряда, прокрутка вбок */}
       <div className="min-w-0 flex-1" ref={stripRef}>
         {current ? (
-          <p className="mb-1 truncate text-xs text-tertiary">
-            {lang === "en" ? current.titleEn : current.titleRu}
-            {current.listPriceGbp ? ` · ${formatGbp(current.listPriceGbp, lang)}` : ""}
-            {current.shopUrl ? (
-              <>
-                {" · "}
-                <a href={current.shopUrl} target="_blank" rel="noopener noreferrer nofollow" className="underline">
-                  {lang === "en" ? "view in shop" : "смотреть в магазине"}
-                </a>
-              </>
+          /* Строка над лентой: название с ценой (может обрезаться) и ДЕЙСТВИЯ отдельными
+             кнопками. Раньше кнопки жили внутри той же обрезаемой строки и просто исчезали. */
+          <div className="mb-1 flex items-center gap-2">
+            <p className="min-w-0 flex-1 truncate text-xs text-tertiary">
+              {lang === "en" ? current.titleEn : current.titleRu}
+              {current.listPriceGbp ? ` · ${formatGbp(current.listPriceGbp, lang)}` : ""}
+              {current.shopUrl ? (
+                <>
+                  {" · "}
+                  <a href={current.shopUrl} target="_blank" rel="noopener noreferrer nofollow" className="underline">
+                    {lang === "en" ? "view in shop" : "смотреть в магазине"}
+                  </a>
+                </>
+              ) : null}
+            </p>
+            {/* Передвинуть можно только отдельно стоящую мебель: кухня, шкаф и покрытия
+                привязаны к стене и к комнате. */}
+            {onMove && active && active.kind === "furniture" ? (
+              <button
+                type="button"
+                onClick={() => onMove(active.id)}
+                className="shrink-0 rounded-lg bg-secondary px-3 py-1 text-xs font-medium text-primary ring-1 ring-inset ring-secondary"
+                style={{ minHeight: 32 }}
+              >
+                {lang === "en" ? "Move" : "Передвинуть"}
+              </button>
             ) : null}
-          </p>
+            {onResetPlacement ? (
+              <button
+                type="button"
+                onClick={onResetPlacement}
+                className="shrink-0 rounded-lg px-2 py-1 text-xs text-secondary"
+                style={{ minHeight: 32 }}
+              >
+                {lang === "en" ? "Back to plan" : "Вернуть на место"}
+              </button>
+            ) : null}
+          </div>
         ) : null}
         {/* два ряда плиток, прокрутка вбок; ширина колонки задана жёстко, иначе одна длинная
             подпись растягивает всю колонку и в ленте появляются дыры */}

@@ -189,11 +189,11 @@
    "asset": {
     "kind": "mesh",
     "meshId": "112923_9337348504771615560",
-    "yawDeg": 180.0,
+    "yawDeg": 0.0,
     "wCm": 100,
     "dCm": 85,
     "hCm": 88,
-    "frontSource": "orient"
+    "frontSource": "manual"
    },
    "previewUrl": "https://remont-lab.online/demo/img/90f095a0bdf7739e.jpg",
    "shopUrl": "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fproduct%2Fkreslo-koto-cozy-ecru&erid=2SDnjeSGLnX",

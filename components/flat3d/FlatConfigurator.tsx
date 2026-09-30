@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Apartment } from "@/contracts/apartment";
 import type { Catalogue, Configuration } from "@/contracts/configurator";
 import { formatGbp, t, type Lang } from "@/lib/configurator/i18n";
+import { checkPlacement, type Box } from "@/lib/configurator/placement";
 import { useFlatConfig } from "@/components/flat3d/useFlatConfig";
 import { BuildBar } from "@/components/flat3d/BuildBar";
 import { PlanView } from "@/components/flat3d/PlanView";
@@ -30,7 +31,12 @@ interface Props {
 
 export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: Props) {
   const L = t(lang);
-  const { config, scene, choose, reset, isDefault } = useFlatConfig(apartment, catalogue, initialConfig);
+  const { config, scene, choose, moveSlot, resetSlotPlacement, reset, isDefault } = useFlatConfig(
+    apartment,
+    catalogue,
+    initialConfig,
+  );
+  const [movingSlotId, setMovingSlotId] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("plan");
   const [mobile, setMobile] = useState(false);
   const [barOpen, setBarOpen] = useState(true);
@@ -117,6 +123,48 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: 
     setSlotId(null);
     setMode("walk");
   }, []);
+
+  // Коробки всех предметов сцены — вход для проверки «сюда можно / сюда нельзя».
+  const boxes: Box[] = useMemo(
+    () =>
+      scene.items.map((i) => {
+        const slot = apartment.slots.find((s) => s.id === i.slotId);
+        return {
+          slotId: i.slotId,
+          x: i.placement.x,
+          y: i.placement.y,
+          rot: i.placement.rot,
+          wCm: i.placement.wCm,
+          dCm: i.placement.dCm,
+          role: slot?.photoRole ?? undefined,
+          flat: (i.placement.elevCm ?? 0) > 40 || (i.asset.kind === "kit" && i.asset.kit === "rug"),
+        };
+      }),
+    [scene.items, apartment.slots],
+  );
+
+  const canPlace = useCallback(
+    (slotId: string, to: { x: number; y: number; rot: number }) => {
+      const me = boxes.find((b) => b.slotId === slotId);
+      if (!me) return false;
+      return checkPlacement({ apartment, boxes, slotId, next: { ...to, wCm: me.wCm, dCm: me.dCm } }).ok;
+    },
+    [apartment, boxes],
+  );
+
+  const startMove = useCallback((slotId: string) => {
+    setMovingSlotId(slotId);
+    setBarOpen(false); // панель выбора мешает целиться в пол
+  }, []);
+
+  const commitMove = useCallback(
+    (slotId: string, to: { x: number; y: number; rot: number }) => {
+      moveSlot(slotId, to);
+      setMovingSlotId(null);
+      setBarOpen(true);
+    },
+    [moveSlot],
+  );
 
   const save = useCallback(async () => {
     setSaveState("saving");
@@ -269,6 +317,13 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: 
             roomId={roomId}
             selectedSlotId={slotId}
             onPickSlot={onPickSlot}
+            movingSlotId={movingSlotId}
+            canPlace={canPlace}
+            onMoveCommit={commitMove}
+            onMoveCancel={() => {
+              setMovingSlotId(null);
+              setBarOpen(true);
+            }}
             onRoomChange={(id) => id && setRoomId(id)}
             hintText={mobile ? L.walkHintMobile : L.walkHint}
             loadingText={L.loading}
@@ -305,6 +360,10 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: 
             }}
             onSlot={setSlotId}
             onChoose={choose}
+            onMove={is3d ? startMove : undefined}
+            onResetPlacement={
+              slotId && config.placements?.[slotId] ? () => resetSlotPlacement(slotId) : undefined
+            }
             onClose={() => setBarOpen(false)}
           />
         ) : (

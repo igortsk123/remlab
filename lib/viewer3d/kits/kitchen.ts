@@ -138,35 +138,63 @@ export function buildKitchen(ctx: KitCtx, spec: KitchenSpec): THREE.Group {
   });
 
   // ── столешница и фартук ─────────────────────────────────────────────────
-  g.add(boxOn(runW + (tall ? tallW : 0), WORKTOP_H, D + 2, -W / 2 + (runW + (tall ? tallW : 0)) / 2, BASE_TOP, 1, topMat));
+  // В столешнице ПРОРЕЗАЕМ отверстие под мойку: цельная плита накрывала чашу сверху, и мойки
+  // не было видно вовсе (владелец 30.09: «раковина не пашет»). Вырезать нечем — CSG нет,
+  // поэтому кладём четыре куска вокруг отверстия.
+  const sinkSlot = slots[sinkIdx];
+  const SINK_W = sinkSlot ? Math.min(sinkSlot.w - 14, 52) : 0;
+  const SINK_D = 40;
+  const SINK_Z = 2;
+  const LIP = 3;
+  const topW = runW + (tall ? tallW : 0);
+  const topX0 = -W / 2;
+  const topX1 = topX0 + topW;
+  const topZ0 = 1 - (D + 2) / 2;
+  const topZ1 = 1 + (D + 2) / 2;
+  const slab = (x0: number, x1: number, z0: number, z1: number): void => {
+    if (x1 - x0 < 0.4 || z1 - z0 < 0.4) return;
+    g.add(boxOn(x1 - x0, WORKTOP_H, z1 - z0, (x0 + x1) / 2, BASE_TOP, (z0 + z1) / 2, topMat));
+  };
+  if (sinkSlot && SINK_W > 10) {
+    const hx0 = sinkSlot.x - SINK_W / 2 - LIP;
+    const hx1 = sinkSlot.x + SINK_W / 2 + LIP;
+    const hz0 = SINK_Z - SINK_D / 2 - LIP;
+    const hz1 = SINK_Z + SINK_D / 2 + LIP;
+    slab(topX0, hx0, topZ0, topZ1);
+    slab(hx1, topX1, topZ0, topZ1);
+    slab(hx0, hx1, topZ0, hz0);
+    slab(hx0, hx1, hz1, topZ1);
+  } else {
+    slab(topX0, topX1, topZ0, topZ1);
+  }
   g.add(boxOn(W, SPLASH_TOP - (BASE_TOP + WORKTOP_H), 1.5, 0, BASE_TOP + WORKTOP_H, back + 0.5, splashMat));
 
   // МОЙКА: настоящая чаша, а не пластина. Плоская накладка сливалась со столешницей —
   // владелец 30.09: «раковину практически не видно». Чашу собираем из стенок и дна:
   // вырезать отверстие в столешнице нечем (CSG нет), но тёмное углубление читается сразу.
-  const sink = slots[sinkIdx];
+  const sink = sinkSlot;
   if (sink) {
     const top = BASE_TOP + WORKTOP_H;      // уровень столешницы
-    const sw = Math.min(sink.w - 14, 52);  // ширина чаши
-    const sd = 40;                          // глубина чаши по горизонтали
+    const sw = SINK_W;                      // ширина чаши — та же, что у отверстия
+    const sd = SINK_D;                      // глубина чаши по горизонтали
     const deep = 16;                        // насколько чаша утоплена
     const wall = 1.2;
     const bowl = new THREE.MeshStandardMaterial({ color: 0xb9bec3, roughness: 0.3, metalness: 0.85 });
     const rim = new THREE.MeshStandardMaterial({ color: 0xd2d6da, roughness: 0.2, metalness: 0.9 });
     // дно и четыре стенки
-    g.add(boxOn(sw, wall, sd, sink.x, top - deep, 2, bowl));
-    g.add(boxOn(wall, deep, sd, sink.x - sw / 2, top - deep, 2, bowl));
-    g.add(boxOn(wall, deep, sd, sink.x + sw / 2, top - deep, 2, bowl));
-    g.add(boxOn(sw, deep, wall, sink.x, top - deep, 2 - sd / 2, bowl));
-    g.add(boxOn(sw, deep, wall, sink.x, top - deep, 2 + sd / 2, bowl));
+    g.add(boxOn(sw, wall, sd, sink.x, top - deep, SINK_Z, bowl));
+    g.add(boxOn(wall, deep, sd, sink.x - sw / 2, top - deep, SINK_Z, bowl));
+    g.add(boxOn(wall, deep, sd, sink.x + sw / 2, top - deep, SINK_Z, bowl));
+    g.add(boxOn(sw, deep, wall, sink.x, top - deep, SINK_Z - sd / 2, bowl));
+    g.add(boxOn(sw, deep, wall, sink.x, top - deep, SINK_Z + sd / 2, bowl));
     // бортик по периметру — он и даёт «блик», по которому мойку видно издалека
-    const lip = 3;
-    g.add(boxOn(sw + lip * 2, 1.4, lip, sink.x, top - 1.4, 2 - sd / 2 - lip / 2, rim));
-    g.add(boxOn(sw + lip * 2, 1.4, lip, sink.x, top - 1.4, 2 + sd / 2 + lip / 2, rim));
-    g.add(boxOn(lip, 1.4, sd, sink.x - sw / 2 - lip / 2, top - 1.4, 2, rim));
-    g.add(boxOn(lip, 1.4, sd, sink.x + sw / 2 + lip / 2, top - 1.4, 2, rim));
+    const lip = LIP;
+    g.add(boxOn(sw + lip * 2, 1.4, lip, sink.x, top - 1.4, SINK_Z - sd / 2 - lip / 2, rim));
+    g.add(boxOn(sw + lip * 2, 1.4, lip, sink.x, top - 1.4, SINK_Z + sd / 2 + lip / 2, rim));
+    g.add(boxOn(lip, 1.4, sd, sink.x - sw / 2 - lip / 2, top - 1.4, SINK_Z, rim));
+    g.add(boxOn(lip, 1.4, sd, sink.x + sw / 2 + lip / 2, top - 1.4, SINK_Z, rim));
     // слив
-    g.add(cylinder(4, 4, 0.8, sink.x, top - deep + wall, 2, rim, 14));
+    g.add(cylinder(4, 4, 0.8, sink.x, top - deep + wall, SINK_Z, rim, 14));
     // смеситель: стойка выше, излив длиннее — иначе теряется на фоне фартука
     g.add(cylinder(1.8, 2.2, 30, sink.x, top, back + 7, rim, 12));
     g.add(cylinder(1.4, 1.4, 18, sink.x, top + 29, back + 7, rim, 12).rotateX(Math.PI / 2));
