@@ -85,6 +85,11 @@ export const slot = z.object({
   optionIds: z.array(z.string()).default([]),
   /** Роль для фото-конвейера (протокол логики — по-русски, ADR демо). */
   photoRole: z.string().optional(),
+  /**
+   * Группа совместной замены: выбрал вариант на одном стуле — меняются ВСЕ стулья комнаты
+   * (владелец 30.09: «стул меняем все вместе»). Разные стулья за одним столом никто не ставит.
+   */
+  selectionGroup: z.string().optional(),
 });
 export type Slot = z.infer<typeof slot>;
 

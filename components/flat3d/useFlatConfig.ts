@@ -46,13 +46,22 @@ export function useFlatConfig(
 
   const scene = useMemo(() => resolveScene(apartment, catalogue, config), [apartment, catalogue, config]);
 
-  const choose = useCallback((slotId: string, optionId: string) => {
-    setConfig((c) => ({
-      ...c,
-      selections: { ...c.selections, [slotId]: optionId },
-      updatedAt: new Date().toISOString(),
-    }));
-  }, []);
+  const choose = useCallback(
+    (slotId: string, optionId: string) => {
+      // Группа совместной замены: стулья за одним столом меняются ВСЕ разом — разнобой за столом
+      // никто не ставит (владелец 30.09). Группа объявлена в слоте, а не угадывается по названию.
+      const group = apartment.slots.find((s) => s.id === slotId)?.selectionGroup;
+      const ids = group
+        ? apartment.slots.filter((s) => s.selectionGroup === group).map((s) => s.id)
+        : [slotId];
+      setConfig((c) => {
+        const selections = { ...c.selections };
+        for (const id of ids) selections[id] = optionId;
+        return { ...c, selections, updatedAt: new Date().toISOString() };
+      });
+    },
+    [apartment.slots],
+  );
 
   const moveSlot = useCallback((slotId: string, to: { x: number; y: number; rot: number }) => {
     setConfig((c) => ({

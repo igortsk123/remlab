@@ -65,13 +65,18 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
   // первый показ закрываем большим экраном загрузки, дальше — только тонкой подсказкой:
   // комнаты догружаются на ходу, и накрывать ими всю сцену нельзя
   const [firstLoadDone, setFirstLoadDone] = useState(false);
-  const [hintDone, setHintDone] = useState(false);
+  const [hintClosed, setHintClosed] = useState(false);
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem("remlab.flat3d.hint") === "closed") setHintClosed(true);
+    } catch {
+      /* приватный режим — показываем подсказку как обычно */
+    }
+  }, []);
   const [attempt, setAttempt] = useState(0);
 
-  useEffect(() => {
-    const t = setTimeout(() => setHintDone(true), 7000);
-    return () => clearTimeout(t);
-  }, []);
+  // Подсказка сама не исчезает: она маленькая, стоит вверху и не мешает. Закрывает её человек
+  // крестиком — так понятнее, чем «подождите, и она пропадёт».
 
   // создание/уничтожение сцены: зависит только от профиля качества
   useEffect(() => {
@@ -85,7 +90,11 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
         if (cancelled) return;
         const quality: QualityProfile = lite ? mod.LITE_QUALITY : mod.DESKTOP_QUALITY;
         const viewer = new mod.FlatViewer(canvas, apartment, catalogue, quality, {
-          onRoomChange,
+          // комната сменилась на ходу — запоминаем, чтобы НЕ телепортировать камеру обратно
+          onRoomChange: (id: string | null) => {
+            roomFromWalkRef.current = id;
+            onRoomChange(id);
+          },
           // честный процент: человеку на медленном телефоне нужно видеть, что идёт загрузка,
           // а не пустой экран (референс конкурента, владелец 30.09)
           onProgress: (loaded, total) => {
@@ -136,8 +145,15 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
     });
   }, [scene, ready, roomId]);
 
+  // ПЕРЕВОД КАМЕРЫ В КОМНАТУ — только когда комнату выбрал ЧЕЛОВЕК (список, план, вид сверху).
+  // Если комната сменилась потому, что он сам в неё зашёл, камеру трогать нельзя: при подходе к
+  // проёму сцена «дёргала» человека обратно в середину комнаты, и выйти в коридор было
+  // невозможно (жалоба владельца 30.09 «проходы не работают» — причина оказалась здесь).
+  const roomFromWalkRef = useRef<string | null>(null);
   useEffect(() => {
-    if (ready && roomId) viewerRef.current?.goToRoom(roomId);
+    if (!ready || !roomId) return;
+    if (roomFromWalkRef.current === roomId) return;
+    viewerRef.current?.goToRoom(roomId);
   }, [roomId, ready]);
 
   // выделение приходит снаружи (кликом по сцене или выбором в панели)
@@ -414,13 +430,32 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
         <WalkPad onHold={holdKey} onTurn={turnBy} compact={lite} liftPx={bottomInsetPx} />
       ) : null}
 
-      {/* подсказка уходит через 7 секунд: на телефоне она закрывает треть комнаты */}
-      <p
-        hidden={Boolean(error) || hintDone || !ready}
-        className="pointer-events-none absolute inset-x-3 rounded-lg bg-primary/90 px-3 py-2 text-center text-xs text-secondary ring-1 ring-inset ring-secondary" style={{ bottom: 76 }}
-      >
-        {hintText}
-      </p>
+      {/* ПОДСКАЗКА — ВВЕРХУ, отдельной карточкой с крестиком (владелец 30.09: «сделай красиво
+          вверху, на полупрозрачном фоне, с крестиком, как окно»). Внизу она налезала на кнопки
+          ходьбы. Закрыли — больше не показываем: решение помним в браузере. */}
+      {!error && ready && !hintClosed ? (
+        <div
+          className="pointer-events-auto absolute left-1/2 flex max-w-[92%] -translate-x-1/2 items-start gap-2 rounded-2xl px-4 py-2.5 shadow-sm ring-1 ring-inset ring-secondary"
+          style={{ top: 12, zIndex: 11, background: "color-mix(in srgb, var(--color-bg-primary) 82%, transparent)", backdropFilter: "blur(8px)" }}
+        >
+          <p className="text-xs leading-relaxed text-secondary">{hintText}</p>
+          <button
+            type="button"
+            aria-label="Закрыть подсказку"
+            onClick={() => {
+              setHintClosed(true);
+              try {
+                window.localStorage.setItem("remlab.flat3d.hint", "closed");
+              } catch {
+                /* приватный режим — подсказка просто вернётся в следующий раз */
+              }
+            }}
+            className="-mr-1 -mt-0.5 shrink-0 rounded-lg px-2 py-1 text-sm text-tertiary hover:bg-secondary"
+          >
+            ✕
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

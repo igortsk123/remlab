@@ -281,3 +281,60 @@ test("мебель можно передвинуть и повернуть, и �
   });
   expect(Object.keys(afterReload), "после перезагрузки место осталось").toContain("living-armchair");
 });
+
+test("из гостиной можно дойти до коридора, стулья меняются сетом", async ({ page }) => {
+  // Две жалобы владельца 30.09: «проходы между помещениями не работают» (камера телепортировалась
+  // обратно при подходе к проёму) и «стул меняем все вместе».
+  test.setTimeout(150_000);
+  await page.goto("/flat");
+  await page.getByRole("tab", { name: "Бродилка" }).click();
+  await expect(page.locator("canvas")).toBeVisible();
+  await page.waitForTimeout(9000);
+
+  const room = await page.evaluate(() => {
+    const v = (window as unknown as {
+      __flatViewer?: {
+        apartment: { rooms: { id: string; x: number; y: number; w: number; d: number }[] };
+        pos: { set(x: number, y: number): void };
+        heading: number;
+        roomChanged?: (id: string) => void;
+        keyDown(code: string): void;
+        keyUp(code: string): void;
+        debugState(): { room: string | null };
+      };
+    }).__flatViewer;
+    if (!v) return null;
+    const living = v.apartment.rooms.find((r) => r.id === "living")!;
+    const hall = v.apartment.rooms.find((r) => r.id === "hall")!;
+    v.roomChanged?.("living");
+    v.pos.set(living.x + living.w / 2, living.y + living.d / 2);
+    v.heading =
+      (Math.atan2(hall.x + hall.w / 2 - (living.x + living.w / 2), hall.y + hall.d / 2 - (living.y + living.d / 2)) *
+        180) /
+      Math.PI;
+    v.keyDown("KeyW");
+    return v.debugState().room;
+  });
+  expect(room, "стартуем в гостиной").toBe("living");
+  await page.waitForTimeout(5000);
+  const reached = await page.evaluate(() => {
+    const v = (window as unknown as { __flatViewer?: { keyUp(code: string): void; debugState(): { room: string | null } } }).__flatViewer;
+    v?.keyUp("KeyW");
+    return v?.debugState().room ?? null;
+  });
+  expect(reached, "дошли из гостиной в коридор").toBe("hall");
+
+  // стулья: меняем один — меняются все четыре
+  await page.getByRole("tab", { name: "План" }).click();
+  await page.getByLabel("Комната").selectOption("living");
+  await page.locator('[data-slot="living-chair-1"]').click();
+  const tiles = page.locator('[role="region"] ul li button');
+  await tiles.nth(2).click();
+  await page.waitForTimeout(600);
+  const same = await page.evaluate(() => {
+    const raw = window.localStorage.getItem("remlab.flat3d.v1.demo-uk-1");
+    const sel = raw ? (JSON.parse(raw) as { selections: Record<string, string> }).selections : {};
+    return ["living-chair-1", "living-chair-2", "living-chair-3", "living-chair-4"].map((id) => sel[id]);
+  });
+  expect(new Set(same).size, `выбор стульев: ${same.join(", ")}`).toBe(1);
+});

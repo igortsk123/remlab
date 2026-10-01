@@ -117,7 +117,7 @@ export function WalkPad({ onHold, onTurn, compact = false, liftPx = 0 }: WalkPad
       style={{
         zIndex: 5,
         bottom: 12 + liftPx,
-        opacity: dim ? 0.3 : 0.92,
+        opacity: dim ? 0.45 : 0.95,
         transition: "opacity 400ms ease",
       }}
       onPointerEnter={wake}
