@@ -82,6 +82,11 @@ export ACCEPT_TOTAL_BUDGET_S="${ACCEPT_TOTAL_BUDGET_S:-1500}"
 run "приёмка"          1800 "$PY" "$HERE/apply_repairs.py"
 run "пометка в базе"    600 "$PY" "$HERE/../mesh_bind.py"
 run "чистка приёмника"  900 "$PY" "$HERE/receiver_purge.py" --apply
+# ПРОПОЛКА БОЛВАНОК — ПОСЛЕ ЧИСТКИ ПРИЁМНИКА, зеркало шага конвейера (`batch_show.post_steps`).
+# Без неё обещание «болванки впредь не копятся» держалось бы только пока жив `batch_show`: вне
+# окна пула полет один этот сторож (находка verify 02.10). Скрипт сам переписывает приёмник и
+# при его недоступности не делает ничего, так что порядок здесь — не формальность (ADR-0231).
+run "чистка болванок"   900 "$PY" "$HERE/prune_shapes.py" --apply
 
 AFTER="$("$PY" -c "import sink_health,json;r=sink_health.check();print(json.dumps({'ok':r['ok'],'dir':r['dir_gb']}))" 2>/dev/null)"
 say "финиш (приёмник: ${AFTER:-неизвестно}, сбоев шагов: $FAIL)"

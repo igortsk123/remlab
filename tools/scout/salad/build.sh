@@ -37,11 +37,18 @@ docker build \
   --build-arg "BAKE_WEIGHTS=${BAKE_WEIGHTS:-1}" \
   -t "$TAG" .
 
-# GHCR — реестр владельца, вход тем же токеном, что и gh CLI (write:packages).
-# Образ приватный: Salad получает отдельный read-токен в настройках container group.
+# GHCR — реестр владельца. Образ приватный: Salad получает отдельный read-токен в настройках
+# container group. Токен берём из `GHCR_TOKEN`, а `gh auth token` — только запас: `gh auth login`
+# требует ещё и право `read:org`, и токен ровно под пакеты (`read:packages`/`write:packages`)
+# в gh CLI не заходит вовсе (поймано 02.10) — сборка из-за этого молча публиковалась бы без входа.
 echo "== публикация в $REPO (гейт размера считается по реестру, до запуска на Salad)"
-docker login ghcr.io -u igortsk123 -p "$(gh auth token)" >/dev/null 2>&1 || \
-  echo "!! вход в ghcr не удался — проверь право write:packages у токена gh"
+GHCR_TOKEN="${GHCR_TOKEN:-$(gh auth token 2>/dev/null || true)}"
+if [ -n "$GHCR_TOKEN" ]; then
+  docker login ghcr.io -u igortsk123 -p "$GHCR_TOKEN" >/dev/null 2>&1 || \
+    echo "!! вход в ghcr не удался — проверь право write:packages у токена"
+else
+  echo "!! нет GHCR_TOKEN и gh auth token пуст — вход в ghcr не выполнен"
+fi
 docker push "$TAG"
 
 COMPRESSED=$(docker manifest inspect "$TAG" \

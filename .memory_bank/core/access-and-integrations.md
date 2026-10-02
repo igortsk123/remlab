@@ -3,7 +3,7 @@ tier: 1
 topic: access-and-integrations
 scope: Интеграции/доступы — ключи, клиенты
 tier2: "../domain/integrations.md"
-updated: 2026-09-28
+updated: 2026-10-02
 importance: high
 source: manual
 status: working
@@ -40,6 +40,8 @@ review_after: 2026-12-05
   (Bearer конвейера); общие для mesh-review/mesh-audit — Tier 2.
 - **SaladCloud + GHCR (31.08):** GPU под меши вместо fal; орг `prodstore`/`dmodel`, ключи в
   `_secrets/`, образ только digest'ом. Грабли API — ADR-0137, [[mesh-pipeline]].
+  **02.10:** GHCR — единственная копия образа (ADR-0232); вход — `GHCR_TOKEN` (`_secrets/`),
+  не `gh auth token`: токену под пакеты `gh` требует ещё `read:org`.
 - **Гдеслон (03.09):** фиды первичны (`original_picture`, `article`, описание), API — комиссия;
   id округлён (связь по `article`), `available` бесполезен — ADR-0171.
 - **Telegram `@remlabservice_bot` (03.09):** токен и chat_id в `tools/scout/.env.alert` и `/opt/remlab/catalog-watchdog/.env`.

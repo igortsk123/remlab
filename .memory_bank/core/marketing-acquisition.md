@@ -9,7 +9,7 @@ source: manual
 status: working
 source_of_truth: canonical
 last_verified: 2026-09-05
-review_after: "2026-10-01"
+review_after: "2026-12-15"
 ---
 
 # Marketing / Acquisition — Tier 1 (RU, Яндекс)
@@ -41,3 +41,6 @@ autotargeting не удалить — ставка-минимум; минусо�
 **Tier 2:** `../domain/wordstat-semantics.md` (семантика) · `../advertising/campaign_state.md` (кампания).
 
 > Не сверялось с 11.07 (работа шла по расстановке) — сверить перед возвратом к теме.
+
+> Срок перепроверки перенесён на 15.12 (сверка кампаний); причина и что устареет —
+> в `../domain/wordstat-semantics.md`. `last_verified` не двигался.

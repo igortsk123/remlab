@@ -3,7 +3,7 @@ tier: 1
 topic: mesh-pipeline
 scope: 3D-меши — генерация, учёт, приёмка
 tier2: "../domain/viz-fidelity-playbook.md"
-updated: 2026-09-28
+updated: 2026-10-02
 importance: high
 source: manual
 status: working
@@ -22,6 +22,9 @@ review_after: 2026-12-05
 пост-шаги пачки (`tools/scout/salad/batch_show.py:post_steps`): реестр → приёмка `apply_repairs.py`
 (ремонт ОТМЕНЁН, ADR-0143; авто-перегон один раз) → привязка → чистка приёмника → ориентация
 (ADR-0129), топ-вью; семейства — только при старте волны. Цвет — [[mesh-color]].
+
+**`shape.glb` — промежуточное** (продукт `model.glb`): полет `tools/scout/salad/prune_shapes.py`
+после «чистки приёмника», ADR-0231. Образ локально не держим, истина — GHCR (ADR-0232).
 
 **Учёт поколений (ADR-0188…0191).** Физический меш = строка `mesh_generations`
 (`tools/scout/008-mesh-owner-audit.sql`); ревизия держит `current_generation_key` — «текущее»
