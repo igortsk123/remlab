@@ -91,3 +91,14 @@ export function reworkToItemStatus(rework: string): ItemStatus | null {
       return null;
   }
 }
+
+// ПРИЁМКА БЕЗ КНОПКИ «ПРИНЯТЬ». На карточке есть только «переделать» и «отменить», и решения
+// пишутся лишь отрицательные (`mesh_audit_decisions.verdict` = redo | replace_needed). Значит
+// принятым считается меш, который владелец ВИДЕЛ и не забраковал: `seenAt` есть, статус `open`.
+// Признак привязан к КОНКРЕТНОМУ мешу, а не к товару: новое поколение сбрасывает `seenAt` и
+// возвращает карточку в `open` (`repo-items.upsertItems`), так что приёмка не протекает на
+// следующую попытку. От этого правила зависит прополка болванок формы на DEV (ADR-0233):
+// болванка живёт, пока меш не принят, — иначе теряется рычаг перепокраски ADR-0145.
+export function isAccepted(item: { seenAt: Date | string | null; status: string }): boolean {
+  return item.seenAt !== null && item.seenAt !== undefined && item.status === "open";
+}

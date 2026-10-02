@@ -158,3 +158,18 @@ export async function markSeen(ids: number[]): Promise<number> {
     .returning({ id: meshAuditItems.id });
   return rows.length;
 }
+
+// Поколения, ПРИНЯТЫЕ владельцем (правило — `rules.isAccepted`, условие здесь повторено в SQL,
+// чтобы не тащить тысячи строк в приложение). Нужно прополке болванок формы на DEV (ADR-0233):
+// `shape.glb` живёт, пока меш не принят, иначе теряется рычаг перепокраски ADR-0145.
+// Лимит — предохранитель от безразмерного ответа; при упоре в него зовущий узнает об этом по
+// равенству длины лимиту и может пойти страницами.
+export async function acceptedGenerationKeys(limit = 20000): Promise<string[]> {
+  const rows = await db()
+    .select({ k: meshAuditItems.generationKey })
+    .from(meshAuditItems)
+    .where(and(isNotNull(meshAuditItems.seenAt), eq(meshAuditItems.status, "open")))
+    .orderBy(asc(meshAuditItems.id))
+    .limit(limit);
+  return rows.map((r) => r.k);
+}

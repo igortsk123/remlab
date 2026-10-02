@@ -17,16 +17,27 @@
     нет (`:111` проверяет наличие), но у закреплённых SKU, у которых модель есть, колонка
     «что выдал генератор» теперь пустая.
  2. Перепокраска сохранённой формы — рычаг цвета из ADR-0145 (`core/mesh-color.md`): paint =
-    42 % стоимости задания, геометрия не меняется. Для прополотых мешей он больше недоступен:
-    цвет придётся лечить полным перегоном. Тема цвета отложена владельцем (01.09), решение
-    «диск важнее рычага» принято 02.10 — ADR-0231.
+    42 % стоимости задания, геометрия не меняется. Для прополотых мешей он недоступен — цвет
+    лечится полным перегоном. 02.10 за это заплатили 2132 болванками (ADR-0231), и владелец
+    выбрал иначе: **болванка живёт, пока меш не принят** (ADR-0233, условие 5). Теперь рычаг
+    остаётся ровно там, где нужен: у непросмотренных и забракованных мешей.
 
-ЧТО СЧИТАЕТСЯ «МОЖНО УДАЛЯТЬ» — пять условий разом:
+ЧТО ЗНАЧИТ «ПРИНЯТ». Кнопки «принять» в приёмке нет — есть «переделать» и «отменить», решения
+пишутся только отрицательные. Поэтому принято = владелец ВИДЕЛ карточку и не забраковал:
+`seen_at` есть, статус `open` (правило — `lib/mesh-audit/rules.ts:isAccepted`). Признак живёт на
+проде, поэтому спрашиваем его у прода (`GET /api/lab/mesh-audit/items?scope=accepted`, тот же
+Bearer, что у `mesh_audit_sync.py`), а карту «каталог → поколение» берём из базы DEV
+(`mesh_generations.path`, пишет `ingest_registry.py:133`). Новое поколение сбрасывает
+«просмотрено» (`repo-items.ts:102`), так что приёмка не протекает на следующую попытку.
+Не ответил прод или база — прополка не делает НИЧЕГО, как и при недоступном приёмнике.
+
+ЧТО СЧИТАЕТСЯ «МОЖНО УДАЛЯТЬ» — шесть условий разом:
   1) рядом есть `model.glb` — продукт на месте, болванка больше не единственный результат;
   2) есть `complete.json` — комплект опубликован целиком, а не оборван на середине закачки;
   3) есть `manifest.json` — паспорт с вердиктом гейта и параметрами прогона сохранён;
   4) КОМПЛЕКТА УЖЕ НЕТ НА ПРИЁМНИКЕ (одна ssh-перепись за прогон) — см. ниже, это главное;
-  5) комплект старше MIN_AGE_H часов — запас поверх срока хранения приёмника (RETAIN_H=6).
+  5) МЕШ ПРИНЯТ ВЛАДЕЛЬЦЕМ на `/lab/mesh-audit` (решение владельца 02.10, ADR-0233) — см. ниже;
+  6) комплект старше MIN_AGE_H часов — дешёвый пол, если переписи выше пусты по чужой причине.
 Проверки в базе здесь НЕТ сознательно: в конвейере шаг стоит после `ingest_registry.py` и
 `mesh_bind.py`, а на судьбу болванки запись в базу всё равно не влияет — она про `model.glb`.
 
@@ -60,6 +71,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.request
 
 SRC = os.path.expanduser(os.environ.get(
     'PRUNE_SRC', '~/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2'))
@@ -71,7 +84,56 @@ MIN_AGE_H = float(os.environ.get('PRUNE_MIN_AGE_H', '48'))
 SRV = os.environ.get('MESH_SRV', 'root@89.167.127.0')
 PORT = os.environ.get('MESH_SSH_PORT', '22222')
 REMOTE = os.environ.get('MESH_ROOT_REMOTE', '/opt/remlab/meshes')
+PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
+        '-q', '-t', '-A', '-F', '\t']
 GB = 1 << 30
+
+
+def accepted_keys() -> set | None:
+    """Поколения, принятые владельцем, — у прода. `None` — прод не ответил."""
+    cfg = os.path.expanduser('~/.config/remlab/env')
+    if os.path.exists(cfg):
+        for ln in open(cfg, encoding='utf-8'):
+            if '=' in ln and not ln.strip().startswith('#'):
+                k, v = ln.strip().split('=', 1)
+                os.environ.setdefault(k, v)
+    tok = os.environ.get('MESH_REVIEW_MACHINE_TOKEN', '')
+    if not tok:
+        print('  нет MESH_REVIEW_MACHINE_TOKEN (см. _secrets/ACCESS.md)', flush=True)
+        return None
+    url = os.environ.get('MESH_REVIEW_URL', 'https://remont-lab.online').rstrip('/')
+    req = urllib.request.Request(f'{url}/api/lab/mesh-audit/items?scope=accepted',
+                                 headers={'Authorization': f'Bearer {tok}'})
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:  # noqa: S310 — свой же прод
+            keys = json.loads(r.read()).get('keys')
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        print(f'  приёмка владельца не опрошена ({e})', flush=True)
+        return None
+    if not isinstance(keys, list):
+        print('  приёмка владельца ответила без списка принятых', flush=True)
+        return None
+    return set(keys)
+
+
+def generation_of_path() -> dict | None:
+    """Карта «job-каталог → ключ поколения» из базы DEV. `None` — база не ответила."""
+    try:
+        r = subprocess.run(PSQL, input='select path, generation_key from mesh_generations;',
+                           capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f'  база поколений не опрошена ({e})', flush=True)
+        return None
+    if r.returncode != 0:
+        print(f'  база поколений ответила кодом {r.returncode}: '
+              f'{r.stderr.strip()[:200]}', flush=True)
+        return None
+    out = {}
+    for ln in r.stdout.split('\n'):
+        if '\t' in ln:
+            path, gk = ln.rsplit('\t', 1)
+            out[os.path.normpath(path.strip())] = gk.strip()
+    return out
 
 
 def key(job: str) -> str:
@@ -127,9 +189,9 @@ def resolve_sink(argv, probe) -> tuple:
     return sink, False
 
 
-def classify(job: str, sink: set, now: float) -> str:
+def classify(job: str, sink: set, now: float, accepted: set, gen_of: dict) -> str:
     """Что делать с болванкой: 'del' | 'keep_no_model' | 'keep_partial' | 'keep_sink'
-    | 'keep_young' | 'none'."""
+    | 'keep_unaccepted' | 'keep_young' | 'none'."""
     sg = os.path.join(job, 'shape.glb')
     if not os.path.isfile(sg):
         return 'none'
@@ -140,6 +202,10 @@ def classify(job: str, sink: set, now: float) -> str:
         return 'keep_partial'
     if key(job) in sink:
         return 'keep_sink'
+    # ПРИЁМКА ВЛАДЕЛЬЦА (ADR-0233). Поколения нет в карте — значит реестр про этот каталог ещё
+    # не знает: тоже «не принято». Так ошибка в карте играет в сторону сохранения болванки.
+    if gen_of.get(os.path.normpath(job)) not in accepted:
+        return 'keep_unaccepted'
     try:
         age_h = (now - os.path.getmtime(done)) / 3600
     except OSError:
@@ -149,17 +215,19 @@ def classify(job: str, sink: set, now: float) -> str:
     return 'del'
 
 
-def prune(src: str, journal: str, apply: bool, sink: set) -> dict:
+def prune(src: str, journal: str, apply: bool, sink: set,
+          accepted: set, gen_of: dict) -> dict:
     """Пройти хранилище и (при `apply`) убрать болванки. Возвращает счётчики."""
     c = {'комплектов': 0, 'удалить': 0, 'байт': 0, 'без model.glb': 0,
-         'неполный комплект': 0, 'на приёмнике': 0, 'молодые': 0, 'ошибок': 0}
+         'неполный комплект': 0, 'на приёмнике': 0, 'не принято владельцем': 0,
+         'молодые': 0, 'ошибок': 0}
     done = []
     now = time.time()
     for job in sorted(glob.glob(os.path.join(src, '*', '*'))):
         if not os.path.isdir(job):
             continue
         c['комплектов'] += 1
-        verdict = classify(job, sink, now)
+        verdict = classify(job, sink, now, accepted, gen_of)
         if verdict == 'none':
             continue
         if verdict == 'keep_no_model':
@@ -170,6 +238,9 @@ def prune(src: str, journal: str, apply: bool, sink: set) -> dict:
             continue
         if verdict == 'keep_sink':
             c['на приёмнике'] += 1
+            continue
+        if verdict == 'keep_unaccepted':
+            c['не принято владельцем'] += 1
             continue
         if verdict == 'keep_young':
             c['молодые'] += 1
@@ -225,8 +296,10 @@ def _selftest() -> int:
             'no_model': ('shape.glb', 'manifest.json'),
             'partial': ('model.glb', 'shape.glb', 'manifest.json'),
             'no_shape': ('model.glb', 'complete.json', 'manifest.json'),
-            'on_sink': full,   # комплект ещё лежит на приёмнике — трогать нельзя
-            'young': full,     # моложе выдержки
+            'on_sink': full,      # комплект ещё лежит на приёмнике — трогать нельзя
+            'young': full,        # моложе выдержки
+            'unaccepted': full,   # владелец ещё не принял — рычаг перепокраски нужен (ADR-0233)
+            'unknown_gen': full,  # каталога нет в реестре поколений — тоже «не принято»
         }
         old = time.time() - (MIN_AGE_H + 24) * 3600
         for name, files in cases.items():
@@ -241,10 +314,20 @@ def _selftest() -> int:
                     os.utime(done_p, (old, old))
         journal = os.path.join(tmp, 'journal.jsonl')
         sink = {'sku_on_sink/job'}
+        # Принято всё, кроме 'unaccepted'; 'unknown_gen' вообще не попал в реестр поколений.
+        gen_of, accepted = {}, set()
+        for name in cases:
+            if name == 'unknown_gen':
+                continue
+            gk = f'gen-{name}'
+            gen_of[os.path.join(src, f'sku_{name}', 'job')] = gk
+            if name != 'unaccepted':
+                accepted.add(gk)
 
-        dry = prune(src, journal, apply=False, sink=sink)
+        dry = prune(src, journal, apply=False, sink=sink, accepted=accepted, gen_of=gen_of)
         if (dry['удалить'] != 1 or dry['без model.glb'] != 1 or dry['неполный комплект'] != 1
-                or dry['на приёмнике'] != 1 or dry['молодые'] != 1):
+                or dry['на приёмнике'] != 1 or dry['молодые'] != 1
+                or dry['не принято владельцем'] != 2):
             bad += 1
             print(f'  FAIL раскладка сухого прогона: {dry}')
         if not os.path.exists(os.path.join(src, 'sku_ok', 'job', 'shape.glb')):
@@ -254,14 +337,14 @@ def _selftest() -> int:
             bad += 1
             print('  FAIL сухой прогон написал журнал')
 
-        real = prune(src, journal, apply=True, sink=sink)
+        real = prune(src, journal, apply=True, sink=sink, accepted=accepted, gen_of=gen_of)
         if real['удалить'] != 1 or real['ошибок'] != 0:
             bad += 1
             print(f'  FAIL раскладка удаления: {real}')
         if os.path.exists(os.path.join(src, 'sku_ok', 'job', 'shape.glb')):
             bad += 1
             print('  FAIL болванка не удалена там, где можно')
-        for name in ('no_model', 'partial', 'on_sink', 'young'):
+        for name in ('no_model', 'partial', 'on_sink', 'young', 'unaccepted', 'unknown_gen'):
             if not os.path.exists(os.path.join(src, f'sku_{name}', 'job', 'shape.glb')):
                 bad += 1
                 print(f'  FAIL удалена защищённая болванка: {name}')
@@ -278,7 +361,7 @@ def _selftest() -> int:
             bad += 1
             print(f'  FAIL журнал: {rows}')
 
-        again = prune(src, journal, apply=True, sink=sink)
+        again = prune(src, journal, apply=True, sink=sink, accepted=accepted, gen_of=gen_of)
         if again['удалить'] != 0:
             bad += 1
             print(f'  FAIL повторный прогон не идемпотентен: {again}')
@@ -317,7 +400,18 @@ def main() -> int:
     sink, stop = resolve_sink(sys.argv, sink_probe)
     if stop:
         return 0
-    c = prune(SRC, JOURNAL, apply, sink)
+    accepted = accepted_keys()
+    if accepted is None:
+        print('  приёмка владельца не переписана — ничего не трогаю: без неё болванка ушла бы'
+              ' у непринятого меша и унесла рычаг перепокраски (ADR-0233)')
+        return 0
+    gen_of = generation_of_path()
+    if gen_of is None:
+        print('  карты «каталог → поколение» нет — ничего не трогаю: сопоставить приёмку'
+              ' с каталогами нечем')
+        return 0
+    print(f'  принято владельцем поколений: {len(accepted)}; в реестре каталогов: {len(gen_of)}')
+    c = prune(SRC, JOURNAL, apply, sink, accepted, gen_of)
     print('  ' + ', '.join(f'{k}: {v}' for k, v in c.items() if k != 'байт')
           + f", объём: {c['байт'] / GB:.2f} ГБ")
     if c['ошибок']:

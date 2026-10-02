@@ -3,7 +3,7 @@ tier: 1
 topic: mesh-owner-audit
 scope: Приёмка мешей владельцем — /lab/mesh-audit
 tier2: "../completed_plans/mesh-owner-audit.md"
-updated: 2026-09-05
+updated: 2026-10-02
 importance: high
 source: manual
 status: working
@@ -39,5 +39,9 @@ review_after: 2026-12-05
 `/test/mesh-audit/*` — `caddy/Caddyfile`. Постеры — `tools/scout/mesh_audit_posters.py`.
 
 **Очередь:** «принято, ждёт сборки очереди» до `--build-queue` ([[mesh-pipeline]] § старт волны).
+
+**Приёмка освобождает диск (ADR-0233).** Кнопки «принять» нет: принято = просмотрено и не
+забраковано (`lib/mesh-audit/rules.ts:isAccepted`, `seen_at` сбрасывает новое поколение). Список —
+`GET …/items?scope=accepted`, по нему `prune_shapes.py` полет болванки форм.
 
 **Tier 2:** `../completed_plans/mesh-owner-audit.md`.

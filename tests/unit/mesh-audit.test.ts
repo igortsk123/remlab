@@ -5,6 +5,7 @@ import {
   checkCancel,
   checkDecision,
   clampPage,
+  isAccepted,
   MAX_MANUAL_REDO,
   pageCount,
   pagesOfBatch,
@@ -78,5 +79,20 @@ describe("mesh-audit: решение владельца", () => {
     expect(reworkToItemStatus("blocked")).toBe("redo_blocked");
     expect(reworkToItemStatus("applied")).toBe("redo_requested");
     expect(reworkToItemStatus("done")).toBeNull();
+  });
+});
+
+describe("mesh-audit: приёмка без кнопки «принять»", () => {
+  it("принято = владелец видел карточку и не забраковал", () => {
+    expect(isAccepted({ seenAt: "2026-10-02T10:00:00Z", status: "open" })).toBe(true);
+    expect(isAccepted({ seenAt: new Date(), status: "open" })).toBe(true);
+  });
+  it("не просмотрено — не принято, даже если статус open", () => {
+    expect(isAccepted({ seenAt: null, status: "open" })).toBe(false);
+  });
+  it("забраковано — не принято: именно у этих мешей болванка нужна под перепокраску", () => {
+    for (const status of ["redo_requested", "redo_queued", "redo_blocked", "replace_needed"]) {
+      expect(isAccepted({ seenAt: "2026-10-02T10:00:00Z", status })).toBe(false);
+    }
   });
 });

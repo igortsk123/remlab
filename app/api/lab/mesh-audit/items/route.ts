@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { machineOk, reviewerOk } from "@/lib/mesh-review/auth";
-import { listPage, toView, upsertItems, applyAcks, retireItems } from "@/lib/mesh-audit/repo-items";
+import { listPage, toView, upsertItems, applyAcks, retireItems, acceptedGenerationKeys } from "@/lib/mesh-audit/repo-items";
 import { batchState } from "@/lib/mesh-audit/repo-batches";
 import { clampPage, pageCount } from "@/lib/mesh-audit/rules";
 
@@ -9,9 +9,17 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // GET ?page=N — страница карточек (кука владельца или Bearer конвейера).
+// GET ?scope=accepted — только ключи принятых поколений, без карточек: это спрашивает прополка
+// болванок формы на DEV (`tools/scout/salad/prune_shapes.py`, ADR-0233). Отдельный ответ, а не
+// фильтр страницы, потому что нужен ПОЛНЫЙ список, а страница — двадцать карточек.
 export async function GET(req: Request): Promise<Response> {
   if (!(await reviewerOk()) && !(await machineOk())) return NextResponse.json({ error: "нет доступа" }, { status: 401 });
-  const raw = new URL(req.url).searchParams.get("page") ?? undefined;
+  const url = new URL(req.url);
+  if (url.searchParams.get("scope") === "accepted") {
+    const keys = await acceptedGenerationKeys();
+    return NextResponse.json({ keys });
+  }
+  const raw = url.searchParams.get("page") ?? undefined;
   const first = await listPage(1);
   const pages = pageCount(first.total);
   const page = clampPage(raw, pages);
