@@ -3,7 +3,7 @@ tier: 1
 topic: regression-net
 scope: Регресс-защита — тесты, CI, гардрейлы
 tier2: "../../docs/tech-spec-ts-stack.md"
-updated: 2026-09-28
+updated: 2026-10-02
 importance: high
 source: manual
 status: working
@@ -20,7 +20,7 @@ review_after: 2026-12-05
 - **Unit (Vitest, `tests/unit/`):** 25 файлов (в т.ч. `mesh-audit.test.ts`); БД — `pg-repository.test.ts`
   (skipIf); мок — `REMLAB_FAKE_AI=1`. Память: `tests/memory-project-audit.test.mjs` (`node --test`).
 - **e2e:** в CI — 5 smoke + 2 из 3 тестов `estimate.spec.ts` (`/calc/remont` — skip); happy path `flow.spec.ts`
-  — `test.skip` с 28.07 (раздел за заглушкой); error-путей НЕТ.
+  — `test.skip` с 28.07 (раздел за заглушкой); error-путей НЕТ. 3D — `serial`, ждать признак (ADR-0234).
 - **CI (`ci.yml`):** джобы gate (postgres → typecheck → lint → test → build → e2e + шаг
   memory-project-audit), db-init, planner (pytest солвера), scout-orient, scout-selftest;
   `memory-audit.yml` — аудит памяти. Оба аудита памяти — по `_kit/gate-mode.txt`: с 28.09 `warn`

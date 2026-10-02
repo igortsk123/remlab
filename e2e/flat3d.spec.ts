@@ -27,6 +27,27 @@ async function sceneState(page: import("@playwright/test").Page): Promise<DebugS
   });
 }
 
+// ГОТОВНОСТЬ СЦЕНЫ — СОСТОЯНИЕ, А НЕ ВРЕМЯ. Сборка 3D на программном рендере (в CI swiftshader)
+// занимает от секунды до десятков в зависимости от того, какая машина досталась. Фиксированное
+// `waitForTimeout(N)` поэтому даёт тест, зелёный на быстрой машине и красный на медленной: 02.10
+// гейт упал на проходе в коридор, хотя код сцены в том коммите не менялся вовсе. Ждём ПРИЗНАК.
+// Последнее состояние возвращаем и по истечении срока — чтобы упавшая проверка показала цифры,
+// а не «null».
+async function waitForScene(
+  page: import("@playwright/test").Page,
+  minPlaced = 15,
+  timeoutMs = 45_000,
+): Promise<DebugState | null> {
+  let state: DebugState | null = null;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    state = await sceneState(page);
+    if ((state?.placed ?? 0) >= minPlaced) return state;
+    await page.waitForTimeout(200);
+  }
+  return state;
+}
+
 test("конфигуратор: комнаты, выбор варианта, цена и план", async ({ page }) => {
   // сцена честно ждёт загрузки моделей (в CI это программный рендер) — 30 с по умолчанию мало
   test.setTimeout(120_000);
@@ -45,11 +66,7 @@ test("конфигуратор: комнаты, выбор варианта, ц�
   // 3D: сцена собралась — есть комнаты, полы и расставленные предметы
   await page.getByRole("tab", { name: "Бродилка" }).click();
   await expect(page.locator("canvas")).toBeVisible();
-  let state: DebugState | null = null;
-  for (let i = 0; i < 25 && (state?.placed ?? 0) < 15; i += 1) {
-    await page.waitForTimeout(700);
-    state = await sceneState(page);
-  }
+  const state = await waitForScene(page);
   if (state) {
     expect(state.rooms, "комнаты построены").toBe(5);
     expect(state.floors, "полы построены").toBe(5);
@@ -289,7 +306,8 @@ test("из гостиной можно дойти до коридора, сту�
   await page.goto("/flat");
   await page.getByRole("tab", { name: "Бродилка" }).click();
   await expect(page.locator("canvas")).toBeVisible();
-  await page.waitForTimeout(9000);
+  const built = await waitForScene(page, 10);
+  expect(built?.rooms ?? 0, "сцена собралась до попытки пройти").toBe(5);
 
   const room = await page.evaluate(() => {
     const v = (window as unknown as {
@@ -316,13 +334,22 @@ test("из гостиной можно дойти до коридора, сту�
     return v.debugState().room;
   });
   expect(room, "стартуем в гостиной").toBe("living");
-  await page.waitForTimeout(5000);
-  const reached = await page.evaluate(() => {
-    const v = (window as unknown as { __flatViewer?: { keyUp(code: string): void; debugState(): { room: string | null } } }).__flatViewer;
-    v?.keyUp("KeyW");
-    return v?.debugState().room ?? null;
-  });
-  expect(reached, "дошли из гостиной в коридор").toBe("hall");
+  // ЖДЁМ СОБЫТИЕ «вошёл в коридор», а не секунды: путь фиксированной длины, а шаг за кадр
+  // зависит от частоты кадров машины. Клавишу отпускаем в `finally` — иначе упавшая проверка
+  // оставила бы человека идущим в стену, и следующий шаг теста читал бы чужое состояние.
+  try {
+    await expect
+      .poll(async () => (await sceneState(page))?.room ?? null, {
+        message: "дошли из гостиной в коридор",
+        timeout: 30_000,
+        intervals: [200],
+      })
+      .toBe("hall");
+  } finally {
+    await page.evaluate(() => {
+      (window as unknown as { __flatViewer?: { keyUp(code: string): void } }).__flatViewer?.keyUp("KeyW");
+    });
+  }
 
   // стулья: меняем один — меняются все четыре
   await page.getByRole("tab", { name: "План" }).click();
