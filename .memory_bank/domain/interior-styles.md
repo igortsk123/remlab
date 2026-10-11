@@ -3,7 +3,7 @@ tier: 2
 topic: interior-styles
 scope: Паспорта 6 типовых стилей интерьера — признаки с весами, скоринг товаров, промпт-блоки генерации
 tier1: ../core/styles.md
-updated: 2026-08-02
+updated: 2026-10-11
 importance: med
 source: external:web (t-j.ru, netology.ru, domovita.by, ivd.ru, vc.ru, vm.ru) + гипотеза владельца
 status: working
@@ -50,3 +50,25 @@ Sources: [Т—Ж 10 стилей](https://t-j.ru/list/interior-styles/) ·
 [ivd.ru джапанди](https://www.ivd.ru/dizajn-i-dekor/stili-interiera/stil-dzhapandi-chto-eto-i-kak-oformit-v-nem-sobstvennuyu-kvartiru-35871) ·
 [vc.ru стили-2025](https://vc.ru/dizain-interior/1688952-populyarnye-stili-interera-v-2025-godu-top-16-vidov-dizaina-interera-s-nazvaniyami-i-foto) ·
 [vm.ru топ Москвы](https://vm.ru/news/1270209-istoriya-vstrechaetsya-s-innovaciyami-tri-samyh-populyarnyh-interernyh-stilya-v-moskve)
+
+## Чтение оценок стиля — механика (сверено 11.10)
+**Два источника, порядок важен.** `enrich_bridge.style_scores(mid,eid)` считает вектор по
+признакам товара из базы; `tools/scout/style-scores.json` — фолбэк. Именно так их берёт сборщик:
+`EB.style_scores(...) or SS.get(emb_key(...))` (`tools/scout/compose2.py:538`, `:1176`). Любой новый
+потребитель обязан повторять этот порядок, иначе разойдётся со сборкой сетов.
+
+**Ключ JSON — модель, а не товар.** `style_score.py:34-37` схлопывает цветовые варианты по первым
+6 словам названия с вычеркнутыми цветами/обивками (`model_key`) и кэширует оценку под ПЕРВЫМ
+артикулом группы. Представитель семейства мешей (`mesh_family_rep`) — другой отбор и часто другой
+артикул. Замер 11.10 по 1306 представителям очереди 7 ролей: 853 нашлись по артикулу, **ещё 277 —
+только по модели**, 176 без оценки вовсе. То есть наивное чтение по артикулу теряет 21% пула.
+
+**Пул скоринга и его дыры.** Берётся из `lr_roles` при условиях «роль не пуста, есть цена и фото,
+товар в наличии» (`style_score.py:41-47`). На 11.10 в `lr_roles`: диван 1969, кашпо 520, стеллаж
+398, кресло 396, пуф 348, столик 290, торшер 191 — и **`тв-тумба` 0, `банкетка` 0** при 404
+mesh_required тумбах и 143 банкетках в каталоге. Банкетки отличимы по названию внутри роли `пуф`;
+тумбы в таблицу ролей гостиной не попадают вообще, поэтому ждать их оценок бессмысленно —
+нужен апстрим-фикс наполнения `lr_roles`.
+
+**Дневная порция.** Скоринг идёт инкрементом (план `catalog-daily-mesh-ready`, до 1000 новых
+товаров в сутки), поэтому «дождаться стилей» — это сутки, а не часы.
