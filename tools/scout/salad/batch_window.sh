@@ -50,7 +50,10 @@ for g in $WGROUPS; do
   esac
 done
 BASE="https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/containers"
-LOG="${MESH_BATCH_LOG:-$HOME/igor/remlab/.memory_bank/_intake/batch-window.log}"
+# Логи прогонов — НЕ память: держим вне банка, иначе аудит памяти ругается, а репозиторий
+# пухнет (правило `memory-discipline.md`, находка INTAKE-LOGS 30.09 и 11.10).
+LOG="${MESH_BATCH_LOG:-$HOME/remlab-logs/batch-window.log}"
+mkdir -p "$(dirname "$LOG")"   # папки может не быть на свежей машине
 HALT="$HOME/scout-scenes/mesh-group-halt.json"
 
 # shellcheck disable=SC1090

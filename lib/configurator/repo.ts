@@ -1,3 +1,4 @@
+import { upgradeConfiguration } from "@/contracts/configurator";
 // Хранение подборов конфигуратора. Как у сметы (`modules/estimate/repository.ts`): есть БД —
 // пишем в неё, нет (локально, e2e) — в память процесса. Наружу отдаём БЕЗ контакта.
 
@@ -85,16 +86,16 @@ export async function readConfig(id: string): Promise<SavedConfig | null> {
   if (!row) return null;
   return {
     id: row.id,
-    configuration: {
-      // старые записи (до 30.09) хранят только выбор — поднимаем до версии 2 с пустыми
-      // перемещениями, иначе выданные раньше ссылки перестали бы открываться
-      version: 2,
+    // Старые записи (до 30.09) хранят только выбор — поднимаем до версии 2 ОДНОЙ функцией,
+    // общей с браузерным черновиком: два разных подъёма рано или поздно разойдутся.
+    configuration: upgradeConfiguration({
+      version: 1,
       apartmentId: row.apartmentId,
       developerId: row.developerId,
       selections: row.selections,
       placements: (row.placements as Record<string, { x: number; y: number; rot: number }>) ?? {},
       updatedAt: row.updatedAt.toISOString(),
-    },
+    }),
     quote: row.quote as unknown as Quote,
     createdAt: row.createdAt.toISOString(),
   };

@@ -3,12 +3,12 @@ tier: 1
 topic: pipeline-order
 scope: Порядок конвейера — от фида до расстановки
 tier2: "../domain/pipeline-order-details.md"
-updated: 2026-09-05
+updated: 2026-10-11
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-09-05
+last_verified: 2026-10-11
 review_after: 2026-12-05
 ---
 
@@ -17,13 +17,13 @@ review_after: 2026-12-05
 Зафиксирован владельцем 29.08. Свойство: **каждый этап зависит только от предыдущих**. Прежде
 спрос на меши считался от готовых сетов, а сеты ждали мешей — петля; здесь её нет.
 
-| # | Этап | Чем | На выходе (29.08) |
+| # | Этап | Чем | На выходе (замер 11.10) |
 |---|---|---|---|
-| 1 | Фиды → каталог | `load3.py` | 32 436 |
+| 1 | Фиды → каталог | `load3.py` | 22 075 (активных 20 382) |
 | 2 | Обогащение GPT: роль, функция, **стиль**, качество | `enrich.py`, `enrich_bridge.py` | — |
-| 3 | **Отбор**: наличие, живое фото, цена, обогащение, `quality ≥ 0.65` (`enrich_bridge.py`, `candidates.py`) | `slot_contract.py` | **≈14 700** |
-| 4 | **Обрезка фото** | `cutout_sync.py` | вердикт `ok/collage/bad_cutout` |
-| 5 | **Очередь мешей** — годное после обрезки, минус мягкий декор | `mesh_queue.demand_from_cut_pool` | **≈13 200** |
+| 3 | **Отбор**: наличие, живое фото, цена, обогащение, `quality ≥ 0.65` (`enrich_bridge.py`, `candidates.py`) | `slot_contract.py` | **≈14 360** |
+| 4 | **Обрезка фото** | `cutout_sync.py` | вердикт: ok · collage · bad_cutout · tiny_object · unknown |
+| 5 | **Очередь мешей** — годное после обрезки, минус мягкий декор | `mesh_queue.demand_from_cut_pool` | **4 669** |
 | 6 | Генерация → приёмка → ориентация → «меш есть» | `salad/*`, `mesh_ready.py` | — |
 | 7 | **Сборка сетов** из товаров с готовым представлением, по стилям | `compose2.py`, `MESH_GATE_PHASE` | 126 комплектов |
 | 8 | Судья: выбор лучших вариантов | `judge.py` | — |
@@ -38,7 +38,8 @@ review_after: 2026-12-05
 предмета есть готовое представление ПО СПОСОБУ ОТРИСОВКИ; покрытие считать как
 `asset_ready(strategy)`.
 
-**Чего ещё нет:** планировщика генерации (5→6), публикации ассета (6→7); судья отключён.
+**Планировщик генерации (5→6) ЕСТЬ** — `mesh_scheduler.py` в ночном кроне; публикация реестров
+на прод тоже есть (`tools/scout/salad/publish_merge.py`). Судья отключён — только по команде владельца.
 
 **Tier 2:** `../domain/pipeline-order-details.md` · `tools/scout/refresh_daily.sh` ·
 ADR-0131/0133/0134 · [[mesh-pipeline]].

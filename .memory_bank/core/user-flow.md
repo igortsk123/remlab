@@ -3,12 +3,12 @@ tier: 1
 topic: user-flow
 scope: Stage 1 UX-flow, аналитика
 tier2: ../domain/user-flow-details.md
-updated: 2026-09-05
+updated: 2026-10-11
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-09-05
+last_verified: 2026-10-11
 review_after: 2026-12-05
 ---
 
@@ -19,11 +19,13 @@ review_after: 2026-12-05
 ## Навигация (v0.4, сквозная шапка — ADR-0017)
 Одна шапка `SiteHeader.tsx`: логотип + «Моя лаборатория»; ряд материалы · ремонт · Дизайн ·
 Стили · Советы; адаптив ≤700/≤480 (урок 7 [[lessons]]); активный раздел — заливка.
-Иконки — [[access-and-integrations]]. Главная = «о проекте».
-- **`/styles`** — игра-карточки «узнай свой вкус» (`components/StyleQuiz.tsx`, сид `lib/styles/quiz.ts`):
+Иконки — [[access-and-integrations]]. Главная = ХАБ из шести плиток и два CTA (не «о проекте»).
+- **`/styles`** — игра-карточки (`components/StyleQuiz.tsx`, сид `lib/styles/quiz.ts`), раздел
+  ЗАКРЫТ заглушкой `ComingSoon` (флаг `NEXT_PUBLIC_SHOW_WIP=1`):
   лайк/скип → стиль → CTA дизайн/смета; событие `quiz_completed` (`app/styles-actions.ts`). Фото карточек
   и статьи по стилям — ПЛЕЙСХОЛДЕРЫ (позже).
-- **`/sovety`** — плитки-советы ПЛЕЙСХОЛДЕРЫ (тексты позже, М7). **`/lab`** — центр сохранений
+- **`/sovety`** — плитки-советы ПЛЕЙСХОЛДЕРЫ (М7); за той же заглушкой `/sovety`, `/start` и
+  `/calc/remont`. **`/lab`** — центр сохранений
   (ADR-0038): вкладки `?tab=` Материалы/Ремонт/Дизайны (WIP — тизеры «Скоро»), «Мой стиль»
   (итог /styles → `style_results`), событие `lab_tab`; `/estimates` → `/lab` (ADR-0036).
 Детали — `completed_plans/site-nav-and-scenarios.md`.
@@ -33,11 +35,11 @@ review_after: 2026-12-05
 `/p/[id]/{brief→select→preview→paywall}`, `/rooms`, `/soon` (fake-door, событие не эмитится). Выбор
 управляет генерацией: `/select` — `runAnalyze` + keep/change/remove (`objectChoices`) + стиль + `wish`;
 «Сгенерировать» → `runGenerate` (restyle+ideas) = «генерация» с номером. Free/Paid = уровень (3
-варианта, owner 2026-07-02): «Освежить» бесплатно (виз.+до 3 товаров), «Недорого» ~1490 ₽, «Под ключ»
-9900 ₽; реф-ссылки везде, paywall-триггер = выбор 2/3. ⚠️ Код-долг: товары seed, вар.2/3 и YooKassa нет.
+варианта, owner 2026-07-02): «Освежить» бесплатно (виз.+до 3 товаров), цены ступеней в коде НЕТ: фактически один
+платный пакет 490 ₽ (`app/p/[id]/paywall/page.tsx`); реф-ссылки везде, paywall-триггер = выбор 2/3. ⚠️ Код-долг: товары seed, вар.2/3 и YooKassa нет.
 
 ## Аналитика
-`lib/analytics.ts` (PostHog, no-op без ключа), сверка 06.08: 18 событий объявлено (`EventName`), 12 эмитится
+`lib/analytics.ts` (PostHog, no-op без ключа), сверка 11.10: 17 событий объявлено (`EventName`), 12 эмитится
 (estimate_*, lab_tab, lead_*, quiz_completed, viz_started, project_started, preview_ready…).
 
 **Tier 2:** `../domain/user-flow-details.md`; полный CJM — `../../docs/cjm-ux-v0.2.md`.

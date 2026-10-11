@@ -4,7 +4,7 @@ topic: demo-planner-structure
 scope: Демо интерактивного планировщика — вкладки, лента фотографий, отправка себе
 updated: 2026-09-05
 status: partial
-review_after: 2026-10-05
+review_after: 2026-11-10
 resume_trigger: следующий раунд демо-планировщика (MASTER-interactive-planner)
 pause_reason: часть внедрена (ADR-0158/0161), дальнейшая работа ушла в пул мешей и кадр демо
 created: 2026-08-26

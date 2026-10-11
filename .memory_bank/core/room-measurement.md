@@ -3,17 +3,18 @@ tier: 1
 topic: room-measurement
 scope: Замер комнаты по фото
 tier2: ../domain/room-measurement.md
-updated: 2026-09-04
+updated: 2026-10-11
 importance: high
 source: manual
 status: working
-last_verified: 2026-09-05
+last_verified: 2026-10-11
 review_after: 2026-12-05
 ---
 
 # Замер комнаты по фото — Tier 1
 
-**Статус: трек СПИТ с 04.08** — в v0.4 «Смета-first» не подключён, работы по нему не велись
+**Статус: сам сервис СПИТ с 04.08** — в v0.4 не подключён. Но потребитель замера появился:
+`tools/scout/room_bridge.py` (07.08) кладёт результат замера в сцену солвера (файлы сцен — вне git)
 (сверено 04.09: код на месте и соответствует описанию ниже, `fit_check.py`, `run_viz.py`).
 Это не отставание памяти, а отсутствие изменений.
 

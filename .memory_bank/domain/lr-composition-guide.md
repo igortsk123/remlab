@@ -2,7 +2,7 @@
 tier: 2
 topic: lr-composition-guide
 scope: Справка владельца — состав и доли площади предметов гостиной по типовым метражам (для автосборки сетов и планировщика)
-tier1: ../core/furniture.md
+tier1: ../core/lr-composition.md
 updated: 2026-08-01
 importance: high
 source: manual

@@ -22,6 +22,7 @@ const argOf = (name, def) => {
 };
 
 const DEMO = argOf("--demo", "/home/pakar/scout-scenes/flat215-demo/demo-data.json");
+const FRONT_OVERRIDES = new URL("../../data/flat3d/front-overrides.json", import.meta.url).pathname;
 const OUT = resolve(argOf("--out", "data/flat3d/furniture.json"));
 
 /** Роль ленты → слот конфигуратора. Порядок вариантов внутри роли задаёт цена. */
@@ -115,6 +116,15 @@ async function main() {
   } catch {
     orient = {}; // без ориентации мебель встанет с yaw=0 — как в демо
   }
+  // РУЧНЫЕ ПОПРАВКИ РАЗВОРОТА — последними, поверх orient.json: владелец видит модель глазами и
+  // решает, где у неё перёд. Без этого шага правка жила только в furniture.json и стиралась
+  // следующей пересборкой каталога (находка сверки 11.10).
+  let frontOverrides = {};
+  try {
+    frontOverrides = JSON.parse(readFileSync(FRONT_OVERRIDES, "utf8")).overrides || {};
+  } catch {
+    frontOverrides = {}; // файла нет — работаем на orient.json и расчёте по геометрии
+  }
 
   const options = [];
   const report = [];
@@ -139,7 +149,8 @@ async function main() {
         asset: {
           kind: "mesh",
           meshId,
-          yawDeg: Number(o.yaw || 0),
+          yawDeg: Number(frontOverrides[meshId]?.yawDeg ?? o.yaw ?? 0),
+          frontSource: frontOverrides[meshId] ? "manual" : o.yaw != null ? "orient" : "unknown",
           wCm: p.w,
           dCm: p.d,
           hCm: p.h,

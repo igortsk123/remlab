@@ -5,6 +5,7 @@ title: Апекс health-map.online — 302-редирект на 2mnenie.online
 status: draft
 created: 2026-09-05
 updated: 2026-09-05
+review_after: 2026-11-10
 completed:
 ---
 
