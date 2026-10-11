@@ -46,6 +46,9 @@ ROLES = ['диван', 'кресло', 'стул', 'комод', 'тумба', '
          'ваза', 'кашпо', 'статуэтка', 'зеркало', 'часы', 'полка', 'камин', 'пуф', 'банкетка',
          'растение', 'картина', 'покрывало']
 MAX_PAGES = int(os.environ.get('API_MAX_PAGES', '12'))
+# Сплошной обход пустым запросом: у крупного магазина выдача доходит до ~60 страниц (divan.ru —
+# 5 309 товаров за 58 страниц, 18 с). Потолок с запасом; упёрлись в него — обход считаем неполным.
+FULL_PAGES = int(os.environ.get('API_FULL_PAGES', '80'))
 
 SCHEMA = """
 create table if not exists api_offers (
@@ -76,8 +79,10 @@ def q(v) -> str:
     return "'" + str(v).replace("'", "''") + "'"
 
 
-def page(mid: int, query: str, p: int, tok: str, limit: int = 100) -> list[dict]:
+def page(mid: int, query: str, p: int, tok: str, limit: int = 100, tid: str | None = None) -> list[dict]:
     url = SEARCH_URL.format(q=urllib.parse.quote(query), mid=mid, l=limit, p=p, tok=tok)
+    if tid:
+        url += f'&tid={urllib.parse.quote(str(tid))}'
     raw = urllib.request.urlopen(url, timeout=60).read().decode('utf-8', 'ignore')
     out = []
     for o in ET.fromstring(raw).iter('offer'):
@@ -95,11 +100,35 @@ def page(mid: int, query: str, p: int, tok: str, limit: int = 100) -> list[dict]
 
 
 def sync_shop(mid: int, tok: str) -> tuple[int, int, int]:
-    """→ (уникальных офферов, запросов, отказов сети). Обход по ролям, страница за страницей до повторов.
+    """→ (уникальных офферов, запросов, отказов сети). Сперва сплошной обход магазина пустым
+    запросом, потом добор по словам-ролям — то, что сплошной обход не достал.
     Отказ по слову не валит прогон, но считается: частичный обход не должен выглядеть как полный."""
     seen: dict[str, dict] = {}
     calls = 0
     errors = 0
+    # СПЛОШНОЙ ОБХОД ПУСТЫМ ЗАПРОСОМ (11.10). Поиск принимает `q=` пустым и отдаёт весь магазин
+    # страницами — это ровно то, чего не умел обход 30 словами: по Орматеку слова дали 371 товар,
+    # пустой запрос 667. Выдача конечна и обрывается молча (у divan.ru 5 309 из 9 469 в фиде),
+    # поэтому обход остаётся ДОПОЛНЯЮЩИМ, а не источником состава каталога.
+    for p in range(1, FULL_PAGES + 1):
+        try:
+            items = page(mid, '', p, tok)
+            calls += 1
+        except Exception as e:  # noqa: BLE001 — сеть моргнула: сплошной обход прерываем, слова добьют
+            print(f'  {mid} сплошной обход стр {p}: {type(e).__name__}: {str(e)[:60]}', flush=True)
+            errors += 1
+            break
+        if not items:
+            break
+        fresh = [i for i in items if i['id'] and i['id'] not in seen]
+        for i in fresh:
+            seen[i['id']] = i
+        if not fresh:
+            break                           # страницы пошли по кругу — выдача кончилась
+    else:
+        # упёрлись в потолок страниц: выдача не кончилась, значит снимок заведомо неполный
+        print(f'WARN:api_truncated: магазин {mid} — сплошной обход упёрся в потолок '
+              f'{FULL_PAGES} страниц, собрано {len(seen)}; снимок неполный', flush=True)
     for word in ROLES:
         for p in range(1, MAX_PAGES + 1):
             try:

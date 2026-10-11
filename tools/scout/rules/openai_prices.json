@@ -41,6 +41,13 @@
    "typical_prompt_tokens": 2000,
    "typical_output_tokens": 500,
    "_why": "официальная цена модели (input/output за 1M токенов) + типовой размер запроса нашего конвейера — замер 17.08; provenance файла в _meta"
+  },
+  "gpt-6-luna": {
+   "input_per_1m": 0.1,
+   "output_per_1m": 0.5,
+   "typical_prompt_tokens": 4000,
+   "typical_output_tokens": 1200,
+   "_why": "официальная цена (developers.openai.com/api/docs/pricing, сверено 11.10): вдвое дешевле gpt-5.6-luna ($0,20/$1,20) при той же задаче стиль-скоринга"
   }
  },
  "_why": "Цены за 1M токенов для учёта расхода и дневного лимита (openai_budget.py). Источник и дата — в _meta.provenance/checked_at"

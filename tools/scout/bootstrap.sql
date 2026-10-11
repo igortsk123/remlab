@@ -27,41 +27,23 @@ create table if not exists scrape_queue (
  shop_mid int, external_id text, primary key(shop_mid, external_id),
  role text, direct_url text, status text default 'new', tries int default 0, note text);
 
+-- РОЛЬ ТОВАРА — ИЗ ОДНОЙ КАРТЫ (11.10.2026). Раньше здесь был второй, независимый классификатор:
+-- регулярки по `category_path`. Он расходился с канонической картой категорий
+-- (`category-roles.json` → `products.cat_role`, пишет load3) на 2 453 товарах. Самый заметный
+-- случай: категория магазина «Тумбы под телевизор» не подходила под шаблон `тв-тумб|тумб.*тв`
+-- (слова «тв» в слове «телевизор» нет) — 471 тв-тумба в каноне и НОЛЬ в подборе, из-за чего
+-- тв-тумбы не попадали ни в стиль-скоринг, ни в очередь мешей, а в отчёте покрытия зияла дырка
+-- во всех шести стилях. Добавить ещё одну регулярку — залечить симптом: два классификатора
+-- разойдутся снова. Поэтому витрина читает готовую роль, а решение «эта ветка — такая роль»
+-- принимается в одном месте: category_map.py.
+-- Колонки перечислены ЯВНО, а не `p.*`: у представления список колонок фиксируется при создании,
+-- и `create or replace` с `p.*` ломается, как только в products добавят поле («cannot change name
+-- of view column»). Набор — ровно тот, что был у прежней витрины.
 create or replace view lr_roles as
-select p.*,
- case
-  when category_path ~* 'садов|уличн|дачн|туристич|детск|офисн|компьютерн|ванн|придверн|духов|кухонн(ая|ые) (мойк|плит)|гайковерт|удобрен|для стекол' then null
-  when category_path ~* 'диван' then 'диван'
-  when category_path ~* 'подвесн.*кресл' then null
-  when category_path ~* 'кресл' then 'кресло'
-  when category_path ~* 'пуф|банкетк' then 'пуф'
-  when category_path ~* 'журнальн|прикроватн.*столик|столы и столики|консол' then 'столик'
-  when category_path ~* 'тв-тумб|тумб.*тв' then 'тв-тумба'
-  when category_path ~* 'стенк' then 'стенка'
-  when category_path ~* 'стеллаж' then 'стеллаж'
-  when category_path ~* 'витрин|буфет|сервант' then 'витрина'
-  when category_path ~* 'комод' then 'комод'
-  when category_path ~* 'полк' and category_path !~* 'полкодержат' then 'полка'
-  when category_path ~* 'зеркал' then 'зеркало'
-  when category_path ~* '^ковры|/ ковры|ковер ' or (category_path ~* 'ковр' and category_path !~* 'коврик|подложк') then (case when p.name ~* 'подложк|придверн' then null else 'ковёр' end)
-  when category_path ~* 'торшер' then 'торшер'
-  when category_path ~* 'настольн.*ламп' then 'лампа'
-  when category_path ~* 'бра' then 'бра'
-  when category_path ~* 'люстр|настенно-потолочн' then 'люстра'
-  when category_path ~* 'камин|очаг' then 'камин'
-  when category_path ~* 'кухонные столы|обеденн.*стол' then 'стол обеденный'
-  when category_path ~* 'кухонные стулья|барные стулья' or (category_path ~* '^стулья' or category_path ~* '/ стулья') then 'стул'
-  when category_path ~* 'шторы|тюль|карниз' then 'шторы'
-  when category_path ~* 'плед|покрывал' then 'плед'
-  when category_path ~* 'декоративн.*подушк' or category_path ~* '^подушки' then 'подушка'
-  when category_path ~* 'ваз' then 'ваза'
-  when category_path ~* 'статуэт|фигур' then 'статуэтка'
-  when category_path ~* 'кашпо' then 'кашпо'
-  when category_path ~* 'искусственн.*растен' then 'растение'
-  when category_path ~* 'часы' then 'часы'
-  when category_path ~* 'обрамлен|картин|постер|панно' then 'картина'
-  when category_path ~* 'распашн.*шкаф|шкафы-купе|модульн.*шкаф|углов.*шкаф|^шкафы' then 'шкаф'
- end as role
+select p.shop_mid, p.external_id, p.shop, p.category_id, p.category_path, p.name, p.brand,
+       p.url, p.image_url, p.price_rub, p.old_price_rub, p.charge_rub, p.in_stock,
+       p.w_cm, p.d_cm, p.h_cm, p.len_cm, p.dia_cm, p.dims_source, p.params,
+       p.cat_role as role
 from products p where in_stock;
 
 -- Наполнение очереди скрейпа (tvoydom, роли гостиной, неполные размеры):
@@ -71,3 +53,42 @@ from products p where in_stock;
 -- from lr_roles
 -- where shop='tvoydom.ru' and role in (...) and (w_cm is null or (d_cm is null and len_cm is null and dia_cm is null) or h_cm is null)
 -- on conflict do nothing;
+
+-- ОЦЕНКИ СТИЛЯ — В БАЗЕ (11.10.2026, просьба владельца «чтоб в базе было видно, где есть меши»).
+-- Раньше стили жили только в файле `style-scores.json` с ключом `mid-eid`, где все небуквенные
+-- символы заменены на `_` — связать стиль с мешем одним запросом было нельзя. Теперь ключ —
+-- тот же, что у товара: (shop_mid, external_id). Файл остаётся кэшем прогона.
+create table if not exists product_style_scores (
+  shop_mid    integer not null,
+  external_id text not null,
+  primary key (shop_mid, external_id),
+  scores      jsonb not null,     -- {"сканди": 7.2, "лофт": 3.0, ...}
+  top_style   text,               -- стиль с наибольшим баллом (для быстрых выборок)
+  universal   boolean,            -- вписывается куда угодно, стиля не создаёт
+  src         text,               -- llm+rules | llm+rules+clip | rules+clip
+  model       text,               -- какая модель считала
+  scored_at   timestamptz default now()
+);
+
+-- ОДНА КАРТИНА: товар → роль → стиль → меш. Отвечает на вопрос «что готово к генерации мешей»
+-- и «где меш уже есть». Стратегия ассета (меш/плоскость/вырезка) живёт в
+-- `rules/asset-strategies.json` — здесь только факт наличия меша и ссылка на него.
+create or replace view catalog_ready as
+select p.shop_mid, p.external_id, p.shop, p.name, p.cat_role as role,
+       p.price_rub, p.in_stock, p.image_url, p.image_url_hd,
+       p.w_cm, p.d_cm, p.h_cm, p.dims_source,
+       (p.w_cm is not null and (p.d_cm is not null or p.dia_cm is not null)
+        and p.h_cm is not null)                       as размеры_есть,
+       s.scores, s.top_style, s.universal, s.model    as style_model, s.scored_at as style_at,
+       p.mesh_required, p.mesh_status, p.mesh_uri, p.mesh_at,
+       (p.mesh_status = 'ready' and p.mesh_uri is not null) as меш_есть,
+       case
+         when p.mesh_status = 'ready' and p.mesh_uri is not null then 'меш готов'
+         when s.scores is null                                   then 'ждёт стиль'
+         when p.image_url is null                                then 'нет фото'
+         when p.cat_role is null                                 then 'нет роли'
+         else 'готов к генерации меша'
+       end as готовность
+from products p
+left join product_style_scores s using (shop_mid, external_id)
+where p.in_stock;

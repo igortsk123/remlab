@@ -15,7 +15,10 @@ from style_tags import tag
 HERE=os.path.dirname(os.path.abspath(__file__))
 STYLES=json.load(open(os.path.join(HERE,'styles.json')))['styles']
 SNAMES=list(STYLES)  # порядок фиксирован
-OUT=os.path.join(HERE,'style-scores.json')
+# STYLE_OUT — отдельный файл оценок для опытов (сравнение моделей, пересчёт впрок): пока дневной
+# конвейер пишет свой style-scores.json, опыт считается рядом и подменяется одним mv, когда готов.
+# Без этого два прогона затирали друг друга — оценки терялись молча (11.10).
+OUT=os.path.join(HERE,os.environ.get('STYLE_OUT','style-scores.json'))
 cache=json.load(open(OUT)) if os.path.exists(OUT) else {}
 # Ключ — общим резолвером (свой .env первым): жёсткий путь в чужой проект умер молча,
 # и добивка 29.08 прошла с 401 — записи легли «правила+CLIP» без LLM вообще.
@@ -45,15 +48,28 @@ raw=rows("""select l.role, l.shop_mid, l.external_id, l.name,
  order by l.shop_mid, l.external_id""")
 assert len(raw)>1000, f"каталог-запрос вернул {len(raw)} строк — SQL сломан, СТОП"
 pool={}
+# БЛИЗНЕЦЫ МОДЕЛИ. Скорим один товар на модель (дедуп по model_key — цвета и обивки одной модели
+# стилистически одинаковы и платить за них отдельно незачем), но в БАЗУ оценка едет ВСЕМ товарам
+# модели: иначе в витрине `catalog_ready` 4 491 товар выглядел бы «ждёт стиль», хотя стиль у его
+# модели посчитан (11.10).
+twins={}
 for r in raw:
     k=(r[9],model_key(r[3]))
+    twins.setdefault(k,[]).append((int(r[1]),r[2]))
     if k in pool: continue
-    pool[k]=dict(role=r[0],mid=int(r[1]),eid=r[2],name=r[3],mat=r[4],col=r[5],uph=r[6],stp=r[7],desc=r[8])
+    pool[k]=dict(role=r[0],mid=int(r[1]),eid=r[2],name=r[3],mat=r[4],col=r[5],uph=r[6],stp=r[7],desc=r[8],mkey=k)
 prods=list(pool.values())
-if '--limit' in sys.argv: prods=prods[:int(sys.argv[sys.argv.index('--limit')+1])]
 key=lambda p: f"{p['mid']}-{re.sub(r'[^A-Za-z0-9]','_',p['eid'])[:40]}"
 todo=[p for p in prods if key(p) not in cache]
-print(f"пул {len(prods)} (дедуп из {len(raw)}), в кэше {len(prods)-len(todo)}, скорить {len(todo)}",flush=True)
+# --limit — ПОТОЛОК ДНЕВНОЙ ДОБИВКИ, а не обрезка пула (11.10). Раньше лимит резал начало `prods`,
+# а начало пула давно в кэше: `--limit 300` на полном кэше давало «скорить 0» — дневной шаг месяцами
+# ничего не добивал, и это выглядело как «всё уже посчитано». Режем именно несосчитанные.
+if '--limit' in sys.argv:
+    LIMIT=int(sys.argv[sys.argv.index('--limit')+1])
+    if len(todo)>LIMIT:
+        print(f"дневной потолок {LIMIT}: из {len(todo)} несосчитанных беру первые {LIMIT}",flush=True)
+        todo=todo[:LIMIT]
+print(f"пул {len(prods)} (дедуп из {len(raw)}), в кэше {len(prods)-len([p for p in prods if key(p) not in cache])}, скорить {len(todo)}",flush=True)
 
 # ---------- ступень 1: правила ----------
 def rule_score(p):
@@ -129,7 +145,12 @@ def llm_batch(batch):
     # luna вместо mini — бенч 29.08 на комплекте №1 (13 товаров, style_model_bench.py):
     # ответы совпадают в пределах ~1 балла, на спорной лампе luna точнее terra (та увидела
     # неоклассику в плетёной керамике), а стоит вызов в 2.6 раза дешевле ($0.0010 против $0.0026).
-    body={"model":os.environ.get("STYLE_MODEL","gpt-5.6-luna"),"reasoning_effort":"low",
+    # gpt-6-luna вместо gpt-5.6-luna — бенч 11.10 на 180 товарах (решение владельца, ADR-0231):
+    # главный стиль совпал у 63%, средняя разница 1.05 балла из 10 — та же полоса равенства, что
+    # и в августе. Ручная сверка 30 товаров по фото: новая лучше у 7 (узнаёт неоклассику в
+    # хрустале и завитках, где старая говорила «современный»), хуже у 2, вровень 21. Замер цены
+    # на батче 25: $0.024 против $0.052 за 1000 товаров, скорость та же (~8 с на батч).
+    body={"model":os.environ.get("STYLE_MODEL","gpt-6-luna"),"reasoning_effort":"low",
           "messages":[{"role":"user","content":txt}]}
     # Канал по умолчанию — Vercel AI Gateway, фолбэк — OpenAI (правило владельца 29.08,
     # ADR-0181): прямые кредиты OpenAI кончились молча, и добивка стилей встала при живых
@@ -147,8 +168,34 @@ def llm_batch(batch):
             res[i]={RSH[s]:float(it.get(s,5)) for s in SH.values()} | {'universal':bool(it.get('u'))}
     return res
 
+# ОЦЕНКИ ЕДУТ И В БАЗУ (11.10). Файл — кэш прогона, но связать стиль с мешем одним запросом по
+# нему нельзя: ключ `mid-eid` теряет символы (`[^A-Za-z0-9]→_`). В базе ключ тот же, что у товара,
+# поэтому витрина `catalog_ready` показывает рядом роль, стиль, размеры и ссылку на меш.
+def save_to_db(rows):
+    if not rows: return 0
+    esc=lambda x: str(x).replace("'","''")
+    model=os.environ.get("STYLE_MODEL","gpt-6-luna")
+    n=0
+    for i in range(0,len(rows),1000):
+        vals=[]
+        for mid,eid,rec in rows[i:i+1000]:
+            sc={st:rec[st] for st in SNAMES}
+            top=max(sc,key=sc.get)
+            vals.append(f"({int(mid)},'{esc(eid)}','{esc(json.dumps(sc,ensure_ascii=False))}','{esc(top)}',"
+                        f"{str(bool(rec['universal'])).lower()},'{esc(rec['src'])}','{esc(model)}',now())")
+        sql=("insert into product_style_scores (shop_mid, external_id, scores, top_style, universal, src, model, scored_at)"
+             " values "+",".join(vals)+
+             " on conflict (shop_mid, external_id) do update set scores=excluded.scores,"
+             " top_style=excluded.top_style, universal=excluded.universal, src=excluded.src,"
+             " model=excluded.model, scored_at=excluded.scored_at")
+        r=subprocess.run(PSQL,input=sql,capture_output=True,text=True)
+        if r.returncode:
+            print(f"WARN:style_db: оценки не записаны в базу — {r.stderr[:160]}",flush=True); return n
+        n+=len(vals)
+    return n
+
 import concurrent.futures as cf, threading
-B=25; done=0; fails=0; _lock=threading.Lock()
+B=25; done=0; fails=0; _lock=threading.Lock(); scored_now=[]
 batches=[todo[bi:bi+B] for bi in range(0,len(todo),B)]
 def run_batch(batch):
     try: return batch,llm_batch(batch)
@@ -167,13 +214,17 @@ for batch,llm in _pool.map(run_batch,batches):
         else:  # фолбэк без LLM: правила+CLIP вокруг нейтральной 5
             fin={st:max(0,min(10, 5 + rs[st] + cs.get(st,0)*1.5)) for st in SNAMES}
             fin['universal']=all(abs(v-5)<1.2 for k,v in fin.items() if k!='universal'); src='rules+clip'
-        cache[key(p)]={**{st:round(fin[st],1) for st in SNAMES},'universal':fin['universal'],'src':src}
+        rec={**{st:round(fin[st],1) for st in SNAMES},'universal':fin['universal'],'src':src}
+        cache[key(p)]=rec
+        for tw_mid,tw_eid in twins.get(p['mkey'],[(p['mid'],p['eid'])]):
+            scored_now.append((tw_mid,tw_eid,rec))
     done+=len(batch)
     if done%1000<B:
         with _lock: json.dump(cache,open(OUT,'w'),ensure_ascii=False)
         print(f"{done}/{len(todo)}...",flush=True)
 json.dump(cache,open(OUT,'w'),ensure_ascii=False)
 print(f"OK: style-scores.json — {len(cache)} товаров",flush=True)
+print(f"OK: в базу записано оценок — {save_to_db(scored_now)}",flush=True)
 
 # ---------- отчёт покрытия: товаров с фитом ≥6.5 на стиль × роль ----------
 if '--report' in sys.argv or True:
