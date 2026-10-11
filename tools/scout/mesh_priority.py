@@ -64,10 +64,10 @@ def products() -> dict:
     без них товар и не получил бы пометку."""
     out = {}
     variants = 0
-    for sku, role, status, img, w, d, h, rep in db(
+    for sku, role, status, img, w, d, h, dia, rep in db(
             "select shop_mid||':'||external_id, coalesce(cat_role,''), "
             "coalesce(mesh_status,'none'), coalesce(image_url_hd, image_url), "
-            "coalesce(w_cm,0), coalesce(d_cm,0), coalesce(h_cm,0), "
+            "coalesce(w_cm,0), coalesce(d_cm,0), coalesce(h_cm,0), coalesce(dia_cm,0), "
             "coalesce(mesh_family_rep, shop_mid||':'||external_id) "
             "from products where mesh_required;"):
         # ОДИН МЕШ НА МОДЕЛЬ (владелец 05.09, `mesh_family.py`): цветовой вариант в очередь не
@@ -75,9 +75,16 @@ def products() -> dict:
         if rep != sku:
             variants += 1
             continue
+        # ДИАМЕТР КАК ГОРИЗОНТАЛЬНЫЙ ГАБАРИТ — ТОЛЬКО ДЛЯ ГЕНЕРАТОРА (11.10). Пул пускает
+        # круглые предметы по `(w или dia) и h` (mesh_bind), и без этой подстановки они уехали бы
+        # на Salad без размеров. В КАТАЛОГ выведенные оси не пишем: у бра диаметр — лицевая часть,
+        # а не глубина, поэтому `products.w_cm/d_cm` остаются пустыми, а честность расстановки
+        # решается отдельным признаком `catalog_ready.размеры_есть`.
+        wv, dv, dav = float(w) or None, float(d) or None, float(dia) or None
+        if wv is None and dav is not None:
+            wv = dv = dav
         out[sku] = {'role': role, 'status': status, 'image_url': img,
-                    'dims_cm': {'w': float(w) or None, 'd': float(d) or None,
-                                'h': float(h) or None}}
+                    'dims_cm': {'w': wv, 'd': dv, 'h': float(h) or None}}
     if variants:
         print(f'вариантов семейств вне очереди: {variants}', flush=True)
     if not out:

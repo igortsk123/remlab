@@ -83,7 +83,13 @@ update products p set mesh_required = true, mesh_policy_version = {ver}
   from product_enrichment e
  where e.shop_mid = p.shop_mid and e.external_id = p.external_id
    and p.cat_role in ({lit(need)})
-   and p.in_stock and p.image_url is not null and p.w_cm is not null and p.h_cm is not null
+   and p.in_stock and p.image_url is not null and p.h_cm is not null
+   -- КРУГЛОЕ ДОПУСКАЕМ ПО ДИАМЕТРУ (11.10). Генератору нужен горизонтальный габарит, а у
+   -- света/кашпо/ваз его присылают как «Диаметр», а не «Ширину»: 108 из 125 торшеров без
+   -- габаритов имели высоту и диаметр. Предикат `(w или dia) и h` уже жил в mesh_pilot.py:67 —
+   -- здесь он был строже и молча выбрасывал круглые предметы. Выдуманные w/d в каталог НЕ
+   -- пишем: ось выводить из диаметра нельзя (у бра диаметр — лицевая часть, а не глубина).
+   and (p.w_cm is not null or p.dia_cm is not null)
    and e.enriched_at is not null and e.payload->'model'->'styles' is not null;
 commit;""")
     return len(need), len(skip)

@@ -60,7 +60,7 @@ def funnel() -> list[tuple[str, int]]:
          and e.enriched_at is not null and e.payload->'model'->'styles' is not null) as v6,
       (select count(*) from {E} where p.in_stock and p.image_url is not null
          and e.enriched_at is not null and e.payload->'model'->'styles' is not null
-         and p.w_cm is not null and p.h_cm is not null) as v7"""
+         and (p.w_cm is not null or p.dia_cm is not null) and p.h_cm is not null) as v7"""
     r = _db(q)
     v = [int(x) for x in r[0].split('|')] if r else [0] * 7
     return list(zip(['всего в каталоге', 'в наличии', 'с фото', '  из них с HD-фото',
