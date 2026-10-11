@@ -3,7 +3,7 @@ tier: 1
 topic: mesh-color
 scope: Цвет мешей — диагноз, мерка, рычаги
 tier2: "../domain/viz-fidelity-playbook.md"
-updated: 2026-10-02
+updated: 2026-10-11
 importance: high
 source: manual
 status: working

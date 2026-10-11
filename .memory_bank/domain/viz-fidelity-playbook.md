@@ -3,12 +3,12 @@ tier: 2
 topic: viz-fidelity-playbook
 scope: Плейбук схожести товаров в генерациях сцен (сеты/визуализация М5) — правила, модели, цены
 tier1: ../core/furniture.md
-updated: 2026-09-28
+updated: 2026-10-11
 importance: high
 source: external:ресёрч 2026-08-01 (BFL/Google/OpenAI доки + практика) + собственные A/B на Сете 1
 status: working
 source_of_truth: canonical
-last_verified: 2026-08-01
+last_verified: 2026-10-11
 ---
 
 # Схожесть товаров в генерациях: плейбук (проверено на Сете 1)
@@ -81,7 +81,9 @@ last_verified: 2026-08-01
 Сцену генерить ПОД ракурс имеющегося фото товара (не наоборот). Слабые места: перспектива/окклюзии/
 контактные тени. ~$0.05–0.15/кадр. Пилот: диваны + Bria (~$10/день проверка).
 
-Скрипты: `tools/scout/viz8.py` (текущий рецепт), viz3–viz7 — история A/B. Vertex Imagen
+Скрипты: `tools/scout/viz3.py`…`viz11.py` — ВСЕ история A/B одного дня 01.08 (последний по времени
+`viz11.py`, а не `viz8.py`); боевой путь — ветка B (`viz_build.py`/`viz_final.py`, 06–07.08),
+см. выше. Vertex Imagen
 `PRODUCT`-reference — непроверенная альтернатива (типизированный продукт-референс).
 
 
