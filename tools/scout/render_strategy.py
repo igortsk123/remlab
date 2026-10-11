@@ -17,7 +17,9 @@
 Роль, которой в таблице нет, считается `mesh`: строже безопаснее, чем тихо пропустить объёмный
 предмет без модели.
 """
+import json
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -35,6 +37,22 @@ CUTOUT = {'плед', 'покрывало', 'шторы', 'подушка', 'ч�
 FLAT = {'ковёр', 'ковер', 'картина', 'зеркало'}
 _MAP = {'hunyuan3d': 'mesh', 'procedural_plane': 'flat', 'cutout': 'cutout',
         'parametric_soft': 'cutout'}
+
+
+def square_roles() -> set[str]:
+    """Роли, у которых глубину допустимо считать равной ширине (круглое/квадратное пятно).
+
+    Канон — `rules/asset-strategies.json:square_footprint_roles`, копия у ноды держится
+    CI-диффом. Три разных списка в коде (`salad/apply_repairs.py`, `salad/worker.py`,
+    `flat215_demo.py`) расходились между собой — стол был круглым в одном месте и нет в другом
+    (найдено 11.10). Вопрос о ГЛУБИНЕ отвечает только этот список; у демо свой, про отрисовку
+    вида сверху, и смешивать их нельзя.
+    """
+    try:
+        with open(os.path.join(HERE, 'rules', 'asset-strategies.json'), encoding='utf-8') as f:
+            return set(json.load(f).get('square_footprint_roles') or ())
+    except OSError:
+        return set()
 
 
 def strategy(role: str | None) -> str:
@@ -114,5 +132,42 @@ def report() -> None:
         print(f'{st:10}{n:10}{ok:10}{100 * ok / max(n, 1):7.1f}%')
 
 
+def _selftest() -> int:
+    """Страж от расхождения канона с литералом НОДЫ.
+
+    Нода внутри образа `rules/asset-strategies.json` не читает — список круглых ролей зашит
+    литералом в `salad/worker.py` и меняется только пересборкой образа. Поэтому канон обязан
+    совпадать с ним дословно: 11.10 нашлись ТРИ разных списка (у ноды без «стола», в
+    `apply_repairs` со «столом», в демо со «статуэткой»), и приёмка судила форму иначе, чем её
+    делал генератор. Если список поменяли в каноне — этот стенд упадёт и напомнит, что без
+    пересборки образа нода останется на старом.
+    """
+    bad = 0
+    canon = square_roles()
+    if not canon:
+        bad += 1
+        print('  FAIL канон square_footprint_roles пуст или не читается')
+    w = os.path.join(HERE, 'salad', 'worker.py')
+    try:
+        with open(w, encoding='utf-8') as fh:
+            text = fh.read()
+    except OSError as e:
+        print(f'  FAIL не прочитан {w}: {e}')
+        return 1
+    m = re.search(r"_square_role'\]\s*=\s*job\.get\('role'\)\s*in\s*\(([^)]*)\)", text)
+    if not m:
+        bad += 1
+        print('  FAIL в salad/worker.py не найден литерал круглых ролей — проверь строку 227')
+    else:
+        node = {x.strip().strip("'\"") for x in m.group(1).split(',') if x.strip()}
+        if node != canon:
+            bad += 1
+            print(f'  FAIL канон {sorted(canon)} != литерал ноды {sorted(node)}; '
+                  'расхождение исправляется ТОЛЬКО пересборкой образа')
+    print('самопроверка render_strategy: ' + ('ОК' if not bad else f'ПРОВАЛОВ {bad}'))
+    return 1 if bad else 0
+
+
 if __name__ == '__main__':
-    report()
+    import sys
+    sys.exit(_selftest() if '--selftest' in sys.argv else (report() or 0))

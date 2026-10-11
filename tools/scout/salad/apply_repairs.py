@@ -28,7 +28,17 @@ sys.path.insert(0, os.path.join(HERE, '..'))
 RESEED = os.path.join(HERE, '..', 'mesh-reseed.json')
 # роли, симметричные в плане: пустая глубина паспорта = ширине, иначе профильный гейт слеп
 # (кашпо-доска 30.08 прошла именно из-за пустой d)
-SQUARE_ROLES = {'кашпо', 'ваза', 'торшер', 'лампа', 'стол', 'пуф'}
+# КАНОН — `rules/asset-strategies.json:square_footprint_roles` (11.10). Свой список был третьей
+# истиной: здесь «стол» считался квадратным, у ноды (`worker.py:227`) — нет, и приёмка судила
+# форму иначе, чем её делал генератор. Прямоугольных столов больше, чем круглых, поэтому «стол»
+# из списка ушёл — приравнивать его глубину к ширине было ложью.
+try:
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+    from render_strategy import square_roles as _square_roles
+    SQUARE_ROLES = _square_roles()
+except Exception:  # noqa: BLE001 — на ноде модуля нет; локальный разбор не должен падать
+    SQUARE_ROLES = {'кашпо', 'ваза', 'торшер', 'лампа', 'пуф'}
 
 
 def slab_excess(glb: str, dims: dict | None, role: str | None) -> float | None:
