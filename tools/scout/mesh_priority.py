@@ -21,6 +21,7 @@
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -136,6 +137,129 @@ def sets_data() -> tuple[dict, dict]:
             for a in lst:
                 alts.setdefault(f"{a['mid']}:{a['eid']}", set()).add(sid)
     return items, alts
+
+
+DEMO_PROFILE = os.path.join(HERE, 'rules', 'mesh-queue-demo.json')
+_STOP_COLOR = re.compile(
+    r'\b(беж\w*|сер\w*|син\w*|зел[её]н\w*|коричн\w*|ч[её]рн\w*|бел\w*|графит\w*|латте|мокко|'
+    r'изумруд\w*|горчичн\w*|пудр\w*|роз\w*|голуб\w*|фиолет\w*|бордо\w*|венге|дуб\s?\w*|орех\w*|'
+    r'ясень|сонома|капучино|шоколад\w*|молочн\w*|крем\w*|песочн\w*|терракот\w*|оливк\w*|мятн\w*|'
+    r'лаванд\w*|карбон|антрацит|жемчужн\w*|сливов\w*|вельвет\w*|велюр\w*|шенилл\w*|рогожк\w*|'
+    r'экокож\w*|микровелюр\w*|правый|левый|угол|бархат\w*|т[её]мн\w*|светл\w*|глосс|люкс|найс|'
+    r'плюш\w*)\b', re.I)
+
+
+def _model_key(name: str) -> str:
+    """Ключ модели — как у стиль-скоринга (`style_score.py:34-37`): цвета вычеркнуты, 6 слов."""
+    n = _STOP_COLOR.sub(' ', (name or '').lower())
+    n = re.sub(r'[^а-яa-z0-9 ]', ' ', n)
+    return ' '.join(re.sub(r'\s+', ' ', n).strip().split()[:6])
+
+
+def style_lookup():
+    """Оценка стиля по товару. ПОРЯДОК КАК У СБОРЩИКА СЕТОВ, иначе очередь и сеты выберут разных.
+
+    Канон (`core/styles.md`, сверено 11.10): источник №1 — база (`enrich_bridge.style_scores`),
+    `style-scores.json` — фолбэк, именно так их берёт `compose2.py:538`. В JSON ключ — МОДЕЛЬ, а
+    не артикул: скоринг схлопывает цвета по первым 6 словам названия и кэширует под ПЕРВЫМ
+    артикулом модели, который не обязан совпадать с представителем семейства мешей. Чтение по
+    артикулу в лоб теряет 21% пула (замер 11.10: 277 из 1306).
+    """
+    try:
+        import enrich_bridge as EB
+    except Exception:  # noqa: BLE001 — без базы остаётся только JSON
+        EB = None
+    jpath = os.path.join(HERE, 'style-scores.json')
+    raw = {}
+    if os.path.exists(jpath):
+        with open(jpath, encoding='utf-8') as fh:
+            raw = json.load(fh)
+    # Карта «(магазин, модель) → оценка» строится ОДИН раз: линейный поиск по 17 тыс. ключей на
+    # каждый товар давал бы десятки миллионов операций с регексом на сборку одной очереди.
+    by_model: dict[tuple[str, str], dict] = {}
+    for k, v in raw.items():
+        km, _, ke = k.partition('-')
+        by_model.setdefault((km, _model_key(ke)), v)
+
+    def get(sku: str, name: str) -> dict | None:
+        mid, _, eid = sku.partition(':')
+        if EB is not None:
+            try:
+                sc = EB.style_scores(int(mid), eid)
+                if sc:
+                    return sc
+            except Exception:  # noqa: BLE001 — мост не должен ронять сборку очереди
+                pass
+        direct = raw.get(f'{mid}-{eid}')
+        if direct:
+            return direct
+        return by_model.get((mid, _model_key(name)))
+    return get
+
+
+def demo_rank() -> list[dict]:
+    """Очередь под демо: топ-N на каждый тип в КАЖДОМ стиле, без повторов и без готовых.
+
+    Один товар, годный в несколько стилей, встаёт в очередь ОДИН раз: меш у него один
+    (ADR-0196), и платить дважды незачем. Ярус = номер стиля, поэтому первым добивается первый
+    стиль списка — порядок стилей задаётся профилем.
+    """
+    prof = json.load(open(DEMO_PROFILE, encoding='utf-8'))
+    top_n, styles, roles = prof['top_n'], prof['styles'], set(prof['roles'])
+    pen = float(prof.get('universal_penalty') or 0)
+    prod = products()
+    names = {r[0]: r[1] for r in db("select shop_mid||':'||external_id, "
+                                    "replace(coalesce(name,''), chr(9), ' ') from products "
+                                    "where mesh_required")}
+    get = style_lookup()
+    scored = []
+    for sku, p in prod.items():
+        if p['role'] not in roles:
+            continue
+        sc = get(sku, names.get(sku, ''))
+        if not sc:
+            continue
+        scored.append((sku, p, sc))
+
+    return demo_pick(scored, styles, roles, top_n, pen,
+                     f"demo-v{prof.get('policy_version', 1)}")
+
+
+def demo_pick(scored: list, styles: list, roles: set, top_n: int, pen: float,
+              ver: str) -> list[dict]:
+    """Чистый отбор: топ-N на тип в каждом стиле, без повторов, без готовых. Без базы и сети.
+
+    Один товар, годный в несколько стилей, встаёт ОДИН раз: меш у него один (ADR-0196), платить
+    дважды незачем. Ярус = номер стиля, поэтому первым добивается первый стиль списка.
+    """
+    rows, seen = [], set()
+    for si, style in enumerate(styles, 1):
+        def key(x, _st=style):
+            v = float(x[2].get(_st) or 0)
+            if pen and x[2].get('universal'):
+                v -= pen          # универсальный не вытесняет характерный при равном балле
+            return (-v, x[0])     # tie-break по sku: снимок не должен дрожать между прогонами
+        taken: dict[str, int] = {}
+        for sku, p, sc in sorted(scored, key=key):
+            if sku in seen or taken.get(p['role'], 0) >= top_n:
+                continue
+            if p['role'] not in roles:
+                continue
+            # ГОТОВЫЙ МЕШ ЗАНИМАЕТ СЛОТ, А НЕ ОСВОБОЖДАЕТ ЕГО (11.10). Он И ЕСТЬ один из 30
+            # вариантов стиля — просто делать его не надо. Пропускать готовых ПРИ ОТБОРЕ значит
+            # отдавать их места следующим кандидатам и раздувать генерацию: замер показал
+            # 585 → 684 задания. Поэтому ряд создаётся, а отбрасывает готовых уже `main()`,
+            # тем же фильтром, что и у боевой очереди.
+            seen.add(sku)
+            taken[p['role']] = taken.get(p['role'], 0) + 1
+            # Форма ряда — ТА ЖЕ, что у боевого ранжира: `build_queue` читает `key` и
+            # `policy_version`, профиль обязан соблюдать их контракт, а не свой.
+            rows.append({'tier': si, 'sku': sku, 'role': p['role'], 'status': p['status'],
+                         'key': f'{si:02d}|{len(rows):06d}|{sku}',
+                         'reason': f'демо: стиль «{style}», балл {float(sc.get(style) or 0):.1f}',
+                         'policy_version': ver})
+    rows.sort(key=lambda x: x['key'])
+    return rows
 
 
 def rank() -> list[dict]:
@@ -319,6 +443,61 @@ def build_queue(path: str, todo: list, prod: dict) -> None:
 
 
 def _selftest() -> int:
+    # --- ПРОФИЛЬ ДЕМО: топ-N на тип в каждом стиле ---
+    bad_demo = 0
+    def _p(role, status='none'):
+        return {'role': role, 'status': status}
+    sc = lambda a, b, u=False: {'сканди': a, 'лофт': b, 'universal': u}  # noqa: E731
+    scored = [
+        ('m:1', _p('диван'), sc(9, 1)), ('m:2', _p('диван'), sc(8, 2)),
+        ('m:3', _p('диван'), sc(1, 9)), ('m:4', _p('кресло'), sc(9, 9)),
+        ('m:5', _p('диван', 'ready'), sc(10, 10)),       # готовый не повторяем
+        ('m:6', _p('ковёр'), sc(10, 10)),                # роль вне профиля
+        ('m:7', _p('кресло'), sc(9, 9, True)),           # универсальный — со штрафом
+    ]
+    rows = demo_pick(scored, ['сканди', 'лофт'], {'диван', 'кресло'}, 2, 0.5, 'test')
+    got = [r['sku'] for r in rows]
+    # Готовый ЗАНИМАЕТ слот (он и есть один из вариантов), но в генерацию не идёт — его
+    # отбрасывает `main()` тем же фильтром, что у боевой очереди. Проверяем оба утверждения.
+    if 'm:5' not in got:
+        bad_demo += 1; print('  FAIL готовый меш не занял слот — места уйдут лишним кандидатам')
+    if 'm:5' in [r['sku'] for r in rows if r['status'] != 'ready']:
+        bad_demo += 1; print('  FAIL готовый меш попал бы в генерацию')
+    if 'm:6' in got:
+        bad_demo += 1; print('  FAIL профиль взял роль вне списка')
+    if len(got) != len(set(got)):
+        bad_demo += 1; print(f'  FAIL товар попал в очередь дважды: {got}')
+    # В «сканди» топ-2 диванов — по баллу: m:5 (10, уже готов — слот занят) и m:1 (9).
+    # m:3 (балл 1 в сканди) не берём: отбор именно по соответствию стилю, а не по порядку sku.
+    sk = [r['sku'] for r in rows if r['tier'] == 1 and r['role'] == 'диван']
+    if sk != ['m:5', 'm:1']:
+        bad_demo += 1; print(f'  FAIL топ-2 диванов в «сканди»: {sk}, ждали [m:5, m:1]')
+    # …а в генерацию из этой пары идёт только неготовый
+    gen = [r['sku'] for r in rows if r['tier'] == 1 and r['role'] == 'диван'
+           and r['status'] != 'ready']
+    if gen != ['m:1']:
+        bad_demo += 1; print(f'  FAIL в генерацию по «сканди» идут {gen}, ждали [m:1]')
+    # лимит на ТИП внутри стиля, а не на стиль целиком
+    if any(sum(1 for r in rows if r['tier'] == t and r['role'] == ro) > 2
+           for t in (1, 2) for ro in ('диван', 'кресло')):
+        bad_demo += 1; print('  FAIL лимит top_n на тип нарушен')
+    # штраф за универсальность: при равном балле характерный (m:4) идёт раньше
+    cr = [r['sku'] for r in rows if r['role'] == 'кресло']
+    if cr and cr[0] != 'm:4':
+        bad_demo += 1; print(f'  FAIL универсальный вытеснил характерный: {cr}')
+    # Ключ модели обязан СОВПАДАТЬ с ключом стиль-скоринга (`style_score.py:34-37`) — иначе
+    # оценка не найдётся. Поэтому список вычёркиваемых слов копируется дословно, а не улучшается.
+    if _model_key('Диван divan.ru Риббл-1 Велюр Молочный') != _model_key(
+            'Диван divan.ru Риббл-1 Шенилл Графитовый'):
+        bad_demo += 1; print('  FAIL ключ модели не схлопывает варианты ткани и цвета')
+    # ИЗВЕСТНАЯ ДЫРА ОБЩЕГО СПИСКА (найдена этим стендом 11.10): «букле» в нём нет, поэтому
+    # вариант на букле получает ОТДЕЛЬНУЮ оценку стиля. Для поиска не страшно (ищем по своему
+    # ключу и по артикулу), но скоринг платит за лишние карточки. Чинить — в `style_score.py`,
+    # это область сессии каталога; здесь фиксируем контрактом, чтобы не забылось.
+    if _model_key('Диван Риббл-1 Букле Молочный') == _model_key('Диван Риббл-1 Велюр Молочный'):
+        bad_demo += 1; print('  FAIL «букле» вдруг стало вычёркиваться — обнови заметку о дыре')
+    print('профиль демо: ' + ('ОК' if not bad_demo else f'ПРОВАЛОВ {bad_demo}'))
+
     bad = 0
     if next_seed(set()) != 1 or next_seed({0}) != 1 or next_seed({0, 1}) != 2 or next_seed({0, 3}) != 4:
         bad += 1; print('  FAIL next_seed')
@@ -346,7 +525,18 @@ def _selftest() -> int:
 def main() -> None:
     if '--selftest' in sys.argv:
         sys.exit(_selftest())
-    rows = rank()
+    # ПРОФИЛЬ — ОТДЕЛЬНАЯ ОЧЕРЕДЬ, НЕ ПОДМЕНА БОЕВОЙ (владелец 11.10: «выдели очередь отдельно,
+    # чтоб её логику можно было быстро менять»). Боевой регламент `rules/mesh-priority.json` и
+    # его ярусы не затрагиваются; принцип демо живёт в `rules/mesh-queue-demo.json` и меняется
+    # правкой JSON. Снимок собирается тем же атомарным путём, старт волны не меняется.
+    if '--profile' in sys.argv:
+        name = sys.argv[sys.argv.index('--profile') + 1] \
+            if sys.argv.index('--profile') + 1 < len(sys.argv) else ''
+        if name != 'demo':
+            sys.exit(f'неизвестный профиль «{name}»: есть только demo')
+        rows = demo_rank()
+    else:
+        rows = rank()
     todo = [x for x in rows if x['status'] != 'ready']
     if '--explain' in sys.argv:
         want = sys.argv[sys.argv.index('--explain') + 1]
