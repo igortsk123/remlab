@@ -457,7 +457,10 @@ on conflict (shop_mid,external_id) do update set
   -- глубина из меша (mesh_dims.py, провенанс dims_evidence.d.source='mesh_ratio') живёт, пока фид не даст
   -- ИЗМЕРЕННУЮ глубину: измеренное сильнее инференса, инференс сильнее пустоты (authority по оси, П3.4)
   d_cm   =case when p.dims_source in ('scrape','manual') then p.d_cm
-               when excluded.d_cm is null and p.dims_evidence->'d'->>'source' = 'mesh_ratio' then p.d_cm
+               -- 11.10: та же защита для глубины из приора роли×формы (`dim_prior.py`,
+               -- замер: вдвое точнее меша). Инференс сильнее пустоты, фид сильнее инференса.
+               when excluded.d_cm is null
+                    and p.dims_evidence->'d'->>'source' in ('mesh_ratio','role_prior') then p.d_cm
                else excluded.d_cm end,
   h_cm   =case when p.dims_source in ('scrape','manual') then p.h_cm    else excluded.h_cm    end,
   len_cm =case when p.dims_source in ('scrape','manual') then p.len_cm  else excluded.len_cm  end,
