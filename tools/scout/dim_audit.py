@@ -82,6 +82,18 @@ def rows() -> list[list[str]]:
     return [ln.split('\t') for ln in r.stdout.strip().split('\n') if ln]
 
 
+def db_rows(sql: str) -> list[list[str]]:
+    try:
+        r = subprocess.run(PSQL, input=sql, capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f'база не опрошена: {type(e).__name__}: {e}', file=sys.stderr)
+        sys.exit(2)
+    if r.returncode != 0:
+        print(r.stderr[:400], file=sys.stderr)
+        sys.exit(2)
+    return [ln.split('\t') for ln in r.stdout.strip().split('\n') if ln]
+
+
 def arg(flag: str) -> str | None:
     """Значение флага; флаг последним аргументом не должен ронять сторожа."""
     if flag in sys.argv:
@@ -111,6 +123,45 @@ def _strategy(role: str) -> str:
         return strategy(base_role(role))
     except Exception:  # noqa: BLE001 — роль вне таблицы: судим как объёмную, это строже
         return 'mesh'
+
+
+PROPOSE_SQL = """
+select p.shop_mid, coalesce(p.cat_role,'(нет роли)'), kv.key, count(*)
+  from products p, jsonb_each_text(coalesce(p.params,'{}'::jsonb)) kv(key, val)
+ where p.in_stock and p.image_url is not null and p.cat_role is not null
+   and (p.d_cm is null and p.dia_cm is null or p.w_cm is null and p.dia_cm is null
+        or p.h_cm is null)
+   and kv.key like any (array[%s])
+   and kv.val ~ '[0-9]'
+   -- ГАБАРИТЫ УПАКОВКИ — НЕ ГАБАРИТЫ ТОВАРА. В подсказке их быть не должно: разметишь
+   -- «Длина упаковки 1 (см)» как глубину — и диван станет коробкой.
+   and kv.key not ilike '%упаковк%' and kv.key not ilike '%брутто%'
+ group by 1,2,3 having count(*) >= 20
+ order by 1,2,4 desc;
+"""
+
+
+def propose() -> None:
+    """Какие размерные поля ЕСТЬ у товаров с потерей — то есть кандидаты на разметку осей.
+
+    Это и есть ответ на «какое поле куда отображать» для нового магазина: сторож показывает, что
+    в фиде лежит заполненным, пока оси пустуют. Решение всё равно за человеком — конвенцию мерить
+    на выборке (правило из шапки `dim_resolver.py`), но искать её больше не надо.
+    """
+    like = ', '.join("'%" + f + "%'" for f in DIM_FIELDS)
+    cur, seen = None, 0
+    print('\nЧТО ЛЕЖИТ В ФИДЕ У ТОВАРОВ С ПОТЕРЕЙ (кандидаты на разметку осей):')
+    for r in db_rows(PROPOSE_SQL % like):
+        if len(r) < 4:
+            continue
+        key = (r[0], r[1])
+        if key != cur:
+            cur, seen = key, 0
+            print(f'  магазин {r[0]}, роль «{r[1]}»:')
+        if seen < 6:
+            print(f'      {r[2]:34} {r[3]:>6} товаров')
+            seen += 1
+    print('  Разметка живёт в `dim_resolver.SHOP_DIM_KEYS` — список групп «роли → оси» на магазин.')
 
 
 def main() -> int:
@@ -153,6 +204,8 @@ def main() -> int:
             json.dump({'min_n': MIN_N, 'max_unresolved': MAX_UNRESOLVED, 'rows': out}, fh,
                       ensure_ascii=False, indent=1)
         print(f'отчёт: {p}')
+    if '--propose' in sys.argv:
+        propose()
     if alarms:
         tot = sum(a['lost'] for a in alarms)
         msg = (f'ТРЕВОГ {len(alarms)}: размеры в фиде есть, а в работу не доехали у {tot} товаров.'
