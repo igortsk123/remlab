@@ -9,7 +9,16 @@
 ЧТО СЧИТАЕМ — ТРИ РАЗНЫЕ ГОТОВНОСТИ по `магазин × роль` (их нельзя смешивать, разбор Codex 11.10):
   mesh_ready   — годен к ГЕНЕРАЦИИ: есть высота и (ширина ИЛИ диаметр);
   place_ready  — годен к РАССТАНОВКЕ: есть все три оси (диаметр закрывает глубину у круглого);
-  unresolved   — размерные поля в `params` ЕСТЬ, а осей нет: именно это и есть молчаливая потеря.
+  lost_mesh    — размерные поля в `params` ЕСТЬ, а к генерации не годен: молчаливая потеря;
+  lost_depth   — к генерации годен, но ГЛУБИНЫ нет при наличии размерных полей: меш сделаем,
+                 честно расставить не сможем. Это отдельный счёт: первая версия сторожа его не
+                 считала и ставила `ok` 14 группам, где глубины нет у >50 % (3 503 товара) —
+                 поймал субагент `verify`.
+
+РОЛЬ РЕШАЕТ, ЧТО СЧИТАТЬ ПОТЕРЕЙ. У пледа/подушки/ковра «высоты» не бывает по природе: это
+плоские предметы (`render_strategy.strategy` → `flat`), им нужны ширина и длина, а не три оси.
+Поэтому тревогу по ним поднимаем отдельной строкой и не мешаем с мебелью — иначе сторож кричит
+всегда и его перестают читать.
 
 ПОРОГИ. Тревога только там, где есть статистика: `n >= MIN_N` и доля unresolved > `MAX_UNRESOLVED`.
 Маленькая группа получает статус `insufficient_sample` — по ней правило не выводим (правило из
@@ -30,8 +39,11 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# ON_ERROR_STOP ОБЯЗАТЕЛЕН (грабля из `mesh_priority.py:32`): psql со stdin при ошибке SQL
+# вернёт 0 и пустой вывод, и сторож напечатал бы «тревог нет» — то есть соврал бы ровно в том
+# месте, ради которого создан.
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
-        '-q', '-t', '-A', '-F', '\t']
+        '-v', 'ON_ERROR_STOP=1', '-q', '-t', '-A', '-F', '\t']
 MIN_N = int(os.environ.get('DIM_AUDIT_MIN_N', '20'))
 MAX_UNRESOLVED = float(os.environ.get('DIM_AUDIT_MAX_UNRESOLVED', '0.20'))
 # Поля, по которым судим «размеры в фиде ЕСТЬ». Список держим здесь, а не в SQL, чтобы он читался.
@@ -43,9 +55,13 @@ select p.shop_mid, coalesce(p.cat_role,'(нет роли)') as role,
   count(*) filter (where (p.w_cm is not null or p.dia_cm is not null) and p.h_cm is not null) as mesh_ready,
   count(*) filter (where p.w_cm is not null and p.h_cm is not null
                      and (p.d_cm is not null or p.dia_cm is not null)) as place_ready,
-  count(*) filter (where (p.w_cm is null or p.h_cm is null)
+  count(*) filter (where (p.w_cm is null and p.dia_cm is null or p.h_cm is null)
                      and exists (select 1 from jsonb_each_text(coalesce(p.params,'{}'::jsonb)) kv
-                                  where kv.key like any (array[%s]))) as unresolved
+                                  where kv.key like any (array[%s]))) as lost_mesh,
+  count(*) filter (where (p.w_cm is not null or p.dia_cm is not null) and p.h_cm is not null
+                     and p.d_cm is null and p.dia_cm is null
+                     and exists (select 1 from jsonb_each_text(coalesce(p.params,'{}'::jsonb)) kv
+                                  where kv.key like any (array[%s]))) as lost_depth
 from products p
 where p.in_stock and p.image_url is not null and p.cat_role is not null
 group by 1,2 order by 1,2;
@@ -54,16 +70,31 @@ group by 1,2 order by 1,2;
 
 def rows() -> list[list[str]]:
     like = ', '.join("'%" + f + "%'" for f in DIM_FIELDS)
-    r = subprocess.run(PSQL, input=SQL % like, capture_output=True, text=True, timeout=300)
+    try:
+        r = subprocess.run(PSQL, input=SQL % (like, like), capture_output=True, text=True,
+                           timeout=300)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f'база не опрошена: {type(e).__name__}: {e}', file=sys.stderr)
+        sys.exit(2)          # 2 — инфраструктура, чтобы не путать с «есть тревоги» (1)
     if r.returncode != 0:
         print(r.stderr[:400], file=sys.stderr)
-        sys.exit(1)
+        sys.exit(2)
     return [ln.split('\t') for ln in r.stdout.strip().split('\n') if ln]
 
 
-def verdict(n: int, unresolved: int) -> tuple[str, float]:
-    """Статус группы и доля нерешённых. Отдельная чистая функция — её и проверяет селфтест."""
-    share = (unresolved / n) if n else 0.0
+def arg(flag: str) -> str | None:
+    """Значение флага; флаг последним аргументом не должен ронять сторожа."""
+    if flag in sys.argv:
+        i = sys.argv.index(flag) + 1
+        if i < len(sys.argv):
+            return sys.argv[i]
+        print(f'у флага {flag} нет значения — игнорирую', file=sys.stderr)
+    return None
+
+
+def verdict(n: int, lost: int) -> tuple[str, float]:
+    """Статус группы и доля потерь. Чистая функция — её и проверяет селфтест."""
+    share = (lost / n) if n else 0.0
     if n < MIN_N:
         return ('insufficient_sample', share)
     if share > MAX_UNRESOLVED:
@@ -71,40 +102,62 @@ def verdict(n: int, unresolved: int) -> tuple[str, float]:
     return ('ok', share)
 
 
+def _strategy(role: str) -> str:
+    """Способ отрисовки роли: от него зависит, что считать потерей. Без него сторож кричал бы
+    на пледы и подушки, которым три оси не нужны по природе."""
+    try:
+        sys.path.insert(0, HERE)
+        from render_strategy import base_role, strategy
+        return strategy(base_role(role))
+    except Exception:  # noqa: BLE001 — роль вне таблицы: судим как объёмную, это строже
+        return 'mesh'
+
+
 def main() -> int:
     if '--selftest' in sys.argv:
         return _selftest()
-    only = None
-    if '--mid' in sys.argv:
-        only = sys.argv[sys.argv.index('--mid') + 1]
+    only = arg('--mid')
     out, alarms = [], []
     for r in rows():
-        if len(r) < 6:
+        if len(r) < 7:
             continue
-        mid, role, n, mesh, place, unres = r[0], r[1], int(r[2]), int(r[3]), int(r[4]), int(r[5])
+        mid, role, n = r[0], r[1], int(r[2])
+        mesh, place, lost_mesh, lost_depth = int(r[3]), int(r[4]), int(r[5]), int(r[6])
         if only and mid != only:
             continue
-        st, share = verdict(n, unres)
-        row = {'mid': mid, 'role': role, 'n': n, 'mesh_ready': mesh, 'place_ready': place,
-               'unresolved': unres, 'share': round(share, 3), 'status': st}
+        strat = _strategy(role)
+        # ЧТО СЧИТАЕТСЯ ПОТЕРЕЙ — ПО СПОСОБУ ОТРИСОВКИ (`render_strategy`):
+        #   mesh   — нужны и годность к генерации, и глубина (иначе не расставить);
+        #   flat   — варпится по перспективе: нужны ширина и высота, глубина не нужна;
+        #   cutout — вклеивается силуэтом, размеры не нужны ВООБЩЕ: тревожить по ним нельзя,
+        #            иначе сторож кричит на пледы и подушки всегда и его перестают читать
+        #            (у них размеров и не должно быть; первая версия давала 4 ложные тревоги).
+        lost = {'mesh': lost_mesh + lost_depth, 'flat': lost_mesh}.get(strat, 0)
+        st, share = verdict(n, lost)
+        row = {'mid': mid, 'role': role, 'strategy': strat, 'n': n, 'mesh_ready': mesh,
+               'place_ready': place, 'lost_mesh': lost_mesh, 'lost_depth': lost_depth,
+               'lost': lost, 'share': round(share, 3), 'status': st}
         out.append(row)
         if st == 'ТРЕВОГА':
             alarms.append(row)
-    print(f'{"магазин":>8} {"роль":16} {"всего":>6} {"меш":>6} {"расст.":>7} {"потеряно":>9} статус')
-    for r in sorted(out, key=lambda x: -x['unresolved'])[:40]:
-        print(f'{r["mid"]:>8} {r["role"][:16]:16} {r["n"]:>6} {r["mesh_ready"]:>6} '
-              f'{r["place_ready"]:>7} {r["unresolved"]:>9} {r["status"]}'
+    print(f'{"магазин":>8} {"роль":14} {"как":7} {"всего":>6} {"меш":>6} {"расст.":>7} '
+          f'{"нет меша":>9} {"нет глуб.":>10} статус')
+    for r in sorted(out, key=lambda x: -x['lost'])[:40]:
+        print(f'{r["mid"]:>8} {r["role"][:14]:14} {r["strategy"][:7]:7} {r["n"]:>6} '
+              f'{r["mesh_ready"]:>6} {r["place_ready"]:>7} {r["lost_mesh"]:>9} '
+              f'{r["lost_depth"]:>10} {r["status"]}'
               + (f' ({r["share"]:.0%})' if r['status'] == 'ТРЕВОГА' else ''))
-    if '--json' in sys.argv:
-        p = sys.argv[sys.argv.index('--json') + 1]
-        with open(p, 'w', encoding='utf-8') as f:
-            json.dump({'min_n': MIN_N, 'max_unresolved': MAX_UNRESOLVED, 'rows': out}, f,
+    p = arg('--json')
+    if p:
+        with open(p, 'w', encoding='utf-8') as fh:
+            json.dump({'min_n': MIN_N, 'max_unresolved': MAX_UNRESOLVED, 'rows': out}, fh,
                       ensure_ascii=False, indent=1)
         print(f'отчёт: {p}')
     if alarms:
-        tot = sum(a['unresolved'] for a in alarms)
-        print(f'\nТРЕВОГ {len(alarms)}: размеры в фиде есть, а в базу не доехали у {tot} товаров.'
-              f' Это молчаливая потеря — измерь конвенцию осей магазина (dim_resolver.SHOP_DIM_KEYS).')
+        tot = sum(a['lost'] for a in alarms)
+        print(f'\nТРЕВОГ {len(alarms)}: размеры в фиде есть, а в работу не доехали у {tot} товаров.'
+              f' Это молчаливая потеря — измерь конвенцию осей магазина'
+              f' (`dim_resolver.SHOP_DIM_KEYS`, правило: мерить на выборке, не на примере).')
         return 1
     print('\nтревог нет')
     return 0
@@ -120,6 +173,17 @@ def _selftest() -> int:
         (100, 0, 'ok'),
         (0, 0, 'insufficient_sample'),       # пустая группа не делит на ноль
     ]
+    # Роль решает, что считать потерей: плоским трёх осей не нужно.
+    for role, want in (('диван', 'mesh'), ('плед', 'cutout'), ('ковёр', 'flat'), ('ваза', 'mesh')):
+        got = _strategy(role)
+        if got != want:
+            bad += 1
+            print(f'  FAIL стратегия роли «{role}»: {got}, ждали {want}')
+    # Флаг последним аргументом не должен ронять сторожа.
+    sys.argv = ['dim_audit.py', '--mid']
+    if arg('--mid') is not None:
+        bad += 1
+        print('  FAIL --mid без значения вернул значение')
     for n, unres, want in cases:
         got, _ = verdict(n, unres)
         if got != want:

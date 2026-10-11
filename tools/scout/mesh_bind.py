@@ -69,8 +69,10 @@ def mark_required() -> tuple[int, int]:
     # ГЕЙТЫ КАНОНИЧЕСКОГО ПОРЯДКА обязательны (владелец 01.09, дважды): меш нужен только
     # тому, кто в наличии, с фото, ПРОШЁЛ обогащение и стили и имеет габариты. Пометка
     # только по роли завышала число (17 379 против настоящих 12 092).
-    GATES = ("p.in_stock and p.image_url is not null and p.w_cm is not null "
-             "and p.h_cm is not null and e.enriched_at is not null "
+    # NB: переменная не используется (условия продублированы в SQL ниже) — держим её в
+    # согласии с рабочим предикатом, иначе читатель поверит старой формулировке.
+    GATES = ("p.in_stock and p.image_url is not null and p.h_cm is not null "
+             "and (p.w_cm is not null or p.dia_cm is not null) and e.enriched_at is not null "
              "and e.payload->'model'->'styles' is not null")
     JOIN = ("from products p join product_enrichment e "
             "on e.shop_mid = p.shop_mid and e.external_id = p.external_id")

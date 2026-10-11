@@ -76,8 +76,10 @@ def compute() -> dict:
          "and e.external_id=p.external_id")
     rows = _db(f"select coalesce(p.cat_role,''), "
                f"count(*) filter (where p.image_url is not null), "
-               f"count(*) filter (where p.image_url is not null and p.w_cm is not null "
-               f"                 and p.h_cm is not null) "
+               # ТОТ ЖЕ ПРЕДИКАТ, ЧТО В ПУЛЕ (11.10): круглое годно по диаметру. Расхождение с
+               # воронкой выше давало 1 844 товара разницы — ровно круглые предметы.
+               f"count(*) filter (where p.image_url is not null and p.h_cm is not null "
+               f"                 and (p.w_cm is not null or p.dia_cm is not null)) "
                f"from {E} where p.in_stock and e.enriched_at is not null "
                f"and e.payload->'model'->'styles' is not null group by 1")
     need = need_dims = slot = 0

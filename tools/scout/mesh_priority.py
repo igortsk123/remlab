@@ -75,16 +75,17 @@ def products() -> dict:
         if rep != sku:
             variants += 1
             continue
-        # ДИАМЕТР КАК ГОРИЗОНТАЛЬНЫЙ ГАБАРИТ — ТОЛЬКО ДЛЯ ГЕНЕРАТОРА (11.10). Пул пускает
-        # круглые предметы по `(w или dia) и h` (mesh_bind), и без этой подстановки они уехали бы
-        # на Salad без размеров. В КАТАЛОГ выведенные оси не пишем: у бра диаметр — лицевая часть,
-        # а не глубина, поэтому `products.w_cm/d_cm` остаются пустыми, а честность расстановки
-        # решается отдельным признаком `catalog_ready.размеры_есть`.
-        wv, dv, dav = float(w) or None, float(d) or None, float(dia) or None
-        if wv is None and dav is not None:
-            wv = dv = dav
+        # ДИАМЕТР ПЕРЕДАЁМ КАК ЕСТЬ, НЕ ПОДСТАВЛЯЕМ (11.10, исправлено по разбору `verify`).
+        # Пул пускает круглое по `(w или dia) и h` (mesh_bind), поэтому габарит обязан доехать до
+        # ноды. Первая версия писала `w = d = dia` здесь — и ОБХОДИЛА знание потребителей: они уже
+        # делают `w = w or dia` и приравнивают `d = w` ТОЛЬКО для `SQUARE_ROLES`
+        # (`salad/apply_repairs.py:31`, `salad/pipeline.py:161`), то есть кашпо/вазе/торшеру — да,
+        # а бра и статуэтке — нет (у бра диаметр это лицевая часть, глубина — вынос от стены).
+        # Плюс подстановка стирала ключ `dia` из манифеста, который второй производитель очереди
+        # (`mesh_pilot.py:161`) сохраняет. Ключ `dia` здесь — тот же контракт, что там.
         out[sku] = {'role': role, 'status': status, 'image_url': img,
-                    'dims_cm': {'w': wv, 'd': dv, 'h': float(h) or None}}
+                    'dims_cm': {'w': float(w) or None, 'd': float(d) or None,
+                                'h': float(h) or None, 'dia': float(dia) or None}}
     if variants:
         print(f'вариантов семейств вне очереди: {variants}', flush=True)
     if not out:
