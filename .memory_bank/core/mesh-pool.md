@@ -14,6 +14,8 @@ review_after: 2027-01-09
 
 # Пул нод Salad — Tier 1 (деньги и эксплуатация)
 
+**Запуск и остановка прогона — [[mesh-run]].**
+
 **Что это.** Группы SaladCloud с образом Hunyuan3D (`cu124-localpaint2`) под конвейером
 `tools/scout/salad/` (`batch_show.py` + супервизор `ssh_run.py`); тариф, окно и цена — ТОЛЬКО из
 `tools/scout/rules/salad-groups.json` (ADR-0177). Путь меша — [[mesh-pipeline]].

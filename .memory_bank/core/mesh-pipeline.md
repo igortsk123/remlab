@@ -15,8 +15,8 @@ review_after: 2027-01-09
 # Конвейер 3D-мешей — Tier 1 сводка
 
 **Зачем:** планировщик и 3D-квартиры. **Генератор — Hunyuan3D 2.1 на SaladCloud** (ADR-0131),
-код `tools/scout/salad/`. Пул, деньги — [[mesh-pool]]; ручная приёмка — [[mesh-owner-audit]].
-**05.09:** ~1 500 моделей, очередь без вариантов ≈ 6 300.
+код `tools/scout/salad/`. Пул — [[mesh-pool]]; приёмка — [[mesh-owner-audit]]; прогон — [[mesh-run]].
+**05.09:** ~1 500 моделей, очередь ≈ 6 300.
 
 **Путь меша:** вырезка (`tools/scout/salad/hybrid_mask.py`, ADR-0133/0182) → генерация →
 пост-шаги пачки (`batch_show.py:post_steps`): слив приёмника → реестр → приёмка `apply_repairs.py`

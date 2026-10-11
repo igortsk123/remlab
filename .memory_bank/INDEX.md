@@ -32,6 +32,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт → реф-сме�
 | Приёмка мешей владельцем — /lab/mesh-audit | `core/mesh-owner-audit.md` | `completed_plans/mesh-owner-audit.md` |
 | 3D-меши — генерация, учёт, приёмка | `core/mesh-pipeline.md` | `domain/viz-fidelity-playbook.md` |
 | Пул нод Salad — группы, тарифы, деньги, стопоры | `core/mesh-pool.md` | `domain/mesh-pool-ops.md` |
+| Прогон мешей — РАБОЧИЙ вариант, старт, остановка | `core/mesh-run.md` | `domain/mesh-run-playbook.md` |
 | Трейсинг AI-пайплайна — лог, разбор | `core/observability-tracing.md` | `domain/observability.md` |
 | Порядок конвейера — от фида до расстановки | `core/pipeline-order.md` | `domain/pipeline-order-details.md` |
 | Бизнес-контекст — кто, зачем, как зарабатываем | `product_brief.md` | `domain/brief-details.md` |

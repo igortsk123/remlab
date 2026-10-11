@@ -1,5 +1,21 @@
 # Образ Hunyuan3D 2.1 для SaladCloud — PBR-меши товаров
 
+> ## РАБОЧИЙ ВАРИАНТ — `cu124-localpaint2`
+> `ghcr.io/igortsk123/mesh-hunyuan@sha256:f9a9ad6d0d859a24102416632d730f59dda2ec6e9a699d85664917ddc8a656cb`
+> Hunyuan3D 2.1 (апстрим `82920d643c0d`), CUDA 12.4.1, torch 2.5.1, RTX 3090/3090 Ti, `STAGED=1`.
+> К этому digest'у прибиты все три группы Salad. Проверен прогоном 31.08–05.09: 2 327 мешей,
+> ≈176 с на меш, потолок 172 меша/час на ~23 машинах при `--batch 2000`, ≈1,12 ₽/меш.
+> Остальные шесть тегов — слои ЭТОЙ ЖЕ цепочки, а не альтернативы (ADR-0232).
+>
+> **Запуск и остановка — только по регламенту:** `.memory_bank/core/mesh-run.md` (Tier 1) и
+> `.memory_bank/domain/mesh-run-playbook.md` (предусловия, остановка, тупики с ценой).
+> Старт — `../mesh_wave_start.sh --launch`, остановка — `touch ~/scout-scenes/mesh-draining`.
+>
+> **Не повторять** (каждое уже стоило денег): генерацию на fal · ремонт мешей (ADR-0143) ·
+> перегон по seed ради цвета (ADR-0145) · пачку 200 (ADR-0200) · образ без вшитых весов
+> (ADR-0137) · PATCH образа у живой группы (ADR-0154) · `rm -rf` на приёмнике (ADR-0178) ·
+> `kill -9`/`pkill -f` по конвейеру. Полный список с ценой — Tier 2 § 5.
+
 План: [`.memory_bank/plans/mesh-bulk-salad-hunyuan.md`](../../../.memory_bank/plans/mesh-bulk-salad-hunyuan.md)
 
 Заменяет прежний путь через fal (`fal-ai/trellis`, `fal-ai/hunyuan3d/v2/mini`). Причина —
