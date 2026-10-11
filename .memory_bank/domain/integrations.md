@@ -3,7 +3,7 @@ tier: 2
 topic: integrations-details
 scope: Детали внешних интеграций — эндпоинты, форматы запросов/ответов, env-переменные, конфиги, цены
 tier1: ../core/access-and-integrations.md
-updated: 2026-09-28
+updated: 2026-10-11
 importance: high
 source: manual
 status: working
@@ -334,3 +334,24 @@ Standard, `isDownloadable:false`, платная модель магазина.
 - Ручки: `/api/lab/mesh-review/{tasks,decisions,session}`, `/api/lab/mesh-audit/{items,decisions,
   batch,seen}` — решения append-only, конвейер забирает курсором `after_id`. Статика приёмки —
   `/test/mesh-audit/*` (Caddy, кэш immutable; каталог `/opt/remlab/test/mesh-audit/`).
+
+## OpenAI — реестры цен и запрет mini под картинки (ротационная сверка 11.10)
+**Реестров цен два, и код читает НЕ тот, на который раньше указывала сводка.** Операционный —
+`tools/scout/rules/openai_prices.json`, его читает гейт бюджета (`tools/scout/openai_budget.py:26`),
+там же `daily_cap_usd`. Второй — таблица, сверенная человеком по официальной странице
+(`catalog-enrichment.md`, ADR-0067). Состав моделей у них разный, взаимных ссылок нет: перед
+платным прогоном смотреть ОБА, иначе «сверено» относится не к тому файлу, который влияет на деньги.
+
+**`gpt-4o-mini` под картинки — запрет ADR-0067 без оговорок** (изображение ~33× дороже в токенах:
+base 2833 против 85 у `gpt-4o`, то есть в долларах как флагман; дешёвый vision — `gpt-5.6-luna`).
+**Нарушение в коде:** `services/room-measure/openai_vision_name.py:5` — `MODEL="gpt-4o-mini"`
+с комментарием «vision, дёшево», то есть ровно то заблуждение, против которого написан ADR.
+Модуль на 11.10 НИОТКУДА не вызывается (грепом нет потребителей), поэтому утечка потенциальная;
+при подключении — переставить модель, а не «он же дешёвый».
+
+**«Vercel AI Gateway — единственный путь к платным картинкам» верно как намерение, не как факт
+кода.** Шлюз по умолчанию — `tools/scout/llm_gateway.py:26-59`, картинки через него —
+`tools/scout/draft_render.py:776`. Но прямые вызовы `api.openai.com/v1/images/edits` живы и
+достижимы: `tools/scout/pipeline2.py:396` (зовётся из `tools/scout/set_report.py:88`),
+`tools/scout/viz_frame.py:217`, `tools/scout/viz_plan.py:202`, а также ранние A/B-рецепты
+(`tools/scout/viz11.py` и соседние). «Единственный» в коде не закреплено.

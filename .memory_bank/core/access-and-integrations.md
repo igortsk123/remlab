@@ -3,12 +3,12 @@ tier: 1
 topic: access-and-integrations
 scope: Интеграции/доступы — ключи, клиенты
 tier2: "../domain/integrations.md"
-updated: 2026-10-02
+updated: 2026-10-11
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-09-05
+last_verified: 2026-10-11
 review_after: 2026-12-05
 ---
 
@@ -17,14 +17,14 @@ review_after: 2026-12-05
 > Секретов тут НЕТ — только где они. Детали — Tier 2.
 
 ## Чужие ключи на машине
-Соседние проекты (sib, sing, sup2) держат ключи в своих `.env` — не наши. Прежде чем сказать
+Соседние проекты (sib, sing, sup2-repo) держат ключи в своих `.env` — не наши. Прежде чем сказать
 «у нас нет доступа», прогнать `node tools/access-inventory.mjs` (урок 57).
 
 ## Ключевые факты
 - **Gemini:** один ключ на обе задачи; `gemini-3.1-flash-image`, `gemini-flash-latest`.
 - **OpenAI (ADR-0026):** фолбэк парсинга ссылок; `OPENAI_EXTRACT_MODEL` (деф. `gpt-4o-mini`).
-  Реестр моделей и цен для обогащения каталога (сверять перед прогоном, ADR-0067) —
-  `../domain/catalog-enrichment.md`; `gpt-4o-mini` под картинки НЕ брать.
+  Реестров цен ДВА и не связаны; `gpt-4o-mini` под картинки НЕ брать (ADR-0067), в коде есть
+  нарушение — Tier 2 § OpenAI.
 - **Яндекс:** Метрика `110599064`; кампанию `708745261` не трогать. [[marketing-acquisition]].
 
 **Tier 2:** `../domain/integrations.md` — эндпоинты, форматы, env, фиды, § Codex (постоянная
