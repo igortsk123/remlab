@@ -436,6 +436,19 @@ def export(path: str) -> None:
                    left join photo_assessment a on a.source_sha = c.source_sha
                         and a.assessor_version = """ + q(ASSESSOR_VERSION) + """
                   where j.status='queued' order by d.priority, d.sku""")
+    # ЗАКРЕПЛЁННЫЕ ВЛАДЕЛЬЦЕМ — ПЕРВЫМИ (12.10). Список `rules/mesh-pinned.json` читал только
+    # `mesh_priority.py`, который строит отчёты о порядке, а карта получает батч ОТСЮДА и шла по
+    # `priority, sku` — то есть закрепление владельцем на реальный прогон не влияло вовсе.
+    # Цена ошибки измерима: 12 мешей, которыми закрываются все шесть сцен демо, стоят в очереди
+    # с 5–21 сентября вперемешку с 193 прочими заданиями.
+    try:
+        from mesh_priority import pinned_skus
+        pin = {s: i for i, s in enumerate(pinned_skus())}
+    except Exception as e:  # noqa: BLE001 — нет списка/битый JSON: порядок прежний, прогон не рушим
+        print(f'[mesh_queue] закреплённые не прочитаны ({type(e).__name__}) — порядок прежний', flush=True)
+        pin = {}
+    if pin:
+        rows = sorted(rows, key=lambda r: (pin.get(r[1], len(pin)),))
     jobs = []
     for r in rows:
         if len(r) != 8:
@@ -453,7 +466,9 @@ def export(path: str) -> None:
     json.dump({'source': 'mesh_queue', 'pipeline': PIPELINE_VERSION,
                'skus': len(jobs), 'jobs': jobs},
               open(path, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    print(f'[mesh_queue] экспорт {len(jobs)} заданий → {path}', flush=True)
+    npin = sum(1 for jb in jobs if jb['sku'] in pin)
+    print(f'[mesh_queue] экспорт {len(jobs)} заданий → {path}'
+          + (f'; из них закреплённых владельцем первыми: {npin}' if npin else ''), flush=True)
 
 
 def report() -> None:
