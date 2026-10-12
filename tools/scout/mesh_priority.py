@@ -222,17 +222,34 @@ def demo_rank() -> list[dict]:
         scored.append((sku, p, sc))
 
     return demo_pick(scored, styles, roles, top_n, pen,
-                     f"demo-v{prof.get('policy_version', 1)}")
+                     f"demo-v{prof.get('policy_version', 1)}",
+                     pinned=tuple(pinned_skus()), prod=prod)
 
 
 def demo_pick(scored: list, styles: list, roles: set, top_n: int, pen: float,
-              ver: str) -> list[dict]:
+              ver: str, pinned: tuple = (), prod: dict | None = None) -> list[dict]:
     """Чистый отбор: топ-N на тип в каждом стиле, без повторов, без готовых. Без базы и сети.
 
     Один товар, годный в несколько стилей, встаёт ОДИН раз: меш у него один (ADR-0196), платить
     дважды незачем. Ярус = номер стиля, поэтому первым добивается первый стиль списка.
+
+    ЗАКРЕПЛЁННЫЕ ВЛАДЕЛЬЦЕМ ИДУТ ПЕРЕД ВСЕМИ СТИЛЯМИ (12.10). Ярус `pinned` жил только в боевом
+    ранжире `rank()`, а профиль считает очередь здесь — и список `rules/mesh-pinned.json` на него
+    не влиял вовсе. Цена ошибки измерена: волна 12.10 сделала 986 мешей за 709 ₽, но из 12
+    закреплённых позиций, которыми закрывались все шесть сцен демо, попали только 2 — деньги
+    ушли «вширь», по 30 вариантов на тип. Закреплённый берётся НЕЗАВИСИМО от того, попала ли его
+    роль в профиль и есть ли у него оценка стиля: это прямое указание человека, а не отбор.
     """
     rows, seen = [], set()
+    for sku in (pinned or ()):
+        p = (prod or {}).get(sku)
+        if not p or sku in seen:
+            continue
+        seen.add(sku)
+        rows.append({'tier': 0, 'sku': sku, 'role': p['role'], 'status': p['status'],
+                     'key': f'00|{len(rows):06d}|{sku}',
+                     'reason': 'закреплено владельцем (rules/mesh-pinned.json)',
+                     'policy_version': ver})
     for si, style in enumerate(styles, 1):
         def key(x, _st=style):
             v = float(x[2].get(_st) or 0)
@@ -467,6 +484,18 @@ def _selftest() -> int:
         bad_demo += 1; print('  FAIL профиль взял роль вне списка')
     if len(got) != len(set(got)):
         bad_demo += 1; print(f'  FAIL товар попал в очередь дважды: {got}')
+    # ЗАКРЕПЛЁННЫЕ — ПЕРВЫМИ И НЕЗАВИСИМО ОТ ПРОФИЛЯ (12.10). `m:6` роль вне профиля, `m:8`
+    # вовсе без оценок стиля: оба закреплены человеком и обязаны попасть в начало очереди.
+    prod = {sku: p for sku, p, _ in scored} | {'m:8': _p('тв-тумба')}
+    rows_p = demo_pick(scored, ['сканди', 'лофт'], {'диван', 'кресло'}, 2, 0.5, 'test',
+                       pinned=('m:6', 'm:8'), prod=prod)
+    got_p = [r['sku'] for r in rows_p]
+    if got_p[:2] != ['m:6', 'm:8']:
+        bad_demo += 1; print(f'  FAIL закреплённые не встали первыми: {got_p[:4]}')
+    if len(got_p) != len(set(got_p)):
+        bad_demo += 1; print(f'  FAIL закреплённый продублировался отбором: {got_p}')
+    if any(r['tier'] != 0 for r in rows_p[:2]):
+        bad_demo += 1; print('  FAIL у закреплённых не нулевой ярус — порядок снимка собьётся')
     # В «сканди» топ-2 диванов — по баллу: m:5 (10, уже готов — слот занят) и m:1 (9).
     # m:3 (балл 1 в сканди) не берём: отбор именно по соответствию стилю, а не по порядку sku.
     sk = [r['sku'] for r in rows if r['tier'] == 1 and r['role'] == 'диван']
@@ -568,7 +597,7 @@ def main() -> None:
         print(f'  {t:14s} всего {len(a):6d}  готово {len(a) - len(left):5d}  осталось {len(left):6d}')
     print('\nпервые 10 в очереди:')
     for x in todo[:10]:
-        print(f'  {x["sku"]:40s} {x["role"]:12s} {x["tier"]:13s} {x["reason"]}')
+        print(f'  {x["sku"]:40s} {x["role"]:12s} {str(x["tier"]):13s} {x["reason"]}')
 
 
 if __name__ == '__main__':
