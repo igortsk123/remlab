@@ -117,6 +117,18 @@ jobs:
       - run: pip install -r services/planner-solver/requirements.txt
       - run: python -m pytest services/planner-solver/tests/ -q
 
+  draft-image:
+    # Образ сервиса кадров собирается ИЗ РЕПОЗИТОРИЯ (b2b-08, ADR-0267): сборка проверяет импорты HTTP-рендера —
+    # файл, которого нет в git (как styles.json до 13.10), ловится здесь, а не при пересоздании контейнера на проде.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: DOCKER_BUILDKIT=1 docker build -f infra/draft/Dockerfile --build-arg DRAFT_VERSION=ci -t remlab-draft:ci .
+      - run: |
+          docker run -d --name d -e DRAFT_PORT=8099 remlab-draft:ci
+          for i in $(seq 1 20); do docker exec d python -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8099/health',timeout=3).read().decode())" && exit 0; sleep 2; done
+          docker logs d; exit 1
+
   scout-orient:
     # Контракт ориентаций мешей (ADR-0129/0131): процедурная фикстура, знаки замером —
     # регресс конвенции ловится до мерджа, а не на кривой сцене.

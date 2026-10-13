@@ -167,3 +167,12 @@ flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev
 ## DEV: диск (13.10)
 82 % из 243 ГБ. Крупное: `~/scout-scenes` 30 ГБ (сцены и болванки; `prune_shapes` чистит `shape.glb` у принятых
 моделей), кэш картинок каталога. Чистить руками, по списку — автоматической чистки DEV нет.
+
+## Сервис кадров `remlab-draft` — образ из репозитория (13.10, ADR-0267)
+Сборка на сервере (до переезда в CI): контекст `git archive HEAD` с файлами из `infra/draft/Dockerfile.dockerignore` →
+`docker build -f infra/draft/Dockerfile --build-arg DRAFT_VERSION=<sha> -t remlab-draft:<sha> .`; переключение —
+`/opt/remlab/scripts/draft-run.sh --image remlab-draft:<sha>` (снимок старого → `remlab-draft:prev`; не та версия в
+`/health` — откат). Откат вручную: `draft-run.sh --image remlab-draft:prev`. Env — `/opt/remlab/draft/.env` (в нём
+лишние секреты: POSTGRES_PASSWORD, TRACE_ADMIN_TOKEN — сервису не нужны, убрать при переезде в compose).
+Перед переключением — канарейка: тот же запрос `/render` (`no_proxy:1`, `quality:draft`) старому и временному
+контейнеру `remlab-draft-canary`, сравнить JPEG.

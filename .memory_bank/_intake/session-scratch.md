@@ -44,3 +44,4 @@
 - 2026-10-13 — (Opus) b2b-05 partial: коллекции на проде, живая проверка «чистый браузер» прошла после фикса #c=; ADR-0264; следующий — b2b-03 воронка
 - 2026-10-13 — (Opus) b2b-03 выкачен (ADR-0265), b2b-09 в работе (ADR-0266): health с базой, health-watch на сервере (таймер установлен), backup-pull/restore-drill в cron DEV (две строки добавлены в crontab), вопросы 11–14
 - 2026-10-13 — (Opus) conv-11 partial: stop_group проверяет stopped (финал/idle_guard по коду выхода), разбор Codex записан в план, вопросы 14–15; b2b-09 выкачен (health db/showcase ok на проде, отчёт на телефоне проверен)
+- 2026-10-13 — (Opus) b2b-03 completed (verify: 2 дефекта исправлены); b2b-08 partial: remlab-draft из образа репозитория (ADR-0267, канарейка пиксель-в-пиксель), styles.json в git (урок 479), CI draft-image
