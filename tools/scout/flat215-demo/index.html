@@ -1525,19 +1525,26 @@ function basket(){                    // СПИСОК ТОВАРОВ КОМНА�
 // цена и сертификат приходят карточкой `/api/apartments/<id>` из `data/partners/*.json` (там же —
 // откуда взята демонстрационная цена). id квартиры: ссылка менеджера → `?flat=` → данные сборки.
 let FLAT=null;
+// ЯЗЫК ПОКАЗА (b2b-11): `?lang=` → выбор человека → язык браузера. Меняет ТОЛЬКО язык (ADR-0254): рынок,
+// валюта и сертификат — из карточки застройщика. Перевод интерфейса — слой `I18N` в конце страницы.
+const LANG=(()=>{const m=location.search.match(/[?&]lang=(ru|en)(?:&|$)/);if(m)return m[1];
+  try{const s=localStorage.getItem('remlab-lang');if(s==='ru'||s==='en')return s;}catch(e){}
+  return /^en/i.test(navigator.language||'')?'en':'ru';})();
+window.__LANG=LANG;
 const flatKind=()=>FLAT?FLAT.kind:'';
 // «Квартира №N · 73,7 м²» — из карточки; до её загрузки — нейтральная подпись (не чертёж-источник).
-const flatTitle=()=>FLAT?((FLAT.number?'Квартира №'+FLAT.number+' · ':'')+String(FLAT.areaM2).replace('.',',')+' м²'):'План квартиры';
+const flatTitle=()=>FLAT?((FLAT.number?(LANG==='en'?'Apartment No. ':'Квартира №')+FLAT.number+' · ':'')+
+  (LANG==='en'?String(FLAT.areaM2)+' m²':String(FLAT.areaM2).replace('.',',')+' м²')):(LANG==='en'?'Apartment plan':'План квартиры');
 function flatId(){const m=location.search.match(/[?&]flat=([a-z0-9-]{2,40})(?:&|$)/);
   return window.__sendFlat||(m&&m[1])||(D&&D.apartment_id)||'';}
 function loadFlatCard(){const id=flatId(); if(!id)return;
-  fetch('/api/apartments/'+encodeURIComponent(id)).then(r=>r.ok?r.json():null).then(j=>{
+  fetch('/api/apartments/'+encodeURIComponent(id)+'?lang='+LANG).then(r=>r.ok?r.json():null).then(j=>{
     if(!j||!j.ok)return; FLAT=j.card;
     const fk=document.getElementById('flatKind'); if(fk)fk.textContent=FLAT.kind;
     const fm=document.getElementById('flatMeta'); if(fm)fm.textContent=FLAT.meta;
     const fs=document.getElementById('flatSum'); if(fs)fs.textContent=money(FLAT.price);
     const ft=document.getElementById('flatTitle'); if(ft)ft.textContent=flatTitle();
-    document.title=FLAT.kind+' — гостиная (демо)';
+    document.title=FLAT.kind+(LANG==='en'?' — living room (demo)':' — гостиная (демо)');
     drawVariants(); try{sync3dLink();}catch(e){}
     document.dispatchEvent(new CustomEvent('flatcard',{detail:FLAT}));
   }).catch(()=>{});}
@@ -2206,9 +2213,10 @@ function sync3dLink(){
   const v=allVariants()[cur]||{};
   // квартира едет вместе с набором (b2b-06): 3D берёт её из реестра застройщиков, а не «по умолчанию»
   const fl = FLAT ? '&flat='+encodeURIComponent(FLAT.id) : '';
-  a.href = v.id ? '/flat?demo='+encodeURIComponent(v.id)+fl : '/flat';
+  const lg = LANG==='en' ? '&lang=en' : '';
+  a.href = v.id ? '/flat?demo='+encodeURIComponent(v.id)+fl+lg : '/flat'+(lg?'?lang=en':'');
   const b=document.getElementById('swap3d');
-  if(b)b.href = v.id ? '/flat?demo='+encodeURIComponent(v.id)+fl : '/flat';
+  if(b)b.href = v.id ? '/flat?demo='+encodeURIComponent(v.id)+fl+lg : '/flat'+(lg?'?lang=en':'');
 }
 function showSwap(){
   const box=document.getElementById('swapBox'); if(!box)return;
@@ -3295,9 +3303,13 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
   var esc=function(t){return String(t==null?'':t).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
   function contactSheet(purpose){
     var st=state(), M=CARD.manager;
-    var what=purpose==='mortgage'?'хочу узнать условия ипотеки или рассрочки':'хочу консультацию';
-    var text='Здравствуйте, '+M.name+'! Смотрю квартиру по вашей ссылке'+(st.variant?', вариант «'+st.variant+'»':'')+
-      (st.sum?', мебель на '+st.sum.toLocaleString('ru-RU')+' ₽':'')+'. '+what[0].toUpperCase()+what.slice(1)+'. '+location.href;
+    var EN=window.__LANG==='en';
+    var what=purpose==='mortgage'?(EN?'I would like to know the mortgage or instalment options':'хочу узнать условия ипотеки или рассрочки')
+      :(EN?'I would like some advice':'хочу консультацию');
+    var text=EN?('Hello, '+M.name+'! I am looking at the apartment from your link'+(st.variant?', option “'+st.variant+'”':'')+
+        (st.sum?', furniture for '+st.sum.toLocaleString('en-GB')+' ₽':'')+'. '+what+'. '+location.href)
+      :('Здравствуйте, '+M.name+'! Смотрю квартиру по вашей ссылке'+(st.variant?', вариант «'+st.variant+'»':'')+
+        (st.sum?', мебель на '+st.sum.toLocaleString('ru-RU')+' ₽':'')+'. '+what[0].toUpperCase()+what.slice(1)+'. '+location.href);
     var links=[];
     if(M.whatsapp)links.push(['whatsapp','WhatsApp','https://wa.me/'+String(M.whatsapp).replace(/\D/g,'')+'?text='+encodeURIComponent(text)]);
     if(M.telegram)links.push(['telegram','Telegram','https://t.me/'+encodeURIComponent(String(M.telegram).replace(/^@/,''))+'?text='+encodeURIComponent(text)]);
@@ -3394,6 +3406,114 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
     tab.onclick=function(){show(true);};
     var _st=window.showTab; if(typeof _st==='function')window.showTab=showTab=function(){show(false);return _st.apply(this,arguments);};
   });
+})();
+</script>
+<script>
+/* ——— ЯЗЫК ПОКАЗА RU/EN (план b2b-11, ADR-0263). Данные витрины — русский протокол (решение 28.09), переводится
+   только СЛОЙ ПОКАЗА: текст узлов и подписи атрибутов. Точные фразы — словарём, строки с числами — шаблонами.
+   Названия товаров не переводим: это имена из магазинов (английский каталог — после посредника UK).
+   Переключатель меняет ТОЛЬКО язык; рынок, валюта и сертификат — из карточки застройщика (ADR-0254). */
+(function(){
+  var LANG=window.__LANG||'ru';
+  function switcher(){
+    var host=document.querySelector('.tabs'); if(!host||document.getElementById('langSw'))return;
+    var w=document.createElement('span'); w.id='langSw'; w.style.cssText='margin-left:auto;font-size:14px;align-self:center;white-space:nowrap';
+    w.innerHTML=['ru','en'].map(function(l){return l===LANG?'<b>'+l.toUpperCase()+'</b>':
+      '<a href="#" data-lang="'+l+'" style="color:var(--muted)">'+l.toUpperCase()+'</a>';}).join(' · ');
+    host.appendChild(w);
+    w.querySelectorAll('[data-lang]').forEach(function(a){a.onclick=function(e){e.preventDefault();
+      try{localStorage.setItem('remlab-lang',a.dataset.lang);}catch(_){}
+      var u=new URL(location.href); u.searchParams.set('lang',a.dataset.lang); location.href=u.toString();};});
+  }
+  if(LANG!=='en'){document.addEventListener('DOMContentLoaded',switcher); if(document.readyState!=='loading')switcher(); return;}
+  document.documentElement.lang='en';
+  var ROLE={'диван':'sofa','кресло':'armchair','столик':'coffee table','тв-тумба':'TV unit','ковёр':'rug','торшер':'floor lamp',
+    'стеллаж':'shelving','комод':'chest of drawers','пуф':'pouf','кашпо':'planter','ваза':'vase','стул':'chair','стол':'table',
+    'стол обеденный':'dining table','банкетка':'bench','витрина':'display cabinet','камин':'fireplace','стенка':'wall unit',
+    'люстра':'chandelier','лампа':'lamp','подушка':'cushion','шторы':'curtains','приставной':'side table','окно':'window','дверь':'door'};
+  var STYLE={'сканди':'Scandi','современный':'Modern','минимализм':'Minimalist','лофт':'Loft','неоклассика':'Neoclassic','джапанди':'Japandi'};
+  var ROOM={'Гостиная':'Living room','Кухня':'Kitchen','Спальня 1':'Bedroom 1','Спальня 2':'Bedroom 2','Спальня':'Bedroom','Холл':'Hall','Санузел':'Bathroom'};
+  var EX={'Оплата 100%':'Full payment','Выбрать условия ипотеки или рассрочки':'Mortgage or instalment options','Получить консультацию':'Get advice',
+    'Пройтись по квартире в 3D →':'Walk through the flat in 3D →','План квартиры':'Apartment plan','скоро':'soon','Обустроить →':'Furnish →',
+    'Посмотреть варианты интерьера':'See interior options','Коллекции расстановок':'Room collections','Выберите готовый вариант или создайте свой':'Pick a ready option or create your own',
+    'Открыть':'Open','Ссылка':'Link','Добавить новую расстановку':'Add a new layout','план комнаты, перестановка мебели, свои размеры':'room plan, move furniture, your own sizes',
+    'Избранное':'Favourites','Готово':'Done','Меняйте предметы прямо здесь — план открывать не нужно.':'Swap items right here — no need to open the plan.',
+    'Заменить':'Replace','В магазин':'To shop','Посмотреть в 3D':'View in 3D','Посмотреть фото с изменениями':'See the photo with changes',
+    'Стоимость представленной мебели и техники:':'Furniture shown costs:','Сохранить список мебели и техники':'Save the furniture list',
+    'Перетаскивайте предмет, чтобы двигать. Товар выбирается по значку на предмете.':'Drag an item to move it. Pick a product with the icon on the item.',
+    'Дверь:':'Door:','петли справа':'hinges on the right','петли слева':'hinges on the left','открывается внутрь':'opens inwards','открывается наружу':'opens outwards',
+    'поменять ракурс':'change angle','Новая расстановка':'New layout','Изменить планировку':'Edit layout','♡ В избранное':'♡ Add to favourites','Закрыть':'Close',
+    'Мебель и техника':'Furniture','Загрузить список в PDF':'Download list as PDF','Загрузить список в JPG':'Download list as JPG','Подбор товара':'Choose a product',
+    '← Назад к плану':'← Back to plan','подходящие по размеру':'fits the space','дешевле сначала':'cheapest first','по размеру':'by size','Выбрано':'Selected',
+    'Создать фото':'Create photo','Улучшить фото':'Improve photo','фото появится после съёмки':'photo appears after shooting','нет фото':'no photo','фото недоступно':'photo unavailable',
+    'Хочу другой вариант':'I want another option','Что подобрать иначе?':'What should we change?','Дорого':'Too expensive','Не мой стиль':'Not my style',
+    'Тесно / не помещается':'Too cramped / does not fit','Другой цвет':'Another colour','Другое':'Something else','Отправляем…':'Sending…',
+    'Сумма при условии оплаты наличными, без ипотеки и рассрочки':'Price for full payment, without mortgage or instalments','Перейти к товару →':'Go to product →',
+    'Сделать фото · ~25 сек':'Take a photo · ~25 s','Посмотреть изменения на фото · ~25 сек':'See changes in a photo · ~25 s','Комплект: —':'Set: —',
+    'Кухня от партнёров застройщика':"Kitchen from the developer's partners",
+    '3D-модель носит ознакомительный характер и может отличаться от фактических характеристик. Точные характеристики вашей будущей квартиры можно узнать у нашего менеджера. Цена и данные о доме — демонстрационные. Цены товаров — с сайтов магазинов на дату проверки и могут измениться; точная цена — по ссылке в магазин.':
+      'The 3D model is for illustration and may differ from the actual specification. Ask our manager for the exact details of your future home. The price and building details are for demonstration. Product prices are taken from shop websites on the check date and may change; see the shop link for the exact price.',
+    'Комната с вашей расстановкой: наши 3D-модели · вращайте мышью, колесо — масштаб · серые блоки — модель готовится':
+      'Your room layout: our 3D models · rotate with the mouse, wheel to zoom · grey blocks — model in progress','Выбранный вариант:':'Selected:',
+    'Варианты демонстрационные: настоящие кухни партнёров застройщика появятся при подключении. Состав и цену уточняйте у менеджера.':
+      "Demo options: the developer's partner kitchens appear once connected. Ask your manager for contents and price.",'размеры не указаны магазином':'sizes not provided by the shop'};
+  var ATTR={'Что значит оплата 100%':'What does full payment mean','Скопировать ссылку на этот вариант':'Copy a link to this option','В избранное':'Add to favourites',
+    'переставить точки съёмки в следующие углы':'move camera points to the next corners','Просмотр кадра':'Shot view','Закрыть':'Close','Предыдущий вид':'Previous view',
+    'Следующий вид':'Next view','скоро':'soon'};
+  var role=function(r){var k=String(r).toLowerCase().replace(/\s+\d+$/,'');return ROLE[k]||null;};
+  var cm=function(s){return s.replace(/(\d)\s*см(?![а-яё])/g,'$1 cm').replace(/(\d+),(\d)\s*м²/g,'$1.$2 m²').replace(/(\d)\s*м²/g,'$1 m²');};
+  var P=[
+    [/^(?:ваза|vase) · на (.+?), (.+?) · (.+)$/,function(m){return 'vase · on the '+(role(m[1])||m[1])+' · '+m[3];}],
+    [/^(.+?) · (\d+(?:×\d+)+)\s*см · (.+)$/,function(m){var r=role(m[1]);return r?r+' · '+m[2]+' cm · '+m[3]:null;}],
+    [/^(.+?) · (.+\.[a-z]{2,})$/,function(m){var r=role(m[1]);return r?r+' · '+m[2]:null;}],
+    [/^(.+?) (\d+×\d+)$/,function(m){var r=role(m[1]);return r?r+' '+m[2]:null;}],
+    [/^(\d+) (предмет|предмета|предметов) ·$/,function(m){return m[1]+' items ·';}],
+    [/^(\d+) (вид|вида|видов)$/,function(m){return m[1]+(m[1]==='1'?' view':' views');}],
+    [/^Итого (\d+) товар\S*$/,function(m){return 'Total '+m[1]+' items';}],
+    [/^Мебель варианта «(.+)»$/,function(m){return 'Furniture of the '+(STYLE[m[1]]||m[1])+' option';}],
+    [/^Выбрать: (.+)$/,function(m){return 'Choose: '+(role(m[1])||m[1]);}],
+    [/^(\d+) товар\S* · сейчас (.+)$/,function(m){return m[1]+' items · now '+cm(m[2]);}],
+    [/^только (.+)$/,function(m){return 'only '+(STYLE[m[1]]||m[1]);}],
+    [/^до (\d+) тыс$/,function(m){return 'under '+m[1]+'k';}],[/^(\d+)–(\d+) тыс$/,function(m){return m[1]+'–'+m[2]+'k';}],
+    [/^(\d+)\+ тыс$/,function(m){return m[1]+'k+';}],[/^(\d+) из (\d+)$/,function(m){return m[1]+' of '+m[2];}],
+    [/^Товары на фото · (\d+)$/,function(m){return 'Items in the photo · '+m[1];}],[/^Камера (\d+)$/,function(m){return 'Camera '+m[1];}],
+    [/^Стиль «(.+?)»: сейчас нет полного набора в наличии \(не хватает: (.+)\) — покажем, как только появится\.$/,function(m){
+      return 'Style “'+(STYLE[m[1]]||m[1])+'”: no complete set in stock right now (missing: '+m[2].split(', ').map(function(x){return role(x)||x;}).join(', ')+') — we will show it once available.';}],
+    [/^Выбранный вариант: (.+)$/,function(m){return 'Selected: '+m[1];}],
+    [/^(\d+(?:[.,]\d)?)\s*м²$/,function(m){return m[1].replace(',','.')+' m²';}],
+    [/^Ваш менеджер: (.+)$/,function(m){return 'Your manager: '+m[1];}],
+    [/^Позвонить (.+)$/,function(m){return 'Call '+m[1];}],
+    [/^(.+) стоит в зоне открывания двери\.(.*)$/,function(m){return m[1]+' is in the door swing zone.'+m[2].replace(/Рекомендуем сдвинуть примерно на (\d+) см\./,' Move it about $1 cm.').replace('Поставьте его в стороне от двери.',' Place it away from the door.');}],
+    [/^(.+) сейчас перекрывает главный проход — там нужно (\d+) см, сейчас (.+)\.$/,function(m){return m[1]+' blocks the main walkway — it needs '+m[2]+' cm, now '+cm(m[3])+'.';}],
+    [/^(.+) в (\d+) см от радиатора — тёплому воздуху нужно (\d+) см\.(.*)$/,function(m){return m[1]+' is '+m[2]+' cm from the radiator — warm air needs '+m[3]+' cm.'+m[4].replace(/Отодвиньте примерно на (\d+) см\./,' Move it about $1 cm away.');}]
+  ];
+  function tr(t){
+    var k=t.replace(/\s+/g,' ').trim(); if(!/[А-Яа-яЁё]/.test(k))return null;
+    if(EX[k])return EX[k]; if(ROOM[k])return ROOM[k]; if(STYLE[k])return STYLE[k]; var r=role(k); if(r)return r;
+    for(var i=0;i<P.length;i++){var m=k.match(P[i][0]); if(m){var o=P[i][1](m); if(o)return o;}}
+    return null;
+  }
+  var busy=false;
+  function walk(root){
+    if(busy||!root)return; busy=true;
+    try{
+      var w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT),n,list=[];
+      while((n=w.nextNode())){var pe=n.parentElement; if(pe&&!/SCRIPT|STYLE/.test(pe.tagName))list.push(n);}
+      if(root.nodeType===3)list.push(root);
+      list.forEach(function(x){var t=tr(x.nodeValue); if(t){var lead=x.nodeValue.match(/^\s*/)[0],tail=x.nodeValue.match(/\s*$/)[0]; x.nodeValue=lead+t+tail;}});
+      var els=root.querySelectorAll?Array.prototype.slice.call(root.querySelectorAll('[title],[aria-label],[placeholder],[alt]')):[];
+      if(root.nodeType===1)els.push(root);          // и атрибуты самого добавленного элемента
+      els.forEach(function(e){['title','aria-label','placeholder','alt'].forEach(function(a){var v=e.getAttribute(a);
+        if(v&&/[А-Яа-яЁё]/.test(v)){var o=ATTR[v]||STYLE[v]||tr(v); if(o)e.setAttribute(a,o);}});});
+    }finally{busy=false;}
+  }
+  function start(){
+    switcher(); walk(document.body);
+    new MutationObserver(function(ms){if(busy)return; ms.forEach(function(m){
+      if(m.type==='characterData'||m.type==='attributes')walk(m.type==='attributes'?m.target.parentNode||m.target:m.target); else m.addedNodes.forEach(function(x){walk(x.nodeType===1||x.nodeType===3?x:null);});});})
+      .observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['title','aria-label','placeholder','alt']});
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start); else start();
 })();
 </script>
 </body></html>
