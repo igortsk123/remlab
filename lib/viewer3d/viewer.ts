@@ -13,7 +13,7 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 
 import type { Apartment, Placement, Room } from "@/contracts/apartment";
 import { findRoom, roomAt, roomCentre } from "@/contracts/apartment";
-import type { Catalogue, Material } from "@/contracts/configurator";
+import { material as materialSchema, type Catalogue, type Material } from "@/contracts/configurator";
 import type { ResolvedScene } from "@/lib/configurator/resolve";
 import { type ObjectSpec, planObjects, surfacesByRoom } from "@/lib/viewer3d/build-scene";
 import { buildKitchen } from "@/lib/viewer3d/kits/kitchen";
@@ -88,6 +88,9 @@ interface Placed {
   group: THREE.Group;
   signature: string;
 }
+
+/** Нейтральная белая краска — когда в каталоге нет ни одного материала. */
+const NEUTRAL_WALL: Material = materialSchema.parse({ id: "neutral-white", titleRu: "Белый", titleEn: "White", colorHex: "#f2f0ec", roughness: 0.95 });
 
 export class FlatViewer {
   readonly scene = new THREE.Scene();
@@ -175,7 +178,9 @@ export class FlatViewer {
     this.kitCtx = {
       materials: this.matCtx,
       byId,
-      fallback: byId("paint-white") ?? catalogue.materials[0]!,
+      // У набора из витрины (`?demo=`) своих материалов нет вовсе — без встроенного запасного
+      // сцена падала на первой же стене (13.10, белый экран «Application error»).
+      fallback: byId("paint-white") ?? catalogue.materials[0] ?? NEUTRAL_WALL,
     };
     this.meshes = new MeshLibrary({ ktx2Path: "/vendor/basis/", renderer: this.renderer });
 
