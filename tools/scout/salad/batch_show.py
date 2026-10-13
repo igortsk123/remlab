@@ -861,15 +861,16 @@ def finale() -> None:
     # ГРУППУ ГАСИМ ПЕРВЫМ ДЕЛОМ (деньги): тарифицируется состояние, а финальный drain —
     # работа чисто локальная, комплекты уже лежат на exit-fi. Раньше ноды ждали конца
     # drain'а и жгли деньги за это время. Гасим и при падении — это `finally` в main().
-    stop = f'{PY} - <<P\nimport sys; sys.path.insert(0,"{HERE}")\nimport ssh_run; ssh_run.stop_group()\nP'
-    c, o = sh(stop, timeout=120)
+    # код выхода = подтверждено ли `stopped` у всех групп (ssh_run.stop_group проверяет, conv-11)
+    stop = f'{PY} - <<P\nimport sys; sys.path.insert(0,"{HERE}")\nimport ssh_run; sys.exit(0 if ssh_run.stop_group() else 1)\nP'
+    c, o = sh(stop, timeout=400)
     print(o, flush=True)
     if c != 0:
         # НЕУДАЧНОЕ ГАШЕНИЕ — ЭТО ДЕНЬГИ (замечание Codex 05.09): раньше ненулевой код просто
         # печатался, конвейер шёл дальше и выходил, а группы оставались тарифицироваться до
         # следующего сторожа. Повторяем один раз и, если снова мимо, кричим в телеграм.
         print(f'!! группы НЕ погашены (код {c}) — повторяю', flush=True)
-        c, o = sh(stop, timeout=120)
+        c, o = sh(stop, timeout=400)
         print(o, flush=True)
         if c != 0:
             print('!! ГРУППЫ ОСТАЛИСЬ ПОДНЯТЫМИ — гасить руками, идёт тарификация', flush=True)

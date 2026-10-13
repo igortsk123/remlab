@@ -411,8 +411,25 @@ def run_job(port: int, job: dict) -> dict:
                 'error': f'{type(e).__name__}: {str(e)[:160]}'}
 
 
-def stop_group() -> None:
-    """Гасим ВСЕ группы сразу после прогона: тарифицируется состояние, а не работа (ADR-0135)."""
+def group_status(g: str) -> str | None:
+    """Состояние группы по API (`current_state.status`); None — не смогли узнать."""
+    try:
+        req = urllib.request.Request(f'{API}/organizations/{ORG}/projects/{PROJECT}/containers/{g}',
+                                     headers={'Salad-Api-Key': key(), 'User-Agent': 'remlab-mesh/1.0'})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return (json.loads(r.read()).get('current_state') or {}).get('status')
+    except Exception:  # noqa: BLE001 — None = «не знаю», вызывающий решит
+        return None
+
+
+def stop_group(verify: bool = True, wait_s: int = 240, poll_s: int = 15) -> bool:
+    """Гасим ВСЕ группы сразу после прогона: тарифицируется состояние, а не работа (ADR-0135).
+
+    ПРОВЕРЯЕМ, А НЕ ВЕРИМ (conv-11, разбор Codex 13.10): `/stop` отвечает 202 «принято», а не «остановлено»,
+    и раньше ошибка проглатывалась — финал и сторож простоя сообщали «погасил» с кодом 0. Теперь ждём
+    `stopped` у каждой группы не дольше `wait_s` и возвращаем False, если хоть одна не погасла:
+    вызывающие (финал конвейера, сторож простоя) по False повторяют и кричат в телеграм."""
+    failed = []
     for g in GROUPS:
         try:
             req = urllib.request.Request(
@@ -420,10 +437,25 @@ def stop_group() -> None:
                 data=b'', method='POST', headers={'Salad-Api-Key': key(), 'User-Agent': 'remlab-mesh/1.0'})
             with urllib.request.urlopen(req, timeout=60) as r:
                 r.read()
-            print(f'группа {g} остановлена — счёт больше не идёт')
+            print(f'группа {g}: stop принят')
         except Exception as e:  # noqa: BLE001 — это деньги, говорим громко
             print(f'!! ГРУППУ {g} НЕ ОСТАНОВИТЬ ({type(e).__name__}: {str(e)[:120]}) — '
                   f'останови вручную в портале', flush=True)
+            failed.append(g)
+    if not verify:
+        return not failed
+    left = [g for g in GROUPS if g not in failed]
+    deadline = time.time() + wait_s
+    while left:
+        left = [g for g in left if group_status(g) != 'stopped']
+        if not left or time.time() >= deadline:
+            break
+        time.sleep(poll_s)
+    for g in [g for g in GROUPS if g not in failed and g not in left]:
+        print(f'группа {g} остановлена — счёт больше не идёт')
+    for g in left:
+        print(f'!! группа {g} за {wait_s} с не перешла в stopped (сейчас {group_status(g)}) — проверь портал', flush=True)
+    return not failed and not left
 
 
 # Канон стратегий — ЕДИНСТВЕННЫЙ источник (rules/asset-strategies.json, Codex q27).

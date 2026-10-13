@@ -47,6 +47,7 @@ def setup(tmp: str) -> None:
 culled: list = []               # кого стенд «пересадил» вместо реального вызова Salad
 ORIG_JOBS_FROM_FILE = S.jobs_from_file   # `patch()` его подменяет — держим настоящий
 ORIG_RUN_JOB = S.run_job                 # то же: случаю про двойной /generate нужен настоящий
+ORIG_STOP_GROUP = S.stop_group           # `patch()` гасит его заглушкой — случаю про проверку остановки нужен настоящий
 
 
 def jobs(n: int) -> list[dict]:
@@ -916,6 +917,43 @@ def case_hot_restart() -> None:
     print('  ✓ горячий перезапуск: draining не гасит, второй экземпляр не проходит, курсор атомарен')
 
 
+def case_stop_verified() -> None:
+    """conv-11: «/stop принят» ≠ «остановлено». Группа, не дошедшая до stopped, — провал (деньги идут);
+    дошедшая — успех; отказ /stop — провал без ожидания."""
+    import io
+    import urllib.error
+    keep_open, keep_groups, keep_key = urllib.request.urlopen, S.GROUPS, S.key
+    states = {'g1': ['stopping', 'stopped'], 'g2': ['running', 'running', 'running']}
+    posted = []
+
+    def fake_open(req, timeout=0):
+        url = req.full_url
+        if url.endswith('/stop'):
+            g = url.split('/')[-2]
+            if g == 'g3':
+                raise urllib.error.HTTPError(url, 500, 'x', {}, io.BytesIO(b'boom'))
+            posted.append(g)
+            return io.BytesIO(b'{}')
+        g = url.rsplit('/', 1)[-1]
+        seq = states[g]
+        st = seq.pop(0) if len(seq) > 1 else seq[0]
+        return io.BytesIO(json.dumps({'current_state': {'status': st}}).encode())
+
+    try:
+        urllib.request.urlopen, S.key = fake_open, (lambda: 'k')
+        S.GROUPS = ['g1']
+        assert ORIG_STOP_GROUP(wait_s=5, poll_s=0.01) is True, 'дошла до stopped — успех'
+        S.GROUPS = ['g1', 'g2']
+        states['g1'] = ['stopped']
+        assert ORIG_STOP_GROUP(wait_s=0.2, poll_s=0.01) is False, 'running после ожидания — провал'
+        S.GROUPS = ['g3']
+        assert ORIG_STOP_GROUP(wait_s=5, poll_s=0.01) is False, 'отказ /stop — провал'
+        assert posted.count('g1') == 2 and 'g3' not in posted, posted
+    finally:
+        urllib.request.urlopen, S.GROUPS, S.key = keep_open, keep_groups, keep_key
+    print('  ✓ остановка групп проверяется: stopped — успех, running/отказ — провал')
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         setup(tmp)
@@ -923,7 +961,8 @@ def main() -> None:
                 case_silent_node_is_zombie, case_sink_relief_before_red,
                 case_transport_class, case_window_gate, case_group_status_mixed,
                 case_step_timeout_kills_children, case_no_restart_of_running_group,
-                case_burst_counts_cached, case_alarm_before_halt, case_notify_reports, case_hot_restart)
+                case_burst_counts_cached, case_alarm_before_halt, case_notify_reports, case_hot_restart,
+                case_stop_verified)
         for fn in (case_late_node, case_bad_node, case_unresolved, case_prefix,
                    case_stall_is_capacity, case_no_capacity, case_cull_rule, case_checkpoint,
                    case_fault_classes, case_streak_rules, case_streak_survives_restart,
@@ -934,7 +973,8 @@ def main() -> None:
                    case_transport_class, case_window_gate, case_group_status_mixed,
                    case_step_timeout_kills_children, case_no_restart_of_running_group,
                    case_silent_node_is_zombie, case_sink_relief_before_red,
-                   case_burst_counts_cached, case_alarm_before_halt, case_notify_reports, case_hot_restart):
+                   case_burst_counts_cached, case_alarm_before_halt, case_notify_reports, case_hot_restart,
+                   case_stop_verified):
             if fn not in pure:
                 setup(tmp)
             fn()
