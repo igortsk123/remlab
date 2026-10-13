@@ -3,7 +3,7 @@ tier: 1
 topic: deployment
 scope: Деплой/откат/сервер exit-fi
 tier2: "domain/deployment-details.md"
-updated: 2026-10-11
+updated: 2026-10-13
 importance: high
 source: manual
 status: working
@@ -18,16 +18,14 @@ review_after: 2026-12-05
 
 ## Production (LIVE)
 - https://remont-lab.online (A → 89.167.127.0, без CF); LE TLS-ALPN-01 :443, Caddy (ADR-0003).
-- Контейнеры: `app` (Next :3000), `caddy`, `db`, `imagor`, `traces-init`, `mesh-receiver`
-  (`docker-compose.yml`, сеть `remlab-net`, лимиты ADR-0004). Вне compose `draft:8099`
-  (DEV-рендер демо) — Caddy проксирует `/api/{draft,warm,render,job,share}*`.
+- Контейнеры: `app`, `caddy`, `db`, `imagor`, `traces-init`, `mesh-receiver` (`docker-compose.yml`,
+  сеть `remlab-net`, ADR-0004). Вне compose `draft:8099` (рендер демо) — Caddy проксирует `/api/{draft,warm,render,job,share}*`.
 - Статика: `/test/*` → `./test`, `/demo` → `./demo` (ADR-0201), `/test/mesh-audit/*` immutable
   (ADR-0194); `/rt/*` → `./test/rt` — модели конфигуратора, immutable неделя (ADR-0212), кладёт
   `tools/assets/publish_rt.sh`; `/lab/*` — Next.
-  Маршрут без парного `redir /x /x/` = 404 без слэша.
-- **Caddyfile:** автодеплой его НЕ возит (CI — только compose, `db/init`, `scripts`), ручной
-  `./deploy.sh` копирует с предохранителем `comm`. Руками: бэкап → ⚠ `diff` с сервером (он НОВЕЕ
-  репо) → `validate` → `reload`. **Один сервис — только `up -d --no-deps`**: иначе `app`
+  Без парного `redir /x /x/` — 404 без слэша.
+- **Caddyfile:** автодеплой НЕ возит (CI — compose, `db/init`, `scripts`); `./deploy.sh` копирует с
+  предохранителем `comm`. Руками: бэкап → `diff` с сервером → `validate` → `reload`. **Один сервис — только `up -d --no-deps`**: иначе `app`
   пересоздаётся на дефолтном образе и прод откатывается (ADR-0202; образ — в `.env`).
 
 ## Сервер
@@ -46,8 +44,9 @@ Push в `main` → CI gate → `Deploy prod` (`deploy.yml`, по `workflow_run.h
   Вручную: `/`=200, `/api/health` ok, VPN цел (remnanode Up).
 
 ## Безопасность (инцидент 08.09, ADR-0207)
-Патчи с публичным RCE — сразу (RSC CVE-2025-55182: на 15.5.4 приехал майнер; сейчас 15.5.25).
+Патчи с публичным RCE — сразу (CVE-2025-55182: на 15.5.4 приехал майнер; сейчас 15.5.25).
 Журнал и заслон `@nextrce` в Caddy не снимать; подробности — Tier 2.
+**13.10 (ADR-0248):** ПДн — только в базе; очередь подборок закрыта; Caddyfile репо = сервер.
 
 ## Сторожа
 Каталог (ADR-0172), диск `cleanup.sh` (ADR-0005). Правка сервера = бэкап + rollback.
