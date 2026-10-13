@@ -21,13 +21,13 @@ export interface ReportRepo {
 export class MemoryReportRepo implements ReportRepo {
   readonly keys = new Map<string, string>(); // hash → partner
   readonly counters = new Map<string, number>();
-  data: ReportRows = { sends: [], events: [], savedSendIds: [], counters: [] };
+  readonly data = new Map<string, ReportRows>(); // partner → строки (как фильтр partner_id в Postgres)
   async partnerByKey(key: string) { return this.keys.get(keyHash(key)) ?? null; }
   async bump(h: CounterHit) {
     const k = [h.day, h.partnerId, h.apartmentId, h.kind, h.lang].join("|");
     this.counters.set(k, (this.counters.get(k) ?? 0) + 1);
   }
-  async rows() { return this.data; }
+  async rows(partnerId: string) { return this.data.get(partnerId) ?? { sends: [], events: [], savedSendIds: [], counters: [] }; }
 }
 
 class PgReportRepo implements ReportRepo {

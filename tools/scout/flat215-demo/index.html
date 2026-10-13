@@ -3365,7 +3365,8 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
   var _pc=window.priceCard; if(typeof _pc==='function')window.priceCard=priceCard=function(){var r=_pc.apply(this,arguments);if(CARD){var a=document.getElementById('pcMort'),c=document.getElementById('pcCons');if(a)a.onclick=function(){contactSheet('mortgage');};if(c)c.onclick=function(){contactSheet('consult');};}return r;};
   var _pv=window.pickVariant; if(typeof _pv==='function')window.pickVariant=pickVariant=function(i){var r=_pv.apply(this,arguments);ev('variant_view',state());return r;};
   var _to=window.tryOn; if(typeof _to==='function')window.tryOn=tryOn=function(){var r=_to.apply(this,arguments);ev('item_swap',state());return r;};
-  var _s3=window.sync3dLink; if(typeof _s3==='function')window.sync3dLink=sync3dLink=function(){var r=_s3.apply(this,arguments);
+  // менеджер смотрит сам (`&mgr=1`) — его 3D и коллекции не засчитываются покупателю (verify b2b-03)
+  var _s3=window.sync3dLink; if(typeof _s3==='function'&&!PREVIEW)window.sync3dLink=sync3dLink=function(){var r=_s3.apply(this,arguments);
     ['pc3d','swap3d'].forEach(function(id){var a=document.getElementById(id);if(a&&a.href.indexOf('s=')<0)a.href+=(a.href.indexOf('?')<0?'?':'&')+'s='+SEND;});return r;};
   fetch('/api/sends/'+SEND,{cache:'no-store'}).then(function(r){return r.ok?r.json():null;}).then(function(j){
     if(!j||!j.ok){
@@ -3373,7 +3374,7 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
       b.style.cssText='background:#FFF4E5;color:#7A4B00;padding:10px 16px;text-align:center;font-size:15px';
       b.textContent='Ссылка недействительна или отозвана. Попросите у менеджера новую — ниже демонстрация без вашей подборки.';
       document.body.insertBefore(b,document.body.firstChild); return;}
-    CARD=j.card; window.__sendId=SEND; mount(); ev('designer_open',state());
+    CARD=j.card; if(!PREVIEW)window.__sendId=SEND; mount(); ev('designer_open',state());
     // квартира — та, что в ссылке менеджера, а не из данных сборки (b2b-06)
     if(CARD.apartmentId&&window.__loadFlatCard){window.__sendFlat=CARD.apartmentId;window.__loadFlatCard();}
   }).catch(function(){});

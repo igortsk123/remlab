@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { pageCounterKind } from "@/contracts/analytics";
 import { buyerEventKind } from "@/contracts/send";
-import { buildReport, mondayOf, weekOf } from "@/modules/partner-report/report";
+import { buildReport, firstWeek, mondayOf, weekOf } from "@/modules/partner-report/report";
 import { keyHash, MemoryReportRepo } from "@/modules/partner-report/repository";
 
 // Отчёт застройщику (план b2b-03): неделя — когорта по дате отправки в его поясе; шаги — по отправкам;
@@ -18,6 +18,17 @@ describe("отчёт застройщику", () => {
     expect(weekOf(new Date("2026-10-18T22:00:00Z"), "Europe/Moscow")).toBe("2026-10-19");
     expect(weekOf(new Date("2026-10-18T22:00:00Z"), "Europe/London")).toBe("2026-10-12");
     expect(mondayOf("2026-10-25")).toBe("2026-10-19");
+  });
+
+  it("окно — ровно N недель: более ранние отправки и счётчики отсекаются", () => {
+    expect(firstWeek(NOW, "Europe/Moscow", 12)).toBe("2026-08-03");
+    const r = buildReport({
+      sends: [send("old", "2026-08-02T10:00:00Z"), send("in", "2026-08-03T10:00:00Z")], events: [], savedSendIds: [],
+      counters: [{ day: "2026-08-02", apartmentId: "flat215", kind: "designer_open", n: 9 }],
+      timezone: "Europe/Moscow", now: NOW, fromWeek: firstWeek(NOW, "Europe/Moscow", 12),
+    });
+    expect(r.total.sent).toBe(1);
+    expect(r.direct).toEqual([]);
   });
 
   it("шаги — по отправкам, неделя — по дате отправки, статус менеджера — текущий", () => {
@@ -77,7 +88,8 @@ describe("ручки отчёта", () => {
     const get = (k: string) => GET(new Request("http://x/api/partner/report", { headers: { "x-partner-key": k, "x-forwarded-for": "10.0.0.2" } }));
     expect((await get("")).status).toBe(403);
     expect((await get("B".repeat(22))).status).toBe(403);
-    repo.data = { sends: [send("a", new Date().toISOString())], events: [], savedSendIds: [], counters: [] };
+    repo.data.set("demo", { sends: [send("a", new Date().toISOString())], events: [], savedSendIds: [], counters: [] });
+    repo.data.set("other", { sends: [send("x", new Date().toISOString()), send("y", new Date().toISOString())], events: [], savedSendIds: [], counters: [] });
     const res = await get(key);
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");

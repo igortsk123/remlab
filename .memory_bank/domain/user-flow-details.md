@@ -103,7 +103,7 @@ confidence (low/mid/high). Сумму считает движок, НЕ LLM.
 
 ## Отчёт застройщику (13.10, ADR-0265)
 `/partner/report#<ключ>` (`components/partner/ReportPage.tsx`, `FunnelTable.tsx`) → `GET /api/partner/report`
-(`app/api/partner/report/route.ts`, заголовок `x-partner-key`, застройщик — только из ключа, 12 недель).
+(`app/api/partner/report/route.ts`, заголовок `x-partner-key`, застройщик — только из ключа, ровно 12 недель — `firstWeek`).
 Сборка — `modules/partner-report/report.ts:buildReport`: неделя = отправка ссылки (понедельник в поясе
 застройщика), шаги — отправки с событием из `send_events` (открыли, выбирали, 3D, «консультация/ипотека»),
 сохранили — `collections.send_id`, статусы менеджера — текущие. Заходы без ссылки — `page_counters` через

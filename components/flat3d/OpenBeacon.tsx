@@ -6,6 +6,7 @@ import { useEffect } from "react";
 // без неё — анонимный счётчик дня. Один раз на открытие страницы; сбой сети не мешает 3D.
 export function OpenBeacon({ apartmentId, sendId, lang }: { apartmentId: string; sendId: string | null; lang: "ru" | "en" }) {
   useEffect(() => {
+    if (navigator.webdriver) return; // автотесты не считаются (как на демо)
     const [url, body] = sendId
       ? [`/api/sends/${sendId}/event`, { kind: "flat3d_open" }]
       : ["/api/events", { apartmentId, kind: "flat3d_open", lang }];

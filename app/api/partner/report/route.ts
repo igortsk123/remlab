@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { TOKEN_RE } from "@/lib/token";
 import { guard } from "@/lib/ratelimit/http";
 import { findPartner } from "@/lib/partners/registry";
-import { buildReport } from "@/modules/partner-report/report";
+import { buildReport, firstWeek } from "@/modules/partner-report/report";
 import { reportRepo } from "@/modules/partner-report/repository";
 
 export const runtime = "nodejs";
@@ -21,9 +21,11 @@ export async function GET(req: Request): Promise<Response> {
   const p = partnerId ? findPartner(partnerId) : null;
   if (!p) return NextResponse.json({ ok: false }, { status: 403, headers: { "Cache-Control": "no-store" } });
   const now = new Date();
-  const since = new Date(now.getTime() - (WEEKS * 7 + 7) * 86_400_000);
+  // ровно WEEKS недель по поясу застройщика; из базы берём с запасом в сутки, лишнее отсекает buildReport
+  const fromWeek = firstWeek(now, p.timezone, WEEKS);
+  const since = new Date(new Date(`${fromWeek}T00:00:00Z`).getTime() - 86_400_000);
   const rows = await reportRepo().rows(p.id, since, since.toISOString().slice(0, 10));
-  const report = buildReport({ ...rows, timezone: p.timezone, now });
+  const report = buildReport({ ...rows, timezone: p.timezone, now, fromWeek });
   const apartments = Object.fromEntries(p.apartments.map((a) => [a.id, a.number ? `кв. ${a.number}` : a.id]));
   return NextResponse.json(
     { ok: true, partner: { id: p.id, name: p.nameRu }, timezone: p.timezone, periodWeeks: WEEKS, apartments, ...report, generatedAt: now.toISOString() },

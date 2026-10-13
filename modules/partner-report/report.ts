@@ -13,6 +13,8 @@ export type ReportInput = {
   counters: { day: string; apartmentId: string; kind: string; n: number }[];
   timezone: string;
   now: Date;
+  /** Первая неделя окна (понедельник YYYY-MM-DD): более ранние отправки и счётчики не входят. */
+  fromWeek?: string;
 };
 
 const ENGAGE = new Set(["variant_view", "item_swap", "manager_contact_click", "alternative_request", "flat3d_open"]);
@@ -30,6 +32,12 @@ export function weekOf(d: Date, tz: string): string {
   const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", weekday: "short" })
     .formatToParts(d).map((x) => [x.type, x.value]));
   return mondayOf(`${p.year}-${p.month}-${p.day}`);
+}
+
+/** Первая неделя окна из `weeks` недель, включая текущую. */
+export function firstWeek(now: Date, tz: string, weeks: number): string {
+  const cur = new Date(`${weekOf(now, tz)}T00:00:00Z`);
+  return new Date(cur.getTime() - (weeks - 1) * 7 * 86_400_000).toISOString().slice(0, 10);
 }
 
 /** Понедельник недели для календарной даты YYYY-MM-DD. */
@@ -55,6 +63,7 @@ export function buildReport(inp: ReportInput): { weeks: FunnelRow[]; byApartment
 
   for (const s of inp.sends) {
     const w = weekOf(s.createdAt, inp.timezone);
+    if (inp.fromWeek && w < inp.fromWeek) continue;
     const ks = kinds.get(s.id) ?? new Set<string>();
     const rows = [
       weeks.get(w) ?? weeks.set(w, emptyRow(w, null, w === thisWeek)).get(w)!,
@@ -75,6 +84,7 @@ export function buildReport(inp: ReportInput): { weeks: FunnelRow[]; byApartment
   const direct = new Map<string, DirectRow>();
   for (const c of inp.counters) {
     const w = mondayOf(c.day);
+    if (inp.fromWeek && w < inp.fromWeek) continue;
     const k = `${w}|${c.apartmentId}`;
     const r = direct.get(k) ?? direct.set(k, { week: w, apartmentId: c.apartmentId, designerOpen: 0, variantView: 0, itemSwap: 0, flat3dOpen: 0 }).get(k)!;
     if (c.kind === "designer_open") r.designerOpen += c.n;
