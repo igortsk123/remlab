@@ -186,6 +186,15 @@ def collapse_variants(rows: list) -> list:
 
 def build() -> str:
     rows = []
+    # СПИСОК ОТБОРА (13.10). Без него галерея копирует ВЕСЬ склад мешей: 4 222 модели ≈ 25 ГБ, и
+    # выложить это на прод нельзя — там свободно 17 ГБ. Демо показывает только то, что есть в
+    # комплектах (372 товара на все 126 наборов), поэтому публикуем ровно их. Формат файла —
+    # по одному SKU в строке, `mid:eid` или `mid_eid`.
+    only = None
+    only_p = os.environ.get('GALLERY_ONLY')
+    if only_p and os.path.exists(only_p):
+        only = {l.strip().replace('_', ':', 1) for l in open(only_p, encoding='utf-8') if l.strip()}
+        print(f'[галерея] отбор по списку: {len(only)} SKU', flush=True)
     best = {}                     # на SKU показываем ОДИН меш — самый свежий (перегон затирает брак)
     for d in sorted(glob.glob(os.path.join(SRC, '*/*/')), key=lambda p: -os.path.getmtime(os.path.join(p,'manifest.json')) if os.path.exists(os.path.join(p,'manifest.json')) else 0):
         man_p = os.path.join(d, 'manifest.json')
@@ -195,6 +204,8 @@ def build() -> str:
         if os.path.exists(os.path.join(d, 'owner_reject.json')):
             continue                  # забракован владельцем — не показываем, ждёт перегона
         if man['sku'] in best:
+            continue
+        if only is not None and man['sku'] not in only:
             continue
         import asset_strategy as AS
         if AS.strategy(man.get('role')) != 'hunyuan3d':
