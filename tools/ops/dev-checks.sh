@@ -18,4 +18,21 @@ else
 fi
 drill=$(tail -1 "$B/drill.log" 2>/dev/null)
 case "$drill" in *" ok "*) echo "репетиция восстановления: ${drill%% *}";; *) echo "WARN:restore_drill: последняя репетиция восстановления не прошла или не было (${drill:0:120})";; esac
+# каналы LLM (13.10: все три оказались без денег, заметили случайно): крошечный запрос, ответ «нет денег» → WARN
+ENVS="$(dirname "$0")/../scout/.env"
+if [ -f "$ENVS" ]; then
+  # shellcheck disable=SC1090
+  set -a; . "$ENVS"; set +a
+  probe() {  # $1 имя, $2 url, $3 ключ, $4 модель
+    [ -n "$3" ] || return 0
+    c=$(curl -s -o /tmp/llm-probe.$$ -w '%{http_code}' --max-time 30 "$2" -H "Authorization: Bearer $3" \
+        -H 'content-type: application/json' -d "{\"model\":\"$4\",\"messages\":[{\"role\":\"user\",\"content\":\"1\"}],\"max_completion_tokens\":16}")
+    if [ "$c" = 402 ] || grep -q 'insufficient_quota\|credit_balance' /tmp/llm-probe.$$ 2>/dev/null; then
+      echo "WARN:llm_no_credits: $1 — нет денег (HTTP $c): оценка стиля и обогащение стоят"
+    else echo "канал LLM $1: HTTP $c"; fi
+    rm -f /tmp/llm-probe.$$
+  }
+  probe "шлюз Vercel" https://ai-gateway.vercel.sh/v1/chat/completions "${VERCEL_AI_GATEWAY_KEY:-}" openai/gpt-6-luna
+  probe "OpenAI" https://api.openai.com/v1/chat/completions "${OPENAI_API_KEY:-}" gpt-6-luna
+fi
 exit 0
