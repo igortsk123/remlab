@@ -3418,15 +3418,23 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
 (function(){
   var KEY='remlab-collections', MINE=[], EN=function(){return window.__LANG==='en';};
   var list=function(){try{return JSON.parse(localStorage.getItem(KEY)||'[]').filter(function(x){return x&&/^[A-Za-z0-9_-]{22}$/.test(x.id);});}catch(_){return [];}};
-  var remember=function(id,style){var l=list().filter(function(x){return x.id!==id;});l.unshift({id:id,style:style,at:Date.now()});
+  // «моя» — только сохранённая в ЭТОМ браузере; открытая по чужой ссылке — «по ссылке» (Codex 13.10)
+  var remember=function(id,style,own){var prev=list().find(function(x){return x.id===id;});
+    var l=list().filter(function(x){return x.id!==id;});l.unshift({id:id,style:style,at:Date.now(),own:!!(own||(prev&&prev.own))});
     try{localStorage.setItem(KEY,JSON.stringify(l.slice(0,10)));}catch(_){}};
   var _av=window.allVariants; window.allVariants=allVariants=function(){return _av().concat(MINE);};
   function asVariant(c){
     var cur=c.current||{};
     var fix=function(sk){if(!sk)return sk;var p=cur[sk.sid]||{};var o=Object.assign({},sk);
-      if(p.unavailable){o.price=0;o.unavailable=true;} else if(p.price){o.price=p.price;o.price_at=p.priceAt;} return o;};
-    return {id:'c:'+c.id, cid:c.id, mine:true, baseVariant:c.baseVariant,
-      style:(EN()?'my collection':'моя коллекция')+(c.style?' · '+c.style:''), title:EN()?'My collection':'Моя коллекция',
+      // пропавший из витрины товар остаётся на месте с пометкой и в сумму не входит; витрина не ответила —
+      // остаётся цена из снимка (без даты)
+      if(p.unavailable){o.price=0;o.unavailable=true;o.name=(o.name||'')+(EN()?' — no longer in the showroom':' — сейчас нет в витрине');}
+      else if(p.price){o.price=p.price;o.price_at=p.priceAt;if(p.name)o.name=p.name;if(p.url)o.url=p.url;}
+      return o;};
+    var own=(list().find(function(x){return x.id===c.id;})||{}).own;
+    var label=own?(EN()?'my collection':'моя коллекция'):(EN()?'shared collection':'коллекция по ссылке');
+    return {id:'c:'+c.id, cid:c.id, mine:true, own:!!own, baseVariant:c.baseVariant,
+      style:label+(c.style?' · '+c.style:''), title:label,
       items:c.items.map(function(i){return Object.assign({},i,{sku:fix(i.sku)});}),
       decor:(c.decor||[]).map(function(d){return {role:d.role, sku:fix(d.sku)};})};
   }
@@ -3440,7 +3448,7 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
     var ids=list().map(function(x){return x.id;}); if(want&&ids.indexOf(want)<0)ids.unshift(want);
     Promise.all(ids.slice(0,10).map(fetchOne)).then(function(vs){
       vs.forEach(function(v){if(v)MINE.push(v);}); if(MINE.length)drawColl(true);
-      if(want){var v=MINE.find(function(x){return x.cid===want;}); if(v){remember(want,v.style);openId(want);}
+      if(want){var v=MINE.find(function(x){return x.cid===want;}); if(v){remember(want,v.style,false);openId(want);}
         else{var b=document.createElement('div');b.className='hint';b.style.margin='10px 0';
           b.textContent=EN()?'This collection link is no longer available.':'Коллекция по этой ссылке больше недоступна.';
           var c=document.getElementById('coll'); if(c)c.parentNode.insertBefore(b,c);}}
@@ -3452,7 +3460,7 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
       if(sk.price)o.price=sk.price; if(sk.pack)o.pack=Math.max(1,Math.round(+sk.pack)||1); return o;};
     var num=function(x){return Math.round((+x||0)*10)/10;};
     return {apartmentId:(typeof FLAT!=='undefined'&&FLAT&&FLAT.id)||D.apartment_id, baseVariant:v.baseVariant||String(v.id||'set1').replace(/^c:/,''),
-      style:String(v.style||'').replace(/^(моя коллекция|my collection) · /,'')||undefined, sendId:window.__sendId||undefined,
+      style:String(v.style||'').replace(/^(моя коллекция|my collection|коллекция по ссылке|shared collection) · /,'')||undefined, sendId:window.__sendId||undefined,
       lang:window.__LANG||'ru',
       items:items.filter(function(i){return i&&i.w&&i.d;}).slice(0,60).map(function(i){var o={role:String(i.role).slice(0,40),x:num(i.x),y:num(i.y),
         rot:num(i.rot),w:num(i.w),d:num(i.d)}; if(i.h)o.h=num(i.h); if(i.elev)o.elev=num(i.elev); var s=pick(i.sku); if(s)o.sku=s; return o;}),
@@ -3466,7 +3474,8 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
         if(!x.ok||!x.j.ok)throw new Error(x.j&&x.j.message||'');
         var url=location.origin+'/demo/'+(window.__LANG==='en'?'?lang=en':'')+'#c='+x.j.id;
         try{navigator.clipboard.writeText(url);}catch(_){}
-        return fetchOne(x.j.id).then(function(v){if(v){MINE.unshift(v);remember(x.j.id,v.style);drawColl(true);}
+        remember(x.j.id,'',true);
+        return fetchOne(x.j.id).then(function(v){if(v){MINE.unshift(v);remember(x.j.id,v.style,true);drawColl(true);}
           shotOpen('<div class="wait">'+(EN()?'Collection saved. The link is copied — send it to anyone:':'Коллекция сохранена. Ссылка скопирована — её можно отправить кому угодно:')+
             '<br><input readonly value="'+url+'" style="width:100%;margin-top:10px;font-size:14px" onclick="this.select()"></div>','');});
       }).catch(function(e){shotOpen('<div class="wait">'+(EN()?'Could not save, please try again.':'Не получилось сохранить, попробуйте ещё раз.')+'</div>','');})
@@ -3539,6 +3548,7 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
     [/^(\d+) (вид|вида|видов)$/,function(m){return m[1]+(m[1]==='1'?' view':' views');}],
     [/^Итого (\d+) товар\S*$/,function(m){return 'Total '+m[1]+' items';}],
     [/^Мебель варианта «(.+)»$/,function(m){return 'Furniture of the '+(STYLE[m[1]]||m[1])+' option';}],
+    [/^(my collection|shared collection) · (.+)$/,function(m){return m[1]+' · '+(STYLE[m[2]]||m[2]);}],
     [/^Выбрать: (.+)$/,function(m){return 'Choose: '+(role(m[1])||m[1]);}],
     [/^(\d+) товар\S* · сейчас (.+)$/,function(m){return m[1]+' items · now '+cm(m[2]);}],
     [/^только (.+)$/,function(m){return 'only '+(STYLE[m[1]]||m[1]);}],

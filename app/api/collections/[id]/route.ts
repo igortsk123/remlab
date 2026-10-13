@@ -23,6 +23,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const idx = src ? priceIndex(await loadDemoRaw(src)) : null;
   const sids = [...row.payload.items, ...row.payload.decor].map((i) => i.sku?.sid).filter((x): x is string => !!x);
   const out: CollectionOut = { ...row.payload, id: row.id, partnerId: row.partnerId, createdAt: row.createdAt.toISOString(),
+    expiresAt: new Date(row.createdAt.getTime() + 365 * 86_400_000).toISOString(),
     current: currentPrices([...new Set(sids)], idx && idx.size ? idx : null) };
   return NextResponse.json({ ok: true, collection: out }, { headers: { "Cache-Control": "no-store" } });
 }

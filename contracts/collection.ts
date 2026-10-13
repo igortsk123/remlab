@@ -27,6 +27,7 @@ const item = z.object({
 });
 
 export const collectionIn = z.object({
+  schemaVersion: z.literal(1).default(1),
   apartmentId: z.string().regex(/^[a-z0-9-]{2,40}$/),
   roomId: z.string().max(40).default("living"),
   baseVariant: z.string().regex(/^[A-Za-z0-9_-]{1,40}$/),
@@ -40,11 +41,15 @@ export const collectionIn = z.object({
 export type CollectionIn = z.infer<typeof collectionIn>;
 
 /** Текущая цена товара при открытии коллекции: из витрины; нет в витрине — `unavailable`. */
-export type CurrentPrice = { price: number | null; priceAt: string | null; unavailable: boolean };
+export type CurrentPrice = {
+  price: number | null; priceAt: string | null; unavailable: boolean; temporarilyUnavailable?: boolean;
+  name?: string; url?: string | null; shop?: string | null;
+};
 
 export type CollectionOut = CollectionIn & {
   id: string;
   partnerId: string;
   createdAt: string;
+  expiresAt: string;
   current: Record<string, CurrentPrice>; // sid → текущая цена
 };

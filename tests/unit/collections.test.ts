@@ -1,4 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// Витрина — фикстура: в тестах сеть не трогаем
+vi.mock("@/lib/partners/demo-data", async (orig) => ({
+  ...(await orig<typeof import("@/lib/partners/demo-data")>()),
+  loadDemoRaw: async () => ({ variants: [{ id: "set2", items: [{ sku: { sid: "112923_1", name: "Диван А (витрина)", price: 51000, url: "https://xf.gdeslon.ru/a", shop: "divan.ru" } }] }] }),
+}));
 
 import { POST } from "@/app/api/collections/route";
 import { GET } from "@/app/api/collections/[id]/route";
@@ -24,6 +30,15 @@ describe("коллекции", () => {
     expect(collection.partnerId).toBe("demo");
   });
 
+  it("товар — только из витрины: чужой sid отклонён, название/ссылку/цену подставляет сервер", async () => {
+    expect((await POST(post({ ...body, items: [{ ...body.items[0], sku: { sid: "999_fake", name: "x" } }] }))).status).toBe(400);
+    const r = await POST(post({ ...body, items: [{ ...body.items[0], sku: { sid: "112923_1", name: "ПОДМЕНА", url: "https://evil.example/", price: 1 } }] }));
+    const { id } = (await r.json()) as { id: string };
+    const g = await GET(new Request(`http://x/api/collections/${id}`), { params: Promise.resolve({ id }) });
+    const { collection } = (await g.json()) as { collection: { items: { sku: { name: string; url: string; price: number } }[] } };
+    expect(collection.items[0]!.sku).toMatchObject({ name: "Диван А (витрина)", url: "https://xf.gdeslon.ru/a", price: 51000 });
+  });
+
   it("чужая квартира, мусор и слишком большое тело — отказ", async () => {
     expect((await POST(post({ ...body, apartmentId: "ghost" }))).status).toBe(400);
     expect((await POST(post({ ...body, items: [] }))).status).toBe(400);
@@ -34,11 +49,11 @@ describe("коллекции", () => {
   });
 
   it("текущие цены: из витрины; нет в витрине — помечен, старая цена не выдаётся за текущую", () => {
-    const idx = priceIndex({ variants: [{ items: [{ sku: { sid: "1_a", price: 1000, price_at: "2026-10-13" } }] }], feeds: { диван: [{ sid: "1_b", price: 500 }] } });
+    const idx = priceIndex({ variants: [{ items: [{ sku: { sid: "1_a", name: "А", price: 1000, price_at: "2026-10-13" } }] }], feeds: { диван: [{ sid: "1_b", name: "Б", price: 500 }] } });
     const cur = currentPrices(["1_a", "1_b", "1_gone"], idx);
-    expect(cur["1_a"]).toEqual({ price: 1000, priceAt: "2026-10-13", unavailable: false });
+    expect(cur["1_a"]).toMatchObject({ price: 1000, priceAt: "2026-10-13", unavailable: false, name: "А" });
     expect(cur["1_b"]!.price).toBe(500);
     expect(cur["1_gone"]).toEqual({ price: null, priceAt: null, unavailable: true });
-    expect(currentPrices(["1_a"], null)["1_a"]!.unavailable).toBe(false); // витрина не ответила — не «пропал»
+    expect(currentPrices(["1_a"], null)["1_a"]).toMatchObject({ unavailable: false, temporarilyUnavailable: true }); // витрина не ответила — не «пропал»
   });
 });
