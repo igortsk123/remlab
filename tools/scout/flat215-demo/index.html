@@ -3275,9 +3275,10 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
     if(M.whatsapp)links.push(['whatsapp','WhatsApp','https://wa.me/'+String(M.whatsapp).replace(/\D/g,'')+'?text='+encodeURIComponent(text)]);
     if(M.telegram)links.push(['telegram','Telegram','https://t.me/'+encodeURIComponent(String(M.telegram).replace(/^@/,''))+'?text='+encodeURIComponent(text)]);
     if(M.phone)links.push(['phone','Позвонить '+M.phone,'tel:'+String(M.phone).replace(/[^\d+]/g,'')]);
-    shotOpen('<div class="wait"><b>'+esc(M.name)+'</b> — ваш менеджер.<br><span style="font-size:15px;color:var(--muted)">Сообщение уже написано, останется отправить.</span>'+
+    var hint=(M.whatsapp||M.telegram)?'В WhatsApp и Telegram сообщение уже написано — останется отправить.':'Позвоните — менеджер видит, что вы смотрели.';
+    shotOpen('<div class="wait"><b>'+esc(M.name)+'</b> — ваш менеджер.<br><span style="font-size:15px;color:var(--muted)">'+hint+'</span>'+
       '<div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">'+
-      links.map(function(l){return '<a class="btn round cta" data-ch="'+l[0]+'" href="'+esc(l[2])+'" target="_blank" rel="noopener">'+esc(l[1])+'</a>';}).join('')+
+      links.map(function(l){return '<a class="btn round cta" style="text-decoration:none;text-align:center" data-ch="'+l[0]+'" href="'+esc(l[2])+'" target="_blank" rel="noopener">'+esc(l[1])+'</a>';}).join('')+
       '</div></div>','');
     document.querySelectorAll('#shotbody [data-ch]').forEach(function(a){
       a.addEventListener('click',function(){ev('manager_contact_click',Object.assign({purpose:purpose,channel:a.dataset.ch},st));});});
@@ -3294,7 +3295,7 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
     var acts=document.querySelector('#flatPrice .fh-acts'); if(!acts)return;
     var card=document.createElement('div');
     card.className='fh-mgr';
-    card.style.cssText='flex-basis:100%;font-size:15px;color:var(--muted);text-align:right';
+    card.style.cssText='flex-basis:100%;font-size:15px;color:var(--muted);text-align:'+(matchMedia('(max-width:700px)').matches?'left':'right');
     card.innerHTML='Ваш менеджер: <b style="color:var(--ink,inherit)">'+esc(CARD.manager.name)+'</b>'+(CARD.manager.phone?' · '+esc(CARD.manager.phone):'');
     acts.insertBefore(card,acts.firstChild);
     var alt=document.createElement('button'); alt.className='btn round'; alt.textContent='Хочу другой вариант';

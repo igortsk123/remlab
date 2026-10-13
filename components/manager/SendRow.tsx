@@ -26,9 +26,10 @@ export function SendRow({ row, onStatus }: { row: ManagerSendRow; onStatus: (id:
           {row.revoked ? "отозвана" : STATUS_LABEL[row.status] ?? row.status}
         </Badge>
       </div>
-      <Input size="sm" placeholder="Кому ссылка (видно только вам, в этом браузере)" value={note} onChange={save} />
+      <Input size="sm" placeholder="Кому ссылка — видно только вам" value={note} onChange={save} />
       <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
         <Button size="sm" color="secondary" onClick={copy}>{copied ? "Скопировано" : "Скопировать ссылку"}</Button>
+        {!row.revoked && <span className="muted" style={{ fontSize: 14, alignSelf: "center" }}>Отметить:</span>}
         {!row.revoked && (["contacted", "meeting", "deal", "lost"] as const).map((st) => (
           <Button key={st} size="sm" color="tertiary" onClick={() => onStatus(row.id, { status: st })}>{STATUS_LABEL[st]}</Button>
         ))}

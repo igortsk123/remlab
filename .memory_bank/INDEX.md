@@ -26,6 +26,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт → реф-сме�
 | Лид-канал — заявка, TG-бот | `core/leads.md` | — |
 | Уроки перед планированием — что НЕ сработало | `core/lessons.md` | `lessons/README.md` |
 | Композиция гостиной — доли | `core/lr-composition.md` | `domain/lr-composition-guide.md` |
+| Ссылка от менеджера застройщика покупателю, сигналы менеджеру, его страница и бот | `core/manager-links.md` | `domain/manager-links.md` |
 | Рынок RU/UK — спрос, монетизация | `core/market.md` | `domain/market-research.md` |
 | Реклама — Яндекс, семантика | `core/marketing-acquisition.md` | `domain/wordstat-semantics.md` |
 | Цвет мешей — диагноз, мерка, рычаги | `core/mesh-color.md` | `domain/viz-fidelity-playbook.md` |

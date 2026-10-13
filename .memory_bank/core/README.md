@@ -26,6 +26,7 @@
 | `leads.md` | leads | Лид-канал — заявка, TG-бот | — | 2026-10-13 |
 | `lessons.md` | lessons | Уроки перед планированием — что НЕ сработало | `../lessons/README.md` | 2026-10-13 |
 | `lr-composition.md` | lr-composition | Композиция гостиной — доли | `../domain/lr-composition-guide.md` | 2026-10-11 |
+| `manager-links.md` | manager-links | Ссылка от менеджера застройщика покупателю, сигналы менеджеру, его страница и бот | `../domain/manager-links.md` | 2026-10-13 |
 | `market.md` | market | Рынок RU/UK — спрос, монетизация | `../domain/market-research.md` | 2026-10-13 |
 | `marketing-acquisition.md` | marketing-acquisition | Реклама — Яндекс, семантика | `../domain/wordstat-semantics.md` | 2026-10-11 |
 | `mesh-color.md` | mesh-color | Цвет мешей — диагноз, мерка, рычаги | `../domain/viz-fidelity-playbook.md` | 2026-10-11 |
