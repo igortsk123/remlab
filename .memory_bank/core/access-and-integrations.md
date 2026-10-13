@@ -3,7 +3,7 @@ tier: 1
 topic: access-and-integrations
 scope: Интеграции/доступы — ключи, клиенты
 tier2: "../domain/integrations.md"
-updated: 2026-10-11
+updated: 2026-10-13
 importance: high
 source: manual
 status: working
@@ -28,7 +28,7 @@ review_after: 2026-12-05
 - **Яндекс:** Метрика `110599064`; кампанию `708745261` не трогать. [[marketing-acquisition]].
 
 **Tier 2:** `../domain/integrations.md` — эндпоинты, форматы, env, фиды, § Codex (постоянная
-сессия советника; как звать — там же). Решения — ADR-0007/0011/0012/0013/0045.
+сессия советника; как звать — там же; при исчерпании лимита — `--profile vercel`, ADR-0253). Решения — ADR-0007/0011/0012/0013/0045.
 
 - **Vercel AI Gateway (26.08):** единственный рабочий путь к платным картинкам (прямые ключи
   OpenAI без кредитов). Эндпоинты, ключ и клиент — `../domain/integrations.md`.

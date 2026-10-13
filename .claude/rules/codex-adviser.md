@@ -9,6 +9,8 @@ Codex CLI (`codex exec`, read-only sandbox) — советник: он лучш�
 `codex exec --sandbox read-only -C /home/pakar/igor/remlab -o answer.md resume <ID> - < prompt.md`
 (флаги ДО `resume`). `--ephemeral` — только когда важна независимость от моей гипотезы.
 Параллельно два `resume` одной сессии не запускать — конфликтуют.
+**Лимит подписки исчерпан или нужна сильная модель** → тот же вызов с `--profile vercel` (шлюз Vercel, gpt-6-astra;
+перед вызовом `set -a; . tools/scout/.env; set +a`) — детали в `domain/integrations.md` § Codex (ADR-0253).
 
 **ОБЯЗАТЕЛЬНО советоваться до действий:**
 1. Причина дефекта не очевидна или первый фикс не сработал (root cause, регрессы, «почему хуже»).

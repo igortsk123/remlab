@@ -3,7 +3,7 @@ tier: 2
 topic: integrations-details
 scope: Детали внешних интеграций — эндпоинты, форматы запросов/ответов, env-переменные, конфиги, цены
 tier1: ../core/access-and-integrations.md
-updated: 2026-10-11
+updated: 2026-10-13
 importance: high
 source: manual
 status: working
@@ -207,6 +207,12 @@ PNG 512 от владельца (Drive `1l2j65g8…`) → `public/icons/`; вс�
 - **Сессия проекта:** `01a00a62-33e2-7051-93c6-37bff5c6937e` (онбординг 16.08: прочитал CLAUDE.md, INDEX, ADR-0099…0106,
   MASTER-zones-v7, свои аудиты, карту кода; конспект — `archive/evidence/codex-onboarding-notes.md`).
 - **Как звать:** `codex exec --sandbox read-only -C /home/pakar/igor/remlab -o answer.md resume 01a00a62-33e2-7051-93c6-37bff5c6937e - < prompt.md   (флаги — ДО resume)`
+- **Через шлюз Vercel (13.10, ADR-0253):** когда у подписки ChatGPT кончился лимит или нужна gpt-6-astra —
+  `set -a; . tools/scout/.env; set +a; codex exec --profile vercel --sandbox read-only -C … -o answer.md resume <ID> - < prompt.md`.
+  Профиль `vercel` — `~/.codex/vercel.config.toml` (model_provider=vercel, `openai/gpt-6-astra`, reasoning medium),
+  поставщик `[model_providers.vercel]` — `~/.codex/config.toml` (base_url `https://ai-gateway.vercel.sh/v1`,
+  env_key `VERCEL_AI_GATEWAY_KEY`, wire_api `responses`). Проба 13.10: читает код, отвечает верно; счёт — токены шлюза
+  (сверка книги ≈ $1–2 на astra). Та же сессия `resume` работает с обоими поставщиками.
   (промпт короткий: «что изменилось с прошлого раза (коммиты/файлы) + вопрос»). Для НЕЗАВИСИМОГО second opinion
   (когда нельзя показывать нашу гипотезу) — по-прежнему `codex exec --ephemeral`.
 - Раз в несколько сводов — новый онбординг (сессия распухает/устаревает), старую архивировать (`codex archive <id>`).
