@@ -35,3 +35,6 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-10-11	core/mesh-run.md	code	14	0	0	
 2026-10-11	domain/mesh-run-playbook.md	code	31	0	0	
 2026-10-11	core/access-and-integrations.md	rotation	27	3	3	
+2026-10-13	core/catalog.md	rotation	29	2	2	
+2026-10-13	core/styles.md	code	17	3	3	
+2026-10-13	core/mesh-pipeline.md	code	23	0	0	

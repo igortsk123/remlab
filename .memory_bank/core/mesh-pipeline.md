@@ -8,7 +8,7 @@ importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-10-11
+last_verified: 2026-10-13
 review_after: 2027-01-09
 ---
 
