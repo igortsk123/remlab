@@ -37,7 +37,16 @@ export const room = z.object({
   d: z.number().positive(),
   heightCm: z.number().positive().default(245),
   openings: z.array(opening).default([]),
-});
+  /**
+   * Настоящий контур комнаты, если она не прямоугольник ([x,y] в см, координаты квартиры). Сейчас его
+   * НЕ читают ни солвер, ни 3D — прямоугольник (x,y,w,d) остаётся рамкой контура; поле нужно, чтобы
+   * планировки застройщиков заводить честно уже сейчас (b2b-06 → b2b-10/13 подхватят без миграции).
+   */
+  contour: z.array(z.tuple([z.number(), z.number()])).min(3).optional(),
+}).refine((r) => !r.contour || (
+  Math.abs(Math.min(...r.contour.map((p) => p[0])) - r.x) < 1 && Math.abs(Math.min(...r.contour.map((p) => p[1])) - r.y) < 1 &&
+  Math.abs(Math.max(...r.contour.map((p) => p[0])) - (r.x + r.w)) < 1 && Math.abs(Math.max(...r.contour.map((p) => p[1])) - (r.y + r.d)) < 1
+), "рамка контура должна совпадать с x, y, w, d комнаты");
 export type Room = z.infer<typeof room>;
 
 /** Категории апгрейдов. Порядок = порядок показа в панели комнаты. */

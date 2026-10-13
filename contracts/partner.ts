@@ -54,11 +54,15 @@ export const apartmentRef = z.object({
   /** Цена в валюте партнёра, целое число. Демонстрационная — помечается `demoPrice`. */
   price: z.number().int().nonnegative(),
   demoPrice: z.boolean().default(false),
+  /** На какую дату цена (ADR-0252: цены — с датой и оговоркой). */
+  priceAsOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   sources: apartmentSources,
 });
 export type ApartmentRef = z.infer<typeof apartmentRef>;
 
 export const partner = z.object({
+  /** Пояснение для людей в файле данных; программа его не читает. */
+  _note: z.string().optional(),
   id: z.string().regex(/^[a-z0-9-]{2,40}$/),
   nameRu: z.string().min(1),
   nameEn: z.string().min(1),
@@ -70,19 +74,23 @@ export const partner = z.object({
   /** Тексты блока сертификата; пусто — стандартные. */
   certificateTextRu: z.string().optional(),
   certificateTextEn: z.string().optional(),
-  /** Домены, которым разрешено встраивать нас рамкой (`b2b-07`, Caddy frame-ancestors). */
-  frameDomains: z.array(z.string().url()).default([]),
+  /** Источники, которым разрешено встраивать нас рамкой (`b2b-07`, Caddy frame-ancestors):
+   *  `https://site.ru` или `https://*.site.ru` — без пути. */
+  frameDomains: z.array(z.string().regex(/^https:\/\/(\*\.)?[a-z0-9.-]+\.[a-z]{2,}(:\d+)?$/)).default([]),
+  /** Часовой пояс отчёта застройщику (`b2b-03`: недельный отчёт по его времени). */
+  timezone: z.string().default("Europe/Moscow"),
   /** Демонстрационный застройщик: можно переключать рынок на странице (ADR-0254). */
   demo: z.boolean().default(false),
   complexes: z.array(complex).min(1),
   apartments: z.array(apartmentRef).min(1),
-});
+}).strict(); // опечатка в ключе («certificateshare») — ошибка, а не тихий пропуск (рецензия 13.10)
 export type Partner = z.infer<typeof partner>;
 
 /** Публичная карточка квартиры для шапки витрины и 3D — всё уже посчитано сервером. */
 export type ApartmentCard = {
   id: string;
   partnerId: string;
+  complexId: string;
   market: Market;
   lang: Lang;
   currency: Currency;
@@ -94,6 +102,7 @@ export type ApartmentCard = {
   meta: string; // «ЖК … · сдан · эт. 6 из 17 · корп. 3»
   price: number;
   demoPrice: boolean;
+  priceAsOf: string | null;
   certificate: { amount: number; title: string; text: string } | null;
   sources: { demoData?: string; flat3d?: string };
 };

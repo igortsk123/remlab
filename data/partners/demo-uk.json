@@ -1,11 +1,12 @@
 {
-  "_note": "Демонстрационный застройщик для Англии: квартира 3D-конфигуратора demo-uk-1 (data/flat3d/apartment.json). Цена — демонстрационная.",
+  "_note": "Демонстрационный застройщик для Англии: квартира 3D-конфигуратора demo-uk-1 (data/flat3d/apartment.json). Цена — демонстрационная. «Двухкомнатная» = «1-bedroom»: в РФ считают все комнаты, в Англии — спальни; это не ошибка.",
   "id": "demo-uk",
   "nameRu": "Демо-застройщик (Англия)",
   "nameEn": "Demo developer (UK)",
   "market": "uk",
   "defaultLang": "en",
   "currency": "GBP",
+  "timezone": "Europe/London",
   "certificateShare": 0.04,
   "demo": true,
   "complexes": [
