@@ -2,6 +2,7 @@
 // Без БД, сети и three.js — это гоняет vitest (`tests/unit/configurator-resolve.test.ts`),
 // а все три режима показа (3D, план, фото) строятся ТОЛЬКО поверх результата `resolveScene`.
 
+import { baseSnapshotOf } from "@/lib/configurator/fromDemo";
 import type { Apartment, Placement, Slot, SlotCategory } from "@/contracts/apartment";
 import type { Catalogue, Configuration, Material, Option, OptionAsset } from "@/contracts/configurator";
 import { materialById, optionById } from "@/contracts/configurator";
@@ -85,7 +86,8 @@ export function defaultConfiguration(a: Apartment, c: Catalogue): Configuration 
   for (const s of a.slots) selections[s.id] = s.defaultOptionId;
   return {
     version: 3, apartmentId: a.id, developerId: c.developerId, selections, placements: {},
-    ...(a.baseVariant ? { baseVariant: a.baseVariant } : {}),
+    // набор витрины: снимок «место → модель» едет и в черновик, чтобы после пересборки сравнить
+    ...(a.baseVariant ? { baseVariant: a.baseVariant, baseSnapshot: baseSnapshotOf(a, c) } : {}),
   };
 }
 

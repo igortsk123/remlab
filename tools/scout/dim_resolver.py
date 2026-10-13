@@ -401,6 +401,40 @@ def learn() -> None:
         print('  mm:', k, priors[k])
 
 
+def rules_fingerprint() -> str:
+    """Отпечаток таблиц разбора размеров. Правишь их — меняется `geometry_hash` у тысяч товаров, а
+    `load3` помечает их обогащение `stale` → платное переобогащение (13.10: +3 761 карточка после правил
+    осей 11.10, сняты вручную). Поэтому смена правил = подъём `load3.HASH_VERSION` (baseline без stale) и
+    новый `load3.RULES_FINGERPRINT`; селфтест сверяет одно с другим."""
+    import hashlib
+
+    def norm(x):
+        if isinstance(x, dict):
+            return {str(k): norm(v) for k, v in sorted(x.items(), key=lambda kv: str(kv[0]))}
+        if isinstance(x, (set, frozenset)):
+            return sorted(norm(v) for v in x)
+        if isinstance(x, (list, tuple)):
+            return [norm(v) for v in x]
+        return x if isinstance(x, (str, int, float, bool)) or x is None else str(x)
+    blob = json.dumps(norm({'dim': DIM_KEYS, 'shop': SHOP_DIM_KEYS, 'comp': COMPOSITE_KEYS}),
+                      sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(blob.encode()).hexdigest()[:12]
+
+
+def _fingerprint_guard() -> bool:
+    """Отпечаток в load3.py совпадает с текущими правилами? load3 НЕ импортируем — он исполняет прогон."""
+    import re as _re
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'load3.py'), encoding='utf-8').read()
+    m = _re.search(r"^RULES_FINGERPRINT\s*=\s*'([0-9a-f]+)'", src, _re.M)
+    now = rules_fingerprint()
+    if m and m.group(1) == now:
+        print(f'ok   отпечаток правил размеров {now} = load3.RULES_FINGERPRINT')
+        return True
+    print(f'FAIL правила размеров изменились ({now} ≠ {m.group(1) if m else "нет"}): подними load3.HASH_VERSION '
+          f'(иначе тысячи товаров уйдут в платное переобогащение) и запиши RULES_FINGERPRINT = \'{now}\'')
+    return False
+
+
 def selftest() -> None:
     cases = [
         # (mid, name, params, role, ось, ожидание_см, ожид_source)
@@ -468,6 +502,8 @@ def selftest() -> None:
         ok = (got == want) and (want is None or src == want_src)
         bad += 0 if ok else 1
         print(f'{"ok " if ok else "FAIL"} {name[:32]:34} {dim}={got} (src={src}, ждали {want}/{want_src})')
+    if not _fingerprint_guard():
+        bad += 1
     sys.exit(1 if bad else 0)
 
 

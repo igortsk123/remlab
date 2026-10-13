@@ -4,7 +4,7 @@
      поэтому перетаскивание предметов от зума страницы не страдает. -->
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex"><meta http-equiv="cache-control" content="no-store">
-<title>Квартира 215 — гостиная (демо)</title>
+<title>Квартира — гостиная (демо)</title>
 <style>
 /* ПАЛИТРА — ИЗ ДИЗАЙН-СИСТЕМЫ САЙТА (владелец 01.09: «у нас же дизайн-система есть»).
    Значения повторяют `styles/brand.css` (терракота-бренд, stone-нейтраль, кремовые фоны) и
@@ -957,7 +957,8 @@ function drawVariants(){
   // и условия не были зашиты в вёрстку (владелец 01.09: формулировку не выдумывать).
   const b=document.getElementById('budget'); if(!b)return;
   // КАРТОЧКА КВАРТИРЫ ВАЖНЕЕ ДАННЫХ СБОРКИ (b2b-06): сумма — доля цены, её задаёт застройщик.
-  const t=(FLAT&&FLAT.certificate)||(D&&D.budget)||{};
+  // ТОЛЬКО карточка: прежний `D.budget` из старых данных сборки показывал бы прежнюю сумму, пока карточка грузится.
+  const t=(FLAT&&FLAT.certificate)||{};
   // СУММУ И ФОРМУЛИРОВКУ ЗАДАЛ ВЛАДЕЛЕЦ (01.09). Я предлагал не называть конкретный лимит,
   // потому что это утверждение о финансовом продукте; владелец переформулировал в сертификат
   // и назвал сумму — решение его. Значения остаются параметром данных (`demo-data.json`
@@ -1061,8 +1062,9 @@ function flatPlan(){
   // ОДНА КВАРТИРА — ОДНО ЧИСЛО (владелец 01.09: «проверь, что этот блок чётко»). В шапке
   // стояло 73,7 м² (сумма наших комнат), а на вкладке плана — 76,5 м² из ЧЕРТЕЖА-ИСТОЧНИКА
   // №180, по которому снималась геометрия. На одной странице два разных числа про одну
-  // квартиру. Канон — `flat_title` (№215, 73,7 м²), он же считается из списка комнат.
-  document.getElementById('flatTitle').textContent=D.flat_title||P.title||'План квартиры';
+  // квартиру. Канон — карточка квартиры из реестра (b2b-06): номер и площадь берутся оттуда; заголовок
+  // чертежа-источника (`P.title`) НЕ показываем — он про другую квартиру. Карточки ещё нет — нейтрально.
+  document.getElementById('flatTitle').textContent=flatTitle();
   const box=document.getElementById('flatRooms');box.innerHTML='';
   (D.rooms||[]).forEach(r=>by[r.id]=r);
   if(!R.length){box.innerHTML='<div class="hint">План не загружен.</div>';return;}
@@ -1524,6 +1526,8 @@ function basket(){                    // СПИСОК ТОВАРОВ КОМНА�
 // откуда взята демонстрационная цена). id квартиры: ссылка менеджера → `?flat=` → данные сборки.
 let FLAT=null;
 const flatKind=()=>FLAT?FLAT.kind:'';
+// «Квартира №N · 73,7 м²» — из карточки; до её загрузки — нейтральная подпись (не чертёж-источник).
+const flatTitle=()=>FLAT?((FLAT.number?'Квартира №'+FLAT.number+' · ':'')+String(FLAT.areaM2).replace('.',',')+' м²'):'План квартиры';
 function flatId(){const m=location.search.match(/[?&]flat=([a-z0-9-]{2,40})(?:&|$)/);
   return window.__sendFlat||(m&&m[1])||(D&&D.apartment_id)||'';}
 function loadFlatCard(){const id=flatId(); if(!id)return;
@@ -1532,6 +1536,8 @@ function loadFlatCard(){const id=flatId(); if(!id)return;
     const fk=document.getElementById('flatKind'); if(fk)fk.textContent=FLAT.kind;
     const fm=document.getElementById('flatMeta'); if(fm)fm.textContent=FLAT.meta;
     const fs=document.getElementById('flatSum'); if(fs)fs.textContent=money(FLAT.price);
+    const ft=document.getElementById('flatTitle'); if(ft)ft.textContent=flatTitle();
+    document.title=FLAT.kind+' — гостиная (демо)';
     drawVariants(); try{sync3dLink();}catch(e){}
   }).catch(()=>{});}
 window.__loadFlatCard=loadFlatCard;
@@ -2605,7 +2611,7 @@ function shareOpen(list){
     shotOpen('<div class="wait"><div class="spin"></div>Отправляем…</div>','');
     try{
       const r=await fetch('/api/share',{method:'POST',headers:{'content-type':'application/json'},
-        body:JSON.stringify({title:D.flat_title||'',channel:chan,contact:to,
+        body:JSON.stringify({title:flatTitle(),channel:chan,contact:to,
           // В ПОДБОРКУ ИДУТ И ТОВАРЫ СО ССЫЛКАМИ (владелец 26.08: «человек должен получать
           // коллекции»): под каждым кадром — что на нём стоит, почём и где купить
           shots:sel.map(s=>({url:s.url,label:shotLabel(s),

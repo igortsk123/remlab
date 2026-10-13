@@ -67,7 +67,7 @@ export function apartmentCard(hit: ApartmentHit, lang: Lang = hit.partner.defaul
   const complexName = en ? c.nameEn : c.nameRu;
   const amount = certificateAmount(p, a);
   return {
-    id: a.id, partnerId: p.id, market: p.market, lang, currency: p.currency,
+    id: a.id, partnerId: p.id, complexId: c.id, market: p.market, lang, currency: p.currency,
     kind: `${en ? a.kindEn : a.kindRu} ${String(a.areaM2).replace(".", en ? "." : ",")} ${en ? "m²" : "м²"}`,
     number: a.number ?? null,
     areaM2: a.areaM2,
@@ -76,6 +76,7 @@ export function apartmentCard(hit: ApartmentHit, lang: Lang = hit.partner.defaul
     meta: [complexName, handoverText(c, lang), floor, bld].filter(Boolean).join(" · "),
     price: a.price,
     demoPrice: a.demoPrice,
+    priceAsOf: a.priceAsOf ?? null,
     certificate: amount > 0
       ? {
           amount,

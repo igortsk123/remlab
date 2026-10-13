@@ -4,7 +4,8 @@ import { FlatConfigurator } from "@/components/flat3d/FlatConfigurator";
 import type { Configuration } from "@/contracts/configurator";
 import { baseSnapshotOf, staleSlots } from "@/lib/configurator/fromDemo";
 import { readConfig } from "@/lib/configurator/repo";
-import { apartmentCard, defaultApartmentId, resolveFlat } from "@/lib/configurator/source";
+import { defaultApartmentId, resolveFlat } from "@/lib/configurator/source";
+import { apartmentCard } from "@/lib/partners/registry";
 import type { Lang } from "@/lib/configurator/i18n";
 
 export const metadata = {
@@ -42,7 +43,11 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
   const baseVariant = saved ? saved.baseVariant : sp.demo;
   if (!apartmentId) notFound();
 
-  const flat = await resolveFlat(apartmentId, baseVariant);
+  let flat = await resolveFlat(apartmentId, baseVariant);
+  // Набора из сохранения больше нет на витрине (ночная пересборка) — открываем ту же квартиру с
+  // текущим набором и честно говорим об этом, а не 404 (verify 13.10).
+  const variantGone = !flat.ok && flat.reason === "unknown" && !!saved?.baseVariant;
+  if (variantGone) flat = await resolveFlat(apartmentId);
   if (!flat.ok) {
     if (flat.reason === "unknown") notFound();
     return (
@@ -59,9 +64,9 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
 
   // Набор витрины мог обновиться после сохранения: места, где модель сменилась, возвращаем к
   // текущему набору и говорим об этом прямо (ADR-0254 п.6 — не подменять молча).
-  let initial = saved;
+  let initial = variantGone ? null : saved;
   let stale: string[] = [];
-  if (saved?.baseSnapshot) {
+  if (!variantGone && saved?.baseSnapshot) {
     stale = staleSlots(saved, baseSnapshotOf(apartment, catalogue));
     if (stale.length) {
       const drop = <T,>(rec: Record<string, T>) => Object.fromEntries(Object.entries(rec).filter(([k]) => !stale.includes(k)));
@@ -83,6 +88,13 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
           {lang === "en" ? "Русский" : "English"}
         </a>
       </div>
+      {variantGone ? (
+        <p className="note mb-3">
+          {lang === "en"
+            ? "The furniture set from this selection is no longer in the showroom — showing the current one."
+            : "Набора мебели из этого подбора на витрине больше нет — показываем текущий."}
+        </p>
+      ) : null}
       {stale.length > 0 ? (
         <p className="note mb-3">
           {lang === "en"

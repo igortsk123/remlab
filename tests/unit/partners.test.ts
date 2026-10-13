@@ -51,7 +51,7 @@ describe("реестр застройщиков", () => {
 describe("в коде витрины нет зашитой квартиры", () => {
   it.each(["tools/scout/flat215-demo/index.html", "tools/scout/flat215_demo.py"])("%s", (f) => {
     const src = readFileSync(f, "utf8");
-    for (const s of ["Ольховый", "9 624 990", "9624990", "800 000", "2 кв. 2029"]) expect(src).not.toContain(s);
+    for (const s of ["Ольховый", "9 624 990", "9624990", "800 000", "2 кв. 2029", "Квартира 215", "№215"]) expect(src).not.toContain(s);
   });
 });
 

@@ -66,7 +66,8 @@ export function loadFlat3d(): { apartment: Apartment; catalogue: Catalogue } {
     developerId: catalogueJson.developerId,
     titleRu: catalogueJson.titleRu,
     titleEn: catalogueJson.titleEn,
-    currency: "GBP" as const,
+    // валюта — из файла каталога (застройщик UK — GBP); source.ts сверяет её с валютой застройщика
+    currency: (catalogueJson as { currency?: string }).currency === "RUB" ? ("RUB" as const) : ("GBP" as const),
     options: [...(catalogueJson.options as unknown[]), ...(furnitureJson.options as unknown[])],
     materials: [...plain, ...textured],
   };

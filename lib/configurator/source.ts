@@ -7,11 +7,10 @@
 
 import type { Apartment } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
-import type { Lang } from "@/contracts/partner";
 import { loadFlat3d } from "@/lib/configurator/data";
 import { fromDemoVariant, type DemoData } from "@/lib/configurator/fromDemo";
 import { loadDemoRaw } from "@/lib/partners/demo-data";
-import { apartmentCard, findApartment, partners, type ApartmentHit } from "@/lib/partners/registry";
+import { findApartment, partners, type ApartmentHit } from "@/lib/partners/registry";
 
 export type FlatResolved =
   | { ok: true; apartment: Apartment; catalogue: Catalogue; hit: ApartmentHit }
@@ -54,5 +53,3 @@ export async function resolveFlat(apartmentId: string, baseVariant?: string, loa
   };
 }
 
-export { apartmentCard };
-export type { Lang };

@@ -60,6 +60,15 @@ describe("мост витрина → конфигуратор", () => {
     expect(staleSlots(saved, snap)).toEqual([]);
   });
 
+  it("упаковка: два стула из упаковки «2 шт.» — одна покупка, как в списке витрины", () => {
+    const chairs = { ...data, variants: [{ id: "set1", style: "сканди", items: [
+      { role: "стул", x: 10, y: 10, rot: 0, w: 45, d: 50, h: 85, sku: { name: "Стул А 2 шт.", price: 9000, pack: 2, msid: "1_1", url: "u" } },
+      { role: "стул 2", x: 60, y: 10, rot: 0, w: 45, d: 50, h: 85, sku: { name: "Стул А 2 шт.", price: 9000, pack: 2, msid: "1_1", url: "u" } },
+    ] }] };
+    const r = fromDemoVariant(chairs, "set1", CTX)!;
+    expect(r.catalogue.options.reduce((t, o) => t + o.price, 0)).toBe(9000);
+  });
+
   it("неизвестный вариант — null, страница откроет обычную квартиру", () => {
     expect(fromDemoVariant(data, "setX", CTX)).toBeNull();
   });

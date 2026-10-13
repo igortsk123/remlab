@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Apartment } from "@/contracts/apartment";
 import type { Catalogue, Configuration } from "@/contracts/configurator";
 import { defaultConfiguration, resolveScene, type ResolvedScene } from "@/lib/configurator/resolve";
+import { baseSnapshotOf, staleSlots } from "@/lib/configurator/fromDemo";
 import { loadDraft, saveDraft } from "@/lib/configurator/storage";
 
 export interface FlatConfigState {
@@ -36,9 +37,14 @@ export function useFlatConfig(
 
   useEffect(() => {
     if (initial) return; // пришли по ссылке на чужой подбор — черновик не подмешиваем
-    setConfig(loadDraft(apartment.id, apartment.baseVariant) ?? base);
+    // Черновик сверяется с текущим набором витрины так же, как сохранённая ссылка: модель на месте
+    // сменилась после ночной пересборки — выбор и перестановка этого места не переносятся (verify 13.10).
+    const draft = loadDraft(apartment.id, apartment.baseVariant);
+    const stale = draft ? staleSlots(draft, baseSnapshotOf(apartment, catalogue)) : [];
+    const keep = <T,>(rec: Record<string, T>) => Object.fromEntries(Object.entries(rec).filter(([k]) => !stale.includes(k)));
+    setConfig(draft ? { ...draft, selections: keep(draft.selections), placements: keep(draft.placements ?? {}) } : base);
     setHydrated(true);
-  }, [apartment.id, apartment.baseVariant, base, initial]);
+  }, [apartment, catalogue, base, initial]);
 
   useEffect(() => {
     if (hydrated) saveDraft(config);

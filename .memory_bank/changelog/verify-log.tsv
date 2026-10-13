@@ -46,3 +46,6 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-10-13	domain/observability.md	code	3	2	2	
 2026-10-13	core/leads.md	code	2	1	1	
 2026-10-13	domain/demo-planner-ui.md	code	2	1	1	
+2026-10-13	core/partners.md	code	15	0	0	
+2026-10-13	decisions/adr-0251-0300.md	code	11	1	1	
+2026-10-13	core/manager-links.md	code	22	3	3	

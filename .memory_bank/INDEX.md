@@ -35,6 +35,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт → реф-сме�
 | Пул нод Salad — группы, тарифы, деньги, стопоры | `core/mesh-pool.md` | `domain/mesh-pool-ops.md` |
 | Прогон мешей — РАБОЧИЙ вариант, старт, остановка | `core/mesh-run.md` | `domain/mesh-run-playbook.md` |
 | Трейсинг AI-пайплайна — лог, разбор | `core/observability-tracing.md` | `domain/observability.md` |
+| Застройщик, ЖК, квартира, цена и сертификат — данные; реестр и карточка квартиры | `core/partners.md` | `completed_plans/b2b-06-apartment-as-data.md` |
 | Порядок конвейера — от фида до расстановки | `core/pipeline-order.md` | `domain/pipeline-order-details.md` |
 | Бизнес-контекст — кто, зачем, как зарабатываем | `product_brief.md` | `domain/brief-details.md` |
 | Регресс-защита — тесты, CI, гардрейлы | `core/regression-net.md` | `../docs/tech-spec-ts-stack.md` |

@@ -25,7 +25,8 @@ export async function loadDemoRaw(src: string, now = Date.now()): Promise<Raw | 
   } catch {
     data = null;
   }
-  cache.set(url, { at: now, data });
+  // неудачу помним 30 секунд, а не 5 минут: одна осечка витрины не должна давать «попробуйте позже» надолго
+  cache.set(url, { at: data ? now : now - TTL_MS + 30_000, data });
   return data;
 }
 

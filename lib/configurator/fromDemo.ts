@@ -59,7 +59,7 @@ type DemoItem = {
   d?: number;
   h?: number;
   elev?: number;
-  sku?: { name?: string; price?: number; url?: string; shop?: string; msid?: string; sid?: string };
+  sku?: { name?: string; price?: number; url?: string; shop?: string; msid?: string; sid?: string; pack?: number };
 };
 type DemoVariant = { id?: string; title?: string; style?: string; items?: DemoItem[] };
 type DemoRoom = {
@@ -102,6 +102,19 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
   if (!room?.w || !room?.d || !v) return null;
 
   const items = (v.items ?? []).filter((it) => it.w && it.d && it.h && it.sku?.msid);
+  // УПАКОВКА: «Стул АСТИ 2 шт.» на двух местах — ОДНА покупка (как в списке витрины, `index.html`
+  // `buys = ceil(мест/упаковку)`). Цену несут первые `buys` мест товара, остальные — 0; иначе «выбрано на»
+  // в 3D было бы больше суммы того же набора на витрине (verify 13.10).
+  const paidSlots = new Set<number>();
+  const byProduct = new Map<string, number[]>();
+  items.forEach((it, i) => {
+    const k = `${it.sku?.url ?? ""}|${it.sku?.name ?? ""}`;
+    byProduct.set(k, [...(byProduct.get(k) ?? []), i]);
+  });
+  for (const [, idx] of byProduct) {
+    const pack = Math.max(1, Math.round(Number(items[idx[0]!]!.sku?.pack ?? 1)) || 1);
+    idx.slice(0, Math.ceil(idx.length / pack)).forEach((i) => paidSlots.add(i));
+  }
   if (!items.length) return null;
 
   const title = v.style ? v.style.charAt(0).toUpperCase() + v.style.slice(1) : (v.title ?? "Вариант");
@@ -171,7 +184,7 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
       // Мебель витрины в цену квартиры не входит: это покупка за счёт сертификата/доплаты, поэтому
       // ступень «стандарт» и настоящая цена товара — иначе «выбрано на» в 3D было бы всегда 0.
       tier: "standard" as const,
-      price: Math.max(0, Math.round(it.sku?.price ?? 0)),
+      price: paidSlots.has(i) ? Math.max(0, Math.round(it.sku?.price ?? 0)) : 0,
       availability: "available" as const,
       roomKinds: ["living" as const],
       asset: {
