@@ -2,11 +2,13 @@
 workstream: visualization
 slug: viz-regional-masks
 title: Точность мест мебели — дешёвый трек на gpt-image-2, затем спайк масок на fal (2 разбора Codex)
-status: draft
+status: cancelled
 review_after: 2026-11-10
 created: 2026-08-27
-updated: 2026-08-28
+updated: 2026-10-13
 completed:
+archived: 2026-10-13
+archive_reason: владелец 13.10: план от 27–28.08, до решения о собственных мешах (ADR-0131, 31.08) — не актуален при рендере из мешей (scene3d)
 ---
 
 ## Цель

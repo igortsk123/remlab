@@ -30,11 +30,10 @@ draft → in_progress → completed → перенос в completed_plans/
 - **Единая очередь (13.10, ADR-0255):** `MASTER-cost-first` — 11 этапов, 33 плана, ≈ 420 ч; порядок и смыслы — в мастере.
   Треки: `MASTER-developer-product` (`b2b-00…13`), `MASTER-conveyor-gaps` (`conv-01…11`), плюс `dims-round-objects`,
   `flat3d-sims-ux`, `book-memory-sync`. Одно «деплой MASTER-cost-first» разрешает всю очередь.
-- **Ждут решения владельца (⚑):** `MASTER-zones-v7`, `q12-situational-canon` (расстановка заморожена с 19.08),
-  `demo-flow-3d-en` (остаток поглощён), `test-to-work`, `health-map-apex-redirect`, `viz-regional-masks`;
-  `memory-kit-v19-migration` ведёт сессия sup2.
-- **Поглощённые 13.10 → `archive/plans/`:** `MASTER-interactive-planner`, `demo-planner-structure`,
-  `mesh-bulk-salad-hunyuan`, `mesh-queue-orientation`, `topview-from-mesh`, `mesh-pool-hardening`, `exam-hardening-2208`.
+- **На паузе:** `memory-kit-v19-migration` (ведёт сессия sup2). Остальные старые планы решены 13.10 (архив, см. мастер § 3).
+- **В архив 13.10:** `MASTER-interactive-planner`, `demo-planner-structure`, `mesh-bulk-salad-hunyuan`, `mesh-queue-orientation`,
+  `topview-from-mesh`, `mesh-pool-hardening`, `exam-hardening-2208`, `MASTER-zones-v7`, `q12-situational-canon`, `demo-flow-3d-en`,
+  `test-to-work`, `health-map-apex-redirect`, `viz-regional-masks`.
 
 ## Реестр активных планов
 
@@ -72,14 +71,8 @@ draft → in_progress → completed → перенос в completed_plans/
 | MASTER-developer-product | МЕТАПЛАН — «ИИ-дизайнер квартир от девелопера»: что обещает презентация, что есть в коде, и планы b2b-* для Opus 5.5 | draft | 2026-10-13 | 2026-10-13 |
 | MASTER-conveyor-gaps | МЕТАПЛАН — конвейер «фид → стиль → меши → шаблон → лента замен» как процессы: закрытие пробелов под демо | draft | 2026-10-13 | 2026-10-13 |
 | dims-round-objects | Круглые предметы допускаются по диаметру — один предикат годности вместо выдуманных осей | in_progress | 2026-10-11 | 2026-10-11 |
-| demo-flow-3d-en | Демо как единый поток — стили, английская версия, 3D в контексте квартиры | partial | 2026-10-11 | 2026-10-13 |
 | flat3d-sims-ux | Конфигуратор как игра — перестановка мебели, кнопки у предмета, вход через план, правая панель | in_progress | 2026-09-30 | 2026-09-30 |
-| test-to-work | Внутренние отчёты переезжают с /test на /work; /test без слэша чинится | draft | 2026-09-28 | 2026-09-28 |
 | memory-kit-v19-migration | Переход памяти remlab на кит v1.9 (механизмы точности из sup2) + уборка банка | partial | 2026-09-28 | 2026-10-13 |
-| health-map-apex-redirect | Апекс health-map.online — 302-редирект на 2mnenie.online (домен перестаёт быть мёртвым) | draft | 2026-09-05 | 2026-09-05 |
-| viz-regional-masks | Точность мест мебели — дешёвый трек на gpt-image-2, затем спайк масок на fal (2 разбора Codex) | draft | 2026-08-27 | 2026-08-28 |
-| q12-situational-canon | Q12 — ситуационный канон (функция × якорь × форма) и честное включение приоров практики | partial | 2026-08-19 | 2026-09-05 |
-| MASTER-zones-v7 | МЕТАПЛАН — свод №13 (слепая оценка раунд 1 + каталог nook): ключ по глазу владельца, кресла к ТВ, фронтальная зона, банк→солвер, nook/консоль из фида | partial | 2026-08-16 | 2026-09-05 |
 | MASTER-cost-first | МАСТЕР-ПЛАН — лестница продукта: единая очередь работ для Opus 5.5 (девелоперы → ритейлеры → люди → дизайнеры) | in_progress | 2026-07-11 | 2026-10-13 |
 <!-- GENERATED:plans-registry END -->
 

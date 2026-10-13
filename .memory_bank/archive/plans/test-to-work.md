@@ -2,10 +2,12 @@
 workstream: deployment
 slug: test-to-work
 title: Внутренние отчёты переезжают с /test на /work; /test без слэша чинится
-status: draft
+status: cancelled
 created: 2026-09-28
-updated: 2026-09-28
+updated: 2026-10-13
 completed:
+archived: 2026-10-13
+archive_reason: владелец 13.10: «забыть» — переезд /test → /work не нужен; хаб остаётся на /test/ (без слэша — 404, см. deployment.md)
 ---
 
 ## Цель

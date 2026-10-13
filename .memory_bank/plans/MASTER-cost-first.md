@@ -112,11 +112,9 @@ DEV-часть в контейнере из репозитория, образ �
   `demo-planner-structure`, `mesh-bulk-salad-hunyuan`, `mesh-queue-orientation`, `topview-from-mesh`,
   `mesh-pool-hardening`, `exam-hardening-2208`.
 - **В очереди:** `dims-round-objects` (этап 4), `flat3d-sims-ux` (этап 9).
-- **Ждут решения владельца (⚑, вопросы в сообщении 13.10):** `MASTER-zones-v7` и `q12-situational-canon`
-  (расстановка заморожена с 19.08: возобновить после этапа 8 или в архив), `demo-flow-3d-en` (остаток
-  поглощён conv-09/b2b-11 — в архив?), `test-to-work` (переезд /test → /work — нужен?),
-  `health-map-apex-redirect` (чужой домен — нужен?), `viz-regional-masks` (улучшение кадров масками —
-  нужен при scene3d?), `memory-kit-v19-migration` (ведёт сессия sup2).
+- **Решено владельцем 13.10 → `archive/plans/`:** `MASTER-zones-v7`, `q12-situational-canon` (расстановка пока в архив),
+  `demo-flow-3d-en` (поглощён), `test-to-work` (забыть), `health-map-apex-redirect` (не этот проект), `viz-regional-masks`
+  (до эпохи мешей, не актуален). Остаётся на паузе только `memory-kit-v19-migration` (ведёт сессия sup2).
 
 ## Лог выполнения
 - 2026-07-11 — создан как «Смета-first» v0.4 (ADR-0016)

@@ -3,7 +3,7 @@ tier: 1
 topic: furniture
 scope: Мебель — сеты, визуализация
 tier2: "../domain/viz-fidelity-playbook.md"
-updated: 2026-10-11
+updated: 2026-10-13
 importance: high
 source: manual
 status: working
@@ -33,7 +33,7 @@ review_after: 2026-12-05
   qwen3-vl с признаковым промптом; скоуп ролей перед/зад ≈11.9k — Tier 2 §Роли); проход Б — gpt-image-2 «только улучшить». Ремонт по кропам
   (ADR-0127) — страховка. Демо — [[demo-planner]] (спрайты моделей сверху на канвасе).
 - **Ветка B** (ADR-0061..0063, `viz_build.py`): вставка → приёмка числами → 3D непрошедшим;
-  теперь основа двухпроходной схемы Трека 2 [[viz-regional-masks]].
+  теперь основа двухпроходной схемы Трека 2 (план `archive/plans/viz-regional-masks.md` — в архиве 13.10, не актуален при рендере из мешей).
 - **Меши (ADR-0131/0132):** только свой Hunyuan3D 2.1 на Salad — [[mesh-pipeline]].
 - **А4/А6 (06.08):** пост-QA финала `viz_qa.py` гейтит батчи; 3 ретрая; A/B `viz_ab.py`.
 

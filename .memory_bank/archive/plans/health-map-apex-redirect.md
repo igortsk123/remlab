@@ -2,11 +2,13 @@
 workstream: infra/caddy
 slug: health-map-apex-redirect
 title: Апекс health-map.online — 302-редирект на 2mnenie.online (домен перестаёт быть мёртвым)
-status: draft
+status: cancelled
 created: 2026-09-05
-updated: 2026-09-05
+updated: 2026-10-13
 review_after: 2026-11-10
 completed:
+archived: 2026-10-13
+archive_reason: владелец 13.10: «убрать для этого банка» — домен health-map.online не относится к remlab
 ---
 
 ## Цель
