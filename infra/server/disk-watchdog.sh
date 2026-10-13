@@ -63,3 +63,25 @@ if docker inspect remlab-app >/dev/null 2>&1; then
   fi
   echo "$rc" > "$STAMP_APP"
 fi
+
+# --- безопасность (план b2b-01, ADR-0248/0256): ежечасно, тем же каналом ---
+# 1) Контакты «отправить себе» живут 90 дней — удаляем просроченные, даже если новых заявок нет;
+#    там же чистим старые окна счётчиков частоты.
+docker exec remlab-db psql -U remlab -d remlab -q -c \
+  "delete from share_requests where expires_at < now(); delete from rate_limits where window_start < now() - interval '2 days';" \
+  >/dev/null 2>&1 || logger -t remlab-watchdog "share_requests: чистка не удалась"
+# 2) Данные людей в файлах под веб-корнем (инцидент 13.10) — тревога, если снова появились.
+STAMP_PII=$BK/.pii-alert-at
+pii=$(find /opt/remlab/test /opt/remlab/demo -path '*/_queue/*' -type f 2>/dev/null | wc -l)
+if [ "${pii:-0}" -gt 0 ] && ! throttled "$STAMP_PII" 21600; then
+  tg "remlab БЕЗОПАСНОСТЬ: под веб-корнем снова лежат файлы очереди (${pii} шт., папки _queue) — там могут быть контакты людей. Перенести в базу и удалить."
+  date +%s > "$STAMP_PII"
+fi
+# 3) Конфиг входа правили на сервере руками после деплоя — следующий деплой остановится.
+STAMP_CADDY=$BK/.caddy-drift-at
+CD=/opt/remlab/caddy
+if [ -f "$CD/Caddyfile.deployed" ] && ! cmp -s "$CD/Caddyfile" "$CD/Caddyfile.deployed" \
+   && ! throttled "$STAMP_CADDY" 21600; then
+  tg "remlab: Caddyfile на сервере отличается от выкаченного из репозитория — правку надо перенести в caddy/Caddyfile, иначе следующий деплой остановится."
+  date +%s > "$STAMP_CADDY"
+fi

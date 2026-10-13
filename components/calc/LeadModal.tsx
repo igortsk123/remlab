@@ -29,7 +29,7 @@ export function LeadModal({ kind, url, channel, onClose }: { kind: CalcKind; url
   const [email, setEmail] = useState("");
   const [consent, setConsent] = useState(false);
   const [done, setDone] = useState<{ leadNo: number | null; startCode: string } | null>(null);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<false | "fail" | "rate">(false);
   const [pending, startTransition] = useTransition();
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -58,7 +58,7 @@ export function LeadModal({ kind, url, channel, onClose }: { kind: CalcKind; url
     startTransition(async () => {
       const res = await captureLead({ channel, email: needEmail ? email.trim() : undefined, city: city.trim(), urls: url ? [url] : undefined, kind, consent });
       if (res.ok) setDone({ leadNo: res.leadNo, startCode: res.startCode });
-      else setError(true);
+      else setError(res.reason === "rate_limited" ? "rate" : "fail");
     });
   }
 
@@ -136,7 +136,11 @@ export function LeadModal({ kind, url, channel, onClose }: { kind: CalcKind; url
               {pending ? "Отправляем…" : "Отправить заявку"}
             </Button>
             {needEmail && email.length > 0 && !emailOk && <span className="muted" style={{ fontSize: 13 }}>Проверьте формат e-mail.</span>}
-            {error && <span className="muted" style={{ fontSize: 13 }}>Не удалось отправить, попробуйте ещё раз.</span>}
+            {error && (
+              <span className="muted" style={{ fontSize: 13 }}>
+                {error === "rate" ? "Слишком много заявок подряд — попробуйте через 10 минут." : "Не удалось отправить, попробуйте ещё раз."}
+              </span>
+            )}
           </div>
         )}
         </Dialog>

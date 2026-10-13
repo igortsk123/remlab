@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { safeEqual } from "@/lib/safe-equal";
 import { leadRepo } from "@/modules/leads/repository";
 import { formatIncoming } from "@/lib/leads/router";
 import { ADMIN_TG_CHAT, ADMIN_TG_TOKEN, CLIENT_TG_TOKEN, TG_WEBHOOK_SECRET, tgSend, type TgUpdate } from "@/lib/leads/tg";
@@ -10,7 +11,8 @@ export const runtime = "nodejs";
 // владельцу в служебный бот с подписью заявки (ответ — реплаем там же).
 export async function POST(req: Request): Promise<Response> {
   const secret = TG_WEBHOOK_SECRET();
-  if (secret && req.headers.get("x-telegram-bot-api-secret-token") !== secret) {
+  // Без секрета — закрыто (план b2b-01): иначе любой мог прислать «ответ владельца» от имени Telegram.
+  if (!secret || !safeEqual(req.headers.get("x-telegram-bot-api-secret-token") ?? "", secret)) {
     return NextResponse.json({ ok: false }, { status: 401 });
   }
   const update = (await req.json().catch(() => null)) as TgUpdate | null;

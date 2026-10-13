@@ -3,6 +3,7 @@ import { z } from "zod";
 import { calcKind } from "@/contracts/calc";
 import { fetchProductPage } from "@/lib/calc/fetch-page";
 import { parseProductFull } from "@/lib/calc/parse-product";
+import { guard } from "@/lib/ratelimit/http";
 
 export const runtime = "nodejs";
 
@@ -12,6 +13,8 @@ const bodySchema = z.object({ url: z.string().url(), kind: calcKind });
 // режущих ДЦ-IP) → полный парс (regex + JSON-LD + ИИ-дочитка). При неудаче — ok:false + 200 с
 // кодом причины (клиент показывает ошибку + ручной ввод).
 export async function POST(req: Request): Promise<Response> {
+  const limited = await guard(req, "parseLink"); // платно: ИИ + прокси (план b2b-01)
+  if (limited) return limited;
   const parsed = bodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ ok: false, error: "bad_request" }, { status: 400 });
   const { url, kind } = parsed.data;

@@ -33,6 +33,8 @@ TG_BOT = os.environ.get('SHARE_TG_BOT', '')        # имя бота без @; �
 MAX_BOT = os.environ.get('SHARE_MAX_BOT', '')
 SMS_GATE = os.environ.get('SHARE_SMS_GATE', '')   # шлюз СМС; пусто — канал не подключён
 esc = html.escape
+from draft_guard import (ALLOWED_ORIGINS, ip_allowed,  # noqa: E402
+                         safe_url, save_share_request)
 SHARE_PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex"><title>{{TITLE}} — подборка</title>
@@ -161,10 +163,22 @@ class H(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Content-Length', str(len(body)))
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Headers', 'content-type')
+        if code == 429:
+            self.send_header('Retry-After', '600')
+        origin = (self.headers.get('Origin') or '').rstrip('/')
+        if origin in ALLOWED_ORIGINS:
+            self.send_header('Access-Control-Allow-Origin', origin)
+            self.send_header('Vary', 'Origin')
+            self.send_header('Access-Control-Allow-Headers', 'content-type')
         self.end_headers()
         self.wfile.write(body)
+
+    @property
+    def client_ip(self) -> str:
+        """Адрес человека. Caddy (без trusted_proxies) кладёт в X-Forwarded-For реальный адрес
+        клиента; внутренние вызовы (фоновое задание зовёт себя же) идут без заголовка — пусто."""
+        xff = (self.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
+        return xff
 
     def do_OPTIONS(self):                                    # noqa: N802
         self._send(204, {})
@@ -210,10 +224,15 @@ class H(BaseHTTPRequestHandler):
             if os.environ.get('SCENE3D', '1') != '1':
                 threading.Thread(target=DR.warm, daemon=True).start()
             return self._send(200, {'sec': 0, 'started': True})
+        ip = self.client_ip
         if self.route.startswith('/share'):
+            if ip and not ip_allowed(ip, 'share'):
+                return self._send(429, {'error': 'слишком много подборок подряд, попробуйте через 10 минут'})
             return self._share(payload)
         if not self.route.startswith(('/draft', '/render')):
             return self._send(404, {'error': 'нет такого пути'})
+        if ip and not ip_allowed(ip, 'render'):
+            return self._send(429, {'error': 'слишком много кадров подряд, попробуйте через 10 минут'})
         if not (payload.get('room') and payload.get('items')):
             return self._send(400, {'error': 'нужны room и items'})
         # ДЛИННЫЙ ЗАПРОС УХОДИТ В ФОН. Клиент присылает `async:1` и получает номер задания.
@@ -330,7 +349,8 @@ class H(BaseHTTPRequestHandler):
         выбранными кадрами и отдаём короткую ссылку — её можно открыть на телефоне или переслать.
         Мессенджеры подключаются токеном бота: бот не может написать первым, поэтому это deep-link
         со `start=<id>` (тот же приём, что у лид-бота, ADR-0180)."""
-        shots = [s for s in (payload.get('shots') or []) if isinstance(s, dict) and s.get('url')][:24]
+        shots = [s for s in (payload.get('shots') or [])
+                 if isinstance(s, dict) and safe_url(s.get('url'))][:24]
         if not shots:
             return self._send(400, {'error': 'нечего отправлять — список кадров пуст'})
         sid = hashlib.sha1((json.dumps(shots, ensure_ascii=False, sort_keys=True)
@@ -341,15 +361,16 @@ class H(BaseHTTPRequestHandler):
             # КОЛЛЕКЦИЯ = ФОТО + ТОВАРЫ СО ССЫЛКАМИ (владелец 26.08: «человек должен получать
             # коллекции»): под каждым кадром — что на нём стоит, почём и где купить.
             def prod(p):
-                pic = (f'<img src="{esc(p.get("img") or "")}" alt="" loading="lazy">'
-                       if p.get('img') else '<div class="noimg">фото нет</div>')
+                img, href = safe_url(p.get('img')), safe_url(p.get('url'))
+                pic = (f'<img src="{esc(img)}" alt="" loading="lazy">'
+                       if img else '<div class="noimg">фото нет</div>')
                 price = f'{int(p.get("price") or 0):,}'.replace(',', ' ') + ' \u20bd'
                 inner = (pic + f'<div class="pn">{esc(p.get("name") or "")}</div>'
                          f'<div class="pp">{price}</div>'
                          f'<div class="ps">{esc(p.get("role") or "")}'
                          + (f' \u00b7 {esc(p.get("shop"))}' if p.get('shop') else '') + '</div>')
-                return (f'<a class="p" href="{esc(p["url"])}" target="_blank" rel="noopener">{inner}</a>'
-                        if p.get('url') else f'<div class="p">{inner}</div>')
+                return (f'<a class="p" href="{esc(href)}" target="_blank" rel="noopener">{inner}</a>'
+                        if href else f'<div class="p">{inner}</div>')
 
             def block(sh):
                 items = [p for p in (sh.get('items') or []) if isinstance(p, dict) and p.get('name')]
@@ -357,7 +378,7 @@ class H(BaseHTTPRequestHandler):
                 head = (f'<div class="sum"><span>Товары на фото \u00b7 {len(items)}</span>'
                         f'<span>{f"{total:,}".replace(",", " ")} \u20bd</span></div>' if items else '')
                 grid = ('<div class="ps-grid">' + ''.join(prod(p) for p in items) + '</div>') if items else ''
-                return (f'<figure><img src="{esc(sh["url"])}" alt="{esc(sh.get("label") or "")}" '
+                return (f'<figure><img src="{esc(safe_url(sh["url"]))}" alt="{esc(sh.get("label") or "")}" '
                         f'loading="lazy"><figcaption>{esc(sh.get("label") or "")}</figcaption>'
                         f'{head}{grid}</figure>')
             cards = '\n'.join(block(sh) for sh in shots)
@@ -374,17 +395,17 @@ class H(BaseHTTPRequestHandler):
         chan = str(payload.get('channel') or '').lower()
         contact = str(payload.get('contact') or '').strip()[:120]
         ready = {'telegram': bool(TG_BOT), 'max': bool(MAX_BOT), 'sms': bool(SMS_GATE)}.get(chan, False)
-        if contact:
-            try:
-                os.makedirs(os.path.join(SHARE_DIR, '_queue'), exist_ok=True)
-                open(os.path.join(SHARE_DIR, '_queue', f'{sid}.json'), 'w', encoding='utf-8').write(
-                    json.dumps({'id': sid, 'url': url, 'channel': chan, 'contact': contact,
-                                'count': len(shots), 'ts': int(time.time()),
-                                'delivered': False}, ensure_ascii=False))
-            except Exception:
-                pass
+        # КОНТАКТ — ТОЛЬКО В БАЗУ (инцидент 13.10, ADR-0248). Раньше он ложился JSON-файлом в
+        # SHARE_DIR/_queue, а эту папку Caddy раздавал всему интернету с листингом.
+        saved = bool(contact) and save_share_request(
+            {'shareId': sid, 'shareUrl': url, 'channel': chan if chan in ('telegram', 'max', 'sms') else '',
+             'contact': contact, 'shotCount': len(shots), 'ip': self.client_ip or None})
+        if contact and not saved:
+            # Честно (разбор Codex 13.10): без записи в базу доставки не будет — нельзя
+            # показывать человеку «придёт в течение минуты».
+            return self._send(503, {'error': 'не удалось сохранить контакт — попробуйте ещё раз через минуту'})
         self._send(200, {'id': sid, 'count': len(shots), 'channel': chan,
-                         'pending': not ready})
+                         'pending': not ready, 'saved': saved})
 
     def log_message(self, fmt, *a):                  # noqa: A003 — тише в логе
         sys.stderr.write('%s %s\n' % (self.address_string(), fmt % a))

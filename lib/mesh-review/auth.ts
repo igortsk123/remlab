@@ -3,8 +3,9 @@
 // Два независимых секрета: MESH_REVIEW_SECRET — вход владельца (кука HttpOnly, HMAC-подпись),
 // MESH_REVIEW_MACHINE_TOKEN — DEV-конвейер (Bearer). Нет секрета в env → 503, не «пускаем всех».
 
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { cookies, headers } from "next/headers";
+import { safeEqual } from "@/lib/safe-equal";
 
 export const COOKIE_NAME = "mesh_review";
 
@@ -16,12 +17,6 @@ export function cookieValue(): string | null {
   const s = secret();
   if (!s) return null;
   return createHmac("sha256", s).update("mesh-review-ok").digest("hex");
-}
-
-function safeEqual(a: string, b: string): boolean {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  return ab.length === bb.length && timingSafeEqual(ab, bb);
 }
 
 export function loginOk(candidate: string): boolean {

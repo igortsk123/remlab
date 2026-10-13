@@ -39,3 +39,11 @@ test("/api/health отдаёт ok:true", async ({ request }) => {
   expect(body.ok).toBe(true);
   expect(body.service).toBe("remlab");
 });
+
+// Безопасность (план b2b-01): без Caddy проверяем то, что решает само приложение.
+test("вебхуки и внутренняя ручка без секрета закрыты", async ({ request }) => {
+  const json = { "content-type": "application/json" };
+  expect((await request.post("/api/pay/yookassa/webhook", { headers: json, data: { event: "payment.succeeded" } })).status()).toBe(403);
+  expect((await request.post("/api/leads/tg-admin", { headers: json, data: {} })).status()).toBe(401);
+  expect((await request.post("/api/internal/share-request", { headers: json, data: {} })).status()).toBe(403);
+});

@@ -1,14 +1,14 @@
-// Гард админ-доступа к трейсам (содержат фото пользователей). TRACE_ADMIN_TOKEN задан → нужен
-// ?token= или заголовок x-trace-token. Не задан (dev) → доступ открыт. Секрет — только в env.
+// Гард админ-доступа к трейсам (содержат фото пользователей). Токен — ТОЛЬКО заголовком
+// x-trace-token (план b2b-01): в адресе он оседал в журнале Caddy, истории браузера и Referer.
+// TRACE_ADMIN_TOKEN не задан: в production закрыто, в dev открыто. Секрет — только в env.
 
+import { safeEqual } from "@/lib/safe-equal";
 import { signAssetQuery } from "@/lib/trace/sign";
 
 export function traceAdminOk(req: Request): boolean {
   const token = process.env.TRACE_ADMIN_TOKEN;
-  if (!token) return true;
-  const url = new URL(req.url);
-  const provided = url.searchParams.get("token") ?? req.headers.get("x-trace-token");
-  return provided === token;
+  if (!token) return process.env.NODE_ENV !== "production";
+  return safeEqual(req.headers.get("x-trace-token") ?? "", token);
 }
 
 // Абсолютная ПОДПИСАННАЯ ссылка на ассет для показа владельцу (открыть в браузере). Токен НЕ раскрывается:

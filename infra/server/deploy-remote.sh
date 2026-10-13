@@ -58,6 +58,10 @@ DB_INIT_DIR=/opt/remlab/db/init \
 PSQL_CMD='docker compose exec -T db psql -U remlab -d remlab -q -v ON_ERROR_STOP=1' \
   /opt/remlab/scripts/apply-db-init.sh
 
+# 3б. Конфиг входа (Caddyfile) — из репозитория, с проверкой и откатом (план b2b-01). До
+#     активации: битый конфиг останавливает деплой, а прежняя версия сайта продолжает работать.
+/opt/remlab/scripts/caddy-sync.sh
+
 # 4. Активация новой версии.
 docker compose up -d
 echo "активирован $REMLAB_IMAGE (APP_VERSION=$APP_VERSION)"

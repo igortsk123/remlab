@@ -6,6 +6,8 @@ import { getSessionId } from "@/lib/session";
 import { leadRepo } from "@/modules/leads/repository";
 import { notifyAdminOfLead } from "@/lib/leads/router";
 import { track } from "@/lib/analytics";
+import { checkLimits, PRESETS } from "@/lib/ratelimit";
+import { clientIp } from "@/lib/ratelimit/http";
 
 const schema = z.object({
   channel: z.enum(["email", "tg", "max"]),
@@ -16,7 +18,7 @@ const schema = z.object({
   consent: z.boolean(),
 });
 
-export type CaptureLeadResult = { ok: true; leadNo: number | null; startCode: string } | { ok: false };
+export type CaptureLeadResult = { ok: true; leadNo: number | null; startCode: string } | { ok: false; reason?: "rate_limited" };
 
 // Заявка «найдём дешевле» (П7): канал (почта/TG/MAX) + город обязателен; для почты нужен e-mail.
 // Сохраняем ТОЛЬКО по согласию (ПДн-interim; юр. часть — TODO, CLAUDE.md). Ссылки склеены в url.
@@ -29,9 +31,11 @@ export async function captureLead(input: unknown): Promise<CaptureLeadResult> {
 
   const cleanUrls = (urls ?? []).map((u) => u.trim()).filter(Boolean);
   const url = cleanUrls.length ? cleanUrls.join("\n") : undefined;
+  const h = await headers();
+  // Не больше 5 заявок за 10 минут с одного адреса (план b2b-01): каждая будит владельца в Telegram.
+  if (!(await checkLimits(PRESETS.lead(clientIp(h)))).ok) return { ok: false, reason: "rate_limited" };
   const sessionId = await getSessionId();
   // Регион по IP: пока сохраняем страну/регион из заголовков прокси, если есть (offline-geoip — П7b).
-  const h = await headers();
   const ipRegion = h.get("x-vercel-ip-country-region") ?? h.get("x-geo-region") ?? undefined;
 
   const lead = await leadRepo().create({

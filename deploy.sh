@@ -33,22 +33,16 @@ docker save "$IMAGE:$TAG" "$IMAGE:latest" | gzip | ssh "$SERVER" 'gunzip | docke
 echo "==> [4/6] Синхронизация compose/caddy/db-init/env-check"
 ssh "$SERVER" "mkdir -p $REMOTE_DIR/caddy $REMOTE_DIR/db/init"
 scp docker-compose.yml "$SERVER:$REMOTE_DIR/docker-compose.yml"
-# ПРЕДОХРАНИТЕЛЬ (04.09): на сервере в Caddyfile жили маршруты, которых в репо не было
-# (/mesh-sink приёмника мешей, /api/draft* черновых рендеров) — копирование поверх снесло бы их
-# молча (та же грабля, что с /test/* 07.08). Строка есть на сервере и нет в репо → стоп.
-if comm -23 <(ssh "$SERVER" "cat $REMOTE_DIR/caddy/Caddyfile" | sort -u) <(sort -u caddy/Caddyfile) | grep -q .; then
-  echo "FATAL: в серверном Caddyfile есть строки, которых нет в репо — сперва слей их в caddy/Caddyfile:"
-  comm -23 <(ssh "$SERVER" "cat $REMOTE_DIR/caddy/Caddyfile" | sort -u) <(sort -u caddy/Caddyfile) | head -20
-  exit 1
-fi
-scp caddy/Caddyfile "$SERVER:$REMOTE_DIR/caddy/Caddyfile"
+# Caddyfile кладётся РЯДОМ (.new): предохранитель от ручных правок, validate, подмену и откат
+# делает `infra/server/caddy-sync.sh` внутри deploy-remote.sh — один путь с автодеплоем (b2b-01).
+scp caddy/Caddyfile "$SERVER:$REMOTE_DIR/caddy/Caddyfile.new"
 # Список файлов больше не перечисляем руками (05.09): он отставал — 007-mesh-review копировался,
 # но не применялся, а CI применял всё глобом. Оба пути теперь синхронизируют каталог целиком
 # (`--delete` убирает файлы, удалённые из репозитория) и применяют его одним скриптом.
 rsync -az --delete --include='*.sql' --exclude='*' db/init/ "$SERVER:$REMOTE_DIR/db/init/"
 ssh "$SERVER" "mkdir -p $REMOTE_DIR/scripts"
-scp tools/apply-db-init.sh infra/server/deploy-remote.sh "$SERVER:$REMOTE_DIR/scripts/"
-ssh "$SERVER" "chmod +x $REMOTE_DIR/scripts/apply-db-init.sh $REMOTE_DIR/scripts/deploy-remote.sh"
+scp tools/apply-db-init.sh infra/server/deploy-remote.sh infra/server/caddy-sync.sh infra/server/disk-watchdog.sh "$SERVER:$REMOTE_DIR/scripts/"
+ssh "$SERVER" "chmod +x $REMOTE_DIR/scripts/apply-db-init.sh $REMOTE_DIR/scripts/deploy-remote.sh $REMOTE_DIR/scripts/caddy-sync.sh $REMOTE_DIR/scripts/disk-watchdog.sh"
 ssh "$SERVER" "test -f $REMOTE_DIR/.env || { echo 'FATAL: нет $REMOTE_DIR/.env (скопируй из .env.example и задай POSTGRES_PASSWORD)'; exit 1; }"
 ssh "$SERVER" "grep -q '^GEMINI_API_KEY=' $REMOTE_DIR/.env || { echo 'FATAL: в $REMOTE_DIR/.env нет GEMINI_API_KEY'; exit 1; }"
 

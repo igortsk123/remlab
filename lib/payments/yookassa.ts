@@ -36,3 +36,19 @@ export async function createPayment(p: { amountRub: number; description: string;
     return null;
   }
 }
+
+// Статус платежа из API (для вебхука: телу уведомления не верим). null — не сконфигурировано/ошибка.
+export async function fetchPaymentStatus(paymentId: string): Promise<string | null> {
+  if (!SHOP_ID || !SECRET || !/^[0-9a-f-]{8,64}$/i.test(paymentId)) return null;
+  try {
+    const res = await fetch(`https://api.yookassa.ru/v3/payments/${paymentId}`, {
+      headers: { Authorization: `Basic ${Buffer.from(`${SHOP_ID}:${SECRET}`).toString("base64")}` },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data?.status === "string" ? data.status : null;
+  } catch {
+    return null;
+  }
+}

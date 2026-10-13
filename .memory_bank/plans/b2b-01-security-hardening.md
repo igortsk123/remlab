@@ -2,7 +2,7 @@
 workstream: infra
 slug: b2b-01-security-hardening
 title: Безопасность перед показом девелоперу — контакты не в файлах, лимиты на платное, подпись вебхука, CSP и встраивание по списку
-status: draft
+status: in_progress
 created: 2026-10-13
 updated: 2026-10-13
 completed:
@@ -83,6 +83,7 @@ review_after: 2026-11-13
 
 ## Лог выполнения
 - 2026-10-13 — план создан (draft), Fable 5.1; заплатка в Caddy уже стоит
+- 2026-10-13 — `in_progress` (Opus 5.5, «деплой MASTER-cost-first»): ветка `feature/b2b-01-security`; лимиты — `lib/ratelimit/*` (Postgres, фикс. окно), контакты — `share_requests` через внутренний роут; замечания сессии remlab-d8 учтены (PK в схеме, лимит офиса за NAT)
 
 ## Completion summary
 —

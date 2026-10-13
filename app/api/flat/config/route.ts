@@ -5,6 +5,7 @@ import { configuration } from "@/contracts/configurator";
 import { loadFlat3d } from "@/lib/configurator/data";
 import { buildQuote, revisions } from "@/lib/configurator/quote";
 import { saveConfig } from "@/lib/configurator/repo";
+import { guard } from "@/lib/ratelimit/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +16,8 @@ export const dynamic = "force-dynamic";
 const Body = z.object({ configuration });
 
 export async function POST(req: Request): Promise<Response> {
+  const limited = await guard(req, "flatConfig");
+  if (limited) return limited;
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "неверный запрос" }, { status: 400 });
 

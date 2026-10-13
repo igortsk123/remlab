@@ -16,6 +16,10 @@ function signingKey(): string | null {
   return process.env.TRACE_ADMIN_TOKEN || null;
 }
 
+// Без секрета подпись «проходит» только вне production (план b2b-01, разбор Codex 13.10):
+// иначе пустой TRACE_ADMIN_TOKEN открывал фото пользователей любому, кто знает id ассета.
+const devOpen = () => process.env.NODE_ENV !== "production";
+
 function hmac(id: string, exp: number, secret: string): string {
   return createHmac("sha256", secret).update(`${id}.${exp}`).digest("hex");
 }
@@ -31,7 +35,7 @@ export function signAssetQuery(id: string, now: number): string {
 // Проверка подписи из asset-роута. Токен не задан (dev) → true. Иначе: exp не просрочен и sig совпал.
 export function verifyAssetSig(id: string, expRaw: string | null, sigRaw: string | null, now: number): boolean {
   const secret = signingKey();
-  if (!secret) return true;
+  if (!secret) return devOpen();
   if (!expRaw || !sigRaw) return false;
   const exp = Number(expRaw);
   if (!Number.isInteger(exp) || exp < now) return false;

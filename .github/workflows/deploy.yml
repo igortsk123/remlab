@@ -89,8 +89,10 @@ jobs:
           # применяется глобом целиком, поэтому файл, удалённый из репозитория, продолжал жить на
           # сервере и ронять деплой. Так каталожные миграции 008/009 роняли выкат 4 суток.
           rsync -az --delete --include='*.sql' --exclude='*' db/init/ "$SRV:/opt/remlab/db/init/"
-          scp tools/apply-db-init.sh infra/server/deploy-remote.sh "$SRV:/opt/remlab/scripts/"
-          ssh "$SRV" "chmod +x /opt/remlab/scripts/apply-db-init.sh /opt/remlab/scripts/deploy-remote.sh"
+          scp tools/apply-db-init.sh infra/server/deploy-remote.sh infra/server/caddy-sync.sh infra/server/disk-watchdog.sh "$SRV:/opt/remlab/scripts/"
+          # Caddyfile кладётся РЯДОМ (.new): подменяет его caddy-sync.sh под замком, с validate и откатом
+          scp caddy/Caddyfile "$SRV:/opt/remlab/caddy/Caddyfile.new"
+          ssh "$SRV" "chmod +x /opt/remlab/scripts/apply-db-init.sh /opt/remlab/scripts/deploy-remote.sh /opt/remlab/scripts/caddy-sync.sh /opt/remlab/scripts/disk-watchdog.sh"
 
       - name: "Деплой на сервер (под замком: миграции ДО активации)"
         id: deploy
@@ -153,3 +155,9 @@ jobs:
             env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev docker compose up -d \
             && echo 'откат выполнен' || echo 'откат не удался — ручной разбор'"
           exit 1
+
+      # Безопасность снаружи (план b2b-01): закрытые адреса, вебхуки, заголовки. Отката не делает —
+      # сайт жив, но шаг красный, и разбор начинается с его вывода.
+      - name: Проверка безопасности снаружи
+        if: ${{ !cancelled() && steps.gate.outputs.ready == 'true' }}
+        run: bash tools/security-smoke.sh https://remont-lab.online

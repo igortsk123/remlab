@@ -2,7 +2,7 @@
 // session_id вынесен колонкой для выборок workspace. Расширение на нормальные таблицы — позже.
 // Трейсинг пайплайна (ADR-0013): runs/steps/assets — подробный лог каждого вызова LLM.
 
-import { pgTable, text, jsonb, timestamp, integer, bigint, doublePrecision, boolean, index, serial, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, jsonb, timestamp, integer, bigint, doublePrecision, boolean, index, serial, uniqueIndex, primaryKey } from "drizzle-orm/pg-core";
 import type { Project } from "@/contracts/project";
 import type { Estimate } from "@/contracts/estimate";
 
@@ -309,4 +309,35 @@ export const flatConfigs = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("flat_configs_created_idx").on(t.createdAt)],
+);
+
+// ── Безопасность (план b2b-01, ADR-0248) ─────────────────────────────────────────────────
+// Счётчики частоты: фиксированное окно на ключ. Пишет `lib/ratelimit.ts` одним upsert-ом.
+export const rateLimits = pgTable(
+  "rate_limits",
+  {
+    key: text("key").notNull(),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+    count: integer("count").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.key, t.windowStart] }), index("rate_limits_window_idx").on(t.windowStart)],
+);
+
+// Заявки «отправить подборку себе» с демо. Контакт — ПДн: только здесь, никогда в файлах под
+// веб-корнем (инцидент 13.10); удаляется по `expires_at`, наружу не отдаётся.
+export const shareRequests = pgTable(
+  "share_requests",
+  {
+    id: text("id").primaryKey(),
+    shareId: text("share_id").notNull(),
+    shareUrl: text("share_url").notNull(),
+    channel: text("channel").notNull(),
+    contact: text("contact").notNull(),
+    shotCount: integer("shot_count").notNull().default(0),
+    ip: text("ip"),
+    status: text("status").notNull().default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("share_requests_created_idx").on(t.createdAt)],
 );
