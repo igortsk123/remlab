@@ -446,8 +446,10 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
     import footprint as _fp
     from catalog_media import media as _media
     from img_alive import alive_now as _alive
+    from item_function import subtype as _sub
+    from proportions import check as _prop
     from sets_incremental import _card            # лёгкий модуль; `_slot_ok` НЕ берём — он тянет compose2
-    gate = DF.make_gate(DEMO_ENV, _media, _alive, _fp.footprint_known)
+    gate = DF.make_gate(DEMO_ENV, _media, _alive, _fp.footprint_known, _prop, _sub)
     idx = _mesh_index()
     has_mesh = lambda it: _msid(f"{it.get('mid')}_{it.get('eid')}") in idx  # noqa: E731
     pool = DF.load_pool()
@@ -457,35 +459,38 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
         if st.get('band') != band:
             continue
         items = st.get('items') or {}
-        placeable = sum(1 for r in items if r.split(' ')[0] in PLACEABLE)
+        placeable = sum(1 for r in items if DF.base_role(r) in PLACEABLE)
         by_style.setdefault(st.get('style') or '', []).append((-placeable, len(st.get('gaps') or []), i))
     order = ['сканди', 'современный', 'минимализм', 'лофт', 'неоклассика', 'джапанди']
     ranked: dict = {}
+    taken: set = set()          # товары, уже подставленные в другие стили: разнообразие между вариантами
     for style in order + sorted(k for k in by_style if k not in order):
         cands = []
         for _k in sorted(by_style.get(style, []))[:per_style]:
             i = _k[2]
             s = copy.deepcopy(sets[i - 1])
-            j = DF.fill_set(s, pool, gate, _card, _media, has_mesh)
+            j = DF.fill_set(s, pool, gate, _card, _media, has_mesh, DEMO_ENV, taken)
             items = s.get('items') or {}
-            no_mesh = sum(1 for r, it in items.items() if r.split(' ')[0] in PLACEABLE
-                          and r.split(' ')[0] not in NOMESH_ROLES and it and not has_mesh(it))
-            placeable = sum(1 for r in items if r.split(' ')[0] in PLACEABLE)
+            no_mesh = sum(1 for r, it in items.items() if DF.base_role(r) in PLACEABLE
+                          and DF.base_role(r) not in NOMESH_ROLES and it and not has_mesh(it))
+            placeable = sum(1 for r in items if DF.base_role(r) in PLACEABLE)
             cands.append(((len(DF.core_missing(s)), no_mesh, -placeable, i), i, s, j))
         if cands:
             ranked[style] = sorted(cands, key=lambda c: c[0])
+            taken |= {x['to_sku'] for x in ranked[style][0][3] if x.get('to_sku')}
     return ranked
 
 
-def layout_ok(n: int) -> bool:
-    """Расстановка набора сошлась: нет отказа солвера и на полу есть предметы."""
+def layout_ok(n: int, core: tuple = ()) -> bool:
+    """Расстановка набора сошлась: нет отказа солвера и на полу стоят ВСЕ роли ядра (не «хоть что-то»)."""
     p = os.path.join(HERE, f'v3set{n}-layout.json')
     try:
         art = json.load(open(p, encoding='utf-8'))
     except Exception:  # noqa: BLE001
         return False
-    placed = sum(1 for k, v in art.items() if not k.startswith('_') and isinstance(v, dict) and 'x' in v)
-    return placed > 0 and not art.get('_infeasible_reason')
+    placed = {re.sub(r'\s+\d+$', '', k) for k, v in art.items()
+              if not k.startswith('_') and isinstance(v, dict) and 'x' in v}
+    return bool(placed) and not art.get('_infeasible_reason') and all(c in placed for c in core)
 
 
 def choose_banks(flat: dict, sets: list, ranked: dict) -> tuple[list, dict, list]:
@@ -505,8 +510,13 @@ def choose_banks(flat: dict, sets: list, ranked: dict) -> tuple[list, dict, list
             orig = sets[i - 1]
             sets[i - 1] = s
             _write_demo_sets(sets)
+            # прежний файл расстановки удаляем: упал солвер — не должен подхватиться вчерашний результат
+            try:
+                os.remove(os.path.join(HERE, f'v3set{i}-layout.json'))
+            except FileNotFoundError:
+                pass
             solve_layouts(flat, only=[i])
-            if not layout_ok(i):
+            if not layout_ok(i, DF.CORE):
                 print(f'  стиль «{style}»: набор {i} не расставился в комнате — беру следующий', flush=True)
                 sets[i - 1] = orig
                 why = why or {'style': style, 'missing': ['расстановка не сошлась']}
@@ -602,6 +612,22 @@ def build() -> dict:
                          'fill_pct': art.get('_fill_pct'), 'items': objs, 'decor': decor,
                          'dims_unknown': dims_unknown, 'missing_item': missing_item,
                          'fill': fill_journal.get(f'set{n}', [])})
+    # ПОСЛЕДНИЙ РУБЕЖ ПЕРЕД ПУБЛИКАЦИЕЙ (conv-09, Codex 13.10): ядро проверяется в САМОМ варианте, а не в
+    # банке — солвер мог не поставить торшер или ковёр. Неполный вариант не публикуем; ни одного полного —
+    # останавливаем сборку целиком: пусть останется вчерашнее демо, а не пустая страница.
+    import demo_fill as _DF
+    full = []
+    for v in variants:
+        roles = {re.sub(r'\s+\d+$', '', i['role']) for i in v['items']}
+        miss = [c for c in _DF.CORE if c not in roles]
+        if miss:
+            print(f'  вариант «{v.get("style")}» без {", ".join(miss)} в расстановке — не публикуем', flush=True)
+            incomplete.append({'style': v.get('style'), 'missing': miss})
+        else:
+            full.append(v)
+    if not full:
+        raise SystemExit('ни одного полного варианта демо — публикация остановлена, остаётся прежнее демо')
+    variants = full
     # ЛЕНТЫ ТОВАРОВ ПО РОЛЯМ (владелец 26.08: «чтоб фотки можно было назначать»): для каждой роли
     # собираем живые SKU с фото; границы — конверт слота той же комнаты, чтобы примерка не
     # предлагала заведомо негодный габарит (диван 260 см в 14 м²).

@@ -17,6 +17,16 @@ from __future__ import annotations
 PHOTO_OK_SQL = "coalesce(p.photo_alive, true)"
 
 
+def availability(media: dict | None) -> str:
+    """Наличие в ТРИ состояния (план conv-09, Codex 13.10) по записи `catalog_media.media()`:
+    `available` · `unavailable` (нет в каталоге или снят) · `unknown` (фид магазина не приехал — «не знаю»).
+    Стоящий товар при `unknown` не снимаем; новую замену при `unknown` не берём."""
+    if not media:
+        return 'unavailable'
+    st = media.get('state')
+    return 'available' if st == 'available' else 'unknown' if st == 'unknown' else 'unavailable'
+
+
 def photo_ok(photo_alive: bool | None) -> bool:
     """То же правило для Python: только явный приговор «мертво» исключает товар."""
     return photo_alive is not False

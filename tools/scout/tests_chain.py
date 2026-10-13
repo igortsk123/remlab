@@ -205,6 +205,8 @@ def live_demo_variants(r: Report) -> None:
         miss = [c for c in core if c not in roles]
         if miss or len(v.get('items') or []) < 6 or v.get('missing_item'):
             thin.append(f"{v.get('style')}: предметов {len(v.get('items') or [])}, нет {', '.join(miss) or '—'}")
+    if not d.get('variants'):
+        thin.append('вариантов нет вовсе')
     r.warn('demo_variants', not thin, f"вариантов {len(d.get('variants') or [])}, неполных {len(thin)}"
            + (f" ({'; '.join(thin)})" if thin else ''))
     inc = d.get('incomplete_styles') or []

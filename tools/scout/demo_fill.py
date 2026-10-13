@@ -70,29 +70,37 @@ def need_reason(role: str, it: dict | None, media, has_mesh) -> str | None:
     """Почему позицию надо заменить; None — позиция годна."""
     if not it or not it.get('mid'):
         return 'нет товара'
-    m = media(it.get('mid'), it.get('eid'))
-    if m is None or m.get('state') == 'gone':
-        return 'снят с продажи'
+    from catalog_rules import availability
+    if availability(media(it.get('mid'), it.get('eid'))) == 'unavailable':
+        return 'снят с продажи'               # `unknown` (фид не приехал) — товар не трогаем
     if base_role(role) not in NOMESH and not has_mesh(it):
         return 'нет модели'
     return None
 
 
-def candidates(role: str, old: dict | None, style: str | None, pool: list[dict], exclude: set) -> list[dict]:
-    """Кандидаты той же роли и стиля; ближе по ширине к прежнему товару, затем по цене."""
+def candidates(role: str, old: dict | None, style: str | None, pool: list[dict], exclude: set,
+               env: dict | None = None, avoid: set | None = None) -> list[dict]:
+    """Кандидаты той же роли и стиля. Близость к ЦЕЛИ по ширине (прежний товар, а если роли не было —
+    середина конверта слота комнаты), шагом 10 см; внутри шага — порядок пула (качество обогащения), при
+    замене — ближе по цене. Раньше для отсутствующей роли побеждал самый дешёвый (Codex 13.10)."""
     b = base_role(role)
     out = [p for p in pool if p['role'] == b and p.get('style') == style
            and f"{p['mid']}:{p['eid']}" not in exclude]
-    ow = (old or {}).get('w') or 0
+    lo, hi = (env or {}).get(b, (0, 0))
+    target = (old or {}).get('w') or ((lo + hi) / 2 if hi else 0)
     op = (old or {}).get('price') or 0
-    if b == 'ковёр':
-        out.sort(key=lambda p: (-(min(p['w'], p['d'])), abs((p.get('price') or 0) - op)))
-    else:
-        out.sort(key=lambda p: (abs(p['w'] - ow) if ow else 0, abs((p.get('price') or 0) - op)))
+    side = (lambda p: max(p['w'], p['d'])) if b == 'ковёр' else (lambda p: p['w'])
+    # РАЗНООБРАЗИЕ (13.10): один и тот же ковёр в четырёх стилях из пяти — не «как от дизайнера». Товар,
+    # уже взятый в другой вариант, идёт после неиспользованных; ворота всё равно проверяют посадку.
+    avoid = avoid or set()
+    out.sort(key=lambda p: (f"{p['mid']}:{p['eid']}" in avoid,
+                            int(abs(side(p) - target) // 10) if target else 0,
+                            abs((p.get('price') or 0) - op) if op else 0))
     return out
 
 
-def fill_set(s: dict, pool: list[dict], ok, card, media, has_mesh) -> list[dict]:
+def fill_set(s: dict, pool: list[dict], ok, card, media, has_mesh, env: dict | None = None,
+             avoid: set | None = None) -> list[dict]:
     """Заменить негодные и добавить недостающие роли ядра. Меняет `s['items']`; → журнал замен."""
     items = s.setdefault('items', {})
     journal = []
@@ -106,12 +114,13 @@ def fill_set(s: dict, pool: list[dict], ok, card, media, has_mesh) -> list[dict]
         if not why:
             continue
         repl = None
-        for c in candidates(role, old, s.get('style'), pool, used):
+        for c in candidates(role, old, s.get('style'), pool, used, env, avoid):
             if ok(role, c, s, {r: v for r, v in items.items() if r != role}):
                 repl = card(c, old or {})
                 break
-        journal.append({'role': role, 'from': (old or {}).get('name'), 'to': (repl or {}).get('name'),
-                        'reason': why})
+        sku = lambda it: f"{it.get('mid')}:{it.get('eid')}" if it else None  # noqa: E731
+        journal.append({'role': role, 'from': (old or {}).get('name'), 'from_sku': sku(old),
+                        'to': (repl or {}).get('name'), 'to_sku': sku(repl), 'reason': why})
         if repl:
             items[role] = repl
             used.add(f"{repl.get('mid')}:{repl.get('eid')}")
@@ -120,14 +129,15 @@ def fill_set(s: dict, pool: list[dict], ok, card, media, has_mesh) -> list[dict]
     return journal
 
 
-def make_gate(env: dict, media, alive_img, footprint_known):
+def make_gate(env: dict, media, alive_img, footprint_known, proportions=None, subtype=None):
     """Ворота кандидата ДЛЯ КОМНАТЫ ДЕМО — те же правила, что у лечения банка (`sets_incremental._slot_ok`),
     но без импорта `compose2`: тот при загрузке пересобирает все комплекты и пишет файл (ловушка 13.10).
     Конверт — под реальную комнату демо (`flat215_demo.DEMO_ENV`), а не под метраж комплекта."""
     def gate(role: str, c: dict, s: dict, chosen: dict) -> bool:
         b = base_role(role)
+        from catalog_rules import availability
         m = media(c.get('mid'), c.get('eid'))
-        if not m or m.get('state') != 'available':
+        if availability(m) != 'available':     # новую замену при «не знаю» не берём
             return False
         if not alive_img(c.get('img')):
             return False
@@ -142,6 +152,14 @@ def make_gate(env: dict, media, alive_img, footprint_known):
             sofa = (chosen.get('диван') or {}).get('w') or 0
             # HARD-контракт зонного ковра (ADR-0120): короткая ≥ 140, длинная ≥ ширины дивана
             if min(w, d) < 140 or (sofa and max(w, d) < sofa):
+                return False
+        # ПРОПОРЦИИ К УЖЕ ВЫБРАННОМУ (столик к дивану и т. п.): те же жёсткие правила, что у сборки и
+        # лечения (`proportions.check`); без них замена могла поставить столик шире дивана (Codex 13.10)
+        if proportions is not None:
+            ctx = {'chosen': chosen, 'wall': None,
+                   'corner_sofa': 'углов' in str((chosen.get('диван') or {}).get('name', '')).lower()}
+            ok, _bonus, _notes = proportions(b, c, ctx, subtype(b, c) if subtype else None)
+            if not ok:
                 return False
         return True
     return gate
