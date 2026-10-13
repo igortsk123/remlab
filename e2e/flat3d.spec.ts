@@ -124,9 +124,10 @@ test("сохранение подбора: ссылка открывается, 
     },
   });
   expect(res.ok()).toBeTruthy();
-  const body = (await res.json()) as { id: string; quote: { upgradesGbp: number } };
+  const body = (await res.json()) as { id: string; quote: { upgrades: number; currency: string } };
   expect(body.id).toMatch(/^[a-f0-9]{22}$/);
-  expect(body.quote.upgradesGbp).toBe(8700);
+  expect(body.quote.upgrades).toBe(8700);
+  expect(body.quote.currency).toBe("GBP");
 
   const back = await request.get(`/api/flat/config/${body.id}`);
   expect(back.ok()).toBeTruthy();

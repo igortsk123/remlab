@@ -82,10 +82,11 @@ export function categoryTitle(category: string, lang: Lang): string {
   return lang === "en" ? c.en : c.ru;
 }
 
-export function formatGbp(value: number, lang: Lang): string {
+/** Сумма в валюте застройщика (каталог 3D знает свою валюту, b2b-06). */
+export function formatMoney(value: number, currency: "GBP" | "RUB", lang: Lang): string {
   return new Intl.NumberFormat(lang === "en" ? "en-GB" : "ru-RU", {
     style: "currency",
-    currency: "GBP",
+    currency,
     maximumFractionDigits: 0,
   }).format(value);
 }

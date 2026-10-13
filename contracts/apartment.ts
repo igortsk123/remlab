@@ -111,8 +111,12 @@ export const apartment = z.object({
   titleEn: z.string(),
   areaM2: z.number().positive(),
   developerId: z.string(),
-  /** Базовая цена квартиры, £ — от неё считается «квартира + апгрейды». */
-  basePriceGbp: z.number().nonnegative().default(0),
+  /** Базовая цена квартиры в валюте каталога — от неё считается «квартира + выбор». Берётся из
+   *  реестра застройщиков (`data/partners`), а не из файла 3D (b2b-06). */
+  basePrice: z.number().nonnegative().default(0),
+  /** Исходный набор мебели витрины, из которого собрана квартира (`?demo=`), и его стиль для кадра. */
+  baseVariant: z.string().optional(),
+  style: z.string().optional(),
   rooms: z.array(room).min(1),
   slots: z.array(slot),
   cameras: z.array(cameraPreset).default([]),

@@ -5,7 +5,7 @@
  "titleEn": "Apartment B-12 · 58 m²",
  "areaM2": 58,
  "developerId": "demo-developer",
- "basePriceGbp": 285000,
+ "basePrice": 285000,
  "spawn": {
   "x": 390,
   "y": 70,

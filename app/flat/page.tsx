@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
 
 import { FlatConfigurator } from "@/components/flat3d/FlatConfigurator";
-import { loadFlat3d } from "@/lib/configurator/data";
-import { fromDemoVariant, type DemoData } from "@/lib/configurator/fromDemo";
+import type { Configuration } from "@/contracts/configurator";
+import { baseSnapshotOf, staleSlots } from "@/lib/configurator/fromDemo";
 import { readConfig } from "@/lib/configurator/repo";
+import { apartmentCard, defaultApartmentId, resolveFlat } from "@/lib/configurator/source";
 import type { Lang } from "@/lib/configurator/i18n";
 
 export const metadata = {
@@ -16,39 +17,58 @@ export const metadata = {
 // Страница динамическая: по ?c=<id> открывается сохранённый подбор.
 export const dynamic = "force-dynamic";
 
-/** Данные витрины. Отказ сети/формата — не ошибка страницы: открываем обычную квартиру. */
-async function loadDemoVariant(variantId: string) {
-  const url = process.env.NEXT_PUBLIC_DEMO_DATA_URL ?? "https://remont-lab.online/demo/demo-data.json";
-  try {
-    const r = await fetch(url, { next: { revalidate: 300 } });
-    if (!r.ok) return null;
-    return fromDemoVariant((await r.json()) as DemoData, variantId);
-  } catch {
-    return null;
-  }
+type Search = { c?: string; lang?: string; room?: string; demo?: string; flat?: string; s?: string };
+
+/** Ссылка на ту же страницу с другим языком: все остальные параметры (`c`, `demo`, `flat`, `s`) сохраняются. */
+function langHref(sp: Search, next: Lang): string {
+  const q = new URLSearchParams(Object.entries(sp).filter(([, v]) => typeof v === "string") as [string, string][]);
+  q.set("lang", next);
+  return `/flat?${q.toString()}`;
 }
 
-export default async function FlatPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ c?: string; lang?: string; room?: string; demo?: string }>;
-}) {
+export default async function FlatPage({ searchParams }: { searchParams: Promise<Search> }) {
   const sp = await searchParams;
-  // ВАРИАНТ С ВИТРИНЫ (13.10). `?demo=set16` открывает ТУ ЖЕ комнату и ТУ ЖЕ мебель, что человек
-  // видит на карточке /demo. Данные берём живыми с витрины, а не копией: ночная пересборка меняет
-  // наборы, и копия назавтра показала бы не то, что на странице.
-  let fromDemo: ReturnType<typeof fromDemoVariant> = null;
-  if (sp.demo) fromDemo = await loadDemoVariant(sp.demo);
-  const base = loadFlat3d();
-  const { apartment, catalogue } = fromDemo ?? base;
   const lang: Lang = sp.lang === "en" ? "en" : "ru";
 
-  let initial = null;
+  // СОХРАНЁННЫЙ ПОДБОР ЧИТАЕТСЯ ПЕРВЫМ (b2b-06): квартира и исходный набор — из него, а не из
+  // адреса и не «базовая по умолчанию». Раньше `?c=` всегда открывал UK-квартиру.
+  let saved: Configuration | null = null;
   if (sp.c) {
-    const saved = await readConfig(sp.c);
-    if (!saved) notFound();
-    initial = saved.configuration;
+    const found = await readConfig(sp.c);
+    if (!found) notFound();
+    saved = found.configuration;
   }
+  const apartmentId = saved?.apartmentId ?? sp.flat ?? defaultApartmentId(sp.demo ? "demo" : "flat3d");
+  const baseVariant = saved ? saved.baseVariant : sp.demo;
+  if (!apartmentId) notFound();
+
+  const flat = await resolveFlat(apartmentId, baseVariant);
+  if (!flat.ok) {
+    if (flat.reason === "unknown") notFound();
+    return (
+      <main className="container" style={{ paddingTop: 32 }}>
+        <p className="note">
+          {lang === "en"
+            ? "The showroom data is temporarily unavailable. Please try again in a minute."
+            : "Данные витрины временно недоступны. Попробуйте через минуту."}
+        </p>
+      </main>
+    );
+  }
+  const { apartment, catalogue, hit } = flat;
+
+  // Набор витрины мог обновиться после сохранения: места, где модель сменилась, возвращаем к
+  // текущему набору и говорим об этом прямо (ADR-0254 п.6 — не подменять молча).
+  let initial = saved;
+  let stale: string[] = [];
+  if (saved?.baseSnapshot) {
+    stale = staleSlots(saved, baseSnapshotOf(apartment, catalogue));
+    if (stale.length) {
+      const drop = <T,>(rec: Record<string, T>) => Object.fromEntries(Object.entries(rec).filter(([k]) => !stale.includes(k)));
+      initial = { ...saved, selections: drop(saved.selections), placements: drop(saved.placements ?? {}) };
+    }
+  }
+  const card = apartmentCard(hit, lang);
 
   return (
     // ширина НЕ через `.container`: он рассчитан на чтение (узкая колонка), а конфигуратору
@@ -58,19 +78,25 @@ export default async function FlatPage({
         <h1 className="text-xl font-semibold text-primary">
           {lang === "en" ? apartment.titleEn : apartment.titleRu}
         </h1>
-        <p className="text-sm text-tertiary">
-          {lang === "en"
-            ? "Walk through your future home and choose the finishes and furniture"
-            : "Пройдитесь по будущей квартире и соберите отделку и мебель под себя"}
-        </p>
-        <a
-          className="ml-auto text-sm text-secondary underline"
-          href={`/flat?lang=${lang === "en" ? "ru" : "en"}${sp.c ? `&c=${sp.c}` : ""}`}
-        >
+        <p className="text-sm text-tertiary">{card.meta}</p>
+        <a className="ml-auto text-sm text-secondary underline" href={langHref(sp, lang === "en" ? "ru" : "en")}>
           {lang === "en" ? "Русский" : "English"}
         </a>
       </div>
-      <FlatConfigurator apartment={apartment} catalogue={catalogue} initialConfig={initial} lang={lang} />
+      {stale.length > 0 ? (
+        <p className="note mb-3">
+          {lang === "en"
+            ? `The showroom set has changed since this selection was saved: ${stale.length} item(s) are shown from the current set.`
+            : `С момента сохранения набор на витрине обновился: ${stale.length} предм. показаны из текущего набора.`}
+        </p>
+      ) : null}
+      <FlatConfigurator
+        apartment={apartment}
+        catalogue={catalogue}
+        initialConfig={initial}
+        lang={lang}
+        certificate={card.certificate ? { amount: card.certificate.amount } : null}
+      />
     </main>
   );
 }

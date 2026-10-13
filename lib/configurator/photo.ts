@@ -109,7 +109,8 @@ export function toPhotoRequest(
     },
     items,
     cams: camsOf(a, room),
-    style: opts.style ?? "современный",
+    // стиль набора витрины, из которого собрана квартира (b2b-06): иначе кадр из 3D разошёлся бы с карточкой
+    style: opts.style ?? a.style ?? "современный",
     variant: room.titleRu,
     quality: opts.quality ?? "draft",
   };

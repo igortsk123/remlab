@@ -15,16 +15,33 @@ export interface QuoteLine {
   optionId: string;
   titleRu: string;
   roomId: string;
-  priceGbp: number;
+  price: number;
 }
 
 export interface Quote {
-  basePriceGbp: number;
-  upgradesGbp: number;
-  totalGbp: number;
-  currency: "GBP";
+  basePrice: number;
+  upgrades: number;
+  total: number;
+  currency: "GBP" | "RUB";
   lines: QuoteLine[];
+  /** Против какого лимита выбирали (снимок на момент сохранения, для отчёта застройщику). */
+  certificate?: { amount: number; share: number };
   computedAt: string;
+}
+
+/** Старые снимки цены (до 13.10) писали поля с суффиксом Gbp — читаем их тем же видом. */
+export function upgradeQuote(raw: Record<string, unknown>): Quote {
+  const n = (k: string) => Number(raw[k] ?? raw[`${k}Gbp`] ?? 0);
+  const lines = ((raw.lines as Record<string, unknown>[] | undefined) ?? []).map((l) => ({
+    slotId: String(l.slotId), optionId: String(l.optionId), titleRu: String(l.titleRu ?? ""), roomId: String(l.roomId ?? ""),
+    price: Number(l.price ?? l.priceGbp ?? 0),
+  }));
+  return {
+    basePrice: n("basePrice"), upgrades: n("upgrades"), total: n("total"),
+    currency: raw.currency === "RUB" ? "RUB" : "GBP", lines,
+    ...(raw.certificate ? { certificate: raw.certificate as Quote["certificate"] } : {}),
+    computedAt: String(raw.computedAt ?? ""),
+  };
 }
 
 export interface SavedConfig {
@@ -68,11 +85,13 @@ export async function saveConfig(input: SaveInput): Promise<string> {
       id,
       apartmentId: input.configuration.apartmentId,
       developerId: input.configuration.developerId,
-      schemaVersion: 2,
+      schemaVersion: 3,
       apartmentRevision: input.apartmentRevision,
       catalogueRevision: input.catalogueRevision,
       selections: input.configuration.selections,
       placements: input.configuration.placements ?? {},
+      baseVariant: input.configuration.baseVariant ?? null,
+      baseSnapshot: input.configuration.baseSnapshot ?? null,
       quote: input.quote as unknown as Record<string, unknown>,
       contact: input.contact ?? null,
     });
@@ -94,9 +113,11 @@ export async function readConfig(id: string): Promise<SavedConfig | null> {
       developerId: row.developerId,
       selections: row.selections,
       placements: (row.placements as Record<string, { x: number; y: number; rot: number }>) ?? {},
+      ...(row.baseVariant ? { baseVariant: row.baseVariant } : {}),
+      ...(row.baseSnapshot ? { baseSnapshot: row.baseSnapshot } : {}),
       updatedAt: row.updatedAt.toISOString(),
     }),
-    quote: row.quote as unknown as Quote,
+    quote: upgradeQuote(row.quote),
     createdAt: row.createdAt.toISOString(),
   };
 }

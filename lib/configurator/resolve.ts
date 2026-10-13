@@ -17,7 +17,7 @@ export interface ResolvedItem {
   placement: Placement;
   asset: OptionAsset;
   photoRole: string | null;
-  priceGbp: number;
+  price: number;
 }
 
 export interface ResolvedSurface {
@@ -29,7 +29,7 @@ export interface ResolvedSurface {
   titleRu: string;
   titleEn: string;
   material: Material;
-  priceGbp: number;
+  price: number;
 }
 
 export type IssueCode =
@@ -49,10 +49,10 @@ export interface Issue {
 }
 
 export interface Totals {
-  basePriceGbp: number;
-  upgradesGbp: number;
-  totalGbp: number;
-  byRoomGbp: Record<string, number>;
+  basePrice: number;
+  upgrades: number;
+  total: number;
+  byRoom: Record<string, number>;
   upgradeCount: number;
 }
 
@@ -83,11 +83,14 @@ export function optionsForSlot(a: Apartment, c: Catalogue, slot: Slot): Option[]
 export function defaultConfiguration(a: Apartment, c: Catalogue): Configuration {
   const selections: Record<string, string> = {};
   for (const s of a.slots) selections[s.id] = s.defaultOptionId;
-  return { version: 2, apartmentId: a.id, developerId: c.developerId, selections, placements: {} };
+  return {
+    version: 3, apartmentId: a.id, developerId: c.developerId, selections, placements: {},
+    ...(a.baseVariant ? { baseVariant: a.baseVariant } : {}),
+  };
 }
 
 function priceOf(o: Option): number {
-  return o.tier === "base" ? 0 : o.priceGbp;
+  return o.tier === "base" ? 0 : o.price;
 }
 
 /**
@@ -136,8 +139,8 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
 
   const items: ResolvedItem[] = [];
   const surfaces: ResolvedSurface[] = [];
-  const byRoomGbp: Record<string, number> = {};
-  let upgradesGbp = 0;
+  const byRoom: Record<string, number> = {};
+  let upgrades = 0;
   let upgradeCount = 0;
 
   for (const slot of a.slots) {
@@ -145,9 +148,9 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
     if (!opt) continue;
     const price = priceOf(opt);
     if (price > 0 || opt.tier !== "base") {
-      upgradesGbp += price;
+      upgrades += price;
       if (price > 0) upgradeCount += 1;
-      byRoomGbp[slot.roomId] = (byRoomGbp[slot.roomId] ?? 0) + price;
+      byRoom[slot.roomId] = (byRoom[slot.roomId] ?? 0) + price;
     }
 
     if (slot.kind === "surface") {
@@ -181,7 +184,7 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
         titleRu: slot.titleRu,
         titleEn: slot.titleEn,
         material: mat,
-        priceGbp: price,
+        price: price,
       });
       continue;
     }
@@ -203,7 +206,7 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
       placement,
       asset: opt.asset,
       photoRole: slot.photoRole ?? null,
-      priceGbp: price,
+      price: price,
     });
   }
 
@@ -212,10 +215,10 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
     items,
     surfaces,
     totals: {
-      basePriceGbp: a.basePriceGbp,
-      upgradesGbp,
-      totalGbp: a.basePriceGbp + upgradesGbp,
-      byRoomGbp,
+      basePrice: a.basePrice,
+      upgrades,
+      total: a.basePrice + upgrades,
+      byRoom,
       upgradeCount,
     },
     issues,

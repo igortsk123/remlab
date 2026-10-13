@@ -2,17 +2,19 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { configuration } from "@/contracts/configurator";
-import { loadFlat3d } from "@/lib/configurator/data";
+import { guard } from "@/lib/ratelimit/http";
+import { baseSnapshotOf } from "@/lib/configurator/fromDemo";
 import { buildQuote, revisions } from "@/lib/configurator/quote";
 import { saveConfig } from "@/lib/configurator/repo";
-import { guard } from "@/lib/ratelimit/http";
+import { resolveFlat } from "@/lib/configurator/source";
+import { certificateAmount } from "@/lib/partners/registry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Сохранение подбора покупателя. Цену пересчитываем на сервере — клиентской верить нельзя.
-// Контакт НЕ принимаем: заявки идут существующим лид-потоком, здесь персональных данных нет
-// (разбор Codex 28.09 — публичная ссылка не должна их носить).
+// Сохранение подбора покупателя. Квартиру, каталог и цену сервер пересобирает САМ по реестру
+// застройщиков (`lib/configurator/source.ts`): клиенту верим только в выборе и перестановках —
+// не в цене, не в застройщике, не в составе набора (b2b-06). Контакт НЕ принимаем (Codex 28.09).
 const Body = z.object({ configuration });
 
 export async function POST(req: Request): Promise<Response> {
@@ -21,19 +23,30 @@ export async function POST(req: Request): Promise<Response> {
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "неверный запрос" }, { status: 400 });
 
-  const { apartment, catalogue } = loadFlat3d();
   const cfg = parsed.data.configuration;
-  if (cfg.apartmentId !== apartment.id) {
-    return NextResponse.json({ error: "неизвестная квартира" }, { status: 400 });
-  }
   if (Object.keys(cfg.selections).length > 200) {
     return NextResponse.json({ error: "слишком большой подбор" }, { status: 400 });
   }
+  const flat = await resolveFlat(cfg.apartmentId, cfg.baseVariant);
+  if (!flat.ok) {
+    return flat.reason === "unavailable"
+      ? NextResponse.json({ error: "витрина временно недоступна, попробуйте через минуту" }, { status: 503 })
+      : NextResponse.json({ error: "неизвестная квартира" }, { status: 400 });
+  }
 
   try {
-    const quote = buildQuote(apartment, catalogue, cfg);
-    const rev = revisions(apartment, catalogue);
-    const id = await saveConfig({ configuration: cfg, quote, ...rev });
+    const { apartment, catalogue, hit } = flat;
+    const trusted = {
+      ...cfg,
+      version: 3 as const,
+      developerId: hit.partner.id,
+      ...(cfg.baseVariant ? { baseSnapshot: baseSnapshotOf(apartment, catalogue) } : {}),
+    };
+    const quote = {
+      ...buildQuote(apartment, catalogue, trusted),
+      certificate: { amount: certificateAmount(hit.partner, hit.apartment), share: hit.partner.certificateShare },
+    };
+    const id = await saveConfig({ configuration: trusted, quote, ...revisions(apartment, catalogue) });
     return NextResponse.json({ id, quote });
   } catch {
     return NextResponse.json({ error: "не удалось сохранить" }, { status: 500 });

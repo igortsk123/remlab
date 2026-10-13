@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Apartment } from "@/contracts/apartment";
 import type { Catalogue, Configuration } from "@/contracts/configurator";
-import { formatGbp, t, type Lang } from "@/lib/configurator/i18n";
+import { formatMoney, t, type Lang } from "@/lib/configurator/i18n";
 import { checkPlacement, type Box } from "@/lib/configurator/placement";
 import { useFlatConfig } from "@/components/flat3d/useFlatConfig";
 import { BuildBar } from "@/components/flat3d/BuildBar";
@@ -27,10 +27,13 @@ interface Props {
   catalogue: Catalogue;
   initialConfig?: Configuration | null;
   lang: Lang;
+  /** Предельная сумма сертификата застройщика (подсказка, выбор не блокирует), ADR-0254/0258. */
+  certificate?: { amount: number } | null;
 }
 
-export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: Props) {
+export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, certificate }: Props) {
   const L = t(lang);
+  const fmt = (v: number) => formatMoney(v, catalogue.currency, lang);
   const { config, scene, choose, moveSlot, resetSlotPlacement, reset, isDefault } = useFlatConfig(
     apartment,
     catalogue,
@@ -55,7 +58,7 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: 
   }, []);
 
   const room = useMemo(() => apartment.rooms.find((r) => r.id === roomId) ?? apartment.rooms[0]!, [apartment, roomId]);
-  const roomTotal = scene.totals.byRoomGbp[room.id] ?? 0;
+  const roomTotal = scene.totals.byRoom[room.id] ?? 0;
   const is3d = mode === "walk" || mode === "top";
 
   // 3D РАЗВОРАЧИВАЕМ НА ВЕСЬ ЭКРАН (владелец 29.09): по квартире ходят, а не подглядывают в
@@ -236,16 +239,17 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: 
 
         <span className="text-sm text-tertiary">
           {lang === "en" ? room.titleEn : room.titleRu} ·{" "}
-          {roomTotal > 0 ? `+${formatGbp(roomTotal, lang)} ${L.perRoom}` : L.included}
+          {roomTotal > 0 ? `+${fmt(roomTotal)} ${L.perRoom}` : L.included}
         </span>
 
         <div className="ml-auto flex items-center gap-2">
           <span className="text-sm text-secondary">
-            {L.total}: <b className="text-primary">{formatGbp(scene.totals.totalGbp, lang)}</b>
-            {scene.totals.upgradesGbp > 0 ? (
-              <span className="text-tertiary"> (+{formatGbp(scene.totals.upgradesGbp, lang)})</span>
+            {L.total}: <b className="text-primary">{fmt(scene.totals.total)}</b>
+            {scene.totals.upgrades > 0 ? (
+              <span className="text-tertiary"> (+{fmt(scene.totals.upgrades)})</span>
             ) : null}
           </span>
+          {certificate ? <CertificateLine amount={certificate.amount} spent={scene.totals.upgrades} fmt={fmt} lang={lang} /> : null}
           {!isDefault ? (
             <button
               type="button"
@@ -377,5 +381,16 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang }: 
         )}
       </section>
     </div>
+  );
+}
+
+/** «Сертификат до X · выбрано на Y · доплата Z» — подсказка, выбор не блокирует (ADR-0254 п.2). */
+function CertificateLine({ amount, spent, fmt, lang }: { amount: number; spent: number; fmt: (v: number) => string; lang: Lang }) {
+  const extra = Math.max(0, spent - amount);
+  return (
+    <span className="text-sm text-tertiary">
+      {lang === "en" ? "Allowance" : "Сертификат"} {fmt(amount)} · {lang === "en" ? "chosen" : "выбрано"} {fmt(spent)}
+      {extra > 0 ? <> · {lang === "en" ? "top-up" : "доплата"} <b className="text-primary">{fmt(extra)}</b></> : null}
+    </span>
   );
 }

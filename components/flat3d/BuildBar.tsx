@@ -13,7 +13,7 @@ import type { Apartment, Slot } from "@/contracts/apartment";
 import type { Catalogue, Option } from "@/contracts/configurator";
 import { optionsForSlot } from "@/lib/configurator/resolve";
 import type { Material } from "@/contracts/configurator";
-import { categoryTitle, formatGbp, type Lang } from "@/lib/configurator/i18n";
+import { categoryTitle, formatMoney, type Lang } from "@/lib/configurator/i18n";
 
 interface BuildBarProps {
   apartment: Apartment;
@@ -148,7 +148,7 @@ export function BuildBar(props: BuildBarProps) {
           <div className="mb-1 flex items-center gap-2">
             <p className="min-w-0 flex-1 truncate text-xs text-tertiary">
               {lang === "en" ? current.titleEn : current.titleRu}
-              {current.listPriceGbp ? ` · ${formatGbp(current.listPriceGbp, lang)}` : ""}
+              {current.listPrice ? ` · ${formatMoney(current.listPrice, catalogue.currency, lang)}` : ""}
               {current.shopUrl ? (
                 <>
                   {" · "}
@@ -219,11 +219,11 @@ export function BuildBar(props: BuildBarProps) {
                     {lang === "en" ? o.titleEn : o.titleRu}
                   </span>
                   <span className="block font-semibold text-secondary" style={{ fontSize: 11 }}>
-                    {o.tier === "base" || o.priceGbp === 0
+                    {o.tier === "base" || o.price === 0
                       ? lang === "en"
                         ? "included"
                         : "входит"
-                      : `+${formatGbp(o.priceGbp, lang)}`}
+                      : `+${formatMoney(o.price, catalogue.currency, lang)}`}
                   </span>
                 </button>
               </li>

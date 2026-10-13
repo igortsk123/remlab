@@ -305,7 +305,7 @@
    "descRu": "Влагостойкий винил, входит в базовую отделку",
    "tier": "base",
    "packageName": "Base",
-   "priceGbp": 0,
+   "price": 0,
    "roomKinds": [
     "living",
     "hall",
@@ -324,7 +324,7 @@
    "descRu": "Массивный слой дуба 3 мм",
    "tier": "standard",
    "packageName": "Comfort",
-   "priceGbp": 1150,
+   "price": 1150,
    "roomKinds": [
     "living",
     "hall"
@@ -342,7 +342,7 @@
    "descRu": "С подогревом пола по запросу",
    "tier": "standard",
    "packageName": "Practical",
-   "priceGbp": 1450,
+   "price": 1450,
    "roomKinds": [
     "living",
     "hall"
@@ -360,7 +360,7 @@
    "descRu": "Укладка квадратами, лак матовый",
    "tier": "premium",
    "packageName": "Premium",
-   "priceGbp": 2600,
+   "price": 2600,
    "roomKinds": [
     "living",
     "hall"
@@ -378,7 +378,7 @@
    "descRu": "Базовое покрытие кухни",
    "tier": "base",
    "packageName": "Base",
-   "priceGbp": 0,
+   "price": 0,
    "roomKinds": [
     "kitchen"
    ],
@@ -395,7 +395,7 @@
    "descRu": "Тёплое покрытие под дерево",
    "tier": "standard",
    "packageName": "Practical",
-   "priceGbp": 680,
+   "price": 680,
    "roomKinds": [
     "kitchen"
    ],
@@ -412,7 +412,7 @@
    "descRu": "Тёмный, скрывает следы",
    "tier": "standard",
    "packageName": "Comfort",
-   "priceGbp": 890,
+   "price": 890,
    "roomKinds": [
     "kitchen"
    ],
@@ -429,7 +429,7 @@
    "descRu": "Полированный, 60×60",
    "tier": "premium",
    "packageName": "Premium",
-   "priceGbp": 1950,
+   "price": 1950,
    "roomKinds": [
     "kitchen"
    ],
@@ -446,7 +446,7 @@
    "descRu": "Базовое покрытие спальни",
    "tier": "base",
    "packageName": "Base",
-   "priceGbp": 0,
+   "price": 0,
    "roomKinds": [
     "bedroom"
    ],
@@ -463,7 +463,7 @@
    "descRu": "Плотный ворс 8 мм",
    "tier": "standard",
    "packageName": "Practical",
-   "priceGbp": 260,
+   "price": 260,
    "roomKinds": [
     "bedroom"
    ],
@@ -480,7 +480,7 @@
    "descRu": "Ламинат 33 класс",
    "tier": "standard",
    "packageName": "Comfort",
-   "priceGbp": 980,
+   "price": 980,
    "roomKinds": [
     "bedroom"
    ],
@@ -497,7 +497,7 @@
    "descRu": "Инженерная доска",
    "tier": "premium",
    "packageName": "Premium",
-   "priceGbp": 1450,
+   "price": 1450,
    "roomKinds": [
     "bedroom"
    ],
@@ -514,7 +514,7 @@
    "descRu": "Базовое покрытие санузла",
    "tier": "base",
    "packageName": "Base",
-   "priceGbp": 0,
+   "price": 0,
    "roomKinds": [
     "bathroom"
    ],
@@ -531,7 +531,7 @@
    "descRu": "Матовая, противоскользящая",
    "tier": "standard",
    "packageName": "Practical",
-   "priceGbp": 380,
+   "price": 380,
    "roomKinds": [
     "bathroom"
    ],
@@ -548,7 +548,7 @@
    "descRu": "Тёмный пол под светлые стены",
    "tier": "standard",
    "packageName": "Comfort",
-   "priceGbp": 520,
+   "price": 520,
    "roomKinds": [
     "bathroom"
    ],
@@ -565,7 +565,7 @@
    "descRu": "Полированный мрамор",
    "tier": "premium",
    "packageName": "Premium",
-   "priceGbp": 1150,
+   "price": 1150,
    "roomKinds": [
     "bathroom"
    ],
@@ -582,7 +582,7 @@
    "descRu": "Базовая отделка стен",
    "tier": "base",
    "packageName": "Base",
-   "priceGbp": 0,
+   "price": 0,
    "roomKinds": [
     "bathroom"
    ],
@@ -599,7 +599,7 @@
    "descRu": "Тёплый тон, матовая",
    "tier": "standard",
    "packageName": "Practical",
-   "priceGbp": 420,
+   "price": 420,
    "roomKinds": [
     "bathroom"
    ],
@@ -616,7 +616,7 @@
    "descRu": "Тёмные стены, контраст с сантехникой",
    "tier": "standard",
    "packageName": "Comfort",
-   "priceGbp": 690,
+   "price": 690,
    "roomKinds": [
     "bathroom"
    ],
@@ -633,7 +633,7 @@
    "descRu": "Плиты 60×120 с прожилками",
    "tier": "premium",
    "packageName": "Premium",
-   "priceGbp": 1480,
+   "price": 1480,
    "roomKinds": [
     "bathroom"
    ],
@@ -650,7 +650,7 @@
    "descRu": "Базовая покраска",
    "tier": "base",
    "packageName": "Base",
-   "priceGbp": 0,
+   "price": 0,
    "asset": {
     "kind": "material",
     "materialId": "paint-white"
@@ -663,7 +663,7 @@
    "titleEn": "Warm white",
    "descRu": "Мягкий кремовый оттенок",
    "tier": "standard",
-   "priceGbp": 180,
+   "price": 180,
    "asset": {
     "kind": "material",
     "materialId": "paint-warm"
@@ -676,7 +676,7 @@
    "titleEn": "Sage",
    "descRu": "Приглушённый зелёный",
    "tier": "standard",
-   "priceGbp": 240,
+   "price": 240,
    "asset": {
     "kind": "material",
     "materialId": "paint-sage"
@@ -689,7 +689,7 @@
    "titleEn": "Clay",
    "descRu": "Тёплый терракотовый",
    "tier": "standard",
-   "priceGbp": 240,
+   "price": 240,
    "asset": {
     "kind": "material",
     "materialId": "paint-clay"
@@ -703,7 +703,7 @@
    "descRu": "Базовая столешница 38 мм",
    "tier": "base",
    "packageName": "Base",
-   "priceGbp": 0,
+   "price": 0,
    "roomKinds": [
     "kitchen"
    ],
@@ -720,7 +720,7 @@
    "descRu": "Тёплая деревянная столешница",
    "tier": "standard",
    "packageName": "Practical",
-   "priceGbp": 640,
+   "price": 640,
    "roomKinds": [
     "kitchen"
    ],
@@ -737,7 +737,7 @@
    "descRu": "Кварцевый агломерат 20 мм",
    "tier": "standard",
    "packageName": "Comfort",
-   "priceGbp": 1450,
+   "price": 1450,
    "roomKinds": [
     "kitchen"
    ],
@@ -754,7 +754,7 @@
    "descRu": "Натуральный камень с прожилками",
    "tier": "premium",
    "packageName": "Premium",
-   "priceGbp": 2600,
+   "price": 2600,
    "roomKinds": [
     "kitchen"
    ],
@@ -771,7 +771,7 @@
    "descRu": "Базовый фартук",
    "tier": "base",
    "packageName": "Base",
-   "priceGbp": 0,
+   "price": 0,
    "roomKinds": [
     "kitchen"
    ],
@@ -787,7 +787,7 @@
    "titleEn": "Glass",
    "descRu": "Цельная стеклянная панель",
    "tier": "standard",
-   "priceGbp": 380,
+   "price": 380,
    "roomKinds": [
     "kitchen"
    ],
@@ -803,7 +803,7 @@
    "titleEn": "Graphite porcelain",
    "descRu": "Под тёмные фасады",
    "tier": "standard",
-   "priceGbp": 640,
+   "price": 640,
    "roomKinds": [
     "kitchen"
    ],
@@ -820,7 +820,7 @@
    "descRu": "Слэб в тон столешнице",
    "tier": "premium",
    "packageName": "Premium",
-   "priceGbp": 820,
+   "price": 820,
    "roomKinds": [
     "kitchen"
    ],
@@ -837,7 +837,7 @@
    "descRu": "Нижние шкафы, мойка, вытяжка. Входит в цену квартиры",
    "tier": "base",
    "packageName": "Base",
-   "priceGbp": 0,
+   "price": 0,
    "roomKinds": [
     "kitchen"
    ],
@@ -859,7 +859,7 @@
    "descRu": "Верхний ряд шкафов, фасады под дуб, больше ящиков",
    "tier": "standard",
    "packageName": "Practical",
-   "priceGbp": 2450,
+   "price": 2450,
    "roomKinds": [
     "kitchen"
    ],
@@ -883,7 +883,7 @@
    "descRu": "Полная линия + колонна, фасады шалфей, скрытые ручки",
    "tier": "standard",
    "packageName": "Comfort",
-   "priceGbp": 4900,
+   "price": 4900,
    "roomKinds": [
     "kitchen"
    ],
@@ -908,7 +908,7 @@
    "descRu": "Остров, фасады графит, подсветка рабочей зоны",
    "tier": "premium",
    "packageName": "Premium",
-   "priceGbp": 8700,
+   "price": 8700,
    "roomKinds": [
     "kitchen"
    ],
@@ -934,7 +934,7 @@
    "descRu": "Духовой шкаф и варочная панель",
    "tier": "base",
    "packageName": "Base",
-   "priceGbp": 0,
+   "price": 0,
    "roomKinds": [
     "kitchen"
    ],
@@ -957,7 +957,7 @@
    "descRu": "+ посудомоечная машина и вытяжка",
    "tier": "standard",
    "packageName": "Practical",
-   "priceGbp": 1150,
+   "price": 1150,
    "roomKinds": [
     "kitchen"
    ],
@@ -982,7 +982,7 @@
    "descRu": "+ встроенный холодильник и микроволновая печь",
    "tier": "standard",
    "packageName": "Comfort",
-   "priceGbp": 2300,
+   "price": 2300,
    "roomKinds": [
     "kitchen"
    ],
@@ -1009,7 +1009,7 @@
    "descRu": "+ винный шкаф и второй духовой шкаф",
    "tier": "premium",
    "packageName": "Premium",
-   "priceGbp": 3900,
+   "price": 3900,
    "roomKinds": [
     "kitchen"
    ],
@@ -1037,7 +1037,7 @@
    "descRu": "Ванна, унитаз, раковина на пьедестале",
    "tier": "base",
    "packageName": "Base",
-   "priceGbp": 0,
+   "price": 0,
    "roomKinds": [
     "bathroom"
    ],
@@ -1061,7 +1061,7 @@
    "descRu": "+ тумба под раковиной и стеклянная шторка",
    "tier": "standard",
    "packageName": "Practical",
-   "priceGbp": 980,
+   "price": 980,
    "roomKinds": [
     "bathroom"
    ],
@@ -1086,7 +1086,7 @@
    "descRu": "Душевая зона, подвесной унитаз, зеркало с подсветкой",
    "tier": "standard",
    "packageName": "Comfort",
-   "priceGbp": 1850,
+   "price": 1850,
    "roomKinds": [
     "bathroom"
    ],
@@ -1111,7 +1111,7 @@
    "descRu": "Отдельностоящая ванна, душ walk-in, двойная раковина",
    "tier": "premium",
    "packageName": "Premium",
-   "priceGbp": 3600,
+   "price": 3600,
    "roomKinds": [
     "bathroom"
    ],
@@ -1137,7 +1137,7 @@
    "descRu": "Мягкое изголовье, ткань серая, 160×200",
    "tier": "base",
    "packageName": "Base",
-   "priceGbp": 0,
+   "price": 0,
    "roomKinds": [
     "bedroom"
    ],
@@ -1158,7 +1158,7 @@
    "titleEn": "Oak bed",
    "descRu": "Каркас из дуба, 160×200",
    "tier": "standard",
-   "priceGbp": 640,
+   "price": 640,
    "roomKinds": [
     "bedroom"
    ],
@@ -1179,7 +1179,7 @@
    "titleEn": "Bouclé bed",
    "descRu": "Высокое изголовье, кремовое букле",
    "tier": "standard",
-   "priceGbp": 880,
+   "price": 880,
    "roomKinds": [
     "bedroom"
    ],
@@ -1203,7 +1203,7 @@
    "descRu": "Подъёмный механизм и ящик для белья",
    "tier": "premium",
    "packageName": "Premium",
-   "priceGbp": 1250,
+   "price": 1250,
    "roomKinds": [
     "bedroom"
    ],
@@ -1228,7 +1228,7 @@
    "descRu": "Распашной, белые фасады",
    "tier": "base",
    "packageName": "Base",
-   "priceGbp": 0,
+   "price": 0,
    "asset": {
     "kind": "kit",
     "kit": "wardrobe",
@@ -1247,7 +1247,7 @@
    "descRu": "Купе, фасады под дуб",
    "tier": "standard",
    "packageName": "Practical",
-   "priceGbp": 1200,
+   "price": 1200,
    "asset": {
     "kind": "kit",
     "kit": "wardrobe",
@@ -1268,7 +1268,7 @@
    "descRu": "Купе, зеркальные двери",
    "tier": "standard",
    "packageName": "Comfort",
-   "priceGbp": 1650,
+   "price": 1650,
    "asset": {
     "kind": "kit",
     "kit": "wardrobe",
@@ -1290,7 +1290,7 @@
    "descRu": "Встроенная система хранения с подсветкой",
    "tier": "premium",
    "packageName": "Premium",
-   "priceGbp": 2900,
+   "price": 2900,
    "asset": {
     "kind": "kit",
     "kit": "wardrobe",
@@ -1312,7 +1312,7 @@
    "titleEn": "Beige wool rug",
    "descRu": "200×140 см, короткий ворс",
    "tier": "base",
-   "priceGbp": 0,
+   "price": 0,
    "roomKinds": [
     "living"
    ],
@@ -1333,7 +1333,7 @@
    "titleEn": "Grey rug",
    "descRu": "Плотный ворс, скрывает следы",
    "tier": "standard",
-   "priceGbp": 180,
+   "price": 180,
    "roomKinds": [
     "living"
    ],
@@ -1356,7 +1356,7 @@
    "titleEn": "Sage rug",
    "descRu": "Мягкий ворс, тон под стены",
    "tier": "standard",
-   "priceGbp": 260,
+   "price": 260,
    "roomKinds": [
     "living"
    ],
@@ -1380,7 +1380,7 @@
    "descRu": "Высокий ворс, ручная работа",
    "tier": "premium",
    "packageName": "Premium",
-   "priceGbp": 540,
+   "price": 540,
    "roomKinds": [
     "living"
    ],
@@ -1405,7 +1405,7 @@
    "descEn": "Texture built from a photo of the real material",
    "tier": "standard",
    "packageName": "Practical",
-   "priceGbp": 0,
+   "price": 0,
    "roomKinds": [
     "living",
     "hall",

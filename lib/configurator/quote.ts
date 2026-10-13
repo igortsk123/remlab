@@ -10,16 +10,16 @@ export function buildQuote(a: Apartment, c: Catalogue, config: Configuration): Q
   const scene = resolveScene(a, c, config);
   const lines: QuoteLine[] = [];
   const all = [
-    ...scene.items.map((i) => ({ slotId: i.slotId, optionId: i.optionId, titleRu: i.titleRu, roomId: i.roomId, priceGbp: i.priceGbp })),
-    ...scene.surfaces.map((s) => ({ slotId: s.slotId, optionId: s.optionId, titleRu: s.titleRu, roomId: s.roomId, priceGbp: s.priceGbp })),
+    ...scene.items.map((i) => ({ slotId: i.slotId, optionId: i.optionId, titleRu: i.titleRu, roomId: i.roomId, price: i.price })),
+    ...scene.surfaces.map((s) => ({ slotId: s.slotId, optionId: s.optionId, titleRu: s.titleRu, roomId: s.roomId, price: s.price })),
   ];
-  for (const l of all) if (l.priceGbp > 0) lines.push(l);
-  lines.sort((x, y) => y.priceGbp - x.priceGbp);
+  for (const l of all) if (l.price > 0) lines.push(l);
+  lines.sort((x, y) => y.price - x.price);
   return {
-    basePriceGbp: scene.totals.basePriceGbp,
-    upgradesGbp: scene.totals.upgradesGbp,
-    totalGbp: scene.totals.totalGbp,
-    currency: "GBP",
+    basePrice: scene.totals.basePrice,
+    upgrades: scene.totals.upgrades,
+    total: scene.totals.total,
+    currency: c.currency,
     lines,
     computedAt: new Date().toISOString(),
   };
@@ -46,7 +46,7 @@ export function revisions(a: Apartment, c: Catalogue): { apartmentRevision: stri
     .map((r) => `${r.id}:${r.x},${r.y},${r.w},${r.d}`)
     .concat(a.slots.map((s) => `${s.id}:${s.defaultOptionId}:${s.optionIds.join("|")}`));
   const catalogueParts = c.options
-    .map((o) => `${o.id}:${o.tier}:${o.priceGbp}:${JSON.stringify(o.asset)}`)
+    .map((o) => `${o.id}:${o.tier}:${o.price}:${JSON.stringify(o.asset)}`)
     .concat(c.materials.map((m) => `${m.id}:${m.colorHex}:${m.tileCm.join("x")}`));
   return {
     apartmentRevision: `${a.id}:${a.rooms.length}r:${a.slots.length}s:${fingerprint(apartmentParts)}`,

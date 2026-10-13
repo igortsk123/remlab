@@ -47,8 +47,8 @@ describe("конфигуратор: разрешение выбора и цен�
     const cfg = defaultConfiguration(apartment, catalogue);
     const scene = resolveScene(apartment, catalogue, cfg);
     expect(scene.issues).toEqual([]);
-    expect(scene.totals.upgradesGbp).toBe(0);
-    expect(scene.totals.totalGbp).toBe(apartment.basePriceGbp);
+    expect(scene.totals.upgrades).toBe(0);
+    expect(scene.totals.total).toBe(apartment.basePrice);
   });
 
   it("кухня Premium (8700) + мрамор на столешницу (2600) = 11 300 доплаты", () => {
@@ -56,8 +56,8 @@ describe("конфигуратор: разрешение выбора и цен�
     cfg.selections["kitchen-units"] = "kitchen-premium";
     cfg.selections["kitchen-worktop"] = "worktop-marble-premium";
     const scene = resolveScene(apartment, catalogue, cfg);
-    expect(scene.totals.upgradesGbp).toBe(11_300);
-    expect(scene.totals.byRoomGbp.kitchen).toBe(11_300);
+    expect(scene.totals.upgrades).toBe(11_300);
+    expect(scene.totals.byRoom.kitchen).toBe(11_300);
     expect(scene.totals.upgradeCount).toBe(2);
   });
 

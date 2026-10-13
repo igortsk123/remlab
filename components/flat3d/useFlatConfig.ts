@@ -36,9 +36,9 @@ export function useFlatConfig(
 
   useEffect(() => {
     if (initial) return; // пришли по ссылке на чужой подбор — черновик не подмешиваем
-    setConfig(loadDraft(apartment.id) ?? base);
+    setConfig(loadDraft(apartment.id, apartment.baseVariant) ?? base);
     setHydrated(true);
-  }, [apartment.id, base, initial]);
+  }, [apartment.id, apartment.baseVariant, base, initial]);
 
   useEffect(() => {
     if (hydrated) saveDraft(config);
@@ -66,7 +66,7 @@ export function useFlatConfig(
   const moveSlot = useCallback((slotId: string, to: { x: number; y: number; rot: number }) => {
     setConfig((c) => ({
       ...c,
-      version: 2,
+      version: 3,
       placements: { ...(c.placements ?? {}), [slotId]: { x: to.x, y: to.y, rot: to.rot } },
       updatedAt: new Date().toISOString(),
     }));

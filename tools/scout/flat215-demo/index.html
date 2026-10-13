@@ -1532,7 +1532,7 @@ function loadFlatCard(){const id=flatId(); if(!id)return;
     const fk=document.getElementById('flatKind'); if(fk)fk.textContent=FLAT.kind;
     const fm=document.getElementById('flatMeta'); if(fm)fm.textContent=FLAT.meta;
     const fs=document.getElementById('flatSum'); if(fs)fs.textContent=money(FLAT.price);
-    drawVariants();
+    drawVariants(); try{sync3dLink();}catch(e){}
   }).catch(()=>{});}
 window.__loadFlatCard=loadFlatCard;
 let LAST_SUM=0, LAST_CNT=0;
@@ -2190,9 +2190,11 @@ function pickVariant(i){ if(i===cur){showSwap();syncHash();sync3dLink();return;}
 function sync3dLink(){
   const a=document.getElementById('pc3d'); if(!a)return;
   const v=allVariants()[cur]||{};
-  a.href = v.id ? '/flat?demo='+encodeURIComponent(v.id) : '/flat';
+  // квартира едет вместе с набором (b2b-06): 3D берёт её из реестра застройщиков, а не «по умолчанию»
+  const fl = FLAT ? '&flat='+encodeURIComponent(FLAT.id) : '';
+  a.href = v.id ? '/flat?demo='+encodeURIComponent(v.id)+fl : '/flat';
   const b=document.getElementById('swap3d');
-  if(b)b.href = v.id ? '/flat?demo='+encodeURIComponent(v.id) : '/flat';
+  if(b)b.href = v.id ? '/flat?demo='+encodeURIComponent(v.id)+fl : '/flat';
 }
 function showSwap(){
   const box=document.getElementById('swapBox'); if(!box)return;

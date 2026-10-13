@@ -143,8 +143,8 @@ async function main() {
         titleEn: `${EN_ROLE[plan.role] ?? plan.key} · ${p.shop}`,
         descRu: `${p.w}×${p.d}×${p.h} см · ${p.shop}`,
         tier: TIER_BY_INDEX[i] ?? "standard",
-        priceGbp: i === 0 ? 0 : gbp(p.price),
-        listPriceGbp: gbp(p.price),
+        price: i === 0 ? 0 : gbp(p.price),
+        listPrice: gbp(p.price),
         availability: "available",
         asset: {
           kind: "mesh",

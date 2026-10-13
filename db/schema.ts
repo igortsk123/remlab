@@ -305,6 +305,9 @@ export const flatConfigs = pgTable(
       .notNull()
       .default({}),
     quote: jsonb("quote").$type<Record<string, unknown>>().notNull(),
+    /** Версия 3 (b2b-06): исходный набор витрины и снимок «место → модель» на момент сохранения. */
+    baseVariant: text("base_variant"),
+    baseSnapshot: jsonb("base_snapshot").$type<Record<string, string>>(),
     contact: jsonb("contact").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

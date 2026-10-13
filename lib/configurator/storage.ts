@@ -5,13 +5,16 @@ import { configuration, upgradeConfiguration, type Configuration } from "@/contr
 
 const KEY = "remlab.flat3d.v1";
 
-export function loadDraft(apartmentId: string): Configuration | null {
+/** Черновик у квартиры свой на каждый исходный набор: «джапанди» и «лофт» одной квартиры — разные подборы. */
+export const draftKey = (apartmentId: string, baseVariant?: string) => (baseVariant ? `${apartmentId}~${baseVariant}` : apartmentId);
+
+export function loadDraft(apartmentId: string, baseVariant?: string): Configuration | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(`${KEY}.${apartmentId}`);
+    const raw = window.localStorage.getItem(`${KEY}.${draftKey(apartmentId, baseVariant)}`);
     if (!raw) return null;
     const parsed = configuration.safeParse(JSON.parse(raw));
-    if (!parsed.success || parsed.data.apartmentId !== apartmentId) return null;
+    if (!parsed.success || parsed.data.apartmentId !== apartmentId || parsed.data.baseVariant !== baseVariant) return null;
     // черновик мог быть сохранён ДО появления координат мебели — поднимаем до версии 2
     return upgradeConfiguration(parsed.data);
   } catch {
@@ -22,7 +25,7 @@ export function loadDraft(apartmentId: string): Configuration | null {
 export function saveDraft(cfg: Configuration): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(`${KEY}.${cfg.apartmentId}`, JSON.stringify(cfg));
+    window.localStorage.setItem(`${KEY}.${draftKey(cfg.apartmentId, cfg.baseVariant)}`, JSON.stringify(cfg));
   } catch {
     /* приватный режим или переполнение — черновик не критичен */
   }

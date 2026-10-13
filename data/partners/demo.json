@@ -7,7 +7,7 @@
   "defaultLang": "ru",
   "currency": "RUB",
   "certificateShare": 0.05,
-  "certificateTextRu": "Выбирайте любую мебель и технику для своей новой квартиры. Все предметы можно двигать, сохранять коллекции и делиться с близкими.",
+  "certificateTextRu": "Выбирайте мебель и встраиваемое из набора партнёров застройщика. Все предметы можно двигать, сохранять коллекции и делиться с близкими.",
   "demo": true,
   "complexes": [
     { "id": "olkhovy", "nameRu": "ЖК «Ольховый квартал»", "nameEn": "Olkhovy Kvartal", "handover": { "status": "planned", "quarter": "2026-Q4" } }

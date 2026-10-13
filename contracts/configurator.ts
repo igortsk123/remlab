@@ -111,7 +111,7 @@ export const option = z.object({
   /** Имя пакета застройщика: Base / Practical / Comfort / Premium. */
   packageName: z.string().optional(),
   /** Доплата к базе, £. У базовой опции — 0. */
-  priceGbp: z.number().nonnegative().default(0),
+  price: z.number().nonnegative().default(0),
   availability: availability.default("available"),
   roomKinds: z.array(roomKind).default([]),
   asset: optionAsset,
@@ -122,7 +122,7 @@ export const option = z.object({
    */
   shopUrl: z.string().optional(),
   shopName: z.string().optional(),
-  listPriceGbp: z.number().nonnegative().optional(),
+  listPrice: z.number().nonnegative().optional(),
   /** Совместимость: нужны эти опции / несовместимо с этими. */
   requires: z.array(z.string()).default([]),
   excludes: z.array(z.string()).default([]),
@@ -133,7 +133,8 @@ export const catalogue = z.object({
   developerId: z.string(),
   titleRu: z.string(),
   titleEn: z.string(),
-  currency: z.literal("GBP").default("GBP"),
+  /** Валюта цен каталога = валюта застройщика (`data/partners`, ADR-0258). */
+  currency: z.enum(["GBP", "RUB"]).default("GBP"),
   options: z.array(option),
   materials: z.array(material),
 });
@@ -155,18 +156,28 @@ export type PlacementOverride = z.infer<typeof placementOverride>;
  * читаются и поднимаются до версии 2 функцией `upgradeConfiguration`.
  */
 export const configuration = z.object({
-  version: z.union([z.literal(1), z.literal(2)]),
+  version: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  /** id квартиры из реестра застройщиков (`data/partners`), не id сборки. */
   apartmentId: z.string(),
   developerId: z.string(),
+  /**
+   * Версия 3 (b2b-06): исходный набор мебели витрины (`?demo=set16`) — отдельно от квартиры.
+   * Раньше он был зашит в id квартиры (`demo-set16`) и терялся смысл «чья это квартира».
+   */
+  baseVariant: z.string().regex(/^[A-Za-z0-9_-]{1,40}$/).optional(),
+  /** Снимок «место → модель» исходного набора на момент сохранения: ночная пересборка витрины
+   *  может сменить мебель — тогда покажем «набор обновился», а не подменим молча (ADR-0254 п.6). */
+  baseSnapshot: z.record(z.string(), z.string()).optional(),
   selections: z.record(z.string(), z.string()), // slotId → optionId
   placements: z.record(z.string(), placementOverride).default({}), // slotId → куда передвинули
   updatedAt: z.string().optional(),
 });
 export type Configuration = z.infer<typeof configuration>;
 
-/** Поднять старый подбор до версии 2 — без этого ссылки, выданные до 30.09, перестали бы читаться. */
+/** Поднять старый подбор до версии 3 — ссылки, выданные раньше, продолжают читаться. */
 export function upgradeConfiguration(cfg: Configuration): Configuration {
-  return cfg.version === 2 ? cfg : { ...cfg, version: 2, placements: cfg.placements ?? {} };
+  if (cfg.version === 3) return cfg;
+  return { ...cfg, version: 3, placements: cfg.placements ?? {} };
 }
 
 /** Заявка менеджеру: конфигурация + контакт. Контакт валидируем мягко — это демо. */

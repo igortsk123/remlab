@@ -14,7 +14,41 @@
 // Поворот витрины — градусы по часовой, 0 — «лицом на +y», тоже как у нас.
 
 import { apartment as apartmentSchema, type Apartment, type Opening } from "@/contracts/apartment";
-import { catalogue as catalogueSchema, type Catalogue } from "@/contracts/configurator";
+import { catalogue as catalogueSchema, type Catalogue, type Configuration } from "@/contracts/configurator";
+
+/** Чья квартира и в какой валюте: из реестра застройщиков (b2b-06), не из файла витрины. */
+export type DemoContext = { apartmentId: string; partnerId: string; currency: "RUB" | "GBP"; basePrice: number };
+
+/**
+ * Имя места — роль + номер внутри роли («диван#0», «стул#2»), а не порядковый номер в файле.
+ * Ночная пересборка меняет состав набора; при сквозной нумерации сохранённый выбор «места 3»
+ * переехал бы на другой предмет (рецензия 13.10, P0).
+ */
+function stableSlotIds(items: DemoItem[]): string[] {
+  const seen = new Map<string, number>();
+  return items.map((it) => {
+    const role = (it.role ?? "предмет").trim().toLowerCase();
+    const k = seen.get(role) ?? 0;
+    seen.set(role, k + 1);
+    return `${role}#${k}`;
+  });
+}
+
+/** Снимок «место → модель» исходного набора: пишется в сохранение, сверяется при открытии. */
+export function baseSnapshotOf(a: Apartment, c: Catalogue): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const s of a.slots) {
+    const o = c.options.find((x) => x.id === s.defaultOptionId);
+    if (o?.asset.kind === "mesh") out[s.id] = o.asset.meshId;
+  }
+  return out;
+}
+
+/** Какие места сохранённого подбора больше не совпадают с набором витрины (товар сменился/пропал). */
+export function staleSlots(saved: Configuration, current: Record<string, string>): string[] {
+  if (!saved.baseSnapshot) return [];
+  return Object.entries(saved.baseSnapshot).filter(([slot, mesh]) => current[slot] !== mesh).map(([slot]) => slot);
+}
 
 type DemoItem = {
   role?: string;
@@ -62,7 +96,7 @@ function openings(room: DemoRoom): Opening[] {
  * помещения на её чертеже — заглушки с другого плана. Обещать «та же квартира» было бы неправдой,
  * поэтому обещаем «та же комната и та же расстановка» и других дверей не открываем.
  */
-export function fromDemoVariant(data: DemoData, variantId: string): { apartment: Apartment; catalogue: Catalogue } | null {
+export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoContext): { apartment: Apartment; catalogue: Catalogue } | null {
   const room = data.room;
   const v = (data.variants ?? []).find((x) => x.id === variantId);
   if (!room?.w || !room?.d || !v) return null;
@@ -71,16 +105,17 @@ export function fromDemoVariant(data: DemoData, variantId: string): { apartment:
   if (!items.length) return null;
 
   const title = v.style ? v.style.charAt(0).toUpperCase() + v.style.slice(1) : (v.title ?? "Вариант");
+  const ids = stableSlotIds(items);
   const slots = items.map((it, i) => ({
-    id: `demo-${i}`,
+    id: ids[i]!,
     roomId: "living",
     category: "furniture" as const,
     kind: "furniture" as const,
     titleRu: it.role ?? "Предмет",
     titleEn: it.role ?? "Item",
     photoRole: it.role,
-    defaultOptionId: `demo-opt-${i}`,
-    optionIds: [`demo-opt-${i}`],
+    defaultOptionId: `opt:${ids[i]}`,
+    optionIds: [`opt:${ids[i]}`],
     placement: {
       x: it.x ?? 0,
       y: it.y ?? 0,
@@ -93,12 +128,14 @@ export function fromDemoVariant(data: DemoData, variantId: string): { apartment:
   }));
 
   const apartment = apartmentSchema.parse({
-    id: `demo-${variantId}`,
+    id: ctx.apartmentId,
+    baseVariant: variantId,
+    ...(v.style ? { style: v.style } : {}),
     titleRu: `${title} — ${room.title ?? "гостиная"}`,
     titleEn: `${title} — living room`,
     areaM2: Math.round(((room.w * room.d) / 10000) * 10) / 10,
-    developerId: "demo",
-    basePriceGbp: 0,
+    developerId: ctx.partnerId,
+    basePrice: ctx.basePrice,
     rooms: [
       {
         id: "living",
@@ -120,19 +157,21 @@ export function fromDemoVariant(data: DemoData, variantId: string): { apartment:
   });
 
   const catalogue = catalogueSchema.parse({
-    developerId: "demo",
+    developerId: ctx.partnerId,
     titleRu: `Набор «${title}»`,
     titleEn: `${title} set`,
-    currency: "GBP",
+    currency: ctx.currency,
     materials: [],
     options: items.map((it, i) => ({
-      id: `demo-opt-${i}`,
+      id: `opt:${ids[i]}`,
       category: "furniture" as const,
       titleRu: it.sku?.name ?? it.role ?? "Предмет",
       titleEn: it.sku?.name ?? it.role ?? "Item",
       descRu: `${Math.round(it.w as number)}×${Math.round(it.d as number)}×${Math.round(it.h as number)} см`,
-      tier: "base" as const,
-      priceGbp: 0,
+      // Мебель витрины в цену квартиры не входит: это покупка за счёт сертификата/доплаты, поэтому
+      // ступень «стандарт» и настоящая цена товара — иначе «выбрано на» в 3D было бы всегда 0.
+      tier: "standard" as const,
+      price: Math.max(0, Math.round(it.sku?.price ?? 0)),
       availability: "available" as const,
       roomKinds: ["living" as const],
       asset: {
