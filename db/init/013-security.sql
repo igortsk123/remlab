@@ -2,7 +2,7 @@
 -- Файл применяется на КАЖДОМ деплое — всё идемпотентно.
 
 -- Счётчики частоты: фиксированное окно на ключ («parse-link:ip:1.2.3.4», «paid:gen:day»).
--- Пишет `lib/ratelimit.ts` одним upsert-ом; старые окна чистит он же, изредка.
+-- Пишет `lib/ratelimit/store.ts` одним upsert-ом; старые окна чистит он же, изредка.
 create table if not exists rate_limits (
   key text not null,
   window_start timestamptz not null,

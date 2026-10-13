@@ -3,7 +3,7 @@ tier: 1
 topic: data-model
 scope: Схема БД, миграции, pgvector
 tier2: "../../docs/tech-spec-ts-stack.md"
-updated: 2026-09-28
+updated: 2026-10-13
 importance: high
 source: manual
 status: working
@@ -30,6 +30,7 @@ review_after: 2026-12-05
   append-only по курсору `after_id` (`mesh_review_sync.py`).
 - **mesh_audit_items / _decisions / _batches / _cancellations** (`010-mesh-audit.sql`,
   `db/schema.ts`) — ручная приёмка мешей владельцем, `/lab/mesh-audit` (ADR-0188…0194).
+- **rate_limits / share_requests** (`013-security.sql`, ADR-0256) — лимиты частоты; заявки «отправить себе» (ПДн, 90 дней).
 
 ## Изоляция и доступ
 - **RLS НЕТ** (одна роль remlab). Изоляция — фильтр `session_id` в приложении (`listBySession`).

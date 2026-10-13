@@ -196,7 +196,7 @@ PNG 512 от владельца (Drive `1l2j65g8…`) → `public/icons/`; вс�
 | GHCR/CI | авто-деплой ✅ (arm64) | образы + деплой | `GITHUB_TOKEN`; SSH `remlab_ci_deploy` | GitHub Actions |
 | Яндекс (WS/Директ/Метрика) | доступ ✅ | реклама/аналитика | `_secrets/ACCESS.md` (вне git) | кода нет, curl |
 | Лид-канал П7 | скелет до токенов | заявки+диалог | `LEADS_*` в `/opt/remlab/.env` — `[[leads]]` | `lib/leads/*` |
-| YooKassa | код-скелет, БЕЗ ключей (К5) | оплата 60₽ визуализации | ключи не заданы | `lib/payments/yookassa.ts` |
+| YooKassa | код-скелет, БЕЗ ключей (К5) | оплата 60₽ визуализации; вебхук — только IP ЮKassa + перезапрос статуса, без ключей 403 (ADR-0256) | ключи не заданы (и не проброшены в compose) | `lib/payments/yookassa.ts`, `lib/payments/yookassa-ip.ts` |
 | fal.ai | активен ✅ | NB2/Seedream/Flux/SAM2/LaMa per-request | `FAL_KEY` (mltest/.env) | scout/mltest |
 | РФ-прокси | ✅ ADR-0031 | фолбэк parse-link; квота 1 ГБ | `PARSE_PROXY_URLS`; креды — VPN `_secrets/` | `lib/calc/fetch-page.ts` |
 

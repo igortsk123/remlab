@@ -3,7 +3,7 @@ tier: 2
 topic: deployment-details
 scope: Деплой exit-fi — подробности конвейера, сторожа, история правок сервера
 tier1: "../deployment.md"
-updated: 2026-09-28
+updated: 2026-10-13
 importance: med
 source: manual
 last_verified: 2026-09-05
@@ -81,9 +81,10 @@ Compose передаёт app ЯВНЫЙ `environment:`-список — новы
   вне compose. Блока `/lab/*` в Caddyfile нет и не было — `/lab/*` отдаёт Next (`remlab-app:3000`).
 - Маршрут `/test/mesh-audit/*` (05.09, ADR-0194): `public, max-age=604800, immutable` для партий
   моделей и постеров приёмки; каталоги `/opt/remlab/test/mesh-audit/{releases,posters}` создаёт
-  публикатор или руки. Caddyfile на сервер попадает только руками: бэкап
-  `/opt/remlab/caddy/Caddyfile.bak-<дата>` → `caddy validate` → `caddy reload`; `deploy.yml`
-  синхронизирует compose, `db/init`, скрипты — не Caddyfile; `deploy.sh` проверяет паритет.
+  публикатор или руки. **Caddyfile едет деплоем (13.10, ADR-0256):** `deploy.yml` и `deploy.sh` кладут
+  `caddy/Caddyfile.new`, `infra/server/caddy-sync.sh` (из `deploy-remote.sh`, до активации app) сверяет боевой
+  со снимком `Caddyfile.deployed` (не совпал — ручная правка, стоп), `validate` через stdin, подмена `cat >`
+  (bind по inode), `reload`, при провале — возврат бэкапа. Руками на сервере не править.
 - Smoke: `deploy.yml` сверяет `ok=true` и `version == TARGET_SHA` на шаге `!cancelled()`; ручной
   `deploy.sh:63-70` решает успех по одному HTTP 200, `ok` не проверяет и версию только печатает.
 - Очистка диска: `infra/server/cleanup.sh` + `infra/server/systemd/*.service`; `.timer` в репо нет
@@ -104,9 +105,9 @@ flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev
   `handle_path /x/*` + парный `redir /x /x/ 301`. У `/demo` редирект есть (`caddy/Caddyfile`),
   у `/test` — нет, поэтому `remont-lab.online/test` = 404, а `/test/` = 200.
   Диагностируя «ссылка не работает», проверять ОБА варианта адреса.
-- **Серверный Caddyfile НОВЕЕ репозиторного.** На сервере (`/opt/remlab/caddy/Caddyfile`) есть
-  блок `log` (журнал обращений) и матчер `@nextrce` — заслон от эксплойта серверных действий
-  Next.js (инцидент 08.09, ADR-0207). В `caddy/Caddyfile` в git их НЕТ. Копирование
+- **[История, сведено 13.10]** Серверный Caddyfile был НОВЕЕ репозиторного: блок `log` и матчер `@nextrce`
+  (инцидент 08.09, ADR-0207) жили только на сервере; 13.10 перенесены в `caddy/Caddyfile` (строки `log`,
+  `@nextrce`), с ADR-0256 рассинхрон ловят `caddy-sync.sh` при деплое и ежечасный сторож. Копирование
   репо-версии поверх СНЯЛО БЫ заслон — это повтор урока 07.08 (деплой затирал серверный блок).
   Порядок сведения: бэкап живого файла + его SHA → перенести серверные блоки в репо дословно →
   `caddy validate` и `caddy adapt` в одноразовом контейнере того же тега → `reload` (не
@@ -121,3 +122,18 @@ flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev
 `infra/server/deploy-remote.sh` перезаписывает `/opt/remlab/.env` машинно (строка `REMLAB_IMAGE`).
 Правило: после такой правки прогнать `docker compose config --quiet` — он молча подтверждает, что
 файл разбирается. СТОРОЖА В СКРИПТАХ НЕТ: проверка процедурная, её делает человек (сверка 11.10).
+
+## Безопасность (13.10, ADR-0256; перенесено из Tier 1)
+- ПДн — только в базе: заявки «отправить себе» — `share_requests` (90 дней) через внутреннюю ручку
+  `app/api/internal/share-request/route.ts` (секрет `INTERNAL_API_TOKEN` в `/opt/remlab/.env` и
+  `/opt/remlab/draft/.env`; снаружи Caddy 404 на `/api/internal/*`).
+- Лимиты частоты и дневной потолок платного — `lib/ratelimit/*` (таблица `rate_limits`); у сервиса кадров —
+  свой счёт в памяти (`tools/scout/draft_guard.py`).
+- Закрыто без секрета: вебхук ЮKassa (IP + перезапрос API), Telegram-вебхуки (401), трейсы и подписанные
+  фото в production; токен трейса — только заголовком `x-trace-token`.
+- Заголовки на весь сайт: `frame-ancestors 'self'`, `nosniff`, `Referrer-Policy` (`caddy/Caddyfile`).
+- Ежечасный `infra/server/disk-watchdog.sh`: чистит просроченные `share_requests`/старые `rate_limits`, будит
+  владельца при файлах `_queue` под веб-корнем и при расхождении `Caddyfile` со снимком `Caddyfile.deployed`.
+- После деплоя — шаг `tools/security-smoke.sh` (13 проверок снаружи, без отката).
+- `remlab-draft` вне compose, свежий код — в слое контейнера (урок 474): пересоздание только
+  `infra/server/draft-run.sh` (снимок `docker commit` → запуск из снимка, старый — `remlab-draft-prev`).

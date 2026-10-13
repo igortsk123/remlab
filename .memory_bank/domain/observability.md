@@ -3,7 +3,7 @@ tier: 2
 topic: observability-details
 scope: Детали трейсинга AI-пайплайна — БД, env, роуты, подписанные URL, imagor, ретеншн, гочи прода
 tier1: ../core/observability-tracing.md
-updated: 2026-08-06
+updated: 2026-10-13
 importance: high
 source: manual
 status: working
@@ -47,7 +47,8 @@ imagor читает файл из `FILE_LOADER_BASE_DIR` (= том TRACE_DIR) п
   input/intermediate/output.
 - CLI: `pnpm trace <N>` (`tools/trace-show.mjs`) — из БД, печатает путь + пути к файлам-ассетам.
 - `GET /api/trace/<N>` (JSON + asset URLs), `GET /api/trace/asset/<id>` (байты) — за admin-гардом
-  `TRACE_ADMIN_TOKEN` (токен не задан = dev → открыто). Кнопка «Сообщить о проблеме» →
+  `TRACE_ADMIN_TOKEN` — только заголовком `x-trace-token` (`?token=` с 13.10 не принимается, ADR-0256);
+  токен не задан: в production закрыто, в dev открыто (`lib/trace/admin.ts:traceAdminOk`). Кнопка «Сообщить о проблеме» →
   `POST /api/trace/report`.
 
 ## Подписанные ссылки на ассеты (`lib/trace/sign.ts`, `lib/trace/admin.ts`)
@@ -55,7 +56,8 @@ imagor читает файл из `FILE_LOADER_BASE_DIR` (= том TRACE_DIR) п
 - Подпись — HMAC-SHA256 от `id.exp` на ключе `TRACE_ADMIN_TOKEN` (отдельный секрет не заводим; HMAC
   односторонний — токен из ссылки не восстановить). TTL — `TRACE_ASSET_TTL_MS`, дефолт 7 дней.
 - Владелец открывает картинку в браузере, админ-токен НЕ раскрывается. Asset-роут пускает по валидной
-  подписи (`verifyAssetSig`, timingSafeEqual) ИЛИ по admin-гарду. Токен не задан (dev) → без подписи.
+  подписи (`verifyAssetSig`, timingSafeEqual) ИЛИ по admin-гарду. Токен не задан: в dev — без подписи,
+  в production — закрыто (`lib/trace/sign.ts:verifyAssetSig`, ADR-0256).
 
 ## Env
 | Переменная | Значение |

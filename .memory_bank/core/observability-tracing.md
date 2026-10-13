@@ -3,7 +3,7 @@ tier: 1
 topic: observability-tracing
 scope: Трейсинг AI-пайплайна — лог, разбор
 tier2: ../domain/observability.md
-updated: 2026-09-28
+updated: 2026-10-13
 importance: high
 source: manual
 status: working
@@ -40,7 +40,7 @@ input-ассет. Без `IMAGOR_BASE_URL` — исходник.
 
 ## Разбор («генерация N»)
 Скилл `/trace` (дословно промпты/ответы + фото); CLI `pnpm trace <N>`; `GET /api/trace/<N>`,
-`/api/trace/asset/<id>` за `TRACE_ADMIN_TOKEN`. Ссылки на картинки — подписанные (HMAC, TTL 7д).
+`/api/trace/asset/<id>` за `TRACE_ADMIN_TOKEN` (только заголовок `x-trace-token`; без токена в проде закрыто, ADR-0256). Ссылки на картинки — подписанные (HMAC, TTL 7д).
 
 ## Хранение/приватность
 Named-том `remlab-traces` (bind на `/opt/remlab/data/traces` НЕТ): в app —

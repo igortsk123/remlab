@@ -18,6 +18,8 @@ export async function POST(req: Request): Promise<Response> {
   const paymentId = typeof body?.object?.id === "string" ? body.object.id : "";
   if (!paymentId) return NextResponse.json({ ok: false }, { status: 400 });
   const status = await fetchPaymentStatus(paymentId);
+  // API не ответил — 503: ЮKassa повторит уведомление, иначе оплата потерялась бы молча.
+  if (status === null) return NextResponse.json({ ok: false }, { status: 503 });
   if (status === "succeeded") {
     await track("pack_unlocked", "system", { provider: "yookassa", paymentId });
   }

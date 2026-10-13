@@ -3,7 +3,7 @@ tier: 1
 topic: leads
 scope: Лид-канал — заявка, TG-бот
 tier2: ""
-updated: 2026-09-28
+updated: 2026-10-13
 importance: high
 source: manual
 status: working
@@ -37,7 +37,8 @@ review_after: 2026-12-05
 доступ — sup2 `_secrets/ACCESS.md`) + setWebhook обоих ботов на `/api/leads/tg-{admin,client}`.
 Без токенов всё деградирует (заявки пишутся, карточки/ответы — нет). ПДн — TODO (юрист).
 
-> Сверено 2026-08-28: изменений в лид-канале нет; новое — очередь отправки подборок демо (`/opt/remlab/test/share/_queue`) ждёт те же токены ботов (`LEADS_CLIENT_TG_TOKEN`, MAX).
+> 13.10 (ADR-0256): «отправить себе» с демо → `share_requests` (`app/api/internal/share-request/route.ts`),
+> доставщика нет (`b2b-05`); заявка — 5/10 мин с адреса; TG-вебхуки без секрета — 401.
 
 > Сверено с кодом 2026-09-28. Поправки к «Активации»: нужны `NEXT_PUBLIC_TELEGRAM_BOT` и
 > `NEXT_PUBLIC_MAX_BOT` (`LeadModal.tsx:17-18`) — без них кнопки «Подписаться» не рисуются;

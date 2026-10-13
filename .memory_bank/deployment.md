@@ -20,12 +20,10 @@ review_after: 2026-12-05
 - https://remont-lab.online (A → 89.167.127.0, без CF); LE TLS-ALPN-01 :443, Caddy (ADR-0003).
 - Контейнеры: `app`, `caddy`, `db`, `imagor`, `traces-init`, `mesh-receiver` (`docker-compose.yml`,
   сеть `remlab-net`, ADR-0004). Вне compose `draft:8099` (рендер демо) — Caddy проксирует `/api/{draft,warm,render,job,share}*`.
-- Статика: `/test/*` → `./test`, `/demo` → `./demo` (ADR-0201), `/test/mesh-audit/*` immutable
-  (ADR-0194); `/rt/*` → `./test/rt` — модели конфигуратора, immutable неделя (ADR-0212), кладёт
-  `tools/assets/publish_rt.sh`; `/lab/*` — Next.
+- Статика: `/test/*`, `/demo` (ADR-0201), `/test/mesh-audit/*` и `/rt/*` immutable (ADR-0194, 0212); `/lab/*` — Next.
   Без парного `redir /x /x/` — 404 без слэша.
-- **Caddyfile:** автодеплой НЕ возит (CI — compose, `db/init`, `scripts`); `./deploy.sh` копирует с
-  предохранителем `comm`. Руками: бэкап → `diff` с сервером → `validate` → `reload`. **Один сервис — только `up -d --no-deps`**: иначе `app`
+- **Caddyfile едет деплоем** (`infra/server/caddy-sync.sh`, ADR-0256) — руками на сервере НЕ править.
+  **Один сервис — только `up -d --no-deps`**: иначе `app`
   пересоздаётся на дефолтном образе и прод откатывается (ADR-0202; образ — в `.env`).
 
 ## Сервер
@@ -46,9 +44,10 @@ Push в `main` → CI gate → `Deploy prod` (`deploy.yml`, по `workflow_run.h
 ## Безопасность (инцидент 08.09, ADR-0207)
 Патчи с публичным RCE — сразу (CVE-2025-55182: на 15.5.4 приехал майнер; сейчас 15.5.25).
 Журнал и заслон `@nextrce` в Caddy не снимать; подробности — Tier 2.
-**13.10 (ADR-0248):** ПДн — только в базе; очередь подборок закрыта; Caddyfile репо = сервер.
+**13.10 (ADR-0256):** ПДн только в базе; без секрета всё закрыто; после деплоя `tools/security-smoke.sh`;
+`remlab-draft` пересоздавать только `infra/server/draft-run.sh` (урок 474). Детали — Tier 2 § Безопасность.
 
 ## Сторожа
-Каталог (ADR-0172), диск `cleanup.sh` (ADR-0005). Правка сервера = бэкап + rollback.
+Каталог (ADR-0172), диск `cleanup.sh` (ADR-0005), безопасность — `disk-watchdog.sh`. Правка сервера = бэкап + rollback.
 
 **Tier 2:** `domain/deployment-details.md` — конвейер, две базы, Caddy и статик, сторожа.

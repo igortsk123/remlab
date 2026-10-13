@@ -38,3 +38,4 @@
 - 2026-10-13 — единая очередь работ: MASTER-cost-first переписан (11 этапов, 33 плана, ≈420 ч), прежний текст в archive как MASTER-cost-first-v04-2026-07; 7 поглощённых планов в архив; ADR-0255 (одно «деплой» на мастер); правило agent-workflow дополнено.
 - 2026-10-13 — круг 3 (astra): 3 расхождения с кодом, 6 формулировок — внесены; сходимость достигнута (<5); вердикт «путь складывается».
 - 2026-10-13 — владелец: zones-v7/q12 пока в архив, demo-flow-3d-en в архив, test-to-work забыть, health-map убрать, viz-regional-masks не актуален → 6 планов в archive; в plans/ остались 29 (28 новых + dims-round-objects, flat3d-sims-ux, memory-kit) — проверить число.
+- 2026-10-13 — (сессия Opus «деплой MASTER-cost-first») b2b-01 выкачен и сведён: ADR-0256, уроки 474–475, deployment/leads/observability/data-model/demo-planner-ui/integrations обновлены, project-state переписан; b2b-02 в работе
