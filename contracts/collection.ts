@@ -43,7 +43,7 @@ export type CollectionIn = z.infer<typeof collectionIn>;
 /** Текущая цена товара при открытии коллекции: из витрины; нет в витрине — `unavailable`. */
 export type CurrentPrice = {
   price: number | null; priceAt: string | null; unavailable: boolean; temporarilyUnavailable?: boolean;
-  name?: string; url?: string | null; shop?: string | null;
+  name?: string; url?: string | null; shop?: string | null; img?: string | null;
 };
 
 export type CollectionOut = CollectionIn & {

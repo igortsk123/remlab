@@ -1,4 +1,6 @@
 <!doctype html><html lang="ru"><head>
+<script>/* ссылку на коллекцию `#c=<id>` запоминаем ДО того, как страница перепишет адрес на открытый вариант (b2b-05) */
+window.__collHash=(String(location.hash).match(/^#c=([A-Za-z0-9_-]{22})/)||[])[1]||'';</script>
 <meta charset="utf-8"><!-- ЗУМ РАЗРЕШЁН (аудит 01.09, Б1): запрет масштабирования на странице с планом и мелкими
      подписями — прямой вред. Жесты на самом плане изолированы `touch-action:none` у #stage,
      поэтому перетаскивание предметов от зума страницы не страдает. -->
@@ -798,6 +800,9 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
          была, чтоб кидать мог»). Кнопка кладёт в буфер ссылку вида …/demo/#v=set13 — она
          открывает демо сразу на этом варианте и его фотографии. -->
     <button class="btn" id="shLink" hidden>Ссылка</button>
+    <!-- СВОЯ РАССТАНОВКА — СВОЯ ССЫЛКА (b2b-05): «Ссылка» выше ведёт на готовый вариант, а эта кнопка
+         сохраняет то, что человек передвинул и заменил, и даёт ссылку на ЕГО коллекцию. -->
+    <button class="btn" id="shSave" hidden>Сохранить коллекцию</button>
     <button class="btn ghost" id="shotclose">Закрыть</button>
   </div>
 </div></div><div id="peek"></div>
@@ -1014,6 +1019,7 @@ function showTab(which){
 function hashFor(which){
   if(which==='plan')return '#plan';
   const vid=curVid();
+  if(/^c:[A-Za-z0-9_-]{22}$/.test(vid||''))return '#c='+vid.slice(2);   // коллекция покупателя — своя ссылка
   return vid?('#v='+encodeURIComponent(vid)):'#room';
 }
 function syncHash(which){
@@ -1034,6 +1040,13 @@ function copyLink(vid,btn){
 }
 // АДРЕС → ЭКРАН. Вызывается при старте и при смене адреса (в том числе кнопкой «назад»).
 function applyHash(){
+  const c=String(location.hash||'').match(/^#c=([A-Za-z0-9_-]{22})$/);
+  if(c){   // коллекция: пока не пришла с сервера — её откроет блок коллекций (номер запомнен в <head>)
+    const i=allVariants().findIndex(v=>v.cid===c[1]);
+    if(i>=0&&i!==cur){ cur=i; load(); showSwap(); drawColl(true); }
+    showTab('room');
+    return;
+  }
   const m=String(location.hash||'').match(/^#v=(.+)$/);
   if(m){
     const vid=decodeURIComponent(m[1]);
@@ -2289,7 +2302,7 @@ function shotOpen(html,cap){const sb=document.getElementById('shotbody');
   document.getElementById('shotcap').innerHTML=cap||'';
   // Действия просмотра кадра включает только сам просмотр (`viewShot`): на экранах ожидания и
   // отправки «В избранное»/«Изменить планировку» не к чему применить.
-  ['shPick','shEdit','shLink'].forEach(id=>{const b=document.getElementById(id); if(b)b.hidden=true;});
+  ['shPick','shEdit','shLink','shSave'].forEach(id=>{const b=document.getElementById(id); if(b)b.hidden=true;});
   document.getElementById('shot').classList.add('on');
   // ФОКУС ПЕРЕХОДИТ В ОКНО (аудит 01.09, Д4): иначе с клавиатуры он остаётся на странице под
   // модалкой, и следующий Tab уводит «сквозь» открытое окно.
@@ -2551,6 +2564,10 @@ function viewShot(i){
   // ССЫЛКА НА ЭТОТ ВАРИАНТ — прямо в окне (владелец 08.09): адрес открывает демо на нём же.
   const ln=document.getElementById('shLink');
   if(ln){ln.hidden=false; ln.onclick=()=>copyLink(s.vid||curVid(),ln);}
+  const sv=document.getElementById('shSave');
+  if(sv&&window.__saveCollection){sv.hidden=false; sv.onclick=()=>{
+    const vi=allVariants().findIndex(v=>(v.id||'')===(s.vid||'')); if(vi>=0&&vi!==cur)pickVariant(vi);
+    window.__saveCollection();};}
   const ed=document.getElementById('shEdit');
   if(ed){ed.hidden=false;
     ed.onclick=()=>{
@@ -3429,7 +3446,7 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
       // пропавший из витрины товар остаётся на месте с пометкой и в сумму не входит; витрина не ответила —
       // остаётся цена из снимка (без даты)
       if(p.unavailable){o.price=0;o.unavailable=true;o.name=(o.name||'')+(EN()?' — no longer in the showroom':' — сейчас нет в витрине');}
-      else if(p.price){o.price=p.price;o.price_at=p.priceAt;if(p.name)o.name=p.name;if(p.url)o.url=p.url;}
+      else if(p.price){o.price=p.price;o.price_at=p.priceAt;if(p.name)o.name=p.name;if(p.url)o.url=p.url;if(p.img)o.img=p.img;}
       return o;};
     var own=(list().find(function(x){return x.id===c.id;})||{}).own;
     var label=own?(EN()?'my collection':'моя коллекция'):(EN()?'shared collection':'коллекция по ссылке');
@@ -3441,10 +3458,12 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
   function fetchOne(id){return fetch('/api/collections/'+id,{cache:'no-store'}).then(function(r){return r.ok?r.json():null;})
     .then(function(j){return j&&j.ok?asVariant(j.collection):null;}).catch(function(){return null;});}
   function openId(id){var i=allVariants().findIndex(function(v){return v.cid===id;});
-    if(i>=0){cur=i;load();showSwap();drawColl(true);showTab('room');}}
+    if(i>=0){cur=i;load();showSwap();drawColl(true);showTab('room');
+      // человек пришёл по ссылке ради этой расстановки — сразу открываем её состав (как «Открыть»), а не витрину
+      setTimeout(function(){try{openSwapFull();}catch(_){}},200);}}
   function boot(){
     if(typeof D==='undefined'||!D)return setTimeout(boot,300);
-    var want=(String(location.hash).match(/^#c=([A-Za-z0-9_-]{22})/)||[])[1];
+    var want=window.__collHash||(String(location.hash).match(/^#c=([A-Za-z0-9_-]{22})/)||[])[1];
     var ids=list().map(function(x){return x.id;}); if(want&&ids.indexOf(want)<0)ids.unshift(want);
     Promise.all(ids.slice(0,10).map(fetchOne)).then(function(vs){
       vs.forEach(function(v){if(v)MINE.push(v);}); if(MINE.length)drawColl(true);
@@ -3473,7 +3492,7 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
       .then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});}).then(function(x){
         if(!x.ok||!x.j.ok)throw new Error(x.j&&x.j.message||'');
         var url=location.origin+'/demo/'+(window.__LANG==='en'?'?lang=en':'')+'#c='+x.j.id;
-        try{navigator.clipboard.writeText(url);}catch(_){}
+        try{navigator.clipboard.writeText(url).catch(function(){});}catch(_){}
         remember(x.j.id,'',true);
         return fetchOne(x.j.id).then(function(v){if(v){MINE.unshift(v);remember(x.j.id,v.style,true);drawColl(true);}
           shotOpen('<div class="wait">'+(EN()?'Collection saved. The link is copied — send it to anyone:':'Коллекция сохранена. Ссылка скопирована — её можно отправить кому угодно:')+
@@ -3481,6 +3500,7 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
       }).catch(function(e){shotOpen('<div class="wait">'+(EN()?'Could not save, please try again.':'Не получилось сохранить, попробуйте ещё раз.')+'</div>','');})
       .finally(function(){if(btn)btn.disabled=false;});
   }
+  window.__saveCollection=save;
   document.addEventListener('click',function(e){if(e.target&&e.target.id==='collSave'){e.preventDefault();save();}});
   boot();
 })();
@@ -3547,7 +3567,7 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
     [/^(\d+) (предмет|предмета|предметов) ·$/,function(m){return m[1]+' items ·';}],
     [/^(\d+) (вид|вида|видов)$/,function(m){return m[1]+(m[1]==='1'?' view':' views');}],
     [/^Итого (\d+) товар\S*$/,function(m){return 'Total '+m[1]+' items';}],
-    [/^Мебель варианта «(.+)»$/,function(m){return 'Furniture of the '+(STYLE[m[1]]||m[1])+' option';}],
+    [/^Мебель варианта «(.+)»$/,function(m){return 'Furniture: '+m[1].split(' · ').map(function(x){return STYLE[x]||x;}).join(' · ');}],
     [/^(my collection|shared collection) · (.+)$/,function(m){return m[1]+' · '+(STYLE[m[2]]||m[2]);}],
     [/^Выбрать: (.+)$/,function(m){return 'Choose: '+(role(m[1])||m[1]);}],
     [/^(\d+) товар\S* · сейчас (.+)$/,function(m){return m[1]+' items · now '+cm(m[2]);}],

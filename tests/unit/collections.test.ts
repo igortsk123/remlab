@@ -56,4 +56,11 @@ describe("коллекции", () => {
     expect(cur["1_gone"]).toEqual({ price: null, priceAt: null, unavailable: true });
     expect(currentPrices(["1_a"], null)["1_a"]).toMatchObject({ unavailable: false, temporarilyUnavailable: true }); // витрина не ответила — не «пропал»
   });
+
+  it("фото товара — только путь витрины или картинка магазина", () => {
+    const idx = priceIndex([{ sid: "1_a", name: "А", price: 1, img: "img/a.webp" }, { sid: "1_b", name: "Б", price: 1, img: "//imgng.gdeslon.ru/x/big.jpg" },
+      { sid: "1_c", name: "В", price: 1, img: "javascript:alert(1)" }, { sid: "1_d", name: "Г", price: 1, img: "img/\"><script>" }]);
+    const cur = currentPrices(["1_a", "1_b", "1_c", "1_d"], idx);
+    expect([cur["1_a"]!.img, cur["1_b"]!.img, cur["1_c"]!.img, cur["1_d"]!.img]).toEqual(["img/a.webp", "//imgng.gdeslon.ru/x/big.jpg", null, null]);
+  });
 });

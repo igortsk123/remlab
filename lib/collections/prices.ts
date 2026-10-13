@@ -5,7 +5,10 @@
 
 import type { CurrentPrice } from "@/contracts/collection";
 
-export type ShowcaseSku = { sid: string; msid?: string; name: string; url?: string; shop?: string; price: number; priceAt: string | null; pack?: number };
+export type ShowcaseSku = { sid: string; msid?: string; name: string; url?: string; shop?: string; img?: string; price: number; priceAt: string | null; pack?: number };
+
+// фото — путь витрины `img/…` или картинка магазина (`https:`/`//`); остальное не отдаём
+const IMG_RE = /^(img\/[\w.\/-]+|(https:)?\/\/[^\s"'<>]+)$/;
 
 /** sid → карточка по всем местам витрины (варианты, ленты замен, комплекты). Первая запись побеждает. */
 export function priceIndex(raw: unknown): Map<string, ShowcaseSku> {
@@ -21,6 +24,7 @@ export function priceIndex(raw: unknown): Map<string, ShowcaseSku> {
         ...(typeof o.msid === "string" ? { msid: o.msid } : {}),
         ...(typeof o.url === "string" && /^https?:\/\//.test(o.url) ? { url: o.url } : {}),
         ...(typeof o.shop === "string" ? { shop: o.shop } : {}),
+        ...(typeof o.img === "string" && IMG_RE.test(o.img) ? { img: o.img } : {}),
         ...(typeof o.pack === "number" && o.pack > 0 ? { pack: Math.round(o.pack) } : {}),
       });
     }
@@ -35,7 +39,7 @@ export function currentPrices(sids: string[], idx: Map<string, ShowcaseSku> | nu
   for (const sid of sids) {
     const e = idx?.get(sid);
     out[sid] = !idx ? { price: null, priceAt: null, unavailable: false, temporarilyUnavailable: true }
-      : e ? { price: e.price, priceAt: e.priceAt, unavailable: false, name: e.name, url: e.url ?? null, shop: e.shop ?? null }
+      : e ? { price: e.price, priceAt: e.priceAt, unavailable: false, name: e.name, url: e.url ?? null, shop: e.shop ?? null, img: e.img ?? null }
       : { price: null, priceAt: null, unavailable: true };
   }
   return out;
