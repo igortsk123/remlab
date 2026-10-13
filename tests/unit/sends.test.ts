@@ -68,6 +68,13 @@ describe("события покупателя и антишум", () => {
     expect((await store.getSend(s.id))?.status).toBe("opened");
   });
 
+  it("«открыл 3D» двигает статус «выбирает», но сигнала менеджеру не шлёт (b2b-03)", async () => {
+    const s = (await createSend(mgr(), "flat215", "page", null, T0, store))!;
+    await recordBuyerEvent(s.id, { kind: "flat3d_open" }, at(1), store);
+    expect(store.outbox).toEqual([]);
+    expect((await store.getSend(s.id))!.status).toBe("engaged");
+  });
+
   it("повторный клик «консультация» в течение 2 минут не дублирует сигнал", async () => {
     const s = (await createSend(mgr(), "flat215", "page", null, T0, store))!;
     const click = { kind: "manager_contact_click" as const, purpose: "consult" as const, channel: "whatsapp" as const, sum: 150000 };

@@ -48,8 +48,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <MetrikaPageviews />
         <Script id="yandex-metrika" strategy="afterInteractive">
           {`
-            // Страница менеджера (/manager) — без Метрики и Вебвизора: на ней ссылки покупателей (план b2b-02).
-            if (location.pathname.indexOf('/manager') !== 0) (function(m,e,t,r,i,k,a){
+            // Страницы менеджера (/manager) и отчёта застройщику (/partner) — без Метрики и Вебвизора (планы b2b-02/03).
+            if (location.pathname.indexOf('/manager') !== 0 && location.pathname.indexOf('/partner') !== 0) (function(m,e,t,r,i,k,a){
               m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
               m[i].l=1*new Date();
               for(var j=0;j<document.scripts.length;j++){if(document.scripts[j].src===r){return;}}

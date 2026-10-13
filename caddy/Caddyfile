@@ -17,6 +17,7 @@ remont-lab.online {
 			wrap json
 			fields {
 				request>headers>X-Manager-Key delete
+				request>headers>X-Partner-Key delete
 				request>headers>X-Internal-Token delete
 				request>headers>X-Trace-Token delete
 				request>headers>X-Telegram-Bot-Api-Secret-Token delete

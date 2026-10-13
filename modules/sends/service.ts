@@ -90,7 +90,7 @@ export async function recordBuyerEvent(
     if (await store.claimReopen(id, now, REOPEN_SIGNAL_MS)) await signal(store, s, "reopen", openText(s, true), now);
   } else if (ev.kind === "variant_view" || ev.kind === "item_swap") {
     if (!s.summaryDueAt) await store.updateSend(id, { summaryDueAt: new Date(now.getTime() + SUMMARY_DELAY_MS) });
-  } else {
+  } else if (ev.kind === "manager_contact_click" || ev.kind === "alternative_request") {
     // Дедуп одинаковых кликов — атомарной отметкой (`dedup_marks`), а не чтением событий: два
     // одновременных клика (sendBeacon + повтор) оба прошли бы проверку «не было» (verify 13.10).
     const key = `send-click:${id}:${ev.kind}:${ev.purpose ?? ""}:${ev.reason ?? ""}`;

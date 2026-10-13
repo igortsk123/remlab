@@ -14,6 +14,7 @@ export const buyerEventKind = z.enum([
   "item_swap", // заменил предмет
   "manager_contact_click", // нажал «консультация»/«ипотека» — это клик, не состоявшийся контакт
   "alternative_request", // «хочу другой вариант» с причиной из списка
+  "flat3d_open", // открыл квартиру в 3D по этой ссылке (b2b-03); сохранение коллекции считается из `collections`
 ]);
 export type BuyerEventKind = z.infer<typeof buyerEventKind>;
 

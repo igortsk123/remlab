@@ -3380,6 +3380,26 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
 })();
 </script>
 <script>
+/* ——— СЧЁТЧИКИ БЕЗ ССЫЛКИ МЕНЕДЖЕРА (план b2b-03, ADR-0265). Заход «напрямую» (без `?s=`) даёт +1 к
+   дню × квартире × действию в отчёте застройщика — без идентификаторов, без cookie. Имена действий —
+   из `contracts/analytics.ts:pageCounterKind` (тест сверяет). Автотесты (webdriver) не считаются. */
+(function(){
+  if(/[?&]s=[A-Za-z0-9_-]{22}(?:&|$)/.test(location.search)||navigator.webdriver)return;
+  var lastV=null;
+  function hit(kind){
+    var apt=(typeof FLAT!=='undefined'&&FLAT&&FLAT.id)||(typeof D!=='undefined'&&D&&D.apartment_id); if(!apt)return;
+    var body=JSON.stringify({apartmentId:apt,kind:kind,lang:window.__LANG==='en'?'en':'ru'});
+    try{if(navigator.sendBeacon&&navigator.sendBeacon('/api/events',new Blob([body],{type:'application/json'})))return;}catch(e){}
+    fetch('/api/events',{method:'POST',headers:{'content-type':'application/json'},body:body,keepalive:true}).catch(function(){});
+  }
+  var _pv=window.pickVariant; if(typeof _pv==='function')window.pickVariant=pickVariant=function(i){var r=_pv.apply(this,arguments);
+    if(i!==lastV){lastV=i;hit('variant_view');}return r;};
+  var _to=window.tryOn; if(typeof _to==='function')window.tryOn=tryOn=function(){var r=_to.apply(this,arguments);hit('item_swap');return r;};
+  function boot(){if(typeof D==='undefined'||!D)return setTimeout(boot,300);hit('designer_open');}
+  boot();
+})();
+</script>
+<script>
 /* ——— КУХНЯ ОТ ПАРТНЁРОВ ЗАСТРОЙЩИКА (b2b-10 этап 0, ADR-0262). Вкладка «Кухня» оживает, только если в
    карточке квартиры есть группа опций «кухня»: плитки вариантов с ценой («входит в цену» / «+X» / «цена
    уточняется у менеджера»). Без посадки в план и без стилей — это переключатель опций застройщика.

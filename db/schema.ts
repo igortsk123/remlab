@@ -2,7 +2,7 @@
 // session_id вынесен колонкой для выборок workspace. Расширение на нормальные таблицы — позже.
 // Трейсинг пайплайна (ADR-0013): runs/steps/assets — подробный лог каждого вызова LLM.
 
-import { pgTable, text, jsonb, timestamp, integer, bigint, doublePrecision, boolean, index, serial, uniqueIndex, primaryKey, bigserial } from "drizzle-orm/pg-core";
+import { pgTable, text, jsonb, timestamp, integer, bigint, doublePrecision, boolean, index, serial, uniqueIndex, primaryKey, bigserial, date } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { Project } from "@/contracts/project";
 import type { Estimate } from "@/contracts/estimate";
@@ -450,4 +450,30 @@ export const collections = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull().default(sql`now() + interval '365 days'`),
   },
   (t) => [index("collections_send_idx").on(t.sendId).where(sql`send_id is not null`), index("collections_expires_idx").on(t.expiresAt)],
+);
+
+// Отчёт застройщику (план b2b-03, ADR-0265): анонимные счётчики и ключи страницы отчёта (только хеш).
+export const pageCounters = pgTable(
+  "page_counters",
+  {
+    day: date("day", { mode: "string" }).notNull(),
+    partnerId: text("partner_id").notNull(),
+    apartmentId: text("apartment_id").notNull(),
+    kind: text("kind").notNull(),
+    lang: text("lang").notNull(),
+    n: integer("n").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.day, t.partnerId, t.apartmentId, t.kind, t.lang] })],
+);
+
+export const partnerKeys = pgTable(
+  "partner_keys",
+  {
+    keyHash: text("key_hash").primaryKey(),
+    partnerId: text("partner_id").notNull(),
+    label: text("label"),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("partner_keys_partner_idx").on(t.partnerId)],
 );

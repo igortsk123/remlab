@@ -1,12 +1,14 @@
 import { notFound } from "next/navigation";
 
 import { FlatConfigurator } from "@/components/flat3d/FlatConfigurator";
+import { OpenBeacon } from "@/components/flat3d/OpenBeacon";
 import type { Configuration } from "@/contracts/configurator";
 import { baseSnapshotOf, staleSlots } from "@/lib/configurator/fromDemo";
 import { readConfig } from "@/lib/configurator/repo";
 import { defaultApartmentId, resolveFlat } from "@/lib/configurator/source";
 import { apartmentCard } from "@/lib/partners/registry";
 import type { Lang } from "@/lib/configurator/i18n";
+import { TOKEN_RE } from "@/lib/token";
 
 export const metadata = {
   title: "Соберите свою квартиру — RemLab",
@@ -102,6 +104,7 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
             : `С момента сохранения набор на витрине обновился: ${stale.length} предм. показаны из текущего набора.`}
         </p>
       ) : null}
+      <OpenBeacon apartmentId={hit.apartment.id} sendId={sp.s && TOKEN_RE.test(sp.s) ? sp.s : null} lang={lang} />
       <FlatConfigurator
         apartment={apartment}
         catalogue={catalogue}
