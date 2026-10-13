@@ -3,7 +3,7 @@ tier: 1
 topic: styles
 scope: Стили — паспорта, скоринг, сеты
 tier2: ../domain/interior-styles.md
-updated: 2026-10-11
+updated: 2026-10-13
 last_verified: 2026-10-11
 importance: high
 source: manual
@@ -30,5 +30,10 @@ sets3.json; судья со style_grade, замены только ниже по
 `style-scores.json` — фолбэк, в таком порядке (`tools/scout/compose2.py:538`). В JSON ключ — МОДЕЛЬ,
 не артикул: читать по артикулу в лоб = потерять 21% пула. Пул скоринга — `lr_roles`, и ролей
 `тв-тумба`/`банкетка` там НЕТ вовсе. Механика и замеры — Tier 2 § «Чтение оценок».
+
+**13.10:** источник №1 — признаки+правила (`tools/scout/style_attrs.py`, фото 448 px low);
+№2 — `tools/scout/style_score.py` по ТЕКСТУ (фото не видит). Источники не согласны, оба
+нормируют балл внутри товара → порог «≥ 6» невалиден; эталона человека нет. Решение владельца:
+единый вектор, «в стиле» = балл ≥ 6 — планы `conv-01`, `conv-02`.
 
 **Tier 2:** ../domain/interior-styles.md

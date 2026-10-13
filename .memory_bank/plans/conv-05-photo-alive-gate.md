@@ -1,0 +1,78 @@
+---
+workstream: catalog
+slug: conv-05-photo-alive-gate
+title: «Фото есть» = фото реально скачалось — один предикат для стиля, мешей, сетов и демо
+status: draft
+created: 2026-10-13
+updated: 2026-10-13
+completed:
+plan_kind: sub
+parent_plan: MASTER-conveyor-gaps
+assignee: opus-5.5
+review_after: 2026-11-13
+---
+
+## Цель
+Товар участвует в стиль-скоринге, очереди мешей, сетах и демо только если его фото реально
+скачивается (а не просто есть ссылка). Один предикат `photo_alive(mid, eid)` в одном месте,
+все четыре потребителя читают его.
+
+## Источник задачи
+Владелец 13.10: «ограничение «только с фото» выполняется формально — надо неформально: если
+фотография реально скачалась, тогда ок; анализировать не надо».
+
+## Диагноз (сверено 13.10)
+- Есть `tools/scout/img_alive.py` (кэш `img-alive.json`, TTL 14 дней, обход пула 25 мин/день)
+  — его читают `candidates.py:51-88` (отбор в сеты) и `flat215_demo.py:506` (только позиции
+  сета, не пул замен).
+- НЕ читают: `style_score.py:47` (`image_url is not null`), `mesh_bind.py:81-109`
+  (`image_url is not null`), `demo_swap_pool.py` (пул замен), `enrich.py` (там своя скачка
+  с кэшем — фактически живость, но результат никуда не пишется).
+- Сигналы живости уже рождаются в трёх местах (кэш обогащения `golden_label._image_b64`,
+  `cutout_sync` скачивает HD, `img_alive`) и не сходятся в одно поле.
+
+## Скоуп — что входит
+1. Поле в базе: `products.photo_alive_at` (timestamp) + `photo_alive` (bool, NULL = не
+   проверяли). Пишет ОДИН писатель — `img_alive.py` (как `stock_truth.reconcile()` у наличия);
+   обогащение и вырезка при удачной скачке тоже отмечают через тот же модуль (не писать в базу
+   напрямую).
+2. Предикат `photo_alive()` в `catalog_rules.py` (или где живёт `daily_todo`) — SQL-фрагмент и
+   Python-функция; `style_score`, `mesh_bind`, `candidates`, `demo_swap_pool` используют его.
+   NULL (не проверено) — НЕ блокирует, но считается и видно в дайджесте.
+3. Порядок в `refresh_daily.sh`: `pool_photos` (`img_alive --pool`) ДО `style_score` и до
+   ночного `mesh_bind` — сейчас он идёт после (`:313` против `:291`). Бюджет обхода поднять,
+   если пул не обходится за 2–3 дня (замерить).
+4. Процесс-тест: «в очереди мешей нет товара с `photo_alive=false`»; «в стиль-пуле — тоже».
+
+## Скоуп — что НЕ входит
+- Анализ качества фото (мутное, мелкое) — это `photo_assessment` вырезки, другой слой.
+
+## Файлы к изменению
+- [ ] `tools/scout/img_alive.py` — запись в базу, единственный писатель
+- [ ] `tools/scout/bootstrap.sql` / миграция `tools/scout/NNN` — поля
+- [ ] `tools/scout/catalog_rules.py` — предикат
+- [ ] `tools/scout/style_score.py`, `mesh_bind.py`, `candidates.py`, `demo_swap_pool.py` — потребители
+- [ ] `tools/scout/refresh_daily.sh` — порядок шагов
+- [ ] `tools/scout/tests_chain.py`, `tools/scout/load3.py --selftest` при необходимости
+
+## Критерии приёмки
+- [ ] Один писатель поля; четыре потребителя читают предикат (grep по `image_url is not null`
+  в этих файлах = 0)
+- [ ] Отчёт: сколько товаров отпало как «фото мертво» по каждому потребителю
+- [ ] Тесты зелёные
+
+## Где советоваться с Codex
+- Нужно ли (п.4 правила — данные): как хранить NULL/false/true и TTL, чтобы не блокировать
+  новинки и не держать мёртвое.
+
+## Definition of Done — память
+- [ ] `core/catalog.md` (блок «фото живое»), `core/pipeline-order.md` (порядок шагов); ADR; `/memory-check`
+
+## Лог выполнения
+- 2026-10-13 — план создан (draft), Fable 5.1
+
+## Completion summary
+—
+
+### Уроки
+—

@@ -2,10 +2,13 @@
 workstream: memory
 slug: memory-kit-v19-migration
 title: Переход памяти remlab на кит v1.9 (механизмы точности из sup2) + уборка банка
-status: in_progress
+status: partial
 created: 2026-09-28
-updated: 2026-09-28
+updated: 2026-10-13
 completed:
+pause_reason: ведёт сессия sup2; без движения с 28.09 (аудит PLAN-STUCK 13.10) — переведён в partial сессией Fable, содержание не менялось
+resume_trigger: возврат сессии sup2 к киту v1.9 или решение владельца
+review_after: 2026-11-13
 reviewed: Codex 28.09 (фазы переписаны)
 source: аудит 28.09 из сессии sup2 по просьбе владельца (только чтение; remlab не менялся)
 ---
