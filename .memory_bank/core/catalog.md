@@ -15,7 +15,7 @@ review_after: 2026-12-05
 # Каталог — Tier 1 сводка
 
 **Состав (11.10):** 20 552 товара, in_stock ~17 900, 7 магазинов (Орматек 93965 подключён 11.10;
-ВсеИнструменты 100237 разобран и НЕ подключён — ADR-0240); дев-БД `remlab-devdb`.
+ВсеИнструменты НЕ подключён — ADR-0240); дев-БД `remlab-devdb`.
 **Цикл:** crontab `40 10 * * *` UTC (фиды собираются 12:35 МСК) + `@reboot`; `refresh_daily.sh` — шаги
 `ok|warn|FAIL|skipped`, статус на прод, дайджест в Telegram, прод-сторож (ADR-0172, [[deployment]]).
 
@@ -35,12 +35,10 @@ commercial и image_hd — только счётчики журнала), сме
 **Наличие и размеры честно** — [[stock-and-dims]].
 
 **Стили и готовность к мешам (ADR-0237/0238).** `style_score.py` (правила → CLIP → `gpt-6-luna`, потолок
-`STYLE_DAILY_LIMIT=1000`) пишет оценки в кэш и в таблицу `product_style_scores`. Одна картина — витрина
-`catalog_ready` (`bootstrap.sql`): роль → стиль → размеры → `mesh_uri` → `готовность` (11.10: 3 532 с
-мешем, 14 411 готовы к генерации).
+`STYLE_DAILY_LIMIT=1000`) пишет оценки в кэш и в таблицу `product_style_scores`. Витрина `catalog_ready` (`bootstrap.sql`):
+роль → стиль → размеры → `mesh_uri` → готовность (11.10: 3 532 с мешем, 14 411 к генерации).
 
 **Тесты:** `--selftest` у `load3`, `dim_resolver`, `category_map`, `feed_guard`, `stock_truth`,
-`stock_check`, `footprint`, `mesh_priority` — CI `scout-selftest`. **Дыры:** 155 товаров divan.ru
-не в экспорте; пустая выгрузка `e2fccbea`; диванов без глубины 1 012/2 345.
+`stock_check`, `footprint`, `mesh_priority` — CI `scout-selftest`. **Дыры:** 155 товаров divan.ru не в экспорте; диванов без глубины 1 012/2 345.
 
 **Tier 2:** `../domain/catalog-enrichment.md` · `../domain/integrations.md` · `completed_plans/catalog-load-hardening.md`.
