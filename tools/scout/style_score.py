@@ -66,9 +66,12 @@ todo=[p for p in prods if key(p) not in cache]
 # ничего не добивал, и это выглядело как «всё уже посчитано». Режем именно несосчитанные.
 if '--limit' in sys.argv:
     LIMIT=int(sys.argv[sys.argv.index('--limit')+1])
+    # Само правило — в `catalog_rules.daily_todo`: оттуда его проверяет `tests_chain.py` тем же
+    # кодом, что работает в бою (13.10). Здесь остаётся только сообщение человеку.
+    from catalog_rules import daily_todo
     if len(todo)>LIMIT:
         print(f"дневной потолок {LIMIT}: из {len(todo)} несосчитанных беру первые {LIMIT}",flush=True)
-        todo=todo[:LIMIT]
+    todo=daily_todo(todo, LIMIT)
 print(f"пул {len(prods)} (дедуп из {len(raw)}), в кэше {len(prods)-len([p for p in prods if key(p) not in cache])}, скорить {len(todo)}",flush=True)
 
 # ---------- ступень 1: правила ----------

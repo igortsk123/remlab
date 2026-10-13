@@ -3,7 +3,7 @@ tier: 1
 topic: regression-net
 scope: Регресс-защита — тесты, CI, гардрейлы
 tier2: "../../docs/tech-spec-ts-stack.md"
-updated: 2026-10-02
+updated: 2026-10-13
 importance: high
 source: manual
 status: working
@@ -17,32 +17,33 @@ review_after: 2026-12-05
 > Сетка для соло-не-кодера: ошибки ловит автоматика. «Цель» = НЕ реализовано.
 
 ## Есть в коде
-- **Unit (Vitest, `tests/unit/`):** 25 файлов (в т.ч. `mesh-audit.test.ts`); БД — `pg-repository.test.ts`
-  (skipIf); мок — `REMLAB_FAKE_AI=1`. Память: `tests/memory-project-audit.test.mjs` (`node --test`).
+- **Unit (Vitest, `tests/unit/`):** 25 файлов; БД — `pg-repository.test.ts` (skipIf); мок —
+  `REMLAB_FAKE_AI=1`. Память: `tests/memory-project-audit.test.mjs`.
 - **e2e:** в CI — 5 smoke + 2 из 3 тестов `estimate.spec.ts` (`/calc/remont` — skip); happy path `flow.spec.ts`
   — `test.skip` с 28.07 (раздел за заглушкой); error-путей НЕТ. 3D — `serial`, ждать признак (ADR-0234).
-- **CI (`ci.yml`):** джобы gate (postgres → typecheck → lint → test → build → e2e + шаг
-  memory-project-audit), db-init, planner (pytest солвера), scout-orient, scout-selftest;
-  `memory-audit.yml` — аудит памяти. Оба аудита памяти — по `_kit/gate-mode.txt`: с 28.09 `warn`
-  (прод из-за памяти не стоит; дисциплина — Stop-хук `--block`).
-- **Observability:** трейс LLM-вызовов (`lib/trace/`; сбои записи — `traceWriteFailures` в
+- **Цепочка каталога по бизнес-правилам (13.10, ADR-0242):** `tools/scout/tests_chain.py` —
+  `--selftest` (фикстуры, в CI) и `--live` (инварианты по дев-базе, шаг `chain_checks`,
+  расхождение → `WARN:` в дайджест). Утверждают ПРАВИЛО, а не поведение кода, и печатают ЧИСЛО;
+  чистые правила — `tools/scout/catalog_rules.py`.
+- **CI (`ci.yml`):** gate (postgres → typecheck → lint → test → build → e2e + memory-project-audit),
+  db-init, planner, scout-orient, scout-selftest (17 модулей); `memory-audit.yml`. Режим аудитов —
+  `_kit/gate-mode.txt`: с 28.09 `warn` (дисциплину держит Stop-хук `--block`).
+- **Observability:** трейс LLM-вызовов (`lib/trace/`; сбои — `traceWriteFailures` в
   `/api/health`); PostHog. Sentry НЕ заводим.
-- **Гарантии памяти (ADR-0055):** два аудита + хуки в git (`.claude/settings.json`): гард Bash
-  (ADR-0195) и с 28.09 SessionStart/Stop/PreCompact/PostToolUse (Read → read-logger, Edit|Write →
-  `tools/code-touch-hint.mjs`); разрешения — `settings.local.json`.
+- **Гарантии памяти (ADR-0055):** два аудита + хуки git (`.claude/settings.json`): гард Bash
+  (ADR-0195) и SessionStart/Stop/PreCompact/PostToolUse (`tools/code-touch-hint.mjs`).
 - **Грабля:** меняешь флоу — правь e2e тем же коммитом; шаг CI и его инструмент — одним
-  коммитом (урок 414); после push смотри gate.
+  коммитом (урок 414).
 
 ## Цель (спека §12) — НЕ реализовано
 - Движок ставок работ есть (`lib/pricing/works.ts`), без confidence (§11); нет matching, гардрейлов,
-  интеграционных API, e2e error-путей, статусов done/failed; генерация — синхронный POST. Пейвол — демо,
-  YooKassa — только визуализация (`app/viz-actions.ts`).
+  интеграционных API, e2e error-путей; генерация — синхронный POST. Пейвол — демо, YooKassa —
+  только визуализация (`app/viz-actions.ts`).
 - Гардрейлы стоимости: maxCostUsd; квота free-генераций юзер/IP; потолок + kill-switch.
 - Eval-харнесс (§12.5): `/eval` нет; план — золотые фото, LPIPS/SSIM + CLIP.
 - v0.4: golden-формулы смет (комнаты → количества) — CI-тест (мастер).
 
 **DoD (цель):** typecheck/lint/тесты ✓; e2e +≥1 путь ошибки; UX ошибок; события; env описаны; отклонения → ADR.
 
-**Бенчи мебельного трека (08.08):** 252 синтетики + real-бенч, фаззинг, constraint-CI (ADR-0079/0080).
 
 **Tier 2:** `../../docs/tech-spec-ts-stack.md` §12 (регресс-защита), §8 (самопроверка моделей).
