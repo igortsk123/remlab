@@ -3,7 +3,7 @@ tier: 1
 topic: market
 scope: Рынок RU/UK — спрос, монетизация
 tier2: "../domain/market-research.md"
-updated: 2026-09-28
+updated: 2026-10-13
 importance: high
 source: manual
 status: working
@@ -38,6 +38,9 @@ RU **8/10**; UK **7/10**; обе ~**8/10** при общем AI-core + лока�
 ## Конкуренты
 RU (Вордстат 11.07): Remplanner (~35–40k бренд-спроса), Planner 5D, Планоплан; Flatplan/MyNewRoom ≈0. Вход А — против сайтов-калькуляторов. UK/глоб.: My Bespoke Room, IKEA Kreativ, Decor8 AI, Homestyler.
 
+## Девелоперы (13.10, ADR-0250)
+Не лидогенератор, а лечение воронки «после показа»; гипотеза +1 сделка на 100 показов; аналог в РФ — A101.
+
 ## Выводы для remlab
 - Copilot остаётся целью; вход v0.4 — смета (расчёт→список→покупка), виз. — усилитель доверия.
 - Moat = **last mile**: локальный каталог/цены/наличие + объяснения + execution.
@@ -45,4 +48,4 @@ RU (Вордстат 11.07): Remplanner (~35–40k бренд-спроса), Pla
 
 **Tier 2:** `../domain/market-research.md`; полное — `../../docs/market-research-ru-uk.md`.
 
-> Сверено с источниками 28.09; разброс оценок (2,0–10,8 трлн) и непроверенный Вордстат — Tier 2.
+> Сверено 28.09; разброс оценок и непроверенный Вордстат — Tier 2.
