@@ -2,7 +2,8 @@
 // проверка Zod при первом обращении — битые данные падают в тесте, а не у покупателя.
 // Сертификат и подписи считаются ТОЛЬКО здесь: витрина, 3D и отчёт читают готовую карточку.
 
-import { partner as partnerSchema, type ApartmentCard, type ApartmentRef, type Complex, type Lang, type Partner } from "@/contracts/partner";
+import { partner as partnerSchema, type ApartmentCard, type ApartmentRef, type Complex, type Lang, type OptionGroup, type Partner } from "@/contracts/partner";
+import { loadFlat3d } from "@/lib/configurator/data";
 import demoJson from "@/data/partners/demo.json";
 import demoUkJson from "@/data/partners/demo-uk.json";
 
@@ -59,6 +60,34 @@ export function handoverText(c: Complex, lang: Lang): string {
   return lang === "en" ? `completion Q${q} ${y}` : `сдача ${q} кв. ${y}`;
 }
 
+/** Цена варианта опции текстом. `from_configurator` — цена той же опции в 3D-каталоге (один источник). */
+function optionPrice(p: Partner, pr: OptionGroup["variants"][number]["pricing"], cfgId: string | undefined, lang: Lang) {
+  const en = lang === "en";
+  let type = pr.type;
+  let amount: number | null = pr.type === "surcharge" ? pr.amount : null;
+  if (pr.type === "from_configurator") {
+    const o = cfgId ? loadFlat3d().catalogue.options.find((x) => x.id === cfgId) : undefined;
+    if (o && (o.tier === "base" || o.price === 0)) type = "included";
+    else if (o) { type = "surcharge"; amount = o.price; }
+    else type = "on_request";
+  }
+  const text = type === "included" ? (en ? "included in the price" : "входит в цену квартиры")
+    : type === "surcharge" && amount ? `+${money(amount, p.currency, lang)}`
+    : (en ? "price on request" : "цена уточняется у менеджера");
+  return { type, amount, text };
+}
+
+function optionsCard(p: Partner, a: ApartmentRef, lang: Lang): ApartmentCard["options"] {
+  const en = lang === "en";
+  return (a.options ?? []).map((g) => ({
+    id: g.id, kind: g.kind, roomKind: g.roomKind, title: en ? g.titleEn : g.titleRu, defaultVariantId: g.defaultVariantId,
+    variants: g.variants.map((v) => ({
+      id: v.id, name: en ? v.nameEn : v.nameRu, desc: en ? v.descEn : v.descRu, image: v.image ?? null, demo: v.demo,
+      price: optionPrice(p, v.pricing, v.configuratorOptionId, lang), configuratorOptionId: v.configuratorOptionId ?? null,
+    })),
+  }));
+}
+
 export function apartmentCard(hit: ApartmentHit, lang: Lang = hit.partner.defaultLang): ApartmentCard {
   const { partner: p, complex: c, apartment: a } = hit;
   const en = lang === "en";
@@ -87,5 +116,6 @@ export function apartmentCard(hit: ApartmentHit, lang: Lang = hit.partner.defaul
         }
       : null,
     sources: a.sources,
+    options: optionsCard(p, a, lang),
   };
 }

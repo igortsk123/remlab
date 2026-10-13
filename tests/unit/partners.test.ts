@@ -48,6 +48,27 @@ describe("реестр застройщиков", () => {
   });
 });
 
+describe("опции квартиры: кухня (b2b-10 этап 0)", () => {
+  it("UK: цена из 3D-каталога — один источник; базовая — «входит в цену»", () => {
+    const k = apartmentCard(findApartment("demo-uk-1")!, "en").options.find((g) => g.kind === "kitchen")!;
+    expect(k.variants.find((v) => v.id === "kitchen-base")!.price).toMatchObject({ type: "included" });
+    expect(k.variants.find((v) => v.id === "kitchen-practical")!.price).toMatchObject({ type: "surcharge", amount: 2450, text: "+£2,450" });
+  });
+
+  it("РФ-демо: без фиктивного пересчёта фунтов — «цена уточняется у менеджера», варианты помечены демонстрационными", () => {
+    const k = apartmentCard(findApartment("flat215")!, "ru").options[0]!;
+    expect(k.variants.every((v) => v.demo)).toBe(true);
+    expect(k.variants.find((v) => v.id === "kitchen-comfort")!.price.text).toBe("цена уточняется у менеджера");
+    expect(k.variants.find((v) => v.id === k.defaultVariantId)!.price.type).toBe("included");
+  });
+
+  it("контракт: вариант по умолчанию обязан существовать, id не повторяются", () => {
+    const raw = JSON.parse(readFileSync("data/partners/demo.json", "utf8"));
+    raw.apartments[0].options[0].defaultVariantId = "nope";
+    expect(() => partners([raw])).toThrow();
+  });
+});
+
 describe("в коде витрины нет зашитой квартиры", () => {
   it.each(["tools/scout/flat215-demo/index.html", "tools/scout/flat215_demo.py"])("%s", (f) => {
     const src = readFileSync(f, "utf8");

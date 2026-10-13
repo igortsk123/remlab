@@ -40,6 +40,51 @@ export const apartmentSources = z
   })
   .refine((s) => s.demoData || s.flat3d, "у квартиры нет ни витрины, ни 3D");
 
+/**
+ * Опции квартиры от партнёров застройщика (b2b-10 этап 0, ADR-0262): группа «кухня» и её варианты.
+ * Цена — явное состояние (разбор Codex 13.10: `null` читался бы как «неизвестно»): включено в цену, доплата
+ * в валюте застройщика, цена уточняется у менеджера, либо берётся из 3D-каталога (один источник цены).
+ * Модули, техника и размеры кухни — позже (`specRef`), когда придут настоящие кухни (этап 1).
+ */
+export const optionPricing = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("included") }),
+  z.object({ type: z.literal("surcharge"), amount: z.number().int().positive() }),
+  z.object({ type: z.literal("on_request") }),
+  z.object({ type: z.literal("from_configurator") }),
+]);
+export type OptionPricing = z.infer<typeof optionPricing>;
+
+export const optionVariant = z.object({
+  id: z.string().regex(/^[a-z0-9-]{2,40}$/),
+  nameRu: z.string().min(1),
+  nameEn: z.string().min(1),
+  descRu: z.string().default(""),
+  descEn: z.string().default(""),
+  /** Фото варианта (путь в приложении `/partners/<партнёр>/options/...`); нет фото — карточка без картинки. */
+  image: z.string().regex(/^\/[a-zA-Z0-9/_.-]+$/).optional(),
+  pricing: optionPricing,
+  /** Демонстрационный вариант (не настоящий товар партнёра) — помечается на плитке. */
+  demo: z.boolean().default(false),
+  /** Та же опция в 3D-конфигураторе (`data/flat3d`): цена `from_configurator` и переход в 3D. */
+  configuratorOptionId: z.string().optional(),
+  specRef: z.string().optional(),
+});
+
+export const optionGroup = z
+  .object({
+    id: z.string().regex(/^[a-z0-9-]{2,40}$/),
+    kind: z.enum(["kitchen", "bathroom", "flooring"]),
+    roomKind: z.enum(["kitchen", "bathroom", "bedroom", "living", "hall"]),
+    roomId: z.string().optional(),
+    titleRu: z.string().min(1),
+    titleEn: z.string().min(1),
+    defaultVariantId: z.string(),
+    variants: z.array(optionVariant).min(1),
+  })
+  .refine((g) => new Set(g.variants.map((v) => v.id)).size === g.variants.length, "id вариантов повторяются")
+  .refine((g) => g.variants.some((v) => v.id === g.defaultVariantId), "вариант по умолчанию не найден");
+export type OptionGroup = z.infer<typeof optionGroup>;
+
 export const apartmentRef = z.object({
   id: z.string().regex(/^[a-z0-9-]{2,40}$/),
   complexId: z.string(),
@@ -57,6 +102,7 @@ export const apartmentRef = z.object({
   /** На какую дату цена (ADR-0252: цены — с датой и оговоркой). */
   priceAsOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   sources: apartmentSources,
+  options: z.array(optionGroup).default([]),
 });
 export type ApartmentRef = z.infer<typeof apartmentRef>;
 
@@ -104,5 +150,11 @@ export type ApartmentCard = {
   demoPrice: boolean;
   priceAsOf: string | null;
   certificate: { amount: number; title: string; text: string } | null;
+  /** Опции квартиры в публичном виде: подписи на языке, цена уже текстом. */
+  options: {
+    id: string; kind: string; roomKind: string; title: string; defaultVariantId: string;
+    variants: { id: string; name: string; desc: string; image: string | null; demo: boolean;
+      price: { type: OptionPricing["type"]; amount: number | null; text: string }; configuratorOptionId: string | null }[];
+  }[];
   sources: { demoData?: string; flat3d?: string };
 };

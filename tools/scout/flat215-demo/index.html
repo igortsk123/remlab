@@ -703,7 +703,7 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
   <!-- ПОМЕЩЕНИЯ ОТДЕЛЬНЫМИ ВКЛАДКАМИ (владелец 02.09 вернул как было; свёрнутая подпись
        «Кухня и спальни — скоро» из аудита отменена). Серые и ненажимаемые: обещать переход
        туда, где ничего нет, нельзя, но видно, что демо — про всю квартиру. -->
-  <span class="tab soon" title="скоро">Кухня</span>
+  <span class="tab soon" title="скоро" id="tab-kitchen-soon">Кухня</span>
   <span class="tab soon" title="скоро">Спальня 1</span>
   <span class="tab soon" title="скоро">Спальня 2</span>
 </div>
@@ -1539,6 +1539,7 @@ function loadFlatCard(){const id=flatId(); if(!id)return;
     const ft=document.getElementById('flatTitle'); if(ft)ft.textContent=flatTitle();
     document.title=FLAT.kind+' — гостиная (демо)';
     drawVariants(); try{sync3dLink();}catch(e){}
+    document.dispatchEvent(new CustomEvent('flatcard',{detail:FLAT}));
   }).catch(()=>{});}
 window.__loadFlatCard=loadFlatCard;
 let LAST_SUM=0, LAST_CNT=0;
@@ -3346,6 +3347,53 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
     // квартира — та, что в ссылке менеджера, а не из данных сборки (b2b-06)
     if(CARD.apartmentId&&window.__loadFlatCard){window.__sendFlat=CARD.apartmentId;window.__loadFlatCard();}
   }).catch(function(){});
+})();
+</script>
+<script>
+/* ——— КУХНЯ ОТ ПАРТНЁРОВ ЗАСТРОЙЩИКА (b2b-10 этап 0, ADR-0262). Вкладка «Кухня» оживает, только если в
+   карточке квартиры есть группа опций «кухня»: плитки вариантов с ценой («входит в цену» / «+X» / «цена
+   уточняется у менеджера»). Без посадки в план и без стилей — это переключатель опций застройщика.
+   Выбор хранится в браузере по ключу застройщик+квартира+группа; неизвестный вариант → по умолчанию. */
+(function(){
+  var esc=function(t){return String(t==null?'':t).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
+  document.addEventListener('flatcard',function(e){
+    var card=e.detail||{}, g=(card.options||[]).find(function(x){return x.kind==='kitchen';});
+    var soon=document.getElementById('tab-kitchen-soon');
+    if(!g||!soon||document.getElementById('tab-kitchen'))return;
+    var key='remlab-opt:'+card.partnerId+':'+card.id+':'+g.id;
+    var pick=function(){var v=null;try{v=localStorage.getItem(key);}catch(_){}
+      return g.variants.some(function(x){return x.id===v;})?v:g.defaultVariantId;};
+    var tab=document.createElement('button');tab.className='tab';tab.id='tab-kitchen';tab.setAttribute('role','tab');
+    tab.setAttribute('aria-selected','false');tab.textContent=soon.textContent;soon.replaceWith(tab);
+    var sec=document.createElement('section');sec.id='screen-kitchen';sec.hidden=true;
+    var room=document.getElementById('screen-room');room.parentNode.insertBefore(sec,room.nextSibling);
+    function draw(){
+      var cur=pick(), v=g.variants.find(function(x){return x.id===cur;});
+      sec.innerHTML='<div class="panel"><h2 style="margin:0 0 4px">'+esc(g.title)+'</h2>'+
+        '<div class="sub" style="margin-bottom:14px">Выбранный вариант: <b>'+esc(v.name)+'</b> — '+esc(v.price.text)+'</div>'+
+        '<div style="display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">'+
+        g.variants.map(function(x){var on=x.id===cur;
+          return '<button class="btn" data-opt="'+esc(x.id)+'" style="text-align:left;padding:14px;border-radius:12px;white-space:normal;'+
+            (on?'border:2px solid var(--accent);':'')+'">'+
+            (x.image?'<img src="'+esc(x.image)+'" alt="" style="width:100%;border-radius:8px;margin-bottom:8px">':'')+
+            '<div style="font-weight:700;font-size:16px">'+esc(x.name)+'</div>'+
+            '<div style="font-size:14px;color:var(--muted);margin:4px 0 8px">'+esc(x.desc)+'</div>'+
+            '<div style="font-weight:600">'+esc(x.price.text)+'</div></button>';}).join('')+
+        '</div>'+(g.variants.some(function(x){return x.demo;})?
+          '<div class="pc-note">Варианты демонстрационные: настоящие кухни партнёров застройщика появятся при подключении. '+
+          'Состав и цену уточняйте у менеджера.</div>':'')+'</div>';
+      sec.querySelectorAll('[data-opt]').forEach(function(b){b.onclick=function(){
+        try{localStorage.setItem(key,b.dataset.opt);}catch(_){} draw();};});
+    }
+    function show(on){
+      sec.hidden=!on; tab.classList.toggle('on',on); tab.setAttribute('aria-selected',String(on));
+      if(on){['screen-plan','screen-room'].forEach(function(id){var s=document.getElementById(id);if(s)s.hidden=true;});
+        ['tab-plan','tab-room'].forEach(function(id){var t=document.getElementById(id);if(t){t.classList.remove('on');t.setAttribute('aria-selected','false');}});
+        draw();}
+    }
+    tab.onclick=function(){show(true);};
+    var _st=window.showTab; if(typeof _st==='function')window.showTab=showTab=function(){show(false);return _st.apply(this,arguments);};
+  });
 })();
 </script>
 </body></html>
