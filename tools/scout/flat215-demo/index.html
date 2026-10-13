@@ -742,6 +742,9 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
         <button class="btn" id="swapClose">Готово</button></div>
       <div class="sub" id="basketSub">Меняйте предметы прямо здесь — план открывать не нужно.</div>
       <div id="blist">—</div>
+      <!-- 3D ИМЕННО ЭТОГО ВАРИАНТА (владелец 13.10): кнопка живёт В КАРТОЧКЕ, рядом с составом,
+           и открывает бродилку с этой же комнатой и этой же мебелью. -->
+      <div class="swapfoot"><a class="btn round" id="swap3d" href="/flat">Посмотреть в 3D</a></div>
       <div class="swapfoot" id="swapFoot" hidden>
         <button class="btn primary round" id="swapShot">Посмотреть фото с изменениями</button>
       </div>
@@ -2170,18 +2173,20 @@ function pickVariant(i){ if(i===cur){showSwap();syncHash();sync3dLink();return;}
 // ВХОД В 3D — С ТЕКУЩИМ ВАРИАНТОМ (13.10, владелец: «бродилка должна открываться по кнопке
 // конкретного варианта»). Раньше кнопка вела на абстрактную демо-квартиру: человек смотрел
 // джапанди, нажимал «в 3D» и попадал в другую комнату с другой мебелью. Теперь в ссылке едет id
-// варианта, а конфигуратор собирает по нему ту же комнату и ту же расстановку.
+// варианта, а конфигуратор собирает по нему ту же комнату и ту же расстановку. Текст кнопок НЕ
+// меняем (владелец 13.10): наверху остаётся прежняя надпись, а в карточке — короткое
+// «Посмотреть в 3D».
 function sync3dLink(){
   const a=document.getElementById('pc3d'); if(!a)return;
   const v=allVariants()[cur]||{};
   a.href = v.id ? '/flat?demo='+encodeURIComponent(v.id) : '/flat';
-  a.textContent = v.style
-    ? 'Пройтись по этой комнате в 3D — '+v.style+' →'
-    : 'Пройтись по квартире в 3D →';
+  const b=document.getElementById('swap3d');
+  if(b)b.href = v.id ? '/flat?demo='+encodeURIComponent(v.id) : '/flat';
 }
 function showSwap(){
   const box=document.getElementById('swapBox'); if(!box)return;
   const v=allVariants()[cur]||{};
+  try{sync3dLink();}catch(e){}   // карточку открывают и без смены варианта — ссылка должна быть своей
   const head=document.getElementById('basketHead');
   if(head)head.textContent='Мебель варианта «'+(v.style||v.title||'')+'»';
   basket();

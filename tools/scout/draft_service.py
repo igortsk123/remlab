@@ -234,7 +234,12 @@ class H(BaseHTTPRequestHandler):
                     with _u.urlopen(req, timeout=900) as r:
                         out = json.loads(r.read())
                     _JOBS[jid] = {'status': 'done', 'ts': _JOBS[jid]['ts'], 'result': out}
-                except Exception as e:  # noqa: BLE001
+                except BaseException as e:  # noqa: BLE001 — ЛЮБОЙ сбой обязан стать статусом
+                    # ПОЧЕМУ BaseException (13.10). Рендер местами поднимает `SystemExit` как
+                    # «ответ негоден» (шлюз не отдал картинку, модель закрасила полосу). Это не
+                    # Exception, фоновый поток умирал молча, задание навсегда оставалось
+                    # `running`, и страница через две минут опроса писала «сервер долго не
+                    # отвечает» — без причины и в логе, и на экране.
                     _JOBS[jid] = {'status': 'error', 'ts': _JOBS[jid]['ts'],
                                   'error': f'рендер не удался: {str(e)[:200]}'}
             threading.Thread(target=_work, daemon=True).start()

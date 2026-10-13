@@ -1389,7 +1389,7 @@ def _chat_edit(images: list, prompt: str, model: str) -> Image.Image:
     req = urllib.request.Request(CHAT_URL, json.dumps(body).encode(),
                                  {'Authorization': 'Bearer ' + gw_key(),
                                   'Content-Type': 'application/json'})
-    with urllib.request.urlopen(req, timeout=900) as r:
+    with urllib.request.urlopen(req, timeout=_GW_TIMEOUT) as r:
         j = json.loads(r.read())
     msg = (j.get('choices') or [{}])[0].get('message') or {}
     for im in (msg.get('images') or []):
@@ -1397,6 +1397,13 @@ def _chat_edit(images: list, prompt: str, model: str) -> Image.Image:
         if u.startswith('data:'):
             return Image.open(io.BytesIO(base64.b64decode(u.split(',', 1)[1]))).convert('RGB')
     raise SystemExit(f'шлюз не вернул картинку: {json.dumps(j)[:300]}')
+
+
+# ПОТОЛОК ОЖИДАНИЯ ШЛЮЗА КАРТИНОК (13.10). Было 900 с: зависший запрос держал фоновое
+# задание живым четверть часа, страница всё это время спрашивала «готово?» и в итоге писала
+# «сервер долго не отвечает» без причины. Нормальный кадр считается 40–50 с, значит 240 —
+# это уже поломка, и человеку честнее сказать о ней сразу.
+_GW_TIMEOUT = int(os.environ.get('RENDER_GW_TIMEOUT', '240'))
 
 
 def gpt_edit(images: list, prompt: str, size: str = '1024x1536',
@@ -1437,7 +1444,7 @@ def gpt_edit(images: list, prompt: str, size: str = '1024x1536',
     # только код 502). `urlopen` на 4xx/5xx кидает HTTPError и ТЕЛО ответа выбрасывает, а
     # объяснение шлюза лежит именно в теле. Читаем его и кладём в сообщение и в лог.
     try:
-        with urllib.request.urlopen(req, timeout=900) as r:
+        with urllib.request.urlopen(req, timeout=_GW_TIMEOUT) as r:
             j = json.loads(r.read())
     except urllib.error.HTTPError as e:
         try:
@@ -2985,7 +2992,9 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         a = _np.asarray(out.convert('RGB')).astype(int)
         band = ((a[..., 0] > 170) & (a[..., 2] > 170) & (a[..., 1] < 110)).mean(axis=1)
         if (band > 0.5).sum() < 8:
-            raise SystemExit('модель закрасила разделительную полосу — резать нечем, ответ негоден')
+            # RuntimeError, а не SystemExit: это ДОМЕННЫЙ отказ одного запроса, его обязан
+            # увидеть и показать клиент, а не выход из программы (13.10).
+            raise RuntimeError('модель закрасила разделительную полосу — резать нечем, ответ негоден')
         pieces = _split_pair(out)
         stamp = time.strftime('%H%M%S')
         shots = [{'camera': c.name, 'url': _publish_frame(p_, f'improve-{stamp}-{c.name}.jpg'),
