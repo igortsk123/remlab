@@ -433,3 +433,21 @@ export const tgUpdates = pgTable("tg_updates", {
   updateId: bigint("update_id", { mode: "number" }).primaryKey(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ── Коллекции покупателя (план b2b-05, ADR-0264) ─────────────────────────────────────────
+export const collections = pgTable(
+  "collections",
+  {
+    id: text("id").primaryKey(),
+    partnerId: text("partner_id").notNull(),
+    apartmentId: text("apartment_id").notNull(),
+    baseVariant: text("base_variant").notNull(),
+    sendId: text("send_id"),
+    lang: text("lang").notNull().default("ru"),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    contentHash: text("content_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull().default(sql`now() + interval '365 days'`),
+  },
+  (t) => [index("collections_send_idx").on(t.sendId).where(sql`send_id is not null`), index("collections_expires_idx").on(t.expiresAt)],
+);

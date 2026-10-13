@@ -2,13 +2,15 @@
 workstream: layout
 slug: b2b-10-rooms-beyond-living
 title: Комнаты кроме гостиной — КУХНЯ первой как опции застройщика на квартиру, затем спальня, ванная, прихожая
-status: in_progress
+status: partial
 created: 2026-10-13
 updated: 2026-10-13
 completed:
 plan_kind: sub
 parent_plan: MASTER-developer-product
 assignee: opus-5.5
+pause_reason: "Этап 0 сделан 13.10 (ADR-0262); этапы 1–4 (полная кухня, спальня, ванная, прихожая) — по очереди мастера в этапе 10, кухни присылает владелец"
+resume_trigger: "Очередь дошла до этапа 10 или владелец прислал 5 кухонь"
 review_after: 2026-12-13
 ---
 

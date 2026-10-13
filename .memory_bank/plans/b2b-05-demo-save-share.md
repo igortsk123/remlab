@@ -2,7 +2,7 @@
 workstream: demo-planner
 slug: b2b-05-demo-save-share
 title: «Сохранять коллекции и делиться» по-настоящему — своя версия расстановки живёт на сервере, ссылка открывает именно её
-status: draft
+status: in_progress
 created: 2026-10-13
 updated: 2026-10-13
 completed:
@@ -67,6 +67,9 @@ review_after: 2026-11-27
 
 ## Лог выполнения
 - 2026-10-13 — план создан (draft), Fable 5.1
+- 2026-10-13 — `in_progress` (Opus 5.5): контракт `contracts/collection.ts`, таблица `collections` (016), `POST/GET
+  /api/collections` (лимиты, квартира из реестра, отправка менеджера проверяется), текущие цены из витрины
+  (`lib/collections/prices.ts`), на странице — «Сохранить коллекцию», `#c=`, карточки «Моя коллекция».
 
 ## Completion summary
 —

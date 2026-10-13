@@ -744,7 +744,8 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
       <div id="blist">—</div>
       <!-- 3D ИМЕННО ЭТОГО ВАРИАНТА (владелец 13.10): кнопка живёт В КАРТОЧКЕ, рядом с составом,
            и открывает бродилку с этой же комнатой и этой же мебелью. -->
-      <div class="swapfoot"><a class="btn round" id="swap3d" href="/flat">Посмотреть в 3D</a></div>
+      <div class="swapfoot"><a class="btn round" id="swap3d" href="/flat">Посмотреть в 3D</a>
+        <button class="btn round" id="collSave">Сохранить коллекцию</button></div>
       <div class="swapfoot" id="swapFoot" hidden>
         <button class="btn primary round" id="swapShot">Посмотреть фото с изменениями</button>
       </div>
@@ -3355,7 +3356,7 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
       b.style.cssText='background:#FFF4E5;color:#7A4B00;padding:10px 16px;text-align:center;font-size:15px';
       b.textContent='Ссылка недействительна или отозвана. Попросите у менеджера новую — ниже демонстрация без вашей подборки.';
       document.body.insertBefore(b,document.body.firstChild); return;}
-    CARD=j.card; mount(); ev('designer_open',state());
+    CARD=j.card; window.__sendId=SEND; mount(); ev('designer_open',state());
     // квартира — та, что в ссылке менеджера, а не из данных сборки (b2b-06)
     if(CARD.apartmentId&&window.__loadFlatCard){window.__sendFlat=CARD.apartmentId;window.__loadFlatCard();}
   }).catch(function(){});
@@ -3409,6 +3410,73 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
 })();
 </script>
 <script>
+/* ——— КОЛЛЕКЦИИ ПОКУПАТЕЛЯ (план b2b-05, ADR-0264). «Сохранить коллекцию» отправляет СНИМОК текущей
+   расстановки на сервер и даёт ссылку `/demo/#c=<id>` — она открывает то же самое на любом устройстве.
+   Свои коллекции (только номера) помнятся в браузере и встают карточками «Моя коллекция» рядом с готовыми
+   вариантами; готовые варианты не меняются. Цены при открытии — текущие из витрины; товара в витрине
+   больше нет — он остаётся в коллекции с пометкой, но в сумму не входит (ADR-0254 п.6). */
+(function(){
+  var KEY='remlab-collections', MINE=[], EN=function(){return window.__LANG==='en';};
+  var list=function(){try{return JSON.parse(localStorage.getItem(KEY)||'[]').filter(function(x){return x&&/^[A-Za-z0-9_-]{22}$/.test(x.id);});}catch(_){return [];}};
+  var remember=function(id,style){var l=list().filter(function(x){return x.id!==id;});l.unshift({id:id,style:style,at:Date.now()});
+    try{localStorage.setItem(KEY,JSON.stringify(l.slice(0,10)));}catch(_){}};
+  var _av=window.allVariants; window.allVariants=allVariants=function(){return _av().concat(MINE);};
+  function asVariant(c){
+    var cur=c.current||{};
+    var fix=function(sk){if(!sk)return sk;var p=cur[sk.sid]||{};var o=Object.assign({},sk);
+      if(p.unavailable){o.price=0;o.unavailable=true;} else if(p.price){o.price=p.price;o.price_at=p.priceAt;} return o;};
+    return {id:'c:'+c.id, cid:c.id, mine:true, baseVariant:c.baseVariant,
+      style:(EN()?'my collection':'моя коллекция')+(c.style?' · '+c.style:''), title:EN()?'My collection':'Моя коллекция',
+      items:c.items.map(function(i){return Object.assign({},i,{sku:fix(i.sku)});}),
+      decor:(c.decor||[]).map(function(d){return {role:d.role, sku:fix(d.sku)};})};
+  }
+  function fetchOne(id){return fetch('/api/collections/'+id,{cache:'no-store'}).then(function(r){return r.ok?r.json():null;})
+    .then(function(j){return j&&j.ok?asVariant(j.collection):null;}).catch(function(){return null;});}
+  function openId(id){var i=allVariants().findIndex(function(v){return v.cid===id;});
+    if(i>=0){cur=i;load();showSwap();drawColl(true);showTab('room');}}
+  function boot(){
+    if(typeof D==='undefined'||!D)return setTimeout(boot,300);
+    var want=(String(location.hash).match(/^#c=([A-Za-z0-9_-]{22})/)||[])[1];
+    var ids=list().map(function(x){return x.id;}); if(want&&ids.indexOf(want)<0)ids.unshift(want);
+    Promise.all(ids.slice(0,10).map(fetchOne)).then(function(vs){
+      vs.forEach(function(v){if(v)MINE.push(v);}); if(MINE.length)drawColl(true);
+      if(want){var v=MINE.find(function(x){return x.cid===want;}); if(v){remember(want,v.style);openId(want);}
+        else{var b=document.createElement('div');b.className='hint';b.style.margin='10px 0';
+          b.textContent=EN()?'This collection link is no longer available.':'Коллекция по этой ссылке больше недоступна.';
+          var c=document.getElementById('coll'); if(c)c.parentNode.insertBefore(b,c);}}
+    });
+  }
+  function snapshot(){
+    var v=allVariants()[cur]||{}, pick=function(sk){if(!sk||!sk.sid)return undefined;var o={sid:sk.sid,name:String(sk.name||'').slice(0,200)};
+      ['msid','url','shop'].forEach(function(k){if(sk[k])o[k]=String(sk[k]).slice(0,k==='url'?600:80);});
+      if(sk.price)o.price=sk.price; if(sk.pack)o.pack=Math.max(1,Math.round(+sk.pack)||1); return o;};
+    var num=function(x){return Math.round((+x||0)*10)/10;};
+    return {apartmentId:(typeof FLAT!=='undefined'&&FLAT&&FLAT.id)||D.apartment_id, baseVariant:v.baseVariant||String(v.id||'set1').replace(/^c:/,''),
+      style:String(v.style||'').replace(/^(моя коллекция|my collection) · /,'')||undefined, sendId:window.__sendId||undefined,
+      lang:window.__LANG||'ru',
+      items:items.filter(function(i){return i&&i.w&&i.d;}).slice(0,60).map(function(i){var o={role:String(i.role).slice(0,40),x:num(i.x),y:num(i.y),
+        rot:num(i.rot),w:num(i.w),d:num(i.d)}; if(i.h)o.h=num(i.h); if(i.elev)o.elev=num(i.elev); var s=pick(i.sku); if(s)o.sku=s; return o;}),
+      decor:(variantDecor(v)||[]).filter(function(x){return x.sku&&x.sku.sid;}).slice(0,30).map(function(x){return {role:String(x.role).slice(0,40),sku:pick(x.sku)};}),
+      cams:(Array.isArray(cams)?cams:[]).slice(0,4).map(function(c){return {x:num(c.x),y:num(c.y),rot:num(c.rot||c.a||0)};})};
+  }
+  function save(){
+    var btn=document.getElementById('collSave'); if(btn){btn.disabled=true;}
+    fetch('/api/collections',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(snapshot())})
+      .then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});}).then(function(x){
+        if(!x.ok||!x.j.ok)throw new Error(x.j&&x.j.message||'');
+        var url=location.origin+'/demo/'+(window.__LANG==='en'?'?lang=en':'')+'#c='+x.j.id;
+        try{navigator.clipboard.writeText(url);}catch(_){}
+        return fetchOne(x.j.id).then(function(v){if(v){MINE.unshift(v);remember(x.j.id,v.style);drawColl(true);}
+          shotOpen('<div class="wait">'+(EN()?'Collection saved. The link is copied — send it to anyone:':'Коллекция сохранена. Ссылка скопирована — её можно отправить кому угодно:')+
+            '<br><input readonly value="'+url+'" style="width:100%;margin-top:10px;font-size:14px" onclick="this.select()"></div>','');});
+      }).catch(function(e){shotOpen('<div class="wait">'+(EN()?'Could not save, please try again.':'Не получилось сохранить, попробуйте ещё раз.')+'</div>','');})
+      .finally(function(){if(btn)btn.disabled=false;});
+  }
+  document.addEventListener('click',function(e){if(e.target&&e.target.id==='collSave'){e.preventDefault();save();}});
+  boot();
+})();
+</script>
+<script>
 /* ——— ЯЗЫК ПОКАЗА RU/EN (план b2b-11, ADR-0263). Данные витрины — русский протокол (решение 28.09), переводится
    только СЛОЙ ПОКАЗА: текст узлов и подписи атрибутов. Точные фразы — словарём, строки с числами — шаблонами.
    Названия товаров не переводим: это имена из магазинов (английский каталог — после посредника UK).
@@ -3450,7 +3518,7 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
     'Тесно / не помещается':'Too cramped / does not fit','Другой цвет':'Another colour','Другое':'Something else','Отправляем…':'Sending…',
     'Сумма при условии оплаты наличными, без ипотеки и рассрочки':'Price for full payment, without mortgage or instalments','Перейти к товару →':'Go to product →',
     'Сделать фото · ~25 сек':'Take a photo · ~25 s','Посмотреть изменения на фото · ~25 сек':'See changes in a photo · ~25 s','Комплект: —':'Set: —',
-    'Кухня от партнёров застройщика':"Kitchen from the developer's partners",
+    'Кухня от партнёров застройщика':"Kitchen from the developer's partners",'Сохранить коллекцию':'Save collection',
     '3D-модель носит ознакомительный характер и может отличаться от фактических характеристик. Точные характеристики вашей будущей квартиры можно узнать у нашего менеджера. Цена и данные о доме — демонстрационные. Цены товаров — с сайтов магазинов на дату проверки и могут измениться; точная цена — по ссылке в магазин.':
       'The 3D model is for illustration and may differ from the actual specification. Ask our manager for the exact details of your future home. The price and building details are for demonstration. Product prices are taken from shop websites on the check date and may change; see the shop link for the exact price.',
     'Комната с вашей расстановкой: наши 3D-модели · вращайте мышью, колесо — масштаб · серые блоки — модель готовится':

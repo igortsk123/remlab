@@ -68,7 +68,7 @@ fi
 # 1) Контакты «отправить себе» живут 90 дней — удаляем просроченные, даже если новых заявок нет;
 #    там же чистим старые окна счётчиков частоты.
 docker exec remlab-db psql -U remlab -d remlab -q -c \
-  "delete from share_requests where expires_at < now(); delete from rate_limits where window_start < now() - interval '2 days'; delete from dedup_marks where at < now() - interval '1 day'; delete from tg_updates where created_at < now() - interval '7 days';" \
+  "delete from share_requests where expires_at < now(); delete from rate_limits where window_start < now() - interval '2 days'; delete from dedup_marks where at < now() - interval '1 day'; delete from tg_updates where created_at < now() - interval '7 days'; delete from collections where expires_at < now();" \
   >/dev/null 2>&1 || logger -t remlab-watchdog "share_requests: чистка не удалась"
 # 2) Данные людей в файлах под веб-корнем (инцидент 13.10) — тревога, если снова появились.
 STAMP_PII=$BK/.pii-alert-at
