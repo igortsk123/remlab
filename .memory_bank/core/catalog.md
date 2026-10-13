@@ -30,9 +30,9 @@ API (`catalog_api_sync.py`, ЕЖЕДНЕВНО с 11.10, сплошной обх
 **Дельта (HASH_VERSION=4, `load3.py`):** text/geometry/image/attrs → `stale` (payload остаётся;
 commercial и image_hd — только счётчики журнала), смена контракта → baseline. Исчез → `missing`, 3 дня → `archived`; не удаляем.
 Порог «< 70 %» — по магазину против последнего успеха (`catalog_import_runs`), одна транзакция.
-Карантин фидов — `feed_guard.py` (fresh ≤30 ч).
+Карантин фидов — `feed_guard.py` (≤30 ч).
 
-**Наличие и размеры честно** — отдельная сводка [[stock-and-dims]] (03.09).
+**Наличие и размеры честно** — [[stock-and-dims]].
 
 **Стили и готовность к мешам (ADR-0237/0238).** `style_score.py` (правила → CLIP → `gpt-6-luna`, потолок
 `STYLE_DAILY_LIMIT=1000`) пишет оценки в кэш и в таблицу `product_style_scores`. Одна картина — витрина
@@ -40,7 +40,7 @@ commercial и image_hd — только счётчики журнала), сме
 мешем, 14 411 готовы к генерации).
 
 **Тесты:** `--selftest` у `load3`, `dim_resolver`, `category_map`, `feed_guard`, `stock_truth`,
-`stock_check`, `footprint`, `mesh_priority` и др. — CI `scout-selftest`. **Дыры:** 155 товаров divan.ru
+`stock_check`, `footprint`, `mesh_priority` — CI `scout-selftest`. **Дыры:** 155 товаров divan.ru
 не в экспорте; пустая выгрузка `e2fccbea`; диванов без глубины 1 012/2 345.
 
 **Tier 2:** `../domain/catalog-enrichment.md` · `../domain/integrations.md` · `completed_plans/catalog-load-hardening.md`.
