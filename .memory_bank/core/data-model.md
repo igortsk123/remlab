@@ -25,12 +25,10 @@ review_after: 2026-12-05
 - **leads / lead_messages** (К6, TG-бот) — лиды «найти дешевле» + переписка (in|out,
   `admin_tg_message_id`); email — по согласию, ПДн — TODO.
 - **style_results** (ADR-0038) — итог квиза: `session_id` PK → `style`, upsert; «Мой стиль» в `/lab`.
-- **mesh_review_tasks / _decisions** (`007-mesh-review.sql`, `/lab/mesh-review`) — ручная
-  проверка ориентации мешей: задачи от DEV-конвейера (`task_key` = `sku|glb_sha|contract`), решения
-  append-only по курсору `after_id` (`mesh_review_sync.py`).
-- **mesh_audit_items / _decisions / _batches / _cancellations** (`010-mesh-audit.sql`,
-  `db/schema.ts`) — ручная приёмка мешей владельцем, `/lab/mesh-audit` (ADR-0188…0194).
-- **rate_limits / share_requests** (`013-security.sql`, ADR-0256) — лимиты частоты; заявки «отправить себе» (ПДн, 90 дней).
+- **mesh_review_* / mesh_audit_*** (`007-mesh-review.sql`, `010-mesh-audit.sql`) — ручная проверка мешей
+  (`/lab/mesh-review`, `/lab/mesh-audit`, ADR-0188…0194); детали — Tier 2.
+- **rate_limits / share_requests** (`013-security.sql`, ADR-0256); **managers / sends / send_events / signal_outbox**
+  (`014-sends.sql`, ADR-0257); **flat_configs v3** (`015`); **collections** (`016-collections.sql`, ADR-0264, без ПДн).
 
 ## Изоляция и доступ
 - **RLS НЕТ** (одна роль remlab). Изоляция — фильтр `session_id` в приложении (`listBySession`).

@@ -41,3 +41,4 @@
 - 2026-10-13 — (сессия Opus «деплой MASTER-cost-first») b2b-01 выкачен и сведён: ADR-0256, уроки 474–475, deployment/leads/observability/data-model/demo-planner-ui/integrations обновлены, project-state переписан; b2b-02 в работе
 - 2026-10-13 — (Opus, очередь мастера) b2b-06 закрыт (ADR-0258, core/partners), dims-round-objects закрыт (ложные stale сняты, урок 478), b2b-02 partial; уроки 476–478; conv-09 следующий — лечение банка заблокировано 78 раз
 - 2026-10-13 — (Opus) этап 4: conv-10, conv-05 completed; conv-09 partial (приёмка глазами), conv-04 partial (порог); ADR-0259…0261; демо опубликовано с полными вариантами
+- 2026-10-13 — (Opus) b2b-05 partial: коллекции на проде, живая проверка «чистый браузер» прошла после фикса #c=; ADR-0264; следующий — b2b-03 воронка
