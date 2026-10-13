@@ -17,8 +17,7 @@ review_after: 2026-12-05
 > Сетка для соло-не-кодера: ошибки ловит автоматика. «Цель» = НЕ реализовано.
 
 ## Есть в коде
-- **Unit (Vitest, `tests/unit/`):** 25 файлов; БД — `pg-repository.test.ts` (skipIf); мок —
-  `REMLAB_FAKE_AI=1`. Память: `tests/memory-project-audit.test.mjs`.
+- **Unit (Vitest, `tests/unit/`):** 36 файлов; БД — `pg-repository.test.ts` (skipIf); мок — `REMLAB_FAKE_AI=1`.
 - **e2e:** в CI — 5 smoke + 2 из 3 тестов `estimate.spec.ts` (`/calc/remont` — skip); happy path `flow.spec.ts`
   — `test.skip` с 28.07 (раздел за заглушкой); error-путей НЕТ. 3D — `serial`, ждать признак (ADR-0234).
 - **Цепочка каталога по бизнес-правилам (13.10, ADR-0242):** `tools/scout/tests_chain.py` —
@@ -29,7 +28,7 @@ review_after: 2026-12-05
   db-init, planner, scout-orient, scout-selftest (17 модулей); `memory-audit.yml`. Режим аудитов —
   `_kit/gate-mode.txt`: с 28.09 `warn` (дисциплину держит Stop-хук `--block`).
 - **Observability:** трейс LLM-вызовов (`lib/trace/`; сбои — `traceWriteFailures` в
-  `/api/health`); PostHog. Sentry НЕ заводим.
+  health); база в health (`lib/health.ts:dbCheck`) + сторож `health-watch.sh` (ADR-0266).
 - **Гарантии памяти (ADR-0055):** два аудита + хуки git (`.claude/settings.json`): гард Bash
   (ADR-0195) и SessionStart/Stop/PreCompact/PostToolUse (`tools/code-touch-hint.mjs`).
 - **Грабля:** меняешь флоу — правь e2e тем же коммитом; шаг CI и его инструмент — одним

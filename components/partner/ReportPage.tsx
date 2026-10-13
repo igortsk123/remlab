@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/base/buttons/button";
 import { LoadingIndicator } from "@/components/application/loading-indicator/loading-indicator";
-import { FunnelTable } from "@/components/partner/FunnelTable";
+import { ShortTable, StepList } from "@/components/partner/FunnelTable";
 import type { ReportData } from "@/components/partner/types";
 
 // Отчёт застройщику (план b2b-03, ADR-0265). Ключ — во #фрагменте адреса: на сервер уходит только
@@ -51,8 +51,20 @@ export function ReportPage() {
         <p className="note">За последние 12 недель менеджеры ещё не отправляли ссылок.</p>
       ) : (
         <>
-          <FunnelTable label="Неделя" rows={[{ title: "Всего", row: data.total }, ...data.weeks.map((r) => ({ title: `с ${ru(r.week)}`, row: r }))]} />
-          <FunnelTable label="Квартира" rows={data.byApartment.map((r) => ({ title: apt(r.apartmentId), row: r }))} />
+          <div className="stack" style={{ gap: 6 }}>
+            <h2 style={{ margin: 0, fontSize: 18 }}>За 12 недель</h2>
+            <StepList row={data.total} />
+          </div>
+          <div className="stack" style={{ gap: 6 }}>
+            <h2 style={{ margin: 0, fontSize: 18 }}>По неделям отправки</h2>
+            <ShortTable label="Неделя" rows={data.weeks.map((r) => ({ title: `с ${ru(r.week)}`, row: r }))} />
+          </div>
+          {data.byApartment.length > 1 ? (
+            <div className="stack" style={{ gap: 6 }}>
+              <h2 style={{ margin: 0, fontSize: 18 }}>По квартирам</h2>
+              <ShortTable label="Квартира" rows={data.byApartment.map((r) => ({ title: apt(r.apartmentId), row: r }))} />
+            </div>
+          ) : null}
         </>
       )}
       <div className="stack" style={{ gap: 6 }}>

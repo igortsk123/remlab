@@ -32,22 +32,21 @@ SSH root@: публикация :22222, деплой — порт по умол�
 Соседей НЕ трогать: remnanode, rw-core, nginx :80. Секреты — `/opt/remlab/.env` (вне git).
 
 ## Деплой (ADR-0179)
-Push в `main` → CI gate → `Deploy prod` (`deploy.yml`, по `workflow_run.head_sha`). Серверная
-часть одна — `infra/server/deploy-remote.sh` под `.deploy.lock`: `prev` → образ → БД → активация →
-запись образа в `.env`. Схема и каталожные миграции — Tier 2. Ручной `./deploy.sh <tag>` —
-запасной (не с DEV-VM).
+Push в `main` → CI gate → `Deploy prod` (`deploy.yml`). Сервер — `infra/server/deploy-remote.sh` под
+`.deploy.lock`: `prev` → образ → БД → активация. Детали — Tier 2. `./deploy.sh` — запасной (не с DEV-VM).
 
 ## Откат / smoke
 - smoke = `ok=true` И `version == TARGET_SHA` (одного 200 мало). Откат — тег `prev` (Tier 2).
-  Вручную: `/`=200, `/api/health` ok, VPN цел (remnanode Up).
+  Вручную: `/`=200, `/api/health` ok, remnanode Up.
 
-## Безопасность (инцидент 08.09, ADR-0207)
-Патчи с публичным RCE — сразу (CVE-2025-55182: на 15.5.4 приехал майнер; сейчас 15.5.25).
-Журнал и заслон `@nextrce` в Caddy не снимать; подробности — Tier 2.
+## Безопасность (ADR-0207, ADR-0256)
+Патчи с публичным RCE — сразу (инцидент 08.09: майнер на 15.5.4). Заслон `@nextrce` в Caddy не снимать.
 **13.10 (ADR-0256):** ПДн только в базе; без секрета всё закрыто; после деплоя `tools/security-smoke.sh`;
 `remlab-draft` пересоздавать только `infra/server/draft-run.sh` (урок 474). Детали — Tier 2 § Безопасность.
 
 ## Сторожа
 Каталог (ADR-0172), диск `cleanup.sh` (ADR-0005), безопасность — `disk-watchdog.sh`. Правка сервера = бэкап + rollback.
+Доступность — `health-watch.sh` раз в 2 мин → Telegram; копия дампа вне сервера и репетиция восстановления — DEV
+`tools/ops/` (ADR-0266). Что ломается без DEV — Tier 2 § «Прод без DEV».
 
 **Tier 2:** `domain/deployment-details.md` — конвейер, две базы, Caddy и статик, сторожа.

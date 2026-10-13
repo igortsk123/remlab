@@ -17,4 +17,10 @@ describe("buildHealth", () => {
     expect(buildHealth().version).toBe("dev");
     if (prev !== undefined) process.env.APP_VERSION = prev;
   });
+
+  it("база недоступна — ok:false (ответ 503), витрина без данных — только пометка", () => {
+    expect(buildHealth(new Date(), { db: "fail", showcase: "ok" }).ok).toBe(false);
+    expect(buildHealth(new Date(), { db: "ok", showcase: "fail" }).ok).toBe(true);
+    expect(buildHealth().checks).toEqual({ db: "skipped", showcase: "skipped" });
+  });
 });

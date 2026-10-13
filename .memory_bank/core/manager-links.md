@@ -32,7 +32,7 @@ review_after: 2026-12-13
   (`modules/sends/service.ts`). Доставка — очередь `signal_outbox` с повторами, таймер `remlab-signals`
   раз в минуту; нет бота — `no_channel`, видно на странице менеджера.
 - Словарь событий = `b2b-03` (`designer_open`, `variant_view`, `item_swap`, `manager_contact_click`,
-  `alternative_request`).
+  `alternative_request`, `flat3d_open` — без сигнала). Отчёт застройщику по этим событиям — ADR-0265.
 
 ## Код
 `contracts/send.ts` · `modules/sends/*` · `app/api/sends/*`, `app/api/manager/*`, `app/api/manager-bot`,

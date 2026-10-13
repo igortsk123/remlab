@@ -2,7 +2,7 @@
 workstream: product
 slug: b2b-03-analytics-funnel
 title: Воронка измерима — события на демо и в 3D, статусы лида до сделки, отчёт для девелопера
-status: draft
+status: in_progress
 created: 2026-10-13
 updated: 2026-10-13
 completed:
@@ -71,6 +71,11 @@ review_after: 2026-11-27
 
 ## Лог выполнения
 - 2026-10-13 — план создан (draft), Fable 5.1; ответ В5 учтён
+- 2026-10-13 — `in_progress` (Opus 5.5). Разбор Codex до кода: `via` от клиента не принимать; анонимные счётчики —
+  только «напрямую», с воронкой не складывать; `collection_save` — из `collections`; `item_move`/`share_link` убраны;
+  неделя = когорта по отправке в поясе застройщика; ручные статусы — текущие, не «дошли до»; ключ отчёта — хешем,
+  без Метрики. Сделано (1fa2740): `contracts/analytics.ts`, `017-analytics.sql`, `/api/events`, `/api/partner/report`,
+  `/partner/report`, `flat3d_open`, счётчики на демо, `partner-key-add.sh`; ADR-0265.
 
 ## Completion summary
 —

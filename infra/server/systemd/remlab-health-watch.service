@@ -1,0 +1,7 @@
+[Unit]
+Description=remlab: сторож доступности сайта, демо и рендера (план b2b-09)
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/remlab/scripts/health-watch.sh

@@ -1,0 +1,7 @@
+[Unit]
+Description=remlab: дайджест прода в Telegram (план b2b-09)
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/remlab/scripts/prod-digest.sh

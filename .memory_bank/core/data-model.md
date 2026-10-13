@@ -28,7 +28,7 @@ review_after: 2026-12-05
 - **mesh_review_* / mesh_audit_*** (`007-mesh-review.sql`, `010-mesh-audit.sql`) — ручная проверка мешей
   (`/lab/mesh-review`, `/lab/mesh-audit`, ADR-0188…0194); детали — Tier 2.
 - **rate_limits / share_requests** (`013-security.sql`, ADR-0256); **managers / sends / send_events / signal_outbox**
-  (`014-sends.sql`, ADR-0257); **flat_configs v3** (`015`); **collections** (`016-collections.sql`, ADR-0264, без ПДн).
+  (`014-sends.sql`, ADR-0257); **flat_configs v3** (`015`); **collections** (`016-collections.sql`, ADR-0264, без ПДн); **page_counters / partner_keys** (`017-analytics.sql`, ADR-0265).
 
 ## Изоляция и доступ
 - **RLS НЕТ** (одна роль remlab). Изоляция — фильтр `session_id` в приложении (`listBySession`).

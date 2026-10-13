@@ -3,7 +3,7 @@ tier: 1
 topic: user-flow
 scope: Stage 1 UX-flow, аналитика
 tier2: ../domain/user-flow-details.md
-updated: 2026-10-11
+updated: 2026-10-13
 importance: high
 source: manual
 status: working
@@ -20,10 +20,8 @@ review_after: 2026-12-05
 Одна шапка `SiteHeader.tsx`: логотип + «Моя лаборатория»; ряд материалы · ремонт · Дизайн ·
 Стили · Советы; адаптив ≤700/≤480 (урок 7 [[lessons]]); активный раздел — заливка.
 Иконки — [[access-and-integrations]]. Главная = ХАБ из шести плиток и два CTA (не «о проекте»).
-- **`/styles`** — игра-карточки (`components/StyleQuiz.tsx`, сид `lib/styles/quiz.ts`), раздел
-  ЗАКРЫТ заглушкой `ComingSoon` (флаг `NEXT_PUBLIC_SHOW_WIP=1`):
-  лайк/скип → стиль → CTA дизайн/смета; событие `quiz_completed` (`app/styles-actions.ts`). Фото карточек
-  и статьи по стилям — ПЛЕЙСХОЛДЕРЫ (позже).
+- **`/styles`** — игра-карточки (`components/StyleQuiz.tsx`), ЗАКРЫТ заглушкой `ComingSoon`
+  (`NEXT_PUBLIC_SHOW_WIP=1`); событие `quiz_completed` (`app/styles-actions.ts`).
 - **`/sovety`** — плитки-советы ПЛЕЙСХОЛДЕРЫ (М7); за той же заглушкой `/sovety`, `/start` и
   `/calc/remont`. **`/lab`** — центр сохранений
   (ADR-0038): вкладки `?tab=` Материалы/Ремонт/Дизайны (WIP — тизеры «Скоро»), «Мой стиль»
@@ -41,5 +39,8 @@ review_after: 2026-12-05
 ## Аналитика
 `lib/analytics.ts` (PostHog, no-op без ключа), сверка 11.10: 17 событий объявлено (`EventName`), 12 эмитится
 (estimate_*, lab_tab, lead_*, quiz_completed, viz_started, project_started, preview_ready…).
+
+**Отчёт застройщику (ADR-0265):** `/partner/report#<ключ>` — воронка по ссылкам менеджеров
+(`modules/partner-report/report.ts:buildReport`) + анонимные счётчики `/api/events`; детали — Tier 2.
 
 **Tier 2:** `../domain/user-flow-details.md`; полный CJM — `../../docs/cjm-ux-v0.2.md`.
