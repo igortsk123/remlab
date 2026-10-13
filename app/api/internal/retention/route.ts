@@ -13,5 +13,7 @@ export async function POST(req: Request): Promise<Response> {
   if (!token || !safeEqual(req.headers.get("x-internal-token") ?? "", token)) {
     return NextResponse.json({ ok: false }, { status: 403 });
   }
-  return NextResponse.json({ ok: true, results: await runRetention() });
+  const results = await runRetention();
+  // null — другой запуск держит замок: ничего не делали (не ошибка)
+  return NextResponse.json({ ok: true, ...(results ? { results } : { skipped: "busy" }) });
 }

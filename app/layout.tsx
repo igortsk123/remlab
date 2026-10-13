@@ -74,11 +74,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             })();
           `}
         </Script>
-        <noscript>
-          <div>
-            <img src={`https://mc.yandex.ru/watch/${METRIKA_COUNTER_ID}`} style={{ position: "absolute", left: "-9999px" }} alt="" />
-          </div>
-        </noscript>
       </body>
     </html>
   );

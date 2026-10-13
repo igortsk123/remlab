@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { isEnglishMode } from "@/components/legal/CookieBanner";
 import { legalText } from "@/lib/legal/texts";
-import { daysFrom } from "@/modules/retention/run";
+import { daysFrom, removeRunFiles } from "@/modules/retention/run";
 
 // Согласия и сроки (план b2b-04): срок не задан — не удаляем ничего; английский режим — Метрика по согласию;
 // у каждого документа есть оба языка и пометка черновика.
@@ -11,6 +11,11 @@ describe("сроки хранения", () => {
   it("срок — только целое > 0; пусто, ноль и мусор — «не задан» (ничего не удаляем)", () => {
     expect(daysFrom("365")).toBe(365);
     for (const v of [undefined, "", "0", "-5", "abc", "1.5"]) expect(daysFrom(v)).toBeNull();
+  });
+
+  it("строка трейса удаляется только если его файлы удалены (иначе фото осталось бы без записи)", async () => {
+    const rm = async (p: string) => { if (p.endsWith("locked")) throw new Error("EACCES"); };
+    expect(await removeRunFiles(["a", "locked", "b"], "/tmp/x", rm as never)).toEqual(["a", "b"]);
   });
 });
 
