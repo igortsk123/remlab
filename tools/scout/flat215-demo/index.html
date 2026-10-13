@@ -2624,6 +2624,9 @@ function shareOpen(list){
         <button class="btn primary" id="shGo">Отправить</button></div>`+
       `<div class="hint">Пришлём подборку в ${(CHAN.find(c=>c.id===chan)||{}).t}. Контакт нужен
        только для доставки фотографий.</div>`+
+      // СОГЛАСИЕ С ПОЛИТИКОЙ (b2b-04): ссылка на живую страницу; версию текста сервер пишет рядом с заявкой
+      (LANG==='en'?`<div class="hint">By pressing “Send” you agree to the <a href="/privacy?lang=en" target="_blank" rel="noopener">privacy notice</a>.</div>`
+        :`<div class="hint">Нажимая «Отправить», вы соглашаетесь с <a href="/privacy" target="_blank" rel="noopener">политикой обработки данных</a>.</div>`)+
       // МИНИАТЮРЫ, ПОЛНЫЙ КАДР — ПО НАЖАТИЮ (владелец 02.09). Десяток полноразмерных
       // фотографий в одном окне — это мегабайты на телефонной сети без всякой нужды.
       `<div class="grid2" style="margin-top:14px">${sel.map((s,k)=>

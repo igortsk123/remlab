@@ -5,6 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { lt } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { POLICY_VERSION } from "@/lib/legal/policy";
 import { shareRequests } from "@/db/schema";
 
 export const SHARE_RETENTION_DAYS = 90;
@@ -45,7 +46,8 @@ export class MemoryShareRequestRepository implements ShareRequestRepository {
 class PgShareRequestRepository implements ShareRequestRepository {
   async create(r: ShareRequestInput, now = new Date()): Promise<ShareRequest> {
     const row = { ...r, id: randomUUID(), createdAt: now, expiresAt: expiry(now) };
-    await db().insert(shareRequests).values({ ...row, ip: r.ip ?? null });
+    // нажатие «Отправить» под ссылкой на политику = согласие; пишем версию текста, действовавшую в этот момент
+    await db().insert(shareRequests).values({ ...row, ip: r.ip ?? null, consentVersion: POLICY_VERSION });
     return row;
   }
   async purgeExpired(now = new Date()): Promise<number> {

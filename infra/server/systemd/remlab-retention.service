@@ -1,0 +1,10 @@
+[Unit]
+Description=remlab: удаление по срокам хранения (план b2b-04)
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+# Ручка внутренняя: снаружи Caddy отвечает 404, зовём по сети remlab-net из контейнера Caddy (как remlab-signals).
+EnvironmentFile=/opt/remlab/.env
+ExecStart=/bin/sh -c 'docker exec remlab-caddy wget -q -O - --post-data="" --header="x-internal-token: $INTERNAL_API_TOKEN" http://remlab-app:3000/api/internal/retention'

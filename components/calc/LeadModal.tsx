@@ -127,7 +127,7 @@ export function LeadModal({ kind, url, channel, onClose }: { kind: CalcKind; url
               onChange={setConsent}
               label={
                 <span className="muted" style={{ fontSize: 13 }}>
-                  Я согласен с <a href="#" onClick={(e) => e.preventDefault()}>политикой обработки персональных данных</a>.
+                  Я согласен с <a href="/privacy" target="_blank" rel="noopener">политикой обработки персональных данных</a>.
                 </span>
               }
             />

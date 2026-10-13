@@ -13,6 +13,8 @@ export default defineConfig({
   use: {
     baseURL,
     trace: "on-first-retry",
+    // баннер cookie уже закрыт (b2b-04): он внизу экрана и перекрывал бы кнопки; e2e/legal.spec.ts проверяет его с чистого листа
+    storageState: "e2e/cookies-seen.json",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {

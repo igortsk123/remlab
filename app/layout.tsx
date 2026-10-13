@@ -11,6 +11,7 @@ import { Providers } from "@/components/Providers";
 import { SiteHeader } from "@/components/SiteHeader";
 import { VersionWatcher } from "@/components/VersionWatcher";
 import { MetrikaPageviews } from "@/components/MetrikaPageviews";
+import { CookieBanner } from "@/components/legal/CookieBanner";
 import { METRIKA_COUNTER_ID } from "@/lib/metrika";
 
 export const metadata: Metadata = {
@@ -42,20 +43,35 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <p className="muted" style={{ fontSize: 12, margin: 0 }}>
             ИП Шубина Юлия Александровна · ОГРНИП 325420500121439 · ИНН 420221376189
           </p>
+          <p className="muted" style={{ fontSize: 12, margin: "6px 0 0" }}>
+            <a href="/privacy">Политика обработки данных</a> · <a href="/cookies">Cookie</a> · <a href="/terms">Условия</a>
+          </p>
         </footer>
         </Providers>
+        <CookieBanner />
         <VersionWatcher current={APP_VERSION} />
         <MetrikaPageviews />
         <Script id="yandex-metrika" strategy="afterInteractive">
           {`
             // Страницы менеджера (/manager) и отчёта застройщику (/partner) — без Метрики и Вебвизора (планы b2b-02/03).
-            if (location.pathname.indexOf('/manager') !== 0 && location.pathname.indexOf('/partner') !== 0) (function(m,e,t,r,i,k,a){
-              m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
-              m[i].l=1*new Date();
-              for(var j=0;j<document.scripts.length;j++){if(document.scripts[j].src===r){return;}}
-              k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)
-            })(window,document,'script','https://mc.yandex.ru/metrika/tag.js?id=${METRIKA_COUNTER_ID}','ym');
-            if (window.ym) ym(${METRIKA_COUNTER_ID},'init',{ssr:true,webvisor:true,clickmap:true,accurateTrackBounce:true,trackLinks:true});
+            // Английский режим (UK) — только после согласия в баннере (b2b-04, components/legal/CookieBanner.tsx).
+            window.__remlabMetrika = function () {
+              if (window.__remlabMetrikaOn) return; window.__remlabMetrikaOn = true;
+              (function(m,e,t,r,i,k,a){
+                m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+                m[i].l=1*new Date();
+                for(var j=0;j<document.scripts.length;j++){if(document.scripts[j].src===r){return;}}
+                k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)
+              })(window,document,'script','https://mc.yandex.ru/metrika/tag.js?id=${METRIKA_COUNTER_ID}','ym');
+              if (window.ym) ym(${METRIKA_COUNTER_ID},'init',{ssr:true,webvisor:true,clickmap:true,accurateTrackBounce:true,trackLinks:true});
+            };
+            (function () {
+              var p = location.pathname; if (p.indexOf('/manager') === 0 || p.indexOf('/partner') === 0) return;
+              var q = new URLSearchParams(location.search).get('lang'), st = null, ok = null;
+              try { st = localStorage.getItem('remlab-lang'); ok = localStorage.getItem('remlab-cookies'); } catch (e) {}
+              var en = q ? q === 'en' : st === 'en';
+              if (!en || ok === 'yes') window.__remlabMetrika();
+            })();
           `}
         </Script>
         <noscript>

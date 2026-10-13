@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { leadMessages, leads } from "@/db/schema";
+import { POLICY_VERSION } from "@/lib/legal/policy";
 
 export type LeadChannel = "email" | "tg" | "max";
 export type LeadInput = { email?: string; channel: LeadChannel; url?: string; city?: string; kind?: string; sessionId?: string; ipRegion?: string };
@@ -58,6 +59,7 @@ class PgLeadRepository implements LeadRepository {
       sessionId: l.sessionId ?? null,
       ipRegion: l.ipRegion ?? null,
       status: "new",
+      consentVersion: POLICY_VERSION, // согласие обязательно (lead-actions) — пишем, на какой версии текста
     }).returning({ leadNo: leads.leadNo });
     return { ...l, id, leadNo: rows[0]?.leadNo ?? null };
   }

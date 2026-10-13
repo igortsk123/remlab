@@ -76,6 +76,9 @@ services:
       - IMAGOR_BASE_URL=http://remlab-imagor:8000
       - TRACE_ADMIN_TOKEN=${TRACE_ADMIN_TOKEN:-}
       - TRACE_RETENTION_DAYS=${TRACE_RETENTION_DAYS:-90}
+      # сроки хранения ПДн (b2b-04, ADR-0268): пусто — не удаляем (срок выбирает владелец/юрист)
+      - LEADS_RETENTION_DAYS=${LEADS_RETENTION_DAYS:-}
+      - CONTACT_RETENTION_DAYS=${CONTACT_RETENTION_DAYS:-}
       # Базовый URL для абсолютных (подписанных) ссылок на ассеты в разборе /trace.
       - TRACE_PUBLIC_BASE_URL=${TRACE_PUBLIC_BASE_URL:-https://remont-lab.online}
       # Проверка ориентации 3D-мешей (/lab/mesh-review, ADR-0131); пусто → страница закрыта (503).

@@ -146,6 +146,7 @@ export const leads = pgTable(
     ipRegion: text("ip_region"),
     messengerChatId: text("messenger_chat_id"),
     status: text("status"),
+    consentVersion: text("consent_version"), // версия политики, на которой дано согласие (b2b-04)
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("leads_session_idx").on(t.sessionId)],
@@ -340,6 +341,7 @@ export const shareRequests = pgTable(
     shotCount: integer("shot_count").notNull().default(0),
     ip: text("ip"),
     status: text("status").notNull().default("pending"),
+    consentVersion: text("consent_version"), // версия политики на момент заявки (b2b-04)
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull().default(sql`now() + interval '90 days'`),
   },
@@ -476,4 +478,17 @@ export const partnerKeys = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("partner_keys_partner_idx").on(t.partnerId)],
+);
+
+// Журнал удаления по срокам хранения (план b2b-04, ADR-0268).
+export const retentionRuns = pgTable(
+  "retention_runs",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    kind: text("kind").notNull(),
+    days: integer("days"),
+    deleted: integer("deleted").notNull().default(0),
+    ranAt: timestamp("ran_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("retention_runs_ran_idx").on(t.ranAt)],
 );
