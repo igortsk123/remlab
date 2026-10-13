@@ -30,10 +30,10 @@ def safe_url(u) -> str:
     `html.escape` экранирует кавычки, но пропускает `javascript:alert(1)` — такая ссылка
     из присланного JSON стала бы чужим скриптом на нашем домене."""
     s = str(u or '').strip()
-    if s.lower().startswith(('https://', 'http://')):
-        return s
     if '\\' in s or any(ord(c) < 32 for c in s):          # «/\evil.com», переводы строк
         return ''
+    if s.lower().startswith(('https://', 'http://')):
+        return s
     if s.startswith('/') and not s.startswith('//'):
         return s
     return ''
