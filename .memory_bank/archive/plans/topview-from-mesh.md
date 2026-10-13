@@ -4,7 +4,7 @@ status: partial
 created: 2026-08-31
 title: Вид сверху из мешей для планировщика (тест /test/topview-test/)
 owner_approved: 2026-08-31 «делай»
-updated: 2026-09-28
+updated: 2026-10-13
 review_after: 2026-10-28
 pause_reason: вид сверху сделан (14 коммитов по 05.09); открыт дефект 02.09 — шаг топ-вью снимает earlyoom; лечение в mesh-pool-hardening, подтверждается только живым прогоном
 resume_trigger: следующая волна мешей — проверить `топ-вью: ok` и пустой earlyoom за сутки

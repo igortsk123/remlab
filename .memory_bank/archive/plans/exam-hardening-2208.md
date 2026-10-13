@@ -7,8 +7,11 @@ review_after: 2026-11-10
 resume_trigger: возобновление расстановки (MASTER-zones-v7)
 pause_reason: ночной экзамен расстановки заморожен вместе с канонами (19–22.08), движения нет с 22.08
 created: 2026-08-22
-updated: 2026-09-05
+updated: 2026-10-13
 completed:
+archived: 2026-10-13
+archive_reason: heal-ворота и ковёр Г-дивана → conv-09 (замена до расстановки) и conv-06 (инвариант экзамена, демо-сцена); перф-профиль и шедулер — при возобновлении расстановки (MASTER-zones-v7)
+superseded_by: conv-06-process-tests
 ---
 
 ## Цель

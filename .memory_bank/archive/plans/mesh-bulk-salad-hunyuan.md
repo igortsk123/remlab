@@ -4,8 +4,11 @@ slug: mesh-bulk-salad-hunyuan
 title: PBR-меши товаров — свой образ Hunyuan3D 2.1 на SaladCloud, пилот 500 товаров
 status: partial
 created: 2026-08-28
-updated: 2026-09-28
+updated: 2026-10-13
 completed:
+archived: 2026-10-13
+archive_reason: пилот 500 товаров перерос в боевой конвейер (ADR-0131/0153, core/mesh-pipeline.md); вопрос «цена ассета по ролям» закрыт замерами (≈1,12 ₽/меш) — поштучная сверка пунктов не нужна
+superseded_by: conv-11-mesh-wave-autostart
 review_after: 2026-10-28
 pause_reason: пилот 500 товаров перерос в боевой конвейер мешей (ADR-0131, ADR-0153; core/mesh-pipeline.md); пункты плана поштучно не сверены; прогонов после 08.09 не было
 resume_trigger: следующая волна мешей — сверить пункты плана с конвейером; сделанное закрыть, остальное архивировать

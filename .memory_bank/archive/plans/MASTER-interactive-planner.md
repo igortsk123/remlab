@@ -7,8 +7,11 @@ parent_plan: MASTER-cost-first
 plan_kind: track_master
 review_after: 2026-10-28
 created: 2026-08-26
-updated: 2026-09-05
+updated: 2026-10-13
 completed:
+archived: 2026-10-13
+archive_reason: пакеты P0–P8 поглощены планами трека девелопера (P0/P2 → b2b-06, P1/P4 → conv-09, P3/P5/P5b → conv-03 + flat3d-sims-ux, P6 → b2b-08, P7 → b2b-05, P8 → conv-06); решение владельца 26.08 «ничего не считаем на лету» перенесено в книгу гл. 5
+superseded_by: MASTER-developer-product
 ---
 
 ## Цель

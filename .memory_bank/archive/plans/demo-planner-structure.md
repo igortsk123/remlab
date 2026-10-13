@@ -2,7 +2,7 @@
 tier: 2
 topic: demo-planner-structure
 scope: Демо интерактивного планировщика — вкладки, лента фотографий, отправка себе
-updated: 2026-09-05
+updated: 2026-10-13
 status: partial
 review_after: 2026-11-10
 resume_trigger: следующий раунд демо-планировщика (MASTER-interactive-planner)

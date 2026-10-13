@@ -4,8 +4,11 @@ slug: mesh-queue-orientation
 title: Конвейер «отбор → меши → ориентация → сеты»: автоочередь, правило мешей в сетах, каскад фронта, страница人-проверки
 status: partial
 created: 2026-08-28
-updated: 2026-09-28
+updated: 2026-10-13
 completed:
+archived: 2026-10-13
+archive_reason: код сделан 28.08; открытые вердикты владельца по /lab/mesh-review и объединение с приёмкой — в conv-04 (вкладка «где перед»)
+superseded_by: conv-04-mesh-quarantine
 review_after: 2026-10-28
 pause_reason: код сделан 28.08; осталось по данным: вердикты владельца по задачам /lab/mesh-review, фронт-каскад на Salad-меши, фазы B–D правила сетов
 resume_trigger: владелец разобрал задачи /lab/mesh-review или решил включить фазу B по coverage

@@ -27,16 +27,14 @@ draft → in_progress → completed → перенос в completed_plans/
 Триаж 2026-09-05: 53 плана ушли в архив (манифест — `changelog/memory-log.md`), открытых ≤ 25.
 
 ## Сейчас в работе (ручная сводка; обновлять при смене фокуса)
-- **Портфель:** `MASTER-cost-first` — порядок ступеней временно М5 → М2–М4 (решение владельца 05.09).
-- **Трек мебели (М5):** пул мешей (`mesh-pool-hardening`, `mesh-dynamic-node-pool`, `mesh-bulk-salad-hunyuan`,
-  `mesh-queue-orientation`, `orient-v2`, `viz-mesh-orientation`, `photo-improve-from-mesh`, `mesh-owner-audit`),
-  демо-планировщик (`MASTER-interactive-planner`, `demo-collection-flow`, `topview-from-mesh`,
-  `demo-planner-structure` — пауза), каталог (`stock-check-weekly-unified`, `stock-truth-page-verdict`).
-- **Конвейер как процессы (13.10, для Opus 5.5):** `MASTER-conveyor-gaps` → `conv-05` → `conv-01` → `conv-04` →
-  `conv-02` → `conv-03` → `conv-06` → `conv-08` → `conv-07`; `conv-09` (полные варианты), `conv-10` (цены), `conv-11` (автостарт волны).
-- **Продукт для девелопера (13.10, для Opus 5.5):** `MASTER-developer-product` → `b2b-00` (исследования) → `b2b-01` → `b2b-02` → `b2b-03` → `b2b-06` →
-  `b2b-05` → `b2b-07` → `b2b-08`/`b2b-09` → `b2b-04` → `b2b-12` → `b2b-10` → `b2b-11` → `b2b-13`; вопросы владельцу В1–В16 — в метаплане.
-- **На паузе (ждёт владельца):** расстановка — `MASTER-zones-v7`, `q12-situational-canon`, `exam-hardening-2208`.
+- **Единая очередь (13.10, ADR-0255):** `MASTER-cost-first` — 11 этапов, 33 плана, ≈ 420 ч; порядок и смыслы — в мастере.
+  Треки: `MASTER-developer-product` (`b2b-00…13`), `MASTER-conveyor-gaps` (`conv-01…11`), плюс `dims-round-objects`,
+  `flat3d-sims-ux`, `book-memory-sync`. Одно «деплой MASTER-cost-first» разрешает всю очередь.
+- **Ждут решения владельца (⚑):** `MASTER-zones-v7`, `q12-situational-canon` (расстановка заморожена с 19.08),
+  `demo-flow-3d-en` (остаток поглощён), `test-to-work`, `health-map-apex-redirect`, `viz-regional-masks`;
+  `memory-kit-v19-migration` ведёт сессия sup2.
+- **Поглощённые 13.10 → `archive/plans/`:** `MASTER-interactive-planner`, `demo-planner-structure`,
+  `mesh-bulk-salad-hunyuan`, `mesh-queue-orientation`, `topview-from-mesh`, `mesh-pool-hardening`, `exam-hardening-2208`.
 
 ## Реестр активных планов
 
@@ -79,17 +77,10 @@ draft → in_progress → completed → перенос в completed_plans/
 | test-to-work | Внутренние отчёты переезжают с /test на /work; /test без слэша чинится | draft | 2026-09-28 | 2026-09-28 |
 | memory-kit-v19-migration | Переход памяти remlab на кит v1.9 (механизмы точности из sup2) + уборка банка | partial | 2026-09-28 | 2026-10-13 |
 | health-map-apex-redirect | Апекс health-map.online — 302-редирект на 2mnenie.online (домен перестаёт быть мёртвым) | draft | 2026-09-05 | 2026-09-05 |
-| mesh-pool-hardening | Работа над ошибками пула мешей — приёмник, стопоры, транспорт, OOM, цена | partial | 2026-09-04 | 2026-09-28 |
-| topview-from-mesh | Вид сверху из мешей для планировщика (тест /test/topview-test/) | partial | 2026-08-31 | 2026-09-28 |
-| mesh-queue-orientation | Конвейер «отбор → меши → ориентация → сеты»: автоочередь, правило мешей в сетах, каскад фронта, страница人-проверки | partial | 2026-08-28 | 2026-09-28 |
-| mesh-bulk-salad-hunyuan | PBR-меши товаров — свой образ Hunyuan3D 2.1 на SaladCloud, пилот 500 товаров | partial | 2026-08-28 | 2026-09-28 |
 | viz-regional-masks | Точность мест мебели — дешёвый трек на gpt-image-2, затем спайк масок на fal (2 разбора Codex) | draft | 2026-08-27 | 2026-08-28 |
-| demo-planner-structure | Структура демо-планировщика — витрина и конструктор, серверное хранение кадров | partial | 2026-08-26 | 2026-09-05 |
-| MASTER-interactive-planner | МЕТАПЛАН — интерактивный планировщик комнаты (предпосчёт вариантов → ручные правки → примерка товара → рендер) | draft | 2026-08-26 | 2026-09-05 |
-| exam-hardening-2208 | Фиксы по ночному экзамену 22.08 — heal-ворота, шедулер, перф-профиль, ковёр Г-дивана | partial | 2026-08-22 | 2026-09-05 |
 | q12-situational-canon | Q12 — ситуационный канон (функция × якорь × форма) и честное включение приоров практики | partial | 2026-08-19 | 2026-09-05 |
 | MASTER-zones-v7 | МЕТАПЛАН — свод №13 (слепая оценка раунд 1 + каталог nook): ключ по глазу владельца, кресла к ТВ, фронтальная зона, банк→солвер, nook/консоль из фида | partial | 2026-08-16 | 2026-09-05 |
-| MASTER-cost-first | МАСТЕР-ПЛАН v0.4 «Смета-first» — расчёт ремонта/материалов как ядро продукта | in_progress | 2026-07-11 | 2026-09-28 |
+| MASTER-cost-first | МАСТЕР-ПЛАН — лестница продукта: единая очередь работ для Opus 5.5 (девелоперы → ритейлеры → люди → дизайнеры) | in_progress | 2026-07-11 | 2026-10-13 |
 <!-- GENERATED:plans-registry END -->
 
 > Шаблон нового плана — `_template.md`. Реестр регенерирует аудит — руками не правим.
