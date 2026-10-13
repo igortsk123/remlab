@@ -2,13 +2,15 @@
 workstream: mesh
 slug: conv-04-mesh-quarantine
 title: Автобрак мешей — карантин по геометрии вместо обрезки, человек разбирает карантин
-status: draft
+status: partial
 created: 2026-10-13
 updated: 2026-10-13
 completed:
 plan_kind: sub
 parent_plan: MASTER-conveyor-gaps
 assignee: opus-5.5
+pause_reason: "Нужен порог карантина от владельца (замер готов) и деньги/новая группа Salad на выключение обрезки на ноде"
+resume_trigger: "Владелец выбрал порог (15/20/25 %) — включить статус quarantine и страницу разбора; отдельно — канарейка NODE_CUTS=0"
 review_after: 2026-11-13
 ---
 
@@ -130,6 +132,10 @@ review_after: 2026-11-13
 
 ## Лог выполнения
 - 2026-10-13 — план создан (draft) по разбору конвейера, Fable 5.1
+- 2026-10-13 — замер (Opus 5.5): `tools/scout/mesh_axes.py --measure` по 1 483 ориентированным моделям, масштаб по
+  высоте паспорта: в карантин ушло бы при 15 % — 498 (34 %), 20 % — 352, 25 % — 257 (пуфы, люстры, лампы, камины —
+  доля выше). Вопрос порога — владельцу (⚑), до ответа статус quarantine не включаю. Высота этой метрикой не
+  проверяется (масштаб от неё) — `consistency` в отчёте. Результат — `tools/scout/mesh-axes-measure.json`.
 
 ## Completion summary
 —

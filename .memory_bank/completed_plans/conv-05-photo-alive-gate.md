@@ -2,10 +2,10 @@
 workstream: catalog
 slug: conv-05-photo-alive-gate
 title: «Фото есть» = фото реально скачалось — один предикат для стиля, мешей, сетов и демо
-status: in_progress
+status: completed
 created: 2026-10-13
 updated: 2026-10-13
-completed:
+completed: 2026-10-13
 plan_kind: sub
 parent_plan: MASTER-conveyor-gaps
 assignee: opus-5.5
@@ -75,7 +75,11 @@ review_after: 2026-11-13
   `live_photo_gate` (ADR-0261). Найдено: обход писал «мертво» при сбое CDN — 13 763 ложных приговора; версия 4.
 
 ## Completion summary
-—
+Одно поле `products.photo_alive`, один писатель `img_alive.sync_db`, правило `catalog_rules.PHOTO_OK_SQL`
+у оценки стиля, очереди моделей, отбора в комплекты и пула замен; обход фото — до оценки стиля (ADR-0261).
+Найдена и исправлена ошибка обхода (сбой CDN = «мертво», 13 763 ложных приговора), версия проверки 4 — все
+вердикты перепроверяются, пока «не проверено» (не блокирует). Процесс-тест `live_photo_gate`. Проверки
+`image_url is not null` у потребителей оставлены — это «ссылка есть», правило живости добавлено рядом.
 
 ### Уроки
 —
