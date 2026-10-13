@@ -191,7 +191,8 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):                                        # noqa: N802
         if self.route.startswith(('/health', 'draft/health')) or self.route in ('/draft/health',):
-            return self._send(200, {'ok': True})
+            # версия образа (b2b-08): деплой сверяет её, как у приложения
+            return self._send(200, {'ok': True, 'version': os.environ.get('DRAFT_VERSION', 'dev')})
         if self.route.startswith('/job'):
             from urllib.parse import parse_qs, urlparse
             jid = (parse_qs(urlparse(self.path).query).get('id') or [''])[0]

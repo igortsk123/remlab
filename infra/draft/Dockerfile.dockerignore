@@ -1,0 +1,18 @@
+# Белый список для образа сервиса кадров (BuildKit берёт этот файл вместо корневого .dockerignore).
+*
+!services/planner-solver/planner/**
+!services/planner-solver/rules/**
+!tools/scout/rules/asset-strategies.json
+!tools/scout/rules/capabilities.json
+!tools/scout/rules/openai_prices.json
+!tools/scout/rules/practice_priors.json
+!tools/scout/draft_service.py
+!tools/scout/draft_guard.py
+!tools/scout/draft_render.py
+!tools/scout/asset_strategy.py
+!tools/scout/falmini.py
+!tools/scout/improve_mode.py
+!tools/scout/mesh_render.py
+!tools/scout/scene_mesh.py
+!tools/scout/styles.json
+**/__pycache__

@@ -10,8 +10,14 @@
 #   4. новый запускается с теми же сетью/алиасом/томом/лимитами и env из /opt/remlab/draft/.env
 #      (вне git, chmod 600; секреты — только там).
 # Откат: docker rm -f remlab-draft && docker rename remlab-draft-prev remlab-draft && docker start remlab-draft
+#   (остановленный -prev ночью снимает cleanup.sh — тогда: draft-run.sh --image remlab-draft:prev)
 #
 #   infra/server/draft-run.sh /opt/remlab/draft/draft_service.py /opt/remlab/draft/draft_guard.py
+#   infra/server/draft-run.sh --image remlab-draft:<sha>   # образ ИЗ РЕПОЗИТОРИЯ (b2b-08, infra/draft/Dockerfile):
+#       снимок текущего всё равно делается и получает тег remlab-draft:prev; после старта /health обязан
+#       отдать version = <sha> (тег образа = DRAFT_VERSION, вшитый при сборке), иначе откат.
+#   Сборка образа на сервере: контекст из репозитория → docker build -f infra/draft/Dockerfile
+#       --build-arg DRAFT_VERSION=<sha> -t remlab-draft:<sha> .  (до переезда сборки в CI)
 # VPN-нода `remnanode` делит хост — здесь трогается только remlab-draft.
 set -euo pipefail
 
@@ -19,9 +25,17 @@ ENVF=/opt/remlab/draft/.env
 [ -f "$ENVF" ] || { echo "FATAL: нет $ENVF"; exit 1; }
 TS=$(date +%Y%m%d-%H%M%S)
 SNAP=remlab-draft:snap-$TS
+IMAGE=""; WANT=""
+if [ "${1:-}" = "--image" ]; then
+  IMAGE=${2:?нужен образ после --image}; shift 2
+  docker image inspect "$IMAGE" >/dev/null || { echo "FATAL: нет образа $IMAGE"; exit 1; }
+  WANT=${IMAGE##*:}
+fi
 
 docker commit -m "snapshot before recreate $TS" remlab-draft "$SNAP" >/dev/null
-echo "снимок: $SNAP"
+docker tag "$SNAP" remlab-draft:prev
+echo "снимок: $SNAP (он же remlab-draft:prev — точка отката)"
+RUN_IMAGE=${IMAGE:-$SNAP}
 
 # Новые файлы — в образ поверх снимка (через временный контейнер, без пересборки зависимостей).
 if [ "$#" -gt 0 ]; then
@@ -42,11 +56,15 @@ docker run -d --name remlab-draft \
   --env-file "$ENVF" \
   --memory 2200m --cpus 2 --restart unless-stopped \
   --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 \
-  -w /app "$SNAP" python draft_service.py >/dev/null
+  -w /app "$RUN_IMAGE" python draft_service.py >/dev/null
 
 for i in $(seq 1 30); do
-  if docker exec remlab-draft python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8099/health',timeout=3)" 2>/dev/null; then
-    echo "remlab-draft запущен из $SNAP, /health отвечает"; exit 0
+  h=$(docker exec remlab-draft python -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8099/health',timeout=3).read().decode())" 2>/dev/null || true)
+  if [ -n "$h" ]; then
+    if [ -z "$WANT" ] || printf '%s' "$h" | grep -q "\"version\": \"$WANT\""; then
+      echo "remlab-draft запущен из $RUN_IMAGE, /health: $h"; exit 0
+    fi
+    echo "FATAL: /health отдал не ту версию ($h, ждали $WANT)"; break
   fi
   sleep 2
 done
