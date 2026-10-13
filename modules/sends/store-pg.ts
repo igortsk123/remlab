@@ -59,9 +59,16 @@ export class PgSendStore implements SendStore {
       .where(and(eq(signalOutbox.managerId, managerId), gte(signalOutbox.createdAt, since)));
     return r[0]?.n ?? 0;
   }
-  async dueOutbox(now: Date, limit: number) {
-    return (await db().select().from(signalOutbox).where(and(eq(signalOutbox.status, "pending"), lte(signalOutbox.nextAt, now)))
-      .orderBy(asc(signalOutbox.id)).limit(limit)).map(toOutbox);
+  async claimOutbox(now: Date, limit: number, leaseMs: number) {
+    // «Аренда»: строки сдвигаются вперёд одним UPDATE … SKIP LOCKED — параллельный запуск (таймер +
+    // событие) их не возьмёт; упал посреди отправки — через `leaseMs` строка вернётся в работу.
+    const rows = await db().execute<typeof signalOutbox.$inferSelect & { next_at: Date }>(sql`
+      update signal_outbox set next_at = ${new Date(now.getTime() + leaseMs).toISOString()}
+      where id in (select id from signal_outbox where status = 'pending' and next_at <= ${now.toISOString()}
+                   order by id limit ${limit} for update skip locked)
+      returning id, send_id as "sendId", manager_id as "managerId", kind, text, status, attempts,
+                next_at as "nextAt", last_error as "lastError"`);
+    return [...rows].map((r) => ({ ...r, nextAt: new Date(r.nextAt) }) as OutboxRow);
   }
   async outboxFor(ids: string[]) {
     if (!ids.length) return [];
@@ -70,9 +77,32 @@ export class PgSendStore implements SendStore {
   async markOutbox(id: number, patch: Partial<Pick<OutboxRow, "status" | "attempts" | "nextAt" | "lastError">> & { sentAt?: Date }) {
     await db().update(signalOutbox).set(patch).where(eq(signalOutbox.id, id));
   }
-  async dueSummaries(now: Date, limit: number) {
-    return (await db().select().from(sends).where(lte(sends.summaryDueAt, now)).limit(limit)).map(toSend);
+  async claimSummaries(now: Date, limit: number) {
+    const rows = await db().execute<{ id: string; due: string }>(sql`
+      with c as (select id, summary_due_at as due from sends where summary_due_at <= ${now.toISOString()}
+                 order by summary_due_at limit ${limit} for update skip locked)
+      update sends s set summary_due_at = null from c where s.id = c.id returning s.id, c.due`);
+    const out: { send: Send; dueAt: Date }[] = [];
+    for (const r of rows) {
+      const s = await this.getSend(r.id);
+      if (s) out.push({ send: s, dueAt: new Date(r.due) });
+    }
+    return out;
   }
+  async claimReopen(id: string, now: Date, gapMs: number) {
+    const r = await db().update(sends).set({ openSignalAt: now })
+      .where(and(eq(sends.id, id), lte(sends.openSignalAt, new Date(now.getTime() - gapMs)))).returning({ id: sends.id });
+    return r.length > 0;
+  }
+  async claimDedup(key: string, now: Date, gapMs: number) {
+    const rows = await db().execute(sql`
+      insert into dedup_marks (key, at) values (${key}, ${now.toISOString()})
+      on conflict (key) do update set at = excluded.at
+        where dedup_marks.at < ${new Date(now.getTime() - gapMs).toISOString()}
+      returning key`);
+    return [...rows].length > 0;
+  }
+  async forgetUpdate(updateId: number) { await db().delete(tgUpdates).where(eq(tgUpdates.updateId, updateId)); }
   async firstSeenUpdate(updateId: number) {
     const r = await db().insert(tgUpdates).values({ updateId }).onConflictDoNothing().returning({ id: tgUpdates.updateId });
     return r.length > 0;

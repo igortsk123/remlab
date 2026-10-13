@@ -1,0 +1,27 @@
+{
+  "_note": "Демонстрационный застройщик для Англии: квартира 3D-конфигуратора demo-uk-1 (data/flat3d/apartment.json). Цена — демонстрационная.",
+  "id": "demo-uk",
+  "nameRu": "Демо-застройщик (Англия)",
+  "nameEn": "Demo developer (UK)",
+  "market": "uk",
+  "defaultLang": "en",
+  "currency": "GBP",
+  "certificateShare": 0.04,
+  "demo": true,
+  "complexes": [
+    { "id": "riverside", "nameRu": "Riverside Quarter", "nameEn": "Riverside Quarter", "handover": { "status": "planned", "quarter": "2026-Q4" } }
+  ],
+  "apartments": [
+    {
+      "id": "demo-uk-1",
+      "complexId": "riverside",
+      "kindRu": "Двухкомнатная",
+      "kindEn": "1-bedroom apartment",
+      "areaM2": 58,
+      "building": "B",
+      "price": 285000,
+      "demoPrice": true,
+      "sources": { "flat3d": "demo-uk-1" }
+    }
+  ]
+}

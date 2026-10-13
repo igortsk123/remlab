@@ -7,6 +7,8 @@
 
 import { autoAdvanceAllowed, autoStatusFor, AUTO_STATUSES, type BuyerEvent, type ManagerStatus, type SendCard } from "@/contracts/send";
 import { randomToken } from "@/lib/token";
+import { demoNames, keepKnown, loadDemoRaw, type DemoNames } from "@/lib/partners/demo-data";
+import { findApartment as findApartmentHit } from "@/lib/partners/registry";
 import { findApartment } from "@/modules/sends/apartments";
 import { alternativeText, contactText, openText } from "@/modules/sends/signals";
 import { MemorySendStore } from "@/modules/sends/store-memory";
@@ -29,7 +31,7 @@ export async function publicCard(id: string, store = sendStore()): Promise<SendC
   const s = await store.getSend(id);
   if (!s || s.revoked) return null;
   const m = await store.managerById(s.managerId);
-  if (!m) return null;
+  if (!m?.active) return null; // ушедший менеджер не показывается по старым ссылкам
   return {
     id: s.id, apartmentId: s.apartmentId, lang: s.lang, market: s.market,
     manager: { name: m.displayName, phone: m.publicPhone, telegram: m.publicTelegram, whatsapp: m.publicWhatsapp },
@@ -51,16 +53,33 @@ export async function createSend(
   return s;
 }
 
-async function signal(store: SendStore, s: Send, kind: string, text: string, now: Date): Promise<void> {
-  if ((await store.queuedSince(s.managerId, new Date(now.getTime() - 60 * MIN))) >= MANAGER_BUDGET_PER_HOUR) return;
+/** В очередь — если у менеджера не исчерпан часовой бюджет сигналов (касается и сводок). */
+export async function enqueueWithinBudget(store: SendStore, s: Send, kind: string, text: string, now: Date): Promise<boolean> {
+  if ((await store.queuedSince(s.managerId, new Date(now.getTime() - 60 * MIN))) >= MANAGER_BUDGET_PER_HOUR) return false;
   await store.enqueue({ sendId: s.id, managerId: s.managerId, kind, text, nextAt: now });
+  return true;
 }
+const signal = (store: SendStore, s: Send, kind: string, text: string, now: Date) => enqueueWithinBudget(store, s, kind, text, now).then(() => undefined);
+
+/** Имена вариантов и товаров, которые знает витрина этой квартиры (текст со страницы не верим). */
+export type KnownNames = (apartmentId: string) => Promise<DemoNames | null>;
+const demoKnown: KnownNames = async (apartmentId) => {
+  const src = findApartmentHit(apartmentId)?.apartment.sources.demoData;
+  return src ? demoNames(await loadDemoRaw(src)) : null;
+};
 
 /** Событие со страницы покупателя. false — ссылки нет или она отозвана. */
-export async function recordBuyerEvent(id: string, ev: BuyerEvent, now = new Date(), store = sendStore()): Promise<boolean> {
+export async function recordBuyerEvent(
+  id: string, raw: BuyerEvent, now = new Date(), store = sendStore(), known: KnownNames = demoKnown,
+): Promise<boolean> {
   const s = await store.getSend(id);
   if (!s || s.revoked) return false;
-  const recent = ev.kind === "manager_contact_click" || ev.kind === "alternative_request" ? await store.events(id, 20) : [];
+  // Текст со страницы — только если он есть в данных витрины (verify 13.10: иначе любой с ссылкой
+  // писал бы менеджеру в Telegram что угодно, в том числе чужие имена и телефоны).
+  const names = raw.variant || raw.items?.length ? await known(s.apartmentId) : null;
+  const ev: BuyerEvent = { ...raw, ...keepKnown(names, raw.variant, raw.items) };
+  if (!ev.variant) delete ev.variant;
+  if (!ev.items?.length) delete ev.items;
   await store.addEvent({ sendId: id, kind: ev.kind, payload: ev, createdAt: now });
 
   const to = autoStatusFor(ev.kind);
@@ -68,16 +87,14 @@ export async function recordBuyerEvent(id: string, ev: BuyerEvent, now = new Dat
 
   if (ev.kind === "designer_open") {
     if (await store.claimFirstOpen(id, now)) return signal(store, s, "open", openText(s, false), now).then(() => true);
-    if (s.openSignalAt && now.getTime() - s.openSignalAt.getTime() >= REOPEN_SIGNAL_MS) {
-      await store.updateSend(id, { openSignalAt: now });
-      await signal(store, s, "reopen", openText(s, true), now);
-    }
+    if (await store.claimReopen(id, now, REOPEN_SIGNAL_MS)) await signal(store, s, "reopen", openText(s, true), now);
   } else if (ev.kind === "variant_view" || ev.kind === "item_swap") {
     if (!s.summaryDueAt) await store.updateSend(id, { summaryDueAt: new Date(now.getTime() + SUMMARY_DELAY_MS) });
   } else {
-    const dup = recent.some((e) => e.kind === ev.kind && now.getTime() - e.createdAt.getTime() < CLICK_DEDUP_MS
-      && (e.payload as BuyerEvent).purpose === ev.purpose && (e.payload as BuyerEvent).reason === ev.reason);
-    if (!dup) await signal(store, s, ev.kind, ev.kind === "alternative_request" ? alternativeText(s, ev) : contactText(s, ev), now);
+    // Дедуп одинаковых кликов — атомарной отметкой (`dedup_marks`), а не чтением событий: два
+    // одновременных клика (sendBeacon + повтор) оба прошли бы проверку «не было» (verify 13.10).
+    const key = `send-click:${id}:${ev.kind}:${ev.purpose ?? ""}:${ev.reason ?? ""}`;
+    if (await store.claimDedup(key, now, CLICK_DEDUP_MS)) await signal(store, s, ev.kind, ev.kind === "alternative_request" ? alternativeText(s, ev) : contactText(s, ev), now);
   }
   return true;
 }

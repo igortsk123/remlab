@@ -2,6 +2,7 @@
 // и дошли ли сигналы. Заметок «кому ссылка» здесь нет — они живут только в браузере менеджера.
 
 import { apartmentsOf, sendUrl } from "@/modules/sends/apartments";
+import { MANAGER_TG_TOKEN } from "@/modules/sends/dispatch";
 import { sendStore } from "@/modules/sends/service";
 import type { Manager, SendStore } from "@/modules/sends/types";
 
@@ -15,11 +16,16 @@ export async function managerView(m: Manager, store: SendStore = sendStore()) {
       id: s.id, url: sendUrl(s.id), apartmentId: s.apartmentId, status: s.status, revoked: s.revoked,
       createdAt: s.createdAt, openedAt: s.openedAt, createdVia: s.createdVia,
       actions: ev.filter((e) => e.kind !== "status").map((e) => ({ kind: e.kind, at: e.createdAt })),
-      signals: { sent: sig.filter((o) => o.status === "sent").length, notDelivered: sig.filter((o) => o.status !== "sent" && o.status !== "pending").length, pending: sig.filter((o) => o.status === "pending").length },
+      signals: {
+        sent: sig.filter((o) => o.status === "sent").length,
+        noChannel: sig.filter((o) => o.status === "no_channel").length,
+        failed: sig.filter((o) => o.status === "failed").length,
+        pending: sig.filter((o) => o.status === "pending").length,
+      },
     };
   }));
   return {
-    manager: { name: m.displayName, telegramConnected: !!m.tgChatId },
+    manager: { name: m.displayName, telegramConnected: !!m.tgChatId && !!MANAGER_TG_TOKEN() },
     apartments: apartmentsOf(m.partnerId),
     sends: rows,
   };

@@ -71,11 +71,19 @@ export interface SendStore {
   enqueue(row: Omit<OutboxRow, "id" | "status" | "attempts" | "lastError">): Promise<void>;
   /** Сколько сигналов менеджеру поставлено в очередь начиная с `since` (бюджет антишума). */
   queuedSince(managerId: string, since: Date): Promise<number>;
-  dueOutbox(now: Date, limit: number): Promise<OutboxRow[]>;
+  /** Взять созревшие сигналы в работу: им ставится «аренда» `leaseMs` — второй запуск их не увидит. */
+  claimOutbox(now: Date, limit: number, leaseMs: number): Promise<OutboxRow[]>;
   /** Сигналы по ссылкам — для страницы менеджера (что доставлено, что нет). */
   outboxFor(sendIds: string[]): Promise<OutboxRow[]>;
   markOutbox(id: number, patch: Partial<Pick<OutboxRow, "status" | "attempts" | "nextAt" | "lastError">> & { sentAt?: Date }): Promise<void>;
-  dueSummaries(now: Date, limit: number): Promise<Send[]>;
+  /** Забрать созревшие сводки атомарно (срок обнуляется); `dueAt` — каким он был. */
+  claimSummaries(now: Date, limit: number): Promise<{ send: Send; dueAt: Date }[]>;
+  /** Отметить повторное «открыл», если прошлый сигнал старше `gapMs` (атомарно). */
+  claimReopen(id: string, now: Date, gapMs: number): Promise<boolean>;
+  /** «Первый за `gapMs`?» — атомарно: true и отметка, если прошлой отметки нет или она старше окна. */
+  claimDedup(key: string, now: Date, gapMs: number): Promise<boolean>;
+  /** Забыть апдейт Telegram, если его обработка упала, — чтобы повтор прошёл. */
+  forgetUpdate(updateId: number): Promise<void>;
   /** Telegram повторяет вебхук при сбое: true — апдейт новый, false — уже обрабатывали. */
   firstSeenUpdate(updateId: number): Promise<boolean>;
 }

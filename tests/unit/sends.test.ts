@@ -80,8 +80,9 @@ describe("события покупателя и антишум", () => {
 
   it("выбор — одной сводкой через 30 минут, даже если событий больше нет", async () => {
     const s = (await createSend(mgr(), "flat215", "bot", { chatId: 501, messageId: 42 }, T0, store))!;
-    await recordBuyerEvent(s.id, { kind: "variant_view", variant: "Джапанди", sum: 200000 }, at(1), store);
-    await recordBuyerEvent(s.id, { kind: "item_swap", variant: "Джапанди", sum: 210000, items: ["Диван Осло"] }, at(5), store);
+    const known = async () => ({ variants: new Set(["джапанди"]), items: new Set(["диван осло"]) });
+    await recordBuyerEvent(s.id, { kind: "variant_view", variant: "Джапанди", sum: 200000 }, at(1), store, known);
+    await recordBuyerEvent(s.id, { kind: "item_swap", variant: "Джапанди", sum: 210000, items: ["Диван Осло"] }, at(5), store, known);
     const tg = fakeTg();
     expect((await flushSignals(at(20), store, tg.f)).summaries).toBe(0);
     const r = await flushSignals(at(32), store, tg.f);
@@ -89,6 +90,33 @@ describe("события покупателя и антишум", () => {
     const sent = tg.calls.find((c) => c.method === "sendMessage")!;
     expect(String(sent.body.text)).toContain("Джапанди");
     expect(sent.body.reply_parameters).toEqual({ message_id: 42, allow_sending_without_reply: true }); // ответом на «Вася, после показа»
+  });
+});
+
+describe("текст со страницы не доверяем", () => {
+  const known = async () => ({ variants: new Set(["джапанди"]), items: new Set(["диван осло"]) });
+
+  it("в сигнал попадают только вариант и товары из данных витрины", async () => {
+    const s = (await createSend(mgr(), "flat215", "page", null, T0, store))!;
+    await recordBuyerEvent(s.id, { kind: "manager_contact_click", purpose: "consult", variant: "Джапанди", items: ["Диван Осло", "Позвоните Ивану +7 999 111-22-33"] }, at(1), store, known);
+    const text = store.outbox[0]!.text;
+    expect(text).toContain("Джапанди");
+    expect(text).toContain("Диван Осло");
+    expect(text).not.toContain("+7 999");
+    expect(JSON.stringify(store.eventRows)).not.toContain("+7 999");
+  });
+
+  it("нет данных витрины — текста нет вовсе, сумма остаётся", async () => {
+    const s = (await createSend(mgr(), "flat215", "page", null, T0, store))!;
+    await recordBuyerEvent(s.id, { kind: "manager_contact_click", purpose: "consult", variant: "Что угодно", sum: 1000 }, at(1), store, async () => null);
+    expect(store.outbox[0]!.text).not.toContain("Что угодно");
+    expect(store.outbox[0]!.text).toContain("1 000 ₽");
+  });
+
+  it("ушедший менеджер не показывается по старой ссылке", async () => {
+    const s = (await createSend(mgr(), "flat215", "page", null, T0, store))!;
+    store.managers.get("m1")!.active = false;
+    expect(await publicCard(s.id, store)).toBeNull();
   });
 });
 
@@ -115,6 +143,15 @@ describe("доставка сигналов", () => {
     await recordBuyerEvent(s.id, { kind: "designer_open" }, at(1), store);
     expect(await flushSignals(at(1), store, fakeTg().f)).toMatchObject({ noChannel: 1, sent: 0 });
     expect(store.outbox[0]!.lastError).toBe("no_token");
+  });
+
+  it("два одновременных запуска доставки не шлют один сигнал дважды", async () => {
+    const s = (await createSend(mgr(), "flat215", "page", null, T0, store))!;
+    await recordBuyerEvent(s.id, { kind: "designer_open" }, at(1), store);
+    const tg = fakeTg();
+    const [a, b] = await Promise.all([flushSignals(at(1), store, tg.f), flushSignals(at(1), store, tg.f)]);
+    expect(a.sent + b.sent).toBe(1);
+    expect(tg.calls.filter((c) => c.method === "sendMessage")).toHaveLength(1);
   });
 
   it("Telegram 500 — повтор через минуту; 403 (бот заблокирован) — без повтора", async () => {

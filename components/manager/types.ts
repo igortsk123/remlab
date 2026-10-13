@@ -8,7 +8,7 @@ export type ManagerSendRow = {
   createdAt: string;
   openedAt: string | null;
   actions: { kind: string; at: string }[];
-  signals: { sent: number; notDelivered: number; pending: number };
+  signals: { sent: number; noChannel: number; failed: number; pending: number };
 };
 export type ManagerData = {
   manager: { name: string; telegramConnected: boolean };

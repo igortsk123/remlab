@@ -20,7 +20,7 @@ export async function POST(req: Request): Promise<Response> {
   try {
     await handleBotUpdate(update, token);
   } catch {
-    // 500 → Telegram повторит; повтор отсечёт tg_updates только если запись успела — иначе обработаем заново
+    // 500 → Telegram повторит; отметка апдейта снята в `handleBotUpdate`, повтор обработается заново
     return NextResponse.json({ ok: false }, { status: 500 });
   }
   return NextResponse.json({ ok: true });

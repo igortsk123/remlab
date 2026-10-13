@@ -7,7 +7,11 @@
 set -euo pipefail
 declare -A A=([rotate-key]=0)
 while [ $# -gt 0 ]; do
-  case "$1" in --rotate-key) A[rotate-key]=1; shift;; --*) A[${1#--}]="${2:-}"; shift 2;; *) echo "лишний аргумент $1"; exit 1;; esac
+  case "$1" in
+    --rotate-key) A[rotate-key]=1; shift;;
+    --*) [ $# -ge 2 ] || { echo "у $1 нет значения"; exit 1; }; A[${1#--}]="$2"; shift 2;;
+    *) echo "лишний аргумент $1"; exit 1;;
+  esac
 done
 [ -n "${A[partner]:-}" ] && [ -n "${A[name]:-}" ] || { echo "нужны --partner и --name"; exit 1; }
 norm() {
@@ -27,8 +31,12 @@ docker exec -i remlab-db psql -U remlab -d remlab -qtA -v ON_ERROR_STOP=1 \
   -v wa="$WA" -v connect="$CONNECT" -v key="$KEY" -v rotate="${A[rotate-key]}" <<'SQL'
 insert into managers (id, partner_id, display_name, public_phone, public_telegram, public_whatsapp, connect_phone, page_key)
 values (:'id', :'partner', :'name', nullif(:'phone', ''), nullif(:'tg', ''), nullif(:'wa', ''), nullif(:'connect', ''), :'key')
-on conflict (id) do update set display_name = excluded.display_name, public_phone = excluded.public_phone,
-  public_telegram = excluded.public_telegram, public_whatsapp = excluded.public_whatsapp, connect_phone = excluded.connect_phone,
+on conflict (id) do update set display_name = excluded.display_name,
+  -- не переданное при обновлении не затирается
+  public_phone = coalesce(excluded.public_phone, managers.public_phone),
+  public_telegram = coalesce(excluded.public_telegram, managers.public_telegram),
+  public_whatsapp = coalesce(excluded.public_whatsapp, managers.public_whatsapp),
+  connect_phone = coalesce(excluded.connect_phone, managers.connect_phone),
   page_key = case when :'rotate' = '1' then excluded.page_key else managers.page_key end
 returning 'менеджер ' || id || ': страница https://remont-lab.online/manager#' || page_key;
 SQL

@@ -384,7 +384,11 @@ export const sends = pgTable(
     statusAt: timestamp("status_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("sends_manager_idx").on(t.managerId, t.createdAt)],
+  (t) => [
+    index("sends_manager_idx").on(t.managerId, t.createdAt.desc()),
+    index("sends_partner_idx").on(t.partnerId, t.createdAt.desc()),
+    index("sends_summary_due_idx").on(t.summaryDueAt).where(sql`summary_due_at is not null`),
+  ],
 );
 
 export const sendEvents = pgTable(
@@ -416,6 +420,11 @@ export const signalOutbox = pgTable(
   },
   (t) => [index("signal_outbox_due_idx").on(t.status, t.nextAt)],
 );
+
+export const dedupMarks = pgTable("dedup_marks", {
+  key: text("key").primaryKey(),
+  at: timestamp("at", { withTimezone: true }).notNull(),
+});
 
 export const tgUpdates = pgTable("tg_updates", {
   updateId: bigint("update_id", { mode: "number" }).primaryKey(),

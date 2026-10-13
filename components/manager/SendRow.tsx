@@ -39,7 +39,8 @@ export function SendRow({ row, onStatus }: { row: ManagerSendRow; onStatus: (id:
         {Object.keys(counts).length
           ? Object.entries(counts).map(([k, n]) => `${ACTION_LABEL[k] ?? k}${n > 1 ? ` ×${n}` : ""}`).join(" · ")
           : "Покупатель ещё не открывал."}
-        {row.signals.notDelivered > 0 && ` · сигналов не доставлено: ${row.signals.notDelivered} (бот не подключён)`}
+        {row.signals.noChannel > 0 && ` · сигналов без Telegram: ${row.signals.noChannel}`}
+        {row.signals.failed > 0 && ` · не доставлено (бот заблокирован?): ${row.signals.failed}`}
       </p>
     </div>
   );

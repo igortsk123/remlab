@@ -33,6 +33,15 @@ const ASK_PHONE = { keyboard: [[{ text: "Поделиться номером", r
 
 export async function handleBotUpdate(u: BotUpdate, token: string, store: SendStore = sendStore(), f?: TgFetch, now = new Date()): Promise<void> {
   if (!(await store.firstSeenUpdate(u.update_id))) return; // Telegram повторил апдейт
+  try {
+    await handle(u, token, store, f, now);
+  } catch (e) {
+    await store.forgetUpdate(u.update_id); // обработка упала — повтор от Telegram должен пройти
+    throw e;
+  }
+}
+
+async function handle(u: BotUpdate, token: string, store: SendStore, f: TgFetch | undefined, now: Date): Promise<void> {
   const say = (chat: number, text: string, extra: Record<string, unknown> = {}) => tgCall(token, "sendMessage", { chat_id: chat, text, ...extra }, f);
 
   const cq = u.callback_query;

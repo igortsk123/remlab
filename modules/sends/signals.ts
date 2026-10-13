@@ -32,7 +32,9 @@ export function contactText(send: Send, ev: BuyerEvent): string {
   const what = ev.purpose === "mortgage" ? "ипотеку/рассрочку" : "консультацию";
   const via = ev.channel === "whatsapp" ? "WhatsApp" : ev.channel === "telegram" ? "Telegram" : ev.channel === "phone" ? "звонок" : "";
   const sum = ev.sum ? `, выбрано на ${money(ev.sum, send.market)}` : "";
-  return `${head(send)}Клиент нажал «${what}»${via ? ` (${via})` : ""}${sum}. Это клик, не звонок: если не написал — напишите ему сами.`;
+  const variant = ev.variant ? ` Вариант «${ev.variant}».` : "";
+  const items = ev.items?.length ? ` В комнате: ${ev.items.slice(0, 5).join(", ")}.` : "";
+  return `${head(send)}Клиент нажал «${what}»${via ? ` (${via})` : ""}${sum}.${variant}${items} Это клик, не звонок: если не написал — напишите ему сами.`;
 }
 
 export function alternativeText(send: Send, ev: BuyerEvent): string {

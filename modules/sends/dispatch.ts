@@ -4,31 +4,31 @@
 // `failed`; нет бота или менеджер не подключён — `no_channel` (видно на странице менеджера).
 
 import { statusKeyboard, tgCall, type TgFetch } from "@/lib/telegram/api";
-import { SUMMARY_DELAY_MS, sendStore } from "@/modules/sends/service";
+import { enqueueWithinBudget, SUMMARY_DELAY_MS, sendStore } from "@/modules/sends/service";
 import { summaryText } from "@/modules/sends/signals";
 import type { SendStore } from "@/modules/sends/types";
 
 export const MANAGER_TG_TOKEN = () => process.env.MANAGER_TG_TOKEN || "";
 const BACKOFF_MIN = [1, 5, 15, 60];
+/** Сколько строка очереди «занята» отправкой: упал посреди — через 2 минуты её возьмёт следующий запуск. */
+const LEASE_MS = 2 * 60_000;
 
 export type FlushReport = { summaries: number; sent: number; retried: number; failed: number; noChannel: number };
 
 export async function flushSignals(now = new Date(), store: SendStore = sendStore(), fetchImpl?: TgFetch): Promise<FlushReport> {
   const r: FlushReport = { summaries: 0, sent: 0, retried: 0, failed: 0, noChannel: 0 };
 
-  for (const s of await store.dueSummaries(now, 50)) {
-    const since = (s.summaryDueAt?.getTime() ?? now.getTime()) - SUMMARY_DELAY_MS;
+  // Сводки забираются атомарно (срок обнуляется в том же UPDATE): таймер и событие, пришедшие
+  // одновременно, не пришлют одну сводку дважды (verify 13.10).
+  for (const { send: s, dueAt } of await store.claimSummaries(now, 50)) {
+    const since = dueAt.getTime() - SUMMARY_DELAY_MS;
     const recent = (await store.events(s.id, 100)).filter((e) => e.createdAt.getTime() >= since);
-    await store.updateSend(s.id, { summaryDueAt: null });
     const text = summaryText(s, recent);
-    if (text) {
-      await store.enqueue({ sendId: s.id, managerId: s.managerId, kind: "summary", text, nextAt: now });
-      r.summaries++;
-    }
+    if (text && (await enqueueWithinBudget(store, s, "summary", text, now))) r.summaries++;
   }
 
   const token = MANAGER_TG_TOKEN();
-  for (const o of await store.dueOutbox(now, 100)) {
+  for (const o of await store.claimOutbox(now, 100, LEASE_MS)) {
     const [m, s] = await Promise.all([store.managerById(o.managerId), store.getSend(o.sendId)]);
     if (!token || !m?.tgChatId || !m.active || !s) {
       await store.markOutbox(o.id, { status: "no_channel", lastError: !token ? "no_token" : "manager_not_connected" });

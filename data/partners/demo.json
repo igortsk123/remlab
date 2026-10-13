@@ -1,0 +1,31 @@
+{
+  "_note": "Демонстрационный застройщик для показов (РФ). ЖК, адрес и цена — демонстрационные; реальный ЖК не называем. Цена: 74,06 м² одного из проданных лотов стоили 9 624 990 ₽ (129 962 ₽/м²), наши 73,7 м² по той же ставке — 9 578 200 ₽.",
+  "id": "demo",
+  "nameRu": "Демо-застройщик",
+  "nameEn": "Demo developer",
+  "market": "ru",
+  "defaultLang": "ru",
+  "currency": "RUB",
+  "certificateShare": 0.05,
+  "certificateTextRu": "Выбирайте любую мебель и технику для своей новой квартиры. Все предметы можно двигать, сохранять коллекции и делиться с близкими.",
+  "demo": true,
+  "complexes": [
+    { "id": "olkhovy", "nameRu": "ЖК «Ольховый квартал»", "nameEn": "Olkhovy Kvartal", "handover": { "status": "planned", "quarter": "2026-Q4" } }
+  ],
+  "apartments": [
+    {
+      "id": "flat215",
+      "complexId": "olkhovy",
+      "kindRu": "Трёхкомнатная",
+      "kindEn": "3-bedroom flat",
+      "areaM2": 73.7,
+      "number": "215",
+      "floor": 6,
+      "floorsTotal": 17,
+      "building": "3",
+      "price": 9578200,
+      "demoPrice": true,
+      "sources": { "demoData": "/demo/demo-data.json" }
+    }
+  ]
+}

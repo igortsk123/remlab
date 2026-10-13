@@ -398,6 +398,16 @@ def drop_unavailable(sets: list) -> int:
     return n
 
 
+def demo_apartment_id() -> str | None:
+    """Квартира реестра, чья витрина — этот demo-data.json (`sources.demoData`)."""
+    root = os.path.join(HERE, '..', '..', 'data', 'partners')
+    for fn in sorted(glob.glob(os.path.join(root, '*.json'))):
+        for a in (json.load(open(fn, encoding='utf-8')).get('apartments') or []):
+            if (a.get('sources') or {}).get('demoData') == '/demo/demo-data.json':
+                return a.get('id')
+    return None
+
+
 def build() -> dict:
     flat = json.load(open(os.path.join(HERE, 'flat215.json'), encoding='utf-8'))
     sets = json.load(open(os.path.join(HERE, 'sets3.json'), encoding='utf-8'))
@@ -639,15 +649,12 @@ def build() -> dict:
     plan = flat.get('plan_example') or {}
     return {'room': {'w': liv['w'], 'd': liv['d'], 'title': liv['title'],
                      'openings': liv['openings'], 'radiators': liv.get('radiators') or []},
-            'rooms': rooms, 'flat_title': 'Квартира №215 · 73,7 м²', 'plan': plan,
+            'rooms': rooms, 'apartment_id': demo_apartment_id(), 'plan': plan,
             'variants': variants, 'sets': product_sets, 'sofa_feed': feed, 'feeds': feeds,
             'rules': _rules(),
-            # ТЕКСТ ПРО СЕРТИФИКАТ — ПАРАМЕТР ДАННЫХ, А НЕ КОНСТАНТА В ВЁРСТКЕ (владелец 01.09).
-            # Партнёр подставляет свою сумму и формулировку, не трогая страницу.
-            'budget': {'title': 'Сертификат на мебель и технику на сумму до 800 000 руб.',
-                       'text': 'Выбирайте любую мебель и технику для своей новой квартиры. '
-                               'Все предметы можно двигать, сохранять коллекции и делиться '
-                               'с близкими.'},
+            # КВАРТИРА, ЖК, ЦЕНА И СЕРТИФИКАТ — В РЕЕСТРЕ ЗАСТРОЙЩИКОВ (`data/partners/*.json`,
+            # план b2b-06): страница берёт их карточкой `/api/apartments/<apartment_id>`. Сумму
+            # сертификата здесь не пишем — её считает сервер одной формулой для демо, 3D и отчёта.
             '_note': flat.get('_scale_note')}
 
 

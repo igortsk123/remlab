@@ -57,8 +57,10 @@ export class MemorySendStore implements SendStore {
   async queuedSince(managerId: string, since: Date) {
     return this.outbox.filter((o) => o.managerId === managerId && o.createdAt >= since).length;
   }
-  async dueOutbox(now: Date, limit: number) {
-    return this.outbox.filter((o) => o.status === "pending" && o.nextAt <= now).slice(0, limit).map((o) => ({ ...o }));
+  async claimOutbox(now: Date, limit: number, leaseMs: number) {
+    const due = this.outbox.filter((o) => o.status === "pending" && o.nextAt <= now).slice(0, limit);
+    for (const o of due) o.nextAt = new Date(now.getTime() + leaseMs);
+    return due.map((o) => ({ ...o }));
   }
   async outboxFor(ids: string[]) {
     return this.outbox.filter((o) => ids.includes(o.sendId)).map((o) => ({ ...o }));
@@ -67,8 +69,23 @@ export class MemorySendStore implements SendStore {
     const o = this.outbox.find((x) => x.id === id);
     if (o) Object.assign(o, patch);
   }
-  async dueSummaries(now: Date, limit: number) {
-    return [...this.sends.values()].filter((s) => s.summaryDueAt && s.summaryDueAt <= now).slice(0, limit).map((s) => ({ ...s }));
+  async claimSummaries(now: Date, limit: number) {
+    const due = [...this.sends.values()].filter((s) => s.summaryDueAt && s.summaryDueAt <= now).slice(0, limit);
+    return due.map((s) => { const dueAt = s.summaryDueAt!; s.summaryDueAt = null; return { send: { ...s }, dueAt }; });
+  }
+  async claimReopen(id: string, now: Date, gapMs: number) {
+    const s = this.sends.get(id);
+    if (!s?.openSignalAt || now.getTime() - s.openSignalAt.getTime() < gapMs) return false;
+    s.openSignalAt = now;
+    return true;
+  }
+  async forgetUpdate(updateId: number) { this.updates.delete(updateId); }
+  private readonly marks = new Map<string, number>();
+  async claimDedup(key: string, now: Date, gapMs: number) {
+    const prev = this.marks.get(key);
+    if (prev !== undefined && now.getTime() - prev < gapMs) return false;
+    this.marks.set(key, now.getTime());
+    return true;
   }
   async firstSeenUpdate(updateId: number) {
     if (this.updates.has(updateId)) return false;

@@ -11,7 +11,19 @@ remont-lab.online {
 	# приложения попадают чужие команды. Убрать после разбора.
 	log {
 		output stdout
-		format json
+		# Секреты и ключи-ссылки в журнал не пишем (b2b-02, verify 13.10): заголовки с ключами
+		# вырезаются, токены ссылок покупателей в адресах и Referer заменяются на «…».
+		format filter {
+			wrap json
+			fields {
+				request>headers>X-Manager-Key delete
+				request>headers>X-Internal-Token delete
+				request>headers>X-Trace-Token delete
+				request>headers>X-Telegram-Bot-Api-Secret-Token delete
+				request>headers>Referer delete
+				request>uri regexp "([?&]s=|/api/sends/)[A-Za-z0-9_-]{22}" "${1}…"
+			}
+		}
 	}
 
 	# ЗАЩИТНЫЕ ЗАГОЛОВКИ НА ВЕСЬ САЙТ (план b2b-01, ADR-0256).

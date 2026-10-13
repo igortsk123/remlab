@@ -69,6 +69,13 @@ create table if not exists signal_outbox (
 );
 create index if not exists signal_outbox_due_idx on signal_outbox (status, next_at);
 
+-- Отметки «уже было» для антишума (повторный клик за 2 минуты): одна строка на ключ, условный upsert
+-- атомарен — два одновременных клика не пройдут оба (verify 13.10).
+create table if not exists dedup_marks (
+  key text primary key,
+  at timestamptz not null
+);
+
 -- Входящие обновления Telegram уже обработаны: Telegram повторяет вебхук при сбое.
 create table if not exists tg_updates (
   update_id bigint primary key,

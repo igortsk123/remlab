@@ -2,7 +2,7 @@
 workstream: product
 slug: b2b-06-apartment-as-data
 title: Квартира, ЖК, сертификат и цена — данные одного контракта; партнёр как сущность; одна квартира для демо и 3D; вторая квартира без кода
-status: draft
+status: in_progress
 created: 2026-10-13
 updated: 2026-10-13
 completed:
@@ -81,6 +81,12 @@ review_after: 2026-11-27
 
 ## Лог выполнения
 - 2026-10-13 — план создан (draft), Fable 5.1; ответы В11/В12 учтены
+- 2026-10-13 — `in_progress` (Opus 5.5). Codex недоступен (шлюз Vercel: бюджет $40 исчерпан; подписка — лимит до 22:00) →
+  второе мнение дал независимый агент-рецензент (16 замечаний, P0: id `demo-<variant>` смешивает квартиру и набор;
+  номера слотов по порядку ломают `?c=`; валюта 3D жёстко GBP; сертификат считать только сервером, округление вниз;
+  POST из живого demo-data — только по `sources` реестра, 503 при недоступности). Шаг 1: `contracts/partner.ts`,
+  `data/partners/{demo,demo-uk}.json`, `lib/partners/{registry,demo-data}.ts`, `GET /api/apartments/<id>`, шапка демо
+  из карточки, сборщик пишет `apartment_id`.
 
 ## Completion summary
 —
