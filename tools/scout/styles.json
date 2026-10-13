@@ -1,0 +1,335 @@
+{
+ "_comment": "Паспорта типовых стилей интерьера (Ф0 плана sets-style-v3). score.* — веса признаков для подбора товаров (образец владельца: 'доля влияния на узнаваемость'); prompt — блок для генерации ремонта под стиль (товары НЕ меняются); clip — фразы zero-shot. Источники: t-j.ru/list/interior-styles, netology.ru/blog/09-2022-top-20-interior-styles, domovita.by (джапанди/лофт/сканди), ivd.ru (джапанди), vc.ru стили-2025, vm.ru (топ Москвы).",
+ "role_weight": {
+  "диван": 1.0,
+  "диван 2": 1.0,
+  "стенка": 0.9,
+  "шкаф": 0.85,
+  "ковёр": 0.8,
+  "кресло": 0.7,
+  "тв-тумба": 0.7,
+  "витрина": 0.7,
+  "стеллаж": 0.65,
+  "комод": 0.6,
+  "стол обеденный": 0.6,
+  "шторы": 0.6,
+  "столик": 0.5,
+  "люстра": 0.45,
+  "камин": 0.5,
+  "стул": 0.4,
+  "пуф": 0.35,
+  "торшер": 0.35,
+  "зеркало": 0.3,
+  "плед": 0.25,
+  "кашпо": 0.2,
+  "лампа": 0.2,
+  "ваза": 0.15,
+  "подушка": 0.15,
+  "подушка 2": 0.15,
+  "статуэтка": 0.1,
+  "часы": 0.1,
+  "полка": 0.2,
+  "бра": 0.2
+ },
+ "styles": {
+  "сканди": {
+   "en": "Scandinavian",
+   "признаки": "светлое дерево 25% · простые лаконичные формы 20% · светлые нейтрали (белый/беж/серый) 15% · уютный текстиль (рогожка, вязаное, пледы) 15% · чёрные/деревянные ножки-опоры 10% · декоративность-хюгге (свечи, постеры, растения) 10% · редкие приглушённые акценты 5%",
+   "score": {
+    "wood": {
+     "светлое": 2.0,
+     "дуб": 1.5,
+     "белёное": 1.5,
+     "орех": -0.5,
+     "венге": -1.5
+    },
+    "metal": {
+     "чёрный": 0.5,
+     "хром": -0.5,
+     "латунь": -0.5
+    },
+    "fabric": {
+     "рогожка": 1.5,
+     "букле": 1.0,
+     "шенилл": 0.5,
+     "велюр": 0.0,
+     "бархат": -1.0,
+     "экокожа": -1.5
+    },
+    "colors": {
+     "neutral_light": 1.5,
+     "wood_light": 1.5,
+     "neutral_grey": 0.8,
+     "accent_yellow": 0.5,
+     "accent_green": 0.5,
+     "neutral_dark": -0.8,
+     "wood_dark": -0.8
+    },
+    "pos": "сканди|scandi|нордик|nord|хюгге|стокгольм|осло|берген|икеа|ikea",
+    "neg": "барокко|вензел|каретн|патин|лепнин|хрустал|глянец|стразы|капитоне"
+   },
+   "clip": [
+    "scandinavian style light wood furniture, simple clean lines",
+    "cozy nordic hygge interior piece, pale oak and white"
+   ],
+   "prompt": "RENOVATE the room in SCANDINAVIAN style: walls painted warm white or pale grey matte, light oak plank flooring, white ceiling, simple white window frames with airy white linen curtains, black-framed art prints and small gallery wall, a couple of green potted plants, warm cozy daylight, white panel radiator. Simple skirting, no mouldings, no gloss, no gold.",
+   "decor_examples": [
+    "постеры в чёрных рамах",
+    "пара зелёных растений в простых кашпо",
+    "свечи"
+   ],
+   "render_guide": "SCANDINAVIAN STYLE: warm white or pale grey matte walls; light oak plank flooring; white ceiling; simple flat skirting and plain trim, no mouldings; warm natural daylight; optional black-framed art prints or one or two green plants in plain pots; optional flat white radiator below the window. Keep surfaces calm and uncluttered. The result should look like a real, recently renovated flat using ordinary affordable materials. No gloss, no gold, no ornament."
+  },
+  "современный": {
+   "en": "Contemporary",
+   "признаки": "эргономичные сдержанные формы 25% · нейтральная база + насыщенные акценты 20% · смесь фактур (дерево+металл+текстиль) 15% · функциональность/техника 15% · средние тона дерева 10% · чистые линии без орнамента 15%",
+   "score": {
+    "wood": {
+     "дуб": 1.0,
+     "светлое": 0.8,
+     "орех": 0.8,
+     "венге": 0.3,
+     "белёное": 0.3
+    },
+    "metal": {
+     "чёрный": 0.8,
+     "хром": 0.8,
+     "латунь": 0.3
+    },
+    "fabric": {
+     "велюр": 0.8,
+     "рогожка": 0.5,
+     "шенилл": 0.5,
+     "экокожа": 0.3,
+     "букле": 0.3,
+     "бархат": 0.0
+    },
+    "colors": {
+     "neutral_grey": 1.0,
+     "neutral_light": 0.8,
+     "neutral_dark": 0.5,
+     "accent_blue": 0.5,
+     "accent_terra": 0.4,
+     "accent_green": 0.4
+    },
+    "pos": "модерн|современ|милан|сити|скай|тренд|фьюжн|смарт|smart",
+    "neg": "барокко|вензел|каретн|патин|прованс|кантри|под старину"
+   },
+   "clip": [
+    "contemporary modern furniture, clean neutral design with accent colour",
+    "sleek functional modern interior piece"
+   ],
+   "prompt": "RENOVATE the room in CONTEMPORARY style: smooth matte walls in warm greige with one deeper accent wall, wide oak-tone laminate flooring, minimal white ceiling with recessed spots plus the ceiling light, straight-line curtains floor to ceiling, large abstract framed art, a sculptural plant, balanced warm lighting, white panel radiator. Crisp clean detailing, no classical mouldings.",
+   "decor_examples": [
+    "крупная абстрактная картина в раме",
+    "скульптурное растение"
+   ],
+   "render_guide": "CONTEMPORARY STYLE: smooth matte walls in warm greige, optionally one deeper accent wall; wide oak-tone laminate or engineered wood floor; plain white ceiling; slim white skirting and crisp clean trim; warm natural daylight; optional one large abstract framed artwork or one sculptural plant; optional flat white radiator below the window. The result should look like a real, recently renovated flat using ordinary affordable materials. No classical mouldings, nothing ornate."
+  },
+  "минимализм": {
+   "en": "Soft minimalism",
+   "признаки": "минимум деталей и декора 30% · гладкие фасады без ручек 20% · монохромная светлая гамма 20% · простые геометрные силуэты 15% · скрытые/встроенные решения 10% · фактура вместо орнамента 5%",
+   "score": {
+    "wood": {
+     "светлое": 1.0,
+     "дуб": 0.8,
+     "белёное": 1.0,
+     "венге": -0.5
+    },
+    "metal": {
+     "чёрный": 0.5,
+     "хром": 0.5,
+     "латунь": -1.0
+    },
+    "fabric": {
+     "букле": 1.0,
+     "рогожка": 0.8,
+     "велюр": 0.3,
+     "бархат": -1.0,
+     "экокожа": 0.0
+    },
+    "colors": {
+     "neutral_light": 2.0,
+     "neutral_grey": 1.2,
+     "wood_light": 0.8,
+     "accent_red": -1.0,
+     "accent_pink": -0.8,
+     "accent_violet": -0.8
+    },
+    "pos": "минимал|слим|slim|линеар|лайн|line|моно",
+    "neg": "барокко|вензел|резн|патин|стразы|декор\\w* наклад|каретн|капитоне|бахром"
+   },
+   "clip": [
+    "minimalist furniture, plain smooth surfaces, no decoration",
+    "simple geometric monochrome interior piece"
+   ],
+   "prompt": "RENOVATE the room in SOFT MINIMALIST style: perfectly smooth matte walls in one light warm tone (off-white/greige), seamless pale microcement-look or wide light plank floor, flat white ceiling with a discreet light line, full-height plain curtains in the wall colour, at most ONE large calm artwork, one architectural plant, lots of clean empty surface, diffused soft light, flat white radiator. No mouldings, no patterns, no clutter.",
+   "decor_examples": [
+    "одна большая спокойная картина",
+    "одно архитектурное растение"
+   ],
+   "render_guide": "SOFT MINIMALIST STYLE: perfectly smooth matte walls in one light warm tone (off-white or greige); seamless pale wide-plank floor; flat white ceiling; flush low skirting, no mouldings; soft diffused natural daylight; optional at most ONE large calm artwork or ONE architectural plant; optional flat white radiator below the window. Keep large empty clean surfaces. The result should look like a real, recently renovated flat using ordinary affordable materials. No patterns, no clutter, no ornament."
+  },
+  "лофт": {
+   "en": "Industrial loft",
+   "признаки": "кирпич/бетон в отделке 25% · чёрный металл в каркасах 20% · массивная основательная мебель 15% · тёмное/грубое дерево, слэбы 15% · кожа/грубый текстиль 10% · индустриальный свет (трек, эдисон) 10% · открытые коммуникации 5%",
+   "score": {
+    "wood": {
+     "венге": 1.2,
+     "орех": 0.8,
+     "дуб": 0.8,
+     "светлое": -0.3,
+     "белёное": -1.0
+    },
+    "metal": {
+     "чёрный": 2.0,
+     "хром": 0.0,
+     "латунь": -0.5
+    },
+    "fabric": {
+     "экокожа": 1.2,
+     "рогожка": 0.8,
+     "шенилл": 0.3,
+     "велюр": -0.3,
+     "бархат": -0.8
+    },
+    "colors": {
+     "neutral_dark": 1.2,
+     "neutral_grey": 1.0,
+     "wood_dark": 1.0,
+     "accent_terra": 0.6,
+     "neutral_light": -0.3
+    },
+    "pos": "лофт|loft|индастри|гранж|грандж|цемент|бетон|эдисон|слэб|металлкаркас",
+    "neg": "прованс|шебби|барокко|вензел|пастельн|нежн|розов|каретн"
+   },
+   "clip": [
+    "industrial loft furniture, black metal frame, dark rough wood",
+    "brutal massive loft interior piece, leather and steel"
+   ],
+   "prompt": "RENOVATE the room in INDUSTRIAL LOFT style: one exposed red-brick feature wall, other walls smooth warm grey concrete-look matte, dark wide-plank wood floor, dark ceiling with visible black track spotlights in addition to the ceiling light, black-framed windows with simple dark curtains, large monochrome poster art in thin black frames, a tall green plant in a simple pot, warm Edison-bulb glow mixed with daylight, dark metal radiator. No classical mouldings, nothing glossy or gilded.",
+   "decor_examples": [
+    "монохромный постер в тонкой чёрной раме",
+    "высокое растение в простом кашпо"
+   ],
+   "render_guide": "INDUSTRIAL LOFT STYLE: one exposed red-brick feature wall, other walls smooth warm grey concrete-look matte; dark wide-plank wood floor; dark matte ceiling; black or dark metal skirting and trim; warm natural daylight; optional one monochrome poster in a thin black frame or one tall green plant in a plain pot; optional dark panel radiator below the window. The result should look like a real, recently renovated flat using ordinary affordable materials. Nothing glossy or gilded, no classical mouldings."
+  },
+  "неоклассика": {
+   "en": "Neoclassical",
+   "признаки": "симметрия и рамочные фасады 20% · сдержанные классические силуэты 20% · благородные светлые тона (крем/серо-бежевый) 15% · латунь/бронза в деталях 15% · бархат/капитоне 10% · лепнина и молдинги 10% · паркет ёлочкой 10%",
+   "score": {
+    "wood": {
+     "белёное": 1.2,
+     "орех": 1.0,
+     "дуб": 0.5,
+     "венге": 0.0
+    },
+    "metal": {
+     "латунь": 2.0,
+     "хром": 0.5,
+     "чёрный": -0.5
+    },
+    "fabric": {
+     "бархат": 1.5,
+     "велюр": 1.2,
+     "капитоне": 1.5,
+     "шенилл": 0.5,
+     "рогожка": -0.5,
+     "экокожа": -1.0
+    },
+    "colors": {
+     "neutral_light": 1.2,
+     "neutral_grey": 0.8,
+     "accent_blue": 0.5,
+     "accent_green": 0.5,
+     "wood_dark": 0.3,
+     "accent_terra": 0.0
+    },
+    "pos": "неоклассик|классик|капитоне|стёжк|стежк|каретн|честер|chester|вензел|ампир|версал|патин|багет",
+    "neg": "лофт|индастри|бетон|гранж|слэб"
+   },
+   "clip": [
+    "neoclassical elegant furniture, tufted velvet, brass details",
+    "classic refined interior piece, symmetric panelled design"
+   ],
+   "prompt": "RENOVATE the room in NEOCLASSICAL style: walls in soft cream or grey-beige matte with elegant rectangular wall mouldings (panel frames), white ceiling with a discreet cornice and a ceiling rosette under the chandelier, herringbone parquet floor, tall curtains with an elegant drape, classical framed paintings, a large mirror in a refined frame, orchid or elegant plant, warm golden evening-like light, white classic-panel radiator. Symmetry matters. No exposed brick, no industrial elements.",
+   "decor_examples": [
+    "классические картины в багете",
+    "зеркало в изящной раме",
+    "орхидея"
+   ],
+   "render_guide": "NEOCLASSICAL STYLE: soft cream or warm greige matte walls; restrained rectangular wall mouldings; white ceiling with a simple cornice; light natural-oak herringbone parquet or engineered wood; simple classical trim; warm natural late-afternoon daylight; optional classical framed artwork, refined wall mirror or one small orchid; optional white classic-panel radiator below the window. Symmetry may guide wall-moulding composition only — never move furniture to create symmetry. The result should look like a real, recently renovated flat using attractive but ordinary and affordable materials, not a palace, hotel or luxury showroom. No exposed brick or industrial elements."
+  },
+  "джапанди": {
+   "en": "Japandi",
+   "признаки": "низкие силуэты мебели 20% · тёплая почти монохромная гамма (беж/крем/графит) 20% · натуральные материалы (дерево, ротанг, лён, камень) 20% · минимум декора, ваби-саби 15% · скругления, минимум острых углов 10% · тёмные графитовые акценты 10% · плетёные детали 5%",
+   "score": {
+    "wood": {
+     "светлое": 1.5,
+     "дуб": 1.2,
+     "орех": 0.8,
+     "венге": 0.5,
+     "белёное": 0.5
+    },
+    "metal": {
+     "чёрный": 0.8,
+     "латунь": -0.3,
+     "хром": -0.8
+    },
+    "fabric": {
+     "рогожка": 1.5,
+     "букле": 1.2,
+     "шенилл": 0.5,
+     "велюр": -0.3,
+     "бархат": -1.0,
+     "экокожа": -0.8
+    },
+    "colors": {
+     "neutral_light": 1.2,
+     "wood_light": 1.2,
+     "neutral_dark": 0.6,
+     "wood_dark": 0.6,
+     "accent_green": 0.4,
+     "accent_terra": 0.4,
+     "accent_pink": -0.8,
+     "accent_violet": -0.8
+    },
+    "pos": "джапанди|japandi|ваби|японск|дзен|zen|ротанг|бамбук|плетён|плетен",
+    "neg": "барокко|вензел|каретн|стразы|глянец|хрустал|капитоне|неоновый"
+   },
+   "clip": [
+    "japandi style low furniture, warm wood and beige, rounded minimal design",
+    "japanese scandinavian zen interior piece, natural rattan and linen"
+   ],
+   "prompt": "RENOVATE the room in JAPANDI style: walls in warm sand/clay limewash-look matte (subtle, even), light tatami-tone wood floor, minimal white-warm ceiling, simple linen curtains, one or two ink-style or botanical artworks, a bonsai or sculptural branch in a ceramic vase, a paper or rattan pendant feel of light — soft, low-contrast warm daylight, discreet white radiator. Low visual noise, rounded corners, wabi-sabi calm. No gloss, no gold, no bright colours.",
+   "decor_examples": [
+    "графика тушью или ботаническая",
+    "ветка или бонсай в керамике"
+   ],
+   "render_guide": "JAPANDI STYLE: walls in warm sand or clay limewash-look matte, subtle and even; light tatami-tone wood floor; warm white ceiling; simple low trim; soft low-contrast warm daylight; optional one ink-style or botanical artwork, or one branch or bonsai in a ceramic vessel; optional discreet white radiator below the window. Low visual noise, rounded calm, wabi-sabi restraint. The result should look like a real, recently renovated flat using ordinary affordable materials. No gloss, no gold, no bright colours."
+  }
+ },
+ "compat_prompt_note": "Каждый prompt-блок ДОПОЛНЯЕТ базовые правила pipeline2 (товары неизменны: форма/цвет с фото; декор ≤90 см; стены идеально чистые матовые; батарея под окном).",
+ "sources": [
+  "https://t-j.ru/list/interior-styles/",
+  "https://netology.ru/blog/09-2022-top-20-interior-styles",
+  "https://domovita.by/news/dzapandi-loft-skandi-razbiraemsa-v-populjarnykh-stilakh-dizajna-interera",
+  "https://www.ivd.ru/dizajn-i-dekor/stili-interiera/stil-dzhapandi-chto-eto-i-kak-oformit-v-nem-sobstvennuyu-kvartiru-35871",
+  "https://vc.ru/dizain-interior/1688952-populyarnye-stili-interera-v-2025-godu-top-16-vidov-dizaina-interera-s-nazvaniyami-i-foto",
+  "https://vm.ru/news/1270209-istoriya-vstrechaetsya-s-innovaciyami-tri-samyh-populyarnyh-interernyh-stilya-v-moskve"
+ ],
+ "_decor_policy": {
+  "_why": "Что модели запрещено ДОБАВЛЯТЬ в кадр при ремонте. Живёт здесь, рядом со стилями, потому что набор зависит от стиля и меняется вместе с ним. Текст АНГЛИЙСКИЙ: он подставляется в англоязычный промпт, и смешивать языки в одном запросе нельзя.",
+  "deny_always": [
+   "furniture, storage units or rugs",
+   "lamps, chandeliers or other lighting fixtures",
+   "electronics other than the existing television",
+   "objects that overlap or displace existing products"
+  ],
+  "allow_hint": "модель выбирает сама и вправе не добавлять ничего, если станет захламлённо",
+  "allow_now": {
+   "curtains or blinds": "владелец 02.09 снял прежний запрет: «явно дай разрешение шторы генерить под стиль, он все без штор делает». Шторы — часть отделки окна, а не товар из сметы; модель подбирает их под стиль. Прежняя причина запрета (01.09: «шторы бывают разные, пока не добавили как ТОВАР — не выдумывать») отменена владельцем."
+  }
+ },
+ "_render_guide_about": "STYLE GUIDE для режима «улучшить фото»: ЕДИНСТВЕННЫЙ переменный блок промпта, всё остальное статично (структура владельца 01.09). Текст СОВЕТУЮЩИЙ, а не список обязательного: модель берёт то, что подходит комнате, и опускает лишнее; статические запреты он не отменяет. Поле `prompt` рядом НЕ годится для этого режима — там шторы, люстра и «розетка под люстру», то есть светильники и текстиль, которые в этом режиме добавлять запрещено."
+}

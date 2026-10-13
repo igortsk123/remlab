@@ -36,6 +36,8 @@ tools/scout/*
 !tools/scout/*.sh
 !tools/scout/*.sql
 !tools/scout/README.md
+# паспорта стилей — канон (core/styles.md), их читает сервис кадров: в git (b2b-08, 13.10 — жили только на DEV)
+!tools/scout/styles.json
 !tools/scout/pages/
 !tools/scout/pages/**
 # Демо-страница интерактивного планировщика — ИСХОДНИК, а не данные: без неё демо
