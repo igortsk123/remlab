@@ -37,6 +37,10 @@ export const PRESETS = {
   flatConfig: (ip: string) => ({ paid: false, rules: [{ key: `flat-config:ip:${ip}`, limit: 20, windowSec: 60 }] }),
   lead: (ip: string) => ({ paid: false, rules: [{ key: `lead:ip:${ip}`, limit: 5, windowSec: 600 }] }),
   share: (ip: string) => ({ paid: false, rules: [{ key: `share:ip:${ip}`, limit: 20, windowSec: 600 }] }), // офис за одним адресом
+  // Ссылки менеджера (b2b-02): карточку и события шлёт страница покупателя, менеджерские ручки — его страница.
+  sendRead: (ip: string) => ({ paid: false, rules: [{ key: `send-read:ip:${ip}`, limit: 60, windowSec: 60 }] }),
+  sendEvent: (ip: string) => ({ paid: false, rules: [{ key: `send-event:ip:${ip}`, limit: 120, windowSec: 600 }] }),
+  manager: (ip: string) => ({ paid: false, rules: [{ key: `manager:ip:${ip}`, limit: 120, windowSec: 600 }] }),
 } satisfies Record<string, (ip: string) => { paid: boolean; rules: Rule[] }>;
 
 export function windowStart(nowMs: number, windowSec: number): Date {

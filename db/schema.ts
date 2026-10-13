@@ -2,7 +2,8 @@
 // session_id вынесен колонкой для выборок workspace. Расширение на нормальные таблицы — позже.
 // Трейсинг пайплайна (ADR-0013): runs/steps/assets — подробный лог каждого вызова LLM.
 
-import { pgTable, text, jsonb, timestamp, integer, bigint, doublePrecision, boolean, index, serial, uniqueIndex, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, jsonb, timestamp, integer, bigint, doublePrecision, boolean, index, serial, uniqueIndex, primaryKey, bigserial } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import type { Project } from "@/contracts/project";
 import type { Estimate } from "@/contracts/estimate";
 
@@ -312,7 +313,7 @@ export const flatConfigs = pgTable(
 );
 
 // ── Безопасность (план b2b-01, ADR-0248) ─────────────────────────────────────────────────
-// Счётчики частоты: фиксированное окно на ключ. Пишет `lib/ratelimit.ts` одним upsert-ом.
+// Счётчики частоты: фиксированное окно на ключ. Пишет `lib/ratelimit/store.ts` одним upsert-ом.
 export const rateLimits = pgTable(
   "rate_limits",
   {
@@ -337,7 +338,86 @@ export const shareRequests = pgTable(
     ip: text("ip"),
     status: text("status").notNull().default("pending"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull().default(sql`now() + interval '90 days'`),
   },
-  (t) => [index("share_requests_created_idx").on(t.createdAt)],
+  (t) => [index("share_requests_created_idx").on(t.createdAt), index("share_requests_expires_idx").on(t.expiresAt)],
 );
+
+// ── Ссылка от менеджера и сигналы ему (план b2b-02, ADR-0257) ───────────────────────────
+// Данных покупателя нет: только id исходного сообщения менеджера, чтобы сигналы шли ответом на него.
+export const managers = pgTable(
+  "managers",
+  {
+    id: text("id").primaryKey(),
+    partnerId: text("partner_id").notNull(),
+    displayName: text("display_name").notNull(),
+    publicPhone: text("public_phone"),
+    publicTelegram: text("public_telegram"),
+    publicWhatsapp: text("public_whatsapp"),
+    connectPhone: text("connect_phone"),
+    tgUserId: bigint("tg_user_id", { mode: "number" }),
+    tgChatId: bigint("tg_chat_id", { mode: "number" }),
+    pageKey: text("page_key").notNull().unique(),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("managers_partner_idx").on(t.partnerId)],
+);
+
+export const sends = pgTable(
+  "sends",
+  {
+    id: text("id").primaryKey(),
+    partnerId: text("partner_id").notNull(),
+    apartmentId: text("apartment_id").notNull(),
+    managerId: text("manager_id").notNull(),
+    lang: text("lang").notNull().default("ru"),
+    market: text("market").notNull().default("ru"),
+    status: text("status").notNull().default("sent"),
+    createdVia: text("created_via").notNull(),
+    originChatId: bigint("origin_chat_id", { mode: "number" }),
+    originMessageId: bigint("origin_message_id", { mode: "number" }),
+    revoked: boolean("revoked").notNull().default(false),
+    openedAt: timestamp("opened_at", { withTimezone: true }),
+    openSignalAt: timestamp("open_signal_at", { withTimezone: true }),
+    summaryDueAt: timestamp("summary_due_at", { withTimezone: true }),
+    statusAt: timestamp("status_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("sends_manager_idx").on(t.managerId, t.createdAt)],
+);
+
+export const sendEvents = pgTable(
+  "send_events",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    sendId: text("send_id").notNull(),
+    kind: text("kind").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("send_events_send_idx").on(t.sendId, t.createdAt)],
+);
+
+export const signalOutbox = pgTable(
+  "signal_outbox",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    sendId: text("send_id").notNull(),
+    managerId: text("manager_id").notNull(),
+    kind: text("kind").notNull(),
+    text: text("text").notNull(),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAt: timestamp("next_at", { withTimezone: true }).notNull().defaultNow(),
+    lastError: text("last_error"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("signal_outbox_due_idx").on(t.status, t.nextAt)],
+);
+
+export const tgUpdates = pgTable("tg_updates", {
+  updateId: bigint("update_id", { mode: "number" }).primaryKey(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

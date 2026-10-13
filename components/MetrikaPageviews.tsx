@@ -12,6 +12,7 @@ function PageviewTracker() {
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.ym !== "function") return;
+    if (pathname.startsWith("/manager")) return; // страница менеджера — без аналитики (план b2b-02)
     const qs = searchParams.toString();
     window.ym(METRIKA_COUNTER_ID, "hit", pathname + (qs ? `?${qs}` : ""));
   }, [pathname, searchParams]);

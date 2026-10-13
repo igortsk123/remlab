@@ -3241,4 +3241,82 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
   };
 })();
 </script>
+<script>
+/* ——— ССЫЛКА ОТ МЕНЕДЖЕРА (план b2b-02, ADR-0257). Менеджер застройщика после показа шлёт
+   покупателю `/demo/?s=<id>`: страница показывает его карточку, кнопки «консультация»/«ипотека»
+   ведут к НЕМУ (WhatsApp/Telegram/звонок с готовым текстом), а действия покупателя уходят
+   событиями — менеджеру приходит сигнал. Имени и телефона покупателя страница не спрашивает.
+   Без `?s=` всё как раньше (демо для показа). `&mgr=1` — менеджер смотрит сам: событий нет. */
+(function(){
+  var m=location.search.match(/[?&]s=([A-Za-z0-9_-]{22})(?:&|$)/);
+  if(!m)return;
+  var SEND=m[1], PREVIEW=/[?&]mgr=1(?:&|$)/.test(location.search), CARD=null;
+  function state(){
+    try{var v=allVariants()[cur]||{};
+      var names=uniqProducts(variantItems(v).map(skuOf).filter(Boolean)).map(function(x){return x.name;}).slice(0,10);
+      return {variant:String(v.style||v.title||'').slice(0,80)||undefined, items:names.map(function(n){return String(n).slice(0,120);}), sum:Math.round(LAST_SUM||0)||undefined};
+    }catch(e){return {};}
+  }
+  function ev(kind,extra){
+    if(PREVIEW||!CARD)return;
+    var body=JSON.stringify(Object.assign({kind:kind},extra||{}));
+    var url='/api/sends/'+SEND+'/event';
+    // sendBeacon переживает уход в WhatsApp/Telegram: обычный fetch при переходе обрывается
+    try{if(navigator.sendBeacon&&navigator.sendBeacon(url,new Blob([body],{type:'application/json'})))return;}catch(e){}
+    fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:body,keepalive:true}).catch(function(){});
+  }
+  var esc=function(t){return String(t==null?'':t).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
+  function contactSheet(purpose){
+    var st=state(), M=CARD.manager;
+    var what=purpose==='mortgage'?'хочу узнать условия ипотеки или рассрочки':'хочу консультацию';
+    var text='Здравствуйте, '+M.name+'! Смотрю квартиру по вашей ссылке'+(st.variant?', вариант «'+st.variant+'»':'')+
+      (st.sum?', мебель на '+st.sum.toLocaleString('ru-RU')+' ₽':'')+'. '+what[0].toUpperCase()+what.slice(1)+'. '+location.href;
+    var links=[];
+    if(M.whatsapp)links.push(['whatsapp','WhatsApp','https://wa.me/'+String(M.whatsapp).replace(/\D/g,'')+'?text='+encodeURIComponent(text)]);
+    if(M.telegram)links.push(['telegram','Telegram','https://t.me/'+encodeURIComponent(String(M.telegram).replace(/^@/,''))+'?text='+encodeURIComponent(text)]);
+    if(M.phone)links.push(['phone','Позвонить '+M.phone,'tel:'+String(M.phone).replace(/[^\d+]/g,'')]);
+    shotOpen('<div class="wait"><b>'+esc(M.name)+'</b> — ваш менеджер.<br><span style="font-size:15px;color:var(--muted)">Сообщение уже написано, останется отправить.</span>'+
+      '<div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">'+
+      links.map(function(l){return '<a class="btn round cta" data-ch="'+l[0]+'" href="'+esc(l[2])+'" target="_blank" rel="noopener">'+esc(l[1])+'</a>';}).join('')+
+      '</div></div>','');
+    document.querySelectorAll('#shotbody [data-ch]').forEach(function(a){
+      a.addEventListener('click',function(){ev('manager_contact_click',Object.assign({purpose:purpose,channel:a.dataset.ch},st));});});
+  }
+  var REASONS=[['price','Дорого'],['style','Не мой стиль'],['space','Тесно / не помещается'],['color','Другой цвет'],['other','Другое']];
+  function altSheet(){
+    shotOpen('<div class="wait"><b>Что подобрать иначе?</b><div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">'+
+      REASONS.map(function(r){return '<button class="btn round" data-r="'+r[0]+'">'+r[1]+'</button>';}).join('')+'</div></div>','');
+    document.querySelectorAll('#shotbody [data-r]').forEach(function(b){b.onclick=function(){
+      ev('alternative_request',Object.assign({reason:b.dataset.r},state()));
+      shotOpen('<div class="wait">Передали '+esc(CARD.manager.name)+'. Он подберёт другой вариант и напишет вам.</div>','');};});
+  }
+  function mount(){
+    var acts=document.querySelector('#flatPrice .fh-acts'); if(!acts)return;
+    var card=document.createElement('div');
+    card.className='fh-mgr';
+    card.style.cssText='flex-basis:100%;font-size:15px;color:var(--muted);text-align:right';
+    card.innerHTML='Ваш менеджер: <b style="color:var(--ink,inherit)">'+esc(CARD.manager.name)+'</b>'+(CARD.manager.phone?' · '+esc(CARD.manager.phone):'');
+    acts.insertBefore(card,acts.firstChild);
+    var alt=document.createElement('button'); alt.className='btn round'; alt.textContent='Хочу другой вариант';
+    alt.onclick=altSheet; acts.appendChild(alt);
+    var mort=document.getElementById('pcMort'), cons=document.getElementById('pcCons');
+    if(mort)mort.onclick=function(){contactSheet('mortgage');};
+    if(cons)cons.onclick=function(){contactSheet('consult');};
+  }
+  // кнопки шапки перерисовывает priceCard — после каждой перерисовки ставим свои обработчики заново
+  var _pc=window.priceCard; if(typeof _pc==='function')window.priceCard=priceCard=function(){var r=_pc.apply(this,arguments);if(CARD){var a=document.getElementById('pcMort'),c=document.getElementById('pcCons');if(a)a.onclick=function(){contactSheet('mortgage');};if(c)c.onclick=function(){contactSheet('consult');};}return r;};
+  var _pv=window.pickVariant; if(typeof _pv==='function')window.pickVariant=pickVariant=function(i){var r=_pv.apply(this,arguments);ev('variant_view',state());return r;};
+  var _to=window.tryOn; if(typeof _to==='function')window.tryOn=tryOn=function(){var r=_to.apply(this,arguments);ev('item_swap',state());return r;};
+  var _s3=window.sync3dLink; if(typeof _s3==='function')window.sync3dLink=sync3dLink=function(){var r=_s3.apply(this,arguments);
+    ['pc3d','swap3d'].forEach(function(id){var a=document.getElementById(id);if(a&&a.href.indexOf('s=')<0)a.href+=(a.href.indexOf('?')<0?'?':'&')+'s='+SEND;});return r;};
+  fetch('/api/sends/'+SEND,{cache:'no-store'}).then(function(r){return r.ok?r.json():null;}).then(function(j){
+    if(!j||!j.ok){
+      var b=document.createElement('div');
+      b.style.cssText='background:#FFF4E5;color:#7A4B00;padding:10px 16px;text-align:center;font-size:15px';
+      b.textContent='Ссылка недействительна или отозвана. Попросите у менеджера новую — ниже демонстрация без вашей подборки.';
+      document.body.insertBefore(b,document.body.firstChild); return;}
+    CARD=j.card; mount(); ev('designer_open',state());
+  }).catch(function(){});
+})();
+</script>
 </body></html>

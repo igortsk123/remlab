@@ -86,6 +86,10 @@ services:
       - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN:-}
       - PAID_DAILY_CAP_PARSE=${PAID_DAILY_CAP_PARSE:-500}
       - PAID_DAILY_CAP_GEN=${PAID_DAILY_CAP_GEN:-200}
+      # Бот менеджеров застройщика (план b2b-02): ссылки покупателям и сигналы; пусто → бот закрыт,
+      # сигналы копятся с пометкой «нет канала» и видны на странице менеджера.
+      - MANAGER_TG_TOKEN=${MANAGER_TG_TOKEN:-}
+      - MANAGER_TG_WEBHOOK_SECRET=${MANAGER_TG_WEBHOOK_SECRET:-}
     volumes:
       - remlab-traces:/app/data/traces
     networks: [remlab-net]

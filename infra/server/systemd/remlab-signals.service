@@ -1,0 +1,12 @@
+[Unit]
+Description=remlab: сводки и повторы сигналов менеджерам (план b2b-02)
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+# Ручка внутренняя: снаружи Caddy отвечает 404, поэтому зовём приложение по сети remlab-net из
+# контейнера Caddy (в нём есть wget). Секрет — из /opt/remlab/.env (в списке процессов хоста он виден
+# только root-у на долю секунды — тот же уровень доступа, что у самого .env).
+EnvironmentFile=/opt/remlab/.env
+ExecStart=/bin/sh -c 'docker exec remlab-caddy wget -q -O - --post-data="" --header="x-internal-token: $INTERNAL_API_TOKEN" http://remlab-app:3000/api/internal/signals/flush >/dev/null'
