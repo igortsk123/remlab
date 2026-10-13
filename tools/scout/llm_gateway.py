@@ -58,6 +58,7 @@ def chat(model: str, messages: list, timeout: int = 240, tries: int = 6, **extra
     if not routes:
         raise SystemExit('нет ни VERCEL_AI_GATEWAY_KEY, ни OPENAI_API_KEY')
     last = None
+    broke = []                                # каналы без денег — в итоговую ошибку, чтобы её понял человек
     for url, key, mname in routes:
         body = {'model': mname, 'messages': messages, **extra}
         for attempt in range(tries):
@@ -69,10 +70,27 @@ def chat(model: str, messages: list, timeout: int = 240, tries: int = 6, **extra
                     return json.loads(r.read())
             except urllib.error.HTTPError as e:
                 last = e
+                # НЕТ ДЕНЕГ — НЕ ТЕМП (13.10): шлюз Vercel при исчерпанном бюджете отвечает 402, OpenAI без
+                # кредитов — 429 `insufficient_quota`. Раньше 402 ронял вызов без фолбэка, а 429 «без денег»
+                # повторялся 6 раз с паузами до минуты — ночной шаг висел, ничего не делая.
+                txt = ''
+                try:
+                    txt = e.read()[:600].decode(errors='replace')
+                except Exception:  # noqa: BLE001 — тело ошибки необязательно
+                    pass
+                if e.code == 402 or (e.code == 429 and ('insufficient_quota' in txt or 'credit_balance' in txt)):
+                    broke.append('шлюз Vercel' if url == GATEWAY_URL else 'OpenAI')
+                    break
                 if e.code in (429, 500, 502, 503) and attempt < tries - 1:
                     time.sleep(min(60, 5 * 2 ** attempt))
                     continue
                 if e.code in (401, 403, 404):
                     break                     # канал недоступен — пробуем следующий
                 raise
+    if broke and len(broke) == len(routes):
+        raise NoCredits('нет денег на всех каналах LLM: ' + ', '.join(broke) + ' — нужно пополнение')
     raise last or RuntimeError('LLM не ответил')
+
+
+class NoCredits(RuntimeError):
+    """На всех каналах кончились деньги: повторять бессмысленно, нужен человек."""

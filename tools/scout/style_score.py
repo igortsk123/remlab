@@ -203,9 +203,16 @@ B=25; done=0; fails=0; _lock=threading.Lock(); scored_now=[]
 batches=[todo[bi:bi+B] for bi in range(0,len(todo),B)]
 def run_batch(batch):
     try: return batch,llm_batch(batch)
-    except Exception as e: return batch,{'__err':str(e)[:80]}
+    except Exception as e:
+        # НЕТ ДЕНЕГ НА КАНАЛАХ LLM (13.10) — не «отказ партии»: фолбэк «правила+CLIP» лёг бы в кэш НАВСЕГДА
+        # (кэш не пересчитывается), и каждую ночь без кредитов портил бы оценки. Стоп без записи.
+        if type(e).__name__=='NoCredits': return batch,{'__nocredit':str(e)[:160]}
+        return batch,{'__err':str(e)[:80]}
 _pool=cf.ThreadPoolExecutor(8)
 for batch,llm in _pool.map(run_batch,batches):
+    if '__nocredit' in llm:
+        print(f"WARN:llm_no_credits: {llm['__nocredit']} — стили новых товаров не считаю, кэш не трогаю",flush=True)
+        break
     if '__err' in llm:
         print(f"LLM fail {llm['__err']} — правила+CLIP",flush=True); llm={}; fails+=1
         if fails>15: print("слишком много отказов LLM — СТОП, кэш сохранён"); break
