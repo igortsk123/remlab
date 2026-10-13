@@ -32,14 +32,41 @@ PLACEABLE = {'диван', 'кресло', 'столик', 'ковёр', 'тв-�
 
 
 def pick_banks(sets: list, band: str = '14-16', n: int = 6) -> list:
-    rated = []
+    """По ОДНОМУ набору на стиль, и это самый СОБИРАЕМЫЙ набор стиля.
+
+    Было: шесть наборов с наибольшим числом предметов, стиль не учитывался вовсе. На странице
+    13.10 из-за этого дважды стояла неоклассика, дважды джапанди, а лофта и современного не было
+    совсем — владелец читал это как «два одинаковых варианта». Теперь стиль — первичный ключ:
+    по одному варианту на каждый, порядок стилей фиксирован, чтобы страница не прыгала.
+
+    Внутри стиля выигрывает тот набор, который МОЖНО ПОКАЗАТЬ ЦЕЛИКОМ: сперва меньше предметов
+    без меша (серая коробка в кадре хуже, чем набор поскромнее), потом больше расставляемых
+    предметов. Замер 13.10: по этому правилу шести сценам не хватало 12 мешей против 26 у
+    прежнего отбора «кто богаче».
+    """
+    idx = _mesh_index()
+    order = ['сканди', 'современный', 'минимализм', 'лофт', 'неоклассика', 'джапанди']
+    best: dict = {}
     for i, st in enumerate(sets, 1):
         if st.get('band') != band or 'диван' not in (st.get('items') or {}):
             continue
-        rated.append((sum(1 for r in st['items'] if r.split(' ')[0] in PLACEABLE),
-                      -len(st.get('gaps') or []), i))
-    rated.sort(reverse=True)
-    return [i for _, _, i in rated[:n]]
+        items = st.get('items') or {}
+        placeable = sum(1 for r in items if r.split(' ')[0] in PLACEABLE)
+        no_mesh = sum(1 for r, it in items.items()
+                      if r.split(' ')[0] in PLACEABLE and it and it.get('mid')
+                      and _msid(f"{it['mid']}_{it['eid']}") not in idx)
+        key = (no_mesh, -placeable, len(st.get('gaps') or []), i)
+        style = st.get('style') or ''
+        if style not in best or key < best[style][0]:
+            best[style] = (key, i)
+    picked = [best[s][1] for s in order if s in best]
+    picked += [v[1] for k, v in sorted(best.items()) if k not in order]
+    for style in order:
+        if style in best:
+            k = best[style][0]
+            print(f'  вариант стиля «{style}»: набор {best[style][1]}, '
+                  f'без меша {k[0]}, расставляемых {-k[1]}', flush=True)
+    return picked[:n]
 SHOW_ROLES = ('диван', 'диван 2', 'кресло', 'кресло 2', 'столик', 'ковёр', 'тв-тумба', 'стенка',
               'торшер', 'пуф', 'стеллаж', 'комод', 'витрина', 'кашпо', 'камин', 'банкетка',
               'стол обеденный', 'стул', 'стул 2', 'приставной')
@@ -383,7 +410,9 @@ def build() -> dict:
     liv = flat['rooms'][0]
     variants = []
     for k, n in enumerate(BANKS, 1):
-        style = f'Вариант {k}'
+        # ПОДПИСЬ — СТИЛЬ, А НЕ НОМЕР (13.10). «Вариант 1…6» ничего не говорит, и два набора
+        # одного стиля выглядели как дубль. Номер остаётся только запасным именем.
+        style = (sets[n - 1].get('style') or f'Вариант {k}').capitalize()
         fs = glob.glob(os.path.join(HERE, f'v3set{n}-layout.json'))
         if not fs:
             continue

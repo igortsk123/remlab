@@ -1124,6 +1124,7 @@ function applyKit(kit){            // комплект накладываетс�
   draw();}
 let baseRev='';                       // ревизия «как отдал движок» — по ней видно, правил ли человек
 function load(){const v=allVariants()[cur]||D.variants[0];items=clone(v.items);sel=null;
+  try{sync3dLink();}catch(e){}
   // КАМЕРЫ ПРИНАДЛЕЖАТ ВАРИАНТУ (01.09). Положения хранятся под ключом варианта
   // (`camsKey()`), но глобальная `cams` заполнялась ОДИН раз и при переключении варианта
   // оставалась прежней — снимок нового варианта уходил бы с ракурсов старого. Сбрасываем:
@@ -2164,8 +2165,20 @@ function drawColl(force){
 // расстановку, а списка нет внизу»; и он пропадал после закрытия модалки). Раньше панель
 // открывалась только кнопкой и жила отдельным состоянием, которое сбрасывалось при любой
 // перерисовке. Состояния больше нет: выбран вариант — виден его список.
-function pickVariant(i){ if(i===cur){showSwap();syncHash();return;}
-  cur=i; load(); showSwap(); drawColl(); syncHash(); }
+function pickVariant(i){ if(i===cur){showSwap();syncHash();sync3dLink();return;}
+  cur=i; load(); showSwap(); drawColl(); syncHash(); sync3dLink(); }
+// ВХОД В 3D — С ТЕКУЩИМ ВАРИАНТОМ (13.10, владелец: «бродилка должна открываться по кнопке
+// конкретного варианта»). Раньше кнопка вела на абстрактную демо-квартиру: человек смотрел
+// джапанди, нажимал «в 3D» и попадал в другую комнату с другой мебелью. Теперь в ссылке едет id
+// варианта, а конфигуратор собирает по нему ту же комнату и ту же расстановку.
+function sync3dLink(){
+  const a=document.getElementById('pc3d'); if(!a)return;
+  const v=allVariants()[cur]||{};
+  a.href = v.id ? '/flat?demo='+encodeURIComponent(v.id) : '/flat';
+  a.textContent = v.style
+    ? 'Пройтись по этой комнате в 3D — '+v.style+' →'
+    : 'Пройтись по квартире в 3D →';
+}
 function showSwap(){
   const box=document.getElementById('swapBox'); if(!box)return;
   const v=allVariants()[cur]||{};

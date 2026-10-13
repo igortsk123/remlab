@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { FlatConfigurator } from "@/components/flat3d/FlatConfigurator";
 import { loadFlat3d } from "@/lib/configurator/data";
+import { fromDemoVariant, type DemoData } from "@/lib/configurator/fromDemo";
 import { readConfig } from "@/lib/configurator/repo";
 import type { Lang } from "@/lib/configurator/i18n";
 
@@ -15,13 +16,31 @@ export const metadata = {
 // Страница динамическая: по ?c=<id> открывается сохранённый подбор.
 export const dynamic = "force-dynamic";
 
+/** Данные витрины. Отказ сети/формата — не ошибка страницы: открываем обычную квартиру. */
+async function loadDemoVariant(variantId: string) {
+  const url = process.env.NEXT_PUBLIC_DEMO_DATA_URL ?? "https://remont-lab.online/demo/demo-data.json";
+  try {
+    const r = await fetch(url, { next: { revalidate: 300 } });
+    if (!r.ok) return null;
+    return fromDemoVariant((await r.json()) as DemoData, variantId);
+  } catch {
+    return null;
+  }
+}
+
 export default async function FlatPage({
   searchParams,
 }: {
-  searchParams: Promise<{ c?: string; lang?: string; room?: string }>;
+  searchParams: Promise<{ c?: string; lang?: string; room?: string; demo?: string }>;
 }) {
   const sp = await searchParams;
-  const { apartment, catalogue } = loadFlat3d();
+  // ВАРИАНТ С ВИТРИНЫ (13.10). `?demo=set16` открывает ТУ ЖЕ комнату и ТУ ЖЕ мебель, что человек
+  // видит на карточке /demo. Данные берём живыми с витрины, а не копией: ночная пересборка меняет
+  // наборы, и копия назавтра показала бы не то, что на странице.
+  let fromDemo: ReturnType<typeof fromDemoVariant> = null;
+  if (sp.demo) fromDemo = await loadDemoVariant(sp.demo);
+  const base = loadFlat3d();
+  const { apartment, catalogue } = fromDemo ?? base;
   const lang: Lang = sp.lang === "en" ? "en" : "ru";
 
   let initial = null;
