@@ -49,7 +49,7 @@ with cand as (
          coalesce(p.mesh_family_rep, p.shop_mid||':'||p.external_id) as rep,
          coalesce(e.payload->'model'->>'functional_subtype', p.cat_role) as sub,
          s.style, p.cat_role, coalesce(p.name,'') as name, coalesce(p.shop,'') as shop,
-         coalesce(p.image_url_hd, p.image_url) as img, p.url, p.price_rub as price,
+         coalesce(p.image_url_hd, p.image_url) as img, p.url, coalesce(p.price_shown_rub, p.price_rub) as price,
          p.w_cm, p.d_cm, p.h_cm, coalesce(e.quality, 0) as q
     from products p
     join product_enrichment e using (shop_mid, external_id)
@@ -57,7 +57,7 @@ with cand as (
    where p.cat_role in ({_lit(ROLES)})
      and p.mesh_status = 'ready' and p.in_stock and p.status = 'active'
      and p.w_cm is not null and p.d_cm is not null and p.h_cm is not null
-     and coalesce(p.image_url_hd, p.image_url) is not null
+     and coalesce(p.image_url_hd, p.image_url) is not null and coalesce(p.photo_alive, true)  -- conv-05
      and e.payload->'model'->'styles'->>s.style in ('высокая','средняя')),
 ranked as (
   select *, row_number() over (partition by sub, style order by q desc, sku) as rn from cand)

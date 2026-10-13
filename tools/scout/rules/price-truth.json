@@ -1,0 +1,12 @@
+{
+  "_about": "Чья цена — правда: фид или страница магазина (план conv-10, ADR-0260). Читает price_truth.py. Магазин в `page` — показываем цену со страницы (наблюдение stock_check/page_alive), если ей не больше max_page_age_days; иначе фид с пометкой feed-stale. Магазины вне списка решаются автоматически по замеру: расхождение > drift_pct у более чем drift_share сравнённых товаров (не меньше min_compared) — page.",
+  "shops": {
+    "divan.ru": "feed",
+    "gipfel.ru": "feed",
+    "tvoydom.ru": "page",
+    "mnogomebeli.com": "page",
+    "divanboss.ru": "page"
+  },
+  "auto": { "drift_pct": 10, "drift_share": 0.2, "min_compared": 20 },
+  "max_page_age_days": 21
+}

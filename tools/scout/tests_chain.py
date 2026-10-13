@@ -181,12 +181,44 @@ def live_guards_scheduled(r: Report) -> None:
            + (f'; НЕТ: {", ".join(missing)}' if missing else ''))
 
 
+def live_photo_gate(r: Report) -> None:
+    """Фото реально скачивается (conv-05): в очереди моделей нет товара с приговором «фото мёртвое»;
+    печатаем, сколько товаров в наличии живы / мертвы / не проверены."""
+    dead_q = int(sql("""select count(*) from mesh_jobs j join products p
+                         on p.shop_mid::text||':'||p.external_id = j.sku
+                        where j.status = 'queued' and p.photo_alive = false""") or 0)
+    dist = sql("select k||'='||n from (select coalesce(photo_alive::text,'null') k, count(*) n from products "
+               "where in_stock group by 1) t")
+    r.warn('photo_gate', dead_q == 0, f'в очереди моделей с мёртвым фото: {dead_q}; фото товаров в наличии: '
+           + ', '.join(dist.split()))
+
+
+def live_demo_variants(r: Report) -> None:
+    """Варианты демо полные (conv-09): у каждого ядро гостиной, ковёр, ≥ 6 предметов и ни одной роли
+    «товара нет»; стили без полного набора перечисляются — их не публикуют, но владелец должен знать."""
+    p = os.path.expanduser('~/scout-scenes/flat215-demo/demo-data.json')
+    d = json.load(open(p, encoding='utf-8'))
+    core = ('диван', 'столик', 'тв-тумба', 'ковёр', 'торшер')
+    thin = []
+    for v in d.get('variants') or []:
+        roles = {(i.get('role') or '').split(' ')[0] for i in v.get('items') or []}
+        miss = [c for c in core if c not in roles]
+        if miss or len(v.get('items') or []) < 6 or v.get('missing_item'):
+            thin.append(f"{v.get('style')}: предметов {len(v.get('items') or [])}, нет {', '.join(miss) or '—'}")
+    r.warn('demo_variants', not thin, f"вариантов {len(d.get('variants') or [])}, неполных {len(thin)}"
+           + (f" ({'; '.join(thin)})" if thin else ''))
+    inc = d.get('incomplete_styles') or []
+    r.warn('demo_styles', not inc, 'стилей без полного набора: ' + (
+        '; '.join(f"{x['style']} (нет {', '.join(x['missing'])})" for x in inc) if inc else '0'))
+
+
 def main() -> int:
     live = '--live' in sys.argv
     r = Report()
     if live:
         print('проверки цепочки по ЖИВЫМ данным:', flush=True)
-        for fn in (live_role_canon, live_mesh_required, live_queue_not_empty, live_guards_scheduled):
+        for fn in (live_role_canon, live_mesh_required, live_queue_not_empty, live_guards_scheduled,
+                   live_demo_variants, live_photo_gate):
             try:
                 fn(r)
             except Exception as e:  # noqa: BLE001 — одна проверка не должна ронять шаг

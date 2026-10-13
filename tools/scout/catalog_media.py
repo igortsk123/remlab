@@ -51,13 +51,16 @@ def _load() -> dict:
     if _CACHE is not None:
         return _CACHE
     q = ("select p.shop_mid||'\x1f'||p.external_id||'\x1f'||coalesce(p.image_url,'')||'\x1f'"
-         "||coalesce(p.direct_url,p.url,'')||'\x1f'||coalesce(p.price_rub,0)||'\x1f'||p.name"
+         "||coalesce(p.direct_url,p.url,'')||'\x1f'||coalesce(p.price_shown_rub,p.price_rub,0)||'\x1f'||p.name"
          "||'\x1f'||coalesce(p.status,'active')||'\x1f'||coalesce(p.in_stock::int,0)"
          "||'\x1f'||p.shop||'\x1f'||coalesce(p.w_cm,0)||'\x1f'||coalesce(p.d_cm,0)"
          "||'\x1f'||coalesce(p.h_cm,0)||'\x1f'||coalesce(p.dia_cm,0)"
          "||'\x1f'||coalesce(ps.state,'')||'\x1f'||coalesce(p.url,'')"
          "||'\x1f'||coalesce(p.availability_state,'unknown')||'\x1f'||coalesce(p.page_state,'unknown')"
          "||'\x1f'||coalesce(p.availability_basis,'feed')||'\x1f'||coalesce(to_char(p.stock_evidence_at,'YYYY-MM-DD'),'')"
+         # ПРАВДИВАЯ ЦЕНА (conv-10): показываемая цена выше — фид или страница по правилу магазина; рядом
+         # её источник и дата, витрина пишет «цена на …»
+         "||'\x1f'||coalesce(p.price_basis,'feed')||'\x1f'||coalesce(to_char(p.price_checked_at,'YYYY-MM-DD'),'')"
          " from products p left join product_page_status ps"
          " on ps.shop_mid=p.shop_mid and ps.external_id=p.external_id")
     out = subprocess.run(PSQL + [q], capture_output=True, text=True).stdout
@@ -90,7 +93,7 @@ def _load() -> dict:
             m[(mid, str(p[1]))] = {'img': p[2] or None,
                                    'url': aff or (_direct(p[3]) if p[3] else None),
                                    'probe_url': _direct(p[3]) if p[3] else None,
-                                   'price': int(p[4] or 0), 'name': p[5], 'state': state,
+                                   'price': int(float(p[4] or 0)), 'name': p[5], 'state': state,
                                    'shop': p[8], 'w': num(p[9]), 'd': num(p[10]),
                                    'h': num(p[11]), 'dia': num(p[12]),
                                    # честная модель (Н2): `state` не трогаем (routing для drop_unavailable),
@@ -98,7 +101,9 @@ def _load() -> dict:
                                    'avail': p[15] if len(p) > 15 else 'unknown',
                                    'page': p[16] if len(p) > 16 else 'unknown',
                                    'basis': p[17] if len(p) > 17 else 'feed',
-                                   'evidence_at': (p[18] if len(p) > 18 else '') or None}
+                                   'evidence_at': (p[18] if len(p) > 18 else '') or None,
+                                   'price_basis': p[19] if len(p) > 19 else 'feed',
+                                   'price_at': (p[20] if len(p) > 20 else '') or None}
     _CACHE = m
     return m
 

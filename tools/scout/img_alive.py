@@ -11,6 +11,7 @@
   img_alive.py --pool            # фото ВСЕГО пула подбора, с бюджетом времени (по умолчанию 25 мин)
   img_alive.py --all             # фото всех товаров каталога (~32 тыс., ≈45 мин при 16 потоках)
   img_alive.py --stats           # что в кэше
+  img_alive.py --sync-db         # вердикты кэша → products.photo_alive (единственный писатель, conv-05)
 
 Обход идёт от САМЫХ ДАВНО НЕ ПРОВЕРЕННЫХ: если бюджет времени кончился, завтрашний прогон
 продолжит с того места, и за 2–3 дня пул обходится целиком даже при жёстком лимите.
@@ -50,7 +51,11 @@ _MAGIC = (b'\xff\xd8\xff', b'\x89PNG', b'GIF8', b'RIFF', b'<svg', b'\x00\x00\x00
 # 3 (29.08): проба стала трёхзначной — «не смог проверить» больше не равно «мертво».
 # Подъём версии обязателен: он заставляет перепроверить 12 632 записи, из которых, по замеру
 # на 150 ссылках, ~81% были ложными приговорами от троттлинга CDN.
-PROBE_V = 3          # версия проверки: записи старой версии перепроверяются
+# 4 (13.10, conv-05): обход `sweep` писал `bool(None)` = False — каждый сбой CDN (502, троттлинг) становился
+# приговором на 14 дней. Выборка 13.10: из 15 «мёртвых» живы 5, ещё 10 — «не смог проверить», ни одного 404.
+# 13 763 таких записи v3 — отсюда, вероятно, и индекс кандидатов лечения в 468 товаров. Подъём версии
+# возвращает их в «не проверено» (не блокирует), обход перепроверит.
+PROBE_V = 4          # версия проверки: записи старой версии перепроверяются
 
 
 def _probe(url: str):
@@ -157,6 +162,34 @@ def scan(urls: list[str], workers: int = 8) -> tuple[int, int]:
     return ok, len(uniq)
 
 
+def sync_db() -> dict:
+    """ЕДИНСТВЕННЫЙ ПИСАТЕЛЬ `products.photo_alive` (план conv-05, ADR-0261): вердикт из кэша проверок.
+
+    Вердикт — только у записей текущей версии проверки и не старше TTL; остальное — NULL («не проверяли»),
+    как и у `alive(unknown=True)`: старые записи версии 2 на 81 % были ложными приговорами троттлинга."""
+    import subprocess as _sp
+    now = time.time()
+    rows = [f"{u}\t{'t' if r.get('ok') else 'f'}\t{int(r.get('ts', 0))}" for u, r in _load().items()
+            if u and '\t' not in u and '\n' not in u and r.get('v', 1) >= PROBE_V and now - r.get('ts', 0) <= TTL_DAYS * 86400]
+    sql = ("create temp table pa (url text primary key, ok boolean, ts bigint);\n"
+           "copy pa from stdin;\n" + ''.join(r + '\n' for r in rows) + "\\.\n"
+           "update products p set photo_alive = null, photo_alive_at = null where p.photo_alive is not null "
+           "and not exists (select 1 from pa where pa.url = p.image_url);\n"
+           "update products p set photo_alive = pa.ok, photo_alive_at = to_timestamp(pa.ts) from pa "
+           "where pa.url = p.image_url and (p.photo_alive is distinct from pa.ok or p.photo_alive_at is distinct from to_timestamp(pa.ts));\n"
+           "select coalesce(photo_alive::text,'null'), count(*) from products where in_stock group by 1;\n")
+    psql = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab', '-q', '-v',
+            'ON_ERROR_STOP=1', '-t', '-A', '-F', '|']
+    r = _sp.run(psql, input=sql, capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f'фото → база: ОШИБКА {r.stderr[:300]}', flush=True)
+        return {}
+    stats = dict(ln.split('|', 1) for ln in r.stdout.split() if '|' in ln)
+    print(f"фото → база (товары в наличии): живых {stats.get('true', 0)}, мёртвых {stats.get('false', 0)}, "
+          f"не проверено {stats.get('null', 0)}; вердиктов в кэше {len(rows)}", flush=True)
+    return stats
+
+
 def _bank_urls() -> list[str]:
     sets = json.load(open(os.path.join(HERE, 'sets3.json'), encoding='utf-8'))
     out = []
@@ -198,6 +231,8 @@ def sweep(urls: list, minutes: float = 25.0, workers: int = 16) -> tuple:
         batch = uniq[i:i + step]
         with ThreadPoolExecutor(max_workers=workers) as ex:
             for u, ok in zip(batch, ex.map(_probe, batch)):
+                if ok is None:
+                    continue          # «не смог проверить» — не приговор и не запись (как в `alive_now`)
                 mem[u] = {'ok': bool(ok), 'ts': int(time.time()), 'v': PROBE_V}
         done += len(batch)
         _save()
@@ -222,8 +257,12 @@ if __name__ == '__main__':
         urls = _bank_urls()
         ok, tot = scan(urls)
         print(f'фото в банке: {tot} ссылок, живых {ok} ({100 * ok / max(tot, 1):.0f} %)')
+        sync_db()
     elif '--pool' in sys.argv or '--all' in sys.argv:
         _cli_pool('--all' in sys.argv)
+        sync_db()
+    elif '--sync-db' in sys.argv:
+        sync_db()
     elif '--stats' in sys.argv:
         mem = _load()
         ok = sum(1 for v in mem.values() if v.get('ok'))

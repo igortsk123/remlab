@@ -1558,7 +1558,8 @@ function priceCard(sum, cnt){
     `<button class="btn round wide" id="pcSave">Сохранить список мебели и техники</button>`+
     `<div class="pc-note">3D-модель носит ознакомительный характер и может отличаться от
       фактических характеристик. Точные характеристики вашей будущей квартиры можно узнать
-      у нашего менеджера. Цена и данные о доме — демонстрационные.</div>`;
+      у нашего менеджера. Цена и данные о доме — демонстрационные. Цены товаров — с сайтов магазинов
+      на дату проверки и могут измениться; точная цена — по ссылке в магазин.</div>`;
   // У КАЖДОЙ КНОПКИ — СВОЯ ПОДПИСЬ (владелец 01.09). Обе вели один и тот же общий текст про
   // «демонстрацию блока»; человеку важно, КУДА ведёт именно эта кнопка.
   const say=t=>()=>shotOpen('<div class="wait">'+t+'</div>','');
@@ -1591,7 +1592,7 @@ function openList(){
     return `<div class="prow">`+
       (p.img?`<img src="${p.img}" loading="lazy" alt="">`:'<div class="pnoimg">нет фото</div>')+
       `<div class="pi"><b>${money((p.price||0)*n)}</b>`+
-      `<span>${n} × ${money(p.price||0)}</span>`+
+      `<span>${n} × ${money(p.price||0)}${p.price_at?' · цена на '+p.price_at.slice(8,10)+'.'+p.price_at.slice(5,7):''}</span>`+
       `<div class="pname">${p.name||gr.first.role}</div></div>`+
       (p.shop?`<div class="shop">${p.shop}</div>`:'')+`</div>`;}).join('');
   const plan=document.querySelector('#flatRooms svg');
@@ -2148,6 +2149,12 @@ function drawColl(force){
     if(k>=0){viewShot(k);return;}
     toggleSwap(i);
   });
+  // СТИЛИ БЕЗ ПОЛНОГО НАБОРА (conv-09): вариант без дивана, столика, ТВ-тумбы, ковра или торшера не
+  // публикуется — вместо худой комнаты честная строка, чего не хватает в наличии сейчас.
+  (D.incomplete_styles||[]).forEach(x=>{
+    const n=document.createElement('div');n.className='hint';n.style.gridColumn='1/-1';
+    n.textContent=`Стиль «${x.style}»: сейчас нет полного набора в наличии (не хватает: ${(x.missing||[]).join(', ')}) — покажем, как только появится.`;
+    box.appendChild(n);});
   showSwap();   // список выбранного варианта рисуется вместе с коллекцией, не отдельным событием
   box.querySelectorAll('[data-link]').forEach(b=>b.onclick=e=>{
     e.stopPropagation();

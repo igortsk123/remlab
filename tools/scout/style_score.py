@@ -45,6 +45,7 @@ raw=rows("""select l.role, l.shop_mid, l.external_id, l.name,
       else coalesce(left(p.description,220),'') end, l.shop
  from lr_roles l join products p using (shop_mid, external_id)
  where l.role is not null and l.price_rub is not null and l.image_url is not null and p.in_stock
+   and coalesce(p.photo_alive, true)  -- фото реально скачивается (conv-05, catalog_rules.PHOTO_OK_SQL)
  order by l.shop_mid, l.external_id""")
 assert len(raw)>1000, f"каталог-запрос вернул {len(raw)} строк — SQL сломан, СТОП"
 pool={}

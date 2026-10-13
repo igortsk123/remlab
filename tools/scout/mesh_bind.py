@@ -78,7 +78,7 @@ def mark_required() -> tuple[int, int]:
     # только по роли завышала число (17 379 против настоящих 12 092).
     # NB: переменная не используется (условия продублированы в SQL ниже) — держим её в
     # согласии с рабочим предикатом, иначе читатель поверит старой формулировке.
-    GATES = ("p.in_stock and p.image_url is not null and p.h_cm is not null "
+    GATES = ("p.in_stock and p.image_url is not null and coalesce(p.photo_alive, true) and p.h_cm is not null "
              "and (p.w_cm is not null or p.dia_cm is not null) and e.enriched_at is not null "
              "and e.payload->'model'->'styles' is not null")
     JOIN = ("from products p join product_enrichment e "
@@ -92,7 +92,7 @@ update products p set mesh_required = true, mesh_policy_version = {ver}
   from product_enrichment e
  where e.shop_mid = p.shop_mid and e.external_id = p.external_id
    and p.cat_role in ({lit(need)})
-   and p.in_stock and p.image_url is not null and p.h_cm is not null
+   and p.in_stock and p.image_url is not null and coalesce(p.photo_alive, true) and p.h_cm is not null  -- фото скачивается (conv-05)
    -- КРУГЛОЕ ДОПУСКАЕМ ПО ДИАМЕТРУ (11.10). Генератору нужен горизонтальный габарит, а у
    -- света/кашпо/ваз его присылают как «Диаметр», а не «Ширину»: 108 из 125 торшеров без
    -- габаритов имели высоту и диаметр. Предикат `(w или dia) и h` уже жил в mesh_pilot.py:67 —

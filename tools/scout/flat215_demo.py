@@ -135,7 +135,16 @@ def _sku(items: dict, role: str) -> dict | None:
             it = items.get(base)
     if not it:
         return None
-    return {'name': it.get('name'), 'price': it.get('price'), 'img': it.get('img'),
+    # ЦЕНА — ТЕКУЩАЯ ПРАВДИВАЯ ИЗ КАТАЛОГА, А НЕ ЦЕНА МОМЕНТА СБОРКИ КОМПЛЕКТА (conv-10): фид или страница
+    # магазина по правилу, с датой. Каталог товара не знает — остаётся цена банка без даты.
+    _pm = {}
+    try:
+        from catalog_media import media as _media_p
+        _pm = _media_p(it.get('mid'), it.get('eid')) or {}
+    except Exception:  # noqa: BLE001
+        _pm = {}
+    return {'name': it.get('name'), 'price': _pm.get('price') or it.get('price'),
+            'price_at': _pm.get('price_at'), 'price_basis': _pm.get('price_basis'), 'img': it.get('img'),
             'url': it.get('url'), 'shop': it.get('shop'),
             # ЧЕСТНОЕ НАЛИЧИЕ (Н2): на чём держится «в продаже» — наше свидетельство по карточке (page)
             # или только фид магазина (feed); витрина показывает пометку, а не молчит
@@ -342,28 +351,38 @@ def _dims_of(v: dict, sku: dict | None, role: str = '') -> dict:
 BANKS: list = []          # заполняется в build(): выбранные банки демо
 
 
-def solve_layouts(flat: dict) -> None:
+def solve_layouts(flat: dict, only: list | None = None) -> None:
     """РАСКЛАДКИ СЧИТАЕМ ПОД ЭТУ КОМНАТУ (26.08). Артефакт `v3set{n}-layout.json` по умолчанию
     считается для условного прямоугольника из метража сета (например 360×415) — если взять
     такой артефакт для комнаты 439×325, мебель окажется за стеной. Поэтому демо само вызывает
     солвер с реальными габаритами и проёмами квартиры, а не надеется на ранее посчитанный файл."""
     liv = flat['rooms'][0]
-    env = dict(os.environ,
+    env = dict(os.environ, SETS_SNAPSHOT=DEMO_SETS,
                SCENE_OPENINGS=json.dumps([{k: v for k, v in o.items() if not k.startswith('_')}
                                           for o in liv['openings']], ensure_ascii=False),
                SCENE_RADIATORS=json.dumps([{k: v for k, v in r.items() if not k.startswith('_')}
                                            for r in (liv.get('radiators') or [])], ensure_ascii=False))
     py = os.path.expanduser('~/venvs/scout/bin/python')
-    for n in BANKS:
+    for n in (only if only is not None else BANKS):
         art = os.path.join(HERE, f'v3set{n}-layout.json')
         fresh = (os.path.exists(art)
                  and (json.load(open(art, encoding='utf-8')).get('_room') or {}).get('w') == liv['w']
-                 and os.path.getmtime(art) > os.path.getmtime(os.path.join(HERE, 'sets3.json')))
+                 and os.path.getmtime(art) > os.path.getmtime(DEMO_SETS))
         if fresh:
             continue
         r = subprocess.run([py, 'solver_run.py', str(n), '--v3', str(liv['w']), str(liv['d'])],
                            cwd=HERE, env=env, capture_output=True, text=True)
         print(f'  раскладка сета {n}: ' + ('пересчитана' if r.returncode == 0 else f'ОШИБКА\n{r.stderr[-400:]}'))
+
+
+def _price(it: dict) -> tuple:
+    """Правдивая цена товара из каталога (conv-10) и её дата; каталог товара не знает — цена банка."""
+    try:
+        from catalog_media import media as _m
+        m = _m(it.get('mid'), it.get('eid')) or {}
+    except Exception:  # noqa: BLE001
+        m = {}
+    return (m.get('price') or it.get('price'), m.get('price_at'))
 
 
 def _basis(mid, eid) -> str:
@@ -408,15 +427,120 @@ def demo_apartment_id() -> str | None:
     return None
 
 
+DEMO_SETS = os.path.join(HERE, 'demo-sets.json')     # банк, по которому считается расстановка демо
+# Конверт слотов ЭТОЙ комнаты (гостиная 439×325): для ленты замен и для дозаполнения вариантов.
+DEMO_ENV = {'диван': (144, 198), 'кресло': (60, 100), 'столик': (70, 132), 'ковёр': (180, 300),
+            'тв-тумба': (90, 176), 'стеллаж': (60, 110), 'комод': (80, 140), 'торшер': (20, 60),
+            'пуф': (35, 90), 'кашпо': (20, 60), 'витрина': (50, 100), 'банкетка': (90, 150),
+            'стол обеденный': (70, 160), 'стул': (35, 60), 'приставной': (30, 70)}
+
+
+def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[list, dict, list]:
+    """Выбор набора стиля ПОСЛЕ дозаполнения (план conv-09 п.2/п.5) → (BANKS, журнал, неполные стили).
+
+    На стиль берём `per_style` лучших по прежнему ключу, каждый дозаполняем (`demo_fill.fill_set`) в
+    копии и выбираем того, у кого полнее ядро, меньше без модели и больше расставляемых. Банк на диске
+    не трогаем — его лечит ночной конвейер."""
+    import copy
+    import demo_fill as DF
+    import footprint as _fp
+    from catalog_media import media as _media
+    from img_alive import alive_now as _alive
+    from sets_incremental import _card            # лёгкий модуль; `_slot_ok` НЕ берём — он тянет compose2
+    gate = DF.make_gate(DEMO_ENV, _media, _alive, _fp.footprint_known)
+    idx = _mesh_index()
+    has_mesh = lambda it: _msid(f"{it.get('mid')}_{it.get('eid')}") in idx  # noqa: E731
+    pool = DF.load_pool()
+    print(f'пул дозаполнения: {len(pool)} товаров', flush=True)
+    by_style: dict = {}
+    for i, st in enumerate(sets, 1):
+        if st.get('band') != band:
+            continue
+        items = st.get('items') or {}
+        placeable = sum(1 for r in items if r.split(' ')[0] in PLACEABLE)
+        by_style.setdefault(st.get('style') or '', []).append((-placeable, len(st.get('gaps') or []), i))
+    order = ['сканди', 'современный', 'минимализм', 'лофт', 'неоклассика', 'джапанди']
+    ranked: dict = {}
+    for style in order + sorted(k for k in by_style if k not in order):
+        cands = []
+        for _k in sorted(by_style.get(style, []))[:per_style]:
+            i = _k[2]
+            s = copy.deepcopy(sets[i - 1])
+            j = DF.fill_set(s, pool, gate, _card, _media, has_mesh)
+            items = s.get('items') or {}
+            no_mesh = sum(1 for r, it in items.items() if r.split(' ')[0] in PLACEABLE
+                          and r.split(' ')[0] not in NOMESH_ROLES and it and not has_mesh(it))
+            placeable = sum(1 for r in items if r.split(' ')[0] in PLACEABLE)
+            cands.append(((len(DF.core_missing(s)), no_mesh, -placeable, i), i, s, j))
+        if cands:
+            ranked[style] = sorted(cands, key=lambda c: c[0])
+    return ranked
+
+
+def layout_ok(n: int) -> bool:
+    """Расстановка набора сошлась: нет отказа солвера и на полу есть предметы."""
+    p = os.path.join(HERE, f'v3set{n}-layout.json')
+    try:
+        art = json.load(open(p, encoding='utf-8'))
+    except Exception:  # noqa: BLE001
+        return False
+    placed = sum(1 for k, v in art.items() if not k.startswith('_') and isinstance(v, dict) and 'x' in v)
+    return placed > 0 and not art.get('_infeasible_reason')
+
+
+def choose_banks(flat: dict, sets: list, ranked: dict) -> tuple[list, dict, list]:
+    """По стилю — первый набор, у которого полное ядро И сошлась расстановка в ЭТОЙ комнате (conv-09).
+
+    Отказ солвера — тоже повод взять следующий набор стиля, а не публиковать пустую комнату: 13.10 лофт с
+    угловым диваном 186×151 и ковром 300×200 не дал зоны ТВ в 14 м² (MEDIA_MISSING) и приехал без мебели."""
+    import demo_fill as DF
+    banks, journal, incomplete = [], {}, []
+    for style, cands in ranked.items():
+        why = None
+        for key, i, s, j in cands:
+            miss = DF.core_missing(s)
+            if miss:
+                why = why or {'style': style, 'missing': miss}
+                continue
+            orig = sets[i - 1]
+            sets[i - 1] = s
+            _write_demo_sets(sets)
+            solve_layouts(flat, only=[i])
+            if not layout_ok(i):
+                print(f'  стиль «{style}»: набор {i} не расставился в комнате — беру следующий', flush=True)
+                sets[i - 1] = orig
+                why = why or {'style': style, 'missing': ['расстановка не сошлась']}
+                continue
+            print(f'  вариант стиля «{style}»: набор {i}, ядро полное, без модели {key[1]}, расставляемых {-key[2]}, '
+                  f'замен {sum(1 for x in j if x["to"])}, снято без замены {sum(1 for x in j if not x["to"])}', flush=True)
+            banks.append(i)
+            journal[f'set{i}'] = j
+            why = None
+            break
+        if why:
+            print(f'  стиль «{style}»: полного варианта нет ({", ".join(why["missing"])}) — не публикуем', flush=True)
+            incomplete.append(why)
+    _write_demo_sets(sets)
+    return banks[:6], journal, incomplete
+
+
+def _write_demo_sets(sets: list) -> None:
+    """Банк для солвера; переписываем только при изменении — раскладки не пересчитываются зря."""
+    blob = json.dumps(sets, ensure_ascii=False)
+    if not os.path.exists(DEMO_SETS) or open(DEMO_SETS, encoding='utf-8').read() != blob:
+        open(DEMO_SETS, 'w', encoding='utf-8').write(blob)
+
+
 def build() -> dict:
     flat = json.load(open(os.path.join(HERE, 'flat215.json'), encoding='utf-8'))
     sets = json.load(open(os.path.join(HERE, 'sets3.json'), encoding='utf-8'))
-    gone = drop_unavailable(sets)
-    print(f'снято позиций не в продаже: {gone}')
     global BANKS
-    BANKS = pick_banks(sets)
+    # расстановка считается по ДОЗАПОЛНЕННОМУ банку (`demo-sets.json`): иначе место под снятый товар в
+    # комнате остаётся, а самого товара нет (conv-09)
+    BANKS, fill_journal, incomplete = choose_banks(flat, sets, fill_banks(sets))
+    gone = drop_unavailable(sets)       # у невыбранных наборов — для лент замен (выбранные уже чисты)
+    print(f'снято позиций не в продаже (вне выбранных вариантов): {gone}')
     print('банки демо:', BANKS)
-    solve_layouts(flat)                 # раскладки — под реальную комнату, а не под метраж сета
     liv = flat['rooms'][0]
     variants = []
     for k, n in enumerate(BANKS, 1):
@@ -430,6 +554,7 @@ def build() -> dict:
         items = sets[n - 1].get('items') or {}
         objs = []
         dims_unknown = []      # напольные без размера — не в сцене, а в честном списке (Р1)
+        missing_item = []      # раскладка просит роль, а товара нет — это НЕ «размер не указан» (conv-09 п.4)
         for role, v in art.items():
             if role.startswith('_') or not isinstance(v, dict) or 'x' not in v:
                 continue
@@ -441,6 +566,9 @@ def build() -> dict:
             # торшер 172 см приезжал как 160, меш тянули под чужой паспорт и он выходил кривым
             # (перекос 2.77 при пороге 2.6). Товар знает свой размер — берём у него.
             _sk = _sku(items, role)
+            if not _sk:
+                missing_item.append({'role': role})
+                continue
             _dims = _dims_of(v, _sk, role)
             if _dims.get('dims_unknown'):
                 # размер не указан магазином — предмет в сцену не ставим и ничего не додумываем (Р1)
@@ -472,14 +600,12 @@ def build() -> dict:
                     decor.append({'role': role, 'sku': sk})
         variants.append({'id': f'set{n}', 'title': style, 'style': sets[n - 1].get('style'),
                          'fill_pct': art.get('_fill_pct'), 'items': objs, 'decor': decor,
-                         'dims_unknown': dims_unknown})
+                         'dims_unknown': dims_unknown, 'missing_item': missing_item,
+                         'fill': fill_journal.get(f'set{n}', [])})
     # ЛЕНТЫ ТОВАРОВ ПО РОЛЯМ (владелец 26.08: «чтоб фотки можно было назначать»): для каждой роли
     # собираем живые SKU с фото; границы — конверт слота той же комнаты, чтобы примерка не
     # предлагала заведомо негодный габарит (диван 260 см в 14 м²).
-    ENV = {'диван': (144, 198), 'кресло': (60, 100), 'столик': (70, 132), 'ковёр': (180, 300),
-           'тв-тумба': (90, 176), 'стеллаж': (60, 110), 'комод': (80, 140), 'торшер': (20, 60),
-           'пуф': (35, 90), 'кашпо': (20, 60), 'витрина': (50, 100), 'банкетка': (90, 150),
-           'стол обеденный': (70, 160), 'стул': (35, 60), 'приставной': (30, 70)}
+    ENV = DEMO_ENV
     # НАСТОЛЬНЫЙ ДЕКОР — СВОЙ КОНВЕРТ (владелец 08.09: «вазы настольные … добавлять в список
     # товаров и считать сумму»). У него нет слота на полу: граница — «влезает на столешницу»,
     # поэтому меряем не место в комнате, а сам предмет.
@@ -531,7 +657,7 @@ def build() -> dict:
             seen.add(key)
             feeds.setdefault(base, []).append(
                 {'name': it.get('name'), 'w': it.get('w'), 'd': it.get('d'), 'h': it.get('h'),
-                 'price': it.get('price'), 'img': it.get('img'), 'url': it.get('url'),
+                 'price': _price(it)[0], 'price_at': _price(it)[1], 'img': it.get('img'), 'url': it.get('url'),
                  'shop': it.get('shop'), 'style': s.get('style'), 'sid': _sid, 'msid': _msd,
                  'src': 'set',
                  'basis': _basis(it.get('mid'), it.get('eid')),
@@ -628,7 +754,7 @@ def build() -> dict:
             if base not in ENV or not it or not it.get('img'):
                 continue
             roles[role] = {'name': it.get('name'), 'w': it.get('w'), 'd': it.get('d'),
-                           'h': it.get('h'), 'price': it.get('price'), 'img': it.get('img'),
+                           'h': it.get('h'), 'price': _price(it)[0], 'img': it.get('img'),
                            'url': it.get('url'), 'shop': it.get('shop')}
         if roles:
             product_sets.append({'id': f'kit{n}', 'title': f'Комплект {BANKS.index(n) + 1}',
@@ -652,6 +778,8 @@ def build() -> dict:
             'rooms': rooms, 'apartment_id': demo_apartment_id(), 'plan': plan,
             'variants': variants, 'sets': product_sets, 'sofa_feed': feed, 'feeds': feeds,
             'rules': _rules(),
+            # стили, где после дозаполнения нет ядра: вариант не публикуется, страница честно пишет почему
+            'incomplete_styles': incomplete,
             # КВАРТИРА, ЖК, ЦЕНА И СЕРТИФИКАТ — В РЕЕСТРЕ ЗАСТРОЙЩИКОВ (`data/partners/*.json`,
             # план b2b-06): страница берёт их карточкой `/api/apartments/<apartment_id>`. Сумму
             # сертификата здесь не пишем — её считает сервер одной формулой для демо, 3D и отчёта.

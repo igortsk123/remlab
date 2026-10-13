@@ -11,6 +11,16 @@
 """
 from __future__ import annotations
 
+# ФОТО РЕАЛЬНО СКАЧАЛОСЬ (план conv-05, ADR-0261). Поле пишет ОДИН писатель — `img_alive.py --sync-db`;
+# здесь — единственная формулировка правила для SQL всех потребителей (оценка стиля, очередь моделей,
+# отбор в комплекты, пул замен). NULL = «не проверяли» — не блокирует (новинки не теряем), считается в отчёте.
+PHOTO_OK_SQL = "coalesce(p.photo_alive, true)"
+
+
+def photo_ok(photo_alive: bool | None) -> bool:
+    """То же правило для Python: только явный приговор «мертво» исключает товар."""
+    return photo_alive is not False
+
 
 def daily_todo(todo: list, limit: int | None) -> list:
     """Дневная добивка: потолок считается от НЕСОСЧИТАННЫХ, а не от начала списка.

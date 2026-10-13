@@ -3,7 +3,7 @@ tier: 1
 topic: stock-and-dims
 scope: Наличие и честность размеров — состояния, парсер, footprint
 tier2: "../domain/stock-and-dims.md"
-updated: 2026-10-11
+updated: 2026-10-13
 importance: high
 source: manual
 status: working
@@ -25,8 +25,8 @@ review_after: 2026-12-05
 (page|feed|none), `stock_evidence_at`; пишет только `stock_truth.reconcile()`; демо показывает «наличие не
 проверено». Замер 11.10: основание `page` — 20 002, `feed` — 1 389. Парсер v2 (snake_case, `href=`, JSON-LD Product, inline-остаток
 tvoydom) ВКЛЮЧЁН по умолчанию с 03.09 после gold-замера (`page_alive.py: PARSER_V2`, откат
-`STOCK_PARSER_V2=0`); режим тени (`--shadow`, `stock_shadow_report.py`) остался для проверок. Цена/имя со
-страницы — только наблюдения (`product_page_facts`).
+`STOCK_PARSER_V2=0`); режим тени (`--shadow`, `stock_shadow_report.py`) остался для проверок. Цена со страницы
+— наблюдение (`product_page_facts`), показываемую цену выбирает `price_truth.py` (ADR-0260).
 
 **Размеры (`tools/scout/footprint.py`, `dim_resolver.py`):** одно правило «Ш×Г или диаметр из каталога» для
 compose2, `sets_incremental`, `catalog_media`, `solver_run` (`DIMS_STRICT=1`), `scene_build`, `export_plans_ai`,

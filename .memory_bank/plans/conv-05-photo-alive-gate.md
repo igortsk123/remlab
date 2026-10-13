@@ -2,7 +2,7 @@
 workstream: catalog
 slug: conv-05-photo-alive-gate
 title: «Фото есть» = фото реально скачалось — один предикат для стиля, мешей, сетов и демо
-status: draft
+status: in_progress
 created: 2026-10-13
 updated: 2026-10-13
 completed:
@@ -70,6 +70,9 @@ review_after: 2026-11-13
 
 ## Лог выполнения
 - 2026-10-13 — план создан (draft), Fable 5.1
+- 2026-10-13 — `in_progress` (Opus 5.5): `products.photo_alive` (миграция 011), один писатель `img_alive.sync_db`,
+  правило `catalog_rules.PHOTO_OK_SQL` у четырёх потребителей, обход фото до оценки стиля, процесс-тест
+  `live_photo_gate` (ADR-0261). Найдено: обход писал «мертво» при сбое CDN — 13 763 ложных приговора; версия 4.
 
 ## Completion summary
 —
