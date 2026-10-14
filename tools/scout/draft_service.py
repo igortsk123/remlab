@@ -131,6 +131,8 @@ def _registry_add(payload: dict, out: dict) -> None:
     «какой кадр к какому стилю» хранилась ТОЛЬКО в браузере: с другого устройства коллекция
     оказывалась пустой, а предгенерация вообще не имела смысла. Теперь запись делает сервер, а
     страница её просто читает."""
+    if payload.get('no_registry'):
+        return          # фоновый кадр коллекции покупателя (demo-03, 2.13) — не вариант витрины, в общую ленту не идёт
     try:
         path = os.path.join(os.path.dirname(DR.FRAMES_DIR), 'shots.json')
         rec = {'style': payload.get('style') or '', 'variant': payload.get('variant') or '',

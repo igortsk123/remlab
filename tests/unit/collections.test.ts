@@ -7,7 +7,7 @@ vi.mock("@/lib/partners/demo-data", async (orig) => ({
 }));
 
 import { POST } from "@/app/api/collections/route";
-import { GET } from "@/app/api/collections/[id]/route";
+import { GET, PATCH } from "@/app/api/collections/[id]/route";
 import { currentPrices, priceIndex } from "@/lib/collections/prices";
 
 // Коллекции (план b2b-05): сохранил → открыл по ссылке → те же предметы; цены при открытии — текущие,
@@ -62,5 +62,19 @@ describe("коллекции", () => {
       { sid: "1_c", name: "В", price: 1, img: "javascript:alert(1)" }, { sid: "1_d", name: "Г", price: 1, img: "img/\"><script>" }]);
     const cur = currentPrices(["1_a", "1_b", "1_c", "1_d"], idx);
     expect([cur["1_a"]!.img, cur["1_b"]!.img, cur["1_c"]!.img, cur["1_d"]!.img]).toEqual(["img/a.webp", "//imgng.gdeslon.ru/x/big.jpg", null, null]);
+  });
+  it("картинка коллекции (demo-03, 2.13): только наш путь кадра, один раз", async () => {
+    expect((await POST(post({ ...body, shot: "https://evil.example/t.gif" }))).status).toBe(400);
+    const r = await POST(post({ ...body, shot: "/test/share/frames/scene3d-1-C1.jpg" }));
+    const { id: withShot } = (await r.json()) as { id: string };
+    const patch = (id: string, shot: string) => PATCH(new Request(`http://x/api/collections/${id}`, { method: "PATCH",
+      headers: { "content-type": "application/json", "x-forwarded-for": "10.0.0.9" }, body: JSON.stringify({ shot }) }), { params: Promise.resolve({ id }) });
+    expect((await patch(withShot, "/test/share/frames/other.jpg")).status).toBe(409);          // уже есть — не переписать
+    const { id } = (await (await POST(post(body))).json()) as { id: string };
+    expect((await patch(id, "/etc/passwd")).status).toBe(400);
+    expect((await patch(id, "/test/share/frames/scene3d-2-C1.jpg")).status).toBe(200);
+    expect((await patch(id, "/test/share/frames/scene3d-3-C1.jpg")).status).toBe(409);         // второй раз — нет
+    const g = await GET(new Request(`http://x/api/collections/${id}`), { params: Promise.resolve({ id }) });
+    expect(((await g.json()) as { collection: { shot: string } }).collection.shot).toBe("/test/share/frames/scene3d-2-C1.jpg");
   });
 });

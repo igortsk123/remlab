@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
-import type { CollectionOut } from "@/contracts/collection";
+import { collectionShotIn, type CollectionOut } from "@/contracts/collection";
+import { foreignOrigin } from "@/lib/http/origin";
 import { currentPrices, priceIndex } from "@/lib/collections/prices";
 import { loadDemoRaw } from "@/lib/partners/demo-data";
 import { findApartment } from "@/lib/partners/registry";
@@ -26,4 +27,20 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     expiresAt: new Date(row.createdAt.getTime() + 365 * 86_400_000).toISOString(),
     current: currentPrices([...new Set(sids)], idx && idx.size ? idx : null) };
   return NextResponse.json({ ok: true, collection: out }, { headers: { "Cache-Control": "no-store" } });
+}
+
+// Прикрепить картинку к только что сохранённой коллекции (план demo-03, 2.13): страница снимает бесплатный черновой
+// кадр в фоне после сохранения. Только наш путь кадра, один раз, в первые 30 минут — дальше коллекция неизменна.
+export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
+  const limited = await guard(req, "collectionSave");
+  if (limited) return limited;
+  if (foreignOrigin(req)) return new Response(null, { status: 403 });
+  const { id } = await ctx.params;
+  if (!TOKEN_RE.test(id)) return NextResponse.json({ ok: false }, { status: 404 });
+  let body: unknown = null;
+  try { body = JSON.parse((await req.text()).slice(0, 1024)); } catch { /* разбор ниже вернёт 400 */ }
+  const parsed = collectionShotIn.safeParse(body);
+  if (!parsed.success) return NextResponse.json({ ok: false, error: "bad_request" }, { status: 400 });
+  const ok = await collectionRepo().setShot(id, parsed.data.shot);
+  return NextResponse.json({ ok }, { status: ok ? 200 : 409 });
 }

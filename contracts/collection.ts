@@ -26,6 +26,11 @@ const item = z.object({
   sku: sku.optional(),
 });
 
+// КАРТИНКА КОЛЛЕКЦИИ (план demo-03, карта сценариев 2.13): путь к НАШЕМУ кадру (папка кадров демо), без домена —
+// чужую картинку (пиксель-трекер) на карточку не поставить. Ставится при сохранении или один раз после (`PATCH`).
+export const SHOT_PATH_RE = /^\/test\/share\/frames\/[\w.-]{1,120}\.(?:jpg|jpeg|png|webp)$/;
+export const collectionShotIn = z.object({ shot: z.string().regex(SHOT_PATH_RE) });
+
 export const collectionIn = z.object({
   schemaVersion: z.literal(1).default(1),
   apartmentId: z.string().regex(/^[a-z0-9-]{2,40}$/),
@@ -37,6 +42,7 @@ export const collectionIn = z.object({
   items: z.array(item).min(1).max(60),
   decor: z.array(z.object({ role: z.string().max(40), sku })).max(30).default([]),
   cams: z.array(z.object({ x: z.number(), y: z.number(), rot: z.number(), fov: z.number().optional() })).max(4).default([]),
+  shot: z.string().regex(SHOT_PATH_RE).optional(),
 });
 export type CollectionIn = z.infer<typeof collectionIn>;
 

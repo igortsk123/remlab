@@ -629,6 +629,10 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
  padding:12px 16px;background:var(--surface);border-top:1px solid var(--line);margin:0}
 #cons .bar .sum{font-weight:700;font-size:clamp(17px,1.4vw,20px)}
 #cons .work{display:block}
+/* ЧТО ДЕЛАТЬ ДАЛЬШЕ (карта сценариев 2.17, 14.10): в конструкторе не было ни слова о том, как двигать и куда потом
+   жать — человек открывал план и замирал. Одна строка под планом; на телефоне занимает пустое место под ним. */
+#cons .cons-hint{color:var(--muted);font-size:clamp(14px,1.6vw,15.5px);line-height:1.45;margin:12px 2px 0;max-width:70ch}
+@media(max-width:700px){#cons .body{padding:10px 8px}}   /* 2.18: на телефоне план шире на поля */
 
 /* ═══ ВСЕ ОКНА НА ТЕЛЕФОНЕ — ВО ВЕСЬ ЭКРАН (владелец 02.09: «открыл вариант стиля, вокруг серые
    поля — надо просто во весь экран, как в мобильных приложениях»). Блок стоит В КОНЦЕ файла
@@ -2080,6 +2084,7 @@ function loadShots(){
       if(!vid){skipped++; return false;}   // кадр чужого стиля не сваливаем в первый вариант
       s.vid=vid; s.pick=false; s.orphan=false; return true;
     });
+    Object.keys(COLL_SHOTS).forEach(cid=>attachCollShot(cid,COLL_SHOTS[cid]));
     drawColl(true); showSwap(); drawFeed(); drawPhotos&&drawPhotos();
     openWantedShot();   // пришли по ссылке на вариант — показываем его фотографию
   });
@@ -2122,6 +2127,25 @@ function dedupeProducts(list){
     if(!g.qty)g.qty=Math.max(1, Math.ceil(g._slots/pack));
     delete g._slots; return g;
   });
+}
+// КАРТИНКА СОХРАНЁННОЙ КОЛЛЕКЦИИ (план demo-03, карта сценариев 2.13): карточка «Моя коллекция» была без фото —
+// «фото появится после съёмки», хотя кадр этой расстановки часто уже снят. Номер коллекции → кадр держим отдельно
+// от `shots`: `loadShots` пересобирает их из серверного реестра и иначе стёр бы привязку.
+const COLL_SHOTS={};
+function attachCollShot(cid,url){
+  if(!cid||!url)return; COLL_SHOTS[cid]=url; const vid='c:'+cid;
+  if(shots.some(x=>x.vid===vid))return;
+  shots.push({url:url,camera:'C1',quality:'draft',batch:'coll-'+cid,thumb:'',anchors:[],products:[],
+    variant:'',style:'',vid:vid,revision:'',ts:Date.now()});
+  drawColl(true);
+}
+// Кадр ТЕКУЩЕЙ расстановки, если он уже снят (путь без домена — так его принимает сервер коллекций).
+function currentShotPath(){
+  const v=allVariants()[cur], sh=v&&bestShot(v); if(!sh)return '';
+  const fresh=sh.revision?sh.revision===revision():(!baseRev||revision()===baseRev);
+  if(!fresh)return '';
+  try{const p=new URL(sh.url,location.origin).pathname;
+    return /^\/test\/share\/frames\/[\w.-]{1,120}\.(?:jpg|jpeg|png|webp)$/.test(p)?p:'';}catch(e){return '';}
 }
 function addShot(rec){ shots.push(rec); saveShots();
   consBack=-1;   // сняли новый кадр — возвращаться в прежний просмотр незачем, откроется новый
@@ -2377,6 +2401,12 @@ function openCons(mode){
   document.getElementById('consStyle').textContent=v.style||v.title||'';
   document.getElementById('consSum').textContent='Комплект: '+money(variantPrice(v));
   work.hidden=false; body.appendChild(work);
+  let hint=document.getElementById('consHint');
+  if(!hint){hint=document.createElement('div');hint.id='consHint';hint.className='cons-hint';}
+  hint.textContent=isTouchUI()
+    ?'Удерживайте предмет полсекунды и тяните — он переедет. Короткое касание — стрелки поворота. Когда готово — «Посмотреть фото с изменениями» внизу.'
+    :'Тяните предмет мышью, поворачивайте за уголок. Кружок на предмете — выбрать другой товар. Когда готово — «Посмотреть фото с изменениями» внизу.';
+  body.appendChild(hint);
   document.getElementById('cons').classList.add('on');
   document.body.style.overflow='hidden';
   requestAnimationFrame(()=>{draw();updateConsShot();});
@@ -3710,7 +3740,27 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
     return {id:'c:'+c.id, cid:c.id, mine:true, own:!!own, baseVariant:c.baseVariant,
       style:label+(c.style?' · '+c.style:''), title:label,
       items:c.items.map(function(i){return Object.assign({},i,{sku:fix(i.sku)});}),
-      decor:(c.decor||[]).map(function(d){return {role:d.role, sku:fix(d.sku)};})};
+      decor:(c.decor||[]).map(function(d){return {role:d.role, sku:fix(d.sku)};}), shot:c.shot||''};
+  }
+  // ЧЕРНОВОЙ КАДР КОЛЛЕКЦИИ В ФОНЕ (demo-03, 2.13): кадра этой расстановки ещё нет — снимаем бесплатный черновик
+  // (наша 3D-сцена, без модели) и один раз прикрепляем к коллекции. `no_registry` — кадр не уходит в общую ленту
+  // стиля: это чужая расстановка, а не вариант витрины. Не вышло — карточка просто остаётся без фото.
+  function snapLater(cid){
+    var body=Object.assign(payload(),{quality:'draft',async:1,no_registry:1}), t0=Date.now();
+    fetch('/api/render',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})
+      .then(function(r){return r.json();}).then(function(j){
+        if(!j||!j.job)return;
+        (function poll(){ if(Date.now()-t0>8*60000)return;
+          setTimeout(function(){fetch('/api/job?id='+encodeURIComponent(j.job),{cache:'no-store'}).then(function(r){return r.json();})
+            .then(function(jj){
+              if(jj&&jj.status==='running')return poll();
+              var u=jj&&jj.shots&&jj.shots[0]&&jj.shots[0].url; if(!u)return;
+              var path=new URL(u,location.origin).pathname;
+              attachCollShot(cid,u);
+              fetch('/api/collections/'+cid,{method:'PATCH',headers:{'content-type':'application/json'},
+                body:JSON.stringify({shot:path})}).catch(function(){});
+            }).catch(poll);},3000);})();
+      }).catch(function(){});
   }
   function fetchOne(id){return fetch('/api/collections/'+id,{cache:'no-store'}).then(function(r){return r.ok?r.json():null;})
     .then(function(j){return j&&j.ok?asVariant(j.collection):null;}).catch(function(){return null;});}
@@ -3723,7 +3773,7 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
     var want=window.__collHash||(String(location.hash).match(/^#c=([A-Za-z0-9_-]{22})/)||[])[1];
     var ids=list().map(function(x){return x.id;}); if(want&&ids.indexOf(want)<0)ids.unshift(want);
     Promise.all(ids.slice(0,10).map(fetchOne)).then(function(vs){
-      vs.forEach(function(v){if(v)MINE.push(v);}); if(MINE.length)drawColl(true);
+      vs.forEach(function(v){if(v){MINE.push(v); if(v.shot)attachCollShot(v.cid,location.origin+v.shot);}}); if(MINE.length)drawColl(true);
       if(want){var v=MINE.find(function(x){return x.cid===want;}); if(v){remember(want,v.style,false);openId(want);}
         else{var b=document.createElement('div');b.className='hint';b.style.margin='10px 0';
           b.textContent=EN()?'This collection link is no longer available.':'Коллекция по этой ссылке больше недоступна.';
@@ -3741,11 +3791,13 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
       items:items.filter(function(i){return i&&i.w&&i.d;}).slice(0,60).map(function(i){var o={role:String(i.role).slice(0,40),x:num(i.x),y:num(i.y),
         rot:num(i.rot),w:num(i.w),d:num(i.d)}; if(i.h)o.h=num(i.h); if(i.elev)o.elev=num(i.elev); var s=pick(i.sku); if(s)o.sku=s; return o;}),
       decor:(variantDecor(v)||[]).filter(function(x){return x.sku&&x.sku.sid;}).slice(0,30).map(function(x){return {role:String(x.role).slice(0,40),sku:pick(x.sku)};}),
-      cams:(Array.isArray(cams)?cams:[]).slice(0,4).map(function(c){return {x:num(c.x),y:num(c.y),rot:num(c.rot||c.a||0)};})};
+      cams:(Array.isArray(cams)?cams:[]).slice(0,4).map(function(c){return {x:num(c.x),y:num(c.y),rot:num(c.rot||c.a||0)};}),
+      shot:currentShotPath()||undefined};
   }
   function save(){
     var btn=document.getElementById('collSave'); if(btn){btn.disabled=true;}
-    fetch('/api/collections',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(snapshot())})
+    var snap=snapshot();
+    fetch('/api/collections',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(snap)})
       .then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});}).then(function(x){
         if(!x.ok||!x.j.ok)throw new Error(x.j&&x.j.message||'');
         // пришли по ссылке менеджера — она едет и в ссылку на коллекцию: тот, кому переслали, остаётся у того же менеджера (b2b-05, verify 14.10)
@@ -3753,7 +3805,8 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
         var url=location.origin+'/demo/'+(q.length?'?'+q.join('&'):'')+'#c='+x.j.id;
         try{navigator.clipboard.writeText(url).catch(function(){});}catch(_){}
         remember(x.j.id,'',true); if(window.__embedEvent)window.__embedEvent('save');
-        return fetchOne(x.j.id).then(function(v){if(v){MINE.unshift(v);remember(x.j.id,v.style,true);drawColl(true);}
+        if(snap.shot)attachCollShot(x.j.id,location.origin+snap.shot); else snapLater(x.j.id);
+        return fetchOne(x.j.id).then(function(v){if(v){MINE.unshift(v); if(v.shot)attachCollShot(v.cid,location.origin+v.shot);remember(x.j.id,v.style,true);drawColl(true);}
           shotOpen('<div class="wait">'+(EN()?'Collection saved. The link is copied — send it to anyone:':'Коллекция сохранена. Ссылка скопирована — её можно отправить кому угодно:')+
             '<br><input readonly value="'+url+'" style="width:100%;margin-top:10px;font-size:14px" onclick="this.select()"></div>','');});
       }).catch(function(e){shotOpen('<div class="wait">'+(EN()?'Could not save, please try again.':'Не получилось сохранить, попробуйте ещё раз.')+'</div>','');})
@@ -3809,7 +3862,11 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
     'Собираем кадр по вашей расстановке…':'Building a shot of your layout…','обычно 2–4 минуты':'usually 2–4 minutes',
     'обычно 20–25 секунд':'usually 20–25 seconds','с':'s','Не получилось собрать кадр.':'Could not build the shot.',
     'попробуйте ещё раз':'please try again','Один кадр уже считается — дождитесь его.':'A shot is already being made — please wait for it.',
-    'Ссылка скопирована':'Link copied','Повторить':'Retry',
+    'Ссылка скопирована':'Link copied',
+    'Удерживайте предмет полсекунды и тяните — он переедет. Короткое касание — стрелки поворота. Когда готово — «Посмотреть фото с изменениями» внизу.':
+      'Hold an item for half a second and drag it to move. A short tap shows rotation arrows. When ready, tap “See the photo with changes” below.',
+    'Тяните предмет мышью, поворачивайте за уголок. Кружок на предмете — выбрать другой товар. Когда готово — «Посмотреть фото с изменениями» внизу.':
+      'Drag an item with the mouse, rotate it by the corner. The circle on an item picks another product. When ready, press “See the photo with changes” below.','Повторить':'Retry',
     'Улучшение фото сейчас недоступно: у сервиса картинок закончился баланс. Черновое фото работает — его можно снять как обычно.':
       'Photo enhancement is unavailable right now: the image service has run out of balance. Draft photos still work.',
     'Улучшение фото сейчас недоступно: сервер улучшения не отвечает. Черновое фото работает — попробуйте улучшить позже.':
