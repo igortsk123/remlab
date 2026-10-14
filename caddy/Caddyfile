@@ -36,7 +36,9 @@ remont-lab.online {
 	# он не умеет список доменов, а современные браузеры всё равно слушают frame-ancestors.
 	header {
 		defer
-		Content-Security-Policy "frame-ancestors 'self'"
+		# «?» — только если приложение не поставило своё: страница встраивания (`/embed/…`, b2b-07) ставит
+		# frame-ancestors с доменами партнёра. ПРАВИЛО: любой ответ со своим CSP обязан содержать frame-ancestors.
+		?Content-Security-Policy "frame-ancestors 'self'"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"
 		-Server

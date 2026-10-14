@@ -97,6 +97,8 @@ services:
       - MANAGER_TG_WEBHOOK_SECRET=${MANAGER_TG_WEBHOOK_SECRET:-}
     volumes:
       - remlab-traces:/app/data/traces
+      # витрина демо — для встраивания на сайт застройщика (`/embed/…`, план b2b-07): читаем файл, а не свой же прод
+      - ./demo:/srv/demo:ro
     networks: [remlab-net]
     mem_limit: 1g
     logging:

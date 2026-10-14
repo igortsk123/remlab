@@ -1031,6 +1031,7 @@ function hashFor(which){
   return vid?('#v='+encodeURIComponent(vid)):'#room';
 }
 function syncHash(which){
+  if(window.__EMBED)return;   // встроено на сайт застройщика (b2b-07): адрес не наш — не переписываем (иначе уедем на /demo/)
   const h=hashFor(which||(document.getElementById('screen-room').hidden?'plan':'room'));
   if(location.hash!==h)history.replaceState(null,'',h);
 }
@@ -3403,7 +3404,8 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
       links.map(function(l){return '<a class="btn round cta" style="text-decoration:none;text-align:center" data-ch="'+l[0]+'" href="'+esc(l[2])+'" target="_blank" rel="noopener">'+esc(l[1])+'</a>';}).join('')+
       '</div></div>','');
     document.querySelectorAll('#shotbody [data-ch]').forEach(function(a){
-      a.addEventListener('click',function(){ev('manager_contact_click',Object.assign({purpose:purpose,channel:a.dataset.ch},st));});});
+      a.addEventListener('click',function(){ev('manager_contact_click',Object.assign({purpose:purpose,channel:a.dataset.ch},st));
+        if(window.__embedEvent)window.__embedEvent('contact');});});
   }
   var REASONS=[['price','Дорого'],['style','Не мой стиль'],['space','Тесно / не помещается'],['color','Другой цвет'],['other','Другое']];
   function altSheet(){
@@ -3510,6 +3512,23 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
     tab.onclick=function(){show(true);};
     var _st=window.showTab; if(typeof _st==='function')window.showTab=showTab=function(){show(false);return _st.apply(this,arguments);};
   });
+})();
+</script>
+<script>
+/* ——— РЕЖИМ ВСТРАИВАНИЯ (план b2b-07, ADR-0283). Страница открыта рамкой на сайте застройщика (`/embed/<партнёр>/<квартира>`
+   ставит window.__EMBED): наружу — только высота и имена событий (без идентификаторов и личных данных), 3D — в новой
+   вкладке (`/flat` встраивать нельзя). Сообщения ловит `public/embed.js`, проверяя и источник, и рамку. */
+(function(){
+  if(!window.__EMBED||window.parent===window)return;
+  var EVENTS={open:1,'3d':1,save:1,contact:1};
+  var post=function(m){try{window.parent.postMessage(m,'*');}catch(e){}};
+  window.__embedEvent=function(name){if(EVENTS[name])post({type:'remlab:event',name:name});};
+  var last=0, send=function(){var h=Math.min(20000,Math.ceil(document.documentElement.scrollHeight));
+    if(Math.abs(h-last)>4){last=h;post({type:'remlab:height',h:h});}};
+  if(window.ResizeObserver)new ResizeObserver(send).observe(document.body); setInterval(send,1500); send();
+  document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&e.target.closest('#pc3d,#swap3d');
+    if(a){a.target='_blank';a.rel='noopener';window.__embedEvent('3d');}},true);
+  window.__embedEvent('open');
 })();
 </script>
 <script>
@@ -3639,7 +3658,7 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
         if(!x.ok||!x.j.ok)throw new Error(x.j&&x.j.message||'');
         var url=location.origin+'/demo/'+(window.__LANG==='en'?'?lang=en':'')+'#c='+x.j.id;
         try{navigator.clipboard.writeText(url).catch(function(){});}catch(_){}
-        remember(x.j.id,'',true);
+        remember(x.j.id,'',true); if(window.__embedEvent)window.__embedEvent('save');
         return fetchOne(x.j.id).then(function(v){if(v){MINE.unshift(v);remember(x.j.id,v.style,true);drawColl(true);}
           shotOpen('<div class="wait">'+(EN()?'Collection saved. The link is copied — send it to anyone:':'Коллекция сохранена. Ссылка скопирована — её можно отправить кому угодно:')+
             '<br><input readonly value="'+url+'" style="width:100%;margin-top:10px;font-size:14px" onclick="this.select()"></div>','');});

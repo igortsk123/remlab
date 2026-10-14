@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>Сайт застройщика — пример встраивания</title>
+<style>body{font:16px system-ui;margin:0;background:#f3f1ec}header{background:#1f3b57;color:#fff;padding:18px}main{max-width:1100px;margin:0 auto;padding:16px}
+#log{font:13px ui-monospace,monospace;background:#fff;border-radius:8px;padding:8px;margin:12px 0;min-height:24px}</style></head>
+<body><header><b>ЖК «Пример»</b> · страница квартиры (так выглядит сайт застройщика со встроенным демо — план b2b-07)</header>
+<main><p>Ниже — одна строка разметки и один скрипт. События демо пишутся в журнал под рамкой.</p>
+<div id="log">события: —</div>
+<div id="remlab" data-remlab-partner="demo" data-remlab-flat="flat215" data-remlab-lang="ru"></div></main>
+<script src="/embed.js"></script>
+<script>document.getElementById('remlab').addEventListener('remlab',function(e){var l=document.getElementById('log');
+l.textContent=(l.textContent==='события: —'?'события:':l.textContent)+' '+e.detail.name;});</script>
+</body></html>
