@@ -4,11 +4,12 @@
 # скрипты ходят `docker exec` — поэтому внутри docker CLI и сокет хоста. Секреты — один `.env` рядом с compose.
 FROM python:3.14-slim
 ARG SUPERCRONIC=v0.2.33
+ARG TARGETARCH=amd64
 RUN apt-get update && apt-get install -y --no-install-recommends \
       bash ca-certificates curl git openssh-client rsync procps jq nodejs npm docker-cli \
     && rm -rf /var/lib/apt/lists/* \
     && curl -fsSL -o /usr/local/bin/supercronic \
-       https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC}/supercronic-linux-amd64 \
+       https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC}/supercronic-linux-${TARGETARCH} \
     && chmod +x /usr/local/bin/supercronic
 RUN useradd -m -u 1000 -s /bin/bash pakar
 USER pakar

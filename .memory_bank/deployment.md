@@ -18,8 +18,8 @@ review_after: 2026-12-05
 
 ## Production (LIVE)
 - https://remont-lab.online (A → 89.167.127.0, без CF); LE TLS-ALPN-01 :443, Caddy (ADR-0003).
-- Контейнеры: `app`, `caddy`, `db`, `imagor`, `traces-init`, `mesh-receiver` (`docker-compose.yml`,
-  сеть `remlab-net`, ADR-0004). Вне compose `draft:8099` (рендер демо) — Caddy проксирует `/api/{draft,warm,render,job,share}*`.
+- Контейнеры: `app`, `caddy`, `db`, `imagor`, `traces-init`, `mesh-receiver`, `draft` (рендер демо, образ из CI —
+  ADR-0278) — `docker-compose.yml`, сеть `remlab-net`, ADR-0004; Caddy проксирует `/api/{draft,warm,render,job,share}*`.
 - Статика: `/test/*`, `/demo` (ADR-0201), `/test/mesh-audit/*` и `/rt/*` immutable (ADR-0194, 0212); `/lab/*` — Next.
   Без парного `redir /x /x/` — 404 без слэша.
 - **Caddyfile едет деплоем** (`infra/server/caddy-sync.sh`, ADR-0256) — руками на сервере НЕ править.
@@ -42,7 +42,7 @@ Push в `main` → CI gate → `Deploy prod` (`deploy.yml`). Сервер — `i
 ## Безопасность (ADR-0207, ADR-0256)
 Патчи с публичным RCE — сразу (инцидент 08.09: майнер на 15.5.4). Заслон `@nextrce` в Caddy не снимать.
 **13.10 (ADR-0256):** ПДн только в базе; без секрета всё закрыто; после деплоя `tools/security-smoke.sh`;
-`remlab-draft` пересоздавать только `infra/server/draft-run.sh` (урок 474). Детали — Tier 2 § Безопасность.
+`remlab-draft` выкатывает деплой (ADR-0278), `draft-run.sh` — аварийный. Детали — Tier 2 § Безопасность.
 
 ## Сторожа
 Каталог (ADR-0172), диск `cleanup.sh` (ADR-0005), безопасность — `disk-watchdog.sh`. Правка сервера = бэкап + rollback.

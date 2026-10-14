@@ -2394,7 +2394,8 @@ async function makePhoto(quality, srcId, replaceBatch){
       // ПРЕДЕЛ ПО ОБЩЕМУ ВРЕМЕНИ (b2b-12, verify): раньше «считается» сбрасывало счётчик, и ожидание было
       // бесконечным; а ошибка сервера ловилась как обрыв связи и повторялась 2 минуты. Теперь ошибка
       // сервера — сразу, обрыв связи — повтор, а дольше предела ждать не заставляем.
-      const limitMin = quality==='realistic' ? 8 : 3, deadline = Date.now() + limitMin*60000;
+      // предел клиента — НЕ раньше сервера: очередь держит до 10 мин, затем сам кадр (verify b2b-08)
+      const limitMin = quality==='realistic' ? 16 : 12, deadline = Date.now() + limitMin*60000;
       for(;;){
         await new Promise(res=>setTimeout(res,3000));
         if(Date.now()>deadline)throw new Error('кадр не успел за '+limitMin+' мин — попробуйте ещё раз');

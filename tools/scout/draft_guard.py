@@ -87,6 +87,25 @@ def queue_eta(position: int, quality: str, durs: dict, slots: int = 2) -> int:
     return int(round(avg * rounds))
 
 
+REGISTRY_MAX = 120
+
+
+def registry_trim(data: list, cap: int = REGISTRY_MAX) -> list:
+    """Реестр кадров не растёт бесконечно, но свежайший кадр КАЖДОГО стиля остаётся: иначе кадры покупателей вытесняют
+    прогретые кадры карточек (b2b-08, verify 14.10). Порядок записей сохраняется."""
+    if len(data) <= cap:
+        return data
+    keep = set()
+    seen = set()
+    for i in range(len(data) - 1, -1, -1):
+        st = data[i].get('style') or ''
+        if st and st not in seen:
+            seen.add(st)
+            keep.add(i)
+    rest = [i for i in range(len(data) - 1, -1, -1) if i not in keep][:max(0, cap - len(keep))]
+    return [data[i] for i in sorted(keep | set(rest))]
+
+
 def _selftest() -> int:
     bad = 0
 
@@ -114,6 +133,9 @@ def _selftest() -> int:
     ok(queue_eta(2, 'draft', {'draft': [10, 20]}) == 15, 'очередь: второй идёт в том же круге (два кадра разом)')
     ok(queue_eta(3, 'draft', {'draft': [10, 20]}) == 30, 'очередь: третий ждёт круг')
     ok(queue_eta(1, 'realistic', {}) == 180, 'очередь: фото — минуты')
+    old = [{'style': 'лофт', 'ts': 0}] + [{'style': 'сканди', 'ts': i} for i in range(1, 200)]
+    tr = registry_trim(old, 50)
+    ok(len(tr) == 50 and tr[0]['style'] == 'лофт', 'реестр кадров: не больше предела, старый кадр редкого стиля сохранён')
     return 1 if bad else 0
 
 

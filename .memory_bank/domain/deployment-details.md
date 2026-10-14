@@ -137,8 +137,8 @@ flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev
 - Ежечасный `infra/server/disk-watchdog.sh`: чистит просроченные `share_requests`/старые `rate_limits`, будит
   владельца при файлах `_queue` под веб-корнем и при расхождении `Caddyfile` со снимком `Caddyfile.deployed`.
 - После деплоя — шаг `tools/security-smoke.sh` (13 проверок снаружи, без отката).
-- `remlab-draft` вне compose, свежий код — в слое контейнера (урок 474): пересоздание только
-  `infra/server/draft-run.sh` (снимок `docker commit` → запуск из снимка, старый — `remlab-draft-prev`).
+- `remlab-draft` с 14.10 — сервис compose (ADR-0278): образ `ghcr.io/…/remlab-draft:<sha>` собирает CI, деплой ждёт
+  `/health` с версией и при сбое возвращает прежний образ; `infra/server/draft-run.sh` — только аварийный (урок 474).
 
 ## Прод без DEV — что ломается (13.10, план b2b-09, ADR-0266)
 | С DEV зависит | DEV выключен — что видит покупатель/владелец | Через сколько | Что делать |
@@ -169,8 +169,9 @@ flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev
 82 % из 243 ГБ. Крупное: `~/scout-scenes` 30 ГБ (сцены и болванки; `prune_shapes` чистит `shape.glb` у принятых
 моделей), кэш картинок каталога. Чистить руками, по списку — автоматической чистки DEV нет.
 
-## Сервис кадров `remlab-draft` — образ из репозитория (13.10, ADR-0267)
-Сборка на сервере (до переезда в CI): контекст `git archive HEAD` с файлами из `infra/draft/Dockerfile.dockerignore` →
+## Сервис кадров `remlab-draft` — образ из репозитория (13.10, ADR-0267; с 14.10 — compose и CI, ADR-0278)
+**С 14.10 ниже — история и аварийный путь:** обычная выкатка — CI собирает образ, `deploy-remote.sh` поднимает сервис
+compose (очередь кадров, прогрев, время кадра — ADR-0280). Прежняя ручная сборка на сервере: контекст `git archive HEAD` с файлами из `infra/draft/Dockerfile.dockerignore` →
 `docker build -f infra/draft/Dockerfile --build-arg DRAFT_VERSION=<sha> -t remlab-draft:<sha> .`; переключение —
 `/opt/remlab/scripts/draft-run.sh --image remlab-draft:<sha>` (снимок старого → `remlab-draft:prev`; не та версия в
 `/health` — откат). Откат вручную: `draft-run.sh --image remlab-draft:prev`. Env — `/opt/remlab/draft/.env` (в нём

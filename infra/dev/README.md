@@ -24,4 +24,7 @@
 
 ## Что не входит
 Ночной экзамен с 10 воркерами просит памяти (8 ГБ лимит); браузерные шаги (`demo_live`, `demo_warm`) требуют
-Playwright: `docker exec remlab-dev npx playwright install --with-deps chromium` один раз.
+Playwright один раз: системные пакеты — `docker exec -u root remlab-dev npx playwright install-deps chromium`, браузер —
+`docker exec remlab-dev npx playwright install chromium` (в контейнере Debian: в `tools/ops/node-env.sh` подмену платформы
+`PLAYWRIGHT_HOST_PLATFORM_OVERRIDE` для контейнера убрать). Сервис рендера DEV (`tools/scout/dev_render_backend.sh`,
+ускоритель кадров через туннель) в контейнер не входит — без него кадры делает сервер (ADR-0280).

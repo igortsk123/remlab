@@ -60,7 +60,8 @@ export function PhotoView({ apartment, scene, roomId, lang }: PhotoViewProps) {
       let data = (await res.json()) as { job?: string; shots?: RenderShot[]; url?: string; error?: string };
       // фоновое задание: конвейер отдаёт номер и просит спрашивать «готово?» раз в 3 секунды
       let guard = 0;
-      while (data.job && guard < 120) {
+      // 240 × 3 с = 12 мин: не раньше сервера (очередь до 10 мин + кадр) — verify b2b-08
+      while (data.job && guard < 240) {
         await new Promise((r) => setTimeout(r, 3000));
         guard += 1;
         const poll = await fetch(`/api/job?id=${encodeURIComponent(data.job)}`);

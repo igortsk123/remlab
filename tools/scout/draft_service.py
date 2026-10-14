@@ -34,7 +34,7 @@ MAX_BOT = os.environ.get('SHARE_MAX_BOT', '')
 SMS_GATE = os.environ.get('SHARE_SMS_GATE', '')   # шлюз СМС; пусто — канал не подключён
 esc = html.escape
 from draft_guard import (ALLOWED_ORIGINS, ip_allowed,  # noqa: E402
-                         queue_eta, safe_url, save_share_request)
+                         queue_eta, registry_trim, safe_url, save_share_request)
 SHARE_PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex"><title>{{TITLE}} — подборка</title>
@@ -145,7 +145,7 @@ def _registry_add(payload: dict, out: dict) -> None:
                 data = []
             data = [x for x in data if x.get('ts') != rec['ts']]
             data.append(rec)
-            data = data[-60:]                      # реестр не растёт бесконечно
+            data = registry_trim(data)             # реестр не растёт бесконечно, свежий кадр каждого стиля не вытесняется
             tmp = path + '.tmp'
             json.dump(data, open(tmp, 'w', encoding='utf-8'), ensure_ascii=False)
             os.replace(tmp, path)
@@ -298,7 +298,9 @@ class H(BaseHTTPRequestHandler):
         if prx and not payload.get('no_proxy'):
             try:
                 import urllib.request as _u
-                req = _u.Request(prx, data=raw, method='POST',
+                # внутренний номер задания DEV не знает — без него DEV делает кадр как обычный запрос (b2b-08, verify)
+                _fwd = json.dumps({k: v for k, v in payload.items() if k != '_job'}).encode()
+                req = _u.Request(prx, data=_fwd, method='POST',
                                  headers={'Content-Type': 'application/json'})
                 # РЕЖИМ РЕМОНТА ЖДЁТ ДОЛЬШЕ (01.09): сборка листа плюс генерация в 2048 —
                 # это минуты. Прежние 120 с роняли запрос в ФОЛБЭК на локальный рендер
@@ -314,6 +316,9 @@ class H(BaseHTTPRequestHandler):
                     os.makedirs(DR.FRAMES_DIR, exist_ok=True)
                     open(os.path.join(DR.FRAMES_DIR, nm), 'wb').write(_b64.b64decode(b64))
                 out['backend'] = 'dev'
+                if isinstance(out.get('sec'), (int, float)):   # время кадра — и с домашнего компьютера (стык frame_sec)
+                    _q = 'realistic' if payload.get('quality') == 'realistic' else 'draft'
+                    _DURS[_q] = (_DURS[_q] + [float(out['sec'])])[-20:]
                 _registry_add(payload, out)
                 return self._send(200, out)
             except Exception as e:  # noqa: BLE001
