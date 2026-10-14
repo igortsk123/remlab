@@ -148,6 +148,8 @@ export function BuildBar(props: BuildBarProps) {
           <div className="mb-1 flex items-center gap-2">
             <p className="min-w-0 flex-1 truncate text-xs text-tertiary">
               {lang === "en" ? current.titleEn : current.titleRu}
+              {/* размер спрашивают чаще цены (план flat3d-sims-ux E4): Ш×Г×В модели, только из паспорта товара */}
+              {current.asset.kind === "mesh" ? ` · ${Math.round(current.asset.wCm)}×${Math.round(current.asset.dCm)}×${Math.round(current.asset.hCm)} ${lang === "en" ? "cm" : "см"}` : ""}
               {current.listPrice ? ` · ${formatMoney(current.listPrice, catalogue.currency, lang)}` : ""}
               {current.shopUrl ? (
                 <>
