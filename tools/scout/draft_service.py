@@ -296,8 +296,16 @@ class H(BaseHTTPRequestHandler):
             # версия образа (b2b-08): деплой сверяет её, как у приложения
             return self._send(200, {'ok': True, 'version': os.environ.get('DRAFT_VERSION', 'dev')})
         if self.route.startswith(('/draft/credits', '/credits')):
-            # БАЛАНС ШЛЮЗА (demo-03): прод без ключа спрашивает его у DEV перед платным заданием
+            # БАЛАНС ШЛЮЗА (demo-03): прод без ключа спрашивает его у DEV перед платным заданием. Только изнутри
+            # (туннель/свой адрес, без X-Forwarded-For): сумму на счёте наружу не показываем.
+            if self.client_ip:
+                return self._send(404, {'error': 'нет такого пути'})
             return self._send(200, _credits_here())
+        if self.route.startswith(('/draft/paid', '/paid')):
+            # МОЖНО ЛИ СЕЙЧАС УЛУЧШАТЬ (demo-03): да/нет и код — без суммы. Нужен живой проверке (проверить честный
+            # отказ, не создавая платного задания) и странице.
+            gate = _paid_gate()
+            return self._send(200, {'available': gate is None, 'code': gate[0] if gate else None})
         if self.route.startswith(('/draft/stats', '/stats')):
             # ВРЕМЯ КАДРА (b2b-08 п.5): среднее последних замеров по качеству — стык конвейера следит, не медленнеет ли
             avg = {q: (round(sum(d) / len(d), 1) if d else None) for q, d in _DURS.items()}

@@ -8,6 +8,7 @@
 !tools/scout/rules/practice_priors.json
 !tools/scout/draft_service.py
 !tools/scout/draft_guard.py
+!tools/scout/draft_jobs.py
 !tools/scout/draft_render.py
 !tools/scout/asset_strategy.py
 !tools/scout/falmini.py

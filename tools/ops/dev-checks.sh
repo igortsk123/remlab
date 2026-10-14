@@ -35,4 +35,16 @@ if [ -f "$ENVS" ]; then
   probe "шлюз Vercel" https://ai-gateway.vercel.sh/v1/chat/completions "${VERCEL_AI_GATEWAY_KEY:-}" openai/gpt-6-luna
   probe "OpenAI" https://api.openai.com/v1/chat/completions "${OPENAI_API_KEY:-}" gpt-6-luna
 fi
+# DEV-РЕНДЕР ДЕМО (план demo-03, 14.10): 13.10 его убил earlyoom, и прод сутки молча рисовал запасным путём с
+# упрощёнными мешами — дайджест не сказал ни слова. Теперь: жив ли он сам, виден ли проду через туннель, сколько
+# раз за сутки поднимался заново (крон раз в 10 минут, dev_render_backend.sh) и сколько кадров прод снял без него.
+if curl -s -m 5 http://127.0.0.1:8600/health | grep -q '"ok": true'; then echo "DEV-рендер: жив"
+else echo "WARN:dev_render_down: DEV-рендер (порт 8600) не отвечает — кадры демо снимаются запасным путём (tools/scout/dev_render_backend.sh)"; fi
+tun=$(ssh -o BatchMode=yes -o ConnectTimeout=8 root@89.167.127.0 'curl -s -m 5 http://172.18.0.1:8601/health; echo; docker logs --since 24h remlab-draft 2>&1 | grep -c "DEV-бэкенд молчит"' 2>/dev/null)
+case "$tun" in *'"ok": true'*) echo "туннель прод→DEV-рендер: жив";; *) echo "WARN:dev_render_tunnel: прод не видит DEV-рендер через туннель — кадры демо идут запасным путём";; esac
+fb=$(printf '%s\n' "$tun" | tail -1 | tr -dc '0-9')
+[ "${fb:-0}" -gt 0 ] && echo "WARN:dev_render_fallback: за сутки прод $fb раз рисовал кадр запасным путём (DEV молчал)"
+since=$(date -d '24 hours ago' '+%F %T')
+rs=$(awk -v s="$since" '/сервис запущен/ && ($1" "$2)>=s' "$HOME/scout-scenes/dev-render.log" 2>/dev/null | wc -l)
+[ "${rs:-0}" -gt 0 ] && echo "WARN:dev_render_restart: DEV-рендер поднимался заново $rs раз за сутки (падал — см. ~/scout-scenes/dev-render.log, earlyoom)"
 exit 0
