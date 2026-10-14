@@ -1,0 +1,14 @@
+# Расписание DEV-конвейера remlab внутри контейнера (b2b-08 п.1). Копия строк remlab из crontab домашнего компьютера;
+# меняешь там — поменяй здесь (проверка: tools/scout/tests_chain.py live_guards_scheduled читает crontab хоста).
+40 10 * * * /home/pakar/igor/remlab/tools/scout/refresh_daily.sh
+0 3 * * * /home/pakar/igor/remlab/tools/scout/nightly_exam.sh
+*/10 * * * * /home/pakar/igor/remlab/tools/scout/salad/idle_guard.sh
+0 9 * * * /home/pakar/igor/remlab/tools/scout/salad/batch_window.sh up
+0 15 * * * /home/pakar/igor/remlab/tools/scout/salad/batch_window.sh down
+*/15 * * * * /home/pakar/igor/remlab/tools/scout/salad/sink_keeper.sh
+* * * * * flock -n /home/pakar/scout-scenes/mesh-audit/tick.lock /home/pakar/venvs/scout/bin/python /home/pakar/igor/remlab/tools/scout/mesh_audit_sync.py --tick
+*/5 * * * * cd /home/pakar/igor/remlab/tools/scout && set -a && . /home/pakar/scout-scenes/salad.env && set +a && /home/pakar/venvs/scout/bin/python salad/money_guard.py
+15 4 * * * /home/pakar/igor/remlab/tools/ops/backup-pull.sh
+30 4 * * 0 /home/pakar/igor/remlab/tools/ops/restore-drill.sh
+*/3 * * * * /home/pakar/igor/remlab/tools/scout/salad/heartbeat.sh
+*/15 * * * * cd /home/pakar/igor/remlab/tools/scout && /home/pakar/venvs/scout/bin/python salad/wave_guard.py

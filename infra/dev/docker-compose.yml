@@ -1,0 +1,31 @@
+# DEV-конвейер remlab в контейнерах (b2b-08 п.1, ADR-0284). Запуск — infra/dev/README.md.
+name: remlab-dev
+services:
+  devdb:
+    image: pgvector/pgvector:pg17
+    container_name: remlab-devdb          # скрипты ходят к базе `docker exec -i remlab-devdb psql`
+    environment:
+      POSTGRES_USER: remlab
+      POSTGRES_DB: remlab
+      POSTGRES_PASSWORD: ${DEVDB_PASSWORD:?задайте DEVDB_PASSWORD в infra/dev/.env}
+    volumes:
+      - devdb-data:/var/lib/postgresql/data
+    ports: ["127.0.0.1:5433:5432"]
+    mem_limit: 1g
+    restart: unless-stopped
+  dev:
+    build: { context: ../.., dockerfile: infra/dev/Dockerfile }
+    image: remlab-dev:local
+    container_name: remlab-dev
+    depends_on: [devdb]
+    env_file: .env
+    volumes:
+      - ../..:/home/pakar/igor/remlab                      # репозиторий
+      - ${SCOUT_SCENES:-/home/pakar/scout-scenes}:/home/pakar/scout-scenes   # сцены, меши, фиды, логи
+      - ${SSH_DIR:-/home/pakar/.ssh}:/home/pakar/.ssh:ro    # ключ к серверу (публикации, мост с продом)
+      - /var/run/docker.sock:/var/run/docker.sock           # docker exec к базе
+    group_add: ["${DOCKER_GID:-999}"]
+    mem_limit: 8g
+    restart: unless-stopped
+volumes:
+  devdb-data:
