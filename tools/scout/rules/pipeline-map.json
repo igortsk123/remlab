@@ -221,6 +221,16 @@
    "owner": "mesh",
    "title": "Опубликованные модели без лёгкой копии (3D качает тяжёлый исходник)",
    "runbook": "data/flat3d/runtime-meshes.json ← сборка runtime-копий (ADR-0212)"
+  },
+  {
+   "id": "demo_engine_drift",
+   "kind": "backlog",
+   "metric": "demo_engine_drift",
+   "owner": "render",
+   "yellow": 1,
+   "red": 2,
+   "title": "Движок живой сцены демо собран не из текущего кода (1 — опубликовать демо)",
+   "runbook": "tools/flat3d/build-scene-bundle.mjs; flat215_demo.py → publish_demo.sh (demo-01)"
   }
  ],
  "waivers": {

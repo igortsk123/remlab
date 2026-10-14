@@ -89,10 +89,26 @@ def collect() -> dict:
     try:
         import urllib.request
         idx = json.load(urllib.request.urlopen('https://remont-lab.online/test/mesh-pilot10/mesh-index.json', timeout=30))
-        rt = json.load(open(os.path.join(HERE, '..', '..', 'data', 'flat3d', 'runtime-meshes.json'), encoding='utf-8')).get('meshes') or {}
+        # таблица ночной сборки копий (demo-01, `tools/assets/demo_rt.sh`) полнее той, что в репо
+        rtp = os.path.expanduser('~/scout-scenes/flat3d-rt/runtime-meshes.json')
+        if not os.path.exists(rtp):
+            rtp = os.path.join(HERE, '..', '..', 'data', 'flat3d', 'runtime-meshes.json')
+        rt = json.load(open(rtp, encoding='utf-8')).get('meshes') or {}
         m['light_missing'] = float(sum(1 for k in idx if k not in rt))
     except Exception:  # noqa: BLE001
         m['light_missing'] = None
+    # ВЕРСИЯ ДВИЖКА СЦЕНЫ (demo-01): демо на проде собрано из того же исходника `lib/viewer3d`, что в репо (а значит и
+    # `/flat` после выкатки). 1 — демо не пересобрано после правки движка (опубликуй демо); нет сети/узла — неизвестно.
+    try:
+        import subprocess
+        import urllib.request
+        root = os.path.abspath(os.path.join(HERE, '..', '..'))
+        pub = json.load(urllib.request.urlopen('https://remont-lab.online/demo/lib/scene.json', timeout=20)).get('build')
+        loc = subprocess.run(['bash', '-c', f'. "{root}/tools/ops/node-env.sh" && node "{root}/tools/flat3d/build-scene-bundle.mjs" --print-id'],
+                             capture_output=True, text=True, timeout=120).stdout.strip()
+        m['demo_engine_drift'] = None if not loc else float(pub != loc)
+    except Exception:  # noqa: BLE001
+        m['demo_engine_drift'] = None
     # ВРЕМЯ ЧЕРНОВОГО КАДРА на проде (b2b-08 п.5): среднее последних замеров сервиса кадров; нет замеров — неизвестно
     try:
         import urllib.request
