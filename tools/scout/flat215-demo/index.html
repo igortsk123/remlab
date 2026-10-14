@@ -3967,7 +3967,8 @@ new MutationObserver(()=>{if(!document.getElementById('shot').classList.contains
 // один; поля сверху и снизу — тоном стены. Телефон (портрет) — во весь экран, как утверждено (demo-02 п.9).
 function liveFit(wrap){
   const r=wrap.getBoundingClientRect(); if(!(r.width>0&&r.height>0)||!LIVE.scene)return;
-  const band=r.width/r.height<1.5&&r.width>=r.height, h=band?Math.round(r.width/1.5):r.height, top=band?Math.round((r.height-h)/2):0;
+  const desk=window.innerWidth>700;   // на телефоне сцена во весь экран и под шторкой — без полосы
+  const band=desk&&r.width/r.height<1.5&&r.width>=r.height, h=band?Math.round(r.width/1.5):r.height, top=band?Math.round((r.height-h)/2):0;
   LIVE.canvas.style.top=top+'px'; LIVE.canvas.style.height=h+'px';
   const pins=document.getElementById('vpins'); if(pins){pins.style.top=top+'px'; pins.style.height=h+'px'; pins.style.bottom='auto';}
   LIVE.scene.setSize(r.width,h);
