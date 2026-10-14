@@ -2,7 +2,7 @@
 workstream: demo
 slug: demo-01-scene-engine
 title: Единый движок сцены — браузерный рендер из lib/viewer3d для демо: живая сцена вместо «подождите 25 секунд», серверный numpy — только прогрев, запасной путь и лист для GPT
-status: draft
+status: in_progress
 created: 2026-10-14
 updated: 2026-10-14
 completed:

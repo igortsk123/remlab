@@ -81,11 +81,46 @@ export interface ViewerEvents {
   onPick?: (slotId: string | null) => void;
   onRoomChange?: (roomId: string | null) => void;
   onProgress?: (loaded: number, total: number) => void;
+  /** Видеоконтекст потерян (мало памяти GPU, вкладка в фоне на телефоне) — обёртка переходит на запасной путь. */
+  onContextLost?: () => void;
+}
+
+/**
+ * ФОТО-ПОЗА — ТА ЖЕ КАМЕРА, ЧТО У СЕРВЕРНОГО КАДРА (план demo-01 п.3, урок 414): точка на плане (см), `rot` — как у
+ * точки съёмки демо и `draft_render.cams_from_request`: взгляд (sin rot, −cos rot) по плану, глаз 165 см, цель —
+ * 105 см в 4 м перед глазом, `fov` — ГОРИЗОНТАЛЬНЫЙ угол (`planner/scene.py:Camera`). У прогулки другая конвенция
+ * (heading 0 = +y), поэтому позу нельзя передавать прогулке «как угол».
+ */
+export interface PhotoPose {
+  x: number;
+  y: number;
+  rot: number;
+  fov?: number;
+}
+export const PHOTO_EYE_CM = 165;
+export const PHOTO_TARGET_CM = 105;
+export const PHOTO_AIM_CM = 400;
+
+/** Точки глаза и цели фото-позы в сантиметрах (x — вправо, y — вверх, z — вглубь плана). Общая для теста и рендера. */
+export function photoRay(p: PhotoPose): { eye: [number, number, number]; target: [number, number, number] } {
+  const a = (p.rot * Math.PI) / 180;
+  return {
+    eye: [p.x, PHOTO_EYE_CM, p.y],
+    target: [p.x + PHOTO_AIM_CM * Math.sin(a), PHOTO_TARGET_CM, p.y - PHOTO_AIM_CM * Math.cos(a)],
+  };
+}
+
+/** Вертикальный угол three.js из горизонтального угла кадра и соотношения сторон. */
+export function verticalFov(hfovDeg: number, aspect: number): number {
+  const t = Math.tan((hfovDeg * Math.PI) / 360) / Math.max(aspect, 1e-3);
+  return (Math.atan(t) * 360) / Math.PI;
 }
 
 interface Placed {
   spec: ObjectSpec;
+  /** Внешняя группа: позиция и поворот предмета. Внутри — модель, отцентрованная в начале координат. */
   group: THREE.Group;
+  /** Что требует пересоздать объект (модель, размеры, подкраска); место и поворот сюда не входят. */
   signature: string;
 }
 
@@ -128,7 +163,8 @@ export class FlatViewer {
    * Режим камеры: прогулка или «кукольный дом» — вид сверху под углом (владелец 29.09).
    * Сверху удобно понять планировку и расстановку целиком, а ходить — чтобы «пожить» в комнате.
    */
-  private viewMode: "walk" | "top" = "walk";
+  private viewMode: "walk" | "top" | "photo" = "walk";
+  private photo: PhotoPose | null = null;
   private topTarget = new THREE.Vector2();   // точка, вокруг которой крутится вид сверху
   private topDistanceCm = 620;
   private topPitch = -52;
@@ -149,6 +185,10 @@ export class FlatViewer {
     this.events = events;
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: quality.name === "desktop", powerPreference: "high-performance" });
+    canvas.addEventListener("webglcontextlost", (e) => {
+      e.preventDefault();
+      this.events.onContextLost?.();
+    });
     // Без видеокарты (виртуалки, старые офисные машины, CI) браузер рисует силами процессора.
     // Полноэкранная сцена с тенями там не тянет — вкладка падает. Переходим на облегчённый
     // профиль: человек увидит квартиру, пусть и проще, вместо «страница не отвечает».
@@ -283,6 +323,11 @@ export class FlatViewer {
         this.scene.remove(p.group);
         disposeObject(p.group);
         this.placed.delete(slotId);
+      } else {
+        // ДВИЖЕНИЕ БЕЗ ПЕРЕСОЗДАНИЯ (demo-01 п.4): сменились только место/поворот — двигаем внешнюю группу; модель,
+        // её загрузка и материалы остаются. Раньше координаты входили в подпись, и каждый сдвиг удалял объект.
+        placeGroup(p.group, next.placement);
+        p.spec = next;
       }
     }
 
@@ -321,36 +366,28 @@ export class FlatViewer {
     let group: THREE.Group;
 
     if (spec.kind === "mesh") {
-      const stub = stubBox(
-        { xCm: p.x, yCm: p.y, rotDeg: p.rot, wCm: p.wCm, dCm: p.dCm, hCm: p.hCm, elevCm: p.elevCm },
-        true,
-      );
-      stub.userData = { slotId: spec.slotId, roomId: spec.roomId, title: spec.titleRu };
-      this.scene.add(stub);
-      this.placed.set(spec.slotId, { spec, group: stub, signature: signatureOf(spec) });
+      // ВНЕШНЯЯ ГРУППА = МЕСТО И ПОВОРОТ, ВНУТРИ — МОДЕЛЬ В НАЧАЛЕ КООРДИНАТ (demo-01 п.4). Посадка та же, что у
+      // `placeMesh` с местом (поворот вокруг центра следа не сдвигает центр и низ), но сдвиг/поворот предмета —
+      // это одна запись в трансформ, без новой модели.
+      const outer = new THREE.Group();
+      const local = { xCm: 0, yCm: 0, rotDeg: 0, wCm: p.wCm, dCm: p.dCm, hCm: p.hCm, elevCm: 0 };
+      const stub = stubBox(local, true);
+      outer.add(stub);
+      placeGroup(outer, p);
+      outer.userData = { slotId: spec.slotId, roomId: spec.roomId, title: spec.titleRu };
+      this.scene.add(outer);
+      this.placed.set(spec.slotId, { spec, group: outer, signature: signatureOf(spec) });
 
       try {
         this.pendingUrls.add(spec.url);
         const source = await this.meshes.load(spec.url);
         if (this.disposed) return;
-        const real = placeMesh(source, {
-          xCm: p.x,
-          yCm: p.y,
-          rotDeg: p.rot,
-          wCm: p.wCm,
-          dCm: p.dCm,
-          hCm: p.hCm,
-          elevCm: p.elevCm,
-          yawDeg: spec.yawDeg,
-          tintRgb: spec.tintRgb,
-        });
-        real.userData = { slotId: spec.slotId, roomId: spec.roomId, title: spec.titleRu };
+        const real = placeMesh(source, { ...local, yawDeg: spec.yawDeg, tintRgb: spec.tintRgb });
         const cur = this.placed.get(spec.slotId);
-        if (cur && cur.group === stub) {
-          this.scene.remove(stub);
+        if (cur && cur.group === outer) {
+          outer.remove(stub);
           disposeObject(stub);
-          this.scene.add(real);
-          this.placed.set(spec.slotId, { spec, group: real, signature: signatureOf(spec) });
+          outer.add(real);
         }
       } catch {
         // модель не пришла — остаётся честная серая коробка, как в демо
@@ -409,8 +446,7 @@ export class FlatViewer {
       });
     }
 
-    group.position.set(p.x * CM, (p.elevCm ?? 0) * CM, p.y * CM);
-    group.rotation.y = (p.rot * Math.PI) / 180;
+    placeGroup(group, p);
     group.userData = { slotId: spec.slotId, roomId: spec.roomId, title: spec.titleRu };
     this.scene.add(group);
     this.placed.set(spec.slotId, { spec, group, signature: signatureOf(spec) });
@@ -442,6 +478,7 @@ export class FlatViewer {
   setViewMode(mode: "walk" | "top"): void {
     if (this.viewMode === mode) return;
     this.viewMode = mode;
+    this.photo = null;
     this.scene.traverse((o) => {
       if (o.name.startsWith("ceiling:")) o.visible = mode !== "top";
     });
@@ -458,8 +495,36 @@ export class FlatViewer {
     }
   }
 
-  get mode(): "walk" | "top" {
+  get mode(): "walk" | "top" | "photo" {
     return this.viewMode;
+  }
+
+  /** Неподвижная камера фото-кадра (см. `PhotoPose`). Выход — `setViewMode`. */
+  setPhotoPose(pose: PhotoPose): void {
+    this.photo = { ...pose };
+    if (this.viewMode === "top") {
+      this.scene.traverse((o) => {
+        if (o.name.startsWith("ceiling:")) o.visible = true;
+      });
+    }
+    this.viewMode = "photo";
+  }
+
+  /** Рисует ли браузер силами процессора — обёртка демо в этом случае берёт серверный эскиз. */
+  get softwareRenderer(): boolean {
+    return isSoftwareRenderer(this.renderer);
+  }
+
+  /**
+   * Новая расстановка той же квартиры (демо: замена товара, перестановка). Рендерер, загруженные модели и стены
+   * остаются; дальше вызывающий зовёт `syncObjects` — сдвинутое двигается, заменённое перегружается.
+   */
+  setApartment(apartment: Apartment, catalogue: Catalogue): void {
+    this.apartment = apartment;
+    this.catalogue = catalogue;
+    const byId = (id: string): Material | undefined => catalogue.materials.find((m) => m.id === id);
+    this.kitCtx = { ...this.kitCtx, byId, fallback: byId("paint-white") ?? catalogue.materials[0] ?? NEUTRAL_WALL };
+    this.area = walkArea(apartment);
   }
 
   /** Поставить камеру вида сверху по текущим точке интереса, повороту и расстоянию. */
@@ -986,6 +1051,18 @@ export class FlatViewer {
       }
     }
 
+    if (this.viewMode === "photo" && this.photo) {
+      const { eye, target } = photoRay(this.photo);
+      const vfov = verticalFov(this.photo.fov ?? 72, this.camera.aspect);
+      if (Math.abs(this.camera.fov - vfov) > 0.01) {
+        this.camera.fov = vfov;
+        this.camera.updateProjectionMatrix();
+      }
+      this.camera.position.set(eye[0] * CM, eye[1] * CM, eye[2] * CM);
+      this.camera.lookAt(target[0] * CM, target[1] * CM, target[2] * CM);
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
     const rad = (this.heading * Math.PI) / 180;
     if (this.viewMode === "top") {
       // вид сверху: камера на дуге вокруг точки интереса
@@ -1021,6 +1098,33 @@ export class FlatViewer {
   snapshot(): string {
     this.renderer.render(this.scene, this.camera);
     return this.renderer.domElement.toDataURL("image/png");
+  }
+
+  /**
+   * Сохранённый кадр заданного размера (demo-01 п.3): JPEG/WebP асинхронно (`toBlob`), только по действию человека —
+   * не на каждое движение. Холст временно перерисовывается в нужном размере и возвращается обратно.
+   */
+  async exportFrame(width: number, height: number, type = "image/jpeg", quality = 0.9): Promise<Blob> {
+    const canvas = this.renderer.domElement;
+    const prev = new THREE.Vector2();
+    this.renderer.getSize(prev);
+    const prevRatio = this.renderer.getPixelRatio();
+    const prevAspect = this.camera.aspect;
+    const prevFov = this.camera.fov;
+    this.renderer.setPixelRatio(1);
+    this.renderer.setSize(width, height, false);
+    this.camera.aspect = width / height;
+    if (this.photo) this.camera.fov = verticalFov(this.photo.fov ?? 72, this.camera.aspect);
+    this.camera.updateProjectionMatrix();
+    this.renderer.render(this.scene, this.camera);
+    const blob = await new Promise<Blob | null>((ok) => canvas.toBlob(ok, type, quality));
+    this.renderer.setPixelRatio(prevRatio);
+    this.renderer.setSize(prev.x, prev.y, false);
+    this.camera.aspect = prevAspect;
+    this.camera.fov = prevFov;
+    this.camera.updateProjectionMatrix();
+    if (!blob) throw new Error("кадр не собрался");
+    return blob;
   }
 
   get position(): { x: number; y: number; heading: number } {
@@ -1136,9 +1240,16 @@ function farFromDoor(room: Room, p: Placement): "start" | "end" {
   return local < 0 ? "end" : "start";
 }
 
+/** Место и поворот предмета — во внешнюю группу (центр следа на плане, низ на полу + подъём). */
+function placeGroup(g: THREE.Object3D, p: Placement): void {
+  g.position.set(p.x * CM, (p.elevCm ?? 0) * CM, p.y * CM);
+  g.rotation.y = (p.rot * Math.PI) / 180;
+}
+
+/** Подпись объекта: что требует пересоздать его (модель, размеры, материалы). Место/поворот — не сюда (demo-01 п.4). */
 function signatureOf(spec: ObjectSpec): string {
   const p = spec.placement;
-  const geom = `${p.x}|${p.y}|${p.rot}|${p.wCm}|${p.dCm}|${p.hCm}`;
+  const geom = `${p.wCm}|${p.dCm}|${p.hCm}`;
   if (spec.kind === "mesh") return `mesh|${spec.meshId}|${spec.yawDeg}|${(spec.tintRgb ?? []).join(",")}|${geom}`;
   if (spec.kind === "kitchen") {
     return `kitchen|${spec.level}|${spec.features.join(",")}|${spec.doorMaterialId}|${spec.worktopMaterialId}|${spec.splashbackMaterialId}|${geom}`;

@@ -6,7 +6,7 @@ import type { Apartment, Placement } from "@/contracts/apartment";
 import { findRoom } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
 import type { ResolvedScene, ResolvedSurface } from "@/lib/configurator/resolve";
-import { meshUrl } from "@/lib/configurator/data";
+import { meshUrl } from "@/lib/configurator/mesh-url";
 
 export interface RoomSurfaces {
   floor?: ResolvedSurface;

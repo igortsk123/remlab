@@ -8,29 +8,7 @@ import apartmentJson from "@/data/flat3d/apartment.json";
 import catalogueJson from "@/data/flat3d/catalogue-base.json";
 import furnitureJson from "@/data/flat3d/furniture.json";
 import materialsJson from "@/data/flat3d/materials.json";
-import runtimeJson from "@/data/flat3d/runtime-meshes.json";
-
-/** Галерея исходников (тяжёлые GLB конвейера мешей) — фолбэк, если runtime-копии нет. */
-export const MESH_BASE = process.env.NEXT_PUBLIC_FLAT3D_MESH_BASE ?? "/test/mesh-pilot10/";
-/** Лёгкие runtime-копии: отдельный immutable-маршрут (ADR-0212). */
-export const RUNTIME_BASE = process.env.NEXT_PUBLIC_FLAT3D_RT_BASE ?? "/rt/";
-
-const runtimeMeshes = (runtimeJson as { meshes?: Record<string, { size?: number; "size-lite"?: number }> }).meshes ?? {};
-
-/**
- * Ссылка на модель: сперва лёгкая runtime-копия (1024 текстуры, без MR-карты), иначе исходник
- * галереи. Фолбэк намеренный: сцена обязана работать и до того, как конвейер ассетов прогонит
- * новый товар, — иначе каждый новый диван будет серой коробкой.
- */
-export function meshUrl(meshId: string, runtimeUrl?: string, lite = false): string {
-  if (runtimeUrl) return runtimeUrl;
-  const entry = runtimeMeshes[meshId];
-  if (entry) {
-    if (lite && entry["size-lite"]) return `${RUNTIME_BASE}${meshId}-lite.glb`;
-    if (entry.size) return `${RUNTIME_BASE}${meshId}.glb`;
-  }
-  return `${MESH_BASE}${meshId}/model.glb`;
-}
+export { MESH_BASE, RUNTIME_BASE, meshUrl } from "@/lib/configurator/mesh-url";
 
 function withBase(base: string, url?: string): string | undefined {
   if (!url) return undefined;

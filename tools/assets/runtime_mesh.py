@@ -16,9 +16,16 @@
         --out ~/scout-scenes/flat3d-rt --size 1024 --quality 82
     (--size 512 --suffix -lite  — облегчённый набор для телефона)
 
-Идемпотентно: готовая модель того же размера пропускается (--force для пересборки).
+Идемпотентно: готовая копия пропускается, только если она собрана из ТОГО ЖЕ исходника (`src_sha` в манифесте —
+отпечаток исходного GLB, план demo-01 п.5): исходник перегенерировали — копия пересобирается сама; --force — всё заново.
+
+Демо (план demo-01): `--ids-from-demo ~/scout-scenes/flat215-demo/demo-data.json` — модели всех вариантов и первых
+`--feed-top` кандидатов каждой ленты; `--check` — ничего не собирать, только сказать, чего нет или что устарело
+(код 1 — ворота публикации демо: без лёгких копий браузер тянул бы исходники по 4–10 МБ).
 """
 from __future__ import annotations
+
+import hashlib
 
 import argparse
 import base64
@@ -205,6 +212,48 @@ def pack(src_path: str, dst_path: str, simplify: float = 0.0, ktx2: bool = True)
     return True, ""
 
 
+def gltfpack_version() -> str:
+    exe = GLTFPACK if os.path.exists(GLTFPACK) else (shutil.which("gltfpack") or "")
+    try:
+        out = subprocess.run([exe, "-v"], capture_output=True, text=True, timeout=10)
+        return (out.stdout + out.stderr).strip().splitlines()[0][:60]
+    except Exception:  # noqa: BLE001
+        return "нет"
+
+
+def src_sha(data: bytes, recipe: str = "") -> str:
+    """Отпечаток копии = исходник + рецепт сборки (размер, качество, упрощение, KTX2, версия gltfpack): смена
+    параметров тоже должна пересобрать копию, а не только смена исходника (разбор Codex 14.10)."""
+    return hashlib.sha256(data + recipe.encode()).hexdigest()[:16]
+
+
+def demo_ids(path: str, feed_top: int) -> tuple[list[str], list[str]]:
+    """Модели демо: (варианты, первые feed_top кандидатов каждой ленты). Заглушки с «:» — не модели."""
+    d = json.load(open(os.path.expanduser(path), encoding="utf-8"))
+    mid = lambda x: (x.get("msid") or x.get("sid") or "") if isinstance(x, dict) else ""  # noqa: E731
+    var: list[str] = []
+    for v in d.get("variants") or []:
+        for it in v.get("items") or []:
+            if str(it.get("role") or "").startswith("ковёр"):
+                continue                                # ковёр — фото на полу, 3D-модели у него нет
+            m = mid(it.get("sku") or {})
+            if m and ":" not in m and m not in var:
+                var.append(m)
+    for v in d.get("variants") or []:                   # декор тоже на сцене (ваза на столике)
+        for x in v.get("decor") or []:
+            m = mid(x.get("sku") or {})
+            if m and ":" not in m and m not in var:
+                var.append(m)
+    feed: list[str] = []
+    for role, lst in (d.get("feeds") or {}).items():
+        if str(role).startswith("ковёр"):
+            continue
+        for x in [mid(f) for f in lst][:feed_top]:
+            if x and ":" not in x and x not in var and x not in feed:
+                feed.append(x)
+    return var, feed
+
+
 def mesh_ids_from(path: str) -> list[str]:
     payload = json.load(open(path, encoding="utf-8"))
     ids: list[str] = []
@@ -227,9 +276,17 @@ def main() -> int:
     ap.add_argument("--manifest", default="data/flat3d/runtime-meshes.json")
     ap.add_argument("--simplify", type=float, default=0.0, help="доля оставляемых треугольников, напр. 0.6")
     ap.add_argument("--no-ktx2", action="store_true", help="оставить JPEG вместо KTX2")
+    ap.add_argument("--ids-from-demo", default="", help="demo-data.json: модели вариантов + первые --feed-top каждой ленты")
+    ap.add_argument("--feed-top", type=int, default=6)
+    ap.add_argument("--check", action="store_true", help="только проверить наличие и свежесть (код 1 — нет/устарело у вариантов)")
     a = ap.parse_args()
 
-    ids = a.id or mesh_ids_from(a.ids_from)
+    var_ids: list[str] = []
+    if a.ids_from_demo:
+        var_ids, feed_ids = demo_ids(a.ids_from_demo, a.feed_top)
+        ids = a.id or (var_ids + feed_ids)
+    else:
+        ids = a.id or mesh_ids_from(a.ids_from)
     os.makedirs(a.out, exist_ok=True)
     manifest: dict[str, dict] = {}
     if os.path.exists(a.manifest):
@@ -238,15 +295,35 @@ def main() -> int:
         except Exception:  # noqa: BLE001
             manifest = {}
 
+    sha_key = f"src_sha{a.suffix or ''}"
+    recipe = f"size={a.size};q={a.quality};simplify={a.simplify};ktx2={not a.no_ktx2};{gltfpack_version()}"
+    if a.check:
+        bad_var, bad_feed = [], []
+        for mid in ids:
+            dst = os.path.join(a.out, f"{mid}{a.suffix}.glb")
+            try:
+                fresh = os.path.exists(dst) and manifest.get(mid, {}).get(sha_key) == src_sha(fetch_source(mid), recipe)
+            except Exception:  # noqa: BLE001 — исходник недоступен: копию не проверить, считаем несвежей
+                fresh = False
+            if not fresh:
+                (bad_var if mid in var_ids else bad_feed).append(mid)
+        print(f"лёгкие копии{a.suffix or ''}: проверено {len(ids)}, нет или устарели — варианты {len(bad_var)}, ленты {len(bad_feed)}")
+        for m in bad_var[:20]:
+            print(f"  вариант: {m}")
+        return 1 if bad_var else 0
+
     ok = fail = skip = 0
     t0 = time.time()
     for i, mid in enumerate(ids, 1):
         dst = os.path.join(a.out, f"{mid}{a.suffix}.glb")
-        if os.path.exists(dst) and not a.force:
-            skip += 1
-            continue
         try:
             src = fetch_source(mid)
+            sha = src_sha(src, recipe)
+            # ПРОПУСК — ТОЛЬКО ДЛЯ КОПИИ ТОГО ЖЕ ИСХОДНИКА (demo-01 п.5): по одному факту существования файла
+            # перегенерированная модель навсегда оставалась бы со старой копией.
+            if os.path.exists(dst) and not a.force and manifest.get(mid, {}).get(sha_key) == sha:
+                skip += 1
+                continue
             out, stats = optimise(src, a.size, a.quality)
             # gltfpack узнаёт формат ПО РАСШИРЕНИЮ, поэтому промежуточный файл тоже .glb
             tmp = dst[:-4] + ".src.glb"
@@ -263,6 +340,7 @@ def main() -> int:
             entry = manifest.get(mid, {})
             entry[f"size{a.suffix or ''}"] = size
             entry["source_bytes"] = len(src)
+            entry[sha_key] = sha
             entry[f"texture_px{a.suffix or ''}"] = stats["px"]
             entry["triangles"] = stats["triangles"]
             entry["packed"] = packed

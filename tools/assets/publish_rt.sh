@@ -16,3 +16,8 @@ PROBE=$(find "$SRC" -name '*.glb' ! -name '*-lite.glb' | head -1 | xargs basenam
 code=$(curl -s -o /dev/null -m 25 -w '%{http_code}' "https://remont-lab.online/rt/$PROBE")
 [ "$code" = 200 ] || { echo "проверка не прошла: HTTP $code на /rt/$PROBE"; exit 1; }
 echo "готово: https://remont-lab.online/rt/$PROBE отдаётся (HTTP 200)"
+# ТАБЛИЦА КОПИЙ ДЛЯ ДЕМО (план demo-01 п.5): движок сцены демо подставляет её сам (`/demo/rt-meshes.json`, без долгого
+# кэша — уедет со следующей публикацией демо); приложение `/flat` берёт свою из сборки. Свежесть копии в браузере держит
+# `?v=<отпечаток>` в ссылке (`lib/configurator/mesh-url.ts`): маршрут `/rt/` — immutable на неделю.
+cp "$(dirname "$0")/../../data/flat3d/runtime-meshes.json" "$HOME/scout-scenes/flat215-demo/rt-meshes.json"
+echo "таблица копий → ~/scout-scenes/flat215-demo/rt-meshes.json"

@@ -3,12 +3,15 @@
  "baseUrl": "/rt/",
  "meshes": {
   "112923_10153166443740156800": {
-   "size": 259092,
+   "size": 256420,
    "source_bytes": 4534080,
-   "texture_px": 512,
-   "size-lite": 139148,
+   "texture_px": 1024,
+   "size-lite": 213096,
    "triangles": 40000,
-   "packed": true
+   "packed": true,
+   "src_sha": "35d94fd787b53563",
+   "src_sha-lite": "31d7fe0299282fa7",
+   "texture_px-lite": 512
   },
   "112923_10204732259256289856": {
    "size": 364156,
@@ -51,12 +54,15 @@
    "packed": true
   },
   "112923_13137908567573856736": {
-   "size": 314348,
+   "size": 313320,
    "source_bytes": 3590940,
-   "texture_px": 512,
-   "size-lite": 173744,
+   "texture_px": 1024,
+   "size-lite": 253464,
    "triangles": 40000,
-   "packed": true
+   "packed": true,
+   "src_sha": "6be851d8cc0dade3",
+   "src_sha-lite": "e5aa3e2c66dd2255",
+   "texture_px-lite": 512
   },
   "112923_1608581627908703608": {
    "size": 230736,
@@ -115,12 +121,15 @@
    "packed": true
   },
   "112923_5327925542491228056": {
-   "size": 242148,
-   "source_bytes": 2797208,
-   "texture_px": 512,
-   "size-lite": 131200,
-   "triangles": 39999,
-   "packed": true
+   "size": 233088,
+   "source_bytes": 2801276,
+   "texture_px": 1024,
+   "size-lite": 198092,
+   "triangles": 40000,
+   "packed": true,
+   "src_sha": "0c0c06c90fc0d69b",
+   "src_sha-lite": "bc33ed7674aa5ce9",
+   "texture_px-lite": 512
   },
   "112923_5379466319529336151": {
    "size": 296756,
@@ -131,12 +140,15 @@
    "packed": true
   },
   "112923_6065800578703142835": {
-   "size": 300956,
+   "size": 301608,
    "source_bytes": 4243872,
-   "texture_px": 512,
-   "size-lite": 165144,
+   "texture_px": 1024,
+   "size-lite": 240088,
    "triangles": 40000,
-   "packed": true
+   "packed": true,
+   "src_sha": "a46e1cef07b6159f",
+   "src_sha-lite": "c60737e022b849d2",
+   "texture_px-lite": 512
   },
   "112923_7417951868446675976": {
    "size": 268924,
@@ -155,12 +167,15 @@
    "packed": true
   },
   "112923_7546684772028794150": {
-   "size": 354460,
+   "size": 354020,
    "source_bytes": 4293180,
-   "texture_px": 512,
-   "size-lite": 178440,
+   "texture_px": 1024,
+   "size-lite": 252700,
    "triangles": 40000,
-   "packed": true
+   "packed": true,
+   "src_sha": "54ac9d71a6d8af6b",
+   "src_sha-lite": "85a104a957f9c6c2",
+   "texture_px-lite": 512
   },
   "112923_7945540342146322002": {
    "size": 264892,
@@ -171,12 +186,15 @@
    "packed": true
   },
   "112923_8137064999918124227": {
-   "size": 286644,
-   "source_bytes": 3044048,
-   "texture_px": 512,
-   "size-lite": 152676,
-   "triangles": 40000,
-   "packed": true
+   "size": 281760,
+   "source_bytes": 3188812,
+   "texture_px": 1024,
+   "size-lite": 224280,
+   "triangles": 39999,
+   "packed": true,
+   "src_sha": "bf3b14748e8e15d1",
+   "src_sha-lite": "224a05e2c93b18e8",
+   "texture_px-lite": 512
   },
   "112923_8333856700583988605": {
    "size": 240936,
@@ -187,12 +205,15 @@
    "packed": true
   },
   "112923_8408526607437134893": {
-   "size": 243208,
+   "size": 240860,
    "source_bytes": 2769976,
-   "texture_px": 512,
-   "size-lite": 132580,
+   "texture_px": 1024,
+   "size-lite": 209532,
    "triangles": 40000,
-   "packed": true
+   "packed": true,
+   "src_sha": "0d0b20732fc3466b",
+   "src_sha-lite": "1c375446d54dbfa7",
+   "texture_px-lite": 512
   },
   "112923_9044530246550714802": {
    "size": 383492,
@@ -275,12 +296,15 @@
    "packed": true
   },
   "99272_4983412252027465864": {
-   "size": 224624,
+   "size": 224060,
    "source_bytes": 3219488,
-   "texture_px": 512,
-   "size-lite": 124716,
+   "texture_px": 1024,
+   "size-lite": 191436,
    "triangles": 40000,
-   "packed": true
+   "packed": true,
+   "src_sha": "15d0141086ba1c82",
+   "src_sha-lite": "59b00bad2472af4b",
+   "texture_px-lite": 512
   },
   "99272_5256875288911330299": {
    "size": 357852,
@@ -307,12 +331,15 @@
    "packed": true
   },
   "99272_6218699376495884286": {
-   "size": 352572,
+   "size": 353408,
    "source_bytes": 5375532,
-   "texture_px": 512,
-   "size-lite": 195084,
+   "texture_px": 1024,
+   "size-lite": 263848,
    "triangles": 37952,
-   "packed": true
+   "packed": true,
+   "src_sha": "1e66de865a1fa143",
+   "src_sha-lite": "a51e8e60eb32acec",
+   "texture_px-lite": 512
   },
   "99272_9791048974647036683": {
    "size": 317760,
@@ -321,6 +348,842 @@
    "size-lite": 176680,
    "triangles": 40000,
    "packed": true
+  },
+  "112923_15599697036491365781": {
+   "size": 312784,
+   "source_bytes": 4487920,
+   "src_sha": "f114f79a414e43d7",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 247092,
+   "src_sha-lite": "a617a39732df699d",
+   "texture_px-lite": 512
+  },
+  "99272_3934977655350054394": {
+   "size": 298104,
+   "source_bytes": 4047392,
+   "src_sha": "6ed41b8241c5e058",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 241784,
+   "src_sha-lite": "9f93511627465b60",
+   "texture_px-lite": 512
+  },
+  "112923_8742021531920132235": {
+   "size": 291428,
+   "source_bytes": 4187384,
+   "src_sha": "1848c5787c9c0ed4",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 217808,
+   "src_sha-lite": "876a88eb809cdfbb",
+   "texture_px-lite": 512
+  },
+  "112923_447047194672492760": {
+   "size": 294532,
+   "source_bytes": 3139404,
+   "src_sha": "b1e3a3ca64ca822a",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 223128,
+   "src_sha-lite": "f7d01f7767473973",
+   "texture_px-lite": 512
+  },
+  "99272_1380905324458342313": {
+   "size": 212620,
+   "source_bytes": 2058424,
+   "src_sha": "cb952173b4cccd42",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 196336,
+   "src_sha-lite": "c96f555b734c1b27",
+   "texture_px-lite": 512
+  },
+  "112923_18326701575278285804": {
+   "size": 270552,
+   "source_bytes": 4059120,
+   "src_sha": "cf0976089eaf5a2a",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 218704,
+   "src_sha-lite": "f1f00ce0618e04a4",
+   "texture_px-lite": 512
+  },
+  "112923_8946142545332806640": {
+   "size": 299808,
+   "source_bytes": 3712764,
+   "src_sha": "73e59373b5bbf77b",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 223076,
+   "src_sha-lite": "d5b36e7dc4bde6e8",
+   "texture_px-lite": 512
+  },
+  "99272_8825974142927049059": {
+   "size": 279244,
+   "source_bytes": 3516600,
+   "src_sha": "076bc79cbbaf5eda",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 228432,
+   "src_sha-lite": "3d8576ae395b8c89",
+   "texture_px-lite": 512
+  },
+  "99272_6146555385599546030": {
+   "size": 314864,
+   "source_bytes": 4282416,
+   "src_sha": "6436a426e2311a81",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 235560,
+   "src_sha-lite": "2a67ae38a3d3fc87",
+   "texture_px-lite": 512
+  },
+  "112923_10111726372869571729": {
+   "size": 223892,
+   "source_bytes": 3480636,
+   "src_sha": "2934527411dbfed6",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 199744,
+   "src_sha-lite": "576e2e70810bd845",
+   "texture_px-lite": 512
+  },
+  "112923_8854957766648804973": {
+   "size": 317276,
+   "source_bytes": 3756332,
+   "src_sha": "d0d80738a04f880a",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 231028,
+   "src_sha-lite": "862d5d62f42e5fa7",
+   "texture_px-lite": 512
+  },
+  "99272_16892335979063759073": {
+   "size": 450216,
+   "source_bytes": 6857348,
+   "src_sha": "aa2ad3cb2a3f65c3",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 313108,
+   "src_sha-lite": "3f32f3b2108374e5",
+   "texture_px-lite": 512
+  },
+  "112923_186864324404104266": {
+   "size": 298964,
+   "source_bytes": 4336132,
+   "src_sha": "29cc51f10df1212a",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 250740,
+   "src_sha-lite": "77358b78dbb55fa3",
+   "texture_px-lite": 512
+  },
+  "99272_12767146713576548307": {
+   "size": 282840,
+   "source_bytes": 3773004,
+   "src_sha": "3454f882b4f1cc46",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 233996,
+   "src_sha-lite": "8455f71d33fe0b93",
+   "texture_px-lite": 512
+  },
+  "112923_13979506397967480953": {
+   "size": 231268,
+   "source_bytes": 3981236,
+   "src_sha": "49508ca0f629a766",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 206704,
+   "src_sha-lite": "e711b5edacc61571",
+   "texture_px-lite": 512
+  },
+  "112923_6243202751863390846": {
+   "size": 226844,
+   "source_bytes": 2737640,
+   "src_sha": "78763d8be8cf001e",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 193308,
+   "src_sha-lite": "ba0ca2841f5b02ee",
+   "texture_px-lite": 512
+  },
+  "112923_1196471125546361325": {
+   "size": 253032,
+   "source_bytes": 4316880,
+   "src_sha": "b819a2b446ad1438",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 213320,
+   "src_sha-lite": "b200a1d9922e5192",
+   "texture_px-lite": 512
+  },
+  "112923_15882698789095726578": {
+   "size": 276824,
+   "source_bytes": 3777684,
+   "src_sha": "b560d389d72aeb0a",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 233904,
+   "src_sha-lite": "7908cb824c0abafd",
+   "texture_px-lite": 512
+  },
+  "112923_10830678091863747785": {
+   "size": 274476,
+   "source_bytes": 3854660,
+   "src_sha": "6e4831c3da3b2abe",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 216592,
+   "src_sha-lite": "8e32fc4631faff00",
+   "texture_px-lite": 512
+  },
+  "99272_11568910714328056581": {
+   "size": 294196,
+   "source_bytes": 4645824,
+   "src_sha": "2d4459f3ab08bf3b",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 227040,
+   "src_sha-lite": "5922e688ef03894b",
+   "texture_px-lite": 512
+  },
+  "112923_17973969494600935486": {
+   "size": 362284,
+   "source_bytes": 5579912,
+   "src_sha": "57a59f462c647cb6",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 257772,
+   "src_sha-lite": "986cd709cd6cb136",
+   "texture_px-lite": 512
+  },
+  "112923_11969304967706518435": {
+   "size": 250728,
+   "source_bytes": 3242324,
+   "src_sha": "7906adbedc919aaf",
+   "texture_px": 1024,
+   "triangles": 39999,
+   "packed": true,
+   "size-lite": 209636,
+   "src_sha-lite": "46145af3022b79c9",
+   "texture_px-lite": 512
+  },
+  "99272_13375459037315144736": {
+   "size": 315248,
+   "source_bytes": 3782372,
+   "src_sha": "9f9155706cbbe7f5",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 249860,
+   "src_sha-lite": "f406ae4e2d9bb231",
+   "texture_px-lite": 512
+  },
+  "112923_10894495671267406665": {
+   "size": 375184,
+   "source_bytes": 4078272,
+   "src_sha": "59e7b93dbb2c3a37",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 262344,
+   "src_sha-lite": "0ac6b5e0c54ff842",
+   "texture_px-lite": 512
+  },
+  "112923_10693265451046762097": {
+   "size": 329300,
+   "source_bytes": 4772908,
+   "src_sha": "ca0e0b2f9a4a3d74",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 254196,
+   "src_sha-lite": "4947cdc87b71dab8",
+   "texture_px-lite": 512
+  },
+  "112923_7455526896535697605": {
+   "size": 261596,
+   "source_bytes": 2582728,
+   "src_sha": "a365bfb3c210b01d",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 213484,
+   "src_sha-lite": "44e0486f04538b1a",
+   "texture_px-lite": 512
+  },
+  "112923_17407751225354767108": {
+   "size": 265540,
+   "source_bytes": 3418380,
+   "src_sha": "6c47ed0daa47a0de",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 212784,
+   "src_sha-lite": "01767d51e1a3a7bc",
+   "texture_px-lite": 512
+  },
+  "112923_10175165970415756486": {
+   "size": 312224,
+   "source_bytes": 3936820,
+   "src_sha": "243d8a6934315f96",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 243300,
+   "src_sha-lite": "6c1bc8fd693082c1",
+   "texture_px-lite": 512
+  },
+  "112923_16786625495984216921": {
+   "size": 294288,
+   "source_bytes": 4354420,
+   "src_sha": "ec50ef7f6573c122",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 231956,
+   "src_sha-lite": "a71ddca223c79ed0",
+   "texture_px-lite": 512
+  },
+  "112923_6583264601233885482": {
+   "size": 287160,
+   "source_bytes": 4411200,
+   "src_sha": "e5dba8b6ac006539",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 235256,
+   "src_sha-lite": "35471ae48736c9cc",
+   "texture_px-lite": 512
+  },
+  "112923_4370077163807262347": {
+   "size": 328940,
+   "source_bytes": 5079400,
+   "src_sha": "c7ebea4c9c977362",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 256848,
+   "src_sha-lite": "250f5bebc18a4ba9",
+   "texture_px-lite": 512
+  },
+  "112923_2622064642885936551": {
+   "size": 376972,
+   "source_bytes": 5795696,
+   "src_sha": "93dff9dfbcd4b2e2",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 265208,
+   "src_sha-lite": "51620b6f0c6ab1ba",
+   "texture_px-lite": 512
+  },
+  "112923_13781470264122190327": {
+   "size": 246752,
+   "source_bytes": 3688616,
+   "src_sha": "2083a073376532ba",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 210476,
+   "src_sha-lite": "af4768c8d3684807",
+   "texture_px-lite": 512
+  },
+  "112923_475373742603059727": {
+   "size": 280864,
+   "source_bytes": 4420072,
+   "src_sha": "2a7853785d8cb869",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 229548,
+   "src_sha-lite": "b9b76069f47cbfb4",
+   "texture_px-lite": 512
+  },
+  "112923_12568287599298585564": {
+   "size": 355172,
+   "source_bytes": 4713448,
+   "src_sha": "916c71ae5081ba1c",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 238784,
+   "src_sha-lite": "7f35dc319a386b28",
+   "texture_px-lite": 512
+  },
+  "112923_16125083650918720213": {
+   "size": 258728,
+   "source_bytes": 3996148,
+   "src_sha": "0ab5cac721045f05",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 196700,
+   "src_sha-lite": "bcc7c46333ad3aa3",
+   "texture_px-lite": 512
+  },
+  "112923_15877967256542540694": {
+   "size": 229132,
+   "source_bytes": 3183580,
+   "src_sha": "c6ef912c8528792d",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 186592,
+   "src_sha-lite": "9efe6c96d9019f7b",
+   "texture_px-lite": 512
+  },
+  "112923_2058239722176115234": {
+   "size": 272976,
+   "source_bytes": 3937628,
+   "src_sha": "36354b8bb7368859",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 211868,
+   "src_sha-lite": "c9587d75b07b6c7b",
+   "texture_px-lite": 512
+  },
+  "112923_3939957136030142386": {
+   "size": 276704,
+   "source_bytes": 4567020,
+   "src_sha": "f4ea7116152b71d5",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 221648,
+   "src_sha-lite": "944f9ea226cf8e88",
+   "texture_px-lite": 512
+  },
+  "112923_970341798977378646": {
+   "size": 395872,
+   "source_bytes": 8130312,
+   "src_sha": "e1a7a00829261169",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 254740,
+   "src_sha-lite": "df6ef323134e676a",
+   "texture_px-lite": 512
+  },
+  "112923_8593212703710238120": {
+   "size": 279052,
+   "source_bytes": 3585580,
+   "src_sha": "734f72cc77ccab7c",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 216476,
+   "src_sha-lite": "21c39bf5ce4ba18b",
+   "texture_px-lite": 512
+  },
+  "112923_2716677436085326962": {
+   "size": 262004,
+   "source_bytes": 3699192,
+   "src_sha": "d83828d8f99e3629",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 213700,
+   "src_sha-lite": "1380b08ddf9be484",
+   "texture_px-lite": 512
+  },
+  "112923_5385749915560767571": {
+   "size": 257672,
+   "source_bytes": 3793716,
+   "src_sha": "84b12c9edf081a4d",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 213020,
+   "src_sha-lite": "be499a8d3fe71854",
+   "texture_px-lite": 512
+  },
+  "112923_12454728843222733973": {
+   "size": 374696,
+   "source_bytes": 5609524,
+   "src_sha": "956f14aa6a1be0e6",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 253740,
+   "src_sha-lite": "7e0da0649be7db13",
+   "texture_px-lite": 512
+  },
+  "99272_3587523561202691251": {
+   "size": 312220,
+   "source_bytes": 4110700,
+   "src_sha": "029761962b82a59f",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 246492,
+   "src_sha-lite": "addf2ae6b9dd6cb9",
+   "texture_px-lite": 512
+  },
+  "112923_8312377888602468327": {
+   "size": 314628,
+   "source_bytes": 4655848,
+   "src_sha": "d6d57e35adcaf128",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 242556,
+   "src_sha-lite": "426dbeb7fb1b8753",
+   "texture_px-lite": 512
+  },
+  "99272_17087714635974701391": {
+   "size": 287704,
+   "source_bytes": 2425764,
+   "src_sha": "c924e9faf13859f9",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 234604,
+   "src_sha-lite": "d7f3dad221be160b",
+   "texture_px-lite": 512
+  },
+  "99272_9291635762585897906": {
+   "size": 336084,
+   "source_bytes": 4854584,
+   "src_sha": "2fd0dafab17c5351",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 247352,
+   "src_sha-lite": "bcb586b85ed0b53d",
+   "texture_px-lite": 512
+  },
+  "99272_7044955940371172076": {
+   "size": 214296,
+   "source_bytes": 2549352,
+   "src_sha": "5bb4a86fab023759",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 195564,
+   "src_sha-lite": "71d2e899d879550e",
+   "texture_px-lite": 512
+  },
+  "99272_477335602656654248": {
+   "size": 235108,
+   "source_bytes": 2756576,
+   "src_sha": "920a6970ba39cd93",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 191844,
+   "src_sha-lite": "8bf99154108bec4f",
+   "texture_px-lite": 512
+  },
+  "99272_18028398033109686881": {
+   "size": 289156,
+   "source_bytes": 1595568,
+   "src_sha": "c65da40ddc73f503",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 225476,
+   "src_sha-lite": "67285fe4bb4905d0",
+   "texture_px-lite": 512
+  },
+  "99272_4440676307602507118": {
+   "size": 248096,
+   "source_bytes": 1434028,
+   "src_sha": "215d877b3f743651",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 209128,
+   "src_sha-lite": "eaa8248e534beac2",
+   "texture_px-lite": 512
+  },
+  "99272_17510593292245098483": {
+   "size": 339940,
+   "source_bytes": 3892660,
+   "src_sha": "9bc67ae6c04d3a04",
+   "texture_px": 1024,
+   "triangles": 39999,
+   "packed": true,
+   "size-lite": 245124,
+   "src_sha-lite": "75e3f1a86e63a730",
+   "texture_px-lite": 512
+  },
+  "99272_17586256206196278584": {
+   "size": 318620,
+   "source_bytes": 3156116,
+   "src_sha": "23c82171db34d56f",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 247148,
+   "src_sha-lite": "ec45b7448c69220e",
+   "texture_px-lite": 512
+  },
+  "99272_10473504040101674133": {
+   "size": 311544,
+   "source_bytes": 4017628,
+   "src_sha": "6eff2ad8aaecdb6c",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 242840,
+   "src_sha-lite": "057308a3b780ac41",
+   "texture_px-lite": 512
+  },
+  "99272_1196014290167120854": {
+   "size": 307976,
+   "source_bytes": 5099056,
+   "src_sha": "5e408485814c73fa",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 233376,
+   "src_sha-lite": "5d8f36e087287a96",
+   "texture_px-lite": 512
+  },
+  "112923_10108625015160793484": {
+   "size": 280480,
+   "source_bytes": 3016016,
+   "src_sha": "fa1cc4443d2c77f4",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 226196,
+   "src_sha-lite": "e696238a356d472e",
+   "texture_px-lite": 512
+  },
+  "112923_1719491933495998750": {
+   "size": 346404,
+   "source_bytes": 4794428,
+   "src_sha": "ab4a02aef5af6814",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 274908,
+   "src_sha-lite": "974b2183a610db60",
+   "texture_px-lite": 512
+  },
+  "99272_10581598881543221035": {
+   "size": 381252,
+   "source_bytes": 5389156,
+   "src_sha": "0133257a4fb9c2d2",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 295560,
+   "src_sha-lite": "f2b410a475249f38",
+   "texture_px-lite": 512
+  },
+  "99272_12639028962365773158": {
+   "size": 307576,
+   "source_bytes": 4209948,
+   "src_sha": "660ae108ef7d8efb",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 236220,
+   "src_sha-lite": "b9d1b855cd1ce0ba",
+   "texture_px-lite": 512
+  },
+  "112923_12430720797215363499": {
+   "size": 295768,
+   "source_bytes": 3525344,
+   "src_sha": "67d904728bcc78f6",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 231596,
+   "src_sha-lite": "feac1996af82c126",
+   "texture_px-lite": 512
+  },
+  "114082_10708248646823885702": {
+   "size": 304508,
+   "source_bytes": 4119736,
+   "src_sha": "ce33965066738fbd",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 241920,
+   "src_sha-lite": "e93e0e85f8a68108",
+   "texture_px-lite": 512
+  },
+  "112923_84967562694446873": {
+   "size": 331992,
+   "source_bytes": 4304044,
+   "src_sha": "64ec220d60ead5fc",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 245820,
+   "src_sha-lite": "726afa2e25d6b8ee",
+   "texture_px-lite": 512
+  },
+  "112923_5956354477801356168": {
+   "size": 266640,
+   "source_bytes": 4235056,
+   "src_sha": "43139fd56ba19437",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 231852,
+   "src_sha-lite": "d3a23ccee663d1ef",
+   "texture_px-lite": 512
+  },
+  "112923_8088811555583618813": {
+   "size": 271788,
+   "source_bytes": 4184856,
+   "src_sha": "c24a3556d3339c69",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 223328,
+   "src_sha-lite": "224941f766084815",
+   "texture_px-lite": 512
+  },
+  "112923_7322840915668575609": {
+   "size": 312856,
+   "source_bytes": 4126164,
+   "src_sha": "54cc9faf680b269b",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 229884,
+   "src_sha-lite": "81afb83868cb8352",
+   "texture_px-lite": 512
+  },
+  "99272_11735329935886852109": {
+   "size": 391336,
+   "source_bytes": 5799644,
+   "src_sha": "a297895cb360b8c9",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 286328,
+   "src_sha-lite": "b9fd2bd859ec1b2d",
+   "texture_px-lite": 512
+  },
+  "112923_16108359631057908709": {
+   "size": 332468,
+   "source_bytes": 4354392,
+   "src_sha": "5b4d817ca3e667e2",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 243332,
+   "src_sha-lite": "450a5e2c34f91638",
+   "texture_px-lite": 512
+  },
+  "112923_16513631465616772954": {
+   "size": 216720,
+   "source_bytes": 3478552,
+   "src_sha": "139af6444f3b4533",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 183068,
+   "src_sha-lite": "87daabdc9c50935a",
+   "texture_px-lite": 512
+  },
+  "112923_5969868554069204915": {
+   "size": 233196,
+   "source_bytes": 3327080,
+   "src_sha": "727cf5ed5e531065",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 191308,
+   "src_sha-lite": "d49ba52efdf296fc",
+   "texture_px-lite": 512
+  },
+  "112923_852603262343176022": {
+   "size": 235960,
+   "source_bytes": 3278412,
+   "src_sha": "1ef05fb530bdbd82",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 208136,
+   "src_sha-lite": "2d0a2ed36b2bf014",
+   "texture_px-lite": 512
+  },
+  "112923_2923873904524448048": {
+   "size": 286168,
+   "source_bytes": 3345308,
+   "src_sha": "4dbd4d35a2c86aaa",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 213260,
+   "src_sha-lite": "4a5fcd371ca6e2af",
+   "texture_px-lite": 512
+  },
+  "112923_2292854408267329364": {
+   "size": 312320,
+   "source_bytes": 4607676,
+   "src_sha": "fc6b9e6ca978d324",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 228848,
+   "src_sha-lite": "fd82d0e721d5c902",
+   "texture_px-lite": 512
+  },
+  "112923_8979166047688318548": {
+   "size": 363492,
+   "source_bytes": 4740568,
+   "src_sha": "74bf5ba32fa82bdc",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 241564,
+   "src_sha-lite": "fd574a542541e4fc",
+   "texture_px-lite": 512
+  },
+  "112923_13704284518394980917": {
+   "size": 323260,
+   "source_bytes": 4280576,
+   "src_sha": "4c59e8c068c404c8",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 227988,
+   "src_sha-lite": "3191380158a6f01e",
+   "texture_px-lite": 512
+  },
+  "99272_17598954721654987930": {
+   "size": 204212,
+   "source_bytes": 2727428,
+   "src_sha": "936ea0d293c2dbd1",
+   "texture_px": 1024,
+   "triangles": 40000,
+   "packed": true,
+   "size-lite": 192484,
+   "src_sha-lite": "2be701db407e07a3",
+   "texture_px-lite": 512
   }
  }
 }
