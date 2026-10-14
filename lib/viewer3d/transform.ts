@@ -23,6 +23,8 @@ export interface TransformPlacement {
   hCm: number;
   elevCm?: number;
   yawDeg?: number;
+  /** Зеркало по ширине в осях фронта (Г-диван с оттоманкой не с той стороны) — как `scene_mesh.world_vertices(mirror)`. */
+  mirror?: boolean;
 }
 
 function ry(v: Vec3, deg: number): Vec3 {
@@ -52,7 +54,7 @@ export function worldVertices(source: Vec3[], p: TransformPlacement): Vec3[] {
   }
   const ext = { x: max.x - min.x, y: max.y - min.y, z: max.z - min.z };
   const s = {
-    x: p.wCm / Math.max(ext.x, 1e-6),
+    x: ((p.mirror ? -1 : 1) * p.wCm) / Math.max(ext.x, 1e-6),
     y: p.hCm / Math.max(ext.y, 1e-6),
     z: p.dCm / Math.max(ext.z, 1e-6),
   };

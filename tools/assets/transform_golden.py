@@ -49,6 +49,8 @@ CASES = [
     {"name": "шкаф на 270", "x": 30, "y": 300, "rot": 270, "w": 180, "d": 60, "h": 230, "yaw": 270, "elev": 0},
     {"name": "навесное с высотой", "x": 700, "y": 250, "rot": 0, "w": 60, "d": 35, "h": 70, "yaw": 0, "elev": 148},
     {"name": "нецелый угол 37", "x": 500, "y": 400, "rot": 37, "w": 100, "d": 60, "h": 42, "yaw": 45, "elev": 0},
+    {"name": "Г-диван зеркально (demo-03)", "x": 169, "y": 78, "rot": 0, "w": 175, "d": 155, "h": 92, "yaw": 90, "elev": 0,
+     "mirror": True},
 ]
 
 
@@ -64,7 +66,7 @@ def main() -> int:
             elev_cm=c["elev"],
         )
         place.item.h_cm = c["h"]
-        worlds, _Ra, _R, _hsrc, _aniso, _scale = SM.world_vertices([part], place, float(c["yaw"]))
+        worlds, _Ra, _R, _hsrc, _aniso, _scale = SM.world_vertices([part], place, float(c["yaw"]), mirror=bool(c.get("mirror")))
         verts = np.round(np.asarray(worlds[0], np.float64), 4).tolist()
         out.append({**c, "vertices": verts})
 

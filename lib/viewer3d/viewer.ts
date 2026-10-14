@@ -21,7 +21,7 @@ import { buildBathroom } from "@/lib/viewer3d/kits/bathroom";
 import { buildBed, buildRug, buildWardrobe } from "@/lib/viewer3d/kits/bedroom";
 import type { KitCtx } from "@/lib/viewer3d/kits/common";
 import { createMaterialCtx, disposeMaterialCtx, type MaterialCtx } from "@/lib/viewer3d/materials";
-import { MeshLibrary, disposeObject, placeMesh, stubBox } from "@/lib/viewer3d/meshes";
+import { MeshLibrary, chaiseSide, disposeObject, placeMesh, stubBox } from "@/lib/viewer3d/meshes";
 import { buildRoom, buildSurroundings } from "@/lib/viewer3d/rooms";
 import { canStand, nearestStandable, stepWithSlide, walkArea, type WalkArea } from "@/lib/viewer3d/walk";
 
@@ -382,7 +382,13 @@ export class FlatViewer {
         this.pendingUrls.add(spec.url);
         const source = await this.meshes.load(spec.url);
         if (this.disposed) return;
-        const real = placeMesh(source, { ...local, yawDeg: spec.yawDeg, tintRgb: spec.tintRgb });
+        // Г-ДИВАН: оттоманка — с той стороны, что выбрал расстановщик (владелец 14.10: «столик наезжает на диван»)
+        let mirror = false;
+        if (p.cornerLeft !== undefined) {
+          const side = chaiseSide(source, spec.yawDeg);
+          mirror = side !== null && side !== (p.cornerLeft ? "left" : "right");
+        }
+        const real = placeMesh(source, { ...local, yawDeg: spec.yawDeg, tintRgb: spec.tintRgb, mirror });
         const cur = this.placed.get(spec.slotId);
         if (cur && cur.group === outer) {
           outer.remove(stub);
@@ -1279,7 +1285,7 @@ function placeGroup(g: THREE.Object3D, p: Placement): void {
 function signatureOf(spec: ObjectSpec): string {
   const p = spec.placement;
   const geom = `${p.wCm}|${p.dCm}|${p.hCm}`;
-  if (spec.kind === "mesh") return `mesh|${spec.meshId}|${spec.yawDeg}|${(spec.tintRgb ?? []).join(",")}|${geom}`;
+  if (spec.kind === "mesh") return `mesh|${spec.meshId}|${spec.yawDeg}|${(spec.tintRgb ?? []).join(",")}|${geom}|${p.cornerLeft ?? "-"}`;
   // Наборы (кухня, санузел, кровать, шкаф, ковёр) собираются кодом от места: кухня выбирает сторону колонн по двери
   // (`farFromDoor`). Их сдвиг — пересборка, как до demo-01 (verify 14.10: колонны оставались на старой стороне).
   const at = `${p.x}|${p.y}|${p.rot}`;

@@ -71,6 +71,8 @@ export const placement = z.object({
   dCm: z.number().positive(),
   hCm: z.number().positive(),
   elevCm: z.number().nonnegative().default(0), // навесное: высота низа над полом
+  /** Г-диван: оттоманка слева (как `corner_left` расстановщика); нет поля — не Г-диван (demo-03 14.10). */
+  cornerLeft: z.boolean().optional(),
 });
 export type Placement = z.infer<typeof placement>;
 

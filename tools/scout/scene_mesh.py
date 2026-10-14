@@ -58,8 +58,29 @@ def item_height(it, name2h: dict | None = None) -> tuple[float, str]:
     return float(H_DEF.get(base_role(getattr(it, 'role', '')), 80)), 'estimated'
 
 
-def world_vertices(parts, place, front_yaw: float, name2h: dict | None = None):
-    """Вершины всех частей в мировых см + матрица поворота и происхождение высоты."""
+def chaise_side(parts, front_yaw: float):
+    """С какой стороны у модели Г-дивана оттоманка: 'left' (−x), 'right' (+x) или None (не видно).
+
+    Смотрим после выравнивания фронта на +Z: передняя полоса глубины на уровне сиденья — там стоит только оттоманка
+    (замер 14.10: у угловых диванов витрины спереди с одной стороны 0 точек, с другой ~2000; у прямых — поровну).
+    Та же мера — в браузере (`lib/viewer3d/meshes.ts:chaiseSide`)."""
+    v = np.vstack([np.asarray(m.vertices, np.float32) for m in parts]) @ ry(-front_yaw).T
+    lo, ext = v.min(axis=0), np.maximum(v.max(axis=0) - v.min(axis=0), 1e-6)
+    n = (v - lo) / ext
+    band = (n[:, 2] > 0.70) & (n[:, 1] < 0.6)
+    left, right = int(((n[:, 0] < 0.45) & band).sum()), int(((n[:, 0] > 0.55) & band).sum())
+    if right > 3 * max(left, 1) and right >= 50:
+        return 'right'
+    if left > 3 * max(right, 1) and left >= 50:
+        return 'left'
+    return None
+
+
+def world_vertices(parts, place, front_yaw: float, name2h: dict | None = None, mirror: bool = False):
+    """Вершины всех частей в мировых см + матрица поворота и происхождение высоты.
+
+    `mirror` — зеркало по ширине в осях фронта (Г-диван, у которого оттоманка нарисована не с той стороны, что выбрал
+    расстановщик, demo-03 14.10): отрицательный масштаб по X — им же переворачиваются нормали в `raster_mesh`."""
     it = place.item
     w, d = float(it.w_cm), float(it.d_cm)
     h, h_src = item_height(it, name2h)
@@ -71,6 +92,8 @@ def world_vertices(parts, place, front_yaw: float, name2h: dict | None = None):
     lo = allv.min(axis=0)
     sx, sy, sz = w / max(ext[0], 1e-6), h / max(ext[1], 1e-6), d / max(ext[2], 1e-6)
     aniso = max(sx, sy, sz) / max(min(sx, sy, sz), 1e-6)
+    if mirror:
+        sx = -sx
     R = ry(float(place.rot or 0))
     elev = float(getattr(place, 'elev_cm', 0) or 0)
     out = []
@@ -117,7 +140,7 @@ _LIGHT_POW = (1.0 / 2.4) if LIGHT_LINEAR else 1.0
 
 
 def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
-                name2h: dict | None = None, inst_buf=None, inst_id: int = 0) -> dict:
+                name2h: dict | None = None, inst_buf=None, inst_id: int = 0, mirror: bool = False) -> dict:
     """Меш в общий буфер кадра; возвращает диагностику (h_src, aniso).
 
     `inst_buf` (H×W int32) и `inst_id` — КАРТА ПРЕДМЕТОВ кадра (план photo-improve-from-mesh):
@@ -126,12 +149,14 @@ def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
     строит маски лишь для clay-заглушек. На этой карте стоит и «не трогать мебель» при правке
     кадра моделью, и проверка, что она её не тронула.
     """
-    worlds, Ra, R, h_src, aniso, scale = world_vertices(parts, place, front_yaw, name2h)
+    worlds, Ra, R, h_src, aniso, scale = world_vertices(parts, place, front_yaw, name2h, mirror)
     # НОРМАЛИ ПРИ НЕРАВНОМЕРНОМ РАСТЯЖЕНИИ (нашёл Codex 02.09). Меш тянется под габариты товара
     # РАЗНО по осям (sx, sy, sz), а нормали до сих пор только поворачивались. Для вектора нормали
     # нужен обратный масштаб: иначе и свет, и решение «грань смотрит от нас» считались по кривому
     # направлению — а на отбраковке задних граней это прямо пробивает дырки.
-    _inv = (1.0 / np.maximum(scale, 1e-6)).astype(np.float32)
+    # знак масштаба сохраняем: у зеркала (mirror) масштаб по X отрицательный, и `np.maximum(scale, 1e-6)` превращал его в
+    # 1e-6 — нормали уезжали вдоль X, отсев задних граней пробивал дыры в зеркальном диване (demo-03, 14.10)
+    _inv = (1.0 / np.where(np.abs(scale) < 1e-6, 1e-6, scale)).astype(np.float32)
 
     def _to_world_n(nrm):
         v = ((np.asarray(nrm, np.float32) @ Ra.T) * _inv) @ R.T

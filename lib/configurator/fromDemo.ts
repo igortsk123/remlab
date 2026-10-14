@@ -59,6 +59,8 @@ type DemoItem = {
   d?: number;
   h?: number;
   elev?: number;
+  corner?: boolean;
+  corner_left?: boolean;
   sku?: { name?: string; price?: number; url?: string; shop?: string; msid?: string; sid?: string; pack?: number; yaw?: number };
 };
 type DemoVariant = { id?: string; title?: string; style?: string; items?: DemoItem[] };
@@ -137,6 +139,8 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
       dCm: it.d as number,
       hCm: it.h as number,
       elevCm: Math.max(0, it.elev ?? 0),
+      // сторона оттоманки Г-дивана — как у расстановщика: движок зеркалит модель, нарисованную с другой стороны
+      ...(it.corner ? { cornerLeft: !!it.corner_left } : {}),
     },
   }));
 

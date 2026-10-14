@@ -23,6 +23,7 @@ describe("трансформ предмета: 3D совпадает с конв
         hCm: c.h,
         elevCm: c.elev,
         yawDeg: c.yaw,
+        mirror: Boolean((c as { mirror?: boolean }).mirror),
       });
       const want = c.vertices as number[][];
       expect(got.length).toBe(want.length);

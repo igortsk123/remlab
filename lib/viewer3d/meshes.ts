@@ -31,6 +31,47 @@ export interface MeshPlacement {
   hCm: number;
   elevCm?: number;
   yawDeg?: number;
+  /** Зеркало по ширине в осях фронта: Г-диван, у которого оттоманка нарисована не с той стороны (demo-03 14.10). */
+  mirror?: boolean;
+}
+
+/**
+ * С какой стороны у модели Г-дивана оттоманка: «left» (−x), «right» (+x) или null (не видно). После выравнивания фронта
+ * на +Z смотрим переднюю полосу глубины на уровне сиденья — там стоит только оттоманка. Та же мера — на сервере
+ * (`tools/scout/scene_mesh.py:chaise_side`), чтобы браузер и серверный кадр зеркалили одну и ту же модель.
+ */
+export function chaiseSide(source: THREE.Object3D, yawDeg = 0): "left" | "right" | null {
+  const holder = new THREE.Group();
+  const obj = source.clone(true);
+  obj.rotation.y = -((yawDeg * Math.PI) / 180);
+  holder.add(obj);
+  holder.updateMatrixWorld(true);
+  const pts: THREE.Vector3[] = [];
+  holder.traverse((o) => {
+    const m = o as THREE.Mesh;
+    const pos = m.isMesh ? (m.geometry.getAttribute("position") as THREE.BufferAttribute | undefined) : undefined;
+    if (!pos) return;
+    const step = Math.max(1, Math.floor(pos.count / 20000));
+    for (let i = 0; i < pos.count; i += step) pts.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld));
+  });
+  if (!pts.length) return null;
+  const bb = new THREE.Box3().setFromPoints(pts);
+  const sz = bb.getSize(new THREE.Vector3());
+  let left = 0;
+  let right = 0;
+  for (const v of pts) {
+    const nx = (v.x - bb.min.x) / Math.max(sz.x, 1e-6);
+    const ny = (v.y - bb.min.y) / Math.max(sz.y, 1e-6);
+    const nz = (v.z - bb.min.z) / Math.max(sz.z, 1e-6);
+    if (nz > 0.7 && ny < 0.6) {
+      if (nx < 0.45) left += 1;
+      else if (nx > 0.55) right += 1;
+    }
+  }
+  const min = Math.max(5, pts.length / 400);
+  if (right > 3 * Math.max(left, 1) && right >= min) return "right";
+  if (left > 3 * Math.max(right, 1) && left >= min) return "left";
+  return null;
 }
 
 export interface MeshLoaderOptions {
@@ -86,7 +127,7 @@ export function placeMesh(source: THREE.Object3D, p: MeshPlacement): THREE.Group
   const size = new THREE.Vector3();
   bb.getSize(size);
   wrap.scale.set(
-    (p.wCm * CM) / Math.max(size.x, 1e-4),
+    ((p.mirror ? -1 : 1) * (p.wCm * CM)) / Math.max(size.x, 1e-4),
     (p.hCm * CM) / Math.max(size.y, 1e-4),
     (p.dCm * CM) / Math.max(size.z, 1e-4),
   );

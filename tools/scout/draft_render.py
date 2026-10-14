@@ -273,6 +273,7 @@ def scene_from_request(payload: dict) -> tuple:
         item = Item(role=role, w_cm=max(float(it['w']), 1), d_cm=max(float(it['d']), 1),
                     h_cm=float(it.get('h') or 0) or None, name=it.get('name'),
                     corner=bool(it.get('corner')),
+                    corner_left=bool(it.get('corner_left')),
                     corner_section_cm=float(it.get('section') or 95))
         pl = Placement(role=role, x=float(it['x']), y=float(it['y']),
                        rot=float(it.get('rot') or 0), item=item,
@@ -2938,8 +2939,16 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict
             from planner.models import Placement as _P
             pc = _P(role=place.role, x=place.x, y=place.y, rot=float(place.rot or 0),
                     item=place.item, elev_cm=getattr(place, 'elev_cm', 0) or 0)
+            # Г-ДИВАН: ОТТОМАНКА — С ТОЙ СТОРОНЫ, ЧТО ВЫБРАЛ РАССТАНОВЩИК (demo-03, владелец 14.10: «столик наезжает
+            # на диван»). Модель нарисована со своей стороной; не совпала с `corner_left` — зеркалим, иначе оттоманка
+            # въезжает в столик, поставленный по Г-следу (`planner/geometry.py:footprint`).
+            mir = False
+            if place.item is not None and getattr(place.item, 'corner', False):
+                native = SM.chaise_side(parts, yaw)
+                want = 'left' if place.item.corner_left else 'right'
+                mir = native is not None and native != want
             SM.raster_mesh(canvas, zbuf, parts, pc, cam, W, H, yaw,
-                           inst_buf=inst, inst_id=len(used) + 1)
+                           inst_buf=inst, inst_id=len(used) + 1, mirror=mir)
             used.append(place.role)
         except Exception as e:  # noqa: BLE001 — один битый меш не валит кадр
             print(f'  scene3d: {place.role} пропущен ({str(e)[:60]})')

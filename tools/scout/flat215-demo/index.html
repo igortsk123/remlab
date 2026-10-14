@@ -1199,7 +1199,7 @@ function camIcon(c){
 // Дальние предметы не считаются: диван через всю комнату — это содержание кадра, а не помеха. Нижняя треть кадра
 // тоже не считается: спинка дивана или край стола внизу — обычный передний план интерьерного снимка, а пол
 // (ковёр) не помеха вовсе; кадр портит то, что закрывает саму комнату — середину и верх.
-const CAM_EYE=165, CAM_TGT=105, CAM_NEAR=120, CAM_BLOCK=0.12, CAM_SLIDE=150, CAM_STEP=10;
+const CAM_EYE=165, CAM_TGT=105, CAM_NEAR=120, CAM_BLOCK=0.04, CAM_SLIDE=150, CAM_STEP=10;
 const CAM_ROLE_H={'ковёр':1,'торшер':160,'стеллаж':180,'кашпо':60,'стул':90,'диван':85,'кресло':90,'столик':40,
   'тв-тумба':55,'стол обеденный':75,'комод':85,'пуф':45};
 function camItemH(it){const r=String(it.role||'').replace(/\s+\d+$/,'');
@@ -1302,7 +1302,7 @@ function cycleCams(){
 // значения продолжали бы жить: после перевода камер вплотную в угол сохранённые с прежним
 // отступом так и стояли бы в 10 см от стены. Меняем правило — меняем версию, и каждый
 // получает новые углы по умолчанию (владелец 01.09).
-const CAMS_VER='v3-fit';   // v3 (14.10): углы с отступом от близких предметов — старые сохранённые углы пересчитываются
+const CAMS_VER='v4-fit';   // v3 (14.10): углы с отступом от близких предметов — старые сохранённые углы пересчитываются
 function camsKey(){const v=allVariants()[cur]||{};return 'flat215-cams-'+CAMS_VER+'-'+(v.id||cur);}
 function loadCams(){
   try{const r=JSON.parse(localStorage.getItem(camsKey())||'null'); if(r&&r.length===2)return r;}catch(e){}
@@ -2031,7 +2031,7 @@ function payload(){
     // место и поворот — округлённые так же, как в номере состояния (demo-02, Codex 14.10): иначе две разные
     // отрисованные расстановки могли бы получить один номер
     items:items.map(it=>({role:it.role,x:Math.round(+it.x||0),y:Math.round(+it.y||0),rot:((Math.round(+it.rot||0)%360)+360)%360,
-    w:it.w,d:it.d,h:it.h,corner:it.corner,section:it.section,
+    w:it.w,d:it.d,h:it.h,corner:it.corner,corner_left:!!it.corner_left,section:it.section,
     // sid — через skuOf: вторая штука комплекта («стул 2») без него уезжала на сервер
     // пустой и возвращалась серой заглушкой рядом с честно отрисованным первым стулом
     sid:(skuOf(it)||{}).sid||null,
