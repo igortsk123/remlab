@@ -29,7 +29,9 @@ const item = z.object({
 // КАРТИНКА КОЛЛЕКЦИИ (план demo-03, карта сценариев 2.13): путь к НАШЕМУ кадру (папка кадров демо), без домена —
 // чужую картинку (пиксель-трекер) на карточку не поставить. Ставится при сохранении или один раз после (`PATCH`).
 export const SHOT_PATH_RE = /^\/test\/share\/frames\/[\w.-]{1,120}\.(?:jpg|jpeg|png|webp)$/;
-export const collectionShotIn = z.object({ shot: z.string().regex(SHOT_PATH_RE) });
+/** Номер состояния расстановки (demo-02): считает страница демо, `tools/scout/flat215-demo/index.html` блок STATEID. */
+export const STATE_ID_RE = /^s1-[0-9a-f]{32}$/;
+export const collectionShotIn = z.object({ shot: z.string().regex(SHOT_PATH_RE), stateId: z.string().regex(STATE_ID_RE).optional() });
 
 export const collectionIn = z.object({
   schemaVersion: z.literal(1).default(1),
@@ -43,6 +45,7 @@ export const collectionIn = z.object({
   decor: z.array(z.object({ role: z.string().max(40), sku })).max(30).default([]),
   cams: z.array(z.object({ x: z.number(), y: z.number(), rot: z.number(), fov: z.number().optional() })).max(4).default([]),
   shot: z.string().regex(SHOT_PATH_RE).optional(),
+  stateId: z.string().regex(STATE_ID_RE).optional(),
 });
 export type CollectionIn = z.infer<typeof collectionIn>;
 

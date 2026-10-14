@@ -41,6 +41,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   try { body = JSON.parse((await req.text()).slice(0, 1024)); } catch { /* разбор ниже вернёт 400 */ }
   const parsed = collectionShotIn.safeParse(body);
   if (!parsed.success) return NextResponse.json({ ok: false, error: "bad_request" }, { status: 400 });
-  const ok = await collectionRepo().setShot(id, parsed.data.shot);
+  const ok = await collectionRepo().setShot(id, parsed.data.shot, new Date(), parsed.data.stateId);
   return NextResponse.json({ ok }, { status: ok ? 200 : 409 });
 }

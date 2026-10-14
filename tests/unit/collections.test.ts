@@ -77,4 +77,13 @@ describe("коллекции", () => {
     const g = await GET(new Request(`http://x/api/collections/${id}`), { params: Promise.resolve({ id }) });
     expect(((await g.json()) as { collection: { shot: string } }).collection.shot).toBe("/test/share/frames/scene3d-2-C1.jpg");
   });
+  it("картинка коллекции — только кадр того же состояния расстановки (demo-02)", async () => {
+    const st = "s1-" + "a".repeat(32);
+    const { id } = (await (await POST(post({ ...body, stateId: st }))).json()) as { id: string };
+    const patch = (shot: string, stateId?: string) => PATCH(new Request(`http://x/api/collections/${id}`, { method: "PATCH",
+      headers: { "content-type": "application/json", "x-forwarded-for": "10.0.0.9" }, body: JSON.stringify({ shot, stateId }) }), { params: Promise.resolve({ id }) });
+    expect((await patch("/test/share/frames/x.jpg", "s1-" + "b".repeat(32))).status).toBe(409);   // чужое состояние
+    expect((await patch("/test/share/frames/x.jpg")).status).toBe(409);                           // без номера — нельзя
+    expect((await patch("/test/share/frames/x.jpg", st)).status).toBe(200);
+  });
 });

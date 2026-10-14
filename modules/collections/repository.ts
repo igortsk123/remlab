@@ -13,7 +13,7 @@ export interface CollectionRepo {
   create(partnerId: string, c: CollectionIn, now?: Date): Promise<StoredCollection>;
   get(id: string, now?: Date): Promise<StoredCollection | null>;
   /** Картинка снята после сохранения: ставится ОДИН раз и только в первые SHOT_WINDOW_MS (иначе — false). */
-  setShot(id: string, shot: string, now?: Date): Promise<boolean>;
+  setShot(id: string, shot: string, now?: Date, stateId?: string): Promise<boolean>;
 }
 
 // Окно, в которое можно прикрепить кадр: фоновый черновик снимается за минуту-две; дольше — снимок уже не «этот».
@@ -32,9 +32,10 @@ export class MemoryCollectionRepo implements CollectionRepo {
     const r = this.rows.get(id);
     return r && r.expiresAt > now ? r : null;
   }
-  async setShot(id: string, shot: string, now = new Date()) {
+  async setShot(id: string, shot: string, now = new Date(), stateId?: string) {
     const r = this.rows.get(id);
     if (!r || r.payload.shot || now.getTime() - r.createdAt.getTime() > SHOT_WINDOW_MS) return false;
+    if (r.payload.stateId && stateId !== r.payload.stateId) return false;   // кадр другого состояния — не картинка коллекции
     r.payload = { ...r.payload, shot };
     return true;
   }
@@ -54,12 +55,14 @@ class PgCollectionRepo implements CollectionRepo {
     if (!r || r.expiresAt <= now) return null;
     return { id: r.id, partnerId: r.partnerId, payload: r.payload as unknown as CollectionIn, createdAt: r.createdAt };
   }
-  async setShot(id: string, shot: string, now = new Date()) {
-    // одно условие в одном UPDATE: нет картинки И коллекция свежая — гонка двух запросов даёт одну запись
+  async setShot(id: string, shot: string, now = new Date(), stateId?: string) {
+    // одно условие в одном UPDATE: нет картинки И коллекция свежая И (номер состояния не задан у коллекции ИЛИ совпал) —
+    // гонка двух запросов даёт одну запись, кадр чужого состояния не прикрепляется (demo-02, Codex 14.10)
     const res = await db().update(collections)
       .set({ payload: sql`jsonb_set(${collections.payload}, '{shot}', to_jsonb(${shot}::text))` })
       .where(and(eq(collections.id, id), sql`(${collections.payload} -> 'shot') is null`,
-        gt(collections.createdAt, new Date(now.getTime() - SHOT_WINDOW_MS))))
+        gt(collections.createdAt, new Date(now.getTime() - SHOT_WINDOW_MS)),
+        sql`((${collections.payload} ->> 'stateId') is null or ${collections.payload} ->> 'stateId' = ${stateId ?? ""})`))
       .returning({ id: collections.id });
     return res.length > 0;
   }

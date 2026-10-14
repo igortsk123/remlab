@@ -114,6 +114,8 @@ def _group_items(items: list) -> list:
         if k not in by:
             by[k] = {'role': i.get('role'), 'name': i.get('name'), 'price': i.get('price'),
                      'url': i.get('url'), 'img': i.get('img'),
+                     # товар и модель — чтобы список кадра можно было сверить с витриной (demo-02, раньше терялись)
+                     'sid': i.get('sid'), 'msid': i.get('msid'),
                      'pack': i.get('pack') or 1, 'slots': 0}
         by[k]['slots'] += 1
     out = []
@@ -135,10 +137,19 @@ def _registry_add(payload: dict, out: dict) -> None:
         return          # фоновый кадр коллекции покупателя (demo-03, 2.13) — не вариант витрины, в общую ленту не идёт
     try:
         path = os.path.join(os.path.dirname(DR.FRAMES_DIR), 'shots.json')
+        import uuid
+        sid = str(payload.get('stateId') or '')
         rec = {'style': payload.get('style') or '', 'variant': payload.get('variant') or '',
                'quality': out.get('quality') or payload.get('quality') or 'draft',
                'model': out.get('model') or '', 'sources': out.get('sources') or '',
                'backend': out.get('backend') or '',
+               # СОСТОЯНИЕ И КАМЕРЫ КАДРА (demo-02, Codex 14.10): номер состояния присылает страница (сервер его не
+               # считает), позы камер — полностью: «C1» без позы ничего не говорит, если камеру потом переставили.
+               # id записи — свой, а не время: два кадра в одну миллисекунду стирали друг друга.
+               'id': uuid.uuid4().hex[:16],
+               'stateId': sid if len(sid) <= 64 else '',
+               'cams': [{k: c.get(k) for k in ('name', 'x', 'y', 'rot', 'fov')} for c in (payload.get('cams') or [])[:4]
+                        if isinstance(c, dict)],
                'ts': int(time.time() * 1000),
                'shots': [{'camera': sh.get('camera'), 'url': sh.get('url'),
                           'thumb': DR.thumb_name(sh['url']) if sh.get('url') else None}
@@ -151,7 +162,7 @@ def _registry_add(payload: dict, out: dict) -> None:
                 data = json.load(open(path, encoding='utf-8'))
             except Exception:  # noqa: BLE001
                 data = []
-            data = [x for x in data if x.get('ts') != rec['ts']]
+            data = [x for x in data if x.get('id') != rec['id']]
             data.append(rec)
             data = registry_trim(data)             # реестр не растёт бесконечно, свежий кадр каждого стиля не вытесняется
             tmp = path + '.tmp'

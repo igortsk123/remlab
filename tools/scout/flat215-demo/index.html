@@ -2027,7 +2027,9 @@ function payload(){
   return {room:D.room, style:v.style||'', variant:v.title||'', decor:v.decor||[],
     cams:(cams||loadCams()).map(c=>({name:c.name,x:Math.round(c.x),y:Math.round(c.y),
       rot:Math.round(c.rot||0),fov:c.fov||72})),
-    items:items.map(it=>({role:it.role,x:it.x,y:it.y,rot:it.rot,
+    // место и поворот — округлённые так же, как в номере состояния (demo-02, Codex 14.10): иначе две разные
+    // отрисованные расстановки могли бы получить один номер
+    items:items.map(it=>({role:it.role,x:Math.round(+it.x||0),y:Math.round(+it.y||0),rot:((Math.round(+it.rot||0)%360)+360)%360,
     w:it.w,d:it.d,h:it.h,corner:it.corner,section:it.section,
     // sid — через skuOf: вторая штука комплекта («стул 2») без него уезжала на сервер
     // пустой и возвращалась серой заглушкой рядом с честно отрисованным первым стулом
@@ -2062,6 +2064,7 @@ async function loadServerShots(){
         products:(rec.items||[]).map(i=>
           ({name:i.name,price:i.price,url:i.url,img:i.img,role:i.role,qty:1})),
         variant:rec.variant||'',style:rec.style||'',vid:'',revision:'',ts:rec.ts,
+        stateId:rec.stateId||'',cams:rec.cams||null,engine:rec.backend||'',
         model:rec.model||'',sources:rec.sources||'',srv:true}));
     });
     return out;
@@ -2079,11 +2082,15 @@ function loadShots(){
   list.forEach(v=>{byTitle[v.title||'']=v.id; if(v.style)byStyle[v.style]=v.id;});
   loadServerShots().then(srv=>{
     let skipped=0;
+    // СНЯТОЕ ВО ВКЛАДКЕ НЕ ТЕРЯЕМ (разбор Codex 14.10): реестр приходит позже, и присваивание `shots=srv` стирало кадр,
+    // снятый, пока он грузился. Свои кадры, которых ещё нет в реестре, добавляем к нему по адресу картинки.
+    const mine=shots.filter(x=>!x.srv);
     shots=srv.filter(s=>{
       const vid=byStyle[s.style||'']||byTitle[s.variant||''];
       if(!vid){skipped++; return false;}   // кадр чужого стиля не сваливаем в первый вариант
       s.vid=vid; s.pick=false; s.orphan=false; return true;
     });
+    const have=new Set(shots.map(x=>x.url)); mine.forEach(x=>{if(!have.has(x.url))shots.push(x);});
     Object.keys(COLL_SHOTS).forEach(cid=>attachCollShot(cid,COLL_SHOTS[cid]));
     drawColl(true); showSwap(); drawFeed(); drawPhotos&&drawPhotos();
     openWantedShot();   // пришли по ссылке на вариант — показываем его фотографию
@@ -2313,7 +2320,8 @@ function drawColl(force){
     pickVariant(+b.dataset.shot); makePhoto('draft');});
   box.querySelectorAll('[data-up]').forEach(b=>b.onclick=()=>{
     const sh=bestShot(allVariants()[+b.dataset.up]);
-    if(sh)makePhoto('realistic', srcIdOf(sh), sh.batch||'');});
+    // готовый лист кадра — только если он того же состояния (Codex 14.10): иначе сервер собрал бы фото по старой расстановке
+    if(sh)makePhoto('realistic', (!sh.stateId||sh.stateId===curStateId())?srcIdOf(sh):'', sh.batch||'');});
   // ОТМЕТКА СТАВИТСЯ НА ВАРИАНТ, А НЕ НА ОТДЕЛЬНЫЙ КАДР. Иначе так: человек добавил карточку
   // в подборку, потом снял по этому же стилю новое фото — превью сменилось на неотмеченное,
   // и карточка молча «выпала» из подборки.
@@ -2447,6 +2455,12 @@ async function makePhoto(quality, srcId, replaceBatch){
   if(busy){shotOpen('<div class="wait">Один кадр уже считается — дождитесь его.</div>','');return;}
   busy=true; warmUp();
   const t0=Date.now(), rev=revision();
+  // ЗАПРОС КАДРА ЗАМОРАЖИВАЕТСЯ ДО ОТПРАВКИ (demo-02, разбор Codex 14.10): вариант, товары, номер состояния и позы камер
+  // берутся сейчас, а не из ответа — за 20 секунд съёмки человек мог заменить диван или переключить вариант, и кадр
+  // приклеился бы к чужой расстановке.
+  const req=Object.assign(payload(),{quality:quality});
+  const reqV=allVariants()[cur]||{}, reqProducts=productsOf(items), reqState=curStateId();
+  req.stateId=reqState;
   // честная оценка: генерация листа в 2048 идёт минуты, а не секунды (замер 01.09)
   const est=quality==='realistic'?'обычно 2–4 минуты':'обычно 20–25 секунд';
   shotOpen('<div class="wait"><div class="spin"></div>'+
@@ -2466,8 +2480,7 @@ async function makePhoto(quality, srcId, replaceBatch){
     // В ФОН — ОБА КАЧЕСТВА (b2b-08 п.3): занятый сервер ставит кадр в очередь и говорит место и время, а не отказывает
     const bg = true;
     const r=await fetch('/api/render',{method:'POST',headers:{'content-type':'application/json'},
-      body:JSON.stringify(Object.assign(payload(),{quality:quality},srcId?{src_id:srcId}:{},
-        bg?{async:1}:{}))});
+      body:JSON.stringify(Object.assign(req,srcId?{src_id:srcId}:{},bg?{async:1}:{}))});
     let j=await r.json().catch(()=>({error:'сервер кадров недоступен (HTTP '+r.status+')',code:'lost'}));
     // ЧЕСТНЫЙ ОТКАЗ СРАЗУ (demo-03, 14.10): без денег у сервиса картинок сервер отвечает за доли секунды кодом
     // `no_credits`/`unavailable` — раньше страница 5 минут крутила спиннер и молчала.
@@ -2512,15 +2525,16 @@ async function makePhoto(quality, srcId, replaceBatch){
     // ВСЁ, ЧТО НУЖНО КАДРУ, КЛАДЁМ СРАЗУ (27.08): привязку к варианту (`vid`), ссылку на исходники
     // и раскладку времени. Без `vid` свежий снимок не проходил фильтр ленты и «пропадал» до
     // перезагрузки страницы — ровно то, что видел владелец.
-    const vv=allVariants()[cur]||{};
+    const vv=reqV;
     const batch='b'+Date.now();          // оба ракурса одной съёмки — одна «пачка» (27.08)
     // Черновик НЕ УДАЛЯЕМ, а помечаем служебным: на экране его нет, но он остаётся для сверки
     // (владелец 01.09: «для пользователя удаляешь, но сохраняешь»).
     if(replaceBatch){ shots.forEach(x=>{if(x.batch===replaceBatch)x.svc=true;}); saveShots(); }
     j.shots.forEach(sh=>addShot({url:sh.url,camera:sh.camera||'C1',quality:quality,batch:batch,
-      anchors:sh.anchors||[],products:productsOf(items),
+      anchors:sh.anchors||[],products:reqProducts,
       variant:vv.title||'',style:vv.style||'',vid:vv.id||('v'+cur),
-      revision:rev,ts:Date.now(),model:j.model||'',sources:sh.sources||j.sources||'',
+      revision:rev,stateId:reqState,cams:req.cams,engine:j.backend||'',
+      ts:Date.now(),model:j.model||'',sources:sh.sources||j.sources||'',
       timing:j.timing||null}));
     // ПО СЪЁМКЕ КОНСТРУКТОР ЗАКРЫВАЕТСЯ, КАДР ВСТАЁТ В КОЛЛЕКЦИЮ (план demo-collection-flow)
     if(document.getElementById('cons').classList.contains('on'))closeCons();
@@ -2658,7 +2672,8 @@ function wireShotList(){
   // «Улучшить фото» — тот же вызов, что и с карточки коллекции: исходником идёт этот черновик,
   // и новая фотография заменяет его в той же съёмке (`batch`), а не плодит третий кадр.
   const im=document.getElementById('shImprove');
-  if(im)im.onclick=()=>{const s=shots[shotAt]; if(s)makePhoto('realistic',srcIdOf(s),s.batch||'');};
+  if(im)im.onclick=()=>{const s=shots[shotAt];
+    if(s)makePhoto('realistic',(!s.stateId||s.stateId===curStateId())?srcIdOf(s):'',s.batch||'');};
 }
 // Перерисовка списка на месте — вызывается после замены товара, пока окно кадра открыто.
 function refreshShotList(){
@@ -3028,7 +3043,7 @@ stage.addEventListener('pointerup',e=>{
   if(touchTimer){clearTimeout(touchTimer);touchTimer=null;
     if(sel&&e.pointerType==='touch')showRotOvl();}   // короткий тап — стрелки поворота
   else if(sel&&drag&&!drag.moved&&!rotDrag)showRotOvl();  // и на компе: клик без движения (владелец 31.08)
-  if((drag&&drag.moved)||rotDrag)reportAct('item_move');
+  if((drag&&drag.moved)||rotDrag){reportAct('item_move'); if(typeof histPush==='function')histPush();}
   drag=null;rotDrag=null;camDrag=null;touchStart=null;showTip(null);});  // предмет только двигаем; товар — по значку
 window.addEventListener('pointercancel',()=>{clearTimeout(touchTimer);touchTimer=null;drag=null;rotDrag=null;touchStart=null;showTip(null);});
 function loc(e){const r=stage.getBoundingClientRect();return{x:(e.clientX-r.left-PAD)/S,y:(e.clientY-r.top-PAD)/S};}
@@ -3333,6 +3348,74 @@ function routeWidth(skip){                   // ширина коридора о
     if(reach){best=r;break;}}
   return best;}
 window.addEventListener('resize',()=>{if(D)draw();});
+</script>
+<script>
+/* ——— НОМЕР СОСТОЯНИЯ И ИСТОРИЯ РАССТАНОВКИ (план demo-02 п.1, разбор Codex 14.10). Кадр, список и сумма под ним должны
+   относиться к ОДНОМУ состоянию расстановки; «назад/вперёд» листают состояния, а не ракурсы. Номер считает ТОЛЬКО страница
+   (сервер хранит присланный), функции — в блоке STATEID: тест `tests/unit/demo-state.test.ts` берёт их прямо отсюда.
+   Что входит: комната (размер, проёмы), предметы (роль без номера, модель, товар, место до 1 см, поворот до 1°, размеры,
+   подъём, угол/секция/подвес), декор (роль, товар). Не входит: камеры (у кадра своя поза) и версия движка (её кадр хранит
+   рядом — иначе каждая ночная пересборка «устаревала» бы все кадры). Два одинаковых стула, поменянные местами, — то же
+   состояние; разные — другое. */
+// STATEID START
+function stateCanon(items, decor, room){
+  const r=v=>{const n=Math.round(+v||0); return n===0?0:n;};
+  const rot=v=>{const n=((Math.round(+v||0)%360)+360)%360; return n===0?0:n;};
+  const base=s=>String(s||'').replace(/\s+\d+$/,'');
+  const ent=(items||[]).map(it=>{const k=it.sku||{};
+    return JSON.stringify([base(it.role),k.msid||k.sid||'',k.sid||'',r(it.x),r(it.y),rot(it.rot),r(it.w),r(it.d),r(it.h),r(it.elev),
+      it.corner?1:0,r(it.section),k.hung?1:0]);})
+    .concat((decor||[]).map(x=>JSON.stringify(['декор',base(x.role),(x.sku||{}).sid||''])));
+  ent.sort();
+  const rm=room||{}, op=(rm.openings||[]).map(o=>JSON.stringify([o.kind||'',o.wall||'',r(o.offset_cm),r(o.width_cm),r(o.sill_cm),r(o.height_cm)])).sort();
+  return JSON.stringify(['v1',[r(rm.w),r(rm.d)],op,ent]);
+}
+function fnv64(bytes, seed){            // FNV-1a 64 бита по байтам UTF-8 (BigInt, маска 64)
+  let h=BigInt.asUintN(64, seed);
+  for(const b of bytes){h^=BigInt(b); h=BigInt.asUintN(64, h*0x100000001b3n);}
+  return h.toString(16).padStart(16,'0');
+}
+function stateIdOf(items, decor, room){
+  const bytes=new TextEncoder().encode(stateCanon(items, decor, room));
+  // 128 бит = два FNV-64 с разными началами: номер — ключ кэша и связи «кадр ↔ список», не криптография (Codex 14.10)
+  return 's1-'+fnv64(bytes, 0xcbf29ce484222325n)+fnv64(bytes, 0x84222325cbf29ce4n);
+}
+// STATEID END
+function curStateId(){ return stateIdOf(items, variantDecor(allVariants()[cur]||{}), D&&D.room); }
+
+// ИСТОРИЯ — НА ВАРИАНТ, В ПАМЯТИ СТРАНИЦЫ: снимок после каждой правки (замена, отпускание перетаскивания, поворот), до 30
+// шагов; новая правка после «назад» стирает «вперёд»; одинаковые соседние состояния не дублируются (Codex 14.10).
+const HIST={}, HIST_MAX=30;
+function histOf(){const vid=curVid(); return HIST[vid]||(HIST[vid]={stack:[],at:-1});}
+function histSnap(){const v=allVariants()[cur]||{};
+  return {items:clone(items), decor:clone((v.decor||[]).map(x=>x.sku||null)), stateId:curStateId(), ts:Date.now()};}
+function histPush(){
+  if(!D||!items)return;
+  const h=histOf(), s=histSnap();
+  if(h.at>=0&&h.stack[h.at].stateId===s.stateId)return;
+  h.stack=h.stack.slice(0,h.at+1); h.stack.push(s);
+  if(h.stack.length>HIST_MAX)h.stack.shift();
+  h.at=h.stack.length-1;
+  document.dispatchEvent(new CustomEvent('remlab:hist',{detail:{at:h.at,n:h.stack.length,stateId:s.stateId}}));
+}
+function histGo(step){
+  const h=histOf(), to=h.at+step;
+  if(to<0||to>=h.stack.length)return false;
+  h.at=to; const s=h.stack[to], v=allVariants()[cur]||{};
+  items=clone(s.items); sel=null;
+  (v.decor||[]).forEach((x,i)=>{if(s.decor[i]!==undefined)x.sku=clone(s.decor[i]);});
+  draw(); try{basket(); showSwap(); refreshShotList();}catch(e){}
+  document.dispatchEvent(new CustomEvent('remlab:hist',{detail:{at:h.at,n:h.stack.length,stateId:s.stateId}}));
+  return true;
+}
+function histBack(){return histGo(-1);}
+function histFwd(){return histGo(1);}
+// точки записи: замена товара, поворот кнопками, отпускание перетаскивания (pointerup — в обработчике плана)
+(function(){
+  const _try=tryOn; tryOn=function(){const r=_try.apply(this,arguments); histPush(); return r;};
+  const _rot=rotate90; rotate90=function(){const r=_rot.apply(this,arguments); histPush(); return r;};
+  const _load=load; load=function(){const r=_load.apply(this,arguments); if(histOf().at<0)histPush(); return r;};
+})();
 </script>
 <!-- ===== ЖИВАЯ СЦЕНА (план demo-01): правки видны сразу — тот же движок, что /flat ===== -->
 <style>
@@ -3692,8 +3775,8 @@ async function liveShow(){
   // ЧЕРНОВОЙ КАДР КОЛЛЕКЦИИ В ФОНЕ (demo-03, 2.13): кадра этой расстановки ещё нет — снимаем бесплатный черновик
   // (наша 3D-сцена, без модели) и один раз прикрепляем к коллекции. `no_registry` — кадр не уходит в общую ленту
   // стиля: это чужая расстановка, а не вариант витрины. Не вышло — карточка просто остаётся без фото.
-  function snapLater(cid){
-    var body=Object.assign(payload(),{quality:'draft',async:1,no_registry:1}), t0=Date.now();
+  function snapLater(cid, stateId){
+    var body=Object.assign(payload(),{quality:'draft',async:1,no_registry:1,stateId:stateId}), t0=Date.now();
     fetch('/api/render',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})
       .then(function(r){return r.json();}).then(function(j){
         if(!j||!j.job)return;
@@ -3705,7 +3788,7 @@ async function liveShow(){
               var path=new URL(u,location.origin).pathname;
               attachCollShot(cid,u);
               fetch('/api/collections/'+cid,{method:'PATCH',headers:{'content-type':'application/json'},
-                body:JSON.stringify({shot:path})}).catch(function(){});
+                body:JSON.stringify({shot:path,stateId:stateId})}).catch(function(){});
             }).catch(poll);},3000);})();
       }).catch(function(){});
   }
@@ -3739,7 +3822,7 @@ async function liveShow(){
         rot:num(i.rot),w:num(i.w),d:num(i.d)}; if(i.h)o.h=num(i.h); if(i.elev)o.elev=num(i.elev); var s=pick(i.sku); if(s)o.sku=s; return o;}),
       decor:(variantDecor(v)||[]).filter(function(x){return x.sku&&x.sku.sid;}).slice(0,30).map(function(x){return {role:String(x.role).slice(0,40),sku:pick(x.sku)};}),
       cams:(Array.isArray(cams)?cams:[]).slice(0,4).map(function(c){return {x:num(c.x),y:num(c.y),rot:num(c.rot||c.a||0)};}),
-      shot:currentShotPath()||undefined};
+      shot:currentShotPath()||undefined, stateId:curStateId()};
   }
   function save(){
     var btn=document.getElementById('collSave'); if(btn){btn.disabled=true;}
@@ -3752,7 +3835,7 @@ async function liveShow(){
         var url=location.origin+'/demo/'+(q.length?'?'+q.join('&'):'')+'#c='+x.j.id;
         try{navigator.clipboard.writeText(url).catch(function(){});}catch(_){}
         remember(x.j.id,'',true); if(window.__embedEvent)window.__embedEvent('save');
-        if(snap.shot)attachCollShot(x.j.id,location.origin+snap.shot); else snapLater(x.j.id);
+        if(snap.shot)attachCollShot(x.j.id,location.origin+snap.shot); else snapLater(x.j.id, snap.stateId);
         return fetchOne(x.j.id).then(function(v){if(v){MINE.unshift(v); if(v.shot)attachCollShot(v.cid,location.origin+v.shot);remember(x.j.id,v.style,true);drawColl(true);}
           shotOpen('<div class="wait">'+(EN()?'Collection saved. The link is copied — send it to anyone:':'Коллекция сохранена. Ссылка скопирована — её можно отправить кому угодно:')+
             '<br><input readonly value="'+url+'" style="width:100%;margin-top:10px;font-size:14px" onclick="this.select()"></div>','');});
