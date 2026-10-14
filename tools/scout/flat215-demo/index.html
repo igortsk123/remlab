@@ -3673,7 +3673,9 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
     fetch('/api/collections',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(snapshot())})
       .then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});}).then(function(x){
         if(!x.ok||!x.j.ok)throw new Error(x.j&&x.j.message||'');
-        var url=location.origin+'/demo/'+(window.__LANG==='en'?'?lang=en':'')+'#c='+x.j.id;
+        // пришли по ссылке менеджера — она едет и в ссылку на коллекцию: тот, кому переслали, остаётся у того же менеджера (b2b-05, verify 14.10)
+        var q=[]; if(window.__LANG==='en')q.push('lang=en'); if(window.__sendId)q.push('s='+window.__sendId);
+        var url=location.origin+'/demo/'+(q.length?'?'+q.join('&'):'')+'#c='+x.j.id;
         try{navigator.clipboard.writeText(url).catch(function(){});}catch(_){}
         remember(x.j.id,'',true); if(window.__embedEvent)window.__embedEvent('save');
         return fetchOne(x.j.id).then(function(v){if(v){MINE.unshift(v);remember(x.j.id,v.style,true);drawColl(true);}

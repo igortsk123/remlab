@@ -52,7 +52,7 @@ with cand as (
          coalesce(e.payload->'model'->>'functional_subtype', p.cat_role) as sub,
          s.style, p.cat_role, coalesce(p.name,'') as name, coalesce(p.shop,'') as shop,
          coalesce(p.image_url_hd, p.image_url) as img, p.url, coalesce(p.price_shown_rub, p.price_rub) as price,
-         p.w_cm, p.d_cm, p.h_cm, coalesce(e.quality, 0) as q,
+         coalesce(p.w_cm, p.dia_cm) as w_cm, coalesce(p.d_cm, p.dia_cm) as d_cm, p.h_cm, coalesce(e.quality, 0) as q,
          coalesce((ps.scores->>s.style)::numeric, 0) as st_score, coalesce(ps.universal, false) as uni
     from products p
     join product_enrichment e using (shop_mid, external_id)
@@ -60,7 +60,8 @@ with cand as (
     cross join lateral (select unnest(array[{_lit(STYLES)}]) as style) s
    where p.cat_role in ({_lit(ROLES)})
      and p.mesh_status = 'ready' and p.in_stock and p.status = 'active'
-     and p.w_cm is not null and p.d_cm is not null and p.h_cm is not null
+     -- круглое (столик, пуф, кашпо) — диаметр за обе стороны: общая норма размеров (verify 14.10, conv-03)
+     and coalesce(p.w_cm, p.dia_cm) is not null and coalesce(p.d_cm, p.dia_cm) is not null and p.h_cm is not null
      and coalesce(p.image_url_hd, p.image_url) is not null and coalesce(p.photo_alive, true)  -- conv-05
      -- СТИЛЬ — БАЛЛ 0–10 ≥ порога (conv-03, ADR-0245/0271; rules/demo-swap.json), а не ступень обогащения;
      -- «универсальный» без исключения — тоже по баллу, но ниже в порядке
