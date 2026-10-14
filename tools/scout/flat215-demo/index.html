@@ -1550,7 +1550,8 @@ function basket(){                    // СПИСОК ТОВАРОВ КОМНА�
 let FLAT=null;
 // ЯЗЫК ПОКАЗА (b2b-11): `?lang=` → выбор человека → язык браузера. Меняет ТОЛЬКО язык (ADR-0254): рынок,
 // валюта и сертификат — из карточки застройщика. Перевод интерфейса — слой `I18N` в конце страницы.
-const LANG=(()=>{const m=location.search.match(/[?&]lang=(ru|en)(?:&|$)/);if(m)return m[1];
+const LANG=(()=>{if(window.__EMBED&&(window.__EMBED.lang==='en'||window.__EMBED.lang==='ru'))return window.__EMBED.lang; // встроено: язык задаёт сайт застройщика
+  const m=location.search.match(/[?&]lang=(ru|en)(?:&|$)/);if(m)return m[1];
   try{const s=localStorage.getItem('remlab-lang');if(s==='ru'||s==='en')return s;}catch(e){}
   return /^en/i.test(navigator.language||'')?'en':'ru';})();
 window.__LANG=LANG;
