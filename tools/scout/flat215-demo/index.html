@@ -3702,6 +3702,8 @@ function vwMount(s){
     const cs=shots[shotAt];
     if(m!=='walk'&&cs&&cs.batch&&!liveStale(cs)){const sib=shots.findIndex(x=>x.batch===cs.batch&&(x.camera||'C1')===vwCam());
       if(sib>=0&&sib!==shotAt){viewShot(sib);return;}}
+    // запасной путь (живой сцены нет): ракурс — серверный эскиз ЭТОЙ расстановки, а не чужое фото из старой съёмки
+    if(LIVE.ok===false&&m!=='walk'&&cs&&liveStale(cs)){vwSketch(); return;}
     liveShow();
   });
   const hb=document.getElementById('vhBack'), hf=document.getElementById('vhFwd');
@@ -3759,7 +3761,9 @@ async function vwSketch(){
       r.shots.forEach(sh=>addShot({url:sh.url,camera:sh.camera||'C1',quality:'draft',batch:batch,anchors:[],products:prods,
         variant:v.title||'',style:v.style||'',vid:v.id||('v'+cur),revision:revision(),stateId:req.stateId,cams:req.cams,
         engine:r.backend||'',sketch:true,ts:Date.now()}));
-      if(shot.classList.contains('on')&&req.stateId===curStateId())viewShot(shots.length-r.shots.length);}
+      // показываем выбранный ракурс этой съёмки, а не всегда первый
+      if(shot.classList.contains('on')&&req.stateId===curStateId()){const n0=shots.length-r.shots.length;
+        const k=shots.slice(n0).findIndex(x=>(x.camera||'C1')===vwCam()); viewShot(n0+Math.max(0,k));}}
   }catch(e){}
   SK.busy=false; vwLoad(false);
   if(SK.again)vwSketchSoon();
@@ -3804,6 +3808,9 @@ function poseStale(s){
 }
 function liveStale(s){
   if(poseStale(s))return true;
+  // КАДР БЕЗ НОМЕРА СОСТОЯНИЯ — НЕ ЭТА РАССТАНОВКА (прогон d8 14.10, «ж»): старое фото нейросети по правилу ревизии
+  // считалось актуальным, и запасной «Ракурс 2» показывал его вторую картинку при новом списке. Такие кадры — только история.
+  if(s&&s.url&&items.length&&!s.stateId)return true;
   // кадр с номером состояния (demo-02, ADR-0289) устарел, если номер не совпадает с текущей расстановкой — это и есть
   // «фото ≠ список»; у старых кадров без номера — прежнее правило по ревизии
   if(s&&s.stateId&&items.length)return s.stateId!==curStateId();
