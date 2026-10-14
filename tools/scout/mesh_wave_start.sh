@@ -36,6 +36,12 @@ if ! flock -n "$LOCK" true 2>/dev/null; then
   exit 75
 fi
 
+# 1a. ОДИН СТАРТ ЗА РАЗ (conv-11, Codex 13.10): проверка выше берёт замок конвейера на миг — два старта (крон
+#     автозапуска и ручной) прошли бы подготовку параллельно и собрали разные снимки. Свой замок держим всю
+#     процедуру; дочернему конвейеру дескриптор не передаём.
+exec 9>"$HOME/scout-scenes/.mesh-wave-start.lock"
+flock -n 9 || { say "уже идёт другой старт волны — выхожу"; exit 75; }
+
 # 1b. Флаг остановки старого конвейера снимаем ДО запуска нового: `batch_show` проверяет его в
 #     начале каждого круга и с ним выйдет сразу (грабля 05.09: старый сняли по PID, флаг остался).
 rm -f "$DRAINING"
@@ -63,6 +69,10 @@ for _ in $(seq 1 40); do
   if "$PY" -c "import sys; sys.path.insert(0,'$HERE/salad'); import sink_health as S; r=S.check(); print(r.get('why') or 'ok:'+str(r.get('dir_gb'))+'/'+str(r.get('free_gb'))); sys.exit(0 if r.get('ok') else 1)"; then break; fi
   say "приёмник красный — жду минуту"; sleep 60
 done
+# FAIL-CLOSED (conv-11): после 40 минут красного приёмника волну НЕ запускаем — ноды платились бы вхолостую
+if ! "$PY" -c "import sys; sys.path.insert(0,'$HERE/salad'); import sink_health as S; sys.exit(0 if S.check().get('ok') else 1)"; then
+  say "приёмник так и не позеленел — волну не запускаю"; exit 1
+fi
 
 # 4. Решения владельца — забрать до сборки (тик моста; если модуля ещё нет — пропуск).
 if [ -f "$HERE/mesh_audit_sync.py" ]; then
@@ -79,6 +89,8 @@ PROF="${MESH_QUEUE_PROFILE:-}"
 [ -n "$PROF" ] && say "профиль очереди: $PROF"
 MESH_MAX_JOBS="${MESH_MAX_JOBS:-14000}" "$PY" "$HERE/mesh_priority.py" ${PROF:+--profile "$PROF"} --build-queue "$SNAP"
 N=$("$PY" -c "import json,sys; print(len(json.load(open(sys.argv[1]))['jobs']))" "$SNAP")
+# мало заданий — волну не начинаем (порог задаёт автозапуск из разрешения владельца, `wave_guard.py`)
+if [ "$N" -lt "${MESH_MIN_JOBS:-1}" ]; then say "в снимке $N заданий — меньше порога ${MESH_MIN_JOBS:-1}, волну не запускаю"; exit 3; fi
 
 # 6. Запуск — с ЯВНЫМ снимком; курсор нового снимка начинается с нуля в своём файле.
 CMD="set -a; . $HOME/scout-scenes/salad.env; set +a; MESH_SAMPLE=$SNAP MESH_MAX_JOBS=${MESH_MAX_JOBS:-14000} MESH_POST_EVERY_S=900 nohup $PY -u $HERE/salad/batch_show.py --batch $BATCH >> $LOG 2>&1 &"
@@ -86,7 +98,7 @@ say "снимок готов: $N заданий. Команда запуска:"
 echo "  $CMD"
 if [ "${1:-}" = "--launch" ]; then
   say "запускаю конвейер"
-  bash -c "$CMD"
+  bash -c "exec 9>&-; $CMD"
   sleep 3
   pgrep -f "[b]atch_show.py --batch" >/dev/null && say "конвейер запущен, лог: $LOG" || { say "конвейер НЕ поднялся — смотри $LOG"; exit 1; }
 fi

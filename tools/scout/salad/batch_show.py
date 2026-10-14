@@ -194,6 +194,10 @@ def halt_reason() -> str:
     return str(d.get('why') or 'без причины')
 
 
+NO_CREDITS_FILE = os.path.expanduser('~/scout-scenes/mesh-no-credits.json')
+_NO_CREDITS = False   # в этом процессе Salad ответил no_credits_available (conv-11)
+
+
 def _no_credits_alert() -> None:
     """Одно сообщение в час: пул не поднимется, пока владелец не пополнит баланс."""
     import sink_health as SH
@@ -257,6 +261,8 @@ def ensure_group_started():
             # догадка «похоже, кончился баланс». Теперь — прямым текстом и в телеграм (раз в час),
             # потому что без пополнения ничего не поднимется, а конвейер молча ждал бы вечно.
             print(f'группа {grp}: НЕТ КРЕДИТОВ на Salad (no_credits_available) — нужно пополнение', flush=True)
+            global _NO_CREDITS
+            _NO_CREDITS = True
             _no_credits_alert()
         else:
             print(f'группа {grp}: start → HTTP {e.code} {body[:80]}', flush=True)
@@ -757,6 +763,13 @@ def _main():
             st = group_status()
             if st == 'stopped' and not ensure_group_started():
                 print('группа остановлена и не стартует — см. причину выше (кредиты / запрет / окно)', flush=True)
+                if _NO_CREDITS:
+                    # НЕТ ДЕНЕГ — ВЫХОДИМ (conv-11, разбор Codex 13.10): раньше конвейер повторял /start каждые
+                    # 3 минуты вечно. Отметку читает сторож автозапуска (`wave_guard.py`): следующая попытка —
+                    # не раньше чем через 2 часа. Группы гасит finale() с проверкой stopped.
+                    json.dump({'at': time.time(), 'why': 'no_credits_available'}, open(NO_CREDITS_FILE, 'w'))
+                    print('НЕТ ДЕНЕГ НА SALAD — конвейер завершается; автозапуск попробует снова через 2 ч', flush=True)
+                    return
             elif 'ПРИЁМНИК' in out:
                 # 75 от ssh_run из-за приёмника (нет места / канарейка не прошла): не ждём фонового
                 # тика разбора — стаскиваем и чистим СЕЙЧАС, иначе ноды простаивают до 15 минут,
