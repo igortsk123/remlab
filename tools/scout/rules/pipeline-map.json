@@ -213,6 +213,14 @@
    "red": 180,
    "title": "Черновой кадр на проде, секунд (среднее последних)",
    "runbook": "draft_service /api/draft/stats; очередь /api/job"
+  },
+  {
+   "id": "light_missing",
+   "kind": "info",
+   "metric": "light_missing",
+   "owner": "mesh",
+   "title": "Опубликованные модели без лёгкой копии (3D качает тяжёлый исходник)",
+   "runbook": "data/flat3d/runtime-meshes.json ← сборка runtime-копий (ADR-0212)"
   }
  ],
  "waivers": {

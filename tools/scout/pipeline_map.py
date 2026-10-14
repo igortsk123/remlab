@@ -85,6 +85,14 @@ def collect() -> dict:
     m['quarantine_open'] = _n("select count(*) from mesh_quarantine where decision is null")
     m['price_stale'] = _n("select count(*) from products where in_stock and price_basis = 'feed-stale'")
     m['mesh_unpublished'], _missing = _publish_stats()
+    # ЛЁГКИЕ КОПИИ (conv-06, книга гл. 4.6): опубликованные модели без runtime-копии — 3D качает тяжёлый исходник
+    try:
+        import urllib.request
+        idx = json.load(urllib.request.urlopen('https://remont-lab.online/test/mesh-pilot10/mesh-index.json', timeout=30))
+        rt = json.load(open(os.path.join(HERE, '..', '..', 'data', 'flat3d', 'runtime-meshes.json'), encoding='utf-8')).get('meshes') or {}
+        m['light_missing'] = float(sum(1 for k in idx if k not in rt))
+    except Exception:  # noqa: BLE001
+        m['light_missing'] = None
     # ВРЕМЯ ЧЕРНОВОГО КАДРА на проде (b2b-08 п.5): среднее последних замеров сервиса кадров; нет замеров — неизвестно
     try:
         import urllib.request
