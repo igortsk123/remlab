@@ -135,7 +135,7 @@ remont-lab.online {
 	# no-cache = браузер хранит файл и перепроверяет по ETag (ответ 304 без тела): свежесть та же, повторной закачки нет.
 	handle_path /test/mesh-pilot10/* {
 		root * /srv/test/mesh-pilot10
-		file_server
+		file_server browse
 		header X-Robots-Tag "noindex, nofollow"
 		header Cache-Control "public, no-cache"
 	}

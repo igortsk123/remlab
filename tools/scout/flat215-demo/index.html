@@ -873,8 +873,11 @@ function init(){
   const mlPdf=document.getElementById('mlPdf'); if(mlPdf)mlPdf.onclick=()=>window.print();
   const mlJpg=document.getElementById('mlJpg'); if(mlJpg)mlJpg.onclick=listJpg;
   // серые вкладки «скоро» объясняют себя по нажатию (на телефоне подсказки title нет) — b2b-12
+  // текст по самой вкладке: вкладка «Кухня» оживает, когда у квартиры есть варианты кухни (verify b2b-12)
   document.querySelectorAll('.tab.soon').forEach(t=>t.addEventListener('click',()=>{
-    if(t.classList.contains('soon'))toast('Спальни и кухня появятся следующим шагом — подбор мебели по той же схеме, что в гостиной.');}));
+    if(!t.classList.contains('soon'))return;
+    toast(/Кухня/.test(t.textContent)?'Кухня появится следующим шагом — варианты от партнёров застройщика.'
+      :'Спальни появятся следующим шагом — подбор мебели по той же схеме, что в гостиной.');}));
   document.addEventListener('keydown',e=>{if(e.key==='Escape')ml.classList.remove('on');});
   on('shotclose','onclick',closeShot);
   on('shotx','onclick',closeShot);
@@ -1607,7 +1610,10 @@ function toast(t){let el=document.getElementById('toast');
 // СПИСОК В JPG (b2b-12): текст на холсте — картинки магазинов чужого домена «запачкали» бы холст и
 // сохранить его было бы нельзя. Те же данные, что на странице списка: товары, количество, цена, магазин, итог.
 function listJpg(){
-  const v=allVariants()[cur]||{}, st=v.style||v.title||'', EN=LANG==='en';
+  const v=allVariants()[cur]||{}, EN=LANG==='en';
+  // картинка — не текст страницы, слой перевода её не видит: переводим стиль и роль его же функцией (verify b2b-12)
+  const T=t=>(EN&&window.__trText&&window.__trText(String(t||'')))||String(t||'');
+  const st=T(v.style||v.title||'');
   const withSku=items.filter(i=>i.sku&&i.sku.name);
   const groups=groupBySku(withSku).concat(decorList().map(x=>({sku:x.sku,slots:[x],first:x})));
   const W=1080, rowH=78, top=230, H=top+groups.length*rowH+170;
@@ -1621,7 +1627,7 @@ function listJpg(){
   txt((EN?'Furniture: ':'Мебель: ')+(st.charAt(0).toUpperCase()+st.slice(1)),56,184,'600 30px system-ui',null,W-112);
   groups.forEach((gr,k)=>{const p=gr.sku, n=buys(gr.slots.length,p), y=top+k*rowH+40;
     g.fillStyle='#e8e2db'; g.fillRect(56,y+46,W-112,1);
-    txt(p.name||gr.first.role,56,y,'500 25px system-ui',null,W-420);
+    txt(p.name||T(gr.first.role),56,y,'500 25px system-ui',null,W-420);
     txt(n+' × '+money(p.price||0)+(p.shop?' · '+p.shop:''),56,y+28,'400 21px system-ui','#7a716a',W-420);
     g.textAlign='right'; txt(money((p.price||0)*n),W-56,y,'700 26px system-ui'); g.textAlign='left';});
   const yb=top+groups.length*rowH+60;
@@ -2376,18 +2382,26 @@ async function makePhoto(quality, srcId, replaceBatch){
     let j=await r.json();
     if(j&&j.job){
       const jid=j.job; let miss=0;
+      // ПРЕДЕЛ ПО ОБЩЕМУ ВРЕМЕНИ (b2b-12, verify): раньше «считается» сбрасывало счётчик, и ожидание было
+      // бесконечным; а ошибка сервера ловилась как обрыв связи и повторялась 2 минуты. Теперь ошибка
+      // сервера — сразу, обрыв связи — повтор, а дольше предела ждать не заставляем.
+      const limitMin = quality==='realistic' ? 8 : 3, deadline = Date.now() + limitMin*60000;
       for(;;){
         await new Promise(res=>setTimeout(res,3000));
+        if(Date.now()>deadline)throw new Error('кадр не успел за '+limitMin+' мин — попробуйте ещё раз');
+        let jj=null;
         try{
           const rr=await fetch('/api/job?id='+encodeURIComponent(jid),{cache:'no-store'});
-          const jj=await rr.json();
-          if(jj&&jj.status==='running'){ miss=0; continue; }
-          if(jj&&jj.error)throw new Error(jj.error);
-          j=jj; break;
+          jj=await rr.json();
         }catch(e){
           // связь моргнула — это нормально, задание считается на сервере; просто спросим ещё
           if(++miss>40)throw new Error('сервер долго не отвечает');
+          continue;
         }
+        miss=0;
+        if(jj&&jj.status==='running')continue;
+        if(jj&&jj.error)throw new Error(jj.error);
+        j=jj; break;
       }
     }
     clearInterval(tick); busy=false;
@@ -3611,7 +3625,8 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
     'Сумма при условии оплаты наличными, без ипотеки и рассрочки':'Price for full payment, without mortgage or instalments','Перейти к товару →':'Go to product →',
     'Сделать фото · ~25 сек':'Take a photo · ~25 s','Посмотреть изменения на фото · ~25 сек':'See changes in a photo · ~25 s','Комплект: —':'Set: —',
     'Кухня от партнёров застройщика':"Kitchen from the developer's partners",
-    'Спальни и кухня появятся следующим шагом — подбор мебели по той же схеме, что в гостиной.':'Bedrooms and kitchen are coming next — furnished the same way as the living room.',
+    'Спальни появятся следующим шагом — подбор мебели по той же схеме, что в гостиной.':'Bedrooms are coming next — furnished the same way as the living room.',
+    'Кухня появится следующим шагом — варианты от партнёров застройщика.':"The kitchen is coming next — options from the developer's partners.",
     'Сначала коснитесь предмета на плане':'Tap an item on the plan first',
     'У этого товара в фиде нет габаритов — примерка была бы выдумкой':'The shop gives no dimensions for this product — a try-on would be made up','Сохранить коллекцию':'Save collection',
     '3D-модель носит ознакомительный характер и может отличаться от фактических характеристик. Точные характеристики вашей будущей квартиры можно узнать у нашего менеджера. Цена и данные о доме — демонстрационные. Цены товаров — с сайтов магазинов на дату проверки и могут измениться; точная цена — по ссылке в магазин.':
@@ -3651,6 +3666,7 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
     [/^(.+) сейчас перекрывает главный проход — там нужно (\d+) см, сейчас (.+)\.$/,function(m){return m[1]+' blocks the main walkway — it needs '+m[2]+' cm, now '+cm(m[3])+'.';}],
     [/^(.+) в (\d+) см от радиатора — тёплому воздуху нужно (\d+) см\.(.*)$/,function(m){return m[1]+' is '+m[2]+' cm from the radiator — warm air needs '+m[3]+' cm.'+m[4].replace(/Отодвиньте примерно на (\d+) см\./,' Move it about $1 cm away.');}]
   ];
+  window.__trText=function(t){return tr(t);};   // перевод для холста (список в JPG)
   function tr(t){
     var k=t.replace(/\s+/g,' ').trim(); if(!/[А-Яа-яЁё]/.test(k))return null;
     if(EX[k])return EX[k]; if(ROOM[k])return ROOM[k]; if(STYLE[k])return STYLE[k]; var r=role(k); if(r)return r;

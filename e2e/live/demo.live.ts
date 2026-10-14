@@ -45,9 +45,11 @@ test("замена предмета меняет сумму; ссылка на �
   })()`);
   expect(changed).toBe(true);
   await expect.poll(() => page.evaluate("LAST_SUM")).not.toBe(before);
-  const vid = (await page.evaluate("allVariants()[1].id")) as string;
-  await page.goto(`/demo/#v=${vid}`, { waitUntil: "networkidle" });
-  await expect.poll(() => page.evaluate("(allVariants()[cur] || {}).id")).toBe(vid);
+  // ссылка на вариант — в НОВОЙ вкладке: в этой вариант уже выбран нажатием, проверка ничего бы не доказала (verify)
+  const vid = (await page.evaluate("allVariants()[allVariants().length - 1].id")) as string;
+  const fresh = await page.context().newPage();
+  await fresh.goto(`/demo/#v=${vid}`, { waitUntil: "networkidle" });
+  await expect.poll(() => fresh.evaluate("(allVariants()[cur] || {}).id")).toBe(vid);
 });
 
 test("английский режим: шапка и вкладки без русских надписей", async ({ page }) => {

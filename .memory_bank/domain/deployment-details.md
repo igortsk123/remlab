@@ -176,3 +176,7 @@ flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev
 лишние секреты: POSTGRES_PASSWORD, TRACE_ADMIN_TOKEN — сервису не нужны, убрать при переезде в compose).
 Перед переключением — канарейка: тот же запрос `/render` (`no_proxy:1`, `quality:draft`) старому и временному
 контейнеру `remlab-draft-canary`, сравнить JPEG.
+
+## Модели 3D демо — кэш (14.10, b2b-12)
+`handle_path /test/mesh-pilot10/*` в `caddy/Caddyfile`: `Cache-Control: public, no-cache` (браузер хранит и перепроверяет
+по ETag — 304 без тела) вместо `no-store` общего `/test/*`; `browse` сохранён. Первый вход в 3D ≈30 МБ (лёгких копий нет).

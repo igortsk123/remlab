@@ -3,7 +3,7 @@ tier: 1
 topic: regression-net
 scope: Регресс-защита — тесты, CI, гардрейлы
 tier2: "../../docs/tech-spec-ts-stack.md"
-updated: 2026-10-13
+updated: 2026-10-14
 importance: high
 source: manual
 status: working
@@ -18,8 +18,8 @@ review_after: 2026-12-05
 
 ## Есть в коде
 - **Unit (Vitest, `tests/unit/`):** 36 файлов; БД — `pg-repository.test.ts` (skipIf); мок — `REMLAB_FAKE_AI=1`.
-- **e2e:** в CI — 5 smoke + 2 из 3 тестов `estimate.spec.ts` (`/calc/remont` — skip); happy path `flow.spec.ts`
-  — `test.skip` с 28.07 (раздел за заглушкой); error-путей НЕТ. 3D — `serial`, ждать признак (ADR-0234).
+- **e2e:** CI — smoke, `estimate`, `flat3d` (serial, ADR-0234), `legal`; `flow` и `/calc/remont` — skip (за заглушкой).
+  Демо на проде — `e2e/live/demo.live.ts`, ночной шаг `demo_live` (b2b-12).
 - **Цепочка каталога по бизнес-правилам (13.10, ADR-0242):** `tools/scout/tests_chain.py` —
   `--selftest` (фикстуры, в CI) и `--live` (инварианты по дев-базе, шаг `chain_checks`,
   расхождение → `WARN:` в дайджест). Утверждают ПРАВИЛО, а не поведение кода, и печатают ЧИСЛО;
