@@ -22,5 +22,7 @@ describe("отметки владельца", () => {
     expect((await post({ kind: "style", key: "a|сканди", verdict: "accept" })).status).toBe(400);
     expect((await post({ kind: "x", key: "a", verdict: "yes" })).status).toBe(400);
     expect((await post({ kind: "style", key: "<script>", verdict: "yes" })).status).toBe(400);
+    expect((await post({ kind: "orient", key: "112923_3", verdict: "yes" })).status).toBe(400);
+    expect((await post({ kind: "orient", key: "112923_3", verdict: "new" })).status).toBe(200);
   });
 });

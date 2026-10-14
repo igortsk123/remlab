@@ -9,9 +9,9 @@ export const dynamic = "force-dynamic";
 
 // Отметки владельца на проверочных страницах /test/* (ADR-0275). Страницы внутренние и без кодов (решение владельца
 // 05.09), поэтому защита — лимит частоты, белый список видов и вердиктов, короткие поля. Читает и DEV (курсор after).
-const KINDS = { style: ["yes", "no"], quarantine: ["accept", "reject", "cut"] } as const;
+const KINDS = { style: ["yes", "no"], quarantine: ["accept", "reject", "cut"], orient: ["cur", "new"] } as const;
 const Body = z.object({
-  kind: z.enum(["style", "quarantine"]),
+  kind: z.enum(["style", "quarantine", "orient"]),
   key: z.string().min(1).max(160).regex(/^[\p{L}\p{N}_:|.\- ]+$/u),
   verdict: z.string().max(10),
   comment: z.string().trim().max(300).optional(),

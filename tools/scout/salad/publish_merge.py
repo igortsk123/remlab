@@ -23,13 +23,23 @@ import tempfile
 import urllib.request
 
 
-def fetch(url: str) -> dict:
+def fetch(url: str) -> dict | None:
+    """Реестр прода. Файла ещё нет (404) — {} (первая публикация). ЛЮБАЯ другая ошибка — None: публикация
+    отменяется. Раньше сбой чтения превращался в {} и локальный (частичный) файл ЗАМЕНЯЛ серверный — так
+    теряются записи (разбор Codex 14.10, orient.json: 196 записей на 745 моделей)."""
+    import urllib.error
     try:
         with urllib.request.urlopen(url, timeout=30) as f:
             return json.loads(f.read().decode('utf-8'))
-    except Exception as e:  # noqa: BLE001 — прода может не быть; тогда просто публикуем своё
-        print(f'  прод не прочитан ({type(e).__name__}), публикую как есть', flush=True)
-        return {}
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            print('  на проде реестра ещё нет — публикую свой', flush=True)
+            return {}
+        print(f'  прод не прочитан (HTTP {e.code}) — публикацию ОТМЕНЯЮ, чтобы не затереть записи', flush=True)
+        return None
+    except Exception as e:  # noqa: BLE001
+        print(f'  прод не прочитан ({type(e).__name__}) — публикацию ОТМЕНЯЮ, чтобы не затереть записи', flush=True)
+        return None
 
 
 def main() -> int:
@@ -43,9 +53,11 @@ def main() -> int:
         return 0
     local = json.load(open(local_path, encoding='utf-8'))
     remote_data = fetch(url)
+    if remote_data is None:
+        return 1
     if not isinstance(remote_data, dict) or not isinstance(local, dict):
-        print('  реестр не словарь — сливать нечем, публикую локальный')
-        remote_data = {}
+        print('  реестр не словарь — сливать нечем, публикацию отменяю')
+        return 1
     merged = dict(remote_data)
     merged.update(local)                      # посчитанное сейчас — свежее, оно и побеждает
     kept = len(set(remote_data) - set(local))

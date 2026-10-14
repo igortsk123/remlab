@@ -399,6 +399,8 @@ step layout_page env LAYOUT10_PUBLISH=1 "$PY" layout10_page.py 1 14 21 29 55 59 
 # вчерашнему индексу.
 step mesh_publish "$PY" mesh_publish.py
 # каталог спальни (b2b-10 этап 2, ADR-0279): отдельная таблица room_catalog, гостиная её не видит; до сборки витрины
+# решения владельца по развороту моделей (/test/orient-review/) → orient.json прода слиянием (flat3d-sims-ux A1)
+step orient_pull "$PY" orient_review.py --pull
 step room_catalog "$PY" room_catalog.py --run
 step flat215_demo "$PY" flat215_demo.py
 step flat215_publish bash publish_demo.sh
