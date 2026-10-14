@@ -818,7 +818,7 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
       <h2>Мебель и техника</h2>
       <div class="mlead" id="mlLead"></div>
       <button class="btn cta round wide" id="mlPdf">Загрузить список в PDF</button>
-      <button class="btn round wide ghost" id="mlJpg" disabled>Загрузить список в JPG</button>
+      <button class="btn round wide ghost" id="mlJpg">Загрузить список в JPG</button>
     </div>
     <div class="mcard" id="mlCard"></div>
   </div>
@@ -871,6 +871,10 @@ function init(){
   const mlx=document.getElementById('mlx'); if(mlx)mlx.onclick=()=>ml.classList.remove('on');
   if(ml)ml.onclick=e=>{if(e.target===ml)ml.classList.remove('on');};
   const mlPdf=document.getElementById('mlPdf'); if(mlPdf)mlPdf.onclick=()=>window.print();
+  const mlJpg=document.getElementById('mlJpg'); if(mlJpg)mlJpg.onclick=listJpg;
+  // серые вкладки «скоро» объясняют себя по нажатию (на телефоне подсказки title нет) — b2b-12
+  document.querySelectorAll('.tab.soon').forEach(t=>t.addEventListener('click',()=>{
+    if(t.classList.contains('soon'))toast('Спальни и кухня появятся следующим шагом — подбор мебели по той же схеме, что в гостиной.');}));
   document.addEventListener('keydown',e=>{if(e.key==='Escape')ml.classList.remove('on');});
   on('shotclose','onclick',closeShot);
   on('shotx','onclick',closeShot);
@@ -902,7 +906,8 @@ function init(){
   applyHash();
 }
 // ——— ВАРИАНТЫ: расстановка вместе со своим комплектом, ценой и сохранением своего
-const MAXV=4;
+// все опубликованные стили (до шести): было 4 — пятый стиль («джапанди», 13.10) собирался, но не показывался (b2b-12)
+const MAXV=6;
 // ОТКРЫТЫЙ ВАРИАНТ СЧИТАЕТСЯ ПО ЖИВОЙ РАССТАНОВКЕ (владелец 02.09: «карточка не обновилась»).
 // Заменив диван, человек видел новую сумму в окне кадра и в панели замены, а карточка коллекции
 // показывала прежнюю: она брала ГОТОВУЮ сумму комплекта из `D.sets`, куда правки не попадают
@@ -1592,6 +1597,42 @@ function priceCard(sum, cnt){
   if(cons)cons.onclick=say('Эта ссылка ведет на форму консультации застройщика');
   box.querySelector('#pcSave').onclick=openList;
 }
+// КОРОТКОЕ СООБЩЕНИЕ ВМЕСТО alert() (b2b-12): alert блокирует страницу и выглядит как сбой.
+function toast(t){let el=document.getElementById('toast');
+  if(!el){el=document.createElement('div');el.id='toast';el.setAttribute('role','status');
+    el.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);max-width:min(92vw,520px);'+
+      'background:#2b2622;color:#fff;padding:12px 16px;border-radius:12px;font-size:15px;z-index:90;box-shadow:0 6px 20px rgba(0,0,0,.2)';
+    document.body.appendChild(el);}
+  el.textContent=t; el.hidden=false; clearTimeout(el._t); el._t=setTimeout(()=>{el.hidden=true;},3500);}
+// СПИСОК В JPG (b2b-12): текст на холсте — картинки магазинов чужого домена «запачкали» бы холст и
+// сохранить его было бы нельзя. Те же данные, что на странице списка: товары, количество, цена, магазин, итог.
+function listJpg(){
+  const v=allVariants()[cur]||{}, st=v.style||v.title||'', EN=LANG==='en';
+  const withSku=items.filter(i=>i.sku&&i.sku.name);
+  const groups=groupBySku(withSku).concat(decorList().map(x=>({sku:x.sku,slots:[x],first:x})));
+  const W=1080, rowH=78, top=230, H=top+groups.length*rowH+170;
+  const c=document.createElement('canvas'); c.width=W; c.height=H; const g=c.getContext('2d');
+  g.fillStyle='#faf8f5'; g.fillRect(0,0,W,H);
+  const txt=(t,x,y,f,col,max)=>{g.font=f; g.fillStyle=col||'#2b2622';
+    let s=String(t||''); if(max){while(s.length>1&&g.measureText(s).width>max)s=s.slice(0,-2); if(s!==String(t||''))s+='…';}
+    g.fillText(s,x,y);};
+  txt(flatKind(),56,84,'700 40px system-ui',null,W-112);
+  txt((FLAT&&FLAT.meta)||'',56,128,'400 24px system-ui','#7a716a',W-112);
+  txt((EN?'Furniture: ':'Мебель: ')+(st.charAt(0).toUpperCase()+st.slice(1)),56,184,'600 30px system-ui',null,W-112);
+  groups.forEach((gr,k)=>{const p=gr.sku, n=buys(gr.slots.length,p), y=top+k*rowH+40;
+    g.fillStyle='#e8e2db'; g.fillRect(56,y+46,W-112,1);
+    txt(p.name||gr.first.role,56,y,'500 25px system-ui',null,W-420);
+    txt(n+' × '+money(p.price||0)+(p.shop?' · '+p.shop:''),56,y+28,'400 21px system-ui','#7a716a',W-420);
+    g.textAlign='right'; txt(money((p.price||0)*n),W-56,y,'700 26px system-ui'); g.textAlign='left';});
+  const yb=top+groups.length*rowH+60;
+  txt(EN?'Total':'Итого',56,yb,'700 32px system-ui');
+  g.textAlign='right'; txt(money(LAST_SUM),W-56,yb,'700 32px system-ui'); g.textAlign='left';
+  txt(location.href.split('#')[0]+(location.hash||''),56,yb+56,'400 20px system-ui','#7a716a',W-112);
+  c.toBlob(b=>{if(!b){toast(EN?'Could not create the image':'Не получилось сделать картинку');return;}
+    const a=document.createElement('a'); a.href=URL.createObjectURL(b);
+    a.download=(EN?'remont-lab-list':'remont-lab-список')+'.jpg'; document.body.appendChild(a); a.click();
+    setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},1000);},'image/jpeg',0.92);
+}
 // ——— СТРАНИЦА СПИСКА: сводка ПО СТИЛЯМ (у нас комплект зависит от стиля, а не от комнаты)
 function openList(){
   const cardEl=document.getElementById('mlCard'); if(!cardEl)return;
@@ -1979,8 +2020,6 @@ function loadShots(){
       if(!vid){skipped++; return false;}   // кадр чужого стиля не сваливаем в первый вариант
       s.vid=vid; s.pick=false; s.orphan=false; return true;
     });
-    if(skipped)console.log('кадров без своего варианта:', skipped);
-    console.log('кадров с сервера:', shots.length);
     drawColl(true); showSwap(); drawFeed(); drawPhotos&&drawPhotos();
     openWantedShot();   // пришли по ссылке на вариант — показываем его фотографию
   });
@@ -2975,8 +3014,8 @@ function grid(){
     c.querySelector('.link').onclick=e=>e.stopPropagation();
     c.onclick=take; g.appendChild(c);});}
 function tryOn(p){const s=sel||items.find(i=>i.role==='диван');
-  if(!s){alert('Сначала коснитесь предмета на плане');return;}
-  if(!p.w||!p.d){alert('У этого товара в фиде нет габаритов — примерка была бы выдумкой');return;}
+  if(!s){toast('Сначала коснитесь предмета на плане');return;}
+  if(!p.w||!p.d){toast('У этого товара в фиде нет габаритов — примерка была бы выдумкой');return;}
   // ЗАМЕНА ДЕКОРА ПИШЕТСЯ В СПИСОК ВАРИАНТА, А НЕ В РАССТАНОВКУ (08.09): места на полу у вазы
   // нет, она стоит на столешнице. Список и сумма пересчитываются сразу — это и есть отклик на
   // кнопку «Заменить», которого раньше не было.
@@ -3571,7 +3610,10 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
     'Тесно / не помещается':'Too cramped / does not fit','Другой цвет':'Another colour','Другое':'Something else','Отправляем…':'Sending…',
     'Сумма при условии оплаты наличными, без ипотеки и рассрочки':'Price for full payment, without mortgage or instalments','Перейти к товару →':'Go to product →',
     'Сделать фото · ~25 сек':'Take a photo · ~25 s','Посмотреть изменения на фото · ~25 сек':'See changes in a photo · ~25 s','Комплект: —':'Set: —',
-    'Кухня от партнёров застройщика':"Kitchen from the developer's partners",'Сохранить коллекцию':'Save collection',
+    'Кухня от партнёров застройщика':"Kitchen from the developer's partners",
+    'Спальни и кухня появятся следующим шагом — подбор мебели по той же схеме, что в гостиной.':'Bedrooms and kitchen are coming next — furnished the same way as the living room.',
+    'Сначала коснитесь предмета на плане':'Tap an item on the plan first',
+    'У этого товара в фиде нет габаритов — примерка была бы выдумкой':'The shop gives no dimensions for this product — a try-on would be made up','Сохранить коллекцию':'Save collection',
     '3D-модель носит ознакомительный характер и может отличаться от фактических характеристик. Точные характеристики вашей будущей квартиры можно узнать у нашего менеджера. Цена и данные о доме — демонстрационные. Цены товаров — с сайтов магазинов на дату проверки и могут измениться; точная цена — по ссылке в магазин.':
       'The 3D model is for illustration and may differ from the actual specification. Ask our manager for the exact details of your future home. The price and building details are for demonstration. Product prices are taken from shop websites on the check date and may change; see the shop link for the exact price.',
     'Комната с вашей расстановкой: наши 3D-модели · вращайте мышью, колесо — масштаб · серые блоки — модель готовится':

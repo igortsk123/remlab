@@ -400,6 +400,8 @@ step layout_page env LAYOUT10_PUBLISH=1 "$PY" layout10_page.py 1 14 21 29 55 59 
 step mesh_publish "$PY" mesh_publish.py
 step flat215_demo "$PY" flat215_demo.py
 step flat215_publish bash publish_demo.sh
+# живая проверка демо на проде после публикации (b2b-12): стили, кадры, замена, ссылка, английский
+step demo_live bash ../ops/demo-live.sh
 
 # 8. ЕЖЕНЕДЕЛЬНО (понедельник): полный перегон размещаемости всех сетов — решение владельца
 # 2026-08-07 («прогон по остаткам раз в неделю достаточно»). Отчёт: solver-check-report.json.

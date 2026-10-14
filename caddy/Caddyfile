@@ -131,6 +131,15 @@ remont-lab.online {
 		respond 404
 	}
 
+	# МОДЕЛИ 3D ДЕМО (b2b-12): из общего /test/* шли с no-store — 7 моделей ≈ 30 МБ на КАЖДЫЙ вход в 3D.
+	# no-cache = браузер хранит файл и перепроверяет по ETag (ответ 304 без тела): свежесть та же, повторной закачки нет.
+	handle_path /test/mesh-pilot10/* {
+		root * /srv/test/mesh-pilot10
+		file_server
+		header X-Robots-Tag "noindex, nofollow"
+		header Cache-Control "public, no-cache"
+	}
+
 	handle_path /test/* {
 		root * /srv/test
 		file_server browse
