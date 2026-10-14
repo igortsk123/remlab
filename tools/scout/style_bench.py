@@ -36,6 +36,9 @@ GROUPS = {
 }
 PER_GROUP = 60
 FEED_STYLES = ['лофт', 'сканди', 'неоклассика']
+THR = float(json.load(open(os.path.join(HERE, 'rules', 'demo-swap.json'), encoding='utf-8'))['in_style_min'])   # 6.6
+STYLES6 = ['сканди', 'современный', 'минимализм', 'лофт', 'неоклассика', 'джапанди']
+VOTE_PER_STYLE = 40
 MODEL = os.environ.get('STYLE_MODEL', 'gpt-6-luna')
 
 
@@ -204,13 +207,13 @@ def page() -> int:
                 continue
             scored.sort(key=lambda x: -x[0])
             top = scored[:20]
-            band = [x for x in scored if 5.5 <= x[0] <= 6.5][:20]
+            band = [x for x in scored if THR - 0.5 <= x[0] <= THR + 0.5][:20]
 
             def card(v: float, it: dict) -> str:
                 return (f'<figure><img loading="lazy" src="{html.escape(it["img"])}" alt=""><figcaption>{v:.1f} · '
                         f'{html.escape(it["role"])}<br>{html.escape(it["name"][:60])}</figcaption></figure>')
             blocks.append(f'<h3>{st} — {names[m]}</h3><p class="m">верх-20</p><div class="g">{"".join(card(v, it) for v, it in top)}</div>'
-                          f'<p class="m">граница 5.5–6.5 (что считать «в стиле»)</p><div class="g">{"".join(card(v, it) for v, it in band)}</div>')
+                          f'<p class="m">у границы {THR - 0.5:.1f}–{THR + 0.5:.1f} (порог «в стиле» {THR:g}: решаем, где проходит черта)</p><div class="g">{"".join(card(v, it) for v, it in band)}</div>')
     doc = ('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
            '<title>Стенд стиля</title><style>body{font:15px system-ui;margin:16px;background:#faf8f5}h3{margin:28px 0 4px}'
            '.m{color:#777;margin:4px 0}.g{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}'
@@ -223,6 +226,85 @@ def page() -> int:
     os.makedirs(OUT, exist_ok=True)
     open(os.path.join(OUT, 'index.html'), 'w', encoding='utf-8').write(doc)
     print(f'страница: {os.path.join(OUT, "index.html")} (опрошено {len(answers)} из {len(items)})')
+    return 0
+
+
+def vote_items(items: list, per_style: int = VOTE_PER_STYLE) -> list[tuple[str, dict, float]]:
+    """Карточки для отметок владельца: по стилю — товары у черты (нынешний балл в [THR−1.5; THR+1.5]) вперемешку
+    с несколькими уверенными, детерминированно. Балл на карточке НЕ показываем — он подсказывал бы ответ."""
+    import random
+    out = []
+    for st in STYLES6:
+        near = [(float(it['old'][st]), it) for it in items if it.get('old') and abs(float(it['old'].get(st, 0)) - THR) <= 1.5]
+        top = [(float(it['old'][st]), it) for it in items if it.get('old') and float(it['old'].get(st, 0)) > THR + 1.5]
+        rnd = random.Random(st)
+        rnd.shuffle(near)
+        rnd.shuffle(top)
+        pick = near[: per_style - 5] + top[:5]
+        rnd.shuffle(pick)
+        out += [(st, it, sc) for sc, it in pick]
+    return out
+
+
+def vote_page() -> int:
+    import html
+    items = json.load(open(SAMPLE, encoding='utf-8'))
+    cards = []
+    for st, it, _sc in vote_items(items):
+        key = f"{it['mid']}_{it['eid']}|{st}"
+        cards.append(f'<div class=c data-key="{html.escape(key)}"><img loading=lazy src="{html.escape(it["img"])}" alt="">'
+                     f'<div class=n>{html.escape(it["role"])} · {html.escape(it["name"][:70])}</div>'
+                     f'<div class=q>{st.capitalize()}?</div><div class=b><button data-v=yes>подходит</button>'
+                     '<button data-v=no>не подходит</button></div><input class=cm maxlength=300 placeholder="комментарий"><div class=st></div></div>')
+    doc = ('<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Стиль: подходит?</title>'
+           '<style>body{font:15px system-ui;margin:16px;background:#faf8f5}.g{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}'
+           '.c{background:#fff;border-radius:10px;padding:8px}.c img{width:100%;aspect-ratio:1;object-fit:contain}.n{font-size:12px;color:#555}'
+           '.q{font-weight:700;margin:6px 0}.b{display:flex;gap:6px}button{flex:1;min-height:40px;border-radius:8px;border:1px solid #ccc;background:#fff}'
+           '.on{background:#2b2622;color:#fff}.cm{width:100%;box-sizing:border-box;margin-top:6px;padding:5px}.st{font-size:12px;color:#777}</style>'
+           f'<h1>Стиль: подходит или нет — {len(cards)} карточек</h1><p>Под каждым товаром — вопрос про один стиль. Отвечайте '
+           'как видите; балл модели нарочно скрыт. Ответ сохраняется сразу; можно бросить и вернуться. Комментарий — по желанию.</p>'
+           '<div class=g>' + ''.join(cards) + '</div><script>document.querySelectorAll(".c").forEach(c=>c.querySelectorAll("button").forEach(b=>'
+           'b.onclick=async()=>{const r=await fetch("/api/lab/review",{method:"POST",headers:{"content-type":"application/json"},'
+           'body:JSON.stringify({kind:"style",key:c.dataset.key,verdict:b.dataset.v,comment:c.querySelector(".cm").value||undefined})});'
+           'c.querySelectorAll("button").forEach(x=>x.classList.remove("on"));if(r.ok){b.classList.add("on");c.querySelector(".st").textContent="сохранено";}'
+           'else c.querySelector(".st").textContent="не сохранилось — нажмите ещё раз";}));' + 'fetch("/api/lab/review?kind=style&after=0").then(r=>r.json()).then(j=>{const last={};(j.rows||[]).forEach(x=>last[x.itemKey]=x);document.querySelectorAll(".c").forEach(c=>{const x=last[c.dataset.key];if(!x)return;c.querySelectorAll("button").forEach(b=>{if(b.dataset.v===x.verdict)b.classList.add("on");});if(x.comment)c.querySelector(".cm").value=x.comment;c.querySelector(".st").textContent="отмечено раньше";});});' + '</script>')
+    os.makedirs(OUT, exist_ok=True)
+    path = os.path.join(OUT, 'vote.html')
+    open(path, 'w', encoding='utf-8').write(doc)
+    print(f'страница отметок: {path} ({len(cards)} карточек)')
+    return 0
+
+
+def vote_report() -> int:
+    """Отметки владельца → доля «подходит» по корзинам балла (нынешний A и оси V2): где проходит черта."""
+    import urllib.request
+    import style_axes as SA
+    axes_doc, formula = SA.load()
+    rows = json.loads(urllib.request.urlopen('https://remont-lab.online/api/lab/review?kind=style&after=0', timeout=30).read())['rows']
+    last = {}
+    for r in rows:
+        last[r['itemKey']] = r
+    items = {f"{it['mid']}_{it['eid']}": it for it in json.load(open(SAMPLE, encoding='utf-8'))}
+    answers = {json.loads(ln)['mkey']: json.loads(ln) for ln in open(ANSWERS, encoding='utf-8')} if os.path.exists(ANSWERS) else {}
+    bins: dict = {}
+    for key, r in last.items():
+        sid, _, st = key.partition('|')
+        it = items.get(sid)
+        if not it:
+            continue
+        yes = r['verdict'] == 'yes'
+        a = float((it.get('old') or {}).get(st, 0))
+        ans = answers.get(it['mkey'])
+        v2 = SA.score_v2(ans['axes'], it['role'], axes_doc, formula)['scores'][st] if ans else None
+        for m, sc in (('A', a), ('V2', v2)):
+            if sc is None:
+                continue
+            b = bins.setdefault(m, {}).setdefault(int(sc * 2) / 2, [0, 0])
+            b[0] += yes
+            b[1] += 1
+    print(f'отметок {len(last)}')
+    for m, bb in bins.items():
+        print(m, ' '.join(f'{k:.1f}:{v[0]}/{v[1]}' for k, v in sorted(bb.items())))
     return 0
 
 
@@ -247,6 +329,9 @@ def _selftest() -> int:
     ok('в вопросе есть оси для роли и нет оси светильника', 'metal_visibility' in p and 'lamp_bulb_exposure' not in p)
     m = methods(it, {'axes': {'metal_visibility': 9, 'colour_lightness': 2, 'raw_imperfection': 8, 'wood_tone_lightness': 2,
                               'wood_visibility': 6, 'ornament_level': 1, 'material_mix': 6, 'surface_gloss': 2}}, axes_doc, formula)
+    vi = vote_items([{'mid': 1, 'eid': str(i), 'role': 'диван', 'name': 'x', 'img': '', 'mkey': str(i),
+                      'old': {st: 4 + i / 10 for st in STYLES6}} for i in range(60)], per_style=10)
+    ok('отметки: по 10 карточек на каждый из шести стилей, все у черты или уверенные', len(vi) == 60)
     ok('методы V2, H, D считаются по ответам, A — из базы', m['A'] == {'лофт': 7} and all(m[k] for k in ('V2', 'H', 'D')))
     return 1 if bad else 0
 
@@ -260,4 +345,8 @@ if __name__ == '__main__':
         sys.exit(ask(int(sys.argv[sys.argv.index('--limit') + 1]) if '--limit' in sys.argv else 0))
     if '--page' in sys.argv:
         sys.exit(page())
+    if '--vote-page' in sys.argv:
+        sys.exit(vote_page())
+    if '--vote-report' in sys.argv:
+        sys.exit(vote_report())
     print(__doc__)

@@ -138,7 +138,7 @@ def page(publish: bool) -> int:
            'c.querySelectorAll(".b button").forEach(b=>b.onclick=async()=>{const r=await fetch("/api/lab/review",{method:"POST",'
            'headers:{"content-type":"application/json"},body:JSON.stringify({kind:"quarantine",key:c.dataset.key,verdict:b.dataset.v,'
            'comment:c.querySelector(".cm").value||undefined})});c.querySelectorAll(".b button").forEach(x=>x.classList.remove("on"));'
-           'if(r.ok){b.classList.add("on");c.querySelector(".st").textContent="сохранено: "+b.textContent;}else{c.querySelector(".st").textContent="не сохранилось, нажмите ещё раз";}});});</script>')
+           'if(r.ok){b.classList.add("on");c.querySelector(".st").textContent="сохранено: "+b.textContent;}else{c.querySelector(".st").textContent="не сохранилось, нажмите ещё раз";}});});' + 'fetch("/api/lab/review?kind=quarantine&after=0").then(r=>r.json()).then(j=>{const last={};(j.rows||[]).forEach(x=>last[x.itemKey]=x);document.querySelectorAll(".c").forEach(c=>{const x=last[c.dataset.key];if(!x)return;c.querySelectorAll(".b button").forEach(b=>{if(b.dataset.v===x.verdict)b.classList.add("on");});if(x.comment)c.querySelector(".cm").value=x.comment;c.querySelector(".st").textContent="отмечено раньше";});});' + '</script>')
     os.makedirs(os.path.dirname(PAGE), exist_ok=True)
     open(PAGE, 'w', encoding='utf-8').write(doc)
     print(f'страница: {PAGE} ({len(cards)} моделей)')
