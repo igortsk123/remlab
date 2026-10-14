@@ -5,7 +5,7 @@ import { OpenBeacon } from "@/components/flat3d/OpenBeacon";
 import type { Configuration } from "@/contracts/configurator";
 import { baseSnapshotOf, staleSlots } from "@/lib/configurator/fromDemo";
 import { readConfig } from "@/lib/configurator/repo";
-import { defaultApartmentId, resolveFlat } from "@/lib/configurator/source";
+import { defaultApartmentId, resolveCollectionFlat, resolveFlat } from "@/lib/configurator/source";
 import { apartmentCard } from "@/lib/partners/registry";
 import type { Lang } from "@/lib/configurator/i18n";
 import { TOKEN_RE } from "@/lib/token";
@@ -20,7 +20,7 @@ export const metadata = {
 // Страница динамическая: по ?c=<id> открывается сохранённый подбор.
 export const dynamic = "force-dynamic";
 
-type Search = { c?: string; lang?: string; room?: string; demo?: string; flat?: string; s?: string };
+type Search = { c?: string; coll?: string; lang?: string; room?: string; demo?: string; flat?: string; s?: string };
 
 /** Ссылка на ту же страницу с другим языком: все остальные параметры (`c`, `demo`, `flat`, `s`) сохраняются. */
 function langHref(sp: Search, next: Lang): string {
@@ -45,11 +45,13 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
   const baseVariant = saved ? saved.baseVariant : sp.demo;
   if (!apartmentId) notFound();
 
-  let flat = await resolveFlat(apartmentId, baseVariant);
+  // КОЛЛЕКЦИЯ ПОКУПАТЕЛЯ (`?coll=`, b2b-05): расстановка и товары из неё, квартира — её же
+  const fromColl = !saved && sp.coll && TOKEN_RE.test(sp.coll) ? sp.coll : null;
+  let flat = fromColl ? await resolveCollectionFlat(fromColl) : await resolveFlat(apartmentId, baseVariant);
   // Набора из сохранения больше нет на витрине (ночная пересборка) — открываем ту же квартиру с
   // текущим набором и честно говорим об этом, а не 404 (verify 13.10).
   const variantGone = !flat.ok && flat.reason === "unknown" && !!saved?.baseVariant;
-  if (variantGone) flat = await resolveFlat(apartmentId);
+  if (variantGone && !fromColl) flat = await resolveFlat(apartmentId);
   if (!flat.ok) {
     if (flat.reason === "unknown") notFound();
     return (

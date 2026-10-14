@@ -8,7 +8,9 @@
 import type { Apartment } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
 import { loadFlat3d } from "@/lib/configurator/data";
-import { fromDemoVariant, type DemoData } from "@/lib/configurator/fromDemo";
+import { collectionAsVariant, fromDemoVariant, type DemoData } from "@/lib/configurator/fromDemo";
+import { currentPrices, priceIndex } from "@/lib/collections/prices";
+import { collectionRepo } from "@/modules/collections/repository";
 import { loadDemoRaw } from "@/lib/partners/demo-data";
 import { findApartment, partners, type ApartmentHit } from "@/lib/partners/registry";
 
@@ -53,3 +55,22 @@ export async function resolveFlat(apartmentId: string, baseVariant?: string, loa
   };
 }
 
+
+/**
+ * 3D из коллекции покупателя (`/flat?coll=<id>`, план b2b-05 п.5): та же квартира и комната витрины, расстановка и
+ * товары — из коллекции, цены текущие. Нет коллекции/квартиры — `unknown`, витрина не ответила — `unavailable`.
+ */
+export async function resolveCollectionFlat(id: string, load: DemoLoader = loadDemoRaw): Promise<FlatResolved> {
+  const c = await collectionRepo().get(id);
+  if (!c) return { ok: false, reason: "unknown" };
+  const hit = findApartment(c.payload.apartmentId);
+  const src = hit?.apartment.sources.demoData;
+  if (!hit || !src) return { ok: false, reason: "unknown" };
+  const raw = (await load(src)) as DemoData | null;
+  if (!raw) return { ok: false, reason: "unavailable" };
+  const sids = c.payload.items.map((i) => i.sku?.sid).filter((x): x is string => !!x);
+  const data = collectionAsVariant(raw, c.payload, currentPrices(sids, priceIndex(raw)));
+  const ctx = { apartmentId: hit.apartment.id, partnerId: hit.partner.id, currency: hit.partner.currency, basePrice: hit.apartment.price };
+  const built = fromDemoVariant(data, c.payload.baseVariant, ctx);
+  return built ? { ok: true, ...built, hit } : { ok: false, reason: "unknown" };
+}

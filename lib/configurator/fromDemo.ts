@@ -206,3 +206,25 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
 
   return { apartment, catalogue };
 }
+
+/**
+ * Коллекция покупателя (план b2b-05) → вариант витрины для того же моста в 3D. Предметы коллекции — в той же форме,
+ * что предметы варианта; цены — ТЕКУЩИЕ (`lib/collections/prices.ts`), пропавший с витрины товар остаётся на месте, но
+ * в сумму не входит; разворот модели — из вариантов витрины по msid (как у `flat215_demo.annotate_yaw`).
+ */
+export function collectionAsVariant(
+  data: DemoData,
+  coll: { baseVariant: string; style?: string; items: DemoItem[] },
+  prices: Record<string, { price: number | null; unavailable: boolean }>,
+): DemoData {
+  const yaw = new Map<string, number>();
+  for (const v of data.variants ?? []) for (const it of v.items ?? []) if (it.sku?.msid && it.sku.yaw !== undefined) yaw.set(it.sku.msid, it.sku.yaw);
+  const items = coll.items.map((it) => {
+    if (!it.sku) return it;
+    const cur = it.sku.sid ? prices[it.sku.sid] : undefined;
+    const price = cur && !cur.unavailable && cur.price !== null ? cur.price : cur?.unavailable ? 0 : it.sku.price;
+    const y = it.sku.msid ? yaw.get(it.sku.msid) : undefined;
+    return { ...it, sku: { ...it.sku, price, ...(y !== undefined ? { yaw: y } : {}) } };
+  });
+  return { ...data, variants: [{ id: coll.baseVariant, title: coll.style, style: coll.style, items }] };
+}

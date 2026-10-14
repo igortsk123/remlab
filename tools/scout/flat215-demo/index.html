@@ -2273,9 +2273,12 @@ function sync3dLink(){
   // квартира едет вместе с набором (b2b-06): 3D берёт её из реестра застройщиков, а не «по умолчанию»
   const fl = FLAT ? '&flat='+encodeURIComponent(FLAT.id) : '';
   const lg = LANG==='en' ? '&lang=en' : '';
-  a.href = v.id ? '/flat?demo='+encodeURIComponent(v.id)+fl+lg : '/flat'+(lg?'?lang=en':'');
+  // КОЛЛЕКЦИЯ ПОКУПАТЕЛЯ (b2b-05): в 3D — её расстановка и товары по её номеру, а не исходный набор
+  const coll = /^c:[A-Za-z0-9_-]{22}$/.test(v.id||'') ? v.id.slice(2) : '';
+  const href = coll ? '/flat?coll='+coll+lg : v.id ? '/flat?demo='+encodeURIComponent(v.id)+fl+lg : '/flat'+(lg?'?lang=en':'');
+  a.href = href;
   const b=document.getElementById('swap3d');
-  if(b)b.href = v.id ? '/flat?demo='+encodeURIComponent(v.id)+fl+lg : '/flat'+(lg?'?lang=en':'');
+  if(b)b.href = href;
 }
 function showSwap(){
   const box=document.getElementById('swapBox'); if(!box)return;
