@@ -8,6 +8,9 @@ export default defineConfig({
   testMatch: "**/*.live.ts",
   timeout: 60_000,
   retries: 1,
+  // один браузер за раз (demo-03, 14.10): на DEV проверки идут рядом с рендером демо, а 7,6 ГБ на всё —
+  // параллельные headless-браузеры вместе с рендером дважды вызывали earlyoom
+  workers: 1,
   reporter: "line",
   use: { baseURL: process.env.LIVE_BASE_URL ?? "https://remont-lab.online", trace: "off" },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"], locale: "ru-RU" } }],

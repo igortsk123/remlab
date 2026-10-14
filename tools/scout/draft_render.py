@@ -2529,6 +2529,16 @@ def _src_child(lay, style, st):
     Здесь можно свободно ставить `S3_LITE[0] = False`: это копия памяти родителя, черновики
     родителя от этого не пострадают.
     """
+    # ПОТОЛОК ПАМЯТИ СБОРЩИКА (demo-03, 14.10): упрётся — падает он один с MemoryError, а не весь сервис рендера под
+    # earlyoom. Потолок — прирост к уже занятому родителем (копия при fork), по умолчанию +1,5 ГБ.
+    try:
+        import resource
+        cap = int(os.environ.get('SRC_MEM_EXTRA_MB', '1500')) * 2 ** 20
+        # RLIMIT_DATA считает виртуальный объём данных (VmData), а не занятую память — от него и отсчитываем
+        vmdata = next(int(l.split()[1]) * 1024 for l in open('/proc/self/status') if l.startswith('VmData:'))
+        resource.setrlimit(resource.RLIMIT_DATA, (vmdata + cap, vmdata + cap))
+    except Exception:  # noqa: BLE001 — нет /proc или прав: собираем без потолка, как раньше
+        pass
     try:
         os.nice(10)
     except Exception:  # noqa: BLE001 — не дали понизить: не повод отменять сборку
@@ -3163,6 +3173,13 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
                 _SRC_PENDING[0] = st
                 time.sleep(float(os.environ.get('SRC_DEBOUNCE_S', 8)))
                 if _SRC_PENDING[0] != st:
+                    return
+                # НЕТ ДЕНЕГ НА «УЛУЧШИТЬ» — ЛИСТ НЕ СОБИРАЕМ (demo-03, 14.10): он нужен только платной модели, а сборка
+                # полными мешами — пик ~1,5 ГБ, на DEV с 7,6 ГБ это убивал earlyoom (три падения рендера за день).
+                # Деньги появятся — лист соберёт сам режим улучшения (по src_id или заново).
+                _bal = gw_credits()
+                if _bal is not None and _bal < float(os.environ.get('REALISTIC_MIN_BALANCE', '0.30')):
+                    print(f'scene3d: исходник для «Улучшить» не собираю — у шлюза нет денег (баланс {_bal:.2f} $)', flush=True)
                     return
                 _t = time.time()
                 # ФОНОВАЯ СБОРКА НЕ ДОЛЖНА ОТНИМАТЬ ЯДРА У ЧЕЛОВЕКА (замер 02.09: пока она шла,
