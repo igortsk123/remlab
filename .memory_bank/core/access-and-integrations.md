@@ -43,5 +43,5 @@ review_after: 2026-12-05
   не `gh auth token`: токену под пакеты `gh` требует ещё `read:org`.
 - **Гдеслон (03.09):** фиды первичны (`original_picture`, `article`, описание), API — комиссия;
   id округлён (связь по `article`), `available` бесполезен — ADR-0171.
-- **Telegram `@remlabservice_bot` (03.09):** токен и chat_id в `tools/scout/.env.alert` и `/opt/remlab/catalog-watchdog/.env`.
+- **Telegram `@remlabservice_bot` (03.09):** токен и chat_id в `tools/scout/.env.alert` и `/opt/remlab/catalog-watchdog/.env`. С 14.10 — и клиентский бот; UptimeRobot — Tier 2.
 - **Sketchfab (01.09)** — Tier 2.

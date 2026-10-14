@@ -90,6 +90,75 @@ print(json.dumps([float(ex[0]), float(ex[1]), float(ex[2])]))
 """
 
 
+_RAW2_CHILD = r"""
+import json, sys, numpy as np, trimesh
+m = trimesh.load(sys.argv[1], force='mesh')
+V, F = np.asarray(m.vertices, np.float64), np.asarray(m.faces)
+if len(V) == 0 or len(F) == 0:
+    print('null'); sys.exit(0)
+lo, hi = V.min(0), V.max(0); ext = np.maximum(hi - lo, 1e-9)
+slab = None; keep = np.ones(len(F), bool)
+# ПОДЛОЖКА-КОМПОНЕНТ: тонкий, снизу, торчит за габарит остального хотя бы с двух сторон (как salad/pipeline.slab_suspect)
+lab = trimesh.graph.connected_component_labels(m.face_adjacency, node_count=len(F))
+for L in np.unique(lab):
+    sel = lab == L
+    if sel.all() or sel.sum() < 20:
+        continue
+    pts = V[F[sel].ravel()]; b0, b1 = pts.min(0), pts.max(0); fr = (b1 - b0) / ext
+    if not (fr[1] < 0.06 and (b0[1] - lo[1]) / ext[1] < 0.07 and fr[0] > 0.5 and fr[2] > 0.5):
+        continue
+    rest = V[F[~sel].ravel()]; r0, r1 = rest.min(0), rest.max(0)
+    over = [max(0, r0[a] - b0[a]) / ext[a] for a in (0, 2)] + [max(0, b1[a] - r1[a]) / ext[a] for a in (0, 2)]
+    if sum(1 for o in over if o > 0.025) >= 2:
+        slab = 'component'; keep &= ~sel
+P = V[np.unique(F[keep].ravel())]
+def rect(Q):
+    Q2 = Q[:, [0, 2]]
+    try:
+        _, e = trimesh.bounds.oriented_bounds_2D(Q2)
+        return sorted([float(e[0]), float(e[1])], reverse=True)
+    except Exception:
+        d = Q2.max(0) - Q2.min(0); return sorted([float(d[0]), float(d[1])], reverse=True)
+y = P[:, 1]; H = float(y.max() - y.min())
+full = rect(P)
+# СЛИТАЯ ПОДЛОЖКА: площадь следа выше 2/5/8 % высоты стабильно меньше полного следа — плита приросла к предмету
+probe = []
+for f in (0.02, 0.05, 0.08):
+    Q = P[y > y.min() + f * H]
+    probe.append(rect(Q) if len(Q) > 50 else full)
+areas = [a * b for a, b in probe]
+use = full; h_item = H
+# плита тоньше 5 %: след выше 5 и 8 % — оба меньше 0.6 полного и близки между собой (тело над плитой устойчиво)
+if slab is None and areas[1] < 0.6 * full[0] * full[1] and areas[2] < 0.6 * full[0] * full[1] \
+        and abs(areas[1] - areas[2]) <= 0.25 * max(areas[1], 1e-9):
+    slab = 'merged'; use = probe[1]; h_item = H * 0.95
+print(json.dumps({'h': h_item, 'long': use[0], 'short': use[1], 'slab': slab}))
+"""
+
+
+def raw_measure(glb: str) -> dict | None:
+    """Замер v2 (14.10, разбор Codex): СЫРОЙ фрейм Hunyuan (Y вверх, без разворота из базы — он у части моделей кладёт
+    предмет на бок); подложка — отдельный тонкий нижний компонент, торчащий за тело (удаляется), или слитая плита
+    (стабильно меньший след на срезах 2/5/8 %); горизонталь — стороны повёрнутого минимального прямоугольника следа.
+    → {h, long, short, slab: None|'component'|'merged'}. В дочернем процессе (память trimesh, урок 391)."""
+    r = subprocess.run([sys.executable, '-c', _RAW2_CHILD, glb], capture_output=True, text=True, timeout=300)
+    if r.returncode != 0 or not r.stdout.strip() or r.stdout.strip() == 'null':
+        return None
+    return json.loads(r.stdout)
+
+
+def mask_flag(glb: str) -> str | None:
+    """Вырезка, по которой сделан меш, помечена конвейером как плохая (коллаж/фон не отделён) — `manifest.mask`.
+    14.10: 9 из 13 «брак» владельца — именно такие, среди 90 «принять» — ни одной."""
+    try:
+        m = (json.load(open(os.path.join(os.path.dirname(glb), 'manifest.json'), encoding='utf-8')).get('mask') or {})
+    except Exception:  # noqa: BLE001
+        return None
+    if m.get('verdict') == 'bad' or (m.get('collage') or {}).get('verdict'):
+        return str(m.get('reason') or 'вырезка помечена плохой')[:120]
+    return None
+
+
 def extents(glb: str, R: list[list[float]]) -> tuple[float, float, float] | None:
     """(ext_x=ширина, ext_y=высота, ext_z=глубина) в канонической системе ориентации.
     Считается в ДОЧЕРНЕМ процессе: trimesh на плотных Hunyuan-мешах не отдаёт память (03.09: +100 МБ на

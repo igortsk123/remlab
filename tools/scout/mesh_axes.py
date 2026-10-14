@@ -49,6 +49,23 @@ def deviation(ext: tuple, w: float | None, d: float | None, h: float | None, dia
     return out
 
 
+def deviation2(raw: dict, w: float | None, d: float | None, h: float | None, dia: float | None = None) -> dict | None:
+    """Замер v2 (14.10, по разметке владельца: 90 из 104 «брака» v1 были ложными). Масштаб — по высоте паспорта и высоте
+    предмета без подложки; горизонталь — стороны повёрнутого прямоугольника следа против отсортированных (w, d) паспорта,
+    без зависимости от разворота. Признак подложки — отдельно (`slab`). Чистая функция."""
+    if not raw or not h or raw.get('h', 0) <= 0:
+        return None
+    pw, pd = (w or dia), (d or dia)
+    if not pw or not pd:
+        return None
+    s = h / raw['h']
+    p_long, p_short = max(pw, pd), min(pw, pd)
+    dl = round(raw['long'] * s / p_long - 1, 3)
+    ds = round(raw['short'] * s / p_short - 1, 3)
+    return {'v': 2, 'dl': dl, 'ds': ds, 'max_dev': max(abs(dl), abs(ds)), 'slab': raw.get('slab'),
+            'axis': 'длина' if abs(dl) >= abs(ds) else 'ширина'}
+
+
 def measure(limit: int = 0, workers: int = 3) -> int:
     import mesh_dims as MD
     items = MD.rows(ROLES)
@@ -101,6 +118,12 @@ def _selftest() -> int:
     d = deviation((0.4, 1.6, 0.4), w=None, d=None, h=160, dia=40)
     ok('круглое — сравнение с диаметром по обеим осям', d['max_dev'] == 0)
     ok('без высоты — не с чем мерить', deviation((1, 0, 1), 100, 50, None) is None)
+    shelf = deviation2({'h': 1.98, 'long': 0.627, 'short': 0.353, 'slab': None}, 54, 28, 180)
+    ok('v2: стеллаж в сыром фрейме — ниже порога карантина (v1 давал +900 %)', shelf['max_dev'] < 0.25)
+    sofa = deviation2({'h': 0.6, 'long': 2.0, 'short': 1.0, 'slab': None}, 100, 200, 60)
+    ok('v2: ширина и глубина перепутаны в паспорте — не брак (сравнение без разворота)', sofa['max_dev'] == 0)
+    pouf = deviation2({'h': 0.48, 'long': 0.68, 'short': 0.65, 'slab': 'component'}, 45, 45, 45)
+    ok('v2: подложка — отдельный признак, пропорции считаются без неё', pouf['slab'] == 'component' and pouf['max_dev'] < 0.5)
     return 1 if bad else 0
 
 
