@@ -3829,6 +3829,8 @@ document.addEventListener('remlab:hist',()=>{const v=document.getElementById('vs
 <style>
 #shot .shotwrap .livecv{position:absolute;inset:0;width:100%;height:100%;border-radius:inherit;display:block;background:#e9edf1}
 #shot .shotwrap:has(.livecv){background:linear-gradient(#ebe8e3,#e4ded4)}   /* поля вокруг кадра 3:2 — тоном комнаты */
+/* под живой сценой фото не нужно: в полях кадра 3:2 его размытая копия (другой расстановки) отвлекала */
+#shot .shotwrap:has(.livecv.in) .vblur,#shot .shotwrap:has(.livecv.in) .vmain{visibility:hidden}
 #shot .shotwrap .livebadge{position:absolute;left:10px;top:10px;background:rgba(43,38,34,.82);color:#fff;font-size:13px;
  padding:5px 10px;border-radius:999px;pointer-events:none}
 </style>
