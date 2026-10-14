@@ -35,6 +35,7 @@ SMS_GATE = os.environ.get('SHARE_SMS_GATE', '')   # шлюз СМС; пусто 
 esc = html.escape
 from draft_guard import (ALLOWED_ORIGINS, ip_allowed,  # noqa: E402
                          queue_eta, registry_trim, safe_url, save_share_request)
+from draft_jobs import JobStore, public_view  # noqa: E402
 SHARE_PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex"><title>{{TITLE}} — подборка</title>
@@ -81,12 +82,17 @@ _HITS: list = []
 # соединение минуту на телефоне нельзя в принципе. Поэтому: запрос ставится в очередь и сразу
 # возвращает номер, страница потом спокойно спрашивает «готово?». Гаснущий экран, смена сети и
 # закрытая вкладка перестают что-либо ломать.
-_JOBS: dict = {}
-_JOBS_MAX = 40
+# ЗАДАНИЯ — В ФАЙЛЕ РЯДОМ С РЕЕСТРОМ КАДРОВ (demo-03, 14.10): деплой пересоздаёт контейнер, и словарь в памяти
+# пропадал вместе с ним — страница получала 404 на свой номер. Подробности и правила перезапуска — `draft_jobs.py`.
+JOBS = JobStore(os.path.join(os.path.dirname(DR.FRAMES_DIR), 'jobs.json'))
+# ДЕНЬГИ НА ПЛАТНОЕ УЛУЧШЕНИЕ ПРОВЕРЯЮТСЯ ДО ЗАДАНИЯ (demo-03, 14.10; разбор Codex): порог — цена кадра с запасом,
+# а не ноль; идущие платные задания резервируют свою цену. Проверка лишь советует — истина остаётся за ответом шлюза.
+PAID_MIN_USD = float(os.environ.get('REALISTIC_MIN_BALANCE', '0.30'))
+PAID_COST_USD = float(os.environ.get('REALISTIC_COST_USD', '0.25'))
 # ОЧЕРЕДЬ ЛОКАЛЬНОГО РЕНДЕРА (b2b-08 п.3). Раньше занятый сервер отвечал «другой рендер, попробуйте через минуту» —
 # второй человек получал ошибку вместо ожидания. Фоновое задание теперь ЖДЁТ места (до QUEUE_WAIT_S), а страница
 # видит своё место в очереди и оценку времени по последним замерам (`_DURS`, секунды на кадр по качеству).
-_WAITING: list = []                       # номера заданий, ждущих места, по порядку прихода
+# Сама очередь — в `JOBS` (под тем же замком, что и задания).
 _DURS: dict = {'draft': [], 'realistic': []}
 QUEUE_WAIT_S = int(os.environ.get('DRAFT_QUEUE_WAIT_S', 600))
 
@@ -153,14 +159,100 @@ def _registry_add(payload: dict, out: dict) -> None:
         print(f'  реестр кадров не обновлён: {str(e)[:90]}')
 
 
-def _job_new() -> str:
-    import uuid
-    jid = uuid.uuid4().hex[:12]
-    if len(_JOBS) > _JOBS_MAX:                      # старые задания не копим
-        for k in sorted(_JOBS, key=lambda k: _JOBS[k].get('ts', 0))[:len(_JOBS) - _JOBS_MAX]:
-            _JOBS.pop(k, None)
-    _JOBS[jid] = {'status': 'running', 'ts': time.time()}
-    return jid
+def _proxy_url() -> str:
+    prx = os.environ.get('RENDER_PROXY') or ''
+    if not prx:
+        try:
+            cf = os.path.join(os.path.dirname(DR.FRAMES_DIR), 'render-proxy.conf')
+            prx = open(cf, encoding='utf-8').read().strip() if os.path.exists(cf) else ''
+        except Exception:  # noqa: BLE001
+            prx = ''
+    return prx
+
+
+def _has_gw_key() -> bool:
+    try:
+        return bool(DR.gw_key())
+    except SystemExit:
+        return False
+
+
+def _credits_here() -> dict:
+    """Баланс шлюза отсюда: {'balance': float|None, 'key': bool}."""
+    key = _has_gw_key()
+    return {'balance': DR.gw_credits() if key else None, 'key': key}
+
+
+def _paid_gate():
+    """Можно ли сейчас ставить платное улучшение. None — можно; иначе (код, текст) для страницы СРАЗУ.
+
+    Ключ шлюза на проде не лежит — платный кадр рисует DEV (прокси), поэтому прод спрашивает баланс у DEV.
+    Сеть до шлюза моргнула — не блокируем (проверка советует). DEV не отвечает, а своего ключа нет — платный
+    путь физически невозможен, честно говорим сразу, а не через 5 минут."""
+    st = _credits_here()
+    if not st['key']:
+        prx = _proxy_url()
+        st = None
+        if prx:
+            try:
+                import urllib.request as _u
+                with _u.urlopen(prx.rsplit('/', 1)[0] + '/credits', timeout=4) as r:
+                    st = json.loads(r.read())
+            except Exception:  # noqa: BLE001
+                st = None
+        if st is None or not st.get('key'):
+            return ('unavailable', 'Улучшение фото сейчас недоступно: сервер улучшения не отвечает. '
+                                   'Черновое фото работает — попробуйте улучшить позже.')
+    bal = st.get('balance')
+    if bal is None:
+        return None
+    if float(bal) - PAID_COST_USD * JOBS.running('realistic') < PAID_MIN_USD:
+        return ('no_credits', DR.NO_CREDITS_TEXT)
+    return None
+
+
+def _http_error_body(e) -> dict:
+    """Тело ошибки HTTP от себя же или от DEV: JSON сервиса, иначе короткий текст."""
+    try:
+        j = json.loads(e.read().decode('utf-8', 'replace') or '{}')
+        if isinstance(j, dict) and j.get('error'):
+            return j
+    except Exception:  # noqa: BLE001
+        pass
+    return {'error': f'рендер не удался: HTTP {getattr(e, "code", "?")}'}
+
+
+def _work(jid: str) -> None:
+    """ФОН ИДЁТ ТЕМ ЖЕ ПУТЁМ, ЧТО И ОБЫЧНЫЙ ЗАПРОС — через себя же, но без ожидания клиентом. Так задание
+    проходит и через прокси на DEV-рендер, и через локальный фолбэк: логика маршрутизации одна."""
+    import urllib.error as _ue
+    import urllib.request as _u
+    body = dict(JOBS.body(jid) or {})
+    if not body:
+        return JOBS.fail(jid, 'задание без запроса — нажмите «Повторить»', 'lost')
+    body['_job'] = jid                     # внутренний номер: локальный рендер ставит задание в очередь
+    try:
+        _port = int(os.environ.get('DRAFT_PORT', 8099))
+        req = _u.Request(f'http://127.0.0.1:{_port}/render', data=json.dumps(body).encode(), method='POST',
+                         headers={'Content-Type': 'application/json'})
+        with _u.urlopen(req, timeout=900) as r:
+            out = json.loads(r.read())
+        JOBS.finish(jid, out)
+    except _ue.HTTPError as e:
+        j = _http_error_body(e)
+        JOBS.fail(jid, j['error'], j.get('code') or 'error')
+    except BaseException as e:  # noqa: BLE001 — ЛЮБОЙ сбой обязан стать статусом
+        # ПОЧЕМУ BaseException (13.10): рендер местами поднимает `SystemExit` как «ответ негоден»; фоновый поток
+        # умирал молча, задание навсегда оставалось `running`, и страница через две минуты опроса писала «сервер
+        # долго не отвечает» — без причины и в логе, и на экране.
+        JOBS.fail(jid, f'рендер не удался: {str(e)[:200]}')
+
+
+def _resume(jids: list) -> None:
+    """Черновики, прерванные выкладкой, досчитываются по одному (не 40 потоков разом) — номера у страниц прежние."""
+    for jid in jids:
+        print(f'задание {jid}: досчитываю после перезапуска', flush=True)
+        _work(jid)
 
 
 class H(BaseHTTPRequestHandler):
@@ -201,28 +293,30 @@ class H(BaseHTTPRequestHandler):
         if self.route.startswith(('/health', 'draft/health')) or self.route in ('/draft/health',):
             # версия образа (b2b-08): деплой сверяет её, как у приложения
             return self._send(200, {'ok': True, 'version': os.environ.get('DRAFT_VERSION', 'dev')})
+        if self.route.startswith(('/draft/credits', '/credits')):
+            # БАЛАНС ШЛЮЗА (demo-03): прод без ключа спрашивает его у DEV перед платным заданием
+            return self._send(200, _credits_here())
         if self.route.startswith(('/draft/stats', '/stats')):
             # ВРЕМЯ КАДРА (b2b-08 п.5): среднее последних замеров по качеству — стык конвейера следит, не медленнеет ли
             avg = {q: (round(sum(d) / len(d), 1) if d else None) for q, d in _DURS.items()}
             return self._send(200, {'avg_sec': avg, 'n': {q: len(d) for q, d in _DURS.items()},
-                                    'queue': len(_WAITING)})
+                                    'queue': JOBS.waiting_n()})
         if self.route.startswith('/job'):
             from urllib.parse import parse_qs, urlparse
             jid = (parse_qs(urlparse(self.path).query).get('id') or [''])[0]
-            j = _JOBS.get(jid)
+            j = JOBS.get(jid)
             if not j:
-                return self._send(404, {'error': 'задание не найдено'})
+                return self._send(404, {'error': 'задание не найдено — нажмите «Повторить»', 'code': 'not_found'})
             if j['status'] == 'running':
                 st = {'status': 'running', 'sec': round(time.time() - j['ts'], 1)}
-                if jid in _WAITING:            # ждёт места: номер в очереди и оценка до готовности
-                    pos = _WAITING.index(jid) + 1
+                pos = JOBS.wait_pos(jid)
+                if pos:                        # ждёт места: номер в очереди и оценка до готовности
                     st.update({'queue': pos, 'eta': queue_eta(pos, j.get('quality', 'draft'), _DURS)})
                 elif j.get('started'):
                     q = j.get('quality', 'draft')
                     st['eta'] = max(0, queue_eta(1, q, _DURS) - int(time.time() - j['started']))
                 return self._send(200, st)
-            return self._send(200, j.get('result') or {'status': j['status'],
-                                                       'error': j.get('error')})
+            return self._send(200, public_view(j))
         self._send(404, {'error': 'нет такого пути'})
 
     def do_POST(self):                                       # noqa: N802
@@ -257,44 +351,19 @@ class H(BaseHTTPRequestHandler):
             return self._send(400, {'error': 'нужны room и items'})
         # ДЛИННЫЙ ЗАПРОС УХОДИТ В ФОН. Клиент присылает `async:1` и получает номер задания.
         if payload.get('async'):
-            jid = _job_new()
-            _JOBS[jid]['quality'] = 'realistic' if payload.get('quality') == 'realistic' else 'draft'
+            quality = 'realistic' if payload.get('quality') == 'realistic' else 'draft'
+            if quality == 'realistic':
+                gate = _paid_gate()
+                if gate:                       # нет денег / нет сервера улучшения — сразу, без задания
+                    return self._send(402 if gate[0] == 'no_credits' else 503, {'error': gate[1], 'code': gate[0]})
             body = dict(payload); body.pop('async', None)
-            body['_job'] = jid                 # внутренний номер: локальный рендер ставит задание в очередь
-
-            # ФОН ИДЁТ ТЕМ ЖЕ ПУТЁМ, ЧТО И ОБЫЧНЫЙ ЗАПРОС — через себя же, но без ожидания
-            # клиентом. Так задание проходит и через прокси на DEV-рендер, и через локальный
-            # фолбэк: логика маршрутизации остаётся одна, дублировать её нельзя.
-            def _work(jid=jid, body=body):
-                try:
-                    import urllib.request as _u
-                    _port = int(os.environ.get('DRAFT_PORT', 8099))
-                    req = _u.Request(f'http://127.0.0.1:{_port}/render',
-                                     data=json.dumps(body).encode(), method='POST',
-                                     headers={'Content-Type': 'application/json'})
-                    with _u.urlopen(req, timeout=900) as r:
-                        out = json.loads(r.read())
-                    _JOBS[jid] = {'status': 'done', 'ts': _JOBS[jid]['ts'], 'result': out}
-                except BaseException as e:  # noqa: BLE001 — ЛЮБОЙ сбой обязан стать статусом
-                    # ПОЧЕМУ BaseException (13.10). Рендер местами поднимает `SystemExit` как
-                    # «ответ негоден» (шлюз не отдал картинку, модель закрасила полосу). Это не
-                    # Exception, фоновый поток умирал молча, задание навсегда оставалось
-                    # `running`, и страница через две минут опроса писала «сервер долго не
-                    # отвечает» — без причины и в логе, и на экране.
-                    _JOBS[jid] = {'status': 'error', 'ts': _JOBS[jid]['ts'],
-                                  'error': f'рендер не удался: {str(e)[:200]}'}
-            threading.Thread(target=_work, daemon=True).start()
+            jid = JOBS.new(quality, body)
+            threading.Thread(target=_work, args=(jid,), daemon=True).start()
             return self._send(200, {'job': jid})
         # ВРЕМЕННЫЙ КОСТЫЛЬ ДЛЯ ДЕМО (владелец 31.08): полный кадр рендерит DEV-машина
         # через ssh-туннель; конфиг кладётся файлом в share (env контейнера не пересоздать).
         # DEV молчит/упала → фолбэк на локальный (декимированный) рендер, кнопка живёт
-        prx = os.environ.get('RENDER_PROXY') or ''
-        if not prx:
-            try:
-                cf = os.path.join(os.path.dirname(DR.FRAMES_DIR), 'render-proxy.conf')
-                prx = open(cf, encoding='utf-8').read().strip() if os.path.exists(cf) else ''
-            except Exception:  # noqa: BLE001
-                prx = ''
+        prx = _proxy_url()
         if prx and not payload.get('no_proxy'):
             try:
                 import urllib.request as _u
@@ -322,6 +391,20 @@ class H(BaseHTTPRequestHandler):
                 _registry_add(payload, out)
                 return self._send(200, out)
             except Exception as e:  # noqa: BLE001
+                import urllib.error as _ue
+                # ОТКАЗ DEV ПО СУЩЕСТВУ — НАРУЖУ, А НЕ В ЗАПАСНОЙ РЕНДЕР (demo-03, разбор Codex): 4xx и «нет денег»
+                # повторились бы локально тем же отказом (и теми же расходами). Запасной путь — только для
+                # молчания DEV: обрыв, таймаут, 5xx. Платное без своего ключа локально невозможно вовсе.
+                if isinstance(e, _ue.HTTPError):
+                    j = _http_error_body(e)
+                    if e.code < 500 or j.get('code') == 'no_credits' or (
+                            payload.get('quality') == 'realistic' and not _has_gw_key()):
+                        print(f'DEV отказал по существу (HTTP {e.code}): {j.get("error", "")[:120]}', flush=True)
+                        return self._send(e.code, j)
+                elif payload.get('quality') == 'realistic' and not _has_gw_key():
+                    return self._send(503, {'error': 'Улучшение фото сейчас недоступно: сервер улучшения не '
+                                                     'отвечает. Черновое фото работает — попробуйте улучшить позже.',
+                                            'code': 'unavailable'})
                 print(f'DEV-бэкенд молчит ({str(e)[:80]}) — рендерю локально', flush=True)
         now = time.time()
         _HITS[:] = [t for t in _HITS if now - t < 3600]
@@ -329,17 +412,16 @@ class H(BaseHTTPRequestHandler):
             return self._send(429, {'error': 'на сегодня лимит черновых рендеров исчерпан'})
         _HITS.append(now)
         jid = payload.pop('_job', None)
-        if jid and jid in _JOBS:
+        if jid and JOBS.get(jid):
             # фоновое задание — ждёт своей очереди (страница видит место и оценку), а не получает отказ
-            _WAITING.append(jid)
+            JOBS.wait_add(jid)
             try:
                 got = _LOCK.acquire(timeout=QUEUE_WAIT_S)
             finally:
-                if jid in _WAITING:
-                    _WAITING.remove(jid)
+                JOBS.wait_remove(jid)
             if not got:
                 return self._send(503, {'error': f'очередь кадров не сдвинулась за {QUEUE_WAIT_S // 60} мин — попробуйте позже'})
-            _JOBS[jid]['started'] = time.time()
+            JOBS.mark(jid, started=time.time())
         elif not _LOCK.acquire(blocking=False):
             return self._send(429, {'error': 'сейчас считается другой рендер, попробуйте через минуту'})
         try:
@@ -369,13 +451,19 @@ class H(BaseHTTPRequestHandler):
             out2 = {'shots': res['shots'], 'url': res['url'], 'model': res['model'],
                     'sources': res.get('sources'), 'timing': res.get('timing'),
                     'quality': quality, 'sec': round(time.time() - t, 1),
-                    'queued_sec': round(t - _JOBS[jid]['ts'], 1) if jid and jid in _JOBS else 0,
+                    'queued_sec': round(t - (JOBS.get(jid) or {}).get('ts', t), 1) if jid else 0,
                     # КТО СНЯЛ (b2b-08 п.2b): DEV-прокси пишет 'dev', здесь — сервер сам (запасной путь, лёгкие меши)
                     'backend': 'server',
                     'frames': res.get('frames'), 'diag': res['diag']}
             _registry_add(payload, out2)
             _DURS[quality] = (_DURS[quality] + [out2['sec']])[-20:]   # замер для оценки очереди
             self._send(200, out2)
+        except DR.NoCreditsError as e:               # нет денег у шлюза — отдельный код, без запасного пути
+            print(f'РЕНДЕР: шлюз без денег (402) — {e}', flush=True)
+            self._send(402, {'error': str(e), 'code': 'no_credits'})
+        except SystemExit as e:                      # «ответ негоден» из рендера — тоже ответ, а не тишина
+            print(f'РЕНДЕР НЕ УДАЛСЯ (SystemExit): {e}', flush=True)
+            self._send(502, {'error': f'рендер не удался: {str(e)[:200]}'})
         except Exception as e:                       # noqa: BLE001 — наружу отдаём короткую причину
             # ПРИЧИНА ОБЯЗАНА ПОПАСТЬ В ЛОГ. Прод при 502 просто уходит в локальный рендер и
             # пишет у себя «DEV-бэкенд молчит (HTTP Error 502)» — без причины. Так демо
@@ -501,4 +589,8 @@ if __name__ == '__main__':
     print(f'черновой рендер слушает :{port}', flush=True)
     if os.environ.get('PREWARM', '1') == '1':
         threading.Thread(target=_prewarm_demo, daemon=True).start()
-    ThreadingHTTPServer((os.environ.get('DRAFT_HOST', '0.0.0.0'), port), H).serve_forever()
+    resume = JOBS.load()                    # до первого запроса: страницы спросят про свои номера сразу после старта
+    srv = ThreadingHTTPServer((os.environ.get('DRAFT_HOST', '0.0.0.0'), port), H)
+    if resume:                              # порт уже открыт — запрос к себе дождётся serve_forever
+        threading.Thread(target=_resume, args=(resume,), daemon=True).start()
+    srv.serve_forever()

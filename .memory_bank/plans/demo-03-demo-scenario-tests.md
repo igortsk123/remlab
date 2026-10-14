@@ -2,7 +2,7 @@
 workstream: demo
 slug: demo-03-demo-scenario-tests
 title: Демо отлажено по карте сценариев — дефекты прогона 14.10 закрыты, каждая кнопка под живой проверкой на проде
-status: draft
+status: in_progress
 created: 2026-10-14
 updated: 2026-10-14
 completed:

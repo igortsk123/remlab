@@ -774,6 +774,36 @@ def _sheet(room, placements, photos, cams, prefix: str, model: str, side: int, s
 #   4) список предметов JSON: номер, товар, роль, габариты, где стоит, в каком виде виден.
 # Модель дорисовывает свет и материалы, но не выдумывает состав: всё названо и показано.
 GATEWAY = 'https://ai-gateway.vercel.sh/v1/images/edits'
+CREDITS_URL = 'https://ai-gateway.vercel.sh/v1/credits'
+
+
+class NoCreditsError(RuntimeError):
+    """Шлюз картинок отказал из-за денег (HTTP 402: баланс или бюджет). Отдельный тип — чтобы сервис кадров
+    ответил странице `code: no_credits` сразу и НЕ уходил в запасной рендер, который упрётся в то же самое
+    (живой прогон 14.10: 5 минут спиннера без слова)."""
+
+
+NO_CREDITS_TEXT = ('Улучшение фото сейчас недоступно: у сервиса картинок закончился баланс. '
+                   'Черновое фото работает — его можно снять как обычно.')
+_CREDITS_CACHE: list = [0.0, None]
+
+
+def gw_credits(max_age_s: float = 60.0):
+    """Баланс шлюза в долларах (GET /v1/credits — бесплатный, ~0,5 с) или None, если узнать нельзя
+    (нет сети). Кэш 60 с. Нет ключа — None тоже: решает вызывающий (без ключа платный путь не работает)."""
+    now = time.time()
+    if now - _CREDITS_CACHE[0] < max_age_s:
+        return _CREDITS_CACHE[1]
+    try:
+        req = urllib.request.Request(CREDITS_URL, headers={'Authorization': 'Bearer ' + gw_key()})
+        with urllib.request.urlopen(req, timeout=4) as r:
+            bal = float(json.loads(r.read()).get('balance'))
+    except SystemExit:                    # gw_key без ключа
+        bal = None
+    except Exception:  # noqa: BLE001 — сеть: проверка только советует, истина — сам ответ шлюза
+        bal = None
+    _CREDITS_CACHE[:] = [now, bal]
+    return bal
 
 
 def gw_key() -> str:
@@ -1389,8 +1419,13 @@ def _chat_edit(images: list, prompt: str, model: str) -> Image.Image:
     req = urllib.request.Request(CHAT_URL, json.dumps(body).encode(),
                                  {'Authorization': 'Bearer ' + gw_key(),
                                   'Content-Type': 'application/json'})
-    with urllib.request.urlopen(req, timeout=_GW_TIMEOUT) as r:
-        j = json.loads(r.read())
+    try:
+        with urllib.request.urlopen(req, timeout=_GW_TIMEOUT) as r:
+            j = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        if e.code == 402:
+            raise NoCreditsError(NO_CREDITS_TEXT) from None
+        raise
     msg = (j.get('choices') or [{}])[0].get('message') or {}
     for im in (msg.get('images') or []):
         u = (im.get('image_url') or {}).get('url', '') if isinstance(im, dict) else ''
@@ -1453,6 +1488,8 @@ def gpt_edit(images: list, prompt: str, size: str = '1024x1536',
             body = ''
         print(f'ШЛЮЗ ОТКАЗАЛ: HTTP {e.code} {e.reason} | модель {model}, размер {size}, '
               f'качество {quality} | ответ: {body}', flush=True)
+        if e.code == 402:
+            raise NoCreditsError(NO_CREDITS_TEXT) from None
         raise SystemExit(f'шлюз отказал (HTTP {e.code}): {body[:300]}') from None
     b64 = (j.get('data') or [{}])[0].get('b64_json')
     if not b64:

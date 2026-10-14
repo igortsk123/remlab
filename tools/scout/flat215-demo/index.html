@@ -477,6 +477,7 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 /* НЕАКТИВНЫЕ ПОМЕЩЕНИЯ (владелец 01.09: «серым, чтоб нажать было нельзя»): гасим и цвет,
    и курсор, и события мыши — иначе на телефоне вкладка всё равно «нажимается» и мигает. */
 .tab.soon{color:var(--faint);cursor:default;pointer-events:none}
+.tab .soon-l{font-size:.72em;font-weight:400;margin-left:2px;vertical-align:1px}
 /* ПОДРАЗДЕЛЫ «Вариант N · цена» (26.08): второй уровень навигации сразу под вкладками */
 .subtabs{display:flex;gap:8px;overflow-x:auto;padding:12px 2px 4px;margin-bottom:2px}
 .vtab{flex:0 0 auto;border:1px solid var(--line);background:var(--surface);border-radius:var(--radius-sm);
@@ -707,7 +708,9 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
        туда, где ничего нет, нельзя, но видно, что демо — про всю квартиру. -->
   <span class="tab soon" title="скоро" id="tab-kitchen-soon">Кухня</span>
   <span class="tab soon" title="скоро" id="tab-bedroom-soon">Спальня 1</span>
-  <span class="tab soon" title="скоро">Спальня 2</span>
+  <!-- «скоро» — ПРЯМО НА ВКЛАДКЕ (карта сценариев 1.5, 14.10): вкладка не нажимается (владелец 01.09), а подсказки
+       title на телефоне нет — человек тыкал и не понимал, что будет. Слово «скоро» переводит словарь EN. -->
+  <span class="tab soon" title="скоро">Спальня 2 <small class="soon-l">скоро</small></span>
 </div>
 
 <section id="screen-plan">
@@ -923,40 +926,16 @@ function variantDecor(v){ return variantLive(v)?decorList():(((v&&v.decor)||[]).
 function dimsText(o){ // размеры показываем только известные; иначе — честно (Р1)
   if(!o||!o.w||!o.d)return 'размеры не указаны магазином';
   return `${Math.round(o.w)}×${Math.round(o.d)}${o.h?'×'+Math.round(o.h):''} см`;}
-function variantCount(v){ return variantItems(v).filter(it=>(it.sku||{}).name).length+decorN(v); }
-function variantPrice(v){                       // цена = сумма комплекта, привязанного к варианту
-  const kit=(D.sets||[]).find(k=>k.id==='kit'+String(v.id||'').replace('set',''));
-  // КОМПЛЕКТ — ЭТО РОЛИ, А НЕ ТО, ЧТО ПОСТАВЛЕНО В КОМНАТУ. У лофта в комплекте 10 ролей,
-  // включая кресло, пуф и кашпо, которых на плане нет; поэтому подменять сумму комплекта суммой
-  // расставленного нельзя — это разные числа (94 311 против 79 130). Но замену товара она
-  // обязана учитывать (владелец 02.09: «карточка не обновилась»): раньше бралась ГОТОВАЯ
-  // `kit.sum`, и замена дивана на карточке не отражалась вообще. Считаем сумму по ролям,
-  // подставляя товар из живой расстановки там, где человек его заменил. Без правок результат
-  // совпадает с `kit.sum` до рубля.
-  if(kit&&kit.roles&&typeof kit.roles==='object'&&Object.keys(kit.roles).length){
-    const live=variantLive(v);
-    let t=0;
-    Object.keys(kit.roles).forEach(r=>{
-      const p=kit.roles[r]||{};
-      let price=p.price||0;
-      if(live){
-        const it=items.find(x=>String(x.role||'').replace(/\s+\d+$/,'')===r&&(x.sku||{}).name);
-        if(it)price=it.sku.price||0;
-      }
-      t+=price;
-    });
-    return t+decorSum(v);      // декор в комплект входит — эта ветка про него забывала
-  }
-  if(!variantLive(v)&&kit&&kit.sum)return kit.sum+decorSum(v);
-  // цена варианта считается ТАК ЖЕ, как корзина: слоты одного товара — одна покупка
-  const by=new Map();
-  variantItems(v).forEach(it=>{const p=it.sku; if(!p||!p.name)return;
-    const k=(p.url||'')+'|'+p.name; if(!by.has(k))by.set(k,{p:p,n:0}); by.get(k).n++;});
-  let t=0; by.forEach(g=>{t+=(g.p.price||0)*Math.ceil(g.n/((+g.p.pack||1)>0?(+g.p.pack||1):1));});
-  // декор входит в стоимость комплекта — он такой же купленный товар (владелец 02.09)
-  variantDecor(v).forEach(x=>{const p=x.sku||{}; if(p.name)t+=(p.price||0);});
-  return t;
-}
+// ОДНО ЧИСЛО ТОВАРОВ И ОДНА СУММА — ДЛЯ КАРТОЧКИ, ОКНА КАДРА, КОНСТРУКТОРА И СПИСКА (карта сценариев 2.3, 14.10).
+// Было три счёта: карточка брала сумму КОМПЛЕКТА по ролям (с пуфом и вторым диваном, которых нет ни в комнате, ни на
+// фото) и считала слоты (два стула = 2), окно — строки товаров без умножения на количество, список справа — третьим
+// способом. Человек видел «8 предметов · 123 229 ₽» на карточке и «7 · 104 540 ₽» в окне того же варианта.
+// Теперь источник один: что стоит в комнате (`productsOf` — один товар одна строка, количество к покупке по
+// упаковке) плюс декор; сумма = цена × количество. Правило 02.09 «карточка = комплект по ролям» заменено (ADR-0286).
+function totalsOf(products){ return {n:products.length, sum:products.reduce((t,a)=>t+(a.price||0)*(a.qty||1),0)}; }
+function variantProducts(v){ return productsOf(variantItems(v), variantDecor(v)); }
+function variantCount(v){ return totalsOf(variantProducts(v)).n; }
+function variantPrice(v){ return totalsOf(variantProducts(v)).sum; }
 function myVariants(){
   try{return JSON.parse(localStorage.getItem('flat215-mine')||'[]');}catch(e){return [];}
 }
@@ -1040,7 +1019,10 @@ function variantLink(vid){
 }
 function copyLink(vid,btn){
   const url=variantLink(vid);
-  const say=()=>{ if(!btn)return; const t=btn.textContent; btn.textContent='Ссылка скопирована';
+  // ПОДТВЕРЖДЕНИЕ ВИДНО ВСЕГДА (карта сценариев 2.14): подпись на кнопке плюс короткое сообщение внизу —
+  // кнопка бывает вне экрана (окно кадра прокручено), и человек не понимал, сработало ли.
+  const say=()=>{ toast(LANG==='en'?'Link copied — paste it into a message':'Ссылка скопирована — вставьте её в сообщение');
+    if(!btn)return; const t=btn.textContent; btn.textContent='Ссылка скопирована';
     setTimeout(()=>{btn.textContent=t;},1600); };
   // без буфера обмена (старый браузер, страница не по https) показываем ссылку — её можно выделить
   if(navigator.clipboard&&navigator.clipboard.writeText)
@@ -1204,14 +1186,73 @@ function camIcon(c){
   return {x: Math.min(Math.max(c.x, r), D.room.w - r),
           y: Math.min(Math.max(c.y, r), D.room.d - r)};
 }
+// CAMFIT START — КАМЕРА НЕ УПИРАЕТСЯ В БЛИЗКИЙ ПРЕДМЕТ (карта сценариев 2.8, 14.10; разбор Codex). В углу сканди
+// стоит торшер: глаз на 165 см в полуметре от абажура, и второй ракурс был «абажуром изнутри» — пустым кадром.
+// Высота предмета одна ничего не решает (низкий стол вплотную тоже закрывает низ кадра), поэтому меряем то, что
+// видит камера: коробку каждого БЛИЗКОГО предмета (≤ CAM_NEAR от глаза) проецируем в кадр той же камерой, что у
+// рендера (глаз 165, цель 105 в 4 м, 72° по горизонтали, кадр 3:2), и берём долю кадра, которую она занимает.
+// Дальние предметы не считаются: диван через всю комнату — это содержание кадра, а не помеха. Нижняя треть кадра
+// тоже не считается: спинка дивана или край стола внизу — обычный передний план интерьерного снимка, а пол
+// (ковёр) не помеха вовсе; кадр портит то, что закрывает саму комнату — середину и верх.
+const CAM_EYE=165, CAM_TGT=105, CAM_NEAR=120, CAM_BLOCK=0.12, CAM_SLIDE=150, CAM_STEP=10;
+const CAM_ROLE_H={'ковёр':1,'торшер':160,'стеллаж':180,'кашпо':60,'стул':90,'диван':85,'кресло':90,'столик':40,
+  'тв-тумба':55,'стол обеденный':75,'комод':85,'пуф':45};
+function camItemH(it){const r=String(it.role||'').replace(/\s+\d+$/,'');
+  return r==='ковёр'?1:(+it.h>0?+it.h:(CAM_ROLE_H[r]||80));}
+function camBlock(c,its){
+  const a=(c.rot||0)*Math.PI/180, pitch=Math.atan2(CAM_EYE-CAM_TGT,400), cp=Math.cos(pitch), sp=Math.sin(pitch);
+  const f=[Math.sin(a)*cp,-Math.cos(a)*cp,-sp], r=[Math.cos(a),Math.sin(a),0], u=[Math.sin(a)*sp,-Math.cos(a)*sp,cp];
+  const tx=Math.tan((c.fov||72)/2*Math.PI/180), ty=tx/1.5;
+  let worst=0, who='';
+  (its||[]).forEach(it=>{
+    if(camItemH(it)<=2)return;                        // ковёр — пол
+    const rr=(it.rot||0)*Math.PI/180, ca=Math.cos(rr), sa=Math.sin(rr), h=camItemH(it), pts=[];
+    [[-1,-1],[1,-1],[1,1],[-1,1]].forEach(([i,j])=>{const dx=i*it.w/2, dy=j*it.d/2;
+      pts.push([it.x+dx*ca-dy*sa, it.y+dx*sa+dy*ca]);});
+    // близость — до ближайшей точки повёрнутого контура (глаз внутри контура = 0)
+    const lx=(c.x-it.x)*ca+(c.y-it.y)*sa, ly=-(c.x-it.x)*sa+(c.y-it.y)*ca;
+    const near=Math.hypot(Math.max(Math.abs(lx)-it.w/2,0),Math.max(Math.abs(ly)-it.d/2,0));
+    if(near>CAM_NEAR)return;
+    let x0=1,x1=-1,y0=1,y1=-1,any=false;
+    pts.forEach(([px,py])=>[0,h].forEach(pz=>{
+      const v=[px-c.x,py-c.y,pz-CAM_EYE], z=v[0]*f[0]+v[1]*f[1]+v[2]*f[2];
+      if(z<-5)return;                                  // целиком за спиной — не в кадре
+      const zz=Math.max(z,5), sx=(v[0]*r[0]+v[1]*r[1])/zz/tx, sy=(v[0]*u[0]+v[1]*u[1]+v[2]*u[2])/zz/ty;
+      any=true; x0=Math.min(x0,sx); x1=Math.max(x1,sx); y0=Math.min(y0,sy); y1=Math.max(y1,sy);}));
+    if(!any)return;
+    const yl=-1/3;                                    // нижняя треть кадра не считается
+    const cov=Math.max(0,Math.min(x1,1)-Math.max(x0,-1))/2*Math.max(0,Math.min(y1,1)-Math.max(y0,yl))/2;
+    if(cov>worst){worst=cov;who=it.role;}
+  });
+  return {cov:worst,who:who};
+}
+// Точка у угла (cx,cy): сам угол, затем сдвиг ВДОЛЬ одной из двух прилегающих стен шагом CAM_STEP до CAM_SLIDE
+// (так камера остаётся у стены и видит больше комнаты, чем при шаге внутрь); каждая точка целится в центр.
+// Берём первую открытую (меньший сдвиг; при равенстве — вдоль длинной стены); открытой нет — наименее закрытую.
+function camFit(cx,cy,its,W,H){
+  const p=3, aim=(x,y)=>Math.round(Math.atan2(W/2-x, y-H/2)*180/Math.PI);
+  const sx=cx<W/2?1:-1, sy=cy<H/2?1:-1, along=W>=H?[[1,0],[0,1]]:[[0,1],[1,0]];
+  let best=null;
+  for(let d=0; d<=CAM_SLIDE; d+=CAM_STEP){
+    for(const [ax,ay] of (d?along:[[0,0]])){
+      const x=Math.min(Math.max(cx+ax*sx*d,p),W-p), y=Math.min(Math.max(cy+ay*sy*d,p),H-p);
+      const c={x:x,y:y,rot:aim(x,y),fov:72}, b=camBlock(c,its);
+      if(b.cov<=CAM_BLOCK)return Object.assign(c,{cov:b.cov,shift:d});
+      if(!best||b.cov<best.cov)best=Object.assign(c,{cov:b.cov,shift:d,who:b.who});
+    }
+  }
+  return best;
+}
+// CAMFIT END
 function defaultCams(){
   // ПО УМОЛЧАНИЮ — ДВА ПРОТИВОПОЛОЖНЫХ УГЛА, как ставит автоподбор: правый нижний и левый
   // верхний, оба смотрят в центр комнаты. Диагональ обязательна — два соседних угла показали бы
-  // комнату дважды почти с одной стороны (ADR-0149).
+  // комнату дважды почти с одной стороны (ADR-0149). Угол, где камера упёрлась бы в близкий
+  // предмет, сдвигается вдоль стены (`camFit`).
   const W=D.room.w, H=D.room.d, p=camPad();
-  const aim=(x,y)=>Math.round(Math.atan2(W/2-x, y-H/2)*180/Math.PI);
-  return [{name:'C1',x:W-p,y:H-p,rot:aim(W-p,H-p),fov:72},
-          {name:'C2',x:p,y:p,rot:aim(p,p),fov:72}];
+  const c1=camFit(W-p,H-p,items,W,H), c2=camFit(p,p,items,W,H);
+  return [{name:'C1',x:c1.x,y:c1.y,rot:c1.rot,fov:72},
+          {name:'C2',x:c2.x,y:c2.y,rot:c2.rot,fov:72}];
 }
 // СМЕНА РАКУРСА ПО КРУГУ (владелец 01.09). Обе камеры переезжают в следующую пару углов по
 // часовой стрелке, сохраняя диагональ: съёмка двумя видами имеет смысл, только когда они с
@@ -1247,7 +1288,8 @@ function cycleCams(){
   const i0=(near(cams[0])+1)%4;                 // следующий угол по часовой
   const i1=(i0+2)%4;                            // второй — строго напротив
   [[i0,0],[i1,1]].forEach(([ci,k])=>{
-    cams[k].x=cs[ci].x; cams[k].y=cs[ci].y; cams[k].rot=aimAtCentre(cs[ci].x,cs[ci].y);
+    const c=camFit(cs[ci].x,cs[ci].y,items,D.room.w,D.room.d);   // тот же отступ от близких предметов
+    cams[k].x=c.x; cams[k].y=c.y; cams[k].rot=c.rot;
   });
   saveCams();draw();
 }
@@ -1255,7 +1297,7 @@ function cycleCams(){
 // значения продолжали бы жить: после перевода камер вплотную в угол сохранённые с прежним
 // отступом так и стояли бы в 10 см от стены. Меняем правило — меняем версию, и каждый
 // получает новые углы по умолчанию (владелец 01.09).
-const CAMS_VER='v2-corner';
+const CAMS_VER='v3-fit';   // v3 (14.10): углы с отступом от близких предметов — старые сохранённые углы пересчитываются
 function camsKey(){const v=allVariants()[cur]||{};return 'flat215-cams-'+CAMS_VER+'-'+(v.id||cur);}
 function loadCams(){
   try{const r=JSON.parse(localStorage.getItem(camsKey())||'null'); if(r&&r.length===2)return r;}catch(e){}
@@ -1662,7 +1704,7 @@ function openList(){
     'из списка товары можно купить в магазинах-партнёрах.';
   // сводка по стилям: каждый стиль — свой комплект и своя цена
   const rows=allVariants().map((x,i)=>{
-    const pr=variantPrice(x)||0, n=(x.items||[]).filter(it=>it.sku&&it.sku.name).length;
+    const pr=variantPrice(x)||0, n=variantCount(x);
     return `<div class="srow${i===cur?' on':''}"><span>${x.style||x.title||''}`+
       (n?` <span class="c">(${n})</span>`:'')+`</span><span>${money(pr)}</span></div>`;
   }).join('');
@@ -2048,13 +2090,13 @@ function saveShots(){ /* браузер кадры не хранит: состо
 // (`draft_render.py:2341`), поэтому под фотографией не было списка товаров, а в подборку
 // уходили голые картинки без цен и ссылок — то есть без того, ради чего подборка и нужна.
 // Список строим на странице: она точно знает, что стоит в комнате.
-function productsOf(list){
+function productsOf(list, decor){
   const withSku=(list||[]).filter(i=>(i.sku||{}).name);
   const out=groupBySku(withSku).map(gr=>{const p=gr.sku, n=buys(gr.slots.length,p);
     return {name:p.name,price:p.price,url:p.url,img:p.img,shop:p.shop,
             role:gr.first.role,qty:n};});
   // и декор: на фото он есть, значит и в списке товаров под фото должен быть
-  decorList().forEach(x=>{const p=x.sku||{};
+  (decor||decorList()).forEach(x=>{const p=x.sku||{};
     out.push({name:p.name,price:p.price,url:p.url,img:p.img,shop:p.shop,role:x.role,qty:1});});
   return out;
 }
@@ -2188,7 +2230,7 @@ function drawColl(force){
       (views>1?`<div class="badge2">${views} вида</div>`:'')+
       `</div>`+
       `<div class="body"><div class="nm">${v.style||v.title||('вариант '+(i+1))}</div>`+
-      `<div class="pr">${n} предметов · <b>${money(p)}</b></div>`+
+      `<div class="pr">${n} ${n%10===1&&n%100!==11?'товар':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'товара':'товаров')} · <b>${money(p)}</b></div>`+
       `<div class="acts">`+
         `<button class="btn" data-swap="${i}">Открыть</button>`+
         // ПУСТАЯ КАРТОЧКА ДОЛЖНА ПРЕДЛАГАТЬ СНЯТЬ (владелец 01.09: «когда фото чернового нет,
@@ -2378,9 +2420,10 @@ async function makePhoto(quality, srcId, replaceBatch){
   // честная оценка: генерация листа в 2048 идёт минуты, а не секунды (замер 01.09)
   const est=quality==='realistic'?'обычно 2–4 минуты':'обычно 20–25 секунд';
   shotOpen('<div class="wait"><div class="spin"></div>'+
-    (quality==='realistic'?'Рисуем фотографию по вашей расстановке'
-       :'Собираем вашу расстановку')+
-    ' по вашей расстановке…<br><span id="el">0</span> с<br><span id="qinfo" style="font-size:14px;color:var(--muted)"></span></div>',est);
+    // ОДНА ФРАЗА БЕЗ ХВОСТА (карта сценариев 2.7): общий хвост « по вашей расстановке…» после фразы, где он уже
+    // есть, давал «по вашей расстановке по вашей расстановке». Фразы целиком — их же переводит словарь EN внизу.
+    (quality==='realistic'?'Рисуем фотографию по вашей расстановке…':'Собираем кадр по вашей расстановке…')+
+    '<br><span id="el">0</span> с<br><span id="qinfo" style="font-size:14px;color:var(--muted)"></span></div>',est);
   const tick=setInterval(()=>{const e=document.getElementById('el');
     if(e)e.textContent=Math.round((Date.now()-t0)/1000);},500);
   try{
@@ -2395,7 +2438,10 @@ async function makePhoto(quality, srcId, replaceBatch){
     const r=await fetch('/api/render',{method:'POST',headers:{'content-type':'application/json'},
       body:JSON.stringify(Object.assign(payload(),{quality:quality},srcId?{src_id:srcId}:{},
         bg?{async:1}:{}))});
-    let j=await r.json();
+    let j=await r.json().catch(()=>({error:'сервер кадров недоступен (HTTP '+r.status+')',code:'lost'}));
+    // ЧЕСТНЫЙ ОТКАЗ СРАЗУ (demo-03, 14.10): без денег у сервиса картинок сервер отвечает за доли секунды кодом
+    // `no_credits`/`unavailable` — раньше страница 5 минут крутила спиннер и молчала.
+    if(j&&j.code&&!j.job){const e=new Error(j.error||'');e.code=j.code;throw e;}
     if(j&&j.job){
       const jid=j.job; let miss=0;
       // ПРЕДЕЛ ПО ОБЩЕМУ ВРЕМЕНИ (b2b-12, verify): раньше «считается» сбрасывало счётчик, и ожидание было
@@ -2411,11 +2457,16 @@ async function makePhoto(quality, srcId, replaceBatch){
           const rr=await fetch('/api/job?id='+encodeURIComponent(jid),{cache:'no-store'});
           jj=await rr.json();
         }catch(e){
-          // связь моргнула — это нормально, задание считается на сервере; просто спросим ещё
-          if(++miss>40)throw new Error('сервер долго не отвечает');
+          // СВЯЗЬ МОРГНУЛА ИЛИ СЕРВЕР ОБНОВЛЯЕТСЯ (502 на секунды выкладки) — задание не потеряно: оно хранится
+          // на сервере файлом и досчитается. Спрашиваем ТОТ ЖЕ номер (новое задание = риск второй оплаты, разбор
+          // Codex), но не молча: человек видит, что происходит. Предел — общий срок выше.
+          ++miss;
+          const q=document.getElementById('qinfo');
+          if(q)q.textContent=miss>=2?'Нет связи с сервером — ждём, кадр не потерян ('+miss*3+' с)':'';
           continue;
         }
         miss=0;
+        if(jj&&jj.code&&jj.status!=='running'){const e=new Error(jj.error||'');e.code=jj.code;throw e;}
         if(jj&&jj.status==='running'){
           const q=document.getElementById('qinfo');
           if(q)q.textContent=jj.queue?('В очереди: '+jj.queue+(jj.eta?' · примерно '+jj.eta+' с':''))
@@ -2459,10 +2510,23 @@ async function makePhoto(quality, srcId, replaceBatch){
       await new Promise(r=>setTimeout(r,1500));
       return makePhoto(quality, srcId, replaceBatch);
     }
-    shotOpen('<div class="wait">Не получилось собрать кадр.<br>'+
-      String(err.message||err).slice(0,160)+'</div>','попробуйте ещё раз');
+    // ОТКАЗ С КОДОМ (demo-03): «нет денег/сервер улучшения молчит» — текст сервера как есть; задание потеряно
+    // (сервер обновлялся, номер неизвестен) — кнопка «Повторить» тем же качеством. Платное повторяется только
+    // этой кнопкой человека — сервер сам за него не платит второй раз.
+    const code=err&&err.code||'';
+    if(code==='no_credits'||code==='unavailable'){
+      shotOpen('<div class="wait">'+escHtml(String(err.message||''))+'</div>','');
+      return;
+    }
+    const lost=code==='lost'||code==='not_found';
+    shotOpen('<div class="wait">'+(lost?'':'Не получилось собрать кадр.<br>')+
+      escHtml(String(err.message||err).slice(0,200))+
+      '<br><button class="btn primary" id="shRetry" style="margin-top:12px">Повторить</button></div>','');
+    const rb=document.getElementById('shRetry');
+    if(rb)rb.onclick=()=>makePhoto(quality, srcId, replaceBatch);
   }
 }
+function escHtml(t){return String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 // ——— просмотр кадра: якоря на мебели, список товаров с итогом, скачать, отправить себе
 function money(v){return (v||0).toLocaleString('ru-RU')+' ₽';}
 // КАРТОЧКА ТОВАРА У ЯКОРЯ (владелец 26.08: «навожу на цифру — не вижу карточки»): фото,
@@ -2509,7 +2573,7 @@ function shotListHtml(s){
   const all=shotListSource(s);
   shotRows=all;
   if(!all.length)return '';
-  const sum=all.reduce((t,a)=>t+(a.price||0),0);
+  const sum=totalsOf(all).sum;          // тот же счёт, что у карточки (карта 2.3)
   // ПОЛОСКА ВЕДЁТ ЧЕЛОВЕКА ПО ДВУМ ШАГАМ (владелец 02.09). Правил расстановку — фотография
   // отстала, зовём снять наш кадр. Кадр снят и это ЧЕРНОВИК — зовём сделать его
   // фотореалистичным. Иначе замена выглядит как поломка (строка сменилась, а картинка прежняя),
@@ -3741,7 +3805,19 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
     'Хочу другой вариант':'I want another option','Что подобрать иначе?':'What should we change?','Дорого':'Too expensive','Не мой стиль':'Not my style',
     'Тесно / не помещается':'Too cramped / does not fit','Другой цвет':'Another colour','Другое':'Something else','Отправляем…':'Sending…',
     'Сумма при условии оплаты наличными, без ипотеки и рассрочки':'Price for full payment, without mortgage or instalments','Перейти к товару →':'Go to product →',
-    'Сделать фото · ~25 сек':'Take a photo · ~25 s','Посмотреть изменения на фото · ~25 сек':'See changes in a photo · ~25 s','Комплект: —':'Set: —',
+    'Планировка':'Layout','Рисуем фотографию по вашей расстановке…':'Painting a photo of your layout…',
+    'Собираем кадр по вашей расстановке…':'Building a shot of your layout…','обычно 2–4 минуты':'usually 2–4 minutes',
+    'обычно 20–25 секунд':'usually 20–25 seconds','с':'s','Не получилось собрать кадр.':'Could not build the shot.',
+    'попробуйте ещё раз':'please try again','Один кадр уже считается — дождитесь его.':'A shot is already being made — please wait for it.',
+    'Ссылка скопирована':'Link copied','Повторить':'Retry',
+    'Улучшение фото сейчас недоступно: у сервиса картинок закончился баланс. Черновое фото работает — его можно снять как обычно.':
+      'Photo enhancement is unavailable right now: the image service has run out of balance. Draft photos still work.',
+    'Улучшение фото сейчас недоступно: сервер улучшения не отвечает. Черновое фото работает — попробуйте улучшить позже.':
+      'Photo enhancement is unavailable right now: the enhancement server is not responding. Draft photos still work — try again later.',
+    'задание не найдено — нажмите «Повторить»':'The job was lost — press “Retry”',
+    'Задание прервалось при обновлении сервера — нажмите «Повторить».':'The job was interrupted by a server update — press “Retry”.',
+    'Улучшение прервалось: сервер обновлялся. Результат неизвестен — повтор может потребовать новую оплату. Нажмите «Повторить», если фото всё ещё нужно.':
+      'Enhancement was interrupted by a server update. The result is unknown — a retry may be charged again. Press “Retry” if you still need the photo.','Сделать фото · ~25 сек':'Take a photo · ~25 s','Посмотреть изменения на фото · ~25 сек':'See changes in a photo · ~25 s','Комплект: —':'Set: —',
     'Кухня от партнёров застройщика':"Kitchen from the developer's partners",
     'Спальни появятся следующим шагом — подбор мебели по той же схеме, что в гостиной.':'Bedrooms are coming next — furnished the same way as the living room.',
     'Кухня появится следующим шагом — варианты от партнёров застройщика.':"The kitchen is coming next — options from the developer's partners.",
@@ -3763,7 +3839,7 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
     [/^(.+?) · (\d+(?:×\d+)+)\s*см · (.+)$/,function(m){var r=role(m[1]);return r?r+' · '+m[2]+' cm · '+m[3]:null;}],
     [/^(.+?) · (.+\.[a-z]{2,})$/,function(m){var r=role(m[1]);return r?r+' · '+m[2]:null;}],
     [/^(.+?) (\d+×\d+)$/,function(m){var r=role(m[1]);return r?r+' '+m[2]:null;}],
-    [/^(\d+) (предмет|предмета|предметов) ·$/,function(m){return m[1]+' items ·';}],
+    [/^(\d+) (предмет|предмета|предметов|товар|товара|товаров) ·$/,function(m){return m[1]+(m[1]==='1'?' item ·':' items ·');}],
     [/^(\d+) (вид|вида|видов)$/,function(m){return m[1]+(m[1]==='1'?' view':' views');}],
     [/^Итого (\d+) товар\S*$/,function(m){return 'Total '+m[1]+' items';}],
     [/^Мебель варианта «(.+)»$/,function(m){return 'Furniture: '+m[1].split(' · ').map(function(x){return STYLE[x]||x;}).join(' · ');}],
@@ -3776,6 +3852,10 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
     [/^Товары на фото · (\d+)$/,function(m){return 'Items in the photo · '+m[1];}],[/^Камера (\d+)$/,function(m){return 'Camera '+m[1];}],
     [/^Стиль «(.+?)»: сейчас нет полного набора в наличии \(не хватает: (.+)\) — покажем, как только появится\.$/,function(m){
       return 'Style “'+(STYLE[m[1]]||m[1])+'”: no complete set in stock right now (missing: '+m[2].split(', ').map(function(x){return role(x)||x;}).join(', ')+') — we will show it once available.';}],
+    [/^Комплект: (.+)$/,function(m){return 'Set: '+m[1];}],
+    [/^В очереди: (\d+)(?: · примерно (\d+) с)?$/,function(m){return 'In queue: '+m[1]+(m[2]?' · about '+m[2]+' s':'');}],
+    [/^осталось примерно (\d+) с$/,function(m){return 'about '+m[1]+' s left';}],
+    [/^Нет связи с сервером — ждём, кадр не потерян \((\d+) с\)$/,function(m){return 'No connection to the server — waiting, the shot is not lost ('+m[1]+' s)';}],
     [/^Выбранный вариант: (.+)$/,function(m){return 'Selected: '+m[1];}],
     [/^(\d+(?:[.,]\d)?)\s*м²$/,function(m){return m[1].replace(',','.')+' m²';}],
     [/^Ваш менеджер: (.+)$/,function(m){return 'Your manager: '+m[1];}],
