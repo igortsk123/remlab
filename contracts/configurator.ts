@@ -170,6 +170,9 @@ export const configuration = z.object({
   baseSnapshot: z.record(z.string(), z.string()).optional(),
   selections: z.record(z.string(), z.string()), // slotId → optionId
   placements: z.record(z.string(), placementOverride).default({}), // slotId → куда передвинули
+  /** Предметы, которые покупатель убрал из комнаты (кнопка «Убрать», flat3d-sims-ux): нет ни в сцене, ни в цене.
+   *  Только мебель — встроенное и отделку убрать нельзя. Необязательное поле: старые ссылки читаются как есть. */
+  hidden: z.array(z.string().max(80)).max(200).optional(),
   updatedAt: z.string().optional(),
 });
 export type Configuration = z.infer<typeof configuration>;

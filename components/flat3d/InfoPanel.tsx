@@ -19,13 +19,18 @@ type Props = {
   onRoom: (id: string) => void;
   onOverview: () => void;
   defaultOpen: boolean;
+  /** Убранные покупателем предметы — строкой «вернуть» (flat3d-sims-ux «убрать»). */
+  hidden: string[];
+  onUnhide: (slotId: string) => void;
 };
 
 const HELP: Record<Lang, string[]> = {
-  ru: ["Ходите кнопками внизу или стрелками, смотрите — перетаскиванием.", "Нажмите на предмет — внизу появятся варианты и кнопка «Передвинуть».",
-    "Перемещение: тяните предмет, зелёный — встанет, красный — нет; ↺ ↻ поворачивают.", "«Сохранить» даёт ссылку на ваш подбор."],
-  en: ["Walk with the buttons below or the arrow keys, drag to look around.", "Tap an item — options and the “Move” button appear below.",
-    "Moving: drag the item, green fits, red does not; ↺ ↻ rotate it.", "“Save” gives you a link to your selection."],
+  ru: ["Ходите кнопками внизу или стрелками, смотрите — перетаскиванием.", "Нажмите на предмет — над ним появятся «Варианты», «Двигать» и «Убрать».",
+    "Перемещение: тяните предмет, зелёный — встанет, красный — нет; ↺ ↻ поворачивают.", "↶ отменяет последнее действие, ↷ возвращает (Ctrl+Z).",
+    "«Сохранить» даёт ссылку на ваш подбор."],
+  en: ["Walk with the buttons below or the arrow keys, drag to look around.", "Tap an item — “Options”, “Drag” and “Remove” appear above it.",
+    "Moving: drag the item, green fits, red does not; ↺ ↻ rotate it.", "↶ undoes the last action, ↷ redoes it (Ctrl+Z).",
+    "“Save” gives you a link to your selection."],
 };
 
 export function InfoPanel(p: Props) {
@@ -69,6 +74,15 @@ export function InfoPanel(p: Props) {
               <span className="shrink-0 text-tertiary">{i.price > 0 ? `+${p.fmt(i.price)}` : en ? "incl." : "вх."}</span>
             </div>
           ))}
+          {p.hidden.filter((id) => p.apartment.slots.find((s) => s.id === id)?.roomId === p.roomId).map((id) => {
+            const slot = p.apartment.slots.find((s) => s.id === id)!;
+            return (
+              <div key={id} className="flex justify-between gap-2 py-1 text-tertiary">
+                <span className="truncate">{(en ? slot.titleEn : slot.titleRu) + (en ? " — removed" : " — убрано")}</span>
+                <button type="button" className="shrink-0 underline" onClick={() => p.onUnhide(id)}>{en ? "Bring back" : "Вернуть"}</button>
+              </div>
+            );
+          })}
           <div className="mt-2 flex justify-between border-t border-secondary pt-2">
             <b>{en ? "Total" : "Итого"}</b><b>{p.fmt(p.scene.totals.total)}</b>
           </div>

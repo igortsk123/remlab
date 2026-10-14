@@ -37,7 +37,7 @@ interface Props {
 export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, certificate, facts }: Props) {
   const L = t(lang);
   const fmt = (v: number) => formatMoney(v, catalogue.currency, lang);
-  const { config, scene, choose, moveSlot, resetSlotPlacement, reset, isDefault } = useFlatConfig(
+  const { config, scene, choose, moveSlot, resetSlotPlacement, hideSlot, unhideSlot, reset, undo, redo, canUndo, canRedo, isDefault } = useFlatConfig(
     apartment,
     catalogue,
     initialConfig,
@@ -90,6 +90,23 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
       void document.exitFullscreen?.().catch(() => {});
     }
   }, [is3d]);
+
+  // ОТМЕНА С КЛАВИАТУРЫ: Ctrl/⌘+Z — назад, Ctrl/⌘+Shift+Z или Ctrl+Y — вперёд (не в полях ввода)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || (e.target as HTMLElement | null)?.closest?.("input,textarea,select")) return;
+      const k = e.key.toLowerCase();
+      if (k === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
+      else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); redo(); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [undo, redo]);
+
+  const removeItem = useCallback((id: string) => {
+    hideSlot(id);
+    setSlotId(null);
+  }, [hideSlot]);
 
   useEffect(() => {
     if (!is3d) return;
@@ -254,6 +271,7 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
             ) : null}
           </span>
           {certificate ? <CertificateLine amount={certificate.amount} spent={scene.totals.upgrades} fmt={fmt} lang={lang} /> : null}
+          <UndoRedo lang={lang} undo={undo} redo={redo} canUndo={canUndo} canRedo={canRedo} />
           {!isDefault ? (
             <button
               type="button"
@@ -335,7 +353,8 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
             onRoomChange={(id) => id && setRoomId(id)}
             onItemOptions={() => setBarOpen(true)}
             onItemMove={startMove}
-            itemLabels={lang === "en" ? { options: "Options", move: "Drag" } : { options: "Варианты", move: "Двигать" }}   // не «Передвинуть»: та кнопка есть в нижней панели
+            onItemRemove={slotId && apartment.slots.find((s) => s.id === slotId)?.kind === "furniture" ? removeItem : undefined}
+            itemLabels={lang === "en" ? { options: "Options", move: "Drag", remove: "Remove" } : { options: "Варианты", move: "Двигать", remove: "Убрать" }}   // не «Передвинуть»: та кнопка есть в нижней панели
             hintText={mobile ? L.walkHintMobile : L.walkHint}
             loadingText={L.loading}
             noWebglText={L.noWebgl}
@@ -344,7 +363,8 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
         ) : null}
         {is3d ? (
           <InfoPanel apartment={apartment} scene={scene} roomId={roomId} facts={facts ?? ""} lang={lang} fmt={fmt}
-            inRoom={mode === "walk"} onRoom={(id) => setRoomId(id)} onOverview={() => setMode("top")} defaultOpen={false} />
+            inRoom={mode === "walk"} onRoom={(id) => setRoomId(id)} onOverview={() => setMode("top")} defaultOpen={false}
+            hidden={config.hidden ?? []} onUnhide={unhideSlot} />
         ) : null}
         {mode === "top" ? (
           // КНОПКИ КОМНАТ НА ВИДЕ СВЕРХУ (flat3d-sims-ux D3): войти в комнату одним нажатием, как на плане
@@ -404,6 +424,17 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
         )}
       </section>
     </div>
+  );
+}
+
+/** «↶ ↷» — отмена и возврат любого действия покупателя (flat3d-sims-ux, критерии приёмки). */
+function UndoRedo({ lang, undo, redo, canUndo, canRedo }: { lang: Lang; undo: () => void; redo: () => void; canUndo: boolean; canRedo: boolean }) {
+  const cls = "min-h-11 min-w-11 rounded-lg text-lg text-secondary ring-1 ring-inset ring-secondary disabled:opacity-40";
+  return (
+    <>
+      <button type="button" className={cls} onClick={undo} disabled={!canUndo} aria-label={lang === "en" ? "Undo" : "Отменить"} title={lang === "en" ? "Undo (Ctrl+Z)" : "Отменить (Ctrl+Z)"}>↶</button>
+      <button type="button" className={cls} onClick={redo} disabled={!canRedo} aria-label={lang === "en" ? "Redo" : "Вернуть"} title={lang === "en" ? "Redo" : "Вернуть"}>↷</button>
+    </>
   );
 }
 

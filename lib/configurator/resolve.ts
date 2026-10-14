@@ -145,9 +145,12 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
   let upgrades = 0;
   let upgradeCount = 0;
 
+  const hidden = new Set(config.hidden ?? []);
   for (const slot of a.slots) {
     const opt = chosen.get(slot.id);
     if (!opt) continue;
+    // УБРАННОЕ ПОКУПАТЕЛЕМ: мебели нет ни в сцене, ни в сумме; встроенное и отделка не убираются (их нет без ремонта)
+    if (hidden.has(slot.id) && slot.kind !== "surface" && slot.kind !== "builtin") continue;
     const price = priceOf(opt);
     if (price > 0 || opt.tier !== "base") {
       upgrades += price;

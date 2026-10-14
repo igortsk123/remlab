@@ -379,3 +379,18 @@ test("правая панель состава: открывается кноп�
   await page.getByRole("button", { name: "← Вся квартира" }).click();
   await expect(page.getByRole("tab", { name: "Сверху" })).toHaveAttribute("aria-selected", "true");
 });
+
+test("отмена и возврат: выбор кухни отменяется ↶ и возвращается ↷", async ({ page }) => {
+  await page.goto("/flat");
+  await page.getByRole("tab", { name: "План" }).click();
+  const bar = page.locator('[data-flat3d="toolbar"]');
+  await expect(page.getByRole("button", { name: "Отменить", exact: true })).toBeDisabled();
+  await page.getByLabel("Комната").selectOption("kitchen");
+  await page.locator('[data-slot="kitchen-units"]').click();
+  await page.getByRole("button", { name: /Кухня Premium/ }).click();
+  await expect(bar).toContainText("8 700");
+  await page.getByRole("button", { name: "Отменить", exact: true }).click();
+  await expect(bar).not.toContainText("8 700");
+  await page.getByRole("button", { name: "Вернуть", exact: true }).click();
+  await expect(bar).toContainText("8 700");
+});

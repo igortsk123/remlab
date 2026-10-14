@@ -44,7 +44,9 @@ export interface Scene3DProps {
   /** Кнопки у выбранного предмета (flat3d-sims-ux C1): «Заменить» открывает варианты, «Передвинуть» — перемещение. */
   onItemOptions?: () => void;
   onItemMove?: (slotId: string) => void;
-  itemLabels?: { options: string; move: string };
+  /** «Убрать» предмет; undefined у встроенного — кнопки нет. */
+  onItemRemove?: (slotId: string) => void;
+  itemLabels?: { options: string; move: string; remove: string };
   hintText: string;
   loadingText: string;
   noWebglText: string;
@@ -334,6 +336,7 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
           project={projectSelected}
           onOptions={props.onItemOptions}
           onMove={props.onItemMove ? () => props.onItemMove!(selectedSlotId) : undefined}
+          onRemove={props.onItemRemove ? () => props.onItemRemove!(selectedSlotId) : undefined}
           labels={props.itemLabels}
         />
       ) : null}

@@ -7,11 +7,13 @@ import { useEffect, useState } from "react";
 // (`viewer.projectSlot`), раз в кадр; предмет ушёл из вида — кнопки прячутся.
 type Pos = { x: number; y: number; visible: boolean } | null;
 
-export function ObjectTools({ project, onOptions, onMove, labels }: {
+export function ObjectTools({ project, onOptions, onMove, onRemove, labels }: {
   project: () => Pos;
   onOptions: () => void;
   onMove?: () => void;
-  labels: { options: string; move: string };
+  /** «Убрать» — только у мебели; вернуть — отменой или из правой панели. */
+  onRemove?: () => void;
+  labels: { options: string; move: string; remove: string };
 }) {
   const [pos, setPos] = useState<Pos>(null);
   useEffect(() => {
@@ -30,6 +32,7 @@ export function ObjectTools({ project, onOptions, onMove, labels }: {
     <div data-flat3d="object-tools" style={{ position: "absolute", left: pos.x, top: Math.max(8, pos.y - 70), transform: "translateX(-50%)", zIndex: 4, display: "flex", gap: 6 }}>
       <button type="button" className={btn} onClick={onOptions}>{labels.options}</button>
       {onMove ? <button type="button" className={btn} onClick={onMove}>{labels.move}</button> : null}
+      {onRemove ? <button type="button" className={btn} onClick={onRemove}>{labels.remove}</button> : null}
     </div>
   );
 }

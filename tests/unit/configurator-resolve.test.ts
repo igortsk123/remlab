@@ -61,6 +61,22 @@ describe("конфигуратор: разрешение выбора и цен�
     expect(scene.totals.upgradeCount).toBe(2);
   });
 
+  it("«убрать»: мебели нет ни в сцене, ни в цене; встроенное и отделку убрать нельзя", () => {
+    const furn = apartment.slots.find((s) => s.kind === "furniture" && s.placement)!;
+    const built = apartment.slots.find((s) => s.kind === "builtin" && s.placement);
+    const cfg = { ...defaultConfiguration(apartment, catalogue), hidden: [furn.id, ...(built ? [built.id] : []), "living-floor"] };
+    const scene = resolveScene(apartment, catalogue, cfg);
+    expect(scene.items.some((i) => i.slotId === furn.id)).toBe(false);
+    if (built) expect(scene.items.some((i) => i.slotId === built.id)).toBe(true);
+    expect(scene.surfaces.some((s) => s.slotId === "living-floor")).toBe(true);
+    // дорогой вариант убранного предмета в сумму не идёт
+    const paid = optionsForSlot(apartment, catalogue, furn).find((o) => o.id !== furn.defaultOptionId);
+    if (paid) {
+      cfg.selections[furn.id] = paid.id;
+      expect(resolveScene(apartment, catalogue, cfg).totals.byRoom[furn.roomId] ?? 0).toBe(0);
+    }
+  });
+
   it("неизвестная опция откатывается к базовой и попадает в issues, сцена не рушится", () => {
     const cfg = defaultConfiguration(apartment, catalogue);
     cfg.selections["living-floor"] = "нет-такой-опции";
