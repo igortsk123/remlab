@@ -40,7 +40,12 @@ export function useFlatConfig(
   catalogue: Catalogue,
   initial?: Configuration | null,
 ): FlatConfigState {
-  const base = useMemo(() => defaultConfiguration(apartment, catalogue), [apartment, catalogue]);
+  // открыт из коллекции — её номер остаётся и после «Сброса» (иначе сохранённая ссылка открыла бы исходный набор)
+  const collId = initial?.collectionId;
+  const base = useMemo(
+    () => ({ ...defaultConfiguration(apartment, catalogue), ...(collId ? { collectionId: collId } : {}) }),
+    [apartment, catalogue, collId],
+  );
   const [config, setConfig] = useState<Configuration>(initial ?? base);
   const [hydrated, setHydrated] = useState(Boolean(initial));
   const [hist, setHist] = useState<History<Configuration>>(emptyHistory);

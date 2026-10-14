@@ -57,3 +57,8 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-10-14	.memory_bank/deployment.md	code	22	0	0	
 2026-10-14	.memory_bank/core/leads.md	code	22	1	1	
 2026-10-14	core/bedroom.md	code	30	2	2	
+2026-10-14	core/apartment-configurator.md	code	27	6	6	
+2026-10-14	core/demo-planner.md	code	30	3	3	
+2026-10-14	core/data-model.md	code	30	3	3	
+2026-10-14	core/regression-net.md	code	27	5	5	
+2026-10-14	domain/deployment-details.md	code	62	7	7	

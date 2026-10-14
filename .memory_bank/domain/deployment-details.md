@@ -24,8 +24,8 @@ last_verified: 2026-09-05
 2. **Сборка** — нативный arm64-раннер (`ubuntu-24.04-arm`), кэш слоёв `type=gha`, push в GHCR.
    Эмуляция arm64 через QEMU крашила Next-SWC-воркер (SIGILL) — не возвращать.
 3. **Синхронизация сервера.** `docker-compose.yml` — `scp`; `db/init` — `rsync -az --delete`
-   (репозиторий владеет каталогом целиком); `tools/apply-db-init.sh` и
-   `infra/server/deploy-remote.sh` — в `/opt/remlab/scripts/`.
+   (репозиторий владеет каталогом целиком); `tools/apply-db-init.sh`, `deploy-remote.sh`, `caddy-sync.sh`, сторожа,
+   `salad-deadman.py`, `cleanup.sh` и др. (список — `deploy.yml`) — в `/opt/remlab/scripts/`; `Caddyfile.new` → `caddy-sync`.
 4. **Место на диске** — `cleanup.sh` ДО pull (он берёт `.deploy.lock` сам, поэтому вызывается вне
    критической секции: вложенный вызов под тем же замком повис бы).
 5. **Критическая секция** — `flock -w 900 /opt/remlab/.deploy.lock … deploy-remote.sh`:
@@ -62,9 +62,8 @@ remlab-app:prev` не срабатывала ни разу — сервер тя
 - **Диск и очистка (ADR-0005/0176):** `remlab-cleanup` weekly + из CI (теги `remlab-app:*` кроме
   используемых, под flock); `pg_dump` ×7; `remlab-watchdog.timer` ежечасно: ≥80% → cleanup →
   Telegram; рестарты `remlab-app` → `backups/app-mem.log`.
-- Скрипты `infra/server/*` (кроме двух деплойных) кладутся на сервер руками — деплой их не
-  доставляет. Это известный долг: коммит может менять приёмник/Caddy и «успешно выкатиться», а
-  сервер останется на старом коде.
+- Скрипты `infra/server/*` деплой везёт по списку в `deploy.yml`; руками остаются `infra/server/scripts/catalog-watchdog.sh`,
+  юниты systemd и аварийный `draft-run.sh`.
 
 ## Правки сервера 31.08
 sshd, iptables-туннель DEV-рендера, `remlab-draft` через docker cp — ADR-0139
@@ -75,10 +74,10 @@ sshd, iptables-туннель DEV-рендера, `remlab-draft` через dock
 Compose передаёт app ЯВНЫЙ `environment:`-список — новый ключ = правка compose.
 
 ## Caddy, статик и контейнеры — детали (вынесено из сводки 2026-09-05, сверено с кодом)
-- Лимиты памяти (ADR-0004): app 1G / pg 1G / caddy 128M / imagor 256M / mesh-receiver 256M.
+- Лимиты памяти (ADR-0004): app 1G / pg 1G / caddy 128M / imagor 256M / mesh-receiver 256M / draft 2200M, 2 CPU.
 - `caddy/Caddyfile` проксирует `/api/{draft,warm,render,job,share}*` → `draft:8099` — это
   `tools/scout/draft_service.py` (DEV-рендер демо через обратный ssh-туннель, ADR-0139), сервис
-  вне compose. Блока `/lab/*` в Caddyfile нет и не было — `/lab/*` отдаёт Next (`remlab-app:3000`).
+  compose с 14.10 (ADR-0278). Блока `/lab/*` в Caddyfile нет и не было — `/lab/*` отдаёт Next (`remlab-app:3000`).
 - Маршрут `/test/mesh-audit/*` (05.09, ADR-0194): `public, max-age=604800, immutable` для партий
   моделей и постеров приёмки; каталоги `/opt/remlab/test/mesh-audit/{releases,posters}` создаёт
   публикатор или руки. **Caddyfile едет деплоем (13.10, ADR-0256):** `deploy.yml` и `deploy.sh` кладут
@@ -87,8 +86,7 @@ Compose передаёт app ЯВНЫЙ `environment:`-список — новы
   (bind по inode), `reload`, при провале — возврат бэкапа. Руками на сервере не править.
 - Smoke: `deploy.yml` сверяет `ok=true` и `version == TARGET_SHA` на шаге `!cancelled()`; ручной
   `deploy.sh:63-70` решает успех по одному HTTP 200, `ok` не проверяет и версию только печатает.
-- Очистка диска: `infra/server/cleanup.sh` + `infra/server/systemd/*.service`; `.timer` в репо нет
-  (на сервере расписание — проверить `systemctl list-timers` при следующей правке).
+- Очистка диска: `infra/server/cleanup.sh` + `infra/server/systemd/*.service`; таймеры — `infra/server/systemd/*.timer`.
 
 ## Откат прода вручную (перенесено из сводки 08.09)
 ```
@@ -114,7 +112,7 @@ flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev
   перезапуск стека: рядом боевая VPN-нода `remnanode`).
 - **Порядок директив:** `redir` в Caddyfile вычисляется РАНЬШЕ `handle`/`handle_path`, поэтому
   точечный редирект корня (`/x`, `/x/`) сосуществует с раздачей глубоких адресов из того же блока.
-- **Прибитые пути.** `/test/` встречается абсолютным путём в 91 месте в 38 файлах `tools/`,
+- **Прибитые пути.** `/test/` встречается абсолютным путём в сотнях мест `tools/` (14.10: 306 строк в 67 файлах),
   каталог `/opt/remlab/test` = 4.6 ГБ. Новый публичный адрес вводить alias-маршрутом на тот же
   `root`, а не переносом файлов: иначе ломаются генераторы и уже разосланные ссылки.
 
@@ -145,7 +143,7 @@ flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev
 |---|---|---|---|
 | Рендер кадров «Сделать фото» (`tools/scout/dev_render_backend.sh`, туннель `172.18.0.1:8601`) | прод сам падает на локальный рендер (`draft_service.py`, `backend`) — дольше, но работает | сразу | ничего; готовые кадры лежат на сервере |
 | Ночной прогон каталога `refresh_daily.sh` (10:40 по DEV): цены, наличие, сборка и публикация демо | демо и 3D живут на последнем опубликованном `demo-data.json` (лежит на сервере); цены стареют | сутки | сторож каталога на сервере (15:30 UTC) шлёт тревогу |
-| Конвейер мешей и сторож простоя Salad (`tools/scout/salad/idle_guard.sh`, cron DEV) | **ноды Salad, запущенные до выключения, крутятся и тратят деньги — гасить некому** | часы | погасить группы в портале Salad; перенос сторожа на сервер — `conv-11`/`b2b-08` |
+| Конвейер мешей и сторож простоя Salad (`tools/scout/salad/idle_guard.sh`, cron DEV) | ноды Salad гасит сервер: нет отметки жизни конвейера 30 мин → `/stop` с проверкой (`infra/server/salad-deadman.py`, ADR-0274) | ≤ 40 мин | ничего |
 | Мост приёмки мешей (`mesh_review_sync.py`) | решения владельца на `/lab/mesh-*` копятся на сервере, не теряются | — | догонит при включении |
 | Копия бэкапа вне сервера (`tools/ops/backup-pull.sh`, 04:15) и репетиция (`restore-drill.sh`, вс 04:30) | копии нет за эти сутки; дампы на сервере остаются (7 шт.) | — | после включения — `backup-pull.sh` руками |
 | Публикация моделей/статики (scp с DEV) | новые модели не появляются | — | — |
@@ -176,7 +174,7 @@ compose (очередь кадров, прогрев, время кадра — 
 `/opt/remlab/scripts/draft-run.sh --image remlab-draft:<sha>` (снимок старого → `remlab-draft:prev`; не та версия в
 `/health` — откат). Откат вручную: `draft-run.sh --image remlab-draft:prev`. Env — `/opt/remlab/draft/.env` (в нём
 лишние секреты: POSTGRES_PASSWORD, TRACE_ADMIN_TOKEN — сервису не нужны, убрать при переезде в compose).
-Перед переключением — канарейка: тот же запрос `/render` (`no_proxy:1`, `quality:draft`) старому и временному
+Перед ручным переключением (13.10, не скриптом) — канарейка: тот же запрос `/render` (`no_proxy:1`, `quality:draft`) старому и временному
 контейнеру `remlab-draft-canary`, сравнить JPEG.
 
 ## Модели 3D демо — кэш (14.10, b2b-12)

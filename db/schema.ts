@@ -310,6 +310,9 @@ export const flatConfigs = pgTable(
     baseVariant: text("base_variant"),
     baseSnapshot: jsonb("base_snapshot").$type<Record<string, string>>(),
     contact: jsonb("contact").$type<Record<string, unknown>>(),
+    /** Убранные покупателем предметы и коллекция, из которой открыт 3D (020, ADR-0281). */
+    hidden: jsonb("hidden").$type<string[]>(),
+    collectionId: text("collection_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

@@ -5,6 +5,7 @@ import { OpenBeacon } from "@/components/flat3d/OpenBeacon";
 import type { Configuration } from "@/contracts/configurator";
 import { baseSnapshotOf, staleSlots } from "@/lib/configurator/fromDemo";
 import { readConfig } from "@/lib/configurator/repo";
+import { defaultConfiguration } from "@/lib/configurator/resolve";
 import { defaultApartmentId, resolveCollectionFlat, resolveFlat } from "@/lib/configurator/source";
 import { apartmentCard } from "@/lib/partners/registry";
 import type { Lang } from "@/lib/configurator/i18n";
@@ -46,7 +47,7 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
   if (!apartmentId) notFound();
 
   // КОЛЛЕКЦИЯ ПОКУПАТЕЛЯ (`?coll=`, b2b-05): расстановка и товары из неё, квартира — её же
-  const fromColl = !saved && sp.coll && TOKEN_RE.test(sp.coll) ? sp.coll : null;
+  const fromColl = saved?.collectionId ?? (!saved && sp.coll && TOKEN_RE.test(sp.coll) ? sp.coll : null);
   let flat = fromColl ? await resolveCollectionFlat(fromColl) : await resolveFlat(apartmentId, baseVariant);
   // Набора из сохранения больше нет на витрине (ночная пересборка) — открываем ту же квартиру с
   // текущим набором и честно говорим об этом, а не 404 (verify 13.10).
@@ -77,6 +78,8 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
       initial = { ...saved, selections: drop(saved.selections), placements: drop(saved.placements ?? {}) };
     }
   }
+  // открыт из коллекции — номер коллекции едет в подбор, чтобы сохранённая ссылка открывала ту же расстановку
+  if (!saved && fromColl) initial = { ...defaultConfiguration(apartment, catalogue), collectionId: fromColl };
   const card = apartmentCard(hit, lang);
 
   return (

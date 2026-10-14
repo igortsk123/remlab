@@ -94,6 +94,8 @@ export async function saveConfig(input: SaveInput): Promise<string> {
       baseSnapshot: input.configuration.baseSnapshot ?? null,
       quote: input.quote as unknown as Record<string, unknown>,
       contact: input.contact ?? null,
+      hidden: input.configuration.hidden ?? null,
+      collectionId: input.configuration.collectionId ?? null,
     });
   return id;
 }
@@ -115,6 +117,8 @@ export async function readConfig(id: string): Promise<SavedConfig | null> {
       placements: (row.placements as Record<string, { x: number; y: number; rot: number }>) ?? {},
       ...(row.baseVariant ? { baseVariant: row.baseVariant } : {}),
       ...(row.baseSnapshot ? { baseSnapshot: row.baseSnapshot } : {}),
+      ...(row.hidden ? { hidden: row.hidden } : {}),
+      ...(row.collectionId ? { collectionId: row.collectionId } : {}),
       updatedAt: row.updatedAt.toISOString(),
     }),
     quote: upgradeQuote(row.quote),

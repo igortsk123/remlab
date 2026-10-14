@@ -6,7 +6,7 @@ import { guard } from "@/lib/ratelimit/http";
 import { baseSnapshotOf } from "@/lib/configurator/fromDemo";
 import { buildQuote, revisions } from "@/lib/configurator/quote";
 import { saveConfig } from "@/lib/configurator/repo";
-import { resolveFlat } from "@/lib/configurator/source";
+import { resolveCollectionFlat, resolveFlat } from "@/lib/configurator/source";
 import { certificateAmount } from "@/lib/partners/registry";
 
 export const runtime = "nodejs";
@@ -27,7 +27,8 @@ export async function POST(req: Request): Promise<Response> {
   if (Object.keys(cfg.selections).length > 200) {
     return NextResponse.json({ error: "слишком большой подбор" }, { status: 400 });
   }
-  const flat = await resolveFlat(cfg.apartmentId, cfg.baseVariant);
+  // подбор из 3D коллекции — пересобираем ту же коллекцию, а не исходный набор витрины (verify 14.10)
+  const flat = cfg.collectionId ? await resolveCollectionFlat(cfg.collectionId) : await resolveFlat(cfg.apartmentId, cfg.baseVariant);
   if (!flat.ok) {
     return flat.reason === "unavailable"
       ? NextResponse.json({ error: "витрина временно недоступна, попробуйте через минуту" }, { status: 503 })

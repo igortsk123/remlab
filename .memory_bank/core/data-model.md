@@ -28,7 +28,7 @@ review_after: 2026-12-05
 - **mesh_review_* / mesh_audit_*** (`007-mesh-review.sql`, `010-mesh-audit.sql`) — ручная проверка мешей
   (`/lab/mesh-review`, `/lab/mesh-audit`, ADR-0188…0194); детали — Tier 2.
 - **rate_limits / share_requests** (`013-security.sql`, ADR-0256); **managers / sends / send_events / signal_outbox**
-  (`014-sends.sql`, ADR-0257; там же `dedup_marks`, `tg_updates`); **flat_configs v3** (`015`); **collections** (`016-collections.sql`, ADR-0264, без ПДн); **page_counters / partner_keys** (`017-analytics.sql`, ADR-0265); **retention_runs** + `consent_version` (`018-legal.sql`, ADR-0268).
+  (`014`, ADR-0257); **flat_configs** (`015`, `020`: hidden, collection_id); **collections** (`016`); **page_counters / partner_keys** (`017`); **retention_runs** (`018`); **owner_reviews** (`019`).
 
 ## Изоляция и доступ
 - **RLS НЕТ** (одна роль remlab). Изоляция — фильтр `session_id` в приложении (`listBySession`).
@@ -38,11 +38,12 @@ review_after: 2026-12-05
 - pgvector установлен, но не используется (`001-extensions.sql`).
 - Миграции = идемпотентный raw SQL `db/init/NNN-*.sql`; CI и оба деплоя прогоняют их одним
   `tools/apply-db-init.sh`. Здесь ТОЛЬКО прод-схема; каталожные — `tools/scout/NNN-*.sql`, `bootstrap.sql` и
-  DDL в скриптах (`mesh_queue.py`, `load3.py`) → дев-БД (ADR-0179). drizzle-kit и down-миграций НЕТ. БД — контейнер pgvector/pg17 (ADR-0002).
+  DDL в скриптах (`mesh_queue.py`, `load3.py`) → дев-БД (ADR-0179). drizzle-kit и down-миграций НЕТ (`tools/migrate.mjs` — устаревший). БД — контейнер pgvector/pg17 (ADR-0002).
 
 ## Дев-БД каталога (`remlab-devdb`, `tools/scout/`)
 `products` (+ `availability_state/page_state/basis`, ADR-0186), `asset_revisions`, `orientation_state`,
-`product_photo_current`, `image_url_hd` (ADR-0182), `mesh_generations` (ADR-0188) — [[catalog]],
+`product_photo_current`, `image_url_hd` (ADR-0182), `mesh_generations` (ADR-0188), `mesh_quarantine` (012, ADR-0276),
+`room_catalog`/`room_catalog_runs` (013, спальня, ADR-0279) — [[catalog]],
 [[stock-and-dims]], [[mesh-pipeline]].
 
 **Tier 2:** `../../docs/tech-spec-ts-stack.md` §4.

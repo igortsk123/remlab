@@ -173,6 +173,8 @@ export const configuration = z.object({
   /** Предметы, которые покупатель убрал из комнаты (кнопка «Убрать», flat3d-sims-ux): нет ни в сцене, ни в цене.
    *  Только мебель — встроенное и отделку убрать нельзя. Необязательное поле: старые ссылки читаются как есть. */
   hidden: z.array(z.string().max(80)).max(200).optional(),
+  /** Коллекция покупателя, из которой открыт 3D (`/flat?coll=`, b2b-05): по ссылке подбор откроется на её расстановке. */
+  collectionId: z.string().regex(/^[A-Za-z0-9_-]{22}$/).optional(),
   updatedAt: z.string().optional(),
 });
 export type Configuration = z.infer<typeof configuration>;
