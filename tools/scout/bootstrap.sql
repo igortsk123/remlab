@@ -27,6 +27,23 @@ create table if not exists scrape_queue (
  shop_mid int, external_id text, primary key(shop_mid, external_id),
  role text, direct_url text, status text default 'new', tries int default 0, note text);
 
+-- КОЛОНКИ, КОТОРЫЕ ДОБАВЛЯЮТ СКРИПТЫ НА ХОДУ (`load3.py`, `category_map.py`), — здесь тоже (14.10, conv-06): иначе
+-- схема на чистой машине не собиралась — представление ниже ссылается на `cat_role`, которого ещё нет
+-- (поймано интеграционным тестом `tests/pipeline_chain_dbtest.py`). `if not exists` — повтор безопасен.
+alter table products add column if not exists cat_role text;
+alter table products add column if not exists image_url_hd text;
+alter table products add column if not exists article text;
+alter table products add column if not exists description text;
+alter table products add column if not exists last_seen date;
+alter table products add column if not exists direct_url text;
+alter table products add column if not exists direct_url_hash text;
+alter table products add column if not exists dims_evidence jsonb;
+-- поля меша читает представление `catalog_ready` ниже; канон их смысла — `006-mesh-binding.sql`
+alter table products add column if not exists mesh_required boolean;
+alter table products add column if not exists mesh_status text;
+alter table products add column if not exists mesh_uri text;
+alter table products add column if not exists mesh_at timestamptz;
+
 -- РОЛЬ ТОВАРА — ИЗ ОДНОЙ КАРТЫ (11.10.2026). Раньше здесь был второй, независимый классификатор:
 -- регулярки по `category_path`. Он расходился с канонической картой категорий
 -- (`category-roles.json` → `products.cat_role`, пишет load3) на 2 453 товарах. Самый заметный

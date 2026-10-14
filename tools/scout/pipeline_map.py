@@ -34,7 +34,9 @@ LEVEL = {'ok': 0, 'unknown': 0, 'info': 0, 'yellow': 1, 'red': 2}
 def _sql(q: str) -> str:
     if os.environ.get('PIPELINE_DB_GUARD') == 'test':
         raise SystemExit('тестовый режим: к боевой дев-базе не ходим')
-    r = subprocess.run(['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab', '-qtA', '-c', q],
+    # REMLAB_DEVDB_NAME — одноразовая база интеграционного теста (`tests/pipeline_chain_dbtest.py`), как у mesh_bind
+    db = os.environ.get('REMLAB_DEVDB_NAME', 'remlab')
+    r = subprocess.run(['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', db, '-qtA', '-c', q],
                        capture_output=True, text=True, timeout=120)
     if r.returncode:
         raise RuntimeError(r.stderr.strip()[:200])
