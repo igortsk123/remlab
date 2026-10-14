@@ -38,12 +38,4 @@
 - 2026-10-13 — единая очередь работ: MASTER-cost-first переписан (11 этапов, 33 плана, ≈420 ч), прежний текст в archive как MASTER-cost-first-v04-2026-07; 7 поглощённых планов в архив; ADR-0255 (одно «деплой» на мастер); правило agent-workflow дополнено.
 - 2026-10-13 — круг 3 (astra): 3 расхождения с кодом, 6 формулировок — внесены; сходимость достигнута (<5); вердикт «путь складывается».
 - 2026-10-13 — владелец: zones-v7/q12 пока в архив, demo-flow-3d-en в архив, test-to-work забыть, health-map убрать, viz-regional-masks не актуален → 6 планов в archive; в plans/ остались 29 (28 новых + dims-round-objects, flat3d-sims-ux, memory-kit) — проверить число.
-- 2026-10-13 — (сессия Opus «деплой MASTER-cost-first») b2b-01 выкачен и сведён: ADR-0256, уроки 474–475, deployment/leads/observability/data-model/demo-planner-ui/integrations обновлены, project-state переписан; b2b-02 в работе
-- 2026-10-13 — (Opus, очередь мастера) b2b-06 закрыт (ADR-0258, core/partners), dims-round-objects закрыт (ложные stale сняты, урок 478), b2b-02 partial; уроки 476–478; conv-09 следующий — лечение банка заблокировано 78 раз
-- 2026-10-13 — (Opus) этап 4: conv-10, conv-05 completed; conv-09 partial (приёмка глазами), conv-04 partial (порог); ADR-0259…0261; демо опубликовано с полными вариантами
-- 2026-10-13 — (Opus) b2b-05 partial: коллекции на проде, живая проверка «чистый браузер» прошла после фикса #c=; ADR-0264; следующий — b2b-03 воронка
-- 2026-10-13 — (Opus) b2b-03 выкачен (ADR-0265), b2b-09 в работе (ADR-0266): health с базой, health-watch на сервере (таймер установлен), backup-pull/restore-drill в cron DEV (две строки добавлены в crontab), вопросы 11–14
-- 2026-10-13 — (Opus) conv-11 partial: stop_group проверяет stopped (финал/idle_guard по коду выхода), разбор Codex записан в план, вопросы 14–15; b2b-09 выкачен (health db/showcase ok на проде, отчёт на телефоне проверен)
-- 2026-10-13 — (Opus) b2b-03 completed (verify: 2 дефекта исправлены); b2b-08 partial: remlab-draft из образа репозитория (ADR-0267, канарейка пиксель-в-пиксель), styles.json в git (урок 479), CI draft-image
-- 2026-10-13 — (Opus) все каналы LLM без денег (Vercel 402, OpenAI credit_balance_exhausted, Gemini key disabled); llm_gateway.NoCredits, style_score стоп без записи; урок 472-дубль → 480; вопрос 16
-- 2026-10-14 — (Opus) b2b-04 partial (ADR-0268, ⚑ юрист/сроки); шлюз Vercel ожил после 00:00 UTC (суточный лимит?); стенд стиля conv-01: оси rules/style-axes.json, формула rules/style-formula.json + style_axes.py (Codex), опрос 300 идёт; CI draft-image падал за 0 с — переписан шаг
+- 2026-10-14 — свод выполнен (/memory-check, сессия Opus remlab-eb: очередь MASTER-cost-first, ADR-0256…0273), свои строки сведены; строки сессии Fable от 13.10 не трогал
