@@ -89,10 +89,10 @@ jobs:
           # применяется глобом целиком, поэтому файл, удалённый из репозитория, продолжал жить на
           # сервере и ронять деплой. Так каталожные миграции 008/009 роняли выкат 4 суток.
           rsync -az --delete --include='*.sql' --exclude='*' db/init/ "$SRV:/opt/remlab/db/init/"
-          scp tools/apply-db-init.sh infra/server/deploy-remote.sh infra/server/caddy-sync.sh infra/server/disk-watchdog.sh infra/server/manager-add.sh infra/server/partner-key-add.sh infra/server/health-watch.sh infra/server/prod-digest.sh "$SRV:/opt/remlab/scripts/"
+          scp tools/apply-db-init.sh infra/server/deploy-remote.sh infra/server/caddy-sync.sh infra/server/disk-watchdog.sh infra/server/manager-add.sh infra/server/partner-key-add.sh infra/server/health-watch.sh infra/server/prod-digest.sh infra/server/salad-deadman.py "$SRV:/opt/remlab/scripts/"
           # Caddyfile кладётся РЯДОМ (.new): подменяет его caddy-sync.sh под замком, с validate и откатом
           scp caddy/Caddyfile "$SRV:/opt/remlab/caddy/Caddyfile.new"
-          ssh "$SRV" "chmod +x /opt/remlab/scripts/apply-db-init.sh /opt/remlab/scripts/deploy-remote.sh /opt/remlab/scripts/caddy-sync.sh /opt/remlab/scripts/disk-watchdog.sh /opt/remlab/scripts/manager-add.sh /opt/remlab/scripts/partner-key-add.sh /opt/remlab/scripts/health-watch.sh /opt/remlab/scripts/prod-digest.sh"
+          ssh "$SRV" "chmod +x /opt/remlab/scripts/apply-db-init.sh /opt/remlab/scripts/deploy-remote.sh /opt/remlab/scripts/caddy-sync.sh /opt/remlab/scripts/disk-watchdog.sh /opt/remlab/scripts/manager-add.sh /opt/remlab/scripts/partner-key-add.sh /opt/remlab/scripts/health-watch.sh /opt/remlab/scripts/prod-digest.sh /opt/remlab/scripts/salad-deadman.py"
 
       - name: "Деплой на сервер (под замком: миграции ДО активации)"
         id: deploy

@@ -1,0 +1,7 @@
+[Unit]
+Description=remlab: мёртвая рука Salad — гасит группы, если конвейер на DEV пропал (план conv-11)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/remlab/scripts/salad-deadman.py
