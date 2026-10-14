@@ -34,5 +34,7 @@
     }
   });
   function scan() { var els = document.querySelectorAll("[data-remlab-flat]"); for (var i = 0; i < els.length; i++) mount(els[i]); }
+  // одностраничный сайт (React/Vue) добавил контейнер позже — вызовите window.RemLabEmbed.scan()
+  window.RemLabEmbed = { scan: scan };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", scan); else scan();
 })();
