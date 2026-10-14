@@ -44,6 +44,8 @@ export const PRESETS = {
   // Коллекции (b2b-05): сохранение — 30 за 10 минут с адреса, чтение — как карточки.
   collectionSave: (ip: string) => ({ paid: false, rules: [{ key: `collection:ip:${ip}`, limit: 30, windowSec: 600 }] }), // офис за одним адресом
   // Отчёт застройщику (b2b-03): анонимные счётчики страниц и чтение отчёта по ключу.
+  // Отметки владельца на проверочных страницах (ADR-0275): сотни карточек подряд — лимит щедрый.
+  ownerReview: (ip: string) => ({ paid: false, rules: [{ key: `owner-review:ip:${ip}`, limit: 600, windowSec: 600 }] }),
   pageEvent: (ip: string) => ({ paid: false, rules: [{ key: `page-event:ip:${ip}`, limit: 120, windowSec: 600 }] }),
   partnerReport: (ip: string) => ({ paid: false, rules: [{ key: `partner-report:ip:${ip}`, limit: 60, windowSec: 600 }] }),
 } satisfies Record<string, (ip: string) => { paid: boolean; rules: Rule[] }>;

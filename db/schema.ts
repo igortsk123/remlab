@@ -492,3 +492,17 @@ export const retentionRuns = pgTable(
   },
   (t) => [index("retention_runs_ran_idx").on(t.ranAt)],
 );
+
+// Отметки владельца на проверочных страницах (ADR-0275): стиль «подходит/нет», карантин моделей.
+export const ownerReviews = pgTable(
+  "owner_reviews",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    kind: text("kind").notNull(),
+    itemKey: text("item_key").notNull(),
+    verdict: text("verdict").notNull(),
+    comment: text("comment"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("owner_reviews_kind_idx").on(t.kind, t.id)],
+);
