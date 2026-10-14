@@ -10,7 +10,7 @@
 
 import { slot as slotSchema, type Apartment } from "@/contracts/apartment";
 import { material as materialSchema, option as optionSchema, type Catalogue } from "@/contracts/configurator";
-import { fromDemoVariant, type DemoData } from "@/lib/configurator/fromDemo";
+import { fromDemoVariant, stableSlotIds, type DemoData } from "@/lib/configurator/fromDemo";
 import { meshUrl, setRuntimeMeshes, type RuntimeEntry } from "@/lib/configurator/mesh-url";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { DESKTOP_QUALITY, FlatViewer, LITE_QUALITY, type PhotoPose } from "@/lib/viewer3d/viewer";
@@ -38,6 +38,14 @@ export interface DemoScene {
   update(items: DemoItem[]): Promise<void>;
   setPhotoPose(pose: PhotoPose): void;
   exportFrame(width: number, height: number, type?: string, quality?: number): Promise<Blob>;
+  /** Вид окна (demo-02): «Ракурс» — фото-поза (`setPhotoPose`), «3D» — прогулка из середины комнаты. */
+  setWalk(): void;
+  /** Повернуть взгляд в прогулке (перетаскивание пальцем/мышью). */
+  look(dx: number, dy: number): void;
+  /** Какой предмет под точкой холста: номер в расстановке страницы (как в `update`), иначе -1. */
+  pick(clientX: number, clientY: number): number;
+  /** Метки предметов на холсте: номер в расстановке и точка (px холста), видна ли (demo-02: цены на сцене). */
+  pins(): { index: number; x: number; y: number; visible: boolean }[];
   /** Подгрузить модели кандидатов заранее (лента замен открылась) — замена потом без сети. */
   prefetch(items: DemoItem[]): void;
   /** p95 времени кадра (мс) и программный ли рендер — по ним страница решает, нужен ли серверный эскиз. */
@@ -108,12 +116,20 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
   // ПОСЛЕДНЯЯ РАССТАНОВКА ПОБЕЖДАЕТ, СИНХРОНИЗАЦИИ ИДУТ ПО ОДНОЙ (Codex 14.10): две одновременные `syncObjects`
   // дважды добавили бы один предмет, а быстрые замены гонялись бы с незаконченной загрузкой.
   let pending: DemoItem[] | null = null;
+  // номер места в движке («диван#0») ↔ номер предмета в расстановке страницы — тем же счётом, что у моста
+  let current: DemoItem[] = opts.items;
+  const slotIndex = (): Map<string, number> => {
+    const idx = current.map((it, i) => ({ it, i })).filter(({ it }) => !isRug(it) && it.w && it.d && it.h && it.sku?.msid);
+    const ids = stableSlotIds(idx.map(({ it }) => it));
+    return new Map(ids.map((id, k) => [id, idx[k]!.i]));
+  };
   let running: Promise<void> = ready;
   const update = (items: DemoItem[]): Promise<void> => {
     pending = items;
     running = running
       .then(async () => {
         if (!pending) return;
+        current = pending;
         const next = liveApartment(opts.room, pending, opts.base);
         pending = null;
         if (!next) return;
@@ -130,6 +146,20 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     update,
     setPhotoPose: (pose) => viewer.setPhotoPose(pose),
     exportFrame: (w, h, type, q) => viewer.exportFrame(w, h, type, q),
+    setWalk: () => viewer.setViewMode("walk"),
+    look: (dx, dy) => viewer.look(dx, dy),
+    pick: (x, y) => {
+      const id = viewer.pick(x, y, canvas.getBoundingClientRect()).slotId;
+      return id ? slotIndex().get(id) ?? -1 : -1;
+    },
+    pins: () => {
+      const out: { index: number; x: number; y: number; visible: boolean }[] = [];
+      for (const [id, index] of slotIndex()) {
+        const p = viewer.projectSlot(id);
+        if (p) out.push({ index, x: p.x, y: p.y, visible: p.visible });
+      }
+      return out;
+    },
     prefetch: (items) => {
       for (const it of items) if (it.sku?.msid) viewer.preloadMesh(meshUrl(it.sku.msid, undefined, opts.lite === true));
     },

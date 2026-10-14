@@ -45,32 +45,32 @@ test("2.1–2.3 окно кадра: фото, список, числа как �
     const card = await page.locator(".lay .pr").nth(i).innerText();
     await page.locator("button[data-swap]").nth(i).click();
     await expect(page.locator("#shot")).toBeVisible();
-    const [cnt, sum] = await page.locator("#shotbody .total span").allInnerTexts();
-    say(`вариант ${i}: карточка «${card}» | окно «${cnt} · ${sum}»`);
-    expect(Number(cnt!.match(/(\d+)\s*$/)?.[1]), "число товаров").toBe(Number(card.match(/^(\d+)/)?.[1]));
-    expect(num(sum!), "сумма").toBe(num(card.split("·").pop()!));
+    const head = (await page.locator("#vsum b").innerText()).replace(/\s+/g, " ");   // окно варианта (demo-02): сумма в шапке колонки
+    say(`вариант ${i}: карточка «${card}» | окно «${head}»`);
+    expect(Number(head.match(/^(\d+)/)?.[1]), "число товаров").toBe(Number(card.match(/^(\d+)/)?.[1]));
+    expect(num(head), "сумма").toBe(num(card.split("·").pop()!));
     await page.keyboard.press("Escape");
   }
 });
 
-test("2.4 листание ‹ › внутри одной съёмки: подпись «N из M»", async ({ page }) => {
-  await openDemo(page);
+test("2.4 ракурсы 1/2 и 3D переключаются в одном окне (demo-02)", async ({ page }) => {
+  await openDemo(page, "?live=force");
   await page.locator("#tab-room").click();
   await page.locator("button[data-swap]").first().click();
-  const next = page.locator("#shotNext");
-  if (!(await next.isVisible()) || (await next.isDisabled())) { say("у кадра один вид — листать нечего"); return; }
-  const cap0 = await page.locator("#shot").innerText();
-  await next.click();
-  const cap1 = await page.locator("#shot").innerText();
-  say("подпись:", cap0.match(/\d+ из \d+/)?.[0], "→", cap1.match(/\d+ из \d+/)?.[0]);
-  expect(cap1.match(/\d+ из \d+/)?.[0]).not.toBe(cap0.match(/\d+ из \d+/)?.[0]);
+  for (const m of ["c2", "walk", "c1"]) {
+    const t = Date.now();
+    await page.locator(`[data-vm="${m}"]`).click();
+    await expect(page.locator(`[data-vm="${m}"]`)).toHaveClass(/on/);
+    say(`режим ${m}: ${Date.now() - t} мс`);
+  }
+  await expect(page.locator("#shot .livecv, #shot .shotwrap img.vmain").first()).toBeVisible();
 });
 
 test("2.5–2.6 замена из окна: лента, выбор, сумма пересчитана, зовём снять фото", async ({ page }) => {
   await openDemo(page);
   await page.locator("#tab-room").click();
   await page.locator("button[data-swap]").first().click();
-  const before = num(await page.locator("#shotbody .total span").last().innerText());
+  const before = num(await page.locator("#vsum b").innerText());
   await page.locator("#shotbody [data-rep]").first().click();
   await expect(page.locator("#sheet")).toBeVisible();
   const cards = page.locator("#sheet .mini:has-text('Заменить')");
@@ -78,8 +78,8 @@ test("2.5–2.6 замена из окна: лента, выбор, сумма �
   say("замен в ленте:", await cards.count());
   expect(await cards.count()).toBeGreaterThanOrEqual(3);
   await cards.first().click();
-  await expect.poll(async () => num(await page.locator("#shotbody .total span").last().innerText())).not.toBe(before);
-  say("сумма:", before, "→", num(await page.locator("#shotbody .total span").last().innerText()));
+  await expect.poll(async () => num(await page.locator("#vsum b").innerText())).not.toBe(before);
+  say("сумма:", before, "→", num(await page.locator("#vsum b").innerText()));
   await expect(page.locator("#shReshoot")).toBeVisible();
 });
 
@@ -102,7 +102,7 @@ test("2.10–2.11, 2.17 конструктор: подсказка, перета
   await openDemo(page);
   await page.locator("#tab-room").click();
   await page.locator("button[data-swap]").first().click();
-  await page.locator("#shEdit").click();
+  await page.locator('[data-vm="plan"]').click();        // «План» в окне варианта (demo-02) — конструктор
   await expect(page.locator("#cons")).toBeVisible();
   await expect(page.locator("#consHint")).toBeVisible();
   const before = await page.evaluate("items.map(i => [i.x, i.y])") as number[][];

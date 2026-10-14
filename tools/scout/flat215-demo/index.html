@@ -898,7 +898,8 @@ function init(){
   on('consDone','onclick',closeCons);
   on('swapClose','onclick',closeSwapFull);
   document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSwapFull();});
-  on('consShot','onclick',()=>makePhoto('draft'));
+  // ИЗ КОНСТРУКТОРА — В ОКНО С ЖИВОЙ СЦЕНОЙ (demo-02): серверный кадр нужен только на запасном пути (нет видеокарты)
+  on('consShot','onclick',()=>{ if(LIVE.ok===false){makePhoto('draft');return;} openLiveWindow(); });
   on('swapShot','onclick',()=>makePhoto('draft'));
   document.addEventListener('keydown',e=>{
     if(e.key==='Escape'&&document.getElementById('cons').classList.contains('on'))closeCons();});
@@ -2430,6 +2431,7 @@ function closeCons(){
 function updateConsShot(){
   const b=document.getElementById('consShot');
   if(b)b.hidden=!(baseRev&&items.length&&revision()!==baseRev);
+  if(b&&typeof LIVE!=='undefined')b.textContent=LIVE.ok===false?'Посмотреть фото с изменениями':'Готово — посмотреть в окне';
   const f=document.getElementById('swapFoot');
   if(f)f.hidden=!(baseRev&&items.length&&revision()!==baseRev);
 }
@@ -2437,6 +2439,10 @@ function drawFeed(){ drawColl(); updateConsShot(); }
 
 function drawPhotos(){ /* заголовок коллекции статичен в разметке (план demo-collection-flow) */ }
 function shotOpen(html,cap){const sb=document.getElementById('shotbody');
+  // окно варианта (demo-02) переносит полосу действий в правую колонку/шторку — до замены содержимого её возвращаем
+  const shot=document.getElementById('shot'), capEl=shot.querySelector('.cap'), boxEl=shot.querySelector('.box');
+  if(capEl&&capEl.parentNode!==boxEl)boxEl.appendChild(capEl);
+  shot.classList.remove('v2','nolive','vwalk');
   sb.innerHTML=html;
   sb.scrollTop=0;   // новое содержимое показываем С НАЧАЛА, а не с прокрутки прошлого списка
   document.getElementById('shotcap').innerHTML=cap||'';
@@ -2724,7 +2730,10 @@ function viewShot(i){
   // действий, а не место для текста. ВНИМАНИЕ: названия стиля в самом окне после этого нет
   // нигде — в шапке списка только число товаров и их сумма, а стоимость комплекта видна в
   // конструкторе («Комплект: …»). Вернуть стиль — только по слову владельца.
-  shotOpen(`<div class="shotwrap"><img src="${s.url}" alt="${styleOf(s)}">${pins}${navs}</div>${srcRow}${list}`,'');
+  // ОКНО ВАРИАНТА (demo-02, ADR-0290): сцена + колонка (компьютер) / шторка (телефон). Полоса действий `.cap` с её
+  // кнопками и обработчиками переезжает в колонку — сохранение, избранное и ссылка работают как раньше.
+  shotOpen(vwHtml(s, navs, list),'');
+  vwMount(s);
   wireShotList();
   liveShow();      // расстановка уже не та, что на фото, — живая сцена поверх (demo-01)
   // ОТМЕТКА СТАВИТСЯ НА ВЕСЬ ВАРИАНТ, КАК СЕРДЕЧКО НА КАРТОЧКЕ (разбор Codex 02.09, проверено
@@ -3417,6 +3426,292 @@ function histFwd(){return histGo(1);}
   const _load=load; load=function(){const r=_load.apply(this,arguments); if(histOf().at<0)histPush(); return r;};
 })();
 </script>
+<!-- ===== ОКНО ВАРИАНТА (план demo-02, ADR-0290): Б на компьютере, В со шторкой на телефоне ===== -->
+<style>
+#shot.v2 .box{width:min(1320px,97vw);height:92vh;max-height:none}
+#shot.v2 #shotbody{padding:0;overflow:hidden;display:flex}
+#shot.v2 .xclose{z-index:8}
+.vw{display:grid;grid-template-columns:minmax(0,1fr) 410px;flex:1;min-height:0;width:100%}
+.vstage{position:relative;background:var(--wash-2);min-height:0;overflow:hidden}
+.vstage .shotwrap{position:absolute;inset:0}
+/* КАРТИНКА ЦЕЛИКОМ (demo-02 п.9, владелец 14.10: «на телефоне обрезает по краям»): кадр по пропорции (`contain`), поля —
+   размытая копия той же картинки; увеличить — тап или «⤢» (просмотр во весь экран со щипком). */
+#shot.v2 .vstage .shotwrap img{width:100%;height:100%;max-height:none;object-fit:contain;border-radius:0;background:transparent;position:relative}
+#shot.v2 .vstage .shotwrap img.vblur{position:absolute;inset:0;object-fit:cover;filter:blur(22px) brightness(.92);transform:scale(1.15)}
+.vzbtn{position:absolute;right:12px;bottom:12px;z-index:5;border:0;border-radius:999px;background:var(--veil);color:#fff;
+ padding:6px 12px;font-size:13.5px;cursor:pointer}
+.shotwrap:has(.livecv) .vzbtn{display:none}
+#vzoom{position:fixed;inset:0;z-index:95;background:#111;display:none;touch-action:none;overflow:hidden}
+#vzoom.on{display:block}#vzoom img{position:absolute;left:50%;top:50%;max-width:100%;max-height:100%;transform-origin:center;
+ will-change:transform;user-select:none;-webkit-user-drag:none}
+#vzoom .vzx{position:absolute;top:12px;right:12px;width:42px;height:42px;border-radius:50%;border:0;background:rgba(255,255,255,.9);font-size:22px;z-index:2}
+#vzoom .vzh{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);background:rgba(255,255,255,.92);color:#222;
+ padding:8px 12px;border-radius:10px;font-size:14px;white-space:nowrap}
+#shot.v2 .shotwrap .livecv{border-radius:0}
+.vmodes{position:absolute;top:12px;left:50%;transform:translateX(-50%);display:flex;gap:2px;padding:4px;border-radius:999px;
+ background:var(--veil);z-index:6}
+.vmodes button{border:0;background:transparent;color:#fff;font-size:15px;padding:7px 14px;border-radius:999px;cursor:pointer}
+.vmodes button.on{background:var(--surface);color:var(--ink);font-weight:600}
+.vhist{position:absolute;left:12px;bottom:12px;display:flex;align-items:center;gap:6px;background:var(--veil);color:#fff;
+ border-radius:999px;padding:5px;font-size:14px;z-index:6}
+.vhist span{padding:0 4px}.vhist button{width:34px;height:34px;border-radius:50%;border:0;background:rgba(255,255,255,.18);
+ color:#fff;font-size:18px;cursor:pointer}.vhist button:disabled{opacity:.35;cursor:default}
+.vpins{position:absolute;inset:0;pointer-events:none;z-index:4}
+.vpin{position:absolute;transform:translate(-50%,-100%);background:var(--surface);color:var(--ink);border-radius:999px;
+ padding:3px 9px;font-size:12.5px;font-weight:600;box-shadow:var(--sh-1);white-space:nowrap;pointer-events:auto;cursor:pointer}
+.vside{display:flex;flex-direction:column;min-height:0;border-left:1px solid var(--line);background:var(--surface)}
+.vgrip{display:none}
+/* КРУТИЛКА СЦЕНЫ (владелец 14.10: «сразу красивая крутилка загрузки, не пустота и не старый кадр») — поверх сцены, пока
+   модель кандидата грузится или сервер рисует эскиз; один стиль во всём окне */
+.shotwrap:has(.livecv) .vold{display:none}
+.vload{position:absolute;inset:0;display:none;align-items:center;justify-content:center;z-index:5;pointer-events:none;
+ background:linear-gradient(rgba(242,240,235,.35),rgba(242,240,235,.35))}
+.vload.on{display:flex}
+.vload div{display:flex;flex-direction:column;align-items:center;gap:10px;background:rgba(255,255,255,.9);padding:16px 20px;
+ border-radius:16px;box-shadow:var(--sh-2);font-size:14px;color:var(--ink)}
+.vload i{width:34px;height:34px;border-radius:50%;border:3px solid var(--accent-soft);border-top-color:var(--accent);
+ animation:sp .8s linear infinite}
+.vold{position:absolute;left:12px;top:12px;background:var(--veil);color:#fff;font-size:13px;padding:5px 10px;border-radius:999px;z-index:5}
+.vtop{padding:16px 18px 10px;border-bottom:1px solid var(--line)}
+.vsum b{font-size:clamp(17px,1.4vw,20px)}.vsum small{display:block;color:var(--muted);font-size:14px;margin-top:2px}
+.vcta{width:100%;margin-top:10px;display:flex;flex-direction:column;align-items:center;border-radius:999px}
+.vcta small{font-size:12.5px;font-weight:400;opacity:.9}
+.vlist{flex:1;overflow:auto;overscroll-behavior:contain;padding:0 18px}
+#shot.v2 .pinlist .total{display:none}
+#shot.v2:not(.nolive) .restale{display:none}
+#shot.v2 .cap{border-top:1px solid var(--line)}
+#shot.v2 .cap #shEdit,#shot.v2 .cap #shotclose{display:none}
+#shot.v2 .pinlist .row.hl{background:var(--accent-soft);border-radius:10px;transition:background .3s}
+#shot.v2 .shotwrap .nav,#shot.v2 .shotwrap .viewno,#shot.vwalk .vpins{display:none}
+/* новая картинка — плавно (200 мс), а не вспышкой */
+#shot .shotwrap .livecv{opacity:0;transition:opacity .2s}#shot .shotwrap .livecv.in{opacity:1}
+/* обновление готовой сцены — крутилка в углу, сцена не «моргает» */
+.vload.corner{inset:auto 12px 12px auto;background:none}.vload.corner div{flex-direction:row;padding:8px 12px}
+.vload.corner i{width:20px;height:20px}
+#shot .vtip{position:fixed;left:50%;transform:translateX(-50%);background:var(--ink-strong);color:#fff;font-size:14px;
+ padding:8px 12px;border-radius:10px;white-space:nowrap;z-index:9;pointer-events:none}
+@media(max-width:700px){
+  #shot.v2 .box{height:100%}
+  .vw{display:block;position:relative;height:100%}
+  .vstage{position:absolute;inset:0}
+  .vside{position:absolute;left:0;right:0;bottom:0;border-left:0;border-radius:20px 20px 0 0;box-shadow:var(--sh-4);z-index:7;
+   height:var(--vh0,268px);transition:height .25s ease}
+  .vside[data-pos="1"]{height:58%}.vside[data-pos="2"]{height:92%}
+  .vside.bump{animation:vbump .4s ease}
+  @keyframes vbump{40%{transform:translateY(-40px)}}
+  .vgrip{display:block;text-align:center;padding:6px 0 2px;cursor:pointer;touch-action:none}
+  .vgrip i{display:block;width:44px;height:5px;border-radius:3px;background:var(--grip);margin:0 auto 6px}
+  .vchip{display:inline-block;background:var(--accent-soft);color:var(--accent);border:1px solid var(--line);border-radius:999px;
+   padding:5px 14px;font-size:14px;font-weight:600}
+  .vside{display:block;overflow-y:auto;overscroll-behavior:contain}
+  .vtop{padding:6px 14px 8px;border-bottom:0}
+  .vlist{padding:0 14px;overflow:visible}
+  .vmodes{top:10px;left:10px;transform:none}.vmodes button{padding:6px 10px;font-size:14px;white-space:nowrap}
+  .vhist{top:58px;bottom:auto;left:10px}
+  /* сцена — только над шторкой: под полуоткрытой шторкой мебель иначе пряталась, а видно было потолок */
+  .vstage .shotwrap{bottom:var(--vh0,268px)}
+  #shot.v2 .shotwrap .livebadge{display:none}
+  .vw:has(.vside[data-pos="1"]) .vstage .shotwrap{bottom:58%}
+  .vw:has(.vside[data-pos="2"]) .vstage .shotwrap{bottom:58%}
+  #shot.v2 .shotwrap .livebadge,#shot.v2 .shotwrap .vold{top:auto;bottom:10px;left:10px}
+}
+</style>
+<script>
+/* ——— ОКНО ВАРИАНТА (план demo-02, ADR-0290; владелец 14.10: «Б на компьютере + В на телефоне», шторка «понятна без
+   объяснений»). Сцена слева/на весь экран: «Ракурс» — фото или живая сцена с точки съёмки, «3D» — прогулка в той же сцене,
+   «План» — конструктор. «↶ ↷» — история расстановок (ADR-0289), «‹ ›» — ракурсы. Справа/в шторке: сумма и остаток по
+   сертификату, «Сделать фотореалистичное фото», список с заменами, полоса действий (её кнопки и обработчики — прежние). */
+// режим сцены окна: c1/c2 — ракурсы (камеры плана C1/C2), walk — 3D-прогулка; «План» — конструктор
+const VW={mode:'c1', pinsT:0};
+const vwCam=()=>VW.mode==='c2'?'C2':'C1';
+function vwSum(){
+  const v=allVariants()[cur]||{}, n=variantCount(v), sum=variantPrice(v), EN=LANG==='en';
+  const cert=(FLAT&&FLAT.certificate&&FLAT.certificate.amount)||0;
+  const word=EN?'items':(n%10===1&&n%100!==11?'товар':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'товара':'товаров'));
+  const rest=cert?(cert>=sum?(EN?'certificate balance ':'остаток по сертификату ')+money(cert-sum)
+    :(EN?'top-up ':'доплата ')+money(sum-cert)):'';
+  return `<b>${n} ${word} · ${money(sum)}</b>${rest?`<small>${rest}</small>`:''}`;
+}
+function vwHtml(s, navs, list){
+  const EN=LANG==='en';
+  // старое фото без номера состояния — честная пометка (Codex 14.10: «состояние неизвестно», а не «точно другое»)
+  const old=s.url&&!s.stateId&&s.quality==='realistic'?`<span class="vold">${EN?'AI photo · the layout may differ':'Фото нейросети · расстановка могла отличаться'}</span>`
+    :s.sketch?`<span class="vold">${EN?'Server sketch · your device has no graphics card':'Эскиз с сервера · у устройства нет видеокарты'}</span>`:'';
+  const img=s.url?`<img class="vblur" src="${s.url}" alt="" aria-hidden="true"><img class="vmain" src="${s.url}" alt="${styleOf(s)}">`+
+    `<button class="vzbtn" id="vzBtn">${EN?'⤢ full screen':'⤢ во весь экран'}</button>`:'';
+  return `<div class="vw"><div class="vstage"><div class="shotwrap">${img}${navs}${old}</div>`+
+    `<div class="vmodes" role="tablist"><button data-vm="c1" class="${VW.mode==='c1'?'on':''}">Ракурс 1</button>`+
+    `<button data-vm="c2" class="${VW.mode==='c2'?'on':''}">Ракурс 2</button>`+
+    `<button data-vm="walk" class="${VW.mode==='walk'?'on':''}">3D</button><button data-vm="plan">План</button></div>`+
+    `<div class="vhist"><button id="vhBack" aria-label="Предыдущая расстановка">↶</button><span id="vhTxt"></span>`+
+    `<button id="vhFwd" aria-label="Следующая расстановка">↷</button></div><div class="vpins" id="vpins"></div>`+
+    `<div class="vload" id="vload"><div><i></i><span id="vloadTxt">Собираем сцену…</span></div></div></div>`+
+    `<div class="vside" id="vside" data-pos="0"><div class="vgrip" id="vgrip"><i></i><span class="vchip" id="vchip">Товары и замены ⌃</span></div>`+
+    `<div class="vtop"><div class="vsum" id="vsum">${vwSum()}</div>`+
+    `<button class="btn primary vcta" id="vCta">Сделать фотореалистичное фото<small>нейросеть · 2–4 мин · бесплатно для вас</small></button></div>`+
+    `<div class="vlist" id="vlist">${list}</div></div></div>`;
+}
+function vwHist(){
+  const h=histOf(), t=document.getElementById('vhTxt'); if(!t)return;
+  t.textContent=`Расстановка ${Math.max(1,h.at+1)} из ${Math.max(1,h.stack.length)}`;
+  const b=document.getElementById('vhBack'), f=document.getElementById('vhFwd');
+  if(b)b.disabled=h.at<=0; if(f)f.disabled=h.at>=h.stack.length-1;
+}
+// ОКНО ВАРИАНТА БЕЗ ОЖИДАНИЯ: кадр варианта (или пустая «живая» запись, если кадров нет) — сцена покажет текущую расстановку
+function openLiveWindow(){
+  if(document.getElementById('cons').classList.contains('on')){consBack=-1; closeCons();}
+  const v=allVariants()[cur]||{}, vid=v.id||('v'+cur);
+  let i=shots.findIndex(x=>x.vid===vid&&x.live);
+  const best=bestShot(v);
+  if(best)i=shots.indexOf(best);
+  if(i<0){shots.push({url:'',camera:'C1',quality:'live',vid:vid,revision:'',ts:Date.now(),live:true,svc:true}); i=shots.length-1;}
+  viewShot(i);
+}
+// ПРОСМОТР ВО ВЕСЬ ЭКРАН: перетаскивание, щипок ×1–3 (колесо на компьютере), двойной тап — назад; подсказка один раз
+function vwZoom(url){
+  let z=document.getElementById('vzoom');
+  if(!z){z=document.createElement('div'); z.id='vzoom'; z.innerHTML='<img alt=""><button class="vzx" aria-label="Закрыть">×</button>';
+    document.body.appendChild(z);}
+  const im=z.querySelector('img'); im.src=url; z.classList.add('on');
+  let k=1, tx=0, ty=0; const pts=new Map(); let d0=0, k0=1, last=null, tap=0;
+  const put=()=>{im.style.transform=`translate(calc(-50% + ${tx}px),calc(-50% + ${ty}px)) scale(${k})`;}; put();
+  const close=()=>{z.classList.remove('on'); z.onpointerdown=z.onpointermove=z.onpointerup=z.onwheel=null;};
+  z.querySelector('.vzx').onclick=close;
+  z.onpointerdown=e=>{pts.set(e.pointerId,{x:e.clientX,y:e.clientY}); last={x:e.clientX,y:e.clientY};
+    if(pts.size===2){const [a,b]=[...pts.values()]; d0=Math.hypot(a.x-b.x,a.y-b.y); k0=k;}
+    const now=Date.now(); if(pts.size===1&&now-tap<300){close(); return;} tap=now;};
+  z.onpointermove=e=>{if(!pts.has(e.pointerId))return; pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(pts.size===2){const [a,b]=[...pts.values()]; k=Math.max(1,Math.min(3,k0*Math.hypot(a.x-b.x,a.y-b.y)/(d0||1)));}
+    else if(last){tx+=e.clientX-last.x; ty+=e.clientY-last.y;} last={x:e.clientX,y:e.clientY}; put();};
+  z.onpointerup=e=>{pts.delete(e.pointerId); last=null;};
+  z.onwheel=e=>{e.preventDefault(); k=Math.max(1,Math.min(3,k*(e.deltaY<0?1.15:0.87))); put();};
+  let seen=false; try{seen=!!localStorage.getItem('remlab-zoom-hint-v1');}catch(e){}
+  if(!seen){const h=document.createElement('div'); h.className='vzh';
+    h.textContent=LANG==='en'?'Drag to move · pinch to zoom · double tap to go back':'Двигайте пальцем · щипок — увеличить · двойной тап — назад';
+    z.appendChild(h); setTimeout(()=>h.remove(),3500); try{localStorage.setItem('remlab-zoom-hint-v1','1');}catch(e){}}
+}
+function vwLoad(on, txt, corner){
+  const l=document.getElementById('vload'); if(!l)return;
+  l.classList.toggle('on',!!on); l.classList.toggle('corner',!!corner); if(txt){const t=document.getElementById('vloadTxt'); if(t)t.textContent=txt;}
+}
+function vwSheet(pos){
+  const sd=document.getElementById('vside'); if(!sd)return;
+  if(pos===undefined)pos=(+sd.dataset.pos+1)%3;
+  sd.dataset.pos=String(pos);
+  setTimeout(()=>{const w=document.querySelector('#shot .shotwrap'); if(w&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode===w){
+    const r=w.getBoundingClientRect(); if(r.width&&r.height)LIVE.scene.setSize(r.width,r.height);}},280);
+  const c=document.getElementById('vchip'); if(c)c.textContent=pos===2?'⌄ Свернуть':'Товары и замены ⌃';
+  try{sessionStorage.setItem('remlab-sheet-pos',String(pos));}catch(e){}
+}
+function vwHighlight(idx){
+  const it=items[idx]; if(!it)return;
+  const name=(skuOf(it)||{}).name; const k=shotRows.findIndex(a=>a.name===name);
+  const row=k>=0&&document.querySelector(`#shotbody [data-rep="${k}"]`); if(!row)return;
+  const r=row.closest('.row')||row;
+  document.querySelectorAll('#shotbody .row.hl').forEach(x=>x.classList.remove('hl'));
+  r.classList.add('hl'); setTimeout(()=>r.classList.remove('hl'),2500);
+  if(isTouchUI()&&window.innerWidth<=700){const sd=document.getElementById('vside'); if(sd&&sd.dataset.pos==='0')vwSheet(1);}
+  r.scrollIntoView({block:'center',behavior:'smooth'});
+}
+function vwPins(){
+  const box=document.getElementById('vpins'); if(!box)return;
+  if(!LIVE.scene||!LIVE.canvas||!LIVE.canvas.parentNode||VW.mode==='walk'){box.innerHTML='';return;}
+  box.innerHTML=LIVE.scene.pins().filter(p=>p.visible).map(p=>{const it=items[p.index]; const pr=it&&(skuOf(it)||{}).price;
+    return pr?`<span class="vpin" data-pi="${p.index}" style="left:${Math.round(p.x)}px;top:${Math.round(p.y)-6}px">${money(pr)}</span>`:'';}).join('');
+  box.querySelectorAll('[data-pi]').forEach(b=>b.onclick=()=>vwHighlight(+b.dataset.pi));
+}
+function vwMount(s){
+  const shot=document.getElementById('shot'); shot.classList.add('v2');
+  shot.classList.toggle('nolive',LIVE.ok===false); shot.classList.toggle('vwalk',VW.mode==='walk');
+  const side=document.getElementById('vside'), capEl=shot.querySelector('.cap'); if(side&&capEl)side.appendChild(capEl);
+  let pos=0; try{pos=+(sessionStorage.getItem('remlab-sheet-pos')||0)||0;}catch(e){} vwSheet(pos);
+  vwHist();
+  shot.querySelectorAll('[data-vm]').forEach(b=>b.onclick=()=>{
+    const m=b.dataset.vm;
+    if(m==='plan'){const ed=document.getElementById('shEdit'); if(ed&&ed.onclick)ed.onclick(); return;}
+    VW.mode=m; shot.querySelectorAll('[data-vm]').forEach(x=>x.classList.toggle('on',x.dataset.vm===m));
+    shot.classList.toggle('vwalk',m==='walk');
+    // ракурс выбран, а живая сцена не нужна (фото актуально) — показываем фото этого ракурса из той же съёмки
+    const cs=shots[shotAt];
+    if(m!=='walk'&&cs&&cs.batch&&!liveStale(cs)){const sib=shots.findIndex(x=>x.batch===cs.batch&&(x.camera||'C1')===vwCam());
+      if(sib>=0&&sib!==shotAt){viewShot(sib);return;}}
+    liveShow();
+  });
+  const hb=document.getElementById('vhBack'), hf=document.getElementById('vhFwd');
+  if(hb)hb.onclick=()=>{histBack(); vwHist();}; if(hf)hf.onclick=()=>{histFwd(); vwHist();};
+  const cta=document.getElementById('vCta');
+  if(cta)cta.onclick=()=>makePhoto('realistic',(s.url&&(!s.stateId||s.stateId===curStateId())&&!liveStale(s))?srcIdOf(s):'',s.batch||'');
+  // ШТОРКА: тап по ручке или чипу — свёрнута → половина → целиком; свайп по ручке — вверх/вниз; прокрутка списка
+  // вверх от начала тянет шторку вниз (владелец 14.10: многие никогда не тянут)
+  const grip=document.getElementById('vgrip'), lst=document.getElementById('vlist'), sd=document.getElementById('vside');
+  if(grip){let y0=null, moved=false;
+    grip.onpointerdown=e=>{y0=e.clientY; moved=false; grip.setPointerCapture(e.pointerId);};
+    grip.onpointermove=e=>{if(y0!==null&&Math.abs(e.clientY-y0)>12)moved=true;};
+    grip.onpointerup=e=>{const dy=y0===null?0:e.clientY-y0; y0=null; const p=+sd.dataset.pos;
+      if(!moved)vwSheet(); else vwSheet(Math.max(0,Math.min(2,p+(dy<0?1:-1))));};}
+  // на телефоне прокручивается сама шторка, на компьютере — список
+  const scr=window.innerWidth<=700?sd:lst;
+  if(scr){let ty=null; scr.addEventListener('touchstart',e=>{ty=scr.scrollTop<=0?e.touches[0].clientY:null;},{passive:true});
+    scr.addEventListener('touchmove',e=>{if(ty!==null&&e.touches[0].clientY-ty>40){ty=null; const p=+sd.dataset.pos; if(p>0)vwSheet(p-1);}},{passive:true});}
+  // подсказка — один раз на устройство: «подскок» шторки и 3 секунды текста
+  if(window.innerWidth<=700){let seen=false; try{seen=!!localStorage.getItem('remlab-sheet-hint-v1');}catch(e){}
+    if(!seen&&sd){sd.classList.add('bump'); const t=document.createElement('div'); t.className='vtip';
+      t.textContent='Потяните или нажмите — товары и замены'; t.style.bottom=(sd.getBoundingClientRect().height+14)+'px';
+      shot.appendChild(t); setTimeout(()=>{t.remove(); sd.classList.remove('bump');},3000);
+      try{localStorage.setItem('remlab-sheet-hint-v1','1');}catch(e){}}}
+  // увеличить картинку: «⤢» или тап по ней; свайп по кадру — другой ракурс
+  const zb=document.getElementById('vzBtn'), mi=shot.querySelector('.shotwrap img.vmain');
+  if(zb)zb.onclick=()=>vwZoom(s.url);
+  if(mi){let sx=null; mi.addEventListener('pointerdown',e=>{sx=e.clientX;});
+    mi.addEventListener('pointerup',e=>{if(sx===null)return; const dx=e.clientX-sx; sx=null;
+      if(Math.abs(dx)>50){const b=shot.querySelector(`[data-vm="${VW.mode==='c2'?'c1':'c2'}"]`); if(b)b.click();}
+      else vwZoom(s.url);});}
+  clearInterval(VW.pinsT); VW.pinsT=setInterval(()=>{if(!shot.classList.contains('on')){clearInterval(VW.pinsT);return;} vwPins();},300);
+}
+// ЗАПАСНОЙ ПУТЬ БЕЗ ВИДЕОКАРТЫ (владелец 14.10: «крутилка и серверный эскиз, честно подписанный»): живой сцены нет —
+// после правки сам, без кнопки, просим бесплатный черновой кадр сервера этого состояния; крутилка на сцене до ответа.
+// Один запрос за раз; пришёл ответ, а расстановку уже поменяли — просим ещё раз для последнего состояния.
+const SK={busy:false, again:false, t:0};
+function vwSketchSoon(){clearTimeout(SK.t); SK.t=setTimeout(vwSketch,1500);}
+async function vwSketch(){
+  const shot=document.getElementById('shot');
+  if(LIVE.ok!==false||!shot.classList.contains('v2'))return;
+  const s=shots[shotAt]; if(!s||!liveStale(s))return;
+  if(SK.busy){SK.again=true; return;}
+  SK.busy=true; SK.again=false;
+  let eta=7; try{const st=await (await fetch('/api/draft/stats',{cache:'no-store'})).json(); if(st&&st.avg_sec&&st.avg_sec.draft)eta=Math.round(st.avg_sec.draft);}catch(e){}
+  vwLoad(true, (LANG==='en'?'Rendering on the server ≈ ':'Считаем кадр на сервере ≈ ')+eta+(LANG==='en'?' s':' с'));
+  const req=Object.assign(payload(),{quality:'draft',async:1,stateId:curStateId()}), v=allVariants()[cur]||{}, prods=productsOf(items);
+  try{
+    const j=await (await fetch('/api/render',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(req)})).json();
+    let r=null;
+    for(let k=0;j&&j.job&&k<60;k++){await new Promise(ok=>setTimeout(ok,2000));
+      const jj=await fetch('/api/job?id='+encodeURIComponent(j.job),{cache:'no-store'}).then(x=>x.json()).catch(()=>null);
+      if(jj&&jj.status==='running')continue; r=jj; break;}
+    if(r&&r.shots&&r.shots.length){const batch='b'+Date.now();
+      r.shots.forEach(sh=>addShot({url:sh.url,camera:sh.camera||'C1',quality:'draft',batch:batch,anchors:[],products:prods,
+        variant:v.title||'',style:v.style||'',vid:v.id||('v'+cur),revision:revision(),stateId:req.stateId,cams:req.cams,
+        engine:r.backend||'',sketch:true,ts:Date.now()}));
+      if(shot.classList.contains('on')&&req.stateId===curStateId())viewShot(shots.length-r.shots.length);}
+  }catch(e){}
+  SK.busy=false; vwLoad(false);
+  if(SK.again)vwSketchSoon();
+}
+// сумма и история обновляются после любой правки; после замены — строка подсвечена, шторка до половины, сообщение
+document.addEventListener('remlab:hist',()=>{const v=document.getElementById('vsum'); if(v)v.innerHTML=vwSum(); vwHist(); vwSketchSoon();});
+(function(){
+  const _try=tryOn; tryOn=function(p){
+    const s0=sel, before=s0&&(skuOf(s0)||{}).price||0, role=s0&&s0.role;
+    const r=_try.apply(this,arguments);
+    if(s0&&document.getElementById('shot').classList.contains('v2')){
+      const after=(skuOf(s0)||{}).price||0, d=after-before, EN=LANG==='en';
+      const base=String(role||'').replace(/\s+\d+$/,'');
+      toast((EN?'Replaced: '+base:'Заменено: '+base)+(d?` · ${d>0?'+':'−'}${money(Math.abs(d))}`:''));
+      const i=items.indexOf(s0); setTimeout(()=>vwHighlight(i),200);
+    }
+    return r;};
+})();
+</script>
 <!-- ===== ЖИВАЯ СЦЕНА (план demo-01): правки видны сразу — тот же движок, что /flat ===== -->
 <style>
 #shot .shotwrap .livecv{position:absolute;inset:0;width:100%;height:100%;border-radius:inherit;display:block;background:#e9edf1}
@@ -3435,12 +3730,16 @@ function histFwd(){return histGo(1);}
 const LIVE={ok:/[?&]live=0(?:&|$)/.test(location.search)?false:null, force:/[?&]live=force(?:&|$)/.test(location.search),
   scene:null, canvas:null, badge:null, loading:null, why:''};
 function liveStale(s){
+  // кадр с номером состояния (demo-02, ADR-0289) устарел, если номер не совпадает с текущей расстановкой — это и есть
+  // «фото ≠ список»; у старых кадров без номера — прежнее правило по ревизии
+  if(s&&s.stateId&&items.length)return s.stateId!==curStateId();
   return !!(s&&items.length&&(s.revision?revision()!==s.revision:(baseRev&&revision()!==baseRev)));
 }
 function liveOff(why){
-  LIVE.ok=false; LIVE.why=why; liveHide();
+  LIVE.ok=false; LIVE.why=why; LIVE.state='fallback'; liveHide();
   // показанную сцену освобождаем: видеоконтекст и модели не держим до закрытия страницы (verify 14.10)
   if(LIVE.scene){try{LIVE.scene.dispose();}catch(e){} LIVE.scene=null;}
+  const sh=document.getElementById('shot'); if(sh&&sh.classList.contains('v2')){sh.classList.add('nolive'); vwSketchSoon();}
   try{console.info('живая сцена выключена:',why);}catch(e){}
 }
 function liveEngine(){
@@ -3456,6 +3755,9 @@ function liveEngine(){
       const sc=window.RemlabScene.createDemoScene(cv,{room:D.room, items:clone(items), base:location.href,
         runtimeMeshes:rt, lite:isTouchUI()});
       sc.on('contextlost',()=>liveOff('видеоконтекст потерян'));
+      // крутилка считает модели: «Загружаем модели 3 из 8» при первом открытии, «Загружаем модель…» при замене
+      sc.on('progress',(l,t)=>{if(LIVE.state==='warming')vwLoad(true,(LANG==='en'?'Loading models ':'Загружаем модели ')+l+(LANG==='en'?' of ':' из ')+t);
+        else if(LIVE.state==='updating'&&l<t)vwLoad(true,LANG==='en'?'Loading the model…':'Загружаем модель…',true);});
       sc.setSize(896,597);
       await sc.ready;
       if(LIVE.ok===false){sc.dispose(); return null;}       // контекст потерян, пока грузились модели
@@ -3485,6 +3787,15 @@ function liveEngine(){
   })();
   return LIVE.loading;
 }
+// ХОЛСТ: в «3D» перетаскивание поворачивает взгляд; короткое нажатие на предмет — его строка в списке (demo-02)
+function liveWire(){
+  const cv=LIVE.canvas; if(!cv||cv._wired)return; cv._wired=true; cv.style.touchAction='none';
+  let p0=null, last=null;
+  cv.addEventListener('pointerdown',e=>{p0={x:e.clientX,y:e.clientY}; last={...p0}; cv.setPointerCapture(e.pointerId);});
+  cv.addEventListener('pointermove',e=>{if(!p0||VW.mode!=='walk')return; LIVE.scene.look(e.clientX-last.x,e.clientY-last.y); last={x:e.clientX,y:e.clientY};});
+  cv.addEventListener('pointerup',e=>{const tap=p0&&Math.hypot(e.clientX-p0.x,e.clientY-p0.y)<8; p0=null;
+    if(tap&&LIVE.scene){const i=LIVE.scene.pick(e.clientX,e.clientY); if(i>=0)vwHighlight(i);}});
+}
 function liveHide(){
   if(LIVE.canvas&&LIVE.canvas.parentNode)LIVE.canvas.remove();
   if(LIVE.badge&&LIVE.badge.parentNode)LIVE.badge.remove();
@@ -3496,18 +3807,29 @@ new MutationObserver(()=>{if(!document.getElementById('shot').classList.contains
 async function liveShow(){
   const s=shots[shotAt];
   const vi=s?allVariants().findIndex(v=>(v.id||'')===(s.vid||'')):-1;
-  if(!s||vi!==cur||!liveStale(s)||!document.getElementById('shot').classList.contains('on')){liveHide();return;}
+  // живая сцена нужна, когда фото устарело, в режиме «3D» окна варианта и у варианта без фото (demo-02)
+  const camShot=s&&(s.camera||'C1')===vwCam();
+  const want=s&&(liveStale(s)||VW.mode==='walk'||!s.url||!camShot);
+  if(!s||vi!==cur||!want||!document.getElementById('shot').classList.contains('on')){liveHide();return;}
   const at=shotAt;
-  const sc=await liveEngine(); if(!sc)return;
+  if(!LIVE.scene){LIVE.state='warming'; vwLoad(true, LANG==='en'?'Loading models…':'Загружаем модели…');}
+  const sc=await liveEngine(); if(!sc){vwLoad(false); return;}
   // ПОКА ГРУЗИЛСЯ ДВИЖОК, ОКНО МОГЛИ ЗАКРЫТЬ ИЛИ ПЕРЕЛИСТНУТЬ (verify 14.10): холст к закрытому окну не цепляем
   const wrap=document.querySelector('#shot .shotwrap');
-  if(!wrap||at!==shotAt||!document.getElementById('shot').classList.contains('on')||!liveStale(shots[shotAt]))return;
-  if(LIVE.canvas.parentNode!==wrap){wrap.appendChild(LIVE.canvas); wrap.appendChild(LIVE.badge);}
+  const s2=shots[shotAt];
+  if(!wrap||at!==shotAt||!document.getElementById('shot').classList.contains('on')
+    ||!(liveStale(s2)||VW.mode==='walk'||!s2.url||(s2.camera||'C1')!==vwCam()))return;
+  if(LIVE.canvas.parentNode!==wrap){LIVE.canvas.classList.remove('in'); wrap.appendChild(LIVE.canvas); wrap.appendChild(LIVE.badge);
+    requestAnimationFrame(()=>requestAnimationFrame(()=>LIVE.canvas.classList.add('in')));}
   const r=wrap.getBoundingClientRect(); if(r.width>0&&r.height>0)sc.setSize(r.width,r.height);
-  const c=(cams||loadCams())[/2$/.test(shots[shotAt].camera||'')?1:0]||{};
-  sc.setPhotoPose({x:c.x,y:c.y,rot:c.rot||0,fov:c.fov||72});
+  const c=(cams||loadCams())[VW.mode==='c2'?1:0]||{};
+  if(VW.mode==='walk'){sc.setWalk(); LIVE.badge.textContent=LANG==='en'?'3D: drag to look around':'3D: тяните, чтобы осмотреться';}
+  else{sc.setPhotoPose({x:c.x,y:c.y,rot:c.rot||0,fov:c.fov||72}); LIVE.badge.textContent=LANG==='en'?'Live scene: as it stands now':'Живая сцена: так стоит сейчас';}
+  liveWire();
   sc.start();
+  LIVE.state='updating'; vwLoad(true, LANG==='en'?'Updating…':'Обновляем…', true);
   await sc.update(clone(items));
+  LIVE.state='ready'; vwLoad(false);
 }
 </script>
 <script>
@@ -3892,7 +4214,9 @@ async function liveShow(){
     'Собираем кадр по вашей расстановке…':'Building a shot of your layout…','обычно 2–4 минуты':'usually 2–4 minutes',
     'обычно 20–25 секунд':'usually 20–25 seconds','с':'s','Не получилось собрать кадр.':'Could not build the shot.',
     'попробуйте ещё раз':'please try again','Один кадр уже считается — дождитесь его.':'A shot is already being made — please wait for it.',
-    'Ссылка скопирована':'Link copied',
+    'Ссылка скопирована':'Link copied','Ракурс':'View','План':'Plan','Товары и замены ⌃':'Items & swaps ⌃','⌄ Свернуть':'⌄ Collapse',
+    'Сделать фотореалистичное фото':'Make a photorealistic photo','нейросеть · 2–4 мин · бесплатно для вас':'AI · 2–4 min · free for you',
+    'Потяните или нажмите — товары и замены':'Pull or tap — items and swaps','Фото нейросети · расстановка могла отличаться':'AI photo · the layout may differ','Собираем сцену…':'Building the scene…','⤢ во весь экран':'⤢ full screen','Двигайте пальцем · щипок — увеличить · двойной тап — назад':'Drag to move · pinch to zoom · double tap to go back','Ракурс 1':'View 1','Ракурс 2':'View 2','Загружаем модели…':'Loading models…','Обновляем…':'Updating…','Загружаем модель…':'Loading the model…','Сервер рисует эскиз…':'The server is drawing a sketch…','Эскиз с сервера · у устройства нет видеокарты':'Server sketch · your device has no graphics card','Готово — посмотреть в окне':'Done — view in the window','Расставляем мебель…':'Placing furniture…','Предыдущая расстановка':'Previous layout','Следующая расстановка':'Next layout',
     'Удерживайте предмет полсекунды и тяните — он переедет. Короткое касание — стрелки поворота. Когда готово — «Посмотреть фото с изменениями» внизу.':
       'Hold an item for half a second and drag it to move. A short tap shows rotation arrows. When ready, tap “See the photo with changes” below.',
     'Тяните предмет мышью, поворачивайте за уголок. Кружок на предмете — выбрать другой товар. Когда готово — «Посмотреть фото с изменениями» внизу.':
@@ -3940,6 +4264,10 @@ async function liveShow(){
     [/^Стиль «(.+?)»: сейчас нет полного набора в наличии \(не хватает: (.+)\) — покажем, как только появится\.$/,function(m){
       return 'Style “'+(STYLE[m[1]]||m[1])+'”: no complete set in stock right now (missing: '+m[2].split(', ').map(function(x){return role(x)||x;}).join(', ')+') — we will show it once available.';}],
     [/^Комплект: (.+)$/,function(m){return 'Set: '+m[1];}],
+    [/^Расстановка (\d+) из (\d+)$/,function(m){return 'Layout '+m[1]+' of '+m[2];}],
+    [/^Загружаем модели (\d+) из (\d+)$/,function(m){return 'Loading models '+m[1]+' of '+m[2];}],
+    [/^Считаем кадр на сервере ≈ (\d+) с$/,function(m){return 'Rendering on the server ≈ '+m[1]+' s';}],
+    [/^Заменено: (.+?)( · .+)?$/,function(m){return 'Replaced: '+(role(m[1])||m[1])+(m[2]||'');}],
     [/^В очереди: (\d+)(?: · примерно (\d+) с)?$/,function(m){return 'In queue: '+m[1]+(m[2]?' · about '+m[2]+' s':'');}],
     [/^осталось примерно (\d+) с$/,function(m){return 'about '+m[1]+' s left';}],
     [/^Нет связи с сервером — ждём, кадр не потерян \((\d+) с\)$/,function(m){return 'No connection to the server — waiting, the shot is not lost ('+m[1]+' s)';}],

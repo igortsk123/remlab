@@ -24,7 +24,7 @@ export type DemoContext = { apartmentId: string; partnerId: string; currency: "R
  * Ночная пересборка меняет состав набора; при сквозной нумерации сохранённый выбор «места 3»
  * переехал бы на другой предмет (рецензия 13.10, P0).
  */
-function stableSlotIds(items: DemoItem[]): string[] {
+export function stableSlotIds(items: DemoItem[]): string[] {
   const seen = new Map<string, number>();
   return items.map((it) => {
     const role = (it.role ?? "предмет").trim().toLowerCase();

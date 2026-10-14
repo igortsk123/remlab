@@ -71,19 +71,19 @@ test("2.13 сохранённая коллекция получает карти
 // 2.12: из конструктора — «Посмотреть фото с изменениями» → новый кадр, конструктор закрылся, окно кадра открыто.
 test("2.12 фото с изменениями из конструктора", async ({ page }) => {
   test.setTimeout(4 * 60_000);
-  await page.goto("/demo/", { waitUntil: "networkidle" });
+  await page.goto("/demo/?live=force", { waitUntil: "networkidle" });
   await page.waitForFunction("typeof allVariants === 'function' && allVariants().length > 0");
   await page.locator("#tab-room").click();
   await page.locator("button[data-swap]").first().click();
-  await page.locator("#shEdit").click();
+  await page.locator('[data-vm="plan"]').click();
   const pos = await page.evaluate(`(() => { const r = stage.getBoundingClientRect(); const it = items.find(i => /^столик/.test(i.role));
     return { x: r.left + PAD + it.x * S, y: r.top + PAD + it.y * S }; })()`) as { x: number; y: number };
   await page.mouse.move(pos.x, pos.y); await page.mouse.down();
   for (let k = 1; k <= 8; k++) await page.mouse.move(pos.x - 3 * k, pos.y + 2 * k);
   await page.mouse.up();
   const t = Date.now();
-  await page.locator("#consShot").click();
-  await expect(page.locator("#shot img").first()).toBeVisible({ timeout: 180_000 });
+  await page.locator("#consShot").click();                // demo-02: из конструктора — в окно с живой сценой
+  await expect(page.locator("#shot .livecv, #shot .shotwrap img.vmain").first()).toBeVisible({ timeout: 60_000 });
   await expect(page.locator("#cons")).toBeHidden();
-  console.log(`  · новый кадр из конструктора за ${Math.round((Date.now() - t) / 1000)} с`);
+  console.log(`  · окно с изменениями из конструктора за ${Math.round((Date.now() - t) / 1000)} с`);
 });
