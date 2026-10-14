@@ -8,6 +8,9 @@
 // Пишет `guides/product-book-map.json` (глава → абзацы «Сегодня» → планы и их статусы).
 //   node tools/book-map.mjs            # отчёт + карта
 //   node tools/book-map.mjs --check    # код 1, если есть BOOK-STALE (для свода памяти)
+//   node tools/book-map.mjs --changed  # что поменяли в книге с прошлого свода (человек → банк)
+//   node tools/book-map.mjs --mark     # отметка «книга разобрана» на HEAD
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -64,7 +67,26 @@ export function verdicts(paras, idx) {
   });
 }
 
+// ЧЕЛОВЕК → БАНК (book-memory-sync п.2): что владелец поменял в книге с прошлого свода. Отметка — хеш коммита в
+// `guides/product-book.checked`; `--changed` печатает изменённые абзацы, `--mark` ставит отметку на HEAD.
+const STAMP = path.join(MB, "guides", "product-book.checked");
+function changed() {
+  const since = existsSync(STAMP) ? readFileSync(STAMP, "utf8").trim() : "";
+  if (!since) { console.log("[book-map] отметки свода нет — запусти с --mark после первого разбора"); return; }
+  const out = execFileSync("git", ["-C", ROOT, "diff", "--unified=0", `${since}..HEAD`, "--", BOOK], { encoding: "utf8" });
+  const add = out.split("\n").filter((l) => l.startsWith("+") && !l.startsWith("+++")).map((l) => l.slice(1)).filter((l) => l.trim());
+  console.log(`[book-map] строк книги изменено с ${since.slice(0, 7)}: ${add.length}`);
+  for (const l of add.slice(0, 200)) console.log("  + " + l.slice(0, 200));
+}
+function mark() {
+  const head = execFileSync("git", ["-C", ROOT, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  writeFileSync(STAMP, head + "\n");
+  console.log(`[book-map] отметка свода: ${head.slice(0, 7)}`);
+}
+
 function main() {
+  if (process.argv.includes("--changed")) return changed();
+  if (process.argv.includes("--mark")) return mark();
   const idx = planIndex();
   const rows = verdicts(todayParagraphs(readFileSync(BOOK, "utf8"), [...idx.keys()]), idx);
   writeFileSync(OUT, JSON.stringify({ generated: new Date().toISOString().slice(0, 10), paragraphs: rows }, null, 1) + "\n");

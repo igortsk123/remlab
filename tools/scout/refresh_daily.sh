@@ -412,6 +412,8 @@ step demo_live bash ../ops/demo-live.sh
 # 8. ЕЖЕНЕДЕЛЬНО (понедельник): полный перегон размещаемости всех сетов — решение владельца
 # 2026-08-07 («прогон по остаткам раз в неделю достаточно»). Отчёт: solver-check-report.json.
 if [ "$(date +%u)" = "1" ]; then
+  # сверка книги о продукте с кодом советником (book-memory-sync п.4), отчёт в _intake/codex/
+  step book_check bash ../book-check.sh
   step solver_full env CHECK_TAG=weekly "$PY" solver_check.py
   # В3 (владелец 07.08): точечное освежение сетов новинками — лучшая ступень стиля, ≤2 замен/сет
   [ -f exam.lock ] || step sets_refresh "$PY" sets_incremental.py --refresh --apply
@@ -459,6 +461,8 @@ fi
 # СТЫКИ КОНВЕЙЕРА (conv-06, ADR-0272): числа на каждом стыке, сравнение с прошлым успешным прогоном, тревога только
 # при смене состояния; страница /test/pipeline/. Последним — после мешевого блока, когда все числа дня готовы.
 step pipeline_map "$PY" pipeline_map.py --publish || true
+# книга о продукте → /test/book/ (book-memory-sync п.5): владелец читает свежую версию
+step book_page python3 ../book-build.py --publish
 # интеграционный тест конвейера на одноразовой базе (conv-06): мини-фид → схема → загрузка → подбор → стыки
 step chain_dbtest "$PY" tests/pipeline_chain_dbtest.py
 
