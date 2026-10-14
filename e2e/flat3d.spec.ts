@@ -394,3 +394,25 @@ test("отмена и возврат: выбор кухни отменяется
   await page.getByRole("button", { name: "Вернуть", exact: true }).click();
   await expect(bar).toContainText("8 700");
 });
+
+test("по ссылке менеджера в правой панели — «Связаться с менеджером» с готовым текстом", async ({ page }) => {
+  const S = "Abcdefghijklmnopqrstuv"; // 22 символа, как у настоящей ссылки
+  await page.route(`**/api/sends/${S}`, (r) =>
+    r.fulfill({ json: { ok: true, card: { manager: { name: "Анна", telegram: "@anna_mgr", whatsapp: "+7 900 000-00-00", phone: null } } } }));
+  await page.route(`**/api/sends/${S}/event`, (r) => r.fulfill({ json: { ok: true } }));
+  await page.goto(`/flat?s=${S}`);
+  await page.getByRole("tab", { name: "Бродилка" }).click();
+  await page.getByRole("button", { name: /Состав и цены/ }).click();
+  await page.getByRole("button", { name: /Связаться с менеджером/ }).click();
+  const wa = page.getByRole("link", { name: "WhatsApp" });
+  await expect(wa).toHaveAttribute("href", /wa\.me\/79000000000\?text=.*%D0%90%D0%BD%D0%BD%D0%B0/); // «Анна» в тексте
+  await expect(page.getByRole("link", { name: "Telegram" })).toHaveAttribute("href", /t\.me\/anna_mgr/);
+});
+
+test("без ссылки менеджера кнопки связи нет", async ({ page }) => {
+  await page.goto("/flat");
+  await page.getByRole("tab", { name: "Бродилка" }).click();
+  await page.getByRole("button", { name: /Состав и цены/ }).click();
+  await expect(page.locator('[data-flat3d="info"]').getByText("Итого")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Связаться с менеджером/ })).toHaveCount(0);
+});

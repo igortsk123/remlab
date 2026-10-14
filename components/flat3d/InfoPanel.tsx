@@ -22,6 +22,8 @@ type Props = {
   /** Убранные покупателем предметы — строкой «вернуть» (flat3d-sims-ux «убрать»). */
   hidden: string[];
   onUnhide: (slotId: string) => void;
+  /** Кнопка связи с менеджером застройщика (только по его ссылке) — под итогом. */
+  contact?: React.ReactNode;
 };
 
 const HELP: Record<Lang, string[]> = {
@@ -86,6 +88,7 @@ export function InfoPanel(p: Props) {
           <div className="mt-2 flex justify-between border-t border-secondary pt-2">
             <b>{en ? "Total" : "Итого"}</b><b>{p.fmt(p.scene.totals.total)}</b>
           </div>
+          {p.contact}
         </aside>
       ) : null}
     </div>

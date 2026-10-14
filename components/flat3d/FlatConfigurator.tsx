@@ -20,6 +20,7 @@ import { PlanView } from "@/components/flat3d/PlanView";
 import { PhotoView } from "@/components/flat3d/PhotoView";
 import { Scene3D } from "@/components/flat3d/Scene3D";
 import { InfoPanel } from "@/components/flat3d/InfoPanel";
+import { ManagerContact } from "@/components/flat3d/ManagerContact";
 import type { Spot } from "@/components/flat3d/Hotspots";
 import { optionsForSlot } from "@/lib/configurator/resolve";
 
@@ -34,9 +35,11 @@ interface Props {
   certificate?: { amount: number } | null;
   /** Факты о квартире строкой (ЖК, срок, этаж) — из карточки застройщика, для правой панели. */
   facts?: string;
+  /** Пришёл по ссылке менеджера (`?s=`) — в правой панели «Связаться с менеджером» (E3). */
+  sendId?: string | null;
 }
 
-export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, certificate, facts }: Props) {
+export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, certificate, facts, sendId }: Props) {
   const L = t(lang);
   const fmt = (v: number) => formatMoney(v, catalogue.currency, lang);
   const { config, scene, choose, moveSlot, resetSlotPlacement, hideSlot, unhideSlot, reset, undo, redo, canUndo, canRedo, isDefault } = useFlatConfig(
@@ -368,6 +371,7 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
             onRoomChange={(id) => id && setRoomId(id)}
             onItemOptions={() => setBarOpen(true)}
             spots={spots}
+            padLabels={lang === "en" ? { show: "Show controls", hide: "Hide controls" } : { show: "Показать управление", hide: "Скрыть управление" }}
             onItemMove={startMove}
             onItemRemove={slotId && apartment.slots.find((s) => s.id === slotId)?.kind === "furniture" ? removeItem : undefined}
             itemLabels={lang === "en" ? { options: "Options", move: "Drag", remove: "Remove" } : { options: "Варианты", move: "Двигать", remove: "Убрать" }}   // не «Передвинуть»: та кнопка есть в нижней панели
@@ -383,7 +387,9 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
         {is3d ? (
           <InfoPanel apartment={apartment} scene={scene} roomId={roomId} facts={facts ?? ""} lang={lang} fmt={fmt}
             inRoom={mode === "walk"} onRoom={(id) => setRoomId(id)} onOverview={() => setMode("top")} defaultOpen={false}
-            hidden={config.hidden ?? []} onUnhide={unhideSlot} />
+            hidden={config.hidden ?? []} onUnhide={unhideSlot}
+            contact={sendId ? <ManagerContact sendId={sendId} lang={lang} sum={scene.totals.upgrades}
+              items={scene.items.filter((i) => i.price > 0).map((i) => (lang === "en" ? i.titleEn : i.titleRu))} /> : null} />
         ) : null}
         {mode === "top" ? (
           // КНОПКИ КОМНАТ НА ВИДЕ СВЕРХУ (flat3d-sims-ux D3): войти в комнату одним нажатием, как на плане

@@ -47,6 +47,8 @@ export interface Scene3DProps {
   /** «Убрать» предмет; undefined у встроенного — кнопки нет. */
   onItemRemove?: (slotId: string) => void;
   itemLabels?: { options: string; move: string; remove: string };
+  /** Подписи кнопки «показать/скрыть управление» (D4). */
+  padLabels?: { show: string; hide: string };
   /** Точки на заменяемых предметах текущей комнаты (D6). */
   spots?: Spot[];
   hintText: string;
@@ -90,6 +92,22 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
   // комнаты догружаются на ходу, и накрывать ими всю сцену нельзя
   const [firstLoadDone, setFirstLoadDone] = useState(false);
   const [hintClosed, setHintClosed] = useState(false);
+  const [padShown, setPadShown] = useState(true);
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem("remlab.flat3d.pad") === "hidden") setPadShown(false);
+    } catch {
+      /* приватный режим — кнопки видны */
+    }
+  }, []);
+  const togglePad = useCallback(() => setPadShown((v) => {
+    try {
+      window.localStorage.setItem("remlab.flat3d.pad", v ? "hidden" : "shown");
+    } catch {
+      /* не сохранили — переключение всё равно работает */
+    }
+    return !v;
+  }), []);
   useEffect(() => {
     try {
       if (window.localStorage.getItem("remlab.flat3d.hint") === "closed") setHintClosed(true);
@@ -498,8 +516,17 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
         </div>
       ) : null}
 
-      {ready && !error ? (
+      {ready && !error && padShown ? (
         <WalkPad onHold={holdKey} onTurn={turnBy} compact={lite} liftPx={bottomInsetPx} />
+      ) : null}
+      {/* «ПОКАЗАТЬ/СКРЫТЬ УПРАВЛЕНИЕ» (flat3d-sims-ux D4, референс A101): кнопки ходьбы не мешают смотреть, пока не нужны;
+          выбор помним в браузере. Ходить можно и без них — стрелками, тапом по полу. */}
+      {ready && !error && !topView ? (
+        <button type="button" onClick={togglePad} aria-pressed={padShown}
+          className="absolute min-h-11 rounded-lg bg-primary px-3 text-xs text-secondary shadow-md ring-1 ring-inset ring-secondary"
+          style={{ left: 8, bottom: 8 + bottomInsetPx, zIndex: 6 }}>
+          {padShown ? props.padLabels?.hide ?? "Скрыть управление" : props.padLabels?.show ?? "Показать управление"}
+        </button>
       ) : null}
 
       {/* ПОДСКАЗКА — ВВЕРХУ, отдельной карточкой с крестиком (владелец 30.09: «сделай красиво
