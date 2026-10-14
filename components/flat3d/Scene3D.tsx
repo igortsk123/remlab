@@ -57,6 +57,8 @@ export interface Scene3DProps {
   loadingTitle?: string;
   loadingHint?: string;
   loadingStages?: readonly [string, string, string];
+  /** Логотип застройщика на экране загрузки (D8); нет — без логотипа. */
+  loadingLogo?: string;
   noWebglText: string;
   retryText: string;
 }
@@ -425,6 +427,10 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
       {(!ready || progress < 1) && !firstLoadDone ? (
         error ? null : (
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-xl bg-secondary">
+            {props.loadingLogo ? (
+              // eslint-disable-next-line @next/next/no-img-element -- логотип партнёра: внешний адрес из реестра
+              <img src={props.loadingLogo} alt="" style={{ maxHeight: 48, maxWidth: 200, objectFit: "contain" }} />
+            ) : null}
             {props.loadingTitle ? <p className="text-lg font-semibold text-primary">{props.loadingTitle}</p> : null}
             {props.loadingHint ? <p className="max-w-xs text-center text-sm text-tertiary">{props.loadingHint}</p> : null}
             <p className="text-sm text-secondary" data-flat3d="loading-stage">

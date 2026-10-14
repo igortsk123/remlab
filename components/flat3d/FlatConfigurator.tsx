@@ -37,9 +37,11 @@ interface Props {
   facts?: string;
   /** Пришёл по ссылке менеджера (`?s=`) — в правой панели «Связаться с менеджером» (E3). */
   sendId?: string | null;
+  /** Логотип застройщика для экрана загрузки 3D (D8). */
+  logo?: string;
 }
 
-export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, certificate, facts, sendId }: Props) {
+export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, certificate, facts, sendId, logo }: Props) {
   const L = t(lang);
   const fmt = (v: number) => formatMoney(v, catalogue.currency, lang);
   const { config, scene, choose, moveSlot, resetSlotPlacement, hideSlot, unhideSlot, reset, undo, redo, canUndo, canRedo, isDefault } = useFlatConfig(
@@ -380,6 +382,7 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
             loadingTitle={L.loadingTitle}
             loadingHint={L.loadingHint}
             loadingStages={L.loadingStages}
+            loadingLogo={logo}
             noWebglText={L.noWebgl}
             retryText={lang === "en" ? "Try again" : "Повторить"}
           />

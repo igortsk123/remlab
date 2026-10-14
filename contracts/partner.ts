@@ -123,6 +123,8 @@ export const partner = z.object({
   /** Источники, которым разрешено встраивать нас рамкой (`b2b-07`, Caddy frame-ancestors):
    *  `https://site.ru` или `https://*.site.ru` — без пути. */
   frameDomains: z.array(z.string().regex(/^https:\/\/(\*\.)?[a-z0-9.-]+\.[a-z]{2,}(:\d+)?$/)).default([]),
+  /** Логотип застройщика для экрана загрузки 3D (flat3d-sims-ux D8): свой путь (`/partners/…`) или https. */
+  logoUrl: z.string().regex(/^(https:\/\/|\/)[^\s"'<>]{1,300}$/).optional(),
   /** Часовой пояс отчёта застройщику (`b2b-03`: недельный отчёт по его времени). */
   timezone: z.string().default("Europe/Moscow"),
   /** Демонстрационный застройщик: можно переключать рынок на странице (ADR-0254). */

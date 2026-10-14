@@ -115,6 +115,7 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
         certificate={card.certificate ? { amount: card.certificate.amount } : null}
         facts={card.meta}
         sendId={sp.s && TOKEN_RE.test(sp.s) ? sp.s : null}
+        logo={hit.partner.logoUrl}
       />
     </main>
   );

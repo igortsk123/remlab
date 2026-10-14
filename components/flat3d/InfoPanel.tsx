@@ -35,6 +35,9 @@ const HELP: Record<Lang, string[]> = {
     "“Save” gives you a link to your selection."],
 };
 
+/** Ролики к строкам справки: ходьба, выбор предмета, перемещение (порядок строк HELP). */
+const CLIPS: (string | null)[] = ["walk", "pick", "move", null, null];
+
 export function InfoPanel(p: Props) {
   const [open, setOpen] = useState(p.defaultOpen);
   const [help, setHelp] = useState(false);
@@ -51,7 +54,14 @@ export function InfoPanel(p: Props) {
       </div>
       {help ? (
         <div className="rounded-lg bg-primary p-3 text-sm text-secondary shadow-md">
-          <ul style={{ margin: 0, paddingLeft: 18 }}>{HELP[p.lang].map((h) => <li key={h}>{h}</li>)}</ul>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>{HELP[p.lang].map((h, i) => (
+            <li key={h}>{h}{CLIPS[i] ? (
+              // короткий ролик приёма (D5): анимированный WebP, снят `tools/flat3d/help-clips.mjs`
+              // eslint-disable-next-line @next/next/no-img-element -- анимированный WebP: next/image его не анимирует
+              <img src={`/flat3d-help/${CLIPS[i]}.webp`} alt="" loading="lazy"
+                style={{ display: "block", width: "100%", borderRadius: 6, margin: "4px 0 8px" }} />
+            ) : null}</li>
+          ))}</ul>
         </div>
       ) : null}
       {open ? (
