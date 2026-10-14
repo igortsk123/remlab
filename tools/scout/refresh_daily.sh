@@ -400,6 +400,8 @@ step layout_page env LAYOUT10_PUBLISH=1 "$PY" layout10_page.py 1 14 21 29 55 59 
 step mesh_publish "$PY" mesh_publish.py
 step flat215_demo "$PY" flat215_demo.py
 step flat215_publish bash publish_demo.sh
+# прогрев кадров (b2b-08 п.4): у каждого стиля — черновой кадр свежего набора, без чьего-то нажатия «снять»
+step demo_warm bash ../ops/demo-warm.sh
 # живая проверка демо на проде после публикации (b2b-12): стили, кадры, замена, ссылка, английский
 step demo_live bash ../ops/demo-live.sh
 
