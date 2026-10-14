@@ -38,8 +38,9 @@ export interface DemoScene {
   update(items: DemoItem[]): Promise<void>;
   setPhotoPose(pose: PhotoPose): void;
   exportFrame(width: number, height: number, type?: string, quality?: number): Promise<Blob>;
-  /** Вид окна (demo-02): «Ракурс» — фото-поза (`setPhotoPose`), «3D» — прогулка из середины комнаты. */
-  setWalk(): void;
+  /** Вид окна (demo-02): «Ракурс» — фото-поза (`setPhotoPose`), «3D» — прогулка; с позой — из точки этого ракурса,
+   *  взгляд на середину мебели (`viewer.walkFrom`). */
+  setWalk(from?: PhotoPose): void;
   /** Повернуть взгляд в прогулке (перетаскивание пальцем/мышью). */
   look(dx: number, dy: number): void;
   /** Какой предмет под точкой холста: номер в расстановке страницы (как в `update`), иначе -1. */
@@ -146,7 +147,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     update,
     setPhotoPose: (pose) => viewer.setPhotoPose(pose),
     exportFrame: (w, h, type, q) => viewer.exportFrame(w, h, type, q),
-    setWalk: () => viewer.setViewMode("walk"),
+    setWalk: (from) => (from ? viewer.walkFrom(from) : viewer.setViewMode("walk")),
     look: (dx, dy) => viewer.look(dx, dy),
     pick: (x, y) => {
       const id = viewer.pick(x, y, canvas.getBoundingClientRect()).slotId;

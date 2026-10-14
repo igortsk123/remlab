@@ -1195,11 +1195,19 @@ function camIcon(c){
 // стоит торшер: глаз на 165 см в полуметре от абажура, и второй ракурс был «абажуром изнутри» — пустым кадром.
 // Высота предмета одна ничего не решает (низкий стол вплотную тоже закрывает низ кадра), поэтому меряем то, что
 // видит камера: коробку каждого БЛИЗКОГО предмета (≤ CAM_NEAR от глаза) проецируем в кадр той же камерой, что у
-// рендера (глаз 165, цель 105 в 4 м, 72° по горизонтали, кадр 3:2), и берём долю кадра, которую она занимает.
+// рендера (поза ниже, 72° по горизонтали, кадр 3:2), и берём долю кадра, которую она занимает.
 // Дальние предметы не считаются: диван через всю комнату — это содержание кадра, а не помеха. Нижняя треть кадра
 // тоже не считается: спинка дивана или край стола внизу — обычный передний план интерьерного снимка, а пол
 // (ковёр) не помеха вовсе; кадр портит то, что закрывает саму комнату — середину и верх.
-const CAM_EYE=165, CAM_TGT=105, CAM_NEAR=120, CAM_BLOCK=0.04, CAM_SLIDE=150, CAM_STEP=10;
+// ПОЗА v2 (demo-02, 14.10; `draft_render.photo_pose_heights`, `viewer.ts:photoRay`): глаз 135, камера горизонтальна, кадр
+// опущен сдвигом объектива на 10 % высоты (в долях −1…1 — на 0,2). Версия уходит с каждой камерой (`pose`), чтобы сервер
+// и живая сцена снимали одинаково, а кадры старой позы считались устаревшими (`liveStale`).
+const POSE_VER=2, CAM_SHIFT_N=0.2;
+const CAM_EYE=135, CAM_TGT=135, CAM_NEAR=120, CAM_BLOCK=0.04, CAM_SLIDE=150, CAM_STEP=10;
+// НИЖНЯЯ ТРЕТЬ ТОЖЕ СЧИТАЕТСЯ, НО МЯГЧЕ (прогон d8 14.10: ракурс 2 сканди/лофта — камера «за диваном», он занимал нижнюю
+// треть кадра). Край стола внизу — нормальный передний план, а близкий диван на 17–27 % кадра — нет: близкий план по всей
+// высоте сверх CAM_LOW — штраф в оценке точки (жёсткий порог уводил камеру на середину стены — кадр «дверь и пустая стена»)
+const CAM_LOW=0.10;
 const CAM_ROLE_H={'ковёр':1,'торшер':160,'стеллаж':180,'кашпо':60,'стул':90,'диван':85,'кресло':90,'столик':40,
   'тв-тумба':55,'стол обеденный':75,'комод':85,'пуф':45};
 function camItemH(it){const r=String(it.role||'').replace(/\s+\d+$/,'');
@@ -1207,49 +1215,88 @@ function camItemH(it){const r=String(it.role||'').replace(/\s+\d+$/,'');
   // НА ТВ-ТУМБУ СЕРВЕР САМ СТАВИТ ТЕЛЕВИЗОР (`draft_render.scene_from_request`, ~70 см экрана): камера должна видеть его
   // как помеху, а не одну низкую тумбу (14.10: в «джапанди» спина телевизора закрывала пол-кадра)
   return r==='тв-тумба'?h+75:h;}
-function camBlock(c,its){
+// Проекция коробки предмета в кадр позы: прямоугольник на экране в долях −1…1 (x вправо, y вверх) или null (за спиной)
+function camProj(c,it,h0,h1){
   const a=(c.rot||0)*Math.PI/180, pitch=Math.atan2(CAM_EYE-CAM_TGT,400), cp=Math.cos(pitch), sp=Math.sin(pitch);
   const f=[Math.sin(a)*cp,-Math.cos(a)*cp,-sp], r=[Math.cos(a),Math.sin(a),0], u=[Math.sin(a)*sp,-Math.cos(a)*sp,cp];
   const tx=Math.tan((c.fov||72)/2*Math.PI/180), ty=tx/1.5;
-  let worst=0, who='';
-  (its||[]).forEach(it=>{
-    if(camItemH(it)<=2)return;                        // ковёр — пол
-    const rr=(it.rot||0)*Math.PI/180, ca=Math.cos(rr), sa=Math.sin(rr), h=camItemH(it), pts=[];
-    [[-1,-1],[1,-1],[1,1],[-1,1]].forEach(([i,j])=>{const dx=i*it.w/2, dy=j*it.d/2;
-      pts.push([it.x+dx*ca-dy*sa, it.y+dx*sa+dy*ca]);});
-    // близость — до ближайшей точки повёрнутого контура (глаз внутри контура = 0)
-    const lx=(c.x-it.x)*ca+(c.y-it.y)*sa, ly=-(c.x-it.x)*sa+(c.y-it.y)*ca;
-    const near=Math.hypot(Math.max(Math.abs(lx)-it.w/2,0),Math.max(Math.abs(ly)-it.d/2,0));
-    if(near>CAM_NEAR)return;
-    let x0=1,x1=-1,y0=1,y1=-1,any=false;
-    pts.forEach(([px,py])=>[0,h].forEach(pz=>{
+  const rr=(it.rot||0)*Math.PI/180, ca=Math.cos(rr), sa=Math.sin(rr);
+  let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9,any=false,behind=0;
+  [[-1,-1],[1,-1],[1,1],[-1,1]].forEach(([i,j])=>{const dx=i*it.w/2, dy=j*it.d/2, px=it.x+dx*ca-dy*sa, py=it.y+dx*sa+dy*ca;
+    [h0,h1].forEach(pz=>{
       const v=[px-c.x,py-c.y,pz-CAM_EYE], z=v[0]*f[0]+v[1]*f[1]+v[2]*f[2];
-      if(z<-5)return;                                  // целиком за спиной — не в кадре
-      const zz=Math.max(z,5), sx=(v[0]*r[0]+v[1]*r[1])/zz/tx, sy=(v[0]*u[0]+v[1]*u[1]+v[2]*u[2])/zz/ty;
-      any=true; x0=Math.min(x0,sx); x1=Math.max(x1,sx); y0=Math.min(y0,sy); y1=Math.max(y1,sy);}));
-    if(!any)return;
-    const yl=-1/3;                                    // нижняя треть кадра не считается
-    const cov=Math.max(0,Math.min(x1,1)-Math.max(x0,-1))/2*Math.max(0,Math.min(y1,1)-Math.max(y0,yl))/2;
-    if(cov>worst){worst=cov;who=it.role;}
-  });
-  return {cov:worst,who:who};
+      if(z<-5){behind++;return;}                       // целиком за спиной — не в кадре
+      const zz=Math.max(z,5), sx=(v[0]*r[0]+v[1]*r[1])/zz/tx, sy=(v[0]*u[0]+v[1]*u[1]+v[2]*u[2])/zz/ty+CAM_SHIFT_N;
+      any=true; x0=Math.min(x0,sx); x1=Math.max(x1,sx); y0=Math.min(y0,sy); y1=Math.max(y1,sy);});});
+  return any?{x0,x1,y0,y1,behind}:null;
 }
-// Точка у угла (cx,cy): сам угол, затем сдвиг ВДОЛЬ одной из двух прилегающих стен шагом CAM_STEP до CAM_SLIDE
-// (так камера остаётся у стены и видит больше комнаты, чем при шаге внутрь); каждая точка целится в центр.
-// Берём первую открытую (меньший сдвиг; при равенстве — вдоль длинной стены); открытой нет — наименее закрытую.
+const camInside=(b,yl)=>Math.max(0,Math.min(b.x1,1)-Math.max(b.x0,-1))/2*Math.max(0,Math.min(b.y1,1)-Math.max(b.y0,yl))/(1-yl);
+function camNear(c,it){
+  const rr=(it.rot||0)*Math.PI/180, ca=Math.cos(rr), sa=Math.sin(rr);
+  const lx=(c.x-it.x)*ca+(c.y-it.y)*sa, ly=-(c.x-it.x)*sa+(c.y-it.y)*ca;   // глаз внутри контура = 0
+  return Math.hypot(Math.max(Math.abs(lx)-it.w/2,0),Math.max(Math.abs(ly)-it.d/2,0));
+}
+// Помеха: СУММА долей кадра, занятых близкими (≤ CAM_NEAR) предметами (Codex 14.10: два по 6 % — это 12 %, а не 6 %).
+// По умолчанию — без нижней трети (край стола внизу — обычный передний план); yl0 = −1 — по всей высоте.
+function camBlock(c,its,yl0){
+  const yl=yl0===undefined?-1/3:yl0;
+  let sum=0, worst=0, who='';
+  (its||[]).forEach(it=>{
+    if(camItemH(it)<=2||camNear(c,it)>CAM_NEAR)return;   // ковёр — пол; дальнее — содержание кадра
+    const b=camProj(c,it,0,camItemH(it)); if(!b)return;
+    const cov=Math.max(0,Math.min(b.x1,1)-Math.max(b.x0,-1))/2*Math.max(0,Math.min(b.y1,1)-Math.max(b.y0,yl))/2;
+    sum+=cov; if(cov>worst){worst=cov;who=it.role;}
+  });
+  return {cov:sum,who:who};
+}
+// ЯДРО КОМНАТЫ — то, ради чего снимок: вес роли. Предмет считается показанным, если ≥ 70 % его прямоугольника в кадре.
+const CAM_CORE={'диван':3,'тв-тумба':2,'столик':1.5,'кресло':1.5,'стол обеденный':1.5,'стеллаж':1,'комод':1,'витрина':1,
+  'торшер':0.5,'пуф':0.5,'стул':0.25};
+function camCore(c,its){
+  let got=0, all=0;
+  (its||[]).forEach(it=>{const w=CAM_CORE[String(it.role||'').replace(/\s+\d+$/,'')]; if(!w)return; all+=w;
+    const b=camProj(c,it,0,camItemH(it)); if(!b||b.behind)return;
+    const area=(b.x1-b.x0)*(b.y1-b.y0); if(area<=0)return;
+    const ins=Math.max(0,Math.min(b.x1,1)-Math.max(b.x0,-1))*Math.max(0,Math.min(b.y1,1)-Math.max(b.y0,-1));
+    if(ins/area>=0.7)got+=w;});
+  return all?got/all:1;
+}
+// ТЕЛЕВИЗОР СО СПИНЫ ИЛИ СБОКУ (demo-05 п.2): ТВ на тумбе смотрит туда же, куда её лицо (sin rot, cos rot); камера не перед
+// экраном, а он заметен в кадре (≥ 1 %) — такой ракурс не годится вовсе (чёрная плита у края кадра).
+function camTvBack(c,its){
+  return (its||[]).some(it=>{
+    if(String(it.role||'').replace(/\s+\d+$/,'')!=='тв-тумба')return false;
+    const rr=(it.rot||0)*Math.PI/180, fx=Math.sin(rr), fy=Math.cos(rr), dx=c.x-it.x, dy=c.y-it.y, n=Math.hypot(dx,dy)||1;
+    if((fx*dx+fy*dy)/n>=0.25)return false;              // камера перед экраном; сбоку или сзади у края кадра — брак
+    const h=+it.h>0?+it.h:CAM_ROLE_H['тв-тумба'], b=camProj(c,it,h,h+75);
+    return !!b&&camInside(b,-1)>=0.01;
+  });
+}
+// Точка у угла (cx,cy): сам угол и сдвиги ВДОЛЬ двух прилегающих стен шагом CAM_STEP до CAM_SLIDE; у каждой — три взгляда:
+// в центр комнаты, в середину ядра и ±10° (часто кадр чинит поворот, а не шаг). Отказ: помеха середины/верха > CAM_BLOCK
+// или ТВ со спины. Из остальных — по оценке (Codex 14.10): ядро целиком в кадре, минус близкий передний план сверх CAM_LOW,
+// минус уход от угла. Подходящих нет — наименее закрытая точка.
 function camFit(cx,cy,its,W,H){
-  const p=3, aim=(x,y)=>Math.round(Math.atan2(W/2-x, y-H/2)*180/Math.PI);
+  const p=3, aimAt=(x,y,tx,ty)=>Math.round(Math.atan2(tx-x, y-ty)*180/Math.PI);
   const sx=cx<W/2?1:-1, sy=cy<H/2?1:-1, along=W>=H?[[1,0],[0,1]]:[[0,1],[1,0]];
-  let best=null;
+  const core=(its||[]).filter(it=>CAM_CORE[String(it.role||'').replace(/\s+\d+$/,'')]);
+  const kx=core.length?core.reduce((a,it)=>a+it.x,0)/core.length:W/2, ky=core.length?core.reduce((a,it)=>a+it.y,0)/core.length:H/2;
+  let best=null, least=null;
   for(let d=0; d<=CAM_SLIDE; d+=CAM_STEP){
     for(const [ax,ay] of (d?along:[[0,0]])){
       const x=Math.min(Math.max(cx+ax*sx*d,p),W-p), y=Math.min(Math.max(cy+ay*sy*d,p),H-p);
-      const c={x:x,y:y,rot:aim(x,y),fov:72}, b=camBlock(c,its);
-      if(b.cov<=CAM_BLOCK)return Object.assign(c,{cov:b.cov,shift:d});
-      if(!best||b.cov<best.cov)best=Object.assign(c,{cov:b.cov,shift:d,who:b.who});
+      const r0=aimAt(x,y,W/2,H/2), r1=aimAt(x,y,kx,ky);
+      for(const rot of [r0,r1,r0-10,r0+10]){
+        const c={x:x,y:y,rot:rot,fov:72}, b=camBlock(c,its), lo=camBlock(c,its,-1), tv=camTvBack(c,its);
+        const bad=Math.max(b.cov/CAM_BLOCK,tv?2:0);
+        if(bad>1){ if(!least||bad<least.bad)least=Object.assign(c,{cov:b.cov,low:lo.cov,shift:d,bad:bad,who:tv?'тв (спина)':b.who}); continue; }
+        // близкий диван на переднем плане — допустимый приём, поэтому штраф мягче ядра; уход от угла — заметный минус
+        const score=4*camCore(c,its)-1.5*Math.min(1,Math.max(0,(lo.cov-CAM_LOW)/0.3))-0.75*d/CAM_SLIDE;
+        if(!best||score>best.score+1e-9)best=Object.assign(c,{cov:b.cov,low:lo.cov,shift:d,score:score});
+      }
     }
   }
-  return best;
+  return best||least;
 }
 // CAMFIT END
 function defaultCams(){
@@ -1305,7 +1352,7 @@ function cycleCams(){
 // значения продолжали бы жить: после перевода камер вплотную в угол сохранённые с прежним
 // отступом так и стояли бы в 10 см от стены. Меняем правило — меняем версию, и каждый
 // получает новые углы по умолчанию (владелец 01.09).
-const CAMS_VER='v5-fit';   // v3 (14.10): углы с отступом от близких предметов — старые сохранённые углы пересчитываются
+const CAMS_VER='v6-low';   // v6 (14.10): близкая мебель внизу кадра — тоже помеха; при смене правил сохранённые углы пересчитываются
 function camsKey(){const v=allVariants()[cur]||{};return 'flat215-cams-'+CAMS_VER+'-'+(v.id||cur);}
 function loadCams(){
   try{const r=JSON.parse(localStorage.getItem(camsKey())||'null'); if(r&&r.length===2)return r;}catch(e){}
@@ -2030,7 +2077,7 @@ function payload(){
   // не попадали. Товар куплен, а на фото его нет.
   return {room:D.room, style:v.style||'', variant:v.title||'', decor:v.decor||[],
     cams:(cams||loadCams()).map(c=>({name:c.name,x:Math.round(c.x),y:Math.round(c.y),
-      rot:Math.round(c.rot||0),fov:c.fov||72})),
+      rot:Math.round(c.rot||0),fov:c.fov||72,pose:POSE_VER})),
     // место и поворот — округлённые так же, как в номере состояния (demo-02, Codex 14.10): иначе две разные
     // отрисованные расстановки могли бы получить один номер
     items:items.map(it=>({role:it.role,x:Math.round(+it.x||0),y:Math.round(+it.y||0),rot:((Math.round(+it.rot||0)%360)+360)%360,
@@ -2698,6 +2745,7 @@ function refreshShotList(){
 function viewShot(i){
   const s=shots[i]; if(!s)return;
   shotAt=i;
+  try{LIVE.lastMode=null;}catch(e){}      // открыли кадр заново — «3D» снова стартует из точки ракурса (LIVE объявлен ниже)
   // ВАРИАНТ КАДРА ДЕЛАЕМ ТЕКУЩИМ. Иначе список под фотографией и кнопка «Заменить» относятся к
   // расстановке, открытой на витрине, а не к той, что на снимке: у чужого кадра «Заменить» либо
   // не появлялась вовсе, либо правила ДРУГОЙ вариант. Кадр, снятый только что, привязан к уже
@@ -3474,7 +3522,9 @@ function histFwd(){return histGo(1);}
  border-radius:16px;box-shadow:var(--sh-2);font-size:14px;color:var(--ink)}
 .vload i{width:34px;height:34px;border-radius:50%;border:3px solid var(--accent-soft);border-top-color:var(--accent);
  animation:sp .8s linear infinite}
-.vold{position:absolute;left:12px;top:12px;background:var(--veil);color:#fff;font-size:13px;padding:5px 10px;border-radius:999px;z-index:5}
+/* подпись кадра — под переключателем ракурсов, а не рядом: длинная русская строка залезала под него (прогон 14.10) */
+#shot.v2 .shotwrap .livebadge{top:60px}
+.vold{position:absolute;left:12px;top:60px;background:var(--veil);color:#fff;font-size:13px;padding:5px 10px;border-radius:999px;z-index:5}
 .vtop{padding:16px 18px 10px;border-bottom:1px solid var(--line)}
 .vsum b{font-size:clamp(17px,1.4vw,20px)}.vsum small{display:block;color:var(--muted);font-size:14px;margin-top:2px}
 .vcta{width:100%;margin-top:10px;display:flex;flex-direction:column;align-items:center;border-radius:999px}
@@ -3499,7 +3549,8 @@ function histFwd(){return histGo(1);}
   .vstage{position:absolute;inset:0}
   .vside{position:absolute;left:0;right:0;bottom:0;border-left:0;border-radius:20px 20px 0 0;box-shadow:var(--sh-4);z-index:7;
    height:var(--vh0,268px);transition:height .25s ease}
-  .vside[data-pos="1"]{height:58%}.vside[data-pos="2"]{height:92%}
+  /* раскрытая шторка — ниже переключателя ракурсов и строки истории (прогон d8 14.10: они лежали поверх верха списка) */
+  .vside[data-pos="1"]{height:58%}.vside[data-pos="2"]{height:calc(100% - 104px)}
   .vside.bump{animation:vbump .4s ease}
   @keyframes vbump{40%{transform:translateY(-40px)}}
   .vgrip{display:block;text-align:center;padding:6px 0 2px;cursor:pointer;touch-action:none}
@@ -3621,6 +3672,19 @@ function vwPins(){
   if(!LIVE.scene||!LIVE.canvas||!LIVE.canvas.parentNode||VW.mode==='walk'){box.innerHTML='';return;}
   box.innerHTML=LIVE.scene.pins().filter(p=>p.visible).map(p=>{const it=items[p.index]; const pr=it&&(skuOf(it)||{}).price;
     return pr?`<span class="vpin" data-pi="${p.index}" style="left:${Math.round(p.x)}px;top:${Math.round(p.y)-6}px">${money(pr)}</span>`:'';}).join('');
+  // ЦЕНА — ТОЛЬКО ЦЕЛИКОМ В КАДРЕ И НЕ ПОД КНОПКАМИ (прогон d8 14.10: «4 290 ₽» обрезана у края на телефоне): метка, которая
+  // вылезает за край сцены или ложится на переключатель ракурсов / историю / подпись, не показывается
+  const fr=box.getBoundingClientRect(), pad=4;
+  const busy=[...document.querySelectorAll('#shot .vmodes, #shot .vhist, #shot .vold, #shot .vzbtn, #vside')].concat(LIVE.badge?[LIVE.badge]:[])
+    .map(e=>e.getBoundingClientRect()).filter(r=>r.width>0);
+  const hit=(a,b)=>a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top;
+  box.querySelectorAll('.vpin').forEach(b=>{const r=b.getBoundingClientRect();
+    if(r.left<fr.left+pad||r.right>fr.right-pad||r.top<fr.top+pad||r.bottom>fr.bottom-pad||busy.some(o=>hit(r,o)))b.remove();});
+  // метки не наезжают друг на друга (телефон 14.10: «229 ₽» поверх «19 990 ₽»): из двух пересекающихся остаётся дороже
+  const price=b=>{const it=items[+b.dataset.pi]; return +((it&&(skuOf(it)||{}).price)||0);};
+  const kept=[];
+  [...box.querySelectorAll('.vpin')].sort((a,b)=>price(b)-price(a)).forEach(b=>{const r=b.getBoundingClientRect();
+    if(kept.some(k=>hit(r,k)))b.remove(); else kept.push(r);});
   box.querySelectorAll('[data-pi]').forEach(b=>b.onclick=()=>vwHighlight(+b.dataset.pi));
 }
 function vwMount(s){
@@ -3732,7 +3796,14 @@ document.addEventListener('remlab:hist',()=>{const v=document.getElementById('vs
 // `?live=0` — выключить (сравнить с прежним поведением), `?live=force` — включить и на программном рендере (проверки).
 const LIVE={ok:/[?&]live=0(?:&|$)/.test(location.search)?false:null, force:/[?&]live=force(?:&|$)/.test(location.search),
   scene:null, canvas:null, badge:null, loading:null, why:''};
+// ПОЗА КАДРА: эскиз, снятый прежней позой камеры, устарел, даже если расстановка та же (номер состояния камеры не включает,
+// Codex 14.10). Фото нейросети не трогаем — оно и так подписано «расстановка могла отличаться».
+function poseStale(s){
+  if(!s||!s.url||s.quality==='realistic')return false;
+  const c=(s.cams||[])[0]; return !c||(+c.pose||1)!==POSE_VER;
+}
 function liveStale(s){
+  if(poseStale(s))return true;
   // кадр с номером состояния (demo-02, ADR-0289) устарел, если номер не совпадает с текущей расстановкой — это и есть
   // «фото ≠ список»; у старых кадров без номера — прежнее правило по ревизии
   if(s&&s.stateId&&items.length)return s.stateId!==curStateId();
@@ -3826,8 +3897,12 @@ async function liveShow(){
     requestAnimationFrame(()=>requestAnimationFrame(()=>LIVE.canvas.classList.add('in')));}
   const r=wrap.getBoundingClientRect(); if(r.width>0&&r.height>0)sc.setSize(r.width,r.height);
   const c=(cams||loadCams())[VW.mode==='c2'?1:0]||{};
-  if(VW.mode==='walk'){sc.setWalk(); LIVE.badge.textContent=LANG==='en'?'3D: drag to look around':'3D: тяните, чтобы осмотреться';}
-  else{sc.setPhotoPose({x:c.x,y:c.y,rot:c.rot||0,fov:c.fov||72}); LIVE.badge.textContent=LANG==='en'?'Live scene: as it stands now':'Живая сцена: так стоит сейчас';}
+  // в «3D» встаём в точку ракурса 1 лицом к мебели — только при входе в режим: повторный показ после замены предмета
+  // не должен отбрасывать человека туда, откуда он ушёл (прогон d8 14.10: старт «у пола, в стене»)
+  if(VW.mode==='walk'){const c1=(cams||loadCams())[0]||{};
+    if(LIVE.lastMode!=='walk')sc.setWalk({x:c1.x,y:c1.y,rot:c1.rot||0,fov:c1.fov||72,pose:POSE_VER}); LIVE.badge.textContent=LANG==='en'?'3D: drag to look around':'3D: тяните, чтобы осмотреться';}
+  else{sc.setPhotoPose({x:c.x,y:c.y,rot:c.rot||0,fov:c.fov||72,pose:POSE_VER}); LIVE.badge.textContent=LANG==='en'?'Live scene: as it stands now':'Живая сцена: так стоит сейчас';}
+  LIVE.lastMode=VW.mode;
   liveWire();
   sc.start();
   LIVE.state='updating'; vwLoad(true, LANG==='en'?'Updating…':'Обновляем…', true);
@@ -4203,6 +4278,8 @@ async function liveShow(){
     'Открыть':'Open','Ссылка':'Link','Добавить новую расстановку':'Add a new layout','план комнаты, перестановка мебели, свои размеры':'room plan, move furniture, your own sizes',
     'Избранное':'Favourites','Готово':'Done','Меняйте предметы прямо здесь — план открывать не нужно.':'Swap items right here — no need to open the plan.',
     'Заменить':'Replace','В магазин':'To shop','Посмотреть в 3D':'View in 3D','Посмотреть фото с изменениями':'See the photo with changes',
+    'Фотография пока с прежней расстановкой.':'The photo still shows the previous layout.',
+    'Расстановка готова, но можно сделать реалистичнее.':'The layout is ready — the photo can be made more realistic.',
     'Стоимость представленной мебели и техники:':'Furniture shown costs:','Сохранить список мебели и техники':'Save the furniture list',
     'Перетаскивайте предмет, чтобы двигать. Товар выбирается по значку на предмете.':'Drag an item to move it. Pick a product with the icon on the item.',
     'Дверь:':'Door:','петли справа':'hinges on the right','петли слева':'hinges on the left','открывается внутрь':'opens inwards','открывается наружу':'opens outwards',

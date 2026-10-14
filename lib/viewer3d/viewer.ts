@@ -96,24 +96,54 @@ export interface PhotoPose {
   y: number;
   rot: number;
   fov?: number;
+  /** Версия позы (`draft_render.photo_pose_heights`): 1 — глаз 165 и наклон к 105 в 4 м; 2 — глаз 135, камера
+   *  горизонтальна, кадр опущен сдвигом объектива (вертикали прямые, demo-02 14.10). Нет — 1, как у старых кадров. */
+  pose?: number;
 }
 export const PHOTO_EYE_CM = 165;
 export const PHOTO_TARGET_CM = 105;
 export const PHOTO_AIM_CM = 400;
+export const PHOTO_POSE_VER = 2;
+const POSE_V2 = { eye: 135, target: 135, shift: -0.1 };
 
 /** Точки глаза и цели фото-позы в сантиметрах (x — вправо, y — вверх, z — вглубь плана). Общая для теста и рендера. */
 export function photoRay(p: PhotoPose): { eye: [number, number, number]; target: [number, number, number] } {
   const a = (p.rot * Math.PI) / 180;
+  const v2 = (p.pose ?? 1) >= 2;
   return {
-    eye: [p.x, PHOTO_EYE_CM, p.y],
-    target: [p.x + PHOTO_AIM_CM * Math.sin(a), PHOTO_TARGET_CM, p.y - PHOTO_AIM_CM * Math.cos(a)],
+    eye: [p.x, v2 ? POSE_V2.eye : PHOTO_EYE_CM, p.y],
+    target: [p.x + PHOTO_AIM_CM * Math.sin(a), v2 ? POSE_V2.target : PHOTO_TARGET_CM, p.y - PHOTO_AIM_CM * Math.cos(a)],
   };
+}
+
+/** Сдвиг объектива позы, доля высоты кадра (как `planner/scene.py:Camera.shift_y`: минус — кадр ниже, видно больше пола). */
+export function photoShift(p: PhotoPose): number {
+  return (p.pose ?? 1) >= 2 ? POSE_V2.shift : 0;
+}
+
+/** Сдвиг объектива на камере three.js: окно проекции опускается на долю высоты, вертикали остаются параллельными.
+ *  Задан долей, а не пикселями, — переживает смену размера холста и экспорт кадра. */
+export function applyPhotoShift(cam: THREE.PerspectiveCamera, shift: number): void {
+  // `setViewOffset` переписывает aspect = fullWidth / fullHeight — поэтому «полный кадр» задаём в пропорциях камеры
+  if (shift) cam.setViewOffset(cam.aspect, 1, 0, -shift, cam.aspect, 1);
+  else if (cam.view) cam.clearViewOffset();
 }
 
 /** Вертикальный угол three.js из горизонтального угла кадра и соотношения сторон. */
 export function verticalFov(hfovDeg: number, aspect: number): number {
   const t = Math.tan((hfovDeg * Math.PI) / 360) / Math.max(aspect, 1e-3);
   return (Math.atan(t) * 360) / Math.PI;
+}
+
+/**
+ * Вертикальный угол живой фото-позы на ЭКРАНЕ. Кадр сервера — 3:2; окно варианта на компьютере почти квадратное, и при том
+ * же горизонтальном угле вертикальный раздувался до ~70°: верхняя треть — потолок, нижняя — пол, мебель мелкая (прогон
+ * d8 14.10, блокер «г»). Для окон от квадрата и шире вертикаль не больше кадра 3:2 с запасом 12 %; телефон (портрет) —
+ * как раньше, его вид утверждён владельцем (demo-02 п.9). Экспорт кадра 3:2 этим не меняется.
+ */
+export function screenPhotoFov(hfovDeg: number, aspect: number): number {
+  const v = verticalFov(hfovDeg, aspect);
+  return aspect >= 1 ? Math.min(v, verticalFov(hfovDeg, 1.5) * 1.12) : v;
 }
 
 interface Placed {
@@ -488,6 +518,7 @@ export class FlatViewer {
     if (this.viewMode === mode) return;
     this.viewMode = mode;
     this.photo = null;
+    applyPhotoShift(this.camera, 0); // сдвиг объектива — только у фото-позы
     this.scene.traverse((o) => {
       if (o.name.startsWith("ceiling:")) o.visible = mode !== "top";
     });
@@ -502,6 +533,30 @@ export class FlatViewer {
       this.camera.updateProjectionMatrix();
       if (this.currentRoom) this.goToRoom(this.currentRoom);
     }
+  }
+
+  /**
+   * Прогулка из точки съёмки (demo-02, прогон d8 14.10: «3D» стартовал у пола и в стене — у квартиры из одной комнаты
+   * `setViewMode` не знал комнату и оставлял камеру где была). Встаём туда, где стоит камера ракурса (её подбор уже
+   * обходит помехи, `index.html:camFit`), и смотрим на середину мебели комнаты на высоте предметов (урок 420).
+   */
+  walkFrom(pose: PhotoPose): void {
+    this.setViewMode("walk");
+    const spot = nearestStandable(this.area, pose.x, pose.y, 8, 12) ?? { x: pose.x, y: pose.y };
+    this.pos.set(spot.x, spot.y);
+    const room = roomAt(this.apartment, spot.x, spot.y);
+    const own = [...this.placed.values()].filter((p) => !room || p.spec.roomId === room.id).map((p) => p.spec.placement);
+    const c = own.length > 0
+      ? { x: own.reduce((a, o) => a + o.x, 0) / own.length, y: own.reduce((a, o) => a + o.y, 0) / own.length }
+      : room ? roomCentre(room) : { x: spot.x, y: spot.y + 100 };
+    const dx = c.x - spot.x;
+    const dy = c.y - spot.y;
+    const dist = Math.hypot(dx, dy);
+    // без мебели — по взгляду ракурса: (sin rot, −cos rot) на плане, у прогулки heading 0 = +y
+    this.heading = dist > 15 ? ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360 : (540 - pose.rot) % 360;
+    this.pitch = Math.max(-25, (Math.atan2(110 - EYE_CM, Math.max(dist, 60)) * 180) / Math.PI);
+    this.moveTarget = null;
+    if (room) this.roomChanged(room.id);
   }
 
   get mode(): "walk" | "top" | "photo" {
@@ -1062,9 +1117,11 @@ export class FlatViewer {
 
     if (this.viewMode === "photo" && this.photo) {
       const { eye, target } = photoRay(this.photo);
-      const vfov = verticalFov(this.photo.fov ?? 72, this.camera.aspect);
-      if (Math.abs(this.camera.fov - vfov) > 0.01) {
+      const vfov = screenPhotoFov(this.photo.fov ?? 72, this.camera.aspect);
+      const shift = photoShift(this.photo);
+      if (Math.abs(this.camera.fov - vfov) > 0.01 || (this.camera.view?.offsetY ?? 0) !== -shift) {
         this.camera.fov = vfov;
+        applyPhotoShift(this.camera, shift);
         this.camera.updateProjectionMatrix();
       }
       this.camera.position.set(eye[0] * CM, eye[1] * CM, eye[2] * CM);

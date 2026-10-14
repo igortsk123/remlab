@@ -148,7 +148,8 @@ def _registry_add(payload: dict, out: dict) -> None:
                # id записи — свой, а не время: два кадра в одну миллисекунду стирали друг друга.
                'id': uuid.uuid4().hex[:16],
                'stateId': sid if len(sid) <= 64 else '',
-               'cams': [{k: c.get(k) for k in ('name', 'x', 'y', 'rot', 'fov')} for c in (payload.get('cams') or [])[:4]
+               # pose — версия позы ракурса (`draft_render.photo_pose_heights`): кадр со старой позой страница пересъёмет
+               'cams': [{k: c.get(k) for k in ('name', 'x', 'y', 'rot', 'fov', 'pose')} for c in (payload.get('cams') or [])[:4]
                         if isinstance(c, dict)],
                'ts': int(time.time() * 1000),
                'shots': [{'camera': sh.get('camera'), 'url': sh.get('url'),

@@ -15,11 +15,13 @@ const MAX = Number(process.env.WARM_MAX ?? 8);
  * опубликовано (`stateId` страницы), и после публикации данных (новая версия движка/моделей — тоже повод переснять).
  * Старые кадры без номера состояния — по прежнему правилу «новее данных». Чистая функция (селфтест).
  */
-export function needWarm(variants, shots, dataTs) {
+export function needWarm(variants, shots, dataTs, poseVer = 0) {
+  // поза камеры (demo-02, 14.10): эскиз прежней позы — тоже «нет кадра»; фото нейросети годится при любой позе
+  const poseOk = (s) => !poseVer || s.quality === "realistic" || (Number(s.pose) || 1) === poseVer;
   return variants
     .map((v, i) => ({ i, id: v.id, style: v.style, stateId: v.stateId }))
     .filter((v) => !shots.some((s) => s.vid === v.id && !s.svc && (s.ts ?? 0) >= dataTs
-      && (!s.stateId || !v.stateId || s.stateId === v.stateId)));
+      && (!s.stateId || !v.stateId || s.stateId === v.stateId) && poseOk(s)));
 }
 
 async function main() {
@@ -35,8 +37,9 @@ async function main() {
     // номер опубликованного состояния — той же функцией страницы (блок STATEID), что ставит его кадрам
     const variants = await page.evaluate(`allVariants().map(v => ({ id: v.id, style: v.style,
       stateId: typeof stateIdOf === "function" ? stateIdOf(v.items, (v.decor || []).filter(x => (x.sku || {}).name), D.room) : "" }))`);
-    const shots = await page.evaluate("(Array.isArray(shots) ? shots : []).map(s => ({ vid: s.vid, svc: !!s.svc, ts: s.ts, stateId: s.stateId || '' }))");
-    const todo = needWarm(variants, shots, dataTs).slice(0, MAX);
+    const shots = await page.evaluate("(Array.isArray(shots) ? shots : []).map(s => ({ vid: s.vid, svc: !!s.svc, ts: s.ts, stateId: s.stateId || '', quality: s.quality || '', pose: ((s.cams || [])[0] || {}).pose || 1 }))");
+    const poseVer = await page.evaluate("typeof POSE_VER === 'number' ? POSE_VER : 0");
+    const todo = needWarm(variants, shots, dataTs, poseVer).slice(0, MAX);
     console.log(`прогрев кадров: стилей ${variants.length}, нужен свежий кадр ${todo.length}${todo.length ? ": " + todo.map((t) => t.style).join(", ") : ""}`);
     if (process.env.DRY) return;
     for (const t of todo) {
@@ -73,7 +76,11 @@ if (process.argv.includes("--selftest")) {
   const got = needWarm(v, s, 100).map((x) => x.id).join(",");
   const ok = got === "b,c,d";
   console.log(ok ? "OK   свежий кадр того же состояния — не трогаем; старый, служебный и чужое состояние — снимаем; без номера — по времени" : `FAIL ${got}`);
-  process.exit(ok ? 0 : 1);
+  const s2 = [{ vid: "a", svc: false, ts: 200, stateId: "s1-a", pose: 1 }, { vid: "e", svc: false, ts: 300, quality: "realistic", pose: 1 }];
+  const got2 = needWarm([v[0], v[4]], s2, 100, 2).map((x) => x.id).join(",");
+  const ok2 = got2 === "a";
+  console.log(ok2 ? "OK   эскиз прежней позы камеры — снимаем заново; фото нейросети — оставляем" : `FAIL поза: ${got2}`);
+  process.exit(ok && ok2 ? 0 : 1);
 } else {
   await main();
 }

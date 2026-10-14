@@ -34,6 +34,10 @@ POSES = [
     {"name": "смотрит строго на север", "x": 220, "y": 300, "rot": 0, "fov": 72},
     {"name": "смотрит на восток, узкий объектив", "x": 40, "y": 160, "rot": 90, "fov": 55},
     {"name": "отвернут от центра", "x": 300, "y": 60, "rot": 200, "fov": 72},
+    # поза v2 (demo-02, 14.10): глаз 135, горизонтально, сдвиг объектива −0.10 — `draft_render.photo_pose_heights`
+    {"name": "v2: C1 угол → центр", "x": 436, "y": 322, "rot": -54, "fov": 72, "pose": 2},
+    {"name": "v2: C2 у стены", "x": 3, "y": 63, "rot": 115, "fov": 72, "pose": 2},
+    {"name": "v2: на восток, узкий объектив", "x": 40, "y": 160, "rot": 90, "fov": 55, "pose": 2},
 ]
 
 
@@ -41,12 +45,14 @@ def main() -> int:
     room = SimpleNamespace(width_cm=W, depth_cm=D)
     out = []
     for p in POSES:
-        cam = DR.cams_from_request(room, [], {"cams": [{"name": "C", "x": p["x"], "y": p["y"], "rot": p["rot"], "fov": p["fov"]}]})[0]
+        cam = DR.cams_from_request(room, [], {"cams": [{"name": "C", "x": p["x"], "y": p["y"], "rot": p["rot"], "fov": p["fov"],
+                                                         "pose": p.get("pose")}]})[0]
         pts = []
         for q in ROOM_PTS + INNER_PTS:
             pr = SM.project_pts(cam, [q], cam.width, cam.height)   # по точке: соседняя точка за спиной не обнуляет кадр
             pts.append({"p": q, "px": [round(pr[0][0], 3), round(pr[0][1], 3)] if pr else None})
-        out.append({**p, "eye": list(cam.eye), "target": list(cam.target), "width": cam.width, "height": cam.height, "points": pts})
+        out.append({**p, "eye": list(cam.eye), "target": list(cam.target), "shift_y": cam.shift_y, "width": cam.width,
+                    "height": cam.height, "points": pts})
     dst = os.path.join(ROOT, "tests", "fixtures", "camera-golden.json")
     with open(dst, "w", encoding="utf-8") as fh:
         json.dump({"_about": "Эталон фото-камеры из draft_render.cams_from_request + scene_mesh.project_pts. Пересобрать: "

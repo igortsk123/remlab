@@ -2,14 +2,15 @@ import { readFileSync } from "node:fs";
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 
-import { photoRay, verticalFov } from "@/lib/viewer3d/viewer";
+import { applyPhotoShift, photoRay, photoShift, verticalFov } from "@/lib/viewer3d/viewer";
 
 // ФОТО-ПОЗА БРАУЗЕРА = КАМЕРА СЕРВЕРНОГО КАДРА (план demo-01 п.3, урок 414). Эталон — `tools/assets/camera_golden.py`
 // (`draft_render.cams_from_request` + `scene_mesh.project_pts`): пиксели углов комнаты и точек внутри на кадре 1344×896.
 // Здесь та же поза ставится камерой three.js так, как это делает движок (`photoRay`, `verticalFov`), и точки обязаны
 // попасть в те же пиксели. Зеркальный кадр или чужая конвенция угла дают ошибку в сотни пикселей, а не в доли.
 
-type Pose = { name: string; x: number; y: number; rot: number; fov: number; eye: number[]; target: number[]; width: number; height: number;
+type Pose = { name: string; x: number; y: number; rot: number; fov: number; pose?: number; shift_y?: number; eye: number[]; target: number[];
+  width: number; height: number;
   points: { p: [number, number, number]; px: [number, number] | null }[] };
 const golden = JSON.parse(readFileSync("tests/fixtures/camera-golden.json", "utf8")) as { poses: Pose[] };
 
@@ -22,6 +23,8 @@ describe("фото-поза движка совпадает с серверно�
       const cam = new THREE.PerspectiveCamera(verticalFov(pose.fov, pose.width / pose.height), pose.width / pose.height, 1, 10_000);
       cam.position.set(eye[0], eye[1], eye[2]);
       cam.lookAt(target[0], target[1], target[2]);
+      expect(photoShift(pose)).toBeCloseTo(pose.shift_y ?? 0, 6);
+      applyPhotoShift(cam, photoShift(pose));     // сдвиг объектива — так же, как движок (`viewer.ts` фото-ветка)
       cam.updateMatrixWorld(true);
       let checked = 0;
       for (const { p, px } of pose.points) {

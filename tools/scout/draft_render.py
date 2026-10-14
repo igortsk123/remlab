@@ -233,6 +233,23 @@ def _opening(o: dict) -> dict:
     return out
 
 
+# ПОЗА РАКУРСА (одна на живую сцену, окно и серверный кадр: `lib/viewer3d/viewer.ts:photoRay`, `photoShift`).
+# v1 — глаз 165, цель 105 в 4 м: рост стоящего, мебель внизу кадра, сверху пустая стена (прогон d8 14.10, блокер «г»).
+# v2 — глаз 135 (норма интерьерной съёмки 1,2–1,5 м), камера ГОРИЗОНТАЛЬНА, кадр опущен сдвигом объектива на 10 % высоты:
+# вертикали прямые, как у фотографа интерьеров (разбор Codex 14.10). Версию присылает страница в каждой камере (`pose`);
+# без неё — v1, чтобы старые ссылки и реестр давали прежний кадр.
+PHOTO_POSE_V1 = (165.0, 105.0, 0.0)
+PHOTO_POSE_V2 = (135.0, 135.0, -0.10)
+
+
+def photo_pose_heights(ver) -> tuple:
+    """(глаз, цель, сдвиг объектива) позы ракурса по её версии."""
+    try:
+        return PHOTO_POSE_V2 if int(ver or 1) >= 2 else PHOTO_POSE_V1
+    except (TypeError, ValueError):
+        return PHOTO_POSE_V1
+
+
 def cams_from_request(room, placements, layout):
     """ЕДИНСТВЕННОЕ МЕСТО, ГДЕ РЕШАЕТСЯ РАКУРС — и черновика, и платного улучшения.
 
@@ -258,9 +275,10 @@ def cams_from_request(room, placements, layout):
         ez = min(max(float(c.get('y') or 0), _pad), room.depth_cm - _pad)
         a = _m.radians(float(c.get('rot') or 0))
         tx, tz = ex + 400 * _m.sin(a), ez - 400 * _m.cos(a)
-        out.append(Camera(name=c.get('name') or f'C{i}', eye=(ex, 165.0, ez),
-                          target=(tx, 105.0, tz), fov_deg=float(c.get('fov') or 72.0),
-                          width=1344, height=896))
+        eye_h, tgt_h, shift = photo_pose_heights(c.get('pose'))
+        out.append(Camera(name=c.get('name') or f'C{i}', eye=(ex, eye_h, ez),
+                          target=(tx, tgt_h, tz), fov_deg=float(c.get('fov') or 72.0),
+                          width=1344, height=896, shift_y=shift))
     print(f'ракурс задан человеком: {len(out)} камер', flush=True)
     return out
 
@@ -2426,17 +2444,19 @@ def _draft_cache_key(layout) -> str:
     items = [[it.get('role'), round(float(it.get('x') or 0), 1), round(float(it.get('y') or 0), 1),
               int(float(it.get('rot') or 0)), round(float(it.get('w') or 0), 1),
               round(float(it.get('d') or 0), 1), round(float(it.get('h') or 0), 1),
-              it.get('sid'), bool(it.get('hung'))]
+              it.get('sid'), bool(it.get('hung')), bool(it.get('corner_left'))]
              for it in (L.get('items') or [])]
+    # версия позы и сторона оттоманки меняют картинку — без них в ключе после смены отдавался старый кадр (demo-02, 14.10)
     cams = [[c.get('name'), round(float(c.get('x') or 0), 1), round(float(c.get('y') or 0), 1),
-             int(float(c.get('rot') or 0)), round(float(c.get('fov') or 0), 1)]
+             int(float(c.get('rot') or 0)), round(float(c.get('fov') or 0), 1), photo_pose_heights(c.get('pose'))]
             for c in (L.get('cams') or [])]
     # ВЕРСИЯ — ПО ВСЕМ ТРЁМ ФАЙЛАМ РЕНДЕРА (нашёл Codex 02.09): раньше считалась только по
     # draft_render.py, и правка растеризатора или упрощения меша не сбрасывала кэш — сервис
     # отдавал старую картинку и «чинил» уже починенное.
-    import scene_mesh as _SM, mesh_render as _MR
+    import scene_mesh as _SM, mesh_render as _MR, opening_ir as _OI
+    import planner.scene as _PS
     ver = []
-    for _m in (__file__, _SM.__file__, _MR.__file__):
+    for _m in (__file__, _SM.__file__, _MR.__file__, _OI.__file__, _PS.__file__):   # стена и проёмы — тоже рендер
         try:
             _st = os.stat(_m)
             ver.append(f'{_st.st_size}:{int(_st.st_mtime)}')
