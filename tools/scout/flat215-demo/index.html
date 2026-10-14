@@ -2365,7 +2365,7 @@ async function makePhoto(quality, srcId, replaceBatch){
   shotOpen('<div class="wait"><div class="spin"></div>'+
     (quality==='realistic'?'Рисуем фотографию по вашей расстановке'
        :'Собираем вашу расстановку')+
-    ' по вашей расстановке…<br><span id="el">0</span> с</div>',est);
+    ' по вашей расстановке…<br><span id="el">0</span> с<br><span id="qinfo" style="font-size:14px;color:var(--muted)"></span></div>',est);
   const tick=setInterval(()=>{const e=document.getElementById('el');
     if(e)e.textContent=Math.round((Date.now()-t0)/1000);},500);
   try{
@@ -2375,7 +2375,8 @@ async function makePhoto(quality, srcId, replaceBatch){
     // возвращает НОМЕР задания сразу, а страница спокойно спрашивает «готово?». Обрыв связи
     // во время опроса не страшен: спросим ещё раз. Старый сервер номера не вернёт — тогда
     // работаем по-прежнему, ответ придёт целиком.
-    const bg = quality==='realistic';
+    // В ФОН — ОБА КАЧЕСТВА (b2b-08 п.3): занятый сервер ставит кадр в очередь и говорит место и время, а не отказывает
+    const bg = true;
     const r=await fetch('/api/render',{method:'POST',headers:{'content-type':'application/json'},
       body:JSON.stringify(Object.assign(payload(),{quality:quality},srcId?{src_id:srcId}:{},
         bg?{async:1}:{}))});
@@ -2399,7 +2400,12 @@ async function makePhoto(quality, srcId, replaceBatch){
           continue;
         }
         miss=0;
-        if(jj&&jj.status==='running')continue;
+        if(jj&&jj.status==='running'){
+          const q=document.getElementById('qinfo');
+          if(q)q.textContent=jj.queue?('В очереди: '+jj.queue+(jj.eta?' · примерно '+jj.eta+' с':''))
+            :(jj.eta?'осталось примерно '+jj.eta+' с':'');
+          continue;
+        }
         if(jj&&jj.error)throw new Error(jj.error);
         j=jj; break;
       }

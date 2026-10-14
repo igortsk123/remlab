@@ -32,6 +32,7 @@ export function PhotoView({ apartment, scene, roomId, lang }: PhotoViewProps) {
   const [status, setStatus] = useState<Status>("idle");
   const [shots, setShots] = useState<RenderShot[]>([]);
   const [message, setMessage] = useState<string>("");
+  const [queueNote, setQueueNote] = useState("");
   const [seconds, setSeconds] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -46,6 +47,7 @@ export function PhotoView({ apartment, scene, roomId, lang }: PhotoViewProps) {
     setStatus("running");
     setShots([]);
     setMessage("");
+    setQueueNote("");
     setSeconds(0);
     timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
     try {
@@ -63,8 +65,12 @@ export function PhotoView({ apartment, scene, roomId, lang }: PhotoViewProps) {
         guard += 1;
         const poll = await fetch(`/api/job?id=${encodeURIComponent(data.job)}`);
         if (!poll.ok) continue;
-        const next = (await poll.json()) as { status?: string; shots?: RenderShot[]; url?: string; error?: string; job?: string };
-        if (next.status === "running") continue;
+        const next = (await poll.json()) as { status?: string; shots?: RenderShot[]; url?: string; error?: string; job?: string; queue?: number; eta?: number };
+        if (next.status === "running") {
+          // место в очереди сервиса кадров и оценка времени (b2b-08 п.3)
+          setQueueNote(next.queue ? L.photoQueue(next.queue, next.eta ?? 0) : next.eta ? L.photoEta(next.eta) : "");
+          continue;
+        }
         data = next;
         break;
       }
@@ -97,6 +103,9 @@ export function PhotoView({ apartment, scene, roomId, lang }: PhotoViewProps) {
             <p className="mt-3 text-sm font-medium text-primary">
               {L.photoWait} · {seconds} c
             </p>
+          ) : null}
+          {status === "running" && queueNote ? (
+            <p className="mt-1 text-xs text-tertiary" data-flat3d="photo-queue">{queueNote}</p>
           ) : null}
           {status === "error" ? <p className="mt-3 text-sm text-error-primary">{message}</p> : null}
         </div>

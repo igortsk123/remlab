@@ -34,7 +34,7 @@ MAX_BOT = os.environ.get('SHARE_MAX_BOT', '')
 SMS_GATE = os.environ.get('SHARE_SMS_GATE', '')   # шлюз СМС; пусто — канал не подключён
 esc = html.escape
 from draft_guard import (ALLOWED_ORIGINS, ip_allowed,  # noqa: E402
-                         safe_url, save_share_request)
+                         queue_eta, safe_url, save_share_request)
 SHARE_PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex"><title>{{TITLE}} — подборка</title>
@@ -83,6 +83,13 @@ _HITS: list = []
 # закрытая вкладка перестают что-либо ломать.
 _JOBS: dict = {}
 _JOBS_MAX = 40
+# ОЧЕРЕДЬ ЛОКАЛЬНОГО РЕНДЕРА (b2b-08 п.3). Раньше занятый сервер отвечал «другой рендер, попробуйте через минуту» —
+# второй человек получал ошибку вместо ожидания. Фоновое задание теперь ЖДЁТ места (до QUEUE_WAIT_S), а страница
+# видит своё место в очереди и оценку времени по последним замерам (`_DURS`, секунды на кадр по качеству).
+_WAITING: list = []                       # номера заданий, ждущих места, по порядку прихода
+_DURS: dict = {'draft': [], 'realistic': []}
+QUEUE_WAIT_S = int(os.environ.get('DRAFT_QUEUE_WAIT_S', 600))
+
 _REG_LOCK = threading.Lock()
 
 
@@ -200,8 +207,14 @@ class H(BaseHTTPRequestHandler):
             if not j:
                 return self._send(404, {'error': 'задание не найдено'})
             if j['status'] == 'running':
-                return self._send(200, {'status': 'running',
-                                        'sec': round(time.time() - j['ts'], 1)})
+                st = {'status': 'running', 'sec': round(time.time() - j['ts'], 1)}
+                if jid in _WAITING:            # ждёт места: номер в очереди и оценка до готовности
+                    pos = _WAITING.index(jid) + 1
+                    st.update({'queue': pos, 'eta': queue_eta(pos, j.get('quality', 'draft'), _DURS)})
+                elif j.get('started'):
+                    q = j.get('quality', 'draft')
+                    st['eta'] = max(0, queue_eta(1, q, _DURS) - int(time.time() - j['started']))
+                return self._send(200, st)
             return self._send(200, j.get('result') or {'status': j['status'],
                                                        'error': j.get('error')})
         self._send(404, {'error': 'нет такого пути'})
@@ -239,7 +252,9 @@ class H(BaseHTTPRequestHandler):
         # ДЛИННЫЙ ЗАПРОС УХОДИТ В ФОН. Клиент присылает `async:1` и получает номер задания.
         if payload.get('async'):
             jid = _job_new()
+            _JOBS[jid]['quality'] = 'realistic' if payload.get('quality') == 'realistic' else 'draft'
             body = dict(payload); body.pop('async', None)
+            body['_job'] = jid                 # внутренний номер: локальный рендер ставит задание в очередь
 
             # ФОН ИДЁТ ТЕМ ЖЕ ПУТЁМ, ЧТО И ОБЫЧНЫЙ ЗАПРОС — через себя же, но без ожидания
             # клиентом. Так задание проходит и через прокси на DEV-рендер, и через локальный
@@ -302,7 +317,19 @@ class H(BaseHTTPRequestHandler):
         if len(_HITS) >= HOURLY_CAP:
             return self._send(429, {'error': 'на сегодня лимит черновых рендеров исчерпан'})
         _HITS.append(now)
-        if not _LOCK.acquire(blocking=False):
+        jid = payload.pop('_job', None)
+        if jid and jid in _JOBS:
+            # фоновое задание — ждёт своей очереди (страница видит место и оценку), а не получает отказ
+            _WAITING.append(jid)
+            try:
+                got = _LOCK.acquire(timeout=QUEUE_WAIT_S)
+            finally:
+                if jid in _WAITING:
+                    _WAITING.remove(jid)
+            if not got:
+                return self._send(503, {'error': f'очередь кадров не сдвинулась за {QUEUE_WAIT_S // 60} мин — попробуйте позже'})
+            _JOBS[jid]['started'] = time.time()
+        elif not _LOCK.acquire(blocking=False):
             return self._send(429, {'error': 'сейчас считается другой рендер, попробуйте через минуту'})
         try:
             t = time.time()
@@ -331,8 +358,10 @@ class H(BaseHTTPRequestHandler):
             out2 = {'shots': res['shots'], 'url': res['url'], 'model': res['model'],
                     'sources': res.get('sources'), 'timing': res.get('timing'),
                     'quality': quality, 'sec': round(time.time() - t, 1),
+                    'queued_sec': round(t - _JOBS[jid]['ts'], 1) if jid and jid in _JOBS else 0,
                     'frames': res.get('frames'), 'diag': res['diag']}
             _registry_add(payload, out2)
+            _DURS[quality] = (_DURS[quality] + [out2['sec']])[-20:]   # замер для оценки очереди
             self._send(200, out2)
         except Exception as e:                       # noqa: BLE001 — наружу отдаём короткую причину
             # ПРИЧИНА ОБЯЗАНА ПОПАСТЬ В ЛОГ. Прод при 502 просто уходит в локальный рендер и

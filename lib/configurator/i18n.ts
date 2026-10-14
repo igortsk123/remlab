@@ -33,6 +33,8 @@ export const UI = {
     noWebgl: "Браузер не поддерживает 3D. Остаются режимы «Фото» и «План».",
     photoFailed: "Кадр не получился. Попробуйте ещё раз",
     devPhoto: "Фото собирается только на сайте (на этой копии сервис кадров не подключён)",
+    photoQueue: (n: number, eta: number) => `В очереди: ${n}${eta ? ` · примерно ${eta} с` : ""}`,
+    photoEta: (eta: number) => `Осталось примерно ${eta} с`,
   },
   en: {
     modes: { walk: "Walk", top: "Top view", photo: "Photo", plan: "Plan" },
@@ -62,6 +64,8 @@ export const UI = {
     noWebgl: "This browser has no 3D support. Photo and Plan modes still work.",
     photoFailed: "The render failed. Please try again",
     devPhoto: "Rendering works on the live site only",
+    photoQueue: (n: number, eta: number) => `In queue: ${n}${eta ? ` · about ${eta} s` : ""}`,
+    photoEta: (eta: number) => `About ${eta} s left`,
   },
 } as const;
 

@@ -75,6 +75,18 @@ def save_share_request(body: dict) -> bool:
         return False
 
 
+_DEFAULT_SEC = {'draft': 25.0, 'realistic': 180.0}
+
+
+def queue_eta(position: int, quality: str, durs: dict, slots: int = 2) -> int:
+    """Оценка «через сколько секунд будет кадр» для места `position` в очереди сервиса кадров (1 — следующий; b2b-08
+    п.3). Среднее последних замеров по качеству, без замеров — типичное время; `slots` кадров считаются разом."""
+    d = durs.get(quality) or []
+    avg = sum(d) / len(d) if d else _DEFAULT_SEC.get(quality, 30.0)
+    rounds = (max(position, 1) - 1) // max(slots, 1) + 1
+    return int(round(avg * rounds))
+
+
 def _selftest() -> int:
     bad = 0
 
@@ -98,6 +110,10 @@ def _selftest() -> int:
     ok(all(res[:lim]) and not res[lim], f'share: {lim} проходят, {lim + 1}-й — нет')
     ok(ip_allowed('8.8.8.8', 'share', t0 + 1), 'другой адрес считается отдельно')
     ok(ip_allowed('9.9.9.9', 'share', t0 + win + 1), 'после окна снова можно')
+    ok(queue_eta(1, 'draft', {}) == 25, 'очередь: без замеров — типичное время черновика')
+    ok(queue_eta(2, 'draft', {'draft': [10, 20]}) == 15, 'очередь: второй идёт в том же круге (два кадра разом)')
+    ok(queue_eta(3, 'draft', {'draft': [10, 20]}) == 30, 'очередь: третий ждёт круг')
+    ok(queue_eta(1, 'realistic', {}) == 180, 'очередь: фото — минуты')
     return 1 if bad else 0
 
 
