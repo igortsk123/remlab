@@ -124,10 +124,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: DOCKER_BUILDKIT=1 docker build -f infra/draft/Dockerfile --build-arg DRAFT_VERSION=ci -t remlab-draft:ci .
-      - run: |
-          docker run -d --name d -e DRAFT_PORT=8099 remlab-draft:ci
-          for i in $(seq 1 20); do docker exec d python -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8099/health',timeout=3).read().decode())" && exit 0; sleep 2; done
-          docker logs d; exit 1
+      - name: Сервис кадров отвечает на /health
+        run: |
+          set -x
+          docker images remlab-draft
+          cid=$(docker run -d -e DRAFT_PORT=8099 remlab-draft:ci) || exit 1
+          for i in $(seq 1 30); do
+            if docker exec "$cid" python -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8099/health',timeout=3).read().decode())"; then exit 0; fi
+            sleep 2
+          done
+          docker logs "$cid"; exit 1
 
   scout-orient:
     # Контракт ориентаций мешей (ADR-0129/0131): процедурная фикстура, знаки замером —
