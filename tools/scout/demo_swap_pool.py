@@ -107,7 +107,8 @@ def report(items: list[dict] | None = None) -> list[dict]:
 def _selftest() -> int:
     bad = 0
     q = pool_sql(7)
-    for must in ('functional_subtype', 'mesh_status', 'product_style_scores', '>= 6', 'rn <= 7',
+    # порог — из правил, не литерал (иначе смена in_style_min в JSON роняла бы селфтест)
+    for must in ('functional_subtype', 'mesh_status', 'product_style_scores', f'>= {IN_STYLE_MIN}', 'rn <= 7',
                  'mesh_family_rep', 'partition by sub, style', 'order by uni asc, q desc, st_score desc'):
         if must not in q:
             bad += 1

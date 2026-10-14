@@ -3,7 +3,7 @@ tier: 1
 topic: catalog
 scope: Каталог — загрузка из фидов/API, свежесть, сторожа
 tier2: "../domain/catalog-enrichment.md"
-updated: 2026-10-13
+updated: 2026-10-14
 importance: high
 source: manual
 status: working
@@ -41,4 +41,4 @@ commercial и image_hd — только счётчики журнала), сме
 **Тесты:** `--selftest` у `load3`, `dim_resolver`, `category_map`, `feed_guard`, `stock_truth`,
 `stock_check`, `footprint`, `mesh_priority` — CI `scout-selftest`. **Дыры:** 155 товаров divan.ru не в экспорте; диванов без глубины 1 012/2 345.
 
-**Tier 2:** `../domain/catalog-enrichment.md` · `../domain/integrations.md` · `completed_plans/catalog-load-hardening.md`.
+**Tier 2:** `../domain/catalog-enrichment.md` · `../domain/integrations.md`. Цена показа — `tools/scout/price_truth.py` (ADR-0260).
