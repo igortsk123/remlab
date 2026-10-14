@@ -291,6 +291,29 @@ def heartbeat(st: dict, gs: list[str], counts: dict, sink: dict) -> None:
     st['heartbeat_day'] = today
 
 
+LEASE = os.path.expanduser('~/scout-scenes/wave-lease.json')   # разрешение владельца на волну (`wave_guard.py`)
+
+
+def paid_usd(st: dict) -> float:
+    """Оплачено всего, $ — по книге расходов сторожа (нодо-минуты в `running` × тариф группы). Оценка: тариф из
+    `rules/salad-groups.json`, неизвестный тариф — 0 (тогда выключатель по сумме сработает позже — пишем в журнал)."""
+    paid = st.get('paid_node_min') or {}
+    return sum(paid[g] / 60 * (SG.price(g) or 0) for g in paid)
+
+
+def budget_breach(st: dict, lease: dict | None) -> str:
+    """Потолок волны выбран? '' — нет. Волна открыта, пока у последней записи `waves` нет `closed`; потрачено =
+    книга расходов сейчас − отметка на старте (`usd_mark`). Чистая функция (план conv-11 п.4)."""
+    waves = (lease or {}).get('waves') or []
+    if not waves or waves[-1].get('closed') or 'usd_cap' not in waves[-1]:
+        return ''
+    w = waves[-1]
+    spent = paid_usd(st) - float(w.get('usd_mark', 0))
+    if spent < float(w['usd_cap']):
+        return ''
+    return f'ПОТОЛОК ВОЛНЫ: потрачено ≈ ${spent:.2f} из разрешённых ${float(w["usd_cap"]):.2f}'
+
+
 def load() -> dict:
     try:
         return json.load(open(STATE, encoding='utf-8'))
@@ -305,7 +328,24 @@ def save(d: dict) -> None:
     os.replace(tmp, STATE)
 
 
+def single_instance() -> object | None:
+    """Ровно один сторож. Крон зовёт его раз в 5 минут, а `main()` — вечный цикл: без замка к 14.10 их висело
+    420 (4 ГБ памяти), и в 08:00 UTC каждый слал свой «пульс» — 466 одинаковых сообщений владельцу. Замок держится,
+    пока жив процесс; следующий вызов крона видит его и тихо выходит — крон остаётся «воскрешателем» упавшего."""
+    import fcntl  # noqa: PLC0415
+    f = open(STATE + '.lock', 'w')
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.close()
+        return None
+    return f
+
+
 def main() -> int:
+    lock = single_instance()
+    if lock is None:
+        return 0                            # другой сторож уже на посту — молча выходим (не засоряем журнал)
     gs = groups()
     if not gs or not os.environ.get('SALAD_API_KEY'):
         print('нет SALAD_GROUP или SALAD_API_KEY', flush=True)
@@ -416,7 +456,15 @@ def main() -> int:
         #  2) обвал: одна и та же ошибка у многих заданий (быстрый — ловит сетевые аварии,
         #     когда ноды считают, но результат сдать не могут).
         stop_why = ''
-        if burst_n:
+        try:
+            lease = json.load(open(LEASE, encoding='utf-8')) if os.path.exists(LEASE) else None
+        except Exception:  # noqa: BLE001 — битое разрешение не отменяет остальные правила
+            lease = None
+        over = budget_breach(st, lease) if n > 0 else ''
+        if over:
+            # Третий повод (conv-11): деньги, разрешённые владельцем на волну, выбраны — гасим, даже если меши идут.
+            stop_why = over
+        elif burst_n:
             stop_why = (f'ОБВАЛ СВЯЗИ: {burst_n} отказов подряд с одной ошибкой за '
                         f'{BURST_MIN:.0f} мин — «{burst_err}»')
         elif st['idle_node_min'] >= BUDGET_NODE_MIN and wall_min >= MIN_WALL_MIN:
@@ -425,9 +473,9 @@ def main() -> int:
         if stop_why:
             why = f'{stop_why} (остановлено {time.strftime("%d.%m %H:%M")})'
             print(f'{time.strftime("%H:%M")} !! ГАШУ ПУЛ: {why} · группы {group}', flush=True)
-            notify(f'Меши: пул ОСТАНОВЛЕН. {why}. Работало нод: {n}. '
-                   f'Поднять: rm ~/scout-scenes/mesh-group-halt.json — но сперва разберись, '
-                   f'почему не было мешей.')
+            notify(f'Меши: пул ОСТАНОВЛЕН. {why}. Работало нод: {n}. ' + (
+                'Деньги, разрешённые на волну, выбраны; следующая волна — по новому разрешению.' if over else
+                'Поднять: rm ~/scout-scenes/mesh-group-halt.json — но сперва разберись, почему не было мешей.'))
             # СТОП-ФАЙЛ ПИШЕМ ДО ОСТАНОВКИ. Иначе конвейер успеет поднять группу обратно —
             # ровно так и вышло в ночь на 03.09: сторож погасил, `ensure_group_started` через
             # минуту поднял, сторож (тогда одноразовый) вышел, и семь часов ноды крутились
@@ -435,7 +483,7 @@ def main() -> int:
             try:
                 with open(HALT, 'w', encoding='utf-8') as f:
                     json.dump({'why': why, 'group': group, 'at': time.time(),
-                               'kind': 'shared_infra' if not sink['ok'] else 'silence',
+                               'kind': 'budget' if over else 'shared_infra' if not sink['ok'] else 'silence',
                                'sink': sink}, f, ensure_ascii=False)
                 print(f'{time.strftime("%H:%M")} запрет на подъём записан: {HALT}', flush=True)
             except Exception as e:  # noqa: BLE001
