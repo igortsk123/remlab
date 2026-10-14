@@ -448,7 +448,9 @@ class H(BaseHTTPRequestHandler):
             # показывать человеку «придёт в течение минуты».
             return self._send(503, {'error': 'не удалось сохранить контакт — попробуйте ещё раз через минуту'})
         self._send(200, {'id': sid, 'count': len(shots), 'channel': chan,
-                         'pending': not ready, 'saved': saved})
+                         'pending': not ready, 'saved': saved,
+                         # Telegram: покупатель жмёт кнопку → бот → «Старт» → бот присылает ссылку (контакт не нужен)
+                         'tg_link': f'https://t.me/{TG_BOT}?start=sh_{sid}' if TG_BOT and chan == 'telegram' else ''})
 
     def log_message(self, fmt, *a):                  # noqa: A003 — тише в логе
         sys.stderr.write('%s %s\n' % (self.address_string(), fmt % a))

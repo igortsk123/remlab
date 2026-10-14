@@ -21,6 +21,13 @@ export async function POST(req: Request): Promise<Response> {
   const chatId = String(msg.chat.id);
   const repo = leadRepo();
 
+  // «ОТПРАВИТЬ СЕБЕ» ИЗ ДЕМО (b2b-05 п.5b, владелец 14.10: служебный бот): кнопка ведёт сюда со `start=sh_<номер подборки>`,
+  // бот присылает ссылку на подборку. Контакт покупателя не нужен — бот отвечает в тот чат, где нажали «Старт».
+  const share = /^\/start\s+sh_([a-f0-9]{10})\b/.exec(msg.text);
+  if (share) {
+    await tgSend(CLIENT_TG_TOKEN(), chatId, `Ваша подборка с фото и ссылками на товары: https://remont-lab.online/test/share/${share[1]}/`);
+    return NextResponse.json({ ok: true });
+  }
   const start = /^\/start\s+([\w-]+)/.exec(msg.text);
   if (start) {
     const lead = await repo.get(start[1]!);

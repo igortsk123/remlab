@@ -2688,10 +2688,14 @@ function shareOpen(list){
     // избранным»). Раньше человек прокручивал все фотографии, чтобы добраться до поля ввода.
     shotOpen(
       `<div class="chan">${CHAN.map(c=>`<button class="chip${c.id===chan?' on':''}" data-c="${c.id}">${c.t}</button>`).join('')}</div>`+
-      `<div class="linkbox"><input id="shTo" placeholder="${(CHAN.find(c=>c.id===chan)||{}).ph}">
+      (chan==='telegram'
+        // Telegram — без поля: бот ответит тому, кто нажмёт «Старт» (контакт не нужен, b2b-05 п.5b)
+        ?`<div class="linkbox"><button class="btn primary" id="shGo">Получить в Telegram</button></div>`+
+         `<div class="hint">Откроется наш бот — нажмите «Старт», и он пришлёт ссылку на подборку.</div>`
+        :`<div class="linkbox"><input id="shTo" placeholder="${(CHAN.find(c=>c.id===chan)||{}).ph}">
         <button class="btn primary" id="shGo">Отправить</button></div>`+
       `<div class="hint">Пришлём подборку в ${(CHAN.find(c=>c.id===chan)||{}).t}. Контакт нужен
-       только для доставки фотографий.</div>`+
+       только для доставки фотографий.</div>`)+
       // СОГЛАСИЕ С ПОЛИТИКОЙ (b2b-04): ссылка на живую страницу; версию текста сервер пишет рядом с заявкой
       (LANG==='en'?`<div class="hint">By pressing “Send” you agree to the <a href="/privacy?lang=en" target="_blank" rel="noopener">privacy notice</a>.</div>`
         :`<div class="hint">Нажимая «Отправить», вы соглашаетесь с <a href="/privacy" target="_blank" rel="noopener">политикой обработки данных</a>.</div>`)+
@@ -2711,12 +2715,14 @@ function shareOpen(list){
     });
   };
   const send=async()=>{
-    const to=(document.getElementById('shTo').value||'').trim();
-    if(to.length<4){document.getElementById('shTo').focus();return;}
+    const toEl=document.getElementById('shTo');
+    const to=(toEl&&toEl.value||'').trim();
+    // Telegram — без контакта: бот сам ответит тому, кто нажмёт «Старт» (b2b-05 п.5b)
+    if(chan!=='telegram'&&to.length<4){if(toEl)toEl.focus();return;}
     shotOpen('<div class="wait"><div class="spin"></div>Отправляем…</div>','');
     try{
       const r=await fetch('/api/share',{method:'POST',headers:{'content-type':'application/json'},
-        body:JSON.stringify({title:flatTitle(),channel:chan,contact:to,
+        body:JSON.stringify({title:flatTitle(),channel:chan,contact:chan==='telegram'?'':to,
           // В ПОДБОРКУ ИДУТ И ТОВАРЫ СО ССЫЛКАМИ (владелец 26.08: «человек должен получать
           // коллекции»): под каждым кадром — что на нём стоит, почём и где купить
           shots:sel.map(s=>({url:s.url,label:shotLabel(s),
@@ -2724,6 +2730,12 @@ function shareOpen(list){
               url:a.url,img:a.img,shop:a.shop,role:a.role,qty:a.qty||1}))}))})});
       const j=await r.json();
       if(j.error)throw new Error(j.error);
+      if(j.tg_link){
+        shotOpen(`<div class="wait">Подборка готова. Откройте бота и нажмите «Старт» — он пришлёт ссылку на неё.<br>
+          <a class="btn round cta" style="display:inline-block;margin-top:14px;text-decoration:none" href="${j.tg_link}" target="_blank" rel="noopener">Открыть Telegram</a></div>`,
+          `в избранном: ${sel.length}`);
+        return;
+      }
       const name=(CHAN.find(c=>c.id===chan)||{}).t;
       shotOpen(`<div class="wait">Готово: подборка уйдёт в ${name} на <b>${to}</b>.<br>
         <span style="font-size:14px;color:var(--muted)">Обычно приходит в течение минуты.</span></div>`,
