@@ -346,6 +346,17 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
           <InfoPanel apartment={apartment} scene={scene} roomId={roomId} facts={facts ?? ""} lang={lang} fmt={fmt}
             inRoom={mode === "walk"} onRoom={(id) => setRoomId(id)} onOverview={() => setMode("top")} defaultOpen={false} />
         ) : null}
+        {mode === "top" ? (
+          // КНОПКИ КОМНАТ НА ВИДЕ СВЕРХУ (flat3d-sims-ux D3): войти в комнату одним нажатием, как на плане
+          <div data-flat3d="rooms-top" style={{ position: "absolute", left: 8, bottom: 8, zIndex: 4, display: "flex", flexWrap: "wrap", gap: 6, maxWidth: "70%" }}>
+            {apartment.rooms.map((r) => (
+              <button key={r.id} type="button" onClick={() => enterRoom(r.id)}
+                className="min-h-11 rounded-lg bg-primary px-3 text-sm text-secondary shadow-md ring-1 ring-inset ring-secondary">
+                {(lang === "en" ? "Enter: " : "Войти: ") + (lang === "en" ? r.titleEn : r.titleRu)}
+              </button>
+            ))}
+          </div>
+        ) : null}
         {is3d ? null : mode === "photo" ? (
           <PhotoView apartment={apartment} scene={scene} roomId={room.id} lang={lang} />
         ) : (
