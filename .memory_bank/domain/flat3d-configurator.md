@@ -3,7 +3,7 @@ tier: 2
 topic: flat3d-configurator-details
 scope: 3D-конфигуратор квартиры — подробности модели, сцены и конвейера ассетов
 tier1: ../core/apartment-configurator.md
-updated: 2026-10-11
+updated: 2026-10-14
 importance: med
 source: manual
 status: working
@@ -52,8 +52,25 @@ y вглубь; x/y предмета = ЦЕНТР; rot по часовой, 0 �
 (`data/flat3d/runtime-meshes.json`). metallicRoughness → в
 скаляры, картинки переносятся в бинарный чанк, затем `gltfpack -cc -tc` (Meshopt + KTX2).
 Замер 28.09: 3,94 → 0,29 МБ (desktop) и 0,15 МБ (lite); 40 моделей 158 → 12 МБ.
-Публикация — `rsync` в `/opt/remlab/test/rt/`; маршрут `/rt/*` в Caddy: `immutable`, неделя,
-парный `redir /rt /rt/` (без него адрес без слэша = 404).
+Публикация — `tools/assets/publish_rt.sh` (`rsync` в `/opt/remlab/test/rt/`, без удаления); маршрут `/rt/*` в Caddy:
+`immutable`, неделя, парный `redir /rt /rt/` (без него адрес без слэша = 404). С 14.10 (demo-01, ADR-0288): свежесть копии —
+отпечаток `src_sha` = исходник + рецепт сборки (размер, качество, упрощение, KTX2, версия gltfpack); копия того же
+отпечатка пропускается, иначе пересобирается; ссылка на копию — с `?v=<отпечаток>` (`lib/configurator/mesh-url.ts:meshUrl`),
+иначе браузер неделю держал бы старую копию по старому адресу. Демо: `--ids-from-demo` (варианты, декор, 6 первых каждой
+ленты, без ковров), `--check` — ворота; ночной шаг `demo_rt` (`tools/assets/demo_rt.sh`, таблица ночной сборки —
+`~/scout-scenes/flat3d-rt/runtime-meshes.json`, вне репо). `/flat` берёт таблицу из сборки Next
+(`data/flat3d/runtime-meshes.json`), демо — свежую с `/demo/rt-meshes.json` (`setRuntimeMeshes`).
+
+## Движок для демо (14.10, demo-01, ADR-0288)
+`lib/viewer3d/demo-scene.ts:createDemoScene` — та же `FlatViewer`, квартира из расстановки страницы через
+`fromDemoVariant` (+ ковёр фото на полу: материал `rug:N` с фото товара на весь ковёр; свои стены `paint-white` и пол
+`demo-floor` — без них движок брал первый материал каталога). Бандл — `tools/flat3d/build-scene-bundle.mjs` (ES-модуль: в
+three есть `new URL(…, import.meta.url)` на уровне модуля, IIFE падал). Изменения `viewer.ts`: предмет-меш = внешняя группа
+(место, поворот, `placeGroup`) + модель в начале координат; подпись объекта без места и поворота — сдвиг не пересоздаёт
+(`tests/unit/pivot-placement.test.ts`); `setPhotoPose` (+ `photoRay`, `verticalFov`; тест `tests/unit/photo-pose.test.ts`
+против `tools/assets/camera_golden.py`); `exportFrame` (`toBlob`); `measureFrameMs` (p95 после 2 кадров разогрева);
+`webglcontextlost` → `onContextLost`; `setApartment` — только смена расстановки той же квартиры (в `/flat` не подключён:
+там квартира меняется пересозданием движка, разбор Codex 14.10); `stop()`.
 `tools/assets/material_pipeline.py`: `photo` (перспектива по 4 точкам → бесшовность → нормализация
 цвета → normal/roughness/AO → WebP + превью + физический размер) и `make` (процедурные образцы
 тем же форматом). Пресеты: доски, ёлочка-квадрат, ковролин, плитка (сетка и «кабанчик»), камень.
