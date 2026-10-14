@@ -19,6 +19,7 @@ import { BuildBar } from "@/components/flat3d/BuildBar";
 import { PlanView } from "@/components/flat3d/PlanView";
 import { PhotoView } from "@/components/flat3d/PhotoView";
 import { Scene3D } from "@/components/flat3d/Scene3D";
+import { InfoPanel } from "@/components/flat3d/InfoPanel";
 
 type Mode = "walk" | "top" | "photo" | "plan";
 
@@ -29,9 +30,11 @@ interface Props {
   lang: Lang;
   /** Предельная сумма сертификата застройщика (подсказка, выбор не блокирует), ADR-0254/0258. */
   certificate?: { amount: number } | null;
+  /** Факты о квартире строкой (ЖК, срок, этаж) — из карточки застройщика, для правой панели. */
+  facts?: string;
 }
 
-export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, certificate }: Props) {
+export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, certificate, facts }: Props) {
   const L = t(lang);
   const fmt = (v: number) => formatMoney(v, catalogue.currency, lang);
   const { config, scene, choose, moveSlot, resetSlotPlacement, reset, isDefault } = useFlatConfig(
@@ -335,7 +338,12 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
             noWebglText={L.noWebgl}
             retryText={lang === "en" ? "Try again" : "Повторить"}
           />
-        ) : mode === "photo" ? (
+        ) : null}
+        {is3d ? (
+          <InfoPanel apartment={apartment} scene={scene} roomId={roomId} facts={facts ?? ""} lang={lang} fmt={fmt}
+            inRoom={mode === "walk"} onRoom={(id) => setRoomId(id)} onOverview={() => setMode("top")} defaultOpen={false} />
+        ) : null}
+        {is3d ? null : mode === "photo" ? (
           <PhotoView apartment={apartment} scene={scene} roomId={room.id} lang={lang} />
         ) : (
           <PlanView

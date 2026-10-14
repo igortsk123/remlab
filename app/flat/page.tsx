@@ -111,6 +111,7 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
         initialConfig={initial}
         lang={lang}
         certificate={card.certificate ? { amount: card.certificate.amount } : null}
+        facts={card.meta}
       />
     </main>
   );

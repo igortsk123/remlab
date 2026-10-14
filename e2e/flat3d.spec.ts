@@ -366,3 +366,16 @@ test("из гостиной можно дойти до коридора, сту�
   });
   expect(new Set(same).size, `выбор стульев: ${same.join(", ")}`).toBe(1);
 });
+
+test("правая панель состава: открывается кнопкой «i», показывает комнаты и итог, «← Вся квартира» ведёт на вид сверху", async ({ page }) => {
+  await page.goto("/flat");
+  await page.getByRole("tab", { name: "Бродилка" }).click();
+  await page.getByRole("button", { name: /Состав и цены/ }).click();
+  const panel = page.locator('[data-flat3d="info"]');
+  await expect(panel.getByText("Комнаты")).toBeVisible();
+  await expect(panel.getByText("Итого")).toBeVisible();
+  await panel.getByRole("button", { name: "Закрыть" }).click();
+  await expect(panel.getByText("Итого")).toHaveCount(0);
+  await page.getByRole("button", { name: "← Вся квартира" }).click();
+  await expect(page.getByRole("tab", { name: "Сверху" })).toHaveAttribute("aria-selected", "true");
+});
