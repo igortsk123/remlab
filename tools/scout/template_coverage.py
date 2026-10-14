@@ -23,7 +23,9 @@ STYLES = ['сканди', 'современный', 'минимализм', 'л�
 STYLE_MIN = 6.0          # порог стилевого соответствия (как в подборе)
 ENV_LO, ENV_HI = 0.80, 1.10      # конверт габаритов: −20% / +10% (решение владельца)
 
-# слоты шаблонов: роль → идеальная ШИРИНА (см) по диапазону площади
+# слоты шаблонов: роль → ширина (см). ИДЕАЛ БЕРЁТСЯ ИЗ ПРАВИЛА (conv-08, ADR-0270): `slot_rules.slot_ideal(роль,
+# площадь шаблона)` — тот же расчёт, что у сборки комплектов (`compose2`). Число здесь — только запасное для ролей,
+# у которых правила в zones.json нет (приставной); раньше эти числа были «своими» и расходились со сборкой.
 TEMPLATES = {
     'диван + столик + ковёр (12+ м²)': {'диван': 180, 'столик': 90, 'ковёр': 200},
     'диван + кресло (15+ м²)': {'диван': 180, 'кресло': 76, 'столик': 90, 'ковёр': 200},
@@ -64,6 +66,15 @@ def base(role: str) -> str:
     return p[0] if p[-1].isdigit() else role
 
 
+def template_ideal(tname: str, role: str, fallback: float) -> float:
+    """Идеал роли для шаблона из правила по площади шаблона «(N+ м²)»; нет правила — запасное число."""
+    import re
+    from slot_rules import slot_ideal
+    m = re.search(r'\((\d+)\+\s*м²\)', tname)
+    v = slot_ideal(role, float(m.group(1))) if m else None
+    return float(v) if v else float(fallback)
+
+
 def main() -> None:
     idx = json.load(open(os.path.join(HERE, 'candidates-index.json')))
     items, index = idx['items'], idx['index']
@@ -94,8 +105,9 @@ def main() -> None:
         row = {'template': tname, 'styles': {}}
         for st in STYLES:
             per_slot, face_caps = {}, []
-            for role, ideal in slots.items():
+            for role, lit in slots.items():
                 b = base(role)
+                ideal = template_ideal(tname, b, lit)
                 cands = [k for k in by_role.get(b, [])
                          if k in items and fits(items[k], ideal, role) and style_ok(k, st)]
                 per_slot[role] = len(cands)

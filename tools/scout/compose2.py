@@ -334,35 +334,10 @@ def tier_band(role,tier):
     return {'эконом':(pc(.05),pc(.45)),'комфорт':(pc(.35),pc(.80)),'премиум':(pc(.70),pc(.97))}[tier]
 
 # ---------- Ф1+Ф2+Ф3+Ф4+Ф5: скоринг ----------
-_ZR_PATH=os.path.join(HERE,'..','..','services','planner-solver','rules','zones.json')
-try:
-    _SLOT_ENV=json.load(open(_ZR_PATH)).get('template_slot_envelopes',{})
-except Exception:
-    _SLOT_ENV={}
-
-
-def slot_ideal(role,m2,qty=1):
-    """Идеальная ширина слота под каталог (решение владельца 11.08): подгоняем
-    ИДЕАЛ под плотность фидов, не нарушая правил дизайна. Конфиг — zones.json
-    `template_slot_envelopes` (тот же источник, что у шаблонов и проверки покрытия
-    tools/scout/template_coverage.py). None — правило для роли не задано."""
-    cfg=(_SLOT_ENV.get('slots') or {}).get(role)
-    if not cfg: return None
-    if 'ideal' in cfg: return float(cfg['ideal'])
-    if 'by_seats' in cfg:                      # обеденный стол: 61 см кромки на едока
-        seats='6' if m2>=40 else ('4' if m2>=22 else '2')
-        return float(cfg['by_seats'][seats])
-    if 'by_area_m2' in cfg:
-        # ОБОБЩЁННЫЙ парсер ключей (13.08: фиксированный список ключей молча ронял
-        # слот дивана '<=16'/'<=20' в ветку 230 — диван 230 проходил в комнату 15 м²)
-        ba=cfg['by_area_m2']
-        _les=sorted(((float(k[2:]),k) for k in ba if k.startswith('<=')))
-        for lim,k in _les:
-            if m2<=lim: return float(ba[k])
-        _gts=sorted(((float(k[1:]),k) for k in ba if k.startswith('>')),reverse=True)
-        for lim,k in _gts:
-            if m2>lim: return float(ba[k])
-    return None
+# ИДЕАЛ СЛОТА — ОДНО МЕСТО (conv-08, ADR-0270): `slot_rules.py` читает zones.json → template_slot_envelopes; тем же
+# модулем пользуется отчёт покрытия. Имена `slot_ideal` и `_SLOT_ENV` оставлены здесь для прежних импортов.
+from slot_rules import ZONES as _ZR_PATH, slot_envelopes as _slot_envelopes, slot_ideal  # noqa: E402,F401
+_SLOT_ENV=_slot_envelopes()
 
 
 def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3,pre_filter=None,no_envelope=False,no_prop=False):
