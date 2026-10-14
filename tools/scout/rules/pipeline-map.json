@@ -203,6 +203,16 @@
    "owner": "owner",
    "title": "Разворот ждёт проверки",
    "runbook": "/lab/mesh-review"
+  },
+  {
+   "id": "frame_sec",
+   "kind": "backlog",
+   "metric": "frame_sec",
+   "owner": "render",
+   "yellow": 60,
+   "red": 180,
+   "title": "Черновой кадр на проде, секунд (среднее последних)",
+   "runbook": "draft_service /api/draft/stats; очередь /api/job"
   }
  ],
  "waivers": {

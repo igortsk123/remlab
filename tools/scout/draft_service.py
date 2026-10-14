@@ -201,6 +201,11 @@ class H(BaseHTTPRequestHandler):
         if self.route.startswith(('/health', 'draft/health')) or self.route in ('/draft/health',):
             # версия образа (b2b-08): деплой сверяет её, как у приложения
             return self._send(200, {'ok': True, 'version': os.environ.get('DRAFT_VERSION', 'dev')})
+        if self.route.startswith(('/draft/stats', '/stats')):
+            # ВРЕМЯ КАДРА (b2b-08 п.5): среднее последних замеров по качеству — стык конвейера следит, не медленнеет ли
+            avg = {q: (round(sum(d) / len(d), 1) if d else None) for q, d in _DURS.items()}
+            return self._send(200, {'avg_sec': avg, 'n': {q: len(d) for q, d in _DURS.items()},
+                                    'queue': len(_WAITING)})
         if self.route.startswith('/job'):
             from urllib.parse import parse_qs, urlparse
             jid = (parse_qs(urlparse(self.path).query).get('id') or [''])[0]

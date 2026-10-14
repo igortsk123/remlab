@@ -85,6 +85,13 @@ def collect() -> dict:
     m['quarantine_open'] = _n("select count(*) from mesh_quarantine where decision is null")
     m['price_stale'] = _n("select count(*) from products where in_stock and price_basis = 'feed-stale'")
     m['mesh_unpublished'], _missing = _publish_stats()
+    # ВРЕМЯ ЧЕРНОВОГО КАДРА на проде (b2b-08 п.5): среднее последних замеров сервиса кадров; нет замеров — неизвестно
+    try:
+        import urllib.request
+        st = json.load(urllib.request.urlopen('https://remont-lab.online/api/draft/stats', timeout=20))
+        m['frame_sec'] = st.get('avg_sec', {}).get('draft')
+    except Exception:  # noqa: BLE001
+        m['frame_sec'] = None
     # РАЗВОРОТ ПО СОСТОЯНИЯМ (разбор Codex 14.10): «опубликовано без записи при готовом решении» и «решение для чужого
     # файла» обязаны быть нулём; спорные — у владельца, «ждут проверки» — справочно
     try:
