@@ -171,9 +171,10 @@ def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
     for mesh, world in zip(parts, worlds):
         rel = world - eye
         z = rel @ np.array(fwd, np.float32)
-        u = (cam.width / 2 + focal * (rel @ np.array(right, np.float32))
-             / np.maximum(z, 1e-3)) * kx
-        vv = (cam.height / 2 - focal * (rel @ np.array(up, np.float32)) / np.maximum(z, 1e-3)
+        xr = rel @ np.array(right, np.float32)
+        yr = rel @ np.array(up, np.float32)
+        u = (cam.width / 2 + focal * xr / np.maximum(z, 1e-3)) * kx
+        vv = (cam.height / 2 - focal * yr / np.maximum(z, 1e-3)
               + getattr(cam, 'shift_y', 0.0) * cam.height) * ky
         # ЧЕГО НЕТ В КАДРЕ — НЕ РИСУЕМ (владелец 02.09, замер: стеллаж занимал НОЛЬ пикселей и
         # всё равно проходил полную растеризацию 40 000 граней). Проверяем по проекции всей
@@ -221,19 +222,17 @@ def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
         else:
             facing = (n @ np.array(fwd, np.float32)) < BACKFACE
             keep = np.where(facing | (lam > 0.97))[0]
-        for idx in keep:
-            a, b, c = f[idx]
-            if z[a] <= 5 or z[b] <= 5 or z[c] <= 5:
-                continue
-            xs = np.array([u[a], u[b], u[c]])
-            ys = np.array([vv[a], vv[b], vv[c]])
+        th_, tw_ = (tex.shape[:2] if tex is not None else (0, 0))
+
+        def _tri(xs, ys, zs, uvs, ss, idx):
+            """Один треугольник в буфер: экранные xs/ys, глубины zs, uv и гладкий свет в вершинах (или None)."""
             x0, x1 = int(max(0, xs.min())), int(min(W - 1, xs.max()) + 1)
             y0, y1 = int(max(0, ys.min())), int(min(Hpx - 1, ys.max()) + 1)
             if x1 <= x0 or y1 <= y0:
-                continue
+                return
             det = (ys[1] - ys[2]) * (xs[0] - xs[2]) + (xs[2] - xs[1]) * (ys[0] - ys[2])
             if abs(det) < 1e-9:
-                continue
+                return
             gy, gx = np.mgrid[y0:y1, x0:x1]
             w0 = ((ys[1] - ys[2]) * (gx - xs[2]) + (xs[2] - xs[1]) * (gy - ys[2])) / det
             w1 = ((ys[2] - ys[0]) * (gx - xs[2]) + (xs[0] - xs[2]) * (gy - ys[2])) / det
@@ -243,22 +242,17 @@ def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
             # причина щелей была в упрощении мешей — см. `mesh_render.LITE_BORDER`.
             inside = (w0 >= 0) & (w1 >= 0) & (w2 >= 0)
             if not inside.any():
-                continue
-            zz = w0 * z[a] + w1 * z[b] + w2 * z[c]
+                return
+            zz = w0 * zs[0] + w1 * zs[1] + w2 * zs[2]
             sub = zbuf[y0:y1, x0:x1]
             upd = inside & (zz < sub)
             if not upd.any():
-                continue
+                return
             sub[upd] = zz[upd]
-            if vsh is not None and smooth_face[idx]:
-                s0, s1, s2 = fsh[idx]
-                sh_px = (w0 * s0 + w1 * s1 + w2 * s2)[..., None]
-            else:
-                sh_px = shade[idx]
-            if tex is not None and uvm is not None:
-                th_, tw_ = tex.shape[:2]
-                uu = w0 * uvm[a, 0] + w1 * uvm[b, 0] + w2 * uvm[c, 0]
-                vvv = w0 * uvm[a, 1] + w1 * uvm[b, 1] + w2 * uvm[c, 1]
+            sh_px = (w0 * ss[0] + w1 * ss[1] + w2 * ss[2])[..., None] if ss is not None else shade[idx]
+            if uvs is not None:
+                uu = w0 * uvs[0][0] + w1 * uvs[1][0] + w2 * uvs[2][0]
+                vvv = w0 * uvs[0][1] + w1 * uvs[1][1] + w2 * uvs[2][1]
                 tx = np.clip((uu % 1.0) * (tw_ - 1), 0, tw_ - 1).astype(int)
                 ty = np.clip((1.0 - (vvv % 1.0)) * (th_ - 1), 0, th_ - 1).astype(int)
                 col = tex[ty, tx].astype(np.float32) * sh_px
@@ -267,8 +261,49 @@ def raster_mesh(img, zbuf, parts, place, cam, W, Hpx, front_yaw: float,
             img[y0:y1, x0:x1][upd] = np.clip(col[upd], 0, 255)
             if inst_buf is not None:
                 inst_buf[y0:y1, x0:x1][upd] = inst_id   # тот же upd — карта не разъедется с цветом
+
+        use_uv = tex is not None and uvm is not None
+        for idx in keep:
+            a, b, c = f[idx]
+            zs = (z[a], z[b], z[c])
+            front = (zs[0] > NEAR_CM) + (zs[1] > NEAR_CM) + (zs[2] > NEAR_CM)
+            if not front:
+                continue
+            uvs = (uvm[a], uvm[b], uvm[c]) if use_uv else None
+            ss = fsh[idx] if (vsh is not None and smooth_face[idx]) else None
+            if front == 3:
+                _tri(np.array([u[a], u[b], u[c]]), np.array([vv[a], vv[b], vv[c]]), zs, uvs, ss, idx)
+                continue
+            # ТРЕУГОЛЬНИК ПЕРЕСЕКАЕТ ПЛОСКОСТЬ У ОБЪЕКТИВА — режем, а не выбрасываем (demo-04, 14.10): косяк двери
+            # в 25 см от камеры раньше пропадал треугольниками и давал на краю кадра белые клинья
+            for tri in _clip_near([(xr[i], yr[i], z[i], *(uvm[i] if use_uv else (0.0, 0.0)),
+                                    (ss[k] if ss is not None else 0.0)) for k, i in enumerate((a, b, c))]):
+                xs = np.array([(cam.width / 2 + focal * t[0] / t[2]) * kx for t in tri])
+                ys = np.array([(cam.height / 2 - focal * t[1] / t[2] + getattr(cam, 'shift_y', 0.0) * cam.height) * ky
+                               for t in tri])
+                _tri(xs, ys, np.array([t[2] for t in tri]), [(t[3], t[4]) for t in tri] if use_uv else None,
+                     [t[5] for t in tri] if ss is not None else None, idx)
     return {'h_src': h_src, 'aniso': round(float(aniso), 2),
             'suspect': aniso > ANISO_MAX}
+
+
+NEAR_CM = 5.0        # плоскость у объектива: ближе — не рисуем, пересекающие её треугольники режем по ней
+
+
+def _clip_near(verts):
+    """Треугольник, пересекающий плоскость z = NEAR_CM, → 1–2 треугольника перед ней (отсечение Сазерленда — Ходжмана
+    по одной плоскости). Вершина — кортеж (x, y, z камеры, u, v, свет); атрибуты интерполируются линейно вдоль ребра."""
+    poly = []
+    n = len(verts)
+    for i in range(n):
+        p, q = verts[i], verts[(i + 1) % n]
+        pin, qin = p[2] > NEAR_CM, q[2] > NEAR_CM
+        if pin:
+            poly.append(p)
+        if pin != qin:
+            t = (NEAR_CM + 1e-3 - p[2]) / (q[2] - p[2])
+            poly.append(tuple(pa + (qa - pa) * t for pa, qa in zip(p, q)))
+    return [(poly[0], poly[k], poly[k + 1]) for k in range(1, len(poly) - 1)]
 
 
 def project_pts(cam, pts, W, Hpx):

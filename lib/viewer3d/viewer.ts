@@ -283,9 +283,12 @@ export class FlatViewer {
       const s = surfaces.get(room.id) ?? {};
       const floorMat = s.floor?.material ?? this.kitCtx.fallback;
       const wallMat = s.wall?.material ?? this.kitCtx.fallback;
-      // прихожая: южная стена — вход в квартиру, там полотно закрыто
+      // прихожая: южная стена — вход в квартиру, там полотно закрыто. Квартира из одной комнаты (живая сцена демо, вариант
+      // витрины в /flat): двери ведут в несуществующее — полотно закрыто, как на интерьерном снимке и на серверном кадре
+      // (`tools/flat3d/opening-ir.mjs`); распахнутое у угла закрывало четверть кадра (demo-04, 14.10)
       const entranceWall = room.kind === "hall" ? "south" : undefined;
-      const { group, floor } = buildRoom(this.matCtx, room, floorMat, wallMat, { entranceWall });
+      const doorsClosed = this.apartment.rooms.length === 1;
+      const { group, floor } = buildRoom(this.matCtx, room, floorMat, wallMat, { entranceWall, doorsClosed });
       group.userData.roomId = room.id;
       floor.userData.roomId = room.id;
       this.scene.add(group);

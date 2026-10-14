@@ -346,6 +346,59 @@ def _project(cam: Camera, pts: np.ndarray):
     return u, v, z
 
 
+BEYOND_CM = 20.0     # плоскость «что за проёмом» — на столько за стеной (стекло окна стоит в 2–3 см за её плоскостью)
+BEYOND_MARGIN_CM = 150.0   # её запас за края выреза: 20 см глубины при взгляде под 80° сдвигают край на ~115 см
+
+
+def _ir_cuts(room: Room) -> dict[str, list[tuple[tuple[float, float, float, float], str]]]:
+    """Вырезы проёмов по стенам из общего описания (`room.openings_ir`, `lib/viewer3d/opening-ir.ts`): (u0, u1, низ, верх)
+    вдоль стены от её начала в соглашении браузера (`rooms.ts:frameOf`) и вид проёма. Нет описания — пусто, стена целая."""
+    out: dict[str, list] = {}
+    for e in getattr(room, "openings_ir", None) or []:
+        ir = (e or {}).get("ir") or {}
+        c = ir.get("cut") or {}
+        if e.get("wall") not in ("north", "south", "west", "east") or not c:
+            continue
+        try:
+            cut = (float(c["u0"]), float(c["u1"]), float(c["bottom"]), float(c["top"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        out.setdefault(e["wall"], []).append((cut, str(ir.get("kind") or "door")))
+    return out
+
+
+def wall_rects(length: float, height: float, cuts: list[tuple[float, float, float, float]]) -> list[tuple[float, float, float, float]]:
+    """Стена длиной `length` и высотой `height` без вырезов — прямоугольники (u0, u1, v0, v1). Тот же порядок, что у
+    браузера (`lib/viewer3d/rooms.ts:wallRects`): простенки целиком, под проёмом — до низа выреза, над ним — от верха."""
+    out = []
+    cursor = 0.0
+    for u0, u1, bottom, top in sorted(cuts):
+        u0, u1 = max(0.0, min(length, u0)), max(0.0, min(length, u1))
+        if u1 <= u0:
+            continue
+        if u0 > cursor:
+            out.append((cursor, u0, 0.0, height))
+        if bottom > 0:
+            out.append((u0, u1, 0.0, min(bottom, height)))
+        if top < height:
+            out.append((u0, u1, top, height))
+        cursor = max(cursor, u1)
+    if cursor < length:
+        out.append((cursor, length, 0.0, height))
+    return [r for r in out if r[1] - r[0] > 0.5 and r[3] - r[2] > 0.5]
+
+
+def _wall_quad(room: Room, wall: str, u0: float, u1: float, v0: float, v1: float, back: float = 0.0) -> np.ndarray:
+    """Прямоугольник на стене в координатах clay (x, высота, z = y плана). u — от начала стены, как `rooms.ts:frameOf`
+    (south — от запада, north — от востока, west — от севера, east — от юга); `back` — сдвиг наружу за стену."""
+    W, D = room.width_cm, room.depth_cm
+    (ox, oz), (dx, dz), (nx, nz) = {"south": ((0, 0), (1, 0), (0, 1)), "north": ((W, D), (-1, 0), (0, -1)),
+                                    "west": ((0, D), (0, -1), (1, 0)), "east": ((W, 0), (0, 1), (-1, 0))}[wall]
+    bx, bz = ox - nx * back, oz - nz * back
+    return np.array([[bx + dx * u0, v0, bz + dz * u0], [bx + dx * u1, v0, bz + dz * u1],
+                     [bx + dx * u1, v1, bz + dz * u1], [bx + dx * u0, v1, bz + dz * u0]], float)
+
+
 def compile_scene(room: Room, placements: list[Placement], cam: Camera) -> dict:
     """Карты для одной камеры: depth (см), instance-id, semantic + список видимого."""
     Wp, Hp = cam.width, cam.height
@@ -474,6 +527,7 @@ def compile_scene(room: Room, placements: list[Placement], cam: Camera) -> dict:
     # «в стене», иначе камера в углу упирается в мебель и половина предметов уходит за рамку.
     ex, _, ez = (float(v) for v in cam.eye)
     skip = {"north": ez > D, "south": ez < 0, "west": ex < 0, "east": ex > W}
+    cuts = _ir_cuts(room)
     for wall, quad in (
         ("north", [[0, 0, D], [W, 0, D], [W, H, D], [0, H, D]]),
         ("west", [[0, 0, 0], [0, 0, D], [0, H, D], [0, H, 0]]),
@@ -482,7 +536,25 @@ def compile_scene(room: Room, placements: list[Placement], cam: Camera) -> dict:
     ):
         if skip[wall]:
             continue
-        raster_quad(np.array(quad, float), 0, SEMANTIC["wall"])
+        if not cuts.get(wall):
+            raster_quad(np.array(quad, float), 0, SEMANTIC["wall"])
+            continue
+        # СТЕНА ВОКРУГ ПРОЁМОВ (demo-04 п.3) — прямоугольниками, как `rooms.ts:wallRects`; за проёмом — плоскость «что
+        # снаружи» (окно — вид, дверь — коридор): рама и стекло из общего описания проёма встают в настоящую дыру
+        length = W if wall in ("north", "south") else D
+        for u0, u1, v0, v1 in wall_rects(length, H, [c for c, _ in cuts[wall]]):
+            raster_quad(_wall_quad(room, wall, u0, u1, v0, v1), 0, SEMANTIC["wall"])
+        spans = sorted(c for c, _ in cuts[wall])
+        for c, kind in cuts[wall]:
+            if c[2] < H:
+                # с запасом во все стороны: плоскость стоит глубже стены, и при косом взгляде край выреза иначе открывал
+                # пустоту; лишнее закрывает сама стена (тест силуэта `tests/test_wall_cut.py`). Вдоль стены запас — не дальше
+                # середины простенка до соседнего проёма, иначе «окно» встаёт за соседней дверью
+                m = BEYOND_MARGIN_CM
+                m_lo = min([m] + [(c[0] - o[1]) / 2 for o in spans if o[1] <= c[0]])
+                m_hi = min([m] + [(o[0] - c[1]) / 2 for o in spans if o[0] >= c[1]])
+                raster_quad(_wall_quad(room, wall, c[0] - m_lo, c[1] + m_hi, c[2] - m, min(c[3], H) + m, back=BEYOND_CM), 0,
+                            SEMANTIC["window" if kind in ("window", "balcony") else "door"])
     if not cam.ortho:      # вид сверху — «кукольный домик»: без потолка
         raster_quad(np.array([[0, H, 0], [W, H, 0], [W, H, D], [0, H, D]], float), 0,
                     SEMANTIC["ceiling"])

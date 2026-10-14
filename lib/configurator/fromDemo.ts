@@ -69,7 +69,10 @@ type DemoRoom = {
   d?: number;
   title?: string;
   height_cm?: number;
-  openings?: { kind?: string; wall?: string; offset_cm?: number; width_cm?: number; sill_cm?: number; height_cm?: number }[];
+  openings?: {
+    kind?: string; wall?: string; offset_cm?: number; width_cm?: number; sill_cm?: number; height_cm?: number;
+    swing_cm?: number; hinge?: string; into?: boolean;
+  }[];
 };
 export type DemoData = { room?: DemoRoom; variants?: DemoVariant[] };
 
@@ -78,16 +81,19 @@ type Wall = (typeof WALLS)[number];
 const wallOf = (s?: string): Wall => (WALLS as readonly string[]).includes(s ?? "") ? (s as Wall) : "north";
 
 /** Проёмы витрины → проёмы конфигуратора: другие имена полей, та же геометрия. */
-function openings(room: DemoRoom): Opening[] {
+export function openings(room: DemoRoom): Opening[] {
   return (room.openings ?? [])
     .filter((o) => o.width_cm && o.width_cm > 0)
     .map((o) => ({
-      kind: o.kind === "window" ? ("window" as const) : ("door" as const),
+      kind: o.kind === "window" || o.kind === "balcony" || o.kind === "opening" ? o.kind : ("door" as const),
       wall: wallOf(o.wall),
       offsetCm: Math.max(0, o.offset_cm ?? 0),
       widthCm: o.width_cm as number,
       ...(o.sill_cm !== undefined ? { sillCm: o.sill_cm } : {}),
       ...(o.height_cm !== undefined ? { heightCm: o.height_cm } : {}),
+      // петли и створка с плана витрины (`index.html:doorGeom`: hinge start|end, into) — та же дверь в 3D и на кадре
+      ...(o.hinge === "end" || o.hinge === "right" ? { hinge: "right" as const } : {}),
+      ...(o.into === false || o.swing_cm === 0 ? { swingCm: 0 } : o.swing_cm !== undefined ? { swingCm: o.swing_cm } : {}),
     }));
 }
 

@@ -212,11 +212,18 @@ def collage(room, placements, cam, photos: dict,
     return canvas, dmap, diag
 
 
+def _openings_ir(v):
+    """Описание проёмов со страницы — через проверку (`opening_ir.sanitize`): чужим данным рендер не доверяет."""
+    if v is None:
+        return None
+    import opening_ir as OIR
+    return OIR.sanitize(v)
+
+
 def _opening(o: dict) -> dict:
     """Проём из запроса страницы → поля модели планировщика (лишнее отбрасываем)."""
     out = {k: v for k, v in o.items()
-           if k in ('kind', 'wall', 'offset_cm', 'width_cm', 'swing_cm', 'sill_cm')}
-    # `height_cm` модель планировщика не знает — размер окна уходит отдельно в промпт
+           if k in ('kind', 'wall', 'offset_cm', 'width_cm', 'swing_cm', 'sill_cm', 'height_cm')}
     if o.get('hinge') in ('start', 'left'):
         out['hinge'] = 'left'
     elif o.get('hinge') in ('end', 'right'):
@@ -265,6 +272,7 @@ def scene_from_request(payload: dict) -> tuple:
     r = payload['room']
     room = Room(width_cm=r['w'], depth_cm=r['d'],
                 openings=[Opening(**_opening(o)) for o in (r.get('openings') or [])],
+                openings_ir=_openings_ir(r.get('openings_ir')),
                 radiators=[Radiator(**{k: v for k, v in x.items() if not k.startswith('_')})
                            for x in (r.get('radiators') or [])])
     placements, photos = [], {}
@@ -2309,6 +2317,31 @@ def _fixture_openings(room, orient: dict):
     Возвращает `(места, комната_для_clay)`; список пуст — комната отдаётся как есть.
     """
     from planner.models import Item, Placement
+    # ОДНО ОПИСАНИЕ ПРОЁМОВ С БРАУЗЕРОМ (demo-04): есть `openings_ir` — окна и двери строятся из него, как в живой сцене;
+    # плашки clay под ними не рисуются. Нет — прежний путь ниже (лабораторные кадры без страницы).
+    irs = getattr(room, 'openings_ir', None)
+    if irs:
+        import opening_ir as OIR
+        places = []
+        for k, entry in enumerate(irs):
+            try:
+                x, y, rot, elev, (sw, sh, sd) = OIR.placement_of(entry, float(room.width_cm), float(room.depth_cm))
+            except Exception as e:  # noqa: BLE001 — битое описание одного проёма не валит кадр
+                print(f'  проём {k}: описание не разобрано ({str(e)[:60]})', flush=True)
+                continue
+            key = f"ir:{entry.get('wall')}:{k}:{hash(json.dumps(entry, sort_keys=True)) & 0xffffffff:08x}"
+            if key not in _S3_PARTS:
+                # описание приходит со страницы — кэш деталей не должен расти без края
+                stale = [k for k in _S3_PARTS if str(k).startswith('ir:')]
+                for k in stale[:max(0, len(stale) - 63)]:
+                    _S3_PARTS.pop(k, None)
+                _S3_PARTS[key] = OIR.trimesh_parts(entry)
+            role = 'окно' if (entry.get('ir') or {}).get('kind') in ('window', 'balcony') else 'дверь'
+            places.append((Placement(role=role, x=x, y=y, rot=rot, elev_cm=max(0.0, elev),
+                                     item=Item(role=role, w_cm=max(sw, 1), d_cm=max(sd, 1), h_cm=max(sh, 1))), key, key))
+            orient.setdefault(key, {'yaw': 0.0, 'orient': 'kit:human'})
+        if places:
+            return places, room.model_copy(update={'openings': []})
     fx = FIXTURE_MESH.get('дверь')
     door_glb = _scene3d_glb(fx[0]) if fx else None
     w_room, d_room = float(room.width_cm), float(room.depth_cm)
@@ -2911,6 +2944,13 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict
     canvas = np.asarray(clay_render(sc)).astype(np.float32).copy()
     zbuf = depth.astype(np.float32).copy()
     zbuf[~np.isfinite(zbuf)] = 1e9
+    irs = getattr(room, 'openings_ir', None)
+    if irs:
+        import opening_ir as OIR
+        try:   # сквозь вырезанный проём (demo-04 п.3): окно — небо, дверь — коридор, вместо clay-плашек
+            OIR.paint_beyond(canvas, zbuf, irs, cam, float(room.width_cm), float(room.depth_cm))
+        except Exception as e:  # noqa: BLE001 — без перекраски кадр всё равно собирается
+            print(f'  scene3d: вид за проёмом пропущен ({str(e)[:60]})', flush=True)
     used, missing = [], [p.role for p, _, _ in clay_places]
     # КАРТА ПРЕДМЕТОВ КАДРА: в какие пиксели лёг какой меш. Нужна, чтобы отличить просвет ВНУТРИ
     # предмета от честного фона — по z-буферу этого не видно, там записаны и стены комнаты.

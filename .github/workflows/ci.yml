@@ -146,6 +146,7 @@ jobs:
           python-version: "3.12"
       - run: pip install numpy trimesh pillow
       - run: python tools/scout/orient_selftest.py
+      - run: python tools/scout/opening_ir.py --selftest   # проёмы кадра из общего описания (demo-04)
 
   scout-selftest:
     # Селфтесты загрузки каталога (план catalog-load-hardening П0.4): правила разбора фида, единиц

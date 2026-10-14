@@ -17,12 +17,15 @@ export type WallSide = z.infer<typeof wallSide>;
 
 /** Проём в стене комнаты: offsetCm — от начала стены (запад→восток / юг→север). */
 export const opening = z.object({
-  kind: z.enum(["door", "window", "opening"]),
+  // balcony — балконная дверь (остеклённая, до пола); один набор видов с `planner/models.py:Opening` (demo-04)
+  kind: z.enum(["door", "window", "opening", "balcony"]),
   wall: wallSide,
   offsetCm: z.number().nonnegative(),
   widthCm: z.number().positive(),
   sillCm: z.number().nonnegative().optional(), // подоконник; у двери нет
   heightCm: z.number().positive().optional(),
+  swingCm: z.number().nonnegative().optional(), // глубина зоны открывания внутрь комнаты; 0 — дверь открывается наружу
+  hinge: z.enum(["left", "right"]).optional(), // петли у начала отступа (left, по умолчанию) или у конца — как у расстановщика
 });
 export type Opening = z.infer<typeof opening>;
 

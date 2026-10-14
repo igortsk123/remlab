@@ -15,9 +15,9 @@ COPY tools/scout/rules/asset-strategies.json tools/scout/rules/capabilities.json
      tools/scout/rules/openai_prices.json tools/scout/rules/practice_priors.json /app/rules/
 COPY tools/scout/draft_service.py tools/scout/draft_guard.py tools/scout/draft_jobs.py tools/scout/draft_render.py \
      tools/scout/asset_strategy.py tools/scout/falmini.py tools/scout/improve_mode.py \
-     tools/scout/mesh_render.py tools/scout/scene_mesh.py tools/scout/styles.json /app/
+     tools/scout/mesh_render.py tools/scout/scene_mesh.py tools/scout/opening_ir.py tools/scout/styles.json /app/
 # сборка падает, если HTTP-рендеру чего-то не хватает (а не ночью на первом кадре)
-RUN python -c "import draft_service, draft_jobs, draft_render, mesh_render, scene_mesh, improve_mode, asset_strategy; print('imports ok')"
+RUN python -c "import draft_service, draft_jobs, draft_render, mesh_render, scene_mesh, opening_ir, improve_mode, asset_strategy; print('imports ok')"
 EXPOSE 8099
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8099/health',timeout=3)"

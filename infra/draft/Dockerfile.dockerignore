@@ -15,5 +15,6 @@
 !tools/scout/improve_mode.py
 !tools/scout/mesh_render.py
 !tools/scout/scene_mesh.py
+!tools/scout/opening_ir.py
 !tools/scout/styles.json
 **/__pycache__

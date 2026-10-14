@@ -1056,6 +1056,24 @@ def main() -> None:
           f'WARN:scene_bundle: движок живой сцены не собрался (rc={r.returncode}): {(r.stderr or r.stdout or "").strip()[-200:]}')
     data = cache_images(build())
     print(f'разворот фронта в предметах вариантов: {annotate_yaw(data)}')
+    # ОКНА И ДВЕРИ СЕРВЕРНОГО КАДРА — ИЗ ТОГО ЖЕ ОПИСАНИЯ, ЧТО В ЖИВОЙ СЦЕНЕ (demo-04): генератор один
+    # (`lib/viewer3d/opening-ir.ts`), страница шлёт `room.openings_ir` с запросом кадра. Не посчиталось — кадр строит
+    # проёмы прежним путём, громко.
+    import tempfile
+    with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as tf:
+        json.dump(data['room'], tf, ensure_ascii=False)
+    r = subprocess.run(['bash', '-c', f'. "{root}/tools/ops/node-env.sh" && node "{root}/tools/flat3d/opening-ir.mjs" "{tf.name}"'],
+                       capture_output=True, text=True, timeout=120)
+    os.unlink(tf.name)
+    try:
+        data['room']['openings_ir'] = json.loads(r.stdout) if r.returncode == 0 else None
+    except ValueError:
+        data['room']['openings_ir'] = None
+    if not data['room']['openings_ir']:
+        data['room'].pop('openings_ir', None)
+        print(f'WARN:opening_ir: описание проёмов не посчиталось (rc={r.returncode}): {(r.stderr or "").strip()[-200:]}')
+    else:
+        print(f"проёмы кадра: {len(data['room']['openings_ir'])} из общего описания")
     json.dump(data, open(os.path.join(OUT, 'demo-data.json'), 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)
     print(f"OK: вариантов {len(data['variants'])}; ленты: "

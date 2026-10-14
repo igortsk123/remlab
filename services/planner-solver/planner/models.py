@@ -24,7 +24,8 @@ class Severity(str, Enum):
 class Opening(BaseModel):
     """Проём в стене: дверь (с дугой открывания), окно, балконная дверь."""
 
-    kind: Literal["door", "window", "balcony"]
+    # «opening» — портал без полотна; один набор видов с `contracts/apartment.ts:opening` (demo-04, 14.10)
+    kind: Literal["door", "window", "balcony", "opening"]
     wall: Wall
     offset_cm: float = Field(ge=0, description="от начала стены (запад→восток / юг→север)")
     width_cm: float = Field(gt=0)
@@ -36,6 +37,7 @@ class Opening(BaseModel):
     # а не в обе. Держим четверть круга у своей петли, а не полосу во всю ширину —
     # прежняя модель съедала лишнее место у входа.
     hinge: Literal["left", "right"] = "left"
+    height_cm: float | None = Field(default=None, gt=0, description="высота проёма (верх окна от подоконника, дверь — от пола)")
 
 
 class Radiator(BaseModel):
@@ -60,6 +62,9 @@ class Room(BaseModel):
     radiators: list[Radiator] = Field(default_factory=list)
     band: str | None = Field(default=None, description="метражный бэнд проекта, напр. '21-25'")
     ceiling_cm: float | None = Field(default=None, description="высота потолка (D5, свод №5); нет значения — правило вертикального масштаба спит")
+    # ОПИСАНИЕ ПРОЁМОВ ДЛЯ КАДРА (demo-04): `[{wall, ir}]` из общего генератора `lib/viewer3d/opening-ir.ts` — серверный
+    # кадр строит окна и двери из него (`tools/scout/opening_ir.py`), как браузер; нет — прежний путь
+    openings_ir: list[dict] | None = Field(default=None)
 
     @model_validator(mode="after")
     def _contour_bbox(self) -> "Room":

@@ -15,6 +15,7 @@ import type { Opening, Room, WallSide } from "@/contracts/apartment";
 import type { Material } from "@/contracts/configurator";
 import { type MaterialCtx, tiled } from "@/lib/viewer3d/materials";
 import { buildOpenings } from "@/lib/viewer3d/openings";
+import { openingIR } from "@/lib/viewer3d/opening-ir";
 
 const CM = 0.01;
 const INSET_CM = 1;
@@ -36,8 +37,8 @@ export function wallRects(lengthCm: number, heightCm: number, openings: Opening[
     const u1 = Math.max(0, Math.min(lengthCm, o.offsetCm + o.widthCm));
     if (u1 <= u0) continue;
     if (u0 > cursor) out.push({ u0: cursor, u1: u0, v0: 0, v1: heightCm });
-    const sill = o.kind === "window" ? (o.sillCm ?? 90) : 0;
-    const top = Math.min(heightCm, sill + (o.heightCm ?? (o.kind === "window" ? 140 : 205)));
+    // вырез — из того же описания проёма, что рама и откосы (`opening-ir.ts`), иначе вырез и рама разъезжаются
+    const { bottom: sill, top } = openingIR(o, { wallHeightCm: heightCm }).cut;
     if (sill > 0) out.push({ u0, u1, v0: 0, v1: sill });
     if (top < heightCm) out.push({ u0, u1, v0: top, v1: heightCm });
     cursor = Math.max(cursor, u1);
@@ -79,7 +80,8 @@ function openingsOnSide(room: Room, side: WallSide): Opening[] {
     // у этих стен u растёт в обратную сторону от того, как задан offset (запад→восток /
     // юг→север), поэтому зеркалим отступ относительно длины стены
     const len = side === "north" ? room.w : room.d;
-    return list.map((o) => ({ ...o, offsetCm: len - o.offsetCm - o.widthCm }));
+    // петли по данным — у начала отступа (`hinge` left, как у расстановщика); после зеркала это другой конец
+    return list.map((o) => ({ ...o, offsetCm: len - o.offsetCm - o.widthCm, hinge: o.hinge === "right" ? "left" : "right" }));
   }
   return list;
 }
@@ -90,12 +92,33 @@ export interface RoomVisual {
   floor: THREE.Mesh;
 }
 
+/** Столярка проёмов одной стены, уже поставленная на место в квартире. Отдельно — чтобы тест сверял её с серверным кадром
+ *  (`tests/unit/opening-ir.test.ts`, эталон `tools/assets/opening_golden.py`) без материалов стен. */
+export function joineryOf(
+  room: Room,
+  side: WallSide,
+  opts: { entranceWall?: string; doorsClosed?: boolean } = {},
+): THREE.Group | null {
+  const wallOpenings = openingsOnSide(room, side);
+  if (wallOpenings.length === 0) return null;
+  const f = frameOf(room, side);
+  const joinery = buildOpenings(wallOpenings, side, {
+    heightCm: room.heightCm,
+    entranceWall: opts.entranceWall,
+    doorsClosed: opts.doorsClosed,
+  });
+  joinery.position.set(f.ox * CM, 0, f.oy * CM);
+  joinery.rotation.y = f.rotY;
+  joinery.name = `joinery:${room.id}:${side}`;
+  return joinery;
+}
+
 export function buildRoom(
   ctx: MaterialCtx,
   room: Room,
   floorMat: Material,
   wallMat: Material,
-  opts: { ceiling?: boolean; entranceWall?: string } = {},
+  opts: { ceiling?: boolean; entranceWall?: string; doorsClosed?: boolean } = {},
 ): RoomVisual {
   const group = new THREE.Group();
   group.name = `room:${room.id}`;
@@ -115,16 +138,8 @@ export function buildRoom(
     // СТОЛЯРКА ПРОЁМОВ (рама, стекло, подоконник, полотно) строится в локальных осях стены:
     // группа стоит в начале стены, её X идёт вдоль стены, Z — внутрь комнаты. Это ровно та же
     // система, в которой заданы `offsetCm`, поэтому размеры пишутся как на чертеже.
-    if (wallOpenings.length > 0) {
-      const joinery = buildOpenings(wallOpenings, side, {
-        heightCm: room.heightCm,
-        entranceWall: opts.entranceWall,
-      });
-      joinery.position.set(f.ox * CM, 0, f.oy * CM);
-      joinery.rotation.y = f.rotY;
-      joinery.name = `joinery:${room.id}:${side}`;
-      group.add(joinery);
-    }
+    const joinery = joineryOf(room, side, opts);
+    if (joinery) group.add(joinery);
 
     const rects = wallRects(f.lengthCm, room.heightCm, wallOpenings);
     for (const r of rects) {
