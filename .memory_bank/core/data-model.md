@@ -3,7 +3,7 @@ tier: 1
 topic: data-model
 scope: Схема БД, миграции, pgvector
 tier2: "../../docs/tech-spec-ts-stack.md"
-updated: 2026-10-13
+updated: 2026-10-14
 importance: high
 source: manual
 status: working
@@ -23,12 +23,12 @@ review_after: 2026-12-05
 - **estimates / link_clicks / link_routes** (ADR-0016, М1) — смета jsonb + лог кликов `/go/` +
   маршруты реф (домен→шаблон, late-binding, пусто→прямая).
 - **leads / lead_messages** (К6, TG-бот) — лиды «найти дешевле» + переписка (in|out,
-  `admin_tg_message_id`); email — по согласию, ПДн — TODO.
+  `admin_tg_message_id`); согласие с версией (`consent_version`), срок — `LEADS_RETENTION_DAYS` (`modules/retention/run.ts`).
 - **style_results** (ADR-0038) — итог квиза: `session_id` PK → `style`, upsert; «Мой стиль» в `/lab`.
 - **mesh_review_* / mesh_audit_*** (`007-mesh-review.sql`, `010-mesh-audit.sql`) — ручная проверка мешей
   (`/lab/mesh-review`, `/lab/mesh-audit`, ADR-0188…0194); детали — Tier 2.
 - **rate_limits / share_requests** (`013-security.sql`, ADR-0256); **managers / sends / send_events / signal_outbox**
-  (`014-sends.sql`, ADR-0257); **flat_configs v3** (`015`); **collections** (`016-collections.sql`, ADR-0264, без ПДн); **page_counters / partner_keys** (`017-analytics.sql`, ADR-0265).
+  (`014-sends.sql`, ADR-0257; там же `dedup_marks`, `tg_updates`); **flat_configs v3** (`015`); **collections** (`016-collections.sql`, ADR-0264, без ПДн); **page_counters / partner_keys** (`017-analytics.sql`, ADR-0265); **retention_runs** + `consent_version` (`018-legal.sql`, ADR-0268).
 
 ## Изоляция и доступ
 - **RLS НЕТ** (одна роль remlab). Изоляция — фильтр `session_id` в приложении (`listBySession`).

@@ -1,0 +1,1 @@
+project-state.md _intake/owner-questions.md  # живой список вопросов владельцу очереди MASTER-cost-first (14.10): ответы переносятся в ADR

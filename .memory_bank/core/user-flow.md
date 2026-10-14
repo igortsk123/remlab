@@ -3,12 +3,12 @@ tier: 1
 topic: user-flow
 scope: Stage 1 UX-flow, аналитика
 tier2: ../domain/user-flow-details.md
-updated: 2026-10-13
+updated: 2026-10-14
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-10-11
+last_verified: 2026-10-14
 review_after: 2026-12-05
 ---
 

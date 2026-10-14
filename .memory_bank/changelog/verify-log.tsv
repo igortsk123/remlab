@@ -49,3 +49,10 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-10-13	core/partners.md	code	15	0	0	
 2026-10-13	decisions/adr-0251-0300.md	code	11	1	1	
 2026-10-13	core/manager-links.md	code	22	3	3	
+2026-10-14	.memory_bank/core/demo-planner.md	code	21	3	3	
+2026-10-14	.memory_bank/core/data-model.md	code	18	3	3	
+2026-10-14	.memory_bank/core/user-flow.md	code	18	0	0	
+2026-10-14	.memory_bank/core/regression-net.md	code	21	4	4	
+2026-10-14	.memory_bank/core/pipeline-order.md	code	16	3	3	
+2026-10-14	.memory_bank/deployment.md	code	22	0	0	
+2026-10-14	.memory_bank/core/leads.md	code	22	1	1	

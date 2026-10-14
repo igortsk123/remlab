@@ -17,7 +17,7 @@ review_after: 2026-12-05
 > Сетка для соло-не-кодера: ошибки ловит автоматика. «Цель» = НЕ реализовано.
 
 ## Есть в коде
-- **Unit (Vitest, `tests/unit/`):** 36 файлов; БД — `pg-repository.test.ts` (skipIf); мок — `REMLAB_FAKE_AI=1`.
+- **Unit (Vitest, `tests/unit/`):** 37 файлов; БД — `pg-repository.test.ts` (skipIf); мок — `REMLAB_FAKE_AI=1`.
 - **e2e:** CI — smoke, `estimate`, `flat3d` (serial, ADR-0234), `legal`; `flow` и `/calc/remont` — skip (за заглушкой).
   Демо на проде — `e2e/live/demo.live.ts`, ночной шаг `demo_live` (b2b-12).
 - **Цепочка каталога по бизнес-правилам (13.10, ADR-0242):** `tools/scout/tests_chain.py` —
@@ -25,11 +25,11 @@ review_after: 2026-12-05
   расхождение → `WARN:` в дайджест). Утверждают ПРАВИЛО, а не поведение кода, и печатают ЧИСЛО;
   чистые правила — `tools/scout/catalog_rules.py`.
 - **CI (`ci.yml`):** gate (postgres → typecheck → lint → test → build → e2e + memory-project-audit),
-  db-init, planner, scout-orient, scout-selftest (17 модулей); `memory-audit.yml`. Режим аудитов —
+  db-init, planner, draft-image, scout-orient, scout-selftest (24 модуля); `memory-audit.yml`. Режим аудитов —
   `_kit/gate-mode.txt`: с 28.09 `warn` (дисциплину держит Stop-хук `--block`).
 - **Observability:** трейс LLM-вызовов (`lib/trace/`; сбои — `traceWriteFailures` в
   health); база в health (`lib/health.ts:dbCheck`) + сторож `health-watch.sh` (ADR-0266).
-- **Гарантии памяти (ADR-0055):** два аудита + хуки git (`.claude/settings.json`): гард Bash
+- **Гарантии памяти (ADR-0055):** два аудита + хуки Claude Code (`.claude/settings.json`): гард Bash
   (ADR-0195) и SessionStart/Stop/PreCompact/PostToolUse (`tools/code-touch-hint.mjs`).
 - **Грабля:** меняешь флоу — правь e2e тем же коммитом; шаг CI и его инструмент — одним
   коммитом (урок 414).
@@ -38,11 +38,10 @@ review_after: 2026-12-05
 - Движок ставок работ есть (`lib/pricing/works.ts`), без confidence (§11); нет matching, гардрейлов,
   интеграционных API, e2e error-путей; генерация — синхронный POST. Пейвол — демо, YooKassa —
   только визуализация (`app/viz-actions.ts`).
-- Гардрейлы стоимости: maxCostUsd; квота free-генераций юзер/IP; потолок + kill-switch.
-- Eval-харнесс (§12.5): `/eval` нет; план — золотые фото, LPIPS/SSIM + CLIP.
+- Гардрейлы стоимости: maxCostUsd, kill-switch, квота на пользователя (есть: IP 5/мин и 30/сутки + дневной потолок `PAID_DAILY_CAP_GEN`, `lib/ratelimit/index.ts`).
+- Eval-харнесс (§12.5): `/eval` нет.
 - v0.4: golden-формулы смет (комнаты → количества) — CI-тест (мастер).
 
-**DoD (цель):** typecheck/lint/тесты ✓; e2e +≥1 путь ошибки; UX ошибок; события; env описаны; отклонения → ADR.
-
+**DoD (цель):** e2e +≥1 путь ошибки; отклонения → ADR.
 
 **Tier 2:** `../../docs/tech-spec-ts-stack.md` §12 (регресс-защита), §8 (самопроверка моделей).

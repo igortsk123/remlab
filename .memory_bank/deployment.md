@@ -3,12 +3,12 @@ tier: 1
 topic: deployment
 scope: Деплой/откат/сервер exit-fi
 tier2: "domain/deployment-details.md"
-updated: 2026-10-13
+updated: 2026-10-14
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-09-08
+last_verified: 2026-10-14
 review_after: 2026-12-05
 ---
 
