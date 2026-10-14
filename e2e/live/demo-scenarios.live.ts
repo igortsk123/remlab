@@ -53,6 +53,19 @@ test("2.1–2.3 окно кадра: фото, список, числа как �
   }
 });
 
+test("2.4 листание ‹ › внутри одной съёмки: подпись «N из M»", async ({ page }) => {
+  await openDemo(page);
+  await page.locator("#tab-room").click();
+  await page.locator("button[data-swap]").first().click();
+  const next = page.locator("#shotNext");
+  if (!(await next.isVisible()) || (await next.isDisabled())) { say("у кадра один вид — листать нечего"); return; }
+  const cap0 = await page.locator("#shot").innerText();
+  await next.click();
+  const cap1 = await page.locator("#shot").innerText();
+  say("подпись:", cap0.match(/\d+ из \d+/)?.[0], "→", cap1.match(/\d+ из \d+/)?.[0]);
+  expect(cap1.match(/\d+ из \d+/)?.[0]).not.toBe(cap0.match(/\d+ из \d+/)?.[0]);
+});
+
 test("2.5–2.6 замена из окна: лента, выбор, сумма пересчитана, зовём снять фото", async ({ page }) => {
   await openDemo(page);
   await page.locator("#tab-room").click();

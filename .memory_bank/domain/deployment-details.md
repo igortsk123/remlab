@@ -177,6 +177,15 @@ compose (очередь кадров, прогрев, время кадра — 
 Перед ручным переключением (13.10, не скриптом) — канарейка: тот же запрос `/render` (`no_proxy:1`, `quality:draft`) старому и временному
 контейнеру `remlab-draft-canary`, сравнить JPEG.
 
+**Задания и деньги (14.10, ADR-0287):** задания — `/opt/remlab/test/share/jobs.json` (`tools/scout/draft_jobs.py`): деплой их
+не теряет, черновики досчитываются после старта, платные — `lost`. Новый файл образа — в `COPY`, в проверку импортов и в
+`infra/draft/Dockerfile.dockerignore` (урок 486). Перед платным «Улучшить» — баланс шлюза: у прода ключа нет, он спрашивает
+DEV `GET /credits` через туннель (снаружи `/api/draft/credits` — 404, сумму не показываем); наружу — `GET /api/draft/paid`
+(`{available, code}`). Порог — env `REALISTIC_MIN_BALANCE` (0,30 $) и `REALISTIC_COST_USD` (0,25 $ на идущее платное).
+**DEV-рендер (14.10, урок 485):** крон DEV раз в 10 минут — `tools/scout/dev_render_backend.sh` (поднимает, только если не
+отвечает); дайджест — `tools/ops/dev-checks.sh` `WARN:dev_render_down|tunnel|fallback|restart`. Перезапуск руками: убить
+процесс по PID с порта 8600 (`ss -ltnp`), затем `bash tools/scout/dev_render_backend.sh`.
+
 ## Модели 3D демо — кэш (14.10, b2b-12)
 `handle_path /test/mesh-pilot10/*` в `caddy/Caddyfile`: `Cache-Control: public, no-cache` (браузер хранит и перепроверяет
 по ETag — 304 без тела) вместо `no-store` общего `/test/*`; `browse` сохранён. Первый вход в 3D ≈30 МБ (лёгких копий нет).

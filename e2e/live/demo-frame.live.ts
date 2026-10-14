@@ -9,7 +9,7 @@ import { test, expect } from "@playwright/test";
 test.setTimeout(8 * 60_000);
 const MIN_STD = 25;   // у живой комнаты 55–70 (замер 14.10), у кадра «в абажур» — ниже 20
 
-test("оба ракурса каждого варианта не пустые", async ({ page }) => {
+test("2.7–2.8 оба ракурса каждого варианта не пустые", async ({ page }) => {
   await page.goto("/demo/", { waitUntil: "networkidle" });
   await page.waitForFunction("typeof allVariants === 'function' && allVariants().length > 0");
   const n = await page.evaluate("D.variants.length") as number;
@@ -50,7 +50,7 @@ test("оба ракурса каждого варианта не пустые", 
 // 2.13 (план demo-03): карточка «Моя коллекция» была без фото. Меняем предмет (кадра такой расстановки ещё нет) →
 // «Сохранить коллекцию» → страница снимает черновик в фоне и прикрепляет его к коллекции на сервере. Одна коллекция
 // за ночь — без ПДн и без номера менеджера, в отчёт застройщику не попадает.
-test("сохранённая коллекция получает картинку", async ({ page }) => {
+test("2.13 сохранённая коллекция получает картинку", async ({ page }) => {
   test.setTimeout(4 * 60_000);
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.goto("/demo/", { waitUntil: "networkidle" });
@@ -66,4 +66,24 @@ test("сохранённая коллекция получает картинк�
   await expect.poll(async () => (await page.request.get(`/api/collections/${cid}`).then((r) => r.json()) as { collection: { shot?: string } }).collection.shot ?? "",
     { timeout: 180_000, intervals: [5_000] }).toMatch(/^\/test\/share\/frames\//);
   console.log(`  · картинка коллекции за ${Math.round((Date.now() - t) / 1000)} с`);
+});
+
+// 2.12: из конструктора — «Посмотреть фото с изменениями» → новый кадр, конструктор закрылся, окно кадра открыто.
+test("2.12 фото с изменениями из конструктора", async ({ page }) => {
+  test.setTimeout(4 * 60_000);
+  await page.goto("/demo/", { waitUntil: "networkidle" });
+  await page.waitForFunction("typeof allVariants === 'function' && allVariants().length > 0");
+  await page.locator("#tab-room").click();
+  await page.locator("button[data-swap]").first().click();
+  await page.locator("#shEdit").click();
+  const pos = await page.evaluate(`(() => { const r = stage.getBoundingClientRect(); const it = items.find(i => /^столик/.test(i.role));
+    return { x: r.left + PAD + it.x * S, y: r.top + PAD + it.y * S }; })()`) as { x: number; y: number };
+  await page.mouse.move(pos.x, pos.y); await page.mouse.down();
+  for (let k = 1; k <= 8; k++) await page.mouse.move(pos.x - 3 * k, pos.y + 2 * k);
+  await page.mouse.up();
+  const t = Date.now();
+  await page.locator("#consShot").click();
+  await expect(page.locator("#shot img").first()).toBeVisible({ timeout: 180_000 });
+  await expect(page.locator("#cons")).toBeHidden();
+  console.log(`  · новый кадр из конструктора за ${Math.round((Date.now() - t) / 1000)} с`);
 });

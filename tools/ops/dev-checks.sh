@@ -47,4 +47,6 @@ fb=$(printf '%s\n' "$tun" | tail -1 | tr -dc '0-9')
 since=$(date -d '24 hours ago' '+%F %T')
 rs=$(awk -v s="$since" '/сервис запущен/ && ($1" "$2)>=s' "$HOME/scout-scenes/dev-render.log" 2>/dev/null | wc -l)
 [ "${rs:-0}" -gt 0 ] && echo "WARN:dev_render_restart: DEV-рендер поднимался заново $rs раз за сутки (падал — см. ~/scout-scenes/dev-render.log, earlyoom)"
+# карта сценариев демо ↔ живые проверки (demo-03 п.3): строка карты без проверки — жёлтый
+. "$(dirname "$0")/node-env.sh" 2>/dev/null; node "$(dirname "$0")/demo-map-check.mjs" 2>&1 | tail -2
 exit 0

@@ -14,7 +14,7 @@ async function openDemo(page: Page, q = ""): Promise<string[]> {
   return errors;
 }
 
-test("стили опубликованы, у каждого есть кадр, данные свежие", async ({ page, request }) => {
+test("1.1 стили опубликованы, у каждого есть кадр, данные свежие", async ({ page, request }) => {
   const errors = await openDemo(page);
   const styles = await page.evaluate(() => (window as unknown as DemoWindow).allVariants().map((v) => v.style));
   expect(styles.length).toBeGreaterThanOrEqual(4);
