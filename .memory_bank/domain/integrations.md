@@ -3,7 +3,7 @@ tier: 2
 topic: integrations-details
 scope: Детали внешних интеграций — эндпоинты, форматы запросов/ответов, env-переменные, конфиги, цены
 tier1: ../core/access-and-integrations.md
-updated: 2026-10-13
+updated: 2026-10-14
 importance: high
 source: manual
 status: working
@@ -364,3 +364,14 @@ base 2833 против 85 у `gpt-4o`, то есть в долларах как 
 достижимы: `tools/scout/pipeline2.py:396` (зовётся из `tools/scout/set_report.py:88`),
 `tools/scout/viz_frame.py:217`, `tools/scout/viz_plan.py:202`, а также ранние A/B-рецепты
 (`tools/scout/viz11.py` и соседние). «Единственный» в коде не закреплено.
+
+## Лид-боты и почта заявок (перенесено из `core/leads.md` 14.10)
+Токены в `/opt/remlab/.env`: `LEADS_ADMIN_TG_TOKEN` + `LEADS_ADMIN_TG_CHAT_ID`, `LEADS_CLIENT_TG_TOKEN`,
+`LEADS_TG_WEBHOOK_SECRET`, `LEADS_MAX_TOKEN`, `LEADS_SMTP_USER/PASS` (palmarius.ru@yandex.ru временно; доступ — sup2
+`_secrets/ACCESS.md`) + setWebhook обоих ботов на `/api/leads/tg-{admin,client}`.
+
+## Перенесено из `core/access-and-integrations.md` (14.10)
+- OpenAI: `OPENAI_EXTRACT_MODEL` (деф. `gpt-4o-mini`) — фолбэк парсинга ссылок; реестров цен ДВА и не связаны; в коде
+  есть нарушение ADR-0067 (§ OpenAI выше).
+- Sketchfab (01.09): заглушки ТВ/окно/дверь отобраны, все CC-BY (нужен кредит); блокер — скачивание требует аккаунта,
+  которого у агента нет.

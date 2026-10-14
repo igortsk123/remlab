@@ -3,7 +3,7 @@ tier: 1
 topic: leads
 scope: Лид-канал — заявка, TG-бот
 tier2: ""
-updated: 2026-10-13
+updated: 2026-10-14
 importance: high
 source: manual
 status: working
@@ -34,10 +34,9 @@ review_after: 2026-12-05
 `modules/leads/repository.ts` (pg+memory) · SQL `db/init/005-leads.sql` (+`lead_messages`).
 
 ## Активация (owner)
-Токены в `/opt/remlab/.env`: `LEADS_ADMIN_TG_TOKEN`+`CHAT_ID`, `LEADS_CLIENT_TG_TOKEN`,
-`LEADS_TG_WEBHOOK_SECRET`, `LEADS_MAX_TOKEN`, `LEADS_SMTP_USER/PASS` (palmarius.ru@yandex.ru временно;
-доступ — sup2 `_secrets/ACCESS.md`) + setWebhook обоих ботов на `/api/leads/tg-{admin,client}`.
-Без токенов всё деградирует (заявки пишутся, карточки/ответы — нет). ПДн — TODO (юрист).
+Токены — `/opt/remlab/.env` (список и setWebhook — `domain/integrations.md` § «Лид-боты»).
+Без токенов всё деградирует (заявки пишутся, карточки/ответы — нет). ПДн: ссылка на `/privacy` (черновик),
+версия согласия в `leads.consent_version`, срок — `LEADS_RETENTION_DAYS` (пусто = не удаляем), карта — `docs/data-map.md` (ADR-0268).
 
 > 13.10 (ADR-0256): «отправить себе» с демо → `share_requests` (`app/api/internal/share-request/route.ts`),
 > доставщика нет (`b2b-05`); заявка — 5/10 мин с адреса; TG-вебхуки без секрета — 401.

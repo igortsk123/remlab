@@ -1,0 +1,21 @@
+{
+ "_about": "Формула стиля по осям (план conv-01, ADR-0269; формула — разбор Codex 13.10). Оси и диапазоны — rules/style-axes.json. Код — style_axes.py. Числа — стартовые, без эталона: подгоняются стендом и глазами владельца.",
+ "fit_falloff": 3,
+ "weights": {"strong": 1.0, "supporting": 0.4},
+ "mix": {"compat": 0.5, "diagnostic": 0.5},
+ "blocks": {
+  "форма": ["visual_lightness", "low_profile"],
+  "декор": ["ornament_level", "hardware_prominence", "lamp_bulb_exposure"],
+  "материалы": ["wood_visibility", "metal_visibility", "material_mix", "textile_texture"],
+  "отделка": ["wood_tone_lightness", "metal_gold", "surface_gloss", "raw_imperfection"],
+  "цвет": ["colour_warmth", "colour_saturation", "colour_lightness"]
+ },
+ "reliability": {"n_eff_full": 5, "min_q": 0.5, "min_n_eff": 4},
+ "pair_tiebreak": {"k": 0.75, "cap": 0.75, "min_separators": 2},
+ "variant_axes": ["colour_warmth", "colour_saturation", "colour_lightness", "wood_tone_lightness", "metal_gold", "surface_gloss", "textile_texture"],
+ "variant_shift": {"k": 4, "cap": 2},
+ "universal": {"min_q": 0.75, "min_n_eff": 5, "min_styles": 4, "min_compat": 0.75, "max_diag": 0.30},
+ "store_style_bias": {"cap": 0.5, "quantile": 0.2, "min_families": 30},
+ "in_style_min": 6,
+ "veto": []
+}

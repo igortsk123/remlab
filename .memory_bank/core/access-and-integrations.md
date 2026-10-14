@@ -3,7 +3,7 @@ tier: 1
 topic: access-and-integrations
 scope: Интеграции/доступы — ключи, клиенты
 tier2: "../domain/integrations.md"
-updated: 2026-10-13
+updated: 2026-10-14
 importance: high
 source: manual
 status: working
@@ -21,17 +21,16 @@ review_after: 2026-12-05
 «у нас нет доступа», прогнать `node tools/access-inventory.mjs` (урок 57).
 
 ## Ключевые факты
-- **Gemini:** один ключ на обе задачи; `gemini-3.1-flash-image`, `gemini-flash-latest`.
-- **OpenAI (ADR-0026):** фолбэк парсинга ссылок; `OPENAI_EXTRACT_MODEL` (деф. `gpt-4o-mini`).
-  Реестров цен ДВА и не связаны; `gpt-4o-mini` под картинки НЕ брать (ADR-0067), в коде есть
-  нарушение — Tier 2 § OpenAI.
+- **Gemini:** один ключ на обе задачи; `gemini-3.1-flash-image`, `gemini-flash-latest`. **14.10: ключ отключён** (Google удалил сервисный аккаунт) — на DEV и на сервере.
+- **OpenAI (ADR-0026):** фолбэк парсинга ссылок; `gpt-4o-mini` под картинки НЕ брать (ADR-0067) — Tier 2 § OpenAI.
 - **Яндекс:** Метрика `110599064`; кампанию `708745261` не трогать. [[marketing-acquisition]].
 
 **Tier 2:** `../domain/integrations.md` — эндпоинты, форматы, env, фиды, § Codex (постоянная
 сессия советника; как звать — там же; при исчерпании лимита — `--profile vercel`, ADR-0253). Решения — ADR-0007/0011/0012/0013/0045.
 
-- **Vercel AI Gateway (26.08):** единственный рабочий путь к платным картинкам (прямые ключи
-  OpenAI без кредитов). Эндпоинты, ключ и клиент — `../domain/integrations.md`.
+- **Vercel AI Gateway (26.08):** единственный рабочий путь к LLM (прямой OpenAI без кредитов); лимит, похоже,
+  суточный (13.10 исчерпан в 20:40, с 00:00 UTC снова работает). «Нет денег» — `tools/scout/llm_gateway.py:NoCredits`,
+  проверка каналов — дайджест DEV (`tools/ops/dev-checks.sh`). Детали — `../domain/integrations.md`.
 
 - **fal.ai:** клиент `tools/scout/falmini.py`; на мешах заменён Salad (ADR-0131).
 
@@ -45,5 +44,4 @@ review_after: 2026-12-05
 - **Гдеслон (03.09):** фиды первичны (`original_picture`, `article`, описание), API — комиссия;
   id округлён (связь по `article`), `available` бесполезен — ADR-0171.
 - **Telegram `@remlabservice_bot` (03.09):** токен и chat_id в `tools/scout/.env.alert` и `/opt/remlab/catalog-watchdog/.env`.
-- **Sketchfab (01.09):** заглушки ТВ/окно/дверь отобраны, все CC-BY (нужен кредит); БЛОКЕР —
-  скачивание требует аккаунта, которого у агента нет.
+- **Sketchfab (01.09)** — Tier 2.

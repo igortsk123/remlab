@@ -1,0 +1,1542 @@
+{
+ "_about": "Оси признаков стиля для опроса VLM 1–10 (план conv-01, ADR-0269). ЧЕРНОВИК: диапазоны — гипотеза по открытым источникам (13.10), подгоняются стендом и глазами владельца; веса и формула — rules/style-formula.json. Источник фактов — external:web (ссылки в каждой оси).",
+ "source": "external:web (исследование 13.10, ссылки в sources)",
+ "status": "draft",
+ "version": "draft-2026-10-13",
+ "styles": [
+  "сканди",
+  "современный",
+  "минимализм",
+  "лофт",
+  "неоклассика",
+  "джапанди"
+ ],
+ "scale": "1–10, у каждой оси якоря scale_1_ru/scale_10_ru; null = не видно/неприменимо",
+ "per_style_format": "{range:[lo,hi], marker:'strong'|'supporting', note?} либо null (ось не характеризует стиль)",
+ "axes": [
+  {
+   "id": "wood_visibility",
+   "question_ru": "Какую долю видимой поверхности предмета занимает дерево (массив или шпон с читаемой текстурой волокон, включая ротанг/бамбук)?",
+   "scale_1_ru": "дерева не видно совсем: ткань, металл, стекло, пластик, однотонная крашеная плита",
+   "scale_10_ru": "предмет почти целиком из дерева с хорошо видимой текстурой (стол-массив, деревянный стул, деревянная ваза)",
+   "applies_to": "all",
+   "answer_null_if": "предмет — чисто текстильный (подушка, плед, шторы, ковёр)",
+   "per_style": {
+    "сканди": {
+     "range": [
+      6,
+      10
+     ],
+     "marker": "strong"
+    },
+    "джапанди": {
+     "range": [
+      6,
+      10
+     ],
+     "marker": "strong"
+    },
+    "лофт": {
+     "range": [
+      4,
+      9
+     ],
+     "marker": "supporting",
+     "note": "дерево почти всегда в паре с металлом"
+    },
+    "неоклассика": {
+     "range": [
+      3,
+      8
+     ],
+     "marker": "supporting"
+    },
+    "минимализм": {
+     "range": [
+      1,
+      6
+     ],
+     "marker": "supporting"
+    },
+    "современный": {
+     "range": [
+      2,
+      7
+     ],
+     "marker": "supporting"
+    }
+   },
+   "sources": [
+    {
+     "url": "https://www.invaluable.com/blog/scandinavian-design/",
+     "quote": "Scandinavian: «light woods such as beech, ash, and pine are typically used most»"
+    },
+    {
+     "url": "https://planner5d.com/blog/what-is-japandi-interior-style/",
+     "quote": "Japandi: «Mix of light, medium, and dark wood»; rattan, bamboo, linen, cane"
+    },
+    {
+     "url": "https://reperch.com/blog/industrial-style-guide",
+     "quote": "Industrial: «Pieces that combine wood and metal are ideal examples»"
+    },
+    {
+     "url": "https://www.pufikhomes.com/en/interior-styles/minimalizm/",
+     "quote": "Minimalism materials: chrome steel, glass, plastic, ceramics, stone, textured wood (≈)"
+    }
+   ]
+  },
+  {
+   "id": "wood_tone_lightness",
+   "question_ru": "Если дерево видно — насколько оно светлое по тону?",
+   "scale_1_ru": "почти чёрное: венге, морёный/чёрный дуб, тёмный орех-эспрессо",
+   "scale_10_ru": "очень светлое: берёза, белёный/беленый дуб, сосна, ясень почти без желтизны",
+   "applies_to": "all",
+   "answer_null_if": "дерева на фото нет или его доля ничтожна (wood_visibility ≤ 2)",
+   "per_style": {
+    "сканди": {
+     "range": [
+      7,
+      10
+     ],
+     "marker": "strong"
+    },
+    "лофт": {
+     "range": [
+      1,
+      5
+     ],
+     "marker": "strong"
+    },
+    "минимализм": {
+     "range": [
+      6,
+      10
+     ],
+     "marker": "supporting"
+    },
+    "джапанди": {
+     "range": [
+      3,
+      9
+     ],
+     "marker": "supporting",
+     "note": "джапанди сознательно смешивает светлый дуб с тёмным орехом/чёрным морением — один предмет может быть и светлым, и тёмным"
+    },
+    "неоклассика": {
+     "range": [
+      2,
+      8
+     ],
+     "marker": "supporting",
+     "note": "и белёное дерево, и полированный орех/махагон"
+    },
+    "современный": {
+     "range": [
+      3,
+      8
+     ],
+     "marker": "supporting"
+    }
+   },
+   "sources": [
+    {
+     "url": "https://homedesigns.ai/go/japandi-vs-scandinavian-key-differences-and-how-to-choose/",
+     "quote": "Scandinavian favours light timber; Japandi pairs those with «darker walnut or black-stained oak»"
+    },
+    {
+     "url": "https://pt.homestyler.com/article/collection/japandi-vs-scandinavian-which-one-is-right-for-you",
+     "quote": "Scandinavian wood is «lighter and more uniform than the textured, grain-rich woods in Japandi»"
+    },
+    {
+     "url": "https://www.houzz.com.sg/magazine/the-real-industrial-style-stsetivw-vs~62745691",
+     "quote": "Industrial wood: «darker tones are the order of the day»"
+    },
+    {
+     "url": "https://www.castlery.com/uk/blog/minimalist-interior-design",
+     "quote": "Minimalist: light wood tones, «natural oak or birch»"
+    },
+    {
+     "url": "https://www.chairish.com/blog/sc-how-to-identify-neoclassical-furniture-key-features",
+     "quote": "Neoclassical woods: mahogany, satinwood, walnut, «polished to a high sheen»"
+    }
+   ]
+  },
+  {
+   "id": "metal_visibility",
+   "question_ru": "Насколько много металла видно на предмете (каркас, ножки, опоры, рама, плафон, фурнитура)?",
+   "scale_1_ru": "металла не видно вообще",
+   "scale_10_ru": "металл — главный материал: сварной каркас, металлические ноги-рама, металлический плафон, видны трубы/болты",
+   "applies_to": "all",
+   "answer_null_if": "чисто текстильный предмет",
+   "per_style": {
+    "лофт": {
+     "range": [
+      6,
+      10
+     ],
+     "marker": "strong"
+    },
+    "современный": {
+     "range": [
+      3,
+      8
+     ],
+     "marker": "supporting"
+    },
+    "минимализм": {
+     "range": [
+      1,
+      6
+     ],
+     "marker": "supporting"
+    },
+    "сканди": {
+     "range": [
+      1,
+      4
+     ],
+     "marker": "supporting"
+    },
+    "джапанди": {
+     "range": [
+      1,
+      3
+     ],
+     "marker": "strong",
+     "note": "много металла — довод ПРОТИВ джапанди"
+    },
+    "неоклассика": {
+     "range": [
+      1,
+      5
+     ],
+     "marker": "supporting",
+     "note": "металл дозированно: ножки, фурнитура, вставки"
+    }
+   },
+   "sources": [
+    {
+     "url": "https://reperch.com/blog/industrial-style-guide",
+     "quote": "Industrial: «Steel, iron, and aluminum» are «Common materials», often paired with wood"
+    },
+    {
+     "url": "https://www.houzz.com.sg/magazine/the-real-industrial-style-stsetivw-vs~62745691",
+     "quote": "Industrial: welded joints, oversized bolts, «pipe-like frames» (≈)"
+    },
+    {
+     "url": "https://www.homestyler.com/article/collection/contemporary-stateside-vs-scandinavian-minimalism-which-one-is-right-for-you",
+     "quote": "Contemporary: «Mix of wood, metal, fabric textures»; Scandinavian minimalism: «minimal metals focusing on simplicity»"
+    },
+    {
+     "url": "https://home.lazada.com.ph/how-to-spot-a-true-japandi-sofa-key-design-features-to-check-before-buying-ph/",
+     "quote": "Japandi sofa: skirted bases and «thick, blocky metal supports» are off-style"
+    },
+    {
+     "url": "https://realty.yandex.ru/journal/post/neoklassika-v-interere-cveta-material-mebel-i-dekor/",
+     "quote": "Неоклассика: латунь/бронза/золото «дозированно» — в «ножках мебели или фурнитуре»"
+    }
+   ]
+  },
+  {
+   "id": "metal_gold",
+   "question_ru": "Если на предмете есть металл — насколько он золотистый (латунь, бронза, золото, позолота)?",
+   "scale_1_ru": "золотистого нет: металл чёрный, графитовый, хромированный, белый",
+   "scale_10_ru": "весь видимый металл золотой/латунный/бронзовый, блестящий или состаренный",
+   "applies_to": "all",
+   "answer_null_if": "металла на фото нет (metal_visibility ≤ 1)",
+   "presence_only": true,
+   "per_style": {
+    "неоклассика": {
+     "range": [
+      6,
+      10
+     ],
+     "marker": "strong"
+    },
+    "современный": {
+     "range": [
+      1,
+      7
+     ],
+     "marker": "supporting"
+    },
+    "минимализм": {
+     "range": [
+      1,
+      3
+     ],
+     "marker": "supporting"
+    },
+    "лофт": {
+     "range": [
+      1,
+      4
+     ],
+     "marker": "supporting",
+     "note": "лофт — чёрный/неполированный металл; медь и состаренная латунь встречаются как акцент"
+    },
+    "сканди": {
+     "range": [
+      1,
+      3
+     ],
+     "marker": "supporting"
+    },
+    "джапанди": {
+     "range": [
+      1,
+      3
+     ],
+     "marker": "supporting"
+    }
+   },
+   "sources": [
+    {
+     "url": "https://realty.yandex.ru/journal/post/neoklassika-v-interere-cveta-material-mebel-i-dekor/",
+     "quote": "Неоклассика: «матовое или состаренное золото, бронза, латунь», «дозированно»"
+    },
+    {
+     "url": "https://t-j.ru/neoclassica/",
+     "quote": "Неоклассика: «панелью из дерева с латунными вставками», золотая фурнитура, «зеркала — в больших позолоченных рамах»"
+    },
+    {
+     "url": "https://rauantiques.com/blogs/canvases-carats-and-curiosities/a-guide-to-neoclassical-furniture",
+     "quote": "Regency: «Brass accents on corners, legs, hinges and handles»; gilding as defining feature"
+    },
+    {
+     "url": "https://flowyline.com/blogs/for-diy-ers/what-is-industrial-style-furniture-design",
+     "quote": "Industrial: «matte black» metal legs; accents «brass, copper, or aged steel»"
+    }
+   ]
+  },
+  {
+   "id": "surface_gloss",
+   "question_ru": "Насколько блестят основные поверхности предмета (лак, глянец, полировка, зеркало, хром, ткань с отливом)?",
+   "scale_1_ru": "всё полностью матовое: промасленное дерево, матовая краска, лён, необработанный металл",
+   "scale_10_ru": "зеркальный глянец: глянцевый лак, полированный хром/латунь, зеркало, атлас/бархат с сильным отливом",
+   "applies_to": "all",
+   "per_style": {
+    "джапанди": {
+     "range": [
+      1,
+      3
+     ],
+     "marker": "strong"
+    },
+    "сканди": {
+     "range": [
+      1,
+      4
+     ],
+     "marker": "supporting"
+    },
+    "лофт": {
+     "range": [
+      1,
+      4
+     ],
+     "marker": "supporting"
+    },
+    "минимализм": {
+     "range": [
+      1,
+      7
+     ],
+     "marker": "supporting",
+     "note": "источники расходятся: одни — матовые светлые поверхности, другие — «flat reflective surfaces»"
+    },
+    "современный": {
+     "range": [
+      3,
+      9
+     ],
+     "marker": "supporting"
+    },
+    "неоклассика": {
+     "range": [
+      4,
+      9
+     ],
+     "marker": "supporting"
+    }
+   },
+   "sources": [
+    {
+     "url": "https://www.bassettfurniture.com/blog/what-is-contemporary-style.html",
+     "quote": "Contemporary: «High-gloss, smooth surfaces», «Tables that gleam»"
+    },
+    {
+     "url": "https://www.chairish.com/blog/sc-how-to-identify-neoclassical-furniture-key-features",
+     "quote": "Neoclassical woods «polished to a high sheen»"
+    },
+    {
+     "url": "https://home.lazada.com.ph/how-to-spot-a-true-japandi-sofa-key-design-features-to-check-before-buying-ph/",
+     "quote": "Japandi: finish «matte or satin, not high-gloss lacquers»"
+    },
+    {
+     "url": "https://www.houzz.com.sg/magazine/the-real-industrial-style-stsetivw-vs~62745691",
+     "quote": "Industrial metal «often left unpolished», flat matte look (≈)"
+    },
+    {
+     "url": "https://www.antondoll.de/en/blogs/lexikon/skandinavische-und-daenische-moebel",
+     "quote": "Scandinavian/Danish: oiled natural finish, «velvety-soft surface»"
+    },
+    {
+     "url": "https://www.pufikhomes.com/en/interior-styles/minimalizm/",
+     "quote": "Minimalism: «flat reflective surfaces»"
+    }
+   ]
+  },
+  {
+   "id": "raw_imperfection",
+   "question_ru": "Насколько видны следы грубой, ручной или состаренной обработки: сучки и неровный распил, неровная керамика, потёртости, сколы, сварные швы, болты?",
+   "scale_1_ru": "идеально ровная фабричная поверхность без следов обработки (гладкий МДФ, литой пластик, ровная эмаль)",
+   "scale_10_ru": "явная грубость: слэб с живым краем, состаренное дерево с потёртостями, ручная керамика неровной формы, видимые сварные швы",
+   "applies_to": "all",
+   "per_style": {
+    "лофт": {
+     "range": [
+      5,
+      10
+     ],
+     "marker": "strong"
+    },
+    "джапанди": {
+     "range": [
+      5,
+      9
+     ],
+     "marker": "strong"
+    },
+    "сканди": {
+     "range": [
+      2,
+      6
+     ],
+     "marker": "supporting"
+    },
+    "минимализм": {
+     "range": [
+      1,
+      3
+     ],
+     "marker": "strong"
+    },
+    "современный": {
+     "range": [
+      1,
+      3
+     ],
+     "marker": "supporting"
+    },
+    "неоклассика": {
+     "range": [
+      1,
+      5
+     ],
+     "marker": "supporting",
+     "note": "допускается «лёгкая патина», но не грубость"
+    }
+   },
+   "sources": [
+    {
+     "url": "https://reperch.com/blog/industrial-style-guide",
+     "quote": "Industrial: «Imperfect finishes and chipped edges are welcome»; «Stripped, simple, raw»"
+    },
+    {
+     "url": "https://flowyline.com/blogs/for-diy-ers/what-is-industrial-style-furniture-design",
+     "quote": "Industrial: «raw, unfinished surfaces», «visible welds», «exposed bolts»"
+    },
+    {
+     "url": "https://planner5d.com/blog/what-is-japandi-interior-style/",
+     "quote": "Japandi: «Handcrafted and imperfect details», «A slightly irregular ceramic bowl»"
+    },
+    {
+     "url": "https://www.ivd.ru/dizajn-i-dekor/stili-interiera/stil-dzhapandi-chto-eto-i-kak-oformit-v-nem-sobstvennuyu-kvartiru-35871",
+     "quote": "Джапанди: «неидеально выструганная деревянная мебель», «легкое несовершенство»"
+    },
+    {
+     "url": "https://pt.homestyler.com/article/collection/japandi-vs-scandinavian-which-one-is-right-for-you",
+     "quote": "Japandi: raw timber, unglazed ceramics; Scandinavian: «smooth wood finishes» (≈)"
+    },
+    {
+     "url": "https://realty.yandex.ru/journal/post/neoklassika-v-interere-cveta-material-mebel-i-dekor/",
+     "quote": "Неоклассика: столы и комоды «с фрезеровкой или лёгкой патиной»"
+    }
+   ]
+  },
+  {
+   "id": "ornament_level",
+   "question_ru": "Сколько на предмете декоративных деталей, не нужных для функции: резьба, молдинги, филёнки, фрезеровка, накладки, капитоне, декоративные гвоздики, кант, бахрома, классический узор?",
+   "scale_1_ru": "совсем гладко: ни одной декоративной детали",
+   "scale_10_ru": "богатый декор: резные ножки и рамы, филёнчатые фасады с фрезеровкой, капитоне, классический орнамент на всей поверхности",
+   "applies_to": "all",
+   "per_style": {
+    "неоклассика": {
+     "range": [
+      4,
+      9
+     ],
+     "marker": "strong",
+     "note": "современная неоклассика нередко почти без декора — тогда её выдают metal_gold, surface_gloss и textile_texture"
+    },
+    "минимализм": {
+     "range": [
+      1,
+      2
+     ],
+     "marker": "strong"
+    },
+    "сканди": {
+     "range": [
+      1,
+      3
+     ],
+     "marker": "supporting"
+    },
+    "джапанди": {
+     "range": [
+      1,
+      3
+     ],
+     "marker": "supporting"
+    },
+    "современный": {
+     "range": [
+      1,
+      4
+     ],
+     "marker": "supporting"
+    },
+    "лофт": {
+     "range": [
+      1,
+      4
+     ],
+     "marker": "supporting",
+     "note": "заклёпки и болты — не орнамент, а raw_imperfection"
+    }
+   },
+   "sources": [
+    {
+     "url": "https://rauantiques.com/blogs/canvases-carats-and-curiosities/a-guide-to-neoclassical-furniture",
+     "quote": "Neoclassical: «moderate ornamentation»; motifs «columns, pediments, busts, masks, and shells»"
+    },
+    {
+     "url": "https://www.chairish.com/blog/sc-how-to-identify-neoclassical-furniture-key-features",
+     "quote": "Neoclassical: «acanthus leaves, fluted columns, and Greek keys», «hand-carved details»"
+    },
+    {
+     "url": "https://t-j.ru/neoclassica/",
+     "quote": "Неоклассика: «мебель с прямыми геометрическими формами и минимальным декором»"
+    },
+    {
+     "url": "https://www.invaluable.com/blog/scandinavian-design/",
+     "quote": "Scandinavian: avoid «ornate or excessive detailing»"
+    },
+    {
+     "url": "https://www.ivd.ru/dizajn-i-dekor/stili-interiera/stil-dzhapandi-chto-eto-i-kak-oformit-v-nem-sobstvennuyu-kvartiru-35871",
+     "quote": "Джапанди: без «резных ножек» и «вычурных завитушек»"
+    },
+    {
+     "url": "https://www.pufikhomes.com/en/interior-styles/minimalizm/",
+     "quote": "Minimalism: «Artsy decor and ornaments are not a choice»"
+    },
+    {
+     "url": "https://www.bassettfurniture.com/blog/what-is-contemporary-style.html",
+     "quote": "Contemporary: «Minimal ornamentation»"
+    }
+   ]
+  },
+  {
+   "id": "visual_lightness",
+   "question_ru": "Насколько предмет выглядит лёгким и воздушным: виден ли пол под ним, тонкие ли опоры, есть ли просветы в каркасе?",
+   "scale_1_ru": "глухой массивный блок, стоит прямо на полу или на юбке/цоколе, толстые стенки, просветов нет",
+   "scale_10_ru": "тонкие высокие ножки или тонкая рама, пол под предметом хорошо виден, каркас сквозной",
+   "applies_to": [
+    "диван",
+    "кресло",
+    "пуф",
+    "столик",
+    "стол обеденный",
+    "стул",
+    "тв-тумба",
+    "комод",
+    "стеллаж",
+    "шкаф",
+    "стенка",
+    "витрина",
+    "полка",
+    "торшер",
+    "лампа"
+   ],
+   "per_style": {
+    "сканди": {
+     "range": [
+      6,
+      10
+     ],
+     "marker": "strong"
+    },
+    "минимализм": {
+     "range": [
+      5,
+      10
+     ],
+     "marker": "supporting"
+    },
+    "современный": {
+     "range": [
+      4,
+      9
+     ],
+     "marker": "supporting"
+    },
+    "лофт": {
+     "range": [
+      2,
+      7
+     ],
+     "marker": "supporting",
+     "note": "«массивная, основательная», но бывают шпильки-hairpin и тонкие металлические рамы"
+    },
+    "неоклассика": {
+     "range": [
+      3,
+      7
+     ],
+     "marker": "supporting"
+    },
+    "джапанди": {
+     "range": [
+      3,
+      8
+     ],
+     "marker": "supporting",
+     "note": "низко, но часто на открытых деревянных ножках или тонкой платформе"
+    }
+   },
+   "sources": [
+    {
+     "url": "https://www.livingetc.com/advice/visual-weight-in-interior-design",
+     "quote": "Visual weight: «open-framed, slim-leg sofa» reads lighter than «Blocky» upholstery"
+    },
+    {
+     "url": "https://www.bassettfurniture.com/blog/what-is-contemporary-style.html",
+     "quote": "Contemporary: «raised off the floor on lean legs for a light and airy look»"
+    },
+    {
+     "url": "https://www.castlery.com/uk/blog/minimalist-interior-design",
+     "quote": "Minimalist: furniture should appear to «float or hover above the floor»"
+    },
+    {
+     "url": "https://homedesigns.ai/go/japandi-vs-scandinavian-key-differences-and-how-to-choose/",
+     "quote": "Scandinavian: «Slender legs, rounded forms»"
+    },
+    {
+     "url": "https://t-j.ru/list/interior-styles/",
+     "quote": "Лофт: «Мебель массивная, основательная»"
+    },
+    {
+     "url": "https://www.houzz.co.uk/magazine/know-your-sofa-options-arms-cushions-backs-and-bases-stsetivw-vs~29466458",
+     "quote": "«a skirted base is more traditional»; upholstered base «is more contemporary»"
+    }
+   ]
+  },
+  {
+   "id": "low_profile",
+   "question_ru": "Насколько предмет низкий и приземистый по отношению к своей ширине (посадка, высота столешницы, высота корпуса)?",
+   "scale_1_ru": "высокий, вытянутый вверх: высокая спинка, высокие ножки, высокий узкий корпус",
+   "scale_10_ru": "очень низкий, стелющийся: сиденье у самого пола, корпус вытянут вширь, кровать-подиум",
+   "applies_to": [
+    "диван",
+    "кресло",
+    "пуф",
+    "столик",
+    "стол обеденный",
+    "стул",
+    "тв-тумба",
+    "комод",
+    "стеллаж",
+    "шкаф",
+    "стенка",
+    "витрина",
+    "полка"
+   ],
+   "answer_null_if": "по фото нельзя оценить пропорции (крупный план, обрезано); можно опереться на размеры из текста",
+   "per_style": {
+    "джапанди": {
+     "range": [
+      7,
+      10
+     ],
+     "marker": "strong"
+    },
+    "сканди": {
+     "range": [
+      4,
+      7
+     ],
+     "marker": "supporting"
+    },
+    "минимализм": {
+     "range": [
+      4,
+      8
+     ],
+     "marker": "supporting"
+    },
+    "современный": null,
+    "лофт": null,
+    "неоклассика": {
+     "range": [
+      2,
+      5
+     ],
+     "marker": "supporting"
+    }
+   },
+   "sources": [
+    {
+     "url": "https://pt.homestyler.com/article/collection/japandi-vs-scandinavian-which-one-is-right-for-you",
+     "quote": "Japandi: «Functional furniture with low profiles»; Scandinavian favors «taller furniture and flexible layouts»"
+    },
+    {
+     "url": "https://planner5d.com/blog/what-is-japandi-interior-style/",
+     "quote": "Japandi furniture «often low-profile and restrained»"
+    },
+    {
+     "url": "https://www.ivd.ru/dizajn-i-dekor/stili-interiera/stil-dzhapandi-chto-eto-i-kak-oformit-v-nem-sobstvennuyu-kvartiru-35871",
+     "quote": "Джапанди: «низкая мебель», «приземистые диваны и столики», консоли и комоды вытянуты вширь"
+    },
+    {
+     "url": "https://home.lazada.com.ph/how-to-spot-a-true-japandi-sofa-key-design-features-to-check-before-buying-ph/",
+     "quote": "Japandi sofa seat height «typically ranging between 35 and 42 centimeters from the floor»"
+    },
+    {
+     "url": "https://homedesigns.ai/go/japandi-vs-scandinavian-key-differences-and-how-to-choose/",
+     "quote": "Japandi: «Lower, squarer, clean lines»"
+    }
+   ]
+  },
+  {
+   "id": "colour_warmth",
+   "question_ru": "Насколько тёплая цветовая гамма предмета в целом?",
+   "scale_1_ru": "холодная: чистый белый, голубовато-серый, графит с синевой, хром, холодный синий",
+   "scale_10_ru": "тёплая: беж, песок, овсяный, мёд, карамель, коричневый, терракота, тёплое золото",
+   "applies_to": "all",
+   "per_style": {
+    "джапанди": {
+     "range": [
+      6,
+      10
+     ],
+     "marker": "strong"
+    },
+    "сканди": {
+     "range": [
+      4,
+      7
+     ],
+     "marker": "supporting"
+    },
+    "минимализм": {
+     "range": [
+      3,
+      7
+     ],
+     "marker": "supporting"
+    },
+    "современный": {
+     "range": [
+      3,
+      7
+     ],
+     "marker": "supporting"
+    },
+    "лофт": {
+     "range": [
+      4,
+      8
+     ],
+     "marker": "supporting"
+    },
+    "неоклассика": {
+     "range": [
+      5,
+      8
+     ],
+     "marker": "supporting"
+    }
+   },
+   "sources": [
+    {
+     "url": "https://homedesigns.ai/go/japandi-vs-scandinavian-key-differences-and-how-to-choose/",
+     "quote": "Scandinavian: «Crisp whites, soft greys, pale pastels»; Japandi: «Warm earth tones, muted greens, charcoal, taupe»"
+    },
+    {
+     "url": "https://home.lazada.com.ph/how-to-spot-a-true-japandi-sofa-key-design-features-to-check-before-buying-ph/",
+     "quote": "Japandi colours: «oatmeal, soft cream, warm beige, sand, and gentle taupe»; avoid stark white"
+    },
+    {
+     "url": "https://realty.yandex.ru/journal/post/neoklassika-v-interere-cveta-material-mebel-i-dekor/",
+     "quote": "Неоклассика: основа — «оттенки молочного, слоновой кости, песочного»"
+    },
+    {
+     "url": "https://reperch.com/blog/industrial-style-guide",
+     "quote": "Industrial: browns and greys; neutrals espresso, sand, slate, matte black (≈)"
+    },
+    {
+     "url": "https://www.bassettfurniture.com/blog/what-is-contemporary-style.html",
+     "quote": "Contemporary: «Beige and white dominate»"
+    }
+   ]
+  },
+  {
+   "id": "colour_saturation",
+   "question_ru": "Насколько насыщенный (яркий, чистый) самый заметный цвет предмета?",
+   "scale_1_ru": "только ахроматика и приглушённые натуральные: белый, серый, чёрный, беж, цвет дерева",
+   "scale_10_ru": "чистый яркий цвет на большой площади: ярко-жёлтый, алый, кобальт, изумруд, фуксия",
+   "applies_to": "all",
+   "per_style": {
+    "минимализм": {
+     "range": [
+      1,
+      3
+     ],
+     "marker": "strong"
+    },
+    "джапанди": {
+     "range": [
+      1,
+      3
+     ],
+     "marker": "strong"
+    },
+    "сканди": {
+     "range": [
+      1,
+      5
+     ],
+     "marker": "supporting"
+    },
+    "современный": {
+     "range": [
+      2,
+      9
+     ],
+     "marker": "supporting",
+     "note": "высокое значение — довод ЗА современный против минимализма/джапанди, низкое ничего не доказывает"
+    },
+    "неоклассика": {
+     "range": [
+      2,
+      6
+     ],
+     "marker": "supporting",
+     "note": "глубокие приглушённые: бордо, тёмно-синий, изумрудный"
+    },
+    "лофт": {
+     "range": [
+      1,
+      5
+     ],
+     "marker": "supporting"
+    }
+   },
+   "sources": [
+    {
+     "url": "https://www.bassettfurniture.com/blog/what-is-contemporary-style.html",
+     "quote": "Contemporary: «Splashes of a vivid accent color, perhaps in throw pillows or wall art»"
+    },
+    {
+     "url": "https://www.ivd.ru/dizajn-i-dekor/stili-interiera/stil-dzhapandi-chto-eto-i-kak-oformit-v-nem-sobstvennuyu-kvartiru-35871",
+     "quote": "Джапанди: «Ярких и кислотных цветов быть не должно»"
+    },
+    {
+     "url": "https://t-j.ru/list/interior-styles/",
+     "quote": "Сканди: «приглушенная палитра в натуральных тонах с редкими яркими акцентами»; современный — акценты насыщенных цветов (≈)"
+    },
+    {
+     "url": "https://realty.yandex.ru/journal/post/neoklassika-v-interere-cveta-material-mebel-i-dekor/",
+     "quote": "Неоклассика: акценты «глубокий синий, бордо, изумрудный»"
+    },
+    {
+     "url": "https://www.pufikhomes.com/en/interior-styles/minimalizm/",
+     "quote": "Minimalism: «not more than two basic colors»"
+    }
+   ]
+  },
+  {
+   "id": "colour_lightness",
+   "question_ru": "Насколько светлый предмет в целом (по преобладающей площади)?",
+   "scale_1_ru": "почти чёрный или очень тёмный (чёрный металл, тёмно-коричневая кожа, графит)",
+   "scale_10_ru": "почти белый: белый, молочный, светло-серый, очень светлое дерево",
+   "applies_to": "all",
+   "per_style": {
+    "сканди": {
+     "range": [
+      7,
+      10
+     ],
+     "marker": "strong"
+    },
+    "лофт": {
+     "range": [
+      1,
+      5
+     ],
+     "marker": "strong"
+    },
+    "минимализм": {
+     "range": [
+      6,
+      10
+     ],
+     "marker": "supporting"
+    },
+    "джапанди": {
+     "range": [
+      4,
+      8
+     ],
+     "marker": "supporting"
+    },
+    "неоклассика": {
+     "range": [
+      5,
+      9
+     ],
+     "marker": "supporting"
+    },
+    "современный": {
+     "range": [
+      3,
+      8
+     ],
+     "marker": "supporting"
+    }
+   },
+   "sources": [
+    {
+     "url": "https://pt.homestyler.com/article/collection/japandi-vs-scandinavian-which-one-is-right-for-you",
+     "quote": "Scandinavian: «Whites and pale grays dominate»"
+    },
+    {
+     "url": "https://t-j.ru/list/interior-styles/",
+     "quote": "Лофт: «оттенки серого и коричневого» с оранжевыми и черными акцентами"
+    },
+    {
+     "url": "https://flowyline.com/blogs/for-diy-ers/what-is-industrial-style-furniture-design",
+     "quote": "Industrial palette: «blacks, browns, and grays»"
+    },
+    {
+     "url": "https://www.castlery.com/uk/blog/minimalist-interior-design",
+     "quote": "Minimalist neutrals: «whites, beiges, soft browns, and muted earthy tones»"
+    },
+    {
+     "url": "https://t-j.ru/neoclassica/",
+     "quote": "Неоклассика: основные цвета — бежевый, серый, белый"
+    }
+   ]
+  },
+  {
+   "id": "material_mix",
+   "question_ru": "Сколько разных материалов и отделок заметно сочетается в одном предмете (дерево + металл + стекло + камень + ткань + кожа)?",
+   "scale_1_ru": "один материал и один цвет: предмет монолитный, однородный",
+   "scale_10_ru": "три и больше контрастных материала/отделок: например, мраморная столешница + металлическое основание + деревянные вставки",
+   "applies_to": "all",
+   "per_style": {
+    "современный": {
+     "range": [
+      5,
+      9
+     ],
+     "marker": "strong"
+    },
+    "минимализм": {
+     "range": [
+      1,
+      3
+     ],
+     "marker": "strong"
+    },
+    "лофт": {
+     "range": [
+      4,
+      8
+     ],
+     "marker": "supporting"
+    },
+    "сканди": {
+     "range": [
+      2,
+      5
+     ],
+     "marker": "supporting"
+    },
+    "джапанди": {
+     "range": [
+      2,
+      5
+     ],
+     "marker": "supporting"
+    },
+    "неоклассика": {
+     "range": [
+      3,
+      7
+     ],
+     "marker": "supporting"
+    }
+   },
+   "sources": [
+    {
+     "url": "https://www.homestyler.com/article/collection/contemporary-stateside-vs-scandinavian-minimalism-which-one-is-right-for-you",
+     "quote": "Contemporary: «Mix of wood, metal, fabric textures for layered warmth»"
+    },
+    {
+     "url": "https://www.bassettfurniture.com/blog/what-is-contemporary-style.html",
+     "quote": "Contemporary: «Natural materials, including wood, glass, and stainless steel»; «lacquer, highly-finished wood, or chrome and glass»"
+    },
+    {
+     "url": "https://www.castlery.com/uk/blog/minimalist-interior-design",
+     "quote": "Minimalist: «Monochromatic palettes»"
+    },
+    {
+     "url": "https://www.pufikhomes.com/en/interior-styles/minimalizm/",
+     "quote": "Minimalism: «not more than two basic colors»"
+    },
+    {
+     "url": "https://reperch.com/blog/industrial-style-guide",
+     "quote": "Industrial: «Pieces that combine wood and metal»"
+    }
+   ]
+  },
+  {
+   "id": "textile_texture",
+   "question_ru": "Насколько у ткани/обивки видна рельефная натуральная фактура (рогожка, букле, лён с видимым плетением, вязка, шерсть, ворс)?",
+   "scale_1_ru": "гладкая ровная поверхность без видимого плетения: экокожа, атлас, шёлк, гладкий велюр/бархат с отливом",
+   "scale_10_ru": "крупная рельефная фактура: букле-барашек, грубая рогожка, крупная вязка, ворсистая шерсть",
+   "applies_to": [
+    "диван",
+    "кресло",
+    "пуф",
+    "подушка",
+    "плед",
+    "шторы",
+    "ковёр"
+   ],
+   "answer_null_if": "ткани нет (деревянный/металлический предмет)",
+   "per_style": {
+    "сканди": {
+     "range": [
+      6,
+      10
+     ],
+     "marker": "strong"
+    },
+    "джапанди": {
+     "range": [
+      6,
+      10
+     ],
+     "marker": "strong"
+    },
+    "минимализм": {
+     "range": [
+      3,
+      8
+     ],
+     "marker": "supporting"
+    },
+    "современный": {
+     "range": [
+      2,
+      7
+     ],
+     "marker": "supporting"
+    },
+    "лофт": {
+     "range": [
+      3,
+      8
+     ],
+     "marker": "supporting",
+     "note": "кожа/состаренная экокожа гладкая, лён — фактурный"
+    },
+    "неоклассика": {
+     "range": [
+      1,
+      5
+     ],
+     "marker": "strong",
+     "note": "бархат, велюр, шёлк, дамаск — гладкие с отливом"
+    }
+   },
+   "sources": [
+    {
+     "url": "https://home.lazada.com.ph/how-to-spot-a-true-japandi-sofa-key-design-features-to-check-before-buying-ph/",
+     "quote": "Japandi: linen, cotton, wool blends with «visible weaves»; against «fully synthetic polyester»"
+    },
+    {
+     "url": "https://www.invaluable.com/blog/scandinavian-design/",
+     "quote": "Scandinavian: «sheepskin textiles», «neutral shag rugs»"
+    },
+    {
+     "url": "https://homedesigns.ai/go/japandi-vs-scandinavian-key-differences-and-how-to-choose/",
+     "quote": "Japandi: «raw linen, handmade textures»; Scandinavian: «Wool, linen, leather»"
+    },
+    {
+     "url": "https://www.chairish.com/blog/sc-how-to-identify-neoclassical-furniture-key-features",
+     "quote": "Neoclassical upholstery: silk, velvet, or damask"
+    },
+    {
+     "url": "https://realty.yandex.ru/journal/post/neoklassika-v-interere-cveta-material-mebel-i-dekor/",
+     "quote": "Неоклассика: мебель с «бархатной или кожаной обивкой», обивка «с декоративной простёжкой или кантом»"
+    },
+    {
+     "url": "https://www.castlery.com/uk/blog/minimalist-interior-design",
+     "quote": "Minimalist sample: «performance bouclé armchair»"
+    }
+   ]
+  },
+  {
+   "id": "hardware_prominence",
+   "question_ru": "Насколько заметна фурнитура (ручки, петли, накладки, болты) на корпусе?",
+   "scale_1_ru": "ручек не видно: гладкие фасады push-to-open, интегрированный профиль, прорезь",
+   "scale_10_ru": "крупная контрастная фурнитура, которая сама служит украшением: длинные золотые ручки, кольца, кованые накладки, крупные болты",
+   "applies_to": [
+    "тв-тумба",
+    "комод",
+    "шкаф",
+    "стенка",
+    "витрина",
+    "стеллаж",
+    "полка",
+    "стол обеденный",
+    "столик"
+   ],
+   "answer_null_if": "у предмета нет дверец/ящиков (открытый стеллаж, стол без ящиков)",
+   "per_style": {
+    "минимализм": {
+     "range": [
+      1,
+      2
+     ],
+     "marker": "strong"
+    },
+    "джапанди": {
+     "range": [
+      1,
+      3
+     ],
+     "marker": "supporting"
+    },
+    "сканди": {
+     "range": [
+      2,
+      6
+     ],
+     "marker": "supporting",
+     "note": "врезные прорези, кожаные петли, деревянные ручки"
+    },
+    "современный": null,
+    "лофт": {
+     "range": [
+      4,
+      8
+     ],
+     "marker": "supporting"
+    },
+    "неоклассика": {
+     "range": [
+      5,
+      9
+     ],
+     "marker": "strong"
+    }
+   },
+   "sources": [
+    {
+     "url": "https://t-j.ru/list/interior-styles/",
+     "quote": "Минимализм: «Вся большая корпусная мебель — встроенная, без ручек»"
+    },
+    {
+     "url": "https://www.ivd.ru/dizajn-i-dekor/stili-interiera/stil-dzhapandi-chto-eto-i-kak-oformit-v-nem-sobstvennuyu-kvartiru-35871",
+     "quote": "Джапанди: ручки на шкафах «очень незаметные» или отсутствуют"
+    },
+    {
+     "url": "https://t-j.ru/neoclassica/",
+     "quote": "Неоклассика: золотая фурнитура и «длинные и изящные ручки»"
+    },
+    {
+     "url": "https://flowyline.com/blogs/for-diy-ers/what-is-industrial-style-furniture-design",
+     "quote": "Industrial: «Visible hardware such as bolts, rivets, and pipes»"
+    },
+    {
+     "url": "https://www.antondoll.de/en/blogs/lexikon/skandinavische-und-daenische-moebel",
+     "quote": "Scandinavian: «Practical recessed grips», «ergonomic handle»"
+    }
+   ]
+  },
+  {
+   "id": "lamp_bulb_exposure",
+   "question_ru": "Насколько у светильника видна сама лампа (голая лампа, лампа в клетке, открытый патрон)?",
+   "scale_1_ru": "лампа полностью скрыта плафоном или абажуром (ткань, бумага, матовое стекло)",
+   "scale_10_ru": "голые лампы накаливания/филаментные на виду, проволочная клетка, открытый патрон на шнуре",
+   "applies_to": [
+    "люстра",
+    "бра",
+    "торшер",
+    "лампа"
+   ],
+   "per_style": {
+    "лофт": {
+     "range": [
+      7,
+      10
+     ],
+     "marker": "strong"
+    },
+    "минимализм": null,
+    "современный": null,
+    "сканди": {
+     "range": [
+      1,
+      4
+     ],
+     "marker": "supporting"
+    },
+    "джапанди": {
+     "range": [
+      1,
+      3
+     ],
+     "marker": "supporting"
+    },
+    "неоклассика": null
+   },
+   "neo_caveat": "свечные люстры-канделябры показывают лампы-свечи — ось сработает ложно; неоклассику здесь выдают metal_gold и ornament_level",
+   "sources": [
+    {
+     "url": "https://www.paclights.com/?p=96339",
+     "quote": "Industrial pendants: «raw materials, exposed bulbs», «open, cage-like structures», «Edison-style filament bulbs»"
+    },
+    {
+     "url": "https://reperch.com/blog/industrial-style-guide",
+     "quote": "Industrial lighting: single statement fixture or «a series of hanging dimmer bulbs»; «gritty metal finishes»"
+    },
+    {
+     "url": "https://www.osnmedia.ru/exclusive/kak-pravilno-oformit-interer-v-stile-loft/",
+     "quote": "Лофт: светильники «из металла, стекла или комбинации этих материалов», плафоны «матовыми или прозрачными»"
+    },
+    {
+     "url": "https://homedesigns.ai/go/japandi-vs-scandinavian-key-differences-and-how-to-choose/",
+     "quote": "Japandi materials include «paper» alongside ceramic, stone, bamboo"
+    }
+   ]
+  }
+ ],
+ "candidate_axes": [
+  {
+   "id": "curvature",
+   "question_ru": "Насколько формы предмета скруглённые/изогнутые, а не прямоугольные с острыми углами?",
+   "scale_1_ru": "строго прямоугольно, острые углы",
+   "scale_10_ru": "плавные кривые, округлые спинки, без углов",
+   "why_not_core": "источники противоречат друг другу почти по каждому стилю: джапанди «округлая мягкая мебель» (Т—Ж) против «Lower, squarer» (homedesigns); неоклассика «мягкие обводы» (Яндекс) против «rectangular shapes and right angles» (rau); современный — «occasional sensuous curve» (bassett). Ось мало что разделяет",
+   "sources": [
+    {
+     "url": "https://t-j.ru/list/interior-styles/",
+     "quote": "Джапанди: «Мягкая мебель округлая»"
+    },
+    {
+     "url": "https://homedesigns.ai/go/japandi-vs-scandinavian-key-differences-and-how-to-choose/",
+     "quote": "Japandi: «Lower, squarer, clean lines»"
+    },
+    {
+     "url": "https://rauantiques.com/blogs/canvases-carats-and-curiosities/a-guide-to-neoclassical-furniture",
+     "quote": "«Rectangular shapes and right angles replaced the circular and rounded parts of rococo and baroque»"
+    },
+    {
+     "url": "https://realty.yandex.ru/journal/post/neoklassika-v-interere-cveta-material-mebel-i-dekor/",
+     "quote": "Неоклассика: «мягкими обводами», «округлыми спинками»"
+    },
+    {
+     "url": "https://www.bassettfurniture.com/blog/what-is-contemporary-style.html",
+     "quote": "«intermingled with an occasional sensuous curve»"
+    }
+   ]
+  },
+  {
+   "id": "sofa_arm_classic",
+   "applies_to": [
+    "диван",
+    "кресло"
+   ],
+   "question_ru": "Насколько подлокотники классические (валик, английский скруглённый наружу, «ключ»), а не прямые тонкие планки?",
+   "scale_1_ru": "подлокотников нет или тонкие прямые (track)",
+   "scale_10_ru": "массивные скруглённые валики, английские/ключевые подлокотники",
+   "why_not_core": "уже покрыто категориальным вопросом arms в style_questions.json; как число добавит мало",
+   "sources": [
+    {
+     "url": "https://www.houzz.co.uk/magazine/know-your-sofa-options-arms-cushions-backs-and-bases-stsetivw-vs~29466458",
+     "quote": "English arm — «more traditional tastes»; Track arm — «a more contemporary look»"
+    },
+    {
+     "url": "https://americanleather.com/resource-center/sofa-arm-styles",
+     "quote": "Key arm — «Formal and upscale»; Wedge arm — «mid-century modern vibe»; Wide track arm — «Contemporary to modern»"
+    }
+   ]
+  },
+  {
+   "id": "woven_natural_fiber",
+   "applies_to": "all",
+   "question_ru": "Есть ли плетение из натуральных волокон (ротанг, венская сетка, джут, бамбук, бумажный шнур)?",
+   "scale_1_ru": "плетения нет",
+   "scale_10_ru": "предмет в основном плетёный",
+   "why_not_core": "маркер «только присутствие» (высокое значение — сильный довод за джапанди/сканди, низкое ничего не доказывает); пересекается с категориальными rules materials=ротанг и fronts=плетёные",
+   "sources": [
+    {
+     "url": "https://planner5d.com/blog/what-is-japandi-interior-style/",
+     "quote": "Japandi: rattan, bamboo, linen, «Cane and other natural fibers»"
+    },
+    {
+     "url": "https://homedesigns.ai/go/japandi-vs-scandinavian-key-differences-and-how-to-choose/",
+     "quote": "Japandi: «Ceramic, stone, bamboo, paper, raw linen»"
+    }
+   ]
+  },
+  {
+   "id": "formality_symmetry",
+   "applies_to": "all",
+   "question_ru": "Насколько предмет выглядит парадным, строго симметричным, «для гостиной с лепниной», а не бытовым/утилитарным?",
+   "scale_1_ru": "утилитарный, неформальный",
+   "scale_10_ru": "парадный, торжественный, строгая симметрия",
+   "why_not_core": "сильно коррелирует с ornament_level+metal_gold; субъективна (модели склонны ставить середину); полезна как тай-брейк неоклассика↔лофт",
+   "sources": [
+    {
+     "url": "https://rauantiques.com/blogs/canvases-carats-and-curiosities/a-guide-to-neoclassical-furniture",
+     "quote": "Louis XVI valued «symmetry, simplicity, and luxurious classical details»"
+    },
+    {
+     "url": "https://www.chairish.com/blog/sc-how-to-identify-neoclassical-furniture-key-features",
+     "quote": "«balanced and harmonious», «evenly spaced legs or mirrored motifs»"
+    },
+    {
+     "url": "https://realty.yandex.ru/journal/post/neoklassika-v-interere-cveta-material-mebel-i-dekor/",
+     "quote": "Неоклассика: «симметрия, умеренность, изящество»"
+    }
+   ]
+  },
+  {
+   "id": "tonal_contrast",
+   "applies_to": "all",
+   "question_ru": "Насколько сильный светлотный контраст между частями предмета (каркас vs обивка, ножки vs столешница)?",
+   "scale_1_ru": "всё в одном тоне",
+   "scale_10_ru": "чёрное на белом",
+   "why_not_core": "в источниках только как отличие джапанди («darker anchor») от сканди и как пара дерево+чёрный металл у лофта; опора слабая",
+   "sources": [
+    {
+     "url": "https://homedesigns.ai/go/japandi-vs-scandinavian-key-differences-and-how-to-choose/",
+     "quote": "Japandi adds contrast through «a darker anchor against the warm neutrals»"
+    },
+    {
+     "url": "https://flowyline.com/blogs/for-diy-ers/what-is-industrial-style-furniture-design",
+     "quote": "wood and metal bring «strength and contrast»"
+    }
+   ]
+  },
+  {
+   "id": "pattern_classicism",
+   "applies_to": [
+    "подушка",
+    "плед",
+    "шторы",
+    "ковёр",
+    "диван",
+    "кресло",
+    "пуф"
+   ],
+   "question_ru": "Насколько рисунок ткани/ковра классический (медальон с бордюром, дамаск, вензели, цветы), а не однотонный или геометрический?",
+   "scale_1_ru": "однотон или простая геометрия",
+   "scale_10_ru": "классический растительный орнамент/медальон",
+   "why_not_core": "почти всегда покрыт ornament_level; для ковров уже есть категориальный rug_pattern",
+   "sources": [
+    {
+     "url": "https://www.chairish.com/blog/sc-how-to-identify-neoclassical-furniture-key-features",
+     "quote": "upholstery in «soft, neutral colors or classic patterns», damask"
+    },
+    {
+     "url": "https://www.bassettfurniture.com/blog/what-is-contemporary-style.html",
+     "quote": "Contemporary: «Solid fabrics, or very modest geometric patterns»"
+    }
+   ]
+  },
+  {
+   "id": "lamp_soft_natural_shade",
+   "applies_to": [
+    "люстра",
+    "бра",
+    "торшер",
+    "лампа"
+   ],
+   "question_ru": "Насколько плафон из мягкого рассеивающего натурального материала (рисовая бумага, лён, ротанг, шпон)?",
+   "scale_1_ru": "нет: металл, стекло, хрусталь, голая лампа",
+   "scale_10_ru": "весь плафон бумажный/льняной/ротанговый",
+   "why_not_core": "пересекается с категориальным shade_material; присутствие-маркер джапанди/сканди",
+   "sources": [
+    {
+     "url": "https://homedesigns.ai/go/japandi-vs-scandinavian-key-differences-and-how-to-choose/",
+     "quote": "Japandi materials: «Ceramic, stone, bamboo, paper, raw linen»"
+    }
+   ]
+  }
+ ],
+ "confusable_pairs": [
+  {
+   "pair": [
+    "сканди",
+    "джапанди"
+   ],
+   "separating_axes": [
+    "low_profile",
+    "wood_tone_lightness",
+    "colour_lightness",
+    "colour_warmth",
+    "raw_imperfection",
+    "visual_lightness"
+   ],
+   "why": "Общая база (дерево, натуральный текстиль, мало декора, матовость) не различает. Различают: джапанди ниже и приземистее (сканди — тонкие ножки, выше); у сканди дерево светлое и однородное, у джапанди допускается тёмный орех/чёрное морение; сканди светлее и холоднее (белый, светло-серый), джапанди теплее (беж, песок, тауп, графит-якорь); у джапанди заметнее ручная неровность. Источники сами признают, что разница — в акцентах, а не во внешнем виде: на одиночном предмете часть пар неразделима — тогда честнее давать обоим высокий балл.",
+   "sources": [
+    "https://homedesigns.ai/go/japandi-vs-scandinavian-key-differences-and-how-to-choose/",
+    "https://pt.homestyler.com/article/collection/japandi-vs-scandinavian-which-one-is-right-for-you",
+    "https://www.ivd.ru/dizajn-i-dekor/stili-interiera/stil-dzhapandi-chto-eto-i-kak-oformit-v-nem-sobstvennuyu-kvartiru-35871"
+   ]
+  },
+  {
+   "pair": [
+    "минимализм",
+    "современный"
+   ],
+   "separating_axes": [
+    "material_mix",
+    "colour_saturation",
+    "metal_visibility",
+    "hardware_prominence",
+    "ornament_level"
+   ],
+   "why": "Оба — чистые линии и мало декора; «современный» по определению вбирает минимализм. Различают: современный смешивает материалы (дерево+металл+стекло+камень) и допускает яркий акцентный цвет; минимализм — один-два цвета, монохром, без ручек. Глянец НЕ годится как разделитель: источники по минимализму противоречат (матовые vs «flat reflective surfaces»). Ожидаемо самая слабая пара.",
+   "sources": [
+    "https://www.bassettfurniture.com/blog/what-is-contemporary-style.html",
+    "https://www.homestyler.com/article/collection/contemporary-stateside-vs-scandinavian-minimalism-which-one-is-right-for-you",
+    "https://www.pufikhomes.com/en/interior-styles/minimalizm/",
+    "https://www.castlery.com/uk/blog/minimalist-interior-design",
+    "https://t-j.ru/list/interior-styles/"
+   ]
+  },
+  {
+   "pair": [
+    "минимализм",
+    "джапанди"
+   ],
+   "separating_axes": [
+    "colour_warmth",
+    "raw_imperfection",
+    "textile_texture",
+    "wood_visibility",
+    "low_profile"
+   ],
+   "why": "Оба — минимум декора, спокойная гамма, скрытые ручки. Джапанди теплее, натуральнее и фактурнее (видимое плетение, неровная керамика, дерево с текстурой), ниже; минимализм — ровные фабричные поверхности, допускает хром/стекло/пластик.",
+   "sources": [
+    "https://planner5d.com/blog/what-is-japandi-interior-style/",
+    "https://home.lazada.com.ph/how-to-spot-a-true-japandi-sofa-key-design-features-to-check-before-buying-ph/",
+    "https://www.pufikhomes.com/en/interior-styles/minimalizm/"
+   ]
+  },
+  {
+   "pair": [
+    "неоклассика",
+    "современный"
+   ],
+   "separating_axes": [
+    "metal_gold",
+    "ornament_level",
+    "textile_texture",
+    "hardware_prominence",
+    "surface_gloss"
+   ],
+   "why": "Современная (РФ) неоклассика часто — «прямые геометрические формы и минимальный декор» (Т—Ж), и предмет выглядит как современный. Тогда выдают латунь/золото в ножках и фурнитуре, бархат/велюр с отливом, кант/простёжка, длинные изящные ручки. Без этих меток предмет честно «современный/универсальный».",
+   "sources": [
+    "https://t-j.ru/neoclassica/",
+    "https://realty.yandex.ru/journal/post/neoklassika-v-interere-cveta-material-mebel-i-dekor/"
+   ]
+  },
+  {
+   "pair": [
+    "лофт",
+    "джапанди"
+   ],
+   "separating_axes": [
+    "metal_visibility",
+    "colour_lightness",
+    "low_profile",
+    "wood_tone_lightness"
+   ],
+   "why": "Оба высоко по raw_imperfection (грубое дерево, ручная фактура), поэтому эта ось их НЕ различает. Различают: металл (у лофта главный, у джапанди почти нет), темнота (лофт тёмный), низкая посадка джапанди.",
+   "sources": [
+    "https://reperch.com/blog/industrial-style-guide",
+    "https://planner5d.com/blog/what-is-japandi-interior-style/"
+   ]
+  },
+  {
+   "pair": [
+    "лофт",
+    "современный"
+   ],
+   "separating_axes": [
+    "raw_imperfection",
+    "surface_gloss",
+    "colour_lightness",
+    "wood_tone_lightness"
+   ],
+   "why": "Оба любят металл и смешение материалов. Лофт — неполированный чёрный металл, тёмное состаренное дерево, сварные швы; современный — гладкие ровные, часто блестящие поверхности (хром, лак, стекло).",
+   "sources": [
+    "https://www.houzz.com.sg/magazine/the-real-industrial-style-stsetivw-vs~62745691",
+    "https://www.bassettfurniture.com/blog/what-is-contemporary-style.html"
+   ]
+  },
+  {
+   "pair": [
+    "сканди",
+    "минимализм"
+   ],
+   "separating_axes": [
+    "wood_visibility",
+    "textile_texture",
+    "colour_warmth",
+    "hardware_prominence"
+   ],
+   "why": "Оба светлые и простые. Сканди — больше видимого дерева, уютный фактурный текстиль, тёплее; минимализм — гладкие монохромные поверхности, без ручек.",
+   "sources": [
+    "https://www.invaluable.com/blog/scandinavian-design/",
+    "https://www.castlery.com/uk/blog/minimalist-interior-design"
+   ]
+  }
+ ],
+ "research_refs": [
+  {
+   "url": "https://ar5iv.labs.arxiv.org/html/1812.03570",
+   "quote": "Bonn Furniture Styles: 90 298 изображений, 17 стилей; классификация стиля: fine-tuned GoogLeNet 0.41, Siamese+SVM 0.49"
+  },
+  {
+   "url": "https://arxiv.org/abs/2412.13947",
+   "quote": "Classification by description: «highlights the current limitations of VLMs in understanding intricate object descriptions»"
+  },
+  {
+   "url": "https://www.godaddy.com/resources/news/calibrating-scores-of-llm-as-a-judge",
+   "quote": "«using a 1-5 scale vs. a 1-10 scale» can «drastically change the score output»; «Normalize scores against a small, human-labeled gold set»"
+  }
+ ],
+ "notes": "1) Это ЧЕРНОВИК-гипотеза: диапазоны выведены из вторичных источников (в основном блоги ритейлеров и дизайн-журналы, рус. — Т—Ж, Яндекс.Недвижимость, IVD), а не из замеров. До боевого применения — подогнать диапазоны на golden-выборке (замер, где каждый стиль размечен человеком) и пересчитать веса. 2) Калибровка: golden_label.py уже фиксирует, что вербальные числа у моделей плохо калиброваны (2026-08-05). Поэтому у каждой оси даны якоря 1 и 10; советую добавить якорь 5 и/или 2–3 фото-примера на ось, просить ответ «null» при «не видно», а не 5, и нормировать на золотой набор (GoDaddy: смена шкалы 1–5 на 1–10 «can drastically change the score output»; рекомендуют нормировать по human-labeled gold set). Если API отдаёт logprobs — брать ожидаемое значение по токенам 1–10, а не argmax. 3) Формула (предложение): fit_s,a = 1 внутри диапазона, линейный спад до 0 на расстоянии 3 пунктов; вес strong=1.0, supporting=0.4; null у стиля или у ответа — ось пропускается; оси с presence_only=true (metal_gold) и пометками «довод ЗА/ПРОТИВ» считаются только при высоком значении. Итог по стилю = Σ w·fit / Σ w, затем ×role_weight из styles.json. 4) Связь с репо: tools/scout/style_rules.json и style_questions.json уже содержат категориальные признаки (legs, arms, fronts, handles, shade…) с источниками. Эти 16 числовых осей — универсальный слой на ВСЕ роли; ролевые категориальные вопросы стоит оставить как уточнение (кандидаты sofa_arm_classic, pattern_classicism, lamp_soft_natural_shade поэтому в ядро не вошли). 5) Почему не «какой стиль»: на Bonn Furniture Styles (17 стилей) прямая классификация даёт 0.41 (GoogLeNet) / 0.49 (сиамские признаки) — ar5iv 1812.03570; Classification by Description (arXiv 2412.13947) отмечает, что VLM слабо понимают сложные описания без имени класса — значит вопросы должны быть атомарными и визуальными, как здесь, а не составными. 6) Слабые места: curvature вынесена из ядра — источники противоречат; surface_gloss для минимализма неоднозначна; lamp_bulb_exposure ложно срабатывает на свечных люстрах неоклассики. Одиночный предмет часто стилистически нейтрален — нужен флаг universal (уже есть в style_score.py), когда все оси в «середине» и ни один strong-маркер не сработал. 7) Не нашёл открываемых авторитетных источников по: конусным ножкам в сканди (только invaluable: «gentle lines, subtle curves, and tapered legs», sofas «often have wooden angled legs»), эдисоновским лампам в рус. источниках, ACM TIST 10.1145/3065951 (403 на dl.acm.org — в файл не включён)."
+}

@@ -46,3 +46,4 @@
 - 2026-10-13 — (Opus) conv-11 partial: stop_group проверяет stopped (финал/idle_guard по коду выхода), разбор Codex записан в план, вопросы 14–15; b2b-09 выкачен (health db/showcase ok на проде, отчёт на телефоне проверен)
 - 2026-10-13 — (Opus) b2b-03 completed (verify: 2 дефекта исправлены); b2b-08 partial: remlab-draft из образа репозитория (ADR-0267, канарейка пиксель-в-пиксель), styles.json в git (урок 479), CI draft-image
 - 2026-10-13 — (Opus) все каналы LLM без денег (Vercel 402, OpenAI credit_balance_exhausted, Gemini key disabled); llm_gateway.NoCredits, style_score стоп без записи; урок 472-дубль → 480; вопрос 16
+- 2026-10-14 — (Opus) b2b-04 partial (ADR-0268, ⚑ юрист/сроки); шлюз Vercel ожил после 00:00 UTC (суточный лимит?); стенд стиля conv-01: оси rules/style-axes.json, формула rules/style-formula.json + style_axes.py (Codex), опрос 300 идёт; CI draft-image падал за 0 с — переписан шаг
