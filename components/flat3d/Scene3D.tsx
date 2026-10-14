@@ -47,13 +47,20 @@ export interface Scene3DProps {
   /** «Убрать» предмет; undefined у встроенного — кнопки нет. */
   onItemRemove?: (slotId: string) => void;
   itemLabels?: { options: string; move: string; remove: string };
+  /** Точки на заменяемых предметах текущей комнаты (D6). */
+  spots?: Spot[];
   hintText: string;
   loadingText: string;
+  /** Экран первой загрузки (flat3d-sims-ux D8): заголовок, строка «что тут можно», подписи этапов по проценту. */
+  loadingTitle?: string;
+  loadingHint?: string;
+  loadingStages?: readonly [string, string, string];
   noWebglText: string;
   retryText: string;
 }
 
 import { ObjectTools } from "@/components/flat3d/ObjectTools";
+import { Hotspots, type Spot } from "@/components/flat3d/Hotspots";
 
 export function Scene3D(props: Scene3DProps): React.ReactElement {
   const { apartment, catalogue, scene, lite, roomId, onPickSlot, onRoomChange, onReady } = props;
@@ -69,6 +76,11 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
   const framedRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const projectAny = useCallback((id: string) => viewerRef.current?.projectSlot(id) ?? null, []);
+  const pickSpot = useCallback((id: string) => {
+    onPickSlot(id);
+    viewerRef.current?.highlight(id);
+  }, [onPickSlot]);
   const projectSelected = useCallback(
     () => (selectedSlotId ? viewerRef.current?.projectSlot(selectedSlotId) ?? null : null),
     [selectedSlotId],
@@ -220,6 +232,27 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
     viewerRef.current?.look(deg / 0.22, 0);
   }, []);
 
+  // Повернуть «взятый» предмет на шаг: кнопки ↺ ↻, колесо мыши и поворот двумя пальцами — одно действие
+  const rotateDraft = useCallback((deg: number) => {
+    const v = viewerRef.current;
+    const d = v?.moveDraft();
+    if (!v || !d || !movingSlotId) return;
+    const next = { ...d, rot: (d.rot + deg + 360) % 360 };
+    const ok = canPlace ? canPlace(movingSlotId, next) : true;
+    setDropOk(ok);
+    v.rotateDraftBy(deg, ok);
+  }, [movingSlotId, canPlace]);
+
+  // ДВА ПАЛЬЦА (flat3d-sims-ux D2/C3): щипок приближает вид сверху, поворот двумя пальцами крутит «взятый» предмет
+  // шагом 15°. Пока пальцев два, осмотр и выбор не срабатывают — иначе щипок вертел бы камеру и «кликал» по мебели.
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<{ dist: number; ang: number; acc: number } | null>(null);
+  const pinchGeom = () => {
+    const [a, b] = [...pointersRef.current.values()];
+    if (!a || !b) return null;
+    return { dist: Math.hypot(b.x - a.x, b.y - a.y), ang: (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI };
+  };
+
   // РЕЖИМ ПЕРЕМЕЩЕНИЯ. Пока предмет «взят», тот же жест двигает ЕГО, а не камеру — иначе
   // попытка подвинуть диван разворачивала бы комнату (арбитраж жестов, разбор советника 30.09).
   const dragItem = useCallback(
@@ -241,6 +274,13 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointersRef.current.size >= 2) {
+        const g = pinchGeom();
+        pinchRef.current = g ? { ...g, acc: 0 } : null;
+        dragRef.current = null;                       // второй палец — это жест, не осмотр и не выбор
+        return;
+      }
       dragRef.current = { x: e.clientX, y: e.clientY, moved: 0, id: e.pointerId };
       if (movingSlotId) dragItem(e);
     },
@@ -249,6 +289,23 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
+      if (pointersRef.current.has(e.pointerId)) pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const pinch = pinchRef.current;
+      if (pinch && pointersRef.current.size >= 2) {
+        const g = pinchGeom();
+        if (!g) return;
+        viewerRef.current?.zoom((pinch.dist - g.dist) * 1.5);   // пальцы разошлись — ближе
+        let turn = g.ang - pinch.ang;
+        if (turn > 180) turn -= 360;
+        if (turn < -180) turn += 360;
+        let acc = pinch.acc + turn;
+        if (movingSlotId && Math.abs(acc) >= 15) {
+          rotateDraft(acc > 0 ? 15 : -15);
+          acc -= acc > 0 ? 15 : -15;
+        }
+        pinchRef.current = { ...g, acc };
+        return;
+      }
       const d = dragRef.current;
       if (!d || d.id !== e.pointerId) return;
       const dx = e.clientX - d.x;
@@ -262,11 +319,13 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
       }
       viewerRef.current?.look(dx, dy);
     },
-    [movingSlotId, dragItem],
+    [movingSlotId, dragItem, rotateDraft],
   );
 
   const onPointerUp = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
+      pointersRef.current.delete(e.pointerId);
+      if (pointersRef.current.size < 2) pinchRef.current = null;
       const d = dragRef.current;
       dragRef.current = null;
       const viewer = viewerRef.current;
@@ -327,10 +386,14 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        onWheel={(e) => viewerRef.current?.zoom(e.deltaY * 0.6)}
+        // колесо: приближение вида сверху; пока предмет «взят» — поворот шагом 15° (flat3d-sims-ux C3)
+        onWheel={(e) => (movingSlotId ? rotateDraft(e.deltaY > 0 ? 15 : -15) : viewerRef.current?.zoom(e.deltaY * 0.6))}
         aria-label="3D-вид квартиры"
         role="img"
       />
+      {ready && firstLoadDone && !topView && props.spots ? (
+        <Hotspots spots={props.spots} project={projectAny} onPick={pickSpot} hidden={Boolean(selectedSlotId || movingSlotId)} />
+      ) : null}
       {ready && selectedSlotId && !movingSlotId && props.onItemOptions && props.itemLabels ? (
         <ObjectTools
           project={projectSelected}
@@ -344,7 +407,11 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
       {(!ready || progress < 1) && !firstLoadDone ? (
         error ? null : (
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-xl bg-secondary">
-            <p className="text-sm text-secondary">{loadingText}</p>
+            {props.loadingTitle ? <p className="text-lg font-semibold text-primary">{props.loadingTitle}</p> : null}
+            {props.loadingHint ? <p className="max-w-xs text-center text-sm text-tertiary">{props.loadingHint}</p> : null}
+            <p className="text-sm text-secondary" data-flat3d="loading-stage">
+              {props.loadingStages ? props.loadingStages[progress < 0.15 ? 0 : progress < 0.9 ? 1 : 2] : loadingText}
+            </p>
             <div className="h-1.5 w-56 overflow-hidden rounded-full bg-primary">
               <div
                 className="h-full rounded-full bg-brand-solid"
@@ -370,15 +437,7 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
               type="button"
               aria-label="Повернуть влево"
               className="min-h-11 min-w-11 rounded-xl bg-secondary text-lg text-primary"
-              onClick={() => {
-                const v = viewerRef.current;
-                const d = v?.moveDraft();
-                if (!v || !d) return;
-                const next = { ...d, rot: (d.rot - 15 + 360) % 360 };
-                const ok = canPlace ? canPlace(movingSlotId, next) : true;
-                setDropOk(ok);
-                v.rotateDraftBy(-15, ok);
-              }}
+              onClick={() => rotateDraft(-15)}
             >
               ↺
             </button>
@@ -386,15 +445,7 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
               type="button"
               aria-label="Повернуть вправо"
               className="min-h-11 min-w-11 rounded-xl bg-secondary text-lg text-primary"
-              onClick={() => {
-                const v = viewerRef.current;
-                const d = v?.moveDraft();
-                if (!v || !d) return;
-                const next = { ...d, rot: (d.rot + 15) % 360 };
-                const ok = canPlace ? canPlace(movingSlotId, next) : true;
-                setDropOk(ok);
-                v.rotateDraftBy(15, ok);
-              }}
+              onClick={() => rotateDraft(15)}
             >
               ↻
             </button>
@@ -457,7 +508,8 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
       {!error && ready && !hintClosed ? (
         <div
           className="pointer-events-auto absolute left-1/2 flex max-w-[92%] -translate-x-1/2 items-start gap-2 rounded-2xl px-4 py-2.5 shadow-sm ring-1 ring-inset ring-secondary"
-          style={{ top: 12, zIndex: 11, background: "color-mix(in srgb, var(--color-bg-primary) 82%, transparent)", backdropFilter: "blur(8px)" }}
+          // top 60: строка кнопок правой панели (← Вся квартира, ?, i) — сверху, подсказка под ней, не поверх (14.10)
+          style={{ top: 60, zIndex: 11, background: "color-mix(in srgb, var(--color-bg-primary) 82%, transparent)", backdropFilter: "blur(8px)" }}
         >
           <p className="text-xs leading-relaxed text-secondary">{hintText}</p>
           <button

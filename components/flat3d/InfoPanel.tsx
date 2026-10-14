@@ -41,7 +41,7 @@ export function InfoPanel(p: Props) {
   const btn = "min-h-11 min-w-11 rounded-lg bg-primary px-3 text-sm text-secondary ring-1 ring-inset ring-secondary";
 
   return (
-    <div data-flat3d="info" style={{ position: "absolute", top: 8, right: 8, zIndex: 5, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, maxWidth: "min(340px, 92vw)" }}>
+    <div data-flat3d="info" style={{ position: "absolute", top: 8, right: 8, zIndex: 12, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, maxWidth: "min(340px, 92vw)" }}>
       <div className="flex gap-2">
         {p.inRoom ? <button type="button" className={btn} onClick={p.onOverview}>{en ? "← Whole flat" : "← Вся квартира"}</button> : null}
         <button type="button" className={btn} aria-label={en ? "Help" : "Справка"} onClick={() => setHelp((h) => !h)}>?</button>

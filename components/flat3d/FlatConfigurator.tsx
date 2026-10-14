@@ -20,6 +20,8 @@ import { PlanView } from "@/components/flat3d/PlanView";
 import { PhotoView } from "@/components/flat3d/PhotoView";
 import { Scene3D } from "@/components/flat3d/Scene3D";
 import { InfoPanel } from "@/components/flat3d/InfoPanel";
+import type { Spot } from "@/components/flat3d/Hotspots";
+import { optionsForSlot } from "@/lib/configurator/resolve";
 
 type Mode = "walk" | "top" | "photo" | "plan";
 
@@ -146,6 +148,19 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
     setSlotId(null);
     setMode("walk");
   }, []);
+
+  // Точки «можно заменить» (D6): мебель текущей комнаты, у которой больше одного варианта; подпись «магазин · название»
+  const spots: Spot[] = useMemo(() => scene.items
+    .filter((i) => i.roomId === roomId && i.kind === "furniture")
+    .filter((i) => {
+      const slot = apartment.slots.find((s) => s.id === i.slotId);
+      return slot ? optionsForSlot(apartment, catalogue, slot).length > 1 : false;
+    })
+    .map((i) => {
+      const opt = catalogue.options.find((o) => o.id === i.optionId);
+      const title = lang === "en" ? i.titleEn : i.titleRu;
+      return { slotId: i.slotId, label: opt?.shopName ? `${opt.shopName} · ${title}` : title };
+    }), [scene.items, roomId, apartment, catalogue, lang]);
 
   // Коробки всех предметов сцены — вход для проверки «сюда можно / сюда нельзя».
   const boxes: Box[] = useMemo(
@@ -352,11 +367,15 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
             }}
             onRoomChange={(id) => id && setRoomId(id)}
             onItemOptions={() => setBarOpen(true)}
+            spots={spots}
             onItemMove={startMove}
             onItemRemove={slotId && apartment.slots.find((s) => s.id === slotId)?.kind === "furniture" ? removeItem : undefined}
             itemLabels={lang === "en" ? { options: "Options", move: "Drag", remove: "Remove" } : { options: "Варианты", move: "Двигать", remove: "Убрать" }}   // не «Передвинуть»: та кнопка есть в нижней панели
             hintText={mobile ? L.walkHintMobile : L.walkHint}
             loadingText={L.loading}
+            loadingTitle={L.loadingTitle}
+            loadingHint={L.loadingHint}
+            loadingStages={L.loadingStages}
             noWebglText={L.noWebgl}
             retryText={lang === "en" ? "Try again" : "Повторить"}
           />

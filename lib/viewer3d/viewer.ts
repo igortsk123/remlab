@@ -1035,11 +1035,12 @@ export class FlatViewer {
    * Экранная точка предмета «здесь и сейчас» — для проверок и для наведения на предмет.
    * Тот же расчёт, что у карточки, но по запросу.
    */
-  projectSlot(slotId: string): { x: number; y: number; visible: boolean } | null {
+  projectSlot(slotId: string): { x: number; y: number; visible: boolean; distM: number } | null {
     const placed = this.placed.get(slotId);
     if (!placed) return null;
     const bb = new THREE.Box3().setFromObject(placed.group);
     const centre = new THREE.Vector3((bb.min.x + bb.max.x) / 2, (bb.min.y + bb.max.y) / 2, (bb.min.z + bb.max.z) / 2);
+    const distM = this.camera.position.distanceTo(centre);
     const v = centre.project(this.camera);
     const el = this.renderer.domElement;
     const w = el.clientWidth || el.width;
@@ -1048,6 +1049,7 @@ export class FlatViewer {
       x: (v.x * 0.5 + 0.5) * w,
       y: (-v.y * 0.5 + 0.5) * h,
       visible: v.z < 1 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1,
+      distM,
     };
   }
 
