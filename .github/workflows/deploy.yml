@@ -69,6 +69,25 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Сервис кадров (b2b-08, ADR-0278): свой образ arm64. Сбой сборки НЕ останавливает выкатку сайта — на сервере
+      # остаётся закреплённый образ кадров.
+      - name: Сборка+push образа сервиса кадров (arm64)
+        id: draft
+        if: steps.gate.outputs.ready == 'true'
+        continue-on-error: true
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/draft/Dockerfile
+          platforms: linux/arm64
+          push: true
+          provenance: false
+          sbom: false
+          build-args: DRAFT_VERSION=${{ env.TARGET_SHA }}
+          tags: ghcr.io/${{ github.repository_owner }}/remlab-draft:${{ env.TARGET_SHA }}
+          cache-from: type=gha,scope=draft
+          cache-to: type=gha,mode=max,scope=draft
+
       - name: SSH setup
         if: steps.gate.outputs.ready == 'true'
         run: |
@@ -89,10 +108,10 @@ jobs:
           # применяется глобом целиком, поэтому файл, удалённый из репозитория, продолжал жить на
           # сервере и ронять деплой. Так каталожные миграции 008/009 роняли выкат 4 суток.
           rsync -az --delete --include='*.sql' --exclude='*' db/init/ "$SRV:/opt/remlab/db/init/"
-          scp tools/apply-db-init.sh infra/server/deploy-remote.sh infra/server/caddy-sync.sh infra/server/disk-watchdog.sh infra/server/manager-add.sh infra/server/partner-key-add.sh infra/server/health-watch.sh infra/server/prod-digest.sh infra/server/salad-deadman.py "$SRV:/opt/remlab/scripts/"
+          scp tools/apply-db-init.sh infra/server/deploy-remote.sh infra/server/caddy-sync.sh infra/server/disk-watchdog.sh infra/server/manager-add.sh infra/server/partner-key-add.sh infra/server/health-watch.sh infra/server/prod-digest.sh infra/server/salad-deadman.py infra/server/cleanup.sh "$SRV:/opt/remlab/scripts/"
           # Caddyfile кладётся РЯДОМ (.new): подменяет его caddy-sync.sh под замком, с validate и откатом
           scp caddy/Caddyfile "$SRV:/opt/remlab/caddy/Caddyfile.new"
-          ssh "$SRV" "chmod +x /opt/remlab/scripts/apply-db-init.sh /opt/remlab/scripts/deploy-remote.sh /opt/remlab/scripts/caddy-sync.sh /opt/remlab/scripts/disk-watchdog.sh /opt/remlab/scripts/manager-add.sh /opt/remlab/scripts/partner-key-add.sh /opt/remlab/scripts/health-watch.sh /opt/remlab/scripts/prod-digest.sh /opt/remlab/scripts/salad-deadman.py"
+          ssh "$SRV" "chmod +x /opt/remlab/scripts/apply-db-init.sh /opt/remlab/scripts/deploy-remote.sh /opt/remlab/scripts/caddy-sync.sh /opt/remlab/scripts/disk-watchdog.sh /opt/remlab/scripts/manager-add.sh /opt/remlab/scripts/partner-key-add.sh /opt/remlab/scripts/health-watch.sh /opt/remlab/scripts/prod-digest.sh /opt/remlab/scripts/salad-deadman.py /opt/remlab/scripts/cleanup.sh"
 
       - name: "Деплой на сервер (под замком: миграции ДО активации)"
         id: deploy
@@ -110,6 +129,7 @@ jobs:
           # Весь выкат — под тем же замком: сторож диска не должен снимать теги между pull и up.
           ssh "$SRV" "flock -w 900 /opt/remlab/.deploy.lock \
             env REMLAB_IMAGE='${IMAGE}:${TARGET_SHA}' APP_VERSION='${TARGET_SHA}' \
+            REMLAB_DRAFT_IMAGE='${{ steps.draft.outcome == 'success' && format('ghcr.io/{0}/remlab-draft:{1}', github.repository_owner, env.TARGET_SHA) || '' }}' \
             /opt/remlab/scripts/deploy-remote.sh"
 
       - name: Выход из GHCR

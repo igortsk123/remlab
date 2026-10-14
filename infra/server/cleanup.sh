@@ -48,6 +48,18 @@ docker images 'ghcr.io/igortsk123/remlab-app' --format '{{.Tag}} {{.ID}}' 2>/dev
       docker rmi "ghcr.io/igortsk123/remlab-app:$t" 2>/dev/null && echo "снят тег $t" || true
     done
 
+# 4в. теги ghcr-образа сервиса кадров (b2b-08): держим работающий, закреплённый в .env и remlab-draft:prev
+KEEP_D=$( { docker ps -q | xargs -r docker inspect --format '{{.Image}}'; \
+            docker image inspect remlab-draft:prev --format '{{.Id}}' 2>/dev/null; \
+            docker image inspect "$(grep -E '^REMLAB_DRAFT_IMAGE=' /opt/remlab/.env 2>/dev/null | cut -d= -f2-)" --format '{{.Id}}' 2>/dev/null; } \
+          | sed 's/^sha256://' | cut -c1-12 | sort -u)
+docker images 'ghcr.io/igortsk123/remlab-draft' --format '{{.Tag}} {{.ID}}' 2>/dev/null \
+  | while read -r t id; do
+      [ -z "$t" ] || [ "$t" = '<none>' ] && continue
+      echo "$KEEP_D" | grep -q "^${id:0:12}" && continue
+      docker rmi "ghcr.io/igortsk123/remlab-draft:$t" 2>/dev/null && echo "снят тег кадров $t" || true
+    done
+
 # 5. ротация дампов БД — держим последние 7
 ls -1t /opt/remlab/backups/db-*.sql.gz 2>/dev/null | tail -n +8 | xargs -r rm -f || true
 

@@ -62,9 +62,42 @@ PSQL_CMD='docker compose exec -T db psql -U remlab -d remlab -q -v ON_ERROR_STOP
 #     активации: битый конфиг останавливает деплой, а прежняя версия сайта продолжает работать.
 /opt/remlab/scripts/caddy-sync.sh
 
+# 4а. СЕРВИС КАДРОВ В COMPOSE (b2b-08, ADR-0278). Первый раз: контейнер remlab-draft жил вне compose — откладываем
+#     его (имя занято бы, `up -d` упал бы) и запоминаем его образ тегом remlab-draft:prev. Новый образ — из CI
+#     (REMLAB_DRAFT_IMAGE); не пришёл — остаётся закреплённый в .env.
+if docker inspect remlab-draft >/dev/null 2>&1 && [ -z "$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' remlab-draft)" ]; then
+  docker tag "$(docker inspect -f '{{.Config.Image}}' remlab-draft)" remlab-draft:prev
+  docker rm -f remlab-draft-legacy >/dev/null 2>&1 || true
+  docker stop remlab-draft >/dev/null && docker rename remlab-draft remlab-draft-legacy
+  echo "сервис кадров вне compose отложен (remlab-draft-legacy, образ — remlab-draft:prev)"
+fi
+DRAFT_OLD=$(grep -E '^REMLAB_DRAFT_IMAGE=' /opt/remlab/.env | cut -d= -f2- || true)
+if [ -n "${REMLAB_DRAFT_IMAGE:-}" ]; then
+  docker image inspect "$REMLAB_DRAFT_IMAGE" >/dev/null 2>&1 || docker pull -q "$REMLAB_DRAFT_IMAGE" >/dev/null || REMLAB_DRAFT_IMAGE=""
+fi
+export REMLAB_DRAFT_IMAGE="${REMLAB_DRAFT_IMAGE:-${DRAFT_OLD:-remlab-draft:prev}}"
+
 # 4. Активация новой версии.
 docker compose up -d
-echo "активирован $REMLAB_IMAGE (APP_VERSION=$APP_VERSION)"
+echo "активирован $REMLAB_IMAGE (APP_VERSION=$APP_VERSION), кадры — $REMLAB_DRAFT_IMAGE"
+
+# 4б. Кадры обязаны ответить своей версией (тег образа = DRAFT_VERSION) за минуту; нет — возвращаем прежний образ,
+#     сайт при этом не откатываем (кадры — отдельный сервис).
+WANT=${REMLAB_DRAFT_IMAGE##*:}
+DRAFT_OK=""
+for i in $(seq 1 30); do
+  h=$(docker exec remlab-draft python -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8099/health',timeout=3).read().decode())" 2>/dev/null || true)
+  if printf '%s' "$h" | grep -q '"ok": true'; then
+    case "$WANT" in [0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) printf '%s' "$h" | grep -q "$WANT" && DRAFT_OK=1;; *) DRAFT_OK=1;; esac
+    break
+  fi
+  sleep 2
+done
+if [ -z "$DRAFT_OK" ]; then
+  echo "WARN: сервис кадров $REMLAB_DRAFT_IMAGE не ответил своей версией — возвращаю ${DRAFT_OLD:-remlab-draft:prev}"
+  REMLAB_DRAFT_IMAGE="${DRAFT_OLD:-remlab-draft:prev}" docker compose up -d --no-deps draft
+  REMLAB_DRAFT_IMAGE="${DRAFT_OLD:-remlab-draft:prev}"
+fi
 
 # 5. ЗАКРЕПИТЬ ОБРАЗ В .env (08.09). В compose образ задан как `${REMLAB_IMAGE:-remlab-app:latest}`,
 #    и любой ручной `docker compose up` БЕЗ этой переменной молча откатывал прод на локальный
@@ -72,11 +105,12 @@ echo "активирован $REMLAB_IMAGE (APP_VERSION=$APP_VERSION)"
 #    Теперь боевой образ живёт в `.env` — compose подставит его сам, без переменных в команде.
 umask 077
 TMP_ENV=$(mktemp /opt/remlab/.env.XXXXXX)
-grep -v -E '^REMLAB_IMAGE=|^APP_VERSION=' /opt/remlab/.env > "$TMP_ENV" || true
+grep -v -E '^REMLAB_IMAGE=|^APP_VERSION=|^REMLAB_DRAFT_IMAGE=' /opt/remlab/.env > "$TMP_ENV" || true
 {
   echo "# боевой образ (пишет deploy-remote.sh): ручной compose берёт его отсюда, а не дефолт"
   echo "REMLAB_IMAGE=$REMLAB_IMAGE"
   echo "APP_VERSION=$APP_VERSION"
+  echo "REMLAB_DRAFT_IMAGE=$REMLAB_DRAFT_IMAGE"
 } >> "$TMP_ENV"
 mv "$TMP_ENV" /opt/remlab/.env
 chmod 600 /opt/remlab/.env

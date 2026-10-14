@@ -166,6 +166,27 @@ services:
     networks: [remlab-net]
     mem_limit: 256m
 
+  # Сервис кадров демо (план b2b-08, ADR-0278): образ из репозитория (`infra/draft/Dockerfile`, CI → ghcr), до 14.10
+  # жил вне compose (`infra/server/draft-run.sh`). Образ закрепляет deploy-remote.sh в .env (REMLAB_DRAFT_IMAGE) только
+  # после ответа /health своей версией. Секреты — /opt/remlab/draft/.env (вне git).
+  draft:
+    image: ${REMLAB_DRAFT_IMAGE:-remlab-draft:45424f4dcc20}
+    container_name: remlab-draft
+    command: ["python", "draft_service.py"]
+    working_dir: /app
+    env_file: /opt/remlab/draft/.env
+    volumes:
+      - /opt/remlab/test/share:/app/share
+    networks:
+      remlab-net:
+        aliases: [draft]
+    mem_limit: 2200m
+    cpus: 2
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
 networks:
   remlab-net:
     external: true
