@@ -2669,6 +2669,7 @@ function refreshShotList(){
   const nu=tmp.firstElementChild;
   if(!nu){box.remove();return;}
   box.replaceWith(nu); wireShotList();
+  liveShow();      // замена в окне — живая сцена показывает её сразу (demo-01)
 }
 function viewShot(i){
   const s=shots[i]; if(!s)return;
@@ -2710,6 +2711,7 @@ function viewShot(i){
   // конструкторе («Комплект: …»). Вернуть стиль — только по слову владельца.
   shotOpen(`<div class="shotwrap"><img src="${s.url}" alt="${styleOf(s)}">${pins}${navs}</div>${srcRow}${list}`,'');
   wireShotList();
+  liveShow();      // расстановка уже не та, что на фото, — живая сцена поверх (demo-01)
   // ОТМЕТКА СТАВИТСЯ НА ВЕСЬ ВАРИАНТ, КАК СЕРДЕЧКО НА КАРТОЧКЕ (разбор Codex 02.09, проверено
   // по коду). Кнопка в окне помечала ОДИН кадр, а карточка коллекции и отправка смотрят на
   // «лучший кадр» варианта (`bestShot`): отметив в окне второй вид, человек не видел отклика на
@@ -3168,7 +3170,7 @@ function tryOn(p){const s=sel||items.find(i=>i.role==='диван');
     if(d){
       d.sku={name:p.name,price:p.price,img:p.img,url:p.url,shop:p.shop,
              sid:p.sid||null,msid:p.msid||p.sid||null,basis:p.basis||null,
-             w:p.w,d:p.d,h:p.h||null,pack:p.pack||1};
+             w:p.w,d:p.d,h:p.h||null,pack:p.pack||1,...(p.yaw!=null?{yaw:p.yaw}:{})};
       sel=decorSel(s.dec);
       basket(); showSwap(); refreshShotList();
     }
@@ -3180,7 +3182,9 @@ function tryOn(p){const s=sel||items.find(i=>i.role==='диван');
   // msid — артикул МОДЕЛИ (представителя семейства): у цветового варианта своего меша нет, и
   // без этого поля сцена после замены рисовала серую коробку (08.09, ADR-0196).
   s.sku={name:p.name,price:p.price,img:p.img,url:p.url,shop:p.shop,
-         sid:p.sid||null,msid:p.msid||p.sid||null,pack:p.pack||1,hung:!!p.hung};
+         sid:p.sid||null,msid:p.msid||p.sid||null,pack:p.pack||1,hung:!!p.hung,
+         // разворот фронта модели (demo-01): живая сцена ставит заменённую модель по нему, как сервер по orient.json
+         ...(p.yaw!=null?{yaw:p.yaw}:{})};
   sel=s;
   document.getElementById('sel').innerHTML=`Примерено: <b>${p.name}</b> · ${Math.round(p.w)}×${Math.round(p.d)} см · ${(p.price||0).toLocaleString('ru-RU')} ₽ · <a href="${p.url}" target="_blank" rel="noopener">открыть в магазине</a>`;
   draw();}
@@ -3328,157 +3332,78 @@ function routeWidth(skip){                   // ширина коридора о
   return best;}
 window.addEventListener('resize',()=>{if(D)draw();});
 </script>
-<!-- ===== 3D-СЦЕНА ПЕРЕД ФОТО (владелец 31.08): наши модели по расстановке; где меша нет — заглушка ===== -->
+<!-- ===== ЖИВАЯ СЦЕНА (план demo-01): правки видны сразу — тот же движок, что /flat ===== -->
 <style>
-#scene3d{position:fixed;inset:0;background:#0e0f12;z-index:400;display:none}
-#scene3d.on{display:block}
-#scene3d canvas{display:block}
-#sc3bar{position:absolute;left:0;right:0;bottom:0;padding:12px;display:flex;gap:10px;justify-content:center;
- background:linear-gradient(transparent,rgba(0,0,0,.55))}
-#sc3bar .btn{font:600 15px/1 system-ui;padding:12px 18px;border-radius:10px;border:0;cursor:pointer}
-#sc3go{background:#4f7cff;color:#fff}#sc3back{background:#2a2d33;color:#ddd}
-#sc3hint{position:absolute;top:10px;left:0;right:0;text-align:center;color:#9aa;font:13px system-ui}
+#shot .shotwrap .livecv{position:absolute;inset:0;width:100%;height:100%;border-radius:inherit;display:block;background:#e9edf1}
+#shot .shotwrap .livebadge{position:absolute;left:10px;top:10px;background:rgba(43,38,34,.82);color:#fff;font-size:13px;
+ padding:5px 10px;border-radius:999px;pointer-events:none}
 </style>
-<div id="scene3d">
- <div id="sc3hint">Комната с вашей расстановкой: наши 3D-модели · вращайте мышью, колесо — масштаб · серые блоки — модель готовится</div>
- <div id="sc3bar">
-  <button class="btn" id="sc3back">← Назад к плану</button>
-  <button class="btn" id="sc3go" hidden>Сделать фото · ~25 сек</button>
- </div>
-</div>
-<script type="importmap">{"imports":{"three":"./lib/three.module.min.js"}}</script>
-<script type="module">
-import * as THREE from './lib/three.module.min.js';
-import {GLTFLoader} from './lib/GLTFLoader.js';
-import {OrbitControls} from './lib/OrbitControls.js';
-const MESH_BASE='/test/mesh-pilot10/';
-let meshIndex=null, orientIdx=null, renderer=null, scene=null, camera=null, controls=null, raf=0;
-async function idx(){
-  if(meshIndex) return;
-  try{meshIndex=await (await fetch(MESH_BASE+'mesh-index.json')).json();}catch(e){meshIndex={};}
-  try{orientIdx=await (await fetch(MESH_BASE+'orient.json')).json();}catch(e){orientIdx={};}
-}
-function stopScene(){
-  document.getElementById('scene3d').classList.remove('on');
-  cancelAnimationFrame(raf);
-  if(renderer){renderer.dispose();renderer.domElement.remove();renderer=null;}
-  scene=null;camera=null;controls=null;
-}
-async function openScene(){
-  await idx();
-  const box=document.getElementById('scene3d');
-  box.classList.add('on');
-  renderer=new THREE.WebGLRenderer({antialias:true});
-  renderer.setSize(innerWidth,innerHeight);
-  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
-  box.prepend(renderer.domElement);
-  scene=new THREE.Scene();
-  scene.background=new THREE.Color(0xeceae6);
-  const rw=(D.room.w||400)/100, rd=(D.room.d||300)/100;
-  camera=new THREE.PerspectiveCamera(52,innerWidth/innerHeight,0.05,100);
-  camera.position.set(rw/2, Math.max(rw,rd)*0.95, rd*1.55);
-  controls=new OrbitControls(camera,renderer.domElement);
-  controls.target.set(rw/2,0.4,rd/2);
-  scene.add(new THREE.HemisphereLight(0xffffff,0xb9b4aa,1.05));
-  const sun=new THREE.DirectionalLight(0xffffff,1.4); sun.position.set(rw,3,rd*0.2); scene.add(sun);
-  const floor=new THREE.Mesh(new THREE.PlaneGeometry(rw,rd),
-    new THREE.MeshStandardMaterial({color:0xd7cfc2,roughness:0.95}));
-  floor.rotation.x=-Math.PI/2; floor.position.set(rw/2,0,rd/2); scene.add(floor);
-  const wallM=new THREE.MeshStandardMaterial({color:0xf1efe9,roughness:1});
-  const wh=1.15;
-  for(const [x,z,len,rotY] of [[rw/2,0,rw,0],[rw/2,rd,rw,0],[0,rd/2,rd,Math.PI/2],[rw,rd/2,rd,Math.PI/2]]){
-    const w=new THREE.Mesh(new THREE.BoxGeometry(len,wh,0.04),wallM);
-    w.position.set(x,wh/2,z); w.rotation.y=rotY; scene.add(w);
-  }
-  const loader=new GLTFLoader();
-  // расстановка: живая с плана; пуста (сцену открыли до применения варианта) — берём
-  // items ТЕКУЩЕГО варианта из данных
-  let list=(typeof items!=='undefined'&&items&&items.length)?items:[];
-  if(!list.length){
-    try{list=(D.variants[(typeof cur!=='undefined'?cur:0)]||D.variants[0]).items||[];}catch(e){list=[];}
-  }
-  let nMesh=0,nStub=0;
-  for(const it of list){
-    const w=(it.w||60)/100,d=(it.d||60)/100,h=(it.h||75)/100;
-    const cx=((it.x||0)+ (it.w||0)/2)/100, cz=((it.y||0)+(it.d||0)/2)/100;
-    const rot=-((it.rot||0)*Math.PI/180);
-    // МОДЕЛЬ — ОДНА НА СЕМЕЙСТВО (08.09, ADR-0196): у цветового варианта своего меша нет, он
-    // берёт модель «родителя» (`msid`). Без этого вариант рисовался серой коробкой, хотя форма
-    // давно готова — так пропадали диван Полан и ТВ-тумбы в неоклассике.
-    const sku0=skuOf(it)||{};
-    const sid=sku0.msid||sku0.sid;   // «стул 2» — меш берём у первой штуки комплекта
-    const info=sid&&meshIndex&&meshIndex[sid];
-    if(info){
-      nMesh++;
-      loader.load(MESH_BASE+sid+'/model.glb?v='+(info.ver||1),(g)=>{
-        // СТРОГО ПО ПАСПОРТУ, ПО КАЖДОЙ ОСИ (владелец 01.09: «все меши должны на сцене строго
-        // по размеру вставать»). Раньше здесь стоял РАВНОМЕРНЫЙ масштаб по большей стороне
-        // основания — ширина и глубина попадали, а ВЫСОТА получалась какой придётся: торшер
-        // 160 см мог встать вдвое ниже. Серверный кадр всегда считал по трём осям
-        // (`scene_mesh.world_vertices`), браузерная сцена расходилась с ним.
-        //
-        // Порядок как на сервере: сперва канонический разворот меша (фронт), в этой системе
-        // тянем по осям, и только потом поворот расстановки. Поэтому масштаб живёт на обёртке,
-        // а разворот фронта — на самом объекте: матрица обёртки даёт R·S, а не S·R (иначе
-        // непропорциональный масштаб перекосил бы повёрнутый предмет).
-        const obj=g.scene, wrap=new THREE.Group();
-        const oy=((orientIdx&&orientIdx[sid]&&orientIdx[sid].yaw)||0)*Math.PI/180;
-        obj.rotation.y=-oy;
-        wrap.add(obj);
-        const bb=new THREE.Box3().setFromObject(wrap);
-        const size=new THREE.Vector3(); bb.getSize(size);
-        wrap.scale.set(w/Math.max(size.x,1e-4), h/Math.max(size.y,1e-4), d/Math.max(size.z,1e-4));
-        wrap.rotation.y=rot;
-        wrap.updateMatrixWorld(true);
-        const bb2=new THREE.Box3().setFromObject(wrap);
-        const c=new THREE.Vector3(); bb2.getCenter(c);
-        wrap.position.set(cx-c.x, -bb2.min.y, cz-c.z);
-        scene.add(wrap);
-      },undefined,()=>addStub());
-    } else {nStub++;addStub();}
-    function addStub(){
-      const g=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),
-        new THREE.MeshStandardMaterial({color:0xb9bcc4,transparent:true,opacity:0.55,roughness:0.9}));
-      g.position.set(cx,h/2,cz); g.rotation.y=rot; scene.add(g);
-      const e=new THREE.LineSegments(new THREE.EdgesGeometry(g.geometry),
-        new THREE.LineBasicMaterial({color:0x8a8f99}));
-      e.position.copy(g.position); e.rotation.copy(g.rotation); scene.add(e);
-    }
-  }
-  document.getElementById('sc3hint').textContent=
-    `Комната с расстановкой: моделей ${nMesh}, заглушек ${nStub} (модели готовятся) · вращайте мышью`;
-  (function tick(){raf=requestAnimationFrame(tick);controls.update();renderer.render(scene,camera);})();
-}
-window.__openScene3d=openScene;
-document.getElementById('sc3back').onclick=stopScene;
-document.getElementById('sc3go').onclick=()=>{stopScene();window.__callOrigPhoto();};
-addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHeight);
-  camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}});
-</script>
 <script>
-/* Перехват ВНЕ модуля: срабатывает даже если 3D-библиотеки не загрузились (тогда честный
-   фолбэк в старую генерацию). */
-(function(){
-  var orig=window.makePhoto;
-  window.__callOrigPhoto=function(){return orig('draft');};
-  // ГЕНЕРАЦИЯ ОТКЛЮЧЕНА (владелец 31.08: «ГЕНЕРАЦИЮ НЕ ДЕЛАТЬ»): старый коллажный
-  // конвейер выключен до готовности нового (сервер сам собирает 3D-сцену из мешей и
-  // генерит фото из неё). Служебная 3D-сцена — ?scene3d=1 (для наладки).
-  // ФИНАЛ (владелец 31.08): юзеру — ФОТО под камерой, как изначально; 3D — серверный
-  // этап подложки для GPT (план naполняется реальными мешами). Интерактивная комната —
-  // служебный режим ?scene3d=1 для наладки.
-  // ПРОБРАСЫВАЕМ ВСЕ АРГУМЕНТЫ. Обёртка объявляла один параметр и вызывала orig(q), молча
-  // теряя второй — id уже выложенного исходника. Из-за этого «улучшить фото» каждый раз
-  // приходило на сервер БЕЗ src_id, тот пересобирал сцену заново (лишние ~30 с) и брал
-  // АВТОПОДБОР ракурсов вместо выставленных человеком (владелец 01.09: «камеры развернул
-  // как хочу, на черновике верно, а при генерации уходят другие виды»).
-  window.makePhoto=function(){
-    if(window.__openScene3d&&/[?&]scene3d=1/.test(location.search)){
-      window.__openScene3d();return;
-    }
-    return orig.apply(this, arguments);
-  };
-})();
+/* ——— ЖИВАЯ СЦЕНА В ОКНЕ КАДРА (план demo-01, владелец 14.10: «заменили диван — сразу, без кнопки, показывается новая
+   сцена»). Когда расстановка уже не та, что на фото, вместо старого фото — живая 3D-сцена этой расстановки с той же точки
+   съёмки (камера = серверная, тест `tests/unit/photo-pose.test.ts`). Замена и перестановка меняют картинку на следующем
+   кадре, без запроса к серверу; «Посмотреть фото с изменениями» (серверный эскиз) и «Улучшить» остаются как были.
+   Движок — общий с /flat (`lib/viewer3d`), собран в `lib/scene.<версия>.js` (`tools/flat3d/build-scene-bundle.mjs`).
+   ЗАПАСНОЙ ПУТЬ: нет WebGL, программный рендер, кадр дольше 120 мс (p95 после разогрева) или потерян видеоконтекст —
+   живую сцену не показываем, остаётся старое фото с полосой «Посмотреть фото с изменениями» (как до demo-01). */
+// `?live=0` — выключить (сравнить с прежним поведением), `?live=force` — включить и на программном рендере (проверки).
+const LIVE={ok:/[?&]live=0(?:&|$)/.test(location.search)?false:null, force:/[?&]live=force(?:&|$)/.test(location.search),
+  scene:null, canvas:null, badge:null, loading:null, why:''};
+function liveStale(s){
+  return !!(s&&items.length&&(s.revision?revision()!==s.revision:(baseRev&&revision()!==baseRev)));
+}
+function liveOff(why){
+  LIVE.ok=false; LIVE.why=why; liveHide();
+  try{console.info('живая сцена выключена:',why);}catch(e){}
+}
+function liveEngine(){
+  if(LIVE.ok===false)return Promise.resolve(null);
+  if(LIVE.scene)return Promise.resolve(LIVE.scene);
+  if(LIVE.loading)return LIVE.loading;
+  LIVE.loading=(async()=>{
+    try{
+      const m=await (await fetch('lib/scene.json',{cache:'no-store'})).json();
+      if(!window.RemlabScene)window.RemlabScene=await import(new URL('lib/'+m.file,location.href).href);
+      let rt; try{rt=(await (await fetch('rt-meshes.json',{cache:'no-store'})).json()).meshes;}catch(e){}
+      const cv=document.createElement('canvas'); cv.className='livecv'; cv.width=896; cv.height=597;
+      const sc=window.RemlabScene.createDemoScene(cv,{room:D.room, items:clone(items), base:location.href,
+        runtimeMeshes:rt, lite:isTouchUI()});
+      sc.on('contextlost',()=>liveOff('видеоконтекст потерян'));
+      sc.setSize(896,597);
+      await sc.ready;
+      const pr=sc.probe(10);
+      LIVE.probe=pr;
+      if(!LIVE.force&&(pr.software||pr.p95Ms>120)){sc.dispose(); liveOff(pr.software?'программный рендер':'медленный кадр '+Math.round(pr.p95Ms)+' мс'); return null;}
+      LIVE.ok=true; LIVE.scene=sc; LIVE.canvas=cv;
+      const b=document.createElement('div'); b.className='livebadge';
+      b.textContent='Живая сцена: так стоит сейчас'; LIVE.badge=b;
+      return sc;
+    }catch(e){liveOff(String(e&&e.message||e)); return null;}
+  })();
+  return LIVE.loading;
+}
+function liveHide(){
+  if(LIVE.canvas&&LIVE.canvas.parentNode)LIVE.canvas.remove();
+  if(LIVE.badge&&LIVE.badge.parentNode)LIVE.badge.remove();
+  if(LIVE.scene)LIVE.scene.stop();
+}
+// окно кадра закрылось (крестик, Esc, переход в конструктор) — сцену прячем и цикл кадров останавливаем
+new MutationObserver(()=>{if(!document.getElementById('shot').classList.contains('on'))liveHide();})
+  .observe(document.getElementById('shot'),{attributes:true,attributeFilter:['class']});
+async function liveShow(){
+  const s=shots[shotAt];
+  const vi=s?allVariants().findIndex(v=>(v.id||'')===(s.vid||'')):-1;
+  if(!s||vi!==cur||!liveStale(s)||!document.getElementById('shot').classList.contains('on')){liveHide();return;}
+  const sc=await liveEngine(); if(!sc)return;
+  const wrap=document.querySelector('#shot .shotwrap');
+  if(!wrap||!liveStale(shots[shotAt]))return;
+  if(LIVE.canvas.parentNode!==wrap){wrap.appendChild(LIVE.canvas); wrap.appendChild(LIVE.badge);}
+  const r=wrap.getBoundingClientRect(); if(r.width>0&&r.height>0)sc.setSize(r.width,r.height);
+  const c=(cams||loadCams())[/2$/.test(shots[shotAt].camera||'')?1:0]||{};
+  sc.setPhotoPose({x:c.x,y:c.y,rot:c.rot||0,fov:c.fov||72});
+  sc.start();
+  await sc.update(clone(items));
+}
 </script>
 <script>
 /* ——— ССЫЛКА ОТ МЕНЕДЖЕРА (план b2b-02, ADR-0257). Менеджер застройщика после показа шлёт

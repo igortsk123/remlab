@@ -1094,6 +1094,30 @@ export class FlatViewer {
     if (!this.raf) this.tick();
   }
 
+  /** Остановить цикл кадров (холст скрыт — не жечь батарею); `start()` продолжает. */
+  stop(): void {
+    cancelAnimationFrame(this.raf);
+    this.raf = 0;
+  }
+
+  /**
+   * Пробные кадры (demo-01 п.7): время N отрисовок текущей сцены с ожиданием видеокарты (`readPixels` одного пикселя
+   * дожидается конца кадра). Первые 2 кадра — разогрев (компиляция шейдеров), в счёт не идут. Возвращает p95, мс.
+   */
+  measureFrameMs(frames = 10): number {
+    const gl = this.renderer.getContext();
+    const px = new Uint8Array(4);
+    const times: number[] = [];
+    for (let i = 0; i < frames + 2; i++) {
+      const t = performance.now();
+      this.renderer.render(this.scene, this.camera);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      if (i >= 2) times.push(performance.now() - t);
+    }
+    times.sort((a, b) => a - b);
+    return times[Math.min(times.length - 1, Math.floor(times.length * 0.95))] ?? 0;
+  }
+
   /** Кадр «здесь и сейчас» — для превью и для e2e-проверки, что сцена реально нарисовалась. */
   snapshot(): string {
     this.renderer.render(this.scene, this.camera);

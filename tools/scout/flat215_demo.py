@@ -1023,16 +1023,18 @@ def annotate_yaw(data: dict) -> int:
     except Exception:  # noqa: BLE001
         over = {}
     n = 0
-    for v in data.get('variants') or []:
-        for it in v.get('items') or []:
-            sk = it.get('sku') or {}
-            m = sk.get('msid')
-            if not m:
-                continue
-            y = (over.get(m) or {}).get('yawDeg', (orient.get(m) or {}).get('yaw'))
-            if y is not None:
-                sk['yaw'] = float(y)
-                n += 1
+    # ЛЕНТЫ И ДЕКОР ТОЖЕ (demo-01, 14.10): живая сцена демо ставит модель заменённого предмета прямо из ленты —
+    # без разворота у кандидата заменённый диван встал бы боком (в лентах 0 из 478 имели `yaw`).
+    skus = [it.get('sku') or {} for v in data.get('variants') or [] for it in (v.get('items') or []) + (v.get('decor') or [])]
+    skus += [f for lst in (data.get('feeds') or {}).values() for f in lst if isinstance(f, dict)]
+    for sk in skus:
+        m = sk.get('msid')
+        if not m:
+            continue
+        y = (over.get(m) or {}).get('yawDeg', (orient.get(m) or {}).get('yaw'))
+        if y is not None:
+            sk['yaw'] = float(y)
+            n += 1
     return n
 
 
@@ -1044,6 +1046,14 @@ def main() -> None:
     src = os.path.join(HERE, 'flat215-demo', 'index.html')
     if os.path.exists(src):
         shutil.copy(src, os.path.join(OUT, 'index.html'))
+    # ДВИЖОК ЖИВОЙ СЦЕНЫ (demo-01): тот же исходник, что /flat (`lib/viewer3d`), собирается рядом со страницей
+    # (`lib/scene.<версия>.js` + `lib/scene.json`). Не собрался — остаётся вчерашний файл, страница работает с ним
+    # или уходит на серверный эскиз; громко, а не молча.
+    root = os.path.abspath(os.path.join(HERE, '..', '..'))
+    r = subprocess.run(['bash', '-c', f'. "{root}/tools/ops/node-env.sh" && node "{root}/tools/flat3d/build-scene-bundle.mjs" '
+                        f'--out "{os.path.join(OUT, "lib")}"'], capture_output=True, text=True, timeout=300)
+    print((r.stdout or '').strip()[-300:] if r.returncode == 0 else
+          f'WARN:scene_bundle: движок живой сцены не собрался (rc={r.returncode}): {(r.stderr or r.stdout or "").strip()[-200:]}')
     data = cache_images(build())
     print(f'разворот фронта в предметах вариантов: {annotate_yaw(data)}')
     json.dump(data, open(os.path.join(OUT, 'demo-data.json'), 'w', encoding='utf-8'),

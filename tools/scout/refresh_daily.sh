@@ -405,7 +405,12 @@ step orient_pull "$PY" orient_review.py --pull
 step orient_sync "$PY" orient_review.py --sync
 step room_catalog "$PY" room_catalog.py --run
 step flat215_demo "$PY" flat215_demo.py
-step flat215_publish bash publish_demo.sh
+# лёгкие копии моделей демо — ворота публикации (demo-01): нет копий у моделей вариантов — демо не публикуется
+if step demo_rt bash ../assets/demo_rt.sh; then
+  step flat215_publish bash publish_demo.sh
+else
+  RES[flat215_publish]=FAIL; echo "flat215_publish пропущен: ворота demo_rt" >> "$LOG"
+fi
 # прогрев кадров (b2b-08 п.4): у каждого стиля — черновой кадр свежего набора, без чьего-то нажатия «снять»
 step demo_warm bash ../ops/demo-warm.sh
 # живая проверка демо на проде после публикации (b2b-12): стили, кадры, замена, ссылка, английский

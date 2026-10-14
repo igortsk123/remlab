@@ -83,6 +83,21 @@ test("2.5–2.6 замена из окна: лента, выбор, сумма �
   await expect(page.locator("#shReshoot")).toBeVisible();
 });
 
+test("2.6 живая сцена: замена видна сразу, без запроса кадра к серверу (demo-01)", async ({ page }) => {
+  // `?live=force`: в проверочном браузере нет видеокарты (программный рендер), обычный покупатель с ним получил бы эскиз
+  const posts: string[] = [];
+  page.on("request", (r) => { if (r.method() === "POST" && /\/api\/render/.test(r.url())) posts.push(r.url()); });
+  await openDemo(page, "?live=force");
+  await page.locator("#tab-room").click();
+  await page.locator("button[data-swap]").first().click();
+  await page.locator("#shotbody [data-rep]").first().click();
+  const t = Date.now();
+  await page.locator("#sheet .mini:has-text('Заменить')").first().click();
+  await expect(page.locator("#shot .livecv")).toBeVisible({ timeout: 45_000 });
+  say("живая сцена в окне через", Date.now() - t, "мс; движок:", await page.evaluate("JSON.stringify(LIVE.probe)"));
+  expect(posts, "правка не должна звать серверный кадр").toEqual([]);
+});
+
 test("2.10–2.11, 2.17 конструктор: подсказка, перетаскивание, кнопка кадра", async ({ page }) => {
   await openDemo(page);
   await page.locator("#tab-room").click();

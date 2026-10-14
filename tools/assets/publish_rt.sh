@@ -11,7 +11,7 @@ COUNT=$(find "$SRC" -name '*.glb' | wc -l)
 [ "$COUNT" -gt 0 ] || { echo "в $SRC нет моделей"; exit 1; }
 echo "выкладываю $COUNT моделей ($(du -sh "$SRC" | cut -f1))"
 # БЕЗ --delete: на проде могут лежать модели прошлых партий, которые ещё открыты по ссылкам
-rsync -a --info=stats1 -e "ssh -p 22222 -o StrictHostKeyChecking=no" "$SRC/" root@89.167.127.0:/opt/remlab/test/rt/
+rsync -a --info=stats1 --exclude runtime-meshes.json -e "ssh -p 22222 -o StrictHostKeyChecking=no" "$SRC/" root@89.167.127.0:/opt/remlab/test/rt/
 PROBE=$(find "$SRC" -name '*.glb' ! -name '*-lite.glb' | head -1 | xargs basename)
 code=$(curl -s -o /dev/null -m 25 -w '%{http_code}' "https://remont-lab.online/rt/$PROBE")
 [ "$code" = 200 ] || { echo "проверка не прошла: HTTP $code на /rt/$PROBE"; exit 1; }
@@ -19,5 +19,8 @@ echo "готово: https://remont-lab.online/rt/$PROBE отдаётся (HTTP 2
 # ТАБЛИЦА КОПИЙ ДЛЯ ДЕМО (план demo-01 п.5): движок сцены демо подставляет её сам (`/demo/rt-meshes.json`, без долгого
 # кэша — уедет со следующей публикацией демо); приложение `/flat` берёт свою из сборки. Свежесть копии в браузере держит
 # `?v=<отпечаток>` в ссылке (`lib/configurator/mesh-url.ts`): маршрут `/rt/` — immutable на неделю.
-cp "$(dirname "$0")/../../data/flat3d/runtime-meshes.json" "$HOME/scout-scenes/flat215-demo/rt-meshes.json"
+# таблица ночной сборки (вне репо, `tools/assets/demo_rt.sh`), а если её нет — та, что в репо
+M="${RT_MANIFEST:-$HOME/scout-scenes/flat3d-rt/runtime-meshes.json}"
+[ -f "$M" ] || M="$(dirname "$0")/../../data/flat3d/runtime-meshes.json"
+cp "$M" "$HOME/scout-scenes/flat215-demo/rt-meshes.json"
 echo "таблица копий → ~/scout-scenes/flat215-demo/rt-meshes.json"
