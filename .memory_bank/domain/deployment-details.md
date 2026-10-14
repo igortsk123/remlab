@@ -184,7 +184,8 @@ DEV `GET /credits` через туннель (снаружи `/api/draft/credits
 (`{available, code}`). Порог — env `REALISTIC_MIN_BALANCE` (0,30 $) и `REALISTIC_COST_USD` (0,25 $ на идущее платное).
 **DEV-рендер (14.10, урок 485):** крон DEV раз в 10 минут — `tools/scout/dev_render_backend.sh` (поднимает, только если не
 отвечает); дайджест — `tools/ops/dev-checks.sh` `WARN:dev_render_down|tunnel|fallback|restart`. Перезапуск руками: убить
-процесс по PID с порта 8600 (`ss -ltnp`), затем `bash tools/scout/dev_render_backend.sh`.
+процесс по PID с порта 8600 (`ss -ltnp`), затем `bash tools/scout/dev_render_backend.sh`. Память: фоновый лист для
+«Улучшить» не собирается без денег на шлюзе, сборщику — потолок `SRC_MEM_EXTRA_MB` (+1,5 ГБ), урок 485.
 
 ## Модели 3D демо — кэш (14.10, b2b-12)
 `handle_path /test/mesh-pilot10/*` в `caddy/Caddyfile`: `Cache-Control: public, no-cache` (браузер хранит и перепроверяет
