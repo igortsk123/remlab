@@ -149,6 +149,24 @@
    "red": 10,
    "owner": "mesh",
    "runbook": "приоритет мешей по голодающим парам (mesh_priority), волна мешей"
+  },
+  {
+   "id": "quarantine_open",
+   "title": "Карантин моделей: ждут решения владельца",
+   "metric": "quarantine_open",
+   "kind": "info",
+   "owner": "owner",
+   "runbook": "/test/mesh-quarantine/ — «принять / брак / порезать»"
+  },
+  {
+   "id": "price_stale",
+   "title": "Цены «по странице» без свежей проверки страницы",
+   "metric": "price_stale",
+   "kind": "backlog",
+   "yellow": 200,
+   "red": 1000,
+   "owner": "catalog",
+   "runbook": "stock_check (недельная проверка страниц) → price_truth.py"
   }
  ],
  "waivers": {

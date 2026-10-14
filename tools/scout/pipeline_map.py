@@ -79,6 +79,9 @@ def collect() -> dict:
     except Exception:  # noqa: BLE001
         m['demo_variants'] = None
     m['swap_below_floor'], m['swap_hungry'] = _swap_stats()
+    # карантин моделей (ADR-0276): ждут решения владельца; цены «по странице», у которых страница устарела (ADR-0260)
+    m['quarantine_open'] = _n("select count(*) from mesh_quarantine where decision is null")
+    m['price_stale'] = _n("select count(*) from products where in_stock and price_basis = 'feed-stale'")
     return m
 
 
