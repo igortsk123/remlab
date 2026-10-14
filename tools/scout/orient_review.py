@@ -58,10 +58,15 @@ def collect() -> list:
     prod = json.load(urllib.request.urlopen(ORIENT_URL, timeout=30))
     from mesh_queue import db
     rows = db("select replace(o.sku, ':', '_'), o.status, coalesce(o.resolution->>'glb_sha',''), "
-              "coalesce(o.resolution->>'legacy_front_yaw',''), coalesce(o.resolution->>'source',''), coalesce(p.cat_role,'') "
+              "coalesce(o.resolution->>'legacy_front_yaw',''), coalesce(o.resolution->>'source',''), coalesce(p.cat_role,''), "
+              "coalesce(p.image_url_hd, p.image_url, '') "
               "from orientation_state o left join products p on p.shop_mid||':'||p.external_id = o.sku "
               "where o.revision_key like '%|orient-v1'")
-    return conflicts(sha, prod, [tuple(r) for r in rows if len(r) == 6])
+    photo = {r[0]: r[6] for r in rows if len(r) == 7}
+    out = conflicts(sha, prod, [tuple(r[:6]) for r in rows if len(r) == 7])
+    for it in out:
+        it['photo'] = photo.get(it['key'], '')
+    return out
 
 
 def page(publish: bool) -> int:
@@ -85,8 +90,18 @@ def page(publish: bool) -> int:
                 subprocess.run([sys.executable, '-c', f'import sys; sys.path[:0]=[{HERE!r},{os.path.join(HERE, "salad")!r}]; '
                                 f'import topview_render as T; T.render_front({os.path.join(d, "model.glb")!r},{it[tag]},{out!r})'],
                                check=False, timeout=300)
-        if os.path.exists(os.path.join(d, 'input.png')):
-            subprocess.run(['cp', os.path.join(d, 'input.png'), os.path.join(img, f'{k}.photo.png')], check=False)
+        ph = os.path.join(img, f'{k}.photo.png')
+        if not os.path.exists(ph) and it.get('photo'):     # фото товара из карточки (у моделей на проде его нет)
+            try:
+                u = it['photo'] if not it['photo'].startswith('//') else 'https:' + it['photo']
+                req = urllib.request.Request(u, headers={'User-Agent': 'Mozilla/5.0'})
+                from PIL import Image
+                import io
+                im = Image.open(io.BytesIO(urllib.request.urlopen(req, timeout=20).read())).convert('RGB')
+                im.thumbnail((500, 500))
+                im.save(ph, 'PNG')
+            except Exception as e:  # noqa: BLE001 — нет фото: карточка без него, решение всё равно можно принять
+                print(f'  фото {k}: {type(e).__name__}')
         cards.append(f'<div class=c data-key="{html.escape(k)}"><div class=t><b>{html.escape(it["role"] or "?")}</b> · {k[-8:]}</div>'
                      f'<div class=r><figure><img loading=lazy src="img/{k}.photo.png"><figcaption>фото товара</figcaption></figure>'
                      f'<figure><img loading=lazy src="img/{k}.cur.png"><figcaption>как сейчас</figcaption></figure>'
