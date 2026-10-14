@@ -333,6 +333,9 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
               setBarOpen(true);
             }}
             onRoomChange={(id) => id && setRoomId(id)}
+            onItemOptions={() => setBarOpen(true)}
+            onItemMove={startMove}
+            itemLabels={lang === "en" ? { options: "Options", move: "Drag" } : { options: "Варианты", move: "Двигать" }}   // не «Передвинуть»: та кнопка есть в нижней панели
             hintText={mobile ? L.walkHintMobile : L.walkHint}
             loadingText={L.loading}
             noWebglText={L.noWebgl}

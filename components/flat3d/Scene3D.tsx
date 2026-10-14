@@ -41,11 +41,17 @@ export interface Scene3DProps {
   onMoveCommit?: (slotId: string, to: { x: number; y: number; rot: number }) => void;
   /** Перемещение отменено (Escape) — вернуть как было. */
   onMoveCancel?: () => void;
+  /** Кнопки у выбранного предмета (flat3d-sims-ux C1): «Заменить» открывает варианты, «Передвинуть» — перемещение. */
+  onItemOptions?: () => void;
+  onItemMove?: (slotId: string) => void;
+  itemLabels?: { options: string; move: string };
   hintText: string;
   loadingText: string;
   noWebglText: string;
   retryText: string;
 }
+
+import { ObjectTools } from "@/components/flat3d/ObjectTools";
 
 export function Scene3D(props: Scene3DProps): React.ReactElement {
   const { apartment, catalogue, scene, lite, roomId, onPickSlot, onRoomChange, onReady } = props;
@@ -61,6 +67,10 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
   const framedRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const projectSelected = useCallback(
+    () => (selectedSlotId ? viewerRef.current?.projectSlot(selectedSlotId) ?? null : null),
+    [selectedSlotId],
+  );
   const [progress, setProgress] = useState(0);
   // первый показ закрываем большим экраном загрузки, дальше — только тонкой подсказкой:
   // комнаты догружаются на ходу, и накрывать ими всю сцену нельзя
@@ -319,6 +329,14 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
         aria-label="3D-вид квартиры"
         role="img"
       />
+      {ready && selectedSlotId && !movingSlotId && props.onItemOptions && props.itemLabels ? (
+        <ObjectTools
+          project={projectSelected}
+          onOptions={props.onItemOptions}
+          onMove={props.onItemMove ? () => props.onItemMove!(selectedSlotId) : undefined}
+          labels={props.itemLabels}
+        />
+      ) : null}
       {/* СОСТОЯНИЯ ЭКРАНА (правило ui-rules): загрузка, отказ WebGL с повтором, готово. */}
       {(!ready || progress < 1) && !firstLoadDone ? (
         error ? null : (
