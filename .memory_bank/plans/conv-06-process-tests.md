@@ -2,9 +2,11 @@
 workstream: catalog
 slug: conv-06-process-tests
 title: Конвейер как процессы — карта этапов, инварианты на каждом стыке, один дайджест «где порвалось»
-status: draft
+status: partial
+pause_reason: "v1 сделана (ADR-0272): 15 стыков с порогами, тревоги по смене состояния, страница; остались интеграционный тест на временной БД и стыки цен/карантина/вырезки/ориентации/публикации"
+resume_trigger: "следующий проход очереди или красный стык без метрики"
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-10-14
 completed:
 plan_kind: sub
 parent_plan: MASTER-conveyor-gaps
@@ -100,6 +102,7 @@ review_after: 2026-11-13
 - [ ] `core/pipeline-order.md` переписан по карте; `core/regression-net.md` — ссылка; ADR; `/memory-check`
 
 ## Лог выполнения
+- 2026-10-14 — Opus 5.5: разбор Codex (пороги, линейка процессов, шум, проверка поломки); сделано `rules/pipeline-map.json` + `pipeline_map.py` (селфтест на фикстурах), шаг `pipeline_map` в ночной цепочке, страница `/test/pipeline/`, `tests_chain`: код возврата `crontab -l`, лента замен — обязательная матрица ядра. ADR-0272. `partial`.
 - 2026-10-13 — план создан (draft), Fable 5.1
 
 ## Completion summary

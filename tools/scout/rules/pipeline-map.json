@@ -1,0 +1,164 @@
+{
+ "_about": "Карта стыков конвейера (план conv-06, ADR-0272): этап → метрика (функция в pipeline_map.py, НЕ SQL здесь — одна истина) → пороги жёлтый/красный → владелец и срок. Пороги — разбор Codex 14.10. kind: share — доля (0..1, порог «ниже»); drop — падение к прошлому успешному прогону (доля); backlog — абсолютный хвост (порог «выше»); max_share — доля «выше»; zero — должно быть 0; info — только число.",
+ "baseline_max_age_hours": 36,
+ "remind_hours": {
+  "yellow": 72,
+  "red": 24
+ },
+ "stages": [
+  {
+   "id": "catalog_active",
+   "title": "Каталог: активных товаров",
+   "metric": "catalog_active",
+   "kind": "drop",
+   "yellow": 0.02,
+   "red": 0.05,
+   "owner": "catalog",
+   "runbook": "feed_guard: какой фид пуст/упал"
+  },
+  {
+   "id": "in_stock",
+   "title": "В наличии",
+   "metric": "in_stock",
+   "kind": "drop",
+   "yellow": 0.05,
+   "red": 0.1,
+   "owner": "catalog",
+   "runbook": "stock_check / stock_truth"
+  },
+  {
+   "id": "photo_alive",
+   "title": "Живое фото среди в наличии",
+   "metric": "photo_share",
+   "kind": "share",
+   "yellow": 0.99,
+   "red": 0.98,
+   "owner": "catalog",
+   "runbook": "img_alive.py --pool"
+  },
+  {
+   "id": "role",
+   "title": "Роль гостиной среди в наличии",
+   "metric": "role_share",
+   "kind": "share",
+   "yellow": 0.995,
+   "red": 0.99,
+   "owner": "catalog",
+   "runbook": "category_map / lr_roles"
+  },
+  {
+   "id": "dims",
+   "title": "Габариты w,d,h среди в наличии",
+   "metric": "dims_share",
+   "kind": "info",
+   "owner": "catalog",
+   "runbook": "dim_audit (инвариант — по магазину×роли там)"
+  },
+  {
+   "id": "enrich_backlog",
+   "title": "Без обогащения (в наличии)",
+   "metric": "enrich_backlog",
+   "kind": "backlog",
+   "yellow": 200,
+   "red": 600,
+   "owner": "catalog",
+   "runbook": "enrich (флаг openai.off? деньги на LLM — dev_checks)"
+  },
+  {
+   "id": "style_backlog",
+   "title": "Без стиля (в наличии)",
+   "metric": "style_backlog",
+   "kind": "backlog",
+   "yellow": 360,
+   "red": 1000,
+   "owner": "catalog",
+   "runbook": "style_score (NoCredits?)"
+  },
+  {
+   "id": "mesh_ready",
+   "title": "Меш готов (в наличии)",
+   "metric": "mesh_ready",
+   "kind": "drop",
+   "yellow": 0.02,
+   "red": 0.05,
+   "owner": "mesh",
+   "runbook": "mesh_bind / mesh_ready"
+  },
+  {
+   "id": "mesh_stale",
+   "title": "Устаревшие меши: stale / (ready+stale)",
+   "metric": "stale_share",
+   "kind": "max_share",
+   "yellow": 0.2,
+   "red": 0.25,
+   "owner": "mesh",
+   "runbook": "HASH_VERSION / RULES_FINGERPRINT (урок 478)"
+  },
+  {
+   "id": "mesh_queue_age",
+   "title": "Очередь мешей: возраст старейшего задания, ч",
+   "metric": "queue_oldest_hours",
+   "kind": "backlog",
+   "yellow": 24,
+   "red": 48,
+   "owner": "mesh",
+   "runbook": "волна мешей (conv-11) — ждёт денег/запуска"
+  },
+  {
+   "id": "dead_photo_in_queue",
+   "title": "В очереди мешей с мёртвым фото",
+   "metric": "dead_photo_queued",
+   "kind": "zero",
+   "owner": "mesh",
+   "runbook": "conv-05: фото-гейт"
+  },
+  {
+   "id": "sets",
+   "title": "Комплектов в банке",
+   "metric": "sets_count",
+   "kind": "drop",
+   "yellow": 0.01,
+   "red": 0.1,
+   "owner": "sets",
+   "runbook": "sets_incremental --check / heal"
+  },
+  {
+   "id": "demo_variants",
+   "title": "Демо: полных вариантов",
+   "metric": "demo_variants",
+   "kind": "drop",
+   "yellow": 0.01,
+   "red": 0.2,
+   "owner": "demo",
+   "runbook": "flat215_demo: incomplete_styles"
+  },
+  {
+   "id": "swap_below_floor",
+   "title": "Лента замен: товаров ниже порога стиля",
+   "metric": "swap_below_floor",
+   "kind": "zero",
+   "owner": "demo",
+   "runbook": "conv-03: rules/demo-swap.json"
+  },
+  {
+   "id": "swap_hungry",
+   "title": "Лента замен: пар «роль ядра × стиль» с замен < 15",
+   "metric": "swap_hungry",
+   "kind": "backlog",
+   "yellow": 0,
+   "red": 10,
+   "owner": "mesh",
+   "runbook": "приоритет мешей по голодающим парам (mesh_priority), волна мешей"
+  }
+ ],
+ "waivers": {
+  "mesh_queue_age": {
+   "reason": "волна мешей ждёт денег и решения об автозапуске (conv-11, вопросы владельцу 14–15)",
+   "expires": "2026-10-28"
+  },
+  "swap_hungry": {
+   "reason": "моделей мало: лечится волной мешей (conv-11); список пар — в шаге chain_checks",
+   "expires": "2026-10-28"
+  }
+ }
+}

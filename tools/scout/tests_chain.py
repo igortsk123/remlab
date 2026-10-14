@@ -219,13 +219,15 @@ def live_demo_variants(r: Report) -> None:
         '; '.join(f"{x['style']} (нет {', '.join(x['missing'])})" for x in inc) if inc else '0'))
 
 
-def live_swap_feeds(r: Report) -> None:
-    """Лента замен демо (conv-03, ADR-0271): каждый товар из пула стоит в ленте только стиля, где его балл ≥ порога
-    (`rules/demo-swap.json`); пары «роль × стиль» с замен меньше `starving_below` — список (стиль голодает → приоритет
-    мешей). Читает собранный `demo-data.json` и баллы из базы."""
+SWAP_CORE = ('диван', 'столик', 'тв-тумба', 'торшер', 'кресло')   # обязательная матрица ленты: роль ядра × стиль
+
+
+def swap_feed_stats(demo_path: str = '~/scout-scenes/flat215-demo/demo-data.json') -> dict:
+    """Лента замен демо (conv-03, ADR-0271): товары ленты ниже порога стиля и «голодающие» пары обязательной матрицы
+    (роль ядра × опубликованный стиль) с замен < `starving_below`. Одна реализация — для `--live` и `pipeline_map`."""
     rules = json.load(open(os.path.join(HERE, 'rules', 'demo-swap.json'), encoding='utf-8'))
     thr, starve = float(rules['in_style_min']), int(rules['starving_below'])
-    d = json.load(open(os.path.expanduser('~/scout-scenes/flat215-demo/demo-data.json'), encoding='utf-8'))
+    d = json.load(open(os.path.expanduser(demo_path), encoding='utf-8'))
     pool = [(role, it) for role, lst in (d.get('feeds') or {}).items() for it in lst if it.get('src') == 'pool']
     sids = sorted({it['sid'] for _, it in pool if it.get('sid')})
     scores: dict = {}
@@ -238,16 +240,24 @@ def live_swap_feeds(r: Report) -> None:
                 scores[k] = json.loads(v)
     low = [f"{it['sid']}:{st}" for _, it in pool for st in it.get('styles') or []
            if float((scores.get(it['sid']) or {}).get(st, 0)) < thr]
-    cnt: dict = {}
-    for role, it in pool:
-        for st in it.get('styles') or []:
-            cnt[(role, st)] = cnt.get((role, st), 0) + 1
-    styles = sorted({st for _, st in cnt})
-    roles = sorted({ro for ro, _ in cnt})
-    hungry = [f'{ro}/{st} {cnt.get((ro, st), 0)}' for ro in roles for st in styles if cnt.get((ro, st), 0) < starve]
-    r.warn('swap_style_floor', not low, f'товаров ленты со стилем ниже {thr:g}: {len(low)}' + (f' ({", ".join(low[:5])}…)' if low else ''))
-    r.warn('swap_starving', len(hungry) < len(roles) * len(styles), f'пар «роль × стиль» с замен < {starve}: {len(hungry)}'
-           + (f' — {"; ".join(hungry[:12])}' if hungry else ''))
+    feeds = d.get('feeds') or {}
+    styles = [v.get('style') for v in d.get('variants') or [] if v.get('style')]
+    cnt = {(ro, st): sum(1 for it in feeds.get(ro, []) if st in (it.get('styles') or [it.get('style')]))
+           for ro in SWAP_CORE for st in styles}
+    hungry = [f'{ro}/{st} {n}' for (ro, st), n in cnt.items() if n < starve]
+    return {'low': low, 'hungry': hungry, 'threshold': thr, 'starving_below': starve}
+
+
+def live_swap_feeds(r: Report) -> None:
+    """Ни одного товара в ленте стиля с баллом ниже порога; у каждой пары «роль ядра × стиль» ≥ `starving_below` замен
+    (Codex 14.10: условие — ноль голодающих в обязательной матрице, а не «хоть одна пара здорова»)."""
+    x = swap_feed_stats()
+    r.warn('swap_style_floor', not x['low'], f"товаров ленты со стилем ниже {x['threshold']:g}: {len(x['low'])}"
+           + (f" ({', '.join(x['low'][:5])}…)" if x['low'] else ''))
+    # голодающие пары — известный недостаток моделей (лечится волной мешей), а не поломка: тревогу по нему шлёт
+    # карта стыков `pipeline_map.py` только при смене состояния; здесь — строка с числом без WARN
+    print(f"  [info] swap_starving: пар «роль ядра × стиль» с замен < {x['starving_below']}: {len(x['hungry'])}"
+          + (f" — {'; '.join(x['hungry'][:15])}" if x['hungry'] else ''), flush=True)
 
 
 def main() -> int:

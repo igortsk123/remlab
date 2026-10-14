@@ -3,7 +3,7 @@ tier: 1
 topic: pipeline-order
 scope: Порядок конвейера — от фида до расстановки
 tier2: "../domain/pipeline-order-details.md"
-updated: 2026-10-13
+updated: 2026-10-14
 importance: high
 source: manual
 status: working
@@ -29,6 +29,9 @@ review_after: 2026-12-05
 | 8 | Судья: выбор лучших вариантов | `judge.py` | — |
 | 9 | Расстановка под планировку | солвер, `acceptance-scenes.json` | 272 сцены |
 
+**Стыки (14.10, ADR-0272):** числа и пороги каждого стыка — `tools/scout/rules/pipeline-map.json`, расчёт —
+`tools/scout/pipeline_map.py`, страница `/test/pipeline/`; тревога только при смене состояния.
+
 **Этап 4 — ворота, а не косметика:** что срезано с фото, того не будет в меше; что прилипло от
 фона — станет геометрией. Мягкий декор режется тоже (нужен витрине), но на меши не идёт.
 
@@ -37,11 +40,9 @@ review_after: 2026-12-05
 **«Сеты только с мешами» — неверно:** мягкий декор мешей не получает; у предмета есть
 представление ПО СПОСОБУ ОТРИСОВКИ — покрытие считать как `asset_ready(strategy)`.
 
-**Планировщик генерации (5→6) ЕСТЬ** — `mesh_scheduler.py` в ночном кроне; публикация реестров
-на прод тоже есть (`tools/scout/salad/publish_merge.py`). Судья отключён — только по команде владельца.
+**Планировщик генерации (5→6)** — `mesh_scheduler.py` в ночном кроне; публикация реестров — `tools/scout/salad/publish_merge.py`.
 
-**13.10 (ADR-0247):** стиль считается ДО живости фото и вырезки (`tools/scout/refresh_daily.sh`);
-карта процессов — план `conv-06-process-tests`.
+**13.10 (ADR-0247):** стиль считается ДО живости фото и вырезки (`tools/scout/refresh_daily.sh`).
 
 **Tier 2:** `../domain/pipeline-order-details.md` · `tools/scout/refresh_daily.sh` ·
 ADR-0131/0133/0134 · [[mesh-pipeline]].
