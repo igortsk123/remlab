@@ -26,7 +26,9 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-PER_GROUP = int(os.environ.get('DEMO_SWAP_PER_GROUP', '30'))
+RULES = json.load(open(os.path.join(HERE, 'rules', 'demo-swap.json'), encoding='utf-8'))   # conv-03: правила ленты
+PER_GROUP = int(os.environ.get('DEMO_SWAP_PER_GROUP', RULES['per_group']))
+IN_STYLE_MIN = float(RULES['in_style_min'])
 STYLES = ('лофт', 'сканди', 'джапанди', 'минимализм', 'неоклассика', 'современный')
 # роли, которые демо расставляет объёмными моделями (ковры и прочее плоское — вклейкой)
 ROLES = ('диван', 'кресло', 'столик', 'тв-тумба', 'стеллаж', 'комод', 'торшер', 'пуф',
@@ -41,7 +43,7 @@ def _lit(xs) -> str:
     return ','.join("'" + str(x).replace("'", "''") + "'" for x in xs) or "''"
 
 
-def pool_sql(per_group: int = PER_GROUP) -> str:
+def pool_sql(per_group: int = PER_GROUP, in_style_min: float = IN_STYLE_MIN) -> str:
     """Запрос пула. Вынесен отдельно, чтобы `--selftest` проверял его форму без БД."""
     return f"""
 with cand as (
@@ -50,17 +52,22 @@ with cand as (
          coalesce(e.payload->'model'->>'functional_subtype', p.cat_role) as sub,
          s.style, p.cat_role, coalesce(p.name,'') as name, coalesce(p.shop,'') as shop,
          coalesce(p.image_url_hd, p.image_url) as img, p.url, coalesce(p.price_shown_rub, p.price_rub) as price,
-         p.w_cm, p.d_cm, p.h_cm, coalesce(e.quality, 0) as q
+         p.w_cm, p.d_cm, p.h_cm, coalesce(e.quality, 0) as q,
+         coalesce((ps.scores->>s.style)::numeric, 0) as st_score, coalesce(ps.universal, false) as uni
     from products p
     join product_enrichment e using (shop_mid, external_id)
+    join product_style_scores ps using (shop_mid, external_id)
     cross join lateral (select unnest(array[{_lit(STYLES)}]) as style) s
    where p.cat_role in ({_lit(ROLES)})
      and p.mesh_status = 'ready' and p.in_stock and p.status = 'active'
      and p.w_cm is not null and p.d_cm is not null and p.h_cm is not null
      and coalesce(p.image_url_hd, p.image_url) is not null and coalesce(p.photo_alive, true)  -- conv-05
-     and e.payload->'model'->'styles'->>s.style in ('высокая','средняя')),
+     -- СТИЛЬ — БАЛЛ 0–10 ≥ порога (conv-03, ADR-0245/0271; rules/demo-swap.json), а не ступень обогащения;
+     -- «универсальный» без исключения — тоже по баллу, но ниже в порядке
+     and coalesce((ps.scores->>s.style)::numeric, 0) >= {in_style_min}),
 ranked as (
-  select *, row_number() over (partition by sub, style order by q desc, sku) as rn from cand)
+  select *, row_number() over (partition by sub, style
+                               order by uni asc, q desc, st_score desc, price asc nulls last, sku) as rn from cand)
 select sku, rep, sub, style, cat_role, name, shop, img, url, coalesce(price::text,''),
        w_cm, d_cm, h_cm
   from ranked where rn <= {per_group} order by cat_role, style, sku"""
@@ -100,8 +107,8 @@ def report(items: list[dict] | None = None) -> list[dict]:
 def _selftest() -> int:
     bad = 0
     q = pool_sql(7)
-    for must in ('functional_subtype', 'mesh_status', "'высокая','средняя'", 'rn <= 7',
-                 'mesh_family_rep', 'partition by sub, style'):
+    for must in ('functional_subtype', 'mesh_status', 'product_style_scores', '>= 6', 'rn <= 7',
+                 'mesh_family_rep', 'partition by sub, style', 'order by uni asc, q desc, st_score desc'):
         if must not in q:
             bad += 1
             print('  FAIL: в запросе нет', must)

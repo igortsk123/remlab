@@ -174,7 +174,12 @@ def live_guards_scheduled(r: Report) -> None:
     а не журнал: пустой журнал и отсутствие сторожа выглядят одинаково.
     """
     need = ['money_guard', 'idle_guard', 'sink_keeper', 'batch_window']
-    cron = subprocess.run(['crontab', '-l'], capture_output=True, text=True).stdout
+    res = subprocess.run(['crontab', '-l'], capture_output=True, text=True)
+    # НЕ СМОГЛИ ПРОЧИТАТЬ ≠ «сторожей нет» (Codex 13.10, conv-06): иначе сбой чтения выглядел бы как пропажа всех
+    if res.returncode != 0 and 'no crontab' not in (res.stderr or '').lower():
+        r.warn('guards', False, f'расписание не прочитать (crontab -l: код {res.returncode}, {res.stderr.strip()[:80]}) — проверка не выполнена')
+        return
+    cron = res.stdout
     missing = [g for g in need if g not in cron]
     r.warn('guards', not missing,
            f'в расписании {len(need) - len(missing)} из {len(need)} сторожей'
@@ -214,13 +219,44 @@ def live_demo_variants(r: Report) -> None:
         '; '.join(f"{x['style']} (нет {', '.join(x['missing'])})" for x in inc) if inc else '0'))
 
 
+def live_swap_feeds(r: Report) -> None:
+    """Лента замен демо (conv-03, ADR-0271): каждый товар из пула стоит в ленте только стиля, где его балл ≥ порога
+    (`rules/demo-swap.json`); пары «роль × стиль» с замен меньше `starving_below` — список (стиль голодает → приоритет
+    мешей). Читает собранный `demo-data.json` и баллы из базы."""
+    rules = json.load(open(os.path.join(HERE, 'rules', 'demo-swap.json'), encoding='utf-8'))
+    thr, starve = float(rules['in_style_min']), int(rules['starving_below'])
+    d = json.load(open(os.path.expanduser('~/scout-scenes/flat215-demo/demo-data.json'), encoding='utf-8'))
+    pool = [(role, it) for role, lst in (d.get('feeds') or {}).items() for it in lst if it.get('src') == 'pool']
+    sids = sorted({it['sid'] for _, it in pool if it.get('sid')})
+    scores: dict = {}
+    for i in range(0, len(sids), 400):
+        lit = ','.join("('" + x.split('_', 1)[0] + "','" + x.split('_', 1)[1].replace("'", "''") + "')" for x in sids[i:i + 400])
+        for ln in sql(f"""select shop_mid||'_'||external_id||'\t'||scores::text from product_style_scores
+                           where (shop_mid::text, external_id) in ({lit})""").splitlines():
+            k, _, v = ln.partition('\t')
+            if v:
+                scores[k] = json.loads(v)
+    low = [f"{it['sid']}:{st}" for _, it in pool for st in it.get('styles') or []
+           if float((scores.get(it['sid']) or {}).get(st, 0)) < thr]
+    cnt: dict = {}
+    for role, it in pool:
+        for st in it.get('styles') or []:
+            cnt[(role, st)] = cnt.get((role, st), 0) + 1
+    styles = sorted({st for _, st in cnt})
+    roles = sorted({ro for ro, _ in cnt})
+    hungry = [f'{ro}/{st} {cnt.get((ro, st), 0)}' for ro in roles for st in styles if cnt.get((ro, st), 0) < starve]
+    r.warn('swap_style_floor', not low, f'товаров ленты со стилем ниже {thr:g}: {len(low)}' + (f' ({", ".join(low[:5])}…)' if low else ''))
+    r.warn('swap_starving', len(hungry) < len(roles) * len(styles), f'пар «роль × стиль» с замен < {starve}: {len(hungry)}'
+           + (f' — {"; ".join(hungry[:12])}' if hungry else ''))
+
+
 def main() -> int:
     live = '--live' in sys.argv
     r = Report()
     if live:
         print('проверки цепочки по ЖИВЫМ данным:', flush=True)
         for fn in (live_role_canon, live_mesh_required, live_queue_not_empty, live_guards_scheduled,
-                   live_demo_variants, live_photo_gate):
+                   live_demo_variants, live_photo_gate, live_swap_feeds):
             try:
                 fn(r)
             except Exception as e:  # noqa: BLE001 — одна проверка не должна ронять шаг
