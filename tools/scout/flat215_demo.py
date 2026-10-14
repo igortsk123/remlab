@@ -223,6 +223,17 @@ def _mesh_index() -> set:
                 idx |= set(json.load(f))
         except Exception as e:  # noqa: BLE001 — прод недоступен: работаем по локальному
             print('каталог мешей прода недоступен:', e)
+        # КАРАНТИН (conv-04, ADR-0276): модель лежит на сервере, но кривая по осям — для демо её «нет»,
+        # предмет дозаполнится заменой из ленты; вернётся после «принять» владельца
+        try:
+            from mesh_queue import db as _db
+            quar = {r[0].replace(':', '_', 1) for r in _db(
+                "select sku from mesh_quarantine where coalesce(decision,'cut') in ('cut','reject')") if r and r[0]}
+            if quar & idx:
+                print(f'карантин: моделей убрано из демо {len(quar & idx)}')
+            idx -= quar
+        except Exception as e:  # noqa: BLE001 — нет таблицы: карантина нет
+            print('карантин не прочитан:', e)
         _MESH_IDX = idx
     return _MESH_IDX
 

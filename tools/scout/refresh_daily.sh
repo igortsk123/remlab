@@ -432,6 +432,9 @@ if [ "${MESH_QUEUE:-1}" = "1" ]; then
     # ПЛАНИРОВЩИК: задания создаются только на дневную партию, отобранную по приросту готовых
     # комплектов. Без него очередь в 13 000 бралась по алфавиту SKU, и меши появлялись
     # равномерно по каталогу — ни один сет не становился показываемым (критика Codex 29.08).
+    step mesh_quarantine "$PY" mesh_quarantine.py --apply &&      # conv-04, ADR-0276: кривые по осям → карантин
+    step mesh_quarantine_pull "$PY" mesh_quarantine.py --pull &&   # решения владельца со страницы /test/mesh-quarantine/
+    step mesh_quarantine_page "$PY" mesh_quarantine.py --page --publish &&
     step mesh_bind "$PY" mesh_bind.py &&
     step mesh_schedule "$PY" mesh_scheduler.py &&
     step mesh_queue_export "$PY" mesh_queue.py --export mesh-queue-batch.json

@@ -203,6 +203,10 @@ select p.shop_mid, p.external_id,
 update products p set mesh_status = 'stale' from _inv i
  where p.shop_mid = i.shop_mid and p.external_id = i.external_id and not i.ok and p.mesh_status = 'ready';
 select 'stale '||count(*) from _inv where not ok;
+-- КАРАНТИН (conv-04, ADR-0276): ревизия выведена по осям — честная метка вместо «stale» (фото тут ни при чём)
+update products p set mesh_status = 'quarantine' from _inv i
+ where p.shop_mid = i.shop_mid and p.external_id = i.external_id and not i.ok and p.mesh_status in ('stale','ready')
+   and exists (select 1 from asset_revisions r where r.sku = p.shop_mid||':'||p.external_id and r.status = 'quarantine');
 update products p set mesh_status = 'ready' from _inv i
  where p.shop_mid = i.shop_mid and p.external_id = i.external_id and i.ok and p.mesh_status is distinct from 'ready';
 select 'ready '||count(*) from _inv where ok;
