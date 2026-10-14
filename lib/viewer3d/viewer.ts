@@ -135,16 +135,6 @@ export function verticalFov(hfovDeg: number, aspect: number): number {
   return (Math.atan(t) * 360) / Math.PI;
 }
 
-/**
- * Вертикальный угол живой фото-позы на ЭКРАНЕ. Кадр сервера — 3:2; окно варианта на компьютере почти квадратное, и при том
- * же горизонтальном угле вертикальный раздувался до ~70°: верхняя треть — потолок, нижняя — пол, мебель мелкая (прогон
- * d8 14.10, блокер «г»). Для окон от квадрата и шире вертикаль не больше кадра 3:2 с запасом 12 %; телефон (портрет) —
- * как раньше, его вид утверждён владельцем (demo-02 п.9). Экспорт кадра 3:2 этим не меняется.
- */
-export function screenPhotoFov(hfovDeg: number, aspect: number): number {
-  const v = verticalFov(hfovDeg, aspect);
-  return aspect >= 1 ? Math.min(v, verticalFov(hfovDeg, 1.5) * 1.12) : v;
-}
 
 interface Placed {
   spec: ObjectSpec;
@@ -1117,7 +1107,7 @@ export class FlatViewer {
 
     if (this.viewMode === "photo" && this.photo) {
       const { eye, target } = photoRay(this.photo);
-      const vfov = screenPhotoFov(this.photo.fov ?? 72, this.camera.aspect);
+      const vfov = verticalFov(this.photo.fov ?? 72, this.camera.aspect);
       const shift = photoShift(this.photo);
       if (Math.abs(this.camera.fov - vfov) > 0.01 || (this.camera.view?.offsetY ?? 0) !== -shift) {
         this.camera.fov = vfov;
