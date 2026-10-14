@@ -3,7 +3,7 @@ tier: 2
 topic: user-flow-details
 scope: Детальные сценарии и экраны Stage 1 — 7-экранный flow, free/paid варианты, сегменты, аналитика
 tier1: ../core/user-flow.md
-updated: 2026-10-13
+updated: 2026-10-14
 importance: high
 source: manual
 status: working
@@ -105,11 +105,13 @@ confidence (low/mid/high). Сумму считает движок, НЕ LLM.
 `/partner/report#<ключ>` (`components/partner/ReportPage.tsx`, `FunnelTable.tsx`) → `GET /api/partner/report`
 (`app/api/partner/report/route.ts`, заголовок `x-partner-key`, застройщик — только из ключа, ровно 12 недель — `firstWeek`).
 Сборка — `modules/partner-report/report.ts:buildReport`: неделя = отправка ссылки (понедельник в поясе
-застройщика), шаги — отправки с событием из `send_events` (открыли, выбирали, 3D, «консультация/ипотека»),
+застройщика), шаги — отправки с событием из `send_events` (открыли, выбирали, 3D, передвигали, поделились, «консультация/ипотека»),
 сохранили — `collections.send_id`, статусы менеджера — текущие. Заходы без ссылки — `page_counters` через
 `POST /api/events` (`contracts/analytics.ts:pageCounterKind`; демо-блок «СЧЁТЧИКИ БЕЗ ССЫЛКИ МЕНЕДЖЕРА», `/flat` —
 `components/flat3d/OpenBeacon.tsx`). Ключ выдаёт/отзывает `infra/server/partner-key-add.sh` (в базе — SHA-256).
-Тест сверяет имена событий в HTML демо со словарями (`tests/unit/partner-report.test.ts`).
+Тест сверяет имена событий в HTML демо со словарями (`tests/unit/partner-report.test.ts`). «Передвинул» (`item_move`,
+не чаще раза в 20 с) и «поделился» (`share`: ссылка на вариант, «отправить себе») — решение владельца 14.10; в демо
+оба идут через `reportAct` → событие `remlab:act` в оба счётчика.
 
 ## /styles — детали (перенесено из Tier 1, 13.10)
 Сид карточек — `lib/styles/quiz.ts`; лайк/скип → стиль → CTA дизайн/смета. Фото карточек и статьи по стилям —

@@ -3,7 +3,7 @@ tier: 1
 topic: manager-links
 scope: Ссылка от менеджера застройщика покупателю, сигналы менеджеру, его страница и бот
 tier2: "../domain/manager-links.md"
-updated: 2026-10-13
+updated: 2026-10-14
 importance: high
 source: manual
 status: working
@@ -31,8 +31,8 @@ review_after: 2026-12-13
 - **Антишум:** «открыл» раз в сутки, выбор — сводкой через 30 мин, дедуп кликов 2 мин, 20 сигналов/час
   (`modules/sends/service.ts`). Доставка — очередь `signal_outbox` с повторами, таймер `remlab-signals`
   раз в минуту; нет бота — `no_channel`, видно на странице менеджера.
-- Словарь событий = `b2b-03` (`designer_open`, `variant_view`, `item_swap`, `manager_contact_click`,
-  `alternative_request`, `flat3d_open` — без сигнала). Отчёт застройщику по этим событиям — ADR-0265.
+- Словарь событий — `contracts/send.ts:buyerEventKind` (`b2b-03`; `flat3d_open` — без сигнала).
+  Отчёт застройщику по этим событиям — ADR-0265.
 
 ## Код
 `contracts/send.ts` · `modules/sends/*` · `app/api/sends/*`, `app/api/manager/*`, `app/api/manager-bot`,
