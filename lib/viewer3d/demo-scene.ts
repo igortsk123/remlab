@@ -11,7 +11,7 @@
 import { slot as slotSchema, type Apartment } from "@/contracts/apartment";
 import { material as materialSchema, option as optionSchema, type Catalogue } from "@/contracts/configurator";
 import { fromDemoVariant, type DemoData } from "@/lib/configurator/fromDemo";
-import { setRuntimeMeshes, type RuntimeEntry } from "@/lib/configurator/mesh-url";
+import { meshUrl, setRuntimeMeshes, type RuntimeEntry } from "@/lib/configurator/mesh-url";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { DESKTOP_QUALITY, FlatViewer, LITE_QUALITY, type PhotoPose } from "@/lib/viewer3d/viewer";
 
@@ -38,6 +38,8 @@ export interface DemoScene {
   update(items: DemoItem[]): Promise<void>;
   setPhotoPose(pose: PhotoPose): void;
   exportFrame(width: number, height: number, type?: string, quality?: number): Promise<Blob>;
+  /** Подгрузить модели кандидатов заранее (лента замен открылась) — замена потом без сети. */
+  prefetch(items: DemoItem[]): void;
   /** p95 времени кадра (мс) и программный ли рендер — по ним страница решает, нужен ли серверный эскиз. */
   probe(frames?: number): { p95Ms: number; software: boolean };
   setSize(width: number, height: number): void;
@@ -74,11 +76,14 @@ export function liveApartment(room: DemoRoom, items: DemoItem[], base: string): 
     if (!it.w || !it.d) return;
     const id = `ковёр#${k}`;
     const img = it.sku?.img ? new URL(it.sku.img, base).toString() : undefined;
-    catalogue.materials.push(materialSchema.parse({ id: `rug:${k}`, titleRu: "Ковёр", titleEn: "Rug", colorHex: "#b8b0a4",
+    // материал назван по ТОВАРУ: подпись ковра в движке — по материалу, и замена ковра того же размера иначе оставила бы
+    // старое фото (verify 14.10)
+    const mat = `rug:${k}:${it.sku?.sid ?? it.sku?.img ?? ""}`;
+    catalogue.materials.push(materialSchema.parse({ id: mat, titleRu: "Ковёр", titleEn: "Rug", colorHex: "#b8b0a4",
       roughness: 0.95, tileCm: [it.w, it.d], surfaces: ["rug"], ...(img ? { baseColorUrl: img } : {}) }));
     catalogue.options.push(optionSchema.parse({ id: `opt:${id}`, category: "furniture", titleRu: it.sku?.name ?? "Ковёр",
       titleEn: it.sku?.name ?? "Rug", tier: "standard", price: 0, availability: "available", roomKinds: ["living"],
-      asset: { kind: "kit", kit: "rug", materials: { body: `rug:${k}` } } }));
+      asset: { kind: "kit", kit: "rug", materials: { body: mat } } }));
     apartment.slots.push(slotSchema.parse({ id, roomId: "living", category: "furniture", kind: "furniture", titleRu: "ковёр",
       titleEn: "rug", defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`],
       placement: { x: it.x ?? 0, y: it.y ?? 0, rot: it.rot ?? 0, wCm: it.w, dCm: it.d, hCm: 1, elevCm: 0 } }));
@@ -106,14 +111,17 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
   let running: Promise<void> = ready;
   const update = (items: DemoItem[]): Promise<void> => {
     pending = items;
-    running = running.then(async () => {
-      if (!pending) return;
-      const next = liveApartment(opts.room, pending, opts.base);
-      pending = null;
-      if (!next) return;
-      viewer.setApartment(next.apartment, next.catalogue);
-      await viewer.syncObjects(resolved(next.apartment, next.catalogue));
-    });
+    running = running
+      .then(async () => {
+        if (!pending) return;
+        const next = liveApartment(opts.room, pending, opts.base);
+        pending = null;
+        if (!next) return;
+        viewer.setApartment(next.apartment, next.catalogue);
+        await viewer.syncObjects(resolved(next.apartment, next.catalogue));
+      })
+      // ошибка одной синхронизации не должна молча глушить все следующие (verify 14.10)
+      .catch((e: unknown) => console.warn("живая сцена: обновление не применилось", e));
     return running;
   };
 
@@ -122,6 +130,9 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     update,
     setPhotoPose: (pose) => viewer.setPhotoPose(pose),
     exportFrame: (w, h, type, q) => viewer.exportFrame(w, h, type, q),
+    prefetch: (items) => {
+      for (const it of items) if (it.sku?.msid) viewer.preloadMesh(meshUrl(it.sku.msid, undefined, opts.lite === true));
+    },
     probe: (frames = 10) => ({ p95Ms: viewer.measureFrameMs(frames), software: viewer.softwareRenderer }),
     setSize: (w, h) => viewer.setSize(w, h),
     on(ev, fn) {

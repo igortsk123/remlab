@@ -3105,6 +3105,8 @@ function openPicker(it){
   document.getElementById('sheet').classList.add('open');
   document.getElementById('scrim').classList.add('on');
   filters(); grid();
+  // кандидаты ленты — в кэш живой сцены заранее (demo-01 п.6): первые 6, не вся лента (это десятки мегабайт)
+  if(LIVE.scene)LIVE.scene.prefetch(list.slice(0,6).map(p=>({sku:{msid:p.msid||p.sid}})));
 }
 function closePicker(){document.getElementById('sheet').classList.remove('open');
   document.getElementById('scrim').classList.remove('on');}
@@ -3354,6 +3356,8 @@ function liveStale(s){
 }
 function liveOff(why){
   LIVE.ok=false; LIVE.why=why; liveHide();
+  // показанную сцену освобождаем: видеоконтекст и модели не держим до закрытия страницы (verify 14.10)
+  if(LIVE.scene){try{LIVE.scene.dispose();}catch(e){} LIVE.scene=null;}
   try{console.info('живая сцена выключена:',why);}catch(e){}
 }
 function liveEngine(){
@@ -3371,8 +3375,24 @@ function liveEngine(){
       sc.on('contextlost',()=>liveOff('видеоконтекст потерян'));
       sc.setSize(896,597);
       await sc.ready;
-      const pr=sc.probe(10);
+      if(LIVE.ok===false){sc.dispose(); return null;}       // контекст потерян, пока грузились модели
+      let pr=sc.probe(10);
       LIVE.probe=pr;
+      // СРЕДНЯЯ МАШИНА — ЛЁГКИЙ РЕЖИМ, А НЕ ОТКАЗ (demo-01 п.7): p95 60–120 мс в обычном режиме → та же сцена лёгкими
+      // копиями без теней, проба заново; медленнее 120 мс — серверный эскиз
+      if(!LIVE.force&&!pr.software&&!isTouchUI()&&pr.p95Ms>60&&pr.p95Ms<=120){
+        sc.dispose();
+        const cv2=document.createElement('canvas'); cv2.className='livecv'; cv2.width=896; cv2.height=597;
+        const sc2=window.RemlabScene.createDemoScene(cv2,{room:D.room, items:clone(items), base:location.href, runtimeMeshes:rt, lite:true});
+        sc2.on('contextlost',()=>liveOff('видеоконтекст потерян'));
+        sc2.setSize(896,597); await sc2.ready;
+        if(LIVE.ok===false){sc2.dispose(); return null;}
+        pr=Object.assign(sc2.probe(10),{lite:true}); LIVE.probe=pr;
+        if(pr.p95Ms>120){sc2.dispose(); liveOff('медленный кадр '+Math.round(pr.p95Ms)+' мс (лёгкий режим)'); return null;}
+        LIVE.ok=true; LIVE.scene=sc2; LIVE.canvas=cv2;
+        const b2=document.createElement('div'); b2.className='livebadge'; b2.textContent='Живая сцена: так стоит сейчас'; LIVE.badge=b2;
+        return sc2;
+      }
       if(!LIVE.force&&(pr.software||pr.p95Ms>120)){sc.dispose(); liveOff(pr.software?'программный рендер':'медленный кадр '+Math.round(pr.p95Ms)+' мс'); return null;}
       LIVE.ok=true; LIVE.scene=sc; LIVE.canvas=cv;
       const b=document.createElement('div'); b.className='livebadge';
@@ -3394,9 +3414,11 @@ async function liveShow(){
   const s=shots[shotAt];
   const vi=s?allVariants().findIndex(v=>(v.id||'')===(s.vid||'')):-1;
   if(!s||vi!==cur||!liveStale(s)||!document.getElementById('shot').classList.contains('on')){liveHide();return;}
+  const at=shotAt;
   const sc=await liveEngine(); if(!sc)return;
+  // ПОКА ГРУЗИЛСЯ ДВИЖОК, ОКНО МОГЛИ ЗАКРЫТЬ ИЛИ ПЕРЕЛИСТНУТЬ (verify 14.10): холст к закрытому окну не цепляем
   const wrap=document.querySelector('#shot .shotwrap');
-  if(!wrap||!liveStale(shots[shotAt]))return;
+  if(!wrap||at!==shotAt||!document.getElementById('shot').classList.contains('on')||!liveStale(shots[shotAt]))return;
   if(LIVE.canvas.parentNode!==wrap){wrap.appendChild(LIVE.canvas); wrap.appendChild(LIVE.badge);}
   const r=wrap.getBoundingClientRect(); if(r.width>0&&r.height>0)sc.setSize(r.width,r.height);
   const c=(cams||loadCams())[/2$/.test(shots[shotAt].camera||'')?1:0]||{};

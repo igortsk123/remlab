@@ -22,7 +22,7 @@ const PLACEHOLDER = "__ENGINE_BUILD_PLACEHOLDER__";
 const res = await esbuild({
   entryPoints: [join(ROOT, "lib/viewer3d/demo-bundle.ts")],
   bundle: true, format: "esm", minify: true, target: "es2020", write: false, metafile: true,
-  alias: { "@": ROOT }, logLevel: "warning",
+  alias: { "@": ROOT }, logLevel: "warning", absWorkingDir: ROOT,   // пути metafile — от корня, откуда бы ни запустили (verify 14.10)
   define: { __ENGINE_BUILD__: JSON.stringify(PLACEHOLDER), "process.env.NEXT_PUBLIC_FLAT3D_MESH_BASE": "undefined",
     "process.env.NEXT_PUBLIC_FLAT3D_RT_BASE": "undefined" },
 });

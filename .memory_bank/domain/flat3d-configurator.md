@@ -69,7 +69,10 @@ three есть `new URL(…, import.meta.url)` на уровне модуля, I
 (место, поворот, `placeGroup`) + модель в начале координат; подпись объекта без места и поворота — сдвиг не пересоздаёт
 (`tests/unit/pivot-placement.test.ts`); `setPhotoPose` (+ `photoRay`, `verticalFov`; тест `tests/unit/photo-pose.test.ts`
 против `tools/assets/camera_golden.py`); `exportFrame` (`toBlob`); `measureFrameMs` (p95 после 2 кадров разогрева);
-`webglcontextlost` → `onContextLost`; `setApartment` — только смена расстановки той же квартиры (в `/flat` не подключён:
+`webglcontextlost` → `onContextLost`; `preloadMesh`; подпись наборов (кухня, санузел, кровать, шкаф, ковёр) включает
+место — их сдвиг пересобирает набор (кухня выбирает сторону колонн по двери); у ковра материал назван по товару, иначе
+замена ковра того же размера не меняла бы фото; очередь обновлений `demo-scene` переживает ошибку одного шага;
+`setApartment` — только смена расстановки той же квартиры (в `/flat` не подключён:
 там квартира меняется пересозданием движка, разбор Codex 14.10); `stop()`.
 `tools/assets/material_pipeline.py`: `photo` (перспектива по 4 точкам → бесшовность → нормализация
 цвета → normal/roughness/AO → WebP + превью + физический размер) и `make` (процедурные образцы

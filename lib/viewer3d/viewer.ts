@@ -1094,6 +1094,11 @@ export class FlatViewer {
     if (!this.raf) this.tick();
   }
 
+  /** Загрузить модель в кэш заранее (кандидат ленты замен); ошибка — молча: при замене будет честная коробка. */
+  preloadMesh(url: string): void {
+    this.meshes.load(url).catch(() => undefined);
+  }
+
   /** Остановить цикл кадров (холст скрыт — не жечь батарею); `start()` продолжает. */
   stop(): void {
     cancelAnimationFrame(this.raf);
@@ -1275,9 +1280,12 @@ function signatureOf(spec: ObjectSpec): string {
   const p = spec.placement;
   const geom = `${p.wCm}|${p.dCm}|${p.hCm}`;
   if (spec.kind === "mesh") return `mesh|${spec.meshId}|${spec.yawDeg}|${(spec.tintRgb ?? []).join(",")}|${geom}`;
+  // Наборы (кухня, санузел, кровать, шкаф, ковёр) собираются кодом от места: кухня выбирает сторону колонн по двери
+  // (`farFromDoor`). Их сдвиг — пересборка, как до demo-01 (verify 14.10: колонны оставались на старой стороне).
+  const at = `${p.x}|${p.y}|${p.rot}`;
   if (spec.kind === "kitchen") {
-    return `kitchen|${spec.level}|${spec.features.join(",")}|${spec.doorMaterialId}|${spec.worktopMaterialId}|${spec.splashbackMaterialId}|${geom}`;
+    return `kitchen|${spec.level}|${spec.features.join(",")}|${spec.doorMaterialId}|${spec.worktopMaterialId}|${spec.splashbackMaterialId}|${geom}|${at}`;
   }
-  if (spec.kind === "bathroom") return `bath|${spec.level}|${spec.features.join(",")}|${spec.vanityMaterialId}|${geom}`;
-  return `${spec.kind}|${spec.level}|${spec.features.join(",")}|${spec.materialId}|${geom}`;
+  if (spec.kind === "bathroom") return `bath|${spec.level}|${spec.features.join(",")}|${spec.vanityMaterialId}|${geom}|${at}`;
+  return `${spec.kind}|${spec.level}|${spec.features.join(",")}|${spec.materialId}|${geom}|${at}`;
 }
