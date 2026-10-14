@@ -3,7 +3,7 @@ tier: 1
 topic: goals
 scope: Цели v0.4 — сценарий, монетизация, порядок ступеней
 tier2: "../plans/MASTER-cost-first.md"
-updated: 2026-10-13
+updated: 2026-10-14
 importance: high
 source: manual
 status: working
@@ -47,3 +47,5 @@ review_after: 2026-12-05
 v0.3 «одно фото → подбор + fit-check» — `archive/2026/09/goals-one-photo-furnish-fit.md`; база v0.3 — `docs/master-brief-v0.3.md`.
 
 **Tier 2:** `../plans/MASTER-cost-first.md` (сценарий, ступени, барьеры).
+
+**14.10:** очередь `plans/MASTER-cost-first.md` пройдена до этапа 9 (итог — лог мастера, `project-state.md`).
