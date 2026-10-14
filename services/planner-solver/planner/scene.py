@@ -347,6 +347,8 @@ def _project(cam: Camera, pts: np.ndarray):
 
 
 BEYOND_CM = 20.0     # плоскость «что за проёмом» — на столько за стеной (стекло окна стоит в 2–3 см за её плоскостью)
+NEAR_FLAT_CM = 1.0   # плоскость у объектива для граней clay: всё, что ближе, отрезается до проекции
+CORNER_CM = 40.0     # продление крайних кусков стены за угол (щель у края кадра при камере вплотную к стене)
 BEYOND_MARGIN_CM = 150.0   # её запас за края выреза: 20 см глубины при взгляде под 80° сдвигают край на ~115 см
 
 
@@ -416,6 +418,24 @@ def compile_scene(room: Room, placements: list[Placement], cam: Camera) -> dict:
         Раньше глубина бралась одним числом на грань — пол со средней глубиной «накрывал» мебель,
         и ни один предмет не попадал в маску.
         """
+        # плоскость грани считаем по исходным углам (до обрезки)
+        p0, p1, p2 = corners3d[0], corners3d[1], corners3d[2]
+        if not cam.ortho and not cam.cyl:
+            # ГРАНЬ, УХОДЯЩАЯ ЗА СПИНУ КАМЕРЫ, РЕЖЕТСЯ ПО ПЛОСКОСТИ У ОБЪЕКТИВА (demo-04, 14.10): углы позади глаза давали
+            # мусорную проекцию, оболочка не покрывала стену, и у края кадра оставался фон (камера в 3 см от стены)
+            zc = (corners3d - eye) @ fwd
+            if np.all(zc <= NEAR_FLAT_CM):
+                return
+            if np.any(zc <= NEAR_FLAT_CM):
+                poly = []
+                for i in range(len(corners3d)):
+                    a, b = corners3d[i], corners3d[(i + 1) % len(corners3d)]
+                    za, zb = zc[i], zc[(i + 1) % len(corners3d)]
+                    if za > NEAR_FLAT_CM:
+                        poly.append(a)
+                    if (za > NEAR_FLAT_CM) != (zb > NEAR_FLAT_CM):
+                        poly.append(a + (b - a) * ((NEAR_FLAT_CM + 1e-3 - za) / (zb - za)))
+                corners3d = np.array(poly, float)
         u, v, z = _project(cam, corners3d)
         if np.all(z <= 1e-3):
             return
@@ -424,7 +444,6 @@ def compile_scene(room: Room, placements: list[Placement], cam: Camera) -> dict:
         if x1 <= x0 or y1 <= y0:
             return
         # плоскость грани в мире: n·X = d
-        p0, p1, p2 = corners3d[0], corners3d[1], corners3d[2]
         n = np.cross(p1 - p0, p2 - p0)
         nn = np.linalg.norm(n)
         if nn < 1e-9:
@@ -528,6 +547,7 @@ def compile_scene(room: Room, placements: list[Placement], cam: Camera) -> dict:
     ex, _, ez = (float(v) for v in cam.eye)
     skip = {"north": ez > D, "south": ez < 0, "west": ex < 0, "east": ex > W}
     cuts = _ir_cuts(room)
+    ir_room = bool(cuts)       # кадр из общего описания проёмов — стены новым путём (с продлением за угол)
     for wall, quad in (
         ("north", [[0, 0, D], [W, 0, D], [W, H, D], [0, H, D]]),
         ("west", [[0, 0, 0], [0, 0, D], [0, H, D], [0, H, 0]]),
@@ -536,14 +556,20 @@ def compile_scene(room: Room, placements: list[Placement], cam: Camera) -> dict:
     ):
         if skip[wall]:
             continue
-        if not cuts.get(wall):
+        if not cuts.get(wall) and not ir_room:
             raster_quad(np.array(quad, float), 0, SEMANTIC["wall"])
             continue
         # СТЕНА ВОКРУГ ПРОЁМОВ (demo-04 п.3) — прямоугольниками, как `rooms.ts:wallRects`; за проёмом — плоскость «что
-        # снаружи» (окно — вид, дверь — коридор): рама и стекло из общего описания проёма встают в настоящую дыру
+        # снаружи» (окно — вид, дверь — коридор): рама и стекло из общего описания проёма встают в настоящую дыру.
+        # Крайние куски продлены за угол на CORNER_CM: стены без толщины, и камера в 3 см от соседней стены видела мимо
+        # угла фон — светлую щель у края кадра; изнутри продление спрятано за соседней стеной
         length = W if wall in ("north", "south") else D
-        for u0, u1, v0, v1 in wall_rects(length, H, [c for c, _ in cuts[wall]]):
+        for u0, u1, v0, v1 in wall_rects(length, H, [c for c, _ in cuts.get(wall, [])]):
+            u0 = u0 - CORNER_CM if u0 <= 0 else u0
+            u1 = u1 + CORNER_CM if u1 >= length else u1
             raster_quad(_wall_quad(room, wall, u0, u1, v0, v1), 0, SEMANTIC["wall"])
+        if not cuts.get(wall):
+            continue
         spans = sorted(c for c, _ in cuts[wall])
         for c, kind in cuts[wall]:
             if c[2] < H:
@@ -551,8 +577,10 @@ def compile_scene(room: Room, placements: list[Placement], cam: Camera) -> dict:
                 # пустоту; лишнее закрывает сама стена (тест силуэта `tests/test_wall_cut.py`). Вдоль стены запас — не дальше
                 # середины простенка до соседнего проёма, иначе «окно» встаёт за соседней дверью
                 m = BEYOND_MARGIN_CM
-                m_lo = min([m] + [(c[0] - o[1]) / 2 for o in spans if o[1] <= c[0]])
-                m_hi = min([m] + [(o[0] - c[1]) / 2 for o in spans if o[0] >= c[1]])
+                # и не за концы стены: камера в 3 см от соседней стены видит мимо угла (стены без толщины), и вылезшая
+                # плоскость давала синюю полосу у края кадра (demo-04, 14.10)
+                m_lo = min([m, max(0.0, c[0])] + [(c[0] - o[1]) / 2 for o in spans if o[1] <= c[0]])
+                m_hi = min([m, max(0.0, length - c[1])] + [(o[0] - c[1]) / 2 for o in spans if o[0] >= c[1]])
                 raster_quad(_wall_quad(room, wall, c[0] - m_lo, c[1] + m_hi, c[2] - m, min(c[3], H) + m, back=BEYOND_CM), 0,
                             SEMANTIC["window" if kind in ("window", "balcony") else "door"])
     if not cam.ortho:      # вид сверху — «кукольный домик»: без потолка
