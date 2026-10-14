@@ -45,10 +45,10 @@ test("2.1–2.3 окно кадра: фото, список, числа как �
     const card = await page.locator(".lay .pr").nth(i).innerText();
     await page.locator("button[data-swap]").nth(i).click();
     await expect(page.locator("#shot")).toBeVisible();
-    const tot = (await page.locator("#shotbody .total").innerText()).replace(/\s+/g, " ");
-    say(`вариант ${i}: карточка «${card}» | окно «${tot}»`);
-    expect(Number(tot.match(/·\s*(\d+)/)?.[1]), "число товаров").toBe(Number(card.match(/^(\d+)/)?.[1]));
-    expect(num(tot), "сумма").toBe(num(card));
+    const [cnt, sum] = await page.locator("#shotbody .total span").allInnerTexts();
+    say(`вариант ${i}: карточка «${card}» | окно «${cnt} · ${sum}»`);
+    expect(Number(cnt!.match(/(\d+)\s*$/)?.[1]), "число товаров").toBe(Number(card.match(/^(\d+)/)?.[1]));
+    expect(num(sum!), "сумма").toBe(num(card.split("·").pop()!));
     await page.keyboard.press("Escape");
   }
 });
@@ -57,7 +57,7 @@ test("2.5–2.6 замена из окна: лента, выбор, сумма �
   await openDemo(page);
   await page.locator("#tab-room").click();
   await page.locator("button[data-swap]").first().click();
-  const before = num(await page.locator("#shotbody .total").innerText());
+  const before = num(await page.locator("#shotbody .total span").last().innerText());
   await page.locator("#shotbody [data-rep]").first().click();
   await expect(page.locator("#sheet")).toBeVisible();
   const cards = page.locator("#sheet .mini:has-text('Заменить')");
@@ -65,8 +65,8 @@ test("2.5–2.6 замена из окна: лента, выбор, сумма �
   say("замен в ленте:", await cards.count());
   expect(await cards.count()).toBeGreaterThanOrEqual(3);
   await cards.first().click();
-  await expect.poll(async () => num(await page.locator("#shotbody .total").innerText())).not.toBe(before);
-  say("сумма:", before, "→", num(await page.locator("#shotbody .total").innerText()));
+  await expect.poll(async () => num(await page.locator("#shotbody .total span").last().innerText())).not.toBe(before);
+  say("сумма:", before, "→", num(await page.locator("#shotbody .total span").last().innerText()));
   await expect(page.locator("#shReshoot")).toBeVisible();
 });
 
@@ -78,9 +78,9 @@ test("2.10–2.11, 2.17 конструктор: подсказка, перета
   await expect(page.locator("#cons")).toBeVisible();
   await expect(page.locator("#consHint")).toBeVisible();
   const before = await page.evaluate("items.map(i => [i.x, i.y])") as number[][];
-  // самый маленький не-ковёр — его тянем (так же выбирает предмет и сама страница)
+  // журнальный столик — посреди комнаты: в углах лежат значки камер, и нажатие там выбирает камеру, а не предмет
   const pos = await page.evaluate(`(() => { const r = stage.getBoundingClientRect();
-    const it = items.filter(i => !/^ковёр/.test(i.role)).sort((a, b) => a.w * a.d - b.w * b.d)[0];
+    const it = items.find(i => /^столик/.test(i.role)) || items.find(i => !/^ковёр/.test(i.role));
     return { x: r.left + PAD + it.x * S, y: r.top + PAD + it.y * S }; })()`) as { x: number; y: number };
   await page.mouse.move(pos.x, pos.y);
   await page.mouse.down();
@@ -92,6 +92,8 @@ test("2.10–2.11, 2.17 конструктор: подсказка, перета
   expect(moved).toBeGreaterThanOrEqual(0);
   await expect(page.locator("#consShot")).toBeVisible();
   await page.locator("#consDone").click();
+  await expect(page.locator("#shot")).toBeVisible();      // «Готово» возвращает в окно кадра, откуда пришли
+  await page.keyboard.press("Escape");
   await page.locator("text=Добавить новую расстановку").first().click();
   await expect(page.locator("#consHint")).toBeVisible();
   say("подсказка:", (await page.locator("#consHint").innerText()).slice(0, 50));
