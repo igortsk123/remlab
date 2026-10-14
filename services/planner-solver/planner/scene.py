@@ -653,7 +653,11 @@ def compile_scene(room: Room, placements: list[Placement], cam: Camera) -> dict:
         total[i] = 0
     visible = {ids[i]: px for i, px in total.items() if px > 400}
     behind = [ids[i] for i in ids if total[i] <= 400]
+    out_extra = {}
+    if ir_room and not cam.ortho and not cam.cyl:
+        out_extra = {"edge_cm": _edge_cm(room, cam, depth, sem, H), "palette": "browser"}
     return {
+        **out_extra,
         "depth": depth,
         "instances": inst,
         "semantic": sem,
@@ -673,6 +677,40 @@ _CLAY = {"floor": (196, 174, 148), "wall": (232, 230, 226), "ceiling": (240, 239
          "window": (108, 166, 208), "door": (176, 136, 84), "furniture": (176, 176, 172)}
 
 
+# ПАЛИТРА ЖИВОЙ СЦЕНЫ (demo-04 п.4): стены `paint-white` #f2f0ed, пол `demo-floor` #dcc7a6 (`lib/viewer3d/demo-scene.ts`),
+# потолок — как в `rooms.ts` (#f6f5f2). Кадр из общего описания проёмов (`out["palette"] == "browser"`) красится ею — иначе
+# серверный пол темнее браузерного и «одна комната» выглядит двумя.
+_CLAY_BROWSER = {"floor": (220, 199, 166), "wall": (242, 240, 237), "ceiling": (246, 245, 242)}
+JOINT_DARK, JOINT_CM = 0.16, 16.0    # затенение стыка: глубина и «ширина» в сантиметрах
+
+
+def _edge_cm(room: Room, cam: Camera, depth: np.ndarray, sem: np.ndarray, H: float) -> np.ndarray:
+    """Расстояние (см) от точки пола/стены/потолка до ближайшего АРХИТЕКТУРНОГО стыка: пол–стена, стена–стена,
+    потолок–стена (план demo-04 п.4, Codex: в сантиметрах, не в пикселях — экранное расстояние зависит от глубины).
+    Края выреза проёма стыком не считаются. Точка восстанавливается из глубины и луча камеры."""
+    Hp, Wp = depth.shape
+    eye, fwd, right, up = cam.basis()
+    focal = (Wp / 2) / math.tan(math.radians(cam.fov_deg) / 2)
+    ys, xs = np.mgrid[0:Hp, 0:Wp]
+    dirs = (fwd[None, None, :] * focal + right[None, None, :] * (xs - Wp / 2)[..., None]
+            + up[None, None, :] * (Hp / 2 + cam.shift_y * Hp - ys)[..., None])
+    with np.errstate(invalid="ignore", divide="ignore"):
+        t = depth / (dirs @ fwd)
+    P = eye[None, None, :] + t[..., None] * dirs
+    x, y, z = P[..., 0], P[..., 1], P[..., 2]
+    W, D = room.width_cm, room.depth_cm
+    dx = np.minimum(np.abs(x), np.abs(W - x))
+    dz = np.minimum(np.abs(z), np.abs(D - z))
+    flat = np.minimum(dx, dz)                                   # пол и потолок: до ближайшей стены
+    along = np.where(dx < dz, dz, dx)                           # стена: до угла вдоль неё
+    wall = np.minimum(np.minimum(np.abs(y), np.abs(H - y)), along)
+    e = np.full(depth.shape, np.inf, np.float32)
+    for name, val in (("floor", flat), ("ceiling", flat), ("wall", wall)):
+        m = (sem == SEMANTIC[name]) & np.isfinite(depth)
+        e[m] = val[m]
+    return e
+
+
 def clay_render(out: dict) -> np.ndarray:
     """Нейтральный превью-рендер из тех же карт: цвет по семантике, свет — по глубине.
 
@@ -683,8 +721,9 @@ def clay_render(out: dict) -> np.ndarray:
     sem, inst, depth = out["semantic"], out["instances"], out["depth"]
     img = np.zeros((*sem.shape, 3), np.float32)
     inv = {v: k for k, v in SEMANTIC.items()}
+    pal = {**_CLAY, **(_CLAY_BROWSER if out.get("palette") == "browser" else {})}
     for sid, name in inv.items():
-        img[sem == sid] = _CLAY[name]
+        img[sem == sid] = pal[name]
     # ФОН — НЕ ЧЁРНЫЙ (27.08): при срезанной ближней стене часть кадра не попадает ни на что, и
     # чёрные поля модель принимала за тёмную стену. Красим их светлым нейтралом.
     img[sem == 0] = (238, 236, 232)
@@ -692,9 +731,14 @@ def clay_render(out: dict) -> np.ndarray:
     fin = np.isfinite(d)
     if fin.any():
         lo, hi = float(d[fin].min()), float(d[fin].max())
-        shade = 1.18 - 0.42 * np.clip((d - lo) / max(hi - lo, 1e-6), 0, 1)   # ближе — светлее
+        # ближе — светлее; у кадра в палитре живой сцены перепад мягче — дальняя белая стена не уходит в серое
+        k0, k1 = (1.03, 0.2) if out.get("palette") == "browser" else (1.18, 0.42)
+        shade = k0 - k1 * np.clip((d - lo) / max(hi - lo, 1e-6), 0, 1)
         shade[~fin] = 1.0
         img *= shade[..., None]
+    if "edge_cm" in out:   # стыки пол–стена, угол, потолок–стена — мягкая тень, как в комнате (demo-04 п.4)
+        e = out["edge_cm"]
+        img *= (1.0 - JOINT_DARK * np.exp(-np.where(np.isfinite(e), e, 1e9) / JOINT_CM))[..., None]
     # ПРЕДМЕТЫ НЕ ДОЛЖНЫ СЛИВАТЬСЯ (27.08, владелец: «модель должна чётко видеть предметы, как
     # человек»). Случайный разброс тона ±10 % давал соседние объёмы почти одного цвета: стул у
     # стола, столик у дивана читались одним пятном. Теперь тон назначается ПО ГЛУБИНЕ: предметы

@@ -14,6 +14,7 @@ import * as THREE from "three";
 import type { Opening, Room, WallSide } from "@/contracts/apartment";
 import type { Material } from "@/contracts/configurator";
 import { type MaterialCtx, tiled } from "@/lib/viewer3d/materials";
+import { jointStrips } from "@/lib/viewer3d/joints";
 import { buildOpenings } from "@/lib/viewer3d/openings";
 import { openingIR } from "@/lib/viewer3d/opening-ir";
 
@@ -142,6 +143,12 @@ export function buildRoom(
     if (joinery) group.add(joinery);
 
     const rects = wallRects(f.lengthCm, room.heightCm, wallOpenings);
+    // мягкая тень у стыков пол/потолок/угол — в осях стены, как столярка (`joints.ts`, demo-04 п.4)
+    const joints = jointStrips(f.lengthCm, room.heightCm, rects);
+    joints.position.set(f.ox * CM, 0, f.oy * CM);
+    joints.rotation.y = f.rotY;
+    joints.name = `joints:${room.id}:${side}`;
+    group.add(joints);
     for (const r of rects) {
       const wCm = r.u1 - r.u0;
       const hCm = r.v1 - r.v0;
@@ -165,7 +172,9 @@ export function buildRoom(
   if (opts.ceiling !== false) {
     const ceil = new THREE.Mesh(
       new THREE.PlaneGeometry(room.w * CM, room.d * CM),
-      new THREE.MeshStandardMaterial({ color: 0xf6f5f2, roughness: 1 }),
+      // потолок светится отражённым светом: верхний источник до него не достаёт, а нижняя часть общего света серая —
+      // без собственного свечения он выходил тёмно-серым (прогон d8 14.10, demo-04 п.4)
+      new THREE.MeshStandardMaterial({ color: 0xf6f5f2, roughness: 1, emissive: 0xf6f5f2, emissiveIntensity: 0.32 }),
     );
     ceil.rotation.x = Math.PI / 2;
     ceil.position.set((room.x + room.w / 2) * CM, room.heightCm * CM, (room.y + room.d / 2) * CM);
