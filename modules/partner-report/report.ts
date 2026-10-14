@@ -17,15 +17,15 @@ export type ReportInput = {
   fromWeek?: string;
 };
 
-const ENGAGE = new Set(["variant_view", "item_swap", "manager_contact_click", "alternative_request", "flat3d_open"]);
+const ENGAGE = new Set(["variant_view", "item_swap", "item_move", "share", "manager_contact_click", "alternative_request", "flat3d_open"]);
 const STATUSES: ManagerStatus[] = ["contacted", "meeting", "deal", "lost"];
 
 export type FunnelRow = {
   week: string; apartmentId: string | null; fresh: boolean;
-  sent: number; opened: number; engaged: number; saved: number; contactClick: number; flat3d: number;
+  sent: number; opened: number; engaged: number; saved: number; contactClick: number; flat3d: number; moved: number; shared: number;
   status: Record<ManagerStatus, number>;
 };
-export type DirectRow = { week: string; apartmentId: string; designerOpen: number; variantView: number; itemSwap: number; flat3dOpen: number };
+export type DirectRow = { week: string; apartmentId: string; designerOpen: number; variantView: number; itemSwap: number; flat3dOpen: number; itemMove: number; share: number };
 
 /** Понедельник недели (YYYY-MM-DD) для момента `d` в поясе `tz`. */
 export function weekOf(d: Date, tz: string): string {
@@ -48,7 +48,7 @@ export function mondayOf(day: string): string {
 }
 
 const emptyRow = (week: string, apartmentId: string | null, fresh: boolean): FunnelRow => ({
-  week, apartmentId, fresh, sent: 0, opened: 0, engaged: 0, saved: 0, contactClick: 0, flat3d: 0,
+  week, apartmentId, fresh, sent: 0, opened: 0, engaged: 0, saved: 0, contactClick: 0, flat3d: 0, moved: 0, shared: 0,
   status: { contacted: 0, meeting: 0, deal: 0, lost: 0 },
 });
 
@@ -77,6 +77,8 @@ export function buildReport(inp: ReportInput): { weeks: FunnelRow[]; byApartment
       if (saved.has(s.id)) r.saved += 1;
       if (ks.has("manager_contact_click")) r.contactClick += 1;
       if (ks.has("flat3d_open")) r.flat3d += 1;
+      if (ks.has("item_move")) r.moved += 1;
+      if (ks.has("share")) r.shared += 1;
       if ((STATUSES as string[]).includes(s.status)) r.status[s.status as ManagerStatus] += 1;
     }
   }
@@ -86,11 +88,13 @@ export function buildReport(inp: ReportInput): { weeks: FunnelRow[]; byApartment
     const w = mondayOf(c.day);
     if (inp.fromWeek && w < inp.fromWeek) continue;
     const k = `${w}|${c.apartmentId}`;
-    const r = direct.get(k) ?? direct.set(k, { week: w, apartmentId: c.apartmentId, designerOpen: 0, variantView: 0, itemSwap: 0, flat3dOpen: 0 }).get(k)!;
+    const r = direct.get(k) ?? direct.set(k, { week: w, apartmentId: c.apartmentId, designerOpen: 0, variantView: 0, itemSwap: 0, flat3dOpen: 0, itemMove: 0, share: 0 }).get(k)!;
     if (c.kind === "designer_open") r.designerOpen += c.n;
     else if (c.kind === "variant_view") r.variantView += c.n;
     else if (c.kind === "item_swap") r.itemSwap += c.n;
     else if (c.kind === "flat3d_open") r.flat3dOpen += c.n;
+    else if (c.kind === "item_move") r.itemMove += c.n;
+    else if (c.kind === "share") r.share += c.n;
   }
 
   const desc = <T extends { week: string }>(a: T, b: T) => b.week.localeCompare(a.week);

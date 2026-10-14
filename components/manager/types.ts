@@ -21,6 +21,6 @@ export const STATUS_LABEL: Record<string, string> = {
   meeting: "встреча", deal: "сделка", lost: "отказ",
 };
 export const ACTION_LABEL: Record<string, string> = {
-  designer_open: "открыл", variant_view: "смотрел вариант", item_swap: "менял мебель",
+  designer_open: "открыл", variant_view: "смотрел вариант", item_swap: "менял мебель", item_move: "передвигал мебель", share: "поделился",
   manager_contact_click: "нажал «связаться»", alternative_request: "просил другой вариант",
 };

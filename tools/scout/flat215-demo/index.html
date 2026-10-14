@@ -1044,7 +1044,7 @@ function copyLink(vid,btn){
     setTimeout(()=>{btn.textContent=t;},1600); };
   // без буфера обмена (старый браузер, страница не по https) показываем ссылку — её можно выделить
   if(navigator.clipboard&&navigator.clipboard.writeText)
-    navigator.clipboard.writeText(url).then(say,()=>prompt('Ссылка на вариант:',url));
+    navigator.clipboard.writeText(url).then(()=>{reportAct('share');say();},()=>{reportAct('share');prompt('Ссылка на вариант:',url);});
   else prompt('Ссылка на вариант:',url);
 }
 // АДРЕС → ЭКРАН. Вызывается при старте и при смене адреса (в том числе кнопкой «назад»).
@@ -1604,6 +1604,13 @@ function priceCard(sum, cnt){
       shotOpen('<div class="wait">'+(LANG==='en'?'The developer will contact you — use the contact form on this page.':'Застройщик свяжется с вами — оставьте заявку в форме на этой странице.')+'</div>','');}
     :say('Эта ссылка ведет на форму консультации застройщика');
   box.querySelector('#pcSave').onclick=openList;
+}
+// ДЕЙСТВИЯ ДЛЯ ОТЧЁТА ЗАСТРОЙЩИКУ (b2b-03, владелец 14.10: считать «передвинул мебель» и «поделился»): страница сообщает
+// одно событие, а счётчики по ссылке менеджера и без неё (блоки ниже) его слушают. «Передвинул» — не чаще раза в 20 с.
+let _lastMoveAct=0;
+function reportAct(kind){
+  if(kind==='item_move'){const t=Date.now(); if(t-_lastMoveAct<20000)return; _lastMoveAct=t;}
+  document.dispatchEvent(new CustomEvent('remlab:act',{detail:kind}));
 }
 // КОРОТКОЕ СООБЩЕНИЕ ВМЕСТО alert() (b2b-12): alert блокирует страницу и выглядит как сбой.
 function toast(t){let el=document.getElementById('toast');
@@ -2730,6 +2737,7 @@ function shareOpen(list){
               url:a.url,img:a.img,shop:a.shop,role:a.role,qty:a.qty||1}))}))})});
       const j=await r.json();
       if(j.error)throw new Error(j.error);
+      reportAct('share');
       if(j.tg_link){
         shotOpen(`<div class="wait">Подборка готова. Откройте бота и нажмите «Старт» — он пришлёт ссылку на неё.<br>
           <a class="btn round cta" style="display:inline-block;margin-top:14px;text-decoration:none" href="${j.tg_link}" target="_blank" rel="noopener">Открыть Telegram</a></div>`,
@@ -2924,6 +2932,7 @@ stage.addEventListener('pointerup',e=>{
   if(touchTimer){clearTimeout(touchTimer);touchTimer=null;
     if(sel&&e.pointerType==='touch')showRotOvl();}   // короткий тап — стрелки поворота
   else if(sel&&drag&&!drag.moved&&!rotDrag)showRotOvl();  // и на компе: клик без движения (владелец 31.08)
+  if((drag&&drag.moved)||rotDrag)reportAct('item_move');
   drag=null;rotDrag=null;camDrag=null;touchStart=null;showTip(null);});  // предмет только двигаем; товар — по значку
 window.addEventListener('pointercancel',()=>{clearTimeout(touchTimer);touchTimer=null;drag=null;rotDrag=null;touchStart=null;showTip(null);});
 function loc(e){const r=stage.getBoundingClientRect();return{x:(e.clientX-r.left-PAD)/S,y:(e.clientY-r.top-PAD)/S};}
@@ -3449,6 +3458,7 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
   var _pc=window.priceCard; if(typeof _pc==='function')window.priceCard=priceCard=function(){var r=_pc.apply(this,arguments);if(CARD){var a=document.getElementById('pcMort'),c=document.getElementById('pcCons');if(a)a.onclick=function(){contactSheet('mortgage');};if(c)c.onclick=function(){contactSheet('consult');};}return r;};
   var _pv=window.pickVariant; if(typeof _pv==='function')window.pickVariant=pickVariant=function(i){var r=_pv.apply(this,arguments);ev('variant_view',state());return r;};
   var _to=window.tryOn; if(typeof _to==='function')window.tryOn=tryOn=function(){var r=_to.apply(this,arguments);ev('item_swap',state());return r;};
+  document.addEventListener('remlab:act',function(e){if(e.detail==='item_move'||e.detail==='share')ev(e.detail,state());});
   // менеджер смотрит сам (`&mgr=1`) — его 3D и коллекции не засчитываются покупателю (verify b2b-03)
   var _s3=window.sync3dLink; if(typeof _s3==='function'&&!PREVIEW)window.sync3dLink=sync3dLink=function(){var r=_s3.apply(this,arguments);
     ['pc3d','swap3d'].forEach(function(id){var a=document.getElementById(id);if(a&&a.href.indexOf('s=')<0)a.href+=(a.href.indexOf('?')<0?'?':'&')+'s='+SEND;});return r;};
@@ -3480,6 +3490,7 @@ addEventListener('resize',()=>{if(renderer){renderer.setSize(innerWidth,innerHei
   var _pv=window.pickVariant; if(typeof _pv==='function')window.pickVariant=pickVariant=function(i){var r=_pv.apply(this,arguments);
     if(i!==lastV){lastV=i;hit('variant_view');}return r;};
   var _to=window.tryOn; if(typeof _to==='function')window.tryOn=tryOn=function(){var r=_to.apply(this,arguments);hit('item_swap');return r;};
+  document.addEventListener('remlab:act',function(e){if(e.detail==='item_move'||e.detail==='share')hit(e.detail);});
   function boot(){if(typeof D==='undefined'||!D)return setTimeout(boot,300);hit('designer_open');}
   boot();
 })();

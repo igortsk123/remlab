@@ -39,18 +39,18 @@ describe("отчёт застройщику", () => {
         send("c", "2026-10-20T10:00:00Z", { apartmentId: "uk1" }),
       ],
       events: [{ sendId: "a", kind: "designer_open" }, { sendId: "a", kind: "manager_contact_click" }, { sendId: "b", kind: "designer_open" },
-        { sendId: "b", kind: "item_swap" }, { sendId: "b", kind: "flat3d_open" }],
+        { sendId: "b", kind: "item_swap" }, { sendId: "b", kind: "flat3d_open" }, { sendId: "b", kind: "item_move" }, { sendId: "a", kind: "share" }],
       savedSendIds: ["a"],
       counters: [{ day: "2026-10-20", apartmentId: "flat215", kind: "designer_open", n: 3 }, { day: "2026-10-21", apartmentId: "flat215", kind: "designer_open", n: 2 }],
       timezone: "Europe/Moscow", now: NOW,
     });
     const w13 = r.weeks.find((w) => w.week === "2026-10-12")!;
-    expect(w13).toMatchObject({ sent: 2, opened: 2, engaged: 2, saved: 1, contactClick: 1, flat3d: 1, fresh: false });
+    expect(w13).toMatchObject({ sent: 2, opened: 2, engaged: 2, saved: 1, contactClick: 1, flat3d: 1, moved: 1, shared: 1, fresh: false });
     expect(w13.status).toEqual({ contacted: 0, meeting: 1, deal: 0, lost: 0 });
     expect(r.weeks[0]).toMatchObject({ week: "2026-10-19", sent: 1, opened: 0, fresh: true });
     expect(r.total.sent).toBe(3);
     expect(r.byApartment.map((x) => [x.apartmentId, x.sent])).toEqual([["flat215", 2], ["uk1", 1]]);
-    expect(r.direct).toEqual([{ week: "2026-10-19", apartmentId: "flat215", designerOpen: 5, variantView: 0, itemSwap: 0, flat3dOpen: 0 }]);
+    expect(r.direct).toEqual([{ week: "2026-10-19", apartmentId: "flat215", designerOpen: 5, variantView: 0, itemSwap: 0, flat3dOpen: 0, itemMove: 0, share: 0 }]);
   });
 
   it("имена событий на демо-странице — из словарей контрактов", () => {
