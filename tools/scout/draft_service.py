@@ -130,6 +130,7 @@ def _registry_add(payload: dict, out: dict) -> None:
         rec = {'style': payload.get('style') or '', 'variant': payload.get('variant') or '',
                'quality': out.get('quality') or payload.get('quality') or 'draft',
                'model': out.get('model') or '', 'sources': out.get('sources') or '',
+               'backend': out.get('backend') or '',
                'ts': int(time.time() * 1000),
                'shots': [{'camera': sh.get('camera'), 'url': sh.get('url'),
                           'thumb': DR.thumb_name(sh['url']) if sh.get('url') else None}
@@ -359,6 +360,8 @@ class H(BaseHTTPRequestHandler):
                     'sources': res.get('sources'), 'timing': res.get('timing'),
                     'quality': quality, 'sec': round(time.time() - t, 1),
                     'queued_sec': round(t - _JOBS[jid]['ts'], 1) if jid and jid in _JOBS else 0,
+                    # КТО СНЯЛ (b2b-08 п.2b): DEV-прокси пишет 'dev', здесь — сервер сам (запасной путь, лёгкие меши)
+                    'backend': 'server',
                     'frames': res.get('frames'), 'diag': res['diag']}
             _registry_add(payload, out2)
             _DURS[quality] = (_DURS[quality] + [out2['sec']])[-20:]   # замер для оценки очереди
