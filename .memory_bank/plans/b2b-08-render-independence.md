@@ -6,7 +6,7 @@ status: partial
 pause_reason: "п.2 сделан частично: образ из репозитория и переключение (ADR-0267); переезд в compose и сборка в деплое — после правки деплой/откат-путей на --no-deps (разбор Codex), лучше днём"
 resume_trigger: "следующая сессия по очереди этапа 7 или сбой remlab-draft"
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-10-14
 completed:
 plan_kind: sub
 parent_plan: MASTER-developer-product
@@ -76,6 +76,7 @@ review_after: 2026-11-27
 - [ ] `deployment.md`, `domain/deployment-details.md`, `core/demo-planner.md` (кадры); ADR, пересмотр ADR-0139; `/memory-check`
 
 ## Лог выполнения
+- 2026-10-14 — Opus 5.5: сервис кадров переехал в compose, образ arm64 собирает CI, проверка версии и возврат при сбое (ADR-0278). Осталось: очередь кадров с прогрессом, прогрев кадров пресетов при публикации, контейнер DEV.
 - 2026-10-13 — план создан (draft), Fable 5.1
 
 - 2026-10-13 — Opus 5.5: разбор Codex (4 блокера переезда в compose ночью). Сделано: `infra/draft/Dockerfile` +
