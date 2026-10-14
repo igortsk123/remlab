@@ -38,7 +38,6 @@ commercial и image_hd — только счётчики журнала), сме
 `STYLE_DAILY_LIMIT=1000`) пишет оценки в кэш и в таблицу `product_style_scores`. Витрина `catalog_ready` (`bootstrap.sql`):
 роль → стиль → размеры → `mesh_uri` → готовность (11.10: 3 532 с мешем, 14 411 к генерации).
 
-**Тесты:** `--selftest` у `load3`, `dim_resolver`, `category_map`, `feed_guard`, `stock_truth`,
-`stock_check`, `footprint`, `mesh_priority` — CI `scout-selftest`. **Дыры:** 155 товаров divan.ru не в экспорте; диванов без глубины 1 012/2 345.
+**Тесты:** `--selftest` у модулей выше — CI `scout-selftest`. **Дыры:** 155 товаров divan.ru не в экспорте; диванов без глубины 1 012/2 345.
 
 **Tier 2:** `../domain/catalog-enrichment.md` · `../domain/integrations.md`. Цена показа — `tools/scout/price_truth.py` (ADR-0260).
