@@ -2,7 +2,10 @@
 workstream: product
 slug: b2b-07-embed-kit
 title: Встраивание к девелоперу «за 5 дней» — iframe/скрипт, список разрешённых доменов, передача квартиры и лида, инструкция
-status: draft
+status: partial
+pause_reason: "сделано 14.10 (ADR-0283): /embed, embed.js, режим встраивания, инструкция, пример; ждёт первого застройщика — его домены в frameDomains и живая проверка на его сайте"
+resume_trigger: "Застройщик прислал домены сайта"
+review_after: 2026-12-14
 created: 2026-10-13
 updated: 2026-10-13
 completed:
@@ -61,6 +64,7 @@ embed-кита нет; страница ходит в `/api/render`, `/test/shar
 - [ ] `core/partners.md` (встраивание), `deployment.md` (заголовки); ADR; `/memory-check`
 
 ## Лог выполнения
+- 2026-10-14 — Opus 5.5: разбор Codex (безопасность) → сделано: `/embed/<партнёр>/<квартира>`, режим встраивания в демо, `public/embed.js`, `docs/embed.md`, пример `/test/embed-sample/` (`tools/embed-sample/index.html`), Caddy не перезаписывает CSP приложения; unit-тесты. ADR-0283. Белая метка и подпись партнёра в ручках — вне скоупа.
 - 2026-10-13 — план создан (draft), Fable 5.1; зависит от `b2b-01`, `b2b-02`, `b2b-06`
 
 ## Completion summary
