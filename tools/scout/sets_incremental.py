@@ -527,7 +527,7 @@ def _heal_pod(s: dict, members: list[str], dead: dict, alive: set, apply: bool =
     return out or None
 
 
-def heal(apply: bool = False) -> None:
+def heal(apply: bool = False, only_trusted: bool = False) -> None:
     """Лечение комплектов: выбывший товар меняем на запасной той же роли.
 
     Замена обязана пройти те же ворота, что и оригинал: быть в наличии, попадать в ценовую вилку
@@ -545,7 +545,9 @@ def heal(apply: bool = False) -> None:
     # выбыл = пропал из фида (status) ИЛИ карточка мертва (health.py гасит in_stock поверх фида)
     dead = {}
     for row in _rows(f"""select e.shop_mid, e.external_id,
-                    case when e.status <> 'active' then e.status else 'карточка мертва' end
+                    case when e.status <> 'active' then e.status
+                         when p.availability_state = 'out_of_stock' then 'нет в наличии (страница)'
+                         else 'карточка мертва' end
              from product_enrichment e
              join products p on p.shop_mid=e.shop_mid and p.external_id=e.external_id
              join (values {vals}) v(mid,eid) on e.shop_mid=v.mid and e.external_id=v.eid
@@ -561,6 +563,17 @@ def heal(apply: bool = False) -> None:
         "where e.status='active' and p.in_stock") if len(r) >= 2}
 
     healed, hopeless, _touched, _pending = 0, [], set(), []
+    # ПРЕДОХРАНИТЕЛЬ СЧИТАЕТ ТОЛЬКО ПОДОЗРИТЕЛЬНЫЕ КАСАНИЯ (Codex 14.10): «archived» магазина с честным последним
+    # импортом — структурное выбытие, а не сломанная проба; 78 ночей подряд накопленное выбытие блокировало лечение.
+    try:
+        from heal_policy import MAX_PER_SET_PER_DAY as _MAXD, journal_reason as _jr, suspicious as _susp, trusted_archive_mids
+        _trusted = trusted_archive_mids()
+    except Exception:  # noqa: BLE001 — без модуля: всё подозрительно (как раньше)
+        _trusted, _MAXD = set(), 1
+        _susp = lambda reason, mid, trusted: True  # noqa: E731
+        _jr = lambda r: 'out_of_stock' if 'наличи' in str(r) else 'dead_photo'  # noqa: E731
+    _planned: dict = {}               # лимит «замен на комплект в сутки» и ВНУТРИ прогона, не только по журналу
+    print(f'магазинов с доверенным «archived»: {len(_trusted)}')
     for n, s in enumerate(sets, 1):
         # Q5 свода №13 (Codex): pod-комплект (pod_key: кресло 3/4 одного SKU + столик 2) лечится
         # ЦЕЛИКОМ — независимая замена роли рвёт exact-SKU пару. Выбыл любой член → весь pod
@@ -573,12 +586,20 @@ def heal(apply: bool = False) -> None:
             # ЗАМЕНЯЕТСЯ живым аналогом с теми же pod-воротами (пара 3/4 — один компактный SKU на
             # обоих, столик 2 — малая поверхность), только из живых фидов; нет замены — pod снимается
             _repl = _heal_pod(s, _members, dead, alive, apply)
+            _pod_susp = any(_susp(dead[key(s['items'][r]['mid'], s['items'][r]['eid'])], s['items'][r].get('mid'), _trusted)
+                            for r in _members if key(s['items'][r]['mid'], s['items'][r]['eid']) in dead)
+            if only_trusted and _pod_susp:
+                hopeless.append((n, 'pod', str(_pk)[:38], 'причина ненадёжна — ждёт проверки'))
+                continue
             if _repl:
                 print(f'  комплект {n}: pod {_pk} — член выбыл, заменён: {_repl}')
                 healed += 1
+                if _pod_susp:
+                    _touched.add(n)           # пара — в предохранитель, если выбыл член по ненадёжной причине
                 continue
             print(f'  комплект {n}: pod {_pk} — выбыл член, замены нет, снимаем целиком: {_members}')
             healed += 1
+            _touched.add(n)
             if apply:
                 for r in _members:
                     s['items'].pop(r, None)
@@ -592,6 +613,9 @@ def heal(apply: bool = False) -> None:
         for role, it in list(s['items'].items()):
             k = key(it['mid'], it['eid'])
             if k not in dead:
+                continue
+            if only_trusted and _susp(dead[k], it.get('mid'), _trusted):
+                hopeless.append((n, role, it['name'][:38], 'причина ненадёжна — ждёт проверки'))
                 continue
             # Q5-КОНТРАКТ ПАРЫ (20.08): «кресло 2» — ВТОРОЙ ЭКЗЕМПЛЯР основного кресла, а не
             # самостоятельный SKU. Общее лечение подбирало ему замену по роли и ломало контракт
@@ -684,17 +708,19 @@ def heal(apply: bool = False) -> None:
             if picked:
                 # Суточный лимит на комплект: одна ночь не должна переписывать сет целиком —
                 # человек тогда не поймёт, что именно изменилось.
-                if not _budget_left(s.get('set_id')):
+                if not _budget_left(s.get('set_id')) or _planned.get(n, 0) >= _MAXD:
                     hopeless.append((n, role, it['name'][:38], 'лимит замен на сегодня'))
                     continue
                 healed += 1
-                _touched.add(n)
+                _planned[n] = _planned.get(n, 0) + 1
+                if _susp(dead[k], it.get('mid'), _trusted):
+                    _touched.add(n)
                 print(f'  комплект {n}: {role} «{it["name"][:32]}» ({dead[k]}) → «{picked["name"][:32]}»')
                 if apply:
                     s['items'][role] = picked
                     _pending.append((s.get('set_id'), role, k,
                                      f"{picked.get('mid')}:{picked.get('eid')}",
-                                     'out_of_stock' if 'наличи' in str(dead[k]) else 'dead_photo'))
+                                     _jr(dead[k])))
             else:
                 hopeless.append((n, role, it['name'][:38], dead[k]))
     print(f'\nвылечено ролей: {healed}; без замены: {len(hopeless)}')
@@ -709,6 +735,14 @@ def heal(apply: bool = False) -> None:
         ok_run, why = run_allowed(len(_touched), len(sets))
     except Exception:  # noqa: BLE001 — модуля нет: ведём себя как раньше
         ok_run, why = True, ''
+    if not ok_run and apply and not only_trusted:
+        # ЧАСТИЧНОЕ ЛЕЧЕНИЕ (Codex 14.10): подозрительных касаний много — их не трогаем, а надёжные причины
+        # (archived магазина с честным импортом, «нет в наличии» по странице) лечим; человеку — тревога
+        print(f'\n⚠ {why} — лечу только надёжные причины')
+        subprocess.run(['bash', os.path.join(HERE, 'alert.sh'),
+                        f'remlab: лечение сетов — подозрительных касаний много ({why}); вылечены только надёжные причины'],
+                       check=False)
+        return heal(apply=True, only_trusted=True)
     if not ok_run:
         print(f'\n⚠ {why}')
         try:

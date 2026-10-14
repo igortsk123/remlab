@@ -119,6 +119,51 @@ def record(set_id: str | None, slot: str, old_sku: str | None, new_sku: str | No
         print(f'  журнал замен недоступен: {type(e).__name__}: {str(e)[:80]}')
 
 
+ARCHIVE_SPIKE_SHARE = float(os.environ.get('HEAL_ARCHIVE_SPIKE', '0.05'))
+
+
+def trusted_archive_mids() -> set:
+    """Магазины, чьё «archived» (оффера нет в свежем фиде 3 прогона) считается структурной причиной и НЕ идёт в
+    предохранитель прогона (разбор Codex 14.10): последний импорт магазина — verdict `ok`, не форсированный; файл
+    свежести фидов на месте (без него карантин load3 выключен); за 5 дней в архив ушло < ARCHIVE_SPIKE_SHARE его
+    товаров (всплеск — признак поломки разбора/категорий, тогда касания магазина подозрительны)."""
+    if not os.path.exists(os.path.join(HERE, 'feed-freshness.json')):
+        return set()
+    try:
+        last = {r[0]: (r[1], r[2]) for r in _rows(
+            "select distinct on (mid) mid::text, verdict, coalesce(forced,false)::text from catalog_import_runs "
+            "order by mid, created_at desc") if len(r) == 3}
+        spike = {r[0]: float(r[1]) for r in _rows(
+            "select shop_mid::text, count(*) filter (where status='archived' and missing_since > now() - interval '5 days')"
+            "::float / greatest(count(*), 1) from product_enrichment group by 1") if len(r) == 2}
+    except Exception:  # noqa: BLE001 — не смогли проверить: доверия нет
+        return set()
+    return {m for m, (v, forced) in last.items()
+            if v == 'ok' and forced != 'true' and spike.get(m, 0.0) < ARCHIVE_SPIKE_SHARE}
+
+
+def _rows(q: str) -> list:
+    r = subprocess.run(PSQL, input=q, capture_output=True, text=True, timeout=120)
+    if r.returncode:
+        raise RuntimeError(r.stderr[:200])
+    return [ln.split('\x1f') for ln in r.stdout.split('\n') if ln]
+
+
+def suspicious(reason: str, mid, trusted: set) -> bool:
+    """Касание по ненадёжной причине (проба карточки/фото, или archived без доверия к импорту магазина) — идёт в
+    предохранитель прогона. Чистая функция."""
+    r = str(reason)
+    if r.startswith('нет в наличии'):         # страница магазина подтвердила «нет в наличии» (stock_truth)
+        return False
+    return not (r == 'archived' and str(mid) in trusted)
+
+
+def journal_reason(dead_reason: str) -> str:
+    """Причина в журнал замен — как есть, а не всё подряд «dead_photo» (раньше archived писался как мёртвое фото)."""
+    r = str(dead_reason)
+    return 'archived' if r == 'archived' else 'out_of_stock' if 'наличи' in r else 'dead_card' if 'мертв' in r else r[:40]
+
+
 def run_allowed(planned_sets: int, total_sets: int) -> tuple[bool, str]:
     """Можно ли применять лечение этим прогоном. Вызывать ПЕРЕД записью изменений."""
     if total_sets and planned_sets > MAX_SETS_SHARE * total_sets:
@@ -155,3 +200,25 @@ def report(limit: int = 30) -> None:
 
 if __name__ == '__main__':
     report()
+
+
+def _selftest() -> int:
+    bad = 0
+
+    def ok(name: str, cond: bool) -> None:
+        nonlocal bad
+        print(('OK   ' if cond else 'FAIL ') + name)
+        bad += 0 if cond else 1
+
+    tr = {'112923'}
+    ok('archived магазина с честным импортом — не подозрительно', not suspicious('archived', 112923, tr))
+    ok('archived магазина без доверия — подозрительно', suspicious('archived', 99272, tr))
+    ok('«нет в наличии» по странице — не подозрительно', not suspicious('нет в наличии (страница)', 1, set()))
+    ok('«карточка мертва» (наличие неизвестно) — подозрительно', suspicious('карточка мертва', 112923, tr))
+    ok('журнал: archived пишется как archived, не dead_photo', journal_reason('archived') == 'archived')
+    ok('журнал: мёртвая карточка — dead_card', journal_reason('карточка мертва') == 'dead_card')
+    return 1 if bad else 0
+
+
+if __name__ == '__main__' and '--selftest' in sys.argv:
+    sys.exit(_selftest())
