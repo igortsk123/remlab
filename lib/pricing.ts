@@ -3,11 +3,13 @@
 
 const IMAGE_USD: Record<string, number> = {
   "gemini-3.1-flash-image": 0.067, // ~1K px
+  "google/gemini-3.1-flash-image": 0.067, // через шлюз Vercel, замер 14.10: $0.067 за картинку
 };
 
 // $/Mtok (вход/выход), очень грубо; flash-модели дёшевы — не лимитирующий фактор.
 const TEXT_USD: Record<string, { in: number; out: number }> = {
   "gemini-flash-latest": { in: 0.1, out: 0.4 },
+  "google/gemini-2.5-flash": { in: 0.3, out: 2.5 },
 };
 
 export function estimateImageCost(model: string): number {
