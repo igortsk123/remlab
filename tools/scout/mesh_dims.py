@@ -72,7 +72,8 @@ def find_glb(sku: str, glb_sha: str) -> str | None:
         return None
     for job in sorted(os.listdir(d)):
         f = os.path.join(d, job, 'model.glb')
-        if os.path.exists(f) and hashlib.sha256(open(f, 'rb').read()).hexdigest() == glb_sha:
+        # отпечаток бывает полным (64) или коротким (16, как в asset_revisions) — сравниваем по началу (14.10: 231 модель терялась)
+        if os.path.exists(f) and glb_sha and hashlib.sha256(open(f, 'rb').read()).hexdigest().startswith(glb_sha):
             return f
     return None
 

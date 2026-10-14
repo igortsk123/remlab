@@ -156,6 +156,8 @@ def page(publish: bool) -> int:
                   where coalesce(mq.decision,'') not in ('auto_release_v2')
                   order by (mq.decision is null) desc, mq.reasons""")
     os.makedirs(IMGDIR, exist_ok=True)
+    cache = json.load(open(CACHE)) if os.path.exists(CACHE) else {}
+    slab_of = {f'{r[0]}|{r[1]}': (cache.get('v2:' + r[1]) or {}).get('slab') for r in rows if len(r) >= 2}
     cards = []
     for r in rows:
         if len(r) < 12:
@@ -182,9 +184,11 @@ def page(publish: bool) -> int:
                     im = Image.open(cp)
                     im.thumbnail((400, 400))
                     im.save(cut)
-        why = [REASON_TEXT[x] for x in rs.split(',') if x in REASON_TEXT] or ['v1: расхождение размеров (замер v1 ошибочен)']
+        why = [REASON_TEXT[x] for x in rs.split(',') if x in REASON_TEXT] or (['решено вами по замеру v1'] if dec else ['замер v1'])
         if mask:
             why.append('конвейер записал: ' + mask)
+        if dec == 'accept' and slab_of.get(key):
+            why.append('вы приняли, но новый замер видит подложку — проверьте ещё раз')
         cards.append(
             f'<div class=c data-key="{html.escape(key)}"><div class=r>'
             f'<figure><img loading=lazy src="{html.escape(img)}" alt=""><figcaption>фото товара</figcaption></figure>'
@@ -235,7 +239,7 @@ def _selftest() -> int:
           {'sku': 'c', 'glb_sha': '3', 'max_dev': 0.40}, {'sku': 'd', 'glb_sha': '4'}]
     ok('выше порога 25 % — в карантин, ниже — нет, без замера — нет', [m['sku'] for m in pick(ms, 0.25, set())] == ['a', 'c'])
     ok('решённое владельцем повторно не попадает', [m['sku'] for m in pick(ms, 0.25, {('c', '3')})] == ['a'])
-    ok('порог читается из правил (v2: 60 % — растяжка по осям лечит умеренное)', threshold() == 0.6)
+    ok('порог пропорций из правил: выключен (владелец принимает искажения — их лечит растяжка)', threshold() >= 9)
     ok('v2: плохая вырезка и подложка — карантин независимо от пропорций',
        reasons({'mask': 'коллаж', 'slab': 'merged', 'max_dev': 0.1}, 0.6) == ['mask', 'slab'])
     ok('v2: умеренное расхождение без признаков — не карантин', reasons({'max_dev': 0.4}, 0.6) == [])
