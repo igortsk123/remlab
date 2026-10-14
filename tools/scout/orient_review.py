@@ -12,6 +12,7 @@
   ~/venvs/scout/bin/python orient_review.py --list            # расхождения числом и списком
   ~/venvs/scout/bin/python orient_review.py --page --publish  # отрендерить виды и выложить страницу
   ~/venvs/scout/bin/python orient_review.py --pull            # применить решения владельца
+  ~/venvs/scout/bin/python orient_review.py --sync            # опубликовать записи без видимых изменений
   python3 orient_review.py --selftest
 """
 import html
@@ -51,7 +52,44 @@ def conflicts(sha: dict, prod: dict, rows: list) -> list:
     return out
 
 
-def collect() -> list:
+def classify(sha: dict, prod: dict, rows: list) -> dict:
+    """Состояние разворота каждой опубликованной модели (разбор Codex 14.10): synced — запись на проде есть;
+    publishable — надёжное решение совпадает с тем, как модель стоит сейчас (0 по умолчанию), записи нет — можно
+    опубликовать без видимых изменений; conflict — надёжное решение расходится (решает владелец); pending — ждёт
+    проверки; symmetric — симметричная; unusable — непригодна; sha_mismatch — решение для другого файла; none — решения
+    нет. Чистая функция."""
+    by: dict = {}
+    for r in rows:
+        by.setdefault(r[0], []).append(r)
+    out = {}
+    for k, h in sha.items():
+        rs = [r for r in by.get(k, []) if (r[2] or '')[:16] == h[:16]]
+        if k in prod and str(prod[k].get('orient', '')).startswith('human'):
+            out[k] = 'synced'
+            continue
+        if not by.get(k):
+            out[k] = 'synced' if k in prod else 'none'
+            continue
+        if not rs:
+            out[k] = 'sha_mismatch'
+            continue
+        _k, status, _g, legacy, source, _role = rs[0][:6]
+        if status != 'auto_resolved' and status != 'human_resolved':
+            out[k] = 'pending' if status == 'review_pending' else status
+        elif source == 'symmetric_by_role':
+            out[k] = 'synced' if k in prod else 'symmetric'
+        elif not legacy:
+            out[k] = 'none'
+        else:
+            cur = float((prod.get(k) or {}).get('yaw', 0) or 0)
+            if snap(float(legacy)) != cur:
+                out[k] = 'conflict'
+            else:
+                out[k] = 'synced' if k in prod else 'publishable'
+    return out
+
+
+def _gather():
     r = subprocess.run(SSH + [f'cd {PROD} && for d in */; do f="${{d}}model.glb"; [ -f "$f" ] && echo "${{d%/}} $(sha256sum "$f" | cut -c1-64)"; done'],
                        capture_output=True, text=True, timeout=900)
     sha = dict(ln.split() for ln in r.stdout.splitlines() if len(ln.split()) == 2)
@@ -62,8 +100,47 @@ def collect() -> list:
               "coalesce(p.image_url_hd, p.image_url, '') "
               "from orientation_state o left join products p on p.shop_mid||':'||p.external_id = o.sku "
               "where o.revision_key like '%|orient-v1'")
-    photo = {r[0]: r[6] for r in rows if len(r) == 7}
-    out = conflicts(sha, prod, [tuple(r[:6]) for r in rows if len(r) == 7])
+    return sha, prod, [tuple(r) for r in rows if len(r) == 7]
+
+
+def counts() -> dict:
+    """Число моделей по состояниям — для стыка конвейера (`pipeline_map.py`)."""
+    sha, prod, rows = _gather()
+    c: dict = {}
+    for st in classify(sha, prod, rows).values():
+        c[st] = c.get(st, 0) + 1
+    return c
+
+
+def sync() -> int:
+    """Опубликовать записи, которые НИЧЕГО не меняют на экране: надёжное решение = текущий вид, симметричные (их
+    поворот не виден). Слиянием, без потери чужих записей; прод не прочитан — ничего не делаем."""
+    sha, prod, rows = _gather()
+    st = classify(sha, prod, rows)
+    by = {r[0]: r for r in rows if r[0] in sha and (r[2] or '')[:16] == sha[r[0]][:16]}
+    upd = {}
+    for k, s0 in st.items():
+        if s0 == 'publishable':
+            upd[k] = {'yaw': snap(float(by[k][3])), 'orient': f'orient-v1:{by[k][1]}:{by[k][4]}:sync', 'role': by[k][5]}
+        elif s0 == 'symmetric':
+            upd[k] = {'yaw': float((prod.get(k) or {}).get('yaw', 0) or 0), 'orient': 'orient-v1:symmetric:sync', 'role': by[k][5]}
+    if upd:
+        os.makedirs(WORK, exist_ok=True)
+        tmp = os.path.join(WORK, 'orient-sync.json')
+        json.dump(upd, open(tmp, 'w'), ensure_ascii=False)
+        rc = subprocess.run([sys.executable, os.path.join(HERE, 'salad', 'publish_merge.py'), tmp, ORIENT_URL,
+                             f'root@89.167.127.0:{PROD}/orient.json'], timeout=300).returncode
+        if rc:
+            print('WARN:orient_review: синхронизация не опубликована — прод не прочитан', flush=True)
+            return 0
+    print(f'разворот: опубликовано записей без видимых изменений {len(upd)}; состояния {dict((v, list(st.values()).count(v)) for v in set(st.values()))}')
+    return 0
+
+
+def collect() -> list:
+    sha, prod, rows = _gather()
+    photo = {r[0]: r[6] for r in rows}
+    out = conflicts(sha, prod, [tuple(r[:6]) for r in rows])
     for it in out:
         it['photo'] = photo.get(it['key'], '')
     return out
@@ -181,6 +258,12 @@ def _selftest() -> int:
     got = conflicts(sha, prod, rows)
     ok('расхождение надёжного решения с текущим видом — на страницу, остальное нет', [g['key'] for g in got] == ['a'])
     ok('новое значение снэплено к 90°', got and got[0]['new'] == 180.0 and got[0]['cur'] == 0.0)
+    cl = classify({'p': 'p' * 64, 'q': 'q' * 64, 'r': 'r' * 64}, {},
+                  [('p', 'auto_resolved', 'p' * 64, '1', 'orienter', 'диван'),        # = 0 по умолчанию → можно публиковать
+                   ('q', 'review_pending', 'q' * 64, '180', 'orienter', 'комод'),
+                   ('r', 'auto_resolved', 'x' * 64, '0', 'orienter', 'стул')])
+    ok('состояния: публикуемое без изменений / ждёт проверки / решение для другого файла',
+       cl == {'p': 'publishable', 'q': 'pending', 'r': 'sha_mismatch'})
     return 1 if bad else 0
 
 
@@ -197,4 +280,9 @@ if __name__ == '__main__':
         sys.exit(page('--publish' in a))
     if '--pull' in a:
         sys.exit(pull())
+    if '--sync' in a:
+        sys.exit(sync())
+    if '--counts' in a:
+        print(counts())
+        sys.exit(0)
     print(__doc__)

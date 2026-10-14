@@ -179,14 +179,30 @@
    "runbook": "mesh_publish.py (ночной шаг до flat215_demo)"
   },
   {
-   "id": "orient_missing",
+   "id": "orient_unsynced",
    "kind": "backlog",
-   "metric": "orient_missing",
+   "metric": "orient_unsynced",
    "owner": "mesh",
-   "yellow": 20,
-   "red": 100,
-   "title": "Опубликованные модели без записи разворота",
-   "runbook": "orient.json на проде ← topview_render/publish_merge; план flat3d-sims-ux A1, conv-06"
+   "yellow": 1,
+   "red": 50,
+   "title": "Модели на проде без записи разворота при готовом решении (или решение для другого файла)",
+   "runbook": "orient_review.py --sync (ночной шаг)"
+  },
+  {
+   "id": "orient_conflict",
+   "kind": "info",
+   "metric": "orient_conflict",
+   "owner": "owner",
+   "title": "Разворот: база расходится с текущим видом — решает владелец",
+   "runbook": "/test/orient-review/"
+  },
+  {
+   "id": "orient_pending",
+   "kind": "info",
+   "metric": "orient_pending",
+   "owner": "owner",
+   "title": "Разворот ждёт проверки",
+   "runbook": "/lab/mesh-review"
   }
  ],
  "waivers": {
@@ -201,10 +217,6 @@
   "mesh_ready": {
    "reason": "карантин моделей 25 % (ADR-0276) 14.10 вывел из готовых 597 товаров — падение ожидаемое",
    "expires": "2026-10-16"
-  },
-  "orient_missing": {
-   "reason": "публиковать решения базы массово нельзя (пробная партия 14.10: у корпусной мебели хуже); расхождения — на решение владельцу /test/orient-review/; совпадающие — после разделения стыка по состояниям (Codex 14.10)",
-   "expires": "2026-10-28"
   }
  }
 }

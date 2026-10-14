@@ -401,6 +401,8 @@ step mesh_publish "$PY" mesh_publish.py
 # каталог спальни (b2b-10 этап 2, ADR-0279): отдельная таблица room_catalog, гостиная её не видит; до сборки витрины
 # решения владельца по развороту моделей (/test/orient-review/) → orient.json прода слиянием (flat3d-sims-ux A1)
 step orient_pull "$PY" orient_review.py --pull
+# записи разворота, которые ничего не меняют на экране (решение = текущий вид, симметричные) — на прод слиянием
+step orient_sync "$PY" orient_review.py --sync
 step room_catalog "$PY" room_catalog.py --run
 step flat215_demo "$PY" flat215_demo.py
 step flat215_publish bash publish_demo.sh

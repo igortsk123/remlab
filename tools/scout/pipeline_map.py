@@ -84,7 +84,17 @@ def collect() -> dict:
     # карантин моделей (ADR-0276): ждут решения владельца; цены «по странице», у которых страница устарела (ADR-0260)
     m['quarantine_open'] = _n("select count(*) from mesh_quarantine where decision is null")
     m['price_stale'] = _n("select count(*) from products where in_stock and price_basis = 'feed-stale'")
-    m['mesh_unpublished'], m['orient_missing'] = _publish_stats()
+    m['mesh_unpublished'], _missing = _publish_stats()
+    # РАЗВОРОТ ПО СОСТОЯНИЯМ (разбор Codex 14.10): «опубликовано без записи при готовом решении» и «решение для чужого
+    # файла» обязаны быть нулём; спорные — у владельца, «ждут проверки» — справочно
+    try:
+        import orient_review as OR
+        c = OR.counts()
+        m['orient_unsynced'] = float(c.get('publishable', 0) + c.get('symmetric', 0) + c.get('sha_mismatch', 0))
+        m['orient_conflict'] = float(c.get('conflict', 0))
+        m['orient_pending'] = float(c.get('pending', 0))
+    except Exception:  # noqa: BLE001 — нет сети/базы: неизвестно, а не ноль
+        m['orient_unsynced'] = m['orient_conflict'] = m['orient_pending'] = None
     return m
 
 
