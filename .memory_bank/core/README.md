@@ -42,6 +42,7 @@
 | `stock-and-dims.md` | stock-and-dims | Наличие и честность размеров — состояния, парсер, footprint | `../domain/stock-and-dims.md` | 2026-10-13 |
 | `styles.md` | styles | Стили — паспорта, скоринг, сеты | `../domain/interior-styles.md` | 2026-10-14 |
 | `user-flow.md` | user-flow | Stage 1 UX-flow, аналитика | `../domain/user-flow-details.md` | 2026-10-14 |
+| `bedroom.md` | bedroom | Спальня — каталог кроватей, тумб, шкафов, комодов; вкладка демо; что дальше | `../plans/b2b-10-rooms-beyond-living.md` | 2026-10-14 |
 | `lr-checklist.md` | lr-checklist | Состав гостиной — роли и пригодность | `../domain/living-room-checklist.md` | 2026-09-28 |
 <!-- GENERATED:core-registry END -->
 
