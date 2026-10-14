@@ -212,6 +212,40 @@ def page(publish: bool) -> int:
     return 0
 
 
+def page4(publish: bool) -> int:
+    """Модели, где ни «как сейчас», ни «как предлагает база» не верны (владелец 14.10), — выбор из четырёх положений."""
+    items = json.load(open(os.path.join(WORK, 'neither.json')))
+    img = os.path.join(WORK, 'img')
+    cards = []
+    for it in items:
+        k = it['key']
+        g = os.path.join(WORK, 'glb', k, 'model.glb')
+        for y in (0, 90, 180, 270):
+            out = os.path.join(img, f'{k}.y{y}.png')
+            if not os.path.exists(out):
+                subprocess.run([sys.executable, '-c', f'import sys; sys.path[:0]=[{HERE!r},{os.path.join(HERE, "salad")!r}]; '
+                                f'import topview_render as T; T.render_front({g!r},{y},{out!r})'], check=False, timeout=300)
+        cards.append(f'<div class=c data-key="{html.escape(k)}"><div class=t><b>{html.escape(it["role"])}</b> · {k[-8:]}</div>'
+                     f'<div class=r><figure><img src="img/{k}.photo.png"><figcaption>фото товара</figcaption></figure>'
+                     + ''.join(f'<figure><img src="img/{k}.y{y}.png"><button data-v=y{y}>{t}</button></figure>'
+                               for y, t in ((0, 'Это перед'), (90, 'Это перед'), (180, 'Это перед'), (270, 'Это перед'))) +
+                     '</div><div class=st></div></div>')
+    doc = ('<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Разворот: 4 положения</title>'
+           '<style>body{font:15px system-ui;margin:16px;background:#faf8f5}.c{background:#fff;border-radius:10px;padding:10px;margin:0 0 12px}'
+           '.r{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}figure{margin:0;text-align:center}img{width:100%;aspect-ratio:1;object-fit:contain;background:#f4f2ee;border-radius:8px}'
+           'button{padding:8px;border-radius:8px;border:1px solid #ccc;background:#fff;min-height:40px;width:100%;margin-top:4px}.on{background:#2b2622;color:#fff}.st{color:#777;font-size:13px}</style>'
+           f'<h1>Разворот: ни один вариант не подошёл — {len(cards)}</h1><p>Модель в четырёх положениях. Нажмите под тем, где виден ПЕРЕД.</p>' + ''.join(cards) +
+           '<script>document.querySelectorAll(".c").forEach(c=>c.querySelectorAll("button").forEach(b=>b.onclick=async()=>{'
+           'const r=await fetch("/api/lab/review",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({kind:"orient",key:c.dataset.key,verdict:b.dataset.v})});'
+           'c.querySelectorAll("button").forEach(x=>x.classList.remove("on"));if(r.ok){b.classList.add("on");c.querySelector(".st").textContent="сохранено";}}));</script>')
+    open(os.path.join(WORK, 'four.html'), 'w', encoding='utf-8').write(doc)
+    if publish:
+        subprocess.run(['bash', '-c', f'scp -q -P 22222 {WORK}/four.html root@89.167.127.0:/opt/remlab/test/orient-review/four.html && '
+                        f'scp -q -P 22222 {img}/*.y*.png root@89.167.127.0:/opt/remlab/test/orient-review/img/'], check=False, timeout=300)
+        print(f'{SITE}/test/orient-review/four.html')
+    return 0
+
+
 def pull() -> int:
     """Решения владельца → записи разворота на проде «решено человеком» (слиянием, без потери чужих записей)."""
     items = {i['key']: i for i in json.load(open(os.path.join(WORK, 'items.json')))} if os.path.exists(os.path.join(WORK, 'items.json')) else {}
@@ -223,6 +257,8 @@ def pull() -> int:
         it = items.get(r['itemKey'])
         if it and r['verdict'] in ('cur', 'new'):
             upd[it['key']] = {'yaw': it[r['verdict']], 'orient': f'human:orient-review:{r["verdict"]}'}
+        elif it and r['verdict'] in ('y0', 'y90', 'y180', 'y270'):    # «ни один не верен» → выбор из четырёх
+            upd[it['key']] = {'yaw': float(r['verdict'][1:]), 'orient': f'human:orient-review:{r["verdict"]}'}
     if upd:
         prod = json.load(urllib.request.urlopen(ORIENT_URL, timeout=30))
         for k, v in upd.items():
@@ -280,6 +316,8 @@ if __name__ == '__main__':
         sys.exit(page('--publish' in a))
     if '--pull' in a:
         sys.exit(pull())
+    if '--page4' in a:
+        sys.exit(page4('--publish' in a))
     if '--sync' in a:
         sys.exit(sync())
     if '--counts' in a:
