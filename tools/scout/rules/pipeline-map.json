@@ -167,6 +167,26 @@
    "red": 1000,
    "owner": "catalog",
    "runbook": "stock_check (недельная проверка страниц) → price_truth.py"
+  },
+  {
+   "id": "mesh_unpublished",
+   "kind": "backlog",
+   "metric": "mesh_unpublished",
+   "owner": "mesh",
+   "yellow": 5,
+   "red": 30,
+   "title": "Готовые меши комплектов, которых нет на проде",
+   "runbook": "mesh_publish.py (ночной шаг до flat215_demo)"
+  },
+  {
+   "id": "orient_missing",
+   "kind": "backlog",
+   "metric": "orient_missing",
+   "owner": "mesh",
+   "yellow": 20,
+   "red": 100,
+   "title": "Опубликованные модели без записи разворота",
+   "runbook": "orient.json на проде ← topview_render/publish_merge; план flat3d-sims-ux A1, conv-06"
   }
  ],
  "waivers": {
@@ -180,6 +200,10 @@
   },
   "mesh_ready": {
    "reason": "карантин моделей 25 % (ADR-0276) 14.10 вывел из готовых 597 товаров — падение ожидаемое",
+   "expires": "2026-10-16"
+  },
+  "orient_missing": {
+   "reason": "дыра найдена 14.10 (публикация моделей не везёт развороты); фикс — в работе после разбора Codex (conv-06, flat3d-sims-ux A1)",
    "expires": "2026-10-16"
   }
  }

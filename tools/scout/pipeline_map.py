@@ -82,7 +82,22 @@ def collect() -> dict:
     # карантин моделей (ADR-0276): ждут решения владельца; цены «по странице», у которых страница устарела (ADR-0260)
     m['quarantine_open'] = _n("select count(*) from mesh_quarantine where decision is null")
     m['price_stale'] = _n("select count(*) from products where in_stock and price_basis = 'feed-stale'")
+    m['mesh_unpublished'], m['orient_missing'] = _publish_stats()
     return m
+
+
+def _publish_stats() -> tuple[float | None, float | None]:
+    """Стык «публикация» (conv-06): готовые меши комплектов, которых нет в индексе прода; опубликованные модели без
+    записи разворота на проде (3D и демо ставят их «как получится», 14.10: 551 из 745). Ключи — как у `mesh_publish`."""
+    try:
+        import urllib.request
+        import mesh_publish as MP
+        idx = json.load(urllib.request.urlopen(MP.PROD_IDX, timeout=30))
+        ori = json.load(urllib.request.urlopen(MP.PROD_IDX.replace('mesh-index.json', 'orient.json'), timeout=30))
+        want = {k.replace(':', '_') for k in MP.ready_skus()}
+        return float(len(want - set(idx))), float(sum(1 for k in idx if k not in ori))
+    except Exception:  # noqa: BLE001 — нет сети/базы: метрика неизвестна, а не ноль
+        return None, None
 
 
 def _swap_stats() -> tuple[float | None, float | None]:
