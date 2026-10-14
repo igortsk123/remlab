@@ -398,6 +398,8 @@ step layout_page env LAYOUT10_PUBLISH=1 "$PY" layout10_page.py 1 14 21 29 55 59 
 # и ни один не появился в демо. Шаг обязан идти ДО `flat215_demo`, иначе страница соберётся по
 # вчерашнему индексу.
 step mesh_publish "$PY" mesh_publish.py
+# каталог спальни (b2b-10 этап 2, ADR-0279): отдельная таблица room_catalog, гостиная её не видит; до сборки витрины
+step room_catalog "$PY" room_catalog.py --run
 step flat215_demo "$PY" flat215_demo.py
 step flat215_publish bash publish_demo.sh
 # прогрев кадров (b2b-08 п.4): у каждого стиля — черновой кадр свежего набора, без чьего-то нажатия «снять»

@@ -552,6 +552,49 @@ def _write_demo_sets(sets: list) -> None:
         open(DEMO_SETS, 'w', encoding='utf-8').write(blob)
 
 
+BEDROOM_SHOW = {'кровать': 24, 'тумба прикроватная': 12, 'комод': 12, 'шкаф': 12, 'туалетный столик': 8}
+
+
+def bedroom_catalog() -> dict:
+    """Фото-каталог спальни для вкладки «Спальня 1» (план b2b-10 этап 2, v1; ADR-0279) из `room_catalog`.
+
+    Выборка на роль — по одной модели из семейства (без десяти цветов одной кровати) и ровно по цене: от дешёвых
+    к дорогим через равные шаги, чтобы видно было весь диапазон. Показываем только с ценой, фото и из свежего фида
+    (`room_catalog.shown_where`). Кровати — с честным габаритом впереди. Нет таблицы/базы — пусто, вкладка «скоро»."""
+    try:
+        import room_catalog as RC
+        from mesh_queue import db as _db
+        rows = _db("select role, shop_mid||':'||external_id, name, shop, url, coalesce(image_url_hd, image_url), price_rub, "
+                   "w_cm, d_cm, h_cm, sleep_w_cm, sleep_l_cm, coalesce(footprint_ok,false), "
+                   "to_char(max(last_seen) over (), 'YYYY-MM-DD') from room_catalog where " + RC.shown_where())
+    except Exception as e:  # noqa: BLE001 — каталога спальни нет: вкладка остаётся «скоро»
+        print(f'каталог спальни: недоступен ({str(e)[:80]})')
+        return {}
+    by: dict = {}
+    updated = ''
+    for r in rows:
+        role, sid, name, shop, url, img, price, w, d, h, sw, sl, ok, upd = r
+        updated = upd or updated
+        # семейство = название до первого слова с цифрой и без скобок цвета/материала: «Кейт 160 Букле Серый»,
+        # «Торвалль 2-68x87», «Castello (Экокожа Слива) 140x190» → одна модель
+        fam = re.sub(r'\s\S*\d.*$', '', re.sub(r'\s*\(.*$', '', name)).strip().lower()
+        by.setdefault(role, {}).setdefault(fam, []).append({
+            'sid': sid, 'name': re.sub(r'\s+', ' ', name).strip(), 'shop': shop, 'url': url, 'img': img, 'price': int(price),
+            'w': w, 'd': d, 'h': h, 'sleep': [sw, sl] if sw and sl else None, 'fits': ok in (True, 't')})
+    out = {}
+    for role, fams in by.items():
+        reps = []
+        for items in fams.values():                      # представитель семейства: честный габарит, потом дешевле
+            items.sort(key=lambda x: (not x['fits'], x['price']))
+            reps.append(items[0])
+        reps.sort(key=lambda x: x['price'])
+        k = BEDROOM_SHOW.get(role, 8)
+        pick = reps if len(reps) <= k else [reps[round(i * (len(reps) - 1) / (k - 1))] for i in range(k)]
+        out[role] = pick
+    print('каталог спальни: ' + ', '.join(f'{r} {len(v)} (моделей {len(by[r])})' for r, v in out.items()))
+    return {'roles': out, 'updated': updated}
+
+
 def build() -> dict:
     flat = json.load(open(os.path.join(HERE, 'flat215.json'), encoding='utf-8'))
     sets = json.load(open(os.path.join(HERE, 'sets3.json'), encoding='utf-8'))
@@ -814,6 +857,7 @@ def build() -> dict:
             'rooms': rooms, 'apartment_id': demo_apartment_id(), 'plan': plan,
             'variants': variants, 'sets': product_sets, 'sofa_feed': feed, 'feeds': feeds,
             'rules': _rules(),
+            'bedroom_catalog': bedroom_catalog(),
             # стили, где после дозаполнения нет ядра: вариант не публикуется, страница честно пишет почему
             'incomplete_styles': incomplete,
             # КВАРТИРА, ЖК, ЦЕНА И СЕРТИФИКАТ — В РЕЕСТРЕ ЗАСТРОЙЩИКОВ (`data/partners/*.json`,
@@ -863,6 +907,10 @@ def cache_images(data: dict) -> dict:
         for it in v['items']:
             if (it.get('sku') or {}).get('img'):
                 urls.add(it['sku']['img'])
+    for lst in ((data.get('bedroom_catalog') or {}).get('roles') or {}).values():
+        for p in lst:
+            if p.get('img'):
+                urls.add(p['img'])
 
     def grab(u: str):
         name = hashlib.md5(u.encode()).hexdigest()[:16] + '.jpg'
@@ -900,6 +948,11 @@ def cache_images(data: dict) -> dict:
     for v in data.get('variants') or []:
         for it in v['items']:
             fix(it.get('sku'))
+    bc = (data.get('bedroom_catalog') or {}).get('roles') or {}
+    for role in list(bc):                       # спальня: товар без живого фото не показываем
+        for p in bc[role]:
+            fix(p)
+        bc[role] = [p for p in bc[role] if p.get('img')]
     # ТОВАР БЕЗ ФОТО В ВЫБОРКЕ НЕ УЧАСТВУЕТ (владелец 26.08): выборку пересчитываем ПОСЛЕ
     # проверки картинок, иначе половина ленты — пустые карточки.
     dropped = capped = 0
