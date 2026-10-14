@@ -2,9 +2,11 @@
 workstream: memory
 slug: book-memory-sync
 title: Книга о продукте как общий источник правды — человек правит книгу, агент актуализирует банк из неё и дописывает книгу после каждой работы (эксперимент на уровне кита памяти)
-status: draft
+status: partial
+pause_reason: "v1 (банк → книга) сделана, ADR-0273; остались человек → банк, сверка советником, /test/book/, привязка 12 абзацев, кит"
+resume_trigger: "следующий /memory-check или правка книги владельцем"
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-10-14
 completed:
 plan_kind: sub
 parent_plan: MASTER-developer-product
@@ -66,6 +68,7 @@ review_after: 2026-11-27
 - [ ] `guides/memory-automation.md`, `core/regression-net.md`; ADR; `/memory-check`
 
 ## Лог выполнения
+- 2026-10-14 — Opus 5.5: `tools/book-map.mjs` + `guides/product-book-map.json`, гейт в `agent-workflow.md`; 15 абзацев «Сегодня» переписаны по факту ночной работы, 1 снят. ADR-0273. `partial`.
 - 2026-10-13 — план создан (draft) по идее владельца, Fable 5.1
 
 ## Completion summary

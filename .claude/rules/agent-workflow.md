@@ -36,6 +36,8 @@ description: Двухэтапный workflow агента — план пере�
      историю — в `changelog/project-history.md`);
    - отброшенные подходы / грабли сессии → `lessons/<тема>.md` (номер из `lessons/README.md`), живое правило → `core/lessons.md` и
      поле «Уроки» в Completion summary плана;
+   - книга о продукте: `node tools/book-map.mjs` — `BOOK-STALE` = 0 (абзацы «Сегодня» закрытого плана переписаны или
+     сняты; план `book-memory-sync`, ADR-0273);
    - запущен `/memory-check` (захват → уровни → связи+INDEX → чистота); audit «чисто».
 5. Только после этого: `completed` + дата + completion summary → перенести в `completed_plans/`
    (реестры пересоберёт аудит). Частично → `partial`, остаётся в `plans/`.

@@ -2,9 +2,11 @@
 workstream: catalog
 slug: conv-07-cutout-before-style-experiment
 title: Эксперимент — портит ли рекламная обвязка фото (цена, коллаж, сцена) определение стиля; нужна ли вырезка до стиля
-status: draft
+status: partial
+pause_reason: "эксперимент идёт победившим методом стиля (conv-01 ждёт выбора владельца); вырезок на диске 582, а не ~14 000 — найти, где остальные (~/scout-scenes/cutouts)"
+resume_trigger: "выбор метода conv-01 владельцем"
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-10-14
 completed:
 plan_kind: sub
 parent_plan: MASTER-conveyor-gaps
@@ -61,6 +63,7 @@ review_after: 2026-12-13
 - [ ] `core/styles.md`, `core/pipeline-order.md` при изменении порядка; ADR; `/memory-check`
 
 ## Лог выполнения
+- 2026-10-14 — Opus 5.5: отложен (`partial`): ждёт метода conv-01; на диске 582 вырезки (`~/scout-scenes/cutouts`, имя — sha фото), а план рассчитывал на ~14 000.
 - 2026-10-13 — план создан (draft), Fable 5.1; зависит от `conv-01` (эталон и стенд)
 
 ## Completion summary
