@@ -1007,6 +1007,35 @@ def cache_images(data: dict) -> dict:
     return data
 
 
+def annotate_yaw(data: dict) -> int:
+    """Разворот фронта модели — в каждый предмет вариантов (`sku.yaw`), чтобы 3D по кнопке из демо
+    (`lib/configurator/fromDemo.ts`) ставил модель так же, как 3D-сцена самого демо (`orient.json` прода) и базовая
+    квартира (ручные поправки `data/flat3d/front-overrides.json` — сильнее). Раньше 3D по ссылке из демо брал 0 у всех
+    (разбор Codex 14.10). Нет сети — разворотов нет, как раньше."""
+    import urllib.request
+    try:
+        orient = json.load(urllib.request.urlopen('https://remont-lab.online/test/mesh-pilot10/orient.json', timeout=30))
+    except Exception:  # noqa: BLE001
+        orient = {}
+    try:
+        over = json.load(open(os.path.join(HERE, '..', '..', 'data', 'flat3d', 'front-overrides.json'),
+                              encoding='utf-8')).get('overrides') or {}
+    except Exception:  # noqa: BLE001
+        over = {}
+    n = 0
+    for v in data.get('variants') or []:
+        for it in v.get('items') or []:
+            sk = it.get('sku') or {}
+            m = sk.get('msid')
+            if not m:
+                continue
+            y = (over.get(m) or {}).get('yawDeg', (orient.get(m) or {}).get('yaw'))
+            if y is not None:
+                sk['yaw'] = float(y)
+                n += 1
+    return n
+
+
 def main() -> None:
     os.makedirs(OUT, exist_ok=True)
     # ИСХОДНИК СТРАНИЦЫ ЖИВЁТ В РЕПО (26.08): до этого index.html лежал только в ~/scout-scenes и
@@ -1016,6 +1045,7 @@ def main() -> None:
     if os.path.exists(src):
         shutil.copy(src, os.path.join(OUT, 'index.html'))
     data = cache_images(build())
+    print(f'разворот фронта в предметах вариантов: {annotate_yaw(data)}')
     json.dump(data, open(os.path.join(OUT, 'demo-data.json'), 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)
     print(f"OK: вариантов {len(data['variants'])}; ленты: "

@@ -9,7 +9,7 @@ const data = {
   variants: [{ id: "set16", title: "Джапанди", style: "джапанди", items: [
     { role: "диван", x: 166.1, y: 280, rot: 180, w: 162, d: 90, h: 79,
       sku: { name: "Диван X", price: 54990, msid: "112923_1", url: "https://xf.gdeslon.ru/cm/x", shop: "divan.ru" } },
-    { role: "столик", x: 200, y: 180, rot: 0, w: 80, d: 80, h: 45, sku: { name: "Столик Y", msid: "99272_2" } },
+    { role: "столик", x: 200, y: 180, rot: 0, w: 80, d: 80, h: 45, sku: { name: "Столик Y", msid: "99272_2", yaw: 180 } },
     { role: "ковёр", x: 200, y: 200, rot: 0, w: 200, d: 150, h: 1, sku: { name: "Без меша" } },
   ] }],
 };
@@ -29,6 +29,13 @@ describe("мост витрина → конфигуратор", () => {
     const r = fromDemoVariant(data, "set16", CTX)!;
     const sofa = r.apartment.slots[0]!;
     expect(sofa.placement).toMatchObject({ x: 166.1, y: 280, rot: 180, wCm: 162, dCm: 90, hCm: 79 });
+  });
+
+  it("разворот фронта модели из витрины доезжает до 3D; нет — 0", () => {
+    const r = fromDemoVariant(data, "set16", CTX)!;
+    const yaw = (i: number) => (r.catalogue.options[i]!.asset as { yawDeg?: number }).yawDeg;
+    expect(yaw(0)).toBe(0);
+    expect(yaw(1)).toBe(180);
   });
 
   it("ведёт в магазин партнёрской ссылкой", () => {

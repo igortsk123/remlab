@@ -59,7 +59,7 @@ type DemoItem = {
   d?: number;
   h?: number;
   elev?: number;
-  sku?: { name?: string; price?: number; url?: string; shop?: string; msid?: string; sid?: string; pack?: number };
+  sku?: { name?: string; price?: number; url?: string; shop?: string; msid?: string; sid?: string; pack?: number; yaw?: number };
 };
 type DemoVariant = { id?: string; title?: string; style?: string; items?: DemoItem[] };
 type DemoRoom = {
@@ -192,6 +192,8 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
         // Ссылку не кладём: `meshUrl()` сам возьмёт лёгкую runtime-копию, а её нет — исходник
         // галереи по meshId. Своя ссылка отключила бы этот выбор.
         meshId: it.sku?.msid as string,
+        // разворот фронта модели — тот же, что у 3D-сцены демо (`orient.json` + ручные поправки, `flat215_demo.annotate_yaw`)
+        yawDeg: it.sku?.yaw ?? 0,
         wCm: it.w as number,
         dCm: it.d as number,
         hCm: it.h as number,
