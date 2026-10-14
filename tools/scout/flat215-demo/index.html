@@ -1312,6 +1312,7 @@ function camGraze(c,W,H){
 // перед объективом): (1) диван и столик целиком по ширине и сверху, запас 3 % кадра от края; (2) ни одного предмета ближе
 // CAM_MIN_DIST к камере (ковёр — пол); (3) высокий предмет (не столик) не стоит между камерой и диваном. `strict` — для
 // ракурса 1; у ракурса 2 правило (1) остаётся оценкой (он показывает комнату с другой стороны).
+let CAM_LEVEL=0;   // ступень последнего подбора ракурса 1 (3 — все правила, 2/1 — послабления; живая проверка печатает её)
 const CAM_MIN_DIST=80, CAM_EDGE=0.06;   // 3 % ширины кадра = 0,06 в долях −1…1
 const camRole=it=>String(it.role||'').replace(/\s+\d+$/,'');
 function camHard(c,its,strict){
@@ -1324,9 +1325,15 @@ function camHard(c,its,strict){
   const whole=(it,low,top)=>{const h=camItemH(it), b=camProj(c,it,0,h), t=camProj(c,it,h,h);
     return !!b&&!b.behind&&b.x0>=-1+CAM_EDGE&&b.x1<=1-CAM_EDGE&&b.y1<=1-CAM_EDGE&&(!top||(!!t&&t.y0>=-1+CAM_EDGE))
       &&(!low||b.y0>=-1+CAM_EDGE);};
-  // ступени (каждая — когда предыдущая недостижима ни из одного угла): 3 — диван целиком и снизу, столешница целиком;
-  // 2 — диван по ширине, верх дивана и столешница целиком; 1 — диван и столик хотя бы не срезаны по бокам
-  if(strict&&((sofa&&!whole(sofa,strict>=3,strict>=2))||(tbl&&!whole(tbl,false,strict>=2))))return 'диван/столик срезан';
+  // СТОЛИК (решение d8 14.10, план demo-02): видно ≥ 70 % столешницы и её дальняя кромка в кадре — срез столика нижней
+  // кромкой при камере на 135 см — норма интерьерной съёмки
+  const tableOk=it=>{const h=camItemH(it), t=camProj(c,it,h,h); if(!t||t.behind)return false;
+    const area=(t.x1-t.x0)*(t.y1-t.y0); if(area<=0)return false;
+    const ins=Math.max(0,Math.min(t.x1,1-CAM_EDGE)-Math.max(t.x0,-1+CAM_EDGE))*Math.max(0,Math.min(t.y1,1-CAM_EDGE)-Math.max(t.y0,-1));
+    return ins/area>=0.7&&t.y1<=1-CAM_EDGE&&t.y1>-1;};
+  // ступени (каждая — когда предыдущая недостижима ни из одного угла): 3 — диван целиком и снизу; 2 — диван по ширине и
+  // верх дивана целиком (публикуется с пометкой, причина — расстановка, demo-05 п.2a); 1 — диван хотя бы не срезан по бокам
+  if(strict&&((sofa&&!whole(sofa,strict>=3,strict>=2))||(tbl&&(strict>=2?!tableOk(tbl):!whole(tbl,false,false)))))return 'диван/столик срезан';
   if(sofa){const S=camProj(c,sofa,0,camItemH(sofa)), ds=Math.hypot(sofa.x-c.x,sofa.y-c.y);
     if(S&&!S.behind)for(const it of all){
       const r=camRole(it); if(it===sofa||r==='столик'||camItemH(it)<50)continue;
@@ -1377,7 +1384,7 @@ function defaultCams(){
   const W=D.room.w, H=D.room.d, cs=cornerList();
   const sc=f=>f&&f.score!==undefined?f.score:-1e9;
   let fits=[];
-  for(const lv of [3,2,1]){fits=cs.map(k=>camFit(k.x,k.y,items,W,H,lv)); if(fits.some(f=>sc(f)>-1e9))break;}
+  for(const lv of [3,2,1]){fits=cs.map(k=>camFit(k.x,k.y,items,W,H,lv)); CAM_LEVEL=lv; if(fits.some(f=>sc(f)>-1e9))break;}
   let b=0; fits.forEach((f,i)=>{if(sc(f)>sc(fits[b]))b=i;});
   const c1=fits[b], c2=camFit(cs[(b+2)%4].x,cs[(b+2)%4].y,items,W,H,false);
   return [{name:'C1',x:c1.x,y:c1.y,rot:c1.rot,fov:c1.fov||72},
