@@ -15,11 +15,17 @@
    <div data-remlab-partner="ВАШ_ID" data-remlab-flat="ID_КВАРТИРЫ" data-remlab-lang="ru"></div>
    <script src="https://remont-lab.online/embed.js" async></script>
    ```
-   Высота рамки подстраивается сама. Метки `utm_*` из адреса вашей страницы передаются в демо.
+   Высота рамки подстраивается сама. Метки `utm_*` из адреса вашей страницы передаются в адрес рамки.
+
+   **Без скрипта** (если на сайт нельзя добавить JS) — просто рамка фиксированной высоты:
+   ```html
+   <iframe src="https://remont-lab.online/embed/ВАШ_ID/ID_КВАРТИРЫ" style="width:100%;height:1900px;border:0" title="RemLab"></iframe>
+   ```
 4. (Необязательно) События для вашей аналитики:
    ```js
    document.querySelector('[data-remlab-flat]').addEventListener('remlab', e => console.log(e.detail.name));
-   // open — демо открыто; 3d — переход в 3D; save — сохранена подборка; contact — нажата связь с менеджером
+   // open — демо открыто; 3d — переход в 3D; save — сохранена подборка;
+   // contact — покупатель нажал «Получить консультацию»: откройте свою форму заявки (демо само заявку не собирает)
    ```
    Личных данных в событиях нет.
 
@@ -31,4 +37,5 @@
 Add the two lines from step 3 to your apartment page (`data-remlab-lang="en"` for English). We must allow-list
 your domain first (send it to us together with floor plans, prices and where to send leads). The frame resizes
 itself; `utm_*` parameters are passed through; events `open | 3d | save | contact` are dispatched as a `remlab`
-CustomEvent on the container and carry no personal data. Sample page: https://remont-lab.online/test/embed-sample/
+CustomEvent on the container and carry no personal data; on `contact` open your own enquiry form. Without JS use a
+plain `<iframe src="https://remont-lab.online/embed/ID/FLAT" style="width:100%;height:1900px;border:0">`. Sample page: https://remont-lab.online/test/embed-sample/

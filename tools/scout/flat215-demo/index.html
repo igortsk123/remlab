@@ -1599,7 +1599,10 @@ function priceCard(sum, cnt){
   if(inf&&inft)inf.onclick=()=>{inft.hidden=!inft.hidden;};
   const mort=document.getElementById('pcMort'), cons=document.getElementById('pcCons');
   if(mort)mort.onclick=say('Эта ссылка ведет на условия ипотеки по квартире');
-  if(cons)cons.onclick=say('Эта ссылка ведет на форму консультации застройщика');
+  // ВСТРОЕНО НА САЙТ ЗАСТРОЙЩИКА (b2b-07): консультацию ведёт сам сайт — отдаём ему событие «contact», он открывает свою форму
+  if(cons)cons.onclick=window.__EMBED?()=>{if(window.__embedEvent)window.__embedEvent('contact');
+      shotOpen('<div class="wait">'+(LANG==='en'?'The developer will contact you — use the contact form on this page.':'Застройщик свяжется с вами — оставьте заявку в форме на этой странице.')+'</div>','');}
+    :say('Эта ссылка ведет на форму консультации застройщика');
   box.querySelector('#pcSave').onclick=openList;
 }
 // КОРОТКОЕ СООБЩЕНИЕ ВМЕСТО alert() (b2b-12): alert блокирует страницу и выглядит как сбой.

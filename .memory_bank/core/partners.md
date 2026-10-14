@@ -3,7 +3,7 @@ tier: 1
 topic: partners
 scope: Застройщик, ЖК, квартира, цена и сертификат — данные; реестр и карточка квартиры
 tier2: "../completed_plans/b2b-06-apartment-as-data.md"
-updated: 2026-10-13
+updated: 2026-10-14
 importance: high
 source: manual
 status: working
@@ -40,3 +40,4 @@ review_after: 2026-12-13
 
 **Сегодня:** два демо-застройщика (`demo` — РФ, `flat215`; `demo-uk` — UK, `demo-uk-1`).
 Контур-многоугольник комнаты есть в контракте (`contracts/apartment.ts:room.contour`), движки его не читают.
+- **Встраивание (ADR-0283):** `/embed/<партнёр>/<квартира>` — рамкой с доменов `frameDomains`; `docs/embed.md`.

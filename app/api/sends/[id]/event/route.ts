@@ -1,4 +1,5 @@
 import { after, NextResponse } from "next/server";
+import { foreignOrigin } from "@/lib/http/origin";
 
 import { buyerEvent } from "@/contracts/send";
 import { TOKEN_RE } from "@/lib/token";
@@ -14,6 +15,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
   const limited = await guard(req, "sendEvent");
   if (limited) return limited;
+  if (foreignOrigin(req)) return new Response(null, { status: 403 }); // чужой сайт — не пишем (b2b-07)
   const { id } = await ctx.params;
   const parsed = buyerEvent.safeParse(await req.json().catch(() => null));
   if (!TOKEN_RE.test(id) || !parsed.success) return NextResponse.json({ ok: false }, { status: 400 });

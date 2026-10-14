@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { foreignOrigin } from "@/lib/http/origin";
+
 import { collectionIn } from "@/contracts/collection";
 import { guard } from "@/lib/ratelimit/http";
 import { findApartment } from "@/lib/partners/registry";
@@ -18,6 +20,7 @@ const MAX_BYTES = 64 * 1024;
 export async function POST(req: Request): Promise<Response> {
   const limited = await guard(req, "collectionSave");
   if (limited) return limited;
+  if (foreignOrigin(req)) return new Response(null, { status: 403 }); // чужой сайт — не пишем (b2b-07)
   const raw = await req.text();
   if (raw.length > MAX_BYTES) return NextResponse.json({ ok: false, error: "too_large" }, { status: 413 });
   let body: unknown = null;

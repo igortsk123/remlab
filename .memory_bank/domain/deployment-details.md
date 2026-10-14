@@ -3,7 +3,7 @@ tier: 2
 topic: deployment-details
 scope: Деплой exit-fi — подробности конвейера, сторожа, история правок сервера
 tier1: "../deployment.md"
-updated: 2026-10-13
+updated: 2026-10-14
 importance: med
 source: manual
 last_verified: 2026-09-05
@@ -132,7 +132,8 @@ flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev
   свой счёт в памяти (`tools/scout/draft_guard.py`).
 - Закрыто без секрета: вебхук ЮKassa (IP + перезапрос API), Telegram-вебхуки (401), трейсы и подписанные
   фото в production; токен трейса — только заголовком `x-trace-token`.
-- Заголовки на весь сайт: `frame-ancestors 'self'`, `nosniff`, `Referrer-Policy` (`caddy/Caddyfile`).
+- Заголовки на весь сайт: `frame-ancestors 'self'` (Caddy ставит его, только если приложение не поставило свой CSP — страница
+  встраивания `/embed/…` ставит `frame-ancestors` с доменами партнёра, ADR-0283), `nosniff`, `Referrer-Policy` (`caddy/Caddyfile`).
 - Ежечасный `infra/server/disk-watchdog.sh`: чистит просроченные `share_requests`/старые `rate_limits`, будит
   владельца при файлах `_queue` под веб-корнем и при расхождении `Caddyfile` со снимком `Caddyfile.deployed`.
 - После деплоя — шаг `tools/security-smoke.sh` (13 проверок снаружи, без отката).

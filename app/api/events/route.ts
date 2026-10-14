@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { foreignOrigin } from "@/lib/http/origin";
+
 import { pageEventIn } from "@/contracts/analytics";
 import { guard } from "@/lib/ratelimit/http";
 import { findApartment } from "@/lib/partners/registry";
@@ -16,6 +18,7 @@ const dayIn = (d: Date, tz: string) => new Intl.DateTimeFormat("en-CA", { timeZo
 export async function POST(req: Request): Promise<Response> {
   const limited = await guard(req, "pageEvent");
   if (limited) return limited;
+  if (foreignOrigin(req)) return new Response(null, { status: 403 }); // чужой сайт — не пишем (b2b-07)
   const raw = await req.text();
   if (raw.length > 2048) return new NextResponse(null, { status: 413 });
   let body: unknown = null;

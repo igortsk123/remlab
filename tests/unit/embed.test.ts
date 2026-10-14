@@ -36,3 +36,13 @@ describe("встраивание демо", () => {
     expect(bad.status).toBe(404);
   });
 });
+
+describe("ручки не принимают запись с чужого сайта (b2b-07 п.3)", () => {
+  it("чужой Origin — да; свой и отсутствующий — нет", async () => {
+    const { foreignOrigin } = await import("@/lib/http/origin");
+    const r = (o?: string) => new Request("https://remont-lab.online/api/events", { method: "POST", headers: { host: "remont-lab.online", ...(o ? { origin: o } : {}) } });
+    expect(foreignOrigin(r("https://evil.example"))).toBe(true);
+    expect(foreignOrigin(r("https://remont-lab.online"))).toBe(false);
+    expect(foreignOrigin(r())).toBe(false);
+  });
+});
