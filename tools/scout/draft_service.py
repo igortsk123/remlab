@@ -185,6 +185,17 @@ def _credits_here() -> dict:
     return {'balance': DR.gw_credits() if key else None, 'key': key}
 
 
+_GATE_CACHE: list = [0.0, None]
+
+
+def _paid_gate_cached(max_age_s: float = 30.0):
+    """То же, что `_paid_gate`, с кэшем 30 с: `/api/draft/paid` публичный, а каждый честный ответ — поход в DEV
+    через туннель (до 4 с). Платный запрос сам проверяет без кэша."""
+    if time.time() - _GATE_CACHE[0] > max_age_s:
+        _GATE_CACHE[:] = [time.time(), _paid_gate()]
+    return _GATE_CACHE[1]
+
+
 def _paid_gate():
     """Можно ли сейчас ставить платное улучшение. None — можно; иначе (код, текст) для страницы СРАЗУ.
 
@@ -304,7 +315,7 @@ class H(BaseHTTPRequestHandler):
         if self.route.startswith(('/draft/paid', '/paid')):
             # МОЖНО ЛИ СЕЙЧАС УЛУЧШАТЬ (demo-03): да/нет и код — без суммы. Нужен живой проверке (проверить честный
             # отказ, не создавая платного задания) и странице.
-            gate = _paid_gate()
+            gate = _paid_gate_cached()
             return self._send(200, {'available': gate is None, 'code': gate[0] if gate else None})
         if self.route.startswith(('/draft/stats', '/stats')):
             # ВРЕМЯ КАДРА (b2b-08 п.5): среднее последних замеров по качеству — стык конвейера следит, не медленнеет ли
@@ -366,6 +377,10 @@ class H(BaseHTTPRequestHandler):
                 gate = _paid_gate()
                 if gate:                       # нет денег / нет сервера улучшения — сразу, без задания
                     return self._send(402 if gate[0] == 'no_credits' else 503, {'error': gate[1], 'code': gate[0]})
+            if payload.get('dry_run'):
+                # ПРОБА БЕЗ ЗАДАНИЯ (demo-03, verify): живая проверка «честного отказа» шлёт тот же запрос, но задание не
+                # создаётся никогда — даже если деньги пополнили между её вопросом и запросом.
+                return self._send(200, {'dry_run': True, 'would': 'job', 'quality': quality})
             body = dict(payload); body.pop('async', None)
             jid = JOBS.new(quality, body)
             threading.Thread(target=_work, args=(jid,), daemon=True).start()

@@ -12,3 +12,4 @@
 30 4 * * 0 /home/pakar/igor/remlab/tools/ops/restore-drill.sh
 */3 * * * * /home/pakar/igor/remlab/tools/scout/salad/heartbeat.sh
 */15 * * * * cd /home/pakar/igor/remlab/tools/scout && /home/pakar/venvs/scout/bin/python salad/wave_guard.py
+*/10 * * * * /home/pakar/igor/remlab/tools/scout/dev_render_backend.sh >/dev/null 2>&1

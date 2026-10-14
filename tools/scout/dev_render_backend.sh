@@ -8,8 +8,15 @@ PY=$HOME/venvs/scout/bin/python
 LOG=$HOME/scout-scenes/dev-render.log
 TLOG=$HOME/scout-scenes/dev-tunnel.log
 
-# сервис рендера (если не бежит)
-if ! pgrep -f "draft_service.py.*DEVBACKEND" >/dev/null 2>&1 && ! curl -s -m 2 http://127.0.0.1:8600/health >/dev/null; then
+# сервис рендера (если не отвечает). РЕШАЕТ ТОЛЬКО ЗДОРОВЬЕ (demo-03, verify 14.10): прежний поиск процесса по
+# шаблону «DEVBACKEND» не совпадал с командой запуска, и зависший процесс, держащий порт, никто не убирал — крон раз
+# в 10 минут запускал копию, которая не могла занять порт, но писала «сервис запущен».
+if ! curl -s -m 4 http://127.0.0.1:8600/health >/dev/null; then
+  held=$(ss -ltnp 2>/dev/null | grep '127.0.0.1:8600 ' | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2)
+  if [ -n "$held" ]; then
+    echo "$(date '+%F %T') порт 8600 занят процессом $held, но он не отвечает — останавливаю" >>"$LOG"
+    kill "$held" 2>/dev/null; sleep 3; kill -9 "$held" 2>/dev/null
+  fi
   # SCENE3D_QUALITY=full БОЛЬШЕ НЕ СТАВИМ: он выключал отбраковку задних граней (её выключили
   # 31.08 из-за дырок в спинке дивана). Дырки лечены в упрощении (ADR-0165), отбраковка вернулась
   # порогом 0.5 — кадр быстрее на 20 %. Платный путь ставит quality=full сам, в своём процессе.
@@ -18,7 +25,9 @@ if ! pgrep -f "draft_service.py.*DEVBACKEND" >/dev/null 2>&1 && ! curl -s -m 2 h
   SRC_PUSH='root@89.167.127.0:/opt/remlab/test/share/src/' \
   PUBLIC_BASE='https://remont-lab.online' \
   nohup "$PY" -u draft_service.py >>"$LOG" 2>&1 &
-  echo "$(date '+%F %T') сервис запущен" >>"$LOG"
+  ok=0; for _ in $(seq 1 15); do sleep 2; curl -s -m 2 http://127.0.0.1:8600/health >/dev/null && { ok=1; break; }; done
+  if [ "$ok" = 1 ]; then echo "$(date '+%F %T') сервис запущен" >>"$LOG"
+  else echo "$(date '+%F %T') сервис НЕ поднялся за 30 с" >>"$LOG"; fi
 fi
 
 # ssh-туннель: прод-шлюз docker-сети 172.18.0.1:8601 → DEV 127.0.0.1:8600 (наружу не торчит)

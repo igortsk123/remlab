@@ -150,10 +150,11 @@ test("2.18 телефон: без горизонтальной прокрутк�
 test("2.9 «Улучшить» без денег — честный ответ за ≤ 3 с (без трат)", async ({ request }) => {
   const paid = await (await request.get("/api/draft/paid")).json() as { available: boolean; code: string | null };
   say("улучшение доступно:", paid.available, paid.code ?? "");
-  test.skip(paid.available, "деньги на улучшение есть — платный запрос в проверке не шлём");
+  // `dry_run` — сервер проверяет деньги и НИКОГДА не создаёт задание; при деньгах проверять тут нечего
+  test.skip(paid.available, "деньги на улучшение есть — честный отказ проверить нельзя");
   const t = Date.now();
   const r = await request.post("/api/render", { data: { room: { w: 400, d: 300 }, items: [{ role: "диван", x: 100, y: 50, rot: 0, w: 200, d: 90 }],
-    quality: "realistic", async: 1, no_registry: 1 }, headers: { origin: "https://remont-lab.online" } });
+    quality: "realistic", async: 1, no_registry: 1, dry_run: 1 }, headers: { origin: "https://remont-lab.online" } });
   const j = await r.json() as { code?: string; error?: string; job?: string };
   say("ответ", r.status(), j.code, Date.now() - t, "мс");
   expect(j.job, "платное задание не должно создаваться").toBeUndefined();
