@@ -3,7 +3,7 @@ tier: 2
 topic: interior-styles
 scope: Паспорта 6 типовых стилей интерьера — признаки с весами, скоринг товаров, промпт-блоки генерации
 tier1: ../core/styles.md
-updated: 2026-10-13
+updated: 2026-10-14
 importance: med
 source: external:web (t-j.ru, netology.ru, domovita.by, ivd.ru, vc.ru, vm.ru) + гипотеза владельца
 status: working
@@ -74,3 +74,9 @@ mesh_required тумбах и 143 банкетках в каталоге. Бан
 
 **Дневная порция.** Скоринг идёт инкрементом (план `catalog-daily-mesh-ready`, до 1000 новых
 товаров в сутки), поэтому «дождаться стилей» — это сутки, а не часы.
+
+## Два источника стиля (13.10, перенесено из Tier 1) и стенд осей (14.10)
+Источник №1 — признаки+правила (`tools/scout/style_attrs.py`, фото 448 px low); №2 — `tools/scout/style_score.py`: LLM
+по ТЕКСТУ, фото — лишь CLIP по миниатюре 110 px. №1 нормирует балл внутри товара, у №2 так нормирована CLIP-добавка →
+порог «≥ 6» невалиден; эталона человека нет. Стенд осей признаков — ADR-0269: оси `tools/scout/rules/style-axes.json`,
+формула `tools/scout/rules/style-formula.json`, страница `/test/style-bench/`.

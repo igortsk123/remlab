@@ -163,20 +163,18 @@ def ask(limit: int) -> int:
     return 0
 
 
-def methods(item: dict, ans: dict | None, axes_doc: dict, formula: dict) -> dict:
-    """Баллы по методам A–D для одного товара (None — у метода нет данных)."""
-    import copy
+def methods(item: dict, ans: dict | None, axes_doc: dict, formula: dict, lam: float = 0.25) -> dict:
+    """Баллы по методам (None — нет данных): A — нынешний из базы; V2 — оси, версия 2 (`style_axes.score_v2`);
+    H — гибрид A + λ·clip(V2−5, ±1) (Codex 14.10); D — оси, версия 1 (M+D+пары) для сравнения."""
     import style_axes as SA
     out = {'A': item.get('old')}
     if not ans:
-        return out | {'B': None, 'C': None, 'D': None}
+        return out | {'V2': None, 'H': None, 'D': None}
     a = {k: (SA.NA if v == 'na' else v) for k, v in (ans.get('axes') or {}).items()}
-    full = SA.score(a, item['role'], axes_doc, formula)
-    no_pairs = SA.score(a, item['role'], {**axes_doc, 'confusable_pairs': []}, formula)
-    simple_f = copy.deepcopy(formula)
-    simple_f['mix'] = {'compat': 1.0, 'diagnostic': 0.0}
-    simple = SA.score(a, item['role'], {**axes_doc, 'confusable_pairs': []}, simple_f)
-    return out | {'B': simple['scores'], 'C': no_pairs['scores'], 'D': full['scores'], 'insufficient': full['insufficient']}
+    v2 = SA.score_v2(a, item['role'], axes_doc, formula)
+    old = item.get('old') or {}
+    h = {s: round(float(old.get(s, 5)) + lam * max(-1.0, min(1.0, v2['scores'][s] - 5)), 2) for s in axes_doc['styles']} if old else None
+    return out | {'V2': v2['scores'], 'V2u': v2['universal'], 'H': h, 'D': SA.score(a, item['role'], axes_doc, formula)['scores']}
 
 
 def page() -> int:
@@ -189,13 +187,16 @@ def page() -> int:
         for ln in open(ANSWERS, encoding='utf-8'):
             j = json.loads(ln)
             answers[j['mkey']] = j
-    names = {'A': 'нынешний балл', 'B': 'оси: среднее', 'C': 'оси: M+D', 'D': 'оси: M+D + пары'}
+    names = {'A': 'нынешний балл', 'V2': 'оси, версия 2', 'H': 'смесь: нынешний + оси'}
     blocks = []
     for st in FEED_STYLES:
-        for m in 'ABCD':
+        for m in ('A', 'V2', 'H'):
             scored = []
             for it in items:
-                sc = methods(it, answers.get(it['mkey']), axes_doc, formula).get(m)
+                mm = methods(it, answers.get(it['mkey']), axes_doc, formula)
+                sc = mm.get(m)
+                if m == 'V2' and mm.get('V2u'):
+                    continue                    # «универсальный» — без выраженного стиля, в ленту стиля не идёт
                 if sc and st in sc:
                     scored.append((float(sc[st]), it))
             if not scored:
@@ -216,7 +217,8 @@ def page() -> int:
            'figure{margin:0;background:#fff;border-radius:8px;padding:6px}img{width:100%;aspect-ratio:1;object-fit:contain}'
            'figcaption{font-size:12px}</style>'
            f'<h1>Стенд стиля по осям — {len(items)} товаров, опрошено {len(answers)}</h1>'
-           '<p>Выберите метод, чьи ленты больше похожи на стиль. A — как сейчас; B, C, D — новые по осям признаков.</p>'
+           '<p>Выберите метод, чьи ленты больше похожи на стиль. «Нынешний» — как сейчас; «оси, версия 2» — новый по '
+           'признакам (товары без выраженного стиля в его ленты не попадают); «смесь» — нынешний, слегка поправленный осями.</p>'
            + ''.join(blocks))
     os.makedirs(OUT, exist_ok=True)
     open(os.path.join(OUT, 'index.html'), 'w', encoding='utf-8').write(doc)
@@ -245,7 +247,7 @@ def _selftest() -> int:
     ok('в вопросе есть оси для роли и нет оси светильника', 'metal_visibility' in p and 'lamp_bulb_exposure' not in p)
     m = methods(it, {'axes': {'metal_visibility': 9, 'colour_lightness': 2, 'raw_imperfection': 8, 'wood_tone_lightness': 2,
                               'wood_visibility': 6, 'ornament_level': 1, 'material_mix': 6, 'surface_gloss': 2}}, axes_doc, formula)
-    ok('методы B–D считаются по ответам, A — из базы', m['A'] == {'лофт': 7} and all(m[k] for k in 'BCD'))
+    ok('методы V2, H, D считаются по ответам, A — из базы', m['A'] == {'лофт': 7} and all(m[k] for k in ('V2', 'H', 'D')))
     return 1 if bad else 0
 
 

@@ -1,21 +1,132 @@
 {
  "_about": "Формула стиля по осям (план conv-01, ADR-0269; формула — разбор Codex 13.10). Оси и диапазоны — rules/style-axes.json. Код — style_axes.py. Числа — стартовые, без эталона: подгоняются стендом и глазами владельца.",
  "fit_falloff": 3,
- "weights": {"strong": 1.0, "supporting": 0.4},
- "mix": {"compat": 0.5, "diagnostic": 0.5},
- "blocks": {
-  "форма": ["visual_lightness", "low_profile"],
-  "декор": ["ornament_level", "hardware_prominence", "lamp_bulb_exposure"],
-  "материалы": ["wood_visibility", "metal_visibility", "material_mix", "textile_texture"],
-  "отделка": ["wood_tone_lightness", "metal_gold", "surface_gloss", "raw_imperfection"],
-  "цвет": ["colour_warmth", "colour_saturation", "colour_lightness"]
+ "weights": {
+  "strong": 1.0,
+  "supporting": 0.4
  },
- "reliability": {"n_eff_full": 5, "min_q": 0.5, "min_n_eff": 4},
- "pair_tiebreak": {"k": 0.75, "cap": 0.75, "min_separators": 2},
- "variant_axes": ["colour_warmth", "colour_saturation", "colour_lightness", "wood_tone_lightness", "metal_gold", "surface_gloss", "textile_texture"],
- "variant_shift": {"k": 4, "cap": 2},
- "universal": {"min_q": 0.75, "min_n_eff": 5, "min_styles": 4, "min_compat": 0.75, "max_diag": 0.30},
- "store_style_bias": {"cap": 0.5, "quantile": 0.2, "min_families": 30},
+ "mix": {
+  "compat": 0.5,
+  "diagnostic": 0.5
+ },
+ "blocks": {
+  "форма": [
+   "visual_lightness",
+   "low_profile"
+  ],
+  "декор": [
+   "ornament_level",
+   "hardware_prominence",
+   "lamp_bulb_exposure"
+  ],
+  "материалы": [
+   "wood_visibility",
+   "metal_visibility",
+   "material_mix",
+   "textile_texture"
+  ],
+  "отделка": [
+   "wood_tone_lightness",
+   "metal_gold",
+   "surface_gloss",
+   "raw_imperfection"
+  ],
+  "цвет": [
+   "colour_warmth",
+   "colour_saturation",
+   "colour_lightness"
+  ]
+ },
+ "reliability": {
+  "n_eff_full": 5,
+  "min_q": 0.5,
+  "min_n_eff": 4
+ },
+ "pair_tiebreak": {
+  "k": 0.75,
+  "cap": 0.75,
+  "min_separators": 2
+ },
+ "variant_axes": [
+  "colour_warmth",
+  "colour_saturation",
+  "colour_lightness",
+  "wood_tone_lightness",
+  "metal_gold",
+  "surface_gloss",
+  "textile_texture"
+ ],
+ "variant_shift": {
+  "k": 4,
+  "cap": 2
+ },
+ "universal": {
+  "min_q": 0.75,
+  "min_n_eff": 5,
+  "min_styles": 4,
+  "min_compat": 0.75,
+  "max_diag": 0.3
+ },
+ "store_style_bias": {
+  "cap": 0.5,
+  "quantile": 0.2,
+  "min_families": 30
+ },
  "in_style_min": 6,
- "veto": []
+ "veto": [],
+ "v2": {
+  "_about": "Версия 2 (разбор Codex 14.10 после стенда 300): подписанный вклад e = α·fit − 0.75·(1−fit); попадание в «нижний» диапазон (начинается с 1–2) — слабое свидетельство α=0.25; признак учитывается только там, где его можно увидеть (opportunity); пары выключены; гладкий товар — universal, а не минимализм.",
+  "alpha_low_range": 0.25,
+  "low_range_max_lo": 2,
+  "penalty": 0.75,
+  "scale": 3,
+  "opportunity": {
+   "wood_visibility": {
+    "мягкая": 0.25,
+    "свет": 0.0,
+    "текстиль": 0.0
+   }
+  },
+  "role_groups": {
+   "мягкая": [
+    "диван",
+    "кресло",
+    "пуф"
+   ],
+   "свет": [
+    "люстра",
+    "бра",
+    "лампа",
+    "торшер"
+   ],
+   "текстиль": [
+    "плед",
+    "подушка",
+    "шторы",
+    "ковёр"
+   ]
+  },
+  "soft_wood_neutral_below": 3,
+  "soft_wood_styles": [
+   "сканди",
+   "джапанди"
+  ],
+  "gate": {
+   "wood_tone_lightness": [
+    "wood_visibility",
+    3
+   ],
+   "metal_gold": [
+    "metal_visibility",
+    3
+   ]
+  },
+  "presence_only": {
+   "metal_gold": [
+    "неоклассика"
+   ]
+  },
+  "universal_below": 6.0,
+  "second_style_gap": 0.35
+ }
 }

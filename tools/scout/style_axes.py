@@ -117,6 +117,53 @@ def score(answers: dict, role: str, axes_doc: dict, formula: dict) -> dict:
     return out
 
 
+def score_v2(answers: dict, role: str, axes_doc: dict, formula: dict) -> dict:
+    """Версия 2 (Codex 14.10, после стенда): подписанный вклад вместо «совместимости»; отсутствие признака почти не
+    голосует; признак учитывается там, где его можно увидеть; гладкий товар — universal, а не минимализм."""
+    v2 = formula['v2']
+    styles = axes_doc['styles']
+    axes = {a['id']: a for a in axes_doc['axes'] if applies(a, role)}
+    fo, W = float(formula['fit_falloff']), formula['weights']
+    block_of = {ax: b for b, xs in formula['blocks'].items() for ax in xs}
+    group = next((g for g, rs in v2['role_groups'].items() if role in rs), None)
+    x = {k: (None if v in (NA, 'na') else v) for k, v in answers.items()}
+    for ax, (dep, thr) in v2['gate'].items():          # тон дерева — только если дерево видно; золото — если виден металл
+        if (x.get(dep) or 0) < thr:
+            x[ax] = None
+    out = {'scores': {}, 'universal': False, 'top': []}
+    for st in styles:
+        blocks: dict = {}
+        for ax, a in axes.items():
+            ps = (a.get('per_style') or {}).get(st)
+            v = x.get(ax)
+            if not ps or v is None:
+                continue
+            opp = (v2['opportunity'].get(ax) or {}).get(group, 1.0)
+            w = float(W.get(ps.get('marker', 'supporting'), 0.4)) * opp
+            if ax == 'wood_visibility' and group == 'мягкая' and st in v2['soft_wood_styles']:
+                if v < v2['soft_wood_neutral_below']:
+                    continue                            # у дивана дерево — ножки: мало дерева не против сканди
+                w = float(W['supporting'])
+            if w <= 0:
+                continue
+            f = fit(float(v), ps['range'], fo)
+            alpha = v2['alpha_low_range'] if ps['range'][0] <= v2['low_range_max_lo'] else 1.0
+            po = v2['presence_only'].get(ax)
+            if po is not None and st not in po:
+                alpha = 0.0                             # «нет золота» — не довод ни за один стиль, кроме против неоклассики
+            e = alpha * f - v2['penalty'] * (1 - f)
+            b = blocks.setdefault(block_of.get(ax, ax), [0.0, 0.0])
+            b[0] += w * e
+            b[1] += w
+        es = [b[0] / b[1] for b in blocks.values() if b[1]]
+        E = sum(es) / len(es) if es else 0.0
+        out['scores'][st] = round(max(0.0, min(10.0, 5 + v2['scale'] * E)), 2)
+    ranked = sorted(out['scores'].items(), key=lambda kv: -kv[1])
+    out['universal'] = ranked[0][1] < v2['universal_below']
+    out['top'] = [ranked[0][0]] + ([ranked[1][0]] if ranked[0][1] - ranked[1][1] < v2['second_style_gap'] else [])
+    return out
+
+
 def _selftest() -> int:
     bad = 0
 
@@ -159,6 +206,20 @@ def _selftest() -> int:
            'colour_saturation': 4, 'colour_lightness': 7, 'material_mix': 5, 'hardware_prominence': 8}
     r = score(neo, 'комод', axes, formula)
     ok('комод с латунью и декором — неоклассика лучшая', max(r['scores'], key=r['scores'].get) == 'неоклассика', r['scores'])
+
+    # v2: гладкий серый диван без признаков — универсальный, а не «минимализм»
+    plain = {'wood_visibility': 1, 'metal_visibility': 1, 'surface_gloss': 2, 'raw_imperfection': 1, 'ornament_level': 2,
+             'visual_lightness': 3, 'low_profile': 6, 'colour_warmth': 5, 'colour_saturation': 2, 'colour_lightness': 5,
+             'material_mix': 2, 'textile_texture': 3}
+    r2 = score_v2(plain, 'диван', axes, formula)
+    ok('v2: гладкий диван без признаков — ни один стиль не выше 6.5 (нет выраженного сигнала)', max(r2['scores'].values()) < 6.5, r2['scores'])
+    r2 = score_v2(loft, 'стеллаж', axes, formula)
+    ok('v2: лофт-стеллаж — лофт первым', r2['top'][0] == 'лофт', r2['scores'])
+    sk = {'wood_visibility': 2, 'metal_visibility': 1, 'surface_gloss': 2, 'raw_imperfection': 2, 'ornament_level': 1,
+          'visual_lightness': 8, 'low_profile': 4, 'colour_warmth': 6, 'colour_saturation': 2, 'colour_lightness': 9,
+          'material_mix': 2, 'textile_texture': 8}
+    r2 = score_v2(sk, 'кресло', axes, formula)
+    ok('v2: светлое фактурное кресло на тонких ножках — сканди не проваливается из-за «мало дерева»', r2['scores']['сканди'] >= 6, r2['scores'])
     return 1 if bad else 0
 
 
