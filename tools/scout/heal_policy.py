@@ -198,10 +198,6 @@ def report(limit: int = 30) -> None:
         print(f'{r[0]:12}{r[1][:15]:16}{r[2][:15]:16}{r[5][:15]:16}{r[3][:22]} → {r[4][:22]}')
 
 
-if __name__ == '__main__':
-    report()
-
-
 def _selftest() -> int:
     bad = 0
 
@@ -220,5 +216,5 @@ def _selftest() -> int:
     return 1 if bad else 0
 
 
-if __name__ == '__main__' and '--selftest' in sys.argv:
-    sys.exit(_selftest())
+if __name__ == '__main__':
+    sys.exit(_selftest() if '--selftest' in sys.argv else report())
