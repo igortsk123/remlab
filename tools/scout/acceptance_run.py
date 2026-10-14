@@ -61,7 +61,15 @@ def _one(engine, sc):
     за файлы раскладок (set3-base и set3-pylons писали бы в один v3set3-layout-*.json)."""
     env = dict(os.environ, LAYOUT_ENGINE=engine, LAYOUT_SUFFIX=f"-acc-{engine}-{sc['id']}")
     args = [PY, os.path.join(HERE, 'solver_run.py'), str(sc['set']), '--v3']
-    if sc['kind'] == 'contour':
+    if sc['kind'] == 'demo':
+        # ДЕМО-ГОСТИНАЯ (conv-06): геометрия — из той же квартиры, что у витрины (`flat215.json`), одно место правды
+        _r = json.load(open(os.path.join(HERE, 'flat215.json'), encoding='utf-8'))['rooms'][0]
+        _strip = lambda xs: [{k: v for k, v in x.items() if not k.startswith('_')} for x in xs or []]  # noqa: E731
+        sc = dict(sc, w=_r['w'], d=_r['d'], openings=_strip(_r.get('openings')))
+        if _r.get('radiators'):
+            env['SCENE_RADIATORS'] = json.dumps(_strip(_r['radiators']))
+        args += [str(sc['w']), str(sc['d'])]
+    elif sc['kind'] == 'contour':
         xs = [p[0] for p in sc['contour']]; ys = [p[1] for p in sc['contour']]
         env['SCENE_CONTOUR'] = json.dumps(sc['contour'])
         args += [str(max(xs)), str(max(ys))]

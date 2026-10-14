@@ -19,6 +19,8 @@ import json
 rep=[json.loads(l) for l in open('acceptance-report-zoned.jsonl') if l.strip()]
 to=[r['scene'] for r in rep if 'TIMEOUT' in str(r['fails'])]
 print(f"итог: ok {sum(r['ok'] for r in rep)}/{len(rep)}, TIMEOUT {len(to)} {to[:6]}")
+dem=[r for r in rep if str(r['scene']).endswith('-demo')]
+print(f"демо-гостиная (сцены витрины): ok {sum(r['ok'] for r in dem)}/{len(dem)}" + ''.join(f"; {r['scene']}: {str(r['fails'])[:80]}" for r in dem if not r['ok']))
 PY
 fi
 echo "=== $(date '+%F %T') ночной экзамен готово ===" >> "$LOG"
