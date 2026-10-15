@@ -3,7 +3,7 @@ tier: 2
 topic: flat3d-configurator-details
 scope: 3D-конфигуратор квартиры — подробности модели, сцены и конвейера ассетов
 tier1: ../core/apartment-configurator.md
-updated: 2026-10-14
+updated: 2026-10-15
 importance: med
 source: manual
 status: working
@@ -195,6 +195,21 @@ runtime-текстура (KTX2) — уйдёт при переходе на пе
 стекло (почти прозрачное), подоконник; дверь — наличник и полотно с филёнками и ручкой
 (межкомнатная распахнута к стене, входная закрыта); портал — только наличник.
 Панорама за окнами — `material_pipeline.py outside` (2048×1024, 27 КБ), натянута на сферу.
+
+### Одно описание проёма для 3D и серверного кадра (14–15.10, demo-04, ADR-0292/0293)
+- Окно, дверь, балкон, портал строит одна функция `lib/viewer3d/opening-ir.ts:openingIR` (коробки в осях стены, вырез `cut`,
+  группа полотна, вид `backdrop`); меши — `openings.ts:meshesFromIR`, стена — `rooms.ts:wallRects` по тому же `cut`, столярка
+  ставится `rooms.ts:joineryOf`. Петли `hinge` — от начала отступа, `swingCm: 0` — наружу; north/west зеркалят и отступ, и петли.
+- Квартира из одной комнаты (живая сцена демо, вариант в `/flat`) — межкомнатные полотна закрыты (`viewer.ts:buildShell`).
+- Вид из окна: `room.windowView` (id набора `window-views.ts`; из карточки квартиры `windowView`), плоскость 30 см за стеной,
+  не дальше конца стены и середины простенка (`viewRooms`), горизонт картинки — на 155 см; чужие URL не принимаются.
+- Стыки пол/потолок/угол — полосы мягкой тени `lib/viewer3d/joints.ts` (0,16 · exp(−d/16 см)), только по кускам стены;
+  потолок светится отражённым светом (`emissiveIntensity` 0.32), иначе выходил серым.
+- Серверный кадр: IR приходит в `room.openings_ir` (ночная сборка `tools/flat3d/opening-ir.mjs`), проверяется
+  `tools/scout/opening_ir.py:sanitize`, коробки — `trimesh_parts`, стена — `services/planner-solver/planner/scene.py:wall_rects`,
+  за вырезом — вид (`paint_beyond`), стыки и палитра живой сцены — `_edge_cm`, `_CLAY_BROWSER`.
+- Проверка: `tests/unit/opening-ir.test.ts` (браузер = эталон сервера `tools/assets/opening_golden.py`, 4 стены; вид),
+  `services/planner-solver/tests/test_wall_cut.py` (силуэт выреза ±1,5 px).
 
 ## Состав кухни по уровню (ADR-0219)
 | Уровень | Линия | Верх | Колонны | Остров/бар | Прочее |

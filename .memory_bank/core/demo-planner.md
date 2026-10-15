@@ -3,7 +3,7 @@ tier: 1
 topic: demo-planner
 scope: Демо-планировщик для партнёра — расстановка и кадр
 tier2: "../domain/demo-planner-ui.md"
-updated: 2026-10-14
+updated: 2026-10-15
 importance: high
 source: manual
 status: working
@@ -36,5 +36,5 @@ review_after: 2026-12-05
 **Вариант = стиль (13.10, ADR-0244):** `pick_banks` — по набору на стиль (самый собираемый);
 кнопка «в 3D» → `/flat?demo=<вариант>&flat=…`, у коллекции — `/flat?coll=<id>`; встраивание на сайт застройщика —
 `/embed/<партнёр>/<квартира>` (ADR-0283).
-- **Кадры (ADR-0280):** очередь с местом и оценкой, ночной прогрев `tools/ops/demo-warm.mjs`, время — `frame_sec`.
+- **Кадры (ADR-0280/0291):** очередь, прогрев `tools/ops/demo-warm.mjs`; поза 135 см, точка — правила CAMFIT.
 - **Сценарии, дефекты, живые проверки, планы demo-01…03** — [[demo-scenarios]].

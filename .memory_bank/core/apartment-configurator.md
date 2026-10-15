@@ -3,7 +3,7 @@ tier: 1
 topic: apartment-configurator
 scope: 3D-конфигуратор квартиры — что это, из чего собран, где детали
 tier2: "../domain/flat3d-configurator.md"
-updated: 2026-10-14
+updated: 2026-10-15
 importance: high
 source: manual
 status: working
@@ -37,7 +37,7 @@ review_after: 2026-12-28
 **Общий движок с демо (ADR-0288):** `lib/viewer3d` собирается и бандлом для `/demo` (`demo-scene.ts`); предмет = опора
 + модель (сдвиг без пересоздания), фото-поза = серверная камера (`viewer.ts:photoRay`).
 
-**Решения:** ADR-0210…0230, 0258, 0281, 0288.
+**Решения:** ADR-0210…0230, 0258, 0281, 0288, 0292 (проёмы из `opening-ir.ts`), 0293 (вид из окна).
 
 **С 14.10 (ADR-0281):** `ObjectTools`, `InfoPanel`, «убрать», отмена (`lib/configurator/history.ts`), `Hotspots`.
 **Нет:** перекраски по маске, лайтмапов, непрямоугольных комнат.
