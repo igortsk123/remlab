@@ -1292,7 +1292,7 @@ function camTvBack(c,its){
 // СТЕНА ВПЛОТНУЮ НЕ В КАДРЕ (14.10: ракурс из угла, повёрнутый на 25° от стены, показывал её белой плитой на пятую часть
 // кадра). Для стены ближе CAM_WALL_NEAR взгляд должен уходить от неё не меньше чем на полкадра; иначе отказ.
 // Так же — проём двери ближе CAM_DOOR_NEAR: наличник выступает из стены и встаёт перед объективом плитой.
-const CAM_WALL_NEAR=30, CAM_DOOR_NEAR=45;
+const CAM_WALL_NEAR=40, CAM_DOOR_NEAR=45;   // 40 — прогон d8 15.10: в 33 см у джапанди белая плита стены
 function camGraze(c,W,H){
   const a=(c.rot||0)*Math.PI/180, sx=Math.abs(Math.sin(a)), sy=Math.abs(Math.cos(a)), half=(c.fov||72)/2;
   const deg=v=>Math.asin(Math.min(1,v))*180/Math.PI;
