@@ -1292,12 +1292,16 @@ function camTvBack(c,its){
 // СТЕНА ВПЛОТНУЮ НЕ В КАДРЕ (14.10: ракурс из угла, повёрнутый на 25° от стены, показывал её белой плитой на пятую часть
 // кадра). Для стены ближе CAM_WALL_NEAR взгляд должен уходить от неё не меньше чем на полкадра; иначе отказ.
 // Так же — проём двери ближе CAM_DOOR_NEAR: наличник выступает из стены и встаёт перед объективом плитой.
-const CAM_WALL_NEAR=40, CAM_DOOR_NEAR=45;   // 40 — прогон d8 15.10: в 33 см у джапанди белая плита стены
+const CAM_WALL_NEAR=40, CAM_DOOR_NEAR=45, CAM_WALL_MID=80, CAM_WALL_SHARE=0.15;   // 40/80/15 % — прогон d8 15.10: плита стены у джапанди
 function camGraze(c,W,H){
   const a=(c.rot||0)*Math.PI/180, sx=Math.abs(Math.sin(a)), sy=Math.abs(Math.cos(a)), half=(c.fov||72)/2;
   const deg=v=>Math.asin(Math.min(1,v))*180/Math.PI;
   const near=[[c.x,sx],[W-c.x,sx],[c.y,sy],[H-c.y,sy]].filter(([d])=>d<=CAM_WALL_NEAR);
   if(near.some(([,k])=>deg(k)<half))return 2;
+  // стена в шаге от камеры под острым углом занимает край кадра плитой (джапанди 15.10: 16° к стене в 43 см — треть кадра);
+  // доля — угловая: (полкадра − угол к стене) / кадр, не больше CAM_WALL_SHARE
+  const mid=[[c.x,sx],[W-c.x,sx],[c.y,sy],[H-c.y,sy]].filter(([d])=>d<=CAM_WALL_MID);
+  if(mid.some(([,k])=>(half-deg(k))/(2*half)>CAM_WALL_SHARE))return 2;
   const ops=((typeof D!=='undefined'&&D&&D.room&&D.room.openings)||[]).filter(o=>o.kind!=='window'&&o.width_cm);
   return ops.some(o=>{const g=wallSeg(o.wall,o.offset_cm,o.width_cm);
     // наличники — на концах проёма и выступают в комнату: меряем до их лица (8 см от стены); камера в самом проёме, глядя
