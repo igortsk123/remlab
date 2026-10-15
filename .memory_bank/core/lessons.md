@@ -3,7 +3,7 @@ tier: 1
 topic: lessons
 scope: Уроки перед планированием — что НЕ сработало
 tier2: "../lessons/README.md"
-updated: 2026-10-13
+updated: 2026-10-15
 importance: high
 source: manual
 review_after: 2026-12-05

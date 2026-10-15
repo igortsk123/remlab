@@ -25,7 +25,7 @@
 | `knowledge-db.md` | knowledge-db | Source-KB из книг — спека, KB0–KB9 | `../../remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md` | 2026-09-28 |
 | `layout.md` | layout | Расстановка: правила, зоны, прод-ядро | `../domain/occupancy-rules.md` | 2026-09-28 |
 | `leads.md` | leads | Лид-канал — заявка, TG-бот | — | 2026-10-14 |
-| `lessons.md` | lessons | Уроки перед планированием — что НЕ сработало | `../lessons/README.md` | 2026-10-13 |
+| `lessons.md` | lessons | Уроки перед планированием — что НЕ сработало | `../lessons/README.md` | 2026-10-15 |
 | `lr-composition.md` | lr-composition | Композиция гостиной — доли | `../domain/lr-composition-guide.md` | 2026-10-11 |
 | `manager-links.md` | manager-links | Ссылка от менеджера застройщика покупателю, сигналы менеджеру, его страница и бот | `../domain/manager-links.md` | 2026-10-14 |
 | `market.md` | market | Рынок RU/UK — спрос, монетизация | `../domain/market-research.md` | 2026-10-13 |
