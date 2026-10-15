@@ -13,6 +13,7 @@
 // данных: диван 162 см шириной стоит в x=166 при комнате 439 см, то есть 85…247 — у стены.
 // Поворот витрины — градусы по часовой, 0 — «лицом на +y», тоже как у нас.
 
+import { alternatives, feedForStyle, type FeedItem } from "@/lib/configurator/demo-feeds";
 import { finishPassport } from "@/lib/viewer3d/finish-passport";
 import { apartment as apartmentSchema, type Apartment, type Opening } from "@/contracts/apartment";
 import { catalogue as catalogueSchema, type Catalogue, type Configuration } from "@/contracts/configurator";
@@ -100,7 +101,7 @@ type DemoRoom = {
   }[];
 };
 /** `variant_aliases` — история номеров вариантов → стиль (`flat215_demo.merge_aliases`, demo-05 п.10). */
-export type DemoData = { room?: DemoRoom; variants?: DemoVariant[]; variant_aliases?: Record<string, string> };
+export type DemoData = { room?: DemoRoom; variants?: DemoVariant[]; variant_aliases?: Record<string, string>; feeds?: Record<string, FeedItem[]> };
 
 /**
  * Какой вариант открыть по ссылке (demo-05 п.10): номер варианта меняется при пересборке витрины, а ссылки менеджеров
@@ -151,23 +152,42 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
   if (!room?.w || !room?.d || !v) return null;
 
   const items = (v.items ?? []).filter((it) => it.w && it.d && it.h && it.sku?.msid);
-  // УПАКОВКА: «Стул АСТИ 2 шт.» на двух местах — ОДНА покупка (как в списке витрины, `index.html`
-  // `buys = ceil(мест/упаковку)`). Цену несут первые `buys` мест товара, остальные — 0; иначе «выбрано на»
-  // в 3D было бы больше суммы того же набора на витрине (verify 13.10).
-  const paidSlots = new Set<number>();
-  const byProduct = new Map<string, number[]>();
-  items.forEach((it, i) => {
-    const k = `${it.sku?.url ?? ""}|${it.sku?.name ?? ""}`;
-    byProduct.set(k, [...(byProduct.get(k) ?? []), i]);
-  });
-  for (const [, idx] of byProduct) {
-    const pack = Math.max(1, Math.round(Number(items[idx[0]!]!.sku?.pack ?? 1)) || 1);
-    idx.slice(0, Math.ceil(idx.length / pack)).forEach((i) => paidSlots.add(i));
-  }
+  // УПАКОВКА: «Стул АСТИ 2 шт.» на двух местах — ОДНА покупка (как в списке витрины, `index.html` `buys = ceil(мест/упаковку)`).
+  // Считает её расчёт сцены по фактически выбранным местам (`resolve.packPrices`: опции с одним `packKey`), а не статическая
+  // раскладка цены здесь — иначе замена, убранный стул или смешанный подбор давали бы неверную сумму (разбор Codex 15.10)
+  const packOf = (pack?: number): object => (Math.round(pack ?? 1) > 1 ? { pack: Math.round(pack!) } : {});
   if (!items.length) return null;
 
   const title = v.style ? v.style.charAt(0).toUpperCase() + v.style.slice(1) : (v.title ?? "Вариант");
   const ids = stableSlotIds(items);
+  const baseOf = (role?: string): string => String(role ?? "").replace(/\s+\d+$/, "").trim();
+  const keyOf = (it: DemoItem): string => `${it.sku?.url ?? ""}|${it.sku?.name ?? ""}`;
+  // СТУЛЬЯ ЗА ОДНИМ СТОЛОМ МЕНЯЮТСЯ ВСЕ РАЗОМ (владелец 30.09; клиент — `useFlatConfig.choose`, сервер — `resolve.sameInGroups`):
+  // у группы одна общая опция; упаковки считает `resolve.packPrices`
+  const chairIdx = items.map((it, i) => ({ it, i })).filter(({ it }) => baseOf(it.role) === "стул").map(({ i }) => i);
+  const chairGroup = chairIdx.length >= 2 && chairIdx.every((i) => keyOf(items[i]!) === keyOf(items[chairIdx[0]!]!)) ? chairIdx : [];
+  const inGroup = new Set(chairGroup);
+  const defaultOf = (i: number): string => (inGroup.has(i) ? "opt:стул" : `opt:${ids[i]}`);
+  // ЛЕНТЫ ЗАМЕН (demo-05 п.9): варианты места из ленты витрины своей роли и стиля, ближайшие по размеру (`demo-feeds.ts`)
+  const feedOptions = new Map<string, unknown>();
+  const feedIdsOf = (i: number): string[] => {
+    const it = items[i]!;
+    const base = baseOf(it.role);
+    const feed = feedForStyle(data.feeds?.[base] ?? [], v.style);
+    return alternatives(feed, { w: it.w as number, d: it.d as number }, new Set([it.sku?.sid ?? "", it.sku?.name ?? ""])).map((p) => {
+      const id = `feed:${base}:${p.sid ?? p.name}`;
+      if (!feedOptions.has(id)) {
+        feedOptions.set(id, { id, category: "furniture", titleRu: p.name ?? base, titleEn: p.name ?? base,
+          descRu: `${Math.round(p.w!)}×${Math.round(p.d!)}×${Math.round(p.h!)} см${(p.pack ?? 1) > 1 ? ` · ${p.pack} шт. в упаковке` : ""}`,
+          tier: "standard", price: Math.max(0, Math.round(p.price ?? 0)), ...packOf(p.pack), packKey: id,
+          listPrice: Math.max(0, Math.round(p.price ?? 0)), availability: "available", roomKinds: ["living"],
+          asset: { kind: "mesh", meshId: p.msid, yawDeg: p.yaw ?? 0, wCm: p.w, dCm: p.d, hCm: p.h },
+          ...(assetUrl(p.img, ctx.assetBase) ? { previewUrl: assetUrl(p.img, ctx.assetBase) } : {}),
+          ...(p.url ? { shopUrl: p.url } : {}), ...(p.shop ? { shopName: p.shop } : {}) });
+      }
+      return id;
+    });
+  };
   const slots: object[] = items.map((it, i) => ({
     id: ids[i]!,
     roomId: "living",
@@ -176,8 +196,9 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
     titleRu: it.role ?? "Предмет",
     titleEn: it.role ?? "Item",
     photoRole: it.role,
-    defaultOptionId: `opt:${ids[i]}`,
-    optionIds: [`opt:${ids[i]}`],
+    defaultOptionId: defaultOf(i),
+    optionIds: [defaultOf(i), ...feedIdsOf(inGroup.has(i) ? chairGroup[0]! : i)],
+    ...(inGroup.has(i) ? { selectionGroup: "стул" } : {}),
     placement: {
       x: it.x ?? 0,
       y: it.y ?? 0,
@@ -266,8 +287,8 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
     titleEn: `${title} set`,
     currency: ctx.currency,
     materials: extraMaterials,
-    options: [...items.map((it, i) => ({
-      id: `opt:${ids[i]}`,
+    options: [...items.map((it, i) => ({ it, i })).filter(({ i }) => !inGroup.has(i) || i === chairGroup[0]).map(({ it, i }) => ({
+      id: defaultOf(i),
       category: "furniture" as const,
       titleRu: it.sku?.name ?? it.role ?? "Предмет",
       titleEn: it.sku?.name ?? it.role ?? "Item",
@@ -275,7 +296,10 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
       // Мебель витрины в цену квартиры не входит: это покупка за счёт сертификата/доплаты, поэтому
       // ступень «стандарт» и настоящая цена товара — иначе «выбрано на» в 3D было бы всегда 0.
       tier: "standard" as const,
-      price: paidSlots.has(i) ? Math.max(0, Math.round(it.sku?.price ?? 0)) : 0,
+      price: Math.max(0, Math.round(it.sku?.price ?? 0)),
+      ...packOf(it.sku?.pack),
+      packKey: keyOf(it),
+      ...(it.sku?.img ? { previewUrl: assetUrl(it.sku.img, ctx.assetBase) } : {}),
       availability: "available" as const,
       roomKinds: ["living" as const],
       asset: {
@@ -292,7 +316,7 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
       // Ссылка в магазин — ПАРТНЁРСКАЯ, прямо как на витрине: иначе теряется комиссия (ADR-0016).
       ...(it.sku?.url ? { shopUrl: it.sku.url } : {}),
       ...(it.sku?.shop ? { shopName: it.sku.shop } : {}),
-    })), ...extraOptions],
+    })), ...extraOptions, ...feedOptions.values()],
   });
 
   return { apartment, catalogue };

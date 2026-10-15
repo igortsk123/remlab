@@ -127,6 +127,7 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
     selections[slot.id] = option.id;
     chosen.set(slot.id, option);
   }
+  sameInGroups(a, c, chosen, selections);
 
   for (const [slotId, opt] of chosen) {
     const ids = new Set([...chosen.values()].map((o) => o.id));
@@ -218,6 +219,10 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
     });
   }
   placeTabletop(a, items);
+  const packed = packPrices(c, items);
+  upgrades += packed.delta;
+  for (const [roomId, d] of packed.byRoom) byRoom[roomId] = (byRoom[roomId] ?? 0) + d;
+  upgradeCount += packed.countDelta;
 
   return {
     apartmentId: a.id,
@@ -272,5 +277,55 @@ export function placeTabletop(a: Apartment, items: ResolvedItem[]): void {
       delete i.unplaced;
     }
   }
+}
+
+/**
+ * ГРУППА СОВМЕСТНОЙ ЗАМЕНЫ — ИНВАРИАНТ СЕРВЕРА (разбор Codex 15.10): стулья за одним столом одинаковые (владелец 30.09).
+ * Клиент (`useFlatConfig.choose`) ставит одну опцию всем, но старый или поддельный подбор мог бы смешать товары и занизить
+ * число упаковок — здесь вся группа приводится к выбору первого места, если он разрешён остальным.
+ */
+function sameInGroups(a: Apartment, c: Catalogue, chosen: Map<string, Option>, selections: Record<string, string>): void {
+  const groups = new Map<string, Slot[]>();
+  for (const s of a.slots) if (s.selectionGroup) groups.set(s.selectionGroup, [...(groups.get(s.selectionGroup) ?? []), s]);
+  for (const members of groups.values()) {
+    const lead = chosen.get(members[0]!.id);
+    if (!lead) continue;
+    for (const s of members.slice(1)) {
+      if (chosen.get(s.id)?.id === lead.id) continue;
+      if (!optionsForSlot(a, c, s).some((o) => o.id === lead.id)) continue;
+      chosen.set(s.id, lead);
+      selections[s.id] = lead.id;
+    }
+  }
+}
+
+/**
+ * Цена упаковок: места с одним `packKey` (у опции `pack` > 1) — ceil(мест/pack) покупок одной строкой на первое место.
+ * → поправки к итогам (рядом с ценой «по штуке», которую уже посчитал основной проход).
+ */
+function packPrices(c: Catalogue, items: ResolvedItem[]): { delta: number; countDelta: number; byRoom: Map<string, number> } {
+  const byKey = new Map<string, ResolvedItem[]>();
+  for (const i of items) {
+    const o = optionById(c, i.optionId);
+    if (!o?.packKey || !o.pack || o.pack <= 1 || o.tier === "base") continue;
+    byKey.set(o.packKey, [...(byKey.get(o.packKey) ?? []), i]);
+  }
+  let delta = 0;
+  let countDelta = 0;
+  const byRoom = new Map<string, number>();
+  for (const group of byKey.values()) {
+    const o = optionById(c, group[0]!.optionId)!;
+    const total = o.price * Math.ceil(group.length / o.pack!);
+    group.forEach((i, k) => {
+      const next = k === 0 ? total : 0;
+      const d = next - i.price;
+      if (i.price > 0 && next === 0) countDelta -= 1;
+      if (i.price === 0 && next > 0) countDelta += 1;
+      i.price = next;
+      delta += d;
+      byRoom.set(i.roomId, (byRoom.get(i.roomId) ?? 0) + d);
+    });
+  }
+  return { delta, countDelta, byRoom };
 }
 

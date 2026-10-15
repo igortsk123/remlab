@@ -76,9 +76,13 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
   let stale: string[] = [];
   if (!variantGone && saved?.baseSnapshot) {
     stale = staleSlots(saved, baseSnapshotOf(apartment, catalogue));
+    // обновился один стул группы — сбрасываем всю группу (иначе группа откроется разной), и снимаем «убрано» (Codex 15.10)
+    const groups = new Set(apartment.slots.filter((s) => stale.includes(s.id) && s.selectionGroup).map((s) => s.selectionGroup));
+    stale = [...new Set([...stale, ...apartment.slots.filter((s) => s.selectionGroup && groups.has(s.selectionGroup)).map((s) => s.id)])];
     if (stale.length) {
       const drop = <T,>(rec: Record<string, T>) => Object.fromEntries(Object.entries(rec).filter(([k]) => !stale.includes(k)));
-      initial = { ...saved, selections: drop(saved.selections), placements: drop(saved.placements ?? {}) };
+      initial = { ...saved, selections: drop(saved.selections), placements: drop(saved.placements ?? {}),
+        ...(saved.hidden ? { hidden: saved.hidden.filter((id) => !stale.includes(id)) } : {}) };
     }
   }
   // открыт из коллекции — номер коллекции едет в подбор, чтобы сохранённая ссылка открывала ту же расстановку

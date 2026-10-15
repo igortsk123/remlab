@@ -5,6 +5,7 @@ import { configuration } from "@/contracts/configurator";
 import { guard } from "@/lib/ratelimit/http";
 import { baseSnapshotOf } from "@/lib/configurator/fromDemo";
 import { buildQuote, revisions } from "@/lib/configurator/quote";
+import { resolveScene } from "@/lib/configurator/resolve";
 import { saveConfig } from "@/lib/configurator/repo";
 import { resolveCollectionFlat, resolveFlat } from "@/lib/configurator/source";
 import { certificateAmount } from "@/lib/partners/registry";
@@ -39,6 +40,9 @@ export async function POST(req: Request): Promise<Response> {
     const { apartment, catalogue, hit } = flat;
     const trusted = {
       ...cfg,
+      // выбор — каким его понял расчёт сцены: недопустимое откатилось к набору, группа стульев выровнена (Codex 15.10) —
+      // иначе ссылка хранила бы одно, а смета считала другое
+      selections: resolveScene(apartment, catalogue, cfg).selections,
       version: 3 as const,
       developerId: hit.partner.id,
       ...(cfg.baseVariant ? { baseSnapshot: baseSnapshotOf(apartment, catalogue) } : {}),

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { baseSnapshotOf, fromDemoVariant, staleSlots } from "@/lib/configurator/fromDemo";
+import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 
 const CTX = { apartmentId: "flat215", partnerId: "demo", currency: "RUB" as const, basePrice: 9_578_200 };
 
@@ -87,7 +88,50 @@ describe("мост витрина → конфигуратор", () => {
       { role: "стул 2", x: 60, y: 10, rot: 0, w: 45, d: 50, h: 85, sku: { name: "Стул А 2 шт.", price: 9000, pack: 2, msid: "1_1", url: "u" } },
     ] }] };
     const r = fromDemoVariant(chairs, "set1", CTX)!;
-    expect(r.catalogue.options.reduce((t, o) => t + o.price, 0)).toBe(9000);
+    expect(resolveScene(r.apartment, r.catalogue, defaultConfiguration(r.apartment, r.catalogue)).totals.upgrades).toBe(9000);
+    // стулья меняются вместе (владелец 30.09): одна группа, одна общая опция
+    expect(r.apartment.slots.map((s) => [s.selectionGroup, s.defaultOptionId])).toEqual([["стул", "opt:стул"], ["стул", "opt:стул"]]);
+  });
+
+  // demo-05 п.9: в /flat у предмета — лента замен витрины, как в окне
+  it("ленты замен: свой стиль, ближайшие по размеру, с моделью и фото; стулья — доля упаковки на место", () => {
+    const feed = (n: number, extra: object) => Array.from({ length: n }, (_, k) => ({ name: `Ф${k}`, sid: `s${k}`, msid: `m${k}`, img: `img/${k}.jpg`,
+      w: 150 + k * 10, d: 90, h: 80, price: 10000 + k, url: `u${k}`, shop: "divan.ru", src: "pool", styles: ["джапанди"], ...extra }));
+    const withFeeds = { ...data, feeds: { диван: [...feed(14, {}), { name: "Чужой", sid: "x", msid: "mx", img: "i", w: 162, d: 90, h: 80, src: "pool", styles: ["лофт"] }],
+      стул: [{ name: "Стул Б 2 шт.", sid: "c1", msid: "mc", img: "img/c.jpg", w: 45, d: 50, h: 85, price: 8000, pack: 2, src: "pool", styles: ["сканди"] }] } };
+    const r = fromDemoVariant(withFeeds, "set16", { ...CTX, assetBase: "/demo/demo-data.json" })!;
+    const sofa = r.apartment.slots.find((s) => s.id === "диван#0")!;
+    expect(sofa.optionIds).toHaveLength(12);                   // текущий + 11 ближайших
+    expect(sofa.optionIds).not.toContain("feed:диван:x");      // чужой стиль
+    expect(sofa.optionIds[1]).toBe("feed:диван:s1");           // 160×90 — ближе всех к 162×90
+    const alt = r.catalogue.options.find((o) => o.id === "feed:диван:s1")!;
+    expect(alt).toMatchObject({ price: 10001, listPrice: 10001, previewUrl: "/demo/img/1.jpg", shopUrl: "u1" });
+    const chairs = { ...withFeeds, variants: [{ id: "set1", style: "сканди", items: [
+      { role: "стул", x: 10, y: 10, rot: 0, w: 45, d: 50, h: 85, sku: { name: "Стул А", price: 5000, msid: "1_1", url: "u" } },
+      { role: "стул 2", x: 60, y: 10, rot: 0, w: 45, d: 50, h: 85, sku: { name: "Стул А", price: 5000, msid: "1_1", url: "u" } },
+    ] }] };
+    const c = fromDemoVariant(chairs, "set1", CTX)!;
+    const cfg = defaultConfiguration(c.apartment, c.catalogue);
+    expect(resolveScene(c.apartment, c.catalogue, cfg).totals.upgrades).toBe(10000);
+    // замена на «2 шт.» обоим стульям — одна упаковка
+    const swapped = { ...cfg, selections: { ...cfg.selections, "стул#0": "feed:стул:c1", "стул 2#0": "feed:стул:c1" } };
+    expect(resolveScene(c.apartment, c.catalogue, swapped).totals.upgrades).toBe(8000);
+    // убрал один стул — упаковку всё равно покупать (Codex 15.10); одна строка сметы на упаковку
+    const oneHidden = resolveScene(c.apartment, c.catalogue, { ...swapped, hidden: ["стул 2#0"] });
+    expect(oneHidden.totals.upgrades).toBe(8000);
+    expect(resolveScene(c.apartment, c.catalogue, swapped).items.filter((i) => i.price > 0)).toHaveLength(1);
+    // поддельный подбор с разными стульями в группе — сервер приводит группу к первому месту
+    const mixed = { ...cfg, selections: { ...cfg.selections, "стул#0": "feed:стул:c1", "стул 2#0": "opt:стул" } };
+    const fixed = resolveScene(c.apartment, c.catalogue, mixed);
+    expect(fixed.selections["стул 2#0"]).toBe("feed:стул:c1");
+    expect(fixed.totals.upgrades).toBe(8000);
+  });
+
+  it("три стула из упаковки «2 шт.» — две покупки", () => {
+    const three = { ...data, variants: [{ id: "set1", style: "сканди", items: [0, 1, 2].map((k) => ({ role: k ? `стул ${k + 1}` : "стул",
+      x: 10 + k * 50, y: 10, rot: 0, w: 45, d: 50, h: 85, sku: { name: "Стул А 2 шт.", price: 9000, pack: 2, msid: "1_1", url: "u" } })) }] };
+    const r = fromDemoVariant(three, "set1", CTX)!;
+    expect(resolveScene(r.apartment, r.catalogue, defaultConfiguration(r.apartment, r.catalogue)).totals.upgrades).toBe(18000);
   });
 
   it("неизвестный вариант — null, страница откроет обычную квартиру", () => {

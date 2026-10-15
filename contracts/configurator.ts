@@ -123,6 +123,13 @@ export const option = z.object({
   shopUrl: z.string().optional(),
   shopName: z.string().optional(),
   listPrice: z.number().nonnegative().optional(),
+  /**
+   * Упаковка (demo-05 п.9, разбор Codex): товар продаётся по `pack` штук, места с одним `packKey` считаются вместе —
+   * `resolveScene` берёт ceil(мест/pack) покупок по цене `price` и пишет их одной строкой (первому месту), остальным 0.
+   * «2 шт.» на 2 стула — одна покупка; убрал один стул — упаковку всё равно покупать.
+   */
+  pack: z.number().int().positive().optional(),
+  packKey: z.string().optional(),
   /** Совместимость: нужны эти опции / несовместимо с этими. */
   requires: z.array(z.string()).default([]),
   excludes: z.array(z.string()).default([]),
