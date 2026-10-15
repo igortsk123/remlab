@@ -378,6 +378,7 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
             onItemRemove={slotId && apartment.slots.find((s) => s.id === slotId)?.kind === "furniture" ? removeItem : undefined}
             itemLabels={lang === "en" ? { options: "Options", move: "Drag", remove: "Remove" } : { options: "Варианты", move: "Двигать", remove: "Убрать" }}   // не «Передвинуть»: та кнопка есть в нижней панели
             hintText={mobile ? L.walkHintMobile : L.walkHint}
+            hintCompact={mobile}
             loadingText={L.loading}
             loadingTitle={L.loadingTitle}
             loadingHint={L.loadingHint}

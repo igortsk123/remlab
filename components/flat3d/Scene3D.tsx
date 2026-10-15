@@ -52,6 +52,8 @@ export interface Scene3DProps {
   /** Точки на заменяемых предметах текущей комнаты (D6). */
   spots?: Spot[];
   hintText: string;
+  /** Телефон: подсказка — одна строка, не плашка (demo-05 п.6). */
+  hintCompact?: boolean;
   loadingText: string;
   /** Экран первой загрузки (flat3d-sims-ux D8): заголовок, строка «что тут можно», подписи этапов по проценту. */
   loadingTitle?: string;
@@ -94,6 +96,21 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
   // комнаты догружаются на ходу, и накрывать ими всю сцену нельзя
   const [firstLoadDone, setFirstLoadDone] = useState(false);
   const [hintClosed, setHintClosed] = useState(false);
+  // ПОДСКАЗКА УХОДИТ САМА (demo-05 п.6, прогон 14.10: плашка висела поверх сцены всю прогулку): через 6 с или по первому
+  // действию человека; на этот показ, без записи в браузер — повторно её открывает «?» (справка с роликами)
+  const [hintAuto, setHintAuto] = useState(false);
+  useEffect(() => {
+    if (!ready || hintClosed || hintAuto) return;
+    const hide = (): void => setHintAuto(true);
+    const t = window.setTimeout(hide, 6000);
+    window.addEventListener("pointerdown", hide, { once: true });
+    window.addEventListener("keydown", hide, { once: true });
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener("pointerdown", hide);
+      window.removeEventListener("keydown", hide);
+    };
+  }, [ready, hintClosed, hintAuto]);
   const [padShown, setPadShown] = useState(true);
   useEffect(() => {
     try {
@@ -118,9 +135,6 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
     }
   }, []);
   const [attempt, setAttempt] = useState(0);
-
-  // Подсказка сама не исчезает: она маленькая, стоит вверху и не мешает. Закрывает её человек
-  // крестиком — так понятнее, чем «подождите, и она пропадёт».
 
   // создание/уничтожение сцены: зависит только от профиля качества
   useEffect(() => {
@@ -538,13 +552,13 @@ export function Scene3D(props: Scene3DProps): React.ReactElement {
       {/* ПОДСКАЗКА — ВВЕРХУ, отдельной карточкой с крестиком (владелец 30.09: «сделай красиво
           вверху, на полупрозрачном фоне, с крестиком, как окно»). Внизу она налезала на кнопки
           ходьбы. Закрыли — больше не показываем: решение помним в браузере. */}
-      {!error && ready && !hintClosed ? (
+      {!error && ready && !hintClosed && !hintAuto ? (
         <div
           className="pointer-events-auto absolute left-1/2 flex max-w-[92%] -translate-x-1/2 items-start gap-2 rounded-2xl px-4 py-2.5 shadow-sm ring-1 ring-inset ring-secondary"
           // top 60: строка кнопок правой панели (← Вся квартира, ?, i) — сверху, подсказка под ней, не поверх (14.10)
           style={{ top: 60, zIndex: 11, background: "color-mix(in srgb, var(--color-bg-primary) 82%, transparent)", backdropFilter: "blur(8px)" }}
         >
-          <p className="text-xs leading-relaxed text-secondary">{hintText}</p>
+          <p className={`text-xs leading-relaxed text-secondary${props.hintCompact ? " truncate" : ""}`}>{hintText}</p>
           <button
             type="button"
             aria-label="Закрыть подсказку"
