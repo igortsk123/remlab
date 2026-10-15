@@ -827,19 +827,24 @@ export class FlatViewer {
 
     let best: { x: number; y: number } | null = null;
     let bestScore = -1e9;
-    for (const cand of candidates) {
-      const spot = nearestStandable(this.area, cand.x, cand.y, 8, 6);
-      if (!spot) continue;
-      const free = clearance(spot.x, spot.y);
-      const door = isDoorSpot(cand);
-      // от двери можно стоять ближе к мебели: мы смотрим В комнату, а не упираемся в шкаф
-      if (free < (door ? 20 : 45)) continue;
-      // подальше от центра (видно больше комнаты), свобода вокруг, и заметный плюс двери
-      const score = Math.hypot(spot.x - c.x, spot.y - c.y) + Math.min(free, 150) + (door ? 220 : 0) - (tvSide(spot.x, spot.y) ? 400 : 0);
-      if (score > bestScore) {
-        bestScore = score;
-        best = spot;
+    // второй проход — с запасом 35 см вместо 45: если с обычным запасом остаётся только вид на ТВ сбоку (минимализм 15.10:
+    // точка «спереди ТВ» в 45 см от столика), ближе к мебели лучше, чем торец экрана в треть кадра
+    for (const minFree of [45, 35]) {
+      for (const cand of candidates) {
+        const spot = nearestStandable(this.area, cand.x, cand.y, 8, 6);
+        if (!spot) continue;
+        const free = clearance(spot.x, spot.y);
+        const door = isDoorSpot(cand);
+        // от двери можно стоять ближе к мебели: мы смотрим В комнату, а не упираемся в шкаф
+        if (free < (door ? 20 : minFree)) continue;
+        // подальше от центра (видно больше комнаты), свобода вокруг, и заметный плюс двери
+        const score = Math.hypot(spot.x - c.x, spot.y - c.y) + Math.min(free, 150) + (door ? 220 : 0) - (tvSide(spot.x, spot.y) ? 400 : 0);
+        if (score > bestScore) {
+          bestScore = score;
+          best = spot;
+        }
       }
+      if (best && !tvSide(best.x, best.y)) break;
     }
     if (!best) {
       // всё занято мебелью — встаём в самое свободное место из кандидатов
