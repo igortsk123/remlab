@@ -162,7 +162,7 @@ export function BuildBar(props: BuildBarProps) {
             </p>
             {/* Передвинуть можно только отдельно стоящую мебель: кухня, шкаф и покрытия
                 привязаны к стене и к комнате. */}
-            {onMove && active && active.kind === "furniture" ? (
+            {onMove && active && active.kind === "furniture" && !active.tabletop ? (
               <button
                 type="button"
                 onClick={() => onMove(active.id)}

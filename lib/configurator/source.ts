@@ -8,7 +8,7 @@
 import type { Apartment } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
 import { loadFlat3d } from "@/lib/configurator/data";
-import { collectionAsVariant, fromDemoVariant, resolveVariantId, type DemoData } from "@/lib/configurator/fromDemo";
+import { collectionAsVariant, fromDemoVariant, resolveVariantId, type DemoContext, type DemoData } from "@/lib/configurator/fromDemo";
 import { currentPrices, priceIndex } from "@/lib/collections/prices";
 import { collectionRepo } from "@/modules/collections/repository";
 import { loadDemoRaw } from "@/lib/partners/demo-data";
@@ -36,11 +36,12 @@ export function defaultApartmentId(kind: "demo" | "flat3d"): string | null {
 export async function resolveFlat(apartmentId: string, baseVariant?: string, load: DemoLoader = loadDemoRaw): Promise<FlatResolved> {
   const hit = findApartment(apartmentId);
   if (!hit) return { ok: false, reason: "unknown" };
-  const ctx = { apartmentId, partnerId: hit.partner.id, currency: hit.partner.currency, basePrice: hit.apartment.price };
+  const ctx: DemoContext = { apartmentId, partnerId: hit.partner.id, currency: hit.partner.currency, basePrice: hit.apartment.price };
 
   const src = hit.apartment.sources.demoData;
   if (src && (baseVariant || !hit.apartment.sources.flat3d)) {
     const raw = (await load(src)) as DemoData | null;
+    ctx.assetBase = src; // картинки ковров витрины (`img/…`) — рядом с её demo-data.json
     if (!raw) return { ok: false, reason: "unavailable" };
     const pick = baseVariant ? resolveVariantId(raw, baseVariant) : raw.variants?.[0]?.id ? { id: raw.variants[0].id } : null;
     const built = pick ? fromDemoVariant(raw, pick.id, ctx) : null;
@@ -78,7 +79,8 @@ export async function resolveCollectionFlat(id: string, load: DemoLoader = loadD
   if (!raw) return { ok: false, reason: "unavailable" };
   const sids = c.payload.items.map((i) => i.sku?.sid).filter((x): x is string => !!x);
   const data = collectionAsVariant(raw, c.payload, currentPrices(sids, priceIndex(raw)));
-  const ctx = { apartmentId: hit.apartment.id, partnerId: hit.partner.id, currency: hit.partner.currency, basePrice: hit.apartment.price };
+  const ctx: DemoContext = { apartmentId: hit.apartment.id, partnerId: hit.partner.id, currency: hit.partner.currency,
+    basePrice: hit.apartment.price, assetBase: src };
   const built = fromDemoVariant(data, c.payload.baseVariant, ctx);
   return built ? { ok: true, ...built, hit } : { ok: false, reason: "unknown" };
 }

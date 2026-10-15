@@ -10,8 +10,10 @@ const data = {
     { role: "диван", x: 166.1, y: 280, rot: 180, w: 162, d: 90, h: 79,
       sku: { name: "Диван X", price: 54990, msid: "112923_1", url: "https://xf.gdeslon.ru/cm/x", shop: "divan.ru" } },
     { role: "столик", x: 200, y: 180, rot: 0, w: 80, d: 80, h: 45, sku: { name: "Столик Y", msid: "99272_2", yaw: 180 } },
-    { role: "ковёр", x: 200, y: 200, rot: 0, w: 200, d: 150, h: 1, sku: { name: "Без меша" } },
-  ] }],
+    { role: "ковёр", x: 200, y: 200, rot: 0, w: 200, d: 150, sku: { name: "Ковёр Z", price: 9291, sid: "r1", img: "img/rug.jpg" } },
+    { role: "торшер", x: 40, y: 40, rot: 0, w: 30, d: 30, h: 160, sku: { name: "Без меша" } },
+  ], decor: [{ role: "ваза", sku: { name: "Ваза V", price: 2490, msid: "99272_9", w: 20, d: 20, h: 30 } },
+             { role: "ваза", sku: { name: "Без размеров", msid: "99272_8" } }] }],
 };
 
 describe("мост витрина → конфигуратор", () => {
@@ -20,9 +22,21 @@ describe("мост витрина → конфигуратор", () => {
     expect(r).not.toBeNull();
     expect(r!.apartment.rooms).toHaveLength(1);
     expect(r!.apartment.rooms[0]!.w).toBe(439);
-    // предмет без меша в сцену не попадает: серая коробка хуже отсутствия
-    expect(r!.apartment.slots).toHaveLength(2);
-    expect(r!.catalogue.options).toHaveLength(2);
+    // предмет без меша в сцену не попадает: серая коробка хуже отсутствия; ковёр (фото товара) и ваза с габаритами — товары
+    expect(r!.apartment.slots.map((s) => s.id)).toEqual(["диван#0", "столик#0", "ковёр#0", "decor:ваза#0"]);
+    expect(r!.catalogue.options).toHaveLength(4);
+  });
+
+  // demo-05 п.9: ковёр и ваза — в /flat так же, как в окне и в цене
+  it("ковёр — плита с фото товара от адреса витрины, с ценой; ваза — настольный декор с ценой", () => {
+    const r = fromDemoVariant(data, "set16", { ...CTX, assetBase: "/demo/demo-data.json" })!;
+    const rug = r.catalogue.options.find((o) => o.id === "opt:ковёр#0")!;
+    expect(rug.price).toBe(9291);
+    expect(rug.asset.kind === "kit" && rug.asset.kit).toBe("rug");
+    expect(r.catalogue.materials.find((m) => m.id.startsWith("rug:"))!.baseColorUrl).toBe("/demo/img/rug.jpg");
+    const vase = r.apartment.slots.find((s) => s.id === "decor:ваза#0")!;
+    expect(vase.tabletop).toBe(true);
+    expect(r.catalogue.options.find((o) => o.id === "opt:decor:ваза#0")!.price).toBe(2490);
   });
 
   it("сохраняет координаты и поворот как есть — конвенции совпадают", () => {
@@ -61,7 +75,7 @@ describe("мост витрина → конфигуратор", () => {
   it("снимок набора: сменилась модель на месте — место помечается, а не подменяется молча", () => {
     const r = fromDemoVariant(data, "set16", CTX)!;
     const snap = baseSnapshotOf(r.apartment, r.catalogue);
-    expect(snap).toEqual({ "диван#0": "112923_1", "столик#0": "99272_2" });
+    expect(snap).toEqual({ "диван#0": "112923_1", "столик#0": "99272_2", "ковёр#0": "rug:rug:0:r1", "decor:ваза#0": "99272_9" });
     const saved = { version: 3 as const, apartmentId: "flat215", developerId: "demo", selections: {}, placements: {}, baseSnapshot: snap };
     expect(staleSlots(saved, { ...snap, "диван#0": "777_1" })).toEqual(["диван#0"]);
     expect(staleSlots(saved, snap)).toEqual([]);

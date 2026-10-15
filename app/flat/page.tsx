@@ -90,8 +90,9 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
   // реестра и базы. `partner`/`embed` не включают вид: их никто не создаёт, а встраивание — свой маршрут `/embed/…`
   const buyer = [sp.s, sp.demo, sp.c, sp.coll].some((x) => x !== undefined);
   const rawSend = sp.s && TOKEN_RE.test(sp.s) ? sp.s : null;
-  // ССЫЛКА МЕНЕДЖЕРА — ТОЛЬКО ЖИВАЯ И ТОЛЬКО ЭТОЙ КВАРТИРЫ (P0 Codex): чужой `s` иначе уходил в 3D — клиент грузил контакты
-  // чужого менеджера и писал события в чужую отправку. База недоступна — не знаем: оставляем как было (API проверяет сам)
+  // ССЫЛКА МЕНЕДЖЕРА ДРУГОЙ КВАРТИРЫ НЕ УХОДИТ В 3D (P0 Codex): иначе клиент грузил контакты чужого менеджера и писал события
+  // в чужую отправку. Неизвестную/отозванную ссылку отвергают сами API отправок (`/api/sends/…`) — её пропуск ничего не
+  // открывает; база недоступна — тоже пропускаем (API проверит сам)
   let mgr: Awaited<ReturnType<typeof publicCard>> = null;
   let checked = true;
   if (rawSend) {
@@ -101,7 +102,7 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
       checked = false;
     }
   }
-  const sendId = !rawSend ? null : !checked ? rawSend : mgr && mgr.apartmentId === hit.apartment.id ? rawSend : null;
+  const sendId = !rawSend ? null : checked && mgr && mgr.apartmentId !== hit.apartment.id ? null : rawSend;
   const manager = sendId && mgr ? mgr.manager.name : null;
   const cert = card.certificate ? money(card.certificate.amount, card.currency, lang) : null;
 

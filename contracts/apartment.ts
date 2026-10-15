@@ -113,6 +113,11 @@ export const slot = z.object({
    * (владелец 30.09: «стул меняем все вместе»). Разные стулья за одним столом никто не ставит.
    */
   selectionGroup: z.string().optional(),
+  /**
+   * Настольный декор (ваза): место считается от опоры — журнальный столик, иначе обеденный стол — тем же правилом, что на
+   * серверном кадре (`resolve.placeTabletop` → `scene-extras.decorLayout`); покупатель его не двигает (владелец 08.09).
+   */
+  tabletop: z.boolean().optional(),
 });
 export type Slot = z.infer<typeof slot>;
 

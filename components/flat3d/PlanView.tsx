@@ -121,7 +121,7 @@ export function PlanView({ apartment, scene, activeRoomId, selectedSlotId, onRoo
           }),
         )}
 
-        {scene.items.map((item) => {
+        {scene.items.filter((item) => !item.unplaced).map((item) => {
           const p = item.placement;
           const selected = item.slotId === selectedSlotId;
           return (

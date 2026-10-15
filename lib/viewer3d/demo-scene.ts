@@ -6,14 +6,13 @@
 // sku{msid, yaw, img…}). Это та же форма, что у варианта в `demo-data.json`, поэтому квартиру собирает тот же мост
 // `fromDemoVariant`, что открывает вариант в `/flat` — одна модель сцены, два потребителя (разбор Codex 14.10).
 // ТВ над тумбой и настольный декор — тем же правилом, что серверный кадр (`scene-extras.ts`, demo-05 п.9): ТВ считает
-// движок из текущей расстановки (`build-scene.sceneExtras`), вазу на столик ставит `liveApartment` по `decorLayout`.
+// движок из текущей расстановки (`build-scene.sceneExtras`), вазу на столик — расчёт сцены (`resolve.placeTabletop`).
 
 import { finishPassport } from "@/lib/viewer3d/finish-passport";
 import { slot as slotSchema, type Apartment } from "@/contracts/apartment";
 import { material as materialSchema, option as optionSchema, type Catalogue } from "@/contracts/configurator";
 import { fromDemoVariant, stableSlotIds, type DemoData } from "@/lib/configurator/fromDemo";
-import { EXTRA_PREFIX } from "@/lib/viewer3d/build-scene";
-import { decorLayout, type DecorIn } from "@/lib/viewer3d/scene-extras";
+import { type DecorIn } from "@/lib/viewer3d/scene-extras";
 import { meshUrl, setRuntimeMeshes, type RuntimeEntry } from "@/lib/configurator/mesh-url";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { DESKTOP_QUALITY, FlatViewer, LITE_QUALITY, type PhotoPose } from "@/lib/viewer3d/viewer";
@@ -70,16 +69,15 @@ const CTX = { apartmentId: "demo-live", partnerId: "demo", currency: "RUB" as co
 const isRug = (it: DemoItem): boolean => String(it.role ?? "").startsWith("ковёр");
 
 /**
- * Квартира и каталог из живой расстановки. Ковёр — фото товара на полу (как серверный «фото-ковёр»): своей 3D-модели
- * у ковра нет, а мост `fromDemoVariant` пропускает предметы без высоты — без этой вставки ковров в сцене не было бы.
+ * Квартира и каталог из живой расстановки — тем же мостом `fromDemoVariant`, что открывает вариант в `/flat` (demo-05 п.9:
+ * ковёр — плита с фото товара, ваза — на столике по правилу серверного кадра; одно место для окна и /flat).
  */
 export function liveApartment(room: DemoRoom, items: DemoItem[], base: string, decor: DemoDecor[] = []): { apartment: Apartment; catalogue: Catalogue } | null {
-  const built = fromDemoVariant({ room, variants: [{ id: "live", items: items.filter((it) => !isRug(it)) }] }, "live", CTX);
+  const built = fromDemoVariant({ room, variants: [{ id: "live", items, decor }] }, "live", { ...CTX, assetBase: base });
   if (!built) return null;
   const { apartment, catalogue } = built;
   // СТЕНЫ И ПОЛ — СВОИ (живая проверка 14.10): своих материалов у набора витрины нет, и движок брал первый материал
-  // каталога — фото ковра — на стены и пол. Цвета — как у серверного кадра (светлый бежевый пол, почти белые стены).
-  // цвета — из паспорта отделки (`finish-passport.ts`), тем же красится серверный кадр
+  // каталога — фото ковра — на стены и пол. Цвета — из паспорта отделки (`finish-passport.ts`), тем же красится серверный кадр
   const fp = finishPassport(room.finish);
   catalogue.materials.unshift(
     materialSchema.parse({ id: fp.wall.id, titleRu: "Стены", titleEn: "Walls", colorHex: fp.wall.colorHex, roughness: 0.95 }),
@@ -91,36 +89,6 @@ export function liveApartment(room: DemoRoom, items: DemoItem[], base: string, d
     apartment.slots.push(slotSchema.parse({ id: surface, roomId: "living", category, kind: "surface", surface, titleRu: surface,
       titleEn: surface, defaultOptionId: `opt:${surface}`, optionIds: [`opt:${surface}`] }));
   }
-  items.filter(isRug).forEach((it, k) => {
-    if (!it.w || !it.d) return;
-    const id = `ковёр#${k}`;
-    const img = it.sku?.img ? new URL(it.sku.img, base).toString() : undefined;
-    // материал назван по ТОВАРУ: подпись ковра в движке — по материалу, и замена ковра того же размера иначе оставила бы
-    // старое фото (verify 14.10)
-    const mat = `rug:${k}:${it.sku?.sid ?? it.sku?.img ?? ""}`;
-    catalogue.materials.push(materialSchema.parse({ id: mat, titleRu: "Ковёр", titleEn: "Rug", colorHex: "#b8b0a4",
-      roughness: 0.95, tileCm: [it.w, it.d], surfaces: ["rug"], ...(img ? { baseColorUrl: img } : {}) }));
-    catalogue.options.push(optionSchema.parse({ id: `opt:${id}`, category: "furniture", titleRu: it.sku?.name ?? "Ковёр",
-      titleEn: it.sku?.name ?? "Rug", tier: "standard", price: 0, availability: "available", roomKinds: ["living"],
-      asset: { kind: "kit", kit: "rug", materials: { body: mat } } }));
-    apartment.slots.push(slotSchema.parse({ id, roomId: "living", category: "furniture", kind: "furniture", titleRu: "ковёр",
-      titleEn: "rug", defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`],
-      placement: { x: it.x ?? 0, y: it.y ?? 0, rot: it.rot ?? 0, wCm: it.w, dCm: it.d, hCm: 1, elevCm: 0 } }));
-  });
-  // НАСТОЛЬНЫЙ ДЕКОР — как на серверном кадре (`draft_render.decor_layout`): ряд по длинной оси столика (иначе обеденного
-  // стола), подъём — высота опоры; не влезло или нет модели — не рисуется. Своего места у декора нет (владелец 08.09:
-  // «двигать не давать»), поэтому слот производный: не выбирается и не препятствие прогулке (`build-scene.isExtra`).
-  decorLayout(items, decor).placed.forEach((p, k) => {
-    const msid = p.decor.sku?.msid;
-    if (!msid) return;
-    const id = `${EXTRA_PREFIX}decor:${p.decor.role ?? "декор"}#${k}`;
-    catalogue.options.push(optionSchema.parse({ id: `opt:${id}`, category: "furniture", titleRu: p.decor.sku?.name ?? "Декор",
-      titleEn: p.decor.sku?.name ?? "Decor", tier: "standard", price: 0, availability: "available", roomKinds: ["living"],
-      asset: { kind: "mesh", meshId: msid, yawDeg: p.decor.sku?.yaw ?? 0, wCm: p.w, dCm: p.d, hCm: p.h } }));
-    apartment.slots.push(slotSchema.parse({ id, roomId: "living", category: "furniture", kind: "builtin", titleRu: p.decor.role ?? "декор",
-      titleEn: "decor", defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`],
-      placement: { x: p.x, y: p.y, rot: p.rot, wCm: p.w, dCm: p.d, hCm: p.h, elevCm: p.elev } }));
-  });
   return { apartment, catalogue };
 }
 

@@ -3,6 +3,7 @@
 // а все три режима показа (3D, план, фото) строятся ТОЛЬКО поверх результата `resolveScene`.
 
 import { baseSnapshotOf } from "@/lib/configurator/fromDemo";
+import { decorLayout } from "@/lib/viewer3d/scene-extras";
 import type { Apartment, Placement, Slot, SlotCategory } from "@/contracts/apartment";
 import type { Catalogue, Configuration, Material, Option, OptionAsset } from "@/contracts/configurator";
 import { materialById, optionById } from "@/contracts/configurator";
@@ -19,6 +20,8 @@ export interface ResolvedItem {
   asset: OptionAsset;
   photoRole: string | null;
   price: number;
+  /** Настольный декор без опоры (столика нет или не влезает): в составе и цене есть, в сцене не рисуется. */
+  unplaced?: boolean;
 }
 
 export interface ResolvedSurface {
@@ -214,6 +217,7 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
       price: price,
     });
   }
+  placeTabletop(a, items);
 
   return {
     apartmentId: a.id,
@@ -240,3 +244,33 @@ export function fitPlacement(base: Placement, asset: OptionAsset): Placement {
   if (asset.kind !== "mesh") return base;
   return { ...base, wCm: asset.wCm, dCm: asset.dCm, hCm: asset.hCm };
 }
+
+/**
+ * НАСТОЛЬНЫЙ ДЕКОР ВСТАЁТ НА ТЕКУЩУЮ ОПОРУ (demo-05 п.9, разбор Codex): место вазы — не данные, а следствие расстановки.
+ * Покупатель передвинул, заменил или убрал столик — ваза следует за ним (ряд по длинной оси, правило серверного кадра
+ * `decorLayout`); опоры нет или не влезает — предмет остаётся в составе и цене, но не рисуется (`unplaced`).
+ */
+export function placeTabletop(a: Apartment, items: ResolvedItem[]): void {
+  const tabletop = new Set(a.slots.filter((s) => s.tabletop).map((s) => s.id));
+  if (!tabletop.size) return;
+  for (const roomId of new Set(items.map((i) => i.roomId))) {
+    const here = items.filter((i) => i.roomId === roomId);
+    const decor = here.filter((i) => tabletop.has(i.slotId));
+    if (!decor.length) continue;
+    const supports = here.filter((i) => !tabletop.has(i.slotId)).map((i) => ({ role: i.photoRole ?? undefined, x: i.placement.x,
+      y: i.placement.y, rot: i.placement.rot, w: i.placement.wCm, d: i.placement.dCm, h: i.placement.hCm, elev: i.placement.elevCm }));
+    const { placed } = decorLayout(supports, decor.map((i) => ({ role: i.photoRole ?? undefined, item: i,
+      sku: { w: i.placement.wCm, d: i.placement.dCm, h: i.placement.hCm } })));
+    const at = new Map(placed.map((p) => [p.decor.item, p]));
+    for (const i of decor) {
+      const p = at.get(i);
+      if (!p) {
+        i.unplaced = true;
+        continue;
+      }
+      i.placement = { ...i.placement, x: p.x, y: p.y, rot: p.rot, elevCm: p.elev };
+      delete i.unplaced;
+    }
+  }
+}
+

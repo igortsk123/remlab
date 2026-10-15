@@ -472,7 +472,11 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
     has_mesh = lambda it: (_msid(f"{it.get('mid')}_{it.get('eid')}") in idx  # noqa: E731
                            and color_ok(_msid(f"{it.get('mid')}_{it.get('eid')}"), it.get('name') or ''))
     _gate0 = gate
+    # ПРИГОДНОСТЬ ДЛЯ ГОСТИНОЙ — то же правило, что у подбора наборов (`unfit.py`): 15.10 лечение подставило к обеденному
+    # столу барный стул «Эрин»
+    from unfit import unfit as _unfit
     gate = lambda role, c, s_, others: (_gate0(role, c, s_, others)  # noqa: E731
+                                        and not _unfit(DF.base_role(role), c.get('name'), None, c.get('h'))
                                         and (DF.base_role(role) in NOMESH_ROLES or has_mesh(c)))
     pool = DF.load_pool()
     print(f'пул дозаполнения: {len(pool)} товаров', flush=True)
@@ -802,6 +806,9 @@ def build() -> dict:
             _msd = _msid(_sid)
             if base not in NOMESH_ROLES and (not _msd or _msd not in _mesh_index() or not color_ok(_msd, it.get('name'))):
                 continue          # нет модели или модель семейства другого цвета (demo-05: бежевый товар — чёрный меш)
+            from unfit import unfit as _unfit
+            if _unfit(base, it.get('name'), None, it.get('h')):
+                continue          # барный/офисный стул, уличное, резиновый ковёр — не для гостиной (`unfit.py`)
             seen.add(key)
             feeds.setdefault(base, []).append(
                 {'name': it.get('name'), 'w': it.get('w'), 'd': it.get('d'), 'h': it.get('h'),
@@ -845,6 +852,9 @@ def build() -> dict:
                 continue
             if not p.get('msid') or p['msid'] not in _mesh_index() or not color_ok(p['msid'], p.get('name')):
                 continue          # модели на сервере нет (серая коробка) или она другого цвета, чем товар
+            from unfit import unfit as _unfit
+            if _unfit(base, p.get('name'), None, p.get('h')):
+                continue          # не для гостиной (`unfit.py`): барный стул в ленте обеденных и т.п.
             lo, hi = ENV_ALL[base]
             if not (lo <= (p.get('w') or 0) <= hi):
                 off_env += 1

@@ -30,8 +30,14 @@ def cfg() -> dict:
     return {'photo_ratio': 0.35, 'photo_min_gap': 40.0, 'name_dark_y': 45.0, **(json.load(open(_RULES, encoding='utf-8')).get('dark') or {})}
 
 
+def main_color(name: str) -> str:
+    """Основной цвет товара — до «/»: у «Алекс Букле Светло-серый/Черный» чёрные только ножки (15.10: модель 11/255 при фото 57
+    прошла как «чёрный товар», и в минимализме стоял чёрный стул вместо светло-серого)."""
+    return (name or '').split('/')[0]
+
+
 def is_light_name(name: str) -> bool:
-    return bool(LIGHT_RE.search(name or ''))
+    return bool(LIGHT_RE.search(main_color(name)))
 
 
 def surface_luma(parts) -> float | None:
@@ -83,7 +89,7 @@ def dark_flag(luma: float | None, name: str, photo: float | None = None, c: dict
     """Признак «модель темнее товара»: яркость модели, если она намного темнее фото товара (или, без фото, тёмная при
     светлом названии), а в названии нет тёмного цвета; иначе None. Пороги — `rules/mesh-quarantine.json → dark`. Чистая функция."""
     c = c or cfg()
-    if luma is None or DARK_RE.search(name or ''):
+    if luma is None or DARK_RE.search(main_color(name)):
         return None
     if photo is not None:
         if luma < photo * c['photo_ratio'] and photo - luma >= c['photo_min_gap']:
@@ -126,6 +132,8 @@ def _selftest() -> int:
     ok(dark_flag(120.0, 'Диван Белый', None, c) is None, 'светлая модель светлого товара — не брак')
     ok(dark_flag(None, 'Белый', 200.0, c) is None, 'нет замера — нет признака')
     ok(is_light_name('стол дуб натуральный') and not is_light_name('Графит'), 'светлые слова находятся, тёмные — нет')
+    ok(dark_flag(10.8, 'Стул Алекс Букле Светло-серый/Черный', 56.7, c) == 10.8, 'двухцветный: чёрные ножки не делают товар чёрным')
+    ok(dark_flag(7.0, 'Стул Лофт Черный/Дуб', 109.0, c) is None, 'основной цвет чёрный — не брак')
     print('итог:', 'чисто' if not fails else f'{fails} провал(ов)')
     return 1 if fails else 0
 

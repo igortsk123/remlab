@@ -78,7 +78,7 @@ export function toPhotoRequest(
 
   const items: PhotoItem[] = [];
   for (const it of scene.items) {
-    if (it.roomId !== roomId) continue;
+    if (it.roomId !== roomId || it.unplaced) continue; // ваза без опоры не рисуется нигде (`resolve.placeTabletop`)
     const p = it.placement;
     const local = toRoomLocal(room, p.x, p.y);
     const base: PhotoItem = {

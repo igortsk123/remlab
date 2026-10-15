@@ -101,7 +101,7 @@ export function planObjects(
 
   for (const item of scene.items) {
     const room = findRoom(a, item.roomId);
-    if (!room) continue;
+    if (!room || item.unplaced) continue; // ваза без опоры: в составе есть, в сцене нет (`resolve.placeTabletop`)
     const asset = item.asset;
 
     if (asset.kind === "mesh") {

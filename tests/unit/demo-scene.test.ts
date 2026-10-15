@@ -71,13 +71,24 @@ describe("живая сцена демо: авто-ТВ и декор", () => {
     expect(tv.placement.elevCm).toBeGreaterThanOrEqual(80);
   });
 
-  it("ваза — на столике, подъём — его высота; не выбирается и не мешает прогулке", () => {
+  it("ваза — на столике, подъём — его высота; без опоры — не в сцене", () => {
     const specs = plan(items, [vase]);
     const v = specs.find((s) => s.kind === "mesh" && s.meshId === "99272_1")!;
     expect(v.placement).toMatchObject({ x: 246, y: 175, elevCm: 35 });
-    expect(isExtra(v.slotId)).toBe(true);
+    expect(v.slotId).toBe("decor:ваза#0");
     // без столика и обеденного стола — не в сцене (размер опоры не придумываем)
     expect(plan(items.filter((i) => i.role !== "столик"), [vase]).some((s) => s.kind === "mesh" && s.meshId === "99272_1")).toBe(false);
+  });
+
+  it("ваза следует за столиком, который передвинул покупатель; убрал столик — ваза в цене, но не в сцене", () => {
+    const b = liveApartment(room, items, "https://remont-lab.online/demo/", [vase])!;
+    const cfg = defaultConfiguration(b.apartment, b.catalogue);
+    const moved = resolveScene(b.apartment, b.catalogue, { ...cfg, placements: { "столик#0": { x: 300, y: 200, rot: 90 } } });
+    expect(moved.items.find((i) => i.slotId === "decor:ваза#0")!.placement).toMatchObject({ x: 300, y: 200, rot: 90, elevCm: 35 });
+    const hidden = resolveScene(b.apartment, b.catalogue, { ...cfg, hidden: ["столик#0"] });
+    const v = hidden.items.find((i) => i.slotId === "decor:ваза#0")!;
+    expect(v.unplaced).toBe(true);
+    expect(hidden.totals.upgrades).toBe(resolveScene(b.apartment, b.catalogue, cfg).totals.upgrades - 28990);
   });
 });
 

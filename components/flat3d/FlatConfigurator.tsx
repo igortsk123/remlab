@@ -180,7 +180,8 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
           wCm: i.placement.wCm,
           dCm: i.placement.dCm,
           role: slot?.photoRole ?? undefined,
-          flat: (i.placement.elevCm ?? 0) > 40 || (i.asset.kind === "kit" && i.asset.kit === "rug"),
+          // ваза едет вместе со столиком — помехой при его перемещении быть не может
+          flat: (i.placement.elevCm ?? 0) > 40 || (i.asset.kind === "kit" && i.asset.kit === "rug") || !!slot?.tabletop,
         };
       }),
     [scene.items, apartment.slots],
@@ -196,9 +197,11 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
   );
 
   const startMove = useCallback((slotId: string) => {
+    // настольный декор стоит на опоре — его место считает расчёт сцены, вручную не двигается (demo-05 п.9, владелец 08.09)
+    if (apartment.slots.find((s) => s.id === slotId)?.tabletop) return;
     setMovingSlotId(slotId);
     setBarOpen(false); // панель выбора мешает целиться в пол
-  }, []);
+  }, [apartment]);
 
   const commitMove = useCallback(
     (slotId: string, to: { x: number; y: number; rot: number }) => {
@@ -375,7 +378,7 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
             onItemOptions={() => setBarOpen(true)}
             spots={spots}
             padLabels={lang === "en" ? { show: "Show controls", hide: "Hide controls" } : { show: "Показать управление", hide: "Скрыть управление" }}
-            onItemMove={startMove}
+            onItemMove={slotId && apartment.slots.find((s) => s.id === slotId)?.tabletop ? undefined : startMove}
             onItemRemove={slotId && apartment.slots.find((s) => s.id === slotId)?.kind === "furniture" ? removeItem : undefined}
             itemLabels={lang === "en" ? { options: "Options", move: "Drag", remove: "Remove" } : { options: "Варианты", move: "Двигать", remove: "Убрать" }}   // не «Передвинуть»: та кнопка есть в нижней панели
             hintText={mobile ? L.walkHintMobile : L.walkHint}

@@ -18,7 +18,14 @@ import { apartment as apartmentSchema, type Apartment, type Opening } from "@/co
 import { catalogue as catalogueSchema, type Catalogue, type Configuration } from "@/contracts/configurator";
 
 /** Чья квартира и в какой валюте: из реестра застройщиков (b2b-06), не из файла витрины. */
-export type DemoContext = { apartmentId: string; partnerId: string; currency: "RUB" | "GBP"; basePrice: number };
+export type DemoContext = {
+  apartmentId: string;
+  partnerId: string;
+  currency: "RUB" | "GBP";
+  basePrice: number;
+  /** Адрес витрины (страница или её demo-data.json): от него считаются относительные картинки товаров (`img/…`). */
+  assetBase?: string;
+};
 
 /**
  * Имя места — роль + номер внутри роли («диван#0», «стул#2»), а не порядковый номер в файле.
@@ -41,6 +48,8 @@ export function baseSnapshotOf(a: Apartment, c: Catalogue): Record<string, strin
   for (const s of a.slots) {
     const o = c.options.find((x) => x.id === s.defaultOptionId);
     if (o?.asset.kind === "mesh") out[s.id] = o.asset.meshId;
+    // ковёр — фото товара в материале: смена ковра тоже «набор обновился» (Codex 15.10)
+    else if (o?.asset.kind === "kit" && o.asset.kit === "rug") out[s.id] = `rug:${o.asset.materials.body ?? ""}`;
   }
   return out;
 }
@@ -62,9 +71,20 @@ type DemoItem = {
   elev?: number;
   corner?: boolean;
   corner_left?: boolean;
-  sku?: { name?: string; price?: number; url?: string; shop?: string; msid?: string; sid?: string; pack?: number; yaw?: number };
+  sku?: { name?: string; price?: number; url?: string; shop?: string; msid?: string; sid?: string; pack?: number; yaw?: number; img?: string };
 };
-type DemoVariant = { id?: string; title?: string; style?: string; items?: DemoItem[] };
+/** Настольный декор варианта (`flat215_demo`: ваза) — габариты в карточке товара, места нет: его даёт опора. */
+type DemoDecor = { role?: string; sku?: DemoItem["sku"] & { w?: number; d?: number; h?: number } };
+type DemoVariant = { id?: string; title?: string; style?: string; items?: DemoItem[]; decor?: DemoDecor[] };
+
+const isRugRole = (role?: string): boolean => String(role ?? "").startsWith("ковёр");
+/** Картинка товара витрины: абсолютная — как есть, относительная (`img/…`) — от адреса витрины. */
+function assetUrl(img: string | undefined, base: string | undefined): string | undefined {
+  if (!img || /^https?:|^\//.test(img) || !base) return img;
+  // адрес страницы (с `?…#…`) — по правилам URL; путь сайта (`/demo/demo-data.json` у /flat) — до последнего «/»
+  if (/^https?:/.test(base)) return new URL(img, base).toString();
+  return base.replace(/[?#].*$/, "").replace(/[^/]*$/, "") + img;
+}
 type DemoRoom = {
   w?: number;
   d?: number;
@@ -148,7 +168,7 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
 
   const title = v.style ? v.style.charAt(0).toUpperCase() + v.style.slice(1) : (v.title ?? "Вариант");
   const ids = stableSlotIds(items);
-  const slots = items.map((it, i) => ({
+  const slots: object[] = items.map((it, i) => ({
     id: ids[i]!,
     roomId: "living",
     category: "furniture" as const,
@@ -170,6 +190,44 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
       ...(it.corner ? { cornerLeft: !!it.corner_left } : {}),
     },
   }));
+
+  // КОВЁР И НАСТОЛЬНЫЙ ДЕКОР — ТОВАРЫ ВАРИАНТА (demo-05 п.9, разбор Codex): раньше мост брал только предметы с моделью и
+  // высотой, и в /flat не было ни ковра, ни вазы, хотя в окне и в цене они были. Ковёр — плита с фото товара (как серверный
+  // «фото-ковёр»), ваза — модель на опоре (место пересчитывает `resolve.placeTabletop`)
+  const rugs = (v.items ?? []).filter((it) => isRugRole(it.role) && it.w && it.d);
+  const decor = (v.decor ?? []).filter((x) => x.sku?.msid && x.sku.w && x.sku.d && x.sku.h);
+  const extraOptions: unknown[] = [];
+  const extraMaterials: unknown[] = [];
+  rugs.forEach((it, k) => {
+    const id = `ковёр#${k}`;
+    const img = assetUrl(it.sku?.img, ctx.assetBase);
+    // материал назван по ТОВАРУ: подпись ковра в движке — по материалу, и замена ковра того же размера иначе оставила бы
+    // старое фото (verify 14.10)
+    const mat = `rug:${k}:${it.sku?.sid ?? it.sku?.img ?? ""}`;
+    extraMaterials.push({ id: mat, titleRu: "Ковёр", titleEn: "Rug", colorHex: "#b8b0a4", roughness: 0.95, tileCm: [it.w, it.d],
+      surfaces: ["rug"], ...(img ? { baseColorUrl: img } : {}) });
+    extraOptions.push({ id: `opt:${id}`, category: "furniture", titleRu: it.sku?.name ?? "Ковёр", titleEn: it.sku?.name ?? "Rug",
+      tier: "standard", price: Math.max(0, Math.round(it.sku?.price ?? 0)), availability: "available", roomKinds: ["living"],
+      asset: { kind: "kit", kit: "rug", materials: { body: mat } },
+      ...(it.sku?.url ? { shopUrl: it.sku.url } : {}), ...(it.sku?.shop ? { shopName: it.sku.shop } : {}) });
+    slots.push({ id, roomId: "living", category: "furniture" as const, kind: "furniture" as const, titleRu: it.role ?? "ковёр",
+      titleEn: "rug", photoRole: it.role, defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`],
+      placement: { x: it.x ?? 0, y: it.y ?? 0, rot: it.rot ?? 0, wCm: it.w as number, dCm: it.d as number, hCm: 1, elevCm: 0 } });
+  });
+  const decorIds = stableSlotIds(decor.map((x) => ({ role: x.role ?? "декор" })));
+  decor.forEach((x, k) => {
+    const id = `decor:${decorIds[k]}`;
+    const sk = x.sku!;
+    extraOptions.push({ id: `opt:${id}`, category: "furniture", titleRu: sk.name ?? x.role ?? "Декор", titleEn: sk.name ?? "Decor",
+      descRu: `${Math.round(sk.w!)}×${Math.round(sk.d!)}×${Math.round(sk.h!)} см`, tier: "standard",
+      price: Math.max(0, Math.round(sk.price ?? 0)), availability: "available", roomKinds: ["living"],
+      asset: { kind: "mesh", meshId: sk.msid, yawDeg: sk.yaw ?? 0, wCm: sk.w, dCm: sk.d, hCm: sk.h },
+      ...(sk.url ? { shopUrl: sk.url } : {}), ...(sk.shop ? { shopName: sk.shop } : {}) });
+    // место — заглушка: настоящее считает `resolve.placeTabletop` от текущей опоры при каждом расчёте сцены
+    slots.push({ id, roomId: "living", category: "furniture" as const, kind: "furniture" as const, titleRu: x.role ?? "декор",
+      titleEn: "decor", photoRole: x.role, tabletop: true, defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`],
+      placement: { x: 0, y: 0, rot: 0, wCm: sk.w!, dCm: sk.d!, hCm: sk.h!, elevCm: 0 } });
+  });
 
   const apartment = apartmentSchema.parse({
     id: ctx.apartmentId,
@@ -207,8 +265,8 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
     titleRu: `Набор «${title}»`,
     titleEn: `${title} set`,
     currency: ctx.currency,
-    materials: [],
-    options: items.map((it, i) => ({
+    materials: extraMaterials,
+    options: [...items.map((it, i) => ({
       id: `opt:${ids[i]}`,
       category: "furniture" as const,
       titleRu: it.sku?.name ?? it.role ?? "Предмет",
@@ -234,7 +292,7 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
       // Ссылка в магазин — ПАРТНЁРСКАЯ, прямо как на витрине: иначе теряется комиссия (ADR-0016).
       ...(it.sku?.url ? { shopUrl: it.sku.url } : {}),
       ...(it.sku?.shop ? { shopName: it.sku.shop } : {}),
-    })),
+    })), ...extraOptions],
   });
 
   return { apartment, catalogue };
