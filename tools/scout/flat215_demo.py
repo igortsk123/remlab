@@ -514,8 +514,11 @@ def color_ok(msid, name) -> bool:
 
 
 def _mesh_color_ok():
-    """→ функция (msid, название товара) → годится ли модель по цвету (`mesh_dark.dark_flag` по названию). Яркость
-    поверхности модели считается один раз и кэшируется по файлу (`~/scout-scenes/mesh-luma-cache.json`)."""
+    """→ функция (msid, название товара) → годится ли модель по цвету — ТЕМ ЖЕ правилом, что ворота сцены
+    (`scene_checks.dark_models` → `mesh_dark.measure`): яркость модели против названия И против фото, с которого модель
+    сделана (`cutout.png` рядом с моделью). 15.10 сборка судила только по названию — «Алекс Замша Оливковый» (модель 11/255
+    при фото в 5 раз светлее; «оливковый» не светлый цвет) прошёл в минимализм, и ворота скрыли весь стиль. Яркость
+    поверхности модели и фото считаются один раз и кэшируются по файлу (`~/scout-scenes/mesh-luma-cache.json`)."""
     import mesh_dark as MDK
     path = os.path.expanduser('~/scout-scenes/mesh-luma-cache.json')
     try:
@@ -543,7 +546,15 @@ def _mesh_color_ok():
             dirty[0] = True
             if len(cache) % 25 == 0:
                 json.dump(cache, open(path, 'w'))
-        return MDK.dark_flag(cache[key], name) is None
+        pkey = 'photo:' + key
+        if pkey not in cache:
+            try:
+                cache[pkey] = MDK.photo_luma(os.path.join(os.path.dirname(glb), 'cutout.png'))
+            except Exception as e:  # noqa: BLE001 — фото не открылось: судим по названию, но громко
+                print(f'  яркость фото {msid}: не замерена ({str(e)[:60]})', flush=True)
+                cache[pkey] = None
+            dirty[0] = True
+        return MDK.dark_flag(cache[key], name, cache[pkey]) is None
 
     import atexit
     atexit.register(lambda: dirty[0] and json.dump(cache, open(path, 'w')))
