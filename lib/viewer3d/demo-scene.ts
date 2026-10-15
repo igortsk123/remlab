@@ -8,9 +8,8 @@
 // ТВ над тумбой и настольный декор — тем же правилом, что серверный кадр (`scene-extras.ts`, demo-05 п.9): ТВ считает
 // движок из текущей расстановки (`build-scene.sceneExtras`), вазу на столик — расчёт сцены (`resolve.placeTabletop`).
 
-import { finishPassport } from "@/lib/viewer3d/finish-passport";
-import { slot as slotSchema, type Apartment } from "@/contracts/apartment";
-import { material as materialSchema, option as optionSchema, type Catalogue } from "@/contracts/configurator";
+import type { Apartment } from "@/contracts/apartment";
+import type { Catalogue } from "@/contracts/configurator";
 import { fromDemoVariant, stableSlotIds, type DemoData } from "@/lib/configurator/fromDemo";
 import { type DecorIn } from "@/lib/viewer3d/scene-extras";
 import { meshUrl, setRuntimeMeshes, type RuntimeEntry } from "@/lib/configurator/mesh-url";
@@ -76,19 +75,7 @@ export function liveApartment(room: DemoRoom, items: DemoItem[], base: string, d
   const built = fromDemoVariant({ room, variants: [{ id: "live", items, decor }] }, "live", { ...CTX, assetBase: base });
   if (!built) return null;
   const { apartment, catalogue } = built;
-  // СТЕНЫ И ПОЛ — СВОИ (живая проверка 14.10): своих материалов у набора витрины нет, и движок брал первый материал
-  // каталога — фото ковра — на стены и пол. Цвета — из паспорта отделки (`finish-passport.ts`), тем же красится серверный кадр
-  const fp = finishPassport(room.finish);
-  catalogue.materials.unshift(
-    materialSchema.parse({ id: fp.wall.id, titleRu: "Стены", titleEn: "Walls", colorHex: fp.wall.colorHex, roughness: 0.95 }),
-    materialSchema.parse({ id: fp.floor.id, titleRu: "Пол", titleEn: "Floor", colorHex: fp.floor.colorHex, roughness: 0.7 }),
-  );
-  for (const [surface, category, materialId] of [["floor", "flooring", fp.floor.id], ["wall", "walls", fp.wall.id]] as const) {
-    catalogue.options.push(optionSchema.parse({ id: `opt:${surface}`, category, titleRu: surface, titleEn: surface, tier: "standard",
-      price: 0, availability: "available", roomKinds: ["living"], asset: { kind: "material", materialId } }));
-    apartment.slots.push(slotSchema.parse({ id: surface, roomId: "living", category, kind: "surface", surface, titleRu: surface,
-      titleEn: surface, defaultOptionId: `opt:${surface}`, optionIds: [`opt:${surface}`] }));
-  }
+  // стены и пол — свои материалы из паспорта отделки: их ставит сам мост (`fromDemoVariant`), одинаково для окна и /flat
   return { apartment, catalogue };
 }
 

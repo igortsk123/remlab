@@ -24,8 +24,11 @@ describe("мост витрина → конфигуратор", () => {
     expect(r!.apartment.rooms).toHaveLength(1);
     expect(r!.apartment.rooms[0]!.w).toBe(439);
     // предмет без меша в сцену не попадает: серая коробка хуже отсутствия; ковёр (фото товара) и ваза с габаритами — товары
-    expect(r!.apartment.slots.map((s) => s.id)).toEqual(["диван#0", "столик#0", "ковёр#0", "decor:ваза#0"]);
-    expect(r!.catalogue.options).toHaveLength(4);
+    expect(r!.apartment.slots.filter((s) => s.kind === "furniture").map((s) => s.id)).toEqual(["диван#0", "столик#0", "ковёр#0", "decor:ваза#0"]);
+    expect(r!.catalogue.options.filter((o) => o.category === "furniture")).toHaveLength(4);
+    // стены и пол — свои материалы из паспорта отделки, ПЕРВЫМИ: оболочка не берёт фото ковра (/flat 15.10)
+    expect(r!.apartment.slots.filter((s) => s.kind === "surface").map((s) => s.surface).sort()).toEqual(["floor", "wall"]);
+    expect(r!.catalogue.materials[0]!.titleRu).toBe("Стены");
   });
 
   // demo-05 п.9: ковёр и ваза — в /flat так же, как в окне и в цене
@@ -90,7 +93,7 @@ describe("мост витрина → конфигуратор", () => {
     const r = fromDemoVariant(chairs, "set1", CTX)!;
     expect(resolveScene(r.apartment, r.catalogue, defaultConfiguration(r.apartment, r.catalogue)).totals.upgrades).toBe(9000);
     // стулья меняются вместе (владелец 30.09): одна группа, одна общая опция
-    expect(r.apartment.slots.map((s) => [s.selectionGroup, s.defaultOptionId])).toEqual([["стул", "opt:стул"], ["стул", "opt:стул"]]);
+    expect(r.apartment.slots.filter((s) => s.kind === "furniture").map((s) => [s.selectionGroup, s.defaultOptionId])).toEqual([["стул", "opt:стул"], ["стул", "opt:стул"]]);
   });
 
   // demo-05 п.9: в /flat у предмета — лента замен витрины, как в окне

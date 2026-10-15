@@ -20,7 +20,7 @@ describe("коллекция → 3D", () => {
     const d = collectionAsVariant(data, coll, { "1_1": { price: 55000, unavailable: false }, "1_2": { price: null, unavailable: true } });
     const r = fromDemoVariant(d, "set16", CTX)!;
     expect(r.apartment.slots[0]!.placement).toMatchObject({ x: 300, y: 150, rot: 90 });
-    expect(r.catalogue.options.map((o) => o.price)).toEqual([55000, 0]);
+    expect(r.catalogue.options.filter((o) => o.category === "furniture").map((o) => o.price)).toEqual([55000, 0]);
     expect((r.catalogue.options[0]!.asset as { yawDeg?: number }).yawDeg).toBe(180);
   });
 });
