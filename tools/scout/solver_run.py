@@ -705,6 +705,18 @@ def attempt_beam():
             else:
                 print(f'D4: с тумбой посадка хуже ({_seats(best2)}<{_seats(lay)}) — '
                       'оставляем вариант без носителя, дефицит в лог', flush=True)
+    # РАССТАНОВКА ПОД СЪЁМКУ (demo-05 п.2a): торшер — у торца дивана, дальнего от входа; перенос только без новых hard
+    try:
+        from planner.photo_polish import lamp_far_from_entry as _lfe
+        from planner.validate import validate as _pp_val
+        _pp, _pp_why, _pp_ok = _lfe(room_p, list(lay.placements), _pp_val)
+        if _pp_why:
+            # принятое правилом исключение (торшер посадки без коридора) в нарушения раскладки не идёт
+            _pp_v = [v for v in _pp_val(room_p, _pp).violations if (v.code, tuple(sorted(v.roles))) not in _pp_ok]
+            lay = lay.model_copy(update={'placements': _pp, 'violations': _pp_v})
+            print(f'PHOTO {_pp_why}', flush=True)
+    except Exception as _e:  # noqa: BLE001 — правило съёмки не валит расстановку, но громко
+        print(f'PHOTO_POLISH ошибка: {repr(_e)[:120]}', flush=True)
     placed = {p.role: ((p.x, p.y), int(p.rot) % 360, tuple(_fp(p).exterior.coords[:]), 1)
               for p in lay.placements}
     # ПРОСЛЕЖИВАЕМОСТЬ ШАБЛОНА (ADR template-integrity): каким паспортом схемы
