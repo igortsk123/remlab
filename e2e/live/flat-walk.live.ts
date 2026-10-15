@@ -43,9 +43,15 @@ test("1д прогулка /flat: 4 с к каждому предмету ядр
   const bad: string[] = [];
   for (const v of data.variants) {
     const page = await browser.newPage();
+    page.on("crash", () => bad.push(`${v.id}: вкладка упала (память без видеокарты)`));
     await page.goto(`/flat?demo=${v.id}&flat=flat215`, { waitUntil: "load", timeout: 120_000 });
     await viewerReady(page, v.items.filter((it) => it.sku?.msid && !String(it.role).startsWith("ковёр")).length);
-    const start = (await page.evaluate("window.__flatViewer.debugWalk()")) as Walk;
+    const start = (await page.evaluate("window.__flatViewer ? window.__flatViewer.debugWalk() : null")) as Walk | null;
+    if (!start) {
+      bad.push(`${v.id}: сцена не поднялась (нет WebGL или вкладка упала)`);
+      await page.close();
+      continue;
+    }
     report.push(`${v.id} ${v.style ?? ""}: старт (${start.x}, ${start.y}) до мебели ${start.nearestCm} см`);
     if (!start.inRoom || (start.nearestCm ?? 999) < MIN_CM) bad.push(`${v.id} старт: ${JSON.stringify(start)}`);
     for (const role of CORE) {
