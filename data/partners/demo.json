@@ -31,6 +31,7 @@
       "floor": 6,
       "floorsTotal": 17,
       "building": "3",
+      "windowView": "yard",
       "price": 9578200,
       "demoPrice": true,
       "priceAsOf": "2026-09-01",

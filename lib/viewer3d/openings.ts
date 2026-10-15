@@ -11,7 +11,8 @@
 import * as THREE from "three";
 
 import type { Opening } from "@/contracts/apartment";
-import { openingIR, type OpeningIR, type OpeningMaterial } from "@/lib/viewer3d/opening-ir";
+import { openingIR, viewRooms, type IrBackdrop, type OpeningIR, type OpeningMaterial } from "@/lib/viewer3d/opening-ir";
+import { WINDOW_VIEWS, windowView } from "@/lib/viewer3d/window-views";
 
 const CM = 0.01;
 
@@ -57,9 +58,41 @@ const MATERIAL: Record<OpeningMaterial, THREE.Material> = {
   handle: HANDLE,
 };
 
+const viewTextures = new Map<string, THREE.Texture>();
+
+/** Картинка вида — одна на id для всей сцены; без браузера (тесты) — плоскость без картинки. */
+function viewMaterial(assetId: string): THREE.MeshBasicMaterial {
+  const mat = new THREE.MeshBasicMaterial({ color: 0xc9dae8, toneMapped: false, fog: false });
+  const url = WINDOW_VIEWS[assetId]?.url;
+  if (!url || typeof document === "undefined") return mat;
+  let tex = viewTextures.get(url);
+  if (!tex) {
+    tex = new THREE.TextureLoader().load(url);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    viewTextures.set(url, tex);
+  }
+  mat.map = tex;
+  mat.color.set(0xffffff);
+  return mat;
+}
+
+/** Плоскость вида за окном (`IrBackdrop`): своя часть картинки, лицом в комнату, на `back` см за стеной. */
+function backdropMesh(bd: IrBackdrop): THREE.Mesh {
+  const geo = new THREE.PlaneGeometry((bd.u1 - bd.u0) * CM, (bd.top - bd.bottom) * CM);
+  const uv = geo.attributes.uv as THREE.BufferAttribute;
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, bd.uv.u0 + uv.getX(i) * (bd.uv.u1 - bd.uv.u0), bd.uv.v0 + uv.getY(i) * (bd.uv.v1 - bd.uv.v0));
+  }
+  const m = new THREE.Mesh(geo, viewMaterial(bd.assetId));
+  m.position.set(((bd.u0 + bd.u1) / 2) * CM, ((bd.bottom + bd.top) / 2) * CM, -bd.back * CM);
+  m.name = "window-view";
+  return m;
+}
+
 /** Меши проёма из его описания (`opening-ir.ts`) — те же коробки, что получает серверный кадр. */
 export function meshesFromIR(ir: OpeningIR): THREE.Group {
   const g = new THREE.Group();
+  if (ir.backdrop) g.add(backdropMesh(ir.backdrop));
   const groups = new Map<string, THREE.Group>();
   for (const [name, gr] of Object.entries(ir.groups)) {
     const sub = new THREE.Group();
@@ -83,11 +116,20 @@ export interface OpeningVisualOpts {
   /** Все полотна закрыты (квартира из одной комнаты — двери ведут в несуществующее). */
   doorsClosed?: boolean;
   heightCm: number;
+  /** Вид из окна по карточке квартиры (id нашего набора, `window-views.ts`); нет — вид по умолчанию. */
+  windowView?: string;
+  /** Длина стены — плоскость вида не выходит за её концы. */
+  lengthCm?: number;
 }
 
 /** Все проёмы одной стены. `openings` уже в координатах «вдоль стены от её начала». */
 export function buildOpenings(openings: Opening[], side: string, opts: OpeningVisualOpts): THREE.Group {
   const g = new THREE.Group();
-  for (const o of openings) g.add(meshesFromIR(openingIR(o, { wallHeightCm: opts.heightCm, entrance: !!opts.doorsClosed || opts.entranceWall === side })));
+  const { id, view } = windowView(opts.windowView);
+  const rooms = viewRooms(openings, opts.lengthCm ?? 1e6);
+  openings.forEach((o, i) => g.add(meshesFromIR(openingIR(o, {
+    wallHeightCm: opts.heightCm, entrance: !!opts.doorsClosed || opts.entranceWall === side,
+    view: { assetId: id, horizon01: view.horizon01, aspect: view.aspect }, viewRoomLo: rooms[i]!.lo, viewRoomHi: rooms[i]!.hi,
+  }))));
   return g;
 }

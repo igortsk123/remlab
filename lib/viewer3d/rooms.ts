@@ -107,6 +107,8 @@ export function joineryOf(
     heightCm: room.heightCm,
     entranceWall: opts.entranceWall,
     doorsClosed: opts.doorsClosed,
+    windowView: room.windowView,
+    lengthCm: f.lengthCm,
   });
   joinery.position.set(f.ox * CM, 0, f.oy * CM);
   joinery.rotation.y = f.rotY;

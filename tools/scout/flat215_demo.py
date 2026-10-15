@@ -428,14 +428,18 @@ def drop_unavailable(sets: list) -> int:
     return n
 
 
-def demo_apartment_id() -> str | None:
-    """Квартира реестра, чья витрина — этот demo-data.json (`sources.demoData`)."""
+def demo_apartment() -> dict:
+    """Квартира реестра, чья витрина — этот demo-data.json (`sources.demoData`); нет — пустая."""
     root = os.path.join(HERE, '..', '..', 'data', 'partners')
     for fn in sorted(glob.glob(os.path.join(root, '*.json'))):
         for a in (json.load(open(fn, encoding='utf-8')).get('apartments') or []):
             if (a.get('sources') or {}).get('demoData') == '/demo/demo-data.json':
-                return a.get('id')
-    return None
+                return a
+    return {}
+
+
+def demo_apartment_id() -> str | None:
+    return demo_apartment().get('id')
 
 
 DEMO_SETS = os.path.join(HERE, 'demo-sets.json')     # банк, по которому считается расстановка демо
@@ -853,7 +857,9 @@ def build() -> dict:
                       'm2': m2, 'ready': not r.get('stub')})
     plan = flat.get('plan_example') or {}
     return {'room': {'w': liv['w'], 'd': liv['d'], 'title': liv['title'],
-                     'openings': liv['openings'], 'radiators': liv.get('radiators') or []},
+                     'openings': liv['openings'], 'radiators': liv.get('radiators') or [],
+                     # вид из окна — из карточки квартиры застройщика (demo-04 п.5); нет — страница и кадр берут вид по умолчанию
+                     **({'window_view': demo_apartment()['windowView']} if demo_apartment().get('windowView') else {})},
             'rooms': rooms, 'apartment_id': demo_apartment_id(), 'plan': plan,
             'variants': variants, 'sets': product_sets, 'sofa_feed': feed, 'feeds': feeds,
             'rules': _rules(),

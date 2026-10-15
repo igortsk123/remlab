@@ -1363,8 +1363,11 @@ function camFit(cx,cy,its,W,H,strict){
       for(const rot of rots) for(const fov of [72,78]){
         // шире 72° — только если иначе правила не выполнить (лёгкий штраф в оценке)
         const c={x:x,y:y,rot:rot,fov:fov}, b=camBlock(c,its), lo=camBlock(c,its,-1), tv=camTvBack(c,its), hard=camHard(c,its,strict);
-        const bad=Math.max(b.cov/CAM_BLOCK,tv?2:0,camGraze(c,W,H),hard?3:0);
-        if(bad>1){ if(!least||bad<least.bad)least=Object.assign(c,{cov:b.cov,low:lo.cov,shift:d,bad:bad,who:hard||(tv?'тв (спина)':b.who)}); continue; }
+        const soft=Math.max(b.cov/CAM_BLOCK,tv?2:0,camGraze(c,W,H)), bad=Math.max(soft,hard?3:0);
+        // запасная точка, если подходящих нет: сначала без нарушения жёстких правил кадра, затем наименее закрытая
+        if(bad>1){ const key=(hard?10:0)+soft;
+          if(!least||key<least.key)least=Object.assign(c,{cov:b.cov,low:lo.cov,shift:d,bad:bad,key:key,who:hard||(tv?'тв (спина)':b.who)});
+          continue; }
         // близкий диван на переднем плане — допустимый приём, поэтому штраф мягче ядра; уход от угла — заметный минус
         const score=6*camKey(c,its)+4*camCore(c,its)-1.5*Math.min(1,Math.max(0,(lo.cov-CAM_LOW)/0.3))-0.75*d/CAM_SLIDE-(fov>72?0.3:0);
         if(!best||score>best.score+1e-9)best=Object.assign(c,{cov:b.cov,low:lo.cov,shift:d,score:score});

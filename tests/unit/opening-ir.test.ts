@@ -3,7 +3,7 @@ import * as THREE from "three";
 
 import type { Room } from "@/contracts/apartment";
 import { openings as demoOpenings } from "@/lib/configurator/fromDemo";
-import { openingIR } from "@/lib/viewer3d/opening-ir";
+import { openingIR, viewRooms } from "@/lib/viewer3d/opening-ir";
 import { joineryOf, wallRects } from "@/lib/viewer3d/rooms";
 import golden from "@/tests/fixtures/opening-golden.json";
 
@@ -113,5 +113,43 @@ describe("описание проёма", () => {
     expect(inRight.x).toBeGreaterThan(180);
     expect(leafTipZ({ ...base, swingCm: 0 }).z).toBeLessThan(-70);
     expect(Math.abs(leafTipZ(base, true).z)).toBeLessThan(0.01);
+  });
+});
+
+describe("вид из окна (demo-04 п.5)", () => {
+  const view = { assetId: "yard", horizon01: 0.35, aspect: 1600 / 1072 };
+  const win = { kind: "window" as const, wall: "west" as const, offsetCm: 105, widthCm: 150, sillCm: 85, heightCm: 150 };
+
+  it("плоскость вида перекрывает вырез с запасом, не выходит за конец стены и середину простенка", () => {
+    const ir = openingIR(win, { wallHeightCm: 270, view, viewRoomLo: 105, viewRoomHi: 20 });
+    const bd = ir.backdrop!;
+    expect(bd.assetId).toBe("yard");
+    expect(bd.u0).toBeLessThan(ir.cut.u0);
+    expect(bd.u1).toBeCloseTo(ir.cut.u1 + 20, 3); // справа — только до середины простенка
+    expect(bd.bottom).toBeLessThan(ir.cut.bottom);
+    expect(bd.top).toBeGreaterThan(ir.cut.top);
+    for (const k of ["u0", "u1", "v0", "v1"] as const) {
+      expect(bd.uv[k]).toBeGreaterThanOrEqual(0);
+      expect(bd.uv[k]).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("горизонт картинки — на уровне глаз 155 см", () => {
+    const bd = openingIR(win, { wallHeightCm: 270, view }).backdrop!;
+    // высота точки картинки с v = 1 − horizon01 (горизонт): по линейной развёртке uv → высота плоскости
+    const vH = 1 - view.horizon01;
+    const y = bd.bottom + ((vH - bd.uv.v0) / (bd.uv.v1 - bd.uv.v0)) * (bd.top - bd.bottom);
+    expect(y).toBeCloseTo(155, 1);
+  });
+
+  it("у двери и портала вида нет; без вида в опциях — нет плоскости", () => {
+    expect(openingIR({ kind: "door", wall: "east", offsetCm: 0, widthCm: 90 }, { wallHeightCm: 270, view }).backdrop).toBeUndefined();
+    expect(openingIR(win, { wallHeightCm: 270 }).backdrop).toBeUndefined();
+  });
+
+  it("места для вида: до концов стены и середины простенка между окнами", () => {
+    const r = viewRooms([{ offsetCm: 50, widthCm: 100 }, { offsetCm: 250, widthCm: 100 }], 400);
+    expect(r[0]).toEqual({ lo: 50, hi: 50 });
+    expect(r[1]).toEqual({ lo: 50, hi: 50 });
   });
 });

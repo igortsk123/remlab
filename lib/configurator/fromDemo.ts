@@ -69,6 +69,8 @@ type DemoRoom = {
   d?: number;
   title?: string;
   height_cm?: number;
+  /** Вид из окна по карточке квартиры (`flat215_demo.py`: `windowView` застройщика). */
+  window_view?: string;
   openings?: {
     kind?: string; wall?: string; offset_cm?: number; width_cm?: number; sill_cm?: number; height_cm?: number;
     swing_cm?: number; hinge?: string; into?: boolean;
@@ -170,6 +172,7 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
         w: room.w,
         d: room.d,
         heightCm: room.height_cm ?? 270,
+        ...(room.window_view && /^[a-z0-9-]{1,32}$/.test(room.window_view) ? { windowView: room.window_view } : {}),
         openings: openings(room),
       },
     ],

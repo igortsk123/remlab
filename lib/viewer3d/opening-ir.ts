@@ -9,7 +9,7 @@
 
 import type { Opening } from "@/contracts/apartment";
 
-export const OPENING_IR_VERSION = 1;
+export const OPENING_IR_VERSION = 2; // 2 — вид из окна (`backdrop`)
 
 export type OpeningMaterial = "frame" | "reveal" | "glass" | "leaf" | "panel" | "handle";
 export type OpeningPartRole = "reveal" | "frame" | "mullion" | "glass" | "sill" | "casing" | "leaf" | "panel" | "handle";
@@ -35,6 +35,21 @@ export interface IrGroup {
   rotYDeg: number;
 }
 
+/**
+ * Вид из окна (demo-04 п.5, разбор Codex 14.10): плоскость с картинкой на `back` см за стеной, в осях стены. `u0…u1`,
+ * `bottom…top` — сама плоскость (не дальше концов стены и середины простенка), `uv` — какая часть картинки на ней.
+ * Картинка стоит так, что её горизонт — на уровне глаз (`VIEW_EYE_CM`). Оба рендера берут только `assetId` из нашего набора.
+ */
+export interface IrBackdrop {
+  assetId: string;
+  back: number;
+  u0: number;
+  u1: number;
+  bottom: number;
+  top: number;
+  uv: { u0: number; u1: number; v0: number; v1: number };
+}
+
 export interface OpeningIR {
   schemaVersion: number;
   kind: Opening["kind"];
@@ -42,6 +57,7 @@ export interface OpeningIR {
   cut: { u0: number; u1: number; bottom: number; top: number };
   boxes: IrBox[];
   groups: Record<string, IrGroup>;
+  backdrop?: IrBackdrop;
 }
 
 export interface OpeningIrOpts {
@@ -49,6 +65,60 @@ export interface OpeningIrOpts {
   wallHeightCm: number;
   /** Входная дверь квартиры: полотно закрыто; межкомнатная — распахнута к стене. */
   entrance?: boolean;
+  /** Вид за окном: id картинки, где на ней горизонт (доля от верха) и её пропорции. */
+  view?: { assetId: string; horizon01: number; aspect: number };
+  /** Сколько плоскости вида можно выпустить за края выреза вдоль стены (до конца стены / середины простенка), см. */
+  viewRoomLo?: number;
+  viewRoomHi?: number;
+}
+
+export const VIEW_BACK_CM = 30;
+export const VIEW_EYE_CM = 155; // компромисс между прогулкой (162) и ракурсом (135) — плоскость неподвижна
+const VIEW_SPREAD = Math.tan((70 * Math.PI) / 180); // запас вбок: виден под углом до 70° от нормали окна
+const VIEW_SPREAD_V = Math.tan((55 * Math.PI) / 180);
+
+/** Плоскость вида за вырезом: картинка целиком по пропорциям, горизонт на уровне глаз, обрезка по разрешённому месту. */
+function backdropOf(cut: OpeningIR["cut"], opts: OpeningIrOpts): IrBackdrop | undefined {
+  const v = opts.view;
+  if (!v) return undefined;
+  const back = VIEW_BACK_CM;
+  const mU = back * VIEW_SPREAD;
+  const mV = back * VIEW_SPREAD_V;
+  const u0 = cut.u0 - Math.min(mU, opts.viewRoomLo ?? mU);
+  const u1 = cut.u1 + Math.min(mU, opts.viewRoomHi ?? mU);
+  const bottom = cut.bottom - mV;
+  const top = cut.top + mV;
+  // картинка: ширина ≥ плоскости, высота ≥ нужной над и под горизонтом
+  const imgH = Math.max((u1 - u0) / v.aspect, (top - VIEW_EYE_CM) / v.horizon01, (VIEW_EYE_CM - bottom) / (1 - v.horizon01));
+  const imgW = imgH * v.aspect;
+  const iTop = VIEW_EYE_CM + v.horizon01 * imgH;
+  const iBottom = iTop - imgH;
+  const cx = (cut.u0 + cut.u1) / 2;
+  const iU0 = cx - imgW / 2;
+  const r = (x: number) => Math.round(x * 1000) / 1000; // см — до сотой миллиметра
+  const q = (x: number) => Math.round(x * 1e6) / 1e6; // доли картинки: 1e-3 давало сдвиг горизонта на 3 мм
+  return {
+    assetId: v.assetId, back, u0: r(u0), u1: r(u1), bottom: r(bottom), top: r(top),
+    uv: { u0: q((u0 - iU0) / imgW), u1: q((u1 - iU0) / imgW), v0: q((bottom - iBottom) / imgH), v1: q((top - iBottom) / imgH) },
+  };
+}
+
+/** Сколько места вдоль стены у каждого проёма для плоскости вида: до конца стены и до середины простенка. */
+export function viewRooms(openings: { offsetCm: number; widthCm: number }[], lengthCm: number): { lo: number; hi: number }[] {
+  return openings.map((o) => {
+    const a = o.offsetCm;
+    const z = o.offsetCm + o.widthCm;
+    let lo = a;
+    let hi = lengthCm - z;
+    for (const p of openings) {
+      if (p === o) continue;
+      const pa = p.offsetCm;
+      const pz = p.offsetCm + p.widthCm;
+      if (pz <= a) lo = Math.min(lo, (a - pz) / 2);
+      if (pa >= z) hi = Math.min(hi, (pa - z) / 2);
+    }
+    return { lo: Math.max(0, lo), hi: Math.max(0, hi) };
+  });
 }
 
 const b = (role: OpeningPartRole, material: OpeningMaterial, w: number, h: number, d: number, x: number, y: number, z: number,
@@ -138,7 +208,9 @@ export function openingIR(o: Opening, opts: OpeningIrOpts): OpeningIR {
     const sill = o.kind === "balcony" ? 0 : o.sillCm ?? 90;
     const top = Math.min(opts.wallHeightCm, o.kind === "balcony" ? o.heightCm ?? 220 : sill + (o.heightCm ?? 140));
     const boxes = windowIR(u0, u1, sill, top).filter((x) => o.kind !== "balcony" || x.role !== "sill");
-    return { schemaVersion: OPENING_IR_VERSION, kind: o.kind, cut: { u0, u1, bottom: sill, top }, boxes, groups: {} };
+    const cut = { u0, u1, bottom: sill, top };
+    const backdrop = backdropOf(cut, opts);
+    return { schemaVersion: OPENING_IR_VERSION, kind: o.kind, cut, boxes, groups: {}, ...(backdrop ? { backdrop } : {}) };
   }
   const top = Math.min(opts.wallHeightCm - 5, o.heightCm ?? 205);
   if (o.kind === "opening") {

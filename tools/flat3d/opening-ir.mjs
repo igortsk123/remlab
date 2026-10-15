@@ -13,14 +13,19 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const res = await build({
-  stdin: { contents: 'export { openingIR } from "@/lib/viewer3d/opening-ir";', resolveDir: ROOT, loader: "ts" },
+  stdin: { contents: 'export { openingIR, viewRooms } from "@/lib/viewer3d/opening-ir"; export { windowView } from "@/lib/viewer3d/window-views";',
+    resolveDir: ROOT, loader: "ts" },
   bundle: true, format: "esm", platform: "node", write: false, alias: { "@": ROOT }, absWorkingDir: ROOT, logLevel: "warning",
 });
-const { openingIR } = await import("data:text/javascript;base64," + Buffer.from(res.outputFiles[0].text).toString("base64"));
+const { openingIR, viewRooms, windowView } = await import("data:text/javascript;base64," + Buffer.from(res.outputFiles[0].text).toString("base64"));
 
 const room = JSON.parse(readFileSync(process.argv[2], "utf8"));
 const W = +room.w, D = +room.d, H = +(room.height_cm ?? 270);
+// вид из окна — по карточке квартиры (`room.window_view`, ночная сборка); плоскость вида не выходит за концы стены и
+// середину простенка — места считаются по проёмам той же стены, как в браузере (`openings.ts:buildOpenings`)
+const { id: viewId, view } = windowView(room.window_view);
 const out = [];
+const prepared = [];
 for (const o of room.openings ?? []) {
   if (!o.width_cm || !o.wall) continue;
   const len = o.wall === "north" || o.wall === "south" ? W : D;
@@ -32,7 +37,13 @@ for (const o of room.openings ?? []) {
   const op = { kind, wall: o.wall, offsetCm: offset, widthCm: o.width_cm, hinge: atEnd !== mirrored ? "right" : "left",
     ...(o.into === false || o.swing_cm === 0 ? { swingCm: 0 } : {}),
     ...(o.sill_cm !== undefined ? { sillCm: o.sill_cm } : {}), ...(o.height_cm !== undefined ? { heightCm: o.height_cm } : {}) };
+  prepared.push({ op, len });
+}
+for (const { op, len } of prepared) {
+  const same = prepared.filter((p) => p.op.wall === op.wall).map((p) => p.op);
+  const room0 = viewRooms(same, len)[same.indexOf(op)];
   // серверный кадр — всегда одна комната: двери закрыты, как в живой сцене демо (`viewer.ts:buildShell`, doorsClosed)
-  out.push({ wall: o.wall, ir: openingIR(op, { wallHeightCm: H, entrance: !process.argv.includes("--open") }) });
+  out.push({ wall: op.wall, ir: openingIR(op, { wallHeightCm: H, entrance: !process.argv.includes("--open"),
+    view: { assetId: viewId, horizon01: view.horizon01, aspect: view.aspect }, viewRoomLo: room0.lo, viewRoomHi: room0.hi }) });
 }
 process.stdout.write(JSON.stringify(out) + "\n");

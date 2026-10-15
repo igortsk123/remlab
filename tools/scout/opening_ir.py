@@ -13,6 +13,8 @@
 from __future__ import annotations
 
 import math
+import os
+import re
 import sys
 
 import numpy as np
@@ -63,8 +65,16 @@ def sanitize(entries) -> list | None:
             bs.append({'role': str(b.get('role') or '')[:16], 'material': b['material'],
                        **{k: float(b[k]) for k in ('w', 'h', 'd', 'x', 'y', 'z')},
                        **({'group': b['group']} if b.get('group') is not None else {})})
-        out.append({'wall': e['wall'], 'ir': {'kind': ir['kind'], 'cut': {k: float(cut[k]) for k in ('u0', 'u1', 'bottom', 'top')},
-                                             'boxes': bs, 'groups': gs}})
+        clean = {'kind': ir['kind'], 'cut': {k: float(cut[k]) for k in ('u0', 'u1', 'bottom', 'top')}, 'boxes': bs, 'groups': gs}
+        bd = ir.get('backdrop')
+        if bd is not None:      # вид из окна: только id нашего набора и числа в пределах — иначе проём без вида
+            uv = bd.get('uv') if isinstance(bd, dict) else None
+            if (isinstance(bd, dict) and isinstance(bd.get('assetId'), str) and re.fullmatch(r'[a-z0-9-]{1,32}', bd['assetId'])
+                    and all(num(bd.get(k)) for k in ('back', 'u0', 'u1', 'bottom', 'top')) and isinstance(uv, dict)
+                    and all(num(uv.get(k), -3, 3) for k in ('u0', 'u1', 'v0', 'v1'))):
+                clean['backdrop'] = {'assetId': bd['assetId'], **{k: float(bd[k]) for k in ('back', 'u0', 'u1', 'bottom', 'top')},
+                                     'uv': {k: float(uv[k]) for k in ('u0', 'u1', 'v0', 'v1')}}
+        out.append({'wall': e['wall'], 'ir': clean})
     return out
 
 
@@ -103,11 +113,52 @@ def world_boxes(entry: dict, w: float, d: float) -> list[tuple[str, str, np.ndar
     return [(role, mat, c @ R.T + [ox, 0.0, oz]) for role, mat, c in local_boxes(entry['ir'])]
 
 
+_VIEWS: dict = {}
+VIEW_HTTP = os.environ.get('VIEW_HTTP', 'https://remont-lab.online/scene/views')
+GLASS_TINT, GLASS_MIX = (234, 242, 246), 0.07    # как стекло браузера (`openings.ts:GLASS`, opacity 0.07)
+
+
+def view_image(asset_id: str):
+    """Картинка вида из окна по id нашего набора: из репозитория (`public/scene/views`), иначе с прода в кэш.
+    Нет — None (проём рисуется с небом). Ошибка печатается, а не глотается молча."""
+    if not re.fullmatch(r'[a-z0-9-]{1,32}', asset_id or ''):
+        return None
+    if asset_id in _VIEWS:
+        return _VIEWS[asset_id]
+    img = None
+    local = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'public', 'scene', 'views', asset_id + '.webp')
+    cache = os.path.join(os.environ.get('SCENE3D_CACHE', '/tmp'), 'views', asset_id + '.webp')
+    try:
+        from PIL import Image
+        src = local if os.path.exists(local) else cache
+        if not os.path.exists(src):
+            import urllib.request
+            os.makedirs(os.path.dirname(cache), exist_ok=True)
+            data = urllib.request.urlopen(f'{VIEW_HTTP}/{asset_id}.webp', timeout=30).read()
+            if len(data) > 4 << 20:
+                raise ValueError('картинка вида больше 4 МБ')
+            open(cache, 'wb').write(data)
+        img = np.asarray(Image.open(src).convert('RGB'), np.float32)
+    except Exception as e:  # noqa: BLE001 — без вида кадр собирается с небом, но громко
+        print(f'  вид из окна {asset_id}: не загрузился ({str(e)[:80]})', flush=True)
+    _VIEWS[asset_id] = img
+    return img
+
+
+def has_view(entry: dict) -> bool:
+    bd = (entry.get('ir') or {}).get('backdrop')
+    return bool(bd) and view_image(bd.get('assetId', '')) is not None
+
+
 def trimesh_parts(entry: dict):
-    """Части для растеризатора: коробки в осях стены (фронт +Z — внутрь комнаты), цвет — из палитры."""
+    """Части для растеризатора: коробки в осях стены (фронт +Z — внутрь комнаты), цвет — из палитры. Есть вид из окна —
+    стекло не рисуется: непрозрачное закрыло бы вид (его тон кладёт `paint_beyond`)."""
     import trimesh as _t
     parts = []
+    skip_glass = has_view(entry)
     for _role, mat, c in local_boxes(entry['ir']):
+        if skip_glass and mat == 'glass':
+            continue
         m = _t.Trimesh(vertices=c, faces=_BOX_FACES.copy(), process=False)
         rgb = PALETTE.get(mat, (230, 230, 230))
         m.visual = _t.visual.color.ColorVisuals(mesh=m, face_colors=np.tile(np.array([*rgb, 255], np.uint8), (12, 1)))
@@ -145,7 +196,7 @@ CUT_EPS_CM = 4.0    # «за проёмом» = глубина не ближе �
 
 
 def paint_beyond(canvas: np.ndarray, zbuf: np.ndarray, entries: list, cam, w: float, d: float) -> int:
-    """ЧТО ВИДНО СКВОЗЬ ПРОЁМ НА СЕРВЕРНОМ КАДРЕ (план demo-04 п.3, до вида из окна п.5).
+    """ЧТО ВИДНО СКВОЗЬ ПРОЁМ НА СЕРВЕРНОМ КАДРЕ (план demo-04 п.3; у окна с видом — картинка вида, п.5).
 
     Стену вокруг проёма вырезает `planner/scene.py:compile_scene` (`wall_rects`), за вырезом стоит плоскость «снаружи» с
     clay-цветом окна/двери (синяя плашка, коричневая). Здесь пиксели, где луч камеры попадает в прямоугольник `ir.cut`
@@ -183,6 +234,27 @@ def paint_beyond(canvas: np.ndarray, zbuf: np.ndarray, entries: list, cam, w: fl
         lo, hi = BEYOND_SKY if ir.get('kind') in ('window', 'balcony') else BEYOND_HALL
         k = np.clip((cut['top'] - loc[..., 1]) / max(cut['top'] - cut['bottom'], 1.0), 0, 1)[m][:, None]
         canvas[m] = np.asarray(lo, np.float32) * (1 - k) + np.asarray(hi, np.float32) * k
+        bd = ir.get('backdrop')
+        img = view_image(bd['assetId']) if bd else None
+        if img is not None:
+            # ВИД ИЗ ОКНА (demo-04 п.5): тот же луч продолжаем до плоскости вида на `back` см за стеной — та же геометрия,
+            # что у браузера (`openings.ts:backdropMesh`), — и берём её точку картинки (билинейно), с тоном стекла
+            o2 = origin - normal * bd['back']
+            with np.errstate(divide='ignore', invalid='ignore'):
+                t2 = ((o2 - eye) @ normal) / den
+            l2 = ((eye[None, None, :] + t2[..., None] * dirs) - o2) @ R
+            uv = bd['uv']
+            su = uv['u0'] + (l2[..., 0] - bd['u0']) / max(bd['u1'] - bd['u0'], 1e-6) * (uv['u1'] - uv['u0'])
+            sv = uv['v0'] + (l2[..., 1] - bd['bottom']) / max(bd['top'] - bd['bottom'], 1e-6) * (uv['v1'] - uv['v0'])
+            ih, iw = img.shape[:2]
+            fx = np.clip(su[m], 0, 1) * (iw - 1)
+            fy = np.clip(1 - sv[m], 0, 1) * (ih - 1)
+            x0, y0 = np.floor(fx).astype(int), np.floor(fy).astype(int)
+            x1, y1 = np.minimum(x0 + 1, iw - 1), np.minimum(y0 + 1, ih - 1)
+            ax, ay = (fx - x0)[:, None], (fy - y0)[:, None]
+            col = (img[y0, x0] * (1 - ax) * (1 - ay) + img[y0, x1] * ax * (1 - ay)
+                   + img[y1, x0] * (1 - ax) * ay + img[y1, x1] * ax * ay)
+            canvas[m] = col * (1 - GLASS_MIX) + np.asarray(GLASS_TINT, np.float32) * GLASS_MIX
         total += n
     return total
 

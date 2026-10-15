@@ -96,6 +96,8 @@ export const apartmentRef = z.object({
   floor: z.number().int().optional(),
   floorsTotal: z.number().int().optional(),
   building: z.string().optional(),
+  /** Вид из окон — id нашего набора (`lib/viewer3d/window-views.ts`: city-day, city-evening, yard, park), demo-04 п.5. */
+  windowView: z.string().regex(/^[a-z0-9-]{1,32}$/).optional(),
   /** Цена в валюте партнёра, целое число. Демонстрационная — помечается `demoPrice`. */
   price: z.number().int().nonnegative(),
   demoPrice: z.boolean().default(false),

@@ -40,6 +40,8 @@ export const room = z.object({
   d: z.number().positive(),
   heightCm: z.number().positive().default(245),
   openings: z.array(opening).default([]),
+  /** Вид из окон комнаты — id нашего набора (`lib/viewer3d/window-views.ts`), из карточки квартиры застройщика; нет — по умолчанию. */
+  windowView: z.string().regex(/^[a-z0-9-]{1,32}$/).optional(),
   /**
    * Настоящий контур комнаты, если она не прямоугольник ([x,y] в см, координаты квартиры). Сейчас его
    * НЕ читают ни солвер, ни 3D — прямоугольник (x,y,w,d) остаётся рамкой контура; поле нужно, чтобы
