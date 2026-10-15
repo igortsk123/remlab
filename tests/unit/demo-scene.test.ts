@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
-import { planObjects } from "@/lib/viewer3d/build-scene";
+import { isExtra, planObjects } from "@/lib/viewer3d/build-scene";
 import { liveApartment } from "@/lib/viewer3d/demo-scene";
 
 // ЖИВАЯ СЦЕНА ДЕМО (план demo-01): расстановка страницы → квартира и каталог движка. Без WebGL: проверяем то, что
@@ -42,3 +42,42 @@ describe("живая сцена демо: расстановка → кварт�
     expect(built.catalogue.materials[0]!.id).toBe("paint-white");
   });
 });
+
+// ТВ И ВАЗА — КАК НА СЕРВЕРНОМ КАДРЕ (demo-05 п.9, 14.10: в живой сцене их не было)
+describe("живая сцена демо: авто-ТВ и декор", () => {
+  const stand = { role: "тв-тумба", x: 220, y: 300, rot: 180, w: 139, d: 41, h: 62, sku: { msid: "112923_5", name: "ТВ-тумба Теджонс 139x62", price: 19990 } };
+  const vase = { role: "ваза", sku: { msid: "99272_1", name: "Ваза Фьюжн", w: 19.5, d: 19.5, h: 30, price: 2490 } };
+  const plan = (its: typeof items, decor: (typeof vase)[] = []) => {
+    const b = liveApartment(room, its, "https://remont-lab.online/demo/", decor)!;
+    return planObjects(b.apartment, b.catalogue, resolveScene(b.apartment, b.catalogue, defaultConfiguration(b.apartment, b.catalogue)));
+  };
+
+  it("над тумбой — телевизор по расстоянию до дивана, на тумбе, производный (не выбирается)", () => {
+    const specs = plan([...items, stand]);
+    const tv = specs.find((s) => s.kind === "tv")!;
+    expect(tv).toBeDefined();
+    expect(isExtra(tv.slotId)).toBe(true);
+    expect(tv.placement).toMatchObject({ x: 220, y: 300, rot: 180, elevCm: 62, dCm: 22 });
+    expect(tv.placement.wCm).toBeLessThanOrEqual(139 * 0.9);
+    expect(plan(items).some((s) => s.kind === "tv")).toBe(false); // тумбы нет — телевизора нет
+  });
+
+  it("подвесная тумба поднимается на 40 см, телевизор — на стене над ней", () => {
+    const hung = { ...stand, h: 30, sku: { ...stand.sku, name: "ТВ-тумба подвесная Харис 160x30" } };
+    const specs = plan([...items, hung]);
+    expect(specs.find((s) => s.slotId === "тв-тумба#0")!.placement.elevCm).toBe(40);
+    const tv = specs.find((s) => s.kind === "tv")!;
+    expect(tv.kind === "tv" && tv.hung).toBe(true);
+    expect(tv.placement.elevCm).toBeGreaterThanOrEqual(80);
+  });
+
+  it("ваза — на столике, подъём — его высота; не выбирается и не мешает прогулке", () => {
+    const specs = plan(items, [vase]);
+    const v = specs.find((s) => s.kind === "mesh" && s.meshId === "99272_1")!;
+    expect(v.placement).toMatchObject({ x: 246, y: 175, elevCm: 35 });
+    expect(isExtra(v.slotId)).toBe(true);
+    // без столика и обеденного стола — не в сцене (размер опоры не придумываем)
+    expect(plan(items.filter((i) => i.role !== "столик"), [vase]).some((s) => s.kind === "mesh" && s.meshId === "99272_1")).toBe(false);
+  });
+});
+

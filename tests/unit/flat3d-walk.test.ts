@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { loadFlat3d } from "@/lib/configurator/data";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
-import { planObjects } from "@/lib/viewer3d/build-scene";
+import { isExtra, planObjects } from "@/lib/viewer3d/build-scene";
 import { canStand, nearestStandable, passages, stepWithSlide, walkArea, type Obstacle } from "@/lib/viewer3d/walk";
 
 // СТОРОЖ ПРОХОДИМОСТИ. Из гостиной нельзя было выйти в коридор (жалоба владельца 30.09): между
@@ -15,7 +15,7 @@ const { apartment, catalogue } = loadFlat3d();
 function furniture(): Obstacle[] {
   const scene = resolveScene(apartment, catalogue, defaultConfiguration(apartment, catalogue));
   return planObjects(apartment, catalogue, scene)
-    .filter((sp) => sp.kind !== "rug" && sp.kind !== "bathroom" && sp.placement.hCm > 10)
+    .filter((sp) => sp.kind !== "rug" && sp.kind !== "bathroom" && !isExtra(sp.slotId) && sp.placement.hCm > 10)
     .map((sp) => ({ x: sp.placement.x, y: sp.placement.y, w: sp.placement.wCm, d: sp.placement.dCm, rot: sp.placement.rot }));
 }
 

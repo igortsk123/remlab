@@ -15,10 +15,11 @@ import type { Apartment, Placement, Room } from "@/contracts/apartment";
 import { findRoom, roomAt, roomCentre } from "@/contracts/apartment";
 import { material as materialSchema, type Catalogue, type Material } from "@/contracts/configurator";
 import type { ResolvedScene } from "@/lib/configurator/resolve";
-import { type ObjectSpec, planObjects, surfacesByRoom } from "@/lib/viewer3d/build-scene";
+import { isExtra, type ObjectSpec, planObjects, surfacesByRoom } from "@/lib/viewer3d/build-scene";
 import { buildKitchen } from "@/lib/viewer3d/kits/kitchen";
 import { buildBathroom } from "@/lib/viewer3d/kits/bathroom";
 import { buildBed, buildRug, buildWardrobe } from "@/lib/viewer3d/kits/bedroom";
+import { buildTv } from "@/lib/viewer3d/kits/tv";
 import type { KitCtx } from "@/lib/viewer3d/kits/common";
 import { createMaterialCtx, disposeMaterialCtx, type MaterialCtx } from "@/lib/viewer3d/materials";
 import { MeshLibrary, chaiseSide, disposeObject, placeMesh, stubBox } from "@/lib/viewer3d/meshes";
@@ -335,9 +336,10 @@ export class FlatViewer {
     const specs = all.filter((s) => allowedRooms.has(s.roomId));
     const wanted = new Map(all.map((s) => [s.slotId, s]));
     // ПРОГУЛКА НЕ СКВОЗЬ МЕБЕЛЬ (demo-05 п.5): следы всех предметов, кроме ковра и плоского, — препятствия зоны прогулки;
-    // набор санузла описан коробкой на всю комнату (сантехника внутри расставляется кодом) — его след не препятствие
+    // набор санузла описан коробкой на всю комнату (сантехника внутри расставляется кодом) — его след не препятствие;
+    // производное (ТВ над тумбой) стоит на тумбе или висит на стене — препятствие уже тумба
     this.area = walkArea(this.apartment, 28, all
-      .filter((sp) => sp.kind !== "rug" && sp.kind !== "bathroom" && sp.placement.hCm > 10)
+      .filter((sp) => sp.kind !== "rug" && sp.kind !== "bathroom" && !isExtra(sp.slotId) && sp.placement.hCm > 10)
       .map((sp) => ({ x: sp.placement.x, y: sp.placement.y, w: sp.placement.wCm, d: sp.placement.dCm, rot: sp.placement.rot })));
     // счётчик считаем ЗАНОВО на каждой синхронизации: раньше он копился между вызовами и
     // «загружено» обгоняло «всего» — процент прыгал выше 100 (находка советника 30.09)
@@ -468,6 +470,8 @@ export class FlatViewer {
         depthCm: p.dCm,
         vanityMaterialId: spec.vanityMaterialId,
       });
+    } else if (spec.kind === "tv") {
+      group = buildTv(this.kitCtx, { widthCm: p.wCm, heightCm: p.hCm, depthCm: p.dCm, hung: spec.hung });
     } else if (spec.kind === "rug") {
       group = buildRug(this.kitCtx, {
         materialId: spec.materialId,
@@ -862,11 +866,11 @@ export class FlatViewer {
     this.raycaster.setFromCamera(ndc, this.camera);
     const objects = [...this.placed.values()].map((p) => p.group);
     const hits = this.raycaster.intersectObjects(objects, true);
-    const hit = hits[0];
-    if (hit) {
+    // производное (ТВ над тумбой) не выбирается: своего слота у него нет — клик проходит к тому, что за ним
+    for (const hit of hits) {
       let o: THREE.Object3D | null = hit.object;
       while (o && !o.userData?.slotId) o = o.parent;
-      if (o?.userData?.slotId) return { slotId: String(o.userData.slotId) };
+      if (o?.userData?.slotId && !isExtra(String(o.userData.slotId))) return { slotId: String(o.userData.slotId) };
     }
     const floorHit = this.raycaster.intersectObjects(this.floors, false)[0];
     if (floorHit) {
@@ -1367,5 +1371,6 @@ function signatureOf(spec: ObjectSpec): string {
     return `kitchen|${spec.level}|${spec.features.join(",")}|${spec.doorMaterialId}|${spec.worktopMaterialId}|${spec.splashbackMaterialId}|${geom}|${at}`;
   }
   if (spec.kind === "bathroom") return `bath|${spec.level}|${spec.features.join(",")}|${spec.vanityMaterialId}|${geom}|${at}`;
+  if (spec.kind === "tv") return `tv|${spec.hung}|${geom}`;
   return `${spec.kind}|${spec.level}|${spec.features.join(",")}|${spec.materialId}|${geom}|${at}`;
 }

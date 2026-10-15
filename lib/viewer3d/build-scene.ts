@@ -7,6 +7,7 @@ import { findRoom } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
 import type { ResolvedScene, ResolvedSurface } from "@/lib/configurator/resolve";
 import { meshUrl } from "@/lib/configurator/mesh-url";
+import { autoTv, baseRole } from "@/lib/viewer3d/scene-extras";
 
 export interface RoomSurfaces {
   floor?: ResolvedSurface;
@@ -58,7 +59,20 @@ export type ObjectSpec =
       level: "base" | "practical" | "comfort" | "premium";
       features: string[];
       materialId?: string;
+    }
+  | {
+      /** Телевизор над тумбой — производный объект, не слот: не выбирается, не препятствие (`sceneExtras`). */
+      kind: "tv";
+      slotId: string;
+      roomId: string;
+      titleRu: string;
+      placement: Placement;
+      hung: boolean;
     };
+
+/** Производные объекты сцены (ТВ над тумбой): своего слота нет — не выбираются кликом и не мешают прогулке. */
+export const EXTRA_PREFIX = "@extra:";
+export const isExtra = (slotId: string): boolean => slotId.startsWith(EXTRA_PREFIX);
 
 export function surfacesByRoom(scene: ResolvedScene): Map<string, RoomSurfaces> {
   const out = new Map<string, RoomSurfaces>();
@@ -158,7 +172,31 @@ export function planObjects(
       materialId: asset.materials.body ?? asset.materials.door,
     });
   }
-  return out;
+  return [...out, ...sceneExtras(scene, out)];
+}
+
+/**
+ * Авто-ТВ над тумбой — тем же правилом, что серверный кадр (`scene-extras.ts`, план demo-05 п.9). Считается из ТЕКУЩЕЙ
+ * расстановки после выбора покупателя: передвинул, заменил или убрал тумбу — телевизор следует за ней без своего
+ * состояния. Подвесная тумба (по названию товара) поднимается на 40 см, как на серверном кадре.
+ */
+export function sceneExtras(scene: ResolvedScene, specs: ObjectSpec[]): ObjectSpec[] {
+  const extras: ObjectSpec[] = [];
+  const rooms = [...new Set(scene.items.map((i) => i.roomId))];
+  for (const roomId of rooms) {
+    const items = scene.items.filter((i) => i.roomId === roomId && i.photoRole);
+    const tv = autoTv(items.map((i) => ({ role: i.photoRole ?? undefined, x: i.placement.x, y: i.placement.y, rot: i.placement.rot,
+      w: i.placement.wCm, d: i.placement.dCm, h: i.placement.hCm, elev: i.placement.elevCm, name: i.titleRu })));
+    if (!tv) continue;
+    if (tv.standElevCm !== undefined) {
+      const stand = items.find((i) => baseRole(i.photoRole ?? undefined) === "тв-тумба");
+      const spec = specs.find((sp) => sp.slotId === stand?.slotId);
+      if (spec && !spec.placement.elevCm) spec.placement = { ...spec.placement, elevCm: tv.standElevCm };
+    }
+    extras.push({ kind: "tv", slotId: `${EXTRA_PREFIX}tv:${roomId}`, roomId, titleRu: `Телевизор ${tv.inch}″`, hung: tv.hung,
+      placement: { x: tv.x, y: tv.y, rot: tv.rot, wCm: tv.wCm, dCm: tv.dCm, hCm: tv.hCm, elevCm: tv.elevCm } });
+  }
+  return extras;
 }
 
 /** Сколько мешей грузится для комнаты — нужен для бюджета мобильной версии. */

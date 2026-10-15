@@ -117,6 +117,8 @@ jobs:
       - run: pip install -r services/planner-solver/requirements.txt
       - run: python -m pytest services/planner-solver/tests/ -q
       - run: python tools/scout/scene_checks.py --selftest   # ворота артефактов сцены демо (demo-05 п.1)
+      - run: pip install numpy pillow
+      - run: python tools/assets/scene_extras_golden.py --check   # авто-ТВ и декор: сервер = эталон живой сцены (demo-05 п.9)
 
   draft-image:
     # Образ сервиса кадров собирается ИЗ РЕПОЗИТОРИЯ (b2b-08, ADR-0267): сборка проверяет импорты HTTP-рендера —

@@ -5,23 +5,29 @@
 // Вход — РАССТАНОВКА СТРАНИЦЫ как есть: комната витрины и живые предметы (`items` демо: role, x, y, rot, w, d, h, elev,
 // sku{msid, yaw, img…}). Это та же форма, что у варианта в `demo-data.json`, поэтому квартиру собирает тот же мост
 // `fromDemoVariant`, что открывает вариант в `/flat` — одна модель сцены, два потребителя (разбор Codex 14.10).
-// Известные отличия от серверного кадра (Codex): декор (вазу) сервер расставляет своим алгоритмом, ТВ на тумбу
-// добавляет сам — здесь их пока нет.
+// ТВ над тумбой и настольный декор — тем же правилом, что серверный кадр (`scene-extras.ts`, demo-05 п.9): ТВ считает
+// движок из текущей расстановки (`build-scene.sceneExtras`), вазу на столик ставит `liveApartment` по `decorLayout`.
 
 import { finishPassport } from "@/lib/viewer3d/finish-passport";
 import { slot as slotSchema, type Apartment } from "@/contracts/apartment";
 import { material as materialSchema, option as optionSchema, type Catalogue } from "@/contracts/configurator";
 import { fromDemoVariant, stableSlotIds, type DemoData } from "@/lib/configurator/fromDemo";
+import { EXTRA_PREFIX } from "@/lib/viewer3d/build-scene";
+import { decorLayout, type DecorIn } from "@/lib/viewer3d/scene-extras";
 import { meshUrl, setRuntimeMeshes, type RuntimeEntry } from "@/lib/configurator/mesh-url";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { DESKTOP_QUALITY, FlatViewer, LITE_QUALITY, type PhotoPose } from "@/lib/viewer3d/viewer";
 
 type DemoRoom = NonNullable<DemoData["room"]>;
 type DemoItem = NonNullable<NonNullable<DemoData["variants"]>[number]["items"]>[number] & { sku?: { img?: string } };
+/** Настольный декор варианта (`v.decor` витрины): товар с моделью и габаритами, место — по опоре. */
+export type DemoDecor = DecorIn & { sku?: DecorIn["sku"] & { yaw?: number; price?: number } };
 
 export interface DemoSceneOptions {
   room: DemoRoom;
   items: DemoItem[];
+  /** Настольный декор варианта (ваза): ставится на столик тем же правилом, что на серверном кадре. */
+  decor?: DemoDecor[];
   /** Адрес страницы демо: относительные картинки витрины (`img/…`) считаются от него. */
   base: string;
   /** Свежая таблица лёгких копий (`/demo/rt-meshes.json`); нет — та, что собрана в бандл. */
@@ -35,8 +41,9 @@ export type DemoSceneEvent = "progress" | "contextlost";
 export interface DemoScene {
   /** Первая расстановка загружена (модели пришли или остались честными коробками). */
   ready: Promise<void>;
-  /** Новая расстановка. Последняя побеждает: промежуточные при быстрых правках пропускаются. */
-  update(items: DemoItem[]): Promise<void>;
+  /** Новая расстановка (и декор — одним состоянием с ней). Последняя побеждает: промежуточные при быстрых правках
+   *  пропускаются. Декор не передан — остаётся прежний. */
+  update(items: DemoItem[], decor?: DemoDecor[]): Promise<void>;
   setPhotoPose(pose: PhotoPose): void;
   exportFrame(width: number, height: number, type?: string, quality?: number): Promise<Blob>;
   /** Вид окна (demo-02): «Ракурс» — фото-поза (`setPhotoPose`), «3D» — прогулка; с позой — из точки этого ракурса,
@@ -66,7 +73,7 @@ const isRug = (it: DemoItem): boolean => String(it.role ?? "").startsWith("ко�
  * Квартира и каталог из живой расстановки. Ковёр — фото товара на полу (как серверный «фото-ковёр»): своей 3D-модели
  * у ковра нет, а мост `fromDemoVariant` пропускает предметы без высоты — без этой вставки ковров в сцене не было бы.
  */
-export function liveApartment(room: DemoRoom, items: DemoItem[], base: string): { apartment: Apartment; catalogue: Catalogue } | null {
+export function liveApartment(room: DemoRoom, items: DemoItem[], base: string, decor: DemoDecor[] = []): { apartment: Apartment; catalogue: Catalogue } | null {
   const built = fromDemoVariant({ room, variants: [{ id: "live", items: items.filter((it) => !isRug(it)) }] }, "live", CTX);
   if (!built) return null;
   const { apartment, catalogue } = built;
@@ -100,12 +107,27 @@ export function liveApartment(room: DemoRoom, items: DemoItem[], base: string): 
       titleEn: "rug", defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`],
       placement: { x: it.x ?? 0, y: it.y ?? 0, rot: it.rot ?? 0, wCm: it.w, dCm: it.d, hCm: 1, elevCm: 0 } }));
   });
+  // НАСТОЛЬНЫЙ ДЕКОР — как на серверном кадре (`draft_render.decor_layout`): ряд по длинной оси столика (иначе обеденного
+  // стола), подъём — высота опоры; не влезло или нет модели — не рисуется. Своего места у декора нет (владелец 08.09:
+  // «двигать не давать»), поэтому слот производный: не выбирается и не препятствие прогулке (`build-scene.isExtra`).
+  decorLayout(items, decor).placed.forEach((p, k) => {
+    const msid = p.decor.sku?.msid;
+    if (!msid) return;
+    const id = `${EXTRA_PREFIX}decor:${p.decor.role ?? "декор"}#${k}`;
+    catalogue.options.push(optionSchema.parse({ id: `opt:${id}`, category: "furniture", titleRu: p.decor.sku?.name ?? "Декор",
+      titleEn: p.decor.sku?.name ?? "Decor", tier: "standard", price: 0, availability: "available", roomKinds: ["living"],
+      asset: { kind: "mesh", meshId: msid, yawDeg: p.decor.sku?.yaw ?? 0, wCm: p.w, dCm: p.d, hCm: p.h } }));
+    apartment.slots.push(slotSchema.parse({ id, roomId: "living", category: "furniture", kind: "builtin", titleRu: p.decor.role ?? "декор",
+      titleEn: "decor", defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`],
+      placement: { x: p.x, y: p.y, rot: p.rot, wCm: p.w, dCm: p.d, hCm: p.h, elevCm: p.elev } }));
+  });
   return { apartment, catalogue };
 }
 
 export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOptions): DemoScene {
   if (opts.runtimeMeshes) setRuntimeMeshes(opts.runtimeMeshes);
-  const first = liveApartment(opts.room, opts.items, opts.base);
+  let decor: DemoDecor[] = opts.decor ?? [];
+  const first = liveApartment(opts.room, opts.items, opts.base, decor);
   if (!first) throw new Error("пустая расстановка");
   const listeners = new Map<DemoSceneEvent, Set<(...a: number[]) => void>>();
   const emit = (ev: DemoSceneEvent, ...a: number[]): void => listeners.get(ev)?.forEach((f) => f(...a));
@@ -119,7 +141,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
 
   // ПОСЛЕДНЯЯ РАССТАНОВКА ПОБЕЖДАЕТ, СИНХРОНИЗАЦИИ ИДУТ ПО ОДНОЙ (Codex 14.10): две одновременные `syncObjects`
   // дважды добавили бы один предмет, а быстрые замены гонялись бы с незаконченной загрузкой.
-  let pending: DemoItem[] | null = null;
+  let pending: { items: DemoItem[]; decor: DemoDecor[] } | null = null;
   // номер места в движке («диван#0») ↔ номер предмета в расстановке страницы — тем же счётом, что у моста
   let current: DemoItem[] = opts.items;
   const slotIndex = (): Map<string, number> => {
@@ -128,13 +150,14 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     return new Map(ids.map((id, k) => [id, idx[k]!.i]));
   };
   let running: Promise<void> = ready;
-  const update = (items: DemoItem[]): Promise<void> => {
-    pending = items;
+  const update = (items: DemoItem[], nextDecor?: DemoDecor[]): Promise<void> => {
+    pending = { items, decor: nextDecor ?? pending?.decor ?? decor };
     running = running
       .then(async () => {
         if (!pending) return;
-        current = pending;
-        const next = liveApartment(opts.room, pending, opts.base);
+        current = pending.items;
+        decor = pending.decor;
+        const next = liveApartment(opts.room, current, opts.base, decor);
         pending = null;
         if (!next) return;
         viewer.setApartment(next.apartment, next.catalogue);

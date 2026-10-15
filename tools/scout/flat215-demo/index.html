@@ -3917,6 +3917,9 @@ function liveOff(why){
   const sh=document.getElementById('shot'); if(sh&&sh.classList.contains('v2')){sh.classList.add('nolive'); vwSketchSoon();}
   try{console.info('живая сцена выключена:',why);}catch(e){}
 }
+// ДЕКОР В ЖИВУЮ СЦЕНУ — ТОТ ЖЕ, ЧТО УХОДИТ В СЕРВЕРНЫЙ КАДР (`payload().decor`, demo-05 п.9): ваза встаёт на столик
+// одним правилом с кадром (`scene-extras.decorLayout`) и приходит одним состоянием с расстановкой
+function liveDecor(){ return clone((allVariants()[cur]||{}).decor||[]); }
 function liveEngine(){
   if(LIVE.ok===false)return Promise.resolve(null);
   if(LIVE.scene)return Promise.resolve(LIVE.scene);
@@ -3927,7 +3930,7 @@ function liveEngine(){
       if(!window.RemlabScene)window.RemlabScene=await import(new URL('lib/'+m.file,location.href).href);
       let rt; try{rt=(await (await fetch('rt-meshes.json',{cache:'no-store'})).json()).meshes;}catch(e){}
       const cv=document.createElement('canvas'); cv.className='livecv'; cv.width=896; cv.height=597;
-      const sc=window.RemlabScene.createDemoScene(cv,{room:D.room, items:clone(items), base:location.href,
+      const sc=window.RemlabScene.createDemoScene(cv,{room:D.room, items:clone(items), decor:liveDecor(), base:location.href,
         runtimeMeshes:rt, lite:isTouchUI()});
       sc.on('contextlost',()=>liveOff('видеоконтекст потерян'));
       // крутилка считает модели: «Загружаем модели 3 из 8» при первом открытии, «Загружаем модель…» при замене
@@ -3943,7 +3946,7 @@ function liveEngine(){
       if(!LIVE.force&&!pr.software&&!isTouchUI()&&pr.p95Ms>60&&pr.p95Ms<=120){
         sc.dispose();
         const cv2=document.createElement('canvas'); cv2.className='livecv'; cv2.width=896; cv2.height=597;
-        const sc2=window.RemlabScene.createDemoScene(cv2,{room:D.room, items:clone(items), base:location.href, runtimeMeshes:rt, lite:true});
+        const sc2=window.RemlabScene.createDemoScene(cv2,{room:D.room, items:clone(items), decor:liveDecor(), base:location.href, runtimeMeshes:rt, lite:true});
         sc2.on('contextlost',()=>liveOff('видеоконтекст потерян'));
         sc2.setSize(896,597); await sc2.ready;
         if(LIVE.ok===false){sc2.dispose(); return null;}
@@ -4018,7 +4021,7 @@ async function liveShow(){
   liveWire();
   sc.start();
   LIVE.state='updating'; vwLoad(true, LANG==='en'?'Updating…':'Обновляем…', true);
-  await sc.update(clone(items));
+  await sc.update(clone(items), liveDecor());
   LIVE.state='ready'; vwLoad(false);
 }
 </script>
