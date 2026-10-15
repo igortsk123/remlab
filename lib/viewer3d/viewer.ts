@@ -764,13 +764,10 @@ export class FlatViewer {
       return;
     }
     const c = roomCentre(room);
-    const candidates = [
-      { x: room.x + room.w * 0.18, y: room.y + room.d * 0.18 },
-      { x: room.x + room.w * 0.82, y: room.y + room.d * 0.18 },
-      { x: room.x + room.w * 0.18, y: room.y + room.d * 0.82 },
-      { x: room.x + room.w * 0.82, y: room.y + room.d * 0.82 },
-      { x: c.x, y: c.y },
-    ];
+    // КАНДИДАТЫ — СЕТКА 5×5 ПО КОМНАТЕ: углы (дальше от центра) по-прежнему в приоритете счёта, а промежуточные точки нужны,
+    // когда углы заняты мебелью или видом на ТВ сбоку (прогон d8 15.10, современный и минимализм)
+    const FR = [0.18, 0.35, 0.5, 0.65, 0.82];
+    const candidates = FR.flatMap((fx) => FR.map((fy) => ({ x: room.x + room.w * fx, y: room.y + room.d * fy })));
     // ТЕСНАЯ КОМНАТА — СМОТРИМ ОТ ДВЕРИ. В кухне 3,6×1,8 м из любого угла кадр упирается в
     // шкаф (кадр 29.09): в жизни такие комнаты и снимают из проёма. Добавляем к кандидатам
     // точки в дверных проёмах комнаты — стоять там разрешено, и оттуда видно всю комнату.
@@ -790,9 +787,10 @@ export class FlatViewer {
       doorSpots.some((d) => Math.hypot(d.x - p.x, d.y - p.y) < 60);
     // Мебель комнаты: вставать В НЕЁ нельзя — кадр упрётся в спинку дивана или в кровать
     // (поймано кадрами 28.09: в спальне полкадра занимала кровать в упор).
-    const obstacles = [...this.placed.values()]
-      .filter((p) => p.spec.roomId === roomId)
-      .map((p) => p.spec.placement);
+    const inRoom = [...this.placed.values()].filter((p) => p.spec.roomId === roomId);
+    // ковёр и плоское — пол, а не препятствие (как у прогулки): с ковром из витрины в /flat (demo-05 п.9) середина комнаты и
+    // середины стен считались «занятыми», и старт оставался у торца ТВ-тумбы
+    const obstacles = inRoom.filter((p) => p.spec.kind !== "rug" && p.spec.placement.hCm > 10).map((p) => p.spec.placement);
     // Расстояние до ПРЯМОУГОЛЬНИКА предмета, а не до круга вокруг него: кухонная линия
     // 340×60 «кругом» занимала всю комнату, и любая точка считалась занятой (кадр 29.09).
     // ВЫСОКОЕ — ДАЛЬШЕ (demo-05 п.5: /flat стартовал вплотную к торшеру, абажур на уровне глаз закрывал треть кадра): от
@@ -802,7 +800,8 @@ export class FlatViewer {
     const clearance = (x: number, y: number): number => {
       let min = 1e9;
       for (const o of obstacles) {
-        const extra = o.hCm >= TALL_CM ? TALL_EXTRA : 0;
+        // высота — по ВЕРХУ предмета: телевизор 68 см на тумбе 62 см — это 130 см у глаз, а не «низкий» (прогон d8 15.10)
+        const extra = (o.elevCm ?? 0) + o.hCm >= TALL_CM ? TALL_EXTRA : 0;
         const a = (-o.rot * Math.PI) / 180;
         const dx = x - o.x;
         const dy = y - o.y;
@@ -815,6 +814,17 @@ export class FlatViewer {
       return min;
     };
 
+    // ТЕЛЕВИЗОР НЕ БОКОМ И НЕ СПИНОЙ У КРАЯ КАДРА (demo-05 п.2/п.5, прогон d8 15.10: у современного старт был у торца
+    // ТВ-тумбы — чёрный торец экрана занимал левую треть кадра). Точка ближе 2,2 м к экрану и вне его «конуса» ±53° — штраф
+    const tvs = inRoom.filter((p) => p.spec.kind === "tv").map((p) => p.spec.placement);
+    const tvSide = (x: number, y: number): boolean => tvs.some((t) => {
+      const r = (t.rot * Math.PI) / 180;
+      const dx = x - t.x;
+      const dy = y - t.y;
+      const d = Math.hypot(dx, dy);
+      return d < 220 && (dx * Math.sin(r) + dy * Math.cos(r)) / Math.max(d, 1) < 0.6;
+    });
+
     let best: { x: number; y: number } | null = null;
     let bestScore = -1e9;
     for (const cand of candidates) {
@@ -825,7 +835,7 @@ export class FlatViewer {
       // от двери можно стоять ближе к мебели: мы смотрим В комнату, а не упираемся в шкаф
       if (free < (door ? 20 : 45)) continue;
       // подальше от центра (видно больше комнаты), свобода вокруг, и заметный плюс двери
-      const score = Math.hypot(spot.x - c.x, spot.y - c.y) + Math.min(free, 150) + (door ? 220 : 0);
+      const score = Math.hypot(spot.x - c.x, spot.y - c.y) + Math.min(free, 150) + (door ? 220 : 0) - (tvSide(spot.x, spot.y) ? 400 : 0);
       if (score > bestScore) {
         bestScore = score;
         best = spot;
