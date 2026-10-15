@@ -3,7 +3,7 @@ tier: 2
 topic: integrations-details
 scope: Детали внешних интеграций — эндпоинты, форматы запросов/ответов, env-переменные, конфиги, цены
 tier1: ../core/access-and-integrations.md
-updated: 2026-10-14
+updated: 2026-10-15
 importance: high
 source: manual
 status: working
@@ -212,7 +212,11 @@ PNG 512 от владельца (Drive `1l2j65g8…`) → `public/icons/`; вс�
   Профиль `vercel` — `~/.codex/vercel.config.toml` (model_provider=vercel, `openai/gpt-6-astra`, reasoning medium),
   поставщик `[model_providers.vercel]` — `~/.codex/config.toml` (base_url `https://ai-gateway.vercel.sh/v1`,
   env_key `VERCEL_AI_GATEWAY_KEY`, wire_api `responses`). Проба 13.10: читает код, отвечает верно; счёт — токены шлюза
-  (сверка книги ≈ $1–2 на astra). Та же сессия `resume` работает с обоими поставщиками.
+  (сверка книги ≈ $1–2 на astra). ~~Та же сессия `resume` работает с обоими поставщиками.~~ **Не так (15.10):** после
+  вызова сессии через `vercel` её `resume` на подписке падает (`Invalid 'input[N].id': 'fc_…' Expected an ID that begins
+  with 'ws'` при сжатии) — сессию 01a00a62 15.10 так и сломали. Подписку и шлюз в одной сессии не смешивать; сломалась —
+  `--ephemeral` или новый онбординг. **Кредиты шлюза 15.10 кончились** (402 Payment Required) — профили `vercel*` не
+  работают до пополнения Vercel (в списке владельца).
 - **Два профиля через шлюз (владелец 13.10):** `vercel-sol` (`~/.codex/vercel-sol.config.toml`, gpt-6-sol) — регулярные
   перепроверки, узкие вопросы, повтор своих правок; `vercel` (gpt-6-astra) — большие сквозные сверки, архитектура,
   гипотезы. Цена: sol ≈ впятеро дешевле astra.
