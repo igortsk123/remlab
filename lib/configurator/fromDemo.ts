@@ -13,6 +13,7 @@
 // данных: диван 162 см шириной стоит в x=166 при комнате 439 см, то есть 85…247 — у стены.
 // Поворот витрины — градусы по часовой, 0 — «лицом на +y», тоже как у нас.
 
+import { finishPassport } from "@/lib/viewer3d/finish-passport";
 import { apartment as apartmentSchema, type Apartment, type Opening } from "@/contracts/apartment";
 import { catalogue as catalogueSchema, type Catalogue, type Configuration } from "@/contracts/configurator";
 
@@ -71,6 +72,8 @@ type DemoRoom = {
   height_cm?: number;
   /** Вид из окна по карточке квартиры (`flat215_demo.py`: `windowView` застройщика). */
   window_view?: string;
+  /** Паспорт отделки — готовый, из ночной сборки (`finish-passport.ts`). */
+  finish?: Record<string, { id?: string; colorHex?: string }>;
   openings?: {
     kind?: string; wall?: string; offset_cm?: number; width_cm?: number; sill_cm?: number; height_cm?: number;
     swing_cm?: number; hinge?: string; into?: boolean;
@@ -173,6 +176,7 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
         d: room.d,
         heightCm: room.height_cm ?? 270,
         ...(room.window_view && /^[a-z0-9-]{1,32}$/.test(room.window_view) ? { windowView: room.window_view } : {}),
+        ...(room.finish ? { finish: finishPassport(room.finish) } : {}),
         openings: openings(room),
       },
     ],

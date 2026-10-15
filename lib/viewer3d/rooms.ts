@@ -14,6 +14,7 @@ import * as THREE from "three";
 import type { Opening, Room, WallSide } from "@/contracts/apartment";
 import type { Material } from "@/contracts/configurator";
 import { type MaterialCtx, tiled } from "@/lib/viewer3d/materials";
+import { finishPassport } from "@/lib/viewer3d/finish-passport";
 import { jointStrips } from "@/lib/viewer3d/joints";
 import { ceilingLampIR, wallFixturesIR } from "@/lib/viewer3d/fixtures-ir";
 import { buildOpenings, meshesFromBoxes } from "@/lib/viewer3d/openings";
@@ -102,6 +103,7 @@ export function buildRoom(
 ): RoomVisual {
   const group = new THREE.Group();
   group.name = `room:${room.id}`;
+  const fp = finishPassport(room.finish); // паспорт отделки: потолок и плинтус (стены и пол — материалами каталога)
 
   const floorGeo = new THREE.PlaneGeometry(room.w * CM, room.d * CM);
   const floor = new THREE.Mesh(floorGeo, tiled(ctx, floorMat, room.w, room.d));
@@ -131,7 +133,7 @@ export function buildRoom(
     // плинтус по кускам стены и карниз над окнами — то же описание получает серверный кадр (`fixtures-ir.ts`, demo-04 п.6)
     const wins = wallOpenings.filter((o) => o.kind === "window" || o.kind === "balcony")
       .map((o) => openingIR(o, { wallHeightCm: room.heightCm }).cut);
-    const fixtures = meshesFromBoxes(wallFixturesIR(rects, wins, room.heightCm));
+    const fixtures = meshesFromBoxes(wallFixturesIR(rects, wins, room.heightCm), { skirting: fp.skirting.colorHex });
     fixtures.position.set(f.ox * CM, 0, f.oy * CM);
     fixtures.rotation.y = f.rotY;
     fixtures.name = `fixtures:${room.id}:${side}`;
@@ -161,7 +163,7 @@ export function buildRoom(
       new THREE.PlaneGeometry(room.w * CM, room.d * CM),
       // потолок светится отражённым светом: верхний источник до него не достаёт, а нижняя часть общего света серая —
       // без собственного свечения он выходил тёмно-серым (прогон d8 14.10, demo-04 п.4)
-      new THREE.MeshStandardMaterial({ color: 0xf6f5f2, roughness: 1, emissive: 0xf6f5f2, emissiveIntensity: 0.32 }),
+      new THREE.MeshStandardMaterial({ color: fp.ceiling.colorHex, roughness: 1, emissive: fp.ceiling.colorHex, emissiveIntensity: 0.32 }),
     );
     ceil.rotation.x = Math.PI / 2;
     ceil.position.set((room.x + room.w / 2) * CM, room.heightCm * CM, (room.y + room.d / 2) * CM);

@@ -96,6 +96,9 @@ export const apartmentRef = z.object({
   floor: z.number().int().optional(),
   floorsTotal: z.number().int().optional(),
   building: z.string().optional(),
+  /** Паспорт отделки квартиры: стены, пол, потолок, плинтус — id материала и цвет `#rrggbb` (`lib/viewer3d/finish-passport.ts`). */
+  finish: z.record(z.enum(["wall", "floor", "ceiling", "skirting"]),
+    z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/), colorHex: z.string().regex(/^#[0-9a-fA-F]{6}$/) })).optional(),
   /** Вид из окон — id нашего набора (`lib/viewer3d/window-views.ts`: city-day, city-evening, yard, park), demo-04 п.5. */
   windowView: z.string().regex(/^[a-z0-9-]{1,32}$/).optional(),
   /** Цена в валюте партнёра, целое число. Демонстрационная — помечается `demoPrice`. */

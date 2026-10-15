@@ -13,11 +13,11 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const res = await build({
-  stdin: { contents: 'export { openingIR, viewRooms, wallRects } from "@/lib/viewer3d/opening-ir"; export { windowView } from "@/lib/viewer3d/window-views"; export { wallFixturesIR, ceilingLampIR } from "@/lib/viewer3d/fixtures-ir";',
+  stdin: { contents: 'export { openingIR, viewRooms, wallRects } from "@/lib/viewer3d/opening-ir"; export { windowView } from "@/lib/viewer3d/window-views"; export { wallFixturesIR, ceilingLampIR } from "@/lib/viewer3d/fixtures-ir"; export { finishPassport } from "@/lib/viewer3d/finish-passport";',
     resolveDir: ROOT, loader: "ts" },
   bundle: true, format: "esm", platform: "node", write: false, alias: { "@": ROOT }, absWorkingDir: ROOT, logLevel: "warning",
 });
-const { openingIR, viewRooms, wallRects, windowView, wallFixturesIR, ceilingLampIR } = await import("data:text/javascript;base64," + Buffer.from(res.outputFiles[0].text).toString("base64"));
+const { openingIR, viewRooms, wallRects, windowView, wallFixturesIR, ceilingLampIR, finishPassport } = await import("data:text/javascript;base64," + Buffer.from(res.outputFiles[0].text).toString("base64"));
 
 const room = JSON.parse(readFileSync(process.argv[2], "utf8"));
 const W = +room.w, D = +room.d, H = +(room.height_cm ?? 270);
@@ -45,6 +45,11 @@ for (const { op, len } of prepared) {
   // серверный кадр — всегда одна комната: двери закрыты, как в живой сцене демо (`viewer.ts:buildShell`, doorsClosed)
   out.push({ wall: op.wall, ir: openingIR(op, { wallHeightCm: H, entrance: !process.argv.includes("--open"),
     view: { assetId: viewId, horizon01: view.horizon01, aspect: view.aspect }, viewRoomLo: room0.lo, viewRoomHi: room0.hi }) });
+}
+// --finish: готовый паспорт отделки (карточка квартиры поверх набора по умолчанию) — им же красит серверный кадр
+if (process.argv.includes("--finish")) {
+  process.stdout.write(JSON.stringify(finishPassport(room.finish)) + "\n");
+  process.exit(0);
 }
 // --fixtures: плинтус и карниз по стенам (куски стены — та же `wallRects`, что у браузера) и светильник комнаты (demo-04 п.6)
 if (process.argv.includes("--fixtures")) {

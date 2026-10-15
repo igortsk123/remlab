@@ -40,6 +40,13 @@ export const room = z.object({
   d: z.number().positive(),
   heightCm: z.number().positive().default(245),
   openings: z.array(opening).default([]),
+  /** Паспорт отделки (`lib/viewer3d/finish-passport.ts`): стены, пол, потолок, плинтус — id и цвет; нет — набор по умолчанию. */
+  finish: z.object({
+    wall: z.object({ id: z.string(), colorHex: z.string() }).partial(),
+    floor: z.object({ id: z.string(), colorHex: z.string() }).partial(),
+    ceiling: z.object({ id: z.string(), colorHex: z.string() }).partial(),
+    skirting: z.object({ id: z.string(), colorHex: z.string() }).partial(),
+  }).partial().optional(),
   /** Вид из окон комнаты — id нашего набора (`lib/viewer3d/window-views.ts`), из карточки квартиры застройщика; нет — по умолчанию. */
   windowView: z.string().regex(/^[a-z0-9-]{1,32}$/).optional(),
   /**

@@ -68,10 +68,22 @@ const MATERIAL: Record<OpeningMaterial, THREE.Material> = {
 
 /** Меши набора коробок (плинтус, карниз, светильник — `fixtures-ir.ts`); координаты — в осях того, кто их ставит. */
 export function meshesFromBoxes(boxes: { w: number; h: number; d: number; x: number; y: number; z: number; material: OpeningMaterial;
-  role: string }[]): THREE.Group {
+  role: string }[], colors: Partial<Record<OpeningMaterial, string>> = {}): THREE.Group {
   const g = new THREE.Group();
+  // цвет из паспорта отделки (плинтус) — своя копия материала, общий не трогаем
+  const mats = new Map<OpeningMaterial, THREE.Material>();
+  const matOf = (k: OpeningMaterial): THREE.Material => {
+    const c = colors[k];
+    if (!c) return MATERIAL[k];
+    if (!mats.has(k)) {
+      const m = (MATERIAL[k] as THREE.MeshStandardMaterial).clone();
+      m.color.set(c);
+      mats.set(k, m);
+    }
+    return mats.get(k)!;
+  };
   for (const x of boxes) {
-    const m = box(x.w, x.h, x.d, x.x, x.y, x.z, MATERIAL[x.material]);
+    const m = box(x.w, x.h, x.d, x.x, x.y, x.z, matOf(x.material));
     m.userData.part = x.role;
     g.add(m);
   }

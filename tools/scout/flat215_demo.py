@@ -1080,6 +1080,18 @@ def main() -> None:
         print(f'WARN:opening_ir: описание проёмов не посчиталось (rc={r.returncode}): {(r.stderr or "").strip()[-200:]}')
     else:
         print(f"проёмы кадра: {len(data['room']['openings_ir'])} из общего описания")
+    # ПАСПОРТ ОТДЕЛКИ (demo-04): карточка квартиры (`finish`) поверх набора по умолчанию — готовым, им красят и страница, и кадр
+    if demo_apartment().get('finish'):
+        data['room']['finish'] = demo_apartment()['finish']
+    with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as tf:
+        json.dump(data['room'], tf, ensure_ascii=False)
+    r = subprocess.run(['bash', '-c', f'. "{root}/tools/ops/node-env.sh" && node "{root}/tools/flat3d/opening-ir.mjs" "{tf.name}" --finish'],
+                       capture_output=True, text=True, timeout=120)
+    os.unlink(tf.name)
+    try:
+        data['room']['finish'] = json.loads(r.stdout) if r.returncode == 0 else data['room'].get('finish')
+    except ValueError:
+        print(f'WARN:finish: паспорт отделки не посчитался (rc={r.returncode}): {(r.stderr or "").strip()[-200:]}')
     # плинтус, карниз, светильник — тем же генератором (demo-04 п.6, `lib/viewer3d/fixtures-ir.ts`)
     with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as tf:
         json.dump(data['room'], tf, ensure_ascii=False)

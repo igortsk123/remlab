@@ -8,6 +8,7 @@
 // Известные отличия от серверного кадра (Codex): декор (вазу) сервер расставляет своим алгоритмом, ТВ на тумбу
 // добавляет сам — здесь их пока нет.
 
+import { finishPassport } from "@/lib/viewer3d/finish-passport";
 import { slot as slotSchema, type Apartment } from "@/contracts/apartment";
 import { material as materialSchema, option as optionSchema, type Catalogue } from "@/contracts/configurator";
 import { fromDemoVariant, stableSlotIds, type DemoData } from "@/lib/configurator/fromDemo";
@@ -71,11 +72,13 @@ export function liveApartment(room: DemoRoom, items: DemoItem[], base: string): 
   const { apartment, catalogue } = built;
   // СТЕНЫ И ПОЛ — СВОИ (живая проверка 14.10): своих материалов у набора витрины нет, и движок брал первый материал
   // каталога — фото ковра — на стены и пол. Цвета — как у серверного кадра (светлый бежевый пол, почти белые стены).
+  // цвета — из паспорта отделки (`finish-passport.ts`), тем же красится серверный кадр
+  const fp = finishPassport(room.finish);
   catalogue.materials.unshift(
-    materialSchema.parse({ id: "paint-white", titleRu: "Стены", titleEn: "Walls", colorHex: "#f2f0ed", roughness: 0.95 }),
-    materialSchema.parse({ id: "demo-floor", titleRu: "Пол", titleEn: "Floor", colorHex: "#dcc7a6", roughness: 0.7 }),
+    materialSchema.parse({ id: fp.wall.id, titleRu: "Стены", titleEn: "Walls", colorHex: fp.wall.colorHex, roughness: 0.95 }),
+    materialSchema.parse({ id: fp.floor.id, titleRu: "Пол", titleEn: "Floor", colorHex: fp.floor.colorHex, roughness: 0.7 }),
   );
-  for (const [surface, category, materialId] of [["floor", "flooring", "demo-floor"], ["wall", "walls", "paint-white"]] as const) {
+  for (const [surface, category, materialId] of [["floor", "flooring", fp.floor.id], ["wall", "walls", fp.wall.id]] as const) {
     catalogue.options.push(optionSchema.parse({ id: `opt:${surface}`, category, titleRu: surface, titleEn: surface, tier: "standard",
       price: 0, availability: "available", roomKinds: ["living"], asset: { kind: "material", materialId } }));
     apartment.slots.push(slotSchema.parse({ id: surface, roomId: "living", category, kind: "surface", surface, titleRu: surface,

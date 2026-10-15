@@ -67,6 +67,8 @@ class Room(BaseModel):
     openings_ir: list[dict] | None = Field(default=None)
     # плинтус, карниз, светильник (demo-04 п.6, `lib/viewer3d/fixtures-ir.ts`) — `[{wall, ir: {boxes}}]`, как у проёмов
     fixtures_ir: list[dict] | None = Field(default=None)
+    # паспорт отделки (`lib/viewer3d/finish-passport.ts`): {wall|floor|ceiling|skirting: {id, colorHex}} — им красится кадр
+    finish: dict | None = Field(default=None)
 
     @model_validator(mode="after")
     def _contour_bbox(self) -> "Room":

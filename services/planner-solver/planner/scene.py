@@ -655,7 +655,8 @@ def compile_scene(room: Room, placements: list[Placement], cam: Camera) -> dict:
     behind = [ids[i] for i in ids if total[i] <= 400]
     out_extra = {}
     if ir_room and not cam.ortho and not cam.cyl:
-        out_extra = {"edge_cm": _edge_cm(room, cam, depth, sem, H), "palette": "browser"}
+        out_extra = {"edge_cm": _edge_cm(room, cam, depth, sem, H), "palette": "browser",
+                     "finish": getattr(room, "finish", None) or {}}
     return {
         **out_extra,
         "depth": depth,
@@ -722,11 +723,19 @@ def clay_render(out: dict) -> np.ndarray:
     img = np.zeros((*sem.shape, 3), np.float32)
     inv = {v: k for k, v in SEMANTIC.items()}
     pal = {**_CLAY, **(_CLAY_BROWSER if out.get("palette") == "browser" else {})}
+    # паспорт отделки комнаты (`lib/viewer3d/finish-passport.ts`) — им же красит живая сцена
+    for name in ("wall", "floor", "ceiling"):
+        hx = ((out.get("finish") or {}).get(name) or {}).get("colorHex")
+        if isinstance(hx, str) and len(hx) == 7 and hx[0] == "#":
+            pal[name] = tuple(int(hx[i:i + 2], 16) for i in (1, 3, 5))
     for sid, name in inv.items():
         img[sem == sid] = pal[name]
     # ФОН — НЕ ЧЁРНЫЙ (27.08): при срезанной ближней стене часть кадра не попадает ни на что, и
     # чёрные поля модель принимала за тёмную стену. Красим их светлым нейтралом.
     img[sem == 0] = (238, 236, 232)
+    if out.get("calibrate"):
+        # КАЛИБРОВКА (demo-04, критерий ΔE): только цвета поверхностей без света, тона и контуров — сравнение с паспортом
+        return np.clip(img, 0, 255).astype(np.uint8)
     d = depth.copy()
     fin = np.isfinite(d)
     if fin.any():

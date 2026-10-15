@@ -178,7 +178,11 @@ def has_view(entry: dict) -> bool:
     return bool(bd) and view_image(bd.get('assetId', '')) is not None
 
 
-def trimesh_parts(entry: dict):
+def _rgb(hexs: str):
+    return tuple(int(hexs[i:i + 2], 16) for i in (1, 3, 5))
+
+
+def trimesh_parts(entry: dict, colors: dict | None = None):
     """Части для растеризатора: коробки в осях стены (фронт +Z — внутрь комнаты), цвет — из палитры. Есть вид из окна —
     стекло не рисуется: непрозрачное закрыло бы вид (его тон кладёт `paint_beyond`)."""
     import trimesh as _t
@@ -188,7 +192,7 @@ def trimesh_parts(entry: dict):
         if skip_glass and mat == 'glass':
             continue
         m = _t.Trimesh(vertices=c, faces=_BOX_FACES.copy(), process=False)
-        rgb = PALETTE.get(mat, (230, 230, 230))
+        rgb = _rgb(colors[mat]) if colors and colors.get(mat) else PALETTE.get(mat, (230, 230, 230))
         m.visual = _t.visual.color.ColorVisuals(mesh=m, face_colors=np.tile(np.array([*rgb, 255], np.uint8), (12, 1)))
         parts.append(m)
     return parts

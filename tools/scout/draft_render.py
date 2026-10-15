@@ -220,6 +220,16 @@ def _openings_ir(v):
     return OIR.sanitize(v)
 
 
+def _finish(v):
+    """Паспорт отделки со страницы: только цвета `#rrggbb` известных поверхностей (чужим данным рендер не доверяет)."""
+    if not isinstance(v, dict):
+        return None
+    import re as _re
+    out = {k: {'colorHex': str(v[k].get('colorHex'))} for k in ('wall', 'floor', 'ceiling', 'skirting')
+           if isinstance(v.get(k), dict) and _re.fullmatch(r'#[0-9a-fA-F]{6}', str(v[k].get('colorHex') or ''))}
+    return out or None
+
+
 def _fixtures_ir(v):
     """Плинтус/карниз/светильник со страницы — через проверку (`opening_ir.sanitize_fixtures`)."""
     if v is None:
@@ -300,6 +310,7 @@ def scene_from_request(payload: dict) -> tuple:
                 openings=[Opening(**_opening(o)) for o in (r.get('openings') or [])],
                 openings_ir=_openings_ir(r.get('openings_ir')),
                 fixtures_ir=_fixtures_ir(r.get('fixtures_ir')),
+                finish=_finish(r.get('finish')),
                 radiators=[Radiator(**{k: v for k, v in x.items() if not k.startswith('_')})
                            for x in (r.get('radiators') or [])])
     placements, photos = [], {}
@@ -2358,12 +2369,15 @@ def _fixture_openings(room, orient: dict):
                 print(f'  проём {k}: описание не разобрано ({str(e)[:60]})', flush=True)
                 continue
             key = f"ir:{entry.get('wall')}:{k}:{hash(json.dumps(entry, sort_keys=True)) & 0xffffffff:08x}"
+            # цвет плинтуса — из паспорта отделки; он же входит в ключ кэша
+            sk = ((getattr(room, 'finish', None) or {}).get('skirting') or {}).get('colorHex')
+            key = key + (f':{sk}' if sk else '')
             if key not in _S3_PARTS:
                 # описание приходит со страницы — кэш деталей не должен расти без края
                 stale = [k for k in _S3_PARTS if str(k).startswith('ir:')]
                 for k in stale[:max(0, len(stale) - 63)]:
                     _S3_PARTS.pop(k, None)
-                _S3_PARTS[key] = OIR.trimesh_parts(entry)
+                _S3_PARTS[key] = OIR.trimesh_parts(entry, {'skirting': sk} if sk else None)
             kind = (entry.get('ir') or {}).get('kind')
             role = 'окно' if kind in ('window', 'balcony') else 'дверь' if kind else 'отделка'
             places.append((Placement(role=role, x=x, y=y, rot=rot, elev_cm=max(0.0, elev),
