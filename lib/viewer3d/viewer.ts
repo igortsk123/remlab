@@ -784,9 +784,14 @@ export class FlatViewer {
       .map((p) => p.spec.placement);
     // Расстояние до ПРЯМОУГОЛЬНИКА предмета, а не до круга вокруг него: кухонная линия
     // 340×60 «кругом» занимала всю комнату, и любая точка считалась занятой (кадр 29.09).
+    // ВЫСОКОЕ — ДАЛЬШЕ (demo-05 п.5: /flat стартовал вплотную к торшеру, абажур на уровне глаз закрывал треть кадра): от
+    // предметов выше 120 см держим ещё 35 см — запас считается как будто их след шире
+    const TALL_CM = 120;
+    const TALL_EXTRA = 35;
     const clearance = (x: number, y: number): number => {
       let min = 1e9;
       for (const o of obstacles) {
+        const extra = o.hCm >= TALL_CM ? TALL_EXTRA : 0;
         const a = (-o.rot * Math.PI) / 180;
         const dx = x - o.x;
         const dy = y - o.y;
@@ -794,7 +799,7 @@ export class FlatViewer {
         const ly = dx * Math.sin(a) + dy * Math.cos(a);
         const ox = Math.max(Math.abs(lx) - o.wCm / 2, 0);
         const oy = Math.max(Math.abs(ly) - o.dCm / 2, 0);
-        min = Math.min(min, Math.hypot(ox, oy));
+        min = Math.min(min, Math.hypot(ox, oy) - extra);
       }
       return min;
     };
