@@ -231,3 +231,29 @@ runtime-текстура (KTX2) — уйдёт при переходе на пе
 ## Сохранение
 `flat_configs`: выбор + снимок цены + ревизии квартиры и каталога под случайным токеном;
 `GET /api/flat/config/<id>` не отдаёт контакт никогда.
+
+## Витрина → `/flat` и окно демо одним мостом (demo-05 п.5–п.10, 15.10)
+- **Один мост** `lib/configurator/fromDemo.ts:fromDemoVariant` — и для `/flat?demo=`, и для живой сцены окна
+  (`lib/viewer3d/demo-scene.ts:liveApartment` своих копий не держит). Стены и пол — свои материалы из паспорта отделки,
+  ПЕРВЫМИ в каталоге (иначе оболочка брала первый материал — фото ковра, урок 494); в списке покупателя места стен/пола
+  с одной опцией не показываются (`BuildBar.tsx`).
+- **Ковёр** — плита с фото товара (`kit: rug`, картинка от адреса витрины `ctx.assetBase`), с ценой. **Ваза** — слот
+  `tabletop` (контракт `contracts/apartment.ts`): место считает `resolve.placeTabletop` по правилу серверного кадра
+  (`lib/viewer3d/scene-extras.ts:decorLayout`) от текущей опоры (столик, иначе обеденный стол); нет опоры — `unplaced`
+  (в цене и смете есть, в сцене/плане/фото нет); вручную не двигается и не мешает перемещению столика.
+- **ТВ над тумбой** — производный объект движка, не слот: `lib/viewer3d/build-scene.ts:sceneExtras` (id `@extra:`, не
+  выбирается, не препятствие), сборка — `lib/viewer3d/kits/tv.ts`; размер/подвес — `scene-extras.ts:tvSpec` = порт
+  `draft_render.tv_spec`, общий эталон `tests/fixtures/scene-extras-golden.json` (`tools/assets/scene_extras_golden.py --check` в CI).
+- **Ленты замен** — `lib/configurator/demo-feeds.ts`: лента витрины `feeds[роль]` с правилом стиля окна (`feedFor`), до 11
+  ближайших по размеру, с моделью, фото (`previewUrl`) и партнёрской ссылкой. Стулья — `selectionGroup: "стул"`; сервер
+  держит группу сам (`resolve.ts:sameInGroups`). **Упаковка** «N шт.» — опция `pack`/`packKey`, покупки считает
+  `resolve.ts:packPrices` по фактически выбранным видимым местам, одной строкой; сохранение пишет выбор после расчёта
+  (`app/api/flat/config/route.ts`).
+- **Шапка покупателя** (`app/flat/page.tsx`): при `s`/`demo`/`c`/`coll` шапка remont-lab скрыта, сверху ЖК · квартира ·
+  сертификат · менеджер (по живой ссылке ЭТОЙ квартиры; ссылка менеджера другой квартиры в 3D не уходит), внизу «сервис remont-lab».
+- **Устаревший номер варианта** — история «номер → стиль» в `demo-data.json:variant_aliases` (`flat215_demo.merge_aliases`);
+  `fromDemo.resolveVariantId` открывает текущий вариант того же стиля с пометкой (`source.resolveFlat.replaced`).
+- **Прогулка**: запас тела 30 см (`walk.ts:BODY_CM`), заглушка модели скрыта до загрузки (15 с / отказ); старт
+  (`viewer.goToRoom`) — сетка 5×5, высокий по верху предмета, штраф за вид на ТВ сбоку, ковёр не препятствие; живая проверка
+  числами — `e2e/live/flat-walk.live.ts` (`viewer.debugWalk/faceToward`).
+

@@ -3,7 +3,7 @@ tier: 2
 topic: mesh-run-playbook
 scope: Регламент прогона мешей — предусловия, старт, наблюдение, остановка, тупики с ценой
 tier1: ../core/mesh-run.md
-updated: 2026-10-11
+updated: 2026-10-15
 importance: high
 source: manual
 status: working
@@ -114,3 +114,11 @@ tools/scout/mesh_priority.py --build-queue <снимок>                  # б�
 Этап 5→6 в [[pipeline-order]]: очередь → **партия на сегодня** (`mesh_scheduler.py`) → генерация.
 Запускать ПОСЛЕ стилей (предусловие 1). Крон-автостарта волны нет и не будет без отдельного
 решения владельца: он поднимал бы платные ноды без человека.
+
+## Автозапуск по разрешению владельца (conv-11, 15.10)
+`tools/scout/salad/wave_guard.py` (крон 15 мин) стартует тем же `mesh_wave_start.sh --launch`. Волна берёт верх очереди по
+приоритету — `MESH_TAKE_JOBS` (`tools/scout/mesh_priority.py:take_top`, переделки за чертой не помечаются `queued`);
+`MESH_MAX_JOBS` — только предохранитель «снимок испорчен» (урок 492: первая волна 15.10 не стартовала, когда их смешали).
+Курсор пачки двигается только по подряд закрытым заданиям (`tools/scout/salad/batch_show.py`): пачка, закрытая «нет живых нод», не теряет
+заданий. Итог волны владельцу — `wave_guard.close_wave` → `tools/scout/alert.sh`.
+
