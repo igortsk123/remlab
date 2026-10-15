@@ -7,9 +7,10 @@ import { baseSnapshotOf, staleSlots } from "@/lib/configurator/fromDemo";
 import { readConfig } from "@/lib/configurator/repo";
 import { defaultConfiguration } from "@/lib/configurator/resolve";
 import { defaultApartmentId, resolveCollectionFlat, resolveFlat } from "@/lib/configurator/source";
-import { apartmentCard } from "@/lib/partners/registry";
+import { apartmentCard, money } from "@/lib/partners/registry";
 import type { Lang } from "@/lib/configurator/i18n";
 import { TOKEN_RE } from "@/lib/token";
+import { publicCard } from "@/modules/sends/service";
 
 export const metadata = {
   title: "Соберите свою квартиру — RemLab",
@@ -83,11 +84,41 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
   // открыт из коллекции — номер коллекции едет в подбор, чтобы сохранённая ссылка открывала ту же расстановку
   if (!saved && fromColl) initial = { ...defaultConfiguration(apartment, catalogue), collectionId: fromColl };
   const card = apartmentCard(hit, lang);
+  // ШАПКА ПОКУПАТЕЛЯ (demo-05 п.7, разбор Codex 15.10): по ссылке менеджера (`s`), из окна демо (`demo`), по сохранённому
+  // подбору (`c`) или коллекции (`coll`) покупатель видит квартиру застройщика, а не сайт remont-lab с пунктами «скоро».
+  // Параметры только переключают вид — их значения на страницу не выводятся; ЖК, квартира, сертификат и менеджер — из
+  // реестра и базы. `partner`/`embed` не включают вид: их никто не создаёт, а встраивание — свой маршрут `/embed/…`
+  const buyer = [sp.s, sp.demo, sp.c, sp.coll].some((x) => x !== undefined);
+  const rawSend = sp.s && TOKEN_RE.test(sp.s) ? sp.s : null;
+  // ССЫЛКА МЕНЕДЖЕРА — ТОЛЬКО ЖИВАЯ И ТОЛЬКО ЭТОЙ КВАРТИРЫ (P0 Codex): чужой `s` иначе уходил в 3D — клиент грузил контакты
+  // чужого менеджера и писал события в чужую отправку. База недоступна — не знаем: оставляем как было (API проверяет сам)
+  let mgr: Awaited<ReturnType<typeof publicCard>> = null;
+  let checked = true;
+  if (rawSend) {
+    try {
+      mgr = await publicCard(rawSend);
+    } catch {
+      checked = false;
+    }
+  }
+  const sendId = !rawSend ? null : !checked ? rawSend : mgr && mgr.apartmentId === hit.apartment.id ? rawSend : null;
+  const manager = sendId && mgr ? mgr.manager.name : null;
+  const cert = card.certificate ? money(card.certificate.amount, card.currency, lang) : null;
 
   return (
     // ширина НЕ через `.container`: он рассчитан на чтение (узкая колонка), а конфигуратору
     // нужна вся ширина экрана под сцену
     <main className="mx-auto w-full px-3 py-4 sm:px-5" style={{ maxWidth: 1700 }}>
+      {/* высота шапки 0 сразу, до гидрации: липкие элементы иначе сначала встают под пустые 56 px */}
+      {buyer ? <style>{".site-header{display:none}:root{--site-header-h:0px}"}</style> : null}
+      {buyer ? (
+        <p className="mb-1 flex flex-wrap gap-x-2 text-sm text-secondary">
+          <span className="font-medium text-primary">{card.complex}</span>
+          <span>· {card.kind}{card.number ? ` № ${card.number}` : ""}</span>
+          {cert ? <span>· {lang === "en" ? `allowance up to ${cert}` : `сертификат до ${cert}`}</span> : null}
+          {manager ? <span>· {lang === "en" ? `your manager: ${manager}` : `ваш менеджер: ${manager}`}</span> : null}
+        </p>
+      ) : null}
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h1 className="text-xl font-semibold text-primary">
           {lang === "en" ? apartment.titleEn : apartment.titleRu}
@@ -119,7 +150,7 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
             : `С момента сохранения набор на витрине обновился: ${stale.length} предм. показаны из текущего набора.`}
         </p>
       ) : null}
-      <OpenBeacon apartmentId={hit.apartment.id} sendId={sp.s && TOKEN_RE.test(sp.s) ? sp.s : null} lang={lang} />
+      <OpenBeacon apartmentId={hit.apartment.id} sendId={sendId} lang={lang} />
       <FlatConfigurator
         apartment={apartment}
         catalogue={catalogue}
@@ -127,9 +158,10 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
         lang={lang}
         certificate={card.certificate ? { amount: card.certificate.amount } : null}
         facts={card.meta}
-        sendId={sp.s && TOKEN_RE.test(sp.s) ? sp.s : null}
+        sendId={sendId}
         logo={hit.partner.logoUrl}
       />
+      {buyer ? <p className="mt-4 text-center text-xs text-quaternary">{lang === "en" ? "powered by remont-lab" : "сервис remont-lab"}</p> : null}
     </main>
   );
 }
