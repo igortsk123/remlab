@@ -261,7 +261,8 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
   for (const [surface, category, materialId] of [["floor", "flooring", fp.floor.id], ["wall", "walls", fp.wall.id]] as const) {
     extraOptions.push({ id: `opt:${surface}`, category, titleRu: surface, titleEn: surface, tier: "standard", price: 0,
       availability: "available", roomKinds: ["living"], asset: { kind: "material", materialId } });
-    slots.push({ id: surface, roomId: "living", category, kind: "surface", surface, titleRu: surface, titleEn: surface,
+    slots.push({ id: surface, roomId: "living", category, kind: "surface", surface, titleRu: surface === "wall" ? "Стены" : "Пол",
+      titleEn: surface === "wall" ? "Walls" : "Floor",
       defaultOptionId: `opt:${surface}`, optionIds: [`opt:${surface}`] });
   }
 

@@ -72,7 +72,9 @@ function tileLayout(count: number, width: number): { size: number; rows: 1 | 2 }
 export function BuildBar(props: BuildBarProps) {
   const { apartment, catalogue, roomId, slotId, selections, lang, onRoom, onSlot, onChoose, onClose } = props;
   const { onMove, onResetPlacement } = props;
-  const slots = apartment.slots.filter((s) => s.roomId === roomId);
+  // выбирать нечего — не показываем: стены и пол комнаты витрины (одна опция из паспорта отделки, demo-05 п.9) были в списке
+  // покупателя как «wall»/«floor»
+  const slots = apartment.slots.filter((s) => s.roomId === roomId && !(s.kind === "surface" && optionsForSlot(apartment, catalogue, s).length <= 1));
   const active: Slot | undefined = slots.find((s) => s.id === slotId) ?? slots[0];
   const options: Option[] = active ? optionsForSlot(apartment, catalogue, active) : [];
   const chosenId = active ? selections[active.id] ?? active.defaultOptionId : "";
