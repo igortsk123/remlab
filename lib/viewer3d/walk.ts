@@ -75,7 +75,14 @@ export interface WalkArea {
   bodyCm: number;
 }
 
-export function walkArea(a: Apartment, marginCm = 28, obstacles: Obstacle[] = [], bodyCm = 20): WalkArea {
+/**
+ * Запас от края мебели — 30 см (прогон d8 15.10, приёмка п.5 метрикой «≥ 25 см до ближайшего следа»): при 20 см камера на
+ * высоте глаз упиралась взглядом в тумбу и стену за ней — экран целиком серый, не понять, где стоишь. Узкие щели
+ * (диван — столик 40 см) от этого не проходятся, как и в жизни с камерой в руках.
+ */
+export const BODY_CM = 30;
+
+export function walkArea(a: Apartment, marginCm = 28, obstacles: Obstacle[] = [], bodyCm = BODY_CM): WalkArea {
   return { rooms: a.rooms, passages: passages(a), marginCm, obstacles, bodyCm };
 }
 
@@ -88,15 +95,25 @@ function insideObstacle(o: Obstacle, x: number, y: number, pad: number): boolean
   return Math.abs(u) <= o.w / 2 + pad && Math.abs(v) <= o.d / 2 + pad;
 }
 
+/** Расстояние от точки до следа предмета, см (0 — внутри). Тем же поворотом, что `insideObstacle`. */
+export function obstacleDistanceCm(o: Obstacle, x: number, y: number): number {
+  const r = (o.rot * Math.PI) / 180;
+  const dx = x - o.x;
+  const dy = y - o.y;
+  const u = Math.abs(dx * Math.cos(r) - dy * Math.sin(r)) - o.w / 2;
+  const v = Math.abs(dx * Math.sin(r) + dy * Math.cos(r)) - o.d / 2;
+  return Math.hypot(Math.max(u, 0), Math.max(v, 0));
+}
+
 /** Внутри комнаты или проёма — без учёта мебели. */
-function inRooms(area: WalkArea, x: number, y: number): boolean {
+export function inRooms(area: WalkArea, x: number, y: number): boolean {
   for (const r of area.rooms) if (insideRoom(r, x, y, area.marginCm)) return true;
   for (const p of area.passages) if (x >= p.x0 && x <= p.x1 && y >= p.y0 && y <= p.y1) return true;
   return false;
 }
 
 export function canStand(area: WalkArea, x: number, y: number): boolean {
-  if (area.obstacles?.some((o) => insideObstacle(o, x, y, area.bodyCm ?? 20))) return false;
+  if (area.obstacles?.some((o) => insideObstacle(o, x, y, area.bodyCm ?? BODY_CM))) return false;
   for (const r of area.rooms) if (insideRoom(r, x, y, area.marginCm)) return true;
   for (const p of area.passages) if (x >= p.x0 && x <= p.x1 && y >= p.y0 && y <= p.y1) return true;
   return false;
@@ -116,7 +133,7 @@ export function stepWithSlide(
   if (canStand(area, direct.x, direct.y)) return direct;
   // уже стоим в следе предмета (поставили туда, предмет передвинули рядом) — выйти можно, лишь бы не в стену
   if (!canStand(area, from.x, from.y) && inRooms(area, direct.x, direct.y)) return direct;
-  const pad = area.bodyCm ?? 20;
+  const pad = area.bodyCm ?? BODY_CM;
   const block = area.obstacles?.find((o) => insideObstacle(o, direct.x, direct.y, pad));
   const slide = (): { x: number; y: number } | null => {
     // шаг вдоль оси с ничтожной длиной (sin π ≈ 1e-16) — это «стоять на месте», а не скольжение: пропускаем,

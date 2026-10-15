@@ -24,7 +24,7 @@ import type { KitCtx } from "@/lib/viewer3d/kits/common";
 import { createMaterialCtx, disposeMaterialCtx, type MaterialCtx } from "@/lib/viewer3d/materials";
 import { MeshLibrary, chaiseSide, disposeObject, placeMesh, stubBox } from "@/lib/viewer3d/meshes";
 import { buildRoom, buildSurroundings } from "@/lib/viewer3d/rooms";
-import { canStand, nearestStandable, stepWithSlide, walkArea, type WalkArea } from "@/lib/viewer3d/walk";
+import { canStand, inRooms, nearestStandable, obstacleDistanceCm, stepWithSlide, walkArea, type WalkArea } from "@/lib/viewer3d/walk";
 
 const CM = 0.01;
 // пределы «кукольного дома»: ближе 2,4 м камера влезает в мебель, дальше 30 м квартира — точка
@@ -412,6 +412,11 @@ export class FlatViewer {
       const outer = new THREE.Group();
       const local = { xCm: 0, yCm: 0, rotDeg: 0, wCm: p.wCm, dCm: p.dCm, hCm: p.hCm, elevCm: 0 };
       const stub = stubBox(local, true);
+      // ЗАГЛУШКА НЕ ВИДНА, ПОКА МОДЕЛЬ ГРУЗИТСЯ (прогон d8 15.10: на старте /flat серые каркасные коробки читались как
+      // поломка): ход загрузки показывает счётчик. Коробка появляется, только если модель не пришла или грузится дольше
+      // STUB_SHOW_MS — тогда честное «здесь предмет» лучше пустого места
+      stub.visible = false;
+      const showStub = setTimeout(() => { stub.visible = true; }, STUB_SHOW_MS);
       outer.add(stub);
       placeGroup(outer, p);
       outer.userData = { slotId: spec.slotId, roomId: spec.roomId, title: spec.titleRu };
@@ -441,7 +446,9 @@ export class FlatViewer {
         }
       } catch {
         // модель не пришла — остаётся честная серая коробка, как в демо
+        stub.visible = true;
       } finally {
+        clearTimeout(showStub);
         this.pendingUrls.delete(spec.url);
         this.loadedCount += 1;
         this.events.onProgress?.(Math.min(this.loadedCount, this.totalCount), this.totalCount);
@@ -1314,6 +1321,19 @@ export class FlatViewer {
     };
   }
 
+  /** Повернуться в прогулке лицом к точке квартиры (см): живая проверка «4 с хода к предмету» (demo-05 п.1д). */
+  faceToward(x: number, y: number): void {
+    this.heading = ((Math.atan2(x - this.pos.x, y - this.pos.y) * 180) / Math.PI + 360) % 360;
+  }
+
+  /** Где стоит человек в прогулке и сколько до ближайшей мебели — метрика живой проверки (прогон d8 15.10). */
+  debugWalk(): { x: number; y: number; heading: number; inRoom: boolean; nearestCm: number | null } {
+    const { x, y } = this.pos;
+    const d = this.area.obstacles.map((o) => obstacleDistanceCm(o, x, y));
+    return { x: Math.round(x), y: Math.round(y), heading: Math.round(this.heading), inRoom: inRooms(this.area, x, y),
+      nearestCm: d.length ? Math.round(Math.min(...d)) : null };
+  }
+
   canStandAt(x: number, y: number): boolean {
     return canStand(this.area, x, y);
   }
@@ -1354,6 +1374,9 @@ function farFromDoor(room: Room, p: Placement): "start" | "end" {
 }
 
 /** Место и поворот предмета — во внешнюю группу (центр следа на плане, низ на полу + подъём). */
+/** Сколько ждать модель, прежде чем показать на её месте серую коробку. */
+const STUB_SHOW_MS = 15_000;
+
 function placeGroup(g: THREE.Object3D, p: Placement): void {
   g.position.set(p.x * CM, (p.elevCm ?? 0) * CM, p.y * CM);
   g.rotation.y = (p.rot * Math.PI) / 180;
