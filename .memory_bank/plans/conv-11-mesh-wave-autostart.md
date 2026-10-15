@@ -97,6 +97,10 @@ review_after: 2026-11-27
    замок) — нет 30 мин при работающих группах → stop с проверкой + Telegram; ключ — root-only credential отдельного
    пользователя Salad. 6. Раздельные флаги `mesh-restart` (горячий перезапуск) и `mesh-stop` (обязательное гашение).
 
+- 2026-10-15 — владелец: «на Salad $39, разблокируй всё что нужно» → d8 записал разрешение `~/scout-scenes/wave-lease.json`
+  (max_usd 37 — запас $2 на лаг биллинга, expires 2026-10-22, min_jobs 50); `wave_guard.py --dry` → start (MESH_MAX_JOBS 2846);
+  боевой старт — следующий тик крона (≤ 15 мин). DEV при старте: диск 82 %, свободно ОЗУ 1,7 ГБ (риск earlyoom у разбора).
+
 ## Completion summary
 —
 
