@@ -45,6 +45,8 @@ def reasons(m: dict, thr: float) -> list:
         out.append('slab')
     if m.get('max_dev') is not None and m['max_dev'] > thr:
         out.append('proportion')
+    if m.get('dark') is not None:
+        out.append('dark')          # модель намного темнее товара (`mesh_dark.py`, demo-05 15.10)
     return out
 
 
@@ -78,6 +80,21 @@ def apply(limit: int = 0) -> int:
             out['mask'] = mk
         return key(it), out
 
+    # ТЁМНАЯ МОДЕЛЬ (demo-05 15.10): свой кэш — замер новый, а v2-замеры пересчитывать не нужно
+    import mesh_dark as MDK
+    dkey = lambda it: 'dark2:' + it['glb_sha'][:16]  # noqa: E731 — v2 правила (15.10): светлое название + тёмная модель
+    dtodo = [it for it in items if it['glb_sha'] and dkey(it) not in cache][: limit or None]
+
+    def dark_one(it):
+        glb = MD.find_glb(it['sku'], it['glb_sha'])
+        if not glb:
+            return dkey(it), None
+        try:
+            return dkey(it), MDK.measure(glb, it.get('name') or '')
+        except Exception as e:  # noqa: BLE001 — модель не открылась: считаем, печатаем, не глотаем молча
+            print(f'  dark: {it["sku"]} не замерена ({str(e)[:60]})', flush=True)
+            return dkey(it), None
+
     done = 0
     with ThreadPoolExecutor(3) as ex:
         for k, dev in ex.map(one, todo):
@@ -86,10 +103,19 @@ def apply(limit: int = 0) -> int:
             if done % 100 == 0:                       # кэш по ходу: долгий прогон не теряется при обрыве
                 json.dump(cache, open(CACHE, 'w'))
                 print(f'  замерено {done}/{len(todo)}', flush=True)
+    print(f'замерить тёмные модели {len(dtodo)}', flush=True)
+    # по одной: модель с текстурой 2048² в памяти ~0,5 ГБ, три потока на DEV снимал сторож памяти (15.10)
+    for n, it in enumerate(dtodo, 1):
+        k, v = dark_one(it)
+        cache[k] = v
+        if n % 50 == 0:                        # кэш по ходу: обрыв не теряет замеренное
+            json.dump(cache, open(CACHE, 'w'))
+            print(f'  тёмные: замерено {n}/{len(dtodo)}', flush=True)
     os.makedirs(os.path.dirname(CACHE), exist_ok=True)
     json.dump(cache, open(CACHE, 'w'))
     decided = {(r[0], r[1]) for r in db("select sku, glb_sha from mesh_quarantine where decision is not null") if len(r) == 2}
-    measures = [{'sku': it['sku'], 'glb_sha': it['glb_sha'][:16], **cache.get(key(it), {})} for it in items]
+    measures = [{'sku': it['sku'], 'glb_sha': it['glb_sha'][:16], **cache.get(key(it), {}),
+                 **({'dark': cache[dkey(it)]} if cache.get(dkey(it)) is not None else {})} for it in items]
     flagged = {(m['sku'], m['glb_sha']): m for m in pick(measures, thr, decided)}
     # НЕРЕШЁННЫЕ ПО v1, КОТОРЫХ v2 НЕ ДЕРЖИТ, — вернуть в работу (ложная тревога замера v1)
     released = 0
@@ -243,6 +269,7 @@ def _selftest() -> int:
     ok('v2: плохая вырезка и подложка — карантин независимо от пропорций',
        reasons({'mask': 'коллаж', 'slab': 'merged', 'max_dev': 0.1}, 0.6) == ['mask', 'slab'])
     ok('v2: умеренное расхождение без признаков — не карантин', reasons({'max_dev': 0.4}, 0.6) == [])
+    ok('тёмная модель светлого товара — карантин «dark»', reasons({'dark': 11.0}, 0.6) == ['dark'])
     return 1 if bad else 0
 
 

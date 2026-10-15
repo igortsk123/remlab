@@ -466,7 +466,15 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
     from sets_incremental import _card            # лёгкий модуль; `_slot_ok` НЕ берём — он тянет compose2
     gate = DF.make_gate(DEMO_ENV, _media, _alive, _fp.footprint_known, _prop, _sub)
     idx = _mesh_index()
-    has_mesh = lambda it: _msid(f"{it.get('mid')}_{it.get('eid')}") in idx  # noqa: E731
+    # МОДЕЛЬ СЕМЕЙСТВА ДОЛЖНА ПОДХОДИТЬ ТОВАРУ ПО ЦВЕТУ (demo-05 п.3, 15.10): цветовой вариант берёт меш представителя
+    # семейства (ADR-0196), и бежевый стул «Алекс» рисовался чёрной моделью графитового. Такая позиция — как «нет модели»:
+    # лечение подставит другой товар, а ворота (`scene_checks.py`) поймают пропущенное
+    color_ok = _mesh_color_ok()
+    has_mesh = lambda it: (_msid(f"{it.get('mid')}_{it.get('eid')}") in idx  # noqa: E731
+                           and color_ok(_msid(f"{it.get('mid')}_{it.get('eid')}"), it.get('name') or ''))
+    _gate0 = gate
+    gate = lambda role, c, s_, others: (_gate0(role, c, s_, others)  # noqa: E731
+                                        and (DF.base_role(role) in NOMESH_ROLES or has_mesh(c)))
     pool = DF.load_pool()
     print(f'пул дозаполнения: {len(pool)} товаров', flush=True)
     by_style: dict = {}
@@ -494,6 +502,39 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
             ranked[style] = sorted(cands, key=lambda c: c[0])
             taken |= {x['to_sku'] for x in ranked[style][0][3] if x.get('to_sku')}
     return ranked
+
+
+def _mesh_color_ok():
+    """→ функция (msid, название товара) → годится ли модель по цвету (`mesh_dark.dark_flag` по названию). Яркость
+    поверхности модели считается один раз и кэшируется по файлу (`~/scout-scenes/mesh-luma-cache.json`)."""
+    import mesh_dark as MDK
+    path = os.path.expanduser('~/scout-scenes/mesh-luma-cache.json')
+    try:
+        cache = json.load(open(path))
+    except (OSError, ValueError):
+        cache = {}
+    dirty = [False]
+
+    def ok(msid: str | None, name: str) -> bool:
+        glb = os.path.expanduser(f'~/scout-scenes/mesh-pilot-gallery/{msid}/model.glb') if msid else ''
+        if not glb or not os.path.exists(glb):
+            return True                       # нет файла — судить не о чем (есть ли модель, решает индекс)
+        key = f'{msid}:{int(os.path.getmtime(glb))}'
+        if key not in cache:
+            try:
+                import trimesh
+                cache[key] = MDK.surface_luma(list(trimesh.load(glb, force='scene').geometry.values()))
+            except Exception as e:  # noqa: BLE001 — не открылась: не браковать, но громко
+                print(f'  яркость модели {msid}: не замерена ({str(e)[:60]})', flush=True)
+                cache[key] = None
+            dirty[0] = True
+            if len(cache) % 25 == 0:
+                json.dump(cache, open(path, 'w'))
+        return MDK.dark_flag(cache[key], name) is None
+
+    import atexit
+    atexit.register(lambda: dirty[0] and json.dump(cache, open(path, 'w')))
+    return ok
 
 
 def layout_ok(n: int, core: tuple = ()) -> bool:
@@ -1062,6 +1103,21 @@ def main() -> None:
           f'WARN:scene_bundle: движок живой сцены не собрался (rc={r.returncode}): {(r.stderr or r.stdout or "").strip()[-200:]}')
     data = cache_images(build())
     print(f'разворот фронта в предметах вариантов: {annotate_yaw(data)}')
+    # ВОРОТА АРТЕФАКТОВ (demo-05 п.1): наезд глубже 2 см или модель намного темнее товара — вариант не публикуется. Если
+    # красных больше половины — это скорее поломка проверки, чем данных: публикуем всё, тревога громче
+    try:
+        import scene_checks as SC
+        red = SC.check(data)
+        for vid, why in red.items():
+            print(f'WARN:scene_checks: {vid} — ' + '; '.join(why), flush=True)
+        if red and len(red) * 2 <= len(data['variants']):
+            for v in [v for v in data['variants'] if v.get('id') in red]:
+                data['incomplete_styles'].append({'style': v.get('style'), 'missing': [], 'artifacts': red[v['id']]})
+            data['variants'] = [v for v in data['variants'] if v.get('id') not in red]
+        elif red:
+            print(f'WARN:scene_checks_many: красных {len(red)} из {len(data["variants"])} — публикуем всё, проверьте сами ворота', flush=True)
+    except Exception as e:  # noqa: BLE001 — сломанные ворота не валят сборку, но громко
+        print(f'WARN:scene_checks_error: {repr(e)[:160]}', flush=True)
     # ОКНА И ДВЕРИ СЕРВЕРНОГО КАДРА — ИЗ ТОГО ЖЕ ОПИСАНИЯ, ЧТО В ЖИВОЙ СЦЕНЕ (demo-04): генератор один
     # (`lib/viewer3d/opening-ir.ts`), страница шлёт `room.openings_ir` с запросом кадра. Не посчиталось — кадр строит
     # проёмы прежним путём, громко.

@@ -2444,7 +2444,10 @@ function drawColl(force){
   // публикуется — вместо худой комнаты честная строка, чего не хватает в наличии сейчас.
   (D.incomplete_styles||[]).forEach(x=>{
     const n=document.createElement('div');n.className='hint';n.style.gridColumn='1/-1';
-    n.textContent=`Стиль «${x.style}»: сейчас нет полного набора в наличии (не хватает: ${(x.missing||[]).join(', ')}) — покажем, как только появится.`;
+    // снят воротами артефактов (demo-05 п.1: наезд, тёмная модель) — покупателю без внутренних подробностей
+    n.textContent=(x.artifacts&&!(x.missing||[]).length)
+      ?(LANG==='en'?`Style “${x.style}” is hidden for now: we are updating its 3D models.`:`Стиль «${x.style}» временно скрыт: обновляем его 3D-модели.`)
+      :`Стиль «${x.style}»: сейчас нет полного набора в наличии (не хватает: ${(x.missing||[]).join(', ')}) — покажем, как только появится.`;
     box.appendChild(n);});
   showSwap();   // список выбранного варианта рисуется вместе с коллекцией, не отдельным событием
   box.querySelectorAll('[data-link]').forEach(b=>b.onclick=e=>{
