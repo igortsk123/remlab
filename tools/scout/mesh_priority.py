@@ -402,6 +402,17 @@ def pending_rework() -> dict:
     return out
 
 
+def take_top(jobs: list, queued: list, take: int) -> tuple[list, list]:
+    """Первые `take` заданий снимка (он уже в порядке приоритета) — сколько оплачено разрешением владельца (`wave_guard`,
+    `MESH_TAKE_JOBS`). Переделки владельца, не попавшие в волну, НЕ помечаются `queued`: иначе страница показывала бы
+    «в очереди» то, чего в снимке нет. Чистая функция — селфтест."""
+    if not take or len(jobs) <= take:
+        return jobs, queued
+    kept = jobs[:take]
+    ids = {j['strata']['rework']['request_id'] for j in kept if 'rework' in j.get('strata', {})}
+    return kept, [q for q in queued if q[0] in ids]
+
+
 def build_queue(path: str, todo: list, prod: dict) -> None:
     """Снимок очереди: недоделанное в порядке регламента + переделки владельца на их же местах
     (товар с `mesh_status='rejected'` попадает в `todo` сам — обгона нет). Файл пишется
@@ -434,6 +445,12 @@ def build_queue(path: str, todo: list, prod: dict) -> None:
                      'name': '', 'image_url': p['image_url'], 'dims_cm': p['dims_cm'],
                      'strata': strata, 'seeds': seeds})
     orphans = [s for s in rework if s not in prod]
+    # ВОЛНА ПО РАЗРЕШЕНИЮ БЕРЁТ ВЕРХ ОЧЕРЕДИ (15.10): автозапуск передавал «сколько моделей оплачено» в предохранитель ниже,
+    # а тот на очереди 6240 > 2846 отказывался писать снимок — волна не стартовала. Сколько взять и предохранитель — разное
+    total = len(jobs)
+    jobs, queued = take_top(jobs, queued, int(os.environ.get('MESH_TAKE_JOBS', '0') or 0))
+    if len(jobs) < total:
+        print(f'волна по разрешению: беру первые {len(jobs)} из {total} заданий очереди', flush=True)
     cap = int(os.environ.get('MESH_MAX_JOBS', '0') or 0)
     if cap and len(jobs) > cap:
         sys.exit(f'снимок {len(jobs)} заданий больше предохранителя MESH_MAX_JOBS={cap} — не пишу')
@@ -547,7 +564,17 @@ def _selftest() -> int:
             bad += 1; print(f'  FAIL used_seeds: {u}')
         if next_seed(u['a']) != 6 or next_seed(u['b']) != 4:
             bad += 1; print('  FAIL next_seed поверх used_seeds')
-    print(f'mesh_priority selftest: случаев 3, ошибок {bad}')
+    # --- ВЕРХ ОЧЕРЕДИ ПО РАЗРЕШЕНИЮ: переделка за чертой не помечается queued ---
+    js = [{'sku': f'm:{i}', 'strata': ({'rework': {'request_id': 100 + i}} if i in (1, 4) else {})} for i in range(5)]
+    q = [(101, 7), (104, 9)]
+    kj, kq = take_top(js, q, 3)
+    if [j['sku'] for j in kj] != ['m:0', 'm:1', 'm:2'] or kq != [(101, 7)]:
+        bad += 1
+        print('  FAIL take_top: верх очереди или переделки за чертой', kj, kq)
+    if take_top(js, q, 0) != (js, q) or take_top(js, q, 10) != (js, q):
+        bad += 1
+        print('  FAIL take_top: без лимита или лимит больше очереди должен вернуть всё')
+    print(f'mesh_priority selftest: случаев 4, ошибок {bad}')
     return 1 if bad else 0
 
 

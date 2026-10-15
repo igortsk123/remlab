@@ -10,7 +10,7 @@
 `usd_cap` и отметкой книги расходов сторожа денег `usd_mark`; сторож денег гасит пул, когда потолок выбран
 (`money_guard.budget_breach`). Конвейер вышел → волна закрывается: факт денег и моделей, итог владельцу в Telegram,
 потраченное копится в `spent_usd`.
-Волна запускается ТЕМ ЖЕ законным путём (`mesh_wave_start.sh --launch`) с `MESH_MAX_JOBS` = остаток и
+Волна запускается ТЕМ ЖЕ законным путём (`mesh_wave_start.sh --launch`) с `MESH_TAKE_JOBS` = остаток (верх очереди по приоритету; `MESH_MAX_JOBS` — отдельный предохранитель снимка) и
 `MESH_MIN_JOBS`. Конец очереди, нет денег, предел — гасит сам конвейер (`finale()` с проверкой `stopped`), DEV пропал —
 мёртвая рука на сервере.
 
@@ -78,7 +78,7 @@ def decide(lease: dict | None, today: str, busy: bool, stops: list, no_credit_ag
         return 'waiting_money', {}
     if disk_pct >= 85 or free_gb < 20:
         return 'disk', {}
-    return 'start', {'MESH_MAX_JOBS': str(left), 'MESH_MIN_JOBS': str(min_jobs)}
+    return 'start', {'MESH_TAKE_JOBS': str(left), 'MESH_MIN_JOBS': str(min_jobs)}
 
 
 def wave_summary(w: dict, spent: float, meshes: int, why: str, left: float) -> str:
@@ -165,9 +165,9 @@ def main() -> int:
     if verdict != 'start' or dry:
         return 0
     import money_guard as MG  # noqa: PLC0415
-    cap = round(min(left_usd(lease), int(env['MESH_MAX_JOBS']) * usd_per_mesh * 1.5), 2)   # запас на прогрев/простой
+    cap = round(min(left_usd(lease), int(env['MESH_TAKE_JOBS']) * usd_per_mesh * 1.5), 2)   # запас на прогрев/простой
     cap = min(cap, round(left_usd(lease), 2))
-    lease.setdefault('waves', []).append({'at': today, 'started': time.time(), 'max_jobs': int(env['MESH_MAX_JOBS']),
+    lease.setdefault('waves', []).append({'at': today, 'started': time.time(), 'max_jobs': int(env['MESH_TAKE_JOBS']),
                                           'usd_cap': cap, 'usd_mark': round(MG.paid_usd(MG.load()), 2)})
     json.dump(lease, open(LEASE, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)   # ДО старта: сторож видит потолок
     r = subprocess.run(['bash', os.path.join(HERE, '..', 'mesh_wave_start.sh'), '--launch'], env={**os.environ, **env},
@@ -178,7 +178,7 @@ def main() -> int:
         json.dump(lease, open(LEASE, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     else:
         subprocess.run(['bash', os.path.join(HERE, '..', 'alert.sh'),
-                        f"Меши: волна запущена по вашему разрешению — до {env['MESH_MAX_JOBS']} моделей "
+                        f"Меши: волна запущена по вашему разрешению — до {env['MESH_TAKE_JOBS']} моделей "
                         f"(потолок ${cap:.2f}). Конец очереди, денег или потолка — машины погаснут сами, итог пришлю."],
                        check=False, timeout=60)
     return r.returncode
@@ -208,11 +208,11 @@ def _selftest() -> int:
     L = {'expires': '2026-10-31', 'max_usd': 13, 'min_jobs': 200}
     d = lambda **k: decide(**{'lease': L, 'today': '2026-10-14', 'busy': False, 'stops': [], 'no_credit_age_h': None,
                              'disk_pct': 50, 'free_gb': 100, 'usd_per_mesh': 0.013, **k})
-    ok('разрешение есть, всё чисто — старт на остаток 1000 моделей', d() == ('start', {'MESH_MAX_JOBS': '1000', 'MESH_MIN_JOBS': '200'}))
+    ok('разрешение есть, всё чисто — старт на остаток 1000 моделей', d() == ('start', {'MESH_TAKE_JOBS': '1000', 'MESH_MIN_JOBS': '200'}))
     ok('без разрешения — только наблюдаем', d(lease=None)[0] == 'no_lease')
     ok('разрешение истекло', d(today='2026-11-01')[0] == 'lease_expired')
     ok('потолок выбран', d(lease={**L, 'spent_usd': 11.7})[0] == 'budget_spent')
-    ok('остаток считается от потраченного', d(lease={**L, 'spent_usd': 6.5})[1].get('MESH_MAX_JOBS') == '500')
+    ok('остаток считается от потраченного', d(lease={**L, 'spent_usd': 6.5})[1].get('MESH_TAKE_JOBS') == '500')
     ok('итог: потолок', close_reason({'kind': 'budget'}, None, 0) == 'выбран потолок денег')
     ok('итог: старое «нет денег» не путает', close_reason(None, 5.0, 10.0).startswith('очередь'))
     ok('итог: свежее «нет денег»', close_reason(None, 15.0, 10.0) == 'на Salad кончились деньги')
