@@ -7,7 +7,7 @@
 // (`flat215-demo/index.html:1616`), и трогать знак без замера нельзя.
 
 import type { Apartment } from "@/contracts/apartment";
-import type { ResolvedScene } from "@/lib/configurator/resolve";
+import type { ResolvedItem, ResolvedScene } from "@/lib/configurator/resolve";
 import { surfacesByRoom } from "@/lib/viewer3d/build-scene";
 import type { Lang } from "@/lib/configurator/i18n";
 
@@ -24,6 +24,8 @@ interface PlanViewProps {
 }
 
 const PAD = 40;
+
+const isRug = (i: ResolvedItem): boolean => i.asset.kind === "kit" && i.asset.kit === "rug";
 
 export function PlanView({ apartment, scene, activeRoomId, selectedSlotId, onRoom, onEnterRoom, onSlot, lang }: PlanViewProps) {
   const minX = Math.min(...apartment.rooms.map((r) => r.x));
@@ -54,54 +56,6 @@ export function PlanView({ apartment, scene, activeRoomId, selectedSlotId, onRoo
                 stroke={active ? "var(--color-bg-brand-solid)" : "var(--color-border-secondary)"}
                 strokeWidth={active ? 7 : 3}
               />
-              <text
-                x={room.x + room.w / 2}
-                y={room.y + 26}
-                textAnchor="middle"
-                fontSize={22}
-                fill="var(--color-text-primary)"
-                style={{ pointerEvents: "none" }}
-              >
-                {lang === "en" ? room.titleEn : room.titleRu}
-              </text>
-              <text
-                x={room.x + room.w / 2}
-                y={room.y + 50}
-                textAnchor="middle"
-                fontSize={18}
-                fill="var(--color-text-tertiary)"
-                style={{ pointerEvents: "none" }}
-              >
-                {((room.w * room.d) / 10000).toFixed(1)} м²
-              </text>
-              {/* Кнопка «войти»: клик по ней ведёт ПРЯМО в комнату в 3D (как у конкурента —
-                  красные кружки на плане). Клик по самой комнате только выбирает её. */}
-              <g
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onEnterRoom(room.id);
-                }}
-                style={{ cursor: "pointer" }}
-              >
-                <title>{lang === "en" ? `Walk into ${room.titleEn}` : `Войти: ${room.titleRu}`}</title>
-                <circle
-                  cx={room.x + room.w / 2}
-                  cy={room.y + room.d / 2}
-                  r={34}
-                  fill="var(--color-bg-brand-solid)"
-                  opacity={0.92}
-                />
-                <text
-                  x={room.x + room.w / 2}
-                  y={room.y + room.d / 2 + 9}
-                  textAnchor="middle"
-                  fontSize={26}
-                  fill="#ffffff"
-                  style={{ pointerEvents: "none" }}
-                >
-                  ▸
-                </text>
-              </g>
             </g>
           );
         })}
@@ -121,9 +75,13 @@ export function PlanView({ apartment, scene, activeRoomId, selectedSlotId, onRoo
           }),
         )}
 
-        {scene.items.filter((item) => !item.unplaced).map((item) => {
+        {/* ковёр — пол, а не предмет: рисуется первым и полупрозрачным, чтобы не закрывать диван и столик (demo-05 п.9) */}
+        {scene.items.filter((item) => !item.unplaced)
+          .sort((x, y) => Number(isRug(y)) - Number(isRug(x)))
+          .map((item) => {
           const p = item.placement;
           const selected = item.slotId === selectedSlotId;
+          const rug = isRug(item);
           return (
             <g
               key={item.slotId}
@@ -141,7 +99,7 @@ export function PlanView({ apartment, scene, activeRoomId, selectedSlotId, onRoo
                 height={p.dCm}
                 rx={6}
                 fill={selected ? "var(--color-bg-brand-primary)" : "var(--color-bg-primary)"}
-                fillOpacity={0.92}
+                fillOpacity={rug ? 0.35 : 0.92}
                 stroke={selected ? "var(--color-bg-brand-solid)" : "var(--color-border-secondary)"}
                 strokeWidth={selected ? 5 : 2.5}
               />
@@ -150,6 +108,65 @@ export function PlanView({ apartment, scene, activeRoomId, selectedSlotId, onRoo
             </g>
           );
         })}
+
+        {/* ПОДПИСИ И «ВОЙТИ» — ПОВЕРХ МЕБЕЛИ (demo-05 п.8): раньше рисовались под ней — диван у стены закрывал название
+            комнаты, ковёр в центре — кнопку; белая обводка держит текст читаемым поверх предметов */}
+        {apartment.rooms.map((room) => (
+          <g key={`over-${room.id}`}>
+                <text
+                  x={room.x + room.w / 2}
+                  y={room.y + 26}
+                  textAnchor="middle"
+                  fontSize={22}
+                  fill="var(--color-text-primary)"
+                  style={{ pointerEvents: "none", paintOrder: "stroke" }}
+                  stroke="var(--color-bg-primary)"
+                  strokeWidth={6}
+                >
+                  {lang === "en" ? room.titleEn : room.titleRu}
+                </text>
+                <text
+                  x={room.x + room.w / 2}
+                  y={room.y + 50}
+                  textAnchor="middle"
+                  fontSize={18}
+                  fill="var(--color-text-tertiary)"
+                  stroke="var(--color-bg-primary)"
+                  strokeWidth={5}
+                  style={{ pointerEvents: "none", paintOrder: "stroke" }}
+                >
+                  {((room.w * room.d) / 10000).toFixed(1)} м²
+                </text>
+                {/* Кнопка «войти»: клик по ней ведёт ПРЯМО в комнату в 3D (как у конкурента —
+                    красные кружки на плане). Клик по самой комнате только выбирает её. */}
+                <g
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEnterRoom(room.id);
+                  }}
+                  style={{ cursor: "pointer" }}
+                >
+                  <title>{lang === "en" ? `Walk into ${room.titleEn}` : `Войти: ${room.titleRu}`}</title>
+                  <circle
+                    cx={room.x + room.w / 2}
+                    cy={room.y + room.d / 2}
+                    r={34}
+                    fill="var(--color-bg-brand-solid)"
+                    opacity={0.92}
+                  />
+                  <text
+                    x={room.x + room.w / 2}
+                    y={room.y + room.d / 2 + 9}
+                    textAnchor="middle"
+                    fontSize={26}
+                    fill="#ffffff"
+                    style={{ pointerEvents: "none" }}
+                  >
+                    ▸
+                  </text>
+                </g>
+          </g>
+        ))}
       </svg>
     </div>
   );
