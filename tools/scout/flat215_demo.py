@@ -469,7 +469,6 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
     # МОДЕЛЬ СЕМЕЙСТВА ДОЛЖНА ПОДХОДИТЬ ТОВАРУ ПО ЦВЕТУ (demo-05 п.3, 15.10): цветовой вариант берёт меш представителя
     # семейства (ADR-0196), и бежевый стул «Алекс» рисовался чёрной моделью графитового. Такая позиция — как «нет модели»:
     # лечение подставит другой товар, а ворота (`scene_checks.py`) поймают пропущенное
-    color_ok = _mesh_color_ok()
     has_mesh = lambda it: (_msid(f"{it.get('mid')}_{it.get('eid')}") in idx  # noqa: E731
                            and color_ok(_msid(f"{it.get('mid')}_{it.get('eid')}"), it.get('name') or ''))
     _gate0 = gate
@@ -504,6 +503,16 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
     return ranked
 
 
+_COLOR_OK = []
+
+
+def color_ok(msid, name) -> bool:
+    """Общий экземпляр проверки «модель семейства подходит товару по цвету» (`_mesh_color_ok`) — сборка, ленты замен и пул."""
+    if not _COLOR_OK:
+        _COLOR_OK.append(_mesh_color_ok())
+    return _COLOR_OK[0](msid, name or '')
+
+
 def _mesh_color_ok():
     """→ функция (msid, название товара) → годится ли модель по цвету (`mesh_dark.dark_flag` по названию). Яркость
     поверхности модели считается один раз и кэшируется по файлу (`~/scout-scenes/mesh-luma-cache.json`)."""
@@ -522,8 +531,12 @@ def _mesh_color_ok():
         key = f'{msid}:{int(os.path.getmtime(glb))}'
         if key not in cache:
             try:
+                import gc
                 import trimesh
-                cache[key] = MDK.surface_luma(list(trimesh.load(glb, force='scene').geometry.values()))
+                _sc = trimesh.load(glb, force='scene')
+                cache[key] = MDK.surface_luma(list(_sc.geometry.values()))
+                del _sc
+                gc.collect()            # моделей в лентах сотни: без сборки мусора на DEV снимал сторож памяти
             except Exception as e:  # noqa: BLE001 — не открылась: не браковать, но громко
                 print(f'  яркость модели {msid}: не замерена ({str(e)[:60]})', flush=True)
                 cache[key] = None
@@ -776,8 +789,8 @@ def build() -> dict:
             _sid = (f"{it.get('mid')}_{it.get('eid')}"
                     if it.get('mid') and it.get('eid') else None)
             _msd = _msid(_sid)
-            if base not in NOMESH_ROLES and (not _msd or _msd not in _mesh_index()):
-                continue
+            if base not in NOMESH_ROLES and (not _msd or _msd not in _mesh_index() or not color_ok(_msd, it.get('name'))):
+                continue          # нет модели или модель семейства другого цвета (demo-05: бежевый товар — чёрный меш)
             seen.add(key)
             feeds.setdefault(base, []).append(
                 {'name': it.get('name'), 'w': it.get('w'), 'd': it.get('d'), 'h': it.get('h'),
@@ -819,8 +832,8 @@ def build() -> dict:
                 continue
             if not p.get('img') or not (p.get('w') and p.get('d')):
                 continue
-            if not p.get('msid') or p['msid'] not in _mesh_index():
-                continue          # модели на сервере нет — предмет стал бы серой коробкой
+            if not p.get('msid') or p['msid'] not in _mesh_index() or not color_ok(p['msid'], p.get('name')):
+                continue          # модели на сервере нет (серая коробка) или она другого цвета, чем товар
             lo, hi = ENV_ALL[base]
             if not (lo <= (p.get('w') or 0) <= hi):
                 off_env += 1

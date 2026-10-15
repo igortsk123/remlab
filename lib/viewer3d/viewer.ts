@@ -334,6 +334,11 @@ export class FlatViewer {
     );
     const specs = all.filter((s) => allowedRooms.has(s.roomId));
     const wanted = new Map(all.map((s) => [s.slotId, s]));
+    // ПРОГУЛКА НЕ СКВОЗЬ МЕБЕЛЬ (demo-05 п.5): следы всех предметов, кроме ковра и плоского, — препятствия зоны прогулки;
+    // набор санузла описан коробкой на всю комнату (сантехника внутри расставляется кодом) — его след не препятствие
+    this.area = walkArea(this.apartment, 28, all
+      .filter((sp) => sp.kind !== "rug" && sp.kind !== "bathroom" && sp.placement.hCm > 10)
+      .map((sp) => ({ x: sp.placement.x, y: sp.placement.y, w: sp.placement.wCm, d: sp.placement.dCm, rot: sp.placement.rot })));
     // счётчик считаем ЗАНОВО на каждой синхронизации: раньше он копился между вызовами и
     // «загружено» обгоняло «всего» — процент прыгал выше 100 (находка советника 30.09)
     this.totalCount = specs.length;
@@ -387,6 +392,16 @@ export class FlatViewer {
   private async addObject(spec: ObjectSpec): Promise<void> {
     const p = spec.placement;
     let group: THREE.Group;
+    // ДВЕ СИНХРОНИЗАЦИИ ПОДРЯД (demo-05 п.5, прогон d8 15.10): в /flat обе видели «предмета нет» и ставили его дважды —
+    // карта помнила второй, а первый оставался в сцене пустой каркасной коробкой вокруг загруженной модели. Тот же
+    // предмет уже ставится — второй раз не ставим; другой — прежний убираем из сцены
+    const prev = this.placed.get(spec.slotId);
+    if (prev) {
+      if (prev.signature === signatureOf(spec)) return;
+      this.scene.remove(prev.group);
+      disposeObject(prev.group);
+      this.placed.delete(spec.slotId);
+    }
 
     if (spec.kind === "mesh") {
       // ВНЕШНЯЯ ГРУППА = МЕСТО И ПОВОРОТ, ВНУТРИ — МОДЕЛЬ В НАЧАЛЕ КООРДИНАТ (demo-01 п.4). Посадка та же, что у
@@ -417,6 +432,10 @@ export class FlatViewer {
           outer.remove(stub);
           disposeObject(stub);
           outer.add(real);
+        } else {
+          // пока грузилась, предмет заменили или убрали: эта группа больше не нужна — не оставляем её в сцене
+          this.scene.remove(outer);
+          disposeObject(outer);
         }
       } catch {
         // модель не пришла — остаётся честная серая коробка, как в демо

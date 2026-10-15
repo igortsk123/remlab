@@ -56,17 +56,47 @@ function insideRoom(r: Room, x: number, y: number, marginCm: number): boolean {
   );
 }
 
+/** След предмета на полу (см, координаты квартиры): центр, размеры, поворот как у `placeGroup` (ось ширины (cos, −sin)). */
+export interface Obstacle {
+  x: number;
+  y: number;
+  w: number;
+  d: number;
+  rot: number;
+}
+
 export interface WalkArea {
   rooms: Room[];
   passages: Passage[];
   marginCm: number;
+  /** Мебель: сквозь неё не ходят (demo-05 п.5 — камера оказывалась внутри абажура торшера). */
+  obstacles: Obstacle[];
+  /** Полуширина человека: столько держим от края предмета. */
+  bodyCm: number;
 }
 
-export function walkArea(a: Apartment, marginCm = 28): WalkArea {
-  return { rooms: a.rooms, passages: passages(a), marginCm };
+export function walkArea(a: Apartment, marginCm = 28, obstacles: Obstacle[] = [], bodyCm = 20): WalkArea {
+  return { rooms: a.rooms, passages: passages(a), marginCm, obstacles, bodyCm };
+}
+
+function insideObstacle(o: Obstacle, x: number, y: number, pad: number): boolean {
+  const r = (o.rot * Math.PI) / 180;
+  const dx = x - o.x;
+  const dy = y - o.y;
+  const u = dx * Math.cos(r) - dy * Math.sin(r); // вдоль ширины
+  const v = dx * Math.sin(r) + dy * Math.cos(r); // вдоль глубины
+  return Math.abs(u) <= o.w / 2 + pad && Math.abs(v) <= o.d / 2 + pad;
+}
+
+/** Внутри комнаты или проёма — без учёта мебели. */
+function inRooms(area: WalkArea, x: number, y: number): boolean {
+  for (const r of area.rooms) if (insideRoom(r, x, y, area.marginCm)) return true;
+  for (const p of area.passages) if (x >= p.x0 && x <= p.x1 && y >= p.y0 && y <= p.y1) return true;
+  return false;
 }
 
 export function canStand(area: WalkArea, x: number, y: number): boolean {
+  if (area.obstacles?.some((o) => insideObstacle(o, x, y, area.bodyCm ?? 20))) return false;
   for (const r of area.rooms) if (insideRoom(r, x, y, area.marginCm)) return true;
   for (const p of area.passages) if (x >= p.x0 && x <= p.x1 && y >= p.y0 && y <= p.y1) return true;
   return false;
@@ -84,11 +114,32 @@ export function stepWithSlide(
 ): { x: number; y: number } {
   const direct = { x: from.x + dx, y: from.y + dy };
   if (canStand(area, direct.x, direct.y)) return direct;
-  const alongX = { x: from.x + dx, y: from.y };
-  if (dx !== 0 && canStand(area, alongX.x, alongX.y)) return alongX;
-  const alongY = { x: from.x, y: from.y + dy };
-  if (dy !== 0 && canStand(area, alongY.x, alongY.y)) return alongY;
-  return from;
+  // уже стоим в следе предмета (поставили туда, предмет передвинули рядом) — выйти можно, лишь бы не в стену
+  if (!canStand(area, from.x, from.y) && inRooms(area, direct.x, direct.y)) return direct;
+  const pad = area.bodyCm ?? 20;
+  const block = area.obstacles?.find((o) => insideObstacle(o, direct.x, direct.y, pad));
+  const slide = (): { x: number; y: number } | null => {
+    // шаг вдоль оси с ничтожной длиной (sin π ≈ 1e-16) — это «стоять на месте», а не скольжение: пропускаем,
+    // иначе человек замирал перед препятствием, идя строго по оси
+    const alongX = { x: from.x + dx, y: from.y };
+    if (Math.abs(dx) > 1e-3 && canStand(area, alongX.x, alongX.y)) return alongX;
+    const alongY = { x: from.x, y: from.y + dy };
+    if (Math.abs(dy) > 1e-3 && canStand(area, alongY.x, alongY.y)) return alongY;
+    return null;
+  };
+  // ОБХОД МЕБЕЛИ (demo-05 п.5): путь перегородил ПРЕДМЕТ — отклоняемся на 30…120° сначала в ту сторону, куда человек
+  // уже смещён от центра предмета (иначе шаг метался бы «вбок — снова прямо»); скольжение вдоль осей — для стен, у
+  // предмета оно тянуло обратно к его середине
+  const detour = (): { x: number; y: number } | null => {
+    const side = block ? Math.sign(dx * (from.y - block.y) - dy * (from.x - block.x)) || 1 : 1;
+    for (const deg of [30, 60, 90, 120].map((d) => side * d).concat([30, 60, 90, 120].map((d) => -side * d))) {
+      const r = (deg * Math.PI) / 180;
+      const p = { x: from.x + dx * Math.cos(r) - dy * Math.sin(r), y: from.y + dx * Math.sin(r) + dy * Math.cos(r) };
+      if (canStand(area, p.x, p.y)) return p;
+    }
+    return null;
+  };
+  return (block ? detour() ?? slide() : slide() ?? detour()) ?? from;
 }
 
 /** Ближайшая точка, где можно стоять — для телепорта в комнату и для тапа мимо пола. */
