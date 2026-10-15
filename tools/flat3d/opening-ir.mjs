@@ -13,11 +13,11 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const res = await build({
-  stdin: { contents: 'export { openingIR, viewRooms } from "@/lib/viewer3d/opening-ir"; export { windowView } from "@/lib/viewer3d/window-views";',
+  stdin: { contents: 'export { openingIR, viewRooms, wallRects } from "@/lib/viewer3d/opening-ir"; export { windowView } from "@/lib/viewer3d/window-views"; export { wallFixturesIR, ceilingLampIR } from "@/lib/viewer3d/fixtures-ir";',
     resolveDir: ROOT, loader: "ts" },
   bundle: true, format: "esm", platform: "node", write: false, alias: { "@": ROOT }, absWorkingDir: ROOT, logLevel: "warning",
 });
-const { openingIR, viewRooms, windowView } = await import("data:text/javascript;base64," + Buffer.from(res.outputFiles[0].text).toString("base64"));
+const { openingIR, viewRooms, wallRects, windowView, wallFixturesIR, ceilingLampIR } = await import("data:text/javascript;base64," + Buffer.from(res.outputFiles[0].text).toString("base64"));
 
 const room = JSON.parse(readFileSync(process.argv[2], "utf8"));
 const W = +room.w, D = +room.d, H = +(room.height_cm ?? 270);
@@ -46,4 +46,17 @@ for (const { op, len } of prepared) {
   out.push({ wall: op.wall, ir: openingIR(op, { wallHeightCm: H, entrance: !process.argv.includes("--open"),
     view: { assetId: viewId, horizon01: view.horizon01, aspect: view.aspect }, viewRoomLo: room0.lo, viewRoomHi: room0.hi }) });
 }
-process.stdout.write(JSON.stringify(out) + "\n");
+// --fixtures: плинтус и карниз по стенам (куски стены — та же `wallRects`, что у браузера) и светильник комнаты (demo-04 п.6)
+if (process.argv.includes("--fixtures")) {
+  const fx = [];
+  for (const side of ["south", "north", "west", "east"]) {
+    const same = prepared.filter((p) => p.op.wall === side).map((p) => p.op);
+    const len = side === "north" || side === "south" ? W : D;
+    const wins = same.filter((o) => o.kind === "window" || o.kind === "balcony").map((o) => openingIR(o, { wallHeightCm: H }).cut);
+    fx.push({ wall: side, boxes: wallFixturesIR(wallRects(len, H, same), wins, H) });
+  }
+  fx.push({ wall: "room", boxes: ceilingLampIR(W, D, H) });
+  process.stdout.write(JSON.stringify(fx) + "\n");
+} else {
+  process.stdout.write(JSON.stringify(out) + "\n");
+}

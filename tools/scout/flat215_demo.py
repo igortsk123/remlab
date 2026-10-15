@@ -1080,6 +1080,20 @@ def main() -> None:
         print(f'WARN:opening_ir: описание проёмов не посчиталось (rc={r.returncode}): {(r.stderr or "").strip()[-200:]}')
     else:
         print(f"проёмы кадра: {len(data['room']['openings_ir'])} из общего описания")
+    # плинтус, карниз, светильник — тем же генератором (demo-04 п.6, `lib/viewer3d/fixtures-ir.ts`)
+    with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as tf:
+        json.dump(data['room'], tf, ensure_ascii=False)
+    r = subprocess.run(['bash', '-c', f'. "{root}/tools/ops/node-env.sh" && node "{root}/tools/flat3d/opening-ir.mjs" "{tf.name}" --fixtures'],
+                       capture_output=True, text=True, timeout=120)
+    os.unlink(tf.name)
+    try:
+        fx = json.loads(r.stdout) if r.returncode == 0 else None
+    except ValueError:
+        fx = None
+    if fx:
+        data['room']['fixtures_ir'] = fx
+    else:
+        print(f'WARN:fixtures_ir: плинтус/карниз/светильник не посчитались (rc={r.returncode}): {(r.stderr or "").strip()[-200:]}')
     json.dump(data, open(os.path.join(OUT, 'demo-data.json'), 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)
     print(f"OK: вариантов {len(data['variants'])}; ленты: "

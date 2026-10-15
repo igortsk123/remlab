@@ -15,38 +15,15 @@ import type { Opening, Room, WallSide } from "@/contracts/apartment";
 import type { Material } from "@/contracts/configurator";
 import { type MaterialCtx, tiled } from "@/lib/viewer3d/materials";
 import { jointStrips } from "@/lib/viewer3d/joints";
-import { buildOpenings } from "@/lib/viewer3d/openings";
-import { openingIR } from "@/lib/viewer3d/opening-ir";
+import { ceilingLampIR, wallFixturesIR } from "@/lib/viewer3d/fixtures-ir";
+import { buildOpenings, meshesFromBoxes } from "@/lib/viewer3d/openings";
+import { openingIR, wallRects } from "@/lib/viewer3d/opening-ir";
 
 const CM = 0.01;
 const INSET_CM = 1;
 
-interface Rect {
-  u0: number;
-  u1: number;
-  v0: number;
-  v1: number;
-}
-
-/** Куски стены, оставшиеся от полотна после вырезания проёмов (координаты вдоль стены, см). */
-export function wallRects(lengthCm: number, heightCm: number, openings: Opening[]): Rect[] {
-  const sorted = [...openings].sort((a, b) => a.offsetCm - b.offsetCm);
-  const out: Rect[] = [];
-  let cursor = 0;
-  for (const o of sorted) {
-    const u0 = Math.max(0, Math.min(lengthCm, o.offsetCm));
-    const u1 = Math.max(0, Math.min(lengthCm, o.offsetCm + o.widthCm));
-    if (u1 <= u0) continue;
-    if (u0 > cursor) out.push({ u0: cursor, u1: u0, v0: 0, v1: heightCm });
-    // вырез — из того же описания проёма, что рама и откосы (`opening-ir.ts`), иначе вырез и рама разъезжаются
-    const { bottom: sill, top } = openingIR(o, { wallHeightCm: heightCm }).cut;
-    if (sill > 0) out.push({ u0, u1, v0: 0, v1: sill });
-    if (top < heightCm) out.push({ u0, u1, v0: top, v1: heightCm });
-    cursor = Math.max(cursor, u1);
-  }
-  if (cursor < lengthCm) out.push({ u0: cursor, u1: lengthCm, v0: 0, v1: heightCm });
-  return out.filter((r) => r.u1 - r.u0 > 0.5 && r.v1 - r.v0 > 0.5);
-}
+// куски стены вокруг проёмов считает общий модуль без three.js — его же зовёт ночная сборка (`tools/flat3d/opening-ir.mjs`)
+export { wallRects } from "@/lib/viewer3d/opening-ir";
 
 interface WallFrame {
   /** Точка начала стены (u=0) в координатах квартиры, см. */
@@ -151,6 +128,14 @@ export function buildRoom(
     joints.rotation.y = f.rotY;
     joints.name = `joints:${room.id}:${side}`;
     group.add(joints);
+    // плинтус по кускам стены и карниз над окнами — то же описание получает серверный кадр (`fixtures-ir.ts`, demo-04 п.6)
+    const wins = wallOpenings.filter((o) => o.kind === "window" || o.kind === "balcony")
+      .map((o) => openingIR(o, { wallHeightCm: room.heightCm }).cut);
+    const fixtures = meshesFromBoxes(wallFixturesIR(rects, wins, room.heightCm));
+    fixtures.position.set(f.ox * CM, 0, f.oy * CM);
+    fixtures.rotation.y = f.rotY;
+    fixtures.name = `fixtures:${room.id}:${side}`;
+    group.add(fixtures);
     for (const r of rects) {
       const wCm = r.u1 - r.u0;
       const hCm = r.v1 - r.v0;
@@ -182,6 +167,10 @@ export function buildRoom(
     ceil.position.set((room.x + room.w / 2) * CM, room.heightCm * CM, (room.y + room.d / 2) * CM);
     ceil.name = `ceiling:${room.id}`;
     group.add(ceil);
+    const lamp = meshesFromBoxes(ceilingLampIR(room.w, room.d, room.heightCm));
+    lamp.position.set(room.x * CM, 0, room.y * CM);
+    lamp.name = `ceiling:${room.id}:lamp`;   // имя с «ceiling:» — прячется вместе с потолком в виде сверху
+    group.add(lamp);
   }
 
   return { group, floor };

@@ -11,8 +11,9 @@ import type { Opening } from "@/contracts/apartment";
 
 export const OPENING_IR_VERSION = 2; // 2 — вид из окна (`backdrop`)
 
-export type OpeningMaterial = "frame" | "reveal" | "glass" | "leaf" | "panel" | "handle";
-export type OpeningPartRole = "reveal" | "frame" | "mullion" | "glass" | "sill" | "casing" | "leaf" | "panel" | "handle";
+export type OpeningMaterial = "frame" | "reveal" | "glass" | "leaf" | "panel" | "handle" | "skirting" | "cornice" | "lamp";
+export type OpeningPartRole = "reveal" | "frame" | "mullion" | "glass" | "sill" | "casing" | "leaf" | "panel" | "handle"
+  | "skirting" | "cornice" | "lamp";
 
 /** Коробка: размеры и центр в см. Если задана `group` — координаты в осях этой группы (полотно двери). */
 export interface IrBox {
@@ -219,4 +220,31 @@ export function openingIR(o: Opening, opts: OpeningIrOpts): OpeningIR {
   // `hinge` здесь — в осях стены (left = у u0): `rooms.ts:openingsOnSide` при зеркалировании north/west меняет сторону сам
   const d = doorIR(u0, u1, top, { hingeAtEnd: o.hinge === "right", outward: o.swingCm === 0, closed: !!opts.entrance });
   return { schemaVersion: OPENING_IR_VERSION, kind: o.kind, cut: { u0, u1, bottom: 0, top }, boxes: d.boxes, groups: d.groups };
+}
+
+/** Куски стены, оставшиеся от полотна после вырезания проёмов (координаты вдоль стены, см). */
+export interface WallRect {
+  u0: number;
+  u1: number;
+  v0: number;
+  v1: number;
+}
+
+export function wallRects(lengthCm: number, heightCm: number, openings: Opening[]): WallRect[] {
+  const sorted = [...openings].sort((a, b) => a.offsetCm - b.offsetCm);
+  const out: WallRect[] = [];
+  let cursor = 0;
+  for (const o of sorted) {
+    const u0 = Math.max(0, Math.min(lengthCm, o.offsetCm));
+    const u1 = Math.max(0, Math.min(lengthCm, o.offsetCm + o.widthCm));
+    if (u1 <= u0) continue;
+    if (u0 > cursor) out.push({ u0: cursor, u1: u0, v0: 0, v1: heightCm });
+    // вырез — из того же описания проёма, что рама и откосы (`opening-ir.ts`), иначе вырез и рама разъезжаются
+    const { bottom: sill, top } = openingIR(o, { wallHeightCm: heightCm }).cut;
+    if (sill > 0) out.push({ u0, u1, v0: 0, v1: sill });
+    if (top < heightCm) out.push({ u0, u1, v0: top, v1: heightCm });
+    cursor = Math.max(cursor, u1);
+  }
+  if (cursor < lengthCm) out.push({ u0: cursor, u1: lengthCm, v0: 0, v1: heightCm });
+  return out.filter((r) => r.u1 - r.u0 > 0.5 && r.v1 - r.v0 > 0.5);
 }

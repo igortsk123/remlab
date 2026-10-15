@@ -3,7 +3,8 @@ import * as THREE from "three";
 
 import type { Room } from "@/contracts/apartment";
 import { openings as demoOpenings } from "@/lib/configurator/fromDemo";
-import { openingIR, viewRooms } from "@/lib/viewer3d/opening-ir";
+import { openingIR, viewRooms, wallRects as irWallRects } from "@/lib/viewer3d/opening-ir";
+import { ceilingLampIR, wallFixturesIR } from "@/lib/viewer3d/fixtures-ir";
 import { joineryOf, wallRects } from "@/lib/viewer3d/rooms";
 import golden from "@/tests/fixtures/opening-golden.json";
 
@@ -151,5 +152,29 @@ describe("вид из окна (demo-04 п.5)", () => {
     const r = viewRooms([{ offsetCm: 50, widthCm: 100 }, { offsetCm: 250, widthCm: 100 }], 400);
     expect(r[0]).toEqual({ lo: 50, hi: 50 });
     expect(r[1]).toEqual({ lo: 50, hi: 50 });
+  });
+});
+
+describe("обжитая коробка (demo-04 п.6)", () => {
+  it("плинтус идёт по низу кусков стены и прерывается у двери; карниз — над окном, шире его", () => {
+    const door = { kind: "door" as const, wall: "south" as const, offsetCm: 100, widthCm: 90 };
+    const win = { kind: "window" as const, wall: "south" as const, offsetCm: 250, widthCm: 120, sillCm: 85, heightCm: 140 };
+    const rects = irWallRects(400, 270, [door, win]);
+    const cut = openingIR(win, { wallHeightCm: 270 }).cut;
+    const boxes = wallFixturesIR(rects, [cut], 270);
+    const sk = boxes.filter((b) => b.role === "skirting");
+    // куски с низом: до двери, между дверью и окном, под окном, после окна — у двери плинтуса нет
+    expect(sk.length).toBe(4);
+    expect(sk.every((b) => b.x + b.w / 2 <= 100 + 0.01 || b.x - b.w / 2 >= 190 - 0.01)).toBe(true);
+    const rod = boxes.find((b) => b.role === "cornice" && b.w > 50)!;
+    expect(rod.w).toBeGreaterThan(cut.u1 - cut.u0);
+    expect(rod.y).toBeGreaterThan(cut.top);
+    expect(rod.y).toBeLessThan(270);
+  });
+  it("светильник — по центру комнаты у потолка", () => {
+    const [lamp] = ceilingLampIR(439, 325, 270);
+    expect(lamp!.x).toBeCloseTo(219.5, 3);
+    expect(lamp!.z).toBeCloseTo(162.5, 3);
+    expect(lamp!.y + lamp!.h / 2).toBeLessThanOrEqual(270);
   });
 });

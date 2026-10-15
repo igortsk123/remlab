@@ -220,6 +220,14 @@ def _openings_ir(v):
     return OIR.sanitize(v)
 
 
+def _fixtures_ir(v):
+    """Плинтус/карниз/светильник со страницы — через проверку (`opening_ir.sanitize_fixtures`)."""
+    if v is None:
+        return None
+    import opening_ir as OIR
+    return OIR.sanitize_fixtures(v)
+
+
 def _opening(o: dict) -> dict:
     """Проём из запроса страницы → поля модели планировщика (лишнее отбрасываем)."""
     out = {k: v for k, v in o.items()
@@ -291,6 +299,7 @@ def scene_from_request(payload: dict) -> tuple:
     room = Room(width_cm=r['w'], depth_cm=r['d'],
                 openings=[Opening(**_opening(o)) for o in (r.get('openings') or [])],
                 openings_ir=_openings_ir(r.get('openings_ir')),
+                fixtures_ir=_fixtures_ir(r.get('fixtures_ir')),
                 radiators=[Radiator(**{k: v for k, v in x.items() if not k.startswith('_')})
                            for x in (r.get('radiators') or [])])
     placements, photos = [], {}
@@ -2341,7 +2350,8 @@ def _fixture_openings(room, orient: dict):
     if irs:
         import opening_ir as OIR
         places = []
-        for k, entry in enumerate(irs):
+        # плинтус, карниз, светильник — теми же коробками, что у браузера (demo-04 п.6); ставятся как проёмы
+        for k, entry in enumerate(list(irs) + list(getattr(room, 'fixtures_ir', None) or [])):
             try:
                 x, y, rot, elev, (sw, sh, sd) = OIR.placement_of(entry, float(room.width_cm), float(room.depth_cm))
             except Exception as e:  # noqa: BLE001 — битое описание одного проёма не валит кадр
@@ -2354,7 +2364,8 @@ def _fixture_openings(room, orient: dict):
                 for k in stale[:max(0, len(stale) - 63)]:
                     _S3_PARTS.pop(k, None)
                 _S3_PARTS[key] = OIR.trimesh_parts(entry)
-            role = 'окно' if (entry.get('ir') or {}).get('kind') in ('window', 'balcony') else 'дверь'
+            kind = (entry.get('ir') or {}).get('kind')
+            role = 'окно' if kind in ('window', 'balcony') else 'дверь' if kind else 'отделка'
             places.append((Placement(role=role, x=x, y=y, rot=rot, elev_cm=max(0.0, elev),
                                      item=Item(role=role, w_cm=max(sw, 1), d_cm=max(sd, 1), h_cm=max(sh, 1))), key, key))
             orient.setdefault(key, {'yaw': 0.0, 'orient': 'kit:human'})

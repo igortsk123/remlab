@@ -49,6 +49,11 @@ function box(
   return m;
 }
 
+// обжитая коробка (demo-04 п.6, `fixtures-ir.ts`): плинтус в тон стены, графитовый карниз, белый плафон
+const SKIRTING = new THREE.MeshStandardMaterial({ color: 0xf4f2ee, roughness: 0.6 });
+const CORNICE = new THREE.MeshStandardMaterial({ color: 0x3d3d3d, roughness: 0.45, metalness: 0.3 });
+const LAMP = new THREE.MeshStandardMaterial({ color: 0xfbfaf7, roughness: 0.8, emissive: 0xfff8ec, emissiveIntensity: 0.6 });
+
 const MATERIAL: Record<OpeningMaterial, THREE.Material> = {
   frame: WHITE_FRAME,
   reveal: REVEAL,
@@ -56,7 +61,22 @@ const MATERIAL: Record<OpeningMaterial, THREE.Material> = {
   leaf: DOOR_LEAF,
   panel: DOOR_PANEL,
   handle: HANDLE,
+  skirting: SKIRTING,
+  cornice: CORNICE,
+  lamp: LAMP,
 };
+
+/** Меши набора коробок (плинтус, карниз, светильник — `fixtures-ir.ts`); координаты — в осях того, кто их ставит. */
+export function meshesFromBoxes(boxes: { w: number; h: number; d: number; x: number; y: number; z: number; material: OpeningMaterial;
+  role: string }[]): THREE.Group {
+  const g = new THREE.Group();
+  for (const x of boxes) {
+    const m = box(x.w, x.h, x.d, x.x, x.y, x.z, MATERIAL[x.material]);
+    m.userData.part = x.role;
+    g.add(m);
+  }
+  return g;
+}
 
 const viewTextures = new Map<string, THREE.Texture>();
 

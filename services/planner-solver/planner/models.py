@@ -65,6 +65,8 @@ class Room(BaseModel):
     # ОПИСАНИЕ ПРОЁМОВ ДЛЯ КАДРА (demo-04): `[{wall, ir}]` из общего генератора `lib/viewer3d/opening-ir.ts` — серверный
     # кадр строит окна и двери из него (`tools/scout/opening_ir.py`), как браузер; нет — прежний путь
     openings_ir: list[dict] | None = Field(default=None)
+    # плинтус, карниз, светильник (demo-04 п.6, `lib/viewer3d/fixtures-ir.ts`) — `[{wall, ir: {boxes}}]`, как у проёмов
+    fixtures_ir: list[dict] | None = Field(default=None)
 
     @model_validator(mode="after")
     def _contour_bbox(self) -> "Room":

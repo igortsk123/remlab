@@ -22,7 +22,9 @@ import numpy as np
 # цвета деталей — те же, что у материалов браузера (`openings.ts`: WHITE_FRAME, REVEAL, GLASS, DOOR_LEAF, DOOR_PANEL, HANDLE);
 # стекло на сервере непрозрачное — холодный светлый (вид за окном — п.5 плана)
 PALETTE = {'frame': (244, 243, 240), 'reveal': (236, 234, 229), 'glass': (188, 212, 230),
-           'leaf': (242, 240, 236), 'panel': (232, 229, 224), 'handle': (185, 189, 194)}
+           'leaf': (242, 240, 236), 'panel': (232, 229, 224), 'handle': (185, 189, 194),
+           # обжитая коробка (demo-04 п.6, `lib/viewer3d/fixtures-ir.ts`): плинтус, карниз, плафон
+           'skirting': (244, 242, 238), 'cornice': (61, 61, 61), 'lamp': (251, 250, 247)}
 INSET_CM = 1.0      # стена браузера стоит на 1 см внутрь от контура комнаты (`rooms.ts:INSET_CM`)
 
 
@@ -78,6 +80,31 @@ def sanitize(entries) -> list | None:
     return out
 
 
+def sanitize_fixtures(entries) -> list | None:
+    """Плинтус, карниз, светильник со страницы (`room.fixtures_ir`) — та же недоверчивость, что к проёмам: ≤ 6 записей по
+    ≤ 40 коробок, стены или 'room', материал из палитры, числа конечные и в пределах 10 м. Битое — None (кадр без них)."""
+    if not isinstance(entries, list) or not entries or len(entries) > 6:
+        return None
+
+    def num(v, lo=-MAX_CM, hi=MAX_CM):
+        return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and lo <= v <= hi
+
+    out = []
+    for e in entries:
+        boxes = e.get('boxes') if isinstance(e, dict) else None
+        if e.get('wall') not in _WALLS + ('room',) or not isinstance(boxes, list) or len(boxes) > 40:
+            return None
+        bs = []
+        for b in boxes:
+            if (not isinstance(b, dict) or b.get('material') not in PALETTE or not all(num(b.get(k), 0, MAX_CM) for k in ('w', 'h', 'd'))
+                    or not all(num(b.get(k)) for k in ('x', 'y', 'z'))):
+                return None
+            bs.append({'role': str(b.get('role') or '')[:16], 'material': b['material'], **{k: float(b[k]) for k in ('w', 'h', 'd', 'x', 'y', 'z')}})
+        if bs:
+            out.append({'wall': e['wall'], 'ir': {'boxes': bs, 'groups': {}}})
+    return out or None
+
+
 def ry(deg: float) -> np.ndarray:
     """Поворот вокруг вертикали, как `rotation.y` three.js и `scene_mesh.ry`: фронт (0,0,1) → (sin, 0, cos)."""
     r = math.radians(deg)
@@ -86,9 +113,10 @@ def ry(deg: float) -> np.ndarray:
 
 
 def wall_frame(side: str, w: float, d: float) -> tuple[float, float, float]:
-    """Начало стены (x, z — в координатах комнаты, z = y плана) и поворот лицом в комнату, градусы (`rooms.ts:frameOf`)."""
+    """Начало стены (x, z — в координатах комнаты, z = y плана) и поворот лицом в комнату, градусы (`rooms.ts:frameOf`).
+    'room' — оси самой комнаты (светильник: x, высота, y плана)."""
     return {'south': (0.0, INSET_CM, 0.0), 'north': (w, d - INSET_CM, 180.0),
-            'west': (INSET_CM, d, 90.0), 'east': (w - INSET_CM, 0.0, 270.0)}[side]
+            'west': (INSET_CM, d, 90.0), 'east': (w - INSET_CM, 0.0, 270.0), 'room': (0.0, 0.0, 0.0)}[side]
 
 
 def local_boxes(ir: dict) -> list[tuple[str, str, np.ndarray]]:
@@ -293,6 +321,12 @@ def _selftest() -> int:
     ok(sanitize(big) is None, 'коробка больше 10 м — отказ')
     nan = [{**good[0], 'ir': {**good[0]['ir'], 'boxes': [{**ir['boxes'][0], 'x': float('nan')}]}}]
     ok(sanitize(nan) is None, 'не число — отказ')
+    fx = [{'wall': 'south', 'boxes': [{'role': 'skirting', 'material': 'skirting', 'w': 100, 'h': 7, 'd': 1.6, 'x': 50, 'y': 3.5, 'z': 0.8}]},
+          {'wall': 'room', 'boxes': [{'role': 'lamp', 'material': 'lamp', 'w': 42, 'h': 3, 'd': 42, 'x': 200, 'y': 267.5, 'z': 150}]}]
+    ok(sanitize_fixtures(fx) is not None, 'плинтус и светильник со страницы проходят')
+    ok(sanitize_fixtures([{'wall': 'roof', 'boxes': fx[0]['boxes']}]) is None, 'чужая «стена» — отказ')
+    c = world_boxes(sanitize_fixtures(fx)[1], 400, 300)[0][2].mean(axis=0)
+    ok(np.allclose(c, (200, 267.5, 150)), f'светильник — в центре комнаты у потолка {tuple(np.round(c, 1))}')
     print('итог:', 'чисто' if not fails else f'{fails} провал(ов)')
     return 1 if fails else 0
 
