@@ -233,8 +233,9 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
   }, [config]);
 
   const modes: { id: Mode; label: string }[] = [
-    // на телефоне 3D идёт облегчённым (`lite`) — так и подписываем, чтобы было видно, что это за режим (b2b-12)
-    { id: "walk", label: mobile ? `${L.modes.walk} · ${L.walkLite}` : L.modes.walk },
+    // облегчённый режим телефона (`lite`) покупателю не подписываем (demo-05 п.8: «Lite» — служебное слово, b2b-12 ставил его
+    // для проверки); какой режим включён, видно в `window.__flatViewer.debugState()`
+    { id: "walk", label: L.modes.walk },
     { id: "top", label: L.modes.top },
     { id: "photo", label: L.modes.photo },
     { id: "plan", label: L.modes.plan },
