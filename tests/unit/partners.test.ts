@@ -85,8 +85,23 @@ describe("откуда квартира 3D", () => {
     expect(ok.ok && ok.apartment.id).toBe("flat215");
     expect(ok.ok && ok.catalogue.currency).toBe("RUB");
     expect(await resolveFlat("flat215", "set16", async () => null)).toEqual({ ok: false, reason: "unavailable" });
-    expect(await resolveFlat("flat215", "nope", async () => demo)).toEqual({ ok: false, reason: "unknown" });
     expect(await resolveFlat("ghost", undefined, async () => demo)).toEqual({ ok: false, reason: "unknown" });
+  });
+
+  // demo-05 п.10: номер варианта меняется при пересборке, ссылки менеджеров живут дольше (14.10 `?demo=set2` → 404)
+  it("устаревший номер варианта — текущий вариант того же стиля с пометкой, не 404", async () => {
+    const two = { ...demo, variants: [{ ...demo.variants[0]!, id: "set1", style: "сканди" }, demo.variants[0]!],
+      variant_aliases: { set2: "джапанди", set3: "бохо" } };
+    const same = await resolveFlat("flat215", "set2", async () => two);
+    expect(same.ok && same.apartment.baseVariant).toBe("set16");
+    expect(same.ok && same.replaced).toEqual({ from: "set2", style: "джапанди" });
+    // стиля больше нет — первый вариант, замена названа без стиля
+    const gone = await resolveFlat("flat215", "set3", async () => two);
+    expect(gone.ok && gone.apartment.baseVariant).toBe("set1");
+    expect(gone.ok && gone.replaced).toEqual({ from: "set3" });
+    // живой номер — без пометки
+    const live = await resolveFlat("flat215", "set16", async () => two);
+    expect(live.ok && live.replaced).toBeUndefined();
   });
 
   it("3D-квартира берёт цену и застройщика из реестра", async () => {

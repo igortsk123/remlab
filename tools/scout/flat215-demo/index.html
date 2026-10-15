@@ -1045,8 +1045,18 @@ function applyHash(){
   }
   const m=String(location.hash||'').match(/^#v=(.+)$/);
   if(m){
-    const vid=decodeURIComponent(m[1]);
-    const i=allVariants().findIndex(v=>(v.id||'')===vid);
+    let vid=decodeURIComponent(m[1]);
+    let i=allVariants().findIndex(v=>(v.id||'')===vid);
+    // УСТАРЕВШИЙ НОМЕР ВАРИАНТА (demo-05 п.10): после пересборки витрины `set2` мог исчезнуть, а ссылка менеджера живёт —
+    // открываем текущий вариант того же стиля по истории номеров (`variant_aliases`) и говорим об этом
+    if(i<0){
+      const st=(D.variant_aliases||{})[vid];
+      const j=st?allVariants().findIndex(v=>v.style===st):-1;
+      if(j>=0){ i=j; vid=allVariants()[j].id;
+        setTimeout(()=>toast(LANG==='en'?'This layout has been updated — showing the current one in the same style':
+          'Эта расстановка обновилась — показываем текущую в том же стиле'),300);
+        history.replaceState(null,'','#v='+encodeURIComponent(vid)); }
+    }
     if(i>=0&&i!==cur){ cur=i; load(); showSwap(); drawColl(true); }
     showTab('room');
     _wantShot=vid; openWantedShot();

@@ -79,7 +79,23 @@ type DemoRoom = {
     swing_cm?: number; hinge?: string; into?: boolean;
   }[];
 };
-export type DemoData = { room?: DemoRoom; variants?: DemoVariant[] };
+/** `variant_aliases` — история номеров вариантов → стиль (`flat215_demo.merge_aliases`, demo-05 п.10). */
+export type DemoData = { room?: DemoRoom; variants?: DemoVariant[]; variant_aliases?: Record<string, string> };
+
+/**
+ * Какой вариант открыть по ссылке (demo-05 п.10): номер варианта меняется при пересборке витрины, а ссылки менеджеров
+ * живут дольше (14.10 `?demo=set2` дал 404). Есть такой — он; нет — текущий вариант ТОГО ЖЕ СТИЛЯ по истории номеров;
+ * стиля нет — первый вариант. Замена возвращается явно (`from`), страница говорит о ней покупателю.
+ */
+export function resolveVariantId(data: DemoData, wanted: string): { id: string; from?: string; style?: string } | null {
+  const vs = data.variants ?? [];
+  if (vs.some((v) => v.id === wanted)) return { id: wanted };
+  const style = data.variant_aliases?.[wanted];
+  const same = style ? vs.find((v) => v.style === style && v.id) : undefined;
+  if (same?.id) return { id: same.id, from: wanted, style };
+  const first = vs.find((v) => v.id)?.id;
+  return first ? { id: first, from: wanted } : null;
+}
 
 const WALLS = ["north", "south", "east", "west"] as const;
 type Wall = (typeof WALLS)[number];

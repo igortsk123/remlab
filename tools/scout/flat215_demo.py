@@ -1109,6 +1109,18 @@ def annotate_yaw(data: dict) -> int:
     return n
 
 
+def merge_aliases(prev: dict | None, variants: list) -> dict:
+    """ИСТОРИЯ НОМЕРОВ ВАРИАНТОВ → СТИЛЬ (план demo-05 п.10). Номер варианта (`set2`) — номер набора в сборке, и после
+    пересборки он может исчезнуть: 14.10 `/flat?demo=set2` из живой ссылки менеджера дал 404. Сборка помнит, какому стилю
+    принадлежал каждый когда-либо опубликованный номер (прошлая история + прошлые варианты + текущие, текущие главнее);
+    по устаревшей ссылке `/flat` и окно демо открывают текущий вариант того же стиля с пометкой. Чистая функция."""
+    out: dict = {}
+    for src in ((prev or {}).get('variant_aliases') or {}, {v.get('id'): v.get('style') for v in (prev or {}).get('variants') or []},
+                {v.get('id'): v.get('style') for v in variants}):
+        out.update({k: st for k, st in src.items() if k and st})
+    return out
+
+
 def main() -> None:
     os.makedirs(OUT, exist_ok=True)
     # ИСХОДНИК СТРАНИЦЫ ЖИВЁТ В РЕПО (26.08): до этого index.html лежал только в ~/scout-scenes и
@@ -1186,6 +1198,11 @@ def main() -> None:
         data['room']['fixtures_ir'] = fx
     else:
         print(f'WARN:fixtures_ir: плинтус/карниз/светильник не посчитались (rc={r.returncode}): {(r.stderr or "").strip()[-200:]}')
+    try:
+        prev = json.load(open(os.path.join(OUT, 'demo-data.json'), encoding='utf-8'))
+    except (OSError, ValueError):
+        prev = None
+    data['variant_aliases'] = merge_aliases(prev, data['variants'])
     json.dump(data, open(os.path.join(OUT, 'demo-data.json'), 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)
     print(f"OK: вариантов {len(data['variants'])}; ленты: "

@@ -8,14 +8,21 @@
 import type { Apartment } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
 import { loadFlat3d } from "@/lib/configurator/data";
-import { collectionAsVariant, fromDemoVariant, type DemoData } from "@/lib/configurator/fromDemo";
+import { collectionAsVariant, fromDemoVariant, resolveVariantId, type DemoData } from "@/lib/configurator/fromDemo";
 import { currentPrices, priceIndex } from "@/lib/collections/prices";
 import { collectionRepo } from "@/modules/collections/repository";
 import { loadDemoRaw } from "@/lib/partners/demo-data";
 import { findApartment, partners, type ApartmentHit } from "@/lib/partners/registry";
 
 export type FlatResolved =
-  | { ok: true; apartment: Apartment; catalogue: Catalogue; hit: ApartmentHit }
+  | {
+      ok: true;
+      apartment: Apartment;
+      catalogue: Catalogue;
+      hit: ApartmentHit;
+      /** Ссылка вела на вариант, которого больше нет: открыт текущий (того же стиля, если он есть) — demo-05 п.10. */
+      replaced?: { from: string; style?: string };
+    }
   | { ok: false; reason: "unknown" | "unavailable" };
 
 export type DemoLoader = (src: string) => Promise<unknown | null>;
@@ -35,9 +42,10 @@ export async function resolveFlat(apartmentId: string, baseVariant?: string, loa
   if (src && (baseVariant || !hit.apartment.sources.flat3d)) {
     const raw = (await load(src)) as DemoData | null;
     if (!raw) return { ok: false, reason: "unavailable" };
-    const variant = baseVariant ?? raw.variants?.[0]?.id;
-    const built = variant ? fromDemoVariant(raw, variant, ctx) : null;
-    return built ? { ok: true, ...built, hit } : { ok: false, reason: "unknown" };
+    const pick = baseVariant ? resolveVariantId(raw, baseVariant) : raw.variants?.[0]?.id ? { id: raw.variants[0].id } : null;
+    const built = pick ? fromDemoVariant(raw, pick.id, ctx) : null;
+    if (!built) return { ok: false, reason: "unknown" };
+    return { ok: true, ...built, hit, ...(pick?.from ? { replaced: { from: pick.from, ...(pick.style ? { style: pick.style } : {}) } } : {}) };
   }
 
   const flat3d = hit.apartment.sources.flat3d;

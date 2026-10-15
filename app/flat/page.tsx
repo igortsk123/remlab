@@ -51,8 +51,10 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
   let flat = fromColl ? await resolveCollectionFlat(fromColl) : await resolveFlat(apartmentId, baseVariant);
   // Набора из сохранения больше нет на витрине (ночная пересборка) — открываем ту же квартиру с
   // текущим набором и честно говорим об этом, а не 404 (verify 13.10).
-  const variantGone = !flat.ok && flat.reason === "unknown" && !!saved?.baseVariant;
-  if (variantGone && !fromColl) flat = await resolveFlat(apartmentId);
+  // устаревший номер варианта (пересборка витрины) открывает текущий вариант того же стиля — `resolveFlat.replaced`
+  const replaced = flat.ok ? flat.replaced : undefined;
+  const variantGone = (!flat.ok && flat.reason === "unknown" && !!saved?.baseVariant) || (!!replaced && !!saved);
+  if (variantGone && !fromColl && !flat.ok) flat = await resolveFlat(apartmentId);
   if (!flat.ok) {
     if (flat.reason === "unknown") notFound();
     return (
@@ -95,6 +97,14 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
           {lang === "en" ? "Русский" : "English"}
         </a>
       </div>
+      {replaced && !saved ? (
+        <p className="note mb-3">
+          {lang === "en"
+            ? "This layout has been updated — showing the current one" + (replaced.style ? " in the same style." : ".")
+            : "Эта расстановка обновилась — показываем текущую" + (replaced.style ? ` в том же стиле (${replaced.style}).` : ".")}{" "}
+          <a className="underline" href="/demo/">{lang === "en" ? "All layouts" : "Все расстановки"}</a>
+        </p>
+      ) : null}
       {variantGone ? (
         <p className="note mb-3">
           {lang === "en"
