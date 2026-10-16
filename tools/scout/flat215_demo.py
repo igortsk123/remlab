@@ -431,10 +431,13 @@ def drop_unavailable(sets: list) -> int:
 def demo_apartment() -> dict:
     """Квартира реестра, чья витрина — этот demo-data.json (`sources.demoData`); нет — пустая."""
     root = os.path.join(HERE, '..', '..', 'data', 'partners')
-    for fn in sorted(glob.glob(os.path.join(root, '*.json'))):
-        for a in (json.load(open(fn, encoding='utf-8')).get('apartments') or []):
-            if (a.get('sources') or {}).get('demoData') == '/demo/demo-data.json':
-                return a
+    apts = [a for fn in sorted(glob.glob(os.path.join(root, '*.json')))
+            for a in (json.load(open(fn, encoding='utf-8')).get('apartments') or [])]
+    # британский двойник английского демо (`enTwin`, ADR-0298) делит ту же витрину — хозяин витрины не он
+    twins = {a.get('enTwin') for a in apts if a.get('enTwin')}
+    for a in apts:
+        if (a.get('sources') or {}).get('demoData') == '/demo/demo-data.json' and a.get('id') not in twins:
+            return a
     return {}
 
 
