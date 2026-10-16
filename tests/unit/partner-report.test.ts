@@ -50,7 +50,7 @@ describe("отчёт застройщику", () => {
     expect(r.weeks[0]).toMatchObject({ week: "2026-10-19", sent: 1, opened: 0, fresh: true });
     expect(r.total.sent).toBe(3);
     expect(r.byApartment.map((x) => [x.apartmentId, x.sent])).toEqual([["flat215", 2], ["uk1", 1]]);
-    expect(r.direct).toEqual([{ week: "2026-10-19", apartmentId: "flat215", designerOpen: 5, variantView: 0, itemSwap: 0, flat3dOpen: 0, itemMove: 0, share: 0, staleLink: 0, floorPick: 0 }]);
+    expect(r.direct).toEqual([{ week: "2026-10-19", apartmentId: "flat215", designerOpen: 5, variantView: 0, itemSwap: 0, flat3dOpen: 0, itemMove: 0, share: 0, staleLink: 0, floorPick: 0, wallsPick: 0 }]);
   });
 
   it("имена событий на демо-странице — из словарей контрактов", () => {

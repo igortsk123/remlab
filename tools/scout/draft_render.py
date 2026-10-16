@@ -239,6 +239,30 @@ def _with_floor(finish, tex):
     return out
 
 
+def _walls(v):
+    """Стены застройщика со страницы (demo-07): цвет всех стен и акцентная — сторона и цвет; только проверенное."""
+    if not isinstance(v, dict):
+        return None
+    import re as _re
+    hx = str(v.get('colorHex') or '')
+    if not _re.fullmatch(r'#[0-9a-fA-F]{6}', hx):
+        return None
+    out = {'colorHex': hx, 'title': str(v.get('title') or '')[:80], 'id': _re.sub(r'[^a-z0-9-]', '', str(v.get('id') or ''))[:40]}
+    a = v.get('accent')
+    if isinstance(a, dict) and a.get('side') in ('north', 'south', 'east', 'west') and _re.fullmatch(r'#[0-9a-fA-F]{6}', str(a.get('colorHex') or '')):
+        out['accent'] = {'side': a['side'], 'colorHex': a['colorHex']}
+    return out
+
+
+def _with_walls(finish, walls):
+    """Стены застройщика — в паспорте отделки: цвет всех стен (им красит clay) и акцентная сторона (`_paint_accent`)."""
+    if not walls:
+        return finish
+    out = dict(finish or {})
+    out['wall'] = {**(out.get('wall') or {}), 'colorHex': walls['colorHex'], 'opt': walls}
+    return out
+
+
 def _floor_tex(v):
     """Пол застройщика со страницы (demo-06): id, файл карты цвета на сайте и размер плитки — только проверенное."""
     if not isinstance(v, dict):
@@ -337,7 +361,7 @@ def scene_from_request(payload: dict) -> tuple:
                 openings=[Opening(**_opening(o)) for o in (r.get('openings') or [])],
                 openings_ir=_openings_ir(r.get('openings_ir')),
                 fixtures_ir=_fixtures_ir(r.get('fixtures_ir')),
-                finish=_with_floor(_finish(r.get('finish')), _floor_tex(payload.get('floor'))),
+                finish=_with_walls(_with_floor(_finish(r.get('finish')), _floor_tex(payload.get('floor'))), _walls(payload.get('walls'))),
                 radiators=[Radiator(**{k: v for k, v in x.items() if not k.startswith('_')})
                            for x in (r.get('radiators') or [])])
     placements, photos = [], {}
@@ -2166,6 +2190,10 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
     floor_note = (f'- FLOOR: the floor is the developer option «{_ftex.get("title") or _ftex.get("id")}» chosen by the buyer and '
                   'already shown in image 1 — keep its pattern, plank direction and tone exactly; never replace the '
                   'flooring.\n') if _ftex else ''
+    _wopt = (((getattr(room, 'finish', None) or {}).get('wall') or {}).get('opt'))
+    if _wopt:   # стены застройщика (demo-07) — выбраны покупателем, как на кадре
+        floor_note += (f'- WALLS: the walls are the developer option «{_wopt.get("title") or _wopt.get("id")}» chosen by the buyer and '
+                       'already shown in image 1 (including an accent wall if there is one) — keep their colour and finish.\n')
     tv_note = ''
     tv_num = next((a['n'] for an in per_cam for a in an
                    if a['role'].split(' ')[0] == 'тв-тумба' and a.get('n')), None)
@@ -2565,7 +2593,7 @@ def _draft_cache_key(layout) -> str:
     ver = '|'.join(ver)
     raw = json.dumps({'room': L.get('room'), 'items': sorted(items, key=lambda x: str(x[0])),
                       'cams': cams, 'lite': bool(S3_LITE[0]), 'ver': ver,
-                      'floor': _floor_tex(L.get('floor'))},       # пол застройщика меняет кадр (demo-06)
+                      'floor': _floor_tex(L.get('floor')), 'walls': _walls(L.get('walls'))},   # отделка меняет кадр (demo-06/07)
                      ensure_ascii=False, sort_keys=True)
     return hashlib.md5(raw.encode()).hexdigest()
 
@@ -3069,6 +3097,40 @@ def _paint_floor(canvas, sc, room, cam) -> bool:
     return True
 
 
+def _paint_accent(canvas, sc, room, cam) -> bool:
+    """АКЦЕНТНАЯ СТЕНА НА КАДРЕ (demo-07, Codex 16.10: сначала только цвет): сторону посчитала страница тем же расчётом сцены
+    (`lib/configurator/accent.ts`); пиксели стены этой стороны (по мировой точке: ближайшая из x=0, x=W, z=0, z=D) получают
+    цвет акцента с тем же светом и стыками — отношение к цвету стен паспорта."""
+    w = (((getattr(room, 'finish', None) or {}).get('wall') or {}).get('opt') or {})
+    acc = w.get('accent')
+    if not acc or getattr(cam, 'ortho', False) or getattr(cam, 'cyl', False):
+        return False
+    import math
+    from planner.scene import SEMANTIC
+    sem, depth = sc['semantic'], sc['depth']
+    m = (sem == SEMANTIC['wall']) & np.isfinite(depth)
+    if not m.any():
+        return False
+    Hp, Wp = depth.shape
+    eye, fwd, right, up = cam.basis()
+    focal = (Wp / 2) / math.tan(math.radians(cam.fov_deg) / 2)
+    ys, xs = np.nonzero(m)
+    dirs = (fwd[None, :] * focal + right[None, :] * (xs - Wp / 2)[:, None] + up[None, :] * (Hp / 2 + cam.shift_y * Hp - ys)[:, None])
+    P = eye[None, :] + (depth[ys, xs] / (dirs @ fwd))[:, None] * dirs
+    W, D = float(room.width_cm), float(room.depth_cm)
+    d = np.stack([np.abs(P[:, 2]), np.abs(D - P[:, 2]), np.abs(P[:, 0]), np.abs(W - P[:, 0])], 1)   # south, north, west, east
+    side = np.array(['south', 'north', 'west', 'east'])[d.argmin(1)]
+    sel = side == acc['side']
+    if not sel.any():
+        return False
+    base = tuple(int(w['colorHex'][i:i + 2], 16) for i in (1, 3, 5))
+    tgt = np.array([int(acc['colorHex'][i:i + 2], 16) for i in (1, 3, 5)], np.float32)
+    yy, xx = ys[sel], xs[sel]
+    shade = canvas[yy, xx].mean(axis=1) / max(1.0, float(np.mean(base)))
+    canvas[yy, xx] = np.clip(tgt[None, :] * shade[:, None], 0, 255)
+    return True
+
+
 def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict | None = None) -> tuple[Image.Image, dict]:
     """КАДР СЦЕНЫ ИЗ МЕШЕЙ (владелец 31.08: «по кнопке — фотография собранной 3D-сцены,
     в GPT пока не отправляем»): clay-комната + реальные меши в перспективе, общий z-буфер
@@ -3126,6 +3188,7 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict
     H, W = depth.shape
     canvas = np.asarray(clay_render(sc)).astype(np.float32).copy()
     _paint_floor(canvas, sc, room, cam)          # фактура пола застройщика — до ковров и мебели (demo-06)
+    _paint_accent(canvas, sc, room, cam)         # акцентная стена «за диваном» (demo-07)
     zbuf = depth.astype(np.float32).copy()
     zbuf[~np.isfinite(zbuf)] = 1e9
     irs = getattr(room, 'openings_ir', None)

@@ -229,3 +229,32 @@ describe("курс показа в мосту", () => {
     expect(f.catalogue.options.filter((o) => o.id.startsWith("opt:floor:")).every((o) => o.settlement === "property_price")).toBe(true);
   });
 });
+
+// demo-07: стены застройщика в /flat — опции места `wall`, акцентная стена «за диваном» считается расчётом сцены
+describe("стены от застройщика в /flat", () => {
+  it("группа стен (включённая) → 5 опций места wall; ?opt=walls:accent-sage — акцент за диваном, доплата застройщику", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { findApartment, partners } = await import("@/lib/partners/registry");
+    const { finishChoiceOf, developerSelections } = await import("@/lib/configurator/source");
+    const raw = [JSON.parse(readFileSync("data/partners/demo.json", "utf8")), JSON.parse(readFileSync("data/partners/demo-uk.json", "utf8"))];
+    for (const p of raw) for (const a of p.apartments) for (const g of a.options ?? []) if (g.id === "walls") g.enabled = true;
+    const hit = findApartment("flat215", partners(raw))!;
+    const wc = finishChoiceOf(hit, "wall")!;
+    expect(wc.variants).toHaveLength(5);
+    const r = fromDemoVariant(data, "set16", { ...CTX, wallChoice: wc })!;
+    expect(r.apartment.slots.find((s) => s.id === "wall")!.optionIds).toHaveLength(5);
+    const sel = developerSelections(hit, r.apartment, { walls: "accent-sage" });
+    expect(sel).toEqual({ wall: "opt:wall:accent-sage" });
+    const cfg = defaultConfiguration(r.apartment, r.catalogue);
+    const sc = resolveScene(r.apartment, r.catalogue, { ...cfg, selections: { ...cfg.selections, ...sel } });
+    const wall = sc.surfaces.find((s) => s.slotId === "wall")!;
+    expect(wall.accent?.material.id).toBe("wall-paint-sage");
+    expect(wall.accent?.side).toBe("north");          // диван тестовой расстановки — rot 180 у дальней стены
+    expect(sc.totals.bySettlement.developer_surcharge).toBe(15000);
+  });
+  it("по умолчанию группа стен выключена — в /flat стены по паспорту", async () => {
+    const { findApartment } = await import("@/lib/partners/registry");
+    const { finishChoiceOf } = await import("@/lib/configurator/source");
+    expect(finishChoiceOf(findApartment("flat215")!, "wall")).toBeUndefined();
+  });
+});

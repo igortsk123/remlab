@@ -67,7 +67,7 @@ def style_block(style: str | None) -> tuple[str, str, dict]:
     return (st if rec else ''), (rec.get('render_guide') or ''), (db.get('_decor_policy') or {})
 
 
-def prompt_for(style: str | None, decor: list | None = None, floor: str | None = None) -> str:
+def prompt_for(style: str | None, decor: list | None = None, floor: str | None = None, walls: str | None = None) -> str:
     """Промпт режима ремонта. СТРУКТУРА ВЛАДЕЛЬЦА (01.09): статические правила отдельно,
     STYLE GUIDE — единственный переменный блок, и он СОВЕТУЮЩИЙ, а не список обязательного.
 
@@ -108,7 +108,11 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
         # ПОЛ ЗАСТРОЙЩИКА (demo-06): выбран покупателем и уже нарисован на IMAGE 1 — модель его не перекрашивает
         f'* the FLOOR: it is the developer option «{floor}» chosen by the buyer and already shown in '
         'IMAGE 1 — keep its pattern, plank direction and tone exactly, only add realistic sheen and shadows.',
-    ] if floor else []) + [
+    ] if floor else []) + ([
+        # СТЕНЫ ЗАСТРОЙЩИКА (demo-07): выбраны покупателем и уже на IMAGE 1, включая акцентную стену — модель их не меняет
+        f'* the WALLS: they are the developer option «{walls}» chosen by the buyer and already shown in IMAGE 1, including '
+        'an accent wall if there is one — keep their colour and finish exactly.',
+    ] if walls else []) + [
         '',
         'Keep the magenta band in exactly the same position, height and colour, with nothing '
         'drawn over it.',
@@ -153,14 +157,16 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
         '',
         'RENOVATION',
         '',
-        'Renovate only exposed walls, ceiling, ' + ('' if floor else 'floor, ') + 'skirting, trim and other fixed architectural '
+        'Renovate only exposed ' + ('' if walls else 'walls, ') + 'ceiling, ' + ('' if floor else 'floor, ') + 'skirting, trim and other fixed architectural '
         'elements according to the STYLE GUIDE below.',
         '',
         'You ARE ALLOWED and expected to:',
         '',
+    ] + ([] if walls else [
         '* PAINT OR FINISH THE WALLS in colours and materials that suit the style — plain paint, '
         'plaster, brick or a single accent wall are all acceptable when the STYLE GUIDE calls for '
         'them. White walls are not the default; choose what the style needs.',
+    ]) + [
         '* DRESS THE WINDOW WITH CURTAINS or blinds that suit the style, hung correctly and '
         'identical in both views. They must not cover furniture or change the window opening.',
         '',
@@ -345,7 +351,8 @@ def build(payload: dict, style: str | None, stamp: str | None = None) -> dict:
         except Exception as e:  # noqa: BLE001
             print(f'  лист декора не собрался: {str(e)[:70]}')
     _ft = (((getattr(room, 'finish', None) or {}).get('floor') or {}).get('tex'))
-    prompt = prompt_for(style, decor, (_ft.get('title') or _ft.get('id')) if _ft else None)
+    _wo = (((getattr(room, 'finish', None) or {}).get('wall') or {}).get('opt'))
+    prompt = prompt_for(style, decor, (_ft.get('title') or _ft.get('id')) if _ft else None, (_wo.get('title') or _wo.get('id')) if _wo else None)
     # Метку может задать вызывающий: черновик заранее сообщает странице адрес исходника,
     # и папка обязана совпасть с этим адресом (иначе «Улучшить фото» не найдёт готовый лист).
     stamp = f'improve-{stamp}' if stamp else f'improve-{time.strftime("%H%M%S")}'

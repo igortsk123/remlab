@@ -74,7 +74,7 @@ export function ReportPage() {
           <ul style={{ margin: 0, paddingLeft: 18 }}>
             {data.direct.map((r) => (
               <li key={`${r.week}|${r.apartmentId}`}>
-                с {ru(r.week)}, {apt(r.apartmentId)}: открытий {r.designerOpen}, смотрели варианты {r.variantView}, замен {r.itemSwap}, передвигали {r.itemMove}, поделились {r.share}, в 3D {r.flat3dOpen}{r.floorPick ? `, выбирали пол ${r.floorPick}` : ""}{r.staleLink ? `, по устаревшим ссылкам ${r.staleLink}` : ""}
+                с {ru(r.week)}, {apt(r.apartmentId)}: открытий {r.designerOpen}, смотрели варианты {r.variantView}, замен {r.itemSwap}, передвигали {r.itemMove}, поделились {r.share}, в 3D {r.flat3dOpen}{r.floorPick ? `, выбирали пол ${r.floorPick}` : ""}{r.wallsPick ? `, выбирали стены ${r.wallsPick}` : ""}{r.staleLink ? `, по устаревшим ссылкам ${r.staleLink}` : ""}
               </li>
             ))}
           </ul>

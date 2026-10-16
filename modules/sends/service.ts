@@ -88,7 +88,7 @@ export async function recordBuyerEvent(
   if (ev.kind === "designer_open") {
     if (await store.claimFirstOpen(id, now)) return signal(store, s, "open", openText(s, false), now).then(() => true);
     if (await store.claimReopen(id, now, REOPEN_SIGNAL_MS)) await signal(store, s, "reopen", openText(s, true), now);
-  } else if (ev.kind === "variant_view" || ev.kind === "item_swap" || ev.kind === "item_move" || ev.kind === "share" || ev.kind === "floor_pick") {
+  } else if (ev.kind === "variant_view" || ev.kind === "item_swap" || ev.kind === "item_move" || ev.kind === "share" || ev.kind === "floor_pick" || ev.kind === "walls_pick") {
     if (!s.summaryDueAt) await store.updateSend(id, { summaryDueAt: new Date(now.getTime() + SUMMARY_DELAY_MS) });
   } else if (ev.kind === "manager_contact_click" || ev.kind === "alternative_request") {
     // Дедуп одинаковых кликов — атомарной отметкой (`dedup_marks`), а не чтением событий: два

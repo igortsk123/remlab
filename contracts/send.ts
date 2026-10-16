@@ -18,6 +18,7 @@ export const buyerEventKind = z.enum([
   "item_move", // передвинул мебель (владелец 14.10)
   "share", // поделился: ссылка на вариант, «отправить себе» (владелец 14.10)
   "floor_pick", // выбрал пол из вариантов застройщика (demo-06)
+  "walls_pick", // выбрал стены из вариантов застройщика (demo-07)
 ]);
 export type BuyerEventKind = z.infer<typeof buyerEventKind>;
 

@@ -14,6 +14,7 @@ export const pageCounterKind = z.enum([
   "share", // поделился: ссылка на вариант, «отправить себе» (владелец 14.10)
   "stale_link", // открыл устаревшую ссылку на вариант — показан текущий того же стиля (demo-05 п.10)
   "floor_pick", // выбрал пол из вариантов застройщика (demo-06)
+  "walls_pick", // выбрал стены из вариантов застройщика (demo-07)
 ]);
 export type PageCounterKind = z.infer<typeof pageCounterKind>;
 

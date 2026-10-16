@@ -11,12 +11,12 @@ test("окно: «Отделка» → пять полов, выбор парк�
   await page.waitForFunction("typeof D !== 'undefined' && !!D && !!FLAT", null, { timeout: 60_000 });
   await page.evaluate("openLiveWindow()");
   await page.locator("[data-opts]").click();
-  const swatches = page.locator("#vfloor [data-fl]");
+  const swatches = page.locator('#vfloor [data-fl^="flooring:"]');
   await expect(swatches).toHaveCount(5);
   const s1 = (await page.evaluate("curStateId()")) as string;
   expect(s1).toMatch(/^s1-/);
-  await page.locator('[data-fl="parquet-herringbone"]').click();
-  await expect(page.locator(".vfl-cur")).toContainText("Ёлочка");
+  await page.locator('[data-fl="flooring:parquet-herringbone"]').click();
+  await expect(page.locator(".vfl-cur").first()).toContainText("Ёлочка");
   expect(await page.evaluate("curStateId()")).toMatch(/^s2-/);
   expect(await page.evaluate("JSON.stringify(DEVOPT)")).toBe('{"flooring":"parquet-herringbone"}');
   const href = (await page.locator("#vFlat").getAttribute("href")) ?? "";
