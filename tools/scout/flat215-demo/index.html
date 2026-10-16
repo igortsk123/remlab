@@ -3814,7 +3814,9 @@ function histFwd(){return histGo(1);}
 #shot.v2:not(.nolive) .restale{display:none}
 #shot.v2 .cap{border-top:1px solid var(--line)}
 #shot.v2 .cap #shEdit,#shot.v2 .cap #shotclose{display:none}
-#shot.v2 .pinlist .row.hl{background:var(--accent-soft);border-radius:10px;transition:background .3s}
+/* выбранный предмет: строка списка — мягкий фон и полоса бренда слева; метка цены на сцене — акцентная (владелец 16.10) */
+#shot.v2 .pinlist .row.hl{background:var(--accent-soft);border-radius:10px;box-shadow:inset 3px 0 0 var(--accent);transition:background .3s,box-shadow .3s}
+.vpin.sel{background:var(--accent);color:#fff;transform:translate(-50%,-100%) scale(1.08);z-index:2}
 #shot.v2 .shotwrap .nav,#shot.v2 .shotwrap .viewno,#shot.vwalk .vpins{display:none}
 /* новая картинка — плавно (200 мс), а не вспышкой */
 #shot .shotwrap .livecv{opacity:0;transition:opacity .2s}#shot .shotwrap .livecv.in{opacity:1}
@@ -3832,8 +3834,12 @@ function histFwd(){return histGo(1);}
    height:56px;display:flex;flex-direction:column;overflow:visible;padding-bottom:env(safe-area-inset-bottom)}
   .vplate{position:absolute;left:8px;right:8px;bottom:calc(100% + 8px);margin:0;padding:9px 12px 10px;background:var(--surface);
    box-shadow:var(--sh-2)}
-  .vw.vmini .vplate{left:auto;right:10px;padding:6px 12px;border-radius:999px;cursor:pointer}
-  .vw.vmini .vplate>*:not(.vpl-mini){display:none}.vw.vmini .vpl-mini{display:block;font-size:13.5px;font-weight:600}
+  .vw.vmini .vplate{padding:7px 12px 8px;border-radius:12px;cursor:pointer;display:flex;flex-direction:column}
+  .vw.vmini .vpl-mini{order:-1}
+  .vw.vmini .vplate>.vpl-h,.vw.vmini .vplate>.vpl-l,.vw.vmini .vplate>.vpl-dev{display:none}
+  .vw.vmini .vpl-mini{display:flex;align-items:baseline;gap:6px;font-size:13.5px;color:var(--muted)}
+  .vw.vmini .vpl-mini b{color:var(--accent);font-size:15px;margin-left:auto}.vw.vmini .vpl-mini small{font-size:13px}
+  .vw.vmini .vpl-bar{margin-top:6px;height:4px}
   .vscroll{overflow:hidden;touch-action:none}.vside[data-pos="3"] .vscroll{overflow-y:auto;touch-action:pan-y}
   .vside[data-pos="0"] .vscroll{visibility:hidden}
   .vside.bump{animation:vbump .4s ease}
@@ -3894,7 +3900,7 @@ function vwSum(){
       :`${EN?'left':'остаток'} <b class="vpl-rest" data-k="left" data-to="${left}">${money(left)}</b>`)+`</div>`+
     // доплаты застройщику на плашке не показываем (владелец 16.10: «не надо дополнительно»): цена пола — у образца в «Отделке»
     `<div class="vpl-bar ${lvl}"><i style="width:${pct}%"></i></div>`+
-    `<div class="vpl-mini">${EN?'left ':'остаток '}${money(left)}${EN?' of ':' из '}${money(cert)}</div>`;
+    `<div class="vpl-mini"><span>${EN?'Allowance left':'Остаток по сертификату'}</span><b>${money(left)}</b><small>${EN?'of ':'из '}${money(cert)}</small></div>`;
 }
 // ЦИФРЫ ПЛАШКИ МЕНЯЮТСЯ ПЛАВНО (v3): прежнее значение → новое за 0,45 с, плашка коротко подсвечивается — замена видна сразу
 function vwSumUpdate(){
@@ -3955,7 +3961,7 @@ function vwHist(){
 // ОКНО ВАРИАНТА БЕЗ ОЖИДАНИЯ: кадр варианта (или пустая «живая» запись, если кадров нет) — сцена покажет текущую расстановку
 function openLiveWindow(){
   if(document.getElementById('cons').classList.contains('on')){consBack=-1; closeCons();}
-  VW.mode='photo'; VW.photo=0;          // новое окно варианта — с «Фото», первым ракурсом (возврат из редактора сохраняет «План»)
+  VW.mode='photo'; VW.photo=0; VW.sel=null;          // новое окно варианта — с «Фото», первым ракурсом (возврат из редактора сохраняет «План»)
   const v=allVariants()[cur]||{}, vid=v.id||('v'+cur);
   let i=shots.findIndex(x=>x.vid===vid&&x.live);
   const best=bestShot(v);
@@ -4003,8 +4009,8 @@ function vwDetents(){
 function vwSheetApply(h, anim){
   const sd=document.getElementById('vside'), vw=document.querySelector('#shot .vw'); if(!sd||!vw)return;
   sd.style.transition=anim?'height .28s cubic-bezier(.2,.8,.2,1)':'none'; sd.style.height=h+'px';
-  const pl=(document.getElementById('vsum')||{}).offsetHeight||0, mini=vw.classList.contains('vmini');
-  vw.style.setProperty('--vsh',(h+(mini?0:pl+16))+'px');
+  const pl=(document.getElementById('vsum')||{}).offsetHeight||0;
+  vw.style.setProperty('--vsh',(h+pl+14)+'px');
 }
 function vwSheet(pos){
   const sd=document.getElementById('vside'); if(!sd)return;
@@ -4012,8 +4018,8 @@ function vwSheet(pos){
   if(pos===undefined)pos=cur0>=3?0:cur0+1;          // тап по ручке: вверх по остановкам, из полной — свернуть
   pos=Math.max(0,Math.min(3,pos)); sd.dataset.pos=String(pos);
   const vw=document.querySelector('#shot .vw');
-  // в «3D» со свёрнутой шторкой плашка сжимается в строку в углу (тап — разворачивает)
-  if(vw)vw.classList.toggle('vmini',VW_PHONE()&&VW.mode==='walk'&&pos===0);
+  // СВЁРНУТАЯ ШТОРКА — СУТЬ В ОДНУ СТРОКУ (владелец 16.10: «больше места на телефоне»): плашка сжимается до «остаток N из M» с полосой
+  if(vw)vw.classList.toggle('vmini',VW_PHONE()&&pos===0);
   if(VW_PHONE())vwSheetApply(vwDetents()[pos],true); else {sd.style.height=''; if(vw)vw.style.removeProperty('--vsh');}
   const sc=document.getElementById('vscroll'); if(sc){sc.style.touchAction=pos===3||!VW_PHONE()?'pan-y':'none'; if(pos!==3&&VW_PHONE())sc.scrollTop=sc.scrollTop;}
   setTimeout(()=>{const w=document.querySelector('#shot .shotwrap'); if(w&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode===w)liveFit(w);},300);
@@ -4047,28 +4053,38 @@ function vwSheetWire(){
   // полная остановка: список у начала и жест вниз — на половину
   let ty=null; sc.addEventListener('touchstart',e=>{ty=+sd.dataset.pos===3&&sc.scrollTop<=0?e.touches[0].clientY:null;},{passive:true});
   sc.addEventListener('touchmove',e=>{if(ty!==null&&e.touches[0].clientY-ty>40){ty=null; vwSheet(2);}},{passive:true});
-  const pl=document.getElementById('vsum'); if(pl)pl.onclick=()=>{const vw=document.querySelector('#shot .vw'); if(vw&&vw.classList.contains('vmini')){vw.classList.remove('vmini'); vwSheet(+sd.dataset.pos);}};
+  // тап по свёрнутой плашке — шторка до peek: видна полная плашка и главное действие
+  const pl=document.getElementById('vsum'); if(pl)pl.onclick=()=>{const vw=document.querySelector('#shot .vw'); if(vw&&vw.classList.contains('vmini'))vwSheet(1);};
   // сцена подстраивается, когда шторка доехала (на слабом телефоне анимация дольше таймера)
   sd.addEventListener('transitionend',e=>{if(e.propertyName!=='height')return; const w=document.querySelector('#shot .shotwrap');
     if(w&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode===w)liveFit(w);});
   if(!window.__vwResize){window.__vwResize=1; window.addEventListener('resize',()=>{const x=document.getElementById('vside'); if(x)vwSheet(+x.dataset.pos);});}
 }
+// ТАП ПО МЕБЕЛИ (владелец 16.10): предмет выделяется на сцене (тёплая рамка и подсветка), шторка открывается до половины,
+// список прокручивается к его строке, строка подсвечивается; тап по пустому месту снимает выделение
+function vwSelect(idx){
+  VW.sel=idx==null||idx<0?null:idx;
+  if(LIVE.scene&&LIVE.scene.select)LIVE.scene.select(VW.sel);
+  try{vwPins();}catch(e){}
+}
 function vwHighlight(idx){
   const it=items[idx]; if(!it)return;
+  vwSelect(idx);
   devOpts(false);                       // выбрали предмет на сцене — список товаров, а не раздел отделки
   const name=(skuOf(it)||{}).name; const k=shotRows.findIndex(a=>a.name===name);
   const row=k>=0&&document.querySelector(`#shotbody [data-rep="${k}"]`); if(!row)return;
   const r=row.closest('.row')||row;
   document.querySelectorAll('#shotbody .row.hl').forEach(x=>x.classList.remove('hl'));
-  r.classList.add('hl'); setTimeout(()=>r.classList.remove('hl'),2500);
+  r.classList.add('hl'); clearTimeout(VW.hlT); VW.hlT=setTimeout(()=>r.classList.remove('hl'),4000);
   if(window.innerWidth<=700){const sd=document.getElementById('vside'); if(sd&&+sd.dataset.pos<2)vwSheet(2);}
-  r.scrollIntoView({block:'center',behavior:'smooth'});
+  // шторка едет 0,28 с — прокручиваем, когда высота уже новая
+  setTimeout(()=>r.scrollIntoView({block:'center',behavior:'smooth'}),320);
 }
 function vwPins(){
   const box=document.getElementById('vpins'); if(!box)return;
   if(!LIVE.scene||!LIVE.canvas||!LIVE.canvas.parentNode||VW.mode==='walk'){box.innerHTML='';return;}
   box.innerHTML=LIVE.scene.pins().filter(p=>p.visible).map(p=>{const it=items[p.index]; const pr=it&&(skuOf(it)||{}).price;
-    return pr?`<span class="vpin" data-pi="${p.index}" style="left:${Math.round(p.x)}px;top:${Math.round(p.y)-6}px">${money(pr)}</span>`:'';}).join('');
+    return pr?`<span class="vpin${p.index===VW.sel?' sel':''}" data-pi="${p.index}" style="left:${Math.round(p.x)}px;top:${Math.round(p.y)-6}px">${money(pr)}</span>`:'';}).join('');
   // ЦЕНА — ТОЛЬКО ЦЕЛИКОМ В КАДРЕ И НЕ ПОД КНОПКАМИ (прогон d8 14.10: «4 290 ₽» обрезана у края на телефоне): метка, которая
   // вылезает за край сцены или ложится на переключатель ракурсов / историю / подпись, не показывается
   const fr=box.getBoundingClientRect(), pad=4;
@@ -4326,13 +4342,13 @@ function liveWire(){
     if(!LIVE.scene)return;
     if(VW.mode==='photo'){
       if(Math.abs(dx)>50&&Math.abs(dx)>Math.abs(dy)){vwPhoto(VW.photo+(dx<0?1:-1)); return;}
-      if(tap){const i=LIVE.scene.pick(e.clientX,e.clientY); if(i>=0)vwHighlight(i);}
+      if(tap){const i=LIVE.scene.pick(e.clientX,e.clientY); if(i>=0)vwHighlight(i); else vwSelect(null);}
       return;}
     if(VW.mode==='walk'&&tap){
       const r=cv.getBoundingClientRect(), fx=(e.clientX-r.left)/Math.max(1,r.width);
       if(fx<0.2||fx>0.8){LIVE.scene.turn(fx<0.2?-30:30); LIVE.scene.start(); return;}
       const i=LIVE.scene.walkTap?LIVE.scene.walkTap(e.clientX,e.clientY):LIVE.scene.pick(e.clientX,e.clientY);
-      if(i>=0)vwHighlight(i); LIVE.scene.start();}});
+      if(i>=0)vwHighlight(i); else vwSelect(null); LIVE.scene.start();}});
 }
 function liveHide(){
   if(LIVE.canvas&&LIVE.canvas.parentNode)LIVE.canvas.remove();

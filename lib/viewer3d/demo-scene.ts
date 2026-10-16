@@ -60,6 +60,8 @@ export interface DemoScene {
   /** Повернуть взгляд прогулки к предмету расстановки (номер как в `update`): заменённый в «3D» предмет должен быть виден
    *  (приёмка владельцем 16.10: диван менялся за краем кадра, и замена казалась несработавшей). */
   focus(index: number): void;
+  /** Выделить предмет расстановки (номер как в `update`) или снять выделение — рамка и тёплая подсветка (`viewer.highlight`). */
+  select(index: number | null): void;
   /** Повернуть взгляд прогулки на `deg` градусов (тап по краю сцены в «3D», demo-02 v3: поворот не только перетаскиванием). */
   turn(deg: number): void;
   /** Тап в «3D»: по предмету — его номер в расстановке; по полу — шаг туда (`viewer.goTo`) и -1. */
@@ -123,6 +125,13 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     return new Map(ids.map((id, k) => [id, idx[k]!.i]));
   };
   let running: Promise<void> = ready;
+  // выделенный предмет переживает пересборку расстановки (замена модели пересоздаёт объект — выделение ставим заново)
+  let selected: number | null = null;
+  const reselect = (): void => {
+    if (selected == null) return;
+    const id = [...slotIndex()].find(([, i]) => i === selected)?.[0];
+    viewer.highlight(id ?? null);
+  };
   const update = (items: DemoItem[], nextDecor?: DemoDecor[]): Promise<void> => {
     pending = { items, decor: nextDecor ?? pending?.decor ?? decor };
     running = running
@@ -135,6 +144,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
         if (!next) return;
         viewer.setApartment(next.apartment, next.catalogue);
         await viewer.syncObjects(resolved(next.apartment, next.catalogue));
+        reselect();
       })
       // ошибка одной синхронизации не должна молча глушить все следующие (verify 14.10)
       .catch((e: unknown) => console.warn("живая сцена: обновление не применилось", e));
@@ -166,6 +176,12 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
       if (Number.isFinite(x) && Number.isFinite(y)) viewer.faceToward(x, y);
     },
     // плюс — направо; `viewer.look` с положительным dx поворачивает налево (перетаскивание «тянет мир»), 0,22° на пиксель
+    select: (index) => {
+      selected = index;
+      const id = index == null ? null : [...slotIndex()].find(([, i]) => i === index)?.[0] ?? null;
+      viewer.highlight(id);
+      viewer.start();
+    },
     turn: (deg) => viewer.look(-deg / 0.22, 0),
     walkTap: (x, y) => {
       const hit = viewer.pick(x, y, canvas.getBoundingClientRect());

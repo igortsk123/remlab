@@ -1089,10 +1089,11 @@ export class FlatViewer {
   private showOutline(slotId: string | null): void {
     if (!this.outline) {
       const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
+      // тёплая терракота бренда (#b06a4a), а не белая «техническая» рамка (владелец 16.10: «выделять красиво»)
       const mat = new THREE.LineBasicMaterial({
-        color: 0xffffff,
+        color: 0xc8805c,
         transparent: true,
-        opacity: 0.9,
+        opacity: 0.95,
         depthTest: false,
       });
       this.outline = new THREE.LineSegments(geo, mat);
@@ -1124,8 +1125,8 @@ export class FlatViewer {
           if (!x || !("emissive" in x)) continue;
           if (id === slotId) {
             x.userData.prevEmissive ??= x.emissive.getHex();
-            x.emissive.setHex(0x2a3550);
-            x.emissiveIntensity = 0.35;
+            x.emissive.setHex(0x4a2614);   // мягкая тёплая подсветка выбранного предмета
+            x.emissiveIntensity = 0.32;
           } else if (x.userData.prevEmissive !== undefined) {
             x.emissive.setHex(Number(x.userData.prevEmissive));
             delete x.userData.prevEmissive;
