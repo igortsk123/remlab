@@ -28,7 +28,8 @@ test("1.2–1.5 шапка и вкладки: консультация, ипот
   }
   await page.locator("#payInfo").click();
   await expect(page.locator("#payInfoTxt")).toBeVisible();
-  await expect(page.locator("#pc3d")).toHaveAttribute("href", /\/flat/);
+  // кнопки «Пройтись по квартире в 3D» в шапке нет (владелец 16.10, demo-02 п.8) — 3D внутри окна варианта
+  await expect(page.locator("#pc3d")).toHaveCount(0);
   await page.locator("#tab-plan").click();
   await expect(page.locator("#screen-plan")).toBeVisible();
   const soon = await page.locator(".tab.soon").allInnerTexts();

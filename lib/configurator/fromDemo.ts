@@ -40,6 +40,12 @@ export type DemoFloorChoice = {
   variants: { id: string; titleRu: string; titleEn: string; price: number; material: Record<string, unknown> & { id: string } }[];
 };
 
+/** Подкраска из данных витрины — только три разумных множителя (чужим данным не доверяем). */
+export function tintOf(t: unknown): { tintRgb: [number, number, number] } | Record<string, never> {
+  if (!Array.isArray(t) || t.length !== 3 || !t.every((x) => typeof x === "number" && x >= 0.2 && x <= 3)) return {};
+  return { tintRgb: [t[0], t[1], t[2]] as [number, number, number] };
+}
+
 /** Опция пола варианта группы — одно имя у моста, страницы и ссылки `?opt=`. */
 export const floorOptionId = (variantId: string): string => `opt:floor:${variantId}`;
 
@@ -87,7 +93,9 @@ type DemoItem = {
   elev?: number;
   corner?: boolean;
   corner_left?: boolean;
-  sku?: { name?: string; price?: number; url?: string; shop?: string; msid?: string; sid?: string; pack?: number; yaw?: number; img?: string };
+  sku?: { name?: string; price?: number; url?: string; shop?: string; msid?: string; sid?: string; pack?: number; yaw?: number; img?: string;
+    /** Подкраска цветового варианта на модели семейства (`flat215_demo.annotate_tint`): множитель цвета по каналу. */
+    tint?: number[] };
 };
 /** Настольный декор варианта (`flat215_demo`: ваза) — габариты в карточке товара, места нет: его даёт опора. */
 type DemoDecor = { role?: string; sku?: DemoItem["sku"] & { w?: number; d?: number; h?: number } };
@@ -198,7 +206,7 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
           descRu: `${Math.round(p.w!)}×${Math.round(p.d!)}×${Math.round(p.h!)} см${(p.pack ?? 1) > 1 ? ` · ${p.pack} шт. в упаковке` : ""}`,
           tier: "standard", price: Math.max(0, Math.round(p.price ?? 0)), ...packOf(p.pack), packKey: id,
           listPrice: Math.max(0, Math.round(p.price ?? 0)), availability: "available", roomKinds: ["living"],
-          asset: { kind: "mesh", meshId: p.msid, yawDeg: p.yaw ?? 0, wCm: p.w, dCm: p.d, hCm: p.h },
+          asset: { kind: "mesh", meshId: p.msid, yawDeg: p.yaw ?? 0, wCm: p.w, dCm: p.d, hCm: p.h, ...tintOf(p.tint) },
           ...(assetUrl(p.img, ctx.assetBase) ? { previewUrl: assetUrl(p.img, ctx.assetBase) } : {}),
           ...(p.url ? { shopUrl: p.url } : {}), ...(p.shop ? { shopName: p.shop } : {}) });
       }
@@ -259,7 +267,7 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
     extraOptions.push({ id: `opt:${id}`, category: "furniture", titleRu: sk.name ?? x.role ?? "Декор", titleEn: sk.name ?? "Decor",
       descRu: `${Math.round(sk.w!)}×${Math.round(sk.d!)}×${Math.round(sk.h!)} см`, tier: "standard",
       price: Math.max(0, Math.round(sk.price ?? 0)), availability: "available", roomKinds: ["living"],
-      asset: { kind: "mesh", meshId: sk.msid, yawDeg: sk.yaw ?? 0, wCm: sk.w, dCm: sk.d, hCm: sk.h },
+      asset: { kind: "mesh", meshId: sk.msid, yawDeg: sk.yaw ?? 0, wCm: sk.w, dCm: sk.d, hCm: sk.h, ...tintOf((sk as { tint?: unknown }).tint) },
       ...(sk.url ? { shopUrl: sk.url } : {}), ...(sk.shop ? { shopName: sk.shop } : {}) });
     // место — заглушка: настоящее считает `resolve.placeTabletop` от текущей опоры при каждом расчёте сцены
     slots.push({ id, roomId: "living", category: "furniture" as const, kind: "furniture" as const, titleRu: x.role ?? "декор",
@@ -359,6 +367,8 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
         wCm: it.w as number,
         dCm: it.d as number,
         hCm: it.h as number,
+        // цветовой вариант на модели семейства — подкраской (demo-02 приёмка 16.10 п.11б)
+        ...tintOf(it.sku?.tint),
       },
       // Ссылка в магазин — ПАРТНЁРСКАЯ, прямо как на витрине: иначе теряется комиссия (ADR-0016).
       ...(it.sku?.url ? { shopUrl: it.sku.url } : {}),

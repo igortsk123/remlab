@@ -194,3 +194,18 @@ describe("пол от застройщика в /flat", () => {
     expect(f.catalogue.options.filter((o) => o.category === "furniture").every((o) => !o.settlement)).toBe(true);
   });
 });
+
+// demo-02 приёмка 16.10 п.11б: цветовой вариант на модели семейства — подкраской; мусор в данных подкраску не включает
+describe("подкраска цветового варианта", () => {
+  it("sku.tint → asset.tintRgb у предмета; неверные значения отбрасываются", async () => {
+    const { tintOf } = await import("@/lib/configurator/fromDemo");
+    expect(tintOf([0.6, 0.61, 0.59])).toEqual({ tintRgb: [0.6, 0.61, 0.59] });
+    expect(tintOf([0.6, 9, 0.5])).toEqual({});
+    expect(tintOf("x")).toEqual({});
+    const d = structuredClone(data) as unknown as { variants: { items: { sku: Record<string, unknown> }[] }[] };
+    d.variants[0]!.items[0]!.sku = { ...d.variants[0]!.items[0]!.sku, tint: [0.6, 0.61, 0.59] };
+    const r = fromDemoVariant(d as unknown as typeof data, "set16", CTX)!;
+    const sofa = r.catalogue.options.find((o) => o.id === "opt:диван#0")!;
+    expect(sofa.asset.kind === "mesh" && sofa.asset.tintRgb).toEqual([0.6, 0.61, 0.59]);
+  });
+});

@@ -234,6 +234,13 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 #sheetscroll{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch}
 #grid{padding:12px 14px 24px;display:grid;gap:12px;
  grid-template-columns:repeat(auto-fill,minmax(168px,1fr))}
+/* цвета текущей модели — строка чипов во всю ширину ленты (приёмка 16.10 п.11а) */
+#grid .colrow{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+#grid .colrow b{flex-basis:100%;font-size:14px;color:var(--muted);font-weight:600}
+#grid .colchip{display:flex;align-items:center;gap:8px;padding:4px 12px 4px 4px;border:1px solid var(--line);border-radius:999px;
+ background:var(--surface);cursor:pointer;min-height:44px;font-size:14px}
+#grid .colchip img{width:36px;height:36px;border-radius:50%;object-fit:cover}
+#grid .colchip small{color:var(--muted)}#grid .colchip.on{border:2px solid var(--accent);cursor:default}
 @media(min-width:700px){#sheet{left:auto;right:0;top:0;bottom:0;width:460px;max-height:none;
  border-radius:0;transform:translateX(102%);box-shadow:var(--sh-5)}
  #sheet.open{transform:translateX(0)}}
@@ -694,10 +701,8 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
   <div class="fh-acts">
     <button class="btn round" id="pcMort">Выбрать условия ипотеки или рассрочки</button>
     <button class="btn cta round" id="pcCons">Получить консультацию</button>
-    <!-- ВХОД В 3D-КОНФИГУРАТОР (28.09, план apartment-3d-configurator): отсюда покупатель
-         ходит по квартире и собирает отделку сам. Отдельная страница на общем стеке сайта,
-         демо остаётся как есть. -->
-    <a class="btn round fh-3d" href="/flat" id="pc3d">Пройтись по квартире в 3D →</a>
+    <!-- «Пройтись по квартире в 3D» из шапки убрана (владелец 16.10, demo-02 приёмка п.8): 3D — режим окна каждого
+         варианта; полная квартира /flat — из окна («3D» → «Вся квартира») и по ссылкам менеджера/коллекции -->
   </div>
 </div>
 
@@ -2591,7 +2596,8 @@ function pickVariant(i){ if(i===cur){showSwap();syncHash();sync3dLink();return;}
 // меняем (владелец 13.10): наверху остаётся прежняя надпись, а в карточке — короткое
 // «Посмотреть в 3D».
 function sync3dLink(){
-  const a=document.getElementById('pc3d'); if(!a)return;
+  // кнопки 3D в шапке больше нет (п.8 16.10) — ссылка живёт у «Посмотреть в 3D» ленты (`#swap3d`); `#pc3d` — если вернут
+  const a=document.getElementById('pc3d'), b=document.getElementById('swap3d'), f0=document.getElementById('vFlat'); if(!a&&!b&&!f0)return;
   const v=allVariants()[cur]||{};
   // квартира едет вместе с набором (b2b-06): 3D берёт её из реестра застройщиков, а не «по умолчанию»
   const fl = FLAT ? '&flat='+encodeURIComponent(FLAT.id) : '';
@@ -2601,9 +2607,9 @@ function sync3dLink(){
   // пол и прочие опции застройщика (demo-06) — тем же выбором, что в окне: `opt=группа:вариант`, сервер проверит по карточке
   const op = Object.keys(DEVOPT).length ? '&opt='+Object.keys(DEVOPT).sort().map(k=>k+':'+DEVOPT[k]).join(',') : '';
   const href = coll ? '/flat?coll='+coll+lg+op : v.id ? '/flat?demo='+encodeURIComponent(v.id)+fl+lg+op : '/flat'+(lg?'?lang=en':'');
-  a.href = href;
-  const b=document.getElementById('swap3d');
+  if(a)a.href = href;
   if(b)b.href = href;
+  const f=document.getElementById('vFlat'); if(f)f.href = href;
 }
 function showSwap(){
   const box=document.getElementById('swapBox'); if(!box)return;
@@ -2971,7 +2977,7 @@ function viewShot(i){
   // конструкторе («Комплект: …»). Вернуть стиль — только по слову владельца.
   // ОКНО ВАРИАНТА (demo-02, ADR-0290): сцена + колонка (компьютер) / шторка (телефон). Полоса действий `.cap` с её
   // кнопками и обработчиками переезжает в колонку — сохранение, избранное и ссылка работают как раньше.
-  shotOpen(vwHtml(s, navs, list),'');
+  shotOpen(vwHtml(s, navs, list),''); try{sync3dLink();}catch(e){}
   vwMount(s);
   wireShotList();
   liveShow();      // расстановка уже не та, что на фото, — живая сцена поверх (demo-01)
@@ -3369,7 +3375,8 @@ function openPicker(it){
   document.getElementById('scrim').classList.add('on');
   filters(); grid();
   // кандидаты ленты — в кэш живой сцены заранее (demo-01 п.6): первые 6, не вся лента (это десятки мегабайт)
-  if(LIVE.scene)LIVE.scene.prefetch(list.slice(0,6).map(p=>({sku:{msid:p.msid||p.sid}})));
+  // по модели, не по товару: цвета одной модели делят один файл (п.11а)
+  if(LIVE.scene)LIVE.scene.prefetch([...new Set(list.map(p=>p.msid||p.sid))].slice(0,6).map(m=>({sku:{msid:m}})));
 }
 function closePicker(){document.getElementById('sheet').classList.remove('open');
   document.getElementById('scrim').classList.remove('on');}
@@ -3402,6 +3409,20 @@ function grid(){
   list.sort((a,b)=>F.sort==='price'?((a.price||0)-(b.price||0))
                                    :(rank(a)-rank(b)||(a.price||0)-(b.price||0)));
   if(!list.length){g.innerHTML='<div class="hint">Под фильтры ничего не подошло — снимите ограничения.</div>';return;}
+  // ЦВЕТА ОДНОЙ МОДЕЛИ — ЧИПАМИ, ПЕРВЫМИ — ДРУГИЕ МОДЕЛИ (приёмка владельцем 16.10 п.11а): первые три кандидата сканди-дивана были
+  // цветами того же «Викс» — одна модель, и замена выглядела несработавшей. Цвета текущей модели — строкой чипов сверху, другие
+  // модели — по одной карточке с пометкой «ещё N цветов»; цвет на сцене — подкраской (`sku.tint`)
+  const modelOf=p=>p.msid||p.sid||p.name, curM=sel&&sel.sku?modelOf(sel.sku):'';
+  const colours=list.filter(p=>modelOf(p)===curM), byM=new Map(), more=new Map();
+  list.forEach(p=>{const m=modelOf(p); if(m===curM)return; if(byM.has(m)){more.set(m,(more.get(m)||0)+1);return;} byM.set(m,p);});
+  const tail=(n,ref)=>{const a=String(n||'').split(' '), b=String(ref||'').split(' '); let i=0; while(i<a.length&&a[i]===b[i])i++;
+    return a.slice(Math.min(i,Math.max(0,a.length-2))).join(' ');};
+  if(colours.length>1){const row=document.createElement('div'); row.className='colrow';
+    row.innerHTML='<b>Цвета этой модели</b>'; g.appendChild(row);
+    colours.forEach(p=>{const on=sel.sku&&sel.sku.name===p.name, b=document.createElement('button'); b.className='colchip'+(on?' on':'');
+      b.innerHTML=`<img src="${p.img}" alt="" loading="lazy"><span>${tail(p.name,sel.sku.name)||p.name}</span><small>${(p.price||0).toLocaleString('ru-RU')} ₽</small>`;
+      b.onclick=()=>{if(on)return; tryOn(p); grid(); closePicker(); refreshShotList();}; row.appendChild(b);});}
+  list=[...byM.values()];
   list.forEach(p=>{const c=document.createElement('div');c.className='card';
     const dims=dimsText(p);
     const bg=fitBadge(sel,p), cur=sel.sku&&sel.sku.name===p.name;
@@ -3411,6 +3432,7 @@ function grid(){
       `<div class="nm">${p.name||''}</div>`+
       `<div class="pr">${(p.price||0).toLocaleString('ru-RU')} ₽</div>`+
       `<div class="dim">${dims}${p.shop?' · '+p.shop:''}</div>`+
+      (more.get(modelOf(p))?`<div class="dim">${'ещё '+more.get(modelOf(p))+' '+(more.get(modelOf(p))===1?'цвет':more.get(modelOf(p))<5?'цвета':'цветов')}</div>`:'')+
       `<div class="acts"><button class="mini">${cur?'Выбрано':'Заменить'}</button>`+
       `<a class="mini link" href="${p.url}" target="_blank" rel="noopener">В магазин</a></div>`;
     // ВЫБРАЛ — ОКНО ЗАКРЫВАЕТСЯ (владелец 02.09). Раньше лист подбора оставался открытым, и
@@ -3435,7 +3457,7 @@ function tryOn(p){const s=sel||items.find(i=>i.role==='диван');
     if(d){
       d.sku={name:p.name,price:p.price,img:p.img,url:p.url,shop:p.shop,
              sid:p.sid||null,msid:p.msid||p.sid||null,basis:p.basis||null,
-             w:p.w,d:p.d,h:p.h||null,pack:p.pack||1,...(p.yaw!=null?{yaw:p.yaw}:{})};
+             w:p.w,d:p.d,h:p.h||null,pack:p.pack||1,...(p.yaw!=null?{yaw:p.yaw}:{}),...(p.tint?{tint:p.tint}:{})};
       sel=decorSel(s.dec);
       basket(); showSwap(); refreshShotList();
     }
@@ -3449,7 +3471,9 @@ function tryOn(p){const s=sel||items.find(i=>i.role==='диван');
   s.sku={name:p.name,price:p.price,img:p.img,url:p.url,shop:p.shop,
          sid:p.sid||null,msid:p.msid||p.sid||null,pack:p.pack||1,hung:!!p.hung,
          // разворот фронта модели (demo-01): живая сцена ставит заменённую модель по нему, как сервер по orient.json
-         ...(p.yaw!=null?{yaw:p.yaw}:{})};
+         ...(p.yaw!=null?{yaw:p.yaw}:{}),
+         // подкраска цветового варианта на модели семейства (приёмка 16.10 п.11б, `flat215_demo.annotate_tint`)
+         ...(p.tint?{tint:p.tint}:{})};
   sel=s;
   document.getElementById('sel').innerHTML=`Примерено: <b>${p.name}</b> · ${Math.round(p.w)}×${Math.round(p.d)} см · ${(p.price||0).toLocaleString('ru-RU')} ₽ · <a href="${p.url}" target="_blank" rel="noopener">открыть в магазине</a>`;
   draw();}
@@ -3696,6 +3720,7 @@ function histFwd(){return histGo(1);}
  background:var(--veil);z-index:6}
 .vmodes button{border:0;background:transparent;color:#fff;font-size:15px;padding:7px 14px;border-radius:999px;cursor:pointer}
 .vmodes button.on{background:var(--surface);color:var(--ink);font-weight:600}
+.vhist[hidden]{display:none!important}.vhist span:empty{display:none}
 .vhist{position:absolute;left:12px;bottom:12px;display:flex;align-items:center;gap:6px;background:var(--veil);color:#fff;
  border-radius:999px;padding:5px;font-size:14px;z-index:6}
 .vhist span{padding:0 4px}.vhist button{width:34px;height:34px;border-radius:50%;border:0;background:rgba(255,255,255,.18);
@@ -3734,6 +3759,9 @@ function histFwd(){return histGo(1);}
 .vfl small{font-size:12px;color:var(--muted);white-space:nowrap}.vfl.on small{color:var(--ink);font-weight:600}
 .vfl-cur{font-size:13.5px;color:var(--ink);margin-top:8px}
 .vsum small.vdev{color:var(--ink)}
+.vflat{display:none;position:absolute;right:12px;bottom:12px;z-index:6;background:rgba(255,255,255,.92);color:var(--ink);
+ text-decoration:none;font-size:14px;font-weight:600;padding:8px 14px;border-radius:999px;box-shadow:var(--sh-2)}
+#shot.vwalk .vflat{display:inline-block}
 #shot.v2 .pinlist .total{display:none}
 #shot.v2:not(.nolive) .restale{display:none}
 #shot.v2 .cap{border-top:1px solid var(--line)}
@@ -3810,17 +3838,24 @@ function vwHtml(s, navs, list){
     `<div class="vmodes" role="tablist"><button data-vm="c1" class="${VW.mode==='c1'?'on':''}">Ракурс 1</button>`+
     `<button data-vm="c2" class="${VW.mode==='c2'?'on':''}">Ракурс 2</button>`+
     `<button data-vm="walk" class="${VW.mode==='walk'?'on':''}">3D</button><button data-vm="plan">План</button></div>`+
-    `<div class="vhist"><button id="vhBack" aria-label="Предыдущая расстановка">↶</button><span id="vhTxt"></span>`+
-    `<button id="vhFwd" aria-label="Следующая расстановка">↷</button></div><div class="vpins" id="vpins"></div>`+
-    `<div class="vload" id="vload"><div><i></i><span id="vloadTxt">Собираем сцену…</span></div></div></div>`+
+    `<div class="vhist" hidden><button id="vhBack" aria-label="Отменить изменение" title="Отменить изменение">↶</button><span id="vhTxt"></span>`+
+    `<button id="vhFwd" aria-label="Вернуть изменение" title="Вернуть изменение">↷</button></div><div class="vpins" id="vpins"></div>`+
+    `<div class="vload" id="vload"><div><i></i><span id="vloadTxt">Собираем сцену…</span></div></div>`+
+    // ВСЯ КВАРТИРА В 3D — из режима «3D» окна (п.8 16.10: кнопка в шапке страницы убрана); ссылку держит `sync3dLink`
+    `<a class="vflat" id="vFlat" href="/flat">${EN?'Whole apartment in 3D →':'Вся квартира в 3D →'}</a></div>`+
     `<div class="vside" id="vside" data-pos="0"><div class="vgrip" id="vgrip"><i></i><span class="vchip" id="vchip">Товары и замены ⌃</span></div>`+
     `<div class="vtop"><div class="vsum" id="vsum">${vwSum()}</div>`+
-    `<button class="btn primary vcta" id="vCta">Сделать фотореалистичное фото<small>нейросеть · 2–4 мин · бесплатно для вас</small></button></div>`+
+    // одна строка (владелец 16.10, п.4): время «обычно 2–4 минуты» — в состоянии после нажатия (`makePhoto`), не на кнопке
+    `<button class="btn primary vcta" id="vCta">Сделать реалистичнее</button></div>`+
     `<div class="vlist" id="vlist"><div class="vfloor" id="vfloor">${devFloorHtml()}</div>${list}</div></div></div>`;
 }
+// ↶ ↷ БЕЗ СЧЁТЧИКА (владелец 16.10, п.3: «Layout 4 of 4 — не понимаю, что это и зачем»): пока правок нет — кнопок нет; после
+// правки — активный ↶; «Расстановка N из M» — только в режиме отладки `?debug=1`
+const VW_DEBUG=/[?&]debug=1(?:&|$)/.test(location.search);
 function vwHist(){
-  const h=histOf(), t=document.getElementById('vhTxt'); if(!t)return;
-  t.textContent=`Расстановка ${Math.max(1,h.at+1)} из ${Math.max(1,h.stack.length)}`;
+  const h=histOf(), t=document.getElementById('vhTxt'), box=document.querySelector('#shot .vhist'); if(!t)return;
+  t.textContent=VW_DEBUG?`Расстановка ${Math.max(1,h.at+1)} из ${Math.max(1,h.stack.length)}`:'';
+  if(box)box.hidden=h.stack.length<=1;
   const b=document.getElementById('vhBack'), f=document.getElementById('vhFwd');
   if(b)b.disabled=h.at<=0; if(f)f.disabled=h.at>=h.stack.length-1;
 }
@@ -3921,6 +3956,10 @@ function vwMount(s){
   });
   const hb=document.getElementById('vhBack'), hf=document.getElementById('vhFwd');
   if(hb)hb.onclick=()=>{histBack(); vwHist();}; if(hf)hf.onclick=()=>{histFwd(); vwHist();};
+  // долгое нажатие — подсказка, что делает кнопка (на телефоне нет всплывающих подписей)
+  [hb,hf].forEach(x=>{if(!x)return; let t=0; x.addEventListener('pointerdown',()=>{t=setTimeout(()=>toast(x.getAttribute('aria-label')),500);});
+    ['pointerup','pointerleave','pointercancel'].forEach(ev=>x.addEventListener(ev,()=>clearTimeout(t)));});
+  vwHist();
   const cta=document.getElementById('vCta');
   if(cta)cta.onclick=()=>makePhoto('realistic',(s.url&&(!s.stateId||s.stateId===curStateId())&&!liveStale(s))?srcIdOf(s):'',s.batch||'');
   // ШТОРКА: тап по ручке или чипу — свёрнута → половина → целиком; свайп по ручке — вверх/вниз; прокрутка списка
@@ -4543,6 +4582,7 @@ async function liveShow(){
     'попробуйте ещё раз':'please try again','Один кадр уже считается — дождитесь его.':'A shot is already being made — please wait for it.',
     'Ссылка скопирована':'Link copied','Ракурс':'View','План':'Plan','Товары и замены ⌃':'Items & swaps ⌃','⌄ Свернуть':'⌄ Collapse',
     'Сделать фотореалистичное фото':'Make a photorealistic photo','нейросеть · 2–4 мин · бесплатно для вас':'AI · 2–4 min · free for you',
+    'Сделать реалистичнее':'Make it realistic','Отменить изменение':'Undo the change','Вернуть изменение':'Redo the change',
     'Потяните или нажмите — товары и замены':'Pull or tap — items and swaps','Фото нейросети · расстановка могла отличаться':'AI photo · the layout may differ','Собираем сцену…':'Building the scene…','⤢ во весь экран':'⤢ full screen','Двигайте пальцем · щипок — увеличить · двойной тап — назад':'Drag to move · pinch to zoom · double tap to go back','Ракурс 1':'View 1','Ракурс 2':'View 2','Загружаем модели…':'Loading models…','Обновляем…':'Updating…','Загружаем модель…':'Loading the model…','Сервер рисует эскиз…':'The server is drawing a sketch…','Эскиз с сервера · у устройства нет видеокарты':'Server sketch · your device has no graphics card','Готово — посмотреть в окне':'Done — view in the window','Расставляем мебель…':'Placing furniture…','Предыдущая расстановка':'Previous layout','Следующая расстановка':'Next layout',
     'Удерживайте предмет полсекунды и тяните — он переедет. Короткое касание — стрелки поворота. Когда готово — «Посмотреть фото с изменениями» внизу.':
       'Hold an item for half a second and drag it to move. A short tap shows rotation arrows. When ready, tap “See the photo with changes” below.',
@@ -4566,7 +4606,11 @@ async function liveShow(){
     'Комната с вашей расстановкой: наши 3D-модели · вращайте мышью, колесо — масштаб · серые блоки — модель готовится':
       'Your room layout: our 3D models · rotate with the mouse, wheel to zoom · grey blocks — model in progress','Выбранный вариант:':'Selected:',
     'Варианты демонстрационные: настоящие кухни партнёров застройщика появятся при подключении. Состав и цену уточняйте у менеджера.':
-      "Demo options: the developer's partner kitchens appear once connected. Ask your manager for contents and price.",'размеры не указаны магазином':'sizes not provided by the shop'};
+      "Demo options: the developer's partner kitchens appear once connected. Ask your manager for contents and price.",'размеры не указаны магазином':'sizes not provided by the shop',
+    // приёмка владельцем 16.10 п.9: подсказки кнопок шапки без ссылки менеджера и бейджи ленты были по-русски в EN
+    'Эта ссылка ведет на условия ипотеки по квартире':'This link leads to the mortgage terms for the apartment',
+    'Эта ссылка ведет на форму консультации застройщика':"This link leads to the developer's consultation form",
+    'впритык':'a tight fit','габарит не указан':'size not given','Цвета этой модели':'Colours of this model'};
   var ATTR={'Что значит оплата 100%':'What does full payment mean','Скопировать ссылку на этот вариант':'Copy a link to this option','В избранное':'Add to favourites',
     'переставить точки съёмки в следующие углы':'move camera points to the next corners','Просмотр кадра':'Shot view','Закрыть':'Close','Предыдущий вид':'Previous view',
     'Следующий вид':'Next view','скоро':'soon'};
@@ -4575,6 +4619,11 @@ async function liveShow(){
   var P=[
     [/^(?:ваза|vase) · на (.+?), (.+?) · (.+)$/,function(m){return 'vase · on the '+(role(m[1])||m[1])+' · '+m[3];}],
     [/^(.+?) · (\d+(?:×\d+)+)\s*см · (.+)$/,function(m){var r=role(m[1]);return r?r+' · '+m[2]+' cm · '+m[3]:null;}],
+    // строка товара «стул · divan.ru · 2 шт.», размеры ленты «198×90×83 см · divan.ru», бейдж «больше места на 23 см» (п.9 16.10)
+    [/^(.+?) · (.+?) · (\d+) шт\.$/,function(m){var r=role(m[1]);return r?r+' · '+m[2]+' · '+m[3]+' pcs':null;}],
+    [/^(\d+(?:×\d+)+)\s*см( · .+)?$/,function(m){return m[1]+' cm'+(m[2]||'');}],
+    [/^больше места на (\d+) см$/,function(m){return 'needs '+m[1]+' cm more room';}],
+    [/^ещё (\d+) цвет(?:а|ов)?$/,function(m){return '+'+m[1]+' more colour'+(m[1]==='1'?'':'s');}],
     [/^(.+?) · (.+\.[a-z]{2,})$/,function(m){var r=role(m[1]);return r?r+' · '+m[2]:null;}],
     [/^(.+?) (\d+×\d+)$/,function(m){var r=role(m[1]);return r?r+' '+m[2]:null;}],
     [/^(\d+) (предмет|предмета|предметов|товар|товара|товаров) ·$/,function(m){return m[1]+(m[1]==='1'?' item ·':' items ·');}],

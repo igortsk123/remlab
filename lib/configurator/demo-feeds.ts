@@ -20,6 +20,8 @@ export type FeedItem = {
   src?: string;
   pack?: number;
   yaw?: number;
+  /** Подкраска цветового варианта (`flat215_demo.annotate_tint`). */
+  tint?: number[];
 };
 
 /** Сколько вариантов на предмет (кроме текущего): полоса выбора в /flat — не каталог. */
