@@ -787,10 +787,9 @@ export class FlatViewer {
       doorSpots.some((d) => Math.hypot(d.x - p.x, d.y - p.y) < 60);
     // Мебель комнаты: вставать В НЕЁ нельзя — кадр упрётся в спинку дивана или в кровать
     // (поймано кадрами 28.09: в спальне полкадра занимала кровать в упор).
-    // ПО ПЛАНУ СЦЕНЫ, А НЕ ПО ЗАГРУЖЕННОМУ (16.10: старт сканди «прыгал» между (360,267) и (375,199) — модели грузятся
-    // параллельно, и выбор видел только успевшие встать предметы). План есть — берём его; нет — что уже стоит
-    const planned = this.lastScene ? planObjects(this.apartment, this.catalogue, this.lastScene) : null;
-    const inRoom = (planned ? planned.map((spec) => ({ spec })) : [...this.placed.values()]).filter((p) => p.spec.roomId === roomId);
+    // (16.10: выбор по плану сцены вместо загруженного уронил e2e «правая панель состава» — откатан до разбора; старт сканди
+    // может зависеть от порядка загрузки моделей — см. план demo-05 п.5)
+    const inRoom = [...this.placed.values()].filter((p) => p.spec.roomId === roomId);
     // ковёр и плоское — пол, а не препятствие (как у прогулки): с ковром из витрины в /flat (demo-05 п.9) середина комнаты и
     // середины стен считались «занятыми», и старт оставался у торца ТВ-тумбы
     const obstacles = inRoom.filter((p) => p.spec.kind !== "rug" && p.spec.placement.hCm > 10).map((p) => p.spec.placement);
