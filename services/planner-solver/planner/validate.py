@@ -753,13 +753,17 @@ def check_chairs_at_table(room: Room, ps: list[Placement]) -> list[Violation]:
     chairs = [p for p in ps if p.role.startswith("стул")]
     if tbl is None or not chairs:
         return []
+    # порог — из правил (`rules/zones.json → zones.dining.chairs_gap_max_cm`), а не числом здесь: правка правила раньше
+    # ничего не меняла (находка Codex 16.10, demo-05 п.2b)
+    from .zones import zone_rules
+    gap_max = float(((zone_rules().get("zones") or {}).get("dining") or {}).get("chairs_gap_max_cm", 40))
     out = []
     for ch in chairs:
         d = footprint(ch).distance(footprint(tbl))
-        if d > 40:
+        if d > gap_max:
             out.append(_v("CHAIR_ORPHAN", f"стул в {d:.0f} см от обеденного стола",
                           [ch.role, "стол обеденный"], round(d),
-                          "≤40 см (priors 18 804 сцен: вплотную, p50 5)"))
+                          f"≤{gap_max:.0f} см (priors 18 804 сцен: вплотную, p50 5)"))
     return out
 
 
