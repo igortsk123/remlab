@@ -108,7 +108,10 @@ test("2.10–2.11, 2.17 конструктор: подсказка, перета
   await openDemo(page);
   await page.locator("#tab-room").click();
   await page.locator("button[data-swap]").first().click();
-  await page.locator('[data-vm="plan"]').click();        // «План» в окне варианта (demo-02) — конструктор
+  // «План» в окне варианта (demo-02 v3) — план для просмотра; редактор — по «Изменить план»
+  await page.locator('[data-vm="plan"]').click();
+  await expect(page.locator("#vPlan svg")).toBeVisible();
+  await page.locator("#vCta").click();
   await expect(page.locator("#cons")).toBeVisible();
   await expect(page.locator("#consHint")).toBeVisible();
   const before = await page.evaluate("items.map(i => [i.x, i.y])") as number[][];
@@ -127,6 +130,7 @@ test("2.10–2.11, 2.17 конструктор: подсказка, перета
   await expect(page.locator("#consShot")).toBeVisible();
   await page.locator("#consDone").click();
   await expect(page.locator("#shot")).toBeVisible();      // «Готово» возвращает в окно кадра, откуда пришли
+  await expect(page.locator('[data-vm="plan"]')).toHaveClass(/on/);   // …в режим «План»
   await page.keyboard.press("Escape");
   await page.locator("text=Добавить новую расстановку").first().click();
   await expect(page.locator("#consHint")).toBeVisible();
