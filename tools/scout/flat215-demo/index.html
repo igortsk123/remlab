@@ -3827,6 +3827,8 @@ function histFwd(){return histGo(1);}
 .vpl-dev{font-size:13px;color:var(--muted);margin-top:6px}.vpl-mini{display:none}
 .vplate.flash{animation:vflash .7s ease}@keyframes vflash{30%{box-shadow:0 0 0 3px var(--accent),var(--sh-2)}}
 .vscroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
+/* перетаскивание шторки и полосы режимов не выделяет текст (прогон d8 16.10) */
+#vside,#vgrip,.vmodes,.vplate,.vdots,.vnav,.vhist{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 .vcta{width:100%;margin-top:10px;display:flex;flex-direction:column;align-items:center;border-radius:999px}
 .vcta small{font-size:12.5px;font-weight:400;opacity:.9}
 .vlist{padding:0 18px}
