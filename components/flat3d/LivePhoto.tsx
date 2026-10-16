@@ -31,6 +31,16 @@ export function LivePhoto({ apartment, catalogue, scene, roomId, lite, lang, onF
   const [at, setAt] = useState(0);
   const [loading, setLoading] = useState(true);
   const pose = (c: CameraPreset) => ({ x: c.x, y: c.y, rot: c.rot, fov: c.fov, pose: c.pose });
+  // СНИМОК НЕПОДВИЖЕН — КАДРЫ НЕ КРУТИМ (16.10: постоянный цикл кадров второй сцены на программном рендере CI душил процессор,
+  // и e2e падали по таймауту): цикл идёт, пока что-то меняется (загрузка, ракурс, расстановка), и гаснет через 1,5 с
+  const idle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const kick = (): void => {
+    const v = viewerRef.current;
+    if (!v) return;
+    v.start();
+    if (idle.current) clearTimeout(idle.current);
+    idle.current = setTimeout(() => viewerRef.current?.stop(), 1500);
+  };
 
   // движок — один на показ режима; расстановка обновляется без пересоздания
   useEffect(() => {
@@ -42,22 +52,24 @@ export function LivePhoto({ apartment, catalogue, scene, roomId, lite, lang, onF
         const mod = await import("@/lib/viewer3d/viewer");
         if (cancelled) return;
         const viewer = new mod.FlatViewer(canvas, apartment, catalogue, lite ? mod.LITE_QUALITY : mod.DESKTOP_QUALITY, {
-          onProgress: (l, t) => { if (!cancelled && l >= t) setLoading(false); },
+          onProgress: (l, t) => { if (!cancelled && l >= t) setLoading(false); kick(); },
         });
         viewerRef.current = viewer;
         const r = canvas.getBoundingClientRect();
         viewer.setSize(Math.max(320, r.width), Math.max(213, r.height));
         viewer.buildShell(scene);
         viewer.setPhotoPose(pose(cams[0]!));
-        viewer.start();
+        kick();
         await viewer.syncObjects(scene);
         if (!cancelled) setLoading(false);
+        kick();
       } catch {
         if (!cancelled) onFail();
       }
     })();
     return () => {
       cancelled = true;
+      if (idle.current) clearTimeout(idle.current);
       viewerRef.current?.dispose();
       viewerRef.current = null;
     };
@@ -65,8 +77,8 @@ export function LivePhoto({ apartment, catalogue, scene, roomId, lite, lang, onF
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apartment.id, lite, cams.length]);
 
-  useEffect(() => { void viewerRef.current?.syncObjects(scene); }, [scene]);
-  useEffect(() => { const c = cams[at]; if (c) viewerRef.current?.setPhotoPose(pose(c)); }, [at, cams]);
+  useEffect(() => { kick(); void viewerRef.current?.syncObjects(scene).then(kick); }, [scene]);
+  useEffect(() => { const c = cams[at]; if (c) { viewerRef.current?.setPhotoPose(pose(c)); kick(); } }, [at, cams]);
 
   if (!cams.length) return null;
   return (

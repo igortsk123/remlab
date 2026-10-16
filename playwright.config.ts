@@ -6,7 +6,10 @@ const baseURL = `http://127.0.0.1:${PORT}`;
 export default defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
-  fullyParallel: true,
+  // в CI — по одному: 3D-тесты рисуют программным рендером (без видеокарты), параллельные вкладки душили процессор, и
+  // проверки падали по таймауту то на одном, то на другом коммите (16.10); локально — параллельно, как было
+  fullyParallel: !process.env.CI,
+  workers: process.env.CI ? 1 : undefined,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   // в CI ещё и отчёт GitHub: текст упавшей проверки попадает в аннотации запуска — их видно без токена (логи шагов закрыты)
