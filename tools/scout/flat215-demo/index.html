@@ -1869,7 +1869,7 @@ function devSet(gid, vid){
     if(v){const t=document.createElement('div'); t.className='vtip';
       t.style.cssText='white-space:normal;text-align:center;max-width:calc(100% - 32px)';
       t.textContent=v.name+(v.price.type==='included'?'':' · '+v.price.text);
-      setTimeout(()=>{t.style.bottom=(sd.getBoundingClientRect().height+14)+'px'; shot.appendChild(t); setTimeout(()=>t.remove(),2600);},300);}
+      setTimeout(()=>{t.style.bottom=((window.innerHeight-sd.getBoundingClientRect().top)+14+((document.getElementById('vsum')||{}).offsetHeight||0))+'px'; shot.appendChild(t); setTimeout(()=>t.remove(),2600);},300);}
   }
 }
 document.addEventListener('click',e=>{const b=e.target&&e.target.closest&&e.target.closest('[data-fl]'); if(!b)return;
@@ -3824,7 +3824,15 @@ function histFwd(){return histGo(1);}
 .vpl-over{color:#B3261E}
 .vpl-bar{height:5px;border-radius:3px;background:var(--line);margin-top:8px;overflow:hidden}
 .vpl-bar i{display:block;height:100%;background:var(--accent);transition:width .45s ease}.vpl-bar.over i{background:#B3261E}
-.vpl-dev{font-size:13px;color:var(--muted);margin-top:6px}.vpl-mini{display:none}
+.vpl-dev{font-size:13px;color:var(--muted);margin-top:6px}
+/* плашка v4 — одна строка + полоса; ⓘ — пузырь расшифровки */
+.vplate{position:relative}.vpl-row{display:flex;align-items:baseline;gap:6px;font-size:14px;color:var(--muted);white-space:nowrap}
+.vpl-row b{margin-left:auto;font-size:16px}.vpl-row small{font-size:13px}.vpl-bar{margin-top:7px}
+.vpl-i{width:20px;height:20px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--muted);font:600 12px/18px system-ui;
+ padding:0;cursor:pointer;position:relative;align-self:center}.vpl-i::after{content:"";position:absolute;inset:-12px}
+.vpl-bub{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:9;background:var(--surface);border:1px solid var(--line);
+ border-radius:12px;box-shadow:var(--sh-3,var(--sh-2));padding:10px 12px;font-size:13.5px;color:var(--ink);line-height:1.5;white-space:normal}
+.vpl-bub b{white-space:nowrap}
 .vplate.flash{animation:vflash .7s ease}@keyframes vflash{30%{box-shadow:0 0 0 3px var(--accent),var(--sh-2)}}
 .vscroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
 /* перетаскивание шторки и полосы режимов не выделяет текст (прогон d8 16.10) */
@@ -3886,23 +3894,14 @@ function histFwd(){return histGo(1);}
   #shot.v2 .box{height:100%}
   .vw{display:block;position:relative;height:100%}
   .vstage{position:absolute;inset:0}
-  /* шторка v3: высоту ставит `vwSheet` по остановкам от высоты экрана; плашка денег стоит над ней, вне прокрутки */
+  /* шторка v4: наложение высотой «открыто», двигается только translateY (`vwSheetApply`); плашка — над ней и едет с ней */
   .vside{position:absolute;left:0;right:0;bottom:0;border-left:0;border-radius:18px 18px 0 0;box-shadow:var(--sh-4);z-index:7;
-   height:56px;display:flex;flex-direction:column;overflow:visible;padding-bottom:env(safe-area-inset-bottom)}
-  .vplate{position:absolute;left:8px;right:8px;bottom:calc(100% + 8px);margin:0;padding:9px 12px 10px;background:var(--surface);
-   box-shadow:var(--sh-2)}
-  .vw.vmini .vplate{padding:7px 12px 8px;border-radius:12px;cursor:pointer;display:flex;flex-direction:column}
-  .vw.vmini .vpl-mini{order:-1}
-  .vw.vmini .vplate>.vpl-h,.vw.vmini .vplate>.vpl-l,.vw.vmini .vplate>.vpl-dev{display:none}
-  .vw.vmini .vpl-mini{display:flex;align-items:baseline;gap:6px;font-size:13.5px;color:var(--muted);white-space:nowrap}
-  .vw.vmini .vpl-mini span{overflow:hidden;text-overflow:ellipsis;min-width:0}
-  .vw.vmini .vpl-mini b{color:var(--accent);font-size:15px;margin-left:auto}.vw.vmini .vpl-mini small{font-size:13px}
-  .vw.vmini .vpl-bar{margin-top:6px;height:4px}
-  .vscroll{overflow:hidden;touch-action:none}.vside[data-pos="3"] .vscroll{overflow-y:auto;touch-action:pan-y}
-  .vside[data-pos="0"] .vscroll{visibility:hidden}
-  .vside.bump{animation:vbump .4s ease}
-  @keyframes vbump{40%{transform:translateY(-40px)}}
-  .vgrip{display:block;flex:none;text-align:center;padding:5px 0 4px;cursor:grab;touch-action:none}
+   height:60vh;display:flex;flex-direction:column;overflow:visible;padding-bottom:env(safe-area-inset-bottom);will-change:transform}
+  .vplate{position:absolute;left:8px;right:8px;bottom:calc(100% + 8px);margin:0;padding:8px 12px 9px;background:var(--surface);box-shadow:var(--sh-2)}
+  .vplate .vpl-bub{top:auto;bottom:calc(100% + 6px)}
+  .vscroll{overflow:hidden;touch-action:none;overscroll-behavior:contain}
+  .vgrip{display:block;flex:none;width:100%;min-height:44px;border:0;background:none;font:inherit;text-align:center;padding:5px 0 4px;
+   cursor:grab;touch-action:none;-webkit-tap-highlight-color:transparent}
   .vgrip i{margin-bottom:5px!important}.vgrip .vchip{padding:3px 12px;font-size:13.5px}
   .vgrip i{display:block;width:44px;height:5px;border-radius:3px;background:var(--grip);margin:0 auto 6px}
   .vchip{display:inline-block;background:var(--accent-soft);color:var(--accent);border:1px solid var(--line);border-radius:999px;
@@ -3916,7 +3915,8 @@ function histFwd(){return histGo(1);}
   #shot.v2 .shotwrap .livebadge{display:none}
   .vdots{bottom:calc(var(--vsh,320px) + 12px)}.vnav{top:calc((100% - var(--vsh,320px)) / 2)}
   .vplanbox{inset:60px 8px var(--vsh,320px) 8px}
-  .vstage .shotwrap,.vdots,.vplanbox{transition:bottom .28s cubic-bezier(.2,.8,.2,1)}
+  /* «3D» — холст на весь экран под шторкой; «Фото»/«План» — постоянная зона над свёрнутой шторкой (при жесте не меняется) */
+  #shot.vwalk .vstage .shotwrap{bottom:0}
   #shot.v2 .shotwrap .livebadge,#shot.v2 .shotwrap .vold{top:auto;bottom:10px;left:10px}
 }
 </style>
@@ -3951,14 +3951,17 @@ function vwSum(){
   if(!cert)return `<div class="vpl-h"><span>${n} ${word}</span><b data-k="sum" data-to="${sumC}">${money(sumC)}</b></div>${extra}`;
   const chosen=t?t.allowanceEligible:sumC, left=Math.max(0,cert-chosen), pct=Math.min(100,Math.round(chosen/cert*100));
   const lvl=over?'over':pct>=85?'warn':'ok';
-  return `<div class="vpl-h"><span class="vpl-ic" aria-hidden="true">🏷</span><span>${EN?'Furniture allowance':'Сертификат на мебель'}</span>`+
-    `<b data-k="cert" data-to="${cert}">${money(cert)}</b></div>`+
-    `<div class="vpl-l">${EN?'chosen':'выбрано'} <span data-k="chosen" data-to="${chosen}">${money(chosen)}</span> · `+
-    (over?`<b class="vpl-over">${EN?'over the allowance':'сверх сертификата'} +<span data-k="over" data-to="${over}">${money(over)}</span></b>`
-      :`${EN?'left':'остаток'} <b class="vpl-rest" data-k="left" data-to="${left}">${money(left)}</b>`)+`</div>`+
-    // доплаты застройщику на плашке не показываем (владелец 16.10: «не надо дополнительно»): цена пола — у образца в «Отделке»
-    `<div class="vpl-bar ${lvl}"><i style="width:${pct}%"></i></div>`+
-    `<div class="vpl-mini"><span>${EN?'Allowance left':'Остаток'}</span><b>${money(left)}</b><small>${EN?'of ':'из '}${money(cert)}</small></div>`;
+  // ПЛАШКА v4 — ВСЕГДА ОДНА СТРОКА (владелец 16.10: «в таком варианте пиши кратко всегда»): «Остаток ⓘ · N из M» + полоса;
+  // ⓘ — пузырь с расшифровкой (сертификат, выбрано, остаток, доплаты за отделку вне сертификата)
+  const dev=t?(t.developerSurcharge||0)+(t.propertyPriceDelta||0):0;
+  const bub=`<div class="vpl-bub" id="vplBub" hidden role="dialog">`+
+    `<div>${EN?'Developer furniture allowance':'Сертификат застройщика на мебель'} <b>${money(cert)}</b></div>`+
+    `<div>${EN?'chosen':'выбрано'} ${money(chosen)} · ${over?(EN?'over':'сверх')+' '+money(over):(EN?'left':'остаток')+' '+money(left)}</div>`+
+    (dev?`<div>${EN?'finishes (outside the allowance)':'доплаты за отделку (вне сертификата)'}: +${money(dev)}</div>`:'')+`</div>`;
+  return `<div class="vpl-row"><span>${over?(EN?'Over the allowance':'Сверх сертификата'):(EN?'Allowance left':'Остаток')}</span>`+
+    `<button class="vpl-i" aria-label="${EN?'What is this':'Что это'}" aria-expanded="false">i</button>`+
+    `<b class="${over?'vpl-over':'vpl-rest'}" data-k="${over?'over':'left'}" data-to="${over||left}">${over?'+':''}${money(over||left)}</b>`+
+    `<small>${EN?'of ':'из '}${money(cert)}</small></div><div class="vpl-bar ${lvl}"><i style="width:${pct}%"></i></div>${bub}`;
 }
 // ЦИФРЫ ПЛАШКИ МЕНЯЮТСЯ ПЛАВНО (v3): прежнее значение → новое за 0,45 с, плашка коротко подсвечивается — замена видна сразу
 function vwSumUpdate(){
@@ -3996,7 +3999,7 @@ function vwHtml(s, navs, list){
     `<a class="vflat" id="vFlat" href="/flat">${EN?'Whole apartment in 3D →':'Вся квартира в 3D →'}</a></div>`+
     // ШТОРКА v3: плашка денег — отдельно и вне прокрутки; ручка с подписью — вне прокрутки; ниже — прокручиваемое содержимое
     `<div class="vside" id="vside" data-pos="1"><div class="vplate" id="vsum">${vwSum()}</div>`+
-    `<div class="vgrip" id="vgrip"><i></i><span class="vchip" id="vchip">${vwChipText()}</span></div>`+
+    `<button class="vgrip" id="vgrip" aria-expanded="false" type="button"><i></i><span class="vchip" id="vchip">${vwChipText()}</span></button>`+
     `<div class="vscroll" id="vscroll"><div class="vtop">`+
     // одна строка (владелец 16.10, п.4): время «обычно 2–4 минуты» — в состоянии после нажатия (`makePhoto`), не на кнопке
     `<button class="btn primary vcta" id="vCta">${VW.mode==='plan'?'Изменить план':'Сделать реалистичнее'}</button></div>`+
@@ -4054,70 +4057,101 @@ function vwLoad(on, txt, corner){
   const l=document.getElementById('vload'); if(!l)return;
   l.classList.toggle('on',!!on); l.classList.toggle('corner',!!corner); if(txt){const t=document.getElementById('vloadTxt'); if(t)t.textContent=txt;}
 }
-// ШТОРКА КАК НАТИВНАЯ (demo-02 v3, владелец 16.10 на iPhone SE): четыре остановки от высоты экрана — свёрнута (только ручка),
-// peek, половина, полная (сцена ≥ 30 %); на SE свёрнутая ≤ 60 px, половина ≤ 300 px. Над шторкой — плашка денег; сцена — до плашки,
-// без серого поля. Прокрутка списка — только в полной остановке, иначе жест тянет шторку
+// ШТОРКА v4 «КАК НАТИВНАЯ» (план demo-02 § «Шторка v4», разбор Codex 16.10, владелец на iPhone: «некультяпистая»). Шторка —
+// наложение над сценой, двигается ТОЛЬКО `transform: translateY` (композитор); высота шторки и геометрия области сцены во время
+// жеста не меняются, `liveFit` при перетаскивании не зовётся. Палец ведёт 1:1, за краями — резинка ×0,3; отпустил — шторка ОСТАЁТСЯ,
+// где отпустили (владелец: «сколько тянет человек»), к краям — только флик быстрее 0,5 px/мс или выход за край. Тап по ручке —
+// полностью открыть ↔ свернуть. Список прокручивается только в открытой шторке; жест вниз при `scrollTop = 0` шторка берёт с
+// первого пикселя (сенсорные события — до нативной прокрутки). Плашка денег едет вместе со шторкой, над ней.
 const VW_PHONE=()=>window.innerWidth<=700;
-function vwDetents(){
-  const H=Math.round((window.visualViewport&&visualViewport.height)||window.innerHeight), se=H<700;
-  const pl=(document.getElementById('vsum')||{}).offsetHeight||0;
-  const full=Math.max(se?300:360, Math.round(H*0.70)-pl-16);
-  return [se?52:56, Math.min(full,Math.round(Math.min(H*0.30,se?200:250))), Math.min(full,Math.round(se?Math.min(300,H*0.45):H*0.45)), full];
+const VW_SLOW=()=>{try{return matchMedia('(prefers-reduced-motion: reduce)').matches;}catch(e){return false;}};
+// края в пикселях видимой высоты: свёрнута — только ручка; открыта — сцена остаётся ≥ 30 % экрана
+function vwEdges(){
+  const H=Math.round((window.visualViewport&&visualViewport.height)||window.innerHeight);
+  const g=(document.getElementById('vgrip')||{}).offsetHeight||44, pl=(document.getElementById('vsum')||{}).offsetHeight||0;
+  const min=g, max=Math.max(min+120, Math.round(H*0.70)-pl-12);
+  return {H, min, max, pl};
 }
-function vwSheetApply(h, anim){
-  const sd=document.getElementById('vside'), vw=document.querySelector('#shot .vw'); if(!sd||!vw)return;
-  sd.style.transition=anim?'height .28s cubic-bezier(.2,.8,.2,1)':'none'; sd.style.height=h+'px';
-  const pl=(document.getElementById('vsum')||{}).offsetHeight||0;
-  vw.style.setProperty('--vsh',(h+pl+14)+'px');
+// область сцены — постоянная (видимая зона над свёрнутой шторкой и плашкой): ставится при открытии окна, повороте, смене
+// режима — не при жесте. В «3D» холст — на весь экран под шторкой
+function vwLayout(){
+  const vw=document.querySelector('#shot .vw'), sd=document.getElementById('vside'); if(!vw||!sd)return;
+  if(!VW_PHONE()){sd.style.height=''; sd.style.transform=''; vw.style.removeProperty('--vsh'); return;}
+  const e=vwEdges(); sd.style.height=e.max+'px';
+  vw.style.setProperty('--vsh',(e.min+e.pl+14)+'px');
+  vwSheetApply(Math.max(e.min,Math.min(e.max,VW.sheetVis||e.min)),false);
+  const w=document.querySelector('#shot .shotwrap'); if(w&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode===w)liveFit(w);
 }
-function vwSheet(pos){
-  const sd=document.getElementById('vside'); if(!sd)return;
-  const cur0=+sd.dataset.pos||0;
-  if(pos===undefined)pos=cur0>=3?0:cur0+1;          // тап по ручке: вверх по остановкам, из полной — свернуть
-  pos=Math.max(0,Math.min(3,pos)); sd.dataset.pos=String(pos);
-  const vw=document.querySelector('#shot .vw');
-  // СВЁРНУТАЯ ШТОРКА — СУТЬ В ОДНУ СТРОКУ (владелец 16.10: «больше места на телефоне»): плашка сжимается до «остаток N из M» с полосой
-  if(vw)vw.classList.toggle('vmini',VW_PHONE()&&pos===0);
-  if(VW_PHONE())vwSheetApply(vwDetents()[pos],true); else {sd.style.height=''; if(vw)vw.style.removeProperty('--vsh');}
-  const sc=document.getElementById('vscroll'); if(sc){sc.style.touchAction=pos===3||!VW_PHONE()?'pan-y':'none'; if(pos!==3&&VW_PHONE())sc.scrollTop=sc.scrollTop;}
-  setTimeout(()=>{const w=document.querySelector('#shot .shotwrap'); if(w&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode===w)liveFit(w);},300);
+// видимая высота шторки → сдвиг; состояние для кнопки, списка и проверок
+function vwSheetApply(vis, anim){
+  const sd=document.getElementById('vside'); if(!sd||!VW_PHONE())return;
+  const e=vwEdges(); VW.sheetVis=vis;
+  sd.style.transition=anim&&!VW_SLOW()?'transform .3s cubic-bezier(.32,.72,0,1)':'none';
+  sd.style.transform=`translateY(${Math.round(e.max-vis)}px)`;
+  const pos=vis<=e.min+4?0:vis>=e.max-4?3:2;
+  if(sd.dataset.pos!==String(pos)){sd.dataset.pos=String(pos); vwSheetState(pos);}
+}
+function vwSheetState(pos){
+  const g=document.getElementById('vgrip'), c=document.getElementById('vchip'), sc=document.getElementById('vscroll'), EN=LANG==='en';
+  if(g){g.setAttribute('aria-expanded',String(pos>0)); g.setAttribute('aria-label',pos===3?(EN?'Collapse':'Свернуть'):(EN?'Furniture and finishes — open':'Мебель и отделка — открыть'));}
+  if(c)c.textContent=pos===3?(EN?'⌄ Collapse':'⌄ Свернуть'):vwChipText();
+  if(sc){sc.style.overflowY=pos===3?'auto':'hidden'; sc.style.touchAction=pos===3?'pan-y':'none';}
   try{sessionStorage.setItem('remlab-sheet-pos',String(pos));}catch(e){}
 }
-// ПЕРЕТАСКИВАНИЕ: за ручку — всегда; за содержимое — пока шторка не в полной остановке (в полной — только вниз от начала
-// списка); палец ведёт шторку, отпустил — доводка к ближайшей остановке с учётом скорости
+// программные положения (выбор предмета, отделка, пол): 0 — свернуть, 1 — чуть, 2 — половина, 3 — полностью
+function vwSheet(pos){
+  const sd=document.getElementById('vside'); if(!sd)return;
+  if(!VW_PHONE()){sd.dataset.pos=String(pos||0); return;}
+  const e=vwEdges(), cur0=+sd.dataset.pos||0;
+  if(pos===undefined)pos=cur0===3?0:3;                // тап по ручке/чипу — открыть полностью ↔ свернуть
+  const vis=pos<=0?e.min:pos>=3?e.max:pos===1?Math.round(e.min+(e.max-e.min)*0.35):Math.round(e.min+(e.max-e.min)*0.6);
+  vwSheetApply(vis,true);
+}
 function vwSheetWire(){
   const sd=document.getElementById('vside'), grip=document.getElementById('vgrip'), sc=document.getElementById('vscroll');
   if(!sd||!grip||!sc)return;
   let st=null;
-  const down=(e,fromGrip)=>{if(!VW_PHONE())return; const pos=+sd.dataset.pos;
-    if(!fromGrip&&pos===3)return;                         // полная остановка — содержимое прокручивается само
-    st={y:e.clientY, h:sd.getBoundingClientRect().height, t:performance.now(), moved:false, grip:fromGrip, id:e.pointerId};};
-  // движение и отпускание ловим на всём окне: палец быстро уходит с ручки, а захват указателя у списка сломал бы нажатия кнопок
-  const move=e=>{if(!st||e.pointerId!==st.id)return; const dy=e.clientY-st.y;
-    if(!st.moved&&Math.abs(dy)<6)return;
-    st.moved=true; e.preventDefault&&e.cancelable&&e.preventDefault();
-    const d=vwDetents(); vwSheetApply(Math.max(d[0],Math.min(d[3],st.h-dy)),false);};
-  const up=e=>{if(!st||e.pointerId!==st.id)return; const s0=st; st=null;
-    if(!s0.moved){if(s0.grip)vwSheet(); return;}
+  const begin=(y,id,fromGrip)=>{st={y0:y, vis0:VW.sheetVis||vwEdges().min, id, grip:fromGrip, moved:false, smp:[[performance.now(),y]]};};
+  const drag=y=>{const e=vwEdges(); let vis=st.vis0-(y-st.y0);
+    if(vis>e.max)vis=e.max+(vis-e.max)*0.3; else if(vis<e.min)vis=e.min-(e.min-vis)*0.3;   // резинка за краями
+    st.moved=true; st.smp.push([performance.now(),y]); if(st.smp.length>8)st.smp.shift(); vwSheetApply(vis,false);};
+  const end=(cancel)=>{const s0=st; st=null; if(!s0)return;
+    if(!s0.moved){if(s0.grip&&!cancel)vwSheet(); return;}
+    const e=vwEdges(), now=performance.now(), a=s0.smp.find(p=>now-p[0]<=100)||s0.smp[0], b=s0.smp[s0.smp.length-1];
+    const v=cancel?0:(b[1]-a[1])/Math.max(1,b[0]-a[0]);          // px/мс, плюс — вниз; отменённый жест флика не даёт
+    VW.lastFlick=v;
+    let vis=VW.sheetVis;
+    if(v>0.5)vis=e.min; else if(v<-0.5)vis=e.max;
+    vwSheetApply(Math.max(e.min,Math.min(e.max,vis)),true);
     if(!s0.grip){const kill=ev=>{ev.stopPropagation(); ev.preventDefault();}; sc.addEventListener('click',kill,{capture:true,once:true});
-      setTimeout(()=>sc.removeEventListener('click',kill,{capture:true}),350);}
-    const dy=e.clientY-s0.y, v=dy/Math.max(1,performance.now()-s0.t), h=s0.h-dy-v*140, d=vwDetents();
-    let k=0; d.forEach((x,i)=>{if(Math.abs(x-h)<Math.abs(d[k]-h))k=i;}); vwSheet(k);};
-  grip.addEventListener('pointerdown',e=>down(e,true)); sc.addEventListener('pointerdown',e=>down(e,false));
-  if(window.__vwDrag){window.removeEventListener('pointermove',window.__vwDrag.move); window.removeEventListener('pointerup',window.__vwDrag.up);
-    window.removeEventListener('pointercancel',window.__vwDrag.up);}
-  window.__vwDrag={move,up};
-  window.addEventListener('pointermove',move,{passive:false}); window.addEventListener('pointerup',up); window.addEventListener('pointercancel',up);
-  // полная остановка: список у начала и жест вниз — на половину
-  let ty=null; sc.addEventListener('touchstart',e=>{ty=+sd.dataset.pos===3&&sc.scrollTop<=0?e.touches[0].clientY:null;},{passive:true});
-  sc.addEventListener('touchmove',e=>{if(ty!==null&&e.touches[0].clientY-ty>40){ty=null; vwSheet(2);}},{passive:true});
-  // тап по свёрнутой плашке — шторка до peek: видна полная плашка и главное действие
-  const pl=document.getElementById('vsum'); if(pl)pl.onclick=()=>{const vw=document.querySelector('#shot .vw'); if(vw&&vw.classList.contains('vmini'))vwSheet(1);};
-  // сцена подстраивается, когда шторка доехала (на слабом телефоне анимация дольше таймера)
-  sd.addEventListener('transitionend',e=>{if(e.propertyName!=='height')return; const w=document.querySelector('#shot .shotwrap');
-    if(w&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode===w)liveFit(w);});
-  if(!window.__vwResize){window.__vwResize=1; window.addEventListener('resize',()=>{const x=document.getElementById('vside'); if(x)vwSheet(+x.dataset.pos);});}
+      setTimeout(()=>sc.removeEventListener('click',kill,{capture:true}),350);}};
+  // ручка — указатель с захватом: тянет всегда, второй палец игнорируется
+  grip.addEventListener('pointerdown',e=>{if(!VW_PHONE()||st)return; begin(e.clientY,e.pointerId,true); try{grip.setPointerCapture(e.pointerId);}catch(_){}});
+  grip.addEventListener('pointermove',e=>{if(!st||e.pointerId!==st.id)return; if(!st.moved&&Math.abs(e.clientY-st.y0)<6)return; drag(e.clientY);});
+  grip.addEventListener('pointerup',e=>{if(st&&e.pointerId===st.id)end(false);});
+  ['pointercancel','lostpointercapture'].forEach(n=>grip.addEventListener(n,e=>{if(st&&st.grip&&e.pointerId===st.id)end(true);}));
+  // список — сенсорные события: решение «шторка или прокрутка» принимается до нативной прокрутки
+  sc.addEventListener('touchstart',e=>{if(!VW_PHONE()||st||e.touches.length>1)return;
+    const t=e.touches[0]; begin(t.clientY,'touch',false); st.taken=false; st.top0=sc.scrollTop;},{passive:true});
+  sc.addEventListener('touchmove',e=>{if(!st||st.grip)return; if(e.touches.length>1){end(true); return;}
+    const y=e.touches[0].clientY, dy=y-st.y0, full=+sd.dataset.pos===3;
+    if(!st.taken){if(Math.abs(dy)<6)return;
+      // открытая шторка: вниз от начала списка — шторка; иначе — прокрутка списка
+      if(full&&!(sc.scrollTop<=0&&dy>0)){st=null; return;}
+      st.taken=true;}                  // путь пальца — с начала касания: шторка не «теряет» первые пиксели
+    if(e.cancelable)e.preventDefault(); drag(y);},{passive:false});
+  sc.addEventListener('touchend',()=>{if(st&&!st.grip)end(false);});
+  sc.addEventListener('touchcancel',()=>{if(st&&!st.grip)end(true);});
+  // поворот, клавиатура, адресная строка — края заново, когда жест не идёт
+  if(!window.__vwResize){window.__vwResize=1;
+    const rl=()=>{if(!st&&document.getElementById('vside'))vwLayout();};
+    window.addEventListener('resize',rl); if(window.visualViewport){visualViewport.addEventListener('resize',rl);}}
 }
+// ПУЗЫРЬ ПЛАШКИ (v4): плашка — одна строка «Остаток ⓘ · N из M»; ⓘ — расшифровка: сертификат, выбрано, остаток, доплаты за отделку
+document.addEventListener('click',e=>{const b=e.target&&e.target.closest&&e.target.closest('.vpl-i');
+  const bub=document.getElementById('vplBub');
+  if(b){e.stopPropagation(); if(bub)bub.hidden=!bub.hidden; b.setAttribute('aria-expanded',String(bub&&!bub.hidden)); return;}
+  if(bub&&!bub.hidden&&!(e.target.closest&&e.target.closest('#vplBub')))bub.hidden=true;});
 // ТАП ПО МЕБЕЛИ (владелец 16.10): предмет выделяется на сцене (тёплая рамка и подсветка), шторка открывается до половины,
 // список прокручивается к его строке, строка подсвечивается; тап по пустому месту снимает выделение
 function vwSelect(idx){
@@ -4163,7 +4197,10 @@ function vwMount(s){
   shot.classList.toggle('nolive',LIVE.ok===false); shot.classList.toggle('vwalk',VW.mode==='walk');
   const side=document.getElementById('vscroll'), capEl=shot.querySelector('.cap'); if(side&&capEl)side.appendChild(capEl);
   const vs=document.getElementById('vsum'); if(vs){vs._vals=null; vwSumUpdate();}
-  let pos=1; try{const v=sessionStorage.getItem('remlab-sheet-pos'); if(v!=null)pos=+v||0;}catch(e){} vwSheet(pos);
+  // шторка v4: раскладка один раз, положение — прежнее в этой вкладке (по умолчанию чуть открыта: видно главное действие)
+  let pos=1; try{const v=sessionStorage.getItem('remlab-sheet-pos'); if(v!=null)pos=+v||0;}catch(e){}
+  VW.sheetVis=0; const sd0=document.getElementById('vside'); if(sd0)sd0.dataset.pos='';
+  vwLayout(); vwSheet(pos);
   vwHist();
   shot.querySelectorAll('[data-vm]').forEach(b=>b.onclick=()=>vwMode(b.dataset.vm));
   vwModeUi();
@@ -4184,9 +4221,9 @@ function vwMount(s){
   const sd=document.getElementById('vside');
   // подсказка — один раз на устройство: «подскок» шторки и 3 секунды текста
   if(window.innerWidth<=700){let seen=false; try{seen=!!localStorage.getItem('remlab-sheet-hint-v1');}catch(e){}
-    if(!seen&&sd){sd.classList.add('bump'); const t=document.createElement('div'); t.className='vtip';
-      t.textContent='Потяните или нажмите — товары и замены'; t.style.bottom=(sd.getBoundingClientRect().height+14)+'px';
-      shot.appendChild(t); setTimeout(()=>{t.remove(); sd.classList.remove('bump');},3000);
+    if(!seen&&sd){const t=document.createElement('div'); t.className='vtip';
+      t.textContent='Потяните или нажмите — товары и замены'; t.style.bottom=((window.innerHeight-sd.getBoundingClientRect().top)+14+((document.getElementById('vsum')||{}).offsetHeight||0))+'px';
+      shot.appendChild(t); setTimeout(()=>t.remove(),3000);
       try{localStorage.setItem('remlab-sheet-hint-v1','1');}catch(e){}}}
   // увеличить картинку: «⤢» или тап по ней; свайп по кадру — другой ракурс
   const zb=document.getElementById('vzBtn'), mi=shot.querySelector('.shotwrap img.vmain');
@@ -4203,10 +4240,8 @@ function vwModeUi(){
   shot.querySelectorAll('[data-vm]').forEach(x=>x.classList.toggle('on',x.dataset.vm===m));
   shot.classList.toggle('vwalk',m==='walk'); shot.classList.toggle('vplan',m==='plan'); shot.classList.toggle('vphoto',m==='photo');
   shot.classList.toggle('vmany',vwCamN()>1);
-  // «План» — шторка не выше peek (план читается), прежняя остановка возвращается при выходе (Codex п.3)
-  const sd=document.getElementById('vside');
-  if(sd&&VW_PHONE()){const pos=+sd.dataset.pos;
-    if(m==='plan'&&pos>1){VW.sheetBack=pos; vwSheet(1);} else if(m!=='plan'&&VW.sheetBack!=null){const b=VW.sheetBack; VW.sheetBack=null; vwSheet(b);} else vwSheet(pos);}
+  // область сцены зависит от режима («3D» — на весь экран), шторка остаётся, где была (v4)
+  if(VW_PHONE())requestAnimationFrame(()=>vwLayout());
   const cta=document.getElementById('vCta');
   if(cta){cta.hidden=m==='walk'; cta.textContent=m==='plan'?(EN?'Edit the plan':'Изменить план'):(EN?'Make it realistic':'Сделать реалистичнее');}
   const dots=document.getElementById('vDots'); if(dots)[...dots.children].forEach((d,k)=>d.classList.toggle('on',k===VW.photo));
