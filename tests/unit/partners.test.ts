@@ -127,6 +127,8 @@ describe("опции отделки: пол", () => {
     expect(g.settlement).toBe("developer_surcharge");
     expect(g.slotIds).toEqual(["floor"]);
     expect(g.variants.every((v) => v.materialId && mats.has(v.materialId))).toBe(true);
+    // материал едет в карточке целиком, адреса карт — от корня сайта (окно демо живёт в /demo/)
+    expect(g.variants.every((v) => v.material?.id === v.materialId && String(v.material?.baseColorUrl).startsWith("/flat3d/materials/"))).toBe(true);
     expect(g.variants[0]!.price.type).toBe("included");
     expect(g.variants[1]!.price).toMatchObject({ type: "surcharge", amount: 18000 });
   });

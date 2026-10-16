@@ -1769,6 +1769,63 @@ function basket(){                    // СПИСОК ТОВАРОВ КОМНА�
 // цена и сертификат приходят карточкой `/api/apartments/<id>` из `data/partners/*.json` (там же —
 // откуда взята демонстрационная цена). id квартиры: ссылка менеджера → `?flat=` → данные сборки.
 let FLAT=null;
+// ——— ОПЦИИ ОТДЕЛКИ ЗАСТРОЙЩИКА В ОКНЕ ВАРИАНТА (план demo-06): пол — группа опций карточки квартиры (`FLAT.options`,
+// `lib/partners/registry.ts`). Выбор — пары «группа → вариант», только отличные от умолчания (канон — как у сервера,
+// `lib/partners/options.ts`); он входит в номер состояния (s2), историю, коллекцию и запрос кадра. Деньги — общим ядром
+// `settle` из бандла движка (`lib/configurator/settlement.ts`): пол RF — доплата застройщику, в сертификат не идёт.
+let DEVOPT={};
+const DEV_KINDS=['flooring'];          // группы, которые ведёт окно (кухня — своей вкладкой, b2b-10)
+function devGroups(){ return ((FLAT&&FLAT.options)||[]).filter(g=>DEV_KINDS.includes(g.kind)); }
+function devPick(g){ return g.variants.find(x=>x.id===DEVOPT[g.id])||g.variants.find(x=>x.id===g.defaultVariantId)||g.variants[0]; }
+function devCanon(o){ const out={};
+  if(!FLAT)return Object.assign({},o||{});   // карточки ещё нет — сверим, когда придёт (`flatcard` ниже)
+  devGroups().forEach(g=>{const v=o&&o[g.id]; if(v&&v!==g.defaultVariantId&&g.variants.some(x=>x.id===v))out[g.id]=v;}); return out; }
+function devFloorGroup(){ return devGroups().find(g=>(g.slotIds||[]).includes('floor'))||null; }
+function devFloor(){ const g=devFloorGroup(), v=g&&devPick(g); return (v&&v.material)||null; }
+function devLines(){ return devGroups().map(g=>{const v=devPick(g), p=v.price||{};
+  return {amount:p.amount||0, settlement:g.settlement, onRequest:p.type==='on_request', label:g.title, group:g.title};})
+  .filter(l=>l.amount>0||l.onRequest); }
+function devApply(){ if(typeof LIVE!=='undefined'&&LIVE.scene)LIVE.scene.setFloor(devFloor()); }
+// пять картинок пола — заранее: клик по образцу меняет пол без ожидания сети (на телефоне — только цвет, без карт рельефа)
+const DEV_PRE=new Set();
+function devPreload(){ const g=devFloorGroup(); if(!g)return;
+  g.variants.forEach(v=>{const m=v.material||{};
+    [m.baseColorUrl].concat(isTouchUI()?[]:[m.normalUrl,m.roughnessUrl,m.aoUrl]).filter(Boolean).forEach(u=>{
+      if(DEV_PRE.has(u))return; DEV_PRE.add(u); const im=new Image(); im.decoding='async'; im.src=u;});}); }
+function devFloorHtml(){
+  const g=devFloorGroup(); if(!g)return '';
+  const cur=devPick(g), EN=LANG==='en';
+  const short=v=>v.price.type==='included'?(EN?'included':'в цене'):v.price.text;
+  return `<div class="vfl-h"><b>${escHtml(g.title)}</b> · ${EN?'from the developer':'от застройщика'}</div>`+
+    `<div class="vfl-row" role="radiogroup" aria-label="${escHtml(g.title)}">`+g.variants.map(v=>{const m=v.material||{}, on=v.id===cur.id;
+      return `<button class="vfl${on?' on':''}" data-fl="${escHtml(v.id)}" role="radio" aria-checked="${on}" title="${escHtml(v.name)}">`+
+        `<i style="background-color:${escHtml(m.colorHex||'#c8b49a')};background-image:url('${escHtml(m.previewUrl||m.baseColorUrl||'')}')"></i>`+
+        `<small>${escHtml(short(v))}</small></button>`;}).join('')+`</div>`+
+    `<div class="vfl-cur">${escHtml(cur.name)} — ${escHtml(cur.price.text)}</div>`;
+}
+function devDraw(){ const b=document.getElementById('vfloor'); if(!b)return; b.innerHTML=devFloorHtml(); devPreload(); }
+function devSet(gid, vid){
+  const next=devCanon(Object.assign({},DEVOPT,{[gid]:vid}));
+  if(JSON.stringify(next)===JSON.stringify(DEVOPT))return;
+  DEVOPT=next; devApply(); devDraw();
+  histPush();              // номер состояния сменился: сумма, история и эскиз обновятся по `remlab:hist`
+  document.dispatchEvent(new CustomEvent('remlab:act',{detail:'floor_pick'}));
+  // ТЕЛЕФОН: раскрытая шторка закрывает пол — опускаем её, чтобы новый пол был виден сразу, и коротко говорим, что выбрано
+  const sd=document.getElementById('vside'), shot=document.getElementById('shot');
+  if(window.innerWidth<=700&&sd&&shot&&+sd.dataset.pos>0){
+    vwSheet(0);
+    const g=devFloorGroup(), v=g&&devPick(g);
+    if(v){const t=document.createElement('div'); t.className='vtip';
+      t.style.cssText='white-space:normal;text-align:center;max-width:calc(100% - 32px)';
+      t.textContent=v.name+(v.price.type==='included'?'':' · '+v.price.text);
+      setTimeout(()=>{t.style.bottom=(sd.getBoundingClientRect().height+14)+'px'; shot.appendChild(t); setTimeout(()=>t.remove(),2600);},300);}
+  }
+}
+document.addEventListener('click',e=>{const b=e.target&&e.target.closest&&e.target.closest('[data-fl]'); if(!b)return;
+  const g=devFloorGroup(); if(g)devSet(g.id,b.dataset.fl);});
+// карточка пришла (или сменилась квартира) — выбор сверяем с её группами, пол живой сцены и блок — по ней
+document.addEventListener('flatcard',()=>{DEVOPT=devCanon(DEVOPT); devApply(); devDraw();
+  const v=document.getElementById('vsum'); if(v&&typeof vwSum==='function')v.innerHTML=vwSum();});
 // ЯЗЫК ПОКАЗА (b2b-11): `?lang=` → выбор человека → язык браузера. Меняет ТОЛЬКО язык (ADR-0254): рынок,
 // валюта и сертификат — из карточки застройщика. Перевод интерфейса — слой `I18N` в конце страницы.
 const LANG=(()=>{if(window.__EMBED&&(window.__EMBED.lang==='en'||window.__EMBED.lang==='ru'))return window.__EMBED.lang; // встроено: язык задаёт сайт застройщика
@@ -2196,7 +2253,9 @@ function payload(){
   // ДЕКОР УХОДИТ В ЗАПРОС (владелец 02.09). Он лежал в данных варианта, но страница его не
   // отправляла — значит третья картинка «что расставить» не собиралась НИ РАЗУ, и вазы в кадр
   // не попадали. Товар куплен, а на фото его нет.
-  return {room:D.room, style:v.style||'', variant:v.title||'', decor:v.decor||[],
+  // пол и прочие опции застройщика (demo-06): выбор — парами, пол — id материала для кадра
+  return {room:D.room, style:v.style||'', variant:v.title||'', decor:v.decor||[], developerOptions:clone(DEVOPT),
+    floor:(devFloor()||{}).id||null,
     cams:(cams||loadCams()).map(c=>({name:c.name,x:Math.round(c.x),y:Math.round(c.y),
       rot:Math.round(c.rot||0),fov:c.fov||72,pose:POSE_VER})),
     // место и поворот — округлённые так же, как в номере состояния (demo-02, Codex 14.10): иначе две разные
@@ -3542,7 +3601,9 @@ window.addEventListener('resize',()=>{if(D)draw();});
    рядом — иначе каждая ночная пересборка «устаревала» бы все кадры). Два одинаковых стула, поменянные местами, — то же
    состояние; разные — другое. */
 // STATEID START
-function stateCanon(items, decor, room){
+// opts — выбор в группах опций застройщика {группа: вариант} (demo-06, пол): только отличные от умолчания. Пусто — прежний
+// канон v1 и номер s1 (кадры и коллекции без выбора не «устаревают»); есть выбор — канон v2 с парами и номер s2.
+function stateCanon(items, decor, room, opts){
   const r=v=>{const n=Math.round(+v||0); return n===0?0:n;};
   const rot=v=>{const n=((Math.round(+v||0)%360)+360)%360; return n===0?0:n;};
   const base=s=>String(s||'').replace(/\s+\d+$/,'');
@@ -3552,27 +3613,28 @@ function stateCanon(items, decor, room){
     .concat((decor||[]).map(x=>JSON.stringify(['декор',base(x.role),(x.sku||{}).sid||''])));
   ent.sort();
   const rm=room||{}, op=(rm.openings||[]).map(o=>JSON.stringify([o.kind||'',o.wall||'',r(o.offset_cm),r(o.width_cm),r(o.sill_cm),r(o.height_cm)])).sort();
-  return JSON.stringify(['v1',[r(rm.w),r(rm.d)],op,ent]);
+  const pairs=Object.keys(opts||{}).filter(k=>opts[k]).sort().map(k=>[k,String(opts[k])]);
+  return pairs.length?JSON.stringify(['v2',[r(rm.w),r(rm.d)],op,ent,pairs]):JSON.stringify(['v1',[r(rm.w),r(rm.d)],op,ent]);
 }
 function fnv64(bytes, seed){            // FNV-1a 64 бита по байтам UTF-8 (BigInt, маска 64)
   let h=BigInt.asUintN(64, seed);
   for(const b of bytes){h^=BigInt(b); h=BigInt.asUintN(64, h*0x100000001b3n);}
   return h.toString(16).padStart(16,'0');
 }
-function stateIdOf(items, decor, room){
-  const bytes=new TextEncoder().encode(stateCanon(items, decor, room));
+function stateIdOf(items, decor, room, opts){
+  const canon=stateCanon(items, decor, room, opts), bytes=new TextEncoder().encode(canon);
   // 128 бит = два FNV-64 с разными началами: номер — ключ кэша и связи «кадр ↔ список», не криптография (Codex 14.10)
-  return 's1-'+fnv64(bytes, 0xcbf29ce484222325n)+fnv64(bytes, 0x84222325cbf29ce4n);
+  return (canon.startsWith('["v2"')?'s2-':'s1-')+fnv64(bytes, 0xcbf29ce484222325n)+fnv64(bytes, 0x84222325cbf29ce4n);
 }
 // STATEID END
-function curStateId(){ return stateIdOf(items, variantDecor(allVariants()[cur]||{}), D&&D.room); }
+function curStateId(){ return stateIdOf(items, variantDecor(allVariants()[cur]||{}), D&&D.room, DEVOPT); }
 
 // ИСТОРИЯ — НА ВАРИАНТ, В ПАМЯТИ СТРАНИЦЫ: снимок после каждой правки (замена, отпускание перетаскивания, поворот), до 30
 // шагов; новая правка после «назад» стирает «вперёд»; одинаковые соседние состояния не дублируются (Codex 14.10).
 const HIST={}, HIST_MAX=30;
 function histOf(){const vid=curVid(); return HIST[vid]||(HIST[vid]={stack:[],at:-1});}
 function histSnap(){const v=allVariants()[cur]||{};
-  return {items:clone(items), decor:clone((v.decor||[]).map(x=>x.sku||null)), stateId:curStateId(), ts:Date.now()};}
+  return {items:clone(items), decor:clone((v.decor||[]).map(x=>x.sku||null)), dev:clone(DEVOPT), stateId:curStateId(), ts:Date.now()};}
 function histPush(){
   if(!D||!items)return;
   const h=histOf(), s=histSnap();
@@ -3588,6 +3650,7 @@ function histGo(step){
   h.at=to; const s=h.stack[to], v=allVariants()[cur]||{};
   items=clone(s.items); sel=null;
   (v.decor||[]).forEach((x,i)=>{if(s.decor[i]!==undefined)x.sku=clone(s.decor[i]);});
+  if(s.dev&&JSON.stringify(s.dev)!==JSON.stringify(DEVOPT)){DEVOPT=clone(s.dev); devApply();}   // пол — часть состояния
   draw(); try{basket(); showSwap(); refreshShotList();}catch(e){}
   document.dispatchEvent(new CustomEvent('remlab:hist',{detail:{at:h.at,n:h.stack.length,stateId:s.stateId}}));
   return true;
@@ -3654,6 +3717,17 @@ function histFwd(){return histGo(1);}
 .vcta{width:100%;margin-top:10px;display:flex;flex-direction:column;align-items:center;border-radius:999px}
 .vcta small{font-size:12.5px;font-weight:400;opacity:.9}
 .vlist{flex:1;overflow:auto;overscroll-behavior:contain;padding:0 18px}
+/* ПОЛ ОТ ЗАСТРОЙЩИКА (demo-06): пять образцов с ценой над списком товаров; на телефоне — в шторке, тем же блоком */
+.vfloor:not(:empty){padding:12px 0 12px;border-bottom:1px solid var(--line)}
+.vfl-h{font-size:14px;color:var(--muted);margin-bottom:8px}.vfl-h b{color:var(--ink);font-size:15px}
+.vfl-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.vfl{display:flex;flex-direction:column;align-items:center;gap:4px;padding:0;border:0;background:none;cursor:pointer;min-height:44px}
+.vfl i{display:block;width:100%;aspect-ratio:1;border-radius:10px;background-size:cover;background-position:center;
+ box-shadow:inset 0 0 0 1px var(--line)}
+.vfl.on i{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--accent)}
+.vfl small{font-size:12px;color:var(--muted);white-space:nowrap}.vfl.on small{color:var(--ink);font-weight:600}
+.vfl-cur{font-size:13.5px;color:var(--ink);margin-top:8px}
+.vsum small.vdev{color:var(--ink)}
 #shot.v2 .pinlist .total{display:none}
 #shot.v2:not(.nolive) .restale{display:none}
 #shot.v2 .cap{border-top:1px solid var(--line)}
@@ -3706,9 +3780,18 @@ function vwSum(){
   const v=allVariants()[cur]||{}, n=variantCount(v), sum=variantPrice(v), EN=LANG==='en';
   const cert=(FLAT&&FLAT.certificate&&FLAT.certificate.amount)||0;
   const word=EN?'items':(n%10===1&&n%100!==11?'товар':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'товара':'товаров'));
-  const rest=cert?(cert>=sum?(EN?'certificate balance ':'остаток по сертификату ')+money(cert-sum)
-    :(EN?'top-up ':'доплата ')+money(sum-cert)):'';
-  return `<b>${n} ${word} · ${money(sum)}</b>${rest?`<small>${rest}</small>`:''}`;
+  // ДЕНЬГИ — ОБЩИМ ЯДРОМ (`settle`, demo-06): мебель — в сертификат, пол RF — доплата застройщику отдельной строкой, UK — в
+  // цену квартиры. Пока бандл движка не пришёл — прежний счёт мебели, без строк опций (формулу не копируем)
+  const S=window.RemlabScene&&window.RemlabScene.settle, dl=devLines();
+  const t=S?S([{amount:sum,settlement:'allowance'}].concat(dl),cert):null;
+  const over=t?t.allowanceOverage:Math.max(0,sum-cert);
+  const rest=cert?(over?(EN?'furniture top-up ':'доплата за мебель ')+money(over)
+    :(EN?'certificate balance ':'остаток по сертификату ')+money(cert-(t?t.allowanceCovered:sum))):'';
+  const grp=k=>dl.filter(l=>l.settlement===k).map(l=>String(l.group).toLowerCase()).join(', ');
+  const extra=t?[t.developerSurcharge?`<small class="vdev">+${money(t.developerSurcharge)} — ${EN?'paid to the developer for the ':'доплата застройщику за '}${grp('developer_surcharge')}${cert?(EN?', not from the allowance':', не из сертификата'):''}</small>`:'',
+    t.propertyPriceDelta?`<small class="vdev">+${money(t.propertyPriceDelta)} — ${EN?'added to the property price: ':'к цене квартиры: '}${grp('property_price')}</small>`:'',
+    t.onRequest.length?`<small>${EN?'price on request: ':'цена уточняется у менеджера: '}${t.onRequest.map(escHtml).join(', ')}</small>`:''].join(''):'';
+  return `<b>${n} ${word} · ${money(sum)}</b>${rest?`<small>${rest}</small>`:''}${extra}`;
 }
 function vwHtml(s, navs, list){
   const EN=LANG==='en';
@@ -3727,7 +3810,7 @@ function vwHtml(s, navs, list){
     `<div class="vside" id="vside" data-pos="0"><div class="vgrip" id="vgrip"><i></i><span class="vchip" id="vchip">Товары и замены ⌃</span></div>`+
     `<div class="vtop"><div class="vsum" id="vsum">${vwSum()}</div>`+
     `<button class="btn primary vcta" id="vCta">Сделать фотореалистичное фото<small>нейросеть · 2–4 мин · бесплатно для вас</small></button></div>`+
-    `<div class="vlist" id="vlist">${list}</div></div></div>`;
+    `<div class="vlist" id="vlist"><div class="vfloor" id="vfloor">${devFloorHtml()}</div>${list}</div></div></div>`;
 }
 function vwHist(){
   const h=histOf(), t=document.getElementById('vhTxt'); if(!t)return;
@@ -3960,11 +4043,12 @@ function liveEngine(){
   LIVE.loading=(async()=>{
     try{
       const m=await (await fetch('lib/scene.json',{cache:'no-store'})).json();
-      if(!window.RemlabScene)window.RemlabScene=await import(new URL('lib/'+m.file,location.href).href);
+      if(!window.RemlabScene){window.RemlabScene=await import(new URL('lib/'+m.file,location.href).href);
+        const vs=document.getElementById('vsum'); if(vs)vs.innerHTML=vwSum();}       // ядро денег пришло — строки опций в сумме
       let rt; try{rt=(await (await fetch('rt-meshes.json',{cache:'no-store'})).json()).meshes;}catch(e){}
       const cv=document.createElement('canvas'); cv.className='livecv'; cv.width=896; cv.height=597;
       const sc=window.RemlabScene.createDemoScene(cv,{room:D.room, items:clone(items), decor:liveDecor(), base:location.href,
-        runtimeMeshes:rt, lite:isTouchUI()});
+        runtimeMeshes:rt, lite:isTouchUI(), floor:devFloor()||undefined});
       sc.on('contextlost',()=>liveOff('видеоконтекст потерян'));
       // крутилка считает модели: «Загружаем модели 3 из 8» при первом открытии, «Загружаем модель…» при замене
       sc.on('progress',(l,t)=>{if(LIVE.state==='warming')vwLoad(true,(LANG==='en'?'Loading models ':'Загружаем модели ')+l+(LANG==='en'?' of ':' из ')+t);
@@ -3979,7 +4063,8 @@ function liveEngine(){
       if(!LIVE.force&&!pr.software&&!isTouchUI()&&pr.p95Ms>60&&pr.p95Ms<=120){
         sc.dispose();
         const cv2=document.createElement('canvas'); cv2.className='livecv'; cv2.width=896; cv2.height=597;
-        const sc2=window.RemlabScene.createDemoScene(cv2,{room:D.room, items:clone(items), decor:liveDecor(), base:location.href, runtimeMeshes:rt, lite:true});
+        const sc2=window.RemlabScene.createDemoScene(cv2,{room:D.room, items:clone(items), decor:liveDecor(), base:location.href, runtimeMeshes:rt, lite:true,
+          floor:devFloor()||undefined});
         sc2.on('contextlost',()=>liveOff('видеоконтекст потерян'));
         sc2.setSize(896,597); await sc2.ready;
         if(LIVE.ok===false){sc2.dispose(); return null;}
@@ -4130,7 +4215,7 @@ async function liveShow(){
   var _pc=window.priceCard; if(typeof _pc==='function')window.priceCard=priceCard=function(){var r=_pc.apply(this,arguments);if(CARD){var a=document.getElementById('pcMort'),c=document.getElementById('pcCons');if(a)a.onclick=function(){contactSheet('mortgage');};if(c)c.onclick=function(){contactSheet('consult');};}return r;};
   var _pv=window.pickVariant; if(typeof _pv==='function')window.pickVariant=pickVariant=function(i){var r=_pv.apply(this,arguments);ev('variant_view',state());return r;};
   var _to=window.tryOn; if(typeof _to==='function')window.tryOn=tryOn=function(){var r=_to.apply(this,arguments);ev('item_swap',state());return r;};
-  document.addEventListener('remlab:act',function(e){if(e.detail==='item_move'||e.detail==='share')ev(e.detail,state());});
+  document.addEventListener('remlab:act',function(e){if(e.detail==='item_move'||e.detail==='share'||e.detail==='floor_pick')ev(e.detail,state());});
   // менеджер смотрит сам (`&mgr=1`) — его 3D и коллекции не засчитываются покупателю (verify b2b-03)
   var _s3=window.sync3dLink; if(typeof _s3==='function'&&!PREVIEW)window.sync3dLink=sync3dLink=function(){var r=_s3.apply(this,arguments);
     ['pc3d','swap3d'].forEach(function(id){var a=document.getElementById(id);if(a&&a.href.indexOf('s=')<0)a.href+=(a.href.indexOf('?')<0?'?':'&')+'s='+SEND;});return r;};
@@ -4162,7 +4247,7 @@ async function liveShow(){
   var _pv=window.pickVariant; if(typeof _pv==='function')window.pickVariant=pickVariant=function(i){var r=_pv.apply(this,arguments);
     if(i!==lastV){lastV=i;hit('variant_view');}return r;};
   var _to=window.tryOn; if(typeof _to==='function')window.tryOn=tryOn=function(){var r=_to.apply(this,arguments);hit('item_swap');return r;};
-  document.addEventListener('remlab:act',function(e){if(e.detail==='item_move'||e.detail==='share'||e.detail==='stale_link')hit(e.detail);});
+  document.addEventListener('remlab:act',function(e){if(e.detail==='item_move'||e.detail==='share'||e.detail==='stale_link'||e.detail==='floor_pick')hit(e.detail);});
   function boot(){if(typeof D==='undefined'||!D)return setTimeout(boot,300);hit('designer_open');}
   boot();
 })();
@@ -4318,7 +4403,7 @@ async function liveShow(){
     return {id:'c:'+c.id, cid:c.id, mine:true, own:!!own, baseVariant:c.baseVariant,
       style:label+(c.style?' · '+c.style:''), title:label,
       items:c.items.map(function(i){return Object.assign({},i,{sku:fix(i.sku)});}),
-      decor:(c.decor||[]).map(function(d){return {role:d.role, sku:fix(d.sku)};}), shot:c.shot||''};
+      decor:(c.decor||[]).map(function(d){return {role:d.role, sku:fix(d.sku)};}), shot:c.shot||'', dev:c.developerOptions||{}};
   }
   // ЧЕРНОВОЙ КАДР КОЛЛЕКЦИИ В ФОНЕ (demo-03, 2.13): кадра этой расстановки ещё нет — снимаем бесплатный черновик
   // (наша 3D-сцена, без модели) и один раз прикрепляем к коллекции. `no_registry` — кадр не уходит в общую ленту
@@ -4343,7 +4428,10 @@ async function liveShow(){
   function fetchOne(id){return fetch('/api/collections/'+id,{cache:'no-store'}).then(function(r){return r.ok?r.json():null;})
     .then(function(j){return j&&j.ok?asVariant(j.collection):null;}).catch(function(){return null;});}
   function openId(id){var i=allVariants().findIndex(function(v){return v.cid===id;});
-    if(i>=0){cur=i;load();showSwap();drawColl(true);showTab('room');
+    if(i>=0){cur=i;
+      // пол коллекции — её состояние: применяем до загрузки, чтобы номер состояния совпал с сохранённым (demo-06)
+      var dv=allVariants()[i].dev; if(dv){DEVOPT=devCanon(dv); devApply(); devDraw();}
+      load();showSwap();drawColl(true);showTab('room');
       // человек пришёл по ссылке ради этой расстановки — сразу открываем её состав (как «Открыть»), а не витрину
       setTimeout(function(){try{openSwapFull();}catch(_){}},200);}}
   function boot(){
@@ -4370,7 +4458,7 @@ async function liveShow(){
         rot:num(i.rot),w:num(i.w),d:num(i.d)}; if(i.h)o.h=num(i.h); if(i.elev)o.elev=num(i.elev); var s=pick(i.sku); if(s)o.sku=s; return o;}),
       decor:(variantDecor(v)||[]).filter(function(x){return x.sku&&x.sku.sid;}).slice(0,30).map(function(x){return {role:String(x.role).slice(0,40),sku:pick(x.sku)};}),
       cams:(Array.isArray(cams)?cams:[]).slice(0,4).map(function(c){return {x:num(c.x),y:num(c.y),rot:num(c.rot||c.a||0)};}),
-      shot:currentShotPath()||undefined, stateId:curStateId()};
+      shot:currentShotPath()||undefined, stateId:curStateId(), schemaVersion:2, developerOptions:clone(DEVOPT)};
   }
   function save(){
     var btn=document.getElementById('collSave'); if(btn){btn.disabled=true;}

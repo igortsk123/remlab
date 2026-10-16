@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import zlib
 import os
 import sys
 
@@ -206,10 +207,9 @@ def gen_planks(seed: int, base_rgb: tuple[int, int, int], plank_cm: float, tile_
 
 def gen_herringbone(seed: int, base_rgb: tuple[int, int, int], plank_cm: float, tile_cm: float,
                     contrast: float = 0.22) -> tuple[np.ndarray, np.ndarray]:
-    """Настоящая ёлочка: планки 1:4, попеременно ±45°, укладка блоками.
+    """Модульный паркет («квадраты», basket weave): шахматка квадратных блоков по 4 планки, полосы по X либо по Y.
 
-    Рисуем в координатах, повёрнутых на 45°: ёлочка — это шахматка из квадратных блоков,
-    внутри которых полосы идут либо по X, либо по Y. Так узор честно замыкается по краям.
+    Это НЕ ёлочка (прежняя строка «настоящая ёлочка» здесь была неверной — demo-06, 16.10); ёлочка — `gen_herringbone45`.
     """
     px_per_cm = TILE / tile_cm
     pw = max(6, int(round(plank_cm * px_per_cm)))
@@ -246,6 +246,68 @@ def gen_herringbone(seed: int, base_rgb: tuple[int, int, int], plank_cm: float, 
                     height[by : by + block, bx + k : bx + k + g] *= 0.3
             col[by : by + block, bx : bx + g, :] *= 0.5   # граница блока
             col[by : by + g, bx : bx + block, :] *= 0.5
+    return np.clip(col, 0, 255).astype(np.uint8), height.astype(np.uint8)
+
+
+def herringbone45_tile_cm(plank_w_cm: float, ratio: int, periods: int = 2) -> float:
+    """Размер бесшовного тайла ёлочки: решётка узора после поворота на 45° — прямоугольная с шагом ratio·√2·w."""
+    return periods * ratio * math.sqrt(2.0) * plank_w_cm
+
+
+def gen_herringbone45(seed: int, base_rgb: tuple[int, int, int], plank_w_cm: float, ratio: int,
+                      tile_cm: float, contrast: float = 0.22, gap_cm: float = 0.3) -> tuple[np.ndarray, np.ndarray]:
+    """Ёлочка (demo-06): планки w×(ratio·w) под ±45° к краям тайла, «ёлочкой» вдоль оси комнаты.
+
+    В координатах планок (поворот на −45°) это классическая ёлочка из горизонтальных H и вертикальных V планок с
+    решёткой переносов t1=(1,1), t2=(n,−n) (в ширинах планки) и V, сдвинутой на (n, 1−n) от H — проверено перебором
+    покрытия плоскости. После поворота решётка прямоугольная: (n·√2·w, 0) и (0, √2·w), поэтому тайл со стороной
+    `herringbone45_tile_cm` замыкается без шва; тон и волокно планки берутся по её номеру по модулю периода тайла.
+    """
+    n = int(ratio)
+    w = float(plank_w_cm)
+    periods = max(1, int(round(tile_cm / herringbone45_tile_cm(w, n, 1))))
+    rng = _rng(seed)
+    grain = _wood_grain(seed + 13)
+    px_per_cm = TILE / tile_cm
+    c = (np.arange(TILE, dtype=np.float64) + 0.5) / px_per_cm
+    x, y = np.meshgrid(c, c)                      # y — строки (вниз), x — столбцы
+    px = (x + y) / math.sqrt(2.0) / w             # координаты планок, в ширинах
+    py = (y - x) / math.sqrt(2.0) / w
+    # H-планка: [i+jn, i+jn+n) × [i−jn, i−jn+1)
+    k = np.floor(py)
+    rh = np.mod(px - k, 2 * n)
+    is_h = rh < n
+    jh = np.floor((px - k) / (2 * n))
+    ih = k + jh * n
+    # V-планка: H-решётка, сдвинутая на (a, b) = (n, 1−n): [Lx+a, Lx+a+1) × [Ly+b, Ly+b+n)
+    a, b = n, 1 - n
+    q, wv = px - a, py - b
+    kv = np.floor(q)
+    rv = np.mod(wv - kv, 2 * n)
+    jv = -np.floor((wv - kv) / (2 * n))
+    iv = kv - jv * n
+    i_id = np.where(is_h, ih, iv)
+    j_id = np.where(is_h, jh, jv)
+    along = np.where(is_h, rh, rv)                # вдоль планки, 0..n
+    across = np.where(is_h, py - k, q - kv)       # поперёк, 0..1
+    # номер планки по модулю периода тайла: (T,0) = periods·t2, (0,T) = periods·n·t1
+    pid = (np.mod(i_id, periods * n) * periods + np.mod(j_id, periods)) * 2 + (~is_h)
+    count = periods * n * periods * 2
+    tones = np.clip(1.0 + rng.normal(0, contrast * 0.28, count), 0.88, 1.12)   # без «рыжих» выбросов
+    offx = rng.integers(0, TILE, count)
+    offy = rng.integers(0, TILE, count)
+    pid = pid.astype(np.int64)
+    # волокно `_wood_grain` вытянуто по строкам (оси y) — вдоль планки берём y, поперёк — x
+    gy = (np.floor(along * w * px_per_cm).astype(np.int64) + offy[pid]) % TILE
+    gx = (np.floor(across * w * px_per_cm).astype(np.int64) + offx[pid]) % TILE
+    band = grain[gy, gx]
+    v = np.clip(tones[pid] * (1.0 + (band - 0.5) * contrast), 0.6, 1.4)
+    col = np.stack([base_rgb[ch] * v for ch in range(3)], axis=-1).astype(np.float32)
+    height = np.clip(band, 0, 1) * 255.0
+    half = gap_cm / 2.0 / w
+    seam = (np.minimum(across, 1 - across) < half) | (np.minimum(along, n - along) < half)
+    col[seam] *= 0.5
+    height[seam] *= 0.3
     return np.clip(col, 0, 255).astype(np.uint8), height.astype(np.uint8)
 
 
@@ -422,6 +484,9 @@ PRESETS: dict[str, dict] = {
                              rough=0.42, spread=0.12, nrm=1.5),
     "parquet-blocks": dict(gen="herringbone", rgb=(182, 148, 110), plank=12, tile=96, contrast=0.24,
                            ru="Паркет модульный", en="Parquet blocks", rough=0.50, spread=0.20, nrm=2.6),
+    # ёлочка (demo-06): планка 10×60 см под 45°, тайл — два периода узора (≈170 см)
+    "parquet-herringbone": dict(gen="herringbone45", rgb=(180, 144, 104), plank=10, ratio=6, contrast=0.24,
+                                ru="Паркет «Ёлочка дуб»", en="Oak herringbone parquet", rough=0.48, spread=0.20, nrm=2.4),
     "carpet-grey": dict(gen="carpet", rgb=(136, 134, 130), ru="Ковролин серый", en="Grey carpet",
                         rough=0.95, spread=0.08, nrm=1.4, tile=60),
     "carpet-beige": dict(gen="carpet", rgb=(186, 172, 150), ru="Ковролин бежевый", en="Beige carpet",
@@ -455,9 +520,14 @@ PRESETS: dict[str, dict] = {
 
 def build_preset(name: str, out_dir: str) -> dict:
     p = PRESETS[name]
-    seed = abs(hash(name)) % 10_000
+    seed = zlib.crc32(name.encode()) % 10_000   # hash() строк в Python случаен от запуска к запуску — образец плавал
     tile_cm = float(p.get("tile", 120))
-    if p["gen"] == "planks":
+    if p["gen"] == "herringbone45":       # размер тайла задаёт сам узор — иначе шов
+        tile_cm = herringbone45_tile_cm(float(p["plank"]), int(p["ratio"]))
+    if p["gen"] == "herringbone45":
+        colour, height = gen_herringbone45(seed, p["rgb"], float(p["plank"]), int(p["ratio"]), tile_cm,
+                                           float(p.get("contrast", 0.22)))
+    elif p["gen"] == "planks":
         colour, height = gen_planks(seed, p["rgb"], float(p["plank"]), tile_cm, float(p.get("contrast", 0.2)))
     elif p["gen"] == "herringbone":
         colour, height = gen_herringbone(seed, p["rgb"], float(p["plank"]), tile_cm, float(p.get("contrast", 0.22)))

@@ -184,7 +184,7 @@ export type ApartmentCard = {
     slotIds: string[];
     variants: { id: string; name: string; desc: string; image: string | null; demo: boolean;
       price: { type: OptionPricing["type"]; amount: number | null; text: string }; configuratorOptionId: string | null;
-      materialId: string | null }[];
+      materialId: string | null; material: Record<string, unknown> | null }[];
   }[];
   sources: { demoData?: string; flat3d?: string };
 };

@@ -79,6 +79,12 @@ function optionPrice(p: Partner, pr: OptionGroup["variants"][number]["pricing"],
   return { type, amount, text };
 }
 
+/** Материал отделки из каталога 3D (`data/flat3d/materials.json`); неизвестный id ловит тест реестра. */
+function materialOf(id: string): Record<string, unknown> | null {
+  const m = loadFlat3d().catalogue.materials.find((x) => x.id === id);
+  return m ? { ...m } : null;
+}
+
 function optionsCard(p: Partner, a: ApartmentRef, lang: Lang): ApartmentCard["options"] {
   const en = lang === "en";
   // выключенная у застройщика группа (владелец 14.10) покупателю не показывается и не считается (demo-06)
@@ -89,6 +95,8 @@ function optionsCard(p: Partner, a: ApartmentRef, lang: Lang): ApartmentCard["op
       id: v.id, name: en ? v.nameEn : v.nameRu, desc: en ? v.descEn : v.descRu, image: v.image ?? null, demo: v.demo,
       price: optionPrice(p, v.pricing, v.configuratorOptionId, lang), configuratorOptionId: v.configuratorOptionId ?? null,
       materialId: v.materialId ?? null,
+      // материал целиком (адреса карт от корня сайта): окно демо красит им пол живой сцены без второго запроса (demo-06)
+      material: v.materialId ? materialOf(v.materialId) : null,
     })),
   }));
 }

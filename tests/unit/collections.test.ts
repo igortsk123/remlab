@@ -86,4 +86,16 @@ describe("коллекции", () => {
     expect((await patch("/test/share/frames/x.jpg")).status).toBe(409);                           // без номера — нельзя
     expect((await patch("/test/share/frames/x.jpg", st)).status).toBe(200);
   });
+  // demo-06: коллекция v2 хранит выбор пола; неизвестная группа/вариант и вариант по умолчанию отбрасываются; v1 — без выбора
+  it("коллекция v2: пол застройщика — канонически, v1 читается без выбора", async () => {
+    const save = async (extra: Record<string, unknown>) => {
+      const { id } = (await (await POST(post({ ...body, ...extra }))).json()) as { id: string };
+      const g = await GET(new Request(`http://x/api/collections/${id}`), { params: Promise.resolve({ id }) });
+      return ((await g.json()) as { collection: { developerOptions: Record<string, string> } }).collection.developerOptions;
+    };
+    expect(await save({ schemaVersion: 2, stateId: "s2-" + "c".repeat(32),
+      developerOptions: { flooring: "parquet-herringbone", nope: "x1", kitchen: "zz" } })).toEqual({ flooring: "parquet-herringbone" });
+    expect(await save({ schemaVersion: 2, developerOptions: { flooring: "laminate-oak-light" } })).toEqual({});
+    expect(await save({})).toEqual({});
+  });
 });

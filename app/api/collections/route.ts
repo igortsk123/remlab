@@ -4,7 +4,8 @@ import { foreignOrigin } from "@/lib/http/origin";
 
 import { collectionIn } from "@/contracts/collection";
 import { guard } from "@/lib/ratelimit/http";
-import { findApartment } from "@/lib/partners/registry";
+import { apartmentCard, findApartment } from "@/lib/partners/registry";
+import { canonDeveloperOptions } from "@/lib/partners/options";
 import { priceIndex } from "@/lib/collections/prices";
 import { loadDemoRaw } from "@/lib/partners/demo-data";
 import { collectionRepo } from "@/modules/collections/repository";
@@ -50,6 +51,8 @@ export async function POST(req: Request): Promise<Response> {
   if ([...items, ...decor].some((x) => !x.c.ok)) return NextResponse.json({ ok: false, error: "unknown_product" }, { status: 400 });
   const clean = {
     ...parsed.data,
+    // выбор опций застройщика — только существующие у квартиры включённые группы и их варианты (demo-06)
+    developerOptions: canonDeveloperOptions(apartmentCard(hit).options, parsed.data.developerOptions),
     items: items.map(({ i, c }) => ({ ...i, ...(c.sku ? { sku: c.sku } : {}) })),
     decor: decor.map(({ d, c }) => ({ ...d, sku: c.sku! })),
   };

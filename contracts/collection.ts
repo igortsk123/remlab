@@ -30,11 +30,16 @@ const item = z.object({
 // чужую картинку (пиксель-трекер) на карточку не поставить. Ставится при сохранении или один раз после (`PATCH`).
 export const SHOT_PATH_RE = /^\/test\/share\/frames\/[\w.-]{1,120}\.(?:jpg|jpeg|png|webp)$/;
 /** Номер состояния расстановки (demo-02): считает страница демо, `tools/scout/flat215-demo/index.html` блок STATEID. */
-export const STATE_ID_RE = /^s1-[0-9a-f]{32}$/;
+// s1 — расстановка без опций застройщика; s2 — с выбранными опциями (пол, demo-06). Старые s1 читаются как прежде.
+export const STATE_ID_RE = /^s[12]-[0-9a-f]{32}$/;
 export const collectionShotIn = z.object({ shot: z.string().regex(SHOT_PATH_RE), stateId: z.string().regex(STATE_ID_RE).optional() });
 
+const optId = z.string().regex(/^[a-z0-9-]{2,40}$/);
+
+// v2 (demo-06): + `developerOptions` — выбор в группах опций застройщика (группа → вариант; пол). v1 читается как v2 без
+// выбора: апгрейд — умолчание `{}`. Что группы и варианты существуют у квартиры, проверяет ручка сохранения.
 export const collectionIn = z.object({
-  schemaVersion: z.literal(1).default(1),
+  schemaVersion: z.union([z.literal(1), z.literal(2)]).default(1),
   apartmentId: z.string().regex(/^[a-z0-9-]{2,40}$/),
   roomId: z.string().max(40).default("living"),
   baseVariant: z.string().regex(/^[A-Za-z0-9_-]{1,40}$/),
@@ -46,6 +51,7 @@ export const collectionIn = z.object({
   cams: z.array(z.object({ x: z.number(), y: z.number(), rot: z.number(), fov: z.number().optional() })).max(4).default([]),
   shot: z.string().regex(SHOT_PATH_RE).optional(),
   stateId: z.string().regex(STATE_ID_RE).optional(),
+  developerOptions: z.record(optId, optId).refine((o) => Object.keys(o).length <= 10, "слишком много опций").default({}),
 });
 export type CollectionIn = z.infer<typeof collectionIn>;
 

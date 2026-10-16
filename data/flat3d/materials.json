@@ -553,6 +553,23 @@
    }
   },
   {
+   "id": "parquet-herringbone",
+   "titleRu": "Паркет «Ёлочка дуб»",
+   "titleEn": "Oak herringbone parquet",
+   "colorHex": "#ae8b64",
+   "roughness": 0.48,
+   "metalness": 0.0,
+   "tileCm": [
+    169.7056274847714,
+    169.7056274847714
+   ],
+   "baseColorUrl": "parquet-herringbone.webp",
+   "normalUrl": "parquet-herringbone-n.webp",
+   "roughnessUrl": "parquet-herringbone-r.webp",
+   "aoUrl": "parquet-herringbone-ao.webp",
+   "previewUrl": "parquet-herringbone-preview.webp"
+  },
+  {
    "id": "quartz-white",
    "titleRu": "Кварц белый",
    "titleEn": "White quartz",

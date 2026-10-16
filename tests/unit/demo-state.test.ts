@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 const html = readFileSync("tools/scout/flat215-demo/index.html", "utf8");
 const block = html.slice(html.indexOf("// STATEID START"), html.indexOf("// STATEID END"));
 const { stateIdOf } = new Function(`${block};return {stateIdOf};`)() as {
-  stateIdOf: (items: unknown[], decor: unknown[], room: unknown) => string;
+  stateIdOf: (items: unknown[], decor: unknown[], room: unknown, opts?: Record<string, string>) => string;
 };
 
 const room = { w: 439, d: 325, openings: [{ kind: "door", wall: "east", offset_cm: 230, width_cm: 90 }] };
@@ -38,5 +38,14 @@ describe("номер состояния расстановки", () => {
   });
   it("подвесная тумба и угловой диван различаются", () => {
     expect(id([{ ...sofa, corner: true }, chairA, chairB])).not.toBe(base);
+  });
+  // demo-06: выбор пола застройщика — часть состояния; без выбора номер прежний (s1), кадры и коллекции не устаревают
+  it("пол по умолчанию — прежний s1; выбранный пол — s2 и другой номер; порядок групп не важен", () => {
+    expect(stateIdOf([sofa, chairA, chairB], vase, room, {})).toBe(base);
+    const grey = stateIdOf([sofa, chairA, chairB], vase, room, { flooring: "laminate-oak-grey" });
+    expect(grey).toMatch(/^s2-[0-9a-f]{32}$/);
+    expect(stateIdOf([sofa, chairA, chairB], vase, room, { flooring: "parquet-herringbone" })).not.toBe(grey);
+    expect(stateIdOf([sofa, chairA, chairB], vase, room, { tile: "a", flooring: "b" }))
+      .toBe(stateIdOf([sofa, chairA, chairB], vase, room, { flooring: "b", tile: "a" }));
   });
 });

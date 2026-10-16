@@ -146,7 +146,7 @@
               "id": "parquet-herringbone",
               "nameRu": "Паркет «Ёлочка дуб»",
               "nameEn": "Oak herringbone parquet",
-              "materialId": "parquet-blocks",
+              "materialId": "parquet-herringbone",
               "pricing": {
                 "type": "surcharge",
                 "amount": 86000

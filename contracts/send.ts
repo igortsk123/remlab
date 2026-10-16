@@ -17,6 +17,7 @@ export const buyerEventKind = z.enum([
   "flat3d_open", // открыл квартиру в 3D по этой ссылке (b2b-03); сохранение коллекции считается из `collections`
   "item_move", // передвинул мебель (владелец 14.10)
   "share", // поделился: ссылка на вариант, «отправить себе» (владелец 14.10)
+  "floor_pick", // выбрал пол из вариантов застройщика (demo-06)
 ]);
 export type BuyerEventKind = z.infer<typeof buyerEventKind>;
 
