@@ -96,6 +96,75 @@
               "configuratorOptionId": "kitchen-premium"
             }
           ]
+        },
+        {
+          "id": "flooring",
+          "kind": "flooring",
+          "roomKind": "living",
+          "titleRu": "Пол",
+          "titleEn": "Floor",
+          "defaultVariantId": "laminate-oak-light",
+          "enabled": true,
+          "settlement": "developer_surcharge",
+          "slotIds": [
+            "floor"
+          ],
+          "variants": [
+            {
+              "id": "laminate-oak-light",
+              "nameRu": "Ламинат «Дуб светлый»",
+              "nameEn": "Light oak laminate",
+              "materialId": "laminate-oak-light",
+              "pricing": {
+                "type": "included"
+              },
+              "demo": true
+            },
+            {
+              "id": "laminate-oak-grey",
+              "nameRu": "Ламинат «Дуб серый»",
+              "nameEn": "Grey oak laminate",
+              "materialId": "oak-grey",
+              "pricing": {
+                "type": "surcharge",
+                "amount": 18000
+              },
+              "demo": true
+            },
+            {
+              "id": "board-oak-natural",
+              "nameRu": "Инженерная доска «Дуб натуральный»",
+              "nameEn": "Natural oak engineered board",
+              "materialId": "board-oak-natural",
+              "pricing": {
+                "type": "surcharge",
+                "amount": 54000
+              },
+              "demo": true
+            },
+            {
+              "id": "parquet-herringbone",
+              "nameRu": "Паркет «Ёлочка дуб»",
+              "nameEn": "Oak herringbone parquet",
+              "materialId": "parquet-blocks",
+              "pricing": {
+                "type": "surcharge",
+                "amount": 86000
+              },
+              "demo": true
+            },
+            {
+              "id": "vinyl-stone-grey",
+              "nameRu": "Кварцвинил «Камень серый»",
+              "nameEn": "Grey stone SPC vinyl",
+              "materialId": "vinyl-stone-grey",
+              "pricing": {
+                "type": "surcharge",
+                "amount": 29000
+              },
+              "demo": true
+            }
+          ]
         }
       ]
     }

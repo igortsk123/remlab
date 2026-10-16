@@ -2,6 +2,7 @@
 // проверка Zod при первом обращении — битые данные падают в тесте, а не у покупателя.
 // Сертификат и подписи считаются ТОЛЬКО здесь: витрина, 3D и отчёт читают готовую карточку.
 
+import { perM2Amount, settlementOf } from "@/lib/configurator/settlement";
 import { partner as partnerSchema, type ApartmentCard, type ApartmentRef, type Complex, type Lang, type OptionGroup, type Partner } from "@/contracts/partner";
 import { loadFlat3d } from "@/lib/configurator/data";
 import demoJson from "@/data/partners/demo.json";
@@ -64,7 +65,8 @@ export function handoverText(c: Complex, lang: Lang): string {
 function optionPrice(p: Partner, pr: OptionGroup["variants"][number]["pricing"], cfgId: string | undefined, lang: Lang) {
   const en = lang === "en";
   let type = pr.type;
-  let amount: number | null = pr.type === "surcharge" ? pr.amount : null;
+  let amount: number | null = pr.type === "surcharge" ? pr.amount : pr.type === "per_m2" ? perM2Amount(pr.rate, pr.billableAreaM2) : null;
+  if (pr.type === "per_m2") type = "surcharge"; // за м² — та же доплата, сумма посчитана один раз
   if (pr.type === "from_configurator") {
     const o = cfgId ? loadFlat3d().catalogue.options.find((x) => x.id === cfgId) : undefined;
     if (o && (o.tier === "base" || o.price === 0)) type = "included";
@@ -79,11 +81,14 @@ function optionPrice(p: Partner, pr: OptionGroup["variants"][number]["pricing"],
 
 function optionsCard(p: Partner, a: ApartmentRef, lang: Lang): ApartmentCard["options"] {
   const en = lang === "en";
-  return (a.options ?? []).map((g) => ({
+  // выключенная у застройщика группа (владелец 14.10) покупателю не показывается и не считается (demo-06)
+  return (a.options ?? []).filter((g) => g.enabled).map((g) => ({
     id: g.id, kind: g.kind, roomKind: g.roomKind, title: en ? g.titleEn : g.titleRu, defaultVariantId: g.defaultVariantId,
+    settlement: settlementOf(g.kind, p.market, g.settlement), slotIds: g.slotIds ?? [],
     variants: g.variants.map((v) => ({
       id: v.id, name: en ? v.nameEn : v.nameRu, desc: en ? v.descEn : v.descRu, image: v.image ?? null, demo: v.demo,
       price: optionPrice(p, v.pricing, v.configuratorOptionId, lang), configuratorOptionId: v.configuratorOptionId ?? null,
+      materialId: v.materialId ?? null,
     })),
   }));
 }

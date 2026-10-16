@@ -49,6 +49,8 @@ export const apartmentSources = z
 export const optionPricing = z.discriminatedUnion("type", [
   z.object({ type: z.literal("included") }),
   z.object({ type: z.literal("surcharge"), amount: z.number().int().positive() }),
+  /** За квадратный метр (demo-06): площадь к оплате задаёт застройщик — автоматически из комнаты не берём (Codex 14.10). */
+  z.object({ type: z.literal("per_m2"), rate: z.number().positive(), billableAreaM2: z.number().positive() }),
   z.object({ type: z.literal("on_request") }),
   z.object({ type: z.literal("from_configurator") }),
 ]);
@@ -67,6 +69,8 @@ export const optionVariant = z.object({
   demo: z.boolean().default(false),
   /** Та же опция в 3D-конфигураторе (`data/flat3d`): цена `from_configurator` и переход в 3D. */
   configuratorOptionId: z.string().optional(),
+  /** Материал поверхности (`data/flat3d/materials.json`) — у отделки (пол): им красится слот `slotIds` группы (demo-06). */
+  materialId: z.string().regex(/^[a-z0-9-]{2,40}$/).optional(),
   specRef: z.string().optional(),
 });
 
@@ -80,8 +84,23 @@ export const optionGroup = z
     titleEn: z.string().min(1),
     defaultVariantId: z.string(),
     variants: z.array(optionVariant).min(1),
+    /**
+     * Выбор включён у застройщика (владелец 14.10: «предусмотри отключение кастома»): `false` — группа не показывается
+     * покупателю, не считается в сумме, сцена рисует вариант по умолчанию.
+     */
+    enabled: z.boolean().default(true),
+    /**
+     * Куда идёт доплата (demo-06, ADR-0254): `allowance` — в мебельный сертификат; `developer_surcharge` — доплата застройщику
+     * вне сертификата (RF пол); `property_price` — в цену квартиры (UK). Нет поля — по умолчанию из `settlementOf`.
+     */
+    settlement: z.enum(["allowance", "developer_surcharge", "property_price"]).optional(),
+    /** Слоты квартиры, которые меняет группа (пол витрины — `floor`); выбор группы — источник, слот — проекция. */
+    slotIds: z.array(z.string()).optional(),
   })
   .refine((g) => new Set(g.variants.map((v) => v.id)).size === g.variants.length, "id вариантов повторяются")
+  // ровно один ассет у варианта (Codex 16.10): материал — у отделки, опция 3D — у кухни; оба сразу — ошибка данных
+  .refine((g) => g.variants.every((v) => !(v.materialId && v.configuratorOptionId)), "у варианта и материал, и опция 3D")
+  .refine((g) => g.kind !== "flooring" || g.variants.every((v) => v.materialId), "у варианта пола нет материала")
   .refine((g) => g.variants.some((v) => v.id === g.defaultVariantId), "вариант по умолчанию не найден");
 export type OptionGroup = z.infer<typeof optionGroup>;
 
@@ -160,8 +179,12 @@ export type ApartmentCard = {
   /** Опции квартиры в публичном виде: подписи на языке, цена уже текстом. */
   options: {
     id: string; kind: string; roomKind: string; title: string; defaultVariantId: string;
+    /** Куда идёт доплата группы (`lib/configurator/settlement.ts`); выключенные группы в карточку не попадают. */
+    settlement: "allowance" | "developer_surcharge" | "property_price";
+    slotIds: string[];
     variants: { id: string; name: string; desc: string; image: string | null; demo: boolean;
-      price: { type: OptionPricing["type"]; amount: number | null; text: string }; configuratorOptionId: string | null }[];
+      price: { type: OptionPricing["type"]; amount: number | null; text: string }; configuratorOptionId: string | null;
+      materialId: string | null }[];
   }[];
   sources: { demoData?: string; flat3d?: string };
 };

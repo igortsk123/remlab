@@ -117,3 +117,27 @@ describe("имена из витрины", () => {
     expect(keepKnown(names, "Лофт", ["Кресло Б", "чужой текст"])).toEqual({ variant: "Лофт", items: ["Кресло Б"] });
   });
 });
+
+// demo-06: пол от застройщика — группа опций с материалами; доплата вне сертификата (RF); выключенная группа не видна
+describe("опции отделки: пол", () => {
+  const mats = new Set((JSON.parse(readFileSync("data/flat3d/materials.json", "utf8")) as { materials: { id: string }[] }).materials.map((m) => m.id));
+  it("у демо-квартиры 5 полов с материалами из манифеста, первый — в цене, доплата застройщику", () => {
+    const g = apartmentCard(findApartment("flat215")!, "ru").options.find((o) => o.kind === "flooring")!;
+    expect(g.variants).toHaveLength(5);
+    expect(g.settlement).toBe("developer_surcharge");
+    expect(g.slotIds).toEqual(["floor"]);
+    expect(g.variants.every((v) => v.materialId && mats.has(v.materialId))).toBe(true);
+    expect(g.variants[0]!.price.type).toBe("included");
+    expect(g.variants[1]!.price).toMatchObject({ type: "surcharge", amount: 18000 });
+  });
+  it("выключенная группа не попадает в карточку; у варианта пола без материала — ошибка данных", () => {
+    const raw = JSON.parse(readFileSync("data/partners/demo.json", "utf8"));
+    const fl = raw.apartments[0].options.find((o: { id: string }) => o.id === "flooring");
+    fl.enabled = false;
+    const hit = findApartment("flat215", partners([raw]))!;
+    expect(apartmentCard(hit, "ru").options.some((o) => o.kind === "flooring")).toBe(false);
+    fl.enabled = true;
+    delete fl.variants[1].materialId;
+    expect(() => partners([raw])).toThrow();
+  });
+});
