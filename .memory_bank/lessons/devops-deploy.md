@@ -358,3 +358,11 @@ systemd — крон-подъём раз в 10 минут (`tools/ops/dev-checks
 проверку импортов `infra/draft/Dockerfile`, но не в белый список `infra/draft/Dockerfile.dockerignore` — CI
 (`draft-image`) упал «not found» и выкатка встала на час. Правило: новый файл образа = `COPY` + проверка импорта +
 строка `!путь` в `Dockerfile.dockerignore`; перед push — `docker build -f infra/draft/Dockerfile .` локально (см. 479).
+
+**495. /tmp на DEV — tmpfs 788 МБ с квотой: в нём не держать ни кэши, ни артефакты проверок.** 15–16.10 он забился (scratchpad
+сессии 368 МБ + кэш GLB рендера 161 МБ + 116 брошенных вырезок `tmp*-cut.png`), и headless-браузер живых проверок падал
+«Page/Target crashed» при свободной ОЗУ. Корни: `viz_paste.cutout` кладёт «кэш» `-cut.png` рядом с файлом, а
+`mesh_orient.photo_mask` давал ему временный файл — вырезка оставалась навсегда (теперь удаляется в `finally`); кэш
+`draft_render.SCENE3D_CACHE` жил в /tmp (теперь `~/scout-scenes/mesh3d-cache` с потолком `tools/scout/rules/dev-tmp.json`). Защита:
+`tools/ops/dev-checks.sh` — `WARN:tmp_full` с топ-3, ночной шаг `tmp_sweep` (`tools/ops/tmp-sweep.sh`). Правило агентам:
+снимки и сборки проверок — на диск (`~/scout-scenes/<сессия>/`), scratchpad ≤ 50 МБ, перед браузером — `df -h /tmp`.

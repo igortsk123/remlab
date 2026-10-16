@@ -7,6 +7,14 @@ LIMIT=${DEV_DISK_WARN:-85}
 use=$(df --output=pcent / | tail -1 | tr -dc '0-9')
 echo "диск DEV: ${use}% (порог ${LIMIT}%)"
 [ "${use:-0}" -ge "$LIMIT" ] && echo "WARN:dev_disk: диск DEV занят на ${use}% — ночной прогон и волна мешей встанут на 100% (что чистить — deployment-details § DEV: диск)"
+# /tmp — tmpfs с квотой (план b2b-09, 16.10): забитый, он роняет браузер живых проверок и шелл агента. Порог — rules/dev-tmp.json
+TW=${DEV_TMP_WARN:-}; [ -n "$TW" ] || TW=$(python3 -c "import json,sys;print(int(json.load(open(sys.argv[1])).get('warn_pct',70)))" "$(dirname "$0")/../scout/rules/dev-tmp.json" 2>/dev/null || echo 70)
+tuse=$(df --output=pcent /tmp | tail -1 | tr -dc '0-9')
+echo "/tmp DEV: ${tuse}% (порог ${TW}%)"
+if [ "${tuse:-0}" -ge "$TW" ]; then
+  top=$(du -sk /tmp/* /tmp/.[!.]* 2>/dev/null | sort -rn | head -3 | awk '{printf "%s %d МБ; ", $2, $1/1024}')
+  echo "WARN:tmp_full: /tmp DEV занят на ${tuse}% — живые проверки упадут «Target crashed». Больше всего: ${top}(чистка — tools/ops/tmp-sweep.sh)"
+fi
 B=$HOME/remlab-backups
 last=$(grep ' ok ' "$B/pull.log" 2>/dev/null | tail -1 | cut -d' ' -f1)
 if [ -z "$last" ]; then

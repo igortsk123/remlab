@@ -2230,7 +2230,49 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
     return shots
 
 
-SCENE3D_CACHE = '/tmp/mesh3d-cache'
+# КЭШ GLB — НА ДИСКЕ, НЕ В /tmp (план b2b-09, 16.10): на DEV /tmp — tmpfs с квотой, кэш занимал 161 МБ и вместе с прочим ронял
+# браузер живых проверок. В контейнере прода `~/scout-scenes` нет — там остаётся /tmp контейнера. Потолок — `rules/dev-tmp.json`
+def _cache_dir() -> str:
+    env = os.environ.get('SCENE3D_CACHE')
+    if env:
+        return env
+    try:
+        cfg = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rules', 'dev-tmp.json'), encoding='utf-8'))
+        disk = os.path.expanduser(cfg.get('mesh3d_cache_dir') or '')
+        if disk and os.path.isdir(os.path.dirname(disk)):
+            return disk
+    except (OSError, ValueError):
+        pass
+    return '/tmp/mesh3d-cache'
+
+
+SCENE3D_CACHE = _cache_dir()
+
+
+def _cache_trim(cap_mb: float | None = None) -> int:
+    """Потолок кэша GLB: старые по времени доступа удаляются, пока кэш не станет меньше потолка. → сколько удалено."""
+    if cap_mb is None:
+        try:
+            cap_mb = float(json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rules', 'dev-tmp.json'),
+                                          encoding='utf-8')).get('mesh3d_cache_mb', 600))
+        except (OSError, ValueError):
+            cap_mb = 600.0
+    try:
+        files = [os.path.join(SCENE3D_CACHE, f) for f in os.listdir(SCENE3D_CACHE)]
+    except OSError:
+        return 0
+    stats = sorted(((os.stat(f).st_atime, os.path.getsize(f), f) for f in files if os.path.isfile(f)))
+    total, cap, n = sum(sz for _, sz, _ in stats), cap_mb * 2 ** 20, 0
+    for _, sz, f in stats:
+        if total <= cap:
+            break
+        try:
+            os.remove(f)
+            total -= sz
+            n += 1
+        except OSError:
+            pass
+    return n
 
 
 def _scene3d_orient() -> dict:
@@ -2442,6 +2484,7 @@ def _scene3d_glb(sid: str) -> str | None:
     try:
         data = urllib.request.urlopen(f'{base}/{sid}/model.glb', timeout=60).read()
         open(dst, 'wb').write(data)
+        _cache_trim()
         return dst
     except Exception:  # noqa: BLE001
         return None

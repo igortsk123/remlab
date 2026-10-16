@@ -23,19 +23,28 @@ YAWS = (0, 90, 180, 270)
 def photo_mask(ph: Image.Image):
     """Маска товара на фото: сперва честная вырезка фона (viz_paste.cutout — карточки часто с
     интерьерным фоном, белый порог там бесполезен), затем фолбэк на белый порог."""
+    tmp = None
     try:
         import tempfile
         from viz_paste import cutout, trim_alpha
         with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
+            tmp = f.name
             ph.convert('RGB').save(f.name, quality=92)
             cut = trim_alpha(cutout(f.name))
-        os.unlink(f.name)
         ca = np.asarray(cut)
         if ca.shape[2] == 4 and (ca[..., 3] > 90).sum() > 400:
             m = ca[..., 3] > 90
             return m, ca[..., :3].astype(int) * 0 + np.asarray(cut.convert('RGB'))
     except Exception:  # noqa: BLE001 — вырезка недоступна: белый порог
         pass
+    finally:
+        # ВРЕМЕННОЕ — УДАЛЯЕТСЯ ВМЕСТЕ С «КЭШЕМ» ВЫРЕЗКИ (план b2b-09, 16.10): `viz_paste.cutout` кладёт `-cut.png` рядом с
+        # файлом, а файл временный — вырезка оставалась в /tmp навсегда (116 файлов, 45 МБ на tmpfs с квотой)
+        for f_ in ((tmp, os.path.splitext(tmp)[0] + '-cut.png') if tmp else ()):
+            try:
+                os.unlink(f_)
+            except OSError:
+                pass
     a = np.asarray(ph.convert('RGB')).astype(int)
     m = ~((a.sum(axis=2) > 738) & (np.abs(a.max(axis=2) - a.min(axis=2)) < 16))
     ys, xs = np.where(m)

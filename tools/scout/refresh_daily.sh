@@ -215,6 +215,7 @@ print(' '.join(k[:12] for k,v in d.items() if int(v.get('fails') or 0)>=2))" 2>/
 # 1b. Предохранитель фидов (T0 truth-first): пустой исторически-непустой фид и протухший
 # yml_date алертятся ДО загрузки — «скачался успешно» не значит «данные живые» (урок 203)
 # DEV: диск и копия прод-базы вне сервера (b2b-09, ADR-0266) — только предупреждения в дайджест
+step tmp_sweep bash ../ops/tmp-sweep.sh       # /tmp DEV — свои временные файлы старше суток (план b2b-09, 16.10)
 step dev_checks bash ../ops/dev-checks.sh
 step feed_guard "$PY" feed_guard.py
 
