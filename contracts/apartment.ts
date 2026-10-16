@@ -130,6 +130,8 @@ export const cameraPreset = z.object({
   y: z.number(),
   rot: z.number(),
   fov: z.number().default(72),
+  /** Версия позы съёмки (`viewer.PhotoPose.pose`): 2 — глаз 135, горизонтально, сдвиг объектива (ракурсы окна демо). */
+  pose: z.number().optional(),
 });
 export type CameraPreset = z.infer<typeof cameraPreset>;
 

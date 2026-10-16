@@ -39,10 +39,11 @@ export function CookieBanner() {
   };
   return (
     <div role="region" aria-label={mode === "en" ? "Cookies" : "Cookie"}
-      style={{ position: "fixed", left: 12, right: compact ? "auto" : 12, bottom: compact ? 8 : 12, zIndex: 50,
-        maxWidth: compact ? 340 : 640, margin: compact ? 0 : "0 auto",
-        background: "var(--color-bg-primary)", border: "1px solid var(--color-border-secondary)", borderRadius: 12,
-        padding: compact ? "6px 10px" : "12px 16px", boxShadow: "0 6px 24px rgba(0,0,0,.12)", fontSize: compact ? 12 : undefined }}>
+      // компактно — тонкой строкой в самом низу экрана (прогон d8 16.10: в углу плашка всё равно ложилась на карточку состава)
+      style={{ position: "fixed", left: compact ? 0 : 12, right: compact ? 0 : 12, bottom: compact ? 0 : 12, zIndex: 50,
+        maxWidth: compact ? "none" : 640, margin: compact ? 0 : "0 auto",
+        background: "var(--color-bg-primary)", border: "1px solid var(--color-border-secondary)", borderRadius: compact ? 0 : 12,
+        padding: compact ? "4px 10px" : "12px 16px", boxShadow: compact ? "none" : "0 6px 24px rgba(0,0,0,.12)", fontSize: compact ? 12 : undefined }}>
       {mode === "en" ? (
         <div className="stack" style={{ gap: 10 }}>
           <span style={{ fontSize: 14 }}>
@@ -54,11 +55,11 @@ export function CookieBanner() {
           </div>
         </div>
       ) : (
-        <div className="row" style={{ gap: 12, alignItems: "center", justifyContent: "space-between" }}>
+        <div className="row" style={{ gap: compact ? 8 : 12, alignItems: "center", justifyContent: "space-between", flexWrap: compact ? "nowrap" : undefined }}>
           <span style={{ fontSize: compact ? 12 : 14 }}>
-            Сайт использует cookie Яндекс.Метрики для статистики. <a href="/cookies">Подробнее</a>
+            {compact ? "Cookie Яндекс.Метрики — для статистики." : "Сайт использует cookie Яндекс.Метрики для статистики."} <a href="/cookies">Подробнее</a>
           </span>
-          <Button size="sm" color="secondary" onClick={() => done("ok")}>Понятно</Button>
+          <Button size="sm" color="secondary" onClick={() => done("ok")}>{compact ? "Ок" : "Понятно"}</Button>
         </div>
       )}
     </div>

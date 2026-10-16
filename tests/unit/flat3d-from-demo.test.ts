@@ -130,6 +130,18 @@ describe("мост витрина → конфигуратор", () => {
     expect(fixed.totals.upgrades).toBe(8000);
   });
 
+  // demo-05 п.8: «Фото» в /flat снимает ракурсами окна — они приходят в данных варианта (`tools/flat3d/demo-cams.mjs`)
+  it("ракурсы окна из данных варианта — камеры квартиры с позой v2", () => {
+    const withCams = { ...data, variants: [{ ...data.variants[0]!, cams: [{ name: "C1", x: 436, y: 242, rot: -80, fov: 78, pose: 2 },
+      { name: "C2", x: 3, y: 43, rot: 144, fov: 72, pose: 2 }] }] };
+    const r = fromDemoVariant(withCams, "set16", CTX)!;
+    expect(r.apartment.cameras).toEqual([
+      { id: "cam1", roomId: "living", titleRu: "Ракурс 1", x: 436, y: 242, rot: -80, fov: 78, pose: 2 },
+      { id: "cam2", roomId: "living", titleRu: "Ракурс 2", x: 3, y: 43, rot: 144, fov: 72, pose: 2 },
+    ]);
+    expect(fromDemoVariant(data, "set16", CTX)!.apartment.cameras).toEqual([]);
+  });
+
   it("три стула из упаковки «2 шт.» — две покупки", () => {
     const three = { ...data, variants: [{ id: "set1", style: "сканди", items: [0, 1, 2].map((k) => ({ role: k ? `стул ${k + 1}` : "стул",
       x: 10 + k * 50, y: 10, rot: 0, w: 45, d: 50, h: 85, sku: { name: "Стул А 2 шт.", price: 9000, pack: 2, msid: "1_1", url: "u" } })) }] };

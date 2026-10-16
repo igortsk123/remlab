@@ -1404,6 +1404,21 @@ function camFit(cx,cy,its,W,H,strict){
   }
   return best||least;
 }
+// ПАРА РАКУРСОВ ВАРИАНТА — одна функция для страницы (`defaultCams`) и сборки демо (`tools/flat3d/demo-cams.mjs` → `v.cams` в
+// demo-data.json, их берёт /flat для «Фото», demo-05 п.8): ракурс 1 — лучший из четырёх углов по ступеням правил, ракурс 2 —
+// противоположный угол (диагональ, ADR-0149)
+function camPair(its,W,H,cs){
+  const sc=f=>f&&f.score!==undefined?f.score:-1e9;
+  let fits=[], level=0;
+  for(const lv of [3,2,1]){fits=cs.map(k=>camFit(k.x,k.y,its,W,H,lv)); level=lv; if(fits.some(f=>sc(f)>-1e9))break;}
+  let b=0; fits.forEach((f,i)=>{if(sc(f)>sc(fits[b]))b=i;});
+  const c1=fits[b], c2=camFit(cs[(b+2)%4].x,cs[(b+2)%4].y,its,W,H,false);
+  return {level, cams:[{name:'C1',x:c1.x,y:c1.y,rot:c1.rot,fov:c1.fov||72},{name:'C2',x:c2.x,y:c2.y,rot:c2.rot,fov:c2.fov||72}]};
+}
+// отрезок стены под проёмом — нужен правилу «не у двери» (`camGraze`); живёт в блоке, чтобы блок исполнялся и вне страницы
+function wallSeg(w,off,len){const W=D.room.w,H=D.room.d;
+  if(w==='south')return{x1:off,y1:0,x2:off+len,y2:0};if(w==='north')return{x1:off,y1:H,x2:off+len,y2:H};
+  if(w==='west')return{x1:0,y1:off,x2:0,y2:off+len};return{x1:W,y1:off,x2:W,y2:off+len};}
 // CAMFIT END
 function defaultCams(){
   // ПО УМОЛЧАНИЮ — ДВА ПРОТИВОПОЛОЖНЫХ УГЛА, как ставит автоподбор: правый нижний и левый
@@ -1412,14 +1427,9 @@ function defaultCams(){
   // предмет, сдвигается вдоль стены (`camFit`).
   // ракурс 1 — лучший из четырёх углов по оценке кадра (ADR-0291; прогон d8 14.10: из правого нижнего угла диван срезался
   // краем), ракурс 2 — противоположный угол (диагональ, ADR-0149)
-  const W=D.room.w, H=D.room.d, cs=cornerList();
-  const sc=f=>f&&f.score!==undefined?f.score:-1e9;
-  let fits=[];
-  for(const lv of [3,2,1]){fits=cs.map(k=>camFit(k.x,k.y,items,W,H,lv)); CAM_LEVEL=lv; if(fits.some(f=>sc(f)>-1e9))break;}
-  let b=0; fits.forEach((f,i)=>{if(sc(f)>sc(fits[b]))b=i;});
-  const c1=fits[b], c2=camFit(cs[(b+2)%4].x,cs[(b+2)%4].y,items,W,H,false);
-  return [{name:'C1',x:c1.x,y:c1.y,rot:c1.rot,fov:c1.fov||72},
-          {name:'C2',x:c2.x,y:c2.y,rot:c2.rot,fov:c2.fov||72}];
+  const pr=camPair(items,D.room.w,D.room.d,cornerList());
+  CAM_LEVEL=pr.level;
+  return pr.cams;
 }
 // СМЕНА РАКУРСА ПО КРУГУ (владелец 01.09). Обе камеры переезжают в следующую пару углов по
 // часовой стрелке, сохраняя диагональ: съёмка двумя видами имеет смысл, только когда они с
@@ -2123,9 +2133,6 @@ function shade(hex,amt){const n=parseInt(hex.slice(1),16);
   return '#'+((r<<16)|(g2<<8)|b2).toString(16).padStart(6,'0');}
 function txt(x,y,s,sz,c){const t=el('text',{x:X(x),y:Y(y),'text-anchor':'middle','font-size':sz,fill:c,
   'paint-order':'stroke',stroke:'#fff','stroke-width':3,'stroke-linejoin':'round','pointer-events':'none'});t.textContent=s;return t;}
-function wallSeg(w,off,len){const W=D.room.w,H=D.room.d;
-  if(w==='south')return{x1:off,y1:0,x2:off+len,y2:0};if(w==='north')return{x1:off,y1:H,x2:off+len,y2:H};
-  if(w==='west')return{x1:0,y1:off,x2:0,y2:off+len};return{x1:W,y1:off,x2:W,y2:off+len};}
 function wallMid(o){const p=wallSeg(o.wall,o.offset_cm,o.width_cm);const cx=(p.x1+p.x2)/2,cy=(p.y1+p.y2)/2;
   const dx=(D.room.w/2-cx),dy=(D.room.d/2-cy),n=Math.hypot(dx,dy)||1;return{x:cx+dx/n*22,y:cy+dy/n*22};}
 // ДВЕРЬ ОТКРЫВАЕТСЯ ТУДА, КУДА СКАЖУТ (владелец 27.08): у проёма два переключателя — сторона

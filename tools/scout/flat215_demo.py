@@ -1215,6 +1215,12 @@ def main() -> None:
     data['variant_aliases'] = merge_aliases(prev, data['variants'])
     json.dump(data, open(os.path.join(OUT, 'demo-data.json'), 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)
+    # РАКУРСЫ ОКНА — В ДАННЫЕ (demo-05 п.8): тот же блок CAMFIT страницы считает пару ракурсов каждого варианта
+    # (`tools/flat3d/demo-cams.mjs` → `v.cams`), ими снимает «Фото» в /flat. Не посчиталось — /flat покажет прежний вид
+    r = subprocess.run(['bash', '-c', f'. "{root}/tools/ops/node-env.sh" && node "{root}/tools/flat3d/demo-cams.mjs" '
+                        f'"{os.path.join(OUT, "demo-data.json")}"'], capture_output=True, text=True, timeout=300)
+    print((r.stdout or '').strip()[-300:] if r.returncode == 0 else
+          f'WARN:demo_cams: ракурсы окна в данные не записались (rc={r.returncode}): {(r.stderr or r.stdout or "").strip()[-200:]}')
     print(f"OK: вариантов {len(data['variants'])}; ленты: "
           + ', '.join(f"{k} {len(v)}" for k, v in sorted(data['feeds'].items()))
           + f"; комплектов {len(data['sets'])}")

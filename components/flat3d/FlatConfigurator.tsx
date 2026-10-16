@@ -17,6 +17,7 @@ import { checkPlacement, type Box } from "@/lib/configurator/placement";
 import { useFlatConfig } from "@/components/flat3d/useFlatConfig";
 import { BuildBar } from "@/components/flat3d/BuildBar";
 import { PlanView } from "@/components/flat3d/PlanView";
+import { LivePhoto } from "@/components/flat3d/LivePhoto";
 import { PhotoView } from "@/components/flat3d/PhotoView";
 import { Scene3D } from "@/components/flat3d/Scene3D";
 import { InfoPanel } from "@/components/flat3d/InfoPanel";
@@ -51,6 +52,7 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
   );
   const [movingSlotId, setMovingSlotId] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("plan");
+  const [liveOk, setLiveOk] = useState(true);
   const [mobile, setMobile] = useState(false);
   const [barOpen, setBarOpen] = useState(true);
   const [roomId, setRoomId] = useState<string>(
@@ -416,7 +418,12 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
           </div>
         ) : null}
         {is3d ? null : mode === "photo" ? (
-          <PhotoView apartment={apartment} scene={scene} roomId={room.id} lang={lang} />
+          <div className="flex h-full flex-col gap-3 overflow-auto">
+            {/* живой снимок той же сцены в ракурсе окна (demo-05 п.8); нет ракурсов или WebGL — только прежний вид */}
+            {liveOk ? <LivePhoto apartment={apartment} catalogue={catalogue} scene={scene} roomId={room.id} lite={mobile} lang={lang}
+              onFail={() => setLiveOk(false)} /> : null}
+            <PhotoView apartment={apartment} scene={scene} roomId={room.id} lang={lang} />
+          </div>
         ) : (
           <PlanView
             apartment={apartment}

@@ -39,6 +39,8 @@ export interface PhotoCam {
   y: number;
   rot: number;
   fov: number;
+  /** Версия позы (`draft_render.photo_pose_heights`): 2 — как ракурсы окна демо; нет — прежняя. */
+  pose?: number;
 }
 
 export interface PhotoRequest {
@@ -131,6 +133,7 @@ export function camsOf(a: Apartment, room: Room): PhotoCam[] {
         y: Math.round(local.y),
         rot: Math.round(c.rot),
         fov: c.fov,
+        ...(c.pose ? { pose: c.pose } : {}),
       };
     });
   }
