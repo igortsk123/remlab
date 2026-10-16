@@ -6,7 +6,7 @@ import type { Configuration } from "@/contracts/configurator";
 import { baseSnapshotOf, staleSlots } from "@/lib/configurator/fromDemo";
 import { readConfig } from "@/lib/configurator/repo";
 import { defaultConfiguration } from "@/lib/configurator/resolve";
-import { defaultApartmentId, resolveCollectionFlat, resolveFlat } from "@/lib/configurator/source";
+import { defaultApartmentId, developerSelections, parseOptParam, resolveCollectionFlat, resolveFlat } from "@/lib/configurator/source";
 import { apartmentCard, money } from "@/lib/partners/registry";
 import type { Lang } from "@/lib/configurator/i18n";
 import { TOKEN_RE } from "@/lib/token";
@@ -23,7 +23,7 @@ export const metadata = {
 // Страница динамическая: по ?c=<id> открывается сохранённый подбор.
 export const dynamic = "force-dynamic";
 
-type Search = { c?: string; coll?: string; lang?: string; room?: string; demo?: string; flat?: string; s?: string };
+type Search = { c?: string; coll?: string; lang?: string; room?: string; demo?: string; flat?: string; s?: string; opt?: string };
 
 /** Ссылка на ту же страницу с другим языком: все остальные параметры (`c`, `demo`, `flat`, `s`) сохраняются. */
 function langHref(sp: Search, next: Lang): string {
@@ -88,6 +88,15 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
   }
   // открыт из коллекции — номер коллекции едет в подбор, чтобы сохранённая ссылка открывала ту же расстановку
   if (!saved && fromColl) initial = { ...defaultConfiguration(apartment, catalogue), collectionId: fromColl };
+  // ПОЛ ОТ ЗАСТРОЙЩИКА (demo-06): выбор из коллекции v2, поверх — из адреса окна демо (`?opt=flooring:<вариант>`, состояние
+  // окна может быть новее сохранённой коллекции); у сохранённого подбора (`?c=`) пол уже в его выборе мест
+  if (!saved) {
+    const dev = developerSelections(hit, apartment, { ...(flat.developerOptions ?? {}), ...parseOptParam(sp.opt) });
+    if (Object.keys(dev).length) {
+      const base = initial ?? defaultConfiguration(apartment, catalogue);
+      initial = { ...base, selections: { ...base.selections, ...dev } };
+    }
+  }
   const card = apartmentCard(hit, lang);
   // ШАПКА ПОКУПАТЕЛЯ (demo-05 п.7, разбор Codex 15.10): по ссылке менеджера (`s`), из окна демо (`demo`), по сохранённому
   // подбору (`c`) или коллекции (`coll`) покупатель видит квартиру застройщика, а не сайт remont-lab с пунктами «скоро».

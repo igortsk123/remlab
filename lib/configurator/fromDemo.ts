@@ -28,7 +28,20 @@ export type DemoContext = {
   assetBase?: string;
   /** Пол застройщика (demo-06): материал вместо ровного цвета паспорта отделки — фактура ламината/паркета. */
   floorMaterial?: Record<string, unknown> & { id: string };
+  /** Пол на выбор (demo-06, группа «пол» карточки квартиры): варианты — опциями поверхности пола `opt:floor:<вариант>`. */
+  floorChoice?: DemoFloorChoice;
 };
+
+/** Варианты пола застройщика для `/flat`: цена — доплата, куда идёт — `settlement` группы (RF — застройщику). */
+export type DemoFloorChoice = {
+  groupId: string;
+  defaultVariantId: string;
+  settlement: "allowance" | "developer_surcharge" | "property_price";
+  variants: { id: string; titleRu: string; titleEn: string; price: number; material: Record<string, unknown> & { id: string } }[];
+};
+
+/** Опция пола варианта группы — одно имя у моста, страницы и ссылки `?opt=`. */
+export const floorOptionId = (variantId: string): string => `opt:floor:${variantId}`;
 
 /**
  * Имя места — роль + номер внутри роли («диван#0», «стул#2»), а не порядковый номер в файле.
@@ -258,14 +271,29 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
   // оболочку первый материал каталога — фото ковра легло на стены, пол и потолок. Цвета — из паспорта отделки
   // (`finish-passport.ts`), тем же красится серверный кадр; материалы стен и пола — ПЕРВЫМИ в каталоге
   const fp = finishPassport(room.finish);
-  const floorMat = ctx.floorMaterial ?? { id: fp.floor.id, titleRu: "Пол", titleEn: "Floor", colorHex: fp.floor.colorHex, roughness: 0.7 };
+  const fc = ctx.floorChoice?.variants.length ? ctx.floorChoice : undefined;
+  const fcDefault = fc?.variants.find((x) => x.id === fc.defaultVariantId) ?? fc?.variants[0];
+  const floorMat = fcDefault?.material ?? ctx.floorMaterial
+    ?? { id: fp.floor.id, titleRu: "Пол", titleEn: "Floor", colorHex: fp.floor.colorHex, roughness: 0.7 };
   extraMaterials.unshift({ id: fp.wall.id, titleRu: "Стены", titleEn: "Walls", colorHex: fp.wall.colorHex, roughness: 0.95 }, floorMat);
   for (const [surface, category, materialId] of [["floor", "flooring", floorMat.id], ["wall", "walls", fp.wall.id]] as const) {
-    extraOptions.push({ id: `opt:${surface}`, category, titleRu: surface, titleEn: surface, tier: "standard", price: 0,
-      availability: "available", roomKinds: ["living"], asset: { kind: "material", materialId } });
+    // ПОЛ НА ВЫБОР (demo-06): варианты группы застройщика — опциями этого же места; доплата идёт по `settlement` группы
+    const choices = surface === "floor" && fc ? fc.variants : null;
+    if (choices) {
+      for (const v of choices) {
+        if (v.material.id !== floorMat.id) extraMaterials.push(v.material);
+        extraOptions.push({ id: floorOptionId(v.id), category, titleRu: v.titleRu, titleEn: v.titleEn, tier: v.price > 0 ? "standard" : "base",
+          price: v.price, settlement: fc!.settlement, availability: "available", roomKinds: ["living"],
+          asset: { kind: "material", materialId: v.material.id }, ...(v.material.previewUrl ? { previewUrl: String(v.material.previewUrl) } : {}) });
+      }
+    } else {
+      extraOptions.push({ id: `opt:${surface}`, category, titleRu: surface, titleEn: surface, tier: "standard", price: 0,
+        availability: "available", roomKinds: ["living"], asset: { kind: "material", materialId } });
+    }
     slots.push({ id: surface, roomId: "living", category, kind: "surface", surface, titleRu: surface === "wall" ? "Стены" : "Пол",
       titleEn: surface === "wall" ? "Walls" : "Floor",
-      defaultOptionId: `opt:${surface}`, optionIds: [`opt:${surface}`] });
+      defaultOptionId: choices ? floorOptionId(fcDefault!.id) : `opt:${surface}`,
+      optionIds: choices ? choices.map((v) => floorOptionId(v.id)) : [`opt:${surface}`] });
   }
 
   const apartment = apartmentSchema.parse({

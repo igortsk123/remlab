@@ -24,6 +24,7 @@ import { InfoPanel } from "@/components/flat3d/InfoPanel";
 import { ManagerContact } from "@/components/flat3d/ManagerContact";
 import type { Spot } from "@/components/flat3d/Hotspots";
 import { optionsForSlot } from "@/lib/configurator/resolve";
+import { settle } from "@/lib/configurator/settlement";
 
 type Mode = "walk" | "top" | "photo" | "plan";
 
@@ -74,6 +75,9 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
 
   const room = useMemo(() => apartment.rooms.find((r) => r.id === roomId) ?? apartment.rooms[0]!, [apartment, roomId]);
   const roomTotal = scene.totals.byRoom[room.id] ?? 0;
+  const bs = scene.totals.bySettlement;
+  const money = settle([{ amount: bs.allowance, settlement: "allowance" }, { amount: bs.developer_surcharge, settlement: "developer_surcharge" },
+    { amount: bs.property_price, settlement: "property_price" }], certificate?.amount ?? 0);
   const is3d = mode === "walk" || mode === "top";
 
   // 3D РАЗВОРАЧИВАЕМ НА ВЕСЬ ЭКРАН (владелец 29.09): по квартире ходят, а не подглядывают в
@@ -302,7 +306,11 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
             ) : null}
           </span>
           {/* на телефоне сертификат уже в строке застройщика — строку «выбрано» не повторяем, итоги в одну строку (п.8) */}
-          {certificate && !mobile ? <CertificateLine amount={certificate.amount} spent={scene.totals.upgrades} fmt={fmt} lang={lang} /> : null}
+          {/* ДЕНЬГИ — ОБЩИМ ЯДРОМ (demo-06): в сертификат — только мебель и встроенное; отделка застройщика (пол) — своей строкой:
+              RF — доплата застройщику, UK — к цене квартиры. Раньше пол съел бы сертификат */}
+          {certificate && !mobile ? <CertificateLine amount={certificate.amount} spent={money.allowanceEligible} fmt={fmt} lang={lang} /> : null}
+          {money.developerSurcharge > 0 ? <span className="text-sm text-tertiary">{L.devSurcharge} <b className="text-primary">+{fmt(money.developerSurcharge)}</b></span> : null}
+          {money.propertyPriceDelta > 0 ? <span className="text-sm text-tertiary">{L.propertyDelta} <b className="text-primary">+{fmt(money.propertyPriceDelta)}</b></span> : null}
           {/* кнопки — одной группой: при переносе строки «отменить/вернуть» не разъезжаются по разным строкам (п.8) */}
           <div className="flex items-center gap-2">
           <UndoRedo lang={lang} undo={undo} redo={redo} canUndo={canUndo} canRedo={canRedo} />

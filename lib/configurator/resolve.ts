@@ -7,6 +7,7 @@ import { decorLayout } from "@/lib/viewer3d/scene-extras";
 import type { Apartment, Placement, Slot, SlotCategory } from "@/contracts/apartment";
 import type { Catalogue, Configuration, Material, Option, OptionAsset } from "@/contracts/configurator";
 import { materialById, optionById } from "@/contracts/configurator";
+import type { Settlement } from "@/lib/configurator/settlement";
 
 export interface ResolvedItem {
   slotId: string;
@@ -58,6 +59,8 @@ export interface Totals {
   total: number;
   byRoom: Record<string, number>;
   upgradeCount: number;
+  /** Доплаты по назначению (demo-06): в сертификат, застройщику вне сертификата, в цену квартиры; сумма = `upgrades`. */
+  bySettlement: Record<Settlement, number>;
 }
 
 export interface ResolvedScene {
@@ -148,6 +151,7 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
   const byRoom: Record<string, number> = {};
   let upgrades = 0;
   let upgradeCount = 0;
+  const bySettlement: Record<Settlement, number> = { allowance: 0, developer_surcharge: 0, property_price: 0 };
 
   const hidden = new Set(config.hidden ?? []);
   for (const slot of a.slots) {
@@ -158,6 +162,7 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
     const price = priceOf(opt);
     if (price > 0 || opt.tier !== "base") {
       upgrades += price;
+      bySettlement[opt.settlement ?? "allowance"] += price;
       if (price > 0) upgradeCount += 1;
       byRoom[slot.roomId] = (byRoom[slot.roomId] ?? 0) + price;
     }
@@ -221,6 +226,7 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
   placeTabletop(a, items);
   const packed = packPrices(c, items);
   upgrades += packed.delta;
+  bySettlement.allowance += packed.delta;   // упаковки — мебель
   for (const [roomId, d] of packed.byRoom) byRoom[roomId] = (byRoom[roomId] ?? 0) + d;
   upgradeCount += packed.countDelta;
 
@@ -234,6 +240,7 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
       total: a.basePrice + upgrades,
       byRoom,
       upgradeCount,
+      bySettlement,
     },
     issues,
     selections,

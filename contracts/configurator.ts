@@ -130,6 +130,11 @@ export const option = z.object({
    */
   pack: z.number().int().positive().optional(),
   packKey: z.string().optional(),
+  /**
+   * Куда идёт доплата (demo-06, `lib/configurator/settlement.ts`): нет поля — в мебельный сертификат; отделка застройщика —
+   * `developer_surcharge` (RF, вне сертификата) или `property_price` (UK, в цену квартиры).
+   */
+  settlement: z.enum(["allowance", "developer_surcharge", "property_price"]).optional(),
   /** Совместимость: нужны эти опции / несовместимо с этими. */
   requires: z.array(z.string()).default([]),
   excludes: z.array(z.string()).default([]),

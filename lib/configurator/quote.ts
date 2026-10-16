@@ -18,6 +18,7 @@ export function buildQuote(a: Apartment, c: Catalogue, config: Configuration): Q
   return {
     basePrice: scene.totals.basePrice,
     upgrades: scene.totals.upgrades,
+    bySettlement: scene.totals.bySettlement,
     total: scene.totals.total,
     currency: c.currency,
     lines,

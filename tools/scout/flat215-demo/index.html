@@ -1807,7 +1807,7 @@ function devDraw(){ const b=document.getElementById('vfloor'); if(!b)return; b.i
 function devSet(gid, vid){
   const next=devCanon(Object.assign({},DEVOPT,{[gid]:vid}));
   if(JSON.stringify(next)===JSON.stringify(DEVOPT))return;
-  DEVOPT=next; devApply(); devDraw();
+  DEVOPT=next; devApply(); devDraw(); try{sync3dLink();}catch(e){}
   histPush();              // номер состояния сменился: сумма, история и эскиз обновятся по `remlab:hist`
   document.dispatchEvent(new CustomEvent('remlab:act',{detail:'floor_pick'}));
   // ТЕЛЕФОН: раскрытая шторка закрывает пол — опускаем её, чтобы новый пол был виден сразу, и коротко говорим, что выбрано
@@ -2595,7 +2595,9 @@ function sync3dLink(){
   const lg = LANG==='en' ? '&lang=en' : '';
   // КОЛЛЕКЦИЯ ПОКУПАТЕЛЯ (b2b-05): в 3D — её расстановка и товары по её номеру, а не исходный набор
   const coll = /^c:[A-Za-z0-9_-]{22}$/.test(v.id||'') ? v.id.slice(2) : '';
-  const href = coll ? '/flat?coll='+coll+lg : v.id ? '/flat?demo='+encodeURIComponent(v.id)+fl+lg : '/flat'+(lg?'?lang=en':'');
+  // пол и прочие опции застройщика (demo-06) — тем же выбором, что в окне: `opt=группа:вариант`, сервер проверит по карточке
+  const op = Object.keys(DEVOPT).length ? '&opt='+Object.keys(DEVOPT).sort().map(k=>k+':'+DEVOPT[k]).join(',') : '';
+  const href = coll ? '/flat?coll='+coll+lg+op : v.id ? '/flat?demo='+encodeURIComponent(v.id)+fl+lg+op : '/flat'+(lg?'?lang=en':'');
   a.href = href;
   const b=document.getElementById('swap3d');
   if(b)b.href = href;

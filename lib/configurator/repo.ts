@@ -26,6 +26,8 @@ export interface Quote {
   lines: QuoteLine[];
   /** Против какого лимита выбирали (снимок на момент сохранения, для отчёта застройщику). */
   certificate?: { amount: number; share: number };
+  /** Доплаты по назначению (demo-06): в сертификат / застройщику за отделку / в цену квартиры. Старые снимки — без поля. */
+  bySettlement?: { allowance: number; developer_surcharge: number; property_price: number };
   computedAt: string;
 }
 

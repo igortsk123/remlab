@@ -153,3 +153,44 @@ describe("мост витрина → конфигуратор", () => {
     expect(fromDemoVariant(data, "setX", CTX)).toBeNull();
   });
 });
+
+// demo-06: пол от застройщика в /flat — варианты группы карточки опциями пола; доплата — застройщику, не в сертификат
+describe("пол от застройщика в /flat", () => {
+  it("из карточки flat215: 5 вариантов пола, по умолчанию «в цене», выбор паркета — доплата застройщику отдельно", async () => {
+    const { findApartment } = await import("@/lib/partners/registry");
+    const { floorChoiceOf, developerSelections, parseOptParam } = await import("@/lib/configurator/source");
+    const hit = findApartment("flat215")!;
+    const fc = floorChoiceOf(hit)!;
+    expect(fc.variants).toHaveLength(5);
+    expect(fc.settlement).toBe("developer_surcharge");
+    const r = fromDemoVariant(data, "set16", { ...CTX, floorChoice: fc })!;
+    const floor = r.apartment.slots.find((s) => s.id === "floor")!;
+    expect(floor.optionIds).toHaveLength(5);
+    expect(floor.defaultOptionId).toBe("opt:floor:laminate-oak-light");
+    // оболочка красится материалом пола по умолчанию — он среди первых материалов каталога
+    expect(r.catalogue.materials[1]!.id).toBe("laminate-oak-light");
+    const base = resolveScene(r.apartment, r.catalogue, defaultConfiguration(r.apartment, r.catalogue));
+    expect(base.totals.bySettlement.developer_surcharge).toBe(0);
+    const sel = developerSelections(hit, r.apartment, parseOptParam("flooring:parquet-herringbone,bad,x:"));
+    expect(sel).toEqual({ floor: "opt:floor:parquet-herringbone" });
+    const cfg = defaultConfiguration(r.apartment, r.catalogue);
+    const sc = resolveScene(r.apartment, r.catalogue, { ...cfg, selections: { ...cfg.selections, ...sel } });
+    expect(sc.surfaces.find((s) => s.slotId === "floor")!.material.id).toBe("parquet-herringbone");
+    expect(sc.totals.bySettlement.developer_surcharge).toBe(86000);
+    expect(sc.totals.bySettlement.allowance).toBe(base.totals.bySettlement.allowance);   // сертификат не тронут
+    expect(sc.totals.upgrades).toBe(base.totals.upgrades + 86000);
+    // чужая группа или вариант — не применяются
+    expect(developerSelections(hit, r.apartment, { flooring: "nope" })).toEqual({});
+  });
+
+  it("UK-квартира 3D: пол — к цене квартиры, мебель — в сертификат", async () => {
+    const { resolveFlat } = await import("@/lib/configurator/source");
+    const f = await resolveFlat("demo-uk-1");
+    expect(f.ok).toBe(true);
+    if (!f.ok) return;
+    const floors = f.catalogue.options.filter((o) => o.category === "flooring");
+    expect(floors.length).toBeGreaterThan(0);
+    expect(floors.every((o) => o.settlement === "property_price")).toBe(true);
+    expect(f.catalogue.options.filter((o) => o.category === "furniture").every((o) => !o.settlement)).toBe(true);
+  });
+});
