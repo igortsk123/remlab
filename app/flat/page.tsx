@@ -125,7 +125,9 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
         </p>
       ) : null}
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="text-lg font-semibold text-primary sm:text-xl">
+        {/* размер — инлайн: общий сброс `h1` в globals.css (clamp 28–40 px) перебивает утилиты (ui-rules: резеты вне @layer),
+            и на телефоне заголовок занимал две строки по 28 px (п.8) */}
+        <h1 className="font-semibold text-primary" style={{ fontSize: "clamp(18px, 4.5vw, 22px)", margin: 0 }}>
           {lang === "en" ? apartment.titleEn : apartment.titleRu}
         </h1>
         {/* у покупателя ЖК уже в строке застройщика — повтор на телефоне съедал полэкрана (п.8) */}

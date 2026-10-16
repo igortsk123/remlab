@@ -297,6 +297,8 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
             ) : null}
           </span>
           {certificate ? <CertificateLine amount={certificate.amount} spent={scene.totals.upgrades} fmt={fmt} lang={lang} /> : null}
+          {/* кнопки — одной группой: при переносе строки «отменить/вернуть» не разъезжаются по разным строкам (п.8) */}
+          <div className="flex items-center gap-2">
           <UndoRedo lang={lang} undo={undo} redo={redo} canUndo={canUndo} canRedo={canRedo} />
           {!isDefault ? (
             <button
@@ -325,6 +327,7 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
               ✕
             </button>
           ) : null}
+          </div>
         </div>
       </header>
 
