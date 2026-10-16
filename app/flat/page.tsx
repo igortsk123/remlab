@@ -116,23 +116,25 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
     <main className="mx-auto w-full px-3 py-4 sm:px-5" style={{ maxWidth: 1700 }}>
       {/* высота шапки 0 сразу, до гидрации: липкие элементы иначе сначала встают под пустые 56 px */}
       {buyer ? <style>{".site-header{display:none}:root{--site-header-h:0px}"}</style> : null}
-      {buyer ? (
-        <p className="mb-1 flex flex-wrap gap-x-2 text-xs text-secondary sm:text-sm">
-          <span className="font-medium text-primary">{card.complex}</span>
-          <span>· {card.kind}{card.number ? ` № ${card.number}` : ""}</span>
-          {cert ? <span>· {lang === "en" ? `allowance up to ${cert}` : `сертификат до ${cert}`}</span> : null}
-          {manager ? <span>· {lang === "en" ? `your manager: ${manager}` : `ваш менеджер: ${manager}`}</span> : null}
-        </p>
-      ) : null}
+      {/* ШАПКА: у покупателя заголовок страницы — сама строка застройщика, одной-двумя мелкими строками (п.7/п.8: экран телефона —
+          под сцену; без адаптивного скрытия классами — заголовок всегда есть для чтения с экрана и тестов); иначе — как было.
+          Размер — инлайн: общий сброс `h1` в globals.css (clamp 28–40 px) перебивает утилиты (ui-rules: резеты вне @layer) */}
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        {/* размер — инлайн: общий сброс `h1` в globals.css (clamp 28–40 px) перебивает утилиты (ui-rules: резеты вне @layer),
-            и на телефоне заголовок занимал две строки по 28 px (п.8) */}
-        {/* у покупателя на телефоне заголовок не нужен — ЖК и квартира уже в строке застройщика (п.8: экран под сцену) */}
-        <h1 className={`font-semibold text-primary${buyer ? " hidden sm:block" : ""}`} style={{ fontSize: "clamp(18px, 4.5vw, 22px)", margin: 0 }}>
-          {lang === "en" ? apartment.titleEn : apartment.titleRu}
-        </h1>
-        {/* у покупателя ЖК уже в строке застройщика — повтор на телефоне съедал полэкрана (п.8) */}
-        <p className={`text-sm text-tertiary${buyer ? " hidden sm:block" : ""}`}>{card.meta}</p>
+        {buyer ? (
+          <h1 className="flex flex-wrap gap-x-2 font-normal text-secondary" style={{ fontSize: 14, lineHeight: 1.35, margin: 0 }}>
+            <span className="font-semibold text-primary">{card.complex}</span>
+            <span>· {card.kind}{card.number ? ` № ${card.number}` : ""}</span>
+            {cert ? <span>· {lang === "en" ? `allowance up to ${cert}` : `сертификат до ${cert}`}</span> : null}
+            {manager ? <span>· {lang === "en" ? `your manager: ${manager}` : `ваш менеджер: ${manager}`}</span> : null}
+          </h1>
+        ) : (
+          <>
+            <h1 className="font-semibold text-primary" style={{ fontSize: "clamp(18px, 4.5vw, 22px)", margin: 0 }}>
+              {lang === "en" ? apartment.titleEn : apartment.titleRu}
+            </h1>
+            <p className="text-sm text-tertiary">{card.meta}</p>
+          </>
+        )}
         <a className="ml-auto text-sm text-secondary underline" href={langHref(sp, lang === "en" ? "ru" : "en")}>
           {lang === "en" ? "Русский" : "English"}
         </a>
