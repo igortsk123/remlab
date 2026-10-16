@@ -2,9 +2,9 @@
 workstream: demo
 slug: demo-06-floor-options
 title: Пол от застройщика — современный паркет/ламинат по умолчанию и 5 вариантов на выбор с доплатой; видно в окне варианта, в 3D и на кадре
-status: draft
+status: in_progress
 created: 2026-10-14
-updated: 2026-10-14
+updated: 2026-10-16
 completed:
 plan_kind: sub
 parent_plan: MASTER-cost-first
@@ -120,6 +120,12 @@ review_after: 2026-11-28
   внесены; оценка 16 → 24 ч; ставится после `demo-05` (этап 4+)
 
 - 2026-10-14 — владелец: 1) список и цены — ок; 2) «предусмотри отключение кастома, по умолчанию для демо всё включено» → флаг `enabled` у группы опций
+- 2026-10-16 — `in_progress` (Opus, очередь мастера; demo-05 ждёт три ночи ворот и ⚑ владельца): начат шаг 1 — аудит пяти существующих полов и фактуры RF.
+- 2026-10-16 — шаг 1 (Opus): фактуры 5 полов — процедурные пресеты `tools/assets/material_pipeline.py` (`laminate-oak-light`,
+  `oak-grey`, `board-oak-natural`, `parquet-blocks`, `vinyl-stone-grey`; первые два «современнее» UK-шного oak-light после проверки
+  глазом), файлы `public/flat3d/materials/`, манифест `data/flat3d/materials.json`. Движок: пол застройщика в общем мосту
+  (`DemoContext.floorMaterial`), живая сцена — `setFloor()` (оболочка перерисовывается, модели не перезагружаются). Превью для
+  ⚑ владельца — https://remont-lab.online/test/scene-look/floors/ (вопрос 34; суммы условные).
 
 ## Completion summary
 —

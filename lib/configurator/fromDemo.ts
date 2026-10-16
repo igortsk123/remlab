@@ -26,6 +26,8 @@ export type DemoContext = {
   basePrice: number;
   /** Адрес витрины (страница или её demo-data.json): от него считаются относительные картинки товаров (`img/…`). */
   assetBase?: string;
+  /** Пол застройщика (demo-06): материал вместо ровного цвета паспорта отделки — фактура ламината/паркета. */
+  floorMaterial?: Record<string, unknown> & { id: string };
 };
 
 /**
@@ -256,11 +258,9 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
   // оболочку первый материал каталога — фото ковра легло на стены, пол и потолок. Цвета — из паспорта отделки
   // (`finish-passport.ts`), тем же красится серверный кадр; материалы стен и пола — ПЕРВЫМИ в каталоге
   const fp = finishPassport(room.finish);
-  extraMaterials.unshift(
-    { id: fp.wall.id, titleRu: "Стены", titleEn: "Walls", colorHex: fp.wall.colorHex, roughness: 0.95 },
-    { id: fp.floor.id, titleRu: "Пол", titleEn: "Floor", colorHex: fp.floor.colorHex, roughness: 0.7 },
-  );
-  for (const [surface, category, materialId] of [["floor", "flooring", fp.floor.id], ["wall", "walls", fp.wall.id]] as const) {
+  const floorMat = ctx.floorMaterial ?? { id: fp.floor.id, titleRu: "Пол", titleEn: "Floor", colorHex: fp.floor.colorHex, roughness: 0.7 };
+  extraMaterials.unshift({ id: fp.wall.id, titleRu: "Стены", titleEn: "Walls", colorHex: fp.wall.colorHex, roughness: 0.95 }, floorMat);
+  for (const [surface, category, materialId] of [["floor", "flooring", floorMat.id], ["wall", "walls", fp.wall.id]] as const) {
     extraOptions.push({ id: `opt:${surface}`, category, titleRu: surface, titleEn: surface, tier: "standard", price: 0,
       availability: "available", roomKinds: ["living"], asset: { kind: "material", materialId } });
     slots.push({ id: surface, roomId: "living", category, kind: "surface", surface, titleRu: surface === "wall" ? "Стены" : "Пол",

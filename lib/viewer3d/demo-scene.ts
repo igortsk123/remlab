@@ -32,6 +32,8 @@ export interface DemoSceneOptions {
   runtimeMeshes?: Record<string, RuntimeEntry>;
   /** Телефон/слабая машина — лёгкие копии и без теней. */
   lite?: boolean;
+  /** Пол застройщика (demo-06) — материал каталога (`data/flat3d/materials.json`, адреса карт абсолютные). */
+  floor?: Record<string, unknown> & { id: string };
 }
 
 export type DemoSceneEvent = "progress" | "contextlost";
@@ -43,6 +45,8 @@ export interface DemoScene {
    *  пропускаются. Декор не передан — остаётся прежний. */
   update(items: DemoItem[], decor?: DemoDecor[]): Promise<void>;
   setPhotoPose(pose: PhotoPose): void;
+  /** Сменить пол (demo-06): оболочка комнаты перерисовывается, модели мебели не перезагружаются. */
+  setFloor(floor: (Record<string, unknown> & { id: string }) | null): Promise<void>;
   exportFrame(width: number, height: number, type?: string, quality?: number): Promise<Blob>;
   /** Вид окна (demo-02): «Ракурс» — фото-поза (`setPhotoPose`), «3D» — прогулка; с позой — из точки этого ракурса,
    *  взгляд на середину мебели (`viewer.walkFrom`). */
@@ -71,8 +75,10 @@ const isRug = (it: DemoItem): boolean => String(it.role ?? "").startsWith("ко�
  * Квартира и каталог из живой расстановки — тем же мостом `fromDemoVariant`, что открывает вариант в `/flat` (demo-05 п.9:
  * ковёр — плита с фото товара, ваза — на столике по правилу серверного кадра; одно место для окна и /flat).
  */
-export function liveApartment(room: DemoRoom, items: DemoItem[], base: string, decor: DemoDecor[] = []): { apartment: Apartment; catalogue: Catalogue } | null {
-  const built = fromDemoVariant({ room, variants: [{ id: "live", items, decor }] }, "live", { ...CTX, assetBase: base });
+export function liveApartment(room: DemoRoom, items: DemoItem[], base: string, decor: DemoDecor[] = [],
+  floor?: Record<string, unknown> & { id: string }): { apartment: Apartment; catalogue: Catalogue } | null {
+  const built = fromDemoVariant({ room, variants: [{ id: "live", items, decor }] }, "live",
+    { ...CTX, assetBase: base, ...(floor ? { floorMaterial: floor } : {}) });
   if (!built) return null;
   const { apartment, catalogue } = built;
   // стены и пол — свои материалы из паспорта отделки: их ставит сам мост (`fromDemoVariant`), одинаково для окна и /flat
@@ -82,7 +88,8 @@ export function liveApartment(room: DemoRoom, items: DemoItem[], base: string, d
 export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOptions): DemoScene {
   if (opts.runtimeMeshes) setRuntimeMeshes(opts.runtimeMeshes);
   let decor: DemoDecor[] = opts.decor ?? [];
-  const first = liveApartment(opts.room, opts.items, opts.base, decor);
+  let floor = opts.floor;
+  const first = liveApartment(opts.room, opts.items, opts.base, decor, floor);
   if (!first) throw new Error("пустая расстановка");
   const listeners = new Map<DemoSceneEvent, Set<(...a: number[]) => void>>();
   const emit = (ev: DemoSceneEvent, ...a: number[]): void => listeners.get(ev)?.forEach((f) => f(...a));
@@ -112,7 +119,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
         if (!pending) return;
         current = pending.items;
         decor = pending.decor;
-        const next = liveApartment(opts.room, current, opts.base, decor);
+        const next = liveApartment(opts.room, current, opts.base, decor, floor);
         pending = null;
         if (!next) return;
         viewer.setApartment(next.apartment, next.catalogue);
@@ -127,6 +134,18 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     ready,
     update,
     setPhotoPose: (pose) => viewer.setPhotoPose(pose),
+    setFloor: (f) => {
+      floor = f ?? undefined;
+      running = running.then(async () => {
+        const next = liveApartment(opts.room, current, opts.base, decor, floor);
+        if (!next) return;
+        viewer.setApartment(next.apartment, next.catalogue);
+        const sc = resolved(next.apartment, next.catalogue);
+        viewer.buildShell(sc);          // пол — часть оболочки комнаты
+        await viewer.syncObjects(sc);   // мебель та же — модели не перезагружаются (подписи не меняются)
+      }).catch((e: unknown) => console.warn("живая сцена: пол не сменился", e));
+      return running;
+    },
     exportFrame: (w, h, type, q) => viewer.exportFrame(w, h, type, q),
     setWalk: (from) => (from ? viewer.walkFrom(from) : viewer.setViewMode("walk")),
     look: (dx, dy) => viewer.look(dx, dy),

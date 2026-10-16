@@ -1,7 +1,30 @@
 {
- "_about": "Материалы покрытий. Процедурные — tools/assets/material_pipeline.py, фактуры фасадов из фото товаров — tools/assets/material_from_product.py.",
+ "_about": "Материалы покрытий. Собрано tools/assets/material_pipeline.py — руками не править.",
  "baseUrl": "/flat3d/materials/",
  "materials": [
+  {
+   "id": "board-oak-natural",
+   "titleRu": "Инженерная доска «Дуб натуральный»",
+   "titleEn": "Natural oak engineered board",
+   "colorHex": "#ae8d69",
+   "roughness": 0.5,
+   "metalness": 0.0,
+   "tileCm": [
+    120.0,
+    120.0
+   ],
+   "baseColorUrl": "board-oak-natural.webp",
+   "normalUrl": "board-oak-natural-n.webp",
+   "roughnessUrl": "board-oak-natural-r.webp",
+   "aoUrl": "board-oak-natural-ao.webp",
+   "previewUrl": "board-oak-natural-preview.webp",
+   "surfaces": [
+    "floor"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
+  },
   {
    "id": "carpet-beige",
    "titleRu": "Ковролин бежевый",
@@ -392,6 +415,29 @@
    }
   },
   {
+   "id": "laminate-oak-light",
+   "titleRu": "Ламинат «Дуб светлый»",
+   "titleEn": "Light oak laminate",
+   "colorHex": "#c2ad91",
+   "roughness": 0.58,
+   "metalness": 0.0,
+   "tileCm": [
+    120.0,
+    120.0
+   ],
+   "baseColorUrl": "laminate-oak-light.webp",
+   "normalUrl": "laminate-oak-light-n.webp",
+   "roughnessUrl": "laminate-oak-light-r.webp",
+   "aoUrl": "laminate-oak-light-ao.webp",
+   "previewUrl": "laminate-oak-light-preview.webp",
+   "surfaces": [
+    "floor"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
+  },
+  {
    "id": "laminate-oak-top",
    "titleRu": "Столешница дуб",
    "titleEn": "Oak worktop",
@@ -409,6 +455,29 @@
    "previewUrl": "laminate-oak-top-preview.webp",
    "surfaces": [
     "worktop"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
+  },
+  {
+   "id": "oak-grey",
+   "titleRu": "Ламинат «Дуб серый»",
+   "titleEn": "Grey oak laminate",
+   "colorHex": "#9f988c",
+   "roughness": 0.56,
+   "metalness": 0.0,
+   "tileCm": [
+    120.0,
+    120.0
+   ],
+   "baseColorUrl": "oak-grey.webp",
+   "normalUrl": "oak-grey-n.webp",
+   "roughnessUrl": "oak-grey-r.webp",
+   "aoUrl": "oak-grey-ao.webp",
+   "previewUrl": "oak-grey-preview.webp",
+   "surfaces": [
+    "floor"
    ],
    "source": {
     "kind": "procedural"
@@ -675,6 +744,29 @@
     "floor",
     "wall",
     "splashback"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
+  },
+  {
+   "id": "vinyl-stone-grey",
+   "titleRu": "Кварцвинил «Камень серый»",
+   "titleEn": "Grey stone SPC vinyl",
+   "colorHex": "#a9a7a3",
+   "roughness": 0.42,
+   "metalness": 0.0,
+   "tileCm": [
+    120.0,
+    120.0
+   ],
+   "baseColorUrl": "vinyl-stone-grey.webp",
+   "normalUrl": "vinyl-stone-grey-n.webp",
+   "roughnessUrl": "vinyl-stone-grey-r.webp",
+   "aoUrl": "vinyl-stone-grey-ao.webp",
+   "previewUrl": "vinyl-stone-grey-preview.webp",
+   "surfaces": [
+    "floor"
    ],
    "source": {
     "kind": "procedural"

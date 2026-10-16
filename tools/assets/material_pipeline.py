@@ -407,6 +407,19 @@ PRESETS: dict[str, dict] = {
                         ru="Дуб натуральный", en="Natural oak", rough=0.52, spread=0.20, nrm=2.4),
     "walnut-dark": dict(gen="planks", rgb=(108, 76, 54), plank=17, tile=110, contrast=0.30,
                         ru="Орех тёмный", en="Dark walnut", rough=0.45, spread=0.22, nrm=2.6),
+    # demo-06 (владелец 14.10, список полов застройщика RF): ламинат «дуб серый», кварцвинил «камень серый»
+    # «современный» тон для витрины RF: светлее и спокойнее UK-шного oak-light (проверка глазом 16.10: рыжие полосатые доски
+    # читались дешёвым ламинатом)
+    "laminate-oak-light": dict(gen="planks", rgb=(206, 184, 154), plank=19, tile=120, contrast=0.11,
+                               ru="Ламинат «Дуб светлый»", en="Light oak laminate", rough=0.58, spread=0.09, nrm=2.0),
+    "board-oak-natural": dict(gen="planks", rgb=(184, 150, 112), plank=19, tile=120, contrast=0.15,
+                              ru="Инженерная доска «Дуб натуральный»", en="Natural oak engineered board",
+                              rough=0.50, spread=0.12, nrm=2.3),
+    "oak-grey": dict(gen="planks", rgb=(170, 162, 150), plank=19, tile=120, contrast=0.14,
+                     ru="Ламинат «Дуб серый»", en="Grey oak laminate", rough=0.56, spread=0.10, nrm=2.2),
+    "vinyl-stone-grey": dict(gen="tiles", rgb=(166, 164, 160), size=60, tile=120, grout=0.25, vein=0.35,
+                             grout_rgb=(140, 138, 134), ru="Кварцвинил «Камень серый»", en="Grey stone SPC vinyl",
+                             rough=0.42, spread=0.12, nrm=1.5),
     "parquet-blocks": dict(gen="herringbone", rgb=(182, 148, 110), plank=12, tile=96, contrast=0.24,
                            ru="Паркет модульный", en="Parquet blocks", rough=0.50, spread=0.20, nrm=2.6),
     "carpet-grey": dict(gen="carpet", rgb=(136, 134, 130), ru="Ковролин серый", en="Grey carpet",
