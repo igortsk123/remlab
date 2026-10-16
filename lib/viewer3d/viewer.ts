@@ -1382,6 +1382,11 @@ export class FlatViewer {
     };
   }
 
+  /** Что стоит на каждом месте (подпись модели) — живая проверка «замена дошла до сцены» (demo-02, приёмка 16.10 п.1). */
+  placedSignatures(): Record<string, string> {
+    return Object.fromEntries([...this.placed].map(([id, p]) => [id, p.signature]));
+  }
+
   /** Повернуться в прогулке лицом к точке квартиры (см): живая проверка «4 с хода к предмету» (demo-05 п.1д). */
   faceToward(x: number, y: number): void {
     this.heading = ((Math.atan2(x - this.pos.x, y - this.pos.y) * 180) / Math.PI + 360) % 360;

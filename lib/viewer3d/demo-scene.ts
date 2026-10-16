@@ -57,6 +57,11 @@ export interface DemoScene {
   pick(clientX: number, clientY: number): number;
   /** Метки предметов на холсте: номер в расстановке и точка (px холста), видна ли (demo-02: цены на сцене). */
   pins(): { index: number; x: number; y: number; visible: boolean }[];
+  /** Повернуть взгляд прогулки к предмету расстановки (номер как в `update`): заменённый в «3D» предмет должен быть виден
+   *  (приёмка владельцем 16.10: диван менялся за краем кадра, и замена казалась несработавшей). */
+  focus(index: number): void;
+  /** Номер предмета расстановки → подпись модели на сцене (живая проверка «замена дошла до сцены»). */
+  models(): Record<number, string>;
   /** Подгрузить модели кандидатов заранее (лента замен открылась) — замена потом без сети. */
   prefetch(items: DemoItem[]): void;
   /** p95 времени кадра (мс) и программный ли рендер — по ним страница решает, нужен ли серверный эскиз. */
@@ -149,6 +154,15 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     exportFrame: (w, h, type, q) => viewer.exportFrame(w, h, type, q),
     setWalk: (from) => (from ? viewer.walkFrom(from) : viewer.setViewMode("walk")),
     look: (dx, dy) => viewer.look(dx, dy),
+    focus: (index) => {
+      const it = current[index];
+      const x = Number(it?.x), y = Number(it?.y);
+      if (Number.isFinite(x) && Number.isFinite(y)) viewer.faceToward(x, y);
+    },
+    models: () => {
+      const sig = viewer.placedSignatures();
+      return Object.fromEntries([...slotIndex()].map(([id, i]) => [i, sig[id] ?? ""]));
+    },
     pick: (x, y) => {
       const id = viewer.pick(x, y, canvas.getBoundingClientRect()).slotId;
       return id ? slotIndex().get(id) ?? -1 : -1;

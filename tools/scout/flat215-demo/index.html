@@ -3986,6 +3986,7 @@ document.addEventListener('remlab:hist',()=>{const v=document.getElementById('vs
 (function(){
   const _try=tryOn; tryOn=function(p){
     const s0=sel, before=s0&&(skuOf(s0)||{}).price||0, role=s0&&s0.role;
+    if(s0&&typeof LIVE!=='undefined'){const k=items.indexOf(s0); LIVE.focus=k>=0?k:null;}
     const r=_try.apply(this,arguments);
     if(s0&&document.getElementById('shot').classList.contains('v2')){
       const after=(skuOf(s0)||{}).price||0, d=after-before, EN=LANG==='en';
@@ -4146,6 +4147,10 @@ async function liveShow(){
   sc.start();
   LIVE.state='updating'; vwLoad(true, LANG==='en'?'Updating…':'Обновляем…', true);
   await sc.update(clone(items), liveDecor());
+  // ЗАМЕНА В «3D» — ВЗГЛЯД НА ЗАМЕНЁННЫЙ ПРЕДМЕТ (приёмка владельцем 16.10 п.1): иначе диван менялся за краем кадра и
+  // казалось, что замена не сработала
+  if(VW.mode==='walk'&&LIVE.focus!=null&&sc.focus){sc.focus(LIVE.focus); sc.start();}
+  LIVE.focus=null;
   LIVE.state='ready'; vwLoad(false);
 }
 </script>
