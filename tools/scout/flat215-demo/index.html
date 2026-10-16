@@ -485,10 +485,9 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
    и курсор, и события мыши — иначе на телефоне вкладка всё равно «нажимается» и мигает. */
 .tab.soon{color:var(--faint);cursor:default;pointer-events:none}
 .soon-panel h2{margin:0 0 6px}.soon-panel p{margin:0;color:var(--muted)}
-/* RU · EN — правый верхний угол шапки квартиры (v3); заголовок не заезжает под него */
-#flatPrice{position:relative}#langSw{position:absolute;top:12px;right:16px;font-size:14px;white-space:nowrap;z-index:1}
-#flatPrice .fh-top{padding-right:64px}
-@media(max-width:700px){#langSw{top:8px;right:14px;font-size:13px}#flatPrice .fh-top{padding-right:0;padding-top:14px}}
+/* язык — неприметно в самом низу страницы (владелец 16.10) */
+#langSw{text-align:center;padding:28px 16px 36px;font-size:13px;color:var(--faint)}
+#langSw a{color:var(--faint)}#langSw b{font-weight:600;color:var(--muted)}
 .tab .soon-l{font-size:.72em;font-weight:400;margin-left:2px;vertical-align:1px}
 /* ПОДРАЗДЕЛЫ «Вариант N · цена» (26.08): второй уровень навигации сразу под вкладками */
 .subtabs{display:flex;gap:8px;overflow-x:auto;padding:12px 2px 4px;margin-bottom:2px}
@@ -1879,10 +1878,16 @@ document.addEventListener('flatcard',()=>{DEVOPT=devCanon(DEVOPT); devApply(); d
   if(typeof vwSumUpdate==='function')vwSumUpdate();});
 // ЯЗЫК ПОКАЗА (b2b-11): `?lang=` → выбор человека → язык браузера. Меняет ТОЛЬКО язык (ADR-0254): рынок,
 // валюта и сертификат — из карточки застройщика. Перевод интерфейса — слой `I18N` в конце страницы.
+const DEMO_LANGS=[['ru','Русский'],['en','English']];     // поддерживаемые языки показа — добавить строку, когда появится перевод
+const MARKET_LANG='ru';                                  // язык рынка демо-застройщика (RF) — для языков устройства без перевода
 const LANG=(()=>{if(window.__EMBED&&(window.__EMBED.lang==='en'||window.__EMBED.lang==='ru'))return window.__EMBED.lang; // встроено: язык задаёт сайт застройщика
   const m=location.search.match(/[?&]lang=(ru|en)(?:&|$)/);if(m)return m[1];
   try{const s=localStorage.getItem('remlab-lang');if(s==='ru'||s==='en')return s;}catch(e){}
-  return /^en/i.test(navigator.language||'')?'en':'ru';})();
+  // ПО ЯЗЫКУ УСТРОЙСТВА (владелец 16.10, план demo-02 § «Страница»): первый поддерживаемый из языков телефона/компьютера;
+  // неизвестный — язык рынка застройщика (демо-застройщик — RF). Языков может стать больше — список один (`DEMO_LANGS`),
+  // явный выбор — `?lang=xx` или мелкая строка в самом низу страницы (для проверок)
+  const want=(navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language||'']).map(l=>String(l).slice(0,2).toLowerCase());
+  return want.find(l=>DEMO_LANGS.some(x=>x[0]===l))||MARKET_LANG;})();
 window.__LANG=LANG;
 const flatKind=()=>FLAT?FLAT.kind:'';
 // «Квартира №N · 73,7 м²» — из карточки; до её загрузки — нейтральная подпись (не чертёж-источник).
@@ -4785,15 +4790,15 @@ async function liveShow(){
 (function(){
   var LANG=window.__LANG||'ru';
   function switcher(){
-    // RU · EN — в шапке квартиры, над ценой (владелец 16.10: вкладки — только комнаты)
-    var host=document.getElementById('flatPrice'); if(!host||document.getElementById('langSw'))return;
+    // ЯЗЫК — СКРЫТО, ВНИЗУ СТРАНИЦЫ (владелец 16.10): по умолчанию язык устройства, переключение — редкий случай (проверки);
+    // список, а не «RU · EN»: языков может стать больше
+    if(document.getElementById('langSw'))return;
     var w=document.createElement('div'); w.id='langSw';
-    w.innerHTML=['ru','en'].map(function(l){return l===LANG?'<b>'+l.toUpperCase()+'</b>':
-      '<a href="#" data-lang="'+l+'" style="color:var(--muted)">'+l.toUpperCase()+'</a>';}).join(' · ');
-    host.insertBefore(w,host.firstChild);
-    w.querySelectorAll('[data-lang]').forEach(function(a){a.onclick=function(e){e.preventDefault();
-      try{localStorage.setItem('remlab-lang',a.dataset.lang);}catch(_){}
-      var u=new URL(location.href); u.searchParams.set('lang',a.dataset.lang); location.href=u.toString();};});
+    w.innerHTML=DEMO_LANGS.map(function(l){return l[0]===LANG?'<b>'+l[1]+'</b>':'<a href="#" data-lang="'+l[0]+'">'+l[1]+'</a>';}).join(' · ');
+    document.body.appendChild(w);
+    w.querySelectorAll('[data-lang]').forEach(function(a){a.onclick=function(e){e.preventDefault(); var l=a.dataset.lang;
+      try{localStorage.setItem('remlab-lang',l);}catch(_){}
+      var u=new URL(location.href); u.searchParams.set('lang',l); location.href=u.toString();};});
   }
   if(LANG!=='en'){document.addEventListener('DOMContentLoaded',switcher); if(document.readyState!=='loading')switcher(); return;}
   document.documentElement.lang='en';
