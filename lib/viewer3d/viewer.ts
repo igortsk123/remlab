@@ -822,8 +822,13 @@ export class FlatViewer {
       const dx = x - t.x;
       const dy = y - t.y;
       const d = Math.hypot(dx, dy);
-      return d < 220 && (dx * Math.sin(r) + dy * Math.cos(r)) / Math.max(d, 1) < 0.6;
+      // ближе 1,5 м к экрану — тоже плохо (прогон d8 16.10: у современного экран в упор занимал четверть кадра), как в
+      // правилах камер окна
+      return d < 150 || (d < 220 && (dx * Math.sin(r) + dy * Math.cos(r)) / Math.max(d, 1) < 0.6);
     });
+    // «БЛИЖЕ 80 СМ НИЧЕГО» (правило камер окна, прогон d8 16.10: торец тумбы вплотную у края кадра) — мягко: каждый
+    // недостающий до 80 см сантиметр стоит 3 очка, жёсткий отказ остаётся 45/35 см ниже
+    const near = (free: number): number => Math.max(0, 80 - free) * 3;
 
     let best: { x: number; y: number } | null = null;
     let bestScore = -1e9;
@@ -838,7 +843,8 @@ export class FlatViewer {
         // от двери можно стоять ближе к мебели: мы смотрим В комнату, а не упираемся в шкаф
         if (free < (door ? 20 : minFree)) continue;
         // подальше от центра (видно больше комнаты), свобода вокруг, и заметный плюс двери
-        const score = Math.hypot(spot.x - c.x, spot.y - c.y) + Math.min(free, 150) + (door ? 220 : 0) - (tvSide(spot.x, spot.y) ? 400 : 0);
+        const score = Math.hypot(spot.x - c.x, spot.y - c.y) + Math.min(free, 150) + (door ? 220 : 0) - (tvSide(spot.x, spot.y) ? 400 : 0)
+          - (door ? 0 : near(free));
         if (score > bestScore) {
           bestScore = score;
           best = spot;
