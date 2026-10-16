@@ -9,7 +9,8 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? "line" : "list",
+  // в CI ещё и отчёт GitHub: текст упавшей проверки попадает в аннотации запуска — их видно без токена (логи шагов закрыты)
+  reporter: process.env.CI ? [["line"], ["github"]] : "list",
   use: {
     baseURL,
     trace: "on-first-retry",
