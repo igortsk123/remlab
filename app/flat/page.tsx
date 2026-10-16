@@ -117,7 +117,7 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
       {/* высота шапки 0 сразу, до гидрации: липкие элементы иначе сначала встают под пустые 56 px */}
       {buyer ? <style>{".site-header{display:none}:root{--site-header-h:0px}"}</style> : null}
       {buyer ? (
-        <p className="mb-1 flex flex-wrap gap-x-2 text-sm text-secondary">
+        <p className="mb-1 flex flex-wrap gap-x-2 text-xs text-secondary sm:text-sm">
           <span className="font-medium text-primary">{card.complex}</span>
           <span>· {card.kind}{card.number ? ` № ${card.number}` : ""}</span>
           {cert ? <span>· {lang === "en" ? `allowance up to ${cert}` : `сертификат до ${cert}`}</span> : null}
@@ -125,10 +125,11 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
         </p>
       ) : null}
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="text-xl font-semibold text-primary">
+        <h1 className="text-lg font-semibold text-primary sm:text-xl">
           {lang === "en" ? apartment.titleEn : apartment.titleRu}
         </h1>
-        <p className="text-sm text-tertiary">{card.meta}</p>
+        {/* у покупателя ЖК уже в строке застройщика — повтор на телефоне съедал полэкрана (п.8) */}
+        <p className={`text-sm text-tertiary${buyer ? " hidden sm:block" : ""}`}>{card.meta}</p>
         <a className="ml-auto text-sm text-secondary underline" href={langHref(sp, lang === "en" ? "ru" : "en")}>
           {lang === "en" ? "Русский" : "English"}
         </a>

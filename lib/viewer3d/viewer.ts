@@ -832,17 +832,53 @@ export class FlatViewer {
 
     let best: { x: number; y: number } | null = null;
     let bestScore = -1e9;
-    // второй проход — с запасом 35 см вместо 45: если с обычным запасом остаётся только вид на ТВ сбоку (минимализм 15.10:
-    // точка «спереди ТВ» в 45 см от столика), ближе к мебели лучше, чем торец экрана в треть кадра
-    for (const minFree of [45, 35]) {
+    let lookAt: { x: number; y: number } = c;
+    // ЖЁСТКО (решение d8 16.10): «ближе 80 см ничего» и «до экрана ТВ ≥ 1,5 м»; «ТВ спереди» — мягко (штраф). У минимализма
+    // единственная точка «ТВ спереди» стояла в 47 см от столика и с экраном в упор на треть кадра — хуже торца тумбы
+    const tvDist = (x: number, y: number): number => Math.min(1e9, ...tvs.map((t) => {
+      const a = (-t.rot * Math.PI) / 180;
+      const dx = x - t.x;
+      const dy = y - t.y;
+      const lx = dx * Math.cos(a) - dy * Math.sin(a);
+      const ly = dx * Math.sin(a) + dy * Math.cos(a);
+      return Math.hypot(Math.max(Math.abs(lx) - t.wCm / 2, 0), Math.max(Math.abs(ly) - t.dCm / 2, 0));
+    }));
+    for (const cand of candidates) {
+      const spot = nearestStandable(this.area, cand.x, cand.y, 8, 6);
+      if (!spot) continue;
+      const free = clearance(spot.x, spot.y);
+      const door = isDoorSpot(cand);
+      if (free < (door ? 20 : 80) || tvDist(spot.x, spot.y) < 150) continue;
+      const score = Math.hypot(spot.x - c.x, spot.y - c.y) + Math.min(free, 150) + (door ? 220 : 0) - (tvSide(spot.x, spot.y) ? 400 : 0);
+      if (score > bestScore) {
+        bestScore = score;
+        best = spot;
+      }
+    }
+    // НИ ОДНА ТОЧКА НЕ ПРОШЛА — СТАРТ ОТ ДВЕРИ С ВИДОМ НА ДИВАН (решение d8 16.10; ТВ пусть будет не в кадре, как ступень 1 у
+    // окна): в 60 см от входа внутрь комнаты, взгляд — на диван (нет дивана — в центр)
+    if (!best) {
+      const d0 = room.openings.find((o) => o.kind === "door");
+      if (d0) {
+        const mid = d0.offsetCm + d0.widthCm / 2;
+        const inward = d0.wall === "south" ? { x: room.x + mid, y: room.y + 60 } : d0.wall === "north" ? { x: room.x + mid, y: room.y + room.d - 60 }
+          : d0.wall === "west" ? { x: room.x + 60, y: room.y + mid } : { x: room.x + room.w - 60, y: room.y + mid };
+        const spot = nearestStandable(this.area, inward.x, inward.y, 8, 6);
+        const sofa = inRoom.find((p) => p.spec.slotId.startsWith("диван"))?.spec.placement;
+        if (spot && clearance(spot.x, spot.y) >= 20) {
+          best = spot;
+          lookAt = sofa ? { x: sofa.x, y: sofa.y } : c;
+        }
+      }
+    }
+    // и только если двери нет — прежние мягкие проходы (45/35 см, вид на ТВ сбоку — штраф)
+    for (const minFree of best ? [] : [45, 35]) {
       for (const cand of candidates) {
         const spot = nearestStandable(this.area, cand.x, cand.y, 8, 6);
         if (!spot) continue;
         const free = clearance(spot.x, spot.y);
         const door = isDoorSpot(cand);
-        // от двери можно стоять ближе к мебели: мы смотрим В комнату, а не упираемся в шкаф
         if (free < (door ? 20 : minFree)) continue;
-        // подальше от центра (видно больше комнаты), свобода вокруг, и заметный плюс двери
         const score = Math.hypot(spot.x - c.x, spot.y - c.y) + Math.min(free, 150) + (door ? 220 : 0) - (tvSide(spot.x, spot.y) ? 400 : 0)
           - (door ? 0 : near(free));
         if (score > bestScore) {
@@ -866,8 +902,8 @@ export class FlatViewer {
     }
     if (!best) return;
     this.pos.set(best.x, best.y);
-    const dx = c.x - best.x;
-    const dy = c.y - best.y;
+    const dx = lookAt.x - best.x;
+    const dy = lookAt.y - best.y;
     const dist = Math.hypot(dx, dy);
     if (dist > 15) this.heading = ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
     // целимся в точку на высоте мебели в центре комнаты: иначе половину кадра занимает потолок

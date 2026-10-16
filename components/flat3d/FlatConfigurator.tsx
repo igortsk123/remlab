@@ -282,16 +282,18 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
           ))}
         </div>
 
-        <span className="text-sm text-tertiary">
+        {/* на телефоне — без строки комнаты: итог и сертификат важнее, а ширины не хватало (demo-05 п.8) */}
+        <span className="hidden text-sm text-tertiary sm:inline">
           {lang === "en" ? room.titleEn : room.titleRu} ·{" "}
           {roomTotal > 0 ? `+${fmt(roomTotal)} ${L.perRoom}` : L.included}
         </span>
 
-        <div className="ml-auto flex items-center gap-2">
+        {/* переносится строкой, а не уезжает за край: на телефоне «Сохранить подбор» обрезался правым краем (п.8) */}
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           <span className="text-sm text-secondary">
             {L.total}: <b className="text-primary">{fmt(scene.totals.total)}</b>
             {scene.totals.upgrades > 0 ? (
-              <span className="text-tertiary"> (+{fmt(scene.totals.upgrades)})</span>
+              <span className="hidden text-tertiary sm:inline"> (+{fmt(scene.totals.upgrades)})</span>
             ) : null}
           </span>
           {certificate ? <CertificateLine amount={certificate.amount} spent={scene.totals.upgrades} fmt={fmt} lang={lang} /> : null}
