@@ -58,15 +58,14 @@ test("английский режим: шапка и вкладки без ру�
   expect(head.join(" ")).not.toMatch(/[А-Яа-яЁё]/);
 });
 
-test("вкладка «Спальня 1»: каталог кроватей и шкафов с ценой и ссылкой в магазин", async ({ page }) => {
+test("вкладка «Спальня 1»: общая заглушка неготовой комнаты (каталог снят с показа, ADR-0299)", async ({ page }) => {
   const errors = await openDemo(page);
-  await page.locator("#tab-bedroom").click();
-  const beds = page.locator('[data-br-role="кровать"] .pc');
-  await expect(beds.first()).toBeVisible();
-  expect(await beds.count()).toBeGreaterThanOrEqual(10);
-  // ссылка в магазин — партнёрская (комиссия, ADR-0016), не прямая
-  await expect(beds.first().locator("a")).toHaveAttribute("href", /gdeslon|xf\.gdeslon/);
+  await page.locator('[data-soon="bedroom_17"]').click();
+  await expect(page.locator("#screen-soon")).toBeVisible();
+  await expect(page.locator("#soonTitle")).toContainText("Спальня 1");
+  await expect(page.locator("#soonTitle")).toContainText("м²");
+  await expect(page.locator('[data-br-role="кровать"]')).toHaveCount(0);   // фотокаталога на странице нет
   await page.locator("#tab-room").click();
-  await expect(page.locator("#screen-bedroom")).toBeHidden();
+  await expect(page.locator("#screen-soon")).toBeHidden();
   expect(errors).toEqual([]);
 });

@@ -75,7 +75,10 @@ test("2.12 фото с изменениями из конструктора", as
   await page.waitForFunction("typeof allVariants === 'function' && allVariants().length > 0");
   await page.locator("#tab-room").click();
   await page.locator("button[data-swap]").first().click();
+  // «План» v3 — просмотр; редактор — по «Изменить план» (demo-02, ADR-0299)
   await page.locator('[data-vm="plan"]').click();
+  await page.locator("#vCta").click();
+  await expect(page.locator("#cons")).toBeVisible();
   const pos = await page.evaluate(`(() => { const r = stage.getBoundingClientRect(); const it = items.find(i => /^столик/.test(i.role));
     return { x: r.left + PAD + it.x * S, y: r.top + PAD + it.y * S }; })()`) as { x: number; y: number };
   await page.mouse.move(pos.x, pos.y); await page.mouse.down();
