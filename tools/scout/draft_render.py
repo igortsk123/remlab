@@ -230,6 +230,33 @@ def _finish(v):
     return out or None
 
 
+def _with_floor(finish, tex):
+    """Фактура пола едет внутри паспорта отделки (`finish.floor.tex`): так её видят и кадр, и подсказка нейросети."""
+    if not tex:
+        return finish
+    out = dict(finish or {})
+    out['floor'] = {**(out.get('floor') or {}), 'tex': tex}
+    return out
+
+
+def _floor_tex(v):
+    """Пол застройщика со страницы (demo-06): id, файл карты цвета на сайте и размер плитки — только проверенное."""
+    if not isinstance(v, dict):
+        return None
+    import re as _re
+    src = str(v.get('src') or '')
+    if not _re.fullmatch(r'[a-z0-9-]{2,60}\.(?:webp|jpg|png)', src):
+        return None
+    try:
+        tx, ty = float(v['tile'][0]), float(v['tile'][1])
+    except (KeyError, TypeError, ValueError, IndexError):
+        return None
+    if not (20 <= tx <= 400 and 20 <= ty <= 400):
+        return None
+    return {'id': _re.sub(r'[^a-z0-9-]', '', str(v.get('id') or ''))[:40], 'src': src, 'tile': [tx, ty],
+            'title': str(v.get('title') or '')[:80]}
+
+
 def _fixtures_ir(v):
     """Плинтус/карниз/светильник со страницы — через проверку (`opening_ir.sanitize_fixtures`)."""
     if v is None:
@@ -310,7 +337,7 @@ def scene_from_request(payload: dict) -> tuple:
                 openings=[Opening(**_opening(o)) for o in (r.get('openings') or [])],
                 openings_ir=_openings_ir(r.get('openings_ir')),
                 fixtures_ir=_fixtures_ir(r.get('fixtures_ir')),
-                finish=_finish(r.get('finish')),
+                finish=_with_floor(_finish(r.get('finish')), _floor_tex(payload.get('floor'))),
                 radiators=[Radiator(**{k: v for k, v in x.items() if not k.startswith('_')})
                            for x in (r.get('radiators') or [])])
     placements, photos = [], {}
@@ -2092,10 +2119,10 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
             'or remove a window or a door.\n' + frames + '\n'
 
             'ALLOWED EDITS. Renovate the room in the style below: wall finish and colour, '
-            'flooring, ceiling, skirting, frames and dressing of the given openings. Natural '
+            + ('' if floor_note else 'flooring, ') + 'ceiling, skirting, frames and dressing of the given openings. Natural '
             'daylight, soft contact shadows, correct wall-to-floor junctions, vertical lines '
             'vertical' + (', lighting and materials identical in both frames' if two_views else '')
-            + '. Wall colour and finish, floor material and tone, ceiling and skirting are yours '
+            + '. Wall colour and finish, ' + ('' if floor_note else 'floor material and tone, ') + 'ceiling and skirting are yours '
             'to choose in the style below; curtains or blinds on the given windows and framed wall '
             'art are welcome when they match that style and the colours of the walls and the floor. '
             'No tabletop, shelf, floor or freestanding decor of your own. Every planter and vase '
@@ -2113,7 +2140,7 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
             'neutral piece of exactly that type and size.\n'
             '- In the layout a blue rectangle on a wall is a WINDOW (render real glass, a frame '
             'and daylight outside, never a blue panel or a picture); a brown rectangle is a DOOR.\n'
-            + (tv_note or '') + all_note_for(None if two_views else (only or 0)) + '\n'
+            + (tv_note or '') + floor_note + all_note_for(None if two_views else (only or 0)) + '\n'
             + (f'STYLE — {style}: {STYLE_HINT.get(style, "")} It sets finishes, colour, light and '
                'mood only; it never adds or removes objects.\n\n' if style else '')
 
@@ -2134,6 +2161,11 @@ def _sheet_gpt(room, placements, photos, cams, prefix: str, side: int, skus: dic
     # ТЕЛЕВИЗОР РИСУЕТ МОДЕЛЬ — ПО ТУМБЕ (владелец 27.08: «где должен быть телевизор в зависимости
     # от тв-тумбы, пусть ИИ рисует»). Своего объекта «тв» в расстановке нет: вешаем экран над
     # тумбой, размер — по её ширине.
+    # ПОЛ ЗАСТРОЙЩИКА (demo-06): выбран покупателем и нарисован на кадре — модель его не меняет
+    _ftex = (((getattr(room, 'finish', None) or {}).get('floor') or {}).get('tex'))
+    floor_note = (f'- FLOOR: the floor is the developer option «{_ftex.get("title") or _ftex.get("id")}» chosen by the buyer and '
+                  'already shown in image 1 — keep its pattern, plank direction and tone exactly; never replace the '
+                  'flooring.\n') if _ftex else ''
     tv_note = ''
     tv_num = next((a['n'] for an in per_cam for a in an
                    if a['role'].split(' ')[0] == 'тв-тумба' and a.get('n')), None)
@@ -2532,7 +2564,8 @@ def _draft_cache_key(layout) -> str:
             ver.append('0')
     ver = '|'.join(ver)
     raw = json.dumps({'room': L.get('room'), 'items': sorted(items, key=lambda x: str(x[0])),
-                      'cams': cams, 'lite': bool(S3_LITE[0]), 'ver': ver},
+                      'cams': cams, 'lite': bool(S3_LITE[0]), 'ver': ver,
+                      'floor': _floor_tex(L.get('floor'))},       # пол застройщика меняет кадр (demo-06)
                      ensure_ascii=False, sort_keys=True)
     return hashlib.md5(raw.encode()).hexdigest()
 
@@ -2974,6 +3007,68 @@ def _push_from_supports(mesh_places, others, room):
     return notes
 
 
+_FLOOR_IMG: dict = {}
+
+
+def _floor_image(src: str):
+    """Карта цвета пола (`/flat3d/materials/<файл>`) — с сайта в кэш на диске, в памяти 512×512 float."""
+    if src in _FLOOR_IMG:
+        return _FLOOR_IMG[src]
+    import urllib.request
+    from PIL import Image as _Im
+    img = None
+    try:
+        os.makedirs(SCENE3D_CACHE, exist_ok=True)
+        dst = os.path.join(SCENE3D_CACHE, 'floor-' + src)
+        if not os.path.exists(dst):
+            base = os.environ.get('FLOOR_HTTP', 'https://remont-lab.online/flat3d/materials')
+            data = urllib.request.urlopen(f'{base}/{src}', timeout=20).read()
+            open(dst, 'wb').write(data)
+        img = np.asarray(_Im.open(dst).convert('RGB').resize((512, 512), _Im.BILINEAR), np.float32)
+    except Exception as e:  # noqa: BLE001 — нет фактуры: пол остаётся цветом паспорта, кадр собирается
+        print(f'  scene3d: фактура пола {src} не загрузилась ({str(e)[:60]})', flush=True)
+    if len(_FLOOR_IMG) > 16:
+        _FLOOR_IMG.clear()
+    _FLOOR_IMG[src] = img
+    return img
+
+
+def _paint_floor(canvas, sc, room, cam) -> bool:
+    """ФАКТУРА ПОЛА НА КАДРЕ (demo-06): пиксели пола получают цвет карты по мировым X/Z — так же, как кладёт плитку живая
+    сцена (`lib/viewer3d/rooms.ts`: u = x/плитка, v от дальней стены, текстура перевёрнута по Y), а свет и стыки clay
+    сохраняются отношением яркости к цвету пола паспорта. Векторно, без мешей: доли секунды на кадр."""
+    tex = (((getattr(room, 'finish', None) or {}).get('floor') or {}).get('tex'))
+    if not tex or getattr(cam, 'ortho', False) or getattr(cam, 'cyl', False):
+        return False
+    img = _floor_image(tex['src'])
+    if img is None:
+        return False
+    import math
+    from planner.scene import SEMANTIC, _CLAY, _CLAY_BROWSER
+    sem, depth = sc['semantic'], sc['depth']
+    m = (sem == SEMANTIC['floor']) & np.isfinite(depth)
+    if not m.any():
+        return False
+    Hp, Wp = depth.shape
+    eye, fwd, right, up = cam.basis()
+    focal = (Wp / 2) / math.tan(math.radians(cam.fov_deg) / 2)
+    ys, xs = np.nonzero(m)
+    dirs = (fwd[None, :] * focal + right[None, :] * (xs - Wp / 2)[:, None]
+            + up[None, :] * (Hp / 2 + cam.shift_y * Hp - ys)[:, None])
+    t = depth[ys, xs] / (dirs @ fwd)
+    P = eye[None, :] + t[:, None] * dirs
+    tx, ty = tex['tile']
+    S = img.shape[0]
+    col = (np.mod(P[:, 0] / tx, 1.0) * S).astype(np.int64) % S
+    row = (np.mod((P[:, 2] - float(room.depth_cm)) / ty, 1.0) * S).astype(np.int64) % S
+    hx = ((sc.get('finish') or {}).get('floor') or {}).get('colorHex')
+    base = (tuple(int(hx[i:i + 2], 16) for i in (1, 3, 5)) if isinstance(hx, str) and len(hx) == 7
+            else (_CLAY_BROWSER if sc.get('palette') == 'browser' else _CLAY)['floor'])
+    shade = canvas[ys, xs].mean(axis=1) / max(1.0, float(np.mean(base)))
+    canvas[ys, xs] = np.clip(img[row, col] * shade[:, None], 0, 255)
+    return True
+
+
 def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict | None = None) -> tuple[Image.Image, dict]:
     """КАДР СЦЕНЫ ИЗ МЕШЕЙ (владелец 31.08: «по кнопке — фотография собранной 3D-сцены,
     в GPT пока не отправляем»): clay-комната + реальные меши в перспективе, общий z-буфер
@@ -3030,6 +3125,7 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict
     depth = sc['depth']
     H, W = depth.shape
     canvas = np.asarray(clay_render(sc)).astype(np.float32).copy()
+    _paint_floor(canvas, sc, room, cam)          # фактура пола застройщика — до ковров и мебели (demo-06)
     zbuf = depth.astype(np.float32).copy()
     zbuf[~np.isfinite(zbuf)] = 1e9
     irs = getattr(room, 'openings_ir', None)

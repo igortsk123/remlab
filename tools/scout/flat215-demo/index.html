@@ -1785,6 +1785,9 @@ function devFloor(){ const g=devFloorGroup(), v=g&&devPick(g); return (v&&v.mate
 function devLines(){ return devGroups().map(g=>{const v=devPick(g), p=v.price||{};
   return {amount:p.amount||0, settlement:g.settlement, onRequest:p.type==='on_request', label:g.title, group:g.title};})
   .filter(l=>l.amount>0||l.onRequest); }
+// пол для серверного кадра: файл карты цвета на сайте и размер плитки — сервер рисует его на пиксели пола (`draft_render._paint_floor`)
+function devFloorReq(){ const m=devFloor(); if(!m||!m.baseColorUrl||!m.tileCm)return null;
+  return {id:m.id, src:String(m.baseColorUrl).split('/').pop(), tile:m.tileCm, title:LANG==='en'?m.titleEn:m.titleRu}; }
 function devApply(){ if(typeof LIVE!=='undefined'&&LIVE.scene)LIVE.scene.setFloor(devFloor()); }
 // пять картинок пола — заранее: клик по образцу меняет пол без ожидания сети (на телефоне — только цвет, без карт рельефа)
 const DEV_PRE=new Set();
@@ -2255,7 +2258,7 @@ function payload(){
   // не попадали. Товар куплен, а на фото его нет.
   // пол и прочие опции застройщика (demo-06): выбор — парами, пол — id материала для кадра
   return {room:D.room, style:v.style||'', variant:v.title||'', decor:v.decor||[], developerOptions:clone(DEVOPT),
-    floor:(devFloor()||{}).id||null,
+    floor:devFloorReq(),
     cams:(cams||loadCams()).map(c=>({name:c.name,x:Math.round(c.x),y:Math.round(c.y),
       rot:Math.round(c.rot||0),fov:c.fov||72,pose:POSE_VER})),
     // место и поворот — округлённые так же, как в номере состояния (demo-02, Codex 14.10): иначе две разные
