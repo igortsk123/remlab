@@ -867,9 +867,11 @@ export class FlatViewer {
           : d0.wall === "west" ? { x: room.x + 60, y: room.y + mid } : { x: room.x + room.w - 60, y: room.y + mid };
         const spot = nearestStandable(this.area, inward.x, inward.y, 8, 6);
         const sofa = inRoom.find((p) => p.spec.slotId.startsWith("диван"))?.spec.placement;
+        const dining = inRoom.find((p) => p.spec.slotId.startsWith("стол обеденный"))?.spec.placement;
         if (spot && clearance(spot.x, spot.y) >= 20) {
           best = spot;
-          lookAt = sofa ? { x: sofa.x, y: sofa.y } : c;
+          // взгляд — на середину между диваном и обеденной группой (решение d8 16.10): в кадр входят ≥ 3 предмета ядра
+          lookAt = sofa && dining ? { x: (sofa.x + dining.x) / 2, y: (sofa.y + dining.y) / 2 } : sofa ? { x: sofa.x, y: sofa.y } : c;
         }
       }
     }
@@ -1386,11 +1388,13 @@ export class FlatViewer {
   }
 
   /** Где стоит человек в прогулке и сколько до ближайшей мебели — метрика живой проверки (прогон d8 15.10). */
-  debugWalk(): { x: number; y: number; heading: number; inRoom: boolean; nearestCm: number | null } {
+  debugWalk(): { x: number; y: number; heading: number; inRoom: boolean; nearestCm: number | null; loading: boolean } {
     const { x, y } = this.pos;
     const d = this.area.obstacles.map((o) => obstacleDistanceCm(o, x, y));
     return { x: Math.round(x), y: Math.round(y), heading: Math.round(this.heading), inRoom: inRooms(this.area, x, y),
-      nearestCm: d.length ? Math.round(Math.min(...d)) : null };
+      nearestCm: d.length ? Math.round(Math.min(...d)) : null,
+      // модели ещё грузятся — старт выбран по неполной расстановке и будет выбран заново после загрузки (под заставкой)
+      loading: this.loadedCount < this.totalCount };
   }
 
   canStandAt(x: number, y: number): boolean {

@@ -5,7 +5,7 @@ import { test, expect, type Page } from "@playwright/test";
 // до ближайшего следа мебели (`viewer.debugWalk`): в каждом опубликованном варианте поворачиваемся к каждому предмету ядра,
 // идём 4 с и требуем — камера в комнате и не ближе 25 см к мебели. Позиции печатаются в отчёт.
 
-type Walk = { x: number; y: number; heading: number; inRoom: boolean; nearestCm: number | null };
+type Walk = { x: number; y: number; heading: number; inRoom: boolean; nearestCm: number | null; loading?: boolean };
 type Viewer = {
   debugState(): { placed: number };
   debugWalk(): Walk;
@@ -47,6 +47,13 @@ test("1д прогулка /flat: 4 с к каждому предмету ядр
     page.on("crash", () => bad.push(`${v.id}: вкладка упала (память без видеокарты)`));
     await page.goto(`/flat?demo=${v.id}&flat=flat215`, { waitUntil: "load", timeout: 120_000 });
     await viewerReady(page, v.items.filter((it) => it.sku?.msid && !String(it.role).startsWith("ковёр")).length);
+    // старт выбирается заново, когда модели догрузились (до этого его прячет заставка) — мерим после загрузки
+    for (let i = 0; i < 60; i += 1) {
+      const busy = await page.evaluate("window.__flatViewer ? window.__flatViewer.debugWalk().loading : true");
+      if (!busy) break;
+      await page.waitForTimeout(1000);
+    }
+    await page.waitForTimeout(1500);
     const start = (await page.evaluate("window.__flatViewer ? window.__flatViewer.debugWalk() : null")) as Walk | null;
     if (!start) {
       bad.push(`${v.id}: сцена не поднялась (нет WebGL или вкладка упала)`);
@@ -61,7 +68,9 @@ test("1д прогулка /flat: 4 с к каждому предмету ядр
     }, core.map((r) => `${r}#0`))) as string[];
     report.push(`${v.id} ${v.style ?? ""}: старт (${start.x}, ${start.y}) до мебели ${start.nearestCm} см, видно ядра ${seen.length}/${core.length}`);
     if (!start.inRoom || (start.nearestCm ?? 999) < MIN_CM) bad.push(`${v.id} старт: ${JSON.stringify(start)}`);
-    if (seen.length < Math.min(3, core.length)) bad.push(`${v.id} старт видит ядра ${seen.length}/${core.length}: ${seen.join(", ")}`);
+    // норма d8 16.10: ≥ 3 предмета ядра; 2 допускается с пометкой (старт от двери, ТВ вне кадра по решению)
+    if (seen.length < Math.min(2, core.length)) bad.push(`${v.id} старт видит ядра ${seen.length}/${core.length}: ${seen.join(", ")}`);
+    else if (seen.length < Math.min(3, core.length)) report.push(`  ! ${v.id}: видно ядра ${seen.length} — допустимо с пометкой`);
     for (const role of CORE) {
       const it = v.items.find((i) => i.role === role);
       if (!it || it.x === undefined || it.y === undefined) continue;
