@@ -24,7 +24,7 @@ review_after: 2026-11-30
 ## Что есть (сверено 16.10 по коду)
 - Контракт опций отделки (`demo-06` шаг 2): группа `{kind, roomKind, titleRu/En, defaultVariantId, enabled, settlement, slotIds,
   variants[{id, nameRu/En, materialId, pricing}]}` — образец `data/partners/demo.json` → `flooring`. Для стен `kind: walls`
-  в контракте уже допустим (`contracts/partner.ts`: `kitchen|flooring|walls|bathroom_tile` — проверить, иначе добавить).
+  в контракт добавить: сейчас `contracts/partner.ts:80` допускает только `kitchen | bathroom | flooring`, а refine `:103` требует `materialId` у пола — расширить на `walls` (тоже материал).
 - Паспорт отделки `lib/viewer3d/finish-passport.ts`: `wall: {id: "paint-white", colorHex: "#f2f0ed"}` — один цвет на все стены;
   сервер красит стены тем же паспортом (`planner/scene.py:726-728`). Материалов стен в каталоге 3D нет (`catalogue-base.json`
   категория `walls` пуста), текстур стен в `public/flat3d/materials/` нет.
