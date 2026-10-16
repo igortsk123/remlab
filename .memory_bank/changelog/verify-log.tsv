@@ -71,3 +71,5 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-10-16	.memory_bank/core/partners.md	code	17	2	2	
 2026-10-16	.memory_bank/core/bedroom.md	code	10	1	1	
 2026-10-16	.memory_bank/core/data-model.md	rotation	31	1	1	
+2026-10-16	core/data-model.md	rotation	27	0	0	
+2026-10-16	core/demo-scenarios.md	drift	23	4	4	
