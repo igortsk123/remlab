@@ -25,6 +25,31 @@ DARK_RE = re.compile(r'чёрн|черн|графит|венге|тёмн|тем
 _RULES = __file__.rsplit('/', 1)[0] + '/rules/mesh-quarantine.json'
 
 
+# ГРУППЫ ЦВЕТА ОБОГАЩЕНИЯ (`enrich_bridge`: colour) для «модель семейства другого цвета» (demo-05 п.2b, разбор Codex 16.10):
+# близкие оттенки — одна группа, «не_определён» — не судим
+COLOUR_GROUPS = {'белый': 'светлый', 'бежевый': 'светлый', 'серый': 'светлый', 'коричневый': 'коричневый', 'чёрный': 'чёрный',
+                 'зелёный': 'зелёный', 'синий': 'синий', 'жёлтый': 'тёплый', 'оранжевый': 'тёплый', 'красный': 'красный',
+                 'розовый': 'красный', 'фиолетовый': 'фиолетовый', 'разноцветный': 'разноцветный'}
+
+
+def family_colour_mismatch(sid: str | None, msid: str | None, colour_of=None) -> str | None:
+    """Модель представителя семейства (msid ≠ sid, ADR-0196) другого цвета, чем товар → причина `family_colour_mismatch:A→B`,
+    иначе None. Цвета — из обогащения каталога; нет данных у одного из двух — не судим (fail-open). `colour_of(sid)` — для тестов."""
+    if not sid or not msid or sid == msid:
+        return None
+    if colour_of is None:
+        import enrich_bridge as EB
+
+        def colour_of(x):
+            m, e = x.split('_', 1)
+            return (EB.get(m, e) or {}).get('colour')
+    try:
+        a, b = COLOUR_GROUPS.get(colour_of(sid)), COLOUR_GROUPS.get(colour_of(msid))
+    except Exception:  # noqa: BLE001 — обогащение недоступно: не судим
+        return None
+    return f'family_colour_mismatch:{a}→{b}' if a and b and a != b else None
+
+
 def cfg() -> dict:
     import json
     return {'photo_ratio': 0.35, 'photo_min_gap': 40.0, 'name_dark_y': 45.0, **(json.load(open(_RULES, encoding='utf-8')).get('dark') or {})}
@@ -134,6 +159,11 @@ def _selftest() -> int:
     ok(is_light_name('стол дуб натуральный') and not is_light_name('Графит'), 'светлые слова находятся, тёмные — нет')
     ok(dark_flag(10.8, 'Стул Алекс Букле Светло-серый/Черный', 56.7, c) == 10.8, 'двухцветный: чёрные ножки не делают товар чёрным')
     ok(dark_flag(7.0, 'Стул Лофт Черный/Дуб', 109.0, c) is None, 'основной цвет чёрный — не брак')
+    tab = {'s1': 'серый', 'r1': 'разноцветный', 's2': 'белый', 'r2': 'серый', 's3': 'синий', 'r3': 'не_определён', 's4': 'зелёный'}
+    ok(family_colour_mismatch('s1', 'r1', tab.get) == 'family_colour_mismatch:светлый→разноцветный', 'Брера: серый товар, разноцветная модель — брак')
+    ok(family_colour_mismatch('s2', 'r2', tab.get) is None, 'белый и серый — одна группа')
+    ok(family_colour_mismatch('s3', 'r3', tab.get) is None, 'нет цвета у модели — не судим')
+    ok(family_colour_mismatch('s4', 's4', tab.get) is None, 'своя модель — не семейство')
     print('итог:', 'чисто' if not fails else f'{fails} провал(ов)')
     return 1 if fails else 0
 

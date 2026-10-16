@@ -469,8 +469,14 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
     # МОДЕЛЬ СЕМЕЙСТВА ДОЛЖНА ПОДХОДИТЬ ТОВАРУ ПО ЦВЕТУ (demo-05 п.3, 15.10): цветовой вариант берёт меш представителя
     # семейства (ADR-0196), и бежевый стул «Алекс» рисовался чёрной моделью графитового. Такая позиция — как «нет модели»:
     # лечение подставит другой товар, а ворота (`scene_checks.py`) поймают пропущенное
+    # МОДЕЛЬ СЕМЕЙСТВА ДРУГОГО ЦВЕТА — тоже «нет модели» для предметов варианта (demo-05 п.2b, разбор Codex 16.10: у джапанди
+    # серая «Брера» рисовалась разноцветной моделью представителя, у сканди голубой «Викс» — серой). Только для того, что видно
+    # по умолчанию: в лентах таких вариантов семейства большинство (стулья 50 из 62) — там замер, лечение — перекраска (mesh_tint)
+    import mesh_dark as _MDK
     has_mesh = lambda it: (_msid(f"{it.get('mid')}_{it.get('eid')}") in idx  # noqa: E731
-                           and color_ok(_msid(f"{it.get('mid')}_{it.get('eid')}"), it.get('name') or ''))
+                           and color_ok(_msid(f"{it.get('mid')}_{it.get('eid')}"), it.get('name') or '')
+                           and _MDK.family_colour_mismatch(f"{it.get('mid')}_{it.get('eid')}",
+                                                           _msid(f"{it.get('mid')}_{it.get('eid')}")) is None)
     _gate0 = gate
     # ПРИГОДНОСТЬ ДЛЯ ГОСТИНОЙ — то же правило, что у подбора наборов (`unfit.py`): 15.10 лечение подставило к обеденному
     # столу барный стул «Эрин»
@@ -1213,6 +1219,16 @@ def main() -> None:
     except (OSError, ValueError):
         prev = None
     data['variant_aliases'] = merge_aliases(prev, data['variants'])
+    # ЗАМЕР «МОДЕЛЬ СЕМЕЙСТВА ДРУГОГО ЦВЕТА» В ЛЕНТАХ (demo-05 п.2b) — пока только счёт в журнал, без отсева: отсев обнулил бы
+    # ленты стульев и пуфов; лечение — перекраска модели под фото товара
+    try:
+        import mesh_dark as _MDK
+        bad = {r: sum(1 for p in f if _MDK.family_colour_mismatch(p.get('sid'), p.get('msid'))) for r, f in data['feeds'].items()}
+        bad = {r: n for r, n in bad.items() if n}
+        if bad:
+            print('WARN:feed_family_colour: в лентах модели семейства другого цвета — ' + ', '.join(f'{r} {n}' for r, n in sorted(bad.items())), flush=True)
+    except Exception as e:  # noqa: BLE001 — замер не валит сборку
+        print(f'  замер цвета семейств в лентах не удался: {repr(e)[:100]}', flush=True)
     json.dump(data, open(os.path.join(OUT, 'demo-data.json'), 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)
     # РАКУРСЫ ОКНА — В ДАННЫЕ (demo-05 п.8): тот же блок CAMFIT страницы считает пару ракурсов каждого варианта
