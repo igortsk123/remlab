@@ -1329,6 +1329,19 @@ function camGraze(c,W,H){
 let CAM_LEVEL=0;   // ступень последнего подбора ракурса 1 (3 — все правила, 2/1 — послабления; живая проверка печатает её)
 const CAM_MIN_DIST=80, CAM_EDGE=0.06;   // 3 % ширины кадра = 0,06 в долях −1…1
 const camRole=it=>String(it.role||'').replace(/\s+\d+$/,'');
+// ВЫСОКОЕ — ЦЕЛИКОМ ИЛИ ВНЕ КАДРА (прогон d8 16.10, сканди, ракурс 2: от торшера у правого края — кусок абажура и пин у
+// границы). Торшер, стеллаж, витрина (≥ 120 см, кроме ТВ-тумбы): срез левым/правым краем кадра — нарушение → роль или ''
+function camTallCut(c,its){
+  for(const it of (its||[])){
+    // ТВ-тумба с телевизором — не сюда: у ТВ свои правила (`camTvBack`), а отворот от срезанного угла тумбы уводил кадр сканди
+    // на пустую стену и терял телевизор (проверка глазом 16.10)
+    const h=camItemH(it); if(h<120||camRole(it)==='диван'||camRole(it)==='тв-тумба')continue;
+    const b=camProj(c,it,0,h); if(!b||b.behind)continue;
+    if(b.x1<=-1||b.x0>=1)continue;                         // целиком вне кадра — можно
+    if(b.x0<-1+CAM_EDGE||b.x1>1-CAM_EDGE)return camRole(it);   // запас кромки — как у дивана: живая сцена кадрирует чуть уже
+  }
+  return '';
+}
 function camHard(c,its,strict){
   const all=(its||[]).filter(it=>camItemH(it)>2);
   if(all.some(it=>camNear(c,it)<CAM_MIN_DIST))return 'близко';
@@ -1377,10 +1390,11 @@ function camFit(cx,cy,its,W,H,strict){
       for(const rot of rots) for(const fov of [72,78]){
         // шире 72° — только если иначе правила не выполнить (лёгкий штраф в оценке)
         const c={x:x,y:y,rot:rot,fov:fov}, b=camBlock(c,its), lo=camBlock(c,its,-1), tv=camTvBack(c,its), hard=camHard(c,its,strict);
-        const soft=Math.max(b.cov/CAM_BLOCK,tv?2:0,camGraze(c,W,H)), bad=Math.max(soft,hard?3:0);
+        const tall=camTallCut(c,its);
+        const soft=Math.max(b.cov/CAM_BLOCK,tv?2:0,tall?1.5:0,camGraze(c,W,H)), bad=Math.max(soft,hard?3:0);
         // запасная точка, если подходящих нет: сначала без нарушения жёстких правил кадра, затем наименее закрытая
         if(bad>1){ const key=(hard?10:0)+soft;
-          if(!least||key<least.key)least=Object.assign(c,{cov:b.cov,low:lo.cov,shift:d,bad:bad,key:key,who:hard||(tv?'тв (спина)':b.who)});
+          if(!least||key<least.key)least=Object.assign(c,{cov:b.cov,low:lo.cov,shift:d,bad:bad,key:key,who:hard||(tv?'тв (спина)':tall?tall+' срезан краем':b.who)});
           continue; }
         // близкий диван на переднем плане — допустимый приём, поэтому штраф мягче ядра; уход от угла — заметный минус
         const score=6*camKey(c,its)+4*camCore(c,its)-1.5*Math.min(1,Math.max(0,(lo.cov-CAM_LOW)/0.3))-0.75*d/CAM_SLIDE-(fov>72?0.3:0);
@@ -1450,7 +1464,7 @@ function cycleCams(){
 // значения продолжали бы жить: после перевода камер вплотную в угол сохранённые с прежним
 // отступом так и стояли бы в 10 см от стены. Меняем правило — меняем версию, и каждый
 // получает новые углы по умолчанию (владелец 01.09).
-const CAMS_VER='v8-hard';   // v7 (14.10): ракурс 1 — лучший из четырёх углов, главное целиком; при смене правил сохранённые углы пересчитываются
+const CAMS_VER='v9-tall';   // v9 (16.10): высокое (торшер, стеллаж) — целиком или вне кадра; v7 (14.10): ракурс 1 — лучший из четырёх углов, главное целиком; при смене правил сохранённые углы пересчитываются
 function camsKey(){const v=allVariants()[cur]||{};return 'flat215-cams-'+CAMS_VER+'-'+(v.id||cur);}
 function loadCams(){
   try{const r=JSON.parse(localStorage.getItem(camsKey())||'null'); if(r&&r.length===2)return r;}catch(e){}
