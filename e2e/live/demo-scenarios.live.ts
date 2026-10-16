@@ -32,9 +32,16 @@ test("1.2–1.5 шапка и вкладки: консультация, ипот
   await expect(page.locator("#pc3d")).toHaveCount(0);
   await page.locator("#tab-plan").click();
   await expect(page.locator("#screen-plan")).toBeVisible();
-  const soon = await page.locator(".tab.soon").allInnerTexts();
-  say("вкладки «скоро»:", soon.join(" | "));
-  expect(soon.every((t) => /скоро/.test(t) || !/Спальня 2/.test(t))).toBe(true);
+  // неготовые комнаты (demo-02 v3): вкладки нажимаются и показывают одинаковую заглушку с площадью из плана
+  const soon = await page.locator("[data-soon]").allInnerTexts();
+  say("вкладки неготовых комнат:", soon.join(" | "));
+  expect(soon.length).toBeGreaterThanOrEqual(5);
+  for (let k = 0; k < soon.length; k++) {
+    await page.locator("[data-soon]").nth(k).click();
+    await expect(page.locator("#screen-soon")).toBeVisible();
+    await expect(page.locator("#soonTitle")).toContainText("м²");
+    await expect(page.locator("#soonText")).toContainText("Скоро");
+  }
   expect(errors).toEqual([]);
 });
 

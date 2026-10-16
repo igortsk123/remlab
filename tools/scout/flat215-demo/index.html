@@ -484,6 +484,11 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 /* НЕАКТИВНЫЕ ПОМЕЩЕНИЯ (владелец 01.09: «серым, чтоб нажать было нельзя»): гасим и цвет,
    и курсор, и события мыши — иначе на телефоне вкладка всё равно «нажимается» и мигает. */
 .tab.soon{color:var(--faint);cursor:default;pointer-events:none}
+.soon-panel h2{margin:0 0 6px}.soon-panel p{margin:0;color:var(--muted)}
+/* RU · EN — правый верхний угол шапки квартиры (v3); заголовок не заезжает под него */
+#flatPrice{position:relative}#langSw{position:absolute;top:12px;right:16px;font-size:14px;white-space:nowrap;z-index:1}
+#flatPrice .fh-top{padding-right:64px}
+@media(max-width:700px){#langSw{top:8px;right:14px;font-size:13px}#flatPrice .fh-top{padding-right:0;padding-top:14px}}
 .tab .soon-l{font-size:.72em;font-weight:400;margin-left:2px;vertical-align:1px}
 /* ПОДРАЗДЕЛЫ «Вариант N · цена» (26.08): второй уровень навигации сразу под вкладками */
 .subtabs{display:flex;gap:8px;overflow-x:auto;padding:12px 2px 4px;margin-bottom:2px}
@@ -715,13 +720,19 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
   <!-- ПОМЕЩЕНИЯ ОТДЕЛЬНЫМИ ВКЛАДКАМИ (владелец 02.09 вернул как было; свёрнутая подпись
        «Кухня и спальни — скоро» из аудита отменена). Серые и ненажимаемые: обещать переход
        туда, где ничего нет, нельзя, но видно, что демо — про всю квартиру. -->
-  <span class="tab soon" title="скоро" id="tab-kitchen-soon">Кухня</span>
-  <span class="tab soon" title="скоро" id="tab-bedroom-soon">Спальня 1</span>
+  <!-- НЕГОТОВЫЕ КОМНАТЫ — ОДНА ЗАГЛУШКА НА ВСЕХ (владелец 16.10, demo-02 v3 «Страница»): вкладки нажимаются и ведут на одинаковый
+       экран «название, площадь из плана, скоро — расстановка и 3D, как у гостиной»; плитки кухни и каталог спальни с показа сняты
+       (данные остаются: группа кухни — в сумме и контракте, каталог спальни — для b2b-10) -->
+  <button class="tab soon-tab" role="tab" aria-selected="false" data-soon="kitchen">Кухня</button>
+  <button class="tab soon-tab" role="tab" aria-selected="false" data-soon="bedroom_17">Спальня 1</button>
+  <button class="tab soon-tab" role="tab" aria-selected="false" data-soon="bedroom_9">Спальня 2</button>
+  <button class="tab soon-tab" role="tab" aria-selected="false" data-soon="bath">Санузел</button>
+  <button class="tab soon-tab" role="tab" aria-selected="false" data-soon="hall">Прихожая</button>
   <!-- «скоро» — ПРЯМО НА ВКЛАДКЕ (карта сценариев 1.5, 14.10): вкладка не нажимается (владелец 01.09), а подсказки
        title на телефоне нет — человек тыкал и не понимал, что будет. Слово «скоро» переводит словарь EN. -->
-  <span class="tab soon" title="скоро">Спальня 2 <small class="soon-l">скоро</small></span>
 </div>
 
+<section id="screen-soon" hidden><div class="panel soon-panel"><h2 id="soonTitle"></h2><p id="soonText"></p></div></section>
 <section id="screen-plan">
   <div class="panel">
     <h3 id="flatTitle">План квартиры</h3>
@@ -1008,8 +1019,25 @@ function showTab(which){
   tp.classList.toggle('on',!room); tp.setAttribute('aria-selected',String(!room));
   tr2.classList.toggle('on',room); tr2.setAttribute('aria-selected',String(room));
   syncHash(which);
+  const sn=document.getElementById('screen-soon'); if(sn)sn.hidden=true;
+  document.querySelectorAll('[data-soon]').forEach(t=>{t.classList.remove('on'); t.setAttribute('aria-selected','false');});
   if(room)draw();
 }
+// ВКЛАДКА НЕГОТОВОЙ КОМНАТЫ: название и площадь — из плана (`D.plan.rooms`), текст один на всех
+const ROOM_PREVIEWS=false;              // прежние «оживления» кухни и спальни (b2b-10 этап 0) — выключены, см. разметку вкладок
+function showSoon(key){
+  const EN=LANG==='en', rs=(D&&D.plan&&D.plan.rooms)||[];
+  const pick=key==='bath'?rs.filter(r=>/^bath/.test(r.id)):rs.filter(r=>r.id===key);
+  const tab=document.querySelector(`[data-soon="${key}"]`), name=tab?tab.textContent.trim():'';
+  const m2=pick.map(r=>String(r.m2).replace('.',EN?'.':',')).join(EN?' and ':' и ');
+  document.getElementById('soonTitle').textContent=name+(m2?' · '+m2+(EN?' m²':' м²'):'');
+  document.getElementById('soonText').textContent=EN?'Coming soon: furniture layout and 3D, the same as in the living room.'
+    :'Скоро: расстановка и 3D, как у гостиной.';
+  ['screen-plan','screen-room'].forEach(id=>{const e=document.getElementById(id); if(e)e.hidden=true;});
+  document.getElementById('screen-soon').hidden=false;
+  document.querySelectorAll('.tabs .tab').forEach(t=>{const on=t===tab; t.classList.toggle('on',on); t.setAttribute('aria-selected',String(on));});
+}
+document.addEventListener('click',e=>{const t=e.target&&e.target.closest&&e.target.closest('[data-soon]'); if(t)showSoon(t.dataset.soon);});
 // ——— АДРЕС ВАРИАНТА (владелец 08.09: «чтоб каждая модалка со ссылкой была, чтоб кидать мог»).
 // В адресе живёт открытый вариант: `#v=<id>`. Открыв такую ссылку, человек сразу видит тот же
 // вариант и его фотографию, а не общую витрину. `#plan` (план квартиры) работает как прежде.
@@ -4524,6 +4552,7 @@ async function liveShow(){
 (function(){
   var esc=function(t){return String(t==null?'':t).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
   document.addEventListener('flatcard',function(e){
+    if(!ROOM_PREVIEWS)return;          // показ снят (владелец 16.10): вкладка кухни — общая заглушка, группа кухни — в данных
     var card=e.detail||{}, g=(card.options||[]).find(function(x){return x.kind==='kitchen';});
     var soon=document.getElementById('tab-kitchen-soon');
     if(!g||!soon||document.getElementById('tab-kitchen'))return;
@@ -4598,6 +4627,7 @@ async function liveShow(){
     return p.w?(cm(p.w)+'×'+cm(p.d)+'×'+cm(p.h)+' см'):(EN()?'sizes not provided by the shop':'размеры не указаны магазином');
   }
   function mount(){
+    if(!ROOM_PREVIEWS)return;          // показ снят (владелец 16.10): спальни — общая заглушка, каталог — в данных для b2b-10
     if(typeof D==='undefined'||!D){setTimeout(mount,300);return;}
     var bc=D.bedroom_catalog||{}, roles=bc.roles||{};
     var soon=document.getElementById('tab-bedroom-soon');
@@ -4755,11 +4785,12 @@ async function liveShow(){
 (function(){
   var LANG=window.__LANG||'ru';
   function switcher(){
-    var host=document.querySelector('.tabs'); if(!host||document.getElementById('langSw'))return;
-    var w=document.createElement('span'); w.id='langSw'; w.style.cssText='margin-left:auto;font-size:14px;align-self:center;white-space:nowrap';
+    // RU · EN — в шапке квартиры, над ценой (владелец 16.10: вкладки — только комнаты)
+    var host=document.getElementById('flatPrice'); if(!host||document.getElementById('langSw'))return;
+    var w=document.createElement('div'); w.id='langSw';
     w.innerHTML=['ru','en'].map(function(l){return l===LANG?'<b>'+l.toUpperCase()+'</b>':
       '<a href="#" data-lang="'+l+'" style="color:var(--muted)">'+l.toUpperCase()+'</a>';}).join(' · ');
-    host.appendChild(w);
+    host.insertBefore(w,host.firstChild);
     w.querySelectorAll('[data-lang]').forEach(function(a){a.onclick=function(e){e.preventDefault();
       try{localStorage.setItem('remlab-lang',a.dataset.lang);}catch(_){}
       var u=new URL(location.href); u.searchParams.set('lang',a.dataset.lang); location.href=u.toString();};});
@@ -4771,7 +4802,7 @@ async function liveShow(){
     'стол обеденный':'dining table','банкетка':'bench','витрина':'display cabinet','камин':'fireplace','стенка':'wall unit',
     'люстра':'chandelier','лампа':'lamp','подушка':'cushion','шторы':'curtains','приставной':'side table','окно':'window','дверь':'door'};
   var STYLE={'сканди':'Scandi','современный':'Modern','минимализм':'Minimalist','лофт':'Loft','неоклассика':'Neoclassic','джапанди':'Japandi'};
-  var ROOM={'Гостиная':'Living room','Кухня':'Kitchen','Спальня 1':'Bedroom 1','Спальня 2':'Bedroom 2','Спальня':'Bedroom','Холл':'Hall','Санузел':'Bathroom'};
+  var ROOM={'Гостиная':'Living room','Кухня':'Kitchen','Спальня 1':'Bedroom 1','Спальня 2':'Bedroom 2','Спальня':'Bedroom','Холл':'Hall','Санузел':'Bathroom','Прихожая':'Hallway'};
   var EX={'Оплата 100%':'Full payment','Выбрать условия ипотеки или рассрочки':'Mortgage or instalment options','Получить консультацию':'Get advice',
     'Пройтись по квартире в 3D →':'Walk through the flat in 3D →','План квартиры':'Apartment plan','скоро':'soon','Обустроить →':'Furnish →',
     'Посмотреть варианты интерьера':'See interior options','Коллекции расстановок':'Room collections','Выберите готовый вариант или создайте свой':'Pick a ready option or create your own',
