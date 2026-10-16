@@ -3837,7 +3837,8 @@ function histFwd(){return histGo(1);}
   .vw.vmini .vplate{padding:7px 12px 8px;border-radius:12px;cursor:pointer;display:flex;flex-direction:column}
   .vw.vmini .vpl-mini{order:-1}
   .vw.vmini .vplate>.vpl-h,.vw.vmini .vplate>.vpl-l,.vw.vmini .vplate>.vpl-dev{display:none}
-  .vw.vmini .vpl-mini{display:flex;align-items:baseline;gap:6px;font-size:13.5px;color:var(--muted)}
+  .vw.vmini .vpl-mini{display:flex;align-items:baseline;gap:6px;font-size:13.5px;color:var(--muted);white-space:nowrap}
+  .vw.vmini .vpl-mini span{overflow:hidden;text-overflow:ellipsis;min-width:0}
   .vw.vmini .vpl-mini b{color:var(--accent);font-size:15px;margin-left:auto}.vw.vmini .vpl-mini small{font-size:13px}
   .vw.vmini .vpl-bar{margin-top:6px;height:4px}
   .vscroll{overflow:hidden;touch-action:none}.vside[data-pos="3"] .vscroll{overflow-y:auto;touch-action:pan-y}
@@ -3900,7 +3901,7 @@ function vwSum(){
       :`${EN?'left':'остаток'} <b class="vpl-rest" data-k="left" data-to="${left}">${money(left)}</b>`)+`</div>`+
     // доплаты застройщику на плашке не показываем (владелец 16.10: «не надо дополнительно»): цена пола — у образца в «Отделке»
     `<div class="vpl-bar ${lvl}"><i style="width:${pct}%"></i></div>`+
-    `<div class="vpl-mini"><span>${EN?'Allowance left':'Остаток по сертификату'}</span><b>${money(left)}</b><small>${EN?'of ':'из '}${money(cert)}</small></div>`;
+    `<div class="vpl-mini"><span>${EN?'Allowance left':'Остаток'}</span><b>${money(left)}</b><small>${EN?'of ':'из '}${money(cert)}</small></div>`;
 }
 // ЦИФРЫ ПЛАШКИ МЕНЯЮТСЯ ПЛАВНО (v3): прежнее значение → новое за 0,45 с, плашка коротко подсвечивается — замена видна сразу
 function vwSumUpdate(){
