@@ -3652,7 +3652,8 @@ function histGo(step){
   h.at=to; const s=h.stack[to], v=allVariants()[cur]||{};
   items=clone(s.items); sel=null;
   (v.decor||[]).forEach((x,i)=>{if(s.decor[i]!==undefined)x.sku=clone(s.decor[i]);});
-  if(s.dev&&JSON.stringify(s.dev)!==JSON.stringify(DEVOPT)){DEVOPT=clone(s.dev); devApply();}   // пол — часть состояния
+  // пол — часть состояния: сцена, блок образцов и ссылка в 3D — из шага истории (прогон d8 16.10: блок оставался прежним)
+  if(s.dev&&JSON.stringify(s.dev)!==JSON.stringify(DEVOPT)){DEVOPT=clone(s.dev); devApply(); devDraw(); try{sync3dLink();}catch(e){}}
   draw(); try{basket(); showSwap(); refreshShotList();}catch(e){}
   document.dispatchEvent(new CustomEvent('remlab:hist',{detail:{at:h.at,n:h.stack.length,stateId:s.stateId}}));
   return true;
