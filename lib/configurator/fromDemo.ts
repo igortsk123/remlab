@@ -35,6 +35,10 @@ export type DemoContext = {
    * ОДИН раз на цену, с округлением до целого. Нет — цены как есть. Пол из карточки (`floorChoice`) уже в валюте застройщика.
    */
   fxRate?: number;
+  /** Стены на выбор (demo-07) — тем же видом, что пол. */
+  wallChoice?: DemoFloorChoice;
+  /** Стены живой сцены окна (выбранный вариант): материал и акцент. */
+  wallMaterial?: { material: Record<string, unknown> & { id: string }; accent?: { material: Record<string, unknown> & { id: string }; anchor: "behind-sofa" } };
 };
 
 /** Варианты пола застройщика для `/flat`: цена — доплата, куда идёт — `settlement` группы (RF — застройщику). */
@@ -42,7 +46,9 @@ export type DemoFloorChoice = {
   groupId: string;
   defaultVariantId: string;
   settlement: "allowance" | "developer_surcharge" | "property_price";
-  variants: { id: string; titleRu: string; titleEn: string; price: number; material: Record<string, unknown> & { id: string } }[];
+  variants: { id: string; titleRu: string; titleEn: string; price: number; material: Record<string, unknown> & { id: string };
+    /** Акцентная стена варианта стен (demo-07). */
+    accent?: { material: Record<string, unknown> & { id: string }; anchor: "behind-sofa" } }[];
 };
 
 /** Подкраска из данных витрины — только три разумных множителя (чужим данным не доверяем). */
@@ -51,8 +57,9 @@ export function tintOf(t: unknown): { tintRgb: [number, number, number] } | Reco
   return { tintRgb: [t[0], t[1], t[2]] as [number, number, number] };
 }
 
-/** Опция пола варианта группы — одно имя у моста, страницы и ссылки `?opt=`. */
-export const floorOptionId = (variantId: string): string => `opt:floor:${variantId}`;
+/** Опция отделки варианта группы — одно имя у моста, страницы и ссылки `?opt=` (`opt:floor:<в>`, `opt:wall:<в>`). */
+export const finishOptionId = (surface: "floor" | "wall", variantId: string): string => `opt:${surface}:${variantId}`;
+export const floorOptionId = (variantId: string): string => finishOptionId("floor", variantId);
 
 /**
  * Имя места — роль + номер внутри роли («диван#0», «стул#2»), а не порядковый номер в файле.
@@ -286,29 +293,38 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
   // оболочку первый материал каталога — фото ковра легло на стены, пол и потолок. Цвета — из паспорта отделки
   // (`finish-passport.ts`), тем же красится серверный кадр; материалы стен и пола — ПЕРВЫМИ в каталоге
   const fp = finishPassport(room.finish);
-  const fc = ctx.floorChoice?.variants.length ? ctx.floorChoice : undefined;
-  const fcDefault = fc?.variants.find((x) => x.id === fc.defaultVariantId) ?? fc?.variants[0];
-  const floorMat = fcDefault?.material ?? ctx.floorMaterial
+  // ПОЛ И СТЕНЫ НА ВЫБОР (demo-06/07): варианты группы застройщика — опциями своего места (`opt:floor:<в>`, `opt:wall:<в>`),
+  // доплата — по `settlement` группы; акцентная стена — составной частью опции стен (сторону считает `resolveScene`)
+  type Mat = Record<string, unknown> & { id: string };
+  const choiceOf = (c?: DemoFloorChoice) => (c?.variants.length ? c : undefined);
+  const defOf = (c?: DemoFloorChoice) => c?.variants.find((x) => x.id === c.defaultVariantId) ?? c?.variants[0];
+  const fc = choiceOf(ctx.floorChoice), wc = choiceOf(ctx.wallChoice);
+  const floorMat: Mat = defOf(fc)?.material ?? ctx.floorMaterial
     ?? { id: fp.floor.id, titleRu: "Пол", titleEn: "Floor", colorHex: fp.floor.colorHex, roughness: 0.7 };
-  extraMaterials.unshift({ id: fp.wall.id, titleRu: "Стены", titleEn: "Walls", colorHex: fp.wall.colorHex, roughness: 0.95 }, floorMat);
-  for (const [surface, category, materialId] of [["floor", "flooring", floorMat.id], ["wall", "walls", fp.wall.id]] as const) {
-    // ПОЛ НА ВЫБОР (demo-06): варианты группы застройщика — опциями этого же места; доплата идёт по `settlement` группы
-    const choices = surface === "floor" && fc ? fc.variants : null;
-    if (choices) {
-      for (const v of choices) {
-        if (v.material.id !== floorMat.id) extraMaterials.push(v.material);
-        extraOptions.push({ id: floorOptionId(v.id), category, titleRu: v.titleRu, titleEn: v.titleEn, tier: v.price > 0 ? "standard" : "base",
-          price: v.price, settlement: fc!.settlement, availability: "available", roomKinds: ["living"],
-          asset: { kind: "material", materialId: v.material.id }, ...(v.material.previewUrl ? { previewUrl: String(v.material.previewUrl) } : {}) });
+  const wallMat: Mat = defOf(wc)?.material ?? ctx.wallMaterial?.material
+    ?? { id: fp.wall.id, titleRu: "Стены", titleEn: "Walls", colorHex: fp.wall.colorHex, roughness: 0.95 };
+  extraMaterials.unshift(wallMat, floorMat);
+  const seen = new Set([wallMat.id, floorMat.id]);
+  const addMat = (m?: Mat) => { if (m && !seen.has(m.id)) { seen.add(m.id); extraMaterials.push(m); } };
+  const accentOf = (a?: { material: Mat; anchor: "behind-sofa" }) => (a ? (addMat(a.material), { accent: { materialId: a.material.id, anchor: a.anchor } }) : {});
+  for (const [surface, category, base, choice] of [["floor", "flooring", floorMat, fc], ["wall", "walls", wallMat, wc]] as const) {
+    if (choice) {
+      for (const v of choice.variants) {
+        addMat(v.material);
+        extraOptions.push({ id: finishOptionId(surface, v.id), category, titleRu: v.titleRu, titleEn: v.titleEn, tier: v.price > 0 ? "standard" : "base",
+          price: v.price, settlement: choice.settlement, availability: "available", roomKinds: ["living"],
+          asset: { kind: "material", materialId: v.material.id, ...accentOf(v.accent) },
+          ...(v.material.previewUrl ? { previewUrl: String(v.material.previewUrl) } : {}) });
       }
     } else {
+      const live = surface === "wall" ? accentOf(ctx.wallMaterial?.accent) : {};
       extraOptions.push({ id: `opt:${surface}`, category, titleRu: surface, titleEn: surface, tier: "standard", price: 0,
-        availability: "available", roomKinds: ["living"], asset: { kind: "material", materialId } });
+        availability: "available", roomKinds: ["living"], asset: { kind: "material", materialId: base.id, ...live } });
     }
     slots.push({ id: surface, roomId: "living", category, kind: "surface", surface, titleRu: surface === "wall" ? "Стены" : "Пол",
       titleEn: surface === "wall" ? "Walls" : "Floor",
-      defaultOptionId: choices ? floorOptionId(fcDefault!.id) : `opt:${surface}`,
-      optionIds: choices ? choices.map((v) => floorOptionId(v.id)) : [`opt:${surface}`] });
+      defaultOptionId: choice ? finishOptionId(surface, defOf(choice)!.id) : `opt:${surface}`,
+      optionIds: choice ? choice.variants.map((v) => finishOptionId(surface, v.id)) : [`opt:${surface}`] });
   }
 
   const apartment = apartmentSchema.parse({

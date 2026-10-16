@@ -8,7 +8,7 @@
 import type { Apartment } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
 import { loadFlat3d } from "@/lib/configurator/data";
-import { collectionAsVariant, floorOptionId, fromDemoVariant, resolveVariantId, type DemoContext, type DemoData, type DemoFloorChoice } from "@/lib/configurator/fromDemo";
+import { collectionAsVariant, finishOptionId, fromDemoVariant, resolveVariantId, type DemoContext, type DemoData, type DemoFloorChoice } from "@/lib/configurator/fromDemo";
 import { settlementOf } from "@/lib/configurator/settlement";
 import { currentPrices, priceIndex } from "@/lib/collections/prices";
 import { collectionRepo } from "@/modules/collections/repository";
@@ -41,12 +41,18 @@ export function defaultApartmentId(kind: "demo" | "flat3d"): string | null {
  * идут — их сумму нельзя показать в итоге честно (там они 0), покупатель видит их в окне демо со своей пометкой.
  */
 export function floorChoiceOf(hit: ApartmentHit): DemoFloorChoice | undefined {
-  const ru = apartmentCard(hit, "ru").options.find((o) => o.slotIds.includes("floor"));
+  return finishChoiceOf(hit, "floor");
+}
+
+/** Отделка на выбор из карточки для места `floor` или `wall` (demo-06/07): включённая группа с этим слотом. */
+export function finishChoiceOf(hit: ApartmentHit, slot: "floor" | "wall"): DemoFloorChoice | undefined {
+  const ru = apartmentCard(hit, "ru").options.find((o) => o.slotIds.includes(slot));
   if (!ru) return undefined;
   const en = apartmentCard(hit, "en").options.find((o) => o.id === ru.id);
   const variants = ru.variants.filter((v) => v.material && v.price.type !== "on_request").map((v) => ({
     id: v.id, titleRu: v.name, titleEn: en?.variants.find((x) => x.id === v.id)?.name ?? v.name,
     price: v.price.type === "surcharge" ? v.price.amount ?? 0 : 0, material: v.material as Record<string, unknown> & { id: string },
+    ...(v.accent ? { accent: { material: v.accent.material as Record<string, unknown> & { id: string }, anchor: v.accent.anchor } } : {}),
   }));
   return variants.length ? { groupId: ru.id, defaultVariantId: ru.defaultVariantId, settlement: ru.settlement, variants } : undefined;
 }
@@ -57,12 +63,16 @@ function fxOf(hit: ApartmentHit): { fxRate?: number } {
   return fx && fx.from === "RUB" && fx.to === hit.partner.currency ? { fxRate: fx.rate } : {};
 }
 
-/** Выбор опций застройщика → выбор мест квартиры (сейчас — пол). Неизвестное молча не применяется (вариант по умолчанию). */
+/** Выбор опций застройщика → выбор мест квартиры (пол, стены). Неизвестное молча не применяется (вариант по умолчанию). */
 export function developerSelections(hit: ApartmentHit, apartment: Apartment, opts: Record<string, string> | undefined): Record<string, string> {
-  const fc = floorChoiceOf(hit);
-  const vid = fc && opts?.[fc.groupId];
-  const slot = apartment.slots.find((x) => x.id === "floor");
-  return vid && slot?.optionIds.includes(floorOptionId(vid)) ? { floor: floorOptionId(vid) } : {};
+  const out: Record<string, string> = {};
+  for (const surface of ["floor", "wall"] as const) {
+    const fc = finishChoiceOf(hit, surface);
+    const vid = fc && opts?.[fc.groupId];
+    const slot = apartment.slots.find((x) => x.id === surface);
+    if (vid && slot?.optionIds.includes(finishOptionId(surface, vid))) out[surface] = finishOptionId(surface, vid);
+  }
+  return out;
 }
 
 /** `?opt=flooring:parquet-herringbone,…` — пары «группа:вариант» в адресе (несохранённое состояние окна демо). */
@@ -78,9 +88,9 @@ export function parseOptParam(raw: string | undefined): Record<string, string> {
 export async function resolveFlat(apartmentId: string, baseVariant?: string, load: DemoLoader = loadDemoRaw): Promise<FlatResolved> {
   const hit = findApartment(apartmentId);
   if (!hit) return { ok: false, reason: "unknown" };
-  const fc = floorChoiceOf(hit);
+  const fc = floorChoiceOf(hit), wc = finishChoiceOf(hit, "wall");
   const ctx: DemoContext = { apartmentId, partnerId: hit.partner.id, currency: hit.partner.currency, basePrice: hit.apartment.price,
-    ...(fc ? { floorChoice: fc } : {}), ...fxOf(hit) };
+    ...(fc ? { floorChoice: fc } : {}), ...(wc ? { wallChoice: wc } : {}), ...fxOf(hit) };
 
   const src = hit.apartment.sources.demoData;
   if (src && (baseVariant || !hit.apartment.sources.flat3d)) {
@@ -103,7 +113,7 @@ export async function resolveFlat(apartmentId: string, baseVariant?: string, loa
   // ОТДЕЛКА НЕ ИЗ СЕРТИФИКАТА (demo-06, ADR-0254): пол квартиры 3D идёт по правилу рынка застройщика (UK — в цену квартиры),
   // если у опции не задано своё; мебель и встроенное — в сертификат
   // кухня UK — тоже персонализация в цене квартиры (ADR-0298); RF кухня по-прежнему в сертификате
-  const options = base.catalogue.options.map((o) => ((o.category === "flooring" || o.category === "kitchen") && !o.settlement
+  const options = base.catalogue.options.map((o) => (["flooring", "walls", "kitchen"].includes(o.category) && !o.settlement
     ? { ...o, settlement: settlementOf(o.category, hit.partner.market) } : o));
   return {
     ok: true,
@@ -128,9 +138,9 @@ export async function resolveCollectionFlat(id: string, load: DemoLoader = loadD
   if (!raw) return { ok: false, reason: "unavailable" };
   const sids = c.payload.items.map((i) => i.sku?.sid).filter((x): x is string => !!x);
   const data = collectionAsVariant(raw, c.payload, currentPrices(sids, priceIndex(raw)));
-  const fc = floorChoiceOf(hit);
+  const fc = floorChoiceOf(hit), wc = finishChoiceOf(hit, "wall");
   const ctx: DemoContext = { apartmentId: hit.apartment.id, partnerId: hit.partner.id, currency: hit.partner.currency,
-    basePrice: hit.apartment.price, assetBase: src, ...(fc ? { floorChoice: fc } : {}), ...fxOf(hit) };
+    basePrice: hit.apartment.price, assetBase: src, ...(fc ? { floorChoice: fc } : {}), ...(wc ? { wallChoice: wc } : {}), ...fxOf(hit) };
   const built = fromDemoVariant(data, c.payload.baseVariant, ctx);
   return built ? { ok: true, ...built, hit, developerOptions: c.payload.developerOptions ?? {} } : { ok: false, reason: "unknown" };
 }

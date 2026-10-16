@@ -239,6 +239,89 @@
               "demo": true
             }
           ]
+        },
+        {
+          "id": "walls",
+          "kind": "walls",
+          "roomKind": "living",
+          "titleRu": "Стены",
+          "titleEn": "Walls",
+          "defaultVariantId": "paint-white",
+          "enabled": false,
+          "settlement": "property_price",
+          "slotIds": [
+            "wall"
+          ],
+          "variants": [
+            {
+              "id": "paint-white",
+              "nameRu": "Краска «Белая матовая»",
+              "nameEn": "Matt white paint",
+              "descRu": "Все стены — белая матовая краска",
+              "descEn": "All walls in matt white paint",
+              "pricing": {
+                "type": "included"
+              },
+              "demo": true,
+              "materialId": "wall-paint-white"
+            },
+            {
+              "id": "paint-warm-grey",
+              "nameRu": "Краска «Тёплый серый»",
+              "nameEn": "Warm grey paint",
+              "descRu": "Все стены — тёплый серый",
+              "descEn": "All walls in warm grey",
+              "pricing": {
+                "type": "surcharge",
+                "amount": 110
+              },
+              "demo": true,
+              "materialId": "wall-paint-warm-grey"
+            },
+            {
+              "id": "accent-sage",
+              "nameRu": "Акцентная стена «Шалфей»",
+              "nameEn": "Sage accent wall",
+              "descRu": "Стена за диваном — шалфей, остальные белые",
+              "descEn": "The wall behind the sofa in sage, the rest white",
+              "pricing": {
+                "type": "surcharge",
+                "amount": 135
+              },
+              "demo": true,
+              "materialId": "wall-paint-white",
+              "accent": {
+                "materialId": "wall-paint-sage",
+                "anchor": "behind-sofa"
+              }
+            },
+            {
+              "id": "linen-light",
+              "nameRu": "Обои «Лён светлый»",
+              "nameEn": "Light linen wallpaper",
+              "descRu": "Флизелиновые обои с фактурой льна",
+              "descEn": "Non-woven wallpaper with a linen texture",
+              "pricing": {
+                "type": "surcharge",
+                "amount": 340
+              },
+              "demo": true,
+              "materialId": "wall-linen-light"
+            },
+            {
+              "id": "plaster-concrete",
+              "nameRu": "Декоративная штукатурка «Бетон светлый»",
+              "nameEn": "Light concrete plaster",
+              "descRu": "Мягкая фактура светлого бетона",
+              "descEn": "Soft light concrete texture",
+              "pricing": {
+                "type": "surcharge",
+                "amount": 570
+              },
+              "demo": true,
+              "materialId": "wall-plaster-concrete"
+            }
+          ]
         }
       ]
     }

@@ -96,6 +96,11 @@ export const meshAsset = z.object({
 export const materialAsset = z.object({
   kind: z.literal("material"),
   materialId: z.string(),
+  /**
+   * Акцентная стена (demo-07): одна стена в другом материале. Хранится смыслом — «за диваном»; сторону считает
+   * `lib/configurator/accent.ts:resolveAccentSide` при расчёте сцены.
+   */
+  accent: z.object({ materialId: z.string(), anchor: z.literal("behind-sofa") }).optional(),
 });
 
 export const optionAsset = z.discriminatedUnion("kind", [meshAsset, materialAsset, kitAsset]);

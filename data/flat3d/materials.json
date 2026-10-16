@@ -790,6 +790,121 @@
    }
   },
   {
+   "id": "wall-linen-light",
+   "titleRu": "Обои «Лён светлый»",
+   "titleEn": "Light linen wallpaper",
+   "colorHex": "#d3cbbc",
+   "roughness": 0.88,
+   "metalness": 0.0,
+   "tileCm": [
+    50.0,
+    50.0
+   ],
+   "baseColorUrl": "wall-linen-light.webp",
+   "normalUrl": "wall-linen-light-n.webp",
+   "roughnessUrl": "wall-linen-light-r.webp",
+   "aoUrl": "wall-linen-light-ao.webp",
+   "previewUrl": "wall-linen-light-preview.webp",
+   "surfaces": [
+    "wall"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
+  },
+  {
+   "id": "wall-paint-sage",
+   "titleRu": "Краска «Шалфей»",
+   "titleEn": "Sage paint",
+   "colorHex": "#9dab95",
+   "roughness": 0.92,
+   "metalness": 0.0,
+   "tileCm": [
+    100.0,
+    100.0
+   ],
+   "baseColorUrl": "wall-paint-sage.webp",
+   "normalUrl": "wall-paint-sage-n.webp",
+   "roughnessUrl": "wall-paint-sage-r.webp",
+   "aoUrl": "wall-paint-sage-ao.webp",
+   "previewUrl": "wall-paint-sage-preview.webp",
+   "surfaces": [
+    "wall"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
+  },
+  {
+   "id": "wall-paint-warm-grey",
+   "titleRu": "Краска «Тёплый серый»",
+   "titleEn": "Warm grey paint",
+   "colorHex": "#cdc7be",
+   "roughness": 0.92,
+   "metalness": 0.0,
+   "tileCm": [
+    100.0,
+    100.0
+   ],
+   "baseColorUrl": "wall-paint-warm-grey.webp",
+   "normalUrl": "wall-paint-warm-grey-n.webp",
+   "roughnessUrl": "wall-paint-warm-grey-r.webp",
+   "aoUrl": "wall-paint-warm-grey-ao.webp",
+   "previewUrl": "wall-paint-warm-grey-preview.webp",
+   "surfaces": [
+    "wall"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
+  },
+  {
+   "id": "wall-paint-white",
+   "titleRu": "Краска «Белая матовая»",
+   "titleEn": "Matt white paint",
+   "colorHex": "#f1efec",
+   "roughness": 0.92,
+   "metalness": 0.0,
+   "tileCm": [
+    100.0,
+    100.0
+   ],
+   "baseColorUrl": "wall-paint-white.webp",
+   "normalUrl": "wall-paint-white-n.webp",
+   "roughnessUrl": "wall-paint-white-r.webp",
+   "aoUrl": "wall-paint-white-ao.webp",
+   "previewUrl": "wall-paint-white-preview.webp",
+   "surfaces": [
+    "wall"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
+  },
+  {
+   "id": "wall-plaster-concrete",
+   "titleRu": "Декоративная штукатурка «Бетон светлый»",
+   "titleEn": "Light concrete plaster",
+   "colorHex": "#ceccc7",
+   "roughness": 0.85,
+   "metalness": 0.0,
+   "tileCm": [
+    150.0,
+    150.0
+   ],
+   "baseColorUrl": "wall-plaster-concrete.webp",
+   "normalUrl": "wall-plaster-concrete-n.webp",
+   "roughnessUrl": "wall-plaster-concrete-r.webp",
+   "aoUrl": "wall-plaster-concrete-ao.webp",
+   "previewUrl": "wall-plaster-concrete-preview.webp",
+   "surfaces": [
+    "wall"
+   ],
+   "source": {
+    "kind": "procedural"
+   }
+  },
+  {
    "id": "walnut-dark",
    "titleRu": "Орех тёмный",
    "titleEn": "Dark walnut",

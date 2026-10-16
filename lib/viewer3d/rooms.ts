@@ -99,7 +99,7 @@ export function buildRoom(
   room: Room,
   floorMat: Material,
   wallMat: Material,
-  opts: { ceiling?: boolean; entranceWall?: string; doorsClosed?: boolean } = {},
+  opts: { ceiling?: boolean; entranceWall?: string; doorsClosed?: boolean; accent?: { side: WallSide; material: Material } } = {},
 ): RoomVisual {
   const group = new THREE.Group();
   group.name = `room:${room.id}`;
@@ -142,7 +142,8 @@ export function buildRoom(
       const wCm = r.u1 - r.u0;
       const hCm = r.v1 - r.v0;
       const geo = new THREE.PlaneGeometry(wCm * CM, hCm * CM);
-      const mat = tiled(ctx, wallMat, wCm, hCm, 0, [r.u0, r.v0]);
+      // акцентная стена (demo-07) — своим материалом, остальные — базовым
+      const mat = tiled(ctx, opts.accent?.side === side ? opts.accent.material : wallMat, wCm, hCm, 0, [r.u0, r.v0]);
       mat.side = THREE.FrontSide;
       const mesh = new THREE.Mesh(geo, mat);
       const uMid = r.u0 + wCm / 2;

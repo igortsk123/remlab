@@ -71,13 +71,15 @@ export const optionVariant = z.object({
   configuratorOptionId: z.string().optional(),
   /** Материал поверхности (`data/flat3d/materials.json`) — у отделки (пол): им красится слот `slotIds` группы (demo-06). */
   materialId: z.string().regex(/^[a-z0-9-]{2,40}$/).optional(),
+  /** Акцентная стена (demo-07): одна стена другим материалом; сторона — «за диваном», считает расчёт сцены. */
+  accent: z.object({ materialId: z.string().regex(/^[a-z0-9-]{2,40}$/), anchor: z.literal("behind-sofa") }).optional(),
   specRef: z.string().optional(),
 });
 
 export const optionGroup = z
   .object({
     id: z.string().regex(/^[a-z0-9-]{2,40}$/),
-    kind: z.enum(["kitchen", "bathroom", "flooring"]),
+    kind: z.enum(["kitchen", "bathroom", "flooring", "walls"]),
     roomKind: z.enum(["kitchen", "bathroom", "bedroom", "living", "hall"]),
     roomId: z.string().optional(),
     titleRu: z.string().min(1),
@@ -100,7 +102,8 @@ export const optionGroup = z
   .refine((g) => new Set(g.variants.map((v) => v.id)).size === g.variants.length, "id вариантов повторяются")
   // ровно один ассет у варианта (Codex 16.10): материал — у отделки, опция 3D — у кухни; оба сразу — ошибка данных
   .refine((g) => g.variants.every((v) => !(v.materialId && v.configuratorOptionId)), "у варианта и материал, и опция 3D")
-  .refine((g) => g.kind !== "flooring" || g.variants.every((v) => v.materialId), "у варианта пола нет материала")
+  .refine((g) => !["flooring", "walls"].includes(g.kind) || g.variants.every((v) => v.materialId), "у варианта отделки нет материала")
+  .refine((g) => g.kind === "walls" || g.variants.every((v) => !v.accent), "акцентная стена — только у группы стен")
   .refine((g) => g.variants.some((v) => v.id === g.defaultVariantId), "вариант по умолчанию не найден");
 export type OptionGroup = z.infer<typeof optionGroup>;
 
@@ -197,7 +200,8 @@ export type ApartmentCard = {
     slotIds: string[];
     variants: { id: string; name: string; desc: string; image: string | null; demo: boolean;
       price: { type: OptionPricing["type"]; amount: number | null; text: string }; configuratorOptionId: string | null;
-      materialId: string | null; material: Record<string, unknown> | null }[];
+      materialId: string | null; material: Record<string, unknown> | null;
+      accent: { material: Record<string, unknown>; anchor: "behind-sofa" } | null }[];
   }[];
   sources: { demoData?: string; flat3d?: string };
 };

@@ -4,7 +4,8 @@
 
 import { baseSnapshotOf } from "@/lib/configurator/fromDemo";
 import { decorLayout } from "@/lib/viewer3d/scene-extras";
-import type { Apartment, Placement, Slot, SlotCategory } from "@/contracts/apartment";
+import type { Apartment, Placement, Slot, SlotCategory, WallSide } from "@/contracts/apartment";
+import { resolveAccentSide } from "@/lib/configurator/accent";
 import type { Catalogue, Configuration, Material, Option, OptionAsset } from "@/contracts/configurator";
 import { materialById, optionById } from "@/contracts/configurator";
 import type { Settlement } from "@/lib/configurator/settlement";
@@ -35,6 +36,8 @@ export interface ResolvedSurface {
   titleEn: string;
   material: Material;
   price: number;
+  /** Акцентная стена (demo-07): материал и уже вычисленная сторона (`accent.ts:resolveAccentSide`). */
+  accent?: { material: Material; side: WallSide };
 }
 
 export type IssueCode =
@@ -224,6 +227,21 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
     });
   }
   placeTabletop(a, items);
+  // ВТОРОЙ ПРОХОД — АКЦЕНТНАЯ СТЕНА «ЗА ДИВАНОМ» (demo-07, Codex 16.10): сторона — от итогового места дивана в той же комнате
+  // (после перестановок покупателя); дивана нет — акцента нет, стены базовые, без молчаливой «северной»
+  for (const sf of surfaces) {
+    const opt = optionById(c, sf.optionId);
+    const acc = opt?.asset.kind === "material" ? opt.asset.accent : undefined;
+    if (!acc) continue;
+    const mat = materialById(c, acc.materialId);
+    const room = a.rooms.find((r) => r.id === sf.roomId);
+    const sofa = items.find((i) => i.roomId === sf.roomId && i.kind === "furniture" && /^диван/.test(i.photoRole ?? i.slotId));
+    if (!mat || !room || !sofa) {
+      issues.push({ code: "no_material", slotId: sf.slotId, optionId: sf.optionId, messageRu: "акцентная стена без дивана или материала" });
+      continue;
+    }
+    sf.accent = { material: mat, side: resolveAccentSide(room, sofa.placement) };
+  }
   const packed = packPrices(c, items);
   upgrades += packed.delta;
   bySettlement.allowance += packed.delta;   // упаковки — мебель

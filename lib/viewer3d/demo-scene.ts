@@ -34,7 +34,13 @@ export interface DemoSceneOptions {
   lite?: boolean;
   /** Пол застройщика (demo-06) — материал каталога (`data/flat3d/materials.json`, адреса карт абсолютные). */
   floor?: Record<string, unknown> & { id: string };
+  /** Стены застройщика (demo-07): материал и необязательная акцентная стена «за диваном». */
+  wall?: DemoWall;
 }
+
+type Mat = Record<string, unknown> & { id: string };
+/** Стены живой сцены: материал всех стен и акцентная — сторону считает расчёт сцены (`accent.ts`). */
+export type DemoWall = { material: Mat; accent?: { material: Mat; anchor: "behind-sofa" } };
 
 export type DemoSceneEvent = "progress" | "contextlost";
 
@@ -47,6 +53,10 @@ export interface DemoScene {
   setPhotoPose(pose: PhotoPose): void;
   /** Сменить пол (demo-06): оболочка комнаты перерисовывается, модели мебели не перезагружаются. */
   setFloor(floor: (Record<string, unknown> & { id: string }) | null): Promise<void>;
+  /** Сменить стены (demo-07): оболочка перерисовывается, модели мебели не перезагружаются. */
+  setWall(wall: DemoWall | null): Promise<void>;
+  /** Сторона акцентной стены текущей расстановки (для запроса серверного кадра); акцента нет — null. */
+  accentSide(): string | null;
   exportFrame(width: number, height: number, type?: string, quality?: number): Promise<Blob>;
   /** Вид окна (demo-02): «Ракурс» — фото-поза (`setPhotoPose`), «3D» — прогулка; с позой — из точки этого ракурса,
    *  взгляд на середину мебели (`viewer.walkFrom`). */
@@ -89,9 +99,9 @@ const isRug = (it: DemoItem): boolean => String(it.role ?? "").startsWith("ко�
  * ковёр — плита с фото товара, ваза — на столике по правилу серверного кадра; одно место для окна и /flat).
  */
 export function liveApartment(room: DemoRoom, items: DemoItem[], base: string, decor: DemoDecor[] = [],
-  floor?: Record<string, unknown> & { id: string }): { apartment: Apartment; catalogue: Catalogue } | null {
+  floor?: Record<string, unknown> & { id: string }, wall?: DemoWall): { apartment: Apartment; catalogue: Catalogue } | null {
   const built = fromDemoVariant({ room, variants: [{ id: "live", items, decor }] }, "live",
-    { ...CTX, assetBase: base, ...(floor ? { floorMaterial: floor } : {}) });
+    { ...CTX, assetBase: base, ...(floor ? { floorMaterial: floor } : {}), ...(wall ? { wallMaterial: wall } : {}) });
   if (!built) return null;
   const { apartment, catalogue } = built;
   // стены и пол — свои материалы из паспорта отделки: их ставит сам мост (`fromDemoVariant`), одинаково для окна и /flat
@@ -102,7 +112,8 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
   if (opts.runtimeMeshes) setRuntimeMeshes(opts.runtimeMeshes);
   let decor: DemoDecor[] = opts.decor ?? [];
   let floor = opts.floor;
-  const first = liveApartment(opts.room, opts.items, opts.base, decor, floor);
+  let wall = opts.wall;
+  const first = liveApartment(opts.room, opts.items, opts.base, decor, floor, wall);
   if (!first) throw new Error("пустая расстановка");
   const listeners = new Map<DemoSceneEvent, Set<(...a: number[]) => void>>();
   const emit = (ev: DemoSceneEvent, ...a: number[]): void => listeners.get(ev)?.forEach((f) => f(...a));
@@ -111,8 +122,12 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     onContextLost: () => emit("contextlost"),
   });
   const resolved = (a: Apartment, c: Catalogue) => resolveScene(a, c, defaultConfiguration(a, c));
-  viewer.buildShell(resolved(first.apartment, first.catalogue));
-  const ready = viewer.syncObjects(resolved(first.apartment, first.catalogue));
+  // сторона акцентной стены — из расчёта сцены; меняется, когда переставили диван, — тогда оболочку перестраиваем
+  const sideOf = (sc: ReturnType<typeof resolved>): string | null => sc.surfaces.find((x) => x.surface === "wall")?.accent?.side ?? null;
+  const sc0 = resolved(first.apartment, first.catalogue);
+  let lastSide = sideOf(sc0);
+  viewer.buildShell(sc0);
+  const ready = viewer.syncObjects(sc0);
 
   // ПОСЛЕДНЯЯ РАССТАНОВКА ПОБЕЖДАЕТ, СИНХРОНИЗАЦИИ ИДУТ ПО ОДНОЙ (Codex 14.10): две одновременные `syncObjects`
   // дважды добавили бы один предмет, а быстрые замены гонялись бы с незаконченной загрузкой.
@@ -139,11 +154,13 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
         if (!pending) return;
         current = pending.items;
         decor = pending.decor;
-        const next = liveApartment(opts.room, current, opts.base, decor, floor);
+        const next = liveApartment(opts.room, current, opts.base, decor, floor, wall);
         pending = null;
         if (!next) return;
         viewer.setApartment(next.apartment, next.catalogue);
-        await viewer.syncObjects(resolved(next.apartment, next.catalogue));
+        const sc = resolved(next.apartment, next.catalogue);
+        if (sideOf(sc) !== lastSide) { lastSide = sideOf(sc); viewer.buildShell(sc); }   // акцент переехал за диваном
+        await viewer.syncObjects(sc);
         reselect();
       })
       // ошибка одной синхронизации не должна молча глушить все следующие (verify 14.10)
@@ -151,22 +168,28 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     return running;
   };
 
+  // оболочка комнаты (пол, стены) по новой отделке: перерисовка коробки, модели мебели не перезагружаются (подписи те же)
+  const reshell = (what: string): Promise<void> => {
+    running = running.then(async () => {
+      const next = liveApartment(opts.room, current, opts.base, decor, floor, wall);
+      if (!next) return;
+      viewer.setApartment(next.apartment, next.catalogue);
+      const sc = resolved(next.apartment, next.catalogue);
+      lastSide = sideOf(sc);
+      viewer.buildShell(sc);
+      await viewer.syncObjects(sc);
+      reselect();
+    }).catch((e: unknown) => console.warn(`живая сцена: ${what} не сменились`, e));
+    return running;
+  };
+
   return {
     ready,
     update,
     setPhotoPose: (pose) => viewer.setPhotoPose(pose),
-    setFloor: (f) => {
-      floor = f ?? undefined;
-      running = running.then(async () => {
-        const next = liveApartment(opts.room, current, opts.base, decor, floor);
-        if (!next) return;
-        viewer.setApartment(next.apartment, next.catalogue);
-        const sc = resolved(next.apartment, next.catalogue);
-        viewer.buildShell(sc);          // пол — часть оболочки комнаты
-        await viewer.syncObjects(sc);   // мебель та же — модели не перезагружаются (подписи не меняются)
-      }).catch((e: unknown) => console.warn("живая сцена: пол не сменился", e));
-      return running;
-    },
+    setFloor: (f) => { floor = f ?? undefined; return reshell("пол"); },
+    setWall: (w) => { wall = w ?? undefined; return reshell("стены"); },
+    accentSide: () => lastSide,
     exportFrame: (w, h, type, q) => viewer.exportFrame(w, h, type, q),
     setWalk: (from) => (from ? viewer.walkFrom(from) : viewer.setViewMode("walk")),
     look: (dx, dy) => viewer.look(dx, dy),

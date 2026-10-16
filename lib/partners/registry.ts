@@ -97,6 +97,7 @@ function optionsCard(p: Partner, a: ApartmentRef, lang: Lang): ApartmentCard["op
       materialId: v.materialId ?? null,
       // материал целиком (адреса карт от корня сайта): окно демо красит им пол живой сцены без второго запроса (demo-06)
       material: v.materialId ? materialOf(v.materialId) : null,
+      accent: v.accent && materialOf(v.accent.materialId) ? { material: materialOf(v.accent.materialId)!, anchor: v.accent.anchor } : null,
     })),
   }));
 }

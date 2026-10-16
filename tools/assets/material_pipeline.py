@@ -381,6 +381,47 @@ def gen_carpet(seed: int, base_rgb: tuple[int, int, int]) -> tuple[np.ndarray, n
     return np.clip(col, 0, 255).astype(np.uint8), height
 
 
+def gen_paint(seed: int, base_rgb: tuple[int, int, int]) -> tuple[np.ndarray, np.ndarray]:
+    """Краска стен (demo-07): почти ровный цвет, лёгкая «валиковая» шероховатость ±1,5 % — не пластик и не обои."""
+    rng = _rng(seed)
+    fine = np.asarray(Image.fromarray((rng.random((TILE, TILE)) * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(1.2)),
+                      np.float32) / 255.0
+    broad = _fbm((TILE, TILE), seed + 3, octaves=3, persistence=0.5)
+    v = 1.0 + (fine - 0.5) * 0.03 + (broad - 0.5) * 0.02
+    col = np.stack([np.array(base_rgb, np.float32)[c] * v for c in range(3)], -1)
+    return np.clip(col, 0, 255).astype(np.uint8), (np.clip(fine, 0, 1) * 255).astype(np.uint8)
+
+
+def gen_linen(seed: int, base_rgb: tuple[int, int, int], threads: int = 96) -> tuple[np.ndarray, np.ndarray]:
+    """Обои «лён» (demo-07): мелкое плетение — нити по X и Y с неровной толщиной, бесшовно по построению (целое число нитей)."""
+    rng = _rng(seed)
+    y, x = np.mgrid[0:TILE, 0:TILE].astype(np.float32)
+    k = 2 * math.pi * threads / TILE
+    jx = _fbm((TILE, TILE), seed + 7, octaves=4, persistence=0.55)   # неровность нити
+    jy = _fbm((TILE, TILE), seed + 9, octaves=4, persistence=0.55)
+    warp = 0.5 + 0.5 * np.sin(x * k + (jx - 0.5) * 2.0)
+    weft = 0.5 + 0.5 * np.sin(y * k + (jy - 0.5) * 2.0)
+    slub = np.asarray(Image.fromarray((rng.random((TILE, TILE // 16)) * 255).astype(np.uint8))
+                      .resize((TILE, TILE), Image.BILINEAR), np.float32) / 255.0   # утолщения нити
+    weave = 0.5 * warp + 0.5 * weft
+    v = 0.94 + (weave - 0.5) * 0.10 + (slub - 0.5) * 0.06
+    col = np.stack([np.array(base_rgb, np.float32)[c] * v for c in range(3)], -1)
+    return np.clip(col, 0, 255).astype(np.uint8), (np.clip(weave, 0, 1) * 255).astype(np.uint8)
+
+
+def gen_plaster(seed: int, base_rgb: tuple[int, int, int]) -> tuple[np.ndarray, np.ndarray]:
+    """Декоративная штукатурка «бетон» (demo-07): мягкие пятна разной плотности + мелкие поры, без швов и опалубки."""
+    rng = _rng(seed)
+    clouds = _fbm((TILE, TILE), seed + 1, octaves=6, persistence=0.6)
+    soft = _fbm((TILE, TILE), seed + 2, octaves=2, persistence=0.5)
+    pores = (rng.random((TILE, TILE)) > 0.996).astype(np.float32)
+    pores = np.asarray(Image.fromarray((pores * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(0.8)), np.float32) / 255.0
+    v = 1.0 + (clouds - 0.5) * 0.09 + (soft - 0.5) * 0.05 - pores * 0.18   # светлый бетон: пятна мягкие, без «облаков»
+    col = np.stack([np.array(base_rgb, np.float32)[c] * v for c in range(3)], -1)
+    h = np.clip(clouds * 0.7 + (1 - pores) * 0.3, 0, 1)
+    return np.clip(col, 0, 255).astype(np.uint8), (h * 255).astype(np.uint8)
+
+
 def gen_stone(seed: int, base_rgb: tuple[int, int, int], veining: float = 0.5) -> tuple[np.ndarray, np.ndarray]:
     """Камень/кварц: мелкая крапинка + прожилки по искажённому полю.
 
@@ -484,6 +525,17 @@ PRESETS: dict[str, dict] = {
                              rough=0.42, spread=0.12, nrm=1.5),
     "parquet-blocks": dict(gen="herringbone", rgb=(182, 148, 110), plank=12, tile=96, contrast=0.24,
                            ru="Паркет модульный", en="Parquet blocks", rough=0.50, spread=0.20, nrm=2.6),
+    # стены (demo-07): краска, обои «лён», декоративная штукатурка — процедурные, без чужих фото
+    "wall-paint-white": dict(gen="paint", rgb=(242, 240, 237), tile=100, ru="Краска «Белая матовая»", en="Matt white paint",
+                             rough=0.92, spread=0.04, nrm=0.5, surf=["wall"]),
+    "wall-paint-warm-grey": dict(gen="paint", rgb=(206, 200, 191), tile=100, ru="Краска «Тёплый серый»", en="Warm grey paint",
+                                 rough=0.92, spread=0.04, nrm=0.5, surf=["wall"]),
+    "wall-paint-sage": dict(gen="paint", rgb=(158, 172, 150), tile=100, ru="Краска «Шалфей»", en="Sage paint",
+                            rough=0.92, spread=0.04, nrm=0.5, surf=["wall"]),
+    "wall-linen-light": dict(gen="linen", rgb=(226, 217, 201), tile=50, ru="Обои «Лён светлый»", en="Light linen wallpaper",
+                             rough=0.88, spread=0.08, nrm=1.2, surf=["wall"]),
+    "wall-plaster-concrete": dict(gen="plaster", rgb=(208, 206, 201), tile=150, ru="Декоративная штукатурка «Бетон светлый»",
+                                  en="Light concrete plaster", rough=0.85, spread=0.12, nrm=1.0, surf=["wall"]),
     # ёлочка (demo-06): планка 10×60 см под 45°, тайл — два периода узора (≈170 см)
     "parquet-herringbone": dict(gen="herringbone45", rgb=(180, 144, 104), plank=10, ratio=6, contrast=0.24,
                                 ru="Паркет «Ёлочка дуб»", en="Oak herringbone parquet", rough=0.48, spread=0.20, nrm=2.4),
@@ -527,6 +579,12 @@ def build_preset(name: str, out_dir: str) -> dict:
     if p["gen"] == "herringbone45":
         colour, height = gen_herringbone45(seed, p["rgb"], float(p["plank"]), int(p["ratio"]), tile_cm,
                                            float(p.get("contrast", 0.22)))
+    elif p["gen"] == "paint":
+        colour, height = gen_paint(seed, p["rgb"])
+    elif p["gen"] == "linen":
+        colour, height = gen_linen(seed, p["rgb"])
+    elif p["gen"] == "plaster":
+        colour, height = gen_plaster(seed, p["rgb"])
     elif p["gen"] == "planks":
         colour, height = gen_planks(seed, p["rgb"], float(p["plank"]), tile_cm, float(p.get("contrast", 0.2)))
     elif p["gen"] == "herringbone":
@@ -540,12 +598,16 @@ def build_preset(name: str, out_dir: str) -> dict:
         colour, height = gen_carpet(seed, p["rgb"])
     else:
         colour, height = gen_stone(seed, p["rgb"], float(p.get("vein", 0.4)))
-    return write_material(
+    entry = write_material(
         out_dir, name, colour, height,
         tile_cm=(tile_cm, tile_cm), title_ru=p["ru"], title_en=p["en"],
         roughness_base=float(p["rough"]), roughness_spread=float(p["spread"]),
         metalness=0.0, normal_strength=float(p["nrm"]), seamless=False,
     )
+    if p.get("surf"):                       # где материал уместен (`resolve.ts`: применимость поверхности)
+        entry["surfaces"] = list(p["surf"])
+        entry["source"] = {"kind": "procedural"}
+    return entry
 
 
 def from_photo(src: str, corners: list[tuple[float, float]] | None, real_cm: tuple[float, float],

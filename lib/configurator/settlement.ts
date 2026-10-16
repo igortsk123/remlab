@@ -31,7 +31,7 @@ export interface SettlementTotals {
 /** Куда идёт группа по умолчанию, когда в данных поле не задано (Codex: только для старых данных; новые задают явно). */
 export function settlementOf(kind: string, market: string, explicit?: Settlement): Settlement {
   if (explicit) return explicit;
-  if (kind === "flooring" || kind === "bathroom") return market === "uk" ? "property_price" : "developer_surcharge";
+  if (kind === "flooring" || kind === "walls" || kind === "bathroom") return market === "uk" ? "property_price" : "developer_surcharge";
   // UK: кухня застройщика — персонализация в цене квартиры, не furniture allowance (владелец 16.10, ADR-0298); RF — в сертификат
   if (kind === "kitchen" && market === "uk") return "property_price";
   return "allowance";
