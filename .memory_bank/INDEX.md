@@ -44,7 +44,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт → реф-сме�
 | Наличие и честность размеров — состояния, парсер, footprint | `core/stock-and-dims.md` | `domain/stock-and-dims.md` |
 | Стили — паспорта, скоринг, сеты | `core/styles.md` | `domain/interior-styles.md` |
 | Stage 1 UX-flow, аналитика | `core/user-flow.md` | `domain/user-flow-details.md` |
-| Спальня — каталог кроватей, тумб, шкафов, комодов; вкладка демо; что дальше | `core/bedroom.md` | `plans/b2b-10-rooms-beyond-living.md` |
+| Спальня — каталог кроватей, тумб, шкафов, комодов (с показа в демо снят); что дальше | `core/bedroom.md` | `plans/b2b-10-rooms-beyond-living.md` |
 | Состав гостиной — роли и пригодность | `core/lr-checklist.md` | `domain/living-room-checklist.md` |
 <!-- GENERATED:decision-tree END -->
 

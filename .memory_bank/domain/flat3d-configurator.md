@@ -3,7 +3,7 @@ tier: 2
 topic: flat3d-configurator-details
 scope: 3D-конфигуратор квартиры — подробности модели, сцены и конвейера ассетов
 tier1: ../core/apartment-configurator.md
-updated: 2026-10-15
+updated: 2026-10-16
 importance: med
 source: manual
 status: working
@@ -262,3 +262,12 @@ runtime-текстура (KTX2) — уйдёт при переходе на пе
   видом на диван; высокий — по верху предмета, ковёр не препятствие; живая проверка
   числами — `e2e/live/flat-walk.live.ts` (`viewer.debugWalk/faceToward`).
 
+## Отделка застройщика: пол и стены (16.10, demo-06/07, ADR-0297)
+- Группа опций карточки (`contracts/partner.ts:optionGroup`, `kind: flooring | walls`) → мост опциями места `floor`/`wall`
+  (`lib/configurator/fromDemo.ts:finishOptionId`, источник — `lib/configurator/source.ts:finishChoiceOf`); выбор из коллекции v2 и
+  `?opt=группа:вариант` — `developerSelections`. Деньги — `totals.bySettlement` (`lib/configurator/resolve.ts`) и ядро `settle`.
+- **Акцентная стена**: у варианта стен `accent: {materialId, anchor: "behind-sofa"}`; сторону считает `resolveScene` вторым проходом
+  (`lib/configurator/accent.ts:resolveAccentSide` по итоговому месту дивана), `rooms.buildRoom` красит эту сторону; живая сцена
+  перестраивает оболочку, когда сторона сменилась. Серверный кадр — цвет стороны (`draft_render._paint_accent`), пол — фактура
+  (`_paint_floor`); оба — в ключе кэша кадра и в подсказках нейросети.
+- **Британский двойник** (ADR-0298): рублёвые цены витрины → валюта застройщика `ctx.fxRate` (один пересчёт в мосту).

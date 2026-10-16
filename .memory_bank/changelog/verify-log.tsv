@@ -66,3 +66,7 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-10-14	.memory_bank/core/demo-scenarios.md	code	8	1	1	
 2026-10-14	.memory_bank/domain/demo-planner-ui.md	code	5	0	0	
 2026-10-14	.memory_bank/domain/demo-planner-ui.md	code	14	1	1	
+2026-10-16	.memory_bank/core/demo-planner.md	code	21	2	2	
+2026-10-16	.memory_bank/core/apartment-configurator.md	code	19	1	1	
+2026-10-16	.memory_bank/core/partners.md	code	17	2	2	
+2026-10-16	.memory_bank/core/bedroom.md	code	10	1	1	
