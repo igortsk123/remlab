@@ -60,6 +60,10 @@ export interface DemoScene {
   /** Повернуть взгляд прогулки к предмету расстановки (номер как в `update`): заменённый в «3D» предмет должен быть виден
    *  (приёмка владельцем 16.10: диван менялся за краем кадра, и замена казалась несработавшей). */
   focus(index: number): void;
+  /** Повернуть взгляд прогулки на `deg` градусов (тап по краю сцены в «3D», demo-02 v3: поворот не только перетаскиванием). */
+  turn(deg: number): void;
+  /** Тап в «3D»: по предмету — его номер в расстановке; по полу — шаг туда (`viewer.goTo`) и -1. */
+  walkTap(clientX: number, clientY: number): number;
   /** Номер предмета расстановки → подпись модели на сцене (живая проверка «замена дошла до сцены»). */
   models(): Record<number, string>;
   /** Подгрузить модели кандидатов заранее (лента замен открылась) — замена потом без сети. */
@@ -158,6 +162,14 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
       const it = current[index];
       const x = Number(it?.x), y = Number(it?.y);
       if (Number.isFinite(x) && Number.isFinite(y)) viewer.faceToward(x, y);
+    },
+    // плюс — направо; `viewer.look` с положительным dx поворачивает налево (перетаскивание «тянет мир»), 0,22° на пиксель
+    turn: (deg) => viewer.look(-deg / 0.22, 0),
+    walkTap: (x, y) => {
+      const hit = viewer.pick(x, y, canvas.getBoundingClientRect());
+      if (hit.slotId) return slotIndex().get(hit.slotId) ?? -1;
+      if (hit.point) viewer.goTo(hit.point.x, hit.point.y);
+      return -1;
     },
     models: () => {
       const sig = viewer.placedSignatures();

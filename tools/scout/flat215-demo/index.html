@@ -3759,6 +3759,18 @@ function histFwd(){return histGo(1);}
 .vfl small{font-size:12px;color:var(--muted);white-space:nowrap}.vfl.on small{color:var(--ink);font-weight:600}
 .vfl-cur{font-size:13.5px;color:var(--ink);margin-top:8px}
 .vsum small.vdev{color:var(--ink)}
+/* ракурсы «Фото» — стрелки по краям и точки внизу (v3 п.5); план «План» — в той же области сцены */
+.vnav{display:none;position:absolute;top:50%;transform:translateY(-50%);z-index:6;width:44px;height:44px;border-radius:50%;border:0;
+ background:rgba(255,255,255,.88);color:var(--ink);font-size:26px;line-height:44px;padding:0;cursor:pointer;box-shadow:var(--sh-2)}
+.vprev{left:10px}.vnext{right:10px}
+.vdots{display:none;position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:6;gap:8px;padding:6px 10px;
+ border-radius:999px;background:rgba(43,38,34,.45)}
+.vdots i{display:block;width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.55)}.vdots i.on{background:#fff}
+#shot.vphoto.vmany .vnav{display:block}#shot.vphoto.vmany .vdots{display:flex}
+.vplanbox{display:none;position:absolute;inset:60px 12px 12px;z-index:4;background:var(--wash-2)}
+.vplanbox svg{width:100%;height:100%}
+#shot.vplan .vplanbox{display:block}#shot.vplan .shotwrap img,#shot.vplan .vpins,#shot.vplan .vold,#shot.vplan .vzbtn,
+#shot.vplan .livebadge{visibility:hidden}
 .vflat{display:none;position:absolute;right:12px;bottom:12px;z-index:6;background:rgba(255,255,255,.92);color:var(--ink);
  text-decoration:none;font-size:14px;font-weight:600;padding:8px 14px;border-radius:999px;box-shadow:var(--sh-2)}
 #shot.vwalk .vflat{display:inline-block}
@@ -3797,6 +3809,11 @@ function histFwd(){return histGo(1);}
   /* сцена — только над шторкой: под полуоткрытой шторкой мебель иначе пряталась, а видно было потолок */
   .vstage .shotwrap{bottom:var(--vh0,268px)}
   #shot.v2 .shotwrap .livebadge{display:none}
+  .vdots{bottom:calc(var(--vh0,268px) + 12px)}.vnav{top:calc((100% - var(--vh0,268px)) / 2)}
+  .vw:has(.vside[data-pos="1"]) .vdots,.vw:has(.vside[data-pos="2"]) .vdots{bottom:calc(58% + 12px)}
+  .vw:has(.vside[data-pos="1"]) .vnav,.vw:has(.vside[data-pos="2"]) .vnav{top:21%}
+  .vplanbox{inset:60px 8px var(--vh0,268px) 8px}
+  .vw:has(.vside[data-pos="1"]) .vplanbox,.vw:has(.vside[data-pos="2"]) .vplanbox{bottom:58%}
   .vw:has(.vside[data-pos="1"]) .vstage .shotwrap{bottom:58%}
   .vw:has(.vside[data-pos="2"]) .vstage .shotwrap{bottom:58%}
   #shot.v2 .shotwrap .livebadge,#shot.v2 .shotwrap .vold{top:auto;bottom:10px;left:10px}
@@ -3807,9 +3824,12 @@ function histFwd(){return histGo(1);}
    объяснений»). Сцена слева/на весь экран: «Ракурс» — фото или живая сцена с точки съёмки, «3D» — прогулка в той же сцене,
    «План» — конструктор. «↶ ↷» — история расстановок (ADR-0289), «‹ ›» — ракурсы. Справа/в шторке: сумма и остаток по
    сертификату, «Сделать фотореалистичное фото», список с заменами, полоса действий (её кнопки и обработчики — прежние). */
-// режим сцены окна: c1/c2 — ракурсы (камеры плана C1/C2), walk — 3D-прогулка; «План» — конструктор
-const VW={mode:'c1', pinsT:0};
-const vwCam=()=>VW.mode==='c2'?'C2':'C1';
+// РЕЖИМ СЦЕНЫ ОКНА ОТДЕЛЬНО ОТ РАКУРСА (demo-02 v3, разбор Codex 16.10): mode — photo | walk | plan, photo — номер ракурса
+// (камеры плана C1, C2, …). «Фото» листается стрелками/точками/свайпом, без «Ракурс 1/2»; «План» — план комнаты только для
+// просмотра в области сцены, редактор — по «Изменить план»
+const VW={mode:'photo', photo:0, pinsT:0};
+const vwCam=()=>'C'+(VW.photo+1);
+const vwCamN=()=>Math.max(1,((typeof cams!=='undefined'&&cams)||loadCams()).length);
 function vwSum(){
   const v=allVariants()[cur]||{}, n=variantCount(v), sum=variantPrice(v), EN=LANG==='en';
   const cert=(FLAT&&FLAT.certificate&&FLAT.certificate.amount)||0;
@@ -3835,9 +3855,12 @@ function vwHtml(s, navs, list){
   const img=s.url?`<img class="vblur" src="${s.url}" alt="" aria-hidden="true"><img class="vmain" src="${s.url}" alt="${styleOf(s)}">`+
     `<button class="vzbtn" id="vzBtn">${EN?'⤢ full screen':'⤢ во весь экран'}</button>`:'';
   return `<div class="vw"><div class="vstage"><div class="shotwrap">${img}${navs}${old}</div>`+
-    `<div class="vmodes" role="tablist"><button data-vm="c1" class="${VW.mode==='c1'?'on':''}">Ракурс 1</button>`+
-    `<button data-vm="c2" class="${VW.mode==='c2'?'on':''}">Ракурс 2</button>`+
-    `<button data-vm="walk" class="${VW.mode==='walk'?'on':''}">3D</button><button data-vm="plan">План</button></div>`+
+    `<div class="vmodes" role="tablist"><button data-vm="photo" class="${VW.mode==='photo'?'on':''}">Фото</button>`+
+    `<button data-vm="walk" class="${VW.mode==='walk'?'on':''}">3D</button><button data-vm="plan" class="${VW.mode==='plan'?'on':''}">План</button></div>`+
+    // ракурсы — стрелками по краям и точками внизу (владелец 16.10, п.5); свайп и ← → — `vwPhoto`
+    `<button class="vnav vprev" id="vPrev" aria-label="Предыдущий вид">‹</button><button class="vnav vnext" id="vNext" aria-label="Следующий вид">›</button>`+
+    `<div class="vdots" id="vDots">${Array.from({length:vwCamN()},(_,k)=>`<i class="${k===VW.photo?'on':''}"></i>`).join('')}</div>`+
+    `<div class="vplanbox" id="vPlan"></div>`+
     `<div class="vhist" hidden><button id="vhBack" aria-label="Отменить изменение" title="Отменить изменение">↶</button><span id="vhTxt"></span>`+
     `<button id="vhFwd" aria-label="Вернуть изменение" title="Вернуть изменение">↷</button></div><div class="vpins" id="vpins"></div>`+
     `<div class="vload" id="vload"><div><i></i><span id="vloadTxt">Собираем сцену…</span></div></div>`+
@@ -3846,7 +3869,7 @@ function vwHtml(s, navs, list){
     `<div class="vside" id="vside" data-pos="0"><div class="vgrip" id="vgrip"><i></i><span class="vchip" id="vchip">Товары и замены ⌃</span></div>`+
     `<div class="vtop"><div class="vsum" id="vsum">${vwSum()}</div>`+
     // одна строка (владелец 16.10, п.4): время «обычно 2–4 минуты» — в состоянии после нажатия (`makePhoto`), не на кнопке
-    `<button class="btn primary vcta" id="vCta">Сделать реалистичнее</button></div>`+
+    `<button class="btn primary vcta" id="vCta">${VW.mode==='plan'?'Изменить план':'Сделать реалистичнее'}</button></div>`+
     `<div class="vlist" id="vlist"><div class="vfloor" id="vfloor">${devFloorHtml()}</div>${list}</div></div></div>`;
 }
 // ↶ ↷ БЕЗ СЧЁТЧИКА (владелец 16.10, п.3: «Layout 4 of 4 — не понимаю, что это и зачем»): пока правок нет — кнопок нет; после
@@ -3862,6 +3885,7 @@ function vwHist(){
 // ОКНО ВАРИАНТА БЕЗ ОЖИДАНИЯ: кадр варианта (или пустая «живая» запись, если кадров нет) — сцена покажет текущую расстановку
 function openLiveWindow(){
   if(document.getElementById('cons').classList.contains('on')){consBack=-1; closeCons();}
+  VW.mode='photo'; VW.photo=0;          // новое окно варианта — с «Фото», первым ракурсом (возврат из редактора сохраняет «План»)
   const v=allVariants()[cur]||{}, vid=v.id||('v'+cur);
   let i=shots.findIndex(x=>x.vid===vid&&x.live);
   const best=bestShot(v);
@@ -3923,7 +3947,7 @@ function vwPins(){
   // ЦЕНА — ТОЛЬКО ЦЕЛИКОМ В КАДРЕ И НЕ ПОД КНОПКАМИ (прогон d8 14.10: «4 290 ₽» обрезана у края на телефоне): метка, которая
   // вылезает за край сцены или ложится на переключатель ракурсов / историю / подпись, не показывается
   const fr=box.getBoundingClientRect(), pad=4;
-  const busy=[...document.querySelectorAll('#shot .vmodes, #shot .vhist, #shot .vold, #shot .vzbtn, #vside')].concat(LIVE.badge?[LIVE.badge]:[])
+  const busy=[...document.querySelectorAll('#shot .vmodes, #shot .vhist, #shot .vold, #shot .vzbtn, #vside, #shot .vnav, #shot .vdots, #shot .vflat')].concat(LIVE.badge?[LIVE.badge]:[])
     .map(e=>e.getBoundingClientRect()).filter(r=>r.width>0);
   const hit=(a,b)=>a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top;
   box.querySelectorAll('.vpin').forEach(b=>{const r=b.getBoundingClientRect();
@@ -3941,19 +3965,10 @@ function vwMount(s){
   const side=document.getElementById('vside'), capEl=shot.querySelector('.cap'); if(side&&capEl)side.appendChild(capEl);
   let pos=0; try{pos=+(sessionStorage.getItem('remlab-sheet-pos')||0)||0;}catch(e){} vwSheet(pos);
   vwHist();
-  shot.querySelectorAll('[data-vm]').forEach(b=>b.onclick=()=>{
-    const m=b.dataset.vm;
-    if(m==='plan'){const ed=document.getElementById('shEdit'); if(ed&&ed.onclick)ed.onclick(); return;}
-    VW.mode=m; shot.querySelectorAll('[data-vm]').forEach(x=>x.classList.toggle('on',x.dataset.vm===m));
-    shot.classList.toggle('vwalk',m==='walk');
-    // ракурс выбран, а живая сцена не нужна (фото актуально) — показываем фото этого ракурса из той же съёмки
-    const cs=shots[shotAt];
-    if(m!=='walk'&&cs&&cs.batch&&!liveStale(cs)){const sib=shots.findIndex(x=>x.batch===cs.batch&&(x.camera||'C1')===vwCam());
-      if(sib>=0&&sib!==shotAt){viewShot(sib);return;}}
-    // запасной путь (живой сцены нет): ракурс — серверный эскиз ЭТОЙ расстановки, а не чужое фото из старой съёмки
-    if(LIVE.ok===false&&m!=='walk'&&cs&&liveStale(cs)){vwSketch(); return;}
-    liveShow();
-  });
+  shot.querySelectorAll('[data-vm]').forEach(b=>b.onclick=()=>vwMode(b.dataset.vm));
+  vwModeUi();
+  const pv=document.getElementById('vPrev'), nx=document.getElementById('vNext');
+  if(pv)pv.onclick=()=>vwPhoto(VW.photo-1); if(nx)nx.onclick=()=>vwPhoto(VW.photo+1);
   const hb=document.getElementById('vhBack'), hf=document.getElementById('vhFwd');
   if(hb)hb.onclick=()=>{histBack(); vwHist();}; if(hf)hf.onclick=()=>{histFwd(); vwHist();};
   // долгое нажатие — подсказка, что делает кнопка (на телефоне нет всплывающих подписей)
@@ -3961,7 +3976,10 @@ function vwMount(s){
     ['pointerup','pointerleave','pointercancel'].forEach(ev=>x.addEventListener(ev,()=>clearTimeout(t)));});
   vwHist();
   const cta=document.getElementById('vCta');
-  if(cta)cta.onclick=()=>makePhoto('realistic',(s.url&&(!s.stateId||s.stateId===curStateId())&&!liveStale(s))?srcIdOf(s):'',s.batch||'');
+  // главное действие режима (v3): «Фото» — «Сделать реалистичнее», «План» — «Изменить план» (редактор, «Готово» вернёт сюда же)
+  if(cta)cta.onclick=()=>{
+    if(VW.mode==='plan'){const ed=document.getElementById('shEdit'); if(ed&&ed.onclick)ed.onclick(); return;}
+    makePhoto('realistic',(s.url&&(!s.stateId||s.stateId===curStateId())&&!liveStale(s))?srcIdOf(s):'',s.batch||'');};
   // ШТОРКА: тап по ручке или чипу — свёрнута → половина → целиком; свайп по ручке — вверх/вниз; прокрутка списка
   // вверх от начала тянет шторку вниз (владелец 14.10: многие никогда не тянут)
   const grip=document.getElementById('vgrip'), lst=document.getElementById('vlist'), sd=document.getElementById('vside');
@@ -3985,10 +4003,55 @@ function vwMount(s){
   if(zb)zb.onclick=()=>vwZoom(s.url);
   if(mi){let sx=null; mi.addEventListener('pointerdown',e=>{sx=e.clientX;});
     mi.addEventListener('pointerup',e=>{if(sx===null)return; const dx=e.clientX-sx; sx=null;
-      if(Math.abs(dx)>50){const b=shot.querySelector(`[data-vm="${VW.mode==='c2'?'c1':'c2'}"]`); if(b)b.click();}
+      if(Math.abs(dx)>50)vwPhoto(VW.photo+(dx<0?1:-1));
       else vwZoom(s.url);});}
   clearInterval(VW.pinsT); VW.pinsT=setInterval(()=>{if(!shot.classList.contains('on')){clearInterval(VW.pinsT);return;} vwPins();},300);
 }
+// ПЕРЕКЛЮЧЕНИЕ РЕЖИМА МЕНЯЕТ ТОЛЬКО ОБЛАСТЬ СЦЕНЫ (владелец 16.10, п.6): шторка/колонка, список и сумма остаются как были
+function vwModeUi(){
+  const shot=document.getElementById('shot'), m=VW.mode, EN=LANG==='en';
+  shot.querySelectorAll('[data-vm]').forEach(x=>x.classList.toggle('on',x.dataset.vm===m));
+  shot.classList.toggle('vwalk',m==='walk'); shot.classList.toggle('vplan',m==='plan'); shot.classList.toggle('vphoto',m==='photo');
+  shot.classList.toggle('vmany',vwCamN()>1);
+  const cta=document.getElementById('vCta');
+  if(cta){cta.hidden=m==='walk'; cta.textContent=m==='plan'?(EN?'Edit the plan':'Изменить план'):(EN?'Make it realistic':'Сделать реалистичнее');}
+  const dots=document.getElementById('vDots'); if(dots)[...dots.children].forEach((d,k)=>d.classList.toggle('on',k===VW.photo));
+  if(m==='plan')vwPlanDraw();
+}
+function vwMode(m){
+  if(!['photo','walk','plan'].includes(m))return;
+  VW.mode=m; vwModeUi();
+  if(m==='plan'){liveHide(); return;}
+  vwPhotoShow();
+}
+// ракурс «Фото»: готовое фото этого ракурса из той же съёмки, если оно актуально, иначе живая сцена в позе ракурса
+function vwPhotoShow(){
+  const cs=shots[shotAt];
+  if(VW.mode==='photo'&&cs&&cs.batch&&!liveStale(cs)){const sib=shots.findIndex(x=>x.batch===cs.batch&&(x.camera||'C1')===vwCam());
+    if(sib>=0&&sib!==shotAt){viewShot(sib);return;}}
+  // запасной путь (живой сцены нет): ракурс — серверный эскиз ЭТОЙ расстановки, а не чужое фото из старой съёмки
+  if(LIVE.ok===false&&VW.mode==='photo'&&cs&&liveStale(cs)){vwSketch(); return;}
+  liveShow();
+}
+function vwPhoto(k){
+  if(VW.mode!=='photo')return;
+  const n=vwCamN(); VW.photo=((k%n)+n)%n; vwModeUi(); vwPhotoShow();
+}
+// ПЛАН ДЛЯ ПРОСМОТРА В ОБЛАСТИ СЦЕНЫ (v3, Codex п.3): копия плана страницы без обработчиков, по размеру области; правка — в редакторе
+function vwPlanDraw(){
+  const box=document.getElementById('vPlan'); if(!box||!stage)return;
+  try{draw();}catch(e){}
+  const c=stage.cloneNode(true); c.removeAttribute('id'); c.querySelectorAll('[id]').forEach(e=>e.removeAttribute('id'));
+  // рамка — вся комната с полями (`size()`: ширина = комната·S + 2·PAD), а не размер элемента на странице
+  const w=Math.round(D.room.w*S+2*PAD), h=Math.round(D.room.d*S+2*PAD);
+  c.setAttribute('viewBox',`0 0 ${w} ${h}`); c.removeAttribute('width'); c.removeAttribute('height');
+  c.setAttribute('preserveAspectRatio','xMidYMid meet'); c.style.pointerEvents='none';
+  box.innerHTML=''; box.appendChild(c);
+}
+// ← → листают ракурсы в «Фото», пока окно открыто и фокус не в поле ввода
+document.addEventListener('keydown',e=>{const sh=document.getElementById('shot');
+  if(!sh||!sh.classList.contains('on')||!sh.classList.contains('v2')||VW.mode!=='photo'||/INPUT|TEXTAREA|SELECT/.test((e.target||{}).tagName||''))return;
+  if(e.key==='ArrowLeft'){vwPhoto(VW.photo-1); e.preventDefault();} else if(e.key==='ArrowRight'){vwPhoto(VW.photo+1); e.preventDefault();}});
 // ЗАПАСНОЙ ПУТЬ БЕЗ ВИДЕОКАРТЫ (владелец 14.10: «крутилка и серверный эскиз, честно подписанный»): живой сцены нет —
 // после правки сам, без кнопки, просим бесплатный черновой кадр сервера этого состояния; крутилка на сцене до ответа.
 // Один запрос за раз; пришёл ответ, а расстановку уже поменяли — просим ещё раз для последнего состояния.
@@ -4135,8 +4198,19 @@ function liveWire(){
   let p0=null, last=null;
   cv.addEventListener('pointerdown',e=>{p0={x:e.clientX,y:e.clientY}; last={...p0}; cv.setPointerCapture(e.pointerId);});
   cv.addEventListener('pointermove',e=>{if(!p0||VW.mode!=='walk')return; LIVE.scene.look(e.clientX-last.x,e.clientY-last.y); last={x:e.clientX,y:e.clientY};});
-  cv.addEventListener('pointerup',e=>{const tap=p0&&Math.hypot(e.clientX-p0.x,e.clientY-p0.y)<8; p0=null;
-    if(tap&&LIVE.scene){const i=LIVE.scene.pick(e.clientX,e.clientY); if(i>=0)vwHighlight(i);}});
+  // КОНТРАКТ ЖЕСТОВ (demo-02 v3, Codex п.4): «Фото» — горизонтальный свайп > 50 px листает ракурс; «3D» — движение > 8 px =
+  // осмотр, короткий тап в крайних 20 % ширины = поворот на 30°, по предмету = выбор, по полу = шаг туда
+  cv.addEventListener('pointerup',e=>{if(!p0)return; const dx=e.clientX-p0.x, dy=e.clientY-p0.y, tap=Math.hypot(dx,dy)<8; p0=null;
+    if(!LIVE.scene)return;
+    if(VW.mode==='photo'){
+      if(Math.abs(dx)>50&&Math.abs(dx)>Math.abs(dy)){vwPhoto(VW.photo+(dx<0?1:-1)); return;}
+      if(tap){const i=LIVE.scene.pick(e.clientX,e.clientY); if(i>=0)vwHighlight(i);}
+      return;}
+    if(VW.mode==='walk'&&tap){
+      const r=cv.getBoundingClientRect(), fx=(e.clientX-r.left)/Math.max(1,r.width);
+      if(fx<0.2||fx>0.8){LIVE.scene.turn(fx<0.2?-30:30); LIVE.scene.start(); return;}
+      const i=LIVE.scene.walkTap?LIVE.scene.walkTap(e.clientX,e.clientY):LIVE.scene.pick(e.clientX,e.clientY);
+      if(i>=0)vwHighlight(i); LIVE.scene.start();}});
 }
 function liveHide(){
   if(LIVE.canvas&&LIVE.canvas.parentNode)LIVE.canvas.remove();
@@ -4158,6 +4232,7 @@ function liveFit(wrap){
   LIVE.scene.setSize(r.width,h);
 }
 async function liveShow(){
+  if(VW.mode==='plan'){liveHide(); vwPlanDraw(); return;}   // в «План» сцены нет — после правки перерисовывается план
   const s=shots[shotAt];
   const vi=s?allVariants().findIndex(v=>(v.id||'')===(s.vid||'')):-1;
   // живая сцена нужна, когда фото устарело, в режиме «3D» окна варианта и у варианта без фото (demo-02)
@@ -4175,7 +4250,7 @@ async function liveShow(){
   if(LIVE.canvas.parentNode!==wrap){LIVE.canvas.classList.remove('in'); wrap.appendChild(LIVE.canvas); wrap.appendChild(LIVE.badge);
     requestAnimationFrame(()=>requestAnimationFrame(()=>LIVE.canvas.classList.add('in')));}
   liveFit(wrap);
-  const c=(cams||loadCams())[VW.mode==='c2'?1:0]||{};
+  const c=(cams||loadCams())[VW.photo]||(cams||loadCams())[0]||{};
   // в «3D» встаём в точку ракурса 1 лицом к мебели — только при входе в режим: повторный показ после замены предмета
   // не должен отбрасывать человека туда, откуда он ушёл (прогон d8 14.10: старт «у пола, в стене»)
   if(VW.mode==='walk'){const c1=(cams||loadCams())[0]||{};
@@ -4610,7 +4685,8 @@ async function liveShow(){
     // приёмка владельцем 16.10 п.9: подсказки кнопок шапки без ссылки менеджера и бейджи ленты были по-русски в EN
     'Эта ссылка ведет на условия ипотеки по квартире':'This link leads to the mortgage terms for the apartment',
     'Эта ссылка ведет на форму консультации застройщика':"This link leads to the developer's consultation form",
-    'впритык':'a tight fit','габарит не указан':'size not given','Цвета этой модели':'Colours of this model'};
+    'впритык':'a tight fit','габарит не указан':'size not given','Цвета этой модели':'Colours of this model','Фото':'Photo',
+    'Изменить план':'Edit the plan'};
   var ATTR={'Что значит оплата 100%':'What does full payment mean','Скопировать ссылку на этот вариант':'Copy a link to this option','В избранное':'Add to favourites',
     'переставить точки съёмки в следующие углы':'move camera points to the next corners','Просмотр кадра':'Shot view','Закрыть':'Close','Предыдущий вид':'Previous view',
     'Следующий вид':'Next view','скоро':'soon'};
