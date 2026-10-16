@@ -209,3 +209,23 @@ describe("подкраска цветового варианта", () => {
     expect(sofa.asset.kind === "mesh" && sofa.asset.tintRgb).toEqual([0.6, 0.61, 0.59]);
   });
 });
+
+// ADR-0298: британский двойник — цены витрины (рубли) пересчитываются по курсу один раз, в мосту
+describe("курс показа в мосту", () => {
+  it("fxRate пересчитывает цены товаров, лент, ковра и декора с округлением", () => {
+    const r = fromDemoVariant(data, "set16", { ...CTX, currency: "GBP", fxRate: 0.0089 })!;
+    const sofa = r.catalogue.options.find((o) => o.id === "opt:диван#0")!;
+    expect(sofa.price).toBe(Math.round(54990 * 0.0089));
+    expect(r.catalogue.options.find((o) => o.id === "opt:ковёр#0")!.price).toBe(Math.round(9291 * 0.0089));
+    expect(r.catalogue.currency).toBe("GBP");
+  });
+  it("/flat британского двойника: каталог в £, пол — к цене квартиры", async () => {
+    const { resolveFlat } = await import("@/lib/configurator/source");
+    const f = await resolveFlat("demo-uk-215", "set16", async () => data);
+    expect(f.ok).toBe(true);
+    if (!f.ok) return;
+    expect(f.catalogue.currency).toBe("GBP");
+    expect(f.catalogue.options.find((o) => o.id === "opt:диван#0")!.price).toBe(Math.round(54990 * 0.0089));
+    expect(f.catalogue.options.filter((o) => o.id.startsWith("opt:floor:")).every((o) => o.settlement === "property_price")).toBe(true);
+  });
+});

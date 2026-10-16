@@ -25,6 +25,7 @@ describe("куда идёт деньга выбора", () => {
     expect(settlementOf("flooring", "ru")).toBe("developer_surcharge");
     expect(settlementOf("flooring", "uk")).toBe("property_price");
     expect(settlementOf("flooring", "ru", "allowance")).toBe("allowance");
+    expect(settlementOf("kitchen", "uk")).toBe("property_price");   // ADR-0298: кухня UK — персонализация в цене квартиры
   });
 
   it("за м² — округление один раз", () => {

@@ -51,6 +51,12 @@ export function floorChoiceOf(hit: ApartmentHit): DemoFloorChoice | undefined {
   return variants.length ? { groupId: ru.id, defaultVariantId: ru.defaultVariantId, settlement: ru.settlement, variants } : undefined;
 }
 
+/** Курс показа рублёвой витрины в валюте застройщика (британский демо-двойник, ADR-0298). */
+function fxOf(hit: ApartmentHit): { fxRate?: number } {
+  const fx = hit.partner.fx;
+  return fx && fx.from === "RUB" && fx.to === hit.partner.currency ? { fxRate: fx.rate } : {};
+}
+
 /** Выбор опций застройщика → выбор мест квартиры (сейчас — пол). Неизвестное молча не применяется (вариант по умолчанию). */
 export function developerSelections(hit: ApartmentHit, apartment: Apartment, opts: Record<string, string> | undefined): Record<string, string> {
   const fc = floorChoiceOf(hit);
@@ -74,7 +80,7 @@ export async function resolveFlat(apartmentId: string, baseVariant?: string, loa
   if (!hit) return { ok: false, reason: "unknown" };
   const fc = floorChoiceOf(hit);
   const ctx: DemoContext = { apartmentId, partnerId: hit.partner.id, currency: hit.partner.currency, basePrice: hit.apartment.price,
-    ...(fc ? { floorChoice: fc } : {}) };
+    ...(fc ? { floorChoice: fc } : {}), ...fxOf(hit) };
 
   const src = hit.apartment.sources.demoData;
   if (src && (baseVariant || !hit.apartment.sources.flat3d)) {
@@ -96,8 +102,9 @@ export async function resolveFlat(apartmentId: string, baseVariant?: string, loa
   }
   // ОТДЕЛКА НЕ ИЗ СЕРТИФИКАТА (demo-06, ADR-0254): пол квартиры 3D идёт по правилу рынка застройщика (UK — в цену квартиры),
   // если у опции не задано своё; мебель и встроенное — в сертификат
-  const options = base.catalogue.options.map((o) => (o.category === "flooring" && !o.settlement
-    ? { ...o, settlement: settlementOf("flooring", hit.partner.market) } : o));
+  // кухня UK — тоже персонализация в цене квартиры (ADR-0298); RF кухня по-прежнему в сертификате
+  const options = base.catalogue.options.map((o) => ((o.category === "flooring" || o.category === "kitchen") && !o.settlement
+    ? { ...o, settlement: settlementOf(o.category, hit.partner.market) } : o));
   return {
     ok: true,
     apartment: { ...base.apartment, basePrice: hit.apartment.price, developerId: hit.partner.id },
@@ -123,7 +130,7 @@ export async function resolveCollectionFlat(id: string, load: DemoLoader = loadD
   const data = collectionAsVariant(raw, c.payload, currentPrices(sids, priceIndex(raw)));
   const fc = floorChoiceOf(hit);
   const ctx: DemoContext = { apartmentId: hit.apartment.id, partnerId: hit.partner.id, currency: hit.partner.currency,
-    basePrice: hit.apartment.price, assetBase: src, ...(fc ? { floorChoice: fc } : {}) };
+    basePrice: hit.apartment.price, assetBase: src, ...(fc ? { floorChoice: fc } : {}), ...fxOf(hit) };
   const built = fromDemoVariant(data, c.payload.baseVariant, ctx);
   return built ? { ok: true, ...built, hit, developerOptions: c.payload.developerOptions ?? {} } : { ok: false, reason: "unknown" };
 }

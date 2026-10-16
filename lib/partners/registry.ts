@@ -110,7 +110,8 @@ export function apartmentCard(hit: ApartmentHit, lang: Lang = hit.partner.defaul
   const amount = certificateAmount(p, a);
   return {
     id: a.id, partnerId: p.id, complexId: c.id, market: p.market, lang, currency: p.currency,
-    kind: `${en ? a.kindEn : a.kindRu} ${String(a.areaM2).replace(".", en ? "." : ",")} ${en ? "m²" : "м²"}`,
+    // площадь и единица — неразрывным пробелом: «м²» не уезжает на свою строку на телефоне
+    kind: `${en ? a.kindEn : a.kindRu} ${String(a.areaM2).replace(".", en ? "." : ",")}\u00a0${en ? "m²" : "м²"}`,
     number: a.number ?? null,
     areaM2: a.areaM2,
     complex: complexName,
@@ -130,5 +131,15 @@ export function apartmentCard(hit: ApartmentHit, lang: Lang = hit.partner.defaul
       : null,
     sources: a.sources,
     options: optionsCard(p, a, lang),
+    fx: p.fx ?? null,
   };
+}
+
+/**
+ * Квартира для анонимного ДЕМО (ADR-0298): английский язык у демо-застройщика открывает двойника британского профиля
+ * (`enTwin`). Ссылка менеджера, встраивание, явная квартира и коллекция сюда не приходят — там рынок задаёт квартира.
+ */
+export function demoProfile(hit: ApartmentHit, lang: Lang, list: Partner[] = partners()): ApartmentHit {
+  if (lang !== "en" || !hit.partner.demo || !hit.apartment.enTwin) return hit;
+  return findApartment(hit.apartment.enTwin, list) ?? hit;
 }

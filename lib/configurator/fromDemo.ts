@@ -30,6 +30,11 @@ export type DemoContext = {
   floorMaterial?: Record<string, unknown> & { id: string };
   /** Пол на выбор (demo-06, группа «пол» карточки квартиры): варианты — опциями поверхности пола `opt:floor:<вариант>`. */
   floorChoice?: DemoFloorChoice;
+  /**
+   * Курс рубль → валюта застройщика (ADR-0298): цены витрины — рубли фидов; у британского двойника каталог в £ — пересчёт здесь,
+   * ОДИН раз на цену, с округлением до целого. Нет — цены как есть. Пол из карточки (`floorChoice`) уже в валюте застройщика.
+   */
+  fxRate?: number;
 };
 
 /** Варианты пола застройщика для `/flat`: цена — доплата, куда идёт — `settlement` группы (RF — застройщику). */
@@ -180,6 +185,8 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
   // УПАКОВКА: «Стул АСТИ 2 шт.» на двух местах — ОДНА покупка (как в списке витрины, `index.html` `buys = ceil(мест/упаковку)`).
   // Считает её расчёт сцены по фактически выбранным местам (`resolve.packPrices`: опции с одним `packKey`), а не статическая
   // раскладка цены здесь — иначе замена, убранный стул или смешанный подбор давали бы неверную сумму (разбор Codex 15.10)
+  // цена витрины (рубли) → валюта каталога: одно место для товаров, лент, ковров и декора (коллекции идут сюда же)
+  const rub = (v?: number): number => Math.max(0, Math.round((v ?? 0) * (ctx.fxRate ?? 1)));
   const packOf = (pack?: number): object => (Math.round(pack ?? 1) > 1 ? { pack: Math.round(pack!) } : {});
   if (!items.length) return null;
 
@@ -204,8 +211,8 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
       if (!feedOptions.has(id)) {
         feedOptions.set(id, { id, category: "furniture", titleRu: p.name ?? base, titleEn: p.name ?? base,
           descRu: `${Math.round(p.w!)}×${Math.round(p.d!)}×${Math.round(p.h!)} см${(p.pack ?? 1) > 1 ? ` · ${p.pack} шт. в упаковке` : ""}`,
-          tier: "standard", price: Math.max(0, Math.round(p.price ?? 0)), ...packOf(p.pack), packKey: id,
-          listPrice: Math.max(0, Math.round(p.price ?? 0)), availability: "available", roomKinds: ["living"],
+          tier: "standard", price: rub(p.price), ...packOf(p.pack), packKey: id,
+          listPrice: rub(p.price), availability: "available", roomKinds: ["living"],
           asset: { kind: "mesh", meshId: p.msid, yawDeg: p.yaw ?? 0, wCm: p.w, dCm: p.d, hCm: p.h, ...tintOf(p.tint) },
           ...(assetUrl(p.img, ctx.assetBase) ? { previewUrl: assetUrl(p.img, ctx.assetBase) } : {}),
           ...(p.url ? { shopUrl: p.url } : {}), ...(p.shop ? { shopName: p.shop } : {}) });
@@ -253,7 +260,7 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
     extraMaterials.push({ id: mat, titleRu: "Ковёр", titleEn: "Rug", colorHex: "#b8b0a4", roughness: 0.95, tileCm: [it.w, it.d],
       surfaces: ["rug"], ...(img ? { baseColorUrl: img } : {}) });
     extraOptions.push({ id: `opt:${id}`, category: "furniture", titleRu: it.sku?.name ?? "Ковёр", titleEn: it.sku?.name ?? "Rug",
-      tier: "standard", price: Math.max(0, Math.round(it.sku?.price ?? 0)), availability: "available", roomKinds: ["living"],
+      tier: "standard", price: rub(it.sku?.price), availability: "available", roomKinds: ["living"],
       asset: { kind: "kit", kit: "rug", materials: { body: mat } },
       ...(it.sku?.url ? { shopUrl: it.sku.url } : {}), ...(it.sku?.shop ? { shopName: it.sku.shop } : {}) });
     slots.push({ id, roomId: "living", category: "furniture" as const, kind: "furniture" as const, titleRu: it.role ?? "ковёр",
@@ -266,7 +273,7 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
     const sk = x.sku!;
     extraOptions.push({ id: `opt:${id}`, category: "furniture", titleRu: sk.name ?? x.role ?? "Декор", titleEn: sk.name ?? "Decor",
       descRu: `${Math.round(sk.w!)}×${Math.round(sk.d!)}×${Math.round(sk.h!)} см`, tier: "standard",
-      price: Math.max(0, Math.round(sk.price ?? 0)), availability: "available", roomKinds: ["living"],
+      price: rub(sk.price), availability: "available", roomKinds: ["living"],
       asset: { kind: "mesh", meshId: sk.msid, yawDeg: sk.yaw ?? 0, wCm: sk.w, dCm: sk.d, hCm: sk.h, ...tintOf((sk as { tint?: unknown }).tint) },
       ...(sk.url ? { shopUrl: sk.url } : {}), ...(sk.shop ? { shopName: sk.shop } : {}) });
     // место — заглушка: настоящее считает `resolve.placeTabletop` от текущей опоры при каждом расчёте сцены
@@ -351,7 +358,7 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
       // Мебель витрины в цену квартиры не входит: это покупка за счёт сертификата/доплаты, поэтому
       // ступень «стандарт» и настоящая цена товара — иначе «выбрано на» в 3D было бы всегда 0.
       tier: "standard" as const,
-      price: Math.max(0, Math.round(it.sku?.price ?? 0)),
+      price: rub(it.sku?.price),
       ...packOf(it.sku?.pack),
       packKey: keyOf(it),
       ...(it.sku?.img ? { previewUrl: assetUrl(it.sku.img, ctx.assetBase) } : {}),

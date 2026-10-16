@@ -485,6 +485,7 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
    и курсор, и события мыши — иначе на телефоне вкладка всё равно «нажимается» и мигает. */
 .tab.soon{color:var(--faint);cursor:default;pointer-events:none}
 .soon-panel h2{margin:0 0 6px}.soon-panel p{margin:0;color:var(--muted)}
+.fxnote{font-size:12.5px;color:var(--muted);margin:10px 0 4px}
 /* язык — неприметно в самом низу страницы (владелец 16.10) */
 #langSw{text-align:center;padding:28px 16px 36px;font-size:13px;color:var(--faint)}
 #langSw a{color:var(--faint)}#langSw b{font-weight:600;color:var(--muted)}
@@ -980,7 +981,7 @@ function drawVariants(){
   if(!t.title){b.hidden=true;return;}
   const title=t.title, text=t.text||'';
   b.hidden=false;
-  b.innerHTML=`<div><b>${title}</b><p>${text}</p></div>`+
+  b.innerHTML=`<div><b>${title}</b><p>${text}</p>${fxNote()}</div>`+
     `<button class="btn primary round" id="budgetGo">Посмотреть варианты интерьера</button>`;
   const go=b.querySelector('#budgetGo');
   if(go)go.onclick=()=>document.getElementById('coll').scrollIntoView({behavior:'smooth'});
@@ -1178,7 +1179,7 @@ function applyKit(kit){            // комплект накладываетс�
     if(!p)return;it.w=p.w;it.d=p.d;it.h=p.h;
     it.sku={name:p.name,price:p.price,img:p.img,url:p.url,shop:p.shop,basis:p.basis};n++;});
   document.getElementById('sel').innerHTML=`Применён <b>${kit.title}</b>: товаров ${n}`+
-    (kit.sum?` · сумма ${kit.sum.toLocaleString('ru-RU')} ₽`:'')+
+    (kit.sum?` · сумма ${money(kit.sum)}`:'')+
     ` · любой предмет можно заменить своим — выберите его и нажмите «Подобрать товар»`;
   draw();}
 let baseRev='';                       // ревизия «как отдал движок» — по ней видно, правил ли человек
@@ -1708,7 +1709,7 @@ function decorRows(){
       (p.shop?' · '+p.shop:'')+(p.basis&&p.basis!=='page'?' · <i title="наличие по данным магазина, карточка не проверена">наличие не проверено</i>':'')+`</span>`+
       `<span class="acts"><button class="lnk swap">Заменить</button>`+
       (p.url?` · <a href="${p.url}" target="_blank" rel="noopener">В магазин</a>`:'')+`</span>`+
-      `</div><div class="p">${(p.price||0).toLocaleString('ru-RU')} ₽</div></div>`;}).join('');
+      `</div><div class="p">${money(p.price)}</div></div>`;}).join('');
   return {html:html, n:d.length, sum:sum};
 }
 // КУДА СТАВИТСЯ ДЕКОР. Правило одно со сценой (`decorSupport`): журнальный столик, если он есть,
@@ -1774,14 +1775,14 @@ function basket(){                    // СПИСОК ТОВАРОВ КОМНА�
       `<div class="t"><b>${p.name||i.role}</b><span>${roles} · ${dims}${p.shop?' · '+p.shop:''}${p.basis&&p.basis!=='page'?' · <i title="наличие по данным магазина, карточка не проверена">наличие не проверено</i>':''}${cnt}${buy}</span>`+
       `<span class="acts"><button class="lnk swap">Заменить</button>`+
       (p.url?` · <a href="${p.url}" target="_blank" rel="noopener">В магазин</a>`:'')+`</span></div>`+
-      `<div class="p">${((p.price||0)*n).toLocaleString('ru-RU')} ₽</div></div>`;}).join('')
+      `<div class="p">${money((p.price||0)*n)}</div></div>`;}).join('')
     // ДЕКОР — ТАКОЙ ЖЕ КУПЛЕННЫЙ ТОВАР (владелец 02.09: «вазы должны в списке товаров появиться,
     // не вижу»). Он лежит отдельно от расстановки, потому что места на плане у него нет — модель
     // ставит его на стол или тумбу. Но платит за него человек так же, значит и в списке, и в
     // итоге он обязан быть.
     + decorRows().html
     +`<div class="total"><span>Итого ${groups.length+decorRows().n} товаров</span>`+
-     `<span>${(sum+decorRows().sum).toLocaleString('ru-RU')} ₽</span></div>`;
+     `<span>${money(sum+decorRows().sum)}</span></div>`;
   priceCard(sum+decorRows().sum, groups.length+decorRows().n);   // карточка цены — с декором
   // клик по строке или «Заменить» открывает тот же каталог замены, что и значок на предмете
   box.querySelectorAll('.row').forEach(r=>{
@@ -1895,15 +1896,21 @@ const flatTitle=()=>FLAT?((FLAT.number?(LANG==='en'?'Apartment No. ':'Кварт
   (LANG==='en'?String(FLAT.areaM2)+' m²':String(FLAT.areaM2).replace('.',',')+' м²')):(LANG==='en'?'Apartment plan':'План квартиры');
 function flatId(){const m=location.search.match(/[?&]flat=([a-z0-9-]{2,40})(?:&|$)/);
   return window.__sendFlat||(m&&m[1])||(D&&D.apartment_id)||'';}
+// АНОНИМНОЕ ДЕМО (ADR-0298): не по ссылке менеджера, не встроено, без явной квартиры и без коллекции по ссылке — тогда на
+// английском сервер отдаёт британского двойника витрины (£, allowance); иначе рынок задаёт квартира (ADR-0254)
+function demoAnon(){return !window.__sendFlat&&!window.__EMBED&&!/[?&](?:s|flat)=/.test(location.search)&&!/^#c=/.test(location.hash);}
+function DEMO_UK_PENDING(){return LANG==='en'&&demoAnon()&&!FLAT;}
 function loadFlatCard(){const id=flatId(); if(!id)return;
-  fetch('/api/apartments/'+encodeURIComponent(id)+'?lang='+LANG).then(r=>r.ok?r.json():null).then(j=>{
+  fetch('/api/apartments/'+encodeURIComponent(id)+'?lang='+LANG+(demoAnon()?'&demo=1':'')).then(r=>r.ok?r.json():null).then(j=>{
     if(!j||!j.ok)return; FLAT=j.card;
     const fk=document.getElementById('flatKind'); if(fk)fk.textContent=FLAT.kind;
     const fm=document.getElementById('flatMeta'); if(fm)fm.textContent=FLAT.meta;
-    const fs=document.getElementById('flatSum'); if(fs)fs.textContent=money(FLAT.price);
+    const fs=document.getElementById('flatSum'); if(fs)fs.textContent=fmtCard(FLAT.price);
     const ft=document.getElementById('flatTitle'); if(ft)ft.textContent=flatTitle();
     document.title=FLAT.kind+(LANG==='en'?' — living room (demo)':' — гостиная (демо)');
     drawVariants(); try{sync3dLink();}catch(e){}
+    // суммы витрины, уже нарисованные до карточки, — в её валюте (британский двойник)
+    if(fxRate()){try{basket(); showSwap(); priceCard(LAST_SUM,LAST_CNT);}catch(e){}}
     document.dispatchEvent(new CustomEvent('flatcard',{detail:FLAT}));
   }).catch(()=>{});}
 window.__loadFlatCard=loadFlatCard;
@@ -1914,7 +1921,7 @@ function priceCard(sum, cnt){
   // относится ко всей квартире и не меняется, вторая пересчитывается на каждую перестановку,
   // поэтому и живут они в разных местах. Шапку рисуем один раз.
   const fs=document.getElementById('flatSum');
-  if(fs&&FLAT)fs.textContent=money(FLAT.price);
+  if(fs&&FLAT)fs.textContent=fmtCard(FLAT.price);
   const box=document.getElementById('priceCard'); if(!box)return;
   // СНАЧАЛА ЧИСЛО И ДЕЙСТВИЕ, ПОТОМ ОГОВОРКА (аудит 01.09, Г3). Дисклеймер стоял НАД суммой:
   // человек упирался в юридический текст раньше, чем видел цену.
@@ -2030,7 +2037,7 @@ function peek(e,it){const p=document.getElementById('peek');const s=skuOf(it)||{
   clearTimeout(peekTimer);
   p.innerHTML=`<img src="${s.img}" alt="">`+
     `<div class="pn">${s.name||it.role}</div>`+
-    `<div class="pp">${(s.price||0).toLocaleString('ru-RU')} ₽</div>`+
+    `<div class="pp">${money(s.price)}</div>`+
     `<div class="pd">${dimsText(it)}${s.shop?' · '+s.shop:''}</div>`+
     `<div class="pgo">Перейти к товару →</div>`;
   p.style.display='block';
@@ -2870,7 +2877,20 @@ async function makePhoto(quality, srcId, replaceBatch){
 }
 function escHtml(t){return String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 // ——— просмотр кадра: якоря на мебели, список товаров с итогом, скачать, отправить себе
-function money(v){return (v||0).toLocaleString('ru-RU')+' ₽';}
+// ДЕНЬГИ В ВАЛЮТЕ КАРТОЧКИ (ADR-0298): цены витрины — рубли фидов; у британского демо-двойника карточка в £ с курсом `fx` —
+// пересчёт при показе, ОДНИМ местом (данные витрины не меняем: коллекции и сервер считают в рублях). `money` — для рублёвых
+// сумм витрины, `fmtCard` — для сумм, уже посчитанных в валюте карточки (сертификат, опции, итоги плашки)
+function fxRate(){return FLAT&&FLAT.fx&&FLAT.fx.from==='RUB'&&FLAT.currency===FLAT.fx.to?(+FLAT.fx.rate||0):0;}
+function toCard(rub){const r=fxRate(); return r?Math.round((+rub||0)*r):Math.round(+rub||0);}
+function fmtCard(v){const n=Math.round(+v||0);
+  if(FLAT&&FLAT.currency==='GBP')return '£'+n.toLocaleString('en-GB');
+  if(DEMO_UK_PENDING())return '…';                 // английское демо ждёт британскую карточку — без вспышки рублей
+  return n.toLocaleString('ru-RU')+' ₽';}
+function money(v){return fmtCard(toCard(v));}
+// пометка пересчёта: цены магазинов — в рублях, показаны по курсу из карточки застройщика на дату (честно, ADR-0298)
+function fxNote(){const r=fxRate(); if(!r)return '';
+  const d=String(FLAT.fx.asOf||'').split('-').reverse().join('.'), EN=LANG==='en';
+  return `<p class="fxnote">${EN?'≈ Prices converted from roubles at the rate of '+d:'≈ Цены пересчитаны из рублей по курсу на '+d}</p>`;}
 // КАРТОЧКА ТОВАРА У ЯКОРЯ (владелец 26.08: «навожу на цифру — не вижу карточки»): фото,
 // название, цена, магазин; клик ведёт в магазин. Раньше вставка не применилась — якорь текста
 // в файле не совпал, и функции просто не было.
@@ -2878,7 +2898,7 @@ function pinCard(a,el){
   const p=document.getElementById('peek'); if(!p||!a)return;
   p.innerHTML=(a.img?`<img src="${a.img}" alt="">`:'<div class="noimg">фото недоступно</div>')+
     `<div class="pn">${a.name||a.role}</div>`+
-    `<div class="pp">${(a.price||0).toLocaleString('ru-RU')} ₽</div>`+
+    `<div class="pp">${money(a.price)}</div>`+
     `<div class="pd">${a.role}${a.shop?' · '+a.shop:''}</div>`+
     (a.url?'<div class="pgo">Перейти к товару →</div>':'');
   const r=el.getBoundingClientRect();
@@ -3435,9 +3455,11 @@ function filters(){
   add('подходящие по размеру',F.fitOnly,()=>F.fitOnly=!F.fitOnly);
   const st=(allVariants()[cur]||{}).style||'';
   if(st)add(F.anyStyle?'все стили':'только '+st,!F.anyStyle,()=>F.anyStyle=!F.anyStyle);
-  add('до 30 тыс',F.price==='lo',()=>F.price=F.price==='lo'?null:'lo');
-  add('30–60 тыс',F.price==='mid',()=>F.price=F.price==='mid'?null:'mid');
-  add('60+ тыс',F.price==='hi',()=>F.price=F.price==='hi'?null:'hi');
+  // пороги — рубли витрины; подписи — в валюте карточки (британский двойник: £)
+  const fx=fxRate(), EN=LANG==='en';
+  add(fx?(EN?'under ':'до ')+money(30000):'до 30 тыс',F.price==='lo',()=>F.price=F.price==='lo'?null:'lo');
+  add(fx?money(30000)+'–'+money(60000):'30–60 тыс',F.price==='mid',()=>F.price=F.price==='mid'?null:'mid');
+  add(fx?money(60000)+'+':'60+ тыс',F.price==='hi',()=>F.price=F.price==='hi'?null:'hi');
   add('дешевле сначала',F.sort==='price',()=>F.sort=F.sort==='price'?'fit':'price');
 }
 function grid(){
@@ -3468,7 +3490,7 @@ function grid(){
   if(colours.length>1){const row=document.createElement('div'); row.className='colrow';
     row.innerHTML='<b>Цвета этой модели</b>'; g.appendChild(row);
     colours.forEach(p=>{const on=sel.sku&&sel.sku.name===p.name, b=document.createElement('button'); b.className='colchip'+(on?' on':'');
-      b.innerHTML=`<img src="${p.img}" alt="" loading="lazy"><span>${tail(p.name,sel.sku.name)||p.name}</span><small>${(p.price||0).toLocaleString('ru-RU')} ₽</small>`;
+      b.innerHTML=`<img src="${p.img}" alt="" loading="lazy"><span>${tail(p.name,sel.sku.name)||p.name}</span><small>${money(p.price)}</small>`;
       b.onclick=()=>{if(on)return; tryOn(p); grid(); closePicker(); refreshShotList();}; row.appendChild(b);});}
   list=[...byM.values()];
   list.forEach(p=>{const c=document.createElement('div');c.className='card';
@@ -3478,7 +3500,7 @@ function grid(){
     c.innerHTML=`<img src="${p.img}" loading="lazy" alt="">`+
       `<span class="badge ${bg.cls}">${bg.txt}</span>`+
       `<div class="nm">${p.name||''}</div>`+
-      `<div class="pr">${(p.price||0).toLocaleString('ru-RU')} ₽</div>`+
+      `<div class="pr">${money(p.price)}</div>`+
       `<div class="dim">${dims}${p.shop?' · '+p.shop:''}</div>`+
       (more.get(modelOf(p))?`<div class="dim">${'ещё '+more.get(modelOf(p))+' '+(more.get(modelOf(p))===1?'цвет':more.get(modelOf(p))<5?'цвета':'цветов')}</div>`:'')+
       `<div class="acts"><button class="mini">${cur?'Выбрано':'Заменить'}</button>`+
@@ -3523,7 +3545,7 @@ function tryOn(p){const s=sel||items.find(i=>i.role==='диван');
          // подкраска цветового варианта на модели семейства (приёмка 16.10 п.11б, `flat215_demo.annotate_tint`)
          ...(p.tint?{tint:p.tint}:{})};
   sel=s;
-  document.getElementById('sel').innerHTML=`Примерено: <b>${p.name}</b> · ${Math.round(p.w)}×${Math.round(p.d)} см · ${(p.price||0).toLocaleString('ru-RU')} ₽ · <a href="${p.url}" target="_blank" rel="noopener">открыть в магазине</a>`;
+  document.getElementById('sel').innerHTML=`Примерено: <b>${p.name}</b> · ${Math.round(p.w)}×${Math.round(p.d)} см · ${money(p.price)} · <a href="${p.url}" target="_blank" rel="noopener">открыть в магазине</a>`;
   draw();}
 
 // ——— советчик по стандартам (лёгкое подмножество боевого валидатора)
@@ -3914,18 +3936,18 @@ function vwSum(){
   // ДЕНЬГИ — ОБЩИМ ЯДРОМ (`settle`, demo-06): мебель — в сертификат, пол RF — доплата застройщику отдельной строкой, UK — в
   // цену квартиры. Пока бандл движка не пришёл — прежний счёт мебели, без строк опций (формулу не копируем)
   const S=window.RemlabScene&&window.RemlabScene.settle, dl=devLines();
-  const t=S?S([{amount:sum,settlement:'allowance'}].concat(dl),cert):null;
-  const over=t?t.allowanceOverage:Math.max(0,sum-cert);
-  const rest=cert?(over?(EN?'furniture top-up ':'доплата за мебель ')+money(over)
-    :(EN?'certificate balance ':'остаток по сертификату ')+money(cert-(t?t.allowanceCovered:sum))):'';
+  // всё ниже — в валюте карточки: мебель (рубли витрины) пересчитана по курсу, сертификат и опции пришли в ней же
+  const sumC=toCard(sum), money=fmtCard;
+  const t=S?S([{amount:sumC,settlement:'allowance'}].concat(dl),cert):null;
+  const over=t?t.allowanceOverage:Math.max(0,sumC-cert);
   const grp=k=>dl.filter(l=>l.settlement===k).map(l=>String(l.group).toLowerCase()).join(', ');
   const extra=t?[t.developerSurcharge?`<div class="vpl-dev">+<span data-k="dev" data-to="${t.developerSurcharge}">${money(t.developerSurcharge)}</span> — ${EN?'paid to the developer for the ':'доплата застройщику за '}${grp('developer_surcharge')}${cert?(EN?', not from the allowance':', не из сертификата'):''}</div>`:'',
     t.propertyPriceDelta?`<div class="vpl-dev">+<span data-k="prop" data-to="${t.propertyPriceDelta}">${money(t.propertyPriceDelta)}</span> — ${EN?'added to the property price: ':'к цене квартиры: '}${grp('property_price')}</div>`:'',
     t.onRequest.length?`<div class="vpl-dev">${EN?'price on request: ':'цена уточняется у менеджера: '}${t.onRequest.map(escHtml).join(', ')}</div>`:''].join(''):'';
   // ПЛАШКА СЕРТИФИКАТА (demo-02 v3, владелец 16.10: «явно и ярко: сертификат на N, выбрано столько-то, остаток такой-то»):
   // отдельный элемент над шторкой (телефон) / шапкой колонки (компьютер), вне прокрутки — сумма видна при замене из глубины списка
-  if(!cert)return `<div class="vpl-h"><span>${n} ${word}</span><b data-k="sum" data-to="${sum}">${money(sum)}</b></div>${extra}`;
-  const chosen=t?t.allowanceEligible:sum, left=Math.max(0,cert-chosen), pct=Math.min(100,Math.round(chosen/cert*100));
+  if(!cert)return `<div class="vpl-h"><span>${n} ${word}</span><b data-k="sum" data-to="${sumC}">${money(sumC)}</b></div>${extra}`;
+  const chosen=t?t.allowanceEligible:sumC, left=Math.max(0,cert-chosen), pct=Math.min(100,Math.round(chosen/cert*100));
   const lvl=over?'over':pct>=85?'warn':'ok';
   return `<div class="vpl-h"><span class="vpl-ic" aria-hidden="true">🏷</span><span>${EN?'Furniture allowance':'Сертификат на мебель'}</span>`+
     `<b data-k="cert" data-to="${cert}">${money(cert)}</b></div>`+
@@ -3941,10 +3963,10 @@ function vwSumUpdate(){
   const el=document.getElementById('vsum'); if(!el)return;
   const prev=el._vals||{}; el.innerHTML=vwSum(); const now={}; let changed=false;
   // число товаров и сумма — атрибутами плашки: живые проверки сверяют их с карточкой варианта (карта сценариев 2.3)
-  const v0=allVariants()[cur]||{}; el.dataset.count=String(variantCount(v0)); el.dataset.sum=String(variantPrice(v0));
+  const v0=allVariants()[cur]||{}; el.dataset.count=String(variantCount(v0)); el.dataset.sum=String(toCard(variantPrice(v0)));
   el.querySelectorAll('[data-to]').forEach(sp=>{const k=sp.dataset.k, to=+sp.dataset.to; now[k]=to; const from=prev[k];
     if(from==null||from===to)return; changed=true; const t0=performance.now();
-    const step=tt=>{const f=Math.min(1,(tt-t0)/450), v=Math.round(from+(to-from)*(1-Math.pow(1-f,3))); sp.textContent=money(v); if(f<1)requestAnimationFrame(step);};
+    const step=tt=>{const f=Math.min(1,(tt-t0)/450), v=Math.round(from+(to-from)*(1-Math.pow(1-f,3))); sp.textContent=fmtCard(v); if(f<1)requestAnimationFrame(step);};
     requestAnimationFrame(step);});
   el._vals=now; if(changed){el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');}
   const c=document.getElementById('vchip'); if(c)c.textContent=vwChipText();
@@ -3980,7 +4002,7 @@ function vwHtml(s, navs, list){
     // застройщика в той же области; «← К товарам» — назад. Групп нет (или все выключены) — нет и входа
     `<div class="vlist" id="vlist"><div class="vopts-go" id="vOptsGo">${devEntryHtml()}</div>`+
     `<div class="vopts" id="vOpts"><button class="vopts-back" id="vOptsBack">${EN?'← Back to items':'← К товарам'}</button>`+
-    `<div class="vfloor" id="vfloor">${devFloorHtml()}</div></div><div class="vitems">${list}</div></div></div></div></div>`;
+    `<div class="vfloor" id="vfloor">${devFloorHtml()}</div></div><div class="vitems">${list}${fxNote()}</div></div></div></div></div>`;
 }
 // ↶ ↷ БЕЗ СЧЁТЧИКА (владелец 16.10, п.3: «Layout 4 of 4 — не понимаю, что это и зачем»): пока правок нет — кнопок нет; после
 // правки — активный ↶; «Расстановка N из M» — только в режиме отладки `?debug=1`
@@ -4471,9 +4493,9 @@ async function liveShow(){
     var what=purpose==='mortgage'?(EN?'I would like to know the mortgage or instalment options':'хочу узнать условия ипотеки или рассрочки')
       :(EN?'I would like some advice':'хочу консультацию');
     var text=EN?('Hello, '+M.name+'! I am looking at the apartment from your link'+(st.variant?', option “'+st.variant+'”':'')+
-        (st.sum?', furniture for '+st.sum.toLocaleString('en-GB')+' ₽':'')+'. '+what+'. '+location.href)
+        (st.sum?', furniture for '+money(st.sum):'')+'. '+what+'. '+location.href)
       :('Здравствуйте, '+M.name+'! Смотрю квартиру по вашей ссылке'+(st.variant?', вариант «'+st.variant+'»':'')+
-        (st.sum?', мебель на '+st.sum.toLocaleString('ru-RU')+' ₽':'')+'. '+what[0].toUpperCase()+what.slice(1)+'. '+location.href);
+        (st.sum?', мебель на '+money(st.sum):'')+'. '+what[0].toUpperCase()+what.slice(1)+'. '+location.href);
     var links=[];
     if(M.whatsapp)links.push(['whatsapp','WhatsApp','https://wa.me/'+String(M.whatsapp).replace(/\D/g,'')+'?text='+encodeURIComponent(text)]);
     if(M.telegram)links.push(['telegram','Telegram','https://t.me/'+encodeURIComponent(String(M.telegram).replace(/^@/,''))+'?text='+encodeURIComponent(text)]);
@@ -4702,7 +4724,7 @@ async function liveShow(){
     return {id:'c:'+c.id, cid:c.id, mine:true, own:!!own, baseVariant:c.baseVariant,
       style:label+(c.style?' · '+c.style:''), title:label,
       items:c.items.map(function(i){return Object.assign({},i,{sku:fix(i.sku)});}),
-      decor:(c.decor||[]).map(function(d){return {role:d.role, sku:fix(d.sku)};}), shot:c.shot||'', dev:c.developerOptions||{}};
+      decor:(c.decor||[]).map(function(d){return {role:d.role, sku:fix(d.sku)};}), shot:c.shot||'', dev:c.developerOptions||{}, apt:c.apartmentId};
   }
   // ЧЕРНОВОЙ КАДР КОЛЛЕКЦИИ В ФОНЕ (demo-03, 2.13): кадра этой расстановки ещё нет — снимаем бесплатный черновик
   // (наша 3D-сцена, без модели) и один раз прикрепляем к коллекции. `no_registry` — кадр не уходит в общую ленту
@@ -4739,7 +4761,10 @@ async function liveShow(){
     var ids=list().map(function(x){return x.id;}); if(want&&ids.indexOf(want)<0)ids.unshift(want);
     Promise.all(ids.slice(0,10).map(fetchOne)).then(function(vs){
       vs.forEach(function(v){if(v){MINE.push(v); if(v.shot)attachCollShot(v.cid,location.origin+v.shot);}}); if(MINE.length)drawColl(true);
-      if(want){var v=MINE.find(function(x){return x.cid===want;}); if(v){remember(want,v.style,false);openId(want);}
+      if(want){var v=MINE.find(function(x){return x.cid===want;});
+        // коллекция — своей квартиры (британский двойник английского демо, ADR-0298): карточка, валюта и рынок — её
+        if(v&&v.apt&&window.__loadFlatCard&&(typeof FLAT==='undefined'||!FLAT||FLAT.id!==v.apt)){window.__sendFlat=v.apt; window.__loadFlatCard();}
+        if(v){remember(want,v.style,false);openId(want);}
         else{var b=document.createElement('div');b.className='hint';b.style.margin='10px 0';
           b.textContent=EN()?'This collection link is no longer available.':'Коллекция по этой ссылке больше недоступна.';
           var c=document.getElementById('coll'); if(c)c.parentNode.insertBefore(b,c);}}

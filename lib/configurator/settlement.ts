@@ -32,6 +32,8 @@ export interface SettlementTotals {
 export function settlementOf(kind: string, market: string, explicit?: Settlement): Settlement {
   if (explicit) return explicit;
   if (kind === "flooring" || kind === "bathroom") return market === "uk" ? "property_price" : "developer_surcharge";
+  // UK: кухня застройщика — персонализация в цене квартиры, не furniture allowance (владелец 16.10, ADR-0298); RF — в сертификат
+  if (kind === "kitchen" && market === "uk") return "property_price";
   return "allowance";
 }
 

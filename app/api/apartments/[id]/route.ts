@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { lang as langSchema } from "@/contracts/partner";
 import { guard } from "@/lib/ratelimit/http";
-import { apartmentCard, findApartment } from "@/lib/partners/registry";
+import { apartmentCard, demoProfile, findApartment } from "@/lib/partners/registry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +15,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const { id } = await ctx.params;
   const hit = findApartment(id);
   if (!hit) return NextResponse.json({ ok: false }, { status: 404 });
-  const l = langSchema.safeParse(new URL(req.url).searchParams.get("lang"));
-  return NextResponse.json({ ok: true, card: apartmentCard(hit, l.success ? l.data : undefined) }, { headers: { "Cache-Control": "public, max-age=300" } });
+  const q = new URL(req.url).searchParams;
+  const l = langSchema.safeParse(q.get("lang"));
+  // анонимное демо (`demo=1`, страница не по ссылке менеджера и не встроенная): EN — британский двойник (ADR-0298)
+  const shown = l.success && q.get("demo") === "1" ? demoProfile(hit, l.data) : hit;
+  return NextResponse.json({ ok: true, card: apartmentCard(shown, l.success ? l.data : undefined) }, { headers: { "Cache-Control": "public, max-age=300" } });
 }

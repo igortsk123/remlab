@@ -38,7 +38,7 @@ describe("реестр застройщиков", () => {
     raw.apartments[0].id = "flat-copy";
     const list = partners([raw]);
     const card = apartmentCard(findApartment("flat-copy", list)!);
-    expect(card.kind).toBe("Трёхкомнатная 73,7 м²");
+    expect(card.kind).toBe("Трёхкомнатная 73,7\u00a0м²");
     expect(card.certificate?.amount).toBe(470_000);
   });
 
@@ -141,5 +141,25 @@ describe("опции отделки: пол", () => {
     fl.enabled = true;
     delete fl.variants[1].materialId;
     expect(() => partners([raw])).toThrow();
+  });
+});
+
+// ADR-0298: английское анонимное демо — британский двойник витрины; по ссылке менеджера/партнёра — та же квартира
+describe("британский профиль английского демо", () => {
+  it("flat215 + en → demo-uk-215 (£, поощрение 4 %, курс в карточке); ru — без подмены", async () => {
+    const { demoProfile } = await import("@/lib/partners/registry");
+    const hit = findApartment("flat215")!;
+    expect(demoProfile(hit, "ru").apartment.id).toBe("flat215");
+    const twin = demoProfile(hit, "en");
+    expect(twin.apartment.id).toBe("demo-uk-215");
+    const card = apartmentCard(twin, "en");
+    expect(card.currency).toBe("GBP");
+    expect(card.certificate?.amount).toBe(Math.round(425000 * 0.04));
+    expect(card.fx).toMatchObject({ from: "RUB", to: "GBP" });
+    const fl = card.options.find((o) => o.kind === "flooring")!;
+    expect(fl.settlement).toBe("property_price");
+    expect(fl.variants.every((v) => !v.price.text.includes("₽"))).toBe(true);
+    expect(card.options.find((o) => o.kind === "kitchen")!.settlement).toBe("property_price");
+    expect(card.sources.demoData).toBe(hit.apartment.sources.demoData);   // та же витрина
   });
 });

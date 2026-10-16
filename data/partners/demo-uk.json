@@ -1,5 +1,5 @@
 {
-  "_note": "Демонстрационный застройщик для Англии: квартира 3D-конфигуратора demo-uk-1 (data/flat3d/apartment.json). Цена — демонстрационная. «Двухкомнатная» = «1-bedroom»: в РФ считают все комнаты, в Англии — спальни; это не ошибка.",
+  "_note": "Демонстрационный застройщик для Англии: квартира 3D-конфигуратора demo-uk-1 (data/flat3d/apartment.json). Цена — демонстрационная. «Двухкомнатная» = «1-bedroom»: в РФ считают все комнаты, в Англии — спальни; это не ошибка. Квартира demo-uk-215 — британский двойник демо-витрины flat215 для английского демо (ADR-0298): та же витрина, цены мебели — рубли фидов по курсу fx «≈ на дату», отделка — к цене квартиры.",
   "id": "demo-uk",
   "nameRu": "Демо-застройщик (Англия)",
   "nameEn": "Demo developer (UK)",
@@ -93,6 +93,161 @@
           ]
         }
       ]
+    },
+    {
+      "id": "demo-uk-215",
+      "complexId": "riverside",
+      "kindRu": "Трёхкомнатная",
+      "kindEn": "2-bedroom apartment",
+      "areaM2": 73.7,
+      "number": "215",
+      "floor": 6,
+      "floorsTotal": 17,
+      "building": "C",
+      "windowView": "yard",
+      "price": 425000,
+      "demoPrice": true,
+      "priceAsOf": "2026-10-16",
+      "sources": {
+        "demoData": "/demo/demo-data.json"
+      },
+      "options": [
+        {
+          "id": "kitchen",
+          "kind": "kitchen",
+          "roomKind": "kitchen",
+          "titleRu": "Кухня от партнёров застройщика",
+          "titleEn": "Kitchen from the developer's partners",
+          "defaultVariantId": "kitchen-base",
+          "variants": [
+            {
+              "id": "kitchen-base",
+              "nameRu": "Кухня Base",
+              "nameEn": "Kitchen Base",
+              "descRu": "Нижние шкафы, мойка, вытяжка",
+              "descEn": "Base units, sink, extractor hood",
+              "pricing": {
+                "type": "from_configurator"
+              },
+              "demo": true,
+              "configuratorOptionId": "kitchen-base"
+            },
+            {
+              "id": "kitchen-practical",
+              "nameRu": "Кухня Practical",
+              "nameEn": "Kitchen Practical",
+              "descRu": "Верхний ряд шкафов, фасады под дуб, больше ящиков",
+              "descEn": "Wall units, oak-effect fronts, more drawers",
+              "pricing": {
+                "type": "from_configurator"
+              },
+              "demo": true,
+              "configuratorOptionId": "kitchen-practical"
+            },
+            {
+              "id": "kitchen-comfort",
+              "nameRu": "Кухня Comfort",
+              "nameEn": "Kitchen Comfort",
+              "descRu": "Полная линия и колонна, фасады шалфей, скрытые ручки",
+              "descEn": "Full run with tall unit, sage fronts, handleless",
+              "pricing": {
+                "type": "from_configurator"
+              },
+              "demo": true,
+              "configuratorOptionId": "kitchen-comfort"
+            },
+            {
+              "id": "kitchen-premium",
+              "nameRu": "Кухня Premium",
+              "nameEn": "Kitchen Premium",
+              "descRu": "Остров, фасады графит, подсветка рабочей зоны",
+              "descEn": "Island, graphite fronts, task lighting",
+              "pricing": {
+                "type": "from_configurator"
+              },
+              "demo": true,
+              "configuratorOptionId": "kitchen-premium"
+            }
+          ],
+          "settlement": "property_price"
+        },
+        {
+          "id": "flooring",
+          "kind": "flooring",
+          "roomKind": "living",
+          "titleRu": "Пол",
+          "titleEn": "Floor",
+          "defaultVariantId": "laminate-oak-light",
+          "enabled": true,
+          "settlement": "property_price",
+          "slotIds": [
+            "floor"
+          ],
+          "variants": [
+            {
+              "id": "laminate-oak-light",
+              "nameRu": "Ламинат «Дуб светлый»",
+              "nameEn": "Light oak laminate",
+              "materialId": "laminate-oak-light",
+              "pricing": {
+                "type": "included"
+              },
+              "demo": true
+            },
+            {
+              "id": "laminate-oak-grey",
+              "nameRu": "Ламинат «Дуб серый»",
+              "nameEn": "Grey oak laminate",
+              "materialId": "oak-grey",
+              "pricing": {
+                "type": "surcharge",
+                "amount": 160
+              },
+              "demo": true
+            },
+            {
+              "id": "board-oak-natural",
+              "nameRu": "Инженерная доска «Дуб натуральный»",
+              "nameEn": "Natural oak engineered board",
+              "materialId": "board-oak-natural",
+              "pricing": {
+                "type": "surcharge",
+                "amount": 480
+              },
+              "demo": true
+            },
+            {
+              "id": "parquet-herringbone",
+              "nameRu": "Паркет «Ёлочка дуб»",
+              "nameEn": "Oak herringbone parquet",
+              "materialId": "parquet-herringbone",
+              "pricing": {
+                "type": "surcharge",
+                "amount": 770
+              },
+              "demo": true
+            },
+            {
+              "id": "vinyl-stone-grey",
+              "nameRu": "Кварцвинил «Камень серый»",
+              "nameEn": "Grey stone SPC vinyl",
+              "materialId": "vinyl-stone-grey",
+              "pricing": {
+                "type": "surcharge",
+                "amount": 260
+              },
+              "demo": true
+            }
+          ]
+        }
+      ]
     }
-  ]
+  ],
+  "fx": {
+    "from": "RUB",
+    "to": "GBP",
+    "rate": 0.0089,
+    "asOf": "2026-10-16",
+    "source": "CBR / BoE rate, fixed on asOf, edited by hand"
+  }
 }

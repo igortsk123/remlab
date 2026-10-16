@@ -127,6 +127,11 @@ export const apartmentRef = z.object({
   priceAsOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   sources: apartmentSources,
   options: z.array(optionGroup).default([]),
+  /**
+   * Двойник для английского ДЕМО (владелец 16.10, ADR-0298): анонимное демо витрины на английском открывает квартиру-двойника
+   * британского демо-застройщика (£, allowance, «к цене квартиры»). По ссылке менеджера/партнёра — эта же квартира (ADR-0254).
+   */
+  enTwin: z.string().regex(/^[a-z0-9-]{2,40}$/).optional(),
 });
 export type ApartmentRef = z.infer<typeof apartmentRef>;
 
@@ -153,6 +158,12 @@ export const partner = z.object({
   timezone: z.string().default("Europe/Moscow"),
   /** Демонстрационный застройщик: можно переключать рынок на странице (ADR-0254). */
   demo: z.boolean().default(false),
+  /**
+   * Курс для показа рублёвых цен витрины в валюте застройщика (ADR-0298): фиксированный, с датой и источником, правит человек.
+   * Канон цен — рубли фидов; здесь только представление «≈ по курсу на дату».
+   */
+  fx: z.object({ from: z.literal("RUB"), to: currency, rate: z.number().positive(), asOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    source: z.string().min(1) }).optional(),
   complexes: z.array(complex).min(1),
   apartments: z.array(apartmentRef).min(1),
 }).strict(); // опечатка в ключе («certificateshare») — ошибка, а не тихий пропуск (рецензия 13.10)
@@ -176,6 +187,8 @@ export type ApartmentCard = {
   demoPrice: boolean;
   priceAsOf: string | null;
   certificate: { amount: number; title: string; text: string } | null;
+  /** Курс показа рублёвых цен витрины (у британского демо-двойника); нет — цены в валюте витрины. */
+  fx: { from: "RUB"; to: Currency; rate: number; asOf: string; source: string } | null;
   /** Опции квартиры в публичном виде: подписи на языке, цена уже текстом. */
   options: {
     id: string; kind: string; roomKind: string; title: string; defaultVariantId: string;
