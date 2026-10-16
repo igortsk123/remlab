@@ -10,6 +10,7 @@ type Viewer = {
   debugState(): { placed: number };
   debugWalk(): Walk;
   faceToward(x: number, y: number): void;
+  projectSlot(id: string): { visible: boolean } | null;
   keyDown(code: string): void;
   keyUp(code: string): void;
 };
@@ -52,8 +53,15 @@ test("1д прогулка /flat: 4 с к каждому предмету ядр
       await page.close();
       continue;
     }
-    report.push(`${v.id} ${v.style ?? ""}: старт (${start.x}, ${start.y}) до мебели ${start.nearestCm} см`);
+    // п.1(г): первая точка обзора видит ≥ 3 предмета ядра (из тех, что есть в варианте)
+    const core = CORE.filter((r) => v.items.some((i) => i.role === r));
+    const seen = (await page.evaluate((ids) => {
+      const vw = (window as unknown as { __flatViewer: Viewer }).__flatViewer;
+      return ids.filter((id) => vw.projectSlot(id)?.visible);
+    }, core.map((r) => `${r}#0`))) as string[];
+    report.push(`${v.id} ${v.style ?? ""}: старт (${start.x}, ${start.y}) до мебели ${start.nearestCm} см, видно ядра ${seen.length}/${core.length}`);
     if (!start.inRoom || (start.nearestCm ?? 999) < MIN_CM) bad.push(`${v.id} старт: ${JSON.stringify(start)}`);
+    if (seen.length < Math.min(3, core.length)) bad.push(`${v.id} старт видит ядра ${seen.length}/${core.length}: ${seen.join(", ")}`);
     for (const role of CORE) {
       const it = v.items.find((i) => i.role === role);
       if (!it || it.x === undefined || it.y === undefined) continue;

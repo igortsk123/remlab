@@ -67,6 +67,9 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
     const small = window.matchMedia("(max-width: 780px)").matches;
     setMobile(small);
     setMode(small ? "photo" : "walk");
+    // на телефоне «Фото» открывается с комнатой на пол-экрана, полоса выбора свёрнута (прогон d8 16.10: сцена занимала 22 %
+    // экрана, а полоса закрывала кнопку кадра); откроется касанием предмета или кнопкой
+    if (small) setBarOpen(false);
   }, []);
 
   const room = useMemo(() => apartment.rooms.find((r) => r.id === roomId) ?? apartment.rooms[0]!, [apartment, roomId]);
@@ -298,7 +301,8 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
               <span className="hidden text-tertiary sm:inline"> (+{fmt(scene.totals.upgrades)})</span>
             ) : null}
           </span>
-          {certificate ? <CertificateLine amount={certificate.amount} spent={scene.totals.upgrades} fmt={fmt} lang={lang} /> : null}
+          {/* на телефоне сертификат уже в строке застройщика — строку «выбрано» не повторяем, итоги в одну строку (п.8) */}
+          {certificate && !mobile ? <CertificateLine amount={certificate.amount} spent={scene.totals.upgrades} fmt={fmt} lang={lang} /> : null}
           {/* кнопки — одной группой: при переносе строки «отменить/вернуть» не разъезжаются по разным строкам (п.8) */}
           <div className="flex items-center gap-2">
           <UndoRedo lang={lang} undo={undo} redo={redo} canUndo={canUndo} canRedo={canRedo} />
@@ -317,7 +321,7 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
             disabled={saveState === "saving"}
             className="min-h-11 rounded-lg bg-brand-solid px-4 text-sm font-semibold text-white disabled:opacity-60"
           >
-            {saveState === "saving" ? L.saving : L.save}
+            {saveState === "saving" ? L.saving : mobile ? (lang === "en" ? "Save" : "Сохранить") : L.save}
           </button>
           {is3d ? (
             <button

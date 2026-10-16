@@ -71,7 +71,8 @@ export function LivePhoto({ apartment, catalogue, scene, roomId, lite, lang, onF
   if (!cams.length) return null;
   return (
     <div className="flex flex-col gap-2">
-      <div className="relative w-full overflow-hidden rounded-xl bg-secondary" style={{ aspectRatio: "3 / 2" }}>
+      {/* на телефоне — во всю ширину и на пол-экрана (критерий п.8: сцена ≥ 50 % экрана), на компьютере — кадр 3:2 */}
+      <div className="relative w-full overflow-hidden rounded-xl bg-secondary" style={lite ? { height: "52vh" } : { aspectRatio: "3 / 2" }}>
         <canvas ref={canvasRef} data-flat3d="live-photo" className="block size-full" />
         {loading ? (
           <p className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-sm text-tertiary">
