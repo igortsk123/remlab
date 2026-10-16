@@ -64,6 +64,8 @@ export interface DemoScene {
   turn(deg: number): void;
   /** Тап в «3D»: по предмету — его номер в расстановке; по полу — шаг туда (`viewer.goTo`) и -1. */
   walkTap(clientX: number, clientY: number): number;
+  /** Где стоит и куда смотрит прогулка (см, градусы) — живая проверка поворота тапом по краю и шага по полу. */
+  pose(): { x: number; y: number; yaw: number };
   /** Номер предмета расстановки → подпись модели на сцене (живая проверка «замена дошла до сцены»). */
   models(): Record<number, string>;
   /** Подгрузить модели кандидатов заранее (лента замен открылась) — замена потом без сети. */
@@ -171,6 +173,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
       if (hit.point) viewer.goTo(hit.point.x, hit.point.y);
       return -1;
     },
+    pose: () => { const w = viewer.debugWalk(); return { x: w.x, y: w.y, yaw: w.heading }; },
     models: () => {
       const sig = viewer.placedSignatures();
       return Object.fromEntries([...slotIndex()].map(([id, i]) => [i, sig[id] ?? ""]));

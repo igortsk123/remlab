@@ -46,19 +46,23 @@ test("2.1–2.3 окно кадра: фото, список, числа как �
     const card = await page.locator(".lay .pr").nth(i).innerText();
     await page.locator("button[data-swap]").nth(i).click();
     await expect(page.locator("#shot")).toBeVisible();
-    const head = (await page.locator("#vsum b").innerText()).replace(/\s+/g, " ");   // окно варианта (demo-02): сумма в шапке колонки
-    say(`вариант ${i}: карточка «${card}» | окно «${head}»`);
-    expect(Number(head.match(/^(\d+)/)?.[1]), "число товаров").toBe(Number(card.match(/^(\d+)/)?.[1]));
-    expect(num(head), "сумма").toBe(num(card.split("·").pop()!));
+    // окно варианта (demo-02 v3): число товаров и сумма — атрибуты плашки сертификата `#vsum`
+    const cnt = Number(await page.locator("#vsum").getAttribute("data-count"));
+    const sum = Number(await page.locator("#vsum").getAttribute("data-sum"));
+    say(`вариант ${i}: карточка «${card}» | окно ${cnt} · ${sum}`);
+    expect(cnt, "число товаров").toBe(Number(card.match(/^(\d+)/)?.[1]));
+    expect(sum, "сумма").toBe(num(card.split("·").pop()!));
     await page.keyboard.press("Escape");
   }
 });
 
-test("2.4 ракурсы 1/2 и 3D переключаются в одном окне (demo-02)", async ({ page }) => {
+test("2.4 Фото (ракурсы стрелками), 3D и План переключаются в одном окне (demo-02 v3)", async ({ page }) => {
   await openDemo(page, "?live=force");
   await page.locator("#tab-room").click();
   await page.locator("button[data-swap]").first().click();
-  for (const m of ["c2", "walk", "c1"]) {
+  await page.locator("#vNext").click();
+  await expect(page.locator("#vDots i").nth(1)).toHaveClass(/on/);
+  for (const m of ["walk", "plan", "photo"]) {
     const t = Date.now();
     await page.locator(`[data-vm="${m}"]`).click();
     await expect(page.locator(`[data-vm="${m}"]`)).toHaveClass(/on/);
@@ -71,7 +75,8 @@ test("2.5–2.6 замена из окна: лента, выбор, сумма �
   await openDemo(page);
   await page.locator("#tab-room").click();
   await page.locator("button[data-swap]").first().click();
-  const before = num(await page.locator("#vsum b").innerText());
+  const sumNow = async () => Number(await page.locator("#vsum").getAttribute("data-sum"));
+  const before = await sumNow();
   await page.locator("#shotbody [data-rep]").first().click();
   await expect(page.locator("#sheet")).toBeVisible();
   const cards = page.locator("#sheet .mini:has-text('Заменить')");
@@ -79,8 +84,8 @@ test("2.5–2.6 замена из окна: лента, выбор, сумма �
   say("замен в ленте:", await cards.count());
   expect(await cards.count()).toBeGreaterThanOrEqual(3);
   await cards.first().click();
-  await expect.poll(async () => num(await page.locator("#vsum b").innerText())).not.toBe(before);
-  say("сумма:", before, "→", num(await page.locator("#vsum b").innerText()));
+  await expect.poll(sumNow).not.toBe(before);
+  say("сумма:", before, "→", await sumNow());
   await expect(page.locator("#shReshoot")).toBeVisible();
 });
 
