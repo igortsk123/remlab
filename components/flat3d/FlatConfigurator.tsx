@@ -362,7 +362,8 @@ export function FlatConfigurator({ apartment, catalogue, initialConfig, lang, ce
         style={
           is3d
             ? { flex: "1 1 auto", minHeight: 0 }
-            : { height: mobile ? "70vh" : "calc(100vh - 250px)", minHeight: 460 }
+            // в «Фото» на телефоне — по содержимому: снимок + кнопки кадра не влезали в 70vh и уходили под кнопку полосы (п.8)
+            : mobile && mode === "photo" ? { minHeight: 460 } : { height: mobile ? "70vh" : "calc(100vh - 250px)", minHeight: 460 }
         }
       >
         {/* min-height: 0 обязателен, иначе канвас не даёт колонке сжаться и панель уезжает
