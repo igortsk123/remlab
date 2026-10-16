@@ -1,6 +1,10 @@
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
-const SP=process.env.SP, OUT=process.env.HOME+'/scout-scenes/opus-screens/floor/'; const F=JSON.parse(fs.readFileSync(SP+'/floorlib/scene.json','utf8')).file;
-const [W,H]=(process.argv[2]||'390x844').split('x').map(Number), prod=process.env.PROD;
+// ПРОВЕРКА ЖЕСТОВ ШТОРКИ v4 (план demo-02 § «Шторка v4» п.4): трасса, неизменный холст, резинка, флик, тап, передача из списка, пины.
+//   PROD=1 node tools/ops/demo-walk/sheet-gestures.cjs 375x667          — прод как есть
+//   SP=<папка с floorlib/ сборки движка> node … 390x844                  — локальная страница и движок поверх прода
+const SP=process.env.SP, OUT=process.env.OUT||require('os').tmpdir()+'/'; const prod=process.env.PROD||!SP;
+const F=prod?null:JSON.parse(fs.readFileSync(SP+'/floorlib/scene.json','utf8')).file;
+const [W,H]=(process.argv[2]||'390x844').split('x').map(Number);
 (async()=>{const b=await pw.chromium.launch({args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const ctx=await b.newContext({viewport:{width:W,height:H},deviceScaleFactor:2,isMobile:true,hasTouch:true,locale:'ru-RU'});
 const p=await ctx.newPage(); const errs=[]; p.on('pageerror',e=>errs.push(String(e)));
