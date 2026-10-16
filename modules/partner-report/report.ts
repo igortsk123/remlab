@@ -25,7 +25,7 @@ export type FunnelRow = {
   sent: number; opened: number; engaged: number; saved: number; contactClick: number; flat3d: number; moved: number; shared: number;
   status: Record<ManagerStatus, number>;
 };
-export type DirectRow = { week: string; apartmentId: string; designerOpen: number; variantView: number; itemSwap: number; flat3dOpen: number; itemMove: number; share: number };
+export type DirectRow = { week: string; apartmentId: string; designerOpen: number; variantView: number; itemSwap: number; flat3dOpen: number; itemMove: number; share: number; staleLink: number };
 
 /** Понедельник недели (YYYY-MM-DD) для момента `d` в поясе `tz`. */
 export function weekOf(d: Date, tz: string): string {
@@ -88,13 +88,14 @@ export function buildReport(inp: ReportInput): { weeks: FunnelRow[]; byApartment
     const w = mondayOf(c.day);
     if (inp.fromWeek && w < inp.fromWeek) continue;
     const k = `${w}|${c.apartmentId}`;
-    const r = direct.get(k) ?? direct.set(k, { week: w, apartmentId: c.apartmentId, designerOpen: 0, variantView: 0, itemSwap: 0, flat3dOpen: 0, itemMove: 0, share: 0 }).get(k)!;
+    const r = direct.get(k) ?? direct.set(k, { week: w, apartmentId: c.apartmentId, designerOpen: 0, variantView: 0, itemSwap: 0, flat3dOpen: 0, itemMove: 0, share: 0, staleLink: 0 }).get(k)!;
     if (c.kind === "designer_open") r.designerOpen += c.n;
     else if (c.kind === "variant_view") r.variantView += c.n;
     else if (c.kind === "item_swap") r.itemSwap += c.n;
     else if (c.kind === "flat3d_open") r.flat3dOpen += c.n;
     else if (c.kind === "item_move") r.itemMove += c.n;
     else if (c.kind === "share") r.share += c.n;
+    else if (c.kind === "stale_link") r.staleLink += c.n;
   }
 
   const desc = <T extends { week: string }>(a: T, b: T) => b.week.localeCompare(a.week);

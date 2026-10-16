@@ -10,6 +10,7 @@ import { defaultApartmentId, resolveCollectionFlat, resolveFlat } from "@/lib/co
 import { apartmentCard, money } from "@/lib/partners/registry";
 import type { Lang } from "@/lib/configurator/i18n";
 import { TOKEN_RE } from "@/lib/token";
+import { reportRepo } from "@/modules/partner-report/repository";
 import { publicCard } from "@/modules/sends/service";
 
 export const metadata = {
@@ -109,6 +110,16 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
   const sendId = !rawSend ? null : checked && mgr && mgr.apartmentId !== hit.apartment.id ? null : rawSend;
   const manager = sendId && mgr ? mgr.manager.name : null;
   const cert = card.certificate ? money(card.certificate.amount, card.currency, lang) : null;
+  // УСТАРЕВШАЯ ССЫЛКА — В ОТЧЁТ ЗАСТРОЙЩИКУ (demo-05 п.10, b2b-03): +1 к счётчику дня, только без ссылки менеджера (там — его
+  // воронка). Сбой счётчика страницу не ломает
+  if (replaced && !saved && !sendId) {
+    try {
+      const day = new Intl.DateTimeFormat("en-CA", { timeZone: hit.partner.timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+      await reportRepo().bump({ day, partnerId: hit.partner.id, apartmentId: hit.apartment.id, kind: "stale_link", lang });
+    } catch {
+      /* счётчик — не причина ломать страницу покупателя */
+    }
+  }
 
   return (
     // ширина НЕ через `.container`: он рассчитан на чтение (узкая колонка), а конфигуратору

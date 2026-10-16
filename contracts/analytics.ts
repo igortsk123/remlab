@@ -12,6 +12,7 @@ export const pageCounterKind = z.enum([
   "flat3d_open", // открыл квартиру в 3D
   "item_move", // передвинул мебель (владелец 14.10)
   "share", // поделился: ссылка на вариант, «отправить себе» (владелец 14.10)
+  "stale_link", // открыл устаревшую ссылку на вариант — показан текущий того же стиля (demo-05 п.10)
 ]);
 export type PageCounterKind = z.infer<typeof pageCounterKind>;
 

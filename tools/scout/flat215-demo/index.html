@@ -1055,7 +1055,9 @@ function applyHash(){
       if(j>=0){ i=j; vid=allVariants()[j].id;
         setTimeout(()=>toast(LANG==='en'?'This layout has been updated — showing the current one in the same style':
           'Эта расстановка обновилась — показываем текущую в том же стиле'),300);
-        history.replaceState(null,'','#v='+encodeURIComponent(vid)); }
+        history.replaceState(null,'','#v='+encodeURIComponent(vid));
+        // в отчёт застройщику: сколько заходов по устаревшим ссылкам (demo-05 п.10)
+        setTimeout(()=>document.dispatchEvent(new CustomEvent('remlab:act',{detail:'stale_link'})),500); }
     }
     if(i>=0&&i!==cur){ cur=i; load(); showSwap(); drawColl(true); }
     showTab('room');
@@ -4160,7 +4162,7 @@ async function liveShow(){
   var _pv=window.pickVariant; if(typeof _pv==='function')window.pickVariant=pickVariant=function(i){var r=_pv.apply(this,arguments);
     if(i!==lastV){lastV=i;hit('variant_view');}return r;};
   var _to=window.tryOn; if(typeof _to==='function')window.tryOn=tryOn=function(){var r=_to.apply(this,arguments);hit('item_swap');return r;};
-  document.addEventListener('remlab:act',function(e){if(e.detail==='item_move'||e.detail==='share')hit(e.detail);});
+  document.addEventListener('remlab:act',function(e){if(e.detail==='item_move'||e.detail==='share'||e.detail==='stale_link')hit(e.detail);});
   function boot(){if(typeof D==='undefined'||!D)return setTimeout(boot,300);hit('designer_open');}
   boot();
 })();
