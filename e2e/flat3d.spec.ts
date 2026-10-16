@@ -226,7 +226,8 @@ test("3D открывается на весь экран, крестик воз�
   // крестик закрывает 3D и возвращает «Фото»
   await page.getByRole("button", { name: "Закрыть 3D" }).click();
   await expect(page.getByRole("tab", { name: "Фото" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("canvas")).toHaveCount(0);
+  // полноэкранной сцены нет; в «Фото» остаётся только живой снимок (demo-05 п.8 — у квартиры есть ракурсы)
+  await expect(page.locator('canvas:not([data-flat3d="live-photo"])')).toHaveCount(0);
 });
 
 test("мебель можно передвинуть и повернуть, и это переживает перезагрузку", async ({ page }) => {

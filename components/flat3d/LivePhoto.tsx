@@ -72,7 +72,7 @@ export function LivePhoto({ apartment, catalogue, scene, roomId, lite, lang, onF
   return (
     <div className="flex flex-col gap-2">
       <div className="relative w-full overflow-hidden rounded-xl bg-secondary" style={{ aspectRatio: "3 / 2" }}>
-        <canvas ref={canvasRef} className="block size-full" />
+        <canvas ref={canvasRef} data-flat3d="live-photo" className="block size-full" />
         {loading ? (
           <p className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-sm text-tertiary">
             {lang === "en" ? "Loading the room…" : "Загружаем комнату…"}
