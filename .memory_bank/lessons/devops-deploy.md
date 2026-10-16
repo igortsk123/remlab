@@ -366,3 +366,9 @@ systemd — крон-подъём раз в 10 минут (`tools/ops/dev-checks
 `draft_render.SCENE3D_CACHE` жил в /tmp (теперь `~/scout-scenes/mesh3d-cache` с потолком `tools/scout/rules/dev-tmp.json`). Защита:
 `tools/ops/dev-checks.sh` — `WARN:tmp_full` с топ-3, ночной шаг `tmp_sweep` (`tools/ops/tmp-sweep.sh`). Правило агентам:
 снимки и сборки проверок — на диск (`~/scout-scenes/<сессия>/`), scratchpad ≤ 50 МБ, перед браузером — `df -h /tmp`.
+
+**496. «Сборка прошла» = код возврата 0 и `.next/BUILD_ID`, а не «grep error пуст».** 16.10 на DEV сторож памяти (earlyoom)
+убивал рабочий процесс `next build` (≈ 2,5 ГБ) — сборка печатала «worker exited … signal: SIGTERM», в ней нет слов «error/failed»,
+и проверка `pnpm build | grep -iE "error|failed"` молча считала её успешной. Плюс устаревший `.next/cache` давал CSS без новых
+адаптивных классов (`sm:inline`) — локальный e2e падал там, где CI (чистая сборка) прав. Правило: проверять `$?`/`BUILD_ID`;
+при сомнении в CSS — `rm -rf .next`; когда DEV без памяти (разбор волны) — сборку и e2e оставить CI и не выдавать за свои.
