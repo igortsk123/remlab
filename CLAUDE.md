@@ -21,6 +21,7 @@ Tier 0 = этот файл + INDEX + `.claude/rules/*.md`; Tier 2 = `.memory_ban
 - **Конец задачи = `/memory-check`**; план не `completed`, пока память не записана и audit не чист.
 - **План first, code second** — `.claude/rules/agent-workflow.md`. Без явного «деплой» код не пишем.
 - **Гипотезы, не аксиомы:** отклонился от спеки обоснованно → ADR (`decisions.md` + том).
+- **Две сессии:** fable-lead (план, приёмка, память) ↔ opus-worker (код, тесты, отчёт) — `.claude/rules/orchestration.md`; владелец говорит только с fable-lead.
 - **Сложное/рискованное решение:** свой вывод → скилл `ask-codex` (второе мнение) → финал. Правило — `.claude/rules/codex-adviser.md`.
 
 ## Команды

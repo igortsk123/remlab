@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "_about": "Проектные настройки В GIT: гард Bash и хуки кита памяти (SessionStart/Stop/PreCompact/PostToolUse) — переживают клон репозитория (решение владельца 28.09). Личное и разрешения — в .claude/settings.local.json (он в .gitignore).",
+  "_about": "Проектные настройки В GIT: гард Bash и хуки кита памяти (SessionStart/Stop/PreCompact/PostToolUse) — переживают клон репозитория (решение владельца 28.09). Личное и разрешения — в .claude/settings.local.json (он в .gitignore). crossSessionInbound=accept — связь fable-lead↔opus-worker без диалога подтверждения (владелец 17.10, .claude/rules/orchestration.md).",
   "hooks": {
     "PreToolUse": [
       {
@@ -66,5 +66,6 @@
         ]
       }
     ]
-  }
+  },
+  "crossSessionInbound": "accept"
 }
