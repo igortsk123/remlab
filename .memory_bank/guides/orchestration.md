@@ -4,6 +4,7 @@ topic: orchestration
 scope: Регламент двух сессий fable-lead ↔ opus-worker — роли, рукопожатие, цикл задачи, формат задания и отчёта, лимиты циклов, что выбрано и почему
 updated: 2026-10-17
 source: manual
+importance: med
 status: working
 ---
 # Оркестрация fable-lead ↔ opus-worker (полная версия правила `.claude/rules/orchestration.md`)
