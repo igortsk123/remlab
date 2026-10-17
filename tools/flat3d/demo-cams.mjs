@@ -28,7 +28,7 @@ for (const v of D.variants ?? []) {
   const its = (v.items ?? []).map((it) => ({ ...it, x: +it.x, y: +it.y, w: +it.w, d: +it.d, rot: +it.rot || 0 }));
   const pr = api.camPair(its, W, H, corners);
   v.cams = pr.cams.map((c) => ({ name: c.name, x: Math.round(c.x), y: Math.round(c.y), rot: Math.round(c.rot || 0), fov: c.fov || 72, pose: 2,
-    // подбор парой (demo-12, `CAMS_PAIR=1` до приёмки) несёт сдвиг вертикального кадра телефона
+    // подбор парой (demo-12, ADR-0304, по умолчанию с 17.10) несёт сдвиг вертикального кадра телефона
     ...(typeof c.pshift === "number" ? { pshift: c.pshift } : {}) }));
   v.cam_level = pr.level;
   n += 1;

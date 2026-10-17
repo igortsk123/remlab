@@ -73,3 +73,9 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-10-16	.memory_bank/core/data-model.md	rotation	31	1	1	
 2026-10-16	core/data-model.md	rotation	27	0	0	
 2026-10-16	core/demo-scenarios.md	drift	23	4	4	
+2026-10-17	.memory_bank/domain/demo-planner-ui.md	code	38	1	1	
+2026-10-17	.memory_bank/domain/catalog-enrichment.md	code	23	1	1	
+2026-10-17	.memory_bank/domain/viz-fidelity-playbook.md	code	13	0	0	
+2026-10-17	.memory_bank/decisions/adr-0301-0350.md	code	11	0	0	
+2026-10-17	.memory_bank/core/catalog.md	code	3	0	0	
+2026-10-17	.memory_bank/core/estimate.md	rotation	24	1	1	

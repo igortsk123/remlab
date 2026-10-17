@@ -3,12 +3,12 @@ tier: 1
 topic: estimate
 scope: Смета — калькуляторы, /go/ реф
 tier2: "../domain/pricing-works-ru.md"
-updated: 2026-09-28
+updated: 2026-10-17
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-09-05
+last_verified: 2026-10-17
 review_after: 2026-12-05
 ---
 
@@ -19,7 +19,7 @@ review_after: 2026-12-05
   (`CompanionChecklist`), НЕ позиции (ADR-0040). **Без параметров материала количество НЕ
   считаем** (`qtyUnknown`, в смету — площадь) — ADR-0034.
 - **Б — стоимость ремонта** (`/calc/remont`, до запуска —
-  заглушка `app/calc/remont/page.tsx`): площадь+глубина+регион → вилка (`lib/pricing/works.ts`).
+  заглушка `app/calc/remont/page.tsx`, снимается `NEXT_PUBLIC_SHOW_WIP=1`): площадь+глубина+регион → вилка (`lib/pricing/works.ts`).
 
 ## Ядро
 - **Чек-лист** `/e/[id]`: постоянная ссылка, свои ссылки руками; баннер «✓ Сохранено», одна

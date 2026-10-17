@@ -19,7 +19,7 @@
 | `data-model.md` | data-model | Схема БД, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-10-16 |
 | `demo-planner.md` | demo-planner | Демо-планировщик для партнёра — расстановка и кадр | `../domain/demo-planner-ui.md` | 2026-10-17 |
 | `demo-scenarios.md` | demo-scenarios | Сценарии демо /demo — карта кнопок «ожидание → факт», живые проверки, дефекты прогона и планы demo-01…03 | `../domain/demo-scenario-map.md` | 2026-10-17 |
-| `estimate.md` | estimate | Смета — калькуляторы, /go/ реф | `../domain/pricing-works-ru.md` | 2026-09-28 |
+| `estimate.md` | estimate | Смета — калькуляторы, /go/ реф | `../domain/pricing-works-ru.md` | 2026-10-17 |
 | `furniture.md` | furniture | Мебель — сеты, визуализация | `../domain/viz-fidelity-playbook.md` | 2026-10-17 |
 | `goals.md` | goals | Цели v0.4 — сценарий, монетизация, порядок ступеней | `../plans/MASTER-cost-first.md` | 2026-10-14 |
 | `knowledge-db.md` | knowledge-db | Source-KB из книг — спека, KB0–KB9 | `../../remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md` | 2026-09-28 |
