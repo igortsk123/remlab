@@ -39,7 +39,25 @@ IMG_BASE = 'https://remont-lab.online/demo/'
 SIZE = os.environ.get('IMPROVE_SIZE', '2048x3072')     # замер: принимается шлюзом
 # improve-v2 (demo-11, бенч 17.10, ADR-0302): блок PHOTOGRAPHIC LOOK и правило каталожной формы. Версия — часть ключа
 # готового ответа и исходника (`draft_render._improve_cache`, `from_sources`): ответ v1 не отдаётся на запрос v2
-PROMPT_VERSION = 'improve-v2'
+# improve-v3 (demo-13, 17.10): гайды стилей v2.1 (6 блоков, без чисел и абсолютов) + общий префикс-защита перед гайдом; строки WALLS/FLOOR
+# гайда вырезаются, когда стены/пол выбраны застройщиком
+PROMPT_VERSION = 'improve-v3'
+
+
+# ОБЩИЙ ПРЕФИКС ГАЙДА (demo-13, критика Codex 17.10): гайд — подсказки, а не список обязательного; готовые окно/дверь/батарея/ручки на
+# кадре не трогать; ни видимого, ни скрытого света, ниш и экранов радиатора; ваза/кашпо — только с живым растением; направление света — как есть
+STYLE_PREFIX = ('STYLE GUIDE — OPTIONAL PRIORITIES. Apply only 3–4 compatible cues to eligible surfaces, choose one option per category, '
+                'and omit every cue that conflicts with IMAGE 1, the HARD RULES, SERVICE PLACEHOLDERS or FORBIDDEN. If a window, door, '
+                'radiator, sill, frame, trim, handle or curtain hardware is already rendered as a real object in IMAGE 1, preserve its exact '
+                'shape, colour, material, position and visibility; only schematic BLUE/BROWN rectangles may be resolved under SERVICE '
+                'PLACEHOLDERS. Do not add visible or concealed lighting, ceiling coves, radiator covers or screens. Any added vase or '
+                'planter must contain a live plant; otherwise omit it. Preserve the visible light direction.')
+
+
+def guide_for(guide: str, floor: str | None = None, walls: str | None = None) -> str:
+    """Гайд стиля без строк, которые решил застройщик: пол/стены уже на кадре и закреплены жёстким правилом (demo-13)."""
+    drop = ('FLOOR:',) * bool(floor) + ('WALLS:',) * bool(walls)
+    return '\n'.join(l for l in (guide or '').splitlines() if not (drop and l.strip().startswith(drop)))
 
 
 def prompt_sha(prompt: str) -> str:
@@ -203,14 +221,9 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
         '',
         PHOTO_LOOK,
         '',
-        'STYLE GUIDE — VARIABLE AND ADVISORY, NOT A CHECKLIST',
+        STYLE_PREFIX,
         '',
-        'This is the only section that changes between projects. Use it to guide colours, '
-        'finishes, atmosphere and optional light decor. Select only elements that fit the visible '
-        'room and omit anything unnecessary. It never overrides the STATIC HARD RULES or FORBIDDEN '
-        'list.',
-        '',
-        guide or 'Choose finishes that suit the room and look ordinary, affordable and tasteful.',
+        guide_for(guide, floor, walls) or 'Choose finishes that suit the room and look ordinary, affordable and tasteful.',
         '',
         'Optional decor may be added sparingly, but it must not cover, touch or move existing '
         'objects and must appear consistently in both views. It must not read as new furniture.',

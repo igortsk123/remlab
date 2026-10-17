@@ -2,7 +2,7 @@
 workstream: demo
 slug: demo-13-style-prompts
 title: Куски промпта по стилям (render_guide v2) — по исследованию стилей: стены, пол, потолок, свет, шторы, картины, декор, запреты; показать владельцу страницей с пробным фото на стиль
-status: draft
+status: in_progress
 created: 2026-10-17
 updated: 2026-10-17
 completed:
