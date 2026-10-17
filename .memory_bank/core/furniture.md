@@ -3,7 +3,7 @@ tier: 1
 topic: furniture
 scope: Мебель — сеты, визуализация
 tier2: "../domain/viz-fidelity-playbook.md"
-updated: 2026-10-13
+updated: 2026-10-17
 importance: high
 source: manual
 status: working
@@ -37,4 +37,5 @@ review_after: 2026-12-05
 - **Меши (ADR-0131/0132):** только свой Hunyuan3D 2.1 на Salad — [[mesh-pipeline]].
 - **А4/А6 (06.08):** пост-QA финала `viz_qa.py` гейтит батчи; 3 ретрая; A/B `viz_ab.py`.
 
+**Реалистичное фото (17.10):** бенч 7 моделей через шлюз — лидер `openai/gpt-image-2.5-flare` (25 с, $0.05, оба вида верные); выбор модели — владелец (Tier 2 § «Бенч 17.10»).
 **Tier 2:** `../domain/viz-fidelity-playbook.md` · `../domain/lr-composition-guide.md` · `../domain/integrations.md`.

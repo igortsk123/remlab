@@ -3,7 +3,7 @@ tier: 1
 topic: mesh-pipeline
 scope: 3D-меши — генерация, учёт, приёмка
 tier2: "../domain/viz-fidelity-playbook.md"
-updated: 2026-10-13
+updated: 2026-10-17
 importance: high
 source: manual
 status: working
