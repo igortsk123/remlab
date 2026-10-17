@@ -78,9 +78,10 @@ await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(800);
 const mid=await p.evaluate(()=>{const sd=document.getElementById('vside'), r=document.querySelector('#vGroups .vopts-row:last-child'), top=sd.getBoundingClientRect().top;
   return {vis:Math.round(VW.sheetVis), midH:VW.midH, row:r?Math.round(r.getBoundingClientRect().bottom-top):null, rows:[...document.querySelectorAll('#vGroups .vopts-row b')].map(b=>b.textContent)};});
 ok('v5 средняя = строки-входы + верх списка (±8)',mid.row!=null&&Math.abs(mid.vis-mid.row-30)<=8,JSON.stringify(mid));
+ok('v5.1 плашка — часть шторки (не над фото)',(await geo()).plate>=(await geo()).top,'');
 ok('v5 в гостиной строки-входа — только «Отделка и ремонт»',JSON.stringify(mid.rows)==='["Отделка и ремонт"]',JSON.stringify(mid.rows));
 await p.evaluate(()=>vwSheet(3)); await p.waitForTimeout(900); const gF=await geo();
-ok('v5 полная — плашка у верха экрана (≤ 10 px)',gF.plate<=10&&gF.plate>=0,`плашка ${gF.plate}, шторка ${gF.top}`);
+ok('v5.1 полная — шторка до верха, плашка в её шапке (≤ 30 px)',gF.top<=2&&gF.plate<=30&&gF.plate>=gF.top,`плашка ${gF.plate}, шторка ${gF.top}`);
 await p.screenshot({path:OUT+`v5-${W}-full.png`});
 await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(800); const vis0=await p.evaluate('VW.sheetVis');
 await p.click('#vGroups [data-opts]'); await p.waitForTimeout(900); const gO=await geo();
@@ -90,6 +91,21 @@ await p.screenshot({path:OUT+`v5-${W}-finish.png`});
 await p.click('#vOptsBack'); await p.waitForTimeout(900); const vis1=await p.evaluate('VW.sheetVis');
 ok('v5 «← Назад» — прежняя высота (±2)',Math.abs(vis1-vis0)<=2,`${vis0} → ${vis1}`);
 await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(800); await p.screenshot({path:OUT+`v5-${W}-mid.png`});
+// 8б. v5.1: 10 тапов по чипу из свёрнутой (CDP-касания) — шторка раскрыта каждый раз, «Сделать реалистичнее» не нажата ни разу.
+// Ожидание — по состоянию, не по часам: на загруженной машине анимация идёт дольше 0,3 с
+await p.evaluate(()=>{window.__mp=0; makePhoto=function(){window.__mp++;};});
+const still=()=>p.waitForFunction(()=>{const sd=document.getElementById('vside'), t=Math.round(sd.getBoundingClientRect().top);
+  const ok=window.__lt===t; window.__lt=t; return ok&&!sd.getAnimations().length;},null,{polling:150,timeout:5000}).catch(()=>{});
+let opened=0; const tl=[]; for(let k=0;k<10;k++){await p.evaluate(()=>vwSheet(0)); await still();
+  const c=await p.evaluate(()=>{const r=document.getElementById('vchip').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};});
+  await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:c.x,y:c.y}]}); await p.waitForTimeout(50+k*12);
+  await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  const got=await p.waitForFunction(()=>document.getElementById('vside').dataset.pos==='3',null,{timeout:3000}).then(()=>true).catch(()=>false);
+  await still(); tl.push(got?'3':'0'); if(got)opened++;}
+ok('v5.1 тап по чипу ×10: раскрыта 10/10, ложных «Сделать реалистичнее» 0',opened===10&&(await p.evaluate('window.__mp'))===0,`раскрыта ${opened}, makePhoto ${await p.evaluate('window.__mp')} · ${tl.join('')}`);
+const f3=[]; for(let k=0;k<3;k++){await p.evaluate(()=>vwSheet(0)); await still(); await p.evaluate(()=>vwSheet(3)); await still(); f3.push((await geo()).top);}
+ok('v5.1 полная с первого раза 3/3',f3.every(t=>t<=2),f3.join(','));
+await p.evaluate(()=>vwSheet(0)); await p.waitForTimeout(700); await p.screenshot({path:OUT+`v51-${W}-collapsed.png`});
 // 9. v5: окно комнаты с группой кухни (`?debug=1&vroom=kitchen`) — строка «Встраиваемое», четыре карточки, выбор → s2 и ссылка
 await p.goto('https://remont-lab.online/demo/?live=0&debug=1&vroom=kitchen',{waitUntil:'load',timeout:120000});
 await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000}); await p.evaluate(()=>openLiveWindow()); await p.waitForTimeout(2500);
