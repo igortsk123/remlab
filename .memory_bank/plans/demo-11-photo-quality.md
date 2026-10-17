@@ -2,7 +2,7 @@
 workstream: demo
 slug: demo-11-photo-quality
 title: Реалистичное фото — модель gpt-image-2.5-sunburst (medium), блок «фотографический вид», тёплые гайды стилей, каталожная форма товара, пересъёмка 5 вариантов
-status: draft
+status: in_progress
 created: 2026-10-17
 updated: 2026-10-17
 completed:

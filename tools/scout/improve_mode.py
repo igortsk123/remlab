@@ -36,7 +36,29 @@ from PIL import Image  # noqa: E402
 DEMO_URL = 'https://remont-lab.online/demo/demo-data.json'
 IMG_BASE = 'https://remont-lab.online/demo/'
 SIZE = os.environ.get('IMPROVE_SIZE', '2048x3072')     # замер: принимается шлюзом
-PROMPT_VERSION = 'improve-v1'
+# improve-v2 (demo-11, бенч 17.10, ADR-0302): блок PHOTOGRAPHIC LOOK и правило каталожной формы. Версия — часть ключа
+# готового ответа и исходника (`draft_render._improve_cache`, `from_sources`): ответ v1 не отдаётся на запрос v2
+PROMPT_VERSION = 'improve-v2'
+
+
+def prompt_sha(prompt: str) -> str:
+    """Отпечаток текста промпта — в ответ и реестр рядом с версией (видно, каким текстом снято фото)."""
+    import hashlib
+    return hashlib.sha1(prompt.encode('utf-8')).hexdigest()[:12]
+
+
+# ФОТОГРАФИЧЕСКИЙ ВИД (бенч 17.10: 3/3 живее, `tools/ops/bench-realistic4.py:PHOTO`). Объектив — как у IMAGE 1 (Codex 17.10:
+# «24 mm» спорил с правилом «не менять перспективу» и произвольным углом камеры)
+PHOTO_LOOK = ('PHOTOGRAPHIC LOOK — MANDATORY. The result must read as a real interior photograph for a property listing, not as '
+              'a 3D render: match IMAGE 1 lens and perspective exactly (a wide-angle property-listing look only where it is '
+              'consistent with IMAGE 1); physically plausible global illumination with soft bounced light, accurate contact '
+              'shadows under every object, subtle ambient occlusion in corners, real fabric weave on upholstery and curtains, '
+              'visible wood grain on the floor and table, faint micro-imperfections on painted walls, slight natural vignetting '
+              'and gentle sensor grain, true-to-life white balance. No plastic-looking surfaces, no perfectly uniform walls, no '
+              'CGI gloss, no oversaturation.')
+# КАТАЛОЖНАЯ ФОРМА (владелец 17.10: «подлокотники есть — оставляем, нет — дорисовывать нельзя»; бенч 3/3 без выдумок)
+SHAPE_RULE = ('* the catalogue shape of every product: keep armrests, cushions and other parts exactly as the product has them; '
+              'never invent detachable cushions, throws or armrests that the catalogue product does not have;')
 
 # СТИЛИ И ПОЛИТИКА ДЕКОРА — ИЗ КАНОНА (`styles.json`), НЕ ИЗ КОДА. Владелец 01.09: «название
 # стиля должно из базы браться»; «что добавлять — GPT решает, можно дать примеры, но всё должно
@@ -103,7 +125,8 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
         '* the position, silhouette, size, rotation, orientation, count or design of any '
         'furniture, lamp or rug;',
         '* the furniture arrangement or object visibility;',
-        '* the two-view layout or magenta separator.',
+        '* the two-view layout or magenta separator;',
+        SHAPE_RULE,
     ] + ([
         # ПОЛ ЗАСТРОЙЩИКА (demo-06): выбран покупателем и уже нарисован на IMAGE 1 — модель его не перекрашивает
         f'* the FLOOR: it is the developer option «{floor}» chosen by the buyer and already shown in '
@@ -176,6 +199,8 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
         'Add realistic materials, ambient light, soft shadows and contact shadows beneath existing '
         'objects. Preserve the original object positions and occlusions. Keep vertical lines '
         'vertical and wall-to-floor junctions correct.',
+        '',
+        PHOTO_LOOK,
         '',
         'STYLE GUIDE — VARIABLE AND ADVISORY, NOT A CHECKLIST',
         '',
@@ -459,6 +484,15 @@ def from_sources(src_id: str | None):
     sheet_p = os.path.join(d, '1-ОТПРАВЛЯЕМ-лист-двух-видов.jpg')
     prompt_p = os.path.join(d, 'prompt.txt')
     if not (os.path.exists(sheet_p) and os.path.exists(prompt_p)):
+        return None
+    # ИСХОДНИК ДРУГОЙ ВЕРСИИ ПРОМПТА НЕ ПЕРЕИСПОЛЬЗУЕМ (demo-09/11, Codex 17.10): `prompt.txt` v1 ушёл бы в модель с листом
+    # нового запроса — пересобираем с текущим промптом
+    try:
+        _mv = json.load(open(os.path.join(d, 'meta.json'), encoding='utf-8'))
+        if isinstance(_mv, dict) and _mv.get('версия промпта') != PROMPT_VERSION:
+            print(f'улучшение: исходник {src_id} — промпт {_mv.get("версия промпта")}, нужен {PROMPT_VERSION} — пересобираю', flush=True)
+            return None
+    except Exception:  # noqa: BLE001 — без легенды версия неизвестна: пересобираем
         return None
     # ЛИСТ ИЗ ЛЁГКИХ МЕШЕЙ НЕ ПЕРЕИСПОЛЬЗУЕМ (план paid-path-speed, 02.09). Черновик рисуется
     # упрощённой геометрией ради скорости; отправлять её в платную генерацию — платить за

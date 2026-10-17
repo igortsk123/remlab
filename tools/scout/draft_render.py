@@ -3302,6 +3302,13 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         # на длинных запросах, а картинка уже сделана и оплачена. Повтор с тем же `src_id`
         # возвращает её с диска: человек нажимает ещё раз и получает своё фото, а не новый счёт.
         _c = _improve_cache(layout.get('src_id'))
+        import improve_mode as IM
+        # ГОТОВЫЙ ОТВЕТ — ТОЛЬКО ТОЙ ЖЕ МОДЕЛИ, КАЧЕСТВА И ВЕРСИИ ПРОМПТА (demo-11, Codex 17.10): иначе после смены модели повтор с тем
+        # же `src_id` вернул бы фото прежней модели как новое
+        if _c and (_c.get('model') != f'improve/{REALISTIC_MODEL}' or _c.get('image_quality') != gq
+                   or _c.get('prompt_version') != IM.PROMPT_VERSION):
+            print('улучшение: готовый ответ другой модели/качества/промпта — не переиспользую', flush=True)
+            _c = None
         if _c:
             print('улучшение: отдан готовый результат из кеша (повтор после обрыва связи)',
                   flush=True)
@@ -3343,7 +3350,9 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         shots = [{'camera': c.name, 'url': _publish_frame(p_, f'improve-{stamp}-{c.name}.jpg'),
                   'diag': {}, 'anchors': []}
                  for c, p_ in zip(want, pieces)]
-        res = {'shots': shots, 'url': shots[0]['url'], 'model': f'improve/{REALISTIC_MODEL}',
+        # что именно нарисовало фото — в ответ и реестр (demo-11): модель, качество, версия и отпечаток промпта
+        res = {'shots': shots, 'url': shots[0]['url'], 'model': f'improve/{REALISTIC_MODEL}', 'image_quality': gq,
+               'prompt_version': IM.PROMPT_VERSION, 'prompt_sha': IM.prompt_sha(prompt),
                'sources': built['src_url'], 'timing': {}, 'diag': {'clay': built['clay']}}
         _improve_cache(layout.get('src_id'), res)      # см. ниже: обрыв связи не стоит генерации
         return res

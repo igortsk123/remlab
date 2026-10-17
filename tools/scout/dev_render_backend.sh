@@ -20,6 +20,8 @@ if ! curl -s -m 4 http://127.0.0.1:8600/health >/dev/null; then
   # SCENE3D_QUALITY=full БОЛЬШЕ НЕ СТАВИМ: он выключал отбраковку задних граней (её выключили
   # 31.08 из-за дырок в спинке дивана). Дырки лечены в упрощении (ADR-0165), отбраковка вернулась
   # порогом 0.5 — кадр быстрее на 20 %. Платный путь ставит quality=full сам, в своём процессе.
+  # МОДЕЛЬ «РЕАЛИСТИЧНО» (demo-11, бенч 17.10, ADR-0302): gpt-image-2.5-sunburst, quality medium — решение владельца
+  REALISTIC_MODEL=openai/gpt-image-2.5-sunburst GPT_IMAGE_QUALITY=medium \
   SCENE3D=1 SCENE3D_PROCS=1 DRAFT_HOST=127.0.0.1 DRAFT_PORT=8600 \
   FRAME_INLINE=1 \
   SRC_PUSH='root@89.167.127.0:/opt/remlab/test/share/src/' \

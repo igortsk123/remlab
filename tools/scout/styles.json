@@ -78,7 +78,7 @@
     "пара зелёных растений в простых кашпо",
     "свечи"
    ],
-   "render_guide": "SCANDINAVIAN STYLE: warm white or pale grey matte walls; light oak plank flooring; white ceiling; simple flat skirting and plain trim, no mouldings; warm natural daylight; optional black-framed art prints or one or two green plants in plain pots; optional flat white radiator below the window. Keep surfaces calm and uncluttered. The result should look like a real, recently renovated flat using ordinary affordable materials. No gloss, no gold, no ornament."
+   "render_guide": "SCANDINAVIAN STYLE, WARM AND COSY: warm white matte walls with a faint cream undertone (never cold grey); honey-toned light oak plank flooring; white ceiling; simple flat white skirting, no mouldings; WARM late-afternoon daylight (about 3500 K) with a soft golden cast on the walls and floor; cream or oatmeal linen curtains on a thin black rod; optional one or two black-framed art prints; optional one green plant in a plain pot; flat white radiator below the window. Calm, uncluttered, looks like a real, recently renovated flat with ordinary affordable materials. No gloss, no gold, no ornament."
   },
   "современный": {
    "en": "Contemporary",
@@ -124,7 +124,7 @@
     "крупная абстрактная картина в раме",
     "скульптурное растение"
    ],
-   "render_guide": "CONTEMPORARY STYLE: smooth matte walls in warm greige, optionally one deeper accent wall; wide oak-tone laminate or engineered wood floor; plain white ceiling; slim white skirting and crisp clean trim; warm natural daylight; optional one large abstract framed artwork or one sculptural plant; optional flat white radiator below the window. The result should look like a real, recently renovated flat using ordinary affordable materials. No classical mouldings, nothing ornate."
+   "render_guide": "CONTEMPORARY STYLE, WARM AND CALM: smooth matte walls in warm greige or soft taupe, optionally one deeper warm accent wall (clay or muted olive); wide natural-oak engineered wood or quality laminate floor in a warm mid tone; plain white ceiling; slim flat white skirting and crisp clean trim; WARM late-afternoon daylight (about 3700 K) with soft long shadows; light linen-look curtains in warm sand or a plain roller blind; optional one large abstract framed artwork in muted earthy tones or one sculptural plant; flat white radiator below the window. Looks like a real, recently renovated flat with ordinary affordable materials. No classical mouldings, no gloss, no chrome, nothing ornate."
   },
   "минимализм": {
    "en": "Soft minimalism",
@@ -168,7 +168,7 @@
     "одна большая спокойная картина",
     "одно архитектурное растение"
    ],
-   "render_guide": "SOFT MINIMALIST STYLE: perfectly smooth matte walls in one light warm tone (off-white or greige); seamless pale wide-plank floor; flat white ceiling; flush low skirting, no mouldings; soft diffused natural daylight; optional at most ONE large calm artwork or ONE architectural plant; optional flat white radiator below the window. Keep large empty clean surfaces. The result should look like a real, recently renovated flat using ordinary affordable materials. No patterns, no clutter, no ornament."
+   "render_guide": "SOFT MINIMALIST STYLE, WARM AND QUIET: perfectly smooth matte walls in one light warm tone (warm off-white or pale greige, never cold white); seamless pale natural wide-plank floor; flat white ceiling; flush low skirting, no mouldings; SOFT DIFFUSED warm daylight (about 4000 K), even and gentle, no harsh contrast; sheer off-white curtains or a plain roller blind; optional at most ONE large calm artwork or ONE architectural plant; flat white radiator below the window. Large clean empty surfaces. Looks like a real, recently renovated flat with ordinary affordable materials. No patterns, no clutter, no ornament, no gloss."
   },
   "лофт": {
    "en": "Industrial loft",
@@ -212,7 +212,7 @@
     "монохромный постер в тонкой чёрной раме",
     "высокое растение в простом кашпо"
    ],
-   "render_guide": "INDUSTRIAL LOFT STYLE: one exposed red-brick feature wall, other walls smooth warm grey concrete-look matte; dark wide-plank wood floor; dark matte ceiling; black or dark metal skirting and trim; warm natural daylight; optional one monochrome poster in a thin black frame or one tall green plant in a plain pot; optional dark panel radiator below the window. The result should look like a real, recently renovated flat using ordinary affordable materials. Nothing glossy or gilded, no classical mouldings."
+   "render_guide": "INDUSTRIAL LOFT STYLE, WARM: one exposed warm red-brick feature wall with natural mortar, other walls smooth warm grey concrete-look matte; dark-stained wide-plank wood floor with visible grain; dark matte ceiling; black or dark metal skirting and trim; WARM afternoon daylight (about 3500 K) raking softly across the brick; heavy charcoal or rust linen curtains on a black metal rod, or a dark roller blind; optional one monochrome poster in a thin black frame or one tall green plant in a plain pot; dark panel radiator below the window. Looks like a real, recently renovated flat with ordinary affordable materials. Nothing glossy or gilded, no classical mouldings."
   },
   "неоклассика": {
    "en": "Neoclassical",
@@ -258,7 +258,7 @@
     "зеркало в изящной раме",
     "орхидея"
    ],
-   "render_guide": "NEOCLASSICAL STYLE: soft cream or warm greige matte walls; restrained rectangular wall mouldings; white ceiling with a simple cornice; light natural-oak herringbone parquet or engineered wood; simple classical trim; warm natural late-afternoon daylight; optional classical framed artwork, refined wall mirror or one small orchid; optional white classic-panel radiator below the window. Symmetry may guide wall-moulding composition only — never move furniture to create symmetry. The result should look like a real, recently renovated flat using attractive but ordinary and affordable materials, not a palace, hotel or luxury showroom. No exposed brick or industrial elements."
+   "render_guide": "NEOCLASSICAL STYLE, WARM AND REFINED: soft cream or warm greige matte walls; restrained rectangular wall mouldings; white ceiling with a simple cornice; light natural-oak herringbone parquet or engineered wood; simple classical trim; WARM late-afternoon daylight (about 3300 K), soft and golden; full-length cream or champagne curtains on a simple rod, no swags; optional one classical framed artwork, a refined wall mirror or one small orchid; white classic-panel radiator below the window. Symmetry may guide wall-moulding composition only — never move furniture to create symmetry. Looks like a real, recently renovated flat with attractive but ordinary affordable materials, not a palace, hotel or showroom. No exposed brick, no industrial elements, no heavy gold."
   },
   "джапанди": {
    "en": "Japandi",
@@ -306,7 +306,7 @@
     "графика тушью или ботаническая",
     "ветка или бонсай в керамике"
    ],
-   "render_guide": "JAPANDI STYLE: walls in warm sand or clay limewash-look matte, subtle and even; light tatami-tone wood floor; warm white ceiling; simple low trim; soft low-contrast warm daylight; optional one ink-style or botanical artwork, or one branch or bonsai in a ceramic vessel; optional discreet white radiator below the window. Low visual noise, rounded calm, wabi-sabi restraint. The result should look like a real, recently renovated flat using ordinary affordable materials. No gloss, no gold, no bright colours."
+   "render_guide": "JAPANDI STYLE, WARM AND SERENE: walls in warm sand or clay limewash-look matte, subtle and even; light natural ash or oak plank floor with a matte finish; warm white ceiling; simple low trim; SOFT WARM filtered daylight (about 3500 K), low contrast; natural linen curtains in oatmeal or a paper-look blind; optional one ink-style or botanical artwork, or one branch in a ceramic vessel; discreet white radiator below the window. Low visual noise, calm, wabi-sabi restraint. Looks like a real, recently renovated flat with ordinary affordable materials. No gloss, no gold, no bright colours."
   }
  },
  "compat_prompt_note": "Каждый prompt-блок ДОПОЛНЯЕТ базовые правила pipeline2 (товары неизменны: форма/цвет с фото; декор ≤90 см; стены идеально чистые матовые; батарея под окном).",
@@ -324,7 +324,8 @@
    "furniture, storage units or rugs",
    "lamps, chandeliers or other lighting fixtures",
    "electronics other than the existing television",
-   "objects that overlap or displace existing products"
+   "objects that overlap or displace existing products",
+   "cushions, throws or armrests that the catalogue product does not have"
   ],
   "allow_hint": "модель выбирает сама и вправе не добавлять ничего, если станет захламлённо",
   "allow_now": {

@@ -142,6 +142,8 @@ def _registry_add(payload: dict, out: dict) -> None:
         rec = {'style': payload.get('style') or '', 'variant': payload.get('variant') or '',
                'quality': out.get('quality') or payload.get('quality') or 'draft',
                'model': out.get('model') or '', 'sources': out.get('sources') or '',
+               # чем нарисовано фото нейросети (demo-11): качество модели, версия и отпечаток промпта
+               **({k: out[k] for k in ('image_quality', 'prompt_version', 'prompt_sha') if out.get(k)}),
                'backend': out.get('backend') or '',
                # СОСТОЯНИЕ И КАМЕРЫ КАДРА (demo-02, Codex 14.10): номер состояния присылает страница (сервер его не
                # считает), позы камер — полностью: «C1» без позы ничего не говорит, если камеру потом переставили.
@@ -182,6 +184,38 @@ def _proxy_url() -> str:
         except Exception:  # noqa: BLE001
             prx = ''
     return prx
+
+
+def _render_info() -> dict:
+    """Чем рисует ЭТОТ процесс фото нейросети (demo-11): модель, качество, версия промпта."""
+    try:
+        import improve_mode as IM
+        pv = IM.PROMPT_VERSION
+    except Exception:  # noqa: BLE001
+        pv = ''
+    return {'realistic_model': DR.REALISTIC_MODEL, 'image_quality': os.environ.get('GPT_IMAGE_QUALITY', 'medium'), 'prompt_version': pv}
+
+
+def _dry_info(payload: dict) -> dict:
+    """Пробный ответ: что ушло бы в модель — у рисующего процесса (за туннелем, иначе этот) и какие блоки в промпте."""
+    info = {'render': _render_info(), 'render_from': 'here'}
+    prx = _proxy_url()
+    if prx:
+        try:
+            import urllib.request as _u
+            base = prx.rsplit('/render', 1)[0]
+            info['render'] = json.loads(_u.urlopen(base + '/health', timeout=4).read().decode())
+            info['render_from'] = 'proxy'
+        except Exception as e:  # noqa: BLE001 — недоступный DEV — это ответ, а не падение
+            info['render_from'] = f'proxy недоступен: {str(e)[:60]}'
+    try:
+        import improve_mode as IM
+        pr = IM.prompt_for(payload.get('style') or '')
+        info['prompt'] = {'version': IM.PROMPT_VERSION, 'sha': IM.prompt_sha(pr), 'photo_look': 'PHOTOGRAPHIC LOOK' in pr,
+                          'shape_rule': 'never invent detachable cushions, throws or armrests' in pr}
+    except Exception as e:  # noqa: BLE001
+        info['prompt'] = {'error': str(e)[:80]}
+    return info
 
 
 def _has_gw_key() -> bool:
@@ -317,7 +351,7 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):                                        # noqa: N802
         if self.route.startswith(('/health', 'draft/health')) or self.route in ('/draft/health',):
             # версия образа (b2b-08): деплой сверяет её, как у приложения
-            return self._send(200, {'ok': True, 'version': os.environ.get('DRAFT_VERSION', 'dev')})
+            return self._send(200, {'ok': True, 'version': os.environ.get('DRAFT_VERSION', 'dev'), **_render_info()})
         if self.route.startswith(('/draft/credits', '/credits')):
             # БАЛАНС ШЛЮЗА (demo-03): прод без ключа спрашивает его у DEV перед платным заданием. Только изнутри
             # (туннель/свой адрес, без X-Forwarded-For): сумму на счёте наружу не показываем.
@@ -391,8 +425,9 @@ class H(BaseHTTPRequestHandler):
                     return self._send(402 if gate[0] == 'no_credits' else 503, {'error': gate[1], 'code': gate[0]})
             if payload.get('dry_run'):
                 # ПРОБА БЕЗ ЗАДАНИЯ (demo-03, verify): живая проверка «честного отказа» шлёт тот же запрос, но задание не
-                # создаётся никогда — даже если деньги пополнили между её вопросом и запросом.
-                return self._send(200, {'dry_run': True, 'would': 'job', 'quality': quality})
+                # создаётся никогда — даже если деньги пополнили между её вопросом и запросом. С demo-11 — ещё и чем будет
+                # нарисовано: модель и промпт того процесса, который рисует (DEV за туннелем; его `/health`), и блоки промпта
+                return self._send(200, {'dry_run': True, 'would': 'job', 'quality': quality, **_dry_info(payload)})
             body = dict(payload); body.pop('async', None)
             jid = JOBS.new(quality, body)
             threading.Thread(target=_work, args=(jid,), daemon=True).start()

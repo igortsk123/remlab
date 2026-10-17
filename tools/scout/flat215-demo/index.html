@@ -1442,12 +1442,16 @@ function camFit(cx,cy,its,W,H,strict){
 // ПАРА РАКУРСОВ ВАРИАНТА — одна функция для страницы (`defaultCams`) и сборки демо (`tools/flat3d/demo-cams.mjs` → `v.cams` в
 // demo-data.json, их берёт /flat для «Фото», demo-05 п.8): ракурс 1 — лучший из четырёх углов по ступеням правил, ракурс 2 —
 // противоположный угол (диагональ, ADR-0149)
+const CAM_C2_INSET=60;
 function camPair(its,W,H,cs){
   const sc=f=>f&&f.score!==undefined?f.score:-1e9;
   let fits=[], level=0;
   for(const lv of [3,2,1]){fits=cs.map(k=>camFit(k.x,k.y,its,W,H,lv)); level=lv; if(fits.some(f=>sc(f)>-1e9))break;}
   let b=0; fits.forEach((f,i)=>{if(sc(f)>sc(fits[b]))b=i;});
-  const c1=fits[b], c2=camFit(cs[(b+2)%4].x,cs[(b+2)%4].y,its,W,H,false);
+  // РАКУРС 2 — НЕ ВПЛОТНУЮ К СТЕНАМ (demo-11, 17.10): из угла в 3 см фото нейросети рисовало «нишу» — соседняя стена плитой
+  // у края кадра; точка стартует в CAM_C2_INSET от обеих стен угла, дальше тот же подбор (`camFit`). Ракурс 1 — как был
+  const k2=cs[(b+2)%4], ix=k2.x<W/2?Math.max(k2.x,CAM_C2_INSET):Math.min(k2.x,W-CAM_C2_INSET), iy=k2.y<H/2?Math.max(k2.y,CAM_C2_INSET):Math.min(k2.y,H-CAM_C2_INSET);
+  const c1=fits[b], c2=camFit(ix,iy,its,W,H,false);
   return {level, cams:[{name:'C1',x:c1.x,y:c1.y,rot:c1.rot,fov:c1.fov||72},{name:'C2',x:c2.x,y:c2.y,rot:c2.rot,fov:c2.fov||72}]};
 }
 // отрезок стены под проёмом — нужен правилу «не у двери» (`camGraze`); живёт в блоке, чтобы блок исполнялся и вне страницы
@@ -1509,7 +1513,7 @@ function cycleCams(){
 // значения продолжали бы жить: после перевода камер вплотную в угол сохранённые с прежним
 // отступом так и стояли бы в 10 см от стены. Меняем правило — меняем версию, и каждый
 // получает новые углы по умолчанию (владелец 01.09).
-const CAMS_VER='v9-tall';   // v9 (16.10): высокое (торшер, стеллаж) — целиком или вне кадра; v7 (14.10): ракурс 1 — лучший из четырёх углов, главное целиком; при смене правил сохранённые углы пересчитываются
+const CAMS_VER='v10-c2inset';   // v10 (17.10, demo-11): ракурс 2 — не ближе 60 см к стенам угла;   // v9 (16.10): высокое (торшер, стеллаж) — целиком или вне кадра; v7 (14.10): ракурс 1 — лучший из четырёх углов, главное целиком; при смене правил сохранённые углы пересчитываются
 function camsKey(){const v=allVariants()[cur]||{};return 'flat215-cams-'+CAMS_VER+'-'+(v.id||cur);}
 function loadCams(){
   try{const r=JSON.parse(localStorage.getItem(camsKey())||'null'); if(r&&r.length===2)return r;}catch(e){}

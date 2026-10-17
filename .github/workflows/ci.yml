@@ -152,6 +152,7 @@ jobs:
       - run: python tools/scout/opening_ir.py --selftest   # проёмы кадра из общего описания (demo-04)
       - run: python tools/scout/mesh_dark.py --selftest    # модель темнее товара — признак карантина (demo-05)
       - run: python tools/scout/unfit.py --selftest        # пригодность для гостиной: одно правило у подбора и лечения демо
+      - run: python tools/scout/tests/test_improve_prompt.py   # промпт «реалистично» v2: фото-вид, каталожная форма, тёплые гайды (demo-11)
 
   scout-selftest:
     # Селфтесты загрузки каталога (план catalog-load-hardening П0.4): правила разбора фида, единиц
