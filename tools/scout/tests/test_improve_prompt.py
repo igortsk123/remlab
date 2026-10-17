@@ -56,4 +56,13 @@ deny = db['_decor_policy']['deny_always']
 check('запрет выдуманных подушек и подлокотников в FORBIDDEN',
       any('cushions, throws or armrests that the catalogue product does not have' == x for x in deny))
 check('отпечаток промпта стабилен', IM.prompt_sha('abc') == IM.prompt_sha('abc') and len(IM.prompt_sha('abc')) == 12)
+# improve-v4 (demo-14): список товаров — только по флагу; без флага промпт и версия прежние
+check('без флага — improve-v3 и без списка товаров', (os.environ.get('IMPROVE_PROMPT') == 'v4') or
+      (IM.PROMPT_VERSION == 'improve-v3' and 'PRODUCT LIST' not in IM.prompt_for('сканди')))
+_pl = [{'id': [1], 'role': 'диван', 'name': 'Диван Викс Рогожка Серый', 'material': 'woven matting fabric', 'colour_name': 'Серый',
+        'colour_hex': '#82828C', 'confidence': 0.8}]
+_p4 = IM.prompt_for('сканди', products=_pl)
+check('список товаров — после правила эталонов, до заглушек', 'PRODUCT LIST' in _p4 and
+      _p4.index('Ignore catalogue backgrounds') < _p4.index('PRODUCT LIST') < _p4.index('A grey schematic'))
+check('список товаров — тон как базовый, не точный RGB', 'not an exact RGB' in _p4)
 sys.exit(1 if fails else 0)

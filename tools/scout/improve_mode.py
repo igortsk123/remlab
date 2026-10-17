@@ -41,7 +41,42 @@ SIZE = os.environ.get('IMPROVE_SIZE', '2048x3072')     # замер: прини�
 # готового ответа и исходника (`draft_render._improve_cache`, `from_sources`): ответ v1 не отдаётся на запрос v2
 # improve-v3 (demo-13, 17.10): гайды стилей v2.1 (6 блоков, без чисел и абсолютов) + общий префикс-защита перед гайдом; строки WALLS/FLOOR
 # гайда вырезаются, когда стены/пол выбраны застройщиком
-PROMPT_VERSION = 'improve-v3'
+# improve-v4 (demo-14, 17.10, A/B на листе сканди — `/test/share/refs-check/`): + СПИСОК ТОВАРОВ в промпте — номер как на листе эталонов,
+# роль, название, материал и цвет словами, измеренный основной тон фото (`refs_check.ref_colour`) и уверенность; средний ΔE00 12.1 → 9.0/10.4
+# в двух прогонах без роста времени. ПО УМОЛЧАНИЮ ВЫКЛЮЧЕН до приёмки d8: включается `IMPROVE_PROMPT=v4` в окружении рисующего процесса
+PROMPT_V4 = os.environ.get('IMPROVE_PROMPT') == 'v4'
+PROMPT_VERSION = 'improve-v4' if PROMPT_V4 else 'improve-v3'
+_MATERIALS = [('рогожк', 'woven matting fabric'), ('шенилл', 'chenille'), ('велюр', 'velour'), ('букле', 'bouclé'), ('вельвет', 'corduroy'),
+              ('экокож', 'faux leather'), ('кож', 'leather'), ('лён', 'linen'), ('шерст', 'wool'), ('хлоп', 'cotton'), ('дуб', 'oak'),
+              ('орех', 'walnut'), ('ясень', 'ash'), ('сосн', 'pine'), ('древесн', 'wood'), ('дерев', 'wood'), ('металл', 'metal'),
+              ('стекл', 'glass'), ('мрамор', 'marble'), ('ротанг', 'rattan'), ('лдсп', 'laminated board'), ('мдф', 'MDF')]
+
+
+def product_list(items: list, photos: dict) -> list:
+    """Список товаров для промпта v4: номера — как на листе эталонов (`draft_render._identity`: позиция в составе + 1, одинаковый
+    товар — одна строка с несколькими номерами), тон — основной кластер Lab по фото без фона, `confidence` — его доля."""
+    import draft_render as DR
+    import refs_check as RC
+    out, by = [], {}
+    for i, it in enumerate(items or []):
+        if not it.get('name') or not it.get('role'):
+            continue
+        key = it['name'] + '|' + DR._base_role(it['role'])
+        if key in by:
+            by[key]['id'].append(i + 1)
+            continue
+        low = it['name'].lower()
+        row = {'id': [i + 1], 'role': DR._base_role(it['role']), 'name': it['name'],
+               'material': next((en for ru, en in _MATERIALS if ru in low), None), 'colour_name': DR._colour_from_name(it['name'])}
+        try:
+            im = photos.get(it['role'])
+            rc = RC.ref_colour(im) if im is not None else {}
+            row['colour_hex'], row['confidence'] = rc.get('hex'), rc.get('confidence')
+        except Exception:  # noqa: BLE001 — без тона строка всё равно полезна
+            row['colour_hex'], row['confidence'] = None, None
+        by[key] = row
+        out.append(row)
+    return out
 
 
 # ОБЩИЙ ПРЕФИКС ГАЙДА (demo-13, критика Codex 17.10): гайд — подсказки, а не список обязательного; готовые окно/дверь/батарея/ручки на
@@ -117,7 +152,7 @@ def size_for(orient: str | None) -> str:
 
 
 def prompt_for(style: str | None, decor: list | None = None, floor: str | None = None, walls: str | None = None,
-               orient: str | None = None) -> str:
+               orient: str | None = None, products: list | None = None) -> str:
     """Промпт режима ремонта. СТРУКТУРА ВЛАДЕЛЬЦА (01.09): статические правила отдельно,
     STYLE GUIDE — единственный переменный блок, и он СОВЕТУЮЩИЙ, а не список обязательного.
 
@@ -174,6 +209,12 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
         'Correct inaccurate upholstery, shades, finishes and surface patterns to match the '
         'references, but never reconstruct, replace, move, resize, mirror or duplicate a product. '
         'Ignore catalogue backgrounds, text, logos and watermarks.',
+    ] + ([
+        '',
+        'PRODUCT LIST (numbers as on IMAGE 2; colour_hex is the base tone measured on the product photo, not an exact RGB under any '
+        'light):',
+        json.dumps(products, ensure_ascii=False),
+    ] if products else []) + [
         '',
         'A grey schematic object standing on the floor beside the furniture may be an existing '
         'catalogue product whose 3D model is not ready (for example a FLOOR LAMP). It is not a '
@@ -412,7 +453,13 @@ def build_from_views(payload: dict, style: str | None, stamp: str | None = None)
         except Exception as e:  # noqa: BLE001
             print(f'  лист декора не собрался: {str(e)[:70]}')
     fl, wl = payload.get('floor') or {}, payload.get('walls') or {}
-    prompt = prompt_for(style, decor, fl.get('title') or fl.get('id') or None, wl.get('title') or wl.get('id') or None, orient)
+    prods = None
+    if PROMPT_V4:
+        try:
+            prods = product_list(items, {it['role']: DR.photo(it.get('img')) for it in items if it.get('img') and it.get('role')})
+        except Exception as e:  # noqa: BLE001
+            print(f'  список товаров не собрался: {str(e)[:80]}')
+    prompt = prompt_for(style, decor, fl.get('title') or fl.get('id') or None, wl.get('title') or wl.get('id') or None, orient, prods)
     stamp = f'improve-{stamp}' if stamp else f'improve-{time.strftime("%H%M%S")}'
     clay = [str(x) for x in (payload.get('clay') or []) if x][:20]
     meta = {'режим': 'улучшить фото — кадры из браузерной сцены (demo-10)', 'стиль': style or '—',
@@ -531,7 +578,14 @@ def build(payload: dict, style: str | None, stamp: str | None = None) -> dict:
             print(f'  лист декора не собрался: {str(e)[:70]}')
     _ft = (((getattr(room, 'finish', None) or {}).get('floor') or {}).get('tex'))
     _wo = (((getattr(room, 'finish', None) or {}).get('wall') or {}).get('opt'))
-    prompt = prompt_for(style, decor, (_ft.get('title') or _ft.get('id')) if _ft else None, (_wo.get('title') or _wo.get('id')) if _wo else None)
+    prods = None
+    if PROMPT_V4:
+        try:
+            prods = product_list(payload.get('items', []), photos)
+        except Exception as e:  # noqa: BLE001
+            print(f'  список товаров не собрался: {str(e)[:80]}')
+    prompt = prompt_for(style, decor, (_ft.get('title') or _ft.get('id')) if _ft else None, (_wo.get('title') or _wo.get('id')) if _wo else None,
+                        None, prods)
     # Метку может задать вызывающий: черновик заранее сообщает странице адрес исходника,
     # и папка обязана совпасть с этим адресом (иначе «Улучшить фото» не найдёт готовый лист).
     stamp = f'improve-{stamp}' if stamp else f'improve-{time.strftime("%H%M%S")}'
