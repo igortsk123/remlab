@@ -63,6 +63,8 @@ export interface DemoScene {
   setWalk(from?: PhotoPose): void;
   /** Плавно перейти к позе ракурса (стрелки «‹ ›» в 3D, demo-09); в конце — кадр будущего реалистичного фото. */
   goToPose(pose: PhotoPose): void;
+  /** Портрет телефона: взгляд из позы наклонён к мебели (снимок сервера — без наклона). */
+  setTilt(on: boolean): void;
   /** Повернуть взгляд в прогулке (перетаскивание пальцем/мышью). */
   look(dx: number, dy: number): void;
   /** Какой предмет под точкой холста: номер в расстановке страницы (как в `update`), иначе -1. */
@@ -195,6 +197,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     exportFrame: (w, h, type, q) => viewer.exportFrame(w, h, type, q),
     setWalk: (from) => (from ? viewer.walkFrom(from) : viewer.setViewMode("walk")),
     goToPose: (pose) => { viewer.goToPose(pose); viewer.start(); },
+    setTilt: (on) => viewer.setTilt(on),
     look: (dx, dy) => viewer.look(dx, dy),
     focus: (index) => {
       const it = current[index];

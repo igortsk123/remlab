@@ -3839,6 +3839,9 @@ function histFwd(){return histGo(1);}
 <!-- ===== ОКНО ВАРИАНТА (план demo-02, ADR-0290): Б на компьютере, В со шторкой на телефоне ===== -->
 <style>
 #shot.v2 .box{width:min(1320px,97vw);height:92vh;max-height:none}
+/* окно варианта не прокручивается целиком (приёмка d8 17.10): кнопка, уехавшая под свёрнутую шторку, при фокусе или «подтянуть к
+   видимости» сдвигала #shotbody на 195 px — сцена и переключатель режимов уезжали за верх экрана; прокрутка — только в списке */
+#shot.v2 #shotbody{overflow:hidden;overflow:clip}
 #shot.v2 #shotbody{padding:0;overflow:hidden;display:flex}
 #shot.v2 .xclose{z-index:8}
 .vw{display:grid;grid-template-columns:minmax(0,1fr) 410px;flex:1;min-height:0;width:100%}
@@ -3982,6 +3985,8 @@ function histFwd(){return histGo(1);}
 #shot.v2 .cap{border-top:1px solid var(--line)}
 #shot.v2 .cap #shEdit,#shot.v2 .cap #shotclose{display:none}
 /* выбранный предмет: строка списка — мягкий фон и полоса бренда слева; метка цены на сцене — акцентная (владелец 16.10) */
+/* название товара в окне — до двух строк (приёмка d8 17.10: «Диван прямой di…» обрезался на бренде, суть терялась) */
+#shot.v2 .pinlist .row .t b{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;line-height:1.25}
 #shot.v2 .pinlist .row.hl{background:var(--accent-soft);border-radius:10px;box-shadow:inset 3px 0 0 var(--accent);transition:background .3s,box-shadow .3s}
 .vpin.sel{background:var(--accent);color:#fff;z-index:2}
 #shot.v2 .shotwrap .nav,#shot.v2 .shotwrap .viewno{display:none}
@@ -4019,8 +4024,10 @@ function histFwd(){return histGo(1);}
   .vstage .shotwrap{bottom:var(--vsh,320px)}
   #shot.v2 .shotwrap .livebadge{display:none}
   .vdots{bottom:calc(var(--vsh,320px) + 12px)}.vnav{top:calc((100% - var(--vsh,320px)) / 2)}
+  .vdots{transition:bottom .3s cubic-bezier(.32,.72,0,1)}   /* над текущим верхом шторки — ставит `vwSheetApply` */
   .vplanbox{inset:60px 8px var(--vsh,320px) 8px}
-  .vstub{bottom:var(--vsh,320px)}.vready{top:auto;bottom:calc(var(--vsh,320px) + 52px)}
+  /* подсказка «фото готово» — сверху, под ↶ ↷: снизу её перекрывала подпись выбранного пола (самопроверка 17.10) */
+  .vstub{bottom:var(--vsh,320px)}.vready{top:108px;bottom:auto}
   /* «3D» — холст на весь экран под шторкой; «Фото»/«План» — постоянная зона над свёрнутой шторкой (при жесте не меняется) */
   #shot.vwalk .vstage .shotwrap{bottom:0}
   #shot.v2 .shotwrap .livebadge,#shot.v2 .shotwrap .vold{top:auto;bottom:10px;left:10px}
@@ -4209,7 +4216,8 @@ function vwMid(e){
 // режима — не при жесте. В «3D» холст — на весь экран под шторкой
 function vwLayout(){
   const vw=document.querySelector('#shot .vw'), sd=document.getElementById('vside'); if(!vw||!sd)return;
-  if(!VW_PHONE()){sd.style.height=''; sd.style.transform=''; vw.style.removeProperty('--vsh'); return;}
+  if(!VW_PHONE()){sd.style.height=''; sd.style.transform=''; vw.style.removeProperty('--vsh');
+    const d=document.getElementById('vDots'); if(d)d.style.bottom=''; return;}
   const e=vwEdges(); sd.style.height=e.max+'px';
   vw.style.setProperty('--vsh',(e.min+8)+'px');
   vwSheetApply(Math.max(e.min,Math.min(e.max,VW.sheetVis||e.min)),false);
@@ -4225,6 +4233,8 @@ function vwSheetApply(vis, anim){
   if(anim&&Math.abs((was||0)-vis)>2)VW.sheetMovedAt=performance.now();
   sd.style.transition=anim&&!VW_SLOW()?'transform .3s cubic-bezier(.32,.72,0,1)':'none';
   sd.style.transform=`translateY(${Math.round(e.max-vis)}px)`;
+  // точки ракурсов — над текущим верхом шторки при любой высоте (приёмка d8 17.10: в средней остановке прятались за шторкой)
+  const dots=document.getElementById('vDots'); if(dots){dots.style.transition=anim&&!VW_SLOW()?'':'none'; dots.style.bottom=Math.round(vis+12)+'px';}
   const pos=vis<=e.min+4?0:vis>=e.max-4?3:2;
   if(sd.dataset.pos!==String(pos)){sd.dataset.pos=String(pos); vwSheetState(pos);}
 }
@@ -4390,7 +4400,9 @@ function vwMount(s){
   // подсказка — один раз на устройство: «подскок» шторки и 3 секунды текста
   if(window.innerWidth<=700){let seen=false; try{seen=!!localStorage.getItem('remlab-sheet-hint-v1');}catch(e){}
     if(!seen&&sd){const t=document.createElement('div'); t.className='vtip';
-      t.textContent='Потяните или нажмите — товары и замены'; t.style.bottom=((window.innerHeight-sd.getBoundingClientRect().top)+14)+'px';
+      // над шапкой шторки в её конечном положении (шторка ещё едет — её текущий верх врёт), в ширину экрана (приёмка d8 17.10)
+      t.textContent='Потяните или нажмите — товары и замены'; t.style.cssText='white-space:normal;text-align:center;max-width:calc(100% - 32px)';
+      t.style.bottom=(Math.round(VW.sheetVis||0)+14)+'px';
       shot.appendChild(t); setTimeout(()=>t.remove(),3000);
       try{localStorage.setItem('remlab-sheet-hint-v1','1');}catch(e){}}}
   // увеличить картинку: «⤢» или тап по ней; свайп по кадру — другой ракурс
@@ -4684,6 +4696,8 @@ async function liveShow(){
   const c=(cams||loadCams())[VW.photo]||(cams||loadCams())[0]||{};
   // «3D» СТОИТ В ТОЧКЕ СЪЁМКИ (demo-09): тот же кадр, что снимет «Сделать реалистичнее»; тянуть — повернуть взгляд, стрелки —
   // другая точка. Только при входе в режим: повторный показ после замены не отбрасывает человека туда, откуда он ушёл
+  // портрет телефона: взгляд наклонён к мебели (приёмка d8 17.10: верхние 40 % кадра были потолком); снимок нейросети — без наклона
+  if(sc.setTilt)sc.setTilt(VW_PHONE()&&window.innerHeight>window.innerWidth);
   if(LIVE.lastMode!=='walk')sc.setPhotoPose({x:c.x,y:c.y,rot:c.rot||0,fov:c.fov||72,pose:POSE_VER});
   LIVE.badge.textContent=LANG==='en'?'3D: drag to look around':'3D: тяните, чтобы осмотреться';
   LIVE.lastMode=VW.mode;

@@ -192,6 +192,8 @@ export class FlatViewer {
    * C1/C2 — плавный (`poseAnim`: разница «откуда − куда» гаснет за `ms`).
    */
   private photoLook = { yaw: 0, pitch: 0 };
+  /** Портрет телефона (приёмка d8 17.10): в позе взгляд наклонён к мебели, иначе верх кадра — потолок. Снимок сервера — без наклона. */
+  private tilt = false;
   private poseAnim: { dx: number; dy: number; yaw: number; pitch: number; t0: number; ms: number } | null = null;
   /** Кэш точки ценника над предметом: `Box3` по группе — дорого на каждый кадр (Codex 17.10, ценники в прогулке). */
   private anchors = new Map<string, { g: THREE.Object3D; px: number; pz: number; ry: number; t: number; c: THREE.Vector3 }>();
@@ -596,7 +598,7 @@ export class FlatViewer {
   /** Неподвижная камера фото-кадра (см. `PhotoPose`). Выход — `setViewMode`. */
   setPhotoPose(pose: PhotoPose): void {
     this.photo = { ...pose };
-    this.photoLook = { yaw: 0, pitch: 0 };
+    this.photoLook = { yaw: 0, pitch: this.tilt ? this.tiltFor(pose) : 0 };
     this.poseAnim = null;
     if (this.viewMode === "top") {
       this.scene.traverse((o) => {
@@ -604,6 +606,21 @@ export class FlatViewer {
       });
     }
     this.viewMode = "photo";
+  }
+
+  setTilt(on: boolean): void {
+    this.tilt = on;
+  }
+
+  /** Наклон взгляда из позы к середине мебели комнаты на высоте сидений: 70 % от прямого угла, не круче 18°. */
+  private tiltFor(pose: PhotoPose): number {
+    const room = roomAt(this.apartment, pose.x, pose.y);
+    const own = [...this.placed.values()].filter((p) => !room || p.spec.roomId === room.id).map((p) => p.spec.placement);
+    if (!own.length) return 0;
+    const cx = own.reduce((a, o) => a + o.x, 0) / own.length, cy = own.reduce((a, o) => a + o.y, 0) / own.length;
+    const eye = photoRay(pose).eye[1];
+    const deg = (Math.atan2(eye - 60, Math.max(100, Math.hypot(cx - pose.x, cy - pose.y))) * 180) / Math.PI;
+    return -Math.min(18, Math.max(0, deg * 0.7));
   }
 
   /** Действующая поза кадра: поза ракурса + поворот взгляда + незаконченный переход. */
@@ -636,7 +653,7 @@ export class FlatViewer {
     this.setPhotoPose(pose);
     if (!cur) return;
     const yaw = ((cur.rot - pose.rot + 540) % 360) - 180;
-    this.poseAnim = { dx: cur.x - pose.x, dy: cur.y - pose.y, yaw, pitch: cur.pitch, t0: now, ms };
+    this.poseAnim = { dx: cur.x - pose.x, dy: cur.y - pose.y, yaw, pitch: cur.pitch - this.photoLook.pitch, t0: now, ms };
   }
 
   /** Из фото-позы — в прогулку с той же точки и тем же взглядом (тап по полу в 3D: «иди сюда»). */
@@ -1479,7 +1496,7 @@ export class FlatViewer {
       // взгляд из точки съёмки: направление позы на плане — (sin rot, −cos rot)
       const want = (Math.atan2(x - this.photo.x, -(y - this.photo.y)) * 180) / Math.PI;
       this.photoLook.yaw = ((want - this.photo.rot + 540) % 360) - 180;
-      this.photoLook.pitch = 0;
+      this.photoLook.pitch = this.tilt ? this.tiltFor(this.photo) : 0;
       return;
     }
     this.heading = ((Math.atan2(x - this.pos.x, y - this.pos.y) * 180) / Math.PI + 360) % 360;

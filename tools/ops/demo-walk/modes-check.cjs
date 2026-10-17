@@ -37,6 +37,8 @@ await p.waitForFunction(()=>LIVE.scene&&LIVE.state==='ready',null,{timeout:15000
 let s=await st(p); ok('1 без фото — открыто 3D, вкладки «Фото» нет',s.mode==='walk'&&!s.photoTab,JSON.stringify({mode:s.mode,tab:s.photoTab}));
 ok('1 ценники над мебелью в 3D (≥ 3)',s.pins>=3,'видно '+s.pins);
 ok('1 «Сделать реалистичнее» видна в 3D',!!s.cta&&/реалистичнее/.test(s.cta),s.cta);
+const dz=await p.evaluate(()=>{const d=document.getElementById('vDots').getBoundingClientRect(), t=document.getElementById('vside').getBoundingClientRect(); return {dots:Math.round(d.bottom), sheet:Math.round(t.top)};});
+if(W<=700)ok('1 точки ракурсов над верхом шторки',dz.dots<=dz.sheet,JSON.stringify(dz));
 await p.screenshot({path:OUT+`m09-${W}-walk.png`});
 const p0=await p.evaluate(()=>LIVE.scene.pose()); await p.evaluate(()=>vwPhoto(VW.photo+1)); await p.waitForTimeout(1500);
 const p1=await p.evaluate(()=>LIVE.scene.pose()); await p.evaluate(()=>vwPhoto(VW.photo-1)); await p.waitForTimeout(1500); const p2=await p.evaluate(()=>LIVE.scene.pose());
@@ -58,10 +60,15 @@ await p.evaluate(()=>histBack()); await p.waitForTimeout(1200); s=await st(p);
 ok('4 ↶ вернул расстановку со снимком → «Фото» снова доступно (в 3D)',s.mode==='walk'&&s.photoTab,JSON.stringify({mode:s.mode,tab:s.photoTab}));
 // 3. состояние изменилось во время задания → без переключения, подсказка
 await p.evaluate(()=>{window.__fakeReady=0; const g=devGroups().find(x=>x.kind==='flooring'); devSet(g.id,g.variants[2].id);}); await p.waitForTimeout(900);
+await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(800);   // после изменения шторка свёрнута — кнопку сперва видно, как у человека
 await p.click('#vCta'); await p.waitForTimeout(1200);
 await p.evaluate(()=>{const g=devGroups().find(x=>x.kind==='flooring'); devSet(g.id,g.variants[3].id); window.__fakeReady=1;});
 await p.waitForFunction(()=>!VJ.job,null,{timeout:20000}).catch(()=>{}); await p.waitForTimeout(500); s=await st(p);
 ok('3 расстановка менялась во время съёмки → 3D, подсказка «фото готово для прежней»',s.mode==='walk'&&!s.photoTab&&s.ready,JSON.stringify({mode:s.mode,tab:s.photoTab,ready:s.ready}));
+const geo=await p.evaluate(()=>{const R=s=>{const e=document.querySelector(s); if(!e)return null; const r=e.getBoundingClientRect(); return [Math.round(r.left),Math.round(r.top),Math.round(r.width),Math.round(r.height)];};
+  const sc=[...document.querySelectorAll('#shot, #shot *')].filter(e=>e.scrollTop>0).map(e=>(e.id||e.className||e.tagName)+':'+e.scrollTop);
+  return {vmodes:R('#shot .vmodes'), canvas:R('#shot canvas'), ready:R('#shot .vready'), scrolled:sc, win:scrollY};});
+ok('3 переключатель режимов на месте, сцена не уехала',!!geo.vmodes&&geo.vmodes[1]>=0&&geo.vmodes[1]<40&&!geo.scrolled.filter(x=>!/vscroll/.test(x)).length,JSON.stringify(geo));
 await p.screenshot({path:OUT+`m09-${W}-ready.png`});
 console.log('errs',p.errs.slice(0,3)); await p.context().close();
 // 5. без 3D: заглушка, кнопка работает (честный отказ без денег — подмены нет)
