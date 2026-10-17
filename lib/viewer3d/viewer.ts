@@ -186,6 +186,15 @@ export class FlatViewer {
    */
   private viewMode: "walk" | "top" | "photo" = "walk";
   private photo: PhotoPose | null = null;
+  /**
+   * 3D ИЗ ТОЧКИ СЪЁМКИ (demo-09, владелец 17.10): «3D» окна стоит в позе ракурса — тот же кадр, что снимет «Сделать
+   * реалистичнее», — и перетаскиванием поворачивает взгляд вокруг этой точки (`photoLook`, градусы). Переход между позами
+   * C1/C2 — плавный (`poseAnim`: разница «откуда − куда» гаснет за `ms`).
+   */
+  private photoLook = { yaw: 0, pitch: 0 };
+  private poseAnim: { dx: number; dy: number; yaw: number; pitch: number; t0: number; ms: number } | null = null;
+  /** Кэш точки ценника над предметом: `Box3` по группе — дорого на каждый кадр (Codex 17.10, ценники в прогулке). */
+  private anchors = new Map<string, { g: THREE.Object3D; px: number; pz: number; ry: number; t: number; c: THREE.Vector3 }>();
   private topTarget = new THREE.Vector2();   // точка, вокруг которой крутится вид сверху
   private topDistanceCm = 620;
   private topPitch = -52;
@@ -587,12 +596,71 @@ export class FlatViewer {
   /** Неподвижная камера фото-кадра (см. `PhotoPose`). Выход — `setViewMode`. */
   setPhotoPose(pose: PhotoPose): void {
     this.photo = { ...pose };
+    this.photoLook = { yaw: 0, pitch: 0 };
+    this.poseAnim = null;
     if (this.viewMode === "top") {
       this.scene.traverse((o) => {
         if (o.name.startsWith("ceiling:")) o.visible = true;
       });
     }
     this.viewMode = "photo";
+  }
+
+  /** Действующая поза кадра: поза ракурса + поворот взгляда + незаконченный переход. */
+  private livePose(now = performance.now()): { x: number; y: number; rot: number; pitch: number } | null {
+    if (!this.photo) return null;
+    const a = this.poseAnim;
+    let k = 1;
+    if (a) {
+      const t = Math.min(1, (now - a.t0) / Math.max(1, a.ms));
+      k = 1 - Math.pow(1 - t, 3);
+      if (t >= 1) this.poseAnim = null;
+    }
+    const left = a ? 1 - k : 0;
+    return {
+      x: this.photo.x + (a ? a.dx * left : 0),
+      y: this.photo.y + (a ? a.dy * left : 0),
+      rot: this.photo.rot + this.photoLook.yaw + (a ? a.yaw * left : 0),
+      pitch: this.photoLook.pitch + (a ? a.pitch * left : 0),
+    };
+  }
+
+  /**
+   * Плавно перейти к позе ракурса (стрелки «‹ ›» в 3D, demo-09): из фото-позы — по разнице поз, из прогулки — от точки,
+   * где стоит человек. Поворот взгляда сбрасывается: в конце перехода кадр = кадр будущего реалистичного фото.
+   */
+  goToPose(pose: PhotoPose, ms = 650): void {
+    const now = performance.now();
+    const cur = this.viewMode === "photo" ? this.livePose(now)
+      : { x: this.pos.x, y: this.pos.y, rot: (540 - this.heading) % 360, pitch: this.pitch };
+    this.setPhotoPose(pose);
+    if (!cur) return;
+    const yaw = ((cur.rot - pose.rot + 540) % 360) - 180;
+    this.poseAnim = { dx: cur.x - pose.x, dy: cur.y - pose.y, yaw, pitch: cur.pitch, t0: now, ms };
+  }
+
+  /** Из фото-позы — в прогулку с той же точки и тем же взглядом (тап по полу в 3D: «иди сюда»). */
+  photoToWalk(): void {
+    const p = this.viewMode === "photo" ? this.livePose() : null;
+    if (!p) return;
+    this.viewMode = "walk";
+    this.photo = null;
+    this.poseAnim = null;
+    applyPhotoShift(this.camera, 0);
+    this.camera.fov = this.quality.fov;
+    this.camera.updateProjectionMatrix();
+    const spot = nearestStandable(this.area, p.x, p.y, 8, 12) ?? { x: p.x, y: p.y };
+    this.pos.set(spot.x, spot.y);
+    this.heading = (540 - p.rot) % 360;
+    this.pitch = Math.max(-55, Math.min(45, p.pitch));
+    this.moveTarget = null;
+  }
+
+  /** Где камера и куда смотрит (heading: 0 = +y), в любой из поз — живые проверки поворота и шага. */
+  viewPose(): { x: number; y: number; yaw: number } {
+    const p = this.viewMode === "photo" ? this.livePose() : null;
+    if (p) return { x: Math.round(p.x), y: Math.round(p.y), yaw: Math.round((((540 - p.rot) % 360) + 360) % 360) };
+    return { x: Math.round(this.pos.x), y: Math.round(this.pos.y), yaw: Math.round(this.heading) };
   }
 
   /** Рисует ли браузер силами процессора — обёртка демо в этом случае берёт серверный эскиз. */
@@ -738,6 +806,12 @@ export class FlatViewer {
       // сверху мышь крутит сцену вокруг точки и меняет наклон, а не «голову»
       this.heading = (this.heading + dxPx * 0.25 + 360) % 360;
       this.topPitch = Math.max(-85, Math.min(-22, this.topPitch - dyPx * 0.2));
+      return;
+    }
+    if (this.viewMode === "photo" && this.photo) {
+      // взгляд из точки съёмки: та же чувствительность, что у прогулки (у позы угол растёт в другую сторону)
+      this.photoLook.yaw -= dxPx * 0.22;
+      this.photoLook.pitch = Math.max(-35, Math.min(35, this.photoLook.pitch - dyPx * 0.18));
       return;
     }
     this.heading = (this.heading + dxPx * 0.22 + 360) % 360;
@@ -1204,7 +1278,9 @@ export class FlatViewer {
     }
 
     if (this.viewMode === "photo" && this.photo) {
-      const { eye, target } = photoRay(this.photo);
+      const lp = this.livePose();
+      const { eye, target } = photoRay(lp ? { ...this.photo, x: lp.x, y: lp.y, rot: lp.rot } : this.photo);
+      if (lp && lp.pitch) target[1] += Math.tan((lp.pitch * Math.PI) / 180) * PHOTO_AIM_CM;   // поворот взгляда вверх-вниз
       const vfov = verticalFov(this.photo.fov ?? 72, this.camera.aspect);
       const shift = photoShift(this.photo);
       if (Math.abs(this.camera.fov - vfov) > 0.01 || (this.camera.view?.offsetY ?? 0) !== -shift) {
@@ -1325,8 +1401,16 @@ export class FlatViewer {
   projectSlot(slotId: string): { x: number; y: number; visible: boolean; distM: number } | null {
     const placed = this.placed.get(slotId);
     if (!placed) return null;
-    const bb = new THREE.Box3().setFromObject(placed.group);
-    const centre = new THREE.Vector3((bb.min.x + bb.max.x) / 2, (bb.min.y + bb.max.y) / 2, (bb.min.z + bb.max.z) / 2);
+    // точка предмета — из кэша, пока группа та же и не сдвинута (и не старше 1 с: модель могла смениться с коробки)
+    const g = placed.group, now = performance.now();
+    let a = this.anchors.get(slotId);
+    if (!a || a.g !== g || a.px !== g.position.x || a.pz !== g.position.z || a.ry !== g.rotation.y || now - a.t > 1000) {
+      const bb = new THREE.Box3().setFromObject(g);
+      a = { g, px: g.position.x, pz: g.position.z, ry: g.rotation.y, t: now,
+        c: new THREE.Vector3((bb.min.x + bb.max.x) / 2, (bb.min.y + bb.max.y) / 2, (bb.min.z + bb.max.z) / 2) };
+      this.anchors.set(slotId, a);
+    }
+    const centre = a.c.clone();
     const distM = this.camera.position.distanceTo(centre);
     const v = centre.project(this.camera);
     const el = this.renderer.domElement;
@@ -1391,6 +1475,13 @@ export class FlatViewer {
 
   /** Повернуться в прогулке лицом к точке квартиры (см): живая проверка «4 с хода к предмету» (demo-05 п.1д). */
   faceToward(x: number, y: number): void {
+    if (this.viewMode === "photo" && this.photo) {
+      // взгляд из точки съёмки: направление позы на плане — (sin rot, −cos rot)
+      const want = (Math.atan2(x - this.photo.x, -(y - this.photo.y)) * 180) / Math.PI;
+      this.photoLook.yaw = ((want - this.photo.rot + 540) % 360) - 180;
+      this.photoLook.pitch = 0;
+      return;
+    }
     this.heading = ((Math.atan2(x - this.pos.x, y - this.pos.y) * 180) / Math.PI + 360) % 360;
   }
 

@@ -63,13 +63,18 @@ test("2.1–2.3 окно кадра: фото, список, числа как �
   }
 });
 
-test("2.4 Фото (ракурсы стрелками), 3D и План переключаются в одном окне (demo-02 v3)", async ({ page }) => {
+test("2.4 режимы в одном окне: «Фото» — только при реалистичном снимке этой расстановки, иначе 3D; стрелки в 3D — точки съёмки (demo-09)", async ({ page }) => {
   await openDemo(page, "?live=force");
   await page.locator("#tab-room").click();
   await page.locator("button[data-swap]").first().click();
+  const hasPhoto = await page.locator('[data-vm="photo"]').isVisible();
+  const start = await page.evaluate("VW.mode") as string;
+  say("реалистичный снимок этой расстановки:", hasPhoto, "· окно открылось в", start);
+  expect(start).toBe(hasPhoto ? "photo" : "walk");
+  if (start !== "walk") await page.locator('[data-vm="walk"]').click();
   await page.locator("#vNext").click();
   await expect(page.locator("#vDots i").nth(1)).toHaveClass(/on/);
-  for (const m of ["walk", "plan", "photo"]) {
+  for (const m of ["plan", ...(hasPhoto ? ["photo"] : []), "walk"]) {
     const t = Date.now();
     await page.locator(`[data-vm="${m}"]`).click();
     await expect(page.locator(`[data-vm="${m}"]`)).toHaveClass(/on/);
@@ -78,7 +83,52 @@ test("2.4 Фото (ракурсы стрелками), 3D и План пере�
   await expect(page.locator("#shot .livecv, #shot .shotwrap img.vmain").first()).toBeVisible();
 });
 
-test("2.5–2.6 замена из окна: лента, выбор, сумма пересчитана, зовём снять фото", async ({ page }) => {
+test("2.24 без реалистичного фото — 3D с ценниками и «Сделать реалистичнее»; без 3D — заглушка, не эскиз (demo-09)", async ({ page }) => {
+  await openDemo(page, "?live=force");
+  await page.evaluate("shots = shots.filter((x) => x.quality !== 'realistic'); openLiveWindow()");
+  await page.waitForFunction("LIVE.scene && LIVE.state === 'ready'", null, { timeout: 120_000 });
+  expect(await page.evaluate("VW.mode")).toBe("walk");
+  await expect(page.locator('[data-vm="photo"]')).toBeHidden();
+  await expect(page.locator("#vCta")).toHaveText(/реалистичнее/);
+  await expect.poll(() => page.locator("#vpins .vpin:not([hidden])").count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(3);
+  say("ценников в 3D:", await page.locator("#vpins .vpin:not([hidden])").count());
+  await page.goto("/demo/?live=0", { waitUntil: "networkidle" });
+  await page.waitForFunction("typeof allVariants === 'function' && allVariants().length > 0 && !!FLAT");
+  await page.evaluate("shots = shots.filter((x) => x.quality !== 'realistic'); openLiveWindow()");
+  await expect(page.locator("#vStub")).toBeVisible();
+  await expect(page.locator("#vCta")).toBeVisible();
+  await expect(page.locator("#shot .restale")).toBeHidden();
+});
+
+// 2.25–2.26 (demo-09): «Сделать реалистичнее» — фоновое задание; ответ сервера подменён (платный путь не вызывается)
+test("2.25–2.26 фото готово для этой расстановки → «Фото» само; расстановку меняли во время съёмки → 3D и подсказка", async ({ page }) => {
+  let ready = false;
+  await page.route(/\/api\/render/, (r) => r.fulfill({ json: { job: "fake-" + Date.now() } }));
+  await page.route(/\/api\/job\?/, (r) => r.fulfill({ json: ready
+    ? { shots: [{ camera: "C1", url: "/demo/img/og.jpg" }, { camera: "C2", url: "/demo/img/og.jpg" }], backend: "fake" }
+    : { status: "running", eta: 30 } }));
+  await openDemo(page, "?live=force");
+  await page.evaluate("shots = shots.filter((x) => x.quality !== 'realistic'); openLiveWindow()");
+  await page.waitForFunction("LIVE.scene && LIVE.state === 'ready'", null, { timeout: 120_000 });
+  await page.locator("#vCta").click();
+  await expect(page.locator("#vCta")).toContainText("Рисуем фото");
+  expect(await page.evaluate("VW.mode")).toBe("walk");
+  ready = true;
+  await expect.poll(() => page.evaluate("VW.mode"), { timeout: 20_000 }).toBe("photo");
+  await expect(page.locator('[data-vm="photo"]')).toBeVisible();
+  await expect(page.locator("#vCta")).toBeHidden();
+  ready = false;
+  await page.evaluate("(() => { const g = devGroups().find((x) => x.kind === 'flooring'); devSet(g.id, g.variants[1].id); })()");
+  await expect.poll(() => page.evaluate("VW.mode")).toBe("walk");               // изменение → 3D
+  await page.locator("#vCta").click();
+  await page.evaluate("(() => { const g = devGroups().find((x) => x.kind === 'flooring'); devSet(g.id, g.variants[2].id); })()");
+  ready = true;
+  await expect(page.locator("#shot .vready")).toBeVisible({ timeout: 20_000 });  // «Фото готово для прежней расстановки»
+  expect(await page.evaluate("VW.mode")).toBe("walk");
+  await expect(page.locator('[data-vm="photo"]')).toBeHidden();
+});
+
+test("2.5–2.6 замена из окна: лента, выбор, сумма пересчитана, окно в 3D с «Сделать реалистичнее»", async ({ page }) => {
   await openDemo(page);
   await page.locator("#tab-room").click();
   await page.locator("button[data-swap]").first().click();
@@ -93,7 +143,9 @@ test("2.5–2.6 замена из окна: лента, выбор, сумма �
   await cards.first().click();
   await expect.poll(sumNow).not.toBe(before);
   say("сумма:", before, "→", await sumNow());
-  await expect(page.locator("#shReshoot")).toBeVisible();
+  // любое изменение → 3D (demo-09 п.4); черновика из окна нет
+  await expect.poll(() => page.evaluate("VW.mode")).toBe("walk");
+  await expect(page.locator("#vCta")).toHaveText(/реалистичнее/);
 });
 
 test("2.6 живая сцена: замена видна сразу, без запроса кадра к серверу (demo-01)", async ({ page }) => {
@@ -137,7 +189,7 @@ test("2.10–2.11, 2.17 конструктор: подсказка, перета
   await expect(page.locator("#consShot")).toBeVisible();
   await page.locator("#consDone").click();
   await expect(page.locator("#shot")).toBeVisible();      // «Готово» возвращает в окно кадра, откуда пришли
-  await expect(page.locator('[data-vm="plan"]')).toHaveClass(/on/);   // …в режим «План»
+  await expect(page.locator('[data-vm="walk"]')).toHaveClass(/on/);   // …в 3D: расстановку меняли (demo-09 п.4)
   await page.keyboard.press("Escape");
   await page.locator("text=Добавить новую расстановку").first().click();
   await expect(page.locator("#consHint")).toBeVisible();

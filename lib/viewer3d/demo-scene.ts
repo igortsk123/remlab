@@ -61,6 +61,8 @@ export interface DemoScene {
   /** Вид окна (demo-02): «Ракурс» — фото-поза (`setPhotoPose`), «3D» — прогулка; с позой — из точки этого ракурса,
    *  взгляд на середину мебели (`viewer.walkFrom`). */
   setWalk(from?: PhotoPose): void;
+  /** Плавно перейти к позе ракурса (стрелки «‹ ›» в 3D, demo-09); в конце — кадр будущего реалистичного фото. */
+  goToPose(pose: PhotoPose): void;
   /** Повернуть взгляд в прогулке (перетаскивание пальцем/мышью). */
   look(dx: number, dy: number): void;
   /** Какой предмет под точкой холста: номер в расстановке страницы (как в `update`), иначе -1. */
@@ -192,6 +194,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     accentSide: () => lastSide,
     exportFrame: (w, h, type, q) => viewer.exportFrame(w, h, type, q),
     setWalk: (from) => (from ? viewer.walkFrom(from) : viewer.setViewMode("walk")),
+    goToPose: (pose) => { viewer.goToPose(pose); viewer.start(); },
     look: (dx, dy) => viewer.look(dx, dy),
     focus: (index) => {
       const it = current[index];
@@ -209,10 +212,13 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     walkTap: (x, y) => {
       const hit = viewer.pick(x, y, canvas.getBoundingClientRect());
       if (hit.slotId) return slotIndex().get(hit.slotId) ?? -1;
-      if (hit.point) viewer.goTo(hit.point.x, hit.point.y);
+      if (hit.point) {
+        if (viewer.mode === "photo") viewer.photoToWalk();   // 3D из точки съёмки: шаг по полу — уже прогулка
+        viewer.goTo(hit.point.x, hit.point.y);
+      }
       return -1;
     },
-    pose: () => { const w = viewer.debugWalk(); return { x: w.x, y: w.y, yaw: w.heading }; },
+    pose: () => viewer.viewPose(),
     models: () => {
       const sig = viewer.placedSignatures();
       return Object.fromEntries([...slotIndex()].map(([id, i]) => [i, sig[id] ?? ""]));

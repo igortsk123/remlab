@@ -68,7 +68,8 @@ test("2.13 сохранённая коллекция получает карти
   console.log(`  · картинка коллекции за ${Math.round((Date.now() - t) / 1000)} с`);
 });
 
-// 2.12: из конструктора — «Посмотреть фото с изменениями» → новый кадр, конструктор закрылся, окно кадра открыто.
+// 2.12: из конструктора — «Готово — посмотреть в окне» → окно варианта в 3D с изменениями, конструктор закрылся (demo-09).
+// 2.7–2.8 и 2.13 — серверный черновик остаётся картинкой коллекции (demo-09 п.6), поэтому его ракурсы проверяем по-прежнему.
 test("2.12 фото с изменениями из конструктора", async ({ page }) => {
   test.setTimeout(4 * 60_000);
   await page.goto("/demo/?live=force", { waitUntil: "networkidle" });
@@ -88,5 +89,6 @@ test("2.12 фото с изменениями из конструктора", as
   await page.locator("#consShot").click();                // demo-02: из конструктора — в окно с живой сценой
   await expect(page.locator("#shot .livecv, #shot .shotwrap img.vmain").first()).toBeVisible({ timeout: 60_000 });
   await expect(page.locator("#cons")).toBeHidden();
+  expect(await page.evaluate("VW.mode")).toBe("walk");
   console.log(`  · окно с изменениями из конструктора за ${Math.round((Date.now() - t) / 1000)} с`);
 });

@@ -915,7 +915,7 @@ function init(){
   on('swapClose','onclick',closeSwapFull);
   document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSwapFull();});
   // ИЗ КОНСТРУКТОРА — В ОКНО С ЖИВОЙ СЦЕНОЙ (demo-02): серверный кадр нужен только на запасном пути (нет видеокарты)
-  on('consShot','onclick',()=>{ if(LIVE.ok===false){makePhoto('draft');return;} openLiveWindow(); });
+  on('consShot','onclick',()=>openLiveWindow());   // без 3D окно покажет заглушку и «Сделать реалистичнее» (demo-09)
   on('swapShot','onclick',()=>makePhoto('draft'));
   document.addEventListener('keydown',e=>{
     if(e.key==='Escape'&&document.getElementById('cons').classList.contains('on'))closeCons();});
@@ -1106,7 +1106,7 @@ function openWantedShot(){
   if(!_wantShot)return;
   const v=allVariants().find(x=>(x.id||'')===_wantShot);
   const sh=v&&bestShot(v), k=sh?shots.indexOf(sh):-1;
-  if(k>=0){ _wantShot=''; viewShot(k); }
+  if(k>=0){ _wantShot=''; vwOpenVariant(allVariants().indexOf(v)); }
 }
 // ПЛАН КВАРТИРЫ — ПРИМЕР КОМПОНОВКИ (владелец 26.08: «более реалистичную планировку, таких не
 // бывает»). Рисуем как чертёж застройщика: Г-образный контур, несущие стены толщиной, коридор,
@@ -1915,7 +1915,8 @@ function devSet(gid, vid){
   const next=devCanon(Object.assign({},DEVOPT,{[gid]:vid}));
   if(JSON.stringify(next)===JSON.stringify(DEVOPT))return;
   DEVOPT=next; devApply(); devDraw(); try{sync3dLink();}catch(e){}
-  histPush();              // номер состояния сменился: сумма, история и эскиз обновятся по `remlab:hist`
+  const sd0=document.getElementById('vside'), wasOpen=window.innerWidth<=700&&sd0&&+sd0.dataset.pos>0;
+  histPush();              // номер состояния сменился: сумма, история, 3D и свёрнутая шторка — по `remlab:hist` (demo-09 п.4a)
   const gg=devGroups().find(x=>x.id===gid)||{}, gk=gg.kind;
   const act=gk==='walls'?'walls_pick':gk==='flooring'?'floor_pick':null;   // встраиваемое — без своего события (пока нет в контракте)
   if(act)document.dispatchEvent(new CustomEvent('remlab:act',{detail:act}));
@@ -1923,7 +1924,7 @@ function devSet(gid, vid){
   if(FITTED_KINDS.includes(gk)){const v=devPick(gg); toast(v.name+' · '+devPriceShort(v)); return;}
   // ТЕЛЕФОН: раскрытая шторка закрывает пол — опускаем её, чтобы новый пол был виден сразу, и коротко говорим, что выбрано
   const sd=document.getElementById('vside'), shot=document.getElementById('shot');
-  if(window.innerWidth<=700&&sd&&shot&&+sd.dataset.pos>0){
+  if(wasOpen&&sd&&shot){
     vwSheet(0);
     const g=devGroups().find(x=>x.id===gid), v=g&&devPick(g);
     if(v){const t=document.createElement('div'); t.className='vtip';
@@ -2502,9 +2503,8 @@ function attachCollShot(cid,url){
 }
 // Кадр ТЕКУЩЕЙ расстановки, если он уже снят (путь без домена — так его принимает сервер коллекций).
 function currentShotPath(){
-  const v=allVariants()[cur], sh=v&&bestShot(v); if(!sh)return '';
-  const fresh=sh.revision?sh.revision===revision():(!baseRev||revision()===baseRev);
-  if(!fresh)return '';
+  // картинка коллекции (demo-09 п.6, Codex п.5): реалистичный снимок этой расстановки, иначе пусто — сервер снимет кадр сам (`snapLater`)
+  const sh=vwRealShots()[0]; if(!sh)return '';
   try{const p=new URL(sh.url,location.origin).pathname;
     return /^\/test\/share\/frames\/[\w.-]{1,120}\.(?:jpg|jpeg|png|webp)$/.test(p)?p:'';}catch(e){return '';}
 }
@@ -2639,7 +2639,7 @@ function drawColl(force){
     // по подписи — список мебели. Кадра у варианта нет — открывается список, как раньше.
     el.onclick=e=>{ if(e.target.closest('button'))return;
       const k=sh?shots.indexOf(sh):-1;
-      if(k>=0){viewShot(k);return;}
+      if(k>=0){vwOpenVariant(i);return;}
       toggleSwap(i); };
   });
   const add=document.createElement('div');
@@ -2652,7 +2652,7 @@ function drawColl(force){
   // «Открыть» у карточки со снимком и снимка не видел. Кадра нет — открываем список, как раньше.
   box.querySelectorAll('[data-swap]').forEach(b=>b.onclick=()=>{
     const i=+b.dataset.swap, sh=bestShot(allVariants()[i]), k=sh?shots.indexOf(sh):-1;
-    if(k>=0){viewShot(k);return;}
+    if(k>=0){vwOpenVariant(i);return;}
     toggleSwap(i);
   });
   // СТИЛИ БЕЗ ПОЛНОГО НАБОРА (conv-09): вариант без дивана, столика, ТВ-тумбы, ковра или торшера не
@@ -2772,8 +2772,8 @@ function openCons(mode){
   let hint=document.getElementById('consHint');
   if(!hint){hint=document.createElement('div');hint.id='consHint';hint.className='cons-hint';}
   hint.textContent=isTouchUI()
-    ?'Удерживайте предмет полсекунды и тяните — он переедет. Короткое касание — стрелки поворота. Когда готово — «Посмотреть фото с изменениями» внизу.'
-    :'Тяните предмет мышью, поворачивайте за уголок. Кружок на предмете — выбрать другой товар. Когда готово — «Посмотреть фото с изменениями» внизу.';
+    ?'Удерживайте предмет полсекунды и тяните — он переедет. Короткое касание — стрелки поворота. Когда готово — «Готово — посмотреть в окне» внизу.'
+    :'Тяните предмет мышью, поворачивайте за уголок. Кружок на предмете — выбрать другой товар. Когда готово — «Готово — посмотреть в окне» внизу.';
   body.appendChild(hint);
   document.getElementById('cons').classList.add('on');
   document.body.style.overflow='hidden';
@@ -2785,12 +2785,13 @@ function closeCons(){
   document.body.style.overflow='';
   if(work&&consHome){consHome.appendChild(work);work.hidden=true;}
   drawColl(); showSwap();
-  if(consBack>=0){const k=consBack; consBack=-1; viewShot(k);}
+  // «Готово» в редакторе — в 3D (demo-09 п.4): расстановку меняли, смотреть её надо в сцене, не в плане и не на старом фото
+  if(consBack>=0){const k=consBack; consBack=-1; if(VW.mode==='plan'||VW.mode==='photo')VW.mode='walk'; viewShot(k);}
 }
 function updateConsShot(){
   const b=document.getElementById('consShot');
   if(b)b.hidden=!(baseRev&&items.length&&revision()!==baseRev);
-  if(b&&typeof LIVE!=='undefined')b.textContent=LIVE.ok===false?'Посмотреть фото с изменениями':'Готово — посмотреть в окне';
+  if(b)b.textContent='Готово — посмотреть в окне';
   const f=document.getElementById('swapFoot');
   if(f)f.hidden=!(baseRev&&items.length&&revision()!==baseRev);
 }
@@ -2816,8 +2817,12 @@ function srcIdOf(s){
   const m=String((s&&s.sources)||'').match(/\/src\/([^/]+)\/?$/);
   return m?m[1]:'';
 }
-async function makePhoto(quality, srcId, replaceBatch){
-  if(busy){shotOpen('<div class="wait">Один кадр уже считается — дождитесь его.</div>','');return;}
+// `opt.bg` (demo-09, Codex п.1): фоновое задание окна варианта — без экрана ожидания и без `viewShot`; ход — `opt.progress(текст)`,
+// готово — `opt.done(номер первого нового кадра)`, отказ — `opt.fail(текст)`
+async function makePhoto(quality, srcId, replaceBatch, opt){
+  opt=opt||{};
+  const wait=(html,cap)=>{if(opt.bg){const t=document.createElement('div'); t.innerHTML=html; opt.fail(t.textContent.trim()); return;} shotOpen(html,cap);};
+  if(busy){wait('<div class="wait">Один кадр уже считается — дождитесь его.</div>','');return;}
   busy=true; warmUp();
   const t0=Date.now(), rev=revision();
   // ЗАПРОС КАДРА ЗАМОРАЖИВАЕТСЯ ДО ОТПРАВКИ (demo-02, разбор Codex 14.10): вариант, товары, номер состояния и позы камер
@@ -2828,7 +2833,7 @@ async function makePhoto(quality, srcId, replaceBatch){
   req.stateId=reqState;
   // честная оценка: генерация листа в 2048 идёт минуты, а не секунды (замер 01.09)
   const est=quality==='realistic'?'обычно 2–4 минуты':'обычно 20–25 секунд';
-  shotOpen('<div class="wait"><div class="spin"></div>'+
+  if(!opt.bg)shotOpen('<div class="wait"><div class="spin"></div>'+
     // ОДНА ФРАЗА БЕЗ ХВОСТА (карта сценариев 2.7): общий хвост « по вашей расстановке…» после фразы, где он уже
     // есть, давал «по вашей расстановке по вашей расстановке». Фразы целиком — их же переводит словарь EN внизу.
     (quality==='realistic'?'Рисуем фотографию по вашей расстановке…':'Собираем кадр по вашей расстановке…')+
@@ -2869,16 +2874,16 @@ async function makePhoto(quality, srcId, replaceBatch){
           // на сервере файлом и досчитается. Спрашиваем ТОТ ЖЕ номер (новое задание = риск второй оплаты, разбор
           // Codex), но не молча: человек видит, что происходит. Предел — общий срок выше.
           ++miss;
-          const q=document.getElementById('qinfo');
-          if(q)q.textContent=miss>=2?'Нет связи с сервером — ждём, кадр не потерян ('+miss*3+' с)':'';
+          const q=document.getElementById('qinfo'), t=miss>=2?'Нет связи с сервером — ждём, кадр не потерян ('+miss*3+' с)':'';
+          if(opt.bg){if(t)opt.progress(t);} else if(q)q.textContent=t;
           continue;
         }
         miss=0;
         if(jj&&jj.code&&jj.status!=='running'){const e=new Error(jj.error||'');e.code=jj.code;throw e;}
         if(jj&&jj.status==='running'){
-          const q=document.getElementById('qinfo');
-          if(q)q.textContent=jj.queue?('В очереди: '+jj.queue+(jj.eta?' · примерно '+jj.eta+' с':''))
+          const q=document.getElementById('qinfo'), t=jj.queue?('В очереди: '+jj.queue+(jj.eta?' · примерно '+jj.eta+' с':''))
             :(jj.eta?'осталось примерно '+jj.eta+' с':'');
+          if(opt.bg){if(t)opt.progress(t);} else if(q)q.textContent=t;
           continue;
         }
         if(jj&&jj.error)throw new Error(jj.error);
@@ -2895,6 +2900,7 @@ async function makePhoto(quality, srcId, replaceBatch){
     // Черновик НЕ УДАЛЯЕМ, а помечаем служебным: на экране его нет, но он остаётся для сверки
     // (владелец 01.09: «для пользователя удаляешь, но сохраняешь»).
     if(replaceBatch){ shots.forEach(x=>{if(x.batch===replaceBatch)x.svc=true;}); saveShots(); }
+    const n0=shots.length;
     j.shots.forEach(sh=>addShot({url:sh.url,camera:sh.camera||'C1',quality:quality,batch:batch,
       anchors:sh.anchors||[],products:reqProducts,
       variant:vv.title||'',style:vv.style||'',vid:vv.id||('v'+cur),
@@ -2902,6 +2908,7 @@ async function makePhoto(quality, srcId, replaceBatch){
       ts:Date.now(),model:j.model||'',sources:sh.sources||j.sources||'',
       timing:j.timing||null}));
     // ПО СЪЁМКЕ КОНСТРУКТОР ЗАКРЫВАЕТСЯ, КАДР ВСТАЁТ В КОЛЛЕКЦИЮ (план demo-collection-flow)
+    if(opt.bg){opt.done(n0); return;}
     if(document.getElementById('cons').classList.contains('on'))closeCons();
     // Автоматической цепочки «черновик → модель» НЕТ (владелец 01.09): платный вызов —
     // только по кнопке «Улучшить фото».
@@ -2913,7 +2920,7 @@ async function makePhoto(quality, srcId, replaceBatch){
     // когда экран гаснет или сеть переключается. Сервер теперь хранит готовый результат по
     // `src_id`, поэтому повтор отдаёт ту же картинку и НЕ платит второй раз.
     const net=/load failed|failed to fetch|networkerror|aborted/i.test(String(err.message||err));
-    if(net&&srcId){
+    if(net&&srcId&&!opt.bg){
       shotOpen('<div class="wait"><div class="spin"></div>Связь прервалась. Забираем готовый '+
         'кадр с сервера…</div>','это бесплатно — фотография уже сделана');
       await new Promise(r=>setTimeout(r,1500));
@@ -2924,10 +2931,14 @@ async function makePhoto(quality, srcId, replaceBatch){
     // этой кнопкой человека — сервер сам за него не платит второй раз.
     const code=err&&err.code||'';
     if(code==='no_credits'||code==='unavailable'){
-      shotOpen('<div class="wait">'+escHtml(String(err.message||''))+'</div>','');
+      // окно варианта: про черновик не говорим — его у покупателя больше нет (demo-09 п.5)
+      if(opt.bg){opt.fail(code==='no_credits'?'Фото сейчас не сделать: у сервиса картинок закончился баланс. Попробуйте позже.'
+        :'Фото сейчас не сделать: сервер улучшения не отвечает. Попробуйте позже.'); return;}
+      wait('<div class="wait">'+escHtml(String(err.message||''))+'</div>','');
       return;
     }
     const lost=code==='lost'||code==='not_found';
+    if(opt.bg){opt.fail((lost?'':'Не получилось сделать фото. ')+String(err.message||err).slice(0,200)); return;}
     shotOpen('<div class="wait">'+(lost?'':'Не получилось собрать кадр.<br>')+
       escHtml(String(err.message||err).slice(0,200))+
       '<br><button class="btn primary" id="shRetry" style="margin-top:12px">Повторить</button></div>','');
@@ -3074,6 +3085,7 @@ function viewShot(i){
   // текущему варианту — там переключения не происходит и правки человека не теряются.
   const vi=allVariants().findIndex(v=>(v.id||'')===(s.vid||''));
   if(vi>=0&&vi!==cur)pickVariant(vi);
+  if(VW.mode==='photo'&&!vwRealShots().includes(s))VW.mode='walk';   // старый снимок — история; в окне — 3D (demo-09)
   // ЯКОРЯ ставим по координатам, посчитанным сервером из масок сцены: клик ведёт в магазин
   const pins='';           // ЗНАЧКОВ НА ФОТО НЕТ (владелец 27.08): товары — лентой под кадром
   // ПОД ФОТО — ВСЕ ТОВАРЫ С ЦЕНАМИ И ИТОГОМ (владелец 26.08)
@@ -3856,7 +3868,7 @@ function histFwd(){return histGo(1);}
 .vhist span{padding:0 4px}.vhist button{width:34px;height:34px;border-radius:50%;border:0;background:rgba(255,255,255,.18);
  color:#fff;font-size:18px;cursor:pointer}.vhist button:disabled{opacity:.35;cursor:default}
 .vpins{position:absolute;inset:0;pointer-events:none;z-index:4}
-.vpin{position:absolute;transform:translate(-50%,-100%);background:var(--surface);color:var(--ink);border-radius:999px;
+.vpin{position:absolute;left:0;top:0;transform-origin:50% 100%;will-change:transform;background:var(--surface);color:var(--ink);border-radius:999px;
  padding:3px 9px;font-size:12.5px;font-weight:600;box-shadow:var(--sh-1);white-space:nowrap;pointer-events:auto;cursor:pointer}
 .vside{display:flex;flex-direction:column;min-height:0;border-left:1px solid var(--line);background:var(--surface)}
 .vgrip,.vpill{display:none}
@@ -3945,7 +3957,19 @@ function histFwd(){return histGo(1);}
 .vdots{display:none;position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:6;gap:8px;padding:6px 10px;
  border-radius:999px;background:rgba(43,38,34,.45)}
 .vdots i{display:block;width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.55)}.vdots i.on{background:#fff}
-#shot.vphoto.vmany .vnav{display:block}#shot.vphoto.vmany .vdots{display:flex}
+#shot.vphoto.vmany .vnav,#shot.vwalk.vmany .vnav{display:block}#shot.vphoto.vmany .vdots,#shot.vwalk.vmany .vdots{display:flex}
+/* 3D (demo-09): под живой сценой картинок нет; без 3D — спокойная заглушка; «фото готово для прежней расстановки» — в углу */
+#shot.vwalk .shotwrap img,#shot.vwalk .vzbtn,#shot.vwalk .vold{visibility:hidden}
+.vstub{display:none;position:absolute;inset:0;z-index:5;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+ padding:24px;text-align:center;background:var(--wash-2);color:var(--ink);font-size:15px;line-height:1.45}
+.vstub p{max-width:340px;margin:0}
+#shot.nolive.vwalk .vstub{display:flex}
+.vready{position:absolute;left:0;right:0;margin:0 auto;width:max-content;max-width:calc(100% - 24px);top:60px;z-index:6;border:0;
+ background:var(--surface);color:var(--ink);font:inherit;font-size:13.5px;line-height:1.3;padding:7px 14px;border-radius:999px;
+ box-shadow:var(--sh-2);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#shot.nolive.vwalk .vnav,#shot.nolive.vwalk .vdots{display:none!important}
+.vcta.busy{cursor:default;opacity:.92}
+.vcta-err{font-size:13px;color:#B3261E;margin:6px 2px 0;line-height:1.4}
 .vplanbox{display:none;position:absolute;inset:60px 12px 12px;z-index:4;background:var(--wash-2)}
 .vplanbox svg{width:100%;height:100%}
 #shot.vplan .vplanbox{display:block}#shot.vplan .shotwrap img,#shot.vplan .vpins,#shot.vplan .vold,#shot.vplan .vzbtn,
@@ -3954,13 +3978,13 @@ function histFwd(){return histGo(1);}
  text-decoration:none;font-size:14px;font-weight:600;padding:8px 14px;border-radius:999px;box-shadow:var(--sh-2)}
 #shot.vwalk .vflat{display:inline-block}
 #shot.v2 .pinlist .total{display:none}
-#shot.v2:not(.nolive) .restale{display:none}
+#shot.v2 .restale{display:none}   /* черновик из окна убран (demo-09 п.5) */
 #shot.v2 .cap{border-top:1px solid var(--line)}
 #shot.v2 .cap #shEdit,#shot.v2 .cap #shotclose{display:none}
 /* выбранный предмет: строка списка — мягкий фон и полоса бренда слева; метка цены на сцене — акцентная (владелец 16.10) */
 #shot.v2 .pinlist .row.hl{background:var(--accent-soft);border-radius:10px;box-shadow:inset 3px 0 0 var(--accent);transition:background .3s,box-shadow .3s}
-.vpin.sel{background:var(--accent);color:#fff;transform:translate(-50%,-100%) scale(1.08);z-index:2}
-#shot.v2 .shotwrap .nav,#shot.v2 .shotwrap .viewno,#shot.vwalk .vpins{display:none}
+.vpin.sel{background:var(--accent);color:#fff;z-index:2}
+#shot.v2 .shotwrap .nav,#shot.v2 .shotwrap .viewno{display:none}
 /* новая картинка — плавно (200 мс), а не вспышкой */
 #shot .shotwrap .livecv{opacity:0;transition:opacity .2s}#shot .shotwrap .livecv.in{opacity:1}
 /* обновление готовой сцены — крутилка в углу, сцена не «моргает» */
@@ -3996,6 +4020,7 @@ function histFwd(){return histGo(1);}
   #shot.v2 .shotwrap .livebadge{display:none}
   .vdots{bottom:calc(var(--vsh,320px) + 12px)}.vnav{top:calc((100% - var(--vsh,320px)) / 2)}
   .vplanbox{inset:60px 8px var(--vsh,320px) 8px}
+  .vstub{bottom:var(--vsh,320px)}.vready{top:auto;bottom:calc(var(--vsh,320px) + 52px)}
   /* «3D» — холст на весь экран под шторкой; «Фото»/«План» — постоянная зона над свёрнутой шторкой (при жесте не меняется) */
   #shot.vwalk .vstage .shotwrap{bottom:0}
   #shot.v2 .shotwrap .livebadge,#shot.v2 .shotwrap .vold{top:auto;bottom:10px;left:10px}
@@ -4075,6 +4100,8 @@ function vwHtml(s, navs, list){
     `<button class="vnav vprev" id="vPrev" aria-label="Предыдущий вид">‹</button><button class="vnav vnext" id="vNext" aria-label="Следующий вид">›</button>`+
     `<div class="vdots" id="vDots">${Array.from({length:vwCamN()},(_,k)=>`<i class="${k===VW.photo?'on':''}"></i>`).join('')}</div>`+
     `<div class="vplanbox" id="vPlan"></div>`+
+    `<div class="vstub" id="vStub"><p>${EN?'3D does not open on this device — open the link on another phone or a computer.':'3D на этом устройстве не открывается — откройте ссылку на другом телефоне или компьютере.'}</p>`+
+    `<button class="btn" id="vStubLink" type="button">${EN?'Copy the link':'Скопировать ссылку'}</button></div>`+
     `<div class="vhist" hidden><button id="vhBack" aria-label="Отменить изменение" title="Отменить изменение">↶</button><span id="vhTxt"></span>`+
     `<button id="vhFwd" aria-label="Вернуть изменение" title="Вернуть изменение">↷</button></div><div class="vpins" id="vpins"></div>`+
     `<div class="vload" id="vload"><div><i></i><span id="vloadTxt">Собираем сцену…</span></div></div>`+
@@ -4105,13 +4132,16 @@ function vwHist(){
   if(b)b.disabled=h.at<=0; if(f)f.disabled=h.at>=h.stack.length-1;
 }
 // ОКНО ВАРИАНТА БЕЗ ОЖИДАНИЯ: кадр варианта (или пустая «живая» запись, если кадров нет) — сцена покажет текущую расстановку
+// карточка, ссылка #v= → окно варианта по правилам режимов (demo-09): «Фото» при реалистичном снимке этой расстановки, иначе 3D
+function vwOpenVariant(i){ if(i>=0&&i!==cur)pickVariant(i); openLiveWindow(); }
 function openLiveWindow(){
   if(document.getElementById('cons').classList.contains('on')){consBack=-1; closeCons();}
-  VW.mode='photo'; VW.photo=0; VW.sel=null; VW.group=null; VW.overviewVis=null; VW.sheetVis=0;   // новое окно варианта — с «Фото», первым ракурсом (возврат из редактора сохраняет «План»)
-  const v=allVariants()[cur]||{}, vid=v.id||('v'+cur);
+  VW.photo=0; VW.sel=null; VW.group=null; VW.overviewVis=null; VW.sheetVis=0;   // новое окно варианта — первая точка съёмки
+  // ОКНО ОТКРЫВАЕТСЯ В «ФОТО», ЕСЛИ ЕСТЬ РЕАЛИСТИЧНЫЙ СНИМОК ЭТОЙ РАССТАНОВКИ, ИНАЧЕ В «3D» (demo-09 п.1)
+  const v=allVariants()[cur]||{}, vid=v.id||('v'+cur), real=vwRealShots();
+  if(real.length){const k=real[0]; VW.mode='photo'; VW.photo=vwCamIndex(k.camera); viewShot(shots.indexOf(k)); return;}
+  VW.mode='walk';
   let i=shots.findIndex(x=>x.vid===vid&&x.live);
-  const best=bestShot(v);
-  if(best)i=shots.indexOf(best);
   if(i<0){shots.push({url:'',camera:'C1',quality:'live',vid:vid,revision:'',ts:Date.now(),live:true,svc:true}); i=shots.length-1;}
   viewShot(i);
 }
@@ -4278,8 +4308,9 @@ function vwSelect(idx){
   if(LIVE.scene&&LIVE.scene.select)LIVE.scene.select(VW.sel);
   try{vwPins();}catch(e){}
 }
-function vwHighlight(idx){
+function vwHighlight(idx, opt){
   const it=items[idx]; if(!it)return;
+  const open=!(opt&&opt.open===false);
   vwSelect(idx);
   vwGroupOpen(null);                    // выбрали предмет на сцене — список товаров, а не раздел отделки
   const name=(skuOf(it)||{}).name; const k=shotRows.findIndex(a=>a.name===name);
@@ -4287,29 +4318,42 @@ function vwHighlight(idx){
   const r=row.closest('.row')||row;
   document.querySelectorAll('#shotbody .row.hl').forEach(x=>x.classList.remove('hl'));
   r.classList.add('hl'); clearTimeout(VW.hlT); VW.hlT=setTimeout(()=>r.classList.remove('hl'),4000);
-  if(window.innerWidth<=700){const sd=document.getElementById('vside'); if(sd&&+sd.dataset.pos<2)vwSheet(2);}
+  if(open&&window.innerWidth<=700){const sd=document.getElementById('vside'); if(sd&&+sd.dataset.pos<2)vwSheet(2);}
   // шторка едет 0,28 с — прокручиваем, когда высота уже новая
   setTimeout(()=>r.scrollIntoView({block:'center',behavior:'smooth'}),320);
 }
-function vwPins(){
-  const box=document.getElementById('vpins'); if(!box)return;
-  if(!LIVE.scene||!LIVE.canvas||!LIVE.canvas.parentNode||VW.mode==='walk'){box.innerHTML='';return;}
-  box.innerHTML=LIVE.scene.pins().filter(p=>p.visible).map(p=>{const it=items[p.index]; const pr=it&&(skuOf(it)||{}).price;
-    return pr?`<span class="vpin${p.index===VW.sel?' sel':''}" data-pi="${p.index}" style="left:${Math.round(p.x)}px;top:${Math.round(p.y)-6}px">${money(pr)}</span>`:'';}).join('');
-  // ЦЕНА — ТОЛЬКО ЦЕЛИКОМ В КАДРЕ И НЕ ПОД КНОПКАМИ (прогон d8 14.10: «4 290 ₽» обрезана у края на телефоне): метка, которая
-  // вылезает за край сцены или ложится на переключатель ракурсов / историю / подпись, не показывается
-  const fr=box.getBoundingClientRect(), pad=4;
-  const busy=[...document.querySelectorAll('#shot .vmodes, #shot .vhist, #shot .vold, #shot .vzbtn, #vside, #vsum, #shot .vnav, #shot .vdots, #shot .vflat')].concat(LIVE.badge?[LIVE.badge]:[])
-    .map(e=>e.getBoundingClientRect()).filter(r=>r.width>0);
+// ЦЕННИКИ НАД МЕБЕЛЬЮ В 3D (demo-09, Codex 17.10): метки — постоянные узлы, двигаются `transform` на каждом кадре; точки предметов —
+// из кэша движка (`viewer.projectSlot`), замеры окна и кнопок — 12 раз в секунду, не на каждом кадре. В «Фото» (снимок нейросети)
+// меток нет — там только картинка. Правила прежние: только целиком в кадре, не под кнопками и шторкой, из пересекающихся — дороже
+const PINS={map:new Map(), box:null, t:0, fr:null, busy:[], raf:0};
+function vwPins(){ if(!PINS.raf)PINS.raf=requestAnimationFrame(vwPinsTick); }
+function vwPinsTick(now){
+  PINS.raf=0;
+  const shot=document.getElementById('shot'), box=document.getElementById('vpins'); if(!box)return;
+  if(box!==PINS.box){PINS.box=box; PINS.map.clear(); PINS.fr=null;
+    box.onclick=e=>{const b=e.target.closest&&e.target.closest('[data-pi]'); if(b)vwHighlight(+b.dataset.pi);};}
+  const on=shot.classList.contains('on')&&VW.mode==='walk'&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode;
+  if(!on){if(box.childElementCount)box.innerHTML=''; PINS.map.clear(); return;}
+  if(!PINS.fr||now-PINS.t>80){PINS.t=now; PINS.fr=box.getBoundingClientRect();
+    PINS.busy=[...document.querySelectorAll('#shot .vmodes, #shot .vhist, #shot .vzbtn, #vside, #vsum, #shot .vnav, #shot .vdots, #shot .vflat, #shot .vready')]
+      .map(e=>e.getBoundingClientRect()).filter(r=>r.width>0);}
+  const fr=PINS.fr, pad=4, seen=new Set(), cand=[];
   const hit=(a,b)=>a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top;
-  box.querySelectorAll('.vpin').forEach(b=>{const r=b.getBoundingClientRect();
-    if(r.left<fr.left+pad||r.right>fr.right-pad||r.top<fr.top+pad||r.bottom>fr.bottom-pad||busy.some(o=>hit(r,o)))b.remove();});
-  // метки не наезжают друг на друга (телефон 14.10: «229 ₽» поверх «19 990 ₽»): из двух пересекающихся остаётся дороже
-  const price=b=>{const it=items[+b.dataset.pi]; return +((it&&(skuOf(it)||{}).price)||0);};
+  LIVE.scene.pins().forEach(p=>{if(!p.visible)return; const it=items[p.index], pr=it&&(skuOf(it)||{}).price; if(!pr)return;
+    let n=PINS.map.get(p.index); const txt=money(pr);
+    if(!n){n=document.createElement('span'); n.className='vpin'; n.dataset.pi=String(p.index); box.appendChild(n); PINS.map.set(p.index,n);}
+    if(n.textContent!==txt){n.textContent=txt; n._w=0;}
+    if(!n._w){n.hidden=false; n._w=n.offsetWidth; n._h=n.offsetHeight;}
+    seen.add(p.index); cand.push({n,p,pr:+pr});});
   const kept=[];
-  [...box.querySelectorAll('.vpin')].sort((a,b)=>price(b)-price(a)).forEach(b=>{const r=b.getBoundingClientRect();
-    if(kept.some(k=>hit(r,k)))b.remove(); else kept.push(r);});
-  box.querySelectorAll('[data-pi]').forEach(b=>b.onclick=()=>vwHighlight(+b.dataset.pi));
+  cand.sort((a,b)=>b.pr-a.pr).forEach(c=>{const w=c.n._w, h=c.n._h, x=Math.round(c.p.x-w/2), y=Math.round(c.p.y-6-h);
+    const r={left:fr.left+x, right:fr.left+x+w, top:fr.top+y, bottom:fr.top+y+h};
+    const ok=!(r.left<fr.left+pad||r.right>fr.right-pad||r.top<fr.top+pad||r.bottom>fr.bottom-pad||PINS.busy.some(o=>hit(r,o))||kept.some(k=>hit(r,k)));
+    c.n.hidden=!ok; if(!ok)return; kept.push(r);
+    const sel=c.p.index===VW.sel; c.n.classList.toggle('sel',sel);
+    c.n.style.transform=`translate(${x}px,${y}px)${sel?' scale(1.08)':''}`;});
+  PINS.map.forEach((n,i)=>{if(!seen.has(i)){n.remove(); PINS.map.delete(i);}});
+  PINS.raf=requestAnimationFrame(vwPinsTick);
 }
 function vwMount(s){
   const shot=document.getElementById('shot'); shot.classList.add('v2');
@@ -4336,9 +4380,11 @@ function vwMount(s){
   vwHist();
   const cta=document.getElementById('vCta');
   // главное действие режима (v3): «Фото» — «Сделать реалистичнее», «План» — «Изменить план» (редактор, «Готово» вернёт сюда же)
+  // «Сделать реалистичнее» — в 3D (demo-09): фоновое задание, окно не трогаем; «План» — «Изменить план»
   if(cta)cta.onclick=()=>{
     if(VW.mode==='plan'){const ed=document.getElementById('shEdit'); if(ed&&ed.onclick)ed.onclick(); return;}
-    makePhoto('realistic',(s.url&&(!s.stateId||s.stateId===curStateId())&&!liveStale(s))?srcIdOf(s):'',s.batch||'');};
+    vwRealistic();};
+  const sl=document.getElementById('vStubLink'); if(sl)sl.onclick=()=>{const b=document.getElementById('shLink'); if(b)b.click();};
   vwSheetWire();
   const sd=document.getElementById('vside');
   // подсказка — один раз на устройство: «подскок» шторки и 3 секунды текста
@@ -4354,39 +4400,95 @@ function vwMount(s){
     mi.addEventListener('pointerup',e=>{if(sx===null)return; const dx=e.clientX-sx; sx=null;
       if(Math.abs(dx)>50)vwPhoto(VW.photo+(dx<0?1:-1));
       else vwZoom(s.url);});}
-  clearInterval(VW.pinsT); VW.pinsT=setInterval(()=>{if(!shot.classList.contains('on')){clearInterval(VW.pinsT);return;} vwPins();},300);
+  vwPins();
 }
 // ПЕРЕКЛЮЧЕНИЕ РЕЖИМА МЕНЯЕТ ТОЛЬКО ОБЛАСТЬ СЦЕНЫ (владелец 16.10, п.6): шторка/колонка, список и сумма остаются как были
 function vwModeUi(){
   const shot=document.getElementById('shot'), m=VW.mode, EN=LANG==='en';
   shot.querySelectorAll('[data-vm]').forEach(x=>x.classList.toggle('on',x.dataset.vm===m));
   shot.classList.toggle('vwalk',m==='walk'); shot.classList.toggle('vplan',m==='plan'); shot.classList.toggle('vphoto',m==='photo');
-  shot.classList.toggle('vmany',vwCamN()>1);
+  // «Фото» — только когда есть реалистичный снимок ЭТОЙ расстановки (demo-09); стрелки — по снимкам в «Фото», по позам в 3D
+  const real=vwRealShots(), ph=shot.querySelector('[data-vm="photo"]'); if(ph)ph.hidden=!real.length;
+  shot.classList.toggle('vmany',m==='photo'?real.length>1:vwCamN()>1);
   // область сцены зависит от режима («3D» — на весь экран), шторка остаётся, где была (v4)
   if(VW_PHONE())requestAnimationFrame(()=>vwLayout());
   const cta=document.getElementById('vCta');
-  if(cta){cta.hidden=m==='walk'; cta.textContent=m==='plan'?(EN?'Edit the plan':'Изменить план'):(EN?'Make it realistic':'Сделать реалистичнее');}
-  const dots=document.getElementById('vDots'); if(dots)[...dots.children].forEach((d,k)=>d.classList.toggle('on',k===VW.photo));
+  vwCtaUi();
+  const dots=document.getElementById('vDots'), nd=m==='photo'?real.length:vwCamN();
+  if(dots){if(dots.children.length!==nd)dots.innerHTML=Array.from({length:nd},()=>'<i></i>').join('');
+    const at=m==='photo'?Math.max(0,real.findIndex(x=>(x.camera||'C1')===vwCam())):VW.photo;
+    [...dots.children].forEach((d,k)=>d.classList.toggle('on',k===at));}
   if(m==='plan')vwPlanDraw();
 }
 function vwMode(m){
   if(!['photo','walk','plan'].includes(m))return;
+  if(m==='photo'&&!vwRealShots().length)return;
   VW.mode=m; vwModeUi();
   if(m==='plan'){liveHide(); return;}
   vwPhotoShow();
 }
-// ракурс «Фото»: готовое фото этого ракурса из той же съёмки, если оно актуально, иначе живая сцена в позе ракурса
+// РЕАЛИСТИЧНЫЕ СНИМКИ ТЕКУЩЕЙ РАССТАНОВКИ (demo-09, Codex п.2): не `bestShot` — тот берёт по ревизии и допускает черновик.
+// Только «realistic» этого варианта с номером состояния = текущему; по точке съёмки — последний снимок
+function vwRealShots(){
+  if(!D||!items)return [];
+  const vid=curVid(), st=curStateId(), by=new Map();
+  shots.forEach(x=>{if(x.vid===vid&&x.quality==='realistic'&&x.url&&x.stateId&&x.stateId===st&&!x.svc&&!x.orphan)by.set(x.camera||'C1',x);});
+  return [...by.values()].sort((a,b)=>String(a.camera||'C1').localeCompare(String(b.camera||'C1')));
+}
+const vwCamIndex=c=>Math.max(0,(+String(c||'C1').slice(1)||1)-1);
+// «Фото» — снимок выбранной точки (или первый); «3D» — живая сцена
 function vwPhotoShow(){
-  const cs=shots[shotAt];
-  if(VW.mode==='photo'&&cs&&cs.batch&&!liveStale(cs)){const sib=shots.findIndex(x=>x.batch===cs.batch&&(x.camera||'C1')===vwCam());
-    if(sib>=0&&sib!==shotAt){viewShot(sib);return;}}
-  // запасной путь (живой сцены нет): ракурс — серверный эскиз ЭТОЙ расстановки, а не чужое фото из старой съёмки
-  if(LIVE.ok===false&&VW.mode==='photo'&&cs&&liveStale(cs)){vwSketch(); return;}
+  if(VW.mode==='photo'){const r=vwRealShots(); if(!r.length){vwMode('walk'); return;}
+    const k=r.find(x=>(x.camera||'C1')===vwCam())||r[0]; VW.photo=vwCamIndex(k.camera);
+    const i=shots.indexOf(k); if(i!==shotAt){viewShot(i); return;} liveHide(); return;}
   liveShow();
 }
+// стрелки: в «Фото» — следующий снимок, в «3D» — плавный переход к следующей точке съёмки (`goToPose`, Codex п.3)
 function vwPhoto(k){
-  if(VW.mode!=='photo')return;
-  const n=vwCamN(); VW.photo=((k%n)+n)%n; vwModeUi(); vwPhotoShow();
+  if(VW.mode==='photo'){const r=vwRealShots(); if(r.length<2)return;
+    const at=Math.max(0,r.findIndex(x=>(x.camera||'C1')===vwCam())), nx=r[((at+(k>VW.photo?1:-1))%r.length+r.length)%r.length];
+    VW.photo=vwCamIndex(nx.camera); vwModeUi(); vwPhotoShow(); return;}
+  if(VW.mode!=='walk')return;
+  const n=vwCamN(); VW.photo=((k%n)+n)%n; vwModeUi();
+  const c=(cams||loadCams())[VW.photo];
+  if(LIVE.scene&&c&&LIVE.scene.goToPose)LIVE.scene.goToPose({x:c.x,y:c.y,rot:c.rot||0,fov:c.fov||72,pose:POSE_VER});
+}
+// КНОПКА «СДЕЛАТЬ РЕАЛИСТИЧНЕЕ» (demo-09 п.3, Codex п.1): видна в 3D и без 3D; в «Фото» её нет (снимок уже есть), в «Плане» —
+// «Изменить план». Во время задания — ход на самой кнопке; окно и режим не трогаются
+const VJ={job:null, err:'', tick:0};
+function vwCtaUi(){
+  const cta=document.getElementById('vCta'); if(!cta)return; const m=VW.mode, EN=LANG==='en';
+  cta.hidden=m==='photo';
+  if(m==='plan'){cta.classList.remove('busy'); cta.textContent=EN?'Edit the plan':'Изменить план';}
+  else if(VJ.job){const sec=Math.round((Date.now()-VJ.job.t0)/1000); cta.classList.add('busy');
+    cta.innerHTML=`${EN?'Rendering the photo… ':'Рисуем фото… '}${sec} ${EN?'s':'с'}<small>${escHtml(VJ.job.note||(EN?'usually 2–4 minutes':'обычно 2–4 минуты'))}</small>`;}
+  else{cta.classList.remove('busy'); cta.textContent=EN?'Make it realistic':'Сделать реалистичнее';}
+  let er=document.getElementById('vCtaErr');
+  if(VJ.err&&m!=='photo'){if(!er){er=document.createElement('p'); er.id='vCtaErr'; er.className='vcta-err'; cta.after(er);} er.textContent=VJ.err;}
+  else if(er)er.remove();
+}
+function vwRealistic(){
+  if(VJ.job)return;
+  const c=VW.photo, job={vid:curVid(), stateId:curStateId(), cam:c, t0:Date.now(), note:''};
+  VJ.job=job; VJ.err=''; vwCtaUi(); clearInterval(VJ.tick); VJ.tick=setInterval(vwCtaUi,1000);
+  const end=()=>{clearInterval(VJ.tick); if(VJ.job===job)VJ.job=null; vwCtaUi();};
+  makePhoto('realistic','','',{bg:true,
+    progress:t=>{job.note=t; vwCtaUi();},
+    fail:(msg)=>{end(); VJ.err=String(msg||'').slice(0,220); vwCtaUi();},
+    done:(n0)=>{end();
+      const shot=document.getElementById('shot'), open=shot.classList.contains('on')&&shot.classList.contains('v2');
+      const same=job.vid===curVid()&&job.stateId===curStateId();
+      // ГОТОВО → «ФОТО» САМО, если расстановка с нажатия не менялась; иначе — снимок в истории и подсказка (владелец 37.2)
+      if(open&&same){VW.photo=job.cam; vwModeUi(); vwMode('photo'); return;}
+      if(open){const mine=shots.slice(n0).find(x=>(x.camera||'C1')==='C'+(job.cam+1))||shots[n0]; if(mine)vwReady(mine.url);}}});
+}
+// «Фото готово для прежней расстановки» — ненавязчиво, в углу сцены; тап — снимок во весь экран; сама уходит через 12 с
+function vwReady(url){
+  const st=document.querySelector('#shot .vstage'); if(!st)return;
+  const old=st.querySelector('.vready'); if(old)old.remove();
+  const b=document.createElement('button'); b.className='vready'; b.type='button';
+  b.textContent=LANG==='en'?'Photo ready for the previous layout ›':'Фото готово для прежней расстановки ›';
+  b.onclick=()=>{b.remove(); vwZoom(url);}; st.appendChild(b); setTimeout(()=>b.remove(),12000);
 }
 // ПЛАН ДЛЯ ПРОСМОТРА В ОБЛАСТИ СЦЕНЫ (v3, Codex п.3): копия плана страницы без обработчиков, по размеру области; правка — в редакторе
 function vwPlanDraw(){
@@ -4401,43 +4503,21 @@ function vwPlanDraw(){
   c.setAttribute('preserveAspectRatio','xMidYMid meet'); c.style.pointerEvents='none';
   box.innerHTML=''; box.appendChild(c);
 }
-// ← → листают ракурсы в «Фото», пока окно открыто и фокус не в поле ввода
+// ← → листают снимки в «Фото» и точки съёмки в «3D», пока окно открыто и фокус не в поле ввода
 document.addEventListener('keydown',e=>{const sh=document.getElementById('shot');
-  if(!sh||!sh.classList.contains('on')||!sh.classList.contains('v2')||VW.mode!=='photo'||/INPUT|TEXTAREA|SELECT/.test((e.target||{}).tagName||''))return;
+  if(!sh||!sh.classList.contains('on')||!sh.classList.contains('v2')||VW.mode==='plan'||/INPUT|TEXTAREA|SELECT/.test((e.target||{}).tagName||''))return;
   if(e.key==='ArrowLeft'){vwPhoto(VW.photo-1); e.preventDefault();} else if(e.key==='ArrowRight'){vwPhoto(VW.photo+1); e.preventDefault();}});
-// ЗАПАСНОЙ ПУТЬ БЕЗ ВИДЕОКАРТЫ (владелец 14.10: «крутилка и серверный эскиз, честно подписанный»): живой сцены нет —
-// после правки сам, без кнопки, просим бесплатный черновой кадр сервера этого состояния; крутилка на сцене до ответа.
-// Один запрос за раз; пришёл ответ, а расстановку уже поменяли — просим ещё раз для последнего состояния.
-const SK={busy:false, again:false, t:0};
-function vwSketchSoon(){clearTimeout(SK.t); SK.t=setTimeout(vwSketch,1500);}
-async function vwSketch(){
-  const shot=document.getElementById('shot');
-  if(LIVE.ok!==false||!shot.classList.contains('v2'))return;
-  const s=shots[shotAt]; if(!s||!liveStale(s))return;
-  if(SK.busy){SK.again=true; return;}
-  SK.busy=true; SK.again=false;
-  let eta=7; try{const st=await (await fetch('/api/draft/stats',{cache:'no-store'})).json(); if(st&&st.avg_sec&&st.avg_sec.draft)eta=Math.max(3,Math.round(st.avg_sec.draft));   /* из кэша среднее ~0 с — «≈ 0 с» читалось как сбой */}catch(e){}
-  vwLoad(true, (LANG==='en'?'Rendering on the server ≈ ':'Считаем кадр на сервере ≈ ')+eta+(LANG==='en'?' s':' с'));
-  const req=Object.assign(payload(),{quality:'draft',async:1,stateId:curStateId()}), v=allVariants()[cur]||{}, prods=productsOf(items);
-  try{
-    const j=await (await fetch('/api/render',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(req)})).json();
-    let r=null;
-    for(let k=0;j&&j.job&&k<60;k++){await new Promise(ok=>setTimeout(ok,2000));
-      const jj=await fetch('/api/job?id='+encodeURIComponent(j.job),{cache:'no-store'}).then(x=>x.json()).catch(()=>null);
-      if(jj&&jj.status==='running')continue; r=jj; break;}
-    if(r&&r.shots&&r.shots.length){const batch='b'+Date.now();
-      r.shots.forEach(sh=>addShot({url:sh.url,camera:sh.camera||'C1',quality:'draft',batch:batch,anchors:[],products:prods,
-        variant:v.title||'',style:v.style||'',vid:v.id||('v'+cur),revision:revision(),stateId:req.stateId,cams:req.cams,
-        engine:r.backend||'',sketch:true,ts:Date.now()}));
-      // показываем выбранный ракурс этой съёмки, а не всегда первый
-      if(shot.classList.contains('on')&&req.stateId===curStateId()){const n0=shots.length-r.shots.length;
-        const k=shots.slice(n0).findIndex(x=>(x.camera||'C1')===vwCam()); viewShot(n0+Math.max(0,k));}}
-  }catch(e){}
-  SK.busy=false; vwLoad(false);
-  if(SK.again)vwSketchSoon();
-}
+// БЕЗ 3D СЕРВЕРНОГО ЭСКИЗА В ОКНЕ НЕТ (demo-09, ответ владельца 37.4): реалистичное фото, если есть, иначе спокойная заглушка
+// (`.vstub`) и рабочая «Сделать реалистичнее»; серверный черновик — только картинка коллекции (`snapLater`)
 // сумма и история обновляются после любой правки; после замены — строка подсвечена, шторка до половины, сообщение
-document.addEventListener('remlab:hist',()=>{vwSumUpdate(); vwHist(); vwSketchSoon();});
+document.addEventListener('remlab:hist',e=>{vwSumUpdate(); vwHist(); if(((e.detail||{}).n||0)>1)vwAfterChange();});
+// ЛЮБОЕ ИЗМЕНЕНИЕ → 3D (demo-09 п.4) И ШТОРКА ВНИЗ НА ТЕЛЕФОНЕ (п.4a, владелец 17.10: «заменили — сразу сворачивать, чтоб увидел»):
+// замена, пол/стены/кухня, ↶/↷. Прокрутка списка изменением не считается; колонку компьютера не трогаем
+function vwAfterChange(){
+  const shot=document.getElementById('shot'); if(!shot.classList.contains('on')||!shot.classList.contains('v2'))return;
+  if(VW.mode==='photo')vwMode('walk'); else vwModeUi();
+  if(VW_PHONE()&&VW.mode!=='plan'){const sd=document.getElementById('vside'); if(sd&&+sd.dataset.pos>0)vwSheet(0);}
+}
 (function(){
   const _try=tryOn; tryOn=function(p){
     const s0=sel, before=s0&&(skuOf(s0)||{}).price||0, role=s0&&s0.role;
@@ -4447,7 +4527,7 @@ document.addEventListener('remlab:hist',()=>{vwSumUpdate(); vwHist(); vwSketchSo
       const after=(skuOf(s0)||{}).price||0, d=after-before, EN=LANG==='en';
       const base=String(role||'').replace(/\s+\d+$/,'');
       toast((EN?'Replaced: '+base:'Заменено: '+base)+(d?` · ${d>0?'+':'−'}${money(Math.abs(d))}`:''));
-      const i=items.indexOf(s0); setTimeout(()=>vwHighlight(i),200);
+      const i=items.indexOf(s0); setTimeout(()=>vwHighlight(i,{open:false}),200);   // шторка уже свёрнута — сцена с заменой видна
     }
     return r;};
 })();
@@ -4492,7 +4572,7 @@ function liveOff(why){
   LIVE.ok=false; LIVE.why=why; LIVE.state='fallback'; liveHide();
   // показанную сцену освобождаем: видеоконтекст и модели не держим до закрытия страницы (verify 14.10)
   if(LIVE.scene){try{LIVE.scene.dispose();}catch(e){} LIVE.scene=null;}
-  const sh=document.getElementById('shot'); if(sh&&sh.classList.contains('v2')){sh.classList.add('nolive'); vwSketchSoon();}
+  const sh=document.getElementById('shot'); if(sh&&sh.classList.contains('v2'))sh.classList.add('nolive');   // 3D нет — заглушка `.vstub`
   try{console.info('живая сцена выключена:',why);}catch(e){}
 }
 // ДЕКОР В ЖИВУЮ СЦЕНУ — ТОТ ЖЕ, ЧТО УХОДИТ В СЕРВЕРНЫЙ КАДР (`payload().decor`, demo-05 п.9): ваза встаёт на столик
@@ -4586,32 +4666,29 @@ function liveFit(wrap){
 }
 async function liveShow(){
   if(VW.mode==='plan'){liveHide(); vwPlanDraw(); return;}   // в «План» сцены нет — после правки перерисовывается план
+  // «Фото» — только снимок нейросети (demo-09): живая сцена — в «3D»
+  if(VW.mode==='photo'){liveHide(); return;}
   const s=shots[shotAt];
   const vi=s?allVariants().findIndex(v=>(v.id||'')===(s.vid||'')):-1;
-  // живая сцена нужна, когда фото устарело, в режиме «3D» окна варианта и у варианта без фото (demo-02)
-  const camShot=s&&(s.camera||'C1')===vwCam();
-  const want=s&&(liveStale(s)||VW.mode==='walk'||!s.url||!camShot);
-  if(!s||vi!==cur||!want||!document.getElementById('shot').classList.contains('on')){liveHide();return;}
+  if(!s||vi!==cur||!document.getElementById('shot').classList.contains('on')){liveHide();return;}
   const at=shotAt;
   if(!LIVE.scene){LIVE.state='warming'; vwLoad(true, LANG==='en'?'Loading models…':'Загружаем модели…');}
-  const sc=await liveEngine(); if(!sc){vwLoad(false); return;}
+  const sc=await liveEngine(); if(!sc){vwLoad(false); vwPins(); return;}
   // ПОКА ГРУЗИЛСЯ ДВИЖОК, ОКНО МОГЛИ ЗАКРЫТЬ ИЛИ ПЕРЕЛИСТНУТЬ (verify 14.10): холст к закрытому окну не цепляем
   const wrap=document.querySelector('#shot .shotwrap');
   const s2=shots[shotAt];
-  if(!wrap||at!==shotAt||!document.getElementById('shot').classList.contains('on')
-    ||!(liveStale(s2)||VW.mode==='walk'||!s2.url||(s2.camera||'C1')!==vwCam()))return;
+  if(!wrap||at!==shotAt||!document.getElementById('shot').classList.contains('on')||VW.mode!=='walk'||!s2)return;
   if(LIVE.canvas.parentNode!==wrap){LIVE.canvas.classList.remove('in'); wrap.appendChild(LIVE.canvas); wrap.appendChild(LIVE.badge);
     requestAnimationFrame(()=>requestAnimationFrame(()=>LIVE.canvas.classList.add('in')));}
   liveFit(wrap);
   const c=(cams||loadCams())[VW.photo]||(cams||loadCams())[0]||{};
-  // в «3D» встаём в точку ракурса 1 лицом к мебели — только при входе в режим: повторный показ после замены предмета
-  // не должен отбрасывать человека туда, откуда он ушёл (прогон d8 14.10: старт «у пола, в стене»)
-  if(VW.mode==='walk'){const c1=(cams||loadCams())[0]||{};
-    if(LIVE.lastMode!=='walk')sc.setWalk({x:c1.x,y:c1.y,rot:c1.rot||0,fov:c1.fov||72,pose:POSE_VER}); LIVE.badge.textContent=LANG==='en'?'3D: drag to look around':'3D: тяните, чтобы осмотреться';}
-  else{sc.setPhotoPose({x:c.x,y:c.y,rot:c.rot||0,fov:c.fov||72,pose:POSE_VER}); LIVE.badge.textContent=LANG==='en'?'Live scene: as it stands now':'Живая сцена: так стоит сейчас';}
+  // «3D» СТОИТ В ТОЧКЕ СЪЁМКИ (demo-09): тот же кадр, что снимет «Сделать реалистичнее»; тянуть — повернуть взгляд, стрелки —
+  // другая точка. Только при входе в режим: повторный показ после замены не отбрасывает человека туда, откуда он ушёл
+  if(LIVE.lastMode!=='walk')sc.setPhotoPose({x:c.x,y:c.y,rot:c.rot||0,fov:c.fov||72,pose:POSE_VER});
+  LIVE.badge.textContent=LANG==='en'?'3D: drag to look around':'3D: тяните, чтобы осмотреться';
   LIVE.lastMode=VW.mode;
   liveWire();
-  sc.start();
+  sc.start(); vwPins();
   LIVE.state='updating'; vwLoad(true, LANG==='en'?'Updating…':'Обновляем…', true);
   await sc.update(clone(items), liveDecor());
   // ЗАМЕНА В «3D» — ВЗГЛЯД НА ЗАМЕНЁННЫЙ ПРЕДМЕТ (приёмка владельцем 16.10 п.1): иначе диван менялся за краем кадра и
@@ -5018,10 +5095,10 @@ async function liveShow(){
     'Сделать фотореалистичное фото':'Make a photorealistic photo','нейросеть · 2–4 мин · бесплатно для вас':'AI · 2–4 min · free for you',
     'Сделать реалистичнее':'Make it realistic','Отменить изменение':'Undo the change','Вернуть изменение':'Redo the change',
     'Потяните или нажмите — товары и замены':'Pull or tap — items and swaps','Фото нейросети · расстановка могла отличаться':'AI photo · the layout may differ','Собираем сцену…':'Building the scene…','⤢ во весь экран':'⤢ full screen','Двигайте пальцем · щипок — увеличить · двойной тап — назад':'Drag to move · pinch to zoom · double tap to go back','Ракурс 1':'View 1','Ракурс 2':'View 2','Загружаем модели…':'Loading models…','Обновляем…':'Updating…','Загружаем модель…':'Loading the model…','Сервер рисует эскиз…':'The server is drawing a sketch…','Эскиз с сервера · у устройства нет видеокарты':'Server sketch · your device has no graphics card','Готово — посмотреть в окне':'Done — view in the window','Расставляем мебель…':'Placing furniture…','Предыдущая расстановка':'Previous layout','Следующая расстановка':'Next layout',
-    'Удерживайте предмет полсекунды и тяните — он переедет. Короткое касание — стрелки поворота. Когда готово — «Посмотреть фото с изменениями» внизу.':
-      'Hold an item for half a second and drag it to move. A short tap shows rotation arrows. When ready, tap “See the photo with changes” below.',
-    'Тяните предмет мышью, поворачивайте за уголок. Кружок на предмете — выбрать другой товар. Когда готово — «Посмотреть фото с изменениями» внизу.':
-      'Drag an item with the mouse, rotate it by the corner. The circle on an item picks another product. When ready, press “See the photo with changes” below.','Повторить':'Retry',
+    'Удерживайте предмет полсекунды и тяните — он переедет. Короткое касание — стрелки поворота. Когда готово — «Готово — посмотреть в окне» внизу.':
+      'Hold an item for half a second and drag it to move. A short tap shows rotation arrows. When ready, tap “Done — view in the window” below.',
+    'Тяните предмет мышью, поворачивайте за уголок. Кружок на предмете — выбрать другой товар. Когда готово — «Готово — посмотреть в окне» внизу.':
+      'Drag an item with the mouse, rotate it by the corner. The circle on an item picks another product. When ready, press “Done — view in the window” below.','Повторить':'Retry',
     'Улучшение фото сейчас недоступно: у сервиса картинок закончился баланс. Черновое фото работает — его можно снять как обычно.':
       'Photo enhancement is unavailable right now: the image service has run out of balance. Draft photos still work.',
     'Улучшение фото сейчас недоступно: сервер улучшения не отвечает. Черновое фото работает — попробуйте улучшить позже.':
@@ -5045,7 +5122,8 @@ async function liveShow(){
     'Эта ссылка ведет на условия ипотеки по квартире':'This link leads to the mortgage terms for the apartment',
     'Эта ссылка ведет на форму консультации застройщика':"This link leads to the developer's consultation form",
     'впритык':'a tight fit','габарит не указан':'size not given','Цвета этой модели':'Colours of this model','Фото':'Photo',
-    'Изменить план':'Edit the plan','Отделка и ремонт':'Options & upgrades','Встраиваемое':'Fitted & integrated','← Назад':'← Back'};
+    'Изменить план':'Edit the plan','Фото сейчас не сделать: у сервиса картинок закончился баланс. Попробуйте позже.':'The photo cannot be made right now: the image service has run out of balance. Please try later.',
+    'Фото сейчас не сделать: сервер улучшения не отвечает. Попробуйте позже.':'The photo cannot be made right now: the enhancement server is not responding. Please try later.','Отделка и ремонт':'Options & upgrades','Встраиваемое':'Fitted & integrated','← Назад':'← Back'};
   var ATTR={'Что значит оплата 100%':'What does full payment mean','Скопировать ссылку на этот вариант':'Copy a link to this option','В избранное':'Add to favourites',
     'переставить точки съёмки в следующие углы':'move camera points to the next corners','Просмотр кадра':'Shot view','Закрыть':'Close','Предыдущий вид':'Previous view',
     'Следующий вид':'Next view','скоро':'soon'};
