@@ -1709,8 +1709,9 @@ def _improve_cache(src_id, res: dict | None = None):
         push = os.environ.get('SRC_PUSH')
         if push:
             import subprocess as _sp
-            _sp.run(['scp', '-q', '-o', 'BatchMode=yes', path,
-                     push.rstrip('/') + '/' + str(src_id) + '/'], timeout=60, check=False)
+            # папкой (-r): у листа из кадров браузера (`bf-…`) папки на сервере ещё нет — файл в несуществующую не ложится (17.10)
+            _sp.run(['scp', '-q', '-r', '-o', 'BatchMode=yes', os.path.dirname(path),
+                     push.rstrip('/') + '/'], timeout=60, check=False)
     except Exception as e:  # noqa: BLE001 — кеш не должен ронять ответ
         print(f'  кеш улучшения не записан: {str(e)[:80]}')
     return None
