@@ -1457,8 +1457,8 @@ function camFit(cx,cy,its,W,H,strict){
 // `keyCut` — главное (диван, ТВ-тумба, столик) срезано боковым краем: доля ширины за кадром (d8 17.10: ТВ сканди, диван джапанди)
 // `keyMiss` — только у вида 2 (d8 17.10): ни диван, ни ТВ-тумба не видны хотя бы на 60 % ширины — вид без смысла для покупателя;
 // `close2` — мебель ближе 1.0 м (жёстче `close`). Пороги d8: срез главного ≤ 0.4, пустая стена ≤ 0.4
-const CAM_GATE=[['floor',0.35],['empty',0.4],['ceil',0.3],['close',0],['close2',0],['pclose',0],['hog',0.2],['fore',0.12],['keyCut',0.4],['keyMiss',0],['nearWall',0.02]];
-const CAM_KEY_SHOW=['диван','тв-тумба'], CAM_KEY_SHOW_MIN=0.6;
+const CAM_GATE=[['floor',0.35],['empty',0.4],['ceil',0.3],['close',0],['close2',0],['pclose',0],['hog',0.28],['fore',0.12],['keyCut',0.4],['keyMiss',0],['nearWall',0.02]];
+const CAM_KEY_SHOW=['диван','тв-тумба'], CAM_KEY_SHOW_MIN=0.6, CAM_INFO_W=1;
 function camKeyShow(c,its,st){
   let best=0; (its||[]).forEach((it,i)=>{if(!CAM_KEY_SHOW.includes(camRole(it)))return; const b=camProj(c,it,0,camItemH(it)); if(!b||b.behind)return;
     const bw=b.x1-b.x0; if(bw<=0)return; let f=Math.max(0,Math.min(b.x1,1)-Math.max(b.x0,-1))/bw;
@@ -1559,7 +1559,7 @@ const camGateOk=(st,gl)=>CAM_GATE.slice(gl).every(([k,v])=>st[k]<=v);
 // ВЕС НАРУШЕНИЯ ПОРОГА (за каждые 0.1 сверх порога; для `close`/`pclose` — за каждые 10 см недостачи; `nearWall` — за 0.01):
 // стена у края и срез главного — почти запрет, лишний пол или потолок — мелочь
 // d8 17.10: потеря дивана/ТВ из вида 2 дороже среза главного до 40 %; пустая стена > 0.4 дороже мелочей; ближе 1.0 м — почти запрет
-const CAM_BAD_W={nearWall:100, keyMiss:15, keyCut:10, close2:10, empty:6, close:4, hog:4, fore:4, pclose:2, ceil:1, floor:1}, CAM_BAD_TOL=0.5;
+const CAM_BAD_W={nearWall:100, keyMiss:15, keyCut:10, close2:10, empty:6, close:4, hog:4, fore:4, pclose:0.5, ceil:1, floor:1}, CAM_BAD_TOL=0.5;
 function camBad(st,second){
   let b=0; for(const [k,v] of CAM_GATE){if(k==='keyMiss'&&!second)continue; const over=Math.max(0,(st[k]||0)-v);
     if(over>0)b+=CAM_BAD_W[k]*over/(k==='nearWall'?0.01:0.1);}
@@ -1612,7 +1612,10 @@ function camPair(its,W,H,cs){
       const all2=[];
       for(const [a,b] of short){const sa=stat(a), sb=stat(b);
         const u=cover(sa,sb); if(u<=cover(sa)+1e-9)continue;   // второй кадр обязан что-то добавить
-        all2.push({a,b,u,bad:camBad(sa)+camBad(sb,true),worst:Math.min(a.score,b.score),sum:a.score+b.score,div:camAng(a.rot,b.rot)});}
+        // ВИД 2 ДОЛЖЕН БЫТЬ ИНФОРМАТИВЕН (d8 17.10, цикл 3): при почти равном охвате выигрывает вид 2, где главное (диван/ТВ) видно
+        // полнее и меньше пустой стены — раньше решал охват стен, и вид 2 смотрел на дверь при рядом стоящем лучшем повороте
+        const info=CAM_INFO_W*(camKeyShow(b,its,sb)-Math.max(0,sb.empty-0.2));
+        all2.push({a,b,u:u+info,bad:camBad(sa)+camBad(sb,true),worst:Math.min(a.score,b.score),sum:a.score+b.score,div:camAng(a.rot,b.rot)});}
       if(!all2.length)continue;
       const bm=Math.min(...all2.map(q=>q.bad)), pairs=all2.filter(q=>q.bad<=bm+CAM_BAD_TOL), gl=Math.round(bm*10)/10;
       const um=Math.max(...pairs.map(q=>q.u));
