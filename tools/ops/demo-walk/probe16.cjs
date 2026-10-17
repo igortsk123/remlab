@@ -6,9 +6,9 @@ const ctx=await b.newContext({viewport:{width:375,height:667},deviceScaleFactor:
 await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
 await p.goto('https://remont-lab.online/demo/?live=force',{waitUntil:'load',timeout:120000});
 await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000});
-await p.evaluate(()=>{try{sessionStorage.removeItem('remlab-sheet-pos')}catch(e){} window.__hist=[]; document.addEventListener('remlab:hist',e=>window.__hist.push(JSON.stringify(e.detail||{}))); openLiveWindow();});
+await p.evaluate(()=>{try{sessionStorage.removeItem('remlab-sheet-pos')}catch(e){} window.__hist=[]; document.addEventListener('remlab:hist',e=>window.__hist.push(JSON.stringify(e.detail||{}))); pickVariant(1); openLiveWindow();});
 await p.waitForFunction(()=>typeof LIVE!=='undefined'&&LIVE.scene&&LIVE.state==='ready',null,{timeout:300000}).catch(()=>{}); await p.waitForTimeout(4000);
-const st=(tag)=>p.evaluate(t=>({t, mode:VW.mode, pos:document.getElementById('vside').dataset.pos, top:Math.round(document.getElementById('vside').getBoundingClientRect().top), picker:(()=>{const s=document.getElementById('sheet'); return !!s&&getComputedStyle(s).display!=='none'&&s.getBoundingClientRect().height>0;})(), hist:window.__hist, phone:VW_PHONE()}),tag);
+const st=(tag)=>p.evaluate(t=>({t, mode:VW.mode, pos:document.getElementById('vside').dataset.pos, top:Math.round(document.getElementById('vside').getBoundingClientRect().top), bodyScroll:document.getElementById('shotbody')?document.getElementById('shotbody').scrollTop:null, vmodes:!!document.querySelector('#shot .vmodes')&&document.querySelector('#shot .vmodes').getBoundingClientRect().top>=0, picker:(()=>{const s=document.getElementById('sheet'); return !!s&&getComputedStyle(s).display!=='none'&&s.getBoundingClientRect().height>0;})(), hist:window.__hist, phone:VW_PHONE()}),tag);
 console.log(JSON.stringify(await st('старт')));
 await p.evaluate(()=>vwSheet(3)); await p.waitForFunction(()=>document.getAnimations().length===0,null,{timeout:8000}).catch(()=>{});
 const rep=p.locator('#vside .vitems :text-is("Заменить")').first(); console.log('кнопок Заменить в списке:', await p.locator('#vside .vitems :text-is("Заменить")').count());
