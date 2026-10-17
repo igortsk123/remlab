@@ -50,6 +50,12 @@ from PIL import ImageDraw as _D
 _D.Draw(slant).rectangle((pv[0] - 4, 0, pv[0] - 1, ph_ // 2), fill=DR.BAND_RGB)   # полоса чуть наклонно: остаток у края левого вида
 pp2 = [DR._trim_band(x) for x in DR._split_pair(slant)]
 check('остаток наклонной полосы у края вида срезан', pp2[0].width <= pv[0] - 4 and pp2[1].size == pv, str([p.size for p in pp2]))
+# проверка «полоса на месте» в ответе модели — по ориентации листа (17.10: у вертикального листа искали горизонтальную и браковали ответ)
+import numpy as _np
+_a = _np.asarray(ps).astype(int); _mg = (_a[..., 0] > 170) & (_a[..., 2] > 170) & (_a[..., 1] < 110)
+check('вертикальная полоса находится по столбцам (а по строкам — нет)', (_mg.mean(axis=0) > 0.5).sum() >= 8 and (_mg.mean(axis=1) > 0.5).sum() < 8)
+src = open(os.path.join(HERE, '..', 'draft_render.py'), encoding='utf-8').read()
+check('проверка полосы в ответе учитывает ориентацию', "band = _mg.mean(axis=0) if built.get('orient') == 'portrait'" in src)
 p_port = IM.prompt_for('сканди', orient='portrait')
 check('промпт листа телефона: виды слева/справа, вертикальная полоса', 'LEFT half is view 1' in p_port and 'vertical magenta band' in p_port
       and 'position, width and colour' in p_port)

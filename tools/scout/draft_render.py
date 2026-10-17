@@ -3371,15 +3371,22 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
             _t_gpt = time.time()
             out = gpt_edit(imgs, prompt, size=built.get('size') or IM.SIZE, quality=gq, model=REALISTIC_MODEL)   # лист телефона — 3072×2048
             _t_gpt = time.time() - _t_gpt
-            print(f'улучшение: модель {_t_gpt:.1f}с (размер {IM.SIZE}, качество {gq}); '
+            print(f'улучшение: модель {_t_gpt:.1f}с (размер {built.get("size") or IM.SIZE}, качество {gq}); '
                   f'итого {_t_our + _t_gpt:.1f}с, из них наши {100 * _t_our / max(_t_our + _t_gpt, .1):.0f}%',
                   flush=True)
             # ПОЛОСА — УСЛОВИЕ РЕЗКИ, А НЕ УКРАШЕНИЕ. Пропала — ответ негоден: `_split_pair` в этом
             # случае молча делит пополам, и оба вида уезжают (найдено в разборе 01.09).
             import numpy as _np
             a = _np.asarray(out.convert('RGB')).astype(int)
-            band = ((a[..., 0] > 170) & (a[..., 2] > 170) & (a[..., 1] < 110)).mean(axis=1)
+            _mg = (a[..., 0] > 170) & (a[..., 2] > 170) & (a[..., 1] < 110)
+            # полоса — по ориентации листа: у телефона (виды бок о бок) она вертикальная — ищем столбцы (demo-10)
+            band = _mg.mean(axis=0) if built.get('orient') == 'portrait' else _mg.mean(axis=1)
             if (band > 0.5).sum() < 8:
+                # оплаченный ответ не выбрасываем молча — кладём рядом с исходниками для разбора
+                try:
+                    out.save(os.path.join(SRC_DIR, f'rejected-{time.strftime("%Y%m%d-%H%M%S")}.jpg'), quality=88)
+                except Exception:  # noqa: BLE001
+                    pass
                 # RuntimeError, а не SystemExit: это ДОМЕННЫЙ отказ одного запроса, его обязан
                 # увидеть и показать клиент, а не выход из программы (13.10).
                 raise RuntimeError('модель закрасила разделительную полосу — резать нечем, ответ негоден')
