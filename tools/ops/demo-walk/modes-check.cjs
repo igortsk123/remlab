@@ -1,7 +1,7 @@
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // РЕЖИМЫ ОКНА (план demo-09): три сценария — «без реалистичного фото», «готово для текущего stateId», «состояние изменилось во время
 // задания» — плюс «без 3D» и EN. Платный путь НЕ вызывается: ответы /api/render и /api/job подменяются (готовое фото = картинка товара).
-//   PROD=1 node tools/ops/demo-walk/modes-check.cjs 375x667          — прод как есть
+//   PROD=1 node tools/ops/demo-walk/modes-check.cjs 375x667          — прод как есть (платный путь подменён ВО ВСЕХ сценариях)
 //   SP=<папка с floorlib/> node … 375x667                            — локальная страница и движок поверх прода
 const SP=process.env.SP, OUT=process.env.OUT||require('os').tmpdir()+'/', prod=!!process.env.PROD||!SP;
 const [W,H]=(process.argv[2]||'375x667').split('x').map(Number);
@@ -45,7 +45,16 @@ const p1=await p.evaluate(()=>LIVE.scene.pose()); await p.evaluate(()=>vwPhoto(V
 ok('1 стрелка → поза 2, обратно → поза 1',(p1.x!==p0.x||p1.y!==p0.y)&&Math.abs(p2.x-p0.x)<=2&&Math.abs(p2.y-p0.y)<=2,JSON.stringify([p0,p1,p2]));
 await p.evaluate(()=>LIVE.scene.look(-200,0)); await p.waitForTimeout(400); const p3=await p.evaluate(()=>LIVE.scene.pose());
 ok('1 тянуть — поворот взгляда из той же точки',p3.x===p2.x&&p3.y===p2.y&&p3.yaw!==p2.yaw,JSON.stringify(p3));
+// 1б. замена через ленту из полной шторки → шторка физически свёрнута, ничего не прокручено (владелец 17.10, probe16 d8)
+if(W<=700){await p.evaluate(()=>vwSheet(3)); await p.waitForFunction(()=>document.getAnimations().length===0,null,{timeout:8000}).catch(()=>{});
+  await p.locator('#vside .vitems [data-rep]').first().click(); await p.locator('#sheet .mini:has-text("Заменить")').first().click();
+  await p.waitForTimeout(1500); await p.waitForFunction(()=>document.getAnimations().length===0,null,{timeout:8000}).catch(()=>{}); await p.waitForTimeout(800);
+  const sw=await p.evaluate(()=>{const sd=document.getElementById('vside'); return {pos:sd.dataset.pos, top:Math.round(sd.getBoundingClientRect().top), want:Math.round(innerHeight-vwEdges().min),
+    scrolled:[...document.querySelectorAll('#shot, #shot *')].filter(e=>e.scrollTop>0&&!/vscroll|sheetscroll/.test(e.id)).map(e=>(e.id||e.className)+':'+e.scrollTop)};});
+  ok('1б замена через ленту → шторка свёрнута на деле',sw.pos==='0'&&sw.top>=sw.want-2&&!sw.scrolled.length,JSON.stringify(sw));
+  await p.evaluate(()=>closePicker()); await p.waitForTimeout(500);}
 // 2. «Сделать реалистичнее» → ход на кнопке, 3D остаётся → готово → «Фото» само
+await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(800);
 await p.click('#vCta'); await p.waitForTimeout(1500); s=await st(p);
 ok('2 после нажатия — ход на кнопке, режим 3D',s.mode==='walk'&&/Рисуем фото/.test(s.cta||''),s.cta);
 await p.evaluate(()=>{window.__fakeReady=1;}); await p.waitForFunction(()=>VW.mode==='photo',null,{timeout:20000}).catch(()=>{}); s=await st(p);
@@ -71,9 +80,12 @@ const geo=await p.evaluate(()=>{const R=s=>{const e=document.querySelector(s); i
 ok('3 переключатель режимов на месте, сцена не уехала',!!geo.vmodes&&geo.vmodes[1]>=0&&geo.vmodes[1]<40&&!geo.scrolled.filter(x=>!/vscroll/.test(x)).length,JSON.stringify(geo));
 await p.screenshot({path:OUT+`m09-${W}-ready.png`});
 console.log('errs',p.errs.slice(0,3)); await p.context().close();
-// 5. без 3D: заглушка, кнопка работает (честный отказ без денег — подмены нет)
+// 5. без 3D: заглушка, кнопка работает. ПЛАТНОЕ НЕ ВЫЗЫВАЕТСЯ НИКОГДА: отказ «нет денег» подменён (17.10 сценарий нажимал настоящую
+// кнопку в расчёте на пустой баланс — после пополнения это были бы настоящие съёмки)
 p=await page(b,'?live=0&lang=ru','ru');
 await p.unroute(/\/api\/render/); await p.unroute(/\/api\/job\?/);
+await p.route(/\/api\/render/,r=>r.fulfill({status:402,contentType:'application/json',body:JSON.stringify({code:'no_credits',error:'нет денег (подмена проверки)'})}));
+await p.route(/\/api\/job\?/,r=>r.fulfill({status:410,contentType:'application/json',body:JSON.stringify({code:'not_found',error:'подмена проверки'})}));
 await p.evaluate(()=>{shots=shots.filter(x=>x.quality!=='realistic'); openLiveWindow();}); await p.waitForTimeout(2500); s=await st(p);
 ok('5 без 3D — заглушка, кнопка видна',s.mode==='walk'&&s.stub&&!!s.cta,JSON.stringify({stub:s.stub,cta:s.cta}));
 await p.click('#vCta'); await p.waitForFunction(()=>!VJ.job,null,{timeout:20000}).catch(()=>{}); s=await st(p);

@@ -32,11 +32,14 @@ async function main() {
   let done = 0, failed = 0;
   try {
     await page.goto(`${BASE}/demo/`, { waitUntil: "domcontentloaded" });
-    await page.waitForFunction("typeof allVariants === 'function' && allVariants().length > 0", null, { timeout: 60_000 });
+    // данные витрины приходят после разметки: пока `D` пуст, `allVariants()` бросает — ждать надо `D`, иначе прогон падал
+    // на первом же ожидании и ночью кадров не снимал вовсе (найдено 17.10: у трёх стилей не было кадра своей расстановки)
+    await page.waitForFunction("typeof D !== 'undefined' && !!D && typeof allVariants === 'function' && allVariants().length > 0", null, { timeout: 90_000 });
     await page.waitForTimeout(4000); // реестр кадров приезжает позже данных
     // номер опубликованного состояния — той же функцией страницы (блок STATEID), что ставит его кадрам
+    // номер состояния — тем, чем его считает сама страница для кадра (`variantStateOf`, demo-09), а не своей копией формулы
     const variants = await page.evaluate(`allVariants().map(v => ({ id: v.id, style: v.style,
-      stateId: typeof stateIdOf === "function" ? stateIdOf(v.items, (v.decor || []).filter(x => (x.sku || {}).name), D.room) : "" }))`);
+      stateId: typeof variantStateOf === "function" ? variantStateOf(v) : "" }))`);
     const shots = await page.evaluate("(Array.isArray(shots) ? shots : []).map(s => ({ vid: s.vid, svc: !!s.svc, ts: s.ts, stateId: s.stateId || '', quality: s.quality || '', pose: ((s.cams || [])[0] || {}).pose || 1 }))");
     const poseVer = await page.evaluate("typeof POSE_VER === 'number' ? POSE_VER : 0");
     const todo = needWarm(variants, shots, dataTs, poseVer).slice(0, MAX);

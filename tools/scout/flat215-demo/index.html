@@ -2562,26 +2562,25 @@ function thumbOf(s){
   const i=u.lastIndexOf('.');
   return i>0 ? u.slice(0,i)+'.t'+u.slice(i) : u;
 }
+// КАДР ЭТОЙ РАССТАНОВКИ (demo-09, дополнение 17.10, владелец: «если картинки от балды — убрать»): у нового кадра — номер состояния
+// варианта; у старого без номера — снимок списка товаров совпадает с нынешним (названия + количество). Фото прежних расстановок
+// остаются в хранилище (история), но ни карточка, ни вкладка «Фото» их не показывают
+function variantStateOf(v){ return stateIdOf(variantItems(v), variantDecor(v), D&&D.room, variantLive(v)?DEVOPT:((v&&v.dev)||{})); }
+function productsSig(list){ const m={}; (list||[]).forEach(p=>{if(p&&p.name)m[p.name]=(m[p.name]||0)+(+p.qty||1);});
+  return JSON.stringify(Object.keys(m).sort().map(k=>[k,m[k]])); }
+function shotFits(s, v){
+  if(!s||!v)return false;
+  if(s.stateId)return s.stateId===variantStateOf(v);
+  return !!(s.products&&s.products.length)&&productsSig(s.products)===productsSig(variantProducts(v));
+}
 function bestShot(v){
   const vid=v.id||('v'+allVariants().indexOf(v));
-  const mine=shots.filter(x=>x.vid===vid&&!x.orphan&&(DBG||!x.svc));
-  // ЧЕРНОВИК ВИДЕН, ПОКА ФОТОГРАФИИ НЕТ (владелец 01.09: «я даже не увидел нашей модели»).
-  // Прятать его целиком оказалось неверно: человек нажимает кнопку и минуты три смотрит в
-  // пустоту. Показываем нашу сцену сразу, а фотография от модели встаёт на её место, когда
-  // придёт; после этого черновик становится служебным (`svc`) и с экрана уходит.
-  //
-  // ВЫБОР — ВНУТРИ ПОСЛЕДНЕЙ СЪЁМКИ, А НЕ ПО ВСЕМУ ХРАНИЛИЩУ (владелец 02.09: «когда закрыл,
-  // карточка не обновилась»). Раньше фотореалистичный кадр побеждал ВСЕГДА, а все четыре
-  // готовых кадра демо как раз `realistic`. Поэтому свежий черновик, снятый после замены
-  // дивана, не мог попасть на карточку никогда: она оставалась с прежней фотографией, где
-  // стоит прежний диван. Правило «фото важнее черновика» сохраняем, но в пределах ОДНОЙ
-  // расстановки: сравниваем кадры той же ревизии, что и последний снятый.
-  if(!mine.length)return null;
-  const last=mine[mine.length-1];
-  const same=mine.filter(x=>(x.revision||'')===(last.revision||''));
-  const real=same.filter(x=>x.quality==='realistic');
-  const pool=real.length?real:same;
-  return pool[pool.length-1]||null;
+  // ФОТО НЕЙРОСЕТИ ВАЖНЕЕ ЧЕРНОВИКА, но только среди кадров ЭТОЙ расстановки; из них — точка 1, последний снятый
+  const fit=shots.filter(x=>x.vid===vid&&x.url&&!x.orphan&&(DBG||!x.svc)&&shotFits(x,v));
+  if(!fit.length)return null;
+  const real=fit.filter(x=>x.quality==='realistic'), pool=real.length?real:fit;
+  const c1=pool.filter(x=>(x.camera||'C1')==='C1'), P=c1.length?c1:pool;
+  return P[P.length-1]||null;
 }
 // КОЛЛЕКЦИЯ РАССТАНОВОК — первый уровень (план demo-collection-flow). Одна карточка на стиль,
 // плюс сохранённые расстановки человека, плюс карточка «Добавить новую». Плана здесь нет:
@@ -2611,7 +2610,7 @@ function drawColl(force){
       // телефоне грузится секундами. Не нашлась — подставляем полный, карточка не ломается.
       (sh?`<img class="pv" src="${thumbOf(sh)}" alt="${styleOf(sh)}" loading="lazy" `+
           `decoding="async" data-url="${sh.url}" onerror="this.onerror=null;this.src='${sh.url}'">`
-         :`<div class="nopv">фото появится после съёмки</div>`)+
+         :`<div class="nopv">${LANG==='en'?'Open to see it in 3D':'Откройте — покажем в 3D'}</div>`)+
       (views>1?`<div class="badge2">${views} вида</div>`:'')+
       `</div>`+
       `<div class="body"><div class="nm">${v.style||v.title||('вариант '+(i+1))}</div>`+
@@ -2621,8 +2620,8 @@ function drawColl(force){
         // ПУСТАЯ КАРТОЧКА ДОЛЖНА ПРЕДЛАГАТЬ СНЯТЬ (владелец 01.09: «когда фото чернового нет,
         // пиши кнопки „Заменить мебель“ и „Создать фото“»). Иначе вариант без кадра — тупик:
         // человек видит цену комплекта и не понимает, как получить картинку.
-        (sh?'':`<button class="btn primary" data-shot="${i}">Создать фото</button>`)+
-        (sh&&sh.quality==='draft'?`<button class="btn" data-up="${i}">Улучшить фото</button>`:'')+
+        // «Создать фото»/«Улучшить фото» с карточки сняты (demo-09): черновик — не режим покупателя, фото нейросети — в окне,
+        // кнопкой «Сделать реалистичнее»
         // СЕРДЕЧКО, КАК В ИНСТАГРАМЕ (владелец 02.09): понятнее и занимает меньше места, чем
         // кнопка со словами. Заполненное — вариант в избранном.
         // ССЫЛКА ЕСТЬ У КАЖДОГО ВАРИАНТА, ДАЖЕ БЕЗ ФОТОГРАФИИ (владелец 08.09): окно кадра
@@ -2638,9 +2637,7 @@ function drawColl(force){
     // жест «покажи мне этот стиль», и раньше он давал два разных результата: по фото — кадр,
     // по подписи — список мебели. Кадра у варианта нет — открывается список, как раньше.
     el.onclick=e=>{ if(e.target.closest('button'))return;
-      const k=sh?shots.indexOf(sh):-1;
-      if(k>=0){vwOpenVariant(i);return;}
-      toggleSwap(i); };
+      vwOpenVariant(i); };   // окно варианта открывается и без кадра — в 3D (demo-09)
   });
   const add=document.createElement('div');
   add.className='newlay'; add.onclick=()=>openCons();
@@ -2651,9 +2648,7 @@ function drawColl(force){
   // так же, как по фото»). Кнопка вела в список мебели — окно без кадра; человек нажимал
   // «Открыть» у карточки со снимком и снимка не видел. Кадра нет — открываем список, как раньше.
   box.querySelectorAll('[data-swap]').forEach(b=>b.onclick=()=>{
-    const i=+b.dataset.swap, sh=bestShot(allVariants()[i]), k=sh?shots.indexOf(sh):-1;
-    if(k>=0){vwOpenVariant(i);return;}
-    toggleSwap(i);
+    vwOpenVariant(+b.dataset.swap);
   });
   // СТИЛИ БЕЗ ПОЛНОГО НАБОРА (conv-09): вариант без дивана, столика, ТВ-тумбы, ковра или торшера не
   // публикуется — вместо худой комнаты честная строка, чего не хватает в наличии сейчас.
@@ -3842,7 +3837,7 @@ function histFwd(){return histGo(1);}
 /* окно варианта не прокручивается целиком (приёмка d8 17.10): кнопка, уехавшая под свёрнутую шторку, при фокусе или «подтянуть к
    видимости» сдвигала #shotbody на 195 px — сцена и переключатель режимов уезжали за верх экрана; прокрутка — только в списке */
 #shot.v2 #shotbody{overflow:hidden;overflow:clip}
-#shot.v2 #shotbody{padding:0;overflow:hidden;display:flex}
+#shot.v2 #shotbody{padding:0;overflow:hidden;overflow:clip;display:flex}   /* clip — и для программной прокрутки (см. выше) */
 #shot.v2 .xclose{z-index:8}
 .vw{display:grid;grid-template-columns:minmax(0,1fr) 410px;flex:1;min-height:0;width:100%}
 .vstage{position:relative;background:var(--wash-2);min-height:0;overflow:hidden}
@@ -4329,8 +4324,11 @@ function vwHighlight(idx, opt){
   document.querySelectorAll('#shotbody .row.hl').forEach(x=>x.classList.remove('hl'));
   r.classList.add('hl'); clearTimeout(VW.hlT); VW.hlT=setTimeout(()=>r.classList.remove('hl'),4000);
   if(open&&window.innerWidth<=700){const sd=document.getElementById('vside'); if(sd&&+sd.dataset.pos<2)vwSheet(2);}
-  // шторка едет 0,28 с — прокручиваем, когда высота уже новая
-  setTimeout(()=>r.scrollIntoView({block:'center',behavior:'smooth'}),320);
+  // шторка едет 0,28 с — прокручиваем, когда высота уже новая. Только сам список: `scrollIntoView` двигал и окно над шторкой —
+  // после замены через ленту шторка «свёрнута», а стояла у верха экрана (владелец 17.10, probe16 d8)
+  setTimeout(()=>{const sc=document.getElementById('vscroll'); if(!sc||!r.isConnected)return;
+    const rr=r.getBoundingClientRect(), sr=sc.getBoundingClientRect();
+    sc.scrollTo({top:Math.max(0,sc.scrollTop+(rr.top-sr.top)-(sc.clientHeight-rr.height)/2),behavior:'smooth'});},320);
 }
 // ЦЕННИКИ НАД МЕБЕЛЬЮ В 3D (demo-09, Codex 17.10): метки — постоянные узлы, двигаются `transform` на каждом кадре; точки предметов —
 // из кэша движка (`viewer.projectSlot`), замеры окна и кнопок — 12 раз в секунду, не на каждом кадре. В «Фото» (снимок нейросети)
@@ -4444,7 +4442,8 @@ function vwMode(m){
 function vwRealShots(){
   if(!D||!items)return [];
   const vid=curVid(), st=curStateId(), by=new Map();
-  shots.forEach(x=>{if(x.vid===vid&&x.quality==='realistic'&&x.url&&x.stateId&&x.stateId===st&&!x.svc&&!x.orphan)by.set(x.camera||'C1',x);});
+  const v=allVariants()[cur];
+  shots.forEach(x=>{if(x.vid===vid&&x.quality==='realistic'&&x.url&&!x.svc&&!x.orphan&&(x.stateId?x.stateId===st:shotFits(x,v)))by.set(x.camera||'C1',x);});
   return [...by.values()].sort((a,b)=>String(a.camera||'C1').localeCompare(String(b.camera||'C1')));
 }
 const vwCamIndex=c=>Math.max(0,(+String(c||'C1').slice(1)||1)-1);

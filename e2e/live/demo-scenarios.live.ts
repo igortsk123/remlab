@@ -80,7 +80,7 @@ test("2.4 режимы в одном окне: «Фото» — только п�
     await expect(page.locator(`[data-vm="${m}"]`)).toHaveClass(/on/);
     say(`режим ${m}: ${Date.now() - t} мс`);
   }
-  await expect(page.locator("#shot .livecv, #shot .shotwrap img.vmain").first()).toBeVisible();
+  await expect(page.locator("#shot .livecv")).toBeVisible();   // закончили в 3D — видна живая сцена (картинка «Фото» под ней спрятана)
 });
 
 test("2.24 без реалистичного фото — 3D с ценниками и «Сделать реалистичнее»; без 3D — заглушка, не эскиз (demo-09)", async ({ page }) => {
@@ -126,6 +126,19 @@ test("2.25–2.26 фото готово для этой расстановки �
   await expect(page.locator("#shot .vready")).toBeVisible({ timeout: 20_000 });  // «Фото готово для прежней расстановки»
   expect(await page.evaluate("VW.mode")).toBe("walk");
   await expect(page.locator('[data-vm="photo"]')).toBeHidden();
+});
+
+// 2.27 (demo-09, дополнение 17.10): фото нейросети 13.10 сняты с прежних расстановок — карточка показывает кадр ТОЛЬКО своей расстановки
+test("2.27 карточка: кадр своей расстановки или «Откройте — покажем в 3D», не старое фото", async ({ page }) => {
+  await openDemo(page);
+  await page.waitForFunction("shots.length > 0");
+  await page.locator("#tab-room").click();
+  const cards = await page.evaluate(`allVariants().map((v, i) => { const el = document.querySelectorAll('#coll .lay')[i], im = el && el.querySelector('img.pv');
+    const s = im ? shots.find((x) => x.url === im.dataset.url) : null;
+    return { style: v.style, shown: s ? s.quality + ':' + (s.stateId ? 'state' : 'items') : (el && el.querySelector('.nopv') ? 'заглушка' : '?'), fits: !s || shotFits(s, v) }; })`) as { style: string; shown: string; fits: boolean }[];
+  say(cards.map((c) => `${c.style}: ${c.shown}`).join(" | "));
+  for (const c of cards) expect(c.fits, `${c.style}: на карточке кадр чужой расстановки`).toBe(true);
+  expect(cards.every((c) => c.shown !== "?")).toBe(true);
 });
 
 test("2.5–2.6 замена из окна: лента, выбор, сумма пересчитана, окно в 3D с «Сделать реалистичнее»", async ({ page }) => {
