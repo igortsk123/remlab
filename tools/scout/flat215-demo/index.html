@@ -1455,11 +1455,22 @@ function camFit(cx,cy,its,W,H,strict){
 // `hog` — один предмет не больше CAM_HOG кадра (живое 3D 17.10: телевизор вплотную чёрной плитой на треть кадра)
 // `close`/`pclose` — ближайшая видимая мебель ближе CAM_NEAR_L (кадр компьютера) / CAM_NEAR_P (телефон), в метрах недостачи;
 // `keyCut` — главное (диван, ТВ-тумба, столик) срезано боковым краем: доля ширины за кадром (d8 17.10: ТВ сканди, диван джапанди)
-const CAM_GATE=[['floor',0.35],['empty',0.35],['ceil',0.3],['close',0],['pclose',0],['hog',0.2],['fore',0.12],['keyCut',0.3],['nearWall',0.02]];
+// `keyMiss` — только у вида 2 (d8 17.10): ни диван, ни ТВ-тумба не видны хотя бы на 60 % ширины — вид без смысла для покупателя;
+// `close2` — мебель ближе 1.0 м (жёстче `close`). Пороги d8: срез главного ≤ 0.4, пустая стена ≤ 0.4
+const CAM_GATE=[['floor',0.35],['empty',0.4],['ceil',0.3],['close',0],['close2',0],['pclose',0],['hog',0.2],['fore',0.12],['keyCut',0.4],['keyMiss',0],['nearWall',0.02]];
+const CAM_KEY_SHOW=['диван','тв-тумба'], CAM_KEY_SHOW_MIN=0.6;
+function camKeyShow(c,its,st){
+  let best=0; (its||[]).forEach((it,i)=>{if(!CAM_KEY_SHOW.includes(camRole(it)))return; const b=camProj(c,it,0,camItemH(it)); if(!b||b.behind)return;
+    const bw=b.x1-b.x0; if(bw<=0)return; let f=Math.max(0,Math.min(b.x1,1)-Math.max(b.x0,-1))/bw;
+    const so=st.solo[i]||0; if(so&&(st.vis[i]||0)<0.4*so)f*=0.5;      // заслонён больше чем на 60 % — видна половина смысла
+    best=Math.max(best,f);});
+  return best;
+}
 const CAM_NEAR_L=120, CAM_NEAR_P=100, CAM_P_SN=0.3;   // телефон — с наибольшим сдвигом вниз (`CAM_PSHIFT[0]`): виден ближний пол
 function camKeyCut(c,its){
   let worst=0; (its||[]).forEach(it=>{if(!CAM_KEY.includes(camRole(it)))return; const b=camProj(c,it,0,camItemH(it)); if(!b||b.behind)return;
-    const bw=b.x1-b.x0, inw=Math.max(0,Math.min(b.x1,1)-Math.max(b.x0,-1)); if(bw<=0||inw/2<0.04)return; worst=Math.max(worst,1-inw/bw);
+    // кусок у края от 0.2 % кадра — уже срез (нейросеть дорисовывает край предмета заметнее) (d8 17.10: у минимализма полоска ТВ у левого края проходила как «вне кадра»)
+    const bw=b.x1-b.x0, inw=Math.max(0,Math.min(b.x1,1)-Math.max(b.x0,-1)); if(bw<=0||inw/2<0.002)return; worst=Math.max(worst,1-inw/bw);
     // СТОЛИК — ЕЩЁ И НИЖНИМ КРАЕМ (d8 17.10: у современного вид 2 столик срезан снизу): столешница за нижней кромкой — тоже срез
     if(camRole(it)==='столик'){const h=camItemH(it), t=camProj(c,it,h,h); if(t&&!t.behind&&t.y1>t.y0&&t.y1>-1)worst=Math.max(worst,Math.min(1,Math.max(0,-1-t.y0)/(t.y1-t.y0)));}});
   return worst;
@@ -1547,9 +1558,11 @@ function camTop(list,n){
 const camGateOk=(st,gl)=>CAM_GATE.slice(gl).every(([k,v])=>st[k]<=v);
 // ВЕС НАРУШЕНИЯ ПОРОГА (за каждые 0.1 сверх порога; для `close`/`pclose` — за каждые 10 см недостачи; `nearWall` — за 0.01):
 // стена у края и срез главного — почти запрет, лишний пол или потолок — мелочь
-const CAM_BAD_W={nearWall:100, keyCut:10, close:4, hog:4, fore:4, pclose:2, empty:2, ceil:1, floor:1}, CAM_BAD_TOL=0.5;
-function camBad(st){
-  let b=0; for(const [k,v] of CAM_GATE){const over=Math.max(0,st[k]-v); if(over>0)b+=CAM_BAD_W[k]*over/(k==='nearWall'?0.01:0.1);}
+// d8 17.10: потеря дивана/ТВ из вида 2 дороже среза главного до 40 %; пустая стена > 0.4 дороже мелочей; ближе 1.0 м — почти запрет
+const CAM_BAD_W={nearWall:100, keyMiss:15, keyCut:10, close2:10, empty:6, close:4, hog:4, fore:4, pclose:2, ceil:1, floor:1}, CAM_BAD_TOL=0.5;
+function camBad(st,second){
+  let b=0; for(const [k,v] of CAM_GATE){if(k==='keyMiss'&&!second)continue; const over=Math.max(0,(st[k]||0)-v);
+    if(over>0)b+=CAM_BAD_W[k]*over/(k==='nearWall'?0.01:0.1);}
   return b;
 }
 const camAng=(a,b)=>Math.abs(((a-b)%360+540)%360-180);   // циклическая разница направлений, 0…180°
@@ -1563,7 +1576,8 @@ function camPair(its,W,H,cs){
   const level=Math.max(...all.map(c=>c.lv)), lvOk=all.filter(c=>c.lv>=level&&c.far);
   if(!lvOk.length){const r=camPairCorner(its,W,H,cs); r.how='углы (нет точки для ракурса 1)'; return r;}
   const st=new Map(), stat=c=>{if(!st.has(c)){const s0=camStats(c,its,W,H); s0.seen=camSeen(c,its,s0); s0.part=camSeen(c,its,s0,true); s0.keyVis=camKeyVis(c,its,s0);
-    s0.keyCut=camKeyCut(c,its); s0.close=Math.max(0,CAM_NEAR_L-s0.nearest)/100;
+    s0.keyCut=camKeyCut(c,its); s0.close=Math.max(0,CAM_NEAR_L-s0.nearest)/100; s0.close2=Math.max(0,100-s0.nearest)/100;
+    s0.keyMiss=Math.max(0,CAM_KEY_SHOW_MIN-camKeyShow(c,its,s0));
     s0.pNear=camStats(c,its,W,H,{w:48,h:66,sn:CAM_P_SN}).nearest; s0.pclose=Math.max(0,CAM_NEAR_P-s0.pNear)/100; st.set(c,s0);} return st.get(c);};
   const kmax=Math.max(...lvOk.map(c=>c.key)), A0=camTop(lvOk.filter(c=>c.key>=kmax-1e-9),2*CAM_TOPK);
   const vmax=Math.max(...A0.map(c=>stat(c).keyVis)), A=A0.filter(c=>stat(c).keyVis>=vmax-1e-9).slice(0,CAM_TOPK);
@@ -1587,7 +1601,7 @@ function camPair(its,W,H,cs){
         if(zl===1&&camAng(a.rot,b.rot)<60)continue;
         // срез главного считается и здесь (по проекции, дёшево): иначе в короткий список попадают широкие виды с разрезанной мебелью
         ranked.push({b,u:2*wOf(a.cheap.im|b.cheap.im)/wAll+union(a.cheap.bins,b.cheap.bins)/binsAll+0.01*b.score
-          -CAM_BAD_W.keyCut*Math.max(0,b.keyCut-0.3)/0.1/10});}
+          -CAM_BAD_W.keyCut*Math.max(0,b.keyCut-0.4)/0.1/10});}
       ranked.sort((x,y)=>y.u-x.u).slice(0,CAM_PAIR_SHORT).forEach(r=>short.push([a,r.b]));
     }
     if(!short.length)continue;
@@ -1598,7 +1612,7 @@ function camPair(its,W,H,cs){
       const all2=[];
       for(const [a,b] of short){const sa=stat(a), sb=stat(b);
         const u=cover(sa,sb); if(u<=cover(sa)+1e-9)continue;   // второй кадр обязан что-то добавить
-        all2.push({a,b,u,bad:camBad(sa)+camBad(sb),worst:Math.min(a.score,b.score),sum:a.score+b.score,div:camAng(a.rot,b.rot)});}
+        all2.push({a,b,u,bad:camBad(sa)+camBad(sb,true),worst:Math.min(a.score,b.score),sum:a.score+b.score,div:camAng(a.rot,b.rot)});}
       if(!all2.length)continue;
       const bm=Math.min(...all2.map(q=>q.bad)), pairs=all2.filter(q=>q.bad<=bm+CAM_BAD_TOL), gl=Math.round(bm*10)/10;
       const um=Math.max(...pairs.map(q=>q.u));
@@ -1611,7 +1625,7 @@ function camPair(its,W,H,cs){
           const k=camSideCut(q,its); if(k>bc||(k===bc&&Math.abs(d)>=Math.abs(best.rot-c.rot)))continue;
           const b0=camBlock(q,its), tall=camTallCut(q,its);
           if(Math.max(b0.cov/CAM_BLOCK,camTvBack(q,its)?2:0,tall?1.5:0,camGraze(q,W,H))>1||camHard(q,its,first?level:0,first?undefined:CAM_B_CLEAR))continue;
-          const sq=stat(q); if(camBad(sq)>camBad(stat(c))+1e-9)continue;
+          const sq=stat(q); if(camBad(sq,!first)>camBad(stat(c),!first)+1e-9)continue;
           if(cover(first?sq:stat(other),first?stat(other):sq)<pick.u-1e-9)continue;
           if(first&&camKeyVis(q,its,sq)<stat(c).keyVis)continue;
           best=q; bc=k;}
