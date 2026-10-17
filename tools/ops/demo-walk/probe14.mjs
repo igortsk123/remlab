@@ -10,7 +10,7 @@ async function run(name,url,vp,mobile,locale){
   await p.goto(url,{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000});
   await p.evaluate(()=>{try{sessionStorage.removeItem('remlab-sheet-pos')}catch(e){} openLiveWindow();});
-  await p.waitForSelector('#vside',{timeout:60000}); try{await p.waitForFunction(()=>window.LIVE&&(LIVE.scene||LIVE.ok===false),null,{timeout:45000});}catch(e){} L('LIVE:',JSON.stringify(await p.evaluate(()=>({ok:LIVE.ok,why:LIVE.why,state:LIVE.state}))));  await p.waitForTimeout(5000);
+  await p.waitForSelector('#vside',{timeout:60000}); try{await p.waitForFunction(()=>typeof LIVE!=="undefined"&&(LIVE.scene||LIVE.ok===false),null,{timeout:45000});}catch(e){} L('LIVE:',JSON.stringify(await p.evaluate(()=>({ok:LIVE.ok,why:LIVE.why,state:LIVE.state}))));  await p.waitForTimeout(5000);
   const geo=()=>p.evaluate(()=>{const sd=document.getElementById('vside'), r=sd.getBoundingClientRect(), pl=document.getElementById('vsum').getBoundingClientRect();
     const rows=[...document.querySelectorAll('#vside .vopts-row')].map(e=>e.textContent.trim().replace(/\s+/g,' ').slice(0,60));
     const order=[...document.querySelectorAll('#vscroll > *, #vscroll .vtop > *, #vscroll .vlist > *')].filter(e=>e.offsetParent!==null).map(e=>(e.id||e.className||e.tagName).toString().slice(0,24));
