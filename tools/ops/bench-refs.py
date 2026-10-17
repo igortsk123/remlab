@@ -33,7 +33,10 @@ SRC_DIR = os.path.expanduser('~/scout-scenes/src')
 DEMO = os.path.expanduser('~/scout-scenes/flat215-demo/demo-data.json')
 BASE = 'https://remont-lab.online'
 MODEL = 'openai/gpt-image-2.5-sunburst'
-VARIANTS = ['baseline', 'locator', 'photos', 'hires', 'json', 'matrix', 'json2', 'combo']   # json2 — повтор победителя (шум), combo — json + фото + locator
+VARIANTS = ['baseline', 'locator', 'photos', 'hires', 'json', 'matrix', 'json2', 'combo', 'v4base', 'neutral', 'neutral2']
+# json2 — повтор победителя (шум), combo — json + фото + locator; v4base/neutral/neutral2 — A/B «нейтральные серые не утеплять» поверх v4
+NEUTRAL_RULE = ('Keep neutral and cool product colours neutral: grey, blue-grey and white upholstery, rugs and finishes must stay the same hue '
+                'as in their references; warm daylight may warm highlights and walls, but must not tint products beige or brown.')
 MATERIALS = [('рогожк', 'woven matting fabric'), ('шенилл', 'chenille'), ('велюр', 'velour'), ('букле', 'bouclé'), ('вельвет', 'corduroy'),
              ('экокож', 'faux leather'), ('кож', 'leather'), ('лён', 'linen'), ('шерст', 'wool'), ('хлоп', 'cotton'), ('дуб', 'oak'),
              ('орех', 'walnut'), ('ясень', 'ash'), ('сосн', 'pine'), ('древесн', 'wood'), ('дерев', 'wood'), ('металл', 'metal'),
@@ -202,6 +205,12 @@ def prompt_variant(base: str, kind: str, prods: list, refs: dict, n_photo_imgs: 
     return p
 
 
+def neutral_prompt(p: str) -> str:
+    """Правило «нейтральные серые не утеплять» — сразу после PHOTOGRAPHIC LOOK (меняется ровно одно относительно v4)."""
+    i = p.index('no oversaturation.') + len('no oversaturation.')
+    return p[:i] + ' ' + NEUTRAL_RULE + p[i:]
+
+
 def combo_prompt(base: str, prods: list, refs: dict) -> str:
     """Сочетание лучших по одному: locator (IMAGE 2) + отдельные фото товаров (IMAGE 3…) + список товаров JSON."""
     lines = [f'* IMAGE {j + 3}: product {", ".join("#" + str(n) for n in pr["nums"])} ({pr["role"]}, "{pr["name"]}") — its exact colour, fabric '
@@ -257,6 +266,9 @@ def build(src: str, shot: str) -> dict:
         'matrix': ([sheet, collage], prompt_variant(base_prompt, 'matrix', prods, refs)),
         'json2': ([sheet, collage], prompt_variant(base_prompt, 'json', prods, refs)),
         'combo': ([sheet, loc] + singles, combo_prompt(base_prompt, [p for p in prods if p['name'] in photos], refs)),
+        'v4base': ([sheet, collage], prompt_variant(base_prompt, 'json', prods, refs)),
+        'neutral': ([sheet, collage], neutral_prompt(prompt_variant(base_prompt, 'json', prods, refs))),
+        'neutral2': ([sheet, collage], neutral_prompt(prompt_variant(base_prompt, 'json', prods, refs))),
     }
     for k, (imgs, pr) in inputs.items():
         d = os.path.join(OUT, k)
