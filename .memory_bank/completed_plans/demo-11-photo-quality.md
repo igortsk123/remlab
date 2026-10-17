@@ -2,10 +2,10 @@
 workstream: demo
 slug: demo-11-photo-quality
 title: Реалистичное фото — модель gpt-image-2.5-sunburst (medium), блок «фотографический вид», тёплые гайды стилей, каталожная форма товара, пересъёмка 5 вариантов
-status: in_progress
+status: completed
 created: 2026-10-17
 updated: 2026-10-17
-completed:
+completed: 2026-10-17
 plan_kind: sub
 parent_plan: MASTER-cost-first
 assignee: opus-5.5
@@ -82,26 +82,26 @@ review_after: 2026-11-28
 - Кадры из браузера (`demo-10`), досье (`demo-08`), ступень «ещё реалистичнее» (`high`, 12.6 ¢) — отдельным решением владельца.
 
 ## Файлы к изменению
-- [ ] `tools/scout/dev_render_backend.sh`, `/opt/remlab/.env` (+ перезапуск по `deployment.md`) — модель и качество
-- [ ] `tools/scout/improve_mode.py` — `prompt_for` v2 (блоки), `PROMPT_VERSION`
-- [ ] `tools/scout/styles.json` — `render_guide` ×6, `_decor_policy.deny_always`
-- [ ] `tools/scout/draft_render.py` — отступ поз съёмки (если не через demo-05)
-- [ ] `tools/ops/demo-realistic.mjs` — `--force <style>`; `tools/scout/tests/test_improve_prompt.py` (новый); `e2e/live/demo-scenarios.live.ts` (2.29)
-- [ ] Память: `domain/viz-fidelity-playbook.md` (рабочий рецепт → sunburst medium + improve-v2), `core/furniture.md`, `core/styles.md`
+- [x] `tools/scout/dev_render_backend.sh`, `/opt/remlab/.env` (+ перезапуск по `deployment.md`) — модель и качество
+- [x] `tools/scout/improve_mode.py` — `prompt_for` v2 (блоки), `PROMPT_VERSION`
+- [x] `tools/scout/styles.json` — `render_guide` ×6, `_decor_policy.deny_always`
+- [x] `tools/scout/draft_render.py` — отступ поз съёмки (если не через demo-05)
+- [x] `tools/ops/demo-realistic.mjs` — `--force <style>`; `tools/scout/tests/test_improve_prompt.py` (новый); `e2e/live/demo-scenarios.live.ts` (2.29)
+- [x] Память: `domain/viz-fidelity-playbook.md` (рабочий рецепт → sunburst medium + improve-v2), `core/furniture.md`, `core/styles.md`
   (гайды), ADR-0302 (модель и промпт по бенчу), книга «Сегодня» (глава фото), `domain/demo-scenario-map.md` 2.29
 
 ## Задачи
-- [ ] П.1 модель + проверка ответа
-- [ ] П.2 промпт v2 + юнит-тест
-- [ ] П.3 гайды ×6 + страница для владельца ⚑
-- [ ] П.4 отступ поз (demo-05) → п.5 пробное фото → владелец → `--all`
-- [ ] П.6 живая 2.29; память; ADR
+- [x] П.1 модель + проверка ответа
+- [x] П.2 промпт v2 + юнит-тест
+- [x] П.3 гайды ×6 + страница для владельца ⚑
+- [x] П.4 отступ поз (demo-05) → п.5 пробное фото → владелец → `--all`
+- [x] П.6 живая 2.29; память; ADR
 
 ## Критерии приёмки
-- [ ] Ответ `/render` на проде: `model` = `improve/openai/gpt-image-2.5-sunburst`, время модели ≤ 35 с, списание ≤ 7 ¢ за лист
-- [ ] Пробное фото «Сканди» с новым промптом: тёплый свет, радиатор, диван без подлокотников и подушек, вид 2 без «ниши» (камера ≥ 60 см от стены)
-- [ ] Все 5 вариантов — фото своей расстановки на карточке и во вкладке «Фото», в реестре `stateId`; старые записи — история
-- [ ] Шесть гайдов показаны владельцу страницей; юнит-тест промпта и живая 2.29 зелёные
+- [x] Ответ `/render` на проде: `model` = `improve/openai/gpt-image-2.5-sunburst`, время модели ≤ 35 с, списание ≤ 7 ¢ за лист
+- [x] Пробное фото «Сканди» с новым промптом: тёплый свет, радиатор, диван без подлокотников и подушек, вид 2 без «ниши» (камера ≥ 60 см от стены)
+- [x] Все 5 вариантов — фото своей расстановки на карточке и во вкладке «Фото», в реестре `stateId`; старые записи — история
+- [x] Шесть гайдов показаны владельцу страницей; юнит-тест промпта и живая 2.29 зелёные
 
 ## Где обязательно советоваться с Codex
 - Критика плана до передачи — `_intake/codex/2026-10-17-photo-quality-critique.md`.
@@ -134,3 +134,12 @@ review_after: 2026-11-28
   фото разрастается до 2,6–3 ГБ и дважды убит earlyoom (13:50, 13:55); одна съёмка Минимализма потеряна при перезапуске контейнера
   выкладкой. Итого платных съёмок по demo-11 — ~9, по ≈ 5 ¢ (≈ 45 ¢; одна — потерянная, оплачена ли — неизвестно). Полос маджента нет ни на одном снимке. Страница гайдов обновлена
   со всеми пятью. Видно глазами: лофт — детский ковёр (подбор ковра, `demo-05`), джапанди C1 — диван срезан; C2 у всех слабые (`demo-12`).
+
+## Completion summary
+- **Сделано:** модель `gpt-image-2.5-sunburst` medium (~30 с, ~5.5 ¢ за лист) — DEV и сервер; промпт improve-v2 → v3 (гайды стилей v2.1,
+  demo-13) → v4 (список товаров, demo-14); каталожная форма (без выдуманных подлокотников и подушек), тёплые гайды; вид 2 не у стены
+  (далее — подбор пары demo-12); все 5 вариантов пересняты со своей расстановкой (`stateId` в реестре); гайды показаны владельцу (demo-13).
+  Юнит `tools/scout/tests/test_improve_prompt.py` в CI.
+- **Решения:** ADR-0302 (модель и промпт), далее ADR-0303/0305. **Память:** `domain/viz-fidelity-playbook.md`, `core/furniture.md`, `core/styles.md`.
+- **Уроки:** 500 (подменять платный путь в проверках), 506 (параллельные платные циклы); блокнот: проверочный скрипт с зашитой версией
+  промпта бракует годное фото.
