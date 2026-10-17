@@ -19,7 +19,7 @@ if(!prod)await p.route(/\/demo\/(\?.*)?$/,r=>r.fulfill({status:200,contentType:'
 await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
 await p.goto('https://remont-lab.online/demo/?live=force',{waitUntil:'load',timeout:120000});
 await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000});
-await p.evaluate(()=>{try{sessionStorage.removeItem('remlab-sheet-pos')}catch(e){} openLiveWindow();}); await p.waitForFunction(()=>LIVE.scene,null,{timeout:120000}); await p.waitForTimeout(8000);
+await p.evaluate(()=>{try{sessionStorage.removeItem('remlab-sheet-pos')}catch(e){} openLiveWindow(); if(VW.mode==='photo')vwMode('walk');}); await p.waitForFunction(()=>LIVE.scene,null,{timeout:120000});   // у варианта есть фото — окно в «Фото», жесты меряем в 3D await p.waitForTimeout(8000);
 await p.evaluate(()=>{window.__fit=0; const o=liveFit; liveFit=function(){window.__fit++; return o.apply(this,arguments);};});
 const geo=()=>p.evaluate(()=>{const sd=document.getElementById('vside').getBoundingClientRect(), cv=LIVE.canvas&&LIVE.canvas.getBoundingClientRect(), pl=document.getElementById('vsum').getBoundingClientRect();
   return {top:Math.round(sd.top), pos:document.getElementById('vside').dataset.pos, cv:cv?[Math.round(cv.top),Math.round(cv.height)].join('/'):'-', plate:Math.round(pl.top), fit:window.__fit,
@@ -64,7 +64,7 @@ await touch('touchStart',sp.y); for(let i=1;i<=6;i++){await touch('touchMove',sp
 ok('передача из списка без прыжка (≈ 30−6 px)',Math.abs((gB.top-gA.top)-24)<=8,`сдвиг ${gB.top-gA.top}`);
 await touch('touchEnd'); await p.waitForTimeout(800);
 // 6. пины после доводки: зона сцены неизменна
-await p.click('[data-vm="photo"]').catch(()=>{}); await p.evaluate(()=>vwSheet(0)); await p.waitForTimeout(1500);
+await p.evaluate(()=>vwMode('walk'));   // пины — в 3D (demo-09: в «Фото» их нет) await p.evaluate(()=>vwSheet(0)); await p.waitForTimeout(1500);
 const pins=async()=>p.evaluate(()=>JSON.stringify(LIVE.scene.pins().filter(x=>x.visible).map(x=>[x.index,Math.round(x.x),Math.round(x.y)])));
 const p0=await pins(); await p.evaluate(()=>vwSheet(3)); await p.waitForTimeout(1200); const p1=await pins();
 ok('пины не смещаются при открытии',p0===p1,'');
@@ -73,7 +73,7 @@ await p.screenshot({path:OUT+`v4-${W}-full.png`}); await p.evaluate(()=>vwSheet(
 await p.click('.vpl-i'); await p.waitForTimeout(300); const bub=await p.evaluate(()=>{const e=document.getElementById('vplBub');return e&&!e.hidden?e.innerText.replace(/\n/g,' | '):null;});
 ok('ⓘ открывает расшифровку',!!bub,bub||''); await p.screenshot({path:OUT+`v4-${W}-bubble.png`});
 // 8. v5: средняя по содержимому, полная — до верха, раздел и возврат высоты, строки по комнате
-await p.click('body',{position:{x:5,y:5}}).catch(()=>{});
+await p.evaluate(()=>{const bb=document.getElementById('vplBub'); if(bb)bb.hidden=true;});   // закрыть пузырь ⓘ (клик по сцене открыл бы фото)
 await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(800);
 const mid=await p.evaluate(()=>{const sd=document.getElementById('vside'), r=document.querySelector('#vGroups .vopts-row:last-child'), top=sd.getBoundingClientRect().top;
   return {vis:Math.round(VW.sheetVis), midH:VW.midH, row:r?Math.round(r.getBoundingClientRect().bottom-top):null, rows:[...document.querySelectorAll('#vGroups .vopts-row b')].map(b=>b.textContent)};});
@@ -108,7 +108,7 @@ ok('v5.1 полная с первого раза 3/3',f3.every(t=>t<=2),f3.join(
 await p.evaluate(()=>vwSheet(0)); await p.waitForTimeout(700); await p.screenshot({path:OUT+`v51-${W}-collapsed.png`});
 // 9. v5: окно комнаты с группой кухни (`?debug=1&vroom=kitchen`) — строка «Встраиваемое», четыре карточки, выбор → s2 и ссылка
 await p.goto('https://remont-lab.online/demo/?live=0&debug=1&vroom=kitchen',{waitUntil:'load',timeout:120000});
-await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000}); await p.evaluate(()=>openLiveWindow()); await p.waitForTimeout(2500);
+await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000}); await p.evaluate(()=>{openLiveWindow(); vwSheet(2);}); await p.waitForTimeout(2500);   // шторка с прошлого шага свёрнута — раскрыть, как человек
 await p.click('#vGroups [data-group="fitted"]'); await p.waitForTimeout(900);
 const fit=await p.evaluate(()=>({cards:[...document.querySelectorAll('#vfitted .vfit')].map(b=>b.querySelector('b').textContent+' · '+b.querySelector('.vfit-p').textContent), s:curStateId()}));
 ok('v5 «Встраиваемое» → 4 карточки кухни',fit.cards.length===4,fit.cards.join(' | '));
@@ -116,6 +116,7 @@ await p.screenshot({path:OUT+`v5-${W}-fitted.png`});
 await p.click('#vfitted [data-fl="kitchen:kitchen-practical"]'); await p.waitForTimeout(700);
 const fit2=await p.evaluate(()=>({s:curStateId(), dev:JSON.stringify(DEVOPT), href:(document.getElementById('vFlat')||{}).href||''}));
 ok('v5 выбор кухни → s2, DEVOPT, ссылка',/^s2-/.test(fit2.s)&&fit2.dev.includes('kitchen-practical')&&fit2.href.includes('kitchen:kitchen-practical'),JSON.stringify(fit2));
+await p.evaluate(()=>vwSheet(3)); await p.waitForTimeout(700);   // выбор кухни свернул шторку (demo-09 п.4a) — раскрыть
 await p.click('#vOptsBack'); await p.waitForTimeout(700);
 ok('v5 сводка строки обновилась',(await p.$eval('#vGroups [data-group="fitted"] span',e=>e.textContent)).includes('Practical'),await p.$eval('#vGroups [data-group="fitted"] span',e=>e.textContent));
 console.log(R.join('\n')); console.log('plate',await p.$eval('#vsum .vpl-row',e=>e.innerText.replace(/\n/g,' '))); console.log('errs',errs.slice(0,4)); await b.close();})().catch(e=>{console.error(e);process.exit(1);});

@@ -3856,7 +3856,8 @@ function histFwd(){return histGo(1);}
 #vzoom{position:fixed;inset:0;z-index:95;background:#111;display:none;touch-action:none;overflow:hidden}
 #vzoom.on{display:block}#vzoom img{position:absolute;left:50%;top:50%;max-width:100%;max-height:100%;transform-origin:center;
  will-change:transform;user-select:none;-webkit-user-drag:none}
-#vzoom .vzx{position:absolute;top:12px;right:12px;width:42px;height:42px;border-radius:50%;border:0;background:rgba(255,255,255,.9);font-size:22px;z-index:2}
+#vzoom .vzx{position:absolute;top:12px;right:12px;width:42px;height:42px;border-radius:50%;border:0;background:rgba(255,255,255,.9);font-size:22px;z-index:2;transition:opacity .2s}
+#vzoom.nox .vzx{opacity:0;pointer-events:none}
 #vzoom .vzh{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);background:rgba(255,255,255,.92);color:#222;
  padding:8px 12px;border-radius:10px;font-size:14px;white-space:nowrap}
 #shot.v2 .shotwrap .livecv{border-radius:0}
@@ -4027,6 +4028,9 @@ function histFwd(){return histGo(1);}
   .vplanbox{inset:60px 8px var(--vsh,320px) 8px}
   /* подсказка «фото готово» — сверху, под ↶ ↷: снизу её перекрывала подпись выбранного пола (самопроверка 17.10) */
   .vstub{bottom:var(--vsh,320px)}.vready{top:108px;bottom:auto}
+  /* «Фото» на телефоне — во всю область сцены, без размытых полос; сторону обрезки выбирает `vwPhotoFocus` (мебель в центре) */
+  #shot.v2 .vstage .shotwrap img.vmain{object-fit:cover}
+  #shot.v2 .vstage .shotwrap img.vblur{display:none}
   /* «3D» — холст на весь экран под шторкой; «Фото»/«План» — постоянная зона над свёрнутой шторкой (при жесте не меняется) */
   #shot.vwalk .vstage .shotwrap{bottom:0}
   #shot.v2 .shotwrap .livebadge,#shot.v2 .shotwrap .vold{top:auto;bottom:10px;left:10px}
@@ -4152,27 +4156,76 @@ function openLiveWindow(){
   viewShot(i);
 }
 // ПРОСМОТР ВО ВЕСЬ ЭКРАН: перетаскивание, щипок ×1–3 (колесо на компьютере), двойной тап — назад; подсказка один раз
+// ПРОСМОТР ВО ВЕСЬ ЭКРАН — КАК ГАЛЕРЕЯ ТЕЛЕФОНА (demo-09, владелец по iPhone 17.10: «елозит», двойной тап закрывал): при масштабе 1
+// картинка целиком и неподвижна; двойной тап — ×2,5 в точку тапа, повторный — назад; щипок — 1…4 вокруг пальцев; перетаскивание —
+// только при увеличении и в пределах картинки (с резинкой); одиночный тап — показать/скрыть «×»; свайп вниз при масштабе 1 — закрыть
 function vwZoom(url){
   let z=document.getElementById('vzoom');
-  if(!z){z=document.createElement('div'); z.id='vzoom'; z.innerHTML='<img alt=""><button class="vzx" aria-label="Закрыть">×</button>';
+  if(!z){z=document.createElement('div'); z.id='vzoom'; z.innerHTML='<img alt="" draggable="false"><button class="vzx" aria-label="Закрыть">×</button>';
     document.body.appendChild(z);}
-  const im=z.querySelector('img'); im.src=url; z.classList.add('on');
-  let k=1, tx=0, ty=0; const pts=new Map(); let d0=0, k0=1, last=null, tap=0;
-  const put=()=>{im.style.transform=`translate(calc(-50% + ${tx}px),calc(-50% + ${ty}px)) scale(${k})`;}; put();
-  const close=()=>{z.classList.remove('on'); z.onpointerdown=z.onpointermove=z.onpointerup=z.onwheel=null;};
-  z.querySelector('.vzx').onclick=close;
-  z.onpointerdown=e=>{pts.set(e.pointerId,{x:e.clientX,y:e.clientY}); last={x:e.clientX,y:e.clientY};
-    if(pts.size===2){const [a,b]=[...pts.values()]; d0=Math.hypot(a.x-b.x,a.y-b.y); k0=k;}
-    const now=Date.now(); if(pts.size===1&&now-tap<300){close(); return;} tap=now;};
-  z.onpointermove=e=>{if(!pts.has(e.pointerId))return; pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
-    if(pts.size===2){const [a,b]=[...pts.values()]; k=Math.max(1,Math.min(3,k0*Math.hypot(a.x-b.x,a.y-b.y)/(d0||1)));}
-    else if(last){tx+=e.clientX-last.x; ty+=e.clientY-last.y;} last={x:e.clientX,y:e.clientY}; put();};
-  z.onpointerup=e=>{pts.delete(e.pointerId); last=null;};
-  z.onwheel=e=>{e.preventDefault(); k=Math.max(1,Math.min(3,k*(e.deltaY<0?1.15:0.87))); put();};
-  let seen=false; try{seen=!!localStorage.getItem('remlab-zoom-hint-v1');}catch(e){}
+  const im=z.querySelector('img'), bx=z.querySelector('.vzx'); im.src=url; z.classList.add('on'); z.classList.remove('nox'); z.style.background='';
+  let k=1, tx=0, ty=0, g=null, lastTap=null, tapT=0;
+  const pts=new Map(), W=()=>z.clientWidth, H=()=>z.clientHeight;
+  // размер картинки при масштабе 1 (вписана целиком)
+  const base=()=>{const nw=im.naturalWidth||16, nh=im.naturalHeight||9, s0=Math.min(W()/nw,H()/nh); return {w:nw*s0,h:nh*s0};};
+  const lim=kk=>{const b=base(); return {x:Math.max(0,(b.w*kk-W())/2), y:Math.max(0,(b.h*kk-H())/2)};};
+  const clamp=(v,m,rub)=>rub?(v>m?m+(v-m)*0.3:v<-m?-m+(v+m)*0.3:v):Math.max(-m,Math.min(m,v));
+  const put=anim=>{im.style.transition=anim?'transform .25s ease':'none';
+    im.style.transform=`translate(calc(-50% + ${tx}px),calc(-50% + ${ty}px)) scale(${k})`;};
+  // точка экрана остаётся под пальцем при смене масштаба: t' = P − C − (P − C − t)·k'/k
+  const zoomAt=(nk,px,py,anim)=>{const cx=W()/2, cy=H()/2; nk=Math.max(1,Math.min(4,nk));
+    tx=(px-cx)-((px-cx)-tx)*nk/k; ty=(py-cy)-((py-cy)-ty)*nk/k; k=nk; const m=lim(k); tx=clamp(tx,m.x); ty=clamp(ty,m.y); put(anim);};
+  const settle=()=>{const m=lim(k); tx=clamp(tx,m.x); ty=clamp(ty,m.y); if(k<=1.001){k=1;tx=0;ty=0;} put(true);};
+  put(false);
+  const close=()=>{z.classList.remove('on'); z.onpointerdown=z.onpointermove=z.onpointerup=z.onpointercancel=z.onwheel=null; clearTimeout(tapT);};
+  bx.onclick=e=>{e.stopPropagation(); close();};
+  z.onpointerdown=e=>{if(e.target===bx)return; e.preventDefault(); pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(pts.size===2){const [a,b]=[...pts.values()]; g={pinch:true, d0:Math.hypot(a.x-b.x,a.y-b.y)||1, k0:k};}
+    else if(pts.size===1)g={x0:e.clientX,y0:e.clientY,tx0:tx,ty0:ty,t0:Date.now(),moved:false};};
+  z.onpointermove=e=>{if(!pts.has(e.pointerId)||!g)return; pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(g.pinch&&pts.size===2){const [a,b]=[...pts.values()]; zoomAt(g.k0*Math.hypot(a.x-b.x,a.y-b.y)/g.d0,(a.x+b.x)/2,(a.y+b.y)/2,false); return;}
+    if(g.pinch)return;
+    const dx=e.clientX-g.x0, dy=e.clientY-g.y0; if(!g.moved&&Math.hypot(dx,dy)<8)return; g.moved=true;
+    if(k>1){const m=lim(k); tx=clamp(g.tx0+dx,m.x,true); ty=clamp(g.ty0+dy,m.y,true); put(false);}
+    else if(dy>0&&Math.abs(dy)>Math.abs(dx)){ty=dy; put(false); z.style.background=`rgba(17,17,17,${Math.max(0.35,1-dy/400)})`;}};
+  const up=e=>{pts.delete(e.pointerId); const g0=g;
+    if(g0&&g0.pinch){if(!pts.size)g=null; settle(); return;}
+    g=null; if(!g0)return;
+    if(g0.moved){if(k<=1&&ty>110){close(); return;} z.style.background=''; settle(); return;}
+    // тап: двойной — масштаб в точку; одиночный (если второго не было за 280 мс) — показать/скрыть «×»
+    const now=Date.now();
+    if(lastTap&&now-lastTap.t<300&&Math.hypot(e.clientX-lastTap.x,e.clientY-lastTap.y)<30){clearTimeout(tapT); lastTap=null;
+      if(k>1){k=1;tx=0;ty=0;put(true);} else zoomAt(2.5,e.clientX,e.clientY,true); return;}
+    lastTap={t:now,x:e.clientX,y:e.clientY}; clearTimeout(tapT); tapT=setTimeout(()=>z.classList.toggle('nox'),280);};
+  z.onpointerup=up; z.onpointercancel=e=>{pts.delete(e.pointerId); g=null; z.style.background=''; settle();};
+  z.onwheel=e=>{e.preventDefault(); zoomAt(k*(e.deltaY<0?1.15:0.87),e.clientX,e.clientY,false);};
+  let seen=false; try{seen=!!localStorage.getItem('remlab-zoom-hint-v2');}catch(e){}
   if(!seen){const h=document.createElement('div'); h.className='vzh';
-    h.textContent=LANG==='en'?'Drag to move · pinch to zoom · double tap to go back':'Двигайте пальцем · щипок — увеличить · двойной тап — назад';
-    z.appendChild(h); setTimeout(()=>h.remove(),3500); try{localStorage.setItem('remlab-zoom-hint-v1','1');}catch(e){}}
+    h.textContent=LANG==='en'?'Double tap to zoom · pinch · swipe down to close':'Двойной тап — увеличить · щипок · свайп вниз — закрыть';
+    z.appendChild(h); setTimeout(()=>h.remove(),3500); try{localStorage.setItem('remlab-zoom-hint-v2','1');}catch(e){}}
+}
+// ФОТО НА ТЕЛЕФОНЕ ЗАПОЛНЯЕТ ОБЛАСТЬ СЦЕНЫ (demo-09, владелец 17.10: полосы сверху и снизу — убрать): картинка по высоте области,
+// по бокам обрезается, центр кадрирования — на мебели: середина ядра (диван, ТВ-тумба, столик…) в проекции камеры этого снимка
+function vwPhotoFocus(img, s){
+  if(!img||!s)return;
+  const cam=((s.cams||[]).find(c=>c.name===(s.camera||'C1')))||((cams||loadCams())[vwCamIndex(s.camera)]);
+  // предметы ядра в долях ширины снимка (0…1) с весом роли: диван важнее столика (`CAM_CORE`)
+  const boxes=[];
+  if(cam&&typeof camProj==='function')items.forEach(it=>{const wgt=CAM_CORE[String(it.role||'').replace(/\s+\d+$/,'')]; if(!wgt||!it.w||!it.d)return;
+    const b=camProj(cam,it,0,+it.h>0?+it.h:60); if(!b||b.behind)return;
+    // диван — главное (критерий владельца: «диван в кадре»): его вес решающий, остальное — добором
+    const x0=(Math.max(-1,b.x0)+1)/2, x1=(Math.min(1,b.x1)+1)/2; if(x1>x0)boxes.push({x0,x1,w:camRole(it)==='диван'?wgt*4:wgt});});
+  // ОКНО ОБРЕЗКИ — ГДЕ МЕБЕЛЬ ВИДНА ЦЕЛИКОМ БОЛЬШЕ ВСЕГО (самопроверка 17.10: середина между диваном и ТВ попадала на окно, оба срезаны):
+  // сумма «вес × видимая доля предмета» по сдвигам окна; при равенстве — ближе к середине
+  const apply=()=>{const wrap=img.parentNode; if(!wrap||!img.naturalWidth)return;
+    const Wc=wrap.clientWidth, Hc=wrap.clientHeight, sc=Math.max(Wc/img.naturalWidth,Hc/img.naturalHeight), Ws=img.naturalWidth*sc;
+    const over=Ws-Wc; if(over<=1||!boxes.length){img.style.objectPosition='50% 50%'; return;}
+    const fr=Wc/Ws; let best=0.5, bs=-1;
+    for(let k=0;k<=100;k++){const o=k/100*(1-fr), sc2=boxes.reduce((t,b)=>t+b.w*Math.max(0,Math.min(b.x1,o+fr)-Math.max(b.x0,o))/(b.x1-b.x0),0);
+      if(sc2>bs+1e-6||(Math.abs(sc2-bs)<=1e-6&&Math.abs(k-50)<Math.abs(best*100-50))){bs=sc2; best=k/100;}}
+    img.style.objectPosition=`${Math.round(best*100)}% 50%`;};
+  if(img.complete)apply(); else img.addEventListener('load',apply,{once:true});
+  img._focus=apply;
 }
 function vwLoad(on, txt, corner){
   const l=document.getElementById('vload'); if(!l)return;
@@ -4221,6 +4274,7 @@ function vwLayout(){
   vw.style.setProperty('--vsh',(e.min+8)+'px');
   vwSheetApply(Math.max(e.min,Math.min(e.max,VW.sheetVis||e.min)),false);
   const w=document.querySelector('#shot .shotwrap'); if(w&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode===w)liveFit(w);
+  const mi=document.querySelector('#shot .shotwrap img.vmain'); if(mi&&mi._focus)mi._focus();   // поворот — кадрирование заново
 }
 // видимая высота шторки → сдвиг; состояние для кнопки, списка и проверок
 function vwSheetApply(vis, anim){
@@ -4409,6 +4463,7 @@ function vwMount(s){
       try{localStorage.setItem('remlab-sheet-hint-v1','1');}catch(e){}}}
   // увеличить картинку: «⤢» или тап по ней; свайп по кадру — другой ракурс
   const zb=document.getElementById('vzBtn'), mi=shot.querySelector('.shotwrap img.vmain');
+  if(mi&&VW_PHONE())vwPhotoFocus(mi,s);
   if(zb)zb.onclick=()=>vwZoom(s.url);
   if(mi){let sx=null; mi.addEventListener('pointerdown',e=>{sx=e.clientX;});
     mi.addEventListener('pointerup',e=>{if(sx===null)return; const dx=e.clientX-sx; sx=null;
