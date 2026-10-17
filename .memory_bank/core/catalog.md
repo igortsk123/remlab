@@ -3,7 +3,7 @@ tier: 1
 topic: catalog
 scope: Каталог — загрузка из фидов/API, свежесть, сторожа
 tier2: "../domain/catalog-enrichment.md"
-updated: 2026-10-14
+updated: 2026-10-17
 importance: high
 source: manual
 status: working
@@ -13,6 +13,9 @@ review_after: 2026-12-05
 ---
 
 # Каталог — Tier 1 сводка
+
+**Детское в гостиной (17.10):** по названию (`category_map.is_kids`; слова детских ковров — только для текстиля) и по картинке ковра
+(`rug_kids.py`, кэш, шаг после `load3`) — `domain/catalog-enrichment.md` § «Детское в гостиной».
 
 **Состав (11.10):** 20 552 товара, in_stock ~17 900, 7 магазинов (Орматек 93965 подключён 11.10;
 ВсеИнструменты НЕ подключён — ADR-0240); дев-БД `remlab-devdb`.
