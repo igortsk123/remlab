@@ -5,7 +5,6 @@ scope: Регламент двух сессий fable-lead ↔ opus-worker — �
 updated: 2026-10-17
 source: manual
 status: working
-source_of_truth: canonical
 ---
 # Оркестрация fable-lead ↔ opus-worker (полная версия правила `.claude/rules/orchestration.md`)
 
