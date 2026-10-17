@@ -26,6 +26,10 @@ ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 OK_DE, WARN_DE = 8.0, 12.0
 BIG_ROLES = {'диван', 'кресло', 'ковёр', 'тв-тумба', 'столик', 'стол обеденный', 'комод', 'стеллаж', 'витрина'}
 MIN_PX = 600          # видимых пикселей товара в виде (на 2048 px по ширине) — меньше: не меряем
+# МЕРЯЕМ ТОЛЬКО СПЛОШНОЕ (замер 17.10): у торшера, стульев и стеллажей коробка карты шире силуэта — в неё попадает стена за ними;
+# у столов — только верхние 40 % области (столешница), ножки тонкие
+MEASURE_ROLES = {'диван', 'кресло', 'ковёр', 'тв-тумба', 'комод', 'банкетка', 'пуф', 'столик', 'стол обеденный', 'тумба'}
+TOP_ONLY = {'столик', 'стол обеденный'}
 
 
 def base_role(role: str) -> str:
@@ -131,25 +135,35 @@ def split_sheet(sheet: Image.Image) -> list:
     return [(0, (0, 0, sheet.width, h)), (1, (0, h, sheet.width, sheet.height))]
 
 
-def item_masks(room: dict, items: list, cams: list, w: int, h: int) -> np.ndarray:
+def item_masks(room: dict, items: list, cams: list, w: int, h: int, no_tv: bool = True) -> np.ndarray:
     """Карта предметов для каждой камеры (cams × h × w, номер в `items` или −1) — `tools/flat3d/cam-masks.mjs`."""
     with tempfile.TemporaryDirectory() as td:
         jp, bp = os.path.join(td, 'job.json'), os.path.join(td, 'mask.bin')
-        json.dump({'room': room, 'items': items, 'cams': cams, 'w': w, 'h': h}, open(jp, 'w'), ensure_ascii=False)
+        json.dump({'room': room, 'items': items, 'cams': cams, 'w': w, 'h': h, 'noTv': no_tv}, open(jp, 'w'), ensure_ascii=False)
         r = subprocess.run(['bash', '-c', f'. "{ROOT}/tools/ops/node-env.sh" >/dev/null 2>&1; node "{ROOT}/tools/flat3d/cam-masks.mjs" "{jp}" "{bp}"'],
                            capture_output=True, text=True, timeout=300)
         if r.returncode != 0:
             raise RuntimeError(f'карта предметов не построилась: {(r.stderr or r.stdout)[-300:]}')
-        return np.fromfile(bp, dtype='<i2').reshape(len(cams), h, w)
+        m = np.fromfile(bp, dtype='<i2').reshape(len(cams), h, w)
+        solo = json.load(open(bp + '.json'))['solo']
+        return m, solo
 
 
-def measure(out_sheet: Image.Image, masks: np.ndarray, items: list, refs: dict) -> list:
-    """→ строки по товару и виду: ΔE00 медианы области товара против основного тона эталона, Хеллингер, вердикт."""
+def views_of(out_sheet: Image.Image) -> list:
+    return [out_sheet.crop(box).convert('RGB') for _, box in split_sheet(out_sheet)]
+
+
+VIS_MIN = 0.5        # видно меньше половины предмета (заслонён) — не меряем: в коробках карты ажурные стулья и столы сплошные
+
+
+def measure(views: list, masks: np.ndarray, items: list, refs: dict, solo: list | None = None) -> list:
+    """Виды фото нейросети (лист — через `views_of`, готовые кадры C1/C2 — как есть) → строки по товару и виду: ΔE00 медианы
+    области товара против основного тона эталона, Хеллингер, вердикт."""
     rows = []
-    for k, box in split_sheet(out_sheet):
+    for k, view in enumerate(views):
         if k >= len(masks):
             break
-        view = out_sheet.crop(box).convert('RGB')
+        view = view.convert('RGB')
         mk = masks[k]
         mk_r = cv2.resize(mk.astype(np.int16), view.size, interpolation=cv2.INTER_NEAREST)
         va = np.asarray(view)
@@ -157,9 +171,16 @@ def measure(out_sheet: Image.Image, masks: np.ndarray, items: list, refs: dict) 
             ref = refs.get(it.get('sku_name') or it.get('name') or it['role'])
             if not ref or ref.get('lab') is None:
                 continue
+            if base_role(it['role']) not in MEASURE_ROLES:
+                continue
+            if solo is not None and (mk == i).sum() < VIS_MIN * float((solo[k] or {}).get(str(i), 0) or 0):
+                continue
             m = (mk_r == i).astype(np.uint8)
             if m.sum() < MIN_PX:
                 continue
+            if base_role(it['role']) in TOP_ONLY:
+                ys = np.where(m.any(axis=1))[0]
+                m[int(ys.min() + 0.4 * (ys.max() - ys.min() + 1)):] = 0
             er = max(2, int(0.05 * np.sqrt(m.sum())))      # сжать ≈ на 10 % по площади: края и соседи не в замер
             m2 = cv2.erode(m, np.ones((er, er), np.uint8)).astype(bool)
             if m2.sum() < MIN_PX // 3:
