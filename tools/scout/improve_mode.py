@@ -21,6 +21,7 @@
   improve_mode.py --variant "Вариант 4"          # собрать исходник по живому демо
   improve_mode.py --variant "Вариант 4" --style лофт
 """
+import io
 import json
 import os
 import sys
@@ -271,6 +272,124 @@ def variant_payload(title: str) -> tuple[dict, str]:
 
 
 _IDENT_CACHE: dict = {}
+
+
+# ——— КАДРЫ ИЗ БРАУЗЕРНОЙ СЦЕНЫ (план demo-10, Codex 17.10) ———————————————————————————————————————————————
+# Страница снимает оба вида из своей 3D-сцены (`DemoScene.capture`), грузит их на прод (`/render/frame`, имя = sha256 содержимого)
+# и шлёт в задании только имена. Здесь лист собирается из этих кадров — без серверного рендера (было 27 с «нашей части»).
+import hashlib as _hl
+import threading as _th
+
+_SF_LOCKS: dict = {}
+_SF_GUARD = _th.Lock()
+
+
+def frame_path(fid: str) -> str:
+    """Где лежит загруженный кадр на проде (раздаётся как /test/share/frames-in/<id>.jpg)."""
+    import draft_render as DR
+    return os.path.join(os.path.dirname(DR.FRAMES_DIR), 'frames-in', f'{fid}.jpg')
+
+
+def load_frame(fid: str) -> Image.Image:
+    """Кадр по имени: с диска (прод, запасной путь) или с прода по ссылке (DEV); содержимое сверяется с именем."""
+    import draft_render as DR
+    if not (isinstance(fid, str) and len(fid) == 64 and all(c in '0123456789abcdef' for c in fid)):
+        raise ValueError('неверное имя кадра')
+    p = frame_path(fid)
+    if os.path.exists(p):
+        raw = open(p, 'rb').read()
+    else:
+        url = (DR.PUBLIC_BASE or 'https://remont-lab.online') + '/test/share/frames-in/' + fid + '.jpg'
+        raw = urllib.request.urlopen(url, timeout=30).read()
+    if _hl.sha256(raw).hexdigest() != fid:
+        raise ValueError('кадр не совпал со своим именем')
+    return Image.open(io.BytesIO(raw)).convert('RGB')
+
+
+def sheet_from_views(views: list) -> Image.Image:
+    """Два вида → лист под запрашиваемый размер (`SIZE`): каждый вид ровно `(SIZE_w) × ((SIZE_h − BAND_PX) / 2)` — пропорция
+    листа обязана совпасть с запросом (Codex: проверка пропорций отвергает иное). Кадр другой пропорции обрезается по центру."""
+    import draft_render as DR
+    rw, rh = (int(x) for x in SIZE.split('x'))
+    per = (rh - DR.BAND_PX) // 2
+    out = []
+    for v in views:
+        tw, th = rw, per
+        if abs(v.width / v.height - tw / th) > 0.002:
+            if v.width / v.height > tw / th:
+                cw = round(v.height * tw / th); x0 = (v.width - cw) // 2; v = v.crop((x0, 0, x0 + cw, v.height))
+            else:
+                ch = round(v.width * th / tw); y0 = (v.height - ch) // 2; v = v.crop((0, y0, v.width, y0 + ch))
+        out.append(v.resize((tw, th), Image.LANCZOS) if v.size != (tw, th) else v)
+    sheet = Image.new('RGB', (rw, per * len(out) + DR.BAND_PX * (len(out) - 1)), DR.BAND_RGB)
+    y = 0
+    for v in out:
+        sheet.paste(v, (0, y)); y += v.height + DR.BAND_PX
+    return sheet
+
+
+def frames_key(payload: dict, model: str, quality: str) -> str:
+    """СЕРВЕРНЫЙ КЛЮЧ ОТВЕТА (Codex 17.10, п.3): не `stateId` (он без камер) — кадры по содержимому в порядке C1/C2, стиль,
+    отделка, набор эталонов, декор, версия промпта, модель и качество. Тот же ключ — тот же ответ, повтор не платит."""
+    views = sorted(payload.get('views') or [], key=lambda x: str(x.get('camera')))
+    items = sorted((it.get('role'), it.get('name'), it.get('img')) for it in payload.get('items', []) if it.get('name'))
+    decor = [((d.get('sku') or {}).get('name')) for d in (payload.get('decor') or [])]
+    key = json.dumps([[(v.get('camera'), v.get('id')) for v in views], payload.get('style') or '',
+                      (payload.get('floor') or {}).get('id'), (payload.get('walls') or {}).get('id'),
+                      ((payload.get('walls') or {}).get('accent') or {}).get('side'), items, decor,
+                      PROMPT_VERSION, model, quality], ensure_ascii=False, sort_keys=True)
+    return _hl.sha256(key.encode('utf-8')).hexdigest()[:32]
+
+
+def single_flight(key: str):
+    """Один ключ — одна оплата: второй одинаковый запрос ждёт первый (затем берёт его ответ из кэша)."""
+    with _SF_GUARD:
+        lk = _SF_LOCKS.setdefault(key, _th.Lock())
+    return lk
+
+
+def build_from_views(payload: dict, style: str | None, stamp: str | None = None) -> dict:
+    """Лист из кадров браузера + эталоны + промпт; исходники публикуются В ФОНЕ (не на горячем пути, Codex п.5)."""
+    import draft_render as DR
+    vs = sorted(payload.get('views') or [], key=lambda x: str(x.get('camera')))
+    if len(vs) < 2:
+        raise ValueError('нужны оба вида')
+    sheet = sheet_from_views([load_frame(v.get('id')) for v in vs[:2]])
+    items = payload.get('items', [])
+    ident = None
+    try:
+        _ikey = tuple(sorted((it.get('role'), it.get('name'), it.get('img')) for it in items if it.get('name')))
+        ident = _IDENT_CACHE.get(_ikey)
+        if ident is None:
+            anchors_all = [{'role': it['role'], 'n': i + 1} for i, it in enumerate(items) if it.get('name')]
+            photos = {it['role']: DR.photo(it.get('img')) for it in items if it.get('img') and it.get('role')}
+            ident = DR._identity(anchors_all, photos, {it['role']: it for it in items if it.get('role')})
+            if len(_IDENT_CACHE) > 12:
+                _IDENT_CACHE.clear()
+            _IDENT_CACHE[_ikey] = ident
+    except Exception as e:  # noqa: BLE001 — без эталонов запрос всё равно осмыслен
+        print(f'  лист эталонов не собрался: {str(e)[:80]}')
+    decor = DR.decor_split(payload)[1]
+    dsheet = None
+    if decor:
+        try:
+            an = [{'role': x['role'], 'n': i + 1} for i, x in enumerate(decor)]
+            ph = {x['role']: DR.photo((x.get('sku') or {}).get('img')) for x in decor}
+            dsheet = DR._identity(an, ph, {x['role']: x.get('sku') or {} for x in decor})
+        except Exception as e:  # noqa: BLE001
+            print(f'  лист декора не собрался: {str(e)[:70]}')
+    fl, wl = payload.get('floor') or {}, payload.get('walls') or {}
+    prompt = prompt_for(style, decor, fl.get('title') or fl.get('id') or None, wl.get('title') or wl.get('id') or None)
+    stamp = f'improve-{stamp}' if stamp else f'improve-{time.strftime("%H%M%S")}'
+    clay = [str(x) for x in (payload.get('clay') or []) if x][:20]
+    meta = {'режим': 'улучшить фото — кадры из браузерной сцены (demo-10)', 'стиль': style or '—',
+            'кадры': ', '.join(f"{v.get('camera')} {str(v.get('id'))[:12]}" for v in vs[:2]), 'размер запроса': SIZE,
+            'лист на входе': f'{sheet.width}×{sheet.height}', 'версия промпта': PROMPT_VERSION,
+            'серые заглушки в кадре': ', '.join(clay) or 'нет'}
+    imgs = {'1-ОТПРАВЛЯЕМ-лист-двух-видов': sheet, '2-ОТПРАВЛЯЕМ-эталоны-товаров': ident, '3-ОТПРАВЛЯЕМ-декор-разместить': dsheet}
+    _th.Thread(target=lambda: DR._publish_sources(stamp, imgs, prompt, [], meta), daemon=True).start()
+    url = (DR.PUBLIC_BASE + DR.SRC_URL + '/' + stamp + '/') if DR.PUBLIC_BASE else os.path.join(DR.SRC_DIR, stamp)
+    return {'src_url': url, 'sheet': sheet, 'ident': ident, 'prompt': prompt, 'clay': clay, 'cams': [v.get('camera') for v in vs[:2]]}
 
 
 def build(payload: dict, style: str | None, stamp: str | None = None) -> dict:

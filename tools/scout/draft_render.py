@@ -3307,61 +3307,84 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         # при том, что на сервере генерация прошла — 55 с и HTTP 200). Связь на мобильном рвётся
         # на длинных запросах, а картинка уже сделана и оплачена. Повтор с тем же `src_id`
         # возвращает её с диска: человек нажимает ещё раз и получает своё фото, а не новый счёт.
-        _c = _improve_cache(layout.get('src_id'))
         import improve_mode as IM
-        # ГОТОВЫЙ ОТВЕТ — ТОЛЬКО ТОЙ ЖЕ МОДЕЛИ, КАЧЕСТВА И ВЕРСИИ ПРОМПТА (demo-11, Codex 17.10): иначе после смены модели повтор с тем
-        # же `src_id` вернул бы фото прежней модели как новое
-        if _c and (_c.get('model') != f'improve/{REALISTIC_MODEL}' or _c.get('image_quality') != gq
-                   or _c.get('prompt_version') != IM.PROMPT_VERSION):
-            print('улучшение: готовый ответ другой модели/качества/промпта — не переиспользую', flush=True)
-            _c = None
-        if _c:
-            print('улучшение: отдан готовый результат из кеша (повтор после обрыва связи)',
+        # КЛЮЧ ОТВЕТА (demo-10, Codex 17.10 п.3): при кадрах из браузера — серверный, по содержимому кадров и всему, что уходит в
+        # модель; одинаковые запросы ждут первый (одна оплата), второй берёт его ответ из кэша. Иначе — прежний `src_id`
+        _bf = len(layout.get('views') or []) >= 2
+        _cid = ('bf-' + IM.frames_key(layout, REALISTIC_MODEL, gq)) if _bf else layout.get('src_id')
+        _sf = IM.single_flight(_cid) if _bf else None
+        if _sf is not None:
+            _sf.acquire(timeout=900)
+        try:
+            _c = _improve_cache(_cid)
+            import improve_mode as IM
+            # ГОТОВЫЙ ОТВЕТ — ТОЛЬКО ТОЙ ЖЕ МОДЕЛИ, КАЧЕСТВА И ВЕРСИИ ПРОМПТА (demo-11, Codex 17.10): иначе после смены модели повтор с тем
+            # же `src_id` вернул бы фото прежней модели как новое
+            if _c and (_c.get('model') != f'improve/{REALISTIC_MODEL}' or _c.get('image_quality') != gq
+                       or _c.get('prompt_version') != IM.PROMPT_VERSION):
+                print('улучшение: готовый ответ другой модели/качества/промпта — не переиспользую', flush=True)
+                _c = None
+            if _c:
+                print('улучшение: отдан готовый результат из кеша (повтор после обрыва связи)',
+                      flush=True)
+                return _c
+            import improve_mode as IM
+            # СЦЕНУ НЕ ПЕРЕСОБИРАЕМ (01.09). Кнопка «улучшить» нажимается на УЖЕ показанном кадре,
+            # и его лист только что выложен как исходник запроса. Пересчёт двух видов в 2048 — это
+            # ещё минута ожидания и, что важнее, риск отправить в модель НЕ ТО, что человек видел:
+            # за это время мог смениться меш, ориентация или код. Берём готовый лист по `src_id`
+            # из запроса; нет его — собираем (прямой вызов API, старый клиент).
+            _t_our = time.time()
+            # КАДРЫ ИЗ БРАУЗЕРА (demo-10): оба вида уже сняты страницей — серверный рендер не нужен
+            built = None
+            if _bf:
+                try:
+                    built = IM.build_from_views(layout, (layout or {}).get('style') or '')
+                except Exception as e:  # noqa: BLE001 — кадр не скачался/не совпал: честно рисуем сами (запасной путь)
+                    print(f'улучшение: кадры из браузера не взяты ({str(e)[:80]}) — рисую сам', flush=True)
+                    _bf = False
+            elif layout.get('src_id'):
+                built = IM.from_sources(layout.get('src_id'))
+            reused = built is not None and not _bf
+            if built is None:
+                built = IM.build(layout, (layout or {}).get('style') or '')
+            _t_our = time.time() - _t_our
+            print(f'улучшение: наша часть {_t_our:.1f}с '
+                  + ('(кадры из браузера)' if _bf else '(лист взят из исходника, пересборки нет)' if reused
+                     else '(ИСХОДНИКА НЕ БЫЛО — пересобрал, это потеря)'), flush=True)
+            sheet, ident, prompt = built['sheet'], built.get('ident'), built['prompt']
+            imgs = [sheet] + ([ident] if ident is not None else [])
+            _t_gpt = time.time()
+            out = gpt_edit(imgs, prompt, size=IM.SIZE, quality=gq, model=REALISTIC_MODEL)
+            _t_gpt = time.time() - _t_gpt
+            print(f'улучшение: модель {_t_gpt:.1f}с (размер {IM.SIZE}, качество {gq}); '
+                  f'итого {_t_our + _t_gpt:.1f}с, из них наши {100 * _t_our / max(_t_our + _t_gpt, .1):.0f}%',
                   flush=True)
-            return _c
-        import improve_mode as IM
-        # СЦЕНУ НЕ ПЕРЕСОБИРАЕМ (01.09). Кнопка «улучшить» нажимается на УЖЕ показанном кадре,
-        # и его лист только что выложен как исходник запроса. Пересчёт двух видов в 2048 — это
-        # ещё минута ожидания и, что важнее, риск отправить в модель НЕ ТО, что человек видел:
-        # за это время мог смениться меш, ориентация или код. Берём готовый лист по `src_id`
-        # из запроса; нет его — собираем (прямой вызов API, старый клиент).
-        _t_our = time.time()
-        built = IM.from_sources(layout.get('src_id')) if layout.get('src_id') else None
-        reused = built is not None
-        if built is None:
-            built = IM.build(layout, (layout or {}).get('style') or '')
-        _t_our = time.time() - _t_our
-        print(f'улучшение: наша часть {_t_our:.1f}с '
-              + ('(лист взят из исходника, пересборки нет)' if reused
-                 else '(ИСХОДНИКА НЕ БЫЛО — пересобрал, это потеря)'), flush=True)
-        sheet, ident, prompt = built['sheet'], built.get('ident'), built['prompt']
-        imgs = [sheet] + ([ident] if ident is not None else [])
-        _t_gpt = time.time()
-        out = gpt_edit(imgs, prompt, size=IM.SIZE, quality=gq, model=REALISTIC_MODEL)
-        _t_gpt = time.time() - _t_gpt
-        print(f'улучшение: модель {_t_gpt:.1f}с (размер {IM.SIZE}, качество {gq}); '
-              f'итого {_t_our + _t_gpt:.1f}с, из них наши {100 * _t_our / max(_t_our + _t_gpt, .1):.0f}%',
-              flush=True)
-        # ПОЛОСА — УСЛОВИЕ РЕЗКИ, А НЕ УКРАШЕНИЕ. Пропала — ответ негоден: `_split_pair` в этом
-        # случае молча делит пополам, и оба вида уезжают (найдено в разборе 01.09).
-        import numpy as _np
-        a = _np.asarray(out.convert('RGB')).astype(int)
-        band = ((a[..., 0] > 170) & (a[..., 2] > 170) & (a[..., 1] < 110)).mean(axis=1)
-        if (band > 0.5).sum() < 8:
-            # RuntimeError, а не SystemExit: это ДОМЕННЫЙ отказ одного запроса, его обязан
-            # увидеть и показать клиент, а не выход из программы (13.10).
-            raise RuntimeError('модель закрасила разделительную полосу — резать нечем, ответ негоден')
-        pieces = [_trim_band(x) for x in _split_pair(out)]   # остатки наклонной полосы по краям (demo-11)
-        stamp = time.strftime('%H%M%S')
-        shots = [{'camera': c.name, 'url': _publish_frame(p_, f'improve-{stamp}-{c.name}.jpg'),
-                  'diag': {}, 'anchors': []}
-                 for c, p_ in zip(want, pieces)]
-        # что именно нарисовало фото — в ответ и реестр (demo-11): модель, качество, версия и отпечаток промпта
-        res = {'shots': shots, 'url': shots[0]['url'], 'model': f'improve/{REALISTIC_MODEL}', 'image_quality': gq,
-               'prompt_version': IM.PROMPT_VERSION, 'prompt_sha': IM.prompt_sha(prompt),
-               'sources': built['src_url'], 'timing': {}, 'diag': {'clay': built['clay']}}
-        _improve_cache(layout.get('src_id'), res)      # см. ниже: обрыв связи не стоит генерации
-        return res
+            # ПОЛОСА — УСЛОВИЕ РЕЗКИ, А НЕ УКРАШЕНИЕ. Пропала — ответ негоден: `_split_pair` в этом
+            # случае молча делит пополам, и оба вида уезжают (найдено в разборе 01.09).
+            import numpy as _np
+            a = _np.asarray(out.convert('RGB')).astype(int)
+            band = ((a[..., 0] > 170) & (a[..., 2] > 170) & (a[..., 1] < 110)).mean(axis=1)
+            if (band > 0.5).sum() < 8:
+                # RuntimeError, а не SystemExit: это ДОМЕННЫЙ отказ одного запроса, его обязан
+                # увидеть и показать клиент, а не выход из программы (13.10).
+                raise RuntimeError('модель закрасила разделительную полосу — резать нечем, ответ негоден')
+            pieces = [_trim_band(x) for x in _split_pair(out)]   # остатки наклонной полосы по краям (demo-11)
+            stamp = time.strftime('%H%M%S')
+            shots = [{'camera': c.name, 'url': _publish_frame(p_, f'improve-{stamp}-{c.name}.jpg'),
+                      'diag': {}, 'anchors': []}
+                     for c, p_ in zip(want, pieces)]
+            # что именно нарисовало фото — в ответ и реестр (demo-11): модель, качество, версия и отпечаток промпта
+            res = {'shots': shots, 'url': shots[0]['url'], 'model': f'improve/{REALISTIC_MODEL}', 'image_quality': gq,
+                   'prompt_version': IM.PROMPT_VERSION, 'prompt_sha': IM.prompt_sha(prompt),
+                   'sources': built['src_url'], 'diag': {'clay': built['clay']},
+                       # откуда кадры и сколько заняла наша часть до вызова модели (demo-10: цель ≤ 2 с при кадрах из браузера)
+                       'timing': {'ours': round(_t_our, 2), 'model': round(_t_gpt, 1), 'frames': 'browser' if _bf else 'server'}}
+            _improve_cache(_cid, res)      # см. ниже: обрыв связи не стоит генерации
+            return res
+        finally:
+            if _sf is not None:
+                _sf.release()
     if quality == 'draft' and os.environ.get('SCENE3D', '1') == '1':
         # ЭСКИЗ — ЛЁГКИЕ МЕШИ (план draft-render-speed): 2,8 с на кадр вместо 11,5 при
         # расхождении ~1 % пикселей. Платный режим ниже рисует полными.

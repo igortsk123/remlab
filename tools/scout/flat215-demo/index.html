@@ -2827,7 +2827,7 @@ async function makePhoto(quality, srcId, replaceBatch, opt){
   // ЗАПРОС КАДРА ЗАМОРАЖИВАЕТСЯ ДО ОТПРАВКИ (demo-02, разбор Codex 14.10): вариант, товары, номер состояния и позы камер
   // берутся сейчас, а не из ответа — за 20 секунд съёмки человек мог заменить диван или переключить вариант, и кадр
   // приклеился бы к чужой расстановке.
-  const req=Object.assign(payload(),{quality:quality});
+  const req=Object.assign(payload(),{quality:quality},opt.extra||{});   // demo-10: кадры из браузера — `views`, `clay`
   const reqV=allVariants()[cur]||{}, reqProducts=productsOf(items), reqState=curStateId();
   req.stateId=reqState;
   // честная оценка: генерация листа в 2048 идёт минуты, а не секунды (замер 01.09)
@@ -4149,7 +4149,8 @@ function openLiveWindow(){
   VW.photo=0; VW.sel=null; VW.group=null; VW.overviewVis=null; VW.sheetVis=0;   // новое окно варианта — первая точка съёмки
   // ОКНО ОТКРЫВАЕТСЯ В «ФОТО», ЕСЛИ ЕСТЬ РЕАЛИСТИЧНЫЙ СНИМОК ЭТОЙ РАССТАНОВКИ, ИНАЧЕ В «3D» (demo-09 п.1)
   const v=allVariants()[cur]||{}, vid=v.id||('v'+cur), real=vwRealShots();
-  if(real.length){const k=real[0]; VW.mode='photo'; VW.photo=vwCamIndex(k.camera); viewShot(shots.indexOf(k)); return;}
+  // «Фото» — со свёрнутой шторкой (приёмка d8 17.10: на средней диван был под шторкой — фото видно целиком)
+  if(real.length){const k=real[0]; VW.mode='photo'; VW.photo=vwCamIndex(k.camera); VW.collapse=true; viewShot(shots.indexOf(k)); return;}
   VW.mode='walk';
   let i=shots.findIndex(x=>x.vid===vid&&x.live);
   if(i<0){shots.push({url:'',camera:'C1',quality:'live',vid:vid,revision:'',ts:Date.now(),live:true,svc:true}); i=shots.length-1;}
@@ -4269,7 +4270,7 @@ function vwMid(e){
 function vwLayout(){
   const vw=document.querySelector('#shot .vw'), sd=document.getElementById('vside'); if(!vw||!sd)return;
   if(!VW_PHONE()){sd.style.height=''; sd.style.transform=''; vw.style.removeProperty('--vsh');
-    const d=document.getElementById('vDots'); if(d)d.style.bottom=''; return;}
+    const d=document.getElementById('vDots'); if(d)d.style.bottom=''; const z=document.getElementById('vzBtn'); if(z)z.style.bottom=''; return;}
   const e=vwEdges(); sd.style.height=e.max+'px';
   vw.style.setProperty('--vsh',(e.min+8)+'px');
   vwSheetApply(Math.max(e.min,Math.min(e.max,VW.sheetVis||e.min)),false);
@@ -4288,6 +4289,9 @@ function vwSheetApply(vis, anim){
   sd.style.transform=`translateY(${Math.round(e.max-vis)}px)`;
   // точки ракурсов — над текущим верхом шторки при любой высоте (приёмка d8 17.10: в средней остановке прятались за шторкой)
   const dots=document.getElementById('vDots'); if(dots){dots.style.transition=anim&&!VW_SLOW()?'':'none'; dots.style.bottom=Math.round(vis+12)+'px';}
+  // «во весь экран» — тоже над текущим верхом шторки (приёмка d8 17.10: на средней кнопка была под шторкой)
+  // кнопка — внутри области фото, а её низ уже на высоте свёрнутой шторки (`--vsh` = e.min + 8): отступ — от него
+  const zb=document.getElementById('vzBtn'); if(zb){zb.style.transition=dots?dots.style.transition:''; zb.style.bottom=Math.max(12,Math.round(vis+12-(e.min+8)))+'px';}
   const pos=vis<=e.min+4?0:vis>=e.max-4?3:2;
   if(sd.dataset.pos!==String(pos)){sd.dataset.pos=String(pos); vwSheetState(pos);}
 }
@@ -4432,6 +4436,7 @@ function vwMount(s){
   const sd0=document.getElementById('vside'); if(sd0)sd0.dataset.pos='';
   if(VW.sheetVis>0){vwLayout();}
   else{let pos=1; try{const v=sessionStorage.getItem('remlab-sheet-pos'); if(v!=null)pos=+v||0;}catch(e){}
+    if(VW.collapse){pos=0; VW.collapse=false;}
     VW.sheetVis=0; vwLayout(); vwSheet(pos);}
   vwHist();
   shot.querySelectorAll('[data-vm]').forEach(b=>b.onclick=()=>vwMode(b.dataset.vm));
@@ -4537,12 +4542,32 @@ function vwCtaUi(){
   if(VJ.err&&m!=='photo'){if(!er){er=document.createElement('p'); er.id='vCtaErr'; er.className='vcta-err'; cta.after(er);} er.textContent=VJ.err;}
   else if(er)er.remove();
 }
-function vwRealistic(){
+// КАДРЫ ДЛЯ НЕЙРОСЕТИ — ИЗ ЭТОЙ ЖЕ 3D-СЦЕНЫ (demo-10, владелец 17.10: «3D рисуем моментально — сфотать и отправить»): оба вида из поз
+// C1/C2 (`DemoScene.capture`: атомарно, без наклона и подсветки), каждый — отдельным запросом на прод (`/api/render/frame`, имя =
+// sha256), в задании — только имена. Без 3D или при ошибке — серверный рендер, как раньше. Телефон — сразу облегчённый размер
+const VW_FRAME_SIZES=[[2048,1489],[1536,1117]];   // пропорция вида листа 2048×3072 с полосой 94 px (Codex 17.10 п.2)
+async function vwCaptureViews(){
+  if(LIVE.ok!==true||!LIVE.scene||!LIVE.scene.capture)return null;
+  const poses=(cams||loadCams()).slice(0,2).map(c=>({x:c.x,y:c.y,rot:c.rot||0,fov:c.fov||72,pose:POSE_VER}));
+  const t0=performance.now();
+  for(const [w,h] of (isTouchUI()?VW_FRAME_SIZES.slice(1):VW_FRAME_SIZES)){
+    try{
+      const r=await LIVE.scene.capture(poses,w,h), tc=performance.now();
+      const ids=await Promise.all(r.frames.map(b=>fetch('/api/render/frame',{method:'POST',headers:{'content-type':'image/jpeg'},body:b})
+        .then(x=>x.ok?x.json():Promise.reject(new Error('кадр не принят '+x.status))).then(j=>j.id)));
+      return {views:ids.map((id,k)=>({camera:'C'+(k+1),id})), clay:r.clay,
+        ms:{capture:Math.round(tc-t0), upload:Math.round(performance.now()-tc)}, size:w+'×'+h};
+    }catch(e){try{console.warn('кадр из браузера не снят',w,e);}catch(_){}}
+  }
+  return null;
+}
+async function vwRealistic(){
   if(VJ.job)return;
   const c=VW.photo, job={vid:curVid(), stateId:curStateId(), cam:c, t0:Date.now(), note:''};
   VJ.job=job; VJ.err=''; vwCtaUi(); clearInterval(VJ.tick); VJ.tick=setInterval(vwCtaUi,1000);
   const end=()=>{clearInterval(VJ.tick); if(VJ.job===job)VJ.job=null; vwCtaUi();};
-  makePhoto('realistic','','',{bg:true,
+  const cap=await vwCaptureViews(); VW.lastCapture=cap?{size:cap.size,ms:cap.ms,clay:cap.clay}:null;   // для проверок и замера
+  makePhoto('realistic','','',{bg:true, extra:cap?{views:cap.views, clay:cap.clay}:{},
     progress:t=>{job.note=t; vwCtaUi();},
     fail:(msg)=>{end(); VJ.err=String(msg||'').slice(0,220); vwCtaUi();},
     done:(n0)=>{end();

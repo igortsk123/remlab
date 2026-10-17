@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.join(HERE, '..', '..', 'services', 'planner-solver'))
 import draft_render as DR  # noqa: E402
 
 MAX_BODY = 2 << 20
+FRAME_MAX = 4 << 20          # кадр из браузера (demo-10): JPEG 2048×1489 q0.85 ≈ 0.3–0.8 МБ
 # Каталог подборок монтируется из `/opt/remlab/test/share` — Caddy уже отдаёт его как /test/share/*
 SHARE_DIR = os.environ.get('SHARE_DIR', os.path.join(HERE, 'share'))
 PUBLIC_BASE = os.environ.get('PUBLIC_BASE', 'https://remont-lab.online')
@@ -339,6 +340,45 @@ class H(BaseHTTPRequestHandler):
         xff = (self.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
         return xff
 
+    def _frame_upload(self, n: int):
+        """КАДР ИЗ БРАУЗЕРНОЙ СЦЕНЫ (demo-10, Codex 17.10 п.5): страница грузит каждый вид отдельным запросом — тело = JPEG, имя =
+        sha256 содержимого; в задании «реалистично» потом только имена (не Base64 в JSON и не в `jobs.json`). Кадр проверяется как
+        картинка разумного размера; старше двух суток — удаляются здесь же."""
+        ip = self.client_ip
+        if ip and not ip_allowed(ip, 'render'):
+            return self._send(429, {'error': 'слишком много кадров подряд, попробуйте через 10 минут'})
+        if n <= 0 or n > FRAME_MAX:
+            return self._send(413, {'error': 'кадр пустой или слишком большой'})
+        raw = self.rfile.read(n)
+        try:
+            from PIL import Image as _I
+            import io as _io
+            im = _I.open(_io.BytesIO(raw))
+            if im.format != 'JPEG' or not (256 <= im.width <= 4096 and 256 <= im.height <= 4096):
+                return self._send(400, {'error': 'нужен JPEG 256…4096 px'})
+            im.verify()
+        except Exception:  # noqa: BLE001
+            return self._send(400, {'error': 'не картинка'})
+        import hashlib as _h
+        fid = _h.sha256(raw).hexdigest()
+        import improve_mode as IM
+        path = IM.frame_path(fid)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        if not os.path.exists(path):
+            tmp = path + '.tmp'
+            open(tmp, 'wb').write(raw)
+            os.replace(tmp, path)
+        try:                                                 # уборка: кадры нужны только на время задания
+            cut = time.time() - 2 * 86400
+            d = os.path.dirname(path)
+            for f in os.listdir(d):
+                fp = os.path.join(d, f)
+                if os.path.getmtime(fp) < cut:
+                    os.remove(fp)
+        except Exception:  # noqa: BLE001
+            pass
+        return self._send(200, {'id': fid, 'bytes': len(raw)})
+
     def do_OPTIONS(self):                                    # noqa: N802
         self._send(204, {})
 
@@ -388,6 +428,8 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):                                       # noqa: N802
         n = int(self.headers.get('Content-Length') or 0)
+        if self.route.startswith('/render/frame'):
+            return self._frame_upload(n)
         if n > MAX_BODY:
             return self._send(413, {'error': 'слишком большой запрос'})
         raw = self.rfile.read(n) if n else b'{}'

@@ -6,6 +6,9 @@ const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.
 const SP=process.env.SP, OUT=process.env.OUT||require('os').tmpdir()+'/', prod=!!process.env.PROD||!SP;
 const [W,H]=(process.argv[2]||'375x667').split('x').map(Number);
 const R=[]; const ok=(n,c,i)=>R.push((c?'OK  ':'FAIL')+' '+n+' '+(i||''));
+// размер JPEG по маркеру SOF0/SOF2 — без зависимостей
+function jpegSize(b){for(let i=2;i<b.length-9;){if(b[i]!==0xFF){i++;continue;} const m=b[i+1], L=b.readUInt16BE(i+2);
+  if(m===0xC0||m===0xC2)return [b.readUInt16BE(i+7),b.readUInt16BE(i+5)]; i+=2+L;} return null;}
 async function page(b,q,lang){
   const ctx=await b.newContext({viewport:{width:W,height:H},deviceScaleFactor:2,isMobile:W<=700,hasTouch:W<=700,locale:lang==='en'?'en-GB':'ru-RU'});
   const p=await ctx.newPage(); p.errs=[]; p.on('pageerror',e=>p.errs.push(String(e)));
@@ -19,6 +22,11 @@ async function page(b,q,lang){
   await p.route(/\/api\/job\?/,async r=>{const ready=await p.evaluate(()=>!!window.__fakeReady).catch(()=>false);
     const img=await p.evaluate(()=>{const it=(allVariants()[cur]||{}).items||[]; const x=it.find(i=>i.sku&&i.sku.img); return x?new URL(x.sku.img,location.href).href:'';}).catch(()=>'');
     r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(ready?{shots:[{camera:'C1',url:img},{camera:'C2',url:img}],backend:'fake'}:{status:'running',eta:30})});});
+  // кадры из браузера (demo-10): загрузка перехвачена — имя = sha256 тела, кадр сохраняется для глаза; тело задания запоминается
+  p.frames=[]; p.renderBodies=[];
+  await p.route(/\/api\/render\/frame/,r=>{const buf=r.request().postDataBuffer()||Buffer.alloc(0); const id=require('crypto').createHash('sha256').update(buf).digest('hex');
+    fs.writeFileSync(OUT+'frame-'+id.slice(0,8)+'.jpg',buf); p.frames.push({id,bytes:buf.length,w:buf.readUInt16BE?jpegSize(buf):null}); r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id,bytes:buf.length})});});
+  p.on('request',rq=>{if(rq.method()==='POST'&&/\/api\/render(\?|$)/.test(rq.url())){try{p.renderBodies.push(JSON.parse(rq.postData()||'{}'));}catch(e){}}});
   await p.goto('https://remont-lab.online/demo/'+q,{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000});
   await p.evaluate(()=>{try{sessionStorage.removeItem('remlab-sheet-pos')}catch(e){}});
@@ -57,6 +65,10 @@ if(W<=700){await p.evaluate(()=>vwSheet(3)); await p.waitForFunction(()=>documen
 await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(800);
 await p.click('#vCta'); await p.waitForTimeout(1500); s=await st(p);
 ok('2 после нажатия — ход на кнопке, режим 3D',s.mode==='walk'&&/Рисуем фото/.test(s.cta||''),s.cta);
+const rb=p.renderBodies.filter(x=>x.quality==='realistic').pop()||{};
+ok('2 кадры из браузера: оба вида загружены и в задании только их имена',(rb.views||[]).length===2&&rb.views.every(v=>/^[0-9a-f]{64}$/.test(v.id))&&rb.views.every(v=>p.frames.some(f=>f.id===v.id)),
+  JSON.stringify({views:rb.views, frames:p.frames.map(f=>[f.id.slice(0,8),f.bytes,f.w]), cap:await p.evaluate('JSON.stringify(VW.lastCapture)')}));
+ok('2 размер кадра — под лист (2048×1489, телефон 1536×1117)',p.frames.length>=2&&p.frames.slice(-2).every(f=>f.w&&((f.w[0]===2048&&f.w[1]===1489)||(f.w[0]===1536&&f.w[1]===1117))),JSON.stringify(p.frames.slice(-2).map(f=>f.w)));
 await p.evaluate(()=>{window.__fakeReady=1;}); await p.waitForFunction(()=>VW.mode==='photo',null,{timeout:20000}).catch(()=>{}); s=await st(p);
 ok('2 готово для этой расстановки → «Фото» открылось само, кнопки нет',s.mode==='photo'&&s.photoTab&&s.cta===null,JSON.stringify({mode:s.mode,tab:s.photoTab,cta:s.cta}));
 await p.screenshot({path:OUT+`m09-${W}-photo.png`});

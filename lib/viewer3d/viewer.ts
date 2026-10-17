@@ -143,6 +143,8 @@ interface Placed {
   group: THREE.Group;
   /** Что требует пересоздать объект (модель, размеры, подкраска); место и поворот сюда не входят. */
   signature: string;
+  /** Модель пришла / осталась честной коробкой / ещё грузится (demo-10: коробка уходит в кадр нейросети как «clay»). */
+  status: "loaded" | "stub" | "pending";
 }
 
 /** Нейтральная белая краска — когда в каталоге нет ни одного материала. */
@@ -433,7 +435,7 @@ export class FlatViewer {
       placeGroup(outer, p);
       outer.userData = { slotId: spec.slotId, roomId: spec.roomId, title: spec.titleRu };
       this.scene.add(outer);
-      this.placed.set(spec.slotId, { spec, group: outer, signature: signatureOf(spec) });
+      this.placed.set(spec.slotId, { spec, group: outer, signature: signatureOf(spec), status: "pending" });
 
       try {
         this.pendingUrls.add(spec.url);
@@ -451,6 +453,7 @@ export class FlatViewer {
           outer.remove(stub);
           disposeObject(stub);
           outer.add(real);
+          cur.status = "loaded";
         } else {
           // пока грузилась, предмет заменили или убрали: эта группа больше не нужна — не оставляем её в сцене
           this.scene.remove(outer);
@@ -459,6 +462,8 @@ export class FlatViewer {
       } catch {
         // модель не пришла — остаётся честная серая коробка, как в демо
         stub.visible = true;
+        const cur = this.placed.get(spec.slotId);
+        if (cur && cur.group === outer) cur.status = "stub";
       } finally {
         clearTimeout(showStub);
         this.pendingUrls.delete(spec.url);
@@ -520,7 +525,7 @@ export class FlatViewer {
     placeGroup(group, p);
     group.userData = { slotId: spec.slotId, roomId: spec.roomId, title: spec.titleRu };
     this.scene.add(group);
-    this.placed.set(spec.slotId, { spec, group, signature: signatureOf(spec) });
+    this.placed.set(spec.slotId, { spec, group, signature: signatureOf(spec), status: "loaded" });
     this.loadedCount += 1;
     this.events.onProgress?.(Math.min(this.loadedCount, this.totalCount), this.totalCount);
   }
@@ -1368,6 +1373,56 @@ export class FlatViewer {
     }
     times.sort((a, b) => a - b);
     return times[Math.min(times.length - 1, Math.floor(times.length * 0.95))] ?? 0;
+  }
+
+  /** Статус предметов по месту (demo-10): `stub` — честная коробка вместо модели, `pending` — модель ещё грузится. */
+  slotStatus(): Record<string, "loaded" | "stub" | "pending"> {
+    return Object.fromEntries([...this.placed].map(([id, p]) => [id, p.status]));
+  }
+
+  /**
+   * КАДР ДЛЯ НЕЙРОСЕТИ ИЗ ПОЗЫ РАКУРСА (demo-10, Codex 17.10: атомарно, не `goToPose` + `exportFrame`). Отдельная камера ровно
+   * в позе (без наклона телефона и поворота взгляда), экранная камера не трогается; выделение и призрак расстановки скрыты,
+   * честные коробки — непрозрачные (как серверный clay); ждём догрузки моделей (до 20 с). Всё возвращается в `finally`.
+   */
+  async capturePhoto(pose: PhotoPose, width: number, height: number, quality = 0.85): Promise<Blob> {
+    const t0 = performance.now();
+    while (this.pendingUrls.size && performance.now() - t0 < 20000) await new Promise((ok) => setTimeout(ok, 100));
+    const cam = new THREE.PerspectiveCamera(verticalFov(pose.fov ?? 72, width / height), width / height, this.camera.near, this.camera.far);
+    applyPhotoShift(cam, photoShift(pose));
+    cam.updateProjectionMatrix();
+    const { eye, target } = photoRay(pose);
+    cam.position.set(eye[0] * CM, eye[1] * CM, eye[2] * CM);
+    cam.lookAt(target[0] * CM, target[1] * CM, target[2] * CM);
+    const undo: (() => void)[] = [];
+    for (const p of this.placed.values()) {
+      if (p.status !== "stub") continue;
+      p.group.traverse((o) => {
+        const m = o as THREE.Mesh;
+        const mat = m.isMesh ? (m.material as THREE.MeshStandardMaterial) : null;
+        if (!mat || !mat.transparent) return;
+        const op = mat.opacity;
+        mat.transparent = false; mat.opacity = 1; mat.needsUpdate = true;
+        undo.push(() => { mat.transparent = true; mat.opacity = op; mat.needsUpdate = true; });
+      });
+    }
+    for (const o of [this.outline, this.ghost]) if (o && o.visible) { o.visible = false; undo.push(() => { o.visible = true; }); }
+    const canvas = this.renderer.domElement;
+    const prev = new THREE.Vector2();
+    this.renderer.getSize(prev);
+    const prevRatio = this.renderer.getPixelRatio();
+    try {
+      this.renderer.setPixelRatio(1);
+      this.renderer.setSize(width, height, false);
+      this.renderer.render(this.scene, cam);
+      const blob = await new Promise<Blob | null>((ok) => canvas.toBlob(ok, "image/jpeg", quality));
+      if (!blob) throw new Error("кадр не собрался");
+      return blob;
+    } finally {
+      this.renderer.setPixelRatio(prevRatio);
+      this.renderer.setSize(prev.x, prev.y, false);
+      undo.forEach((f) => f());
+    }
   }
 
   /** Кадр «здесь и сейчас» — для превью и для e2e-проверки, что сцена реально нарисовалась. */

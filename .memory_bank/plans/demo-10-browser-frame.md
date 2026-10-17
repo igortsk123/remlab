@@ -2,7 +2,7 @@
 workstream: demo
 slug: demo-10-browser-frame
 title: «Сделать реалистичнее» — два вида снимаются из браузерной 3D-сцены и уходят на сервер; наша часть ≤ 2 с вместо 27 с серверного рендера
-status: draft
+status: in_progress
 created: 2026-10-17
 updated: 2026-10-17
 completed:

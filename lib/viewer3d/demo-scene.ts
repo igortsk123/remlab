@@ -65,6 +65,8 @@ export interface DemoScene {
   goToPose(pose: PhotoPose): void;
   /** Портрет телефона: взгляд из позы наклонён к мебели (снимок сервера — без наклона). */
   setTilt(on: boolean): void;
+  /** Кадры для нейросети из поз ракурсов (demo-10): JPEG каждого вида и роли предметов, оставшихся коробкой (clay). */
+  capture(poses: PhotoPose[], width: number, height: number): Promise<{ frames: Blob[]; clay: string[] }>;
   /** Повернуть взгляд в прогулке (перетаскивание пальцем/мышью). */
   look(dx: number, dy: number): void;
   /** Какой предмет под точкой холста: номер в расстановке страницы (как в `update`), иначе -1. */
@@ -198,6 +200,20 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     setWalk: (from) => (from ? viewer.walkFrom(from) : viewer.setViewMode("walk")),
     goToPose: (pose) => { viewer.goToPose(pose); viewer.start(); },
     setTilt: (on) => viewer.setTilt(on),
+    capture: async (poses, width, height) => {
+      await running;                                  // последняя расстановка уже в сцене
+      viewer.highlight(null);                         // тёплая подсветка выбранного — не в кадр нейросети
+      try {
+        const frames: Blob[] = [];
+        for (const p of poses) frames.push(await viewer.capturePhoto(p, width, height));
+        const st = viewer.slotStatus();
+        const clay = [...slotIndex()].filter(([id]) => st[id] === "stub").map(([, i]) => String(current[i]?.role ?? "")).filter(Boolean);
+        return { frames, clay };
+      } finally {
+        reselect();
+        viewer.start();
+      }
+    },
     look: (dx, dy) => viewer.look(dx, dy),
     focus: (index) => {
       const it = current[index];
