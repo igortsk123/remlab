@@ -100,6 +100,9 @@ export interface PhotoPose {
   /** Версия позы (`draft_render.photo_pose_heights`): 1 — глаз 165 и наклон к 105 в 4 м; 2 — глаз 135, камера
    *  горизонтальна, кадр опущен сдвигом объектива (вертикали прямые, demo-02 14.10). Нет — 1, как у старых кадров. */
   pose?: number;
+  /** Сдвиг объектива ВЕРТИКАЛЬНОГО кадра (телефон), доля высоты: пол и потолок поровну, мебель — в средней трети (demo-12,
+   *  подбор `camPortraitShift` в блоке CAMFIT демо). Есть — вертикальный кадр не наклоняется к мебели, вертикали прямые. */
+  pshift?: number;
 }
 export const PHOTO_EYE_CM = 165;
 export const PHOTO_TARGET_CM = 105;
@@ -117,8 +120,10 @@ export function photoRay(p: PhotoPose): { eye: [number, number, number]; target:
   };
 }
 
-/** Сдвиг объектива позы, доля высоты кадра (как `planner/scene.py:Camera.shift_y`: минус — кадр ниже, видно больше пола). */
-export function photoShift(p: PhotoPose): number {
+/** Сдвиг объектива позы, доля высоты кадра (как `planner/scene.py:Camera.shift_y`: минус — кадр ниже, видно больше пола).
+ *  Вертикальный кадр (`aspect` < 1) с подобранным `pshift` — свой сдвиг (demo-12). */
+export function photoShift(p: PhotoPose, aspect = 1.5): number {
+  if (aspect < 1 && typeof p.pshift === "number") return p.pshift;
   return (p.pose ?? 1) >= 2 ? POSE_V2.shift : 0;
 }
 
@@ -619,6 +624,7 @@ export class FlatViewer {
 
   /** Наклон взгляда из позы к середине мебели комнаты на высоте сидений: 70 % от прямого угла, не круче 18°. */
   private tiltFor(pose: PhotoPose): number {
+    if (typeof pose.pshift === "number") return 0;   // вертикальный кадр уже выставлен сдвигом объектива (demo-12)
     const room = roomAt(this.apartment, pose.x, pose.y);
     const own = [...this.placed.values()].filter((p) => !room || p.spec.roomId === room.id).map((p) => p.spec.placement);
     if (!own.length) return 0;
@@ -1304,7 +1310,7 @@ export class FlatViewer {
       const { eye, target } = photoRay(lp ? { ...this.photo, x: lp.x, y: lp.y, rot: lp.rot } : this.photo);
       if (lp && lp.pitch) target[1] += Math.tan((lp.pitch * Math.PI) / 180) * PHOTO_AIM_CM;   // поворот взгляда вверх-вниз
       const vfov = verticalFov(this.photo.fov ?? 72, this.camera.aspect);
-      const shift = photoShift(this.photo);
+      const shift = photoShift(this.photo, this.camera.aspect);
       if (Math.abs(this.camera.fov - vfov) > 0.01 || (this.camera.view?.offsetY ?? 0) !== -shift) {
         this.camera.fov = vfov;
         applyPhotoShift(this.camera, shift);
@@ -1389,7 +1395,7 @@ export class FlatViewer {
     const t0 = performance.now();
     while (this.pendingUrls.size && performance.now() - t0 < 20000) await new Promise((ok) => setTimeout(ok, 100));
     const cam = new THREE.PerspectiveCamera(verticalFov(pose.fov ?? 72, width / height), width / height, this.camera.near, this.camera.far);
-    applyPhotoShift(cam, photoShift(pose));
+    applyPhotoShift(cam, photoShift(pose, width / height));
     cam.updateProjectionMatrix();
     const { eye, target } = photoRay(pose);
     // вертикальный кадр телефона — с тем же наклоном к мебели, что видит человек в 3D (иначе полкадра потолок, demo-10)

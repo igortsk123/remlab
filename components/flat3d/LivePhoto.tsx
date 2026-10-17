@@ -30,7 +30,7 @@ export function LivePhoto({ apartment, catalogue, scene, roomId, lite, lang, onF
   const viewerRef = useRef<FlatViewer | null>(null);
   const [at, setAt] = useState(0);
   const [loading, setLoading] = useState(true);
-  const pose = (c: CameraPreset) => ({ x: c.x, y: c.y, rot: c.rot, fov: c.fov, pose: c.pose });
+  const pose = (c: CameraPreset) => ({ x: c.x, y: c.y, rot: c.rot, fov: c.fov, pose: c.pose, pshift: c.pshift });
   // СНИМОК НЕПОДВИЖЕН — КАДРЫ НЕ КРУТИМ (16.10: постоянный цикл кадров второй сцены на программном рендере CI душил процессор,
   // и e2e падали по таймауту): цикл идёт, пока что-то меняется (загрузка, ракурс, расстановка), и гаснет через 1,5 с
   const idle = useRef<ReturnType<typeof setTimeout> | null>(null);

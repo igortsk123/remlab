@@ -1377,9 +1377,9 @@ function camTallCut(c,its){
   }
   return '';
 }
-function camHard(c,its,strict){
+function camHard(c,its,strict,minDist){
   const all=(its||[]).filter(it=>camItemH(it)>2);
-  if(all.some(it=>camNear(c,it)<CAM_MIN_DIST))return 'близко';
+  if(all.some(it=>camNear(c,it)<(minDist===undefined?CAM_MIN_DIST:minDist)))return 'близко';
   const sofa=all.find(it=>camRole(it)==='диван'), tbl=all.find(it=>camRole(it)==='столик');
   // диван — целиком со всех сторон; столик — по ширине и вся СТОЛЕШНИЦА в кадре (ближе 2,3 м низ мебели при камере на 135 см
   // всегда уходит за нижнюю кромку — из точек у стен столик целиком с низом недостижим ни в одном из 5 вариантов, замер 14.10;
@@ -1440,10 +1440,164 @@ function camFit(cx,cy,its,W,H,strict){
   return best||least;
 }
 // ПАРА РАКУРСОВ ВАРИАНТА — одна функция для страницы (`defaultCams`) и сборки демо (`tools/flat3d/demo-cams.mjs` → `v.cams` в
-// demo-data.json, их берёт /flat для «Фото», demo-05 п.8): ракурс 1 — лучший из четырёх углов по ступеням правил, ракурс 2 —
-// противоположный угол (диагональ, ADR-0149)
-const CAM_C2_INSET=60;
+// demo-data.json, их берёт /flat для «Фото»). До demo-12 (17.10): ракурс 1 — лучший из четырёх углов, ракурс 2 — противоположный
+// угол (ADR-0149; `camPairCorner` — аварийная ветка). Теперь ПАРА подбирается целиком (план demo-12, критика Codex):
+// кандидаты — точки у углов (сетка отступов и скольжение вдоль стен) и середины стен, повороты и объективы как у `camFit`;
+// дешёвые правила кадра отсекают негодное, лучшие CAM_TOPK на четверть комнаты меряются маской (`camStats`). Выбор —
+// лексикографический: (1) оба кадра проходят пороги CAM_GATE (ракурс 1 — ещё и строгие правила ступени 3→2→1);
+// (2) наибольший охват ВДВОЁМ — вес показанных предметов + доля стен + окно; (3) среди почти равных по охвату (CAM_U_TOL) — у кого
+// худший из двух кадров лучше; (4) разнообразие направлений. Общий якорь (диван в обоих) не штрафуется — он связывает виды.
+// Ослабление — по ступеням: сперва зоны (разные концы комнаты → разные стороны → любая пара с приростом), внутри — пороги по одному
+// (пол, пустая стена, потолок, стена у края — последней). Результат есть всегда.
+const CAM_GATE=[['floor',0.35],['empty',0.35],['ceil',0.3],['fore',0.12],['nearWall',0.02]];
+const CAM_B_CLEAR=35, CAM_FORE_D=100;   // зазор ракурса 2 до мебели; «передний план» — мебель ближе 1 м
+const CAM_TOPK=12, CAM_PER_POS=3, CAM_PER_SECTOR=4, CAM_U_TOL=0.15, CAM_PAIR_SHORT=10;
+// ПОДБОР ПАРОЙ ВКЛЮЧАЕТСЯ ВМЕСТЕ С ПЕРЕСЪЁМКОЙ (demo-12): у фото нейросети вариантов точки прежние, новая пара без пересъёмки
+// развела бы «Фото» и 3D. До приёмки владельцем — по `?cams=pair` на странице и `CAMS_PAIR=1` у сборки демо (`demo-cams.mjs`)
+const CAM_PAIR_DEFAULT=false;
+const CAM_PAIR_ON=CAM_PAIR_DEFAULT||(typeof location!=='undefined'&&/[?&]cams=pair\b/.test(location.search||''))
+  ||(typeof process!=='undefined'&&!!process.env&&process.env.CAMS_PAIR==='1');
+const camWeight=it=>camRole(it)==='ковёр'?0:(CAM_CORE[camRole(it)]||0.25);
+// у окна камера не стоит: шторы висят в 10–15 см от стены, радиатор под окном — точка ближе CAM_WIN_NEAR к проёму окна (с
+// запасом CAM_WIN_SIDE по бокам на шторы) оказывается в ткани
+const CAM_WIN_NEAR=40, CAM_WIN_SIDE=40;
+function camAtWindow(x,y,W,H){
+  const ops=((typeof D!=='undefined'&&D&&D.room&&D.room.openings)||[]).filter(o=>o.kind==='window');
+  return ops.some(o=>{const u=(o.wall==='south'||o.wall==='north')?x:y, n=o.wall==='south'?y:o.wall==='north'?H-y:o.wall==='west'?x:W-x;
+    return n<CAM_WIN_NEAR&&u>=(+o.offset_cm||0)-CAM_WIN_SIDE&&u<=(+o.offset_cm||0)+(+o.width_cm||0)+CAM_WIN_SIDE;});
+}
+// ДЕШЁВАЯ ПРИКИДКА ОХВАТА (без маски): предметы, видные по ширине и сверху (как `camSeen`, без заслонения), и куски стен по
+// лучам клина в плане — битами, чтобы перебрать все пары (критика Codex: битсеты, OR/popcount). Точная мерка — маской потом.
+function camCheap(c,its,W,H){
+  let im=0; (its||[]).forEach((it,i)=>{if(i>30||!camWeight(it)||camItemH(it)<=2)return; const b=camProj(c,it,0,camItemH(it)); if(!b||b.behind)return;
+    const bw=b.x1-b.x0; if(bw>0&&(Math.min(b.x1,1)-Math.max(b.x0,-1))/bw>=0.7&&b.y1<=1&&b.y1>-1)im|=(1<<i);});
+  const bins=new Set(), half=(c.fov||72)/2;
+  for(let k=-half;k<=half;k+=3){const a=((c.rot||0)+k)*Math.PI/180, dx=Math.sin(a), dy=-Math.cos(a);
+    let t=1e9, wi=0, tt;
+    if(dx>1e-9){tt=(W-c.x)/dx; if(tt<t){t=tt;wi=2;}} else if(dx<-1e-9){tt=-c.x/dx; if(tt<t){t=tt;wi=4;}}
+    if(dy>1e-9){tt=(H-c.y)/dy; if(tt<t){t=tt;wi=3;}} else if(dy<-1e-9){tt=-c.y/dy; if(tt<t){t=tt;wi=1;}}
+    const u=(wi===1||wi===3)?c.x+dx*t:c.y+dy*t; bins.add(wi*10000+Math.floor(u/CAM_BIN));}
+  return {im,bins};
+}
+// КРУПНОЕ, РАЗРЕЗАННОЕ БОКОВЫМ КРАЕМ (demo-12, маски 17.10: вид от окна на дверь — диван и ТВ по краям наполовину, в середине
+// пусто). Предмет с весом ядра ≥ 1, у которого в кадре меньше 85 % ширины, а кусок в кадре — не уже 4 % кадра (край дивана
+// в пятую часть кадра — тоже срез, хоть это и 10 % самого дивана), — минус в балле кадра (до двух предметов)
+const CAM_CUT_PEN=1.5;
+function camSideCut(c,its){
+  let n=0; (its||[]).forEach(it=>{if((CAM_CORE[camRole(it)]||0)<1)return; const b=camProj(c,it,0,camItemH(it)); if(!b||b.behind)return;
+    const bw=b.x1-b.x0, inw=Math.max(0,Math.min(b.x1,1)-Math.max(b.x0,-1)); if(bw<=0)return; if(inw/2>=0.04&&inw/bw<0.85)n++;});
+  return Math.min(n,2);
+}
+function camCands(its,W,H,cs){
+  const p=3, core=(its||[]).filter(it=>CAM_CORE[camRole(it)]);
+  const kx=core.length?core.reduce((a,it)=>a+it.x,0)/core.length:W/2, ky=core.length?core.reduce((a,it)=>a+it.y,0)/core.length:H/2;
+  const aimAt=(x,y,tx,ty)=>Math.round(Math.atan2(tx-x, y-ty)*180/Math.PI);
+  const pos=new Map(), add=(x,y)=>{x=Math.min(Math.max(x,p),W-p); y=Math.min(Math.max(y,p),H-p);
+    const k=Math.round(x)+','+Math.round(y); if(!pos.has(k)&&!camAtWindow(x,y,W,H))pos.set(k,{x,y,k});};
+  cs.forEach(k=>{const sx=k.x<W/2?1:-1, sy=k.y<H/2?1:-1;
+    for(const ix of [0,27,57,87,117])for(const iy of [0,27,57,87,117])add(k.x+sx*ix,k.y+sy*iy);
+    for(let d=CAM_STEP; d<=CAM_SLIDE; d+=CAM_STEP){add(k.x+sx*d,k.y); add(k.x,k.y+sy*d);}});
+  for(const ins of [30,60,90]){add(W/2,ins); add(W/2,H-ins); add(ins,H/2); add(W-ins,H/2);}
+  const out=[];
+  for(const q of pos.values()){
+    const r0=aimAt(q.x,q.y,W/2,H/2), rots=[aimAt(q.x,q.y,kx,ky)]; for(let k=-35;k<=35;k+=5)rots.push(r0+k);
+    for(const rot of rots)for(const fov of [72,78]){
+      const c={x:q.x,y:q.y,rot:rot,fov:fov,k:q.k};
+      const b=camBlock(c,its), tall=camTallCut(c,its), soft=Math.max(b.cov/CAM_BLOCK,camTvBack(c,its)?2:0,tall?1.5:0,camGraze(c,W,H));
+      // ракурсу 2 — физический зазор CAM_B_CLEAR (человек там стоит), а «предмет перед объективом» меряет маска (`fore`);
+      // ракурсу 1 — прежнее строгое «ни одного предмета ближе CAM_MIN_DIST» (demo-12: в комнате 439×325 у «современного» и
+      // «минимализма» с 80 см оставался один угол у двери, а горшок у ног в кадр не попадает)
+      if(soft>1||camHard(c,its,0,CAM_B_CLEAR))continue;
+      c.far=!camHard(c,its,0);
+      const lo=camBlock(c,its,-1);
+      c.key=camKey(c,its);
+      c.cut=camSideCut(c,its);
+      c.score=6*c.key+4*camCore(c,its)-1.5*Math.min(1,Math.max(0,(lo.cov-CAM_LOW)/0.3))-(fov>72?0.3:0)-CAM_CUT_PEN*c.cut;
+      c.lv=c.far?([3,2,1].find(lv=>!camHard(c,its,lv))||0):-1;
+      c.zone=(q.x<W/2?0:1)+(q.y<H/2?0:2);
+      c.cheap=camCheap(c,its,W,H);
+      out.push(c);
+    }
+  }
+  return out;
+}
+// лучшие по баллу, не больше CAM_PER_POS на точку и CAM_PER_SECTOR на четверть × сектор взгляда 45° (иначе верх списка — одна
+// точка с разными поворотами, и слабый сам по себе, но дополняющий кадр выпадает — Codex 17.10)
+function camTop(list,n){
+  const out=[], perPos={}, perSec={};
+  list.slice().sort((a,b)=>b.score-a.score).forEach(c=>{if(out.length>=n)return;
+    const m=perPos[c.k]||0, sec=c.zone*8+Math.floor((((c.rot%360)+360)%360)/45), q=perSec[sec]||0;
+    if(m>=CAM_PER_POS||q>=CAM_PER_SECTOR)return; perPos[c.k]=m+1; perSec[sec]=q+1; out.push(c);});
+  return out;
+}
+const camGateOk=(st,gl)=>CAM_GATE.slice(gl).every(([k,v])=>st[k]<=v);
+const camAng=(a,b)=>Math.abs(((a-b)%360+540)%360-180);   // циклическая разница направлений, 0…180°
+const camBits=n=>{let k=0; while(n){n&=n-1;k++;} return k;};
 function camPair(its,W,H,cs){
+  if(!CAM_PAIR_ON)return camPairCorner(its,W,H,cs);
+  const all=camCands(its,W,H,cs);
+  if(!all.length){const r=camPairCorner(its,W,H,cs); r.how='углы (годных точек нет)'; return r;}
+  // РАКУРС 1 — ГЛАВНЫЙ ВИД: высшая достижимая ступень строгих правил и наибольшая доля главного целиком (диван, столик,
+  // ТВ-тумба); охват пары его не размывает — дополняет ракурс 2
+  const level=Math.max(...all.map(c=>c.lv)), lvOk=all.filter(c=>c.lv>=level&&c.far);
+  if(!lvOk.length){const r=camPairCorner(its,W,H,cs); r.how='углы (нет точки для ракурса 1)'; return r;}
+  const st=new Map(), stat=c=>{if(!st.has(c)){const s0=camStats(c,its,W,H); s0.seen=camSeen(c,its,s0); s0.keyVis=camKeyVis(c,its,s0); st.set(c,s0);} return st.get(c);};
+  const kmax=Math.max(...lvOk.map(c=>c.key)), A0=camTop(lvOk.filter(c=>c.key>=kmax-1e-9),2*CAM_TOPK);
+  const vmax=Math.max(...A0.map(c=>stat(c).keyVis)), A=A0.filter(c=>stat(c).keyVis>=vmax-1e-9).slice(0,CAM_TOPK);
+  const wAll=(its||[]).reduce((a,it)=>a+camWeight(it),0)||1, binsAll=2*Math.ceil(W/CAM_BIN)+2*Math.ceil(H/CAM_BIN), diag=Math.hypot(W,H);
+  const wOf=bits=>{let w=0; (its||[]).forEach((it,i)=>{if(bits&(1<<i))w+=camWeight(it);}); return w;};
+  const union=(x,y)=>{let nb=x.size; if(y)y.forEach(b=>{if(!x.has(b))nb++;}); return nb;};
+  const cover=(sa,sb)=>{let w=0; new Set([...sa.seen,...(sb?sb.seen:[])]).forEach(i=>{w+=camWeight(its[i]);});
+    return w/wAll+2*union(sa.bins,sb&&sb.bins)/binsAll+((sa.win||(sb&&sb.win))?0.5:0);};
+  // зоны: 0 — разные концы (не ближе полудиагонали, направления разнятся ≥ 90°); 1 — разные стороны (направления ≥ 60°: в
+  // комнате 439×325 у окна камере негде встать — ближе 80 см мебель, замер 17.10); 2 — любая пара с приростом
+  for(const zl of [0,1,2]){
+    // дешёвый отбор: каждому ракурсу 1 — лучшие по прикидке охвата вторые (все кандидаты, не только «хорошие сами по себе»)
+    const short=[];
+    for(const a of A){
+      const ranked=[];
+      for(const b of all){if(b.k===a.k)continue;
+        if(zl===0&&(Math.hypot(a.x-b.x,a.y-b.y)<0.5*diag||camAng(a.rot,b.rot)<90))continue;
+        if(zl===1&&camAng(a.rot,b.rot)<60)continue;
+        ranked.push({b,u:wOf(a.cheap.im|b.cheap.im)/wAll+2*union(a.cheap.bins,b.cheap.bins)/binsAll+0.01*b.score});}
+      ranked.sort((x,y)=>y.u-x.u).slice(0,CAM_PAIR_SHORT).forEach(r=>short.push([a,r.b]));
+    }
+    if(!short.length)continue;
+    // точная мерка маской; пороги кадра снимаются по одному, пока пара не найдётся
+    for(let gl=0; gl<=CAM_GATE.length; gl++){
+      const pairs=[];
+      for(const [a,b] of short){const sa=stat(a), sb=stat(b); if(!camGateOk(sa,gl)||!camGateOk(sb,gl))continue;
+        const u=cover(sa,sb); if(u<=cover(sa)+1e-9)continue;   // второй кадр обязан что-то добавить
+        pairs.push({a,b,u,worst:Math.min(a.score,b.score),sum:a.score+b.score,div:camAng(a.rot,b.rot)});}
+      if(!pairs.length)continue;
+      const um=Math.max(...pairs.map(q=>q.u));
+      // худший кадр — первым; при равном худшем (тот же ракурс 1) — лучший второй, затем разнообразие
+      const pick=pairs.filter(q=>q.u>=um-CAM_U_TOL).sort((x,y)=>(y.worst-x.worst)||(y.sum-x.sum)||(y.div-x.div))[0];
+      const mk=(n,c)=>({name:n,x:c.x,y:c.y,rot:c.rot,fov:c.fov||72,pshift:camPortraitShift(c,its,W,H)});
+      return {level, cams:[mk('C1',pick.a),mk('C2',pick.b)], how:`пара: порогов снято ${gl}, зоны ${['разные концы','разные стороны','любые'][zl]}, мерок ${st.size}`,
+        u:pick.u, stats:[stat(pick.a),stat(pick.b)]};
+    }
+  }
+  const r=camPairCorner(its,W,H,cs); r.how='углы (пары нет)'; return r;
+}
+// ПОРТРЕТ ТЕЛЕФОНА — СДВИГОМ КАДРА, НЕ НАКЛОНОМ (demo-12, d8 17.10: в портрете нижняя половина — пустой пол). Горизонтальный
+// угол тот же, значит по вертикали кадр почти 90°; сдвиг подбираем так, чтобы пол и потолок в кадре были примерно поровну
+// (мебель — в средней полосе), вертикали остаются прямыми. Ответ — доля высоты кадра, как `photoShift` (минус — кадр ниже).
+const CAM_PSHIFT=[-0.15,0.05], CAM_PW=48, CAM_PH=66;
+function camPortraitShift(c,its,W,H){
+  // один буфер на весь диапазон сдвигов (Codex: не трассировать заново на каждый): кадр 48×66 скользит по полосе высотой
+  // 66·(2 + размах)/2 строк; сдвиг shift ↔ sn = −2·shift
+  const sn0=-2*CAM_PSHIFT[1], sn1=-2*CAM_PSHIFT[0], step=2/CAM_PH, extra=Math.round((sn1-sn0)/step);
+  const rows=CAM_PH+extra, m=camMask(c,its,W,H,{w:CAM_PW,h:rows,asp:CAM_PW/CAM_PH,vr:[1-sn0-rows*step,1-sn0]});
+  let best=null;
+  for(let r=0;r<=extra;r++){const sn=sn0+r*step, t=camStatsOf(m,r,r+CAM_PH);
+    // пол и потолок поровну, мебель — в средней трети кадра
+    const d=Math.abs(t.floor-t.ceil)+Math.max(0,Math.abs(t.midY-0.5)-1/6);
+    if(!best||d<best.d-1e-9)best={sn,d};}
+  return Math.round(-best.sn/2*1000)/1000;
+}
+const CAM_C2_INSET=60;
+function camPairCorner(its,W,H,cs){
   const sc=f=>f&&f.score!==undefined?f.score:-1e9;
   let fits=[], level=0;
   for(const lv of [3,2,1]){fits=cs.map(k=>camFit(k.x,k.y,its,W,H,lv)); level=lv; if(fits.some(f=>sc(f)>-1e9))break;}
@@ -1453,6 +1607,94 @@ function camPair(its,W,H,cs){
   const k2=cs[(b+2)%4], ix=k2.x<W/2?Math.max(k2.x,CAM_C2_INSET):Math.min(k2.x,W-CAM_C2_INSET), iy=k2.y<H/2?Math.max(k2.y,CAM_C2_INSET):Math.min(k2.y,H-CAM_C2_INSET);
   const c1=fits[b], c2=camFit(ix,iy,its,W,H,false);
   return {level, cams:[{name:'C1',x:c1.x,y:c1.y,rot:c1.rot,fov:c1.fov||72},{name:'C2',x:c2.x,y:c2.y,rot:c2.rot,fov:c2.fov||72}]};
+}
+// МАСКА КАДРА ПО ПИКСЕЛЯМ (demo-12, 17.10; критика Codex: пустая стена, потолок и пол — по пикселям, не по клину в плане).
+// Маленький трассировщик лучей на чистом JS — одинаково в браузере и в Node (`tools/flat3d/demo-cams.mjs`), без видеокарты:
+// комната — коробка W×D×высота с проёмами окна и двери (`D.room.openings`), мебель — повёрнутые коробки footprint × camItemH,
+// у торшера и ТВ-тумбы — из частей (иначе торшер — непрозрачный шкаф, а экран — плита до пола), камера — ровно поза v2
+// (глаз CAM_EYE, горизонт, сдвиг кадра `sn` в долях −1…1 = −2·shift_y, горизонтальный угол). Классы пикселя: 1 пол, 2 ковёр,
+// 3 потолок, 4 стена, 5 окно, 6 дверь, 7 предмет (номер — в `item`); `dep` — расстояние по плану; `solo` — сколько лучей
+// попало бы в предмет, не будь других (знаменатель «заслонён»). `o.vr` — диапазон кадра по вертикали в долях (для подбора
+// портретного сдвига одним буфером), по умолчанию [−1−sn, 1−sn].
+const CAM_WALLS=['','south','east','north','west'];   // 1 — y=0, 2 — x=W, 3 — y=H, 4 — x=0 (как `wallSeg`)
+const camRoomH=()=>+((typeof D!=='undefined'&&D&&D.room&&D.room.height_cm)||270);   // как `lib/configurator/fromDemo.ts`: height_cm ?? 270
+function camParts(it,i){
+  const r=(it.rot||0)*Math.PI/180, ca=Math.cos(r), sa=Math.sin(r), h=camItemH(it), role=camRole(it), box=(hw,hd,z0,z1,ox,oy)=>({i,hw,hd,z0,z1,cx:it.x+(ox||0)*ca-(oy||0)*sa,cy:it.y+(ox||0)*sa+(oy||0)*ca,ca,sa,rug:role==='ковёр'});
+  if(role==='торшер')return [box(4,4,0,h-40),box(it.w/2,it.d/2,h-40,h)];   // стойка и абажур
+  if(role==='тв-тумба'){const sh=h-75; return [box(it.w/2,it.d/2,0,sh),box(Math.min(it.w*0.45,70),3,sh,h)];}   // тумба и экран над ней
+  return [box(it.w/2,it.d/2,0,h)];
+}
+function camMask(c,its,W,H,o){
+  o=o||{}; const w=o.w||96, h=o.h||64, sn=o.sn===undefined?CAM_SHIFT_N:o.sn, RH=camRoomH(), vr=o.vr||[-1-sn,1-sn];
+  const a=(c.rot||0)*Math.PI/180, fx=Math.sin(a), fy=-Math.cos(a), rx=Math.cos(a), ry=Math.sin(a);
+  const tx=Math.tan((c.fov||72)/2*Math.PI/180), ty=tx/(o.asp||w/h), ox=c.x, oy=c.y, oz=CAM_EYE;
+  const bx=[].concat(...(its||[]).map(camParts)).map(b=>Object.assign(b,{lx:(ox-b.cx)*b.ca+(oy-b.cy)*b.sa, ly:-(ox-b.cx)*b.sa+(oy-b.cy)*b.ca}))
+    .filter(b=>!(Math.abs(b.lx)<b.hw&&Math.abs(b.ly)<b.hd&&oz>=b.z0&&oz<=b.z1));   // глаз внутри коробки — её не видно
+  const ops=((typeof D!=='undefined'&&D&&D.room&&D.room.openings)||[]).map(p=>{const win=p.kind==='window', z0=win?(+p.sill_cm||85):0;
+    return {wi:CAM_WALLS.indexOf(p.wall), u0:+p.offset_cm||0, u1:(+p.offset_cm||0)+(+p.width_cm||0), z0, z1:z0+(+p.height_cm||(win?140:205)), cl:win?5:6};});
+  const n=w*h, cls=new Uint8Array(n), item=new Int16Array(n).fill(-1), dep=new Float32Array(n), wall=new Uint8Array(n), wu=new Float32Array(n), solo={};
+  for(let j=0;j<h;j++){const dz=(vr[1]-(j+0.5)/h*(vr[1]-vr[0]))*ty;
+    for(let i=0;i<w;i++){const sx=((i+0.5)/w*2-1)*tx, dx=fx+rx*sx, dy=fy+ry*sx, k=j*w+i;
+      let t=1e9, cl=0, wi=0, tt;
+      if(dx>1e-9){tt=(W-ox)/dx; if(tt<t){t=tt;cl=4;wi=2;}} else if(dx<-1e-9){tt=-ox/dx; if(tt<t){t=tt;cl=4;wi=4;}}
+      if(dy>1e-9){tt=(H-oy)/dy; if(tt<t){t=tt;cl=4;wi=3;}} else if(dy<-1e-9){tt=-oy/dy; if(tt<t){t=tt;cl=4;wi=1;}}
+      if(dz>1e-9){tt=(RH-oz)/dz; if(tt<t){t=tt;cl=3;wi=0;}} else if(dz<-1e-9){tt=-oz/dz; if(tt<t){t=tt;cl=1;wi=0;}}
+      if(wi){const px=ox+dx*t, py=oy+dy*t, pz=oz+dz*t, u=(wi===1||wi===3)?px:py; wall[k]=wi; wu[k]=u;
+        for(const p of ops)if(p.wi===wi&&u>=p.u0&&u<=p.u1&&pz>=p.z0&&pz<=p.z1){cl=p.cl;break;}}
+      const troom=t; let hit=-1, last=-1;
+      for(const b of bx){const ldx=dx*b.ca+dy*b.sa, ldy=-dx*b.sa+dy*b.ca;
+        let t0=0, t1=troom, q;
+        if(Math.abs(ldx)<1e-9){if(Math.abs(b.lx)>b.hw)continue;} else {let a0=(-b.hw-b.lx)/ldx, a1=(b.hw-b.lx)/ldx; if(a0>a1){q=a0;a0=a1;a1=q;} if(a0>t0)t0=a0; if(a1<t1)t1=a1; if(t0>t1)continue;}
+        if(Math.abs(ldy)<1e-9){if(Math.abs(b.ly)>b.hd)continue;} else {let a0=(-b.hd-b.ly)/ldy, a1=(b.hd-b.ly)/ldy; if(a0>a1){q=a0;a0=a1;a1=q;} if(a0>t0)t0=a0; if(a1<t1)t1=a1; if(t0>t1)continue;}
+        if(Math.abs(dz)<1e-9){if(oz<b.z0||oz>b.z1)continue;} else {let a0=(b.z0-oz)/dz, a1=(b.z1-oz)/dz; if(a0>a1){q=a0;a0=a1;a1=q;} if(a0>t0)t0=a0; if(a1<t1)t1=a1; if(t0>t1)continue;}
+        if(t0<=1e-6)continue;
+        if(b.i!==last&&!b.rug){solo[b.i]=(solo[b.i]||0)+1; last=b.i;}   // части одного предмета подряд — луч считается раз
+        if(t0<t){t=t0; hit=b.i; cl=b.rug?2:7;}}
+      cls[k]=cl; item[k]=hit; dep[k]=t*Math.hypot(dx,dy); if(hit>=0)wall[k]=0;}}
+  return {w,h,cls,item,dep,wall,wu,solo};
+}
+// МЕТРИКИ КАДРА ПО МАСКЕ (пороги и знаменатели — по критике Codex 17.10): доли потолка и пола (с ковром) — от всего кадра;
+// `empty` — доля СТОЛБЦОВ без мебели, окна и двери («полкадра пустой стены сбоку»: площадная доля стены велика почти всегда —
+// стена над мебелью); столбец занят, если в нём ≥ max(2, 3 % высоты) таких пикселей (один пиксель торшера не спасает);
+// `emptyRun` — самая длинная пустая полоса подряд; `nearWall` — пиксели стены ближе CAM_NEAR_WALL в крайних CAM_EDGE_COLS
+// столбцах, доля от всего кадра (соседняя стена плитой у края — «ниша»); `fore` — мебель ближе CAM_FORE_D, доля кадра (крупный
+// план перед объективом); `vis`/`solo` — видимые и «одиночные» пиксели
+// предметов; `bins` — куски стен по CAM_BIN см в кадре (покрытие комнаты парой), `win` — окно в кадре; `midY` — медиана
+// мебели по высоте кадра (0 — верх).
+const CAM_NEAR_WALL=60, CAM_EDGE_COLS=0.12, CAM_BIN=20;
+function camStats(c,its,W,H,o){
+  const m=camMask(c,its,W,H,o);
+  return camStatsOf(m,0,m.h);
+}
+function camStatsOf(m,r0,r1){
+  const rows=r1-r0, n=m.w*rows, vis={}, bins=new Set(), col=new Uint16Array(m.w), e=Math.max(1,Math.round(m.w*CAM_EDGE_COLS)), ys=[];
+  let ceil=0, floor=0, near=0, fore=0, win=false;
+  for(let j=r0;j<r1;j++)for(let i=0;i<m.w;i++){const k=j*m.w+i, cl=m.cls[k];
+    if(cl===3)ceil++; else if(cl===1||cl===2)floor++; else if(cl===7&&m.dep[k]<CAM_FORE_D)fore++;
+    if(cl>=5){col[i]++; if(cl===5)win=true;}
+    if(cl===7){vis[m.item[k]]=(vis[m.item[k]]||0)+1; ys.push((j-r0+0.5)/rows);}
+    if(m.wall[k]){bins.add(m.wall[k]*10000+Math.floor(m.wu[k]/CAM_BIN)); if(m.dep[k]<CAM_NEAR_WALL&&(i<e||i>=m.w-e))near++;}}
+  const need=Math.max(2,Math.ceil(0.03*rows));
+  let empty=0, run=0, emptyRun=0; for(let i=0;i<m.w;i++){if(col[i]<need){empty++; run++; if(run>emptyRun)emptyRun=run;} else run=0;}
+  ys.sort((a,b)=>a-b);
+  return {ceil:ceil/n, floor:floor/n, empty:empty/m.w, emptyRun:emptyRun/m.w, nearWall:near/n, fore:fore/n, vis, solo:m.solo, bins, win, w:m.w, h:rows,
+    midY:ys.length?ys[ys.length>>1]:0.5};
+}
+// ПОКАЗАН ЛИ ПРЕДМЕТ: ≥ 70 % ширины в кадре и верх в кадре (низ близкой мебели за нижней кромкой — норма съёмки с 135 см,
+// как в `camWhole`; буквальный `camShown(0.7)` по высоте отбрасывал бы столик у каждой точки) и не заслонён — видимых пикселей
+// ≥ CAM_VIS_MIN от «одиночных» (сколько лучей попало бы в него без других предметов), не меньше 4
+const CAM_VIS_MIN=0.25;
+function camSeen(c,its,st){
+  const out=new Set();
+  (its||[]).forEach((it,i)=>{if(camItemH(it)<=2)return; const b=camProj(c,it,0,camItemH(it)); if(!b||b.behind)return;
+    const bw=b.x1-b.x0; if(bw<=0||(Math.min(b.x1,1)-Math.max(b.x0,-1))/bw<0.7||b.y1>1||b.y1<=-1)return;
+    const so=st.solo[i]||0; if(so>0&&(st.vis[i]||0)>=Math.max(4,CAM_VIS_MIN*so))out.add(i);});
+  return out;
+}
+// ГЛАВНОЕ ЦЕЛИКОМ С УЧЁТОМ ЗАСЛОНЕНИЯ (Codex 17.10): `camKey` считает геометрию, а предмет может быть закрыт ближним
+function camKeyVis(c,its,st){
+  const key=(its||[]).map((it,i)=>[it,i]).filter(([it])=>CAM_KEY.includes(camRole(it)));
+  return key.length?key.filter(([it,i])=>camWhole(c,it)&&(st.vis[i]||0)>=0.5*(st.solo[i]||1)).length/key.length:1;
 }
 // отрезок стены под проёмом — нужен правилу «не у двери» (`camGraze`); живёт в блоке, чтобы блок исполнялся и вне страницы
 function wallSeg(w,off,len){const W=D.room.w,H=D.room.d;
@@ -1514,7 +1756,14 @@ function cycleCams(){
 // отступом так и стояли бы в 10 см от стены. Меняем правило — меняем версию, и каждый
 // получает новые углы по умолчанию (владелец 01.09).
 const CAMS_VER='v10-c2inset';   // v10 (17.10, demo-11): ракурс 2 — не ближе 60 см к стенам угла;   // v9 (16.10): высокое (торшер, стеллаж) — целиком или вне кадра; v7 (14.10): ракурс 1 — лучший из четырёх углов, главное целиком; при смене правил сохранённые углы пересчитываются
-function camsKey(){const v=allVariants()[cur]||{};return 'flat215-cams-'+CAMS_VER+'-'+(v.id||cur);}
+function camsKey(){const v=allVariants()[cur]||{};return 'flat215-cams-'+CAMS_VER+(CAM_PAIR_ON?'-pair':'')+'-'+(v.id||cur);}
+// ПОЗА КАМЕРЫ ДЛЯ 3D И СНИМКА: при подборе парой (demo-12) — со сдвигом вертикального кадра телефона, пересчитанным под
+// текущее положение камеры и мебели (камеру двигали руками — прежний сдвиг устарел)
+function camPoseOf(c){
+  const p={x:c.x,y:c.y,rot:c.rot||0,fov:c.fov||72,pose:POSE_VER};
+  if(CAM_PAIR_ON&&D&&D.room){try{p.pshift=camPortraitShift(c,items,D.room.w,D.room.d);}catch(e){}}
+  return p;
+}
 function loadCams(){
   try{const r=JSON.parse(localStorage.getItem(camsKey())||'null'); if(r&&r.length===2)return r;}catch(e){}
   return defaultCams();
@@ -4526,7 +4775,7 @@ function vwPhoto(k){
   if(VW.mode!=='walk')return;
   const n=vwCamN(); VW.photo=((k%n)+n)%n; vwModeUi();
   const c=(cams||loadCams())[VW.photo];
-  if(LIVE.scene&&c&&LIVE.scene.goToPose)LIVE.scene.goToPose({x:c.x,y:c.y,rot:c.rot||0,fov:c.fov||72,pose:POSE_VER});
+  if(LIVE.scene&&c&&LIVE.scene.goToPose)LIVE.scene.goToPose(camPoseOf(c));
 }
 // КНОПКА «СДЕЛАТЬ РЕАЛИСТИЧНЕЕ» (demo-09 п.3, Codex п.1): видна в 3D и без 3D; в «Фото» её нет (снимок уже есть), в «Плане» —
 // «Изменить план». Во время задания — ход на самой кнопке; окно и режим не трогаются
@@ -4550,7 +4799,7 @@ const VW_FRAME_SIZES=[[2048,1489],[1536,1117]];   // пропорция вида
 const VW_FRAME_SIZES_PORTRAIT=[[1489,2048],[1117,1536]];
 async function vwCaptureViews(){
   if(LIVE.ok!==true||!LIVE.scene||!LIVE.scene.capture)return null;
-  const poses=(cams||loadCams()).slice(0,2).map(c=>({x:c.x,y:c.y,rot:c.rot||0,fov:c.fov||72,pose:POSE_VER}));
+  const poses=(cams||loadCams()).slice(0,2).map(camPoseOf);
   // СЦЕНА — ТОЧНО ЭТА РАССТАНОВКА (самопроверка 17.10: после смены варианта снимок ловил часть мебели прежнего — сцена ещё обновлялась):
   // ставим текущие предметы и декор и ждём, затем снимаем (`update` — последняя побеждает, повтор того же — без перезагрузки моделей)
   try{await LIVE.scene.update(clone(items), liveDecor());}catch(e){return null;}
@@ -4787,7 +5036,7 @@ async function liveShow(){
   // другая точка. Только при входе в режим: повторный показ после замены не отбрасывает человека туда, откуда он ушёл
   // портрет телефона: взгляд наклонён к мебели (приёмка d8 17.10: верхние 40 % кадра были потолком); снимок нейросети — без наклона
   if(sc.setTilt)sc.setTilt(VW_PHONE()&&window.innerHeight>window.innerWidth);
-  if(LIVE.lastMode!=='walk')sc.setPhotoPose({x:c.x,y:c.y,rot:c.rot||0,fov:c.fov||72,pose:POSE_VER});
+  if(LIVE.lastMode!=='walk')sc.setPhotoPose(camPoseOf(c));
   LIVE.badge.textContent=LANG==='en'?'3D: drag to look around':'3D: тяните, чтобы осмотреться';
   LIVE.lastMode=VW.mode;
   liveWire();

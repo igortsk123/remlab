@@ -132,6 +132,8 @@ export const cameraPreset = z.object({
   fov: z.number().default(72),
   /** Версия позы съёмки (`viewer.PhotoPose.pose`): 2 — глаз 135, горизонтально, сдвиг объектива (ракурсы окна демо). */
   pose: z.number().optional(),
+  /** Сдвиг вертикального кадра телефона (`viewer.PhotoPose.pshift`, demo-12). */
+  pshift: z.number().optional(),
 });
 export type CameraPreset = z.infer<typeof cameraPreset>;
 
