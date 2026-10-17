@@ -391,7 +391,7 @@ def refresh(apply: bool = False, max_swaps_per_set: int = 2) -> None:
     alive = {key(r[0], r[1]) for r in _rows(
         "select e.shop_mid, e.external_id from product_enrichment e "
         "join products p using (shop_mid, external_id) "
-        "where e.status='active' and p.in_stock") if len(r) >= 2}
+        "where e.status='active' and p.in_stock and p.cat_role is not null") if len(r) >= 2}   # без роли — не живой (demo-05)
     if not _CAND_CACHE:
         p = os.path.join(HERE, 'candidates-index.json')
         if os.path.exists(p):
@@ -546,12 +546,13 @@ def heal(apply: bool = False, only_trusted: bool = False) -> None:
     dead = {}
     for row in _rows(f"""select e.shop_mid, e.external_id,
                     case when e.status <> 'active' then e.status
+                         when p.cat_role is null then 'роль снята каталогом'
                          when p.availability_state = 'out_of_stock' then 'нет в наличии (страница)'
                          else 'карточка мертва' end
              from product_enrichment e
              join products p on p.shop_mid=e.shop_mid and p.external_id=e.external_id
              join (values {vals}) v(mid,eid) on e.shop_mid=v.mid and e.external_id=v.eid
-            where e.status <> 'active' or not p.in_stock"""):
+            where e.status <> 'active' or not p.in_stock or p.cat_role is null"""):
         if len(row) >= 3:
             dead[key(row[0], row[1])] = row[2]
     if not dead:
@@ -560,7 +561,7 @@ def heal(apply: bool = False, only_trusted: bool = False) -> None:
     alive = {key(r[0], r[1]) for r in _rows(
         "select e.shop_mid, e.external_id from product_enrichment e "
         "join products p using (shop_mid, external_id) "
-        "where e.status='active' and p.in_stock") if len(r) >= 2}
+        "where e.status='active' and p.in_stock and p.cat_role is not null") if len(r) >= 2}   # без роли — не живой (demo-05)
 
     healed, hopeless, _touched, _pending = 0, [], set(), []
     # ПРЕДОХРАНИТЕЛЬ СЧИТАЕТ ТОЛЬКО ПОДОЗРИТЕЛЬНЫЕ КАСАНИЯ (Codex 14.10): «archived» магазина с честным последним
@@ -782,7 +783,7 @@ def enforce_contracts(apply: bool = False, roles: tuple = ()) -> None:
     alive = {key(r[0], r[1]) for r in _rows(
         "select e.shop_mid, e.external_id from product_enrichment e "
         "join products p using (shop_mid, external_id) "
-        "where e.status='active' and p.in_stock") if len(r) >= 2}
+        "where e.status='active' and p.in_stock and p.cat_role is not null") if len(r) >= 2}   # без роли — не живой (demo-05)
     fixed = dropped = 0
     for n, s in enumerate(sets, 1):
         items = s.get('items') or {}

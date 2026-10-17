@@ -70,6 +70,13 @@ def need_reason(role: str, it: dict | None, media, has_mesh) -> str | None:
     """Почему позицию надо заменить; None — позиция годна."""
     if not it or not it.get('mid'):
         return 'нет товара'
+    if base_role(role) == 'ковёр':
+        try:
+            import rug_kids
+            if any(rug_kids.is_kids_rug(it.get(k)) for k in ('img_hd', 'img')):
+                return 'детский ковёр (по картинке)'   # demo-05, 17.10: уже стоящий в варианте ковёр тоже перепроверяется
+        except Exception:  # noqa: BLE001 — без кэша решения ковёр не трогаем
+            pass
     from catalog_rules import availability
     if availability(media(it.get('mid'), it.get('eid'))) == 'unavailable':
         return 'снят с продажи'               # `unknown` (фид не приехал) — товар не трогаем

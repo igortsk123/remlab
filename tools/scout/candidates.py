@@ -70,6 +70,7 @@ def build() -> dict:
        where e.payload is not null and e.status='active' and e.quality >= {MIN_QUALITY}
          and p.price_rub is not null and p.image_url is not null and coalesce(p.photo_alive, true)  -- conv-05
          and p.in_stock  -- мёртвые карточки (health.py) не должны попадать в комплекты (А2)
+         and p.cat_role is not null  -- роль снята каталогом (детское по названию или картинке, demo-05 17.10) — не кандидат
     """)
     idx: dict[str, list] = {}
     items: dict[str, dict] = {}

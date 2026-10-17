@@ -204,6 +204,21 @@ def parse_offer(el, cats: dict) -> dict | None:
     }
 
 
+_RUG_KIDS = None
+
+
+def _rug_kids(img: str | None) -> bool:
+    """Детский ли ковёр по уже принятому решению `rug_kids.py` (кэш читается один раз за прогон; нет кэша — нет отсева)."""
+    global _RUG_KIDS
+    if _RUG_KIDS is None:
+        try:
+            import rug_kids
+            _RUG_KIDS = rug_kids.load_cache()
+        except Exception:  # noqa: BLE001 — без кэша загрузка каталога идёт как раньше
+            _RUG_KIDS = {}
+    return bool(img) and bool(_RUG_KIDS.get(image_hash(img), {}).get('kids'))
+
+
 def assign(o: dict, catrole: dict, known: set) -> dict:
     """Роль и размеры. accepted=False — категория не нужна гостиной (или детское)."""
     key = (o['mid'], str(o['cid']))
@@ -214,9 +229,12 @@ def assign(o: dict, catrole: dict, known: set) -> dict:
     elif f'{o["mid"]}:{o["cid"]}' in mixed and hasattr(category_map, 'role_by_name'):
         role = category_map.role_by_name(o['name'])          # П3.5: смешанная ветка — роль по названию
     accepted = bool(role)                                    # категория нужна гостиной (или MIXED дал роль)
-    if role and category_map.is_kids(o['name']):
+    if role and category_map.is_kids(o['name'], role):
         role = None       # детское внутри разрешённых категорий: строка грузится, но БЕЗ роли (как и прежде —
                           # иначе 46 товаров divan.ru/tvoydom ушли бы в missing→archived при первом же прогоне)
+    elif role == 'ковёр' and _rug_kids(o.get('pic_hd') or o.get('pic')):
+        role = None       # детский ковёр ПО КАРТИНКЕ (demo-05, 17.10): решение нейросети-зрителя из кэша `rug_kids.py`, без сети
+        o['kids_visual'] = True
     o['role'] = role
     o['known'] = key in known
     o['accepted'] = accepted

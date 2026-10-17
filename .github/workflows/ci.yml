@@ -154,6 +154,7 @@ jobs:
       - run: python tools/scout/mesh_dark.py --selftest    # модель темнее товара — признак карантина (demo-05)
       - run: python tools/scout/unfit.py --selftest        # пригодность для гостиной: одно правило у подбора и лечения демо
       - run: python tools/scout/tests/test_improve_prompt.py   # промпт «реалистично» v2: фото-вид, каталожная форма, тёплые гайды (demo-11)
+      - run: python tools/scout/tests/test_rug_kids.py   # детские ковры: слова только для текстиля, ответ VLM по форме, роль по кэшу (demo-05)
 
   scout-selftest:
     # Селфтесты загрузки каталога (план catalog-load-hardening П0.4): правила разбора фида, единиц
