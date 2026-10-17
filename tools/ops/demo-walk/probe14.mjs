@@ -16,8 +16,8 @@ async function run(name,url,vp,mobile,locale){
     const order=[...document.querySelectorAll('#vscroll > *, #vscroll .vtop > *, #vscroll .vlist > *')].filter(e=>e.offsetParent!==null).map(e=>(e.id||e.className||e.tagName).toString().slice(0,24));
     return {pos:sd.dataset.pos, top:Math.round(r.top), h:Math.round(innerHeight-r.top), plateTop:Math.round(pl.top), rows, order, chip:(document.getElementById('vchip')||{}).textContent};});
   L(`\n== ${name}`); L('старт:',JSON.stringify(await geo())); await p.screenshot({path:`${OUT}/${name}-start.png`});
-  if(mobile){ await p.evaluate(()=>vwSheet(3)); await p.waitForTimeout(900); L('полная:',JSON.stringify(await geo())); await p.screenshot({path:`${OUT}/${name}-full.png`});
-    await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(900); }
+  if(mobile){ await p.evaluate(()=>vwSheet(3)); await p.waitForFunction(()=>document.getAnimations().length===0,null,{timeout:8000}).catch(()=>{}); await p.waitForTimeout(300); L('полная:',JSON.stringify(await geo())); await p.screenshot({path:`${OUT}/${name}-full.png`});
+    await p.evaluate(()=>vwSheet(2)); await p.waitForFunction(()=>document.getAnimations().length===0,null,{timeout:8000}).catch(()=>{}); await p.waitForTimeout(300); }
   const row=p.locator('#vside [data-opts]').first();
   if(await row.count()){ await row.click(); await p.waitForTimeout(1000); L('отделка:',JSON.stringify(await geo())); await p.screenshot({path:`${OUT}/${name}-opts.png`});
     const back=p.locator('#vside #vOptsBack, #vside .vopts-back').first(); if(await back.count()){await back.click(); await p.waitForTimeout(900); L('назад:',JSON.stringify(await geo()));} }
@@ -30,7 +30,5 @@ async function run(name,url,vp,mobile,locale){
 }
 const B='https://remont-lab.online/demo/';
 await run('se-ru', B+'?live=force', {width:375,height:667}, true, 'ru-RU');
-await run('se-kitchen', B+'?live=0&debug=1&vroom=kitchen', {width:375,height:667}, true, 'ru-RU');
-await run('se-en', B+'?live=force&lang=en', {width:375,height:667}, true, 'en-GB');
 await run('desk-ru', B+'?live=force', {width:1280,height:900}, false, 'ru-RU');
 await b.close();
