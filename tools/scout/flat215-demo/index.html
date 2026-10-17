@@ -1807,8 +1807,24 @@ let FLAT=null;
 // `lib/partners/options.ts`); он входит в номер состояния (s2), историю, коллекцию и запрос кадра. Деньги — общим ядром
 // `settle` из бандла движка (`lib/configurator/settlement.ts`): пол RF — доплата застройщику, в сертификат не идёт.
 let DEVOPT={};
-const DEV_KINDS=['flooring','walls'];  // группы, которые ведёт окно (кухня — своей вкладкой, b2b-10); стены — demo-07
-function devGroups(){ return ((FLAT&&FLAT.options)||[]).filter(g=>DEV_KINDS.includes(g.kind)); }
+// ГРУППЫ ОКНА (шторка v5, владелец 17.10): «Отделка и ремонт» — пол и стены, «Встраиваемое» — кухня, позже шкафы и техника.
+// Канон, деньги, история, ссылка и коллекция — по ОБЪЕДИНЕНИЮ групп (Codex 17.10: иначе кухня выпала бы из состояния);
+// вид группы различается только при отрисовке разделов
+const FINISH_KINDS=['flooring','walls'], FITTED_KINDS=['kitchen','wardrobe','appliances'];
+function devGroups(){ return ((FLAT&&FLAT.options)||[]).filter(g=>FINISH_KINDS.includes(g.kind)||FITTED_KINDS.includes(g.kind)); }
+// СТРОКИ — ПО КОМНАТЕ ОКНА (владелец 17.10: «на кухне встраиваемое есть, а в гостиной нет»): раздел показывает только группы
+// с `roomKind` комнаты окна (без `roomKind` — общие). Окно варианта сегодня — гостиная; `?debug=1&vroom=kitchen` — проверка
+function vwRoom(){ const q=new URLSearchParams(location.search); return (q.get('debug')==='1'&&q.get('vroom'))||'living'; }
+const devInRoom=g=>!g.roomKind||g.roomKind===vwRoom();
+const devFinish=()=>devGroups().filter(g=>FINISH_KINDS.includes(g.kind)&&devInRoom(g));
+const devFitted=()=>devGroups().filter(g=>FITTED_KINDS.includes(g.kind)&&devInRoom(g));
+// короткая цена варианта: «в цене» / «по запросу» / «+18 000 ₽»
+function devPriceShort(v){ const EN=LANG==='en', p=v.price||{};
+  return p.type==='included'?(EN?'included':'в цене'):p.type==='on_request'?(EN?'on request':'по запросу'):(p.text||''); }
+// встраиваемое — коротким словом вида («Кухня: Base»), имя варианта без повтора этого слова
+const FIT_LABEL={kitchen:['Кухня','Kitchen'],wardrobe:['Шкафы','Wardrobes'],appliances:['Техника','Appliances']};
+const devFitLabel=g=>(FIT_LABEL[g.kind]||[g.title,g.title])[LANG==='en'?1:0];
+function devFitName(g,v){ const L=devFitLabel(g); return String(v.name).startsWith(L+' ')?String(v.name).slice(L.length+1):v.name; }
 function devPick(g){ return g.variants.find(x=>x.id===DEVOPT[g.id])||g.variants.find(x=>x.id===g.defaultVariantId)||g.variants[0]; }
 function devCanon(o){ const out={};
   if(!FLAT)return Object.assign({},o||{});   // карточки ещё нет — сверим, когда придёт (`flatcard` ниже)
@@ -1837,10 +1853,9 @@ function devPreload(){ devGroups().forEach(g=>g.variants.forEach(v=>{const m=v.m
     [m.baseColorUrl].concat(isTouchUI()?[]:[m.normalUrl,m.roughnessUrl,m.aoUrl]).filter(Boolean).forEach(u=>{
       if(DEV_PRE.has(u))return; DEV_PRE.add(u); const im=new Image(); im.decoding='async'; im.src=u;});})); }
 // РАЗДЕЛ «ОТДЕЛКА»: по блоку на группу застройщика (пол, стены) — пять образцов с ценой и подпись текущего
-function devFloorHtml(){ return devGroups().map(devGroupHtml).join(''); }
+function devFloorHtml(){ return devFinish().map(devGroupHtml).join(''); }
 function devGroupHtml(g){
-  const cur=devPick(g), EN=LANG==='en';
-  const short=v=>v.price.type==='included'?(EN?'included':'в цене'):v.price.text;
+  const cur=devPick(g), EN=LANG==='en', short=devPriceShort;
   return `<div class="vfl-h"><b>${escHtml(g.title)}</b> · ${EN?'from the developer':'от застройщика'}</div>`+
     `<div class="vfl-row" role="radiogroup" aria-label="${escHtml(g.title)}">`+g.variants.map(v=>{const m=v.material||{}, on=v.id===cur.id;
       return `<button class="vfl${on?' on':''}" data-fl="${escHtml(g.id+':'+v.id)}" role="radio" aria-checked="${on}" title="${escHtml(v.name)}">`+
@@ -1850,29 +1865,62 @@ function devGroupHtml(g){
         `<small>${escHtml(short(v))}</small></button>`;}).join('')+`</div>`+
     `<div class="vfl-cur">${escHtml(cur.name)} — ${escHtml(cur.price.text)}</div><div class="vfl-gap"></div>`;
 }
-function devDraw(){ const b=document.getElementById('vfloor'); if(!b)return; b.innerHTML=devFloorHtml(); devPreload();
-  const g=document.getElementById('vOptsGo'); if(g)g.innerHTML=devEntryHtml(); }
-// строка-вход «Отделка и ремонт · пол — Ламинат …» (EN «Options & upgrades», как у британских застройщиков)
-function devEntryHtml(){
-  const gs=devGroups(); if(!gs.length)return '';
-  const EN=LANG==='en', what=gs.map(g=>g.title+': '+devPick(g).name).join(' · ');
-  return `<button class="vopts-row" data-opts="1"><b>${EN?'Options & upgrades':'Отделка и ремонт'}</b><span>${escHtml(what)}</span><i>›</i></button>`;
-}
-function devOpts(on){
+// РАЗДЕЛ «ВСТРАИВАЕМОЕ» (v5): своя карточка, не плитка пола — название, состав, картинка или заглушка, цена; выбор — тем же
+// `data-fl`, что у пола. Сцену гостиной кухня не меняет (другая комната) — меняются строка-вход, состояние и ссылка
+const FIT_PH='<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M7 3h10v3H7zM3 10h18v10H3zM12 10v10M3 14h18"/></svg>';
+function devFittedHtml(){ return devFitted().map(g=>{const cur=devPick(g);
+  return `<div class="vfl-h"><b>${escHtml(g.title)}</b></div><div class="vfit-list" role="radiogroup" aria-label="${escHtml(g.title)}">`+
+    g.variants.map(v=>{const on=v.id===cur.id;
+      return `<button class="vfit${on?' on':''}" data-fl="${escHtml(g.id+':'+v.id)}" role="radio" aria-checked="${on}">`+
+        (v.image?`<img src="${escHtml(v.image)}" alt="" loading="lazy">`:`<i class="vfit-ph">${FIT_PH}</i>`)+
+        `<span class="vfit-t"><b>${escHtml(v.name)}</b>${v.desc?`<small>${escHtml(v.desc)}</small>`:''}</span>`+
+        `<span class="vfit-p">${escHtml(devPriceShort(v))}</span></button>`;}).join('')+`</div><div class="vfl-gap"></div>`;}).join(''); }
+function devDraw(){ const b=document.getElementById('vfloor'); if(b){b.innerHTML=devFloorHtml(); devPreload();}
+  const f=document.getElementById('vfitted'); if(f)f.innerHTML=devFittedHtml();
+  vwGroupsDraw(); }
+// СТРОКИ-ВХОДЫ ОДНОГО ВИДА (шторка v5, поправка владельца 17.10): «Отделка и ремонт» и «Встраиваемое» — заголовок · сводка · «›»;
+// под ними сразу список мебели, как в v4. Нет групп этой комнаты — нет и строки, без заглушек
+function itemsWord(n){ return LANG==='en'?(n===1?'item':'items'):(n%10===1&&n%100!==11?'товар':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'товара':'товаров')); }
+function vwGroupTitle(id){ const EN=LANG==='en';
+  return id==='finish'?(EN?'Options & upgrades':'Отделка и ремонт'):id==='fitted'?(EN?'Fitted & integrated':'Встраиваемое'):''; }
+function vwGroupRow(id, summary, attr){
+  return `<button class="vopts-row" data-group="${id}"${attr||''}><b>${vwGroupTitle(id)}</b><span>${escHtml(summary)}</span><i>›</i></button>`; }
+function vwGroupsHtml(){
+  const EN=LANG==='en', fin=devFinish(), fit=devFitted();
+  const extra=fin.reduce((t,g)=>{const p=devPick(g).price||{}; return t+(p.type==='surcharge'?(p.amount||0):0);},0);
+  return (fin.length?vwGroupRow('finish',fin.map(g=>g.title+': '+devPick(g).name).join(' · ')+(extra?(EN?' · +':' · доплата ')+fmtCard(extra):''),' data-opts="1"'):'')+
+    (fit.length?vwGroupRow('fitted',fit.map(g=>{const x=devPick(g); return devFitLabel(g)+': '+devFitName(g,x)+' · '+devPriceShort(x);}).join(' · ')):''); }
+function vwGroupsDraw(){ const b=document.getElementById('vGroups'); if(b)b.innerHTML=vwGroupsHtml(); }
+// ОТКРЫТЬ ГРУППУ / ВЕРНУТЬСЯ К ТРЁМ СТРОКАМ: раздел — в той же области, сверху «← Назад» и заголовок. Телефон: при входе
+// запоминаем пиксельную высоту шторки и раскрываем её (по умолчанию — до верха), «← Назад» возвращает ту же высоту (Codex 17.10)
+function vwGroupOpen(id, pos){
   const sd=document.getElementById('vside'); if(!sd)return;
-  sd.classList.toggle('vopts-on',!!on);
-  if(on){devPreload(); if(VW_PHONE()&&+sd.dataset.pos<2)vwSheet(2);}
-  const sc=document.getElementById('vscroll'); if(sc)sc.scrollTop=0;
+  const was=VW.group||null; VW.group=id||null;
+  ['finish','fitted'].forEach(k=>sd.classList.toggle('g-'+k,VW.group===k)); sd.classList.toggle('g-any',!!VW.group);
+  const t=document.getElementById('vgTitle'); if(t)t.textContent=vwGroupTitle(VW.group);
+  const sc=document.getElementById('vscroll'); if(sc&&VW.group!==was)sc.scrollTop=0;
+  if(VW.group==='finish')devPreload();
+  if(VW_PHONE()){
+    if(VW.group&&!was)VW.overviewVis=VW.sheetVis;
+    if(VW.group){const want=pos==null?3:pos; if((+sd.dataset.pos||0)<want)vwSheet(want);}
+    else if(was&&VW.overviewVis!=null){const e=vwEdges(); vwSheetApply(Math.max(e.min,Math.min(e.max,VW.overviewVis)),true); VW.overviewVis=null;}
+  }
+  try{vwPins();}catch(e){}
 }
-document.addEventListener('click',e=>{const t=e.target&&e.target.closest;
-  if(t&&e.target.closest('[data-opts]'))devOpts(true); else if(t&&e.target.closest('#vOptsBack'))devOpts(false);});
+function devOpts(on){ vwGroupOpen(on?'finish':null); }
+document.addEventListener('click',e=>{const t=e.target&&e.target.closest; if(!t)return;
+  const g=e.target.closest('#vside [data-group]'); if(g){vwGroupOpen(g.dataset.group); return;}
+  if(e.target.closest('#vOptsBack'))vwGroupOpen(null);});
 function devSet(gid, vid){
   const next=devCanon(Object.assign({},DEVOPT,{[gid]:vid}));
   if(JSON.stringify(next)===JSON.stringify(DEVOPT))return;
   DEVOPT=next; devApply(); devDraw(); try{sync3dLink();}catch(e){}
   histPush();              // номер состояния сменился: сумма, история и эскиз обновятся по `remlab:hist`
-  const gk=(devGroups().find(x=>x.id===gid)||{}).kind;
-  document.dispatchEvent(new CustomEvent('remlab:act',{detail:gk==='walls'?'walls_pick':'floor_pick'}));
+  const gg=devGroups().find(x=>x.id===gid)||{}, gk=gg.kind;
+  const act=gk==='walls'?'walls_pick':gk==='flooring'?'floor_pick':null;   // встраиваемое — без своего события (пока нет в контракте)
+  if(act)document.dispatchEvent(new CustomEvent('remlab:act',{detail:act}));
+  // встраиваемое сцену не меняет — шторку не трогаем, коротко подтверждаем выбор
+  if(FITTED_KINDS.includes(gk)){const v=devPick(gg); toast(v.name+' · '+devPriceShort(v)); return;}
   // ТЕЛЕФОН: раскрытая шторка закрывает пол — опускаем её, чтобы новый пол был виден сразу, и коротко говорим, что выбрано
   const sd=document.getElementById('vside'), shot=document.getElementById('shot');
   if(window.innerWidth<=700&&sd&&shot&&+sd.dataset.pos>0){
@@ -3852,14 +3900,32 @@ function histFwd(){return histGo(1);}
 .vcta{width:100%;margin-top:10px;display:flex;flex-direction:column;align-items:center;border-radius:999px}
 .vcta small{font-size:12.5px;font-weight:400;opacity:.9}
 .vlist{padding:0 18px}
-/* ВХОД «ОТДЕЛКА» (v3): строка в списке; раздел групп застройщика — вместо списка, в той же области */
-.vopts-go:empty{display:none}
+/* СТРОКИ-ВХОДЫ (v5): «Отделка и ремонт», «Встраиваемое» — над списком; раздел группы — вместо списка, в той же области */
+.vgroups{display:flex;flex-direction:column;gap:8px;padding-top:12px}.vgroups:empty{display:none}
+.vgroups .vopts-row{margin:0}
+.vgsec,.vopts,.vfitted{display:none}
+.vside.g-any .vgsec{display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:1;background:var(--surface);
+ border-bottom:1px solid var(--line);margin:0 -2px}
+.vgsec b{font-size:15px;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vgsec .vopts-back{font-size:15px;padding:10px 0;flex:none}
+.vside.g-any .vgroups,.vside.g-any .vitems{display:none}
+.vside.g-finish .vopts,.vside.g-fitted .vfitted{display:block}
+#shot .vside.g-any .cap{display:none!important}
+/* карточка встраиваемого: картинка или заглушка · название и состав · цена; выбранная — рамкой бренда */
+.vfitted:not(:empty){padding:12px 0}
+.vfit-list{display:flex;flex-direction:column;gap:8px}
+.vfit{display:flex;align-items:center;gap:12px;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);
+ font:inherit;color:var(--ink);text-align:left;cursor:pointer;min-height:64px}
+.vfit.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:var(--accent-soft)}
+.vfit img,.vfit-ph{flex:none;width:52px;height:52px;border-radius:10px;object-fit:cover}
+.vfit-ph{display:flex;align-items:center;justify-content:center;background:var(--wash-2);color:var(--muted);font-style:normal}
+.vfit-t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.vfit-t b{font-size:14.5px}
+.vfit-t small{font-size:13px;color:var(--muted);line-height:1.35}
+.vfit-p{flex:none;font-size:13.5px;color:var(--muted);white-space:nowrap}.vfit.on .vfit-p{color:var(--ink);font-weight:600}
 .vopts-row{display:flex;align-items:center;gap:10px;width:100%;margin:12px 0 4px;padding:12px 14px;border:1px solid var(--line);
  border-radius:12px;background:var(--wash-2);cursor:pointer;text-align:left;min-height:52px;font:inherit;color:var(--ink)}
 .vopts-row b{white-space:nowrap}.vopts-row span{flex:1;min-width:0;color:var(--muted);font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .vopts-row i{font-style:normal;font-size:22px;color:var(--muted)}
-.vopts{display:none}.vside.vopts-on .vopts{display:block}.vside.vopts-on .vitems,.vside.vopts-on .vopts-go{display:none}
-#shot .vside.vopts-on .cap{display:none!important}
 .vopts-back{border:0;background:none;color:var(--accent);font:inherit;font-weight:600;padding:12px 0 4px;cursor:pointer;min-height:44px}
 /* ПОЛ ОТ ЗАСТРОЙЩИКА (demo-06): пять образцов с ценой; с v3 — в разделе «Отделка» */
 .vfloor:not(:empty){padding:12px 0 12px;border-bottom:1px solid var(--line)}
@@ -3911,6 +3977,8 @@ function histFwd(){return histGo(1);}
    height:60vh;display:flex;flex-direction:column;overflow:visible;padding-bottom:env(safe-area-inset-bottom);will-change:transform}
   .vplate{position:absolute;left:8px;right:8px;bottom:calc(100% + 8px);margin:0;padding:8px 12px 9px;background:var(--surface);box-shadow:var(--sh-2)}
   .vplate .vpl-bub{top:auto;bottom:calc(100% + 6px)}
+  /* полная остановка (v5) — плашка у верхнего края: справа место под «×» окна, пузырь — вниз */
+  .vside[data-pos="3"] .vplate{right:58px}.vside[data-pos="3"] .vplate .vpl-bub{top:calc(100% + 6px);bottom:auto}
   .vscroll{overflow:hidden;touch-action:none;overscroll-behavior:contain}
   .vgrip{display:block;flex:none;width:100%;min-height:44px;border:0;background:none;font:inherit;text-align:center;padding:5px 0 4px;
    cursor:grab;touch-action:none;-webkit-tap-highlight-color:transparent}
@@ -3946,7 +4014,7 @@ const vwCamN=()=>Math.max(1,((typeof cams!=='undefined'&&cams)||loadCams()).leng
 function vwSum(){
   const v=allVariants()[cur]||{}, n=variantCount(v), sum=variantPrice(v), EN=LANG==='en';
   const cert=(FLAT&&FLAT.certificate&&FLAT.certificate.amount)||0;
-  const word=EN?'items':(n%10===1&&n%100!==11?'товар':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'товара':'товаров'));
+  const word=itemsWord(n);
   // ДЕНЬГИ — ОБЩИМ ЯДРОМ (`settle`, demo-06): мебель — в сертификат, пол RF — доплата застройщику отдельной строкой, UK — в
   // цену квартиры. Пока бандл движка не пришёл — прежний счёт мебели, без строк опций (формулу не копируем)
   const S=window.RemlabScene&&window.RemlabScene.settle, dl=devLines();
@@ -3969,7 +4037,8 @@ function vwSum(){
   const bub=`<div class="vpl-bub" id="vplBub" hidden role="dialog">`+
     `<div>${EN?'Developer furniture allowance':'Сертификат застройщика на мебель'} <b>${money(cert)}</b></div>`+
     `<div>${EN?'chosen':'выбрано'} ${money(chosen)} · ${over?(EN?'over':'сверх')+' '+money(over):(EN?'left':'остаток')+' '+money(left)}</div>`+
-    (dev?`<div>${EN?'finishes (outside the allowance)':'доплаты за отделку (вне сертификата)'}: +${money(dev)}</div>`:'')+`</div>`;
+    (dev?`<div>${EN?'developer options (outside the allowance)':'опции застройщика (вне сертификата)'}: +${money(dev)}</div>`:'')+
+    (t&&t.onRequest.length?`<div>${EN?'on request':'по запросу'}: ${t.onRequest.map(escHtml).join(', ')}</div>`:'')+`</div>`;
   return `<div class="vpl-row"><span>${over?(EN?'Over the allowance':'Сверх сертификата'):(EN?'Allowance left':'Остаток')}</span>`+
     `<button class="vpl-i" aria-label="${EN?'What is this':'Что это'}" aria-expanded="false">i</button>`+
     `<b class="${over?'vpl-over':'vpl-rest'}" data-k="${over?'over':'left'}" data-to="${over||left}">${over?'+':''}${money(over||left)}</b>`+
@@ -3986,7 +4055,8 @@ function vwSumUpdate(){
     const step=tt=>{const f=Math.min(1,(tt-t0)/450), v=Math.round(from+(to-from)*(1-Math.pow(1-f,3))); sp.textContent=fmtCard(v); if(f<1)requestAnimationFrame(step);};
     requestAnimationFrame(step);});
   el._vals=now; if(changed){el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');}
-  const c=document.getElementById('vchip'); if(c)c.textContent=vwChipText();
+  const sd=document.getElementById('vside'), c=document.getElementById('vchip'); if(c&&sd&&sd.dataset.pos!=='3')c.textContent=vwChipText();
+  vwGroupsDraw();          // сводки строк-входов — после смены пола или кухни, без перезагрузки
 }
 function vwChipText(){ const v=allVariants()[cur]||{}, n=variantCount(v), EN=LANG==='en';
   return (EN?'⌃ Furniture & finishes · ':'⌃ Мебель и отделка · ')+n; }
@@ -4010,16 +4080,17 @@ function vwHtml(s, navs, list){
     // ВСЯ КВАРТИРА В 3D — из режима «3D» окна (п.8 16.10: кнопка в шапке страницы убрана); ссылку держит `sync3dLink`
     `<a class="vflat" id="vFlat" href="/flat">${EN?'Whole apartment in 3D →':'Вся квартира в 3D →'}</a></div>`+
     // ШТОРКА v3: плашка денег — отдельно и вне прокрутки; ручка с подписью — вне прокрутки; ниже — прокручиваемое содержимое
-    `<div class="vside" id="vside" data-pos="1"><div class="vplate" id="vsum">${vwSum()}</div>`+
+    `<div class="vside${VW.group?' g-any g-'+VW.group:''}" id="vside" data-pos="1"><div class="vplate" id="vsum">${vwSum()}</div>`+
     `<button class="vgrip" id="vgrip" aria-expanded="false" type="button"><i></i><span class="vchip" id="vchip">${vwChipText()}</span></button>`+
     `<div class="vscroll" id="vscroll"><div class="vtop">`+
     // одна строка (владелец 16.10, п.4): время «обычно 2–4 минуты» — в состоянии после нажатия (`makePhoto`), не на кнопке
     `<button class="btn primary vcta" id="vCta">${VW.mode==='plan'?'Изменить план':'Сделать реалистичнее'}</button></div>`+
-    // ОТДЕЛКА — ОДИН ВХОД (v3, владелец 16.10: вместо россыпи блоков): строка «Отделка и ремонт» в списке → раздел групп
-    // застройщика в той же области; «← К товарам» — назад. Групп нет (или все выключены) — нет и входа
-    `<div class="vlist" id="vlist"><div class="vopts-go" id="vOptsGo">${devEntryHtml()}</div>`+
-    `<div class="vopts" id="vOpts"><button class="vopts-back" id="vOptsBack">${EN?'← Back to items':'← К товарам'}</button>`+
-    `<div class="vfloor" id="vfloor">${devFloorHtml()}</div></div><div class="vitems">${list}${fxNote()}</div></div></div></div></div>`;
+    // ШТОРКА v5 (владелец 17.10): при входе — кнопка и три строки «Мебель · Отделка и ремонт · Встраиваемое», ничего больше;
+    // тап по строке — раздел в той же области, сверху «← Назад» и заголовок (`vwGroupOpen`); группа — вид, не состояние
+    `<div class="vlist" id="vlist"><div class="vgroups" id="vGroups">${vwGroupsHtml()}</div>`+
+    `<div class="vgsec"><button class="vopts-back" id="vOptsBack">${EN?'← Back':'← Назад'}</button><b id="vgTitle">${vwGroupTitle(VW.group)}</b></div>`+
+    `<div class="vopts" id="vOpts"><div class="vfloor" id="vfloor">${devFloorHtml()}</div></div>`+
+    `<div class="vfitted" id="vfitted">${devFittedHtml()}</div><div class="vitems">${list}${fxNote()}</div></div></div></div></div>`;
 }
 // ↶ ↷ БЕЗ СЧЁТЧИКА (владелец 16.10, п.3: «Layout 4 of 4 — не понимаю, что это и зачем»): пока правок нет — кнопок нет; после
 // правки — активный ↶; «Расстановка N из M» — только в режиме отладки `?debug=1`
@@ -4034,7 +4105,7 @@ function vwHist(){
 // ОКНО ВАРИАНТА БЕЗ ОЖИДАНИЯ: кадр варианта (или пустая «живая» запись, если кадров нет) — сцена покажет текущую расстановку
 function openLiveWindow(){
   if(document.getElementById('cons').classList.contains('on')){consBack=-1; closeCons();}
-  VW.mode='photo'; VW.photo=0; VW.sel=null;          // новое окно варианта — с «Фото», первым ракурсом (возврат из редактора сохраняет «План»)
+  VW.mode='photo'; VW.photo=0; VW.sel=null; VW.group=null; VW.overviewVis=null;   // новое окно варианта — с «Фото», первым ракурсом (возврат из редактора сохраняет «План»)
   const v=allVariants()[cur]||{}, vid=v.id||('v'+cur);
   let i=shots.findIndex(x=>x.vid===vid&&x.live);
   const best=bestShot(v);
@@ -4077,12 +4148,28 @@ function vwLoad(on, txt, corner){
 // первого пикселя (сенсорные события — до нативной прокрутки). Плашка денег едет вместе со шторкой, над ней.
 const VW_PHONE=()=>window.innerWidth<=700;
 const VW_SLOW=()=>{try{return matchMedia('(prefers-reduced-motion: reduce)').matches;}catch(e){return false;}};
-// края в пикселях видимой высоты: свёрнута — только ручка; открыта — сцена остаётся ≥ 30 % экрана
+// края в пикселях видимой высоты: свёрнута — только ручка; открыта — ДО ВЕРХА ЭКРАНА (владелец 17.10, шторка v5: прежнее
+// «сцена ≥ 30 %» снято): плашка едет над шторкой и в полной остановке встаёт к верхнему краю (с учётом выреза экрана)
+function vwSafeTop(){ let p=document.getElementById('vwSat');
+  if(!p){p=document.createElement('div'); p.id='vwSat'; p.style.cssText='position:fixed;top:0;left:0;width:0;height:env(safe-area-inset-top,0px);visibility:hidden;pointer-events:none';
+    document.body.appendChild(p);}
+  return p.offsetHeight||0; }
 function vwEdges(){
   const H=Math.round((window.visualViewport&&visualViewport.height)||window.innerHeight);
   const g=(document.getElementById('vgrip')||{}).offsetHeight||44, pl=(document.getElementById('vsum')||{}).offsetHeight||0;
-  const min=g, max=Math.max(min+120, Math.round(H*0.70)-pl-12);
+  const vw=document.querySelector('#shot .vw'), r=vw?vw.getBoundingClientRect():{top:0,bottom:H};
+  const bottom=Math.min(H,Math.round(r.bottom)||H), top=Math.max(Math.round(r.top)||0, vwSafeTop(), 8);
+  const min=g, max=Math.max(min+120, bottom-top-pl-8);
   return {H, min, max, pl};
+}
+// средняя остановка — ПО СОДЕРЖИМОМУ (v5): ручка + кнопка + строки-входы + верх первой строки списка (видно, что ниже список),
+// без пустого поля; меряется в обзоре (в разделе — прежняя мерка). Целая строка товара закрывала диван на SE (самопроверка 17.10)
+function vwMid(e){
+  const sd=document.getElementById('vside'), sc=document.getElementById('vscroll');
+  const last=sd&&(sd.querySelector('#vGroups .vopts-row:last-child')||sd.querySelector('.vtop'));
+  if(sd&&sc&&!VW.group&&last&&last.offsetHeight){
+    VW.midH=Math.round(last.getBoundingClientRect().bottom-sd.getBoundingClientRect().top+sc.scrollTop+(sd.querySelector('#vlist .vitems .row')?30:12));}
+  return Math.max(e.min+60, Math.min(e.max, VW.midH||Math.round(e.min+(e.max-e.min)*0.45)));
 }
 // область сцены — постоянная (видимая зона над свёрнутой шторкой и плашкой): ставится при открытии окна, повороте, смене
 // режима — не при жесте. В «3D» холст — на весь экран под шторкой
@@ -4110,13 +4197,13 @@ function vwSheetState(pos){
   if(sc){sc.style.overflowY=pos===3?'auto':'hidden'; sc.style.touchAction=pos===3?'pan-y':'none';}
   try{sessionStorage.setItem('remlab-sheet-pos',String(pos));}catch(e){}
 }
-// программные положения (выбор предмета, отделка, пол): 0 — свернуть, 1 — чуть, 2 — половина, 3 — полностью
+// программные положения: 0 — свернуть, 1 и 2 — средняя (по содержимому трёх строк, v5), 3 — полностью (до верха экрана)
 function vwSheet(pos){
   const sd=document.getElementById('vside'); if(!sd)return;
   if(!VW_PHONE()){sd.dataset.pos=String(pos||0); return;}
   const e=vwEdges(), cur0=+sd.dataset.pos||0;
   if(pos===undefined)pos=cur0===3?0:3;                // тап по ручке/чипу — открыть полностью ↔ свернуть
-  const vis=pos<=0?e.min:pos>=3?e.max:pos===1?Math.round(e.min+(e.max-e.min)*0.35):Math.round(e.min+(e.max-e.min)*0.6);
+  const vis=pos<=0?e.min:pos>=3?e.max:vwMid(e);
   vwSheetApply(vis,true);
 }
 function vwSheetWire(){
@@ -4174,7 +4261,7 @@ function vwSelect(idx){
 function vwHighlight(idx){
   const it=items[idx]; if(!it)return;
   vwSelect(idx);
-  devOpts(false);                       // выбрали предмет на сцене — список товаров, а не раздел отделки
+  vwGroupOpen(null);                    // выбрали предмет на сцене — список товаров, а не раздел отделки
   const name=(skuOf(it)||{}).name; const k=shotRows.findIndex(a=>a.name===name);
   const row=k>=0&&document.querySelector(`#shotbody [data-rep="${k}"]`); if(!row)return;
   const r=row.closest('.row')||row;
@@ -4192,7 +4279,7 @@ function vwPins(){
   // ЦЕНА — ТОЛЬКО ЦЕЛИКОМ В КАДРЕ И НЕ ПОД КНОПКАМИ (прогон d8 14.10: «4 290 ₽» обрезана у края на телефоне): метка, которая
   // вылезает за край сцены или ложится на переключатель ракурсов / историю / подпись, не показывается
   const fr=box.getBoundingClientRect(), pad=4;
-  const busy=[...document.querySelectorAll('#shot .vmodes, #shot .vhist, #shot .vold, #shot .vzbtn, #vside, #shot .vnav, #shot .vdots, #shot .vflat')].concat(LIVE.badge?[LIVE.badge]:[])
+  const busy=[...document.querySelectorAll('#shot .vmodes, #shot .vhist, #shot .vold, #shot .vzbtn, #vside, #vsum, #shot .vnav, #shot .vdots, #shot .vflat')].concat(LIVE.badge?[LIVE.badge]:[])
     .map(e=>e.getBoundingClientRect()).filter(r=>r.width>0);
   const hit=(a,b)=>a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top;
   box.querySelectorAll('.vpin').forEach(b=>{const r=b.getBoundingClientRect();
@@ -4935,7 +5022,7 @@ async function liveShow(){
     'Эта ссылка ведет на условия ипотеки по квартире':'This link leads to the mortgage terms for the apartment',
     'Эта ссылка ведет на форму консультации застройщика':"This link leads to the developer's consultation form",
     'впритык':'a tight fit','габарит не указан':'size not given','Цвета этой модели':'Colours of this model','Фото':'Photo',
-    'Изменить план':'Edit the plan','Отделка и ремонт':'Options & upgrades','← К товарам':'← Back to items'};
+    'Изменить план':'Edit the plan','Отделка и ремонт':'Options & upgrades','Встраиваемое':'Fitted & integrated','← Назад':'← Back'};
   var ATTR={'Что значит оплата 100%':'What does full payment mean','Скопировать ссылку на этот вариант':'Copy a link to this option','В избранное':'Add to favourites',
     'переставить точки съёмки в следующие углы':'move camera points to the next corners','Просмотр кадра':'Shot view','Закрыть':'Close','Предыдущий вид':'Previous view',
     'Следующий вид':'Next view','скоро':'soon'};

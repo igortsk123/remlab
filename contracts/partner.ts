@@ -79,7 +79,7 @@ export const optionVariant = z.object({
 export const optionGroup = z
   .object({
     id: z.string().regex(/^[a-z0-9-]{2,40}$/),
-    kind: z.enum(["kitchen", "bathroom", "flooring", "walls"]),
+    kind: z.enum(["kitchen", "wardrobe", "appliances", "bathroom", "flooring", "walls"]),
     roomKind: z.enum(["kitchen", "bathroom", "bedroom", "living", "hall"]),
     roomId: z.string().optional(),
     titleRu: z.string().min(1),

@@ -2,16 +2,20 @@ const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.
 // ПРОВЕРКА ЖЕСТОВ ШТОРКИ v4 (план demo-02 § «Шторка v4» п.4): трасса, неизменный холст, резинка, флик, тап, передача из списка, пины.
 //   PROD=1 node tools/ops/demo-walk/sheet-gestures.cjs 375x667          — прод как есть
 //   SP=<папка с floorlib/ сборки движка> node … 390x844                  — локальная страница и движок поверх прода
-const SP=process.env.SP, OUT=process.env.OUT||require('os').tmpdir()+'/'; const prod=process.env.PROD||!SP;
-const F=prod?null:JSON.parse(fs.readFileSync(SP+'/floorlib/scene.json','utf8')).file;
+//   LOCAL=1 node … 375x667                                               — только локальная страница, движок — прода
+// v5 (шторка v5): полная остановка — плашка у верха экрана; средняя — по содержимому; раздел «Отделка» → полная, «← Назад» —
+// прежняя высота; строки-входы по комнате окна (гостиная — без «Встраиваемое»; `?debug=1&vroom=kitchen` — карточки кухни)
+const SP=process.env.SP, LOCAL=process.env.LOCAL, OUT=process.env.OUT||require('os').tmpdir()+'/'; const prod=!LOCAL&&(process.env.PROD||!SP);
+const F=(prod||LOCAL)?null:JSON.parse(fs.readFileSync(SP+'/floorlib/scene.json','utf8')).file;
 const [W,H]=(process.argv[2]||'390x844').split('x').map(Number);
 (async()=>{const b=await pw.chromium.launch({args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const ctx=await b.newContext({viewport:{width:W,height:H},deviceScaleFactor:2,isMobile:true,hasTouch:true,locale:'ru-RU'});
 const p=await ctx.newPage(); const errs=[]; p.on('pageerror',e=>errs.push(String(e)));
-if(!prod){
+if(!prod&&!LOCAL){
 await p.route(/\/demo\/lib\/scene\.json/,r=>r.fulfill({status:200,contentType:'application/json',body:fs.readFileSync(SP+'/floorlib/scene.json','utf8')}));
 await p.route(/\/demo\/lib\/scene\.[0-9a-f]+\.js/,r=>r.fulfill({status:200,contentType:'text/javascript',body:fs.readFileSync(SP+'/floorlib/'+F,'utf8')}));
-await p.route(/\/demo\/(\?.*)?$/,r=>r.fulfill({status:200,contentType:'text/html; charset=utf-8',body:fs.readFileSync('tools/scout/flat215-demo/index.html','utf8')}));}
+}
+if(!prod)await p.route(/\/demo\/(\?.*)?$/,r=>r.fulfill({status:200,contentType:'text/html; charset=utf-8',body:fs.readFileSync('tools/scout/flat215-demo/index.html','utf8')}));
 await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
 await p.goto('https://remont-lab.online/demo/?live=force',{waitUntil:'load',timeout:120000});
 await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000});
@@ -68,4 +72,34 @@ await p.screenshot({path:OUT+`v4-${W}-full.png`}); await p.evaluate(()=>vwSheet(
 // 7. пузырь ⓘ
 await p.click('.vpl-i'); await p.waitForTimeout(300); const bub=await p.evaluate(()=>{const e=document.getElementById('vplBub');return e&&!e.hidden?e.innerText.replace(/\n/g,' | '):null;});
 ok('ⓘ открывает расшифровку',!!bub,bub||''); await p.screenshot({path:OUT+`v4-${W}-bubble.png`});
+// 8. v5: средняя по содержимому, полная — до верха, раздел и возврат высоты, строки по комнате
+await p.click('body',{position:{x:5,y:5}}).catch(()=>{});
+await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(800);
+const mid=await p.evaluate(()=>{const sd=document.getElementById('vside'), r=document.querySelector('#vGroups .vopts-row:last-child'), top=sd.getBoundingClientRect().top;
+  return {vis:Math.round(VW.sheetVis), midH:VW.midH, row:r?Math.round(r.getBoundingClientRect().bottom-top):null, rows:[...document.querySelectorAll('#vGroups .vopts-row b')].map(b=>b.textContent)};});
+ok('v5 средняя = строки-входы + верх списка (±8)',mid.row!=null&&Math.abs(mid.vis-mid.row-30)<=8,JSON.stringify(mid));
+ok('v5 в гостиной строки-входа — только «Отделка и ремонт»',JSON.stringify(mid.rows)==='["Отделка и ремонт"]',JSON.stringify(mid.rows));
+await p.evaluate(()=>vwSheet(3)); await p.waitForTimeout(900); const gF=await geo();
+ok('v5 полная — плашка у верха экрана (≤ 10 px)',gF.plate<=10&&gF.plate>=0,`плашка ${gF.plate}, шторка ${gF.top}`);
+await p.screenshot({path:OUT+`v5-${W}-full.png`});
+await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(800); const vis0=await p.evaluate('VW.sheetVis');
+await p.click('#vGroups [data-opts]'); await p.waitForTimeout(900); const gO=await geo();
+const sec=await p.evaluate(()=>({t:document.getElementById('vgTitle').textContent, fl:document.querySelectorAll('#vfloor [data-fl]').length, list:getComputedStyle(document.querySelector('#vlist .vitems')).display}));
+ok('v5 «Отделка» → полная, раздел вместо списка',gO.pos==='3'&&sec.fl>0&&sec.list==='none',JSON.stringify(sec));
+await p.screenshot({path:OUT+`v5-${W}-finish.png`});
+await p.click('#vOptsBack'); await p.waitForTimeout(900); const vis1=await p.evaluate('VW.sheetVis');
+ok('v5 «← Назад» — прежняя высота (±2)',Math.abs(vis1-vis0)<=2,`${vis0} → ${vis1}`);
+await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(800); await p.screenshot({path:OUT+`v5-${W}-mid.png`});
+// 9. v5: окно комнаты с группой кухни (`?debug=1&vroom=kitchen`) — строка «Встраиваемое», четыре карточки, выбор → s2 и ссылка
+await p.goto('https://remont-lab.online/demo/?live=0&debug=1&vroom=kitchen',{waitUntil:'load',timeout:120000});
+await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000}); await p.evaluate(()=>openLiveWindow()); await p.waitForTimeout(2500);
+await p.click('#vGroups [data-group="fitted"]'); await p.waitForTimeout(900);
+const fit=await p.evaluate(()=>({cards:[...document.querySelectorAll('#vfitted .vfit')].map(b=>b.querySelector('b').textContent+' · '+b.querySelector('.vfit-p').textContent), s:curStateId()}));
+ok('v5 «Встраиваемое» → 4 карточки кухни',fit.cards.length===4,fit.cards.join(' | '));
+await p.screenshot({path:OUT+`v5-${W}-fitted.png`});
+await p.click('#vfitted [data-fl="kitchen:kitchen-practical"]'); await p.waitForTimeout(700);
+const fit2=await p.evaluate(()=>({s:curStateId(), dev:JSON.stringify(DEVOPT), href:(document.getElementById('vFlat')||{}).href||''}));
+ok('v5 выбор кухни → s2, DEVOPT, ссылка',/^s2-/.test(fit2.s)&&fit2.dev.includes('kitchen-practical')&&fit2.href.includes('kitchen:kitchen-practical'),JSON.stringify(fit2));
+await p.click('#vOptsBack'); await p.waitForTimeout(700);
+ok('v5 сводка строки обновилась',(await p.$eval('#vGroups [data-group="fitted"] span',e=>e.textContent)).includes('Practical'),await p.$eval('#vGroups [data-group="fitted"] span',e=>e.textContent));
 console.log(R.join('\n')); console.log('plate',await p.$eval('#vsum .vpl-row',e=>e.innerText.replace(/\n/g,' '))); console.log('errs',errs.slice(0,4)); await b.close();})().catch(e=>{console.error(e);process.exit(1);});

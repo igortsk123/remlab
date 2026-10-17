@@ -32,8 +32,9 @@ export interface SettlementTotals {
 export function settlementOf(kind: string, market: string, explicit?: Settlement): Settlement {
   if (explicit) return explicit;
   if (kind === "flooring" || kind === "walls" || kind === "bathroom") return market === "uk" ? "property_price" : "developer_surcharge";
-  // UK: кухня застройщика — персонализация в цене квартиры, не furniture allowance (владелец 16.10, ADR-0298); RF — в сертификат
-  if (kind === "kitchen" && market === "uk") return "property_price";
+  // UK: встраиваемое застройщика (кухня; позже шкафы и техника, шторка v5) — персонализация в цене квартиры, не furniture
+  // allowance (владелец 16.10, ADR-0298); RF — в сертификат
+  if ((kind === "kitchen" || kind === "wardrobe" || kind === "appliances") && market === "uk") return "property_price";
   return "allowance";
 }
 

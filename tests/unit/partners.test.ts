@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { apartmentCard, certificateAmount, findApartment, partners } from "@/lib/partners/registry";
 import { resolveFlat } from "@/lib/configurator/source";
 import { keepKnown, demoNames } from "@/lib/partners/demo-data";
+import { optionGroup } from "@/contracts/partner";
 
 // Квартира как данные (план b2b-06): застройщик, ЖК, цена и сертификат — из `data/partners/*.json`,
 // и та же логика работает для квартиры под другим id без правки кода.
@@ -161,5 +162,15 @@ describe("британский профиль английского демо", 
     expect(fl.variants.every((v) => !v.price.text.includes("₽"))).toBe(true);
     expect(card.options.find((o) => o.kind === "kitchen")!.settlement).toBe("property_price");
     expect(card.sources.demoData).toBe(hit.apartment.sources.demoData);   // та же витрина
+  });
+});
+
+describe("встраиваемое застройщика (шторка v5)", () => {
+  it("шкафы и техника — допустимые виды группы опций, без материала отделки", () => {
+    for (const kind of ["wardrobe", "appliances"]) {
+      const g = optionGroup.safeParse({ id: "fit-" + kind, kind, roomKind: "bedroom", titleRu: "Шкафы", titleEn: "Wardrobes",
+        defaultVariantId: "base", variants: [{ id: "base", nameRu: "Base", nameEn: "Base", pricing: { type: "included" } }] });
+      expect(g.success).toBe(true);
+    }
   });
 });

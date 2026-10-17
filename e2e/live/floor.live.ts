@@ -34,3 +34,32 @@ test("/flat с полом из ссылки: доплата застройщик
   await expect(page.locator("body")).toContainText("доплата застройщику за отделку", { timeout: 60_000 });
   await expect(page.locator("body")).toContainText("+86 000");
 });
+
+// ШТОРКА v5 (demo-02, владелец 17.10): под кнопкой — строки-входы по комнате окна, под ними список мебели; в гостиной
+// «Встраиваемое» нет (кухня — `roomKind: kitchen`); механизм проверяем подменой комнаты `?debug=1&vroom=kitchen`
+test("2.23 окно: строки-входы по комнате — «Отделка» в гостиной, «Встраиваемое» с карточками кухни; «← Назад» — к списку", async ({ page }) => {
+  test.setTimeout(150_000);
+  await page.route(/\/api\/events/, (r) => r.fulfill({ status: 204, body: "" }));
+  await page.goto("/demo/?live=0&lang=ru");
+  await page.waitForFunction("typeof D !== 'undefined' && !!D && !!FLAT", null, { timeout: 60_000 });
+  await page.evaluate("openLiveWindow()");
+  await expect(page.locator("#vGroups .vopts-row b")).toHaveText(["Отделка и ремонт"]);
+  await expect(page.locator("#vlist .vitems .row").first()).toBeVisible();
+  await page.locator("#vGroups [data-opts]").click();
+  await expect(page.locator("#vgTitle")).toHaveText("Отделка и ремонт");
+  await expect(page.locator("#vlist .vitems")).toBeHidden();
+  await page.locator("#vOptsBack").click();
+  await expect(page.locator("#vlist .vitems .row").first()).toBeVisible();
+
+  await page.goto("/demo/?live=0&lang=ru&debug=1&vroom=kitchen");
+  await page.waitForFunction("typeof D !== 'undefined' && !!D && !!FLAT", null, { timeout: 60_000 });
+  await page.evaluate("openLiveWindow()");
+  await page.locator('#vGroups [data-group="fitted"]').click();
+  await expect(page.locator("#vfitted .vfit")).toHaveCount(4);
+  await expect(page.locator("#vfitted .vfit.on .vfit-p")).toHaveText("в цене");
+  await page.locator('#vfitted [data-fl="kitchen:kitchen-practical"]').click();
+  expect(await page.evaluate("curStateId()")).toMatch(/^s2-/);
+  expect((await page.locator("#vFlat").getAttribute("href")) ?? "").toContain("kitchen:kitchen-practical");
+  await page.locator("#vOptsBack").click();
+  await expect(page.locator('#vGroups [data-group="fitted"] span')).toContainText("Practical · по запросу");
+});
