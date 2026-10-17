@@ -1451,11 +1451,11 @@ function camFit(cx,cy,its,W,H,strict){
 // (пол, пустая стена, потолок, стена у края — последней). Результат есть всегда.
 // `hog` — один предмет не больше CAM_HOG кадра (живое 3D 17.10: телевизор вплотную чёрной плитой на треть кадра)
 const CAM_GATE=[['floor',0.35],['empty',0.35],['ceil',0.3],['hog',0.2],['fore',0.12],['nearWall',0.02]];
-const CAM_B_CLEAR=20, CAM_FORE_D=100;   // зазор ракурса 2 до мебели; «передний план» — мебель ближе 1 м
+const CAM_B_CLEAR=20, CAM_FORE_D=100, CAM_NUDGE=6;   // зазор ракурса 2 до мебели; «передний план» — мебель ближе 1 м
 const CAM_TOPK=12, CAM_PER_POS=3, CAM_PER_SECTOR=4, CAM_U_TOL=0.15, CAM_PAIR_SHORT=10;
 // ПОДБОР ПАРОЙ ВКЛЮЧАЕТСЯ ВМЕСТЕ С ПЕРЕСЪЁМКОЙ (demo-12): у фото нейросети вариантов точки прежние, новая пара без пересъёмки
-// развела бы «Фото» и 3D. До приёмки владельцем — по `?cams=pair` на странице и `CAMS_PAIR=1` у сборки демо (`demo-cams.mjs`)
-const CAM_PAIR_DEFAULT=false;
+// развела бы «Фото» и 3D. Владелец «включай» 17.10 — по умолчанию; `?cams=pair` и `CAMS_PAIR=1` остались для проверок
+const CAM_PAIR_DEFAULT=true;
 const CAM_PAIR_ON=CAM_PAIR_DEFAULT||(typeof location!=='undefined'&&/[?&]cams=pair\b/.test(location.search||''))
   ||(typeof process!=='undefined'&&!!process.env&&process.env.CAMS_PAIR==='1');
 const camWeight=it=>camRole(it)==='ковёр'?0:(CAM_CORE[camRole(it)]||0.25);
@@ -1577,8 +1577,21 @@ function camPair(its,W,H,cs){
       const um=Math.max(...pairs.map(q=>q.u));
       // худший кадр — первым; при равном худшем (тот же ракурс 1) — лучший второй, затем разнообразие
       const pick=pairs.filter(q=>q.u>=um-CAM_U_TOL).sort((x,y)=>(y.worst-x.worst)||(y.sum-x.sum)||(y.div-x.div))[0];
+      // ДОВОРОТ ±CAM_NUDGE° (d8 17.10: в сканди ТВ срезан краем вида 2): шаг перебора 5°, поэтому после выбора каждый вид пробует
+      // повернуться на 1…6°, если так меньше крупной мебели срезано краем, правила кадра держатся, а охват пары не падает
+      const nudge=(c,other,first)=>{let best=c, bc=camSideCut(c,its);
+        for(let d=-CAM_NUDGE; d<=CAM_NUDGE; d++){if(!d)continue; const q=Object.assign({},c,{rot:c.rot+d});
+          const k=camSideCut(q,its); if(k>bc||(k===bc&&Math.abs(d)>=Math.abs(best.rot-c.rot)))continue;
+          const b0=camBlock(q,its), tall=camTallCut(q,its);
+          if(Math.max(b0.cov/CAM_BLOCK,camTvBack(q,its)?2:0,tall?1.5:0,camGraze(q,W,H))>1||camHard(q,its,first?level:0,first?undefined:CAM_B_CLEAR))continue;
+          const sq=stat(q); if(!camGateOk(sq,gl))continue;
+          if(cover(first?sq:stat(other),first?stat(other):sq)<pick.u-1e-9)continue;
+          if(first&&camKeyVis(q,its,sq)<stat(c).keyVis)continue;
+          best=q; bc=k;}
+        return best;};
+      const a2=nudge(pick.a,pick.b,true), b2=nudge(pick.b,a2,false);
       const mk=(n,c)=>({name:n,x:c.x,y:c.y,rot:c.rot,fov:c.fov||72,pshift:camPortraitShift(c,its,W,H)});
-      return {level, cams:[mk('C1',pick.a),mk('C2',pick.b)], how:`пара: порогов снято ${gl}, зоны ${['разные концы','разные стороны','любые'][zl]}, мерок ${st.size}`,
+      return {level, cams:[mk('C1',a2),mk('C2',b2)], how:`пара: порогов снято ${gl}, зоны ${['разные концы','разные стороны','любые'][zl]}, мерок ${st.size}`,
         u:pick.u, stats:[stat(pick.a),stat(pick.b)]};
     }
   }
@@ -1760,7 +1773,7 @@ function cycleCams(){
 // значения продолжали бы жить: после перевода камер вплотную в угол сохранённые с прежним
 // отступом так и стояли бы в 10 см от стены. Меняем правило — меняем версию, и каждый
 // получает новые углы по умолчанию (владелец 01.09).
-const CAMS_VER='v10-c2inset';   // v10 (17.10, demo-11): ракурс 2 — не ближе 60 см к стенам угла;   // v9 (16.10): высокое (торшер, стеллаж) — целиком или вне кадра; v7 (14.10): ракурс 1 — лучший из четырёх углов, главное целиком; при смене правил сохранённые углы пересчитываются
+const CAMS_VER='v11-pair';   // v11 (17.10, demo-12): пара подбирается вместе (маска кадра, охват вдвоём);   // v10 (17.10, demo-11): ракурс 2 — не ближе 60 см к стенам угла;   // v9 (16.10): высокое (торшер, стеллаж) — целиком или вне кадра; v7 (14.10): ракурс 1 — лучший из четырёх углов, главное целиком; при смене правил сохранённые углы пересчитываются
 function camsKey(){const v=allVariants()[cur]||{};return 'flat215-cams-'+CAMS_VER+(CAM_PAIR_ON?'-pair':'')+'-'+(v.id||cur);}
 // ПОЗА КАМЕРЫ ДЛЯ 3D И СНИМКА: при подборе парой (demo-12) — со сдвигом вертикального кадра телефона, пересчитанным под
 // текущее положение камеры и мебели (камеру двигали руками — прежний сдвиг устарел)

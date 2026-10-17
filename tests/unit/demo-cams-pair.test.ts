@@ -75,11 +75,11 @@ describe("камеры демо: пара", () => {
       }
     }
   });
-  it("без флага — прежний подбор (углы), пока владелец не принял пару", () => {
+  it("подбор парой — по умолчанию (владелец «включай» 17.10), и без флага окружения", () => {
     delete process.env.CAMS_PAIR;
     const api0 = new Function("D", `${block};return {camPair};`)({ room: fx.room }) as typeof api;
     const v = fx.variants[0]!, list = its(v);
-    expect(api0.camPair(list, W, H, cs).cams).toEqual(api.camPairCorner(list, W, H, cs).cams);
+    expect(api0.camPair(list, W, H, cs).how).toMatch(/^пара/);
     process.env.CAMS_PAIR = "1";
   });
 });
