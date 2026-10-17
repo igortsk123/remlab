@@ -7,6 +7,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..'))
+# `draft_render` ищет солвер по пути машины DEV — в CI это свой чекаут (python:3.12, 17.10: ModuleNotFoundError: planner)
+sys.path.insert(0, os.path.join(HERE, '..', '..', '..', 'services', 'planner-solver'))
 from PIL import Image  # noqa: E402
 
 import draft_render as DR  # noqa: E402

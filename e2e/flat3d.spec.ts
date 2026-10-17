@@ -141,7 +141,8 @@ test("сохранение подбора: ссылка открывается, 
 test("мобильный экран открывается на «Фото», 3D доступен вкладкой", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 780 });
   await page.goto("/flat");
-  await expect(page.getByRole("tab", { name: "Фото" })).toHaveAttribute("aria-selected", "true");
+  // в CI сцена рисуется программно и гидрация с выбором режима бывает дольше 5 с (17.10: падало и проходило на одном коде)
+  await expect(page.getByRole("tab", { name: "Фото" })).toHaveAttribute("aria-selected", "true", { timeout: 15_000 });
   await expect(page.getByRole("tab", { name: "Бродилка" })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Сверху" })).toBeVisible();
 });
