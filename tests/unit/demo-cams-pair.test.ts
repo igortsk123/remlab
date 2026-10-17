@@ -54,10 +54,10 @@ describe("камеры демо: пара", () => {
       // второй вид — с другой стороны: направления расходятся хотя бы на 60°
       const d = Math.abs(((pr.cams[0]!.rot - pr.cams[1]!.rot) % 360 + 540) % 360 - 180);
       expect(d).toBeGreaterThanOrEqual(60);
-      // мебель вдвоём — почти вся (≥ 0.95 веса), стен — не меньше 90 % прежней пары «угол + противоположный угол»
-      // (мебель важнее стен — магазин мебели; живое 3D 17.10)
+      // стен вдвоём — не меньше 75 % прежней пары «угол + противоположный угол»: мебель важнее стен (живое 3D 17.10), а правила
+      // кадра ночи 17.10 (главное не срезано > 30 %, мебель не ближе 1.2 м) у минимализма стоят 15 из 62 кусков стен
       const bins = (cams: Cam[]) => new Set(cams.flatMap((c) => [...api.camStats(c, list, W, H).bins])).size;
-      expect(bins(pr.cams)).toBeGreaterThanOrEqual(0.9 * bins(api.camPairCorner(list, W, H, cs).cams));
+      expect(bins(pr.cams)).toBeGreaterThanOrEqual(0.75 * bins(api.camPairCorner(list, W, H, cs).cams));
     });
   it("портрет телефона: подобранный сдвиг ставит пол и потолок примерно поровну, пол не больше 0.35", () => {
     for (const v of fx.variants) {
