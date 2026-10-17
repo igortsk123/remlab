@@ -1635,7 +1635,8 @@ function camPortraitShift(c,its,W,H){
   const rows=CAM_PH+extra, m=camMask(c,its,W,H,{w:CAM_PW,h:rows,asp:CAM_PW/CAM_PH,vr:[1-sn0-rows*step,1-sn0]});
   let best=null;
   for(let r=0;r<=extra;r++){const sn=sn0+r*step, t=camStatsOf(m,r,r+CAM_PH);
-    // пол и потолок поровну, мебель — в средней трети кадра
+    // пол и потолок поровну, мебель — в средней трети кадра. Штраф за ближнюю мебель здесь пробовали (ночь 17.10): столик уходит
+    // за кромку, но кадр задирается в стену и потолок (пол 0.06 / потолок 0.27) — ближнюю мебель решает выбор точки (`pclose`)
     const d=Math.abs(t.floor-t.ceil)+Math.max(0,Math.abs(t.midY-0.5)-1/6);
     if(!best||d<best.d-1e-9)best={sn,d};}
   return Math.round(-best.sn/2*1000)/1000;
