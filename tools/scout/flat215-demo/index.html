@@ -1337,7 +1337,7 @@ function camTvBack(c,its){
 // СТЕНА ВПЛОТНУЮ НЕ В КАДРЕ (14.10: ракурс из угла, повёрнутый на 25° от стены, показывал её белой плитой на пятую часть
 // кадра). Для стены ближе CAM_WALL_NEAR взгляд должен уходить от неё не меньше чем на полкадра; иначе отказ.
 // Так же — проём двери ближе CAM_DOOR_NEAR: наличник выступает из стены и встаёт перед объективом плитой.
-const CAM_WALL_NEAR=40, CAM_DOOR_NEAR=45, CAM_WALL_MID=80, CAM_WALL_SHARE=0.15;   // 40/80/15 % — прогон d8 15.10: плита стены у джапанди
+const CAM_JAMB_CLEAR=20, CAM_WALL_NEAR=40, CAM_DOOR_NEAR=45, CAM_WALL_MID=80, CAM_WALL_SHARE=0.15;   // 40/80/15 % — прогон d8 15.10: плита стены у джапанди
 function camGraze(c,W,H){
   const a=(c.rot||0)*Math.PI/180, sx=Math.abs(Math.sin(a)), sy=Math.abs(Math.cos(a)), half=(c.fov||72)/2;
   const deg=v=>Math.asin(Math.min(1,v))*180/Math.PI;
@@ -1352,6 +1352,9 @@ function camGraze(c,W,H){
     // наличники — на концах проёма и выступают в комнату: меряем до их лица (8 см от стены); камера в самом проёме, глядя
     // в комнату, их не видит — они по бокам и сзади
     const nx=o.wall==='west'?8:o.wall==='east'?-8:0, ny=o.wall==='south'?8:o.wall==='north'?-8:0;
+    // КРАЙ ПРОЁМА ВПЛОТНУЮ — НЕ ГОДИТСЯ ПРИ ЛЮБОМ ВЗГЛЯДЕ (пересъёмка 17.10: камера в 3 см от стены у края двери — наличник
+    // плитой посреди серверного кадра у минимализма и лофта; точка лица наличника была ровно в 5 см и проверку проходила)
+    if([[g.x1,g.y1],[g.x2,g.y2]].some(([jx,jy])=>Math.hypot(jx-c.x,jy-c.y)<CAM_JAMB_CLEAR))return true;
     return [[g.x1+nx,g.y1+ny],[g.x2+nx,g.y2+ny]].some(([jx,jy])=>{const px=jx-c.x, py=jy-c.y, d=Math.hypot(px,py);
       if(d>=CAM_DOOR_NEAR)return false;
       const cos=(px*Math.sin(a)-py*Math.cos(a))/(d||1);   // в кадре ли наличник

@@ -7,24 +7,26 @@
 //   node tools/ops/demo-realistic.mjs --go --all   # остальные — после того как пробное фото посмотрели глазами
 //   node tools/ops/demo-realistic.mjs --force сканди [--go]   # переснять и у кого фото уже есть (demo-11: новая модель и промпт)
 //   node tools/ops/demo-realistic.mjs --force all --go --all
+//   --frames   кадры из браузера (живая 3D-сцена, как у покупателя: `vwCaptureViews`), а не серверный эскиз; не снялись — СТОП без оплаты
 // Годна только НОВАЯ запись реестра (не из прежних id) этого стиля и состояния, с обеими точками, позами камер страницы,
 // моделью и версией промпта, которых ждём (EXPECT_MODEL, EXPECT_PROMPT); `shots.json` не чистится — старое остаётся историей.
 // Ошибка любого варианта останавливает прогон (деньги не тратятся вслепую); счётчик «снято / не вышло» — в конце.
 import { chromium } from "@playwright/test";
 
 const BASE = process.env.DEMO_BASE ?? "https://remont-lab.online";
-const GO = process.argv.includes("--go"), ALL = process.argv.includes("--all");
+const GO = process.argv.includes("--go"), ALL = process.argv.includes("--all"), FRAMES = process.argv.includes("--frames");
 const fi = process.argv.indexOf("--force"), FORCE = fi >= 0 ? (process.argv[fi + 1] || "all") : "";
 const EXPECT_MODEL = process.env.EXPECT_MODEL ?? "improve/openai/gpt-image-2.5-sunburst";
 const EXPECT_PROMPT = process.env.EXPECT_PROMPT ?? "improve-v3";   // demo-13: гайды стилей v2.1
 
 async function main() {
   const paid = await (await fetch(`${BASE}/api/draft/paid`)).json().catch(() => ({ available: false, code: "нет ответа" }));
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(FRAMES ? { args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] } : {});
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   let done = 0, failed = 0;
   try {
-    await page.goto(`${BASE}/demo/?live=0&lang=ru`, { waitUntil: "domcontentloaded" });   // без 3D-сцены (см. demo-warm.mjs)
+    // без 3D-сцены (см. demo-warm.mjs); с --frames — со сценой: кадры снимает браузер
+    await page.goto(`${BASE}/demo/?live=${FRAMES ? "force" : "0"}&lang=ru`, { waitUntil: FRAMES ? "load" : "domcontentloaded", timeout: 120_000 });
     await page.waitForFunction("typeof D !== 'undefined' && !!D && !!FLAT && typeof allVariants === 'function' && allVariants().length > 0", null, { timeout: 90_000 });
     await page.waitForTimeout(4000); // реестр кадров приезжает позже данных
     // кому нужно фото: у варианта нет реалистичного снимка его нынешней расстановки (то же правило, что у вкладки «Фото»)
@@ -41,10 +43,20 @@ async function main() {
     if (!paid.available) { console.log("STOP: улучшение недоступно — сначала пополнить баланс сервиса картинок"); process.exitCode = 1; return; }
     for (const t of ALL ? todo : todo.slice(0, 1)) {
       const t0 = Date.now();
-      const res = await page.evaluate((i) => new Promise((ok) => {
+      const res = await page.evaluate(async ([i, frames]) => {
         pickVariant(i);
-        makePhoto("realistic", "", "", { bg: true, progress: () => {}, fail: (m) => ok({ error: String(m) }), done: (n0) => ok({ n: shots.length - n0 }) });
-      }), t.i);
+        let extra = {};
+        if (frames) {
+          openLiveWindow(); if (VW.mode !== "walk") vwMode("walk");
+          for (let k = 0; k < 600 && !(LIVE.scene && LIVE.state === "ready"); k++) await new Promise((ok) => setTimeout(ok, 300));
+          const cap = await vwCaptureViews();
+          if (!cap) return { error: "кадры из браузера не сняты — платный вызов не делаю" };
+          extra = { views: cap.views, clay: cap.clay, sheet: cap.sheet };
+        }
+        return await new Promise((ok) => makePhoto("realistic", "", "", { bg: true, extra, progress: () => {}, fail: (m) => ok({ error: String(m) }),
+          done: (n0) => ok({ n: shots.length - n0, frames: (shots[n0] || {}).timing?.frames }) }));
+      }, [t.i, FRAMES]);
+      if (FRAMES && !res.error && res.frames !== "browser") res.error = `снято не из кадров браузера (${res.frames ?? "?"})`;
       // проверка по реестру сервера, а не по странице: запись этого стиля с номером его состояния и обеими точками
       const reg = await (await fetch(`${BASE}/test/share/shots.json?v=${Date.now()}`)).json();
       const sig = (r) => (r.cams ?? []).map((c) => [c.name, Math.round(c.x), Math.round(c.y), Math.round(c.rot || 0)].join(":")).join("|");
