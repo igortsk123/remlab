@@ -24,13 +24,14 @@ async function main() {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   let done = 0, failed = 0;
   try {
-    await page.goto(`${BASE}/demo/`, { waitUntil: "domcontentloaded" });
+    await page.goto(`${BASE}/demo/?live=0&lang=ru`, { waitUntil: "domcontentloaded" });   // без 3D-сцены (см. demo-warm.mjs)
     await page.waitForFunction("typeof D !== 'undefined' && !!D && !!FLAT && typeof allVariants === 'function' && allVariants().length > 0", null, { timeout: 90_000 });
     await page.waitForTimeout(4000); // реестр кадров приезжает позже данных
     // кому нужно фото: у варианта нет реалистичного снимка его нынешней расстановки (то же правило, что у вкладки «Фото»)
     const todo = await page.evaluate(`((force) => { const c0 = cur, out = [];
       allVariants().forEach((v, i) => { pickVariant(i);
-        const want = force === "all" || force === v.style || !vwRealShots().length;
+        // --force <стиль> — только он; --force all — все; без --force — у кого нет фото своей расстановки
+        const want = force ? (force === "all" || force === v.style) : !vwRealShots().length;
         if (want) out.push({ i, style: v.style, stateId: curStateId(), cams: (cams || loadCams()).map((c) => [c.name, Math.round(c.x), Math.round(c.y), Math.round(c.rot || 0)].join(":")).join("|") }); });
       pickVariant(c0); return out; })(${JSON.stringify(FORCE)})`);
     const before = new Set((await (await fetch(`${BASE}/test/share/shots.json?v=${Date.now()}`)).json()).map((r) => r.id));

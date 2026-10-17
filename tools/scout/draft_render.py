@@ -775,11 +775,17 @@ def _split_pair(sheet: Image.Image) -> list:
 def _trim_band(img: Image.Image) -> Image.Image:
     """Срезать остатки маркерной полосы по краям куска: пара строк маджента портит кадр."""
     a = np.asarray(img.convert('RGB')).astype(int)
-    bad = ((a[..., 0] > 140) & (a[..., 2] > 140) & (a[..., 1] < 150)).mean(axis=1) > 0.12
-    ys = np.where(~bad)[0]
-    if not len(ys):
+    frac = ((a[..., 0] > 140) & (a[..., 2] > 140) & (a[..., 1] < 150)).mean(axis=1)
+    # С КРАЁВ — пока в строке есть заметная доля маджента (demo-11, 17.10: модель нарисовала полосу чуть наклонно, у первого
+    # вида снизу остались 5 строк по 33–40 % и строка 9 %); середину не трогаем — розовая подушка не полоса. Не больше 40 строк
+    top, bot, lim = 0, len(frac), min(40, len(frac) // 4)
+    while top < lim and frac[top] > 0.03:
+        top += 1
+    while len(frac) - bot < lim and frac[bot - 1] > 0.03:
+        bot -= 1
+    if bot - top < len(frac) // 2:
         return img
-    return img.crop((0, int(ys.min()), img.width, int(ys.max()) + 1))
+    return img.crop((0, top, img.width, bot)) if (top or bot < len(frac)) else img
 
 
 THUMB_W = int(os.environ.get('THUMB_W', 640))
@@ -3345,7 +3351,7 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
             # RuntimeError, а не SystemExit: это ДОМЕННЫЙ отказ одного запроса, его обязан
             # увидеть и показать клиент, а не выход из программы (13.10).
             raise RuntimeError('модель закрасила разделительную полосу — резать нечем, ответ негоден')
-        pieces = _split_pair(out)
+        pieces = [_trim_band(x) for x in _split_pair(out)]   # остатки наклонной полосы по краям (demo-11)
         stamp = time.strftime('%H%M%S')
         shots = [{'camera': c.name, 'url': _publish_frame(p_, f'improve-{stamp}-{c.name}.jpg'),
                   'diag': {}, 'anchors': []}

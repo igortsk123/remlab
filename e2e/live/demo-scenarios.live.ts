@@ -244,6 +244,19 @@ test("2.18 телефон: без горизонтальной прокрутк�
   await ctx.close();
 });
 
+// 2.29 (demo-11, ADR-0302): чем нарисует «Сделать реалистичнее» — без оплаты, пробным запросом (`dry_run` задания не создаёт никогда)
+test("2.29 реалистичное фото: модель sunburst medium и промпт improve-v2 у рисующего процесса (пробный запрос, без трат)", async ({ request }) => {
+  const r = await request.post("/api/render", { data: { async: 1, quality: "realistic", dry_run: 1, style: "сканди", room: { w: 439, d: 325 }, items: [{ role: "диван", x: 1, y: 1 }] } });
+  const j = await r.json() as { dry_run?: boolean; code?: string; render?: { realistic_model?: string; image_quality?: string; prompt_version?: string }; render_from?: string; prompt?: { version?: string; photo_look?: boolean; shape_rule?: boolean } };
+  say("ответ", r.status(), JSON.stringify(j).slice(0, 220));
+  if (!j.dry_run) { say("улучшение сейчас недоступно (", j.code, ") — модель не проверить, честный отказ"); expect([402, 503]).toContain(r.status()); return; }
+  expect(j.render_from).toBe("proxy");
+  expect(j.render?.realistic_model).toBe("openai/gpt-image-2.5-sunburst");
+  expect(j.render?.image_quality).toBe("medium");
+  expect(j.render?.prompt_version).toBe("improve-v2");
+  expect(j.prompt).toMatchObject({ version: "improve-v2", photo_look: true, shape_rule: true });
+});
+
 test("2.9 «Улучшить» без денег — честный ответ за ≤ 3 с (без трат)", async ({ request }) => {
   const paid = await (await request.get("/api/draft/paid")).json() as { available: boolean; code: string | null };
   say("улучшение доступно:", paid.available, paid.code ?? "");

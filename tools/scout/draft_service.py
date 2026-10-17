@@ -526,7 +526,9 @@ class H(BaseHTTPRequestHandler):
                     'queued_sec': round(t - (JOBS.get(jid) or {}).get('ts', t), 1) if jid else 0,
                     # КТО СНЯЛ (b2b-08 п.2b): DEV-прокси пишет 'dev', здесь — сервер сам (запасной путь, лёгкие меши)
                     'backend': 'server',
-                    'frames': res.get('frames'), 'diag': res['diag']}
+                    'frames': res.get('frames'), 'diag': res['diag'],
+                    # чем нарисовано фото нейросети (demo-11): без этого поля терялись по дороге в прод и реестр
+                    **({k: res[k] for k in ('image_quality', 'prompt_version', 'prompt_sha') if res.get(k)})}
             _registry_add(payload, out2)
             _DURS[quality] = (_DURS[quality] + [out2['sec']])[-20:]   # замер для оценки очереди
             self._send(200, out2)

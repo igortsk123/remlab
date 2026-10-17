@@ -31,7 +31,9 @@ async function main() {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   let done = 0, failed = 0;
   try {
-    await page.goto(`${BASE}/demo/`, { waitUntil: "domcontentloaded" });
+    // `?live=0` — без живой 3D-сцены: после съёмки страница открывает окно варианта, и сборка сцены программным рендером
+    // (у прогрева нет видеокарты) подвешивала следующий кадр (17.10: прогон снял 1 из 5 и встал по сроку)
+    await page.goto(`${BASE}/demo/?live=0&lang=ru`, { waitUntil: "domcontentloaded" });
     // данные витрины приходят после разметки: пока `D` пуст, `allVariants()` бросает — ждать надо `D`, иначе прогон падал
     // на первом же ожидании и ночью кадров не снимал вовсе (найдено 17.10: у трёх стилей не было кадра своей расстановки)
     await page.waitForFunction("typeof D !== 'undefined' && !!D && typeof allVariants === 'function' && allVariants().length > 0", null, { timeout: 90_000 });
