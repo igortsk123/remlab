@@ -144,7 +144,7 @@ def _registry_add(payload: dict, out: dict) -> None:
                'quality': out.get('quality') or payload.get('quality') or 'draft',
                'model': out.get('model') or '', 'sources': out.get('sources') or '',
                # чем нарисовано фото нейросети (demo-11): качество модели, версия и отпечаток промпта
-               **({k: out[k] for k in ('image_quality', 'prompt_version', 'prompt_sha') if out.get(k)}),
+               **({k: out[k] for k in ('image_quality', 'prompt_version', 'prompt_sha', 'sheet_orient') if out.get(k)}),
                'backend': out.get('backend') or '',
                # СОСТОЯНИЕ И КАМЕРЫ КАДРА (demo-02, Codex 14.10): номер состояния присылает страница (сервер его не
                # считает), позы камер — полностью: «C1» без позы ничего не говорит, если камеру потом переставили.
@@ -570,7 +570,7 @@ class H(BaseHTTPRequestHandler):
                     'backend': 'server',
                     'frames': res.get('frames'), 'diag': res['diag'],
                     # чем нарисовано фото нейросети (demo-11): без этого поля терялись по дороге в прод и реестр
-                    **({k: res[k] for k in ('image_quality', 'prompt_version', 'prompt_sha') if res.get(k)})}
+                    **({k: res[k] for k in ('image_quality', 'prompt_version', 'prompt_sha', 'sheet_orient') if res.get(k)})}
             _registry_add(payload, out2)
             _DURS[quality] = (_DURS[quality] + [out2['sec']])[-20:]   # замер для оценки очереди
             self._send(200, out2)

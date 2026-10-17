@@ -763,6 +763,11 @@ def _split_pair(sheet: Image.Image) -> list:
     a = np.asarray(sheet.convert('RGB')).astype(int)
     mask = (a[..., 0] > 170) & (a[..., 2] > 170) & (a[..., 1] < 110)
     rows = np.where(mask.mean(axis=1) > 0.5)[0]
+    # ВЕРТИКАЛЬНАЯ ПОЛОСА (demo-10, лист телефона: два вертикальных вида бок о бок) — режем слева/справа
+    cols = np.where(mask.mean(axis=0) > 0.5)[0] if len(rows) < 8 else []
+    if len(cols) >= 8:
+        x0, x1 = int(cols.min()), int(cols.max())
+        return [sheet.crop((0, 0, x0, sheet.height)), sheet.crop((x1 + 1, 0, sheet.width, sheet.height))]
     if len(rows) < 8:
         half = sheet.height // 2
         return [sheet.crop((0, 0, sheet.width, half)),
@@ -785,7 +790,16 @@ def _trim_band(img: Image.Image) -> Image.Image:
         bot -= 1
     if bot - top < len(frac) // 2:
         return img
-    return img.crop((0, top, img.width, bot)) if (top or bot < len(frac)) else img
+    img = img.crop((0, top, img.width, bot)) if (top or bot < len(frac)) else img
+    # и столбцы по бокам — у вертикальной полосы листа телефона остатки остаются слева/справа
+    a = np.asarray(img.convert('RGB')).astype(int)
+    fc = ((a[..., 0] > 140) & (a[..., 2] > 140) & (a[..., 1] < 150)).mean(axis=0)
+    l, r, lim = 0, len(fc), min(40, len(fc) // 4)
+    while l < lim and fc[l] > 0.03:
+        l += 1
+    while len(fc) - r < lim and fc[r - 1] > 0.03:
+        r -= 1
+    return img.crop((l, 0, r, img.height)) if (l or r < len(fc)) and r - l >= len(fc) // 2 else img
 
 
 THUMB_W = int(os.environ.get('THUMB_W', 640))
@@ -3355,7 +3369,7 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
             sheet, ident, prompt = built['sheet'], built.get('ident'), built['prompt']
             imgs = [sheet] + ([ident] if ident is not None else [])
             _t_gpt = time.time()
-            out = gpt_edit(imgs, prompt, size=IM.SIZE, quality=gq, model=REALISTIC_MODEL)
+            out = gpt_edit(imgs, prompt, size=built.get('size') or IM.SIZE, quality=gq, model=REALISTIC_MODEL)   # лист телефона — 3072×2048
             _t_gpt = time.time() - _t_gpt
             print(f'улучшение: модель {_t_gpt:.1f}с (размер {IM.SIZE}, качество {gq}); '
                   f'итого {_t_our + _t_gpt:.1f}с, из них наши {100 * _t_our / max(_t_our + _t_gpt, .1):.0f}%',
@@ -3377,6 +3391,7 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
             # что именно нарисовало фото — в ответ и реестр (demo-11): модель, качество, версия и отпечаток промпта
             res = {'shots': shots, 'url': shots[0]['url'], 'model': f'improve/{REALISTIC_MODEL}', 'image_quality': gq,
                    'prompt_version': IM.PROMPT_VERSION, 'prompt_sha': IM.prompt_sha(prompt),
+                       'sheet_orient': built.get('orient') or 'landscape',
                    'sources': built['src_url'], 'diag': {'clay': built['clay']},
                        # откуда кадры и сколько заняла наша часть до вызова модели (demo-10: цель ≤ 2 с при кадрах из браузера)
                        'timing': {'ours': round(_t_our, 2), 'model': round(_t_gpt, 1), 'frames': 'browser' if _bf else 'server'}}

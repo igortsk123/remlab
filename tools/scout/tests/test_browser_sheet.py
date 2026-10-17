@@ -36,10 +36,29 @@ wide = IM.sheet_from_views([Image.new('RGB', (2400, 1200), (0, 200, 0)), c2])
 check('кадр другой пропорции — обрезан по центру, лист тот же', wide.size == sheet.size)
 pieces = [DR._trim_band(x) for x in DR._split_pair(sheet)]
 check('резка по полосе возвращает оба вида', [p.size for p in pieces] == [(rw, per), (rw, per)], str([p.size for p in pieces]))
+# лист телефона: два вертикальных вида бок о бок, вертикальная полоса; резка — слева/справа
+pw_, ph_ = (int(x) for x in IM.SIZE_PORTRAIT.split('x'))
+pv = ((pw_ - DR.BAND_PX) // 2, ph_)
+ps = IM.sheet_from_views([Image.new('RGB', (1489, 2048), (200, 30, 30)), Image.new('RGB', (1117, 1536), (30, 30, 200))], 'portrait')
+check('вертикальный лист ровно под запрос', ps.size == (pw_, ph_), str(ps.size))
+check('C1 слева, C2 справа, полоса посередине', ps.getpixel((10, 10))[0] > 150 and ps.getpixel((pw_ - 10, 10))[2] > 150
+      and ps.getpixel((pv[0] + DR.BAND_PX // 2, ph_ // 2)) == DR.BAND_RGB)
+pp = [DR._trim_band(x) for x in DR._split_pair(ps)]
+check('резка по вертикальной полосе возвращает оба вида', [p.size for p in pp] == [pv, pv], str([p.size for p in pp]))
+slant = ps.copy()
+from PIL import ImageDraw as _D
+_D.Draw(slant).rectangle((pv[0] - 4, 0, pv[0] - 1, ph_ // 2), fill=DR.BAND_RGB)   # полоса чуть наклонно: остаток у края левого вида
+pp2 = [DR._trim_band(x) for x in DR._split_pair(slant)]
+check('остаток наклонной полосы у края вида срезан', pp2[0].width <= pv[0] - 4 and pp2[1].size == pv, str([p.size for p in pp2]))
+p_port = IM.prompt_for('сканди', orient='portrait')
+check('промпт листа телефона: виды слева/справа, вертикальная полоса', 'LEFT half is view 1' in p_port and 'vertical magenta band' in p_port
+      and 'position, width and colour' in p_port)
+check('промпт обычного листа — как был', 'stacked vertically' in IM.prompt_for('сканди') and 'position, height and colour' in IM.prompt_for('сканди'))
 pl = {'views': [{'camera': 'C2', 'id': 'b' * 64}, {'camera': 'C1', 'id': 'a' * 64}], 'style': 'сканди',
       'items': [{'role': 'диван', 'name': 'Диван', 'img': 'x'}]}
 k1 = IM.frames_key(pl, 'm', 'medium')
 check('ключ ответа не зависит от порядка видов в запросе', k1 == IM.frames_key({**pl, 'views': pl['views'][::-1]}, 'm', 'medium'))
+check('ключ различает ориентацию листа', k1 != IM.frames_key({**pl, 'sheet': 'portrait'}, 'm', 'medium'))
 check('ключ меняется с моделью и кадрами', k1 != IM.frames_key(pl, 'm2', 'medium')
       and k1 != IM.frames_key({**pl, 'views': [{'camera': 'C1', 'id': 'c' * 64}, pl['views'][0]]}, 'm', 'medium'))
 try:

@@ -1385,13 +1385,15 @@ export class FlatViewer {
    * в позе (без наклона телефона и поворота взгляда), экранная камера не трогается; выделение и призрак расстановки скрыты,
    * честные коробки — непрозрачные (как серверный clay); ждём догрузки моделей (до 20 с). Всё возвращается в `finally`.
    */
-  async capturePhoto(pose: PhotoPose, width: number, height: number, quality = 0.85): Promise<Blob> {
+  async capturePhoto(pose: PhotoPose, width: number, height: number, quality = 0.85, opts: { tilt?: boolean } = {}): Promise<Blob> {
     const t0 = performance.now();
     while (this.pendingUrls.size && performance.now() - t0 < 20000) await new Promise((ok) => setTimeout(ok, 100));
     const cam = new THREE.PerspectiveCamera(verticalFov(pose.fov ?? 72, width / height), width / height, this.camera.near, this.camera.far);
     applyPhotoShift(cam, photoShift(pose));
     cam.updateProjectionMatrix();
     const { eye, target } = photoRay(pose);
+    // вертикальный кадр телефона — с тем же наклоном к мебели, что видит человек в 3D (иначе полкадра потолок, demo-10)
+    if (opts.tilt) target[1] += Math.tan((this.tiltFor(pose) * Math.PI) / 180) * PHOTO_AIM_CM;
     cam.position.set(eye[0] * CM, eye[1] * CM, eye[2] * CM);
     cam.lookAt(target[0] * CM, target[1] * CM, target[2] * CM);
     const undo: (() => void)[] = [];

@@ -108,7 +108,16 @@ def style_block(style: str | None) -> tuple[str, str, dict]:
     return (st if rec else ''), (rec.get('render_guide') or ''), (db.get('_decor_policy') or {})
 
 
-def prompt_for(style: str | None, decor: list | None = None, floor: str | None = None, walls: str | None = None) -> str:
+SIZE_PORTRAIT = os.environ.get('IMPROVE_SIZE_PORTRAIT', '3072x2048')   # телефон (demo-10): два вертикальных вида бок о бок
+
+
+def size_for(orient: str | None) -> str:
+    """Размер листа запроса: `portrait` — виды вертикальные бок о бок (телефон), иначе — горизонтальные друг под другом."""
+    return SIZE_PORTRAIT if orient == 'portrait' else SIZE
+
+
+def prompt_for(style: str | None, decor: list | None = None, floor: str | None = None, walls: str | None = None,
+               orient: str | None = None) -> str:
     """Промпт режима ремонта. СТРУКТУРА ВЛАДЕЛЬЦА (01.09): статические правила отдельно,
     STYLE GUIDE — единственный переменный блок, и он СОВЕТУЮЩИЙ, а не список обязательного.
 
@@ -124,8 +133,10 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
     return '\n'.join([
         'You are given TWO images:',
         '',
-        '* IMAGE 1: one sheet containing TWO rendered views of the SAME furnished room, stacked '
-        'vertically and separated by a magenta band.',
+        ('* IMAGE 1: one sheet containing TWO rendered views of the SAME furnished room, side by side: the LEFT half is view 1, '
+         'the RIGHT half is view 2, separated by a vertical magenta band.' if orient == 'portrait' else
+         '* IMAGE 1: one sheet containing TWO rendered views of the SAME furnished room, stacked '
+         'vertically and separated by a magenta band.'),
         '* IMAGE 2: catalogue references for all real products already placed in the room.',
     ] + ([
         '* IMAGE 3: decor items that are part of this set but are NOT yet in the render. They are '
@@ -156,7 +167,7 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
         'an accent wall if there is one — keep their colour and finish exactly.',
     ] if walls else []) + [
         '',
-        'Keep the magenta band in exactly the same position, height and colour, with nothing '
+        'Keep the magenta band in exactly the same position, ' + ('width' if orient == 'portrait' else 'height') + ' and colour, with nothing '
         'drawn over it.',
         '',
         'IMAGE 2 controls only the COLOUR, MATERIAL and SURFACE APPEARANCE of real products. '
@@ -319,22 +330,30 @@ def load_frame(fid: str) -> Image.Image:
     return Image.open(io.BytesIO(raw)).convert('RGB')
 
 
-def sheet_from_views(views: list) -> Image.Image:
+def sheet_from_views(views: list, orient: str | None = None) -> Image.Image:
     """Два вида → лист под запрашиваемый размер (`SIZE`): каждый вид ровно `(SIZE_w) × ((SIZE_h − BAND_PX) / 2)` — пропорция
     листа обязана совпасть с запросом (Codex: проверка пропорций отвергает иное). Кадр другой пропорции обрезается по центру."""
     import draft_render as DR
-    rw, rh = (int(x) for x in SIZE.split('x'))
-    per = (rh - DR.BAND_PX) // 2
+    rw, rh = (int(x) for x in size_for(orient).split('x'))
+    port = orient == 'portrait'
+    # вертикальные виды бок о бок (телефон): каждый ((W − полоса) / 2) × H; горизонтальные — W × ((H − полоса) / 2)
+    tw0, th0 = ((rw - DR.BAND_PX) // 2, rh) if port else (rw, (rh - DR.BAND_PX) // 2)
     out = []
     for v in views:
-        tw, th = rw, per
+        tw, th = tw0, th0
         if abs(v.width / v.height - tw / th) > 0.002:
             if v.width / v.height > tw / th:
                 cw = round(v.height * tw / th); x0 = (v.width - cw) // 2; v = v.crop((x0, 0, x0 + cw, v.height))
             else:
                 ch = round(v.width * th / tw); y0 = (v.height - ch) // 2; v = v.crop((0, y0, v.width, y0 + ch))
         out.append(v.resize((tw, th), Image.LANCZOS) if v.size != (tw, th) else v)
-    sheet = Image.new('RGB', (rw, per * len(out) + DR.BAND_PX * (len(out) - 1)), DR.BAND_RGB)
+    if port:
+        sheet = Image.new('RGB', (tw0 * len(out) + DR.BAND_PX * (len(out) - 1), th0), DR.BAND_RGB)
+        x = 0
+        for v in out:
+            sheet.paste(v, (x, 0)); x += v.width + DR.BAND_PX
+        return sheet
+    sheet = Image.new('RGB', (tw0, th0 * len(out) + DR.BAND_PX * (len(out) - 1)), DR.BAND_RGB)
     y = 0
     for v in out:
         sheet.paste(v, (0, y)); y += v.height + DR.BAND_PX
@@ -350,7 +369,7 @@ def frames_key(payload: dict, model: str, quality: str) -> str:
     key = json.dumps([[(v.get('camera'), v.get('id')) for v in views], payload.get('style') or '',
                       (payload.get('floor') or {}).get('id'), (payload.get('walls') or {}).get('id'),
                       ((payload.get('walls') or {}).get('accent') or {}).get('side'), items, decor,
-                      PROMPT_VERSION, model, quality], ensure_ascii=False, sort_keys=True)
+                      PROMPT_VERSION, model, quality, payload.get('sheet') or 'landscape'], ensure_ascii=False, sort_keys=True)
     return _hl.sha256(key.encode('utf-8')).hexdigest()[:32]
 
 
@@ -367,7 +386,8 @@ def build_from_views(payload: dict, style: str | None, stamp: str | None = None)
     vs = sorted(payload.get('views') or [], key=lambda x: str(x.get('camera')))
     if len(vs) < 2:
         raise ValueError('нужны оба вида')
-    sheet = sheet_from_views([load_frame(v.get('id')) for v in vs[:2]])
+    orient = 'portrait' if payload.get('sheet') == 'portrait' else None
+    sheet = sheet_from_views([load_frame(v.get('id')) for v in vs[:2]], orient)
     items = payload.get('items', [])
     ident = None
     try:
@@ -392,17 +412,19 @@ def build_from_views(payload: dict, style: str | None, stamp: str | None = None)
         except Exception as e:  # noqa: BLE001
             print(f'  лист декора не собрался: {str(e)[:70]}')
     fl, wl = payload.get('floor') or {}, payload.get('walls') or {}
-    prompt = prompt_for(style, decor, fl.get('title') or fl.get('id') or None, wl.get('title') or wl.get('id') or None)
+    prompt = prompt_for(style, decor, fl.get('title') or fl.get('id') or None, wl.get('title') or wl.get('id') or None, orient)
     stamp = f'improve-{stamp}' if stamp else f'improve-{time.strftime("%H%M%S")}'
     clay = [str(x) for x in (payload.get('clay') or []) if x][:20]
     meta = {'режим': 'улучшить фото — кадры из браузерной сцены (demo-10)', 'стиль': style or '—',
-            'кадры': ', '.join(f"{v.get('camera')} {str(v.get('id'))[:12]}" for v in vs[:2]), 'размер запроса': SIZE,
+            'кадры': ', '.join(f"{v.get('camera')} {str(v.get('id'))[:12]}" for v in vs[:2]), 'размер запроса': size_for(orient),
+            'лист': 'вертикальные виды бок о бок' if orient else 'горизонтальные виды друг под другом',
             'лист на входе': f'{sheet.width}×{sheet.height}', 'версия промпта': PROMPT_VERSION,
             'серые заглушки в кадре': ', '.join(clay) or 'нет'}
     imgs = {'1-ОТПРАВЛЯЕМ-лист-двух-видов': sheet, '2-ОТПРАВЛЯЕМ-эталоны-товаров': ident, '3-ОТПРАВЛЯЕМ-декор-разместить': dsheet}
     _th.Thread(target=lambda: DR._publish_sources(stamp, imgs, prompt, [], meta), daemon=True).start()
     url = (DR.PUBLIC_BASE + DR.SRC_URL + '/' + stamp + '/') if DR.PUBLIC_BASE else os.path.join(DR.SRC_DIR, stamp)
-    return {'src_url': url, 'sheet': sheet, 'ident': ident, 'prompt': prompt, 'clay': clay, 'cams': [v.get('camera') for v in vs[:2]]}
+    return {'src_url': url, 'sheet': sheet, 'ident': ident, 'prompt': prompt, 'clay': clay, 'cams': [v.get('camera') for v in vs[:2]],
+            'size': size_for(orient), 'orient': orient or 'landscape'}
 
 
 def build(payload: dict, style: str | None, stamp: str | None = None) -> dict:

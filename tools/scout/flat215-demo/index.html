@@ -4546,16 +4546,22 @@ function vwCtaUi(){
 // C1/C2 (`DemoScene.capture`: атомарно, без наклона и подсветки), каждый — отдельным запросом на прод (`/api/render/frame`, имя =
 // sha256), в задании — только имена. Без 3D или при ошибке — серверный рендер, как раньше. Телефон — сразу облегчённый размер
 const VW_FRAME_SIZES=[[2048,1489],[1536,1117]];   // пропорция вида листа 2048×3072 с полосой 94 px (Codex 17.10 п.2)
+// ТЕЛЕФОН — ВЕРТИКАЛЬНЫЕ ВИДЫ (владелец 17.10: «кадр в пропорции устройства»): лист 3072×2048, два вида 1489×2048 бок о бок
+const VW_FRAME_SIZES_PORTRAIT=[[1489,2048],[1117,1536]];
 async function vwCaptureViews(){
   if(LIVE.ok!==true||!LIVE.scene||!LIVE.scene.capture)return null;
   const poses=(cams||loadCams()).slice(0,2).map(c=>({x:c.x,y:c.y,rot:c.rot||0,fov:c.fov||72,pose:POSE_VER}));
-  const t0=performance.now();
-  for(const [w,h] of (isTouchUI()?VW_FRAME_SIZES.slice(1):VW_FRAME_SIZES)){
+  // СЦЕНА — ТОЧНО ЭТА РАССТАНОВКА (самопроверка 17.10: после смены варианта снимок ловил часть мебели прежнего — сцена ещё обновлялась):
+  // ставим текущие предметы и декор и ждём, затем снимаем (`update` — последняя побеждает, повтор того же — без перезагрузки моделей)
+  try{await LIVE.scene.update(clone(items), liveDecor());}catch(e){return null;}
+  const t0=performance.now(), port=VW_PHONE()&&window.innerHeight>window.innerWidth;
+  const sizes=port?VW_FRAME_SIZES_PORTRAIT:VW_FRAME_SIZES;
+  for(const [w,h] of (isTouchUI()?sizes.slice(1):sizes)){
     try{
       const r=await LIVE.scene.capture(poses,w,h), tc=performance.now();
       const ids=await Promise.all(r.frames.map(b=>fetch('/api/render/frame',{method:'POST',headers:{'content-type':'image/jpeg'},body:b})
         .then(x=>x.ok?x.json():Promise.reject(new Error('кадр не принят '+x.status))).then(j=>j.id)));
-      return {views:ids.map((id,k)=>({camera:'C'+(k+1),id})), clay:r.clay,
+      return {views:ids.map((id,k)=>({camera:'C'+(k+1),id})), clay:r.clay, sheet:port?'portrait':'landscape',
         ms:{capture:Math.round(tc-t0), upload:Math.round(performance.now()-tc)}, size:w+'×'+h};
     }catch(e){try{console.warn('кадр из браузера не снят',w,e);}catch(_){}}
   }
@@ -4567,7 +4573,7 @@ async function vwRealistic(){
   VJ.job=job; VJ.err=''; vwCtaUi(); clearInterval(VJ.tick); VJ.tick=setInterval(vwCtaUi,1000);
   const end=()=>{clearInterval(VJ.tick); if(VJ.job===job)VJ.job=null; vwCtaUi();};
   const cap=await vwCaptureViews(); VW.lastCapture=cap?{size:cap.size,ms:cap.ms,clay:cap.clay}:null;   // для проверок и замера
-  makePhoto('realistic','','',{bg:true, extra:cap?{views:cap.views, clay:cap.clay}:{},
+  makePhoto('realistic','','',{bg:true, extra:cap?{views:cap.views, clay:cap.clay, sheet:cap.sheet}:{},
     progress:t=>{job.note=t; vwCtaUi();},
     fail:(msg)=>{end(); VJ.err=String(msg||'').slice(0,220); vwCtaUi();},
     done:(n0)=>{end();

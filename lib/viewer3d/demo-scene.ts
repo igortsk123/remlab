@@ -205,7 +205,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
       viewer.highlight(null);                         // тёплая подсветка выбранного — не в кадр нейросети
       try {
         const frames: Blob[] = [];
-        for (const p of poses) frames.push(await viewer.capturePhoto(p, width, height));
+        for (const p of poses) frames.push(await viewer.capturePhoto(p, width, height, 0.85, { tilt: height > width }));
         const st = viewer.slotStatus();
         const clay = [...slotIndex()].filter(([id]) => st[id] === "stub").map(([, i]) => String(current[i]?.role ?? "")).filter(Boolean);
         return { frames, clay };
