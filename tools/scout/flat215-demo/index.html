@@ -1445,12 +1445,13 @@ function camFit(cx,cy,its,W,H,strict){
 // кандидаты — точки у углов (сетка отступов и скольжение вдоль стен) и середины стен, повороты и объективы как у `camFit`;
 // дешёвые правила кадра отсекают негодное, лучшие CAM_TOPK на четверть комнаты меряются маской (`camStats`). Выбор —
 // лексикографический: (1) оба кадра проходят пороги CAM_GATE (ракурс 1 — ещё и строгие правила ступени 3→2→1);
-// (2) наибольший охват ВДВОЁМ — вес показанных предметов + доля стен + окно; (3) среди почти равных по охвату (CAM_U_TOL) — у кого
+// (2) наибольший охват ВДВОЁМ — 2 × вес показанной мебели + доля стен + окно; (3) среди почти равных по охвату (CAM_U_TOL) — у кого
 // худший из двух кадров лучше; (4) разнообразие направлений. Общий якорь (диван в обоих) не штрафуется — он связывает виды.
 // Ослабление — по ступеням: сперва зоны (разные концы комнаты → разные стороны → любая пара с приростом), внутри — пороги по одному
 // (пол, пустая стена, потолок, стена у края — последней). Результат есть всегда.
-const CAM_GATE=[['floor',0.35],['empty',0.35],['ceil',0.3],['fore',0.12],['nearWall',0.02]];
-const CAM_B_CLEAR=35, CAM_FORE_D=100;   // зазор ракурса 2 до мебели; «передний план» — мебель ближе 1 м
+// `hog` — один предмет не больше CAM_HOG кадра (живое 3D 17.10: телевизор вплотную чёрной плитой на треть кадра)
+const CAM_GATE=[['floor',0.35],['empty',0.35],['ceil',0.3],['hog',0.2],['fore',0.12],['nearWall',0.02]];
+const CAM_B_CLEAR=20, CAM_FORE_D=100;   // зазор ракурса 2 до мебели; «передний план» — мебель ближе 1 м
 const CAM_TOPK=12, CAM_PER_POS=3, CAM_PER_SECTOR=4, CAM_U_TOL=0.15, CAM_PAIR_SHORT=10;
 // ПОДБОР ПАРОЙ ВКЛЮЧАЕТСЯ ВМЕСТЕ С ПЕРЕСЪЁМКОЙ (demo-12): у фото нейросети вариантов точки прежние, новая пара без пересъёмки
 // развела бы «Фото» и 3D. До приёмки владельцем — по `?cams=pair` на странице и `CAMS_PAIR=1` у сборки демо (`demo-cams.mjs`)
@@ -1541,14 +1542,17 @@ function camPair(its,W,H,cs){
   // ТВ-тумба); охват пары его не размывает — дополняет ракурс 2
   const level=Math.max(...all.map(c=>c.lv)), lvOk=all.filter(c=>c.lv>=level&&c.far);
   if(!lvOk.length){const r=camPairCorner(its,W,H,cs); r.how='углы (нет точки для ракурса 1)'; return r;}
-  const st=new Map(), stat=c=>{if(!st.has(c)){const s0=camStats(c,its,W,H); s0.seen=camSeen(c,its,s0); s0.keyVis=camKeyVis(c,its,s0); st.set(c,s0);} return st.get(c);};
+  const st=new Map(), stat=c=>{if(!st.has(c)){const s0=camStats(c,its,W,H); s0.seen=camSeen(c,its,s0); s0.part=camSeen(c,its,s0,true); s0.keyVis=camKeyVis(c,its,s0); st.set(c,s0);} return st.get(c);};
   const kmax=Math.max(...lvOk.map(c=>c.key)), A0=camTop(lvOk.filter(c=>c.key>=kmax-1e-9),2*CAM_TOPK);
   const vmax=Math.max(...A0.map(c=>stat(c).keyVis)), A=A0.filter(c=>stat(c).keyVis>=vmax-1e-9).slice(0,CAM_TOPK);
   const wAll=(its||[]).reduce((a,it)=>a+camWeight(it),0)||1, binsAll=2*Math.ceil(W/CAM_BIN)+2*Math.ceil(H/CAM_BIN), diag=Math.hypot(W,H);
   const wOf=bits=>{let w=0; (its||[]).forEach((it,i)=>{if(bits&(1<<i))w+=camWeight(it);}); return w;};
   const union=(x,y)=>{let nb=x.size; if(y)y.forEach(b=>{if(!x.has(b))nb++;}); return nb;};
-  const cover=(sa,sb)=>{let w=0; new Set([...sa.seen,...(sb?sb.seen:[])]).forEach(i=>{w+=camWeight(its[i]);});
-    return w/wAll+2*union(sa.bins,sb&&sb.bins)/binsAll+((sa.win||(sb&&sb.win))?0.5:0);};
+  // ОХВАТ ПАРЫ: мебель важнее стен (магазин мебели; живое 3D 17.10 — при «стены ×2» второй вид гнался за пустой стеной у двери):
+  // 2 × вес мебели (целиком — полный, видна хотя бы на 35 % ширины — половина) + доля стен + 0.5 за окно
+  const cover=(sa,sb)=>{const full=new Set([...sa.seen,...(sb?sb.seen:[])]); let w=0;
+    full.forEach(i=>{w+=camWeight(its[i]);}); new Set([...sa.part,...(sb?sb.part:[])]).forEach(i=>{if(!full.has(i))w+=0.5*camWeight(its[i]);});
+    return 2*w/wAll+union(sa.bins,sb&&sb.bins)/binsAll+((sa.win||(sb&&sb.win))?0.5:0);};
   // зоны: 0 — разные концы (не ближе полудиагонали, направления разнятся ≥ 90°); 1 — разные стороны (направления ≥ 60°: в
   // комнате 439×325 у окна камере негде встать — ближе 80 см мебель, замер 17.10); 2 — любая пара с приростом
   for(const zl of [0,1,2]){
@@ -1559,7 +1563,7 @@ function camPair(its,W,H,cs){
       for(const b of all){if(b.k===a.k)continue;
         if(zl===0&&(Math.hypot(a.x-b.x,a.y-b.y)<0.5*diag||camAng(a.rot,b.rot)<90))continue;
         if(zl===1&&camAng(a.rot,b.rot)<60)continue;
-        ranked.push({b,u:wOf(a.cheap.im|b.cheap.im)/wAll+2*union(a.cheap.bins,b.cheap.bins)/binsAll+0.01*b.score});}
+        ranked.push({b,u:2*wOf(a.cheap.im|b.cheap.im)/wAll+union(a.cheap.bins,b.cheap.bins)/binsAll+0.01*b.score});}
       ranked.sort((x,y)=>y.u-x.u).slice(0,CAM_PAIR_SHORT).forEach(r=>short.push([a,r.b]));
     }
     if(!short.length)continue;
@@ -1677,17 +1681,18 @@ function camStatsOf(m,r0,r1){
   const need=Math.max(2,Math.ceil(0.03*rows));
   let empty=0, run=0, emptyRun=0; for(let i=0;i<m.w;i++){if(col[i]<need){empty++; run++; if(run>emptyRun)emptyRun=run;} else run=0;}
   ys.sort((a,b)=>a-b);
-  return {ceil:ceil/n, floor:floor/n, empty:empty/m.w, emptyRun:emptyRun/m.w, nearWall:near/n, fore:fore/n, vis, solo:m.solo, bins, win, w:m.w, h:rows,
+  let hog=0; for(const i in vis)hog=Math.max(hog,vis[i]/n);
+  return {hog, ceil:ceil/n, floor:floor/n, empty:empty/m.w, emptyRun:emptyRun/m.w, nearWall:near/n, fore:fore/n, vis, solo:m.solo, bins, win, w:m.w, h:rows,
     midY:ys.length?ys[ys.length>>1]:0.5};
 }
 // ПОКАЗАН ЛИ ПРЕДМЕТ: ≥ 70 % ширины в кадре и верх в кадре (низ близкой мебели за нижней кромкой — норма съёмки с 135 см,
 // как в `camWhole`; буквальный `camShown(0.7)` по высоте отбрасывал бы столик у каждой точки) и не заслонён — видимых пикселей
 // ≥ CAM_VIS_MIN от «одиночных» (сколько лучей попало бы в него без других предметов), не меньше 4
 const CAM_VIS_MIN=0.25;
-function camSeen(c,its,st){
-  const out=new Set();
+function camSeen(c,its,st,part){
+  const out=new Set(), need=part?0.35:0.7;
   (its||[]).forEach((it,i)=>{if(camItemH(it)<=2)return; const b=camProj(c,it,0,camItemH(it)); if(!b||b.behind)return;
-    const bw=b.x1-b.x0; if(bw<=0||(Math.min(b.x1,1)-Math.max(b.x0,-1))/bw<0.7||b.y1>1||b.y1<=-1)return;
+    const bw=b.x1-b.x0; if(bw<=0||(Math.min(b.x1,1)-Math.max(b.x0,-1))/bw<need||b.y1>1||b.y1<=-1)return;
     const so=st.solo[i]||0; if(so>0&&(st.vis[i]||0)>=Math.max(4,CAM_VIS_MIN*so))out.add(i);});
   return out;
 }

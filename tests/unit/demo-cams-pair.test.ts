@@ -13,11 +13,12 @@ const fx = JSON.parse(readFileSync("tests/fixtures/demo-layouts-1710.json", "utf
 const html = readFileSync("tools/scout/flat215-demo/index.html", "utf8");
 const block = html.slice(html.indexOf("// CAMFIT START"), html.indexOf("// CAMFIT END"));
 process.env.CAMS_PAIR = "1";
-const api = new Function("D", `${block};return {camPair,camPairCorner,camStats,camMask,camAtWindow,camNear,CAM_B_CLEAR};`)({ room: fx.room }) as {
+const api = new Function("D", `${block};return {camPair,camPairCorner,camStats,camSeen,camMask,camAtWindow,camNear,CAM_B_CLEAR};`)({ room: fx.room }) as {
   camPair: (its: It[], W: number, H: number, cs: { x: number; y: number }[]) => { level: number; cams: Cam[]; how: string };
   camPairCorner: (its: It[], W: number, H: number, cs: { x: number; y: number }[]) => { level: number; cams: Cam[] };
   camStats: (c: Cam, its: It[], W: number, H: number, o?: { w?: number; h?: number; sn?: number }) => Stats;
   camMask: (c: Cam, its: It[], W: number, H: number, o?: { w?: number; h?: number }) => { cls: Uint8Array };
+  camSeen: (c: Cam, its: It[], st: Stats, part?: boolean) => Set<number>;
   camAtWindow: (x: number, y: number, W: number, H: number) => boolean;
   camNear: (c: Cam, it: It) => number;
   CAM_B_CLEAR: number;
@@ -43,6 +44,9 @@ describe("камеры демо: пара", () => {
         expect(s.fore, `${v.style} C${i + 1} крупный план`).toBeLessThanOrEqual(0.12);
         expect(s.ceil, `${v.style} C${i + 1} потолок`).toBeLessThanOrEqual(0.3);
       }
+      const seen = new Set(pr.cams.flatMap((c, k) => [...api.camSeen(c, list, st[k]!)]));
+      const wt = (i: number) => (list[i]!.role === "ковёр" ? 0 : 1);
+      expect([...seen].reduce((a, i) => a + wt(i), 0), `${v.style}: предметов целиком вдвоём`).toBeGreaterThanOrEqual(0.7 * list.filter((it) => it.role !== "ковёр").length);
       for (const c of pr.cams) {
         expect(api.camAtWindow(c.x, c.y, W, H), `${v.style} ${c.name} у окна`).toBe(false);
         for (const it of list) if ((it.h ?? 10) > 2 && it.role !== "ковёр") expect(api.camNear(c, it)).toBeGreaterThanOrEqual(api.CAM_B_CLEAR);
@@ -50,9 +54,10 @@ describe("камеры демо: пара", () => {
       // второй вид — с другой стороны: направления расходятся хотя бы на 60°
       const d = Math.abs(((pr.cams[0]!.rot - pr.cams[1]!.rot) % 360 + 540) % 360 - 180);
       expect(d).toBeGreaterThanOrEqual(60);
-      // вдвоём стен видно не меньше, чем у прежней пары «угол + противоположный угол»
+      // мебель вдвоём — почти вся (≥ 0.95 веса), стен — не меньше 90 % прежней пары «угол + противоположный угол»
+      // (мебель важнее стен — магазин мебели; живое 3D 17.10)
       const bins = (cams: Cam[]) => new Set(cams.flatMap((c) => [...api.camStats(c, list, W, H).bins])).size;
-      expect(bins(pr.cams)).toBeGreaterThanOrEqual(bins(api.camPairCorner(list, W, H, cs).cams) - 2);
+      expect(bins(pr.cams)).toBeGreaterThanOrEqual(0.9 * bins(api.camPairCorner(list, W, H, cs).cams));
     });
   it("портрет телефона: подобранный сдвиг ставит пол и потолок примерно поровну, пол не больше 0.35", () => {
     for (const v of fx.variants) {
