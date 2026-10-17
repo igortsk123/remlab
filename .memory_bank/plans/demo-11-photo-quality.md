@@ -55,6 +55,29 @@ review_after: 2026-11-28
 6. **Живая проверка 2.29:** ответ `/render` (подмена) → `model` = sunburst, `prompt` содержит `PHOTOGRAPHIC LOOK` и правило формы,
    `version = improve-v2`; юнит-тест `prompt_for` на наличие блоков и на `deny_always`.
 
+## Критика Codex (17.10, `_intake/codex/2026-10-17-photo-quality-critique.md`) — обязательные уточнения
+1. **Кто рисует и где модель.** «Реалистично» рисует DEV-процесс (`127.0.0.1:8600`), прод-контейнер только проксирует через туннель
+   (`draft_service.py:403,424`); при недоступном DEV realistic отвечает 503 (`:441`), а не рисует сам. Окружение контейнера — `/opt/remlab/draft/.env`
+   (`docker-compose.yml:179`, `deployment-details.md:175`), не `/opt/remlab/.env`. Делать: модель и качество — в строке запуска
+   `dev_render_backend.sh:23`; `/opt/remlab/draft/.env` — только если резерв реально работоспособен. **Без простоя:** blue/green — второй DEV-процесс
+   на 8602 с новой моделью + второй туннель, `/health` и канарейка, затем атомарно переключить `/opt/remlab/test/share/render-proxy.conf`
+   (перечитывается на каждый запрос, `draft_service.py:176`); старый процесс погасить после завершения заданий. «kill и ждать крон» — окно недоступности.
+2. **Версионирование промпта.** `PROMPT_VERSION` ничего не инвалидирует: кэш читается по `src_id` до сборки промпта (`draft_render.py:3304`,
+   ключ `SRC_DIR/<src_id>/result.json` `:1673`), `from_sources()` читает старый `prompt.txt` без проверки версии (`improve_mode.py:458,483`).
+   Делать: валидировать кэш и исходник по `prompt_version + model + quality + prompt_sha`; старые результаты — история, не ответ v2.
+3. **Проверка 2.29.** Ответ `/render` и реестр не содержат `prompt`/`prompt_version` (`draft_render.py:3346`, `draft_service.py:488`; `version`
+   в `/health` — версия образа, `:320`). Делать: писать в ответ и реестр `prompt_version`, `prompt_sha`, `model`, `quality`; живая проверка —
+   через безопасный `dry_run` (без оплаты), текст промпта — по сохранённому `prompt.txt`; мок `/render` ничего не доказывает о живом DEV.
+4. **Пересъёмка.** `demo-realistic.mjs` снимает только варианты без подходящего фото, `--force` нет (`:12,24`); `find(style,stateId)` может
+   принять старую запись (`:38`); камеры не в `stateId` (`index.html:3765`). Делать: `--force <style|all>`, запомнить прежние `id`, требовать
+   новую запись с новым `id/ts`, сигнатурой камер, моделью и двумя кадрами; `shots.json` не чистить. **Камера C2:** глобальный clamp 60 см
+   нарушит WYSIWYG-контракт «камера там, где поставил человек» (`draft_render.py:330`) — чинить позу в ДАННЫХ demo-05 (точки съёмки 5 вариантов),
+   не правилом в `cams_from_request`.
+5. **Текст промпта.** «24 mm lens» конфликтует с hard rule «не менять перспективу» (`improve_mode.py:101`) и произвольным FOV (`draft_render.py:349`):
+   писать «match IMAGE 1 lens and perspective; a wide-angle property-listing look only when consistent». В FORBIDDEN запрещать только
+   *invented detachable* cushions/throws/armrests — каталожные части и исправление обивки по эталону (`improve_mode.py:120`) остаются разрешены;
+   `deny_always` выводится под «Never add, remove or replace» (`:192`) — формулировать как «cushions, throws or armrests that the catalogue product does not have».
+
 ## Скоуп — что НЕ входит
 - Кадры из браузера (`demo-10`), досье (`demo-08`), ступень «ещё реалистичнее» (`high`, 12.6 ¢) — отдельным решением владельца.
 
@@ -87,4 +110,4 @@ review_after: 2026-11-28
 - ADR-0302, плейбук, `core/furniture.md`, `core/styles.md`, книга, `/memory-check`.
 
 ## Лог выполнения
-- 2026-10-17 — d8: план по решениям владельца; критика Codex — ниже; передача исполнителю.
+- 2026-10-17 — d8: план по решениям владельца; критика Codex (5 рисков + переключение без простоя + версионирование) учтена; передан исполнителю remlab-7b.
