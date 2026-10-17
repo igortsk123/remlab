@@ -1459,7 +1459,9 @@ const CAM_GATE=[['floor',0.35],['empty',0.35],['ceil',0.3],['close',0],['pclose'
 const CAM_NEAR_L=120, CAM_NEAR_P=100, CAM_P_SN=0.3;   // телефон — с наибольшим сдвигом вниз (`CAM_PSHIFT[0]`): виден ближний пол
 function camKeyCut(c,its){
   let worst=0; (its||[]).forEach(it=>{if(!CAM_KEY.includes(camRole(it)))return; const b=camProj(c,it,0,camItemH(it)); if(!b||b.behind)return;
-    const bw=b.x1-b.x0, inw=Math.max(0,Math.min(b.x1,1)-Math.max(b.x0,-1)); if(bw<=0||inw/2<0.04)return; worst=Math.max(worst,1-inw/bw);});
+    const bw=b.x1-b.x0, inw=Math.max(0,Math.min(b.x1,1)-Math.max(b.x0,-1)); if(bw<=0||inw/2<0.04)return; worst=Math.max(worst,1-inw/bw);
+    // СТОЛИК — ЕЩЁ И НИЖНИМ КРАЕМ (d8 17.10: у современного вид 2 столик срезан снизу): столешница за нижней кромкой — тоже срез
+    if(camRole(it)==='столик'){const h=camItemH(it), t=camProj(c,it,h,h); if(t&&!t.behind&&t.y1>t.y0&&t.y1>-1)worst=Math.max(worst,Math.min(1,Math.max(0,-1-t.y0)/(t.y1-t.y0)));}});
   return worst;
 }
 const CAM_B_CLEAR=20, CAM_FORE_D=100, CAM_NUDGE=6;   // зазор ракурса 2 до мебели; «передний план» — мебель ближе 1 м
