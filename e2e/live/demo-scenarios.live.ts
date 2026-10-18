@@ -416,3 +416,47 @@ test("2.36 возврат «назад»: «Перейти →» из окна �
   await expect(page.locator("#favSec")).toBeVisible();
   await ctx.close();
 });
+
+// ——— demo-02 шторка v5.2: свёрнутая = плашка + чип + кнопка; по умолчанию при открытии и после замены (строка карты 2.37) ———
+const collapsed = (page: Page) => page.evaluate(() => {
+  const sd = document.getElementById("vside") as HTMLElement, c = (document.getElementById("vCta") as HTMLElement).getBoundingClientRect();
+  return { pos: sd.dataset.pos, h: Math.round(innerHeight - sd.getBoundingClientRect().top), ctaTop: Math.round(c.top), ctaBottom: Math.round(c.bottom), H: innerHeight };
+});
+test("2.37 свёрнутая шторка = плашка + чип + кнопка; по умолчанию при открытии и после замены (375×667 и 390×844)", async ({ browser }) => {
+  test.setTimeout(4 * 60_000);
+  for (const vp of [{ width: 375, height: 667 }, { width: 390, height: 844 }]) {
+    const ctx = await browser.newContext({ ...phone, viewport: vp });
+    const page = await ctx.newPage();
+    await page.route(/\/api\/events/, (r) => r.fulfill({ status: 204, body: "" }));
+    await page.goto("/demo/?live=force", { waitUntil: "load" });
+    await page.waitForFunction(basketReady, null, { timeout: 90_000 });
+    await page.locator("#hmRooms .hm-room [data-swap]").click();
+    await expect(page.locator("#shot")).toHaveClass(/\bon\b/);
+    // у варианта может быть реалистичное фото — тогда окно в «Фото», где кнопки нет (снимок уже есть); меряем в 3D
+    await page.evaluate("if (VW.mode === 'photo') vwMode('walk')");
+    await page.waitForTimeout(900);
+    const open = await collapsed(page);
+    say(`${vp.width}×${vp.height}`, "открыл окно:", JSON.stringify(open));
+    expect(open.pos).toBe("0");
+    expect(open.ctaTop).toBeGreaterThanOrEqual(0);
+    expect(open.ctaBottom).toBeLessThanOrEqual(open.H);
+    if (vp.height === 667) expect(open.h).toBeLessThanOrEqual(190);
+    await expect(page.locator("#vCta")).toHaveText(/реалистичнее/);
+    // замена как человек: чип → полная, «Заменить» у первой строки, первая карточка ленты
+    await page.locator("#vgrip").click();
+    await expect.poll(() => page.evaluate("document.getElementById('vside').dataset.pos")).toBe("3");
+    await page.waitForTimeout(500);
+    const sumNow = async () => Number(await page.locator("#vsum").getAttribute("data-sum"));
+    const before = await sumNow();
+    await page.locator("#shotbody [data-rep]").first().click();
+    await page.locator("#sheet .mini:has-text('Заменить')").first().click();
+    await expect.poll(sumNow).not.toBe(before);
+    await page.waitForTimeout(900);
+    const after = await collapsed(page);
+    say("после замены:", JSON.stringify(after), "сумма", before, "→", await sumNow());
+    expect(after.pos).toBe("0");
+    expect(after.ctaTop).toBeGreaterThanOrEqual(0);
+    expect(after.ctaBottom).toBeLessThanOrEqual(after.H);
+    await ctx.close();
+  }
+});

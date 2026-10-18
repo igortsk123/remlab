@@ -986,7 +986,8 @@ function init(){
   // «убери кнопки „Комплект 1 · 103 тыс“, просто подпиши Вариант 1 · 103 т.р.»). Вариантов не
   // больше четырёх плюс сохранённый человеком.
   drawVariants();
-  const closeShot=()=>document.getElementById('shot').classList.remove('on');
+  const closeShot=()=>{document.getElementById('shot').classList.remove('on');
+    const x=document.getElementById('shotx'); if(x)x.setAttribute('aria-label',LANG==='en'?'Close':'Закрыть');};
   // СТРАНИЦА СПИСКА: закрытие и сохранение. «PDF» делаем печатью браузера — он сам предлагает
   // «Сохранить как PDF», и это работает везде без сторонней библиотеки. Печатная вёрстка
   // оставляет только карточку списка (см. @media print).
@@ -1003,7 +1004,10 @@ function init(){
       :'Спальни появятся следующим шагом — подбор мебели по той же схеме, что в гостиной.');}));
   document.addEventListener('keydown',e=>{if(e.key==='Escape')ml.classList.remove('on');});
   on('shotclose','onclick',closeShot);
-  on('shotx','onclick',closeShot);
+  // «×» ЗАКРЫВАЕТ ВЕРХНИЙ СЛОЙ (demo-02 v5.2 п.6, владелец 18.10: «закрывает не то — это путает»): на телефоне при полной шторке
+  // окна варианта — сворачивает список (как чип «⌄ Свернуть»), иначе закрывает окно. Программный `click()` (переход в избранное,
+  // «назад» браузера) закрывает окно всегда
+  on('shotx','onclick',e=>{if(e&&e.isTrusted&&typeof vwXCollapses==='function'&&vwXCollapses()){vwSheet(0); return;} closeShot();});
   window.addEventListener('keydown',e=>{if(e.key==='Escape')closeShot();});
   on('shot','onclick',e=>{if(e.target.id==='shot')e.currentTarget.classList.remove('on');});
   // кнопок «повернуть» и «подобрать товар» больше нет: поворот — за угловые ручки предмета,
@@ -2457,6 +2461,13 @@ function toast(t,act){let el=document.getElementById('toast');
       'background:#2b2622;color:#fff;padding:12px 16px;border-radius:12px;font-size:15px;z-index:90;box-shadow:0 6px 20px rgba(0,0,0,.2)';
     document.body.appendChild(el);}
   el.textContent=t; el.hidden=false; clearTimeout(el._t); el._t=setTimeout(()=>{el.hidden=true;},act?4500:3500);
+  // ОКНО ВАРИАНТА НА ТЕЛЕФОНЕ (demo-02 v5.2): сообщение — над шторкой и переключателем ракурсов, а не поверх кнопки
+  // «Сделать реалистичнее» (после замены «Заменено: …» закрывало её на 3,5 с). Положение — по цели сдвига шторки, не по кадру анимации
+  el.style.bottom='24px';
+  try{const sh=document.getElementById('shot');      // try: сообщение до объявления окна (загрузка) — внизу, как всегда
+    if(sh&&sh.classList.contains('on')&&sh.classList.contains('v2')&&VW_PHONE()&&VW.sheetVis&&VW.sheetVis<innerHeight/2){
+      const cm=document.getElementById('vCams'), cv=cm&&getComputedStyle(cm).display!=='none'?cm.offsetHeight+10:0;
+      el.style.bottom=Math.round(VW.sheetVis+12+cv)+'px';}}catch(e){}
   // ДЕЙСТВИЕ В СООБЩЕНИИ (demo-16 шаг 2, владелец 18.10: «Добавлено в избранное · Перейти →» на несколько секунд)
   if(act){const b=document.createElement('button'); b.type='button'; b.className='toastact'; b.textContent=act.label;
     b.style.cssText='margin-left:10px;background:none;border:0;color:#f4c9a8;font:inherit;font-weight:700;cursor:pointer;padding:4px 0';
@@ -4437,10 +4448,8 @@ function histFwd(){return histGo(1);}
 /* подпись кадра — под переключателем ракурсов, а не рядом: длинная русская строка залезала под него (прогон 14.10) */
 #shot.v2 .shotwrap .livebadge{top:60px}
 .vold{position:absolute;left:12px;top:60px;background:var(--veil);color:#fff;font-size:13px;padding:5px 10px;border-radius:999px;z-index:5}
-.vtop{padding:10px 18px 10px;border-bottom:1px solid var(--line)}
-/* компьютер: кнопка под плашкой не уезжает с прокруткой списка (demo-15, fable-lead 18.10: после выделения строки она пряталась
-   наполовину под плашкой «Остаток»); телефон — своя шторка, там верх не прокручивается */
-@media(min-width:701px){.vtop{position:sticky;top:0;z-index:3;background:var(--surface)}}
+.vtop{padding:10px 18px 10px;border-bottom:1px solid var(--line);flex:none}
+/* кнопка — вне прокрутки списка (v5.2): на компьютере стоит под плашкой и не уезжает (demo-15, карта 2.32), на телефоне — в шапке шторки */
 /* ПЛАШКА СЕРТИФИКАТА (v3): тёмная, крупные цифры, полоса заполнения; доплаты застройщику — тёплой строкой; вне прокрутки */
 /* в тон страницы (владелец 16.10: «плашка выбивается — сделай органичнее»): светлая карточка, тонкая рамка, терракотовый акцент */
 .vplate{margin:14px 64px 4px 18px;background:var(--accent-soft);color:var(--ink);border:1px solid var(--line);border-radius:14px;
@@ -4570,7 +4579,9 @@ function histFwd(){return histGo(1);}
   .vgrip .vchip{padding:3px 12px;font-size:13.5px}
   .vchip{display:inline-block;background:var(--accent-soft);color:var(--accent);border:1px solid var(--line);border-radius:999px;
    padding:5px 14px;font-size:14px;font-weight:600}
-  .vtop{padding:4px 14px 8px;border-bottom:0}
+  .vtop{padding:2px 14px 8px;border-bottom:0;touch-action:none}.vtop .vcta{margin-top:0}
+  /* «Фото»: кнопки нет (снимок уже есть) — пустой блок не добавляет высоты свёрнутой шторке */
+  .vtop:not(:has(.vcta:not([hidden]),#vCtaErr)){display:none}
   .vlist{padding:0 14px}
   .vmodes{top:10px;left:10px;transform:none}.vmodes button{padding:6px 10px;font-size:14px;white-space:nowrap}
   .vhist{top:58px;bottom:auto;left:10px}
@@ -4702,9 +4713,10 @@ function vwHtml(s, navs, list){
     `<div class="vside${VW.group?' g-any g-'+VW.group:''}" id="vside" data-pos="1"><i class="vpill" id="vpill" aria-hidden="true"></i>`+
     `<div class="vplate" id="vsum">${vwSum()}</div>`+
     `<button class="vgrip" id="vgrip" aria-expanded="false" type="button"><span class="vchip" id="vchip">${vwChipText()}</span></button>`+
-    `<div class="vscroll" id="vscroll"><div class="vtop">`+
-    // одна строка (владелец 16.10, п.4): время «обычно 2–4 минуты» — в состоянии после нажатия (`makePhoto`), не на кнопке
-    `<button class="btn primary vcta" id="vCta">${VW.mode==='plan'?'Изменить план':'Сделать реалистичнее'}</button></div>`+
+    // ШТОРКА v5.2 (владелец 18.10): кнопка — в шапке шторки под чипом, вне прокрутки: видна при любой высоте, свёрнутая
+    // остановка (`vwEdges().min`) её включает. Одна строка (владелец 16.10, п.4): время «обычно 2–4 минуты» — после нажатия
+    `<div class="vtop"><button class="btn primary vcta" id="vCta">${VW.mode==='plan'?'Изменить план':'Сделать реалистичнее'}</button></div>`+
+    `<div class="vscroll" id="vscroll">`+
     // ШТОРКА v5 (владелец 17.10): при входе — кнопка и три строки «Мебель · Отделка и ремонт · Встраиваемое», ничего больше;
     // тап по строке — раздел в той же области, сверху «← Назад» и заголовок (`vwGroupOpen`); группа — вид, не состояние
     `<div class="vlist" id="vlist"><div class="vgroups" id="vGroups">${vwGroupsHtml()}</div>`+
@@ -4731,7 +4743,7 @@ function openLiveWindow(){
   // ОКНО ОТКРЫВАЕТСЯ В «ФОТО», ЕСЛИ ЕСТЬ РЕАЛИСТИЧНЫЙ СНИМОК ЭТОЙ РАССТАНОВКИ, ИНАЧЕ В «3D» (demo-09 п.1)
   const v=allVariants()[cur]||{}, vid=v.id||('v'+cur), real=vwRealShots();
   // «Фото» — со свёрнутой шторкой (приёмка d8 17.10: на средней диван был под шторкой — фото видно целиком)
-  if(real.length){const k=real[0]; VW.mode='photo'; VW.photo=vwCamIndex(k.camera); VW.collapse=true; viewShot(shots.indexOf(k)); return;}
+  if(real.length){const k=real[0]; VW.mode='photo'; VW.photo=vwCamIndex(k.camera); viewShot(shots.indexOf(k)); return;}
   VW.mode='walk';
   let i=shots.findIndex(x=>x.vid===vid&&x.live);
   if(i<0){shots.push({url:'',camera:'C1',quality:'live',vid:vid,revision:'',ts:Date.now(),live:true,svc:true}); i=shots.length-1;}
@@ -4829,7 +4841,7 @@ function vwSafeTop(){ let p=document.getElementById('vwSat');
   return p.offsetHeight||0; }
 function vwEdges(){
   const H=Math.round((window.visualViewport&&visualViewport.height)||window.innerHeight);
-  // свёрнутая (v5.1) — шапка шторки целиком: пилюля + плашка «Остаток» + чип, то есть всё выше прокручиваемого содержимого
+  // свёрнутая (v5.2) — шапка шторки целиком: пилюля + плашка «Остаток» + чип + кнопка, то есть всё выше прокручиваемого содержимого
   const sd=document.getElementById('vside'), sc=document.getElementById('vscroll');
   const head=sd&&sc?Math.round(sc.getBoundingClientRect().top-sd.getBoundingClientRect().top):0;
   const vw=document.querySelector('#shot .vw'), r=vw?vw.getBoundingClientRect():{top:0,bottom:H};
@@ -4837,13 +4849,14 @@ function vwEdges(){
   const min=head>0?head:((document.getElementById('vgrip')||{}).offsetHeight||44), max=Math.max(min+120, bottom-top);
   return {H, min, max};
 }
-// средняя остановка — ПО СОДЕРЖИМОМУ (v5): ручка + кнопка + строки-входы + верх первой строки списка (видно, что ниже список),
-// без пустого поля; меряется в обзоре (в разделе — прежняя мерка). Целая строка товара закрывала диван на SE (самопроверка 17.10)
+// средняя остановка — ПО СОДЕРЖИМОМУ (v5.2): свёрнутая (шапка с кнопкой) + строки-входы + верх первой строки списка (видно, что ниже
+// список), без пустого поля; меряется в обзоре (в разделе — прежняя мерка). Целая строка товара закрывала диван на SE (самопроверка 17.10)
 function vwMid(e){
   const sd=document.getElementById('vside'), sc=document.getElementById('vscroll');
-  const last=sd&&(sd.querySelector('#vGroups .vopts-row:last-child')||sd.querySelector('.vtop'));
-  if(sd&&sc&&!VW.group&&last&&last.offsetHeight){
-    VW.midH=Math.round(last.getBoundingClientRect().bottom-sd.getBoundingClientRect().top+sc.scrollTop+(sd.querySelector('#vlist .vitems .row')?30:12));}
+  const last=sd&&sd.querySelector('#vGroups .vopts-row:last-child');
+  if(sd&&sc&&!VW.group){
+    const base=last&&last.offsetHeight?last.getBoundingClientRect().bottom-sd.getBoundingClientRect().top+sc.scrollTop:e.min;
+    VW.midH=Math.round(base+(sd.querySelector('#vlist .vitems .row')?30:12));}
   return Math.max(e.min+60, Math.min(e.max, VW.midH||Math.round(e.min+(e.max-e.min)*0.45)));
 }
 // область сцены — постоянная (видимая зона над свёрнутой шторкой и плашкой): ставится при открытии окна, повороте, смене
@@ -4854,7 +4867,8 @@ function vwLayout(){
     const d=document.getElementById('vCams'); if(d)d.style.bottom=''; const z=document.getElementById('vzBtn'); if(z)z.style.bottom=''; return;}
   const e=vwEdges(); sd.style.height=e.max+'px';
   vw.style.setProperty('--vsh',(e.min+8)+'px');
-  vwSheetApply(Math.max(e.min,Math.min(e.max,VW.sheetVis||e.min)),false);
+  // свёрнутая остаётся свёрнутой, когда шапка сменила высоту (кнопка скрыта в «Фото», ошибка под кнопкой, ход задания)
+  vwSheetApply(sd.dataset.pos==='0'?e.min:Math.max(e.min,Math.min(e.max,VW.sheetVis||e.min)),false);
   const w=document.querySelector('#shot .shotwrap'); if(w&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode===w)liveFit(w);
   const mi=document.querySelector('#shot .shotwrap img.vmain'); if(mi&&mi._focus)mi._focus();   // поворот — кадрирование заново
 }
@@ -4884,7 +4898,12 @@ function vwSheetState(pos){
   if(g){g.setAttribute('aria-expanded',String(pos>0)); g.setAttribute('aria-label',pos===3?(EN?'Collapse':'Свернуть'):(EN?'Furniture and finishes — open':'Мебель и отделка — открыть'));}
   if(c)c.textContent=pos===3?(EN?'⌄ Collapse':'⌄ Свернуть'):vwChipText();
   if(sc){sc.style.overflowY=pos===3?'auto':'hidden'; sc.style.touchAction=pos===3?'pan-y':'none';}
-  try{sessionStorage.setItem('remlab-sheet-pos',String(pos));}catch(e){}
+  const x=document.getElementById('shotx');   // «×» при полной — «свернуть список» (v5.2 п.6, `vwXCollapses`)
+  if(x)x.setAttribute('aria-label',pos===3?(EN?'Collapse the list':'Свернуть список'):(EN?'Close':'Закрыть'));
+}
+function vwXCollapses(){
+  const sh=document.getElementById('shot'), sd=document.getElementById('vside');
+  return VW_PHONE()&&!!sh&&sh.classList.contains('on')&&sh.classList.contains('v2')&&!!sd&&sd.dataset.pos==='3';
 }
 // программные положения: 0 — свернуть, 1 и 2 — средняя (по содержимому трёх строк, v5), 3 — полностью (до верха экрана)
 function vwSheet(pos){
@@ -4901,7 +4920,10 @@ function vwSheetWire(){
   // ШАПКА ШТОРКИ (v5.1) — пилюля, плашка «Остаток» и чип: тянут шторку; тап открывает ↔ сворачивает ПО `click`, а не по
   // `pointerup` (владелец 17.10, iPhone: тап по чипу иногда нажимал «Сделать реалистичнее» — шторка уезжала до синтетического
   // click, и он попадал в приехавшую под палец кнопку). ⓘ и пузырь плашки — свои нажатия, шторку не трогают
-  const heads=[document.getElementById('vpill'), document.getElementById('vsum'), grip].filter(Boolean);
+  // v5.2: блок кнопки — тоже шапка (тянет шторку), но его нажатия — свои: тап по кнопке шторку не переключает. Захват указателя у
+  // него — только когда жест пошёл: захват с касания увёл бы `click` с кнопки на блок
+  const vtop=sd.querySelector('.vtop');
+  const heads=[document.getElementById('vpill'), document.getElementById('vsum'), grip, vtop].filter(Boolean);
   const own=t=>t&&t.closest&&t.closest('.vpl-i,#vplBub');
   let st=null;
   const begin=(y,id,fromGrip)=>{st={y0:y, vis0:VW.sheetVis||vwEdges().min, id, grip:fromGrip, moved:false, smp:[[performance.now(),y]]};};
@@ -4921,15 +4943,20 @@ function vwSheetWire(){
       setTimeout(()=>sc.removeEventListener('click',kill,{capture:true}),350);}};
   // шапка — указатель с захватом: тянет всегда, второй палец игнорируется
   heads.forEach(h=>{
-    h.addEventListener('pointerdown',e=>{if(!VW_PHONE()||st||own(e.target))return; begin(e.clientY,e.pointerId,true); try{h.setPointerCapture(e.pointerId);}catch(_){}});
-    h.addEventListener('pointermove',e=>{if(!st||e.pointerId!==st.id)return; if(!st.moved&&Math.abs(e.clientY-st.y0)<6)return; drag(e.clientY);});
+    h.addEventListener('pointerdown',e=>{if(!VW_PHONE()||st||own(e.target))return; begin(e.clientY,e.pointerId,true); if(h!==vtop)try{h.setPointerCapture(e.pointerId);}catch(_){}});
+    h.addEventListener('pointermove',e=>{if(!st||e.pointerId!==st.id)return; if(!st.moved&&Math.abs(e.clientY-st.y0)<6)return;
+      if(h===vtop&&!st.moved)try{h.setPointerCapture(e.pointerId);}catch(_){}
+      drag(e.clientY);});
     h.addEventListener('pointerup',e=>{if(st&&e.pointerId===st.id)end(false);});
     ['pointercancel','lostpointercapture'].forEach(n=>h.addEventListener(n,e=>{if(st&&st.grip&&e.pointerId===st.id)end(true);}));
-    h.addEventListener('click',e=>{if(!VW_PHONE()||own(e.target))return; e.preventDefault();
+    if(h!==vtop)h.addEventListener('click',e=>{if(!VW_PHONE()||own(e.target))return; e.preventDefault();
       if(performance.now()-(VW.dragEndAt||0)<350)return;    // клик в конце перетаскивания — не тап
       vwSheet();});});
-  // пока шторка едет после программного сдвига (и 150 мс после), нажатия по содержимому не проходят
+  // пока шторка едет после программного сдвига (и 150 мс после), нажатия по содержимому и кнопке не проходят (v5.1 п.2; v5.2 —
+  // кнопка прямо под чипом); клик в конце перетаскивания за блок кнопки — тоже не нажатие
   sc.addEventListener('click',e=>{if(VW_PHONE()&&performance.now()-(VW.sheetMovedAt||0)<450){e.stopPropagation(); e.preventDefault();}},{capture:true});
+  if(vtop)vtop.addEventListener('click',e=>{const now=performance.now();
+    if(VW_PHONE()&&(now-(VW.sheetMovedAt||0)<450||now-(VW.dragEndAt||0)<350)){e.stopPropagation(); e.preventDefault();}},{capture:true});
   // список — сенсорные события: решение «шторка или прокрутка» принимается до нативной прокрутки
   sc.addEventListener('touchstart',e=>{if(!VW_PHONE()||st||e.touches.length>1)return;
     const t=e.touches[0]; begin(t.clientY,'touch',false); st.taken=false; st.top0=sc.scrollTop;},{passive:true});
@@ -4979,14 +5006,14 @@ function vwHighlight(idx, opt){
   const r=vwRowOf(it); if(!r)return;
   document.querySelectorAll('#shotbody .row.hl').forEach(x=>x.classList.remove('hl'));
   r.classList.add('hl'); clearTimeout(VW.hlT);
-  let wait=0;
-  if(open&&VW_PHONE()){const sd=document.getElementById('vside'); if(sd&&+sd.dataset.pos!==3){vwSheet(3); wait=VW_SLOW()?40:340;}}
-  // прокрутка — ПОСЛЕ конца анимации шторки (высота списка уже новая). Только сам список: `scrollIntoView` двигал и окно над шторкой
-  setTimeout(()=>{const sc=document.getElementById('vscroll'); if(!sc||!r.isConnected)return;
-    const rr=r.getBoundingClientRect(), sr=sc.getBoundingClientRect(), vt=sc.querySelector('.vtop');
-    // закреплённая кнопка сверху списка (компьютер) — строка встаёт ниже неё, а не под ней
-    const gap=Math.max(sc.clientHeight/6, vt&&getComputedStyle(vt).position==='sticky'?vt.offsetHeight+12:0);
-    sc.scrollTo({top:Math.max(0,sc.scrollTop+(rr.top-sr.top)-gap),behavior:VW_SLOW()?'auto':'smooth'});},wait);
+  if(open&&VW_PHONE()){const sd=document.getElementById('vside'); if(sd&&+sd.dataset.pos!==3)vwSheet(3);}
+  // прокрутка — СРАЗУ и мгновенно на телефоне (v5.2 п.5, владелец 18.10: «сначала шторка открывается, потом перелистывается» — два
+  // движения): высота шторки всегда полная, едет только сдвиг, геометрия списка не меняется — к концу подъёма строка уже в верхней
+  // трети. Только сам список: `scrollIntoView` двигал и окно над шторкой. Компьютер — плавно, как было
+  const sc=document.getElementById('vscroll'); if(!sc)return;
+  const rr=r.getBoundingClientRect(), sr=sc.getBoundingClientRect();
+  const gap=sc.clientHeight/6;          // кнопка — вне списка (v5.2), строку она не закрывает
+  sc.scrollTo({top:Math.max(0,sc.scrollTop+(rr.top-sr.top)-gap),behavior:VW_PHONE()||VW_SLOW()?'auto':'smooth'});
 }
 // ЦЕННИКИ НАД МЕБЕЛЬЮ В 3D (demo-09, Codex 17.10): метки — постоянные узлы, двигаются `transform` на каждом кадре; точки предметов —
 // из кэша движка (`viewer.projectSlot`), замеры окна и кнопок — 12 раз в секунду, не на каждом кадре. В «Фото» (снимок нейросети)
@@ -5026,14 +5053,12 @@ function vwMount(s){
   shot.classList.toggle('nolive',LIVE.ok===false); shot.classList.toggle('vwalk',VW.mode==='walk');
   const side=document.getElementById('vscroll'), capEl=shot.querySelector('.cap'); if(side&&capEl)side.appendChild(capEl);
   const vs=document.getElementById('vsum'); if(vs){vs._vals=null; vwSumUpdate();}
-  // шторка v4: раскладка один раз, положение — прежнее в этой вкладке (по умолчанию чуть открыта: видно главное действие)
-  // перерисовка открытого окна (пришёл эскиз, другой ракурс) — шторка остаётся на той же высоте, без анимации: иначе «сдвиг»
-  // глушил бы нажатия по содержимому (v5.1); новое окно — положение из этой вкладки
+  // шторка: раскладка один раз; новое окно — ВСЕГДА свёрнутая (v5.2, владелец 18.10: плашка + чип + кнопка — состояние по умолчанию,
+  // память положения во вкладке снята); «назад» браузера возвращает снимок (`restoreView`). Перерисовка открытого окна (пришёл
+  // эскиз, другой ракурс) — шторка на той же высоте, без анимации: иначе «сдвиг» глушил бы нажатия по содержимому (v5.1)
   const sd0=document.getElementById('vside'); if(sd0)sd0.dataset.pos='';
   if(VW.sheetVis>0){vwLayout();}
-  else{let pos=1; try{const v=sessionStorage.getItem('remlab-sheet-pos'); if(v!=null)pos=+v||0;}catch(e){}
-    if(VW.collapse){pos=0; VW.collapse=false;}
-    VW.sheetVis=0; vwLayout(); vwSheet(pos);}
+  else{VW.sheetVis=0; vwLayout(); vwSheet(0);}
   vwHist();
   shot.querySelectorAll('[data-vm]').forEach(b=>b.onclick=()=>vwMode(b.dataset.vm));
   vwModeUi();
@@ -5183,6 +5208,7 @@ function vwCamNames(){
 const VJ={job:null, err:'', tick:0};
 function vwCtaUi(){
   const cta=document.getElementById('vCta'); if(!cta)return; const m=VW.mode, EN=LANG==='en';
+  const vt=cta.closest('.vtop'), h0=vt?vt.offsetHeight:0;
   cta.hidden=m==='photo';
   if(m==='plan'){cta.classList.remove('busy'); cta.textContent=EN?'Edit the plan':'Изменить план';}
   else if(VJ.job){const sec=Math.round((Date.now()-VJ.job.t0)/1000); cta.classList.add('busy');
@@ -5191,6 +5217,8 @@ function vwCtaUi(){
   let er=document.getElementById('vCtaErr');
   if(VJ.err&&m!=='photo'){if(!er){er=document.createElement('p'); er.id='vCtaErr'; er.className='vcta-err'; cta.after(er);} er.textContent=VJ.err;}
   else if(er)er.remove();
+  // кнопка — в шапке шторки (v5.2): шапка сменила высоту — края шторки заново, свёрнутая остаётся свёрнутой с кнопкой целиком
+  if(VW_PHONE()&&vt&&vt.offsetHeight!==h0)vwLayout();
 }
 // КАДРЫ ДЛЯ НЕЙРОСЕТИ — ИЗ ЭТОЙ ЖЕ 3D-СЦЕНЫ (demo-10, владелец 17.10: «3D рисуем моментально — сфотать и отправить»): оба вида из поз
 // C1/C2 (`DemoScene.capture`: атомарно, без наклона и подсветки), каждый — отдельным запросом на прод (`/api/render/frame`, имя =
