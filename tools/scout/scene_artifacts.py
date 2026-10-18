@@ -13,10 +13,14 @@
       заголовок и уровни по спецификации Khronos, PIL KTX2 не читает). Иначе «без текстуры». Читается только сама
       лёгкая копия (0,1–0,4 МБ), геометрия не декодируется.
   (ж) ковёр и декор в данных варианта: ковёр с фото и ценой, ваза с ценой и моделью.
-Не покрыто (нужен браузер/движок): (б) чёрные пиксели в кадре, (г) первая точка обзора, (д) камера прогулки, (е) пины.
+Не покрыто (нужен браузер/движок): (б) чёрные пиксели в кадре, (г) первая точка обзора, (д) камера прогулки; (е) пины в
+кадре — живой тест в браузере (`e2e/live/demo-scenarios.live.ts`, «пины в кадре»), не здесь.
 
   ~/venvs/scout/bin/python tools/scout/scene_artifacts.py [--data PATH|URL] [--rt DIR] [--out DIR] [--date YYYY-MM-DD]
 Выход: таблица в stdout, `<out>/<дата>.json` и `<out>/index.html` (страница для хаба /test/; публикация — не здесь).
+Последняя строка — вердикт для ночного журнала (`verdict`): `WARN:scene_artifacts: …` с названиями красных вариантов
+(уходит в дайджест) или `scene_artifacts: OK — …` с числами. Ночью (`refresh_daily.sh`, шаг `scene_artifacts`) данные
+берутся с прода (`--data https://remont-lab.online/demo/demo-data.json`), фото ковра — HEAD по адресу страницы.
 """
 from __future__ import annotations
 
@@ -29,6 +33,7 @@ import json
 import os
 import struct
 import sys
+import urllib.parse
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -46,7 +51,7 @@ NOT_COVERED = [
     ('б', 'чёрный предмет — доля тёмных пикселей по маске объекта в кадре', 'нужен рендер сцены'),
     ('г', 'первая точка обзора 3D видит ≥ 3 предмета ядра', 'нужен движок сцены/браузер'),
     ('д', 'камера прогулки не входит в след предмета', 'нужен движок прогулки (walk.ts)'),
-    ('е', 'пины цен в пределах кадра', 'нужен браузер'),
+    ('е', 'пины цен в пределах кадра', 'живой тест в браузере — e2e/live/demo-scenarios.live.ts'),
 ]
 
 
@@ -201,6 +206,18 @@ def check_textures(mid: str, rt_dir: str) -> list[dict]:
 
 # ——— (ж) ковёр и декор в данных —————————————————————————————————————————————
 
+def photo_exists(data_dir: str, img: str) -> bool:
+    """Фото рядом с данными: на диске — файл; данные с прода — HEAD по тому же адресу, что берёт страница."""
+    if not data_dir.startswith('http'):
+        return os.path.exists(os.path.join(data_dir, img))
+    try:
+        req = urllib.request.Request(urllib.parse.urljoin(data_dir, img), method='HEAD')
+        with urllib.request.urlopen(req, timeout=20) as r:  # noqa: S310 — свой прод
+            return r.status == 200
+    except Exception:  # noqa: BLE001 — 404 и отказ сети одинаково «фото не видно»
+        return False
+
+
 def check_rug_decor(v: dict, data_dir: str) -> list[dict]:
     out = []
     rugs = [it for it in v.get('items') or [] if SC._base(it['role']) == 'ковёр']
@@ -211,7 +228,7 @@ def check_rug_decor(v: dict, data_dir: str) -> list[dict]:
         img = str(sku.get('img') or '')
         if not img:
             out.append({'item': it['role'], 'problem': 'ковёр без фото', 'value': sku.get('name', '')})
-        elif data_dir and not img.startswith(('http', '//')) and not os.path.exists(os.path.join(data_dir, img)):
+        elif data_dir and not img.startswith(('http', '//')) and not photo_exists(data_dir, img):
             out.append({'item': it['role'], 'problem': 'фото ковра нет в выкладке', 'value': img})
         if not (sku.get('price') or 0) > 0:
             out.append({'item': it['role'], 'problem': 'ковёр без цены', 'value': sku.get('name', '')})
@@ -252,10 +269,34 @@ def run(data: dict, rt_dir: str, data_dir: str, thr: float = SC.OVERLAP_CM) -> d
                              'value': t['value']})
         rd = check_rug_decor(v, data_dir)
         rows += [{**base, 'check': 'ж', **r} for r in rd]
-        summary.append({**base, 'overlaps_gt_thr': len(ovs), 'max_overlap_cm': max([o['depth_cm'] for o in ovs], default=0.0),
+        summary.append({**base, 'title': v.get('title') or style, 'overlaps_gt_thr': len(ovs), 'max_overlap_cm': max([o['depth_cm'] for o in ovs], default=0.0),
                         'models': len(models), 'models_without_texture': len(no_tex), 'chaise_notes': len(notes),
                         'rug_decor_problems': len(rd)})
     return {'rows': rows, 'summary': summary}
+
+
+def verdict(rep: dict) -> list[str]:
+    """Строки для ночного журнала и дайджеста. Красное — ОДНА строка `WARN:scene_artifacts:` с названиями всех красных
+    вариантов (дайджест берёт первую WARN-строку шага, до 200 знаков); зелёное — одна строка OK с числами, чтобы по журналу
+    было видно, что шаг прошёл. Красное: наезд глубже порога, модель без текстуры (или без лёгкой копии), ковёр/ваза (ж).
+    Заметки об оттоманке — не красное."""
+    sm, thr = rep['summary'], f"{rep['threshold_cm']:g}"
+    if not sm:
+        return ['WARN:scene_artifacts: в опубликованных данных нет вариантов']
+    red = []
+    for s in sm:
+        why = []
+        if s['overlaps_gt_thr']:
+            why.append(f"наезд {s['max_overlap_cm']:g} см")
+        if s['models_without_texture']:
+            why.append(f"без текстуры {s['models_without_texture']}")
+        why += list(dict.fromkeys(r['problem'] for r in rep['rows'] if r['variant'] == s['variant'] and r['check'] == 'ж'))
+        if why:
+            red.append(f"{s.get('title') or s['style']} ({s['variant']}): {', '.join(why)}")
+    if red:
+        return [f'WARN:scene_artifacts: красных {len(red)} из {len(sm)} — ' + '; '.join(red)]
+    return [f"scene_artifacts: OK — вариантов {len(sm)}, наездов > {thr} см 0, моделей {sum(s['models'] for s in sm)} — "
+            f"все с текстурой, ковёр и ваза у всех, заметок об оттоманке {sum(s['chaise_notes'] for s in sm)}"]
 
 
 def table(rows: list[dict]) -> str:
@@ -313,7 +354,7 @@ def main() -> int:
     ap.add_argument('--threshold', type=float, default=SC.OVERLAP_CM)
     a = ap.parse_args()
     data, sha = load_data(a.data)
-    data_dir = '' if a.data.startswith('http') else os.path.dirname(os.path.expanduser(a.data))
+    data_dir = a.data if a.data.startswith('http') else os.path.dirname(os.path.expanduser(a.data))
     rep = {'date': a.date, 'source': a.data, 'data_sha': sha, 'rt_dir': a.rt, 'threshold_cm': a.threshold,
            **run(data, a.rt, data_dir, a.threshold),
            'not_covered': [{'check': k, 'what': t, 'why': w} for k, t, w in NOT_COVERED]}
@@ -323,12 +364,13 @@ def main() -> int:
         print(f"{s['variant']} {s['style']}: наездов > {a.threshold:g} см — {s['overlaps_gt_thr']} (макс. "
               f"{s['max_overlap_cm']:g}), без текстуры — {s['models_without_texture']} из {s['models']}, ковёр/ваза — "
               f"{s['rug_decor_problems']}, оттоманка — {s['chaise_notes']}")
-    print('не покрыто: ' + ', '.join(f'({k})' for k, _, _ in NOT_COVERED))
+    print('не покрыто здесь: ' + ', '.join(f'({k})' for k, _, _ in NOT_COVERED))
     os.makedirs(a.out, exist_ok=True)
     jp = os.path.join(a.out, f'{a.date}.json')
     json.dump(rep, open(jp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     open(os.path.join(a.out, 'index.html'), 'w', encoding='utf-8').write(page(rep))
     print(f'отчёт: {jp} · страница: {os.path.join(a.out, "index.html")}')
+    print('\n'.join(verdict(rep)), flush=True)
     return 0
 
 

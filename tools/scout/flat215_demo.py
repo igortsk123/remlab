@@ -1233,6 +1233,9 @@ def main() -> None:
             data['variants'] = [v for v in data['variants'] if v.get('id') not in red]
         elif red:
             print(f'WARN:scene_checks_many: красных {len(red)} из {len(data["variants"])} — публикуем всё, проверьте сами ворота', flush=True)
+        else:  # на зелёном ворота молчали — по журналу не доказать, что они вообще шли
+            print(f'scene_checks: OK — вариантов {len(data["variants"])}, наездов > {SC.OVERLAP_CM:g} см и тёмных моделей нет',
+                  flush=True)
     except Exception as e:  # noqa: BLE001 — сломанные ворота не валят сборку, но громко
         print(f'WARN:scene_checks_error: {repr(e)[:160]}', flush=True)
     # ОКНА И ДВЕРИ СЕРВЕРНОГО КАДРА — ИЗ ТОГО ЖЕ ОПИСАНИЯ, ЧТО В ЖИВОЙ СЦЕНЕ (demo-04): генератор один

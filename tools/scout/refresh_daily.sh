@@ -415,6 +415,10 @@ if step demo_rt bash ../assets/demo_rt.sh; then
 else
   RES[flat215_publish]=FAIL; echo "flat215_publish пропущен: ворота demo_rt" >> "$LOG"
 fi
+# ОТЧЁТ ОБ АРТЕФАКТАХ СЦЕНЫ ПО ОПУБЛИКОВАННОМУ (demo-05 п.1, 18.10): данные — с прода (то, что видит покупатель, даже если
+# сегодняшняя публикация не прошла), лёгкие копии — то, что выложено на /rt/. Наезд > 2 см, модель без текстуры, нет ковра/вазы —
+# одна строка `WARN:scene_artifacts:` с названиями вариантов (в дайджест); чисто — строка `scene_artifacts: OK — …` с числами
+step scene_artifacts "$PY" scene_artifacts.py --data "https://remont-lab.online/demo/demo-data.json?v=$(date +%s)"
 # прогрев кадров (b2b-08 п.4): у каждого стиля — черновой кадр свежего набора, без чьего-то нажатия «снять»
 step demo_warm bash ../ops/demo-warm.sh
 # живая проверка демо на проде после публикации (b2b-12): стили, кадры, замена, ссылка, английский

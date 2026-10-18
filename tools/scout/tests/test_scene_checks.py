@@ -93,5 +93,29 @@ bad = {'items': [it('ковёр', 1, 1, 2, 2, sku={'img': '', 'price': 0})], 'de
 probs = {x['problem'] for x in A.check_rug_decor(bad, '')}
 check('ковёр без фото и цены, нет вазы — три находки', probs == {'ковёр без фото', 'ковёр без цены', 'нет вазы в декоре'})
 
+check('фото ковра на диске: нет файла — не видно', not A.photo_exists('/nonexistent-dir', 'img/x.jpg'))
+
+# ——— вердикт ночного шага: красное — одна WARN-строка с названиями вариантов, зелёное — одна строка OK с числами
+def summ(vid, title, **kw):
+    return {'variant': vid, 'style': title.lower(), 'title': title, 'overlaps_gt_thr': 0, 'max_overlap_cm': 0.0,
+            'models': 8, 'models_without_texture': 0, 'chaise_notes': 0, 'rug_decor_problems': 0, **kw}
+
+
+green = {'threshold_cm': 2.0, 'rows': [], 'summary': [summ('set1', 'Сканди'), summ('set6', 'Современный')]}
+v = A.verdict(green)
+check(f'зелёное — одна строка OK с числами: {v}', len(v) == 1 and v[0].startswith('scene_artifacts: OK')
+      and 'вариантов 2' in v[0] and 'моделей 16' in v[0] and not v[0].startswith('WARN'))
+red = {'threshold_cm': 2.0, 'summary': [summ('set1', 'Сканди', overlaps_gt_thr=1, max_overlap_cm=3.5),
+                                        summ('set6', 'Современный'),
+                                        summ('set11', 'Лофт', models_without_texture=1, rug_decor_problems=1)],
+       'rows': [{'variant': 'set11', 'check': 'ж', 'problem': 'нет вазы в декоре'}]}
+v = A.verdict(red)
+check(f'красное — одна WARN-строка со всеми красными вариантами: {v}',
+      len(v) == 1 and v[0].startswith('WARN:scene_artifacts: красных 2 из 3') and 'Сканди (set1): наезд 3.5 см' in v[0]
+      and 'Лофт (set11): без текстуры 1, нет вазы в декоре' in v[0] and 'Современный' not in v[0])
+check('заметка об оттоманке — не красное', A.verdict({**green, 'summary': [summ('set1', 'Сканди', chaise_notes=1)]})[0]
+      .startswith('scene_artifacts: OK'))
+check('нет вариантов — тревога', A.verdict({**green, 'summary': []})[0].startswith('WARN:scene_artifacts:'))
+
 print('ИТОГ:', 'всё OK' if not fails else f'{fails} FAIL')
 sys.exit(1 if fails else 0)

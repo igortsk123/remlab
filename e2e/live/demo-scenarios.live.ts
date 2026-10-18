@@ -503,3 +503,72 @@ test("2.37 свёрнутая шторка = плашка + чип + кнопк�
     await ctx.close();
   }
 });
+
+// ——— demo-05 п.1(е): ценники-пины в пределах кадра (ночной отчёт `scene_artifacts.py` пины не видит — нужен браузер) ———
+// Видимый пин — целиком внутри области сцены (слой `#vpins` ∩ холст ∩ экран) и не заходит на шторку `#vside`, в т.ч. на её шапку
+// (пилюля + плашка + чип + кнопка — всё выше `#vscroll`). Правило страницы то же (`vwPinsTick`: «только целиком в кадре, не под
+// кнопками и шторкой») — тест ловит его поломку. Каждый стиль, телефон 375×667 и компьютер; меряем, когда пины перестали двигаться.
+type Box = { left: number; top: number; right: number; bottom: number };
+const pinsInFrame = (page: Page) => page.evaluate(() => {
+  const r = (e: Element | null): Box | null => {
+    if (!e) return null;
+    const b = e.getBoundingClientRect();
+    return b.width > 0 && b.height > 0 ? { left: b.left, top: b.top, right: b.right, bottom: b.bottom } : null;
+  };
+  const cut = (a: Box, b: Box): Box => ({ left: Math.max(a.left, b.left), top: Math.max(a.top, b.top), right: Math.min(a.right, b.right), bottom: Math.min(a.bottom, b.bottom) });
+  const hit = (a: Box, b: Box) => a.left < b.right - 0.5 && a.right > b.left + 0.5 && a.top < b.bottom - 0.5 && a.bottom > b.top + 0.5;
+  const R = (b: Box | null) => b && `${Math.round(b.left)},${Math.round(b.top)}–${Math.round(b.right)},${Math.round(b.bottom)}`;
+  const scr: Box = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+  const layer = r(document.getElementById("vpins")), cv = r(document.querySelector("#shot .livecv"));
+  const scene = layer && cv ? cut(cut(layer, cv), scr) : null;
+  const sd = r(document.getElementById("vside")), sc = r(document.getElementById("vscroll"));
+  const sheet = sd ? cut(sd, scr) : null;
+  const head = sd && sc ? cut({ ...sd, bottom: Math.max(sd.top, sc.top) }, scr) : null;
+  const pins = [...document.querySelectorAll("#vpins .vpin:not([hidden])")].map((n) => ({ t: (n as HTMLElement).innerText, b: r(n) }))
+    .filter((p): p is { t: string; b: Box } => !!p.b);
+  const bad: string[] = [];
+  for (const p of pins) {
+    const at = `«${p.t}» ${R(p.b)}`;
+    if (!scene || p.b.left < scene.left - 0.5 || p.b.right > scene.right + 0.5 || p.b.top < scene.top - 0.5 || p.b.bottom > scene.bottom + 0.5) bad.push(`${at} за краем сцены`);
+    if (head && head.bottom > head.top && hit(p.b, head)) bad.push(`${at} на шапке шторки`);
+    else if (sheet && sheet.bottom > sheet.top && hit(p.b, sheet)) bad.push(`${at} на шторке`);
+  }
+  return { n: pins.length, bad, key: pins.map((p) => R(p.b)).join(" "), scene: R(scene), head: R(head) };
+});
+async function pinsEveryStyle(page: Page, label: string): Promise<string[]> {
+  await page.route(/\/api\/events/, (r) => r.fulfill({ status: 204, body: "" }));
+  await page.goto("/demo/?live=force", { waitUntil: "load" });
+  await page.waitForFunction("document.querySelectorAll('#styleTabs [data-style]').length > 0 && !!FLAT", null, { timeout: 90_000 });
+  const n = await page.locator("#styleTabs [data-style]").count();
+  const bad: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const style = (await page.locator("#styleTabs [data-style]").nth(i).innerText()).trim();
+    await page.locator("#styleTabs [data-style]").nth(i).click();
+    await page.locator("#hmRooms .hm-room [data-swap]").click();
+    await expect(page.locator("#shot")).toHaveClass(/\bon\b/);
+    await page.evaluate("if (VW.mode !== 'walk') vwMode('walk')");   // у варианта может быть реалистичное фото — пины только в 3D
+    await page.waitForFunction("LIVE.scene && LIVE.state === 'ready'", null, { timeout: 120_000 });
+    await expect.poll(() => page.locator("#vpins .vpin:not([hidden])").count(), { timeout: 20_000 }).toBeGreaterThanOrEqual(3);
+    // пины стоят (шторка доехала, камера на месте): два замера подряд через 400 мс совпали
+    let m = await pinsInFrame(page);
+    for (let k = 0; k < 15; k++) {
+      await page.waitForTimeout(400);
+      const prev = m.key;
+      m = await pinsInFrame(page);
+      if (m.key === prev) break;
+    }
+    say(`${label} ${style}: пинов ${m.n}, сцена ${m.scene}, шапка шторки ${m.head ?? "—"}, вне кадра ${m.bad.length}`);
+    bad.push(...m.bad.map((b) => `${label} ${style}: ${b}`));
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#shot")).not.toHaveClass(/\bon\b/);
+  }
+  return bad;
+}
+test("п.1(е) пины цен в пределах кадра: внутри сцены и не на шторке — каждый стиль, телефон 375×667 и компьютер (demo-05)", async ({ browser, page }) => {
+  test.setTimeout(8 * 60_000);
+  const bad = await pinsEveryStyle(page, "компьютер");
+  const ctx = await browser.newContext(phone);
+  bad.push(...await pinsEveryStyle(await ctx.newPage(), "телефон 375×667"));
+  await ctx.close();
+  expect(bad, bad.join("\n")).toEqual([]);
+});
