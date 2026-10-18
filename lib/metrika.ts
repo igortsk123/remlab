@@ -7,24 +7,46 @@ export const METRIKA_COUNTER_ID = 110599064;
 export const METRIKA_READY_EVENT = "remlab-metrika-ready";
 
 /**
- * Адрес для Метрики: значения КЛЮЧЕЙ покупателя заменены на `*`, остальное (utm, demo, flat…) — как было.
- * Ключи: `s` — подборка менеджера, `c` — корзина, `coll` — коллекция (`app/flat/page.tsx: Search`). Кто знает значение —
- * открывает чужую корзину, поэтому во внешнюю аналитику оно не уходит: Метрика видит только «пришёл по ссылке» (`s=*`).
+ * Адрес для Метрики: КЛЮЧИ покупателя заменены на `*`, остальное (utm, demo, flat…) — как было.
+ * Ключи в параметрах: `s` — подборка менеджера, `c` — корзина, `coll` — коллекция (`app/flat/page.tsx: Search`).
+ * Ключи в пути: `/e/<id>` — смета (`app/e/[id]/page.tsx`, правится по одному id), `/p/<id>/…` — проект
+ * (`app/p/[id]/*`, без проверки владельца), `/go/<eid>/<iid>` — переход из сметы (`app/go/[eid]/[iid]/route.ts`).
+ * Публичные сегменты (`/calc/<вид>`, `/embed/<партнёр>/<квартира>`) не трогаем. Кто знает значение — открывает
+ * чужую корзину/смету, поэтому во внешнюю аналитику оно не уходит: Метрика видит только `s=*`, `/e/*`.
+ * Принимает и путь, и полный адрес (реферер); хост не проверяет. Изменился адрес → он «с ключом» (карта кликов
+ * и Вебвизор выключаются: `app/layout.tsx`, `components/MetrikaPageviews.tsx`).
  * Функция САМОДОСТАТОЧНА (ни одного внешнего имени): её текст вставлен в скрипт старта счётчика `app/layout.tsx`.
  */
 export function metrikaSafeUrl(url: string): string {
   const keys = ["s", "c", "coll"];
-  const q = url.indexOf("?");
-  if (q < 0) return url;
-  const h = url.indexOf("#", q);
-  const out = new URLSearchParams();
+  const end = url.search(/[?#]/);
+  const pathEnd = end < 0 ? url.length : end;
+  const scheme = url.indexOf("://");
+  const start = scheme < 0 ? 0 : url.indexOf("/", scheme + 3);
   let masked = false;
-  new URLSearchParams(url.slice(q + 1, h < 0 ? undefined : h)).forEach((v, k) => {
-    const hide = keys.indexOf(k) >= 0 && v !== "";
-    masked = masked || hide;
-    out.append(k, hide ? "*" : v);
-  });
-  return masked ? url.slice(0, q + 1) + out.toString() + (h < 0 ? "" : url.slice(h)) : url;
+  let path = url.slice(0, pathEnd);
+  if (start >= 0 && start < pathEnd) {
+    const segs = url.slice(start, pathEnd).split("/");
+    const head = segs[1] || "";
+    const n = head === "go" ? 2 : head === "e" || head === "p" ? 1 : 0; // сколько сегментов за префиксом — ключ
+    for (let i = 2; i < 2 + n && i < segs.length; i++) {
+      if (segs[i] !== "" && segs[i] !== "*") { segs[i] = "*"; masked = true; }
+    }
+    path = url.slice(0, start) + segs.join("/");
+  }
+  let rest = url.slice(pathEnd); // "?…#…", "#…" или ""
+  if (rest.charAt(0) === "?") {
+    const h = rest.indexOf("#");
+    const out = new URLSearchParams();
+    let hidden = false;
+    new URLSearchParams(rest.slice(1, h < 0 ? undefined : h)).forEach((v, k) => {
+      const hide = keys.indexOf(k) >= 0 && v !== "";
+      hidden = hidden || hide;
+      out.append(k, hide ? "*" : v);
+    });
+    if (hidden) { rest = "?" + out.toString() + (h < 0 ? "" : rest.slice(h)); masked = true; }
+  }
+  return masked ? path + rest : url;
 }
 
 declare global {
