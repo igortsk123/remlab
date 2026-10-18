@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Главная демо — макет</title>
+<style>
+/* Витрина макета demo-16: три варианта первого экрана в рамках телефона и компьютера. Палитра — как в home.css. */
+:root{--bg:rgb(251 248 243);--surface:#fff;--ink:rgb(41 37 36);--muted:rgb(120 113 108);--line:rgb(231 229 228);
+  --accent:rgb(176 106 74);--accent-soft:rgb(250 243 239);--ok:rgb(47 125 79)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1500px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:22px;margin:0 0 6px}
+h2{font-size:19px;margin:0}
+p{margin:6px 0;max-width:760px}
+.muted{color:var(--muted)}
+section{margin-top:28px;padding-top:18px;border-top:1px solid var(--line)}
+.head{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px}
+.head a{color:var(--accent);font-weight:600}
+.nums{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0}
+.nums span{font-size:13px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:3px 8px}
+.nums b{color:var(--ok)}
+.row{display:flex;flex-wrap:wrap;gap:20px;padding:14px 2px 10px;align-items:flex-start}
+@media (max-width:899px){.row{flex-wrap:nowrap;overflow-x:auto}}
+figure{margin:0;flex:none}
+figcaption{font-size:13px;color:var(--muted);margin-bottom:6px}
+.dev{border:8px solid #1c1917;border-radius:22px;overflow:hidden;background:#1c1917;box-shadow:0 6px 18px rgba(28,25,23,.15)}
+.dev iframe{display:block;border:0;background:var(--bg)}
+.desk{width:592px;height:376px}
+.desk iframe{width:1440px;height:900px;transform:scale(.4);transform-origin:0 0}
+.desk.dev{border-width:8px;border-radius:12px}
+.desk .in{width:576px;height:360px;overflow:hidden}
+</style></head><body><main>
+<h1>Главная демо: первый экран — три варианта</h1>
+<p>Что смотреть: что человек видит на телефоне <b>без прокрутки</b> — квартира, цена, сертификат, вкладки стилей и начало
+фото первой комнаты. И что остаётся сверху, когда он листает вниз (не выше 96 px).</p>
+<p class="muted">Данные настоящие: квартира 215, «Ольховый квартал», цена 9 578 200 ₽, сертификат 470 000 ₽ (5 % цены),
+в избранном — сканди-гостиная за 168 128 ₽ (10 предметов), остаток 301 872 ₽. Стили — те 5, у которых есть готовая гостиная
+(неоклассика пока неполная). Кнопки не нажимаются — это картинка-макет. Каждый вариант можно открыть отдельно на своём телефоне.</p>
+
+<section id="A">
+  <div class="head"><h2>A — шапка в две строки + полоса сертификата</h2><a href="a.html">открыть отдельно</a></div>
+  <p>Квартира · цена · ♡ → ЖК, сдача, этаж → две кнопки в одну строку → сертификат с полосой → подсказка → вкладки стилей → комнаты.
+  Всё по плану, самый «полный» верх.</p>
+  <div class="nums"><span>фото начинается: <b>265 px</b> (375×667)</span><span>видно фото до сгиба: <b>242 px</b></span>
+    <span>вкладки видны: <b>да</b></span><span>сверху при прокрутке: <b>88 px</b></span></div>
+  <div class="row">
+    <figure><figcaption>Телефон 375×667</figcaption><div class="dev"><iframe src="a.html" width="375" height="667" title="A 375×667"></iframe></div></figure>
+    <figure><figcaption>375×667 — после прокрутки</figcaption><div class="dev"><iframe src="a.html?s=1" width="375" height="667" title="A прокрутка"></iframe></div></figure>
+    <figure><figcaption>Телефон 390×844</figcaption><div class="dev"><iframe src="a.html" width="390" height="844" title="A 390×844"></iframe></div></figure>
+    <figure><figcaption>Компьютер 1440×900 (уменьшено)</figcaption><div class="dev desk"><div class="in"><iframe src="a.html" title="A 1440×900"></iframe></div></div></figure>
+  </div>
+</section>
+
+<section id="B">
+  <div class="head"><h2>B — сертификат в строке цены, кнопки рядом с ЖК</h2><a href="b.html">открыть отдельно</a></div>
+  <p>Под ценой одной строкой «сертификат · остаток» с тонкой полосой — и она <b>остаётся сверху при прокрутке</b>: остаток виден всегда.
+  ЖК и сдача — слева, «Ипотека» и «Консультация» — справа в той же строке.</p>
+  <div class="nums"><span>фото начинается: <b>201 px</b> (375×667)</span><span>видно фото до сгиба: <b>242 px</b></span>
+    <span>вкладки видны: <b>да</b></span><span>сверху при прокрутке: <b>96 px</b> (ровно предел)</span></div>
+  <div class="row">
+    <figure><figcaption>Телефон 375×667</figcaption><div class="dev"><iframe src="b.html" width="375" height="667" title="B 375×667"></iframe></div></figure>
+    <figure><figcaption>375×667 — после прокрутки</figcaption><div class="dev"><iframe src="b.html?s=1" width="375" height="667" title="B прокрутка"></iframe></div></figure>
+    <figure><figcaption>Телефон 390×844</figcaption><div class="dev"><iframe src="b.html" width="390" height="844" title="B 390×844"></iframe></div></figure>
+    <figure><figcaption>Компьютер 1440×900 (уменьшено)</figcaption><div class="dev desk"><div class="in"><iframe src="b.html" title="B 1440×900"></iframe></div></div></figure>
+  </div>
+</section>
+
+<section id="C">
+  <div class="head"><h2>C — одна строка сверху, сертификат на фото</h2><a href="c.html">открыть отдельно</a></div>
+  <p>Сверху только «квартира · цена · ♡», короткая подсказка, вкладки — и сразу большое фото; сертификат лежит плашкой на фото
+  гостиной. ЖК, сдача, этаж, «Ипотека» и «Консультация» — по нажатию на цену (в макете не показано).</p>
+  <div class="nums"><span>фото начинается: <b>132 px</b> (375×667)</span><span>видно фото до сгиба: <b>242 px</b></span>
+    <span>вкладки видны: <b>да</b></span><span>сверху при прокрутке: <b>88 px</b></span></div>
+  <div class="row">
+    <figure><figcaption>Телефон 375×667</figcaption><div class="dev"><iframe src="c.html" width="375" height="667" title="C 375×667"></iframe></div></figure>
+    <figure><figcaption>375×667 — после прокрутки</figcaption><div class="dev"><iframe src="c.html?s=1" width="375" height="667" title="C прокрутка"></iframe></div></figure>
+    <figure><figcaption>Телефон 390×844</figcaption><div class="dev"><iframe src="c.html" width="390" height="844" title="C 390×844"></iframe></div></figure>
+    <figure><figcaption>Компьютер 1440×900 (уменьшено)</figcaption><div class="dev desk"><div class="in"><iframe src="c.html" title="C 1440×900"></iframe></div></div></figure>
+  </div>
+</section>
+<p class="muted" style="margin-top:28px">Макет к плану demo-16 (главная: стили → комнаты, избранное как корзина). Числа — автоматическая проверка
+<code>check.cjs</code> на 375×667. Сама страница демо не менялась.</p>
+</main></body></html>
