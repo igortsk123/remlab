@@ -3,7 +3,7 @@ tier: 2
 topic: deployment-details
 scope: Деплой exit-fi — подробности конвейера, сторожа, история правок сервера
 tier1: "../deployment.md"
-updated: 2026-10-14
+updated: 2026-10-18
 importance: med
 source: manual
 last_verified: 2026-09-05
@@ -142,6 +142,8 @@ flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev
 | С DEV зависит | DEV выключен — что видит покупатель/владелец | Через сколько | Что делать |
 |---|---|---|---|
 | Рендер кадров «Сделать фото» (`tools/scout/dev_render_backend.sh`, туннель `172.18.0.1:8601`) | прод сам падает на локальный рендер (`draft_service.py`, `backend`) — дольше, но работает | сразу | ничего; готовые кадры лежат на сервере |
+
+**DEV-рендер как юниты systemd пользователя (18.10, T-04):** `remlab-render` (draft_service, 127.0.0.1:8600, OOMScoreAdjust=200 — первая жертва earlyoom) и `remlab-render-tunnel` (ssh -R 172.18.0.1:8601, OOMScoreAdjust=100, RestartSec=3). Исходники — `tools/scout/systemd/*.service`; ставит и чинит `tools/scout/dev_render_backend.sh` (крон @reboot и */10). Статус: `systemctl --user status remlab-render remlab-render-tunnel`; логи — `~/scout-scenes/dev-render.log`, `dev-tunnel.log`. Живой ли туннель — с сервера `curl 172.18.0.1:8601/health` (version "dev"); `/api/draft/paid` туннель НЕ показывает. Юнит пользователя не может получить OOMScoreAdjust ниже 100; защита ssh — `--avoid` в `/etc/default/earlyoom` (sudo).
 | Ночной прогон каталога `refresh_daily.sh` (10:40 по DEV): цены, наличие, сборка и публикация демо | демо и 3D живут на последнем опубликованном `demo-data.json` (лежит на сервере); цены стареют | сутки | сторож каталога на сервере (15:30 UTC) шлёт тревогу |
 | Конвейер мешей и сторож простоя Salad (`tools/scout/salad/idle_guard.sh`, cron DEV) | ноды Salad гасит сервер: нет отметки жизни конвейера 30 мин → `/stop` с проверкой (`infra/server/salad-deadman.py`, ADR-0274) | ≤ 40 мин | ничего |
 | Мост приёмки мешей (`mesh_review_sync.py`) | решения владельца на `/lab/mesh-*` копятся на сервере, не теряются | — | догонит при включении |
