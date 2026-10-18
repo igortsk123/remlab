@@ -183,6 +183,39 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .hm-stub b{font-size:15px;white-space:nowrap}
 .hm-stub b small{font-weight:500;color:var(--muted)}
 .hm-stub span{font-size:12.5px;color:var(--muted);white-space:nowrap}
+/* корзина: строки под шкалой — доплаты застройщику и неполный итог (вне сертификата, в «остаток» не входят) */
+.hm-cert .dev{font-size:12px;color:var(--muted);margin-top:3px;white-space:normal}
+/* ИЗБРАННОЕ — свёрнутая строка + раскрываемый раздел (demo-16 шаг 2) */
+.hm-fav-row{margin:6px 0 0;scroll-margin-top:calc(var(--hm-hd) + 8px)}   /* «Перейти →» прокручивает сюда — не под липкую строку */.hm-fav-row[hidden],.hm-fav-sec[hidden]{display:none}
+.hm-fav-btn{width:100%;min-height:40px;display:flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--line);border-radius:var(--radius-sm,10px);
+  background:var(--surface);color:var(--ink);font:inherit;font-size:14px;cursor:pointer;text-align:left}
+.hm-fav-btn .h{white-space:nowrap}.hm-fav-btn .h b{font-weight:700}.hm-fav-btn .h{color:var(--accent)}.hm-fav-btn .h b,.hm-fav-btn #favRowN{color:var(--ink)}
+.hm-fav-btn .s{flex:1;min-width:0;color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hm-fav-btn .chev{transition:transform .2s;color:var(--muted)}.hm-fav-btn[aria-expanded="true"] .chev{transform:rotate(90deg)}
+.hm-fav-sec{margin:6px 0 2px;padding:8px 0 4px}
+.hm-fav-chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:0 calc(-1*var(--hm-gut));padding:0 var(--hm-gut) 6px}
+.hm-fav-chips::-webkit-scrollbar{display:none}
+.hm-fav-chip{flex:none;height:32px;padding:0 12px;border-radius:16px;border:1px solid var(--line);background:var(--surface);font-size:13.5px;color:var(--ink);cursor:pointer}
+.hm-fav-chip.on{background:var(--ink);border-color:var(--ink);color:#fff;font-weight:600}
+.hm-fav-list{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;margin:0 calc(-1*var(--hm-gut));padding:2px var(--hm-gut) 6px}
+.hm-fav-list::-webkit-scrollbar{display:none}
+.favcard{flex:0 0 min(78vw,300px);scroll-snap-align:start;background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;
+  border:2px solid transparent}
+.favcard.inc{border-color:var(--accent)}
+.favcard .fph{position:relative;aspect-ratio:3/2;background:var(--wash-2);cursor:pointer}
+.favcard .fph img{display:block;width:100%;height:100%;object-fit:cover}
+.favcard .fph .nopv{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:13px}
+.favcard .fb{padding:8px 10px 10px;display:flex;flex-direction:column;gap:4px}
+.favcard .nm{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.favcard .pr{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.favcard .pr b{color:var(--ink)}
+.favcard .inc-l{display:flex;align-items:center;gap:8px;min-height:36px;font-size:13.5px;cursor:pointer}
+.favcard .inc-l input{width:18px;height:18px;accent-color:var(--accent);margin:0}
+.favcard .inc-l small{color:var(--muted)}
+.favcard .acts{display:flex;gap:6px}.favcard .acts .btn{flex:1;min-height:38px;height:38px}.favcard .acts .iconbtn{width:38px;min-height:38px}
+/* плашка окна: светлая часть полосы — что добавит эта расстановка, если её включить (владелец 18.10: «на той же полосе») */
+.vpl-bar{display:flex}.vpl-bar i{flex:none}.vpl-bar i.pv{background:var(--accent);opacity:.35}
+.vpl-bar.over i.pv{background:#B3261E;opacity:.45}
 .hm-plan-bot{display:block;margin:-6px 0 18px}
 @media(max-width:899px){.hm-plan-top{display:none}}
 .hm-back{display:inline-block;margin:4px 0 10px;color:var(--accent);font-weight:600;text-decoration:none}
@@ -792,6 +825,15 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 <!-- СЕРТИФИКАТ ОДНОЙ СТРОКОЙ (владелец 18.10: шкала — только здесь, не в липкой шапке и не на карточке комнаты). Пока корзины нет
      (demo-16 шаг 2) — «0 включено»: остаток = весь сертификат -->
 <div class="hm-cert" id="hmCert" hidden></div>
+<!-- ИЗБРАННОЕ = КОРЗИНА СЕРТИФИКАТА (demo-16 шаг 2, план §3): свёрнутой строкой под сертификатом — глобальное, через все стили; тап
+     раскрывает: комнаты (группы) → варианты с переключателем «Включить в сертификат» (ровно один на комнату). Пусто — строки нет,
+     первый экран как в макете A -->
+<div class="hm-fav-row" id="favHead" hidden><button class="hm-fav-btn" id="favRowBtn" type="button" aria-expanded="false" aria-controls="favSec">
+  <span class="h">♥ <b data-t="fav">Избранное</b> <span id="favRowN"></span></span><span class="s" id="favRowSub"></span><span class="chev" aria-hidden="true">›</span></button></div>
+<section class="hm-fav-sec" id="favSec" hidden aria-label="Избранное">
+  <div class="hm-fav-chips" id="favChips" role="tablist"></div>
+  <div class="hm-fav-list" id="favGrid"></div>
+</section>
 <p class="hm-hint" id="hmHint">Подобрали вашу квартиру в разных стилях. Можете менять мебель, отделку и встраиваемое.</p>
 <nav class="hm-tabs" id="styleTabs" role="tablist" aria-label="Стили"></nav>
 
@@ -816,8 +858,6 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 
   <!-- ИЗБРАННОЕ НА ЭТОМ УСТРОЙСТВЕ (владелец 18.10, demo-15 п.6): все сохранённые сердечком расстановки — над готовыми вариантами;
        пусто — раздела нет. Межустройственное «все» — только с аккаунтом (не сейчас) -->
-  <div class="sechead" id="favHead" hidden><h2>Избранное</h2><p>Сохранённые расстановки на этом устройстве</p></div>
-  <div class="grid" id="favGrid" hidden></div>
   <div class="sechead" id="collHead"><h2>Своя расстановка</h2></div>
   <div class="grid" id="coll"></div>
 
@@ -981,8 +1021,9 @@ function init(){
   // ПЛАН КВАРТИРЫ — ССЫЛКОЙ, НЕ ВКЛАДКОЙ (demo-16): вкладки теперь стили; назад — «← К стилям»
   document.querySelectorAll('[data-plan]').forEach(a=>a.onclick=e=>{e.preventDefault(); showTab('plan'); scrollTo(0,0);});
   on('planBack','onclick',e=>{e.preventDefault(); showTab('room');});
-  on('hmFav','onclick',()=>{const h=document.getElementById('favHead');
-    if(h&&!h.hidden)h.scrollIntoView({behavior:'smooth',block:'start'}); else toast(LANG==='en'?'Favourites are empty for now — tap ♡ on a room':'В избранном пока пусто — нажмите ♡ у комнаты');});
+  // ♡ N в строке квартиры — раскрыть «Избранное» (корзину); пусто — подсказка, куда нажать
+  on('hmFav','onclick',()=>{const n=window.__fav&&window.__fav.list?window.__fav.list().length:0;
+    if(n&&window.__basket)window.__basket.open(); else toast(LANG==='en'?'Favourites are empty for now — tap ♡ on a room':'В избранном пока пусто — нажмите ♡ у комнаты');});
   // ВКЛАДКА ПО УМОЛЧАНИЮ — ГОСТИНАЯ (владелец 02.09: «страница должна открываться сразу на
   // вкладке гостиная»). Раньше без якоря открывался «План квартиры», и человек попадал не на
   // витрину обустройства, ради которой демо и сделано. `#plan` по-прежнему открывает план —
@@ -1049,13 +1090,19 @@ function drawVariants(){
   if(c){
     if(!t.amount){c.hidden=true;}
     else{
-      const EN=LANG==='en', inc=0, left=Math.max(0,t.amount-inc), pct=Math.min(100,Math.round(inc/t.amount*1000)/10);
+      // КОРЗИНА (demo-16 шаг 2): «включено» — варианты комнат, помеченные «Включить в сертификат»; пусто — 0, остаток = вся сумма.
+      // Доплаты застройщику (RF пол) и прибавка к цене квартиры (UK) — отдельными строками: в остаток не входят (как `settle`)
+      const EN=LANG==='en', bt=window.__basket&&window.__basket.totals(), inc=bt?bt.allowanceEligible:0, over=bt?bt.allowanceOverage:0;
+      const left=Math.max(0,t.amount-inc), pct=Math.min(100,Math.round(inc/t.amount*1000)/10);
       c.hidden=false;
-      c.dataset.amount=String(t.amount); c.dataset.included=String(inc);
+      c.dataset.amount=String(t.amount); c.dataset.included=String(inc); c.dataset.complete=String(!bt||bt.allowanceComplete);
+      const dev=bt?[bt.developerSurcharge?`<div class="dev">+${fmtCard(bt.developerSurcharge)} — ${EN?'paid to the developer, not from the allowance':'доплата застройщику, не из сертификата'}</div>`:'',
+        bt.propertyPriceDelta?`<div class="dev">+${fmtCard(bt.propertyPriceDelta)} — ${EN?'added to the property price':'к цене квартиры'}</div>`:'',
+        (!bt.allowanceComplete||bt.onRequest.length)?`<div class="dev">${EN?'some prices are still being checked — the total may change':'часть цен уточняется — итог может измениться'}</div>`:''].join(''):'';
       c.innerHTML=`<div class="t"><span>${EN?'Allowance':'Сертификат'}<span class="d">${EN?' for furniture and appliances':' на мебель и технику'}</span> `+
-        `<b>${fmtCard(t.amount)}</b></span><span>${EN?'left':'остаток'} <b>${fmtCard(left)}</b></span></div>`+
-        `<div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="${t.amount}" aria-valuenow="${inc}"><i style="width:${pct}%"></i></div>`+
-        (fxNote()?`<div class="fx">${fxNote()}</div>`:'');
+        `<b>${fmtCard(t.amount)}</b></span><span>${over?(EN?'over by':'сверх')+' <b class="vpl-over">'+fmtCard(over)+'</b>':(EN?'left':'остаток')+' <b>'+fmtCard(left)+'</b>'}</span></div>`+
+        `<div class="bar${over?' over':''}" role="progressbar" aria-valuemin="0" aria-valuemax="${t.amount}" aria-valuenow="${inc}"><i style="width:${pct}%"></i></div>`+
+        dev+(fxNote()?`<div class="fx">${fxNote()}</div>`:'');
     }
   }
   drawColl();
@@ -1109,8 +1156,14 @@ function syncHash(which){
 const SHARE_SVG='<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1"/></svg>';
 // ССЫЛКА НА ВАРИАНТ ДЕРЖИТ ЯЗЫК И МЕТКУ МЕНЕДЖЕРА (Codex 18.10, demo-16): прежняя брала путь страницы без параметров — из ссылки
 // менеджера `?s=` уходила ссылка без него (заход не засчитывался менеджеру), из встройки — адрес `/embed/…` вне рамки. Как `collUrl`.
+function linkParams(){
+  // метка менеджера — и из адреса (ответ /api/sends мог ещё не прийти), квартира `?flat=` — чтобы ссылка открыла её, а не демо (Codex 18.10)
+  const q=[], sid=window.__sendId||(location.search.match(/[?&]s=([A-Za-z0-9_-]{22})(?:&|$)/)||[])[1], fl=(location.search.match(/[?&]flat=([a-z0-9-]{2,40})(?:&|$)/)||[])[1];
+  if(LANG==='en')q.push('lang=en'); if(sid)q.push('s='+encodeURIComponent(sid)); if(fl&&!sid)q.push('flat='+fl);
+  return q;
+}
 function variantLink(vid){
-  const q=[]; if(LANG==='en')q.push('lang=en'); if(window.__sendId)q.push('s='+encodeURIComponent(window.__sendId));
+  const q=linkParams();
   return location.origin+'/demo/'+(q.length?'?'+q.join('&'):'')+'#v='+encodeURIComponent(vid||curVid());
 }
 function copyLink(vid,btn){
@@ -2390,12 +2443,16 @@ function reportAct(kind){
   document.dispatchEvent(new CustomEvent('remlab:act',{detail:kind}));
 }
 // КОРОТКОЕ СООБЩЕНИЕ ВМЕСТО alert() (b2b-12): alert блокирует страницу и выглядит как сбой.
-function toast(t){let el=document.getElementById('toast');
+function toast(t,act){let el=document.getElementById('toast');
   if(!el){el=document.createElement('div');el.id='toast';el.setAttribute('role','status');
     el.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);max-width:min(92vw,520px);'+
       'background:#2b2622;color:#fff;padding:12px 16px;border-radius:12px;font-size:15px;z-index:90;box-shadow:0 6px 20px rgba(0,0,0,.2)';
     document.body.appendChild(el);}
-  el.textContent=t; el.hidden=false; clearTimeout(el._t); el._t=setTimeout(()=>{el.hidden=true;},3500);}
+  el.textContent=t; el.hidden=false; clearTimeout(el._t); el._t=setTimeout(()=>{el.hidden=true;},act?4500:3500);
+  // ДЕЙСТВИЕ В СООБЩЕНИИ (demo-16 шаг 2, владелец 18.10: «Добавлено в избранное · Перейти →» на несколько секунд)
+  if(act){const b=document.createElement('button'); b.type='button'; b.className='toastact'; b.textContent=act.label;
+    b.style.cssText='margin-left:10px;background:none;border:0;color:#f4c9a8;font:inherit;font-weight:700;cursor:pointer;padding:4px 0';
+    b.onclick=()=>{el.hidden=true; act.fn();}; el.appendChild(b);}}
 // СПИСОК В JPG (b2b-12): текст на холсте — картинки магазинов чужого домена «запачкали» бы холст и
 // сохранить его было бы нельзя. Те же данные, что на странице списка: товары, количество, цена, магазин, итог.
 function listJpg(){
@@ -3072,6 +3129,13 @@ function drawColl(force){
   if(head)head.innerHTML=shared?`<h2>${EN?'Layouts from links':'Расстановки по ссылке'}</h2>`:`<h2>${EN?'Your own layout':'Своя расстановка'}</h2>`;
   drawHome();
 }
+// СПИСОК ФАЙЛОВ СБОРКИ — ОДИН НА СТРАНИЦУ (demo-16 шаг 2, Codex 18.10 п.16): модуль корзины берёт его сразу, движок сцены — лениво
+let _manifest=null;
+function sceneManifest(){ if(!_manifest)_manifest=fetch('lib/scene.json',{cache:'no-store'}).then(r=>r.json()).catch(e=>{_manifest=null; throw e;}); return _manifest; }
+// МОДУЛЬ КОРЗИНЫ (`lib/basket/basket.ts`, ~25 КБ): чистые функции и контракт корзины на zod; деньги — `settle`, как у окна и /flat
+let _basketMod=null;
+function basketModule(){ if(!_basketMod)_basketMod=sceneManifest().then(m=>{if(!m.basket||!m.basket.file)throw new Error('нет модуля корзины');
+  return import(new URL('lib/'+m.basket.file,document.baseURI).href);}).catch(e=>{_basketMod=null; throw e;}); return _basketMod; }
 // ——— ГЛАВНАЯ «СТИЛЬ → КОМНАТЫ» (demo-16, Codex 18.10 п.2). Данные нормализованы: `styles[]` (вкладки), `rooms[]` (помещения
 // квартиры в порядке плана — карточка `/api/apartments`, запасной путь — `D.apartment_rooms`), `roomVariants[]` (какой вариант какую
 // комнату какого стиля обставляет). Активный ключ — (styleId, roomId, variantId); неготовая комната — `contentState`, а не
@@ -4333,6 +4397,9 @@ function histFwd(){return histGo(1);}
 .vpl-dev{font-size:13px;color:var(--muted);margin-top:6px}
 /* плашка v4 — одна строка + полоса; ⓘ — пузырь расшифровки */
 .vplate{position:relative}.vpl-row{display:flex;align-items:baseline;gap:6px;font-size:14px;color:var(--muted);white-space:nowrap}
+/* «С этой гостиной · N из M» (demo-16 шаг 2) на компьютере теснит «×» окна: плотнее, подпись при нехватке — с многоточием, число целиком */
+.vpl-row>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}.vpl-row b,.vpl-row small{flex:none}
+@media(min-width:701px){.vpl-row{gap:4px}.vpl-row small{font-size:12px}}
 .vpl-row b{margin-left:auto;font-size:16px}.vpl-row small{font-size:13px}.vpl-bar{margin-top:7px}
 .vpl-i{width:20px;height:20px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--muted);font:600 12px/18px system-ui;
  padding:0;cursor:pointer;position:relative;align-self:center}.vpl-i::after{content:"";position:absolute;inset:-12px}
@@ -4495,6 +4562,30 @@ function vwSum(){
   // ПЛАШКА СЕРТИФИКАТА (demo-02 v3, владелец 16.10: «явно и ярко: сертификат на N, выбрано столько-то, остаток такой-то»):
   // отдельный элемент над шторкой (телефон) / шапкой колонки (компьютер), вне прокрутки — сумма видна при замене из глубины списка
   if(!cert)return `<div class="vpl-h"><span>${n} ${word}</span><b data-k="sum" data-to="${sumC}">${money(sumC)}</b></div>${extra}`;
+  // ОСТАТОК ПО КОРЗИНЕ «С ЭТОЙ КОМНАТОЙ» (demo-16 шаг 2, владелец 18.10): сплошная часть полосы — что уже включено в других комнатах,
+  // светлая — эта расстановка; цифра — остаток, если включить её ВМЕСТО включённого варианта этой комнаты (замена, не сложение)
+  const P=window.__basket&&window.__basket.preview&&window.__basket.preview();
+  if(P){
+    const base=P.base.allowanceEligible, withE=P.with.allowanceEligible, ov=P.with.allowanceOverage, lf=Math.max(0,cert-withE);
+    const pb=Math.min(100,Math.round(base/cert*1000)/10), pw=Math.max(0,Math.min(100-pb,Math.round((withE-base)/cert*1000)/10));
+    // подпись короткая — плашка в одну строку и на 375 px, и в колонке компьютера («Остаток с этой гостиной» не влезал, самопроверка 18.10); что это — в «i»
+    const R=EN?{living:'room',kitchen:'kitchen',bedroom:'bedroom',bathroom:'bathroom',hall:'hallway'}:{living:'С гостиной',kitchen:'С кухней',bedroom:'Со спальней',bathroom:'С санузлом',hall:'С прихожей'};
+    const withTxt=EN?'With this '+(R[P.room.kind]||'room'):(R[P.room.kind]||'С комнатой');
+    const head=ov?(EN?'Over the allowance':'Сверх сертификата'):(P.included?(EN?'Allowance left':'Остаток'):withTxt);
+    const pdev=(P.with.developerSurcharge||0)+(P.with.propertyPriceDelta||0);
+    const bub=`<div class="vpl-bub" id="vplBub" hidden role="dialog">`+
+      `<div>${EN?'Developer furniture allowance':'Сертификат застройщика на мебель'} <b>${money(cert)}</b></div>`+
+      `<div>${EN?'already included in other rooms':'уже включено в других комнатах'}: ${money(base)}</div>`+
+      `<div>${EN?'this layout':'эта расстановка'}: ${money(withE-base)}${P.included?'':(EN?' — if included':' — если включить её')}</div>`+
+      `<div>${ov?(EN?'over':'сверх')+' '+money(ov):(EN?'left':'остаток')+' '+money(lf)}</div>`+
+      (pdev?`<div>${EN?'developer options (outside the allowance)':'опции застройщика (вне сертификата)'}: +${money(pdev)}</div>`:'')+
+      (!P.with.allowanceComplete||P.with.onRequest.length?`<div>${EN?'some prices are still being checked':'часть цен уточняется'}</div>`:'')+`</div>`;
+    return `<div class="vpl-row"><span>${head}</span>`+
+      `<button class="vpl-i" aria-label="${EN?'What is this':'Что это'}" aria-expanded="false">i</button>`+
+      `<b class="${ov?'vpl-over':'vpl-rest'}" data-k="${ov?'over':'left'}" data-to="${ov||lf}">${ov?'+':''}${money(ov||lf)}</b>`+
+      `<small>${EN?'of ':'из '}${money(cert)}</small></div>`+
+      `<div class="vpl-bar ${ov?'over':(pb+pw>=85?'warn':'ok')}"><i style="width:${pb}%"></i><i class="pv" style="width:${pw}%"></i></div>${bub}`;
+  }
   const chosen=t?t.allowanceEligible:sumC, left=Math.max(0,cert-chosen), pct=Math.min(100,Math.round(chosen/cert*100));
   const lvl=over?'over':pct>=85?'warn':'ok';
   // ПЛАШКА v4 — ВСЕГДА ОДНА СТРОКА (владелец 16.10: «в таком варианте пиши кратко всегда»): «Остаток ⓘ · N из M» + полоса;
@@ -5162,8 +5253,8 @@ function liveEngine(){
   if(LIVE.loading)return LIVE.loading;
   LIVE.loading=(async()=>{
     try{
-      const m=await (await fetch('lib/scene.json',{cache:'no-store'})).json();
-      if(!window.RemlabScene){window.RemlabScene=await import(new URL('lib/'+m.file,location.href).href);
+      const m=await sceneManifest();
+      if(!window.RemlabScene){window.RemlabScene=await import(new URL('lib/'+m.file,document.baseURI).href);
         if(typeof vwSumUpdate==='function')vwSumUpdate();}       // ядро денег пришло — строки опций в сумме
       let rt; try{rt=(await (await fetch('rt-meshes.json',{cache:'no-store'})).json()).meshes;}catch(e){}
       const cv=document.createElement('canvas'); cv.className='livecv'; cv.width=896; cv.height=597;
@@ -5548,6 +5639,7 @@ async function liveShow(){
       style:label+(c.style?' · '+c.style:''), title:label,
       items:c.items.map(function(i){return Object.assign({},i,{sku:fix(i.sku)});}),
       decor:(c.decor||[]).map(function(d){return {role:d.role, sku:fix(d.sku)};}), shot:c.shot||'', dev:c.developerOptions||{}, apt:c.apartmentId,
+      room:c.roomId||'living', styleId:c.styleId||'',
       stateId:c.stateId||'', displayName:c.displayName||''};
   }
   // ЧЕРНОВОЙ КАДР КОЛЛЕКЦИИ В ФОНЕ (demo-03, 2.13): кадра этой расстановки ещё нет — снимаем бесплатный черновик
@@ -5583,10 +5675,15 @@ async function liveShow(){
     if(typeof D==='undefined'||!D)return setTimeout(boot,300);
     var want=window.__collHash||(String(location.hash).match(/^#c=([A-Za-z0-9_-]{22})/)||[])[1];
     var ids=list().map(function(x){return x.id;}); if(want&&ids.indexOf(want)<0)ids.unshift(want);
-    favs().forEach(function(f){if(ids.indexOf(f.collectionId)<0)ids.push(f.collectionId);});
+    // избранное всех квартир этого устройства (корзины v2) и прежний список demo-15 (для переноса)
+    var add=function(id){if(id&&ids.indexOf(id)<0)ids.push(id);};
+    favsV1().forEach(function(f){add(f.collectionId);});
+    try{for(var k=0;k<localStorage.length;k++){var key=localStorage.key(k); if(key&&key.indexOf(BKP)===0){var r=JSON.parse(localStorage.getItem(key)||'null');
+      ((r&&r.favorites)||[]).forEach(function(f){add(f&&f.favoriteId);});}}}catch(_){}
     Promise.all(ids.slice(0,LIMIT).map(fetchOne)).then(function(vs){
       vs.forEach(function(v){if(v){MINE.push(v); if(v.shot)attachCollShot(v.cid,location.origin+v.shot);}}); if(MINE.length)drawColl(true);
-      favMigrateState(); favDraw(); favUi();
+      // коллекции пришли — перенос demo-15 и пересчёт избранного по текущим ценам (не пришла — «не досчитано», не ноль)
+      if(BK.b){bkMigrate(); bkRefresh(true); bkRedraw();} else {favDraw(); favUi();}
       if(want){var v=MINE.find(function(x){return x.cid===want;});
         // коллекция — своей квартиры (британский двойник английского демо, ADR-0298): карточка, валюта и рынок — её
         if(v&&v.apt&&window.__loadFlatCard&&(typeof FLAT==='undefined'||!FLAT||FLAT.id!==v.apt)){window.__sendFlat=v.apt; window.__loadFlatCard();}
@@ -5610,14 +5707,28 @@ async function liveShow(){
       cams:(Array.isArray(cams)?cams:[]).slice(0,4).map(function(c){return {x:num(c.x),y:num(c.y),rot:num(c.rot||c.a||0)};}),
       shot:currentShotPath()||undefined, stateId:curStateId(), schemaVersion:2, developerOptions:clone(DEVOPT)};
   }
-  // ——— ИЗБРАННОЕ (владелец 18.10, demo-15 п.4–6; модель — критика Codex (б)) ———
-  // Источник истины — локальный `FavoriteRef {collectionId, editToken, displayName, style, stateId, sourceVariantId, createdAt, shot}`;
-  // сердечко = есть избранное ТЕКУЩЕГО номера состояния (изменил расстановку — снова контурное). Сохранение — снимок на сервер
-  // (`POST /api/collections`, имя — `displayName`), переименование — с секретом редактирования, который вернул сервер; удаление —
-  // только из этого списка (серверная запись живёт по правилу истории). Старые «сердечки» кадров (`pick`) не угадываем
-  var FKEY='remlab-favorites';
-  var favs=function(){try{return (JSON.parse(localStorage.getItem(FKEY)||'[]')||[]).filter(function(f){return f&&/^[A-Za-z0-9_-]{22}$/.test(f.collectionId);});}catch(_){return [];}};
-  var favsPut=function(l){try{localStorage.setItem(FKEY,JSON.stringify(l.slice(0,LIMIT)));}catch(_){}};
+  // ——— ИЗБРАННОЕ = КОРЗИНА СЕРТИФИКАТА (demo-16 шаг 2; правила — «Решения владельца 18.10», модель — критика Codex 18.10) ———
+  // Источник истины — `BasketV2` модуля корзины (`lib/basket/basket.ts`) под ключом `remlab-basket:v2:<квартира>`: избранное
+  // глобально между стилями, но своё у каждой квартиры; что идёт в сертификат — только `includedByRoom` (ровно один вариант на
+  // комнату), и меняют его только ворота модуля (`include` проверяет лимит и свежесть цен). Строки цен в избранном — кэш: при
+  // открытии страницы они пересчитываются по коллекциям с сервера, текущими ценами (ADR-0254 п.6). Сердечко = есть избранное
+  // ТЕКУЩЕГО номера состояния (изменил расстановку — снова контурное, корзина не меняется, пока не добавил заново)
+  var FKEY='remlab-favorites';                       // прежний общий список demo-15 — только читаем для переноса
+  var BKP='remlab-basket:v2:', MIGK='remlab-favorites-v2done';
+  var BK={mod:null, b:null, apt:'', cur:'', limit:0, sel:'', open:false, wait:[]};
+  // корзина ещё не открыта (модуль или карточка квартиры в пути) — действие ждёт её, а не теряется (Codex 18.10)
+  function whenBasket(fn){ if(BK.mod&&BK.b)fn(); else BK.wait.push(fn); }
+  // к переносу — список demo-15 и «свои» коллекции ещё более старого формата (до demo-15 сердечка не было; Codex п.11)
+  var favsV1=function(){var l=[]; try{l=(JSON.parse(localStorage.getItem(FKEY)||'[]')||[]).filter(function(f){return f&&/^[A-Za-z0-9_-]{22}$/.test(f.collectionId);});}catch(_){}
+    list().filter(function(x){return x.own&&!l.some(function(f){return f.collectionId===x.id;});})
+      .forEach(function(x){l.push({collectionId:x.id, editToken:null, displayName:'', style:x.style||'', createdAt:x.at||0});});
+    return l;};
+  var rawOf=function(apt){try{return JSON.parse(localStorage.getItem(BKP+apt)||'null');}catch(_){return null;}};
+  var favs=function(){return BK.b?BK.b.favorites:[];};
+  var favOf=function(id){return favs().find(function(f){return f.favoriteId===id;})||null;};
+  function bkStore(apt,b){try{localStorage.setItem(BKP+apt,JSON.stringify(b));}catch(_){}}
+  function bkPut(b){BK.b=b; bkStore(BK.apt,b); bkRedraw();}
+  function bkRedraw(){try{drawVariants();}catch(_){} favDraw(); favUi(); try{vwSumUpdate();}catch(_){}}
   // МИНИАТЮРА ИЗБРАННОГО ИЗ СЦЕНЫ (demo-15, fable-lead 18.10: карточка без картинки — большая пустая заглушка). При сохранении
   // сердечком живая сцена снимает текущий вид 480×320 (`DemoScene.capture` — без рамки выделения), JPEG ~25 КБ хранится на этом
   // устройстве рядом со списком. Хранилище браузера небольшое — держим миниатюры TMAX новейших; не влезло — у старых заглушка
@@ -5626,7 +5737,7 @@ async function liveShow(){
   var thumbs=function(){try{return JSON.parse(localStorage.getItem(TKEY)||'{}')||{};}catch(_){return {};}};
   function thumbPut(id,url){
     var t=thumbs(); t[id]=url;
-    var keep=favs().map(function(f){return f.collectionId;}).filter(function(x){return x!==id&&t[x];});
+    var keep=favs().map(function(f){return f.favoriteId;}).filter(function(x){return x!==id&&t[x];});
     keep.unshift(id); keep=keep.slice(0,TMAX);
     for(var n=keep.length;n>0;n--){var o={}; keep.slice(0,n).forEach(function(k){o[k]=t[k];});
       try{localStorage.setItem(TKEY,JSON.stringify(o)); return true;}catch(_){}}   // переполнено — отбрасываем самые старые
@@ -5647,26 +5758,59 @@ async function liveShow(){
   }
   var cap=function(t){t=String(t||'');return t?t[0].toUpperCase()+t.slice(1):t;};
   var styleOfV=function(v){return String((v&&v.style)||'').replace(/^(моя коллекция|my collection|коллекция по ссылке|shared collection) · /,'');};
-  // перенос: свои коллекции прежнего формата → в избранное (без секрета — имя меняется только на этом устройстве)
-  (function(){var l=favs(); var mig=false; try{mig=!!localStorage.getItem(FKEY+'-mig');}catch(_){}
-    if(mig)return;
-    list().filter(function(x){return x.own;}).forEach(function(x){if(l.some(function(f){return f.collectionId===x.id;}))return;
-      l.push({collectionId:x.id, editToken:null, displayName:'', style:x.style||'', stateId:null, sourceVariantId:null, createdAt:x.at||Date.now(), shot:''});});
-    favsPut(l); try{localStorage.setItem(FKEY+'-mig','1');}catch(_){}})();
-  // у перенесённых нет номера состояния и имени — берём из сохранённого снимка, когда он пришёл с сервера
-  function favMigrateState(){var l=favs(), ch=false;
-    l.forEach(function(f){var v=MINE.find(function(x){return x.cid===f.collectionId;}); if(!v)return;
-      if(!f.stateId&&v.stateId){f.stateId=v.stateId; ch=true;}
-      if(!f.displayName){f.displayName=v.displayName||cap(styleOfV(v))||(EN()?'Layout':'Расстановка'); ch=true;}
-      if(!f.style&&styleOfV(v)){f.style=styleOfV(v); ch=true;}});
-    if(ch)favsPut(l);}
+  // комната и стиль расстановки: у варианта витрины — из данных сборки, у коллекции — из её снимка; нет — гостиная
+  function roomOfV(v){var rs=homeRooms(), id=(v&&(v.room||v.room_id))||'living';
+    var r=rs.find(function(x){return x.id===id;})||rs.find(function(x){return x.kind==='living';})||{id:'living',kind:'living',title:EN()?'Living room':'Гостиная'};
+    return {id:r.id, kind:r.kind, title:r.title};}
+  function styleIdOfV(v){return (v&&(v.styleId||v.style_id))||STYLE_IDS[styleOfV(v).trim().toLowerCase()]||'';}
+  function styleTitle(id){return EN()?(STYLE_EN[id]||id):cap(Object.keys(STYLE_IDS).find(function(k){return STYLE_IDS[k]===id;})||id);}
+  // ——— строки цен комнаты: тот же состав, что список мебели окна (товары и декор), опции застройщика — только этой комнаты
+  function cardOptions(){return ((typeof FLAT!=='undefined'&&FLAT&&FLAT.options)||[]).map(function(g){return {id:g.id, roomKind:g.roomKind,
+    roomId:g.roomId||null, title:g.title, settlement:g.settlement, defaultVariantId:g.defaultVariantId,
+    variants:(g.variants||[]).map(function(x){return {id:x.id, name:x.name, price:{type:x.price.type, amount:x.price.amount}};})};});}
+  var fxKey=function(){return (typeof FLAT!=='undefined'&&FLAT&&FLAT.fx)?FLAT.fx.rate+'@'+FLAT.fx.asOf:'';};
+  function quoteFor(v,room,dev,live){ if(!BK.mod||typeof FLAT==='undefined'||!FLAT)return null;
+    return BK.mod.quoteRoom({roomId:room.id, roomKind:room.kind, currency:FLAT.currency, fx:fxKey()||undefined, at:Date.now(), items:live?items:(v.items||[]),
+      decor:variantDecor(v)||[], developerOptions:dev||{}, options:cardOptions(), toCard:function(r){return toCard(r);}});}
+  function draftQuote(){var v=allVariants()[cur]||{}; return quoteFor(v,roomOfV(v),DEVOPT,true);}
+  // пересчёт кэша по коллекциям, пришедшим с сервера (текущие цены); не пришла — строки остаются, статус «не досчитано»
+  function bkRefresh(final){ if(!BK.b||!BK.mod)return; var b=BK.b, ch=false;
+    b.favorites.forEach(function(f){var v=MINE.find(function(x){return x.cid===f.favoriteId;});
+      if(!v){if(final&&f.quote.status!=='unavailable'){b=BK.mod.updateQuote(b,f.favoriteId,Object.assign({},f.quote,{status:'unavailable'})); ch=true;} return;}
+      var q=quoteFor(v,{id:f.roomId,kind:f.roomKind},v.dev||{},false); if(q){b=BK.mod.updateQuote(b,f.favoriteId,q); ch=true;}});
+    if(ch){BK.b=b; bkStore(BK.apt,b);}}
+  // ПЕРЕНОС demo-15 (Codex 18.10 п.11): старый список общий для всех квартир — квартиру каждой записи узнаём по её коллекции
+  // с сервера; не пришла — перенесём в следующий раз (старый список не трогаем, отметка — по каждой записи)
+  // сохранённое уже в новом формате (избранное, снимок для «поделиться») переносить не нужно: иначе убранное из избранного вернулось бы
+  function markMig(id){try{var d=JSON.parse(localStorage.getItem(MIGK)||'{}')||{}; d[id]='v2'; localStorage.setItem(MIGK,JSON.stringify(d));}catch(_){}}
+  function bkMigrate(){ if(!BK.mod)return; var done={}; try{done=JSON.parse(localStorage.getItem(MIGK)||'{}')||{};}catch(_){}
+    var by={}, any=false;
+    favsV1().forEach(function(f){ if(done[f.collectionId])return; var v=MINE.find(function(x){return x.cid===f.collectionId;}); if(!v||!v.apt)return;
+      (by[v.apt]=by[v.apt]||[]).push(Object.assign({},f,{styleId:styleIdOfV(v)||'', stateId:f.stateId||v.stateId||''})); done[f.collectionId]=v.apt; any=true;});
+    if(!any)return;
+    var titles=Object.keys(STYLE_IDS).map(cap).concat(Object.keys(STYLE_EN).map(function(k){return STYLE_EN[k];}));
+    Object.keys(by).forEach(function(apt){var mine=apt===BK.apt;
+      var base=mine?BK.b:BK.mod.loadBasket(rawOf(apt),{apartmentId:apt,currency:''});
+      var room=mine?roomOfV({}):{id:'living',kind:'living',title:EN()?'Living room':'Гостиная'};
+      var nb=BK.mod.migrateV1(base,by[apt],room,titles,mine?BK.cur:'');
+      if(mine)BK.b=nb; else bkStore(apt,nb);});
+    if(BK.b)bkStore(BK.apt,BK.b);
+    try{localStorage.setItem(MIGK,JSON.stringify(done));}catch(_){} }
+  // корзину открываем только по карточке квартиры: ключ — её id и валюта (английское демо — британский двойник, коллекция по
+  // ссылке — своя квартира; Codex п.15)
+  function bkOpen(){ if(typeof FLAT==='undefined'||!FLAT||!FLAT.id)return;
+    basketModule().then(function(m){ BK.mod=m;
+      if(!(BK.b&&BK.apt===FLAT.id&&BK.cur===FLAT.currency)){
+        BK.apt=FLAT.id; BK.cur=FLAT.currency; BK.limit=(FLAT.certificate&&FLAT.certificate.amount)||0;
+        BK.b=m.loadBasket(rawOf(FLAT.id),{apartmentId:FLAT.id, currency:FLAT.currency, fx:fxKey()||undefined});}
+      BK.wait.splice(0).forEach(function(f){try{f();}catch(_){}});
+      bkMigrate(); bkRefresh(false); bkRedraw();}).catch(function(e){try{console.warn('модуль корзины не загрузился',e);}catch(_){}});}
+  document.addEventListener('flatcard',bkOpen); if(typeof FLAT!=='undefined'&&FLAT)bkOpen();
   function baseState(v){if(!v)return '';
     try{return v.mine&&v.stateId?v.stateId:stateIdOf(v.items||[], variantDecor(v), D&&D.room, v.dev||{});}catch(_){return '';}}
   function ofState(sid){return sid?(favs().find(function(f){return f.stateId===sid;})||null):null;}
-  function defaultName(style){var c=cap(style)||(EN()?'Layout':'Расстановка'), n=0;
-    favs().forEach(function(f){var nm=String(f.displayName||''); if(nm.indexOf(c+' #')!==0)return; var k=+nm.slice(c.length+2); if(k>n)n=k;});
-    return c+' #'+(n+1);}       // N = наибольший занятый номер + 1 (Codex (б)): после удаления «#2» новый не повторит «#3»
-  function collUrl(id){var q=[]; if(EN())q.push('lang=en'); if(window.__sendId)q.push('s='+window.__sendId);
+  function defaultName(){var r=roomOfV(allVariants()[cur]||{}); return BK.mod&&BK.b?BK.mod.nextName(BK.b,r.id,r.title):r.title+' #1';}
+  function collUrl(id){var q=linkParams();
     return location.origin+'/demo/'+(q.length?'?'+q.join('&'):'')+'#c='+id;}
   function post(snap){return fetch('/api/collections',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(snap)})
     .then(function(r){return r.json().then(function(j){if(!r.ok||!j.ok)throw new Error((j&&j.error)||'');return j;});});}
@@ -5674,42 +5818,97 @@ async function liveShow(){
     if(snap.shot)attachCollShot(id,location.origin+snap.shot); else snapLater(id, snap.stateId);
     return fetchOne(id).then(function(v){if(v&&!MINE.some(function(x){return x.cid===id;})){MINE.unshift(v); if(v.shot)attachCollShot(v.cid,location.origin+v.shot);}
       drawColl(true);});}
+  // ДИАЛОГ ВЫБОРА (вопрос «вместо …?», превышение суммы): та же карточка, что окошко имени
+  function dlg(title,text,btns){
+    var old=document.getElementById('favPop'); if(old)old.remove();
+    var el=document.createElement('div'); el.id='favPop'; el.className='favpop'; el.setAttribute('role','dialog'); el.setAttribute('aria-modal','true');
+    el.innerHTML='<div class="favbox"><b>'+escHtml(title)+'</b><p style="margin:0;font-size:14.5px;line-height:1.4">'+escHtml(text)+'</p><div class="favbtns">'+
+      btns.map(function(x,k){return '<button class="btn'+(x.primary?' primary':' ghost')+'" type="button" data-k="'+k+'">'+escHtml(x.label)+'</button>';}).join('')+'</div></div>';
+    document.body.appendChild(el);
+    el.querySelectorAll('[data-k]').forEach(function(b){b.onclick=function(){el.remove(); var f=btns[+b.dataset.k].fn; if(f)f();};});
+    el.addEventListener('click',function(ev){if(ev.target===el)el.remove();});
+  }
+  var goFav=function(roomId){return {label:EN()?'Open →':'Перейти →', fn:function(){openFavs(roomId);}};};
+  // «Изменить расстановку, чтобы войти в лимит» — в окно этой расстановки (из окна — к списку мебели)
+  function editLayout(id,tries){
+    var on=document.getElementById('shot').classList.contains('on');
+    var i=allVariants().findIndex(function(x){return x.cid===id;});
+    // сохранили только что с главной — коллекция ещё в пути с сервера (`afterSave`): ждём её до ~6 с (Codex 18.10)
+    if(!on&&i<0){if((tries||0)<20)setTimeout(function(){editLayout(id,(tries||0)+1);},300); return;}
+    if(!on)vwOpenVariant(i);
+    setTimeout(function(){try{if(VW_PHONE())vwSheet(3);}catch(_){}},on?0:600);
+  }
+  function overText(n){return (EN()?'Could not add it to the allowance: the total is over by ':'Добавить в сертификат не получилось — превышена сумма на ')+fmtCard(n);}
+  // РЕШЕНИЕ ПОСЛЕ ДОБАВЛЕНИЯ (владелец 18.10): первый вариант комнаты влезает — включается сам; в комнате уже есть включённый — вопрос
+  // «вместо …?»; не влезает — в избранном без включения, сумма превышения и переход к правке; цены не досчитаны — не включаем
+  function decide(b,f,d){
+    var added=EN()?'Added to favourites':'Добавлено в избранное';
+    if(!BK.limit){bkPut(b); toast(added,goFav(f.roomId)); return;}
+    if(d.kind==='included'){bkPut(BK.mod.include(b,f.favoriteId,BK.limit).basket); toast(added,goFav(f.roomId)); return;}
+    bkPut(b);
+    if(d.kind==='ask_replace'){var c=favOf(d.currentId)||{displayName:''};
+      dlg(added,(EN()?'Use this layout in the allowance instead of “':'Добавить этот вариант в расчёт вместо «')+c.displayName+(EN()?'”?':'»?'),
+        [{label:EN()?'Yes':'Да',primary:true,fn:function(){var r=BK.mod.include(BK.b,f.favoriteId,BK.limit);
+            if(r.result==='included'){bkPut(r.basket); toast(added,goFav(f.roomId));} else if(r.result==='over_limit')dlg(added,overText(r.overBy||0),[{label:EN()?'OK':'Понятно',primary:true}]);}},
+         {label:EN()?'No':'Нет',fn:function(){toast(added,goFav(f.roomId));}}]);
+      return;}
+    if(d.kind==='over_limit'){
+      dlg(added,overText(d.overBy),[{label:EN()?'Change the layout to fit':'Изменить расстановку',primary:true,fn:function(){editLayout(f.favoriteId);}},
+        {label:EN()?'OK':'Понятно'}]);
+      return;}
+    toast(EN()?'Added to favourites. It joins the allowance once all prices are known':'Добавлено в избранное. В сертификат включим, когда уточним цены',goFav(f.roomId));
+  }
   function save(name){
-    var snap=snapshot(); snap.displayName=String(name||'').trim().slice(0,80)||defaultName(snap.style);
+    var v=allVariants()[cur]||{}, room=roomOfV(v), st=styleIdOfV(v)||(typeof HOME!=='undefined'&&HOME.styleId)||'';
+    var def=defaultName(), nm=String(name||'').trim().slice(0,80)||def;
+    var snap=snapshot(); snap.schemaVersion=3; snap.roomId=room.id; snap.styleId=st; snap.displayName=nm;
+    var draft=draftQuote();
     var tp=snap.shot?Promise.resolve(''):grabThumb();      // есть реалистичное фото этой расстановки — оно и есть картинка
     return post(snap).then(function(j){
       tp.then(function(u){if(u&&thumbPut(j.id,u)){favDraw();}});
-      var l=favs().filter(function(f){return f.collectionId!==j.id;});
-      l.unshift({collectionId:j.id, editToken:j.editToken||null, displayName:snap.displayName, style:snap.style||'', stateId:snap.stateId,
-        sourceVariantId:(allVariants()[cur]||{}).id||'', createdAt:Date.now(), shot:snap.shot||''});
-      favsPut(l); reportAct('favourite_save'); toast((EN()?'In favourites: ':'В избранном: ')+snap.displayName);
-      return afterSave(j.id,snap).then(function(){favDraw(); favUi();});
+      reportAct('favourite_save');
+      var f={favoriteId:j.id, editToken:j.editToken||null, roomId:room.id, roomKind:room.kind, styleId:st.slice(0,20), stateId:snap.stateId||'',
+        sourceVariantId:String(v.id||'').slice(0,40), displayName:nm, autoName:nm===def, createdAt:Date.now(),
+        quote:draft||{status:'pending',currency:BK.cur||'',at:0,lines:[]}};
+      if(snap.shot)f.shot=snap.shot;
+      whenBasket(function(){if(!draft){var dq=draftQuote(); if(dq)f.quote=dq;}   // корзина открылась позже сохранения — строки досчитать сейчас
+        var b=BK.mod.addFavorite(BK.b,f); markMig(f.favoriteId); decide(b,f,BK.mod.evaluate(b,room.id,f.quote,BK.limit));});
+      // коллекция с сервера — текущие цены: строки пересчитываются, уже включённый вариант остаётся включённым
+      return afterSave(j.id,snap).then(function(){bkRefresh(false); bkRedraw();});
     }).catch(function(){toast(EN()?'Could not save, please try again.':'Не получилось сохранить, попробуйте ещё раз.');});
   }
   function rename(id,name){
-    name=String(name||'').trim().slice(0,80); if(!name)return Promise.resolve();
-    var l=favs(), f=l.find(function(x){return x.collectionId===id;}); if(!f)return Promise.resolve();
-    var was=f.displayName; f.displayName=name; favsPut(l); reportAct('favourite_rename'); favDraw(); favUi();
+    name=String(name||'').trim().slice(0,80); var f=favOf(id); if(!name||!f||!BK.mod)return Promise.resolve();
+    var was={displayName:f.displayName, autoName:f.autoName};
+    bkPut(BK.mod.rename(BK.b,id,name)); reportAct('favourite_rename');
     if(!f.editToken)return Promise.resolve();   // перенесённая без секрета — имя только на этом устройстве
-    // сервер не принял (лимит, сеть) — имя возвращается, чтобы здесь и по ссылке оно не разошлось (Codex 18.10)
-    var back=function(){var l2=favs(), f2=l2.find(function(x){return x.collectionId===id;}); if(f2){f2.displayName=was; favsPut(l2); favDraw(); favUi();}
+    // сервер не принял (лимит, сеть) — имя и признак автоимени возвращаются: здесь и по ссылке имя не разойдётся (Codex 18.10)
+    var back=function(){var g=favOf(id); if(g&&g.displayName===name)bkPut(Object.assign({},BK.b,{favorites:BK.b.favorites.map(function(x){
+        return x.favoriteId===id?Object.assign({},x,was):x;})}));
       toast(EN()?'Could not rename, please try again.':'Не получилось переименовать, попробуйте ещё раз.');};
     return fetch('/api/collections/'+id,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({displayName:name,editToken:f.editToken})})
       .then(function(r){if(!r.ok)back();},back);
   }
-  function removeFav(id){favsPut(favs().filter(function(f){return f.collectionId!==id;})); thumbDrop(id); favDraw(); favUi(); drawColl(true);
+  function removeFav(id){ if(!BK.mod||!BK.b)return; bkPut(BK.mod.removeFavorite(BK.b,id,BK.limit)); thumbDrop(id); drawColl(true);
     toast(EN()?'Removed from favourites':'Убрано из избранного');}
-  // «ПОДЕЛИТЬСЯ» (demo-15 п.5): одна функция адреса — избранное этого состояния → его коллекция; нетронутый готовый вариант → `#v=`;
+  // «Включить в сертификат» в избранном: ворота модуля — не влезает или цена не досчитана — переключатель не двигается
+  function includeFav(id){ if(!BK.mod||!BK.b)return; var r=BK.mod.include(BK.b,id,BK.limit);
+    if(r.result==='included'){bkPut(r.basket); toast(EN()?'Included in the allowance':'Включено в сертификат'); return;}
+    favDraw();
+    if(r.result==='over_limit')dlg(EN()?'Not included':'Не включено',overText(r.overBy||0),[{label:EN()?'Change the layout to fit':'Изменить расстановку',primary:true,fn:function(){editLayout(id);}},{label:EN()?'OK':'Понятно'}]);
+    else toast(EN()?'Some prices are not known yet — try again in a minute':'Часть цен ещё уточняется — попробуйте через минуту');
+  }
+  // «ПОДЕЛИТЬСЯ» (demo-15 п.5): избранное этого состояния → его коллекция; нетронутый готовый вариант → `#v=`;
   // изменённая несохранённая расстановка — сперва снимок (иначе `#v=` отдал бы базовый вариант, Codex (б)); снимок одного состояния — один
   var SNAP={};
   function shareUrl(){
     var v=allVariants()[cur]||{}, sid=curStateId(), f=ofState(sid);
-    if(f)return Promise.resolve(collUrl(f.collectionId));
+    if(f)return Promise.resolve(collUrl(f.favoriteId));
     if(v.cid&&baseState(v)===sid)return Promise.resolve(collUrl(v.cid));
     if(!v.mine&&baseState(v)===sid)return Promise.resolve(variantLink(v.id||curVid()));
     if(SNAP[sid])return Promise.resolve(collUrl(SNAP[sid]));
-    var snap=snapshot();
-    return post(snap).then(function(j){SNAP[sid]=j.id; afterSave(j.id,snap); return collUrl(j.id);});
+    var snap=snapshot(), room=roomOfV(v); snap.schemaVersion=3; snap.roomId=room.id; snap.styleId=styleIdOfV(v)||HOME.styleId||'';
+    return post(snap).then(function(j){SNAP[sid]=j.id; markMig(j.id); afterSave(j.id,snap); return collUrl(j.id);});
   }
   function shareOpenUrl(url,title){
     reportAct('share');
@@ -5725,7 +5924,7 @@ async function liveShow(){
   // ОКОШКО ИМЕНИ (demo-15 п.4): новое — «<Стиль> #N», можно дописать; в избранном — переименовать или убрать
   function pop(f){
     var old=document.getElementById('favPop'); if(old)old.remove();
-    var v=allVariants()[cur]||{}, isNew=!f, nm=f?(f.displayName||''):defaultName(styleOfV(v));
+    var isNew=!f, nm=f?(f.displayName||''):defaultName();
     var el=document.createElement('div'); el.id='favPop'; el.className='favpop'; el.setAttribute('role','dialog'); el.setAttribute('aria-modal','true');
     var e=function(t){return String(t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});};
     el.innerHTML='<div class="favbox"><b>'+(isNew?(EN()?'Save to favourites':'В избранное'):(EN()?'In favourites':'В избранном'))+'</b>'+
@@ -5739,9 +5938,9 @@ async function liveShow(){
     el.addEventListener('click',function(ev){if(ev.target===el)close();});
     document.getElementById('favNo').onclick=close;
     var ok=document.getElementById('favOk');
-    var go=function(){ok.disabled=true; (isNew?save(inp.value):rename(f.collectionId,inp.value)).then(close,close);};
+    var busy=false, go=function(){if(busy)return; busy=true; ok.disabled=true; (isNew?save(inp.value):rename(f.favoriteId,inp.value)).then(close,close);};   // двойной Enter — одно сохранение
     ok.onclick=go; inp.addEventListener('keydown',function(ev){if(ev.key==='Enter')go(); if(ev.key==='Escape')close();});
-    var del=document.getElementById('favDel'); if(del)del.onclick=function(){removeFav(f.collectionId); close();};
+    var del=document.getElementById('favDel'); if(del)del.onclick=function(){removeFav(f.favoriteId); close();};
   }
   function toggle(){pop(ofState(curStateId()));}
   // сердечко и «поделиться» в шапке окна — только в окне варианта
@@ -5754,41 +5953,66 @@ async function liveShow(){
     sh.setAttribute('aria-label',EN()?'Share':'Поделиться');
     h.onclick=toggle; sh.onclick=share;
   }
-  // РАЗДЕЛ «ИЗБРАННОЕ» НА ГЛАВНОЙ (demo-15 п.6): все из этого списка, без лимита; карточка — картинка, имя, стиль, дата, сумма;
-  // тап — окно этой расстановки; «поделиться» и «⋯» (переименовать / убрать)
-  function favDraw(){
-    // сердечко и имя на карточке комнаты, ♡ N в строке квартиры — от того же списка (demo-16)
-    try{if(typeof drawHome==='function')drawHome(); else if(typeof homeFavUi==='function')homeFavUi();}catch(_){}
-    var head=document.getElementById('favHead'), grid=document.getElementById('favGrid'); if(!head||!grid)return;
-    var l=favs(); head.hidden=grid.hidden=!l.length; if(!l.length){grid.innerHTML='';return;}
-    var e=function(t){return String(t==null?'':t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});};
-    var hp=head.querySelector('h2'), pp=head.querySelector('p'); if(hp)hp.textContent=EN()?'Favourites':'Избранное';
-    if(pp)pp.textContent=EN()?'Layouts saved on this device':'Сохранённые расстановки на этом устройстве';
-    var TH=thumbs();
-    grid.innerHTML=l.map(function(f,k){
-      var i=allVariants().findIndex(function(x){return x.cid===f.collectionId;}), v=i>=0?allVariants()[i]:null;
-      // картинка: реалистичное фото расстановки → миниатюра из сцены → серверный черновик → кадр варианта
-      var img=(f.shot?location.origin+f.shot:'')||TH[f.collectionId]||((typeof COLL_SHOTS!=='undefined'&&COLL_SHOTS[f.collectionId])||'');
-      if(!img&&v){var b=bestShot(v); if(b)img=thumbOf(b);}
-      var d=new Date(f.createdAt||Date.now()), date=('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'.'+d.getFullYear();
-      var sum=v?money(variantPrice(v)):'';
-      return '<div class="lay favcard" data-fopen="'+k+'"><div class="wrapimg">'+(img?'<img class="pv" src="'+e(img)+'" alt="" loading="lazy">'
-          :'<div class="nopv">'+(EN()?'Open to see it in 3D':'Откройте — покажем в 3D')+'</div>')+'</div>'+
-        '<div class="body"><div class="nm">'+e(f.displayName||cap(f.style))+'</div>'+
-        '<div class="pr">'+e(cap(f.style))+' · '+date+(sum?' · <b>'+sum+'</b>':'')+'</div>'+
-        '<div class="acts"><button class="btn" data-fopen="'+k+'">'+(EN()?'Open':'Открыть')+'</button>'+
-        '<button class="iconbtn" data-fshare="'+k+'" aria-label="'+(EN()?'Share':'Поделиться')+'">'+SHARE_SVG+'</button>'+
-        '<button class="iconbtn" data-fmore="'+k+'" aria-label="'+(EN()?'Rename or remove':'Переименовать или убрать')+'">⋯</button></div></div></div>';}).join('');
-    var at=function(k){return favs()[+k];};
-    grid.querySelectorAll('[data-fopen]').forEach(function(b){b.onclick=function(ev){if(ev.target.closest('[data-fshare],[data-fmore]'))return;
-      var f=at(b.dataset.fopen); if(!f)return; var i=allVariants().findIndex(function(x){return x.cid===f.collectionId;});
-      if(i>=0){vwOpenVariant(i);} else {location.hash='#c='+f.collectionId;}};});
-    grid.querySelectorAll('[data-fshare]').forEach(function(b){b.onclick=function(ev){ev.stopPropagation(); var f=at(b.dataset.fshare); if(f)shareOpenUrl(collUrl(f.collectionId),f.displayName);};});
-    grid.querySelectorAll('[data-fmore]').forEach(function(b){b.onclick=function(ev){ev.stopPropagation(); var f=at(b.dataset.fmore); if(!f)return;
-      var i=allVariants().findIndex(function(x){return x.cid===f.collectionId;}); if(i>=0&&i!==cur)pickVariant(i); pop(f);};});
+  // «Перейти →»: окно закрывается, раздел «Избранное» раскрыт на этой комнате (возврат «назад» с состоянием окна — шаг 3)
+  function openFavs(roomId){
+    var x=document.getElementById('shotx'); if(x&&document.getElementById('shot').classList.contains('on'))x.click();
+    BK.open=true; if(roomId)BK.sel=roomId; favDraw();
+    var h=document.getElementById('favHead'); if(h&&!h.hidden)setTimeout(function(){h.scrollIntoView({behavior:'smooth',block:'start'});},60);
   }
-  window.__fav={list:favs, ofState:ofState, baseState:baseState, toggle:toggle, share:share, shareUrl:shareUrl, shareUrlOpen:shareOpenUrl,
-    ui:favUi, draw:favDraw, save:save, rename:rename, remove:removeFav, defaultName:defaultName};
+  // РАЗДЕЛ «ИЗБРАННОЕ» (demo-16 шаг 2): свёрнутая строка под сертификатом; раскрыт — комнаты (группы, в порядке плана) и варианты
+  // выбранной комнаты; у каждого — «Включить в сертификат» (ровно один на комнату), «Открыть», «поделиться», «⋯»
+  function favDraw(){
+    try{if(typeof drawHome==='function')drawHome();}catch(_){}
+    var head=document.getElementById('favHead'), sec=document.getElementById('favSec'), grid=document.getElementById('favGrid'), chips=document.getElementById('favChips');
+    if(!head||!grid||!sec||!chips)return;
+    var l=favs(); head.hidden=!l.length;
+    if(!l.length){sec.hidden=true; grid.innerHTML=''; chips.innerHTML=''; return;}
+    var e=escHtml, rooms=homeRooms(), inc=BK.b.includedByRoom;
+    var groups=rooms.filter(function(r){return l.some(function(f){return f.roomId===r.id;});});
+    l.forEach(function(f){if(!groups.some(function(g){return g.id===f.roomId;}))groups.push({id:f.roomId,title:f.roomId});});
+    if(!groups.some(function(g){return g.id===BK.sel;}))BK.sel=groups[0].id;
+    document.getElementById('favRowN').textContent='· '+l.length;
+    var nInc=Object.keys(inc).length;
+    document.getElementById('favRowSub').textContent=nInc?((EN()?'in the allowance: ':'в сертификате: ')+groups.filter(function(g){return inc[g.id];}).map(function(g){return g.title;}).join(', ')):(EN()?'nothing in the allowance yet':'в сертификат пока ничего не включено');
+    var btn=document.getElementById('favRowBtn'); btn.setAttribute('aria-expanded',String(!!BK.open)); sec.hidden=!BK.open;
+    btn.onclick=function(){BK.open=!BK.open; favDraw();};
+    chips.innerHTML=groups.map(function(g){var n=l.filter(function(f){return f.roomId===g.id;}).length;
+      return '<button class="hm-fav-chip'+(g.id===BK.sel?' on':'')+'" type="button" role="tab" aria-selected="'+(g.id===BK.sel)+'" data-froom="'+e(g.id)+'">'+e(g.title)+' · '+n+'</button>';}).join('');
+    chips.querySelectorAll('[data-froom]').forEach(function(b){b.onclick=function(){BK.sel=b.dataset.froom; favDraw();};});
+    var TH=thumbs(), list=l.filter(function(f){return f.roomId===BK.sel;}).sort(function(a,b){return b.createdAt-a.createdAt;});
+    grid.innerHTML=list.map(function(f){
+      var v=MINE.find(function(x){return x.cid===f.favoriteId;});
+      var img=(f.shot?location.origin+f.shot:'')||TH[f.favoriteId]||((typeof COLL_SHOTS!=='undefined'&&COLL_SHOTS[f.favoriteId])||'');
+      if(!img&&v){var bs=bestShot(v); if(bs)img=thumbOf(bs);}
+      var d=new Date(f.createdAt||Date.now()), date=('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'.'+d.getFullYear();
+      var known=f.quote.lines.filter(function(x){return x.settlement==='allowance';}), full=f.quote.status==='fresh'&&known.every(function(x){return x.priceStatus==='known';});
+      var sum=known.reduce(function(s,x){return s+(x.amount||0);},0), on=inc[f.roomId]===f.favoriteId;
+      var price=full?'<b>'+fmtCard(sum)+'</b>':(EN()?'prices are being checked':'цены уточняются');
+      return '<div class="favcard'+(on?' inc':'')+'" data-fid="'+e(f.favoriteId)+'"><div class="fph" data-fopen="'+e(f.favoriteId)+'">'+
+          (img?'<img src="'+e(img)+'" alt="" loading="lazy">':'<div class="nopv">'+(EN()?'Open to see it in 3D':'Откройте — покажем в 3D')+'</div>')+'</div>'+
+        '<div class="fb"><div class="nm">'+e(f.displayName)+'</div><div class="pr">'+e(styleTitle(f.styleId))+' · '+date+' · '+price+'</div>'+
+        (BK.limit?'<label class="inc-l"><input type="radio" name="inc-'+e(f.roomId)+'" data-finc="'+e(f.favoriteId)+'"'+(on?' checked':'')+'> '+
+          (on?(EN()?'In the allowance':'Включено в сертификат'):(EN()?'Include in the allowance':'Включить в сертификат'))+'</label>':'')+
+        '<div class="acts"><button class="btn" type="button" data-fopen="'+e(f.favoriteId)+'">'+(EN()?'Open':'Открыть')+'</button>'+
+        '<button class="iconbtn" type="button" data-fshare="'+e(f.favoriteId)+'" aria-label="'+(EN()?'Share':'Поделиться')+'">'+SHARE_SVG+'</button>'+
+        '<button class="iconbtn" type="button" data-fmore="'+e(f.favoriteId)+'" aria-label="'+(EN()?'Rename or remove':'Переименовать или убрать')+'">⋯</button></div></div></div>';}).join('');
+    grid.querySelectorAll('[data-fopen]').forEach(function(b){b.onclick=function(){var id=b.dataset.fopen, i=allVariants().findIndex(function(x){return x.cid===id;});
+      if(i>=0)vwOpenVariant(i); else location.hash='#c='+id;};});
+    grid.querySelectorAll('[data-finc]').forEach(function(b){b.onchange=function(){includeFav(b.dataset.finc);};});
+    grid.querySelectorAll('[data-fshare]').forEach(function(b){b.onclick=function(ev){ev.stopPropagation(); var f=favOf(b.dataset.fshare); if(f)shareOpenUrl(collUrl(f.favoriteId),f.displayName);};});
+    grid.querySelectorAll('[data-fmore]').forEach(function(b){b.onclick=function(ev){ev.stopPropagation(); var f=favOf(b.dataset.fmore); if(!f)return;
+      var i=allVariants().findIndex(function(x){return x.cid===f.favoriteId;}); if(i>=0&&i!==cur)pickVariant(i); pop(f);};});
+  }
+  // для шкалы главной и плашки окна: итоги корзины и предпросмотр «с этой комнатой» (замена комнаты черновиком окна)
+  window.__basket={
+    totals:function(){return BK.mod&&BK.b?BK.mod.basketTotals(BK.b,BK.limit):null;},
+    preview:function(){ if(!BK.mod||!BK.b)return null; var v=allVariants()[cur]||{}, room=roomOfV(v), q=draftQuote(); if(!q)return null;
+      var p=BK.mod.preview(BK.b,room.id,q,BK.limit), f=ofState(curStateId());
+      return {base:p.base, with:p.with, room:room, included:!!(f&&BK.b.includedByRoom[room.id]===f.favoriteId), hasIncluded:!!BK.b.includedByRoom[room.id]};},
+    open:openFavs, state:function(){return BK.b;}, limit:function(){return BK.limit;}};
+  window.__fav={list:function(){return favs().map(function(f){return Object.assign({collectionId:f.favoriteId},f);});},
+    ofState:ofState, baseState:baseState, toggle:toggle, share:share, shareUrl:shareUrl, shareUrlOpen:shareOpenUrl,
+    ui:favUi, draw:favDraw, save:save, rename:rename, remove:removeFav, include:includeFav, defaultName:defaultName};
   document.addEventListener('remlab:hist',function(){favUi();});
   boot();
 })();

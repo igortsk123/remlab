@@ -16,7 +16,7 @@ async function page(b,lang){
   await p.route(/\/api\/job\?/,r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({status:'running',eta:30})}));
   await p.goto(BASE+(lang==='en'?'?lang=en&':'?')+'live=force&v='+Date.now(),{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT&&allVariants().length>0",null,{timeout:90000});
-  await p.evaluate(()=>{try{sessionStorage.removeItem('remlab-sheet-pos');localStorage.removeItem('remlab-favorites');localStorage.removeItem('remlab-favorites-mig');}catch(e){}});
+  await p.evaluate(()=>{try{sessionStorage.removeItem('remlab-sheet-pos');Object.keys(localStorage).filter(k=>/^remlab-(basket|favorites|collections|fav-thumbs)/.test(k)).forEach(k=>localStorage.removeItem(k));}catch(e){}});
   return p;
 }
 const openWin=async(p,i)=>{await p.evaluate(i=>{pickVariant(i); VW.collapse=true; vwOpenVariant(i); if(VW.mode!=='walk')vwMode('walk');},i);
@@ -103,11 +103,11 @@ const openWin=async(p,i)=>{await p.evaluate(i=>{pickVariant(i); VW.collapse=true
     await p.evaluate(()=>{document.getElementById('shotx').click();}); await p.waitForTimeout(800);
     const st4=await p.evaluate(()=>({head:!document.getElementById('favHead').hidden, cards:document.querySelectorAll('#favGrid .favcard').length,
       name:(document.querySelector('#favGrid .favcard .nm')||{}).textContent||'',
-      img:((document.querySelector('#favGrid .favcard img.pv')||{}).src||'').slice(0,23), cardShare:document.querySelectorAll('#hmRooms [data-share]').length, cardLink:document.querySelectorAll('#coll [data-link],#hmRooms [data-link]').length}));
+      img:((document.querySelector('#favGrid .favcard img')||{}).src||'').slice(0,23), cardShare:document.querySelectorAll('#hmRooms [data-share]').length, cardLink:document.querySelectorAll('#coll [data-link],#hmRooms [data-link]').length}));
     ok('раздел «Избранное» на главной с карточкой',st4.head&&st4.cards===1&&st4.name==='Гостиная мечты',JSON.stringify(st4));
     ok('карточка избранного — с картинкой (миниатюра из сцены), не заглушка',/^data:image\/jpeg/.test(st4.img),st4.img||'заглушка');
     ok('на карточках вариантов — иконка «поделиться», текстовой «Ссылки» нет',st4.cardShare>0&&st4.cardLink===0);
-    await p.evaluate(()=>document.getElementById('favHead').scrollIntoView()); await p.waitForTimeout(500);
+    await p.evaluate(()=>{window.__basket.open(); document.getElementById('favHead').scrollIntoView();}); await p.waitForTimeout(500);   // раздел свёрнут строкой (demo-16)
     await p.screenshot({path:OUT+W+'-5-home.png'});
     // убрать из избранного — раздел скрыт
     await p.click('#favGrid [data-fmore]'); await p.waitForTimeout(300); await p.click('#favDel'); await p.waitForTimeout(600);

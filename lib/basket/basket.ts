@@ -34,6 +34,8 @@ export type QuoteLine = Infer<typeof quoteLine>;
 export const roomQuote = object({
   status: zenum(["fresh", "pending", "unavailable"]),
   currency: string().check(maxLength(3)),
+  /** Курс показа рублёвых цен (у британского двойника): другой курс — суммы кэша неверны. */
+  fx: optional(string().check(maxLength(40))),
   at: number(),
   lines: array(quoteLine).check(maxLength(200)),
 });
@@ -77,12 +79,13 @@ export const emptyBasket = (apartmentId: string): BasketV2 => ({ v: 2, apartment
  * Корзина из хранилища браузера. Битое не роняет страницу и не обнуляет всё: годные записи остаются, повторы и чужие
  * включения снимаются, корзина другой квартиры — пустая этой.
  */
-export function loadBasket(raw: unknown, ctx: { apartmentId: string; currency: string }): BasketV2 {
+export function loadBasket(raw: unknown, ctx: { apartmentId: string; currency: string; fx?: string }): BasketV2 {
   const ok = safeParse(basketV2, raw);
   const b = ok.success ? ok.data : repair(raw, ctx.apartmentId);
   if (b.apartmentId !== ctx.apartmentId) return emptyBasket(ctx.apartmentId);
-  // валюта карточки сменилась (курс, двойник) — суммы кэша не в той валюте: досчитать заново
-  return { ...b, favorites: b.favorites.map((f) => f.quote.currency === ctx.currency ? f : { ...f, quote: { ...f.quote, status: "pending" as const } }) };
+  // валюта или курс карточки сменились — числа кэша в другой валюте: сбрасываем, досчитаем заново (не показываем £100 000 вместо ₽, Codex 18.10)
+  const same = (q: RoomQuote) => q.currency === ctx.currency && (q.fx ?? "") === (ctx.fx ?? "");
+  return { ...b, favorites: b.favorites.map((f) => same(f.quote) ? f : { ...f, quote: { status: "pending" as const, currency: ctx.currency, at: 0, lines: [] } }) };
 }
 
 function repair(raw: unknown, apartmentId: string): BasketV2 {
@@ -93,10 +96,11 @@ function repair(raw: unknown, apartmentId: string): BasketV2 {
     const p = safeParse(favoriteRef, f);
     if (p.success && !favs.some((x) => x.favoriteId === p.data.favoriteId)) favs.push(p.data);
   }
+  favs.splice(200);                                    // сперва обрезка, потом включения — не ссылаемся на отрезанное (Codex 18.10)
   const inc: Record<string, string> = {};
   const src = r.includedByRoom && typeof r.includedByRoom === "object" ? (r.includedByRoom as Record<string, unknown>) : {};
   for (const [room, id] of Object.entries(src)) if (favs.some((f) => f.favoriteId === id && f.roomId === room)) inc[room] = id as string;
-  return { v: 2, apartmentId, favorites: favs.slice(0, 200), includedByRoom: inc };
+  return { v: 2, apartmentId, favorites: favs, includedByRoom: inc };
 }
 
 // ——— строки комнаты
@@ -113,7 +117,7 @@ export type QuoteOption = {
  * товара — в рублях витрины, `toCard` переводит в валюту карточки. Пропавший товар и исчезнувший вариант опции — `unavailable`.
  */
 export function quoteRoom(p: {
-  roomId: string; roomKind: string; currency: string; at: number;
+  roomId: string; roomKind: string; currency: string; at: number; fx?: string;
   items: { role: string; sku?: QuoteSku }[]; decor: { role: string; sku?: QuoteSku }[];
   developerOptions: Record<string, string>; options: QuoteOption[]; toCard: (rub: number) => number;
 }): RoomQuote {
@@ -140,7 +144,7 @@ export function quoteRoom(p: {
     if (v.price.type === "surcharge" && typeof v.price.amount === "number") lines.push({ ...base, amount: Math.round(v.price.amount), priceStatus: "known" });
     else lines.push({ ...base, amount: null, priceStatus: "on_request" });
   }
-  return { status: "fresh", currency: p.currency, at: p.at, lines };
+  return { status: "fresh", currency: p.currency, at: p.at, lines, ...(p.fx ? { fx: p.fx } : {}) };
 }
 
 // ——— итоги
@@ -200,8 +204,19 @@ export function evaluate(b: BasketV2, roomId: string, candidate: RoomQuote, limi
   return cur ? { kind: "ask_replace", currentId: cur } : { kind: "included" };
 }
 
+export const MAX_FAVORITES = 200;
+
+/** Новое — первым. Сверх 200 уходит самое старое НЕвключённое: включённые в сертификат не теряются (Codex 18.10). */
 export function addFavorite(b: BasketV2, f: FavoriteRef): BasketV2 {
-  return { ...b, favorites: [f, ...b.favorites.filter((x) => x.favoriteId !== f.favoriteId)].slice(0, 200) };
+  const list = [f, ...b.favorites.filter((x) => x.favoriteId !== f.favoriteId)];
+  const inc = new Set(Object.values(b.includedByRoom));
+  while (list.length > MAX_FAVORITES) {
+    let k = -1;
+    for (let i = list.length - 1; i > 0; i--) if (!inc.has(list[i]!.favoriteId) && (k < 0 || list[i]!.createdAt < list[k]!.createdAt)) k = i;
+    if (k < 0) break;
+    list.splice(k, 1);
+  }
+  return { ...b, favorites: list };
 }
 
 /** Включить вариант в сертификат: единственные ворота лимита. Не влезает или цена не досчитана — корзина не меняется. */

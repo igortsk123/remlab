@@ -127,7 +127,21 @@ describe("хранилище и имена", () => {
   it("корзина другой квартиры — пустая этой; другая валюта — строки к пересчёту", () => {
     const b = with_(fav(1, q(1)));
     expect(loadBasket(b, { apartmentId: "demo-uk-215", currency: "GBP" }).favorites).toEqual([]);
-    expect(loadBasket(b, { apartmentId: "flat215", currency: "GBP" }).favorites[0]?.quote.status).toBe("pending");
+    const gbp = loadBasket(b, { apartmentId: "flat215", currency: "GBP" }).favorites[0]?.quote;
+    expect(gbp).toMatchObject({ status: "pending", currency: "GBP", lines: [] });          // рубли кэша не показываются фунтами
+    const fx = { ...q(100, { currency: "GBP", fx: "0.01@2026-10-16" }) };
+    const withFx = with_(fav(1, fx));
+    expect(loadBasket(withFx, { apartmentId: "flat215", currency: "GBP", fx: "0.01@2026-10-16" }).favorites[0]?.quote.lines.length).toBe(1);
+    expect(loadBasket(withFx, { apartmentId: "flat215", currency: "GBP", fx: "0.0098@2026-11-01" }).favorites[0]?.quote.lines).toEqual([]);
+  });
+
+  it("сверх 200 уходит самое старое невключённое; включённое не теряется", () => {
+    let b = include(with_(fav(1, q(1), "living", 0)), id(1), LIMIT).basket;            // самое старое — и оно включено
+    for (let n = 2; n <= 201; n++) b = addFavorite(b, fav(n, q(1), "kitchen", n));
+    expect(b.favorites.length).toBe(200);
+    expect(b.favorites.some((f) => f.favoriteId === id(1))).toBe(true);
+    expect(b.favorites.some((f) => f.favoriteId === id(2))).toBe(false);                  // старейшее невключённое
+    expect(safeParse(basketV2, b).success).toBe(true);
   });
 
   it("имя «<Комната> #N» — по комнате, N = наибольший + 1", () => {

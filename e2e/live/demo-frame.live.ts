@@ -63,7 +63,8 @@ test("2.13 сохранённая коллекция получает карти
   await page.locator("#vFav").click();
   await page.locator("#favOk").click();
   await expect(page.locator("#vFav.on")).toBeVisible();
-  const cid = await page.evaluate(() => (JSON.parse(localStorage.getItem("remlab-favorites") || "[]")[0] || {}).collectionId as string);
+  // избранное — корзина квартиры (demo-16 шаг 2): номер коллекции — из её списка
+  const cid = await page.evaluate("((window.__fav && window.__fav.list()) || [])[0]?.collectionId || ''") as string;
   expect(cid).toMatch(/^[A-Za-z0-9_-]{22}$/);
   await expect.poll(async () => (await page.request.get(`/api/collections/${cid}`).then((r) => r.json()) as { collection: { shot?: string } }).collection.shot ?? "",
     { timeout: 180_000, intervals: [5_000] }).toMatch(/^\/test\/share\/frames\//);
