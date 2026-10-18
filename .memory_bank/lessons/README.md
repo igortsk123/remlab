@@ -310,3 +310,4 @@
 
 _Скрипты переноса и проверки (parse/split/verify) — вне банка; карта в CSV — `lessons-map.csv` рядом со скриптами. Сгенерировано 2026-09-05._
 - 511 — oom_score_adj юнитов systemd --user (минимум 100 без root) → `lessons/dev-ops.md`
+- 512 — Playwright на DEV под earlyoom: рендерер — первая жертва; пауза рендера + крона на время пробы → `lessons/dev-ops.md`

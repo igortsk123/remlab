@@ -28,12 +28,12 @@ review_after: 2026-12-05
 Главная `/` — хаб из 6 плиток (calc/remont/start/styles/sovety/lab). Экраны `/start` →
 `/p/[id]/{brief→select→preview→paywall}`, `/rooms`, `/soon` (fake-door, событие не эмитится). Выбор
 управляет генерацией: `/select` — `runAnalyze` + keep/change/remove (`objectChoices`) + стиль + `wish`;
-«Сгенерировать» → `runGenerate` (restyle+ideas) = «генерация» с номером. Free/Paid = уровень (3
-варианта, owner 2026-07-02): «Освежить» бесплатно (виз.+до 3 товаров), цены ступеней в коде НЕТ: фактически один
-платный пакет 490 ₽ (`app/p/[id]/paywall/page.tsx`); реф-ссылки везде, paywall-триггер = выбор 2/3. ⚠️ Код-долг: товары seed, вар.2/3 и YooKassa нет.
+«Сгенерировать» → `runGenerate` (restyle+ideas). Free/Paid = уровень (owner 2026-07-02): «Освежить» бесплатно, один платный пакет
+490 ₽ (`app/p/[id]/paywall/page.tsx`), paywall-триггер = выбор 2/3. ⚠️ Код-долг: товары seed, вар.2/3 и YooKassa нет.
 
-**Избранное/«поделиться» (18.10, demo-15, ADR-0306):** ♡ в окне → коллекция «<Стиль> #N» с секретом переименования
-(`modules/collections/repository.ts`); раздел «Избранное» на главной; ⇪ share/копирование. Карта 2.13–2.15.
+**Избранное (18.10, ADR-0306/0307):** ♡ → коллекция «<Комната> #N» с секретом (`modules/collections/repository.ts`, v3 `roomId/styleId`);
+корзина сертификата по комнатам (`lib/basket/basket.ts`); главная — стили → комнаты, липкая шапка, «назад» через `history.state`.
+Карта 1.1, 1.5, 2.13–2.15, 2.33–2.36.
 
 ## Аналитика
 `lib/analytics.ts` (PostHog, no-op без ключа), сверка 11.10: 17 событий объявлено (`EventName`), 12 эмитится
