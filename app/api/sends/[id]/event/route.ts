@@ -1,11 +1,12 @@
 import { after, NextResponse } from "next/server";
+import { isLiveCheck } from "@/lib/http/live-check";
 import { foreignOrigin } from "@/lib/http/origin";
 
 import { buyerEvent } from "@/contracts/send";
 import { TOKEN_RE } from "@/lib/token";
 import { guard } from "@/lib/ratelimit/http";
 import { flushSignals } from "@/modules/sends/dispatch";
-import { recordBuyerEvent } from "@/modules/sends/service";
+import { recordBuyerEvent, sendStore } from "@/modules/sends/service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +20,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const { id } = await ctx.params;
   const parsed = buyerEvent.safeParse(await req.json().catch(() => null));
   if (!TOKEN_RE.test(id) || !parsed.success) return NextResponse.json({ ok: false }, { status: 400 });
+  // живая проверка — тот же ответ (есть ли такая ссылка), но без события, смены статуса и сигнала менеджеру
+  if (isLiveCheck(req.headers)) {
+    const s = await sendStore().getSend(id);
+    return s && !s.revoked ? NextResponse.json({ ok: true }) : NextResponse.json({ ok: false }, { status: 404 });
+  }
   const ok = await recordBuyerEvent(id, parsed.data);
   if (!ok) return NextResponse.json({ ok: false }, { status: 404 });
   after(() => flushSignals().then(() => undefined, () => undefined));

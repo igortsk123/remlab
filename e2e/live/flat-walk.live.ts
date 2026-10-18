@@ -1,5 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
+import { LIVE_BROWSER_ARGS } from "./browser";
+
 // ПРОГУЛКА /flat НЕ СКВОЗЬ МЕБЕЛЬ — ЧИСЛАМИ, А НЕ ЭКРАНОМ (demo-05 п.1д, приёмка п.5 по просьбе d8 15.10). По снимку не
 // отличить «камера внутри тумбы» от «упёрлась в стену»: оба — серый экран. Поэтому у движка спрашиваем позицию и расстояние
 // до ближайшего следа мебели (`viewer.debugWalk`): в каждом опубликованном варианте поворачиваемся к каждому предмету ядра,
@@ -20,7 +22,7 @@ const CORE = ["диван", "столик", "тв-тумба", "стол обе�
 
 // без видеокарты (DEV, ночной шаг) вкладка /flat падала на втором варианте (прогон d8 15.10, «Target crashed»): явный
 // программный рендер ANGLE и свежая вкладка на каждый вариант — память сцены уходит вместе с вкладкой
-test.use({ launchOptions: { args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] } });
+test.use({ launchOptions: { args: [...LIVE_BROWSER_ARGS, "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] } });
 const MIN_CM = 25;
 
 async function viewerReady(page: Page, want: number): Promise<void> {

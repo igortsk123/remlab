@@ -2,6 +2,10 @@
 // PostHog free покрывает и события, и ошибки. Sentry (если захотим отдельно) добавим позже его SDK.
 // Секрет — только POSTHOG_KEY в env; в код не зашивается.
 
+import { headers } from "next/headers";
+
+import { isLiveCheck } from "@/lib/http/live-check";
+
 export type EventName =
   | "project_started"
   | "brief_completed"
@@ -26,6 +30,7 @@ type Props = Record<string, string | number | boolean | null>;
 export async function track(event: EventName, distinctId: string, properties?: Props): Promise<void> {
   const key = process.env.POSTHOG_KEY;
   if (!key) return; // аналитика выключена, пока не задан ключ
+  if (event !== "app_error" && (await fromLiveCheck())) return; // живая проверка прода — не человек; ошибки — нужны и от неё
   const host = process.env.POSTHOG_HOST ?? "https://eu.i.posthog.com";
   try {
     await fetch(`${host}/capture/`, {
@@ -35,6 +40,14 @@ export async function track(event: EventName, distinctId: string, properties?: P
     });
   } catch {
     // аналитика не должна ломать основной поток
+  }
+}
+
+async function fromLiveCheck(): Promise<boolean> {
+  try {
+    return isLiveCheck(await headers());
+  } catch {
+    return false; // вне запроса (фон, крон) заголовков нет
   }
 }
 

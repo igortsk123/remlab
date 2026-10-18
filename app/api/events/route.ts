@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { isLiveCheck } from "@/lib/http/live-check";
 import { foreignOrigin } from "@/lib/http/origin";
 
 import { pageEventIn } from "@/contracts/analytics";
@@ -27,6 +28,7 @@ export async function POST(req: Request): Promise<Response> {
   if (!parsed.success) return new NextResponse(null, { status: 400 });
   const hit = findApartment(parsed.data.apartmentId);
   if (!hit) return new NextResponse(null, { status: 400 });
+  if (isLiveCheck(req.headers)) return new NextResponse(null, { status: 204 }); // живая проверка — тот же ответ, без записи
   try {
     await reportRepo().bump({
       day: dayIn(new Date(), hit.partner.timezone), partnerId: hit.partner.id,

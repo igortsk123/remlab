@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
 import { FlatConfigurator } from "@/components/flat3d/FlatConfigurator";
@@ -7,6 +8,7 @@ import { baseSnapshotOf, staleSlots } from "@/lib/configurator/fromDemo";
 import { readConfig } from "@/lib/configurator/repo";
 import { defaultConfiguration } from "@/lib/configurator/resolve";
 import { defaultApartmentId, developerSelections, parseOptParam, resolveCollectionFlat, resolveFlat } from "@/lib/configurator/source";
+import { isLiveCheck } from "@/lib/http/live-check";
 import { apartmentCard, money } from "@/lib/partners/registry";
 import type { Lang } from "@/lib/configurator/i18n";
 import { TOKEN_RE } from "@/lib/token";
@@ -120,8 +122,8 @@ export default async function FlatPage({ searchParams }: { searchParams: Promise
   const manager = sendId && mgr ? mgr.manager.name : null;
   const cert = card.certificate ? money(card.certificate.amount, card.currency, lang) : null;
   // УСТАРЕВШАЯ ССЫЛКА — В ОТЧЁТ ЗАСТРОЙЩИКУ (demo-05 п.10, b2b-03): +1 к счётчику дня, только без ссылки менеджера (там — его
-  // воронка). Сбой счётчика страницу не ломает
-  if (replaced && !saved && !sendId) {
+  // воронка). Сбой счётчика страницу не ломает. Живая проверка прода (`lib/http/live-check.ts`) не считается
+  if (replaced && !saved && !sendId && !isLiveCheck(await headers())) {
     try {
       const day = new Intl.DateTimeFormat("en-CA", { timeZone: hit.partner.timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
       await reportRepo().bump({ day, partnerId: hit.partner.id, apartmentId: hit.apartment.id, kind: "stale_link", lang });
