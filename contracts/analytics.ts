@@ -18,6 +18,7 @@ export const pageCounterKind = z.enum([
   "favourite_save", // сохранил расстановку в избранное (demo-15)
   "favourite_rename", // переименовал избранное (demo-15)
   "view_switch", // переключил ракурс подписью (demo-15)
+  "style_tab", // переключил вкладку стиля на главной (demo-16)
 ]);
 export type PageCounterKind = z.infer<typeof pageCounterKind>;
 

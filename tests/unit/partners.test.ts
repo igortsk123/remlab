@@ -49,6 +49,42 @@ describe("реестр застройщиков", () => {
   });
 });
 
+// КОМНАТЫ КВАРТИРЫ (demo-16, Codex 18.10 п.1): главная строит «стиль → комнаты» из карточки, а не из заголовков чертежа
+describe("комнаты квартиры", () => {
+  it("карточка: комнаты в порядке плана, подписи на языке; опции знают свою комнату", () => {
+    const ru = apartmentCard(findApartment("flat215")!, "ru");
+    expect(ru.rooms.map((r) => r.title)).toEqual(["Гостиная", "Кухня", "Спальня 1", "Спальня 2", "Санузел", "Прихожая"]);
+    expect(ru.rooms.map((r) => r.ordinal)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(ru.rooms.filter((r) => r.contentState === "ready").map((r) => r.id)).toEqual(["living"]);
+    expect(ru.rooms.find((r) => r.id === "bedroom-1")?.areaM2).toBe(17.5);
+    expect(apartmentCard(findApartment("flat215")!, "en").rooms[0]?.title).toBe("Living room");
+    expect(Object.fromEntries(ru.options.map((g) => [g.id, g.roomId]))).toEqual({ kitchen: "kitchen", flooring: "living" });   // стены выключены у застройщика — в карточке их нет
+    // британский двойник английского демо — тот же состав
+    expect(apartmentCard(findApartment("demo-uk-215")!, "en").rooms.map((r) => r.id)).toEqual(ru.rooms.map((r) => r.id));
+  });
+
+  it("строка квартиры первого экрана: короткий тип и дом без корпуса", () => {
+    const ru = apartmentCard(findApartment("flat215")!, "ru");
+    expect(ru.kindShort).toBe("3-комн. · 73,7\u00a0м²");
+    expect(ru.metaShort).toBe("ЖК «Ольховый квартал» · сдача 4 кв. 2026 · эт. 6/17");
+    expect(apartmentCard(findApartment("flat215")!, "en").kindShort).toBe("2-bed · 73.7\u00a0m²");
+  });
+
+  it("квартира без комнат — пустой список, не ошибка", () => {
+    expect(apartmentCard(findApartment("demo-uk-1")!).rooms).toEqual([]);
+  });
+
+  it("ошибки данных: повтор id комнаты, ordinal не по порядку, опция с несуществующей комнатой", () => {
+    const base = () => JSON.parse(readFileSync("data/partners/demo.json", "utf8"));
+    const dup = base(); dup.apartments[0].rooms[1].id = "living";
+    expect(() => partners([dup])).toThrow(/id комнат/);
+    const ord = base(); ord.apartments[0].rooms[1].ordinal = 5;
+    expect(() => partners([ord])).toThrow(/ordinal/);
+    const opt = base(); opt.apartments[0].options[0].roomId = "attic";
+    expect(() => partners([opt])).toThrow(/roomId/);
+  });
+});
+
 describe("опции квартиры: кухня (b2b-10 этап 0)", () => {
   it("UK: цена из 3D-каталога — один источник; базовая — «входит в цену»", () => {
     const k = apartmentCard(findApartment("demo-uk-1")!, "en").options.find((g) => g.kind === "kitchen")!;

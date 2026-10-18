@@ -445,6 +445,21 @@ def demo_apartment_id() -> str | None:
     return demo_apartment().get('id')
 
 
+# id стиля для адреса главной (`?style=scandi`, demo-16): латиница, стабильная между пересборками
+STYLE_IDS = {'сканди': 'scandi', 'современный': 'modern', 'минимализм': 'minimal', 'лофт': 'loft',
+             'неоклассика': 'neoclassic', 'джапанди': 'japandi'}
+
+
+def style_id(style: str | None) -> str:
+    """Латинский id стиля; неизвестный стиль — транслит не выдумываем, пусто (страница возьмёт свой словарь)."""
+    return STYLE_IDS.get(str(style or '').strip().lower(), '')
+
+
+def living_room_id() -> str:
+    """Комната, которую обставляют варианты витрины: первая гостиная квартиры из реестра; реестра нет — `living`."""
+    return next((r['id'] for r in demo_apartment().get('rooms') or [] if r.get('kind') == 'living'), 'living')
+
+
 DEMO_SETS = os.path.join(HERE, 'demo-sets.json')     # банк, по которому считается расстановка демо
 # Конверт слотов ЭТОЙ комнаты (гостиная 439×325): для ленты замен и для дозаполнения вариантов.
 # Правило — `rules/demo-swap.json → room_fit_envelope_cm` (conv-03, ADR-0271): «что физически встаёт в комнату»,
@@ -745,6 +760,9 @@ def build() -> dict:
                 if sk:
                     decor.append({'role': role, 'sku': sk})
         variants.append({'id': f'set{n}', 'title': style, 'style': sets[n - 1].get('style'),
+                         # ключ главной «стиль → комната → вариант» (demo-16): латинский id стиля для адреса `?style=`
+                         # и комната квартиры, которую обставляет вариант (пока все варианты — гостиная)
+                         'style_id': style_id(sets[n - 1].get('style')), 'room_id': living_room_id(),
                          'fill_pct': art.get('_fill_pct'), 'items': objs, 'decor': decor,
                          'dims_unknown': dims_unknown, 'missing_item': missing_item,
                          'fill': fill_journal.get(f'set{n}', [])})
@@ -945,6 +963,9 @@ def build() -> dict:
                      # вид из окна — из карточки квартиры застройщика (demo-04 п.5); нет — страница и кадр берут вид по умолчанию
                      **({'window_view': demo_apartment()['windowView']} if demo_apartment().get('windowView') else {})},
             'rooms': rooms, 'apartment_id': demo_apartment_id(), 'plan': plan,
+            # ПОМЕЩЕНИЯ КВАРТИРЫ ИЗ РЕЕСТРА (demo-16): порядок плана и площади — `data/partners/*.json`; страница берёт их
+            # карточкой `/api/apartments`, а это — запасной путь, пока карточка не пришла (`rooms` выше — схема плана целиком)
+            'apartment_rooms': demo_apartment().get('rooms') or [],
             'variants': variants, 'sets': product_sets, 'sofa_feed': feed, 'feeds': feeds,
             'rules': _rules(),
             'bedroom_catalog': bedroom_catalog(),

@@ -40,6 +40,10 @@ export const apartmentSources = z
   })
   .refine((s) => s.demoData || s.flat3d, "у квартиры нет ни витрины, ни 3D");
 
+/** Тип помещения: общий для комнат квартиры и опций застройщика (кухня — к кухне). */
+export const roomKind = z.enum(["kitchen", "bathroom", "bedroom", "living", "hall"]);
+export type RoomKind = z.infer<typeof roomKind>;
+
 /**
  * Опции квартиры от партнёров застройщика (b2b-10 этап 0, ADR-0262): группа «кухня» и её варианты.
  * Цена — явное состояние (разбор Codex 13.10: `null` читался бы как «неизвестно»): включено в цену, доплата
@@ -80,7 +84,8 @@ export const optionGroup = z
   .object({
     id: z.string().regex(/^[a-z0-9-]{2,40}$/),
     kind: z.enum(["kitchen", "wardrobe", "appliances", "bathroom", "flooring", "walls"]),
-    roomKind: z.enum(["kitchen", "bathroom", "bedroom", "living", "hall"]),
+    roomKind,
+    /** Помещение квартиры (`apartmentRef.rooms[].id`), к которому относится группа: сумма корзины — по комнатам (demo-16). */
     roomId: z.string().optional(),
     titleRu: z.string().min(1),
     titleEn: z.string().min(1),
@@ -107,11 +112,30 @@ export const optionGroup = z
   .refine((g) => g.variants.some((v) => v.id === g.defaultVariantId), "вариант по умолчанию не найден");
 export type OptionGroup = z.infer<typeof optionGroup>;
 
+/**
+ * Помещение квартиры (demo-16, Codex 18.10 п.1): главная строит «стиль → комнаты» из этого списка, а не из заголовков чертежа.
+ * Порядок массива = порядок плана (`ordinal` — тот же номер явно, с 1). `contentState`: `ready` — у комнаты есть варианты
+ * обстановки, `soon` — пока единая заглушка «появится следующим шагом» (не фиктивный вариант).
+ */
+export const apartmentRoom = z.object({
+  id: z.string().regex(/^[a-z0-9-]{2,40}$/),
+  kind: roomKind,
+  ordinal: z.number().int().min(1),
+  titleRu: z.string().min(1),
+  titleEn: z.string().min(1),
+  areaM2: z.number().positive(),
+  contentState: z.enum(["ready", "soon"]),
+});
+export type ApartmentRoom = z.infer<typeof apartmentRoom>;
+
 export const apartmentRef = z.object({
   id: z.string().regex(/^[a-z0-9-]{2,40}$/),
   complexId: z.string(),
   kindRu: z.string().min(1), // «Трёхкомнатная»
   kindEn: z.string().min(1), // «3-bedroom flat»
+  /** Короткий тип для строки квартиры на телефоне («3-комн.», demo-16 макет A); нет — полный. */
+  kindShortRu: z.string().max(16).optional(),
+  kindShortEn: z.string().max(16).optional(),
   areaM2: z.number().positive(),
   /** Номер квартиры в ЖК для бейджа («215»); у демо — условный. */
   number: z.string().max(12).optional(),
@@ -129,13 +153,19 @@ export const apartmentRef = z.object({
   /** На какую дату цена (ADR-0252: цены — с датой и оговоркой). */
   priceAsOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   sources: apartmentSources,
+  /** Помещения в порядке плана (demo-16); нет — главная показывает только комнаты, у которых есть варианты. */
+  rooms: z.array(apartmentRoom).default([]),
   options: z.array(optionGroup).default([]),
   /**
    * Двойник для английского ДЕМО (владелец 16.10, ADR-0298): анонимное демо витрины на английском открывает квартиру-двойника
    * британского демо-застройщика (£, allowance, «к цене квартиры»). По ссылке менеджера/партнёра — эта же квартира (ADR-0254).
    */
   enTwin: z.string().regex(/^[a-z0-9-]{2,40}$/).optional(),
-});
+})
+  .refine((a) => new Set(a.rooms.map((r) => r.id)).size === a.rooms.length, "id комнат повторяются")
+  .refine((a) => a.rooms.every((r, k) => r.ordinal === k + 1), "ordinal комнат — по порядку плана с 1")
+  // опция с комнатой — к существующей комнате (сумма по комнатам иначе молча потеряет доплату)
+  .refine((a) => !a.rooms.length || a.options.every((g) => !g.roomId || a.rooms.some((r) => r.id === g.roomId)), "roomId опции нет среди комнат");
 export type ApartmentRef = z.infer<typeof apartmentRef>;
 
 export const partner = z.object({
@@ -181,20 +211,26 @@ export type ApartmentCard = {
   lang: Lang;
   currency: Currency;
   kind: string;
+  /** «3-комн. · 73,7 м²» — строка квартиры первого экрана (demo-16); нет короткого типа — как `kind`. */
+  kindShort: string;
   number: string | null;
   areaM2: number;
   complex: string;
   handover: string;
   meta: string; // «ЖК … · сдан · эт. 6 из 17 · корп. 3»
+  /** Короткая строка дома для первого экрана: «ЖК … · сдача 4 кв. 2026 · эт. 6/17» (без корпуса). */
+  metaShort: string;
   price: number;
   demoPrice: boolean;
   priceAsOf: string | null;
   certificate: { amount: number; title: string; text: string } | null;
   /** Курс показа рублёвых цен витрины (у британского демо-двойника); нет — цены в валюте витрины. */
   fx: { from: "RUB"; to: Currency; rate: number; asOf: string; source: string } | null;
+  /** Помещения в порядке плана, подписи на языке страницы (demo-16). */
+  rooms: { id: string; kind: RoomKind; ordinal: number; title: string; areaM2: number; contentState: "ready" | "soon" }[];
   /** Опции квартиры в публичном виде: подписи на языке, цена уже текстом. */
   options: {
-    id: string; kind: string; roomKind: string; title: string; defaultVariantId: string;
+    id: string; kind: string; roomKind: string; roomId: string | null; title: string; defaultVariantId: string;
     /** Куда идёт доплата группы (`lib/configurator/settlement.ts`); выключенные группы в карточку не попадают. */
     settlement: "allowance" | "developer_surcharge" | "property_price";
     slotIds: string[];

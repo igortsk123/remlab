@@ -26,6 +26,8 @@
       "complexId": "olkhovy",
       "kindRu": "Трёхкомнатная",
       "kindEn": "2-bedroom flat",
+      "kindShortRu": "3-комн.",
+      "kindShortEn": "2-bed",
       "areaM2": 73.7,
       "number": "215",
       "floor": 6,
@@ -38,6 +40,62 @@
       "sources": {
         "demoData": "/demo/demo-data.json"
       },
+      "rooms": [
+        {
+          "id": "living",
+          "kind": "living",
+          "ordinal": 1,
+          "titleRu": "Гостиная",
+          "titleEn": "Living room",
+          "areaM2": 14.4,
+          "contentState": "ready"
+        },
+        {
+          "id": "kitchen",
+          "kind": "kitchen",
+          "ordinal": 2,
+          "titleRu": "Кухня",
+          "titleEn": "Kitchen",
+          "areaM2": 13.2,
+          "contentState": "soon"
+        },
+        {
+          "id": "bedroom-1",
+          "kind": "bedroom",
+          "ordinal": 3,
+          "titleRu": "Спальня 1",
+          "titleEn": "Bedroom 1",
+          "areaM2": 17.5,
+          "contentState": "soon"
+        },
+        {
+          "id": "bedroom-2",
+          "kind": "bedroom",
+          "ordinal": 4,
+          "titleRu": "Спальня 2",
+          "titleEn": "Bedroom 2",
+          "areaM2": 9.7,
+          "contentState": "soon"
+        },
+        {
+          "id": "bathroom-1",
+          "kind": "bathroom",
+          "ordinal": 5,
+          "titleRu": "Санузел",
+          "titleEn": "Bathroom",
+          "areaM2": 4.4,
+          "contentState": "soon"
+        },
+        {
+          "id": "hall",
+          "kind": "hall",
+          "ordinal": 6,
+          "titleRu": "Прихожая",
+          "titleEn": "Hallway",
+          "areaM2": 9.3,
+          "contentState": "soon"
+        }
+      ],
       "options": [
         {
           "id": "kitchen",
@@ -95,7 +153,8 @@
               "demo": true,
               "configuratorOptionId": "kitchen-premium"
             }
-          ]
+          ],
+          "roomId": "kitchen"
         },
         {
           "id": "flooring",
@@ -164,7 +223,8 @@
               },
               "demo": true
             }
-          ]
+          ],
+          "roomId": "living"
         },
         {
           "id": "walls",
@@ -247,7 +307,8 @@
               "demo": true,
               "materialId": "wall-plaster-concrete"
             }
-          ]
+          ],
+          "roomId": "living"
         }
       ],
       "enTwin": "demo-uk-215"

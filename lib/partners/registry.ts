@@ -89,7 +89,7 @@ function optionsCard(p: Partner, a: ApartmentRef, lang: Lang): ApartmentCard["op
   const en = lang === "en";
   // выключенная у застройщика группа (владелец 14.10) покупателю не показывается и не считается (demo-06)
   return (a.options ?? []).filter((g) => g.enabled).map((g) => ({
-    id: g.id, kind: g.kind, roomKind: g.roomKind, title: en ? g.titleEn : g.titleRu, defaultVariantId: g.defaultVariantId,
+    id: g.id, kind: g.kind, roomKind: g.roomKind, roomId: g.roomId ?? null, title: en ? g.titleEn : g.titleRu, defaultVariantId: g.defaultVariantId,
     settlement: settlementOf(g.kind, p.market, g.settlement), slotIds: g.slotIds ?? [],
     variants: g.variants.map((v) => ({
       id: v.id, name: en ? v.nameEn : v.nameRu, desc: en ? v.descEn : v.descRu, image: v.image ?? null, demo: v.demo,
@@ -109,15 +109,20 @@ export function apartmentCard(hit: ApartmentHit, lang: Lang = hit.partner.defaul
   const bld = a.building ? (en ? `building ${a.building}` : `корп. ${a.building}`) : null;
   const complexName = en ? c.nameEn : c.nameRu;
   const amount = certificateAmount(p, a);
+  const area = `${String(a.areaM2).replace(".", en ? "." : ",")}\u00a0${en ? "m²" : "м²"}`;
+  const short = en ? a.kindShortEn : a.kindShortRu;
+  const floorShort = a.floor && a.floorsTotal ? (en ? `floor ${a.floor}/${a.floorsTotal}` : `эт. ${a.floor}/${a.floorsTotal}`) : null;
   return {
     id: a.id, partnerId: p.id, complexId: c.id, market: p.market, lang, currency: p.currency,
     // площадь и единица — неразрывным пробелом: «м²» не уезжает на свою строку на телефоне
-    kind: `${en ? a.kindEn : a.kindRu} ${String(a.areaM2).replace(".", en ? "." : ",")}\u00a0${en ? "m²" : "м²"}`,
+    kind: `${en ? a.kindEn : a.kindRu} ${area}`,
+    kindShort: short ? `${short} · ${area}` : `${en ? a.kindEn : a.kindRu} ${area}`,
     number: a.number ?? null,
     areaM2: a.areaM2,
     complex: complexName,
     handover: handoverText(c, lang),
     meta: [complexName, handoverText(c, lang), floor, bld].filter(Boolean).join(" · "),
+    metaShort: [complexName, handoverText(c, lang), floorShort].filter(Boolean).join(" · "),
     price: a.price,
     demoPrice: a.demoPrice,
     priceAsOf: a.priceAsOf ?? null,
@@ -131,6 +136,8 @@ export function apartmentCard(hit: ApartmentHit, lang: Lang = hit.partner.defaul
         }
       : null,
     sources: a.sources,
+    rooms: a.rooms.map((r) => ({ id: r.id, kind: r.kind, ordinal: r.ordinal, title: en ? r.titleEn : r.titleRu, areaM2: r.areaM2,
+      contentState: r.contentState })),
     options: optionsCard(p, a, lang),
     fx: p.fx ?? null,
   };
