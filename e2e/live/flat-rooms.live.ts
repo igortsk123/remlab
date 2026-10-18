@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
 import { alternatives, feedForStyle, type FeedItem } from "../../lib/configurator/demo-feeds";
+import { LIVE_BROWSER_ARGS } from "./browser";
 
 // КВАРТИРА В 3D (/flat) — СТРОКИ 2.19–2.22 КАРТЫ СЦЕНАРИЕВ (долг плана demo-03, T-20261018-11). Как и 1д (`flat-walk.live.ts`),
 // мерим числами по сцене, а не по снимку: у движка спрашиваем позу камеры (`debugWalk`), что видно (`projectSlot`) и где стоят
@@ -34,7 +35,8 @@ const SWAP_SHORT_OK: ReadonlySet<string> = new Set<string>([
 const FLAT = "flat215";
 
 // без видеокарты (DEV, ночной шаг) — программный рендер ANGLE и свежая вкладка на каждый вариант, как в 1д
-test.use({ launchOptions: { args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] } });
+// свои launchOptions заменяют аргументы конфига — блок Метрики (`LIVE_BROWSER_ARGS`, T-20261018-18) добавляем сами
+test.use({ launchOptions: { args: [...LIVE_BROWSER_ARGS, "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] } });
 
 async function demoData(request: import("@playwright/test").APIRequestContext): Promise<DemoData> {
   return (await (await request.get(process.env.LIVE_DEMO_DATA ?? "/demo/demo-data.json")).json()) as DemoData;
