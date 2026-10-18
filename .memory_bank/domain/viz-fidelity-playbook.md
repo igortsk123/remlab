@@ -3,12 +3,12 @@ tier: 2
 topic: viz-fidelity-playbook
 scope: Плейбук схожести товаров в генерациях сцен (сеты/визуализация М5) — правила, модели, цены
 tier1: ../core/furniture.md
-updated: 2026-10-17
+updated: 2026-10-18
 importance: high
 source: external:ресёрч 2026-08-01 (BFL/Google/OpenAI доки + практика) + собственные A/B на Сете 1
 status: working
 source_of_truth: canonical
-last_verified: 2026-10-11
+last_verified: 2026-10-18
 ---
 
 # Схожесть товаров в генерациях: плейбук (проверено на Сете 1)
@@ -21,10 +21,12 @@ last_verified: 2026-10-11
 
 
 ## Боевой режим «Сделать реалистичнее» с 17.10 (demo-11, ADR-0302)
-- **Модель** `openai/gpt-image-2.5-sunburst`, `GPT_IMAGE_QUALITY=medium` — в строке запуска DEV (`tools/scout/dev_render_backend.sh`) и
+- **Модель** `openai/gpt-image-2.5-sunburst`, `GPT_IMAGE_QUALITY=medium`, `IMPROVE_PROMPT=v4` — в юните DEV-рендера
+  `tools/scout/systemd/remlab-render.service` (`dev_render_backend.sh` — только сторож юнитов из крона) и
   в окружении прод-контейнера (`/opt/remlab/draft/.env`, запасной путь рисует сам, если туннель упал). Пробный запрос `dry_run`
   показывает, чем рисует процесс за туннелем (`draft_service._dry_info`; живая 2.29). Пробное фото Сканди: модель 28,7 с.
-- **Промпт improve-v2** (`tools/scout/improve_mode.py:PHOTO_LOOK/SHAPE_RULE`): фотографический вид (объектив — как у IMAGE 1) и
+- **Промпт improve-v3 по умолчанию, improve-v4 при `IMPROVE_PROMPT=v4`** (так у DEV-рендера; `tools/scout/improve_mode.py:47-48`);
+  блоки с v2 — `PHOTO_LOOK/SHAPE_RULE`: фотографический вид (объектив — как у IMAGE 1) и
   каталожная форма (не выдумывать подушки, пледы, подлокотники; исправление обивки по эталону — остаётся). Готовый ответ и исходник
   берутся только той же модели, качества и версии промпта (`draft_render._improve_cache`, `improve_mode.from_sources`); в ответ и
   реестр — `image_quality`, `prompt_version`, `prompt_sha`. Гайды 6 стилей — тёплые, с температурой света (`styles.json:render_guide`;
@@ -89,7 +91,7 @@ last_verified: 2026-10-11
 | Модель (шлюз) | Модель, с | $/лист | Вид, px | Верность (оба вида) |
 |---|---|---|---|---|
 | **openai/gpt-image-2.5-flare**, medium 2048×3072 | ~25 | 0.054 | 2048 | оба вида верные, добавила картины (разрешено стилем) — **лучшее цена/качество/время** |
-| openai/gpt-image-2, medium 2048×3072 (боевая) | 40 | 0.125 | 2048 | оба вида верные |
+| openai/gpt-image-2, medium 2048×3072 (боевая до 17.10; теперь sunburst) | 40 | 0.125 | 2048 | оба вида верные |
 | google/gemini-3-pro-image, 2K 2:3 | 33 | 0.144 | 1696 | верные в 2K; в 1K перекрасила диван в бежевый (нестабильна) |
 | google/gemini-3.1-flash-image | 19–23 | 0.07–0.10 | 843 / 1696 | 1K: второй вид с лишним окном; 2K: диван перекрашен в белый |
 | google/gemini-nano-banana-2.1 | 24–32 | 0.07 | 848 (2K игнорирует) | второй вид с другой геометрией |

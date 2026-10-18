@@ -3,12 +3,12 @@ tier: 1
 topic: leads
 scope: Лид-канал — заявка, TG-бот
 tier2: ""
-updated: 2026-10-14
+updated: 2026-10-18
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-09-28
+last_verified: 2026-10-18
 review_after: 2026-12-05
 ---
 
@@ -39,8 +39,8 @@ review_after: 2026-12-05
 версия согласия в `leads.consent_version`, срок — `LEADS_RETENTION_DAYS` (пусто = не удаляем), карта — `docs/data-map.md` (ADR-0268).
 
 > 13.10 (ADR-0256): «отправить себе» с демо → `share_requests` (`app/api/internal/share-request/route.ts`),
-> доставщика нет (`b2b-05`); лимит: заявка на лид — 5 за 10 мин, «отправить себе» — 20 за 10 мин с адреса; TG-вебхуки без секрета — 401.
+> доставщика по контакту нет (`b2b-05`); в Telegram — deep-link `start=sh_<id>` в `tg-client` → бот сразу шлёт ссылку на подборку
+> (14.10); лимит: заявка на лид — 5 за 10 мин, «отправить себе» — 20 за 10 мин с адреса; TG-вебхуки без секрета — 401.
 
-> Сверено с кодом 2026-09-28. Поправки к «Активации»: нужны `NEXT_PUBLIC_TELEGRAM_BOT` и
-> `NEXT_PUBLIC_MAX_BOT` (`LeadModal.tsx:17-18`) — без них кнопки «Подписаться» не рисуются;
-> `LEADS_MAX_TOKEN` не читает ни один файл (`app/api/leads/max/route.ts` — скелет), MAX не включает.
+> Активация: нужны `NEXT_PUBLIC_TELEGRAM_BOT`/`NEXT_PUBLIC_MAX_BOT` (`components/calc/LeadModal.tsx:17-18`) — без них кнопок
+> «Подписаться» нет; `LEADS_MAX_TOKEN` никто не читает (`app/api/leads/max/route.ts` — скелет).
