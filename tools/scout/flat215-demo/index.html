@@ -1151,6 +1151,9 @@ function hashFor(which){
 }
 function syncHash(which){
   if(window.__EMBED)return;   // встроено на сайт застройщика (b2b-07): адрес не наш — не переписываем (иначе уедем на /demo/)
+  // ссылка на коллекцию, которая ещё в пути с сервера: `#c=` не подменяем вариантом каталога (иначе при сбое загрузки ссылка потеряна; Codex 18.10)
+  const pc=String(location.hash||'').match(/^#c=([A-Za-z0-9_-]{22})$/);
+  if(pc&&!allVariants().some(v=>v.cid===pc[1]))return;
   const h=hashFor(which||(document.getElementById('screen-room').hidden?'plan':'room'));
   if(location.hash!==h)history.replaceState(history.state,'',h);   // запись истории (снимок вида, demo-16 шаг 3) не стираем
 }
@@ -1182,6 +1185,9 @@ function copyLink(vid,btn){
 // АДРЕС → ЭКРАН. Вызывается при старте и при смене адреса (в том числе кнопкой «назад»).
 function applyHash(){
   if(Date.now()-NAV.restoring<800)return;   // «назад» по истории: вид восстановлен `restoreView` (demo-16 шаг 3)
+  // перезагрузка страницы на записи «избранное» (шаг 3, Codex 18.10): раздел раскрывается, окно варианта не открываем
+  if(!window.__EMBED&&history.state&&history.state.remlab&&history.state.view==='favorites'){showTab('room');
+    const st=history.state; setTimeout(()=>{if(window.__basket)window.__basket.open(st.room||'');},0); return;}
   const c=String(location.hash||'').match(/^#c=([A-Za-z0-9_-]{22})$/);
   if(c){   // коллекция: пока не пришла с сервера — её откроет блок коллекций (номер запомнен в <head>)
     const i=allVariants().findIndex(v=>v.cid===c[1]);
@@ -3242,14 +3248,18 @@ function viewSnap(){
   return {view:'variant', vid:v.id||'', mode:VW.mode, photo:VW.photo, free:!!VW.free, sheet:sd?+sd.dataset.pos||0:0,
     list:sc?Math.round(sc.scrollTop):0, y:Math.round(scrollY)};
 }
-function histKeep(){ if(window.__EMBED||Date.now()-NAV.restoring<800)return;
+function histKeep(){ if(window.__EMBED)return;
+  if(Date.now()-NAV.restoring<800){clearTimeout(NAV.t); NAV.t=setTimeout(histKeep,850-(Date.now()-NAV.restoring)); return;}   // идёт восстановление — записать после
   const st=history.state||{}, snap=viewSnap();
   // запись «избранное» остаётся избранным: окно закрылось при переходе — меняется только прокрутка (самопроверка 18.10)
   if(st.view==='favorites'&&snap.view==='home'){snap.view='favorites'; snap.room=st.room||'';}
   try{history.replaceState(Object.assign({},st,snap,{remlab:1}),'');}catch(e){} }
 function histKeepSoon(){ clearTimeout(NAV.t); NAV.t=setTimeout(histKeep,250); }
 function histGoFavs(roomId){
-  if(!window.__EMBED){histKeep(); try{history.pushState({remlab:1, view:'favorites', room:roomId||'', y:0},'');}catch(e){}}
+  const pl=document.getElementById('screen-plan'); if(pl&&!pl.hidden)showTab('room');   // ♡ со страницы плана — избранное на главной
+  const st=history.state||{};
+  if(!window.__EMBED&&!(st.remlab&&st.view==='favorites')){   // уже в записи «избранное» — новую не плодим
+    histKeep(); try{history.pushState({remlab:1, view:'favorites', room:roomId||'', y:0},'');}catch(e){}}
   if(window.__basket)window.__basket.open(roomId);
 }
 // восстановить вид записи: окно варианта — тот же вариант, режим, ракурс, шторка, прокрутка списка; избранное; главная
@@ -3257,10 +3267,11 @@ function restoreView(s){
   NAV.restoring=Date.now();
   const sh=document.getElementById('shot'), open=sh.classList.contains('on'), close=()=>{const x=document.getElementById('shotx'); if(x&&sh.classList.contains('on'))x.click();};
   if(s.view==='favorites'){ if(window.__basket)window.__basket.open(s.room||''); return; }
-  if(s.view==='home'){ close(); setTimeout(()=>scrollTo(0,s.y||0),30); return; }
+  if(s.view==='home'){ close(); if(window.__basket&&window.__basket.close)window.__basket.close(); setTimeout(()=>scrollTo(0,s.y||0),30); return; }
   if(s.view!=='variant')return;
   const i=allVariants().findIndex(v=>(v.id||'')===s.vid); if(i<0)return;
   if(!open||i!==cur)vwOpenVariant(i);
+  if(typeof s.y==='number')scrollTo(0,s.y);           // главная под окном — где была (закроют окно — та же прокрутка)
   setTimeout(()=>{ NAV.restoring=Date.now();
     if(s.mode&&s.mode!==VW.mode&&(s.mode!=='photo'||vwRealShots().length))vwMode(s.mode);
     if(!s.free&&typeof s.photo==='number'&&s.photo!==VW.photo)vwCamGo(s.photo);
@@ -6087,7 +6098,7 @@ async function liveShow(){
     preview:function(){ if(!BK.mod||!BK.b)return null; var v=allVariants()[cur]||{}, room=roomOfV(v), q=draftQuote(); if(!q)return null;
       var p=BK.mod.preview(BK.b,room.id,q,BK.limit), f=ofState(curStateId());
       return {base:p.base, with:p.with, room:room, included:!!(f&&BK.b.includedByRoom[room.id]===f.favoriteId), hasIncluded:!!BK.b.includedByRoom[room.id]};},
-    open:openFavs, state:function(){return BK.b;}, limit:function(){return BK.limit;}};
+    open:openFavs, close:function(){BK.open=false; favDraw();}, state:function(){return BK.b;}, limit:function(){return BK.limit;}};
   window.__fav={list:function(){return favs().map(function(f){return Object.assign({collectionId:f.favoriteId},f);});},
     ofState:ofState, baseState:baseState, toggle:toggle, share:share, shareUrl:shareUrl, shareUrlOpen:shareOpenUrl,
     ui:favUi, draw:favDraw, save:save, rename:rename, remove:removeFav, include:includeFav, exclude:excludeFav, defaultName:defaultName};

@@ -76,6 +76,12 @@ const saveHeart=async(p)=>{await p.click('#vFav'); await p.waitForSelector('#fav
     await p.goForward(); await p.waitForTimeout(1200);
     const fwd=await p.evaluate(()=>({win:document.getElementById('shot').classList.contains('on'), open:!document.getElementById('favSec').hidden}));
     ok('«вперёд» — снова избранное',!fwd.win&&fwd.open,JSON.stringify(fwd));
+    // перезагрузка на записи «избранное» — избранное, а не окно варианта; ♡ N в той же записи — без новой записи истории (Codex 18.10)
+    await p.reload({waitUntil:'load'}); await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT&&!!(window.__basket&&window.__basket.state())",null,{timeout:90000}); await p.waitForTimeout(2000);
+    const rl=await p.evaluate(()=>({win:document.getElementById('shot').classList.contains('on'), open:!document.getElementById('favSec').hidden, view:(history.state||{}).view, len:history.length}));
+    ok('перезагрузка на записи «избранное» — раскрыто избранное, окно не открыто',!rl.win&&rl.open&&rl.view==='favorites',JSON.stringify(rl));
+    await p.click('#hmFav'); await p.waitForTimeout(400);
+    ok('♡ N в записи «избранное» — новой записи истории нет',await p.evaluate(()=>history.length)===rl.len);
     // 2) второй вариант той же комнаты — вопрос «вместо …?» → Да
     await p.evaluate(()=>document.getElementById('shotx').click()); await p.waitForTimeout(400);
     await openWin(p,1);
