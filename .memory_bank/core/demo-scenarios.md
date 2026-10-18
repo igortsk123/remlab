@@ -26,13 +26,13 @@ review_after: 2026-11-28
 кнопки, `demo-frame.live.ts` — кадр обоих ракурсов и картинка коллекции), ночной шаг `demo_live` (`tools/ops/demo-live.sh`);
 строка без теста — `WARN:demo_map_uncovered` (`tools/ops/demo-map-check.mjs`). Платный путь — без трат (`/api/draft/paid`).
 
-**Починено 14.10** — Tier 2 § 1–2 (`camFit`, `totalsOf` ADR-0286, `draft_jobs.py` ADR-0287).
-**Открыто:** фото ≠ список (2.2), 3D без несохранённых правок (2.16) → `demo-02`. **/flat** 2.18–2.22 приняты вручную 16.10;
-`e2e/live/flat-walk.live.ts` покрывает только «1д», строки 2.19–2.22 без теста (`demo_map_uncovered`, долг demo-03).
+**Починено 14.10** — Tier 2 § 1–2 (`camFit`, `totalsOf`, `draft_jobs.py`).
+**Открыто:** фото ≠ список (2.2), 3D без несохранённых правок (2.16) → `demo-02`; /flat 2.19–2.22 без теста (долг demo-03).
 2.23 — строки-входы шторки v5 (`e2e/live/floor.live.ts`); 2.24–2.26 — режимы окна demo-09; 2.13–2.15, 2.30–2.32 — избранное сердечком
 с именем и секретом переименования, «поделиться», фокус камеры (demo-15, `tools/ops/demo-walk/fav-check.cjs`).
-**Главная (18.10, demo-16, ADR-0307):** 1.1/1.5, 2.33–2.36 — вкладки-стили → комнаты, липкая шапка 88 px, избранное = корзина
-сертификата по комнатам (`lib/basket/basket.ts`), «назад» в то же окно (`history.state`; `home-check.cjs`, `basket-check.cjs`).
+**Главная (18.10, demo-16/17, ADR-0307):** 1.1/1.5, 2.33–2.38 — вкладки-стили → комнаты, липкая шапка 88 px, избранное = корзина
+сертификата по комнатам (`lib/basket/basket.ts`) на отдельном экране `#screen-fav` с «← Назад» туда, откуда пришли (`history.state`,
+`histGoFavs`/`favBack`); шторка v5.2 — свёрнутая с кнопкой (2.37); `home-check.cjs`, `basket-check.cjs`, `sheet-gestures.cjs`.
 
 **Куда идёт:** этап 4+ `plans/MASTER-cost-first.md` — закрыты demo-01, 09–13, 15, 16; `demo-03` partial (три зелёные ночи); дальше
 `demo-08` (досье, ⚑), `demo-05/14` остатки, `b2b-10` (контент других комнат). Связано: [[demo-planner]], [[apartment-configurator]].
