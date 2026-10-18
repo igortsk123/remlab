@@ -20,12 +20,8 @@ review_after: 2026-12-05
 Одна шапка `SiteHeader.tsx`: логотип + «Моя лаборатория»; ряд материалы · ремонт · Дизайн ·
 Стили · Советы; адаптив ≤700/≤480 (урок 7 [[lessons]]); активный раздел — заливка.
 Иконки — [[access-and-integrations]]. Главная = ХАБ из шести плиток и два CTA (не «о проекте»).
-- **`/styles`** — игра-карточки (`components/StyleQuiz.tsx`), ЗАКРЫТ заглушкой `ComingSoon`
-  (`NEXT_PUBLIC_SHOW_WIP=1`); событие `quiz_completed` (`app/styles-actions.ts`).
-- **`/sovety`** — плитки-советы ПЛЕЙСХОЛДЕРЫ (М7); за той же заглушкой `/sovety`, `/start` и
-  `/calc/remont`. **`/lab`** — центр сохранений
-  (ADR-0038): вкладки `?tab=` Материалы/Ремонт/Дизайны (WIP — тизеры «Скоро»), «Мой стиль»
-  (итог /styles → `style_results`), событие `lab_tab`; `/estimates` → `/lab` (ADR-0036).
+- `/styles` (игра-карточки, `components/StyleQuiz.tsx`), `/sovety`, `/start`, `/calc/remont` — за заглушкой `ComingSoon`
+  (`NEXT_PUBLIC_SHOW_WIP=1`); `/lab` — центр сохранений (ADR-0038, вкладки `?tab=`, «Мой стиль» → `style_results`).
 Детали — `completed_plans/site-nav-and-scenarios.md`.
 
 ## AI-флоу (Stage 1 → ступень М5; сверено 2026-08-06) — детали Tier 2
