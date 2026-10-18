@@ -76,6 +76,8 @@ export interface DemoScene {
   /** Повернуть взгляд прогулки к предмету расстановки (номер как в `update`): заменённый в «3D» предмет должен быть виден
    *  (приёмка владельцем 16.10: диван менялся за краем кадра, и замена казалась несработавшей). */
   focus(index: number): void;
+  /** Навестись на предмет после замены (demo-15): поворот на месте или безопасный переход; ответ — что сделано. */
+  frameItem(index: number): "turn" | "move" | "none";
   /** Выделить предмет расстановки (номер как в `update`) или снять выделение — рамка и тёплая подсветка (`viewer.highlight`). */
   select(index: number | null): void;
   /** Повернуть взгляд прогулки на `deg` градусов (тап по краю сцены в «3D», demo-02 v3: поворот не только перетаскиванием). */
@@ -219,6 +221,14 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
       const it = current[index];
       const x = Number(it?.x), y = Number(it?.y);
       if (Number.isFinite(x) && Number.isFinite(y)) viewer.faceToward(x, y);
+    },
+    frameItem: (index) => {
+      const it = current[index];
+      const x = Number(it?.x), y = Number(it?.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return "none";
+      const r = viewer.frameItem({ x, y });
+      viewer.start();
+      return r;
     },
     // плюс — направо; `viewer.look` с положительным dx поворачивает налево (перетаскивание «тянет мир»), 0,22° на пиксель
     select: (index) => {

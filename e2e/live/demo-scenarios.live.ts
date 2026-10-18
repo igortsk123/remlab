@@ -63,7 +63,7 @@ test("2.1–2.3 окно кадра: фото, список, числа как �
   }
 });
 
-test("2.4 режимы в одном окне: «Фото» — только при реалистичном снимке этой расстановки, иначе 3D; стрелки в 3D — точки съёмки (demo-09)", async ({ page }) => {
+test("2.4 режимы в одном окне: «Фото» — только при реалистичном снимке этой расстановки, иначе 3D; ракурсы — подписями (demo-09, demo-15)", async ({ page }) => {
   await openDemo(page, "?live=force");
   await page.locator("#tab-room").click();
   await page.locator("button[data-swap]").first().click();
@@ -72,8 +72,11 @@ test("2.4 режимы в одном окне: «Фото» — только п�
   say("реалистичный снимок этой расстановки:", hasPhoto, "· окно открылось в", start);
   expect(start).toBe(hasPhoto ? "photo" : "walk");
   if (start !== "walk") await page.locator('[data-vm="walk"]').click();
-  await page.locator("#vNext").click();
-  await expect(page.locator("#vDots i").nth(1)).toHaveClass(/on/);
+  // ракурсы — подписями «Со стороны окна/двери» или «Ракурс 1/2» (demo-15 п.3); стрелок и точек нет
+  await expect(page.locator("#vPrev, #vNext, #vDots, #shotPrev, #shotNext")).toHaveCount(0);
+  say("ракурсы:", (await page.locator("#vCams [data-cam]").allInnerTexts()).join(" | "));
+  await page.locator('#vCams [data-cam="1"]').click();
+  await expect(page.locator('#vCams [data-cam="1"]')).toHaveClass(/on/);
   for (const m of ["plan", ...(hasPhoto ? ["photo"] : []), "walk"]) {
     const t = Date.now();
     await page.locator(`[data-vm="${m}"]`).click();
@@ -209,15 +212,19 @@ test("2.10–2.11, 2.17 конструктор: подсказка, перета
   say("подсказка:", (await page.locator("#consHint").innerText()).slice(0, 50));
 });
 
-test("2.14–2.15 ссылка с подтверждением, избранное и «отправить себе»", async ({ page }) => {
+test("2.14–2.15 «поделиться» иконкой с подтверждением и избранное сердечком с именем коллекции (demo-15)", async ({ page }) => {
   await openDemo(page);
   await page.locator("#tab-room").click();
-  await page.locator("button[data-link]").first().click();
+  await expect(page.locator("#coll button[data-link], #feedShare, #collSave")).toHaveCount(0);   // текстовой «Ссылки» и «Избранное» внизу нет
+  await page.evaluate("navigator.share = undefined");                                            // без системного меню — копирование + тост
+  await page.locator("#coll button[data-share]").first().click();
   await expect(page.locator("#toast")).toContainText(/скопирована/);
   say("буфер:", await page.evaluate("navigator.clipboard.readText()"));
-  await page.locator("button.heart").first().click();
-  await page.locator("#feedShare").click();
-  await expect(page.locator("text=Получить в Telegram").first()).toBeVisible();
+  await page.locator("#coll button[data-favorite]").first().click();
+  await expect(page.locator("#favName")).toHaveValue(/ #\d+$/);                                 // «<Стиль> #N»
+  say("имя по умолчанию:", await page.locator("#favName").inputValue());
+  await page.locator("#favNo").click();                                                         // ночью в базу не пишем
+  await expect(page.locator("#favPop")).toHaveCount(0);
 });
 
 test("1.6 английский: конструктор и ожидание без русских подписей", async ({ page }) => {

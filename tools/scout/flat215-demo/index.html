@@ -459,7 +459,6 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 #shot .cap #shotclose{margin-left:auto}   /* выход всегда у правого края, отдельно от действий */
 /* Состояние избранного несёт сама кнопка: ♥ и акцентная обводка вместо заливки — иначе две
    залитые кнопки рядом («В избранном» и «Изменить планировку») спорят за главное действие. */
-#shPick.on{border-color:var(--accent);color:var(--accent)}
 #shot .wait{padding:40px 20px;text-align:center;font-size:clamp(16px,2.2vw,18px);color:var(--ink)}
 .spin{width:26px;height:26px;border:3px solid var(--line);border-top-color:var(--accent);
  border-radius:50%;margin:0 auto 12px;animation:sp 1s linear infinite}
@@ -589,6 +588,26 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .heart:hover{color:var(--accent);border-color:var(--accent)}
 .heart.on{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
 .heart:active{transform:scale(1.15)}
+/* «поделиться» на карточке — в тон сердечку (demo-15) */
+.iconbtn{border:1px solid var(--line);background:var(--surface);border-radius:var(--radius-sm);width:44px;min-height:44px;cursor:pointer;
+ color:var(--muted);display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;font-size:20px;line-height:1}
+.iconbtn:hover{color:var(--ink);border-color:var(--ink)}
+/* ИЗБРАННОЕ И «ПОДЕЛИТЬСЯ» В ШАПКЕ ОКНА (demo-15): тот же круг, что «×», слева от него; видны при любой шторке */
+.vtopbtn{position:absolute;top:12px;width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:rgba(255,255,255,.92);
+ -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);color:var(--ink);cursor:pointer;z-index:8;display:flex;align-items:center;
+ justify-content:center;font-size:21px;line-height:1;padding:0}
+#vFav{right:60px}#vShare{right:108px}
+.vtopbtn.vfav.on{color:var(--accent);border-color:var(--accent)}
+.vtopbtn[hidden]{display:none}
+.favcard .nm{text-transform:none}                /* имя избранного — как его написал человек */
+/* ОКОШКО ИМЕНИ ИЗБРАННОГО (demo-15 п.4) */
+.favpop{position:fixed;inset:0;z-index:95;background:rgba(20,16,12,.38);display:flex;align-items:center;justify-content:center;padding:16px}
+.favbox{background:var(--surface);color:var(--ink);border-radius:16px;padding:18px 16px 14px;width:min(380px,100%);box-shadow:0 12px 40px rgba(0,0,0,.25);
+ display:flex;flex-direction:column;gap:12px}
+.favbox b{font-size:17px}.favbox label{display:flex;flex-direction:column;gap:6px;font-size:14px;color:var(--muted)}
+.favbox input{font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);color:var(--ink);background:var(--surface)}
+.favbtns{display:flex;gap:8px}.favbtns .btn{flex:1 1 0}
+.favdel{align-self:flex-start;color:var(--danger,#b4442f);background:none;border:0;padding:4px 0;cursor:pointer;font:inherit;font-size:14px}
 .lay .acts .btn{flex:1 1 auto;padding:10px 12px;font-size:.92em}
 .lay .badge2{position:absolute;top:12px;right:12px;background:var(--veil);color:#fff;
  border-radius:999px;padding:4px 12px;font-size:.8em}
@@ -667,7 +686,10 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
   /* поля ужаты: с обычными 20 px надписи рвались на две строки в половине ширины */
   #shot .cap .btn{white-space:normal;line-height:1.25;padding-left:10px;padding-right:10px}
   #shot .cap #shEdit{flex:1 1 100%}
-  #shot .cap #shPick,#shot .cap #shotclose{flex:1 1 calc(50% - 5px)}
+  #shot .cap #shotclose{flex:1 1 calc(50% - 5px)}
+  .vtopbtn{top:10px}#vFav{right:58px}#vShare{right:104px}
+  /* шторка поднята до верха — плашка «Остаток» под шапкой окна: иконки прячутся, «×» остаётся (они нужны при свёрнутой шторке) */
+  #shot.vsheetfull .vtopbtn{display:none}
   #shot .cap #shotclose{margin-left:0}
   #shot .shotwrap img,#shot .grid2 img{max-height:52vh;border-radius:var(--radius-sm)}
   /* на телефоне кнопка съёмки встаёт под текст на всю ширину, а не жмётся к нему сбоку */
@@ -748,17 +770,15 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 <section id="screen-room" hidden>
   <div class="budget" id="budget" hidden></div>
 
+  <!-- ИЗБРАННОЕ НА ЭТОМ УСТРОЙСТВЕ (владелец 18.10, demo-15 п.6): все сохранённые сердечком расстановки — над готовыми вариантами;
+       пусто — раздела нет. Межустройственное «все» — только с аккаунтом (не сейчас) -->
+  <div class="sechead" id="favHead" hidden><h2>Избранное</h2><p>Сохранённые расстановки на этом устройстве</p></div>
+  <div class="grid" id="favGrid" hidden></div>
   <div class="sechead">
     <h2>Коллекции расстановок</h2>
     <p>Выберите готовый вариант или создайте свой</p>
   </div>
   <div class="grid" id="coll"></div>
-  <!-- «Выбрать все» и «Очистить коллекцию» убраны (владелец 02.09: «они лишние»). Отметить
-       вариант можно сердечком на самой карточке — отдельная кнопка на всё разом только шумит,
-       а очистка хранилища — служебное действие, человеку тут не нужное. -->
-  <div class="bar" id="feedBar" hidden>
-    <button class="btn primary" id="feedShare">Избранное</button>
-  </div>
 
   <!-- разворот «Заменить мебель»: список предметов выбранного варианта прямо на витрине -->
   <div id="swapBox">
@@ -769,8 +789,7 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
       <div id="blist">—</div>
       <!-- 3D ИМЕННО ЭТОГО ВАРИАНТА (владелец 13.10): кнопка живёт В КАРТОЧКЕ, рядом с составом,
            и открывает бродилку с этой же комнатой и этой же мебелью. -->
-      <div class="swapfoot"><a class="btn round" id="swap3d" href="/flat">Посмотреть в 3D</a>
-        <button class="btn round" id="collSave">Сохранить коллекцию</button></div>
+      <div class="swapfoot"><a class="btn round" id="swap3d" href="/flat">Посмотреть в 3D</a></div>
       <div class="swapfoot" id="swapFoot" hidden>
         <button class="btn primary round" id="swapShot">Посмотреть фото с изменениями</button>
       </div>
@@ -810,6 +829,12 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 <div id="scrim"></div>
 <div id="shot" role="dialog" aria-modal="true" aria-label="Просмотр кадра"><div class="box">
   <button class="xclose" id="shotx" aria-label="Закрыть">×</button>
+  <!-- ИЗБРАННОЕ И «ПОДЕЛИТЬСЯ» — В ШАПКЕ ОКНА (владелец 18.10, demo-15 п.4–5): видны при любой высоте шторки; одно сердечко вместо
+       «В избранное» и «Сохранить коллекцию», иконка вместо текстовой «Ссылки» -->
+  <button class="vtopbtn" id="vShare" type="button" hidden aria-label="Поделиться"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/>
+    <path d="M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1"/></svg></button>
+  <button class="vtopbtn vfav" id="vFav" type="button" hidden aria-label="В избранное" aria-pressed="false">♡</button>
   <div id="shotbody"></div>
   <!-- НИЖНЯЯ ПОЛОСА — ТОЛЬКО ДЕЙСТВИЯ (владелец 02.09: «внизу убери подпись, внизу три кнопки»).
        Кнопки лежат в разметке ПОСТОЯННО, а не впрыскиваются в подпись при каждом открытии: так
@@ -818,14 +843,7 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
   <div class="cap">
     <span id="shotcap"></span>
     <button class="btn primary" id="shEdit" hidden>Изменить планировку</button>
-    <button class="btn" id="shPick" hidden aria-pressed="false">♡ В избранное</button>
-    <!-- У КАЖДОГО ВАРИАНТА СВОЙ АДРЕС (владелец 08.09: «сделай, чтоб каждая модалка со ссылкой
-         была, чтоб кидать мог»). Кнопка кладёт в буфер ссылку вида …/demo/#v=set13 — она
-         открывает демо сразу на этом варианте и его фотографии. -->
-    <button class="btn" id="shLink" hidden>Ссылка</button>
-    <!-- СВОЯ РАССТАНОВКА — СВОЯ ССЫЛКА (b2b-05): «Ссылка» выше ведёт на готовый вариант, а эта кнопка
-         сохраняет то, что человек передвинул и заменил, и даёт ссылку на ЕГО коллекцию. -->
-    <button class="btn" id="shSave" hidden>Сохранить коллекцию</button>
+    <!-- «В избранное», «Ссылка» и «Сохранить коллекцию» — в шапке окна сердечком и иконкой «поделиться» (demo-15) -->
     <button class="btn ghost" id="shotclose">Закрыть</button>
   </div>
 </div></div><div id="peek"></div>
@@ -919,7 +937,6 @@ function init(){
   on('swapShot','onclick',()=>makePhoto('draft'));
   document.addEventListener('keydown',e=>{
     if(e.key==='Escape'&&document.getElementById('cons').classList.contains('on'))closeCons();});
-  on('feedShare','onclick',()=>shareOpen(allVariants().map(bestShot).filter(s=>s&&s.pick)));
   on('tab-plan','onclick',()=>showTab('plan'));
   on('tab-room','onclick',()=>showTab('room'));
   // ВКЛАДКА ПО УМОЛЧАНИЮ — ГОСТИНАЯ (владелец 02.09: «страница должна открываться сразу на
@@ -1052,6 +1069,7 @@ function syncHash(which){
   const h=hashFor(which||(document.getElementById('screen-room').hidden?'plan':'room'));
   if(location.hash!==h)history.replaceState(null,'',h);
 }
+const SHARE_SVG='<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1"/></svg>';
 function variantLink(vid){
   return location.origin+location.pathname+'#v='+encodeURIComponent(vid||curVid());
 }
@@ -2776,7 +2794,7 @@ function saveShots(){ /* браузер кадры не хранит: состо
 function productsOf(list, decor){
   const withSku=(list||[]).filter(i=>(i.sku||{}).name);
   const out=groupBySku(withSku).map(gr=>{const p=gr.sku, n=buys(gr.slots.length,p);
-    return {name:p.name,price:p.price,url:p.url,img:p.img,shop:p.shop,
+    return {name:p.name,price:p.price,url:p.url,img:p.img,shop:p.shop,sid:p.sid||'',
             role:gr.first.role,qty:n};});
   // и декор: на фото он есть, значит и в списке товаров под фото должен быть
   (decor||decorList()).forEach(x=>{const p=x.sku||{};
@@ -2914,8 +2932,10 @@ function drawColl(force){
   _collSig=sig;
   box.innerHTML='';
   const list=allVariants();
+  const F=window.__fav;
   list.forEach((v,i)=>{
-    const sh=bestShot(v), p=variantPrice(v);
+    if(v.mine&&v.own)return;          // своя сохранённая расстановка — в разделе «Избранное» (demo-15 п.6)
+    const sh=bestShot(v), p=variantPrice(v), fav=F&&F.ofState(F.baseState(v));
     const n=variantCount(v);   // у открытого варианта — по живой расстановке, а не по данным
     const el=document.createElement('div');
     el.className='lay'+(i===cur?' on':'');
@@ -2942,10 +2962,10 @@ function drawColl(force){
         // кнопка со словами. Заполненное — вариант в избранном.
         // ССЫЛКА ЕСТЬ У КАЖДОГО ВАРИАНТА, ДАЖЕ БЕЗ ФОТОГРАФИИ (владелец 08.09): окно кадра
         // открывается не всегда, а поделиться расстановкой человек хочет в любом случае.
-        `<button class="btn" data-link="${i}" title="Скопировать ссылку на этот вариант">Ссылка</button>`+
-        (sh?`<button class="heart${sh.pick?' on':''}" data-pick="${i}" `+
-            `aria-label="${sh.pick?'Убрать из избранного':'В избранное'}" `+
-            `title="${sh.pick?'Убрать из избранного':'В избранное'}">${sh.pick?'♥':'♡'}</button>`:'')+
+        // «ПОДЕЛИТЬСЯ» ИКОНКОЙ И СЕРДЕЧКО ИЗБРАННОГО (владелец 18.10, demo-15 п.4–5): текстовой «Ссылки» нет
+        `<button class="iconbtn" data-share="${i}" aria-label="${LANG==='en'?'Share':'Поделиться'}" title="${LANG==='en'?'Share':'Поделиться'}">${SHARE_SVG}</button>`+
+        `<button class="heart${fav?' on':''}" data-favorite="${i}" aria-pressed="${fav?'true':'false'}" `+
+          `aria-label="${fav?(LANG==='en'?'In favourites':'В избранном'):(LANG==='en'?'Add to favourites':'В избранное')}">${fav?'♥':'♡'}</button>`+
       `</div></div>`;
     box.appendChild(el);
     // ВСЯ КАРТОЧКА ВЕДЁТ В ОДНО МЕСТО (владелец 02.09: «кликаю на область названия и цены —
@@ -2976,10 +2996,14 @@ function drawColl(force){
       :`Стиль «${x.style}»: сейчас нет полного набора в наличии (не хватает: ${(x.missing||[]).join(', ')}) — покажем, как только появится.`;
     box.appendChild(n);});
   showSwap();   // список выбранного варианта рисуется вместе с коллекцией, не отдельным событием
-  box.querySelectorAll('[data-link]').forEach(b=>b.onclick=e=>{
-    e.stopPropagation();
-    const v=allVariants()[+b.dataset.link]||{};
-    copyLink(v.id||('v'+b.dataset.link), b);
+  box.querySelectorAll('[data-share]').forEach(b=>b.onclick=e=>{
+    e.stopPropagation(); const v=allVariants()[+b.dataset.share]||{};
+    if(window.__fav)window.__fav.shareUrlOpen(variantLink(v.id||('v'+b.dataset.share)), v.style||'');
+  });
+  box.querySelectorAll('[data-favorite]').forEach(b=>b.onclick=e=>{
+    e.stopPropagation(); const i=+b.dataset.favorite; if(!window.__fav)return;
+    if(i!==cur)pickVariant(i);        // сохраняется расстановка этого варианта
+    window.__fav.toggle();
   });
   box.querySelectorAll('[data-shot]').forEach(b=>b.onclick=()=>{
     // вариант сперва загружаем: съёмка идёт по ТЕКУЩЕЙ расстановке, а не по той, что была открыта
@@ -2993,21 +3017,7 @@ function drawColl(force){
   // ОТМЕТКА СТАВИТСЯ НА ВАРИАНТ, А НЕ НА ОТДЕЛЬНЫЙ КАДР. Иначе так: человек добавил карточку
   // в подборку, потом снял по этому же стилю новое фото — превью сменилось на неотмеченное,
   // и карточка молча «выпала» из подборки.
-  box.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{
-    const v=allVariants()[+b.dataset.pick]||{};
-    const vid=v.id||('v'+(+b.dataset.pick));
-    const sh=bestShot(v); if(!sh)return;
-    const on=!sh.pick;
-    shots.forEach(x=>{if(x.vid===vid)x.pick=on;});
-    saveShots(); drawColl(true);});
-  const bar=document.getElementById('feedBar');
-  if(bar){
-    const vis=allVariants().map(bestShot).filter(Boolean);
-    const picked=vis.filter(x=>x.pick).length;
-    bar.hidden=!vis.length;
-    const fs2=document.getElementById('feedShare');
-    if(fs2)fs2.textContent=picked?`Избранное (${picked})`:'Избранное';
-  }
+  try{window.__fav&&window.__fav.draw();}catch(e){}
 }
 // СПИСОК МЕБЕЛИ ВСЕГДА ПОКАЗАН ДЛЯ ВЫБРАННОЙ РАССТАНОВКИ (владелец 01.09: «нажимаю на
 // расстановку, а списка нет внизу»; и он пропадал после закрытия модалки). Раньше панель
@@ -3119,7 +3129,7 @@ function shotOpen(html,cap){const sb=document.getElementById('shotbody');
   document.getElementById('shotcap').innerHTML=cap||'';
   // Действия просмотра кадра включает только сам просмотр (`viewShot`): на экранах ожидания и
   // отправки «В избранное»/«Изменить планировку» не к чему применить.
-  ['shPick','shEdit','shLink','shSave'].forEach(id=>{const b=document.getElementById(id); if(b)b.hidden=true;});
+  ['shEdit','vFav','vShare'].forEach(id=>{const b=document.getElementById(id); if(b)b.hidden=true;});
   document.getElementById('shot').classList.add('on');
   // ФОКУС ПЕРЕХОДИТ В ОКНО (аудит 01.09, Д4): иначе с клавиатуры он остаётся на странице под
   // модалкой, и следующий Tab уводит «сквозь» открытое окно.
@@ -3341,7 +3351,7 @@ function shotListHtml(s){
         // только у того, что нашлось в расстановке, а ваза лежит в отдельном списке.
         const own=items.find(i=>(skuOf(i)||{}).name===a.name)
           ||decorList().find(x=>(x.sku||{}).name===a.name);
-        return `<div class="row" style="cursor:default">`+
+        return `<div class="row" style="cursor:default"${a.sid?` data-sid="${escHtml(a.sid)}"`:''}>`+
           (a.img?`<img src="${a.img}" loading="lazy" alt="">`:'<div class="noimg-sm">нет фото</div>')+
           `<div class="t"><b>${a.name}</b>`+
           `<span>${a.role||''}${a.shop?' · '+a.shop:''}${(a.qty||1)>1?' · '+a.qty+' шт.':''}</span>`+
@@ -3384,6 +3394,8 @@ function refreshShotList(){
   const nu=tmp.firstElementChild;
   if(!nu){box.remove();return;}
   box.replaceWith(nu); wireShotList();
+  // выделенный предмет — его строка снова подсвечена (список перерисован после замены)
+  if(VW.sel!=null&&items[VW.sel]){const r=vwRowOf(items[VW.sel]); if(r)r.classList.add('hl');}
   liveShow();      // замена в окне — живая сцена показывает её сразу (demo-01)
 }
 function viewShot(i){
@@ -3410,17 +3422,8 @@ function viewShot(i){
   // В ПРОСМОТРЕ НЕТ НИ КНОПКИ ИСХОДНИКОВ, НИ ОБЪЯСНЕНИЯ, ЧТО УШЛО В МОДЕЛЬ (владелец 01.09).
   // Это служебные вещи: они остаются на сервере, но человеку в крупном кадре не нужны.
   const srcRow='';
-  // СТРЕЛКИ ЛИСТАЮТ ТОЛЬКО ВИДЫ ЭТОЙ СЪЁМКИ (владелец 27.08: «стрелочки вперёд-назад по только
-  // этим 2 видам»), а не всю накопленную ленту варианта.
-  const seq=s.batch
-    ? shots.filter(x=>x.batch===s.batch)
-    : shots.filter(x=>x.revision===s.revision&&x.quality===s.quality&&x.vid===s.vid);
-  const at=seq.indexOf(s);
-  const navs=(seq.length>1&&at>=0)
-    ? `<button class="nav prev" id="shotPrev" ${at===0?'disabled':''} aria-label="Предыдущий вид">‹</button>`+
-      `<button class="nav next" id="shotNext" ${at===seq.length-1?'disabled':''} aria-label="Следующий вид">›</button>`+
-      `<div class="viewno">${at+1} из ${seq.length}</div>`
-    : '';
+  // РАКУРСЫ — ПЕРЕКЛЮЧАТЕЛЕМ С ПОДПИСЯМИ В ОКНЕ (`vCams`, demo-15): стрелок `‹ ›` над фото больше нет
+  const navs='';
   // ПОДПИСИ ВНИЗУ БОЛЬШЕ НЕТ (владелец 02.09: «вообще внизу убери подпись»). Прежняя строка
   // «лофт · Стоимость комплекта: 94 311 ₽» отменяет решение от 01.09: низ окна — полоса
   // действий, а не место для текста. ВНИМАНИЕ: названия стиля в самом окне после этого нет
@@ -3432,33 +3435,8 @@ function viewShot(i){
   vwMount(s);
   wireShotList();
   liveShow();      // расстановка уже не та, что на фото, — живая сцена поверх (demo-01)
-  // ОТМЕТКА СТАВИТСЯ НА ВЕСЬ ВАРИАНТ, КАК СЕРДЕЧКО НА КАРТОЧКЕ (разбор Codex 02.09, проверено
-  // по коду). Кнопка в окне помечала ОДИН кадр, а карточка коллекции и отправка смотрят на
-  // «лучший кадр» варианта (`bestShot`): отметив в окне второй вид, человек не видел отклика на
-  // карточке, и в подборку кадр не попадал. Правило варианта — одно, задано в `drawColl`.
-  const pk=document.getElementById('shPick');
-  if(pk){
-    const mark=()=>{pk.textContent=s.pick?'♥ В избранном':'♡ В избранное';
-      pk.classList.toggle('on',!!s.pick);
-      pk.setAttribute('aria-pressed',s.pick?'true':'false');};
-    pk.hidden=false; mark();
-    pk.onclick=()=>{const on=!s.pick;
-      if(s.vid)shots.forEach(x=>{if(x.vid===s.vid)x.pick=on;}); else s.pick=on;
-      saveShots(); drawFeed(); mark();};
-  }
-  // «ИЗМЕНИТЬ ПЛАНИРОВКУ» — ГЛАВНЫЙ СЛЕДУЮЩИЙ ШАГ (владелец 02.09). Открывает конструктор с
-  // планом, где мебель двигают. Кадр можно открыть с ЛЮБОЙ карточки и из окна избранного,
-  // поэтому сначала делаем вариант ЭТОГО кадра текущим (`pickVariant` ставит `cur` и грузит
-  // расстановку). Вариант ищем по `vid` напрямую, а НЕ через `variantOf`: тот при неопознанном
-  // кадре подставляет текущий вариант и молча открыл бы чужую планировку. Окно кадра закрываем:
-  // `#cons` и `#shot` оба z-index 60, но `#shot` ниже в разметке и перекрыл бы конструктор.
-  // ССЫЛКА НА ЭТОТ ВАРИАНТ — прямо в окне (владелец 08.09): адрес открывает демо на нём же.
-  const ln=document.getElementById('shLink');
-  if(ln){ln.hidden=false; ln.onclick=()=>copyLink(s.vid||curVid(),ln);}
-  const sv=document.getElementById('shSave');
-  if(sv&&window.__saveCollection){sv.hidden=false; sv.onclick=()=>{
-    const vi=allVariants().findIndex(v=>(v.id||'')===(s.vid||'')); if(vi>=0&&vi!==cur)pickVariant(vi);
-    window.__saveCollection();};}
+  // избранное и «поделиться» — кнопки шапки окна (`favUi`, demo-15)
+  try{window.__fav&&window.__fav.ui();}catch(e){}
   const ed=document.getElementById('shEdit');
   if(ed){ed.hidden=false;
     ed.onclick=()=>{
@@ -3468,28 +3446,6 @@ function viewShot(i){
       document.getElementById('shot').classList.remove('on');
       openCons('edit');
     };}
-  // ПЕРЕКЛЮЧЕНИЕ ВИДОВ БЕЗ МЕРЦАНИЯ (владелец 02.09: «когда фотки переключаем, мерцает экран»).
-  // Раньше стрелка перерисовывала ВСЁ окно: элемент картинки создавался заново, браузер на
-  // мгновение показывал пустоту и заново декодировал файл. Теперь меняем только адрес у той же
-  // картинки, а соседний кадр подгружаем заранее — переключение мгновенное.
-  const swapTo=(k)=>{
-    const nxt=seq[k]; if(!nxt)return;
-    const im=document.querySelector('#shotbody .shotwrap img');
-    if(!im){ viewShot(shots.indexOf(nxt)); return; }
-    im.src=nxt.url;
-    const no=document.querySelector('#shotbody .viewno');
-    if(no)no.textContent=`${k+1} из ${seq.length}`;
-    const p2=document.getElementById('shotPrev'), n2=document.getElementById('shotNext');
-    if(p2)p2.disabled=(k===0);
-    if(n2)n2.disabled=(k===seq.length-1);
-    if(p2)p2.onclick=()=>swapTo(k-1);
-    if(n2)n2.onclick=()=>swapTo(k+1);
-    [seq[k-1],seq[k+1]].forEach(x=>{if(x){const pre=new Image();pre.src=x.url;}});
-  };
-  const pv=document.getElementById('shotPrev'), nx=document.getElementById('shotNext');
-  if(pv)pv.onclick=()=>swapTo(at-1);
-  if(nx)nx.onclick=()=>swapTo(at+1);
-  [seq[at-1],seq[at+1]].forEach(x=>{if(x){const pre=new Image();pre.src=x.url;}});
 
 }
 // ——— ОТПРАВКА СЕБЕ: ТОЛЬКО ПО КОНТАКТУ (владелец 26.08: «ссылку нигде не показывай; человек
@@ -4223,7 +4179,7 @@ function histFwd(){return histGo(1);}
 .vplate.flash{animation:vflash .7s ease}@keyframes vflash{30%{box-shadow:0 0 0 3px var(--accent),var(--sh-2)}}
 .vscroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
 /* перетаскивание шторки и полосы режимов не выделяет текст (прогон d8 16.10) */
-#vside,#vgrip,.vmodes,.vplate,.vdots,.vnav,.vhist{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+#vside,#vgrip,.vmodes,.vplate,.vcams,.vhist{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 .vcta{width:100%;margin-top:10px;display:flex;flex-direction:column;align-items:center;border-radius:999px}
 .vcta small{font-size:12.5px;font-weight:400;opacity:.9}
 .vlist{padding:0 18px}
@@ -4266,13 +4222,12 @@ function histFwd(){return histGo(1);}
 .vfl-cur{font-size:13.5px;color:var(--ink);margin-top:8px}.vfl-gap{height:14px}.vfl-gap:last-child{display:none}
 .vsum small.vdev{color:var(--ink)}
 /* ракурсы «Фото» — стрелки по краям и точки внизу (v3 п.5); план «План» — в той же области сцены */
-.vnav{display:none;position:absolute;top:50%;transform:translateY(-50%);z-index:6;width:44px;height:44px;border-radius:50%;border:0;
- background:rgba(255,255,255,.88);color:var(--ink);font-size:26px;line-height:44px;padding:0;cursor:pointer;box-shadow:var(--sh-2)}
-.vprev{left:10px}.vnext{right:10px}
-.vdots{display:none;position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:6;gap:8px;padding:6px 10px;
- border-radius:999px;background:rgba(43,38,34,.45)}
-.vdots i{display:block;width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.55)}.vdots i.on{background:#fff}
-#shot.vphoto.vmany .vnav,#shot.vwalk.vmany .vnav{display:block}#shot.vphoto.vmany .vdots,#shot.vwalk.vmany .vdots{display:flex}
+.vcams{display:none;position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:6;gap:2px;padding:3px;border-radius:999px;
+  background:rgba(24,20,17,.55);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);max-width:calc(100% - 32px)}
+.vcams button{border:0;background:transparent;color:#fff;font:600 13px/1.1 system-ui,sans-serif;padding:8px 12px;border-radius:999px;cursor:pointer;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto;opacity:.85}
+.vcams button.on{background:#fff;color:#2b2622;opacity:1}
+#shot.vphoto.vmany .vcams,#shot.vwalk.vmany .vcams{display:flex}
 /* 3D (demo-09): под живой сценой картинок нет; без 3D — спокойная заглушка; «фото готово для прежней расстановки» — в углу */
 #shot.vwalk .shotwrap img,#shot.vwalk .vzbtn,#shot.vwalk .vold{visibility:hidden}
 .vstub{display:none;position:absolute;inset:0;z-index:5;flex-direction:column;align-items:center;justify-content:center;gap:14px;
@@ -4282,7 +4237,7 @@ function histFwd(){return histGo(1);}
 .vready{position:absolute;left:0;right:0;margin:0 auto;width:max-content;max-width:calc(100% - 24px);top:60px;z-index:6;border:0;
  background:var(--surface);color:var(--ink);font:inherit;font-size:13.5px;line-height:1.3;padding:7px 14px;border-radius:999px;
  box-shadow:var(--sh-2);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#shot.nolive.vwalk .vnav,#shot.nolive.vwalk .vdots{display:none!important}
+#shot.nolive.vwalk .vcams{display:none!important}
 .vcta.busy{cursor:default;opacity:.92}
 .vcta-err{font-size:13px;color:#B3261E;margin:6px 2px 0;line-height:1.4}
 .vplanbox{display:none;position:absolute;inset:60px 12px 12px;z-index:4;background:var(--wash-2)}
@@ -4335,8 +4290,8 @@ function histFwd(){return histGo(1);}
   /* сцена — только над шторкой: под полуоткрытой шторкой мебель иначе пряталась, а видно было потолок */
   .vstage .shotwrap{bottom:var(--vsh,320px)}
   #shot.v2 .shotwrap .livebadge{display:none}
-  .vdots{bottom:calc(var(--vsh,320px) + 12px)}.vnav{top:calc((100% - var(--vsh,320px)) / 2)}
-  .vdots{transition:bottom .3s cubic-bezier(.32,.72,0,1)}   /* над текущим верхом шторки — ставит `vwSheetApply` */
+  .vcams{bottom:calc(var(--vsh,320px) + 12px);transition:bottom .3s cubic-bezier(.32,.72,0,1)}   /* над верхом шторки — `vwSheetApply` */
+  .vcams button{font-size:12px;padding:8px 10px}
   .vplanbox{inset:60px 8px var(--vsh,320px) 8px}
   /* подсказка «фото готово» — сверху, под ↶ ↷: снизу её перекрывала подпись выбранного пола (самопроверка 17.10) */
   .vstub{bottom:var(--vsh,320px)}.vready{top:108px;bottom:auto}
@@ -4418,9 +4373,9 @@ function vwHtml(s, navs, list){
   return `<div class="vw"><div class="vstage"><div class="shotwrap">${img}${navs}${old}</div>`+
     `<div class="vmodes" role="tablist"><button data-vm="photo" class="${VW.mode==='photo'?'on':''}">Фото</button>`+
     `<button data-vm="walk" class="${VW.mode==='walk'?'on':''}">3D</button><button data-vm="plan" class="${VW.mode==='plan'?'on':''}">План</button></div>`+
-    // ракурсы — стрелками по краям и точками внизу (владелец 16.10, п.5); свайп и ← → — `vwPhoto`
-    `<button class="vnav vprev" id="vPrev" aria-label="Предыдущий вид">‹</button><button class="vnav vnext" id="vNext" aria-label="Следующий вид">›</button>`+
-    `<div class="vdots" id="vDots">${Array.from({length:vwCamN()},(_,k)=>`<i class="${k===VW.photo?'on':''}"></i>`).join('')}</div>`+
+    // РАКУРСЫ СЛОВАМИ (владелец 18.10, demo-15 п.3: «стрелочки непонятно что значат»): один переключатель для «Фото» и 3D,
+    // подписи — по месту камеры (`vwCamNames`); свайп по фото и ← → остаются (`vwPhoto`)
+    `<div class="vcams" id="vCams" role="tablist">${vwCamNames().map((t,k)=>`<button type="button" role="tab" data-cam="${k}">${escHtml(t)}</button>`).join('')}</div>`+
     `<div class="vplanbox" id="vPlan"></div>`+
     `<div class="vstub" id="vStub"><p>${EN?'3D does not open on this device — open the link on another phone or a computer.':'3D на этом устройстве не открывается — откройте ссылку на другом телефоне или компьютере.'}</p>`+
     `<button class="btn" id="vStubLink" type="button">${EN?'Copy the link':'Скопировать ссылку'}</button></div>`+
@@ -4582,7 +4537,7 @@ function vwMid(e){
 function vwLayout(){
   const vw=document.querySelector('#shot .vw'), sd=document.getElementById('vside'); if(!vw||!sd)return;
   if(!VW_PHONE()){sd.style.height=''; sd.style.transform=''; vw.style.removeProperty('--vsh');
-    const d=document.getElementById('vDots'); if(d)d.style.bottom=''; const z=document.getElementById('vzBtn'); if(z)z.style.bottom=''; return;}
+    const d=document.getElementById('vCams'); if(d)d.style.bottom=''; const z=document.getElementById('vzBtn'); if(z)z.style.bottom=''; return;}
   const e=vwEdges(); sd.style.height=e.max+'px';
   vw.style.setProperty('--vsh',(e.min+8)+'px');
   vwSheetApply(Math.max(e.min,Math.min(e.max,VW.sheetVis||e.min)),false);
@@ -4600,12 +4555,13 @@ function vwSheetApply(vis, anim){
   sd.style.transition=anim&&!VW_SLOW()?'transform .3s cubic-bezier(.32,.72,0,1)':'none';
   sd.style.transform=`translateY(${Math.round(e.max-vis)}px)`;
   // точки ракурсов — над текущим верхом шторки при любой высоте (приёмка d8 17.10: в средней остановке прятались за шторкой)
-  const dots=document.getElementById('vDots'); if(dots){dots.style.transition=anim&&!VW_SLOW()?'':'none'; dots.style.bottom=Math.round(vis+12)+'px';}
+  const dots=document.getElementById('vCams'); if(dots){dots.style.transition=anim&&!VW_SLOW()?'':'none'; dots.style.bottom=Math.round(vis+12)+'px';}
   // «во весь экран» — тоже над текущим верхом шторки (приёмка d8 17.10: на средней кнопка была под шторкой)
   // кнопка — внутри области фото, а её низ уже на высоте свёрнутой шторки (`--vsh` = e.min + 8): отступ — от него
   const zb=document.getElementById('vzBtn'); if(zb){zb.style.transition=dots?dots.style.transition:''; zb.style.bottom=Math.max(12,Math.round(vis+12-(e.min+8)))+'px';}
   const pos=vis<=e.min+4?0:vis>=e.max-4?3:2;
   if(sd.dataset.pos!==String(pos)){sd.dataset.pos=String(pos); vwSheetState(pos);}
+  const shotEl=document.getElementById('shot'); if(shotEl)shotEl.classList.toggle('vsheetfull',vis>=e.max-40);
 }
 function vwSheetState(pos){
   const g=document.getElementById('vgrip'), c=document.getElementById('vchip'), sc=document.getElementById('vscroll'), EN=LANG==='en';
@@ -4682,27 +4638,37 @@ document.addEventListener('click',e=>{const b=e.target&&e.target.closest&&e.targ
   if(bub&&!bub.hidden&&!(e.target.closest&&e.target.closest('#vplBub')))bub.hidden=true;});
 // ТАП ПО МЕБЕЛИ (владелец 16.10): предмет выделяется на сцене (тёплая рамка и подсветка), шторка открывается до половины,
 // список прокручивается к его строке, строка подсвечивается; тап по пустому месту снимает выделение
+// подсветка строки живёт, пока предмет выделен (`VW.sel`, demo-15, Codex п.1): снятие выделения снимает и её
 function vwSelect(idx){
   VW.sel=idx==null||idx<0?null:idx;
   if(LIVE.scene&&LIVE.scene.select)LIVE.scene.select(VW.sel);
+  if(VW.sel==null)document.querySelectorAll('#shotbody .row.hl').forEach(x=>x.classList.remove('hl'));
   try{vwPins();}catch(e){}
 }
+// строка списка этого предмета — по артикулу (`sid`), не по названию: у одинаковых названий и комплектов имя не уникально
+function vwRowOf(it){
+  const sid=(skuOf(it)||{}).sid;
+  if(sid){const r=document.querySelector(`#shotbody .row[data-sid="${CSS.escape(String(sid))}"]`); if(r)return r;}
+  const name=(skuOf(it)||{}).name, k=shotRows.findIndex(a=>a.name===name);
+  const b=k>=0&&document.querySelector(`#shotbody [data-rep="${k}"]`); return b?(b.closest('.row')||b):null;
+}
+// ТАП ПО ПРЕДМЕТУ (владелец 18.10, demo-15 п.1): шторка — до верха, строка предмета — в верхней трети списка, подсвечена, пока
+// предмет выделен; повторный тап по тому же предмету снимает выделение, шторку не трогает. `open:false` — без шторки (после замены)
 function vwHighlight(idx, opt){
   const it=items[idx]; if(!it)return;
   const open=!(opt&&opt.open===false);
+  if(open&&VW.sel===idx&&!(opt&&opt.keep)){vwSelect(null); return;}
   vwSelect(idx);
   vwGroupOpen(null);                    // выбрали предмет на сцене — список товаров, а не раздел отделки
-  const name=(skuOf(it)||{}).name; const k=shotRows.findIndex(a=>a.name===name);
-  const row=k>=0&&document.querySelector(`#shotbody [data-rep="${k}"]`); if(!row)return;
-  const r=row.closest('.row')||row;
+  const r=vwRowOf(it); if(!r)return;
   document.querySelectorAll('#shotbody .row.hl').forEach(x=>x.classList.remove('hl'));
-  r.classList.add('hl'); clearTimeout(VW.hlT); VW.hlT=setTimeout(()=>r.classList.remove('hl'),4000);
-  if(open&&window.innerWidth<=700){const sd=document.getElementById('vside'); if(sd&&+sd.dataset.pos<2)vwSheet(2);}
-  // шторка едет 0,28 с — прокручиваем, когда высота уже новая. Только сам список: `scrollIntoView` двигал и окно над шторкой —
-  // после замены через ленту шторка «свёрнута», а стояла у верха экрана (владелец 17.10, probe16 d8)
+  r.classList.add('hl'); clearTimeout(VW.hlT);
+  let wait=0;
+  if(open&&VW_PHONE()){const sd=document.getElementById('vside'); if(sd&&+sd.dataset.pos!==3){vwSheet(3); wait=VW_SLOW()?40:340;}}
+  // прокрутка — ПОСЛЕ конца анимации шторки (высота списка уже новая). Только сам список: `scrollIntoView` двигал и окно над шторкой
   setTimeout(()=>{const sc=document.getElementById('vscroll'); if(!sc||!r.isConnected)return;
     const rr=r.getBoundingClientRect(), sr=sc.getBoundingClientRect();
-    sc.scrollTo({top:Math.max(0,sc.scrollTop+(rr.top-sr.top)-(sc.clientHeight-rr.height)/2),behavior:'smooth'});},320);
+    sc.scrollTo({top:Math.max(0,sc.scrollTop+(rr.top-sr.top)-sc.clientHeight/6),behavior:VW_SLOW()?'auto':'smooth'});},wait);
 }
 // ЦЕННИКИ НАД МЕБЕЛЬЮ В 3D (demo-09, Codex 17.10): метки — постоянные узлы, двигаются `transform` на каждом кадре; точки предметов —
 // из кэша движка (`viewer.projectSlot`), замеры окна и кнопок — 12 раз в секунду, не на каждом кадре. В «Фото» (снимок нейросети)
@@ -4717,7 +4683,7 @@ function vwPinsTick(now){
   const on=shot.classList.contains('on')&&VW.mode==='walk'&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode;
   if(!on){if(box.childElementCount)box.innerHTML=''; PINS.map.clear(); return;}
   if(!PINS.fr||now-PINS.t>80){PINS.t=now; PINS.fr=box.getBoundingClientRect();
-    PINS.busy=[...document.querySelectorAll('#shot .vmodes, #shot .vhist, #shot .vzbtn, #vside, #vsum, #shot .vnav, #shot .vdots, #shot .vflat, #shot .vready')]
+    PINS.busy=[...document.querySelectorAll('#shot .vmodes, #shot .vhist, #shot .vzbtn, #vside, #vsum, #shot .vcams, #shot .vflat, #shot .vready')]
       .map(e=>e.getBoundingClientRect()).filter(r=>r.width>0);}
   const fr=PINS.fr, pad=4, seen=new Set(), cand=[];
   const hit=(a,b)=>a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top;
@@ -4753,8 +4719,8 @@ function vwMount(s){
   vwHist();
   shot.querySelectorAll('[data-vm]').forEach(b=>b.onclick=()=>vwMode(b.dataset.vm));
   vwModeUi();
-  const pv=document.getElementById('vPrev'), nx=document.getElementById('vNext');
-  if(pv)pv.onclick=()=>vwPhoto(VW.photo-1); if(nx)nx.onclick=()=>vwPhoto(VW.photo+1);
+  shot.querySelectorAll('[data-cam]').forEach(b=>b.onclick=()=>vwCamGo(+b.dataset.cam));
+  vwCamsUi();
   const hb=document.getElementById('vhBack'), hf=document.getElementById('vhFwd');
   if(hb)hb.onclick=()=>{histBack(); vwHist();}; if(hf)hf.onclick=()=>{histFwd(); vwHist();};
   // долгое нажатие — подсказка, что делает кнопка (на телефоне нет всплывающих подписей)
@@ -4767,7 +4733,7 @@ function vwMount(s){
   if(cta)cta.onclick=()=>{
     if(VW.mode==='plan'){const ed=document.getElementById('shEdit'); if(ed&&ed.onclick)ed.onclick(); return;}
     vwRealistic();};
-  const sl=document.getElementById('vStubLink'); if(sl)sl.onclick=()=>{const b=document.getElementById('shLink'); if(b)b.click();};
+  const sl=document.getElementById('vStubLink'); if(sl)sl.onclick=()=>{if(window.__fav)window.__fav.share();};
   vwSheetWire();
   const sd=document.getElementById('vside');
   // подсказка — один раз на устройство: «подскок» шторки и 3 секунды текста
@@ -4800,10 +4766,7 @@ function vwModeUi(){
   if(VW_PHONE())requestAnimationFrame(()=>vwLayout());
   const cta=document.getElementById('vCta');
   vwCtaUi();
-  const dots=document.getElementById('vDots'), nd=m==='photo'?real.length:vwCamN();
-  if(dots){if(dots.children.length!==nd)dots.innerHTML=Array.from({length:nd},()=>'<i></i>').join('');
-    const at=m==='photo'?Math.max(0,real.findIndex(x=>(x.camera||'C1')===vwCam())):VW.photo;
-    [...dots.children].forEach((d,k)=>d.classList.toggle('on',k===at));}
+  vwCamsUi();
   if(m==='plan')vwPlanDraw();
 }
 function vwMode(m){
@@ -4830,15 +4793,51 @@ function vwPhotoShow(){
     const i=shots.indexOf(k); if(i!==shotAt){viewShot(i); return;} liveHide(); return;}
   liveShow();
 }
-// стрелки: в «Фото» — следующий снимок, в «3D» — плавный переход к следующей точке съёмки (`goToPose`, Codex п.3)
+// ОДИН РАКУРС НА ОКНО (demo-15, Codex п.2): `VW.photo` — номер точки съёмки для «Фото» и 3D; `VW.free` — камера ушла с точки
+// (наведение на заменённый предмет): ни одна подпись не активна, тап по любой — к её точке. В «Фото» — снимок этой точки,
+// в «3D» — плавный переход (`goToPose`)
+function vwCamGo(k){
+  const n=vwCamN(); if(!n)return; k=((k%n)+n)%n;
+  if(VW.mode==='photo'){const r=vwRealShots(), nx=r.find(x=>vwCamIndex(x.camera)===k); if(!nx)return;
+    VW.photo=k; VW.free=false; vwModeUi(); vwPhotoShow(); reportAct('view_switch'); return;}
+  if(VW.mode!=='walk')return;
+  VW.photo=k; VW.free=false; vwModeUi();
+  const c=(cams||loadCams())[k];
+  if(LIVE.scene&&c&&LIVE.scene.goToPose)LIVE.scene.goToPose(camPoseOf(c));
+  reportAct('view_switch');
+}
+// свайп по фото и ← → — следующий/предыдущий ракурс тем же переходом
 function vwPhoto(k){
   if(VW.mode==='photo'){const r=vwRealShots(); if(r.length<2)return;
     const at=Math.max(0,r.findIndex(x=>(x.camera||'C1')===vwCam())), nx=r[((at+(k>VW.photo?1:-1))%r.length+r.length)%r.length];
-    VW.photo=vwCamIndex(nx.camera); vwModeUi(); vwPhotoShow(); return;}
-  if(VW.mode!=='walk')return;
-  const n=vwCamN(); VW.photo=((k%n)+n)%n; vwModeUi();
-  const c=(cams||loadCams())[VW.photo];
-  if(LIVE.scene&&c&&LIVE.scene.goToPose)LIVE.scene.goToPose(camPoseOf(c));
+    vwCamGo(vwCamIndex(nx.camera)); return;}
+  vwCamGo(k);
+}
+function vwCamsUi(){
+  const box=document.getElementById('vCams'); if(!box)return;
+  box.querySelectorAll('[data-cam]').forEach(b=>{const on=!VW.free&&+b.dataset.cam===VW.photo; b.classList.toggle('on',on); b.setAttribute('aria-selected',String(on));});
+}
+// ИМЕНА РАКУРСОВ — ПО МЕСТУ КАМЕРЫ (Codex 18.10 (а)): ближайший к точке съёмки проём (окно или дверь, до CAM_NAME_NEAR) — «Со стороны
+// окна» / «Со стороны двери»; у обоих один проём — «…, слева / справа» (если стоять в проёме лицом в комнату); привязки нет или имена
+// совпали — «Ракурс 1 / 2» в порядке C1/C2
+const CAM_NAME_NEAR=220;
+function vwCamNames(){
+  const EN=LANG==='en', cs=((typeof cams!=='undefined'&&cams)||loadCams()).slice(0,2), R=(D&&D.room)||{};
+  const plain=cs.map((_,k)=>(EN?'View ':'Ракурс ')+(k+1));
+  if(cs.length<2)return plain;
+  const ops=(R.openings||[]).filter(o=>(o.kind==='window'||o.kind==='door')&&o.width_cm);
+  const seg=(px,py,g)=>{const vx=g.x2-g.x1, vy=g.y2-g.y1, L=vx*vx+vy*vy||1, t=Math.max(0,Math.min(1,((px-g.x1)*vx+(py-g.y1)*vy)/L));
+    return Math.hypot(px-(g.x1+t*vx),py-(g.y1+t*vy));};
+  const bind=c=>{let b=null; ops.forEach(o=>{const g=wallSeg(o.wall,+o.offset_cm||0,+o.width_cm), d=seg(c.x,c.y,g); if(d<=CAM_NAME_NEAR&&(!b||d<b.d))b={o,g,d};}); return b;};
+  const nm=o=>o.kind==='window'?(EN?'From the window':'Со стороны окна'):(EN?'From the door':'Со стороны двери');
+  const b=cs.map(bind);
+  if(!b[0]||!b[1])return plain;
+  if(b[0].o!==b[1].o)return nm(b[0].o)!==nm(b[1].o)?[nm(b[0].o),nm(b[1].o)]:plain;
+  const g=b[0].g, cx=(g.x1+g.x2)/2, cy=(g.y1+g.y2)/2, n={south:[0,1],north:[0,-1],west:[1,0],east:[-1,0]}[b[0].o.wall]||[0,1];
+  const a=Math.atan2(n[0],-n[1]), rx=Math.cos(a), ry=Math.sin(a);     // взгляд в комнату — (sin a, −cos a), правая рука — (cos a, sin a)
+  const side=c=>((c.x-cx)*rx+(c.y-cy)*ry)>=0?(EN?'right':'справа'):(EN?'left':'слева');
+  const s0=side(cs[0]), s1=side(cs[1]);
+  return s0!==s1?cs.map(c=>nm(b[0].o)+', '+side(c)):plain;
 }
 // КНОПКА «СДЕЛАТЬ РЕАЛИСТИЧНЕЕ» (demo-09 п.3, Codex п.1): видна в 3D и без 3D; в «Фото» её нет (снимок уже есть), в «Плане» —
 // «Изменить план». Во время задания — ход на самой кнопке; окно и режим не трогаются
@@ -4940,7 +4939,8 @@ function vwAfterChange(){
       const after=(skuOf(s0)||{}).price||0, d=after-before, EN=LANG==='en';
       const base=String(role||'').replace(/\s+\d+$/,'');
       toast((EN?'Replaced: '+base:'Заменено: '+base)+(d?` · ${d>0?'+':'−'}${money(Math.abs(d))}`:''));
-      const i=items.indexOf(s0); setTimeout(()=>vwHighlight(i,{open:false}),200);   // шторка уже свёрнута — сцена с заменой видна
+      // шторка уже свёрнута — сцена с заменой видна; выделение и наведение камеры — после обновления сцены (`liveShow`, demo-15 п.2)
+      const i=items.indexOf(s0); setTimeout(()=>{if(VW.mode!=='walk')vwHighlight(i,{open:false});},200);
     }
     return r;};
 })();
@@ -5108,7 +5108,12 @@ async function liveShow(){
   await sc.update(clone(items), liveDecor());
   // ЗАМЕНА В «3D» — ВЗГЛЯД НА ЗАМЕНЁННЫЙ ПРЕДМЕТ (приёмка владельцем 16.10 п.1): иначе диван менялся за краем кадра и
   // казалось, что замена не сработала
-  if(VW.mode==='walk'&&LIVE.focus!=null&&sc.focus){sc.focus(LIVE.focus); sc.start();}
+  // demo-15 п.2 (владелец 18.10: «после замены фокус камеры автоматом напротив предмета»): безопасное наведение движка — поворот на
+  // месте или переход на точку в 1–1.8 м, где можно стоять и предмет виден (`frameItem`); точка съёмки после этого — «своя» (`VW.free`):
+  // переключатель ракурсов вернёт к C1/C2. Ценник предмета подсвечен 3 с
+  if(VW.mode==='walk'&&LIVE.focus!=null){const k=LIVE.focus;
+    const how=sc.frameItem?sc.frameItem(k):(sc.focus&&sc.focus(k),'turn'); LIVE.framed=how; VW.free=true; vwCamsUi(); sc.start();
+    vwSelect(k); clearTimeout(VW.pinT); VW.pinT=setTimeout(()=>{if(VW.sel===k)vwSelect(null);},3000);}
   LIVE.focus=null;
   LIVE.state='ready'; vwLoad(false);
 }
@@ -5217,7 +5222,8 @@ async function liveShow(){
   var _pv=window.pickVariant; if(typeof _pv==='function')window.pickVariant=pickVariant=function(i){var r=_pv.apply(this,arguments);
     if(i!==lastV){lastV=i;hit('variant_view');}return r;};
   var _to=window.tryOn; if(typeof _to==='function')window.tryOn=tryOn=function(){var r=_to.apply(this,arguments);hit('item_swap');return r;};
-  document.addEventListener('remlab:act',function(e){if(e.detail==='item_move'||e.detail==='share'||e.detail==='stale_link'||e.detail==='floor_pick'||e.detail==='walls_pick')hit(e.detail);});
+  var COUNT={item_move:1,share:1,stale_link:1,floor_pick:1,walls_pick:1,favourite_save:1,favourite_rename:1,view_switch:1};   // `contracts/analytics.ts`
+  document.addEventListener('remlab:act',function(e){if(COUNT[e.detail])hit(e.detail);});
   function boot(){if(typeof D==='undefined'||!D)return setTimeout(boot,300);hit('designer_open');}
   boot();
 })();
@@ -5355,12 +5361,13 @@ async function liveShow(){
    вариантами; готовые варианты не меняются. Цены при открытии — текущие из витрины; товара в витрине
    больше нет — он остаётся в коллекции с пометкой, но в сумму не входит (ADR-0254 п.6). */
 (function(){
-  var KEY='remlab-collections', MINE=[], EN=function(){return window.__LANG==='en';};
+  // лимита 10 больше нет (demo-15, Codex п.4): все свои коллекции этого устройства — в «Избранном»; верхняя граница — от мусора
+  var KEY='remlab-collections', MINE=[], LIMIT=200, EN=function(){return window.__LANG==='en';};
   var list=function(){try{return JSON.parse(localStorage.getItem(KEY)||'[]').filter(function(x){return x&&/^[A-Za-z0-9_-]{22}$/.test(x.id);});}catch(_){return [];}};
   // «моя» — только сохранённая в ЭТОМ браузере; открытая по чужой ссылке — «по ссылке» (Codex 13.10)
   var remember=function(id,style,own){var prev=list().find(function(x){return x.id===id;});
     var l=list().filter(function(x){return x.id!==id;});l.unshift({id:id,style:style,at:Date.now(),own:!!(own||(prev&&prev.own))});
-    try{localStorage.setItem(KEY,JSON.stringify(l.slice(0,10)));}catch(_){}};
+    try{localStorage.setItem(KEY,JSON.stringify(l.slice(0,LIMIT)));}catch(_){}};
   var _av=window.allVariants; window.allVariants=allVariants=function(){return _av().concat(MINE);};
   function asVariant(c){
     var cur=c.current||{};
@@ -5375,7 +5382,8 @@ async function liveShow(){
     return {id:'c:'+c.id, cid:c.id, mine:true, own:!!own, baseVariant:c.baseVariant,
       style:label+(c.style?' · '+c.style:''), title:label,
       items:c.items.map(function(i){return Object.assign({},i,{sku:fix(i.sku)});}),
-      decor:(c.decor||[]).map(function(d){return {role:d.role, sku:fix(d.sku)};}), shot:c.shot||'', dev:c.developerOptions||{}, apt:c.apartmentId};
+      decor:(c.decor||[]).map(function(d){return {role:d.role, sku:fix(d.sku)};}), shot:c.shot||'', dev:c.developerOptions||{}, apt:c.apartmentId,
+      stateId:c.stateId||'', displayName:c.displayName||''};
   }
   // ЧЕРНОВОЙ КАДР КОЛЛЕКЦИИ В ФОНЕ (demo-03, 2.13): кадра этой расстановки ещё нет — снимаем бесплатный черновик
   // (наша 3D-сцена, без модели) и один раз прикрепляем к коллекции. `no_registry` — кадр не уходит в общую ленту
@@ -5410,8 +5418,10 @@ async function liveShow(){
     if(typeof D==='undefined'||!D)return setTimeout(boot,300);
     var want=window.__collHash||(String(location.hash).match(/^#c=([A-Za-z0-9_-]{22})/)||[])[1];
     var ids=list().map(function(x){return x.id;}); if(want&&ids.indexOf(want)<0)ids.unshift(want);
-    Promise.all(ids.slice(0,10).map(fetchOne)).then(function(vs){
+    favs().forEach(function(f){if(ids.indexOf(f.collectionId)<0)ids.push(f.collectionId);});
+    Promise.all(ids.slice(0,LIMIT).map(fetchOne)).then(function(vs){
       vs.forEach(function(v){if(v){MINE.push(v); if(v.shot)attachCollShot(v.cid,location.origin+v.shot);}}); if(MINE.length)drawColl(true);
+      favMigrateState(); favDraw(); favUi();
       if(want){var v=MINE.find(function(x){return x.cid===want;});
         // коллекция — своей квартиры (британский двойник английского демо, ADR-0298): карточка, валюта и рынок — её
         if(v&&v.apt&&window.__loadFlatCard&&(typeof FLAT==='undefined'||!FLAT||FLAT.id!==v.apt)){window.__sendFlat=v.apt; window.__loadFlatCard();}
@@ -5435,26 +5445,153 @@ async function liveShow(){
       cams:(Array.isArray(cams)?cams:[]).slice(0,4).map(function(c){return {x:num(c.x),y:num(c.y),rot:num(c.rot||c.a||0)};}),
       shot:currentShotPath()||undefined, stateId:curStateId(), schemaVersion:2, developerOptions:clone(DEVOPT)};
   }
-  function save(){
-    var btn=document.getElementById('collSave'); if(btn){btn.disabled=true;}
-    var snap=snapshot();
-    fetch('/api/collections',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(snap)})
-      .then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});}).then(function(x){
-        if(!x.ok||!x.j.ok)throw new Error(x.j&&x.j.message||'');
-        // пришли по ссылке менеджера — она едет и в ссылку на коллекцию: тот, кому переслали, остаётся у того же менеджера (b2b-05, verify 14.10)
-        var q=[]; if(window.__LANG==='en')q.push('lang=en'); if(window.__sendId)q.push('s='+window.__sendId);
-        var url=location.origin+'/demo/'+(q.length?'?'+q.join('&'):'')+'#c='+x.j.id;
-        try{navigator.clipboard.writeText(url).catch(function(){});}catch(_){}
-        remember(x.j.id,'',true); if(window.__embedEvent)window.__embedEvent('save');
-        if(snap.shot)attachCollShot(x.j.id,location.origin+snap.shot); else snapLater(x.j.id, snap.stateId);
-        return fetchOne(x.j.id).then(function(v){if(v){MINE.unshift(v); if(v.shot)attachCollShot(v.cid,location.origin+v.shot);remember(x.j.id,v.style,true);drawColl(true);}
-          shotOpen('<div class="wait">'+(EN()?'Collection saved. The link is copied — send it to anyone:':'Коллекция сохранена. Ссылка скопирована — её можно отправить кому угодно:')+
-            '<br><input readonly value="'+url+'" style="width:100%;margin-top:10px;font-size:14px" onclick="this.select()"></div>','');});
-      }).catch(function(e){shotOpen('<div class="wait">'+(EN()?'Could not save, please try again.':'Не получилось сохранить, попробуйте ещё раз.')+'</div>','');})
-      .finally(function(){if(btn)btn.disabled=false;});
+  // ——— ИЗБРАННОЕ (владелец 18.10, demo-15 п.4–6; модель — критика Codex (б)) ———
+  // Источник истины — локальный `FavoriteRef {collectionId, editToken, displayName, style, stateId, sourceVariantId, createdAt, shot}`;
+  // сердечко = есть избранное ТЕКУЩЕГО номера состояния (изменил расстановку — снова контурное). Сохранение — снимок на сервер
+  // (`POST /api/collections`, имя — `displayName`), переименование — с секретом редактирования, который вернул сервер; удаление —
+  // только из этого списка (серверная запись живёт по правилу истории). Старые «сердечки» кадров (`pick`) не угадываем
+  var FKEY='remlab-favorites';
+  var favs=function(){try{return (JSON.parse(localStorage.getItem(FKEY)||'[]')||[]).filter(function(f){return f&&/^[A-Za-z0-9_-]{22}$/.test(f.collectionId);});}catch(_){return [];}};
+  var favsPut=function(l){try{localStorage.setItem(FKEY,JSON.stringify(l.slice(0,LIMIT)));}catch(_){}};
+  var cap=function(t){t=String(t||'');return t?t[0].toUpperCase()+t.slice(1):t;};
+  var styleOfV=function(v){return String((v&&v.style)||'').replace(/^(моя коллекция|my collection|коллекция по ссылке|shared collection) · /,'');};
+  // перенос: свои коллекции прежнего формата → в избранное (без секрета — имя меняется только на этом устройстве)
+  (function(){var l=favs(); var mig=false; try{mig=!!localStorage.getItem(FKEY+'-mig');}catch(_){}
+    if(mig)return;
+    list().filter(function(x){return x.own;}).forEach(function(x){if(l.some(function(f){return f.collectionId===x.id;}))return;
+      l.push({collectionId:x.id, editToken:null, displayName:'', style:x.style||'', stateId:null, sourceVariantId:null, createdAt:x.at||Date.now(), shot:''});});
+    favsPut(l); try{localStorage.setItem(FKEY+'-mig','1');}catch(_){}})();
+  // у перенесённых нет номера состояния и имени — берём из сохранённого снимка, когда он пришёл с сервера
+  function favMigrateState(){var l=favs(), ch=false;
+    l.forEach(function(f){var v=MINE.find(function(x){return x.cid===f.collectionId;}); if(!v)return;
+      if(!f.stateId&&v.stateId){f.stateId=v.stateId; ch=true;}
+      if(!f.displayName){f.displayName=v.displayName||cap(styleOfV(v))||(EN()?'Layout':'Расстановка'); ch=true;}
+      if(!f.style&&styleOfV(v)){f.style=styleOfV(v); ch=true;}});
+    if(ch)favsPut(l);}
+  function baseState(v){if(!v)return '';
+    try{return v.mine&&v.stateId?v.stateId:stateIdOf(v.items||[], variantDecor(v), D&&D.room, v.dev||{});}catch(_){return '';}}
+  function ofState(sid){return sid?(favs().find(function(f){return f.stateId===sid;})||null):null;}
+  function defaultName(style){var c=cap(style)||(EN()?'Layout':'Расстановка'), n=0;
+    favs().forEach(function(f){var nm=String(f.displayName||''); if(nm.indexOf(c+' #')!==0)return; var k=+nm.slice(c.length+2); if(k>n)n=k;});
+    return c+' #'+(n+1);}       // N = наибольший занятый номер + 1 (Codex (б)): после удаления «#2» новый не повторит «#3»
+  function collUrl(id){var q=[]; if(EN())q.push('lang=en'); if(window.__sendId)q.push('s='+window.__sendId);
+    return location.origin+'/demo/'+(q.length?'?'+q.join('&'):'')+'#c='+id;}
+  function post(snap){return fetch('/api/collections',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(snap)})
+    .then(function(r){return r.json().then(function(j){if(!r.ok||!j.ok)throw new Error((j&&j.error)||'');return j;});});}
+  function afterSave(id,snap){remember(id,snap.style||'',true); if(window.__embedEvent)window.__embedEvent('save');
+    if(snap.shot)attachCollShot(id,location.origin+snap.shot); else snapLater(id, snap.stateId);
+    return fetchOne(id).then(function(v){if(v&&!MINE.some(function(x){return x.cid===id;})){MINE.unshift(v); if(v.shot)attachCollShot(v.cid,location.origin+v.shot);}
+      drawColl(true);});}
+  function save(name){
+    var snap=snapshot(); snap.displayName=String(name||'').trim().slice(0,80)||defaultName(snap.style);
+    return post(snap).then(function(j){
+      var l=favs().filter(function(f){return f.collectionId!==j.id;});
+      l.unshift({collectionId:j.id, editToken:j.editToken||null, displayName:snap.displayName, style:snap.style||'', stateId:snap.stateId,
+        sourceVariantId:(allVariants()[cur]||{}).id||'', createdAt:Date.now(), shot:snap.shot||''});
+      favsPut(l); reportAct('favourite_save'); toast((EN()?'In favourites: ':'В избранном: ')+snap.displayName);
+      return afterSave(j.id,snap).then(function(){favDraw(); favUi();});
+    }).catch(function(){toast(EN()?'Could not save, please try again.':'Не получилось сохранить, попробуйте ещё раз.');});
   }
-  window.__saveCollection=save;
-  document.addEventListener('click',function(e){if(e.target&&e.target.id==='collSave'){e.preventDefault();save();}});
+  function rename(id,name){
+    name=String(name||'').trim().slice(0,80); if(!name)return Promise.resolve();
+    var l=favs(), f=l.find(function(x){return x.collectionId===id;}); if(!f)return Promise.resolve();
+    var was=f.displayName; f.displayName=name; favsPut(l); reportAct('favourite_rename'); favDraw(); favUi();
+    if(!f.editToken)return Promise.resolve();   // перенесённая без секрета — имя только на этом устройстве
+    // сервер не принял (лимит, сеть) — имя возвращается, чтобы здесь и по ссылке оно не разошлось (Codex 18.10)
+    var back=function(){var l2=favs(), f2=l2.find(function(x){return x.collectionId===id;}); if(f2){f2.displayName=was; favsPut(l2); favDraw(); favUi();}
+      toast(EN()?'Could not rename, please try again.':'Не получилось переименовать, попробуйте ещё раз.');};
+    return fetch('/api/collections/'+id,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({displayName:name,editToken:f.editToken})})
+      .then(function(r){if(!r.ok)back();},back);
+  }
+  function removeFav(id){favsPut(favs().filter(function(f){return f.collectionId!==id;})); favDraw(); favUi(); drawColl(true);
+    toast(EN()?'Removed from favourites':'Убрано из избранного');}
+  // «ПОДЕЛИТЬСЯ» (demo-15 п.5): одна функция адреса — избранное этого состояния → его коллекция; нетронутый готовый вариант → `#v=`;
+  // изменённая несохранённая расстановка — сперва снимок (иначе `#v=` отдал бы базовый вариант, Codex (б)); снимок одного состояния — один
+  var SNAP={};
+  function shareUrl(){
+    var v=allVariants()[cur]||{}, sid=curStateId(), f=ofState(sid);
+    if(f)return Promise.resolve(collUrl(f.collectionId));
+    if(v.cid&&baseState(v)===sid)return Promise.resolve(collUrl(v.cid));
+    if(!v.mine&&baseState(v)===sid)return Promise.resolve(variantLink(v.id||curVid()));
+    if(SNAP[sid])return Promise.resolve(collUrl(SNAP[sid]));
+    var snap=snapshot();
+    return post(snap).then(function(j){SNAP[sid]=j.id; afterSave(j.id,snap); return collUrl(j.id);});
+  }
+  function shareOpenUrl(url,title){
+    reportAct('share');
+    var t=(title?cap(styleOfV({style:title})):'')||document.title;
+    if(navigator.share){navigator.share({title:t, url:url}).catch(function(){}); return;}
+    var say=function(){toast(EN()?'Link copied — paste it into a message':'Ссылка скопирована — вставьте её в сообщение');};
+    if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(url).then(say,function(){prompt(EN()?'Link:':'Ссылка:',url);});
+    else prompt(EN()?'Link:':'Ссылка:',url);
+  }
+  function share(){var v=allVariants()[cur]||{}, f=ofState(curStateId());
+    shareUrl().then(function(u){shareOpenUrl(u,(f&&f.displayName)||styleOfV(v));})
+      .catch(function(){toast(EN()?'Could not make a link, please try again.':'Не получилось сделать ссылку, попробуйте ещё раз.');});}
+  // ОКОШКО ИМЕНИ (demo-15 п.4): новое — «<Стиль> #N», можно дописать; в избранном — переименовать или убрать
+  function pop(f){
+    var old=document.getElementById('favPop'); if(old)old.remove();
+    var v=allVariants()[cur]||{}, isNew=!f, nm=f?(f.displayName||''):defaultName(styleOfV(v));
+    var el=document.createElement('div'); el.id='favPop'; el.className='favpop'; el.setAttribute('role','dialog'); el.setAttribute('aria-modal','true');
+    var e=function(t){return String(t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});};
+    el.innerHTML='<div class="favbox"><b>'+(isNew?(EN()?'Save to favourites':'В избранное'):(EN()?'In favourites':'В избранном'))+'</b>'+
+      '<label>'+(EN()?'Name':'Название')+'<input id="favName" maxlength="80" value="'+e(nm)+'"></label>'+
+      '<div class="favbtns"><button class="btn primary" id="favOk" type="button">'+(isNew?(EN()?'Save':'Сохранить'):(EN()?'Rename':'Переименовать'))+'</button>'+
+      '<button class="btn ghost" id="favNo" type="button">'+(EN()?'Cancel':'Отмена')+'</button></div>'+
+      (isNew?'':'<button class="lnk favdel" id="favDel" type="button">'+(EN()?'Remove from favourites':'Убрать из избранного')+'</button>')+'</div>';
+    document.body.appendChild(el);
+    var inp=document.getElementById('favName'), close=function(){el.remove();};
+    setTimeout(function(){try{inp.focus(); inp.select();}catch(_){}} ,30);
+    el.addEventListener('click',function(ev){if(ev.target===el)close();});
+    document.getElementById('favNo').onclick=close;
+    var ok=document.getElementById('favOk');
+    var go=function(){ok.disabled=true; (isNew?save(inp.value):rename(f.collectionId,inp.value)).then(close,close);};
+    ok.onclick=go; inp.addEventListener('keydown',function(ev){if(ev.key==='Enter')go(); if(ev.key==='Escape')close();});
+    var del=document.getElementById('favDel'); if(del)del.onclick=function(){removeFav(f.collectionId); close();};
+  }
+  function toggle(){pop(ofState(curStateId()));}
+  // сердечко и «поделиться» в шапке окна — только в окне варианта
+  function favUi(){
+    var shot=document.getElementById('shot'), on=shot&&shot.classList.contains('v2');
+    var h=document.getElementById('vFav'), sh=document.getElementById('vShare'); if(!h||!sh)return;
+    h.hidden=sh.hidden=!on; if(!on)return;
+    var f=ofState(curStateId()); h.textContent=f?'♥':'♡'; h.classList.toggle('on',!!f); h.setAttribute('aria-pressed',f?'true':'false');
+    h.setAttribute('aria-label',f?(EN()?'In favourites: ':'В избранном: ')+(f.displayName||''):(EN()?'Add to favourites':'В избранное'));
+    sh.setAttribute('aria-label',EN()?'Share':'Поделиться');
+    h.onclick=toggle; sh.onclick=share;
+  }
+  // РАЗДЕЛ «ИЗБРАННОЕ» НА ГЛАВНОЙ (demo-15 п.6): все из этого списка, без лимита; карточка — картинка, имя, стиль, дата, сумма;
+  // тап — окно этой расстановки; «поделиться» и «⋯» (переименовать / убрать)
+  function favDraw(){
+    var head=document.getElementById('favHead'), grid=document.getElementById('favGrid'); if(!head||!grid)return;
+    var l=favs(); head.hidden=grid.hidden=!l.length; if(!l.length){grid.innerHTML='';return;}
+    var e=function(t){return String(t==null?'':t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});};
+    var hp=head.querySelector('h2'), pp=head.querySelector('p'); if(hp)hp.textContent=EN()?'Favourites':'Избранное';
+    if(pp)pp.textContent=EN()?'Layouts saved on this device':'Сохранённые расстановки на этом устройстве';
+    grid.innerHTML=l.map(function(f,k){
+      var i=allVariants().findIndex(function(x){return x.cid===f.collectionId;}), v=i>=0?allVariants()[i]:null;
+      var img=(f.shot?location.origin+f.shot:'')||((typeof COLL_SHOTS!=='undefined'&&COLL_SHOTS[f.collectionId])||'');
+      if(!img&&v){var b=bestShot(v); if(b)img=thumbOf(b);}
+      var d=new Date(f.createdAt||Date.now()), date=('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'.'+d.getFullYear();
+      var sum=v?money(variantPrice(v)):'';
+      return '<div class="lay favcard" data-fopen="'+k+'"><div class="wrapimg">'+(img?'<img class="pv" src="'+e(img)+'" alt="" loading="lazy">'
+          :'<div class="nopv">'+(EN()?'Open to see it in 3D':'Откройте — покажем в 3D')+'</div>')+'</div>'+
+        '<div class="body"><div class="nm">'+e(f.displayName||cap(f.style))+'</div>'+
+        '<div class="pr">'+e(cap(f.style))+' · '+date+(sum?' · <b>'+sum+'</b>':'')+'</div>'+
+        '<div class="acts"><button class="btn" data-fopen="'+k+'">'+(EN()?'Open':'Открыть')+'</button>'+
+        '<button class="iconbtn" data-fshare="'+k+'" aria-label="'+(EN()?'Share':'Поделиться')+'">'+SHARE_SVG+'</button>'+
+        '<button class="iconbtn" data-fmore="'+k+'" aria-label="'+(EN()?'Rename or remove':'Переименовать или убрать')+'">⋯</button></div></div></div>';}).join('');
+    var at=function(k){return favs()[+k];};
+    grid.querySelectorAll('[data-fopen]').forEach(function(b){b.onclick=function(ev){if(ev.target.closest('[data-fshare],[data-fmore]'))return;
+      var f=at(b.dataset.fopen); if(!f)return; var i=allVariants().findIndex(function(x){return x.cid===f.collectionId;});
+      if(i>=0){vwOpenVariant(i);} else {location.hash='#c='+f.collectionId;}};});
+    grid.querySelectorAll('[data-fshare]').forEach(function(b){b.onclick=function(ev){ev.stopPropagation(); var f=at(b.dataset.fshare); if(f)shareOpenUrl(collUrl(f.collectionId),f.displayName);};});
+    grid.querySelectorAll('[data-fmore]').forEach(function(b){b.onclick=function(ev){ev.stopPropagation(); var f=at(b.dataset.fmore); if(!f)return;
+      var i=allVariants().findIndex(function(x){return x.cid===f.collectionId;}); if(i>=0&&i!==cur)pickVariant(i); pop(f);};});
+  }
+  window.__fav={list:favs, ofState:ofState, baseState:baseState, toggle:toggle, share:share, shareUrl:shareUrl, shareUrlOpen:shareOpenUrl,
+    ui:favUi, draw:favDraw, save:save, rename:rename, remove:removeFav, defaultName:defaultName};
+  document.addEventListener('remlab:hist',function(){favUi();});
   boot();
 })();
 </script>

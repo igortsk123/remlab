@@ -35,6 +35,7 @@ export const STATE_ID_RE = /^s[12]-[0-9a-f]{32}$/;
 export const collectionShotIn = z.object({ shot: z.string().regex(SHOT_PATH_RE), stateId: z.string().regex(STATE_ID_RE).optional() });
 
 const optId = z.string().regex(/^[a-z0-9-]{2,40}$/);
+const displayName = z.string().trim().min(1).max(80);
 
 // v2 (demo-06): + `developerOptions` — выбор в группах опций застройщика (группа → вариант; пол). v1 читается как v2 без
 // выбора: апгрейд — умолчание `{}`. Что группы и варианты существуют у квартиры, проверяет ручка сохранения.
@@ -52,8 +53,13 @@ export const collectionIn = z.object({
   shot: z.string().regex(SHOT_PATH_RE).optional(),
   stateId: z.string().regex(STATE_ID_RE).optional(),
   developerOptions: z.record(optId, optId).refine((o) => Object.keys(o).length <= 10, "слишком много опций").default({}),
+  // ИМЯ В ИЗБРАННОМ (demo-15): «Джапанди #1» по умолчанию, покупатель может дописать; показывается на карточке «Избранного»
+  displayName: displayName.optional(),
 });
 export type CollectionIn = z.infer<typeof collectionIn>;
+/** Переименование (demo-15, критика Codex): только с секретом редактирования, который выдал `POST` сохранившему; по одному
+ *  публичному `id` переименовать нельзя (ссылкой делятся). В базе — только хеш секрета (`payload.editHash`). */
+export const collectionRenameIn = z.object({ displayName, editToken: z.string().regex(/^[A-Za-z0-9_-]{22}$/) });
 
 /** Текущая цена товара при открытии коллекции: из витрины; нет в витрине — `unavailable`. */
 export type CurrentPrice = {

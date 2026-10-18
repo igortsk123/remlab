@@ -63,6 +63,8 @@ export interface Obstacle {
   w: number;
   d: number;
   rot: number;
+  /** Высота, см (demo-15): низкое — столик, пуф — взгляду не мешает; высокое (шкаф, стеллаж) — закрывает предмет за ним. */
+  h?: number;
 }
 
 export interface WalkArea {
@@ -179,3 +181,53 @@ export function nearestStandable(
   }
   return null;
 }
+
+/** Наведение на предмет (demo-15): не ближе 1 м к его следу, кольцо поиска точки 1–1.8 м, «высокое» закрывает взгляд от 110 см. */
+export const FRAME_MIN_CM = 100;
+const FRAME_RING_CM = [100, 140, 180], FRAME_TALL_CM = 110;
+
+/**
+ * ОТКУДА СМОТРЕТЬ НА ПРЕДМЕТ (demo-15, критика Codex п.5): `turn` — текущая точка годится (до следа ≥ 1 м, взгляд не закрыт
+ * высоким), только поворот; `move` — ближайшая к текущей точка кольца 1–1.8 м вокруг следа, где можно стоять, предмет виден и
+ * прямой путь проходим; `none` — такой нет, только поворот. `rot` — взгляд позы на предмет: (sin rot, −cos rot).
+ */
+export function frameSpot(area: WalkArea, cur: { x: number; y: number }, at: { x: number; y: number }): { x: number; y: number; rot: number; kind: "turn" | "move" | "none" } {
+  const obs = area.obstacles ?? [];
+  // след предмета — тот же, что у прогулки (её поворот и размеры), иначе «вокруг» считалось бы не от того контура
+  let it: Obstacle = { x: at.x, y: at.y, w: 1, d: 1, rot: 0 }, bd = 15;
+  for (const o of obs) { const d = Math.hypot(o.x - at.x, o.y - at.y); if (d < bd) { bd = d; it = o; } }
+  const aim = (px: number, py: number) => (Math.atan2(it.x - px, -(it.y - py)) * 180) / Math.PI;
+  const seen = (ax: number, ay: number) => {
+    const n = Math.max(4, Math.ceil(Math.hypot(it.x - ax, it.y - ay) / 10));
+    for (let k = 1; k < n; k++) {
+      const px = ax + ((it.x - ax) * k) / n, py = ay + ((it.y - ay) * k) / n;
+      if (obstacleDistanceCm(it, px, py) <= 0) return true;                 // дошли до самого предмета
+      if (obs.some((o) => o !== it && (o.h ?? 0) >= FRAME_TALL_CM && obstacleDistanceCm(o, px, py) <= 0)) return false;
+    }
+    return true;
+  };
+  const path = (bx: number, by: number) => {     // у стены сама точка съёмки может не проходить — первые 40 см пути не проверяем
+    const len = Math.hypot(bx - cur.x, by - cur.y), n = Math.max(2, Math.ceil(len / 10));
+    for (let k = 1; k <= n; k++) {
+      const px = cur.x + ((bx - cur.x) * k) / n, py = cur.y + ((by - cur.y) * k) / n;
+      if (Math.hypot(px - cur.x, py - cur.y) >= 40 && !canStand(area, px, py)) return false;
+    }
+    return true;
+  };
+  if (obstacleDistanceCm(it, cur.x, cur.y) >= FRAME_MIN_CM && seen(cur.x, cur.y)) return { x: cur.x, y: cur.y, rot: aim(cur.x, cur.y), kind: "turn" };
+  let best: { x: number; y: number; cost: number } | null = null;
+  for (let a = 0; a < 360; a += 15) {
+    const dx = Math.sin((a * Math.PI) / 180), dy = -Math.cos((a * Math.PI) / 180);
+    for (const want of FRAME_RING_CM) {
+      let r = 5;
+      while (r < 700 && obstacleDistanceCm(it, it.x + dx * r, it.y + dy * r) < want) r += 5;
+      const px = it.x + dx * r, py = it.y + dy * r;
+      if (!canStand(area, px, py) || !seen(px, py) || !path(px, py)) continue;
+      const cost = Math.hypot(px - cur.x, py - cur.y);
+      if (!best || cost < best.cost) best = { x: px, y: py, cost };
+    }
+  }
+  if (best) return { x: best.x, y: best.y, rot: aim(best.x, best.y), kind: "move" };
+  return { x: cur.x, y: cur.y, rot: aim(cur.x, cur.y), kind: "none" };
+}
+

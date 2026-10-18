@@ -24,7 +24,7 @@ import type { KitCtx } from "@/lib/viewer3d/kits/common";
 import { createMaterialCtx, disposeMaterialCtx, type MaterialCtx } from "@/lib/viewer3d/materials";
 import { MeshLibrary, chaiseSide, disposeObject, placeMesh, stubBox } from "@/lib/viewer3d/meshes";
 import { buildRoom, buildSurroundings } from "@/lib/viewer3d/rooms";
-import { canStand, inRooms, nearestStandable, obstacleDistanceCm, stepWithSlide, walkArea, type WalkArea } from "@/lib/viewer3d/walk";
+import { canStand, frameSpot, inRooms, nearestStandable, obstacleDistanceCm, stepWithSlide, walkArea, type WalkArea } from "@/lib/viewer3d/walk";
 
 const CM = 0.01;
 // пределы «кукольного дома»: ближе 2,4 м камера влезает в мебель, дальше 30 м квартира — точка
@@ -359,7 +359,7 @@ export class FlatViewer {
     // производное (ТВ над тумбой) стоит на тумбе или висит на стене — препятствие уже тумба
     this.area = walkArea(this.apartment, 28, all
       .filter((sp) => sp.kind !== "rug" && sp.kind !== "bathroom" && !isExtra(sp.slotId) && sp.placement.hCm > 10)
-      .map((sp) => ({ x: sp.placement.x, y: sp.placement.y, w: sp.placement.wCm, d: sp.placement.dCm, rot: sp.placement.rot })));
+      .map((sp) => ({ x: sp.placement.x, y: sp.placement.y, w: sp.placement.wCm, d: sp.placement.dCm, rot: sp.placement.rot, h: sp.placement.hCm })));
     // счётчик считаем ЗАНОВО на каждой синхронизации: раньше он копился между вызовами и
     // «загружено» обгоняло «всего» — процент прыгал выше 100 (находка советника 30.09)
     this.totalCount = specs.length;
@@ -1563,6 +1563,25 @@ export class FlatViewer {
       return;
     }
     this.heading = ((Math.atan2(x - this.pos.x, y - this.pos.y) * 180) / Math.PI + 360) % 360;
+  }
+
+  /**
+   * НАВЕСТИСЬ НА ПРЕДМЕТ (demo-15, критика Codex п.5): после замены покупатель видит новый предмет. Прямой полёт камеры прошёл бы
+   * сквозь стену или мебель, поэтому: текущая точка годится (до следа предмета ≥ `FRAME_MIN_CM`, взгляд не закрыт высоким) — только
+   * плавный поворот; иначе — точки кольца 1–1.8 м вокруг следа, где можно стоять, видно предмет и прямой путь от текущей проходим,
+   * ближайшая к текущей — плавный переход; подходящей нет — только поворот. Ответ — что сделано.
+   */
+  frameItem(at: { x: number; y: number }, ms = 600): "turn" | "move" | "none" {
+    const cur = this.viewMode === "photo" ? this.livePose()
+      : { x: this.pos.x, y: this.pos.y, rot: (540 - this.heading) % 360, pitch: this.pitch };
+    if (!cur) return "none";
+    const spot = frameSpot(this.area, cur, at);
+    const base = this.photo ?? { x: cur.x, y: cur.y, rot: cur.rot, fov: 72, pose: PHOTO_POSE_VER };
+    // сдвиг вертикального кадра подобран для точки съёмки — на новой точке он не годится
+    const keep = spot.kind !== "move" && typeof base.pshift === "number";
+    this.goToPose({ x: spot.x, y: spot.y, rot: spot.rot, fov: base.fov ?? 72, pose: base.pose ?? PHOTO_POSE_VER, ...(keep ? { pshift: base.pshift } : {}) },
+      spot.kind === "move" ? Math.max(ms, Math.min(1400, Math.hypot(spot.x - cur.x, spot.y - cur.y) * 4)) : ms);
+    return spot.kind;
   }
 
   /** Где стоит человек в прогулке и сколько до ближайшей мебели — метрика живой проверки (прогон d8 15.10). */

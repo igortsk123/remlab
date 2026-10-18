@@ -8,7 +8,8 @@ import { apartmentCard, findApartment } from "@/lib/partners/registry";
 import { canonDeveloperOptions } from "@/lib/partners/options";
 import { priceIndex } from "@/lib/collections/prices";
 import { loadDemoRaw } from "@/lib/partners/demo-data";
-import { collectionRepo } from "@/modules/collections/repository";
+import { collectionRepo, editHashOf } from "@/modules/collections/repository";
+import { randomToken } from "@/lib/token";
 import { sendStore } from "@/modules/sends/service";
 
 export const runtime = "nodejs";
@@ -56,6 +57,8 @@ export async function POST(req: Request): Promise<Response> {
     items: items.map(({ i, c }) => ({ ...i, ...(c.sku ? { sku: c.sku } : {}) })),
     decor: decor.map(({ d, c }) => ({ ...d, sku: c.sku! })),
   };
-  const row = await collectionRepo().create(hit.partner.id, clean);
-  return NextResponse.json({ ok: true, id: row.id });
+  // СЕКРЕТ РЕДАКТИРОВАНИЯ (demo-15): только тому, кто сохранил, — им переименовывают; в базе — хеш
+  const editToken = randomToken();
+  const row = await collectionRepo().create(hit.partner.id, clean, new Date(), editHashOf(editToken));
+  return NextResponse.json({ ok: true, id: row.id, editToken });
 }

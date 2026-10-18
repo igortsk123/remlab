@@ -39,6 +39,34 @@ describe("коллекции", () => {
     expect(collection.items[0]!.sku).toMatchObject({ name: "Диван А (витрина)", url: "https://xf.gdeslon.ru/a", price: 51000 });
   });
 
+  it("имя в избранном: секрет редактирования выдаётся при сохранении, хеш наружу не уходит, переименовать — только с секретом (demo-15)", async () => {
+    const r = await POST(post({ ...body, displayName: "Сканди #1" }));
+    const { id, editToken } = (await r.json()) as { id: string; editToken: string };
+    expect(editToken).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    const read = async () => ((await (await GET(new Request(`http://x/api/collections/${id}`), { params: Promise.resolve({ id }) })).json()) as
+      { collection: Record<string, unknown> }).collection;
+    const c0 = await read();
+    expect(c0.displayName).toBe("Сканди #1");
+    expect(c0).not.toHaveProperty("editHash");
+    expect(JSON.stringify(c0)).not.toContain(editToken);
+    const patch = (b: unknown) => PATCH(new Request(`http://x/api/collections/${id}`, { method: "PATCH", headers: { "content-type": "application/json", "x-forwarded-for": "10.0.0.9" },
+      body: JSON.stringify(b) }), { params: Promise.resolve({ id }) });
+    expect((await patch({ displayName: "Чужое", editToken: "A".repeat(22) })).status).toBe(403);   // неверный секрет
+    expect((await read()).displayName).toBe("Сканди #1");
+    expect((await patch({ displayName: "  Гостиная мечты  ", editToken })).status).toBe(200);
+    expect((await read()).displayName).toBe("Гостиная мечты");
+    expect((await patch({ displayName: "", editToken })).status).toBe(400);                          // пустое имя — не имя
+  });
+
+  it("коллекция без секрета (сохранена до demo-15) не переименовывается", async () => {
+    const { collectionRepo } = await import("@/modules/collections/repository");
+    const row = await collectionRepo().create("demo", { ...body, schemaVersion: 1, roomId: "living", lang: "ru", decor: [], cams: [], developerOptions: {},
+      items: body.items.map((i) => ({ ...i, sku: { sid: i.sku.sid, name: i.sku.name } })) });
+    const res = await PATCH(new Request(`http://x/api/collections/${row.id}`, { method: "PATCH", headers: { "content-type": "application/json", "x-forwarded-for": "10.0.0.9" },
+      body: JSON.stringify({ displayName: "x", editToken: "B".repeat(22) }) }), { params: Promise.resolve({ id: row.id }) });
+    expect(res.status).toBe(403);
+  });
+
   it("чужая квартира, мусор и слишком большое тело — отказ", async () => {
     expect((await POST(post({ ...body, apartmentId: "ghost" }))).status).toBe(400);
     expect((await POST(post({ ...body, items: [] }))).status).toBe(400);

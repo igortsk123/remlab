@@ -15,6 +15,9 @@ export const pageCounterKind = z.enum([
   "stale_link", // открыл устаревшую ссылку на вариант — показан текущий того же стиля (demo-05 п.10)
   "floor_pick", // выбрал пол из вариантов застройщика (demo-06)
   "walls_pick", // выбрал стены из вариантов застройщика (demo-07)
+  "favourite_save", // сохранил расстановку в избранное (demo-15)
+  "favourite_rename", // переименовал избранное (demo-15)
+  "view_switch", // переключил ракурс подписью (demo-15)
 ]);
 export type PageCounterKind = z.infer<typeof pageCounterKind>;
 
