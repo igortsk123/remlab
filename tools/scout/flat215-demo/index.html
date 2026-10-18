@@ -2395,7 +2395,7 @@ function devSet(gid, vid){
     if(v){const t=document.createElement('div'); t.className='vtip';
       t.style.cssText='white-space:normal;text-align:center;max-width:calc(100% - 32px)';
       t.textContent=v.name+(v.price.type==='included'?'':' · '+v.price.text);
-      setTimeout(()=>{t.style.bottom=((window.innerHeight-sd.getBoundingClientRect().top)+14)+'px'; shot.appendChild(t); setTimeout(()=>t.remove(),2600);},300);}
+      setTimeout(()=>{vwTipPlace(t); shot.appendChild(t); setTimeout(()=>t.remove(),2600);},300);}
   }
 }
 document.addEventListener('click',e=>{const b=e.target&&e.target.closest&&e.target.closest('[data-fl]'); if(!b)return;
@@ -4930,6 +4930,8 @@ function vwSheetApply(vis, anim){
   sd.style.transform=`translateY(${Math.round(e.max-vis)}px)`;
   // точки ракурсов — над текущим верхом шторки при любой высоте (приёмка d8 17.10: в средней остановке прятались за шторкой)
   const dots=document.getElementById('vCams'); if(dots){dots.style.transition=anim&&!VW_SLOW()?'':'none'; dots.style.bottom=Math.round(vis+12)+'px';}
+  // подсказки окна — вместе с переключателем, по цели сдвига (T-20261018-09: поставленная при показе оставалась на месте и ложилась на него)
+  document.querySelectorAll('#shot .vtip').forEach(vwTipPlace);
   // «во весь экран» — тоже над текущим верхом шторки (приёмка d8 17.10: на средней кнопка была под шторкой)
   // кнопка — внутри области фото, а её низ уже на высоте свёрнутой шторки (`--vsh` = e.min + 8): отступ — от него
   // «⤢» на телефоне — сверху справа (CSS, самопроверка 18.10): за шторкой больше не ездит
@@ -4937,6 +4939,13 @@ function vwSheetApply(vis, anim){
   const pos=vis<=e.min+4?0:vis>=e.max-4?3:2;
   if(sd.dataset.pos!==String(pos)){sd.dataset.pos=String(pos); vwSheetState(pos);}
   const shotEl=document.getElementById('shot'); if(shotEl)shotEl.classList.toggle('vsheetfull',vis>=e.max-40);
+}
+// ПОДСКАЗКА В ОКНЕ (`.vtip`) — над переключателем ракурсов по ЦЕЛИ сдвига шторки, как сообщение `toast` (v5.2): ставится при показе
+// и переставляется в `vwSheetApply` вместе с `#vCams` (его низ — vis + 12); переключателя нет — над шапкой шторки
+function vwTipPlace(t){
+  const cm=document.getElementById('vCams'), ch=cm&&getComputedStyle(cm).display!=='none'?cm.offsetHeight:0, vis=Math.round(VW.sheetVis||0);
+  if(!vis){const sd=document.getElementById('vside'); t.style.bottom=(sd?Math.round(innerHeight-sd.getBoundingClientRect().top)+14:24)+'px'; return;}
+  t.style.bottom=(ch?vis+12+ch+10:vis+14)+'px';
 }
 function vwSheetState(pos){
   const g=document.getElementById('vgrip'), c=document.getElementById('vchip'), sc=document.getElementById('vscroll'), EN=LANG==='en';
@@ -5129,21 +5138,21 @@ function vwMount(s){
   if(window.innerWidth<=700){let seen=false; try{seen=!!localStorage.getItem('remlab-sheet-hint-v1');}catch(e){}
     if(!seen&&sd){
       // ПОСЛЕ ЗАГРУЗКИ СЦЕНЫ И НАД ПЕРЕКЛЮЧАТЕЛЕМ РАКУРСОВ (fable-lead 18.10, demo-16 шаг 2): раньше подсказка появлялась, пока крутилка
-      // ещё грузила модели, и ложилась на «Со стороны двери/окна». Ждём готовую сцену (или «Фото»/заглушку без 3D), до ~20 с
+      // ещё грузила модели, и ложилась на «Со стороны двери/окна». Ждём готовую сцену (или «Фото»/заглушку без 3D) до ~20 с; не дождались —
+      // не показываем вовсе (T-20261018-09: поверх загрузки она хуже, чем никакой; покажем при следующем открытии окна)
       const at=Date.now(), isBusy=()=>{const vl=document.getElementById('vload');
         // занято: 3D ещё грузит модели или на экране крутилка (окно могло само уйти в «Фото», пока грузилась сцена — 2.25)
         return (VW.mode==='walk'&&typeof LIVE!=='undefined'&&LIVE.ok!==false&&LIVE.state!=='ready')||!!(vl&&vl.classList.contains('on'));};
       // первый показ — через 0,7 с: человек успевает переключить «Фото»/«3D», и подсказка не встаёт поверх загрузки
       (function tip(){
         if(!shot.classList.contains('on'))return;
-        if((Date.now()-at<700||isBusy())&&Date.now()-at<20000){setTimeout(tip,250); return;}
+        if(Date.now()-at<700||isBusy()){if(Date.now()-at<20000)setTimeout(tip,250); return;}
         const t=document.createElement('div'); t.className='vtip';
         t.dataset.mode=VW.mode; t.dataset.live=String(typeof LIVE!=='undefined'&&LIVE.state); t.dataset.busy=String(isBusy());   // состояние в момент показа — для проверок
         t.textContent=LANG==='en'?'Pull or tap — items and swaps':'Потяните или нажмите — товары и замены';
         t.style.cssText='white-space:normal;text-align:center;max-width:calc(100% - 32px)';
-        const cm=document.getElementById('vCams'), box=shot.getBoundingClientRect(), cr=cm&&getComputedStyle(cm).display!=='none'?cm.getBoundingClientRect():null;
-        // над переключателем ракурсов; его нет — над шапкой шторки в её конечном положении (приёмка d8 17.10)
-        t.style.bottom=(cr&&cr.height?Math.round(box.bottom-cr.top+10):Math.round(VW.sheetVis||0)+14)+'px';
+        // над переключателем ракурсов; его нет — над шапкой шторки в её конечном положении (приёмка d8 17.10); шторка сдвинется — следом
+        vwTipPlace(t);
         shot.appendChild(t);
         // началась загрузка (переключили в 3D) — подсказка уходит и вернётся, когда сцена будет готова
         const t0=Date.now(); (function watch(){ if(!t.isConnected)return;
