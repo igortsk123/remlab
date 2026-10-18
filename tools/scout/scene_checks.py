@@ -35,6 +35,12 @@ def _base(role: str) -> str:
 
 def overlaps(items: list[dict]) -> list[str]:
     """Наезды предметов глубже OVERLAP_CM (по ширине пересечения). Чистая функция поверх `planner.geometry.footprint`."""
+    return [f"наезд {p['a']} × {p['b']}: {p['len_cm']:.0f}×{p['depth_cm']:.0f} см" for p in overlap_pairs(items)]
+
+
+def overlap_pairs(items: list[dict], thr: float = OVERLAP_CM) -> list[dict]:
+    """Те же наезды числами — {a, b, depth_cm, len_cm, area_cm2}: ворота и ночной отчёт (`scene_artifacts.py`) считают
+    по ОДНОМУ Г-следу. Глубина — короткая сторона наименьшего прямоугольника вокруг общей площади, длина — длинная."""
     from planner.geometry import footprint
     from planner.models import Item, Placement
     fps = []
@@ -58,8 +64,9 @@ def overlaps(items: list[dict]) -> list[str]:
             mrr = inter.minimum_rotated_rectangle
             xs, ys = mrr.exterior.coords.xy
             sides = [((xs[k + 1] - xs[k]) ** 2 + (ys[k + 1] - ys[k]) ** 2) ** 0.5 for k in range(2)]
-            if min(sides) > OVERLAP_CM:
-                out.append(f'наезд {ra} × {rb}: {max(sides):.0f}×{min(sides):.0f} см')
+            if min(sides) > thr:
+                out.append({'a': ra, 'b': rb, 'depth_cm': round(min(sides), 1), 'len_cm': round(max(sides), 1),
+                            'area_cm2': round(inter.area, 1)})
     return out
 
 
