@@ -88,43 +88,17 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
    и попросил встроить по аналогии). Демо показывается партнёру-застройщику, поэтому блок должен
    читаться как родной для его страницы: тип квартиры и площадь, цена, условия покупки, оговорка
    про 3D — и наша часть: стоимость обстановки со ссылкой на список. Числа демонстрационные. */
-/* ПАСПОРТ КВАРТИРЫ — ОДНОЙ ПОЛОСОЙ (владелец 01.09: «справа выглядит не по закону, не
-   органично»). Две колонки не сходились по весу: слева две короткие строки, справа высокий
-   столбец из цены и двух кнопок — под текстом оставалась дыра. Теперь это ОДИН объект во всю
-   ширину: слева название и дом, справа цена, кнопки — строкой под ними. Высота маленькая,
-   ничего не перевешивает. */
-.flathead{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
-  box-shadow:var(--shadow);padding:16px 20px;margin:8px 0 16px}
-.flathead .fh-top{display:flex;flex-wrap:wrap;gap:8px 24px;align-items:flex-start;
-  justify-content:space-between}
-.flathead .fm{margin-top:4px}
-.flathead .fh-price{text-align:right;white-space:nowrap}
-/* ПОЯСНЕНИЕ К ЦЕНЕ (владелец 01.09): «Оплата 100%» само по себе ничего не говорит. Значок «i»
-   рядом с подписью, по нажатию — строка под ценой. Не `title`: на телефоне подсказка по
-   наведению не существует, а объяснение нужно именно там. */
-.flathead .fh-price .l{color:var(--muted);font-size:.92em;display:flex;align-items:center;gap:6px;
-  justify-content:flex-end}
+/* прежняя шапка `.flathead` (паспорт квартиры одной полосой, 01.09) заменена первым экраном макета A (demo-16) — стили ниже `.hm-*` */
 .ihint{width:20px;height:20px;flex:0 0 20px;border-radius:50%;border:1px solid var(--line);
   background:var(--surface);color:var(--muted);font-size:12px;font-weight:700;line-height:1;
   cursor:pointer;padding:0;display:inline-flex;align-items:center;justify-content:center}
 .ihint:hover{border-color:var(--accent);color:var(--accent)}
 .ihint-txt{color:var(--muted);font-size:.82em;line-height:1.35;margin-top:6px;max-width:280px;
   white-space:normal;margin-left:auto}
-.flathead .fh-price .v{font-size:clamp(22px,2.3vw,29px);font-weight:700;line-height:1.25}
-.flathead .fh-acts{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;justify-content:flex-end}
 @media(max-width:700px){
-  .flathead .fh-price{text-align:left}
-  .flathead .fh-price .l{justify-content:flex-start}
   .ihint-txt{margin-left:0}
-  /* КНОПКИ ЗАСТРОЙЩИКА — ДРУГ ПОД ДРУГОМ (владелец 01.09). В один ряд они не помещались:
-     каждая переносилась в три строки и превращалась в высокую «таблетку». Столбиком текст
-     ложится в одну-две строки, и кнопки одинаковой высоты. */
-  .flathead .fh-acts{flex-direction:column;align-items:stretch;gap:8px}
-  .flathead .fh-acts .btn{width:100%;padding:13px 16px;font-size:16px;
-    white-space:normal;line-height:1.3}
   /* ПОЛЯ (Б5): на 360 px прежние 14+18+22 px съедали ширину контента */
   .wrap{padding:12px 12px 32px}
-  .flathead{padding:14px}
   #mlist{padding:0}
   #mlist .sheetbox{border-radius:0;min-height:100%}
   #mlist .mbody{padding:12px;gap:12px}
@@ -146,8 +120,90 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
   #shot .cap{padding:12px 14px}
   #shotbody{padding:12px 14px 4px}
 }
-.flathead .fk{font-size:clamp(21px,2.2vw,27px);font-weight:700}
-.flathead .fm{color:var(--muted);font-size:clamp(15px,1.2vw,17px)}
+/* ——— ПЕРВЫЙ ЭКРАН ГЛАВНОЙ, МАКЕТ A (demo-16, утверждён владельцем 18.10, `tools/ops/mock/home-v2/a.html`): строка квартиры ·
+   цена · ♡ (липкая), ЖК · сдача · этаж и две короткие кнопки в строку, сертификат одной строкой с полосой, подсказка, вкладки-стили
+   (липкие под строкой квартиры), ниже — комнаты стиля. Бюджет до начала фото ≈ 260–300 px (Codex 18.10 (б)), метрика —
+   `tools/ops/mock/home-v2/check.cjs` и `tools/ops/demo-walk/home-check.cjs` (≥ 120 px фото до сгиба на 375×667 и 390×844) */
+:root{--hm-hd:44px;--hm-gut:14px}                 /* поле = поле `.wrap` (14 px, телефон 12) */
+@media(max-width:700px){:root{--hm-gut:12px}}
+.wrap{padding-top:0}                              /* строка квартиры — от самого верха, липкая */
+.hm-hd{position:sticky;top:0;z-index:20;height:var(--hm-hd);display:flex;align-items:center;gap:8px;
+  background:var(--bg);margin:0 calc(-1*var(--hm-gut));padding:0 var(--hm-gut)}
+.hm-fk{font-weight:700;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.hm-price{display:flex;align-items:center;gap:5px;font-weight:700;font-size:16px;white-space:nowrap;background:none;border:0;
+  padding:0 2px;min-height:40px;cursor:pointer;color:var(--ink)}
+.hm-ih{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;border:1px solid var(--muted);
+  color:var(--muted);font:600 10px/1 system-ui}
+.hm-fav{position:relative;flex:none;width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:var(--surface);
+  display:grid;place-items:center;font-size:17px;color:var(--accent);padding:0;cursor:pointer}
+.hm-fav b{position:absolute;top:-3px;right:-3px;min-width:17px;height:17px;border-radius:9px;background:var(--accent);color:#fff;
+  font:700 11px/17px system-ui;text-align:center;padding:0 4px}
+.hm-fav b[hidden]{display:none}
+.hm-paytxt{font-size:13px;color:var(--muted);margin:0 0 6px;line-height:1.35}
+.hm-paytxt[hidden]{display:none}
+.hm-meta{display:flex;align-items:baseline;gap:10px;font-size:12.5px;color:var(--muted);min-width:0;margin-top:-4px}
+.hm-meta>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.hm-plan{flex:none;color:var(--accent);font-weight:600;text-decoration:none;white-space:nowrap}
+.hm-acts{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 0}
+.hm-acts .btn{flex:1 1 0;min-width:0;height:40px;min-height:40px;padding:0 8px;font-size:14px;font-weight:600;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;border-radius:var(--radius-sm,10px)}
+.hm-cert{margin:8px 0 0;padding:6px 10px 7px;border-radius:var(--radius-sm,10px);background:var(--accent-soft)}
+.hm-cert[hidden]{display:none}
+.hm-cert .t{display:flex;justify-content:space-between;gap:8px;font-size:13px;white-space:nowrap}
+.hm-cert .t span{overflow:hidden;text-overflow:ellipsis}
+.hm-cert .t b{color:var(--accent)}
+.hm-cert .d{display:none}                 /* «на мебель и технику» — только на широком экране */
+.hm-cert .bar{height:5px;border-radius:3px;background:rgba(176,106,74,.18);margin-top:5px;overflow:hidden}
+.hm-cert .bar i{display:block;height:100%;width:0;background:var(--accent);border-radius:3px;transition:width .45s ease}
+.hm-cert .fx{font-size:12px;color:var(--muted);margin-top:3px}
+.hm-hint{margin:8px 0 0;font-size:13px;color:var(--muted);line-height:1.3}
+.hm-tabs{position:sticky;top:var(--hm-hd);z-index:19;height:46px;display:flex;align-items:center;gap:6px;overflow-x:auto;
+  scrollbar-width:none;background:var(--bg);margin:2px calc(-1*var(--hm-gut)) 0;padding:0 var(--hm-gut);
+  box-shadow:0 6px 8px -8px rgba(28,25,23,.25)}
+.hm-tabs::-webkit-scrollbar{display:none}
+.hm-tab{flex:none;height:34px;min-height:34px;padding:0 14px;border-radius:17px;border:1px solid var(--line);background:var(--surface);
+  font-size:14px;color:var(--ink);cursor:pointer}
+.hm-tab.on{background:var(--ink);border-color:var(--ink);color:#fff;font-weight:600}
+.hm-rooms{display:grid;gap:12px;margin:8px 0 18px}
+.hm-room{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+.hm-room .hm-ph{position:relative;aspect-ratio:2048/1446;background:var(--wash-2);cursor:pointer;display:block}
+.hm-room .hm-ph img{display:block;width:100%;height:100%;object-fit:cover}
+.hm-room .hm-ph .nopv{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:14px}
+.hm-room .hm-ph .ttl{position:absolute;left:0;right:0;bottom:0;padding:22px 12px 9px;color:#fff;font-weight:700;font-size:16px;
+  background:linear-gradient(transparent,rgba(0,0,0,.55));pointer-events:none}
+.hm-room .hm-ph .ttl small{font-weight:500;opacity:.9}
+.hm-room .hm-ph .hm-heart{position:absolute;top:10px;right:10px;width:40px;height:40px;border-radius:50%;border:0;background:rgba(255,255,255,.92);
+  color:var(--accent);font-size:19px;padding:0;cursor:pointer;min-height:40px}
+.hm-room .rb{display:flex;align-items:center;gap:8px;padding:10px 12px}
+.hm-room .rb .sum{flex:1;min-width:0;font-size:15px;white-space:nowrap}
+.hm-room .rb .sum small{display:block;color:var(--muted);font-size:12.5px;overflow:hidden;text-overflow:ellipsis}
+.hm-room .rb .iconbtn{flex:none}
+.hm-room .rb .btn{flex:none;min-height:40px;height:40px;padding:0 18px;border-radius:var(--radius-sm,10px)}
+.hm-stub{padding:10px 12px;display:flex;flex-direction:column;gap:1px;background:var(--wash);border-radius:var(--radius)}
+.hm-stub b{font-size:15px;white-space:nowrap}
+.hm-stub b small{font-weight:500;color:var(--muted)}
+.hm-stub span{font-size:12.5px;color:var(--muted);white-space:nowrap}
+.hm-plan-bot{display:block;margin:-6px 0 18px}
+@media(max-width:899px){.hm-plan-top{display:none}}
+.hm-back{display:inline-block;margin:4px 0 10px;color:var(--accent);font-weight:600;text-decoration:none}
+@media(min-width:900px){
+  :root{--hm-hd:60px}
+  .hm-hd{gap:16px}
+  .hm-fk,.hm-price{font-size:20px}
+  .hm-top{display:flex;align-items:center;gap:16px;margin-top:4px}
+  .hm-meta{flex:1;margin:0;font-size:14px}
+  .hm-acts{margin:0;flex-wrap:nowrap}
+  .hm-acts .btn{flex:none;padding:0 16px}
+  .hm-cert{max-width:560px}
+  .hm-cert .d{display:inline}
+  .hm-hint{font-size:15px}
+  .hm-tabs{margin-top:6px;height:54px}
+  .hm-tab{height:38px;font-size:15px;padding:0 18px}
+  .hm-rooms{grid-template-columns:repeat(3,1fr);margin-top:12px}
+  .hm-rooms .hm-room{grid-column:span 2;grid-row:span 5}
+  .hm-stub{justify-content:center}
+  .hm-plan-bot{display:none}
+}
 
 .pricecard{margin-top:0}
 /* стиль .pc-price удалён 01.09: цена переехала в шапку, блок больше не рисуется */
@@ -716,47 +772,31 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 <!-- ЦЕНА И УСЛОВИЯ ПОКУПКИ — В ШАПКЕ, РЯДОМ С НАЗВАНИЕМ (владелец 01.09: «этот блок поставь
      вверх, это логично: слева трёхкомнатная, справа все детали»). Комнату в шапке не пишем —
      она и так выбрана вкладками ниже. -->
-<div class="flathead" id="flatPrice">
-  <div class="fh-top">
-    <div><div class="fk" id="flatKind">&nbsp;</div>
-      <div class="fm" id="flatMeta">&nbsp;</div></div>
-    <div class="fh-price"><div class="l">Оплата 100%
-      <button class="ihint" id="payInfo" aria-label="Что значит оплата 100%">i</button></div>
-      <div class="v" id="flatSum">—</div>
-      <div class="ihint-txt" id="payInfoTxt" hidden>Сумма при условии оплаты наличными,
-        без ипотеки и рассрочки</div></div>
-  </div>
-  <div class="fh-acts">
-    <button class="btn round" id="pcMort">Выбрать условия ипотеки или рассрочки</button>
-    <button class="btn cta round" id="pcCons">Получить консультацию</button>
-    <!-- «Пройтись по квартире в 3D» из шапки убрана (владелец 16.10, demo-02 приёмка п.8): 3D — режим окна каждого
-         варианта; полная квартира /flat — из окна («3D» → «Вся квартира») и по ссылкам менеджера/коллекции -->
+<!-- ПЕРВЫЙ ЭКРАН — МАКЕТ A (demo-16, владелец 18.10): «человек уже видел квартиру» — коротко что это, цена и сертификат, а главное —
+     вкладки стилей и начало фото без прокрутки. Прежняя высокая шапка (две колонки, кнопки столбиком) и вкладки-комнаты сняты:
+     вкладки теперь — стили, внутри стиля — комнаты в порядке плана; план квартиры — ссылкой. «Оплата 100 %» — в пояснении к цене. -->
+<header class="hm-hd" id="hmHd">
+  <div class="hm-fk" id="flatKind">&nbsp;</div>
+  <button class="hm-price" id="payInfo" type="button" aria-label="Цена, подробнее"><span id="flatSum">—</span><span class="hm-ih" aria-hidden="true">i</span></button>
+  <button class="hm-fav" id="hmFav" type="button" aria-label="Избранное">♡<b id="hmFavN" hidden>0</b></button>
+</header>
+<p class="hm-paytxt" id="payInfoTxt" hidden>Оплата 100 %: сумма при условии оплаты наличными, без ипотеки и рассрочки</p>
+<div class="hm-top" id="flatPrice">
+  <div class="hm-meta"><span id="flatMeta">&nbsp;</span><a class="hm-plan hm-plan-top" id="planLink" data-plan href="#plan">План квартиры</a></div>
+  <!-- `fh-acts` — точка встраивания строки «Ваш менеджер» по ссылке менеджера (`mount`, блок b2b-02) -->
+  <div class="hm-acts fh-acts">
+    <button class="btn round" id="pcMort" type="button">Ипотека, рассрочка</button>
+    <button class="btn cta round" id="pcCons" type="button">Консультация</button>
   </div>
 </div>
+<!-- СЕРТИФИКАТ ОДНОЙ СТРОКОЙ (владелец 18.10: шкала — только здесь, не в липкой шапке и не на карточке комнаты). Пока корзины нет
+     (demo-16 шаг 2) — «0 включено»: остаток = весь сертификат -->
+<div class="hm-cert" id="hmCert" hidden></div>
+<p class="hm-hint" id="hmHint">Подобрали вашу квартиру в разных стилях. Можете менять мебель, отделку и встраиваемое.</p>
+<nav class="hm-tabs" id="styleTabs" role="tablist" aria-label="Стили"></nav>
 
-<div class="tabs" role="tablist">
-  <button class="tab on" id="tab-plan" role="tab" aria-selected="true">План квартиры</button>
-  <!-- ПОМЕЩЕНИЯ КВАРТИРЫ ВКЛАДКАМИ (владелец 01.09): видно, что демо — про всю квартиру, а не
-       про одну комнату. Работает пока только гостиная, остальные серые и не нажимаются:
-       обещать переход туда, где ничего нет, нельзя. Санузлы, холл и лоджию не показываем. -->
-  <button class="tab" id="tab-room" role="tab" aria-selected="false">Гостиная</button>
-  <!-- ПОМЕЩЕНИЯ ОТДЕЛЬНЫМИ ВКЛАДКАМИ (владелец 02.09 вернул как было; свёрнутая подпись
-       «Кухня и спальни — скоро» из аудита отменена). Серые и ненажимаемые: обещать переход
-       туда, где ничего нет, нельзя, но видно, что демо — про всю квартиру. -->
-  <!-- НЕГОТОВЫЕ КОМНАТЫ — ОДНА ЗАГЛУШКА НА ВСЕХ (владелец 16.10, demo-02 v3 «Страница»): вкладки нажимаются и ведут на одинаковый
-       экран «название, площадь из плана, скоро — расстановка и 3D, как у гостиной»; плитки кухни и каталог спальни с показа сняты
-       (данные остаются: группа кухни — в сумме и контракте, каталог спальни — для b2b-10) -->
-  <button class="tab soon-tab" role="tab" aria-selected="false" data-soon="kitchen">Кухня</button>
-  <button class="tab soon-tab" role="tab" aria-selected="false" data-soon="bedroom_17">Спальня 1</button>
-  <button class="tab soon-tab" role="tab" aria-selected="false" data-soon="bedroom_9">Спальня 2</button>
-  <button class="tab soon-tab" role="tab" aria-selected="false" data-soon="bath">Санузел</button>
-  <button class="tab soon-tab" role="tab" aria-selected="false" data-soon="hall">Прихожая</button>
-  <!-- «скоро» — ПРЯМО НА ВКЛАДКЕ (карта сценариев 1.5, 14.10): вкладка не нажимается (владелец 01.09), а подсказки
-       title на телефоне нет — человек тыкал и не понимал, что будет. Слово «скоро» переводит словарь EN. -->
-</div>
-
-<section id="screen-soon" hidden><div class="panel soon-panel"><h2 id="soonTitle"></h2><p id="soonText"></p></div></section>
-<section id="screen-plan">
+<section id="screen-plan" hidden>
+  <a class="hm-back" id="planBack" href="#room">← К стилям</a>
   <div class="panel">
     <h3 id="flatTitle">План квартиры</h3>
 
@@ -768,17 +808,17 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
      коллекция готовых расстановок по стилям, замена мебели прямо здесь. КОНСТРУКТОР: план,
      перестановка, двери, ракурсы — только на весь экран, по кнопке «Добавить новую расстановку».
      Плана на витрине нет вовсе, ни на телефоне, ни на десктопе. -->
-<section id="screen-room" hidden>
+<section id="screen-room">
+  <!-- КОМНАТЫ ВЫБРАННОГО СТИЛЯ (demo-16): гостиная — карточкой варианта, остальные — единой заглушкой «появится следующим шагом» -->
+  <div class="hm-rooms" id="hmRooms"></div>
+  <a class="hm-plan hm-plan-bot" id="planLink2" data-plan href="#plan">План квартиры →</a>
   <div class="budget" id="budget" hidden></div>
 
   <!-- ИЗБРАННОЕ НА ЭТОМ УСТРОЙСТВЕ (владелец 18.10, demo-15 п.6): все сохранённые сердечком расстановки — над готовыми вариантами;
        пусто — раздела нет. Межустройственное «все» — только с аккаунтом (не сейчас) -->
   <div class="sechead" id="favHead" hidden><h2>Избранное</h2><p>Сохранённые расстановки на этом устройстве</p></div>
   <div class="grid" id="favGrid" hidden></div>
-  <div class="sechead">
-    <h2>Коллекции расстановок</h2>
-    <p>Выберите готовый вариант или создайте свой</p>
-  </div>
+  <div class="sechead" id="collHead"><h2>Своя расстановка</h2></div>
   <div class="grid" id="coll"></div>
 
   <!-- разворот «Заменить мебель»: список предметов выбранного варианта прямо на витрине -->
@@ -938,8 +978,11 @@ function init(){
   on('swapShot','onclick',()=>makePhoto('draft'));
   document.addEventListener('keydown',e=>{
     if(e.key==='Escape'&&document.getElementById('cons').classList.contains('on'))closeCons();});
-  on('tab-plan','onclick',()=>showTab('plan'));
-  on('tab-room','onclick',()=>showTab('room'));
+  // ПЛАН КВАРТИРЫ — ССЫЛКОЙ, НЕ ВКЛАДКОЙ (demo-16): вкладки теперь стили; назад — «← К стилям»
+  document.querySelectorAll('[data-plan]').forEach(a=>a.onclick=e=>{e.preventDefault(); showTab('plan'); scrollTo(0,0);});
+  on('planBack','onclick',e=>{e.preventDefault(); showTab('room');});
+  on('hmFav','onclick',()=>{const h=document.getElementById('favHead');
+    if(h&&!h.hidden)h.scrollIntoView({behavior:'smooth',block:'start'}); else toast(LANG==='en'?'Favourites are empty for now — tap ♡ on a room':'В избранном пока пусто — нажмите ♡ у комнаты');});
   // ВКЛАДКА ПО УМОЛЧАНИЮ — ГОСТИНАЯ (владелец 02.09: «страница должна открываться сразу на
   // вкладке гостиная»). Раньше без якоря открывался «План квартиры», и человек попадал не на
   // витрину обустройства, ради которой демо и сделано. `#plan` по-прежнему открывает план —
@@ -948,7 +991,11 @@ function init(){
   flatPlan();
   loadShots();
   load();
+  // СТИЛЬ ИЗ АДРЕСА (demo-16): ссылка менеджера `?style=loft` открывает этот стиль; ссылка на вариант/коллекцию (`#v=`, `#c=`) важнее
+  {const st=HOME.want, m=homeModel(), rv=st&&!/^#(?:v|c)=/.test(location.hash)?m.roomVariants.find(x=>x.styleId===st&&x.roomId==='living'):null;
+    if(st)HOME.styleId=st; if(rv&&rv.index!==cur){cur=rv.index; load();}}
   applyHash();
+  HOME.ready=true; drawHome(true);
 }
 // ——— ВАРИАНТЫ: расстановка вместе со своим комплектом, ценой и сохранением своего
 // все опубликованные стили (до шести): было 4 — пятый стиль («джапанди», 13.10) собирался, но не показывался (b2b-12)
@@ -996,13 +1043,21 @@ function drawVariants(){
   // и назвал сумму — решение его. Значения остаются параметром данных (`demo-data.json`
   // → `budget`), чтобы партнёр мог подставить свои, не трогая вёрстку.
   // Без данных о сертификате блок не показываем: сумму не выдумываем (b2b-06).
-  if(!t.title){b.hidden=true;return;}
-  const title=t.title, text=t.text||'';
-  b.hidden=false;
-  b.innerHTML=`<div><b>${title}</b><p>${text}</p>${fxNote()}</div>`+
-    `<button class="btn primary round" id="budgetGo">Посмотреть варианты интерьера</button>`;
-  const go=b.querySelector('#budgetGo');
-  if(go)go.onclick=()=>document.getElementById('coll').scrollIntoView({behavior:'smooth'});
+  b.hidden=true;                         // прежний блок «сертификат + кнопка к вариантам» заменила строка первого экрана (demo-16)
+  // СЕРТИФИКАТ ОДНОЙ СТРОКОЙ С ПОЛОСОЙ (макет A): «включено» — сумма корзины; корзины пока нет (demo-16 шаг 2) — 0, остаток = вся сумма
+  const c=document.getElementById('hmCert');
+  if(c){
+    if(!t.amount){c.hidden=true;}
+    else{
+      const EN=LANG==='en', inc=0, left=Math.max(0,t.amount-inc), pct=Math.min(100,Math.round(inc/t.amount*1000)/10);
+      c.hidden=false;
+      c.dataset.amount=String(t.amount); c.dataset.included=String(inc);
+      c.innerHTML=`<div class="t"><span>${EN?'Allowance':'Сертификат'}<span class="d">${EN?' for furniture and appliances':' на мебель и технику'}</span> `+
+        `<b>${fmtCard(t.amount)}</b></span><span>${EN?'left':'остаток'} <b>${fmtCard(left)}</b></span></div>`+
+        `<div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="${t.amount}" aria-valuenow="${inc}"><i style="width:${pct}%"></i></div>`+
+        (fxNote()?`<div class="fx">${fxNote()}</div>`:'');
+    }
+  }
   drawColl();
 }
 function theDoor(){ return (D.room.openings||[]).find(o=>o.kind==='door'); }
@@ -1031,31 +1086,12 @@ function showTab(which){
   const room=which==='room';
   document.getElementById('screen-plan').hidden=room;
   document.getElementById('screen-room').hidden=!room;
-  // СОСТОЯНИЕ ВКЛАДКИ ОБЪЯВЛЯЕТСЯ, А НЕ ТОЛЬКО КРАСИТСЯ (аудит 01.09, Д2): без aria-selected
-  // экранный диктор не знает, какая вкладка открыта — цвет ему недоступен.
-  const tp=document.getElementById('tab-plan'), tr2=document.getElementById('tab-room');
-  tp.classList.toggle('on',!room); tp.setAttribute('aria-selected',String(!room));
-  tr2.classList.toggle('on',room); tr2.setAttribute('aria-selected',String(room));
+  // вкладки стилей и подсказка — только на витрине; на плане квартиры их нет (план — про всю квартиру, не про стиль)
+  ['styleTabs','hmHint'].forEach(id=>{const e=document.getElementById(id); if(e)e.hidden=!room;});
   syncHash(which);
-  const sn=document.getElementById('screen-soon'); if(sn)sn.hidden=true;
-  document.querySelectorAll('[data-soon]').forEach(t=>{t.classList.remove('on'); t.setAttribute('aria-selected','false');});
-  if(room)draw();
+  if(room){draw(); drawHome();}
 }
-// ВКЛАДКА НЕГОТОВОЙ КОМНАТЫ: название и площадь — из плана (`D.plan.rooms`), текст один на всех
-const ROOM_PREVIEWS=false;              // прежние «оживления» кухни и спальни (b2b-10 этап 0) — выключены, см. разметку вкладок
-function showSoon(key){
-  const EN=LANG==='en', rs=(D&&D.plan&&D.plan.rooms)||[];
-  const pick=key==='bath'?rs.filter(r=>/^bath/.test(r.id)):rs.filter(r=>r.id===key);
-  const tab=document.querySelector(`[data-soon="${key}"]`), name=tab?tab.textContent.trim():'';
-  const m2=pick.map(r=>String(r.m2).replace('.',EN?'.':',')).join(EN?' and ':' и ');
-  document.getElementById('soonTitle').textContent=name+(m2?' · '+m2+(EN?' m²':' м²'):'');
-  document.getElementById('soonText').textContent=EN?'Coming soon: furniture layout and 3D, the same as in the living room.'
-    :'Скоро: расстановка и 3D, как у гостиной.';
-  ['screen-plan','screen-room'].forEach(id=>{const e=document.getElementById(id); if(e)e.hidden=true;});
-  document.getElementById('screen-soon').hidden=false;
-  document.querySelectorAll('.tabs .tab').forEach(t=>{const on=t===tab; t.classList.toggle('on',on); t.setAttribute('aria-selected',String(on));});
-}
-document.addEventListener('click',e=>{const t=e.target&&e.target.closest&&e.target.closest('[data-soon]'); if(t)showSoon(t.dataset.soon);});
+const ROOM_PREVIEWS=false;              // прежние «оживления» кухни и спальни (b2b-10 этап 0) — выключены; неготовые комнаты — заглушки главной
 // ——— АДРЕС ВАРИАНТА (владелец 08.09: «чтоб каждая модалка со ссылкой была, чтоб кидать мог»).
 // В адресе живёт открытый вариант: `#v=<id>`. Открыв такую ссылку, человек сразу видит тот же
 // вариант и его фотографию, а не общую витрину. `#plan` (план квартиры) работает как прежде.
@@ -1071,8 +1107,11 @@ function syncHash(which){
   if(location.hash!==h)history.replaceState(null,'',h);
 }
 const SHARE_SVG='<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1"/></svg>';
+// ССЫЛКА НА ВАРИАНТ ДЕРЖИТ ЯЗЫК И МЕТКУ МЕНЕДЖЕРА (Codex 18.10, demo-16): прежняя брала путь страницы без параметров — из ссылки
+// менеджера `?s=` уходила ссылка без него (заход не засчитывался менеджеру), из встройки — адрес `/embed/…` вне рамки. Как `collUrl`.
 function variantLink(vid){
-  return location.origin+location.pathname+'#v='+encodeURIComponent(vid||curVid());
+  const q=[]; if(LANG==='en')q.push('lang=en'); if(window.__sendId)q.push('s='+encodeURIComponent(window.__sendId));
+  return location.origin+'/demo/'+(q.length?'?'+q.join('&'):'')+'#v='+encodeURIComponent(vid||curVid());
 }
 function copyLink(vid,btn){
   const url=variantLink(vid);
@@ -2298,13 +2337,14 @@ function demoAnon(){return !window.__sendFlat&&!window.__EMBED&&!/[?&](?:s|flat)
 function DEMO_UK_PENDING(){return LANG==='en'&&demoAnon()&&!FLAT;}
 function loadFlatCard(){const id=flatId(); if(!id)return;
   fetch('/api/apartments/'+encodeURIComponent(id)+'?lang='+LANG+(demoAnon()?'&demo=1':'')).then(r=>r.ok?r.json():null).then(j=>{
-    if(!j||!j.ok)return; FLAT=j.card;
-    const fk=document.getElementById('flatKind'); if(fk)fk.textContent=FLAT.kind;
-    const fm=document.getElementById('flatMeta'); if(fm)fm.textContent=FLAT.meta;
+    if(!j||!j.ok||id!==flatId())return; FLAT=j.card;      // поздний ответ прежней квартиры не перетирает текущую (Codex 18.10)
+    // строка квартиры первого экрана — короткая (макет A: «3-комн. · 73,7 м²», дом без корпуса); полная — подсказкой
+    const fk=document.getElementById('flatKind'); if(fk){fk.textContent=FLAT.kindShort||FLAT.kind; fk.title=FLAT.kind;}
+    const fm=document.getElementById('flatMeta'); if(fm){fm.textContent=FLAT.metaShort||FLAT.meta; fm.title=FLAT.meta;}
     const fs=document.getElementById('flatSum'); if(fs)fs.textContent=fmtCard(FLAT.price);
     const ft=document.getElementById('flatTitle'); if(ft)ft.textContent=flatTitle();
     document.title=FLAT.kind+(LANG==='en'?' — living room (demo)':' — гостиная (демо)');
-    drawVariants(); try{sync3dLink();}catch(e){}
+    drawVariants(); try{sync3dLink();}catch(e){} try{drawHome(true);}catch(e){}
     // суммы витрины, уже нарисованные до карточки, — в её валюте (британский двойник)
     if(fxRate()){try{basket(); showSwap(); priceCard(LAST_SUM,LAST_CNT);}catch(e){}}
     document.dispatchEvent(new CustomEvent('flatcard',{detail:FLAT}));
@@ -2774,13 +2814,20 @@ function loadShots(){
     let skipped=0;
     // СНЯТОЕ ВО ВКЛАДКЕ НЕ ТЕРЯЕМ (разбор Codex 14.10): реестр приходит позже, и присваивание `shots=srv` стирало кадр,
     // снятый, пока он грузился. Свои кадры, которых ещё нет в реестре, добавляем к нему по адресу картинки.
-    const mine=shots.filter(x=>!x.srv);
+    const mine=shots.filter(x=>!x.srv), shown=shotAt>=0?shots[shotAt]:null;
     shots=srv.filter(s=>{
       const vid=byStyle[s.style||'']||byTitle[s.variant||''];
       if(!vid){skipped++; return false;}   // кадр чужого стиля не сваливаем в первый вариант
       s.vid=vid; s.pick=false; s.orphan=false; return true;
     });
     const have=new Set(shots.map(x=>x.url)); mine.forEach(x=>{if(!have.has(x.url))shots.push(x);});
+    // ОКНО ОТКРЫЛИ ДО РЕЕСТРА (самопроверка 18.10, demo-16): живой «кадр» окна переехал в конец списка, а номер `shotAt` остался
+    // прежним и указывал на кадр ДРУГОГО стиля — `liveShow` видел «не тот вариант» и молча переставал обновлять сцену (замена не
+    // была видна). Номер переводим на тот же кадр; его нет — на кадр того же адреса
+    if(shown){const k=shots.indexOf(shown), k2=k<0&&shown.url?shots.findIndex(x=>x.url===shown.url):-1, was=shotAt;
+      if(k>=0||k2>=0)shotAt=k>=0?k:k2;
+      // сцена, начатая до реестра, сверяет номер кадра после загрузки моделей и, увидев новый, бросает работу — запускаем заново
+      if(shotAt!==was&&document.getElementById('shot').classList.contains('on')&&typeof liveShow==='function')setTimeout(()=>liveShow(),0);}
     Object.keys(COLL_SHOTS).forEach(cid=>attachCollShot(cid,COLL_SHOTS[cid]));
     drawColl(true); showSwap(); drawFeed(); drawPhotos&&drawPhotos();
     openWantedShot();   // пришли по ссылке на вариант — показываем его фотографию
@@ -2936,6 +2983,7 @@ function drawColl(force){
   const F=window.__fav;
   list.forEach((v,i)=>{
     if(v.mine&&v.own)return;          // своя сохранённая расстановка — в разделе «Избранное» (demo-15 п.6)
+    if(!v.mine)return;                // вариант стиля — во вкладках стилей и карточке комнаты (demo-16); здесь — коллекции по ссылке
     const sh=bestShot(v), p=variantPrice(v), fav=F&&F.ofState(F.baseState(v));
     const n=variantCount(v);   // у открытого варианта — по живой расстановке, а не по данным
     const el=document.createElement('div');
@@ -3019,7 +3067,115 @@ function drawColl(force){
   // в подборку, потом снял по этому же стилю новое фото — превью сменилось на неотмеченное,
   // и карточка молча «выпала» из подборки.
   try{window.__fav&&window.__fav.draw();}catch(e){}
+  // ЗАГОЛОВОК СЕТКИ (demo-16): варианты стилей ушли во вкладки — здесь коллекции по ссылке и «своя расстановка»
+  const head=document.getElementById('collHead'), shared=list.some(v=>v.mine&&!v.own), EN=LANG==='en';
+  if(head)head.innerHTML=shared?`<h2>${EN?'Layouts from links':'Расстановки по ссылке'}</h2>`:`<h2>${EN?'Your own layout':'Своя расстановка'}</h2>`;
+  drawHome();
 }
+// ——— ГЛАВНАЯ «СТИЛЬ → КОМНАТЫ» (demo-16, Codex 18.10 п.2). Данные нормализованы: `styles[]` (вкладки), `rooms[]` (помещения
+// квартиры в порядке плана — карточка `/api/apartments`, запасной путь — `D.apartment_rooms`), `roomVariants[]` (какой вариант какую
+// комнату какого стиля обставляет). Активный ключ — (styleId, roomId, variantId); неготовая комната — `contentState`, а не
+// фиктивный вариант. Коллекции (свои и по ссылке) в каталог стилей не входят: каталог ≠ избранное.
+const STYLE_IDS={'сканди':'scandi','современный':'modern','минимализм':'minimal','лофт':'loft','неоклассика':'neoclassic','джапанди':'japandi'};
+const STYLE_EN={'scandi':'Scandi','modern':'Modern','minimal':'Minimalist','loft':'Loft','neoclassic':'Neoclassic','japandi':'Japandi'};
+const HOME={styleId:'', sig:'', ready:false, want:''};
+function styleIdOf(v){ return (v&&(v.style_id||STYLE_IDS[String(v.style||'').trim().toLowerCase()]))||''; }
+function homeRooms(){
+  const EN=LANG==='en', card=FLAT&&Array.isArray(FLAT.rooms)&&FLAT.rooms.length?FLAT.rooms:null;
+  if(card)return card.map(r=>({id:r.id, kind:r.kind, ordinal:r.ordinal, title:r.title, areaM2:r.areaM2, contentState:r.contentState}));
+  const raw=(D&&D.apartment_rooms)||[];
+  if(raw.length)return raw.map(r=>({id:r.id, kind:r.kind, ordinal:r.ordinal, title:EN?r.titleEn:r.titleRu, areaM2:r.areaM2, contentState:r.contentState}));
+  // реестр молчит (старая сборка без карточки) — честно только то, что обставлено: гостиная
+  return [{id:'living', kind:'living', ordinal:1, title:EN?'Living room':'Гостиная', areaM2:null, contentState:'ready'}];
+}
+function homeModel(){
+  const vs=allVariants(), styles=[], seen=new Set(), roomVariants=[];
+  vs.forEach((v,i)=>{
+    if(v.mine||v.cid)return;                     // коллекция — не вариант каталога
+    const id=styleIdOf(v); if(!id)return;
+    if(!seen.has(id)){seen.add(id); styles.push({id, title:LANG==='en'?(STYLE_EN[id]||v.title||id):(v.title||v.style||id)});}
+    roomVariants.push({styleId:id, roomId:v.room_id||'living', variantId:v.id, index:i});
+  });
+  return {styles, rooms:homeRooms(), roomVariants};
+}
+// активный ключ: открытый вариант каталога задаёт стиль; открыта коллекция — остаётся выбранный вкладкой стиль
+function homeActive(m){
+  const rv=m.roomVariants.find(x=>x.index===cur), v=allVariants()[cur];
+  // открыта коллекция (своя или по ссылке) — вкладка её стиля («коллекция по ссылке · сканди» → scandi), иначе выбранный вкладкой
+  const cs=v&&v.cid?(STYLE_IDS[String(v.style||'').replace(/^.*·\s*/,'').trim().toLowerCase()]||''):'';
+  const styleId=rv?rv.styleId:(m.styles.some(s=>s.id===cs)?cs:(m.styles.some(s=>s.id===HOME.styleId)?HOME.styleId:((m.styles[0]||{}).id||'')));
+  return {styleId, roomId:rv?rv.roomId:'living', variantId:rv?rv.variantId:null};
+}
+function styleParam(){ const m=location.search.match(/[?&]style=([a-z-]{2,20})(?:&|$)/); return m?m[1]:''; }
+HOME.want=styleParam();                 // стиль из ссылки — запоминаем до первой отрисовки
+// стиль — в адресе (`?style=`), остальные параметры (`lang`, `s`, `flat`…) и якорь не трогаем; встроенную страницу не переписываем
+function syncStyleParam(id){
+  if(window.__EMBED||!id||styleParam()===id)return;
+  try{const u=new URL(location.href); u.searchParams.set('style',id); history.replaceState(history.state,'',u.pathname+u.search+u.hash);}catch(e){}
+}
+function homeSelectStyle(id){
+  const m=homeModel(), rv=m.roomVariants.find(x=>x.styleId===id&&x.roomId==='living')||m.roomVariants.find(x=>x.styleId===id);
+  HOME.styleId=id;
+  if(rv&&rv.index!==cur)pickVariant(rv.index);
+  syncStyleParam(id); drawHome(true);
+  reportAct('style_tab');
+}
+function homeM2(a){ return a?String(a).replace('.',LANG==='en'?'.':',')+(LANG==='en'?' m²':' м²'):''; }
+function drawHome(force){
+  const tabs=document.getElementById('styleTabs'), box=document.getElementById('hmRooms'); if(!tabs||!box||!D)return;
+  const m=homeModel(), EN=LANG==='en', F=window.__fav;
+  const waitC=/^#c=/.test(location.hash)&&!(allVariants()[cur]||{}).cid;
+  const act=waitC?{styleId:(m.styles.some(s=>s.id===HOME.styleId)?HOME.styleId:((m.styles[0]||{}).id||'')), roomId:'living', variantId:null}:homeActive(m);
+  if(act.styleId&&!waitC){HOME.styleId=act.styleId; if(HOME.ready)syncStyleParam(act.styleId);}
+  const cards=m.rooms.map(r=>{
+    const rv=r.contentState==='ready'?m.roomVariants.find(x=>x.styleId===act.styleId&&x.roomId===r.id):null, v=rv?allVariants()[rv.index]:null;
+    if(!v)return {r, stub:true};
+    const sh=bestShot(v), fav=F&&F.ofState(F.baseState(v));
+    return {r, i:rv.index, v, img:sh?thumbOf(sh):'', full:sh?sh.url:'', n:variantCount(v), sum:variantPrice(v), fav:fav?(fav.displayName||''):null};
+  });
+  // картинки не моргают (как `drawColl`): пересобираем, только если изменилось то, из чего экран состоит
+  const sig=JSON.stringify([LANG, FLAT?[FLAT.id,FLAT.currency,fxRate()]:0, act, m.styles.map(s=>s.id), cards.map(c=>c.stub?[c.r.id]:[c.r.id,c.i,c.img,c.n,c.sum,c.fav]), m.rooms.map(r=>[r.title,r.areaM2])]);
+  homeFavUi();
+  if(!force&&sig===HOME.sig)return; HOME.sig=sig;
+  tabs.innerHTML=m.styles.map(s=>`<button class="hm-tab${s.id===act.styleId?' on':''}" role="tab" type="button" data-style="${s.id}" `+
+    `aria-selected="${s.id===act.styleId}">${escHtml(s.title)}</button>`).join('');
+  const on=tabs.querySelector('.hm-tab.on'); if(on&&on.scrollIntoView&&tabs.scrollWidth>tabs.clientWidth)
+    tabs.scrollLeft=Math.max(0,on.offsetLeft-tabs.clientWidth/2+on.offsetWidth/2);
+  const plural=n=>EN?(n===1?'item':'items'):(n%10===1&&n%100!==11?'товар':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'товара':'товаров'));
+  box.innerHTML=cards.map(c=>{
+    const t=`${escHtml(c.r.title)}${c.r.areaM2?` <small>· ${homeM2(c.r.areaM2)}</small>`:''}`;
+    if(c.stub)return `<div class="hm-stub" data-room="${c.r.id}"><b>${t}</b><span>${EN?'coming in the next step':'появится следующим шагом'}</span></div>`;
+    const alt=escHtml(c.r.title+' · '+(m.styles.find(s=>s.id===act.styleId)||{}).title);
+    return `<article class="hm-room" data-room="${c.r.id}" data-style="${act.styleId}" data-variant="${escHtml(c.v.id)}">`+
+      `<div class="hm-ph" data-open="${c.i}">`+
+      (c.img?`<img src="${escHtml(c.img)}" alt="${alt}" decoding="async" data-url="${escHtml(c.full)}" onerror="this.onerror=null;this.src=this.dataset.url">`
+        :`<div class="nopv">${EN?'Open to see it in 3D':'Откройте — покажем в 3D'}</div>`)+
+      `<button class="hm-heart${c.fav!=null?' on':''}" type="button" data-favorite="${c.i}" aria-pressed="${c.fav!=null}" `+
+        `aria-label="${c.fav!=null?(EN?'In favourites':'В избранном'):(EN?'Add to favourites':'В избранное')}">${c.fav!=null?'♥':'♡'}</button>`+
+      `<div class="ttl">${t}</div></div>`+
+      `<div class="rb"><div class="sum"><b>${money(c.sum)}</b><small>${c.n} ${plural(c.n)}${c.fav?' · ♥ '+escHtml(c.fav):''}</small></div>`+
+      `<button class="iconbtn" type="button" data-share="${c.i}" aria-label="${EN?'Share':'Поделиться'}" title="${EN?'Share':'Поделиться'}">${SHARE_SVG}</button>`+
+      `<button class="btn cta" type="button" data-swap="${c.i}">${EN?'Open':'Открыть'}</button></div></article>`;
+  }).join('');
+}
+// ♡ N в строке квартиры: сколько расстановок в избранном (корзина — demo-16 шаг 2)
+function homeFavUi(){
+  const b=document.getElementById('hmFavN'); if(!b)return;
+  const n=window.__fav&&window.__fav.list?window.__fav.list().length:0;
+  b.hidden=!n; b.textContent=String(n);
+  const f=document.getElementById('hmFav'); if(f){f.textContent=''; f.append(n?'♥':'♡', b);
+    f.setAttribute('aria-label',(LANG==='en'?'Favourites: ':'Избранное: ')+n);}
+}
+document.addEventListener('click',e=>{
+  const t=e.target&&e.target.closest&&e.target.closest('#styleTabs [data-style]'); if(t){homeSelectStyle(t.dataset.style); return;}
+  const box=e.target&&e.target.closest&&e.target.closest('#hmRooms'); if(!box)return;
+  const fav=e.target.closest('[data-favorite]'), sh=e.target.closest('[data-share]'), op=e.target.closest('[data-swap],[data-open]');
+  if(fav){e.stopPropagation(); const i=+fav.dataset.favorite; if(!window.__fav)return; if(i!==cur)pickVariant(i); window.__fav.toggle(); return;}
+  if(sh){e.stopPropagation(); const i=+sh.dataset.share, v=allVariants()[i]||{}; if(!window.__fav)return;
+    // открытый вариант — как «поделиться» окна (demo-15): изменённая расстановка уходит снимком, а не исходным вариантом (Codex 18.10)
+    if(i===cur)window.__fav.share(); else window.__fav.shareUrlOpen(variantLink(v.id||''), v.style||''); return;}
+  if(op){const i=+(op.dataset.swap||op.dataset.open); if(i>=0)vwOpenVariant(i);}
+});
 // СПИСОК МЕБЕЛИ ВСЕГДА ПОКАЗАН ДЛЯ ВЫБРАННОЙ РАССТАНОВКИ (владелец 01.09: «нажимаю на
 // расстановку, а списка нет внизу»; и он пропадал после закрытия модалки). Раньше панель
 // открывалась только кнопкой и жила отдельным состоянием, которое сбрасывалось при любой
@@ -5231,7 +5387,7 @@ async function liveShow(){
   var _pv=window.pickVariant; if(typeof _pv==='function')window.pickVariant=pickVariant=function(i){var r=_pv.apply(this,arguments);
     if(i!==lastV){lastV=i;hit('variant_view');}return r;};
   var _to=window.tryOn; if(typeof _to==='function')window.tryOn=tryOn=function(){var r=_to.apply(this,arguments);hit('item_swap');return r;};
-  var COUNT={item_move:1,share:1,stale_link:1,floor_pick:1,walls_pick:1,favourite_save:1,favourite_rename:1,view_switch:1};   // `contracts/analytics.ts`
+  var COUNT={item_move:1,share:1,stale_link:1,floor_pick:1,walls_pick:1,favourite_save:1,favourite_rename:1,view_switch:1,style_tab:1};   // `contracts/analytics.ts`
   document.addEventListener('remlab:act',function(e){if(COUNT[e.detail])hit(e.detail);});
   function boot(){if(typeof D==='undefined'||!D)return setTimeout(boot,300);hit('designer_open');}
   boot();
@@ -5601,6 +5757,8 @@ async function liveShow(){
   // РАЗДЕЛ «ИЗБРАННОЕ» НА ГЛАВНОЙ (demo-15 п.6): все из этого списка, без лимита; карточка — картинка, имя, стиль, дата, сумма;
   // тап — окно этой расстановки; «поделиться» и «⋯» (переименовать / убрать)
   function favDraw(){
+    // сердечко и имя на карточке комнаты, ♡ N в строке квартиры — от того же списка (demo-16)
+    try{if(typeof drawHome==='function')drawHome(); else if(typeof homeFavUi==='function')homeFavUi();}catch(_){}
     var head=document.getElementById('favHead'), grid=document.getElementById('favGrid'); if(!head||!grid)return;
     var l=favs(); head.hidden=grid.hidden=!l.length; if(!l.length){grid.innerHTML='';return;}
     var e=function(t){return String(t==null?'':t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});};
@@ -5661,7 +5819,10 @@ async function liveShow(){
     'люстра':'chandelier','лампа':'lamp','подушка':'cushion','шторы':'curtains','приставной':'side table','окно':'window','дверь':'door'};
   var STYLE={'сканди':'Scandi','современный':'Modern','минимализм':'Minimalist','лофт':'Loft','неоклассика':'Neoclassic','джапанди':'Japandi'};
   var ROOM={'Гостиная':'Living room','Кухня':'Kitchen','Спальня 1':'Bedroom 1','Спальня 2':'Bedroom 2','Спальня':'Bedroom','Холл':'Hall','Санузел':'Bathroom','Прихожая':'Hallway'};
-  var EX={'Оплата 100%':'Full payment','Выбрать условия ипотеки или рассрочки':'Mortgage or instalment options','Получить консультацию':'Get advice',
+  var EX={'Оплата 100%':'Full payment','Ипотека, рассрочка':'Mortgage, instalments','Консультация':'Get advice','← К стилям':'← Back to styles',
+    'Оплата 100 %: сумма при условии оплаты наличными, без ипотеки и рассрочки':'Full payment: the price when paying in full, without a mortgage or instalments',
+    'Подобрали вашу квартиру в разных стилях. Можете менять мебель, отделку и встраиваемое.':'We have furnished your apartment in different styles. You can change the furniture, finishes and fitted items.',
+    'Своя расстановка':'Your own layout','План квартиры →':'Apartment plan →','Выбрать условия ипотеки или рассрочки':'Mortgage or instalment options','Получить консультацию':'Get advice',
     'Пройтись по квартире в 3D →':'Walk through the flat in 3D →','План квартиры':'Apartment plan','скоро':'soon','Обустроить →':'Furnish →',
     'Посмотреть варианты интерьера':'See interior options','Коллекции расстановок':'Room collections','Выберите готовый вариант или создайте свой':'Pick a ready option or create your own',
     'Открыть':'Open','Ссылка':'Link','Добавить новую расстановку':'Add a new layout','план комнаты, перестановка мебели, свои размеры':'room plan, move furniture, your own sizes',
@@ -5716,7 +5877,7 @@ async function liveShow(){
     'впритык':'a tight fit','габарит не указан':'size not given','Цвета этой модели':'Colours of this model','Фото':'Photo',
     'Изменить план':'Edit the plan','Фото сейчас не сделать: у сервиса картинок закончился баланс. Попробуйте позже.':'The photo cannot be made right now: the image service has run out of balance. Please try later.',
     'Фото сейчас не сделать: сервер улучшения не отвечает. Попробуйте позже.':'The photo cannot be made right now: the enhancement server is not responding. Please try later.','Отделка и ремонт':'Options & upgrades','Встраиваемое':'Fitted & integrated','← Назад':'← Back'};
-  var ATTR={'Что значит оплата 100%':'What does full payment mean','Скопировать ссылку на этот вариант':'Copy a link to this option','В избранное':'Add to favourites',
+  var ATTR={'Что значит оплата 100%':'What does full payment mean','Цена, подробнее':'Price details','Стили':'Styles','Скопировать ссылку на этот вариант':'Copy a link to this option','В избранное':'Add to favourites',
     'переставить точки съёмки в следующие углы':'move camera points to the next corners','Просмотр кадра':'Shot view','Закрыть':'Close','Предыдущий вид':'Previous view',
     'Следующий вид':'Next view','скоро':'soon'};
   var role=function(r){var k=String(r).toLowerCase().replace(/\s+\d+$/,'');return ROLE[k]||null;};

@@ -55,7 +55,6 @@ test("2.13 сохранённая коллекция получает карти
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.goto("/demo/", { waitUntil: "networkidle" });
   await page.waitForFunction("typeof allVariants === 'function' && allVariants().length > 0");
-  await page.locator("#tab-room").click();
   await page.locator("button[data-swap]").first().click();
   await page.locator("#shotbody [data-rep]").first().click();
   await page.locator("#sheet .mini:has-text('Заменить')").first().click();
@@ -77,7 +76,6 @@ test("2.12 фото с изменениями из конструктора", as
   test.setTimeout(4 * 60_000);
   await page.goto("/demo/?live=force", { waitUntil: "networkidle" });
   await page.waitForFunction("typeof allVariants === 'function' && allVariants().length > 0");
-  await page.locator("#tab-room").click();
   await page.locator("button[data-swap]").first().click();
   // «План» v3 — просмотр; редактор — по «Изменить план» (demo-02, ADR-0299)
   await page.locator('[data-vm="plan"]').click();

@@ -61,12 +61,15 @@ const openWin=async(p,i)=>{await p.evaluate(i=>{pickVariant(i); VW.collapse=true
       const c=feedFor(String(items[k].role).replace(/\s+\d+$/,'')).find(x=>x&&x.name&&x.name!==cur0); if(!c)return 0;
       tryOn(c); closePicker(); refreshShotList(); return 1;},k);
     ok('лента замены открылась и замена нажата',tryN===1);
-    await p.waitForFunction("LIVE.state==='ready'",null,{timeout:120000}).catch(()=>{}); await p.waitForTimeout(2200);
+    // ждём само наведение, а не «сцена готова»: это условие верно и до начала обновления сцены — на телефоне с программной
+    // графикой обновление дольше 2 с, и проверка читала камеру до поворота (18.10)
+    const tf=Date.now(); await p.waitForFunction("LIVE.framed!=null&&LIVE.state==='ready'",null,{timeout:60000}).catch(()=>{});
+    const frameMs=Date.now()-tf; await p.waitForTimeout(700);
     const st2=await p.evaluate(()=>({mode:VW.mode, pos:document.getElementById('vside').dataset.pos, framed:LIVE.framed||null, free:!!VW.free,
       camsOn:[...document.querySelectorAll('#vCams [data-cam].on')].length, pose:LIVE.scene&&LIVE.scene.pose&&LIVE.scene.pose()}));
     ok('после замены — 3D',st2.mode==='walk',st2.mode);
     if(PHONE)ok('после замены шторка свёрнута',st2.pos==='0','pos='+st2.pos);
-    ok('камера наведена на новый предмет (поворот или переход)',['turn','move','none'].includes(st2.framed)&&st2.free,st2.framed+' '+JSON.stringify(st2.pose));
+    ok('камера наведена на новый предмет (поворот или переход)',['turn','move','none'].includes(st2.framed)&&st2.free,st2.framed+' '+JSON.stringify(st2.pose)+' за '+frameMs+' мс');
     ok('после наведения ни одна подпись ракурса не активна',st2.camsOn===0);
     if(!PHONE){const c2=await ctaOk(); ok('компьютер: после замены кнопка целиком под плашкой',c2.ok,JSON.stringify(c2));}
     await p.screenshot({path:OUT+W+'-3-framed.png'});
@@ -100,7 +103,7 @@ const openWin=async(p,i)=>{await p.evaluate(i=>{pickVariant(i); VW.collapse=true
     await p.evaluate(()=>{document.getElementById('shotx').click();}); await p.waitForTimeout(800);
     const st4=await p.evaluate(()=>({head:!document.getElementById('favHead').hidden, cards:document.querySelectorAll('#favGrid .favcard').length,
       name:(document.querySelector('#favGrid .favcard .nm')||{}).textContent||'',
-      img:((document.querySelector('#favGrid .favcard img.pv')||{}).src||'').slice(0,23), cardShare:document.querySelectorAll('#coll [data-share]').length, cardLink:document.querySelectorAll('#coll [data-link]').length}));
+      img:((document.querySelector('#favGrid .favcard img.pv')||{}).src||'').slice(0,23), cardShare:document.querySelectorAll('#hmRooms [data-share]').length, cardLink:document.querySelectorAll('#coll [data-link],#hmRooms [data-link]').length}));
     ok('раздел «Избранное» на главной с карточкой',st4.head&&st4.cards===1&&st4.name==='Гостиная мечты',JSON.stringify(st4));
     ok('карточка избранного — с картинкой (миниатюра из сцены), не заглушка',/^data:image\/jpeg/.test(st4.img),st4.img||'заглушка');
     ok('на карточках вариантов — иконка «поделиться», текстовой «Ссылки» нет',st4.cardShare>0&&st4.cardLink===0);

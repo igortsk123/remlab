@@ -18,7 +18,7 @@ async function openDemo(page: Page, q = ""): Promise<string[]> {
 }
 const num = (t: string) => Number((t.match(/([\d\s ]+)\s*₽/)?.[1] ?? "").replace(/\D/g, ""));
 
-test("1.2–1.5 шапка и вкладки: консультация, ипотека, «i», 3D, план, «скоро»", async ({ page }) => {
+test("1.2–1.5 первый экран: консультация, ипотека, «i», план квартиры ссылкой, комнаты стиля и заглушки (demo-16)", async ({ page }) => {
   const errors = await openDemo(page);
   for (const id of ["#pcCons", "#pcMort"]) {
     await page.locator(id).click();
@@ -30,28 +30,31 @@ test("1.2–1.5 шапка и вкладки: консультация, ипот
   await expect(page.locator("#payInfoTxt")).toBeVisible();
   // кнопки «Пройтись по квартире в 3D» в шапке нет (владелец 16.10, demo-02 п.8) — 3D внутри окна варианта
   await expect(page.locator("#pc3d")).toHaveCount(0);
-  await page.locator("#tab-plan").click();
+  // план квартиры — ссылкой, не вкладкой (demo-16); назад — «← К стилям»
+  await page.locator("[data-plan]:visible").click();
   await expect(page.locator("#screen-plan")).toBeVisible();
-  // неготовые комнаты (demo-02 v3): вкладки нажимаются и показывают одинаковую заглушку с площадью из плана
-  const soon = await page.locator("[data-soon]").allInnerTexts();
-  say("вкладки неготовых комнат:", soon.join(" | "));
-  expect(soon.length).toBeGreaterThanOrEqual(5);
-  for (let k = 0; k < soon.length; k++) {
-    await page.locator("[data-soon]").nth(k).click();
-    await expect(page.locator("#screen-soon")).toBeVisible();
-    await expect(page.locator("#soonTitle")).toContainText("м²");
-    await expect(page.locator("#soonText")).toContainText("Скоро");
-  }
+  await expect(page.locator("#styleTabs")).toBeHidden();
+  await page.locator("#planBack").click();
+  await expect(page.locator("#screen-room")).toBeVisible();
+  // вкладки — стили; внутри — комнаты в порядке плана, неготовые — одинаковой заглушкой с площадью (demo-16)
+  const tabs = await page.locator("#styleTabs [data-style]").allInnerTexts();
+  const rooms = await page.locator("#hmRooms [data-room]").evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.room));
+  const stubs = await page.locator("#hmRooms .hm-stub").allInnerTexts();
+  say("стили:", tabs.join(" | "), "· комнаты:", rooms.join(","));
+  expect(tabs.length).toBeGreaterThanOrEqual(4);
+  expect(rooms).toEqual(["living", "kitchen", "bedroom-1", "bedroom-2", "bathroom-1", "hall"]);
+  expect(stubs.length).toBe(5);
+  for (const t of stubs) { expect(t).toContain("м²"); expect(t).toContain("появится следующим шагом"); }
   expect(errors).toEqual([]);
 });
 
-test("2.1–2.3 окно кадра: фото, список, числа как на карточке", async ({ page }) => {
+test("2.1–2.3 окно кадра: фото, список, числа как на карточке комнаты каждого стиля", async ({ page }) => {
   await openDemo(page);
-  await page.locator("#tab-room").click();
-  const n = await page.locator("button[data-swap]").count();
+  const n = await page.locator("#styleTabs [data-style]").count();
   for (let i = 0; i < n; i++) {
-    const card = await page.locator(".lay .pr").nth(i).innerText();
-    await page.locator("button[data-swap]").nth(i).click();
+    await page.locator("#styleTabs [data-style]").nth(i).click();     // вкладка стиля → карточка гостиной этого стиля (demo-16)
+    const card = (await page.locator("#hmRooms .hm-room .sum small").innerText()) + " · " + (await page.locator("#hmRooms .hm-room .sum b").innerText());
+    await page.locator("#hmRooms .hm-room [data-swap]").click();
     await expect(page.locator("#shot")).toBeVisible();
     // окно варианта (demo-02 v3): число товаров и сумма — атрибуты плашки сертификата `#vsum`
     const cnt = Number(await page.locator("#vsum").getAttribute("data-count"));
@@ -65,7 +68,6 @@ test("2.1–2.3 окно кадра: фото, список, числа как �
 
 test("2.4 режимы в одном окне: «Фото» — только при реалистичном снимке этой расстановки, иначе 3D; ракурсы — подписями (demo-09, demo-15)", async ({ page }) => {
   await openDemo(page, "?live=force");
-  await page.locator("#tab-room").click();
   await page.locator("button[data-swap]").first().click();
   const hasPhoto = await page.locator('[data-vm="photo"]').isVisible();
   const start = await page.evaluate("VW.mode") as string;
@@ -135,10 +137,14 @@ test("2.25–2.26 фото готово для этой расстановки �
 test("2.27 карточка: кадр своей расстановки или «Откройте — покажем в 3D», не старое фото", async ({ page }) => {
   await openDemo(page);
   await page.waitForFunction("shots.length > 0");
-  await page.locator("#tab-room").click();
-  const cards = await page.evaluate(`allVariants().map((v, i) => { const el = document.querySelectorAll('#coll .lay')[i], im = el && el.querySelector('img.pv');
-    const s = im ? shots.find((x) => x.url === im.dataset.url) : null;
-    return { style: v.style, shown: s ? s.quality + ':' + (s.stateId ? 'state' : 'items') : (el && el.querySelector('.nopv') ? 'заглушка' : '?'), fits: !s || shotFits(s, v) }; })`) as { style: string; shown: string; fits: boolean }[];
+  // карточка комнаты каждого стиля (demo-16): вкладка → гостиная этого стиля
+  const cards: { style: string; shown: string; fits: boolean }[] = [];
+  for (const id of await page.locator("#styleTabs [data-style]").evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.style))) {
+    await page.locator(`#styleTabs [data-style="${id}"]`).click();
+    cards.push(...(await page.evaluate(`[allVariants()[cur]].map((v) => { const el = document.querySelector('#hmRooms .hm-room'), im = el && el.querySelector('img');
+    const s = im ? shots.find((x) => thumbOf(x) === im.getAttribute('src') || x.url === im.dataset.url) : null;
+    return { style: v.style, shown: s ? s.quality + ':' + (s.stateId ? 'state' : 'items') : (el && el.querySelector('.nopv') ? 'заглушка' : '?'), fits: !s || shotFits(s, v) }; })`) as { style: string; shown: string; fits: boolean }[]));
+  }
   say(cards.map((c) => `${c.style}: ${c.shown}`).join(" | "));
   for (const c of cards) expect(c.fits, `${c.style}: на карточке кадр чужой расстановки`).toBe(true);
   expect(cards.every((c) => c.shown !== "?")).toBe(true);
@@ -146,7 +152,6 @@ test("2.27 карточка: кадр своей расстановки или �
 
 test("2.5–2.6 замена из окна: лента, выбор, сумма пересчитана, окно в 3D с «Сделать реалистичнее»", async ({ page }) => {
   await openDemo(page);
-  await page.locator("#tab-room").click();
   await page.locator("button[data-swap]").first().click();
   const sumNow = async () => Number(await page.locator("#vsum").getAttribute("data-sum"));
   const before = await sumNow();
@@ -169,7 +174,6 @@ test("2.6 живая сцена: замена видна сразу, без за
   const posts: string[] = [];
   page.on("request", (r) => { if (r.method() === "POST" && /\/api\/render/.test(r.url())) posts.push(r.url()); });
   await openDemo(page, "?live=force");
-  await page.locator("#tab-room").click();
   await page.locator("button[data-swap]").first().click();
   await page.locator("#shotbody [data-rep]").first().click();
   const t = Date.now();
@@ -181,7 +185,6 @@ test("2.6 живая сцена: замена видна сразу, без за
 
 test("2.10–2.11, 2.17 конструктор: подсказка, перетаскивание, кнопка кадра", async ({ page }) => {
   await openDemo(page);
-  await page.locator("#tab-room").click();
   await page.locator("button[data-swap]").first().click();
   // «План» в окне варианта (demo-02 v3) — план для просмотра; редактор — по «Изменить план»
   await page.locator('[data-vm="plan"]').click();
@@ -214,13 +217,12 @@ test("2.10–2.11, 2.17 конструктор: подсказка, перета
 
 test("2.14–2.15 «поделиться» иконкой с подтверждением и избранное сердечком с именем коллекции (demo-15)", async ({ page }) => {
   await openDemo(page);
-  await page.locator("#tab-room").click();
   await expect(page.locator("#coll button[data-link], #feedShare, #collSave")).toHaveCount(0);   // текстовой «Ссылки» и «Избранное» внизу нет
   await page.evaluate("navigator.share = undefined");                                            // без системного меню — копирование + тост
-  await page.locator("#coll button[data-share]").first().click();
+  await page.locator("#hmRooms button[data-share]").first().click();                             // карточка комнаты стиля (demo-16)
   await expect(page.locator("#toast")).toContainText(/скопирована/);
   say("буфер:", await page.evaluate("navigator.clipboard.readText()"));
-  await page.locator("#coll button[data-favorite]").first().click();
+  await page.locator("#hmRooms button[data-favorite]").first().click();
   await expect(page.locator("#favName")).toHaveValue(/ #\d+$/);                                 // «<Стиль> #N»
   say("имя по умолчанию:", await page.locator("#favName").inputValue());
   await page.locator("#favNo").click();                                                         // ночью в базу не пишем
@@ -229,7 +231,6 @@ test("2.14–2.15 «поделиться» иконкой с подтвержд�
 
 test("1.6 английский: конструктор и ожидание без русских подписей", async ({ page }) => {
   await openDemo(page, "?lang=en");
-  await page.locator("#tab-room").click();
   await page.locator("text=Add a new layout").first().click();
   const t = await page.locator("#consWhat, #consSum, #consHint").allInnerTexts();
   say(t.join(" | ").slice(0, 160));
@@ -243,7 +244,6 @@ test("2.18 телефон: без горизонтальной прокрутк�
   const sw = await page.evaluate("[document.documentElement.scrollWidth, innerWidth]") as number[];
   say("ширина страницы / экрана:", sw.join(" / "));
   expect(sw[0]!).toBeLessThanOrEqual(sw[1]! + 1);
-  await page.locator("#tab-room").click();
   await page.locator("text=Добавить новую расстановку").first().click();
   const w = await page.evaluate("stage.getBoundingClientRect().width / innerWidth") as number;
   say("план занимает ширины экрана:", Math.round(w * 100), "%");

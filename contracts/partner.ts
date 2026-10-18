@@ -165,7 +165,9 @@ export const apartmentRef = z.object({
   .refine((a) => new Set(a.rooms.map((r) => r.id)).size === a.rooms.length, "id комнат повторяются")
   .refine((a) => a.rooms.every((r, k) => r.ordinal === k + 1), "ordinal комнат — по порядку плана с 1")
   // опция с комнатой — к существующей комнате (сумма по комнатам иначе молча потеряет доплату)
-  .refine((a) => !a.rooms.length || a.options.every((g) => !g.roomId || a.rooms.some((r) => r.id === g.roomId)), "roomId опции нет среди комнат");
+  .refine((a) => !a.rooms.length || a.options.every((g) => !g.roomId || a.rooms.some((r) => r.id === g.roomId)), "roomId опции нет среди комнат")
+  // кухня застройщика — к кухне: тип комнаты опции совпадает с типом помещения, к которому она привязана (Codex 18.10)
+  .refine((a) => a.options.every((g) => !g.roomId || a.rooms.every((r) => r.id !== g.roomId || r.kind === g.roomKind)), "roomKind опции не совпадает с комнатой");
 export type ApartmentRef = z.infer<typeof apartmentRef>;
 
 export const partner = z.object({

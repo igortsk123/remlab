@@ -82,6 +82,15 @@ describe("комнаты квартиры", () => {
     expect(() => partners([ord])).toThrow(/ordinal/);
     const opt = base(); opt.apartments[0].options[0].roomId = "attic";
     expect(() => partners([opt])).toThrow(/roomId/);
+    const kind = base(); kind.apartments[0].options[0].roomId = "living";       // кухня застройщика — к гостиной
+    expect(() => partners([kind])).toThrow(/roomKind/);
+  });
+
+  it("английский двойник — с тем же составом комнат", () => {
+    const ru = JSON.parse(readFileSync("data/partners/demo.json", "utf8"));
+    const uk = JSON.parse(readFileSync("data/partners/demo-uk.json", "utf8"));
+    uk.apartments.find((a: { id: string }) => a.id === "demo-uk-215").rooms.pop();
+    expect(() => partners([ru, uk])).toThrow(/двойника/);
   });
 });
 

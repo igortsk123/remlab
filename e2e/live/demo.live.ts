@@ -19,8 +19,8 @@ test("1.1 стили опубликованы, у каждого есть кад
   const styles = await page.evaluate(() => (window as unknown as DemoWindow).allVariants().map((v) => v.style));
   expect(styles.length).toBeGreaterThanOrEqual(4);
   expect(new Set(styles).size).toBe(styles.length);
-  const cards = page.locator("[data-swap]");
-  await expect(cards).toHaveCount(styles.length);
+  // вкладки главной — стили, по одной на опубликованный вариант (demo-16)
+  await expect(page.locator("#styleTabs [data-style]")).toHaveCount(styles.length);
   const res = await request.get("/demo/demo-data.json");
   const age = (Date.now() - new Date(res.headers()["last-modified"] ?? 0).getTime()) / 86_400_000;
   expect(age, "витрина демо старше 2 суток").toBeLessThan(2);
@@ -33,7 +33,8 @@ test("1.1 стили опубликованы, у каждого есть кад
 
 test("замена предмета меняет сумму; ссылка на вариант открывает его", async ({ page }) => {
   await openDemo(page);
-  await page.locator('[data-swap="1"]').click();
+  await page.locator("#styleTabs [data-style]").nth(1).click();
+  await page.locator("#hmRooms .hm-room [data-swap]").click();
   // переменные страницы (items, D, sel, tryOn, LAST_SUM, cur) — глобальные `let`, не свойства window: строкой
   const before = await page.evaluate("LAST_SUM");
   const changed = await page.evaluate(`(() => {
@@ -52,20 +53,21 @@ test("замена предмета меняет сумму; ссылка на �
   await expect.poll(() => fresh.evaluate("(allVariants()[cur] || {}).id")).toBe(vid);
 });
 
-test("английский режим: шапка и вкладки без русских надписей", async ({ page }) => {
+test("английский режим: первый экран без русских надписей", async ({ page }) => {
   await openDemo(page, "?lang=en");
-  const head = await page.locator(".tabs, #flatPrice").allInnerTexts();
+  await page.waitForFunction("!!FLAT");
+  const head = await page.locator("#hmHd, #flatPrice, #hmCert, #hmHint, #styleTabs, #hmRooms").allInnerTexts();
   expect(head.join(" ")).not.toMatch(/[А-Яа-яЁё]/);
 });
 
-test("вкладка «Спальня 1»: общая заглушка неготовой комнаты (каталог снят с показа, ADR-0299)", async ({ page }) => {
+test("комната «Спальня 1»: общая заглушка неготовой комнаты в каждом стиле (каталог снят с показа, ADR-0299; demo-16)", async ({ page }) => {
   const errors = await openDemo(page);
-  await page.locator('[data-soon="bedroom_17"]').click();
-  await expect(page.locator("#screen-soon")).toBeVisible();
-  await expect(page.locator("#soonTitle")).toContainText("Спальня 1");
-  await expect(page.locator("#soonTitle")).toContainText("м²");
+  const stub = page.locator('#hmRooms [data-room="bedroom-1"]');
+  await expect(stub).toContainText("Спальня 1");
+  await expect(stub).toContainText("м²");
+  await expect(stub).toContainText("появится следующим шагом");
   await expect(page.locator('[data-br-role="кровать"]')).toHaveCount(0);   // фотокаталога на странице нет
-  await page.locator("#tab-room").click();
-  await expect(page.locator("#screen-soon")).toBeHidden();
+  await page.locator("#styleTabs [data-style]").last().click();
+  await expect(stub).toContainText("появится следующим шагом");
   expect(errors).toEqual([]);
 });

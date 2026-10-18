@@ -24,6 +24,12 @@ export function partners(raw: unknown[] = RAW): Partner[] {
       seen.add(a.id);
     }
   }
+  // английский двойник делит витрину (ADR-0298) — значит и состав комнат: иначе ключ (стиль, комната) разъедется между языками (demo-16)
+  const roomsKey = (a: ApartmentRef) => JSON.stringify(a.rooms.map((r) => [r.id, r.kind, r.ordinal]));
+  for (const p of list) for (const a of p.apartments) {
+    const twin = a.enTwin ? findApartment(a.enTwin, list) : null;
+    if (twin && roomsKey(twin.apartment) !== roomsKey(a)) throw new Error(`у двойника ${a.enTwin} другой состав комнат, чем у ${a.id}`);
+  }
   if (raw === RAW) cached = list;
   return list;
 }
