@@ -4161,6 +4161,9 @@ function histFwd(){return histGo(1);}
 #shot.v2 .shotwrap .livebadge{top:60px}
 .vold{position:absolute;left:12px;top:60px;background:var(--veil);color:#fff;font-size:13px;padding:5px 10px;border-radius:999px;z-index:5}
 .vtop{padding:10px 18px 10px;border-bottom:1px solid var(--line)}
+/* компьютер: кнопка под плашкой не уезжает с прокруткой списка (demo-15, fable-lead 18.10: после выделения строки она пряталась
+   наполовину под плашкой «Остаток»); телефон — своя шторка, там верх не прокручивается */
+@media(min-width:701px){.vtop{position:sticky;top:0;z-index:3;background:var(--surface)}}
 /* ПЛАШКА СЕРТИФИКАТА (v3): тёмная, крупные цифры, полоса заполнения; доплаты застройщику — тёплой строкой; вне прокрутки */
 /* в тон страницы (владелец 16.10: «плашка выбивается — сделай органичнее»): светлая карточка, тонкая рамка, терракотовый акцент */
 .vplate{margin:14px 64px 4px 18px;background:var(--accent-soft);color:var(--ink);border:1px solid var(--line);border-radius:14px;
@@ -4671,8 +4674,10 @@ function vwHighlight(idx, opt){
   if(open&&VW_PHONE()){const sd=document.getElementById('vside'); if(sd&&+sd.dataset.pos!==3){vwSheet(3); wait=VW_SLOW()?40:340;}}
   // прокрутка — ПОСЛЕ конца анимации шторки (высота списка уже новая). Только сам список: `scrollIntoView` двигал и окно над шторкой
   setTimeout(()=>{const sc=document.getElementById('vscroll'); if(!sc||!r.isConnected)return;
-    const rr=r.getBoundingClientRect(), sr=sc.getBoundingClientRect();
-    sc.scrollTo({top:Math.max(0,sc.scrollTop+(rr.top-sr.top)-sc.clientHeight/6),behavior:VW_SLOW()?'auto':'smooth'});},wait);
+    const rr=r.getBoundingClientRect(), sr=sc.getBoundingClientRect(), vt=sc.querySelector('.vtop');
+    // закреплённая кнопка сверху списка (компьютер) — строка встаёт ниже неё, а не под ней
+    const gap=Math.max(sc.clientHeight/6, vt&&getComputedStyle(vt).position==='sticky'?vt.offsetHeight+12:0);
+    sc.scrollTo({top:Math.max(0,sc.scrollTop+(rr.top-sr.top)-gap),behavior:VW_SLOW()?'auto':'smooth'});},wait);
 }
 // ЦЕННИКИ НАД МЕБЕЛЬЮ В 3D (demo-09, Codex 17.10): метки — постоянные узлы, двигаются `transform` на каждом кадре; точки предметов —
 // из кэша движка (`viewer.projectSlot`), замеры окна и кнопок — 12 раз в секунду, не на каждом кадре. В «Фото» (снимок нейросети)
@@ -5073,13 +5078,13 @@ new MutationObserver(()=>{if(!document.getElementById('shot').classList.contains
 // КАДР ЖИВОЙ СЦЕНЫ НА КОМПЬЮТЕРЕ — 3:2, КАК СЕРВЕРНЫЙ (прогон d8 14.10): окно почти квадратное, и при 72° по горизонтали
 // сверху был потолок, а сужение угла срезало диван краем. В полосе 3:2 по центру сцены кадр совпадает с серверным один в
 // один; поля сверху и снизу — тоном стены. Телефон (портрет) — во весь экран, как утверждено (demo-02 п.9).
+// ПОЛОСЫ СНЯТЫ (demo-15, fable-lead 18.10: бежевые поля ~150 px над и под сценой): холст — во всю область и на компьютере;
+// потолок не растёт — верхний край кадра как у 3:2, добавка высоты уходит в пол (`viewer.ts:photoShift`)
 function liveFit(wrap){
   const r=wrap.getBoundingClientRect(); if(!(r.width>0&&r.height>0)||!LIVE.scene)return;
-  const desk=window.innerWidth>700;   // на телефоне сцена во весь экран и под шторкой — без полосы
-  const band=desk&&r.width/r.height<1.5&&r.width>=r.height, h=band?Math.round(r.width/1.5):r.height, top=band?Math.round((r.height-h)/2):0;
-  LIVE.canvas.style.top=top+'px'; LIVE.canvas.style.height=h+'px';
-  const pins=document.getElementById('vpins'); if(pins){pins.style.top=top+'px'; pins.style.height=h+'px'; pins.style.bottom='auto';}
-  LIVE.scene.setSize(r.width,h);
+  LIVE.canvas.style.top='0px'; LIVE.canvas.style.height=r.height+'px';
+  const pins=document.getElementById('vpins'); if(pins){pins.style.top='0px'; pins.style.height=r.height+'px'; pins.style.bottom='auto';}
+  LIVE.scene.setSize(r.width,r.height);
 }
 async function liveShow(){
   if(VW.mode==='plan'){liveHide(); vwPlanDraw(); return;}   // в «План» сцены нет — после правки перерисовывается план
@@ -5457,6 +5462,33 @@ async function liveShow(){
   var FKEY='remlab-favorites';
   var favs=function(){try{return (JSON.parse(localStorage.getItem(FKEY)||'[]')||[]).filter(function(f){return f&&/^[A-Za-z0-9_-]{22}$/.test(f.collectionId);});}catch(_){return [];}};
   var favsPut=function(l){try{localStorage.setItem(FKEY,JSON.stringify(l.slice(0,LIMIT)));}catch(_){}};
+  // МИНИАТЮРА ИЗБРАННОГО ИЗ СЦЕНЫ (demo-15, fable-lead 18.10: карточка без картинки — большая пустая заглушка). При сохранении
+  // сердечком живая сцена снимает текущий вид 480×320 (`DemoScene.capture` — без рамки выделения), JPEG ~25 КБ хранится на этом
+  // устройстве рядом со списком. Хранилище браузера небольшое — держим миниатюры TMAX новейших; не влезло — у старых заглушка
+  // или серверный черновик (`snapLater`: он же — картинка коллекции у того, кому отправили ссылку)
+  var TKEY='remlab-fav-thumbs', TMAX=30;
+  var thumbs=function(){try{return JSON.parse(localStorage.getItem(TKEY)||'{}')||{};}catch(_){return {};}};
+  function thumbPut(id,url){
+    var t=thumbs(); t[id]=url;
+    var keep=favs().map(function(f){return f.collectionId;}).filter(function(x){return x!==id&&t[x];});
+    keep.unshift(id); keep=keep.slice(0,TMAX);
+    for(var n=keep.length;n>0;n--){var o={}; keep.slice(0,n).forEach(function(k){o[k]=t[k];});
+      try{localStorage.setItem(TKEY,JSON.stringify(o)); return true;}catch(_){}}   // переполнено — отбрасываем самые старые
+    return false;
+  }
+  function thumbDrop(id){var t=thumbs(); if(!(id in t))return; delete t[id]; try{localStorage.setItem(TKEY,JSON.stringify(t));}catch(_){}}
+  function grabThumb(){
+    if(typeof LIVE==='undefined'||LIVE.ok!==true||!LIVE.scene||!LIVE.scene.capture)return Promise.resolve('');
+    // главный ракурс (C1), а не случайный текущий взгляд: его точка подобрана показать основную мебель, как кадры карточек вариантов
+    // (самопроверка 18.10: с текущего вида у окна на миниатюре были телевизор и стулья без дивана)
+    var c=(cams||loadCams())[0]; if(!c)return Promise.resolve('');
+    var p=camPoseOf(c);
+    return LIVE.scene.update(clone(items), liveDecor()).then(function(){return LIVE.scene.capture([p],480,320);})
+      .then(function(r){return createImageBitmap(r.frames[0]);})
+      .then(function(bm){var cv=document.createElement('canvas'); cv.width=480; cv.height=320; cv.getContext('2d').drawImage(bm,0,0);
+        return cv.toDataURL('image/jpeg',0.72);})
+      .catch(function(){return '';});
+  }
   var cap=function(t){t=String(t||'');return t?t[0].toUpperCase()+t.slice(1):t;};
   var styleOfV=function(v){return String((v&&v.style)||'').replace(/^(моя коллекция|my collection|коллекция по ссылке|shared collection) · /,'');};
   // перенос: свои коллекции прежнего формата → в избранное (без секрета — имя меняется только на этом устройстве)
@@ -5488,7 +5520,9 @@ async function liveShow(){
       drawColl(true);});}
   function save(name){
     var snap=snapshot(); snap.displayName=String(name||'').trim().slice(0,80)||defaultName(snap.style);
+    var tp=snap.shot?Promise.resolve(''):grabThumb();      // есть реалистичное фото этой расстановки — оно и есть картинка
     return post(snap).then(function(j){
+      tp.then(function(u){if(u&&thumbPut(j.id,u)){favDraw();}});
       var l=favs().filter(function(f){return f.collectionId!==j.id;});
       l.unshift({collectionId:j.id, editToken:j.editToken||null, displayName:snap.displayName, style:snap.style||'', stateId:snap.stateId,
         sourceVariantId:(allVariants()[cur]||{}).id||'', createdAt:Date.now(), shot:snap.shot||''});
@@ -5507,7 +5541,7 @@ async function liveShow(){
     return fetch('/api/collections/'+id,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({displayName:name,editToken:f.editToken})})
       .then(function(r){if(!r.ok)back();},back);
   }
-  function removeFav(id){favsPut(favs().filter(function(f){return f.collectionId!==id;})); favDraw(); favUi(); drawColl(true);
+  function removeFav(id){favsPut(favs().filter(function(f){return f.collectionId!==id;})); thumbDrop(id); favDraw(); favUi(); drawColl(true);
     toast(EN()?'Removed from favourites':'Убрано из избранного');}
   // «ПОДЕЛИТЬСЯ» (demo-15 п.5): одна функция адреса — избранное этого состояния → его коллекция; нетронутый готовый вариант → `#v=`;
   // изменённая несохранённая расстановка — сперва снимок (иначе `#v=` отдал бы базовый вариант, Codex (б)); снимок одного состояния — один
@@ -5572,9 +5606,11 @@ async function liveShow(){
     var e=function(t){return String(t==null?'':t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});};
     var hp=head.querySelector('h2'), pp=head.querySelector('p'); if(hp)hp.textContent=EN()?'Favourites':'Избранное';
     if(pp)pp.textContent=EN()?'Layouts saved on this device':'Сохранённые расстановки на этом устройстве';
+    var TH=thumbs();
     grid.innerHTML=l.map(function(f,k){
       var i=allVariants().findIndex(function(x){return x.cid===f.collectionId;}), v=i>=0?allVariants()[i]:null;
-      var img=(f.shot?location.origin+f.shot:'')||((typeof COLL_SHOTS!=='undefined'&&COLL_SHOTS[f.collectionId])||'');
+      // картинка: реалистичное фото расстановки → миниатюра из сцены → серверный черновик → кадр варианта
+      var img=(f.shot?location.origin+f.shot:'')||TH[f.collectionId]||((typeof COLL_SHOTS!=='undefined'&&COLL_SHOTS[f.collectionId])||'');
       if(!img&&v){var b=bestShot(v); if(b)img=thumbOf(b);}
       var d=new Date(f.createdAt||Date.now()), date=('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'.'+d.getFullYear();
       var sum=v?money(variantPrice(v)):'';

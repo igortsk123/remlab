@@ -124,7 +124,15 @@ export function photoRay(p: PhotoPose): { eye: [number, number, number]; target:
  *  Вертикальный кадр (`aspect` < 1) с подобранным `pshift` — свой сдвиг (demo-12). */
 export function photoShift(p: PhotoPose, aspect = 1.5): number {
   if (aspect < 1 && typeof p.pshift === "number") return p.pshift;
-  return (p.pose ?? 1) >= 2 ? POSE_V2.shift : 0;
+  const base = (p.pose ?? 1) >= 2 ? POSE_V2.shift : 0;
+  // КАДР КОМПЬЮТЕРА ВО ВСЮ ОБЛАСТЬ (demo-15, fable-lead 18.10: поля над и под полосой 3:2 — пустое место). Область уже 3:2,
+  // но не вертикальная: верхний край — как у кадра 3:2 (потолка не больше, прогон d8 14.10), вся добавочная высота — в пол.
+  // В долях −1…1 сдвиг верхнего края — `2·shift`; при 3:2 формула даёт ровно `base`.
+  if (aspect >= 1 && aspect < 1.5) {
+    const t = Math.tan(((p.fov ?? 72) * Math.PI) / 360), top = (t / 1.5) * (1 + 2 * base), half = t / aspect;
+    return (top / half - 1) / 2;
+  }
+  return base;
 }
 
 /** Сдвиг объектива на камере three.js: окно проекции опускается на долю высоты, вертикали остаются параллельными.

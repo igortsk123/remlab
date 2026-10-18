@@ -39,3 +39,24 @@ describe("фото-поза движка совпадает с серверно�
     });
   }
 });
+
+// КАДР КОМПЬЮТЕРА ВО ВСЮ ОБЛАСТЬ (demo-15): область между квадратом и 3:2 — верхний край как у кадра 3:2, добавка — вниз, в пол
+describe("кадр во всю область компьютера", () => {
+  const pose = { x: 200, y: 300, rot: 0, fov: 72, pose: 2 };
+  const edge = (aspect: number, sy: number) => {        // направление луча через центр края кадра (sy: 1 — верх, −1 — низ)
+    const cam = new THREE.PerspectiveCamera(verticalFov(pose.fov, aspect), aspect, 1, 10_000);
+    const { eye, target } = photoRay(pose);
+    cam.position.set(eye[0], eye[1], eye[2]); cam.lookAt(target[0], target[1], target[2]);
+    applyPhotoShift(cam, photoShift(pose, aspect)); cam.updateProjectionMatrix(); cam.updateMatrixWorld(true);
+    const v = new THREE.Vector3(0, sy, 0.5).unproject(cam).sub(cam.position).normalize();
+    return Math.asin(v.y) * 180 / Math.PI;                 // угол к горизонту, градусы
+  };
+  it("3:2 — прежний сдвиг", () => expect(photoShift(pose, 1.5)).toBeCloseTo(-0.1, 9));
+  for (const a of [1, 1.15, 1.3]) {
+    it(`${a}: потолка не больше, чем в 3:2, пола больше`, () => {
+      expect(edge(a, 1)).toBeCloseTo(edge(1.5, 1), 6);
+      expect(edge(a, -1)).toBeLessThan(edge(1.5, -1) - 3);
+    });
+  }
+  it("вертикальный кадр телефона с подобранным сдвигом не затронут", () => expect(photoShift({ ...pose, pshift: -0.05 }, 0.5)).toBe(-0.05));
+});

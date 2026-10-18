@@ -32,6 +32,10 @@ const openWin=async(p,i)=>{await p.evaluate(i=>{pickVariant(i); VW.collapse=true
     if(PHONE)ok('3D открыто со свёрнутой шторкой (скрин 1)',st0.pos==='0','pos='+st0.pos);
     ok('сердечко и «поделиться» в шапке окна видны',st0.fav&&st0.share);
     ok('старых стрелок, точек, «В избранное», «Сохранить коллекцию», «Ссылка», «Избранное» нет',st0.old===0,st0.old);
+    // сцена во всю область окна: полос над и под холстом нет (≤ 8 px; fable-lead 18.10, цикл 1)
+    const band=await p.evaluate(()=>{const w=document.querySelector('#shot .shotwrap').getBoundingClientRect(), c=LIVE.canvas.getBoundingClientRect();
+      return {top:Math.round(c.top-w.top), bottom:Math.round(w.bottom-c.bottom)};});
+    ok('сцена во всю высоту области, без полос',Math.abs(band.top)<=8&&Math.abs(band.bottom)<=8,JSON.stringify(band));
     ok('ракурсы — подписями, переключатель виден',st0.camsOn&&st0.cams.length===2&&!st0.cams.some(t=>/‹|›/.test(t)),st0.cams.join(' | '));
     // тап по предмету (ценник дивана) → шторка до верха, строка в верхней трети, подсвечена
     const k=await p.evaluate(()=>items.findIndex(i=>String(i.role)==='диван'));
@@ -41,6 +45,11 @@ const openWin=async(p,i)=>{await p.evaluate(i=>{pickVariant(i); VW.collapse=true
     if(PHONE)ok('тап по предмету → шторка до верха',st1.pos==='3','pos='+st1.pos);
     ok('строка предмета подсвечена, пока выделен',st1.hl&&st1.sel===k);
     if(PHONE)ok('строка предмета — в верхней трети списка',st1.rel!=null&&st1.rel>=0&&st1.rel<0.34,st1.rel&&st1.rel.toFixed(2));
+    // компьютер: кнопка «Сделать реалистичнее» целиком видна под плашкой и после прокрутки к строке (fable-lead 18.10, цикл 1)
+    const ctaOk=()=>p.evaluate(()=>{const c=document.getElementById('vCta').getBoundingClientRect(), s=document.getElementById('vscroll').getBoundingClientRect(),
+      pl=document.getElementById('vsum').getBoundingClientRect(); return {ok:c.height>0&&c.top>=s.top-1&&c.top>=pl.bottom-1&&c.bottom<=s.bottom+1, cta:Math.round(c.top), list:Math.round(s.top), plate:Math.round(pl.bottom)};});
+    if(!PHONE){const c1=await ctaOk(); ok('компьютер: после выделения строки кнопка целиком под плашкой',c1.ok,JSON.stringify(c1));}
+    await p.waitForTimeout(600);   // миниатюры строк грузятся лениво — снимок после загрузки
     await p.screenshot({path:OUT+W+'-2-row.png'});
     await p.waitForTimeout(4500);
     ok('подсветка держится дольше 4 с',await p.evaluate(k=>{const r=vwRowOf(items[k]); return !!r&&r.classList.contains('hl');},k));
@@ -59,6 +68,7 @@ const openWin=async(p,i)=>{await p.evaluate(i=>{pickVariant(i); VW.collapse=true
     if(PHONE)ok('после замены шторка свёрнута',st2.pos==='0','pos='+st2.pos);
     ok('камера наведена на новый предмет (поворот или переход)',['turn','move','none'].includes(st2.framed)&&st2.free,st2.framed+' '+JSON.stringify(st2.pose));
     ok('после наведения ни одна подпись ракурса не активна',st2.camsOn===0);
+    if(!PHONE){const c2=await ctaOk(); ok('компьютер: после замены кнопка целиком под плашкой',c2.ok,JSON.stringify(c2));}
     await p.screenshot({path:OUT+W+'-3-framed.png'});
     await p.evaluate(()=>document.querySelector('#vCams [data-cam="1"]').click()); await p.waitForTimeout(900);
     ok('подпись ракурса 2 — переход к точке 2, подпись активна',await p.evaluate(()=>VW.photo===1&&!VW.free&&document.querySelector('#vCams [data-cam="1"]').classList.contains('on')));
@@ -89,8 +99,10 @@ const openWin=async(p,i)=>{await p.evaluate(i=>{pickVariant(i); VW.collapse=true
     // главная: раздел «Избранное»
     await p.evaluate(()=>{document.getElementById('shotx').click();}); await p.waitForTimeout(800);
     const st4=await p.evaluate(()=>({head:!document.getElementById('favHead').hidden, cards:document.querySelectorAll('#favGrid .favcard').length,
-      name:(document.querySelector('#favGrid .favcard .nm')||{}).textContent||'', cardShare:document.querySelectorAll('#coll [data-share]').length, cardLink:document.querySelectorAll('#coll [data-link]').length}));
+      name:(document.querySelector('#favGrid .favcard .nm')||{}).textContent||'',
+      img:((document.querySelector('#favGrid .favcard img.pv')||{}).src||'').slice(0,23), cardShare:document.querySelectorAll('#coll [data-share]').length, cardLink:document.querySelectorAll('#coll [data-link]').length}));
     ok('раздел «Избранное» на главной с карточкой',st4.head&&st4.cards===1&&st4.name==='Гостиная мечты',JSON.stringify(st4));
+    ok('карточка избранного — с картинкой (миниатюра из сцены), не заглушка',/^data:image\/jpeg/.test(st4.img),st4.img||'заглушка');
     ok('на карточках вариантов — иконка «поделиться», текстовой «Ссылки» нет',st4.cardShare>0&&st4.cardLink===0);
     await p.evaluate(()=>document.getElementById('favHead').scrollIntoView()); await p.waitForTimeout(500);
     await p.screenshot({path:OUT+W+'-5-home.png'});
