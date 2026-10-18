@@ -3,8 +3,8 @@ tier: 2
 topic: how-to-write-rules
 scope: Как писать path-scoped правила .claude/rules/ — формат frontmatter, принципы
 tier1: ""
-last_verified: 2026-09-28
-updated: 2026-09-28
+last_verified: 2026-10-18
+updated: 2026-10-18
 importance: low
 source: manual
 ---

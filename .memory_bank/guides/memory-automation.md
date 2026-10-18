@@ -3,8 +3,8 @@ tier: 2
 topic: memory-automation
 scope: Как история проекта попадает в Memory Bank — слои, мост, хуки-напоминания, гейты
 tier1: ""
-last_verified: 2026-09-05
-updated: 2026-09-28
+last_verified: 2026-10-18
+updated: 2026-10-18
 importance: high
 source: manual
 ---
@@ -33,7 +33,9 @@ source: manual
    CODE-DRIFT + ротация одной давней сводки → `verify`; `last_verified` — только по таблице доказательств,
    каждая сверка — `node tools/memory-health.mjs --log-verify …`) → уровни → связи+INDEX+реестры → чистота.
    Работает ли механизм — `node tools/memory-health.mjs` (сверки, найдено/исправлено, сдвиги дат без записи).
-   Stop-hook (`tools/session-reminder.mjs`) напоминает, если работа была, а захвата не было.
+   Stop-hook (`tools/session-reminder.mjs --block --scratch-fresh-days 2`, `.claude/settings.json`) блокирует
+   завершение ответа, если есть план `in_progress`, правки вне `.memory_bank/` и блокнот пуст или без записи свежее
+   2 дней, либо грязен `memory-audit --check`.
 4. **Завершение плана** — гейт: план не `completed`, пока `/memory-check` не выполнен и audit
    не «чисто» (`agent-workflow.md`, DoD в `plans/_template.md`).
 
@@ -50,8 +52,11 @@ source: manual
   TIER0-BLOAT/NO-TIER1/PLACEHOLDER/DUP-TOPIC/BAD-FM/INDEX-REF/REGISTRY-STALE/PLAN-*/DIVERGENCE/
   SECRET/CODE-REF/CODE-DRIFT/FROZEN-MEMORY/RULES-FM/MEM-INJECT — полный список в шапке аудита) + регенерация
   decision tree и реестров. Для CI/хука: `--check` (не пишет файлы).
-- Хуки в пресетах important/autopilot (или `tools/stop-hook.example.json` для default):
-  Stop = напоминание + audit --check; SessionStart = баннер свежести. Без Node — shell-fallback.
+- В remlab хуки — в `.claude/settings.json` (в репозитории, ADR-0208): SessionStart = `tools/session-freshness.mjs` +
+  `memory-project-audit.mjs --brief`; Stop = `session-reminder.mjs --block --scratch-fresh-days 2` (аудит встроен, без
+  CODE-DRIFT); PreCompact = `tools/precompact-guard.mjs`; PostToolUse = `tools/read-logger.mjs` (Read) и
+  `tools/code-touch-hint.mjs` (Edit|Write); PreToolUse(Bash) = `tools/hooks/guard-bash.mjs`. Мягкий шаблон для чужих
+  проектов — `tools/stop-hook.example.json`. Без Node — shell-напоминание (только у Stop).
 
 ## Почему не авто-хук ЗАПИСИ на каждый SessionEnd
 Авто-запись контента опасна (рекурсия, стоимость, нужно суждение о том, что durable). Поэтому
@@ -64,14 +69,15 @@ Memory Bank самодостаточен: новая сессия читает `
 (обновление kit-owned файлов — `upgrade.sh` из кита).
 
 ## Подробности дисциплины памяти (перенесено из `.claude/rules/memory-discipline.md` 2026-09-05)
-Правило ужато до ~55 строк (норма `guides/how-to-write-rules.md` ≤60); сюда — обоснования и примеры.
+Правило ужато (05.09 — 55 строк, на 18.10 — 61; норма `guides/how-to-write-rules.md` ≤~60); сюда — обоснования и примеры.
 - **Захват на ходу.** Захват в точке максимальной salience дешевле и надёжнее, чем раскопки диалога
   в конце сессии; блокнот лечит «согласованное замерзание» (работал → не записал). Формат строки:
   `- ГГГГ-ММ-ДД — <что> — <куда в память>`, ≤2 строки; цифры и хроника — сразу в
   `changelog/project-history.md` или ADR. После свода блокнот усекается до метки; одна честная
-  строка «свод выполнен, блокнот чист» допустима (Stop-хук кита проверяет непустоту).
-- **Anti-rediscovery / инвентаризация доступов.** `tools/access-inventory.mjs` находит ключи в `.env`
-  всех проектов на машине; причина — ключ fal.ai и проект замера комнаты лежали вне репо (урок 57).
+  датированная строка «- ГГГГ-ММ-ДД — свод выполнен, блокнот чист» допустима: Stop-хук remlab (`--scratch-fresh-days 2`)
+  требует непустоты и записи не старше 2 дней; строки без даты считает свежими.
+- **Anti-rediscovery / инвентаризация доступов.** `tools/access-inventory.mjs` ищет ключи в `.env`-файлах
+  под `~/igor`, `~/mltest`, `~/.config` (печатает имена и первые 4 символа, значения — нет); причина — ключ fal.ai и проект замера комнаты лежали вне репо (урок 57).
 - **Триггеры сохранения (полный список):** архитектура (слои/папки/паттерны) → `core/architecture.md`;
   маршруты/флоу → `core/*`; контракты/API/модели → `domain/` + `core/data-model.md`; решение → ADR
   (том + индекс); интеграция (эндпоинт, где ключ/прокси, формат, клиент в коде) →

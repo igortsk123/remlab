@@ -3,14 +3,15 @@ tier: 2
 topic: stock-and-dims-details
 scope: Контроль наличия и честность размеров — модель, состояния, парсер, правило footprint
 tier1: ../core/stock-and-dims.md
-updated: 2026-09-03
+updated: 2026-10-18
+last_verified: 2026-10-18
 importance: high
 source: manual
 ---
 
 # Наличие и размеры честно — детали (план `stock-and-dims-honesty`, 03.09.2026)
 
-Сводка — [[catalog]]. Аудит и план — `plans/stock-and-dims-honesty.md`, критика Codex —
+Сводка — [[catalog]]. Аудит и план — `completed_plans/stock-and-dims-honesty.md`, критика Codex —
 `_intake/codex/codex-stock-honesty-answer.md`.
 
 ## Контроль наличия (`tools/scout/stock_check.py`, `page_alive.py`, `stock_truth.py`)
@@ -20,15 +21,20 @@ source: manual
 (`probe_domain_status.policy=disabled`, проба раз в неделю). Модель в `products`: `availability_state`
 (in_stock|out_of_stock|unknown), `page_state` (alive|gone|unknown), `availability_basis` (page|feed|none),
 `stock_evidence_at`; пишет только `stock_truth.reconcile()`; демо помечает «наличие не проверено». Парсер v2
-(snake_case, `href=`, JSON-LD Product, inline-остаток tvoydom) — в тени до gold-замера (`STOCK_PARSER_V2=1`,
-`stock_shadow_report.py`). Со страницы берём цену/имя/canonical только как наблюдения (`product_page_facts`).
+(snake_case, `href=`, JSON-LD Product, inline-остаток tvoydom) включён по умолчанию с 03.09 после gold-замера в тени
+(`page_alive.py:PARSER_V2`, откат — `STOCK_PARSER_V2=0`); тень — `stock_check.py --shadow`, отчёт — `stock_shadow_report.py`. Со страницы берём цену/имя/canonical только как наблюдения (`product_page_facts`).
 
 ## Размеры (`tools/scout/footprint.py`, `dim_resolver.py`)
- `footprint.py` — одно правило «Ш×Г или диаметр из каталога» для compose2, лечения, солвера,
-сцены, экспорта и демо; дефолтов нет (диван 100, типовые, «квадратное основание», меш без калибровки — убраны);
-tvoydom: «Длина» = фасад, «Ширина» = глубина (замер 1 100 карточек), тройка «Ш×Г×В» в названии — авторитет.
+ `footprint.py` — одно правило «Ш×Г или диаметр известны» для compose2, лечения, солвера,
+сцены, экспорта и демо; выдуманных дефолтов нет (диван 100, типовые, «квадратное основание», меш без калибровки — убраны).
+Недостающую глубину с 11.10 выводит `tools/scout/dim_prior.py` по роли и форме (`dims_evidence.d.source='role_prior'`,
+только где `d_cm` пуста); из меша (`mesh_dims.py`) — только при пройденной калибровке; load3 выведенную глубину не
+затирает, пока фид не даст свою (`footprint_known` источник не различает).
+Оси по магазинам — `dim_resolver.py:SHOP_DIM_KEYS`: tvoydom (99272), мебель — «Длина» = фасад, «Ширина» = глубина
+(замер 1 100 карточек); свет tvoydom — глубина из «Глубина», иначе из «Длина»; Орматек (93965) — наоборот, «Длина» =
+глубина. Тройка «Ш×Г×В» в названии — авторитет.
 Банк №3 (03.09): 126 сетов, 2 479 позиций, 0 напольных без размера. **Отрицательно:** глубина из меша по одному
-фото (Риббл w:d 1,87:1,99 vs фид 1,62) — не включать; `available` API — precision 0 %.
+фото (Риббл w:d 1,87:1,99 vs фид 1,62) — не включать; `available` API — precision 0 % (замер 03.09, история).
 
 ## Схема (`004-stock-honesty.sql`, `005-stock-model.sql`)
 - `product_page_observation`: `disposition` (accepted|quarantined|anchor|shadow), `response_kind`, `failure_kind`

@@ -88,3 +88,13 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-10-18	core/observability-tracing.md	drift	14	2	2	
 2026-10-18	core/leads.md	drift	17	1	1	
 2026-10-18	domain/viz-fidelity-playbook.md	drift	45	2	2	
+2026-10-18	domain/user-flow-details.md	drift	55	5	5	
+2026-10-18	guides/how-to-write-rules.md	drift	10	0	0	
+2026-10-18	.claude/rules/pipeline-tracing.md	drift	22	0	0	
+2026-10-18	domain/observability.md	drift	37	4	4	
+2026-10-18	domain/stock-and-dims.md	drift	30	4	4	
+2026-10-18	guides/execution-playbook.md	drift	21	6	6	
+2026-10-18	guides/memory-automation.md	drift	24	5	5	
+2026-10-18	core/lr-checklist.md	drift	27	6	6	
+2026-10-18	domain/living-room-checklist.md	drift	27	3	3	
+2026-10-18	core/mesh-color.md	drift	21	2	2	

@@ -3,17 +3,17 @@ tier: 2
 topic: observability-details
 scope: Детали трейсинга AI-пайплайна — БД, env, роуты, подписанные URL, imagor, ретеншн, гочи прода
 tier1: ../core/observability-tracing.md
-updated: 2026-10-13
+updated: 2026-10-18
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-09-05
+last_verified: 2026-10-18
 ---
 
 # Observability — детали (Tier 2 к [[observability-tracing]])
 
-> Сверено с кодом 2026-08-06 (verify-агент). Tier 1: `../core/observability-tracing.md`.
+> Сверено с кодом 2026-10-18 (verify-агент). Tier 1: `../core/observability-tracing.md`.
 
 ## Сущности БД — детали (`db/schema.ts`, `db/init/003-traces.sql`, `tools/migrate.mjs`)
 - `generation_runs` — прогон = один запуск превью. `seq` из sequence `generation_seq` —
@@ -76,15 +76,21 @@ imagor читает файл из `FILE_LOADER_BASE_DIR` (= том TRACE_DIR) п
   `traces-init` в `docker-compose.yml` — под root `chown -R 1001:65533` + `chmod -R u+rwX` перед стартом
   app (идемпотентно). `saveAsset` (`lib/trace/assets.ts`) при сбое пишет `console.warn` (без секретов),
   чтобы такой класс багов не прятался. Картинки прогонов ДО фикса невосстановимы (байты не захватывались).
-- Ретеншн: `pnpm trace:prune` (`tools/trace-prune.mjs`) — удаляет прогоны + шаги + ассеты + файлы (в т.ч.
-  `_tmp`) старше `TRACE_RETENTION_DAYS`; на серверный таймер `remlab-cleanup` пока НЕ повешен —
-  TODO (open question в `project-state.md`), запуск руками.
-- Логирование best-effort: ошибка записи/диска НЕ валит пайплайн. Секреты (API-ключи) в лог не пишем.
+- Ретеншн: ежедневно 04:10 UTC таймер `remlab-retention` (`infra/server/systemd/remlab-retention.timer`) →
+  `POST /api/internal/retention` (заголовок `x-internal-token` = `INTERNAL_API_TOKEN`, иначе 403;
+  `app/api/internal/retention/route.ts`) → `modules/retention/run.ts:runRetention` — одна транзакция под
+  advisory-замком; прогоны + шаги + ассеты старше `TRACE_RETENTION_DAYS` (90), строка удаляется только после
+  удаления её файлов; из `_tmp` — файлы старше суток; каждый запуск — строка в `retention_runs` (план b2b-04,
+  ADR-0268). `pnpm trace:prune` (`tools/trace-prune.mjs`) — ручной дубль, `_tmp` чистит целиком.
+  (До b2b-04, 13.10, таймера не было — чистили руками.)
+- Логирование best-effort: ошибка записи/диска НЕ валит пайплайн, но считается
+  (`lib/trace/failures.ts:traceWriteFailed` → `traceWriteFailures` в `/api/health`, `lib/health.ts`). Секреты (API-ключи) в лог не пишем.
 - Фото — ПДн (TODO legal, не блокируемся).
 
 ## Ключевые файлы
-`lib/trace/*` (recorder, context, store, assets, sign, admin, types), `lib/providers/traced.ts` +
+`lib/trace/*` (recorder, context, store, assets, sign, admin, types, failures), `lib/providers/traced.ts` +
 `lib/providers/index.ts`, `lib/prompts/registry.ts`, `lib/pipelines/registry.ts`,
 `lib/images/compress.ts`, `lib/pricing.ts`, `db/schema.ts`, `db/init/003-traces.sql`,
-`tools/migrate.mjs`, `tools/trace-show.mjs`, `tools/trace-prune.mjs`, `app/api/trace/*`.
+`tools/migrate.mjs`, `tools/trace-show.mjs`, `tools/trace-prune.mjs`, `app/api/trace/*`,
+`modules/retention/run.ts`, `app/api/internal/retention/route.ts`.
 Правило: `.claude/rules/pipeline-tracing.md`.

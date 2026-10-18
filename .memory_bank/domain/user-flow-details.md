@@ -3,12 +3,12 @@ tier: 2
 topic: user-flow-details
 scope: Детальные сценарии и экраны Stage 1 — 7-экранный flow, free/paid варианты, сегменты, аналитика
 tier1: ../core/user-flow.md
-updated: 2026-10-14
+updated: 2026-10-18
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-08-06
+last_verified: 2026-10-18
 ---
 
 > ⚠️ ADR-0016: **v0.4 «Смета-first»** — `plans/MASTER-cost-first.md`; ниже — v0.3-контекст.
@@ -46,7 +46,7 @@ last_verified: 2026-08-06
 - **Реф-ссылки во всех вариантах** (affiliate). **Paywall-триггер:** выбор варианта 2 или 3
   (НЕ доступ к 3 бесплатным товарам — они всегда открыты и кликабельны).
 
-### Код-долг по границе (сверено с кодом 2026-07-09)
+### Код-долг по границе (сверено с кодом 2026-10-18)
 - Структура «3 открыто, остальное закрыто» есть: `FREE_VISIBLE = 3` в `modules/ideas/index.ts`
   (верна для варианта 1), но каталог — **seed** (`buildCatalog()` из SEED-массива).
 - Нужно: реальные товары из фидов Гдеслон + реф-ссылки; варианты 2/3 (материалы, любое кол-во,
@@ -54,11 +54,12 @@ last_verified: 2026-08-06
 - Оплата — **заглушка**: `unlockPack` в `app/actions.ts`, на paywall-экране явный «Демо-режим»;
   настоящая оплата (YooKassa) — отдельным шагом.
 
-## Экраны в коде (сверено 2026-08-06)
-- `/` (`app/page.tsx`) — хаб из 6 плиток: /calc, /calc/remont, /start, /styles, /sovety, /lab
-  (`/start` и `/calc/remont` помечены `soon: true`); прежних CTA «→ /soon?f=cost» и ссылки
-  «Мои комнаты» на лендинге больше нет.
-- `/start` → создание проекта; `/p/[id]/brief` → фото+бриф; `/p/[id]/select` → интерактивный выбор;
+## Экраны в коде (сверено 2026-10-18)
+- `/` (`app/page.tsx`) — хаб из 6 плиток: /calc, /calc/remont, /start, /styles, /sovety, /lab; открыты
+  только /calc и /lab, остальные четыре помечены `soon: true` (пилюля «скоро»); прежних CTA «→ /soon?f=cost»
+  и ссылки «Мои комнаты» на лендинге больше нет.
+- `/start` → создание проекта (только при `NEXT_PUBLIC_SHOW_WIP=1`; по умолчанию — заглушка `ComingSoon`,
+  `app/start/page.tsx`; туда же ведут /rooms и /soon); `/p/[id]/brief` → фото+бриф; `/p/[id]/select` → интерактивный выбор;
   `/p/[id]/preview` → превью+идеи+товары; `/p/[id]/paywall` → демо-paywall.
 - `/rooms` — workspace «Мои комнаты» (список проектов сессии, статусы started…paid).
 - `/soon` — fake-door «Расчёт стоимости ремонта»; форма-демо не отправляется, событие
@@ -92,9 +93,11 @@ confidence (low/mid/high). Сумму считает движок, НЕ LLM.
 
 ## Аналитика
 - **В коде** (`lib/analytics.ts`): серверный PostHog (free-тариф; `POSTHOG_KEY` не задан → no-op;
-  хост `POSTHOG_HOST`, дефолт eu). События: `project_started`, `brief_completed`, `style_selected`,
-  `preview_ready`, `paywall_viewed`, `pack_unlocked`, `cost_fake_door_viewed`, `problem_reported`,
-  `app_error` (+ `captureError`). Ошибки тоже через PostHog; Sentry — позже, если захотим.
+  хост `POSTHOG_HOST`, дефолт eu). Отправляются (`EventName`): `project_started`,
+  `preview_ready`, `pack_unlocked` (демо-разблокировка и вебхук YooKassa), `problem_reported`, `estimate_created`,
+  `estimate_deleted`, `quiz_completed`, `lab_tab`, `viz_started`, `lead_captured`, `lead_replied`, `app_error`
+  (+ `captureError`). Объявлены, но не отправляются: `brief_completed`, `style_selected`, `paywall_viewed`,
+  `cost_fake_door_viewed`, `estimate_saved` (последнее — только цель Метрики на клиенте, `lib/metrika.ts:trackGoal`). Ошибки тоже через PostHog; Sentry — позже, если захотим.
 - **План (CJM, НЕ реализовано):** события по всем экранам (landing_*, room/goal/intervention,
   photo/brief, style_card_*, ai_preview_*, paywall_*, payment_*, workspace_*, cost_*) +
   **affiliate** (`affiliate_link_clicked`, `affiliate_postback_received`,
@@ -105,7 +108,9 @@ confidence (low/mid/high). Сумму считает движок, НЕ LLM.
 `/partner/report#<ключ>` (`components/partner/ReportPage.tsx`, `FunnelTable.tsx`) → `GET /api/partner/report`
 (`app/api/partner/report/route.ts`, заголовок `x-partner-key`, застройщик — только из ключа, ровно 12 недель — `firstWeek`).
 Сборка — `modules/partner-report/report.ts:buildReport`: неделя = отправка ссылки (понедельник в поясе
-застройщика), шаги — отправки с событием из `send_events` (открыли, выбирали, 3D, передвигали, поделились, «консультация/ипотека»),
+застройщика), шаги — отправки, где есть событие из `send_events`: открыли (`openedAt` или `designer_open`), выбирали (любое
+событие из `ENGAGE` или сохранение), 3D (`flat3d_open`), передвигали (`item_move`), поделились (`share`),
+«консультация/ипотека» (`manager_contact_click`),
 сохранили — `collections.send_id`, статусы менеджера — текущие. Заходы без ссылки — `page_counters` через
 `POST /api/events` (`contracts/analytics.ts:pageCounterKind`; демо-блок «СЧЁТЧИКИ БЕЗ ССЫЛКИ МЕНЕДЖЕРА», `/flat` —
 `components/flat3d/OpenBeacon.tsx`). Ключ выдаёт/отзывает `infra/server/partner-key-add.sh` (в базе — SHA-256).
@@ -114,5 +119,7 @@ confidence (low/mid/high). Сумму считает движок, НЕ LLM.
 оба идут через `reportAct` → событие `remlab:act` в оба счётчика.
 
 ## /styles — детали (перенесено из Tier 1, 13.10)
-Сид карточек — `lib/styles/quiz.ts`; лайк/скип → стиль → CTA дизайн/смета. Фото карточек и статьи по стилям —
+Сид карточек — `lib/styles/quiz.ts`; лайк/скип → стиль → кнопки `/start` (дизайн) и `/calc` (материалы)
+(`components/StyleQuiz.tsx`). Раздел закрыт заглушкой `ComingSoon`, пока не задан `NEXT_PUBLIC_SHOW_WIP=1`
+(`app/styles/page.tsx`). Фото карточек и статьи по стилям —
 плейсхолдеры (позже).
