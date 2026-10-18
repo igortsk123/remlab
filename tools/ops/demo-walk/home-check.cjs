@@ -1,7 +1,9 @@
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // ПЕРВЫЙ ЭКРАН ГЛАВНОЙ (план demo-16 шаг 1, макет A): до сгиба — строка квартиры, сертификат, подсказка, вкладки-стили и ≥ 120 px фото
 // первой комнаты (метрика `tools/ops/mock/home-v2/check.cjs`); вкладки — стили, внутри — комнаты в порядке плана, неготовые — заглушкой;
-// стиль в адресе (`?style=`, `lang`/`s` сохраняются); план квартиры — ссылкой и обратно; EN без кириллицы. Платного пути нет.
+// стиль в адресе (`?style=`, `lang`/`s` сохраняются); план квартиры — ссылкой и обратно; EN без кириллицы. Избранное (demo-17) — отдельный
+// экран `#fav` с «← Назад»: пустой по ссылке; ♡ N, «Перейти →» и строка на главной ведут на него; «← Назад» — главная на той же
+// прокрутке; на главной раскрывающейся секции нет; поле имени — фокус и каретка в конце сразу после тапа по ♡. Платного пути нет.
 //   BASE=https://remont-lab.online/test/share/demo-stage/ OUT=~/scout-scenes/<сессия>/ node tools/ops/demo-walk/home-check.cjs
 const BASE=process.env.BASE||'https://remont-lab.online/demo/', OUT=(process.env.OUT||require('os').homedir()+'/scout-scenes/home-check/').replace(/\/?$/,'/');
 fs.mkdirSync(OUT,{recursive:true});
@@ -90,6 +92,52 @@ const fold=p=>p.evaluate(()=>{const R=s=>{const e=document.querySelector(s);retu
       const s3=await q.evaluate(()=>({on:(document.querySelector('#styleTabs .hm-tab.on')||{}).dataset.style, url:location.search}));
       ok('?style= открывает этот стиль, lang сохраняется',s3.on===id&&/lang=ru/.test(s3.url),JSON.stringify(s3));
       await q.context().close();
+    }
+    // ИЗБРАННОЕ — ЭКРАН (demo-17): пустой по ссылке `#fav`; с главной — ♡ N / строка / «Перейти →», «← Назад» — та же прокрутка
+    for(const vp of VPS){const [W,H]=vp, tag=W+'x'+H;
+      const p=await page(b,vp,'?live=force#fav');
+      const scr=()=>p.evaluate(()=>{const s=document.getElementById('screen-fav'), w=document.querySelector('.wrap'), cs=getComputedStyle(w);
+        return {fav:!s.hidden, home:!document.getElementById('screen-room').hidden, win:document.getElementById('shot').classList.contains('on'),
+          back:!!document.getElementById('favBack').offsetParent, empty:!!document.getElementById('favEmpty').offsetParent, title:document.getElementById('favTitle').textContent,
+          cards:document.querySelectorAll('#favGrid .favcard').length, sec:!!document.getElementById('favSec'), tabs:!document.getElementById('styleTabs').hidden,
+          w:Math.round(s.getBoundingClientRect().width), col:Math.round(w.getBoundingClientRect().width-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight)),
+          hScroll:document.documentElement.scrollWidth>innerWidth, y:Math.round(scrollY), hash:location.hash, len:history.length};});
+      const e0=await scr();
+      ok(`${tag}: ссылка #fav без избранного — экран «Пока пусто» с «← Назад», вкладок стилей нет`,e0.fav&&e0.empty&&e0.back&&!e0.tabs&&!e0.sec,JSON.stringify(e0));
+      await p.screenshot({path:OUT+`home-${tag}-5-fav-empty.png`});
+      await p.click('#favBack'); await p.waitForTimeout(500);
+      const e1=await scr();
+      ok(`${tag}: «← Назад» с пустого экрана — главная`,e1.home&&!e1.fav,JSON.stringify({home:e1.home,hash:e1.hash}));
+      // ♡ в окне → поле имени: фокус и каретка в конце сразу после тапа
+      await p.click('#hmRooms .hm-room [data-swap]'); await p.waitForSelector('#vFav',{state:'visible',timeout:30000}); await p.waitForTimeout(800);
+      await p.click('#vFav');
+      const c=await p.evaluate(()=>{const i=document.getElementById('favName'); return {focus:!!i&&document.activeElement===i, start:i?i.selectionStart:-1, end:i?i.selectionEnd:-1, len:i?i.value.length:-1, v:i?i.value:''};});
+      ok(`${tag}: тап по ♡ — поле имени в фокусе сразу, каретка в конце`,c.focus&&c.start===c.len&&c.end===c.len&&c.len>0,JSON.stringify(c));
+      await p.screenshot({path:OUT+`home-${tag}-6-name.png`});
+      await p.click('#favOk'); await p.waitForFunction("window.__basket.state().favorites.length>0&&!document.querySelector('#favPop #favName')",null,{timeout:30000}).catch(()=>{}); await p.waitForTimeout(1200);
+      await p.evaluate(()=>{const x=document.getElementById('shotx'); if(document.getElementById('shot').classList.contains('on'))x.click();}); await p.waitForTimeout(600);
+      const row=await p.evaluate(()=>({row:!document.getElementById('favHead').hidden, n:document.getElementById('favRowN').textContent, sec:!!document.getElementById('favSec'), badge:document.getElementById('hmFavN').textContent}));
+      ok(`${tag}: на главной строка «♥ Избранное · 1» (ссылка), раскрывающейся секции нет`,row.row&&row.n==='· 1'&&!row.sec&&row.badge==='1',JSON.stringify(row));
+      // ♡ N с прокрученной главной → экран; «← Назад» — та же прокрутка; «вперёд» — экран
+      await p.evaluate(()=>scrollTo(0,Math.min(420,document.documentElement.scrollHeight-innerHeight))); await p.waitForTimeout(400);
+      const y0=await p.evaluate(()=>Math.round(scrollY));
+      await p.click('#hmFav'); await p.waitForTimeout(700);
+      const f1=await scr();
+      ok(`${tag}: ♡ N → экран «Избранное · 1» с карточкой, на ширину колонки, адрес #fav`,f1.fav&&!f1.home&&f1.back&&f1.title.endsWith('· 1')&&f1.cards===1&&Math.abs(f1.w-f1.col)<=2&&!f1.hScroll&&f1.hash==='#fav',JSON.stringify(f1));
+      await p.screenshot({path:OUT+`home-${tag}-7-fav.png`});
+      await p.click('#favBack'); await p.waitForTimeout(900);
+      const f2=await scr();
+      ok(`${tag}: «← Назад» — главная на той же прокрутке`,f2.home&&!f2.fav&&Math.abs(f2.y-y0)<=2,JSON.stringify({y0,y:f2.y,home:f2.home}));
+      await p.goForward(); await p.waitForTimeout(900);
+      const f3=await scr();
+      ok(`${tag}: «вперёд» браузера — снова экран избранного`,f3.fav&&!f3.home,JSON.stringify({fav:f3.fav}));
+      await p.goBack(); await p.waitForTimeout(900);
+      // строка на главной — тоже на экран
+      await p.click('#favRowBtn'); await p.waitForTimeout(700);
+      const f4=await scr();
+      ok(`${tag}: строка «Избранное» на главной → экран, без лишней записи истории`,f4.fav&&f4.len===f3.len,JSON.stringify({fav:f4.fav,len:f4.len,was:f3.len}));
+      ok(`${tag}: без ошибок страницы (избранное)`,!p.errs.length,p.errs.slice(0,2).join(' | '));
+      await p.context().close();
     }
     // EN: первый экран без кириллицы
     const e=await page(b,[390,844],'?lang=en');

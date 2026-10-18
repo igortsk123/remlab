@@ -185,21 +185,28 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .hm-stub span{font-size:12.5px;color:var(--muted);white-space:nowrap}
 /* корзина: строки под шкалой — доплаты застройщику и неполный итог (вне сертификата, в «остаток» не входят) */
 .hm-cert .dev{font-size:12px;color:var(--muted);margin-top:3px;white-space:normal}
-/* ИЗБРАННОЕ — свёрнутая строка + раскрываемый раздел (demo-16 шаг 2) */
-.hm-fav-row{margin:6px 0 0;scroll-margin-top:calc(var(--hm-hd) + 8px)}   /* «Перейти →» прокручивает сюда — не под липкую строку */.hm-fav-row[hidden],.hm-fav-sec[hidden]{display:none}
+/* ИЗБРАННОЕ — строка-ссылка на главной (demo-16 шаг 2) и отдельный экран `#screen-fav` (demo-17) */
+.hm-fav-row{margin:6px 0 0}.hm-fav-row[hidden]{display:none}
 .hm-fav-btn{width:100%;min-height:40px;display:flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--line);border-radius:var(--radius-sm,10px);
   background:var(--surface);color:var(--ink);font:inherit;font-size:14px;cursor:pointer;text-align:left}
 .hm-fav-btn .h{white-space:nowrap}.hm-fav-btn .h b{font-weight:700}.hm-fav-btn .h{color:var(--accent)}.hm-fav-btn .h b,.hm-fav-btn #favRowN{color:var(--ink)}
 .hm-fav-btn .s{flex:1;min-width:0;color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hm-fav-btn .chev{transition:transform .2s;color:var(--muted)}.hm-fav-btn[aria-expanded="true"] .chev{transform:rotate(90deg)}
-.hm-fav-sec{margin:6px 0 2px;padding:8px 0 4px}
+.hm-fav-btn .chev{color:var(--muted)}
+/* на экране избранного — только строка квартиры (липкая, ♡ N) и шкала сертификата: остальное первого экрана скрыто, как на плане */
+body.on-fav #flatPrice,body.on-fav #payInfoTxt,body.on-fav #favHead{display:none!important}
+#screen-fav{padding:4px 0 18px}
+.fv-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:6px 0 8px}
+.fv-top .hm-back{margin:0;min-height:40px;display:inline-flex;align-items:center}
+.fv-h{display:flex;flex-direction:column;min-width:0;flex:1}
+.fv-h b{font-size:17px}.fv-h .s{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fv-empty{margin:18px 0;color:var(--muted);font-size:14.5px}.fv-empty[hidden]{display:none}
 .hm-fav-chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:0 calc(-1*var(--hm-gut));padding:0 var(--hm-gut) 6px}
 .hm-fav-chips::-webkit-scrollbar{display:none}
 .hm-fav-chip{flex:none;height:32px;padding:0 12px;border-radius:16px;border:1px solid var(--line);background:var(--surface);font-size:13.5px;color:var(--ink);cursor:pointer}
 .hm-fav-chip.on{background:var(--ink);border-color:var(--ink);color:#fff;font-weight:600}
-.hm-fav-list{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;margin:0 calc(-1*var(--hm-gut));padding:2px var(--hm-gut) 6px}
-.hm-fav-list::-webkit-scrollbar{display:none}
-.favcard{flex:0 0 min(78vw,300px);scroll-snap-align:start;background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;
+/* карточки — сеткой на ширину колонки: телефон — одна в ряд, шире — сколько поместится */
+.hm-fav-list{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));margin:4px 0 0}
+.favcard{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;
   border:2px solid transparent}
 .favcard.inc{border-color:var(--accent)}
 .favcard .fph{position:relative;aspect-ratio:3/2;background:var(--wash-2);cursor:pointer}
@@ -826,17 +833,23 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 <!-- СЕРТИФИКАТ ОДНОЙ СТРОКОЙ (владелец 18.10: шкала — только здесь, не в липкой шапке и не на карточке комнаты). Пока корзины нет
      (demo-16 шаг 2) — «0 включено»: остаток = весь сертификат -->
 <div class="hm-cert" id="hmCert" hidden></div>
-<!-- ИЗБРАННОЕ = КОРЗИНА СЕРТИФИКАТА (demo-16 шаг 2, план §3): свёрнутой строкой под сертификатом — глобальное, через все стили; тап
-     раскрывает: комнаты (группы) → варианты с переключателем «Включить в сертификат» (ровно один на комнату). Пусто — строки нет,
-     первый экран как в макете A -->
-<div class="hm-fav-row" id="favHead" hidden><button class="hm-fav-btn" id="favRowBtn" type="button" aria-expanded="false" aria-controls="favSec">
+<!-- ИЗБРАННОЕ = КОРЗИНА СЕРТИФИКАТА (demo-16 шаг 2, план §3): строкой под сертификатом — глобальное, через все стили. Строка — ссылка
+     на ОТДЕЛЬНЫЙ ЭКРАН `#screen-fav` (demo-17, владелец 18.10: «подразделом, а не развёртывать — это может попутать человека»).
+     Пусто — строки нет, первый экран как в макете A -->
+<div class="hm-fav-row" id="favHead" hidden><button class="hm-fav-btn" id="favRowBtn" type="button" aria-controls="screen-fav">
   <span class="h">♥ <b data-t="fav">Избранное</b> <span id="favRowN"></span></span><span class="s" id="favRowSub"></span><span class="chev" aria-hidden="true">›</span></button></div>
-<section class="hm-fav-sec" id="favSec" hidden aria-label="Избранное">
-  <div class="hm-fav-chips" id="favChips" role="tablist"></div>
-  <div class="hm-fav-list" id="favGrid"></div>
-</section>
 <p class="hm-hint" id="hmHint">Подобрали вашу квартиру в разных стилях. Можете менять мебель, отделку и встраиваемое.</p>
 <nav class="hm-tabs" id="styleTabs" role="tablist" aria-label="Стили"></nav>
+
+<!-- ЭКРАН «ИЗБРАННОЕ» (demo-17): «← Назад» возвращает туда, откуда пришли (окно варианта в том же виде или главную на той же
+     прокрутке — запись истории demo-16 шаг 3); комнаты (группы) → варианты с «Включить в сертификат» (ровно один на комнату) -->
+<section id="screen-fav" hidden aria-labelledby="favTitle">
+  <div class="fv-top"><a class="hm-back" id="favBack" href="#room">← Назад</a>
+    <div class="fv-h"><b id="favTitle">Избранное</b><span class="s" id="favSub"></span></div></div>
+  <div class="hm-fav-chips" id="favChips" role="tablist"></div>
+  <div class="hm-fav-list" id="favGrid"></div>
+  <p class="fv-empty" id="favEmpty" hidden>Пока пусто — сердечко в окне расстановки</p>
+</section>
 
 <section id="screen-plan" hidden>
   <a class="hm-back" id="planBack" href="#room">← К стилям</a>
@@ -1026,7 +1039,8 @@ function init(){
   // ПЛАН КВАРТИРЫ — ССЫЛКОЙ, НЕ ВКЛАДКОЙ (demo-16): вкладки теперь стили; назад — «← К стилям»
   document.querySelectorAll('[data-plan]').forEach(a=>a.onclick=e=>{e.preventDefault(); showTab('plan'); scrollTo(0,0);});
   on('planBack','onclick',e=>{e.preventDefault(); showTab('room');});
-  // ♡ N в строке квартиры — раскрыть «Избранное» (корзину); пусто — подсказка, куда нажать
+  on('favBack','onclick',e=>{e.preventDefault(); favBack();});
+  // ♡ N в строке квартиры — экран «Избранное» (корзина); пусто — подсказка, куда нажать
   on('hmFav','onclick',()=>{const n=window.__fav&&window.__fav.list?window.__fav.list().length:0;
     if(n&&window.__basket)histGoFavs(''); else toast(LANG==='en'?'Favourites are empty for now — tap ♡ on a room':'В избранном пока пусто — нажмите ♡ у комнаты');});
   // ВКЛАДКА ПО УМОЛЧАНИЮ — ГОСТИНАЯ (владелец 02.09: «страница должна открываться сразу на
@@ -1135,13 +1149,21 @@ function drawDoorCtl(){
 
 // ——— вкладки и схема квартиры
 function showTab(which){
-  const room=which==='room';
-  document.getElementById('screen-plan').hidden=room;
+  const room=which==='room', fav=which==='fav';
+  document.getElementById('screen-plan').hidden=which!=='plan';
   document.getElementById('screen-room').hidden=!room;
-  // вкладки стилей и подсказка — только на витрине; на плане квартиры их нет (план — про всю квартиру, не про стиль)
+  document.getElementById('screen-fav').hidden=!fav;
+  // вкладки стилей и подсказка — только на витрине; на плане квартиры и в избранном их нет (план — про всю квартиру, не про стиль)
   ['styleTabs','hmHint'].forEach(id=>{const e=document.getElementById(id); if(e)e.hidden=!room;});
+  document.body.classList.toggle('on-fav',fav);   // экран избранного: строка ЖК, кнопки и строка «Избранное» скрыты (CSS)
   syncHash(which);
   if(room){draw(); drawHome();}
+  if(fav&&window.__fav)window.__fav.draw();
+}
+// какой экран показан: витрина, план квартиры или избранное (demo-17)
+function curScreen(){
+  if(!document.getElementById('screen-fav').hidden)return 'fav';
+  return document.getElementById('screen-room').hidden?'plan':'room';
 }
 const ROOM_PREVIEWS=false;              // прежние «оживления» кухни и спальни (b2b-10 этап 0) — выключены; неготовые комнаты — заглушки главной
 // ——— АДРЕС ВАРИАНТА (владелец 08.09: «чтоб каждая модалка со ссылкой была, чтоб кидать мог»).
@@ -1149,6 +1171,7 @@ const ROOM_PREVIEWS=false;              // прежние «оживления»
 // вариант и его фотографию, а не общую витрину. `#plan` (план квартиры) работает как прежде.
 function hashFor(which){
   if(which==='plan')return '#plan';
+  if(which==='fav')return '#fav';
   const vid=curVid();
   if(/^c:[A-Za-z0-9_-]{22}$/.test(vid||''))return '#c='+vid.slice(2);   // коллекция покупателя — своя ссылка
   return vid?('#v='+encodeURIComponent(vid)):'#room';
@@ -1158,7 +1181,7 @@ function syncHash(which){
   // ссылка на коллекцию, которая ещё в пути с сервера: `#c=` не подменяем вариантом каталога (иначе при сбое загрузки ссылка потеряна; Codex 18.10)
   const pc=String(location.hash||'').match(/^#c=([A-Za-z0-9_-]{22})$/);
   if(pc&&!allVariants().some(v=>v.cid===pc[1]))return;
-  const h=hashFor(which||(document.getElementById('screen-room').hidden?'plan':'room'));
+  const h=hashFor(which||curScreen());
   if(location.hash!==h)history.replaceState(history.state,'',h);   // запись истории (снимок вида, demo-16 шаг 3) не стираем
 }
 const SHARE_SVG='<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1"/></svg>';
@@ -1189,9 +1212,12 @@ function copyLink(vid,btn){
 // АДРЕС → ЭКРАН. Вызывается при старте и при смене адреса (в том числе кнопкой «назад»).
 function applyHash(){
   if(Date.now()-NAV.restoring<800)return;   // «назад» по истории: вид восстановлен `restoreView` (demo-16 шаг 3)
-  // перезагрузка страницы на записи «избранное» (шаг 3, Codex 18.10): раздел раскрывается, окно варианта не открываем
-  if(!window.__EMBED&&history.state&&history.state.remlab&&history.state.view==='favorites'){showTab('room');
-    const st=history.state; setTimeout(()=>{if(window.__basket)window.__basket.open(st.room||'');},0); return;}
+  // перезагрузка на записи «избранное» (шаг 3, Codex 18.10) или ссылка `#fav` (demo-17): экран избранного, окно варианта не открываем.
+  // Ссылка без записи — запись «избранное» ставится сразу (♡ N на этом экране не плодит новую); «← Назад» тогда ведёт на главную
+  const fst=history.state&&history.state.remlab&&history.state.view==='favorites'?history.state:null;
+  if(!window.__EMBED&&(fst||location.hash==='#fav')){
+    if(!fst)try{history.replaceState({remlab:1, view:'favorites', room:'', y:0},'');}catch(e){}
+    const room=fst&&fst.room||''; showTab('fav'); setTimeout(()=>{if(window.__basket)window.__basket.open(room);},0); return;}
   const c=String(location.hash||'').match(/^#c=([A-Za-z0-9_-]{22})$/);
   if(c){   // коллекция: пока не пришла с сервера — её откроет блок коллекций (номер запомнен в <head>)
     const i=allVariants().findIndex(v=>v.cid===c[1]);
@@ -3254,6 +3280,8 @@ function drawHome(force){
 const NAV={restoring:0, t:0};   // не путать с `HIST` — историей расстановок окна
 function viewSnap(){
   const sh=document.getElementById('shot'), on=!!(sh&&sh.classList.contains('on')&&sh.classList.contains('v2'));
+  // окно закрыто — главная или экран избранного (demo-17: закрыли окно, открытое с карточки избранного, — под ним избранное)
+  if(!on&&curScreen()==='fav')return {view:'favorites', room:(window.__basket&&window.__basket.sel())||'', y:Math.round(scrollY)};
   if(!on)return {view:'home', y:Math.round(scrollY)};
   const v=allVariants()[cur]||{}, sd=document.getElementById('vside'), sc=document.getElementById('vscroll');
   return {view:'variant', vid:v.id||'', mode:VW.mode, photo:VW.photo, free:!!VW.free, sheet:sd?+sd.dataset.pos||0:0,
@@ -3262,16 +3290,30 @@ function viewSnap(){
 function histKeep(){ if(window.__EMBED)return;
   if(Date.now()-NAV.restoring<800){clearTimeout(NAV.t); NAV.t=setTimeout(histKeep,850-(Date.now()-NAV.restoring)); return;}   // идёт восстановление — записать после
   const st=history.state||{}, snap=viewSnap();
-  // запись «избранное» остаётся избранным: окно закрылось при переходе — меняется только прокрутка (самопроверка 18.10)
-  if(st.view==='favorites'&&snap.view==='home'){snap.view='favorites'; snap.room=st.room||'';}
   try{history.replaceState(Object.assign({},st,snap,{remlab:1}),'');}catch(e){} }
 function histKeepSoon(){ clearTimeout(NAV.t); NAV.t=setTimeout(histKeep,250); }
+// ЭКРАН «ИЗБРАННОЕ» (demo-17): новая запись истории `#fav`; `back` — сколько записей назад то место, откуда пришли (окно, открытое
+// с карточки избранного, — своя запись поверх: см. `histFromFav`). `NAV.favFrom` — экран открыт в этой загрузке страницы
 function histGoFavs(roomId){
-  const pl=document.getElementById('screen-plan'); if(pl&&!pl.hidden)showTab('room');   // ♡ со страницы плана — избранное на главной
   const st=history.state||{};
   if(!window.__EMBED&&!(st.remlab&&st.view==='favorites')){   // уже в записи «избранное» — новую не плодим
-    histKeep(); try{history.pushState({remlab:1, view:'favorites', room:roomId||'', y:0},'');}catch(e){}}
+    histKeep(); try{history.pushState({remlab:1, view:'favorites', room:roomId||'', y:0, back:1},'','#fav'); NAV.favFrom=1;}catch(e){}}
   if(window.__basket)window.__basket.open(roomId);
+}
+// окно варианта с экрана избранного — своя запись: «назад» браузера из окна — снова избранное; закрыли «×» — запись становится
+// избранным (`viewSnap`), а «← Назад» экрана уходит на `back` записей — туда, откуда пришли в избранное
+function histFromFav(){
+  if(window.__EMBED||curScreen()!=='fav')return;
+  const st=history.state||{}; histKeep();
+  try{history.pushState({remlab:1, view:'variant', fromFav:1, back:(st.back||1)+1},'');}catch(e){}
+}
+// «← Назад» экрана избранного: открыт в этой загрузке — браузерный «назад» (окно в том же виде или главная на той же прокрутке);
+// пришли по ссылке, после перезагрузки или во встройке — на главную
+function favBack(){
+  const st=history.state||{};
+  if(!window.__EMBED&&NAV.favFrom&&st.remlab&&st.view==='favorites'){history.go(-(st.back||1)); return;}
+  if(!window.__EMBED)try{history.replaceState({remlab:1, view:'home', y:0},'');}catch(e){}
+  showTab('room'); scrollTo(0,0);
 }
 // восстановить вид записи: окно варианта — тот же вариант, режим, ракурс, шторка, прокрутка списка; избранное; главная
 function restoreView(s){
@@ -3289,7 +3331,10 @@ function restoreView(s){
     if(VW_PHONE()&&typeof s.sheet==='number')vwSheet(s.sheet);
     setTimeout(()=>{const sc=document.getElementById('vscroll'); if(sc&&s.list)sc.scrollTop=s.list;},VW_SLOW()?40:380);},120);
 }
-window.addEventListener('popstate',e=>{const s=e.state; if(s&&s.remlab)restoreView(s);});
+// окно варианта из записи, открытой НЕ с избранного, — над главной: экран избранного под ним убираем (иначе «×» покажет избранное)
+window.addEventListener('popstate',e=>{const s=e.state; if(!s||!s.remlab)return;
+  if(s.view==='variant'&&!s.fromFav&&curScreen()==='fav')showTab('room');
+  restoreView(s);});
 // ♡ N в строке квартиры: сколько расстановок в избранном (корзина — demo-16 шаг 2)
 function homeFavUi(){
   const b=document.getElementById('hmFavN'); if(!b)return;
@@ -5826,7 +5871,7 @@ async function liveShow(){
   // ТЕКУЩЕГО номера состояния (изменил расстановку — снова контурное, корзина не меняется, пока не добавил заново)
   var FKEY='remlab-favorites';                       // прежний общий список demo-15 — только читаем для переноса
   var BKP='remlab-basket:v2:', MIGK='remlab-favorites-v2done';
-  var BK={mod:null, b:null, apt:'', cur:'', limit:0, sel:'', open:false, wait:[]};
+  var BK={mod:null, b:null, apt:'', cur:'', limit:0, sel:'', wait:[]};
   // корзина ещё не открыта (модуль или карточка квартиры в пути) — действие ждёт её, а не теряется (Codex 18.10)
   function whenBasket(fn){ if(BK.mod&&BK.b)fn(); else BK.wait.push(fn); }
   // к переносу — список demo-15 и «свои» коллекции ещё более старого формата (до demo-15 сердечка не было; Codex п.11)
@@ -5946,7 +5991,7 @@ async function liveShow(){
     var i=allVariants().findIndex(function(x){return x.cid===id;});
     // сохранили только что с главной — коллекция ещё в пути с сервера (`afterSave`): ждём её до ~6 с (Codex 18.10)
     if(!on&&i<0){if((tries||0)<20)setTimeout(function(){editLayout(id,(tries||0)+1);},300); return;}
-    if(!on)vwOpenVariant(i);
+    if(!on){histFromFav(); vwOpenVariant(i);}
     setTimeout(function(){try{if(VW_PHONE())vwSheet(3);}catch(_){}},on?0:600);
   }
   function overText(n){return (EN()?'Could not add it to the allowance: the total is over by ':'Добавить в сертификат не получилось — превышена сумма на ')+fmtCard(n);}
@@ -6050,7 +6095,9 @@ async function liveShow(){
       (isNew?'':'<button class="lnk favdel" id="favDel" type="button">'+(EN()?'Remove from favourites':'Убрать из избранного')+'</button>')+'</div>';
     document.body.appendChild(el);
     var inp=document.getElementById('favName'), close=function(){el.remove();};
-    setTimeout(function(){try{inp.focus(); inp.select();}catch(_){}} ,30);
+    // ФОКУС СРАЗУ, В ТОМ ЖЕ ТАПЕ (demo-17, владелец 18.10): iPhone открывает клавиатуру только для фокуса внутри жеста — прежний
+    // `setTimeout` её не открывал; каретка в конце имени («Гостиная #1|» — дописать), без выделения всего текста
+    try{inp.focus(); var n=inp.value.length; inp.setSelectionRange(n,n);}catch(_){}
     el.addEventListener('click',function(ev){if(ev.target===el)close();});
     document.getElementById('favNo').onclick=close;
     var ok=document.getElementById('favOk');
@@ -6070,29 +6117,33 @@ async function liveShow(){
     sh.setAttribute('aria-label',EN()?'Share':'Поделиться');
     h.onclick=toggle; sh.onclick=share;
   }
-  // «Перейти →»: окно закрывается, раздел «Избранное» раскрыт на этой комнате (возврат «назад» с состоянием окна — шаг 3)
+  // «Перейти →», ♡ N, строка на главной: окно закрывается, экран «Избранное» на этой комнате (запись истории — `histGoFavs`)
   function openFavs(roomId){
     var x=document.getElementById('shotx'); if(x&&document.getElementById('shot').classList.contains('on'))x.click();
-    BK.open=true; if(roomId)BK.sel=roomId; favDraw();
-    var h=document.getElementById('favHead'); if(h&&!h.hidden)setTimeout(function(){h.scrollIntoView({behavior:'smooth',block:'start'});},60);
+    if(roomId)BK.sel=roomId;
+    showTab('fav'); scrollTo(0,0);
   }
-  // РАЗДЕЛ «ИЗБРАННОЕ» (demo-16 шаг 2): свёрнутая строка под сертификатом; раскрыт — комнаты (группы, в порядке плана) и варианты
-  // выбранной комнаты; у каждого — «Включить в сертификат» (ровно один на комнату), «Открыть», «поделиться», «⋯»
+  // ИЗБРАННОЕ (demo-16 шаг 2; экраном — demo-17): строка-ссылка под сертификатом на главной; экран — комнаты (группы, в порядке плана)
+  // и варианты выбранной комнаты; у каждого — «Включить в сертификат» (ровно один на комнату), «Открыть», «поделиться», «⋯»
   function favDraw(){
     try{if(typeof drawHome==='function')drawHome();}catch(_){}
-    var head=document.getElementById('favHead'), sec=document.getElementById('favSec'), grid=document.getElementById('favGrid'), chips=document.getElementById('favChips');
-    if(!head||!grid||!sec||!chips)return;
+    var head=document.getElementById('favHead'), grid=document.getElementById('favGrid'), chips=document.getElementById('favChips');
+    if(!head||!grid||!chips)return;
     var l=favs(); head.hidden=!l.length;
-    if(!l.length){sec.hidden=true; grid.innerHTML=''; chips.innerHTML=''; return;}
+    document.getElementById('favRowBtn').onclick=function(){histGoFavs(BK.sel||'');};
+    document.getElementById('favTitle').textContent=(EN()?'Favourites':'Избранное')+(l.length?' · '+l.length:'');
+    document.getElementById('favBack').textContent=EN()?'← Back':'← Назад';
+    var empty=document.getElementById('favEmpty'); empty.hidden=!!l.length||!BK.b;   // корзина ещё в пути — не «пусто»
+    empty.textContent=EN()?'Nothing here yet — tap the heart in a layout window':'Пока пусто — сердечко в окне расстановки';
+    if(!l.length){grid.innerHTML=''; chips.innerHTML=''; document.getElementById('favSub').textContent=''; return;}
     var e=escHtml, rooms=homeRooms(), inc=BK.b.includedByRoom;
     var groups=rooms.filter(function(r){return l.some(function(f){return f.roomId===r.id;});});
     l.forEach(function(f){if(!groups.some(function(g){return g.id===f.roomId;}))groups.push({id:f.roomId,title:f.roomId});});
     if(!groups.some(function(g){return g.id===BK.sel;}))BK.sel=groups[0].id;
     document.getElementById('favRowN').textContent='· '+l.length;
     var nInc=Object.keys(inc).length;
-    document.getElementById('favRowSub').textContent=nInc?((EN()?'in the allowance: ':'в сертификате: ')+groups.filter(function(g){return inc[g.id];}).map(function(g){return g.title;}).join(', ')):(EN()?'nothing in the allowance yet':'в сертификат пока ничего не включено');
-    var btn=document.getElementById('favRowBtn'); btn.setAttribute('aria-expanded',String(!!BK.open)); sec.hidden=!BK.open;
-    btn.onclick=function(){BK.open=!BK.open; favDraw();};
+    var sub=nInc?((EN()?'in the allowance: ':'в сертификате: ')+groups.filter(function(g){return inc[g.id];}).map(function(g){return g.title;}).join(', ')):(EN()?'nothing in the allowance yet':'в сертификат пока ничего не включено');
+    document.getElementById('favRowSub').textContent=sub; document.getElementById('favSub').textContent=sub;
     chips.innerHTML=groups.map(function(g){var n=l.filter(function(f){return f.roomId===g.id;}).length;
       return '<button class="hm-fav-chip'+(g.id===BK.sel?' on':'')+'" type="button" role="tab" aria-selected="'+(g.id===BK.sel)+'" data-froom="'+e(g.id)+'">'+e(g.title)+' · '+n+'</button>';}).join('');
     chips.querySelectorAll('[data-froom]').forEach(function(b){b.onclick=function(){BK.sel=b.dataset.froom; favDraw();};});
@@ -6114,7 +6165,7 @@ async function liveShow(){
         '<button class="iconbtn" type="button" data-fshare="'+e(f.favoriteId)+'" aria-label="'+(EN()?'Share':'Поделиться')+'">'+SHARE_SVG+'</button>'+
         '<button class="iconbtn" type="button" data-fmore="'+e(f.favoriteId)+'" aria-label="'+(EN()?'Rename or remove':'Переименовать или убрать')+'">⋯</button></div></div></div>';}).join('');
     grid.querySelectorAll('[data-fopen]').forEach(function(b){b.onclick=function(){var id=b.dataset.fopen, i=allVariants().findIndex(function(x){return x.cid===id;});
-      if(i>=0)vwOpenVariant(i); else location.hash='#c='+id;};});
+      if(i>=0){histFromFav(); vwOpenVariant(i);} else location.hash='#c='+id;};});
     grid.querySelectorAll('[data-finc]').forEach(function(b){b.onchange=function(){includeFav(b.dataset.finc);};});
     grid.querySelectorAll('[data-fshare]').forEach(function(b){b.onclick=function(ev){ev.stopPropagation(); var f=favOf(b.dataset.fshare); if(f)shareOpenUrl(collUrl(f.favoriteId),f.displayName);};});
     grid.querySelectorAll('[data-fmore]').forEach(function(b){b.onclick=function(ev){ev.stopPropagation(); var f=favOf(b.dataset.fmore); if(!f)return;
@@ -6126,7 +6177,8 @@ async function liveShow(){
     preview:function(){ if(!BK.mod||!BK.b)return null; var v=allVariants()[cur]||{}, room=roomOfV(v), q=draftQuote(); if(!q)return null;
       var p=BK.mod.preview(BK.b,room.id,q,BK.limit), f=ofState(curStateId());
       return {base:p.base, with:p.with, room:room, included:!!(f&&BK.b.includedByRoom[room.id]===f.favoriteId), hasIncluded:!!BK.b.includedByRoom[room.id]};},
-    open:openFavs, close:function(){BK.open=false; favDraw();}, state:function(){return BK.b;}, limit:function(){return BK.limit;}};
+    open:openFavs, close:function(){if(curScreen()==='fav')showTab('room');}, sel:function(){return BK.sel;},
+    state:function(){return BK.b;}, limit:function(){return BK.limit;}};
   window.__fav={list:function(){return favs().map(function(f){return Object.assign({collectionId:f.favoriteId},f);});},
     ofState:ofState, baseState:baseState, toggle:toggle, share:share, shareUrl:shareUrl, shareUrlOpen:shareOpenUrl,
     ui:favUi, draw:favDraw, save:save, rename:rename, remove:removeFav, include:includeFav, exclude:excludeFav, defaultName:defaultName};

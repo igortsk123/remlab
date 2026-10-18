@@ -393,7 +393,7 @@ test("2.35 корзина: 0 на старте; первая гостиная в
   await o.ctx.close();
 });
 
-test("2.36 возврат «назад»: «Перейти →» из окна — избранное; «назад» — то же окно, ракурс и шторка; «вперёд» — избранное", async ({ browser }) => {
+test("2.36 возврат «назад»: «Перейти →» из окна — экран избранного; «назад» — то же окно, ракурс и шторка; «вперёд» — избранное", async ({ browser }) => {
   test.setTimeout(4 * 60_000);
   const { ctx, page } = await phonePage(browser, "?live=force");
   await page.locator("#hmRooms .hm-room [data-swap]").click();
@@ -403,7 +403,7 @@ test("2.36 возврат «назад»: «Перейти →» из окна �
   await page.waitForTimeout(700);
   const before = await page.evaluate("({vid: allVariants()[cur].id, photo: VW.photo, sheet: document.getElementById('vside').dataset.pos})");
   await page.evaluate("histGoFavs('living')");
-  await expect(page.locator("#favSec")).toBeVisible();
+  await expect(page.locator("#screen-fav")).toBeVisible();
   await expect(page.locator("#shot")).not.toHaveClass(/\bon\b/);
   await page.goBack();
   await expect(page.locator("#shot")).toHaveClass(/\bon\b/, { timeout: 20_000 });
@@ -413,7 +413,50 @@ test("2.36 возврат «назад»: «Перейти →» из окна �
   expect(back).toEqual(before);
   await page.goForward();
   await expect(page.locator("#shot")).not.toHaveClass(/\bon\b/, { timeout: 20_000 });
-  await expect(page.locator("#favSec")).toBeVisible();
+  await expect(page.locator("#screen-fav")).toBeVisible();
+  await ctx.close();
+});
+
+// 2.38 (demo-17, владелец 18.10): избранное — отдельный экран с «← Назад» туда, откуда добавили; поле имени — курсор в конце сразу
+test("2.38 избранное — экран: ♡ → курсор в конце имени; «Перейти →» — экран с «← Назад»; «← Назад» — то же окно; «Открыть» → «назад» — экран", async ({ browser }) => {
+  test.setTimeout(4 * 60_000);
+  const { ctx, page } = await phonePage(browser, "?live=force");
+  await page.locator("#hmRooms .hm-room [data-swap]").click();
+  await page.waitForSelector("#vFav:visible");
+  await page.locator("#vFav").click();
+  // фокус в том же тапе (иначе iPhone не откроет клавиатуру), каретка в конце, без выделения
+  const caret = await page.evaluate("(() => { const i = document.getElementById('favName'); return { focus: document.activeElement === i, start: i.selectionStart, end: i.selectionEnd, len: i.value.length }; })()") as { focus: boolean; start: number; end: number; len: number };
+  say("поле имени:", JSON.stringify(caret));
+  expect(caret.focus).toBe(true);
+  expect(caret.len).toBeGreaterThan(0);
+  expect([caret.start, caret.end]).toEqual([caret.len, caret.len]);
+  await page.locator("#favOk").click();
+  await page.waitForFunction("!document.querySelector('#favPop #favName')", null, { timeout: 30_000 });
+  await page.waitForTimeout(1200);
+  await page.evaluate("vwCamGo(1); vwSheet(1)");
+  await page.waitForTimeout(700);
+  const view = "({vid: allVariants()[cur].id, photo: VW.photo, sheet: document.getElementById('vside').dataset.pos})";
+  const before = await page.evaluate(view);
+  await page.evaluate("histGoFavs('living')");   // как «Перейти →» тоста
+  await expect(page.locator("#screen-fav")).toBeVisible();
+  await expect(page.locator("#favBack")).toBeVisible();
+  await expect(page.locator("#favSec")).toHaveCount(0);   // раскрывающейся секции на главной больше нет
+  await expect(page.locator("#favTitle")).toHaveText(/Избранное · 1/);
+  expect(await page.evaluate("location.hash")).toBe("#fav");
+  await page.locator("#favBack").click();
+  await expect(page.locator("#shot")).toHaveClass(/\bon\b/, { timeout: 20_000 });
+  await page.waitForTimeout(1500);
+  const back = await page.evaluate(view);
+  say("до:", JSON.stringify(before), "после «← Назад»:", JSON.stringify(back));
+  expect(back).toEqual(before);
+  // «Открыть» с карточки — окно; «назад» браузера — снова экран избранного
+  await page.evaluate("histGoFavs('living')");
+  await expect(page.locator("#screen-fav")).toBeVisible();
+  await page.locator("#favGrid .favcard .acts [data-fopen]").click();
+  await expect(page.locator("#shot")).toHaveClass(/\bon\b/, { timeout: 20_000 });
+  await page.goBack();
+  await expect(page.locator("#shot")).not.toHaveClass(/\bon\b/, { timeout: 20_000 });
+  await expect(page.locator("#screen-fav")).toBeVisible();
   await ctx.close();
 });
 

@@ -2,7 +2,8 @@ const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.
 // КОРЗИНА СЕРТИФИКАТА (план demo-16 шаг 2, «Решения владельца 18.10»): 0 на старте; первый вариант комнаты включается сам; второй — вопрос
 // «вместо «Гостиная #1»? Да/Нет»; в избранном — группы по комнатам и переключатель «Включить в сертификат» с пересчётом шкалы; окно —
 // «Остаток с этой гостиной» на той же полосе; не влезает — в избранное без включения, «превышена сумма на N» и «Изменить расстановку»
-// (лимит подменяется ответом карточки квартиры, страница не трогается); перенос избранного demo-15. Платного пути нет.
+// (лимит подменяется ответом карточки квартиры, страница не трогается); перенос избранного demo-15. Избранное — отдельный экран
+// `#screen-fav` с «← Назад» туда, откуда пришли; поле имени — фокус и каретка в конце сразу после тапа по ♡ (demo-17). Платного пути нет.
 //   BASE=https://remont-lab.online/test/share/demo-stage/ OUT=~/scout-scenes/<сессия>/ node tools/ops/demo-walk/basket-check.cjs 375x667
 const BASE=process.env.BASE||'https://remont-lab.online/demo/', OUT=(process.env.OUT||require('os').homedir()+'/scout-scenes/basket-check/').replace(/\/?$/,'/');
 fs.mkdirSync(OUT,{recursive:true});
@@ -17,6 +18,7 @@ async function page(b,o={}){
   await p.route(/\/api\/job\?/,r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({status:'running',eta:30})}));
   if(o.limit)await p.route(/\/api\/apartments\//,async r=>{const res=await r.fetch(); const j=await res.json(); if(j.card&&j.card.certificate)j.card.certificate.amount=o.limit;
     await r.fulfill({response:res,body:JSON.stringify(j),headers:{...res.headers(),'content-type':'application/json'}});});
+  if(o.embed)await ctx.addInitScript(()=>{window.__EMBED={partner:'demo',flat:'flat215',lang:'ru'}; window.__sendFlat='flat215';});   // как `lib/embed/page.ts`
   if(o.seed)await ctx.addInitScript(s=>{try{if(!sessionStorage.getItem('seeded')){localStorage.clear(); Object.entries(s).forEach(([k,v])=>localStorage.setItem(k,v)); sessionStorage.setItem('seeded','1');}}catch(e){}},o.seed);
   await p.goto(BASE+(o.lang==='en'?'?lang=en&':'?')+'live=force',{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT&&!!(window.__basket&&window.__basket.state())",null,{timeout:90000});
@@ -30,7 +32,15 @@ const openWin=async(p,i)=>{await p.evaluate(i=>{pickVariant(i); VW.collapse=true
 const st=p=>p.evaluate(()=>{const b=window.__basket.state(), t=window.__basket.totals();
   return {n:b.favorites.length, inc:b.includedByRoom, names:b.favorites.map(f=>f.displayName), eligible:t.allowanceEligible, complete:t.allowanceComplete,
     cert:+document.getElementById('hmCert').dataset.included, toast:(document.getElementById('toast')||{}).textContent||'', pop:(document.getElementById('favPop')||{}).innerText||''};});
-const saveHeart=async(p)=>{await p.click('#vFav'); await p.waitForSelector('#favName'); const nm=await p.inputValue('#favName'); await p.click('#favOk');
+// фокус в том же тапе (iOS открывает клавиатуру только так): сразу после клика — поле имени активно, каретка в конце, без выделения
+const caret=p=>p.evaluate(()=>{const i=document.getElementById('favName'), a=document.activeElement;
+  return {focus:!!i&&a===i, start:i?i.selectionStart:-1, end:i?i.selectionEnd:-1, len:i?i.value.length:-1};});
+const caretOk=c=>c.focus&&c.start===c.len&&c.end===c.len&&c.len>0;
+const favScr=p=>p.evaluate(()=>({win:document.getElementById('shot').classList.contains('on'), fav:!document.getElementById('screen-fav').hidden,
+  home:!document.getElementById('screen-room').hidden, view:(history.state||{}).view, hash:location.hash, len:history.length, y:Math.round(scrollY),
+  back:!!document.getElementById('favBack').offsetParent, sec:!!document.getElementById('favSec')}));
+let CARET=null;
+const saveHeart=async(p)=>{await p.click('#vFav'); CARET=await caret(p); await p.waitForSelector('#favName'); const nm=await p.inputValue('#favName'); await p.click('#favOk');
   await p.waitForFunction("window.__basket.state().favorites.length>0&&!document.querySelector('#favPop #favName')",null,{timeout:30000}).catch(()=>{}); await p.waitForTimeout(1200); return nm;};
 (async()=>{const b=await pw.chromium.launch({args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
   try{
@@ -58,6 +68,7 @@ const saveHeart=async(p)=>{await p.click('#vFav'); await p.waitForSelector('#fav
     const n1=await saveHeart(p);
     const s1=await st(p);
     ok('имя по комнате «Гостиная #1»',n1==='Гостиная #1',n1);
+    ok('тап по ♡ — поле имени в фокусе сразу, каретка в конце, текст не выделен',caretOk(CARET),JSON.stringify(CARET));
     ok('первый вариант комнаты — включён сам, шкала пересчитана',s1.n===1&&Object.keys(s1.inc).length===1&&s1.eligible>0&&s1.cert===s1.eligible,JSON.stringify({inc:s1.inc,eligible:s1.eligible,cert:s1.cert}));
     ok('тост «Добавлено в избранное · Перейти →»',/Добавлено в избранное/.test(s1.toast)&&/Перейти/.test(s1.toast),s1.toast);
     const plate1=await p.evaluate(()=>document.querySelector('#vsum .vpl-row span').textContent);
@@ -67,23 +78,33 @@ const saveHeart=async(p)=>{await p.click('#vFav'); await p.waitForSelector('#fav
     const before=await p.evaluate(()=>({vid:(allVariants()[cur]||{}).id, photo:VW.photo, sheet:+document.getElementById('vside').dataset.pos, mode:VW.mode}));
     await p.evaluate(()=>{const a=document.querySelector('#toast .toastact'); if(a&&!document.getElementById('toast').hidden)a.click(); else window.__fav&&histGoFavs('living');});
     await p.waitForTimeout(900);
-    const atFav=await p.evaluate(()=>({win:document.getElementById('shot').classList.contains('on'), open:!document.getElementById('favSec').hidden, view:(history.state||{}).view}));
-    await p.goBack(); await p.waitForTimeout(2500);
-    const back=await p.evaluate(()=>({win:document.getElementById('shot').classList.contains('on'), vid:(allVariants()[cur]||{}).id, photo:VW.photo, sheet:+document.getElementById('vside').dataset.pos, mode:VW.mode, view:(history.state||{}).view}));
-    ok('«Перейти →» — избранное раскрыто, окно закрыто (новая запись истории)',!atFav.win&&atFav.open&&atFav.view==='favorites',JSON.stringify(atFav));
-    ok('«назад» — то же окно: вариант, режим, ракурс, шторка',back.win&&back.vid===before.vid&&back.photo===before.photo&&back.mode===before.mode&&(!PHONE||back.sheet===before.sheet),JSON.stringify({before,back}));
+    const atFav=await favScr(p);
+    ok('«Перейти →» — экран «Избранное» с «← Назад», окно закрыто, адрес #fav (новая запись истории); раскрывающейся секции нет',
+      !atFav.win&&atFav.fav&&!atFav.home&&atFav.back&&atFav.view==='favorites'&&atFav.hash==='#fav'&&!atFav.sec,JSON.stringify(atFav));
+    await p.screenshot({path:OUT+W+'-1a-fav-screen.png'});
+    const winNow=()=>p.evaluate(()=>({win:document.getElementById('shot').classList.contains('on'), fav:!document.getElementById('screen-fav').hidden, vid:(allVariants()[cur]||{}).id, photo:VW.photo, sheet:+document.getElementById('vside').dataset.pos, mode:VW.mode, view:(history.state||{}).view}));
+    const same=b=>b.win&&!b.fav&&b.vid===before.vid&&b.photo===before.photo&&b.mode===before.mode&&(!PHONE||b.sheet===before.sheet);
+    await p.click('#favBack'); await p.waitForTimeout(2500);
+    const back=await winNow();
+    ok('«← Назад» экрана — то же окно: вариант, режим, ракурс, шторка',same(back),JSON.stringify({before,back}));
     await p.screenshot({path:OUT+W+'-1b-back.png'});
     await p.goForward(); await p.waitForTimeout(1200);
-    const fwd=await p.evaluate(()=>({win:document.getElementById('shot').classList.contains('on'), open:!document.getElementById('favSec').hidden}));
-    ok('«вперёд» — снова избранное',!fwd.win&&fwd.open,JSON.stringify(fwd));
+    const fwd=await favScr(p);
+    ok('«вперёд» браузера — снова экран избранного',!fwd.win&&fwd.fav,JSON.stringify(fwd));
+    await p.goBack(); await p.waitForTimeout(2500);
+    const back2=await winNow();
+    ok('«назад» браузера с экрана — то же окно',same(back2),JSON.stringify(back2));
+    await p.goForward(); await p.waitForTimeout(1200);
     // перезагрузка на записи «избранное» — избранное, а не окно варианта; ♡ N в той же записи — без новой записи истории (Codex 18.10)
     await p.reload({waitUntil:'load'}); await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT&&!!(window.__basket&&window.__basket.state())",null,{timeout:90000}); await p.waitForTimeout(2000);
-    const rl=await p.evaluate(()=>({win:document.getElementById('shot').classList.contains('on'), open:!document.getElementById('favSec').hidden, view:(history.state||{}).view, len:history.length}));
-    ok('перезагрузка на записи «избранное» — раскрыто избранное, окно не открыто',!rl.win&&rl.open&&rl.view==='favorites',JSON.stringify(rl));
+    const rl=await favScr(p);
+    ok('перезагрузка на #fav — экран избранного, окно не открыто',!rl.win&&rl.fav&&rl.view==='favorites'&&rl.hash==='#fav',JSON.stringify(rl));
     await p.click('#hmFav'); await p.waitForTimeout(400);
     ok('♡ N в записи «избранное» — новой записи истории нет',await p.evaluate(()=>history.length)===rl.len);
+    await p.click('#favBack'); await p.waitForTimeout(800);
+    const rlb=await favScr(p);
+    ok('после перезагрузки «← Назад» — главная',rlb.home&&!rlb.fav&&!rlb.win&&rlb.view==='home',JSON.stringify(rlb));
     // 2) второй вариант той же комнаты — вопрос «вместо …?» → Да
-    await p.evaluate(()=>document.getElementById('shotx').click()); await p.waitForTimeout(400);
     await openWin(p,1);
     await p.click('#vFav'); await p.waitForSelector('#favName'); const n2=await p.inputValue('#favName'); await p.click('#favOk');
     await p.waitForFunction("/вместо/.test((document.getElementById('favPop')||{}).innerText||'')",null,{timeout:30000}).catch(()=>{});
@@ -102,14 +123,29 @@ const saveHeart=async(p)=>{await p.click('#vFav'); await p.waitForSelector('#fav
     await p.click('#favPop button.ghost'); await p.waitForTimeout(600);
     const s3=await st(p);
     ok('«Нет» — в избранном три гостиные, в расчёте по-прежнему вторая',s3.n===3&&s3.inc.living===fav2,JSON.stringify({n:s3.n,inc:s3.inc}));
-    // 4) «Перейти →» из тоста — окно закрыто, «Избранное» раскрыто на гостиных
-    await p.evaluate(()=>{const a=document.querySelector('#toast .toastact'); if(a)a.click(); else window.__basket.open('living');}); await p.waitForTimeout(900);
-    const sec=await p.evaluate(()=>({win:document.getElementById('shot').classList.contains('on'), open:!document.getElementById('favSec').hidden,
+    // 4) «Перейти →» из тоста — окно закрыто, экран «Избранное» на гостиных
+    const from4=await p.evaluate(()=>(allVariants()[cur]||{}).id);
+    await p.evaluate(()=>{const a=document.querySelector('#toast .toastact'); if(a&&!document.getElementById('toast').hidden)a.click(); else histGoFavs('living');}); await p.waitForTimeout(900);
+    const sec=await p.evaluate(()=>({win:document.getElementById('shot').classList.contains('on'), open:!document.getElementById('screen-fav').hidden,
       chips:[...document.querySelectorAll('#favChips [data-froom]')].map(x=>x.textContent), cards:document.querySelectorAll('#favGrid .favcard').length,
       checked:[...document.querySelectorAll('#favGrid [data-finc]')].filter(x=>x.checked).map(x=>x.dataset.finc)}));
-    ok('«Перейти →» — окно закрыто, раздел раскрыт: «Гостиная · 3», три карточки, отмечена одна',!sec.win&&sec.open&&sec.chips.join()==='Гостиная · 3'&&sec.cards===3&&sec.checked.length===1&&sec.checked[0]===fav2,JSON.stringify(sec));
-    await p.evaluate(()=>document.getElementById('favHead').scrollIntoView()); await p.waitForTimeout(300);
+    ok('«Перейти →» — окно закрыто, экран избранного: «Гостиная · 3», три карточки, отмечена одна',!sec.win&&sec.open&&sec.chips.join()==='Гостиная · 3'&&sec.cards===3&&sec.checked.length===1&&sec.checked[0]===fav2,JSON.stringify(sec));
+    const lay=await p.evaluate(()=>{const s=document.getElementById('screen-fav').getBoundingClientRect(), w=document.querySelector('.wrap'), cs=getComputedStyle(w),
+      col=w.getBoundingClientRect().width-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight), cards=[...document.querySelectorAll('#favGrid .favcard')].map(c=>c.getBoundingClientRect());
+      return {w:Math.round(s.width), col:Math.round(col), hScroll:document.documentElement.scrollWidth>innerWidth, out:cards.filter(r=>r.left<s.left-1||r.right>s.right+1).length,
+        perRow:cards.filter(r=>Math.abs(r.top-cards[0].top)<2).length, tabs:!document.getElementById('styleTabs').hidden, top:!!document.getElementById('flatPrice').offsetParent};});
+    ok('экран на ширину колонки, карточки внутри, без горизонтальной прокрутки; вкладок стилей и строки ЖК нет'+(PHONE?', на телефоне — одна карточка в ряд':''),
+      Math.abs(lay.w-lay.col)<=2&&!lay.out&&!lay.hScroll&&!lay.tabs&&!lay.top&&(!PHONE||lay.perRow===1),JSON.stringify(lay));
     await p.screenshot({path:OUT+W+'-3-favs.png'});
+    // 4б) «Открыть» с карточки — окно; «назад» браузера — снова экран избранного; закрыли «×» — экран избранного, «← Назад» — туда, откуда пришли
+    await p.click('#favGrid .favcard .acts [data-fopen]'); await p.waitForFunction("document.getElementById('shot').classList.contains('on')",null,{timeout:30000}); await p.waitForTimeout(1200);
+    await p.goBack(); await p.waitForTimeout(1500);
+    const ob=await favScr(p);
+    ok('«Открыть» с карточки → окно; «назад» браузера → экран избранного',!ob.win&&ob.fav&&ob.view==='favorites',JSON.stringify(ob));
+    await p.click('#favGrid .favcard .acts [data-fopen]'); await p.waitForFunction("document.getElementById('shot').classList.contains('on')",null,{timeout:30000}); await p.waitForTimeout(1200);
+    await p.evaluate(()=>document.getElementById('shotx').click()); await p.waitForTimeout(900);
+    const ox=await favScr(p);
+    ok('окно с карточки закрыли «×» — под ним экран избранного',!ox.win&&ox.fav&&ox.view==='favorites',JSON.stringify(ox));
     // 5) переключить «Включить в сертификат» на первый вариант → пересчёт
     const fav1=await p.evaluate(()=>window.__basket.state().favorites.find(f=>f.displayName==='Гостиная #1').favoriteId);
     await p.click(`#favGrid [data-finc="${fav1}"]`); await p.waitForTimeout(700);
@@ -127,6 +163,9 @@ const saveHeart=async(p)=>{await p.click('#vFav'); await p.waitForSelector('#fav
     await p.click(`#favGrid [data-finc="${fav2}"]`); await p.waitForTimeout(700);
     const s6c=await st(p);
     ok('включить снова — переключателем, шкала вернулась',s6c.inc.living===fav2&&s6c.cert===s2.eligible,JSON.stringify({inc:s6c.inc,cert:s6c.cert}));
+    await p.click('#favBack'); await p.waitForTimeout(2500);
+    const ob2=await p.evaluate(()=>({win:document.getElementById('shot').classList.contains('on'), fav:!document.getElementById('screen-fav').hidden, vid:(allVariants()[cur]||{}).id}));
+    ok('«← Назад» после окна с карточки — окно, из которого пришли в избранное',ob2.win&&!ob2.fav&&ob2.vid===from4,JSON.stringify({ob2,from4}));
     ok('без ошибок страницы',!p.errs.length,p.errs.slice(0,2).join(' | '));
     await p.context().close();
     if(PHONE){   // окно сразу в 3D (вариант без реалистичного фото): подсказка ждёт модели
@@ -168,13 +207,26 @@ const saveHeart=async(p)=>{await p.click('#vFav'); await p.waitForSelector('#fav
     // 9) EN: тексты корзины без кириллицы
     const e=await page(b,{lang:'en'}); await openWin(e,0);
     const en1=await e.evaluate(()=>document.querySelector('#vsum').innerText);
-    await e.click('#vFav'); await e.waitForSelector('#favName'); await e.click('#favOk'); await e.waitForTimeout(1500);
+    await e.click('#vFav'); await e.waitForSelector('#favName'); const ce=await caret(e); await e.click('#favOk'); await e.waitForTimeout(1500);
+    ok('EN: поле имени — фокус и каретка в конце',caretOk(ce),JSON.stringify(ce));
     const en2=await e.evaluate(()=>[(document.getElementById('toast')||{}).textContent||'',(document.getElementById('favPop')||{}).innerText||''].join(' '));
-    await e.evaluate(()=>{document.getElementById('shotx').click(); window.__basket.open('living');}); await e.waitForTimeout(800);
-    const en3=await e.evaluate(()=>['favHead','favSec','hmCert'].map(id=>document.getElementById(id).innerText).join(' '));
+    await e.evaluate(()=>histGoFavs('living')); await e.waitForTimeout(800);
+    const en3=await e.evaluate(()=>['favHead','screen-fav','hmCert'].map(id=>document.getElementById(id).innerText).join(' '));
+    await e.screenshot({path:OUT+W+'-5-en-fav.png'});
     const cyr=(en1+' '+en2+' '+en3).match(/[А-Яа-яЁё]+/g)||[];
-    ok('EN: плашка окна, сообщения и раздел «Избранное» без кириллицы',!cyr.length,cyr.slice(0,5).join(' ')+' | '+en1.slice(0,60)+' | '+en2.slice(0,80));
+    ok('EN: плашка окна, сообщения и экран «Избранное» без кириллицы',!cyr.length&&/Favourites/.test(en3)&&/Back/.test(en3),cyr.slice(0,5).join(' ')+' | '+en1.slice(0,60)+' | '+en2.slice(0,80));
     await e.context().close();
+    // 10) встройка (как `/embed/…`: `window.__EMBED` до скриптов страницы) — экран открывается и закрывается без записей истории и смены адреса
+    const m2=await page(b,{embed:true}); await openWin(m2,0); await saveHeart(m2);
+    const eb0=await m2.evaluate(()=>({len:history.length, url:location.href}));
+    await m2.evaluate(()=>histGoFavs('living')); await m2.waitForTimeout(800);
+    const eb1=await favScr(m2);
+    await m2.click('#favBack'); await m2.waitForTimeout(800);
+    const eb2=await favScr(m2), eb3=await m2.evaluate(()=>location.href);
+    ok('встройка: экран избранного открывается и «← Назад» — главная, без записей истории и смены адреса',
+      !eb1.win&&eb1.fav&&eb2.home&&!eb2.fav&&eb1.len===eb0.len&&eb2.len===eb0.len&&eb3===eb0.url,JSON.stringify({eb0,eb1:{fav:eb1.fav,len:eb1.len},eb2:{home:eb2.home,len:eb2.len},eb3}));
+    ok('без ошибок страницы (встройка)',!m2.errs.length,m2.errs.slice(0,2).join(' | '));
+    await m2.context().close();
   }catch(e){R.push('FAIL проверка прервалась — '+String(e.message||e).split('\n').slice(0,14).join(' | '));
     try{for(const c of b.contexts())for(const pg of c.pages())await pg.screenshot({path:OUT+W+'-fail-'+Date.now()+'.png'});}catch(_){}}
   finally{await b.close();}
