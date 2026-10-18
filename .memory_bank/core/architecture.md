@@ -33,13 +33,10 @@ Untitled UI React (Tailwind v4 + React Aria), `components/base|application`; б�
   owner-reviews, retention; legacy М5 — ideas, room-analysis, visual-generation, generation-job.
 - **Смета (v0.4):** `contracts/estimate.ts`, `lib/estimate/*`, `lib/pricing/works`; наружу только через `/go/`.
   **Калькулятор v2 (ADR-0018):** `contracts/calc.ts` + `lib/calc/*` + `components/calc/*` (localStorage).
-- `/db` (init 001–020, имена — `ls db/init`: mesh-review/audit, configurator, flat-placements/configs, security, sends,
-  collections, analytics, legal, owner-reviews), `/contracts`, `/lib` (+ `configurator`, `viewer3d`, `basket`, `collections`,
-  `partners`, `embed`, `legal`, `telegram`, `mesh-review`, `mesh-audit`), `/e2e`, `/docs`.
-- `/tools` — в git, кроме данных scout (ADR-0055); каталог/меши — `tools/scout/` (Python, дев-БД).
-
-## Генерация AI (legacy, М5)
-СИНХРОННО: `app/api/p/[id]/generate` → `runGenerate`, `maxDuration=60`; ретраев/квот нет.
+- `/db` (init 001–020 — `ls db/init`), `/contracts`, `/lib` (+ `configurator`, `viewer3d`, `basket`, `collections`,
+  `partners`, `embed`, `legal`, `telegram`, `mesh-review`, `mesh-audit`), `/e2e`, `/docs`; `/tools` — в git, кроме данных
+  scout (ADR-0055); каталог/меши — `tools/scout/` (Python, дев-БД).
+- Генерация AI (legacy М5): синхронно `app/api/p/[id]/generate` → `runGenerate`, `maxDuration=60`.
 
 ## Деплой (self-host, ADR-0001)
 Compose (`remlab-net`): caddy :443 (LE) → app (Next standalone :3000); db pgvector:pg17; imagor;
@@ -51,4 +48,4 @@ traces-init; mesh-receiver; **draft** (`tools/scout/draft_service.py`, обра�
 Inngest · платежи/export · Vertex · YooKassa (проводка есть — `lib/payments/yookassa.ts`, вебхук; нет ключей) ·
 Sentry · `/eval` · Cost Engine (вход Б = плейсхолдер).
 
-**Tier 2:** `../../docs/tech-spec-ts-stack.md` (§3 контракты, §4 схема, §5 цикл, §8 модели).
+**Tier 2:** `../../docs/tech-spec-ts-stack.md`.
