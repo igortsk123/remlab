@@ -3,7 +3,7 @@ tier: 1
 topic: user-flow
 scope: Stage 1 UX-flow, аналитика
 tier2: ../domain/user-flow-details.md
-updated: 2026-10-14
+updated: 2026-10-18
 importance: high
 source: manual
 status: working
@@ -35,6 +35,10 @@ review_after: 2026-12-05
 «Сгенерировать» → `runGenerate` (restyle+ideas) = «генерация» с номером. Free/Paid = уровень (3
 варианта, owner 2026-07-02): «Освежить» бесплатно (виз.+до 3 товаров), цены ступеней в коде НЕТ: фактически один
 платный пакет 490 ₽ (`app/p/[id]/paywall/page.tsx`); реф-ссылки везде, paywall-триггер = выбор 2/3. ⚠️ Код-долг: товары seed, вар.2/3 и YooKassa нет.
+
+**Избранное и «поделиться» (18.10, demo-15):** в окне варианта ♡ → коллекция с именем «<Стиль> #N» (`POST /api/collections`, `displayName`,
+секрет редактирования — хеш; `modules/collections/repository.ts`), локальный список `remlab-favorites` без лимита, раздел «Избранное» на главной;
+⇪ — `navigator.share`/копирование. Детали — `../domain/demo-scenario-map.md` 2.13–2.15.
 
 ## Аналитика
 `lib/analytics.ts` (PostHog, no-op без ключа), сверка 11.10: 17 событий объявлено (`EventName`), 12 эмитится
