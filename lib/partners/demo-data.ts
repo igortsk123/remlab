@@ -3,7 +3,23 @@
 // берётся, только если оно есть в данных витрины (иначе любой с ссылкой писал бы менеджеру что угодно).
 
 export type DemoNames = { variants: Set<string>; items: Set<string> };
-type Raw = { variants?: { style?: string; title?: string; items?: { sku?: { name?: string } }[] }[]; sets?: unknown };
+type Raw = { variants?: { id?: string; style?: string; style_id?: string; room_id?: string; title?: string; items?: { sku?: { name?: string } }[] }[];
+  sets?: unknown; variant_aliases?: Record<string, string> };
+
+/** id стиля витрины для адреса и корзины (demo-16): данные сборки (`style_id`), у старой сборки — по названию стиля. */
+export const STYLE_IDS: Record<string, string> = { сканди: "scandi", современный: "modern", минимализм: "minimal", лофт: "loft",
+  неоклассика: "neoclassic", джапанди: "japandi" };
+
+/** Стиль и комната опубликованного варианта витрины; устаревший номер — по истории номеров (`variant_aliases`, стиль). */
+export function variantKey(raw: Raw | null, variantId: string): { styleId: string; roomId: string } | null {
+  const vs = raw?.variants ?? [];
+  const sid = (v: NonNullable<Raw["variants"]>[number]) => v.style_id || STYLE_IDS[String(v.style ?? "").trim().toLowerCase()] || "";
+  const v = vs.find((x) => x.id === variantId);
+  if (v) return { styleId: sid(v), roomId: v.room_id || "living" };
+  const st = raw?.variant_aliases?.[variantId];
+  const a = st ? vs.find((x) => x.style === st) : undefined;
+  return a ? { styleId: sid(a), roomId: a.room_id || "living" } : null;
+}
 
 const TTL_MS = 5 * 60_000;
 const cache = new Map<string, { at: number; data: Raw | null }>();

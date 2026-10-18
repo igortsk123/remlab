@@ -2,7 +2,7 @@
 // БАНДЛ ДВИЖКА СЦЕНЫ ДЛЯ ДЕМО (план demo-01 п.1). Исходник — `lib/viewer3d/*` (тот же, что у `/flat`), вход —
 // `lib/viewer3d/demo-bundle.ts`, выход — `<out>/scene.<версия>.js` (ES-модуль: страница грузит его `import()`; формат
 // IIFE не годится — внутри three есть `new URL(…, import.meta.url)` на уровне модуля) и `<out>/scene.json`
-// ({file, build, bytes}). ВЕРСИЯ = отпечаток всех входов сборки (файлы из metafile esbuild, версия three и esbuild,
+// ({file, build, bytes, basket:{file, build, bytes}}). ВЕРСИЯ = отпечаток всех входов сборки (файлы из metafile esbuild, версия three и esbuild,
 // этот скрипт): одинаковый исходник даёт одинаковую версию, и стык конвейера сверяет её с кодом прода (Codex 14.10).
 // Старые версии не удаляются сразу (держим три): открытая страница может догружать прежний файл.
 //   node tools/flat3d/build-scene-bundle.mjs --out ~/scout-scenes/flat215-demo/lib      сборка
@@ -37,8 +37,26 @@ const js = res.outputFiles[0].text.replaceAll(PLACEHOLDER, id);
 mkdirSync(OUT, { recursive: true });
 const file = `scene.${id}.js`;
 writeFileSync(join(OUT, file), js);
-writeFileSync(join(OUT, "scene.json"), JSON.stringify({ file, build: id, bytes: js.length, inputs: Object.keys(res.metafile.inputs).length }) + "\n");
-const old = readdirSync(OUT).filter((f) => /^scene\.[0-9a-f]{12}\.js$/.test(f) && f !== file)
-  .sort((a, b) => statSync(join(OUT, b)).mtimeMs - statSync(join(OUT, a)).mtimeMs);
-for (const f of old.slice(2)) unlinkSync(join(OUT, f));
-console.log(`движок сцены: ${file} (${Math.round(js.length / 1024)} КБ, входов ${Object.keys(res.metafile.inputs).length}) → ${OUT}`);
+
+// МОДУЛЬ КОРЗИНЫ (demo-16 шаг 2): отдельная маленькая сборка со СВОИМ отпечатком — главная грузит её сразу, тяжёлый движок
+// остаётся ленивым, и правка корзины не меняет версию движка (Codex 18.10 п.16). В `scene.json` — поле `basket`.
+const bres = await esbuild({
+  entryPoints: [join(ROOT, "lib/basket/basket-bundle.ts")],
+  bundle: true, format: "esm", minify: true, target: "es2020", write: false, metafile: true,
+  alias: { "@": ROOT }, logLevel: "warning", absWorkingDir: ROOT,
+});
+const bh = createHash("sha256");
+for (const f of Object.keys(bres.metafile.inputs).sort()) bh.update(f + "\0").update(readFileSync(join(ROOT, f)));
+bh.update("esbuild@" + esbuildVersion);
+const bid = bh.digest("hex").slice(0, 12), bjs = bres.outputFiles[0].text, bfile = `basket.${bid}.js`;
+writeFileSync(join(OUT, bfile), bjs);
+
+writeFileSync(join(OUT, "scene.json"), JSON.stringify({ file, build: id, bytes: js.length, inputs: Object.keys(res.metafile.inputs).length,
+  basket: { file: bfile, build: bid, bytes: bjs.length } }) + "\n");
+for (const re of [/^scene\.[0-9a-f]{12}\.js$/, /^basket\.[0-9a-f]{12}\.js$/]) {
+  const keep = re.source.startsWith("^scene") ? file : bfile;
+  const old = readdirSync(OUT).filter((f) => re.test(f) && f !== keep)
+    .sort((a, b) => statSync(join(OUT, b)).mtimeMs - statSync(join(OUT, a)).mtimeMs);
+  for (const f of old.slice(2)) unlinkSync(join(OUT, f));
+}
+console.log(`движок сцены: ${file} (${Math.round(js.length / 1024)} КБ, входов ${Object.keys(res.metafile.inputs).length}) · корзина: ${bfile} (${Math.round(bjs.length / 1024)} КБ) → ${OUT}`);

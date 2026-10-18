@@ -37,12 +37,10 @@ export const collectionShotIn = z.object({ shot: z.string().regex(SHOT_PATH_RE),
 const optId = z.string().regex(/^[a-z0-9-]{2,40}$/);
 const displayName = z.string().trim().min(1).max(80);
 
-// v2 (demo-06): + `developerOptions` — выбор в группах опций застройщика (группа → вариант; пол). v1 читается как v2 без
-// выбора: апгрейд — умолчание `{}`. Что группы и варианты существуют у квартиры, проверяет ручка сохранения.
-export const collectionIn = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2)]).default(1),
+// ОБЩИЕ ПОЛЯ ВСЕХ ВЕРСИЙ. v2 (demo-06): + `developerOptions` — выбор в группах опций застройщика (группа → вариант; пол). v1 читается
+// как v2 без выбора: апгрейд — умолчание `{}`. Что группы и варианты существуют у квартиры, проверяет ручка сохранения.
+const collectionBase = z.object({
   apartmentId: z.string().regex(/^[a-z0-9-]{2,40}$/),
-  roomId: z.string().max(40).default("living"),
   baseVariant: z.string().regex(/^[A-Za-z0-9_-]{1,40}$/),
   style: z.string().max(40).optional(),
   sendId: z.string().regex(/^[A-Za-z0-9_-]{22}$/).optional(),
@@ -53,9 +51,23 @@ export const collectionIn = z.object({
   shot: z.string().regex(SHOT_PATH_RE).optional(),
   stateId: z.string().regex(STATE_ID_RE).optional(),
   developerOptions: z.record(optId, optId).refine((o) => Object.keys(o).length <= 10, "слишком много опций").default({}),
-  // ИМЯ В ИЗБРАННОМ (demo-15): «Джапанди #1» по умолчанию, покупатель может дописать; показывается на карточке «Избранного»
+  // ИМЯ В ИЗБРАННОМ (demo-15): «Гостиная #1» по умолчанию (demo-16 — по комнате), покупатель может дописать
   displayName: displayName.optional(),
 });
+/** v1/v2 — снимки прежних страниц (в том числе закэшированных у покупателей): комнаты не знали, это всегда была гостиная. */
+const collectionV12 = collectionBase.extend({
+  schemaVersion: z.union([z.literal(1), z.literal(2)]).default(1),
+  roomId: z.string().max(40).default("living"),
+  styleId: z.string().regex(/^[a-z-]{2,20}$/).optional(),
+});
+/** v3 (demo-16 шаг 2, Codex 18.10 п.10): корзина считает по комнатам — комната и стиль обязательны, без молчаливого «гостиная».
+ *  Что комната есть у квартиры, а стиль и комната совпадают с опубликованным вариантом, проверяет ручка сохранения. */
+const collectionV3 = collectionBase.extend({
+  schemaVersion: z.literal(3),
+  roomId: z.string().regex(/^[a-z0-9-]{2,40}$/),
+  styleId: z.string().regex(/^[a-z-]{2,20}$/),
+});
+export const collectionIn = z.union([collectionV3, collectionV12]);
 export type CollectionIn = z.infer<typeof collectionIn>;
 /** Переименование (demo-15, критика Codex): только с секретом редактирования, который выдал `POST` сохранившему; по одному
  *  публичному `id` переименовать нельзя (ссылкой делятся). В базе — только хеш секрета (`payload.editHash`). */

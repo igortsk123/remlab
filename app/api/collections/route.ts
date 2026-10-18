@@ -7,7 +7,7 @@ import { guard } from "@/lib/ratelimit/http";
 import { apartmentCard, findApartment } from "@/lib/partners/registry";
 import { canonDeveloperOptions } from "@/lib/partners/options";
 import { priceIndex } from "@/lib/collections/prices";
-import { loadDemoRaw } from "@/lib/partners/demo-data";
+import { loadDemoRaw, variantKey } from "@/lib/partners/demo-data";
 import { collectionRepo, editHashOf } from "@/modules/collections/repository";
 import { randomToken } from "@/lib/token";
 import { sendStore } from "@/modules/sends/service";
@@ -38,7 +38,8 @@ export async function POST(req: Request): Promise<Response> {
     }
   }
   // ТОВАРЫ — ТОЛЬКО ИЗ ВИТРИНЫ ЭТОЙ КВАРТИРЫ: название, ссылку, магазин, цену и упаковку подставляет сервер
-  const idx = priceIndex(await loadDemoRaw(hit.apartment.sources.demoData));
+  const demoRaw = await loadDemoRaw(hit.apartment.sources.demoData);
+  const idx = priceIndex(demoRaw);
   if (!idx.size) return NextResponse.json({ ok: false, error: "showcase_unavailable" }, { status: 503 });
   const canon = (sk: { sid: string } | undefined) => {
     if (!sk) return { ok: true as const, sku: undefined };
@@ -47,6 +48,16 @@ export async function POST(req: Request): Promise<Response> {
     const { priceAt: _p, ...rest } = e;
     return { ok: true as const, sku: rest };
   };
+  // КОМНАТА И СТИЛЬ (v3, demo-16 шаг 2): корзина считает сертификат по комнатам — комната должна быть у квартиры, а стиль и
+  // комната — совпадать с опубликованным вариантом, от которого расстановка (Codex 18.10 п.10). v1/v2 — прежние страницы, как было
+  if (parsed.data.schemaVersion === 3) {
+    const rooms = hit.apartment.rooms;
+    if (rooms.length && !rooms.some((r) => r.id === parsed.data.roomId)) return NextResponse.json({ ok: false, error: "unknown_room" }, { status: 400 });
+    const key = variantKey(demoRaw, parsed.data.baseVariant);
+    if (!key || key.styleId !== parsed.data.styleId || key.roomId !== parsed.data.roomId) {
+      return NextResponse.json({ ok: false, error: "variant_mismatch" }, { status: 400 });
+    }
+  }
   const items = parsed.data.items.map((i) => ({ i, c: canon(i.sku) }));
   const decor = parsed.data.decor.map((d) => ({ d, c: canon(d.sku) }));
   if ([...items, ...decor].some((x) => !x.c.ok)) return NextResponse.json({ ok: false, error: "unknown_product" }, { status: 400 });

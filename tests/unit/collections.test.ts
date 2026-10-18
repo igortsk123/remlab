@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 // Витрина — фикстура: в тестах сеть не трогаем
 vi.mock("@/lib/partners/demo-data", async (orig) => ({
   ...(await orig<typeof import("@/lib/partners/demo-data")>()),
-  loadDemoRaw: async () => ({ variants: [{ id: "set2", items: [{ sku: { sid: "112923_1", name: "Диван А (витрина)", price: 51000, url: "https://xf.gdeslon.ru/a", shop: "divan.ru" } }] }] }),
+  loadDemoRaw: async () => ({ variants: [{ id: "set2", style: "сканди", items: [{ sku: { sid: "112923_1", name: "Диван А (витрина)", price: 51000, url: "https://xf.gdeslon.ru/a", shop: "divan.ru" } }] }] }),
 }));
 
 import { POST } from "@/app/api/collections/route";
@@ -20,6 +20,28 @@ const body = {
 const post = (b: unknown) => new Request("http://x/api/collections", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "10.0.0.9" }, body: JSON.stringify(b) });
 
 describe("коллекции", () => {
+  // v3 (demo-16 шаг 2): комната и стиль обязательны и сверяются с квартирой и опубликованным вариантом; v1/v2 — как раньше
+  it("v3: комната квартиры и стиль варианта; чужая комната, другой стиль и v3 без комнаты — 400; v2 без комнаты — гостиная", async () => {
+    // свой адрес: шесть сохранений подряд не должны съесть лимит соседних тестов
+    const post = (b: unknown) => new Request("http://x/api/collections", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "10.0.3.33" }, body: JSON.stringify(b) });
+    const v3 = { ...body, schemaVersion: 3, roomId: "living", styleId: "scandi" };
+    const ok = await POST(post(v3));
+    expect(ok.status).toBe(200);
+    const { id } = (await ok.json()) as { id: string };
+    const c = ((await (await GET(new Request(`http://x/api/collections/${id}`), { params: Promise.resolve({ id }) })).json()) as { collection: Record<string, unknown> }).collection;
+    expect(c).toMatchObject({ schemaVersion: 3, roomId: "living", styleId: "scandi" });
+    const err = async (b: unknown) => ((await (await POST(post(b))).json()) as { error: string }).error;
+    expect(await err({ ...v3, roomId: "attic" })).toBe("unknown_room");
+    expect(await err({ ...v3, roomId: "kitchen" })).toBe("variant_mismatch");        // гостиная витрины не может быть кухней
+    expect(await err({ ...v3, styleId: "loft" })).toBe("variant_mismatch");
+    const { roomId: _r, ...noRoom } = v3;
+    expect((await POST(post(noRoom))).status).toBe(400);
+    const old = await POST(post({ ...body, schemaVersion: 2 }));
+    const oid = ((await old.json()) as { id: string }).id;
+    const oc = ((await (await GET(new Request(`http://x/api/collections/${oid}`), { params: Promise.resolve({ id: oid }) })).json()) as { collection: Record<string, unknown> }).collection;
+    expect(oc.roomId).toBe("living");
+  });
+
   it("сохранение → ссылка → тот же снимок", async () => {
     const r = await POST(post(body));
     expect(r.status).toBe(200);
