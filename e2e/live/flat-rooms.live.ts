@@ -19,11 +19,15 @@ type Viewer = {
   apartment: { rooms: Room[] };
   catalogue: { materials: { id: string; surfaces?: string[]; baseColorUrl?: string }[] };
 };
-type Item = { role?: string; x?: number; y?: number; w?: number; d?: number; sku?: { msid?: string; sid?: string; name?: string } };
+type Item = { role?: string; x?: number; y?: number; w?: number; d?: number; corner?: boolean; corner_left?: boolean;
+  sku?: { msid?: string; sid?: string; name?: string } };
 type Variant = { id: string; style?: string; items: Item[] };
 type DemoData = { variants: Variant[]; feeds?: Record<string, FeedItem[]>; variant_aliases?: Record<string, string> };
 
 const CORE = ["диван", "столик", "тв-тумба", "стол обеденный"];
+// НЕХВАТКА ЗАМЕН, ПРИНЯТАЯ ВЛАДЕЛЬЦЕМ — единственное место исключений из «≥ 5 альтернатив» теста 2.20 (решение владельца, вопрос 41).
+// Ключ — «стиль:роль»; пока пусто: лофт (мало замен в каталоге) ждёт ответа и печатается нехваткой
+const SWAP_SHORT_OK: ReadonlySet<string> = new Set<string>([]);
 const FLAT = "flat215";
 
 // без видеокарты (DEV, ночной шаг) — программный рендер ANGLE и свежая вкладка на каждый вариант, как в 1д
@@ -134,9 +138,9 @@ test("2.19 «бродилка»: старт ≥ 80 см от мебели и ≥
 });
 
 // 2.20: мост окна в 3D (ADR-0281): ковёр — место с фото товара и ценой, ваза — на столике (`resolve.placeTabletop`; не влезла —
-// на обеденном столе, правило `decorLayout`), ТВ — над тумбой (`build-scene.sceneExtras`), у предметов ядра лента «Варианты» ≥ 5 (или
-// вся лента стиля, если товара в ней меньше: нехватка — каталог, а не мост; печатается строкой «!»)
-test("2.20 ковёр с фото и ценой, ваза на столике, ТВ над тумбой, «Варианты» ≥ 5 у предметов ядра", async ({ browser, request }) => {
+// на обеденном столе, правило `decorLayout`), ТВ — над тумбой (`build-scene.sceneExtras`), у предметов ядра в «Вариантах» ≥ 5
+// альтернатив БЕЗ текущего товара (demo-18 п.1); исключение — только списком `SWAP_SHORT_OK` (решение владельца)
+test("2.20 ковёр с фото и ценой, ваза на столике, ТВ над тумбой, «Варианты» ≥ 5 альтернатив у предметов ядра", async ({ browser, request }) => {
   test.setTimeout(15 * 60_000);
   const report: string[] = [];
   const bad: string[] = [];
@@ -168,7 +172,7 @@ test("2.20 ковёр с фото и ценой, ваза на столике, �
       else report.push(`  ваза на «${sup.r}» на высоте ${vase.elevCm} см`);
       if (sup && sup.r !== "столик") report.push(`  ! ${v.id}: ваза не на столике, а на «${sup.r}» (столик не вместил — правило decorLayout)`);
     }
-    // полоса выбора: ковёр — фото и цена в строке выбранного; ядро — ≥ 5 плиток
+    // полоса выбора: ковёр — фото и цена в строке выбранного; ядро — ≥ 5 альтернатив кроме текущего
     const bar = page.getByRole("region", { name: "Панель выбора" });
     await expect(bar).toBeVisible();
     const strip = bar.locator("ul li");
@@ -194,14 +198,17 @@ test("2.20 ковёр с фото и ценой, ваза на столике, �
         if (!photo || !ok) bad.push(`${v.id}: ковёр без фото товара в сцене (${photo ?? "нет ссылки"})`);
         if (!/\d[\d\s ]*\s?₽/.test(tile)) bad.push(`${v.id}: у ковра нет цены — «${tile}»`);
       } else {
-        // сколько может дать лента витрины (то же правило, что у моста `fromDemo` и окна): товар места + ближайшие из ленты стиля
+        // плитки полосы = текущий товар + альтернативы; сколько даёт лента витрины — тем же правилом, что мост `fromDemo` (для отчёта)
         const it = v.items.find((i) => `${i.role}#0` === slot)!;
         const role = slot.slice(0, -2);
-        const can = 1 + alternatives(feedForStyle(data.feeds?.[role] ?? [], v.style), { w: it.w ?? 0, d: it.d ?? 0 },
+        const can = alternatives(feedForStyle(data.feeds?.[role] ?? [], v.style),
+          { w: it.w ?? 0, d: it.d ?? 0, model: it.sku?.msid, corner: !!it.corner, cornerLeft: !!it.corner_left },
           new Set([it.sku?.sid ?? "", it.sku?.name ?? ""])).length;
-        const need = Math.min(5, can);
-        report.push(`  ${slot}: вариантов ${n}${can < 5 ? ` — ! в ленте стиля всего ${can} (норма карты ≥ 5: мало товара в каталоге)` : ""}`);
-        if (n < need) bad.push(`${v.id}: у «${slot}» вариантов ${n}, лента стиля даёт ${can}`);
+        const alt = n - 1;
+        const short = alt < 5;
+        const allowed = SWAP_SHORT_OK.has(`${v.style}:${role}`);
+        report.push(`  ${slot}: альтернатив ${alt} (лента стиля даёт ${can})${short ? (allowed ? " — нехватка принята владельцем (вопрос 41)" : " — ! меньше 5") : ""}`);
+        if (short && !allowed) bad.push(`${v.id} ${v.style ?? ""}: у «${slot}» альтернатив ${alt} (норма ≥ 5 без текущего), лента стиля даёт ${can}`);
       }
     }
     await page.close();
@@ -211,19 +218,19 @@ test("2.20 ковёр с фото и ценой, ваза на столике, �
 });
 
 // 2.21: устаревший номер варианта (ночная пересборка витрины) открывает текущий того же стиля с пометкой, а не 404
-// (`resolveFlat.replaced`, `app/flat/page.tsx`). Псевдоним set18 → джапанди лежит в `variant_aliases` данных витрины.
-// ⚠ каждое открытие +1 к счётчику `stale_link` отчёта застройщика за день (так устроен счётчик) — один заход за прогон
-test("2.21 старая ссылка ?demo=set18 — 200, текущий вариант того же стиля с пометкой «обновилась»", async ({ page, request }) => {
+// (`resolveFlat.replaced`, `app/flat/page.tsx`). Устаревший номер — любой из `variant_aliases` данных витрины, которого нет среди
+// опубликованных: номер вариантов меняет ночная пересборка (set18 был устаревшим до 18.10, после demo-18 снова живой джапанди)
+test("2.21 старая ссылка ?demo=<устаревший номер> — 200, текущий вариант того же стиля с пометкой «обновилась»", async ({ page, request }) => {
   const data = await demoData(request);
-  const style = data.variant_aliases?.set18;
-  expect(style, "set18 есть в псевдонимах витрины").toBeTruthy();
-  expect(data.variants.some((v) => v.id === "set18"), "set18 не опубликован — ссылка действительно устаревшая").toBe(false);
-  const res = await page.goto(`/flat?demo=set18&flat=${FLAT}`, { waitUntil: "domcontentloaded", timeout: 120_000 });
+  const stale = Object.keys(data.variant_aliases ?? {}).sort().find((id) => !data.variants.some((v) => v.id === id));
+  expect(stale, "в псевдонимах витрины есть неопубликованный номер").toBeTruthy();
+  const style = data.variant_aliases![stale!];
+  const res = await page.goto(`/flat?demo=${stale}&flat=${FLAT}`, { waitUntil: "domcontentloaded", timeout: 120_000 });
   expect(res?.status()).toBe(200);
   const note = page.locator("p.note", { hasText: "обновилась" });
   await expect(note).toBeVisible();
   await expect(note).toContainText(`в том же стиле (${style})`);
-  console.log(`  set18 → «${(await note.innerText()).trim()}»`);
+  console.log(`  ${stale} → «${(await note.innerText()).trim()}»`);
 });
 
 // 2.22: покупатель по ссылке из окна демо (`?demo=`) и по коллекции (`?coll=`) видит строку застройщика (ЖК · квартира ·

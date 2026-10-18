@@ -15,6 +15,12 @@
 товара два артикула — свой (`sid`, для карточки и ссылки) и модельный (`msid`, по нему сцена
 грузит GLB). Публикуем и держим на сервере только модели представителей.
 
+30 — ПОСЛЕ ПРОВЕРОК СБОРКИ, РАЗНЫЕ МОДЕЛИ РАНЬШЕ ЦВЕТОВ (план demo-18 п.1, разбор T-20261018-13). Раньше SQL резал 30 лучших
+до проверок витрины (модель на сервере, цвет модели, `unfit`, ширина комнаты), и у четырёх стилей из 13–130 подходящих диванов
+в ленту доходили 1–3. Теперь запрос отдаёт всех кандидатов по порядку, а группа добирается до 30 прошедших: сперва по одному
+лучшему товару на модель (`msid`), потом цвета тех же моделей. Проверку «модель на сервере и цвет» даёт сборка (`ok`), конверт
+ширины — `rules/demo-swap.json` (один источник с `flat215_demo.DEMO_ENV`).
+
   ~/venvs/scout/bin/python demo_swap_pool.py            # сводка
   ~/venvs/scout/bin/python demo_swap_pool.py --json f   # выгрузить пул
   python3 demo_swap_pool.py --selftest
@@ -37,14 +43,18 @@ ROLES = ('диван', 'кресло', 'столик', 'тв-тумба', 'ст�
          # и стили, добавлять в список товаров и считать сумму»). Меши сегодня есть только у вазы
          # и кашпо; статуэтки/часы/картины пойдут сюда сами, когда их меши появятся.
          'ваза')
+# ширина, которая встаёт в комнату демо (мебель) или на столешницу (декор) — те же числа читает `flat215_demo.DEMO_ENV`
+ENVELOPE = {k: tuple(v) for blk in ('room_fit_envelope_cm', 'decor_envelope_cm')
+            for k, v in RULES[blk].items() if not k.startswith('_')}
 
 
 def _lit(xs) -> str:
     return ','.join("'" + str(x).replace("'", "''") + "'" for x in xs) or "''"
 
 
-def pool_sql(per_group: int = PER_GROUP, in_style_min: float = IN_STYLE_MIN) -> str:
-    """Запрос пула. Вынесен отдельно, чтобы `--selftest` проверял его форму без БД."""
+def pool_sql(in_style_min: float = IN_STYLE_MIN) -> str:
+    """Запрос пула — ВСЕ кандидаты по порядку группы (срез до `PER_GROUP` — в `pick` после проверок). Вынесен отдельно,
+    чтобы `--selftest` проверял его форму без БД."""
     return f"""
 with cand as (
   select p.shop_mid||':'||p.external_id as sku,
@@ -71,22 +81,59 @@ ranked as (
                                order by uni asc, q desc, st_score desc, price asc nulls last, sku) as rn from cand)
 select sku, rep, sub, style, cat_role, name, shop, img, url, coalesce(price::text,''),
        w_cm, d_cm, h_cm
-  from ranked where rn <= {per_group} order by cat_role, style, sku"""
+  from ranked order by sub, style, rn"""
 
 
-def pool() -> list[dict]:
-    from mesh_queue import db
+def _row(r: list) -> dict | None:
+    if len(r) != 13:
+        return None
+    sku, rep, sub, style, role, name, shop, img, url, price, w, d, h = r
+    return {'sid': sku.replace(':', '_', 1), 'msid': rep.replace(':', '_', 1),
+            'sub': sub, 'style': style, 'role': role, 'name': name, 'shop': shop,
+            'img': img, 'url': url,
+            'price': int(float(price)) if price else None,
+            'w': float(w), 'd': float(d), 'h': float(h)}
+
+
+def fits(p: dict) -> bool:
+    """Фото, ширина и глубина есть, ширина — в конверте роли (`ENVELOPE`)."""
+    lo, hi = ENVELOPE.get(p.get('role'), (0, 0))
+    return bool(p.get('img') and p.get('w') and p.get('d')) and lo <= p['w'] <= hi
+
+
+def pick(rows: list[dict], ok=None, per_group: int = PER_GROUP) -> list[dict]:
+    """Группа «подкатегория × стиль» в порядке запроса → до `per_group` прошедших проверки: сперва по одному товару на модель
+    (`msid`), потом цвета тех же моделей. `ok(p)` — проверки сборки (модель на сервере, цвет, `unfit`); зовётся лениво, пока
+    группа не набрана, и один раз на товар (товар повторяется в каждом своём стиле)."""
+    seen: dict = {}
+
+    def good(p: dict) -> bool:
+        if p['sid'] not in seen:
+            seen[p['sid']] = fits(p) and (ok is None or bool(ok(p)))
+        return seen[p['sid']]
+
+    groups: dict = {}
+    for p in rows:
+        groups.setdefault((p['sub'], p['style']), []).append(p)
     out = []
-    for r in db(pool_sql()):
-        if len(r) != 13:
-            continue
-        sku, rep, sub, style, role, name, shop, img, url, price, w, d, h = r
-        out.append({'sid': sku.replace(':', '_', 1), 'msid': rep.replace(':', '_', 1),
-                    'sub': sub, 'style': style, 'role': role, 'name': name, 'shop': shop,
-                    'img': img, 'url': url,
-                    'price': int(float(price)) if price else None,
-                    'w': float(w), 'd': float(d), 'h': float(h)})
+    for grp in groups.values():
+        took, models = [], set()
+        for p in grp:                                   # сперва разные модели: лучший прошедший товар каждой
+            if len(took) < per_group and p['msid'] not in models and good(p):
+                took.append(p)
+                models.add(p['msid'])
+        taken = {p['sid'] for p in took}
+        for p in grp:                                   # потом цвета уже взятых моделей
+            if len(took) < per_group and p['sid'] not in taken and p['msid'] in models and good(p):
+                took.append(p)
+                taken.add(p['sid'])
+        out.extend(took)
     return out
+
+
+def pool(ok=None) -> list[dict]:
+    from mesh_queue import db
+    return pick([p for p in map(_row, db(pool_sql())) if p], ok)
 
 
 def report(items: list[dict] | None = None) -> list[dict]:
@@ -107,20 +154,46 @@ def report(items: list[dict] | None = None) -> list[dict]:
 
 def _selftest() -> int:
     bad = 0
-    q = pool_sql(7)
+    q = pool_sql()
     # порог — из правил, не литерал (иначе смена in_style_min в JSON роняла бы селфтест)
-    for must in ('functional_subtype', 'mesh_status', 'product_style_scores', f'>= {IN_STYLE_MIN}', 'rn <= 7',
-                 'mesh_family_rep', 'partition by sub, style', 'order by uni asc, q desc, st_score desc'):
+    for must in ('functional_subtype', 'mesh_status', 'product_style_scores', f'>= {IN_STYLE_MIN}',
+                 'mesh_family_rep', 'partition by sub, style', 'order by uni asc, q desc, st_score desc',
+                 'order by sub, style, rn'):
         if must not in q:
             bad += 1
             print('  FAIL: в запросе нет', must)
+    if 'rn <=' in q:
+        bad += 1
+        print('  FAIL: срез группы в запросе — до проверок сборки (demo-18 п.1)')
     if _lit(["a'b"]) != "'a''b'":
         bad += 1
         print('  FAIL: экранирование кавычек')
     if 'ковёр' in ROLES:
         bad += 1
         print('  FAIL: плоские роли (ковёр) в пул моделей не входят')
-    print(f'demo_swap_pool selftest: случаев 8, ошибок {bad}')
+    if ENVELOPE.get('диван') != tuple(RULES['room_fit_envelope_cm']['диван']) or 'ваза' not in ENVELOPE:
+        bad += 1
+        print('  FAIL: конверт не из rules/demo-swap.json')
+    # отбор: модель A — три цвета подряд (лучшие), B и C — по одному; C без модели на сервере; D шире комнаты
+    row = lambda sid, msid, w=170: {'sid': sid, 'msid': msid, 'sub': 'диван', 'style': 'сканди', 'role': 'диван',  # noqa: E731
+                                    'img': 'i', 'w': w, 'd': 90, 'h': 80, 'name': sid}
+    rows = [row('a1', 'A'), row('a2', 'A'), row('a3', 'A'), row('c1', 'C'), row('d1', 'D', 260), row('b1', 'B')]
+    calls: list = []
+    ok = lambda p: calls.append(p['sid']) or p['msid'] != 'C'  # noqa: E731
+    got = [p['sid'] for p in pick(rows + [dict(r, style='лофт') for r in rows], ok, per_group=3)]
+    if got[:3] != ['a1', 'b1', 'a2']:
+        bad += 1
+        print('  FAIL: сперва разные модели, потом цвета, мимо непрошедших:', got[:3])
+    if len(got) != 6 or len(calls) != len(set(calls)):
+        bad += 1
+        print('  FAIL: группа на стиль своя, проверка — один раз на товар:', got, calls)
+    if 'd1' in calls:
+        bad += 1
+        print('  FAIL: шире конверта — отсев до дорогих проверок')
+    if [p['sid'] for p in pick(rows, ok, per_group=30)] != ['a1', 'b1', 'a2', 'a3']:
+        bad += 1
+        print('  FAIL: добор до лимита — все прошедшие')
+    print(f'demo_swap_pool selftest: случаев 13, ошибок {bad}')
     return 1 if bad else 0
 
 

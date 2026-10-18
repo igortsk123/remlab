@@ -130,6 +130,18 @@ describe("мост витрина → конфигуратор", () => {
     expect(fixed.totals.upgrades).toBe(8000);
   });
 
+  // demo-18 п.1: форму места мост берёт из расстановки — замена Г-дивана только Г-диваном (той же стороны, если она названа)
+  it("ленты замен: на месте углового дивана — только угловые той же стороны, разные модели раньше цветов", () => {
+    const sofa = (sid: string, msid: string, extra: object) => ({ name: sid, sid, msid, img: "i", w: 186, d: 151, h: 80, price: 1, src: "pool",
+      styles: ["джапанди"], ...extra });
+    const corner = { ...data, variants: [{ ...data.variants[0]!, items: [{ ...data.variants[0]!.items[0]!, w: 186, d: 151, corner: true,
+      corner_left: false, sku: { name: "Г", sid: "g0", msid: "G" } }] }],
+      feeds: { диван: [sofa("п", "P", {}), sofa("г1", "G", { corner: true }), sofa("г2", "G2", { corner: true }),
+        sofa("л", "L", { corner: true, corner_left: true }), sofa("пр", "R", { corner: true, corner_left: false })] } };
+    const r = fromDemoVariant(corner, "set16", CTX)!;
+    expect(r.apartment.slots.find((s) => s.id === "диван#0")!.optionIds.slice(1)).toEqual(["feed:диван:г2", "feed:диван:пр", "feed:диван:г1"]);
+  });
+
   // demo-05 п.8: «Фото» в /flat снимает ракурсами окна — они приходят в данных варианта (`tools/flat3d/demo-cams.mjs`)
   it("ракурсы окна из данных варианта — камеры квартиры с позой v2", () => {
     const withCams = { ...data, variants: [{ ...data.variants[0]!, cams: [{ name: "C1", x: 436, y: 242, rot: -80, fov: 78, pose: 2 },

@@ -502,7 +502,7 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
     gate = lambda role, c, s_, others: (_gate0(role, c, s_, others)  # noqa: E731
                                         and not _unfit(DF.base_role(role), c.get('name'), None, c.get('h'))
                                         and (DF.base_role(role) in NOMESH_ROLES or has_mesh(c)))
-    pool = DF.load_pool()
+    pool = DF.load_pool(swap_ok)
     print(f'пул дозаполнения: {len(pool)} товаров', flush=True)
     by_style: dict = {}
     for i, st in enumerate(sets, 1):
@@ -529,6 +529,16 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
             ranked[style] = sorted(cands, key=lambda c: c[0])
             taken |= {x['to_sku'] for x in ranked[style][0][3] if x.get('to_sku')}
     return ranked
+
+
+def swap_ok(p: dict) -> bool:
+    """Товар пула показуем в ленте замен — те же проверки, что лента применяет к товарам сетов: живое фото, модель семейства
+    лежит на сервере (не карантин) и подходит товару по цвету, предмет годится для гостиной (`unfit.py`). Пул зовёт её ДО
+    отбора 30 в группе (`demo_swap_pool.pick`, demo-18 п.1); ширину комнаты пул проверяет сам по `rules/demo-swap.json`."""
+    from img_alive import alive_now
+    from unfit import unfit
+    return (bool(p.get('msid')) and p['msid'] in _mesh_index() and not unfit(p.get('role'), p.get('name'), None, p.get('h'))
+            and color_ok(p['msid'], p.get('name')) and alive_now(p.get('img')))
 
 
 _COLOR_OK = []
@@ -862,7 +872,7 @@ def build() -> dict:
     added, off_env = 0, 0
     try:
         import demo_swap_pool
-        for p in demo_swap_pool.pool():
+        for p in demo_swap_pool.pool(swap_ok):
             base = p['role']
             if base not in ENV_ALL:
                 continue
@@ -901,6 +911,12 @@ def build() -> dict:
     print(f'пул замены добавил в ленты: {added} товаров (мимо конверта комнаты: {off_env}); '
           'всего по ролям: '
           + ', '.join(f'{k} {len(v)}' for k, v in sorted(feeds.items())))
+    # ФОРМА ДИВАНА — У КАЖДОГО ТОВАРА ЛЕНТЫ (demo-18 п.1): форму места сцена берёт из расстановки, не из товара
+    # (`fromDemo.ts`), и прямой диван на месте углового рисовался бы углом. Окно и /flat предлагают замену той же формы и
+    # стороны; правило — то же, что у расстановщика (`sofa_shape.py`)
+    import sofa_shape as _SS
+    for p in feeds.get('диван', []):
+        p.update(_SS.shape(p.get('name'), p.get('d')))
     # ДЕКОР, КОТОРЫЙ МОЖНО ПОСТАВИТЬ НА СТОЛ (владелец 08.09: «вазы расставлять на журнальный
     # столик или на стол по центру сверху»). Ваза встаёт в кадр только если магазин указал ВСЕ
     # три габарита и есть модель: высоту мы не придумываем (Р1), а без модели это серая коробка.
@@ -1305,6 +1321,13 @@ def main() -> None:
                         f'"{os.path.join(OUT, "demo-data.json")}"'], capture_output=True, text=True, timeout=300)
     print((r.stdout or '').strip()[-300:] if r.returncode == 0 else
           f'WARN:demo_cams: ракурсы окна в данные не записались (rc={r.returncode}): {(r.stderr or r.stdout or "").strip()[-200:]}')
+    # ОТЧЁТ ЛЕНТ ЗАМЕН ПО СТИЛЮ И РОЛИ (demo-18 п.1): eligible_sku / unique_msid / published_alternatives — правилом моста /flat
+    # (`tools/flat3d/swap-report.mjs` → `lib/configurator/demo-feeds.ts`); меньше 5 — строка с «!»
+    r = subprocess.run(['bash', '-c', f'. "{root}/tools/ops/node-env.sh" && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON '
+                        f'"{root}/tools/flat3d/swap-report.mjs" "{os.path.join(OUT, "demo-data.json")}"'],
+                       capture_output=True, text=True, timeout=120)
+    print((r.stdout or '').strip() if r.returncode == 0 else
+          f'WARN:swap_report: отчёт лент не посчитался (rc={r.returncode}): {(r.stderr or "").strip()[-200:]}')
     print(f"OK: вариантов {len(data['variants'])}; ленты: "
           + ', '.join(f"{k} {len(v)}" for k, v in sorted(data['feeds'].items()))
           + f"; комплектов {len(data['sets'])}")

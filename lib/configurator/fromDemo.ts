@@ -207,13 +207,15 @@ export function fromDemoVariant(data: DemoData, variantId: string, ctx: DemoCont
   const chairGroup = chairIdx.length >= 2 && chairIdx.every((i) => keyOf(items[i]!) === keyOf(items[chairIdx[0]!]!)) ? chairIdx : [];
   const inGroup = new Set(chairGroup);
   const defaultOf = (i: number): string => (inGroup.has(i) ? "opt:стул" : `opt:${ids[i]}`);
-  // ЛЕНТЫ ЗАМЕН (demo-05 п.9): варианты места из ленты витрины своей роли и стиля, ближайшие по размеру (`demo-feeds.ts`)
+  // ЛЕНТЫ ЗАМЕН (demo-05 п.9): варианты места из ленты витрины своей роли и стиля, ближайшие по размеру, разные модели раньше
+  // цветов, диван — той же формы, что место (demo-18 п.1, `demo-feeds.ts`)
   const feedOptions = new Map<string, unknown>();
   const feedIdsOf = (i: number): string[] => {
     const it = items[i]!;
     const base = baseOf(it.role);
     const feed = feedForStyle(data.feeds?.[base] ?? [], v.style);
-    return alternatives(feed, { w: it.w as number, d: it.d as number }, new Set([it.sku?.sid ?? "", it.sku?.name ?? ""])).map((p) => {
+    const place = { w: it.w as number, d: it.d as number, model: it.sku?.msid, corner: !!it.corner, cornerLeft: !!it.corner_left };
+    return alternatives(feed, place, new Set([it.sku?.sid ?? "", it.sku?.name ?? ""])).map((p) => {
       const id = `feed:${base}:${p.sid ?? p.name}`;
       if (!feedOptions.has(id)) {
         feedOptions.set(id, { id, category: "furniture", titleRu: p.name ?? base, titleEn: p.name ?? base,

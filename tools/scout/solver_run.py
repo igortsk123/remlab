@@ -163,10 +163,9 @@ _dv=(items.get('диван') or {})
 # УГЛОВОСТЬ: ИМЯ — первичный сигнал, глубина — вторичный (аудит 21.08: фид потерял d у
 # угловых («Угловой Босс ХЛ» 285×None → считался прямым, ковёр 300 выбрасывался eligibility),
 # а «Диван прямой Мисл» 163×160 из-за d>150 трактовался угловым и не вставал — LEVEL A)
-_dv_nm=(_dv.get('name') or '').lower() if _dv else ''
-CORNER=bool(_dv) and not _re.search(r'прям', _dv_nm) and (
-    bool(_re.search(r'углов', _dv_nm))
-    or ((_dv.get('d') or 0)>150))
+# правило — `sofa_shape.py` (одно на расстановщик и ленту замен, demo-18)
+import sofa_shape as _SS
+CORNER=bool(_dv) and _SS.is_corner(_dv.get('name'), _dv.get('d'))
 room=Polygon([(0,0),(RW,0),(RW,RD),(0,RD)])
 # Дверь (юг) и окно (восток) — ВАРИАТИВНЫЕ от номера сета (А5, аудит 06.08): раньше проёмы были
 # одни на все сеты, и «логичность» тестировалась на нереальной комнате. Детерминированно
@@ -625,9 +624,8 @@ def attempt_beam():
                        corner_section_cm=(OCC or {}).get('corner_sofa_section_depth_cm', 95),
                        # LAF/RAF (веб 08.08): сторона угла — свойство SKU; «левый/правый»
                        # в названии фиксирует зеркало, иначе солвер пробует оба (G1)
-                       corner_left=bool(_re.search(r'лев', (src.get('name') or '').lower())),
-                       corner_side_fixed=bool(_re.search(r'\bлев|\bправ',
-                                              (src.get('name') or '').lower()))))
+                       corner_left=_SS.corner_left(src.get('name')),
+                       corner_side_fixed=_SS.side_fixed(src.get('name'))))
     lay = None
     if ENGINE == 'llm':
         # LLM играет дизайнера (выбирает схему), геометрия притягивает и проверяет;

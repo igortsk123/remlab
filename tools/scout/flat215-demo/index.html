@@ -4083,8 +4083,15 @@ let F={price:null, fitOnly:false, sort:'fit', anyStyle:false};
 // относятся к этому стилю, надо выгружать»). Лента общая на роль, стиль у каждого товара свой —
 // поэтому режем её стилем текущего варианта. Товары рекомендованного сета (`src:'set'`) видны
 // всегда: это тот самый «изначальный набор», который остаётся.
+// ДИВАН — ТОЙ ЖЕ ФОРМЫ, ЧТО МЕСТО (demo-18 п.1): форму места сцена берёт из расстановки, не из товара, и прямой диван на угловом
+// месте рисовался бы углом. Угловой с названной в имени стороной — только на ту же сторону. Правило — как у /flat
+// (`lib/configurator/demo-feeds.ts:sameShape`); пометку `corner`/`corner_left` у товаров ленты ставит сборка (`sofa_shape.py`)
+function sameShape(p,place){
+  if(!!p.corner!==!!place.corner)return false;
+  return !place.corner||p.corner_left===undefined||p.corner_left===!!place.corner_left;
+}
 function feedFor(base){
-  const all=(D.feeds&&D.feeds[base])||[];
+  const all=((D.feeds&&D.feeds[base])||[]).filter(p=>base!=='диван'||!sel||sameShape(p,sel));
   const st=(allVariants()[cur]||{}).style||'';
   if(F.anyStyle||!st)return all;
   // у товара стилей может быть несколько (`styles`) — он подходит и неоклассике, и современному
