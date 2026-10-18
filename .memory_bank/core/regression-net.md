@@ -3,12 +3,12 @@ tier: 1
 topic: regression-net
 scope: Регресс-защита — тесты, CI, гардрейлы
 tier2: "../../docs/tech-spec-ts-stack.md"
-updated: 2026-10-14
+updated: 2026-10-18
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-09-28
+last_verified: 2026-10-18
 review_after: 2026-12-05
 ---
 
@@ -17,17 +17,15 @@ review_after: 2026-12-05
 > Сетка для соло-не-кодера: ошибки ловит автоматика. «Цель» = НЕ реализовано.
 
 ## Есть в коде
-- **Unit (Vitest, `tests/unit/`):** 42 файла; БД — `pg-repository.test.ts` (skipIf); мок — `REMLAB_FAKE_AI=1`.
+- **Unit (Vitest, `tests/unit/`):** 55 файлов; БД — `pg-repository.test.ts` (skipIf); мок — `REMLAB_FAKE_AI=1`.
 - **e2e:** CI — весь `e2e/` (smoke, estimate, flat3d serial, legal, embed); `flow` и `/calc/remont` — skip.
-  Демо на проде — `e2e/live/demo.live.ts`, ночной шаг `demo_live` (b2b-12).
-- **Цепочка каталога по бизнес-правилам (13.10, ADR-0242):** `tools/scout/tests_chain.py` —
-  `--selftest` (фикстуры, в CI) и `--live` (инварианты по дев-базе, шаг `chain_checks`,
-  расхождение → `WARN:` в дайджест). Утверждают ПРАВИЛО, а не поведение кода, и печатают ЧИСЛО;
-  чистые правила — `tools/scout/catalog_rules.py`.
+  Живые проверки прода — `e2e/live/*.live.ts` (demo, demo-frame, demo-scenarios, flat-walk, floor, shop-links), ночной шаг `demo_live` (b2b-12, demo-03).
+- **Цепочка каталога по бизнес-правилам (ADR-0242):** `tools/scout/tests_chain.py` — `--selftest` (фикстуры, в CI) и
+  `--live` (инварианты по дев-базе, шаг `chain_checks`, расхождение → `WARN:`); правила — `tools/scout/catalog_rules.py`.
 - **Конвейер на одноразовой базе (14.10, conv-06):** `tools/scout/tests/pipeline_chain_dbtest.py` — мини-фид → схема →
   `load3` → `lr_roles` → `pipeline_map.collect`; ночной шаг `chain_dbtest`.
 - **CI (`ci.yml`):** gate (postgres → typecheck → lint → test → build → e2e + memory-project-audit),
-  db-init, planner, draft-image, scout-orient, scout-selftest (30 модулей); `memory-audit.yml`. Режим аудитов —
+  db-init, planner, draft-image, scout-orient, scout-selftest (31 модуль, список — `ci.yml`); `memory-audit.yml`. Режим аудитов —
   `_kit/gate-mode.txt`: с 28.09 `warn` (дисциплину держит Stop-хук `--block`).
 - **Observability:** трейс LLM-вызовов (`lib/trace/`; сбои — `traceWriteFailures` в
   health); база в health (`lib/health.ts:dbCheck`) + сторож `health-watch.sh` (ADR-0266).

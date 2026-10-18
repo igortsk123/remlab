@@ -20,10 +20,10 @@
 | `demo-planner.md` | demo-planner | Демо-планировщик для партнёра — расстановка и кадр | `../domain/demo-planner-ui.md` | 2026-10-18 |
 | `demo-scenarios.md` | demo-scenarios | Сценарии демо /demo — карта кнопок «ожидание → факт», живые проверки, дефекты прогона и планы demo-01…03 | `../domain/demo-scenario-map.md` | 2026-10-18 |
 | `estimate.md` | estimate | Смета — калькуляторы, /go/ реф | `../domain/pricing-works-ru.md` | 2026-10-17 |
-| `furniture.md` | furniture | Мебель — сеты, визуализация | `../domain/viz-fidelity-playbook.md` | 2026-10-17 |
+| `furniture.md` | furniture | Мебель — сеты, визуализация | `../domain/viz-fidelity-playbook.md` | 2026-10-18 |
 | `goals.md` | goals | Цели v0.4 — сценарий, монетизация, порядок ступеней | `../plans/MASTER-cost-first.md` | 2026-10-14 |
 | `knowledge-db.md` | knowledge-db | Source-KB из книг — спека, KB0–KB9 | `../../remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md` | 2026-09-28 |
-| `layout.md` | layout | Расстановка: правила, зоны, прод-ядро | `../domain/occupancy-rules.md` | 2026-09-28 |
+| `layout.md` | layout | Расстановка: правила, зоны, прод-ядро | `../domain/occupancy-rules.md` | 2026-10-18 |
 | `leads.md` | leads | Лид-канал — заявка, TG-бот | — | 2026-10-14 |
 | `lessons.md` | lessons | Уроки перед планированием — что НЕ сработало | `../lessons/README.md` | 2026-10-15 |
 | `lr-composition.md` | lr-composition | Композиция гостиной — доли | `../domain/lr-composition-guide.md` | 2026-10-11 |
@@ -38,7 +38,7 @@
 | `observability-tracing.md` | observability-tracing | Трейсинг AI-пайплайна — лог, разбор | `../domain/observability.md` | 2026-10-13 |
 | `partners.md` | partners | Застройщик, ЖК, квартира, цена и сертификат — данные; реестр и карточка квартиры | `../completed_plans/b2b-06-apartment-as-data.md` | 2026-10-18 |
 | `pipeline-order.md` | pipeline-order | Порядок конвейера — от фида до расстановки | `../domain/pipeline-order-details.md` | 2026-10-14 |
-| `regression-net.md` | regression-net | Регресс-защита — тесты, CI, гардрейлы | `../../docs/tech-spec-ts-stack.md` | 2026-10-14 |
+| `regression-net.md` | regression-net | Регресс-защита — тесты, CI, гардрейлы | `../../docs/tech-spec-ts-stack.md` | 2026-10-18 |
 | `room-measurement.md` | room-measurement | Замер комнаты по фото | `../domain/room-measurement.md` | 2026-10-11 |
 | `stock-and-dims.md` | stock-and-dims | Наличие и честность размеров — состояния, парсер, footprint | `../domain/stock-and-dims.md` | 2026-10-13 |
 | `styles.md` | styles | Стили — паспорта, скоринг, сеты | `../domain/interior-styles.md` | 2026-10-17 |
