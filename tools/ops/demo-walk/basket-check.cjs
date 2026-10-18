@@ -38,7 +38,17 @@ const saveHeart=async(p)=>{await p.click('#vFav'); await p.waitForSelector('#fav
     const s0=await st(p);
     ok('0 на старте: в избранном пусто, включено 0, строки «Избранное» нет',s0.n===0&&s0.eligible===0&&s0.cert===0&&await p.evaluate(()=>document.getElementById('favHead').hidden),JSON.stringify(s0));
     // 1) первый вариант гостиной — включается сам
-    await openWin(p,0);
+    await p.evaluate(i=>{pickVariant(i); VW.collapse=true; vwOpenVariant(i); if(VW.mode!=='walk')vwMode('walk');},0);
+    if(PHONE){
+      const tip=await p.waitForFunction(()=>{const t=document.querySelector('#shot .vtip'); if(!t)return null;
+        const c=document.getElementById('vCams'), tr=t.getBoundingClientRect(), cr=c.getBoundingClientRect();
+        return {mode:t.dataset.mode, live:t.dataset.live, busy:t.dataset.busy, ready:LIVE.state==='ready', loading:document.getElementById('vload').classList.contains('on'), tipBottom:Math.round(tr.bottom), camsTop:Math.round(cr.top)};},null,{timeout:40000,polling:100})
+        .then(h=>h.jsonValue(),()=>null);
+      // в «Фото» сцены ждать нечего — подсказка сразу; в 3D — только после загрузки моделей
+      // состояние — на момент показа (записано страницей): позже проверка видит уже следующий кадр
+      ok('подсказка шторки — не во время загрузки (нет крутилки; в 3D — сцена готова) и над переключателем ракурсов',!!tip&&tip.busy==='false'&&(tip.mode!=='walk'||tip.live==='ready')&&tip.tipBottom<=tip.camsTop,JSON.stringify(tip));
+    }
+    await p.waitForFunction("document.getElementById('shot').classList.contains('on')",null,{timeout:30000}); await p.waitForTimeout(1200);
     const plate0=await p.evaluate(()=>{const row=document.querySelector('#vsum .vpl-row'), pl=document.getElementById('vsum').getBoundingClientRect(), last=row.lastElementChild.getBoundingClientRect();
       return {head:row.querySelector('span').textContent, pv:(document.querySelector('#vsum .vpl-bar i.pv')||{}).style?.width, sum:+document.getElementById('vsum').dataset.sum,
         fits:row.scrollWidth<=row.clientWidth+1&&last.right<=pl.right+1&&row.querySelector('span').scrollWidth<=row.querySelector('span').clientWidth+1};});
@@ -89,8 +99,28 @@ const saveHeart=async(p)=>{await p.click('#vFav'); await p.waitForSelector('#fav
     await p.evaluate(id=>window.__fav.remove(id),fav1); await p.waitForTimeout(600);
     const s6=await st(p);
     ok('убрали включённый — включён старейший оставшийся',s6.n===2&&s6.inc.living===fav2,JSON.stringify({n:s6.n,inc:s6.inc}));
+    await p.evaluate(()=>window.__basket.open('living')); await p.waitForTimeout(400);
+    await p.click(`#favGrid [data-fmore="${fav2}"]`); await p.waitForSelector('#favExcl');
+    await p.click('#favExcl'); await p.waitForTimeout(700);
+    const s6b=await st(p);
+    ok('«⋯ → Не включать в сертификат» — комната вне расчёта, шкала 0, вариант в избранном',!Object.keys(s6b.inc).length&&s6b.cert===0&&s6b.n===2,JSON.stringify({inc:s6b.inc,cert:s6b.cert,n:s6b.n}));
+    await p.click(`#favGrid [data-finc="${fav2}"]`); await p.waitForTimeout(700);
+    const s6c=await st(p);
+    ok('включить снова — переключателем, шкала вернулась',s6c.inc.living===fav2&&s6c.cert===s2.eligible,JSON.stringify({inc:s6c.inc,cert:s6c.cert}));
     ok('без ошибок страницы',!p.errs.length,p.errs.slice(0,2).join(' | '));
     await p.context().close();
+    if(PHONE){   // окно сразу в 3D (вариант без реалистичного фото): подсказка ждёт модели
+      const t3=await page(b);
+      // как расстановка, которую уже меняли (реалистичного фото этого состояния нет): окно открывается сразу в 3D
+      await t3.evaluate(()=>{window.vwRealShots=vwRealShots=()=>[];}); const k=0;
+      if(k>=0){const m3=await t3.evaluate(i=>{window.vwRealShots=vwRealShots=()=>[]; pickVariant(i); VW.collapse=true; vwOpenVariant(i); return VW.mode;},k);
+        console.log('режим окна при открытии:',m3);
+        const tp=await t3.waitForFunction(()=>{const t=document.querySelector('#shot .vtip'); if(!t)return null; const cr=document.getElementById('vCams').getBoundingClientRect();
+          return {mode:t.dataset.mode, live:t.dataset.live, busy:t.dataset.busy, ready:LIVE.state==='ready', loading:document.getElementById('vload').classList.contains('on'), tipBottom:Math.round(t.getBoundingClientRect().bottom), camsTop:Math.round(cr.top)};},null,{timeout:60000,polling:100}).then(h=>h.jsonValue(),()=>null);
+        ok('окно сразу в 3D: подсказка — только после загрузки (нет крутилки) и над переключателем',!!tp&&tp.busy==='false'&&(tp.mode!=='walk'||tp.live==='ready')&&tp.tipBottom<=tp.camsTop,JSON.stringify(tp));}
+      else ok('окно сразу в 3D: нет варианта без реалистичного фото — проверить нечем',true,'пропуск');
+      await t3.context().close();
+    }
     // 7) не влезает: сертификат 100 000 → в избранное без включения, «превышена сумма на N», «Изменить расстановку»
     const q=await page(b,{limit:100000});
     await openWin(q,0);
@@ -100,6 +130,8 @@ const saveHeart=async(p)=>{await p.click('#vFav'); await p.waitForSelector('#fav
     const over=Number((s7.pop.match(/на ([\d\s ]+)₽/)||[])[1]?.replace(/\D/g,''));
     ok('не влезает — в избранном без включения, «превышена сумма на N ₽» (N = сумма − лимит), кнопка «Изменить расстановку»',
       s7.n===1&&!Object.keys(s7.inc).length&&over===sum7-100000&&/Изменить расстановку/.test(s7.pop),JSON.stringify({n:s7.n,inc:s7.inc,over,sum7}));
+    const plateOver=await q.evaluate(()=>{const sp=document.querySelector('#vsum .vpl-row span'); return {head:sp.textContent, cut:sp.scrollWidth>sp.clientWidth+1};});
+    ok('плашка при превышении — «Сверх лимита», подпись не обрезана',plateOver.head.trim()==='Сверх лимита'&&!plateOver.cut,JSON.stringify(plateOver));
     await q.screenshot({path:OUT+W+'-4-over.png'});
     await q.click('#favPop button.primary'); await q.waitForTimeout(700);
     ok('«Изменить расстановку» — остаёмся в окне этой расстановки',await q.evaluate(()=>document.getElementById('shot').classList.contains('on')));
@@ -121,7 +153,9 @@ const saveHeart=async(p)=>{await p.click('#vFav'); await p.waitForSelector('#fav
     const cyr=(en1+' '+en2).match(/[А-Яа-яЁё]+/g)||[];
     ok('EN: плашка окна и сообщения корзины без кириллицы',!cyr.length,cyr.slice(0,5).join(' ')+' | '+en1.slice(0,60)+' | '+en2.slice(0,80));
     await e.context().close();
-  }finally{await b.close();}
+  }catch(e){R.push('FAIL проверка прервалась — '+String(e.message||e).split('\n').slice(0,3).join(' | '));
+    try{for(const c of b.contexts())for(const pg of c.pages())await pg.screenshot({path:OUT+W+'-fail-'+Date.now()+'.png'});}catch(_){}}
+  finally{await b.close();}
   console.log(R.join('\n')); console.log(`итог: ${R.filter(x=>x.startsWith('OK')).length}/${R.length} · снимки ${OUT}${W}-*.png`);
   process.exitCode=R.some(x=>x.startsWith('FAIL'))?1:0;
 })();

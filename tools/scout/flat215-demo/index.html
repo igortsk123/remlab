@@ -697,6 +697,7 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .favbox b{font-size:17px}.favbox label{display:flex;flex-direction:column;gap:6px;font-size:14px;color:var(--muted)}
 .favbox input{font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);color:var(--ink);background:var(--surface)}
 .favbtns{display:flex;gap:8px}.favbtns .btn{flex:1 1 0}
+.favexcl{align-self:flex-start;color:var(--accent);background:none;border:0;padding:4px 0;cursor:pointer;font:inherit;font-size:14px}
 .favdel{align-self:flex-start;color:var(--danger,#b4442f);background:none;border:0;padding:4px 0;cursor:pointer;font:inherit;font-size:14px}
 .lay .acts .btn{flex:1 1 auto;padding:10px 12px;font-size:.92em}
 .lay .badge2{position:absolute;top:12px;right:12px;background:var(--veil);color:#fff;
@@ -4399,7 +4400,7 @@ function histFwd(){return histGo(1);}
 .vplate{position:relative}.vpl-row{display:flex;align-items:baseline;gap:6px;font-size:14px;color:var(--muted);white-space:nowrap}
 /* «С этой гостиной · N из M» (demo-16 шаг 2) на компьютере теснит «×» окна: плотнее, подпись при нехватке — с многоточием, число целиком */
 .vpl-row>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}.vpl-row b,.vpl-row small{flex:none}
-@media(min-width:701px){.vpl-row{gap:4px}.vpl-row small{font-size:12px}}
+@media(min-width:701px){.vpl-row{gap:4px}.vpl-row small{font-size:12px}.vpl-row.over small{display:none}}   /* превышение: «из лимита» — в «i», иначе «Сверх лимита» обрезалось */
 .vpl-row b{margin-left:auto;font-size:16px}.vpl-row small{font-size:13px}.vpl-bar{margin-top:7px}
 .vpl-i{width:20px;height:20px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--muted);font:600 12px/18px system-ui;
  padding:0;cursor:pointer;position:relative;align-self:center}.vpl-i::after{content:"";position:absolute;inset:-12px}
@@ -4522,6 +4523,8 @@ function histFwd(){return histGo(1);}
   #shot.v2 .shotwrap .livebadge{display:none}
   .vcams{bottom:calc(var(--vsh,320px) + 12px);transition:bottom .3s cubic-bezier(.32,.72,0,1)}   /* над верхом шторки — `vwSheetApply` */
   .vcams button{font-size:12px;padding:8px 10px}
+  /* «⤢ во весь экран» в «Фото» пряталась за переключатель ракурсов (самопроверка 18.10) — справа сверху, под ⇪ ♡ × */
+  #shot.v2 .vzbtn{top:62px;bottom:auto;right:10px}
   .vplanbox{inset:60px 8px var(--vsh,320px) 8px}
   /* подсказка «фото готово» — сверху, под ↶ ↷: снизу её перекрывала подпись выбранного пола (самопроверка 17.10) */
   .vstub{bottom:var(--vsh,320px)}.vready{top:108px;bottom:auto}
@@ -4571,7 +4574,8 @@ function vwSum(){
     // подпись короткая — плашка в одну строку и на 375 px, и в колонке компьютера («Остаток с этой гостиной» не влезал, самопроверка 18.10); что это — в «i»
     const R=EN?{living:'room',kitchen:'kitchen',bedroom:'bedroom',bathroom:'bathroom',hall:'hallway'}:{living:'С гостиной',kitchen:'С кухней',bedroom:'Со спальней',bathroom:'С санузлом',hall:'С прихожей'};
     const withTxt=EN?'With this '+(R[P.room.kind]||'room'):(R[P.room.kind]||'С комнатой');
-    const head=ov?(EN?'Over the allowance':'Сверх сертификата'):(P.included?(EN?'Allowance left':'Остаток'):withTxt);
+    // «Сверх лимита» — коротко: «Сверх сертификата» на 375 px обрезалось многоточием (fable-lead 18.10)
+    const head=ov?(EN?'Over limit':'Сверх лимита'):(P.included?(EN?'Allowance left':'Остаток'):withTxt);
     const pdev=(P.with.developerSurcharge||0)+(P.with.propertyPriceDelta||0);
     const bub=`<div class="vpl-bub" id="vplBub" hidden role="dialog">`+
       `<div>${EN?'Developer furniture allowance':'Сертификат застройщика на мебель'} <b>${money(cert)}</b></div>`+
@@ -4580,7 +4584,7 @@ function vwSum(){
       `<div>${ov?(EN?'over':'сверх')+' '+money(ov):(EN?'left':'остаток')+' '+money(lf)}</div>`+
       (pdev?`<div>${EN?'developer options (outside the allowance)':'опции застройщика (вне сертификата)'}: +${money(pdev)}</div>`:'')+
       (!P.with.allowanceComplete||P.with.onRequest.length?`<div>${EN?'some prices are still being checked':'часть цен уточняется'}</div>`:'')+`</div>`;
-    return `<div class="vpl-row"><span>${head}</span>`+
+    return `<div class="vpl-row${ov?' over':''}"><span>${head}</span>`+
       `<button class="vpl-i" aria-label="${EN?'What is this':'Что это'}" aria-expanded="false">i</button>`+
       `<b class="${ov?'vpl-over':'vpl-rest'}" data-k="${ov?'over':'left'}" data-to="${ov||lf}">${ov?'+':''}${money(ov||lf)}</b>`+
       `<small>${EN?'of ':'из '}${money(cert)}</small></div>`+
@@ -4596,7 +4600,7 @@ function vwSum(){
     `<div>${EN?'chosen':'выбрано'} ${money(chosen)} · ${over?(EN?'over':'сверх')+' '+money(over):(EN?'left':'остаток')+' '+money(left)}</div>`+
     (dev?`<div>${EN?'developer options (outside the allowance)':'опции застройщика (вне сертификата)'}: +${money(dev)}</div>`:'')+
     (t&&t.onRequest.length?`<div>${EN?'on request':'по запросу'}: ${t.onRequest.map(escHtml).join(', ')}</div>`:'')+`</div>`;
-  return `<div class="vpl-row"><span>${over?(EN?'Over the allowance':'Сверх сертификата'):(EN?'Allowance left':'Остаток')}</span>`+
+  return `<div class="vpl-row"><span>${over?(EN?'Over limit':'Сверх лимита'):(EN?'Allowance left':'Остаток')}</span>`+
     `<button class="vpl-i" aria-label="${EN?'What is this':'Что это'}" aria-expanded="false">i</button>`+
     `<b class="${over?'vpl-over':'vpl-rest'}" data-k="${over?'over':'left'}" data-to="${over||left}">${over?'+':''}${money(over||left)}</b>`+
     `<small>${EN?'of ':'из '}${money(cert)}</small></div><div class="vpl-bar ${lvl}"><i style="width:${pct}%"></i></div>${bub}`;
@@ -4812,7 +4816,8 @@ function vwSheetApply(vis, anim){
   const dots=document.getElementById('vCams'); if(dots){dots.style.transition=anim&&!VW_SLOW()?'':'none'; dots.style.bottom=Math.round(vis+12)+'px';}
   // «во весь экран» — тоже над текущим верхом шторки (приёмка d8 17.10: на средней кнопка была под шторкой)
   // кнопка — внутри области фото, а её низ уже на высоте свёрнутой шторки (`--vsh` = e.min + 8): отступ — от него
-  const zb=document.getElementById('vzBtn'); if(zb){zb.style.transition=dots?dots.style.transition:''; zb.style.bottom=Math.max(12,Math.round(vis+12-(e.min+8)))+'px';}
+  // «⤢» на телефоне — сверху справа (CSS, самопроверка 18.10): за шторкой больше не ездит
+  const zb=document.getElementById('vzBtn'); if(zb)zb.style.bottom='';
   const pos=vis<=e.min+4?0:vis>=e.max-4?3:2;
   if(sd.dataset.pos!==String(pos)){sd.dataset.pos=String(pos); vwSheetState(pos);}
   const shotEl=document.getElementById('shot'); if(shotEl)shotEl.classList.toggle('vsheetfull',vis>=e.max-40);
@@ -4994,12 +4999,30 @@ function vwMount(s){
   const sd=document.getElementById('vside');
   // подсказка — один раз на устройство: «подскок» шторки и 3 секунды текста
   if(window.innerWidth<=700){let seen=false; try{seen=!!localStorage.getItem('remlab-sheet-hint-v1');}catch(e){}
-    if(!seen&&sd){const t=document.createElement('div'); t.className='vtip';
-      // над шапкой шторки в её конечном положении (шторка ещё едет — её текущий верх врёт), в ширину экрана (приёмка d8 17.10)
-      t.textContent='Потяните или нажмите — товары и замены'; t.style.cssText='white-space:normal;text-align:center;max-width:calc(100% - 32px)';
-      t.style.bottom=(Math.round(VW.sheetVis||0)+14)+'px';
-      shot.appendChild(t); setTimeout(()=>t.remove(),3000);
-      try{localStorage.setItem('remlab-sheet-hint-v1','1');}catch(e){}}}
+    if(!seen&&sd){
+      // ПОСЛЕ ЗАГРУЗКИ СЦЕНЫ И НАД ПЕРЕКЛЮЧАТЕЛЕМ РАКУРСОВ (fable-lead 18.10, demo-16 шаг 2): раньше подсказка появлялась, пока крутилка
+      // ещё грузила модели, и ложилась на «Со стороны двери/окна». Ждём готовую сцену (или «Фото»/заглушку без 3D), до ~20 с
+      const at=Date.now(), isBusy=()=>{const vl=document.getElementById('vload');
+        // занято: 3D ещё грузит модели или на экране крутилка (окно могло само уйти в «Фото», пока грузилась сцена — 2.25)
+        return (VW.mode==='walk'&&typeof LIVE!=='undefined'&&LIVE.ok!==false&&LIVE.state!=='ready')||!!(vl&&vl.classList.contains('on'));};
+      // первый показ — через 0,7 с: человек успевает переключить «Фото»/«3D», и подсказка не встаёт поверх загрузки
+      (function tip(){
+        if(!shot.classList.contains('on'))return;
+        if((Date.now()-at<700||isBusy())&&Date.now()-at<20000){setTimeout(tip,250); return;}
+        const t=document.createElement('div'); t.className='vtip';
+        t.dataset.mode=VW.mode; t.dataset.live=String(typeof LIVE!=='undefined'&&LIVE.state); t.dataset.busy=String(isBusy());   // состояние в момент показа — для проверок
+        t.textContent=LANG==='en'?'Pull or tap — items and swaps':'Потяните или нажмите — товары и замены';
+        t.style.cssText='white-space:normal;text-align:center;max-width:calc(100% - 32px)';
+        const cm=document.getElementById('vCams'), box=shot.getBoundingClientRect(), cr=cm&&getComputedStyle(cm).display!=='none'?cm.getBoundingClientRect():null;
+        // над переключателем ракурсов; его нет — над шапкой шторки в её конечном положении (приёмка d8 17.10)
+        t.style.bottom=(cr&&cr.height?Math.round(box.bottom-cr.top+10):Math.round(VW.sheetVis||0)+14)+'px';
+        shot.appendChild(t);
+        // началась загрузка (переключили в 3D) — подсказка уходит и вернётся, когда сцена будет готова
+        const t0=Date.now(); (function watch(){ if(!t.isConnected)return;
+          if(isBusy()){t.remove(); setTimeout(tip,250); return;}
+          if(Date.now()-t0>=3000){t.remove(); try{localStorage.setItem('remlab-sheet-hint-v1','1');}catch(e){} return;}
+          setTimeout(watch,150);})();
+      })();}}
   // увеличить картинку: «⤢» или тап по ней; свайп по кадру — другой ракурс
   const zb=document.getElementById('vzBtn'), mi=shot.querySelector('.shotwrap img.vmain');
   if(mi&&VW_PHONE())vwPhotoFocus(mi,s);
@@ -5891,6 +5914,9 @@ async function liveShow(){
   }
   function removeFav(id){ if(!BK.mod||!BK.b)return; bkPut(BK.mod.removeFavorite(BK.b,id,BK.limit)); thumbDrop(id); drawColl(true);
     toast(EN()?'Removed from favourites':'Убрано из избранного');}
+  // «Не включать в сертификат»: комната уходит из расчёта, вариант остаётся в избранном; включить снова — переключателем (те же ворота)
+  function excludeFav(id){ var f=favOf(id); if(!f||!BK.mod||BK.b.includedByRoom[f.roomId]!==id)return; bkPut(BK.mod.exclude(BK.b,f.roomId));
+    toast(EN()?'Not included in the allowance — the total is updated':'Не включено в сертификат — шкала пересчитана');}
   // «Включить в сертификат» в избранном: ворота модуля — не влезает или цена не досчитана — переключатель не двигается
   function includeFav(id){ if(!BK.mod||!BK.b)return; var r=BK.mod.include(BK.b,id,BK.limit);
     if(r.result==='included'){bkPut(r.basket); toast(EN()?'Included in the allowance':'Включено в сертификат'); return;}
@@ -5931,6 +5957,8 @@ async function liveShow(){
       '<label>'+(EN()?'Name':'Название')+'<input id="favName" maxlength="80" value="'+e(nm)+'"></label>'+
       '<div class="favbtns"><button class="btn primary" id="favOk" type="button">'+(isNew?(EN()?'Save':'Сохранить'):(EN()?'Rename':'Переименовать'))+'</button>'+
       '<button class="btn ghost" id="favNo" type="button">'+(EN()?'Cancel':'Отмена')+'</button></div>'+
+      // включён в сертификат — можно снять комнату из расчёта, вариант остаётся в избранном (fable-lead 18.10: «как корзина»)
+      (!isNew&&BK.b&&BK.b.includedByRoom[f.roomId]===f.favoriteId?'<button class="lnk favexcl" id="favExcl" type="button">'+(EN()?'Do not include in the allowance':'Не включать в сертификат')+'</button>':'')+
       (isNew?'':'<button class="lnk favdel" id="favDel" type="button">'+(EN()?'Remove from favourites':'Убрать из избранного')+'</button>')+'</div>';
     document.body.appendChild(el);
     var inp=document.getElementById('favName'), close=function(){el.remove();};
@@ -5941,6 +5969,7 @@ async function liveShow(){
     var busy=false, go=function(){if(busy)return; busy=true; ok.disabled=true; (isNew?save(inp.value):rename(f.favoriteId,inp.value)).then(close,close);};   // двойной Enter — одно сохранение
     ok.onclick=go; inp.addEventListener('keydown',function(ev){if(ev.key==='Enter')go(); if(ev.key==='Escape')close();});
     var del=document.getElementById('favDel'); if(del)del.onclick=function(){removeFav(f.favoriteId); close();};
+    var exc=document.getElementById('favExcl'); if(exc)exc.onclick=function(){excludeFav(f.favoriteId); close();};
   }
   function toggle(){pop(ofState(curStateId()));}
   // сердечко и «поделиться» в шапке окна — только в окне варианта
@@ -6012,7 +6041,7 @@ async function liveShow(){
     open:openFavs, state:function(){return BK.b;}, limit:function(){return BK.limit;}};
   window.__fav={list:function(){return favs().map(function(f){return Object.assign({collectionId:f.favoriteId},f);});},
     ofState:ofState, baseState:baseState, toggle:toggle, share:share, shareUrl:shareUrl, shareUrlOpen:shareOpenUrl,
-    ui:favUi, draw:favDraw, save:save, rename:rename, remove:removeFav, include:includeFav, defaultName:defaultName};
+    ui:favUi, draw:favDraw, save:save, rename:rename, remove:removeFav, include:includeFav, exclude:excludeFav, defaultName:defaultName};
   document.addEventListener('remlab:hist',function(){favUi();});
   boot();
 })();
