@@ -48,7 +48,7 @@ test("2.7–2.8 оба ракурса каждого варианта не пу�
 });
 
 // 2.13 (план demo-03): карточка «Моя коллекция» была без фото. Меняем предмет (кадра такой расстановки ещё нет) →
-// «Сохранить коллекцию» → страница снимает черновик в фоне и прикрепляет его к коллекции на сервере. Одна коллекция
+// сердечко «В избранное» → страница снимает черновик в фоне и прикрепляет его к коллекции на сервере. Одна коллекция
 // за ночь — без ПДн и без номера менеджера, в отчёт застройщику не попадает.
 test("2.13 сохранённая коллекция получает картинку", async ({ page }) => {
   test.setTimeout(4 * 60_000);
@@ -60,9 +60,12 @@ test("2.13 сохранённая коллекция получает карти
   await page.locator("#shotbody [data-rep]").first().click();
   await page.locator("#sheet .mini:has-text('Заменить')").first().click();
   const t = Date.now();
-  await page.locator("button:has-text('Сохранить коллекцию'):visible").first().click();
-  await expect(page.locator("#shot input[readonly]")).toHaveValue(/#c=[A-Za-z0-9_-]{22}$/);
-  const cid = (await page.locator("#shot input[readonly]").inputValue()).split("#c=")[1]!;
+  // сохранение — сердечком в шапке окна с именем (demo-15: кнопки «Сохранить коллекцию» больше нет)
+  await page.locator("#vFav").click();
+  await page.locator("#favOk").click();
+  await expect(page.locator("#vFav.on")).toBeVisible();
+  const cid = await page.evaluate(() => (JSON.parse(localStorage.getItem("remlab-favorites") || "[]")[0] || {}).collectionId as string);
+  expect(cid).toMatch(/^[A-Za-z0-9_-]{22}$/);
   await expect.poll(async () => (await page.request.get(`/api/collections/${cid}`).then((r) => r.json()) as { collection: { shot?: string } }).collection.shot ?? "",
     { timeout: 180_000, intervals: [5_000] }).toMatch(/^\/test\/share\/frames\//);
   console.log(`  · картинка коллекции за ${Math.round((Date.now() - t) / 1000)} с`);
