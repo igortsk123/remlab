@@ -27,13 +27,11 @@ review_after: 2026-11-28
 кнопки, `demo-frame.live.ts` — кадр обоих ракурсов и картинка коллекции), ночной шаг `demo_live` (`tools/ops/demo-live.sh`);
 строка без теста — `WARN:demo_map_uncovered` (`tools/ops/demo-map-check.mjs`). Платный путь — без трат (`/api/draft/paid`).
 
-**Починено 14.10** (список — Tier 2 § 1–2): `camFit` (тест `tests/unit/demo-cams.test.ts`), `totalsOf` (ADR-0286), задания
-кадров переживают деплой (`tools/scout/draft_jobs.py`, ADR-0287), картинка коллекции (`PATCH /api/collections/[id]`).
+**Починено 14.10** — Tier 2 § 1–2 (`camFit`, `totalsOf` ADR-0286, `draft_jobs.py` ADR-0287).
 **Открыто:** фото ≠ список (2.2), 3D без несохранённых правок (2.16) → `demo-02`. **/flat** 2.18–2.22 приняты вручную 16.10;
 `e2e/live/flat-walk.live.ts` покрывает только «1д», строки 2.19–2.22 без теста (`demo_map_uncovered`, долг demo-03).
 2.23 — строки-входы шторки v5 (`e2e/live/floor.live.ts`); 2.24–2.26 — режимы окна demo-09; 2.13–2.15, 2.30–2.32 — избранное сердечком
 с именем и секретом переименования, «поделиться», фокус камеры (demo-15, `tools/ops/demo-walk/fav-check.cjs`).
 
-**Куда идёт:** этап 4+ `plans/MASTER-cost-first.md` — `demo-01` (движок `lib/viewer3d`) завершён 14.10; `demo-03` — `partial`
-(ждёт три зелёные ночи); `demo-02` (окно v3 + шторка v4, ADR-0290/0299) — `in_progress`, принято по частям 16.10; дальше
-`demo-04…08` (вид сцены, артефакты 3D, пол, стены, досье). Связано: [[demo-planner]], [[apartment-configurator]].
+**Куда идёт:** этап 4+ `plans/MASTER-cost-first.md` — закрыты demo-01, 09–13, 15; `demo-03` partial (три зелёные ночи); дальше
+`demo-16` (главная: стили → комнаты, корзина), `demo-05/14` остатки. Связано: [[demo-planner]], [[apartment-configurator]].
