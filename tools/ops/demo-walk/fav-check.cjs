@@ -45,7 +45,7 @@ const openWin=async(p,i)=>{await p.evaluate(i=>{pickVariant(i); VW.collapse=true
     await p.waitForTimeout(4500);
     ok('подсветка держится дольше 4 с',await p.evaluate(k=>{const r=vwRowOf(items[k]); return !!r&&r.classList.contains('hl');},k));
     await p.evaluate(k=>vwHighlight(k),k); await p.waitForTimeout(400);
-    ok('повторный тап по тому же предмету снимает выделение, шторку не трогает',await p.evaluate(()=>VW.sel==null&&!document.querySelector('#shotbody .row.hl')&&document.getElementById('vside').dataset.pos==='3'));
+    ok('повторный тап по тому же предмету снимает выделение, шторку не трогает',await p.evaluate(ph=>VW.sel==null&&!document.querySelector('#shotbody .row.hl')&&(!ph||document.getElementById('vside').dataset.pos==='3'),PHONE));
     // замена через ленту → 3D, шторка свёрнута, камера наведена на новый предмет
     // как кнопка ленты (`openPicker` → `tryOn` → `closePicker` → `refreshShotList`)
     const tryN=await p.evaluate(k=>{sel=items[k]; draw(); openPicker(items[k]); const cur0=(skuOf(items[k])||{}).name;

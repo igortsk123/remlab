@@ -596,7 +596,8 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .vtopbtn{position:absolute;top:12px;width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:rgba(255,255,255,.92);
  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);color:var(--ink);cursor:pointer;z-index:8;display:flex;align-items:center;
  justify-content:center;font-size:21px;line-height:1;padding:0}
-#vFav{right:60px}#vShare{right:108px}
+/* компьютер: над правым краем сцены (колонка 410 px справа — там плашка «Остаток» и «×»); телефон — рядом с «×» (ниже, в @media) */
+#vFav{right:422px}#vShare{right:470px}
 .vtopbtn.vfav.on{color:var(--accent);border-color:var(--accent)}
 .vtopbtn[hidden]{display:none}
 .favcard .nm{text-transform:none}                /* имя избранного — как его написал человек */
@@ -4110,6 +4111,9 @@ function histFwd(){return histGo(1);}
    видимости» сдвигала #shotbody на 195 px — сцена и переключатель режимов уезжали за верх экрана; прокрутка — только в списке */
 #shot.v2 #shotbody{overflow:hidden;overflow:clip}
 #shot.v2 #shotbody{padding:0;overflow:hidden;overflow:clip;display:flex}   /* clip — и для программной прокрутки (см. выше) */
+/* тело окна не выше окна (demo-15, замер 18.10 на 1440×900: 1277 px против 864 — низ сцены с переключателем ракурсов уходил за край,
+   колонка списка росла вместо прокрутки) */
+#shot.v2 #shotbody{min-height:0}
 #shot.v2 .xclose{z-index:8}
 .vw{display:grid;grid-template-columns:minmax(0,1fr) 410px;flex:1;min-height:0;width:100%}
 .vstage{position:relative;background:var(--wash-2);min-height:0;overflow:hidden}
