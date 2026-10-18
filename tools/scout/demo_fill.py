@@ -47,11 +47,11 @@ def base_role(role: str) -> str:
     return re.sub(r'\s+\d+$', '', role)
 
 
-def load_pool(ok=None) -> list[dict]:
-    """Пул кандидатов: объёмные — `demo_swap_pool.pool(ok)` (`ok` — проверки сборки до отбора 30, demo-18), ковры — плоский запрос."""
-    from demo_swap_pool import pool
+def load_pool() -> list[dict]:
+    """Пул кандидатов: объёмные — `demo_swap_pool.pool_top()` (прежний отбор 30, demo-18), ковры — плоский запрос."""
+    from demo_swap_pool import pool_top
     out = []
-    for p in pool(ok):
+    for p in pool_top():
         mid, eid = p['sid'].split('_', 1)
         out.append({**p, 'mid': mid, 'eid': eid})
     from mesh_queue import db

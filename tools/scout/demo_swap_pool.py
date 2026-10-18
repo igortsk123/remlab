@@ -52,9 +52,10 @@ def _lit(xs) -> str:
     return ','.join("'" + str(x).replace("'", "''") + "'" for x in xs) or "''"
 
 
-def pool_sql(in_style_min: float = IN_STYLE_MIN) -> str:
-    """Запрос пула — ВСЕ кандидаты по порядку группы (срез до `PER_GROUP` — в `pick` после проверок). Вынесен отдельно,
-    чтобы `--selftest` проверял его форму без БД."""
+def pool_sql(in_style_min: float = IN_STYLE_MIN, top: int | None = None) -> str:
+    """Запрос пула — ВСЕ кандидаты по порядку группы (срез до `PER_GROUP` — в `pick` после проверок); `top` — прежний запрос
+    (первые `top` группы до проверок, порядок выдачи базы) для дозаполнения вариантов. Вынесен отдельно, чтобы `--selftest`
+    проверял его форму без БД."""
     return f"""
 with cand as (
   select p.shop_mid||':'||p.external_id as sku,
@@ -81,7 +82,7 @@ ranked as (
                                order by uni asc, q desc, st_score desc, price asc nulls last, sku) as rn from cand)
 select sku, rep, sub, style, cat_role, name, shop, img, url, coalesce(price::text,''),
        w_cm, d_cm, h_cm
-  from ranked order by sub, style, rn"""
+  from ranked {f"where rn <= {top} order by cat_role, style, sku" if top else "order by sub, style, rn"}"""
 
 
 def _row(r: list) -> dict | None:
@@ -136,20 +137,12 @@ def pool(ok=None) -> list[dict]:
     return pick([p for p in map(_row, db(pool_sql())) if p], ok)
 
 
-def report(items: list[dict] | None = None) -> list[dict]:
-    items = items if items is not None else pool()
-    models = {i['msid'] for i in items}
-    groups: dict[tuple, int] = {}
-    for i in items:
-        groups[(i['sub'], i['style'])] = groups.get((i['sub'], i['style']), 0) + 1
-    print(f'пул замены: товаров {len(items)}, моделей (уникальных мешей) {len(models)}, '
-          f'групп «подкатегория×стиль» {len(groups)}, лимит на группу {PER_GROUP}')
-    by_role: dict[str, int] = {}
-    for i in items:
-        by_role[i['role']] = by_role.get(i['role'], 0) + 1
-    print('по ролям:', dict(sorted(by_role.items(), key=lambda kv: -kv[1])))
-    print(f'вес моделей ≈ {len(models) * 7.6 / 1024:.1f} ГБ')
-    return items
+def pool_top() -> list[dict]:
+    """Пул ДОЗАПОЛНЕНИЯ вариантов (`demo_fill.load_pool`) — прежний запрос (30 лучших до проверок, порядок базы). Под показываемые
+    варианты стилей настроены камеры и сняты кадры (demo-18, ведущий 18.10): смена пула дозаполнения сменила бы варианты —
+    это отдельное решение."""
+    from mesh_queue import db
+    return [p for p in map(_row, db(pool_sql(top=PER_GROUP))) if p]
 
 
 def _selftest() -> int:
@@ -193,7 +186,10 @@ def _selftest() -> int:
     if [p['sid'] for p in pick(rows, ok, per_group=30)] != ['a1', 'b1', 'a2', 'a3']:
         bad += 1
         print('  FAIL: добор до лимита — все прошедшие')
-    print(f'demo_swap_pool selftest: случаев 13, ошибок {bad}')
+    if 'where rn <= 30 order by cat_role, style, sku' not in pool_sql(top=30):
+        bad += 1
+        print('  FAIL: пул дозаполнения — прежний запрос (срез группы до проверок, прежний порядок)')
+    print(f'demo_swap_pool selftest: случаев 14, ошибок {bad}')
     return 1 if bad else 0
 
 

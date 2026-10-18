@@ -502,7 +502,7 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
     gate = lambda role, c, s_, others: (_gate0(role, c, s_, others)  # noqa: E731
                                         and not _unfit(DF.base_role(role), c.get('name'), None, c.get('h'))
                                         and (DF.base_role(role) in NOMESH_ROLES or has_mesh(c)))
-    pool = DF.load_pool(swap_ok)
+    pool = DF.load_pool()
     print(f'пул дозаполнения: {len(pool)} товаров', flush=True)
     by_style: dict = {}
     for i, st in enumerate(sets, 1):
@@ -533,8 +533,9 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
 
 def swap_ok(p: dict) -> bool:
     """Товар пула показуем в ленте замен — те же проверки, что лента применяет к товарам сетов: живое фото, модель семейства
-    лежит на сервере (не карантин) и подходит товару по цвету, предмет годится для гостиной (`unfit.py`). Пул зовёт её ДО
-    отбора 30 в группе (`demo_swap_pool.pick`, demo-18 п.1); ширину комнаты пул проверяет сам по `rules/demo-swap.json`."""
+    лежит на сервере (не карантин) и подходит товару по цвету, предмет годится для гостиной (`unfit.py`). Пул ленты зовёт её
+    ДО отбора 30 в группе (`demo_swap_pool.pick`, demo-18 п.1); ширину комнаты пул проверяет сам по `rules/demo-swap.json`.
+    Дозаполнение вариантов берёт прежний пул (`pool_top`): показываемые варианты в этой задаче не меняются."""
     from img_alive import alive_now
     from unfit import unfit
     return (bool(p.get('msid')) and p['msid'] in _mesh_index() and not unfit(p.get('role'), p.get('name'), None, p.get('h'))
