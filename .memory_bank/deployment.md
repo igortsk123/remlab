@@ -3,7 +3,7 @@ tier: 1
 topic: deployment
 scope: Деплой/откат/сервер exit-fi
 tier2: "domain/deployment-details.md"
-updated: 2026-10-14
+updated: 2026-10-18
 importance: high
 source: manual
 status: working
@@ -47,6 +47,7 @@ Push в `main` → CI gate → `Deploy prod` (`deploy.yml`). Сервер — `i
 ## Сторожа
 Каталог (ADR-0172), диск `cleanup.sh` (ADR-0005), безопасность — `disk-watchdog.sh`. Правка сервера = бэкап + rollback.
 Доступность — `health-watch.sh` раз в 2 мин → Telegram; копия дампа вне сервера и репетиция восстановления — DEV
-`tools/ops/` (ADR-0266). Что ломается без DEV — Tier 2 § «Прод без DEV».
+`tools/ops/` (ADR-0266). Что ломается без DEV — Tier 2 § «Прод без DEV». DEV-рендер и туннель — юниты `systemctl --user`
+(`tools/scout/systemd/`, сторож `tools/scout/dev_render_backend.sh`; 18.10, T-04) — Tier 2 § «DEV-рендер».
 
 **Tier 2:** `domain/deployment-details.md` — конвейер, две базы, Caddy и статик, сторожа.
