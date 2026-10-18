@@ -54,6 +54,9 @@ tools/scout/*
 # прогона (~6 МБ) остаются вне git, в /home/pakar/igor/_bench-mask.
 !tools/scout/mask_bench/
 !tools/scout/mask_bench/**
+# Юниты systemd DEV-рендера и его туннеля (b2b-09, 18.10) — ставит их dev_render_backend.sh из репо
+!tools/scout/systemd/
+!tools/scout/systemd/*.service
 # Q6a: правила capability-модели каталога — данные-код с provenance (как rules солвера)
 !tools/scout/rules/
 !tools/scout/rules/*.json

@@ -1,0 +1,31 @@
+# DEV-РЕНДЕР ДЛЯ ДЕМО (b2b-09, T-20261018-04): сервис кадров draft_service на 127.0.0.1:8600.
+# Пользовательский юнит pakar (linger включён — живёт без входа в систему). Ставит и чинит его
+# tools/scout/dev_render_backend.sh (крон @reboot и каждые 10 мин): копирует этот файл в
+# ~/.config/systemd/user/, если он изменился, и перезапускает сервис, если /health молчит.
+# Вручную: systemctl --user status remlab-render · лог кадров — ~/scout-scenes/dev-render.log (как и раньше).
+# ЗАЩИТЫ ОТ earlyoom НЕТ НАМЕРЕННО: при нехватке памяти рендер — первая жертва (он большой, освобождает
+# гигабайты и поднимается сам за 5 с), а туннели остаются. 200 — значение юнитов пользователя по умолчанию,
+# записано явно, чтобы его не «защитили» по ошибке.
+[Unit]
+Description=remlab: DEV-рендер кадров демо (draft_service, 127.0.0.1:8600)
+StartLimitIntervalSec=0
+
+[Service]
+WorkingDirectory=%h/igor/remlab/tools/scout
+# SCENE3D_QUALITY=full НЕ ставим: он выключает отбраковку задних граней (ADR-0165, кадр быстрее на 20 %);
+# платный путь ставит quality=full сам. Модель «реалистично» — demo-11 (ADR-0302), промпт improve-v4 — demo-14 (ADR-0305).
+Environment=REALISTIC_MODEL=openai/gpt-image-2.5-sunburst GPT_IMAGE_QUALITY=medium IMPROVE_PROMPT=v4
+Environment=SCENE3D=1 SCENE3D_PROCS=1 DRAFT_HOST=127.0.0.1 DRAFT_PORT=8600 FRAME_INLINE=1
+Environment=SRC_PUSH=root@89.167.127.0:/opt/remlab/test/share/src/ PUBLIC_BASE=https://remont-lab.online
+# агента ключей earlyoom убивает одним из первых — scp/ssh рендера ходят ключом из ~/.ssh, как при запуске из крона
+UnsetEnvironment=SSH_AUTH_SOCK
+ExecStart=%h/venvs/scout/bin/python -u draft_service.py
+StandardOutput=append:%h/scout-scenes/dev-render.log
+StandardError=append:%h/scout-scenes/dev-render.log
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+OOMScoreAdjust=200
+
+[Install]
+WantedBy=default.target

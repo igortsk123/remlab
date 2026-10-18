@@ -1,0 +1,27 @@
+# ssh-ТУННЕЛЬ DEV-РЕНДЕРА (b2b-09, T-20261018-04): прод-шлюз docker-сети 172.18.0.1:8601 → DEV 127.0.0.1:8600
+# (наружу не торчит). Прод зовёт рендер через него и падает на свой локальный рендер, если DEV молчит.
+# Ставит и чинит tools/scout/dev_render_backend.sh (крон), см. remlab-render.service.
+# Вручную: systemctl --user status remlab-render-tunnel · журнал — ~/scout-scenes/dev-tunnel.log.
+# Перезапуск — systemd за ~3 с (раньше цикл nohup спал 15 с). ServerAlive рвёт мёртвое соединение за ~90 с,
+# ExitOnForwardFailure — выход, если порт на сервере ещё держит прежняя сессия (тогда — новая попытка).
+# ЗАЩИТА ОТ earlyoom: -1000 юниту пользователя НЕДОСТУПНО — systemd без root молча поднимает значение до 100
+# (минимум менеджера пользователя; проверено 18.10). 100 — лучшее без sudo: ниже браузеров (200–300),
+# рендера (200 + гигабайты), туннеля tamara и ssh-agent (200). Настоящая защита — правка earlyoom владельцем
+# (--avoid для ssh), см. план b2b-09.
+[Unit]
+Description=remlab: ssh-туннель DEV-рендера (прод 172.18.0.1:8601 -> 127.0.0.1:8600)
+StartLimitIntervalSec=0
+
+[Service]
+UnsetEnvironment=SSH_AUTH_SOCK
+ExecStart=/usr/bin/ssh -N -o BatchMode=yes -o ConnectTimeout=15 -o ExitOnForwardFailure=yes \
+    -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+    -R 172.18.0.1:8601:127.0.0.1:8600 root@89.167.127.0
+StandardOutput=append:%h/scout-scenes/dev-tunnel.log
+StandardError=append:%h/scout-scenes/dev-tunnel.log
+Restart=always
+RestartSec=3
+OOMScoreAdjust=100
+
+[Install]
+WantedBy=default.target

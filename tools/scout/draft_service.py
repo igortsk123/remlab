@@ -404,10 +404,11 @@ class H(BaseHTTPRequestHandler):
             gate = _paid_gate_cached()
             return self._send(200, {'available': gate is None, 'code': gate[0] if gate else None})
         if self.route.startswith(('/draft/stats', '/stats')):
-            # ВРЕМЯ КАДРА (b2b-08 п.5): среднее последних замеров по качеству — стык конвейера следит, не медленнеет ли
+            # ВРЕМЯ КАДРА (b2b-08 п.5): среднее последних замеров по качеству — стык конвейера следит, не медленнеет ли.
+            # running — идущие задания: ночная живая проверка ждёт свободного рендера (b2b-09, earlyoom 18.10)
             avg = {q: (round(sum(d) / len(d), 1) if d else None) for q, d in _DURS.items()}
             return self._send(200, {'avg_sec': avg, 'n': {q: len(d) for q, d in _DURS.items()},
-                                    'queue': JOBS.waiting_n()})
+                                    'queue': JOBS.waiting_n(), 'running': {q: JOBS.running(q) for q in _DURS}})
         if self.route.startswith('/job'):
             from urllib.parse import parse_qs, urlparse
             jid = (parse_qs(urlparse(self.path).query).get('id') or [''])[0]
