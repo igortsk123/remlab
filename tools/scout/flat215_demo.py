@@ -870,10 +870,10 @@ def build() -> dict:
         for p in lst:
             p['styles'] = [p['style']] if p.get('style') else []
     have: dict = {(r, p.get('sid')): p for r, lst in feeds.items() for p in lst}
-    added, off_env = 0, 0
-    try:
-        import demo_swap_pool
-        for p in demo_swap_pool.pool(swap_ok):
+    def glue(rows, target: dict, have: dict) -> list:
+        """Товары пула → в ленты `target` (без дублей, с проверками ленты) → [добавлено, мимо конверта]."""
+        n = [0, 0]
+        for p in rows:
             base = p['role']
             if base not in ENV_ALL:
                 continue
@@ -895,7 +895,7 @@ def build() -> dict:
                 continue          # не для гостиной (`unfit.py`): барный стул в ленте обеденных и т.п.
             lo, hi = ENV_ALL[base]
             if not (lo <= (p.get('w') or 0) <= hi):
-                off_env += 1
+                n[1] += 1
                 continue          # габарит вне конверта слота этой комнаты
             mid, eid = p['sid'].split('_', 1)
             it = {'name': p['name'], 'w': p['w'], 'd': p['d'], 'h': p['h'], 'price': p['price'],
@@ -905,8 +905,18 @@ def build() -> dict:
                   'basis': _basis(mid, eid), 'hung': _hung(p['name']),
                   'pack': _pack_of(mid, eid, p['name'])}
             have[(base, p['sid'])] = it
-            added += 1
-            feeds.setdefault(base, []).append(it)
+            n[0] += 1
+            target.setdefault(base, []).append(it)
+        return n
+    # ДЕКОР ВАРИАНТА ПОДМЕНЯЕТСЯ ИЗ ЛЕНТЫ СБОРКИ, А НЕ ИЗ ЛЕНТЫ ЗАМЕН (demo-18, ведущий 18.10): подмена ниже — часть состава
+    # варианта, и состав не должен меняться от расширения ленты замен (ваза set16). Лента сборки — те же товары сетов
+    # (своя копия: пул дописывает им стили) плюс прежний пул `pool_top`
+    dec_feeds = {r: [dict(p, styles=list(p['styles'])) for p in lst] for r, lst in feeds.items()}
+    added, off_env = 0, 0
+    try:
+        import demo_swap_pool
+        added, off_env = glue(demo_swap_pool.pool(swap_ok), feeds, have)
+        glue(demo_swap_pool.pool_top(), dec_feeds, {(r, p.get('sid')): p for r, lst in dec_feeds.items() for p in lst})
     except Exception as e:  # noqa: BLE001 — нет БД/пула: ленты остаются набором сетов
         print('пул замены не подключён:', e)
     print(f'пул замены добавил в ленты: {added} товаров (мимо конверта комнаты: {off_env}); '
@@ -923,7 +933,7 @@ def build() -> dict:
     # три габарита и есть модель: высоту мы не придумываем (Р1), а без модели это серая коробка.
     # У ваз из банка высота часто пустая («Ваза-шар Неман 260 мм» — размер только в названии), и
     # такая ваза осталась бы строкой в списке. Меняем её на ближайшую по ширине вазу того же
-    # стиля из ленты — то же место в наборе, но её видно в комнате. Не нашлось замены — оставляем
+    # стиля из ленты сборки (`dec_feeds`) — то же место в наборе, но её видно в комнате. Не нашлось замены — оставляем
     # как есть: пусть лучше товар будет только в списке, чем подставим чужой стиль.
     dec_fixed, dec_left = 0, 0
     for v in variants:
@@ -933,7 +943,7 @@ def build() -> dict:
                 continue
             base = re.sub(r'\s+\d+$', '', d.get('role') or '')
             st = v.get('style') or ''
-            cand = [p for p in feeds.get(base, [])
+            cand = [p for p in dec_feeds.get(base, [])
                     if p.get('w') and p.get('d') and p.get('h')
                     and p.get('msid') in _mesh_index()
                     and (not st or p.get('style') == st or st in (p.get('styles') or []))]
