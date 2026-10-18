@@ -3,7 +3,7 @@ tier: 1
 topic: catalog
 scope: Каталог — загрузка из фидов/API, свежесть, сторожа
 tier2: "../domain/catalog-enrichment.md"
-updated: 2026-10-17
+updated: 2026-10-18
 importance: high
 source: manual
 status: working
@@ -16,7 +16,7 @@ review_after: 2026-12-05
 
 **Состав (11.10):** 20 552 товара, in_stock ~17 900, 7 магазинов (Орматек 93965 подключён 11.10;
 ВсеИнструменты НЕ подключён — ADR-0240); дев-БД `remlab-devdb`.
-**Цикл:** crontab `40 10 * * *` UTC (фиды собираются 12:35 МСК) + `@reboot`; `refresh_daily.sh` — шаги
+**Цикл:** crontab `40 10 * * *` UTC (фиды в 12:35 МСК) + `@reboot`; `refresh_daily.sh` — шаги
 `ok|warn|FAIL|skipped`, статус на прод, дайджест в Telegram, прод-сторож (ADR-0172, [[deployment]]).
 
 **Источник истины (ADR-0171, `tools/scout/load3.py`):** ФИД — ключ `(merchant_id, id)`, название, ссылка,
@@ -30,7 +30,7 @@ API (`catalog_api_sync.py`, ЕЖЕДНЕВНО с 11.10, сплошной обх
 **Дельта (HASH_VERSION=4, `load3.py`):** text/geometry/image/attrs → `stale` (payload остаётся;
 commercial и image_hd — только счётчики журнала), смена контракта → baseline. Исчез → `missing`, 3 дня → `archived`; не удаляем.
 Порог «< 70 %» — по магазину против последнего успеха (`catalog_import_runs`), одна транзакция.
-Карантин фидов — `feed_guard.py` (≤30 ч).
+Карантин фидов — `feed_guard.py` (≤30 ч). Обогащение `enrich.py --vision` — ежедневно, ≤200.
 
 **Наличие и размеры честно** — [[stock-and-dims]].
 
