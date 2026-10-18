@@ -12,6 +12,8 @@ _optional
 tools
 docs
 e2e
+# конфиги Playwright импортируют e2e/* (живые проверки: e2e/live/browser.ts) — без e2e в образе `next build` падал на типах (18.10)
+playwright*.config.ts
 coverage
 playwright-report
 test-results
