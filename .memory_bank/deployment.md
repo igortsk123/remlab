@@ -41,12 +41,10 @@ Push в `main` → CI gate → `Deploy prod` (`deploy.yml`). Сервер — `i
 
 ## Безопасность (ADR-0207, ADR-0256)
 Патчи с публичным RCE — сразу (инцидент 08.09: майнер на 15.5.4). Заслон `@nextrce` в Caddy не снимать.
-**13.10 (ADR-0256):** ПДн только в базе; без секрета всё закрыто; после деплоя `tools/security-smoke.sh`;
-`remlab-draft` выкатывает деплой (ADR-0278), `draft-run.sh` — аварийный. Детали — Tier 2 § Безопасность.
+**13.10 (ADR-0256):** ПДн только в базе; после деплоя `tools/security-smoke.sh`; `remlab-draft` выкатывает деплой (ADR-0278). Детали — Tier 2.
 
 ## Сторожа
 Каталог (ADR-0172), диск `cleanup.sh` (ADR-0005), безопасность — `disk-watchdog.sh`. Правка сервера = бэкап + rollback.
-Доступность — `health-watch.sh` раз в 2 мин → Telegram; копия дампа вне сервера и репетиция восстановления — DEV
-`tools/ops/` (ADR-0266). Без DEV и DEV-рендер как юниты `systemctl --user` (`tools/scout/systemd/`, 18.10) — Tier 2 § «Прод без DEV», «DEV-рендер».
+Доступность — `health-watch.sh` → Telegram; копия дампа и репетиция восстановления — DEV `tools/ops/` (ADR-0266). Без DEV и DEV-рендер как юниты `systemctl --user` (`tools/scout/systemd/`, 18.10) — Tier 2 § «Прод без DEV», «DEV-рендер».
 
 **Tier 2:** `domain/deployment-details.md` — конвейер, две базы, Caddy и статик, сторожа.
