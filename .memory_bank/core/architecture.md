@@ -15,14 +15,13 @@ review_after: 2026-12-05
 # Architecture — Tier 1 (по коду)
 
 ## Стек (факт)
-TS strict, pnpm, Next.js 15 App Router. Drizzle — только schema+query (`db/schema.ts`); миграции —
-raw SQL `db/init/*.sql` + `tools/apply-db-init.sh` (drizzle-kit НЕТ). Zod: `contracts/`. Провайдеры
-`lib/providers` (`Result<T,E>`): gemini/fake/traced. Аналитика `lib/analytics.ts` (PostHog); Sentry НЕТ.
-Vitest + Playwright. CI: `.github/workflows/{ci,deploy,memory-audit}.yml`.
+TS strict, pnpm, Next.js 15 App Router. Drizzle — только schema+query (`db/schema.ts`); миграции — raw SQL
+`db/init/*.sql` + `tools/apply-db-init.sh` (drizzle-kit нет). Zod: `contracts/`. Провайдеры `lib/providers`
+(`Result<T,E>`): gemini/fake/traced. Аналитика `lib/analytics.ts` (PostHog); Sentry нет. Vitest + Playwright.
+CI: `.github/workflows/{ci,deploy,memory-audit}.yml`.
 
 ## UI-слой (ADR-0041)
-**Untitled UI React** (Tailwind v4 + React Aria), примитивы в `components/base|application`;
-бренд ТОЛЬКО в `styles/brand.css`. Правила — `.claude/rules/ui-rules.md`.
+Untitled UI React (Tailwind v4 + React Aria), `components/base|application`; бренд — `styles/brand.css`; `.claude/rules/ui-rules.md`.
 
 ## Структура (факт)
 - `/app`: `page.tsx` (хаб). Смета: `/calc`, `/calc/[kind]`, `/calc/remont`, `/e/[id]`, `/estimates`→`/lab`, `/go/[eid]/[iid]`.
