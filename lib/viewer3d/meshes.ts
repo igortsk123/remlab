@@ -116,6 +116,33 @@ export class MeshLibrary {
   }
 }
 
+/** Нейтральный светло-серый (sRGB #c9c9c6), когда у модели не осталось ни карты, ни цвета, а у товара нет подкраски. */
+const FALLBACK_GREY = new THREE.Color("#c9c9c6");
+/** «Почти чёрный»: яркость линейного цвета ниже sRGB ≈ #1c1c1c. Ни у одного из 5147 GLB на DEV базовый цвет так не тёмен. */
+const NEAR_BLACK_LUM = 0.012;
+
+/** Карта, у которой есть картинка: пустая (не догрузилась, битая) рисуется ЧЁРНЫМ. */
+function hasImage(t: THREE.Texture | null | undefined): boolean {
+  const img = t?.image as { width?: number; height?: number } | null | undefined;
+  return !!img && (img.width ?? 0) > 0 && (img.height ?? 0) > 0;
+}
+
+/**
+ * Запасной цвет материала модели или null — «не трогать». Нужен, когда карта цвета не пришла (сеть, битая ссылка):
+ * GLTFLoader тогда оставляет материал без карты с цветом `baseColorFactor`, а пустая карта рисуется чёрным; покупатель
+ * видит чёрный предмет (тот же дефект у отделки — `materials.ts: dropTexture`). Подменяем ТОЛЬКО почти чёрный цвет без
+ * живой карты: цвет товара из карточки (подкраска `tintRgb`) или светло-серый. Чёрный диван с картой — не трогаем.
+ */
+export function fallbackMeshColor(
+  mat: { color?: THREE.Color; map?: THREE.Texture | null },
+  tintRgb?: [number, number, number],
+): THREE.Color | null {
+  if (!mat.color || hasImage(mat.map)) return null;
+  const c = mat.color;
+  if (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b >= NEAR_BLACK_LUM) return null;
+  return tintRgb ? new THREE.Color(tintRgb[0], tintRgb[1], tintRgb[2]) : FALLBACK_GREY.clone();
+}
+
 /** Посадка модели: возвращает готовую к добавлению в сцену группу. */
 export function placeMesh(source: THREE.Object3D, p: MeshPlacement): THREE.Group {
   const obj = source.clone(true);
@@ -147,13 +174,22 @@ export function placeMesh(source: THREE.Object3D, p: MeshPlacement): THREE.Group
     if (!m.isMesh) return;
     m.castShadow = true;
     m.receiveShadow = true;
-    if (!p.tintRgb) return;
-    // ПОДКРАСКА ПОД ТОВАР: материал клонируем, иначе поправка уедет во все копии этой модели
     const list = Array.isArray(m.material) ? m.material : [m.material];
-    m.material = list.map((src) => {
+    const fallback = list.map((src) => fallbackMeshColor(src as THREE.MeshStandardMaterial, p.tintRgb));
+    if (!p.tintRgb && !fallback.some(Boolean)) return;
+    // ПОДКРАСКА ПОД ТОВАР и ЗАПАСНОЙ ЦВЕТ: материал клонируем, иначе поправка уедет во все копии этой модели
+    m.material = list.map((src, i) => {
       const mat = (src as THREE.MeshStandardMaterial).clone();
+      const spare = fallback[i];
+      if (spare) {
+        // пустую карту снимаем, цвет товара ставим как есть (умножать подкраску на запасной цвет второй раз нельзя)
+        if (mat.map && !hasImage(mat.map)) mat.map = null;
+        mat.color = spare;
+        return mat;
+      }
+      if (!p.tintRgb) return mat;
       const c = mat.color ?? new THREE.Color(1, 1, 1);
-      mat.color = c.clone().multiply(new THREE.Color(p.tintRgb![0], p.tintRgb![1], p.tintRgb![2]));
+      mat.color = c.clone().multiply(new THREE.Color(p.tintRgb[0], p.tintRgb[1], p.tintRgb[2]));
       return mat;
     }) as THREE.Material[];
     if (!Array.isArray(m.material)) return;

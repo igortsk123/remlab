@@ -12,7 +12,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { VersionWatcher } from "@/components/VersionWatcher";
 import { MetrikaPageviews } from "@/components/MetrikaPageviews";
 import { CookieBanner } from "@/components/legal/CookieBanner";
-import { METRIKA_COUNTER_ID } from "@/lib/metrika";
+import { METRIKA_COUNTER_ID, METRIKA_READY_EVENT, metrikaSafeUrl } from "@/lib/metrika";
 
 export const metadata: Metadata = {
   title: "remont-lab: ремонт своими руками, смета и материалы",
@@ -55,6 +55,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           {`
             // Страницы менеджера (/manager) и отчёта застройщику (/partner) — без Метрики и Вебвизора (планы b2b-02/03).
             // Английский режим (UK) — только после согласия в баннере (b2b-04, components/legal/CookieBanner.tsx).
+            // КЛЮЧИ ПОКУПАТЕЛЯ (?s/?c/?coll) в Метрику не уходят (demo-05 п.7, проба tag.js 18.10): defer:true — без
+            // автохита, первый хит без ключей шлёт components/MetrikaPageviews.tsx по событию готовности; url/referrer —
+            // чистые адреса для служебного запроса счётчика (иначе он берёт location.href); карта кликов и Вебвизор
+            // читают location.href сами — на адресе с ключом выключены (карту MetrikaPageviews переключает и на переходах).
+            var safeUrl = ${metrikaSafeUrl.toString()};
             window.__remlabMetrika = function () {
               if (window.__remlabMetrikaOn) return; window.__remlabMetrikaOn = true;
               (function(m,e,t,r,i,k,a){
@@ -63,7 +68,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 for(var j=0;j<document.scripts.length;j++){if(document.scripts[j].src===r){return;}}
                 k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)
               })(window,document,'script','https://mc.yandex.ru/metrika/tag.js?id=${METRIKA_COUNTER_ID}','ym');
-              if (window.ym) ym(${METRIKA_COUNTER_ID},'init',{ssr:true,webvisor:true,clickmap:true,accurateTrackBounce:true,trackLinks:true});
+              var clean = safeUrl(location.href) === location.href;
+              if (window.ym) ym(${METRIKA_COUNTER_ID},'init',{ssr:true,defer:true,url:safeUrl(location.href),referrer:safeUrl(document.referrer),webvisor:clean,clickmap:clean,accurateTrackBounce:true,trackLinks:true});
+              window.dispatchEvent(new Event('${METRIKA_READY_EVENT}'));
             };
             (function () {
               var p = location.pathname; if (p.indexOf('/manager') === 0 || p.indexOf('/partner') === 0) return;
