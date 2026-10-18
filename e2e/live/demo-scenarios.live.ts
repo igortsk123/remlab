@@ -278,3 +278,141 @@ test("2.9 «Улучшить» без денег — честный ответ �
   expect(["no_credits", "unavailable"]).toContain(j.code);
   expect(Date.now() - t).toBeLessThan(3000);
 });
+
+// ——— demo-16: главная «стиль → комнаты», корзина сертификата, липкая шапка, возврат «назад» (строки карты 2.33–2.36) ———
+const phone = { viewport: { width: 375, height: 667 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, locale: "ru-RU" };
+const basketReady = "typeof D !== 'undefined' && !!D && !!FLAT && !!(window.__basket && window.__basket.state())";
+async function phonePage(browser: import("@playwright/test").Browser, q = "", limit?: number) {
+  const ctx = await browser.newContext({ ...phone, permissions: ["clipboard-read", "clipboard-write"] });
+  const page = await ctx.newPage();
+  await page.route(/\/api\/events/, (r) => r.fulfill({ status: 204, body: "" }));
+  if (limit) await page.route(/\/api\/apartments\//, async (r) => {   // лимит сертификата — подменой ответа, страница не трогается
+    const res = await r.fetch(); const j = await res.json() as { card?: { certificate?: { amount: number } } };
+    if (j.card?.certificate) j.card.certificate.amount = limit;
+    await r.fulfill({ response: res, body: JSON.stringify(j), headers: { ...res.headers(), "content-type": "application/json" } });
+  });
+  await page.goto(`/demo/${q}`, { waitUntil: "load" });
+  await page.waitForFunction(basketReady, null, { timeout: 90_000 });
+  return { ctx, page };
+}
+const basketState = (page: Page) => page.evaluate(() => {
+  const w = window as unknown as { __basket: { state: () => { favorites: { favoriteId: string; displayName: string }[]; includedByRoom: Record<string, string> } } };
+  const b = w.__basket.state();
+  return { n: b.favorites.length, inc: b.includedByRoom, names: b.favorites.map((f) => f.displayName), cert: Number((document.getElementById("hmCert") as HTMLElement).dataset.included) };
+});
+const saveHeart = async (page: Page) => {
+  await page.locator("#vFav").click();
+  const name = await page.locator("#favName").inputValue();
+  await page.locator("#favOk").click();
+  await page.waitForFunction("!document.querySelector('#favPop #favName')", null, { timeout: 30_000 });
+  await page.waitForTimeout(1200);
+  return name;
+};
+
+test("2.33 первый экран телефона: вкладки стилей и ≥ 120 px фото первой комнаты до сгиба (375×667 и 390×844)", async ({ browser }) => {
+  for (const vp of [{ width: 375, height: 667 }, { width: 390, height: 844 }]) {
+    const ctx = await browser.newContext({ ...phone, viewport: vp });
+    const page = await ctx.newPage();
+    await page.goto("/demo/", { waitUntil: "load" });
+    await page.waitForFunction("document.querySelectorAll('#styleTabs [data-style]').length > 0 && !!FLAT");
+    const m = await page.evaluate(() => { const ph = document.querySelector("#hmRooms .hm-room .hm-ph")!.getBoundingClientRect(), tb = document.getElementById("styleTabs")!.getBoundingClientRect();
+      return { tabsVisible: tb.top >= 0 && tb.bottom <= innerHeight, visiblePhotoHeight: Math.round(Math.max(0, Math.min(ph.bottom, innerHeight) - Math.max(ph.top, tb.bottom))) }; });
+    say(`${vp.width}×${vp.height}:`, JSON.stringify(m));
+    expect(m.tabsVisible).toBe(true);
+    expect(m.visiblePhotoHeight).toBeGreaterThanOrEqual(120);
+    await ctx.close();
+  }
+});
+
+test("2.34 липкая шапка после прокрутки ≤ 96 px, вкладка стиля из любого места — комнаты стиля под шапкой", async ({ browser }) => {
+  const ctx = await browser.newContext(phone);
+  const page = await ctx.newPage();
+  await page.goto("/demo/", { waitUntil: "load" });
+  await page.waitForFunction("document.querySelectorAll('#styleTabs [data-style]').length > 1 && !!FLAT");
+  await page.evaluate("scrollTo(0, document.documentElement.scrollHeight)");
+  await page.waitForTimeout(400);
+  const sticky = await page.evaluate("Math.round(Math.max(document.getElementById('hmHd').getBoundingClientRect().bottom, document.getElementById('styleTabs').getBoundingClientRect().bottom))") as number;
+  say("липкая часть:", sticky, "px");
+  expect(sticky).toBeLessThanOrEqual(96);
+  const id = await page.locator("#styleTabs [data-style]").nth(1).getAttribute("data-style");
+  await page.locator(`#styleTabs [data-style="${id}"]`).click();
+  await page.waitForTimeout(900);
+  const r = await page.evaluate("({top: Math.round(document.getElementById('hmRooms').getBoundingClientRect().top), style: new URLSearchParams(location.search).get('style'), card: document.querySelector('#hmRooms .hm-room').dataset.style})") as { top: number; style: string; card: string };
+  say("после вкладки:", JSON.stringify(r));
+  expect(r.style).toBe(id);
+  expect(r.card).toBe(id);
+  expect(r.top).toBeGreaterThanOrEqual(sticky - 1);
+  await ctx.close();
+});
+
+// 2.35 корзина (владелец 18.10): две коллекции и одна при подменённом лимите за прогон — без ПДн, без номера менеджера
+test("2.35 корзина: 0 на старте; первая гостиная включается сама; вторая — «вместо …?»; «Не включать»; превышение — сумма и «Изменить расстановку»", async ({ browser }) => {
+  test.setTimeout(5 * 60_000);
+  const { ctx, page } = await phonePage(browser, "?live=force");
+  expect((await basketState(page)).cert).toBe(0);
+  await page.locator("#hmRooms .hm-room [data-swap]").click();
+  await page.waitForSelector("#vFav:visible");
+  expect(await saveHeart(page)).toMatch(/ #\d+$/);
+  const s1 = await basketState(page);
+  say("после первого:", JSON.stringify(s1));
+  expect(Object.keys(s1.inc).length).toBe(1);
+  expect(s1.cert).toBeGreaterThan(0);
+  await page.keyboard.press("Escape");
+  await page.locator("#styleTabs [data-style]").nth(1).click();
+  await page.locator("#hmRooms .hm-room [data-swap]").click();
+  await page.waitForSelector("#vFav:visible");
+  await page.locator("#vFav").click();
+  await page.locator("#favOk").click();
+  await expect(page.locator("#favPop")).toContainText(/вместо «.+ #1»/, { timeout: 30_000 });
+  await page.locator("#favPop button.primary").click();
+  const s2 = await basketState(page);
+  expect(s2.n).toBe(2);
+  expect(s2.cert).not.toBe(s1.cert);
+  // «Не включать в сертификат» — из «⋯» избранного: шкала 0, вариант остаётся
+  await page.keyboard.press("Escape");
+  await page.evaluate("window.__basket.open('living')");
+  const inc = Object.values(s2.inc)[0]!;
+  await page.locator(`#favGrid [data-fmore="${inc}"]`).click();
+  await page.locator("#favExcl").click();
+  const s3 = await basketState(page);
+  say("после «не включать»:", JSON.stringify(s3));
+  expect(s3.cert).toBe(0);
+  expect(s3.n).toBe(2);
+  await ctx.close();
+  // превышение: лимит 100 000 — в избранное без включения, сумма превышения и переход к правке
+  const o = await phonePage(browser, "?live=force", 100_000);
+  await o.page.locator("#hmRooms .hm-room [data-swap]").click();
+  await o.page.waitForSelector("#vFav:visible");
+  await o.page.locator("#vFav").click();
+  await o.page.locator("#favOk").click();
+  await expect(o.page.locator("#favPop")).toContainText(/превышена сумма на [\d\s ]+₽/, { timeout: 30_000 });
+  await expect(o.page.locator("#favPop")).toContainText("Изменить расстановку");
+  const s4 = await basketState(o.page);
+  expect(s4.n).toBe(1);
+  expect(s4.inc).toEqual({});
+  await o.ctx.close();
+});
+
+test("2.36 возврат «назад»: «Перейти →» из окна — избранное; «назад» — то же окно, ракурс и шторка; «вперёд» — избранное", async ({ browser }) => {
+  test.setTimeout(4 * 60_000);
+  const { ctx, page } = await phonePage(browser, "?live=force");
+  await page.locator("#hmRooms .hm-room [data-swap]").click();
+  await page.waitForSelector("#vFav:visible");
+  await saveHeart(page);
+  await page.evaluate("vwCamGo(1); vwSheet(1)");
+  await page.waitForTimeout(700);
+  const before = await page.evaluate("({vid: allVariants()[cur].id, photo: VW.photo, sheet: document.getElementById('vside').dataset.pos})");
+  await page.evaluate("histGoFavs('living')");
+  await expect(page.locator("#favSec")).toBeVisible();
+  await expect(page.locator("#shot")).not.toHaveClass(/\bon\b/);
+  await page.goBack();
+  await expect(page.locator("#shot")).toHaveClass(/\bon\b/, { timeout: 20_000 });
+  await page.waitForTimeout(1500);
+  const back = await page.evaluate("({vid: allVariants()[cur].id, photo: VW.photo, sheet: document.getElementById('vside').dataset.pos})");
+  say("до:", JSON.stringify(before), "после «назад»:", JSON.stringify(back));
+  expect(back).toEqual(before);
+  await page.goForward();
+  await expect(page.locator("#shot")).not.toHaveClass(/\bon\b/, { timeout: 20_000 });
+  await expect(page.locator("#favSec")).toBeVisible();
+  await ctx.close();
+});

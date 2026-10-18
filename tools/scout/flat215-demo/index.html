@@ -157,7 +157,7 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 .hm-cert .bar i{display:block;height:100%;width:0;background:var(--accent);border-radius:3px;transition:width .45s ease}
 .hm-cert .fx{font-size:12px;color:var(--muted);margin-top:3px}
 .hm-hint{margin:8px 0 0;font-size:13px;color:var(--muted);line-height:1.3}
-.hm-tabs{position:sticky;top:var(--hm-hd);z-index:19;height:46px;display:flex;align-items:center;gap:6px;overflow-x:auto;
+.hm-tabs{position:sticky;top:var(--hm-hd);z-index:19;height:44px;display:flex;align-items:center;gap:6px;overflow-x:auto;
   scrollbar-width:none;background:var(--bg);margin:2px calc(-1*var(--hm-gut)) 0;padding:0 var(--hm-gut);
   box-shadow:0 6px 8px -8px rgba(28,25,23,.25)}
 .hm-tabs::-webkit-scrollbar{display:none}
@@ -1024,7 +1024,7 @@ function init(){
   on('planBack','onclick',e=>{e.preventDefault(); showTab('room');});
   // ♡ N в строке квартиры — раскрыть «Избранное» (корзину); пусто — подсказка, куда нажать
   on('hmFav','onclick',()=>{const n=window.__fav&&window.__fav.list?window.__fav.list().length:0;
-    if(n&&window.__basket)window.__basket.open(); else toast(LANG==='en'?'Favourites are empty for now — tap ♡ on a room':'В избранном пока пусто — нажмите ♡ у комнаты');});
+    if(n&&window.__basket)histGoFavs(''); else toast(LANG==='en'?'Favourites are empty for now — tap ♡ on a room':'В избранном пока пусто — нажмите ♡ у комнаты');});
   // ВКЛАДКА ПО УМОЛЧАНИЮ — ГОСТИНАЯ (владелец 02.09: «страница должна открываться сразу на
   // вкладке гостиная»). Раньше без якоря открывался «План квартиры», и человек попадал не на
   // витрину обустройства, ради которой демо и сделано. `#plan` по-прежнему открывает план —
@@ -1152,7 +1152,7 @@ function hashFor(which){
 function syncHash(which){
   if(window.__EMBED)return;   // встроено на сайт застройщика (b2b-07): адрес не наш — не переписываем (иначе уедем на /demo/)
   const h=hashFor(which||(document.getElementById('screen-room').hidden?'plan':'room'));
-  if(location.hash!==h)history.replaceState(null,'',h);
+  if(location.hash!==h)history.replaceState(history.state,'',h);   // запись истории (снимок вида, demo-16 шаг 3) не стираем
 }
 const SHARE_SVG='<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1"/></svg>';
 // ССЫЛКА НА ВАРИАНТ ДЕРЖИТ ЯЗЫК И МЕТКУ МЕНЕДЖЕРА (Codex 18.10, demo-16): прежняя брала путь страницы без параметров — из ссылки
@@ -1181,6 +1181,7 @@ function copyLink(vid,btn){
 }
 // АДРЕС → ЭКРАН. Вызывается при старте и при смене адреса (в том числе кнопкой «назад»).
 function applyHash(){
+  if(Date.now()-NAV.restoring<800)return;   // «назад» по истории: вид восстановлен `restoreView` (demo-16 шаг 3)
   const c=String(location.hash||'').match(/^#c=([A-Za-z0-9_-]{22})$/);
   if(c){   // коллекция: пока не пришла с сервера — её откроет блок коллекций (номер запомнен в <head>)
     const i=allVariants().findIndex(v=>v.cid===c[1]);
@@ -1200,7 +1201,7 @@ function applyHash(){
       if(j>=0){ i=j; vid=allVariants()[j].id;
         setTimeout(()=>toast(LANG==='en'?'This layout has been updated — showing the current one in the same style':
           'Эта расстановка обновилась — показываем текущую в том же стиле'),300);
-        history.replaceState(null,'','#v='+encodeURIComponent(vid));
+        history.replaceState(history.state,'','#v='+encodeURIComponent(vid));
         // в отчёт застройщику: сколько заходов по устаревшим ссылкам (demo-05 п.10)
         setTimeout(()=>document.dispatchEvent(new CustomEvent('remlab:act',{detail:'stale_link'})),500); }
     }
@@ -3174,15 +3175,20 @@ function homeActive(m){
 function styleParam(){ const m=location.search.match(/[?&]style=([a-z-]{2,20})(?:&|$)/); return m?m[1]:''; }
 HOME.want=styleParam();                 // стиль из ссылки — запоминаем до первой отрисовки
 // стиль — в адресе (`?style=`), остальные параметры (`lang`, `s`, `flat`…) и якорь не трогаем; встроенную страницу не переписываем
-function syncStyleParam(id){
-  if(window.__EMBED||!id||styleParam()===id)return;
-  try{const u=new URL(location.href); u.searchParams.set('style',id); history.replaceState(history.state,'',u.pathname+u.search+u.hash);}catch(e){}
+function syncStyleParam(id,room){
+  room=room||'living';
+  if(window.__EMBED||!id||(styleParam()===id&&new URLSearchParams(location.search).get('room')===room))return;
+  try{const u=new URL(location.href); u.searchParams.set('style',id); u.searchParams.set('room',room); history.replaceState(history.state,'',u.pathname+u.search+u.hash);}catch(e){}
 }
 function homeSelectStyle(id){
   const m=homeModel(), rv=m.roomVariants.find(x=>x.styleId===id&&x.roomId==='living')||m.roomVariants.find(x=>x.styleId===id);
   HOME.styleId=id;
   if(rv&&rv.index!==cur)pickVariant(rv.index);
-  syncStyleParam(id); drawHome(true);
+  syncStyleParam(id,rv?rv.roomId:'living'); drawHome(true);
+  // ВКЛАДКА ИЗ ЛИПКОЙ ШАПКИ В ЛЮБОМ МЕСТЕ СТРАНИЦЫ (шаг 3): комнаты нового стиля ушли выше — к ним, под липкую шапку
+  const rm=document.getElementById('hmRooms'), tb=document.getElementById('styleTabs');
+  if(rm&&tb){const top=rm.getBoundingClientRect().top, lim=tb.getBoundingClientRect().bottom;
+    if(top<lim)scrollTo({top:Math.max(0,scrollY+top-lim-8),behavior:VW_SLOW()?'auto':'smooth'});}
   reportAct('style_tab');
 }
 function homeM2(a){ return a?String(a).replace('.',LANG==='en'?'.':',')+(LANG==='en'?' m²':' м²'):''; }
@@ -3191,7 +3197,7 @@ function drawHome(force){
   const m=homeModel(), EN=LANG==='en', F=window.__fav;
   const waitC=/^#c=/.test(location.hash)&&!(allVariants()[cur]||{}).cid;
   const act=waitC?{styleId:(m.styles.some(s=>s.id===HOME.styleId)?HOME.styleId:((m.styles[0]||{}).id||'')), roomId:'living', variantId:null}:homeActive(m);
-  if(act.styleId&&!waitC){HOME.styleId=act.styleId; if(HOME.ready)syncStyleParam(act.styleId);}
+  if(act.styleId&&!waitC){HOME.styleId=act.styleId; if(HOME.ready)syncStyleParam(act.styleId,act.roomId);}
   const cards=m.rooms.map(r=>{
     const rv=r.contentState==='ready'?m.roomVariants.find(x=>x.styleId===act.styleId&&x.roomId===r.id):null, v=rv?allVariants()[rv.index]:null;
     if(!v)return {r, stub:true};
@@ -3223,6 +3229,45 @@ function drawHome(force){
       `<button class="btn cta" type="button" data-swap="${c.i}">${EN?'Open':'Открыть'}</button></div></article>`;
   }).join('');
 }
+// ——— ВОЗВРАТ «НАЗАД» (demo-16 шаг 3, Codex 18.10 п.5 и п.14). Адрес держит стиль и комнату (`?style=&room=`) и вариант или
+// коллекцию (`#v=`/`#c=`), `lang` и `s` не трогаются; запись истории (`history.state`) — снимок вида: окно варианта (вариант, режим,
+// ракурс, шторка, прокрутка списка) или главная (прокрутка, раскрыто ли избранное). Открытие избранного («Перейти →», ♡ N) —
+// новая запись (`pushState`), а перед ней снимок текущего вида пишется в ТЕКУЩУЮ запись (`replaceState`): `popstate` отдаёт
+// состояние той записи, НА которую вернулись. Правки в окне (режим, ракурс, шторка) — только `replaceState`. Встройку не трогаем.
+const NAV={restoring:0, t:0};   // не путать с `HIST` — историей расстановок окна
+function viewSnap(){
+  const sh=document.getElementById('shot'), on=!!(sh&&sh.classList.contains('on')&&sh.classList.contains('v2'));
+  if(!on)return {view:'home', y:Math.round(scrollY)};
+  const v=allVariants()[cur]||{}, sd=document.getElementById('vside'), sc=document.getElementById('vscroll');
+  return {view:'variant', vid:v.id||'', mode:VW.mode, photo:VW.photo, free:!!VW.free, sheet:sd?+sd.dataset.pos||0:0,
+    list:sc?Math.round(sc.scrollTop):0, y:Math.round(scrollY)};
+}
+function histKeep(){ if(window.__EMBED||Date.now()-NAV.restoring<800)return;
+  const st=history.state||{}, snap=viewSnap();
+  // запись «избранное» остаётся избранным: окно закрылось при переходе — меняется только прокрутка (самопроверка 18.10)
+  if(st.view==='favorites'&&snap.view==='home'){snap.view='favorites'; snap.room=st.room||'';}
+  try{history.replaceState(Object.assign({},st,snap,{remlab:1}),'');}catch(e){} }
+function histKeepSoon(){ clearTimeout(NAV.t); NAV.t=setTimeout(histKeep,250); }
+function histGoFavs(roomId){
+  if(!window.__EMBED){histKeep(); try{history.pushState({remlab:1, view:'favorites', room:roomId||'', y:0},'');}catch(e){}}
+  if(window.__basket)window.__basket.open(roomId);
+}
+// восстановить вид записи: окно варианта — тот же вариант, режим, ракурс, шторка, прокрутка списка; избранное; главная
+function restoreView(s){
+  NAV.restoring=Date.now();
+  const sh=document.getElementById('shot'), open=sh.classList.contains('on'), close=()=>{const x=document.getElementById('shotx'); if(x&&sh.classList.contains('on'))x.click();};
+  if(s.view==='favorites'){ if(window.__basket)window.__basket.open(s.room||''); return; }
+  if(s.view==='home'){ close(); setTimeout(()=>scrollTo(0,s.y||0),30); return; }
+  if(s.view!=='variant')return;
+  const i=allVariants().findIndex(v=>(v.id||'')===s.vid); if(i<0)return;
+  if(!open||i!==cur)vwOpenVariant(i);
+  setTimeout(()=>{ NAV.restoring=Date.now();
+    if(s.mode&&s.mode!==VW.mode&&(s.mode!=='photo'||vwRealShots().length))vwMode(s.mode);
+    if(!s.free&&typeof s.photo==='number'&&s.photo!==VW.photo)vwCamGo(s.photo);
+    if(VW_PHONE()&&typeof s.sheet==='number')vwSheet(s.sheet);
+    setTimeout(()=>{const sc=document.getElementById('vscroll'); if(sc&&s.list)sc.scrollTop=s.list;},VW_SLOW()?40:380);},120);
+}
+window.addEventListener('popstate',e=>{const s=e.state; if(s&&s.remlab)restoreView(s);});
 // ♡ N в строке квартиры: сколько расстановок в избранном (корзина — demo-16 шаг 2)
 function homeFavUi(){
   const b=document.getElementById('hmFavN'); if(!b)return;
@@ -4804,6 +4849,7 @@ function vwLayout(){
 }
 // видимая высота шторки → сдвиг; состояние для кнопки, списка и проверок
 function vwSheetApply(vis, anim){
+  if(typeof histKeepSoon==='function')histKeepSoon();
   const sd=document.getElementById('vside'); if(!sd||!VW_PHONE())return;
   const e=vwEdges(), was=VW.sheetVis; VW.sheetVis=vis;
   // высота шторки — по текущим краям: при открытии окно ещё въезжает, и замер «полной» мог отстать на 7–13 px (v5.1, 3/3)
@@ -4996,6 +5042,7 @@ function vwMount(s){
     vwRealistic();};
   const sl=document.getElementById('vStubLink'); if(sl)sl.onclick=()=>{if(window.__fav)window.__fav.share();};
   vwSheetWire();
+  {const scl=document.getElementById('vscroll'); if(scl)scl.addEventListener('scroll',histKeepSoon,{passive:true});}
   const sd=document.getElementById('vside');
   // подсказка — один раз на устройство: «подскок» шторки и 3 секунды текста
   if(window.innerWidth<=700){let seen=false; try{seen=!!localStorage.getItem('remlab-sheet-hint-v1');}catch(e){}
@@ -5035,6 +5082,7 @@ function vwMount(s){
 }
 // ПЕРЕКЛЮЧЕНИЕ РЕЖИМА МЕНЯЕТ ТОЛЬКО ОБЛАСТЬ СЦЕНЫ (владелец 16.10, п.6): шторка/колонка, список и сумма остаются как были
 function vwModeUi(){
+  if(typeof histKeepSoon==='function')histKeepSoon();   // правка в окне — снимок вида в текущую запись истории (шаг 3)
   const shot=document.getElementById('shot'), m=VW.mode, EN=LANG==='en';
   shot.querySelectorAll('[data-vm]').forEach(x=>x.classList.toggle('on',x.dataset.vm===m));
   shot.classList.toggle('vwalk',m==='walk'); shot.classList.toggle('vplan',m==='plan'); shot.classList.toggle('vphoto',m==='photo');
@@ -5093,6 +5141,7 @@ function vwPhoto(k){
   vwCamGo(k);
 }
 function vwCamsUi(){
+  if(typeof histKeepSoon==='function')histKeepSoon();   // правка в окне — снимок вида в текущую запись истории (шаг 3)
   const box=document.getElementById('vCams'); if(!box)return;
   box.querySelectorAll('[data-cam]').forEach(b=>{const on=!VW.free&&+b.dataset.cam===VW.photo; b.classList.toggle('on',on); b.setAttribute('aria-selected',String(on));});
 }
@@ -5343,7 +5392,7 @@ function liveHide(){
   if(LIVE.scene)LIVE.scene.stop();
 }
 // окно кадра закрылось (крестик, Esc, переход в конструктор) — сцену прячем и цикл кадров останавливаем
-new MutationObserver(()=>{if(!document.getElementById('shot').classList.contains('on'))liveHide();})
+new MutationObserver(()=>{if(!document.getElementById('shot').classList.contains('on')){liveHide(); if(typeof histKeepSoon==='function')histKeepSoon();}})
   .observe(document.getElementById('shot'),{attributes:true,attributeFilter:['class']});
 // КАДР ЖИВОЙ СЦЕНЫ НА КОМПЬЮТЕРЕ — 3:2, КАК СЕРВЕРНЫЙ (прогон d8 14.10): окно почти квадратное, и при 72° по горизонтали
 // сверху был потолок, а сужение угла срезало диван краем. В полосе 3:2 по центру сцены кадр совпадает с серверным один в
@@ -5851,7 +5900,7 @@ async function liveShow(){
     el.querySelectorAll('[data-k]').forEach(function(b){b.onclick=function(){el.remove(); var f=btns[+b.dataset.k].fn; if(f)f();};});
     el.addEventListener('click',function(ev){if(ev.target===el)el.remove();});
   }
-  var goFav=function(roomId){return {label:EN()?'Open →':'Перейти →', fn:function(){openFavs(roomId);}};};
+  var goFav=function(roomId){return {label:EN()?'Open →':'Перейти →', fn:function(){histGoFavs(roomId);}};};   // «назад» вернёт в окно (шаг 3)
   // «Изменить расстановку, чтобы войти в лимит» — в окно этой расстановки (из окна — к списку мебели)
   function editLayout(id,tries){
     var on=document.getElementById('shot').classList.contains('on');
@@ -6130,7 +6179,7 @@ async function liveShow(){
     'впритык':'a tight fit','габарит не указан':'size not given','Цвета этой модели':'Colours of this model','Фото':'Photo',
     'Изменить план':'Edit the plan','Фото сейчас не сделать: у сервиса картинок закончился баланс. Попробуйте позже.':'The photo cannot be made right now: the image service has run out of balance. Please try later.',
     'Фото сейчас не сделать: сервер улучшения не отвечает. Попробуйте позже.':'The photo cannot be made right now: the enhancement server is not responding. Please try later.','Отделка и ремонт':'Options & upgrades','Встраиваемое':'Fitted & integrated','← Назад':'← Back'};
-  var ATTR={'Что значит оплата 100%':'What does full payment mean','Цена, подробнее':'Price details','Стили':'Styles','Скопировать ссылку на этот вариант':'Copy a link to this option','В избранное':'Add to favourites',
+  var ATTR={'Что значит оплата 100%':'What does full payment mean','Цена, подробнее':'Price details','Стили':'Styles','Избранное':'Favourites','Скопировать ссылку на этот вариант':'Copy a link to this option','В избранное':'Add to favourites',
     'переставить точки съёмки в следующие углы':'move camera points to the next corners','Просмотр кадра':'Shot view','Закрыть':'Close','Предыдущий вид':'Previous view',
     'Следующий вид':'Next view','скоро':'soon'};
   var role=function(r){var k=String(r).toLowerCase().replace(/\s+\d+$/,'');return ROLE[k]||null;};

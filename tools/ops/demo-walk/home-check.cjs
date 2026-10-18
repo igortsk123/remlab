@@ -64,6 +64,19 @@ const fold=p=>p.evaluate(()=>{const R=s=>{const e=document.querySelector(s);retu
       const win=await p.evaluate(()=>({open:document.getElementById('shot').classList.contains('on'), sum:+document.getElementById('vsum').getAttribute('data-sum'), money:money(+document.getElementById('vsum').getAttribute('data-sum'))}));
       ok('«Открыть» → окно варианта, сумма как на карточке',win.open&&win.money===s2.sum,win.money+' / '+s2.sum);
       await p.keyboard.press('Escape'); await p.evaluate(()=>{const x=document.getElementById('shotx'); if(x&&document.getElementById('shot').classList.contains('on'))x.click();}); await p.waitForTimeout(400);
+      // ЛИПКАЯ ШАПКА (шаг 3): после прокрутки — две строки (квартира · цена · ♡ и вкладки) ≤ 96 px на телефоне, остальное уехало;
+      // вкладка стиля снизу страницы — комнаты нового стиля видны под шапкой
+      await p.evaluate(()=>scrollTo(0,document.documentElement.scrollHeight)); await p.waitForTimeout(500);
+      const sk=await p.evaluate(()=>{const hd=document.getElementById('hmHd').getBoundingClientRect(), tb=document.getElementById('styleTabs').getBoundingClientRect(),
+        gone=['flatPrice','hmCert','hmHint'].every(id=>{const r=document.getElementById(id).getBoundingClientRect(); return r.bottom<=hd.bottom;});
+        return {hdTop:Math.round(hd.top), tabsTop:Math.round(tb.top), sticky:Math.round(Math.max(hd.bottom,tb.bottom)), gone};});
+      ok(`${tag}: после прокрутки липкие строка квартиры и вкладки${phone?' ≤ 96 px':''}, остальное уехало`,sk.hdTop===0&&sk.tabsTop<=sk.sticky&&sk.gone&&(!phone||sk.sticky<=96),JSON.stringify(sk));
+      await p.screenshot({path:OUT+`home-${tag}-4-sticky.png`});
+      const id2=st.tabs[0];
+      await p.click(`#styleTabs [data-style="${id2}"]`); await p.waitForTimeout(900);
+      const s4=await p.evaluate(()=>{const r=document.getElementById('hmRooms').getBoundingClientRect(), tb=document.getElementById('styleTabs').getBoundingClientRect();
+        return {roomsTop:Math.round(r.top), tabsBottom:Math.round(tb.bottom), vh:innerHeight, style:new URLSearchParams(location.search).get('style'), room:new URLSearchParams(location.search).get('room')};});
+      ok('вкладка стиля из липкой шапки снизу страницы — комнаты нового стиля под шапкой, в адресе стиль и комната',s4.roomsTop>=s4.tabsBottom-1&&s4.roomsTop<s4.vh*0.6&&s4.style===id2&&s4.room==='living',JSON.stringify(s4));
       // план квартиры — ссылкой и обратно
       await p.click('[data-plan]:visible'); await p.waitForTimeout(400);
       const pl=await p.evaluate(()=>({plan:!document.getElementById('screen-plan').hidden, tabs:document.getElementById('styleTabs').hidden, hash:location.hash}));

@@ -62,6 +62,20 @@ const saveHeart=async(p)=>{await p.click('#vFav'); await p.waitForSelector('#fav
     ok('тост «Добавлено в избранное · Перейти →»',/Добавлено в избранное/.test(s1.toast)&&/Перейти/.test(s1.toast),s1.toast);
     const plate1=await p.evaluate(()=>document.querySelector('#vsum .vpl-row span').textContent);
     ok('после включения плашка — «Остаток» по корзине',/^Остаток$/.test(plate1.trim()),plate1);
+    // 1б) «Перейти →» и «назад» (шаг 3): из окна (ракурс 2, шторка приподнята) — в избранное; «назад» — то же окно в том же виде; «вперёд» — снова избранное
+    await p.evaluate(()=>{vwCamGo(1); if(VW_PHONE())vwSheet(1);}); await p.waitForTimeout(700);
+    const before=await p.evaluate(()=>({vid:(allVariants()[cur]||{}).id, photo:VW.photo, sheet:+document.getElementById('vside').dataset.pos, mode:VW.mode}));
+    await p.evaluate(()=>{const a=document.querySelector('#toast .toastact'); if(a&&!document.getElementById('toast').hidden)a.click(); else window.__fav&&histGoFavs('living');});
+    await p.waitForTimeout(900);
+    const atFav=await p.evaluate(()=>({win:document.getElementById('shot').classList.contains('on'), open:!document.getElementById('favSec').hidden, view:(history.state||{}).view}));
+    await p.goBack(); await p.waitForTimeout(2500);
+    const back=await p.evaluate(()=>({win:document.getElementById('shot').classList.contains('on'), vid:(allVariants()[cur]||{}).id, photo:VW.photo, sheet:+document.getElementById('vside').dataset.pos, mode:VW.mode, view:(history.state||{}).view}));
+    ok('«Перейти →» — избранное раскрыто, окно закрыто (новая запись истории)',!atFav.win&&atFav.open&&atFav.view==='favorites',JSON.stringify(atFav));
+    ok('«назад» — то же окно: вариант, режим, ракурс, шторка',back.win&&back.vid===before.vid&&back.photo===before.photo&&back.mode===before.mode&&(!PHONE||back.sheet===before.sheet),JSON.stringify({before,back}));
+    await p.screenshot({path:OUT+W+'-1b-back.png'});
+    await p.goForward(); await p.waitForTimeout(1200);
+    const fwd=await p.evaluate(()=>({win:document.getElementById('shot').classList.contains('on'), open:!document.getElementById('favSec').hidden}));
+    ok('«вперёд» — снова избранное',!fwd.win&&fwd.open,JSON.stringify(fwd));
     // 2) второй вариант той же комнаты — вопрос «вместо …?» → Да
     await p.evaluate(()=>document.getElementById('shotx').click()); await p.waitForTimeout(400);
     await openWin(p,1);
@@ -150,10 +164,12 @@ const saveHeart=async(p)=>{await p.click('#vFav'); await p.waitForSelector('#fav
     const en1=await e.evaluate(()=>document.querySelector('#vsum').innerText);
     await e.click('#vFav'); await e.waitForSelector('#favName'); await e.click('#favOk'); await e.waitForTimeout(1500);
     const en2=await e.evaluate(()=>[(document.getElementById('toast')||{}).textContent||'',(document.getElementById('favPop')||{}).innerText||''].join(' '));
-    const cyr=(en1+' '+en2).match(/[А-Яа-яЁё]+/g)||[];
-    ok('EN: плашка окна и сообщения корзины без кириллицы',!cyr.length,cyr.slice(0,5).join(' ')+' | '+en1.slice(0,60)+' | '+en2.slice(0,80));
+    await e.evaluate(()=>{document.getElementById('shotx').click(); window.__basket.open('living');}); await e.waitForTimeout(800);
+    const en3=await e.evaluate(()=>['favHead','favSec','hmCert'].map(id=>document.getElementById(id).innerText).join(' '));
+    const cyr=(en1+' '+en2+' '+en3).match(/[А-Яа-яЁё]+/g)||[];
+    ok('EN: плашка окна, сообщения и раздел «Избранное» без кириллицы',!cyr.length,cyr.slice(0,5).join(' ')+' | '+en1.slice(0,60)+' | '+en2.slice(0,80));
     await e.context().close();
-  }catch(e){R.push('FAIL проверка прервалась — '+String(e.message||e).split('\n').slice(0,3).join(' | '));
+  }catch(e){R.push('FAIL проверка прервалась — '+String(e.message||e).split('\n').slice(0,14).join(' | '));
     try{for(const c of b.contexts())for(const pg of c.pages())await pg.screenshot({path:OUT+W+'-fail-'+Date.now()+'.png'});}catch(_){}}
   finally{await b.close();}
   console.log(R.join('\n')); console.log(`итог: ${R.filter(x=>x.startsWith('OK')).length}/${R.length} · снимки ${OUT}${W}-*.png`);
