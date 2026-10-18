@@ -3,12 +3,12 @@ tier: 1
 topic: apartment-configurator
 scope: 3D-конфигуратор квартиры — что это, из чего собран, где детали
 tier2: "../domain/flat3d-configurator.md"
-updated: 2026-10-16
+updated: 2026-10-18
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-09-29
+last_verified: 2026-10-18
 review_after: 2026-12-28
 ---
 
@@ -36,8 +36,9 @@ review_after: 2026-12-28
 
 **С 14–15.10 (ADR-0281, demo-05):** отмена (`lib/configurator/history.ts`), «убрать»; мост с окном — ковёр, ваза
 (`resolve.placeTabletop`), ленты (`demo-feeds.ts`), упаковки (`resolve.packPrices`), ТВ — `build-scene.sceneExtras`.
-**С 16.10 (demo-06, ADR-0297/0298):** пол витрины — опции места `floor` из группы застройщика (`source.floorChoiceOf`,
-`?opt=`), итоги по назначению (`totals.bySettlement`): сертификат — только мебель; UK-двойник — цены по курсу (`ctx.fxRate`).
+**С 16.10 (demo-06/07, ADR-0297/0298):** пол и стены витрины — опции места из группы застройщика (`source.floorChoiceOf`,
+`source.finishChoiceOf(hit,"wall")`, `?opt=`), итоги по назначению (`totals.bySettlement`): сертификат — только мебель;
+UK-двойник — цены по курсу (`ctx.fxRate`).
 **Нет:** перекраски по маске, лайтмапов, непрямоугольных комнат.
 
 **Уроки:** `lessons/flat3d-configurator.md`.

@@ -3,12 +3,12 @@ tier: 1
 topic: demo-planner
 scope: Демо-планировщик для партнёра — расстановка и кадр
 tier2: "../domain/demo-planner-ui.md"
-updated: 2026-10-17
+updated: 2026-10-18
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-09-08
+last_verified: 2026-10-18
 review_after: 2026-12-05
 ---
 
@@ -18,9 +18,12 @@ review_after: 2026-12-05
 Витрина: сертификат → коллекции по стилям → замена мебели; план — в конструкторе.
 Код: `tools/scout/flat215-demo/index.html`, сборка `flat215_demo.py`, публикация `publish_demo.sh`.
 
-- **Вкладки:** план · гостиная; кухня/спальни/санузел/прихожая — одна заглушка (`showSoon`). Язык — по устройству (`DEMO_LANGS`).
-- **Окно варианта (v3–v5.1, demo-09):** «Фото» — только реалистичный снимок этой расстановки, иначе 3D из точки съёмки с
-  ценниками; изменение → 3D (`index.html:vwRealShots/vwAfterChange`, ADR-0300); шторка, плашка и строки-входы — Tier 2.
+- **Главная «стили → комнаты» (18.10, demo-16/17, ADR-0307):** чипы стилей `index.html:#styleTabs` → карточки комнат `#hmRooms` из
+  реестра (`contracts/partner.ts:apartmentRoom`); необставленная комната — заглушка `.hm-stub`; план — экран `#screen-plan`;
+  избранное — экран `#screen-fav`, корзина сертификата — `lib/basket/basket.ts`. Язык — по устройству (`DEMO_LANGS`).
+- **Окно варианта (v3–v5.2, demo-09/demo-02):** «Фото» — только реалистичный снимок этой расстановки, иначе 3D из точки съёмки с
+  ценниками; изменение → 3D (`index.html:vwRealShots/vwAfterChange`, ADR-0300); v5.2 — кнопка в шапке шторки, «×» при полной
+  сворачивает список; шторка, плашка и строки-входы — Tier 2.
 - **EN-демо = британский двойник** `demo-uk-215` (£ по курсу, ADR-0298); пересчёт — одна функция `toCard()` (через неё `money()`).
 - **Замена мебели (ADR-0203/0245/0271/0277):** пул `tools/scout/demo_swap_pool.py`, правила `tools/scout/rules/demo-swap.json`;
   проверка `tests_chain.py:live_swap_feeds`. Правила ленты — Tier 2.
