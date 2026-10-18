@@ -3,12 +3,12 @@ tier: 2
 topic: integrations-details
 scope: Детали внешних интеграций — эндпоинты, форматы запросов/ответов, env-переменные, конфиги, цены
 tier1: ../core/access-and-integrations.md
-updated: 2026-10-15
+updated: 2026-10-18
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-09-05
+last_verified: 2026-10-18
 ---
 
 # Интеграции — детали (Tier 2)
@@ -18,8 +18,8 @@ last_verified: 2026-09-05
 
 
 ## Содержание
-1. Google Gemini — активен ✅ (Stage 1, M0)
-2. OpenAI — ключ есть ✅ (используется автопилотом рекламы, НЕ приложением)
+1. Google Gemini — через шлюз Vercel по умолчанию (ADR-0277), прямой ключ — запасной путь
+2. OpenAI — ключ есть ✅ (автопилот рекламы + ИИ-фолбэк разбора ссылок в приложении)
 3. Observability — PostHog (ADR-0012)
 4. Affiliate-сеть и фиды (М0/v0.4 — КЛЮЧЕВАЯ; доступ есть, код ещё НЕ написан)
 5. Трейсинг пайплайна + imagor (ADR-0013)
@@ -37,7 +37,13 @@ last_verified: 2026-09-05
 17. Рендер-сервис: фоновые задания, реестр кадров, миниатюры (02.09)
 18. Гдеслон — фиды vs API (сверено 03.09, ADR-0171)
 
-## Google Gemini — активен ✅ (Stage 1, M0)
+## Google Gemini — через шлюз Vercel по умолчанию (ADR-0277, 14.10)
+- **Сейчас (сверено 18.10):** `AI_PROVIDER` по умолчанию `gateway` (`docker-compose.yml`) → клиент
+  `lib/providers/gateway.ts` (OpenAI-совместимый `chat/completions` шлюза, ключ `VERCEL_AI_GATEWAY_KEY`, модели
+  `google/gemini-3.1-flash-image` и `google/gemini-2.5-flash`). Прямой `lib/providers/gemini.ts` — только при
+  `AI_PROVIDER=gemini` (`lib/providers/index.ts:realProvider`); прямой ключ Google отключён 14.10. `GEMINI_API_KEY`
+  всё равно обязателен в `/opt/remlab/.env`: без него деплой падает (`infra/server/deploy-remote.sh`).
+- Ниже — прямой путь (запасной):
 - **Задачи:** генерация картинок И анализ фото/текст (одним ключом закрыты обе).
 - **Модели:** картинки — `gemini-3.1-flash-image` (Nano Banana 2); текст/зрение — `gemini-flash-latest`.
 - **Эндпоинт:** `https://generativelanguage.googleapis.com/v1beta/models/<model>:generateContent`,
@@ -45,17 +51,18 @@ last_verified: 2026-09-05
   `candidates[0].content.parts[].inlineData{mimeType,data(base64)}`.
 - **Ключ:** `GEMINI_API_KEY` — только в `.env`/`.env.local` (gitignore), на сервере `/opt/remlab/.env`.
   Значение НЕ в git/памяти. Проверен рабочим 2026-07-01.
-- **Клиент в коде:** `lib/providers/gemini.ts` (fetch, без SDK) за интерфейсами `lib/providers/types.ts`.
+- **Клиент в коде:** `lib/providers/gemini.ts` / `lib/providers/gateway.ts` (fetch, без SDK) за интерфейсами `lib/providers/types.ts`.
   Фабрики — `lib/providers/index.ts` (`getImageProvider` / `getVisionProvider`). Ошибки — `Result<T,E>`.
 - **Смоук:** `pnpm smoke:providers` (реальный вызов, не в CI). Юнит на моках — `tests/unit/providers.test.ts`.
 
-## OpenAI — ключ есть ✅ (используется автопилотом рекламы, НЕ приложением)
+## OpenAI — ключ есть ✅ (автопилот рекламы + ИИ-фолбэк разбора ссылок)
 - Ключ соседей (`v0-health-card/backend/.env`) жив (проверено 2026-07-11: биллинг ок, доступ
   gpt-4.1/gpt-5/5.1) — прежняя запись «ключа НЕТ» от 2026-07-01 неверна. Значение —
   `_secrets/ACCESS.md`; на сервере — `/opt/remlab/ads-watchdog/.env`.
 - Используется: ads-watchdog `common.llm_for_ads` — тексты объявлений на `gpt-5.1-chat-latest`
-  (бенч 2026-07-11: RU лучше Gemini), фолбэк Gemini. Приложение (vision-розетка `lib/providers/`)
-  ключ НЕ использует — при желании можно включить без правок вызывающего кода.
+  (бенч 2026-07-11: RU лучше Gemini), фолбэк Gemini. Приложение: `OPENAI_API_KEY` (из `/opt/remlab/.env` через
+  `docker-compose.yml`) — ИИ-фолбэк разбора ссылок `lib/calc/link-parse-ai.ts` (прямой `api.openai.com`, модель
+  `OPENAI_EXTRACT_MODEL`, по умолчанию `gpt-4o-mini`; ADR-0026). Vision-розетка `lib/providers/` OpenAI не использует.
 - Гоча GPT-5.x: reasoning-токены съедают `max_completion_tokens` — ставить с запасом (≥2000).
 
 ## Observability — PostHog (ADR-0012)
@@ -63,8 +70,8 @@ last_verified: 2026-09-05
 - **Ключ:** `POSTHOG_KEY` (+ `POSTHOG_HOST`, дефолт `https://eu.i.posthog.com`) в env. Без ключа — no-op.
 - ⚠️ Одним ключом на проде НЕ включить: compose передаёт в app явный `environment:`-список без
   `POSTHOG_*` — нужна правка compose.
-- **События (06.08):** 22 объявлено в `lib/analytics.ts`, 12 эмитится (estimate_*, lab_tab,
-  lead_*, quiz_completed, viz_started и др.); `brief_completed`/`style_selected`/`paywall_viewed`
+- **События (сверено 18.10):** 17 объявлено в `lib/analytics.ts` (`EventName`), 13 эмитится (estimate_*, lab_tab,
+  lead_*, quiz_completed, viz_started и др.); `brief_completed`/`style_selected`/`paywall_viewed`/`cost_fake_door_viewed`
   объявлены, но НЕ эмитятся.
 - Бесплатный тариф PostHog: 1M событий/мес. Sentry не заводим (покрыто PostHog).
 
@@ -103,8 +110,10 @@ last_verified: 2026-09-05
 - **imagor** (сжатие картинок, Go+libvips) — сервис `remlab-imagor` на `remlab-net`, **internal-only**
   (без публичного порта), `IMAGOR_UNSAFE=1`, `FILE_LOADER_BASE_DIR=/mnt/data` (том `remlab-traces` ro).
   Клиент — `lib/images/compress.ts`, вызов `${IMAGOR_BASE_URL}/unsafe/fit-in/1536x1536/filters:format(webp):quality(80):strip_exif()/<key>`.
-- **Env (в `/opt/remlab/.env` на сервере):** `TRACE_DIR=/app/data/traces`, `IMAGOR_BASE_URL=http://remlab-imagor:8000`,
-  `TRACE_ADMIN_TOKEN` (гард admin-роутов разбора; не задан → открыто), `TRACE_RETENTION_DAYS` (дефолт 90).
+- **Env:** `TRACE_DIR=/app/data/traces` и `IMAGOR_BASE_URL=http://remlab-imagor:8000` прописаны прямо в
+  `docker-compose.yml`; из `/opt/remlab/.env` — `TRACE_ADMIN_TOKEN` (гард admin-роутов разбора, только заголовком
+  `x-trace-token`; не задан → в production закрыто, открыто только вне production — `lib/trace/admin.ts`) и
+  `TRACE_RETENTION_DAYS` (дефолт 90).
 - **Данные:** фото-ассеты — на named-томе `remlab-traces` (Docker-managed, bind-пути на хосте НЕТ); трейс — в Postgres
   (`generation_runs/steps/assets`). Разбор: `/api/trace/<N>`, `/api/trace/asset/<id>`, скилл `/trace`, `pnpm trace <N>`.
 - Детали архитектуры: `../core/observability-tracing.md`.
@@ -116,7 +125,8 @@ last_verified: 2026-09-05
   Compose образ = `${REMLAB_IMAGE:-remlab-app:latest}`.
 - **CI-деплой-ключ:** `~/.ssh/remlab_ci_deploy` (создан 2026-07-01) — публичная часть в `authorized_keys`
   сервера (вход проверен). Приватную часть нужно положить в GitHub-секрет `DEPLOY_SSH_KEY`, чтобы раннер
-  заходил на сервер. **Пока секрет НЕ задан → авто-деплой пропускает шаги** (см. project-state).
+  заходил на сервер. Секрет задан — авто-деплой работает по push в `main` (`.github/workflows/deploy.yml`;
+  шаги пропускаются, только если секрета нет). [История: до заведения секрета деплой шаги пропускал.]
   Значения секретов в память НЕ пишем.
 - **GitHub PAT (наблюдение CI):** владелец выдал fine-grained токен (у Клода локально, вне репо;
   read-only Actions на 2026-07-01) — хватает читать логи/прогоны, не хватает писать секреты/запускать workflow.
@@ -165,7 +175,7 @@ last_verified: 2026-09-05
   модель упоминается на странице серии.
 - `products.direct_url` = полный unquote goto= (для SPA-пары — обрезка до серии); реф-переход
   строить deeplink'ом `sf.gdeslon.ru/cf/<токен>?mid=&goto=<direct_url>` — комиссия сохраняется.
-- Автоцикл: `tools/scout/refresh_daily.sh` (cron 09:40 + @reboot, guard) → load3.py (upsert,
+- Автоцикл: `tools/scout/refresh_daily.sh` (cron 10:40 — `infra/dev/crontab`; защита от повторного запуска в самом скрипте) → load3.py (upsert,
   снятие исчезнувших) → health.py (карточки, автозамены sets2) → sync_metrics.py (цены/размеры/
   площади/перцентили тиров). XML API search — точечная перепроверка.
 
@@ -188,8 +198,8 @@ PNG 512 от владельца (Drive `1l2j65g8…`) → `public/icons/`; вс�
 ## Реестр
 | Интеграция | Статус | Задача | Ключи (где) | Код |
 |---|---|---|---|---|
-| Google Gemini | ⚠️ КЛЮЧ МЁРТВ 2026-08-01 — пересоздать; проверить прод | картинки+анализ | `GEMINI_API_KEY` | `lib/providers/gemini.ts` |
-| OpenAI | ✅ соседский | GPT-5.1 тексты; gpt-image-2 витрина | `_secrets/ACCESS.md` | ads-watchdog; scout |
+| Google Gemini | через шлюз Vercel по умолчанию (ADR-0277); прямой ключ отключён 14.10 | картинки+анализ | `VERCEL_AI_GATEWAY_KEY`; `GEMINI_API_KEY` (обязателен для деплоя) | `lib/providers/gateway.ts`, `lib/providers/gemini.ts` (`AI_PROVIDER=gemini`) |
+| OpenAI | ✅ соседский | GPT-5.1 тексты; gpt-image-2 витрина; фолбэк разбора ссылок | `_secrets/ACCESS.md`; `OPENAI_API_KEY` | ads-watchdog; scout; `lib/calc/link-parse-ai.ts` |
 | PostHog | код есть, прод no-op (ADR-0012) | аналитика+ошибки | `POSTHOG_KEY` не задан | `lib/analytics.ts` |
 | Гдеслон | доступ ✅ 14 магазинов (ADR-0042) | фиды→каталог, /go/ реф | `GDESLON_*` в `.env` | app-интеграции нет; scout-разведка живёт (`tools/scout/*`); план `gdeslon-catalog` |
 | imagor | активен (ADR-0013) | сжатие картинок, internal | ключей НЕТ (unsafe) | `lib/images/compress.ts` |
@@ -206,8 +216,11 @@ PNG 512 от владельца (Drive `1l2j65g8…`) → `public/icons/`; вс�
 > Два `resume` одной сессии параллельно не запускать: вызовы конфликтуют.
 - **Сессия проекта:** `01a00a62-33e2-7051-93c6-37bff5c6937e` (онбординг 16.08: прочитал CLAUDE.md, INDEX, ADR-0099…0106,
   MASTER-zones-v7, свои аудиты, карту кода; конспект — `archive/evidence/codex-onboarding-notes.md`).
-- **Как звать:** `codex exec --sandbox read-only -C /home/pakar/igor/remlab -o answer.md resume 01a00a62-33e2-7051-93c6-37bff5c6937e - < prompt.md   (флаги — ДО resume)`
-- **Через шлюз Vercel (13.10, ADR-0253):** когда у подписки ChatGPT кончился лимит или нужна gpt-6-astra —
+- **Сейчас (сверено с `.claude/rules/codex-adviser.md` 18.10):** сессия 01a00a62 сломана 15.10 (см. ниже) — до нового
+  онбординга звать `codex exec --ephemeral --sandbox read-only -C /home/pakar/igor/remlab -o answer.md - < prompt.md`
+  (подписка ChatGPT). **Профили `vercel*` ЗАПРЕЩЕНЫ (ADR-0301, 17.10):** деньги шлюза — только для продукта.
+- **Как звали до 15.10:** `codex exec --sandbox read-only -C /home/pakar/igor/remlab -o answer.md resume 01a00a62-33e2-7051-93c6-37bff5c6937e - < prompt.md   (флаги — ДО resume)`
+- **[История] Через шлюз Vercel (13.10, ADR-0253; отменено ADR-0301):** когда у подписки ChatGPT кончился лимит или нужна gpt-6-astra —
   `set -a; . tools/scout/.env; set +a; codex exec --profile vercel --sandbox read-only -C … -o answer.md resume <ID> - < prompt.md`.
   Профиль `vercel` — `~/.codex/vercel.config.toml` (model_provider=vercel, `openai/gpt-6-astra`, reasoning medium),
   поставщик `[model_providers.vercel]` — `~/.codex/config.toml` (base_url `https://ai-gateway.vercel.sh/v1`,
@@ -217,7 +230,7 @@ PNG 512 от владельца (Drive `1l2j65g8…`) → `public/icons/`; вс�
   with 'ws'` при сжатии) — сессию 01a00a62 15.10 так и сломали. Подписку и шлюз в одной сессии не смешивать; сломалась —
   `--ephemeral` или новый онбординг. **Кредиты шлюза 15.10 кончились** (402 Payment Required) — профили `vercel*` не
   работают до пополнения Vercel (в списке владельца).
-- **Два профиля через шлюз (владелец 13.10):** `vercel-sol` (`~/.codex/vercel-sol.config.toml`, gpt-6-sol) — регулярные
+- **[История] Два профиля через шлюз (владелец 13.10; запрещены ADR-0301):** `vercel-sol` (`~/.codex/vercel-sol.config.toml`, gpt-6-sol) — регулярные
   перепроверки, узкие вопросы, повтор своих правок; `vercel` (gpt-6-astra) — большие сквозные сверки, архитектура,
   гипотезы. Цена: sol ≈ впятеро дешевле astra.
   (промпт короткий: «что изменилось с прошлого раза (коммиты/файлы) + вопрос»). Для НЕЗАВИСИМОГО second opinion
@@ -294,8 +307,10 @@ Standard, `isDownloadable:false`, платная модель магазина.
   при этом досчитывает и отдаёт 200 — деньги потрачены, человек видит ошибку. Воркер ходит ЧЕРЕЗ
   СЕБЯ ЖЕ (`http://127.0.0.1:$DRAFT_PORT/render`), чтобы не дублировать маршрутизацию (прокси на
   DEV + локальный фолбэк). Требует МАРШРУТА `/api/job*` в `/opt/remlab/caddy/Caddyfile` — без
-  него опрос даёт 404. `draft_service.py` живёт в двух местах: репозиторий (DEV) и контейнер
-  `remlab-draft` (`docker cp` + `docker restart`), обновлять надо ОБА.
+  него опрос даёт 404 (маршрут есть в `caddy/Caddyfile`, едет деплоем). Сервис кадров — сервис compose `draft`
+  (`docker-compose.yml`), образ `remlab-draft:<sha>` собирает CI (`.github/workflows/deploy.yml`), поднимает
+  `infra/server/deploy-remote.sh` (ждёт `/health` с версией, при сбое — прежний образ); `docker cp` в штатном пути нет,
+  `infra/server/draft-run.sh` — только аварийный (ADR-0278).
 - **Кеш результата** по `src_id`: `SRC_DIR/<id>/result.json`; повтор с тем же исходником отдаёт
   готовое и не платит второй раз (`draft_render._improve_cache`).
 - **Реестр кадров** — `/opt/remlab/test/share/shots.json` (в контейнере `/app/share/shots.json`),
@@ -307,18 +322,17 @@ Standard, `isDownloadable:false`, платная модель магазина.
   (`кадр.jpg` → `кадр.t.jpg`, ширина 640). Карточки грузили полноразмерные кадры по 0,5–0,9 МБ;
   после правки коллекция весит ~140 КБ вместо 2,6 МБ.
 
-### Открытые долги рендер-сервиса (с 08.09, не закрыты)
-- **Нет воспроизводимой выкатки `draft`.** Код сервиса живёт в образе и правится `docker cp` +
+### Долги рендер-сервиса (с 08.09; первый закрыт ADR-0278)
+- **[Закрыт ADR-0278] Нет воспроизводимой выкатки `draft`.** Тогда код сервиса правился `docker cp` +
   `docker restart` (вне compose, вне CI). Именно отсюда 08.09 в контейнере оказалась СМЕСЬ версий:
   свежий `draft_service.py` звал `DR.thumb_name()`, старый `draft_render.py` её не имел →
   `_registry_add` падал, `shots.json` не пополнялся (4 записи против 584 снятых кадров).
-  Пока долг не закрыт: после любой правки — проверять сквозным вызовом, что реестр пополняется.
+  Теперь выкатка — образ из CI (см. выше).
 - **150 съёмок 01–08.09 в реестр не вернуть.** В исходниках `/test/share/src/<id>/` нет номера
   варианта (есть модель, размер, качество, стиль). Восстановление возможно только сопоставлением
   состава `legend.json` с вариантами `demo-data.json` — решение владельца, нужно ли вообще.
-- **Реестр кадров сохраняет только `name`/`price`** (`draft_service.py:100`) — производные поля
-  (`sid`, будущие `name_en`/`price_gbp`) теряются; для английской истории кадров реестр придётся
-  расширить (см. `plans/demo-en-gbp.md`).
+- **Реестр кадров** (`draft_service._group_items`) сохраняет `role, name, price, url, img, sid, msid, qty`; полей
+  `name_en`/`price_gbp` нет — для английской истории кадров реестр придётся расширить (см. `archive/plans/demo-en-gbp.md`).
 - **Реестр черновиков запросов** — `https://remont-lab.online/test/share/src/` (оглавление
   собирает `draft_render._src_index`): стиль каждого запроса берётся ИЗ ПРОМПТА, рядом отпечаток
   отправленного листа — по нему видно, разные ли сцены ушли в модель.
@@ -343,9 +357,10 @@ Standard, `isDownloadable:false`, платная модель магазина.
   кука общая для обеих страниц), `MESH_REVIEW_MACHINE_TOKEN` — Bearer конвейера. Fail-closed:
   нет секрета в env → 503 (`lib/mesh-review/auth.ts`).
 - На DEV токен и URL — `~/.config/remlab/env` (`MESH_REVIEW_MACHINE_TOKEN`, `MESH_REVIEW_URL`);
-  читают `tools/scout/mesh_review_sync.py` и `tools/scout/mesh_audit_sync.py` (крон раз в минуту).
+  читают `tools/scout/mesh_audit_sync.py --tick` (крон раз в минуту, `infra/dev/crontab`) и `tools/scout/mesh_review_sync.py`
+  (шаги `review_push`/`review_pull` в `tools/scout/refresh_daily.sh` — раз в сутки).
 - Ручки: `/api/lab/mesh-review/{tasks,decisions,session}`, `/api/lab/mesh-audit/{items,decisions,
-  batch,seen}` — решения append-only, конвейер забирает курсором `after_id`. Статика приёмки —
+  batch,seen,cancellations}` — решения append-only, конвейер забирает курсором `after_id` (у `cancellations` — свой). Статика приёмки —
   `/test/mesh-audit/*` (Caddy, кэш immutable; каталог `/opt/remlab/test/mesh-audit/`).
 
 ## OpenAI — реестры цен и запрет mini под картинки (ротационная сверка 11.10)
@@ -363,8 +378,8 @@ base 2833 против 85 у `gpt-4o`, то есть в долларах как 
 при подключении — переставить модель, а не «он же дешёвый».
 
 **«Vercel AI Gateway — единственный путь к платным картинкам» верно как намерение, не как факт
-кода.** Шлюз по умолчанию — `tools/scout/llm_gateway.py:26-59`, картинки через него —
-`tools/scout/draft_render.py:776`. Но прямые вызовы `api.openai.com/v1/images/edits` живы и
+кода.** Шлюз по умолчанию — `tools/scout/llm_gateway.py:25-59`, картинки через него —
+`tools/scout/draft_render.py` (константа `GATEWAY` — `/images/edits` для gpt-image; Google-модели — `_chat_edit`; сверено 18.10). Но прямые вызовы `api.openai.com/v1/images/edits` живы и
 достижимы: `tools/scout/pipeline2.py:396` (зовётся из `tools/scout/set_report.py:88`),
 `tools/scout/viz_frame.py:217`, `tools/scout/viz_plan.py:202`, а также ранние A/B-рецепты
 (`tools/scout/viz11.py` и соседние). «Единственный» в коде не закреплено.

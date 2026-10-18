@@ -6,7 +6,7 @@ tier1: "../deployment.md"
 updated: 2026-10-18
 importance: med
 source: manual
-last_verified: 2026-09-05
+last_verified: 2026-10-18
 ---
 
 # Деплой — подробности
@@ -62,8 +62,10 @@ remlab-app:prev` не срабатывала ни разу — сервер тя
 - **Диск и очистка (ADR-0005/0176):** `remlab-cleanup` weekly + из CI (теги `remlab-app:*` кроме
   используемых, под flock); `pg_dump` ×7; `remlab-watchdog.timer` ежечасно: ≥80% → cleanup →
   Telegram; рестарты `remlab-app` → `backups/app-mem.log`.
-- Скрипты `infra/server/*` деплой везёт по списку в `deploy.yml`; руками остаются `infra/server/scripts/catalog-watchdog.sh`,
-  юниты systemd и аварийный `draft-run.sh`.
+- Скрипты `infra/server/*` деплой везёт по списку в `deploy.yml` (тот же список — `deploy.sh`); руками остаются
+  `infra/server/scripts/catalog-watchdog.sh`, юниты systemd, аварийный `draft-run.sh`, **`infra/server/db-backup.sh`**
+  (его запускает `remlab-db-backup.service` как `/opt/remlab/scripts/db-backup.sh`, но в списке деплоя его нет — правка
+  в репо на сервер сама не приедет; сверка 18.10) и `infra/server/ads-watchdog/*` (свой `deploy-watchdog.sh`).
 
 ## Правки сервера 31.08
 sshd, iptables-туннель DEV-рендера, `remlab-draft` через docker cp — ADR-0139
@@ -143,7 +145,7 @@ flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev
 |---|---|---|---|
 | Рендер кадров «Сделать фото» (`tools/scout/dev_render_backend.sh`, туннель `172.18.0.1:8601`) | прод сам падает на локальный рендер (`draft_service.py`, `backend`) — дольше, но работает | сразу | ничего; готовые кадры лежат на сервере |
 
-**DEV-рендер как юниты systemd пользователя (18.10, T-04):** `remlab-render` (draft_service, 127.0.0.1:8600, OOMScoreAdjust=200 — первая жертва earlyoom) и `remlab-render-tunnel` (ssh -R 172.18.0.1:8601, OOMScoreAdjust=100, RestartSec=3). Исходники — `tools/scout/systemd/*.service`; ставит и чинит `tools/scout/dev_render_backend.sh` (крон @reboot и */10). Статус: `systemctl --user status remlab-render remlab-render-tunnel`; логи — `~/scout-scenes/dev-render.log`, `dev-tunnel.log`. Живой ли туннель — с сервера `curl 172.18.0.1:8601/health` (version "dev"); `/api/draft/paid` туннель НЕ показывает. Юнит пользователя не может получить OOMScoreAdjust ниже 100; защита ssh — `--avoid` в `/etc/default/earlyoom` (sudo).
+**DEV-рендер как юниты systemd пользователя (18.10, T-04):** `remlab-render` (draft_service, 127.0.0.1:8600, OOMScoreAdjust=200 — первая жертва earlyoom) и `remlab-render-tunnel` (ssh -R 172.18.0.1:8601, OOMScoreAdjust=100, RestartSec=3). Исходники — `tools/scout/systemd/*.service`; ставит и чинит `tools/scout/dev_render_backend.sh` (крон `*/10` — `infra/dev/crontab`; строки @reboot в копии crontab нет). Статус: `systemctl --user status remlab-render remlab-render-tunnel`; логи — `~/scout-scenes/dev-render.log`, `dev-tunnel.log`. Живой ли туннель — с сервера `curl 172.18.0.1:8601/health` (version "dev"); `/api/draft/paid` жив ли туннель прямо не показывает: без своего ключа шлюза прод берёт баланс у DEV `GET /credits` через туннель (кэш 30 с), туннель мёртв → `{available:false, code:"unavailable"}` — неотличимо от других причин (`tools/scout/draft_service.py`). Юнит пользователя не может получить OOMScoreAdjust ниже 100; защита ssh — `--avoid` в `/etc/default/earlyoom` (sudo).
 | Ночной прогон каталога `refresh_daily.sh` (10:40 по DEV): цены, наличие, сборка и публикация демо | демо и 3D живут на последнем опубликованном `demo-data.json` (лежит на сервере); цены стареют | сутки | сторож каталога на сервере (15:30 UTC) шлёт тревогу |
 | Конвейер мешей и сторож простоя Salad (`tools/scout/salad/idle_guard.sh`, cron DEV) | ноды Salad гасит сервер: нет отметки жизни конвейера 30 мин → `/stop` с проверкой (`infra/server/salad-deadman.py`, ADR-0274) | ≤ 40 мин | ничего |
 | Мост приёмки мешей (`mesh_review_sync.py`) | решения владельца на `/lab/mesh-*` копятся на сервере, не теряются | — | догонит при включении |
@@ -184,9 +186,11 @@ compose (очередь кадров, прогрев, время кадра — 
 `infra/draft/Dockerfile.dockerignore` (урок 486). Перед платным «Улучшить» — баланс шлюза: у прода ключа нет, он спрашивает
 DEV `GET /credits` через туннель (снаружи `/api/draft/credits` — 404, сумму не показываем); наружу — `GET /api/draft/paid`
 (`{available, code}`). Порог — env `REALISTIC_MIN_BALANCE` (0,30 $) и `REALISTIC_COST_USD` (0,25 $ на идущее платное).
-**DEV-рендер (14.10, урок 485):** крон DEV раз в 10 минут — `tools/scout/dev_render_backend.sh` (поднимает, только если не
-отвечает); дайджест — `tools/ops/dev-checks.sh` `WARN:dev_render_down|tunnel|fallback|restart`. Перезапуск руками: убить
-процесс по PID с порта 8600 (`ss -ltnp`), затем `bash tools/scout/dev_render_backend.sh`. Память: фоновый лист для
+**DEV-рендер (14.10, урок 485; с 18.10 — юниты systemd, см. выше):** крон DEV раз в 10 минут — `tools/scout/dev_render_backend.sh`
+— теперь сторож: ставит юниты, убивает процессы вне юнита, делает `systemctl --user restart remlab-render`, если `/health`
+молчит; дайджест — `tools/ops/dev-checks.sh` `WARN:dev_render_down|tunnel|fallback|restart`. Перезапуск руками —
+`systemctl --user restart remlab-render` (юнит `Restart=always`: убитый PID поднимется сам). [История до 18.10: убить PID
+с порта 8600, затем `bash tools/scout/dev_render_backend.sh`.] Память: фоновый лист для
 «Улучшить» не собирается без денег на шлюзе, сборщику — потолок `SRC_MEM_EXTRA_MB` (+1,5 ГБ), урок 485.
 
 ## Модели 3D демо — кэш (14.10, b2b-12)

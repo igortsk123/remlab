@@ -3,7 +3,7 @@ tier: 1
 topic: access-and-integrations
 scope: Интеграции/доступы — ключи, клиенты
 tier2: "../domain/integrations.md"
-updated: 2026-10-15
+updated: 2026-10-18
 importance: high
 source: manual
 status: working
@@ -21,12 +21,12 @@ review_after: 2026-12-05
 «у нас нет доступа», прогнать `node tools/access-inventory.mjs` (урок 57).
 
 ## Ключевые факты
-- **Gemini:** один ключ на обе задачи; `gemini-3.1-flash-image`, `gemini-flash-latest`. **14.10: ключ отключён** (Google удалил сервисный аккаунт) — на DEV и на сервере.
+- **Gemini:** приложение — через шлюз Vercel (`AI_PROVIDER=gateway` по умолчанию, `lib/providers/gateway.ts`, ADR-0277); прямой ключ отключён 14.10.
 - **OpenAI (ADR-0026):** фолбэк парсинга ссылок; `gpt-4o-mini` под картинки НЕ брать (ADR-0067) — Tier 2 § OpenAI.
 - **Яндекс:** Метрика `110599064`; кампанию `708745261` не трогать. [[marketing-acquisition]].
 
-**Tier 2:** `../domain/integrations.md` — эндпоинты, форматы, env, фиды, § Codex (постоянная
-сессия советника; как звать и грабли 15.10 — там же; лимит — `--profile vercel`, ADR-0253). Решения — ADR-0007/0011/0012/0013/0045.
+**Tier 2:** `../domain/integrations.md` — эндпоинты, форматы, env, фиды, § Codex (сессия сломана
+15.10 → `--ephemeral`; профили `vercel*` запрещены, ADR-0301). Решения — ADR-0007/0011/0012/0013/0045.
 
 - **Vercel AI Gateway (26.08):** единственный рабочий путь к LLM (прямой OpenAI без кредитов); лимит, похоже,
   суточный (13.10 исчерпан в 20:40, с 00:00 UTC снова работает). «Нет денег» — `tools/scout/llm_gateway.py:NoCredits`,
