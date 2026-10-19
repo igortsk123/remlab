@@ -311,3 +311,6 @@
 _Скрипты переноса и проверки (parse/split/verify) — вне банка; карта в CSV — `lessons-map.csv` рядом со скриптами. Сгенерировано 2026-09-05._
 - 511 — oom_score_adj юнитов systemd --user (минимум 100 без root) → `lessons/dev-ops.md`
 - 512 — Playwright на DEV под earlyoom: рендерер — первая жертва; пауза рендера + крона на время пробы → `lessons/dev-ops.md`
+- 513 — выкладка стояла при зелёном CI: корневой конфиг импортировал из папки вне образа; приёмка = версия в /api/health → `lessons/devops-deploy.md`
+- 514 — живые тесты только по пути файла (+ --list); свои launchOptions добавляют LIVE_BROWSER_ARGS → `lessons/dev-ops.md`
+- 515 — Метрика tag.js с defer шлёт адрес в nohit/clmap — маска в init url/referrer + clickmap выкл → `lessons/estimate-ads-leads.md`

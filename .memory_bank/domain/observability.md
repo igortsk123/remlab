@@ -3,7 +3,7 @@ tier: 2
 topic: observability-details
 scope: Детали трейсинга AI-пайплайна — БД, env, роуты, подписанные URL, imagor, ретеншн, гочи прода
 tier1: ../core/observability-tracing.md
-updated: 2026-10-18
+updated: 2026-10-19
 importance: high
 source: manual
 status: working
@@ -86,6 +86,16 @@ imagor читает файл из `FILE_LOADER_BASE_DIR` (= том TRACE_DIR) п
 - Логирование best-effort: ошибка записи/диска НЕ валит пайплайн, но считается
   (`lib/trace/failures.ts:traceWriteFailed` → `traceWriteFailures` в `/api/health`, `lib/health.ts`). Секреты (API-ключи) в лог не пишем.
 - Фото — ПДн (TODO legal, не блокируемся).
+
+## Аналитика: ключи доступа не уходят наружу, проверки не считаются (18.10, T-14/T-18/T-20)
+- **Метрика без ключей.** `lib/metrika.ts` `metrikaSafeUrl` маскирует ключи в адресе: параметры `s`, `c`, `coll` → `*`; пути `/e/*`
+  (смета — номер даёт правку), `/p/*/<шаг>` (проект), `/go/*/*`; `/calc` и `/embed` публичные. Применяется в `components/MetrikaPageviews.tsx`
+  и в старте счётчика `app/layout.tsx` (`init` с `defer`, `url`, `referrer`); на адресе с ключом выключены карта кликов и Вебвизор.
+  Проба прода 18.10: 12 запросов к mc.yandex, утечек 0. Почему маска в `init`, а не только в хитах — урок 515. Открыто — вопрос 42.
+- **Ночные проверки не попадают в счётчики.** Живые тесты шлют заголовок `x-remlab-check: 1` (`lib/http/live-check.ts` `isLiveCheck`):
+  сервер не пишет `/api/events`, `stale_link` (`app/flat/page.tsx`), события ссылки менеджера (`app/api/sends/[id]/event`) и PostHog
+  (кроме `app_error`). Метрика в живых тестах блокируется аргументом браузера `e2e/live/browser.ts` `LIVE_BROWSER_ARGS`; сторож —
+  `e2e/live/live-check.live.ts`. Грабли запуска — урок 514.
 
 ## Ключевые файлы
 `lib/trace/*` (recorder, context, store, assets, sign, admin, types, failures), `lib/providers/traced.ts` +

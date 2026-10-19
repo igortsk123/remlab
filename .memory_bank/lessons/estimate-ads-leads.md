@@ -3,7 +3,7 @@ tier: 2
 topic: lessons-estimate-ads-leads
 scope: Уроки: смета, калькуляторы, Директ, лиды; source-KB — читать перед планом по этой теме
 tier1: ../core/lessons.md
-updated: 2026-09-05
+updated: 2026-10-19
 importance: med
 source: manual
 status: stable
@@ -69,3 +69,4 @@ status: stable
 
 - «Вручную верифицированный» seed заменился terra-верификацией (25/120 подтверждено) —
   воспроизводимее и дешевле; отклонение от плана фиксируется в completion summary.
+- **515 (18.10)** — Метрика `tag.js` с `defer:true` всё равно шлёт `location.href` в хитах `nohit` и в карте кликов: маскировать ключи надо в `init` (`url`, `referrer`; заголовок `referer` браузера не трогается) и выключать `clickmap`/Вебвизор на адресе с ключом — `lib/metrika.ts` `metrikaSafeUrl`, старт счётчика в `app/layout.tsx` (функция вставлена через `toString`, должна быть самодостаточной). Источник: T-20261018-14/20, проба прода 18.10 (12 запросов, утечек 0).

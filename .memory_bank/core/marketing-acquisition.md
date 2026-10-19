@@ -3,12 +3,12 @@ tier: 1
 topic: marketing-acquisition
 scope: Реклама — Яндекс, семантика
 tier2: "../domain/wordstat-semantics.md"
-updated: 2026-10-18
+updated: 2026-10-19
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-10-11
+last_verified: 2026-10-19
 review_after: "2026-12-15"
 ---
 
@@ -17,8 +17,8 @@ review_after: "2026-12-15"
 ## Доступы и состояние (2026-07-11 ✅)
 Общий аккаунт с v0-health-card (`_secrets/ACCESS.md`, рецепты — `integrations.md` §Яндекс;
 токен до ≈2027-04; чужие не трогать). Метрика `110599064` (воронки 01–06 AI, 10–13 смета;
-цель 10 код не шлёт; с 13.10 — только при `metrikaAllowed()` в `lib/metrika.ts`). Кампании v0.4 пересобраны 11.07, ID — ниже.
-Автопилот DRY-RUN по ВСЕМ четырём кампаниям (расширено 11.07). Детали — `campaign_state.md`.
+цель 10 код не шлёт; с 13.10 — только при `metrikaAllowed()` в `lib/metrika.ts`; ключи в адресе маскируются — [[observability-tracing]]). Кампании v0.4 пересобраны 11.07, ID — ниже.
+Автопилот DRY-RUN по ВСЕМ четырём кампаниям (с 11.07).
 
 ## Спрос (Вордстат 2026-07-11; полностью — Tier 2)
 AI ~15–18k + инструменты ~25–30k (в кампании) · «дизайн проект квартиры» 48k → paid ·
@@ -39,7 +39,6 @@ autotargeting не удалить, только обрезать категор�
 
 **Tier 2:** `../domain/wordstat-semantics.md` (семантика) · `../advertising/campaign_state.md` (кампания).
 
-> Не сверялось с 11.07 (работа шла по расстановке) — сверить перед возвратом к теме.
 
 > Срок перепроверки перенесён на 15.12 (сверка кампаний); причина и что устареет —
 > в `../domain/wordstat-semantics.md`. `last_verified` не двигался.

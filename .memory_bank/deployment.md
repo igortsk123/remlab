@@ -3,7 +3,7 @@ tier: 1
 topic: deployment
 scope: Деплой/откат/сервер exit-fi
 tier2: "domain/deployment-details.md"
-updated: 2026-10-18
+updated: 2026-10-19
 importance: high
 source: manual
 status: working

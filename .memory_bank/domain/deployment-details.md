@@ -3,7 +3,7 @@ tier: 2
 topic: deployment-details
 scope: Деплой exit-fi — подробности конвейера, сторожа, история правок сервера
 tier1: "../deployment.md"
-updated: 2026-10-18
+updated: 2026-10-19
 importance: med
 source: manual
 last_verified: 2026-10-18
@@ -146,6 +146,8 @@ flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev
 | Рендер кадров «Сделать фото» (`tools/scout/dev_render_backend.sh`, туннель `172.18.0.1:8601`) | прод сам падает на локальный рендер (`draft_service.py`, `backend`) — дольше, но работает | сразу | ничего; готовые кадры лежат на сервере |
 
 **DEV-рендер как юниты systemd пользователя (18.10, T-04):** `remlab-render` (draft_service, 127.0.0.1:8600, OOMScoreAdjust=200 — первая жертва earlyoom) и `remlab-render-tunnel` (ssh -R 172.18.0.1:8601, OOMScoreAdjust=100, RestartSec=3). Исходники — `tools/scout/systemd/*.service`; ставит и чинит `tools/scout/dev_render_backend.sh` (крон `*/10` — `infra/dev/crontab`; строки @reboot в копии crontab нет). Статус: `systemctl --user status remlab-render remlab-render-tunnel`; логи — `~/scout-scenes/dev-render.log`, `dev-tunnel.log`. Живой ли туннель — с сервера `curl 172.18.0.1:8601/health` (version "dev"); `/api/draft/paid` жив ли туннель прямо не показывает: без своего ключа шлюза прод берёт баланс у DEV `GET /credits` через туннель (кэш 30 с), туннель мёртв → `{available:false, code:"unavailable"}` — неотличимо от других причин (`tools/scout/draft_service.py`). Юнит пользователя не может получить OOMScoreAdjust ниже 100; защита ssh — `--avoid` в `/etc/default/earlyoom` (sudo).
+
+**Память DEV (18.10, по слову владельца):** RAM 9,8 ГБ; своп `/swap.img` 4 ГБ + `/swap2.img` 8 ГБ (в `/etc/fstab`, копия `/etc/fstab.bak-20261018-1805`); zram 4,8 ГБ zstd, приоритет 100 (`/etc/systemd/zram-generator.conf`, `dev-zram0.swap`). Зачем: earlyoom (`-m 10,5 -s 10,5`) при полном свопе убивал draft_service и браузеры проверок. Перед пробами браузера — урок 512.
 | Ночной прогон каталога `refresh_daily.sh` (10:40 по DEV): цены, наличие, сборка и публикация демо | демо и 3D живут на последнем опубликованном `demo-data.json` (лежит на сервере); цены стареют | сутки | сторож каталога на сервере (15:30 UTC) шлёт тревогу |
 | Конвейер мешей и сторож простоя Salad (`tools/scout/salad/idle_guard.sh`, cron DEV) | ноды Salad гасит сервер: нет отметки жизни конвейера 30 мин → `/stop` с проверкой (`infra/server/salad-deadman.py`, ADR-0274) | ≤ 40 мин | ничего |
 | Мост приёмки мешей (`mesh_review_sync.py`) | решения владельца на `/lab/mesh-*` копятся на сервере, не теряются | — | догонит при включении |

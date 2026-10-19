@@ -105,3 +105,5 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-10-18	domain/deployment-details.md	drift	58	3	3	
 2026-10-18	domain/catalog-enrichment.md	drift	81	7	7	
 2026-10-18	domain/demo-planner-ui.md	drift	175	67	67	
+2026-10-19	.memory_bank/core/marketing-acquisition.md	drift	8	0	0	
+2026-10-19	.memory_bank/core/goals.md	rotation	13	4	4	

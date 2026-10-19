@@ -3,7 +3,7 @@ tier: 2
 topic: lessons-devops-deploy
 scope: Уроки: devops — docker/buildkit, exit-fi, gitignore, деплой, CI, хуки, инструменты dev-машины — читать перед планом по этой теме
 tier1: ../core/lessons.md
-updated: 2026-10-13
+updated: 2026-10-19
 importance: med
 source: manual
 status: stable
@@ -378,3 +378,4 @@ systemd — крон-подъём раз в 10 минут (`tools/ops/dev-checks
 отдаёт публичный API (`/check-runs/<job>/annotations`). Дальше — бисекция откатом подозреваемого и прогон упавших тестов против
 прода (`-g`, без записи данных): прод зелёный → дело в нагрузке CI (параллельные вкладки с программным WebGL) → e2e на CI в
 один поток, постоянный цикл кадров невидимой/неподвижной сцены — гасить.
+- **513 (18.10)** — выкладка стояла ~40 мин при зелёном CI: `playwright.live.config.ts` (корень, его видит `tsconfig`) импортировал `e2e/live/browser.ts`, а `e2e/` в `.dockerignore` → `next build` в Docker падал на типах (TS2307); у CI-гейта `e2e/` есть, поэтому он зелёный. Прод работал на прежней версии. Починка — `.dockerignore`: `playwright*.config.ts` (ef9c9d8f). Правила: (1) приёмка ведущего = коммит виден в `/api/health` (`version`), а не «влито и отправлено»; (2) корневой файл, видимый `tsconfig`, не импортирует из папок, исключённых `.dockerignore` (кандидат в CI-проверку).
